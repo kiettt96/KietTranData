@@ -1,0 +1,41 @@
+{
+  "name": "focus-conductor",
+  "version": "0.1.0",
+  "author": { "name": "Kiet Tran" },
+  "description": "Đọc kỹ prompt trước khi làm, tự điều phối model/effort/agent theo độ phức tạp, giữ nhất quán mục tiêu với checklist và cảnh báo lạc đề.",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "routing": {
+      "type": "string",
+      "title": "Chế độ điều phối",
+      "description": "auto: tự áp dụng cho luồng chính và subagent; subagents: chỉ subagent (giữ nguyên cache luồng chính); suggest: chỉ đề xuất; off: tắt toàn bộ mod",
+      "default": "auto",
+      "options": ["auto", "subagents", "suggest", "off"]
+    },
+    "analyzer": {
+      "type": "string",
+      "title": "Bộ phân tích prompt",
+      "description": "model: heuristic kết hợp một lượt Haiku để bóc mục tiêu, bước, ràng buộc; heuristic: chỉ phân tích cục bộ, không tốn token",
+      "default": "model",
+      "options": ["model", "heuristic"]
+    },
+    "enforceChecklist": {
+      "type": "boolean",
+      "title": "Chặn kết thúc khi checklist còn mở",
+      "description": "Khi Claude định dừng mà checklist còn bước todo/doing, yêu cầu hoàn thành hoặc ghi rõ lý do bỏ qua (tối đa một lần mỗi turn)",
+      "default": true
+    },
+    "allowFable": {
+      "type": "boolean",
+      "title": "Cho phép dùng Fable cho việc rất khó",
+      "description": "Tier deep dùng Fable thay vì Opus xhigh; chi phí cao hơn khoảng 2,5 lần Opus",
+      "default": false
+    },
+    "modelMap": {
+      "type": "string",
+      "title": "Ghi đè model ID",
+      "description": "Dạng family=id, phân tách bằng dấu phẩy, ví dụ: opus=claude-opus-5-5,sonnet=claude-sonnet-5-5. Để trống dùng mặc định",
+      "default": ""
+    }
+  }
+}
