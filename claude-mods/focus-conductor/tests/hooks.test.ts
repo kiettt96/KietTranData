@@ -172,6 +172,32 @@ describe('checklist và chặn kết thúc', () => {
   })
 })
 
+describe('đổi mục tiêu qua tool plan', () => {
+  test('plan "set" sang mục tiêu mới thì prompt khác chủ đề sau đó là mục tiêu mới', HEURISTIC, async ($, on) => {
+    const seen = base(on)
+    await submit(
+      $,
+      `Tạo plugin focus-conductor cho Claude Code:
+1. Viết hooks phân tích prompt và điều phối model
+2. Viết README hướng dẫn cài đặt plugin
+3. Viết unit test cho hooks`,
+    )
+    await $.tool.call({
+      tool: 'mcp__focus-conductor__plan',
+      action: 'set',
+      goal: 'Viết hàm slugify(text) bằng TypeScript, có unit test, code sạch có type đầy đủ.',
+      steps: [{ title: 'slugify.ts: hàm slugify(text: string): string' }, { title: 'Unit test các trường hợp chính và biên' }],
+    })
+    await submit($, 'Bổ sung cho slugify: bỏ dấu tiếng Việt và cập nhật unit test.')
+    await submit($, 'Sửa file README cho rõ cách cài đặt plugin.')
+
+    expect(seen.contexts[1]?.join('\n')).toContain('Tiếp nối mục tiêu hiện tại: Viết hàm slugify')
+    const readme = seen.contexts[2]?.join('\n') ?? ''
+    expect(readme).toContain('Bản đọc prompt')
+    expect(readme).toContain('Mục tiêu cuối: Sửa file README cho rõ cách cài đặt plugin.')
+  })
+})
+
 describe('giao diện', () => {
   test('band hiện mục tiêu và tier trên terminal và desktop', HEURISTIC, async ($, on) => {
     base(on)

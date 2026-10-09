@@ -124,7 +124,7 @@ focus-conductor/
   tests/                       test logic thuần và test tích hợp qua engine
 ```
 
-Kiểm tra trước khi phát hành: `claude plugin validate .` và `claude plugin test .` (24 test).
+Kiểm tra trước khi phát hành: `claude plugin validate .` và `claude plugin test .` (37 test).
 
 ## Giới hạn đã biết
 

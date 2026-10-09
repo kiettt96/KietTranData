@@ -6,6 +6,7 @@
 import type { PluginOptions } from 'claude-code'
 
 import type { Brief, Core, Mode, PlanStep, Route, RouteEvent, Warning } from '../../types'
+import { retarget } from './analyze'
 import { statusLine } from './text'
 
 export const EMPTY_CORE: Core = { brief: null, plan: [], route: null, warnings: [], log: [] }
@@ -44,9 +45,10 @@ export const withBrief =
   (brief: Brief) =>
   (c: Core): Core => ({ ...c, brief })
 
-export const withGoalText =
-  (goal: string) =>
-  (c: Core): Core => (c.brief ? { ...c, brief: { ...c.brief, goal } } : c)
+/** Claude chốt lại mục tiêu/các bước qua tool plan (action "set"): xem retarget. */
+export const withRetarget =
+  (goal: string | undefined, steps: readonly string[]) =>
+  (c: Core): Core => (c.brief ? { ...c, brief: retarget(c.brief, goal, steps) } : c)
 
 export const withPlan =
   (plan: PlanStep[]) =>

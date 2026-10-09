@@ -4,7 +4,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import type { Brief, Route } from '../types'
-import { analyzeHeuristic, isMeta, isSameIdea, mergeAnalysis, scoreComplexity, tierFromScore } from '../hooks/lib/analyze'
+import { analyzeHeuristic, isMeta, isRelated, isSameIdea, mergeAnalysis, retarget, scoreComplexity, tierFromScore } from '../hooks/lib/analyze'
 import { newTracker, observe } from '../hooks/lib/drift'
 import { applyPlan } from '../hooks/lib/plan'
 import { decideMain, planAgent, resolveModelId } from '../hooks/lib/route'
@@ -239,6 +239,49 @@ Sau khi sửa: chạy lại validate + test, tạo PR vào main, không merge.`
     expect(related.isFollowUp).toBe(true)
     expect(related.goalId).toBe(rateLimiter.goalId)
     expect(related.goal).toBe(rateLimiter.goal)
+  })
+
+  test('câu dẫn nhắc tên công cụ không làm task khác chủ đề thành tiếp nối', () => {
+    const prev: Brief = {
+      ...analyzeHeuristic('Đưa vào PR #4 việc sửa lỗi gắn nhầm mục tiêu khi Haiku nói không phải mục tiêu mới.', null, 1),
+      goal: 'Sửa focus-conductor: lọc câu dẫn/meta theo ý và loại mục trùng ý khi gộp với Haiku; validate, test, tạo PR.',
+      steps: ['Viết lại bộ lọc meta theo ý', 'Thêm unit test cho bộ lọc và khử trùng', 'Chạy validate và test, tạo PR'],
+    }
+    const task = 'Viết hàm slugify(text) bằng TypeScript, có unit test, code sạch có type đầy đủ.'
+    expect(isRelated(`tôi vừa sửa xong focus-conductor, giờ test lại giúp. ${task}`, prev)).toBe(false)
+    expect(isRelated(task, prev)).toBe(false)
+  })
+
+  test('plan "set" đổi mục tiêu thì làm mới từ khóa, prompt sau không bị gắn vào mục tiêu cũ', () => {
+    const plugin = analyzeHeuristic(
+      `Tạo plugin focus-conductor cho Claude Code:
+1. Viết hooks phân tích prompt và điều phối model
+2. Viết README hướng dẫn cài đặt plugin
+3. Viết unit test cho hooks`,
+      null,
+      1,
+    )
+    const readme = 'Sửa file README cho rõ cách cài đặt plugin.'
+    // Trước khi sửa: mục tiêu đổi sang slugify nhưng từ khóa cũ (plugin, readme) còn nguyên.
+    const stale: Brief = { ...plugin, goal: 'Viết hàm slugify(text) bằng TypeScript, có unit test, code sạch có type đầy đủ.' }
+    expect(analyzeHeuristic(readme, stale, 2).isFollowUp).toBe(true)
+
+    const slugify = retarget(plugin, 'Viết hàm slugify(text) bằng TypeScript, có unit test, code sạch có type đầy đủ.', [
+      'slugify.ts: hàm slugify(text: string): string',
+      'Unit test các trường hợp chính và biên',
+    ])
+    expect(slugify.keywords).toContain('slugify')
+    expect(slugify.keywords).not.toContain('plugin')
+    expect(analyzeHeuristic(readme, slugify, 2).isFollowUp).toBe(false)
+    // Tiếp nối thật vẫn nhận ra.
+    expect(analyzeHeuristic('Bổ sung cho slugify: bỏ dấu tiếng Việt và cập nhật unit test.', slugify, 3).isFollowUp).toBe(true)
+  })
+
+  test('plan "set" giữ từ khóa khi mục tiêu chỉ được diễn đạt lại', () => {
+    const brief = analyzeHeuristic('Viết hàm parseDate cho ngày ISO, có unit test', null, 1)
+    const same = retarget(brief, 'Viết hàm parseDate cho ngày ISO kèm unit test', [])
+    expect(same.keywords).toEqual(brief.keywords)
+    expect(same.steps).toEqual(brief.steps)
   })
 
   test('kết quả Haiku được gộp, tier bị kẹp trong biên một bậc', () => {
