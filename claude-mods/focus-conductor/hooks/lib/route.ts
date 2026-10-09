@@ -298,7 +298,8 @@ export function planAgent(args: {
 
   if (isLookup) {
     const light = local.depth === 'none' || local.depth === 'light'
-    const natural: ModelFamily = light && local.volume !== 'large' ? 'haiku' : 'sonnet'
+    // Kể cả khi Claude chọn Explore: việc có phân tích (rà soát, gỡ lỗi) không xuống haiku.
+    const natural: ModelFamily = light && local.volume !== 'large' && isPureLookup(text) ? 'haiku' : 'sonnet'
     const family = applySession(natural, args.session)
     const pick = avoidBlocked({ family, effort: 'low' }, args.blocked, { kind: local.kind, allowFable: args.allowFable })
     const canExplore = type === 'general-purpose' && args.offered.has('Explore')
@@ -391,11 +392,11 @@ export function adviseSubtasks(args: {
 
 /**
  * Việc đã tách mà một lời gọi Agent đang làm, theo thứ tự tin cậy: description mở
- * đầu bằng "Việc N" (hoặc Task, Bước, Step N); description cùng ý với tên việc;
+ * đầu bằng "Việc N" (hoặc "Task N"; không nhận "Bước N" vì dễ trùng số bước của checklist); description cùng ý với tên việc;
  * prompt của agent chứa phần lớn từ của tên việc.
  */
 export function matchSubtask(subtasks: readonly Subtask[], description: string, prompt: string): Subtask | undefined {
-  const numbered = fold(description).match(/^\s*(?:viec|task|buoc|step)\s*#?\s*(\d+)\b/)
+  const numbered = fold(description).match(/^\s*(?:viec|task)\s*#?\s*(\d+)\b/)
   if (numbered) {
     const hit = subtasks.find(s => s.index === Number(numbered[1]))
     if (hit) return hit

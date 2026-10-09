@@ -4,7 +4,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import type { Brief, Route } from '../types'
-import { analyzeHeuristic, assessSubtasks, isMeta, isRelated, isSameIdea, mergeAnalysis, retarget } from '../hooks/lib/analyze'
+import { analyzeHeuristic, analyzerRequest, assessSubtasks, isMeta, isRelated, isSameIdea, mergeAnalysis, retarget } from '../hooks/lib/analyze'
 import { newTracker, observe } from '../hooks/lib/drift'
 import { applyPlan } from '../hooks/lib/plan'
 import { adviseSubtasks, decideMain, matchSubtask, planAgent, raisePick, resolveModelId } from '../hooks/lib/route'
@@ -692,6 +692,50 @@ describe('nguồn việc con và chấm từng việc (0.3.1)', () => {
     expect(matchSubtask(subtasks, 'Đổi tên userId thành accountId', '')?.index).toBe(2)
     expect(matchSubtask(subtasks, 'Rename ids', 'Bối cảnh dự án... Nhiệm vụ: Đổi tên userId thành accountId trong 12 file controller. Báo cáo ngắn.')?.index).toBe(2)
     expect(matchSubtask(subtasks, 'Kiểm tra CI', 'Chạy lại pipeline CI và báo kết quả')).toBeUndefined()
+  })
+})
+
+describe('rà soát lần hai (0.3.1)', () => {
+  test('báo lỗi trang "báo cáo" vẫn là điều tra, không phải hỏi đáp chạy haiku', () => {
+    const brief = analyzeHeuristic('Trang báo cáo bị lỗi undefined khi tải', null, 1)
+    expect(brief.kind).toBe('investigate')
+    expect(brief.depth).not.toBe('none')
+  })
+
+  test('chỉ việc mở đầu bằng tổng hợp, báo cáo kết quả mới làm trực tiếp', () => {
+    const subtasks = assessSubtasks(['Tìm nơi gọi hàm charge', 'Sửa lỗi trang báo cáo doanh thu', 'Tổng hợp danh sách lỗi kèm vị trí'])
+    const advice = adviseSubtasks({ subtasks, main: { family: 'opus', effort: 'high' }, allowFable: false, blocked: new Set<never>(), offered: new Set(['Explore']), session: null })
+    expect(advice[1]?.direct).toBe(false)
+    expect(advice[2]?.direct).toBe(true)
+  })
+
+  test('gạch đầu dòng là ràng buộc không thành việc con', () => {
+    const text = `Nâng cấp module thanh toán:
+- Tìm nơi gọi hàm charge
+- Đổi tên userId thành accountId trong controller
+- Cập nhật README phần cài đặt
+- Không đổi API công khai
+- Chỉ sửa trong src/payment`
+    const subtasks = analyzeHeuristic(text, null, 1).subtasks
+    expect(subtasks.map(s => s.index)).toEqual([1, 2, 3])
+    expect(subtasks.map(s => s.title)).toEqual(['Tìm nơi gọi hàm charge', 'Đổi tên userId thành accountId trong controller', 'Cập nhật README phần cài đặt'])
+  })
+
+  test('Explore do Claude chọn: rà soát chạy sonnet, tra cứu thuần chạy haiku', () => {
+    const plan = (text: string) =>
+      planAgent({ prompt: text, description: text, subagentType: 'Explore', offered: new Set(['Explore']), blocked: new Set<never>(), allowFable: false, parent: null, session: null })
+    expect(plan('Rà soát lỗi logic trong module thanh toán').family).toBe('sonnet')
+    expect(plan('Tìm file cấu hình retry').family).toBe('haiku')
+  })
+
+  test('"Bước N" không khớp việc con, "Việc N" thì khớp', () => {
+    const subtasks = analyzeHeuristic(SIX_TASKS, null, 1).subtasks
+    expect(matchSubtask(subtasks, 'Bước 2: chạy test', 'Chạy toàn bộ test và báo kết quả')).toBeUndefined()
+    expect(matchSubtask(subtasks, 'Việc 2: đổi tên', '')?.index).toBe(2)
+  })
+
+  test('lượt Haiku có đủ thời gian cho JSON dài hơn', () => {
+    expect(analyzerRequest('Làm ba việc', null).timeoutMs).toBe(12000)
   })
 })
 

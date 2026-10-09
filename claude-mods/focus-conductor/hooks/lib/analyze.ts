@@ -282,8 +282,9 @@ function extractKeywords(text: string): string[] {
  * có khi prompt có từ hai bước trở lên.
  */
 export function assessSubtasks(steps: readonly string[]): Subtask[] {
-  if (steps.length < 2) return []
-  return steps.map((title, i) => {
+  const work = steps.filter(step => !isConstraintItem(step))
+  if (work.length < 2) return []
+  return work.map((title, i) => {
     const assessed = assessText(title)
     return { index: i + 1, title, depth: assessed.depth, volume: assessed.volume, kind: assessed.kind, hardSignals: assessed.hardSignals }
   })
@@ -430,7 +431,7 @@ const WRITE_VERB =
 const LOOKUP_VERB =
   /\b(tim|search\w*|find|locate|grep|doc|read|kham pha|explore|tra cuu|look up|scan|quet|where|o dau|vi sao|tai sao|why|ra soat|review|kiem tra|check|debug\w*|dieu tra|investigat\w*|xem|phat hien|detect)\b/
 const ANSWER_VERB =
-  /\b(la gi|what is|giai thich|explain|so sanh|compare|tom tat|summari[sz]\w*|liet ke|list|thiet ke|design|neu|trade-?off\w*|de xuat|propose|mo ta|describe|tong hop|bao cao|report|ket luan)\b/
+  /\b(la gi|what is|giai thich|explain|so sanh|compare|tom tat|summari[sz]\w*|liet ke|list|thiet ke|design|neu|trade-?off\w*|de xuat|propose|mo ta|describe)\b/
 
 // Tra cứu thuần (tìm, liệt kê, đọc) khác với phân tích (rà soát, kiểm tra, gỡ lỗi):
 // chỉ tra cứu thuần mới được xuống haiku hoặc Explore.
@@ -439,7 +440,11 @@ const SEARCH_VERB =
 const ANALYSIS_VERB =
   /\b(ra soat|review\w*|kiem tra|check\w*|debug\w*|dieu tra|investigat\w*|phan tich|analy[sz]\w*|doi chieu|danh gia|evaluat\w*|audit\w*|vi sao|tai sao|why|phat hien|detect\w*|xac minh|verify|tim (?:ra )?(?:loi|bug|nguyen nhan|lo hong)|find (?:the )?(?:bug|cause|root))\b/
 // Việc tổng hợp, báo cáo cuối: thuộc về luồng chính, không giao đi.
-const SYNTHESIS = /\b(tong hop|bao cao|ket luan|summari[sz]\w*|report|tom tat)\b/
+const SYNTHESIS =
+  /^(tong hop|tom tat|ket luan|bao cao (?:ket qua|lai|tong ket)|summari[sz]\w*|report (?:back|findings|the results))\b/
+// Mục là ràng buộc ("không đổi API", "chỉ sửa src/"), không phải một việc để làm.
+const CONSTRAINT_ITEM =
+  /^(khong|chi|phai|bat buoc|cam|tranh|giu nguyen|luu y|must|do not|don'?t|never|only|avoid|keep)\b/
 
 /** Việc chỉ tra cứu (tìm, liệt kê, đọc), không có phân tích hay đánh giá. */
 export function isPureLookup(text: string): boolean {
@@ -449,7 +454,12 @@ export function isPureLookup(text: string): boolean {
 
 /** Việc tổng hợp hoặc báo cáo kết quả: luồng chính tự làm. */
 export function isSynthesis(text: string): boolean {
-  return SYNTHESIS.test(fold(text))
+  return SYNTHESIS.test(fold(text).trim())
+}
+
+/** Mục liệt kê là ràng buộc, không phải việc. */
+function isConstraintItem(text: string): boolean {
+  return CONSTRAINT_ITEM.test(fold(text).trim())
 }
 
 const BULK_COUNT = /\b(\d+|nhieu|tat ca|toan bo|all|every|many)\s+(file|files|module|service|tep|lop|class|endpoint|bang|table|ham|function|test|tests)\b/
@@ -778,7 +788,7 @@ function subtasksWithModel(listed: readonly Subtask[], tasks: readonly ModelTask
       return task ? judgedTask(s.index, s.title, task) : s
     })
   }
-  const quoted = tasks.filter(t => coverage(t.text, request) >= 0.6)
+  const quoted = tasks.filter(t => coverage(t.text, request) >= 0.6 && !isConstraintItem(t.text))
   return quoted.length < 2 ? [] : quoted.map((t, i) => judgedTask(i + 1, t.text, t))
 }
 
@@ -818,7 +828,7 @@ export function analyzerRequest(text: string, prev: Brief | null): ModelComplete
     prompt: `${previous}\n\n<request>\n${split.request.slice(0, 12000)}\n${note}\n</request>`,
     maxTokens: 1400,
     effort: 'low',
-    timeoutMs: 8000,
+    timeoutMs: 12000,
   }
 }
 
