@@ -172,12 +172,14 @@ function extractSteps(lines: string[]): string[] {
   return unique(source.filter(s => s.length >= 4 && !isMeta(s)).map(s => clip(s, 120)), 10)
 }
 
+/** Từ nội dung (đã bỏ dấu, từ 4 ký tự, không phải stopword). */
+function contentWords(folded: string): string[] {
+  return (folded.match(/[a-z][a-z0-9_-]{3,}/g) ?? []).filter(word => !STOPWORDS.has(word))
+}
+
 function extractKeywords(folded: string): string[] {
   const counts = new Map<string, number>()
-  for (const word of folded.match(/[a-z][a-z0-9_-]{3,}/g) ?? []) {
-    if (STOPWORDS.has(word)) continue
-    counts.set(word, (counts.get(word) ?? 0) + 1)
-  }
+  for (const word of contentWords(folded)) counts.set(word, (counts.get(word) ?? 0) + 1)
   return [...counts.entries()]
     .sort((a, b) => b[1] - a[1])
     .slice(0, 10)
@@ -248,9 +250,34 @@ export function scoreComplexity(
   return { score: Math.max(0, Math.min(100, score)), signals }
 }
 
+// Từ quá chung để nói lên chủ đề (động từ thao tác, âm tiết phổ biến): bỏ
+// qua khi đo độ liên quan, nếu không "viết hàm X" sẽ dính vào mọi task có "viết".
+const GENERIC = new Set(
+  (
+    'viet them xoa giup dung bang file code test tests thuc gian chinh kiem viec hien cach phan tiep loi ' +
+    'write create update make change function fix add remove'
+  ).split(' '),
+)
+
 /**
- * Phân tích cục bộ. Với prompt tiếp nối (tiếp tục, sửa nhỏ...), giữ mục tiêu
- * và checklist của brief trước, chỉ gộp thêm ràng buộc mới.
+ * Prompt mới có cùng chủ đề với mục tiêu trước không: so từ nội dung của nó
+ * với từ khóa, mục tiêu, các bước và đường dẫn của brief trước. Prompt không
+ * có từ nội dung nào ("làm đi", "sửa lỗi đó") được coi là liên quan.
+ */
+export function isRelated(text: string, prev: Brief): boolean {
+  const words = new Set(contentWords(fold(text)).filter(word => !GENERIC.has(word)))
+  if (words.size === 0) return true
+  const vocabulary = new Set([
+    ...prev.keywords,
+    ...contentWords(fold([prev.goal, ...prev.steps, ...prev.scopePaths].join(' '))),
+  ])
+  const shared = [...words].filter(word => vocabulary.has(word)).length
+  return shared >= 2 || (shared >= 1 && shared / words.size >= 0.2)
+}
+
+/**
+ * Phân tích cục bộ. Với prompt tiếp nối (tiếp tục, sửa nhỏ cùng chủ đề...),
+ * giữ mục tiêu và checklist của brief trước, chỉ gộp thêm ràng buộc mới.
  */
 export function analyzeHeuristic(text: string, prev: Brief | null, now: number): Brief {
   const trimmed = text.trim()
@@ -277,7 +304,10 @@ export function analyzeHeuristic(text: string, prev: Brief | null, now: number):
   const isNewTask = NEW_TASK.test(folded)
   const isContinue = CONTINUE.test(folded)
   const isRefine = REFINE.test(folded) && words < 60
-  const isFollowUp = prev !== null && !isNewTask && (isContinue || isRefine || words < 12)
+  // "Sửa...", "thêm..." hay câu ngắn chỉ là tiếp nối khi cùng chủ đề với mục
+  // tiêu trước; khác chủ đề thì là task mới dù mở đầu giống một lời tinh chỉnh.
+  const isFollowUp =
+    prev !== null && !isNewTask && (isContinue || ((isRefine || words < 12) && isRelated(trimmed, prev)))
 
   if (prev !== null && isFollowUp) {
     const tier = isContinue ? prev.tier : ownTier

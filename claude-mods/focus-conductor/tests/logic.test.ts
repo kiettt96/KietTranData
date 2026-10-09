@@ -50,6 +50,31 @@ describe('đọc prompt', () => {
     expect(next.tier).toBe(first.tier)
   })
 
+  test('"sửa..." khác chủ đề là mục tiêu mới; cùng chủ đề hoặc không có nội dung là tiếp nối', () => {
+    const auth = analyzeHeuristic(
+      `Hãy giúp tôi xây dựng một module xác thực đơn giản bằng TypeScript:
+1. Tạo file auth.ts chứa hàm login (email + password) và logout
+2. Thêm JWT: tạo token khi login, verify token ở middleware
+3. Viết unit test cho login, logout và verify token`,
+      null,
+      1,
+    )
+    const other = analyzeHeuristic(
+      'Sửa phần phân tích prompt của focus-conductor: lọc bỏ các câu dẫn/meta của người dùng khỏi danh sách tiêu chí chất lượng và ràng buộc. Chỉ giữ các yêu cầu thực sự của task.',
+      auth,
+      2,
+    )
+    expect(other.isFollowUp).toBe(false)
+    expect(other.goalId).toBe(auth.goalId + 1)
+
+    const refine = analyzeHeuristic('sửa lại hàm login để trả lỗi rõ hơn khi token hết hạn', auth, 3)
+    expect(refine.isFollowUp).toBe(true)
+    expect(refine.goal).toBe(auth.goal)
+
+    expect(analyzeHeuristic('sửa lỗi đó đi', auth, 4).isFollowUp).toBe(true)
+    expect(analyzeHeuristic('viết hàm parseDate cho ngày ISO', auth, 5).isFollowUp).toBe(false)
+  })
+
   test('"task mới" mở mục tiêu mới', () => {
     const first = analyzeHeuristic(LONG_PROMPT, null, 1)
     const next = analyzeHeuristic('task mới: viết script backup database hằng ngày', first, 2)
