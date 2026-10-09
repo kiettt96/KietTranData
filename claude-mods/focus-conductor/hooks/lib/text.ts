@@ -72,7 +72,9 @@ export function briefContext(brief: Brief, route: Route | null, advice: readonly
     '[focus-conductor] Bản đọc prompt (tự động; đối chiếu lại với prompt gốc trước khi làm)',
     `Mục tiêu cuối: ${brief.goal}${steps}${bullets('Ràng buộc:', brief.constraints)}${bullets('Tiêu chí chất lượng:', brief.quality)}`,
     `Đánh giá: độ sâu ${brief.depth}, khối lượng ${brief.volume}, bản chất ${brief.kind} (${brief.signals.slice(0, 5).join(', ')})`,
-    `Điều phối: luồng chính ${main}; subagent được chọn theo độ khó của từng việc con, không thấp hơn mục tiêu cha.`,
+    advice.length > 0
+      ? `Điều phối: luồng chính ${main}; việc trong mục Phân việc dùng đúng model đã ghi; subagent ngoài danh sách đó không thấp hơn mục tiêu cha.`
+      : `Điều phối: luồng chính ${main}; subagent được chọn theo độ khó của từng việc con, không thấp hơn mục tiêu cha.`,
     brief.scopePaths.length > 0 ? `Phạm vi được sửa: ${brief.scopePaths.join(', ')}` : '',
     next,
   ]

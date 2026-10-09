@@ -304,6 +304,9 @@ describe('nhiều subagent trong một phiên', () => {
     expect(context).toContain('2. Đổi tên userId thành accountId trong 12 file controller. → giao general-purpose sonnet/medium')
     expect(context).toContain('3. Thiết kế lại kiến trúc xử lý thanh toán đa tiền tệ, nêu trade-off. → làm trực tiếp ở luồng chính (opus/xhigh)')
     expect(context).not.toContain('Bước dự kiến')
+    // Không còn chỉ dẫn trái nhau: việc đã phân dùng model ghi sẵn, dù thấp hơn mục tiêu cha.
+    expect(context).toContain('việc trong mục Phân việc dùng đúng model đã ghi')
+    expect(context).not.toContain('subagent được chọn theo độ khó của từng việc con')
   })
 
   test('giao hơn sáu subagent trong một mục tiêu thì cảnh báo chi phí đúng một lần', HEURISTIC, async ($, on) => {
