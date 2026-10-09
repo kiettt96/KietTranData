@@ -12,7 +12,7 @@
 
 import type { PluginOptions } from 'claude-code'
 
-import type { Depth, Effort, Kind, ModelFamily, Route, Tier, Volume } from '../../types'
+import type { Depth, Effort, Kind, ModelFamily, Route, Subtask, Tier, Volume } from '../../types'
 import { assessText, fold } from './analyze'
 import { SAFETY, shouldDowngrade, switchCost, turnCost } from './cost'
 import { depthRank, legacyOf, maxDepth, stepDepth, tierOf } from './scale'
@@ -284,8 +284,10 @@ export function planAgent(args: {
   allowFable: boolean
   parent: { depth: Depth } | null
   session: SessionModel | null
+  /** Đánh giá đã có sẵn của việc (từ việc đã tách lúc nhận prompt): thay cho đánh giá prompt của agent. */
+  assessed?: Pick<Subtask, 'depth' | 'volume' | 'kind' | 'hardSignals'>
 }): AgentPlan {
-  const local = assessText(`${args.description}\n${args.prompt}`, { isDelegated: true })
+  const local = args.assessed ?? assessText(`${args.description}\n${args.prompt}`, { isDelegated: true })
   const type = args.subagentType ?? 'general-purpose'
   const isReadOnly = local.kind === 'answer' || local.kind === 'investigate'
   const isLookup =
@@ -333,6 +335,54 @@ export function planAgent(args: {
       ? `nâng theo mục tiêu cha (${args.parent?.depth}), việc ${local.depth}`
       : `nhiệm vụ ${planned}`,
   }
+}
+
+/** Số việc con từ đó mới đáng tách và giao: với ít việc, chi phí khởi động subagent lớn hơn phần tiết kiệm. */
+export const MIN_DELEGATE = 3
+
+export type SubtaskAdvice = {
+  subtask: Subtask
+  /** Model và effort đã ghi sẵn cho việc này. */
+  pick: Choice
+  /** Làm trực tiếp ở luồng chính (cùng họ model với luồng chính), hay giao subagent. */
+  direct: boolean
+  /** Loại agent khi giao: Explore cho tra cứu chỉ đọc, nếu không thì general-purpose. */
+  subagentType?: string
+}
+
+/**
+ * Chấm model và effort cho từng việc đã tách, trước khi làm. Mỗi việc dùng đánh giá
+ * riêng của nó, không kế thừa độ sâu của cả mục tiêu. Việc cùng họ model với luồng
+ * chính thì làm trực tiếp; khác họ thì giao subagent đúng model đã ghi.
+ */
+export function adviseSubtasks(args: {
+  subtasks: readonly Subtask[]
+  main: Choice
+  allowFable: boolean
+  blocked: ReadonlySet<ModelFamily>
+  offered: ReadonlySet<string>
+  session: SessionModel | null
+}): SubtaskAdvice[] {
+  if (args.subtasks.length < MIN_DELEGATE) return []
+  return args.subtasks.map(subtask => {
+    const plan = planAgent({
+      prompt: subtask.title,
+      description: subtask.title,
+      subagentType: undefined,
+      offered: args.offered,
+      blocked: args.blocked,
+      allowFable: args.allowFable,
+      parent: null,
+      session: args.session,
+      assessed: subtask,
+    })
+    return {
+      subtask,
+      pick: { family: plan.family, effort: plan.effort },
+      direct: plan.family === args.main.family,
+      subagentType: plan.agentType,
+    }
+  })
 }
 
 /** Gợi ý ngắn cho một bước trong checklist: model luồng chính và cách giao việc. */

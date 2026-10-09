@@ -4,10 +4,10 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import type { Brief, Route } from '../types'
-import { analyzeHeuristic, isMeta, isRelated, isSameIdea, mergeAnalysis, retarget } from '../hooks/lib/analyze'
+import { analyzeHeuristic, assessSubtasks, isMeta, isRelated, isSameIdea, mergeAnalysis, retarget } from '../hooks/lib/analyze'
 import { newTracker, observe } from '../hooks/lib/drift'
 import { applyPlan } from '../hooks/lib/plan'
-import { decideMain, planAgent, raisePick, resolveModelId } from '../hooks/lib/route'
+import { adviseSubtasks, decideMain, planAgent, raisePick, resolveModelId } from '../hooks/lib/route'
 import { droppedPlanNotice, statusLine } from '../hooks/lib/text'
 
 const LONG_PROMPT = `### Mục tiêu
@@ -542,6 +542,68 @@ describe('status line và báo checklist bị bỏ', () => {
     expect(notice).toContain('còn 2 bước mở')
     expect(notice).toContain('Viết hooks; Viết test')
     expect(notice).toContain('mcp__focus-conductor__plan')
+  })
+})
+
+const SIX_TASKS = `Mục tiêu: nâng cấp module thanh toán của dự án shop-api.
+1. Tìm trong src/ tất cả chỗ gọi hàm charge và liệt kê đường dẫn.
+2. Đổi tên userId thành accountId trong 12 file controller.
+3. Thiết kế lại kiến trúc xử lý thanh toán đa tiền tệ, nêu trade-off, cân nhắc race condition khi hai worker cùng ghi số dư.
+4. Viết unit test cho hàm refund, bao phủ trường hợp hết hạn token.
+5. Rà soát lỗ hổng bảo mật trong luồng webhook của cổng thanh toán.
+6. Cập nhật README phần cài đặt.`
+
+describe('việc con được chấm trước khi làm', () => {
+  test('mỗi việc có độ sâu, khối lượng và bản chất riêng, không lấy theo cả prompt', () => {
+    const subtasks = analyzeHeuristic(SIX_TASKS, null, 1).subtasks
+    expect(subtasks.length).toBe(6)
+    expect(subtasks.map(s => s.depth)).toEqual(['light', 'light', 'hard', 'light', 'hard', 'light'])
+    expect(subtasks[0]?.kind).toBe('investigate')
+    expect(subtasks[1]?.volume).toBe('large')
+    expect(subtasks[5]?.volume).toBe('small')
+  })
+
+  test('prompt một việc hoặc hai việc không tách thành việc con', () => {
+    expect(analyzeHeuristic('Viết hàm parseDate nhận chuỗi ISO và trả về Date', null, 1).subtasks).toEqual([])
+    expect(assessSubtasks(['Một việc'])).toEqual([])
+  })
+
+  test('tư vấn: việc tra cứu xuống haiku, việc sửa nhẹ xuống sonnet, việc khó làm trực tiếp ở opus', () => {
+    const subtasks = analyzeHeuristic(SIX_TASKS, null, 1).subtasks
+    const advice = adviseSubtasks({
+      subtasks,
+      main: { family: 'opus', effort: 'xhigh' },
+      allowFable: false,
+      blocked: new Set<never>(),
+      offered: new Set(['Explore']),
+      session: null,
+    })
+    expect(advice[0]).toMatchObject({ direct: false, subagentType: 'Explore', pick: { family: 'haiku', effort: 'low' } })
+    expect(advice[1]).toMatchObject({ direct: false, pick: { family: 'sonnet', effort: 'medium' } })
+    expect(advice[2]?.direct).toBe(true)
+    expect(advice[4]?.direct).toBe(true)
+    expect(advice[5]).toMatchObject({ direct: false, pick: { family: 'sonnet' } })
+  })
+
+  test('việc đã phân không bị sàn của mục tiêu cha kéo lên: sửa nhẹ vẫn là sonnet dưới mục tiêu hard', () => {
+    const plan = planAgent({
+      prompt: 'Cập nhật README phần cài đặt',
+      description: 'Cập nhật README',
+      subagentType: undefined,
+      offered: new Set(['Explore']),
+      blocked: new Set<never>(),
+      allowFable: false,
+      parent: null,
+      session: null,
+      assessed: { depth: 'light', volume: 'small', kind: 'edit', hardSignals: [] },
+    })
+    expect(plan.family).toBe('sonnet')
+    expect(plan.effort).toBe('medium')
+  })
+
+  test('ít hơn ba việc thì không tư vấn riêng', () => {
+    const subtasks = analyzeHeuristic('1. Đọc file a.ts\n2. Sửa lỗi trong b.ts', null, 1).subtasks
+    expect(adviseSubtasks({ subtasks, main: { family: 'opus', effort: 'xhigh' }, allowFable: false, blocked: new Set<never>(), offered: new Set(), session: null })).toEqual([])
   })
 })
 

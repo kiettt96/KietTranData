@@ -75,6 +75,7 @@ function normalizeBrief(brief: Brief): Brief {
     volume: brief.volume ?? legacy.volume,
     kind: brief.kind ?? 'mixed',
     hardSignals: brief.hardSignals ?? [],
+    subtasks: brief.subtasks ?? [],
   }
 }
 

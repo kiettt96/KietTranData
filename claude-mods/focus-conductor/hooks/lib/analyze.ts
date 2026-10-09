@@ -10,7 +10,7 @@
 
 import type { ModelCompleteRequest, ModelTextBlock } from 'claude-code'
 
-import type { Brief, Depth, Kind, Relation, Volume } from '../../types'
+import type { Brief, Depth, Kind, Relation, Subtask, Volume } from '../../types'
 import { splitPayload } from './payload'
 import { DEPTHS, KINDS, RELATIONS, VOLUMES, carryDepth, maxDepth, maxVolume, tierOf } from './scale'
 
@@ -260,6 +260,18 @@ function extractKeywords(text: string): string[] {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 10)
     .map(([word]) => word)
+}
+
+/**
+ * Tách việc con từ danh sách bước và chấm riêng từng việc bằng luật cục bộ. Chỉ
+ * có khi prompt có từ hai bước trở lên.
+ */
+export function assessSubtasks(steps: readonly string[]): Subtask[] {
+  if (steps.length < 2) return []
+  return steps.map((title, i) => {
+    const assessed = assessText(title)
+    return { index: i + 1, title, depth: assessed.depth, volume: assessed.volume, kind: assessed.kind, hardSignals: assessed.hardSignals }
+  })
 }
 
 function extractPaths(text: string): string[] {
@@ -621,10 +633,12 @@ export function analyzeHeuristic(text: string, prev: Brief | null, now: number):
     }
   }
 
+  const steps = extractSteps(lines)
   return {
     goalId: (prev?.goalId ?? 0) + 1,
     goal: extractGoal(lines),
-    steps: extractSteps(lines),
+    steps,
+    subtasks: assessSubtasks(steps),
     constraints,
     quality,
     depth: assessed.depth,
@@ -781,6 +795,7 @@ export function mergeAnalysis(base: Brief, prev: Brief | null, reply: string, te
     goalId: isFollow && prev ? prev.goalId : base.goalId,
     goal: isFollow && prev ? prev.goal : goal,
     steps: isFollow && prev ? prev.steps : steps.length > 0 ? steps : base.steps,
+    subtasks: isFollow && prev ? prev.subtasks : assessSubtasks(steps.length > 0 ? steps : base.steps),
     keywords: isFollow && prev ? prev.keywords : base.keywords,
     scopePaths: isFollow && prev && base.scopePaths.length === 0 ? prev.scopePaths : base.scopePaths,
     // Câu gốc của người dùng đứng trước: khi trùng ý, bản Haiku diễn đạt lại bị bỏ.

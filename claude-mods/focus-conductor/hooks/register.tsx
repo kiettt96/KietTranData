@@ -29,6 +29,7 @@ import { PLAN_TOOL_SPEC, applyPlan } from './lib/plan'
 import type { PlanInput } from './lib/plan'
 import {
   EFFORTS,
+  adviseSubtasks,
   applySession,
   decideMain,
   describePick,
@@ -130,6 +131,18 @@ export const register: Register = (on, options) => {
     }),
   )
   const mode = derive([modeState], (override): Mode => S.modeOf(override, options))
+
+  /** Chấm model và effort cho từng việc đã tách của mục tiêu (rỗng khi chưa đủ việc để giao). */
+  function adviceFor(brief: Brief, main: Choice) {
+    return adviseSubtasks({
+      subtasks: brief.subtasks,
+      main,
+      allowFable: options['allowFable'] === true,
+      blocked,
+      offered,
+      session: sessionModel(),
+    })
+  }
 
   /** Xóa phần trạng thái cục bộ (không thuộc $.state). */
   function resetLocal(): void {
@@ -327,7 +340,7 @@ export const register: Register = (on, options) => {
 
     const wanted = wantedMain(brief, core.lift, options, blocked, sessionModel())
     const context = isNewGoal
-      ? briefContext(brief, previewRoute(brief, wanted))
+      ? briefContext(brief, previewRoute(brief, wanted), adviceFor(brief, wanted))
       : followUpContext(brief, core.plan, brief.constraints.filter(c => !prev?.constraints.includes(c)))
     // Checklist cũ còn bước mở bị bỏ theo mục tiêu mới: báo, kẻo mất tiến độ trong im lặng.
     const dropped = isNewGoal ? openSteps(before.plan) : []
@@ -435,6 +448,9 @@ export const register: Register = (on, options) => {
     const core = S.normalizeCore(await read($, coreState))
     const brief = core.brief
     const goalId = brief?.goalId ?? 0
+    // Việc này khớp một việc đã tách lúc nhận prompt: dùng đúng đánh giá đã chấm,
+    // không chấm lại từ prompt của agent và không kế thừa sàn của mục tiêu cha.
+    const assigned = brief?.subtasks.find(s => isSameIdea(s.title, e.description))
     let plan = planAgent({
       prompt: e.prompt,
       description: e.description,
@@ -442,10 +458,11 @@ export const register: Register = (on, options) => {
       offered,
       blocked,
       allowFable: options['allowFable'] === true,
-      parent: brief ? { depth: stepDepth(brief.depth, core.lift.depth) } : null,
+      parent: brief && !assigned ? { depth: stepDepth(brief.depth, core.lift.depth) } : null,
       session: sessionModel(),
+      ...(assigned ? { assessed: assigned } : {}),
     })
-    let reason = plan.reason
+    let reason = assigned ? `việc ${assigned.index} đã phân trước: ${plan.reason}` : plan.reason
     if (agentFailures.some(f => f.goalId === goalId && isSameIdea(f.description, e.description))) {
       plan = { ...plan, ...raisePick(plan, options['allowFable'] === true) }
       reason = 'giao lại việc đã lỗi: nâng một bậc'
@@ -732,10 +749,11 @@ export const register: Register = (on, options) => {
       isGoalNew = true
       pinnedGoalId = null
       $.ui.status(S.statusOf(await read($, view)))
-      const preview = previewRoute(brief, wantedMain(brief, S.EMPTY_LIFT, options, blocked, sessionModel()))
+      const wanted = wantedMain(brief, S.EMPTY_LIFT, options, blocked, sessionModel())
+      const preview = previewRoute(brief, wanted)
       return {
         text: `Đã đặt mục tiêu: ${brief.goal} (${brief.depth}, khối lượng ${brief.volume}).`,
-        context: [`Người dùng đặt mục tiêu thủ công.\n${briefContext(brief, preview)}`],
+        context: [`Người dùng đặt mục tiêu thủ công.\n${briefContext(brief, preview, adviceFor(brief, wanted))}`],
       }
     }
 

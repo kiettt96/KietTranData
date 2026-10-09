@@ -25,6 +25,10 @@ Không dùng `max` mặc định. Luồng chính chốt model và effort ở ste
 
 Nâng cấp theo bằng chứng, áp cho turn sau trong cùng mục tiêu: lặp cùng một lỗi ba lần, hoặc người dùng báo "vẫn sai", thì nâng độ sâu một bậc; vượt ngân sách tool call, hoặc có ba tool call lỗi trong một turn, thì nâng effort một bậc. Mức nâng reset khi sang mục tiêu mới.
 
+**Phân việc trước khi làm.** Khi prompt có từ ba việc con trở lên (các dòng đánh số hoặc gạch đầu dòng), mod tách từng việc và chấm riêng độ sâu, khối lượng, bản chất của chính việc đó ngay lúc nhận prompt, không lấy theo cả prompt. Khối context liệt kê từng việc kèm model và effort đã chọn, và cách làm: `làm trực tiếp ở luồng chính` khi việc cùng họ model với luồng chính, hoặc `giao subagent <loại> <họ>/<effort>` khi việc nhẹ hơn. Việc tra cứu chỉ đọc được giao Explore (haiku/low) khi engine đã mời agent này; nếu chưa mời thì nhãn là general-purpose với cùng model. Các việc đã tách không bị sàn độ sâu của mục tiêu cha kéo lên: mỗi việc dùng đánh giá của chính nó. Khi Claude gọi Agent có `description` khớp tên việc, mod dùng đúng model đã ghi sẵn, không chấm lại từ prompt của agent. Với ít hơn ba việc con thì không phân việc, và việc đi theo cách cũ.
+
+Giới hạn của phân việc: việc con được tách bằng luật cục bộ từ danh sách bước (Haiku không chấm riêng từng việc); các việc làm trực tiếp vẫn chạy ở model của luồng chính; mod không buộc Claude giao việc qua subagent, chỉ ghi sẵn lựa chọn và nhắc theo dõi.
+
 Subagent: mỗi subagent là một hội thoại riêng, không có cache của luồng chính để mất. Hook `tool.call` trên tool `Agent` đánh giá prompt giao việc bằng luật cục bộ (không gọi Haiku cho từng agent, để không thêm độ trễ) và chọn model theo độ khó của việc con. Tra cứu chỉ đọc (Explore) được xuống haiku. Việc sửa code hoặc điều tra không thấp hơn một bậc so với độ sâu của mục tiêu cha. Nếu lần trước cùng việc đã lỗi, lần giao lại nâng một bậc. Model Claude tự chỉ định được giữ, trừ khi thấp hơn mức việc khó cần (mod nâng lên) hoặc vượt chính sách `sessionModel` (mod giới hạn lại); cả hai trường hợp đều ghi lý do vào nhật ký. Nhiều subagent chạy song song đều được điều phối độc lập. Khi một mục tiêu giao hơn sáu subagent, mod cảnh báo chi phí một lần (chỉ cảnh báo, không chặn).
 
 Chi phí: mỗi lượt đã kết thúc được cộng vào sổ theo ba nhóm (luồng chính, subagent, phân tích prompt), theo phiên và theo mục tiêu, bằng token đo được từ engine. Chi phí ước tính lúc giao việc được thay bằng số đo khi subagent kết thúc, và số đo được gắn vào đúng dòng nhật ký của agent đó. Hệ số ước lượng được hiệu chỉnh theo số đo trong phiên. Sổ hiện trong pane và `/conductor status`. Hệ số chỉ được hiệu chỉnh từ turn mà mod thực sự áp model và effort (chế độ `auto`). Dòng "Chi phí cả phiên theo Claude Code" trong `/conductor status` là số engine báo cho toàn phiên, gồm cả các turn trước khi mod bắt đầu ghi sổ, nên có thể lớn hơn nhiều so với sổ của mod.
@@ -141,10 +145,11 @@ focus-conductor/
   tests/                       logic thuần, chi phí và sổ, bộ đánh giá điều phối, test tích hợp qua engine
 ```
 
-Kiểm tra trước khi phát hành: `claude plugin validate .` và `claude plugin test .` (99 test).
+Kiểm tra trước khi phát hành: `claude plugin validate .` và `claude plugin test .` (106 test).
 
 ## Giới hạn đã biết
 
+- Phân việc con dựa trên danh sách bước của prompt: prompt không có danh sách đánh số thì mod không tách, và Haiku không chấm riêng từng việc.
 - Đánh giá việc là luật heuristic theo từ khóa tiếng Việt và tiếng Anh. Prompt ngắn mà khó có thể bị lệch nếu không chạm từ khóa nào; khi đó bật `analyzer: model` hoặc đặt lại bằng `/conductor goal`.
 - Bộ đánh giá điều phối (`tests/routing-eval.test.ts`) có nhãn do tác giả đặt, và luật được chỉnh sau lần chạy đầu. Đây là kiểm tra nhất quán, không phải số đo độc lập; cần một bộ prompt thật tách riêng để đo chất lượng.
 - Giá dùng để tính là bảng Claude API ghi nhận 2026-10. Đọc cache của Haiku là giả định (10% giá vào). Cửa sổ ngữ cảnh của model khác họ được giả định bằng cửa sổ của phiên, và kiểm tra ngữ cảnh gần đầy chỉ áp khi hạ cấp, không áp khi nâng cấp. Phần cố định của ngữ cảnh (system prompt và tools) được giả định 20k token, chưa đo từ phiên. Kích thước turn ước lượng (số bước, token vào mới, token ra) là giả định, được hiệu chỉnh dần từ số đo trong phiên.

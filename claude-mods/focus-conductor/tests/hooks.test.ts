@@ -262,6 +262,47 @@ describe('nhiều subagent trong một phiên', () => {
     expect(status).toContain('Việc khác: sonnet (không qua điều phối)')
   })
 
+  test('việc đã phân trước: Agent khớp đúng việc thì dùng model đã chấm sẵn, không chấm lại', HEURISTIC, async ($, on) => {
+    base(on)
+    const seen: Array<{ model?: string; subagent_type?: string }> = []
+    on('tool.call', { tool: 'Agent' }, (_$, e) => {
+      seen.push({ model: e.model, subagent_type: e.subagent_type })
+      return { deny: 'test: đã ghi nhận đầu vào' }
+    })
+    await submit($, `Mục tiêu: nâng cấp module thanh toán.
+1. Tìm trong src/ tất cả chỗ gọi hàm charge và liệt kê đường dẫn.
+2. Đổi tên userId thành accountId trong 12 file controller.
+3. Thiết kế lại kiến trúc xử lý thanh toán đa tiền tệ, nêu trade-off.
+4. Cập nhật README phần cài đặt.`)
+    await $.tool.call({ tool: 'Agent', description: 'Tìm chỗ gọi charge', prompt: 'Tìm trong src/ tất cả chỗ gọi hàm charge' })
+    await $.tool.call({ tool: 'Agent', description: 'Đổi tên userId thành accountId', prompt: 'Đổi tên userId thành accountId trong 12 file controller' })
+    // Explore chỉ được gọi tên khi engine đã mời agent này; ở đây chưa mời nên giữ general-purpose.
+    expect(seen[0]).toEqual({ model: 'haiku', subagent_type: undefined })
+    expect(seen[1]?.model).toBe('sonnet')
+    // Prompt của agent đầy từ khóa khó nhưng việc đã chấm là nhẹ: vẫn theo việc đã chấm.
+    await $.tool.call({
+      tool: 'Agent',
+      description: 'Đổi tên userId thành accountId',
+      prompt: 'Phân tích race condition, bảo mật và kiến trúc liên module của toàn bộ luồng thanh toán trước khi đổi tên userId',
+    })
+    expect(seen[2]?.model).toBe('sonnet')
+  })
+
+  test('context liệt kê phân việc: việc nào giao subagent kèm model, việc nào làm trực tiếp', HEURISTIC, async ($, on) => {
+    const seen = base(on)
+    await submit($, `Mục tiêu: nâng cấp module thanh toán.
+1. Tìm trong src/ tất cả chỗ gọi hàm charge và liệt kê đường dẫn.
+2. Đổi tên userId thành accountId trong 12 file controller.
+3. Thiết kế lại kiến trúc xử lý thanh toán đa tiền tệ, nêu trade-off.
+4. Cập nhật README phần cài đặt.`)
+    const context = seen.contexts[0]?.join('\n') ?? ''
+    expect(context).toContain('Phân việc (đã chấm trước khi làm')
+    expect(context).toContain('1. Tìm trong src/ tất cả chỗ gọi hàm charge và liệt kê đường dẫn. → giao general-purpose haiku/low')
+    expect(context).toContain('2. Đổi tên userId thành accountId trong 12 file controller. → giao general-purpose sonnet/medium')
+    expect(context).toContain('3. Thiết kế lại kiến trúc xử lý thanh toán đa tiền tệ, nêu trade-off. → làm trực tiếp ở luồng chính (opus/xhigh)')
+    expect(context).not.toContain('Bước dự kiến')
+  })
+
   test('giao hơn sáu subagent trong một mục tiêu thì cảnh báo chi phí đúng một lần', HEURISTIC, async ($, on) => {
     const seen = base(on)
     on('tool.call', { tool: 'Agent' }, () => ({ deny: 'test: đã ghi nhận đầu vào' }))
