@@ -1,6 +1,6 @@
 {
   "name": "focus-conductor",
-  "version": "0.1.5",
+  "version": "0.2.0",
   "author": { "name": "Kiet Tran" },
   "description": "Đọc kỹ prompt trước khi làm, tự điều phối model/effort/agent theo độ phức tạp, giữ nhất quán mục tiêu với checklist và cảnh báo lạc đề.",
   "types": "./types/index.d.ts",
@@ -28,7 +28,7 @@
     "allowFable": {
       "type": "boolean",
       "title": "Cho phép dùng Fable cho việc rất khó",
-      "description": "Tier deep dùng Fable thay vì Opus xhigh; chi phí cao hơn khoảng 2,5 lần Opus",
+      "description": "Việc khó nhất (độ sâu hard) dùng Fable thay vì Opus; chi phí cao hơn khoảng 2,5 lần Opus",
       "default": false
     },
     "modelMap": {
@@ -36,6 +36,19 @@
       "title": "Ghi đè model ID",
       "description": "Dạng family=id, phân tách bằng dấu phẩy, ví dụ: opus=claude-opus-5-5,sonnet=claude-sonnet-5-5. Để trống dùng mặc định",
       "default": ""
+    },
+    "sessionModel": {
+      "type": "string",
+      "title": "Chính sách model của phiên",
+      "description": "auto: mod tự chọn model cho luồng chính và subagent; ceiling: không vượt model đang dùng của phiên; fixed: giữ model của phiên, chỉ chỉnh effort",
+      "default": "auto",
+      "options": ["auto", "ceiling", "fixed"]
+    },
+    "cacheTtlMinutes": {
+      "type": "string",
+      "title": "Thời gian sống của cache (phút)",
+      "description": "Sau bao nhiêu phút không có turn thì cache coi như nguội, khi đó đổi model không mất chi phí ghi lại cache. Mặc định 5 (theo TTL của Anthropic)",
+      "default": "5"
     }
   }
 }

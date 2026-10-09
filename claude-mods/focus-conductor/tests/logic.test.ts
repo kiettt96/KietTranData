@@ -4,10 +4,10 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import type { Brief, Route } from '../types'
-import { analyzeHeuristic, isMeta, isRelated, isSameIdea, mergeAnalysis, retarget, scoreComplexity, tierFromScore } from '../hooks/lib/analyze'
+import { analyzeHeuristic, isMeta, isRelated, isSameIdea, mergeAnalysis, retarget } from '../hooks/lib/analyze'
 import { newTracker, observe } from '../hooks/lib/drift'
 import { applyPlan } from '../hooks/lib/plan'
-import { decideMain, planAgent, resolveModelId } from '../hooks/lib/route'
+import { decideMain, planAgent, raisePick, resolveModelId } from '../hooks/lib/route'
 import { droppedPlanNotice, statusLine } from '../hooks/lib/text'
 
 const LONG_PROMPT = `### Mục tiêu
@@ -26,10 +26,24 @@ function route(family: Route['family'], effort: Route['effort']): Route {
 }
 
 describe('đọc prompt', () => {
-  test('việc vặt ngắn ra tier thấp, yêu cầu dài nhiều mục ra tier cao', () => {
-    expect(tierFromScore(scoreComplexity('sửa typo trong README').score)).toBe('trivial')
-    const big = scoreComplexity(LONG_PROMPT)
-    expect(['complex', 'deep']).toContain(tierFromScore(big.score))
+  test('việc vặt, hỏi đáp và việc khó được chia đúng độ sâu, không theo độ dài', () => {
+    const typo = analyzeHeuristic('sửa typo trong README', null, 1)
+    expect(typo.kind).toBe('edit')
+    expect(typo.depth).toBe('light')
+    expect(typo.volume).toBe('small')
+
+    const question = analyzeHeuristic('Liệt kê các hàm export trong utils.ts', null, 1)
+    expect(question.kind).toBe('answer')
+    expect(question.depth).toBe('none')
+
+    // Câu ngắn nhưng khó: race condition là việc khó dù chỉ có vài từ.
+    expect(analyzeHeuristic('Fix race condition khi hai worker cùng ghi file cache', null, 1).depth).toBe('hard')
+
+    // Câu dài nhưng dễ: đổi tên ở nhiều file là việc nhẹ, khối lượng lớn.
+    const files = Array.from({ length: 20 }, (_, i) => `- src/mod${i}.ts`).join('\n')
+    const rename = analyzeHeuristic(`Đổi tên biến userId thành accountId trong các file sau:\n${files}`, null, 1)
+    expect(rename.depth).toBe('light')
+    expect(rename.volume).toBe('large')
   })
 
   test('bóc mục tiêu, bước, ràng buộc và tiêu chí chất lượng', () => {
@@ -42,13 +56,14 @@ describe('đọc prompt', () => {
     expect(brief.isFollowUp).toBe(false)
   })
 
-  test('prompt tiếp nối giữ mục tiêu và goalId, "tiếp tục" giữ tier', () => {
+  test('prompt tiếp nối giữ mục tiêu và goalId, "tiếp tục" giữ độ sâu và khối lượng', () => {
     const first = analyzeHeuristic(LONG_PROMPT, null, 1)
     const next = analyzeHeuristic('tiếp tục', first, 2)
     expect(next.isFollowUp).toBe(true)
     expect(next.goalId).toBe(first.goalId)
     expect(next.goal).toBe(first.goal)
-    expect(next.tier).toBe(first.tier)
+    expect(next.depth).toBe(first.depth)
+    expect(next.volume).toBe(first.volume)
   })
 
   test('"sửa..." khác chủ đề là mục tiêu mới; cùng chủ đề hoặc không có nội dung là tiếp nối', () => {
@@ -285,43 +300,84 @@ Sau khi sửa: chạy lại validate + test, tạo PR vào main, không merge.`
     expect(same.steps).toEqual(brief.steps)
   })
 
-  test('kết quả Haiku được gộp, tier bị kẹp trong biên một bậc', () => {
+  test('kết quả Haiku là nguồn chính về độ sâu; sàn từ tín hiệu khó luôn giữ', () => {
     const base: Brief = analyzeHeuristic('sửa typo trong README', null, 1)
     const merged = mergeAnalysis(
       base,
       null,
-      '{"goal":"Sửa lỗi chính tả README","steps":[],"constraints":["chỉ README"],"quality":[],"tier":"deep","isNewGoal":true}',
+      '{"why":"chỉ là sửa chữ","relation":"new","goal":"Sửa lỗi chính tả README","steps":[],"constraints":["chỉ README"],"quality":[],"hardSignals":[],"depth":"light","volume":"small","kind":"edit","confidence":"high"}',
     )
     expect(merged.goal).toBe('Sửa lỗi chính tả README')
+    expect(merged.depth).toBe('light')
     expect(merged.tier).toBe('simple')
     expect(merged.source).toBe('model')
+    expect(merged.signals).toContain('chỉ là sửa chữ')
     expect(mergeAnalysis(base, null, 'không phải JSON')).toEqual(base)
+
+    const securityBrief = analyzeHeuristic('Thêm kiểm tra quyền truy cập cho endpoint báo cáo', null, 1)
+    const haikuHard = mergeAnalysis(securityBrief, null, '{"relation":"new","goal":"g","depth":"hard","volume":"medium","kind":"edit","confidence":"high"}')
+    expect(haikuHard.depth).toBe('hard')
+    const floor = mergeAnalysis(
+      securityBrief,
+      null,
+      '{"relation":"new","goal":"g","depth":"none","volume":"small","kind":"edit","hardSignals":["bảo mật"],"confidence":"high"}',
+    )
+    expect(floor.depth).toBe('hard')
+  })
+
+  test('confidence low: lấy mức cao hơn giữa Haiku và luật cục bộ', () => {
+    const base: Brief = analyzeHeuristic('sửa typo trong README', null, 1)
+    const low = mergeAnalysis(base, null, '{"relation":"new","goal":"g","depth":"none","volume":"small","kind":"edit","confidence":"low"}')
+    expect(low.depth).toBe('light')
   })
 })
 
 describe('điều phối có tính cache', () => {
-  test('hạ cấp giữa chừng một hội thoại dài bị giữ lại', () => {
-    const d = decideMain({
-      current: route('opus', 'high'),
-      wanted: { family: 'haiku', effort: 'low' },
-      tier: 'trivial',
+  const quiet = { haiku: 1, sonnet: 1, opus: 1, fable: 1 }
+  // Mặc định: opus/xhigh đang chạy, ngữ cảnh 100k, một turn còn lại; mỗi test chỉ đổi một ý.
+  const decide = (over: Partial<Parameters<typeof decideMain>[0]>) =>
+    decideMain({
+      current: route('opus', 'xhigh'),
+      wanted: { family: 'sonnet', effort: 'medium' },
+      volume: 'small',
+      tier: 'moderate',
       goalId: 1,
-      messageCount: 40,
-      isNewGoal: false,
+      context: 100_000,
+      window: 200_000,
+      turnsLeft: 1,
+      isFree: false,
+      calib: quiet,
+      ...over,
     })
+
+  test('hạ cấp giữa chừng khi ngữ cảnh dài: chi phí ghi lại cache lớn hơn lợi ích nên giữ lại', () => {
+    const d = decide({})
     expect(d.isHeld).toBe(true)
     expect(d.route.family).toBe('opus')
   })
 
-  test('nâng cấp, mục tiêu mới và hội thoại ngắn đều được đổi', () => {
-    const base = { tier: 'deep' as const, goalId: 1, messageCount: 40, isNewGoal: false }
-    expect(decideMain({ ...base, current: route('sonnet', 'low'), wanted: { family: 'opus', effort: 'xhigh' } }).route.family).toBe('opus')
-    expect(
-      decideMain({ ...base, isNewGoal: true, current: route('opus', 'high'), wanted: { family: 'haiku', effort: 'low' } }).route.family,
-    ).toBe('haiku')
-    expect(
-      decideMain({ ...base, messageCount: 2, current: route('opus', 'high'), wanted: { family: 'haiku', effort: 'low' } }).route.family,
-    ).toBe('haiku')
+  test('hạ cấp ở hội thoại ngắn với nhiều turn còn lại: lợi ích vượt chi phí ghi lại nên đổi', () => {
+    const d = decide({ context: 5_000, turnsLeft: 2 })
+    expect(d.isHeld).toBe(false)
+    expect(d.route.family).toBe('sonnet')
+  })
+
+  test('nâng cấp luôn được đổi, kể cả khi ngữ cảnh dài', () => {
+    expect(decide({ current: route('sonnet', 'low'), wanted: { family: 'opus', effort: 'xhigh' } }).route.family).toBe('opus')
+  })
+
+  test('cache đã nguội thì đổi không mất chi phí ghi lại', () => {
+    expect(decide({ isFree: true }).route.family).toBe('sonnet')
+  })
+
+  test('ngữ cảnh gần đầy thì không đổi sang model khác, kể cả khi đổi không tốn chi phí cache', () => {
+    const d = decide({ context: 180_000, isFree: true })
+    expect(d.isHeld).toBe(true)
+    expect(d.route.family).toBe('opus')
+  })
+
+  test('cùng model, chỉ khác effort: đổi effort khi ngữ cảnh dài không đáng để ghi lại cache', () => {
+    expect(decide({ wanted: { family: 'opus', effort: 'high' } }).isHeld).toBe(true)
   })
 
   test('model ID giữ tiền tố nhà cung cấp và giữ nguyên khi cùng họ', () => {
@@ -340,6 +396,9 @@ describe('điều phối có tính cache', () => {
       subagentType: undefined,
       offered,
       blocked,
+      allowFable: false,
+      parent: { depth: 'hard' },
+      session: null,
     })
     expect(search.agentType).toBe('Explore')
     expect(search.family).toBe('haiku')
@@ -351,8 +410,33 @@ describe('điều phối có tính cache', () => {
       subagentType: 'Plan',
       offered,
       blocked,
+      allowFable: false,
+      parent: null,
+      session: null,
     })
     expect(design.family).toBe('opus')
+  })
+
+  test('việc sửa của subagent không thấp hơn một bậc so với mục tiêu cha', () => {
+    const edit = {
+      description: 'Đổi tên biến',
+      prompt: 'Đổi tên biến userId thành accountId trong utils.ts',
+      subagentType: undefined,
+      offered: new Set<string>(),
+      blocked: new Set<never>(),
+      allowFable: false,
+      session: null,
+    }
+    expect(planAgent({ ...edit, parent: null }).family).toBe('sonnet')
+    const floored = planAgent({ ...edit, parent: { depth: 'hard' } })
+    expect(floored.family).toBe('opus')
+    expect(floored.reason).toContain('nâng theo mục tiêu cha')
+  })
+
+  test('giao lại việc đã lỗi nâng một bậc; fable chỉ khi được phép', () => {
+    expect(raisePick({ family: 'sonnet', effort: 'medium' }, false)).toEqual({ family: 'opus', effort: 'high' })
+    expect(raisePick({ family: 'opus', effort: 'xhigh' }, false)).toEqual({ family: 'opus', effort: 'xhigh' })
+    expect(raisePick({ family: 'opus', effort: 'high' }, true)).toEqual({ family: 'fable', effort: 'xhigh' })
   })
 })
 

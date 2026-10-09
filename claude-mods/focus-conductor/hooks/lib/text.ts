@@ -2,9 +2,8 @@
 // giữ giọng văn nhất quán và dễ chỉnh.
 
 import type { Brief, PlanStep, Route, StepStatus } from '../../types'
-import { tierRank } from './analyze'
 import { openSteps } from './drift'
-import { POLICY, describePick, stepHint } from './route'
+import { describePick, stepHint } from './route'
 
 export const PLAN_TOOL = 'plan'
 export const PLAN_TOOL_FULL = 'mcp__focus-conductor__plan'
@@ -49,17 +48,16 @@ function bullets(title: string, items: readonly string[]): string {
 export function briefContext(brief: Brief, route: Route | null): string {
   const steps =
     brief.steps.length === 0 ? '' : `\nBước dự kiến:\n${brief.steps.map((s, i) => `${i + 1}. ${s}`).join('\n')}`
-  const main = route ? describePick(route) : describePick(POLICY[brief.tier].main)
-  const agent = describePick(POLICY[brief.tier].agent)
-  const isSmall = tierRank(brief.tier) <= tierRank('simple')
+  const main = route ? describePick(route) : 'chưa chọn'
+  const isSmall = brief.depth === 'none' || (brief.depth === 'light' && brief.volume === 'small')
   const next = isSmall
     ? 'Việc nhỏ: làm trực tiếp, không cần checklist; vẫn kiểm tra kết quả trước khi trả lời.'
     : `Trước khi thực thi: xác nhận mục tiêu, rồi gọi ${PLAN_TOOL_FULL} action "set" với checklist chuẩn hóa.`
   return [
     '[focus-conductor] Bản đọc prompt (tự động; đối chiếu lại với prompt gốc trước khi làm)',
     `Mục tiêu cuối: ${brief.goal}${steps}${bullets('Ràng buộc:', brief.constraints)}${bullets('Tiêu chí chất lượng:', brief.quality)}`,
-    `Độ phức tạp: ${brief.tier} (điểm ${brief.score}: ${brief.signals.slice(0, 5).join(', ')})`,
-    `Điều phối: luồng chính ${main}; subagent mặc định ${agent}.`,
+    `Đánh giá: độ sâu ${brief.depth}, khối lượng ${brief.volume}, bản chất ${brief.kind} (${brief.signals.slice(0, 5).join(', ')})`,
+    `Điều phối: luồng chính ${main}; subagent được chọn theo độ khó của từng việc con, không thấp hơn mục tiêu cha.`,
     brief.scopePaths.length > 0 ? `Phạm vi được sửa: ${brief.scopePaths.join(', ')}` : '',
     next,
   ]

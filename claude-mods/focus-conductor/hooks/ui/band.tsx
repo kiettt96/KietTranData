@@ -29,7 +29,7 @@ export function renderBand(
   const { closed, total } = progress(plan)
   const steps = total > 0 ? `bước ${closed}/${total}` : brief.steps.length > 0 ? `${brief.steps.length} bước dự kiến` : ''
   const routeText = route ? `${view.mode === 'suggest' ? 'đề xuất' : 'chạy'} ${describePick(route)}` : ''
-  const facts = [brief.tier, routeText, steps, view.mode === 'auto' ? '' : `chế độ ${view.mode}`]
+  const facts = [`${brief.depth} · ${brief.volume}`, routeText, steps, view.mode === 'auto' ? '' : `chế độ ${view.mode}`]
     .filter(Boolean)
     .join(' · ')
 

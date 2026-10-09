@@ -6,6 +6,7 @@ import type { On, TurnStepInput } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
 
 const HEURISTIC = { options: { analyzer: 'heuristic' } }
+const BIG_USAGE = { input_tokens: 100_000, output_tokens: 50_000, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
 
 const COMPLEX_PROMPT = `### Mục tiêu
 Refactor module thanh toán sang kiến trúc hướng sự kiện, đảm bảo bảo mật và hiệu năng.
@@ -19,6 +20,7 @@ Refactor module thanh toán sang kiến trúc hướng sự kiện, đảm bảo
 type Seen = {
   contexts: string[][]
   steps: Array<{ model: string; effort?: TurnStepInput['effort'] }>
+  toasts: string[]
 }
 
 /**
@@ -27,7 +29,7 @@ type Seen = {
  */
 function base(on: On, engine: { failFamily?: string } = {}): Seen {
   mock.clock(on, { now: 1000 })
-  const seen: Seen = { contexts: [], steps: [] }
+  const seen: Seen = { contexts: [], steps: [], toasts: [] }
   on('prompt.submit', ($, e) => {
     seen.contexts.push([...(e.context ?? [])])
     return { text: e.text, context: e.context }
@@ -43,7 +45,10 @@ function base(on: On, engine: { failFamily?: string } = {}): Seen {
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
   on('prompt.compose', () => ({ sections: [] }))
   on('session.end', () => ({ sessionId: 's1' }))
-  on('ui.toast', () => ({ value: undefined }))
+  on('ui.toast', (_$, e) => {
+    seen.toasts.push(e.text)
+    return { value: undefined }
+  })
   on('ui.status', () => ({ value: undefined }))
   return seen
 }
@@ -109,9 +114,17 @@ describe('điều phối luồng chính', () => {
     expect(second?.model).toBe('claude-opus-5-5')
   })
 
-  test('việc vặt ở turn đầu chạy haiku/low', HEURISTIC, async ($, on) => {
+  test('việc sửa code nhỏ ở turn đầu chạy sonnet/medium: việc sửa không bao giờ giao cho haiku', HEURISTIC, async ($, on) => {
     const seen = base(on)
     await submit($, 'sửa typo trong README')
+    const got = await step($, seen)
+    expect(got?.model).toBe('claude-sonnet-5-5')
+    expect(got?.effort).toBe('medium')
+  })
+
+  test('hỏi đáp đơn giản ở turn đầu chạy haiku/low', HEURISTIC, async ($, on) => {
+    const seen = base(on)
+    await submit($, 'Liệt kê các hàm export trong utils.ts')
     const got = await step($, seen)
     expect(got?.model).toBe('claude-haiku-5-5')
     expect(got?.effort).toBe('low')
@@ -144,6 +157,138 @@ describe('điều phối subagent', () => {
     expect(seen[0]?.model).toBeDefined()
     expect(seen[0]?.effort).toBeDefined()
     expect(seen[1]?.model).toBe('opus')
+  })
+})
+
+describe('nhiều subagent trong một phiên', () => {
+  test('mỗi subagent nhận model theo việc của nó, không thấp hơn sàn của mục tiêu khó', HEURISTIC, async ($, on) => {
+    base(on)
+    const seen: Array<string | undefined> = []
+    on('tool.call', { tool: 'Agent' }, (_$, e) => {
+      seen.push(e.model)
+      return { deny: 'test: đã ghi nhận đầu vào' }
+    })
+    await submit($, COMPLEX_PROMPT)
+    await $.tool.call({ tool: 'Agent', description: 'Tìm file auth', prompt: 'Tìm trong codebase các file xử lý đăng nhập và liệt kê đường dẫn.' })
+    await $.tool.call({ tool: 'Agent', description: 'Sửa login', prompt: 'Sửa hàm login trong src/auth.ts để kiểm tra mật khẩu đúng cách' })
+    expect(seen[0]).toBe('haiku')
+    expect(seen[1]).toBe('opus')
+  })
+
+  test('model Claude chỉ định thấp hơn mức việc khó cần thì được nâng lên sàn', HEURISTIC, async ($, on) => {
+    base(on)
+    const seen: Array<string | undefined> = []
+    on('tool.call', { tool: 'Agent' }, (_$, e) => {
+      seen.push(e.model)
+      return { deny: 'test: đã ghi nhận đầu vào' }
+    })
+    await submit($, COMPLEX_PROMPT)
+    await $.tool.call({
+      tool: 'Agent',
+      description: 'Sửa login',
+      prompt: 'Sửa hàm login trong src/auth.ts để kiểm tra mật khẩu đúng cách',
+      model: 'haiku',
+    })
+    expect(seen[0]).toBe('opus')
+  })
+
+  test('chi phí đo được của subagent cộng vào đúng agent, không vào luồng chính', HEURISTIC, async ($, on) => {
+    base(on)
+    on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: 'agent-1' }))
+    on('turn.complete', () => ({ text: '' }))
+    await submit($, COMPLEX_PROMPT)
+    const spawned = await $.agent.spawn({ prompt: 'Tìm trong codebase các file xử lý đăng nhập', description: 'Tìm file auth', subagentType: 'Explore' } as never)
+    await $.turn.complete({
+      turnId: 'ag1',
+      agentId: spawned.agentId,
+      answer: 'ok',
+      durationMs: 5,
+      isAborted: false,
+      reason: 'answer',
+      usage: { ...BIG_USAGE, model: 'claude-haiku-5-5' },
+    } as never)
+    const status = String((await conductor($, 'status')).text)
+    expect(status).toContain('subagent $0.035 trong 1 lượt')
+    expect(status).toContain('luồng chính $0.0000 trong 0 lượt')
+    expect(status).toContain('Tìm file auth: haiku $0.035')
+  })
+
+  test('subagent lỗi rồi được giao lại cùng việc thì lần giao lại nâng một bậc', HEURISTIC, async ($, on) => {
+    base(on)
+    on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'agent-9' }))
+    on('turn.complete', () => ({ text: '' }))
+    const seen: Array<string | undefined> = []
+    on('tool.call', { tool: 'Agent' }, (_$, e) => {
+      seen.push(e.model)
+      return { result: 'đã giao' }
+    })
+    const description = 'Sửa nút lệch'
+    const prompt = 'Sửa lỗi hiển thị nút bị lệch trên trang đăng nhập'
+    await submit($, 'sửa typo trong README')
+    await $.tool.call({ tool: 'Agent', tool_use_id: 'u1', description, prompt })
+    await $.agent.spawn({ prompt, description, tool_use_id: 'u1' } as never)
+    await $.turn.complete({ turnId: 'ag-9', agentId: 'agent-9', answer: '', durationMs: 1, isAborted: false, reason: 'error' } as never)
+    await $.tool.call({ tool: 'Agent', tool_use_id: 'u2', description, prompt })
+    expect(seen[0]).toBe('sonnet')
+    expect(seen[1]).toBe('opus')
+  })
+
+  test('giao hơn sáu subagent trong một mục tiêu thì cảnh báo chi phí đúng một lần', HEURISTIC, async ($, on) => {
+    const seen = base(on)
+    on('tool.call', { tool: 'Agent' }, () => ({ deny: 'test: đã ghi nhận đầu vào' }))
+    await submit($, COMPLEX_PROMPT)
+    for (let i = 0; i < 8; i++) {
+      await $.tool.call({ tool: 'Agent', description: `Tìm ${i}`, prompt: `Tìm file số ${i} trong codebase` })
+    }
+    expect(seen.toasts.filter(t => t.includes('đã giao 7 subagent')).length).toBe(1)
+  })
+})
+
+describe('chi phí luồng chính và nâng cấp theo bằng chứng', () => {
+  test('turn luồng chính kết thúc: chi phí đo được cộng vào nhóm luồng chính', HEURISTIC, async ($, on) => {
+    base(on)
+    on('turn.complete', () => ({ text: '' }))
+    await submit($, 'sửa typo trong README')
+    await $.turn.complete({
+      turnId: 't1',
+      answer: 'ok',
+      durationMs: 5,
+      isAborted: false,
+      reason: 'answer',
+      usage: { ...BIG_USAGE, model: 'claude-sonnet-5-5' },
+    } as never)
+    const status = String((await conductor($, 'status')).text)
+    expect(status).toContain('luồng chính $0.700 trong 1 lượt')
+    expect(status).toContain('subagent $0.0000 trong 0 lượt')
+  })
+
+  test('ba tool call lỗi trong một turn thì turn sau nâng effort một bậc', HEURISTIC, async ($, on) => {
+    const seen = base(on)
+    on('tool.call', { tool: 'Bash' }, () => ({ result: 'lỗi', isError: true }))
+    await submit($, 'sửa typo trong README')
+    await step($, seen, { turnId: 't1' })
+    for (const file of ['a.txt', 'b.txt', 'c.txt']) await $.tool.call({ tool: 'Bash', command: `cat ${file}` })
+    const second = await step($, seen, { turnId: 't2', index: 1, messageCount: 3 })
+    expect(second?.model).toBe('claude-sonnet-5-5')
+    expect(second?.effort).toBe('high')
+  })
+})
+
+describe('chính sách model của phiên', () => {
+  test('sessionModel ceiling: luồng chính không vượt model của phiên', { options: { analyzer: 'heuristic', sessionModel: 'ceiling' } }, async ($, on) => {
+    const seen = base(on)
+    await submit($, COMPLEX_PROMPT)
+    const got = await step($, seen, { model: 'claude-sonnet-5-5', effort: 'medium' })
+    expect(got?.model).toBe('claude-sonnet-5-5')
+    expect(got?.effort).toBe('medium')
+  })
+
+  test('sessionModel fixed: giữ model của phiên, chỉ effort được chọn lại', { options: { analyzer: 'heuristic', sessionModel: 'fixed' } }, async ($, on) => {
+    const seen = base(on)
+    await submit($, 'Liệt kê các hàm export trong utils.ts')
+    const got = await step($, seen, { model: 'claude-sonnet-5-5', effort: 'high' })
+    expect(got?.model).toBe('claude-sonnet-5-5')
+    expect(got?.effort).toBe('low')
   })
 })
 

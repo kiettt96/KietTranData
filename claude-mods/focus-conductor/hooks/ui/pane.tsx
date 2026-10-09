@@ -5,6 +5,7 @@
 import type { Elements, RenderElement, RenderSurface } from 'claude-code'
 
 import type { Mode } from '../../types'
+import { formatUsd, ledgerLines } from '../lib/ledger'
 import { describePick } from '../lib/route'
 import type { View } from '../lib/state'
 import { mark, progress } from '../lib/text'
@@ -88,7 +89,7 @@ export function renderPane(t: Elements[RenderSurface], view: View, handlers: Pan
         {section('Mục tiêu')}
         <Text wrap="wrap">{brief.goal}</Text>
         <Text dimColor wrap="wrap">
-          {brief.tier} (điểm {brief.score}; {brief.signals.slice(0, 5).join(', ')}; nguồn {brief.source})
+          {brief.depth} · khối lượng {brief.volume} · {brief.kind} (điểm {brief.score}; {brief.signals.slice(0, 5).join(', ')}; nguồn {brief.source})
         </Text>
       </Box>
       <Box flexDirection="column">
@@ -107,12 +108,20 @@ export function renderPane(t: Elements[RenderSurface], view: View, handlers: Pan
         {section('Điều phối luồng chính')}
         {route ? (
           <Text wrap="wrap">
-            {describePick(route)} cho việc {route.tier}
+            {describePick(route)} cho việc {brief.depth}, khối lượng {brief.volume}
             <Text dimColor> ({route.reason})</Text>
           </Text>
         ) : (
           <Text dimColor>Chưa áp dụng; luồng chính đang dùng model của phiên.</Text>
         )}
+      </Box>
+      <Box flexDirection="column">
+        {section('Chi phí ước tính')}
+        {ledgerLines(view.core.ledger).map(line => (
+          <Text wrap="wrap" dimColor>
+            {line}
+          </Text>
+        ))}
       </Box>
       <Box flexDirection="column">
         {section('Nhật ký điều phối')}
@@ -123,6 +132,7 @@ export function renderPane(t: Elements[RenderSurface], view: View, handlers: Pan
             <Text wrap="truncate-end" dimColor={!entry.isApplied}>
               {entry.where === 'main' ? 'chính' : (entry.agentType ?? 'agent')} · {entry.family}
               {entry.effort ? `/${entry.effort}` : ''} · {entry.label}: {entry.reason}
+              {entry.usd !== undefined ? ` · ${formatUsd(entry.usd)}${entry.measured ? '' : ' (ước tính)'}` : ''}
               {entry.isApplied ? '' : ' (không áp dụng)'}
             </Text>
           ))

@@ -1,39 +1,34 @@
-// Điều phối model / effort / agent theo độ phức tạp.
+// Điều phối model / effort / agent theo bản chất việc.
 //
-// Nguyên tắc chi phí (giá mỗi 1M token input/output, Claude API, 2026-10):
-//   Haiku 5.5 $0.10/$0.50, Sonnet 5.5 $2/$10, Opus 5.5 $4/$20, Fable 5.1 $10/$50.
-// Prompt cache gắn với từng model, và đổi effort giữa hội thoại cũng làm mất
-// cache phần messages. Vì vậy:
-//   - Luồng chính: chốt model + effort một lần ở step đầu của mỗi turn và giữ
-//     nguyên cho mọi step trong turn. Giữa các turn chỉ đổi khi hội thoại còn
-//     ngắn, khi bắt đầu mục tiêu mới, hoặc khi cần nâng cấp (việc khó hơn).
-//     Hạ cấp giữa chừng một mục tiêu dài bị giữ lại (hysteresis).
-//   - Subagent: mỗi subagent là một hội thoại mới, không có cache để mất, nên
-//     đây là nơi điều phối tiết kiệm nhất; chọn theo độ khó của từng nhiệm vụ.
+// Nguyên tắc (giá Claude API 2026-10, xem cost.ts):
+//   - Model theo độ sâu: none → haiku; light → sonnet; substantial → opus;
+//     hard → opus (fable nếu bật allowFable). Việc sửa code không bao giờ haiku.
+//   - Effort theo khối lượng và bản chất việc, không dùng max mặc định.
+//   - Luồng chính: chốt model + effort một lần ở step đầu của mỗi turn, giữ cho
+//     mọi step trong turn. Đổi giữa turn chỉ khi lợi ích trong các turn còn lại
+//     vượt chi phí ghi lại cache, hoặc khi nâng cấp vì chất lượng.
+//   - Subagent: hội thoại riêng, không có cache của luồng chính để mất. Việc con
+//     sửa hoặc điều tra không thấp hơn một bậc so với mục tiêu cha.
 
 import type { PluginOptions } from 'claude-code'
 
-import type { Effort, ModelFamily, Route, Tier } from '../../types'
-import { fold, scoreComplexity, tierFromScore, tierRank } from './analyze'
+import type { Depth, Effort, Kind, ModelFamily, Route, Tier, Volume } from '../../types'
+import { assessText, fold } from './analyze'
+import { SAFETY, shouldDowngrade, switchCost, turnCost } from './cost'
+import { depthRank, legacyOf, maxDepth, stepDepth, tierOf } from './scale'
 
 export const FAMILIES: readonly ModelFamily[] = ['haiku', 'sonnet', 'opus', 'fable']
 export const EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max']
 
 export type Choice = { family: ModelFamily; effort: Effort }
-type Policy = { main: Choice; agent: Choice; toolBudget: number }
 
-/** Bảng chính sách theo tier: model luồng chính, model subagent, ngân sách tool call. */
-export const POLICY: Record<Tier, Policy> = {
-  trivial: { main: { family: 'haiku', effort: 'low' }, agent: { family: 'haiku', effort: 'low' }, toolBudget: 8 },
-  simple: { main: { family: 'sonnet', effort: 'low' }, agent: { family: 'haiku', effort: 'low' }, toolBudget: 15 },
-  moderate: {
-    main: { family: 'sonnet', effort: 'medium' },
-    agent: { family: 'sonnet', effort: 'low' },
-    toolBudget: 30,
-  },
-  complex: { main: { family: 'opus', effort: 'high' }, agent: { family: 'sonnet', effort: 'medium' }, toolBudget: 60 },
-  deep: { main: { family: 'opus', effort: 'xhigh' }, agent: { family: 'opus', effort: 'medium' }, toolBudget: 100 },
-}
+/** Ngân sách tool call theo tier (tier suy ra từ depth và volume). */
+export const TOOL_BUDGET: Record<Tier, number> = { trivial: 8, simple: 15, moderate: 30, complex: 60, deep: 100 }
+
+/** Chính sách model của phiên: auto (mod chọn), ceiling (không vượt model phiên), fixed (giữ model phiên). */
+export type SessionPolicy = 'auto' | 'ceiling' | 'fixed'
+
+export type SessionModel = { family: ModelFamily; policy: SessionPolicy }
 
 const DEFAULT_IDS: Record<ModelFamily, string> = {
   haiku: 'claude-haiku-5-5',
@@ -41,9 +36,6 @@ const DEFAULT_IDS: Record<ModelFamily, string> = {
   opus: 'claude-opus-5-5',
   fable: 'claude-fable-5-1',
 }
-
-/** Hội thoại ngắn hơn ngưỡng này thì đổi model gần như không mất gì về cache. */
-export const SMALL_PREFIX_MESSAGES = 6
 
 export function familyRank(family: ModelFamily): number {
   return FAMILIES.indexOf(family)
@@ -98,26 +90,107 @@ export function resolveModelId(
   return `${prefix}${DEFAULT_IDS[family]}`
 }
 
-/** Lựa chọn mong muốn cho luồng chính, có tính cấu hình Fable và họ model bị chặn. */
-export function wantedMain(tier: Tier, options: PluginOptions, blocked: ReadonlySet<ModelFamily>): Choice {
-  const base = tier === 'deep' && options['allowFable'] === true
-    ? { family: 'fable' as const, effort: 'high' as const }
-    : POLICY[tier].main
-  return avoidBlocked(base, blocked)
+/** Effort lên (by > 0, kẹp ở xhigh) hoặc xuống (by < 0). Max do người dùng chọn thì giữ nguyên khi lên. */
+export function bumpEffort(effort: Effort, by: number): Effort {
+  const cap = effortRank('xhigh')
+  if (by > 0 && effortRank(effort) > cap) return effort
+  const next = effortRank(effort) + by
+  return EFFORTS[by > 0 ? Math.min(cap, next) : Math.max(0, next)] ?? effort
 }
 
-/** Họ model bị chặn (lỗi API trước đó) thì lùi về họ thấp hơn gần nhất. */
-export function avoidBlocked(pick: Choice, blocked: ReadonlySet<ModelFamily>): Choice {
+/** Model theo độ sâu. Việc sửa hoặc hỗn hợp không bao giờ xuống haiku. */
+export function familyFor(depth: Depth, kind: Kind, allowFable: boolean): ModelFamily {
+  if (depth === 'hard') return allowFable ? 'fable' : 'opus'
+  if (depth === 'substantial') return 'opus'
+  if (depth === 'light') return 'sonnet'
+  return kind === 'edit' || kind === 'mixed' ? 'sonnet' : 'haiku'
+}
+
+/**
+ * Effort theo model, khối lượng và bản chất việc. Haiku luôn low. Sonnet cho
+ * trả lời ở low, sửa ở medium, điều tra khối lượng lớn ở high. Opus substantial
+ * sửa hoặc việc lớn ở high, còn lại medium; opus hard ở high khi việc nhỏ, xhigh
+ * khi vừa hoặc lớn.
+ */
+export function effortFor(family: ModelFamily, depth: Depth, volume: Volume, kind: Kind): Effort {
+  if (family === 'haiku') return 'low'
+  if (family === 'sonnet') {
+    if (kind === 'answer') return 'low'
+    if (kind === 'investigate') return volume === 'large' ? 'high' : 'medium'
+    return 'medium'
+  }
+  if (family === 'fable') return 'high'
+  if (depth === 'substantial') return volume === 'large' || kind === 'edit' || kind === 'mixed' ? 'high' : 'medium'
+  return volume === 'small' ? 'high' : 'xhigh'
+}
+
+/** Họ bị chặn (lỗi API) thì ưu tiên chất lượng: lên fable nếu được phép, nếu không thì xuống họ thấp hơn và tăng effort một bậc. */
+export function avoidBlocked(
+  pick: Choice,
+  blocked: ReadonlySet<ModelFamily>,
+  ctx: { kind: Kind; allowFable: boolean },
+): Choice {
   if (!blocked.has(pick.family)) return pick
+  if (pick.family === 'opus' && ctx.allowFable && !blocked.has('fable')) return { family: 'fable', effort: pick.effort }
   for (let rank = familyRank(pick.family) - 1; rank >= 0; rank--) {
     const family = FAMILIES[rank]
-    if (family && !blocked.has(family)) return { family, effort: pick.effort }
+    if (!family || blocked.has(family)) continue
+    if (family === 'haiku' && (ctx.kind === 'edit' || ctx.kind === 'mixed')) continue
+    return { family, effort: bumpEffort(pick.effort, 1) }
   }
   for (let rank = familyRank(pick.family) + 1; rank < FAMILIES.length; rank++) {
     const family = FAMILIES[rank]
     if (family && !blocked.has(family)) return { family, effort: pick.effort }
   }
   return pick
+}
+
+/** Model luồng chính mong muốn cho một việc, có nâng theo bằng chứng và chính sách model phiên. */
+export function chooseMain(args: {
+  depth: Depth
+  volume: Volume
+  kind: Kind
+  allowFable: boolean
+  depthLift?: number
+  effortLift?: number
+  blocked?: ReadonlySet<ModelFamily>
+  session?: SessionModel | null
+}): Choice & { capped: boolean } {
+  const depth = stepDepth(args.depth, args.depthLift ?? 0)
+  const natural = familyFor(depth, args.kind, args.allowFable)
+  let family = natural
+  const session = args.session ?? null
+  if (session && session.policy === 'fixed') family = session.family
+  if (session && session.policy === 'ceiling' && familyRank(natural) > familyRank(session.family)) family = session.family
+  const effort = bumpEffort(effortFor(family, depth, args.volume, args.kind), args.effortLift ?? 0)
+  const pick = avoidBlocked({ family, effort }, args.blocked ?? new Set(), args)
+  return { ...pick, capped: family !== natural }
+}
+
+/** Chọn model luồng chính mong muốn cho một brief (đã có depth, volume, kind). */
+export function wantedMain(
+  brief: { depth: Depth; volume: Volume; kind: Kind },
+  lift: { depth: number; effort: number },
+  options: PluginOptions,
+  blocked: ReadonlySet<ModelFamily>,
+  session: SessionModel | null,
+): Choice & { capped: boolean } {
+  return chooseMain({
+    depth: brief.depth,
+    volume: brief.volume,
+    kind: brief.kind,
+    allowFable: options['allowFable'] === true,
+    depthLift: lift.depth,
+    effortLift: lift.effort,
+    blocked,
+    session,
+  })
+}
+
+/** Một bậc cao hơn cho việc đã thất bại: họ model lên một bậc (fable chỉ khi được phép) và effort lên một bậc. */
+export function raisePick(pick: Choice, allowFable: boolean): Choice {
+  const up = pick.family === 'opus' && !allowFable ? 'opus' : FAMILIES[Math.min(FAMILIES.length - 1, familyRank(pick.family) + 1)]
+  return { family: up ?? pick.family, effort: bumpEffort(pick.effort, 1) }
 }
 
 export type MainDecision = {
@@ -132,65 +205,71 @@ export type MainDecision = {
 }
 
 /**
- * Quyết định model + effort của luồng chính cho một turn, có tính chi phí cache.
+ * Quyết định model + effort của luồng chính cho một turn, theo chi phí token.
+ * Nâng cấp luôn được phép. Hạ cấp chỉ khi lợi ích trong các turn còn lại vượt
+ * chi phí ghi lại cache. Cache đã nguội hoặc vừa nén thì đổi không mất gì.
  */
 export function decideMain(args: {
   current: Route | null
   wanted: Choice
+  volume: Volume
   tier: Tier
   goalId: number
-  messageCount: number
-  isNewGoal: boolean
+  /** Số token ngữ cảnh hiện tại. */
+  context: number
+  /** Cửa sổ ngữ cảnh của phiên (token). */
+  window: number
+  /** Số turn còn lại dự kiến: 2 cho mục tiêu mới, 1 cho tiếp nối. */
+  turnsLeft: number
+  /** Cache đã nguội hoặc vừa nén: đổi không mất chi phí ghi lại. */
+  isFree: boolean
+  calib: Record<ModelFamily, number>
 }): MainDecision {
-  const { current, wanted, tier, goalId, messageCount, isNewGoal } = args
+  const { current, wanted, volume, tier, goalId, context, window, turnsLeft, isFree, calib } = args
+  const isSame = current !== null && current.family === wanted.family && current.effort === wanted.effort
   const fresh = (reason: string): MainDecision => ({
-    route: { ...wanted, tier, goalId, reason },
-    isChanged: current === null || current.family !== wanted.family || current.effort !== wanted.effort,
+    route: { family: wanted.family, effort: wanted.effort, tier, goalId, reason },
+    isChanged: !isSame,
     isHeld: false,
     wanted,
     reason,
   })
 
   if (current === null) return fresh('turn đầu tiên của phiên')
-  if (current.family === wanted.family && current.effort === wanted.effort) {
-    return { ...fresh('giữ nguyên, đúng mức cần'), isChanged: false }
+  if (isSame) return { ...fresh('giữ nguyên, đúng mức cần'), isChanged: false }
+  if (pickRank(wanted) > pickRank(current)) return fresh(`việc khó hơn, nâng cấp từ ${describePick(current)}`)
+  if (current.family !== wanted.family && context * SAFETY > window) {
+    const reason = `giữ ${describePick(current)}: ngữ cảnh gần đầy, chưa đổi sang ${describePick(wanted)}`
+    return { route: { ...current, tier, goalId, reason }, isChanged: false, isHeld: true, wanted, reason }
   }
-  if (messageCount <= SMALL_PREFIX_MESSAGES) return fresh('hội thoại còn ngắn, đổi model gần như không mất cache')
-  if (isNewGoal) return fresh('mục tiêu mới, chi phí ghi lại cache được chia đều cho cả task')
-  if (pickRank(wanted) > pickRank(current)) return fresh(`việc khó hơn (${tier}), nâng cấp`)
+  if (isFree) return fresh('cache đã nguội hoặc vừa nén, đổi không mất chi phí ghi lại')
 
-  const reason = `giữ ${describePick(current)}; hạ xuống ${describePick(wanted)} giữa chừng sẽ ghi lại toàn bộ cache`
-  return {
-    route: { ...current, tier, goalId, reason },
-    isChanged: false,
-    isHeld: true,
-    wanted,
-    reason,
+  const rewrite = switchCost(current, wanted, context)
+  const saving =
+    turnCost(current.family, current.effort, volume, context, calib[current.family]) -
+    turnCost(wanted.family, wanted.effort, volume, context, calib[wanted.family])
+  if (saving > 0 && shouldDowngrade({ saving, rewrite, turnsLeft })) {
+    return fresh(`hạ xuống ${describePick(wanted)}: tiết kiệm khoảng $${(saving * turnsLeft).toFixed(3)}, bù được chi phí ghi lại cache`)
   }
-}
-
-const READ_ONLY =
-  /\b(tim|search|find|locate|grep|liet ke|list|doc|read|explore|kham pha|tra cuu|look up|scan|quet|where|o dau|summari[sz]e|tom tat|report)\b/
-const WRITES =
-  /\b(sua|edit|write|viet|tao|create|implement|trien khai|fix|refactor|xoa|delete|remove|update|cap nhat|commit|push|install|cai dat|migrate|apply|ap dung)\b/
-
-/** Nhiệm vụ chỉ đọc: có động từ tra cứu và không có động từ ghi. */
-export function isReadOnlyTask(text: string): boolean {
-  const folded = fold(text)
-  return READ_ONLY.test(folded) && !WRITES.test(folded)
+  const reason = `giữ ${describePick(current)}: hạ xuống ${describePick(wanted)} chưa đủ lợi, ghi lại cache khoảng $${rewrite.toFixed(3)}`
+  return { route: { ...current, tier, goalId, reason }, isChanged: false, isHeld: true, wanted, reason }
 }
 
 export type AgentPlan = Choice & {
+  depth: Depth
+  volume: Volume
+  kind: Kind
   tier: Tier
+  hardSignals: string[]
   /** Loại agent đề xuất thay thế, nếu có. */
   agentType?: string
   reason: string
 }
 
 /**
- * Chọn model, effort và (khi chắc chắn) loại agent cho một subagent.
- * Prompt giao việc thường dài và chi tiết hơn prompt người dùng, nên điểm độ
- * dài bị giảm một nửa để không thổi phồng tier.
+ * Chọn model, effort và (khi chắc chắn) loại agent cho một subagent. Tra cứu chỉ
+ * đọc được xuống haiku. Việc sửa hoặc điều tra không thấp hơn một bậc so với
+ * độ sâu của mục tiêu cha.
  */
 export function planAgent(args: {
   prompt: string
@@ -198,38 +277,62 @@ export function planAgent(args: {
   subagentType: string | undefined
   offered: ReadonlySet<string>
   blocked: ReadonlySet<ModelFamily>
+  allowFable: boolean
+  parent: { depth: Depth } | null
+  session: SessionModel | null
 }): AgentPlan {
-  const text = `${args.description}\n${args.prompt}`
-  const { score } = scoreComplexity(text, { isDelegated: true })
-  let tier = tierFromScore(score)
+  const local = assessText(`${args.description}\n${args.prompt}`, { isDelegated: true })
   const type = args.subagentType ?? 'general-purpose'
-  const isReadOnly = isReadOnlyTask(text)
-  if (isReadOnly && tierRank(tier) > tierRank('moderate')) tier = 'moderate'
+  const isReadOnly = local.kind === 'answer' || local.kind === 'investigate'
+  const isLookup =
+    type === 'Explore' || (type === 'general-purpose' && isReadOnly && local.hardSignals.length === 0)
 
-  let pick: Choice = POLICY[tier].agent
-  let agentType: string | undefined
-  let reason = `nhiệm vụ ${tier}`
-
-  if (type === 'Explore' || (type === 'general-purpose' && isReadOnly)) {
-    pick = tierRank(tier) >= tierRank('moderate') ? { family: 'sonnet', effort: 'low' } : { family: 'haiku', effort: 'low' }
-    reason = `tra cứu chỉ đọc (${tier})`
-    if (type === 'general-purpose' && args.offered.has('Explore')) {
-      agentType = 'Explore'
-      reason = `tra cứu chỉ đọc (${tier}), chuyển sang Explore`
+  if (isLookup) {
+    const light = local.depth === 'none' || local.depth === 'light'
+    const family: ModelFamily = light && local.volume !== 'large' ? 'haiku' : 'sonnet'
+    const pick = avoidBlocked({ family, effort: 'low' }, args.blocked, { kind: local.kind, allowFable: args.allowFable })
+    const canExplore = type === 'general-purpose' && args.offered.has('Explore')
+    return {
+      ...pick,
+      depth: local.depth,
+      volume: local.volume,
+      kind: local.kind,
+      tier: tierOf(local.depth, local.volume),
+      hardSignals: local.hardSignals,
+      agentType: canExplore ? 'Explore' : undefined,
+      reason: `tra cứu chỉ đọc (${tierOf(local.depth, local.volume)})${canExplore ? ', chuyển sang Explore' : ''}`,
     }
-  } else if (type === 'Plan') {
-    pick = tierRank(tier) >= tierRank('complex')
-      ? { family: 'opus', effort: tier === 'deep' ? 'high' : 'medium' }
-      : { family: 'sonnet', effort: 'medium' }
-    reason = `lập kế hoạch (${tier})`
   }
 
-  return { ...avoidBlocked(pick, args.blocked), tier, agentType, reason }
+  const floor = args.parent ? stepDepth(args.parent.depth, -1) : local.depth
+  const depth = maxDepth(local.depth, floor)
+  const planned = type === 'Plan' ? maxDepth(depth, 'light') : depth
+  const choice = chooseMain({
+    depth: planned,
+    volume: local.volume,
+    kind: type === 'Plan' ? 'answer' : local.kind,
+    allowFable: args.allowFable,
+    blocked: args.blocked,
+    session: args.session,
+  })
+  const isRaised = depthRank(depth) > depthRank(local.depth)
+  return {
+    family: choice.family,
+    effort: choice.effort,
+    depth: planned,
+    volume: local.volume,
+    kind: local.kind,
+    tier: tierOf(planned, local.volume),
+    hardSignals: local.hardSignals,
+    reason: isRaised
+      ? `nâng theo mục tiêu cha (${args.parent?.depth}), việc ${local.depth}`
+      : `nhiệm vụ ${planned}`,
+  }
 }
 
 /** Gợi ý ngắn cho một bước trong checklist: model luồng chính và cách giao việc. */
 export function stepHint(tier: Tier): string {
-  const main = POLICY[tier].main
-  const agent = POLICY[tier].agent
-  return `${describePick(main)}; nếu giao subagent: ${describePick(agent)}`
+  const { depth, volume } = legacyOf(tier)
+  const main = chooseMain({ depth, volume, kind: 'mixed', allowFable: false })
+  return `${describePick(main)}; nếu giao subagent: theo độ khó của việc con`
 }
