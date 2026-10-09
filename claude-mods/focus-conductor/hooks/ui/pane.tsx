@@ -58,7 +58,7 @@ export function renderPane(t: Elements[RenderSurface], view: View, handlers: Pan
     return (
       <Box flexDirection="column" gap={1}>
         {modeRow}
-        <Text dimColor>Chưa có mục tiêu. Gửi một prompt, hoặc dùng /focus goal kèm mô tả mục tiêu.</Text>
+        <Text dimColor>Chưa có mục tiêu. Gửi một prompt, hoặc dùng /conductor goal kèm mô tả mục tiêu.</Text>
       </Box>
     )
   }

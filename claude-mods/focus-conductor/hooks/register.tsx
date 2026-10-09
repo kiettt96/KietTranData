@@ -13,7 +13,7 @@
 //                  vượt ngân sách, ngoài phạm vi, nhắc checkpoint tự kiểm tra.
 //   classic.Stop   checklist còn mở thì yêu cầu hoàn thành hoặc giải thích.
 //   turn.complete  tổng kết cảnh báo cuối turn.
-// Giao diện: band trên prompt, pane chi tiết, status line, lệnh /focus.
+// Giao diện: band trên prompt, pane chi tiết, status line, lệnh /conductor.
 
 import { atom, derive, read, update } from 'claude-code'
 import type { PromptOrigin, Register } from 'claude-code'
@@ -41,15 +41,15 @@ const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null
 /** Prompt do chính người dùng gửi (hoặc lịch họ đặt), không phải thông báo nội bộ. */
 const PERSON_ORIGINS = new Set<PromptOrigin['kind']>(['composer', 'bridge', 'sdk', 'scheduled-trigger'])
 
-/** Lệnh slash (/focus, /plugin:cmd), không phải đường dẫn như /home/... */
+/** Lệnh slash (/conductor, /plugin:cmd), không phải đường dẫn như /home/... */
 const SLASH_COMMAND = /^\/[a-z][\w:-]*(\s|$)/i
 
 const COMMAND_HELP = [
-  '/focus            mở pane Focus Conductor',
-  '/focus status     tóm tắt mục tiêu, checklist, điều phối',
-  '/focus mode X     X là auto, subagents, suggest hoặc off',
-  '/focus goal ...   đặt mục tiêu thủ công',
-  '/focus reset      xóa mục tiêu, checklist, cảnh báo và danh sách model bị chặn',
+  '/conductor             mở pane Focus Conductor',
+  '/conductor status      tóm tắt mục tiêu, checklist, điều phối',
+  '/conductor mode X      X là auto, subagents, suggest hoặc off',
+  '/conductor goal ...    đặt mục tiêu thủ công',
+  '/conductor reset       xóa mục tiêu, checklist, cảnh báo và danh sách model bị chặn',
 ].join('\n')
 
 function wordCount(text: string): number {
@@ -144,7 +144,7 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     await $.tool.register(PLAN_TOOL_SPEC)
     await $.command.register({
-      name: 'focus',
+      name: 'conductor',
       description: 'Focus Conductor: mục tiêu, checklist và điều phối model/effort/agent',
       argumentHint: '[status | mode auto|subagents|suggest|off | goal <mô tả> | reset]',
     })
@@ -398,9 +398,9 @@ export const register: Register = (on, options) => {
     return result
   })
 
-  // ------------------------------------------------------- lệnh /focus
+  // ------------------------------------------------------- lệnh /conductor
 
-  on('command.run', { command: 'focus' }, async ($, e) => {
+  on('command.run', { command: 'conductor' }, async ($, e) => {
     const [sub = '', ...rest] = e.args.trim().split(/\s+/)
     const arg = rest.join(' ').trim()
 
@@ -424,7 +424,7 @@ export const register: Register = (on, options) => {
     }
 
     if (sub === 'goal') {
-      if (arg === '') return { text: 'Cần mô tả mục tiêu: /focus goal kèm mô tả' }
+      if (arg === '') return { text: 'Cần mô tả mục tiêu: /conductor goal kèm mô tả' }
       const prev = (await read($, coreState)).brief
       const brief: Brief = { ...analyzeHeuristic(arg, null, await $.clock.now()), goalId: (prev?.goalId ?? 0) + 1 }
       await update($, coreState, S.adoptGoal(brief))
