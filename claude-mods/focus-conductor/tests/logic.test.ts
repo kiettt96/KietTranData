@@ -1116,4 +1116,55 @@ describe('prompt dài có cấu trúc (0.3.4)', () => {
     const k43 = merged.subtasks.find(s => s.title.startsWith('K4.3.'))
     expect(k43?.depth).toBe('substantial')
   })
+
+  test('rà soát 0.3.4: một ngoặc chưa đóng không nuốt các ràng buộc ở dòng sau', () => {
+    const text = ['Sửa hàm login trong src/auth.ts (lỗi khi mật khẩu rỗng', 'Không đổi API công khai.', 'Không sửa file cấu hình.', 'Phải có unit test.'].join('\n')
+    expect(analyzeHeuristic(text, null, 1).constraints).toEqual(['Không đổi API công khai.', 'Không sửa file cấu hình.', 'Phải có unit test.'])
+  })
+
+  test('rà soát 0.3.4: "không cần chạy lại các bước trong prompt" là yêu cầu thường, không phải prompt đính kèm', () => {
+    expect(splitReference('Không cần chạy lại các bước trong prompt, chỉ sửa bước 3:\n1. a\n2. b\n3. c')).toBeNull()
+  })
+
+  test('rà soát 0.3.4: tiêu đề đánh số "## 1. ..." cũng là việc theo mục; mô tả "3 file" không phải mã việc', () => {
+    const brief = analyzeHeuristic(['## 1. Đọc mã nguồn', 'x', '## 2. Đổi tên biến', 'x', '## 3. Viết test', 'x'].join('\n'), null, 1)
+    expect(brief.subtasks.map(s => s.title)).toEqual(['Đọc mã nguồn', 'Đổi tên biến', 'Viết test'])
+    expect(brief.subtasks.every(s => s.from === 'section')).toBe(true)
+    expect(matchSubtask(brief.subtasks, '3 file controller cần đổi tên', 'Đổi tên trong 3 file')).toBeUndefined()
+  })
+
+  test('rà soát 0.3.4: tài liệu có nhiều tiêu đề cấp 1 thì "# Bối cảnh" đầu tiên vẫn là khối bối cảnh', () => {
+    const text = ['# Bối cảnh', 'Hệ thống cũ không được sửa vì đã khóa.', '# Việc cần làm', '1. Đọc file a.ts', '2. Sửa file b.ts'].join('\n')
+    expect(analyzeHeuristic(text, null, 1).constraints).toEqual([])
+  })
+
+  test('rà soát 0.3.4: câu "Đích là ..." dài bị cắt vẫn không lặp lại trong ràng buộc', () => {
+    const goal = `Đích là ${'engine ra quyết định đúng luật và không phải bộ kiểm '.repeat(5)}.`
+    const brief = analyzeHeuristic(`${goal}\nLàm việc A.\nLàm việc B.`, null, 1)
+    expect(brief.goal.endsWith('...')).toBe(true)
+    expect(brief.constraints.some(c => c.startsWith('Đích là'))).toBe(false)
+  })
+
+  test('rà soát 0.3.4: việc tách từ đoạn văn ghi nguồn là vế đoạn văn', () => {
+    const brief = analyzeHeuristic('Đọc file config.ts và liệt kê biến môi trường. Sau đó sửa lỗi nút đăng nhập trên mobile. Cuối cùng viết unit test cho hàm refund.', null, 1)
+    expect(brief.subtasks.length).toBe(3)
+    expect(brief.subtasks.every(s => s.from === 'clause')).toBe(true)
+  })
+
+  test('rà soát 0.3.4: đoạn "Xong khi:" trong thân việc là tiêu chí, không phải ràng buộc', () => {
+    const text = ['### K1. Đọc', 'Đọc a.', '**Xong khi:** không còn ca đỏ, không đổi kỳ vọng nào.', '### K2. Sửa', 'Sửa b.', '### K3. Kiểm', 'Kiểm c.'].join('\n')
+    const brief = analyzeHeuristic(text, null, 1)
+    expect(brief.constraints).toEqual([])
+    expect(brief.quality).toEqual(['Xong khi: không còn ca đỏ, không đổi kỳ vọng nào.'])
+  })
+
+  test('rà soát 0.3.4: lượt chỉ đối chiếu không mang tín hiệu khó của prompt đính kèm', () => {
+    const brief = analyzeHeuristic(`${K4_META_LEAD}\n\n${K4_PROMPT}`, null, 1)
+    expect(brief.hardSignals).toEqual([])
+  })
+
+  test('rà soát 0.3.4: việc mở đầu bằng số đếm ("3 file ...") không khớp mô tả cũng mở đầu bằng số', () => {
+    const subtasks = assessSubtasks(['3 file controller: đổi tên userId', 'Viết test cho hàm refund', 'Cập nhật README phần cài đặt'])
+    expect(matchSubtask(subtasks, '3 lỗi trong log cần đọc', 'Đọc log lỗi')).toBeUndefined()
+  })
 })

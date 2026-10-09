@@ -161,21 +161,22 @@ function countMatches(text: string, pattern: RegExp): number {
 }
 
 function sentences(text: string): string[] {
-  const pieces = text
+  return text
     .split('\n')
     .filter(line => !/^\s*(?:#{1,6}\s|\|)/.test(line))
-    .join('\n')
-    .split(/\n+|(?<=[.;?])\s+/)
-    .map(clean)
-  // Chấm phẩy nằm trong ngoặc chưa đóng: vế sau là phần còn lại của cùng một câu, ghép lại.
-  const merged: string[] = []
-  for (const piece of pieces) {
-    const last = merged.length - 1
-    const open = last >= 0 && countMatches(merged[last] ?? '', /\(/g) > countMatches(merged[last] ?? '', /\)/g)
-    if (open) merged[last] = `${merged[last]} ${piece}`
-    else merged.push(piece)
-  }
-  return merged.filter(s => s.length >= 6 && !isMeta(s))
+    .flatMap(line => {
+      // Chấm phẩy nằm trong ngoặc chưa đóng: vế sau là phần còn lại của cùng một câu, ghép lại.
+      // Chỉ ghép trong một dòng, để một ngoặc thiếu không nuốt các dòng sau.
+      const merged: string[] = []
+      for (const piece of line.split(/(?<=[.;?])\s+/).map(clean)) {
+        const last = merged.length - 1
+        const open = last >= 0 && countMatches(merged[last] ?? '', /\(/g) > countMatches(merged[last] ?? '', /\)/g)
+        if (open) merged[last] = `${merged[last]} ${piece}`
+        else merged.push(piece)
+      }
+      return merged
+    })
+    .filter(s => s.length >= 6 && !isMeta(s))
 }
 
 /** Giữ mục đầu tiên của mỗi giá trị trùng y hệt (sau khi bỏ dấu); dùng cho đường dẫn. */
@@ -262,6 +263,8 @@ const NON_TASK_BLOCK =
 const ACCEPTANCE_BLOCK = /\b(xong khi|hoan thanh khi|dat khi|done when|acceptance|definition of done|tieu chi|criteria)\b/
 // Khối bối cảnh, bằng chứng, phụ lục: mô tả hiện trạng, không đặt luật hay tiêu chí.
 const BACKGROUND_BLOCK = /\b(boi canh|background|bang chung|evidence|phu luc|appendix)\b/
+// Đoạn "Xong khi: ..." nằm ngay trong thân một việc.
+const INLINE_ACCEPTANCE = /^(?:xong khi|hoan thanh khi|dat khi|done when|definition of done|acceptance(?: criteria)?)\s*:/
 // Tiêu đề mở đầu bằng mã việc: "K4.1.", "2.", "Bước 3", "Task 2", "Phần 1".
 const TASK_CODE = /^(?:[a-z]{0,3}\d+(?:\.\d+)*\.?\s|(?:buoc|viec|phan|giai doan|step|task|phase|part)\s*\d+\b)/
 const CODE_PREFIX = /^[a-z]{0,3}\d+(?:\.\d+)*\.?\s+/
@@ -274,6 +277,8 @@ type BlockFlags = { nonTask: boolean[]; acceptance: boolean[]; background: boole
 function blockFlags(lines: readonly string[]): BlockFlags {
   const stack: { level: number; nonTask: boolean; acceptance: boolean; background: boolean }[] = []
   const flags: BlockFlags = { nonTask: [], acceptance: [], background: [] }
+  // Tài liệu chỉ có một tiêu đề cấp 1 ở đầu: đó là tên tài liệu. Có nhiều cấp 1 thì mỗi cái là một khối.
+  const singleTitle = lines.filter(line => MD_HEADING.exec(line)?.[1] === '#').length === 1
   let seenText = false
   for (const line of lines) {
     const heading = MD_HEADING.exec(line)
@@ -281,8 +286,8 @@ function blockFlags(lines: readonly string[]): BlockFlags {
       const level = heading[1]?.length ?? 1
       while ((stack[stack.length - 1]?.level ?? 0) >= level) stack.pop()
       const title = fold(clean(heading[2] ?? ''))
-      // Tiêu đề cả tài liệu (dòng # đầu tiên) bao cả prompt, không phải một khối: không gắn cờ.
-      const isDocumentTitle = level === 1 && !seenText
+      // Tên tài liệu (dòng # đầu tiên, duy nhất) bao cả prompt, không phải một khối: không gắn cờ.
+      const isDocumentTitle = level === 1 && !seenText && singleTitle
       stack.push({
         level,
         nonTask: !isDocumentTitle && NON_TASK_BLOCK.test(title),
@@ -355,11 +360,14 @@ function sectionTasks(lines: readonly string[]): Section[] {
   const flags = blockFlags(lines)
   const heads = lines.flatMap((line, i) => {
     const heading = MD_HEADING.exec(line)
-    return heading ? [{ i, level: heading[1]?.length ?? 1, title: clean(heading[2] ?? '') }] : []
+    if (!heading) return []
+    // Mã việc thử trên tiêu đề gốc: clean() gỡ số thứ tự "1. " nên "## 1. Đọc mã" mới nhận ra được.
+    const raw = (heading[2] ?? '').replace(/\*\*|__|`/g, '').trim()
+    return [{ i, level: heading[1]?.length ?? 1, title: clean(raw), coded: TASK_CODE.test(fold(raw)) }]
   })
   const byLevel = new Map<number, typeof heads>()
   for (const head of heads) {
-    if (flags.nonTask[head.i] || !TASK_CODE.test(fold(head.title))) continue
+    if (flags.nonTask[head.i] || !head.coded) continue
     byLevel.set(head.level, [...(byLevel.get(head.level) ?? []), head])
   }
   const best = [...byLevel.values()].sort((a, b) => b.length - a.length)[0] ?? []
@@ -876,7 +884,7 @@ export function localRelation(text: string, prev: Brief | null): Relation {
 // prompt đính kèm, chỉ dùng để test...". Phải nhắc tới prompt/đính kèm, nên "không cần
 // chạy test, chỉ sửa file bên dưới" không bị nhận nhầm.
 const REFERENCE_LEAD =
-  /\b(?:khong (?:can )?(?:chay|thuc hien|thi hanh|lam)(?: lai)? (?:[a-z]+ ){0,3}(?:prompt|tep|doan|noi dung)|chi dung (?:prompt|tep|doan|noi dung)\b.{0,60}\bde (?:test|thu|danh gia|kiem tra)|(?:do not|don't|no need to) (?:run|execute) (?:the |this |that )?(?:attached |below )?(?:prompt|file)|only use (?:the )?(?:attached )?prompt)\b/
+  /\b(?:khong (?:can )?(?:chay|thuc hien|thi hanh|lam)(?: lai)? (?:cai )?(?:prompt|tep|doan|noi dung)|chi dung (?:prompt|tep|doan|noi dung)\b.{0,60}\bde (?:test|thu|danh gia|kiem tra)|(?:do not|don't|no need to) (?:run|execute) (?:the |this |that )?(?:attached |below )?(?:prompt|file)|only use (?:the )?(?:attached )?prompt)\b/
 
 /**
  * Tách prompt có câu mở "không chạy prompt đính kèm": dòng đầu là câu mở, phần còn lại là
@@ -914,7 +922,7 @@ function analyzeReference(text: string, reference: { lead: string; attached: str
     depth: 'light',
     volume: 'small',
     kind: 'answer',
-    hardSignals: inner.hardSignals,
+    hardSignals: [],
     tier: tierOf('light', 'small'),
     score: lead.score,
     signals: ['answer', 'prompt đính kèm, chỉ đối chiếu'],
@@ -946,17 +954,27 @@ export function analyzeHeuristic(text: string, prev: Brief | null, now: number):
   const sections = sectionTasks(lines)
   const steps = sections.length > 0 ? sections.map(s => s.title) : extractSteps(lines)
   // Điều kiện nghiệm thu và bối cảnh không chứa ràng buộc của người dùng: chỉ các khối còn lại được chấm.
-  const rule = sentences(lines.filter((_, i) => !flags.acceptance[i] && !flags.background[i]).join('\n'))
+  // Dòng "Xong khi: ..." trong thân một việc cũng là điều kiện nghiệm thu, không phải ràng buộc.
+  const inlineAcceptance = lines.filter(line => INLINE_ACCEPTANCE.test(fold(clean(line))))
+  const rule = sentences(
+    lines
+      .filter((line, i) => !flags.acceptance[i] && !flags.background[i] && !INLINE_ACCEPTANCE.test(fold(clean(line))))
+      .join('\n'),
+  )
   // Mục việc trong danh sách là việc phải làm, không phải tiêu chí chất lượng.
   const workItems = steps.filter(isWorkItem)
   // Câu tự nêu mục tiêu ("Đích là ...") không phải là ràng buộc.
-  const stated = GOAL_INLINE.test(fold(goal)) ? fold(goal) : ''
+  const stated = GOAL_INLINE.test(fold(goal)) ? fold(goal).replace(/\.\.\.$/, '') : ''
   const constraints = unique(
     rule.filter(s => CONSTRAINT.test(fold(s)) && !isLeadIn(s) && !(stated !== '' && fold(s).includes(stated))).map(s => clip(s, 140)),
     8,
   )
   // Tiêu chí: mục của điều kiện nghiệm thu trước, rồi các câu chất lượng còn lại.
-  const criteria = [...acceptanceItems(lines), ...rule.filter(s => QUALITY.test(fold(s)) && !isLeadIn(s))]
+  const criteria = [
+    ...acceptanceItems(lines),
+    ...inlineAcceptance.map(line => clip(clean(line), 140)),
+    ...rule.filter(s => QUALITY.test(fold(s)) && !isLeadIn(s)),
+  ]
   const quality = unique(
     criteria.filter(s => !workItems.some(item => isSameIdea(item, s))).map(s => clip(s, 140)),
     QUALITY_LIMIT,
@@ -998,7 +1016,9 @@ export function analyzeHeuristic(text: string, prev: Brief | null, now: number):
     subtasks:
       sections.length > 0
         ? assessSections(sections)
-        : assessSubtasks(steps.length >= 2 ? steps : splitClauses(trimmed)),
+        : steps.length >= 2
+          ? assessSubtasks(steps)
+          : assessSubtasks(splitClauses(trimmed), 'clause'),
     constraints,
     quality,
     depth: assessed.depth,

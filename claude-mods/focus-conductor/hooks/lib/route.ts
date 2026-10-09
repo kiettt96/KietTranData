@@ -412,9 +412,12 @@ export function adviseSubtasks(args: {
   })
 }
 
-/** Mã đầu dòng của một việc có mã ("K4.1", "2.3"), viết thường; rỗng nếu không có. */
+/**
+ * Mã đầu dòng của một việc có mã ("K4.1", "2.3", "3." ), viết thường; rỗng nếu không có.
+ * Số trần phải có dấu chấm, hai chấm hoặc ngoặc theo sau, để "3 file controller" không phải mã.
+ */
 function taskCode(text: string): string {
-  return fold(text).match(/^\s*([a-z]{0,3}\d+(?:\.\d+)*)/)?.[1] ?? ''
+  return fold(text).match(/^\s*([a-z]{1,3}\d+(?:\.\d+)*|\d+(?:\.\d+)+|\d+(?=[.:)]))/)?.[1] ?? ''
 }
 
 /**
