@@ -4,7 +4,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import type { Brief, Route } from '../types'
-import { analyzeHeuristic, mergeAnalysis, scoreComplexity, tierFromScore } from '../hooks/lib/analyze'
+import { analyzeHeuristic, isMeta, mergeAnalysis, scoreComplexity, tierFromScore } from '../hooks/lib/analyze'
 import { newTracker, observe } from '../hooks/lib/drift'
 import { applyPlan } from '../hooks/lib/plan'
 import { decideMain, planAgent, resolveModelId } from '../hooks/lib/route'
@@ -60,6 +60,46 @@ describe('đọc prompt', () => {
   test('phạm vi sửa chỉ được ghi nhận khi prompt giới hạn rõ', () => {
     expect(analyzeHeuristic('xem hooks/hooks.json giúp mình', null, 1).scopePaths).toEqual([])
     expect(analyzeHeuristic('chỉ sửa src/app.ts để thêm log', null, 1).scopePaths).toEqual(['src/app.ts'])
+  })
+
+  test('câu dẫn/meta bị loại khỏi ràng buộc, tiêu chí, bước và mục tiêu', () => {
+    const prompt = `tôi gửi prompt test mods vừa cài:
+Hãy giúp tôi xây dựng một module xác thực đơn giản bằng TypeScript:
+
+1. Tạo file auth.ts chứa hàm login và logout
+2. Viết unit test cho login và logout
+
+Yêu cầu:
+- Code sạch, có type đầy đủ
+- Không dùng thư viện ngoài ngoài jsonwebtoken nếu cần`
+    const brief = analyzeHeuristic(prompt, null, 1)
+    const all = [brief.goal, ...brief.steps, ...brief.constraints, ...brief.quality]
+    expect(all.some(s => s.includes('tôi gửi prompt'))).toBe(false)
+    expect(brief.goal).toBe('Hãy giúp tôi xây dựng một module xác thực đơn giản bằng TypeScript:')
+    expect(brief.quality.some(q => q.includes('Code sạch'))).toBe(true)
+    expect(brief.constraints.some(c => c.includes('Không dùng thư viện ngoài'))).toBe(true)
+    expect(brief.steps.length).toBe(2)
+  })
+
+  test('nhận diện câu meta, không bắt nhầm yêu cầu thật', () => {
+    for (const meta of ['tôi gửi prompt test mods vừa cài:', 'Hãy test giúp mình prompt này', 'Here is the prompt I am testing', 'Đây là prompt test cho mod']) {
+      expect(isMeta(meta)).toBe(true)
+    }
+    for (const real of ['Viết unit test cho plugin thanh toán', 'Giúp anh viết nội dung email chào hàng', 'Kiểm tra lại type trước khi commit', 'Code sạch, có test đầy đủ']) {
+      expect(isMeta(real)).toBe(false)
+    }
+  })
+
+  test('chuỗi meta trong câu trả lời Haiku cũng bị loại', () => {
+    const base: Brief = analyzeHeuristic('Viết hàm parseDate có test', null, 1)
+    const merged = mergeAnalysis(
+      base,
+      null,
+      '{"goal":"tôi gửi prompt test mods vừa cài","steps":[],"constraints":[],"quality":["tôi gửi prompt test mods vừa cài","Có unit test"],"tier":"simple","isNewGoal":true}',
+    )
+    expect(merged.goal).toBe(base.goal)
+    expect(merged.quality.some(q => q.includes('tôi gửi prompt'))).toBe(false)
+    expect(merged.quality).toContain('Có unit test')
   })
 
   test('kết quả Haiku được gộp, tier bị kẹp trong biên một bậc', () => {
