@@ -6,8 +6,8 @@
 import type { ToolSpec } from 'claude-code'
 
 import type { PlanStep, StepStatus, Tier } from '../../types'
-import { TIERS } from './analyze'
 import { PLAN_TOOL } from './text'
+import { TIERS } from './scale'
 
 const STATUSES: readonly StepStatus[] = ['todo', 'doing', 'done', 'verified', 'skipped', 'blocked']
 

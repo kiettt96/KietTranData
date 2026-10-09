@@ -3,8 +3,8 @@
 // và chuỗi thay đổi dài mà chưa tự kiểm tra. Hàm ở đây thuần, không gọi $,
 // để test được và để register quyết định cách hiển thị.
 
-import type { Brief, PlanStep, WarningKind } from '../../types'
-import { POLICY } from './route'
+import type { Brief, PlanStep, Tier, WarningKind } from '../../types'
+import { TOOL_BUDGET } from './route'
 
 const FILE_TOOLS = new Set(['Edit', 'Write', 'NotebookEdit', 'MultiEdit'])
 // Lệnh kiểm tra thật sự: bắt đầu một đoạn lệnh bằng một trình chạy test, lint,
@@ -52,6 +52,8 @@ export type TurnTracker = {
   isVerified: boolean
   /** Số lần Claude cập nhật checklist trong turn (turn đang thực thi kế hoạch). */
   planUpdates: number
+  /** Số tool call lỗi trong turn (để nâng effort khi lỗi nhiều). */
+  errors: number
   failures: Map<string, number>
   budgetLevel: number
   outOfScope: Set<string>
@@ -65,11 +67,15 @@ export function newTracker(turnId: string): TurnTracker {
     mutationsSinceCheck: 0,
     isVerified: false,
     planUpdates: 0,
+    errors: 0,
     failures: new Map(),
     budgetLevel: 0,
     outOfScope: new Set(),
   }
 }
+
+/** Ngữ cảnh để đo lệch: mục tiêu, phạm vi và ngân sách của luồng chính hoặc của một subagent. */
+export type Focus = { goal: string; scopePaths: string[]; tier: Tier }
 
 export type ToolObservation = {
   tool: string
@@ -128,12 +134,12 @@ export function openSteps(plan: readonly PlanStep[]): PlanStep[] {
   return plan.filter(step => step.status === 'todo' || step.status === 'doing')
 }
 
-function goalLine(brief: Brief, plan: readonly PlanStep[]): string {
+function goalLine(focus: Focus, plan: readonly PlanStep[]): string {
   const open = openSteps(plan)
     .slice(0, 3)
     .map(step => `${step.id}. ${step.title}`)
     .join('; ')
-  return `Mục tiêu: ${brief.goal}${open ? ` | Bước còn mở: ${open}` : ''}`
+  return `Mục tiêu: ${focus.goal}${open ? ` | Bước còn mở: ${open}` : ''}`
 }
 
 /**
@@ -143,13 +149,14 @@ function goalLine(brief: Brief, plan: readonly PlanStep[]): string {
 export function observe(
   tracker: TurnTracker,
   observation: ToolObservation,
-  brief: Brief | null,
+  focus: Focus | null,
   plan: readonly PlanStep[],
 ): Finding[] {
   const findings: Finding[] = []
   tracker.toolCalls += 1
 
   if (observation.isError) {
+    tracker.errors += 1
     const sig = signature(observation)
     const count = (tracker.failures.get(sig) ?? 0) + 1
     tracker.failures.set(sig, count)
@@ -173,32 +180,32 @@ export function observe(
     tracker.mutationsSinceCheck += 1
   }
 
-  if (brief === null) return findings
+  if (focus === null) return findings
 
   const path = filePathOf(observation)
-  if (FILE_TOOLS.has(observation.tool) && !isInScope(path, brief.scopePaths) && !tracker.outOfScope.has(path)) {
+  if (FILE_TOOLS.has(observation.tool) && !isInScope(path, focus.scopePaths) && !tracker.outOfScope.has(path)) {
     tracker.outOfScope.add(path)
     findings.push({
       kind: 'scope',
       priority: 3,
       text: `Sửa ngoài phạm vi đã nêu: ${path}`,
       context:
-        `[focus-conductor] ${path} nằm ngoài phạm vi người dùng giới hạn (${brief.scopePaths.join(', ')}). ` +
+        `[focus-conductor] ${path} nằm ngoài phạm vi người dùng giới hạn (${focus.scopePaths.join(', ')}). ` +
         'Xác nhận thay đổi này là bắt buộc cho mục tiêu; nếu không, hoàn tác và quay lại phạm vi.',
     })
   }
 
-  const budget = POLICY[brief.tier].toolBudget
+  const budget = TOOL_BUDGET[focus.tier]
   const level = tracker.toolCalls >= budget * 2 ? 2 : tracker.toolCalls >= budget ? 1 : 0
   if (level > tracker.budgetLevel) {
     tracker.budgetLevel = level
     findings.push({
       kind: 'budget',
       priority: 2,
-      text: `Đã ${tracker.toolCalls} tool call, vượt mức dự kiến ${budget} cho việc ${brief.tier}`,
+      text: `Đã ${tracker.toolCalls} tool call, vượt mức dự kiến ${budget} cho việc ${focus.tier}`,
       context:
-        `[focus-conductor] Turn này đã dùng ${tracker.toolCalls} tool call, vượt mức dự kiến cho việc ${brief.tier}. ` +
-        `${goalLine(brief, plan)}. Tự hỏi: bước đang làm có phục vụ trực tiếp mục tiêu không? ` +
+        `[focus-conductor] Turn này đã dùng ${tracker.toolCalls} tool call, vượt mức dự kiến cho việc ${focus.tier}. ` +
+        `${goalLine(focus, plan)}. Tự hỏi: bước đang làm có phục vụ trực tiếp mục tiêu không? ` +
         'Nếu đang lan man, quay về bước còn mở gần nhất.',
     })
   }
@@ -210,7 +217,7 @@ export function observe(
       text: `${tracker.mutationsSinceCheck} thay đổi liên tiếp chưa kiểm tra`,
       context:
         `[focus-conductor] Checkpoint: ${tracker.mutationsSinceCheck} thay đổi liên tiếp chưa được kiểm tra. ` +
-        `${goalLine(brief, plan)}. Trước khi sửa tiếp, kiểm tra lại phần vừa làm ` +
+        `${goalLine(focus, plan)}. Trước khi sửa tiếp, kiểm tra lại phần vừa làm ` +
         '(chạy test, type-check hoặc đọc lại diff) và cập nhật checklist.',
     })
   }
