@@ -4,7 +4,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import type { Brief, Route } from '../types'
-import { analyzeHeuristic, analyzerRequest, assessSubtasks, isMeta, splitClauses, isRelated, isSameIdea, mergeAnalysis, retarget } from '../hooks/lib/analyze'
+import { analyzeHeuristic, analyzerRequest, assessSubtasks, isLeadIn, isMeta, splitClauses, isRelated, isSameIdea, mergeAnalysis, retarget } from '../hooks/lib/analyze'
 import { newTracker, observe } from '../hooks/lib/drift'
 import { applyPlan } from '../hooks/lib/plan'
 import { adviseSubtasks, chooseMain, decideMain, matchSubtask, parseWindows, planAgent, raisePick, resolveModelId } from '../hooks/lib/route'
@@ -794,6 +794,58 @@ describe('vấn đề tồn đọng (0.3.2)', () => {
     expect(decideMain({ ...base, targetWindow: 200_000 }).isHeld).toBe(true)
     expect(decideMain(base).isChanged).toBe(true)
     expect(parseWindows('opus=200000, sonnet=1000000, x=5, haiku=abc')).toEqual({ opus: 200000, sonnet: 1000000 })
+  })
+})
+
+describe('câu dẫn danh sách (0.3.3)', () => {
+  test('chỉ câu có danh từ chỉ việc đi trước "sau" mới là câu dẫn', () => {
+    expect(isLeadIn('Làm 3 việc sau:')).toBe(true)
+    expect(isLeadIn('Làm các bước dưới đây')).toBe(true)
+    expect(isLeadIn('Mấy việc sau đây cần làm: ')).toBe(false)
+    expect(isLeadIn('Hoàn thành tính năng này sau')).toBe(false)
+    expect(isLeadIn('Làm sau')).toBe(false)
+    expect(isLeadIn('Do the following:')).toBe(true)
+    expect(isLeadIn('Do this later')).toBe(false)
+  })
+})
+
+describe('nhiễu từ lần test thật (0.3.3)', () => {
+  const PROMPT = `Làm 3 việc sau:
+1. Đọc file config.ts và liệt kê biến môi trường.
+2. Sửa lỗi nút đăng nhập bị lệch trên mobile.
+3. Viết unit test cho hàm refund.`
+
+  test('câu dẫn không là ràng buộc; việc trong danh sách không là tiêu chí chất lượng', () => {
+    const brief = analyzeHeuristic(PROMPT, null, 1)
+    expect(brief.constraints).toEqual([])
+    expect(brief.quality).toEqual([])
+    expect(brief.subtasks.length).toBe(3)
+    // Câu dẫn có từ ràng buộc ("phải") vẫn không phải ràng buộc; ràng buộc thật thì giữ.
+    const withMust = analyzeHeuristic(PROMPT.replace('Làm 3 việc sau:', 'Bạn phải làm các việc sau:') + '\nKhông đổi API công khai.', null, 1)
+    expect(withMust.constraints).toEqual(['Không đổi API công khai.'])
+  })
+
+  test('câu trả lời Haiku sai ngôn ngữ hoặc lặp câu dẫn, lặp việc: bị lọc, giữ bản đọc cục bộ', () => {
+    const base = analyzeHeuristic(PROMPT, null, 1)
+    const reply = JSON.stringify({
+      goal: 'Complete three tasks: list env vars in config.ts, fix the mobile login button misalignment, and write unit tests for the refund function.',
+      steps: ['Read config.ts and list the environment variables', 'Fix the login button on mobile'],
+      constraints: ['Làm 3 việc sau', 'Không đổi API công khai'],
+      quality: ['Viết unit test cho hàm refund.', 'config.ts env vars listed completely', 'Test refund chạy pass'],
+    })
+    const brief = mergeAnalysis(base, null, reply, PROMPT)
+    expect(brief.goal).toBe(base.goal)
+    expect(base.goal).toBe('Làm 3 việc sau: Đọc file config.ts và liệt kê biến môi trường; Sửa lỗi nút đăng nhập bị lệch trên mobile; Viết unit test cho hàm refund')
+    expect(brief.steps).toEqual(base.steps)
+    expect(brief.constraints).toEqual(['Không đổi API công khai'])
+    expect(brief.quality).toEqual(['Test refund chạy pass'])
+  })
+
+  test('yêu cầu tiếng Anh vẫn nhận chuỗi tiếng Anh của Haiku', () => {
+    const text = 'Do the following:\n1. Read config.ts\n2. Fix the login button\n3. Write tests for refund'
+    const brief = mergeAnalysis(analyzeHeuristic(text, null, 1), null, JSON.stringify({ goal: 'Finish three small tasks in the shop app' }), text)
+    expect(brief.goal).toBe('Finish three small tasks in the shop app')
+    expect(brief.constraints).toEqual([])
   })
 })
 
