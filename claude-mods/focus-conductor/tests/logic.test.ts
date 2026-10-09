@@ -4,10 +4,10 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import type { Brief, Route } from '../types'
-import { analyzeHeuristic, isMeta, isRelated, isSameIdea, mergeAnalysis, retarget } from '../hooks/lib/analyze'
+import { analyzeHeuristic, analyzerRequest, assessSubtasks, isMeta, splitClauses, isRelated, isSameIdea, mergeAnalysis, retarget } from '../hooks/lib/analyze'
 import { newTracker, observe } from '../hooks/lib/drift'
 import { applyPlan } from '../hooks/lib/plan'
-import { decideMain, planAgent, raisePick, resolveModelId } from '../hooks/lib/route'
+import { adviseSubtasks, chooseMain, decideMain, matchSubtask, parseWindows, planAgent, raisePick, resolveModelId } from '../hooks/lib/route'
 import { droppedPlanNotice, statusLine } from '../hooks/lib/text'
 
 const LONG_PROMPT = `### Mục tiêu
@@ -542,6 +542,258 @@ describe('status line và báo checklist bị bỏ', () => {
     expect(notice).toContain('còn 2 bước mở')
     expect(notice).toContain('Viết hooks; Viết test')
     expect(notice).toContain('mcp__focus-conductor__plan')
+  })
+})
+
+const SIX_TASKS = `Mục tiêu: nâng cấp module thanh toán của dự án shop-api.
+1. Tìm trong src/ tất cả chỗ gọi hàm charge và liệt kê đường dẫn.
+2. Đổi tên userId thành accountId trong 12 file controller.
+3. Thiết kế lại kiến trúc xử lý thanh toán đa tiền tệ, nêu trade-off, cân nhắc race condition khi hai worker cùng ghi số dư.
+4. Viết unit test cho hàm refund, bao phủ trường hợp hết hạn token.
+5. Rà soát lỗ hổng bảo mật trong luồng webhook của cổng thanh toán.
+6. Cập nhật README phần cài đặt.`
+
+describe('việc con được chấm trước khi làm', () => {
+  test('mỗi việc có độ sâu, khối lượng và bản chất riêng, không lấy theo cả prompt', () => {
+    const subtasks = analyzeHeuristic(SIX_TASKS, null, 1).subtasks
+    expect(subtasks.length).toBe(6)
+    expect(subtasks.map(s => s.depth)).toEqual(['light', 'light', 'hard', 'light', 'hard', 'light'])
+    expect(subtasks[0]?.kind).toBe('investigate')
+    expect(subtasks[1]?.volume).toBe('large')
+    expect(subtasks[5]?.volume).toBe('small')
+  })
+
+  test('prompt một việc hoặc hai việc không tách thành việc con', () => {
+    expect(analyzeHeuristic('Viết hàm parseDate nhận chuỗi ISO và trả về Date', null, 1).subtasks).toEqual([])
+    expect(assessSubtasks(['Một việc'])).toEqual([])
+  })
+
+  test('tư vấn: việc tra cứu xuống haiku, việc sửa nhẹ xuống sonnet, việc khó làm trực tiếp ở opus', () => {
+    const subtasks = analyzeHeuristic(SIX_TASKS, null, 1).subtasks
+    const advice = adviseSubtasks({
+      subtasks,
+      main: { family: 'opus', effort: 'xhigh' },
+      allowFable: false,
+      blocked: new Set<never>(),
+      offered: new Set(['Explore']),
+      session: null,
+    })
+    expect(advice[0]).toMatchObject({ direct: false, subagentType: 'Explore', pick: { family: 'haiku', effort: 'low' } })
+    expect(advice[1]).toMatchObject({ direct: false, pick: { family: 'sonnet', effort: 'medium' } })
+    expect(advice[2]?.direct).toBe(true)
+    expect(advice[4]?.direct).toBe(true)
+    expect(advice[5]).toMatchObject({ direct: false, pick: { family: 'sonnet' } })
+  })
+
+  test('việc đã phân không bị sàn của mục tiêu cha kéo lên: sửa nhẹ vẫn là sonnet dưới mục tiêu hard', () => {
+    const plan = planAgent({
+      prompt: 'Cập nhật README phần cài đặt',
+      description: 'Cập nhật README',
+      subagentType: undefined,
+      offered: new Set(['Explore']),
+      blocked: new Set<never>(),
+      allowFable: false,
+      parent: null,
+      session: null,
+      assessed: { depth: 'light', volume: 'small', kind: 'edit', hardSignals: [] },
+    })
+    expect(plan.family).toBe('sonnet')
+    expect(plan.effort).toBe('medium')
+  })
+
+  test('ít hơn ba việc thì không tư vấn riêng', () => {
+    const subtasks = analyzeHeuristic('1. Đọc file a.ts\n2. Sửa lỗi trong b.ts', null, 1).subtasks
+    expect(adviseSubtasks({ subtasks, main: { family: 'opus', effort: 'xhigh' }, allowFable: false, blocked: new Set<never>(), offered: new Set(), session: null })).toEqual([])
+  })
+})
+
+describe('nguồn việc con và chấm từng việc (0.3.1)', () => {
+  const REVIEW = 'rà soát kỹ trước khi merge: đã thực hiện đầy đủ yêu cầu và còn sót lỗi nào không'
+
+  test('các bước Haiku tự lập kế hoạch không thành việc con', () => {
+    const base = analyzeHeuristic(REVIEW, null, 1)
+    const reply = JSON.stringify({
+      goal: 'Rà soát trước khi merge',
+      steps: [
+        'Xác định yêu cầu gốc và danh sách thay đổi cần rà soát',
+        'Đối chiếu từng yêu cầu với code đã thay đổi',
+        'Rà soát code tìm lỗi logic, lỗi biên và lỗi tích hợp',
+        'Chạy hoặc kiểm tra test liên quan',
+        'Tổng hợp danh sách thiếu sót và lỗi còn lại',
+      ],
+      depth: 'substantial',
+      volume: 'medium',
+      kind: 'investigate',
+    })
+    const brief = mergeAnalysis(base, null, reply, REVIEW)
+    expect(brief.steps.length).toBe(5)
+    expect(brief.subtasks).toEqual([])
+  })
+
+  test('prompt đoạn văn: việc Haiku trích từ lời người dùng được tách, sàn tín hiệu khó vẫn giữ', () => {
+    const text =
+      'Hôm nay cần xử lý mấy việc: tìm trong src các chỗ gọi hàm charge, sau đó đổi tên userId thành accountId trong controller, và rà soát lỗ hổng bảo mật trong luồng webhook thanh toán.'
+    const base = analyzeHeuristic(text, null, 1)
+    expect(base.subtasks).toEqual([])
+    const reply = JSON.stringify({
+      goal: 'Xử lý ba việc',
+      tasks: [
+        { text: 'tìm trong src các chỗ gọi hàm charge', depth: 'none', volume: 'small', kind: 'investigate', hardSignals: [] },
+        { text: 'đổi tên userId thành accountId trong controller', depth: 'light', volume: 'medium', kind: 'edit', hardSignals: [] },
+        { text: 'rà soát lỗ hổng bảo mật trong luồng webhook thanh toán', depth: 'light', volume: 'small', kind: 'investigate', hardSignals: [] },
+        { text: 'viết tài liệu kiến trúc mới cho toàn hệ thống', depth: 'light', volume: 'small', kind: 'edit', hardSignals: [] },
+      ],
+    })
+    const brief = mergeAnalysis(base, null, reply, text)
+    // Việc thứ tư không có trong lời người dùng nên bị bỏ.
+    expect(brief.subtasks.map(s => s.title)).toEqual([
+      'tìm trong src các chỗ gọi hàm charge',
+      'đổi tên userId thành accountId trong controller',
+      'rà soát lỗ hổng bảo mật trong luồng webhook thanh toán',
+    ])
+    expect(brief.subtasks.map(s => s.depth)).toEqual(['none', 'light', 'hard'])
+  })
+
+  test('danh sách người dùng giữ nguyên; Haiku chỉ chấm lại đúng các mục đó', () => {
+    const base = analyzeHeuristic(SIX_TASKS, null, 1)
+    const reply = JSON.stringify({
+      tasks: [{ text: 'Viết unit test cho hàm refund, bao phủ trường hợp hết hạn token', depth: 'substantial', volume: 'medium', kind: 'edit', hardSignals: [] }],
+    })
+    const brief = mergeAnalysis(base, null, reply, SIX_TASKS)
+    expect(brief.subtasks.length).toBe(6)
+    expect(brief.subtasks[3]?.depth).toBe('substantial')
+    expect(brief.subtasks[1]?.depth).toBe('light')
+  })
+
+  test('rà soát, kiểm tra không phải tra cứu: không xuống haiku; tìm và liệt kê vẫn là Explore haiku', () => {
+    const plan = (text: string) =>
+      planAgent({ prompt: text, description: text, subagentType: undefined, offered: new Set(['Explore']), blocked: new Set<never>(), allowFable: false, parent: null, session: null })
+    const review = plan('Rà soát code tìm lỗi logic, lỗi biên và lỗi tích hợp')
+    expect(review.family).not.toBe('haiku')
+    expect(review.agentType).toBeUndefined()
+    const bug = plan('Tìm lỗi trong hàm tính thuế')
+    expect(bug.family).not.toBe('haiku')
+    const search = plan('Tìm nơi gọi hàm charge và liệt kê đường dẫn')
+    expect(search.family).toBe('haiku')
+    expect(search.agentType).toBe('Explore')
+  })
+
+  test('việc tổng hợp, báo cáo kết quả làm trực tiếp ở luồng chính', () => {
+    const subtasks = assessSubtasks(['Tìm nơi gọi hàm charge', 'Đổi tên userId trong 12 file', 'Tổng hợp danh sách lỗi kèm vị trí'])
+    const advice = adviseSubtasks({ subtasks, main: { family: 'opus', effort: 'high' }, allowFable: false, blocked: new Set<never>(), offered: new Set(['Explore']), session: null })
+    expect(advice[2]?.direct).toBe(true)
+    expect(advice[0]?.direct).toBe(false)
+  })
+
+  test('Agent khớp việc theo "Việc N", theo cùng ý, hoặc theo prompt chứa tên việc', () => {
+    const subtasks = analyzeHeuristic(SIX_TASKS, null, 1).subtasks
+    expect(matchSubtask(subtasks, 'Việc 2: đổi tên userId', 'làm đi')?.index).toBe(2)
+    expect(matchSubtask(subtasks, 'Task 5', '')?.index).toBe(5)
+    expect(matchSubtask(subtasks, 'Đổi tên userId thành accountId', '')?.index).toBe(2)
+    expect(matchSubtask(subtasks, 'Rename ids', 'Bối cảnh dự án... Nhiệm vụ: Đổi tên userId thành accountId trong 12 file controller. Báo cáo ngắn.')?.index).toBe(2)
+    expect(matchSubtask(subtasks, 'Kiểm tra CI', 'Chạy lại pipeline CI và báo kết quả')).toBeUndefined()
+  })
+})
+
+describe('rà soát lần hai (0.3.1)', () => {
+  test('báo lỗi trang "báo cáo" vẫn là điều tra, không phải hỏi đáp chạy haiku', () => {
+    const brief = analyzeHeuristic('Trang báo cáo bị lỗi undefined khi tải', null, 1)
+    expect(brief.kind).toBe('investigate')
+    expect(brief.depth).not.toBe('none')
+  })
+
+  test('chỉ việc mở đầu bằng tổng hợp, báo cáo kết quả mới làm trực tiếp', () => {
+    const subtasks = assessSubtasks(['Tìm nơi gọi hàm charge', 'Sửa lỗi trang báo cáo doanh thu', 'Tổng hợp danh sách lỗi kèm vị trí'])
+    const advice = adviseSubtasks({ subtasks, main: { family: 'opus', effort: 'high' }, allowFable: false, blocked: new Set<never>(), offered: new Set(['Explore']), session: null })
+    expect(advice[1]?.direct).toBe(false)
+    expect(advice[2]?.direct).toBe(true)
+  })
+
+  test('gạch đầu dòng là ràng buộc không thành việc con', () => {
+    const text = `Nâng cấp module thanh toán:
+- Tìm nơi gọi hàm charge
+- Đổi tên userId thành accountId trong controller
+- Cập nhật README phần cài đặt
+- Không đổi API công khai
+- Chỉ sửa trong src/payment`
+    const subtasks = analyzeHeuristic(text, null, 1).subtasks
+    expect(subtasks.map(s => s.index)).toEqual([1, 2, 3])
+    expect(subtasks.map(s => s.title)).toEqual(['Tìm nơi gọi hàm charge', 'Đổi tên userId thành accountId trong controller', 'Cập nhật README phần cài đặt'])
+  })
+
+  test('Explore do Claude chọn: rà soát chạy sonnet, tra cứu thuần chạy haiku', () => {
+    const plan = (text: string) =>
+      planAgent({ prompt: text, description: text, subagentType: 'Explore', offered: new Set(['Explore']), blocked: new Set<never>(), allowFable: false, parent: null, session: null })
+    expect(plan('Rà soát lỗi logic trong module thanh toán').family).toBe('sonnet')
+    expect(plan('Tìm file cấu hình retry').family).toBe('haiku')
+  })
+
+  test('"Bước N" không khớp việc con, "Việc N" thì khớp', () => {
+    const subtasks = analyzeHeuristic(SIX_TASKS, null, 1).subtasks
+    expect(matchSubtask(subtasks, 'Bước 2: chạy test', 'Chạy toàn bộ test và báo kết quả')).toBeUndefined()
+    expect(matchSubtask(subtasks, 'Việc 2: đổi tên', '')?.index).toBe(2)
+  })
+
+  test('lượt Haiku có đủ thời gian cho JSON dài hơn', () => {
+    expect(analyzerRequest('Làm ba việc', null).timeoutMs).toBe(12000)
+  })
+})
+
+describe('vấn đề tồn đọng (0.3.2)', () => {
+  test('việc hỗn hợp chạm hai file không có suy luận chạy sonnet; có refactor thì vẫn opus', () => {
+    const small = analyzeHeuristic('Đọc a.ts, sửa lỗi trong b.ts', null, 1)
+    expect(small.kind).toBe('mixed')
+    expect(small.depth).toBe('light')
+    expect(chooseMain({ depth: small.depth, volume: small.volume, kind: small.kind, allowFable: false }).family).toBe('sonnet')
+    const heavy = analyzeHeuristic('Đọc a.ts rồi refactor b.ts cho gọn', null, 1)
+    expect(heavy.depth).toBe('substantial')
+  })
+
+  test('prompt đoạn văn nhiều việc được tách bằng luật cục bộ, không cần Haiku', () => {
+    const text =
+      'Hôm nay cần xử lý mấy việc: tìm trong src các chỗ gọi hàm charge, sau đó đổi tên userId thành accountId trong controller, cuối cùng rà soát lỗ hổng bảo mật trong luồng webhook thanh toán.'
+    const subtasks = analyzeHeuristic(text, null, 1).subtasks
+    expect(subtasks.map(s => s.title)).toEqual([
+      'tìm trong src các chỗ gọi hàm charge',
+      'đổi tên userId thành accountId trong controller',
+      'rà soát lỗ hổng bảo mật trong luồng webhook thanh toán',
+    ])
+    expect(subtasks[2]?.depth).toBe('hard')
+  })
+
+  test('đoạn văn dùng chấm phẩy kèm từ nối: bỏ từ nối khỏi tên việc, vế tổng hợp vẫn là một việc', () => {
+    const text =
+      'Anh cần làm mấy việc cho dự án shop: đọc file config.ts và liệt kê biến môi trường; sau đó sửa lỗi nút đăng nhập bị lệch trên mobile; tiếp theo debug vì sao test checkout thỉnh thoảng fail trên CI; cuối cùng tổng hợp kết quả và báo cáo các rủi ro.'
+    expect(splitClauses(text)).toEqual([
+      'đọc file config.ts và liệt kê biến môi trường',
+      'sửa lỗi nút đăng nhập bị lệch trên mobile',
+      'debug vì sao test checkout thỉnh thoảng fail trên CI',
+      'tổng hợp kết quả và báo cáo các rủi ro',
+    ])
+  })
+
+  test('một việc viết thành câu, hoặc hai vế, hoặc vế là ràng buộc thì không tách', () => {
+    expect(splitClauses('Sửa hàm login để kiểm tra mật khẩu đúng cách, sau đó chạy lại test')).toEqual([])
+    expect(splitClauses('Sửa hàm login. Không đổi API công khai. Chỉ sửa trong src/auth.')).toEqual([])
+    expect(analyzeHeuristic('Fix race condition khi hai worker cùng ghi file cache', null, 1).subtasks).toEqual([])
+  })
+
+  test('cửa sổ model đích nhỏ hơn ngữ cảnh: giữ model, kể cả khi nâng cấp', () => {
+    const base = {
+      current: { family: 'sonnet' as const, effort: 'medium' as const, tier: 'moderate' as const, goalId: 1, reason: '' },
+      wanted: { family: 'opus' as const, effort: 'high' as const },
+      volume: 'small' as const,
+      tier: 'complex' as const,
+      goalId: 2,
+      context: 180_000,
+      window: 1_000_000,
+      turnsLeft: 2,
+      isFree: false,
+      calib: { haiku: 1, sonnet: 1, opus: 1, fable: 1 },
+    }
+    expect(decideMain({ ...base, targetWindow: 200_000 }).isHeld).toBe(true)
+    expect(decideMain(base).isChanged).toBe(true)
+    expect(parseWindows('opus=200000, sonnet=1000000, x=5, haiku=abc')).toEqual({ opus: 200000, sonnet: 1000000 })
   })
 })
 

@@ -25,12 +25,28 @@ export type ModelFamily = 'haiku' | 'sonnet' | 'opus' | 'fable'
 /** Chế độ điều phối đang có hiệu lực. */
 export type Mode = 'auto' | 'subagents' | 'suggest' | 'off'
 
+/**
+ * Một việc con tách từ prompt, chấm riêng bằng luật cục bộ: độ sâu, khối lượng và
+ * bản chất của chính việc đó, không lấy theo cả prompt.
+ */
+export type Subtask = {
+  /** Thứ tự trong prompt, từ 1. */
+  index: number
+  title: string
+  depth: Depth
+  volume: Volume
+  kind: Kind
+  hardSignals: string[]
+}
+
 /** Kết quả đọc prompt: mục tiêu cuối, các bước, ràng buộc, tiêu chí chất lượng. */
 export type Brief = {
   /** Tăng mỗi khi có mục tiêu mới; dùng để nhận ra đổi task. */
   goalId: number
   goal: string
   steps: string[]
+  /** Việc con tách từ prompt (khi có từ hai bước trở lên), mỗi việc có đánh giá riêng. */
+  subtasks: Subtask[]
   constraints: string[]
   quality: string[]
   depth: Depth
@@ -153,6 +169,8 @@ export type Core = {
   lastTurnAt: number
   /** Số token ngữ cảnh lúc bắt đầu turn gần nhất; dùng để nhận ra compaction. */
   lastContext: number
+  /** Phần cố định của ngữ cảnh (system prompt, tools, bộ nhớ) đo được ở đầu phiên; 0 khi chưa đo. */
+  sysTokens: number
 }
 
 declare module 'claude-code' {

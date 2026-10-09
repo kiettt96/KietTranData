@@ -10,7 +10,7 @@
 
 import type { ModelCompleteRequest, ModelTextBlock } from 'claude-code'
 
-import type { Brief, Depth, Kind, Relation, Volume } from '../../types'
+import type { Brief, Depth, Kind, Relation, Subtask, Volume } from '../../types'
 import { splitPayload } from './payload'
 import { DEPTHS, KINDS, RELATIONS, VOLUMES, carryDepth, maxDepth, maxVolume, tierOf } from './scale'
 
@@ -181,6 +181,21 @@ function tokens(text: string): Set<string> {
   return new Set((fold(text).match(/[a-z0-9]+/g) ?? []).filter(t => t.length >= 2 && !FILLER.has(t)))
 }
 
+/** Tỷ lệ từ của `inner` có mặt trong `outer` (0..1); 0 khi `inner` không có từ nào. */
+export function coverage(inner: string, outer: string): number {
+  const ti = tokens(inner)
+  if (ti.size === 0) return 0
+  const to = tokens(outer)
+  let shared = 0
+  for (const t of ti) if (to.has(t)) shared += 1
+  return shared / ti.size
+}
+
+/** Số từ nội dung của một câu (bỏ từ đệm), để biết câu đủ dài để so khớp hay không. */
+export function tokenCount(text: string): number {
+  return tokens(text).size
+}
+
 /**
  * Hai câu cùng ý: trùng phần lớn từ (Jaccard từ 0,7), hoặc câu ngắn hơn (từ 3
  * từ trở lên) gần như nằm trọn trong câu dài hơn, như khi Haiku rút gọn hay
@@ -260,6 +275,19 @@ function extractKeywords(text: string): string[] {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 10)
     .map(([word]) => word)
+}
+
+/**
+ * Tách việc con từ danh sách bước và chấm riêng từng việc bằng luật cục bộ. Chỉ
+ * có khi prompt có từ hai bước trở lên.
+ */
+export function assessSubtasks(steps: readonly string[]): Subtask[] {
+  const work = steps.filter(step => !isConstraintItem(step))
+  if (work.length < 2) return []
+  return work.map((title, i) => {
+    const assessed = assessText(title)
+    return { index: i + 1, title, depth: assessed.depth, volume: assessed.volume, kind: assessed.kind, hardSignals: assessed.hardSignals }
+  })
 }
 
 function extractPaths(text: string): string[] {
@@ -405,6 +433,65 @@ const LOOKUP_VERB =
 const ANSWER_VERB =
   /\b(la gi|what is|giai thich|explain|so sanh|compare|tom tat|summari[sz]\w*|liet ke|list|thiet ke|design|neu|trade-?off\w*|de xuat|propose|mo ta|describe)\b/
 
+// Tra cứu thuần (tìm, liệt kê, đọc) khác với phân tích (rà soát, kiểm tra, gỡ lỗi):
+// chỉ tra cứu thuần mới được xuống haiku hoặc Explore.
+const SEARCH_VERB =
+  /\b(tim|search\w*|find|locate|grep|doc|read|liet ke|list|xem|o dau|where|tra cuu|look up|scan|quet|kham pha|explore)\b/
+const ANALYSIS_VERB =
+  /\b(ra soat|review\w*|kiem tra|check\w*|debug\w*|dieu tra|investigat\w*|phan tich|analy[sz]\w*|doi chieu|danh gia|evaluat\w*|audit\w*|vi sao|tai sao|why|phat hien|detect\w*|xac minh|verify|tim (?:ra )?(?:loi|bug|nguyen nhan|lo hong)|find (?:the )?(?:bug|cause|root))\b/
+// Việc tổng hợp, báo cáo cuối: thuộc về luồng chính, không giao đi.
+const SYNTHESIS =
+  /^(tong hop|tom tat|ket luan|bao cao (?:ket qua|lai|tong ket)|summari[sz]\w*|report (?:back|findings|the results))\b/
+// Mục là ràng buộc ("không đổi API", "chỉ sửa src/"), không phải một việc để làm.
+const CONSTRAINT_ITEM =
+  /^(khong|chi|phai|bat buoc|cam|tranh|giu nguyen|luu y|must|do not|don'?t|never|only|avoid|keep)\b/
+
+/** Việc chỉ tra cứu (tìm, liệt kê, đọc), không có phân tích hay đánh giá. */
+export function isPureLookup(text: string): boolean {
+  const folded = fold(text)
+  return SEARCH_VERB.test(folded) && !ANALYSIS_VERB.test(folded)
+}
+
+/** Việc tổng hợp hoặc báo cáo kết quả: luồng chính tự làm. */
+export function isSynthesis(text: string): boolean {
+  return SYNTHESIS.test(fold(text).trim())
+}
+
+/** Mục liệt kê là ràng buộc, không phải việc. */
+function isConstraintItem(text: string): boolean {
+  return CONSTRAINT_ITEM.test(fold(text).trim())
+}
+
+// Ranh giới giữa các việc trong prompt viết thành đoạn văn: hết câu, chấm phẩy, hoặc
+// từ nối chỉ trình tự. Không dùng "rồi" hay "và" vì quá hay gặp bên trong một việc.
+const CLAUSE_BREAK =
+  /(?<=[.;!?])\s+|\s*;\s*|,?\s+(?:sau đó|tiếp theo|tiếp đến|cuối cùng|ngoài ra|then|after that|finally|also)\s+/iu
+const ACTION_VERB = (folded: string): boolean =>
+  WRITE_VERB.test(folded) || SEARCH_VERB.test(folded) || ANALYSIS_VERB.test(folded) || SYNTHESIS.test(folded)
+const LEADING_CONNECTOR = /^(?:và|and|sau đó|tiếp theo|tiếp đến|cuối cùng|ngoài ra|then|after that|finally|also)[\s,]+/iu
+
+/**
+ * Tách prompt đoạn văn thành các việc theo luật cục bộ: mỗi vế phải có động từ hành
+ * động, không phải câu meta hay ràng buộc. Phần trước dấu hai chấm (câu dẫn như "Hôm
+ * nay cần xử lý mấy việc:") bị bỏ. Ít hơn ba vế thì coi là một việc.
+ */
+export function splitClauses(text: string): string[] {
+  const request = splitPayload(text).request
+  const clauses = request
+    .split('\n')
+    .flatMap(line => line.split(CLAUSE_BREAK))
+    .map(part => {
+      const colon = part.lastIndexOf(':')
+      const body = colon >= 0 && colon < part.length - 1 ? part.slice(colon + 1) : part
+      let clause = clean(body).replace(/[.;,]+$/, '').trim()
+      // Bỏ từ nối ở đầu vế (có thể lặp: "và sau đó").
+      while (LEADING_CONNECTOR.test(clause)) clause = clause.replace(LEADING_CONNECTOR, '')
+      return clause
+    })
+    .filter(part => part.split(/\s+/).length >= 3 && !isMeta(part) && !isConstraintItem(part) && ACTION_VERB(fold(part)))
+  return clauses.length >= 3 ? clauses.slice(0, 10).map(c => clip(c, 120)) : []
+}
+
 const BULK_COUNT = /\b(\d+|nhieu|tat ca|toan bo|all|every|many)\s+(file|files|module|service|tep|lop|class|endpoint|bang|table|ham|function|test|tests)\b/
 
 /** Số lượng nói rõ trong yêu cầu: "20 file", "toàn bộ", "nhiều file". */
@@ -485,7 +572,8 @@ export function assessText(text: string, options: { isDelegated?: boolean } = {}
   else if (kind === 'answer') depth = words < 25 && !reasoning ? 'none' : 'light'
   else if (kind === 'investigate') depth = volume === 'small' && words < 40 ? 'light' : 'substantial'
   else if (kind === 'edit') depth = reasoning ? 'substantial' : 'light'
-  else depth = reasoning || volume !== 'small' ? 'substantial' : 'light'
+  // Hỗn hợp (đọc rồi sửa) chỉ là việc vừa khi có suy luận hoặc khối lượng lớn; chạm vài file không đủ.
+  else depth = reasoning || volume === 'large' ? 'substantial' : 'light'
 
   // Subagent nhận prompt dài do Claude viết, nên điểm chỉ để hiển thị.
   const { score, signals } = scoreComplexity(text, options)
@@ -621,10 +709,13 @@ export function analyzeHeuristic(text: string, prev: Brief | null, now: number):
     }
   }
 
+  const steps = extractSteps(lines)
   return {
     goalId: (prev?.goalId ?? 0) + 1,
     goal: extractGoal(lines),
-    steps: extractSteps(lines),
+    steps,
+    // Có danh sách thì theo danh sách; không có thì tách các vế của đoạn văn.
+    subtasks: assessSubtasks(steps.length >= 2 ? steps : splitClauses(trimmed)),
     constraints,
     quality,
     depth: assessed.depth,
@@ -645,11 +736,12 @@ export function analyzeHeuristic(text: string, prev: Brief | null, now: number):
 
 const ANALYZER_SYSTEM = `You read a user's request to a coding agent BEFORE any work starts. Judge how hard the work is, not how long the text is.
 Reply with ONE JSON object and nothing else. Put "why" first and fill it before the labels:
-{"why": string, "relation": "new"|"continue"|"refine"|"dissatisfied", "goal": string, "steps": string[], "constraints": string[], "quality": string[], "hardSignals": string[], "depth": "none"|"light"|"substantial"|"hard", "volume": "small"|"medium"|"large", "kind": "answer"|"edit"|"investigate"|"mixed", "confidence": "high"|"low"}
+{"why": string, "relation": "new"|"continue"|"refine"|"dissatisfied", "goal": string, "steps": string[], "tasks": [{"text": string, "depth": "none"|"light"|"substantial"|"hard", "volume": "small"|"medium"|"large", "kind": "answer"|"edit"|"investigate"|"mixed", "hardSignals": string[]}], "constraints": string[], "quality": string[], "hardSignals": string[], "depth": "none"|"light"|"substantial"|"hard", "volume": "small"|"medium"|"large", "kind": "answer"|"edit"|"investigate"|"mixed", "confidence": "high"|"low"}
 - why: one short sentence on what makes the work easy or hard.
 - relation: new = a new goal; continue = keep going on the previous goal; refine = a small change to the previous goal; dissatisfied = the previous result is still wrong.
 - goal: the end result the user wants, one sentence.
 - steps: 2-10 ordered, concrete steps; [] for a one-step task.
+- tasks: the separate pieces of work the user explicitly asked for, each quoted closely from the request, in the user's order, each judged on its own (depth, volume, kind, hardSignals of that piece alone). Never your own plan or sub-steps; [] when the request is one piece of work.
 - constraints: hard rules (must / must not / only / format / scope), quoted closely.
 - quality: the acceptance criteria the result is judged by.
 - hardSignals: any of "đồng thời" (concurrency), "bảo mật" (security), "thiết kế liên module" (cross-module design), "migrate dữ liệu" (data migration), "đúng đắn thuật toán" (algorithmic correctness), "lỗi chập chờn" (intermittent failure), "lỗi chưa rõ nguyên nhân" (unexplained failure), "nguyên nhân gốc hiệu năng" (performance root cause); [] if none.
@@ -675,6 +767,64 @@ type ModelAnalysis = {
   kind?: unknown
   confidence?: unknown
   isNewGoal?: unknown
+  tasks?: unknown
+}
+
+/** Một việc Haiku tách ra từ lời người dùng, kèm đánh giá riêng (có thể thiếu). */
+type ModelTask = { text: string; depth?: Depth; volume?: Volume; kind?: Kind; hardSignals: string[] }
+
+function parseTasks(value: unknown): ModelTask[] {
+  if (!Array.isArray(value)) return []
+  const out: ModelTask[] = []
+  for (const item of value.slice(0, 12)) {
+    if (typeof item !== 'object' || item === null) continue
+    const raw = item as Record<string, unknown>
+    const text = typeof raw['text'] === 'string' ? raw['text'].trim() : ''
+    if (text.length < 4 || isMeta(text)) continue
+    const signals = Array.isArray(raw['hardSignals']) ? raw['hardSignals'].filter((s): s is string => typeof s === 'string') : []
+    out.push({
+      text,
+      depth: DEPTHS.find(d => d === raw['depth']),
+      volume: VOLUMES.find(v => v === raw['volume']),
+      kind: KINDS.find(k => k === raw['kind']),
+      hardSignals: signals,
+    })
+  }
+  return out
+}
+
+/** Việc con với đánh giá của Haiku làm nguồn chính, không thấp hơn sàn tín hiệu khó của chính việc đó. */
+function judgedTask(index: number, title: string, task: ModelTask): Subtask {
+  const local = assessText(title)
+  const hardSignals = [...new Set([...local.hardSignals, ...task.hardSignals.filter(s => KNOWN_SIGNALS.has(s))])]
+  return {
+    index,
+    title: clip(title, 120),
+    depth: maxDepth(task.depth ?? local.depth, depthFloor(hardSignals)),
+    volume: task.volume ?? local.volume,
+    kind: task.kind ?? local.kind,
+    hardSignals,
+  }
+}
+
+/**
+ * Việc con khi có Haiku. Danh sách người dùng tự liệt kê được giữ nguyên, Haiku chỉ
+ * chấm lại đúng các mục đó. Không có danh sách thì nhận việc Haiku tách ra, nhưng
+ * chỉ việc trích từ lời người dùng (phần lớn từ có trong prompt); các bước Haiku tự
+ * lập kế hoạch không bao giờ thành việc con.
+ */
+function subtasksWithModel(base: Brief, tasks: readonly ModelTask[], request: string): Subtask[] {
+  // Danh sách người dùng tự liệt kê: giữ nguyên, Haiku chỉ chấm lại đúng các mục đó.
+  if (base.steps.length >= 2 && base.subtasks.length > 0) {
+    return base.subtasks.map(s => {
+      const task = tasks.find(t => isSameIdea(t.text, s.title))
+      return task ? judgedTask(s.index, s.title, task) : s
+    })
+  }
+  // Đoạn văn: việc Haiku trích từ lời người dùng được ưu tiên; nếu không đủ, dùng các vế tách cục bộ.
+  const quoted = tasks.filter(t => coverage(t.text, request) >= 0.6 && !isConstraintItem(t.text))
+  if (quoted.length >= 2) return quoted.map((t, i) => judgedTask(i + 1, t.text, t))
+  return base.subtasks
 }
 
 function strings(value: unknown, max: number): string[] {
@@ -711,9 +861,9 @@ export function analyzerRequest(text: string, prev: Brief | null): ModelComplete
     model: 'haiku',
     system,
     prompt: `${previous}\n\n<request>\n${split.request.slice(0, 12000)}\n${note}\n</request>`,
-    maxTokens: 700,
+    maxTokens: 1400,
     effort: 'low',
-    timeoutMs: 8000,
+    timeoutMs: 12000,
   }
 }
 
@@ -781,6 +931,7 @@ export function mergeAnalysis(base: Brief, prev: Brief | null, reply: string, te
     goalId: isFollow && prev ? prev.goalId : base.goalId,
     goal: isFollow && prev ? prev.goal : goal,
     steps: isFollow && prev ? prev.steps : steps.length > 0 ? steps : base.steps,
+    subtasks: isFollow && prev ? prev.subtasks : subtasksWithModel(base, parseTasks(parsed.tasks), text),
     keywords: isFollow && prev ? prev.keywords : base.keywords,
     scopePaths: isFollow && prev && base.scopePaths.length === 0 ? prev.scopePaths : base.scopePaths,
     // Câu gốc của người dùng đứng trước: khi trùng ý, bản Haiku diễn đạt lại bị bỏ.

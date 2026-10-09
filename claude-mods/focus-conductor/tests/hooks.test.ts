@@ -262,6 +262,82 @@ describe('nhiều subagent trong một phiên', () => {
     expect(status).toContain('Việc khác: sonnet (không qua điều phối)')
   })
 
+  test('việc đã phân trước: Agent khớp đúng việc thì dùng model đã chấm sẵn, không chấm lại', HEURISTIC, async ($, on) => {
+    base(on)
+    const seen: Array<{ model?: string; subagent_type?: string }> = []
+    on('tool.call', { tool: 'Agent' }, (_$, e) => {
+      seen.push({ model: e.model, subagent_type: e.subagent_type })
+      return { deny: 'test: đã ghi nhận đầu vào' }
+    })
+    await submit($, `Mục tiêu: nâng cấp module thanh toán.
+1. Tìm trong src/ tất cả chỗ gọi hàm charge và liệt kê đường dẫn.
+2. Đổi tên userId thành accountId trong 12 file controller.
+3. Thiết kế lại kiến trúc xử lý thanh toán đa tiền tệ, nêu trade-off.
+4. Cập nhật README phần cài đặt.`)
+    await $.tool.call({ tool: 'Agent', description: 'Tìm chỗ gọi charge', prompt: 'Tìm trong src/ tất cả chỗ gọi hàm charge' })
+    await $.tool.call({ tool: 'Agent', description: 'Đổi tên userId thành accountId', prompt: 'Đổi tên userId thành accountId trong 12 file controller' })
+    // Explore chỉ được gọi tên khi engine đã mời agent này; ở đây chưa mời nên giữ general-purpose.
+    expect(seen[0]).toEqual({ model: 'haiku', subagent_type: undefined })
+    expect(seen[1]?.model).toBe('sonnet')
+    // Prompt của agent đầy từ khóa khó nhưng việc đã chấm là nhẹ: vẫn theo việc đã chấm.
+    await $.tool.call({
+      tool: 'Agent',
+      description: 'Đổi tên userId thành accountId',
+      prompt: 'Phân tích race condition, bảo mật và kiến trúc liên module của toàn bộ luồng thanh toán trước khi đổi tên userId',
+    })
+    expect(seen[2]?.model).toBe('sonnet')
+    // Description ngắn dạng "Việc N: ..." như tool Agent yêu cầu vẫn khớp đúng việc.
+    await $.tool.call({ tool: 'Agent', description: 'Việc 4: sửa README', prompt: 'Cập nhật phần cài đặt' })
+    expect(seen[3]?.model).toBe('sonnet')
+  })
+
+  test('context liệt kê phân việc: việc nào giao subagent kèm model, việc nào làm trực tiếp', HEURISTIC, async ($, on) => {
+    const seen = base(on)
+    await submit($, `Mục tiêu: nâng cấp module thanh toán.
+1. Tìm trong src/ tất cả chỗ gọi hàm charge và liệt kê đường dẫn.
+2. Đổi tên userId thành accountId trong 12 file controller.
+3. Thiết kế lại kiến trúc xử lý thanh toán đa tiền tệ, nêu trade-off.
+4. Cập nhật README phần cài đặt.`)
+    const context = seen.contexts[0]?.join('\n') ?? ''
+    expect(context).toContain('Phân việc (đã chấm trước khi làm')
+    expect(context).toContain('1. Tìm trong src/ tất cả chỗ gọi hàm charge và liệt kê đường dẫn. → giao general-purpose haiku/low')
+    expect(context).toContain('2. Đổi tên userId thành accountId trong 12 file controller. → giao general-purpose sonnet/medium')
+    expect(context).toContain('3. Thiết kế lại kiến trúc xử lý thanh toán đa tiền tệ, nêu trade-off. → làm trực tiếp ở luồng chính (opus/xhigh)')
+    expect(context).not.toContain('Bước dự kiến')
+    // Không còn chỉ dẫn trái nhau: việc đã phân dùng model ghi sẵn, dù thấp hơn mục tiêu cha.
+    expect(context).toContain('việc trong mục Phân việc dùng đúng model đã ghi')
+    expect(context).not.toContain('subagent được chọn theo độ khó của từng việc con')
+  })
+
+  test('luồng chính tự sửa file khi còn việc ghi giao subagent: nhắc đúng một lần', HEURISTIC, async ($, on) => {
+    base(on)
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    on('tool.call', { tool: 'Agent' }, () => ({ deny: 'test: đã ghi nhận đầu vào' }))
+    await submit($, `Mục tiêu: nâng cấp module thanh toán.
+1. Tìm trong src/ tất cả chỗ gọi hàm charge và liệt kê đường dẫn.
+2. Đổi tên userId thành accountId trong 12 file controller.
+3. Thiết kế lại kiến trúc xử lý thanh toán đa tiền tệ, nêu trade-off.
+4. Cập nhật README phần cài đặt.`)
+    const first = await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' })
+    expect((first.context ?? []).join('\n')).toContain('Việc 1 (haiku/low), 2 (sonnet/medium), 4 (sonnet/medium)')
+    const second = await $.tool.call({ tool: 'Edit', file_path: 'src/b.ts', old_string: 'a', new_string: 'b' })
+    expect((second.context ?? []).join('\n')).not.toContain('chưa giao')
+  })
+
+  test('mọi việc ghi giao đã có Agent nhận thì không nhắc', HEURISTIC, async ($, on) => {
+    base(on)
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    on('tool.call', { tool: 'Agent' }, () => ({ deny: 'test: đã ghi nhận đầu vào' }))
+    await submit($, `Mục tiêu: nâng cấp module thanh toán.
+1. Tìm trong src/ tất cả chỗ gọi hàm charge và liệt kê đường dẫn.
+2. Đổi tên userId thành accountId trong 12 file controller.
+3. Thiết kế lại kiến trúc xử lý thanh toán đa tiền tệ, nêu trade-off.
+4. Cập nhật README phần cài đặt.`)
+    for (const n of [1, 2, 4]) await $.tool.call({ tool: 'Agent', description: `Việc ${n}: làm`, prompt: 'làm việc được giao' })
+    const edit = await $.tool.call({ tool: 'Edit', file_path: 'src/c.ts', old_string: 'a', new_string: 'b' })
+    expect((edit.context ?? []).join('\n')).not.toContain('chưa giao')
+  })
+
   test('giao hơn sáu subagent trong một mục tiêu thì cảnh báo chi phí đúng một lần', HEURISTIC, async ($, on) => {
     const seen = base(on)
     on('tool.call', { tool: 'Agent' }, () => ({ deny: 'test: đã ghi nhận đầu vào' }))
@@ -341,6 +417,22 @@ describe('chi phí luồng chính và nâng cấp theo bằng chứng', () => {
     const second = await step($, seen, { turnId: 't2', index: 1, messageCount: 3 })
     expect(second?.model).toBe('claude-sonnet-5-5')
     expect(second?.effort).toBe('high')
+  })
+})
+
+describe('model dự kiến của luồng chính', () => {
+  test('model cũ được giữ vì đổi không đáng chi phí cache: dòng điều phối ghi đúng model sẽ chạy', HEURISTIC, async ($, on) => {
+    const seen = base(on)
+    on('turn.complete', () => ({ text: '' }))
+    await submit($, COMPLEX_PROMPT)
+    await step($, seen, { turnId: 't1' })
+    await $.turn.complete({ turnId: 't1', answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer' } as never)
+    // Mục tiêu mới muốn opus/high; hạ effort từ xhigh không bù được chi phí ghi lại cache nên opus/xhigh được giữ.
+    await submit($, 'Fix race condition khi hai worker cùng ghi file cache')
+    const context = seen.contexts[1]?.join('\n') ?? ''
+    expect(context).toContain('luồng chính opus/xhigh')
+    const got = await step($, seen, { turnId: 't2' })
+    expect(got?.effort).toBe('xhigh')
   })
 })
 

@@ -12,8 +12,8 @@
 
 import type { PluginOptions } from 'claude-code'
 
-import type { Depth, Effort, Kind, ModelFamily, Route, Tier, Volume } from '../../types'
-import { assessText, fold } from './analyze'
+import type { Depth, Effort, Kind, ModelFamily, Route, Subtask, Tier, Volume } from '../../types'
+import { assessText, coverage, fold, isPureLookup, isSameIdea, isSynthesis, tokenCount } from './analyze'
 import { SAFETY, shouldDowngrade, switchCost, turnCost } from './cost'
 import { depthRank, legacyOf, maxDepth, stepDepth, tierOf } from './scale'
 
@@ -67,6 +67,19 @@ export function parseModelMap(raw: unknown): Partial<Record<ModelFamily, string>
     const [key, value] = part.split('=').map(s => s.trim())
     const family = FAMILIES.find(f => f === key)
     if (family && value) out[family] = value
+  }
+  return out
+}
+
+/** Đọc cấu hình "opus=1000000,sonnet=200000" thành cửa sổ ngữ cảnh theo họ model. */
+export function parseWindows(raw: unknown): Partial<Record<ModelFamily, number>> {
+  const out: Partial<Record<ModelFamily, number>> = {}
+  if (typeof raw !== 'string') return out
+  for (const part of raw.split(',')) {
+    const [key, value] = part.split('=').map(s => s.trim())
+    const family = FAMILIES.find(f => f === key)
+    const tokens = Number(value)
+    if (family && Number.isFinite(tokens) && tokens > 0) out[family] = tokens
   }
   return out
 }
@@ -228,6 +241,10 @@ export function decideMain(args: {
   /** Cache đã nguội hoặc vừa nén: đổi không mất chi phí ghi lại. */
   isFree: boolean
   calib: Record<ModelFamily, number>
+  /** Phần cố định đo được của ngữ cảnh (system prompt và tools); thiếu thì dùng giả định. */
+  sysTokens?: number
+  /** Cửa sổ ngữ cảnh của model đích, nếu người dùng khai báo (contextWindows). */
+  targetWindow?: number
 }): MainDecision {
   const { current, wanted, volume, tier, goalId, context, window, turnsLeft, isFree, calib } = args
   const isSame = current !== null && current.family === wanted.family && current.effort === wanted.effort
@@ -241,6 +258,11 @@ export function decideMain(args: {
 
   if (current === null) return fresh('turn đầu tiên của phiên')
   if (isSame) return { ...fresh('giữ nguyên, đúng mức cần'), isChanged: false }
+  // Model đích có cửa sổ nhỏ hơn ngữ cảnh hiện tại: không đổi, kể cả khi nâng cấp.
+  if (current.family !== wanted.family && args.targetWindow !== undefined && context * SAFETY > args.targetWindow) {
+    const reason = `giữ ${describePick(current)}: ngữ cảnh vượt cửa sổ của ${wanted.family}`
+    return { route: { ...current, tier, goalId, reason }, isChanged: false, isHeld: true, wanted, reason }
+  }
   if (pickRank(wanted) > pickRank(current)) return fresh(`việc khó hơn, nâng cấp từ ${describePick(current)}`)
   if (current.family !== wanted.family && context * SAFETY > window) {
     const reason = `giữ ${describePick(current)}: ngữ cảnh gần đầy, chưa đổi sang ${describePick(wanted)}`
@@ -248,7 +270,7 @@ export function decideMain(args: {
   }
   if (isFree) return fresh('cache đã nguội hoặc vừa nén, đổi không mất chi phí ghi lại')
 
-  const rewrite = switchCost(current, wanted, context)
+  const rewrite = switchCost(current, wanted, context, args.sysTokens)
   const saving =
     turnCost(current.family, current.effort, volume, context, calib[current.family]) -
     turnCost(wanted.family, wanted.effort, volume, context, calib[wanted.family])
@@ -284,16 +306,22 @@ export function planAgent(args: {
   allowFable: boolean
   parent: { depth: Depth } | null
   session: SessionModel | null
+  /** Đánh giá đã có sẵn của việc (từ việc đã tách lúc nhận prompt): thay cho đánh giá prompt của agent. */
+  assessed?: Pick<Subtask, 'depth' | 'volume' | 'kind' | 'hardSignals'> & { title?: string }
 }): AgentPlan {
-  const local = assessText(`${args.description}\n${args.prompt}`, { isDelegated: true })
+  const local = args.assessed ?? assessText(`${args.description}\n${args.prompt}`, { isDelegated: true })
   const type = args.subagentType ?? 'general-purpose'
   const isReadOnly = local.kind === 'answer' || local.kind === 'investigate'
+  // Chỉ tra cứu thuần (tìm, liệt kê, đọc) mới xuống haiku; rà soát, kiểm tra, gỡ lỗi thì không.
+  const text = args.assessed?.title ?? `${args.description}\n${args.prompt}`
   const isLookup =
-    type === 'Explore' || (type === 'general-purpose' && isReadOnly && local.hardSignals.length === 0)
+    type === 'Explore' ||
+    (type === 'general-purpose' && isReadOnly && local.hardSignals.length === 0 && isPureLookup(text))
 
   if (isLookup) {
     const light = local.depth === 'none' || local.depth === 'light'
-    const natural: ModelFamily = light && local.volume !== 'large' ? 'haiku' : 'sonnet'
+    // Kể cả khi Claude chọn Explore: việc có phân tích (rà soát, gỡ lỗi) không xuống haiku.
+    const natural: ModelFamily = light && local.volume !== 'large' && isPureLookup(text) ? 'haiku' : 'sonnet'
     const family = applySession(natural, args.session)
     const pick = avoidBlocked({ family, effort: 'low' }, args.blocked, { kind: local.kind, allowFable: args.allowFable })
     const canExplore = type === 'general-purpose' && args.offered.has('Explore')
@@ -333,6 +361,81 @@ export function planAgent(args: {
       ? `nâng theo mục tiêu cha (${args.parent?.depth}), việc ${local.depth}`
       : `nhiệm vụ ${planned}`,
   }
+}
+
+/** Số việc con từ đó mới đáng tách và giao: với ít việc, chi phí khởi động subagent lớn hơn phần tiết kiệm. */
+export const MIN_DELEGATE = 3
+
+export type SubtaskAdvice = {
+  subtask: Subtask
+  /** Model và effort đã ghi sẵn cho việc này. */
+  pick: Choice
+  /** Làm trực tiếp ở luồng chính (cùng họ model với luồng chính), hay giao subagent. */
+  direct: boolean
+  /** Loại agent khi giao: Explore cho tra cứu chỉ đọc, nếu không thì general-purpose. */
+  subagentType?: string
+}
+
+/**
+ * Chấm model và effort cho từng việc đã tách, trước khi làm. Mỗi việc dùng đánh giá
+ * riêng của nó, không kế thừa độ sâu của cả mục tiêu. Việc cùng họ model với luồng
+ * chính thì làm trực tiếp; khác họ thì giao subagent đúng model đã ghi.
+ */
+export function adviseSubtasks(args: {
+  subtasks: readonly Subtask[]
+  main: Choice
+  allowFable: boolean
+  blocked: ReadonlySet<ModelFamily>
+  offered: ReadonlySet<string>
+  session: SessionModel | null
+}): SubtaskAdvice[] {
+  if (args.subtasks.length < MIN_DELEGATE) return []
+  return args.subtasks.map(subtask => {
+    const plan = planAgent({
+      prompt: subtask.title,
+      description: subtask.title,
+      subagentType: undefined,
+      offered: args.offered,
+      blocked: args.blocked,
+      allowFable: args.allowFable,
+      parent: null,
+      session: args.session,
+      assessed: subtask,
+    })
+    return {
+      subtask,
+      pick: { family: plan.family, effort: plan.effort },
+      // Tổng hợp, báo cáo kết quả là việc của luồng chính.
+      direct: plan.family === args.main.family || isSynthesis(subtask.title),
+      subagentType: plan.agentType,
+    }
+  })
+}
+
+/**
+ * Việc đã tách mà một lời gọi Agent đang làm, theo thứ tự tin cậy: description mở
+ * đầu bằng "Việc N" (hoặc "Task N"; không nhận "Bước N" vì dễ trùng số bước của checklist); description cùng ý với tên việc;
+ * prompt của agent chứa phần lớn từ của tên việc.
+ */
+export function matchSubtask(subtasks: readonly Subtask[], description: string, prompt: string): Subtask | undefined {
+  const numbered = fold(description).match(/^\s*(?:viec|task)\s*#?\s*(\d+)\b/)
+  if (numbered) {
+    const hit = subtasks.find(s => s.index === Number(numbered[1]))
+    if (hit) return hit
+  }
+  const same = subtasks.find(s => isSameIdea(s.title, description))
+  if (same) return same
+  let best: Subtask | undefined
+  let bestCover = 0.8
+  for (const s of subtasks) {
+    if (tokenCount(s.title) < 3) continue
+    const cover = coverage(s.title, prompt)
+    if (cover >= bestCover) {
+      best = s
+      bestCover = cover
+    }
+  }
+  return best
 }
 
 /** Gợi ý ngắn cho một bước trong checklist: model luồng chính và cách giao việc. */

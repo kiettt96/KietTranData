@@ -1,6 +1,6 @@
 {
   "name": "focus-conductor",
-  "version": "0.2.1",
+  "version": "0.3.2",
   "author": { "name": "Kiet Tran" },
   "description": "Đọc kỹ prompt trước khi làm, tự điều phối model/effort/agent theo độ phức tạp, giữ nhất quán mục tiêu với checklist và cảnh báo lạc đề.",
   "types": "./types/index.d.ts",
@@ -43,6 +43,12 @@
       "description": "auto: mod tự chọn model cho luồng chính và subagent; ceiling: không vượt model đang dùng của phiên; fixed: giữ model của phiên, chỉ chỉnh effort",
       "default": "auto",
       "options": ["auto", "ceiling", "fixed"]
+    },
+    "contextWindows": {
+      "type": "string",
+      "title": "Cửa sổ ngữ cảnh theo model",
+      "description": "Dạng family=token, phân tách bằng dấu phẩy, ví dụ: opus=1000000,sonnet=1000000,haiku=200000. Khi có, mod không đổi sang model có cửa sổ nhỏ hơn ngữ cảnh hiện tại, kể cả khi nâng cấp. Để trống thì chỉ kiểm tra khi hạ cấp",
+      "default": ""
     },
     "cacheTtlMinutes": {
       "type": "string",
