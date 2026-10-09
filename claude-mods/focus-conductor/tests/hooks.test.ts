@@ -233,6 +233,35 @@ describe('nhiều subagent trong một phiên', () => {
     expect(seen[1]).toBe('opus')
   })
 
+  test('model Claude chỉ định vượt trần ceiling thì bị giới hạn về model của phiên', { options: { analyzer: 'heuristic', sessionModel: 'ceiling' } }, async ($, on) => {
+    const seen = base(on)
+    const models: Array<string | undefined> = []
+    on('tool.call', { tool: 'Agent' }, (_$, e) => {
+      models.push(e.model)
+      return { deny: 'test: đã ghi nhận đầu vào' }
+    })
+    await submit($, COMPLEX_PROMPT)
+    await step($, seen, { model: 'claude-sonnet-5-5' })
+    await $.tool.call({ tool: 'Agent', description: 'Sửa login', prompt: 'Sửa hàm login trong src/auth.ts', model: 'opus' })
+    expect(models[0]).toBe('sonnet')
+  })
+
+  test('spawn bị từ chối không để lại kế hoạch chờ cho lần spawn sau', HEURISTIC, async ($, on) => {
+    base(on)
+    let calls = 0
+    on('agent.spawn', () => {
+      calls += 1
+      return calls === 1 ? { deny: 'test: từ chối' } : { model: 'claude-sonnet-5-5', agentId: 'agent-2' }
+    })
+    on('tool.call', { tool: 'Agent' }, () => ({ result: 'đã giao' }))
+    await submit($, 'sửa typo trong README')
+    await $.tool.call({ tool: 'Agent', tool_use_id: 'u1', description: 'Sửa nút', prompt: 'Sửa nút lệch' })
+    await $.agent.spawn({ prompt: 'Sửa nút lệch', description: 'Sửa nút', tool_use_id: 'u1' } as never)
+    await $.agent.spawn({ prompt: 'Việc khác', description: 'Việc khác', tool_use_id: 'u1' } as never)
+    const status = String((await conductor($, 'status')).text)
+    expect(status).toContain('Việc khác: sonnet (không qua điều phối)')
+  })
+
   test('giao hơn sáu subagent trong một mục tiêu thì cảnh báo chi phí đúng một lần', HEURISTIC, async ($, on) => {
     const seen = base(on)
     on('tool.call', { tool: 'Agent' }, () => ({ deny: 'test: đã ghi nhận đầu vào' }))
@@ -260,6 +289,47 @@ describe('chi phí luồng chính và nâng cấp theo bằng chứng', () => {
     const status = String((await conductor($, 'status')).text)
     expect(status).toContain('luồng chính $0.700 trong 1 lượt')
     expect(status).toContain('subagent $0.0000 trong 0 lượt')
+  })
+
+  test('turn chưa có mục tiêu vẫn được cộng vào sổ', HEURISTIC, async ($, on) => {
+    base(on)
+    on('turn.complete', () => ({ text: '' }))
+    await $.turn.complete({ turnId: 't0', answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer', usage: { ...BIG_USAGE, model: 'claude-sonnet-5-5' } } as never)
+    expect(String((await conductor($, 'status')).text)).toContain('luồng chính $0.700 trong 1 lượt')
+  })
+
+  test('chế độ suggest không áp route nên không hiệu chỉnh ước lượng', { options: { analyzer: 'heuristic', routing: 'suggest' } }, async ($, on) => {
+    const seen = base(on)
+    on('turn.complete', () => ({ text: '' }))
+    await submit($, 'sửa typo trong README')
+    await step($, seen, { turnId: 't1' })
+    await $.turn.complete({ turnId: 't1', answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer', usage: { ...BIG_USAGE, model: 'claude-sonnet-5-5' } } as never)
+    expect(String((await conductor($, 'status')).text)).not.toContain('Hiệu chỉnh ước lượng')
+  })
+
+  test('chế độ auto áp route thì có hiệu chỉnh ước lượng', HEURISTIC, async ($, on) => {
+    const seen = base(on)
+    on('turn.complete', () => ({ text: '' }))
+    await submit($, 'sửa typo trong README')
+    await step($, seen, { turnId: 't1' })
+    await $.turn.complete({ turnId: 't1', answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer', usage: { ...BIG_USAGE, model: 'claude-sonnet-5-5' } } as never)
+    expect(String((await conductor($, 'status')).text)).toContain('Hiệu chỉnh ước lượng theo 1 lần đo')
+  })
+
+  test('người dùng tự đổi model rồi sang mục tiêu mới: quyết định so với model đang chạy, có tính chi phí cache', HEURISTIC, async ($, on) => {
+    const seen = base(on)
+    on('turn.complete', () => ({ text: '' }))
+    await submit($, COMPLEX_PROMPT)
+    await step($, seen, { turnId: 't1' })
+    await $.turn.complete({ turnId: 't1', answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer' } as never)
+    // Người dùng tự chuyển sang opus/xhigh: mod tạm dừng tới mục tiêu mới.
+    await step($, seen, { turnId: 't2', model: 'claude-opus-5-5', effort: 'xhigh' })
+    await submit($, 'Viết hàm parseDate nhận chuỗi ISO và trả về Date')
+    const got = await step($, seen, { turnId: 't3', model: 'claude-opus-5-5', effort: 'xhigh' })
+    expect(got?.model).toBe('claude-sonnet-5-5')
+    const status = String((await conductor($, 'status')).text)
+    expect(status).toContain('hạ xuống sonnet/medium')
+    expect(status).not.toContain('turn đầu tiên')
   })
 
   test('ba tool call lỗi trong một turn thì turn sau nâng effort một bậc', HEURISTIC, async ($, on) => {

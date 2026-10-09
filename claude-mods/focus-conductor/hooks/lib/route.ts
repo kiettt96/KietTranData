@@ -145,6 +145,13 @@ export function avoidBlocked(
   return pick
 }
 
+/** Áp chính sách model của phiên lên một họ model: fixed giữ model phiên, ceiling không vượt model phiên. */
+export function applySession(family: ModelFamily, session: SessionModel | null): ModelFamily {
+  if (session === null || session.policy === 'auto') return family
+  if (session.policy === 'fixed') return session.family
+  return familyRank(family) > familyRank(session.family) ? session.family : family
+}
+
 /** Model luồng chính mong muốn cho một việc, có nâng theo bằng chứng và chính sách model phiên. */
 export function chooseMain(args: {
   depth: Depth
@@ -158,10 +165,7 @@ export function chooseMain(args: {
 }): Choice & { capped: boolean } {
   const depth = stepDepth(args.depth, args.depthLift ?? 0)
   const natural = familyFor(depth, args.kind, args.allowFable)
-  let family = natural
-  const session = args.session ?? null
-  if (session && session.policy === 'fixed') family = session.family
-  if (session && session.policy === 'ceiling' && familyRank(natural) > familyRank(session.family)) family = session.family
+  const family = applySession(natural, args.session ?? null)
   const effort = bumpEffort(effortFor(family, depth, args.volume, args.kind), args.effortLift ?? 0)
   const pick = avoidBlocked({ family, effort }, args.blocked ?? new Set(), args)
   return { ...pick, capped: family !== natural }
@@ -289,7 +293,8 @@ export function planAgent(args: {
 
   if (isLookup) {
     const light = local.depth === 'none' || local.depth === 'light'
-    const family: ModelFamily = light && local.volume !== 'large' ? 'haiku' : 'sonnet'
+    const natural: ModelFamily = light && local.volume !== 'large' ? 'haiku' : 'sonnet'
+    const family = applySession(natural, args.session)
     const pick = avoidBlocked({ family, effort: 'low' }, args.blocked, { kind: local.kind, allowFable: args.allowFable })
     const canExplore = type === 'general-purpose' && args.offered.has('Explore')
     return {
@@ -300,7 +305,7 @@ export function planAgent(args: {
       tier: tierOf(local.depth, local.volume),
       hardSignals: local.hardSignals,
       agentType: canExplore ? 'Explore' : undefined,
-      reason: `tra cứu chỉ đọc (${tierOf(local.depth, local.volume)})${canExplore ? ', chuyển sang Explore' : ''}`,
+      reason: `tra cứu chỉ đọc (${tierOf(local.depth, local.volume)})${canExplore ? ', chuyển sang Explore' : ''}${family !== natural ? ', theo model của phiên' : ''}`,
     }
   }
 

@@ -417,6 +417,24 @@ describe('điều phối có tính cache', () => {
     expect(design.family).toBe('opus')
   })
 
+  test('subagent tra cứu cũng theo chính sách model của phiên (fixed, ceiling)', () => {
+    const lookup = (prompt: string, session: { family: 'opus' | 'haiku'; policy: 'fixed' | 'ceiling' }) =>
+      planAgent({
+        description: 'Tìm',
+        prompt,
+        subagentType: 'Explore',
+        offered: new Set(['Explore']),
+        blocked: new Set(),
+        allowFable: false,
+        parent: null,
+        session,
+      })
+    expect(lookup('Tìm nơi gọi hàm charge', { family: 'opus', policy: 'fixed' }).family).toBe('opus')
+    const wide = lookup('Tìm trong toàn bộ file các chỗ gọi hàm charge', { family: 'haiku', policy: 'ceiling' })
+    expect(wide.volume).toBe('large')
+    expect(wide.family).toBe('haiku')
+  })
+
   test('việc sửa của subagent không thấp hơn một bậc so với mục tiêu cha', () => {
     const edit = {
       description: 'Đổi tên biến',
