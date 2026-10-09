@@ -103,6 +103,59 @@ describe('đọc prompt', () => {
   })
 })
 
+describe('prompt thật qua Haiku (0.3.3)', () => {
+  const REAL = 'Làm 3 việc sau:\n1. Đọc file config.ts và liệt kê biến môi trường.\n2. Sửa lỗi nút đăng nhập bị lệch trên mobile.\n3. Viết unit test cho hàm refund.'
+  // Đúng dạng câu trả lời Haiku đã trả trong phiên thật: chuỗi tiếng Anh, câu dẫn lọt vào ràng buộc.
+  const HAIKU_REPLY = JSON.stringify({
+    why: 'Three separate pieces',
+    goal: 'Complete three tasks: list env vars in config.ts, fix the mobile login button misalignment, and write unit tests for the refund function.',
+    steps: [],
+    constraints: ['Làm 3 việc sau'],
+    quality: ['config.ts env vars listed completely', 'Login button no longer misaligned on mobile', 'Refund unit tests exist and pass'],
+    tasks: [
+      { text: 'Đọc file config.ts và liệt kê biến môi trường', depth: 'none', volume: 'small', kind: 'investigate', hardSignals: [] },
+      { text: 'Sửa lỗi nút đăng nhập bị lệch trên mobile', depth: 'substantial', volume: 'small', kind: 'edit', hardSignals: ['lỗi chưa rõ nguyên nhân'] },
+      { text: 'Viết unit test cho hàm refund', depth: 'light', volume: 'small', kind: 'edit', hardSignals: [] },
+    ],
+    depth: 'substantial',
+    volume: 'medium',
+    kind: 'mixed',
+    confidence: 'high',
+  })
+
+  test('prompt 3 việc qua Haiku: mục tiêu tiếng Việt, có Phân việc, không có câu dẫn trong Ràng buộc hay Tiêu chí', { options: { analyzer: 'model' } }, async ($, on) => {
+    const seen = base(on)
+    on('model.complete', () => ({
+      value: { isAnswered: true as const, text: HAIKU_REPLY, usage: { input_tokens: 10, output_tokens: 10, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } },
+    }))
+    await submit($, REAL)
+    const context = seen.contexts[0]?.join('\n') ?? ''
+    expect(context).toContain('Mục tiêu cuối: Làm 3 việc sau: Đọc file config.ts và liệt kê biến môi trường; Sửa lỗi nút đăng nhập bị lệch trên mobile; Viết unit test cho hàm refund')
+    expect(context).not.toContain('Complete three tasks')
+    expect(context).toContain('Phân việc (đã chấm trước khi làm')
+    expect(context).toContain('1. Đọc file config.ts và liệt kê biến môi trường. → giao general-purpose haiku/low')
+    expect(context).toContain('3. Viết unit test cho hàm refund. → giao general-purpose sonnet/medium')
+    expect(context).not.toContain('Ràng buộc:')
+    expect(context).not.toContain('Tiêu chí chất lượng:')
+    expect(context).not.toContain('config.ts env vars listed completely')
+  })
+})
+
+describe('mốc so sánh khi không có route đã lưu (0.3.3)', () => {
+  test('không có route đã lưu thì so với model engine đang chạy: nâng cấp ghi đúng "từ haiku/xhigh"', HEURISTIC, async ($, on) => {
+    // Turn đầu chạy opus nhưng model thất bại nên route bị xóa; engine vẫn là haiku/xhigh.
+    const seen = base(on, { failFamily: 'opus' })
+    on('turn.complete', () => ({ text: '' }))
+    await submit($, COMPLEX_PROMPT)
+    await step($, seen, { turnId: 't1', model: 'claude-haiku-5-5', effort: 'xhigh' })
+    await $.turn.complete({ turnId: 't1', answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer' } as never)
+    await submit($, 'Viết hàm parseDate nhận chuỗi ISO và trả về Date')
+    await step($, seen, { turnId: 't2', model: 'claude-haiku-5-5', effort: 'xhigh' })
+    const status = String((await conductor($, 'status')).text)
+    expect(status).toContain('sonnet/medium (việc khó hơn, nâng cấp từ haiku/xhigh)')
+  })
+})
+
 describe('điều phối luồng chính', () => {
   test('việc rất phức tạp (deep) chạy opus/xhigh, giữ nguyên cho mọi step của turn', HEURISTIC, async ($, on) => {
     const seen = base(on)

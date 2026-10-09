@@ -466,8 +466,10 @@ function isConstraintItem(text: string): boolean {
 }
 
 // Câu dẫn mở danh sách ("Làm 3 việc sau", "Do the following"): không phải ràng buộc hay tiêu chí.
+// Câu dẫn phải nhắc tới các việc ("làm 3 việc sau", "làm các bước dưới đây"); "hoàn thành
+// tính năng này sau" không có danh từ chỉ việc nên là câu thường, không phải câu dẫn.
 const LEAD_IN =
-  /^(?:(?:ban|anh|em|toi|minh|please)\s+)?(?:(?:hay|vui long|can|phai|must|should)\s+)?(?:lam|thuc hien|xu ly|hoan thanh|do|complete|handle)\b.{0,40}\b(?:sau|sau day|duoi day|following|below)$/
+  /^(?:(?:ban|anh|em|toi|minh|please)\s+)?(?:(?:hay|vui long|can|phai|must|should)\s+)?(?:lam|thuc hien|xu ly|hoan thanh|do|complete|handle)\b.{0,20}\b(?:viec|buoc|muc|nhiem vu|cong viec|yeu cau|task|tasks|step|steps|item|items)s?\b.{0,12}\b(?:sau|sau day|duoi day|following|below)$|^(?:do|complete|handle)\s+(?:the|these)\s+(?:following|below)$/
 
 /** Mục liệt kê là một việc phải làm (có động từ hành động), không phải ràng buộc hay tiêu chí. */
 function isWorkItem(text: string): boolean {

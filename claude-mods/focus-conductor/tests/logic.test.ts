@@ -4,7 +4,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import type { Brief, Route } from '../types'
-import { analyzeHeuristic, analyzerRequest, assessSubtasks, isMeta, splitClauses, isRelated, isSameIdea, mergeAnalysis, retarget } from '../hooks/lib/analyze'
+import { analyzeHeuristic, analyzerRequest, assessSubtasks, isLeadIn, isMeta, splitClauses, isRelated, isSameIdea, mergeAnalysis, retarget } from '../hooks/lib/analyze'
 import { newTracker, observe } from '../hooks/lib/drift'
 import { applyPlan } from '../hooks/lib/plan'
 import { adviseSubtasks, chooseMain, decideMain, matchSubtask, parseWindows, planAgent, raisePick, resolveModelId } from '../hooks/lib/route'
@@ -794,6 +794,18 @@ describe('vấn đề tồn đọng (0.3.2)', () => {
     expect(decideMain({ ...base, targetWindow: 200_000 }).isHeld).toBe(true)
     expect(decideMain(base).isChanged).toBe(true)
     expect(parseWindows('opus=200000, sonnet=1000000, x=5, haiku=abc')).toEqual({ opus: 200000, sonnet: 1000000 })
+  })
+})
+
+describe('câu dẫn danh sách (0.3.3)', () => {
+  test('chỉ câu có danh từ chỉ việc đi trước "sau" mới là câu dẫn', () => {
+    expect(isLeadIn('Làm 3 việc sau:')).toBe(true)
+    expect(isLeadIn('Làm các bước dưới đây')).toBe(true)
+    expect(isLeadIn('Mấy việc sau đây cần làm: ')).toBe(false)
+    expect(isLeadIn('Hoàn thành tính năng này sau')).toBe(false)
+    expect(isLeadIn('Làm sau')).toBe(false)
+    expect(isLeadIn('Do the following:')).toBe(true)
+    expect(isLeadIn('Do this later')).toBe(false)
   })
 })
 
