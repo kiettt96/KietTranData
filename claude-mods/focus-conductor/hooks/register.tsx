@@ -35,6 +35,7 @@ import {
   describePick,
   familyOf,
   familyRank,
+  matchSubtask,
   parseModelMap,
   planAgent,
   raisePick,
@@ -450,7 +451,7 @@ export const register: Register = (on, options) => {
     const goalId = brief?.goalId ?? 0
     // Việc này khớp một việc đã tách lúc nhận prompt: dùng đúng đánh giá đã chấm,
     // không chấm lại từ prompt của agent và không kế thừa sàn của mục tiêu cha.
-    const assigned = brief?.subtasks.find(s => isSameIdea(s.title, e.description))
+    const assigned = brief ? matchSubtask(brief.subtasks, e.description, e.prompt) : undefined
     let plan = planAgent({
       prompt: e.prompt,
       description: e.description,

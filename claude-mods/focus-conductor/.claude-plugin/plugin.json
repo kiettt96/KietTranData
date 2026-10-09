@@ -1,6 +1,6 @@
 {
   "name": "focus-conductor",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "author": { "name": "Kiet Tran" },
   "description": "Đọc kỹ prompt trước khi làm, tự điều phối model/effort/agent theo độ phức tạp, giữ nhất quán mục tiêu với checklist và cảnh báo lạc đề.",
   "types": "./types/index.d.ts",

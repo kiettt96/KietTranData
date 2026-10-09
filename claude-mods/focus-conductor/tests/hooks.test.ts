@@ -286,6 +286,9 @@ describe('nhiều subagent trong một phiên', () => {
       prompt: 'Phân tích race condition, bảo mật và kiến trúc liên module của toàn bộ luồng thanh toán trước khi đổi tên userId',
     })
     expect(seen[2]?.model).toBe('sonnet')
+    // Description ngắn dạng "Việc N: ..." như tool Agent yêu cầu vẫn khớp đúng việc.
+    await $.tool.call({ tool: 'Agent', description: 'Việc 4: sửa README', prompt: 'Cập nhật phần cài đặt' })
+    expect(seen[3]?.model).toBe('sonnet')
   })
 
   test('context liệt kê phân việc: việc nào giao subagent kèm model, việc nào làm trực tiếp', HEURISTIC, async ($, on) => {

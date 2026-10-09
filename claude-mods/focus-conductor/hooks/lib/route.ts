@@ -13,7 +13,7 @@
 import type { PluginOptions } from 'claude-code'
 
 import type { Depth, Effort, Kind, ModelFamily, Route, Subtask, Tier, Volume } from '../../types'
-import { assessText, fold } from './analyze'
+import { assessText, coverage, fold, isPureLookup, isSameIdea, isSynthesis, tokenCount } from './analyze'
 import { SAFETY, shouldDowngrade, switchCost, turnCost } from './cost'
 import { depthRank, legacyOf, maxDepth, stepDepth, tierOf } from './scale'
 
@@ -285,13 +285,16 @@ export function planAgent(args: {
   parent: { depth: Depth } | null
   session: SessionModel | null
   /** Đánh giá đã có sẵn của việc (từ việc đã tách lúc nhận prompt): thay cho đánh giá prompt của agent. */
-  assessed?: Pick<Subtask, 'depth' | 'volume' | 'kind' | 'hardSignals'>
+  assessed?: Pick<Subtask, 'depth' | 'volume' | 'kind' | 'hardSignals'> & { title?: string }
 }): AgentPlan {
   const local = args.assessed ?? assessText(`${args.description}\n${args.prompt}`, { isDelegated: true })
   const type = args.subagentType ?? 'general-purpose'
   const isReadOnly = local.kind === 'answer' || local.kind === 'investigate'
+  // Chỉ tra cứu thuần (tìm, liệt kê, đọc) mới xuống haiku; rà soát, kiểm tra, gỡ lỗi thì không.
+  const text = args.assessed?.title ?? `${args.description}\n${args.prompt}`
   const isLookup =
-    type === 'Explore' || (type === 'general-purpose' && isReadOnly && local.hardSignals.length === 0)
+    type === 'Explore' ||
+    (type === 'general-purpose' && isReadOnly && local.hardSignals.length === 0 && isPureLookup(text))
 
   if (isLookup) {
     const light = local.depth === 'none' || local.depth === 'light'
@@ -379,10 +382,37 @@ export function adviseSubtasks(args: {
     return {
       subtask,
       pick: { family: plan.family, effort: plan.effort },
-      direct: plan.family === args.main.family,
+      // Tổng hợp, báo cáo kết quả là việc của luồng chính.
+      direct: plan.family === args.main.family || isSynthesis(subtask.title),
       subagentType: plan.agentType,
     }
   })
+}
+
+/**
+ * Việc đã tách mà một lời gọi Agent đang làm, theo thứ tự tin cậy: description mở
+ * đầu bằng "Việc N" (hoặc Task, Bước, Step N); description cùng ý với tên việc;
+ * prompt của agent chứa phần lớn từ của tên việc.
+ */
+export function matchSubtask(subtasks: readonly Subtask[], description: string, prompt: string): Subtask | undefined {
+  const numbered = fold(description).match(/^\s*(?:viec|task|buoc|step)\s*#?\s*(\d+)\b/)
+  if (numbered) {
+    const hit = subtasks.find(s => s.index === Number(numbered[1]))
+    if (hit) return hit
+  }
+  const same = subtasks.find(s => isSameIdea(s.title, description))
+  if (same) return same
+  let best: Subtask | undefined
+  let bestCover = 0.8
+  for (const s of subtasks) {
+    if (tokenCount(s.title) < 3) continue
+    const cover = coverage(s.title, prompt)
+    if (cover >= bestCover) {
+      best = s
+      bestCover = cover
+    }
+  }
+  return best
 }
 
 /** Gợi ý ngắn cho một bước trong checklist: model luồng chính và cách giao việc. */

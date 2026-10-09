@@ -181,6 +181,21 @@ function tokens(text: string): Set<string> {
   return new Set((fold(text).match(/[a-z0-9]+/g) ?? []).filter(t => t.length >= 2 && !FILLER.has(t)))
 }
 
+/** Tỷ lệ từ của `inner` có mặt trong `outer` (0..1); 0 khi `inner` không có từ nào. */
+export function coverage(inner: string, outer: string): number {
+  const ti = tokens(inner)
+  if (ti.size === 0) return 0
+  const to = tokens(outer)
+  let shared = 0
+  for (const t of ti) if (to.has(t)) shared += 1
+  return shared / ti.size
+}
+
+/** Số từ nội dung của một câu (bỏ từ đệm), để biết câu đủ dài để so khớp hay không. */
+export function tokenCount(text: string): number {
+  return tokens(text).size
+}
+
 /**
  * Hai câu cùng ý: trùng phần lớn từ (Jaccard từ 0,7), hoặc câu ngắn hơn (từ 3
  * từ trở lên) gần như nằm trọn trong câu dài hơn, như khi Haiku rút gọn hay
@@ -415,7 +430,27 @@ const WRITE_VERB =
 const LOOKUP_VERB =
   /\b(tim|search\w*|find|locate|grep|doc|read|kham pha|explore|tra cuu|look up|scan|quet|where|o dau|vi sao|tai sao|why|ra soat|review|kiem tra|check|debug\w*|dieu tra|investigat\w*|xem|phat hien|detect)\b/
 const ANSWER_VERB =
-  /\b(la gi|what is|giai thich|explain|so sanh|compare|tom tat|summari[sz]\w*|liet ke|list|thiet ke|design|neu|trade-?off\w*|de xuat|propose|mo ta|describe)\b/
+  /\b(la gi|what is|giai thich|explain|so sanh|compare|tom tat|summari[sz]\w*|liet ke|list|thiet ke|design|neu|trade-?off\w*|de xuat|propose|mo ta|describe|tong hop|bao cao|report|ket luan)\b/
+
+// Tra cứu thuần (tìm, liệt kê, đọc) khác với phân tích (rà soát, kiểm tra, gỡ lỗi):
+// chỉ tra cứu thuần mới được xuống haiku hoặc Explore.
+const SEARCH_VERB =
+  /\b(tim|search\w*|find|locate|grep|doc|read|liet ke|list|xem|o dau|where|tra cuu|look up|scan|quet|kham pha|explore)\b/
+const ANALYSIS_VERB =
+  /\b(ra soat|review\w*|kiem tra|check\w*|debug\w*|dieu tra|investigat\w*|phan tich|analy[sz]\w*|doi chieu|danh gia|evaluat\w*|audit\w*|vi sao|tai sao|why|phat hien|detect\w*|xac minh|verify|tim (?:ra )?(?:loi|bug|nguyen nhan|lo hong)|find (?:the )?(?:bug|cause|root))\b/
+// Việc tổng hợp, báo cáo cuối: thuộc về luồng chính, không giao đi.
+const SYNTHESIS = /\b(tong hop|bao cao|ket luan|summari[sz]\w*|report|tom tat)\b/
+
+/** Việc chỉ tra cứu (tìm, liệt kê, đọc), không có phân tích hay đánh giá. */
+export function isPureLookup(text: string): boolean {
+  const folded = fold(text)
+  return SEARCH_VERB.test(folded) && !ANALYSIS_VERB.test(folded)
+}
+
+/** Việc tổng hợp hoặc báo cáo kết quả: luồng chính tự làm. */
+export function isSynthesis(text: string): boolean {
+  return SYNTHESIS.test(fold(text))
+}
 
 const BULK_COUNT = /\b(\d+|nhieu|tat ca|toan bo|all|every|many)\s+(file|files|module|service|tep|lop|class|endpoint|bang|table|ham|function|test|tests)\b/
 
@@ -659,11 +694,12 @@ export function analyzeHeuristic(text: string, prev: Brief | null, now: number):
 
 const ANALYZER_SYSTEM = `You read a user's request to a coding agent BEFORE any work starts. Judge how hard the work is, not how long the text is.
 Reply with ONE JSON object and nothing else. Put "why" first and fill it before the labels:
-{"why": string, "relation": "new"|"continue"|"refine"|"dissatisfied", "goal": string, "steps": string[], "constraints": string[], "quality": string[], "hardSignals": string[], "depth": "none"|"light"|"substantial"|"hard", "volume": "small"|"medium"|"large", "kind": "answer"|"edit"|"investigate"|"mixed", "confidence": "high"|"low"}
+{"why": string, "relation": "new"|"continue"|"refine"|"dissatisfied", "goal": string, "steps": string[], "tasks": [{"text": string, "depth": "none"|"light"|"substantial"|"hard", "volume": "small"|"medium"|"large", "kind": "answer"|"edit"|"investigate"|"mixed", "hardSignals": string[]}], "constraints": string[], "quality": string[], "hardSignals": string[], "depth": "none"|"light"|"substantial"|"hard", "volume": "small"|"medium"|"large", "kind": "answer"|"edit"|"investigate"|"mixed", "confidence": "high"|"low"}
 - why: one short sentence on what makes the work easy or hard.
 - relation: new = a new goal; continue = keep going on the previous goal; refine = a small change to the previous goal; dissatisfied = the previous result is still wrong.
 - goal: the end result the user wants, one sentence.
 - steps: 2-10 ordered, concrete steps; [] for a one-step task.
+- tasks: the separate pieces of work the user explicitly asked for, each quoted closely from the request, in the user's order, each judged on its own (depth, volume, kind, hardSignals of that piece alone). Never your own plan or sub-steps; [] when the request is one piece of work.
 - constraints: hard rules (must / must not / only / format / scope), quoted closely.
 - quality: the acceptance criteria the result is judged by.
 - hardSignals: any of "đồng thời" (concurrency), "bảo mật" (security), "thiết kế liên module" (cross-module design), "migrate dữ liệu" (data migration), "đúng đắn thuật toán" (algorithmic correctness), "lỗi chập chờn" (intermittent failure), "lỗi chưa rõ nguyên nhân" (unexplained failure), "nguyên nhân gốc hiệu năng" (performance root cause); [] if none.
@@ -689,6 +725,61 @@ type ModelAnalysis = {
   kind?: unknown
   confidence?: unknown
   isNewGoal?: unknown
+  tasks?: unknown
+}
+
+/** Một việc Haiku tách ra từ lời người dùng, kèm đánh giá riêng (có thể thiếu). */
+type ModelTask = { text: string; depth?: Depth; volume?: Volume; kind?: Kind; hardSignals: string[] }
+
+function parseTasks(value: unknown): ModelTask[] {
+  if (!Array.isArray(value)) return []
+  const out: ModelTask[] = []
+  for (const item of value.slice(0, 12)) {
+    if (typeof item !== 'object' || item === null) continue
+    const raw = item as Record<string, unknown>
+    const text = typeof raw['text'] === 'string' ? raw['text'].trim() : ''
+    if (text.length < 4 || isMeta(text)) continue
+    const signals = Array.isArray(raw['hardSignals']) ? raw['hardSignals'].filter((s): s is string => typeof s === 'string') : []
+    out.push({
+      text,
+      depth: DEPTHS.find(d => d === raw['depth']),
+      volume: VOLUMES.find(v => v === raw['volume']),
+      kind: KINDS.find(k => k === raw['kind']),
+      hardSignals: signals,
+    })
+  }
+  return out
+}
+
+/** Việc con với đánh giá của Haiku làm nguồn chính, không thấp hơn sàn tín hiệu khó của chính việc đó. */
+function judgedTask(index: number, title: string, task: ModelTask): Subtask {
+  const local = assessText(title)
+  const hardSignals = [...new Set([...local.hardSignals, ...task.hardSignals.filter(s => KNOWN_SIGNALS.has(s))])]
+  return {
+    index,
+    title: clip(title, 120),
+    depth: maxDepth(task.depth ?? local.depth, depthFloor(hardSignals)),
+    volume: task.volume ?? local.volume,
+    kind: task.kind ?? local.kind,
+    hardSignals,
+  }
+}
+
+/**
+ * Việc con khi có Haiku. Danh sách người dùng tự liệt kê được giữ nguyên, Haiku chỉ
+ * chấm lại đúng các mục đó. Không có danh sách thì nhận việc Haiku tách ra, nhưng
+ * chỉ việc trích từ lời người dùng (phần lớn từ có trong prompt); các bước Haiku tự
+ * lập kế hoạch không bao giờ thành việc con.
+ */
+function subtasksWithModel(listed: readonly Subtask[], tasks: readonly ModelTask[], request: string): Subtask[] {
+  if (listed.length > 0) {
+    return listed.map(s => {
+      const task = tasks.find(t => isSameIdea(t.text, s.title))
+      return task ? judgedTask(s.index, s.title, task) : s
+    })
+  }
+  const quoted = tasks.filter(t => coverage(t.text, request) >= 0.6)
+  return quoted.length < 2 ? [] : quoted.map((t, i) => judgedTask(i + 1, t.text, t))
 }
 
 function strings(value: unknown, max: number): string[] {
@@ -725,7 +816,7 @@ export function analyzerRequest(text: string, prev: Brief | null): ModelComplete
     model: 'haiku',
     system,
     prompt: `${previous}\n\n<request>\n${split.request.slice(0, 12000)}\n${note}\n</request>`,
-    maxTokens: 700,
+    maxTokens: 1400,
     effort: 'low',
     timeoutMs: 8000,
   }
@@ -795,7 +886,7 @@ export function mergeAnalysis(base: Brief, prev: Brief | null, reply: string, te
     goalId: isFollow && prev ? prev.goalId : base.goalId,
     goal: isFollow && prev ? prev.goal : goal,
     steps: isFollow && prev ? prev.steps : steps.length > 0 ? steps : base.steps,
-    subtasks: isFollow && prev ? prev.subtasks : assessSubtasks(steps.length > 0 ? steps : base.steps),
+    subtasks: isFollow && prev ? prev.subtasks : subtasksWithModel(base.subtasks, parseTasks(parsed.tasks), text),
     keywords: isFollow && prev ? prev.keywords : base.keywords,
     scopePaths: isFollow && prev && base.scopePaths.length === 0 ? prev.scopePaths : base.scopePaths,
     // Câu gốc của người dùng đứng trước: khi trùng ý, bản Haiku diễn đạt lại bị bỏ.

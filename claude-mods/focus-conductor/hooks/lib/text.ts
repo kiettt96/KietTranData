@@ -20,7 +20,7 @@ Mỗi prompt của người dùng có thể kèm một khối "[focus-conductor]
 2. Với việc từ mức moderate trở lên: gọi ${PLAN_TOOL_FULL} (action "set") để ghi mục tiêu và checklist đã chuẩn hóa; cập nhật từng bước (doing, done, verified kèm bằng chứng, skipped hoặc blocked kèm lý do).
 3. Nhất quán: mọi bước phải phục vụ mục tiêu cuối; không làm thêm việc ngoài phạm vi, không bỏ sót yêu cầu; giữ văn phong, quy ước đặt tên và định dạng đã dùng từ đầu.
 4. Tự kiểm tra sau mỗi bước quan trọng (chạy test, type-check, đọc lại thay đổi) trước khi sang bước sau.
-5. Khi giao việc cho subagent: nếu prompt có mục "Phân việc", giao đúng việc đó theo dòng đã ghi, đặt description của Agent đúng bằng tên việc; việc ghi "làm trực tiếp" thì tự làm. Không có phân việc thì để trống model và effort, plugin tự chọn theo độ khó; chọn Explore cho tra cứu chỉ đọc, Plan cho thiết kế, general-purpose cho thực thi.
+5. Khi giao việc cho subagent: nếu prompt có mục "Phân việc", giao đúng việc đó theo dòng đã ghi, đặt description của Agent dạng "Việc N: <tóm tắt 3-5 từ>"; việc ghi "làm trực tiếp" thì tự làm. Không có phân việc thì để trống model và effort, plugin tự chọn theo độ khó; chọn Explore cho tra cứu chỉ đọc, Plan cho thiết kế, general-purpose cho thực thi.
 Nếu bạn là subagent: bỏ qua checklist, làm đúng nhiệm vụ được giao và báo cáo ngắn gọn.`
 
 const MARKS: Record<StepStatus, string> = {
@@ -52,7 +52,7 @@ function subtaskBlock(advice: readonly SubtaskAdvice[], main: string): string {
       ? `${subtask.index}. ${subtask.title} → làm trực tiếp ở luồng chính (${main})`
       : `${subtask.index}. ${subtask.title} → giao ${subagentType ?? 'general-purpose'} ${describePick(pick)}`,
   )
-  return `\nPhân việc (đã chấm trước khi làm; khi giao, đặt description của Agent đúng bằng tên việc):\n${lines.join('\n')}`
+  return `\nPhân việc (đã chấm trước khi làm; khi giao, đặt description của Agent dạng "Việc N: <tóm tắt 3-5 từ>"):\n${lines.join('\n')}`
 }
 
 /** Khối context đi kèm prompt khi bắt đầu một mục tiêu mới. */

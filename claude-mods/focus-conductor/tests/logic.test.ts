@@ -7,7 +7,7 @@ import type { Brief, Route } from '../types'
 import { analyzeHeuristic, assessSubtasks, isMeta, isRelated, isSameIdea, mergeAnalysis, retarget } from '../hooks/lib/analyze'
 import { newTracker, observe } from '../hooks/lib/drift'
 import { applyPlan } from '../hooks/lib/plan'
-import { adviseSubtasks, decideMain, planAgent, raisePick, resolveModelId } from '../hooks/lib/route'
+import { adviseSubtasks, decideMain, matchSubtask, planAgent, raisePick, resolveModelId } from '../hooks/lib/route'
 import { droppedPlanNotice, statusLine } from '../hooks/lib/text'
 
 const LONG_PROMPT = `### Mục tiêu
@@ -604,6 +604,94 @@ describe('việc con được chấm trước khi làm', () => {
   test('ít hơn ba việc thì không tư vấn riêng', () => {
     const subtasks = analyzeHeuristic('1. Đọc file a.ts\n2. Sửa lỗi trong b.ts', null, 1).subtasks
     expect(adviseSubtasks({ subtasks, main: { family: 'opus', effort: 'xhigh' }, allowFable: false, blocked: new Set<never>(), offered: new Set(), session: null })).toEqual([])
+  })
+})
+
+describe('nguồn việc con và chấm từng việc (0.3.1)', () => {
+  const REVIEW = 'rà soát kỹ trước khi merge: đã thực hiện đầy đủ yêu cầu và còn sót lỗi nào không'
+
+  test('các bước Haiku tự lập kế hoạch không thành việc con', () => {
+    const base = analyzeHeuristic(REVIEW, null, 1)
+    const reply = JSON.stringify({
+      goal: 'Rà soát trước khi merge',
+      steps: [
+        'Xác định yêu cầu gốc và danh sách thay đổi cần rà soát',
+        'Đối chiếu từng yêu cầu với code đã thay đổi',
+        'Rà soát code tìm lỗi logic, lỗi biên và lỗi tích hợp',
+        'Chạy hoặc kiểm tra test liên quan',
+        'Tổng hợp danh sách thiếu sót và lỗi còn lại',
+      ],
+      depth: 'substantial',
+      volume: 'medium',
+      kind: 'investigate',
+    })
+    const brief = mergeAnalysis(base, null, reply, REVIEW)
+    expect(brief.steps.length).toBe(5)
+    expect(brief.subtasks).toEqual([])
+  })
+
+  test('prompt đoạn văn: việc Haiku trích từ lời người dùng được tách, sàn tín hiệu khó vẫn giữ', () => {
+    const text =
+      'Hôm nay cần xử lý mấy việc: tìm trong src các chỗ gọi hàm charge, sau đó đổi tên userId thành accountId trong controller, và rà soát lỗ hổng bảo mật trong luồng webhook thanh toán.'
+    const base = analyzeHeuristic(text, null, 1)
+    expect(base.subtasks).toEqual([])
+    const reply = JSON.stringify({
+      goal: 'Xử lý ba việc',
+      tasks: [
+        { text: 'tìm trong src các chỗ gọi hàm charge', depth: 'none', volume: 'small', kind: 'investigate', hardSignals: [] },
+        { text: 'đổi tên userId thành accountId trong controller', depth: 'light', volume: 'medium', kind: 'edit', hardSignals: [] },
+        { text: 'rà soát lỗ hổng bảo mật trong luồng webhook thanh toán', depth: 'light', volume: 'small', kind: 'investigate', hardSignals: [] },
+        { text: 'viết tài liệu kiến trúc mới cho toàn hệ thống', depth: 'light', volume: 'small', kind: 'edit', hardSignals: [] },
+      ],
+    })
+    const brief = mergeAnalysis(base, null, reply, text)
+    // Việc thứ tư không có trong lời người dùng nên bị bỏ.
+    expect(brief.subtasks.map(s => s.title)).toEqual([
+      'tìm trong src các chỗ gọi hàm charge',
+      'đổi tên userId thành accountId trong controller',
+      'rà soát lỗ hổng bảo mật trong luồng webhook thanh toán',
+    ])
+    expect(brief.subtasks.map(s => s.depth)).toEqual(['none', 'light', 'hard'])
+  })
+
+  test('danh sách người dùng giữ nguyên; Haiku chỉ chấm lại đúng các mục đó', () => {
+    const base = analyzeHeuristic(SIX_TASKS, null, 1)
+    const reply = JSON.stringify({
+      tasks: [{ text: 'Viết unit test cho hàm refund, bao phủ trường hợp hết hạn token', depth: 'substantial', volume: 'medium', kind: 'edit', hardSignals: [] }],
+    })
+    const brief = mergeAnalysis(base, null, reply, SIX_TASKS)
+    expect(brief.subtasks.length).toBe(6)
+    expect(brief.subtasks[3]?.depth).toBe('substantial')
+    expect(brief.subtasks[1]?.depth).toBe('light')
+  })
+
+  test('rà soát, kiểm tra không phải tra cứu: không xuống haiku; tìm và liệt kê vẫn là Explore haiku', () => {
+    const plan = (text: string) =>
+      planAgent({ prompt: text, description: text, subagentType: undefined, offered: new Set(['Explore']), blocked: new Set<never>(), allowFable: false, parent: null, session: null })
+    const review = plan('Rà soát code tìm lỗi logic, lỗi biên và lỗi tích hợp')
+    expect(review.family).not.toBe('haiku')
+    expect(review.agentType).toBeUndefined()
+    const bug = plan('Tìm lỗi trong hàm tính thuế')
+    expect(bug.family).not.toBe('haiku')
+    const search = plan('Tìm nơi gọi hàm charge và liệt kê đường dẫn')
+    expect(search.family).toBe('haiku')
+    expect(search.agentType).toBe('Explore')
+  })
+
+  test('việc tổng hợp, báo cáo kết quả làm trực tiếp ở luồng chính', () => {
+    const subtasks = assessSubtasks(['Tìm nơi gọi hàm charge', 'Đổi tên userId trong 12 file', 'Tổng hợp danh sách lỗi kèm vị trí'])
+    const advice = adviseSubtasks({ subtasks, main: { family: 'opus', effort: 'high' }, allowFable: false, blocked: new Set<never>(), offered: new Set(['Explore']), session: null })
+    expect(advice[2]?.direct).toBe(true)
+    expect(advice[0]?.direct).toBe(false)
+  })
+
+  test('Agent khớp việc theo "Việc N", theo cùng ý, hoặc theo prompt chứa tên việc', () => {
+    const subtasks = analyzeHeuristic(SIX_TASKS, null, 1).subtasks
+    expect(matchSubtask(subtasks, 'Việc 2: đổi tên userId', 'làm đi')?.index).toBe(2)
+    expect(matchSubtask(subtasks, 'Task 5', '')?.index).toBe(5)
+    expect(matchSubtask(subtasks, 'Đổi tên userId thành accountId', '')?.index).toBe(2)
+    expect(matchSubtask(subtasks, 'Rename ids', 'Bối cảnh dự án... Nhiệm vụ: Đổi tên userId thành accountId trong 12 file controller. Báo cáo ngắn.')?.index).toBe(2)
+    expect(matchSubtask(subtasks, 'Kiểm tra CI', 'Chạy lại pipeline CI và báo kết quả')).toBeUndefined()
   })
 })
 
