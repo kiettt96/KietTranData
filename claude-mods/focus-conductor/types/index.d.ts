@@ -99,7 +99,7 @@ declare module 'claude-code' {
     'focus-conductor': {
       core: Core
       isBandHidden: boolean
-      /** Ghi đè chế độ lúc chạy qua /focus mode; null nghĩa là theo cấu hình. */
+      /** Ghi đè chế độ lúc chạy qua /conductor mode; null nghĩa là theo cấu hình. */
       mode: Mode | null
     }
   }

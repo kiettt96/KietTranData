@@ -29,13 +29,13 @@ Subagent là nơi điều phối tiết kiệm nhất vì mỗi subagent là m�
 Chạy trực tiếp từ thư mục (phù hợp khi đang phát triển, tự hot-reload khi sửa file):
 
 ```bash
-claude --plugin-dir /đường/dẫn/tới/focus-conductor
+claude --plugin-dir /đường/dẫn/tới/conductor-conductor
 ```
 
 Hoặc khai báo cố định trong `~/.claude/settings.json` để mọi phiên (kể cả phiên do desktop app mở) đều nạp:
 
 ```json
-{ "env": { "CLAUDE_CODE_PLUGIN_DIRS": "/đường/dẫn/tới/focus-conductor" } }
+{ "env": { "CLAUDE_CODE_PLUGIN_DIRS": "/đường/dẫn/tới/conductor-conductor" } }
 ```
 
 Repository `kiettt96/KietTranData` có sẵn `.claude-plugin/marketplace.json` liệt kê mod này. Sau khi nhánh chứa mod được merge vào nhánh mặc định, cài bằng một dòng tại prompt của terminal session, trả lời `y` để thêm marketplace rồi chọn scope (user scope để mọi phiên đều có):
@@ -48,11 +48,11 @@ Repository `kiettt96/KietTranData` có sẵn `.claude-plugin/marketplace.json` l
 
 | Lệnh | Tác dụng |
 |---|---|
-| `/focus` | Mở pane Focus Conductor |
-| `/focus status` | Tóm tắt chế độ, route luồng chính, model bị tạm ngừng, checklist |
-| `/focus mode auto\|subagents\|suggest\|off` | Đổi chế độ trong phiên |
-| `/focus goal <mô tả>` | Đặt mục tiêu thủ công (Claude nhận khối phân tích qua context) |
-| `/focus reset` | Xóa mục tiêu, checklist, cảnh báo, danh sách model bị tạm ngừng |
+| `/conductor` | Mở pane Focus Conductor |
+| `/conductor status` | Tóm tắt chế độ, route luồng chính, model bị tạm ngừng, checklist |
+| `/conductor mode auto\|subagents\|suggest\|off` | Đổi chế độ trong phiên |
+| `/conductor goal <mô tả>` | Đặt mục tiêu thủ công (Claude nhận khối phân tích qua context) |
+| `/conductor reset` | Xóa mục tiêu, checklist, cảnh báo, danh sách model bị tạm ngừng |
 
 Cấu hình qua `/config` (hoặc `pluginConfigs.focus-conductor.options` trong settings):
 
@@ -87,4 +87,4 @@ Kiểm tra trước khi phát hành: `claude plugin validate .` và `claude plug
 
 ## Giới hạn đã biết
 
-Điểm phức tạp là heuristic theo từ khóa tiếng Việt và tiếng Anh, có thể lệch với prompt ngắn nhưng khó; khi đó dùng `analyzer: model` hoặc đặt lại bằng `/focus goal`. Mod không đọc được nội dung suy luận của model nên phát hiện lạc đề dựa trên hành vi gọi tool, không dựa trên ngữ nghĩa từng câu trả lời. Giá dùng để thiết kế bảng chính sách: Haiku 5.5 $0.10 / $0.50, Sonnet 5.5 $2 / $10, Opus 5.5 $4 / $20, Fable 5.1 $10 / $50 mỗi 1 triệu token input / output [Nguồn: bảng giá Claude API trong skill claude-api, cập nhật 2026-10-06].
+Điểm phức tạp là heuristic theo từ khóa tiếng Việt và tiếng Anh, có thể lệch với prompt ngắn nhưng khó; khi đó dùng `analyzer: model` hoặc đặt lại bằng `/conductor goal`. Mod không đọc được nội dung suy luận của model nên phát hiện lạc đề dựa trên hành vi gọi tool, không dựa trên ngữ nghĩa từng câu trả lời. Giá dùng để thiết kế bảng chính sách: Haiku 5.5 $0.10 / $0.50, Sonnet 5.5 $2 / $10, Opus 5.5 $4 / $20, Fable 5.1 $10 / $50 mỗi 1 triệu token input / output [Nguồn: bảng giá Claude API trong skill claude-api, cập nhật 2026-10-06].
