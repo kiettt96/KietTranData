@@ -4,7 +4,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import type { Brief, Route } from '../types'
-import { analyzeHeuristic, isMeta, mergeAnalysis, scoreComplexity, tierFromScore } from '../hooks/lib/analyze'
+import { analyzeHeuristic, isMeta, isSameIdea, mergeAnalysis, scoreComplexity, tierFromScore } from '../hooks/lib/analyze'
 import { newTracker, observe } from '../hooks/lib/drift'
 import { applyPlan } from '../hooks/lib/plan'
 import { decideMain, planAgent, resolveModelId } from '../hooks/lib/route'
@@ -106,13 +106,53 @@ Yêu cầu:
     expect(brief.steps.length).toBe(2)
   })
 
-  test('nhận diện câu meta, không bắt nhầm yêu cầu thật', () => {
-    for (const meta of ['tôi gửi prompt test mods vừa cài:', 'Hãy test giúp mình prompt này', 'Here is the prompt I am testing', 'Đây là prompt test cho mod']) {
-      expect(isMeta(meta)).toBe(true)
-    }
-    for (const real of ['Viết unit test cho plugin thanh toán', 'Giúp anh viết nội dung email chào hàng', 'Kiểm tra lại type trước khi commit', 'Code sạch, có test đầy đủ']) {
-      expect(isMeta(real)).toBe(false)
-    }
+  test('nhận diện câu meta theo ý, kể cả có từ chen giữa', () => {
+    const meta = [
+      'tôi gửi prompt test mods vừa cài:',
+      'Hãy test giúp mình prompt này',
+      'Here is the prompt I am testing',
+      'Đây là prompt test cho mod',
+      'tôi vừa sửa xong focus-conductor, giờ test lại giúp.',
+      'test lại giúp',
+      'giúp tôi test',
+      'giờ test lại cái này',
+      'prompt test này dùng để kiểm tra mod',
+      'tôi vừa sửa xong focus-conductor',
+    ]
+    for (const sentence of meta) expect(isMeta(sentence), sentence).toBe(true)
+  })
+
+  test('không bắt nhầm yêu cầu thật, kể cả yêu cầu nói về chính mod', () => {
+    const real = [
+      'Viết unit test cho plugin thanh toán',
+      'Giúp anh viết nội dung email chào hàng',
+      'Kiểm tra lại type trước khi commit',
+      'Code sạch, có test đầy đủ',
+      'Sửa hai điểm còn sót của focus-conductor trong một PR mới:',
+      'Bắt được cả các câu có từ chen giữa như "test lại giúp", "giúp tôi test", "tôi vừa sửa xong..."',
+      'Ưu tiên lọc theo ý (câu nói về việc test/sửa mod, không phải yêu cầu của task) chứ không chỉ khớp cụm từ cứng.',
+      'Sau khi sửa: chạy lại validate + test, tạo PR vào main, không merge.',
+      'tôi đã cài jsonwebtoken, hãy dùng nó',
+      'chạy test lại sau khi deploy',
+      'Giúp anh sửa plugin thanh toán cho đúng thuế',
+    ]
+    for (const sentence of real) expect(isMeta(sentence), sentence).toBe(false)
+  })
+
+  test('prompt có câu dẫn "giờ test lại giúp" không để câu đó lọt vào tiêu chí', () => {
+    const prompt = `tôi vừa sửa xong focus-conductor, giờ test lại giúp.
+
+Hãy xây một utility nhỏ bằng TypeScript:
+1. Tạo file rate-limiter.ts: class RateLimiter với method tryAcquire(key: string): boolean
+2. Viết unit test phủ các trường hợp: trong hạn mức, vượt hạn mức, hết thời gian thì reset
+
+Yêu cầu:
+- Code sạch, có type đầy đủ
+- Không dùng thư viện ngoài`
+    const brief = analyzeHeuristic(prompt, null, 1)
+    const all = [brief.goal, ...brief.steps, ...brief.constraints, ...brief.quality]
+    expect(all.some(s => s.includes('test lại giúp'))).toBe(false)
+    expect(brief.goal).toBe('Hãy xây một utility nhỏ bằng TypeScript:')
   })
 
   test('chuỗi meta trong câu trả lời Haiku cũng bị loại', () => {
@@ -125,6 +165,80 @@ Yêu cầu:
     expect(merged.goal).toBe(base.goal)
     expect(merged.quality.some(q => q.includes('tôi gửi prompt'))).toBe(false)
     expect(merged.quality).toContain('Có unit test')
+  })
+
+  test('cùng ý thì gộp, khác ý thì giữ', () => {
+    expect(isSameIdea('Checklist phải được chốt trước khi viết code', 'Chốt checklist trước khi viết code')).toBe(true)
+    expect(
+      isSameIdea(
+        'Giới hạn: mỗi key chỉ được gọi tối đa 5 lần trong 10 giây (sliding window)',
+        'Giới hạn: mỗi key tối đa 5 lần trong 10 giây (sliding window)',
+      ),
+    ).toBe(true)
+    expect(isSameIdea('Code sạch, có type đầy đủ', 'Code phải có type đầy đủ')).toBe(true)
+    expect(isSameIdea('Viết unit test cho login', 'Viết unit test cho logout')).toBe(false)
+    expect(isSameIdea('Code sạch', 'Code sạch, có type đầy đủ')).toBe(false)
+    expect(isSameIdea('Không merge PR', 'Không dùng thư viện ngoài')).toBe(false)
+  })
+
+  test('gộp với Haiku bỏ mục trùng ý và giữ câu gốc của người dùng', () => {
+    const base = analyzeHeuristic(
+      `Xây RateLimiter bằng TypeScript.
+- Checklist phải được chốt trước khi viết code
+- Code sạch, có type đầy đủ`,
+      null,
+      1,
+    )
+    const merged = mergeAnalysis(
+      base,
+      null,
+      JSON.stringify({
+        goal: 'Xây RateLimiter',
+        steps: [],
+        constraints: ['Chốt checklist trước khi viết code', 'Không dùng thư viện ngoài'],
+        quality: ['Code phải có type đầy đủ', 'Tất cả test pass'],
+        tier: 'moderate',
+        isNewGoal: true,
+      }),
+    )
+    expect(merged.constraints).toContain('Checklist phải được chốt trước khi viết code')
+    expect(merged.constraints).not.toContain('Chốt checklist trước khi viết code')
+    expect(merged.constraints).toContain('Không dùng thư viện ngoài')
+    expect(merged.quality).toContain('Code sạch, có type đầy đủ')
+    expect(merged.quality).not.toContain('Code phải có type đầy đủ')
+    expect(merged.quality).toContain('Tất cả test pass')
+  })
+
+  test('Haiku nói "tiếp nối" cho prompt khác chủ đề thì vẫn là mục tiêu mới', () => {
+    const rateLimiter = analyzeHeuristic(
+      `Hãy xây một utility nhỏ bằng TypeScript:
+1. Tạo file rate-limiter.ts: class RateLimiter với method tryAcquire(key: string): boolean
+2. Giới hạn: mỗi key chỉ được gọi tối đa 5 lần trong 10 giây (sliding window)
+3. Viết unit test phủ các trường hợp: trong hạn mức, vượt hạn mức, hết thời gian thì reset`,
+      null,
+      1,
+    )
+    const continuation = JSON.stringify({ goal: 'x', steps: [], constraints: [], quality: [], tier: 'complex', isNewGoal: false })
+
+    const otherText = `Sửa hai điểm còn sót của focus-conductor trong một PR mới:
+1. Bộ lọc câu dẫn/meta: bắt được cả các câu có từ chen giữa.
+2. Trùng lặp ràng buộc / tiêu chí chất lượng: loại bỏ các mục cùng ý khi gộp với cách Haiku diễn đạt lại.
+Sau khi sửa: chạy lại validate + test, tạo PR vào main, không merge.`
+    const other = mergeAnalysis(analyzeHeuristic(otherText, rateLimiter, 2), rateLimiter, continuation, otherText)
+    expect(other.isFollowUp).toBe(false)
+    expect(other.goalId).toBe(rateLimiter.goalId + 1)
+    expect(other.goal).not.toBe(rateLimiter.goal)
+    expect(other.signals.some(s => s.includes('bỏ qua "tiếp nối" của Haiku'))).toBe(true)
+
+    const newTaskText = 'Task mới: thêm hàm reset(key) cho RateLimiter để xóa hạn mức của một key và viết test cho nó'
+    const newTask = mergeAnalysis(analyzeHeuristic(newTaskText, rateLimiter, 3), rateLimiter, continuation, newTaskText)
+    expect(newTask.isFollowUp).toBe(false)
+
+    const relatedText = 'Bổ sung cho RateLimiter: tryAcquire với key rỗng phải ném lỗi, và cập nhật unit test cho trường hợp vượt hạn mức với nhiều key khác nhau cùng lúc'
+    const related = mergeAnalysis(analyzeHeuristic(relatedText, rateLimiter, 4), rateLimiter, continuation, relatedText)
+    expect(related.isFollowUp).toBe(true)
+    expect(related.goalId).toBe(rateLimiter.goalId)
+    expect(related.goal).toBe(rateLimiter.goal)
   })
 
   test('kết quả Haiku được gộp, tier bị kẹp trong biên một bậc', () => {
