@@ -96,20 +96,50 @@ const GOAL_MARKER = /^(muc tieu|goal|objective|nhiem vu|task|yeu cau chinh)\b/
 const PATH =
   /(?:^|[\s`'"(])((?:\.{1,2}\/|\/)?(?:[\w.-]+\/)+[\w.-]+|[\w-]+\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|rb|php|cs|json|md|ya?ml|toml|sql|css|scss|html|sh|ipynb|txt))(?=$|[\s`'"),:;])/g
 
-// Câu dẫn/meta: người dùng nói về chính prompt hoặc việc thử mod ("tôi gửi
-// prompt test...", "hãy test giúp...", "here is the prompt"), không phải yêu
-// cầu của task. Viết ở dạng đã bỏ dấu; so khớp trên câu đã fold.
-const META: readonly RegExp[] = [
-  /\b(toi|minh|em|anh|chi|tui)\s+(gui|dan|paste|nhap)\b.*\b(prompt|(yeu cau|cau hoi|doan|tin nhan)\s+(nay|sau|duoi day|test))\b/,
-  /\b(prompt|cau lenh)\s+(test|thu|mau|vi du)\b/,
-  /^(hay\s+|vui long\s+|nho\s+|giup (toi|minh|em)\s+)?(test|thu|chay thu)(\s+thu)?\s+(giup|ho|dum|prompt|mod|plugin)\b/,
-  /\b(here is|here's|below is|the following (prompt|request)|i('m| am) (sending|pasting)|test prompt|testing (the|this|my) (mod|plugin))\b/,
+// Câu dẫn/meta: người dùng nói về việc gửi, sửa hay thử chính prompt/mod,
+// không phải yêu cầu của task ("tôi vừa sửa xong focus-conductor, giờ test lại
+// giúp", "giúp tôi test", "prompt test này..."). Nhận diện theo ý bằng cách
+// cộng điểm các tín hiệu thay vì khớp một cụm cứng, nên từ chen giữa không
+// làm lọt câu. Mẫu viết ở dạng đã bỏ dấu, so trên câu đã fold.
+type MetaSignal = { weight: number; pattern: RegExp }
+
+const META_SIGNALS: readonly MetaSignal[] = [
+  // Nhờ trợ lý chạy thử: "test lại giúp", "test cái này giúp", "giúp tôi test", "giờ test lại".
+  { weight: 2, pattern: /\btest(\s+\S+){0,3}?\s+(giup|ho|dum)\b/ },
+  { weight: 2, pattern: /\b(giup|nho)\s+((toi|minh|em|anh|tui)\s+)?(test|chay thu)\b/ },
+  // "test lại" chỉ tính khi đứng cuối hoặc kèm lời nhờ, để "chạy test lại sau khi deploy" vẫn là yêu cầu.
+  { weight: 2, pattern: /\b(gio|bay gio|roi|xong)\s+(test|chay thu)\b|\btest\s+lai\s*(giup|ho|dum|di|nhe|nha|[.?]|$)/ },
+  // Gọi prompt là đồ thử: "prompt test", "prompt mẫu".
+  { weight: 2, pattern: /\b(prompt|cau lenh)\s+(test|thu|mau|vi du)\b/ },
+  // Tiếng Anh: "here is the prompt", "I'm testing the mod".
+  {
+    weight: 2,
+    pattern:
+      /\b(here is|here's|below is|the following (prompt|request)|i('m| am) (sending|pasting|testing)|test prompt|testing (the|this|my) (mod|plugin|prompt))\b/,
+  },
+  // Người dùng tự thuật việc vừa làm với công cụ: "tôi vừa sửa xong", "tôi gửi".
+  { weight: 1, pattern: /\b(toi|minh|tui|anh|em)\s+(vua|da|moi)\s+(\S+\s+)?(sua|cai|cap nhat|update|chinh)\b|\b(sua|cai|cap nhat)\s+xong\b/ },
+  { weight: 1, pattern: /\b(toi|minh|tui|anh|em)\s+((vua|da)\s+)?(gui|dan|paste|nhap)\b/ },
+  // Nhắc tới chính công cụ hoặc prompt.
+  { weight: 1, pattern: /\b(prompt|mods?|plugin|focus-conductor|conductor)\b/ },
 ]
 
-/** Câu người dùng nói về chính prompt hoặc việc thử mod, không phải yêu cầu task. */
+/** Dấu hiệu câu đang đặt yêu cầu về test của task ("viết unit test", "có test đầy đủ"). */
+const TEST_REQUIREMENT = /\b(unit test|viet (unit )?test|co test|test (case|phu))\b/
+
+/**
+ * Câu người dùng nói về việc gửi, sửa hay thử chính prompt/mod, không phải
+ * yêu cầu task. Phần trong ngoặc kép bị bỏ trước khi chấm, để một yêu cầu
+ * trích ví dụ câu meta (như prompt này) không bị loại nhầm.
+ */
 export function isMeta(sentence: string): boolean {
-  const folded = fold(sentence).trim()
-  return META.some(pattern => pattern.test(folded))
+  const folded = fold(sentence)
+    .replace(/"[^"]*"|\u201c[^\u201d]*\u201d/g, ' ')
+    .trim()
+  let score = 0
+  for (const signal of META_SIGNALS) if (signal.pattern.test(folded)) score += signal.weight
+  if (TEST_REQUIREMENT.test(folded)) score -= 2
+  return score >= 2
 }
 
 /** Gỡ ký hiệu markdown để một dòng đọc được như câu bình thường. */
@@ -136,13 +166,50 @@ function sentences(text: string): string[] {
     .filter(s => s.length >= 6 && !isMeta(s))
 }
 
-function unique(list: string[], max: number): string[] {
+/** Giữ mục đầu tiên của mỗi giá trị trùng y hệt (sau khi bỏ dấu); dùng cho đường dẫn. */
+function uniqueExact(list: string[], max: number): string[] {
   const seen = new Set<string>()
   const out: string[] = []
   for (const item of list) {
     const key = fold(item)
     if (seen.has(key)) continue
     seen.add(key)
+    out.push(item)
+    if (out.length >= max) break
+  }
+  return out
+}
+
+const FILLER = new Set('va la cua cho cac nhung mot thi ma de the an and or to of in on for with be is are'.split(' '))
+
+function tokens(text: string): Set<string> {
+  return new Set((fold(text).match(/[a-z0-9]+/g) ?? []).filter(t => t.length >= 2 && !FILLER.has(t)))
+}
+
+/**
+ * Hai câu cùng ý: trùng phần lớn từ (Jaccard từ 0,7), hoặc câu ngắn hơn (từ 3
+ * từ trở lên) gần như nằm trọn trong câu dài hơn, như khi Haiku rút gọn hay
+ * cắt cụt câu gốc của người dùng.
+ */
+export function isSameIdea(a: string, b: string): boolean {
+  const ta = tokens(a)
+  const tb = tokens(b)
+  if (ta.size === 0 || tb.size === 0) return fold(a).trim() === fold(b).trim()
+  let shared = 0
+  for (const t of ta) if (tb.has(t)) shared += 1
+  const jaccard = shared / (ta.size + tb.size - shared)
+  const smaller = Math.min(ta.size, tb.size)
+  return jaccard >= 0.7 || (smaller >= 3 && shared / smaller >= 0.8)
+}
+
+/**
+ * Bỏ mục cùng ý với một mục đứng trước; thứ tự đầu vào quyết định bản nào
+ * được giữ, nên câu gốc của người dùng phải đặt trước.
+ */
+function unique(list: string[], max: number): string[] {
+  const out: string[] = []
+  for (const item of list) {
+    if (out.some(kept => isSameIdea(kept, item))) continue
     out.push(item)
     if (out.length >= max) break
   }
@@ -192,7 +259,7 @@ function extractPaths(text: string): string[] {
     const path = match[1]
     if (path && !/https?:|www\./.test(path)) out.push(path)
   }
-  return unique(out, 12)
+  return uniqueExact(out, 12)
 }
 
 /**
@@ -430,8 +497,9 @@ export function mergeAnalysis(base: Brief, prev: Brief | null, reply: string): B
     goalId: isContinuation ? prev.goalId : base.goalId,
     goal: isContinuation ? prev.goal : goal,
     steps: isContinuation ? prev.steps : steps.length > 0 ? steps : base.steps,
-    constraints: unique([...constraints, ...base.constraints], 10),
-    quality: unique([...quality, ...base.quality], 8),
+    // Câu gốc của người dùng đứng trước: khi trùng ý, bản Haiku diễn đạt lại bị bỏ.
+    constraints: unique([...base.constraints, ...constraints], 10),
+    quality: unique([...base.quality, ...quality], 8),
     tier,
     signals: [...base.signals, `model: ${modelTier ?? 'không rõ'}`],
     source: 'model',
