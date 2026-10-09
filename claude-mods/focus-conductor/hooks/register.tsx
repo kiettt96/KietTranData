@@ -28,6 +28,8 @@ import { addUsage, calibrate, countSpawn, formatUsd, ledgerLines } from './lib/l
 import { PLAN_TOOL_SPEC, applyPlan } from './lib/plan'
 import type { PlanInput } from './lib/plan'
 import {
+  EFFORTS,
+  applySession,
   decideMain,
   describePick,
   familyOf,
@@ -146,6 +148,7 @@ export const register: Register = (on, options) => {
     agents.clear()
     agentTrackers.clear()
     agentFailures.length = 0
+    pendingAgents.clear()
   }
 
   /** Hết chặn các họ model đã bị chặn đủ BLOCK_TURNS turn, để thử lại. */
@@ -205,8 +208,22 @@ export const register: Register = (on, options) => {
       core.lastTurnAt === 0 ||
       at - core.lastTurnAt > cacheTtlMs ||
       (core.lastContext > 0 && context < COMPACTION_DROP * core.lastContext)
+    // Route trước bị bỏ (người dùng tự đổi model, hoặc model được chọn không phản
+    // hồi): mốc so sánh chi phí là model và effort engine đang thực sự chạy.
+    const engineFamily = familyOf(model)
+    const baseline: Route | null =
+      core.route ??
+      (core.lastTurnAt > 0 && engineFamily !== null
+        ? {
+            family: engineFamily,
+            effort: EFFORTS.find(x => x === effort) ?? 'medium',
+            tier: brief.tier,
+            goalId: brief.goalId,
+            reason: 'model của engine',
+          }
+        : null)
     const decision = decideMain({
-      current: core.route,
+      current: baseline,
       wanted,
       volume: brief.volume,
       tier: brief.tier,
@@ -441,10 +458,15 @@ export const register: Register = (on, options) => {
         claude !== null &&
         familyRank(claude) < familyRank(plan.family) &&
         (plan.depth === 'substantial' || plan.depth === 'hard')
-      model = isUnder ? plan.family : e.model
+      // Model Claude chỉ định vẫn chịu chính sách model của phiên (ceiling, fixed).
+      const allowed = claude !== null && !isUnder ? applySession(claude, sessionModel()) : null
+      const isCapped = allowed !== null && allowed !== claude
+      model = isUnder ? plan.family : isCapped ? allowed : e.model
       reason = isUnder
         ? `Claude chọn ${e.model} thấp hơn mức việc ${plan.depth} cần; nâng lên ${plan.family}`
-        : `giữ model Claude chỉ định (${e.model}); ${reason}`
+        : isCapped
+          ? `Claude chọn ${e.model}; giới hạn về ${allowed} theo model của phiên`
+          : `giữ model Claude chỉ định (${e.model}); ${reason}`
     }
 
     const isApplied = current === 'auto' || current === 'subagents'
@@ -475,9 +497,9 @@ export const register: Register = (on, options) => {
   // tính; chi phí đo được sẽ thay thế khi subagent kết thúc.
   on('agent.spawn', async ($, e, next) => {
     const result = await next(e)
-    if (result.deny !== undefined) return result
     const info = pendingAgents.get(e.tool_use_id)
     pendingAgents.delete(e.tool_use_id)
+    if (result.deny !== undefined) return result
     const core = S.normalizeCore(await read($, coreState))
     const goalId = core.brief?.goalId ?? 0
     const family = familyOf(result.model) ?? info?.family ?? 'sonnet'
@@ -656,12 +678,17 @@ export const register: Register = (on, options) => {
       text: f.text,
     }))
     let ledger = core.ledger
-    if (e.usage && core.brief) {
+    if (e.usage) {
       const family = familyOf(e.usage.model) ?? core.route?.family ?? 'sonnet'
       const added = addUsage(core.ledger, 'main', family, e.usage)
-      ledger = core.route
-        ? calibrate(added.ledger, family, e.usage.output_tokens, core.brief.volume, core.route.effort)
-        : added.ledger
+      // Chỉ hiệu chỉnh khi route của chính turn này đã được áp (chế độ auto, không
+      // quay về model của engine); nếu không, effort thực tế không phải effort của route.
+      const applied = turnRoute.turnId === e.turnId ? turnRoute.route : null
+      const isApplied = applied !== null && (await read($, mode)) === 'auto'
+      ledger =
+        isApplied && core.brief
+          ? calibrate(added.ledger, family, e.usage.output_tokens, core.brief.volume, applied.effort)
+          : added.ledger
     }
     const end = await $.session.usage().catch(() => null)
     const endContext = end?.context.tokens ?? turnContext
@@ -716,7 +743,7 @@ export const register: Register = (on, options) => {
       const { core, mode: current } = await read($, view)
       const usage = await $.session.usage().catch(() => null)
       const costLines = ledgerLines(core.ledger)
-      if (usage?.cost) costLines.push(`Chi phí phiên theo engine: ${formatUsd(usage.cost.usd)}`)
+      if (usage?.cost) costLines.push(`Chi phí cả phiên theo Claude Code (gồm cả phần trước khi mod bắt đầu ghi sổ): ${formatUsd(usage.cost.usd)}`)
       if (core.brief === null) return { text: [`Chế độ ${current}. Chưa có mục tiêu.`, ...costLines].join('\n') }
       const routeLine = core.route ? `${describePick(core.route)} (${core.route.reason})` : 'model của phiên'
       const blockedLine = blocked.size > 0 ? `\nModel tạm ngừng dùng: ${[...blocked].join(', ')}` : ''
