@@ -19,7 +19,7 @@ export const PRICE: Record<ModelFamily, Price> = {
 
 /** Cửa sổ ngữ cảnh mặc định khi chưa đọc được từ phiên [Giả định]. */
 export const DEFAULT_CONTEXT = 30_000
-/** Phần cố định (system prompt và tools) trong ngữ cảnh [Giả định]. */
+/** Phần cố định (system prompt và tools) trong ngữ cảnh khi chưa đo được từ phiên [Giả định]. */
 export const SYSTEM_TOKENS = 20_000
 /** Đổi model chỉ khi lợi ích lớn hơn chi phí hòa vốn nhân với hệ số này. */
 export const SAFETY = 1.2
@@ -91,12 +91,27 @@ export function switchCost(
   from: { family: ModelFamily },
   to: { family: ModelFamily },
   context: number,
+  sysTokens: number = SYSTEM_TOKENS,
 ): number {
   if (from.family !== to.family) {
     return (context * (1.25 * PRICE[to.family].input - PRICE[from.family].cacheRead)) / 1_000_000
   }
-  const reused = Math.max(0, context - SYSTEM_TOKENS)
+  const reused = Math.max(0, context - sysTokens)
   return (reused * (1.25 * PRICE[to.family].input - PRICE[to.family].cacheRead)) / 1_000_000
+}
+
+/**
+ * Phần cố định của ngữ cảnh (system prompt, tools, bộ nhớ, agent) từ bảng phân tích
+ * ngữ cảnh của engine: mọi hàng đang chiếm chỗ trừ hàng hội thoại. Không có hàng
+ * hội thoại để trừ thì trả null (không đoán).
+ */
+export function fixedContextTokens(categories: readonly { name: string; tokens: number; kind: string }[] | undefined): number | null {
+  if (!categories || categories.length === 0) return null
+  const used = categories.filter(c => c.kind === 'used')
+  const messages = used.filter(c => /message/i.test(c.name))
+  if (messages.length === 0) return null
+  const fixed = used.filter(c => !/message/i.test(c.name)).reduce((sum, c) => sum + c.tokens, 0)
+  return fixed > 0 ? fixed : null
 }
 
 /**

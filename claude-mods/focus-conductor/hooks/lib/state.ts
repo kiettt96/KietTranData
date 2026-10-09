@@ -23,6 +23,7 @@ export const EMPTY_CORE: Core = {
   lift: EMPTY_LIFT,
   lastTurnAt: 0,
   lastContext: 0,
+  sysTokens: 0,
 }
 
 const LOG_LIMIT = 60
@@ -63,6 +64,7 @@ export function normalizeCore(raw: Partial<Core>): Core {
     lift: raw.lift ?? EMPTY_LIFT,
     lastTurnAt: raw.lastTurnAt ?? 0,
     lastContext: raw.lastContext ?? 0,
+    sysTokens: raw.sysTokens ?? 0,
   }
 }
 
@@ -169,8 +171,13 @@ export const withTurnMark =
   (at: number, context: number) =>
   (c: Core): Core => ({ ...normalizeCore(c), lastTurnAt: at, lastContext: context })
 
-/** Xóa mục tiêu, checklist, route, cảnh báo và nâng cấp; giữ nhật ký và hệ số hiệu chỉnh. */
+/** Phần cố định của ngữ cảnh đo được ở đầu phiên. */
+export const withSysTokens =
+  (tokens: number) =>
+  (c: Core): Core => ({ ...normalizeCore(c), sysTokens: tokens })
+
+/** Xóa mục tiêu, checklist, route, cảnh báo và nâng cấp; giữ nhật ký, hệ số hiệu chỉnh và phần cố định đã đo. */
 export const resetCore = (c: Core): Core => {
   const n = normalizeCore(c)
-  return { ...EMPTY_CORE, log: n.log, ledger: resetLedger(n.ledger) }
+  return { ...EMPTY_CORE, log: n.log, ledger: resetLedger(n.ledger), sysTokens: n.sysTokens }
 }

@@ -169,6 +169,8 @@ export type Core = {
   lastTurnAt: number
   /** Số token ngữ cảnh lúc bắt đầu turn gần nhất; dùng để nhận ra compaction. */
   lastContext: number
+  /** Phần cố định của ngữ cảnh (system prompt, tools, bộ nhớ) đo được ở đầu phiên; 0 khi chưa đo. */
+  sysTokens: number
 }
 
 declare module 'claude-code' {

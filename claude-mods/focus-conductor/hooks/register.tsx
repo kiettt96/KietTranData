@@ -23,7 +23,7 @@ import type { Brief, Core, Effort, Mode, ModelFamily, Route, RouteEvent, Tier, W
 import { analyzeHeuristic, analyzerRequest, isSameIdea, localRelation, mergeAnalysis } from './lib/analyze'
 import { isExecuting, newTracker, observe, openSteps, summarize } from './lib/drift'
 import type { TurnTracker } from './lib/drift'
-import { DEFAULT_CONTEXT, turnCost } from './lib/cost'
+import { DEFAULT_CONTEXT, fixedContextTokens, turnCost } from './lib/cost'
 import { addUsage, calibrate, countSpawn, formatUsd, ledgerLines } from './lib/ledger'
 import { PLAN_TOOL_SPEC, applyPlan } from './lib/plan'
 import type { PlanInput } from './lib/plan'
@@ -37,12 +37,13 @@ import {
   familyRank,
   matchSubtask,
   parseModelMap,
+  parseWindows,
   planAgent,
   raisePick,
   resolveModelId,
   wantedMain,
 } from './lib/route'
-import type { AgentPlan, Choice, SessionModel, SessionPolicy } from './lib/route'
+import type { AgentPlan, Choice, SessionModel, SessionPolicy, SubtaskAdvice } from './lib/route'
 import { stepDepth } from './lib/scale'
 import * as S from './lib/state'
 import type { View } from './lib/state'
@@ -71,6 +72,8 @@ const FANOUT_WARN = 6
 const COMPACTION_DROP = 0.6
 /** Cửa sổ ngữ cảnh khi chưa đọc được từ phiên [Giả định]. */
 const DEFAULT_WINDOW = 200_000
+/** Tool sửa file của luồng chính (dùng để nhắc giao việc đã phân). */
+const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
 /** Số lỗi tool trong một turn để nâng effort cho turn sau. */
 const ERROR_BURST = 3
 
@@ -121,6 +124,10 @@ export const register: Register = (on, options) => {
   const sessionPolicy: SessionPolicy = rawPolicy === 'ceiling' || rawPolicy === 'fixed' ? rawPolicy : 'auto'
   const ttl = Number(options['cacheTtlMinutes'])
   const cacheTtlMs = (Number.isFinite(ttl) && ttl > 0 ? ttl : 5) * 60_000
+  const contextWindows = parseWindows(options['contextWindows'])
+  let lastWindow = DEFAULT_WINDOW
+  // Việc đã ghi "giao subagent" của mục tiêu hiện tại mà chưa có Agent nào nhận.
+  let delegation = { goalId: -1, pending: new Map<number, string>(), isNudged: false, isWarned: false }
 
   // Một lần đọc cho mọi thứ band, pane và status line cần.
   const view = derive(
@@ -162,6 +169,8 @@ export const register: Register = (on, options) => {
     agents.clear()
     agentTrackers.clear()
     agentFailures.length = 0
+    delegation = { goalId: -1, pending: new Map(), isNudged: false, isWarned: false }
+    lastWindow = DEFAULT_WINDOW
     pendingAgents.clear()
   }
 
@@ -178,6 +187,87 @@ export const register: Register = (on, options) => {
   /** Chính sách model của phiên dùng cho mọi lựa chọn (luồng chính và subagent). */
   function sessionModel(): SessionModel | null {
     return sessionFamily ? { family: sessionFamily, policy: sessionPolicy } : null
+  }
+
+  /**
+   * Quyết định model + effort cho luồng chính so với mốc đang chạy, theo chi phí
+   * cache (dùng cho turn thật và cho bản dự kiến lúc nhận prompt).
+   */
+  function mainDecision(args: {
+    core: Core
+    brief: Brief
+    wanted: Choice
+    model: string
+    effort: string
+    at: number
+    context: number
+    window: number
+    turnsLeft: number
+  }) {
+    const { core, brief, wanted, model, effort, at, context, window } = args
+    // Cache đã nguội (quá TTL), hoặc ngữ cảnh vừa bị nén: đổi model không mất gì.
+    const isFree =
+      core.lastTurnAt === 0 ||
+      at - core.lastTurnAt > cacheTtlMs ||
+      (core.lastContext > 0 && context < COMPACTION_DROP * core.lastContext)
+    // Route trước bị bỏ (người dùng tự đổi model, hoặc model được chọn không phản
+    // hồi): mốc so sánh chi phí là model và effort engine đang thực sự chạy.
+    const engineFamily = familyOf(model)
+    const baseline: Route | null =
+      core.route ??
+      (core.lastTurnAt > 0 && engineFamily !== null
+        ? {
+            family: engineFamily,
+            effort: EFFORTS.find(x => x === effort) ?? 'medium',
+            tier: brief.tier,
+            goalId: brief.goalId,
+            reason: 'model của engine',
+          }
+        : null)
+    return decideMain({
+      current: baseline,
+      wanted,
+      volume: brief.volume,
+      tier: brief.tier,
+      goalId: brief.goalId,
+      context,
+      window,
+      turnsLeft: args.turnsLeft,
+      isFree,
+      calib: core.ledger.calib,
+      ...(core.sysTokens > 0 ? { sysTokens: core.sysTokens } : {}),
+      ...(contextWindows[wanted.family] !== undefined ? { targetWindow: contextWindows[wanted.family] } : {}),
+    })
+  }
+
+  /** Model luồng chính sẽ thật sự chạy cho mục tiêu mới (có tính việc giữ model để bảo toàn cache). */
+  function expectedMain(core: Core, brief: Brief, wanted: Choice, at: number): Choice {
+    const decision = mainDecision({
+      core,
+      brief,
+      wanted,
+      model: lastSession?.model ?? '',
+      effort: lastSession?.effort ?? '',
+      at,
+      context: core.lastContext > 0 ? core.lastContext : DEFAULT_CONTEXT,
+      window: lastWindow,
+      turnsLeft: 2,
+    })
+    return decision.isHeld ? { family: decision.route.family, effort: decision.route.effort } : wanted
+  }
+
+  /** Ghi lại các việc được giao subagent của mục tiêu mới để theo dõi. */
+  function trackDelegations(goalId: number, advice: readonly SubtaskAdvice[]): void {
+    const pending = new Map<number, string>()
+    for (const item of advice) {
+      if (!item.direct) pending.set(item.subtask.index, `${item.subtask.index} (${describePick(item.pick)})`)
+    }
+    delegation = { goalId, pending, isNudged: false, isWarned: false }
+  }
+
+  /** Danh sách việc giao còn chờ của mục tiêu này, rỗng nếu không có. */
+  function pendingFor(brief: Brief | null): string[] {
+    return brief && delegation.goalId === brief.goalId ? [...delegation.pending.values()] : []
   }
 
   /**
@@ -217,37 +307,7 @@ export const register: Register = (on, options) => {
     if (pinnedGoalId === brief.goalId) return { route: null, stored: null, logs, notices }
 
     const wanted = wantedMain(brief, core.lift, options, blocked, sessionModel())
-    // Cache đã nguội (quá TTL), hoặc ngữ cảnh vừa bị nén: đổi model không mất gì.
-    const isFree =
-      core.lastTurnAt === 0 ||
-      at - core.lastTurnAt > cacheTtlMs ||
-      (core.lastContext > 0 && context < COMPACTION_DROP * core.lastContext)
-    // Route trước bị bỏ (người dùng tự đổi model, hoặc model được chọn không phản
-    // hồi): mốc so sánh chi phí là model và effort engine đang thực sự chạy.
-    const engineFamily = familyOf(model)
-    const baseline: Route | null =
-      core.route ??
-      (core.lastTurnAt > 0 && engineFamily !== null
-        ? {
-            family: engineFamily,
-            effort: EFFORTS.find(x => x === effort) ?? 'medium',
-            tier: brief.tier,
-            goalId: brief.goalId,
-            reason: 'model của engine',
-          }
-        : null)
-    const decision = decideMain({
-      current: baseline,
-      wanted,
-      volume: brief.volume,
-      tier: brief.tier,
-      goalId: brief.goalId,
-      context,
-      window,
-      turnsLeft: isGoalNew ? 2 : 1,
-      isFree,
-      calib: core.ledger.calib,
-    })
+    const decision = mainDecision({ core, brief, wanted, model, effort, at, context, window, turnsLeft: isGoalNew ? 2 : 1 })
     isGoalNew = false
     const capNote = wanted.capped ? ' (bị giới hạn bởi model của phiên)' : ''
     if (decision.isChanged || decision.isHeld || core.route?.goalId !== brief.goalId) {
@@ -340,8 +400,12 @@ export const register: Register = (on, options) => {
     }
 
     const wanted = wantedMain(brief, core.lift, options, blocked, sessionModel())
+    // Model sẽ thật sự chạy (có thể là model cũ được giữ để bảo toàn cache): phân việc so với model này.
+    const expected = isNewGoal ? expectedMain(core, brief, wanted, await $.clock.now()) : wanted
+    const advice = isNewGoal ? adviceFor(brief, expected) : []
+    if (isNewGoal) trackDelegations(brief.goalId, advice)
     const context = isNewGoal
-      ? briefContext(brief, previewRoute(brief, wanted), adviceFor(brief, wanted))
+      ? briefContext(brief, previewRoute(brief, expected), advice)
       : followUpContext(brief, core.plan, brief.constraints.filter(c => !prev?.constraints.includes(c)))
     // Checklist cũ còn bước mở bị bỏ theo mục tiêu mới: báo, kẻo mất tiến độ trong im lặng.
     const dropped = isNewGoal ? openSteps(before.plan) : []
@@ -350,7 +414,7 @@ export const register: Register = (on, options) => {
       $.ui.toast(
         dropped.length > 0
           ? `Mục tiêu mới, checklist cũ còn ${dropped.length} bước mở đã bị bỏ`
-          : `Đã đọc prompt: ${brief.depth}, khối lượng ${brief.volume}, luồng chính ${describePick(wanted)}`,
+          : `Đã đọc prompt: ${brief.depth}, khối lượng ${brief.volume}, luồng chính ${describePick(expected)}`,
       )
     }
     $.ui.status(S.statusOf(await read($, view)))
@@ -375,6 +439,13 @@ export const register: Register = (on, options) => {
       sessionFamily = familyOf(e.model)
       const usage = await $.session.usage().catch(() => null)
       turnContext = usage?.context.tokens ?? DEFAULT_CONTEXT
+      lastWindow = usage?.context.window ?? DEFAULT_WINDOW
+      // Đo một lần phần cố định của ngữ cảnh (ước lượng cục bộ của engine, không tốn request).
+      if (S.normalizeCore(await read($, coreState)).sysTokens === 0) {
+        const detail = await $.session.usage({ breakdown: 'summary' }).catch(() => null)
+        const fixed = fixedContextTokens(detail?.context.breakdown?.categories)
+        if (fixed !== null) await update($, coreState, S.withSysTokens(fixed))
+      }
       const decided = decideTurn({
         core: S.normalizeCore(await read($, coreState)),
         model: e.model,
@@ -382,7 +453,7 @@ export const register: Register = (on, options) => {
         current,
         at: await $.clock.now(),
         context: turnContext,
-        window: usage?.context.window ?? DEFAULT_WINDOW,
+        window: lastWindow,
       })
       turnRoute = { turnId: e.turnId, route: decided.route }
       await update($, coreState, c => S.withLog(...decided.logs)(S.withRoute(decided.stored)(c)))
@@ -452,6 +523,7 @@ export const register: Register = (on, options) => {
     // Việc này khớp một việc đã tách lúc nhận prompt: dùng đúng đánh giá đã chấm,
     // không chấm lại từ prompt của agent và không kế thừa sàn của mục tiêu cha.
     const assigned = brief ? matchSubtask(brief.subtasks, e.description, e.prompt) : undefined
+    if (assigned && brief && delegation.goalId === brief.goalId) delegation.pending.delete(assigned.index)
     let plan = planAgent({
       prompt: e.prompt,
       description: e.description,
@@ -618,7 +690,15 @@ export const register: Register = (on, options) => {
     const core = S.normalizeCore(await read($, coreState))
     const findings = observe(tracker, observation, core.brief, core.plan)
     const isErrorBurst = tracker.errors === ERROR_BURST
-    if (findings.length === 0 && !isErrorBurst) return result
+    // Luồng chính bắt đầu tự sửa file trong khi còn việc đã ghi giao subagent: nhắc một lần.
+    const pending = pendingFor(core.brief)
+    const nudge =
+      EDIT_TOOLS.has(e.tool) && !observation.isError && pending.length > 0 && !delegation.isNudged
+        ? `[focus-conductor] Phân việc còn việc ghi giao subagent chưa giao: Việc ${pending.join(', ')}. Nếu thay đổi này thuộc các việc đó, giao qua Agent với description "Việc N: ..." để chạy đúng model đã chấm.`
+        : null
+    if (nudge) delegation.isNudged = true
+    const withNudge = (r: typeof result) => (nudge ? { ...r, context: [...(r.context ?? []), nudge] } : r)
+    if (findings.length === 0 && !isErrorBurst) return withNudge(result)
 
     const at = await $.clock.now()
     const warnings: Warning[] = []
@@ -645,8 +725,8 @@ export const register: Register = (on, options) => {
     }
 
     const top = findings.filter(f => f.context).sort((a, b) => b.priority - a.priority)[0]
-    if (!top?.context) return result
-    return { ...result, context: [...(result.context ?? []), top.context] }
+    if (!top?.context) return withNudge(result)
+    return withNudge({ ...result, context: [...(result.context ?? []), top.context] })
   }).catch(($, e, next) => next(e))
 
   // Claude định kết thúc mà checklist còn mở: yêu cầu hoàn thành hoặc giải
@@ -708,6 +788,12 @@ export const register: Register = (on, options) => {
           ? calibrate(added.ledger, family, e.usage.output_tokens, core.brief.volume, applied.effort)
           : added.ledger
     }
+    // Turn có thực thi mà các việc ghi giao subagent vẫn chưa được giao: cảnh báo chi phí một lần.
+    const waiting = pendingFor(core.brief)
+    if (waiting.length > 0 && !delegation.isWarned && isExecuting(tracker)) {
+      delegation.isWarned = true
+      warnings.push({ at, kind: 'cost', text: `Việc ${waiting.join(', ')} ghi giao subagent nhưng chưa được giao; luồng chính tự làm sẽ chạy ở model đắt hơn` })
+    }
     const end = await $.session.usage().catch(() => null)
     const endContext = end?.context.tokens ?? turnContext
     await update($, coreState, c => S.withTurnMark(at, endContext)(S.withLedger(() => ledger)(S.withWarnings(...warnings)(c))))
@@ -751,10 +837,12 @@ export const register: Register = (on, options) => {
       pinnedGoalId = null
       $.ui.status(S.statusOf(await read($, view)))
       const wanted = wantedMain(brief, S.EMPTY_LIFT, options, blocked, sessionModel())
-      const preview = previewRoute(brief, wanted)
+      const expected = expectedMain(S.normalizeCore(await read($, coreState)), brief, wanted, await $.clock.now())
+      const advice = adviceFor(brief, expected)
+      trackDelegations(brief.goalId, advice)
       return {
         text: `Đã đặt mục tiêu: ${brief.goal} (${brief.depth}, khối lượng ${brief.volume}).`,
-        context: [`Người dùng đặt mục tiêu thủ công.\n${briefContext(brief, preview, adviceFor(brief, wanted))}`],
+        context: [`Người dùng đặt mục tiêu thủ công.\n${briefContext(brief, previewRoute(brief, expected), advice)}`],
       }
     }
 
@@ -762,6 +850,7 @@ export const register: Register = (on, options) => {
       const { core, mode: current } = await read($, view)
       const usage = await $.session.usage().catch(() => null)
       const costLines = ledgerLines(core.ledger)
+      if (core.sysTokens > 0) costLines.push(`Phần cố định của ngữ cảnh (system prompt, tools): ${Math.round(core.sysTokens / 1000)}k token, đo ở đầu phiên`)
       if (usage?.cost) costLines.push(`Chi phí cả phiên theo Claude Code (gồm cả phần trước khi mod bắt đầu ghi sổ): ${formatUsd(usage.cost.usd)}`)
       if (core.brief === null) return { text: [`Chế độ ${current}. Chưa có mục tiêu.`, ...costLines].join('\n') }
       const routeLine = core.route ? `${describePick(core.route)} (${core.route.reason})` : 'model của phiên'

@@ -4,10 +4,10 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import type { Brief, Route } from '../types'
-import { analyzeHeuristic, analyzerRequest, assessSubtasks, isMeta, isRelated, isSameIdea, mergeAnalysis, retarget } from '../hooks/lib/analyze'
+import { analyzeHeuristic, analyzerRequest, assessSubtasks, isMeta, splitClauses, isRelated, isSameIdea, mergeAnalysis, retarget } from '../hooks/lib/analyze'
 import { newTracker, observe } from '../hooks/lib/drift'
 import { applyPlan } from '../hooks/lib/plan'
-import { adviseSubtasks, decideMain, matchSubtask, planAgent, raisePick, resolveModelId } from '../hooks/lib/route'
+import { adviseSubtasks, chooseMain, decideMain, matchSubtask, parseWindows, planAgent, raisePick, resolveModelId } from '../hooks/lib/route'
 import { droppedPlanNotice, statusLine } from '../hooks/lib/text'
 
 const LONG_PROMPT = `### Mục tiêu
@@ -736,6 +736,64 @@ describe('rà soát lần hai (0.3.1)', () => {
 
   test('lượt Haiku có đủ thời gian cho JSON dài hơn', () => {
     expect(analyzerRequest('Làm ba việc', null).timeoutMs).toBe(12000)
+  })
+})
+
+describe('vấn đề tồn đọng (0.3.2)', () => {
+  test('việc hỗn hợp chạm hai file không có suy luận chạy sonnet; có refactor thì vẫn opus', () => {
+    const small = analyzeHeuristic('Đọc a.ts, sửa lỗi trong b.ts', null, 1)
+    expect(small.kind).toBe('mixed')
+    expect(small.depth).toBe('light')
+    expect(chooseMain({ depth: small.depth, volume: small.volume, kind: small.kind, allowFable: false }).family).toBe('sonnet')
+    const heavy = analyzeHeuristic('Đọc a.ts rồi refactor b.ts cho gọn', null, 1)
+    expect(heavy.depth).toBe('substantial')
+  })
+
+  test('prompt đoạn văn nhiều việc được tách bằng luật cục bộ, không cần Haiku', () => {
+    const text =
+      'Hôm nay cần xử lý mấy việc: tìm trong src các chỗ gọi hàm charge, sau đó đổi tên userId thành accountId trong controller, cuối cùng rà soát lỗ hổng bảo mật trong luồng webhook thanh toán.'
+    const subtasks = analyzeHeuristic(text, null, 1).subtasks
+    expect(subtasks.map(s => s.title)).toEqual([
+      'tìm trong src các chỗ gọi hàm charge',
+      'đổi tên userId thành accountId trong controller',
+      'rà soát lỗ hổng bảo mật trong luồng webhook thanh toán',
+    ])
+    expect(subtasks[2]?.depth).toBe('hard')
+  })
+
+  test('đoạn văn dùng chấm phẩy kèm từ nối: bỏ từ nối khỏi tên việc, vế tổng hợp vẫn là một việc', () => {
+    const text =
+      'Anh cần làm mấy việc cho dự án shop: đọc file config.ts và liệt kê biến môi trường; sau đó sửa lỗi nút đăng nhập bị lệch trên mobile; tiếp theo debug vì sao test checkout thỉnh thoảng fail trên CI; cuối cùng tổng hợp kết quả và báo cáo các rủi ro.'
+    expect(splitClauses(text)).toEqual([
+      'đọc file config.ts và liệt kê biến môi trường',
+      'sửa lỗi nút đăng nhập bị lệch trên mobile',
+      'debug vì sao test checkout thỉnh thoảng fail trên CI',
+      'tổng hợp kết quả và báo cáo các rủi ro',
+    ])
+  })
+
+  test('một việc viết thành câu, hoặc hai vế, hoặc vế là ràng buộc thì không tách', () => {
+    expect(splitClauses('Sửa hàm login để kiểm tra mật khẩu đúng cách, sau đó chạy lại test')).toEqual([])
+    expect(splitClauses('Sửa hàm login. Không đổi API công khai. Chỉ sửa trong src/auth.')).toEqual([])
+    expect(analyzeHeuristic('Fix race condition khi hai worker cùng ghi file cache', null, 1).subtasks).toEqual([])
+  })
+
+  test('cửa sổ model đích nhỏ hơn ngữ cảnh: giữ model, kể cả khi nâng cấp', () => {
+    const base = {
+      current: { family: 'sonnet' as const, effort: 'medium' as const, tier: 'moderate' as const, goalId: 1, reason: '' },
+      wanted: { family: 'opus' as const, effort: 'high' as const },
+      volume: 'small' as const,
+      tier: 'complex' as const,
+      goalId: 2,
+      context: 180_000,
+      window: 1_000_000,
+      turnsLeft: 2,
+      isFree: false,
+      calib: { haiku: 1, sonnet: 1, opus: 1, fable: 1 },
+    }
+    expect(decideMain({ ...base, targetWindow: 200_000 }).isHeld).toBe(true)
+    expect(decideMain(base).isChanged).toBe(true)
+    expect(parseWindows('opus=200000, sonnet=1000000, x=5, haiku=abc')).toEqual({ opus: 200000, sonnet: 1000000 })
   })
 })
 

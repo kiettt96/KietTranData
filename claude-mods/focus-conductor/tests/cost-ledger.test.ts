@@ -6,7 +6,7 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import type { Brief, Core, Route } from '../types'
 import { analyzeHeuristic, isRelated } from '../hooks/lib/analyze'
-import { shouldDowngrade, switchCost, turnCost, usdOf } from '../hooks/lib/cost'
+import { fixedContextTokens, shouldDowngrade, switchCost, turnCost, usdOf } from '../hooks/lib/cost'
 import { addUsage, calibrate, emptyLedger, formatUsd, ledgerLines, nextGoal, resetLedger, sessionUsd } from '../hooks/lib/ledger'
 import { splitPayload } from '../hooks/lib/payload'
 import { carryDepth, legacyOf, stepDepth, tierOf } from '../hooks/lib/scale'
@@ -63,6 +63,27 @@ describe('chi phí theo token', () => {
   test('hạ cấp chỉ khi lợi ích trong các turn còn lại vượt chi phí ghi lại cache với hệ số an toàn', () => {
     expect(shouldDowngrade({ saving: 0.078, rewrite: 0.23, turnsLeft: 1 })).toBe(false)
     expect(shouldDowngrade({ saving: 0.078, rewrite: 0.0115, turnsLeft: 2 })).toBe(true)
+  })
+})
+
+describe('phần cố định của ngữ cảnh đo từ phiên', () => {
+  test('cộng mọi hàng đang dùng trừ hội thoại; không có hàng hội thoại thì không đoán', () => {
+    const rows = [
+      { name: 'System prompt', tokens: 3000, kind: 'used' },
+      { name: 'System tools', tokens: 15000, kind: 'used' },
+      { name: 'Memory files', tokens: 2000, kind: 'used' },
+      { name: 'Messages', tokens: 40000, kind: 'used' },
+      { name: 'MCP tools', tokens: 9000, kind: 'deferred' },
+      { name: 'Free space', tokens: 100000, kind: 'free' },
+    ]
+    expect(fixedContextTokens(rows)).toBe(20000)
+    expect(fixedContextTokens(rows.filter(r => r.name !== 'Messages'))).toBeNull()
+    expect(fixedContextTokens(undefined)).toBeNull()
+  })
+
+  test('chi phí đổi effort tính theo phần cố định đo được', () => {
+    // Opus, ngữ cảnh 100k, phần cố định 50k: ghi lại 50k × (1,25 × 4 − 0,2) / 1M = 0,24.
+    closeTo(switchCost({ family: 'opus' }, { family: 'opus' }, 100_000, 50_000), 0.24)
   })
 })
 

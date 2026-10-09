@@ -71,6 +71,19 @@ export function parseModelMap(raw: unknown): Partial<Record<ModelFamily, string>
   return out
 }
 
+/** Đọc cấu hình "opus=1000000,sonnet=200000" thành cửa sổ ngữ cảnh theo họ model. */
+export function parseWindows(raw: unknown): Partial<Record<ModelFamily, number>> {
+  const out: Partial<Record<ModelFamily, number>> = {}
+  if (typeof raw !== 'string') return out
+  for (const part of raw.split(',')) {
+    const [key, value] = part.split('=').map(s => s.trim())
+    const family = FAMILIES.find(f => f === key)
+    const tokens = Number(value)
+    if (family && Number.isFinite(tokens) && tokens > 0) out[family] = tokens
+  }
+  return out
+}
+
 /**
  * Model ID cho một step của luồng chính. Cùng họ với model engine đang dùng
  * thì giữ nguyên ID của engine (giữ cả hậu tố và tiền tố nhà cung cấp); khác
@@ -228,6 +241,10 @@ export function decideMain(args: {
   /** Cache đã nguội hoặc vừa nén: đổi không mất chi phí ghi lại. */
   isFree: boolean
   calib: Record<ModelFamily, number>
+  /** Phần cố định đo được của ngữ cảnh (system prompt và tools); thiếu thì dùng giả định. */
+  sysTokens?: number
+  /** Cửa sổ ngữ cảnh của model đích, nếu người dùng khai báo (contextWindows). */
+  targetWindow?: number
 }): MainDecision {
   const { current, wanted, volume, tier, goalId, context, window, turnsLeft, isFree, calib } = args
   const isSame = current !== null && current.family === wanted.family && current.effort === wanted.effort
@@ -241,6 +258,11 @@ export function decideMain(args: {
 
   if (current === null) return fresh('turn đầu tiên của phiên')
   if (isSame) return { ...fresh('giữ nguyên, đúng mức cần'), isChanged: false }
+  // Model đích có cửa sổ nhỏ hơn ngữ cảnh hiện tại: không đổi, kể cả khi nâng cấp.
+  if (current.family !== wanted.family && args.targetWindow !== undefined && context * SAFETY > args.targetWindow) {
+    const reason = `giữ ${describePick(current)}: ngữ cảnh vượt cửa sổ của ${wanted.family}`
+    return { route: { ...current, tier, goalId, reason }, isChanged: false, isHeld: true, wanted, reason }
+  }
   if (pickRank(wanted) > pickRank(current)) return fresh(`việc khó hơn, nâng cấp từ ${describePick(current)}`)
   if (current.family !== wanted.family && context * SAFETY > window) {
     const reason = `giữ ${describePick(current)}: ngữ cảnh gần đầy, chưa đổi sang ${describePick(wanted)}`
@@ -248,7 +270,7 @@ export function decideMain(args: {
   }
   if (isFree) return fresh('cache đã nguội hoặc vừa nén, đổi không mất chi phí ghi lại')
 
-  const rewrite = switchCost(current, wanted, context)
+  const rewrite = switchCost(current, wanted, context, args.sysTokens)
   const saving =
     turnCost(current.family, current.effort, volume, context, calib[current.family]) -
     turnCost(wanted.family, wanted.effort, volume, context, calib[wanted.family])

@@ -462,6 +462,36 @@ function isConstraintItem(text: string): boolean {
   return CONSTRAINT_ITEM.test(fold(text).trim())
 }
 
+// Ranh giới giữa các việc trong prompt viết thành đoạn văn: hết câu, chấm phẩy, hoặc
+// từ nối chỉ trình tự. Không dùng "rồi" hay "và" vì quá hay gặp bên trong một việc.
+const CLAUSE_BREAK =
+  /(?<=[.;!?])\s+|\s*;\s*|,?\s+(?:sau đó|tiếp theo|tiếp đến|cuối cùng|ngoài ra|then|after that|finally|also)\s+/iu
+const ACTION_VERB = (folded: string): boolean =>
+  WRITE_VERB.test(folded) || SEARCH_VERB.test(folded) || ANALYSIS_VERB.test(folded) || SYNTHESIS.test(folded)
+const LEADING_CONNECTOR = /^(?:và|and|sau đó|tiếp theo|tiếp đến|cuối cùng|ngoài ra|then|after that|finally|also)[\s,]+/iu
+
+/**
+ * Tách prompt đoạn văn thành các việc theo luật cục bộ: mỗi vế phải có động từ hành
+ * động, không phải câu meta hay ràng buộc. Phần trước dấu hai chấm (câu dẫn như "Hôm
+ * nay cần xử lý mấy việc:") bị bỏ. Ít hơn ba vế thì coi là một việc.
+ */
+export function splitClauses(text: string): string[] {
+  const request = splitPayload(text).request
+  const clauses = request
+    .split('\n')
+    .flatMap(line => line.split(CLAUSE_BREAK))
+    .map(part => {
+      const colon = part.lastIndexOf(':')
+      const body = colon >= 0 && colon < part.length - 1 ? part.slice(colon + 1) : part
+      let clause = clean(body).replace(/[.;,]+$/, '').trim()
+      // Bỏ từ nối ở đầu vế (có thể lặp: "và sau đó").
+      while (LEADING_CONNECTOR.test(clause)) clause = clause.replace(LEADING_CONNECTOR, '')
+      return clause
+    })
+    .filter(part => part.split(/\s+/).length >= 3 && !isMeta(part) && !isConstraintItem(part) && ACTION_VERB(fold(part)))
+  return clauses.length >= 3 ? clauses.slice(0, 10).map(c => clip(c, 120)) : []
+}
+
 const BULK_COUNT = /\b(\d+|nhieu|tat ca|toan bo|all|every|many)\s+(file|files|module|service|tep|lop|class|endpoint|bang|table|ham|function|test|tests)\b/
 
 /** Số lượng nói rõ trong yêu cầu: "20 file", "toàn bộ", "nhiều file". */
@@ -542,7 +572,8 @@ export function assessText(text: string, options: { isDelegated?: boolean } = {}
   else if (kind === 'answer') depth = words < 25 && !reasoning ? 'none' : 'light'
   else if (kind === 'investigate') depth = volume === 'small' && words < 40 ? 'light' : 'substantial'
   else if (kind === 'edit') depth = reasoning ? 'substantial' : 'light'
-  else depth = reasoning || volume !== 'small' ? 'substantial' : 'light'
+  // Hỗn hợp (đọc rồi sửa) chỉ là việc vừa khi có suy luận hoặc khối lượng lớn; chạm vài file không đủ.
+  else depth = reasoning || volume === 'large' ? 'substantial' : 'light'
 
   // Subagent nhận prompt dài do Claude viết, nên điểm chỉ để hiển thị.
   const { score, signals } = scoreComplexity(text, options)
@@ -683,7 +714,8 @@ export function analyzeHeuristic(text: string, prev: Brief | null, now: number):
     goalId: (prev?.goalId ?? 0) + 1,
     goal: extractGoal(lines),
     steps,
-    subtasks: assessSubtasks(steps),
+    // Có danh sách thì theo danh sách; không có thì tách các vế của đoạn văn.
+    subtasks: assessSubtasks(steps.length >= 2 ? steps : splitClauses(trimmed)),
     constraints,
     quality,
     depth: assessed.depth,
@@ -781,15 +813,18 @@ function judgedTask(index: number, title: string, task: ModelTask): Subtask {
  * chỉ việc trích từ lời người dùng (phần lớn từ có trong prompt); các bước Haiku tự
  * lập kế hoạch không bao giờ thành việc con.
  */
-function subtasksWithModel(listed: readonly Subtask[], tasks: readonly ModelTask[], request: string): Subtask[] {
-  if (listed.length > 0) {
-    return listed.map(s => {
+function subtasksWithModel(base: Brief, tasks: readonly ModelTask[], request: string): Subtask[] {
+  // Danh sách người dùng tự liệt kê: giữ nguyên, Haiku chỉ chấm lại đúng các mục đó.
+  if (base.steps.length >= 2 && base.subtasks.length > 0) {
+    return base.subtasks.map(s => {
       const task = tasks.find(t => isSameIdea(t.text, s.title))
       return task ? judgedTask(s.index, s.title, task) : s
     })
   }
+  // Đoạn văn: việc Haiku trích từ lời người dùng được ưu tiên; nếu không đủ, dùng các vế tách cục bộ.
   const quoted = tasks.filter(t => coverage(t.text, request) >= 0.6 && !isConstraintItem(t.text))
-  return quoted.length < 2 ? [] : quoted.map((t, i) => judgedTask(i + 1, t.text, t))
+  if (quoted.length >= 2) return quoted.map((t, i) => judgedTask(i + 1, t.text, t))
+  return base.subtasks
 }
 
 function strings(value: unknown, max: number): string[] {
@@ -896,7 +931,7 @@ export function mergeAnalysis(base: Brief, prev: Brief | null, reply: string, te
     goalId: isFollow && prev ? prev.goalId : base.goalId,
     goal: isFollow && prev ? prev.goal : goal,
     steps: isFollow && prev ? prev.steps : steps.length > 0 ? steps : base.steps,
-    subtasks: isFollow && prev ? prev.subtasks : subtasksWithModel(base.subtasks, parseTasks(parsed.tasks), text),
+    subtasks: isFollow && prev ? prev.subtasks : subtasksWithModel(base, parseTasks(parsed.tasks), text),
     keywords: isFollow && prev ? prev.keywords : base.keywords,
     scopePaths: isFollow && prev && base.scopePaths.length === 0 ? prev.scopePaths : base.scopePaths,
     // Câu gốc của người dùng đứng trước: khi trùng ý, bản Haiku diễn đạt lại bị bỏ.
