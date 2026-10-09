@@ -8,6 +8,7 @@ import { analyzeHeuristic, isMeta, isRelated, isSameIdea, mergeAnalysis, retarge
 import { newTracker, observe } from '../hooks/lib/drift'
 import { applyPlan } from '../hooks/lib/plan'
 import { decideMain, planAgent, resolveModelId } from '../hooks/lib/route'
+import { droppedPlanNotice, statusLine } from '../hooks/lib/text'
 
 const LONG_PROMPT = `### Mục tiêu
 Tạo một plugin điều phối model cho Claude Code theo kiến trúc hook.
@@ -352,6 +353,93 @@ describe('điều phối có tính cache', () => {
       blocked,
     })
     expect(design.family).toBe('opus')
+  })
+})
+
+describe('khử trùng giữa câu người dùng và Haiku', () => {
+  test('câu ngắn của người dùng không nuốt câu dài, cụ thể hơn cũng của người dùng', () => {
+    const brief = analyzeHeuristic(
+      `Xây module xác thực bằng TypeScript.
+- Không dùng thư viện ngoài
+- Không dùng thư viện ngoài trừ jsonwebtoken`,
+      null,
+      1,
+    )
+    expect(brief.constraints).toEqual(['Không dùng thư viện ngoài trừ jsonwebtoken'])
+  })
+
+  test('câu Haiku diễn đạt lại không bao giờ thay câu của người dùng, kể cả khi dài hơn', () => {
+    const base = analyzeHeuristic('Xây module xác thực.\n- Không dùng thư viện ngoài', null, 1)
+    const merged = mergeAnalysis(
+      base,
+      null,
+      JSON.stringify({
+        goal: 'Xây module xác thực',
+        steps: [],
+        constraints: ['Không dùng thư viện ngoài trừ jsonwebtoken', 'Phải có type đầy đủ'],
+        quality: [],
+        tier: 'moderate',
+        isNewGoal: true,
+      }),
+    )
+    expect(merged.constraints).toContain('Không dùng thư viện ngoài')
+    expect(merged.constraints).not.toContain('Không dùng thư viện ngoài trừ jsonwebtoken')
+    expect(merged.constraints).toContain('Phải có type đầy đủ')
+  })
+})
+
+describe('checkpoint kiểm tra', () => {
+  const edit = { tool: 'Edit', input: { file_path: '/repo/a.ts' }, isError: false, isReadOnly: false }
+  const bash = (command: string) => ({ tool: 'Bash', input: { command }, isError: false, isReadOnly: false })
+
+  test('lệnh chỉ đọc có chữ test/check/build không tính là kiểm tra', () => {
+    const brief = analyzeHeuristic(LONG_PROMPT, null, 1)
+    for (const command of ['ls tests/', 'cat test.txt', 'echo check', 'git checkout main', 'grep -r test src', 'cat build.log']) {
+      const tracker = newTracker('t1')
+      observe(tracker, edit, brief, [])
+      observe(tracker, bash(command), brief, [])
+      expect(tracker.mutationsSinceCheck, command).toBeGreaterThan(0)
+      expect(tracker.isVerified, command).toBe(false)
+    }
+  })
+
+  test('lệnh kiểm tra thật được nhận ra, kể cả đứng sau cd && hoặc có biến môi trường', () => {
+    const brief = analyzeHeuristic(LONG_PROMPT, null, 1)
+    for (const command of [
+      'npm test',
+      'npm run -s typecheck',
+      'cd /x && npx tsc -p y',
+      'node --test',
+      'claude plugin test .',
+      'timeout 300 claude plugin test . 2>&1 | grep pass',
+      'FOO=1 npm run build',
+      'sed -i s/a/b/ f && npm test',
+    ]) {
+      const tracker = newTracker('t1')
+      observe(tracker, edit, brief, [])
+      observe(tracker, bash(command), brief, [])
+      expect(tracker.mutationsSinceCheck, command).toBe(0)
+      expect(tracker.isVerified, command).toBe(true)
+    }
+  })
+})
+
+describe('status line và báo checklist bị bỏ', () => {
+  test('status line không lặp tiền tố tên plugin mà engine đã thêm', () => {
+    expect(statusLine(null, [], null, 'auto')).toBe('auto')
+    const brief = { ...analyzeHeuristic('Viết hàm parseDate', null, 1), tier: 'complex' as const }
+    expect(statusLine(brief, [], route('opus', 'high'), 'auto')).toBe('complex · opus/high')
+    expect(statusLine(brief, [], route('opus', 'high'), 'suggest')).toBe('complex · opus/high · suggest')
+  })
+
+  test('báo cho Claude biết checklist cũ còn bao nhiêu bước mở đã bị bỏ', () => {
+    const notice = droppedPlanNotice([
+      { id: 1, title: 'Viết hooks', status: 'todo' },
+      { id: 2, title: 'Viết test', status: 'doing' },
+    ])
+    expect(notice).toContain('còn 2 bước mở')
+    expect(notice).toContain('Viết hooks; Viết test')
+    expect(notice).toContain('mcp__focus-conductor__plan')
   })
 })
 

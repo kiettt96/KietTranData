@@ -25,7 +25,7 @@ type Seen = {
  * Hook nền mà mọi test cần (đăng ký trước lần gọi $ đầu tiên): đồng hồ,
  * prompt, step của model, toast, status. Ghi lại thứ "engine" nhận được.
  */
-function base(on: On): Seen {
+function base(on: On, engine: { failFamily?: string } = {}): Seen {
   mock.clock(on, { now: 1000 })
   const seen: Seen = { contexts: [], steps: [] }
   on('prompt.submit', ($, e) => {
@@ -34,9 +34,15 @@ function base(on: On): Seen {
   })
   on('turn.step', async function* (_$, e) {
     seen.steps.push({ model: e.model, effort: e.effort })
+    // "Engine" không phản hồi khi nhận một họ model nhất định (không có quyền, quá tải...).
+    if (engine.failFamily && e.model.includes(engine.failFamily)) {
+      return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: null, usage: null }
+    }
     return { turnId: e.turnId, index: e.index, answer: 'ok', toolUses: [], stopReason: 'end_turn', usage: null }
   })
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
+  on('prompt.compose', () => ({ sections: [] }))
+  on('session.end', () => ({ sessionId: 's1' }))
   on('ui.toast', () => ({ value: undefined }))
   on('ui.status', () => ({ value: undefined }))
   return seen
@@ -172,7 +178,92 @@ describe('checklist và chặn kết thúc', () => {
   })
 })
 
+const RUN = { origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } } as const
+const conductor = ($: Engine, args: string) => $.command.run({ command: 'conductor', args, ...RUN })
+
+describe('model được chọn không phản hồi', () => {
+  test('lỗi một lần chỉ quay về model của engine; lỗi hai turn liên tiếp mới bị chặn, hết chặn sau 5 turn', HEURISTIC, async ($, on) => {
+    const seen = base(on, { failFamily: 'opus' })
+    await submit($, COMPLEX_PROMPT)
+    const attempts = async (turnId: string) => {
+      const from = seen.steps.length
+      await step($, seen, { turnId, messageCount: 3 })
+      return seen.steps.slice(from).map(s => s.model)
+    }
+    const retried = ['claude-opus-5-5', 'claude-sonnet-5-5']
+    expect(await attempts('t1')).toEqual(retried)
+    expect(await attempts('t2')).toEqual(retried)
+    for (const id of ['t3', 't4', 't5', 't6']) expect(await attempts(id)).toEqual(['claude-sonnet-5-5'])
+    expect(await attempts('t7')).toEqual(retried)
+  })
+
+  test('lỗi một lần chưa chặn: /conductor status không báo model tạm ngừng', HEURISTIC, async ($, on) => {
+    const seen = base(on, { failFamily: 'opus' })
+    await submit($, COMPLEX_PROMPT)
+    await step($, seen, { turnId: 't1', messageCount: 3 })
+    const status = await conductor($, 'status')
+    expect(status.text).not.toContain('tạm ngừng')
+  })
+})
+
+describe('lệnh /conductor', () => {
+  test('mode off tắt phân tích, mode không hợp lệ trả trợ giúp', HEURISTIC, async ($, on) => {
+    const seen = base(on)
+    expect((await conductor($, 'mode lung-tung')).text).toContain('auto, subagents, suggest hoặc off')
+    await conductor($, 'mode off')
+    await submit($, COMPLEX_PROMPT)
+    expect(seen.contexts[0]).toEqual([])
+    await conductor($, 'mode auto')
+    await submit($, COMPLEX_PROMPT)
+    expect(seen.contexts[1]?.join('\n')).toContain('[focus-conductor]')
+  })
+
+  test('goal đặt mục tiêu, status hiện mục tiêu, reset xóa', HEURISTIC, async ($, on) => {
+    base(on)
+    const goal = await conductor($, 'goal Viết hàm parseDate cho ngày ISO, có unit test')
+    expect(goal.text).toContain('Đã đặt mục tiêu')
+    expect(goal.context?.join('\n')).toContain('[focus-conductor]')
+    expect((await conductor($, 'status')).text).toContain('Mục tiêu: Viết hàm parseDate')
+    await conductor($, 'reset')
+    expect((await conductor($, 'status')).text).toContain('Chưa có mục tiêu')
+  })
+
+  test('/clear (session.end clear) xóa mục tiêu của phiên', HEURISTIC, async ($, on) => {
+    base(on)
+    await submit($, COMPLEX_PROMPT)
+    expect((await conductor($, 'status')).text).toContain('Mục tiêu:')
+    await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
+    expect((await conductor($, 'status')).text).toContain('Chưa có mục tiêu')
+  })
+})
+
+describe('system prompt', () => {
+  const FACTS = { model: 'claude-sonnet-5-5', promptModel: 'claude-sonnet-5-5', surfaces: [], tools: [], outputStyle: null, traits: [] } as const
+
+  test('thêm mục kỷ luật làm việc, tắt khi mode off', HEURISTIC, async ($, on) => {
+    base(on)
+    const result = await $.prompt.compose(FACTS)
+    expect(result.sections.map(section => section.id)).toContain('focus-conductor:discipline')
+    await conductor($, 'mode off')
+    expect((await $.prompt.compose(FACTS)).sections).toEqual([])
+  })
+})
+
 describe('đổi mục tiêu qua tool plan', () => {
+  test('mục tiêu mới khi checklist cũ còn bước mở thì báo cho Claude', HEURISTIC, async ($, on) => {
+    const seen = base(on)
+    await submit($, COMPLEX_PROMPT)
+    await $.tool.call({
+      tool: 'mcp__focus-conductor__plan',
+      action: 'set',
+      steps: [{ title: 'Phân tích luồng thanh toán' }, { title: 'Thiết kế lại kiến trúc' }],
+    })
+    await submit($, 'Viết hàm slugify(text) bằng TypeScript, có unit test, code sạch có type đầy đủ.')
+    const second = seen.contexts[1]?.join('\n') ?? ''
+    expect(second).toContain('Bản đọc prompt')
+    expect(second).toContain('Checklist cũ còn 2 bước mở đã bị bỏ')
+  })
+
   test('plan "set" sang mục tiêu mới thì prompt khác chủ đề sau đó là mục tiêu mới', HEURISTIC, async ($, on) => {
     const seen = base(on)
     await submit(
