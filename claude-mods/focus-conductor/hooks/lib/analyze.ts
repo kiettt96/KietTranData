@@ -96,6 +96,22 @@ const GOAL_MARKER = /^(muc tieu|goal|objective|nhiem vu|task|yeu cau chinh)\b/
 const PATH =
   /(?:^|[\s`'"(])((?:\.{1,2}\/|\/)?(?:[\w.-]+\/)+[\w.-]+|[\w-]+\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|rb|php|cs|json|md|ya?ml|toml|sql|css|scss|html|sh|ipynb|txt))(?=$|[\s`'"),:;])/g
 
+// Câu dẫn/meta: người dùng nói về chính prompt hoặc việc thử mod ("tôi gửi
+// prompt test...", "hãy test giúp...", "here is the prompt"), không phải yêu
+// cầu của task. Viết ở dạng đã bỏ dấu; so khớp trên câu đã fold.
+const META: readonly RegExp[] = [
+  /\b(toi|minh|em|anh|chi|tui)\s+(gui|dan|paste|nhap)\b.*\b(prompt|(yeu cau|cau hoi|doan|tin nhan)\s+(nay|sau|duoi day|test))\b/,
+  /\b(prompt|cau lenh)\s+(test|thu|mau|vi du)\b/,
+  /^(hay\s+|vui long\s+|nho\s+|giup (toi|minh|em)\s+)?(test|thu|chay thu)(\s+thu)?\s+(giup|ho|dum|prompt|mod|plugin)\b/,
+  /\b(here is|here's|below is|the following (prompt|request)|i('m| am) (sending|pasting)|test prompt|testing (the|this|my) (mod|plugin))\b/,
+]
+
+/** Câu người dùng nói về chính prompt hoặc việc thử mod, không phải yêu cầu task. */
+export function isMeta(sentence: string): boolean {
+  const folded = fold(sentence).trim()
+  return META.some(pattern => pattern.test(folded))
+}
+
 /** Gỡ ký hiệu markdown để một dòng đọc được như câu bình thường. */
 function clean(line: string): string {
   return line
@@ -117,7 +133,7 @@ function sentences(text: string): string[] {
   return text
     .split(/\n+|(?<=[.;?])\s+/)
     .map(clean)
-    .filter(s => s.length >= 6)
+    .filter(s => s.length >= 6 && !isMeta(s))
 }
 
 function unique(list: string[], max: number): string[] {
@@ -136,16 +152,16 @@ function unique(list: string[], max: number): string[] {
 function extractGoal(lines: string[]): string {
   for (let i = 0; i < lines.length; i++) {
     const line = clean(lines[i] ?? '')
-    if (!GOAL_MARKER.test(fold(line))) continue
+    if (isMeta(line) || !GOAL_MARKER.test(fold(line))) continue
     const colon = line.indexOf(':')
     const rest = colon >= 0 ? line.slice(colon + 1).trim() : ''
     if (rest.length >= 6) return clip(rest, 200)
     for (let j = i + 1; j < lines.length; j++) {
       const next = clean(lines[j] ?? '')
-      if (next.length >= 6 && !HEADING.test(lines[j] ?? '')) return clip(next, 200)
+      if (next.length >= 6 && !HEADING.test(lines[j] ?? '') && !isMeta(next)) return clip(next, 200)
     }
   }
-  const first = lines.map(clean).find(l => l.length >= 6) ?? clean(lines.join(' '))
+  const first = lines.map(clean).find(l => l.length >= 6 && !isMeta(l)) ?? clean(lines.join(' '))
   const sentence = first.split(/(?<=[.?])\s+/)[0] ?? first
   return clip(sentence, 200)
 }
@@ -153,15 +169,17 @@ function extractGoal(lines: string[]): string {
 function extractSteps(lines: string[]): string[] {
   const numbered = lines.filter(l => NUMBERED.test(l)).map(clean)
   const source = numbered.length >= 2 ? numbered : lines.filter(l => ENUMERATED.test(l)).map(clean)
-  return unique(source.filter(s => s.length >= 4).map(s => clip(s, 120)), 10)
+  return unique(source.filter(s => s.length >= 4 && !isMeta(s)).map(s => clip(s, 120)), 10)
+}
+
+/** Từ nội dung (đã bỏ dấu, từ 4 ký tự, không phải stopword). */
+function contentWords(folded: string): string[] {
+  return (folded.match(/[a-z][a-z0-9_-]{3,}/g) ?? []).filter(word => !STOPWORDS.has(word))
 }
 
 function extractKeywords(folded: string): string[] {
   const counts = new Map<string, number>()
-  for (const word of folded.match(/[a-z][a-z0-9_-]{3,}/g) ?? []) {
-    if (STOPWORDS.has(word)) continue
-    counts.set(word, (counts.get(word) ?? 0) + 1)
-  }
+  for (const word of contentWords(folded)) counts.set(word, (counts.get(word) ?? 0) + 1)
   return [...counts.entries()]
     .sort((a, b) => b[1] - a[1])
     .slice(0, 10)
@@ -232,9 +250,34 @@ export function scoreComplexity(
   return { score: Math.max(0, Math.min(100, score)), signals }
 }
 
+// Từ quá chung để nói lên chủ đề (động từ thao tác, âm tiết phổ biến): bỏ
+// qua khi đo độ liên quan, nếu không "viết hàm X" sẽ dính vào mọi task có "viết".
+const GENERIC = new Set(
+  (
+    'viet them xoa giup dung bang file code test tests thuc gian chinh kiem viec hien cach phan tiep loi ' +
+    'write create update make change function fix add remove'
+  ).split(' '),
+)
+
 /**
- * Phân tích cục bộ. Với prompt tiếp nối (tiếp tục, sửa nhỏ...), giữ mục tiêu
- * và checklist của brief trước, chỉ gộp thêm ràng buộc mới.
+ * Prompt mới có cùng chủ đề với mục tiêu trước không: so từ nội dung của nó
+ * với từ khóa, mục tiêu, các bước và đường dẫn của brief trước. Prompt không
+ * có từ nội dung nào ("làm đi", "sửa lỗi đó") được coi là liên quan.
+ */
+export function isRelated(text: string, prev: Brief): boolean {
+  const words = new Set(contentWords(fold(text)).filter(word => !GENERIC.has(word)))
+  if (words.size === 0) return true
+  const vocabulary = new Set([
+    ...prev.keywords,
+    ...contentWords(fold([prev.goal, ...prev.steps, ...prev.scopePaths].join(' '))),
+  ])
+  const shared = [...words].filter(word => vocabulary.has(word)).length
+  return shared >= 2 || (shared >= 1 && shared / words.size >= 0.2)
+}
+
+/**
+ * Phân tích cục bộ. Với prompt tiếp nối (tiếp tục, sửa nhỏ cùng chủ đề...),
+ * giữ mục tiêu và checklist của brief trước, chỉ gộp thêm ràng buộc mới.
  */
 export function analyzeHeuristic(text: string, prev: Brief | null, now: number): Brief {
   const trimmed = text.trim()
@@ -261,7 +304,10 @@ export function analyzeHeuristic(text: string, prev: Brief | null, now: number):
   const isNewTask = NEW_TASK.test(folded)
   const isContinue = CONTINUE.test(folded)
   const isRefine = REFINE.test(folded) && words < 60
-  const isFollowUp = prev !== null && !isNewTask && (isContinue || isRefine || words < 12)
+  // "Sửa...", "thêm..." hay câu ngắn chỉ là tiếp nối khi cùng chủ đề với mục
+  // tiêu trước; khác chủ đề thì là task mới dù mở đầu giống một lời tinh chỉnh.
+  const isFollowUp =
+    prev !== null && !isNewTask && (isContinue || ((isRefine || words < 12) && isRelated(trimmed, prev)))
 
   if (prev !== null && isFollowUp) {
     const tier = isContinue ? prev.tier : ownTier
@@ -307,6 +353,7 @@ Reply with ONE JSON object and nothing else:
 - quality: the acceptance criteria the result is judged by.
 - tier: trivial = one-liner or lookup; simple = small local change or short answer; moderate = several files or careful explanation; complex = multi-part feature, debugging or design with trade-offs; deep = architecture, cross-cutting refactor, security or research needing long reasoning.
 - isNewGoal: false when the request continues or refines the previous goal given below.
+Ignore meta sentences in which the user talks about the request itself or about testing a tool or mod ("I'm sending a test prompt", "please test this"): they are never goals, steps, constraints or quality criteria.
 Write every string in the same language as the request. Keep each string under 140 characters.`
 
 type ModelAnalysis = {
@@ -321,7 +368,7 @@ type ModelAnalysis = {
 function strings(value: unknown, max: number): string[] {
   if (!Array.isArray(value)) return []
   return value
-    .filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
+    .filter((s): s is string => typeof s === 'string' && s.trim().length > 0 && !isMeta(s))
     .map(s => clip(s.trim(), 140))
     .slice(0, max)
 }
@@ -363,7 +410,10 @@ export function mergeAnalysis(base: Brief, prev: Brief | null, reply: string): B
   const parsed = parseJson(reply)
   if (!parsed) return base
 
-  const goal = typeof parsed.goal === 'string' && parsed.goal.trim() ? clip(parsed.goal.trim(), 200) : base.goal
+  const goal =
+    typeof parsed.goal === 'string' && parsed.goal.trim() && !isMeta(parsed.goal)
+      ? clip(parsed.goal.trim(), 200)
+      : base.goal
   const steps = strings(parsed.steps, 10)
   const constraints = strings(parsed.constraints, 8)
   const quality = strings(parsed.quality, 6)
