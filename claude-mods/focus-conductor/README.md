@@ -22,7 +22,7 @@ Subagent là nơi điều phối tiết kiệm nhất vì mỗi subagent là m�
 
 **3. Giữ nhất quán.** Claude duy trì mục tiêu và checklist qua tool `mcp__focus-conductor__plan` (`set`, `add`, `update`). Trạng thái `verified` bắt buộc có bằng chứng kiểm tra, `skipped` và `blocked` bắt buộc có lý do. Trong turn, hook `tool.call` theo dõi mọi tool của luồng chính và gắn lời nhắc vào kết quả tool (không sửa system prompt, nên không ảnh hưởng cache) khi gặp các dấu hiệu sau: cùng lệnh lỗi ba lần (lặp), vượt ngân sách tool call của tier (lan man), sửa file ngoài phạm vi khi prompt có giới hạn kiểu "chỉ sửa X" (lạc phạm vi), và năm thay đổi liên tiếp chưa chạy bước kiểm tra nào (checkpoint tự kiểm tra). Khi Claude định kết thúc một turn có thực thi mà checklist còn bước `todo` hoặc `doing`, hook `classic.Stop` yêu cầu hoàn thành hoặc ghi rõ lý do, tối đa một lần mỗi lần dừng; turn chỉ hỏi đáp không bị chặn. Một mục system prompt cố định nhắc năm nguyên tắc làm việc; nội dung không đổi giữa các turn để không phá cache.
 
-**Giao diện.** Band phía trên prompt hiện mục tiêu, tier, model đang chạy, tiến độ checklist và cảnh báo mới nhất, kèm nút Chi tiết và Ẩn. Pane "Focus Conductor" hiện đầy đủ mục tiêu, ràng buộc, tiêu chí chất lượng, checklist, quyết định điều phối, nhật ký điều phối và cảnh báo, kèm nút đổi chế độ. Status line dưới prompt có dạng `focus: complex · opus/high · 2/5`.
+**Giao diện.** Band phía trên prompt hiện mục tiêu, tier, model đang chạy, tiến độ checklist và cảnh báo mới nhất, kèm nút Chi tiết và Ẩn. Pane "Focus Conductor" hiện đầy đủ mục tiêu, ràng buộc, tiêu chí chất lượng, checklist, quyết định điều phối, nhật ký điều phối và cảnh báo, kèm nút đổi chế độ. Status line dưới prompt có dạng `focus-conductor: complex · opus/high · 2/5`.
 
 ## Cài đặt
 
@@ -46,7 +46,7 @@ Marketplace được lưu dưới tên `kiettrandata` (tên khai báo trong `.cl
 ### Kiểm tra đã cài đúng
 
 - Gõ `/plugin`, chọn tab Installed, chọn `focus-conductor`: Version khớp `version` trong `.claude-plugin/plugin.json`, Status là Enabled.
-- Status line dưới prompt có dòng `focus: auto`.
+- Status line dưới prompt có dòng `focus-conductor: auto`.
 - Gõ `/conductor`: pane Focus Conductor mở ra.
 
 ### Cập nhật lên bản mới
@@ -124,8 +124,14 @@ focus-conductor/
   tests/                       test logic thuần và test tích hợp qua engine
 ```
 
-Kiểm tra trước khi phát hành: `claude plugin validate .` và `claude plugin test .` (37 test).
+Kiểm tra trước khi phát hành: `claude plugin validate .` và `claude plugin test .` (50 test).
 
 ## Giới hạn đã biết
 
-Điểm phức tạp là heuristic theo từ khóa tiếng Việt và tiếng Anh, có thể lệch với prompt ngắn nhưng khó; khi đó dùng `analyzer: model` hoặc đặt lại bằng `/conductor goal`. Mod không đọc được nội dung suy luận của model nên phát hiện lạc đề dựa trên hành vi gọi tool, không dựa trên ngữ nghĩa từng câu trả lời. Giá dùng để thiết kế bảng chính sách: Haiku 5.5 $0.10 / $0.50, Sonnet 5.5 $2 / $10, Opus 5.5 $4 / $20, Fable 5.1 $10 / $50 mỗi 1 triệu token input / output [Nguồn: bảng giá Claude API trong skill claude-api, cập nhật 2026-10-06].
+- Điểm phức tạp là heuristic theo từ khóa tiếng Việt và tiếng Anh, có thể lệch với prompt ngắn nhưng khó; khi đó dùng `analyzer: model` hoặc đặt lại bằng `/conductor goal`. Chế độ `model` thêm một lượt Haiku (tối đa 8 giây) trước mỗi prompt mở mục tiêu mới.
+- Mod không đọc được nội dung suy luận của model nên phát hiện lạc đề dựa trên hành vi gọi tool, không dựa trên ngữ nghĩa từng câu trả lời.
+- Một họ model lỗi (không phản hồi) ở một turn thì turn đó quay về model của phiên; lỗi ở hai turn liên tiếp thì bị tạm ngừng dùng 5 turn rồi thử lại.
+- Khi engine tự đổi model (fallback do bị từ chối hoặc quá tải), mod không phân biệt được với việc người dùng tự đổi bằng `/model`, nên tạm ngừng tự điều phối luồng chính tới mục tiêu mới.
+- Khi Claude chốt lại mục tiêu bằng tool `plan` (action `set`), phạm vi file được phép sửa lấy từ prompt trước vẫn được giữ; dùng `/conductor reset` nếu phạm vi đó không còn đúng.
+- Prompt bị xếp nhầm là mục tiêu mới thì checklist cũ bị bỏ; mod báo cho Claude số bước còn mở để lập lại nếu thực ra là tiếp nối.
+- Giá dùng để thiết kế bảng chính sách: Haiku 5.5 $0.10 / $0.50, Sonnet 5.5 $2 / $10, Opus 5.5 $4 / $20, Fable 5.1 $10 / $50 mỗi 1 triệu token input / output [Nguồn: bảng giá Claude API trong skill claude-api, cập nhật 2026-10-06].

@@ -67,6 +67,14 @@ export function briefContext(brief: Brief, route: Route | null): string {
     .join('\n')
 }
 
+/** Báo cho Claude biết checklist cũ còn bước mở đã bị bỏ vì prompt được xếp là mục tiêu mới. */
+export function droppedPlanNotice(open: readonly PlanStep[]): string {
+  return (
+    `[focus-conductor] Checklist cũ còn ${open.length} bước mở đã bị bỏ vì prompt này được xếp là mục tiêu mới ` +
+    `(${open.map(s => s.title).slice(0, 3).join('; ')}). Nếu thực ra đây là tiếp nối, gọi ${PLAN_TOOL_FULL} action "set" để lập lại.`
+  )
+}
+
 /** Khối context cho prompt tiếp nối cùng mục tiêu. */
 export function followUpContext(brief: Brief, plan: readonly PlanStep[], newConstraints: readonly string[]): string {
   const open = openSteps(plan)
@@ -81,7 +89,7 @@ export function followUpContext(brief: Brief, plan: readonly PlanStep[], newCons
 
 /** Checklist dạng văn bản, trả về trong kết quả của tool plan. */
 export function renderPlan(brief: Brief | null, plan: readonly PlanStep[]): string {
-  if (plan.length === 0) return 'Checklist trống.'
+  if (plan.length === 0) return `${brief ? `Mục tiêu: ${brief.goal}\n` : ''}Checklist trống.`
   const { closed, total } = progress(plan)
   const rows = plan.map(step => {
     const note = step.note ? ` (${step.note})` : ''
@@ -107,9 +115,9 @@ export function stopBlockReason(plan: readonly PlanStep[]): string {
 
 /** Một dòng tóm tắt cho status line. */
 export function statusLine(brief: Brief | null, plan: readonly PlanStep[], route: Route | null, mode: string): string {
-  if (brief === null) return `focus: ${mode}`
+  if (brief === null) return mode
   const { closed, total } = progress(plan)
   const steps = total > 0 ? ` · ${closed}/${total}` : ''
   const model = route ? ` · ${describePick(route)}` : ''
-  return `focus: ${brief.tier}${model}${steps}${mode === 'auto' ? '' : ` · ${mode}`}`
+  return `${brief.tier}${model}${steps}${mode === 'auto' ? '' : ` · ${mode}`}`
 }

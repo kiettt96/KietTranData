@@ -7,8 +7,37 @@ import type { Brief, PlanStep, WarningKind } from '../../types'
 import { POLICY } from './route'
 
 const FILE_TOOLS = new Set(['Edit', 'Write', 'NotebookEdit', 'MultiEdit'])
-const VERIFY =
-  /\b(test|tests|pytest|jest|vitest|mocha|tsc|typecheck|type-check|lint|eslint|ruff|mypy|flake8|clippy|validate|build|check)\b/
+// Lệnh kiểm tra thật sự: bắt đầu một đoạn lệnh bằng một trình chạy test, lint,
+// type-check hay build. Không khớp theo chữ rời ("test", "check") ở giữa lệnh,
+// kẻo `ls tests/`, `cat test.txt` hay `echo check` bị tính là kiểm tra.
+const VERIFY_SEGMENT = new RegExp(
+  '^(?:' +
+    '(?:npm|pnpm|yarn|bun)\\s+(?:run\\s+)?(?:-\\S+\\s+)*(?:test|tests|lint|typecheck|type-check|build|check|validate|verify)\\b|' +
+    '(?:npx\\s+)?(?:tsc|pytest|jest|vitest|mocha|eslint|ruff|mypy|flake8|pyright|biome|stylelint)\\b|' +
+    'node\\s+--test\\b|' +
+    'python3?\\s+-m\\s+(?:pytest|unittest|mypy|ruff)\\b|' +
+    'cargo\\s+(?:test|check|clippy|build)\\b|' +
+    'go\\s+(?:test|vet|build)\\b|' +
+    'make\\s+(?:test|check|lint|build)\\b|' +
+    'claude\\s+plugin\\s+(?:test|validate)\\b|' +
+    'dotnet\\s+(?:test|build)\\b|' +
+    'mvn\\s+(?:test|verify)\\b|' +
+    'gradle\\s+(?:test|check|build)\\b' +
+    ')',
+)
+
+/** Tách lệnh nối bằng &&, ||, ;, | hoặc xuống dòng, bỏ ngoặc, biến môi trường và timeout ở đầu mỗi đoạn. */
+function segments(command: string): string[] {
+  return command
+    .split(/\s*(?:&&|\|\||[;|\n])\s*/)
+    .map(part =>
+      part
+        .trim()
+        .replace(/^[({]+\s*/, '')
+        .replace(/^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+/, '')
+        .replace(/^timeout\s+\d+\s+/, ''),
+    )
+}
 
 /** Số thay đổi liên tiếp chưa kiểm tra trước khi nhắc một checkpoint. */
 export const CHECKPOINT_EVERY = 5
@@ -72,7 +101,7 @@ function signature(observation: ToolObservation): string {
 }
 
 export function isVerification(observation: ToolObservation): boolean {
-  return observation.tool === 'Bash' && VERIFY.test(str(observation.input['command']))
+  return observation.tool === 'Bash' && segments(str(observation.input['command'])).some(part => VERIFY_SEGMENT.test(part))
 }
 
 export function isMutation(observation: ToolObservation): boolean {

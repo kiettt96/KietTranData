@@ -28,7 +28,7 @@ import { decideMain, describePick, familyOf, parseModelMap, planAgent, resolveMo
 import type { AgentPlan } from './lib/route'
 import * as S from './lib/state'
 import type { View } from './lib/state'
-import { DISCIPLINE, PLAN_TOOL_FULL, briefContext, followUpContext, renderPlan, stopBlockReason } from './lib/text'
+import { DISCIPLINE, PLAN_TOOL_FULL, briefContext, droppedPlanNotice, followUpContext, renderPlan, stopBlockReason } from './lib/text'
 import { renderBand } from './ui/band'
 import { PANE, PANE_TITLE, renderPane } from './ui/pane'
 
@@ -43,6 +43,10 @@ const PERSON_ORIGINS = new Set<PromptOrigin['kind']>(['composer', 'bridge', 'sdk
 
 /** Lệnh slash (/conductor, /plugin:cmd), không phải đường dẫn như /home/... */
 const SLASH_COMMAND = /^\/[a-z][\w:-]*(\s|$)/i
+
+/** Số turn liên tiếp một họ model phải lỗi mới bị chặn, và số turn bị chặn. */
+const FAIL_LIMIT = 2
+const BLOCK_TURNS = 5
 
 const COMMAND_HELP = [
   '/conductor             mở pane Focus Conductor',
@@ -69,6 +73,11 @@ export const register: Register = (on, options) => {
   let lastSession: { model: string; effort: string } | null = null
   let pinnedGoalId: number | null = null
   const blocked = new Set<ModelFamily>()
+  // Một lần lỗi có thể chỉ là tạm thời (429, quá tải): chỉ chặn một họ model
+  // khi nó lỗi ở hai turn liên tiếp, và tự hết chặn sau BLOCK_TURNS turn.
+  const failures = new Map<ModelFamily, { count: number; lastTurn: number }>()
+  const blockedUntil = new Map<ModelFamily, number>()
+  let turnCount = 0
   const offered = new Set<string>()
   const pendingAgents = new Map<string, AgentPlan & { isApplied: boolean }>()
   const modelMap = parseModelMap(options['modelMap'])
@@ -88,6 +97,19 @@ export const register: Register = (on, options) => {
     lastSession = null
     pinnedGoalId = null
     blocked.clear()
+    failures.clear()
+    blockedUntil.clear()
+    turnCount = 0
+  }
+
+  /** Hết chặn các họ model đã bị chặn đủ BLOCK_TURNS turn, để thử lại. */
+  function expireBlocks(): void {
+    for (const [family, until] of blockedUntil) {
+      if (until > turnCount) continue
+      blockedUntil.delete(family)
+      failures.delete(family)
+      blocked.delete(family)
+    }
   }
 
   /**
@@ -177,10 +199,11 @@ export const register: Register = (on, options) => {
     if (text === '' || SLASH_COMMAND.test(text) || !PERSON_ORIGINS.has(e.origin.kind)) return next(e)
     if ((await read($, mode)) === 'off') return next(e)
 
-    const prev = (await read($, coreState)).brief
+    const before = await read($, coreState)
+    const prev = before.brief
     let brief = analyzeHeuristic(text, prev, await $.clock.now())
     if (options['analyzer'] === 'model' && !brief.isFollowUp && wordCount(text) >= 12) {
-      $.ui.status('focus: đang đọc prompt...')
+      $.ui.status('đang đọc prompt...')
       const reply = await $.model.complete(analyzerRequest(text, prev)).catch(() => null)
       if (reply?.isAnswered) brief = mergeAnalysis(brief, prev, reply.text, text)
     }
@@ -196,9 +219,18 @@ export const register: Register = (on, options) => {
     const context = isNewGoal
       ? briefContext(brief, previewRoute(brief, wanted))
       : followUpContext(brief, core.plan, brief.constraints.filter(c => !prev?.constraints.includes(c)))
-    if (isNewGoal) $.ui.toast(`Đã đọc prompt: ${brief.tier}, luồng chính ${describePick(wanted)}`)
+    // Checklist cũ còn bước mở bị bỏ theo mục tiêu mới: báo, kẻo mất tiến độ trong im lặng.
+    const dropped = isNewGoal ? openSteps(before.plan) : []
+    const notice = dropped.length > 0 ? [droppedPlanNotice(dropped)] : []
+    if (isNewGoal) {
+      $.ui.toast(
+        dropped.length > 0
+          ? `Mục tiêu mới, checklist cũ còn ${dropped.length} bước mở đã bị bỏ`
+          : `Đã đọc prompt: ${brief.tier}, luồng chính ${describePick(wanted)}`,
+      )
+    }
     $.ui.status(S.statusOf(await read($, view)))
-    return next({ ...e, context: [...(e.context ?? []), context] })
+    return next({ ...e, context: [...(e.context ?? []), context, ...notice] })
   })
 
   // ------------------------------------- 2. điều phối model / effort
@@ -214,6 +246,8 @@ export const register: Register = (on, options) => {
     if (e.agentId !== undefined || current === 'off' || current === 'subagents') return yield* next(e)
 
     if (turnRoute.turnId !== e.turnId) {
+      turnCount += 1
+      expireBlocks()
       const core = await read($, coreState)
       const decided = decideTurn(core, e.model, String(e.effort ?? ''), e.messageCount, current, await $.clock.now())
       turnRoute = { turnId: e.turnId, route: decided.route }
@@ -235,16 +269,27 @@ export const register: Register = (on, options) => {
       }
       const result = await stream.result
       const isEmpty = result.stopReason === null && result.usage === null
+      if (!isEmpty) failures.delete(route.family)
       if (!isOverridden || !isEmpty || chunks > 0 || next.signal.aborted) return result
     } catch (error) {
       if (!isOverridden || chunks > 0 || next.signal.aborted) throw error
     }
 
-    // Model được chọn không phản hồi (không có quyền, bị chặn, sai ID):
-    // đánh dấu họ model đó, quay về model của engine cho phần còn lại.
-    blocked.add(route.family)
+    // Model được chọn không phản hồi (không có quyền, bị chặn, sai ID, hoặc
+    // lỗi tạm thời): quay về model của engine cho phần còn lại của turn. Chỉ
+    // chặn họ model khi lỗi ở hai turn liên tiếp.
+    const previous = failures.get(route.family)
+    const count = previous && turnCount - previous.lastTurn <= 1 ? previous.count + 1 : 1
+    failures.set(route.family, { count, lastTurn: turnCount })
+    const isBlocked = count >= FAIL_LIMIT
+    if (isBlocked) {
+      blocked.add(route.family)
+      blockedUntil.set(route.family, turnCount + BLOCK_TURNS)
+    }
     turnRoute = { turnId: e.turnId, route: null }
-    const text = `${input.model} không phản hồi; quay về ${e.model} và tạm ngừng dùng ${route.family} trong phiên`
+    const text = isBlocked
+      ? `${input.model} không phản hồi ${count} turn liên tiếp; quay về ${e.model} và tạm ngừng dùng ${route.family} trong ${BLOCK_TURNS} turn`
+      : `${input.model} không phản hồi; turn này quay về ${e.model}, nếu lỗi lại sẽ tạm ngừng dùng ${route.family}`
     const warning: Warning = { at: await $.clock.now(), kind: 'model', text }
     await update($, coreState, c => S.withWarnings(warning)(S.withRoute(null)(c)))
     $.ui.toast(text)

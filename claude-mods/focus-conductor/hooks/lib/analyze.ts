@@ -203,17 +203,25 @@ export function isSameIdea(a: string, b: string): boolean {
 }
 
 /**
- * Bỏ mục cùng ý với một mục đứng trước; thứ tự đầu vào quyết định bản nào
- * được giữ, nên câu gốc của người dùng phải đặt trước.
+ * Bỏ mục cùng ý. `userCount` mục đầu là câu gốc của người dùng, phần còn lại
+ * do Haiku diễn đạt lại. Giữa hai câu của người dùng cùng ý, giữ câu dài hơn
+ * (câu ngắn chung chung không được nuốt câu cụ thể hơn, như ngoại lệ đi
+ * kèm). Câu của Haiku chỉ được thêm khi không cùng ý với mục nào đã giữ, và
+ * không bao giờ thay câu của người dùng.
  */
-function unique(list: string[], max: number): string[] {
+function unique(list: string[], max: number, userCount: number = list.length): string[] {
   const out: string[] = []
-  for (const item of list) {
+  const users = list.slice(0, userCount)
+  for (const item of users) {
+    const at = out.findIndex(kept => isSameIdea(kept, item))
+    if (at < 0) out.push(item)
+    else if (tokens(item).size > tokens(out[at] ?? '').size) out[at] = item
+  }
+  for (const item of list.slice(userCount)) {
     if (out.some(kept => isSameIdea(kept, item))) continue
     out.push(item)
-    if (out.length >= max) break
   }
-  return out
+  return out.slice(0, max)
 }
 
 function extractGoal(lines: string[]): string {
@@ -530,8 +538,8 @@ export function mergeAnalysis(base: Brief, prev: Brief | null, reply: string, te
     keywords: isContinuation ? prev.keywords : base.keywords,
     scopePaths: isContinuation && base.scopePaths.length === 0 ? prev.scopePaths : base.scopePaths,
     // Câu gốc của người dùng đứng trước: khi trùng ý, bản Haiku diễn đạt lại bị bỏ.
-    constraints: unique([...base.constraints, ...constraints], 10),
-    quality: unique([...base.quality, ...quality], 8),
+    constraints: unique([...base.constraints, ...constraints], 10, base.constraints.length),
+    quality: unique([...base.quality, ...quality], 8, base.quality.length),
     tier,
     signals: [...base.signals, `model: ${modelTier ?? 'không rõ'}`, ...verdict],
     source: 'model',
