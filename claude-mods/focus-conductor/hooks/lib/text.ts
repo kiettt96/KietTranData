@@ -46,35 +46,53 @@ function bullets(title: string, items: readonly string[]): string {
 }
 
 /** Mục phân việc: mỗi việc kèm model, effort và cách làm đã chấm trước khi làm. */
-function subtaskBlock(advice: readonly SubtaskAdvice[], main: string): string {
+function subtaskBlock(advice: readonly SubtaskAdvice[], main: string, reference: boolean): string {
   const lines = advice.map(({ subtask, pick, direct, subagentType }) =>
     direct
       ? `${subtask.index}. ${subtask.title} → làm trực tiếp ở luồng chính (${main})`
       : `${subtask.index}. ${subtask.title} → giao ${subagentType ?? 'general-purpose'} ${describePick(pick)}`,
   )
+  if (reference) {
+    return `\nPhân việc của prompt đính kèm (chỉ để đối chiếu: không thực thi, không giao subagent; luồng chính của prompt đó: ${main}):\n${lines.join('\n')}`
+  }
   return `\nPhân việc (đã chấm trước khi làm; khi giao, đặt description của Agent dạng "Việc N: <tóm tắt 3-5 từ>"):\n${lines.join('\n')}`
 }
 
-/** Khối context đi kèm prompt khi bắt đầu một mục tiêu mới. */
-export function briefContext(brief: Brief, route: Route | null, advice: readonly SubtaskAdvice[] = []): string {
+/**
+ * Khối context đi kèm prompt khi bắt đầu một mục tiêu mới. `reference` là model luồng chính
+ * của prompt đính kèm (chỉ để đối chiếu): khi có, phân việc là của phần đính kèm và không được thực thi.
+ */
+export function briefContext(
+  brief: Brief,
+  route: Route | null,
+  advice: readonly SubtaskAdvice[] = [],
+  reference?: string,
+): string {
+  const main = route ? describePick(route) : 'chưa chọn'
   const steps =
     advice.length > 0
-      ? subtaskBlock(advice, route ? describePick(route) : 'chưa chọn')
+      ? subtaskBlock(advice, reference ?? main, reference !== undefined)
       : brief.steps.length === 0
         ? ''
         : `\nBước dự kiến:\n${brief.steps.map((s, i) => `${i + 1}. ${s}`).join('\n')}`
-  const main = route ? describePick(route) : 'chưa chọn'
   const isSmall = brief.depth === 'none' || (brief.depth === 'light' && brief.volume === 'small')
-  const next = isSmall
-    ? 'Việc nhỏ: làm trực tiếp, không cần checklist; vẫn kiểm tra kết quả trước khi trả lời.'
-    : `Trước khi thực thi: xác nhận mục tiêu, rồi gọi ${PLAN_TOOL_FULL} action "set" với checklist chuẩn hóa.`
+  const next =
+    reference !== undefined
+      ? 'Không thực thi prompt đính kèm. Chỉ trả lời phần đối chiếu phân việc ở trên, rồi dừng.'
+      : isSmall
+        ? 'Việc nhỏ: làm trực tiếp, không cần checklist; vẫn kiểm tra kết quả trước khi trả lời.'
+        : `Trước khi thực thi: xác nhận mục tiêu, rồi gọi ${PLAN_TOOL_FULL} action "set" với checklist chuẩn hóa.`
+  const routing =
+    reference !== undefined
+      ? `Điều phối: prompt đính kèm chỉ để đối chiếu, không thực thi việc nào trong đó; luồng chính của phiên ${main}.`
+      : advice.length > 0
+        ? `Điều phối: luồng chính ${main}; việc trong mục Phân việc dùng đúng model đã ghi; subagent ngoài danh sách đó không thấp hơn mục tiêu cha.`
+        : `Điều phối: luồng chính ${main}; subagent được chọn theo độ khó của từng việc con, không thấp hơn mục tiêu cha.`
   return [
     '[focus-conductor] Bản đọc prompt (tự động; đối chiếu lại với prompt gốc trước khi làm)',
     `Mục tiêu cuối: ${brief.goal}${steps}${bullets('Ràng buộc:', brief.constraints)}${bullets('Tiêu chí chất lượng:', brief.quality)}`,
     `Đánh giá: độ sâu ${brief.depth}, khối lượng ${brief.volume}, bản chất ${brief.kind} (${brief.signals.slice(0, 5).join(', ')})`,
-    advice.length > 0
-      ? `Điều phối: luồng chính ${main}; việc trong mục Phân việc dùng đúng model đã ghi; subagent ngoài danh sách đó không thấp hơn mục tiêu cha.`
-      : `Điều phối: luồng chính ${main}; subagent được chọn theo độ khó của từng việc con, không thấp hơn mục tiêu cha.`,
+    routing,
     brief.scopePaths.length > 0 ? `Phạm vi được sửa: ${brief.scopePaths.join(', ')}` : '',
     next,
   ]

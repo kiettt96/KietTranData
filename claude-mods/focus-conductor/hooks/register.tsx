@@ -19,7 +19,7 @@
 import { atom, derive, read, update } from 'claude-code'
 import type { PromptOrigin, Register } from 'claude-code'
 
-import type { Brief, Core, Effort, Mode, ModelFamily, Route, RouteEvent, Tier, Warning } from '../types'
+import type { Brief, Core, Effort, Lift, Mode, ModelFamily, Route, RouteEvent, Tier, Warning } from '../types'
 import { analyzeHeuristic, analyzerRequest, isSameIdea, localRelation, mergeAnalysis } from './lib/analyze'
 import { isExecuting, newTracker, observe, openSteps, summarize } from './lib/drift'
 import type { TurnTracker } from './lib/drift'
@@ -143,13 +143,23 @@ export const register: Register = (on, options) => {
   /** Chấm model và effort cho từng việc đã tách của mục tiêu (rỗng khi chưa đủ việc để giao). */
   function adviceFor(brief: Brief, main: Choice) {
     return adviseSubtasks({
-      subtasks: brief.subtasks,
+      subtasks: brief.attached?.subtasks ?? brief.subtasks,
       main,
       allowFable: options['allowFable'] === true,
       blocked,
       offered,
       session: sessionModel(),
     })
+  }
+
+  /**
+   * Phân việc của một brief: với prompt đính kèm (chỉ để đối chiếu) thì so với luồng chính
+   * của chính prompt đó và không giao subagent; còn lại theo luồng chính đã chọn.
+   */
+  function adviceOf(brief: Brief, expected: Choice, lift: Lift): { advice: SubtaskAdvice[]; reference?: string } {
+    if (!brief.attached) return { advice: adviceFor(brief, expected) }
+    const main = wantedMain(brief.attached, lift, options, blocked, sessionModel())
+    return { advice: adviceFor(brief, main), reference: describePick(main) }
   }
 
   /** Xóa phần trạng thái cục bộ (không thuộc $.state). */
@@ -402,10 +412,10 @@ export const register: Register = (on, options) => {
     const wanted = wantedMain(brief, core.lift, options, blocked, sessionModel())
     // Model sẽ thật sự chạy (có thể là model cũ được giữ để bảo toàn cache): phân việc so với model này.
     const expected = isNewGoal ? expectedMain(core, brief, wanted, await $.clock.now()) : wanted
-    const advice = isNewGoal ? adviceFor(brief, expected) : []
-    if (isNewGoal) trackDelegations(brief.goalId, advice)
+    const shown = isNewGoal ? adviceOf(brief, expected, core.lift) : { advice: [] }
+    if (isNewGoal) trackDelegations(brief.goalId, brief.attached ? [] : shown.advice)
     const context = isNewGoal
-      ? briefContext(brief, previewRoute(brief, expected), advice)
+      ? briefContext(brief, previewRoute(brief, expected), shown.advice, shown.reference)
       : followUpContext(brief, core.plan, brief.constraints.filter(c => !prev?.constraints.includes(c)))
     // Checklist cũ còn bước mở bị bỏ theo mục tiêu mới: báo, kẻo mất tiến độ trong im lặng.
     const dropped = isNewGoal ? openSteps(before.plan) : []
@@ -838,11 +848,11 @@ export const register: Register = (on, options) => {
       $.ui.status(S.statusOf(await read($, view)))
       const wanted = wantedMain(brief, S.EMPTY_LIFT, options, blocked, sessionModel())
       const expected = expectedMain(S.normalizeCore(await read($, coreState)), brief, wanted, await $.clock.now())
-      const advice = adviceFor(brief, expected)
-      trackDelegations(brief.goalId, advice)
+      const shown = adviceOf(brief, expected, S.EMPTY_LIFT)
+      trackDelegations(brief.goalId, brief.attached ? [] : shown.advice)
       return {
         text: `Đã đặt mục tiêu: ${brief.goal} (${brief.depth}, khối lượng ${brief.volume}).`,
-        context: [`Người dùng đặt mục tiêu thủ công.\n${briefContext(brief, previewRoute(brief, expected), advice)}`],
+        context: [`Người dùng đặt mục tiêu thủ công.\n${briefContext(brief, previewRoute(brief, expected), shown.advice, shown.reference)}`],
       }
     }
 

@@ -4,6 +4,7 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { On, TurnStepInput } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
+import { K4_META_LEAD, K4_PROMPT } from './fixtures/prompt-k4'
 
 const HEURISTIC = { options: { analyzer: 'heuristic' } }
 const BIG_USAGE = { input_tokens: 100_000, output_tokens: 50_000, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
@@ -688,5 +689,60 @@ describe('giao diện', () => {
     await ui.press({ key: 'mode-suggest' })
     expect(await ui.find({ type: 'Text', text: /Checklist 0\/1/ })).toBeDefined()
     await ui.unmount()
+  })
+})
+
+describe('prompt dài và prompt đính kèm (0.3.4)', () => {
+  test('prompt K4 thật: mục tiêu là câu "Đích là", phân việc đủ 11 việc, không việc nào giao cho haiku', HEURISTIC, async ($, on) => {
+    const seen = base(on)
+    await submit($, K4_PROMPT)
+    const context = seen.contexts[0]?.join('\n') ?? ''
+    expect(context).toContain('Mục tiêu cuối: Đích là engine ra quyết định đúng luật của Long')
+    const plan = context.split('Phân việc (đã chấm')[1]?.split('Điều phối')[0] ?? ''
+    expect(plan.match(/^\d+\. K4\./gm)?.length).toBe(11)
+    expect(plan).toContain('K4.11. Báo cáo và DỪNG')
+    expect(plan).not.toContain('haiku')
+    expect(context.split('Tiêu chí chất lượng:')[1] ?? '').toContain('- 100% bước trong phạm vi')
+  })
+
+  test('prompt đính kèm chỉ để đối chiếu: phân việc của phần đính kèm, không ràng buộc, không thực thi', HEURISTIC, async ($, on) => {
+    const seen = base(on)
+    await submit($, `${K4_META_LEAD}\n\n${K4_PROMPT}`)
+    const context = seen.contexts[0]?.join('\n') ?? ''
+    expect(context).toContain('Mục tiêu cuối: Chỉ đối chiếu phân việc của prompt đính kèm')
+    expect(context).toContain('Phân việc của prompt đính kèm (chỉ để đối chiếu: không thực thi, không giao subagent')
+    expect(context).toContain('Không thực thi prompt đính kèm.')
+    expect(context).not.toContain('Ràng buộc:')
+    expect(context).not.toContain('Tiêu chí chất lượng:')
+    expect(context).not.toContain('Đích là engine')
+    const plan = context.split('Phân việc của prompt đính kèm')[1]?.split('Điều phối')[0] ?? ''
+    expect(plan.match(/^\d+\. K4\./gm)?.length).toBe(11)
+  })
+
+  test('prompt đính kèm: Haiku chỉ nhận phần đính kèm, không nhận câu "không chạy"', { options: { analyzer: 'model' } }, async ($, on) => {
+    const seen = base(on)
+    let asked = ''
+    on('model.complete', (_$, e) => {
+      asked = e.prompt
+      return {
+        value: {
+          isAnswered: true as const,
+          text: JSON.stringify({ why: 'x', goal: 'x', steps: [], constraints: [], quality: [], tasks: [], depth: 'light', volume: 'small', kind: 'answer', confidence: 'high' }),
+          usage: { input_tokens: 10, output_tokens: 10, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+        },
+      }
+    })
+    await submit($, `${K4_META_LEAD}\n\n${K4_PROMPT}`)
+    expect(asked).toContain('K4.11')
+    expect(asked).not.toContain('không cần chạy prompt đính kèm')
+    expect(seen.contexts[0]?.join('\n')).toContain('Mục tiêu cuối: Chỉ đối chiếu phân việc')
+  })
+
+  test('prompt đính kèm chỉ để đối chiếu: sửa file không nhắc giao subagent (phân việc chưa được thực thi)', HEURISTIC, async ($, on) => {
+    base(on)
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    await submit($, `${K4_META_LEAD}\n\n${K4_PROMPT}`)
+    const edit = await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' })
+    expect((edit.context ?? []).join('\n')).not.toContain('chưa giao')
   })
 })

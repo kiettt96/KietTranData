@@ -412,6 +412,11 @@ export function adviseSubtasks(args: {
   })
 }
 
+/** Mã đầu dòng của một việc có mã ("K4.1", "2.3"), viết thường; rỗng nếu không có. */
+function taskCode(text: string): string {
+  return fold(text).match(/^\s*([a-z]{0,3}\d+(?:\.\d+)*)/)?.[1] ?? ''
+}
+
 /**
  * Việc đã tách mà một lời gọi Agent đang làm, theo thứ tự tin cậy: description mở
  * đầu bằng "Việc N" (hoặc "Task N"; không nhận "Bước N" vì dễ trùng số bước của checklist); description cùng ý với tên việc;
@@ -421,6 +426,12 @@ export function matchSubtask(subtasks: readonly Subtask[], description: string, 
   const numbered = fold(description).match(/^\s*(?:viec|task)\s*#?\s*(\d+)\b/)
   if (numbered) {
     const hit = subtasks.find(s => s.index === Number(numbered[1]))
+    if (hit) return hit
+  }
+  // Mục có mã (K4.1): so nguyên mã, để K4.1 không khớp K4.10.
+  const code = taskCode(description)
+  if (code) {
+    const hit = subtasks.find(s => taskCode(s.title) === code)
     if (hit) return hit
   }
   const same = subtasks.find(s => isSameIdea(s.title, description))

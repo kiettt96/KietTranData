@@ -37,6 +37,8 @@ export type Subtask = {
   volume: Volume
   kind: Kind
   hardSignals: string[]
+  /** Nguồn của việc: danh sách người dùng, mục có mã (K4.1, Bước 2), vế đoạn văn, hay Haiku trích. */
+  from?: 'list' | 'section' | 'clause' | 'model'
 }
 
 /** Kết quả đọc prompt: mục tiêu cuối, các bước, ràng buộc, tiêu chí chất lượng. */
@@ -69,6 +71,11 @@ export type Brief = {
   /** Prompt gốc (cắt ngắn) để đối chiếu. */
   prompt: string
   at: number
+  /**
+   * Prompt đính kèm mà người dùng nói là không cần chạy (chỉ để đối chiếu phân việc).
+   * Có trường này thì mục tiêu, ràng buộc, tiêu chí và việc con của brief là của câu mở, không phải của phần đính kèm.
+   */
+  attached?: { depth: Depth; volume: Volume; kind: Kind; subtasks: Subtask[] }
 }
 
 export type StepStatus = 'todo' | 'doing' | 'done' | 'verified' | 'skipped' | 'blocked'

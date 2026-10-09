@@ -4,11 +4,12 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import type { Brief, Route } from '../types'
-import { analyzeHeuristic, analyzerRequest, assessSubtasks, isLeadIn, isMeta, splitClauses, isRelated, isSameIdea, mergeAnalysis, retarget } from '../hooks/lib/analyze'
+import { analyzeHeuristic, analyzerRequest, assessSubtasks, isLeadIn, isMeta, isPureLookup, splitClauses, splitReference, isRelated, isSameIdea, mergeAnalysis, retarget } from '../hooks/lib/analyze'
 import { newTracker, observe } from '../hooks/lib/drift'
 import { applyPlan } from '../hooks/lib/plan'
 import { adviseSubtasks, chooseMain, decideMain, matchSubtask, parseWindows, planAgent, raisePick, resolveModelId } from '../hooks/lib/route'
 import { droppedPlanNotice, statusLine } from '../hooks/lib/text'
+import { K4_META_LEAD, K4_PROMPT } from './fixtures/prompt-k4'
 
 const LONG_PROMPT = `### Mục tiêu
 Tạo một plugin điều phối model cho Claude Code theo kiến trúc hook.
@@ -893,5 +894,226 @@ describe('phát hiện lạc đề', () => {
     observe(tracker, { tool: 'Bash', input: { command: 'npx tsc --noEmit' }, isError: false, isReadOnly: false }, brief, [])
     expect(tracker.mutationsSinceCheck).toBe(0)
     expect(tracker.isVerified).toBe(true)
+  })
+})
+
+describe('prompt dài có cấu trúc (0.3.4)', () => {
+  const K4_TITLES = Array.from({ length: 11 }, (_, i) => `K4.${i + 1}.`)
+
+  test('prompt K4: mỗi mục có mã là một việc, đủ 11 việc theo thứ tự', () => {
+    const brief = analyzeHeuristic(K4_PROMPT, null, 1)
+    expect(brief.subtasks.length).toBe(11)
+    expect(brief.subtasks.every(s => s.from === 'section')).toBe(true)
+    brief.subtasks.forEach((s, i) => expect(s.title.startsWith(K4_TITLES[i] ?? '')).toBe(true))
+  })
+
+  test('prompt K4: mục tiêu là câu "Đích là ...", không phải dòng tiêu đề hay điều kiện nghiệm thu', () => {
+    const brief = analyzeHeuristic(K4_PROMPT, null, 1)
+    expect(brief.goal.startsWith('Đích là engine ra quyết định')).toBe(true)
+  })
+
+  test('prompt K4: tiêu chí lấy từ điều kiện "xong khi", không có việc nào lọt vào tiêu chí', () => {
+    const brief = analyzeHeuristic(K4_PROMPT, null, 1)
+    expect(brief.quality.some(q => q.startsWith('100% bước trong phạm vi'))).toBe(true)
+    // Tiêu chí có thể nhắc tới một việc ("Báo cáo đủ các khối ở K4.11"), nhưng không bắt đầu bằng mã mục.
+    expect(brief.quality.some(q => /^K4\.\d+\./.test(q))).toBe(false)
+  })
+
+  test('prompt K4: ràng buộc không chứa điều kiện nghiệm thu, câu mục tiêu, hay dòng tiêu đề', () => {
+    const brief = analyzeHeuristic(K4_PROMPT, null, 1)
+    expect(brief.constraints.some(c => c.startsWith('100% bước'))).toBe(false)
+    expect(brief.constraints.some(c => c.includes('Đích là'))).toBe(false)
+    expect(brief.constraints.some(c => c.startsWith('K4 XONG KHI') || c.startsWith('PROMPT CHO'))).toBe(false)
+    expect(brief.constraints.some(c => c.includes('Không làm K5, K6') || c.includes('K5, K6'))).toBe(true)
+  })
+
+  test('mục có mã chỉ có ba mục trở xuống không thành việc theo mục', () => {
+    const text = ['### K1. Đọc file', '', 'Nội dung.', '', '### K2. Sửa file', '', 'Nội dung.'].join('\n')
+    const brief = analyzeHeuristic(text, null, 1)
+    expect(brief.subtasks.some(s => s.from === 'section')).toBe(false)
+  })
+
+  test('tiêu đề "Bước N" trong bảng nội dung có mã cùng cấp: lấy cấp có nhiều mục nhất', () => {
+    const text = [
+      '# Kế hoạch',
+      '## Bước 1 — Chuẩn bị',
+      '### 1.1 Đọc mã nguồn cũ',
+      'Chi tiết.',
+      '### 1.2 Lập danh sách rủi ro',
+      'Chi tiết.',
+      '### 1.3 Thống nhất phạm vi',
+      'Chi tiết.',
+      '## Bước 2 — Thực hiện',
+      'Chi tiết.',
+    ].join('\n')
+    const brief = analyzeHeuristic(text, null, 1)
+    expect(brief.subtasks.map(s => s.title)).toEqual(['1.1 Đọc mã nguồn cũ', '1.2 Lập danh sách rủi ro', '1.3 Thống nhất phạm vi'])
+  })
+
+  test('isPureLookup: việc chạy hoặc đối chiếu không phải tra cứu thuần; liệt kê thì là', () => {
+    expect(isPureLookup('Chạy lại 15 đầu vào trên engine mới')).toBe(false)
+    expect(isPureLookup('Đối chiếu kết quả với bảng cũ')).toBe(false)
+    expect(isPureLookup('Liệt kê các hàm export trong utils.ts')).toBe(true)
+  })
+
+  test('câu mở "không cần chạy prompt đính kèm" được nhận; câu có chữ "test" không phải prompt thì không', () => {
+    expect(splitReference(`${K4_META_LEAD}\n\n${K4_PROMPT}`)).not.toBeNull()
+    expect(splitReference('Không cần chạy test, chỉ sửa file bên dưới\nalpha beta gamma\nline two here\nline three here')).toBeNull()
+    expect(splitReference('Không chạy migration, chỉ sửa code bên dưới\nalpha beta gamma\nline two here\nline three here')).toBeNull()
+    expect(splitReference(`${K4_META_LEAD}\nchỉ một dòng`)).toBeNull()
+    expect(splitReference("Don't run the attached prompt, only use it to test routing\na\nb\nc")).not.toBeNull()
+  })
+
+  test('prompt đính kèm chỉ để đối chiếu: mục tiêu là việc đối chiếu, không ràng buộc, không tiêu chí, phân việc của phần đính kèm', () => {
+    const brief = analyzeHeuristic(`${K4_META_LEAD}\n\n${K4_PROMPT}`, null, 1)
+    expect(brief.goal).toContain('Chỉ đối chiếu phân việc')
+    expect(brief.steps).toEqual([])
+    expect(brief.subtasks).toEqual([])
+    expect(brief.constraints).toEqual([])
+    expect(brief.quality).toEqual([])
+    expect(brief.attached?.subtasks.length).toBe(11)
+    expect(brief.depth).toBe('light')
+    expect(brief.kind).toBe('answer')
+  })
+
+  test('yêu cầu Haiku chấm phần đính kèm, không chấm câu mở; prompt dài có thêm token và thời gian', () => {
+    const reference = analyzerRequest(`${K4_META_LEAD}\n\n${K4_PROMPT}`, null)
+    expect(reference.prompt).toContain('K4.11')
+    expect(reference.prompt).not.toContain('không cần chạy prompt đính kèm')
+    expect(reference.maxTokens).toBe(2400)
+    expect(reference.timeoutMs).toBe(25000)
+    const short = analyzerRequest('Làm 3 việc sau:\n1. Đọc file config.ts.\n2. Sửa lỗi nút đăng nhập.\n3. Viết unit test.', null)
+    expect(short.maxTokens).toBe(1400)
+    expect(short.timeoutMs).toBe(12000)
+  })
+
+  test('mergeAnalysis: Haiku không thay các mục có mã bằng kế hoạch của nó, không hạ việc theo mục xuống none', () => {
+    const base = analyzeHeuristic(K4_PROMPT, null, 1)
+    const reply = JSON.stringify({
+      why: 'Eleven numbered sections',
+      goal: 'Rebuild the decision layer',
+      steps: ['Plan a', 'Plan b'],
+      constraints: [],
+      quality: [],
+      tasks: [{ text: 'K4.2. Luật của Long theo tầng', depth: 'none', volume: 'small', kind: 'answer', hardSignals: [] }],
+      depth: 'light',
+      volume: 'small',
+      kind: 'answer',
+      confidence: 'high',
+    })
+    const merged = mergeAnalysis(base, null, reply, K4_PROMPT)
+    expect(merged.steps.length).toBe(11)
+    expect(merged.subtasks.length).toBe(11)
+    const k42 = merged.subtasks.find(s => s.title.startsWith('K4.2.'))
+    expect(k42?.depth).not.toBe('none')
+    expect(k42?.from).toBe('section')
+  })
+
+  test('mergeAnalysis với prompt đính kèm: Haiku chấm phần đính kèm, mục tiêu và tiêu chí giữ nguyên', () => {
+    const text = `${K4_META_LEAD}\n\n${K4_PROMPT}`
+    const base = analyzeHeuristic(text, null, 1)
+    const reply = JSON.stringify({
+      why: 'Eleven sections',
+      goal: 'Rebuild',
+      steps: [],
+      constraints: [],
+      quality: [],
+      tasks: [{ text: 'K4.11. Báo cáo và DỪNG', depth: 'substantial', volume: 'large', kind: 'mixed', hardSignals: [] }],
+      depth: 'substantial',
+      volume: 'large',
+      kind: 'mixed',
+      confidence: 'high',
+    })
+    const merged = mergeAnalysis(base, null, reply, text)
+    expect(merged.goal).toBe(base.goal)
+    expect(merged.quality).toEqual([])
+    expect(merged.attached?.subtasks.length).toBe(11)
+  })
+
+  test('matchSubtask theo mã: K4.1 không khớp K4.10', () => {
+    const brief = analyzeHeuristic(K4_PROMPT, null, 1)
+    expect(matchSubtask(brief.subtasks, 'K4.10 kiểm trên số liệu thật', '')?.title.startsWith('K4.10.')).toBe(true)
+    expect(matchSubtask(brief.subtasks, 'K4.1 kiểm kê', '')?.title.startsWith('K4.1.')).toBe(true)
+  })
+
+  test('chấm phẩy trong ngoặc không tách một ràng buộc thành mảnh vô nghĩa', () => {
+    const text = ['Chỉ sửa file trong src/ (kể cả test; không sửa file cấu hình).', 'Không đổi API công khai.'].join('\n')
+    const brief = analyzeHeuristic(text, null, 1)
+    expect(brief.constraints.some(c => c.startsWith('không sửa file cấu hình'))).toBe(false)
+    expect(brief.constraints.some(c => c.includes('kể cả test; không sửa file cấu hình'))).toBe(true)
+  })
+
+  test('việc theo mục trả lời ngắn không xuống none: subagent không nhận việc trống ngữ cảnh', () => {
+    const text = [
+      '### K1.1. Cho biết tên hàm chính',
+      '',
+      'Trả lời một câu.',
+      '',
+      '### K1.2. Cho biết ngôn ngữ dùng',
+      '',
+      'Trả lời một câu.',
+      '',
+      '### K1.3. Cho biết phiên bản',
+      '',
+      'Trả lời một câu.',
+    ].join('\n')
+    const brief = analyzeHeuristic(text, null, 1)
+    expect(brief.subtasks.length).toBe(3)
+    expect(brief.subtasks.every(s => s.depth !== 'none')).toBe(true)
+  })
+
+  test('điều kiện nghiệm thu không lọt vào ràng buộc, dù có chữ "không được"', () => {
+    const text = ['## Tiêu chí chất lượng', '', '1. Không được bỏ qua ca đỏ nào trong bộ kiểm.', '', '## Việc', '', 'Sửa lỗi hàm tính thuế trong src/tax.ts.'].join('\n')
+    const brief = analyzeHeuristic(text, null, 1)
+    expect(brief.constraints.some(c => c.includes('bỏ qua ca đỏ'))).toBe(false)
+    expect(brief.quality.some(q => q.includes('bỏ qua ca đỏ'))).toBe(true)
+  })
+
+  test('câu mở "không cần chạy tệp bên dưới" không có chữ prompt hay đính kèm thì không phải tham chiếu', () => {
+    expect(splitReference('Không cần chạy tệp bên dưới, chỉ dùng để test\na\nb\nc')).toBeNull()
+  })
+
+  test('việc vừa tìm vừa chạy lại không phải tra cứu thuần', () => {
+    expect(isPureLookup('Tìm và chạy lại bộ kiểm trên engine mới')).toBe(false)
+  })
+
+  test('yêu cầu Haiku giữ phần đọc đến cuối prompt dài (mục 11 của K4 nằm sau 12.000 ký tự)', () => {
+    expect(analyzerRequest(K4_PROMPT, null).prompt).toContain('K4.11. Báo cáo và DỪNG')
+  })
+
+  test('chọn việc theo mã chỉ dựa trên mã đầy đủ, không theo tiền tố: K4.1 không khớp K4.10 dù K4.10 đứng trước', () => {
+    const brief = analyzeHeuristic(K4_PROMPT, null, 1)
+    expect(matchSubtask([...brief.subtasks].reverse(), 'K4.1 kiểm kê', '')?.title.startsWith('K4.1.')).toBe(true)
+  })
+
+  test('mã đứng một mình vẫn chọn được việc theo mục', () => {
+    const brief = analyzeHeuristic(K4_PROMPT, null, 1)
+    expect(matchSubtask(brief.subtasks, 'K4.9', '')?.title.startsWith('K4.9.')).toBe(true)
+  })
+
+  test('việc theo mục trả lời một câu không xuống none (ví dụ "giải thích ngắn")', () => {
+    const text = ['### K1.1. Giải thích ngắn khái niệm hook', '', 'Một câu.', '', '### K1.2. Giải thích ngắn khái niệm plugin', '', 'Một câu.', '', '### K1.3. Giải thích ngắn khái niệm mod', '', 'Một câu.'].join('\n')
+    const brief = analyzeHeuristic(text, null, 1)
+    expect(brief.subtasks.length).toBe(3)
+    expect(brief.subtasks.every(s => s.depth !== 'none')).toBe(true)
+  })
+
+  test('mergeAnalysis: Haiku chỉ nâng việc theo mục, không hạ mức đã chấm từ thân mục', () => {
+    const base = analyzeHeuristic(K4_PROMPT, null, 1)
+    const reply = JSON.stringify({
+      why: 'x',
+      goal: 'Dựng lại tầng quyết định',
+      steps: [],
+      constraints: [],
+      quality: [],
+      tasks: [{ text: 'K4.3. Xếp loại từng bước', depth: 'light', volume: 'small', kind: 'answer', hardSignals: [] }],
+      depth: 'light',
+      volume: 'small',
+      kind: 'answer',
+      confidence: 'high',
+    })
+    const merged = mergeAnalysis(base, null, reply, K4_PROMPT)
+    const k43 = merged.subtasks.find(s => s.title.startsWith('K4.3.'))
+    expect(k43?.depth).toBe('substantial')
   })
 })
