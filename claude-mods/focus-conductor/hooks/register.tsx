@@ -182,7 +182,7 @@ export const register: Register = (on, options) => {
     if (options['analyzer'] === 'model' && !brief.isFollowUp && wordCount(text) >= 12) {
       $.ui.status('focus: đang đọc prompt...')
       const reply = await $.model.complete(analyzerRequest(text, prev)).catch(() => null)
-      if (reply?.isAnswered) brief = mergeAnalysis(brief, prev, reply.text)
+      if (reply?.isAnswered) brief = mergeAnalysis(brief, prev, reply.text, text)
     }
 
     const isNewGoal = prev === null || brief.goalId !== prev.goalId

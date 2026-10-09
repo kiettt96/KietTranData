@@ -473,7 +473,7 @@ export function analyzerRequest(text: string, prev: Brief | null): ModelComplete
  * trong biên ±1 quanh tier heuristic để một lần chấm lệch không đẩy cả turn
  * sang model sai. Câu trả lời không đọc được thì giữ nguyên brief heuristic.
  */
-export function mergeAnalysis(base: Brief, prev: Brief | null, reply: string): Brief {
+export function mergeAnalysis(base: Brief, prev: Brief | null, reply: string, text: string = base.prompt): Brief {
   const parsed = parseJson(reply)
   if (!parsed) return base
 
@@ -490,18 +490,25 @@ export function mergeAnalysis(base: Brief, prev: Brief | null, reply: string): B
     ? (TIERS[Math.max(baseRank - 1, Math.min(baseRank + 1, tierRank(modelTier)))] ?? base.tier)
     : base.tier
 
-  // Model cho rằng đây vẫn là mục tiêu cũ: giữ goalId để không reset checklist.
-  const isContinuation = prev !== null && parsed.isNewGoal === false
+  // Haiku cho rằng đây vẫn là mục tiêu cũ: chỉ tin khi prompt thật sự cùng
+  // chủ đề với mục tiêu đang mở và không nói rõ là task mới. Khác chủ đề đủ
+  // rõ thì giữ kết luận "mục tiêu mới" của heuristic, bỏ qua Haiku.
+  const saysContinuation = prev !== null && parsed.isNewGoal === false
+  const isOverruled = saysContinuation && (NEW_TASK.test(fold(text)) || !isRelated(text, prev))
+  const isContinuation = prev !== null && saysContinuation && !isOverruled
+  const verdict = isOverruled ? ['bỏ qua "tiếp nối" của Haiku: khác chủ đề'] : []
   return {
     ...base,
     goalId: isContinuation ? prev.goalId : base.goalId,
     goal: isContinuation ? prev.goal : goal,
     steps: isContinuation ? prev.steps : steps.length > 0 ? steps : base.steps,
+    keywords: isContinuation ? prev.keywords : base.keywords,
+    scopePaths: isContinuation && base.scopePaths.length === 0 ? prev.scopePaths : base.scopePaths,
     // Câu gốc của người dùng đứng trước: khi trùng ý, bản Haiku diễn đạt lại bị bỏ.
     constraints: unique([...base.constraints, ...constraints], 10),
     quality: unique([...base.quality, ...quality], 8),
     tier,
-    signals: [...base.signals, `model: ${modelTier ?? 'không rõ'}`],
+    signals: [...base.signals, `model: ${modelTier ?? 'không rõ'}`, ...verdict],
     source: 'model',
     isFollowUp: isContinuation,
   }

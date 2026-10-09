@@ -209,6 +209,38 @@ Yêu cầu:
     expect(merged.quality).toContain('Tất cả test pass')
   })
 
+  test('Haiku nói "tiếp nối" cho prompt khác chủ đề thì vẫn là mục tiêu mới', () => {
+    const rateLimiter = analyzeHeuristic(
+      `Hãy xây một utility nhỏ bằng TypeScript:
+1. Tạo file rate-limiter.ts: class RateLimiter với method tryAcquire(key: string): boolean
+2. Giới hạn: mỗi key chỉ được gọi tối đa 5 lần trong 10 giây (sliding window)
+3. Viết unit test phủ các trường hợp: trong hạn mức, vượt hạn mức, hết thời gian thì reset`,
+      null,
+      1,
+    )
+    const continuation = JSON.stringify({ goal: 'x', steps: [], constraints: [], quality: [], tier: 'complex', isNewGoal: false })
+
+    const otherText = `Sửa hai điểm còn sót của focus-conductor trong một PR mới:
+1. Bộ lọc câu dẫn/meta: bắt được cả các câu có từ chen giữa.
+2. Trùng lặp ràng buộc / tiêu chí chất lượng: loại bỏ các mục cùng ý khi gộp với cách Haiku diễn đạt lại.
+Sau khi sửa: chạy lại validate + test, tạo PR vào main, không merge.`
+    const other = mergeAnalysis(analyzeHeuristic(otherText, rateLimiter, 2), rateLimiter, continuation, otherText)
+    expect(other.isFollowUp).toBe(false)
+    expect(other.goalId).toBe(rateLimiter.goalId + 1)
+    expect(other.goal).not.toBe(rateLimiter.goal)
+    expect(other.signals.some(s => s.includes('bỏ qua "tiếp nối" của Haiku'))).toBe(true)
+
+    const newTaskText = 'Task mới: thêm hàm reset(key) cho RateLimiter để xóa hạn mức của một key và viết test cho nó'
+    const newTask = mergeAnalysis(analyzeHeuristic(newTaskText, rateLimiter, 3), rateLimiter, continuation, newTaskText)
+    expect(newTask.isFollowUp).toBe(false)
+
+    const relatedText = 'Bổ sung cho RateLimiter: tryAcquire với key rỗng phải ném lỗi, và cập nhật unit test cho trường hợp vượt hạn mức với nhiều key khác nhau cùng lúc'
+    const related = mergeAnalysis(analyzeHeuristic(relatedText, rateLimiter, 4), rateLimiter, continuation, relatedText)
+    expect(related.isFollowUp).toBe(true)
+    expect(related.goalId).toBe(rateLimiter.goalId)
+    expect(related.goal).toBe(rateLimiter.goal)
+  })
+
   test('kết quả Haiku được gộp, tier bị kẹp trong biên một bậc', () => {
     const base: Brief = analyzeHeuristic('sửa typo trong README', null, 1)
     const merged = mergeAnalysis(
