@@ -322,10 +322,13 @@ export const register: Register = (on, options) => {
     const outcome = applyPlan((await read($, coreState)).plan, input)
     if (outcome.error !== undefined) return { deny: outcome.error }
 
-    const goal = outcome.goal
+    // "set" chốt lại mục tiêu và các bước: làm mới cả từ khóa của brief để
+    // việc nhận diện prompt tiếp nối dựa trên mục tiêu mới, không phải mục tiêu cũ.
+    const isSet = input.action === 'set'
+    const titles = outcome.plan.map(step => step.title)
     const core = await update($, coreState, c => {
       const withPlan = S.withPlan(outcome.plan)(c)
-      return goal ? S.withGoalText(goal)(withPlan) : withPlan
+      return isSet ? S.withRetarget(outcome.goal, titles)(withPlan) : withPlan
     })
     tracker.planUpdates += 1
     if (input.status === 'verified') {

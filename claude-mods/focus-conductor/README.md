@@ -26,23 +26,64 @@ Subagent là nơi điều phối tiết kiệm nhất vì mỗi subagent là m�
 
 ## Cài đặt
 
-Chạy trực tiếp từ thư mục (phù hợp khi đang phát triển, tự hot-reload khi sửa file):
+Mọi lệnh bắt đầu bằng `/` trong phần này gõ ở prompt của Claude Code (mở bằng lệnh `claude`), không gõ ở terminal zsh hay bash; terminal sẽ báo `no such file or directory: /plugin`. Mod được viết và kiểm tra trên Claude Code 2.1.295.
+
+### Cài từ marketplace (khuyến nghị)
+
+1. Mở Claude Code: gõ `claude` ở terminal.
+2. Gõ lệnh cài:
+
+   ```
+   /plugin install focus-conductor --marketplace kiettt96/KietTranData
+   ```
+
+3. Hộp thoại "Add marketplace?" hiện ra: bấm `y`.
+4. Màn hình chi tiết plugin: chọn "Install for you (user scope)" để mọi phiên trên máy đều có mod.
+5. Khởi động lại Claude Code: `/exit`, rồi `claude`.
+
+Marketplace được lưu dưới tên `kiettrandata` (tên khai báo trong `.claude-plugin/marketplace.json`), không phải tên repository; các lệnh cập nhật bên dưới dùng tên này. Marketplace chỉ đọc nhánh mặc định `main`, nên thay đổi nằm trên nhánh khác chưa cài được cho tới khi merge.
+
+### Kiểm tra đã cài đúng
+
+- Gõ `/plugin`, chọn tab Installed, chọn `focus-conductor`: Version khớp `version` trong `.claude-plugin/plugin.json`, Status là Enabled.
+- Status line dưới prompt có dòng `focus: auto`.
+- Gõ `/conductor`: pane Focus Conductor mở ra.
+
+### Cập nhật lên bản mới
+
+```
+/plugin marketplace update kiettrandata
+/plugin update focus-conductor@kiettrandata
+```
+
+Sau đó khởi động lại Claude Code (`/exit`, rồi `claude`); bản mới chỉ có hiệu lực sau bước này. Thay cho lệnh đầu, có thể vào `/plugin`, tab Marketplaces, chọn `kiettrandata` rồi bấm `u`.
+
+### Chạy từ mã nguồn, không qua marketplace
 
 ```bash
-claude --plugin-dir /đường/dẫn/tới/conductor-conductor
+git clone https://github.com/kiettt96/KietTranData.git
+claude --plugin-dir KietTranData/claude-mods/focus-conductor
 ```
 
-Hoặc khai báo cố định trong `~/.claude/settings.json` để mọi phiên (kể cả phiên do desktop app mở) đều nạp:
+Mod chỉ nạp cho phiên mở bằng lệnh này và tự nạp lại khi sửa file, hợp cho lúc phát triển. Muốn mọi phiên đều nạp (kể cả phiên do desktop app mở), khai báo đường dẫn tuyệt đối trong `~/.claude/settings.json`:
 
 ```json
-{ "env": { "CLAUDE_CODE_PLUGIN_DIRS": "/đường/dẫn/tới/conductor-conductor" } }
+{ "env": { "CLAUDE_CODE_PLUGIN_DIRS": "/đường/dẫn/tuyệt/đối/KietTranData/claude-mods/focus-conductor" } }
 ```
 
-Repository `kiettt96/KietTranData` có sẵn `.claude-plugin/marketplace.json` liệt kê mod này. Sau khi nhánh chứa mod được merge vào nhánh mặc định, cài bằng một dòng tại prompt của terminal session, trả lời `y` để thêm marketplace rồi chọn scope (user scope để mọi phiên đều có):
+### Tắt hoặc gỡ
 
-```
-/plugin install focus-conductor --marketplace kiettt96/KietTranData
-```
+`/conductor mode off` tắt mod trong phiên hiện tại. Tắt hẳn hoặc gỡ: `/plugin`, tab Installed, chọn `focus-conductor`, rồi "Disable plugin" hoặc "Uninstall".
+
+### Lỗi thường gặp
+
+| Triệu chứng | Nguyên nhân | Cách xử lý |
+|---|---|---|
+| `zsh: no such file or directory: /plugin` | Gõ lệnh ở terminal thay vì trong Claude Code | Gõ `claude` trước, rồi gõ lệnh ở prompt của Claude Code |
+| `Marketplace file not found at .../marketplace.json` | `main` chưa có `.claude-plugin/marketplace.json` | Merge nhánh chứa mod vào `main`, rồi `/plugin marketplace update kiettrandata` |
+| `/focus` báo "Focus view enabled" | `/focus` là lệnh có sẵn của Claude Code, không phải lệnh của mod | Dùng `/conductor`; gõ `/focus` thêm lần nữa để tắt Focus view |
+| Lệnh cập nhật không tìm thấy marketplace | Dùng tên repository thay cho tên marketplace | Dùng `kiettrandata` |
+| Đã cập nhật mà hành vi chưa đổi | Chưa khởi động lại | `/exit`, rồi `claude`; kiểm tra lại Version trong tab Installed |
 
 ## Sử dụng
 
@@ -83,7 +124,7 @@ focus-conductor/
   tests/                       test logic thuần và test tích hợp qua engine
 ```
 
-Kiểm tra trước khi phát hành: `claude plugin validate .` và `claude plugin test .` (24 test).
+Kiểm tra trước khi phát hành: `claude plugin validate .` và `claude plugin test .` (37 test).
 
 ## Giới hạn đã biết
 

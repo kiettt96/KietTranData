@@ -332,7 +332,14 @@ const GENERIC = new Set(
  * có từ nội dung nào ("làm đi", "sửa lỗi đó") được coi là liên quan.
  */
 export function isRelated(text: string, prev: Brief): boolean {
-  const words = new Set(contentWords(fold(text)).filter(word => !GENERIC.has(word)))
+  // Câu dẫn ("tôi vừa sửa xong focus-conductor, giờ test lại giúp") nói về
+  // công cụ chứ không về task: bỏ trước khi đo, kẻo tên công cụ trong đó làm
+  // một task khác chủ đề trông như cùng chủ đề với mục tiêu cũ.
+  const task = text
+    .split(/\n+|(?<=[.;?])\s+/)
+    .filter(sentence => !isMeta(sentence))
+    .join(' ')
+  const words = new Set(contentWords(fold(task)).filter(word => !GENERIC.has(word)))
   if (words.size === 0) return true
   const vocabulary = new Set([
     ...prev.keywords,
@@ -340,6 +347,24 @@ export function isRelated(text: string, prev: Brief): boolean {
   ])
   const shared = [...words].filter(word => vocabulary.has(word)).length
   return shared >= 2 || (shared >= 1 && shared / words.size >= 0.2)
+}
+
+/**
+ * Claude chốt lại mục tiêu và các bước qua tool plan: thay câu mục tiêu và
+ * danh sách bước, và khi mục tiêu đổi ý thì tính lại từ khóa từ mục tiêu và
+ * các bước mới. Nếu không, từ khóa của mục tiêu cũ còn sót lại sẽ làm prompt
+ * sau bị gắn nhầm vào mục tiêu đã bỏ.
+ */
+export function retarget(brief: Brief, goal: string | undefined, steps: readonly string[]): Brief {
+  const nextGoal = goal?.trim() ? clip(goal.trim(), 200) : brief.goal
+  const nextSteps = steps.length > 0 ? steps.map(s => clip(s, 120)) : brief.steps
+  const isNewIdea = !isSameIdea(nextGoal, brief.goal)
+  return {
+    ...brief,
+    goal: nextGoal,
+    steps: nextSteps,
+    keywords: isNewIdea ? extractKeywords(fold([nextGoal, ...nextSteps].join('\n'))) : brief.keywords,
+  }
 }
 
 /**
