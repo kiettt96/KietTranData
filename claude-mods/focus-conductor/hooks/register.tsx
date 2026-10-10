@@ -23,35 +23,43 @@ import { atom, derive, read, update } from 'claude-code'
 import type { ModelCompleteResult, ModelUsage, PromptOrigin, Register } from 'claude-code'
 
 import type { Brief, Choice, Core, Effort, Lift, Mode, ModelFamily, Route, RouteEvent, Task, Tier, Volume, Warning } from '../types'
-import { filePathOf, isExecuting, isPlanFile, newTracker, observe, openSteps, summarize } from './lib/drift'
+import { filePathOf, isExecuting, isMutation, isPlanFile, newTracker, observe, openSteps, summarize } from './lib/drift'
 import type { TurnTracker } from './lib/drift'
 import { DEFAULT_CONTEXT, fixedContextTokens, turnCost } from './lib/cost'
 import { addUsage, calibrate, countSpawn, formatUsd, ledgerLines } from './lib/ledger'
 import { PLAN_TOOL_SPEC, applyPlan } from './lib/plan'
 import type { PlanInput } from './lib/plan'
-import { EFFORTS, decideMain, describePick, familyOf, liftPick, matchTask, parseModelMap, parseWindows, resolveModelId } from './lib/route'
+import { EFFORTS, decideMain, describePick, familyOf, liftPick, parseModelMap, parseWindows, resolveModelId, taskMatch } from './lib/route'
 import type { SessionModel, SessionPolicy } from './lib/route'
+import { DECISION_LIMIT, clipText, decisionLine } from './lib/decisions'
+import type { DecisionKind } from './lib/decisions'
 import {
   agentRouterRequest,
+  askRouter,
   bareBrief,
   briefOf,
+  failureReason,
   fitPick,
-  followUpOf,
+  isSkippable,
+  nextBrief,
   parseAgentRoute,
   parseRoute,
-  promoteReference,
+  rerouted,
   routerRequest,
+  skipKey,
   taskRoute,
 } from './lib/router'
-import type { AgentRoute, Policy, RouterPlan } from './lib/router'
+import type { AgentRoute, Policy, RouterOutcome, RouterPlan } from './lib/router'
 import * as S from './lib/state'
 import type { View } from './lib/state'
 import {
   DISCIPLINE,
   PLAN_TOOL_FULL,
+  blockText,
   briefContext,
   droppedPlanNotice,
   followUpContext,
+  skippedContext,
   renderPlan,
   stopBlockReason,
   unroutedContext,
@@ -87,6 +95,8 @@ const ROUTER_PAUSE = 3
 const AGENT_ROUTE_LIMIT = 50
 /** Tool sửa file của luồng chính (dùng để nhắc giao việc đã phân). */
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
+/** strictDelegation "block": số lần tối đa từ chối luồng chính sửa file trong một mục tiêu. */
+const BLOCK_EDITS = 2
 /** Số lỗi tool trong một turn để nâng effort cho turn sau. */
 const ERROR_BURST = 3
 
@@ -95,17 +105,9 @@ const COMMAND_HELP = [
   '/conductor status      tóm tắt mục tiêu, checklist, điều phối và chi phí',
   '/conductor mode X      X là auto, subagents, suggest hoặc off',
   '/conductor goal ...    đặt mục tiêu thủ công',
+  '/conductor reroute     router đọc lại prompt gần nhất (kể cả khi router đang tạm ngừng)',
   '/conductor reset       xóa mục tiêu, checklist, cảnh báo và danh sách model bị chặn',
 ].join('\n')
-
-/** Lý do router không trả được kết quả dùng được. */
-function failureReason(reply: ModelCompleteResult | null): string {
-  if (reply === null) return 'engine từ chối gửi request tới model router'
-  if (reply.isAnswered) return 'câu trả lời không đúng định dạng'
-  if (reply.reason === 'api-error') return `lỗi API ${reply.error}${reply.status !== null ? ` ${reply.status}` : ''}`
-  if (reply.reason === 'aborted') return 'hết thời gian chờ'
-  return 'câu trả lời rỗng'
-}
 
 export const register: Register = (on, options) => {
   // Biến module: chỉ giữ thứ tạm thời của turn đang chạy; hot-reload làm
@@ -124,7 +126,8 @@ export const register: Register = (on, options) => {
   const failures = new Map<ModelFamily, { count: number; lastTurn: number }>()
   const blockedUntil = new Map<ModelFamily, number>()
   let turnCount = 0
-  const offered = new Set<string>()
+  // Loại agent engine đang mời (agent.offer), kèm mô tả: danh mục thật của phiên cho router.
+  const offered = new Map<string, string>()
   // Một lời gọi Agent đang chờ spawn: kết quả điều phối (null khi router không chấm được),
   // và họ model, effort thật sự đã gửi đi (null khi để engine tự chọn).
   type PendingAgent = {
@@ -160,12 +163,36 @@ export const register: Register = (on, options) => {
   const agentFailures: { description: string; goalId: number }[] = []
   // Kết quả router chấm subagent, theo description + prompt.
   const agentRoutes = new Map<string, AgentRoute>()
+  // Option người dùng tự bật; mặc định giữ hành vi gốc (mọi prompt qua router, router lỗi thì không đoán).
+  const skipPhrases = new Set(String(options['routerSkip'] ?? '').split(',').map(skipKey).filter(Boolean))
+  const routerFallback = options['routerFallback'] === 'reuse' ? 'reuse' : 'session'
+  const strictDelegation = options['strictDelegation'] === 'remind' || options['strictDelegation'] === 'block' ? options['strictDelegation'] : 'off'
+  const remindSubagents = options['remindSubagents'] === true
+  const semanticDrift = options['semanticDrift'] === true
+  const decisionLog = typeof options['decisionLog'] === 'string' ? options['decisionLog'].trim() : ''
+  const extraAgents = String(options['agentTypes'] ?? '')
+    .split(',')
+    .map(name => name.trim())
+    .filter(Boolean)
+  // Log quyết định (JSONL) của phiên, nối tiếp file cũ nếu có.
+  let decisions: string[] = []
+  // Prompt gần nhất đã qua router, brief trước nó và số mục tiêu sau lượt đó (null khi chưa có): cho /conductor reroute.
+  let lastPrompt: { text: string; prev: Brief | null; goalId: number | null } | null = null
+  // Nhận xét lạc đề của turn trước (semanticDrift), gắn vào prompt kế tiếp.
+  let pendingDriftNote: string | null = null
+  // Lần đổi model gần nhất của phiên (classic.PostModelSwitch): người dùng hay engine tự fallback.
+  let lastSwitch: { source: string; toModel: string } | null = null
+  // Agent engine báo đã khởi động (classic.SubagentStart): agent nào không có điều phối là agent ngoài điều phối.
+  const startedAgents = new Map<string, string>()
   const rawRouter = options['router']
   const routerModel = typeof rawRouter === 'string' && rawRouter.trim() !== '' ? rawRouter.trim() : 'sonnet'
   const routerFamily: ModelFamily = familyOf(routerModel) ?? 'sonnet'
   // Đếm prompt đã qua router; router lỗi liên tiếp thì tạm bỏ qua tới prompt `pausedUntil`.
   let promptCount = 0
   let routerTrouble = { failures: 0, pausedUntil: 0 }
+  // Router chấm subagent có bộ đếm riêng (theo số lần chấm): lỗi ở đó không làm tạm ngừng router đọc prompt.
+  let agentCalls = 0
+  let agentTrouble = { failures: 0, pausedUntil: 0 }
   const modelMap = parseModelMap(options['modelMap'])
   const rawPolicy = options['sessionModel']
   const sessionPolicy: SessionPolicy = rawPolicy === 'ceiling' || rawPolicy === 'fixed' ? rawPolicy : 'auto'
@@ -174,7 +201,7 @@ export const register: Register = (on, options) => {
   const contextWindows = parseWindows(options['contextWindows'])
   let lastWindow = DEFAULT_WINDOW
   // Việc đã ghi "giao subagent" của mục tiêu hiện tại mà chưa có Agent nào nhận.
-  let delegation = { goalId: -1, pending: new Map<number, string>(), isNudged: false, isWarned: false }
+  let delegation = { goalId: -1, pending: new Map<number, string>(), isNudged: false, isWarned: false, blocks: 0 }
 
   // Một lần đọc cho mọi thứ band, pane và status line cần.
   const view = derive(
@@ -187,9 +214,31 @@ export const register: Register = (on, options) => {
   )
   const mode = derive([modeState], (override): Mode => S.modeOf(override, options))
 
-  /** Chính sách áp lên mọi lựa chọn của router: allowFable, model của phiên, họ đang bị chặn. */
+  /** Chính sách áp lên mọi lựa chọn của router: allowFable, model của phiên, họ đang bị chặn, loại agent dùng được. */
   function policy(): Policy {
-    return { allowFable: options['allowFable'] === true, blocked, session: sessionModel() }
+    return { allowFable: options['allowFable'] === true, blocked, session: sessionModel(), agents: agentCatalog() }
+  }
+
+  /** Loại agent dùng được: ba loại có sẵn, loại engine đang mời, và loại người dùng khai trong agentTypes. */
+  function agentCatalog(): Map<string, string> {
+    const catalog = new Map<string, string>([
+      ['Explore', 'read-only search and lookup, cannot edit'],
+      ['Plan', 'designs an approach, no edits'],
+      ['general-purpose', 'anything, including edits'],
+    ])
+    for (const [name, about] of offered) catalog.set(name, about || catalog.get(name) || '')
+    for (const name of extraAgents) if (!catalog.has(name)) catalog.set(name, '')
+    return catalog
+  }
+
+  function record(at: number, kind: DecisionKind, data: Record<string, unknown>): void {
+    if (!decisionLog) return
+    decisions.push(decisionLine(at, kind, data))
+    if (decisions.length > DECISION_LIMIT) decisions = decisions.slice(-DECISION_LIMIT)
+  }
+
+  function decisionText(): string {
+    return `${decisions.join('\n')}\n`
   }
 
   /**
@@ -209,6 +258,12 @@ export const register: Register = (on, options) => {
     return { ...route, pick: fitPick(route.pick, route.kind, policy()).pick }
   }
 
+  /** Model và effort luồng chính đã thật sự chạy ở lượt trước, để router nâng khi người dùng báo chưa đạt. */
+  function ranText(core: Core): string | null {
+    if (core.route) return describePick(core.route)
+    return lastSession ? `${lastSession.model}/${lastSession.effort || 'mặc định'}` : null
+  }
+
   function isRouterPaused(): boolean {
     return routerTrouble.pausedUntil > 0 && promptCount <= routerTrouble.pausedUntil
   }
@@ -223,6 +278,28 @@ export const register: Register = (on, options) => {
     if (routerTrouble.failures < ROUTER_FAIL_LIMIT) return null
     routerTrouble = { failures: 0, pausedUntil: promptCount + ROUTER_PAUSE }
     return `Router (${routerModel}) lỗi ${ROUTER_FAIL_LIMIT} lần liên tiếp; tạm bỏ qua router trong ${ROUTER_PAUSE} prompt tới`
+  }
+
+  function isAgentRouterPaused(): boolean {
+    return isRouterPaused() || (agentTrouble.pausedUntil > 0 && agentCalls <= agentTrouble.pausedUntil)
+  }
+
+  /** Như noteRouter, cho router chấm subagent; tạm ngừng tính theo số lần chấm. */
+  function noteAgentRouter(isOk: boolean): string | null {
+    if (isOk) {
+      agentTrouble.failures = 0
+      return null
+    }
+    agentTrouble.failures += 1
+    if (agentTrouble.failures < ROUTER_FAIL_LIMIT) return null
+    agentTrouble = { failures: 0, pausedUntil: agentCalls + ROUTER_PAUSE }
+    return `Router chấm subagent (${routerModel}) lỗi ${ROUTER_FAIL_LIMIT} lần liên tiếp; ${ROUTER_PAUSE} subagent tới giữ lựa chọn của Claude`
+  }
+
+  /** Việc đã phân mà router nhận ra lời gọi này đang làm (kết quả chấm có số việc). */
+  function recognized(brief: Brief | null, route: AgentRoute | null): Task | undefined {
+    if (brief === null || brief.isReference || route?.taskIndex === undefined) return undefined
+    return brief.tasks.find(t => t.index === route.taskIndex)
   }
 
   function rememberAgentRoute(key: string, route: AgentRoute): void {
@@ -248,13 +325,18 @@ export const register: Register = (on, options) => {
     agents.clear()
     agentTrackers.clear()
     agentFailures.length = 0
-    delegation = { goalId: -1, pending: new Map(), isNudged: false, isWarned: false }
+    delegation = { goalId: -1, pending: new Map(), isNudged: false, isWarned: false, blocks: 0 }
     lastWindow = DEFAULT_WINDOW
     pendingAgents.clear()
     steppedEarly.clear()
     agentRoutes.clear()
     promptCount = 0
     routerTrouble = { failures: 0, pausedUntil: 0 }
+    agentCalls = 0
+    agentTrouble = { failures: 0, pausedUntil: 0 }
+    lastPrompt = null
+    pendingDriftNote = null
+    lastSwitch = null
   }
 
   /** Hết chặn các họ model đã bị chặn đủ BLOCK_TURNS turn, để thử lại. */
@@ -349,7 +431,7 @@ export const register: Register = (on, options) => {
     for (const task of tasks) {
       if (task.run === 'agent') pending.set(task.index, `${task.index} (${describePick(task.pick)})`)
     }
-    delegation = keep ? delegation : { goalId, pending, isNudged: false, isWarned: false }
+    delegation = keep ? delegation : { goalId, pending, isNudged: false, isWarned: false, blocks: 0 }
   }
 
   /** Danh sách việc giao còn chờ của mục tiêu này, rỗng nếu không có. */
@@ -377,16 +459,23 @@ export const register: Register = (on, options) => {
     const brief = core.brief
     if (brief === null) return { route: null, stored: core.route, logs, notices }
 
-    // Người dùng tự đổi model hoặc effort giữa các turn: tôn trọng lựa chọn
-    // đó tới khi có mục tiêu mới.
+    // Người dùng tự đổi model hoặc effort giữa các turn: tôn trọng lựa chọn đó tới khi có mục tiêu mới.
+    // Engine tự đổi model (classic.PostModelSwitch với source auto: quá tải, giới hạn; hoặc resume) không phải
+    // lựa chọn của người dùng: vẫn điều phối. Không có hook báo nguồn thì coi là người dùng đổi, như trước.
+    const switched = lastSwitch
+    lastSwitch = null
     if (lastSession && (lastSession.model !== model || lastSession.effort !== effort)) {
-      pinnedGoalId = brief.goalId
+      const isEngine =
+        lastSession.model !== model && switched !== null && (switched.source === 'auto' || switched.source === 'resume') && switched.toModel === model
+      if (!isEngine) pinnedGoalId = brief.goalId
       logs.push({
         at,
         where: 'main',
-        label: 'người dùng',
+        label: isEngine ? 'engine' : 'người dùng',
         family: familyOf(model) ?? 'opus',
-        reason: `người dùng đổi sang ${model}${effort ? `/${effort}` : ''}; tạm dừng tự điều phối tới mục tiêu mới`,
+        reason: isEngine
+          ? `engine tự đổi model phiên sang ${model} (${switched?.source}); mod vẫn điều phối`
+          : `người dùng đổi sang ${model}${effort ? `/${effort}` : ''}; tạm dừng tự điều phối tới mục tiêu mới`,
         isApplied: false,
       })
     }
@@ -433,7 +522,7 @@ export const register: Register = (on, options) => {
     await $.command.register({
       name: 'conductor',
       description: 'Focus Conductor: mục tiêu, checklist và điều phối model/effort/agent',
-      argumentHint: '[status | mode auto|subagents|suggest|off | goal <mô tả> | reset]',
+      argumentHint: '[status | mode auto|subagents|suggest|off | goal <mô tả> | reroute | reset]',
     })
     $.ui.status(S.statusOf(await read($, view)))
     return next(e)
@@ -468,63 +557,65 @@ export const register: Register = (on, options) => {
 
     const before = S.normalizeCore(await read($, coreState))
     const prev = before.brief
+    // Nhận xét lạc đề (semanticDrift) của turn trước: báo cho Claude ở prompt này, một lần.
+    const driftNotes = pendingDriftNote ? [pendingDriftNote] : []
+    pendingDriftNote = null
+    // routerSkip (người dùng tự bật): câu ngắn đúng nguyên văn trong danh sách thì là tiếp nối, không hỏi router.
+    if (prev !== null && isSkippable(text, skipPhrases)) {
+      const at = await $.clock.now()
+      record(at, 'skip', { prompt: text, goalId: prev.goalId })
+      if (decisionLog) await $.fs.write(decisionLog, decisionText()).catch(() => undefined)
+      return next({ ...e, context: [...(e.context ?? []), skippedContext(prev, before.plan), ...driftNotes] })
+    }
+
     promptCount += 1
     const rules = policy()
-    let plan: RouterPlan | null = null
-    let reason = 'router đang tạm ngừng sau các lần lỗi liên tiếp'
-    let pauseText: string | null = null
-    let routerUsage: ModelUsage | null = null
     const isPaused = isRouterPaused()
+    let outcome: RouterOutcome<RouterPlan> = { result: null, reason: 'router đang tạm ngừng sau các lần lỗi liên tiếp', usages: [], retried: false }
+    let pauseText: string | null = null
     if (!isPaused) {
       $.ui.status('router đang đọc prompt...')
-      const ran = before.route
-        ? describePick(before.route)
-        : lastSession
-          ? `${lastSession.model}/${lastSession.effort || 'mặc định'}`
-          : null
-      const request = routerRequest({ text, prev, ran, policy: rules, model: routerModel })
-      const reply = await $.model.complete(request).catch(() => null)
-      routerUsage = reply?.usage ?? null
-      plan = reply?.isAnswered ? parseRoute(reply.text, rules) : null
-      reason = failureReason(reply)
-      pauseText = noteRouter(plan !== null)
+      const request = routerRequest({ text, prev, ran: ranText(before), policy: rules, model: routerModel })
+      outcome = await askRouter(r => $.model.complete(r).catch(() => null), request, reply => parseRoute(reply, rules))
+      pauseText = noteRouter(outcome.result !== null)
     }
+    const plan = outcome.result
     const now = await $.clock.now()
+    const withUsage = (c: Core): Core =>
+      outcome.usages.reduce((acc, usage) => S.withLedger(l => addUsage(l, 'analyzer', routerFamily, usage).ledger)(acc), c)
 
     if (plan === null) {
-      // Không đoán: giữ mục tiêu, việc đã phân, phạm vi, ràng buộc và checklist; chỉ bỏ lựa chọn
-      // model luồng chính, nên turn này chạy theo model của phiên và không áp lựa chọn của prompt trước.
-      const kept: Brief | null = prev ? { ...prev, main: null, at: now } : null
-      delegation = { goalId: -1, pending: new Map(), isNudged: false, isWarned: false }
-      const failText = `Router (${routerModel}) không đọc được prompt (${reason}); turn này chạy theo model của phiên`
+      // Mặc định không đoán: giữ mục tiêu, việc đã phân, phạm vi, ràng buộc và checklist; chỉ bỏ lựa chọn model
+      // luồng chính. routerFallback "reuse" (người dùng tự bật) giữ cả lựa chọn của prompt trước.
+      const isReuse = routerFallback === 'reuse' && prev !== null && prev.main !== null
+      const kept: Brief | null = prev ? { ...prev, ...(isReuse ? {} : { main: null }), at: now } : null
+      if (!isReuse) delegation = { goalId: -1, pending: new Map(), isNudged: false, isWarned: false, blocks: 0 }
+      const failText = isReuse
+        ? `Router (${routerModel}) không đọc được prompt (${outcome.reason}); dùng lại lựa chọn của prompt trước`
+        : `Router (${routerModel}) không đọc được prompt (${outcome.reason}); turn này chạy theo model của phiên`
       const warnings: Warning[] = [
         ...(isPaused ? [] : [{ at: now, kind: 'model' as const, text: failText }]),
         ...(pauseText ? [{ at: now, kind: 'model' as const, text: pauseText }] : []),
       ]
-      // Route lưu về null: mốc cache là model engine thật sự chạy, không phải route của lượt trước.
+      // Route lưu về null (trừ khi dùng lại): mốc cache là model engine thật sự chạy, không phải route của lượt trước.
       await update($, coreState, c => {
-        const withUsage = routerUsage ? S.withLedger(l => addUsage(l, 'analyzer', routerFamily, routerUsage!).ledger)(c) : c
-        return S.withWarnings(...warnings)(S.withRoute(null)(kept ? S.withBrief(kept)(withUsage) : withUsage))
+        const used = withUsage(c)
+        const withKept = kept ? S.withBrief(kept)(used) : used
+        return S.withWarnings(...warnings)(isReuse ? withKept : S.withRoute(null)(withKept))
       })
+      lastPrompt = { text, prev, goalId: kept?.goalId ?? null }
+      record(now, 'router-fail', { prompt: clipText(text), reason: outcome.reason, retried: outcome.retried, reuse: isReuse })
+      if (decisionLog) await $.fs.write(decisionLog, decisionText()).catch(() => undefined)
       if (!isPaused) $.ui.toast(pauseText ?? failText)
       $.ui.status(S.statusOf(await read($, view)))
-      return next({ ...e, context: [...(e.context ?? []), unroutedContext(reason)] })
+      return next({ ...e, context: [...(e.context ?? []), unroutedContext(outcome.reason), ...driftNotes] })
     }
 
     // Mục tiêu mới, chạy thật prompt đã đối chiếu, hoặc tiếp nối cùng mục tiêu.
-    const isPromoted = prev !== null && prev.isReference && plan.runReference
-    const isNewGoal = prev === null || plan.relation === 'new' || isPromoted
-    let brief: Brief
-    let added: Task[] = []
-    // Promotion trước relation: prompt "chạy đi" có thể mang relation new nhưng vẫn là chạy việc đã đối chiếu.
-    if (isPromoted) brief = promoteReference(prev, plan, text, now)
-    else if (prev === null || plan.relation === 'new') brief = briefOf(plan, text, (prev?.goalId ?? 0) + 1, now)
-    else ({ brief, added } = followUpOf(prev, plan, now))
-    // Chi phí router được cộng sau khi mục tiêu mới đã thay sổ mục tiêu, để nó thuộc về mục tiêu này.
-    const core = await update($, coreState, c => {
-      const updated = isNewGoal ? S.adoptGoal(brief)(c) : S.withDecision(brief)(c)
-      return routerUsage ? S.withLedger(l => addUsage(l, 'analyzer', routerFamily, routerUsage!).ledger)(updated) : updated
-    })
+    const { brief, added, isNewGoal } = nextBrief(prev, plan, text, now)
+    // adoptGoal lưu checklist cũ còn bước mở (khôi phục được bằng plan restore); chi phí router cộng sau, thuộc mục tiêu mới.
+    const core = await update($, coreState, c => withUsage(isNewGoal ? S.adoptGoal(brief)(c) : S.withDecision(brief)(c)))
+    lastPrompt = { text, prev, goalId: brief.goalId }
     if (isNewGoal) {
       isGoalNew = true
       pinnedGoalId = null
@@ -538,19 +629,30 @@ export const register: Register = (on, options) => {
     const context = isNewGoal
       ? briefContext(brief, expected, isApplied)
       : followUpContext(brief, core.plan, plan.constraints.filter(c => !prev?.constraints.includes(c)), added, expected, isApplied)
-    // Checklist cũ còn bước mở bị bỏ theo mục tiêu mới: báo, kẻo mất tiến độ trong im lặng.
-    const dropped = isNewGoal ? openSteps(before.plan) : []
-    const notice = dropped.length > 0 ? [droppedPlanNotice(dropped)] : []
+    // Checklist cũ còn bước mở không bị mất: nó được lưu, Claude khôi phục được nếu router xếp nhầm mục tiêu mới.
+    const archived = isNewGoal ? openSteps(before.plan) : []
+    const notice = archived.length > 0 ? [droppedPlanNotice(archived)] : []
+    record(now, 'route', {
+      prompt: clipText(text),
+      relation: plan.relation,
+      confidence: plan.confidence,
+      retried: outcome.retried,
+      main: brief.main,
+      expected,
+      notes: plan.notes,
+      tasks: brief.tasks.map(t => ({ index: t.index, run: t.run, agentType: t.agentType, pick: t.pick })),
+    })
+    if (decisionLog) await $.fs.write(decisionLog, decisionText()).catch(() => undefined)
     if (isNewGoal) {
       const delegated = brief.isReference ? 0 : brief.tasks.filter(task => task.run === 'agent').length
       $.ui.toast(
-        dropped.length > 0
-          ? `Mục tiêu mới, checklist cũ còn ${dropped.length} bước mở đã bị bỏ`
+        archived.length > 0
+          ? `Mục tiêu mới; checklist cũ còn ${archived.length} bước mở đã được lưu (khôi phục bằng plan action "restore")`
           : `Router đã đọc prompt: ${brief.depth}, khối lượng ${brief.volume}, luồng chính ${expected ? describePick(expected) + (isApplied ? '' : ' (chỉ đề xuất)') : 'model của phiên'}${delegated > 0 ? `, ${delegated} việc giao subagent` : ''}`,
       )
     }
     $.ui.status(S.statusOf(await read($, view)))
-    return next({ ...e, context: [...(e.context ?? []), context, ...notice] })
+    return next({ ...e, context: [...(e.context ?? []), context, ...notice, ...driftNotes] })
   })
 
   // ------------------------------------- 2. điều phối model / effort
@@ -680,10 +782,20 @@ export const register: Register = (on, options) => {
     return yield* next(e)
   })
 
+  // Nguồn của lần đổi model phiên: người dùng (/model, picker, SDK) hay engine tự đổi (auto, resume).
+  // Step đầu của turn sau đọc nó để quyết định có tạm dừng tự điều phối hay không.
+  on('classic.PostModelSwitch', async ($, e, next) => {
+    const result = await next(e)
+    lastSwitch = { source: e.source, toModel: e.to_model }
+    record(await $.clock.now(), 'model-switch', { source: e.source, from: e.from_model, to: e.to_model, requested: e.requested_model })
+    if (decisionLog) await $.fs.write(decisionLog, decisionText()).catch(() => undefined)
+    return result
+  }).catch(($, e, next) => next(e))
+
   // Ghi nhận loại agent nào đang được mời dùng, để chỉ đổi sang Explore khi có.
   on('agent.offer', async ($, e, next) => {
     const result = await next(e)
-    if (result.isOffered) offered.add(e.agent)
+    if (result.isOffered) offered.set(e.agent, e.description)
     else offered.delete(e.agent)
     return result
   }).catch(($, e, next) => next(e))
@@ -706,15 +818,15 @@ export const register: Register = (on, options) => {
     // prompt đối chiếu không có việc thật để giao.
     const isNested = e.agentId !== undefined
     const parent = e.agentId !== undefined ? agents.get(e.agentId) : undefined
-    const assigned = !isNested && brief !== null && !brief.isReference ? matchTask(brief.tasks, e.description) : undefined
+    const matched = !isNested && brief !== null && !brief.isReference ? taskMatch(brief.tasks, e.description) : {}
+    let assigned = matched.task
     let route: AgentRoute | null = null
     let reason: string
     if (assigned !== undefined) {
       route = taskRoute(assigned, rules)
       reason = `việc ${assigned.index} đã phân trước${route.why ? `: ${route.why}` : ''}`
       if (e.model !== undefined && claimed !== route.pick.family) reason += `; Claude ghi ${e.model}, dùng ${route.pick.family} đã phân`
-      if (brief !== null && delegation.goalId === brief.goalId) delegation.pending.delete(assigned.index)
-    } else if (isRouterPaused()) {
+    } else if (isAgentRouterPaused()) {
       reason = 'router đang tạm ngừng; giữ lựa chọn của Claude'
     } else {
       const failed = agentFailures.filter(f => f.goalId === goalId).map(f => f.description)
@@ -725,6 +837,7 @@ export const register: Register = (on, options) => {
         route = refit(known)
         reason = `router (đã chấm trước): ${known.why}`
       } else {
+        agentCalls += 1
         const request = agentRouterRequest({
           description: e.description,
           prompt: e.prompt,
@@ -736,20 +849,33 @@ export const register: Register = (on, options) => {
           isWorkflow: false,
           policy: rules,
           model: routerModel,
+          tasks: isNested || brief === null || brief.isReference ? [] : brief.tasks,
         })
-        const reply = await $.model.complete(request).catch(() => null)
-        if (reply !== null) {
-          await update($, coreState, S.withLedger(ledger => addUsage(ledger, 'analyzer', routerFamily, reply.usage).ledger))
-        }
-        route = reply?.isAnswered ? parseAgentRoute(reply.text, rules) : null
-        const pauseText = noteRouter(route !== null)
+        const outcome = await askRouter(r => $.model.complete(r).catch(() => null), request, reply => parseAgentRoute(reply, rules))
+        await update($, coreState, c =>
+          outcome.usages.reduce((acc, usage) => S.withLedger(ledger => addUsage(ledger, 'analyzer', routerFamily, usage).ledger)(acc), c),
+        )
+        route = outcome.result
+        const pauseText = noteAgentRouter(route !== null)
         if (route !== null) rememberAgentRoute(key, route)
-        reason = route !== null ? `router: ${route.why}` : `router không chấm được (${failureReason(reply)}); giữ lựa chọn của Claude`
+        reason = route !== null ? `router: ${route.why}` : `router không chấm được (${outcome.reason}); giữ lựa chọn của Claude`
         if (pauseText !== null) {
           await update($, coreState, S.withWarnings({ at: await $.clock.now(), kind: 'model', text: pauseText }))
           $.ui.toast(pauseText)
         }
       }
+      // Router nhận ra lời gọi là một việc đã phân (dù description không ghi "Việc N"): dùng lựa chọn đã phân.
+      const byRouter = isNested ? undefined : recognized(brief, route)
+      if (byRouter !== undefined) {
+        assigned = byRouter
+        route = taskRoute(byRouter, rules)
+        reason = `router nhận ra việc ${byRouter.index} đã phân${route.why ? `: ${route.why}` : ''}`
+      }
+    }
+    if (assigned !== undefined && brief !== null && delegation.goalId === brief.goalId) delegation.pending.delete(assigned.index)
+    if (assigned === undefined && matched.miss !== undefined) {
+      record(await $.clock.now(), 'agent', { description: clipText(e.description), miss: matched.miss, routed: route !== null })
+      if (decisionLog) await $.fs.write(decisionLog, decisionText()).catch(() => undefined)
     }
 
     const isApplied = route !== null && (current === 'auto' || current === 'subagents')
@@ -806,29 +932,42 @@ export const register: Register = (on, options) => {
       if (known !== undefined) {
         workflowRoute = refit(known)
         workflowReason = `router (đã chấm trước): ${known.why}`
-      } else if (isRouterPaused()) {
+      } else if (isAgentRouterPaused()) {
         workflowReason = 'router đang tạm ngừng'
       } else {
+        agentCalls += 1
+        const brief = core.brief
         const request = agentRouterRequest({
           description: e.description,
           prompt: e.prompt,
           subagentType: e.subagentType,
           requested: {},
-          goal: core.brief?.goal ?? null,
+          goal: brief?.goal ?? null,
           parent: null,
           failed: agentFailures.filter(f => f.goalId === goalId).map(f => f.description).slice(-5),
           isWorkflow: true,
           policy: rules,
           model: routerModel,
+          tasks: brief === null || brief.isReference ? [] : brief.tasks,
         })
-        const reply = await $.model.complete(request).catch(() => null)
-        if (reply !== null) {
-          await update($, coreState, S.withLedger(ledger => addUsage(ledger, 'analyzer', routerFamily, reply.usage).ledger))
-        }
-        workflowRoute = reply?.isAnswered ? parseAgentRoute(reply.text, rules) : null
-        noteRouter(workflowRoute !== null)
+        const outcome = await askRouter(r => $.model.complete(r).catch(() => null), request, reply => parseAgentRoute(reply, rules))
+        await update($, coreState, c =>
+          outcome.usages.reduce((acc, usage) => S.withLedger(ledger => addUsage(ledger, 'analyzer', routerFamily, usage).ledger)(acc), c),
+        )
+        workflowRoute = outcome.result
+        const pauseText = noteAgentRouter(workflowRoute !== null)
         if (workflowRoute !== null) rememberAgentRoute(key, workflowRoute)
-        workflowReason = workflowRoute !== null ? `router: ${workflowRoute.why}` : `router không chấm được (${failureReason(reply)})`
+        workflowReason = workflowRoute !== null ? `router: ${workflowRoute.why}` : `router không chấm được (${outcome.reason})`
+        if (pauseText !== null) {
+          await update($, coreState, S.withWarnings({ at: await $.clock.now(), kind: 'model', text: pauseText }))
+          $.ui.toast(pauseText)
+        }
+        const byRouter = recognized(brief, workflowRoute)
+        if (byRouter !== undefined) {
+          workflowRoute = taskRoute(byRouter, rules)
+          workflowReason = `router nhận ra việc ${byRouter.index} đã phân${workflowRoute.why ? `: ${workflowRoute.why}` : ''}`
+          if (brief !== null && delegation.goalId === brief.goalId) delegation.pending.delete(byRouter.index)
+        }
       }
     }
 
@@ -913,6 +1052,21 @@ export const register: Register = (on, options) => {
       return { result: 'Checklist chỉ dành cho luồng chính; subagent bỏ qua và làm đúng nhiệm vụ được giao.' }
     }
     const input = e as unknown as PlanInput
+    if (input.action === 'restore') {
+      // Khôi phục mục tiêu cũ đã lưu khi router xếp một prompt là mục tiêu mới.
+      const index = typeof input.index === 'number' ? input.index : 1
+      const outcome = S.restoreArchived(await read($, coreState), index)
+      if ('error' in outcome) return { deny: outcome.error }
+      await update($, coreState, () => outcome.core)
+      const restored = outcome.restored.brief
+      // Việc giao còn chờ của mục tiêu khôi phục: các việc ghi giao (Claude biết việc nào đã xong từ checklist).
+      trackDelegations(restored.goalId, restored.isReference ? [] : restored.tasks)
+      isGoalNew = true
+      pinnedGoalId = null
+      $.ui.status(S.statusOf(await read($, view)))
+      const core = S.normalizeCore(await read($, coreState))
+      return { result: `Đã khôi phục mục tiêu: ${restored.goal}\n${renderPlan(core.brief, core.plan)}` }
+    }
     const outcome = applyPlan(S.normalizeCore(await read($, coreState)).plan, input)
     if (outcome.error !== undefined) return { deny: outcome.error }
 
@@ -922,7 +1076,7 @@ export const register: Register = (on, options) => {
     const titles = outcome.plan.map(step => step.title)
     const core = await update($, coreState, c => {
       const withPlan = S.withPlan(outcome.plan)(c)
-      return isSet ? S.withRetarget(outcome.goal, titles)(withPlan) : withPlan
+      return isSet ? S.withRetarget(outcome.goal, titles, outcome.scope)(withPlan) : withPlan
     })
     tracker.planUpdates += 1
     if (input.status === 'verified') {
@@ -937,6 +1091,18 @@ export const register: Register = (on, options) => {
   // bằng chứng cho turn sau; subagent chỉ được ghi nhật ký, không bị nhắc.
   // Lời nhắc đi kèm kết quả tool, không sửa system prompt, nên không ảnh hưởng cache.
   on('tool.call', async ($, e, next) => {
+    // strictDelegation "block": luồng chính sửa file trong khi còn việc ghi giao subagent chưa giao thì bị từ chối,
+    // tối đa BLOCK_EDITS lần mỗi mục tiêu (sau đó chỉ nhắc, kẻo kẹt khi không giao được).
+    if (strictDelegation === 'block' && e.agentId === undefined && EDIT_TOOLS.has(e.tool)) {
+      const current = await read($, mode)
+      const brief = S.normalizeCore(await read($, coreState)).brief
+      const waiting = current === 'auto' || current === 'subagents' ? pendingFor(brief) : []
+      const path = filePathOf({ tool: e.tool, input: e as unknown as Record<string, unknown>, isError: false, isReadOnly: false })
+      if (waiting.length > 0 && !isPlanFile(path) && delegation.blocks < BLOCK_EDITS) {
+        delegation.blocks += 1
+        return { deny: blockText(waiting, BLOCK_EDITS - delegation.blocks) }
+      }
+    }
     const result = await next(e)
     if (result.deny !== undefined || e.tool === PLAN_TOOL_FULL) return result
     if ((await read($, mode)) === 'off') return result
@@ -971,8 +1137,11 @@ export const register: Register = (on, options) => {
     // Ghi file kế hoạch của plan mode không phải là làm một việc đã phân.
     const pending = pendingFor(core.brief)
     const planFile = isPlanFile(filePathOf(observation))
+    // Mặc định nhắc một lần ở lần sửa file đầu tiên; strictDelegation remind/block nhắc ở mọi lần thay đổi (kể cả lệnh ghi file).
+    const isStrict = strictDelegation !== 'off'
+    const isChange = isStrict ? isMutation(observation) : EDIT_TOOLS.has(e.tool)
     const nudge =
-      EDIT_TOOLS.has(e.tool) && !planFile && !observation.isError && pending.length > 0 && !delegation.isNudged
+      isChange && !planFile && !observation.isError && pending.length > 0 && (isStrict || !delegation.isNudged)
         ? `[focus-conductor] Phân việc còn việc ghi giao subagent chưa giao: Việc ${pending.join(', ')}. Nếu thay đổi này thuộc các việc đó, giao qua Agent với description "Việc N: ..." để chạy đúng model đã chấm.`
         : null
     if (nudge) delegation.isNudged = true
@@ -1113,17 +1282,11 @@ export const register: Register = (on, options) => {
       const before = S.normalizeCore(await read($, coreState))
       const prev = before.brief
       const rules = policy()
-      let plan: RouterPlan | null = null
-      let reason = 'router đang tạm ngừng sau các lần lỗi liên tiếp'
-      let routerUsage: ModelUsage | null = null
-      if (!isRouterPaused()) {
-        const request = routerRequest({ text: arg, prev, ran: null, policy: rules, model: routerModel, isForcedNew: true })
-        const reply = await $.model.complete(request).catch(() => null)
-        routerUsage = reply?.usage ?? null
-        plan = reply?.isAnswered ? parseRoute(reply.text, rules) : null
-        reason = failureReason(reply)
-        noteRouter(plan !== null)
-      }
+      // Lệnh do người dùng gõ: luôn hỏi router, kể cả khi router đang tạm ngừng sau các lần lỗi.
+      const request = routerRequest({ text: arg, prev, ran: null, policy: rules, model: routerModel, isForcedNew: true })
+      const outcome = await askRouter(r => $.model.complete(r).catch(() => null), request, reply => parseRoute(reply, rules))
+      const plan = outcome.result
+      if (plan !== null) routerTrouble = { failures: 0, pausedUntil: 0 }
       const now = await $.clock.now()
       const goalId = (prev?.goalId ?? 0) + 1
       // Mục tiêu đặt bằng lệnh luôn là mục tiêu mới; router lỗi thì đặt mục tiêu không có lựa chọn model.
@@ -1133,10 +1296,13 @@ export const register: Register = (on, options) => {
       const core = await update($, coreState, c => {
         const adopted = S.adoptGoal(brief)(c)
         const withRoute = plan === null ? S.withRoute(null)(adopted) : adopted
-        return routerUsage ? S.withLedger(l => addUsage(l, 'analyzer', routerFamily, routerUsage!).ledger)(withRoute) : withRoute
+        return outcome.usages.reduce((acc, usage) => S.withLedger(l => addUsage(l, 'analyzer', routerFamily, usage).ledger)(acc), withRoute)
       })
+      lastPrompt = null
       isGoalNew = true
       pinnedGoalId = null
+      record(now, plan !== null ? 'route' : 'router-fail', { command: 'goal', prompt: clipText(arg), reason: outcome.reason, retried: outcome.retried })
+      if (decisionLog) await $.fs.write(decisionLog, decisionText()).catch(() => undefined)
       $.ui.status(S.statusOf(await read($, view)))
       const wanted = wantedPick(brief, core.lift)
       const expected = wanted !== null ? expectedMain(core, brief, wanted, now) : null
@@ -1147,13 +1313,75 @@ export const register: Register = (on, options) => {
         text:
           plan !== null
             ? `Đã đặt mục tiêu: ${brief.goal} (${brief.depth}, khối lượng ${brief.volume}, luồng chính ${expected ? describePick(expected) + (isApplied ? '' : ' (chỉ đề xuất)') : 'model của phiên'}).`
-            : `Đã đặt mục tiêu: ${brief.goal}. Router không đọc được (${reason}); mod không chọn model cho mục tiêu này.`,
+            : `Đã đặt mục tiêu: ${brief.goal}. Router không đọc được (${outcome.reason}); mod không chọn model cho mục tiêu này.`,
         context: [
           plan !== null
             ? `Người dùng đặt mục tiêu thủ công.\n${briefContext(brief, expected, isApplied)}`
-            : `Người dùng đặt mục tiêu thủ công: ${brief.goal}\n${unroutedContext(reason)}`,
+            : `Người dùng đặt mục tiêu thủ công: ${brief.goal}\n${unroutedContext(outcome.reason)}`,
           ...notice,
         ],
+      }
+    }
+
+    if (sub === 'reroute') {
+      if ((await read($, mode)) === 'off') return { text: 'Focus Conductor đang tắt (mode off); bật lại bằng /conductor mode auto.' }
+      const before = S.normalizeCore(await read($, coreState))
+      const current = before.brief
+      const last = lastPrompt
+      if (last === null || (current?.goalId ?? null) !== last.goalId) {
+        return { text: 'Không có prompt nào của mục tiêu hiện tại để router đọc lại. Đặt mục tiêu bằng /conductor goal kèm mô tả.' }
+      }
+      const rules = policy()
+      // Lệnh do người dùng gõ: luôn hỏi router, kể cả khi router đang tạm ngừng.
+      const request = routerRequest({ text: last.text, prev: last.prev, ran: ranText(before), policy: rules, model: routerModel })
+      const outcome = await askRouter(r => $.model.complete(r).catch(() => null), request, reply => parseRoute(reply, rules))
+      const now = await $.clock.now()
+      const withUsage = (c: Core): Core =>
+        outcome.usages.reduce((acc, usage) => S.withLedger(l => addUsage(l, 'analyzer', routerFamily, usage).ledger)(acc), c)
+      const plan = outcome.result
+      if (plan === null) {
+        await update($, coreState, withUsage)
+        record(now, 'router-fail', { command: 'reroute', prompt: clipText(last.text), reason: outcome.reason, retried: outcome.retried })
+        if (decisionLog) await $.fs.write(decisionLog, decisionText()).catch(() => undefined)
+        return { text: `Router không đọc được (${outcome.reason}); giữ điều phối hiện tại.` }
+      }
+      routerTrouble = { failures: 0, pausedUntil: 0 }
+      const fresh = nextBrief(last.prev, plan, last.text, now)
+      // Prompt gần nhất đã lập mục tiêu hiện tại (không phải tiếp nối mục tiêu trước nó).
+      const wasNew = current !== null && current.goalId !== (last.prev?.goalId ?? null)
+      const archivedPrev = last.prev ? before.archived.findIndex(a => a.brief.goalId === last.prev?.goalId) : -1
+      let brief: Brief
+      if (current === null || (fresh.isNewGoal && !wasNew)) {
+        // Lần trước router lỗi nên prompt chưa lập mục tiêu; giờ router xếp là mục tiêu mới.
+        brief = fresh.brief
+        await update($, coreState, c => withUsage(S.adoptGoal(brief)(c)))
+      } else if (fresh.isNewGoal) {
+        brief = rerouted(current, fresh.brief)
+        await update($, coreState, c => withUsage(S.withDecision(brief)(c)))
+      } else if (wasNew && archivedPrev >= 0) {
+        // Lần trước xếp nhầm là mục tiêu mới: khôi phục mục tiêu trước (checklist còn bước mở), áp phần đọc mới lên nó.
+        const back = S.restoreArchived(before, archivedPrev + 1)
+        const restored = 'error' in back ? null : back
+        brief = { ...fresh.brief, goalId: restored?.restored.brief.goalId ?? current.goalId }
+        await update($, coreState, c => withUsage(S.withDecision(brief)(restored ? restored.core : c)))
+      } else {
+        brief = { ...fresh.brief, goalId: current.goalId }
+        await update($, coreState, c => withUsage(S.withDecision(brief)(c)))
+      }
+      lastPrompt = { ...last, goalId: brief.goalId }
+      isGoalNew = true
+      pinnedGoalId = null
+      trackDelegations(brief.goalId, brief.isReference ? [] : brief.tasks)
+      const core = S.normalizeCore(await read($, coreState))
+      const isApplied = (await read($, mode)) === 'auto'
+      const wanted = wantedPick(brief, core.lift)
+      const expected = wanted !== null ? expectedMain(core, brief, wanted, now) : null
+      record(now, 'reroute', { prompt: clipText(last.text), relation: plan.relation, confidence: plan.confidence, retried: outcome.retried, main: brief.main, expected })
+      if (decisionLog) await $.fs.write(decisionLog, decisionText()).catch(() => undefined)
+      $.ui.status(S.statusOf(await read($, view)))
+      return {
+        text: `Router đã đọc lại prompt gần nhất: ${brief.goal} (${brief.depth}, khối lượng ${brief.volume}, luồng chính ${expected ? describePick(expected) + (isApplied ? '' : ' (chỉ đề xuất)') : 'model của phiên'}).`,
+        context: [`Người dùng yêu cầu router đọc lại prompt gần nhất.\n${briefContext(brief, expected, isApplied)}`],
       }
     }
 

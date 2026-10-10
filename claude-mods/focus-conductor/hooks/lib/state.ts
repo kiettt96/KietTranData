@@ -6,7 +6,8 @@
 
 import type { PluginOptions } from 'claude-code'
 
-import type { Brief, Core, Ledger, Lift, Mode, PlanStep, Route, RouteEvent, Warning } from '../../types'
+import type { ArchivedGoal, Brief, Core, Ledger, Lift, Mode, PlanStep, Route, RouteEvent, Warning } from '../../types'
+import { openSteps } from './drift'
 import { emptyLedger, nextGoal, resetLedger } from './ledger'
 import { legacyOf } from './scale'
 import { statusLine } from './text'
@@ -23,9 +24,12 @@ export const EMPTY_CORE: Core = {
   lastTurnAt: 0,
   lastContext: 0,
   sysTokens: 0,
+  archived: [],
 }
 
 const LOG_LIMIT = 60
+/** Số mục tiêu cũ còn bước mở được lưu để khôi phục. */
+export const ARCHIVE_LIMIT = 3
 const WARNING_LIMIT = 30
 /** Nâng cấp theo bằng chứng tối đa hai bậc mỗi mục tiêu (depth và effort riêng). */
 const LIFT_LIMIT = 2
@@ -64,6 +68,7 @@ export function normalizeCore(raw: Partial<Core>): Core {
     lastTurnAt: raw.lastTurnAt ?? 0,
     lastContext: raw.lastContext ?? 0,
     sysTokens: raw.sysTokens ?? 0,
+    archived: raw.archived ?? [],
   }
 }
 
@@ -106,20 +111,56 @@ function normalizeBrief(raw: Brief): Brief {
  * Claude chốt lại mục tiêu và các bước qua tool plan: thay câu mục tiêu và danh sách bước
  * (bước dài bị cắt). Việc đã phân và lựa chọn của router giữ nguyên.
  */
-export function retarget(brief: Brief, goal: string | undefined, steps: readonly string[]): Brief {
+export function retarget(brief: Brief, goal: string | undefined, steps: readonly string[], scope?: readonly string[]): Brief {
   const nextGoal = goal?.trim() ? goal.trim().slice(0, 200) : brief.goal
   const nextSteps = steps.length > 0 ? steps.map(s => s.slice(0, 120)) : brief.steps
-  return { ...brief, goal: nextGoal, steps: nextSteps }
+  // Phạm vi chỉ đổi khi Claude ghi rõ (mảng rỗng là bỏ giới hạn); không ghi thì giữ phạm vi router đọc.
+  return { ...brief, goal: nextGoal, steps: nextSteps, ...(scope !== undefined ? { scopePaths: [...scope] } : {}) }
+}
+
+/** Lưu mục tiêu hiện tại nếu checklist còn bước mở; mới nhất trước. */
+function archiveOf(n: Core): ArchivedGoal[] {
+  if (n.brief === null || openSteps(n.plan).length === 0) return n.archived
+  return [{ brief: n.brief, plan: n.plan }, ...n.archived.filter(a => a.brief.goalId !== n.brief?.goalId)].slice(0, ARCHIVE_LIMIT)
+}
+
+/**
+ * Khôi phục mục tiêu đã lưu thứ `index` (1 là gần nhất): brief và checklist của nó thay mục tiêu hiện tại,
+ * mục tiêu hiện tại được lưu nếu còn bước mở. Sổ chi phí theo mục tiêu, cảnh báo và nâng cấp bắt đầu lại.
+ */
+export function restoreArchived(c: Core, index: number): { core: Core; restored: ArchivedGoal } | { error: string } {
+  const n = normalizeCore(c)
+  const restored = n.archived[index - 1]
+  if (n.archived.length === 0) return { error: 'Không có mục tiêu cũ nào đang được lưu để khôi phục.' }
+  if (restored === undefined) return { error: `Chỉ có ${n.archived.length} mục tiêu đã lưu; index từ 1 (gần nhất) tới ${n.archived.length}.` }
+  const rest = n.archived.filter((_, i) => i !== index - 1)
+  const archived = archiveOf({ ...n, archived: rest })
+  // Số mục tiêu mới, lớn hơn mọi số đã dùng: số mục tiêu tăng dần, việc giao và route của mục tiêu khác không bị nhận nhầm.
+  const goalId = Math.max(n.brief?.goalId ?? 0, ...n.archived.map(a => a.brief.goalId)) + 1
+  const brief: Brief = { ...restored.brief, goalId }
+  const core: Core = {
+    ...n,
+    brief,
+    plan: restored.plan,
+    warnings: [],
+    lift: EMPTY_LIFT,
+    ledger: nextGoal(n.ledger, goalId),
+    archived,
+  }
+  return { core, restored: { brief, plan: restored.plan } }
 }
 
 // ------------------------------------------------------------ reducers
 
-/** Mục tiêu mới: thay brief, xóa checklist, cảnh báo và nâng cấp của mục tiêu cũ; sổ theo mục tiêu được làm mới. */
+/**
+ * Mục tiêu mới: thay brief, xóa checklist, cảnh báo và nâng cấp của mục tiêu cũ; sổ theo mục tiêu được làm mới.
+ * Checklist cũ còn bước mở được lưu (archived), khôi phục được bằng plan action "restore".
+ */
 export const adoptGoal =
   (brief: Brief) =>
   (c: Core): Core => {
     const n = normalizeCore(c)
-    return { ...n, brief, plan: [], warnings: [], lift: EMPTY_LIFT, ledger: nextGoal(n.ledger, brief.goalId) }
+    return { ...n, brief, plan: [], warnings: [], lift: EMPTY_LIFT, ledger: nextGoal(n.ledger, brief.goalId), archived: archiveOf(n) }
   }
 
 export const withBrief =
@@ -136,10 +177,10 @@ export const withDecision =
 
 /** Claude chốt lại mục tiêu/các bước qua tool plan (action "set"): xem retarget. */
 export const withRetarget =
-  (goal: string | undefined, steps: readonly string[]) =>
+  (goal: string | undefined, steps: readonly string[], scope?: readonly string[]) =>
   (c: Core): Core => {
     const n = normalizeCore(c)
-    return n.brief ? { ...n, brief: retarget(n.brief, goal, steps) } : n
+    return n.brief ? { ...n, brief: retarget(n.brief, goal, steps, scope) } : n
   }
 
 export const withPlan =

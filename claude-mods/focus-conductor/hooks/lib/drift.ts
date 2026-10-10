@@ -13,7 +13,7 @@ const FILE_TOOLS = new Set(['Edit', 'Write', 'NotebookEdit', 'MultiEdit'])
 const VERIFY_SEGMENT = new RegExp(
   '^(?:' +
     '(?:npm|pnpm|yarn|bun)\\s+(?:run\\s+)?(?:-\\S+\\s+)*(?:test|tests|lint|typecheck|type-check|build|check|validate|verify)\\b|' +
-    '(?:npx\\s+)?(?:tsc|pytest|jest|vitest|mocha|eslint|ruff|mypy|flake8|pyright|biome|stylelint)\\b|' +
+    '(?:npx\\s+(?:-\\S+\\s+)*)?(?:tsc|pytest|jest|vitest|mocha|eslint|ruff|mypy|flake8|pyright|biome|stylelint)\\b|' +
     'node\\s+--test\\b|' +
     'python3?\\s+-m\\s+(?:pytest|unittest|mypy|ruff)\\b|' +
     'cargo\\s+(?:test|check|clippy|build)\\b|' +
@@ -34,7 +34,8 @@ function segments(command: string): string[] {
       part
         .trim()
         .replace(/^[({]+\s*/, '')
-        .replace(/^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+/, '')
+        // Tiền tố gán biến (FOO=1 npm test), hoặc cả đoạn chỉ là phép gán (D=/đường/dẫn): bỏ đi, không phải lệnh.
+        .replace(/^(?:[A-Za-z_][A-Za-z0-9_]*=\S*(?:\s+|$))+/, '')
         .replace(/^timeout\s+\d+\s+/, ''),
     )
 }

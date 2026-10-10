@@ -159,6 +159,12 @@ export type Ledger = {
   samples: number
 }
 
+/**
+ * Mục tiêu cũ còn bước mở, lưu lại khi chuyển sang mục tiêu mới, để router xếp nhầm "mục tiêu mới"
+ * không làm mất tiến độ: Claude khôi phục bằng plan action "restore".
+ */
+export type ArchivedGoal = { brief: Brief; plan: PlanStep[] }
+
 /** Nâng cấp theo bằng chứng, áp cho các turn sau trong cùng mục tiêu. */
 export type Lift = { depth: number; effort: number }
 
@@ -181,6 +187,8 @@ export type Core = {
   lastContext: number
   /** Phần cố định của ngữ cảnh (system prompt, tools, bộ nhớ) đo được ở đầu phiên; 0 khi chưa đo. */
   sysTokens: number
+  /** Mục tiêu cũ còn bước mở, mới nhất trước (tối đa 3). */
+  archived: ArchivedGoal[]
 }
 
 declare module 'claude-code' {

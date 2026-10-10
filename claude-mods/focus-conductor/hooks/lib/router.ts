@@ -5,7 +5,7 @@
 // trả về, kiểm và kẹp lựa chọn theo chính sách (allowFable, model của phiên,
 // họ model đang bị chặn). File thuần: lệnh gọi $.model.complete nằm ở register.tsx.
 
-import type { ModelCompleteRequest, ModelTextBlock } from 'claude-code'
+import type { ModelCompleteRequest, ModelCompleteResult, ModelTextBlock, ModelUsage } from 'claude-code'
 
 import type { Brief, Choice, Depth, Effort, Kind, ModelFamily, Relation, Task, Tier, Volume } from '../../types'
 import { EFFORTS, applySession, avoidBlocked, describePick, familyOf } from './route'
@@ -17,9 +17,16 @@ export type Policy = {
   allowFable: boolean
   blocked: ReadonlySet<ModelFamily>
   session: SessionModel | null
+  /** Loại agent dùng được trong phiên (tên và mô tả), từ danh mục engine mời và option agentTypes. */
+  agents?: ReadonlyMap<string, string>
 }
 
+/** Ba loại agent có sẵn của Claude Code; danh mục thật của phiên lấy từ engine (agent.offer). */
 export const AGENT_TYPES = ['Explore', 'Plan', 'general-purpose'] as const
+/** Loại agent không sửa được file. */
+const READ_ONLY_AGENTS = new Set(['Explore', 'Plan'])
+/** Dưới mức tin cậy này router được hỏi lại một lần. */
+export const LOW_CONFIDENCE = 0.4
 
 /** Giới hạn đọc và trả về. */
 const TASK_LIMIT = 20
@@ -74,8 +81,8 @@ Relation to the previous goal (shown in <context>):
 
 Use only the models <context> lists as allowed. Write every string, "why" included, in the language of the request: a Vietnamese request gets Vietnamese strings.
 Keep the reply short, it is read by a program: "why" of the request is one sentence under 25 words; "why" of main and of each task is under 15 words.
-Reply with ONE JSON object and nothing else. Fill "why" first.
-{"why": string, "relation": "new"|"continue"|"refine"|"dissatisfied", "reference": boolean, "runReference": boolean, "goal": string, "constraints": string[], "quality": string[], "scope": string[], "depth": "none"|"light"|"substantial"|"hard", "volume": "small"|"medium"|"large", "kind": "answer"|"edit"|"investigate"|"mixed", "main": {"model": "haiku"|"sonnet"|"opus"|"fable", "effort": "low"|"medium"|"high"|"xhigh", "why": string}, "referenceMain": {"model": string, "effort": string}, "tasks": [{"title": string, "run": "main"|"agent", "agent": "Explore"|"Plan"|"general-purpose", "model": string, "effort": string, "depth": string, "volume": string, "kind": string, "why": string}]}
+Reply with ONE JSON object and nothing else. Fill "why" first. "confidence" is how sure you are of the routing, from 0 to 1.
+{"why": string, "confidence": number, "relation": "new"|"continue"|"refine"|"dissatisfied", "reference": boolean, "runReference": boolean, "goal": string, "constraints": string[], "quality": string[], "scope": string[], "depth": "none"|"light"|"substantial"|"hard", "volume": "small"|"medium"|"large", "kind": "answer"|"edit"|"investigate"|"mixed", "main": {"model": "haiku"|"sonnet"|"opus"|"fable", "effort": "low"|"medium"|"high"|"xhigh", "why": string}, "referenceMain": {"model": string, "effort": string}, "tasks": [{"title": string, "run": "main"|"agent", "agent": "Explore"|"Plan"|"general-purpose", "model": string, "effort": string, "depth": string, "volume": string, "kind": string, "why": string}]}
 
 Examples (abridged):
 - "Liệt kê các hàm export trong utils.ts" -> depth none, kind answer, main haiku/low, tasks [].
@@ -93,9 +100,10 @@ Rules:
 - A piece that changes files never runs on haiku, Explore or Plan.
 - The model and agent type the main thread asked for are hints: keep them unless they are clearly wrong for the piece (too weak for deep reasoning, too costly for a lookup, or an agent type that cannot do the piece).
 - If the piece retries one of the failed pieces listed in <context>, choose one step above what you would otherwise choose.
-- Use only the models <context> lists as allowed.
-Reply with ONE JSON object and nothing else, "why" under 15 words and in the language of the task:
-{"why": string, "model": "haiku"|"sonnet"|"opus"|"fable", "effort": "low"|"medium"|"high"|"xhigh", "agent": "Explore"|"Plan"|"general-purpose", "depth": string, "volume": string, "kind": string}`
+- Use only the models and agent types <context> lists.
+- If <context> lists the tasks of the goal and this piece is one of them (same work, whatever the wording), set "task" to that task's number; otherwise null.
+Reply with ONE JSON object and nothing else, "why" under 15 words and in the language of the task. "confidence" is how sure you are, from 0 to 1:
+{"why": string, "confidence": number, "task": number|null, "model": "haiku"|"sonnet"|"opus"|"fable", "effort": "low"|"medium"|"high"|"xhigh", "agent": "Explore"|"Plan"|"general-purpose", "depth": string, "volume": string, "kind": string}`
 
 function clip(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`
@@ -109,6 +117,14 @@ function unique(items: readonly string[], max: number): string[] {
 function capText(text: string, limit: number, head: number, tail: number): string {
   if (text.length <= limit) return text
   return `${text.slice(0, head)}\n[... lược ${text.length - head - tail} ký tự ở giữa ...]\n${text.slice(-tail)}`
+}
+
+/** Loại agent dùng được trong phiên, kèm mô tả engine đưa, để router chọn đúng tên. */
+function agentsLine(policy: Policy): string {
+  const agents = policy.agents
+  if (agents === undefined || agents.size === 0) return 'Agent types: Explore, Plan, general-purpose.'
+  const items = [...agents].slice(0, 20).map(([name, about]) => (about ? `${name} (${clip(about, 100)})` : name))
+  return `Agent types: ${items.join('; ')}.`
 }
 
 /** Họ model được phép, để router chỉ chọn trong đó. */
@@ -153,6 +169,7 @@ export function routerRequest(args: {
   const context = [
     ...previousLines(args.prev, args.ran),
     allowedLine(args.policy),
+    agentsLine(args.policy),
     ...(args.isForcedNew ? ['The user set this goal by command: relation must be "new".'] : []),
   ]
   const system: readonly ModelTextBlock[] = [{ text: ROUTER_SYSTEM, cache: true }]
@@ -178,7 +195,10 @@ export function agentRouterRequest(args: {
   isWorkflow: boolean
   policy: Policy
   model: string
+  /** Các việc router đã phân cho mục tiêu: router cho biết lời gọi này có phải một trong số đó. */
+  tasks?: readonly Task[]
 }): ModelCompleteRequest {
+  const tasks = (args.tasks ?? []).slice(0, TASK_LIMIT)
   const asked = [
     args.subagentType ? `agent type ${args.subagentType}` : '',
     args.requested.model ? `model ${args.requested.model}` : '',
@@ -190,7 +210,9 @@ export function agentRouterRequest(args: {
     ...(args.isWorkflow ? ['Started by a workflow script.'] : []),
     `The main thread asked for: ${asked.length > 0 ? asked.join(', ') : 'nothing specific'}.`,
     ...(args.failed.length > 0 ? ['Failed pieces in this goal:', ...args.failed.map(f => `  - ${f}`)] : []),
+    ...(tasks.length > 0 ? ['Tasks of the goal:', ...tasks.map(t => `  ${t.index}. ${t.title}`)] : []),
     allowedLine(args.policy),
+    agentsLine(args.policy),
   ]
   const system: readonly ModelTextBlock[] = [{ text: AGENT_SYSTEM, cache: true }]
   const task = capText(args.prompt, AGENT_PROMPT_CHARS, 6_000, 2_000)
@@ -234,7 +256,7 @@ function strings(value: unknown, max: number): string[] {
 }
 
 /** Mục phạm vi phải có dạng đường dẫn (có / hoặc phần mở rộng, không khoảng trắng), kẻo kiểm tra phạm vi báo sai. */
-function isPathLike(item: string): boolean {
+export function isPathLike(item: string): boolean {
   return /^\S+$/.test(item) && (/[\\/]/.test(item) || /\.[A-Za-z0-9]{1,8}$/.test(item))
 }
 
@@ -245,6 +267,11 @@ function rawPick(value: unknown): { family: ModelFamily; effort: Effort } | null
   const family = typeof raw['model'] === 'string' ? familyOf(raw['model']) : null
   const effort = EFFORTS.find(x => x === raw['effort'])
   return family !== null && effort !== undefined ? { family, effort } : null
+}
+
+/** Mức tin cậy 0 đến 1; giá trị thiếu hoặc sai thì undefined. */
+function confidenceOf(value: unknown): number | undefined {
+  return typeof value === 'number' && value >= 0 && value <= 1 ? value : undefined
 }
 
 function depthOf(value: unknown, fallback: Depth): Depth {
@@ -294,6 +321,8 @@ export function fitPick(pick: Choice, kind: Kind, policy: Policy): Fitted {
 
 export type RouterPlan = {
   why: string
+  /** Mức tin cậy router tự báo, 0 đến 1; thiếu thì coi là 1. */
+  confidence: number
   relation: Relation
   isReference: boolean
   runReference: boolean
@@ -313,10 +342,11 @@ export type RouterPlan = {
   notes: string[]
 }
 
-function agentTypeOf(value: unknown, kind: Kind): string {
-  const type = AGENT_TYPES.find(t => t === value) ?? 'general-purpose'
+function agentTypeOf(value: unknown, kind: Kind, policy: Policy): string {
+  const known = policy.agents && policy.agents.size > 0 ? [...policy.agents.keys()] : [...AGENT_TYPES]
+  const type = known.find(t => t === value) ?? 'general-purpose'
   // Explore và Plan không sửa được file.
-  return type !== 'general-purpose' && (kind === 'edit' || kind === 'mixed') ? 'general-purpose' : type
+  return READ_ONLY_AGENTS.has(type) && (kind === 'edit' || kind === 'mixed') ? 'general-purpose' : type
 }
 
 function parseTask(value: unknown, index: number, main: Choice, whole: { depth: Depth; volume: Volume; kind: Kind }, policy: Policy): Task | null {
@@ -335,7 +365,7 @@ function parseTask(value: unknown, index: number, main: Choice, whole: { depth: 
     index,
     title,
     run,
-    ...(run === 'agent' ? { agentType: agentTypeOf(raw['agent'], kind) } : {}),
+    ...(run === 'agent' ? { agentType: agentTypeOf(raw['agent'], kind, policy) } : {}),
     pick: fitted.pick,
     depth,
     volume,
@@ -356,7 +386,9 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
   const volume = volumeOf(raw['volume'], 'medium')
   const own = rawPick(raw['main'])
   if (own === null) return null
-  const relation = RELATIONS.find(r => r === raw['relation']) ?? 'new'
+  // Relation thiếu hoặc sai không được coi là mục tiêu mới: đổi mục tiêu cất checklist đang mở, nên khi không rõ
+  // thì giữ mục tiêu (tiếp nối). Chưa có mục tiêu nào thì nextBrief vẫn lập mục tiêu mới.
+  const relation = RELATIONS.find(r => r === raw['relation']) ?? 'continue'
   const goal = text(raw['goal'], 200)
   const runReference = raw['runReference'] === true
   // Chạy thật prompt đã đối chiếu không cần câu mục tiêu mới: mục tiêu lấy từ lượt đối chiếu.
@@ -374,6 +406,7 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
   const mainWhy = typeof raw['main'] === 'object' && raw['main'] !== null ? text((raw['main'] as Raw)['why']) : ''
   return {
     why: text(raw['why'], 200),
+    confidence: confidenceOf(raw['confidence']) ?? 1,
     relation,
     isReference,
     runReference,
@@ -394,6 +427,10 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
 
 /** Kết quả router chấm cho một subagent. */
 export type AgentRoute = {
+  /** Mức tin cậy router tự báo, 0 đến 1; thiếu thì coi là 1. */
+  confidence?: number
+  /** Số của việc đã phân mà router nhận ra lời gọi này đang làm. */
+  taskIndex?: number
   pick: Choice
   agentType: string
   depth: Depth
@@ -413,9 +450,13 @@ export function parseAgentRoute(reply: string, policy: Policy): AgentRoute | nul
   const volume = volumeOf(raw['volume'], 'small')
   const kind = kindOf(raw['kind'], 'mixed')
   const fitted = fitPick(own, kind, policy)
+  const confidence = confidenceOf(raw['confidence'])
+  const taskIndex = raw['task']
   return {
+    ...(confidence !== undefined ? { confidence } : {}),
+    ...(typeof taskIndex === 'number' && Number.isInteger(taskIndex) && taskIndex > 0 ? { taskIndex } : {}),
     pick: fitted.pick,
-    agentType: agentTypeOf(raw['agent'], kind),
+    agentType: agentTypeOf(raw['agent'], kind, policy),
     depth,
     volume,
     kind,
@@ -541,3 +582,104 @@ export function bareBrief(prompt: string, goalId: number, now: number): Brief {
     at: now,
   }
 }
+
+// ------------------------------------------------------------ gọi router (thuần, qua callback)
+
+/**
+ * Lời gọi model của hook. Hook truyền vào `r => $.model.complete(r).catch(() => null)`: engine chỉ cho gọi
+ * `$` ngay trong thân hook, nên logic gọi, thử lại và đọc kết quả nằm ở đây mà không đụng tới `$`.
+ */
+export type Ask = (request: ModelCompleteRequest) => Promise<ModelCompleteResult | null>
+
+/** Lý do router không trả được kết quả dùng được. */
+export function failureReason(reply: ModelCompleteResult | null): string {
+  if (reply === null) return 'engine từ chối gửi request tới model router'
+  if (reply.isAnswered) return 'câu trả lời không đúng định dạng'
+  if (reply.reason === 'api-error') return `lỗi API ${reply.error}${reply.status !== null ? ` ${reply.status}` : ''}`
+  if (reply.reason === 'aborted') return 'hết thời gian chờ'
+  return 'câu trả lời rỗng'
+}
+
+/**
+ * Request hỏi lại router đúng một lần: câu trả lời trước hỏng JSON (sửa lại cho đúng định dạng, effort thấp)
+ * hoặc router tự báo tin cậy thấp (đọc lại kỹ, effort cao).
+ */
+export function retryRequest(request: ModelCompleteRequest, previous: string, problem: 'json' | 'confidence'): ModelCompleteRequest {
+  const note =
+    problem === 'json'
+      ? 'Your previous answer was not one valid JSON object in the required shape. Reply again with ONE valid JSON object only, same content, fixed.'
+      : 'You reported low confidence. Re-read the request and the context carefully, fix any mistake, and reply again with ONE JSON object.'
+  const prompt = typeof request.prompt === 'string' ? request.prompt : request.prompt.map(block => block.text).join('')
+  return {
+    ...request,
+    prompt: `${prompt}\n\n<previous_answer>\n${clip(previous, 6000)}\n</previous_answer>\n${note}`,
+    effort: problem === 'json' ? 'low' : 'high',
+  }
+}
+
+export type RouterOutcome<T> = {
+  result: T | null
+  /** Lý do khi không có kết quả dùng được. */
+  reason: string
+  /** Usage của mọi lượt gọi (lượt đầu và lượt hỏi lại). */
+  usages: ModelUsage[]
+  retried: boolean
+}
+
+/**
+ * Gọi router, đọc kết quả, và hỏi lại đúng một lần khi câu trả lời hỏng JSON hoặc tin cậy dưới LOW_CONFIDENCE.
+ * Lỗi API hay hết giờ không hỏi lại (ngắt router lo phần đó). Khi hỏi lại vì tin cậy thấp, giữ câu trả lời tin cậy hơn.
+ */
+export async function askRouter<T extends { confidence?: number }>(
+  ask: Ask,
+  request: ModelCompleteRequest,
+  parse: (text: string) => T | null,
+): Promise<RouterOutcome<T>> {
+  const first = await ask(request)
+  const usages = first ? [first.usage] : []
+  const firstResult = first?.isAnswered ? parse(first.text) : null
+  const firstConfidence = firstResult?.confidence ?? 1
+  if (first === null || !first.isAnswered || (firstResult !== null && firstConfidence >= LOW_CONFIDENCE)) {
+    return { result: firstResult, reason: failureReason(first), usages, retried: false }
+  }
+  const second = await ask(retryRequest(request, first.text, firstResult === null ? 'json' : 'confidence'))
+  if (second) usages.push(second.usage)
+  const secondResult = second?.isAnswered ? parse(second.text) : null
+  const pick =
+    secondResult !== null && (firstResult === null || (secondResult.confidence ?? 1) >= firstConfidence) ? secondResult : firstResult
+  return { result: pick, reason: pick === null ? failureReason(second) : '', usages, retried: true }
+}
+
+/**
+ * Brief kế tiếp từ kế hoạch của router: chạy thật prompt đã đối chiếu, mục tiêu mới, hoặc tiếp nối.
+ * Chạy thật được xét trước relation, vì "chạy đi" có thể mang relation new mà vẫn là chạy việc đã đối chiếu.
+ */
+export function nextBrief(prev: Brief | null, plan: RouterPlan, prompt: string, now: number): { brief: Brief; added: Task[]; isNewGoal: boolean } {
+  if (prev !== null && prev.isReference && plan.runReference) {
+    return { brief: promoteReference(prev, plan, prompt, now), added: [], isNewGoal: true }
+  }
+  if (prev === null || plan.relation === 'new') {
+    return { brief: briefOf(plan, prompt, (prev?.goalId ?? 0) + 1, now), added: [], isNewGoal: true }
+  }
+  return { ...followUpOf(prev, plan, now), isNewGoal: false }
+}
+
+/**
+ * Lệnh /conductor reroute: router đọc lại prompt gần nhất (`fresh` là nextBrief với brief trước prompt đó). Khi prompt
+ * đó đã lập mục tiêu hiện tại và router vẫn xếp là mục tiêu mới, giữ số, câu mục tiêu và các bước của mục tiêu hiện tại
+ * (Claude có thể đã chốt lại qua plan set) và prompt gốc; phần đọc và điều phối lấy theo lần đọc mới.
+ */
+export function rerouted(current: Brief, fresh: Brief): Brief {
+  return { ...fresh, goalId: current.goalId, goal: current.goal, steps: current.steps, prompt: current.prompt }
+}
+
+/** Prompt ngắn người dùng cho phép bỏ qua router (option routerSkip): so khớp nguyên câu, bỏ dấu câu cuối, không phân biệt hoa thường. */
+export function isSkippable(text: string, phrases: ReadonlySet<string>): boolean {
+  if (phrases.size === 0) return false
+  return phrases.has(skipKey(text))
+}
+
+export function skipKey(text: string): string {
+  return text.trim().toLowerCase().replace(/[.!?…\s]+$/u, '')
+}
+

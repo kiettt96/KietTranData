@@ -1,7 +1,9 @@
 {
   "name": "focus-conductor",
   "version": "0.4.0",
-  "author": { "name": "Kiet Tran" },
+  "author": {
+    "name": "Kiet Tran"
+  },
   "description": "Một model Claude (router) đọc kỹ prompt trước khi làm và điều phối model/effort/agent cho từng việc; mod kiểm, ép điều phối lúc chạy, giữ nhất quán mục tiêu với checklist và cảnh báo lạc đề.",
   "types": "./types/index.d.ts",
   "userConfig": {
@@ -10,7 +12,12 @@
       "title": "Chế độ điều phối",
       "description": "auto: tự áp dụng cho luồng chính và subagent; subagents: chỉ subagent (giữ nguyên cache luồng chính); suggest: chỉ đề xuất; off: tắt toàn bộ mod",
       "default": "auto",
-      "options": ["auto", "subagents", "suggest", "off"]
+      "options": [
+        "auto",
+        "subagents",
+        "suggest",
+        "off"
+      ]
     },
     "router": {
       "type": "string",
@@ -41,7 +48,11 @@
       "title": "Chính sách model của phiên",
       "description": "auto: mod tự chọn model cho luồng chính và subagent; ceiling: không vượt model đang dùng của phiên; fixed: giữ model của phiên, chỉ chỉnh effort",
       "default": "auto",
-      "options": ["auto", "ceiling", "fixed"]
+      "options": [
+        "auto",
+        "ceiling",
+        "fixed"
+      ]
     },
     "contextWindows": {
       "type": "string",
@@ -54,6 +65,73 @@
       "title": "Thời gian sống của cache (phút)",
       "description": "Sau bao nhiêu phút không có turn thì cache coi như nguội, khi đó đổi model không mất chi phí ghi lại cache. Mặc định 5 (theo TTL của Anthropic)",
       "default": "5"
+    },
+    "routerSkip": {
+      "type": "string",
+      "title": "Prompt không cần hỏi router",
+      "description": "Các câu tiếp nối ngắn, phân tách bằng dấu phẩy (ví dụ: ok,tiếp,tiếp tục,go). Prompt trùng nguyên câu (không phân biệt hoa thường, bỏ dấu câu cuối) và đã có mục tiêu thì giữ điều phối hiện tại, không gọi router. Để trống (mặc định): mọi prompt đều qua router",
+      "default": ""
+    },
+    "routerFallback": {
+      "type": "string",
+      "title": "Khi router lỗi",
+      "description": "session: turn chạy theo model của phiên, giữ mục tiêu và checklist (mặc định); reuse: dùng lại lựa chọn luồng chính của prompt trước",
+      "default": "session",
+      "options": [
+        "session",
+        "reuse"
+      ]
+    },
+    "strictDelegation": {
+      "type": "string",
+      "title": "Giữ việc đã giao subagent",
+      "description": "Khi luồng chính tự sửa file trong lúc còn việc router ghi giao subagent mà chưa giao. off: nhắc một lần (mặc định); remind: nhắc ở mỗi lần sửa; block: từ chối Edit/Write/NotebookEdit của luồng chính tới khi giao xong hoặc router đọc prompt mới",
+      "default": "off",
+      "options": [
+        "off",
+        "remind",
+        "block"
+      ]
+    },
+    "remindSubagents": {
+      "type": "boolean",
+      "title": "Nhắc subagent khi lạc đề",
+      "description": "Subagent đã điều phối sửa file ngoài phạm vi, lặp lỗi hoặc vượt ngân sách thì được nhắc kèm việc được giao. Mặc định tắt để tránh nhiễu",
+      "default": false
+    },
+    "semanticDrift": {
+      "type": "boolean",
+      "title": "Kiểm lạc đề theo nội dung",
+      "description": "Ở mỗi checkpoint (5 thay đổi chưa kiểm tra), hỏi model router một lượt ngắn xem các thay đổi còn phục vụ mục tiêu không; lạc đề thì nhắc ở prompt sau. Tốn thêm một lượt router mỗi checkpoint. Mặc định tắt",
+      "default": false
+    },
+    "decisionLog": {
+      "type": "string",
+      "title": "File log quyết định (JSONL)",
+      "description": "Đường dẫn file ghi mỗi quyết định điều phối một dòng JSON (router đọc prompt, router lỗi, chấm subagent, đổi model). Để trống (mặc định): không ghi",
+      "default": ""
+    },
+    "agentTypes": {
+      "type": "string",
+      "title": "Loại agent thêm cho router",
+      "description": "Tên loại agent ngoài Explore, Plan, general-purpose mà router được chọn, phân tách bằng dấu phẩy. Loại engine đang mời được thêm tự động",
+      "default": ""
+    },
+    "prices": {
+      "type": "string",
+      "title": "Ghi đè bảng giá",
+      "description": "Dạng family=input/output USD mỗi 1M token, phân tách bằng dấu phẩy, ví dụ: sonnet=2/10,opus=4/20. Để trống dùng bảng giá kèm mod (ghi ngày ở /conductor status)",
+      "default": ""
+    },
+    "uiLanguage": {
+      "type": "string",
+      "title": "Ngôn ngữ giao diện",
+      "description": "vi hoặc en cho band, pane, status và thông báo; khối gửi Claude giữ tiếng Việt",
+      "default": "vi",
+      "options": [
+        "vi",
+        "en"
+      ]
     }
   }
 }

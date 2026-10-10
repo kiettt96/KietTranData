@@ -973,7 +973,7 @@ describe('checklist và chặn kết thúc', () => {
     await submit($, 'Viết hàm slugify(text) bằng TypeScript, có unit test, code sạch có type đầy đủ.')
     const second = seen.contexts[1]?.join('\n') ?? ''
     expect(second).toContain('Bản đọc prompt của router')
-    expect(second).toContain('Checklist cũ còn 2 bước mở đã bị bỏ')
+    expect(second).toContain('Checklist cũ còn 2 bước mở đã được lưu')
   })
 
   test('plan "set" đổi mục tiêu: router thấy mục tiêu mới; tiếp nối giữ mục tiêu đó', {}, async ($, on) => {
@@ -1011,7 +1011,7 @@ describe('lệnh /conductor', () => {
     expect((await conductor($, 'status')).text).toContain('Chưa có mục tiêu')
   })
 
-  test('goal khi router lỗi: đặt mục tiêu không có lựa chọn model, có báo checklist cũ bị bỏ', {}, async ($, on) => {
+  test('goal khi router lỗi: đặt mục tiêu không có lựa chọn model, có báo checklist cũ đã được lưu', {}, async ($, on) => {
     let isDown = false
     const seen = base(on, { router: request => (isDown ? null : DEFAULT_ROUTER(request)) })
     await submit($, COMPLEX_PROMPT)
@@ -1019,7 +1019,7 @@ describe('lệnh /conductor', () => {
     isDown = true
     const goal = await conductor($, 'goal Viết hàm parseDate')
     expect(goal.text).toContain('Router không đọc được')
-    expect(goal.context?.join('\n')).toContain('Checklist cũ còn 1 bước mở đã bị bỏ')
+    expect(goal.context?.join('\n')).toContain('Checklist cũ còn 1 bước mở đã được lưu')
     expect(await step($, seen)).toEqual({ model: 'claude-sonnet-5-5', effort: 'medium' })
   })
 
@@ -1209,3 +1209,317 @@ describe('rà soát trước merge (0.4.0)', () => {
   })
 })
 
+
+describe('0.5.0: không mất tiến độ khi đổi mục tiêu', () => {
+  const PLAN = 'mcp__focus-conductor__plan'
+
+  test('mục tiêu mới cất checklist cũ còn bước mở; restore khôi phục đúng mục tiêu và trạng thái từng bước', {}, async ($, on) => {
+    const seen = base(on)
+    await submit($, COMPLEX_PROMPT)
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Phân tích' }, { title: 'Thiết kế' }] })
+    await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'done' })
+    await submit($, 'Viết hàm slugify(text) bằng TypeScript, có unit test.')
+    expect(seen.contexts[1]?.join('\n')).toContain('action "restore"')
+    expect(seen.toasts.some(t => t.includes('đã được lưu'))).toBe(true)
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Viết slugify' }] })
+    const restored = await $.tool.call({ tool: PLAN, action: 'restore' })
+    expect(String(restored.result)).toContain('Đã khôi phục mục tiêu: Refactor module thanh toán')
+    expect(String(restored.result)).toContain('[x] 1. Phân tích')
+    expect(String(restored.result)).toContain('[ ] 2. Thiết kế')
+    // Mục tiêu slugify còn bước mở nên đến lượt nó được cất; khôi phục lại được.
+    const back = await $.tool.call({ tool: PLAN, action: 'restore', index: 1 })
+    expect(String(back.result)).toContain('Viết slugify')
+  })
+
+  test('restore khi không có gì đã lưu, hoặc index ngoài phạm vi, thì bị từ chối kèm lý do', {}, async ($, on) => {
+    base(on)
+    await submit($, COMPLEX_PROMPT)
+    expect((await $.tool.call({ tool: PLAN, action: 'restore' })).deny).toContain('Không có mục tiêu cũ')
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Phân tích' }] })
+    await submit($, 'Viết hàm slugify(text) bằng TypeScript, có unit test.')
+    expect((await $.tool.call({ tool: PLAN, action: 'restore', index: 2 })).deny).toContain('index từ 1')
+  })
+
+  test('checklist cũ đã đóng hết thì không cần lưu', {}, async ($, on) => {
+    base(on)
+    await submit($, COMPLEX_PROMPT)
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Phân tích' }] })
+    await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'done' })
+    await submit($, 'Viết hàm slugify(text) bằng TypeScript, có unit test.')
+    expect((await $.tool.call({ tool: PLAN, action: 'restore' })).deny).toContain('Không có mục tiêu cũ')
+  })
+
+  test('router không ghi relation (hoặc ghi sai) thì giữ mục tiêu, không cất checklist', {}, async ($, on) => {
+    const seen = base(on, {
+      router: request => (request.startsWith('Làm tiếp') ? { ...plan({ goal: '' }), relation: undefined } : DEFAULT_ROUTER(request)),
+    })
+    await submit($, FOUR)
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Tìm chỗ gọi' }] })
+    await submit($, 'Làm tiếp phần đổi tên nhé')
+    expect(seen.contexts[1]?.join('\n')).toContain('Tiếp nối mục tiêu hiện tại: Nâng cấp module thanh toán')
+    expect(seen.contexts[1]?.join('\n')).toContain('Bước còn mở: 1. Tìm chỗ gọi')
+  })
+
+  test('plan set nhận scope: sửa ngoài phạm vi bị cảnh báo; scope rỗng bỏ giới hạn; mục không phải đường dẫn bị từ chối', {}, async ($, on) => {
+    base(on)
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    await submit($, COMPLEX_PROMPT)
+    const bad = await $.tool.call({ tool: PLAN, action: 'set', goal: 'Refactor', scope: ['module thanh toán'] })
+    expect(bad.deny).toContain('scope chỉ nhận đường dẫn')
+    await $.tool.call({ tool: PLAN, action: 'set', goal: 'Refactor', scope: ['src/pay/'] })
+    const outside = await $.tool.call({ tool: 'Edit', file_path: '/repo/src/other.ts', old_string: 'a', new_string: 'b' })
+    expect(JSON.stringify(outside.context ?? [])).toContain('ngoài phạm vi')
+    await $.tool.call({ tool: PLAN, action: 'set', goal: 'Refactor', scope: [] })
+    const free = await $.tool.call({ tool: 'Edit', file_path: '/repo/src/other2.ts', old_string: 'a', new_string: 'b' })
+    expect(JSON.stringify(free.context ?? [])).not.toContain('ngoài phạm vi')
+  })
+})
+
+describe('0.5.0: prompt tiếp nối ngắn và đọc lại prompt', () => {
+  test('mặc định (routerSkip trống) prompt "ok" vẫn qua router', {}, async ($, on) => {
+    const seen = base(on)
+    await submit($, FOUR)
+    await submit($, 'ok')
+    expect(seen.routed.length).toBe(2)
+  })
+
+  test('routerSkip: câu trong danh sách không hỏi router, giữ mục tiêu và điều phối; câu khác vẫn hỏi', { options: { routerSkip: 'ok, tiếp tục' } }, async ($, on) => {
+    const seen = base(on)
+    await submit($, FOUR)
+    await step($, seen, { turnId: 't1' })
+    await submit($, 'OK.')
+    await submit($, 'Tiếp tục')
+    expect(seen.routed.length).toBe(1)
+    const context = seen.contexts[1]?.join('\n') ?? ''
+    expect(context).toContain('Tiếp nối mục tiêu hiện tại: Nâng cấp module thanh toán')
+    expect(context).toContain('router không đọc lại')
+    // Điều phối luồng chính giữ nguyên lựa chọn của router cho mục tiêu.
+    expect((await step($, seen, { turnId: 't2' }))?.model).toBe('claude-opus-5-5')
+    await submit($, 'ok sửa luôn phần README')
+    expect(seen.routed.length).toBe(2)
+  })
+
+  test('routerSkip khi chưa có mục tiêu: vẫn hỏi router', { options: { routerSkip: 'ok' } }, async ($, on) => {
+    const seen = base(on)
+    await submit($, 'ok')
+    expect(seen.routed.length).toBe(1)
+  })
+
+  test('/conductor reroute: router đọc lại prompt gần nhất kể cả khi đang tạm ngừng, giữ checklist', {}, async ($, on) => {
+    let isDown = true
+    const seen = base(on, { router: request => (isDown ? null : DEFAULT_ROUTER(request)) })
+    await submit($, 'Prompt thử số 1 có nhiều chữ')
+    await submit($, FOUR)
+    expect(seen.toasts.some(t => t.includes('tạm bỏ qua router'))).toBe(true)
+    isDown = false
+    const result = await conductor($, 'reroute')
+    expect(result.text).toContain('Router đã đọc lại prompt gần nhất: Nâng cấp module thanh toán')
+    expect(result.context?.join('\n')).toContain('2. Đổi tên userId thành accountId')
+    // Router hết tạm ngừng: prompt sau được đọc ngay.
+    await submit($, 'Thêm test cho webhook')
+    expect(seen.routed.length).toBe(4)
+    await $.tool.call({ tool: 'mcp__focus-conductor__plan', action: 'set', steps: [{ title: 'Đổi tên' }] })
+    const again = await conductor($, 'reroute')
+    expect(again.text).toContain('Router đã đọc lại')
+    expect(String((await conductor($, 'status')).text)).toContain('1. Đổi tên')
+  })
+
+  test('/conductor reroute khi router vẫn lỗi: giữ điều phối hiện tại; khi chưa có prompt: báo rõ', {}, async ($, on) => {
+    let isDown = false
+    base(on, { router: request => (isDown ? null : DEFAULT_ROUTER(request)) })
+    expect((await conductor($, 'reroute')).text).toContain('Không có prompt nào')
+    await submit($, FOUR)
+    isDown = true
+    expect((await conductor($, 'reroute')).text).toContain('Router không đọc được')
+    expect(String((await conductor($, 'status')).text)).toContain('Mục tiêu: Nâng cấp module thanh toán')
+  })
+
+  test('/conductor reroute sau khi router lỗi ở prompt tiếp nối: áp phần đọc mới lên mục tiêu, không lập mục tiêu mới', {}, async ($, on) => {
+    let isDown = false
+    const seen = base(on, {
+      router: request =>
+        isDown ? null : request.startsWith('Thêm') ? plan({ relation: 'continue', goal: '', tasks: [task('Viết test webhook', 'agent', 'sonnet', 'medium')] }) : DEFAULT_ROUTER(request),
+    })
+    await submit($, FOUR)
+    await $.tool.call({ tool: 'mcp__focus-conductor__plan', action: 'set', steps: [{ title: 'Tìm chỗ gọi' }] })
+    isDown = true
+    await submit($, 'Thêm test cho webhook thanh toán nữa')
+    isDown = false
+    const result = await conductor($, 'reroute')
+    expect(result.context?.join('\n')).toContain('5. Viết test webhook')
+    const status = String((await conductor($, 'status')).text)
+    expect(status).toContain('Mục tiêu: Nâng cấp module thanh toán')
+    expect(status).toContain('1. Tìm chỗ gọi')
+    void seen
+  })
+
+  test('/conductor goal hỏi router cả khi router đang tạm ngừng', {}, async ($, on) => {
+    let isDown = true
+    const seen = base(on, { router: request => (isDown ? null : DEFAULT_ROUTER(request)) })
+    await submit($, 'Prompt thử số 1 có nhiều chữ')
+    await submit($, 'Prompt thử số 2 có nhiều chữ')
+    isDown = false
+    const goal = await conductor($, 'goal Viết hàm parseDate cho ngày ISO')
+    expect(goal.text).toContain('luồng chính sonnet/medium')
+    expect(seen.routed.length).toBe(3)
+  })
+})
+
+describe('0.5.0: giao việc đã phân', () => {
+  test('router nhận ra lời gọi Agent là một việc đã phân dù không ghi "Việc N": dùng lựa chọn đã phân, hết chờ giao', {}, async ($, on) => {
+    const seen = base(on, {
+      agent: text => (text.startsWith('Description: Đổi tên') ? { why: 'đúng việc 2', task: 2, model: 'opus', effort: 'high', agent: 'general-purpose', depth: 'light', volume: 'small', kind: 'edit' } : DEFAULT_AGENT(text)),
+    })
+    const models: Array<string | undefined> = []
+    on('tool.call', { tool: 'Agent' }, (_$, e) => {
+      models.push(`${e.model}/${e.effort}`)
+      return { deny: 'test: đã ghi nhận đầu vào' }
+    })
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    await submit($, FOUR)
+    await $.tool.call({ tool: 'Agent', description: 'Đổi tên userId sang accountId', prompt: EDIT })
+    expect(seen.agentRouted[0]).toContain('Tasks of the goal:')
+    expect(seen.agentRouted[0]).toContain('  2. Đổi tên userId thành accountId trong 12 file controller.')
+    // Lựa chọn đã phân cho việc 2 (sonnet/medium), không phải lựa chọn router vừa chấm.
+    expect(models).toEqual(['sonnet/medium'])
+    const edit = await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' })
+    expect((edit.context ?? []).join('\n')).toContain('Việc 1 (haiku/low), 4 (sonnet/medium)')
+  })
+
+  test('lời gọi gần khớp mà không khớp được ghi vào log quyết định', { options: { decisionLog: '/tmp/fc-decisions.jsonl' } }, async ($, on) => {
+    base(on)
+    const writes: string[] = []
+    on('fs.write', (_$, e) => {
+      writes.push(e.text)
+      return { value: undefined }
+    })
+    on('tool.call', { tool: 'Agent' }, () => ({ deny: 'test' }))
+    await submit($, FOUR)
+    await $.tool.call({ tool: 'Agent', description: 'Bước 2: đổi tên', prompt: EDIT })
+    const lines = (writes[writes.length - 1] ?? '').trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
+    expect(lines.map(l => l['kind'])).toEqual(['route', 'agent'])
+    expect(lines[1]?.['miss']).toContain('"Bước 2" là số bước của checklist')
+  })
+
+  test('strictDelegation off (mặc định): chỉ nhắc ở lần sửa file đầu tiên', {}, async ($, on) => {
+    base(on)
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    await submit($, FOUR)
+    const first = await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' })
+    const second = await $.tool.call({ tool: 'Edit', file_path: 'src/b.ts', old_string: 'a', new_string: 'b' })
+    expect((first.context ?? []).join('\n')).toContain('chưa giao')
+    expect((second.context ?? []).join('\n')).not.toContain('chưa giao')
+  })
+
+  test('strictDelegation remind: nhắc ở mọi lần thay đổi, kể cả lệnh ghi file; lệnh chỉ đọc thì không', { options: { strictDelegation: 'remind' } }, async ($, on) => {
+    base(on)
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    on('tool.call', { tool: 'Bash' }, () => ({ result: 'ok' }))
+    await submit($, FOUR)
+    await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' })
+    const again = await $.tool.call({ tool: 'Edit', file_path: 'src/b.ts', old_string: 'a', new_string: 'b' })
+    const bash = await $.tool.call({ tool: 'Bash', command: "sed -i 's/a/b/' src/c.ts" })
+    const read = await $.tool.call({ tool: 'Bash', command: 'cat src/c.ts' })
+    expect((again.context ?? []).join('\n')).toContain('chưa giao')
+    expect((bash.context ?? []).join('\n')).toContain('chưa giao')
+    expect((read.context ?? []).join('\n')).not.toContain('chưa giao')
+  })
+
+  test('strictDelegation block: chặn sửa file tối đa hai lần mỗi mục tiêu; giao hết thì không chặn; file kế hoạch không chặn', { options: { strictDelegation: 'block' } }, async ($, on) => {
+    base(on)
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    on('tool.call', { tool: 'Write' }, () => ({ result: 'ok' }))
+    on('tool.call', { tool: 'Agent' }, () => ({ deny: 'test' }))
+    await submit($, FOUR)
+    const plan = await $.tool.call({ tool: 'Write', file_path: '/root/.claude/plans/p.md', content: 'x' })
+    expect(plan.deny).toBeUndefined()
+    const first = await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' })
+    expect(first.deny).toContain('Việc 1 (haiku/low), 2 (sonnet/medium), 4 (sonnet/medium)')
+    expect((await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' })).deny).toContain('lần chặn cuối')
+    expect((await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' })).deny).toBeUndefined()
+    // Mục tiêu mới, giao hết việc: không chặn.
+    await submit($, `${FOUR}\n5. Thêm log.`)
+    for (const n of [1, 2, 4]) await $.tool.call({ tool: 'Agent', description: `Việc ${n}: làm`, prompt: 'x' })
+    expect((await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' })).deny).toBeUndefined()
+  })
+
+  test('strictDelegation block không chặn subagent và không chặn ở chế độ suggest', { options: { strictDelegation: 'block', routing: 'suggest' } }, async ($, on) => {
+    base(on)
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    await submit($, FOUR)
+    expect((await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' })).deny).toBeUndefined()
+  })
+})
+
+describe('0.5.0: engine tự đổi model khác người dùng đổi model', () => {
+  const SWITCH = { from_model: 'claude-sonnet-5-5', requested_model: null, context_tokens: 0, prompt_cache_warm: false, cache_ttl: '5m', estimated_cache_write_usd: 0 } as const
+
+  test('engine tự đổi (source auto): mod vẫn điều phối luồng chính, nhật ký ghi là engine', {}, async ($, on) => {
+    const seen = base(on)
+    on('classic.PostModelSwitch', () => ({}))
+    await submit($, COMPLEX_PROMPT)
+    expect((await step($, seen, { turnId: 't1' }))?.model).toBe('claude-opus-5-5')
+    await $.classic.PostModelSwitch({ ...SWITCH, to_model: 'claude-haiku-5-5', source: 'auto' } as never)
+    expect((await step($, seen, { turnId: 't2', model: 'claude-haiku-5-5' }))?.model).toBe('claude-opus-5-5')
+    const ui = await $.ui.mount(PANE)
+    expect(await ui.find({ type: 'Text', text: /engine tự đổi model phiên sang claude-haiku-5-5 \(auto\)/ })).toBeDefined()
+    await ui.unmount()
+  })
+
+  test('người dùng gõ /model (source command): tạm dừng tự điều phối tới mục tiêu mới', {}, async ($, on) => {
+    const seen = base(on)
+    on('classic.PostModelSwitch', () => ({}))
+    await submit($, COMPLEX_PROMPT)
+    await step($, seen, { turnId: 't1' })
+    await $.classic.PostModelSwitch({ ...SWITCH, to_model: 'claude-haiku-5-5', source: 'command' } as never)
+    expect((await step($, seen, { turnId: 't2', model: 'claude-haiku-5-5' }))?.model).toBe('claude-haiku-5-5')
+  })
+
+  test('engine không báo nguồn (không có hook): đổi model giữa các turn vẫn coi là người dùng đổi', {}, async ($, on) => {
+    const seen = base(on)
+    await submit($, COMPLEX_PROMPT)
+    await step($, seen, { turnId: 't1' })
+    expect((await step($, seen, { turnId: 't2', model: 'claude-haiku-5-5' }))?.model).toBe('claude-haiku-5-5')
+  })
+
+  test('lần đổi do engine chỉ áp cho đúng lần đổi đó: người dùng đổi tiếp sau đó thì tạm dừng', {}, async ($, on) => {
+    const seen = base(on)
+    on('classic.PostModelSwitch', () => ({}))
+    await submit($, COMPLEX_PROMPT)
+    await step($, seen, { turnId: 't1' })
+    await $.classic.PostModelSwitch({ ...SWITCH, to_model: 'claude-haiku-5-5', source: 'auto' } as never)
+    await step($, seen, { turnId: 't2', model: 'claude-haiku-5-5' })
+    expect((await step($, seen, { turnId: 't3', model: 'claude-sonnet-5-5' }))?.model).toBe('claude-sonnet-5-5')
+  })
+})
+
+describe('0.5.0: hỏi lại router và bộ đếm lỗi riêng', () => {
+  test('router trả JSON hỏng rồi trả đúng: prompt được đọc, chi phí cộng cả hai lượt, nhật ký ghi đã hỏi lại', { options: { decisionLog: '/tmp/fc.jsonl' } }, async ($, on) => {
+    let n = 0
+    const seen = base(on, { router: request => ((n += 1) === 1 ? '{"goal": "x", "main": {' : DEFAULT_ROUTER(request)) })
+    const writes: string[] = []
+    on('fs.write', (_$, e) => {
+      writes.push(e.text)
+      return { value: undefined }
+    })
+    await submit($, COMPLEX_PROMPT)
+    expect(seen.routed.length).toBe(2)
+    expect(seen.contexts[0]?.join('\n')).toContain('Mục tiêu cuối: Refactor module thanh toán')
+    // Hai lượt router, mỗi lượt $0.007 ở giá sonnet.
+    expect(String((await conductor($, 'status')).text)).toContain('Mục tiêu này: $0.014,')
+    expect(JSON.parse(writes[writes.length - 1]?.trim() ?? '{}')).toMatchObject({ kind: 'route', retried: true })
+  })
+
+  test('router chấm subagent lỗi liên tiếp không làm tạm ngừng router đọc prompt', {}, async ($, on) => {
+    const seen = base(on, { agent: () => null })
+    on('tool.call', { tool: 'Agent' }, () => ({ deny: 'test' }))
+    await submit($, FOUR)
+    for (const n of [1, 2, 3]) await $.tool.call({ tool: 'Agent', description: `Rà soát phần ${n}`, prompt: `Rà soát phần ${n} của module` })
+    expect(seen.toasts.some(t => t.includes('Router chấm subagent (sonnet) lỗi 2 lần liên tiếp'))).toBe(true)
+    // Lần thứ ba trong thời gian tạm ngừng của router chấm subagent: không hỏi.
+    expect(seen.agentRouted.length).toBe(2)
+    await submit($, 'Viết hàm parseDate nhận chuỗi ISO và trả về Date')
+    expect(seen.routed.length).toBe(2)
+    expect(seen.toasts.some(t => t.includes('tạm bỏ qua router trong'))).toBe(false)
+  })
+})

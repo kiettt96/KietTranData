@@ -6,15 +6,21 @@ import { describe, expect, test } from 'claude-code/testing'
 import type { Brief, ModelFamily } from '../types'
 import { briefContext } from '../hooks/lib/text'
 import {
+  LOW_CONFIDENCE,
   agentRouterRequest,
+  askRouter,
   bareBrief,
   briefOf,
   fitPick,
   followUpOf,
   parseAgentRoute,
   parseRoute,
+  isSkippable,
+  nextBrief,
   promoteReference,
+  rerouted,
   routerRequest,
+  skipKey,
   taskRoute,
 } from '../hooks/lib/router'
 import type { Policy, RouterPlan } from '../hooks/lib/router'
@@ -171,7 +177,8 @@ describe('đọc JSON của router', () => {
       ],
     })
     expect(p.depth).toBe('light')
-    expect(p.relation).toBe('new')
+    // Relation sai không được coi là mục tiêu mới (sẽ cất checklist đang mở): coi là tiếp nối.
+    expect(p.relation).toBe('continue')
     expect(p.tasks.length).toBe(2)
     expect(p.tasks[0]?.run).toBe('main')
     expect(p.tasks[0]?.pick).toEqual({ family: 'opus', effort: 'high' })
@@ -316,5 +323,118 @@ describe('brief từ kế hoạch của router', () => {
     expect(brief.main).toBeNull()
     expect(brief.tasks).toEqual([])
     expect(brief.source).toBe('none')
+  })
+})
+
+describe('0.5.0: hỏi lại router một lần', () => {
+  const USAGE = { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
+  const request = routerRequest({ text: 'Sửa lỗi đăng nhập', prev: null, ran: null, policy: OPEN, model: 'sonnet' })
+  const parse = (text: string) => parseRoute(text, OPEN)
+  function asker(replies: Array<string | null | 'api-error'>) {
+    const seen: string[] = []
+    const ask = async (r: typeof request) => {
+      seen.push(textOf(r.prompt) + `|effort=${r.effort}`)
+      const reply = replies.shift()
+      if (reply === null || reply === undefined) return null
+      if (reply === 'api-error') return { isAnswered: false as const, reason: 'api-error' as const, status: 529, error: 'overloaded' as const, usage: USAGE }
+      return { isAnswered: true as const, text: reply, usage: USAGE }
+    }
+    return { ask, seen }
+  }
+
+  test('JSON hỏng: hỏi lại một lần (effort thấp, kèm câu trả lời trước); lần hai đúng thì dùng, usage cộng cả hai', async () => {
+    const { ask, seen } = asker(['{"goal": "x", "main": {', JSON.stringify(REPLY)])
+    const outcome = await askRouter(ask, request, parse)
+    expect(outcome.result?.goal).toBe('Làm ba việc trong shop-api')
+    expect(outcome.retried).toBe(true)
+    expect(outcome.usages.length).toBe(2)
+    expect(seen[1]).toContain('<previous_answer>')
+    expect(seen[1]).toContain('not one valid JSON object')
+    expect(seen[1]).toContain('|effort=low')
+  })
+
+  test('tin cậy thấp: hỏi lại với effort cao; giữ câu trả lời tin cậy hơn', async () => {
+    const low = JSON.stringify({ ...REPLY, confidence: 0.2, goal: 'Đọc lần một' })
+    const high = JSON.stringify({ ...REPLY, confidence: 0.9, goal: 'Đọc lần hai' })
+    const better = asker([low, high])
+    const first = await askRouter(better.ask, request, parse)
+    expect(first.result?.goal).toBe('Đọc lần hai')
+    expect(better.seen[1]).toContain('low confidence')
+    expect(better.seen[1]).toContain('|effort=high')
+    // Lần hai còn kém tin cậy hơn: giữ lần một.
+    const worse = asker([low, JSON.stringify({ ...REPLY, confidence: 0.1, goal: 'Đọc lần hai' })])
+    expect((await askRouter(worse.ask, request, parse)).result?.goal).toBe('Đọc lần một')
+  })
+
+  test('tin cậy đủ, hoặc không ghi tin cậy: không hỏi lại', async () => {
+    const enough = asker([JSON.stringify({ ...REPLY, confidence: LOW_CONFIDENCE })])
+    expect((await askRouter(enough.ask, request, parse)).retried).toBe(false)
+    const silent = asker([JSON.stringify(REPLY)])
+    const outcome = await askRouter(silent.ask, request, parse)
+    expect(outcome.retried).toBe(false)
+    expect(outcome.result?.confidence).toBe(1)
+  })
+
+  test('lỗi API, hết giờ hay engine từ chối: không hỏi lại', async () => {
+    const api = asker(['api-error'])
+    const outcome = await askRouter(api.ask, request, parse)
+    expect(outcome.result).toBeNull()
+    expect(outcome.reason).toBe('lỗi API overloaded 529')
+    expect(api.seen.length).toBe(1)
+    const refused = asker([null])
+    expect((await askRouter(refused.ask, request, parse)).reason).toBe('engine từ chối gửi request tới model router')
+  })
+
+  test('hỏi lại vẫn hỏng: không có kết quả, lý do là của lần hai', async () => {
+    const { ask } = asker(['khong co json', 'api-error'])
+    const outcome = await askRouter(ask, request, parse)
+    expect(outcome.result).toBeNull()
+    expect(outcome.reason).toBe('lỗi API overloaded 529')
+    expect(outcome.usages.length).toBe(2)
+  })
+
+  test('chấm subagent đọc confidence và số việc router nhận ra; số việc sai bị bỏ', () => {
+    const base = { why: 'w', model: 'sonnet', effort: 'medium', agent: 'general-purpose', depth: 'light', volume: 'small', kind: 'edit' }
+    expect(parseAgentRoute(JSON.stringify({ ...base, confidence: 0.7, task: 3 }), OPEN)).toMatchObject({ confidence: 0.7, taskIndex: 3 })
+    const bad = parseAgentRoute(JSON.stringify({ ...base, confidence: 7, task: 'ba' }), OPEN)
+    expect(bad?.confidence).toBeUndefined()
+    expect(bad?.taskIndex).toBeUndefined()
+  })
+})
+
+describe('0.5.0: brief kế tiếp, đọc lại, bỏ qua router', () => {
+  const plan = parseRoute(JSON.stringify(REPLY), OPEN) as RouterPlan
+  const prev = briefOf(plan, 'Làm ba việc', 4, 1)
+
+  test('nextBrief: chưa có mục tiêu hoặc relation new là mục tiêu mới; còn lại là tiếp nối', () => {
+    expect(nextBrief(null, { ...plan, relation: 'continue' }, 'x', 2)).toMatchObject({ isNewGoal: true, brief: { goalId: 1 } })
+    expect(nextBrief(prev, plan, 'x', 2)).toMatchObject({ isNewGoal: true, brief: { goalId: 5 } })
+    const follow = nextBrief(prev, { ...plan, relation: 'refine' }, 'x', 2)
+    expect(follow.isNewGoal).toBe(false)
+    expect(follow.brief.goalId).toBe(4)
+    expect(follow.added.map(t => t.index)).toEqual([4, 5, 6])
+  })
+
+  test('nextBrief: chạy thật prompt đã đối chiếu được xét trước relation', () => {
+    const reference = { ...prev, isReference: true }
+    const run = nextBrief(reference, { ...plan, relation: 'continue', runReference: true }, 'chạy đi', 2)
+    expect(run.isNewGoal).toBe(true)
+    expect(run.brief.isReference).toBe(false)
+  })
+
+  test('rerouted giữ số, câu mục tiêu, các bước và prompt gốc; lấy phần đọc mới', () => {
+    const current = { ...prev, goal: 'Mục tiêu Claude đã chốt', steps: ['A', 'B'], prompt: 'prompt gốc' }
+    const fresh = briefOf({ ...plan, depth: 'hard', main: { family: 'opus', effort: 'xhigh' } }, 'prompt gốc', 9, 3)
+    const result = rerouted(current, fresh)
+    expect(result).toMatchObject({ goalId: 4, goal: 'Mục tiêu Claude đã chốt', steps: ['A', 'B'], prompt: 'prompt gốc', depth: 'hard' })
+    expect(result.main).toEqual({ family: 'opus', effort: 'xhigh' })
+  })
+
+  test('routerSkip so khớp nguyên câu, bỏ dấu câu cuối, không phân biệt hoa thường; danh sách rỗng thì không bỏ qua', () => {
+    const phrases = new Set(['ok', 'tiếp tục'].map(skipKey))
+    expect(isSkippable('OK!', phrases)).toBe(true)
+    expect(isSkippable('  tiếp tục...  ', phrases)).toBe(true)
+    expect(isSkippable('ok sửa luôn README', phrases)).toBe(false)
+    expect(isSkippable('ok', new Set())).toBe(false)
   })
 })
