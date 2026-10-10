@@ -19,9 +19,9 @@
 import { atom, derive, read, update } from 'claude-code'
 import type { PromptOrigin, Register } from 'claude-code'
 
-import type { Brief, Core, Effort, Lift, Mode, ModelFamily, Route, RouteEvent, Tier, Warning } from '../types'
+import type { Brief, Core, Depth, Effort, Lift, Mode, ModelFamily, Route, RouteEvent, Tier, Warning } from '../types'
 import { analyzeHeuristic, analyzerRequest, isSameIdea, localRelation, mergeAnalysis } from './lib/analyze'
-import { filePathOf, isExecuting, newTracker, observe, openSteps, summarize } from './lib/drift'
+import { filePathOf, isExecuting, isPlanFile, newTracker, observe, openSteps, summarize } from './lib/drift'
 import type { TurnTracker } from './lib/drift'
 import { DEFAULT_CONTEXT, fixedContextTokens, turnCost } from './lib/cost'
 import { addUsage, calibrate, countSpawn, formatUsd, ledgerLines } from './lib/ledger'
@@ -73,8 +73,6 @@ const COMPACTION_DROP = 0.6
 /** Cửa sổ ngữ cảnh khi chưa đọc được từ phiên [Giả định]. */
 const DEFAULT_WINDOW = 200_000
 /** Tool sửa file của luồng chính (dùng để nhắc giao việc đã phân). */
-// File kế hoạch của plan mode (~/.claude/plans/*.md).
-const PLAN_FILE = /(?:^|[\\/])\.claude[\\/]plans[\\/][^\\/]+\.md$/
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
 /** Số lỗi tool trong một turn để nâng effort cho turn sau. */
 const ERROR_BURST = 3
@@ -113,12 +111,30 @@ export const register: Register = (on, options) => {
   const blockedUntil = new Map<ModelFamily, number>()
   let turnCount = 0
   const offered = new Set<string>()
-  const pendingAgents = new Map<string, AgentPlan & { isApplied: boolean; description: string }>()
-  // Subagent đã khởi động: mô tả, tier, phần đã đo để hiệu chỉnh, và tracker riêng theo agentId.
-  const agents = new Map<
+  // Một lời gọi Agent đang chờ spawn: kế hoạch, model và effort thật sự đã gửi đi.
+  const pendingAgents = new Map<
     string,
-    { description: string; tier: Tier; goalId: number; family: ModelFamily; effort: Effort; volume: AgentPlan['volume'] }
+    AgentPlan & { isApplied: boolean; description: string; sentFamily: ModelFamily | null; sentEffort: Effort }
   >()
+  // Subagent đã khởi động. `pick` là model và effort mod đã điều phối; `sentEffort` là effort thật
+  // lần gần nhất engine nhận; `enforceModel` là mod được phép ép model (không khi model không thuộc họ Claude,
+  // hoặc agent workflow do script chọn model).
+  type AgentMeta = {
+    description: string
+    tier: Tier
+    goalId: number
+    family: ModelFamily
+    effort: Effort
+    volume: AgentPlan['volume']
+    depth: Depth
+    pick: Choice
+    applied: boolean
+    enforceModel: boolean
+    sentEffort?: Effort
+    warned: boolean
+    fallback: boolean
+  }
+  const agents = new Map<string, AgentMeta>()
   const agentTrackers = new Map<string, TurnTracker>()
   const agentFailures: { description: string; goalId: number }[] = []
   const modelMap = parseModelMap(options['modelMap'])
@@ -442,8 +458,49 @@ export const register: Register = (on, options) => {
 
   on('turn.step', async function* ($, e, next) {
     const current = await read($, mode)
-    // Subagent đã được điều phối lúc spawn; chế độ subagents/off không chạm luồng chính.
-    if (e.agentId !== undefined || current === 'off' || current === 'subagents') return yield* next(e)
+    // Subagent: ép effort (và model, với agent workflow không do script chọn) theo điều phối đã ghi.
+    if (e.agentId !== undefined) {
+      const agent = agents.get(e.agentId)
+      const isEnforced =
+        agent !== undefined && agent.applied && !agent.fallback && (current === 'auto' || current === 'subagents')
+      if (agent === undefined || !isEnforced) {
+        // Không ép: vẫn ghi effort thật engine gửi, để hiệu chỉnh chi phí theo đúng thực tế.
+        const real = EFFORTS.find(x => x === e.effort)
+        if (agent !== undefined && real !== undefined) agent.sentEffort = real
+        return yield* next(e)
+      }
+      const effort = agent.pick.effort
+      const model = agent.enforceModel ? resolveModelId(agent.pick.family, e.model, modelMap) : e.model
+      const sent = EFFORTS.find(x => x === effort)
+      if (sent !== undefined) agent.sentEffort = sent
+      if (model === e.model && effort === e.effort) return yield* next(e)
+      if (!agent.warned) {
+        agent.warned = true
+        const text = `Agent ${e.agentId.slice(0, 6)}: mod ép về ${model}/${effort} đã điều phối (engine gửi ${e.model}/${e.effort ?? 'mặc định'})`
+        await update($, coreState, S.withWarnings({ at: await $.clock.now(), kind: 'model', text }))
+      }
+      const stream = next({ ...e, model, effort })
+      let chunks = 0
+      try {
+        for await (const chunk of stream) {
+          chunks += 1
+          yield chunk
+        }
+        const result = await stream.result
+        const isEmpty = result.stopReason === null && result.usage === null
+        if (!isEmpty || !agent.enforceModel || chunks > 0 || next.signal.aborted) return result
+      } catch (error) {
+        if (!agent.enforceModel || chunks > 0 || next.signal.aborted) throw error
+      }
+      // Model được chọn cho agent workflow không phản hồi: agent này quay về model của engine.
+      agent.fallback = true
+      const text = `Agent ${e.agentId.slice(0, 6)}: ${model} không phản hồi; agent này quay về model của engine`
+      await update($, coreState, S.withWarnings({ at: await $.clock.now(), kind: 'model', text }))
+      $.ui.toast(text)
+      return yield* next(e)
+    }
+    // Chế độ subagents/off không chạm luồng chính.
+    if (current === 'off' || current === 'subagents') return yield* next(e)
 
     if (turnRoute.turnId !== e.turnId) {
       turnCount += 1
@@ -532,10 +589,21 @@ export const register: Register = (on, options) => {
     const core = S.normalizeCore(await read($, coreState))
     const brief = core.brief
     const goalId = brief?.goalId ?? 0
+    // Lời gọi từ trong một subagent không khớp việc của luồng chính và không đụng phần giao còn chờ
+    // của luồng chính; sàn độ sâu của nó là độ sâu của agent cha.
+    const parentAgent = e.agentId !== undefined ? agents.get(e.agentId) : undefined
+    const isNested = e.agentId !== undefined
     // Việc này khớp một việc đã tách lúc nhận prompt: dùng đúng đánh giá đã chấm,
     // không chấm lại từ prompt của agent và không kế thừa sàn của mục tiêu cha.
-    const assigned = brief ? matchSubtask(brief.subtasks, e.description, e.prompt) : undefined
+    const assigned = !isNested && brief ? matchSubtask(brief.subtasks, e.description, e.prompt) : undefined
     if (assigned && brief && delegation.goalId === brief.goalId) delegation.pending.delete(assigned.index)
+    const floor = isNested
+      ? parentAgent !== undefined
+        ? { depth: parentAgent.depth }
+        : null
+      : brief && !assigned
+        ? { depth: stepDepth(brief.depth, core.lift.depth) }
+        : null
     let plan = planAgent({
       prompt: e.prompt,
       description: e.description,
@@ -543,7 +611,7 @@ export const register: Register = (on, options) => {
       offered,
       blocked,
       allowFable: options['allowFable'] === true,
-      parent: brief && !assigned ? { depth: stepDepth(brief.depth, core.lift.depth) } : null,
+      parent: floor,
       session: sessionModel(),
       ...(assigned ? { assessed: assigned } : {}),
     })
@@ -554,6 +622,8 @@ export const register: Register = (on, options) => {
     }
 
     let model = e.model
+    // Họ model thật sự gửi đi (null khi là model không thuộc họ Claude): để so với model engine chạy.
+    let sentFamily: ModelFamily | null = e.model === undefined ? plan.family : null
     if (e.model !== undefined) {
       const claude = familyOf(e.model)
       const isUnder =
@@ -564,6 +634,7 @@ export const register: Register = (on, options) => {
       const allowed = claude !== null && !isUnder ? applySession(claude, sessionModel()) : null
       const isCapped = allowed !== null && allowed !== claude
       model = isUnder ? plan.family : isCapped ? allowed : e.model
+      sentFamily = isUnder ? plan.family : isCapped ? allowed : claude
       reason = isUnder
         ? `Claude chọn ${e.model} thấp hơn mức việc ${plan.depth} cần; nâng lên ${plan.family}`
         : isCapped
@@ -572,7 +643,8 @@ export const register: Register = (on, options) => {
     }
 
     const isApplied = current === 'auto' || current === 'subagents'
-    pendingAgents.set(e.tool_use_id, { ...plan, reason, isApplied, description: e.description })
+    const sentEffort = e.effort ?? plan.effort
+    pendingAgents.set(e.tool_use_id, { ...plan, reason, isApplied, description: e.description, sentFamily, sentEffort })
     const spawned = await update($, coreState, S.withLedger(countSpawn))
     if (spawned.ledger.goal.spawned > FANOUT_WARN && !spawned.ledger.goal.fanoutWarned) {
       const at = await $.clock.now()
@@ -590,13 +662,14 @@ export const register: Register = (on, options) => {
     return next({
       ...e,
       model: model ?? plan.family,
-      effort: e.effort ?? plan.effort,
+      effort: sentEffort,
       ...(plan.agentType && isGeneral ? { subagent_type: plan.agentType } : {}),
     })
   })
 
-  // Ghi nhật ký bằng model mà engine thực sự dùng cho subagent, kèm chi phí ước
-  // tính; chi phí đo được sẽ thay thế khi subagent kết thúc.
+  // Ghi nhật ký bằng model mà engine thực sự dùng cho subagent, kèm chi phí ước tính. Model engine
+  // chạy khác model đã điều phối (agent của Agent tool) thì ghi và cảnh báo. Agent của workflow không
+  // đi qua tool.call: mod chấm nó ở đây (trừ khi script đã chọn model) rồi ép ở từng bước.
   on('agent.spawn', async ($, e, next) => {
     const result = await next(e)
     const info = pendingAgents.get(e.tool_use_id)
@@ -604,34 +677,81 @@ export const register: Register = (on, options) => {
     if (result.deny !== undefined) return result
     const core = S.normalizeCore(await read($, coreState))
     const goalId = core.brief?.goalId ?? 0
-    const family = familyOf(result.model) ?? info?.family ?? 'sonnet'
-    const estimate = info
-      ? turnCost(family, info.effort, info.volume, Math.ceil(e.prompt.length / 4), core.ledger.calib[family])
-      : undefined
+    const current = await read($, mode)
+    const isModeApplied = current === 'auto' || current === 'subagents'
+    const isWorkflow = e.workflow !== undefined
+    const isScriptModel = isWorkflow && e.model !== undefined
+    const workflowPlan =
+      info === undefined && isWorkflow && !isScriptModel
+        ? planAgent({
+            prompt: e.prompt,
+            description: e.description,
+            subagentType: e.subagentType,
+            offered,
+            blocked,
+            allowFable: options['allowFable'] === true,
+            parent: null,
+            session: sessionModel(),
+          })
+        : undefined
+    const plan = info ?? workflowPlan
+    const applied = info !== undefined ? info.isApplied : workflowPlan !== undefined && isModeApplied
     const agentId = result.agentId
+    const engineFamily = familyOf(result.model)
+    const family = engineFamily ?? info?.family ?? workflowPlan?.family ?? 'sonnet'
+    const sent = info?.sentFamily ?? null
+    const isMismatch = info !== undefined && sent !== null && engineFamily !== null && engineFamily !== sent
+    const shortId = agentId?.slice(0, 6) ?? '?'
+    const reason = isMismatch
+      ? `${info.reason}; engine chạy ${engineFamily} thay vì ${sent}`
+      : info !== undefined
+        ? info.reason
+        : isWorkflow
+          ? isScriptModel
+            ? 'agent workflow, model do script chọn'
+            : `agent workflow: ${workflowPlan?.reason ?? 'chưa rõ'}`
+          : 'không qua điều phối'
+    const at = await $.clock.now()
+    const estimate = plan
+      ? turnCost(family, plan.effort, plan.volume, Math.ceil(e.prompt.length / 4), core.ledger.calib[family])
+      : undefined
     const entry: RouteEvent = {
-      at: await $.clock.now(),
+      at,
       where: 'agent',
       label: e.description || e.subagentType,
       family,
-      ...(info ? { effort: info.effort } : {}),
+      ...(plan !== undefined ? { effort: plan.effort } : {}),
       agentType: e.subagentType,
       ...(agentId !== undefined ? { agentId } : {}),
       ...(estimate !== undefined ? { usd: estimate, measured: false } : {}),
-      reason: info?.reason ?? (e.workflow ? 'agent của workflow' : 'không qua điều phối'),
-      isApplied: info?.isApplied ?? false,
+      reason,
+      isApplied: applied,
     }
-    if (agentId !== undefined && info) {
+    const warnings: Warning[] = []
+    const mismatchText = `Agent ${shortId}: engine chạy ${engineFamily} thay vì ${sent} đã điều phối`
+    if (isMismatch) warnings.push({ at, kind: 'model', text: mismatchText })
+    await update($, coreState, c => S.withWarnings(...warnings)(S.withLog(entry)(c)))
+    if (isMismatch) $.ui.toast(mismatchText)
+    if (agentId !== undefined && plan !== undefined) {
       agents.set(agentId, {
-        description: info.description,
-        tier: info.tier,
+        description: info?.description ?? e.description,
+        tier: plan.tier,
         goalId,
         family,
-        effort: info.effort,
-        volume: info.volume,
+        effort: plan.effort,
+        volume: plan.volume,
+        depth: plan.depth,
+        // Agent của Agent tool được ép về họ model đã gửi lúc spawn; agent workflow về họ đã chấm.
+        pick: {
+          family: info !== undefined ? (info.sentFamily ?? plan.family) : plan.family,
+          effort: info !== undefined ? info.sentEffort : plan.effort,
+        },
+        applied,
+        enforceModel: info === undefined ? true : info.sentFamily !== null,
+        warned: false,
+        fallback: false,
       })
     }
-    await update($, coreState, S.withLog(entry))
     return result
   }).catch(($, e, next) => next(e))
 
@@ -705,9 +825,9 @@ export const register: Register = (on, options) => {
     // Luồng chính bắt đầu tự sửa file trong khi còn việc đã ghi giao subagent: nhắc một lần.
     // Ghi file kế hoạch của plan mode không phải là làm một việc đã phân.
     const pending = pendingFor(core.brief)
-    const isPlanFile = PLAN_FILE.test(filePathOf(observation))
+    const planFile = isPlanFile(filePathOf(observation))
     const nudge =
-      EDIT_TOOLS.has(e.tool) && !isPlanFile && !observation.isError && pending.length > 0 && !delegation.isNudged
+      EDIT_TOOLS.has(e.tool) && !planFile && !observation.isError && pending.length > 0 && !delegation.isNudged
         ? `[focus-conductor] Phân việc còn việc ghi giao subagent chưa giao: Việc ${pending.join(', ')}. Nếu thay đổi này thuộc các việc đó, giao qua Agent với description "Việc N: ..." để chạy đúng model đã chấm.`
         : null
     if (nudge) delegation.isNudged = true
@@ -771,7 +891,7 @@ export const register: Register = (on, options) => {
         const added = addUsage(core.ledger, 'agent', family, e.usage)
         const ledger =
           meta !== undefined
-            ? calibrate(added.ledger, family, e.usage.output_tokens, meta.volume, meta.effort)
+            ? calibrate(added.ledger, family, e.usage.output_tokens, meta.volume, meta.sentEffort ?? meta.pick.effort)
             : added.ledger
         await update($, coreState, c => S.withAgentUsd(agentId, added.usd)(S.withLedger(() => ledger)(c)))
       }

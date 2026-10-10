@@ -5,7 +5,7 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import type { Brief, Route } from '../types'
 import { analyzeHeuristic, analyzerRequest, assessSubtasks, isLeadIn, isMeta, isPureLookup, splitClauses, splitReference, isRelated, isSameIdea, mergeAnalysis, retarget } from '../hooks/lib/analyze'
-import { newTracker, observe } from '../hooks/lib/drift'
+import { isPlanFile, isReadOnlyCommand, newTracker, observe, summarize } from '../hooks/lib/drift'
 import { applyPlan } from '../hooks/lib/plan'
 import { adviseSubtasks, chooseMain, decideMain, matchSubtask, parseWindows, planAgent, raisePick, resolveModelId } from '../hooks/lib/route'
 import { droppedPlanNotice, statusLine } from '../hooks/lib/text'
@@ -1255,5 +1255,60 @@ describe('rà soát lần ba (0.3.4)', () => {
     const brief = analyzeHeuristic(text, null, 1)
     expect(brief.constraints).toEqual(['Không đổi API công khai.'])
     expect(brief.steps).toEqual(['Đọc file a.ts', 'Sửa file b.ts'])
+  })
+})
+
+describe('drift: lệnh chỉ đọc, file kế hoạch, checkpoint (0.3.4 lần 4)', () => {
+  const FOCUS = { goal: 'Sửa module thanh toán', scopePaths: [], tier: 'complex' as const }
+  const bash = (command: string) => ({ tool: 'Bash', input: { command }, isError: false, isReadOnly: false })
+  const edit = (path: string) => ({ tool: 'Edit', input: { file_path: path }, isError: false, isReadOnly: false })
+
+  test('lệnh chỉ đọc (kể cả có ống, chuyển hướng về /dev/null, git -C) không phải thay đổi', () => {
+    for (const command of ['grep x | head', 'sed -n 1,5p a.ts', "sed -n '/e/p' a.ts", 'git status', 'ls -la src', 'git -C /repo status --short', 'grep x 2>/dev/null', 'cat a.ts 2>&1 | head', 'find . -name "*.ts"', 'echo "a > b"']) {
+      expect(isReadOnlyCommand(command)).toBe(true)
+    }
+    const tracker = newTracker('t')
+    for (const command of ['grep x | head', 'sed -n 1,5p a.ts', 'git status', 'ls -la src']) observe(tracker, bash(command), FOCUS, [])
+    expect(tracker.mutations).toBe(0)
+  })
+
+  test('lệnh có ghi (sed -i, chuyển hướng, rm, sort -o, find -delete, git commit, thay thế lệnh) là thay đổi', () => {
+    for (const command of ["sed -n 'w out' in", "sed 's/a/b/w out' in", "sed '1e rm x' in", 'sed -i s/a/b/ f', 'cat > f', 'rm -rf x', 'echo x > f', 'echo x >> f', 'sort -o out in', 'find . -delete', 'git commit -m x', 'npm install', 'ls $(rm x)', 'awk "BEGIN{system(\"rm x\")}"']) {
+      expect(isReadOnlyCommand(command)).toBe(false)
+    }
+    const tracker = newTracker('t')
+    observe(tracker, bash('cat > f'), FOCUS, [])
+    observe(tracker, bash('rm -rf x'), FOCUS, [])
+    expect(tracker.mutations).toBe(2)
+  })
+
+  test('checkpoint báo đúng ở thay đổi thứ 5 và 10, các lần đọc sau đó không nhắc lại', () => {
+    const tracker = newTracker('t')
+    const count = (kind: string, n: number, obs: ReturnType<typeof edit>) => {
+      let fired = 0
+      for (let i = 0; i < n; i++) fired += observe(tracker, obs, FOCUS, []).filter(f => f.kind === kind).length
+      return fired
+    }
+    expect(count('checkpoint', 5, edit('src/a.ts'))).toBe(1)
+    // Năm lần đọc ngay sau thay đổi thứ 5: bộ đếm vẫn bằng 5, không được nhắc lại.
+    expect(count('checkpoint', 5, { tool: 'Read', input: { file_path: 'a.ts' }, isError: false, isReadOnly: true })).toBe(0)
+    expect(count('checkpoint', 5, edit('src/a.ts'))).toBe(1)
+  })
+
+  test('ghi file kế hoạch của plan mode không tính là thay đổi và không bị kiểm phạm vi', () => {
+    expect(isPlanFile('/root/.claude/plans/ke-hoach.md')).toBe(true)
+    expect(isPlanFile('/repo/src/.claude/plans-old/x.md')).toBe(false)
+    const tracker = newTracker('t')
+    const findings = observe(tracker, { tool: 'Write', input: { file_path: '/root/.claude/plans/ke-hoach.md' }, isError: false, isReadOnly: false }, { ...FOCUS, scopePaths: ['src'] }, [])
+    expect(tracker.mutations).toBe(0)
+    expect(findings.some(f => f.kind === 'scope')).toBe(false)
+  })
+
+  test('turn chỉ đọc không bị cảnh báo "có thay đổi nhưng không kiểm tra"', () => {
+    const tracker = newTracker('t')
+    observe(tracker, bash('grep -rn charge src | head'), FOCUS, [])
+    observe(tracker, bash('git status'), FOCUS, [])
+    const brief = analyzeHeuristic('Sửa module thanh toán và kiểm tra lỗi.\n1. Đọc a.ts.\n2. Đọc b.ts.', null, 1)
+    expect(summarize(tracker, { ...brief, tier: 'complex' }, []).some(f => f.kind === 'unverified')).toBe(false)
   })
 })

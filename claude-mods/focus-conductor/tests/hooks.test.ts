@@ -5,6 +5,7 @@ import { describe, expect, mock, test } from 'claude-code/testing'
 import type { On, TurnStepInput } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
 import { K4_META_LEAD, K4_PROMPT } from './fixtures/prompt-k4'
+import { calibrate, emptyLedger } from '../hooks/lib/ledger'
 
 const HEURISTIC = { options: { analyzer: 'heuristic' } }
 const BIG_USAGE = { input_tokens: 100_000, output_tokens: 50_000, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
@@ -759,5 +760,196 @@ describe('prompt dài và prompt đính kèm (0.3.4)', () => {
     expect((plan.context ?? []).join('\n')).not.toContain('chưa giao')
     const edit = await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' })
     expect((edit.context ?? []).join('\n')).toContain('chưa giao')
+  })
+})
+
+describe('subagent chạy đúng điều phối (0.3.4 lần 4)', () => {
+  // Bốn việc: tra cứu (haiku/low), sửa (sonnet/medium), phân tích (opus/xhigh), README (sonnet/medium).
+  const FOUR = `Mục tiêu: nâng cấp module thanh toán.
+1. Tìm trong src/ tất cả chỗ gọi hàm charge và liệt kê đường dẫn.
+2. Đổi tên userId thành accountId trong 12 file controller.
+3. Thiết kế lại kiến trúc xử lý thanh toán đa tiền tệ, nêu trade-off.
+4. Cập nhật README phần cài đặt.`
+  const SEARCH = 'Tìm trong src/ tất cả chỗ gọi hàm charge và liệt kê đường dẫn'
+  const EDIT = 'Đổi tên userId thành accountId trong 12 file controller'
+
+  /** Agent của tool Agent: gọi tool.call (mod ghi điều phối), rồi engine khởi động agent đó. */
+  async function spawnTool($: Engine, toolUseId: string, description: string, prompt: string, engineModel: string) {
+    await $.tool.call({ tool: 'Agent', tool_use_id: toolUseId, description, prompt })
+    return $.agent.spawn({ prompt, description, tool_use_id: toolUseId } as never)
+  }
+
+  test('hai subagent song song nhận đúng effort đã điều phối, dù engine gửi effort khác', HEURISTIC, async ($, on) => {
+    const seen = base(on)
+    on('tool.call', { tool: 'Agent' }, () => ({ result: 'đã giao' }))
+    on('agent.spawn', (_$, e) => ({ model: e.model ?? 'claude-sonnet-5-5', agentId: `a-${e.tool_use_id}` }))
+    await submit($, FOUR)
+    // Khởi động ngược thứ tự: sửa trước, tra cứu sau.
+    const edit = await spawnTool($, 'u2', 'Việc 2: đổi tên userId', EDIT, 'claude-sonnet-5-5')
+    const search = await spawnTool($, 'u1', 'Việc 1: tìm chỗ gọi charge', SEARCH, 'claude-sonnet-5-5')
+    const before = seen.steps.length
+    await step($, seen, { agentId: search.agentId, model: 'claude-opus-5-5', effort: 'xhigh' })
+    await step($, seen, { agentId: edit.agentId, model: 'claude-opus-5-5', effort: 'xhigh' })
+    await step($, seen, { agentId: search.agentId, model: 'claude-opus-5-5', effort: 'xhigh', index: 1, messageCount: 3 })
+    const got = seen.steps.slice(before)
+    expect(got.map(g => g.effort)).toEqual(['low', 'medium', 'low'])
+    expect(got[0]?.model).toContain('haiku')
+    expect(got[1]?.model).toContain('sonnet')
+    expect(got[2]?.model).toContain('haiku')
+  })
+
+  test('engine chạy model khác model đã điều phối thì ghi nhật ký và cảnh báo', HEURISTIC, async ($, on) => {
+    base(on)
+    on('tool.call', { tool: 'Agent' }, () => ({ result: 'đã giao' }))
+    on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: 'a-lech' }))
+    await submit($, FOUR)
+    await spawnTool($, 'u1', 'Việc 1: tìm chỗ gọi charge', SEARCH, 'claude-haiku-5-5')
+    const status = String((await conductor($, 'status')).text)
+    expect(status).toContain('engine chạy opus thay vì haiku')
+  })
+
+  test('agent workflow không do script chọn model được chấm và ép model, effort ở từng bước', HEURISTIC, async ($, on) => {
+    const seen = base(on)
+    on('agent.spawn', (_$, e) => ({ model: 'claude-opus-5-5', agentId: `w-${e.description.slice(0, 6)}` }))
+    await submit($, FOUR)
+    const lookup = await $.agent.spawn({ prompt: 'Tìm trong codebase các file xử lý đăng nhập và liệt kê đường dẫn', description: 'Tìm file auth', workflow: { runId: 'wf_1', agentIndex: 1 } } as never)
+    const edit = await $.agent.spawn({ prompt: EDIT, description: 'Đổi tên userId', workflow: { runId: 'wf_1', agentIndex: 2 } } as never)
+    const before = seen.steps.length
+    await step($, seen, { agentId: lookup.agentId, model: 'claude-opus-5-5', effort: 'xhigh' })
+    await step($, seen, { agentId: edit.agentId, model: 'claude-opus-5-5', effort: 'xhigh' })
+    const got = seen.steps.slice(before)
+    expect(got[0]?.model).toContain('haiku')
+    expect(got[0]?.effort).toBe('low')
+    expect(got[1]?.model).toContain('sonnet')
+    expect(got[1]?.effort).toBe('medium')
+  })
+
+  test('agent workflow có model do script chọn thì giữ nguyên model và effort của engine', HEURISTIC, async ($, on) => {
+    const seen = base(on)
+    on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'w-script' }))
+    await submit($, FOUR)
+    const spawned = await $.agent.spawn({ prompt: SEARCH, description: 'Tìm chỗ gọi', model: 'sonnet', workflow: { runId: 'wf_2', agentIndex: 1 } } as never)
+    const before = seen.steps.length
+    await step($, seen, { agentId: spawned.agentId, model: 'claude-sonnet-5-5', effort: 'high' })
+    expect(seen.steps.slice(before)[0]).toMatchObject({ model: 'claude-sonnet-5-5', effort: 'high' })
+  })
+
+  test('chế độ suggest không ép model hay effort của subagent', { options: { analyzer: 'heuristic', routing: 'suggest' } }, async ($, on) => {
+    const seen = base(on)
+    on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: 'w-suggest' }))
+    await submit($, FOUR)
+    const spawned = await $.agent.spawn({ prompt: SEARCH, description: 'Tìm chỗ gọi', workflow: { runId: 'wf_3', agentIndex: 1 } } as never)
+    const before = seen.steps.length
+    await step($, seen, { agentId: spawned.agentId, model: 'claude-opus-5-5', effort: 'xhigh' })
+    expect(seen.steps.slice(before)[0]).toMatchObject({ model: 'claude-opus-5-5', effort: 'xhigh' })
+    // Nhật ký của chế độ gợi ý ghi rõ là không áp dụng.
+    const ui = await $.ui.mount({
+      plugin: 'focus-conductor',
+      surface: 'terminal',
+      component: 'Pane',
+      requestId: 'focus-conductor',
+      props: { title: 'Focus Conductor', isFocused: false, bodyColumns: 80, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
+    })
+    expect(await ui.find({ type: 'Text', text: /không áp dụng/ })).toBeTruthy()
+    await ui.unmount()
+  })
+
+  test('agent workflow không phản hồi với model đã chọn thì quay về model của engine và ngừng ép', HEURISTIC, async ($, on) => {
+    const seen = base(on, { failFamily: 'haiku' })
+    on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: 'w-fail' }))
+    await submit($, FOUR)
+    const spawned = await $.agent.spawn({ prompt: SEARCH, description: 'Tìm chỗ gọi', workflow: { runId: 'wf_4', agentIndex: 1 } } as never)
+    const before = seen.steps.length
+    await step($, seen, { agentId: spawned.agentId, model: 'claude-opus-5-5', effort: 'xhigh' })
+    await step($, seen, { agentId: spawned.agentId, model: 'claude-opus-5-5', effort: 'xhigh', index: 1, messageCount: 3 })
+    const got = seen.steps.slice(before)
+    expect(got[0]?.model).toContain('haiku')
+    expect(got[1]?.model).toContain('opus')
+    expect(got[2]?.model).toContain('opus')
+    expect(got[2]?.effort).toBe('xhigh')
+    expect(seen.toasts.some(t => t.includes('không phản hồi'))).toBe(true)
+  })
+
+  test('lời gọi Agent từ trong một subagent không lấy việc của luồng chính và không xóa phần đang chờ giao', HEURISTIC, async ($, on) => {
+    base(on)
+    on('tool.call', { tool: 'Agent' }, () => ({ result: 'đã giao' }))
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: 'p1' }))
+    await submit($, FOUR)
+    await spawnTool($, 'u1', 'Việc 1: tìm chỗ gọi charge', SEARCH, 'claude-haiku-5-5')
+    // Agent p1 gọi thêm một agent cho việc 2 của luồng chính: không được coi là đã giao việc 2.
+    await $.tool.call({ tool: 'Agent', agentId: 'p1', tool_use_id: 'n1', description: 'Việc 2: đổi tên userId', prompt: EDIT } as never)
+    const edit = await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' })
+    expect((edit.context ?? []).join('\n')).toContain('Việc 2 (sonnet/medium)')
+  })
+
+  test('effort Claude chỉ định cho subagent được gửi và giữ nguyên ở từng bước', HEURISTIC, async ($, on) => {
+    const seen = base(on)
+    on('tool.call', { tool: 'Agent' }, () => ({ result: 'đã giao' }))
+    on('agent.spawn', (_$, e) => ({ model: e.model ?? 'claude-haiku-5-5', agentId: 'a-explicit' }))
+    await submit($, FOUR)
+    await $.tool.call({ tool: 'Agent', tool_use_id: 'ux', description: 'Việc 1: tìm chỗ gọi charge', prompt: SEARCH, effort: 'high' } as never)
+    const spawned = await $.agent.spawn({ prompt: SEARCH, description: 'Việc 1: tìm chỗ gọi charge', tool_use_id: 'ux' } as never)
+    const before = seen.steps.length
+    await step($, seen, { agentId: spawned.agentId, model: 'claude-haiku-5-5', effort: 'low' })
+    expect(seen.steps.slice(before)[0]?.effort).toBe('high')
+  })
+
+  test('chế độ subagents vẫn ép effort của subagent, chỉ luồng chính là không bị đổi', { options: { analyzer: 'heuristic', routing: 'subagents' } }, async ($, on) => {
+    const seen = base(on)
+    on('tool.call', { tool: 'Agent' }, () => ({ result: 'đã giao' }))
+    on('agent.spawn', (_$, e) => ({ model: e.model ?? 'claude-haiku-5-5', agentId: 'a-sub' }))
+    await submit($, FOUR)
+    const spawned = await spawnTool($, 'us', 'Việc 2: đổi tên userId', EDIT, 'claude-haiku-5-5')
+    const before = seen.steps.length
+    await step($, seen, { agentId: spawned.agentId, model: 'claude-sonnet-5-5', effort: 'xhigh' })
+    expect(seen.steps.slice(before)[0]?.effort).toBe('medium')
+  })
+
+  test('subagent lồng nhau kế thừa sàn độ sâu của agent cha', HEURISTIC, async ($, on) => {
+    base(on)
+    const models: Array<string | undefined> = []
+    on('tool.call', { tool: 'Agent' }, (_$, e) => {
+      models.push(e.model)
+      return { result: 'đã giao' }
+    })
+    on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: 'parent-hard' }))
+    await submit($, FOUR)
+    await spawnTool($, 'ph', 'Phân tích race condition', 'Phân tích race condition, bảo mật và kiến trúc liên module của toàn bộ luồng thanh toán', 'claude-opus-5-5')
+    await $.tool.call({ tool: 'Agent', agentId: 'parent-hard', tool_use_id: 'nh', description: 'Sửa typo README', prompt: 'Sửa typo trong README' } as never)
+    expect(models[models.length - 1]).toBe('opus')
+  })
+})
+
+describe('hiệu chỉnh chi phí subagent theo effort thật (0.3.4 lần 4)', () => {
+  const SUGGEST = { options: { analyzer: 'heuristic', routing: 'suggest' } }
+  const SEARCH = 'Tìm trong src/ tất cả chỗ gọi hàm charge và liệt kê đường dẫn'
+  // 2.400 token ra: hệ số hiệu chỉnh không bị chặn ở 2, nên low, medium và xhigh cho ra giá trị khác nhau.
+  const USAGE = { input_tokens: 100_000, output_tokens: 2_400, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
+
+  // Chế độ gợi ý: engine chạy subagent theo effort của nó (không ép). Hiệu chỉnh phải dùng effort đó.
+  async function calibrationAfter($: Engine, on: On, engineEffort: string): Promise<string> {
+    const seen = base(on)
+    on('tool.call', { tool: 'Agent' }, () => ({ result: 'đã giao' }))
+    on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: 'a-cal' }))
+    on('turn.complete', () => ({ text: '' }))
+    await submit($, 'Mục tiêu: nâng cấp module thanh toán.\n1. Tìm trong src/ tất cả chỗ gọi hàm charge và liệt kê đường dẫn.\n2. Đổi tên userId thành accountId trong 12 file controller.\n3. Thiết kế lại kiến trúc đa tiền tệ, nêu trade-off.\n4. Cập nhật README phần cài đặt.')
+    await $.tool.call({ tool: 'Agent', tool_use_id: 'uc', description: 'Việc 1: tìm chỗ gọi charge', prompt: SEARCH })
+    const spawned = await $.agent.spawn({ prompt: SEARCH, description: 'Việc 1: tìm chỗ gọi charge', tool_use_id: 'uc' } as never)
+    await step($, seen, { agentId: spawned.agentId, model: 'claude-haiku-5-5', effort: engineEffort as 'low' })
+    await $.turn.complete({ turnId: 'ag-cal', agentId: spawned.agentId, answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer', usage: { ...USAGE, model: 'claude-haiku-5-5' } } as never)
+    return String((await conductor($, 'status')).text)
+  }
+
+  test('chế độ gợi ý: hiệu chỉnh haiku dùng effort xhigh mà engine đã gửi', SUGGEST, async ($, on) => {
+    const status = await calibrationAfter($, on, 'xhigh')
+    const expected = calibrate(emptyLedger(0), 'haiku', USAGE.output_tokens, 'small', 'xhigh').calib.haiku
+    expect(status).toContain(`haiku ×${expected.toFixed(2)}`)
+  })
+
+  test('chế độ gợi ý: hiệu chỉnh haiku dùng effort low mà engine đã gửi', SUGGEST, async ($, on) => {
+    const status = await calibrationAfter($, on, 'low')
+    const expected = calibrate(emptyLedger(0), 'haiku', USAGE.output_tokens, 'small', 'low').calib.haiku
+    expect(status).toContain(`haiku ×${expected.toFixed(2)}`)
   })
 })
