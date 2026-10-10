@@ -1781,3 +1781,34 @@ describe('0.5.0: kịch bản đầu cuối', () => {
     expect(status).toContain('[v] 2. Thiết kế đa tiền tệ')
   })
 })
+
+describe('0.5.0: các ca biên do kiểm đột biến chỉ ra', () => {
+  test('báo đổi model của engine chỉ dùng cho turn ngay sau đó: lần đổi sau của người dùng (không có hook) vẫn tạm dừng', {}, async ($, on) => {
+    const seen = base(on)
+    on('classic.PostModelSwitch', () => ({}))
+    await submit($, COMPLEX_PROMPT)
+    await step($, seen, { turnId: 't1' })
+    await $.classic.PostModelSwitch({ from_model: 'claude-sonnet-5-5', to_model: 'claude-haiku-5-5', requested_model: null, source: 'auto', context_tokens: 0, prompt_cache_warm: false, cache_ttl: '5m', estimated_cache_write_usd: 0 } as never)
+    await step($, seen, { turnId: 't2', model: 'claude-haiku-5-5' })
+    await step($, seen, { turnId: 't3', model: 'claude-sonnet-5-5' })
+    await submit($, 'Fix race condition khi hai worker cùng ghi file cache')
+    // Người dùng đổi về haiku, không có hook báo nguồn: là lựa chọn của người dùng, không ép opus.
+    expect((await step($, seen, { turnId: 't4', model: 'claude-haiku-5-5' }))?.model).toBe('claude-haiku-5-5')
+  })
+
+  test('khôi phục rồi lập mục tiêu mới nhiều lần: các mục tiêu đã lưu không đè nhau', {}, async ($, on) => {
+    const PLAN = 'mcp__focus-conductor__plan'
+    base(on)
+    await submit($, FOUR)
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Bước của mục tiêu A' }] })
+    await submit($, 'Viết hàm slugify(text) bằng TypeScript, có unit test.')
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Bước của mục tiêu B' }] })
+    await $.tool.call({ tool: PLAN, action: 'restore' })
+    await submit($, 'Liệt kê các hàm export trong utils.ts')
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Bước của mục tiêu C' }] })
+    await submit($, 'Fix race condition khi hai worker cùng ghi file cache')
+    // Ba mục tiêu còn bước mở đều còn trong danh sách đã lưu.
+    const third = await $.tool.call({ tool: PLAN, action: 'restore', index: 3 })
+    expect(String(third.result)).toContain('Bước của mục tiêu B')
+  })
+})
