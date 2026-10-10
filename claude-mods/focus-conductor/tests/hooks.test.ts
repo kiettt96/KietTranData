@@ -367,6 +367,19 @@ describe('router lỗi: không đoán, turn chạy theo model của phiên', () 
     expect(seen.agentRouted.length).toBe(1)
   })
 
+  test('router lỗi ngay sau một turn đã chạy: route cũ không còn hiện trong status, trước cả turn mới', {}, async ($, on) => {
+    let isDown = false
+    const seen = base(on, { router: request => (isDown ? null : DEFAULT_ROUTER(request)) })
+    await submit($, COMPLEX_PROMPT)
+    await step($, seen, { turnId: 't1' })
+    expect(String((await conductor($, 'status')).text)).toContain('opus/xhigh')
+    isDown = true
+    await submit($, 'Giờ dọn thư mục build cho sạch')
+    const status = String((await conductor($, 'status')).text)
+    expect(status).not.toContain('opus/xhigh')
+    expect(status).toContain('model của phiên (router chưa chọn)')
+  })
+
   test('router lỗi hai lần liên tiếp thì tạm bỏ qua router ba prompt, rồi hỏi lại', {}, async ($, on) => {
     const seen = base(on, { router: () => null })
     for (let i = 1; i <= 6; i++) await submit($, `Prompt thử số ${i} có nhiều chữ`)

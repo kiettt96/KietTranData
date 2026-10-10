@@ -141,11 +141,11 @@ focus-conductor/
   tests/fixtures/prompt-k4.ts  prompt dài thật, dùng để kiểm request gửi router và phân việc nhiều mục
 ```
 
-Kiểm tra trước khi phát hành: `claude plugin validate .` và `claude plugin test .` (135 test).
+Kiểm tra trước khi phát hành: `claude plugin validate .` và `claude plugin test .` (137 test).
 
 ## Giới hạn đã biết
 
-- Mỗi prompt (trừ prompt một từ khi đang có mục tiêu) thêm một lượt gọi model router trước khi Claude bắt đầu làm. Đo bằng `claude -p` với đúng request của mod, model `sonnet`, ngày 2026-10-10 [Nguồn: eval trong phiên phát triển]: prompt ngắn 7 đến 22 giây, khoảng $0,001 đến $0,05; prompt dài cỡ K4 (37.000 ký tự, 14 mục) khoảng 60 giây, khoảng $0,3. Muốn nhanh và rẻ hơn thì đặt `router: haiku` (cùng bộ prompt thử cho kết quả gần tương đương ở việc ngắn, gộp mục kém hơn ở prompt dài).
+- Mỗi prompt (trừ prompt một từ khi đang có mục tiêu) thêm một lượt gọi model router trước khi Claude bắt đầu làm. Đo bằng `claude -p` với đúng request của mod, model `sonnet`, bản prompt router cuối, ngày 2026-10-10 [Nguồn: eval trong phiên phát triển, 12 ca]: prompt ngắn và vừa 7 đến 20 giây, dưới $0,05 mỗi lượt; prompt cỡ K4 (37.000 ký tự, 14 mục) khoảng 45 giây và khoảng $0,24. Chạy thử `haiku` trên cùng bộ prompt cho kết quả kém hơn: ở prompt K4 đối chiếu nó gộp bước đầu thành một việc, và trước khi siết luật của Explore nó giao việc rà soát bảo mật cho Explore. Vì vậy `sonnet` là mặc định.
 - Chất lượng điều phối phụ thuộc model router. Code chỉ kẹp theo chính sách, không sửa phán đoán của router (ví dụ router giao một việc cho agent hay giữ ở luồng chính).
 - Router lỗi thì prompt đó không được điều phối; mod không có phương án đoán thay.
 - Mod chỉ biết một lời gọi Agent thuộc việc đã phân khi `description` mở đầu bằng `Việc N`, `Task N` hoặc mã mục; cách viết khác được router chấm lại như một subagent tự phát.

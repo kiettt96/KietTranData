@@ -503,7 +503,8 @@ export const register: Register = (on, options) => {
         ...(isPaused ? [] : [{ at: now, kind: 'model' as const, text: failText }]),
         ...(pauseText ? [{ at: now, kind: 'model' as const, text: pauseText }] : []),
       ]
-      await update($, coreState, c => S.withWarnings(...warnings)(kept ? S.withBrief(kept)(c) : c))
+      // Route lưu về null: mốc cache là model engine thật sự chạy, không phải route của lượt trước.
+      await update($, coreState, c => S.withWarnings(...warnings)(S.withRoute(null)(kept ? S.withBrief(kept)(c) : c)))
       if (!isPaused) $.ui.toast(pauseText ?? failText)
       $.ui.status(S.statusOf(await read($, view)))
       return next({ ...e, context: [...(e.context ?? []), unroutedContext(reason)] })

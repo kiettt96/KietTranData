@@ -38,7 +38,8 @@ const CATALOG = `Models (USD per 1M tokens, input/output):
 - fable ($10/$50): only when <context> lists it as allowed, and only for the hardest piece where opus is likely to fail.
 Effort (how much the model thinks): low = direct lookups, short answers, mechanical changes; medium = normal edits and investigations; high = careful multi-file changes, deep investigation or large volume; xhigh = hard problems at scale. Never max.
 Choose the cheapest model and effort that will do the piece well. Quality comes first: never under-power a piece that needs deep reasoning, and never pay opus for mechanical work.
-Agent types: Explore = read-only search and lookup, cannot edit; Plan = designs an approach, no edits; general-purpose = anything, including edits.`
+Agent types: Explore = read-only search and lookup, cannot edit; Plan = designs an approach, no edits; general-purpose = anything, including edits.
+Use Explore only for finding, listing, reading and reporting facts. Review, security checks, root-cause work and any judgement use general-purpose, even when they change no file.`
 
 const LABELS = `depth: none = a direct fact, a short list or a plain explanation; light = a small, well-defined change or lookup; substantial = reasoning across several parts; hard = deep reasoning (the opus kind of work).
 volume: small = one or two places; medium = several files or about ten steps; large = many files, about thirty steps, or a large dataset.
@@ -375,8 +376,9 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
     isReference,
     runReference: raw['runReference'] === true,
     goal,
-    constraints: strings(raw['constraints'], 10),
-    quality: strings(raw['quality'], 8),
+    // Lượt đối chiếu không có ràng buộc hay tiêu chí riêng: các mục đó thuộc prompt đính kèm.
+    constraints: isReference ? [] : strings(raw['constraints'], 10),
+    quality: isReference ? [] : strings(raw['quality'], 8),
     scope: strings(raw['scope'], 10).filter(isPathLike),
     depth,
     volume,

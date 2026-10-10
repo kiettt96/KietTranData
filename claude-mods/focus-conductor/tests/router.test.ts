@@ -195,6 +195,15 @@ describe('đọc JSON của router', () => {
     expect(plan({ referenceMain: { model: 'opus', effort: 'xhigh' } }).referenceMain).toBeUndefined()
   })
 
+  test('lượt đối chiếu không mang ràng buộc và tiêu chí của prompt đính kèm, dù router trả về', () => {
+    const p = plan({ reference: true, main: { model: 'sonnet', effort: 'low' }, constraints: ['Không được chạy prompt đính kèm'], quality: ['Phân việc đủ 11 mục'] })
+    expect(p.isReference).toBe(true)
+    expect(p.constraints).toEqual([])
+    expect(p.quality).toEqual([])
+    // Không đối chiếu thì ràng buộc được giữ nguyên.
+    expect(plan({ constraints: ['Không đổi API công khai'] }).constraints).toEqual(['Không đổi API công khai'])
+  })
+
   test('chấm subagent: đọc đủ; thiếu model hoặc effort thì không dùng được', () => {
     const route = parseAgentRoute(JSON.stringify({ why: 'tra cứu', model: 'haiku', effort: 'low', agent: 'Explore', depth: 'none', volume: 'small', kind: 'investigate' }), OPEN)
     expect(route).toEqual({ pick: { family: 'haiku', effort: 'low' }, agentType: 'Explore', depth: 'none', volume: 'small', kind: 'investigate', tier: 'trivial', why: 'tra cứu' })
