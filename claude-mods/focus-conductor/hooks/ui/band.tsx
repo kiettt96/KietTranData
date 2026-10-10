@@ -8,6 +8,7 @@ import type { Elements, RenderElement, RenderSurface } from 'claude-code'
 import { describePick } from '../lib/route'
 import type { View } from '../lib/state'
 import { progress } from '../lib/text'
+import { labels } from './labels'
 
 export type BandHandlers = {
   onDetails: () => unknown
@@ -25,11 +26,12 @@ export function renderBand(
   if (view.mode === 'off' || brief === null || view.isBandHidden) return null
   const { Box, Text, Button } = t
 
+  const l = labels(view.lang)
   const latest = warnings.filter(w => w.at >= brief.at).at(-1)
   const { closed, total } = progress(plan)
-  const steps = total > 0 ? `bước ${closed}/${total}` : brief.steps.length > 0 ? `${brief.steps.length} bước dự kiến` : ''
-  const routeText = route ? `${view.mode === 'suggest' ? 'đề xuất' : 'chạy'} ${describePick(route)}` : ''
-  const facts = [`${brief.depth} · ${brief.volume}`, routeText, steps, view.mode === 'auto' ? '' : `chế độ ${view.mode}`]
+  const steps = total > 0 ? l.step(closed, total) : brief.steps.length > 0 ? l.plannedSteps(brief.steps.length) : ''
+  const routeText = route ? `${view.mode === 'suggest' ? l.suggest : l.run} ${describePick(route)}` : ''
+  const facts = [`${brief.depth} · ${brief.volume}`, routeText, steps, view.mode === 'auto' ? '' : `${l.mode} ${view.mode}`]
     .filter(Boolean)
     .join(' · ')
 
@@ -37,7 +39,7 @@ export function renderBand(
     <Box flexShrink={1}>
       <Text wrap="truncate-end">
         <Text color="claude" bold>
-          Mục tiêu
+          {l.goal}
         </Text>{' '}
         {brief.goal}
       </Text>
@@ -57,8 +59,8 @@ export function renderBand(
           </Text>
         </Box>
       ) : null}
-      <Button key="details" label="Chi tiết" onPress={handlers.onDetails} />
-      <Button key="hide" label="Ẩn" onPress={handlers.onHide} />
+      <Button key="details" label={l.details} onPress={handlers.onDetails} />
+      <Button key="hide" label={l.hide} onPress={handlers.onHide} />
     </Box>
   )
 

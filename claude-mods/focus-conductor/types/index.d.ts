@@ -121,7 +121,7 @@ export type RouteEvent = {
   isApplied: boolean
 }
 
-export type WarningKind = 'loop' | 'budget' | 'scope' | 'unverified' | 'open-steps' | 'model' | 'cost'
+export type WarningKind = 'loop' | 'budget' | 'scope' | 'unverified' | 'open-steps' | 'model' | 'cost' | 'drift'
 
 /** Cảnh báo nhất quán (lạc đề, lặp, vượt phạm vi, chưa kiểm tra, chi phí). */
 export type Warning = {
@@ -157,6 +157,11 @@ export type Ledger = {
   calib: Record<ModelFamily, number>
   /** Số lần đo đã dùng để hiệu chỉnh. */
   samples: number
+  /**
+   * Token ra đo được theo dạng việc ("depth/volume/kind"), quy về effort medium: trung bình và số lần đo.
+   * Dùng để ước lượng chi phí lúc giao việc khi đã đủ số đo (không có ở trạng thái từ bản cũ).
+   */
+  shapes?: Record<string, { samples: number; output: number }>
 }
 
 /**

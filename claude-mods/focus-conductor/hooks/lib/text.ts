@@ -176,6 +176,19 @@ export function unbackedNotice(): string {
   )
 }
 
+/** Option remindSubagents: nhắc subagent đang lạc đề, kèm việc nó được giao (không nhắc checklist của luồng chính). */
+export function subagentReminder(task: string, finding: string): string {
+  return `[focus-conductor] Việc được giao cho subagent này: ${task}\n${finding.replace(/^\[focus-conductor\]\s*/, '')}\nQuay về đúng việc được giao và báo cáo ngắn gọn.`
+}
+
+/** Option semanticDrift: router nhận xét các thay đổi gần đây có thể không còn phục vụ mục tiêu. */
+export function driftContext(goal: string, why: string): string {
+  return (
+    `[focus-conductor] Router đọc các thay đổi gần đây và thấy có thể đang lệch mục tiêu: ${why}. ` +
+    `Mục tiêu: ${goal}. Nếu thay đổi này thật sự cần cho mục tiêu, ghi rõ lý do; nếu không, quay về bước còn mở.`
+  )
+}
+
 /** Checklist dạng văn bản, trả về trong kết quả của tool plan. */
 export function renderPlan(brief: Brief | null, plan: readonly PlanStep[]): string {
   if (plan.length === 0) return `${brief ? `Mục tiêu: ${brief.goal}\n` : ''}Checklist trống.`

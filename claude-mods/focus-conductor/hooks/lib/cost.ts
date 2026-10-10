@@ -127,10 +127,12 @@ export function turnCost(
   volume: Volume,
   context: number,
   calib: number = 1,
+  /** Token ra đã đo cho đúng dạng việc này (histogram), thay cho giả định theo khối lượng. */
+  measured: number | null = null,
 ): number {
   const size = SIZE[volume]
   const price = PRICE[family]
-  const output = expectedOutput(volume, effort) * calib
+  const output = measured ?? expectedOutput(volume, effort) * calib
   return (
     (size.newInput * price.input + size.steps * context * price.cacheRead + output * price.output) / 1_000_000
   )

@@ -5,7 +5,7 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import type { Brief, Core, Route } from '../types'
 import { applyPrices, fixedContextTokens, parsePrices, priceNote, shouldDowngrade, switchCost, turnCost, usdOf } from '../hooks/lib/cost'
-import { addUsage, calibrate, emptyLedger, formatUsd, ledgerLines, nextGoal, resetLedger, sessionUsd } from '../hooks/lib/ledger'
+import { addUsage, calibrate, emptyLedger, formatUsd, ledgerLines, nextGoal, recordShape, resetLedger, sessionUsd, shapeKey, shapeOutput } from '../hooks/lib/ledger'
 import { legacyOf, tierOf } from '../hooks/lib/scale'
 import { EMPTY_CORE, normalizeCore, withAgentUsd, withDecision, withLift, adoptGoal } from '../hooks/lib/state'
 
@@ -190,5 +190,32 @@ describe('0.5.0: bảng giá có ngày, ghi đè, giá Haiku prompt dài', () =>
     applyPrices({})
     closeTo(usdOf('haiku', usage(100_000, 1_000_000)), 0.01 + 0.5)
     closeTo(usdOf('haiku', usage(200_000, 1_000_000)), 0.1 + 2.5)
+  })
+})
+
+describe('0.5.0: token ra theo dạng việc (depth, volume, kind)', () => {
+  const key = shapeKey('substantial', 'medium', 'edit')
+
+  test('chưa đủ ba lần đo thì chưa dùng; đủ thì ước lượng theo trung bình quy về effort', () => {
+    let ledger = emptyLedger(1)
+    ledger = recordShape(ledger, key, 6_000, 'medium')
+    ledger = recordShape(ledger, key, 15_000, 'high')
+    expect(shapeOutput(ledger, key, 'medium')).toBeNull()
+    ledger = recordShape(ledger, key, 12_000, 'medium')
+    // Quy về medium: 6000, 10000, 12000, trung bình 9333.
+    expect(Math.round(shapeOutput(ledger, key, 'medium') ?? 0)).toBe(9333)
+    expect(Math.round(shapeOutput(ledger, key, 'high') ?? 0)).toBe(14000)
+    expect(ledgerLines(ledger).join('\n')).toContain('substantial/medium/edit ~9.3k (3 lần)')
+  })
+
+  test('số đo 0 bị bỏ; reset giữ dạng việc đã học; ước lượng chi phí dùng số đo thay giả định', () => {
+    let ledger = recordShape(emptyLedger(1), key, 0, 'medium')
+    expect(ledger.shapes).toBeUndefined()
+    for (let i = 0; i < 3; i++) ledger = recordShape(ledger, key, 1_000, 'medium')
+    expect(resetLedger(ledger).shapes?.[key]?.samples).toBe(3)
+    const guessed = turnCost('sonnet', 'medium', 'medium', 10_000)
+    const measured = turnCost('sonnet', 'medium', 'medium', 10_000, 1, shapeOutput(ledger, key, 'medium'))
+    // Giả định 8.000 token ra so với 1.000 đo được: chênh 7.000 × $10 mỗi 1M.
+    expect(Math.round((guessed - measured) * 1000) / 1000).toBe(0.07)
   })
 })

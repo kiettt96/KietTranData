@@ -108,6 +108,8 @@ type Seen = {
   routed: string[]
   agentRouted: string[]
   routerModels: string[]
+  /** Request kiểm lạc đề (semanticDrift) mà router nhận. */
+  drift: string[]
 }
 
 /**
@@ -116,10 +118,10 @@ type Seen = {
  */
 function base(
   on: On,
-  engine: { failFamily?: string; router?: Responder; agent?: AgentResponder; isRejected?: boolean } = {},
+  engine: { failFamily?: string; router?: Responder; agent?: AgentResponder; isRejected?: boolean; drift?: (context: string) => Json | null } = {},
 ): Seen {
   mock.clock(on, { now: 1000 })
-  const seen: Seen = { contexts: [], steps: [], toasts: [], routed: [], agentRouted: [], routerModels: [] }
+  const seen: Seen = { contexts: [], steps: [], toasts: [], routed: [], agentRouted: [], routerModels: [], drift: [] }
   on('prompt.submit', ($, e) => {
     seen.contexts.push([...(e.context ?? [])])
     return { text: e.text, context: e.context }
@@ -127,6 +129,13 @@ function base(
   on('model.complete', (_$, e) => {
     if (engine.isRejected) throw new Error('model bị chặn')
     const isAgent = (e.system ?? '').includes('about to start a subagent')
+    if ((e.system ?? '').includes('still working toward')) {
+      seen.drift.push(e.prompt)
+      const verdict = engine.drift ? engine.drift(e.prompt) : { onTrack: true, why: 'ổn' }
+      return verdict === null
+        ? { value: { isAnswered: false as const, reason: 'api-error' as const, status: 529, error: 'overloaded' as const, usage: ZERO_USAGE } }
+        : { value: { isAnswered: true as const, text: JSON.stringify(verdict), usage: ROUTER_USAGE } }
+    }
     ;(isAgent ? seen.agentRouted : seen.routed).push(e.prompt)
     seen.routerModels.push(e.model)
     const reply = isAgent
@@ -1564,5 +1573,211 @@ describe('0.5.0: bảng giá trong /conductor status', () => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     expect(String((await conductor($, 'status')).text)).toContain('Bảng giá kèm mod ngày 2026-10-06, ghi đè cho opus')
+  })
+})
+
+describe('0.5.0: log quyết định và hiệu chỉnh', () => {
+  test('log quyết định nối tiếp file cũ khi phiên bắt đầu', { options: { decisionLog: '/tmp/fc-old.jsonl' } }, async ($, on) => {
+    base(on)
+    const writes: string[] = []
+    on('fs.read', () => ({ value: '{"at":"2026-10-01T00:00:00.000Z","kind":"route"}\nkhông phải json\n' }))
+    on('fs.write', (_$, e) => {
+      writes.push(e.text)
+      return { value: undefined }
+    })
+    on('tool.register', () => ({ value: { tool: 'mcp__focus-conductor__plan' } }))
+    on('command.register', () => ({ value: { command: 'conductor' } }))
+    on('session.start', (_$, e) => ({ cwd: e.cwd }))
+    await $.session.start({ cwd: '/repo', surface: null, isInteractive: false })
+    await submit($, COMPLEX_PROMPT)
+    const lines = (writes[writes.length - 1] ?? '').trim().split('\n')
+    expect(lines.length).toBe(2)
+    expect(lines[0]).toBe('{"at":"2026-10-01T00:00:00.000Z","kind":"route"}')
+    expect(JSON.parse(lines[1] ?? '{}')).toMatchObject({ kind: 'route' })
+  })
+
+  test('agent không có kết quả chấm của router không được dùng để hiệu chỉnh ước lượng', {}, async ($, on) => {
+    const seen = base(on, { agent: () => null })
+    on('tool.call', { tool: 'Agent' }, () => ({ result: 'đã giao' }))
+    on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a-raw' }))
+    on('turn.complete', () => ({ text: '' }))
+    await submit($, FOUR)
+    await spawnTool($, 'tu-raw', 'Rà soát phần lạ', 'Rà soát phần lạ của module')
+    await $.turn.complete({ turnId: 'x', agentId: 'a-raw', answer: '', durationMs: 1, isAborted: false, reason: 'answer', usage: { ...BIG_USAGE, model: 'claude-sonnet-5-5' } } as never)
+    expect(String((await conductor($, 'status')).text)).not.toContain('Hiệu chỉnh ước lượng')
+    void seen
+  })
+})
+
+describe('0.5.0: danh mục agent và nhắc subagent', () => {
+  test('router thấy loại agent engine mời (kèm mô tả) và loại khai trong agentTypes; chọn loại đó thì được giữ', { options: { agentTypes: 'security-reviewer' } }, async ($, on) => {
+    const seen = base(on, {
+      router: request =>
+        request.startsWith('Rà soát')
+          ? plan({ goal: 'Rà soát bảo mật', kind: 'mixed', tasks: [task('Rà soát webhook', 'agent', 'opus', 'high', { agent: 'security-reviewer', kind: 'investigate' })] })
+          : DEFAULT_ROUTER(request),
+    })
+    on('agent.offer', () => ({ isOffered: true }))
+    await $.agent.offer({ agent: 'test-runner', description: 'Chạy test và báo lỗi', source: 'plugin', provider: { plugin: 'x', tier: 'user' } } as never)
+    await submit($, 'Rà soát bảo mật luồng webhook')
+    expect(seen.routed[0]).toContain('Agent types: Explore (')
+    expect(seen.routed[0]).toContain('test-runner (Chạy test và báo lỗi)')
+    expect(seen.routed[0]).toContain('security-reviewer')
+    expect(seen.contexts[0]?.join('\n')).toContain('1. Rà soát webhook → giao security-reviewer opus/high')
+  })
+
+  test('remindSubagents: subagent sửa file ngoài phạm vi được nhắc kèm việc được giao', { options: { remindSubagents: true } }, async ($, on) => {
+    const seen = base(on, { router: request => (request.startsWith('Mục tiêu: nâng cấp') ? { ...FOUR_PLAN, scope: ['src/pay/'] } : DEFAULT_ROUTER(request)) })
+    on('tool.call', { tool: 'Agent' }, () => ({ result: 'đã giao' }))
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'sub-1' }))
+    await submit($, FOUR)
+    await spawnTool($, 'tu-sub', 'Việc 2: đổi tên userId', EDIT)
+    const edit = await $.tool.call({ tool: 'Edit', agentId: 'sub-1', file_path: '/repo/src/other.ts', old_string: 'a', new_string: 'b' } as never)
+    const text = (edit.context ?? []).join('\n')
+    expect(text).toContain('Việc được giao cho subagent này: Việc 2: đổi tên userId')
+    expect(text).toContain('ngoài phạm vi')
+    void seen
+  })
+
+  test('mặc định không nhắc subagent (chỉ ghi cảnh báo lên pane)', {}, async ($, on) => {
+    base(on, { router: request => (request.startsWith('Mục tiêu: nâng cấp') ? { ...FOUR_PLAN, scope: ['src/pay/'] } : DEFAULT_ROUTER(request)) })
+    on('tool.call', { tool: 'Agent' }, () => ({ result: 'đã giao' }))
+    on('tool.call', { tool: 'Bash' }, () => ({ result: 'lỗi', isError: true }))
+    on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'sub-2' }))
+    await submit($, FOUR)
+    await spawnTool($, 'tu-sub2', 'Việc 2: đổi tên userId', EDIT)
+    let last: Awaited<ReturnType<typeof $.tool.call>> | undefined
+    for (let i = 0; i < 3; i++) last = await $.tool.call({ tool: 'Bash', agentId: 'sub-2', command: 'npm run build' } as never)
+    expect(last?.context ?? []).toEqual([])
+  })
+})
+
+describe('0.5.0: phần còn lại của đánh giá', () => {
+  const PLAN = 'mcp__focus-conductor__plan'
+
+  test('semanticDrift tắt (mặc định): không hỏi router ở checkpoint', {}, async ($, on) => {
+    const seen = base(on)
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    await submit($, COMPLEX_PROMPT)
+    for (const f of ['a', 'b', 'c', 'd', 'e']) await $.tool.call({ tool: 'Edit', file_path: `src/${f}.ts`, old_string: 'x', new_string: 'y' })
+    expect(seen.drift.length).toBe(0)
+  })
+
+  test('semanticDrift: ở checkpoint router đọc mục tiêu, bước mở và các thay đổi; lạc đề thì nhắc và cảnh báo', { options: { semanticDrift: true } }, async ($, on) => {
+    const seen = base(on, { drift: () => ({ onTrack: false, confidence: 0.8, why: 'đang sửa CSS không liên quan' }) })
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    await submit($, COMPLEX_PROMPT)
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Phân tích luồng' }] })
+    let last: Awaited<ReturnType<typeof $.tool.call>> | undefined
+    for (const f of ['a', 'b', 'c', 'd', 'e']) last = await $.tool.call({ tool: 'Edit', file_path: `styles/${f}.css`, old_string: 'x', new_string: 'y' })
+    expect(seen.drift.length).toBe(1)
+    expect(seen.drift[0]).toContain('Goal: Refactor module thanh toán')
+    expect(seen.drift[0]).toContain('  - Phân tích luồng')
+    expect(seen.drift[0]).toContain('styles/e.css')
+    expect((last?.context ?? []).join('\n')).toContain('có thể đang lệch mục tiêu: đang sửa CSS không liên quan')
+    const ui = await $.ui.mount(PANE)
+    expect(await ui.find({ type: 'Text', text: /Router: có thể lạc đề/ })).toBeDefined()
+    await ui.unmount()
+  })
+
+  test('semanticDrift: router thấy vẫn đúng hướng thì không nhắc thêm', { options: { semanticDrift: true } }, async ($, on) => {
+    base(on)
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    await submit($, COMPLEX_PROMPT)
+    let last: Awaited<ReturnType<typeof $.tool.call>> | undefined
+    for (const f of ['a', 'b', 'c', 'd', 'e']) last = await $.tool.call({ tool: 'Edit', file_path: `src/${f}.ts`, old_string: 'x', new_string: 'y' })
+    expect((last?.context ?? []).join('\n')).not.toContain('lệch mục tiêu')
+  })
+
+  test('agent engine báo khởi động mà không qua agent.spawn của mod: status ghi là agent ngoài điều phối', {}, async ($, on) => {
+    base(on)
+    on('classic.SubagentStart', () => ({}))
+    on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: 'known-1' }))
+    await submit($, COMPLEX_PROMPT)
+    await $.agent.spawn({ prompt: 'Tìm file', description: 'Tìm file auth', subagentType: 'Explore' } as never)
+    await $.classic.SubagentStart({ agent_id: 'known-1', agent_type: 'Explore' } as never)
+    await $.classic.SubagentStart({ agent_id: 'ghost-1', agent_type: 'statusline-setup' } as never)
+    const status = String((await conductor($, 'status')).text)
+    expect(status).toContain('Agent ngoài điều phối (untracked agent, mod không chấm, không ép, không đo): 1 (statusline-setup)')
+  })
+
+  test('routerFallback reuse: router lỗi thì dùng lại lựa chọn luồng chính của prompt trước', { options: { routerFallback: 'reuse' } }, async ($, on) => {
+    let isDown = false
+    const seen = base(on, { router: request => (isDown ? null : DEFAULT_ROUTER(request)) })
+    await submit($, COMPLEX_PROMPT)
+    await step($, seen, { turnId: 't1' })
+    isDown = true
+    await submit($, 'Giờ chuyển sang phần còn lại của việc refactor')
+    expect(seen.toasts.some(t => t.includes('dùng lại lựa chọn của prompt trước'))).toBe(true)
+    expect((await step($, seen, { turnId: 't2' }))?.model).toBe('claude-opus-5-5')
+  })
+
+  test('uiLanguage en: band và pane dùng nhãn tiếng Anh; nội dung của router giữ nguyên', { options: { uiLanguage: 'en' } }, async ($, on) => {
+    base(on)
+    await submit($, COMPLEX_PROMPT)
+    const band = await $.ui.mount({
+      plugin: 'focus-conductor',
+      surface: 'terminal',
+      component: 'AbovePrompt',
+      props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 120, scroll: { offset: 0, bodyRows: 6 }, view: {} },
+    })
+    expect(await band.find({ type: 'Text', text: /^Goal$/ })).toBeDefined()
+    expect(await band.find({ key: 'details' })).toBeDefined()
+    await band.unmount()
+    const pane = await $.ui.mount(PANE)
+    expect(await pane.find({ type: 'Text', text: /^Constraints$/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /Không được thay đổi API công khai/ })).toBeDefined()
+    await pane.unmount()
+  })
+})
+
+describe('0.5.0: kịch bản đầu cuối', () => {
+  test('mục tiêu nhiều việc → giao hai subagent → engine tự đổi model → mục tiêu mới giữa chừng → khôi phục → kiểm tra → kết thúc', { options: { strictDelegation: 'remind' } }, async ($, on) => {
+    const PLAN = 'mcp__focus-conductor__plan'
+    const seen = base(on)
+    let n = 0
+    on('tool.call', { tool: 'Agent' }, () => ({ result: 'đã giao' }))
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    on('tool.call', { tool: 'Bash' }, () => ({ result: '42 pass' }))
+    on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: `e2e-${(n += 1)}` }))
+    on('classic.PostModelSwitch', () => ({}))
+    on('classic.Stop', () => ({}))
+    on('turn.complete', () => ({ text: '' }))
+
+    // 1. Router đọc prompt bốn việc: luồng chính opus/xhigh, ba việc giao subagent.
+    await submit($, FOUR)
+    expect((await step($, seen, { turnId: 't1' }))?.model).toBe('claude-opus-5-5')
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Giao việc' }, { title: 'Thiết kế đa tiền tệ' }] })
+
+    // 2. Giao hai việc: mỗi subagent chạy đúng model đã phân dù engine gửi khác.
+    await spawnTool($, 'e-1', 'Việc 1: tìm chỗ gọi charge', SEARCH)
+    await spawnTool($, 'e-2', 'Việc 2: đổi tên userId', EDIT)
+    expect((await step($, seen, { agentId: 'e2e-1', model: 'claude-opus-5-5', effort: 'xhigh' }))?.model).toBe('claude-haiku-5-5')
+    expect((await step($, seen, { agentId: 'e2e-2', model: 'claude-opus-5-5', effort: 'xhigh' }))?.effort).toBe('medium')
+    // Việc 4 vẫn chờ giao: luồng chính tự sửa file thì được nhắc ở mỗi lần.
+    const edit = await $.tool.call({ tool: 'Edit', file_path: 'src/pay.ts', old_string: 'a', new_string: 'b' })
+    expect((edit.context ?? []).join('\n')).toContain('Việc 4 (sonnet/medium)')
+
+    // 3. Engine tự hạ model phiên vì quá tải: mod vẫn ép luồng chính về opus.
+    await $.classic.PostModelSwitch({ from_model: 'claude-sonnet-5-5', to_model: 'claude-haiku-5-5', requested_model: null, source: 'auto', context_tokens: 0, prompt_cache_warm: false, cache_ttl: '5m', estimated_cache_write_usd: 0 } as never)
+    expect((await step($, seen, { turnId: 't2', model: 'claude-haiku-5-5' }))?.model).toBe('claude-opus-5-5')
+
+    // 4. Prompt bị xếp là mục tiêu mới: checklist cũ được cất, Claude khôi phục.
+    await submit($, 'Viết hàm slugify(text) bằng TypeScript, có unit test.')
+    const restored = await $.tool.call({ tool: PLAN, action: 'restore' })
+    expect(String(restored.result)).toContain('Đã khôi phục mục tiêu: Nâng cấp module thanh toán')
+
+    // 5. Kiểm tra bằng lệnh thật rồi ghi verified kèm evidence khớp: không cảnh báo, cho kết thúc.
+    await $.turn.start({ text: 'làm tiếp', turnId: 't3' })
+    await $.tool.call({ tool: 'Bash', command: 'npm test' })
+    for (const id of [1, 2]) {
+      const done = await $.tool.call({ tool: PLAN, action: 'update', step: id, status: 'verified', evidence: 'npm test: 42 pass' })
+      expect(String(done.result)).not.toContain('chưa tính là đã kiểm tra')
+    }
+    expect((await $.classic.Stop({ stop_hook_active: false })).block).toBeUndefined()
+    const status = String((await conductor($, 'status')).text)
+    expect(status).toContain('Mục tiêu: Nâng cấp module thanh toán')
+    expect(status).toContain('[v] 2. Thiết kế đa tiền tệ')
   })
 })

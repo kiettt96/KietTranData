@@ -11,6 +11,7 @@ import { openSteps } from './drift'
 import { emptyLedger, nextGoal, resetLedger } from './ledger'
 import { legacyOf } from './scale'
 import { statusLine } from './text'
+import type { Lang } from '../ui/labels'
 
 export const EMPTY_LIFT: Lift = { depth: 0, effort: 0 }
 export const EMPTY_CORE: Core = {
@@ -35,7 +36,7 @@ const WARNING_LIMIT = 30
 const LIFT_LIMIT = 2
 
 /** Ảnh chụp mọi thứ band, pane và status line cần, đọc một lần. */
-export type View = { core: Core; mode: Mode; isBandHidden: boolean }
+export type View = { core: Core; mode: Mode; isBandHidden: boolean; lang: Lang }
 
 export function isMode(value: unknown): value is Mode {
   return value === 'auto' || value === 'subagents' || value === 'suggest' || value === 'off'

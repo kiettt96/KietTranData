@@ -26,23 +26,25 @@ import type { Brief, Choice, Core, Effort, Lift, Mode, ModelFamily, Route, Route
 import { evidenceMatches, filePathOf, isExecuting, isMutation, isPlanFile, newEvidenceLog, newTracker, noteEvidence, observe, openSteps, summarize } from './lib/drift'
 import type { EvidenceLog, TurnTracker } from './lib/drift'
 import { DEFAULT_CONTEXT, DEFAULT_WINDOWS, applyPrices, fixedContextTokens, parsePrices, priceNote, turnCost } from './lib/cost'
-import { addUsage, calibrate, countSpawn, formatUsd, ledgerLines } from './lib/ledger'
+import { addUsage, calibrate, countSpawn, formatUsd, ledgerLines, recordShape, shapeKey, shapeOutput } from './lib/ledger'
 import { PLAN_TOOL_SPEC, applyPlan } from './lib/plan'
 import type { PlanInput } from './lib/plan'
 import { EFFORTS, decideMain, describePick, familyOf, liftPick, parseModelMap, parseWindows, resolveModelId, taskMatch } from './lib/route'
 import type { SessionModel, SessionPolicy } from './lib/route'
-import { DECISION_LIMIT, clipText, decisionLine } from './lib/decisions'
+import { DECISION_LIMIT, clipText, decisionLine, keptLines } from './lib/decisions'
 import type { DecisionKind } from './lib/decisions'
 import {
   agentRouterRequest,
   askRouter,
   bareBrief,
   briefOf,
+  driftRequest,
   failureReason,
   fitPick,
   isSkippable,
   nextBrief,
   parseAgentRoute,
+  parseDrift,
   parseRoute,
   rerouted,
   routerRequest,
@@ -57,15 +59,18 @@ import {
   PLAN_TOOL_FULL,
   blockText,
   briefContext,
+  driftContext,
   droppedPlanNotice,
   followUpContext,
   skippedContext,
   renderPlan,
   stopBlockReason,
+  subagentReminder,
   unbackedNotice,
   unroutedContext,
 } from './lib/text'
 import { renderBand } from './ui/band'
+import { langOf } from './ui/labels'
 import { PANE, PANE_TITLE, renderPane } from './ui/pane'
 
 // Atom khai báo ngay trong module hooks (engine quét tham chiếu state tại
@@ -151,6 +156,8 @@ export const register: Register = (on, options) => {
     goalId: number
     family: ModelFamily
     volume: Volume
+    /** Dạng việc (depth/volume/kind) khi router đã chấm; null khi không có kết quả chấm (không dùng để hiệu chỉnh). */
+    shape: string | null
     pick: Choice
     applied: boolean
     enforceModel: boolean
@@ -181,12 +188,12 @@ export const register: Register = (on, options) => {
   let decisions: string[] = []
   // Prompt gần nhất đã qua router, brief trước nó và số mục tiêu sau lượt đó (null khi chưa có): cho /conductor reroute.
   let lastPrompt: { text: string; prev: Brief | null; goalId: number | null } | null = null
-  // Nhận xét lạc đề của turn trước (semanticDrift), gắn vào prompt kế tiếp.
-  let pendingDriftNote: string | null = null
   // Lần đổi model gần nhất của phiên (classic.PostModelSwitch): người dùng hay engine tự fallback.
   let lastSwitch: { source: string; toModel: string } | null = null
-  // Agent engine báo đã khởi động (classic.SubagentStart): agent nào không có điều phối là agent ngoài điều phối.
+  // Agent engine báo đã khởi động (classic.SubagentStart), và agent đã đi qua agent.spawn của mod. Agent có trong
+  // danh sách đầu mà không có trong danh sách sau là agent ngoài điều phối (untracked): mod không chấm, không ép, không đo.
   const startedAgents = new Map<string, string>()
+  const spawnedIds = new Set<string>()
   const rawRouter = options['router']
   const routerModel = typeof rawRouter === 'string' && rawRouter.trim() !== '' ? rawRouter.trim() : 'sonnet'
   const routerFamily: ModelFamily = familyOf(routerModel) ?? 'sonnet'
@@ -211,6 +218,7 @@ export const register: Register = (on, options) => {
   // Việc đã ghi "giao subagent" của mục tiêu hiện tại mà chưa có Agent nào nhận.
   let delegation = { goalId: -1, pending: new Map<number, string>(), isNudged: false, isWarned: false, blocks: 0 }
 
+  const lang = langOf(options['uiLanguage'])
   // Một lần đọc cho mọi thứ band, pane và status line cần.
   const view = derive(
     [coreState, modeState, bandHiddenState],
@@ -218,6 +226,7 @@ export const register: Register = (on, options) => {
       core: S.normalizeCore(core),
       mode: S.modeOf(override, options),
       isBandHidden,
+      lang,
     }),
   )
   const mode = derive([modeState], (override): Mode => S.modeOf(override, options))
@@ -344,8 +353,9 @@ export const register: Register = (on, options) => {
     agentCalls = 0
     agentTrouble = { failures: 0, pausedUntil: 0 }
     lastPrompt = null
-    pendingDriftNote = null
     lastSwitch = null
+    startedAgents.clear()
+    spawnedIds.clear()
   }
 
   /** Hết chặn các họ model đã bị chặn đủ BLOCK_TURNS turn, để thử lại. */
@@ -527,6 +537,11 @@ export const register: Register = (on, options) => {
   // ---------------------------------------------------------------- phiên
 
   on('session.start', async ($, e, next) => {
+    // Log quyết định nối tiếp file cũ (giữ DECISION_LIMIT dòng cuối); file chưa có hoặc đọc lỗi thì bắt đầu mới.
+    if (decisionLog) {
+      const old = await $.fs.read(decisionLog).catch(() => '')
+      decisions = typeof old === 'string' ? keptLines(old) : []
+    }
     await $.tool.register(PLAN_TOOL_SPEC)
     await $.command.register({
       name: 'conductor',
@@ -566,15 +581,12 @@ export const register: Register = (on, options) => {
 
     const before = S.normalizeCore(await read($, coreState))
     const prev = before.brief
-    // Nhận xét lạc đề (semanticDrift) của turn trước: báo cho Claude ở prompt này, một lần.
-    const driftNotes = pendingDriftNote ? [pendingDriftNote] : []
-    pendingDriftNote = null
     // routerSkip (người dùng tự bật): câu ngắn đúng nguyên văn trong danh sách thì là tiếp nối, không hỏi router.
     if (prev !== null && isSkippable(text, skipPhrases)) {
       const at = await $.clock.now()
       record(at, 'skip', { prompt: text, goalId: prev.goalId })
       if (decisionLog) await $.fs.write(decisionLog, decisionText()).catch(() => undefined)
-      return next({ ...e, context: [...(e.context ?? []), skippedContext(prev, before.plan), ...driftNotes] })
+      return next({ ...e, context: [...(e.context ?? []), skippedContext(prev, before.plan)] })
     }
 
     promptCount += 1
@@ -617,7 +629,7 @@ export const register: Register = (on, options) => {
       if (decisionLog) await $.fs.write(decisionLog, decisionText()).catch(() => undefined)
       if (!isPaused) $.ui.toast(pauseText ?? failText)
       $.ui.status(S.statusOf(await read($, view)))
-      return next({ ...e, context: [...(e.context ?? []), unroutedContext(outcome.reason), ...driftNotes] })
+      return next({ ...e, context: [...(e.context ?? []), unroutedContext(outcome.reason)] })
     }
 
     // Mục tiêu mới, chạy thật prompt đã đối chiếu, hoặc tiếp nối cùng mục tiêu.
@@ -661,7 +673,7 @@ export const register: Register = (on, options) => {
       )
     }
     $.ui.status(S.statusOf(await read($, view)))
-    return next({ ...e, context: [...(e.context ?? []), context, ...notice, ...driftNotes] })
+    return next({ ...e, context: [...(e.context ?? []), context, ...notice] })
   })
 
   // ------------------------------------- 2. điều phối model / effort
@@ -790,6 +802,19 @@ export const register: Register = (on, options) => {
     $.ui.toast(text)
     return yield* next(e)
   })
+
+  // Agent khởi động mà không đi qua agent.spawn của mod: ghi để /conductor status báo là agent ngoài điều phối.
+  // So khớp lúc đọc (không lúc khởi động), vì engine có thể báo khởi động trước khi agent.spawn của mod kịp ghi.
+  on('classic.SubagentStart', async ($, e, next) => {
+    const result = await next(e)
+    if (startedAgents.size < 1000) startedAgents.set(e.agent_id, e.agent_type)
+    return result
+  }).catch(($, e, next) => next(e))
+
+  /** Agent engine báo đã khởi động mà mod không thấy ở agent.spawn. */
+  function untrackedAgents(): string[] {
+    return [...startedAgents].filter(([id]) => !spawnedIds.has(id)).map(([, type]) => type || 'agent')
+  }
 
   // Nguồn của lần đổi model phiên: người dùng (/model, picker, SDK) hay engine tự đổi (auto, resume).
   // Step đầu của turn sau đọc nó để quyết định có tạm dừng tự điều phối hay không.
@@ -996,6 +1021,7 @@ export const register: Register = (on, options) => {
         goalId,
         family,
         volume: route?.volume ?? 'small',
+        shape: route !== null ? shapeKey(route.depth, route.volume, route.kind) : null,
         // Agent của Agent tool được ép về họ và effort đã gửi lúc spawn; agent workflow về lựa chọn của router.
         pick: {
           family: info?.sentFamily ?? route?.pick.family ?? family,
@@ -1007,7 +1033,10 @@ export const register: Register = (on, options) => {
         fallback: false,
       })
     }
-    if (agentId !== undefined) steppedEarly.delete(agentId)
+    if (agentId !== undefined) {
+      steppedEarly.delete(agentId)
+      if (spawnedIds.size < 1000) spawnedIds.add(agentId)
+    }
 
     const sent = info?.sentFamily ?? null
     const isMismatch = info !== undefined && sent !== null && engineFamily !== null && engineFamily !== sent
@@ -1026,7 +1055,14 @@ export const register: Register = (on, options) => {
     const effort = info?.sentEffort ?? route?.pick.effort
     const estimate =
       route !== null
-        ? turnCost(family, effort ?? route.pick.effort, route.volume, Math.ceil(e.prompt.length / 4), core.ledger.calib[family])
+        ? turnCost(
+            family,
+            effort ?? route.pick.effort,
+            route.volume,
+            Math.ceil(e.prompt.length / 4),
+            core.ledger.calib[family],
+            shapeOutput(core.ledger, shapeKey(route.depth, route.volume, route.kind), effort ?? route.pick.effort),
+          )
         : undefined
     const entry: RouteEvent = {
       at,
@@ -1136,7 +1172,10 @@ export const register: Register = (on, options) => {
       if (meta === undefined) return result
       const agentTracker = agentTrackers.get(e.agentId) ?? newTracker('')
       agentTrackers.set(e.agentId, agentTracker)
-      const findings = observe(agentTracker, observation, { goal: meta.description, scopePaths: [], tier: meta.tier }, [])
+      // remindSubagents: subagent cũng bị kiểm phạm vi file của mục tiêu và được nhắc (kèm việc được giao);
+      // mặc định chỉ ghi cảnh báo lên pane, không nhắc.
+      const scopePaths = remindSubagents ? (S.normalizeCore(await read($, coreState)).brief?.scopePaths ?? []) : []
+      const findings = observe(agentTracker, observation, { goal: meta.description, scopePaths, tier: meta.tier }, [])
       const at = await $.clock.now()
       const warnings: Warning[] = []
       for (const finding of findings) {
@@ -1144,7 +1183,9 @@ export const register: Register = (on, options) => {
         warnings.push({ at, kind: finding.kind, text: `Agent ${e.agentId.slice(0, 6)}: ${finding.text}` })
       }
       if (warnings.length > 0) await update($, coreState, S.withWarnings(...warnings))
-      return result
+      const top = remindSubagents ? findings.filter(f => f.kind !== 'checkpoint' && f.context).sort((x, y) => y.priority - x.priority)[0] : undefined
+      if (top?.context === undefined) return result
+      return { ...result, context: [...(result.context ?? []), subagentReminder(meta.description, top.context)] }
     }
 
     const core = S.normalizeCore(await read($, coreState))
@@ -1193,9 +1234,32 @@ export const register: Register = (on, options) => {
       })
     }
 
+    // semanticDrift (người dùng tự bật): ở checkpoint, router đọc mục tiêu và các thay đổi gần đây để nhận ra lạc đề
+    // theo nội dung, thứ mà theo dõi hành vi tool không thấy.
+    let driftNote: string | null = null
+    if (semanticDrift && core.brief !== null && findings.some(f => f.kind === 'checkpoint') && !isRouterPaused()) {
+      const request = driftRequest({
+        goal: core.brief.goal,
+        steps: openSteps(core.plan).map(step => step.title),
+        commands: evidenceLog.commands,
+        paths: evidenceLog.paths,
+        model: routerModel,
+      })
+      const outcome = await askRouter(r => $.model.complete(r).catch(() => null), request, parseDrift)
+      const verdict = outcome.result
+      const now = await $.clock.now()
+      await update($, coreState, c => {
+        const used = outcome.usages.reduce((acc, usage) => S.withLedger(l => addUsage(l, 'analyzer', routerFamily, usage).ledger)(acc), c)
+        return verdict !== null && !verdict.onTrack ? S.withWarnings({ at: now, kind: 'drift', text: `Router: có thể lạc đề (${verdict.why})` })(used) : used
+      })
+      record(now, 'drift', { onTrack: verdict?.onTrack ?? null, why: verdict?.why ?? outcome.reason, retried: outcome.retried })
+      if (decisionLog) await $.fs.write(decisionLog, decisionText()).catch(() => undefined)
+      if (verdict !== null && !verdict.onTrack) driftNote = driftContext(core.brief.goal, verdict.why)
+    }
     const top = findings.filter(f => f.context).sort((a, b) => b.priority - a.priority)[0]
-    if (!top?.context) return withNudge(result)
-    return withNudge({ ...result, context: [...(result.context ?? []), top.context] })
+    const extra = [...(top?.context ? [top.context] : []), ...(driftNote ? [driftNote] : [])]
+    if (extra.length === 0) return withNudge(result)
+    return withNudge({ ...result, context: [...(result.context ?? []), ...extra] })
   }).catch(($, e, next) => next(e))
 
   // Claude định kết thúc mà checklist còn mở: yêu cầu hoàn thành hoặc giải
@@ -1225,9 +1289,11 @@ export const register: Register = (on, options) => {
         const family = familyOf(e.usage.model) ?? meta?.family ?? 'sonnet'
         const core = S.normalizeCore(await read($, coreState))
         const added = addUsage(core.ledger, 'agent', family, e.usage)
+        // Chỉ agent router đã chấm mới có khối lượng thật để hiệu chỉnh; agent không có kết quả chấm thì bỏ qua.
+        const effort = meta?.sentEffort ?? meta?.pick.effort ?? 'medium'
         const ledger =
-          meta !== undefined
-            ? calibrate(added.ledger, family, e.usage.output_tokens, meta.volume, meta.sentEffort ?? meta.pick.effort)
+          meta !== undefined && meta.shape !== null
+            ? recordShape(calibrate(added.ledger, family, e.usage.output_tokens, meta.volume, effort), meta.shape, e.usage.output_tokens, effort)
             : added.ledger
         await update($, coreState, c => S.withAgentUsd(agentId, added.usd)(S.withLedger(() => ledger)(c)))
       }
@@ -1253,9 +1319,15 @@ export const register: Register = (on, options) => {
       // quay về model của engine); nếu không, effort thực tế không phải effort của route.
       const applied = turnRoute.turnId === e.turnId ? turnRoute.route : null
       const isApplied = applied !== null && (await read($, mode)) === 'auto'
+      const brief = core.brief
       ledger =
-        isApplied && core.brief
-          ? calibrate(added.ledger, family, e.usage.output_tokens, core.brief.volume, applied.effort)
+        isApplied && brief
+          ? recordShape(
+              calibrate(added.ledger, family, e.usage.output_tokens, brief.volume, applied.effort),
+              shapeKey(brief.depth, brief.volume, brief.kind),
+              e.usage.output_tokens,
+              applied.effort,
+            )
           : added.ledger
     }
     // Turn có thực thi mà các việc ghi giao subagent vẫn chưa được giao: cảnh báo chi phí một lần.
@@ -1428,7 +1500,10 @@ export const register: Register = (on, options) => {
           const cost = entry.usd !== undefined ? ` ${formatUsd(entry.usd)}${entry.measured ? '' : ' ước tính'}` : ''
           return `  ${entry.label}: ${entry.family}${entry.effort ? `/${entry.effort}` : ''}${cost} (${entry.reason})`
         })
-      const agentBlock = agentLines.length > 0 ? `\nSubagent gần nhất:\n${agentLines.join('\n')}` : ''
+      const untracked = untrackedAgents()
+      const untrackedLine =
+        untracked.length > 0 ? `\nAgent ngoài điều phối (untracked agent, mod không chấm, không ép, không đo): ${untracked.length} (${[...new Set(untracked)].join(', ')})` : ''
+      const agentBlock = (agentLines.length > 0 ? `\nSubagent gần nhất:\n${agentLines.join('\n')}` : '') + untrackedLine
       return {
         text: [
           `Chế độ ${current}`,
