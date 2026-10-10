@@ -25,57 +25,60 @@ export type ModelFamily = 'haiku' | 'sonnet' | 'opus' | 'fable'
 /** Chế độ điều phối đang có hiệu lực. */
 export type Mode = 'auto' | 'subagents' | 'suggest' | 'off'
 
+/** Một lựa chọn model và effort. */
+export type Choice = { family: ModelFamily; effort: Effort }
+
 /**
- * Một việc con tách từ prompt, chấm riêng bằng luật cục bộ: độ sâu, khối lượng và
- * bản chất của chính việc đó, không lấy theo cả prompt.
+ * Một việc người dùng giao trong prompt, do router tách và điều phối: làm ở luồng chính
+ * hay giao subagent, với loại agent, model và effort nào.
  */
-export type Subtask = {
-  /** Thứ tự trong prompt, từ 1. */
+export type Task = {
+  /** Thứ tự trong prompt, từ 1; việc thêm ở prompt tiếp nối được đánh số tiếp theo. */
   index: number
   title: string
+  run: 'main' | 'agent'
+  /** Loại agent khi giao subagent (Explore, Plan, general-purpose). */
+  agentType?: string
+  pick: Choice
   depth: Depth
   volume: Volume
   kind: Kind
-  hardSignals: string[]
-  /** Nguồn của việc: danh sách người dùng, mục có mã (K4.1, Bước 2), vế đoạn văn, hay Haiku trích. */
-  from?: 'list' | 'section' | 'clause' | 'model'
+  /** Lý do của router, kèm lý do kẹp theo chính sách nếu có. */
+  why: string
 }
 
-/** Kết quả đọc prompt: mục tiêu cuối, các bước, ràng buộc, tiêu chí chất lượng. */
+/** Kết quả router đọc prompt: mục tiêu cuối, việc, ràng buộc, tiêu chí, và điều phối. */
 export type Brief = {
   /** Tăng mỗi khi có mục tiêu mới; dùng để nhận ra đổi task. */
   goalId: number
   goal: string
+  /** Bước dự kiến: tên các việc lúc đầu, sau đó theo checklist Claude chốt. */
   steps: string[]
-  /** Việc con tách từ prompt (khi có từ hai bước trở lên), mỗi việc có đánh giá riêng. */
-  subtasks: Subtask[]
+  tasks: Task[]
   constraints: string[]
   quality: string[]
   depth: Depth
   volume: Volume
   kind: Kind
-  /** Tín hiệu khó đã nhận ra (đồng thời, bảo mật, ...): sàn độ sâu. */
-  hardSignals: string[]
   /** Suy ra từ depth và volume, giữ cho ngân sách tool call và nhãn cũ. */
   tier: Tier
-  /** Điểm phức tạp 0..100, chỉ để hiển thị. */
-  score: number
-  /** Các tín hiệu dẫn tới đánh giá, để người dùng thấy vì sao. */
-  signals: string[]
-  source: 'heuristic' | 'model'
+  /** Model và effort router chọn cho luồng chính; null khi router không đọc được prompt (mod không ép). */
+  main: Choice | null
+  /** Luồng chính mà prompt đính kèm cần nếu chạy thật (chỉ khi isReference). */
+  referenceMain?: Choice
+  /** Lý do router đưa ra. */
+  why: string
+  relation: Relation
+  /** router: do router đọc; none: router không đọc được (hoặc dữ liệu từ bản cũ). */
+  source: 'router' | 'none'
   isFollowUp: boolean
-  /** Từ khóa trọng tâm, dùng để nhắc lại mục tiêu khi có dấu hiệu lạc đề. */
-  keywords: string[]
-  /** Đường dẫn được nhắc trong prompt: phạm vi được phép sửa nếu khác rỗng. */
+  /** Prompt đính kèm chỉ để đối chiếu: các việc chỉ để hiển thị, không thực thi, không giao. */
+  isReference: boolean
+  /** Đường dẫn người dùng giới hạn việc sửa; rỗng là không giới hạn. */
   scopePaths: string[]
   /** Prompt gốc (cắt ngắn) để đối chiếu. */
   prompt: string
   at: number
-  /**
-   * Prompt đính kèm mà người dùng nói là không cần chạy (chỉ để đối chiếu phân việc).
-   * Có trường này thì mục tiêu, ràng buộc, tiêu chí và việc con của brief là của câu mở, không phải của phần đính kèm.
-   */
-  attached?: { depth: Depth; volume: Volume; kind: Kind; subtasks: Subtask[] }
 }
 
 export type StepStatus = 'todo' | 'doing' | 'done' | 'verified' | 'skipped' | 'blocked'
@@ -127,7 +130,7 @@ export type Warning = {
   text: string
 }
 
-/** Nhóm chi phí: luồng chính, subagent, hoặc lượt Haiku phân tích prompt. */
+/** Nhóm chi phí: luồng chính, subagent, hoặc lượt router đọc prompt và chấm subagent (khóa cũ 'analyzer'). */
 export type Group = 'main' | 'agent' | 'analyzer'
 
 /** Tổng token và USD của một nhóm. */

@@ -16,7 +16,7 @@ export const PLAN_TOOL_SPEC: ToolSpec = {
   isDeferred: false,
   description:
     'Ghi và cập nhật mục tiêu cuối cùng cùng checklist các bước của task hiện tại (chỉ luồng chính). ' +
-    'action "set": đặt goal (tùy chọn) và steps (thay toàn bộ checklist; mỗi bước có thể kèm tier để được gợi ý model). ' +
+    'action "set": đặt goal (tùy chọn) và steps (thay toàn bộ checklist; mỗi bước có thể kèm tier để ghi độ phức tạp). ' +
     'action "update": đổi status của một bước theo id; "verified" bắt buộc có evidence (lệnh đã chạy, kết quả), ' +
     '"skipped" và "blocked" bắt buộc có note giải thích. action "add": thêm bước vào cuối. ' +
     'Gọi "set" trước khi thực thi việc từ mức moderate trở lên, và "update" sau mỗi bước quan trọng.',

@@ -1,8 +1,8 @@
 {
   "name": "focus-conductor",
-  "version": "0.3.4",
+  "version": "0.4.0",
   "author": { "name": "Kiet Tran" },
-  "description": "Đọc kỹ prompt trước khi làm, tự điều phối model/effort/agent theo độ phức tạp, giữ nhất quán mục tiêu với checklist và cảnh báo lạc đề.",
+  "description": "Một model Claude (router) đọc kỹ prompt trước khi làm và điều phối model/effort/agent cho từng việc; mod kiểm, ép điều phối lúc chạy, giữ nhất quán mục tiêu với checklist và cảnh báo lạc đề.",
   "types": "./types/index.d.ts",
   "userConfig": {
     "routing": {
@@ -12,12 +12,11 @@
       "default": "auto",
       "options": ["auto", "subagents", "suggest", "off"]
     },
-    "analyzer": {
+    "router": {
       "type": "string",
-      "title": "Bộ phân tích prompt",
-      "description": "model: heuristic kết hợp một lượt Haiku để bóc mục tiêu, bước, ràng buộc; heuristic: chỉ phân tích cục bộ, không tốn token",
-      "default": "model",
-      "options": ["model", "heuristic"]
+      "title": "Model router",
+      "description": "Model Claude đọc prompt và điều phối việc, agent, model, effort ngay từ đầu: alias haiku, sonnet, opus hoặc model ID. Mặc định sonnet",
+      "default": "sonnet"
     },
     "enforceChecklist": {
       "type": "boolean",
@@ -28,7 +27,7 @@
     "allowFable": {
       "type": "boolean",
       "title": "Cho phép dùng Fable cho việc rất khó",
-      "description": "Việc khó nhất (độ sâu hard) dùng Fable thay vì Opus; chi phí cao hơn khoảng 2,5 lần Opus",
+      "description": "Cho router dùng Fable cho việc khó nhất; tắt thì lựa chọn fable bị kẹp về Opus. Chi phí cao hơn khoảng 2,5 lần Opus",
       "default": false
     },
     "modelMap": {

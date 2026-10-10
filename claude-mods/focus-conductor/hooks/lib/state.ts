@@ -7,7 +7,6 @@
 import type { PluginOptions } from 'claude-code'
 
 import type { Brief, Core, Ledger, Lift, Mode, PlanStep, Route, RouteEvent, Warning } from '../../types'
-import { retarget } from './analyze'
 import { emptyLedger, nextGoal, resetLedger } from './ledger'
 import { legacyOf } from './scale'
 import { statusLine } from './text'
@@ -68,17 +67,49 @@ export function normalizeCore(raw: Partial<Core>): Core {
   }
 }
 
-/** Brief cũ chỉ có tier: suy ra depth và volume tương đương, bản sắc việc để trung tính. */
-function normalizeBrief(brief: Brief): Brief {
-  const legacy = legacyOf(brief.tier)
+/** Brief lưu từ bản cũ, có thể thiếu trường của bản hiện tại hoặc còn trường đã bỏ. */
+type StoredBrief = Partial<Brief> & Pick<Brief, 'goalId' | 'goal'> & { attached?: unknown; source?: string }
+
+/**
+ * Brief từ bản cũ (0.1.x chỉ có tier; 0.3.x đọc bằng heuristic): suy ra depth và volume tương
+ * đương, không có lựa chọn của router (main null: mod không ép tới khi router đọc prompt sau).
+ */
+function normalizeBrief(raw: Brief): Brief {
+  const brief = raw as StoredBrief
+  const tier = brief.tier ?? 'moderate'
+  const legacy = legacyOf(tier)
   return {
-    ...brief,
+    goalId: brief.goalId,
+    goal: brief.goal,
+    steps: brief.steps ?? [],
+    tasks: brief.tasks ?? [],
+    constraints: brief.constraints ?? [],
+    quality: brief.quality ?? [],
     depth: brief.depth ?? legacy.depth,
     volume: brief.volume ?? legacy.volume,
     kind: brief.kind ?? 'mixed',
-    hardSignals: brief.hardSignals ?? [],
-    subtasks: brief.subtasks ?? [],
+    tier,
+    main: brief.main ?? null,
+    ...(brief.referenceMain ? { referenceMain: brief.referenceMain } : {}),
+    why: brief.why ?? '',
+    relation: brief.relation ?? 'new',
+    source: brief.source === 'router' ? 'router' : 'none',
+    isFollowUp: brief.isFollowUp ?? false,
+    isReference: brief.isReference ?? brief.attached !== undefined,
+    scopePaths: brief.scopePaths ?? [],
+    prompt: brief.prompt ?? '',
+    at: brief.at ?? 0,
   }
+}
+
+/**
+ * Claude chốt lại mục tiêu và các bước qua tool plan: thay câu mục tiêu và danh sách bước
+ * (bước dài bị cắt). Việc đã phân và lựa chọn của router giữ nguyên.
+ */
+export function retarget(brief: Brief, goal: string | undefined, steps: readonly string[]): Brief {
+  const nextGoal = goal?.trim() ? goal.trim().slice(0, 200) : brief.goal
+  const nextSteps = steps.length > 0 ? steps.map(s => s.slice(0, 120)) : brief.steps
+  return { ...brief, goal: nextGoal, steps: nextSteps }
 }
 
 // ------------------------------------------------------------ reducers
@@ -94,6 +125,14 @@ export const adoptGoal =
 export const withBrief =
   (brief: Brief) =>
   (c: Core): Core => ({ ...normalizeCore(c), brief })
+
+/**
+ * Router quyết lại cho prompt tiếp nối: thay brief và xóa nâng cấp theo bằng chứng, vì router
+ * đã thấy model luồng chính thật sự chạy và tự nâng khi người dùng báo chưa đạt (không nâng hai lần).
+ */
+export const withDecision =
+  (brief: Brief) =>
+  (c: Core): Core => ({ ...normalizeCore(c), brief, lift: EMPTY_LIFT })
 
 /** Claude chốt lại mục tiêu/các bước qua tool plan (action "set"): xem retarget. */
 export const withRetarget =
