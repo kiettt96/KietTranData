@@ -23,9 +23,9 @@ import { atom, derive, read, update } from 'claude-code'
 import type { ModelCompleteResult, ModelUsage, PromptOrigin, Register } from 'claude-code'
 
 import type { Brief, Choice, Core, Effort, Lift, Mode, ModelFamily, Route, RouteEvent, Task, Tier, Volume, Warning } from '../types'
-import { filePathOf, isExecuting, isMutation, isPlanFile, newTracker, observe, openSteps, summarize } from './lib/drift'
-import type { TurnTracker } from './lib/drift'
-import { DEFAULT_CONTEXT, fixedContextTokens, turnCost } from './lib/cost'
+import { evidenceMatches, filePathOf, isExecuting, isMutation, isPlanFile, newEvidenceLog, newTracker, noteEvidence, observe, openSteps, summarize } from './lib/drift'
+import type { EvidenceLog, TurnTracker } from './lib/drift'
+import { DEFAULT_CONTEXT, DEFAULT_WINDOWS, applyPrices, fixedContextTokens, parsePrices, priceNote, turnCost } from './lib/cost'
 import { addUsage, calibrate, countSpawn, formatUsd, ledgerLines } from './lib/ledger'
 import { PLAN_TOOL_SPEC, applyPlan } from './lib/plan'
 import type { PlanInput } from './lib/plan'
@@ -62,6 +62,7 @@ import {
   skippedContext,
   renderPlan,
   stopBlockReason,
+  unbackedNotice,
   unroutedContext,
 } from './lib/text'
 import { renderBand } from './ui/band'
@@ -113,6 +114,8 @@ export const register: Register = (on, options) => {
   // Biến module: chỉ giữ thứ tạm thời của turn đang chạy; hot-reload làm
   // mất chúng mà không ảnh hưởng tính đúng (trạng thái bền nằm trong $.state).
   let tracker: TurnTracker = newTracker('')
+  // Lệnh và file luồng chính đã chạy trong mục tiêu hiện tại: đối chiếu evidence khi Claude ghi "verified".
+  let evidenceLog: EvidenceLog = newEvidenceLog(-1)
   let turnRoute: { turnId: string; route: Route | null } = { turnId: '', route: null }
   let turnContext = 0
   let isGoalNew = false
@@ -198,7 +201,12 @@ export const register: Register = (on, options) => {
   const sessionPolicy: SessionPolicy = rawPolicy === 'ceiling' || rawPolicy === 'fixed' ? rawPolicy : 'auto'
   const ttl = Number(options['cacheTtlMinutes'])
   const cacheTtlMs = (Number.isFinite(ttl) && ttl > 0 ? ttl : 5) * 60_000
-  const contextWindows = parseWindows(options['contextWindows'])
+  // Cửa sổ mặc định chỉ áp cho họ dùng model ID mặc định của mod (modelMap đổi ID thì người dùng khai cửa sổ của ID đó).
+  const defaultWindows = Object.fromEntries(
+    Object.entries(DEFAULT_WINDOWS).filter(([family]) => modelMap[family as ModelFamily] === undefined),
+  ) as Partial<Record<ModelFamily, number>>
+  const contextWindows = { ...defaultWindows, ...parseWindows(options['contextWindows']) }
+  applyPrices(parsePrices(options['prices']))
   let lastWindow = DEFAULT_WINDOW
   // Việc đã ghi "giao subagent" của mục tiêu hiện tại mà chưa có Agent nào nhận.
   let delegation = { goalId: -1, pending: new Map<number, string>(), isNudged: false, isWarned: false, blocks: 0 }
@@ -311,6 +319,7 @@ export const register: Register = (on, options) => {
   /** Xóa phần trạng thái cục bộ (không thuộc $.state). */
   function resetLocal(): void {
     tracker = newTracker('')
+    evidenceLog = newEvidenceLog(-1)
     turnRoute = { turnId: '', route: null }
     turnContext = 0
     isGoalNew = false
@@ -1079,12 +1088,20 @@ export const register: Register = (on, options) => {
       return isSet ? S.withRetarget(outcome.goal, titles, outcome.scope)(withPlan) : withPlan
     })
     tracker.planUpdates += 1
-    if (input.status === 'verified') {
+    // verified chỉ tính là đã kiểm tra khi evidence nhắc tới lệnh hay file đã thật sự chạy trong mục tiêu này.
+    const isBacked =
+      input.status === 'verified' && evidenceLog.goalId === core.brief?.goalId && evidenceMatches(String(input.evidence ?? ''), evidenceLog)
+    if (isBacked) {
       tracker.isVerified = true
       tracker.mutationsSinceCheck = 0
     }
+    const isUnbacked = input.status === 'verified' && !isBacked
+    if (isUnbacked) {
+      const text = `Bước ${String(input.step)} ghi verified nhưng evidence không nhắc lệnh hay file nào đã chạy trong mục tiêu này`
+      await update($, coreState, S.withWarnings({ at: await $.clock.now(), kind: 'unverified', text }))
+    }
     $.ui.status(S.statusOf(await read($, view)))
-    return { result: renderPlan(core.brief, core.plan) }
+    return { result: isUnbacked ? `${renderPlan(core.brief, core.plan)}\n${unbackedNotice()}` : renderPlan(core.brief, core.plan) }
   }).catch(() => ({ deny: 'focus-conductor: lỗi nội bộ khi cập nhật checklist; tiếp tục làm việc không cần tool này.' }))
 
   // Mọi tool: luồng chính được nhắc (context của kết quả tool) và nâng cấp theo
@@ -1131,6 +1148,10 @@ export const register: Register = (on, options) => {
     }
 
     const core = S.normalizeCore(await read($, coreState))
+    if (core.brief !== null) {
+      if (evidenceLog.goalId !== core.brief.goalId) evidenceLog = newEvidenceLog(core.brief.goalId)
+      if (!observation.isError) noteEvidence(evidenceLog, observation)
+    }
     const findings = observe(tracker, observation, core.brief, core.plan)
     const isErrorBurst = tracker.errors === ERROR_BURST
     // Luồng chính bắt đầu tự sửa file trong khi còn việc đã ghi giao subagent: nhắc một lần.
@@ -1391,6 +1412,7 @@ export const register: Register = (on, options) => {
       const costLines = ledgerLines(core.ledger)
       if (core.sysTokens > 0) costLines.push(`Phần cố định của ngữ cảnh (system prompt, tools): ${Math.round(core.sysTokens / 1000)}k token, đo ở đầu phiên`)
       if (usage?.cost) costLines.push(`Chi phí cả phiên theo Claude Code (gồm cả phần trước khi mod bắt đầu ghi sổ): ${formatUsd(usage.cost.usd)}`)
+      costLines.push(priceNote(await $.clock.now()))
       if (core.brief === null) return { text: [`Chế độ ${current}. Chưa có mục tiêu.`, ...costLines].join('\n') }
       const routeLine = core.route
         ? `${describePick(core.route)} (${core.route.reason})`

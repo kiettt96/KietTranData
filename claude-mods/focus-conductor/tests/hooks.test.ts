@@ -1523,3 +1523,46 @@ describe('0.5.0: hỏi lại router và bộ đếm lỗi riêng', () => {
     expect(seen.toasts.some(t => t.includes('tạm bỏ qua router trong'))).toBe(false)
   })
 })
+
+describe('0.5.0: verified phải có evidence thật', () => {
+  const PLAN = 'mcp__focus-conductor__plan'
+
+  test('evidence nhắc lệnh đã chạy: tính là đã kiểm tra, không cảnh báo', {}, async ($, on) => {
+    base(on)
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    on('tool.call', { tool: 'Bash' }, () => ({ result: '12 pass' }))
+    await submit($, COMPLEX_PROMPT)
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa' }] })
+    for (const f of ['a', 'b', 'c', 'd']) await $.tool.call({ tool: 'Edit', file_path: `src/${f}.ts`, old_string: 'x', new_string: 'y' })
+    await $.tool.call({ tool: 'Bash', command: 'npm test' })
+    const done = await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'npm test: 12 pass' })
+    expect(String(done.result)).not.toContain('chưa tính là đã kiểm tra')
+    // Đếm thay đổi chưa kiểm tra bắt đầu lại: lần sửa tiếp theo không nhắc checkpoint.
+    const next = await $.tool.call({ tool: 'Edit', file_path: 'src/e.ts', old_string: 'x', new_string: 'y' })
+    expect(JSON.stringify(next.context ?? [])).not.toContain('Checkpoint')
+  })
+
+  test('evidence không nhắc lệnh hay file nào đã chạy: vẫn ghi nhận, nhưng cảnh báo và chưa tính là đã kiểm tra', {}, async ($, on) => {
+    base(on)
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    await submit($, COMPLEX_PROMPT)
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa' }] })
+    for (const f of ['a', 'b', 'c', 'd']) await $.tool.call({ tool: 'Edit', file_path: `src/${f}.ts`, old_string: 'x', new_string: 'y' })
+    const done = await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'đã kiểm tra kỹ, chạy ổn' })
+    expect(String(done.result)).toContain('[v] 1. Sửa')
+    expect(String(done.result)).toContain('chưa tính là đã kiểm tra')
+    const next = await $.tool.call({ tool: 'Edit', file_path: 'src/e.ts', old_string: 'x', new_string: 'y' })
+    expect(JSON.stringify(next.context ?? [])).toContain('Checkpoint')
+    const ui = await $.ui.mount(PANE)
+    expect(await ui.find({ type: 'Text', text: /evidence không nhắc lệnh hay file/ })).toBeDefined()
+    await ui.unmount()
+  })
+})
+
+describe('0.5.0: bảng giá trong /conductor status', () => {
+  test('status ghi ngày bảng giá và phần ghi đè theo option prices', { options: { prices: 'opus=5/25' } }, async ($, on) => {
+    base(on)
+    await submit($, COMPLEX_PROMPT)
+    expect(String((await conductor($, 'status')).text)).toContain('Bảng giá kèm mod ngày 2026-10-06, ghi đè cho opus')
+  })
+})

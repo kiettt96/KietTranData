@@ -168,6 +168,14 @@ export function blockText(waiting: readonly string[], left: number): string {
   )
 }
 
+/** Evidence của "verified" không khớp lệnh hay file nào đã chạy: vẫn ghi nhận, nhưng chưa tính là đã kiểm tra. */
+export function unbackedNotice(): string {
+  return (
+    '[focus-conductor] Evidence không nhắc lệnh kiểm tra hay file nào đã chạy trong mục tiêu này, nên chưa tính là đã kiểm tra. ' +
+    'Ghi rõ lệnh đã chạy (ví dụ "npm test: 12 pass") hoặc file đã đọc lại; nếu chưa kiểm tra, dùng done.'
+  )
+}
+
 /** Checklist dạng văn bản, trả về trong kết quả của tool plan. */
 export function renderPlan(brief: Brief | null, plan: readonly PlanStep[]): string {
   if (plan.length === 0) return `${brief ? `Mục tiêu: ${brief.goal}\n` : ''}Checklist trống.`

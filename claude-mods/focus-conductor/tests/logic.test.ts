@@ -4,7 +4,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import type { Brief, Route, Task } from '../types'
-import { isPlanFile, isReadOnlyCommand, newTracker, observe, summarize } from '../hooks/lib/drift'
+import { evidenceMatches, isPlanFile, isReadOnlyCommand, newEvidenceLog, newTracker, noteEvidence, observe, summarize } from '../hooks/lib/drift'
 import { applyPlan } from '../hooks/lib/plan'
 import { decideMain, liftPick, matchTask, resolveModelId, taskMatch } from '../hooks/lib/route'
 import { normalizeCore, retarget } from '../hooks/lib/state'
@@ -374,5 +374,30 @@ describe('drift: lệnh chỉ đọc, file kế hoạch, checkpoint (0.3.4 lần
     observe(tracker, bash('git status'), FOCUS, [])
     const brief = makeBrief()
     expect(summarize(tracker, { ...brief, tier: 'complex' }, []).some(f => f.kind === 'unverified')).toBe(false)
+  })
+})
+
+describe('0.5.0: đối chiếu evidence và lệnh in biến môi trường', () => {
+  test('env và printenv không kèm lệnh là chỉ đọc; env kèm lệnh thì không', () => {
+    expect(isReadOnlyCommand('env | grep -i claude | sed -E \'s/=.*/=…/\' | head -30')).toBe(true)
+    expect(isReadOnlyCommand('printenv PATH')).toBe(true)
+    expect(isReadOnlyCommand('printenv')).toBe(true)
+    expect(isReadOnlyCommand('env FOO=1 make build')).toBe(false)
+    expect(isReadOnlyCommand('env -0')).toBe(true)
+  })
+
+  test('evidence khớp khi nhắc vài từ đầu của lệnh đã chạy, đối số dạng đường dẫn, hoặc file đã đụng tới', () => {
+    const log = newEvidenceLog(1)
+    const bash = (command: string) => noteEvidence(log, { tool: 'Bash', input: { command }, isError: false, isReadOnly: false })
+    bash('cd /repo/mod && claude plugin test . 2>&1 | tail -3')
+    bash('npx --no-install tsc -p scratchpad/tc/tsconfig.repo.json')
+    noteEvidence(log, { tool: 'Edit', input: { file_path: '/repo/mod/hooks/lib/drift.ts' }, isError: false, isReadOnly: false })
+    expect(evidenceMatches('claude plugin test . 184 pass 0 fail', log)).toBe(true)
+    expect(evidenceMatches('npx tsc sạch', log)).toBe(true)
+    expect(evidenceMatches('tsc -p scratchpad/tc/tsconfig.repo.json không lỗi', log)).toBe(true)
+    expect(evidenceMatches('đã đọc lại drift.ts', log)).toBe(true)
+    expect(evidenceMatches('đã kiểm tra kỹ, chạy ổn', log)).toBe(false)
+    expect(evidenceMatches('npm test 12 pass', log)).toBe(false)
+    expect(evidenceMatches('anything', newEvidenceLog(1))).toBe(false)
   })
 })
