@@ -9,6 +9,7 @@ import { formatUsd, ledgerLines } from '../lib/ledger'
 import { describePick } from '../lib/route'
 import type { View } from '../lib/state'
 import { mark, progress } from '../lib/text'
+import { labels } from './labels'
 
 export const PANE = 'focus-conductor'
 export const PANE_TITLE = 'Focus Conductor'
@@ -24,6 +25,7 @@ export type PaneHandlers = {
 export function renderPane(t: Elements[RenderSurface], view: View, handlers: PaneHandlers): RenderElement {
   const { Box, Text, Button } = t
   const { brief, plan, route, log, warnings } = view.core
+  const l = labels(view.lang)
 
   const section = (title: string) => (
     <Text bold color="claude">
@@ -43,7 +45,7 @@ export function renderPane(t: Elements[RenderSurface], view: View, handlers: Pan
 
   const modeRow = (
     <Box flexDirection="row" gap={1} flexWrap="wrap">
-      <Text dimColor>Chế độ</Text>
+      <Text dimColor>{l.modeLabel}</Text>
       {MODES.map(m => (
         <Button
           key={`mode-${m}`}
@@ -59,7 +61,7 @@ export function renderPane(t: Elements[RenderSurface], view: View, handlers: Pan
     return (
       <Box flexDirection="column" gap={1}>
         {modeRow}
-        <Text dimColor>Chưa có mục tiêu. Gửi một prompt, hoặc dùng /conductor goal kèm mô tả mục tiêu.</Text>
+        <Text dimColor>{l.noGoal}</Text>
       </Box>
     )
   }
@@ -76,7 +78,7 @@ export function renderPane(t: Elements[RenderSurface], view: View, handlers: Pan
         ))}
       </Box>
     ) : (
-      list(brief.steps, 'Claude chưa chốt checklist.')
+      list(brief.steps, l.noChecklist)
     )
 
   const recentLog = log.slice(-8).reverse()
@@ -86,37 +88,37 @@ export function renderPane(t: Elements[RenderSurface], view: View, handlers: Pan
     <Box flexDirection="column" gap={1}>
       {modeRow}
       <Box flexDirection="column">
-        {section('Mục tiêu')}
+        {section(l.goal)}
         <Text wrap="wrap">{brief.goal}</Text>
         <Text dimColor wrap="wrap">
-          {brief.depth} · khối lượng {brief.volume} · {brief.kind}{brief.why ? ` (${brief.why})` : ''}{brief.source === 'router' ? '' : ' · router chưa đọc'}
+          {brief.depth} · {l.volume} {brief.volume} · {brief.kind}{brief.why ? ` (${brief.why})` : ''}{brief.source === 'router' ? '' : ` · ${l.notRead}`}
         </Text>
       </Box>
       <Box flexDirection="column">
-        {section('Ràng buộc')}
-        {list(brief.constraints, 'Không nhận ra ràng buộc rõ ràng.')}
+        {section(l.constraints)}
+        {list(brief.constraints, l.noConstraints)}
       </Box>
       <Box flexDirection="column">
-        {section('Tiêu chí chất lượng')}
-        {list(brief.quality, 'Không nhận ra tiêu chí riêng.')}
+        {section(l.quality)}
+        {list(brief.quality, l.noQuality)}
       </Box>
       <Box flexDirection="column">
-        {section(plan.length > 0 ? `Checklist ${closed}/${total}` : 'Việc dự kiến (router)')}
+        {section(plan.length > 0 ? `Checklist ${closed}/${total}` : l.planned)}
         {checklist}
       </Box>
       <Box flexDirection="column">
-        {section('Điều phối luồng chính')}
+        {section(l.mainRouting)}
         {route ? (
           <Text wrap="wrap">
-            {describePick(route)} cho việc {brief.depth}, khối lượng {brief.volume}
+            {describePick(route)}{l.forWork(brief.depth, brief.volume)}
             <Text dimColor> ({route.reason})</Text>
           </Text>
         ) : (
-          <Text dimColor>Chưa áp dụng; luồng chính đang dùng model của phiên.</Text>
+          <Text dimColor>{l.notApplied}</Text>
         )}
       </Box>
       <Box flexDirection="column">
-        {section('Chi phí ước tính')}
+        {section(l.cost)}
         {ledgerLines(view.core.ledger).map(line => (
           <Text wrap="wrap" dimColor>
             {line}
@@ -124,24 +126,24 @@ export function renderPane(t: Elements[RenderSurface], view: View, handlers: Pan
         ))}
       </Box>
       <Box flexDirection="column">
-        {section('Nhật ký điều phối')}
+        {section(l.log)}
         {recentLog.length === 0 ? (
-          <Text dimColor>Chưa có quyết định nào.</Text>
+          <Text dimColor>{l.noLog}</Text>
         ) : (
           recentLog.map(entry => (
             <Text wrap="truncate-end" dimColor={!entry.isApplied}>
-              {entry.where === 'main' ? 'chính' : (entry.agentType ?? 'agent')} · {entry.family}
+              {entry.where === 'main' ? l.main : (entry.agentType ?? 'agent')} · {entry.family}
               {entry.effort ? `/${entry.effort}` : ''} · {entry.label}: {entry.reason}
-              {entry.usd !== undefined ? ` · ${formatUsd(entry.usd)}${entry.measured ? '' : ' (ước tính)'}` : ''}
-              {entry.isApplied ? '' : ' (không áp dụng)'}
+              {entry.usd !== undefined ? ` · ${formatUsd(entry.usd)}${entry.measured ? '' : l.estimated}` : ''}
+              {entry.isApplied ? '' : l.skipped}
             </Text>
           ))
         )}
       </Box>
       <Box flexDirection="column">
-        {section('Cảnh báo nhất quán')}
+        {section(l.warnings)}
         {recentWarnings.length === 0 ? (
-          <Text dimColor>Không có cảnh báo.</Text>
+          <Text dimColor>{l.noWarnings}</Text>
         ) : (
           recentWarnings.map(w => (
             <Text wrap="wrap" color={w.kind === 'loop' || w.kind === 'scope' ? 'error' : 'warning'}>
@@ -151,8 +153,8 @@ export function renderPane(t: Elements[RenderSurface], view: View, handlers: Pan
         )}
       </Box>
       <Box flexDirection="row" gap={1}>
-        <Button key="reset" label="Đặt lại mục tiêu" onPress={handlers.onReset} />
-        <Button key="band" label={view.isBandHidden ? 'Hiện band' : 'Ẩn band'} onPress={handlers.onToggleBand} />
+        <Button key="reset" label={l.reset} onPress={handlers.onReset} />
+        <Button key="band" label={view.isBandHidden ? l.showBand : l.hideBand} onPress={handlers.onToggleBand} />
       </Box>
     </Box>
   )

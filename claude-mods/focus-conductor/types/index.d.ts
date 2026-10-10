@@ -121,7 +121,7 @@ export type RouteEvent = {
   isApplied: boolean
 }
 
-export type WarningKind = 'loop' | 'budget' | 'scope' | 'unverified' | 'open-steps' | 'model' | 'cost'
+export type WarningKind = 'loop' | 'budget' | 'scope' | 'unverified' | 'open-steps' | 'model' | 'cost' | 'drift'
 
 /** Cảnh báo nhất quán (lạc đề, lặp, vượt phạm vi, chưa kiểm tra, chi phí). */
 export type Warning = {
@@ -157,7 +157,18 @@ export type Ledger = {
   calib: Record<ModelFamily, number>
   /** Số lần đo đã dùng để hiệu chỉnh. */
   samples: number
+  /**
+   * Token ra đo được theo dạng việc ("depth/volume/kind"), quy về effort medium: trung bình và số lần đo.
+   * Dùng để ước lượng chi phí lúc giao việc khi đã đủ số đo (không có ở trạng thái từ bản cũ).
+   */
+  shapes?: Record<string, { samples: number; output: number }>
 }
+
+/**
+ * Mục tiêu cũ còn bước mở, lưu lại khi chuyển sang mục tiêu mới, để router xếp nhầm "mục tiêu mới"
+ * không làm mất tiến độ: Claude khôi phục bằng plan action "restore".
+ */
+export type ArchivedGoal = { brief: Brief; plan: PlanStep[] }
 
 /** Nâng cấp theo bằng chứng, áp cho các turn sau trong cùng mục tiêu. */
 export type Lift = { depth: number; effort: number }
@@ -181,6 +192,8 @@ export type Core = {
   lastContext: number
   /** Phần cố định của ngữ cảnh (system prompt, tools, bộ nhớ) đo được ở đầu phiên; 0 khi chưa đo. */
   sysTokens: number
+  /** Mục tiêu cũ còn bước mở, mới nhất trước (tối đa 3). */
+  archived: ArchivedGoal[]
 }
 
 declare module 'claude-code' {

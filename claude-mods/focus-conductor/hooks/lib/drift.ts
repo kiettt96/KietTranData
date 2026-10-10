@@ -13,7 +13,7 @@ const FILE_TOOLS = new Set(['Edit', 'Write', 'NotebookEdit', 'MultiEdit'])
 const VERIFY_SEGMENT = new RegExp(
   '^(?:' +
     '(?:npm|pnpm|yarn|bun)\\s+(?:run\\s+)?(?:-\\S+\\s+)*(?:test|tests|lint|typecheck|type-check|build|check|validate|verify)\\b|' +
-    '(?:npx\\s+)?(?:tsc|pytest|jest|vitest|mocha|eslint|ruff|mypy|flake8|pyright|biome|stylelint)\\b|' +
+    '(?:npx\\s+(?:-\\S+\\s+)*)?(?:tsc|pytest|jest|vitest|mocha|eslint|ruff|mypy|flake8|pyright|biome|stylelint)\\b|' +
     'node\\s+--test\\b|' +
     'python3?\\s+-m\\s+(?:pytest|unittest|mypy|ruff)\\b|' +
     'cargo\\s+(?:test|check|clippy|build)\\b|' +
@@ -34,7 +34,8 @@ function segments(command: string): string[] {
       part
         .trim()
         .replace(/^[({]+\s*/, '')
-        .replace(/^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+/, '')
+        // Tiền tố gán biến (FOO=1 npm test), hoặc cả đoạn chỉ là phép gán (D=/đường/dẫn): bỏ đi, không phải lệnh.
+        .replace(/^(?:[A-Za-z_][A-Za-z0-9_]*=\S*(?:\s+|$))+/, '')
         .replace(/^timeout\s+\d+\s+/, ''),
     )
 }
@@ -144,6 +145,9 @@ function segmentIsReadOnly(part: string): boolean {
     const sub = args[i]
     return sub === undefined || READ_ONLY_GIT.has(sub)
   }
+  // printenv chỉ in biến môi trường; env cũng vậy khi không kèm lệnh (env FOO=1 make thì chạy make).
+  if (cmd === 'printenv') return true
+  if (cmd === 'env') return args.every(a => a.startsWith('-'))
   if (!READ_ONLY_COMMANDS.has(cmd)) return false
   if (cmd === 'find') return !args.some(a => FIND_WRITE.test(a))
   // sed -i ghi file; lệnh w, flag s///w và lệnh e của sed ghi file hoặc chạy lệnh khác. sort -o ghi file.
@@ -311,4 +315,53 @@ export function summarize(tracker: TurnTracker, brief: Brief | null, plan: reado
     findings.push({ kind: 'open-steps', priority: 1, text: `Checklist còn ${open.length} bước mở` })
   }
   return findings
+}
+
+// ------------------------------------------------------------ đối chiếu evidence
+
+/** Lệnh và file đã thấy trong mục tiêu hiện tại (luồng chính), để đối chiếu evidence khi Claude ghi "verified". */
+export type EvidenceLog = { goalId: number; commands: string[]; paths: string[] }
+
+const EVIDENCE_COMMANDS = 100
+const EVIDENCE_PATHS = 200
+
+export function newEvidenceLog(goalId: number): EvidenceLog {
+  return { goalId, commands: [], paths: [] }
+}
+
+/** Ghi lệnh Bash và đường dẫn file của một tool call vào dấu vết của mục tiêu. */
+export function noteEvidence(log: EvidenceLog, observation: ToolObservation): void {
+  const command = str(observation.input['command']).trim()
+  if (observation.tool === 'Bash' && command !== '') {
+    log.commands.push(command.slice(0, 500))
+    if (log.commands.length > EVIDENCE_COMMANDS) log.commands.shift()
+  }
+  for (const key of ['file_path', 'notebook_path', 'path']) {
+    const path = str(observation.input[key]).trim()
+    if (path === '' || log.paths.includes(path)) continue
+    log.paths.push(path)
+    if (log.paths.length > EVIDENCE_PATHS) log.paths.shift()
+  }
+}
+
+/**
+ * Evidence có nhắc tới một lệnh đã chạy (vài từ đầu của một đoạn lệnh, như "claude plugin test" hay "npm test")
+ * hoặc một file đã đụng tới (đường dẫn hoặc tên file) trong mục tiêu. Kiểm mềm: chỉ để cảnh báo, không chặn.
+ */
+export function evidenceMatches(evidence: string, log: EvidenceLog): boolean {
+  const text = evidence.toLowerCase()
+  for (const command of log.commands) {
+    for (const part of segments(command)) {
+      const tokens = part.toLowerCase().split(/\s+/).filter(Boolean)
+      const words = tokens.filter(t => !t.startsWith('-'))
+      // Vài từ đầu của lệnh (có hoặc không kèm tùy chọn), hoặc một đối số dạng đường dẫn của lệnh.
+      const keys = [tokens.slice(0, 3).join(' '), words.slice(0, 2).join(' '), ...words.slice(1).filter(w => w.length >= 6 && /[\\/.]/.test(w))]
+      if (keys.some(key => key.length >= 4 && text.includes(key))) return true
+    }
+  }
+  return log.paths.some(path => {
+    const lower = path.toLowerCase()
+    const name = lower.split(/[\\/]/).pop() ?? ''
+    return text.includes(lower) || (name.length >= 4 && text.includes(name))
+  })
 }

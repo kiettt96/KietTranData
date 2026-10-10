@@ -238,17 +238,53 @@ function taskCode(text: string): string {
   return fold(text).match(/^\s*([a-z]{1,3}\d+(?:\.\d+)*|\d+(?:\.\d+)+|\d+(?=[.:)]))/)?.[1] ?? ''
 }
 
+/** Ngưỡng ghi log "gần giống" theo tên việc (hệ số Dice trên từ có nghĩa). Chỉ để ghi log, không dùng để khớp. */
+const TITLE_NEAR = 0.5
+const FILLER = new Set(['va', 'cho', 'cac', 'trong', 'mot', 'nhung', 'cua', 'voi', 'the', 'and', 'for', 'with', 'of', 'to', 'in', 'on', 'a', 'an'])
+
+/** Từ có nghĩa của một câu (bỏ dấu, viết thường), bỏ tiền tố "Việc N:" và mã mục. */
+function words(text: string): Set<string> {
+  const body = fold(text).replace(/^\s*(?:(?:viec|task|buoc|step)\s*#?\s*\d+\s*[:.)-]?|[a-z]{1,3}\d+(?:\.\d+)*\s*[:.)-]?)\s*/, '')
+  return new Set(body.split(/[^a-z0-9]+/).filter(w => w.length >= 2 && !FILLER.has(w)))
+}
+
+function dice(a: ReadonlySet<string>, b: ReadonlySet<string>): number {
+  let shared = 0
+  for (const w of a) if (b.has(w)) shared += 1
+  return a.size + b.size === 0 ? 0 : (2 * shared) / (a.size + b.size)
+}
+
+export type TaskMatch = {
+  task?: Task
+  /** Lời gọi không khớp mà có dấu hiệu nhắm một việc đã phân: lý do, chỉ để ghi log và chỉnh dần. */
+  miss?: string
+}
+
 /**
- * Việc đã phân mà một lời gọi Agent đang làm, chỉ theo cấu trúc: description mở đầu bằng
- * "Việc N" (hoặc "Task N"; không nhận "Bước N" vì dễ trùng số bước của checklist), hoặc
- * cùng mã mục với tên việc (so nguyên mã, để K4.1 không khớp K4.10). Không đoán theo ý.
+ * Việc đã phân mà một lời gọi Agent đang làm, chỉ theo cấu trúc: description mở đầu bằng "Việc N" (hoặc
+ * "Task N", "Task #N"; không nhận "Bước N" vì dễ trùng số bước của checklist), hoặc cùng mã mục với tên việc
+ * (so nguyên mã, để K4.1 không khớp K4.10). Không đoán theo ý: lời gọi không khớp được router chấm, và router
+ * nhận ra nó thuộc việc nào nếu có. Không khớp mà có dấu hiệu nhắm một việc thì trả lý do để ghi log.
  */
-export function matchTask(tasks: readonly Task[], description: string): Task | undefined {
-  const numbered = fold(description).match(/^\s*(?:viec|task)\s*#?\s*(\d+)\b/)
+export function taskMatch(tasks: readonly Task[], description: string): TaskMatch {
+  if (tasks.length === 0) return {}
+  const folded = fold(description)
+  const numbered = folded.match(/^\s*(?:viec|task)\s*#?\s*(\d+)\b/)
   if (numbered) {
     const hit = tasks.find(t => t.index === Number(numbered[1]))
-    if (hit) return hit
+    if (hit) return { task: hit }
   }
   const code = taskCode(description)
-  return code ? tasks.find(t => taskCode(t.title) === code) : undefined
+  const coded = code ? tasks.find(t => taskCode(t.title) === code) : undefined
+  if (coded) return { task: coded }
+  if (numbered) return { miss: `không có việc ${numbered[1]}` }
+  const step = folded.match(/^\s*(?:buoc|step)\s*#?\s*(\d+)\b/)
+  if (step) return { miss: `"Bước ${step[1]}" là số bước của checklist, không phải số việc` }
+  const asked = words(description)
+  const near = tasks.map(t => ({ task: t, score: dice(words(t.title), asked) })).sort((x, y) => y.score - x.score)[0]
+  return near && near.score >= TITLE_NEAR ? { miss: `tên gần giống việc ${near.task.index} (độ trùng ${near.score.toFixed(2)})` } : {}
+}
+
+export function matchTask(tasks: readonly Task[], description: string): Task | undefined {
+  return taskMatch(tasks, description).task
 }

@@ -2,12 +2,15 @@
 // lượt router) theo ba nhóm luồng chính, subagent và router (khóa 'analyzer'), theo phiên
 // và theo mục tiêu. Thuần, không gọi $.
 
-import type { Bucket, Effort, Group, Ledger, ModelFamily, Volume } from '../../types'
+import type { Bucket, Depth, Effort, Group, Kind, Ledger, ModelFamily, Volume } from '../../types'
 import { EFFORT_FACTOR, SIZE, type Tokens, usdOf } from './cost'
 
 export const GROUPS: readonly Group[] = ['main', 'agent', 'analyzer']
 const CALIB_MIN = 0.5
 const CALIB_MAX = 2
+/** Số lần đo tối thiểu của một dạng việc trước khi dùng nó để ước lượng; số lần đo tối đa tính trung bình. */
+export const SHAPE_MIN = 3
+const SHAPE_WINDOW = 50
 
 export function emptyBucket(): Bucket {
   return { calls: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, usd: 0 }
@@ -80,6 +83,30 @@ export function calibrate(
   return { ...ledger, calib: { ...ledger.calib, [family]: next }, samples: ledger.samples + 1 }
 }
 
+export function shapeKey(depth: Depth, volume: Volume, kind: Kind): string {
+  return `${depth}/${volume}/${kind}`
+}
+
+/**
+ * Ghi token ra đo được của một turn vào dạng việc của nó, quy về effort medium. Trung bình cộng dồn tới
+ * SHAPE_WINDOW lần đo, sau đó là trung bình trượt (số đo mới vẫn được tính).
+ */
+export function recordShape(ledger: Ledger, key: string, measuredOutput: number, effort: Effort): Ledger {
+  if (measuredOutput <= 0) return ledger
+  const shapes = ledger.shapes ?? {}
+  const old = shapes[key] ?? { samples: 0, output: 0 }
+  const normalized = measuredOutput / EFFORT_FACTOR[effort]
+  const weight = Math.min(old.samples, SHAPE_WINDOW - 1)
+  const output = (old.output * weight + normalized) / (weight + 1)
+  return { ...ledger, shapes: { ...shapes, [key]: { samples: old.samples + 1, output } } }
+}
+
+/** Token ra ước lượng cho một dạng việc ở effort đã cho; null khi chưa đủ SHAPE_MIN lần đo. */
+export function shapeOutput(ledger: Ledger, key: string, effort: Effort): number | null {
+  const shape = ledger.shapes?.[key]
+  return shape !== undefined && shape.samples >= SHAPE_MIN ? shape.output * EFFORT_FACTOR[effort] : null
+}
+
 /** Mục tiêu mới: xóa các nhóm của mục tiêu cũ, giữ tổng phiên và hệ số hiệu chỉnh. */
 export function nextGoal(ledger: Ledger, goalId: number): Ledger {
   return { ...ledger, goal: { goalId, buckets: emptyBuckets(), spawned: 0, fanoutWarned: false } }
@@ -87,7 +114,7 @@ export function nextGoal(ledger: Ledger, goalId: number): Ledger {
 
 /** Reset hoàn toàn (/conductor reset, /clear), giữ hệ số hiệu chỉnh đã học. */
 export function resetLedger(ledger: Ledger): Ledger {
-  return { ...emptyLedger(0), calib: ledger.calib, samples: ledger.samples }
+  return { ...emptyLedger(0), calib: ledger.calib, samples: ledger.samples, ...(ledger.shapes ? { shapes: ledger.shapes } : {}) }
 }
 
 /** USD có độ chính xác vừa đủ để đọc: dưới một xu hiển thị bốn chữ số thập phân. */
@@ -107,5 +134,11 @@ export function ledgerLines(ledger: Ledger): string[] {
     const calib = (['haiku', 'sonnet', 'opus', 'fable'] as const).map(f => `${f} ×${ledger.calib[f].toFixed(2)}`)
     lines.push(`Hiệu chỉnh ước lượng theo ${ledger.samples} lần đo: ${calib.join(', ')}`)
   }
+  const shapes = Object.entries(ledger.shapes ?? {})
+    .filter(([, shape]) => shape.samples >= SHAPE_MIN)
+    .sort((a, b) => b[1].samples - a[1].samples)
+    .slice(0, 4)
+    .map(([key, shape]) => `${key} ~${(shape.output / 1000).toFixed(1)}k (${shape.samples} lần)`)
+  if (shapes.length > 0) lines.push(`Token ra đo được theo dạng việc (quy về effort medium): ${shapes.join('; ')}`)
   return lines
 }

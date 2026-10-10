@@ -4,9 +4,9 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import type { Brief, Route, Task } from '../types'
-import { isPlanFile, isReadOnlyCommand, newTracker, observe, summarize } from '../hooks/lib/drift'
+import { evidenceMatches, isPlanFile, isReadOnlyCommand, newEvidenceLog, newTracker, noteEvidence, observe, summarize } from '../hooks/lib/drift'
 import { applyPlan } from '../hooks/lib/plan'
-import { decideMain, liftPick, matchTask, resolveModelId } from '../hooks/lib/route'
+import { decideMain, liftPick, matchTask, resolveModelId, taskMatch } from '../hooks/lib/route'
 import { normalizeCore, retarget } from '../hooks/lib/state'
 import { droppedPlanNotice, statusLine } from '../hooks/lib/text'
 
@@ -75,6 +75,16 @@ describe('khớp lời gọi Agent với việc đã phân (chỉ theo cấu tr�
   test('không đoán theo ý: mô tả cùng ý mà không có số hay mã thì không khớp', () => {
     expect(matchTask(tasks, 'Đổi tên userId thành accountId')).toBeUndefined()
     expect(matchTask(tasks, '3 file controller cần đổi tên')).toBeUndefined()
+  })
+
+  test('không khớp mà có dấu hiệu nhắm một việc thì có lý do để ghi log (vẫn không khớp)', () => {
+    expect(taskMatch(tasks, 'Bước 2: chạy test')).toEqual({ miss: '"Bước 2" là số bước của checklist, không phải số việc' })
+    expect(taskMatch(tasks, 'Việc 7: không có').miss).toBe('không có việc 7')
+    const near = taskMatch(tasks, 'Đổi tên userId thành accountId')
+    expect(near.task).toBeUndefined()
+    expect(near.miss).toContain('tên gần giống việc 2')
+    expect(taskMatch(tasks, 'Viết tài liệu kiến trúc')).toEqual({})
+    expect(taskMatch([], 'Việc 1')).toEqual({})
   })
 
   test('mã mục so nguyên mã: K4.1 không khớp K4.10', () => {
@@ -227,6 +237,8 @@ describe('checkpoint kiểm tra', () => {
       'timeout 300 claude plugin test . 2>&1 | grep pass',
       'FOO=1 npm run build',
       'sed -i s/a/b/ f && npm test',
+      'npx --no-install tsc -p tsconfig.json 2>&1 | head',
+      'npx -y vitest run',
     ]) {
       const tracker = newTracker('t1')
       observe(tracker, edit, brief, [])
@@ -317,6 +329,13 @@ describe('drift: lệnh chỉ đọc, file kế hoạch, checkpoint (0.3.4 lần
     expect(tracker.mutations).toBe(0)
   })
 
+  test('đoạn lệnh chỉ gán biến (D=/đường/dẫn; grep x $D) là chỉ đọc; gán rồi chạy lệnh ghi thì vẫn là thay đổi', () => {
+    expect(isReadOnlyCommand('D=/tmp/a.d.ts; grep -n x $D | head')).toBe(true)
+    expect(isReadOnlyCommand('A=1 B=2; sed -n 1,5p $A')).toBe(true)
+    expect(isReadOnlyCommand('D=/tmp/x; rm -rf $D')).toBe(false)
+    expect(isReadOnlyCommand('D=/tmp/x; echo hi > $D')).toBe(false)
+  })
+
   test('lệnh có ghi (sed -i, chuyển hướng, rm, sort -o, find -delete, git commit, thay thế lệnh) là thay đổi', () => {
     for (const command of ["sed -n 'w out' in", "sed 's/a/b/w out' in", "sed '1e rm x' in", 'sed -i s/a/b/ f', 'cat > f', 'rm -rf x', 'echo x > f', 'echo x >> f', 'sort -o out in', 'find . -delete', 'git commit -m x', 'npm install', 'ls $(rm x)', 'awk "BEGIN{system(\"rm x\")}"']) {
       expect(isReadOnlyCommand(command)).toBe(false)
@@ -355,5 +374,30 @@ describe('drift: lệnh chỉ đọc, file kế hoạch, checkpoint (0.3.4 lần
     observe(tracker, bash('git status'), FOCUS, [])
     const brief = makeBrief()
     expect(summarize(tracker, { ...brief, tier: 'complex' }, []).some(f => f.kind === 'unverified')).toBe(false)
+  })
+})
+
+describe('0.5.0: đối chiếu evidence và lệnh in biến môi trường', () => {
+  test('env và printenv không kèm lệnh là chỉ đọc; env kèm lệnh thì không', () => {
+    expect(isReadOnlyCommand('env | grep -i claude | sed -E \'s/=.*/=…/\' | head -30')).toBe(true)
+    expect(isReadOnlyCommand('printenv PATH')).toBe(true)
+    expect(isReadOnlyCommand('printenv')).toBe(true)
+    expect(isReadOnlyCommand('env FOO=1 make build')).toBe(false)
+    expect(isReadOnlyCommand('env -0')).toBe(true)
+  })
+
+  test('evidence khớp khi nhắc vài từ đầu của lệnh đã chạy, đối số dạng đường dẫn, hoặc file đã đụng tới', () => {
+    const log = newEvidenceLog(1)
+    const bash = (command: string) => noteEvidence(log, { tool: 'Bash', input: { command }, isError: false, isReadOnly: false })
+    bash('cd /repo/mod && claude plugin test . 2>&1 | tail -3')
+    bash('npx --no-install tsc -p scratchpad/tc/tsconfig.repo.json')
+    noteEvidence(log, { tool: 'Edit', input: { file_path: '/repo/mod/hooks/lib/drift.ts' }, isError: false, isReadOnly: false })
+    expect(evidenceMatches('claude plugin test . 184 pass 0 fail', log)).toBe(true)
+    expect(evidenceMatches('npx tsc sạch', log)).toBe(true)
+    expect(evidenceMatches('tsc -p scratchpad/tc/tsconfig.repo.json không lỗi', log)).toBe(true)
+    expect(evidenceMatches('đã đọc lại drift.ts', log)).toBe(true)
+    expect(evidenceMatches('đã kiểm tra kỹ, chạy ổn', log)).toBe(false)
+    expect(evidenceMatches('npm test 12 pass', log)).toBe(false)
+    expect(evidenceMatches('anything', newEvidenceLog(1))).toBe(false)
   })
 })

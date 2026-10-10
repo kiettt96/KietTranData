@@ -4,8 +4,9 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import type { Brief, Core, Route } from '../types'
-import { fixedContextTokens, shouldDowngrade, switchCost, turnCost, usdOf } from '../hooks/lib/cost'
-import { addUsage, calibrate, emptyLedger, formatUsd, ledgerLines, nextGoal, resetLedger, sessionUsd } from '../hooks/lib/ledger'
+import { applyPrices, fixedContextTokens, parsePrices, priceNote, shouldDowngrade, switchCost, turnCost, usdOf } from '../hooks/lib/cost'
+import { addUsage, calibrate, emptyLedger, formatUsd, ledgerLines, nextGoal, recordShape, resetLedger, sessionUsd, shapeKey, shapeOutput } from '../hooks/lib/ledger'
+import { createContext } from '../hooks/context'
 import { legacyOf, tierOf } from '../hooks/lib/scale'
 import { EMPTY_CORE, normalizeCore, withAgentUsd, withDecision, withLift, adoptGoal } from '../hooks/lib/state'
 
@@ -31,7 +32,8 @@ describe('thang đo của việc', () => {
 
 describe('chi phí theo token', () => {
   test('quy đổi usage đo được thành USD theo giá model', () => {
-    closeTo(usdOf('haiku', { input_tokens: 1_000_000, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }), 0.1)
+    // Haiku 5.5: prompt tới 100K token ở giá $0.10 mỗi 1M (trên 100K là giá bậc cao, xem test 0.5.0).
+    closeTo(usdOf('haiku', { input_tokens: 100_000, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }), 0.01)
     closeTo(usdOf('sonnet', { input_tokens: 0, output_tokens: 1_000_000, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }), 10)
   })
 
@@ -157,5 +159,74 @@ describe('đưa trạng thái cũ về dạng mới', () => {
   test('route còn lại từ bản cũ vẫn đọc được', () => {
     const route: Route = { family: 'opus', effort: 'high', tier: 'complex', goalId: 1, reason: '' }
     expect(normalizeCore({ ...EMPTY_CORE, route }).route).toEqual(route)
+  })
+})
+
+describe('0.5.0: bảng giá có ngày, ghi đè, giá Haiku prompt dài', () => {
+  const usage = (input: number, output: number) => ({ input_tokens: input, output_tokens: output, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 })
+
+  test('đọc option prices: vào/ra, kèm đọc cache tùy chọn; mục sai bị bỏ', () => {
+    expect(parsePrices('sonnet=3/15, opus=5/25/0.5, gpt=1/2, haiku=x/1')).toEqual({
+      sonnet: { input: 3, output: 15, cacheRead: 0.30000000000000004 },
+      opus: { input: 5, output: 25, cacheRead: 0.5 },
+    })
+    expect(parsePrices(undefined)).toEqual({})
+  })
+
+  test('ghi đè áp lên mọi phép tính; áp lại thì làm lại từ bảng kèm mod', () => {
+    applyPrices({ sonnet: { input: 3, output: 15, cacheRead: 0.3 } })
+    expect(usdOf('sonnet', usage(1_000_000, 0))).toBe(3)
+    expect(priceNote(Date.parse('2026-10-10T00:00:00Z'))).toBe('Bảng giá kèm mod ngày 2026-10-06, ghi đè cho sonnet')
+    applyPrices({})
+    expect(usdOf('sonnet', usage(1_000_000, 0))).toBe(2)
+  })
+
+  test('bảng giá quá 180 ngày thì có cảnh báo', () => {
+    applyPrices({})
+    expect(priceNote(Date.parse('2027-01-01T00:00:00Z'))).not.toContain('giá có thể đã đổi')
+    expect(priceNote(Date.parse('2027-06-01T00:00:00Z'))).toContain('đã 238 ngày, giá có thể đã đổi')
+  })
+
+  test('Haiku với prompt trên 100K token tính theo giá bậc cao', () => {
+    applyPrices({})
+    closeTo(usdOf('haiku', usage(100_000, 1_000_000)), 0.01 + 0.5)
+    closeTo(usdOf('haiku', usage(200_000, 1_000_000)), 0.1 + 2.5)
+  })
+})
+
+describe('0.5.0: token ra theo dạng việc (depth, volume, kind)', () => {
+  const key = shapeKey('substantial', 'medium', 'edit')
+
+  test('chưa đủ ba lần đo thì chưa dùng; đủ thì ước lượng theo trung bình quy về effort', () => {
+    let ledger = emptyLedger(1)
+    ledger = recordShape(ledger, key, 6_000, 'medium')
+    ledger = recordShape(ledger, key, 15_000, 'high')
+    expect(shapeOutput(ledger, key, 'medium')).toBeNull()
+    ledger = recordShape(ledger, key, 12_000, 'medium')
+    // Quy về medium: 6000, 10000, 12000, trung bình 9333.
+    expect(Math.round(shapeOutput(ledger, key, 'medium') ?? 0)).toBe(9333)
+    expect(Math.round(shapeOutput(ledger, key, 'high') ?? 0)).toBe(14000)
+    expect(ledgerLines(ledger).join('\n')).toContain('substantial/medium/edit ~9.3k (3 lần)')
+  })
+
+  test('số đo 0 bị bỏ; reset giữ dạng việc đã học; ước lượng chi phí dùng số đo thay giả định', () => {
+    let ledger = recordShape(emptyLedger(1), key, 0, 'medium')
+    expect(ledger.shapes).toBeUndefined()
+    for (let i = 0; i < 3; i++) ledger = recordShape(ledger, key, 1_000, 'medium')
+    expect(resetLedger(ledger).shapes?.[key]?.samples).toBe(3)
+    const guessed = turnCost('sonnet', 'medium', 'medium', 10_000)
+    const measured = turnCost('sonnet', 'medium', 'medium', 10_000, 1, shapeOutput(ledger, key, 'medium'))
+    // Giả định 8.000 token ra so với 1.000 đo được: chênh 7.000 × $10 mỗi 1M.
+    expect(Math.round((guessed - measured) * 1000) / 1000).toBe(0.07)
+  })
+})
+
+describe('0.5.0: cửa sổ ngữ cảnh mặc định', () => {
+  test('không khai contextWindows thì mọi họ có 1M; họ bị modelMap đổi ID thì không áp mặc định; khai thì khai thắng', () => {
+    expect(createContext({}).contextWindows).toEqual({ haiku: 1_000_000, sonnet: 1_000_000, opus: 1_000_000, fable: 1_000_000 })
+    const mapped = createContext({ modelMap: 'opus=gateway-opus' }).contextWindows
+    expect(mapped.opus).toBeUndefined()
+    expect(mapped.sonnet).toBe(1_000_000)
+    expect(createContext({ contextWindows: 'sonnet=200000' }).contextWindows.sonnet).toBe(200_000)
   })
 })

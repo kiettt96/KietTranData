@@ -109,11 +109,12 @@ export function unroutedContext(reason: string): string {
   )
 }
 
-/** Báo cho Claude biết checklist cũ còn bước mở đã bị bỏ vì prompt được xếp là mục tiêu mới. */
+/** Báo cho Claude biết checklist cũ còn bước mở đã được lưu vì prompt được xếp là mục tiêu mới. */
 export function droppedPlanNotice(open: readonly PlanStep[]): string {
   return (
-    `[focus-conductor] Checklist cũ còn ${open.length} bước mở đã bị bỏ vì prompt này được xếp là mục tiêu mới ` +
-    `(${open.map(s => s.title).slice(0, 3).join('; ')}). Nếu thực ra đây là tiếp nối, gọi ${PLAN_TOOL_FULL} action "set" để lập lại.`
+    `[focus-conductor] Checklist cũ còn ${open.length} bước mở đã được lưu vì prompt này được xếp là mục tiêu mới ` +
+    `(${open.map(s => s.title).slice(0, 3).join('; ')}). Nếu thực ra đây là tiếp nối, gọi ${PLAN_TOOL_FULL} action "restore" ` +
+    'để khôi phục mục tiêu và checklist cũ (trạng thái từng bước giữ nguyên).'
   )
 }
 
@@ -142,6 +143,50 @@ export function followUpContext(
     'Giữ nhất quán với phần đã làm; nếu yêu cầu này đổi mục tiêu, cập nhật lại checklist.',
   ]
   return lines.filter(Boolean).join('\n')
+}
+
+/** Prompt ngắn người dùng cho bỏ qua router (option routerSkip): giữ mục tiêu và điều phối đang có. */
+export function skippedContext(brief: Brief, plan: readonly PlanStep[]): string {
+  const open = openSteps(plan)
+  return [
+    `[focus-conductor] Tiếp nối mục tiêu hiện tại: ${brief.goal}`,
+    'Prompt nằm trong danh sách routerSkip nên router không đọc lại; giữ nguyên phân việc và điều phối đang có.',
+    open.length > 0 ? `Bước còn mở: ${open.map(s => `${s.id}. ${s.title}`).join('; ')}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+
+/** strictDelegation "block": lý do từ chối luồng chính tự sửa file khi còn việc ghi giao subagent chưa giao. */
+export function blockText(waiting: readonly string[], left: number): string {
+  return (
+    `[focus-conductor] Còn việc ghi giao subagent chưa giao: Việc ${waiting.join(', ')}. ` +
+    'Giao các việc đó qua Agent với description "Việc N: ..." trước khi luồng chính tự sửa file. ' +
+    (left > 0
+      ? `Nếu thay đổi này không thuộc các việc đó, giải thích ngắn rồi thử lại (còn ${left} lần chặn trong mục tiêu này).`
+      : 'Đây là lần chặn cuối của mục tiêu này; từ lần sau chỉ nhắc.')
+  )
+}
+
+/** Evidence của "verified" không khớp lệnh hay file nào đã chạy: vẫn ghi nhận, nhưng chưa tính là đã kiểm tra. */
+export function unbackedNotice(): string {
+  return (
+    '[focus-conductor] Evidence không nhắc lệnh kiểm tra hay file nào đã chạy trong mục tiêu này, nên chưa tính là đã kiểm tra. ' +
+    'Ghi rõ lệnh đã chạy (ví dụ "npm test: 12 pass") hoặc file đã đọc lại; nếu chưa kiểm tra, dùng done.'
+  )
+}
+
+/** Option remindSubagents: nhắc subagent đang lạc đề, kèm việc nó được giao (không nhắc checklist của luồng chính). */
+export function subagentReminder(task: string, finding: string): string {
+  return `[focus-conductor] Việc được giao cho subagent này: ${task}\n${finding.replace(/^\[focus-conductor\]\s*/, '')}\nQuay về đúng việc được giao và báo cáo ngắn gọn.`
+}
+
+/** Option semanticDrift: router nhận xét các thay đổi gần đây có thể không còn phục vụ mục tiêu. */
+export function driftContext(goal: string, why: string): string {
+  return (
+    `[focus-conductor] Router đọc các thay đổi gần đây và thấy có thể đang lệch mục tiêu: ${why}. ` +
+    `Mục tiêu: ${goal}. Nếu thay đổi này thật sự cần cho mục tiêu, ghi rõ lý do; nếu không, quay về bước còn mở.`
+  )
 }
 
 /** Checklist dạng văn bản, trả về trong kết quả của tool plan. */

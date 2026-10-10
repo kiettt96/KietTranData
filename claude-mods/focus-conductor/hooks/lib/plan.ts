@@ -6,6 +6,7 @@
 import type { ToolSpec } from 'claude-code'
 
 import type { PlanStep, StepStatus, Tier } from '../../types'
+import { isPathLike } from './router'
 import { PLAN_TOOL } from './text'
 import { TIERS } from './scale'
 
@@ -17,13 +18,15 @@ export const PLAN_TOOL_SPEC: ToolSpec = {
   description:
     'Ghi và cập nhật mục tiêu cuối cùng cùng checklist các bước của task hiện tại (chỉ luồng chính). ' +
     'action "set": đặt goal (tùy chọn) và steps (thay toàn bộ checklist; mỗi bước có thể kèm tier để ghi độ phức tạp). ' +
+    '"set" có thể kèm scope (đường dẫn được phép sửa; mảng rỗng là bỏ giới hạn). ' +
     'action "update": đổi status của một bước theo id; "verified" bắt buộc có evidence (lệnh đã chạy, kết quả), ' +
     '"skipped" và "blocked" bắt buộc có note giải thích. action "add": thêm bước vào cuối. ' +
+    'action "restore": khôi phục mục tiêu cũ còn bước mở đã được lưu khi chuyển mục tiêu (index 1 là gần nhất). ' +
     'Gọi "set" trước khi thực thi việc từ mức moderate trở lên, và "update" sau mỗi bước quan trọng.',
   inputSchema: {
     type: 'object',
     properties: {
-      action: { type: 'string', enum: ['set', 'update', 'add'] },
+      action: { type: 'string', enum: ['set', 'update', 'add', 'restore'] },
       goal: { type: 'string', description: 'Mục tiêu cuối cùng, một câu.' },
       steps: {
         type: 'array',
@@ -41,6 +44,8 @@ export const PLAN_TOOL_SPEC: ToolSpec = {
       status: { type: 'string', enum: [...STATUSES] },
       evidence: { type: 'string', description: 'Bằng chứng kiểm tra, bắt buộc khi status là verified.' },
       note: { type: 'string', description: 'Lý do, bắt buộc khi status là skipped hoặc blocked.' },
+      scope: { type: 'array', items: { type: 'string' }, description: 'Đường dẫn được phép sửa (set); mảng rỗng là bỏ giới hạn.' },
+      index: { type: 'integer', description: 'Mục tiêu đã lưu cần khôi phục (restore), 1 là gần nhất.' },
     },
     required: ['action'],
   },
@@ -54,10 +59,12 @@ export type PlanInput = {
   status?: unknown
   evidence?: unknown
   note?: unknown
+  scope?: unknown
+  index?: unknown
 }
 
 export type PlanOutcome =
-  | { plan: PlanStep[]; goal?: string; error?: undefined }
+  | { plan: PlanStep[]; goal?: string; scope?: string[]; error?: undefined }
   | { error: string; plan?: undefined; goal?: undefined }
 
 function text(value: unknown): string {
@@ -78,6 +85,13 @@ function parseSteps(value: unknown, startId: number): PlanStep[] {
   return out
 }
 
+/** Phạm vi Claude ghi: danh sách đường dẫn; null khi có mục không phải đường dẫn. */
+function scopeOf(items: readonly unknown[]): string[] | null {
+  const paths = items.map(text).filter(Boolean)
+  if (paths.some(path => !isPathLike(path))) return null
+  return [...new Set(paths)].slice(0, 10)
+}
+
 export function applyPlan(current: readonly PlanStep[], input: PlanInput): PlanOutcome {
   const action = text(input.action)
 
@@ -85,7 +99,9 @@ export function applyPlan(current: readonly PlanStep[], input: PlanInput): PlanO
     const steps = parseSteps(input.steps, 1)
     const goal = text(input.goal)
     if (steps.length === 0 && !goal) return { error: 'action "set" cần goal hoặc ít nhất một bước trong steps.' }
-    return { plan: steps.length > 0 ? steps : [...current], ...(goal ? { goal } : {}) }
+    const scope = Array.isArray(input.scope) ? scopeOf(input.scope) : undefined
+    if (scope === null) return { error: 'scope chỉ nhận đường dẫn file hoặc thư mục (có / hoặc phần mở rộng, không khoảng trắng).' }
+    return { plan: steps.length > 0 ? steps : [...current], ...(goal ? { goal } : {}), ...(scope !== undefined ? { scope } : {}) }
   }
 
   if (action === 'add') {
@@ -115,5 +131,5 @@ export function applyPlan(current: readonly PlanStep[], input: PlanInput): PlanO
     }
   }
 
-  return { error: 'action phải là "set", "update" hoặc "add".' }
+  return { error: 'action phải là "set", "update", "add" hoặc "restore".' }
 }
