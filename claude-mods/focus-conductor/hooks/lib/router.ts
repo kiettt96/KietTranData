@@ -358,7 +358,9 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
   if (own === null) return null
   const relation = RELATIONS.find(r => r === raw['relation']) ?? 'new'
   const goal = text(raw['goal'], 200)
-  if (relation === 'new' && goal === '') return null
+  const runReference = raw['runReference'] === true
+  // Chạy thật prompt đã đối chiếu không cần câu mục tiêu mới: mục tiêu lấy từ lượt đối chiếu.
+  if (relation === 'new' && goal === '' && !runReference) return null
   const isReference = raw['reference'] === true
   const main = fitPick(own, isReference ? 'answer' : kind, policy)
   const refRaw = isReference ? rawPick(raw['referenceMain']) : null
@@ -374,11 +376,10 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
     why: text(raw['why'], 200),
     relation,
     isReference,
-    runReference: raw['runReference'] === true,
+    runReference,
     goal,
-    // Lượt đối chiếu không có ràng buộc hay tiêu chí riêng: các mục đó thuộc prompt đính kèm.
-    constraints: isReference ? [] : strings(raw['constraints'], 10),
-    quality: isReference ? [] : strings(raw['quality'], 8),
+    constraints: strings(raw['constraints'], 10),
+    quality: strings(raw['quality'], 8),
     scope: strings(raw['scope'], 10).filter(isPathLike),
     depth,
     volume,
@@ -503,11 +504,15 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number): { brief:
  * việc thật của một mục tiêu mới; luồng chính theo lựa chọn mới của router.
  */
 export function promoteReference(prev: Brief, plan: RouterPlan, prompt: string, now: number): Brief {
+  // Ràng buộc, tiêu chí và phạm vi của prompt đính kèm được giữ từ lượt đối chiếu: lượt chạy thật phải có đủ.
   return {
     ...briefOf(plan, prompt, prev.goalId + 1, now),
     goal: plan.goal || prev.goal,
     steps: prev.tasks.map(t => t.title),
     tasks: prev.tasks,
+    constraints: unique([...prev.constraints, ...plan.constraints], 12),
+    quality: unique([...prev.quality, ...plan.quality], 10),
+    scopePaths: plan.scope.length > 0 ? plan.scope : prev.scopePaths,
     isReference: false,
   }
 }

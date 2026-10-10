@@ -20,7 +20,7 @@
 // Giao diện: band trên prompt, pane chi tiết, status line, lệnh /conductor.
 
 import { atom, derive, read, update } from 'claude-code'
-import type { ModelCompleteResult, PromptOrigin, Register } from 'claude-code'
+import type { ModelCompleteResult, ModelUsage, PromptOrigin, Register } from 'claude-code'
 
 import type { Brief, Choice, Core, Effort, Lift, Mode, ModelFamily, Route, RouteEvent, Task, Tier, Volume, Warning } from '../types'
 import { filePathOf, isExecuting, isPlanFile, newTracker, observe, openSteps, summarize } from './lib/drift'
@@ -97,10 +97,6 @@ const COMMAND_HELP = [
   '/conductor goal ...    đặt mục tiêu thủ công',
   '/conductor reset       xóa mục tiêu, checklist, cảnh báo và danh sách model bị chặn',
 ].join('\n')
-
-function wordCount(text: string): number {
-  return text.split(/\s+/).filter(Boolean).length
-}
 
 /** Lý do router không trả được kết quả dùng được. */
 function failureReason(reply: ModelCompleteResult | null): string {
@@ -206,6 +202,11 @@ export const register: Register = (on, options) => {
     const lifted = liftPick(brief.main, lift, options['allowFable'] === true)
     const fitted = fitPick(lifted, brief.isReference ? 'answer' : brief.kind, policy())
     return { ...fitted.pick, notes: fitted.notes }
+  }
+
+  /** Kết quả chấm đã nhớ, kiểm lại theo chính sách hiện tại (model của phiên và họ bị chặn có thể đã đổi). */
+  function refit(route: AgentRoute): AgentRoute {
+    return { ...route, pick: fitPick(route.pick, route.kind, policy()).pick }
   }
 
   function isRouterPaused(): boolean {
@@ -421,7 +422,8 @@ export const register: Register = (on, options) => {
       sessionNoticed = true
       notices.push(`Focus Conductor chạy luồng chính bằng ${decision.route.family}, khác model của phiên (${sessionFamily}).`)
     }
-    return { route: decision.route, stored: decision.route, logs, notices }
+    // Chế độ suggest chỉ đề xuất: route lưu là null để mốc cache và "model đã chạy" là model engine thật.
+    return { route: decision.route, stored: current === 'auto' ? decision.route : null, logs, notices }
   }
 
   // ---------------------------------------------------------------- phiên
@@ -460,20 +462,18 @@ export const register: Register = (on, options) => {
   on('prompt.submit', async ($, e, next) => {
     const text = e.text.trim()
     if (text === '' || SLASH_COMMAND.test(text) || !PERSON_ORIGINS.has(e.origin.kind)) return next(e)
-    if ((await read($, mode)) === 'off') return next(e)
+    const current = await read($, mode)
+    if (current === 'off') return next(e)
+    const isApplied = current === 'auto'
 
     const before = S.normalizeCore(await read($, coreState))
     const prev = before.brief
-    // Một từ ("ok", "tiếp") khi đang có mục tiêu: tiếp nối, không hỏi router (đỡ độ trễ).
-    if (prev !== null && wordCount(text) === 1) {
-      return next({ ...e, context: [...(e.context ?? []), followUpContext(prev, before.plan, [])] })
-    }
-
     promptCount += 1
     const rules = policy()
     let plan: RouterPlan | null = null
     let reason = 'router đang tạm ngừng sau các lần lỗi liên tiếp'
     let pauseText: string | null = null
+    let routerUsage: ModelUsage | null = null
     const isPaused = isRouterPaused()
     if (!isPaused) {
       $.ui.status('router đang đọc prompt...')
@@ -484,9 +484,7 @@ export const register: Register = (on, options) => {
           : null
       const request = routerRequest({ text, prev, ran, policy: rules, model: routerModel })
       const reply = await $.model.complete(request).catch(() => null)
-      if (reply !== null) {
-        await update($, coreState, S.withLedger(ledger => addUsage(ledger, 'analyzer', routerFamily, reply.usage).ledger))
-      }
+      routerUsage = reply?.usage ?? null
       plan = reply?.isAnswered ? parseRoute(reply.text, rules) : null
       reason = failureReason(reply)
       pauseText = noteRouter(plan !== null)
@@ -494,9 +492,9 @@ export const register: Register = (on, options) => {
     const now = await $.clock.now()
 
     if (plan === null) {
-      // Không đoán: giữ mục tiêu và checklist, bỏ lựa chọn và phân việc cũ để chúng không bị
-      // áp lên prompt này; turn chạy theo model của phiên.
-      const kept: Brief | null = prev ? { ...prev, main: null, tasks: [], at: now } : null
+      // Không đoán: giữ mục tiêu, việc đã phân, phạm vi, ràng buộc và checklist; chỉ bỏ lựa chọn
+      // model luồng chính, nên turn này chạy theo model của phiên và không áp lựa chọn của prompt trước.
+      const kept: Brief | null = prev ? { ...prev, main: null, at: now } : null
       delegation = { goalId: -1, pending: new Map(), isNudged: false, isWarned: false }
       const failText = `Router (${routerModel}) không đọc được prompt (${reason}); turn này chạy theo model của phiên`
       const warnings: Warning[] = [
@@ -504,7 +502,10 @@ export const register: Register = (on, options) => {
         ...(pauseText ? [{ at: now, kind: 'model' as const, text: pauseText }] : []),
       ]
       // Route lưu về null: mốc cache là model engine thật sự chạy, không phải route của lượt trước.
-      await update($, coreState, c => S.withWarnings(...warnings)(S.withRoute(null)(kept ? S.withBrief(kept)(c) : c)))
+      await update($, coreState, c => {
+        const withUsage = routerUsage ? S.withLedger(l => addUsage(l, 'analyzer', routerFamily, routerUsage!).ledger)(c) : c
+        return S.withWarnings(...warnings)(S.withRoute(null)(kept ? S.withBrief(kept)(withUsage) : withUsage))
+      })
       if (!isPaused) $.ui.toast(pauseText ?? failText)
       $.ui.status(S.statusOf(await read($, view)))
       return next({ ...e, context: [...(e.context ?? []), unroutedContext(reason)] })
@@ -515,10 +516,15 @@ export const register: Register = (on, options) => {
     const isNewGoal = prev === null || plan.relation === 'new' || isPromoted
     let brief: Brief
     let added: Task[] = []
-    if (prev === null || plan.relation === 'new') brief = briefOf(plan, text, (prev?.goalId ?? 0) + 1, now)
-    else if (isPromoted) brief = promoteReference(prev, plan, text, now)
+    // Promotion trước relation: prompt "chạy đi" có thể mang relation new nhưng vẫn là chạy việc đã đối chiếu.
+    if (isPromoted) brief = promoteReference(prev, plan, text, now)
+    else if (prev === null || plan.relation === 'new') brief = briefOf(plan, text, (prev?.goalId ?? 0) + 1, now)
     else ({ brief, added } = followUpOf(prev, plan, now))
-    const core = await update($, coreState, isNewGoal ? S.adoptGoal(brief) : S.withDecision(brief))
+    // Chi phí router được cộng sau khi mục tiêu mới đã thay sổ mục tiêu, để nó thuộc về mục tiêu này.
+    const core = await update($, coreState, c => {
+      const updated = isNewGoal ? S.adoptGoal(brief)(c) : S.withDecision(brief)(c)
+      return routerUsage ? S.withLedger(l => addUsage(l, 'analyzer', routerFamily, routerUsage!).ledger)(updated) : updated
+    })
     if (isNewGoal) {
       isGoalNew = true
       pinnedGoalId = null
@@ -530,8 +536,8 @@ export const register: Register = (on, options) => {
     if (isNewGoal) trackDelegations(brief.goalId, brief.isReference ? [] : brief.tasks)
     else if (!brief.isReference) trackDelegations(brief.goalId, added, true)
     const context = isNewGoal
-      ? briefContext(brief, expected)
-      : followUpContext(brief, core.plan, plan.constraints.filter(c => !prev?.constraints.includes(c)), added, expected)
+      ? briefContext(brief, expected, isApplied)
+      : followUpContext(brief, core.plan, plan.constraints.filter(c => !prev?.constraints.includes(c)), added, expected, isApplied)
     // Checklist cũ còn bước mở bị bỏ theo mục tiêu mới: báo, kẻo mất tiến độ trong im lặng.
     const dropped = isNewGoal ? openSteps(before.plan) : []
     const notice = dropped.length > 0 ? [droppedPlanNotice(dropped)] : []
@@ -540,7 +546,7 @@ export const register: Register = (on, options) => {
       $.ui.toast(
         dropped.length > 0
           ? `Mục tiêu mới, checklist cũ còn ${dropped.length} bước mở đã bị bỏ`
-          : `Router đã đọc prompt: ${brief.depth}, khối lượng ${brief.volume}, luồng chính ${expected ? describePick(expected) : 'model của phiên'}${delegated > 0 ? `, ${delegated} việc giao subagent` : ''}`,
+          : `Router đã đọc prompt: ${brief.depth}, khối lượng ${brief.volume}, luồng chính ${expected ? describePick(expected) + (isApplied ? '' : ' (chỉ đề xuất)') : 'model của phiên'}${delegated > 0 ? `, ${delegated} việc giao subagent` : ''}`,
       )
     }
     $.ui.status(S.statusOf(await read($, view)))
@@ -560,7 +566,7 @@ export const register: Register = (on, options) => {
     if (e.agentId !== undefined) {
       const agent = agents.get(e.agentId)
       // Step chạy trước khi agent.spawn kịp ghi điều phối: đánh dấu để không ép model về sau.
-      if (agent === undefined && steppedEarly.size < 500) steppedEarly.add(e.agentId)
+      if (agent === undefined && (current === 'auto' || current === 'subagents') && steppedEarly.size < 500) steppedEarly.add(e.agentId)
       const isEnforced =
         agent !== undefined && agent.applied && !agent.fallback && (current === 'auto' || current === 'subagents')
       if (agent === undefined || !isEnforced) {
@@ -600,7 +606,10 @@ export const register: Register = (on, options) => {
       return yield* next(e)
     }
     // Chế độ subagents/off không chạm luồng chính.
-    if (current === 'off' || current === 'subagents') return yield* next(e)
+    if (current === 'off' || current === 'subagents') {
+      sessionFamily = familyOf(e.model) ?? sessionFamily
+      return yield* next(e)
+    }
 
     if (turnRoute.turnId !== e.turnId) {
       turnCount += 1
@@ -713,7 +722,7 @@ export const register: Register = (on, options) => {
       // Giao lại việc đã lỗi: hỏi lại router (nó thấy danh sách lỗi và tự nâng), không dùng kết quả nhớ.
       const known = failed.includes(e.description) ? undefined : agentRoutes.get(key)
       if (known !== undefined) {
-        route = known
+        route = refit(known)
         reason = `router (đã chấm trước): ${known.why}`
       } else {
         const request = agentRouterRequest({
@@ -791,9 +800,11 @@ export const register: Register = (on, options) => {
     let workflowReason = ''
     if (info === undefined && isWorkflow && !isScriptModel && current !== 'off') {
       const key = `${e.description}\n${e.prompt}`
-      const known = agentRoutes.get(key)
+      // Việc vừa lỗi trong mục tiêu này thì router chấm lại (nó thấy danh sách lỗi và tự nâng).
+      const failedHere = agentFailures.some(f => f.goalId === goalId && f.description === e.description)
+      const known = failedHere ? undefined : agentRoutes.get(key)
       if (known !== undefined) {
-        workflowRoute = known
+        workflowRoute = refit(known)
         workflowReason = `router (đã chấm trước): ${known.why}`
       } else if (isRouterPaused()) {
         workflowReason = 'router đang tạm ngừng'
@@ -1104,12 +1115,11 @@ export const register: Register = (on, options) => {
       const rules = policy()
       let plan: RouterPlan | null = null
       let reason = 'router đang tạm ngừng sau các lần lỗi liên tiếp'
+      let routerUsage: ModelUsage | null = null
       if (!isRouterPaused()) {
         const request = routerRequest({ text: arg, prev, ran: null, policy: rules, model: routerModel, isForcedNew: true })
         const reply = await $.model.complete(request).catch(() => null)
-        if (reply !== null) {
-          await update($, coreState, S.withLedger(ledger => addUsage(ledger, 'analyzer', routerFamily, reply.usage).ledger))
-        }
+        routerUsage = reply?.usage ?? null
         plan = reply?.isAnswered ? parseRoute(reply.text, rules) : null
         reason = failureReason(reply)
         noteRouter(plan !== null)
@@ -1118,7 +1128,13 @@ export const register: Register = (on, options) => {
       const goalId = (prev?.goalId ?? 0) + 1
       // Mục tiêu đặt bằng lệnh luôn là mục tiêu mới; router lỗi thì đặt mục tiêu không có lựa chọn model.
       const brief: Brief = plan ? { ...briefOf(plan, arg, goalId, now), goal: plan.goal || arg.slice(0, 200) } : bareBrief(arg, goalId, now)
-      const core = await update($, coreState, S.adoptGoal(brief))
+      const isApplied = (await read($, mode)) === 'auto'
+      // Router lỗi: route cũ bỏ đi, không để status hiện một route mà lượt này không dùng.
+      const core = await update($, coreState, c => {
+        const adopted = S.adoptGoal(brief)(c)
+        const withRoute = plan === null ? S.withRoute(null)(adopted) : adopted
+        return routerUsage ? S.withLedger(l => addUsage(l, 'analyzer', routerFamily, routerUsage!).ledger)(withRoute) : withRoute
+      })
       isGoalNew = true
       pinnedGoalId = null
       $.ui.status(S.statusOf(await read($, view)))
@@ -1130,11 +1146,11 @@ export const register: Register = (on, options) => {
       return {
         text:
           plan !== null
-            ? `Đã đặt mục tiêu: ${brief.goal} (${brief.depth}, khối lượng ${brief.volume}, luồng chính ${expected ? describePick(expected) : 'model của phiên'}).`
+            ? `Đã đặt mục tiêu: ${brief.goal} (${brief.depth}, khối lượng ${brief.volume}, luồng chính ${expected ? describePick(expected) + (isApplied ? '' : ' (chỉ đề xuất)') : 'model của phiên'}).`
             : `Đã đặt mục tiêu: ${brief.goal}. Router không đọc được (${reason}); mod không chọn model cho mục tiêu này.`,
         context: [
           plan !== null
-            ? `Người dùng đặt mục tiêu thủ công.\n${briefContext(brief, expected)}`
+            ? `Người dùng đặt mục tiêu thủ công.\n${briefContext(brief, expected, isApplied)}`
             : `Người dùng đặt mục tiêu thủ công: ${brief.goal}\n${unroutedContext(reason)}`,
           ...notice,
         ],

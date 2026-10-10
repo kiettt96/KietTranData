@@ -50,6 +50,12 @@ function taskLine(task: Task, main: string): string {
     : `${task.index}. ${task.title} → giao ${task.agentType ?? 'general-purpose'} ${describePick(task.pick)}`
 }
 
+/** Nhãn luồng chính: model sẽ chạy, kèm ghi chú khi mod chỉ đề xuất (suggest, subagents) và không đổi luồng chính. */
+function mainLabel(main: Choice | null, isApplied: boolean): string {
+  if (main === null) return 'model của phiên'
+  return isApplied ? describePick(main) : `${describePick(main)} (chỉ đề xuất)`
+}
+
 /** Mục phân việc: mỗi việc kèm cách làm, model và effort router đã chấm trước khi làm. */
 function taskBlock(tasks: readonly Task[], main: string, isReference: boolean): string {
   const lines = tasks.map(task => taskLine(task, main))
@@ -63,8 +69,8 @@ function taskBlock(tasks: readonly Task[], main: string, isReference: boolean): 
  * Khối context đi kèm prompt khi bắt đầu một mục tiêu mới. `main` là model luồng chính sẽ
  * thật sự chạy (có thể là model cũ được giữ để bảo toàn cache); null khi chưa chọn.
  */
-export function briefContext(brief: Brief, main: Choice | null): string {
-  const mainText = main ? describePick(main) : 'model của phiên'
+export function briefContext(brief: Brief, main: Choice | null, isApplied = true): string {
+  const mainText = mainLabel(main, isApplied)
   const reference = brief.referenceMain ? describePick(brief.referenceMain) : 'chưa rõ'
   const tasks =
     brief.tasks.length === 0 ? '' : taskBlock(brief.tasks, brief.isReference ? reference : mainText, brief.isReference)
@@ -80,9 +86,11 @@ export function briefContext(brief: Brief, main: Choice | null): string {
     : hasDelegation
       ? `Điều phối: luồng chính ${mainText}; việc ghi "giao" chạy đúng model đã ghi; subagent ngoài danh sách được router chấm khi giao.`
       : `Điều phối: luồng chính ${mainText}; subagent (nếu cần) được router chấm khi giao.`
+  // Lượt đối chiếu không hiển thị ràng buộc và tiêu chí: chúng thuộc prompt đính kèm, không phải việc của lượt này.
+  const rules = brief.isReference ? '' : `${bullets('Ràng buộc:', brief.constraints)}${bullets('Tiêu chí chất lượng:', brief.quality)}`
   return [
     '[focus-conductor] Bản đọc prompt của router (đối chiếu lại với prompt gốc trước khi làm)',
-    `Mục tiêu cuối: ${brief.goal}${tasks}${bullets('Ràng buộc:', brief.constraints)}${bullets('Tiêu chí chất lượng:', brief.quality)}`,
+    `Mục tiêu cuối: ${brief.goal}${tasks}${rules}`,
     `Đánh giá: độ sâu ${brief.depth}, khối lượng ${brief.volume}, bản chất ${brief.kind}${brief.why ? ` (${brief.why})` : ''}`,
     routing,
     brief.scopePaths.length > 0 ? `Phạm vi được sửa: ${brief.scopePaths.join(', ')}` : '',
@@ -119,9 +127,10 @@ export function followUpContext(
   newConstraints: readonly string[],
   added: readonly Task[] = [],
   main: Choice | null = null,
+  isApplied = true,
 ): string {
   const open = openSteps(plan)
-  const mainText = main ? describePick(main) : 'model của phiên'
+  const mainText = mainLabel(main, isApplied)
   const lines = [
     `[focus-conductor] Tiếp nối mục tiêu hiện tại: ${brief.goal}`,
     main ? `Router: ${brief.relation}; luồng chính ${mainText}${brief.why ? ` (${brief.why})` : ''}` : '',

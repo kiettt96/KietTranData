@@ -347,7 +347,7 @@ describe('router lỗi: không đoán, turn chạy theo model của phiên', () 
     expect(seen.toasts.some(t => t.includes('engine từ chối'))).toBe(true)
   })
 
-  test('router lỗi sau một mục tiêu đã có: lựa chọn và phân việc cũ không bị áp lên prompt mới', {}, async ($, on) => {
+  test('router lỗi sau một mục tiêu đã có: lựa chọn luồng chính không bị áp lên prompt mới; việc đã phân vẫn là của mục tiêu', {}, async ($, on) => {
     let isDown = false
     const seen = base(on, { router: request => (isDown ? null : DEFAULT_ROUTER(request)) })
     const agents: Array<string | undefined> = []
@@ -362,9 +362,9 @@ describe('router lỗi: không đoán, turn chạy theo model của phiên', () 
     expect(await step($, seen, { turnId: 't2' })).toEqual({ model: 'claude-sonnet-5-5', effort: 'medium' })
     const status = String((await conductor($, 'status')).text)
     expect(status).toContain('model của phiên (router chưa chọn)')
-    // "Việc 2" của mục tiêu cũ không còn khớp: router chấm lại như một subagent tự phát.
+    // Việc đã phân của mục tiêu vẫn khớp và dùng đúng lựa chọn đã chấm, không hỏi router lần nữa.
     await $.tool.call({ tool: 'Agent', description: 'Việc 2: đổi tên userId', prompt: EDIT })
-    expect(seen.agentRouted.length).toBe(1)
+    expect(seen.agentRouted.length).toBe(0)
   })
 
   test('router lỗi ngay sau một turn đã chạy: route cũ không còn hiện trong status, trước cả turn mới', {}, async ($, on) => {
@@ -397,11 +397,11 @@ describe('router lỗi: không đoán, turn chạy theo model của phiên', () 
 })
 
 describe('prompt tiếp nối', () => {
-  test('prompt một từ khi đang có mục tiêu: không hỏi router, giữ mục tiêu', {}, async ($, on) => {
-    const seen = base(on)
+  test('prompt một từ cũng hỏi router: router nói tiếp nối thì giữ mục tiêu', {}, async ($, on) => {
+    const seen = base(on, { router: request => (request.includes('tiếp') ? plan({ relation: 'continue', goal: '' }) : DEFAULT_ROUTER(request)) })
     await submit($, FOUR)
     await submit($, 'tiếp')
-    expect(seen.routed.length).toBe(1)
+    expect(seen.routed.length).toBe(2)
     expect(seen.contexts[1]?.join('\n')).toContain('Tiếp nối mục tiêu hiện tại: Nâng cấp module thanh toán')
   })
 
@@ -1075,3 +1075,137 @@ describe('giao diện', () => {
     await ui.unmount()
   })
 })
+
+describe('rà soát trước merge (0.4.0)', () => {
+  test('router lỗi giữ việc, phạm vi và số thứ tự của mục tiêu: việc mới đánh số tiếp theo, phạm vi vẫn áp', {}, async ($, on) => {
+    let isDown = false
+    const seen = base(on, {
+      router: request => {
+        if (isDown) return null
+        if (request.startsWith('Mục tiêu: nâng cấp')) return { ...FOUR_PLAN, scope: ['src/pay/'] }
+        if (request.startsWith('Thêm')) return plan({ relation: 'continue', goal: '', tasks: [task('Viết test webhook', 'agent', 'sonnet', 'medium')] })
+        return DEFAULT_ROUTER(request)
+      },
+    })
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    await submit($, FOUR)
+    isDown = true
+    await submit($, 'Giờ dọn thư mục build cho sạch')
+    isDown = false
+    await submit($, 'Thêm test cho webhook thanh toán nữa')
+    expect(seen.contexts[2]?.join('\n')).toContain('5. Viết test webhook')
+    const edit = await $.tool.call({ tool: 'Edit', file_path: '/repo/src/other.ts', old_string: 'a', new_string: 'b' })
+    expect(JSON.stringify(edit.context ?? [])).toContain('ngoài phạm vi')
+  })
+
+  test('/conductor goal khi router lỗi: route cũ bị xóa, không hiện trong status', {}, async ($, on) => {
+    let isDown = false
+    const seen = base(on, { router: request => (isDown ? null : DEFAULT_ROUTER(request)) })
+    await submit($, COMPLEX_PROMPT)
+    await step($, seen, { turnId: 't1' })
+    expect(String((await conductor($, 'status')).text)).toContain('opus/xhigh')
+    isDown = true
+    const goal = await conductor($, 'goal Viết hàm parseDate')
+    expect(goal.text).toContain('Router không đọc được')
+    expect(String((await conductor($, 'status')).text)).not.toContain('opus/xhigh')
+  })
+
+  test('chế độ suggest không lưu route: prompt sau ghi đúng model engine đang chạy, luồng chính ghi là chỉ đề xuất', { options: { routing: 'suggest' } }, async ($, on) => {
+    const seen = base(on)
+    await submit($, COMPLEX_PROMPT)
+    expect(seen.contexts[0]?.join('\n')).toContain('luồng chính opus/xhigh (chỉ đề xuất)')
+    await step($, seen, { turnId: 't1' })
+    expect(String((await conductor($, 'status')).text)).not.toContain('opus/xhigh (')
+    await submit($, 'Viết hàm parseDate nhận chuỗi ISO và trả về Date')
+    expect(seen.routed[1]).toContain('Main thread ran: claude-sonnet-5-5/medium')
+  })
+
+  test('subagents + ceiling: subagent không vượt model của phiên khi chưa có bước nào ở chế độ auto', { options: { routing: 'subagents', sessionModel: 'ceiling' } }, async ($, on) => {
+    const seen = base(on)
+    const models: Array<string | undefined> = []
+    on('tool.call', { tool: 'Agent' }, (_$, e) => {
+      models.push(e.model)
+      return { deny: 'test: đã ghi nhận đầu vào' }
+    })
+    await submit($, FOUR)
+    await step($, seen, { model: 'claude-sonnet-5-5' })
+    await $.tool.call({ tool: 'Agent', description: 'Rà race condition', prompt: 'Phân tích race condition trong luồng ghi số dư' })
+    expect(models).toEqual(['sonnet'])
+  })
+
+  test('chạy thật prompt đã đối chiếu khi router trả relation new kèm runReference: việc đối chiếu thành việc thật', {}, async ($, on) => {
+    const seen = base(on, {
+      router: request =>
+        request.startsWith('ok')
+          ? plan({ relation: 'new', goal: '', runReference: true, main: { model: 'opus', effort: 'high' } })
+          : plan({ ...FOUR_PLAN, reference: true, goal: 'Đối chiếu K4', kind: 'answer', main: { model: 'sonnet', effort: 'low' }, referenceMain: { model: 'opus', effort: 'high' } }),
+    })
+    await submit($, FOUR)
+    await submit($, 'ok giờ chạy thật prompt đó đi')
+    const context = seen.contexts[1]?.join('\n') ?? ''
+    expect(context).toContain('Phân việc (router đã chấm trước khi làm')
+    expect(context).not.toContain('chỉ để đối chiếu')
+    expect(context).toContain('1. Tìm trong src/')
+  })
+
+  test('lượt chạy thật giữ ràng buộc của prompt đính kèm từ lượt đối chiếu', {}, async ($, on) => {
+    const seen = base(on, {
+      router: request =>
+        request.startsWith('ok')
+          ? plan({ relation: 'new', goal: '', runReference: true, constraints: [], main: { model: 'opus', effort: 'high' } })
+          : plan({ ...FOUR_PLAN, reference: true, goal: 'Đối chiếu K4', kind: 'answer', constraints: ['Giữ API công khai'], main: { model: 'sonnet', effort: 'low' }, referenceMain: { model: 'opus', effort: 'high' } }),
+    })
+    await submit($, FOUR)
+    expect(seen.contexts[0]?.join('\n')).not.toContain('Giữ API công khai')
+    await submit($, 'ok giờ chạy thật prompt đó đi')
+    expect(seen.contexts[1]?.join('\n')).toContain('- Giữ API công khai')
+  })
+
+  test('agent workflow lỗi thì lần giao lại được router chấm lại, không dùng kết quả nhớ', {}, async ($, on) => {
+    const seen = base(on)
+    let n = 0
+    on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: `w-${(n += 1)}` }))
+    on('turn.complete', () => ({ text: '' }))
+    await submit($, FOUR)
+    const first = await $.agent.spawn({ prompt: SEARCH, description: 'Tìm chỗ gọi', workflow: { runId: 'wf_r', agentIndex: 1 } } as never)
+    await $.turn.complete({ turnId: 'wf-e', agentId: first.agentId, answer: '', durationMs: 1, isAborted: false, reason: 'error' } as never)
+    await $.agent.spawn({ prompt: SEARCH, description: 'Tìm chỗ gọi', workflow: { runId: 'wf_r', agentIndex: 2 } } as never)
+    expect(seen.agentRouted.length).toBe(2)
+  })
+
+  test('kết quả router đã nhớ được kiểm lại theo model của phiên hiện tại trước khi dùng', { options: { sessionModel: 'ceiling' } }, async ($, on) => {
+    const seen = base(on)
+    let n = 0
+    on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: `w-c${(n += 1)}` }))
+    await submit($, FOUR)
+    await $.agent.spawn({ prompt: 'Phân tích race condition trong luồng ghi số dư', description: 'Rà race condition', workflow: { runId: 'wf_c', agentIndex: 1 } } as never)
+    await step($, seen, { turnId: 't1', model: 'claude-sonnet-5-5' })
+    await $.agent.spawn({ prompt: 'Phân tích race condition trong luồng ghi số dư', description: 'Rà race condition', workflow: { runId: 'wf_c', agentIndex: 2 } } as never)
+    const before = seen.steps.length
+    await step($, seen, { agentId: 'w-c2', model: 'claude-opus-5-5', effort: 'xhigh' })
+    expect(seen.steps.slice(before)[0]?.model).toBe('claude-sonnet-5-5')
+  })
+
+  test('lời gọi Agent dùng lại kết quả router đã nhớ vẫn kiểm theo model của phiên hiện tại', { options: { sessionModel: 'ceiling' } }, async ($, on) => {
+    const seen = base(on)
+    const models: Array<string | undefined> = []
+    on('tool.call', { tool: 'Agent' }, (_$, e) => {
+      models.push(e.model)
+      return { deny: 'test: đã ghi nhận đầu vào' }
+    })
+    await submit($, FOUR)
+    await $.tool.call({ tool: 'Agent', description: 'Rà race condition', prompt: 'Phân tích race condition trong luồng ghi số dư' })
+    await step($, seen, { model: 'claude-sonnet-5-5' })
+    await $.tool.call({ tool: 'Agent', description: 'Rà race condition', prompt: 'Phân tích race condition trong luồng ghi số dư' })
+    expect(models).toEqual(['opus', 'sonnet'])
+    expect(seen.agentRouted.length).toBe(1)
+  })
+
+  test('chi phí router của prompt tạo mục tiêu mới được tính vào mục tiêu đó', {}, async ($, on) => {
+    base(on)
+    await submit($, COMPLEX_PROMPT)
+    // 1.000 token vào và 500 token ra ở giá sonnet ($2 và $10 mỗi 1M) = $0.007.
+    expect(String((await conductor($, 'status')).text)).toContain('Mục tiêu này: $0.0070')
+  })
+})
+

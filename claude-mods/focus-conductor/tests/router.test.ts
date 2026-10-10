@@ -4,6 +4,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import type { Brief, ModelFamily } from '../types'
+import { briefContext } from '../hooks/lib/text'
 import {
   agentRouterRequest,
   bareBrief,
@@ -195,13 +196,20 @@ describe('đọc JSON của router', () => {
     expect(plan({ referenceMain: { model: 'opus', effort: 'xhigh' } }).referenceMain).toBeUndefined()
   })
 
-  test('lượt đối chiếu không mang ràng buộc và tiêu chí của prompt đính kèm, dù router trả về', () => {
+  test('lượt đối chiếu giữ ràng buộc và tiêu chí của prompt đính kèm để lượt chạy thật có đủ, nhưng không hiển thị chúng', () => {
     const p = plan({ reference: true, main: { model: 'sonnet', effort: 'low' }, constraints: ['Không được chạy prompt đính kèm'], quality: ['Phân việc đủ 11 mục'] })
-    expect(p.isReference).toBe(true)
-    expect(p.constraints).toEqual([])
-    expect(p.quality).toEqual([])
-    // Không đối chiếu thì ràng buộc được giữ nguyên.
-    expect(plan({ constraints: ['Không đổi API công khai'] }).constraints).toEqual(['Không đổi API công khai'])
+    expect(p.constraints).toEqual(['Không được chạy prompt đính kèm'])
+    expect(p.quality).toEqual(['Phân việc đủ 11 mục'])
+    const shown = briefContext(briefOf(p, 'câu mở', 1, 1), null)
+    expect(shown).not.toContain('Ràng buộc:')
+    expect(shown).not.toContain('Tiêu chí chất lượng:')
+    // Lượt thường vẫn hiển thị đủ.
+    expect(briefContext(briefOf(plan({ constraints: ['Không đổi API công khai'] }), 'p', 1, 1), null)).toContain('Không đổi API công khai')
+  })
+
+  test('parse cho phép chạy thật prompt đối chiếu mà không có câu mục tiêu; relation new không kèm runReference vẫn bị coi là lỗi', () => {
+    expect(parseRoute(JSON.stringify({ ...REPLY, relation: 'new', goal: '', runReference: true }), OPEN)?.runReference).toBe(true)
+    expect(parseRoute(JSON.stringify({ ...REPLY, relation: 'new', goal: '' }), OPEN)).toBeNull()
   })
 
   test('chấm subagent: đọc đủ; thiếu model hoặc effort thì không dùng được', () => {
