@@ -83,6 +83,8 @@ export function createContext(options: PluginOptions) {
     evidenceLogs: new Map<number, EvidenceLog>(),
     /** Cách router đọc prompt gần nhất (quan hệ với mục tiêu, bản chất việc): để Stop phân biệt hỏi đáp với thực thi. */
     promptIntent: null as PromptIntent,
+    /** Thư mục gốc của phiên chốt cho từng mục tiêu có giới hạn phạm vi (null: engine không trả được). */
+    roots: new Map<number, string | null>(),
     /** Thời gian chạy (ms) của các lượt router gần nhất. */
     routerTimes: [] as number[],
     turnRoute: { turnId: '', route: null } as { turnId: string; route: Route | null },
@@ -288,6 +290,7 @@ export function createContext(options: PluginOptions) {
     local.tracker = newTracker('')
     local.evidenceLog = newEvidenceLog(-1)
     local.evidenceLogs.clear()
+    local.roots.clear()
     local.promptIntent = null
     local.routerTimes = []
     local.turnRoute = { turnId: '', route: null }

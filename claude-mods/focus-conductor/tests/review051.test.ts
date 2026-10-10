@@ -74,7 +74,7 @@ describe('01: sửa file sau lần kiểm tra cuối thì không còn là đã k
 })
 
 describe('02: lệnh Bash ghi file bị đối chiếu với phạm vi', () => {
-  const brief = makeBrief({ scopePaths: ['src'] })
+  const brief = { ...makeBrief({ scopePaths: ['src'] }), root: '/repo' }
   const scopeOf = (command: string) => observe(newTracker('t'), bash(command), brief, []).filter(f => f.kind === 'scope')
 
   test('sed -i, chuyển hướng, tee, cp, mv, rm, touch ngoài phạm vi thì cảnh báo', () => {
@@ -101,11 +101,12 @@ describe('02: lệnh Bash ghi file bị đối chiếu với phạm vi', () => {
     }
   })
 
-  test('không xác định được file đích thì cảnh báo riêng một lần mỗi turn, không coi là đã kiểm soát', () => {
+  test('không xác định được file đích thì cảnh báo riêng, mỗi lệnh khác nhau một lần (vòng cuối), không coi là đã kiểm soát', () => {
     const tracker = newTracker('t')
     const first = observe(tracker, bash('python scripts/gen.py'), brief, []).filter(f => f.kind === 'scope')
     expect(first[0]?.text).toContain('không xác định được file đích')
-    expect(observe(tracker, bash('node build.js'), brief, []).some(f => f.kind === 'scope')).toBe(false)
+    expect(observe(tracker, bash('python scripts/gen.py'), brief, []).some(f => f.kind === 'scope')).toBe(false)
+    expect(observe(tracker, bash('node build.js'), brief, []).some(f => f.kind === 'scope')).toBe(true)
   })
 
   test('không giới hạn phạm vi thì không cảnh báo; mỗi đường dẫn chỉ báo một lần', () => {
@@ -115,12 +116,14 @@ describe('02: lệnh Bash ghi file bị đối chiếu với phạm vi', () => {
     expect(observe(tracker, bash('echo y > config/a.json'), brief, []).some(f => f.kind === 'scope')).toBe(false)
   })
 
-  test('isInScope nhận đường dẫn tương đối và chuẩn hóa ./ và ..', () => {
-    expect(isInScope('src/a.ts', ['src'])).toBe(true)
-    expect(isInScope('./src/a.ts', ['src/'])).toBe(true)
-    expect(isInScope('src/../config/a.json', ['src'])).toBe(false)
-    expect(isInScope('/repo/src/a.ts', ['src'])).toBe(true)
-    expect(isInScope('config/a.json', ['src'])).toBe(false)
+  test('isInScope neo theo thư mục gốc, nhận đường dẫn tương đối và chuẩn hóa ./ và ..', () => {
+    expect(isInScope('src/a.ts', ['src'], '/repo')).toBe(true)
+    expect(isInScope('./src/a.ts', ['src/'], '/repo')).toBe(true)
+    expect(isInScope('src/../config/a.json', ['src'], '/repo')).toBe(false)
+    expect(isInScope('/repo/src/a.ts', ['src'], '/repo')).toBe(true)
+    expect(isInScope('config/a.json', ['src'], '/repo')).toBe(false)
+    // Không có thư mục gốc thì không khẳng định trong phạm vi.
+    expect(isInScope('/repo/src/a.ts', ['src'])).toBe(false)
   })
 })
 

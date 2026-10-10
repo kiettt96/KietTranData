@@ -2,7 +2,8 @@
 
 import { atom, derive, read, update } from 'claude-code'
 import type { Warning } from '../../types'
-import { acceptsVerified, evidenceStrength, filePathOf, isExecuting, isGoalDone, isMutation, isPlanFile, newTracker, noteEvidence, observe, openSteps, summarize } from '../lib/drift'
+import { acceptsVerified, evidenceStrength, filePathOf, isExecuting, isGoalDone, isMutation, isPlanFile, newTracker, noteEvidence, observe, openSteps, summarize, trackVerification } from '../lib/drift'
+import type { Focus } from '../lib/drift'
 import { addUsage, calibrate, recordShape, shapeKey } from '../lib/ledger'
 import { applyPlan } from '../lib/plan'
 import type { PlanInput } from '../lib/plan'
@@ -10,7 +11,7 @@ import { familyOf } from '../lib/route'
 import { askRouter, driftRequest, parseDrift } from '../lib/router'
 import * as S from '../lib/state'
 import { PLAN_TOOL_FULL, blockText, criteriaNotice, driftContext, qualityNotice, renderPlan, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice } from '../lib/text'
-import type { On } from 'claude-code'
+import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
 import { EDIT_TOOLS, ERROR_BURST } from '../context'
@@ -20,6 +21,20 @@ import { EDIT_TOOLS, ERROR_BURST } from '../context'
 const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EMPTY_CORE)
 const bandHiddenState = atom({ plugin: 'focus-conductor', key: 'isBandHidden' } as const, false)
 const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null)
+
+/**
+ * Khung đối chiếu phạm vi của mục tiêu: thư mục gốc của phiên chốt một lần cho mỗi mục tiêu (không đổi theo `cd`
+ * của shell) và thư mục làm việc hiện tại. Chỉ hỏi engine khi mục tiêu có giới hạn phạm vi; lỗi thì null.
+ */
+async function frameOf($: EngineInterface, roots: Map<number, string | null>, goalId: number, scopePaths: readonly string[]) {
+  if (scopePaths.length === 0) return { root: null, cwd: null }
+  if (!roots.has(goalId)) {
+    roots.set(goalId, await $.session.root().catch(() => null))
+    const oldest = roots.keys().next().value
+    if (roots.size > 8 && oldest !== undefined) roots.delete(oldest)
+  }
+  return { root: roots.get(goalId) ?? null, cwd: await $.session.cwd().catch(() => null) }
+}
 
 export function registerConsistency(on: On, ctx: Ctx): void {
   const L = ctx.local
@@ -141,10 +156,15 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       // remindSubagents: subagent cũng bị kiểm phạm vi file của mục tiêu và được nhắc (kèm việc được giao);
       // mặc định chỉ ghi cảnh báo lên pane, không nhắc.
       const agentBrief = S.normalizeCore(await read($, coreState)).brief
-      // Lệnh và thay đổi của subagent cũng vào dấu vết của mục tiêu: luồng chính kiểm tra sau đó mới là bằng chứng mạnh.
-      if (agentBrief !== null && meta.goalId === agentBrief.goalId) noteEvidence(evidenceFor(agentBrief.goalId), observation)
+      // Lệnh và thay đổi của subagent cùng mục tiêu vào dấu vết và trạng thái kiểm tra của luồng chính, theo tác giả:
+      // subagent sửa sau lần test của luồng chính thì luồng chính phải kiểm tra lại; test của subagent chỉ phủ phần nó sửa.
+      if (agentBrief !== null && meta.goalId === agentBrief.goalId) {
+        noteEvidence(evidenceFor(agentBrief.goalId), observation, e.agentId)
+        trackVerification(L.tracker, observation, e.agentId)
+      }
       const scopePaths = remindSubagents ? (agentBrief?.scopePaths ?? []) : []
-      const findings = observe(agentTracker, observation, { goal: meta.description, scopePaths, tier: meta.tier }, [])
+      const frame = agentBrief !== null ? await frameOf($, L.roots, agentBrief.goalId, scopePaths) : { root: null, cwd: null }
+      const findings = observe(agentTracker, observation, { goal: meta.description, scopePaths, tier: meta.tier, ...frame }, [])
       const at = await $.clock.now()
       const warnings: Warning[] = []
       for (const finding of findings) {
@@ -160,7 +180,8 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     const core = S.normalizeCore(await read($, coreState))
     // Ghi cả lệnh lỗi: evidence nhắc tới một lệnh kiểm tra đã lỗi thì không được tính là đã kiểm tra.
     if (core.brief !== null) noteEvidence(evidenceFor(core.brief.goalId), observation)
-    const findings = observe(L.tracker, observation, core.brief, core.plan)
+    const focus: Focus | null = core.brief !== null ? { ...core.brief, ...(await frameOf($, L.roots, core.brief.goalId, core.brief.scopePaths)) } : null
+    const findings = observe(L.tracker, observation, focus, core.plan)
     const isErrorBurst = L.tracker.errors === ERROR_BURST
     // Luồng chính bắt đầu tự sửa file trong khi còn việc đã ghi giao subagent: nhắc một lần.
     // Ghi file kế hoạch của plan mode không phải là làm một việc đã phân.

@@ -62,14 +62,21 @@ export type TurnTracker = {
   toolCalls: number
   mutations: number
   mutationsSinceCheck: number
-  /** Đúng khi có lệnh kiểm tra đạt sau thay đổi cuối cùng của turn; mỗi thay đổi mới đặt lại false. */
+  /** Đúng khi mọi thay đổi của turn đã được kiểm tra lại (tập `pending` rỗng); mỗi thay đổi mới đặt lại false. */
   isVerified: boolean
+  /**
+   * Tác giả có thay đổi chưa được kiểm tra lại: "main" (luồng chính) hoặc id subagent. Kiểm tra đạt của luồng chính
+   * xóa cả tập; kiểm tra đạt của subagent chỉ xóa phần của chính nó.
+   */
+  pending: Set<string>
   /** Số lệnh kiểm tra đạt trong turn (để câu báo phân biệt "chưa kiểm tra lần nào" với "sửa sau lần kiểm tra cuối"). */
   checks: number
   /** Số lời gọi Agent thành công: turn chỉ giao subagent vẫn là turn đang thực thi mục tiêu. */
   delegated: number
-  /** Đã cảnh báo lệnh ghi không xác định được file đích trong turn này. */
-  unknownWriteWarned: boolean
+  /** Lệnh ghi không xác định được file đích đã cảnh báo trong turn (mỗi lệnh khác nhau một lần). */
+  unknownWrites: Set<string>
+  /** Đã cảnh báo không xác định được phạm vi (không có thư mục gốc) trong turn này. */
+  rootWarned: boolean
   /** Số lần Claude cập nhật checklist trong turn (turn đang thực thi kế hoạch). */
   planUpdates: number
   /** Số tool call lỗi trong turn (để nâng effort khi lỗi nhiều). */
@@ -86,9 +93,11 @@ export function newTracker(turnId: string): TurnTracker {
     mutations: 0,
     mutationsSinceCheck: 0,
     isVerified: false,
+    pending: new Set(),
     checks: 0,
     delegated: 0,
-    unknownWriteWarned: false,
+    unknownWrites: new Set(),
+    rootWarned: false,
     planUpdates: 0,
     errors: 0,
     failures: new Map(),
@@ -97,8 +106,12 @@ export function newTracker(turnId: string): TurnTracker {
   }
 }
 
-/** Ngữ cảnh để đo lệch: mục tiêu, phạm vi và ngân sách của luồng chính hoặc của một subagent. */
-export type Focus = { goal: string; scopePaths: string[]; tier: Tier }
+/**
+ * Ngữ cảnh để đo lệch: mục tiêu, phạm vi và ngân sách của luồng chính hoặc của một subagent. `root` là thư mục gốc
+ * của phiên chốt cho mục tiêu (null hoặc thiếu: không xác định được, khi đó không khẳng định file nào trong phạm vi);
+ * `cwd` là thư mục làm việc hiện tại, để nối đường dẫn tương đối của lệnh Bash.
+ */
+export type Focus = { goal: string; scopePaths: string[]; tier: Tier; root?: string | null; cwd?: string | null }
 
 export type ToolObservation = {
   tool: string
@@ -130,10 +143,6 @@ export function outputFailed(output: string | undefined): boolean {
   return output !== undefined && output !== '' && CHECK_FAILED.test(output)
 }
 
-/** Lệnh kiểm tra chạy đạt: không lỗi theo mã thoát và output không báo lỗi. */
-function checkPassed(observation: ToolObservation): boolean {
-  return !observation.isError && !outputFailed(observation.output)
-}
 
 /** Một phát hiện: `text` cho người dùng, `context` cho model (nếu cần nhắc). */
 export type Finding = {
@@ -157,17 +166,18 @@ function signature(observation: ToolObservation): string {
   return `${observation.tool}:${key.slice(0, 300)}`
 }
 
+/** Lệnh Bash có chạy một lệnh kiểm tra (theo phân loại giữ cú pháp, không tính chuỗi trong nháy). */
 export function isVerification(observation: ToolObservation): boolean {
-  return observation.tool === 'Bash' && checkKindOf(str(observation.input['command'])) !== null
+  return observation.tool === 'Bash' && classifyBash(str(observation.input['command'])).effects.some(e => e.kind === 'check')
 }
 
 export type CheckKind = 'test' | 'static'
 
 /** Loại kiểm tra của một lệnh: test (chạy hành vi), static (type-check, lint, build, validate), hoặc null. */
 export function checkKindOf(command: string): CheckKind | null {
-  const parts = segments(command).filter(part => VERIFY_SEGMENT.test(part))
-  if (parts.length === 0) return null
-  return parts.some(part => TEST_SEGMENT.test(part)) ? 'test' : 'static'
+  const checks = classifyBash(command).effects.filter((e): e is CheckEffect => e.kind === 'check')
+  if (checks.length === 0) return null
+  return checks.some(e => e.check === 'test') ? 'test' : 'static'
 }
 
 // File kế hoạch của plan mode (~/.claude/plans/*.md): ghi vào đó là lập kế hoạch, không phải sửa mã.
@@ -191,6 +201,9 @@ const READ_ONLY_GIT = new Set([
 const FIND_WRITE = /^-(?:delete|exec|execdir|ok|okdir|fprint|fprint0|fprintf|fls)$/
 // Lệnh w/W/e của sed (đứng đầu hoặc sau dấu ngăn, chữ số địa chỉ, dấu / hay $) và flag w của s///.
 const SED_WRITE = /(?:^|[;{}\s\d$/'"])(?:w|W|e)\s+\S|\/[gpIi0-9]*[wW]\s+\S/
+const AWK_COMMAND = /(?:^|[\s;&|(])[gmn]?awk\b/
+// print/printf của awk kèm chuyển hướng hoặc ống, và system(): ghi file hoặc chạy lệnh khác.
+const AWK_WRITE = /\bprintf?\b[^;}\n]*?(?:>|\|)|\bsystem\s*\(/
 
 function segmentIsReadOnly(part: string): boolean {
   const tokens = part.trim().split(/\s+/).filter(Boolean)
@@ -224,20 +237,28 @@ export function isReadOnlyCommand(command: string): boolean {
   if (/\$\(|`|\bsystem\s*\(/.test(command)) return false
   // Script sed nằm trong nháy: kiểm trên lệnh gốc. Có thể báo nhầm một pattern chứa "w e"; chấp nhận, vì an toàn hơn.
   if (/\bsed\b/.test(command) && SED_WRITE.test(command)) return false
+  // Script awk nằm trong nháy: print/printf chuyển hướng (>, >>) hay nối ống (|) là ghi file hoặc chạy lệnh khác.
+  if (AWK_COMMAND.test(command) && AWK_WRITE.test(command)) return false
   const unquoted = command.replace(/"[^"]*"|'[^']*'/g, '""')
   const writes = unquoted.replace(/\d*>&\d+|&?\d*>>?\s*\/dev\/null/g, '')
   if (writes.includes('>')) return false
   return segments(unquoted).every(segmentIsReadOnly)
 }
 
+/**
+ * Tool call có (hoặc có thể đã) ghi file. Bash theo phân loại chung `classifyBash`: ghi xác định (chuyển hướng, lệnh ghi
+ * đã biết) luôn là thay đổi, kể cả khi engine báo chỉ đọc; ghi có thể (lệnh lạ, script) bị bỏ khi engine báo chỉ đọc.
+ * Dùng chung cho kiểm tra trước khi chạy (strictDelegation block), theo dõi sau khi chạy, phạm vi và dấu vết.
+ */
 export function isMutation(observation: ToolObservation): boolean {
   if (FILE_TOOLS.has(observation.tool)) return !isPlanFile(filePathOf(observation))
-  return (
-    observation.tool === 'Bash' &&
-    !observation.isReadOnly &&
-    !isVerification(observation) &&
-    !isReadOnlyCommand(str(observation.input['command']))
-  )
+  if (observation.tool !== 'Bash') return false
+  return writeEffects(classifyBash(str(observation.input['command'])), observation.isReadOnly).length > 0
+}
+
+/** Các hiệu ứng ghi còn tính được sau khi xét thông tin chỉ đọc của engine. */
+function writeEffects(classified: BashClass, isReadOnly: boolean): WriteEffect[] {
+  return classified.effects.filter((e): e is WriteEffect => e.kind === 'write' && (e.level === 'definite' || !isReadOnly))
 }
 
 /** Chuẩn hóa đường dẫn: dấu \\ thành /, bỏ ./, gộp .. (không đụng hệ thống tệp). */
@@ -254,15 +275,36 @@ export function normalizePath(path: string): string {
   return `${isAbsolute ? '/' : ''}${out.join('/')}`
 }
 
-/** Đường dẫn nằm trong phạm vi khi khớp đuôi, nằm dưới một thư mục được nhắc, hoặc là đường dẫn tương đối bắt đầu bằng phạm vi. */
-export function isInScope(path: string, scopePaths: readonly string[]): boolean {
-  if (scopePaths.length === 0 || path === '') return true
-  const normalized = normalizePath(path)
+export type ScopeStatus = 'in' | 'out' | 'unknown'
+
+/**
+ * Vị trí của một đường dẫn so với phạm vi, neo theo thư mục gốc của phiên. Đường dẫn và phạm vi tương đối được nối
+ * vào gốc (đường dẫn tương đối của lệnh Bash nối vào `cwd` nếu có); trong phạm vi chỉ khi bằng hoặc nằm dưới
+ * `gốc/phạm vi`; phạm vi chỉ là tên file (có phần mở rộng, không có /) thì khớp theo tên file bên trong gốc; ngoài
+ * gốc luôn là ngoài phạm vi. Không có gốc thì không khẳng định gì (unknown), không quay về khớp theo chuỗi.
+ */
+export function scopeStatus(path: string, scopePaths: readonly string[], root?: string | null, cwd?: string | null): ScopeStatus {
+  if (scopePaths.length === 0 || path === '') return 'in'
+  if (!root) return 'unknown'
+  const base = normalizePath(root)
+  const resolve = (p: string, from: string) => normalizePath(p.replace(/\\/g, '/').startsWith('/') ? p : `${from}/${p}`)
+  const file = resolve(path, cwd ? resolve(cwd, base) : base)
+  const isUnder = (dir: string) => file === dir || file.startsWith(`${dir}/`)
+  if (!isUnder(base)) return 'out'
+  const name = file.split('/').pop() ?? ''
   return scopePaths.some(scope => {
-    const s = normalizePath(scope)
-    if (s === '') return true
-    return normalized === s || normalized.startsWith(`${s}/`) || normalized.endsWith(`/${s}`) || normalized.includes(`/${s}/`)
+    const s = scope.trim().replace(/\\/g, '/').replace(/\/+$/, '')
+    if (s === '' || s === '.') return true
+    if (!s.includes('/') && /\.[A-Za-z0-9]+$/.test(s)) return name === s
+    return isUnder(resolve(s, base))
   })
+    ? 'in'
+    : 'out'
+}
+
+/** Đường dẫn chắc chắn nằm trong phạm vi (cần thư mục gốc; không có gốc thì không khẳng định). */
+export function isInScope(path: string, scopePaths: readonly string[], root?: string | null, cwd?: string | null): boolean {
+  return scopeStatus(path, scopePaths, root, cwd) === 'in'
 }
 
 // ------------------------------------------------------------ đích ghi của lệnh Bash
@@ -280,48 +322,98 @@ const SED_VALUE_OPTIONS = new Set(['-e', '-f', '--expression', '--file', '-l', '
 
 export type WriteTargets = { paths: string[]; isUnknown: boolean }
 
-/**
- * File đích của một lệnh Bash có ghi: chuyển hướng ghi, tee, sed -i, cp/mv/install/ln (đối số cuối), rm, touch,
- * mkdir, truncate, chmod/chown, git checkout -- và git restore. Đường dẫn tương đối nối với thư mục của `cd` đứng
- * trước. Lệnh ghi mà không đọc được đích (script, trình cài gói, đường dẫn chứa biến) thì isUnknown.
- * Chỉ để giám sát phạm vi; không phải phân quyền hệ thống tệp.
- */
-export function bashWriteTargets(command: string): WriteTargets {
-  // Thân heredoc là dữ liệu, không phải lệnh: bỏ đi trước khi tách đoạn.
+/** Một lệnh kiểm tra trong lệnh Bash: loại, có chắc đã chạy (không sau ||, không trong cấu trúc chưa hỗ trợ), có bị nối ống. */
+export type CheckEffect = { kind: 'check'; check: CheckKind; trusted: boolean; piped: boolean }
+/** Một tác động ghi: definite (chuyển hướng, lệnh ghi đã biết), possible (lệnh lạ, script, cấu trúc chưa hỗ trợ). */
+export type WriteEffect = { kind: 'write'; level: 'definite' | 'possible' }
+export type BashEffect = CheckEffect | WriteEffect
+
+/** Kết quả phân loại một lệnh Bash, dùng chung cho mọi hook: hiệu ứng theo thứ tự, file đích, cờ không xác định đích. */
+export type BashClass = { effects: BashEffect[]; paths: string[]; isUnknown: boolean }
+
+type Operator = '' | '&&' | '||' | ';' | '|'
+
+/** Che chuỗi trong nháy bằng token giữ chỗ và bỏ thân heredoc, để dấu ngăn lệnh trong nháy không bị đọc nhầm. */
+function maskCommand(command: string): { masked: string; unmask: (token: string) => string } {
   const withoutHeredoc = command.replace(/<<-?\s*(['"]?)(\w+)\1([^\n]*)\n[\s\S]*?\n\s*\2\s*(?=\n|$)/g, (_m, _q: string, _tag: string, rest: string) => rest)
   const quoted: string[] = []
-  // Chuỗi trong nháy thành một token giữ chỗ: dấu > hay ; trong nháy không bị đọc nhầm là cú pháp shell.
-  const masked = withoutHeredoc.replace(/"([^"]*)"|'([^']*)'/g, (_m, a: string | undefined, b: string | undefined) => {
+  const masked = withoutHeredoc.replace(/"((?:[^"\\]|\\.)*)"|'([^']*)'/g, (_m, a: string | undefined, b: string | undefined) => {
     quoted.push(a ?? b ?? '')
     return `\u0000${quoted.length - 1}\u0000`
   })
   const unmask = (token: string) => token.replace(/\u0000(\d+)\u0000/g, (_m, i: string) => quoted[Number(i)] ?? '')
+  return { masked, unmask }
+}
+
+/** Tách lệnh đã che thành các đoạn, giữ toán tử đứng trước mỗi đoạn (&&, ||, ;, |; xuống dòng tính như ;). */
+function pieces(masked: string): Array<{ op: Operator; text: string }> {
+  const parts = masked.split(/(\|\||&&|;|\|(?!\|)|\n)/)
+  const out: Array<{ op: Operator; text: string }> = []
+  let op: Operator = ''
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i] ?? ''
+    if (i % 2 === 1) {
+      op = part === '\n' ? ';' : (part as Operator)
+      continue
+    }
+    const text = part
+      .trim()
+      .replace(/^[({]+\s*/, '')
+      .replace(/^(?:[A-Za-z_][A-Za-z0-9_]*=\S*(?:\s+|$))+/, '')
+      .replace(/^timeout\s+\d+\s+/, '')
+    if (text !== '') out.push({ op, text })
+    else if (out.length === 0) op = ''
+  }
+  return out
+}
+
+// Cấu trúc chưa phân tích được: thay thế lệnh, eval, shell con với -c, system() của awk.
+const UNSUPPORTED = /\$\(|`|(?:^|[\s;&|(])eval\b|(?:^|[\s;&|(])(?:ba|z|da)?sh\s+-c\b|\bsystem\s*\(/
+
+/**
+ * Phân loại một lệnh Bash theo từng đoạn, giữ thứ tự và toán tử: lệnh kiểm tra, tác động ghi, file đích. Kiểm tra chỉ
+ * được tin khi chắc chắn đã chạy: đoạn đầu, hoặc sau && hay ;. Chuyển hướng ghi trên chính lệnh kiểm tra là tác
+ * động ghi đứng trước kiểm tra. Cấu trúc chưa hỗ trợ thì thêm tác động ghi có thể và không tin kiểm tra nào.
+ * Đường dẫn tương đối nối với thư mục của `cd` đứng trước. Chỉ để giám sát; không phải phân quyền hệ thống tệp.
+ */
+export function classifyBash(command: string): BashClass {
+  const { masked, unmask } = maskCommand(command)
+  const effects: BashEffect[] = []
   const paths: string[] = []
   let isUnknown = false
   let cwd = ''
   const add = (raw: string) => {
     const token = unmask(raw)
-    if (token === '' || token === '-' || /^\/dev\/(?:null|stdout|stderr|tty|fd\/\d+)$/.test(token)) return
+    if (token === '' || token === '-' || /^\/dev\/(?:null|stdout|stderr|tty|fd\/\d+)$/.test(token)) return false
     if (/[$`*?]/.test(token) || token.startsWith('~')) {
       isUnknown = true
-      return
+      return true
     }
     const path = normalizePath(token.startsWith('/') || cwd === '' ? token : `${cwd}/${token}`)
     if (!paths.includes(path)) paths.push(path)
+    return true
   }
+  const write = (level: WriteEffect['level']) => effects.push({ kind: 'write', level })
+  const isUnsupported = UNSUPPORTED.test(command)
 
-  for (const part of segments(masked)) {
-    // Chuyển hướng ghi trong đoạn: >, >>, 1>, &>, bỏ qua >&N (gộp luồng).
-    const redirect = /(?:^|[^<>&\d])(?:\d*|&)>>?(?!&)\s*([^\s<>;&|]+)/g
-    for (const match of part.matchAll(redirect)) add(match[1] ?? '')
-    const tokens = part
+  const list = pieces(masked)
+  for (let index = 0; index < list.length; index++) {
+    const piece = list[index]
+    if (piece === undefined) continue
+    const part = piece.text
+    // Chuyển hướng ghi trong đoạn: >, >>, 1>, &>, bỏ qua >&N (gộp luồng) và /dev/null.
+    let redirected = false
+    for (const match of part.matchAll(/(?:^|[^<>&\d])(?:\d*|&)>>?(?!&)\s*([^\s<>;&|]+)/g)) {
+      if (add(match[1] ?? '')) redirected = true
+    }
+    if (redirected) write('definite')
+    const bare = part
       .replace(/(?:\d*|&)>>?(?!&)\s*[^\s<>;&|]+/g, ' ')
       .replace(/\d*>&\d+/g, ' ')
       // Chuyển hướng đọc (<, <<<) không ghi file.
       .replace(/\d*<<?<?\s*[^\s<>;&|]+/g, ' ')
       .trim()
-      .split(/\s+/)
-      .filter(Boolean)
+    const tokens = bare.split(/\s+/).filter(Boolean)
     let cmd = tokens[0]
     let args = tokens.slice(1)
     while ((cmd === 'sudo' || cmd === 'command' || cmd === 'nohup' || cmd === 'xargs') && args.length > 0) {
@@ -330,16 +422,37 @@ export function bashWriteTargets(command: string): WriteTargets {
     }
     if (cmd === undefined) continue
     const name = unmask(cmd)
+    const text = unmask(bare)
     if (name === 'cd') {
       const dir = args[0] !== undefined ? unmask(args[0]) : ''
       if (dir === '' || /[$`~]/.test(dir) || dir === '-') cwd = '\u0000unknown'
       else cwd = cwd === '' || dir.startsWith('/') ? normalizePath(dir) : normalizePath(`${cwd}/${dir}`)
       continue
     }
-    if (segmentIsReadOnly(unmask(part)) || VERIFY_SEGMENT.test(unmask(part))) continue
+    if (VERIFY_SEGMENT.test(text)) {
+      const next = list[index + 1]
+      effects.push({
+        kind: 'check',
+        check: TEST_SEGMENT.test(text) ? 'test' : 'static',
+        trusted: !isUnsupported && (piece.op === '' || piece.op === '&&' || piece.op === ';'),
+        piped: next?.op === '|',
+      })
+      continue
+    }
+    if (AWK_COMMAND.test(name) || /^[gmn]?awk$/.test(name)) {
+      // Script awk ghi file qua print > "file" hay print | "lệnh": đích không đọc được.
+      if (AWK_WRITE.test(unmask(part))) {
+        isUnknown = true
+        write('possible')
+      }
+      continue
+    }
+    if (segmentIsReadOnly(text)) continue
     const positional = args.filter(a => !unmask(a).startsWith('-'))
-    if (name === 'tee') positional.forEach(add)
-    else if (name === 'sed') {
+    if (name === 'tee') {
+      positional.forEach(add)
+      write('definite')
+    } else if (name === 'sed') {
       // sed -i: bỏ script (đối số đầu khi không có -e/-f), còn lại là file bị sửa.
       const files: string[] = []
       let hasScript = false
@@ -351,27 +464,107 @@ export function bashWriteTargets(command: string): WriteTargets {
         } else if (!arg.startsWith('-')) files.push(args[i] ?? '')
       }
       ;(hasScript ? files : files.slice(1)).forEach(add)
-    } else if (WRITE_ALL.has(name)) positional.forEach(add)
-    else if (WRITE_LAST.has(name)) {
+      write('definite')
+    } else if (WRITE_ALL.has(name)) {
+      positional.forEach(add)
+      write('definite')
+    } else if (WRITE_LAST.has(name)) {
       const t = args.findIndex(a => unmask(a) === '-t' || unmask(a).startsWith('--target-directory'))
       const target = t >= 0 ? (unmask(args[t] ?? '').includes('=') ? (args[t] ?? '').split('=')[1] : args[t + 1]) : positional[positional.length - 1]
       if (target !== undefined) add(target)
       else isUnknown = true
-    } else if (WRITE_AFTER_FIRST.has(name)) positional.slice(1).forEach(add)
-    else if (name === 'git') {
+      write('definite')
+    } else if (WRITE_AFTER_FIRST.has(name)) {
+      positional.slice(1).forEach(add)
+      write('definite')
+    } else if (name === 'git') {
       const sub = positional[0] !== undefined ? unmask(positional[0]) : ''
+      write('definite')
       if (GIT_NO_FILES.has(sub)) continue
       const dash = args.findIndex(a => unmask(a) === '--')
       if (sub === 'restore') positional.slice(1).forEach(add)
       else if ((sub === 'checkout' || sub === 'reset') && dash >= 0) args.slice(dash + 1).forEach(add)
       else isUnknown = true
-    } else if (name !== '') isUnknown = true
+    } else {
+      // Lệnh lạ, trình cài gói, script: có thể ghi, không đọc được đích.
+      isUnknown = true
+      write('possible')
+    }
+  }
+  if (isUnsupported) {
+    isUnknown = true
+    write('possible')
   }
   if (cwd === '\u0000unknown') {
     // cd tới thư mục không đọc được: đường dẫn tương đối sau đó không đối chiếu được.
-    return { paths: paths.filter(path => path.startsWith('/') && !path.includes('\u0000')), isUnknown: true }
+    return { effects, paths: paths.filter(path => path.startsWith('/') && !path.includes('\u0000')), isUnknown: true }
   }
+  return { effects, paths, isUnknown }
+}
+
+/** File đích của một lệnh Bash có ghi (xem classifyBash). */
+export function bashWriteTargets(command: string): WriteTargets {
+  const { paths, isUnknown } = classifyBash(command)
   return { paths, isUnknown }
+}
+
+// Dấu hiệu đạt rõ ràng trong output (khi mã thoát bị che vì lệnh kiểm tra nối ống sang lệnh khác).
+const CHECK_PASSED = new RegExp(
+  [
+    '(?:^|\\n)\\s*#\\s*pass\\s+[1-9]', // TAP (node --test)
+    '\\b[1-9]\\d*\\s+(?:passed|passing|pass)\\b', // jest, mocha, bun, vitest, pytest
+    'test result:\\s*ok\\b', // cargo
+    '(?:^|\\n)ok\\s+\\S+', // go test
+    '\\bFound\\s+0\\s+errors?\\b', // tsc --pretty, mypy
+  ].join('|'),
+  'i',
+)
+
+/**
+ * Áp các hiệu ứng của một tool call lên trạng thái kiểm tra của tracker, theo đúng thứ tự trong lệnh. `author` là
+ * tác giả của tool call ("main" hoặc id subagent). Ghi được tính cả khi lệnh Bash lỗi (có thể đã ghi một phần); kiểm
+ * tra chỉ đạt khi được tin, lệnh không lỗi, output không báo lỗi, và (khi bị nối ống) output có dấu hiệu đạt rõ.
+ * Trả số lần ghi đã đếm.
+ */
+export function trackVerification(tracker: TurnTracker, observation: ToolObservation, author = 'main'): number {
+  let writes = 0
+  const onWrite = () => {
+    tracker.mutations += 1
+    tracker.mutationsSinceCheck += 1
+    tracker.pending.add(author)
+    tracker.isVerified = false
+    writes += 1
+  }
+  if (FILE_TOOLS.has(observation.tool)) {
+    // Edit, Write, NotebookEdit lỗi thì không ghi file.
+    if (!observation.isError && !isPlanFile(filePathOf(observation))) onWrite()
+    return writes
+  }
+  if (observation.tool !== 'Bash') return writes
+  const classified = classifyBash(str(observation.input['command']))
+  const counted = new Set<BashEffect>(writeEffects(classified, observation.isReadOnly))
+  for (const effect of classified.effects) {
+    if (effect.kind === 'write') {
+      if (counted.has(effect)) onWrite()
+      continue
+    }
+    if (!checkEffectPassed(effect, observation)) continue
+    tracker.checks += 1
+    if (author === 'main') tracker.pending.clear()
+    else tracker.pending.delete(author)
+    if (tracker.pending.size === 0) {
+      tracker.isVerified = true
+      tracker.mutationsSinceCheck = 0
+    }
+  }
+  return writes
+}
+
+/** Một lệnh kiểm tra trong tool call có đạt không. */
+function checkEffectPassed(effect: CheckEffect, observation: ToolObservation): boolean {
+  if (!effect.trusted || observation.isError || outputFailed(observation.output)) return false
+  if (!effect.piped) return true
+  return observation.output !== undefined && CHECK_PASSED.test(observation.output)
 }
 
 /** Cách router đọc prompt của turn: quan hệ với mục tiêu đang mở và bản chất việc; null khi router không đọc được. */
@@ -441,68 +634,73 @@ export function observe(
   }
 
   // Lần gọi này có làm tăng bộ đếm thay đổi không (để checkpoint chỉ báo đúng lúc đếm đủ bội số).
-  let isCounted = false
-  if (isVerification(observation) && checkPassed(observation)) {
-    tracker.mutationsSinceCheck = 0
-    tracker.isVerified = true
-    tracker.checks += 1
-  } else if (isMutation(observation) && !observation.isError) {
-    tracker.mutations += 1
-    tracker.mutationsSinceCheck += 1
-    // Thay đổi mới chưa được kiểm tra: lần kiểm tra trước không còn phủ trạng thái hiện tại.
-    tracker.isVerified = false
-    isCounted = true
-  }
+  const before = tracker.mutationsSinceCheck
+  const isCounted = trackVerification(tracker, observation) > 0 && tracker.mutationsSinceCheck > before
   if (observation.tool === 'Agent' && !observation.isError) tracker.delegated += 1
 
   if (focus === null) return findings
 
-  // Lệnh Bash ghi file: đối chiếu từng file đích với phạm vi; không đọc được đích thì báo riêng.
-  if (observation.tool === 'Bash' && focus.scopePaths.length > 0 && isMutation(observation)) {
+  // Phạm vi: file của Edit/Write và file đích của lệnh Bash có ghi (kể cả lệnh lỗi, vì có thể đã ghi một phần).
+  if (focus.scopePaths.length > 0 && isMutation(observation)) {
+    const isBash = observation.tool === 'Bash'
     const command = str(observation.input['command'])
-    const targets = bashWriteTargets(command)
-    for (const target of targets.paths) {
-      if (isPlanFile(target) || isInScope(target, focus.scopePaths) || tracker.outOfScope.has(target)) continue
+    const classified = isBash ? classifyBash(command) : null
+    const targets = classified ? classified.paths : [filePathOf(observation)].filter(path => path !== '')
+    const scopes = focus.scopePaths.join(', ')
+    for (const target of targets) {
+      if (isPlanFile(target)) continue
+      const status = scopeStatus(target, focus.scopePaths, focus.root, isBash ? focus.cwd : null)
+      if (status === 'in') continue
+      if (status === 'unknown') {
+        // Không có thư mục gốc: không khẳng định file nằm trong phạm vi, báo một lần mỗi turn.
+        if (tracker.rootWarned) continue
+        tracker.rootWarned = true
+        findings.push({
+          kind: 'scope',
+          priority: 3,
+          text: `Không xác định được phạm vi (thiếu thư mục gốc của phiên): ${target}`,
+          context:
+            `[focus-conductor] Không xác định được phạm vi của ${target}: mod không lấy được thư mục gốc của phiên nên không đối chiếu ` +
+            `được với phạm vi người dùng giới hạn (${scopes}). Tự kiểm tra các file đã sửa chỉ nằm trong phạm vi đó.`,
+        })
+        continue
+      }
+      if (tracker.outOfScope.has(target)) continue
       tracker.outOfScope.add(target)
-      findings.push({
-        kind: 'scope',
-        priority: 3,
-        text: `Lệnh Bash ghi ngoài phạm vi đã nêu: ${target}`,
-        context:
-          `[focus-conductor] Lệnh \`${command.slice(0, 160)}\` ghi vào ${target}, nằm ngoài phạm vi người dùng giới hạn (${focus.scopePaths.join(', ')}). ` +
-          'Xác nhận thay đổi này là bắt buộc cho mục tiêu; nếu không, hoàn tác và quay lại phạm vi.',
-      })
+      findings.push(
+        isBash
+          ? {
+              kind: 'scope',
+              priority: 3,
+              text: `Lệnh Bash ghi ngoài phạm vi đã nêu: ${target}`,
+              context:
+                `[focus-conductor] Lệnh \`${command.slice(0, 160)}\` ghi vào ${target}, nằm ngoài phạm vi người dùng giới hạn (${scopes}). ` +
+                'Xác nhận thay đổi này là bắt buộc cho mục tiêu; nếu không, hoàn tác và quay lại phạm vi.',
+            }
+          : {
+              kind: 'scope',
+              priority: 3,
+              text: `Sửa ngoài phạm vi đã nêu: ${target}`,
+              context:
+                `[focus-conductor] ${target} nằm ngoài phạm vi người dùng giới hạn (${scopes}). ` +
+                'Xác nhận thay đổi này là bắt buộc cho mục tiêu; nếu không, hoàn tác và quay lại phạm vi.',
+            },
+      )
     }
-    if (targets.isUnknown && !tracker.unknownWriteWarned) {
-      tracker.unknownWriteWarned = true
+    const key = command.trim().slice(0, 300)
+    if (classified?.isUnknown && !tracker.unknownWrites.has(key)) {
+      // Mỗi lệnh ghi không xác định đích khác nhau được cảnh báo một lần.
+      tracker.unknownWrites.add(key)
       findings.push({
         kind: 'scope',
         priority: 2,
-        text: `Lệnh ghi không xác định được file đích (phạm vi: ${focus.scopePaths.join(', ')}): ${command.slice(0, 80)}`,
+        text: `Lệnh ghi không xác định được file đích (phạm vi: ${scopes}): ${command.slice(0, 80)}`,
         context:
           `[focus-conductor] Lệnh \`${command.slice(0, 160)}\` có thể ghi file nhưng mod không xác định được file đích, nên không đối chiếu được ` +
-          `với phạm vi người dùng giới hạn (${focus.scopePaths.join(', ')}). Kiểm tra lệnh này chỉ ghi trong phạm vi; nếu ghi ra ngoài, ` +
+          `với phạm vi người dùng giới hạn (${scopes}). Kiểm tra lệnh này chỉ ghi trong phạm vi; nếu ghi ra ngoài, ` +
           'xác nhận là bắt buộc cho mục tiêu hoặc hoàn tác.',
       })
     }
-  }
-
-  const path = filePathOf(observation)
-  if (
-    FILE_TOOLS.has(observation.tool) &&
-    !isPlanFile(path) &&
-    !isInScope(path, focus.scopePaths) &&
-    !tracker.outOfScope.has(path)
-  ) {
-    tracker.outOfScope.add(path)
-    findings.push({
-      kind: 'scope',
-      priority: 3,
-      text: `Sửa ngoài phạm vi đã nêu: ${path}`,
-      context:
-        `[focus-conductor] ${path} nằm ngoài phạm vi người dùng giới hạn (${focus.scopePaths.join(', ')}). ` +
-        'Xác nhận thay đổi này là bắt buộc cho mục tiêu; nếu không, hoàn tác và quay lại phạm vi.',
-    })
   }
 
   const budget = TOOL_BUDGET[focus.tier]
@@ -520,7 +718,7 @@ export function observe(
     })
   }
 
-  if (isCounted && tracker.mutationsSinceCheck % CHECKPOINT_EVERY === 0) {
+  if (isCounted && Math.floor(tracker.mutationsSinceCheck / CHECKPOINT_EVERY) > Math.floor(before / CHECKPOINT_EVERY)) {
     findings.push({
       kind: 'checkpoint',
       priority: 1,
@@ -558,8 +756,11 @@ export function summarize(tracker: TurnTracker, brief: Brief | null, plan: reado
 
 // ------------------------------------------------------------ đối chiếu evidence
 
-/** Một lệnh Bash đã chạy trong mục tiêu: kết quả thật (ok theo mã thoát), loại kiểm tra và thứ tự. */
-export type EvidenceEntry = { command: string; ok: boolean; check: CheckKind | null; seq: number }
+/**
+ * Một lệnh Bash đã chạy trong mục tiêu: kết quả thật (ok: kiểm tra đạt, hoặc lệnh không lỗi khi không phải kiểm tra),
+ * loại kiểm tra, thứ tự và tác giả ("main" hoặc id subagent).
+ */
+export type EvidenceEntry = { command: string; ok: boolean; check: CheckKind | null; seq: number; author: string }
 
 /**
  * Dấu vết thực thi của một mục tiêu, để đối chiếu evidence khi Claude ghi "verified": các lệnh Bash (kể cả lệnh lỗi),
@@ -572,36 +773,74 @@ export type EvidenceLog = {
   lastMutation: number
   mutations: number
   commands: EvidenceEntry[]
+  /** Các lần ghi theo thứ tự và tác giả, để biết lần kiểm tra của một subagent phủ thay đổi của ai. */
+  writes: Array<{ seq: number; author: string }>
   paths: string[]
 }
 
 const EVIDENCE_COMMANDS = 100
 const EVIDENCE_PATHS = 200
+const EVIDENCE_WRITES = 300
 
 export function newEvidenceLog(goalId: number): EvidenceLog {
-  return { goalId, seq: 0, lastMutation: -1, mutations: 0, commands: [], paths: [] }
+  return { goalId, seq: 0, lastMutation: -1, mutations: 0, commands: [], writes: [], paths: [] }
 }
 
-/** Ghi một tool call vào dấu vết của mục tiêu: lệnh Bash kèm kết quả, thay đổi, và đường dẫn file. */
-export function noteEvidence(log: EvidenceLog, observation: ToolObservation): void {
-  log.seq += 1
-  const command = str(observation.input['command']).trim()
-  if (observation.tool === 'Bash' && command !== '') {
-    const check = checkKindOf(command)
-    log.commands.push({ command: command.slice(0, 500), ok: check === null ? !observation.isError : checkPassed(observation), check, seq: log.seq })
-    if (log.commands.length > EVIDENCE_COMMANDS) log.commands.shift()
-  }
-  if (observation.isError) return
-  if (isMutation(observation)) {
+/**
+ * Ghi một tool call vào dấu vết của mục tiêu theo đúng thứ tự hiệu ứng: lệnh kiểm tra kèm kết quả thật, các lần ghi
+ * (kể cả trong lệnh Bash lỗi), và đường dẫn file. `author` là "main" hoặc id subagent.
+ */
+export function noteEvidence(log: EvidenceLog, observation: ToolObservation, author = 'main'): void {
+  const onWrite = () => {
+    log.seq += 1
     log.lastMutation = log.seq
     log.mutations += 1
+    log.writes.push({ seq: log.seq, author })
+    if (log.writes.length > EVIDENCE_WRITES) log.writes.shift()
   }
+  const command = str(observation.input['command']).trim()
+  if (observation.tool === 'Bash' && command !== '') {
+    const classified = classifyBash(command)
+    const counted = new Set<BashEffect>(writeEffects(classified, observation.isReadOnly))
+    let hasCheck = false
+    for (const effect of classified.effects) {
+      if (effect.kind === 'write') {
+        if (counted.has(effect)) onWrite()
+        continue
+      }
+      hasCheck = true
+      log.seq += 1
+      log.commands.push({ command: command.slice(0, 500), ok: checkEffectPassed(effect, observation), check: effect.check, seq: log.seq, author })
+    }
+    if (!hasCheck) {
+      log.seq += 1
+      log.commands.push({ command: command.slice(0, 500), ok: !observation.isError, check: null, seq: log.seq, author })
+    }
+    while (log.commands.length > EVIDENCE_COMMANDS) log.commands.shift()
+  } else if (FILE_TOOLS.has(observation.tool) && !observation.isError && !isPlanFile(filePathOf(observation))) {
+    onWrite()
+  } else {
+    log.seq += 1
+  }
+  if (observation.isError) return
   for (const key of ['file_path', 'notebook_path', 'path']) {
     const path = str(observation.input[key]).trim()
     if (path === '' || log.paths.includes(path)) continue
     log.paths.push(path)
     if (log.paths.length > EVIDENCE_PATHS) log.paths.shift()
   }
+}
+
+/**
+ * Lần kiểm tra này có phủ mọi thay đổi trước nó không: kiểm tra của luồng chính phủ tất cả; kiểm tra của subagent chỉ
+ * phủ khi mọi thay đổi kể từ lần kiểm tra đạt gần nhất của luồng chính đều do chính subagent đó làm.
+ */
+function covers(entry: EvidenceEntry, log: EvidenceLog): boolean {
+  if (entry.author === 'main') return true
+  const lastMain = log.commands
+    .filter(c => c.author === 'main' && c.check !== null && c.ok && c.seq < entry.seq)
+    .reduce((max, c) => Math.max(max, c.seq), -1)
+  return log.writes.every(w => w.seq <= lastMain || w.seq > entry.seq || w.author === entry.author)
 }
 
 /** Evidence nhắc tới lệnh này: vài từ đầu của một đoạn lệnh (có hoặc không kèm tùy chọn), hoặc một đối số dạng đường dẫn. */
@@ -633,7 +872,7 @@ export type EvidenceStrength = {
 export function evidenceStrength(evidence: string, log: EvidenceLog): EvidenceStrength {
   const text = evidence.toLowerCase()
   const mentioned = log.commands.filter(entry => mentionsCommand(text, entry.command))
-  const fresh = mentioned.filter(entry => entry.check !== null && entry.ok && entry.seq > log.lastMutation)
+  const fresh = mentioned.filter(entry => entry.check !== null && entry.ok && entry.seq > log.lastMutation && covers(entry, log))
   if (fresh.length > 0) return { level: 'strong', check: fresh.some(entry => entry.check === 'test') ? 'test' : 'static' }
   const checks = mentioned.filter(entry => entry.check !== null)
   const last = checks[checks.length - 1]
@@ -641,7 +880,11 @@ export function evidenceStrength(evidence: string, log: EvidenceLog): EvidenceSt
     const shown = last.command.slice(0, 80)
     return {
       level: 'stale',
-      reason: !last.ok ? `lệnh kiểm tra \`${shown}\` đã lỗi` : `lệnh kiểm tra \`${shown}\` chạy trước thay đổi cuối cùng`,
+      reason: !last.ok
+        ? `lệnh kiểm tra \`${shown}\` đã lỗi hoặc không xác nhận được là đạt`
+        : last.seq < log.lastMutation
+          ? `lệnh kiểm tra \`${shown}\` chạy trước thay đổi cuối cùng`
+          : `lệnh kiểm tra \`${shown}\` do subagent chạy chỉ phủ thay đổi của chính nó; còn thay đổi khác chưa được kiểm tra lại`,
     }
   }
   const touched = log.paths.some(path => {

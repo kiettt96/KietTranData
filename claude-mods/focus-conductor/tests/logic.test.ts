@@ -242,7 +242,8 @@ describe('checkpoint kiểm tra', () => {
     ]) {
       const tracker = newTracker('t1')
       observe(tracker, edit, brief, [])
-      observe(tracker, bash(command), brief, [])
+      // Output có dấu hiệu đạt rõ: lệnh kiểm tra nối ống (| grep, | head) cần nó vì mã thoát bị che (0.5.1).
+      observe(tracker, { ...bash(command), output: '12 pass\n0 fail' }, brief, [])
       expect(tracker.mutationsSinceCheck, command).toBe(0)
       expect(tracker.isVerified, command).toBe(true)
     }
@@ -294,7 +295,7 @@ describe('phát hiện lạc đề', () => {
 
   test('sửa file ngoài phạm vi đã giới hạn thì cảnh báo một lần', () => {
     const tracker = newTracker('t1')
-    const brief = makeBrief({ scopePaths: ['src/app.ts'] })
+    const brief = { ...makeBrief({ scopePaths: ['src/app.ts'] }), root: '/repo' }
     const edit = { tool: 'Edit', input: { file_path: '/repo/src/other.ts' }, isError: false, isReadOnly: false }
     expect(observe(tracker, edit, brief, []).some(f => f.kind === 'scope')).toBe(true)
     expect(observe(tracker, edit, brief, []).some(f => f.kind === 'scope')).toBe(false)

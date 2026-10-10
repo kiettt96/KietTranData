@@ -118,7 +118,15 @@ type Seen = {
  */
 function base(
   on: On,
-  engine: { failFamily?: string; router?: Responder; agent?: AgentResponder; isRejected?: boolean; drift?: (context: string) => Json | null } = {},
+  engine: {
+    failFamily?: string
+    router?: Responder
+    agent?: AgentResponder
+    isRejected?: boolean
+    drift?: (context: string) => Json | null
+    /** Thư mục gốc và thư mục làm việc của phiên; null là engine không trả được; hàm thì gọi lại mỗi lần hỏi. */
+    root?: string | null | (() => string)
+  } = {},
 ): Seen {
   mock.clock(on, { now: 1000 })
   const seen: Seen = { contexts: [], steps: [], toasts: [], routed: [], agentRouted: [], routerModels: [], drift: [] }
@@ -162,6 +170,18 @@ function base(
     return { value: undefined }
   })
   on('ui.status', () => ({ value: undefined }))
+  const root = engine.root === undefined ? '/repo' : engine.root
+  const rootNow = () => (typeof root === 'function' ? root() : root)
+  on('session.root', () => {
+    const value = rootNow()
+    if (value === null) throw new Error('không có thư mục gốc')
+    return { value }
+  })
+  on('session.cwd', () => {
+    const value = rootNow()
+    if (value === null) throw new Error('không có thư mục làm việc')
+    return { value }
+  })
   return seen
 }
 
@@ -1969,7 +1989,7 @@ describe('0.5.1: kiểm chứng sau thay đổi cuối, phạm vi Bash, Stop, vi
     expect(String(done.result)).toContain('(1) Hiệu năng không giảm')
   })
 
-  test('04: lệnh test do subagent chạy sau thay đổi cuối cũng là bằng chứng', {}, async ($, on) => {
+  test('04: subagent tự sửa rồi tự chạy test: lệnh test đó là bằng chứng cho phần nó sửa', {}, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     on('tool.call', { tool: 'Bash' }, () => ({ result: '12 pass' }))
@@ -1977,8 +1997,8 @@ describe('0.5.1: kiểm chứng sau thay đổi cuối, phạm vi Bash, Stop, vi
     on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'chk-1' }))
     await submit($, COMPLEX_PROMPT)
     await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa' }] })
-    await edit($, 'src/a.ts')
-    await spawnTool($, 'u-chk', 'Chạy test', 'Chạy npm test và báo kết quả')
+    await spawnTool($, 'u-chk', 'Sửa và chạy test', 'Sửa src/a.ts rồi chạy npm test')
+    await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b', agentId: 'chk-1' } as never)
     await $.tool.call({ tool: 'Bash', command: 'npm test', agentId: 'chk-1' } as never)
     const done = await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'subagent chạy npm test: 12 pass' })
     expect(String(done.result)).toContain('[v] 1. Sửa')
@@ -2070,5 +2090,149 @@ describe('0.5.1: output thật của lệnh kiểm tra', () => {
     const done = await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'node --test: 1 pass' })
     expect(String(done.result)).toContain('[x] 1. Sửa')
     expect(String(done.result)).toContain('đã lỗi')
+  })
+})
+
+describe('0.5.1 vòng cuối: phân loại lệnh, subagent, lệnh lỗi, phạm vi theo root', () => {
+  const PLAN = 'mcp__focus-conductor__plan'
+  const MAIN_DONE = { turnId: 't1', answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer' } as never
+  const edit = ($: Engine, path: string, agentId?: string) =>
+    $.tool.call({ tool: 'Edit', file_path: path, old_string: 'a', new_string: 'b', ...(agentId ? { agentId } : {}) } as never)
+  const bash = ($: Engine, command: string, agentId?: string) => $.tool.call({ tool: 'Bash', command, ...(agentId ? { agentId } : {}) } as never)
+
+  test('luồng chính sửa, test đạt, subagent sửa tiếp: cuối turn báo chưa kiểm tra', {}, async ($, on) => {
+    const seen = base(on)
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    on('tool.call', { tool: 'Bash' }, () => ({ result: '12 pass' }))
+    on('tool.call', { tool: 'Agent' }, () => ({ result: 'đã giao' }))
+    on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'sub-1' }))
+    on('turn.complete', () => ({ text: '' }))
+    await submit($, COMPLEX_PROMPT)
+    await edit($, 'src/a.ts')
+    await bash($, 'npm test')
+    await spawnTool($, 'u-s1', 'Sửa B', 'Sửa src/b.ts')
+    await edit($, 'src/b.ts', 'sub-1')
+    await $.turn.complete(MAIN_DONE)
+    expect(seen.toasts.some(t => t.includes('sau lần kiểm tra cuối chưa được kiểm tra lại'))).toBe(true)
+  })
+
+  test('luồng chính sửa A, subagent sửa B rồi tự test đạt: A chưa được kiểm tra lại, verified dựa trên test đó lưu done', {}, async ($, on) => {
+    const seen = base(on)
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    on('tool.call', { tool: 'Bash' }, () => ({ result: '12 pass' }))
+    on('tool.call', { tool: 'Agent' }, () => ({ result: 'đã giao' }))
+    on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'sub-2' }))
+    on('turn.complete', () => ({ text: '' }))
+    await submit($, COMPLEX_PROMPT)
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa' }] })
+    await edit($, 'src/a.ts')
+    await spawnTool($, 'u-s2', 'Sửa B', 'Sửa src/b.ts và chạy test')
+    await edit($, 'src/b.ts', 'sub-2')
+    await bash($, 'npm test', 'sub-2')
+    const done = await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'npm test: 12 pass' })
+    expect(String(done.result)).toContain('[x] 1. Sửa')
+    await $.turn.complete(MAIN_DONE)
+    expect(seen.toasts.some(t => t.includes('chưa được kiểm tra lại') || t.includes('không chạy bước kiểm tra nào'))).toBe(true)
+  })
+
+  test('subagent tự sửa rồi tự test đạt (luồng chính không sửa gì): không báo chưa kiểm tra', {}, async ($, on) => {
+    const seen = base(on)
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    on('tool.call', { tool: 'Bash' }, () => ({ result: '12 pass' }))
+    on('tool.call', { tool: 'Agent' }, () => ({ result: 'đã giao' }))
+    on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'sub-3' }))
+    on('turn.complete', () => ({ text: '' }))
+    await submit($, COMPLEX_PROMPT)
+    await spawnTool($, 'u-s3', 'Sửa B', 'Sửa src/b.ts và chạy test')
+    await edit($, 'src/b.ts', 'sub-3')
+    await bash($, 'npm test', 'sub-3')
+    await $.turn.complete(MAIN_DONE)
+    expect(seen.toasts.some(t => t.includes('chưa được kiểm tra lại') || t.includes('không chạy bước kiểm tra nào'))).toBe(false)
+  })
+
+  test('subagent của mục tiêu cũ sửa file không đụng trạng thái kiểm tra của mục tiêu hiện tại', {}, async ($, on) => {
+    const seen = base(on)
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    on('tool.call', { tool: 'Bash' }, () => ({ result: '12 pass' }))
+    on('tool.call', { tool: 'Agent' }, () => ({ result: 'đã giao' }))
+    on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'old-1' }))
+    on('turn.complete', () => ({ text: '' }))
+    await submit($, COMPLEX_PROMPT)
+    await spawnTool($, 'u-o1', 'Việc nền', 'Sửa src/legacy.ts')
+    await submit($, 'Viết hàm slugify(text) bằng TypeScript, có unit test.')
+    await edit($, 'src/slugify.ts')
+    await bash($, 'npm test')
+    await edit($, 'src/legacy.ts', 'old-1')
+    await $.turn.complete(MAIN_DONE)
+    expect(seen.toasts.some(t => t.includes('chưa được kiểm tra lại'))).toBe(false)
+  })
+
+  test('test đạt rồi lệnh ghi file thất bại ở bước cuối: mất trạng thái đã kiểm tra, verified lưu done', {}, async ($, on) => {
+    const seen = base(on)
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    on('tool.call', { tool: 'Bash' }, (_$, e) =>
+      String((e as { command?: string }).command).includes('false') ? { result: '', isError: true } : { result: '12 pass' },
+    )
+    on('turn.complete', () => ({ text: '' }))
+    await submit($, COMPLEX_PROMPT)
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa' }] })
+    await edit($, 'src/a.ts')
+    await bash($, 'npm test')
+    await bash($, 'echo x > src/a.ts && false')
+    const done = await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'npm test: 12 pass' })
+    expect(String(done.result)).toContain('[x] 1. Sửa')
+    await $.turn.complete(MAIN_DONE)
+    expect(seen.toasts.some(t => t.includes('sau lần kiểm tra cuối chưa được kiểm tra lại'))).toBe(true)
+  })
+
+  test('lệnh test kèm ghi file: cảnh báo phạm vi và cuối turn báo chưa kiểm tra', {}, async ($, on) => {
+    const seen = base(on, { router: () => plan({ goal: 'Sửa src', scope: ['src/'] }) })
+    on('tool.call', { tool: 'Bash' }, () => ({ result: '12 pass' }))
+    on('turn.complete', () => ({ text: '' }))
+    await submit($, 'Chỉ sửa trong src/: sửa hàm charge')
+    const combined = await bash($, 'npm test && echo changed > ../outside.txt')
+    expect((combined.context ?? []).join('\n')).toContain('/outside.txt, nằm ngoài phạm vi')
+    const piped = await bash($, 'npm test | tee ../out.log')
+    expect((piped.context ?? []).join('\n')).toContain('/out.log, nằm ngoài phạm vi')
+    await $.turn.complete(MAIN_DONE)
+    expect(seen.toasts.some(t => t.includes('chưa được kiểm tra lại') || t.includes('không chạy bước kiểm tra nào'))).toBe(true)
+  })
+
+  test('strictDelegation block từ chối lệnh test kèm ghi file khi còn việc chưa giao', { options: { strictDelegation: 'block' } }, async ($, on) => {
+    base(on)
+    on('tool.call', { tool: 'Bash' }, () => ({ result: 'ok' }))
+    await submit($, FOUR)
+    expect((await bash($, 'npm test && sed -i s/a/b/ src/a.ts')).deny).toContain('Còn việc ghi giao subagent chưa giao')
+    expect((await bash($, 'npm test')).deny).toBeUndefined()
+  })
+
+  test('phạm vi theo thư mục gốc: dự án khác có thư mục src là ngoài phạm vi; trong gốc thì trong phạm vi', {}, async ($, on) => {
+    base(on, { router: () => plan({ goal: 'Sửa src', scope: ['src/'] }) })
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    await submit($, 'Chỉ sửa trong src/: sửa hàm charge')
+    const other = await edit($, '/tmp/another-project/src/x.ts')
+    expect((other.context ?? []).join('\n')).toContain('nằm ngoài phạm vi')
+    const inside = await edit($, '/repo/src/x.ts')
+    expect((inside.context ?? []).join('\n')).not.toContain('phạm vi')
+  })
+
+  test('không lấy được thư mục gốc: không khẳng định trong phạm vi, cảnh báo không xác định được phạm vi', {}, async ($, on) => {
+    base(on, { root: null, router: () => plan({ goal: 'Sửa src', scope: ['src/'] }) })
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    await submit($, 'Chỉ sửa trong src/: sửa hàm charge')
+    const result = await edit($, '/tmp/another-project/src/x.ts')
+    expect((result.context ?? []).join('\n')).toMatch(/không xác định được phạm vi/i)
+  })
+})
+
+describe('0.5.1 vòng cuối: thư mục gốc chốt theo mục tiêu', () => {
+  test('thư mục gốc engine trả thay đổi giữa chừng: phạm vi vẫn neo theo gốc lúc đầu của mục tiêu', {}, async ($, on) => {
+    let calls = 0
+    base(on, { root: () => ((calls += 1) <= 1 ? '/repo' : '/elsewhere'), router: () => plan({ goal: 'Sửa src', scope: ['src/'] }) })
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    await submit($, 'Chỉ sửa trong src/: sửa hàm charge')
+    await $.tool.call({ tool: 'Edit', file_path: '/repo/src/a.ts', old_string: 'a', new_string: 'b' })
+    const later = await $.tool.call({ tool: 'Edit', file_path: '/repo/src/b.ts', old_string: 'a', new_string: 'b' })
+    expect((later.context ?? []).join('\n')).not.toContain('phạm vi')
   })
 })
