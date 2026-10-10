@@ -110,9 +110,71 @@ export function isVerification(observation: ToolObservation): boolean {
   return observation.tool === 'Bash' && segments(str(observation.input['command'])).some(part => VERIFY_SEGMENT.test(part))
 }
 
+// File kế hoạch của plan mode (~/.claude/plans/*.md): ghi vào đó là lập kế hoạch, không phải sửa mã.
+const PLAN_FILE = /(?:^|[\\/])\.claude[\\/]plans[\\/][^\\/]+\.md$/
+
+export function isPlanFile(path: string): boolean {
+  return PLAN_FILE.test(path)
+}
+
+// Lệnh chỉ đọc, theo tên lệnh đầu mỗi đoạn. `find`, `sed`, `sort` và `git` có đối số ghi riêng (xem dưới).
+const READ_ONLY_COMMANDS = new Set([
+  'ls', 'cat', 'head', 'tail', 'wc', 'grep', 'egrep', 'fgrep', 'rg', 'find', 'tree', 'pwd', 'which', 'stat',
+  'diff', 'sort', 'uniq', 'cut', 'jq', 'echo', 'printf', 'cd', 'awk', 'sed', 'tr', 'basename', 'dirname',
+  'realpath', 'readlink', 'file', 'du', 'df', 'date', 'true', 'false', 'test', '[', 'column', 'nl', 'less',
+  'more', 'type', 'uname', 'id', 'whoami', 'sleep',
+])
+const READ_ONLY_GIT = new Set([
+  'status', 'log', 'diff', 'show', 'ls-files', 'ls-remote', 'rev-parse', 'blame', 'fetch', 'describe',
+  'shortlog', 'cat-file',
+])
+const FIND_WRITE = /^-(?:delete|exec|execdir|ok|okdir|fprint|fprint0|fprintf|fls)$/
+// Lệnh w/W/e của sed (đứng đầu hoặc sau dấu ngăn, chữ số địa chỉ, dấu / hay $) và flag w của s///.
+const SED_WRITE = /(?:^|[;{}\s\d$/'"])(?:w|W|e)\s+\S|\/[gpIi0-9]*[wW]\s+\S/
+
+function segmentIsReadOnly(part: string): boolean {
+  const tokens = part.trim().split(/\s+/).filter(Boolean)
+  const cmd = tokens[0]
+  if (cmd === undefined) return true
+  const args = tokens.slice(1)
+  if (cmd === 'git') {
+    // Bỏ các tùy chọn đứng trước lệnh con (git -C dir status, git -c k=v log).
+    let i = 0
+    while (i < args.length && args[i]?.startsWith('-')) i += ['-C', '-c', '--git-dir', '--work-tree'].includes(args[i] ?? '') ? 2 : 1
+    const sub = args[i]
+    return sub === undefined || READ_ONLY_GIT.has(sub)
+  }
+  if (!READ_ONLY_COMMANDS.has(cmd)) return false
+  if (cmd === 'find') return !args.some(a => FIND_WRITE.test(a))
+  // sed -i ghi file; lệnh w, flag s///w và lệnh e của sed ghi file hoặc chạy lệnh khác. sort -o ghi file.
+  if (cmd === 'sed') return !args.some(a => /^-[A-Za-z]*i/.test(a) || a.startsWith('--in-place') || SED_WRITE.test(a))
+  if (cmd === 'sort') return !args.some(a => /^-o/.test(a) || a.startsWith('--output'))
+  return true
+}
+
+/**
+ * Lệnh Bash chỉ đọc: mọi đoạn là lệnh chỉ đọc, không có chuyển hướng ghi (trừ /dev/null và
+ * 2>&1), không có thay thế lệnh $( ) hay backtick. Chuỗi trong nháy được bỏ trước khi kiểm.
+ */
+export function isReadOnlyCommand(command: string): boolean {
+  // Thay thế lệnh và system() của awk có thể chạy lệnh khác; kiểm trên lệnh gốc, trước khi bỏ chuỗi trong nháy.
+  if (/\$\(|`|\bsystem\s*\(/.test(command)) return false
+  // Script sed nằm trong nháy: kiểm trên lệnh gốc. Có thể báo nhầm một pattern chứa "w e"; chấp nhận, vì an toàn hơn.
+  if (/\bsed\b/.test(command) && SED_WRITE.test(command)) return false
+  const unquoted = command.replace(/"[^"]*"|'[^']*'/g, '""')
+  const writes = unquoted.replace(/\d*>&\d+|&?\d*>>?\s*\/dev\/null/g, '')
+  if (writes.includes('>')) return false
+  return segments(unquoted).every(segmentIsReadOnly)
+}
+
 export function isMutation(observation: ToolObservation): boolean {
-  if (FILE_TOOLS.has(observation.tool)) return true
-  return observation.tool === 'Bash' && !observation.isReadOnly && !isVerification(observation)
+  if (FILE_TOOLS.has(observation.tool)) return !isPlanFile(filePathOf(observation))
+  return (
+    observation.tool === 'Bash' &&
+    !observation.isReadOnly &&
+    !isVerification(observation) &&
+    !isReadOnlyCommand(str(observation.input['command']))
+  )
 }
 
 /** Đường dẫn nằm trong phạm vi khi khớp đuôi hoặc nằm dưới một thư mục được nhắc. */
@@ -172,18 +234,26 @@ export function observe(
     }
   }
 
+  // Lần gọi này có làm tăng bộ đếm thay đổi không (để checkpoint chỉ báo đúng lúc đếm đủ bội số).
+  let isCounted = false
   if (isVerification(observation) && !observation.isError) {
     tracker.mutationsSinceCheck = 0
     tracker.isVerified = true
   } else if (isMutation(observation) && !observation.isError) {
     tracker.mutations += 1
     tracker.mutationsSinceCheck += 1
+    isCounted = true
   }
 
   if (focus === null) return findings
 
   const path = filePathOf(observation)
-  if (FILE_TOOLS.has(observation.tool) && !isInScope(path, focus.scopePaths) && !tracker.outOfScope.has(path)) {
+  if (
+    FILE_TOOLS.has(observation.tool) &&
+    !isPlanFile(path) &&
+    !isInScope(path, focus.scopePaths) &&
+    !tracker.outOfScope.has(path)
+  ) {
     tracker.outOfScope.add(path)
     findings.push({
       kind: 'scope',
@@ -210,7 +280,7 @@ export function observe(
     })
   }
 
-  if (tracker.mutationsSinceCheck > 0 && tracker.mutationsSinceCheck % CHECKPOINT_EVERY === 0) {
+  if (isCounted && tracker.mutationsSinceCheck % CHECKPOINT_EVERY === 0) {
     findings.push({
       kind: 'checkpoint',
       priority: 1,

@@ -1,5 +1,5 @@
 // Sổ chi phí của phiên: cộng token đo được (usage của turn.complete và của
-// lượt Haiku) theo ba nhóm luồng chính, subagent và phân tích prompt, theo phiên
+// lượt router) theo ba nhóm luồng chính, subagent và router (khóa 'analyzer'), theo phiên
 // và theo mục tiêu. Thuần, không gọi $.
 
 import type { Bucket, Effort, Group, Ledger, ModelFamily, Volume } from '../../types'
@@ -100,7 +100,7 @@ export function ledgerLines(ledger: Ledger): string[] {
   const { main, agent, analyzer } = ledger.session
   const goalUsd = GROUPS.reduce((sum, group) => sum + ledger.goal.buckets[group].usd, 0)
   const lines = [
-    `Phiên: ${formatUsd(sessionUsd(ledger))} (luồng chính ${formatUsd(main.usd)} trong ${main.calls} lượt; subagent ${formatUsd(agent.usd)} trong ${agent.calls} lượt; phân tích ${formatUsd(analyzer.usd)})`,
+    `Phiên: ${formatUsd(sessionUsd(ledger))} (luồng chính ${formatUsd(main.usd)} trong ${main.calls} lượt; subagent ${formatUsd(agent.usd)} trong ${agent.calls} lượt; router ${formatUsd(analyzer.usd)} trong ${analyzer.calls} lượt)`,
     `Mục tiêu này: ${formatUsd(goalUsd)}, ${ledger.goal.spawned} subagent đã giao`,
   ]
   if (ledger.samples > 0) {

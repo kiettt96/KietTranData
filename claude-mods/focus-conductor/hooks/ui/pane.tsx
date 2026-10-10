@@ -89,7 +89,7 @@ export function renderPane(t: Elements[RenderSurface], view: View, handlers: Pan
         {section('Mục tiêu')}
         <Text wrap="wrap">{brief.goal}</Text>
         <Text dimColor wrap="wrap">
-          {brief.depth} · khối lượng {brief.volume} · {brief.kind} (điểm {brief.score}; {brief.signals.slice(0, 5).join(', ')}; nguồn {brief.source})
+          {brief.depth} · khối lượng {brief.volume} · {brief.kind}{brief.why ? ` (${brief.why})` : ''}{brief.source === 'router' ? '' : ' · router chưa đọc'}
         </Text>
       </Box>
       <Box flexDirection="column">
@@ -101,7 +101,7 @@ export function renderPane(t: Elements[RenderSurface], view: View, handlers: Pan
         {list(brief.quality, 'Không nhận ra tiêu chí riêng.')}
       </Box>
       <Box flexDirection="column">
-        {section(plan.length > 0 ? `Checklist ${closed}/${total}` : 'Bước dự kiến (từ phân tích)')}
+        {section(plan.length > 0 ? `Checklist ${closed}/${total}` : 'Việc dự kiến (router)')}
         {checklist}
       </Box>
       <Box flexDirection="column">

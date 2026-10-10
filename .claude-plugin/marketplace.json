@@ -8,7 +8,7 @@
     {
       "name": "focus-conductor",
       "source": "./claude-mods/focus-conductor",
-      "description": "Đọc kỹ prompt trước khi làm, tự điều phối model/effort/agent theo độ phức tạp, giữ nhất quán mục tiêu."
+      "description": "Một model Claude đọc kỹ prompt trước khi làm và điều phối model/effort/agent cho từng việc, giữ nhất quán mục tiêu."
     }
   ]
 }

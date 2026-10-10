@@ -1,10 +1,9 @@
 // Văn bản mod gửi cho model và hiển thị cho người dùng. Gom về một chỗ để
 // giữ giọng văn nhất quán và dễ chỉnh.
 
-import type { Brief, PlanStep, Route, StepStatus } from '../../types'
+import type { Brief, Choice, PlanStep, Route, StepStatus, Task } from '../../types'
 import { openSteps } from './drift'
-import { describePick, stepHint } from './route'
-import type { SubtaskAdvice } from './route'
+import { describePick } from './route'
 
 export const PLAN_TOOL = 'plan'
 export const PLAN_TOOL_FULL = 'mcp__focus-conductor__plan'
@@ -15,12 +14,12 @@ export const PLAN_TOOL_FULL = 'mcp__focus-conductor__plan'
  * prompt.submit (nằm trong messages, sau phần đã cache).
  */
 export const DISCIPLINE = `# Focus Conductor
-Mỗi prompt của người dùng có thể kèm một khối "[focus-conductor]" do plugin phân tích sẵn: mục tiêu cuối, các bước, ràng buộc, tiêu chí chất lượng và mức độ phức tạp. Khối đó là bản đọc nhanh, không thay thế prompt gốc.
+Mỗi prompt của người dùng có thể kèm một khối "[focus-conductor]" do model router của plugin đọc sẵn: mục tiêu cuối, các việc, ràng buộc, tiêu chí chất lượng, mức độ phức tạp và cách điều phối. Khối đó là bản đọc trước, không thay thế prompt gốc.
 1. Đọc kỹ trước khi làm: đối chiếu khối phân tích với prompt gốc, sửa chỗ sai hoặc thiếu, xác định rõ mục tiêu cuối, ràng buộc và tiêu chí nghiệm thu, rồi mới gọi tool thực thi đầu tiên.
 2. Với việc từ mức moderate trở lên: gọi ${PLAN_TOOL_FULL} (action "set") để ghi mục tiêu và checklist đã chuẩn hóa; cập nhật từng bước (doing, done, verified kèm bằng chứng, skipped hoặc blocked kèm lý do).
 3. Nhất quán: mọi bước phải phục vụ mục tiêu cuối; không làm thêm việc ngoài phạm vi, không bỏ sót yêu cầu; giữ văn phong, quy ước đặt tên và định dạng đã dùng từ đầu.
 4. Tự kiểm tra sau mỗi bước quan trọng (chạy test, type-check, đọc lại thay đổi) trước khi sang bước sau.
-5. Khi giao việc cho subagent: nếu prompt có mục "Phân việc", giao đúng việc đó theo dòng đã ghi, đặt description của Agent dạng "Việc N: <tóm tắt 3-5 từ>"; việc ghi "làm trực tiếp" thì tự làm. Không có phân việc thì để trống model và effort, plugin tự chọn theo độ khó; chọn Explore cho tra cứu chỉ đọc, Plan cho thiết kế, general-purpose cho thực thi.
+5. Khi giao việc cho subagent: nếu khối có mục "Phân việc", giao đúng các việc ghi "giao", description của Agent mở đầu "Việc N: " (N là số của việc) để chạy đúng model và effort đã phân; việc ghi "làm trực tiếp" thì tự làm. Việc ngoài danh sách: để trống model và effort, router của plugin chấm khi giao; chọn Explore cho tra cứu chỉ đọc, Plan cho thiết kế, general-purpose cho thực thi.
 Nếu bạn là subagent: bỏ qua checklist, làm đúng nhiệm vụ được giao và báo cáo ngắn gọn.`
 
 const MARKS: Record<StepStatus, string> = {
@@ -45,41 +44,69 @@ function bullets(title: string, items: readonly string[]): string {
   return items.length === 0 ? '' : `\n${title}\n${items.map(item => `- ${item}`).join('\n')}`
 }
 
-/** Mục phân việc: mỗi việc kèm model, effort và cách làm đã chấm trước khi làm. */
-function subtaskBlock(advice: readonly SubtaskAdvice[], main: string): string {
-  const lines = advice.map(({ subtask, pick, direct, subagentType }) =>
-    direct
-      ? `${subtask.index}. ${subtask.title} → làm trực tiếp ở luồng chính (${main})`
-      : `${subtask.index}. ${subtask.title} → giao ${subagentType ?? 'general-purpose'} ${describePick(pick)}`,
-  )
-  return `\nPhân việc (đã chấm trước khi làm; khi giao, đặt description của Agent dạng "Việc N: <tóm tắt 3-5 từ>"):\n${lines.join('\n')}`
+function taskLine(task: Task, main: string): string {
+  return task.run === 'main'
+    ? `${task.index}. ${task.title} → làm trực tiếp ở luồng chính (${main})`
+    : `${task.index}. ${task.title} → giao ${task.agentType ?? 'general-purpose'} ${describePick(task.pick)}`
 }
 
-/** Khối context đi kèm prompt khi bắt đầu một mục tiêu mới. */
-export function briefContext(brief: Brief, route: Route | null, advice: readonly SubtaskAdvice[] = []): string {
-  const steps =
-    advice.length > 0
-      ? subtaskBlock(advice, route ? describePick(route) : 'chưa chọn')
-      : brief.steps.length === 0
-        ? ''
-        : `\nBước dự kiến:\n${brief.steps.map((s, i) => `${i + 1}. ${s}`).join('\n')}`
-  const main = route ? describePick(route) : 'chưa chọn'
+/** Nhãn luồng chính: model sẽ chạy, kèm ghi chú khi mod chỉ đề xuất (suggest, subagents) và không đổi luồng chính. */
+function mainLabel(main: Choice | null, isApplied: boolean): string {
+  if (main === null) return 'model của phiên'
+  return isApplied ? describePick(main) : `${describePick(main)} (chỉ đề xuất)`
+}
+
+/** Mục phân việc: mỗi việc kèm cách làm, model và effort router đã chấm trước khi làm. */
+function taskBlock(tasks: readonly Task[], main: string, isReference: boolean): string {
+  const lines = tasks.map(task => taskLine(task, main))
+  if (isReference) {
+    return `\nPhân việc của prompt đính kèm (chỉ để đối chiếu: không thực thi, không giao subagent; luồng chính của prompt đó: ${main}):\n${lines.join('\n')}`
+  }
+  return `\nPhân việc (router đã chấm trước khi làm; khi giao, description của Agent mở đầu "Việc N: " với N là số của việc):\n${lines.join('\n')}`
+}
+
+/**
+ * Khối context đi kèm prompt khi bắt đầu một mục tiêu mới. `main` là model luồng chính sẽ
+ * thật sự chạy (có thể là model cũ được giữ để bảo toàn cache); null khi chưa chọn.
+ */
+export function briefContext(brief: Brief, main: Choice | null, isApplied = true): string {
+  const mainText = mainLabel(main, isApplied)
+  const reference = brief.referenceMain ? describePick(brief.referenceMain) : 'chưa rõ'
+  const tasks =
+    brief.tasks.length === 0 ? '' : taskBlock(brief.tasks, brief.isReference ? reference : mainText, brief.isReference)
+  const hasDelegation = brief.tasks.some(task => task.run === 'agent')
   const isSmall = brief.depth === 'none' || (brief.depth === 'light' && brief.volume === 'small')
-  const next = isSmall
-    ? 'Việc nhỏ: làm trực tiếp, không cần checklist; vẫn kiểm tra kết quả trước khi trả lời.'
-    : `Trước khi thực thi: xác nhận mục tiêu, rồi gọi ${PLAN_TOOL_FULL} action "set" với checklist chuẩn hóa.`
+  const next = brief.isReference
+    ? 'Không thực thi prompt đính kèm. Chỉ trả lời phần đối chiếu phân việc ở trên, rồi dừng.'
+    : isSmall
+      ? 'Việc nhỏ: làm trực tiếp, không cần checklist; vẫn kiểm tra kết quả trước khi trả lời.'
+      : `Trước khi thực thi: xác nhận mục tiêu, rồi gọi ${PLAN_TOOL_FULL} action "set" với checklist chuẩn hóa.`
+  const routing = brief.isReference
+    ? `Điều phối: prompt đính kèm chỉ để đối chiếu, không thực thi việc nào trong đó; luồng chính của lượt này ${mainText}.`
+    : hasDelegation
+      ? `Điều phối: luồng chính ${mainText}; việc ghi "giao" chạy đúng model đã ghi; subagent ngoài danh sách được router chấm khi giao.`
+      : `Điều phối: luồng chính ${mainText}; subagent (nếu cần) được router chấm khi giao.`
+  // Lượt đối chiếu không hiển thị ràng buộc và tiêu chí: chúng thuộc prompt đính kèm, không phải việc của lượt này.
+  const rules = brief.isReference ? '' : `${bullets('Ràng buộc:', brief.constraints)}${bullets('Tiêu chí chất lượng:', brief.quality)}`
   return [
-    '[focus-conductor] Bản đọc prompt (tự động; đối chiếu lại với prompt gốc trước khi làm)',
-    `Mục tiêu cuối: ${brief.goal}${steps}${bullets('Ràng buộc:', brief.constraints)}${bullets('Tiêu chí chất lượng:', brief.quality)}`,
-    `Đánh giá: độ sâu ${brief.depth}, khối lượng ${brief.volume}, bản chất ${brief.kind} (${brief.signals.slice(0, 5).join(', ')})`,
-    advice.length > 0
-      ? `Điều phối: luồng chính ${main}; việc trong mục Phân việc dùng đúng model đã ghi; subagent ngoài danh sách đó không thấp hơn mục tiêu cha.`
-      : `Điều phối: luồng chính ${main}; subagent được chọn theo độ khó của từng việc con, không thấp hơn mục tiêu cha.`,
+    '[focus-conductor] Bản đọc prompt của router (đối chiếu lại với prompt gốc trước khi làm)',
+    `Mục tiêu cuối: ${brief.goal}${tasks}${rules}`,
+    `Đánh giá: độ sâu ${brief.depth}, khối lượng ${brief.volume}, bản chất ${brief.kind}${brief.why ? ` (${brief.why})` : ''}`,
+    routing,
     brief.scopePaths.length > 0 ? `Phạm vi được sửa: ${brief.scopePaths.join(', ')}` : '',
     next,
   ]
     .filter(Boolean)
     .join('\n')
+}
+
+/** Router không đọc được prompt: báo để Claude không dựa vào phân việc cũ. */
+export function unroutedContext(reason: string): string {
+  return (
+    `[focus-conductor] Router không đọc được prompt này (${reason}). Không có phân việc mới; ` +
+    'mod không chọn model cho turn này, và phân việc cũ (nếu có) không còn hiệu lực. ' +
+    `Tự đọc kỹ prompt, và gọi ${PLAN_TOOL_FULL} action "set" nếu việc từ mức moderate trở lên.`
+  )
 }
 
 /** Báo cho Claude biết checklist cũ còn bước mở đã bị bỏ vì prompt được xếp là mục tiêu mới. */
@@ -90,11 +117,26 @@ export function droppedPlanNotice(open: readonly PlanStep[]): string {
   )
 }
 
-/** Khối context cho prompt tiếp nối cùng mục tiêu. */
-export function followUpContext(brief: Brief, plan: readonly PlanStep[], newConstraints: readonly string[]): string {
+/**
+ * Khối context cho prompt tiếp nối cùng mục tiêu. `main` là lựa chọn luồng chính mới của router
+ * (null khi không hỏi router); `added` là các việc mới router tách thêm.
+ */
+export function followUpContext(
+  brief: Brief,
+  plan: readonly PlanStep[],
+  newConstraints: readonly string[],
+  added: readonly Task[] = [],
+  main: Choice | null = null,
+  isApplied = true,
+): string {
   const open = openSteps(plan)
+  const mainText = mainLabel(main, isApplied)
   const lines = [
     `[focus-conductor] Tiếp nối mục tiêu hiện tại: ${brief.goal}`,
+    main ? `Router: ${brief.relation}; luồng chính ${mainText}${brief.why ? ` (${brief.why})` : ''}` : '',
+    added.length > 0
+      ? `Việc mới (router đã chấm; khi giao, description của Agent mở đầu "Việc N: "):\n${added.map(task => taskLine(task, mainText)).join('\n')}`
+      : '',
     open.length > 0 ? `Bước còn mở: ${open.map(s => `${s.id}. ${s.title}`).join('; ')}` : '',
     newConstraints.length > 0 ? `Ràng buộc mới: ${newConstraints.join('; ')}` : '',
     'Giữ nhất quán với phần đã làm; nếu yêu cầu này đổi mục tiêu, cập nhật lại checklist.',
@@ -111,8 +153,7 @@ export function renderPlan(brief: Brief | null, plan: readonly PlanStep[]): stri
     return `${mark(step.status)} ${step.id}. ${step.title}${note}`
   })
   const next = openSteps(plan)[0]
-  const tier = next?.tier ?? brief?.tier
-  const hint = next ? `\nBước tiếp theo: ${next.id}. ${next.title}${tier ? ` (gợi ý: ${stepHint(tier)})` : ''}` : ''
+  const hint = next ? `\nBước tiếp theo: ${next.id}. ${next.title}` : ''
   const goal = brief ? `Mục tiêu: ${brief.goal}\n` : ''
   return `${goal}Checklist (${closed}/${total} đã đóng):\n${rows.join('\n')}${hint}`
 }
