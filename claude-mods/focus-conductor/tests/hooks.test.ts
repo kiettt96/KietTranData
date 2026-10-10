@@ -745,4 +745,19 @@ describe('prompt dài và prompt đính kèm (0.3.4)', () => {
     const edit = await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' })
     expect((edit.context ?? []).join('\n')).not.toContain('chưa giao')
   })
+
+  test('ghi file kế hoạch của plan mode không nhắc giao subagent; sửa file mã nguồn thì vẫn nhắc', HEURISTIC, async ($, on) => {
+    base(on)
+    on('tool.call', { tool: 'Write' }, () => ({ result: 'ok' }))
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    await submit($, `Mục tiêu: nâng cấp module thanh toán.
+1. Tìm trong src/ tất cả chỗ gọi hàm charge và liệt kê đường dẫn.
+2. Đổi tên userId thành accountId trong 12 file controller.
+3. Thiết kế lại kiến trúc xử lý thanh toán đa tiền tệ, nêu trade-off.
+4. Cập nhật README phần cài đặt.`)
+    const plan = await $.tool.call({ tool: 'Write', file_path: '/root/.claude/plans/ke-hoach.md', content: '# Kế hoạch' })
+    expect((plan.context ?? []).join('\n')).not.toContain('chưa giao')
+    const edit = await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' })
+    expect((edit.context ?? []).join('\n')).toContain('chưa giao')
+  })
 })

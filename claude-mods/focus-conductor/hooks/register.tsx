@@ -21,7 +21,7 @@ import type { PromptOrigin, Register } from 'claude-code'
 
 import type { Brief, Core, Effort, Lift, Mode, ModelFamily, Route, RouteEvent, Tier, Warning } from '../types'
 import { analyzeHeuristic, analyzerRequest, isSameIdea, localRelation, mergeAnalysis } from './lib/analyze'
-import { isExecuting, newTracker, observe, openSteps, summarize } from './lib/drift'
+import { filePathOf, isExecuting, newTracker, observe, openSteps, summarize } from './lib/drift'
 import type { TurnTracker } from './lib/drift'
 import { DEFAULT_CONTEXT, fixedContextTokens, turnCost } from './lib/cost'
 import { addUsage, calibrate, countSpawn, formatUsd, ledgerLines } from './lib/ledger'
@@ -73,6 +73,8 @@ const COMPACTION_DROP = 0.6
 /** Cửa sổ ngữ cảnh khi chưa đọc được từ phiên [Giả định]. */
 const DEFAULT_WINDOW = 200_000
 /** Tool sửa file của luồng chính (dùng để nhắc giao việc đã phân). */
+// File kế hoạch của plan mode (~/.claude/plans/*.md).
+const PLAN_FILE = /(?:^|[\\/])\.claude[\\/]plans[\\/][^\\/]+\.md$/
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
 /** Số lỗi tool trong một turn để nâng effort cho turn sau. */
 const ERROR_BURST = 3
@@ -701,9 +703,11 @@ export const register: Register = (on, options) => {
     const findings = observe(tracker, observation, core.brief, core.plan)
     const isErrorBurst = tracker.errors === ERROR_BURST
     // Luồng chính bắt đầu tự sửa file trong khi còn việc đã ghi giao subagent: nhắc một lần.
+    // Ghi file kế hoạch của plan mode không phải là làm một việc đã phân.
     const pending = pendingFor(core.brief)
+    const isPlanFile = PLAN_FILE.test(filePathOf(observation))
     const nudge =
-      EDIT_TOOLS.has(e.tool) && !observation.isError && pending.length > 0 && !delegation.isNudged
+      EDIT_TOOLS.has(e.tool) && !isPlanFile && !observation.isError && pending.length > 0 && !delegation.isNudged
         ? `[focus-conductor] Phân việc còn việc ghi giao subagent chưa giao: Việc ${pending.join(', ')}. Nếu thay đổi này thuộc các việc đó, giao qua Agent với description "Việc N: ..." để chạy đúng model đã chấm.`
         : null
     if (nudge) delegation.isNudged = true

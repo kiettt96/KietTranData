@@ -264,7 +264,8 @@ const ACCEPTANCE_BLOCK = /\b(xong khi|hoan thanh khi|dat khi|done when|acceptanc
 // Khối bối cảnh, bằng chứng, phụ lục: mô tả hiện trạng, không đặt luật hay tiêu chí.
 const BACKGROUND_BLOCK = /\b(boi canh|background|bang chung|evidence|phu luc|appendix)\b/
 // Đoạn "Xong khi: ..." nằm ngay trong thân một việc.
-const INLINE_ACCEPTANCE = /^(?:xong khi|hoan thanh khi|dat khi|done when|definition of done|acceptance(?: criteria)?)\s*:/
+const INLINE_ACCEPTANCE =
+  /^(?:xong khi|hoan thanh khi|dat khi|done when|definition of done|acceptance(?: criteria)?|tieu chi(?: (?:hoan thanh|nghiem thu|chat luong|dat))?|dieu kien (?:xong|hoan thanh|nghiem thu|dat))\s*:/
 // Tiêu đề mở đầu bằng mã việc: "K4.1.", "2.", "Bước 3", "Task 2", "Phần 1".
 const TASK_CODE = /^(?:[a-z]{0,3}\d+(?:\.\d+)*\.?\s|(?:buoc|viec|phan|giai doan|step|task|phase|part)\s*\d+\b)/
 const CODE_PREFIX = /^[a-z]{0,3}\d+(?:\.\d+)*\.?\s+/
@@ -273,33 +274,62 @@ const BULLET_ITEM = /^(\s*)[-*•]\s+(.+)$/
 
 type BlockFlags = { nonTask: boolean[]; acceptance: boolean[]; background: boolean[] }
 
+const FENCE_LINE = /^\s*(?:```|~~~)/
+// Tiêu đề gọi tên phần việc ("Việc cần làm", "Nhiệm vụ", "Tasks"), có thể có mã "Bước 1 —" phía trước.
+const TASK_HEADING =
+  /^(?:(?:buoc|phan|giai doan|step|part|phase)\s*\d+\W*)?(?:viec(?: can lam)?|cong viec|nhiem vu|yeu cau|tasks?|steps?|to ?do)\b/
+
+type Heading = { level: number; raw: string; title: string }
+
+/** Tiêu đề markdown của từng dòng (null nếu không phải); dòng trong khối code không bao giờ là tiêu đề. */
+function headingsOf(lines: readonly string[]): (Heading | null)[] {
+  let inFence = false
+  return lines.map(line => {
+    if (FENCE_LINE.test(line)) {
+      inFence = !inFence
+      return null
+    }
+    const match = inFence ? null : MD_HEADING.exec(line)
+    if (!match) return null
+    const raw = (match[2] ?? '').replace(/\*\*|__|`/g, '').trim()
+    return { level: match[1]?.length ?? 1, raw, title: fold(clean(raw)) }
+  })
+}
+
 /** Mỗi dòng nằm trong khối nào, theo các tiêu đề markdown bao ngoài nó. */
 function blockFlags(lines: readonly string[]): BlockFlags {
-  const stack: { level: number; nonTask: boolean; acceptance: boolean; background: boolean }[] = []
+  type Frame = { level: number; nonTask: boolean; acceptance: boolean; background: boolean }
+  const stack: Frame[] = []
   const flags: BlockFlags = { nonTask: [], acceptance: [], background: [] }
+  const headings = headingsOf(lines)
   // Tài liệu chỉ có một tiêu đề cấp 1 ở đầu: đó là tên tài liệu. Có nhiều cấp 1 thì mỗi cái là một khối.
-  const singleTitle = lines.filter(line => MD_HEADING.exec(line)?.[1] === '#').length === 1
+  const singleTitle = headings.filter(h => h?.level === 1).length === 1
   let seenText = false
-  for (const line of lines) {
-    const heading = MD_HEADING.exec(line)
+  lines.forEach((line, i) => {
+    const heading = headings[i]
     if (heading) {
-      const level = heading[1]?.length ?? 1
+      const { level, title } = heading
       while ((stack[stack.length - 1]?.level ?? 0) >= level) stack.pop()
-      const title = fold(clean(heading[2] ?? ''))
-      // Tên tài liệu (dòng # đầu tiên, duy nhất) bao cả prompt, không phải một khối: không gắn cờ.
-      const isDocumentTitle = level === 1 && !seenText && singleTitle
+      const isBlock = NON_TASK_BLOCK.test(title)
+      // Tên tài liệu: dòng # đầu tiên và duy nhất, trừ khi chính nó là tiêu đề khối ngắn ("# Bối cảnh").
+      const isDocumentTitle = level === 1 && !seenText && singleTitle && !(isBlock && title.split(/\s+/).length <= 4)
+      // Tiêu đề tự có loại (khối khác, hoặc gọi tên phần việc) không kế thừa cờ của tiêu đề cha;
+      // tiêu đề trung tính hoặc chỉ có mã ("### Hiệu năng", "### 1. ...") thì kế thừa.
+      const ownKind = isBlock || TASK_HEADING.test(title.replace(CODE_PREFIX, ''))
+      const parent: Frame | undefined = ownKind ? undefined : stack[stack.length - 1]
       stack.push({
         level,
-        nonTask: !isDocumentTitle && NON_TASK_BLOCK.test(title),
-        acceptance: !isDocumentTitle && ACCEPTANCE_BLOCK.test(title),
-        background: !isDocumentTitle && BACKGROUND_BLOCK.test(title),
+        nonTask: !isDocumentTitle && (isBlock || parent?.nonTask === true),
+        acceptance: !isDocumentTitle && (ACCEPTANCE_BLOCK.test(title) || parent?.acceptance === true),
+        background: !isDocumentTitle && (BACKGROUND_BLOCK.test(title) || parent?.background === true),
       })
     }
     if (line.trim() !== '') seenText = true
-    flags.nonTask.push(stack.some(s => s.nonTask))
-    flags.acceptance.push(stack.some(s => s.acceptance))
-    flags.background.push(stack.some(s => s.background))
-  }
+    const top = stack[stack.length - 1]
+    flags.nonTask.push(top?.nonTask === true)
+    flags.acceptance.push(top?.acceptance === true)
+    flags.background.push(top?.background === true)
+  })
   return flags
 }
 
@@ -358,13 +388,10 @@ type Section = { title: string; body: string }
  */
 function sectionTasks(lines: readonly string[]): Section[] {
   const flags = blockFlags(lines)
-  const heads = lines.flatMap((line, i) => {
-    const heading = MD_HEADING.exec(line)
-    if (!heading) return []
+  const heads = headingsOf(lines).flatMap((heading, i) =>
     // Mã việc thử trên tiêu đề gốc: clean() gỡ số thứ tự "1. " nên "## 1. Đọc mã" mới nhận ra được.
-    const raw = (heading[2] ?? '').replace(/\*\*|__|`/g, '').trim()
-    return [{ i, level: heading[1]?.length ?? 1, title: clean(raw), coded: TASK_CODE.test(fold(raw)) }]
-  })
+    heading ? [{ i, level: heading.level, title: clean(heading.raw), coded: TASK_CODE.test(fold(heading.raw)) }] : [],
+  )
   const byLevel = new Map<number, typeof heads>()
   for (const head of heads) {
     if (flags.nonTask[head.i] || !head.coded) continue
@@ -378,27 +405,58 @@ function sectionTasks(lines: readonly string[]): Section[] {
   })
 }
 
-function extractGoal(lines: string[]): string {
+/**
+ * Dòng đầy đủ (đã bỏ dấu) của các mục việc trong danh sách bước. Mục mà câu đầu đã là một tiêu
+ * chí ("- Code sạch, có type đầy đủ") là danh sách tiêu chí, không phải việc, nên không tính.
+ */
+function workLines(lines: readonly string[], steps: readonly string[]): string[] {
+  const wanted = new Set(steps)
+  return lines
+    .filter(line => ENUMERATED.test(line) && wanted.has(clip(clean(line), 120)))
+    .map(line => clean(line))
+    .filter(line => !QUALITY.test(fold(line.split(/(?<=[.;?])\s+/)[0] ?? line)))
+    .map(line => fold(line))
+}
+
+/** Câu đứng ngay trước danh sách bước có động từ sửa ("sửa / xử lý các lỗi sau:"). */
+function fixLead(lines: readonly string[], steps: readonly string[]): boolean {
+  const wanted = new Set(steps)
+  const first = lines.findIndex(line => ENUMERATED.test(line) && wanted.has(clip(clean(line), 120)))
+  const lead = lines.slice(0, Math.max(first, 0)).filter(line => line.trim() !== '').pop() ?? ''
+  const folded = fold(clean(lead))
+  return first > 0 && (WRITE_VERB.test(folded) || FIX_VERB.test(folded))
+}
+
+/** Hai câu là một (một câu chứa câu kia), so trên bản đã bỏ dấu, bỏ dấu câu cuối và dấu "..." của bản cắt. */
+function sameSentence(a: string, b: string): boolean {
+  const norm = (text: string) => fold(text).replace(/\.\.\.$/, '').replace(/[\s.:;,!?]+$/, '').trim()
+  const x = norm(a)
+  const y = norm(b)
+  return x.length >= 6 && y.length >= 6 && (x.includes(y) || y.includes(x))
+}
+
+/** Câu mục tiêu đầy đủ, chưa cắt ngắn (để so trùng với ràng buộc và tiêu chí). */
+function goalText(lines: string[]): string {
   for (let i = 0; i < lines.length; i++) {
     const line = clean(lines[i] ?? '')
     if (isMeta(line)) continue
     // "Đích là X.", "Mục tiêu là X.": chính câu đó là mục tiêu.
-    if (GOAL_INLINE.test(fold(line))) return clip(line.split(/(?<=[.?!])\s+/)[0] ?? line, 200)
+    if (GOAL_INLINE.test(fold(line))) return line.split(/(?<=[.?!])\s+/)[0] ?? line
     if (!GOAL_MARKER.test(fold(line)) || ACCEPTANCE_BLOCK.test(fold(line))) continue
     const colon = line.indexOf(':')
     const rest = colon >= 0 ? line.slice(colon + 1).trim() : ''
-    if (rest.length >= 6) return clip(rest, 200)
+    if (rest.length >= 6) return rest
     for (let j = i + 1; j < lines.length; j++) {
       const next = clean(lines[j] ?? '')
-      if (next.length >= 6 && !HEADING.test(lines[j] ?? '') && !isMeta(next)) return clip(next, 200)
+      if (next.length >= 6 && !HEADING.test(lines[j] ?? '') && !isMeta(next)) return next
     }
   }
   const first = lines.map(clean).find(l => l.length >= 6 && !isMeta(l)) ?? clean(lines.join(' '))
   const sentence = first.split(/(?<=[.?])\s+/)[0] ?? first
   // Câu dẫn ("Làm 3 việc sau:") không nói lên mục tiêu: ghép với tên các việc trong danh sách.
   const steps = isLeadIn(sentence) ? extractSteps(lines) : []
-  if (steps.length > 0) return clip(`${sentence.replace(/[\s:]+$/, '')}: ${steps.map(s => s.replace(/[.;]+$/, '')).join('; ')}`, 200)
-  return clip(sentence, 200)
+  if (steps.length > 0) return `${sentence.replace(/[\s:]+$/, '')}: ${steps.map(s => s.replace(/[.;]+$/, '')).join('; ')}`
+  return sentence
 }
 
 /**
@@ -440,17 +498,20 @@ function extractKeywords(text: string): string[] {
  * Tách việc con từ danh sách bước và chấm riêng từng việc bằng luật cục bộ. Chỉ
  * có khi prompt có từ hai bước trở lên.
  */
-export function assessSubtasks(steps: readonly string[], from: 'list' | 'clause' = 'list'): Subtask[] {
+export function assessSubtasks(steps: readonly string[], from: 'list' | 'clause' = 'list', isFixList = false): Subtask[] {
   const work = steps.filter(step => !isConstraintItem(step))
   if (work.length < 2) return []
   return work.map((title, i) => {
     const assessed = assessText(title)
+    // Danh sách mở bằng câu "sửa / xử lý các lỗi sau": mục chỉ mô tả lỗi (không có động từ sửa hay
+    // tra cứu riêng) là việc sửa. Mục có động từ riêng giữ bản chất của nó.
+    const isBareItem = assessed.kind === 'answer'
     return {
       index: i + 1,
       title,
       depth: subtaskDepth(assessed.depth, title),
       volume: assessed.volume,
-      kind: assessed.kind,
+      kind: isFixList && isBareItem ? 'edit' : assessed.kind,
       hardSignals: assessed.hardSignals,
       from,
     }
@@ -728,6 +789,9 @@ const ERROR_WORDS = /\b(loi|error|bug|fail\w*|crash\w*|sai|that bai|timeout|exce
  * Bản chất việc: có động từ ghi thì là sửa (hoặc hỗn hợp nếu có cả tra cứu).
  * Báo lỗi không có động từ ("trang báo lỗi undefined") là điều tra, không phải hỏi đáp.
  */
+// Động từ xử lý lỗi chỉ dùng cho câu mở danh sách ("xử lý các lỗi sau"); "xử lý dữ liệu" một mình không chắc là sửa.
+const FIX_VERB = /\b(xu ly|khac phuc|giai quyet|resolve\w*|handle)\b/
+
 // Chạy, đo, đối chiếu trên dữ liệu thật: việc kiểm chứng, không phải hỏi đáp.
 const RUN_VERB = /\b(chay|run|thuc thi|execute|do dem|so voi|so sanh voi|doi chieu|kiem chung|benchmark|replay)\b/
 
@@ -947,7 +1011,8 @@ export function analyzeHeuristic(text: string, prev: Brief | null, now: number):
   const lines = trimmed.split('\n')
   const assessed = assessText(trimmed)
   const relation = localRelation(trimmed, prev)
-  const goal = extractGoal(lines)
+  const fullGoal = goalText(lines)
+  const goal = clip(fullGoal, 200)
 
   // Mục có mã (K4.1, Bước 2) là các việc; không có thì lấy danh sách dài nhất.
   const flags = blockFlags(lines)
@@ -963,17 +1028,22 @@ export function analyzeHeuristic(text: string, prev: Brief | null, now: number):
   )
   // Mục việc trong danh sách là việc phải làm, không phải tiêu chí chất lượng.
   const workItems = steps.filter(isWorkItem)
-  // Câu tự nêu mục tiêu ("Đích là ...") không phải là ràng buộc.
-  const stated = GOAL_INLINE.test(fold(goal)) ? fold(goal).replace(/\.\.\.$/, '') : ''
+  // Dòng đầy đủ của từng mục việc: câu nằm trong một mục việc là một phần của việc đó, không phải tiêu chí.
+  const itemLines = sections.length > 0 ? [] : workLines(lines, steps)
+  const insideItem = (s: string) => itemLines.some(line => line.includes(fold(s)))
+  const isGoal = (s: string) => sameSentence(s, fullGoal)
+  // Câu tự nêu mục tiêu ("Đích là ...") và các vế của nó không phải là ràng buộc. Câu mục tiêu lấy
+  // từ câu đầu thì có thể chính là một ràng buộc ("Chỉ sửa file trong src/"), nên vẫn giữ.
+  const stated = GOAL_INLINE.test(fold(fullGoal))
   const constraints = unique(
-    rule.filter(s => CONSTRAINT.test(fold(s)) && !isLeadIn(s) && !(stated !== '' && fold(s).includes(stated))).map(s => clip(s, 140)),
+    rule.filter(s => CONSTRAINT.test(fold(s)) && !isLeadIn(s) && !(stated && isGoal(s))).map(s => clip(s, 140)),
     8,
   )
-  // Tiêu chí: mục của điều kiện nghiệm thu trước, rồi các câu chất lượng còn lại.
+  // Tiêu chí: mục của điều kiện nghiệm thu trước, rồi các câu chất lượng còn lại (không lặp mục tiêu, không lấy từ mục việc).
   const criteria = [
     ...acceptanceItems(lines),
     ...inlineAcceptance.map(line => clip(clean(line), 140)),
-    ...rule.filter(s => QUALITY.test(fold(s)) && !isLeadIn(s)),
+    ...rule.filter(s => QUALITY.test(fold(s)) && !isLeadIn(s) && !isGoal(s) && !insideItem(s)),
   ]
   const quality = unique(
     criteria.filter(s => !workItems.some(item => isSameIdea(item, s))).map(s => clip(s, 140)),
@@ -1017,7 +1087,7 @@ export function analyzeHeuristic(text: string, prev: Brief | null, now: number):
       sections.length > 0
         ? assessSections(sections)
         : steps.length >= 2
-          ? assessSubtasks(steps)
+          ? assessSubtasks(steps, 'list', fixLead(lines, steps))
           : assessSubtasks(splitClauses(trimmed), 'clause'),
     constraints,
     quality,

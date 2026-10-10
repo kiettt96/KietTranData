@@ -1168,3 +1168,92 @@ describe('prompt dài có cấu trúc (0.3.4)', () => {
     expect(matchSubtask(subtasks, '3 lỗi trong log cần đọc', 'Đọc log lỗi')).toBeUndefined()
   })
 })
+
+describe('rà soát lần ba (0.3.4)', () => {
+  const ANH = [
+    'rà soát kỹ lần nữa đảm bảo chất lượng mod và xử lý luôn các lỗi nhỏ đã phát hiện một cách triệt để trước khi tôi merge:',
+    '',
+    '* `# Bối cảnh` đứng đầu bị coi là tên tài liệu, kể cả khi tài liệu có nhiều tiêu đề cấp 1.',
+    '* Câu “Đích là …” dài, bị cắt “…”, vẫn lặp lại trong Ràng buộc.',
+    '* Đoạn “Xong khi: …” nằm trong thân một việc lọt vào Ràng buộc. Giờ nó là tiêu chí chất lượng.',
+    '* Việc tách từ đoạn văn bị ghi nhầm nguồn là “danh sách”.',
+    '* Lượt chỉ đối chiếu vẫn mang tín hiệu khó của prompt đính kèm.',
+    '* Mô tả mở đầu bằng số đếm, như “3 file …”, khớp nhầm vào một việc cũng mở đầu bằng số đó.',
+  ].join('\n')
+
+  test('"# Bối cảnh" là tiêu đề cấp 1 duy nhất vẫn là khối bối cảnh; "## Việc cần làm" bên dưới vẫn có bước', () => {
+    const brief = analyzeHeuristic(['# Bối cảnh', 'Hệ thống cũ không được sửa vì đã khóa.', '## Việc cần làm', '1. Đọc file a.ts', '2. Sửa file b.ts'].join('\n'), null, 1)
+    expect(brief.constraints).toEqual([])
+    expect(brief.steps).toEqual(['Đọc file a.ts', 'Sửa file b.ts'])
+  })
+
+  test('dòng "#" trong khối code không phải tiêu đề: không phá tên tài liệu, không thành việc theo mục', () => {
+    const titled = analyzeHeuristic(
+      ['# Kế hoạch triển khai và ràng buộc của dự án thanh toán', 'Mô tả.', '```bash', '# chạy test', 'npm test', '```', '1. Đọc file a.ts', '2. Sửa file b.ts'].join('\n'),
+      null,
+      1,
+    )
+    expect(titled.steps).toEqual(['Đọc file a.ts', 'Sửa file b.ts'])
+    const fenced = analyzeHeuristic(['Sửa script cài đặt:', '```bash', '## 1. tải gói', '## 2. giải nén', '## 3. chạy', '```'].join('\n'), null, 1)
+    expect(fenced.subtasks.some(s => s.from === 'section')).toBe(false)
+  })
+
+  test('tiêu đề trung tính dưới "Tiêu chí" kế thừa khối; tiêu đề có mã dưới "Ràng buộc" không thành việc', () => {
+    const criteria = analyzeHeuristic(['## Tiêu chí', '### Hiệu năng', '- Không được chậm hơn 100ms', '## Việc', '1. Đọc a.ts', '2. Sửa b.ts'].join('\n'), null, 1)
+    expect(criteria.constraints).toEqual([])
+    expect(criteria.quality).toEqual(['Không được chậm hơn 100ms'])
+    const rules = analyzeHeuristic(
+      ['## Ràng buộc', '### 1. Không đổi API', 'x', '### 2. Không xóa bảng', 'x', '### 3. Không đổi schema', 'x', '## Việc', '1. Đọc a.ts', '2. Sửa b.ts'].join('\n'),
+      null,
+      1,
+    )
+    expect(rules.subtasks.some(s => s.from === 'section')).toBe(false)
+  })
+
+  test('câu "Đích là" có chấm phẩy: không vế nào của nó lặp trong ràng buộc', () => {
+    const brief = analyzeHeuristic(['Đích là engine đúng luật; không phải bộ kiểm.', 'Làm việc A.', 'Làm việc B.'].join('\n'), null, 1)
+    expect(brief.constraints).toEqual([])
+  })
+
+  test('"Tiêu chí hoàn thành:" và "Điều kiện xong:" trong thân việc là tiêu chí, không phải ràng buộc', () => {
+    const text = ['### K1. Đọc', 'Đọc a.', 'Tiêu chí hoàn thành: không còn ca đỏ, không đổi kỳ vọng.', '### K2. Sửa', 'Điều kiện xong: không sửa file khác.', '### K3. Kiểm', 'Kiểm c.'].join('\n')
+    const brief = analyzeHeuristic(text, null, 1)
+    expect(brief.constraints).toEqual([])
+    expect(brief.quality).toEqual(['Tiêu chí hoàn thành: không còn ca đỏ, không đổi kỳ vọng.', 'Điều kiện xong: không sửa file khác.'])
+  })
+
+  test('prompt rà soát của anh: tiêu chí không lặp mục tiêu, không lấy câu trong mục việc', () => {
+    const brief = analyzeHeuristic(ANH, null, 1)
+    expect(brief.quality.some(q => q.startsWith('rà soát kỹ lần nữa'))).toBe(false)
+    expect(brief.quality).not.toContain('Giờ nó là tiêu chí chất lượng.')
+  })
+
+  test('prompt rà soát của anh: danh sách mở bằng "xử lý các lỗi" thì mục mô tả lỗi là việc sửa, cùng sonnet/medium', () => {
+    const brief = analyzeHeuristic(ANH, null, 1)
+    expect(brief.subtasks.map(s => s.kind)).toEqual(['edit', 'edit', 'edit', 'edit', 'investigate', 'edit'])
+    const advice = adviseSubtasks({ subtasks: brief.subtasks, main: { family: 'opus', effort: 'high' }, allowFable: false, blocked: new Set(), offered: new Set(), session: null })
+    expect(advice.every(a => a.pick.family === 'sonnet' && a.pick.effort === 'medium')).toBe(true)
+  })
+
+  test('danh sách không mở bằng động từ sửa thì mục giữ bản chất trả lời', () => {
+    const brief = analyzeHeuristic(['Giải thích các khái niệm sau:', '- Closure trong JavaScript', '- Hoisting của biến', '- Event loop của trình duyệt'].join('\n'), null, 1)
+    expect(brief.subtasks.map(s => s.kind)).toEqual(['answer', 'answer', 'answer'])
+  })
+
+  test('tài liệu có hai tiêu đề cấp 1: tiêu đề đầu dài có chữ "bối cảnh" vẫn là khối, không phải tên tài liệu', () => {
+    const text = ['# Bối cảnh và các quyết định đã chốt của hệ thống cũ', 'Hệ thống cũ không được sửa vì đã khóa.', '# Việc', '1. Đọc file a.ts', '2. Sửa file b.ts'].join('\n')
+    expect(analyzeHeuristic(text, null, 1).constraints).toEqual([])
+  })
+
+  test('tên tài liệu dài có chữ "bối cảnh" không biến cả prompt thành khối bối cảnh: ràng buộc vẫn được giữ', () => {
+    const text = ['# Prompt sửa module thanh toán, kèm bối cảnh và phụ lục', 'Không đổi API công khai.', '1. Đọc file a.ts', '2. Sửa file b.ts'].join('\n')
+    expect(analyzeHeuristic(text, null, 1).constraints).toEqual(['Không đổi API công khai.'])
+  })
+
+  test('tên tài liệu dài có chữ "tiêu chí" không biến cả prompt thành khối nghiệm thu', () => {
+    const text = ['# Kế hoạch sửa module thanh toán và tiêu chí nghiệm thu', 'Không đổi API công khai.', '1. Đọc file a.ts', '2. Sửa file b.ts'].join('\n')
+    const brief = analyzeHeuristic(text, null, 1)
+    expect(brief.constraints).toEqual(['Không đổi API công khai.'])
+    expect(brief.steps).toEqual(['Đọc file a.ts', 'Sửa file b.ts'])
+  })
+})
