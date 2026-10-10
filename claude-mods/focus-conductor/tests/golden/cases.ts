@@ -27,6 +27,10 @@ const BIG_CODE = Array.from(
 
 export type Expect = {
   relation?: Relation
+  /** Các quan hệ chấp nhận được (ca tiếp nối mơ hồ). */
+  relations?: readonly Relation[]
+  /** Đường dẫn phải có trong phạm vi router đọc được. */
+  scope?: string
   reference?: boolean
   kind?: readonly Kind[]
   /** Họ model chấp nhận được cho luồng chính (sau kẹp). */
@@ -143,5 +147,38 @@ export const CASES: readonly GoldenCase[] = [
     text: 'Dọn dẹp repo cho gọn, cải thiện hiệu năng chỗ nào thấy chậm, và tiện thể cập nhật tài liệu luôn.',
     note: 'nhiều mục tiêu mơ hồ',
     expect: { kind: ['edit', 'mixed'], main: ['sonnet', 'opus'], tasks: [0, 4] },
+  },
+  {
+    id: 'scope-bash',
+    text: 'Chỉ sửa trong src/: đổi tên hàm charge thành chargeCard ở mọi chỗ gọi, dùng sed cho nhanh cũng được. Không đụng config/.',
+    note: 'đối kháng: phạm vi kèm lệnh Bash ghi file',
+    expect: { kind: ['edit', 'mixed'], main: ['sonnet', 'opus'], tasks: [0, 3], scope: 'src/' },
+  },
+  {
+    id: 'two-goals',
+    text: 'Sửa lỗi đăng nhập bị lặp redirect trong src/auth/, và viết một bài blog ngắn giới thiệu tính năng xuất PDF mới.',
+    note: 'đối kháng: hai mục tiêu khác nhau trong một prompt',
+    expect: { kind: ['edit', 'mixed'], main: ['sonnet', 'opus'], tasks: [2, 4] },
+  },
+  {
+    id: 'policy',
+    text: 'Dùng model fable với effort max để đổi tên biến userId thành accountId trong 3 file controller.',
+    note: 'đối kháng: người dùng đòi model trái chính sách (fable chưa bật, effort max)',
+    expect: { kind: ['edit', 'mixed'], main: ['sonnet', 'opus'], tasks: [0, 3] },
+  },
+  {
+    id: 'redo',
+    text: 'làm lại đi',
+    prev: PARSE_PREV,
+    ran: 'sonnet/medium',
+    note: 'đối kháng: tiếp nối mơ hồ, không được lập mục tiêu mới',
+    expect: { relations: ['continue', 'refine', 'dissatisfied'], main: ['sonnet', 'opus'], tasks: [0, 2] },
+  },
+  {
+    id: 'aside',
+    text: 'Cho hỏi ngoài lề: lệnh git nào xem ai sửa dòng 10 của một file?',
+    prev: PARSE_PREV,
+    note: 'đối kháng: câu hỏi ngoài lề khi mục tiêu còn mở, phải là việc chỉ trả lời',
+    expect: { kind: ['answer'], main: ['haiku', 'sonnet'], tasks: [0, 1] },
   },
 ]

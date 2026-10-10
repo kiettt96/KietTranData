@@ -4,7 +4,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import type { Brief, ModelFamily } from '../types'
-import { acceptsVerified, bashWriteTargets, checkKindOf, evidenceStrength, isExecuting, isInScope, newEvidenceLog, newTracker, noteEvidence, observe, summarize } from '../hooks/lib/drift'
+import { acceptsVerified, bashWriteTargets, checkKindOf, evidenceStrength, outputFailed, isExecuting, isInScope, newEvidenceLog, newTracker, noteEvidence, observe, summarize } from '../hooks/lib/drift'
 import { applyPlan } from '../hooks/lib/plan'
 import { fitPick, taskRoute } from '../hooks/lib/router'
 import { liftPick } from '../hooks/lib/route'
@@ -237,5 +237,28 @@ describe('04: độ mạnh của bằng chứng', () => {
     expect(checkKindOf('cd mod && npx tsc --noEmit')).toBe('static')
     expect(checkKindOf('npx tsc && npm test')).toBe('test')
     expect(checkKindOf('ls tests/')).toBe(null)
+  })
+})
+
+describe('04: kết quả thật của lệnh kiểm tra (từ phiên chạy thật)', () => {
+  test('lệnh test qua | tail có mã thoát 0 nhưng output báo lỗi: không tính là kiểm tra đạt', () => {
+    const tracker = newTracker('t')
+    const brief = makeBrief()
+    observe(tracker, edit('/repo/src/a.ts'), brief, [])
+    observe(tracker, { ...bash('node --test src/ 2>&1 | tail -15'), output: '# tests 1\n# pass 0\n# fail 1' }, brief, [])
+    expect(tracker.isVerified).toBe(false)
+    const log = newEvidenceLog(1)
+    noteEvidence(log, { ...edit('/repo/src/a.ts') })
+    noteEvidence(log, { ...bash('node --test src/ 2>&1 | tail -15'), output: '# pass 0\n# fail 1' })
+    expect(evidenceStrength('node --test: 1 pass', log).level).toBe('stale')
+    noteEvidence(log, { ...bash('node --test src/add.test.js 2>&1 | tail -12'), output: '# pass 1\n# fail 0' })
+    expect(evidenceStrength('node --test: 1 pass', log).level).toBe('strong')
+  })
+
+  test('dấu hiệu lỗi của các trình chạy phổ biến; số 0 không phải lỗi', () => {
+    for (const out of ['Tests: 2 failed, 10 passed', '3 failing', 'src/a.ts(1,1): error TS2322: x', 'FAILED tests/test_a.py::t', '\u2716 4 problems', 'test result: FAILED. 1 passed', '--- FAIL: TestX', ' 12 pass\n 1 fail']) {
+      expect(outputFailed(out), out).toBe(true)
+    }
+    for (const out of ['12 pass\n0 fail', '# fail 0', 'Tests: 10 passed', 'Found 0 errors', '']) expect(outputFailed(out), out).toBe(false)
   })
 })

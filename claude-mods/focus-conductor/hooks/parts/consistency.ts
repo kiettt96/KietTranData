@@ -130,6 +130,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       input: e as unknown as Record<string, unknown>,
       isError: result.isError === true,
       isReadOnly: result.isReadOnly === true,
+      output: result.text ?? (typeof result.result === 'string' ? result.result : undefined),
     }
 
     if (e.agentId !== undefined) {

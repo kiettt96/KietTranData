@@ -105,6 +105,34 @@ export type ToolObservation = {
   input: Record<string, unknown>
   isError: boolean
   isReadOnly: boolean
+  /** Output của tool như model đọc (nếu có): để nhận ra lệnh kiểm tra báo lỗi mà mã thoát vẫn 0 (ví dụ qua `| tail`). */
+  output?: string
+}
+
+// Dấu hiệu lỗi trong output của các trình chạy test, type-check, lint phổ biến. Chỉ áp cho lệnh kiểm tra.
+const CHECK_FAILED = new RegExp(
+  [
+    '(?:^|\\n)\\s*#\\s*fail\\s+[1-9]', // TAP (node --test)
+    '\\b[1-9]\\d*\\s+(?:failed|failing|fail|failures?)\\b', // jest, mocha, bun, vitest, pytest
+    '\\bTests?:\\s+[1-9]\\d*\\s+failed', // jest
+    '\\berror\\s+TS\\d+', // tsc
+    '(?:^|\\n)FAILED\\b|=+\\s*FAILURES\\s*=+', // pytest
+    '\\u2716\\s*[1-9]\\d*\\s+problems?', // eslint
+    '\\bFound\\s+[1-9]\\d*\\s+errors?\\b', // tsc --pretty, mypy
+    'test result:\\s*FAILED', // cargo
+    '(?:^|\\n)(?:FAIL|--- FAIL)\\b', // go test, jest
+  ].join('|'),
+  'i',
+)
+
+/** Output của lệnh kiểm tra có dấu hiệu lỗi (dù mã thoát là 0). */
+export function outputFailed(output: string | undefined): boolean {
+  return output !== undefined && output !== '' && CHECK_FAILED.test(output)
+}
+
+/** Lệnh kiểm tra chạy đạt: không lỗi theo mã thoát và output không báo lỗi. */
+function checkPassed(observation: ToolObservation): boolean {
+  return !observation.isError && !outputFailed(observation.output)
 }
 
 /** Một phát hiện: `text` cho người dùng, `context` cho model (nếu cần nhắc). */
@@ -414,7 +442,7 @@ export function observe(
 
   // Lần gọi này có làm tăng bộ đếm thay đổi không (để checkpoint chỉ báo đúng lúc đếm đủ bội số).
   let isCounted = false
-  if (isVerification(observation) && !observation.isError) {
+  if (isVerification(observation) && checkPassed(observation)) {
     tracker.mutationsSinceCheck = 0
     tracker.isVerified = true
     tracker.checks += 1
@@ -559,7 +587,8 @@ export function noteEvidence(log: EvidenceLog, observation: ToolObservation): vo
   log.seq += 1
   const command = str(observation.input['command']).trim()
   if (observation.tool === 'Bash' && command !== '') {
-    log.commands.push({ command: command.slice(0, 500), ok: !observation.isError, check: checkKindOf(command), seq: log.seq })
+    const check = checkKindOf(command)
+    log.commands.push({ command: command.slice(0, 500), ok: check === null ? !observation.isError : checkPassed(observation), check, seq: log.seq })
     if (log.commands.length > EVIDENCE_COMMANDS) log.commands.shift()
   }
   if (observation.isError) return
@@ -580,7 +609,7 @@ function mentionsCommand(text: string, command: string): boolean {
   for (const part of segments(command)) {
     const tokens = part.toLowerCase().split(/\s+/).filter(Boolean)
     const words = tokens.filter(t => !t.startsWith('-'))
-    const keys = [tokens.slice(0, 3).join(' '), words.slice(0, 2).join(' '), ...words.slice(1).filter(w => w.length >= 6 && /[\\/.]/.test(w))]
+    const keys = [tokens.slice(0, 3).join(' '), tokens.slice(0, 2).join(' '), words.slice(0, 2).join(' '), ...words.slice(1).filter(w => w.length >= 6 && /[\\/.]/.test(w))]
     if (keys.some(key => key.length >= 4 && text.includes(key))) return true
   }
   return false
