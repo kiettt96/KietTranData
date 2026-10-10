@@ -158,6 +158,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       tasks: brief.tasks.map(t => ({ index: t.index, run: t.run, agentType: t.agentType, pick: t.pick })),
     })
     if (decisionLog) await $.fs.write(decisionLog, decisionText()).catch(() => undefined)
+    if (outcome.retried) $.ui.toast('Router đã đọc lại một lần (câu trả lời đầu hỏng hoặc tin cậy thấp)')
     if (isNewGoal) {
       const delegated = brief.isReference ? 0 : brief.tasks.filter(task => task.run === 'agent').length
       $.ui.toast(

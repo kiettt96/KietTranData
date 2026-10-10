@@ -71,7 +71,7 @@
     "strictDelegation": {
       "type": "string",
       "title": "Giữ việc đã giao subagent",
-      "description": "Khi luồng chính tự sửa file trong lúc còn việc router ghi giao subagent mà chưa giao. off: nhắc một lần (mặc định); remind: nhắc ở mỗi lần sửa; block: từ chối Edit/Write/NotebookEdit của luồng chính tới khi giao xong hoặc router đọc prompt mới",
+      "description": "Khi luồng chính tự sửa file trong lúc còn việc router ghi giao subagent mà chưa giao. off: nhắc một lần (mặc định); remind: nhắc ở mỗi lần sửa; block: từ chối Edit/Write/NotebookEdit và lệnh Bash ghi file của luồng chính tới khi giao xong hoặc router đọc prompt mới",
       "default": "off",
       "options": ["off", "remind", "block"]
     },

@@ -6,6 +6,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import type { Brief, Core, Route } from '../types'
 import { applyPrices, fixedContextTokens, parsePrices, priceNote, shouldDowngrade, switchCost, turnCost, usdOf } from '../hooks/lib/cost'
 import { addUsage, calibrate, emptyLedger, formatUsd, ledgerLines, nextGoal, recordShape, resetLedger, sessionUsd, shapeKey, shapeOutput } from '../hooks/lib/ledger'
+import { createContext } from '../hooks/context'
 import { legacyOf, tierOf } from '../hooks/lib/scale'
 import { EMPTY_CORE, normalizeCore, withAgentUsd, withDecision, withLift, adoptGoal } from '../hooks/lib/state'
 
@@ -217,5 +218,15 @@ describe('0.5.0: token ra theo dạng việc (depth, volume, kind)', () => {
     const measured = turnCost('sonnet', 'medium', 'medium', 10_000, 1, shapeOutput(ledger, key, 'medium'))
     // Giả định 8.000 token ra so với 1.000 đo được: chênh 7.000 × $10 mỗi 1M.
     expect(Math.round((guessed - measured) * 1000) / 1000).toBe(0.07)
+  })
+})
+
+describe('0.5.0: cửa sổ ngữ cảnh mặc định', () => {
+  test('không khai contextWindows thì mọi họ có 1M; họ bị modelMap đổi ID thì không áp mặc định; khai thì khai thắng', () => {
+    expect(createContext({}).contextWindows).toEqual({ haiku: 1_000_000, sonnet: 1_000_000, opus: 1_000_000, fable: 1_000_000 })
+    const mapped = createContext({ modelMap: 'opus=gateway-opus' }).contextWindows
+    expect(mapped.opus).toBeUndefined()
+    expect(mapped.sonnet).toBe(1_000_000)
+    expect(createContext({ contextWindows: 'sonnet=200000' }).contextWindows.sonnet).toBe(200_000)
   })
 })

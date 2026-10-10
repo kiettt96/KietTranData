@@ -89,7 +89,10 @@ export function registerConsistency(on: On, ctx: Ctx): void {
   on('tool.call', async ($, e, next) => {
     // strictDelegation "block": luồng chính sửa file trong khi còn việc ghi giao subagent chưa giao thì bị từ chối,
     // tối đa BLOCK_EDITS lần mỗi mục tiêu (sau đó chỉ nhắc, kẻo kẹt khi không giao được).
-    if (strictDelegation === 'block' && e.agentId === undefined && EDIT_TOOLS.has(e.tool)) {
+    // Gồm lệnh Bash ghi file (sed -i, chuyển hướng ghi, rm...): isMutation đã loại lệnh chỉ đọc và lệnh kiểm tra.
+    const isBashWrite =
+      e.tool === 'Bash' && isMutation({ tool: 'Bash', input: e as unknown as Record<string, unknown>, isError: false, isReadOnly: false })
+    if (strictDelegation === 'block' && e.agentId === undefined && (EDIT_TOOLS.has(e.tool) || isBashWrite)) {
       const current = await read($, mode)
       const brief = S.normalizeCore(await read($, coreState)).brief
       const waiting = current === 'auto' || current === 'subagents' ? pendingFor(brief) : []

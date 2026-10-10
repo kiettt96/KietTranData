@@ -1812,3 +1812,36 @@ describe('0.5.0: các ca biên do kiểm đột biến chỉ ra', () => {
     expect(String(third.result)).toContain('Bước của mục tiêu B')
   })
 })
+
+describe('0.5.0: siết theo đánh giá PR', () => {
+  test('strictDelegation block chặn cả Bash ghi file của luồng chính; lệnh đọc, subagent và file kế hoạch thì không', { options: { strictDelegation: 'block' } }, async ($, on) => {
+    base(on)
+    on('tool.call', { tool: 'Bash' }, () => ({ result: 'ok' }))
+    on('tool.call', { tool: 'Agent' }, () => ({ deny: 'test' }))
+    await submit($, FOUR)
+    expect((await $.tool.call({ tool: 'Bash', command: 'cat src/a.ts' })).deny).toBeUndefined()
+    expect((await $.tool.call({ tool: 'Bash', agentId: 'sub-x', command: "sed -i 's/a/b/' src/a.ts" } as never)).deny).toBeUndefined()
+    const blocked = await $.tool.call({ tool: 'Bash', command: "sed -i 's/a/b/' src/a.ts" })
+    expect(blocked.deny).toContain('Việc 1 (haiku/low), 2 (sonnet/medium), 4 (sonnet/medium)')
+    expect((await $.tool.call({ tool: 'Bash', command: 'rm src/old.ts' })).deny).toContain('lần chặn cuối')
+    // Hết trần hai lần: chỉ nhắc.
+    expect((await $.tool.call({ tool: 'Bash', command: 'echo x > src/a.ts' })).deny).toBeUndefined()
+  })
+
+  test('router không ghi relation: checklist cũ nằm nguyên trong mục tiêu hiện tại, không có gì để khôi phục', {}, async ($, on) => {
+    const PLAN = 'mcp__focus-conductor__plan'
+    base(on, { router: request => (request.startsWith('Làm tiếp') ? { ...plan({ goal: '' }), relation: undefined } : DEFAULT_ROUTER(request)) })
+    await submit($, FOUR)
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Tìm chỗ gọi' }] })
+    await submit($, 'Làm tiếp phần đổi tên nhé')
+    expect((await $.tool.call({ tool: PLAN, action: 'restore' })).deny).toContain('Không có mục tiêu cũ')
+    expect(String((await conductor($, 'status')).text)).toContain('1. Tìm chỗ gọi')
+  })
+
+  test('router hỏi lại vì JSON hỏng thì có toast báo', {}, async ($, on) => {
+    let n = 0
+    const seen = base(on, { router: request => ((n += 1) === 1 ? '{"goal": "x"' : DEFAULT_ROUTER(request)) })
+    await submit($, COMPLEX_PROMPT)
+    expect(seen.toasts.some(t => t.includes('Router đã đọc lại một lần'))).toBe(true)
+  })
+})
