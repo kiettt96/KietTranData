@@ -21,7 +21,7 @@ const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null
 
 export function registerAgents(on: On, ctx: Ctx): void {
   const L = ctx.local
-  const { agentFailures, agentRoutes, agents, decisionLog, decisionText, isAgentRouterPaused, noteAgentRouter, offered, pendingAgents, policy, recognized, record, refit, rememberAgentRoute, routerFamily, routerModel, spawnedIds, startedAgents, steppedEarly } = ctx
+  const { agentFailures, agentRoutes, agents, decisionLog, decisionText, delegationItems, isAgentRouterPaused, moveDelegation, noteAgentRouter, noteRouterTime, offered, pendingAgents, policy, recognized, record, refit, rememberAgentRoute, routerFamily, routerModel, spawnedIds, startedAgents, steppedEarly } = ctx
   const mode = derive([modeState], modeOf(ctx.options))
 
   // Agent khởi động mà không đi qua agent.spawn của mod: ghi để /conductor status báo là agent ngoài điều phối.
@@ -101,7 +101,9 @@ export function registerAgents(on: On, ctx: Ctx): void {
           model: routerModel,
           tasks: isNested || brief === null || brief.isReference ? [] : brief.tasks,
         })
+        const startedAt = await $.clock.now()
         const outcome = await askRouter(r => $.model.complete(r).catch(() => null), request, reply => parseAgentRoute(reply, rules))
+        noteRouterTime((await $.clock.now()) - startedAt)
         await update($, coreState, c =>
           outcome.usages.reduce((acc, usage) => S.withLedger(ledger => addUsage(ledger, 'analyzer', routerFamily, usage).ledger)(acc), c),
         )
@@ -122,7 +124,11 @@ export function registerAgents(on: On, ctx: Ctx): void {
         reason = `router nhận ra việc ${byRouter.index} đã phân${route.why ? `: ${route.why}` : ''}`
       }
     }
-    if (assigned !== undefined && brief !== null && L.delegation.goalId === brief.goalId) L.delegation.pending.delete(assigned.index)
+    // Việc đã phân được nhận: chuyển sang đang chạy (giao lại một việc đã lỗi cũng vậy).
+    if (assigned !== undefined && brief !== null) {
+      moveDelegation(brief.goalId, assigned.index, 'running')
+      await update($, coreState, S.withDelegations(brief.goalId, delegationItems(brief)))
+    }
     if (assigned === undefined && matched.miss !== undefined) {
       record(await $.clock.now(), 'agent', { description: clipText(e.description), miss: matched.miss, routed: route !== null })
       if (decisionLog) await $.fs.write(decisionLog, decisionText()).catch(() => undefined)
@@ -133,7 +139,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
     // Họ model và effort thật sự gửi đi: lựa chọn của router khi áp dụng, nếu không thì của Claude.
     const sentFamily = isApplied && route !== null ? route.pick.family : claimed
     const sentEffort = isApplied && route !== null ? route.pick.effort : requested
-    pendingAgents.set(e.tool_use_id, { route, reason, isApplied, description: e.description, sentFamily, sentEffort })
+    pendingAgents.set(e.tool_use_id, { route, reason, isApplied, description: e.description, sentFamily, sentEffort, ...(assigned !== undefined ? { taskIndex: assigned.index } : {}) })
     const spawned = await update($, coreState, S.withLedger(countSpawn))
     if (spawned.ledger.goal.spawned > FANOUT_WARN && !spawned.ledger.goal.fanoutWarned) {
       const at = await $.clock.now()
@@ -145,17 +151,21 @@ export function registerAgents(on: On, ctx: Ctx): void {
       )
       $.ui.toast(text)
     }
-    if (!isApplied || route === null) return next(e)
-
     // Đổi loại agent chỉ khi Claude để general-purpose và engine đã mời loại router chọn.
     const isGeneral = e.subagent_type === undefined || e.subagent_type === 'general-purpose'
-    const swap = isGeneral && route.agentType !== 'general-purpose' && offered.has(route.agentType)
-    return next({
-      ...e,
-      model: route.pick.family,
-      effort: route.pick.effort,
-      ...(swap ? { subagent_type: route.agentType } : {}),
-    })
+    const swap = isApplied && route !== null && isGeneral && route.agentType !== 'general-purpose' && offered.has(route.agentType)
+    const result = await next(
+      !isApplied || route === null
+        ? e
+        : { ...e, model: route.pick.family, effort: route.pick.effort, ...(swap ? { subagent_type: route.agentType } : {}) },
+    )
+    // Lời gọi Agent bị từ chối hoặc lỗi trước khi agent chạy: việc trở lại danh sách chờ giao.
+    if (assigned !== undefined && brief !== null && (result.deny !== undefined || result.isError === true) && L.delegation.running.has(assigned.index)) {
+      pendingAgents.delete(e.tool_use_id)
+      moveDelegation(brief.goalId, assigned.index, 'pending')
+      await update($, coreState, S.withDelegations(brief.goalId, delegationItems(brief)))
+    }
+    return result
   })
 
   // Ghi điều phối của subagent ngay khi nó khởi động (trước mọi await, để step đầu đã thấy), rồi ghi
@@ -174,6 +184,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
     const rules = policy()
     let workflowRoute: AgentRoute | null = null
     let workflowReason = ''
+    let workflowTask: number | undefined
     if (info === undefined && isWorkflow && !isScriptModel && current !== 'off') {
       const key = `${e.description}\n${e.prompt}`
       // Việc vừa lỗi trong mục tiêu này thì router chấm lại (nó thấy danh sách lỗi và tự nâng).
@@ -200,7 +211,9 @@ export function registerAgents(on: On, ctx: Ctx): void {
           model: routerModel,
           tasks: brief === null || brief.isReference ? [] : brief.tasks,
         })
+        const startedAt = await $.clock.now()
         const outcome = await askRouter(r => $.model.complete(r).catch(() => null), request, reply => parseAgentRoute(reply, rules))
+        noteRouterTime((await $.clock.now()) - startedAt)
         await update($, coreState, c =>
           outcome.usages.reduce((acc, usage) => S.withLedger(ledger => addUsage(ledger, 'analyzer', routerFamily, usage).ledger)(acc), c),
         )
@@ -216,7 +229,8 @@ export function registerAgents(on: On, ctx: Ctx): void {
         if (byRouter !== undefined) {
           workflowRoute = taskRoute(byRouter, rules)
           workflowReason = `router nhận ra việc ${byRouter.index} đã phân${workflowRoute.why ? `: ${workflowRoute.why}` : ''}`
-          if (brief !== null && L.delegation.goalId === brief.goalId) L.delegation.pending.delete(byRouter.index)
+          if (brief !== null) moveDelegation(brief.goalId, byRouter.index, 'running')
+          workflowTask = byRouter.index
         }
       }
     }
@@ -247,12 +261,14 @@ export function registerAgents(on: On, ctx: Ctx): void {
         enforceModel: info === undefined ? true : info.sentFamily !== null,
         warned: false,
         fallback: false,
+        ...(info?.taskIndex !== undefined ? { taskIndex: info.taskIndex } : workflowTask !== undefined ? { taskIndex: workflowTask } : {}),
       })
     }
     if (agentId !== undefined) {
       steppedEarly.delete(agentId)
       if (spawnedIds.size < 1000) spawnedIds.add(agentId)
     }
+    if (workflowTask !== undefined && core.brief !== null) await update($, coreState, S.withDelegations(core.brief.goalId, delegationItems(core.brief)))
 
     const sent = info?.sentFamily ?? null
     const isMismatch = info !== undefined && sent !== null && engineFamily !== null && engineFamily !== sent

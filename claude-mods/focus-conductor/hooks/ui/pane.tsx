@@ -5,7 +5,7 @@
 import type { Elements, RenderElement, RenderSurface } from 'claude-code'
 
 import type { Mode } from '../../types'
-import { formatUsd, ledgerLines } from '../lib/ledger'
+import { estimateLine, formatUsd, ledgerLines } from '../lib/ledger'
 import { describePick } from '../lib/route'
 import type { View } from '../lib/state'
 import { mark, progress } from '../lib/text'
@@ -73,6 +73,7 @@ export function renderPane(t: Elements[RenderSurface], view: View, handlers: Pan
         {plan.map(step => (
           <Text wrap="wrap" dimColor={step.status === 'verified' || step.status === 'skipped'}>
             {mark(step.status)} {step.id}. {step.title}
+            {step.check ? <Text dimColor> [{step.check}]</Text> : ''}
             {step.note ? <Text dimColor> ({step.note})</Text> : ''}
           </Text>
         ))}
@@ -81,6 +82,8 @@ export function renderPane(t: Elements[RenderSurface], view: View, handlers: Pan
       list(brief.steps, l.noChecklist)
     )
 
+  const delegations = view.core.delegations.goalId === brief.goalId ? view.core.delegations.items : []
+  const estimate = estimateLine(log)
   const recentLog = log.slice(-8).reverse()
   const recentWarnings = warnings.filter(w => w.at >= brief.at).slice(-5).reverse()
 
@@ -106,6 +109,16 @@ export function renderPane(t: Elements[RenderSurface], view: View, handlers: Pan
         {section(plan.length > 0 ? `Checklist ${closed}/${total}` : l.planned)}
         {checklist}
       </Box>
+      {delegations.length > 0 ? (
+        <Box flexDirection="column">
+          {section(l.delegations)}
+          {delegations.map(item => (
+            <Text wrap="wrap" color={item.state === 'failed' ? 'error' : undefined} dimColor={item.state === 'done'}>
+              {item.index}. {item.title}: {l.delegationState[item.state]}
+            </Text>
+          ))}
+        </Box>
+      ) : null}
       <Box flexDirection="column">
         {section(l.mainRouting)}
         {route ? (
@@ -119,7 +132,7 @@ export function renderPane(t: Elements[RenderSurface], view: View, handlers: Pan
       </Box>
       <Box flexDirection="column">
         {section(l.cost)}
-        {ledgerLines(view.core.ledger).map(line => (
+        {[...ledgerLines(view.core.ledger), ...(estimate ? [estimate] : [])].map(line => (
           <Text wrap="wrap" dimColor>
             {line}
           </Text>

@@ -3,7 +3,7 @@
 // và chuỗi thay đổi dài mà chưa tự kiểm tra. Hàm ở đây thuần, không gọi $,
 // để test được và để register quyết định cách hiển thị.
 
-import type { Brief, PlanStep, Tier, WarningKind } from '../../types'
+import type { Brief, Kind, PlanStep, Relation, Tier, WarningKind } from '../../types'
 import { TOOL_BUDGET } from './route'
 
 const FILE_TOOLS = new Set(['Edit', 'Write', 'NotebookEdit', 'MultiEdit'])
@@ -23,6 +23,18 @@ const VERIFY_SEGMENT = new RegExp(
     'dotnet\\s+(?:test|build)\\b|' +
     'mvn\\s+(?:test|verify)\\b|' +
     'gradle\\s+(?:test|check|build)\\b' +
+    ')',
+)
+
+// Lệnh kiểm tra chạy test (hành vi) chứ không chỉ kiểm tĩnh (type-check, lint, build, validate).
+const TEST_SEGMENT = new RegExp(
+  '^(?:' +
+    '(?:npm|pnpm|yarn|bun)\\s+(?:run\\s+)?(?:-\\S+\\s+)*(?:test|tests|verify)\\b|' +
+    '(?:npx\\s+(?:-\\S+\\s+)*)?(?:pytest|jest|vitest|mocha)\\b|' +
+    'node\\s+--test\\b|' +
+    'python3?\\s+-m\\s+(?:pytest|unittest)\\b|' +
+    'cargo\\s+test\\b|go\\s+test\\b|make\\s+test\\b|claude\\s+plugin\\s+test\\b|' +
+    'dotnet\\s+test\\b|mvn\\s+(?:test|verify)\\b|gradle\\s+test\\b' +
     ')',
 )
 
@@ -50,7 +62,14 @@ export type TurnTracker = {
   toolCalls: number
   mutations: number
   mutationsSinceCheck: number
+  /** Đúng khi có lệnh kiểm tra đạt sau thay đổi cuối cùng của turn; mỗi thay đổi mới đặt lại false. */
   isVerified: boolean
+  /** Số lệnh kiểm tra đạt trong turn (để câu báo phân biệt "chưa kiểm tra lần nào" với "sửa sau lần kiểm tra cuối"). */
+  checks: number
+  /** Số lời gọi Agent thành công: turn chỉ giao subagent vẫn là turn đang thực thi mục tiêu. */
+  delegated: number
+  /** Đã cảnh báo lệnh ghi không xác định được file đích trong turn này. */
+  unknownWriteWarned: boolean
   /** Số lần Claude cập nhật checklist trong turn (turn đang thực thi kế hoạch). */
   planUpdates: number
   /** Số tool call lỗi trong turn (để nâng effort khi lỗi nhiều). */
@@ -67,6 +86,9 @@ export function newTracker(turnId: string): TurnTracker {
     mutations: 0,
     mutationsSinceCheck: 0,
     isVerified: false,
+    checks: 0,
+    delegated: 0,
+    unknownWriteWarned: false,
     planUpdates: 0,
     errors: 0,
     failures: new Map(),
@@ -108,7 +130,16 @@ function signature(observation: ToolObservation): string {
 }
 
 export function isVerification(observation: ToolObservation): boolean {
-  return observation.tool === 'Bash' && segments(str(observation.input['command'])).some(part => VERIFY_SEGMENT.test(part))
+  return observation.tool === 'Bash' && checkKindOf(str(observation.input['command'])) !== null
+}
+
+export type CheckKind = 'test' | 'static'
+
+/** Loại kiểm tra của một lệnh: test (chạy hành vi), static (type-check, lint, build, validate), hoặc null. */
+export function checkKindOf(command: string): CheckKind | null {
+  const parts = segments(command).filter(part => VERIFY_SEGMENT.test(part))
+  if (parts.length === 0) return null
+  return parts.some(part => TEST_SEGMENT.test(part)) ? 'test' : 'static'
 }
 
 // File kế hoạch của plan mode (~/.claude/plans/*.md): ghi vào đó là lập kế hoạch, không phải sửa mã.
@@ -181,23 +212,166 @@ export function isMutation(observation: ToolObservation): boolean {
   )
 }
 
-/** Đường dẫn nằm trong phạm vi khi khớp đuôi hoặc nằm dưới một thư mục được nhắc. */
+/** Chuẩn hóa đường dẫn: dấu \\ thành /, bỏ ./, gộp .. (không đụng hệ thống tệp). */
+export function normalizePath(path: string): string {
+  const unified = path.replace(/\\/g, '/')
+  const isAbsolute = unified.startsWith('/')
+  const out: string[] = []
+  for (const part of unified.split('/')) {
+    if (part === '' || part === '.') continue
+    if (part === '..' && out.length > 0 && out[out.length - 1] !== '..') out.pop()
+    else if (part === '..' && isAbsolute) continue
+    else out.push(part)
+  }
+  return `${isAbsolute ? '/' : ''}${out.join('/')}`
+}
+
+/** Đường dẫn nằm trong phạm vi khi khớp đuôi, nằm dưới một thư mục được nhắc, hoặc là đường dẫn tương đối bắt đầu bằng phạm vi. */
 export function isInScope(path: string, scopePaths: readonly string[]): boolean {
   if (scopePaths.length === 0 || path === '') return true
-  const normalized = path.replace(/\\/g, '/')
+  const normalized = normalizePath(path)
   return scopePaths.some(scope => {
-    const s = scope.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/$/, '')
-    return normalized.endsWith(`/${s}`) || normalized === s || normalized.includes(`/${s}/`)
+    const s = normalizePath(scope)
+    if (s === '') return true
+    return normalized === s || normalized.startsWith(`${s}/`) || normalized.endsWith(`/${s}`) || normalized.includes(`/${s}/`)
   })
 }
 
-/** Turn có đang thực thi (thay đổi hoặc cập nhật checklist) hay chỉ hỏi đáp. */
-export function isExecuting(tracker: TurnTracker): boolean {
-  return tracker.mutations > 0 || tracker.planUpdates > 0
+// ------------------------------------------------------------ đích ghi của lệnh Bash
+
+/** Lệnh ghi lên mọi đối số đường dẫn. */
+const WRITE_ALL = new Set(['rm', 'rmdir', 'touch', 'mkdir', 'truncate', 'shred', 'unlink'])
+/** Lệnh ghi lên đối số cuối (đích). */
+const WRITE_LAST = new Set(['cp', 'mv', 'install', 'ln', 'rsync'])
+/** Lệnh đổi quyền: đối số đầu là quyền hoặc chủ sở hữu, còn lại là đường dẫn. */
+const WRITE_AFTER_FIRST = new Set(['chmod', 'chown', 'chgrp'])
+/** Lệnh con của git không ghi file trong cây làm việc (thao tác trên lịch sử hay remote). */
+const GIT_NO_FILES = new Set(['add', 'commit', 'push', 'tag', 'branch', 'fetch', 'config', 'remote', 'notes', 'gc'])
+/** Tùy chọn của sed nhận một giá trị đi kèm. */
+const SED_VALUE_OPTIONS = new Set(['-e', '-f', '--expression', '--file', '-l', '--line-length'])
+
+export type WriteTargets = { paths: string[]; isUnknown: boolean }
+
+/**
+ * File đích của một lệnh Bash có ghi: chuyển hướng ghi, tee, sed -i, cp/mv/install/ln (đối số cuối), rm, touch,
+ * mkdir, truncate, chmod/chown, git checkout -- và git restore. Đường dẫn tương đối nối với thư mục của `cd` đứng
+ * trước. Lệnh ghi mà không đọc được đích (script, trình cài gói, đường dẫn chứa biến) thì isUnknown.
+ * Chỉ để giám sát phạm vi; không phải phân quyền hệ thống tệp.
+ */
+export function bashWriteTargets(command: string): WriteTargets {
+  // Thân heredoc là dữ liệu, không phải lệnh: bỏ đi trước khi tách đoạn.
+  const withoutHeredoc = command.replace(/<<-?\s*(['"]?)(\w+)\1([^\n]*)\n[\s\S]*?\n\s*\2\s*(?=\n|$)/g, (_m, _q: string, _tag: string, rest: string) => rest)
+  const quoted: string[] = []
+  // Chuỗi trong nháy thành một token giữ chỗ: dấu > hay ; trong nháy không bị đọc nhầm là cú pháp shell.
+  const masked = withoutHeredoc.replace(/"([^"]*)"|'([^']*)'/g, (_m, a: string | undefined, b: string | undefined) => {
+    quoted.push(a ?? b ?? '')
+    return `\u0000${quoted.length - 1}\u0000`
+  })
+  const unmask = (token: string) => token.replace(/\u0000(\d+)\u0000/g, (_m, i: string) => quoted[Number(i)] ?? '')
+  const paths: string[] = []
+  let isUnknown = false
+  let cwd = ''
+  const add = (raw: string) => {
+    const token = unmask(raw)
+    if (token === '' || token === '-' || /^\/dev\/(?:null|stdout|stderr|tty|fd\/\d+)$/.test(token)) return
+    if (/[$`*?]/.test(token) || token.startsWith('~')) {
+      isUnknown = true
+      return
+    }
+    const path = normalizePath(token.startsWith('/') || cwd === '' ? token : `${cwd}/${token}`)
+    if (!paths.includes(path)) paths.push(path)
+  }
+
+  for (const part of segments(masked)) {
+    // Chuyển hướng ghi trong đoạn: >, >>, 1>, &>, bỏ qua >&N (gộp luồng).
+    const redirect = /(?:^|[^<>&\d])(?:\d*|&)>>?(?!&)\s*([^\s<>;&|]+)/g
+    for (const match of part.matchAll(redirect)) add(match[1] ?? '')
+    const tokens = part
+      .replace(/(?:\d*|&)>>?(?!&)\s*[^\s<>;&|]+/g, ' ')
+      .replace(/\d*>&\d+/g, ' ')
+      // Chuyển hướng đọc (<, <<<) không ghi file.
+      .replace(/\d*<<?<?\s*[^\s<>;&|]+/g, ' ')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+    let cmd = tokens[0]
+    let args = tokens.slice(1)
+    while ((cmd === 'sudo' || cmd === 'command' || cmd === 'nohup' || cmd === 'xargs') && args.length > 0) {
+      cmd = args[0]
+      args = args.slice(1)
+    }
+    if (cmd === undefined) continue
+    const name = unmask(cmd)
+    if (name === 'cd') {
+      const dir = args[0] !== undefined ? unmask(args[0]) : ''
+      if (dir === '' || /[$`~]/.test(dir) || dir === '-') cwd = '\u0000unknown'
+      else cwd = cwd === '' || dir.startsWith('/') ? normalizePath(dir) : normalizePath(`${cwd}/${dir}`)
+      continue
+    }
+    if (segmentIsReadOnly(unmask(part)) || VERIFY_SEGMENT.test(unmask(part))) continue
+    const positional = args.filter(a => !unmask(a).startsWith('-'))
+    if (name === 'tee') positional.forEach(add)
+    else if (name === 'sed') {
+      // sed -i: bỏ script (đối số đầu khi không có -e/-f), còn lại là file bị sửa.
+      const files: string[] = []
+      let hasScript = false
+      for (let i = 0; i < args.length; i++) {
+        const arg = unmask(args[i] ?? '')
+        if (SED_VALUE_OPTIONS.has(arg)) {
+          if (arg !== '-l' && arg !== '--line-length') hasScript = true
+          i += 1
+        } else if (!arg.startsWith('-')) files.push(args[i] ?? '')
+      }
+      ;(hasScript ? files : files.slice(1)).forEach(add)
+    } else if (WRITE_ALL.has(name)) positional.forEach(add)
+    else if (WRITE_LAST.has(name)) {
+      const t = args.findIndex(a => unmask(a) === '-t' || unmask(a).startsWith('--target-directory'))
+      const target = t >= 0 ? (unmask(args[t] ?? '').includes('=') ? (args[t] ?? '').split('=')[1] : args[t + 1]) : positional[positional.length - 1]
+      if (target !== undefined) add(target)
+      else isUnknown = true
+    } else if (WRITE_AFTER_FIRST.has(name)) positional.slice(1).forEach(add)
+    else if (name === 'git') {
+      const sub = positional[0] !== undefined ? unmask(positional[0]) : ''
+      if (GIT_NO_FILES.has(sub)) continue
+      const dash = args.findIndex(a => unmask(a) === '--')
+      if (sub === 'restore') positional.slice(1).forEach(add)
+      else if ((sub === 'checkout' || sub === 'reset') && dash >= 0) args.slice(dash + 1).forEach(add)
+      else isUnknown = true
+    } else if (name !== '') isUnknown = true
+  }
+  if (cwd === '\u0000unknown') {
+    // cd tới thư mục không đọc được: đường dẫn tương đối sau đó không đối chiếu được.
+    return { paths: paths.filter(path => path.startsWith('/') && !path.includes('\u0000')), isUnknown: true }
+  }
+  return { paths, isUnknown }
+}
+
+/** Cách router đọc prompt của turn: quan hệ với mục tiêu đang mở và bản chất việc; null khi router không đọc được. */
+export type PromptIntent = { relation: Relation; kind: Kind } | null
+
+/**
+ * Turn đang thực thi mục tiêu (khác turn chỉ hỏi đáp): có thay đổi, cập nhật checklist, giao subagent, hoặc có
+ * tool call cho một prompt tiếp nối mục tiêu mà không phải việc chỉ trả lời. Câu hỏi độc lập (router xếp là
+ * mục tiêu mới hay việc chỉ trả lời) và turn không gọi tool nào thì không bị checklist chặn.
+ */
+export function isExecuting(tracker: TurnTracker, intent: PromptIntent = null): boolean {
+  if (tracker.mutations > 0 || tracker.planUpdates > 0 || tracker.delegated > 0) return true
+  return intent !== null && intent.relation !== 'new' && intent.kind !== 'answer' && tracker.toolCalls > 0
+}
+
+export type TurnRole = 'qa' | 'executing'
+
+export function turnRole(tracker: TurnTracker, intent: PromptIntent = null): TurnRole {
+  return isExecuting(tracker, intent) ? 'executing' : 'qa'
 }
 
 export function openSteps(plan: readonly PlanStep[]): PlanStep[] {
   return plan.filter(step => step.status === 'todo' || step.status === 'doing')
+}
+
+/** Mục tiêu đã hoàn tất theo checklist: không còn bước todo hay doing. */
+export function isGoalDone(plan: readonly PlanStep[]): boolean {
+  return openSteps(plan).length === 0
 }
 
 function goalLine(focus: Focus, plan: readonly PlanStep[]): string {
@@ -243,13 +417,47 @@ export function observe(
   if (isVerification(observation) && !observation.isError) {
     tracker.mutationsSinceCheck = 0
     tracker.isVerified = true
+    tracker.checks += 1
   } else if (isMutation(observation) && !observation.isError) {
     tracker.mutations += 1
     tracker.mutationsSinceCheck += 1
+    // Thay đổi mới chưa được kiểm tra: lần kiểm tra trước không còn phủ trạng thái hiện tại.
+    tracker.isVerified = false
     isCounted = true
   }
+  if (observation.tool === 'Agent' && !observation.isError) tracker.delegated += 1
 
   if (focus === null) return findings
+
+  // Lệnh Bash ghi file: đối chiếu từng file đích với phạm vi; không đọc được đích thì báo riêng.
+  if (observation.tool === 'Bash' && focus.scopePaths.length > 0 && isMutation(observation)) {
+    const command = str(observation.input['command'])
+    const targets = bashWriteTargets(command)
+    for (const target of targets.paths) {
+      if (isPlanFile(target) || isInScope(target, focus.scopePaths) || tracker.outOfScope.has(target)) continue
+      tracker.outOfScope.add(target)
+      findings.push({
+        kind: 'scope',
+        priority: 3,
+        text: `Lệnh Bash ghi ngoài phạm vi đã nêu: ${target}`,
+        context:
+          `[focus-conductor] Lệnh \`${command.slice(0, 160)}\` ghi vào ${target}, nằm ngoài phạm vi người dùng giới hạn (${focus.scopePaths.join(', ')}). ` +
+          'Xác nhận thay đổi này là bắt buộc cho mục tiêu; nếu không, hoàn tác và quay lại phạm vi.',
+      })
+    }
+    if (targets.isUnknown && !tracker.unknownWriteWarned) {
+      tracker.unknownWriteWarned = true
+      findings.push({
+        kind: 'scope',
+        priority: 2,
+        text: `Lệnh ghi không xác định được file đích (phạm vi: ${focus.scopePaths.join(', ')}): ${command.slice(0, 80)}`,
+        context:
+          `[focus-conductor] Lệnh \`${command.slice(0, 160)}\` có thể ghi file nhưng mod không xác định được file đích, nên không đối chiếu được ` +
+          `với phạm vi người dùng giới hạn (${focus.scopePaths.join(', ')}). Kiểm tra lệnh này chỉ ghi trong phạm vi; nếu ghi ra ngoài, ` +
+          'xác nhận là bắt buộc cho mục tiêu hoặc hoàn tác.',
+      })
+    }
+  }
 
   const path = filePathOf(observation)
   if (
@@ -307,7 +515,10 @@ export function summarize(tracker: TurnTracker, brief: Brief | null, plan: reado
     findings.push({
       kind: 'unverified',
       priority: 1,
-      text: `Turn có ${tracker.mutations} thay đổi nhưng không chạy bước kiểm tra nào`,
+      text:
+        tracker.checks === 0
+          ? `Turn có ${tracker.mutations} thay đổi nhưng không chạy bước kiểm tra nào`
+          : `${tracker.mutationsSinceCheck} thay đổi sau lần kiểm tra cuối chưa được kiểm tra lại`,
     })
   }
   const open = openSteps(plan)
@@ -319,22 +530,42 @@ export function summarize(tracker: TurnTracker, brief: Brief | null, plan: reado
 
 // ------------------------------------------------------------ đối chiếu evidence
 
-/** Lệnh và file đã thấy trong mục tiêu hiện tại (luồng chính), để đối chiếu evidence khi Claude ghi "verified". */
-export type EvidenceLog = { goalId: number; commands: string[]; paths: string[] }
+/** Một lệnh Bash đã chạy trong mục tiêu: kết quả thật (ok theo mã thoát), loại kiểm tra và thứ tự. */
+export type EvidenceEntry = { command: string; ok: boolean; check: CheckKind | null; seq: number }
+
+/**
+ * Dấu vết thực thi của một mục tiêu, để đối chiếu evidence khi Claude ghi "verified": các lệnh Bash (kể cả lệnh lỗi),
+ * file đã đụng tới, số thay đổi và thứ tự của thay đổi cuối cùng.
+ */
+export type EvidenceLog = {
+  goalId: number
+  seq: number
+  /** Thứ tự của thay đổi thành công cuối cùng; -1 khi mục tiêu chưa có thay đổi. */
+  lastMutation: number
+  mutations: number
+  commands: EvidenceEntry[]
+  paths: string[]
+}
 
 const EVIDENCE_COMMANDS = 100
 const EVIDENCE_PATHS = 200
 
 export function newEvidenceLog(goalId: number): EvidenceLog {
-  return { goalId, commands: [], paths: [] }
+  return { goalId, seq: 0, lastMutation: -1, mutations: 0, commands: [], paths: [] }
 }
 
-/** Ghi lệnh Bash và đường dẫn file của một tool call vào dấu vết của mục tiêu. */
+/** Ghi một tool call vào dấu vết của mục tiêu: lệnh Bash kèm kết quả, thay đổi, và đường dẫn file. */
 export function noteEvidence(log: EvidenceLog, observation: ToolObservation): void {
+  log.seq += 1
   const command = str(observation.input['command']).trim()
   if (observation.tool === 'Bash' && command !== '') {
-    log.commands.push(command.slice(0, 500))
+    log.commands.push({ command: command.slice(0, 500), ok: !observation.isError, check: checkKindOf(command), seq: log.seq })
     if (log.commands.length > EVIDENCE_COMMANDS) log.commands.shift()
+  }
+  if (observation.isError) return
+  if (isMutation(observation)) {
+    log.lastMutation = log.seq
+    log.mutations += 1
   }
   for (const key of ['file_path', 'notebook_path', 'path']) {
     const path = str(observation.input[key]).trim()
@@ -344,24 +575,64 @@ export function noteEvidence(log: EvidenceLog, observation: ToolObservation): vo
   }
 }
 
-/**
- * Evidence có nhắc tới một lệnh đã chạy (vài từ đầu của một đoạn lệnh, như "claude plugin test" hay "npm test")
- * hoặc một file đã đụng tới (đường dẫn hoặc tên file) trong mục tiêu. Kiểm mềm: chỉ để cảnh báo, không chặn.
- */
-export function evidenceMatches(evidence: string, log: EvidenceLog): boolean {
+/** Evidence nhắc tới lệnh này: vài từ đầu của một đoạn lệnh (có hoặc không kèm tùy chọn), hoặc một đối số dạng đường dẫn. */
+function mentionsCommand(text: string, command: string): boolean {
+  for (const part of segments(command)) {
+    const tokens = part.toLowerCase().split(/\s+/).filter(Boolean)
+    const words = tokens.filter(t => !t.startsWith('-'))
+    const keys = [tokens.slice(0, 3).join(' '), words.slice(0, 2).join(' '), ...words.slice(1).filter(w => w.length >= 6 && /[\\/.]/.test(w))]
+    if (keys.some(key => key.length >= 4 && text.includes(key))) return true
+  }
+  return false
+}
+
+export type EvidenceLevel = 'strong' | 'stale' | 'weak' | 'none'
+
+export type EvidenceStrength = {
+  /**
+   * strong: nhắc một lệnh kiểm tra chạy thành công sau thay đổi cuối; stale: chỉ nhắc lệnh kiểm tra đã lỗi hoặc chạy
+   * trước thay đổi cuối; weak: chỉ nhắc lệnh khác hoặc file đã đụng tới; none: không nhắc gì đã chạy.
+   */
+  level: EvidenceLevel
+  /** Loại kiểm tra của bằng chứng strong: có test, hay chỉ kiểm tĩnh. */
+  check?: CheckKind
+  /** Lý do khi chưa đủ (để nói với Claude và người dùng). */
+  reason?: string
+}
+
+/** Đối chiếu evidence của "verified" với dấu vết thật của mục tiêu. */
+export function evidenceStrength(evidence: string, log: EvidenceLog): EvidenceStrength {
   const text = evidence.toLowerCase()
-  for (const command of log.commands) {
-    for (const part of segments(command)) {
-      const tokens = part.toLowerCase().split(/\s+/).filter(Boolean)
-      const words = tokens.filter(t => !t.startsWith('-'))
-      // Vài từ đầu của lệnh (có hoặc không kèm tùy chọn), hoặc một đối số dạng đường dẫn của lệnh.
-      const keys = [tokens.slice(0, 3).join(' '), words.slice(0, 2).join(' '), ...words.slice(1).filter(w => w.length >= 6 && /[\\/.]/.test(w))]
-      if (keys.some(key => key.length >= 4 && text.includes(key))) return true
+  const mentioned = log.commands.filter(entry => mentionsCommand(text, entry.command))
+  const fresh = mentioned.filter(entry => entry.check !== null && entry.ok && entry.seq > log.lastMutation)
+  if (fresh.length > 0) return { level: 'strong', check: fresh.some(entry => entry.check === 'test') ? 'test' : 'static' }
+  const checks = mentioned.filter(entry => entry.check !== null)
+  const last = checks[checks.length - 1]
+  if (last !== undefined) {
+    const shown = last.command.slice(0, 80)
+    return {
+      level: 'stale',
+      reason: !last.ok ? `lệnh kiểm tra \`${shown}\` đã lỗi` : `lệnh kiểm tra \`${shown}\` chạy trước thay đổi cuối cùng`,
     }
   }
-  return log.paths.some(path => {
+  const touched = log.paths.some(path => {
     const lower = path.toLowerCase()
     const name = lower.split(/[\\/]/).pop() ?? ''
     return text.includes(lower) || (name.length >= 4 && text.includes(name))
   })
+  if (mentioned.length > 0 || touched) return { level: 'weak', reason: 'evidence chỉ nhắc lệnh hay file khác, không nhắc lệnh kiểm tra nào chạy sau thay đổi cuối' }
+  return { level: 'none', reason: 'evidence không nhắc lệnh hay file nào đã chạy trong mục tiêu này' }
+}
+
+/** Evidence có nhắc tới bất kỳ lệnh hay file nào đã chạy trong mục tiêu (kiểm mềm, giữ cho tương thích). */
+export function evidenceMatches(evidence: string, log: EvidenceLog): boolean {
+  return evidenceStrength(evidence, log).level !== 'none'
+}
+
+/**
+ * "verified" chỉ được nhận khi bằng chứng mạnh, hoặc khi mục tiêu chưa có thay đổi nào (việc điều tra, chỉ đọc)
+ * và evidence nhắc ít nhất một lệnh hay file đã đụng tới. Còn lại bước được lưu là done.
+ */
+export function acceptsVerified(strength: EvidenceStrength, log: EvidenceLog): boolean {
+  return strength.level === 'strong' || (log.mutations === 0 && strength.level === 'weak')
 }

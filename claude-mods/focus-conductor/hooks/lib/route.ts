@@ -105,23 +105,31 @@ export function bumpEffort(effort: Effort, by: number): Effort {
   return EFFORTS[by > 0 ? Math.min(cap, next) : Math.max(0, next)] ?? effort
 }
 
-/** Họ bị chặn (lỗi API) thì ưu tiên chất lượng: lên fable nếu được phép, nếu không thì xuống họ thấp hơn và tăng effort một bậc. */
+/**
+ * Họ bị chặn (lỗi API) thì ưu tiên chất lượng: lên fable nếu được phép, nếu không thì xuống họ thấp hơn và tăng
+ * effort một bậc. Mọi họ thay thế phải nằm trong chính sách của phiên: fixed thì giữ họ cố định (người dùng đã
+ * chốt, không âm thầm đổi), ceiling thì không vượt trần, fable chỉ khi được phép. Không còn họ hợp lệ thì giữ nguyên.
+ */
 export function avoidBlocked(
   pick: Choice,
   blocked: ReadonlySet<ModelFamily>,
-  ctx: { kind: Kind; allowFable: boolean },
+  ctx: { kind: Kind; allowFable: boolean; session?: SessionModel | null },
 ): Choice {
   if (!blocked.has(pick.family)) return pick
-  if (pick.family === 'opus' && ctx.allowFable && !blocked.has('fable')) return { family: 'fable', effort: pick.effort }
+  const session = ctx.session ?? null
+  if (session?.policy === 'fixed') return pick
+  const isAllowed = (family: ModelFamily) =>
+    !blocked.has(family) && (family !== 'fable' || ctx.allowFable) && applySession(family, session) === family
+  if (pick.family === 'opus' && isAllowed('fable')) return { family: 'fable', effort: pick.effort }
   for (let rank = familyRank(pick.family) - 1; rank >= 0; rank--) {
     const family = FAMILIES[rank]
-    if (!family || blocked.has(family)) continue
+    if (!family || !isAllowed(family)) continue
     if (family === 'haiku' && (ctx.kind === 'edit' || ctx.kind === 'mixed')) continue
     return { family, effort: bumpEffort(pick.effort, 1) }
   }
   for (let rank = familyRank(pick.family) + 1; rank < FAMILIES.length; rank++) {
     const family = FAMILIES[rank]
-    if (family && !blocked.has(family)) return { family, effort: pick.effort }
+    if (family && isAllowed(family)) return { family, effort: pick.effort }
   }
   return pick
 }

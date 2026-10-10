@@ -600,7 +600,8 @@ describe('subagent theo router', () => {
   test('mọi việc ghi giao đã có Agent nhận thì không nhắc', {}, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
-    on('tool.call', { tool: 'Agent' }, () => ({ deny: 'test: đã ghi nhận đầu vào' }))
+    // Engine nhận lời gọi Agent (từ 0.5.1, lời gọi bị từ chối thì việc trở lại danh sách chờ).
+    on('tool.call', { tool: 'Agent' }, () => ({ result: 'đã giao' }))
     await submit($, FOUR)
     for (const n of [1, 2, 4]) await $.tool.call({ tool: 'Agent', description: `Việc ${n}: làm`, prompt: 'làm việc được giao' })
     const edit = await $.tool.call({ tool: 'Edit', file_path: 'src/c.ts', old_string: 'a', new_string: 'b' })
@@ -1214,7 +1215,7 @@ describe('rà soát trước merge (0.4.0)', () => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     // 1.000 token vào và 500 token ra ở giá sonnet ($2 và $10 mỗi 1M) = $0.007.
-    expect(String((await conductor($, 'status')).text)).toContain('Mục tiêu này: $0.0070')
+    expect(String((await conductor($, 'status')).text)).toContain('Mục tiêu này, đo được: $0.0070')
   })
 })
 
@@ -1438,7 +1439,7 @@ describe('0.5.0: giao việc đã phân', () => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     on('tool.call', { tool: 'Write' }, () => ({ result: 'ok' }))
-    on('tool.call', { tool: 'Agent' }, () => ({ deny: 'test' }))
+    on('tool.call', { tool: 'Agent' }, () => ({ result: 'đã giao' }))
     await submit($, FOUR)
     const plan = await $.tool.call({ tool: 'Write', file_path: '/root/.claude/plans/p.md', content: 'x' })
     expect(plan.deny).toBeUndefined()
@@ -1515,7 +1516,7 @@ describe('0.5.0: hỏi lại router và bộ đếm lỗi riêng', () => {
     expect(seen.routed.length).toBe(2)
     expect(seen.contexts[0]?.join('\n')).toContain('Mục tiêu cuối: Refactor module thanh toán')
     // Hai lượt router, mỗi lượt $0.007 ở giá sonnet.
-    expect(String((await conductor($, 'status')).text)).toContain('Mục tiêu này: $0.014,')
+    expect(String((await conductor($, 'status')).text)).toContain('Mục tiêu này, đo được: $0.014,')
     expect(JSON.parse(writes[writes.length - 1]?.trim() ?? '{}')).toMatchObject({ kind: 'route', retried: true })
   })
 
@@ -1551,14 +1552,14 @@ describe('0.5.0: verified phải có evidence thật', () => {
     expect(JSON.stringify(next.context ?? [])).not.toContain('Checkpoint')
   })
 
-  test('evidence không nhắc lệnh hay file nào đã chạy: vẫn ghi nhận, nhưng cảnh báo và chưa tính là đã kiểm tra', {}, async ($, on) => {
+  test('evidence không nhắc lệnh hay file nào đã chạy: lưu là done (0.5.1), cảnh báo và chưa tính là đã kiểm tra', {}, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, COMPLEX_PROMPT)
     await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa' }] })
     for (const f of ['a', 'b', 'c', 'd']) await $.tool.call({ tool: 'Edit', file_path: `src/${f}.ts`, old_string: 'x', new_string: 'y' })
     const done = await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'đã kiểm tra kỹ, chạy ổn' })
-    expect(String(done.result)).toContain('[v] 1. Sửa')
+    expect(String(done.result)).toContain('[x] 1. Sửa')
     expect(String(done.result)).toContain('chưa tính là đã kiểm tra')
     const next = await $.tool.call({ tool: 'Edit', file_path: 'src/e.ts', old_string: 'x', new_string: 'y' })
     expect(JSON.stringify(next.context ?? [])).toContain('Checkpoint')
@@ -1843,5 +1844,215 @@ describe('0.5.0: siết theo đánh giá PR', () => {
     const seen = base(on, { router: request => ((n += 1) === 1 ? '{"goal": "x"' : DEFAULT_ROUTER(request)) })
     await submit($, COMPLEX_PROMPT)
     expect(seen.toasts.some(t => t.includes('Router đã đọc lại một lần'))).toBe(true)
+  })
+})
+
+describe('0.5.1: kiểm chứng sau thay đổi cuối, phạm vi Bash, Stop, việc giao', () => {
+  const PLAN = 'mcp__focus-conductor__plan'
+  const MAIN_DONE = { turnId: 't1', answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer' } as never
+  const edit = ($: Engine, path: string) => $.tool.call({ tool: 'Edit', file_path: path, old_string: 'a', new_string: 'b' })
+
+  test('01: test đạt, sửa tiếp, không test lại: cuối turn báo thay đổi sau lần kiểm tra cuối', {}, async ($, on) => {
+    const seen = base(on)
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    on('tool.call', { tool: 'Bash' }, () => ({ result: '12 pass' }))
+    on('turn.complete', () => ({ text: '' }))
+    await submit($, COMPLEX_PROMPT)
+    await edit($, 'src/a.ts')
+    await $.tool.call({ tool: 'Bash', command: 'npm test' })
+    await edit($, 'src/b.ts')
+    await $.turn.complete(MAIN_DONE)
+    expect(seen.toasts.some(t => t.includes('1 thay đổi sau lần kiểm tra cuối chưa được kiểm tra lại'))).toBe(true)
+  })
+
+  test('02: lệnh Bash ghi ngoài phạm vi thì cảnh báo như Edit; không xác định được đích thì báo riêng', {}, async ($, on) => {
+    const seen = base(on, { router: () => plan({ goal: 'Sửa src', scope: ['src/'] }) })
+    on('tool.call', { tool: 'Bash' }, () => ({ result: 'ok' }))
+    await submit($, 'Chỉ sửa trong src/: đổi tên hàm charge')
+    const inside = await $.tool.call({ tool: 'Bash', command: 'sed -i s/a/b/ src/pay.ts' })
+    expect((inside.context ?? []).join('\n')).not.toContain('ngoài phạm vi')
+    const outside = await $.tool.call({ tool: 'Bash', command: 'sed -i s/a/b/ config/app.json' })
+    expect((outside.context ?? []).join('\n')).toContain('config/app.json, nằm ngoài phạm vi')
+    expect(seen.toasts.some(t => t.includes('Lệnh Bash ghi ngoài phạm vi đã nêu: config/app.json'))).toBe(true)
+    const unknown = await $.tool.call({ tool: 'Bash', command: 'python scripts/gen.py' })
+    expect((unknown.context ?? []).join('\n')).toContain('không xác định được file đích')
+  })
+
+  test('03: Stop chặn turn chỉ giao subagent hoặc chỉ đọc khi làm tiếp; câu hỏi ngoài lề thì không', {}, async ($, on) => {
+    const router: Responder = request =>
+      request.startsWith('làm tiếp') ? plan({ relation: 'continue', kind: 'mixed' }) : request.startsWith('hỏi') ? plan({ relation: 'continue', kind: 'answer' }) : DEFAULT_ROUTER(request)
+    base(on, { router })
+    on('tool.call', { tool: 'Read' }, () => ({ result: 'nội dung' }))
+    on('tool.call', { tool: 'Agent' }, () => ({ result: 'đã giao' }))
+    on('classic.Stop', () => ({}))
+    await submit($, FOUR)
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Giao việc' }, { title: 'Thiết kế' }] })
+    // Turn làm tiếp chỉ đọc file: vẫn là thực thi mục tiêu.
+    await submit($, 'làm tiếp phần thiết kế')
+    await $.turn.start({ text: 'làm tiếp phần thiết kế', turnId: 't2' })
+    await $.tool.call({ tool: 'Read', file_path: 'src/pay.ts' })
+    expect((await $.classic.Stop({ stop_hook_active: false })).block).toContain('Checklist còn 2 bước mở')
+    // Câu hỏi ngoài lề, có đọc file: không bị checklist chặn.
+    await submit($, 'hỏi: hàm charge trả về gì')
+    await $.turn.start({ text: 'hỏi: hàm charge trả về gì', turnId: 't3' })
+    await $.tool.call({ tool: 'Read', file_path: 'src/pay.ts' })
+    expect((await $.classic.Stop({ stop_hook_active: false })).block).toBeUndefined()
+    // Turn chỉ giao subagent (kể cả khi prompt là câu hỏi): là thực thi.
+    await $.turn.start({ text: 'giao', turnId: 't4' })
+    await $.tool.call({ tool: 'Agent', description: 'Việc 1: tìm chỗ gọi charge', prompt: SEARCH })
+    expect((await $.classic.Stop({ stop_hook_active: false })).block).toContain('Checklist còn 2 bước mở')
+  })
+
+  test('05: set với steps rỗng xóa checklist', {}, async ($, on) => {
+    base(on)
+    await submit($, COMPLEX_PROMPT)
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'a' }, { title: 'b' }] })
+    const cleared = await $.tool.call({ tool: PLAN, action: 'set', goal: 'Mục tiêu đã đổi', steps: [] })
+    expect(String(cleared.result)).toContain('Checklist trống')
+  })
+
+  test('04: verified sau thay đổi mà chưa test lại, hoặc nhắc lệnh test đã lỗi, thì lưu done kèm lý do', {}, async ($, on) => {
+    base(on)
+    let failing = false
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    on('tool.call', { tool: 'Bash' }, () => (failing ? { result: '1 fail', isError: true } : { result: '12 pass' }))
+    await submit($, COMPLEX_PROMPT)
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'a' }, { title: 'b' }, { title: 'c' }] })
+    await edit($, 'src/a.ts')
+    await $.tool.call({ tool: 'Bash', command: 'npm test' })
+    await edit($, 'src/b.ts')
+    const stale = await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'npm test: 12 pass' })
+    expect(String(stale.result)).toContain('[x] 1. a')
+    expect(String(stale.result)).toContain('chạy trước thay đổi cuối cùng')
+    failing = true
+    await $.tool.call({ tool: 'Bash', command: 'npm test' })
+    const failed = await $.tool.call({ tool: PLAN, action: 'update', step: 2, status: 'verified', evidence: 'npm test chạy' })
+    expect(String(failed.result)).toContain('[x] 2. b')
+    expect(String(failed.result)).toContain('đã lỗi')
+    failing = false
+    await $.tool.call({ tool: 'Bash', command: 'npm test' })
+    const ok = await $.tool.call({ tool: PLAN, action: 'update', step: 3, status: 'verified', evidence: 'npm test: 12 pass' })
+    expect(String(ok.result)).toContain('[v] 3. c')
+    expect(String(ok.result)).not.toContain('chưa tính là đã kiểm tra')
+  })
+
+  test('04: chỉ kiểm tĩnh thì ghi chú; việc chỉ đọc nêu file đã đọc thì nhận verified', {}, async ($, on) => {
+    base(on, { router: request => (request.startsWith('Đọc') ? plan({ goal: 'Đọc hiểu', kind: 'investigate' }) : DEFAULT_ROUTER(request)) })
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    on('tool.call', { tool: 'Bash' }, () => ({ result: 'sạch' }))
+    on('tool.call', { tool: 'Read' }, () => ({ result: 'nội dung' }))
+    await submit($, COMPLEX_PROMPT)
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa' }] })
+    await edit($, 'src/a.ts')
+    await $.tool.call({ tool: 'Bash', command: 'npx tsc --noEmit' })
+    const typed = await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'npx tsc --noEmit sạch' })
+    expect(String(typed.result)).toContain('[v] 1. Sửa')
+    expect(String(typed.result)).toContain('chỉ là kiểm tĩnh')
+    await submit($, 'Đọc src/pay.ts và giải thích luồng')
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Đọc luồng' }] })
+    await $.tool.call({ tool: 'Read', file_path: '/repo/src/pay.ts' })
+    const read = await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'đã đọc pay.ts' })
+    expect(String(read.result)).toContain('[v] 1. Đọc luồng')
+  })
+
+  test('04: tiêu chí nghiệm thu của bước được nhắc khi đóng bước; đóng bước cuối thì nhắc tiêu chí chất lượng', {}, async ($, on) => {
+    base(on)
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    on('tool.call', { tool: 'Bash' }, () => ({ result: '12 pass' }))
+    await submit($, COMPLEX_PROMPT)
+    const set = await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Migrate', check: 'API công khai không đổi' }] })
+    expect(String(set.result)).toContain('[nghiệm thu: API công khai không đổi]')
+    await edit($, 'src/a.ts')
+    await $.tool.call({ tool: 'Bash', command: 'npm test' })
+    const done = await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'npm test: 12 pass' })
+    expect(String(done.result)).toContain('Tiêu chí nghiệm thu của bước 1: API công khai không đổi')
+    expect(String(done.result)).toContain('(1) Hiệu năng không giảm')
+  })
+
+  test('04: lệnh test do subagent chạy sau thay đổi cuối cũng là bằng chứng', {}, async ($, on) => {
+    base(on)
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    on('tool.call', { tool: 'Bash' }, () => ({ result: '12 pass' }))
+    on('tool.call', { tool: 'Agent' }, () => ({ result: 'đã giao' }))
+    on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'chk-1' }))
+    await submit($, COMPLEX_PROMPT)
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa' }] })
+    await edit($, 'src/a.ts')
+    await spawnTool($, 'u-chk', 'Chạy test', 'Chạy npm test và báo kết quả')
+    await $.tool.call({ tool: 'Bash', command: 'npm test', agentId: 'chk-1' } as never)
+    const done = await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'subagent chạy npm test: 12 pass' })
+    expect(String(done.result)).toContain('[v] 1. Sửa')
+  })
+
+  test('việc giao subagent: chờ, đang chạy, lỗi (Stop và cảnh báo nhắc), giao lại rồi xong; lời gọi bị từ chối thì về chờ', {}, async ($, on) => {
+    base(on)
+    let n = 0
+    let isDenied = false
+    on('tool.call', { tool: 'Agent' }, () => (isDenied ? { deny: 'người dùng từ chối' } : { result: 'đã giao' }))
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: `dg-${(n += 1)}` }))
+    on('turn.complete', () => ({ text: '' }))
+    on('classic.Stop', () => ({}))
+    await submit($, FOUR)
+    const status = async () => String((await conductor($, 'status')).text)
+    expect(await status()).toContain('2. Đổi tên userId thành accountId trong 12 file controller.: chờ giao')
+    await spawnTool($, 'u-2', 'Việc 2: đổi tên userId', EDIT)
+    expect(await status()).toContain('accountId trong 12 file controller.: đang chạy')
+    await $.turn.complete({ turnId: 'a-2', agentId: 'dg-1', answer: '', durationMs: 1, isAborted: false, reason: 'error' } as never)
+    expect(await status()).toContain('accountId trong 12 file controller.: lỗi, chưa giao lại')
+    await edit($, 'src/x.ts')
+    expect((await $.classic.Stop({ stop_hook_active: false })).block).toContain('Việc giao subagent đã lỗi, chưa giao lại: Việc 2 (sonnet/medium)')
+    await $.turn.complete(MAIN_DONE)
+    const pane = await $.ui.mount(PANE)
+    expect(await pane.find({ type: 'Text', text: /giao subagent đã lỗi, chưa giao lại/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /accountId trong 12 file controller\.: lỗi, chưa giao lại/ })).toBeDefined()
+    await pane.unmount()
+    await spawnTool($, 'u-2b', 'Việc 2: đổi tên userId, lần hai', EDIT)
+    await $.turn.complete({ turnId: 'a-2b', agentId: 'dg-2', answer: 'xong', durationMs: 1, isAborted: false, reason: 'answer' } as never)
+    expect(await status()).toContain('accountId trong 12 file controller.: xong')
+    // Lời gọi Agent bị từ chối: việc không chạy, trở lại danh sách chờ.
+    isDenied = true
+    await $.tool.call({ tool: 'Agent', tool_use_id: 'u-4', description: 'Việc 4: README', prompt: 'Cập nhật README phần cài đặt.' })
+    expect(await status()).toContain('4. Cập nhật README phần cài đặt.: chờ giao')
+  })
+
+  test('blockLimit: số lần chặn theo cấu hình', { options: { strictDelegation: 'block', blockLimit: 3 } }, async ($, on) => {
+    base(on)
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    await submit($, FOUR)
+    for (let i = 0; i < 3; i++) expect((await edit($, 'src/a.ts')).deny).toBeDefined()
+    expect((await edit($, 'src/a.ts')).deny).toBeUndefined()
+  })
+
+  test('status tách chi phí đo được với phần còn ước tính, và báo độ trễ router', {}, async ($, on) => {
+    base(on)
+    on('tool.call', { tool: 'Agent' }, () => ({ result: 'đã giao' }))
+    on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'est-1' }))
+    await submit($, FOUR)
+    await spawnTool($, 'u-e', 'Việc 2: đổi tên userId', EDIT)
+    const text = String((await conductor($, 'status')).text)
+    expect(text).toContain('Phiên, đo được:')
+    expect(text).toContain('Ước tính lúc giao, chưa có số đo:')
+    expect(text).toContain('Độ trễ router: trung bình 0.0 s qua 1 lượt')
+  })
+})
+
+describe('0.5.1: dấu vết thực thi giữ theo mục tiêu', () => {
+  test('khôi phục mục tiêu cũ không mất lịch sử thay đổi: evidence chỉ nhắc file vẫn lưu done', {}, async ($, on) => {
+    const PLAN = 'mcp__focus-conductor__plan'
+    base(on)
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    on('tool.call', { tool: 'Read' }, () => ({ result: 'nội dung' }))
+    await submit($, COMPLEX_PROMPT)
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa' }] })
+    await $.tool.call({ tool: 'Edit', file_path: 'src/pay.ts', old_string: 'a', new_string: 'b' })
+    await submit($, 'Viết hàm slugify(text) bằng TypeScript, có unit test.')
+    // Mục tiêu mới có tool call riêng: dấu vết chuyển sang mục tiêu mới.
+    await $.tool.call({ tool: 'Edit', file_path: 'src/slugify.ts', old_string: 'a', new_string: 'b' })
+    await $.tool.call({ tool: PLAN, action: 'restore' })
+    // Chỉ đọc lại file sau khi khôi phục: mục tiêu này đã có thay đổi, nên đọc lại không đủ để ghi verified.
+    await $.tool.call({ tool: 'Read', file_path: 'src/pay.ts' })
+    const done = await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'đã đọc lại pay.ts' })
+    expect(String(done.result)).toContain('[x] 1. Sửa')
   })
 })

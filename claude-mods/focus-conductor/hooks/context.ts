@@ -2,9 +2,9 @@
 // mà nhiều nhóm hook cùng dùng. Không gọi $: lệnh gọi $ nằm trong thân hook ở hooks/parts/.
 
 import type { PluginOptions, PromptOrigin } from 'claude-code'
-import type { Brief, Choice, Core, Effort, Lift, Mode, ModelFamily, Route, RouteEvent, Task, Tier, Volume } from '../types'
+import type { Brief, Choice, Core, DelegationItem, DelegationState, Effort, Lift, Mode, ModelFamily, Route, RouteEvent, Task, Tier, Volume } from '../types'
 import { newEvidenceLog, newTracker } from './lib/drift'
-import type { EvidenceLog, TurnTracker } from './lib/drift'
+import type { EvidenceLog, PromptIntent, TurnTracker } from './lib/drift'
 import { DEFAULT_CONTEXT, DEFAULT_WINDOWS, applyPrices, parsePrices } from './lib/cost'
 import { EFFORTS, decideMain, describePick, familyOf, liftPick, parseModelMap, parseWindows } from './lib/route'
 import type { SessionModel, SessionPolicy } from './lib/route'
@@ -35,8 +35,31 @@ export const ROUTER_PAUSE = 3
 export const AGENT_ROUTE_LIMIT = 50
 /** Tool sửa file của luồng chính (dùng để nhắc giao việc đã phân). */
 export const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
-/** strictDelegation "block": số lần tối đa từ chối luồng chính sửa file trong một mục tiêu. */
+/** strictDelegation "block": số lần mặc định từ chối luồng chính sửa file trong một mục tiêu (option blockLimit đổi được, 1 đến 10). */
 export const BLOCK_EDITS = 2
+export const BLOCK_LIMIT_MAX = 10
+/** Số mục tiêu gần nhất giữ dấu vết thực thi (để khôi phục mục tiêu không mất lịch sử thay đổi và kiểm tra). */
+export const EVIDENCE_GOALS = 4
+/** Số lượt router gần nhất giữ thời gian chạy, cho /conductor status. */
+export const ROUTER_TIMES = 50
+
+/** Việc giao subagent của một mục tiêu theo trạng thái: nhãn hiển thị theo số việc. */
+export type Delegation = {
+  goalId: number
+  pending: Map<number, string>
+  running: Map<number, string>
+  done: Map<number, string>
+  failed: Map<number, string>
+  isNudged: boolean
+  isWarned: boolean
+  blocks: number
+  /** Việc lỗi đã được cảnh báo cuối turn (mỗi việc một lần). */
+  failWarned: Set<number>
+}
+
+export function newDelegation(goalId = -1, pending = new Map<number, string>()): Delegation {
+  return { goalId, pending, running: new Map(), done: new Map(), failed: new Map(), isNudged: false, isWarned: false, blocks: 0, failWarned: new Set() }
+}
 /** Số lỗi tool trong một turn để nâng effort cho turn sau. */
 export const ERROR_BURST = 3
 
@@ -54,8 +77,14 @@ export function createContext(options: PluginOptions) {
   // (trạng thái bền nằm trong $.state).
   const local = {
     tracker: newTracker('') as TurnTracker,
-    /** Lệnh và file luồng chính đã chạy trong mục tiêu hiện tại: đối chiếu evidence khi Claude ghi "verified". */
+    /** Lệnh (kèm kết quả) và file đã chạy trong mục tiêu hiện tại: đối chiếu evidence khi Claude ghi "verified". */
     evidenceLog: newEvidenceLog(-1) as EvidenceLog,
+    /** Dấu vết của vài mục tiêu gần nhất, để khôi phục mục tiêu không mất lịch sử thay đổi và kiểm tra. */
+    evidenceLogs: new Map<number, EvidenceLog>(),
+    /** Cách router đọc prompt gần nhất (quan hệ với mục tiêu, bản chất việc): để Stop phân biệt hỏi đáp với thực thi. */
+    promptIntent: null as PromptIntent,
+    /** Thời gian chạy (ms) của các lượt router gần nhất. */
+    routerTimes: [] as number[],
     turnRoute: { turnId: '', route: null } as { turnId: string; route: Route | null },
     turnContext: 0,
     isGoalNew: false,
@@ -78,7 +107,7 @@ export function createContext(options: PluginOptions) {
     agentTrouble: { failures: 0, pausedUntil: 0 },
     lastWindow: DEFAULT_WINDOW,
     /** Việc đã ghi "giao subagent" của mục tiêu hiện tại mà chưa có Agent nào nhận. */
-    delegation: { goalId: -1, pending: new Map<number, string>(), isNudged: false, isWarned: false, blocks: 0 },
+    delegation: newDelegation(),
   }
   const blocked = new Set<ModelFamily>()
   // Một lần lỗi có thể chỉ là tạm thời (429, quá tải): chỉ chặn một họ model
@@ -96,6 +125,8 @@ export function createContext(options: PluginOptions) {
     description: string
     sentFamily: ModelFamily | null
     sentEffort: Effort | null
+    /** Số việc đã phân mà lời gọi này nhận (nếu khớp). */
+    taskIndex?: number
   }
   const pendingAgents = new Map<string, PendingAgent>()
   // Subagent đã khởi động. `pick` là model và effort mod đã điều phối; `sentEffort` là effort thật
@@ -115,6 +146,8 @@ export function createContext(options: PluginOptions) {
     sentEffort?: Effort
     warned: boolean
     fallback: boolean
+    /** Số việc đã phân mà agent này làm (nếu khớp), để ghi xong hay lỗi. */
+    taskIndex?: number
   }
   const agents = new Map<string, AgentMeta>()
   const agentTrackers = new Map<string, TurnTracker>()
@@ -131,6 +164,8 @@ export function createContext(options: PluginOptions) {
   const remindSubagents = options['remindSubagents'] === true
   const semanticDrift = options['semanticDrift'] === true
   const decisionLog = typeof options['decisionLog'] === 'string' ? options['decisionLog'].trim() : ''
+  const rawBlockLimit = Number(options['blockLimit'])
+  const blockLimit = Number.isInteger(rawBlockLimit) && rawBlockLimit >= 1 ? Math.min(BLOCK_LIMIT_MAX, rawBlockLimit) : BLOCK_EDITS
   const extraAgents = String(options['agentTypes'] ?? '')
     .split(',')
     .map(name => name.trim())
@@ -252,6 +287,9 @@ export function createContext(options: PluginOptions) {
   function resetLocal(): void {
     local.tracker = newTracker('')
     local.evidenceLog = newEvidenceLog(-1)
+    local.evidenceLogs.clear()
+    local.promptIntent = null
+    local.routerTimes = []
     local.turnRoute = { turnId: '', route: null }
     local.turnContext = 0
     local.isGoalNew = false
@@ -266,7 +304,7 @@ export function createContext(options: PluginOptions) {
     agents.clear()
     agentTrackers.clear()
     agentFailures.length = 0
-    local.delegation = { goalId: -1, pending: new Map(), isNudged: false, isWarned: false, blocks: 0 }
+    local.delegation = newDelegation()
     local.lastWindow = DEFAULT_WINDOW
     pendingAgents.clear()
     steppedEarly.clear()
@@ -373,12 +411,81 @@ export function createContext(options: PluginOptions) {
     for (const task of tasks) {
       if (task.run === 'agent') pending.set(task.index, `${task.index} (${describePick(task.pick)})`)
     }
-    local.delegation = keep ? local.delegation : { goalId, pending, isNudged: false, isWarned: false, blocks: 0 }
+    local.delegation = keep ? local.delegation : newDelegation(goalId, pending)
   }
 
   /** Danh sách việc giao còn chờ của mục tiêu này, rỗng nếu không có. */
   function pendingFor(brief: Brief | null): string[] {
     return brief && local.delegation.goalId === brief.goalId ? [...local.delegation.pending.values()] : []
+  }
+
+  /** Việc giao subagent đã lỗi mà chưa giao lại, của mục tiêu này. */
+  function failedFor(brief: Brief | null): string[] {
+    return brief && local.delegation.goalId === brief.goalId ? [...local.delegation.failed.values()] : []
+  }
+
+  /** Chuyển một việc đã phân sang trạng thái mới (chờ, đang chạy, xong, lỗi) trong mục tiêu goalId. */
+  function moveDelegation(goalId: number, index: number, state: DelegationState): void {
+    const d = local.delegation
+    if (d.goalId !== goalId) return
+    const maps = { pending: d.pending, running: d.running, done: d.done, failed: d.failed }
+    const label = d.pending.get(index) ?? d.running.get(index) ?? d.failed.get(index) ?? d.done.get(index)
+    if (label === undefined) return
+    for (const map of Object.values(maps)) map.delete(index)
+    maps[state].set(index, label)
+    if (state !== 'failed') d.failWarned.delete(index)
+  }
+
+  /** Trạng thái các việc giao subagent của brief, để ghi vào $.state cho pane và status. */
+  function delegationItems(brief: Brief | null): DelegationItem[] {
+    if (brief === null || brief.isReference || local.delegation.goalId !== brief.goalId) return []
+    const d = local.delegation
+    return brief.tasks
+      .filter(task => task.run === 'agent')
+      .map(task => ({
+        index: task.index,
+        title: task.title,
+        state: d.running.has(task.index) ? 'running' : d.done.has(task.index) ? 'done' : d.failed.has(task.index) ? 'failed' : 'pending',
+      }))
+  }
+
+  /** Dấu vết thực thi của một mục tiêu (giữ EVIDENCE_GOALS mục tiêu gần nhất). */
+  function evidenceFor(goalId: number): EvidenceLog {
+    if (local.evidenceLog.goalId === goalId) return local.evidenceLog
+    const kept = local.evidenceLogs.get(goalId) ?? newEvidenceLog(goalId)
+    local.evidenceLogs.delete(goalId)
+    local.evidenceLogs.set(goalId, kept)
+    while (local.evidenceLogs.size > EVIDENCE_GOALS) {
+      const oldest = local.evidenceLogs.keys().next().value
+      if (oldest === undefined) break
+      local.evidenceLogs.delete(oldest)
+    }
+    local.evidenceLog = kept
+    return kept
+  }
+
+  /** Mục tiêu được khôi phục mang số mục tiêu mới: chuyển dấu vết thực thi của nó sang số mới. */
+  function carryEvidence(from: number, to: number): void {
+    const log = local.evidenceLog.goalId === from ? local.evidenceLog : local.evidenceLogs.get(from)
+    if (log === undefined) return
+    local.evidenceLogs.delete(from)
+    const moved: EvidenceLog = { ...log, goalId: to }
+    local.evidenceLogs.set(to, moved)
+    if (local.evidenceLog.goalId === from) local.evidenceLog = moved
+  }
+
+  /** Ghi thời gian một lượt router (ms). */
+  function noteRouterTime(ms: number): void {
+    local.routerTimes.push(Math.max(0, ms))
+    if (local.routerTimes.length > ROUTER_TIMES) local.routerTimes.shift()
+  }
+
+  /** Dòng độ trễ router cho /conductor status; null khi chưa có lượt nào. */
+  function routerTimeLine(): string | null {
+    const times = local.routerTimes
+    if (times.length === 0) return null
+    const avg = times.reduce((a, b) => a + b, 0) / times.length
+    return `Độ trễ router: trung bình ${(avg / 1000).toFixed(1)} s qua ${times.length} lượt, chậm nhất ${(Math.max(...times) / 1000).toFixed(1)} s (routerSkip giảm số lượt khi bật)`
   }
 
   /**
@@ -471,24 +578,31 @@ export function createContext(options: PluginOptions) {
     agentRoutes,
     agentTrackers,
     agents,
+    blockLimit,
     blocked,
     blockedUntil,
     cacheTtlMs,
+    carryEvidence,
     contextWindows,
     decideTurn,
     decisionLog,
     decisionText,
     defaultWindows,
+    delegationItems,
+    evidenceFor,
     expectedMain,
     expireBlocks,
     extraAgents,
+    failedFor,
     failures,
     isAgentRouterPaused,
     isRouterPaused,
     mainDecision,
     modelMap,
+    moveDelegation,
     noteAgentRouter,
     noteRouter,
+    noteRouterTime,
     offered,
     pendingAgents,
     pendingFor,
@@ -505,6 +619,7 @@ export function createContext(options: PluginOptions) {
     routerFallback,
     routerFamily,
     routerModel,
+    routerTimeLine,
     semanticDrift,
     sessionModel,
     sessionPolicy,

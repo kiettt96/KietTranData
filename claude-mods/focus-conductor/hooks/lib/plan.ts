@@ -17,7 +17,8 @@ export const PLAN_TOOL_SPEC: ToolSpec = {
   isDeferred: false,
   description:
     'Ghi và cập nhật mục tiêu cuối cùng cùng checklist các bước của task hiện tại (chỉ luồng chính). ' +
-    'action "set": đặt goal (tùy chọn) và steps (thay toàn bộ checklist; mỗi bước có thể kèm tier để ghi độ phức tạp). ' +
+    'action "set": đặt goal (tùy chọn) và steps (thay toàn bộ checklist; steps rỗng là xóa checklist, không truyền steps là giữ checklist; ' +
+    'mỗi bước có thể kèm tier để ghi độ phức tạp và check là tiêu chí nghiệm thu của bước). ' +
     '"set" có thể kèm scope (đường dẫn được phép sửa; mảng rỗng là bỏ giới hạn). ' +
     'action "update": đổi status của một bước theo id; "verified" bắt buộc có evidence (lệnh đã chạy, kết quả), ' +
     '"skipped" và "blocked" bắt buộc có note giải thích. action "add": thêm bước vào cuối. ' +
@@ -36,6 +37,7 @@ export const PLAN_TOOL_SPEC: ToolSpec = {
           properties: {
             title: { type: 'string' },
             tier: { type: 'string', enum: [...TIERS] },
+            check: { type: 'string', description: 'Tiêu chí nghiệm thu của bước (tùy chọn): điều phải đúng để coi bước là đạt.' },
           },
           required: ['title'],
         },
@@ -79,7 +81,8 @@ function parseSteps(value: unknown, startId: number): PlanStep[] {
     const title = typeof raw === 'string' ? raw.trim() : text(item['title'])
     if (!title) continue
     const tier = TIERS.find(t => t === item['tier']) as Tier | undefined
-    out.push({ id: startId + out.length, title: title.slice(0, 160), status: 'todo', ...(tier ? { tier } : {}) })
+    const check = text(item['check']).slice(0, 200)
+    out.push({ id: startId + out.length, title: title.slice(0, 160), status: 'todo', ...(tier ? { tier } : {}), ...(check ? { check } : {}) })
     if (out.length >= 20) break
   }
   return out
@@ -98,10 +101,14 @@ export function applyPlan(current: readonly PlanStep[], input: PlanInput): PlanO
   if (action === 'set') {
     const steps = parseSteps(input.steps, 1)
     const goal = text(input.goal)
-    if (steps.length === 0 && !goal) return { error: 'action "set" cần goal hoặc ít nhất một bước trong steps.' }
+    // steps: [] là thay bằng checklist rỗng (xóa); không truyền steps là giữ checklist và chỉ đổi goal hay scope.
+    const hasSteps = Array.isArray(input.steps)
+    const isClear = hasSteps && (input.steps as unknown[]).length === 0
+    if (hasSteps && !isClear && steps.length === 0) return { error: 'action "set": steps không có bước hợp lệ nào (mỗi bước cần title).' }
+    if (!hasSteps && !goal) return { error: 'action "set" cần goal hoặc steps (steps rỗng là xóa checklist).' }
     const scope = Array.isArray(input.scope) ? scopeOf(input.scope) : undefined
     if (scope === null) return { error: 'scope chỉ nhận đường dẫn file hoặc thư mục (có / hoặc phần mở rộng, không khoảng trắng).' }
-    return { plan: steps.length > 0 ? steps : [...current], ...(goal ? { goal } : {}), ...(scope !== undefined ? { scope } : {}) }
+    return { plan: hasSteps ? steps : [...current], ...(goal ? { goal } : {}), ...(scope !== undefined ? { scope } : {}) }
   }
 
   if (action === 'add') {

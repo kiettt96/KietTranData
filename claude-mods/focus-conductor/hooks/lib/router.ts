@@ -314,8 +314,21 @@ export function fitPick(pick: Choice, kind: Kind, policy: Policy): Fitted {
     notes.push(`theo model của phiên: ${family} về ${capped}`)
     family = capped
   }
-  const safe = avoidBlocked({ family, effort }, policy.blocked, { kind, allowFable: policy.allowFable })
+  const safe = avoidBlocked({ family, effort }, policy.blocked, { kind, allowFable: policy.allowFable, session: policy.session })
   if (safe.family !== family) notes.push(`${family} đang bị chặn: dùng ${describePick(safe)}`)
+  else if (policy.blocked.has(family)) {
+    notes.push(
+      policy.session?.policy === 'fixed'
+        ? `model cố định ${family} đang bị chặn: giữ theo cấu hình phiên (đổi bằng /model nếu muốn)`
+        : `${family} đang bị chặn và không có họ thay thế trong chính sách phiên: giữ ${family}`,
+    )
+  }
+  // Chốt chặn cuối: lựa chọn sau mọi bước tránh lỗi vẫn phải nằm trong chính sách model của phiên.
+  const final = applySession(safe.family, policy.session)
+  if (final !== safe.family) {
+    notes.push(`theo model của phiên: ${safe.family} về ${final}`)
+    return { pick: { family: final, effort: safe.effort }, notes }
+  }
   return { pick: safe, notes }
 }
 

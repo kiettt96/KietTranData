@@ -14,7 +14,7 @@ import { DISCIPLINE, briefContext, droppedPlanNotice, followUpContext, skippedCo
 import type { On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
-import { PERSON_ORIGINS, SLASH_COMMAND } from '../context'
+import { PERSON_ORIGINS, SLASH_COMMAND, newDelegation } from '../context'
 
 // Atom của mod, khai báo lại ở mỗi file dùng chúng (engine chỉ nhận tham chiếu state viết trong chính file đó);
 // cùng plugin và key nên là cùng một giá trị trong $.state.
@@ -24,7 +24,7 @@ const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null
 
 export function registerSession(on: On, ctx: Ctx): void {
   const L = ctx.local
-  const { decisionLog, decisionText, expectedMain, isRouterPaused, noteRouter, policy, ranText, record, resetLocal, routerFallback, routerFamily, routerModel, skipPhrases, trackDelegations, wantedPick } = ctx
+  const { decisionLog, decisionText, delegationItems, expectedMain, isRouterPaused, noteRouter, noteRouterTime, policy, ranText, record, resetLocal, routerFallback, routerFamily, routerModel, skipPhrases, trackDelegations, wantedPick } = ctx
   const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
   const mode = derive([modeState], modeOf(ctx.options))
 
@@ -79,6 +79,8 @@ export function registerSession(on: On, ctx: Ctx): void {
     if (prev !== null && isSkippable(text, skipPhrases)) {
       const at = await $.clock.now()
       record(at, 'skip', { prompt: text, goalId: prev.goalId })
+      // Câu tiếp nối ngắn: turn này làm tiếp mục tiêu đang mở.
+      L.promptIntent = { relation: 'continue', kind: prev.isReference ? 'answer' : prev.kind }
       if (decisionLog) await $.fs.write(decisionLog, decisionText()).catch(() => undefined)
       return next({ ...e, context: [...(e.context ?? []), skippedContext(prev, before.plan)] })
     }
@@ -91,11 +93,15 @@ export function registerSession(on: On, ctx: Ctx): void {
     if (!isPaused) {
       $.ui.status('router đang đọc prompt...')
       const request = routerRequest({ text, prev, ran: ranText(before), policy: rules, model: routerModel })
+      const startedAt = await $.clock.now()
       outcome = await askRouter(r => $.model.complete(r).catch(() => null), request, reply => parseRoute(reply, rules))
+      noteRouterTime((await $.clock.now()) - startedAt)
       pauseText = noteRouter(outcome.result !== null)
     }
     const plan = outcome.result
     const now = await $.clock.now()
+    // Router không đọc được thì không biết turn là hỏi đáp hay làm tiếp: Stop chỉ dựa vào hành vi tool.
+    L.promptIntent = plan !== null ? { relation: plan.relation, kind: plan.isReference && !plan.runReference ? 'answer' : plan.kind } : null
     const withUsage = (c: Core): Core =>
       outcome.usages.reduce((acc, usage) => S.withLedger(l => addUsage(l, 'analyzer', routerFamily, usage).ledger)(acc), c)
 
@@ -104,7 +110,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       // luồng chính. routerFallback "reuse" (người dùng tự bật) giữ cả lựa chọn của prompt trước.
       const isReuse = routerFallback === 'reuse' && prev !== null && prev.main !== null
       const kept: Brief | null = prev ? { ...prev, ...(isReuse ? {} : { main: null }), at: now } : null
-      if (!isReuse) L.delegation = { goalId: -1, pending: new Map(), isNudged: false, isWarned: false, blocks: 0 }
+      if (!isReuse) L.delegation = newDelegation()
       const failText = isReuse
         ? `Router (${routerModel}) không đọc được prompt (${outcome.reason}); dùng lại lựa chọn của prompt trước`
         : `Router (${routerModel}) không đọc được prompt (${outcome.reason}); turn này chạy theo model của phiên`
@@ -116,7 +122,8 @@ export function registerSession(on: On, ctx: Ctx): void {
       await update($, coreState, c => {
         const used = withUsage(c)
         const withKept = kept ? S.withBrief(kept)(used) : used
-        return S.withWarnings(...warnings)(isReuse ? withKept : S.withRoute(null)(withKept))
+        const withNotes = S.withWarnings(...warnings)(isReuse ? withKept : S.withRoute(null)(withKept))
+        return isReuse ? withNotes : S.withDelegations(-1, [])(withNotes)
       })
       L.lastPrompt = { text, prev, goalId: kept?.goalId ?? null }
       record(now, 'router-fail', { prompt: clipText(text), reason: outcome.reason, retried: outcome.retried, reuse: isReuse })
@@ -141,6 +148,7 @@ export function registerSession(on: On, ctx: Ctx): void {
     const expected = wanted !== null && isNewGoal ? expectedMain(core, brief, wanted, now) : wanted
     if (isNewGoal) trackDelegations(brief.goalId, brief.isReference ? [] : brief.tasks)
     else if (!brief.isReference) trackDelegations(brief.goalId, added, true)
+    await update($, coreState, S.withDelegations(brief.goalId, delegationItems(brief)))
     const context = isNewGoal
       ? briefContext(brief, expected, isApplied)
       : followUpContext(brief, core.plan, plan.constraints.filter(c => !prev?.constraints.includes(c)), added, expected, isApplied)
