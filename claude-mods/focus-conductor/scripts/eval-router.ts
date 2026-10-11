@@ -65,6 +65,10 @@ async function one(c: (typeof CASES)[number]) {
   return { c, text, fails, ms, usd, served }
 }
 
+// Phiên bản Claude Code chạy eval, ghi kèm kết quả để số liệu gắn với đúng môi trường.
+const version = (await run('', ['--version'])).out.trim()
+console.log(`Claude Code ${version || '?'}, router ${MODEL}, ${new Date().toISOString()}`)
+
 const picked = CASES.filter(c => !ONLY || ONLY.includes(c.id))
 const results: Awaited<ReturnType<typeof one>>[] = []
 for (let i = 0; i < picked.length; i += 4) results.push(...(await Promise.all(picked.slice(i, i + 4).map(one))))

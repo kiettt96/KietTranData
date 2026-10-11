@@ -6,7 +6,7 @@
 
 import type { PluginOptions } from 'claude-code'
 
-import type { ArchivedGoal, Brief, Core, Ledger, Lift, Mode, PlanStep, Route, RouteEvent, Warning } from '../../types'
+import type { ArchivedGoal, Brief, Core, DelegationItem, Ledger, Lift, Mode, PlanStep, Route, RouteEvent, Warning } from '../../types'
 import { openSteps } from './drift'
 import { emptyLedger, nextGoal, resetLedger } from './ledger'
 import { legacyOf } from './scale'
@@ -26,6 +26,7 @@ export const EMPTY_CORE: Core = {
   lastContext: 0,
   sysTokens: 0,
   archived: [],
+  delegations: { goalId: -1, items: [] },
 }
 
 const LOG_LIMIT = 60
@@ -70,6 +71,7 @@ export function normalizeCore(raw: Partial<Core>): Core {
     lastContext: raw.lastContext ?? 0,
     sysTokens: raw.sysTokens ?? 0,
     archived: raw.archived ?? [],
+    delegations: raw.delegations ?? { goalId: -1, items: [] },
   }
 }
 
@@ -261,4 +263,9 @@ export const withSysTokens =
 export const resetCore = (c: Core): Core => {
   const n = normalizeCore(c)
   return { ...EMPTY_CORE, log: n.log, ledger: resetLedger(n.ledger), sysTokens: n.sysTokens }
+}
+
+/** Ghi trạng thái các việc giao subagent của một mục tiêu (bản sao để pane và status đọc). */
+export function withDelegations(goalId: number, items: readonly DelegationItem[]): (core: Core) => Core {
+  return core => ({ ...normalizeCore(core), delegations: { goalId, items: [...items] } })
 }

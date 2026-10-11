@@ -2,7 +2,7 @@
 // lượt router) theo ba nhóm luồng chính, subagent và router (khóa 'analyzer'), theo phiên
 // và theo mục tiêu. Thuần, không gọi $.
 
-import type { Bucket, Depth, Effort, Group, Kind, Ledger, ModelFamily, Volume } from '../../types'
+import type { Bucket, Depth, Effort, Group, Kind, Ledger, ModelFamily, RouteEvent, Volume } from '../../types'
 import { EFFORT_FACTOR, SIZE, type Tokens, usdOf } from './cost'
 
 export const GROUPS: readonly Group[] = ['main', 'agent', 'analyzer']
@@ -127,8 +127,8 @@ export function ledgerLines(ledger: Ledger): string[] {
   const { main, agent, analyzer } = ledger.session
   const goalUsd = GROUPS.reduce((sum, group) => sum + ledger.goal.buckets[group].usd, 0)
   const lines = [
-    `Phiên: ${formatUsd(sessionUsd(ledger))} (luồng chính ${formatUsd(main.usd)} trong ${main.calls} lượt; subagent ${formatUsd(agent.usd)} trong ${agent.calls} lượt; router ${formatUsd(analyzer.usd)} trong ${analyzer.calls} lượt)`,
-    `Mục tiêu này: ${formatUsd(goalUsd)}, ${ledger.goal.spawned} subagent đã giao`,
+    `Phiên, đo được: ${formatUsd(sessionUsd(ledger))} (luồng chính ${formatUsd(main.usd)} trong ${main.calls} lượt; subagent ${formatUsd(agent.usd)} trong ${agent.calls} lượt; router ${formatUsd(analyzer.usd)} trong ${analyzer.calls} lượt)`,
+    `Mục tiêu này, đo được: ${formatUsd(goalUsd)}, ${ledger.goal.spawned} subagent đã giao`,
   ]
   if (ledger.samples > 0) {
     const calib = (['haiku', 'sonnet', 'opus', 'fable'] as const).map(f => `${f} ×${ledger.calib[f].toFixed(2)}`)
@@ -141,4 +141,15 @@ export function ledgerLines(ledger: Ledger): string[] {
     .map(([key, shape]) => `${key} ~${(shape.output / 1000).toFixed(1)}k (${shape.samples} lần)`)
   if (shapes.length > 0) lines.push(`Token ra đo được theo dạng việc (quy về effort medium): ${shapes.join('; ')}`)
   return lines
+}
+
+/**
+ * Phần chi phí còn là ước tính: subagent đã giao mà chưa có số đo (ước tính lúc giao từ token ra giả định theo khối
+ * lượng việc, hệ số hiệu chỉnh và số đo theo dạng việc khi có). Sổ ở trên chỉ gồm số đo; null khi không còn ước tính.
+ */
+export function estimateLine(log: readonly RouteEvent[]): string | null {
+  const pending = log.filter(entry => entry.where === 'agent' && entry.usd !== undefined && entry.measured !== true)
+  if (pending.length === 0) return null
+  const usd = pending.reduce((sum, entry) => sum + (entry.usd ?? 0), 0)
+  return `Ước tính lúc giao, chưa có số đo: ${formatUsd(usd)} cho ${pending.length} subagent (giả định token ra theo khối lượng việc; được thay bằng số đo khi agent kết thúc)`
 }

@@ -1,6 +1,6 @@
 {
   "name": "focus-conductor",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "author": { "name": "Kiet Tran" },
   "description": "Một model Claude (router) đọc kỹ prompt trước khi làm và điều phối model/effort/agent cho từng việc; mod kiểm, ép điều phối lúc chạy, giữ nhất quán mục tiêu với checklist và cảnh báo lạc đề.",
   "types": "./types/index.d.ts",
@@ -71,9 +71,15 @@
     "strictDelegation": {
       "type": "string",
       "title": "Giữ việc đã giao subagent",
-      "description": "Khi luồng chính tự sửa file trong lúc còn việc router ghi giao subagent mà chưa giao. off: nhắc một lần (mặc định); remind: nhắc ở mỗi lần sửa; block: từ chối Edit/Write/NotebookEdit và lệnh Bash ghi file của luồng chính tới khi giao xong hoặc router đọc prompt mới",
+      "description": "Khi luồng chính tự sửa file trong lúc còn việc router ghi giao subagent mà chưa giao. off: nhắc một lần (mặc định); remind: nhắc ở mỗi lần sửa; block: từ chối Edit/Write/NotebookEdit và lệnh Bash ghi file của luồng chính, tối đa blockLimit lần mỗi mục tiêu (sau đó chỉ nhắc, để không kẹt khi không giao được)",
       "default": "off",
       "options": ["off", "remind", "block"]
+    },
+    "blockLimit": {
+      "type": "number",
+      "title": "Số lần chặn tối đa (block)",
+      "description": "strictDelegation block: số lần từ chối luồng chính sửa file trong một mục tiêu trước khi chuyển sang nhắc, từ 1 đến 10 (mặc định 2). Không có mức chặn vô hạn, để phiên không kẹt khi việc không giao được.",
+      "default": 2
     },
     "remindSubagents": {
       "type": "boolean",

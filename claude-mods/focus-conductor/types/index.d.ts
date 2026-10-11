@@ -89,6 +89,8 @@ export type PlanStep = {
   title: string
   status: StepStatus
   tier?: Tier
+  /** Tiêu chí nghiệm thu của bước (tùy chọn), Claude ghi khi lập checklist. */
+  check?: string
   /** Bằng chứng kiểm tra (bắt buộc khi verified) hoặc lý do (skipped, blocked). */
   note?: string
 }
@@ -170,6 +172,12 @@ export type Ledger = {
  */
 export type ArchivedGoal = { brief: Brief; plan: PlanStep[] }
 
+/** Trạng thái một việc router ghi giao subagent: chờ giao, đang chạy, xong, hoặc lỗi. */
+export type DelegationState = 'pending' | 'running' | 'done' | 'failed'
+
+/** Một việc giao subagent của mục tiêu hiện tại, để pane và /conductor status hiện trạng thái. */
+export type DelegationItem = { index: number; title: string; state: DelegationState }
+
 /** Nâng cấp theo bằng chứng, áp cho các turn sau trong cùng mục tiêu. */
 export type Lift = { depth: number; effort: number }
 
@@ -194,6 +202,8 @@ export type Core = {
   sysTokens: number
   /** Mục tiêu cũ còn bước mở, mới nhất trước (tối đa 3). */
   archived: ArchivedGoal[]
+  /** Trạng thái các việc giao subagent của mục tiêu goalId (không có ở trạng thái từ bản cũ). */
+  delegations: { goalId: number; items: DelegationItem[] }
 }
 
 declare module 'claude-code' {

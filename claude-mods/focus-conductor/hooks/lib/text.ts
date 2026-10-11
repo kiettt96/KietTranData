@@ -168,11 +168,30 @@ export function blockText(waiting: readonly string[], left: number): string {
   )
 }
 
-/** Evidence của "verified" không khớp lệnh hay file nào đã chạy: vẫn ghi nhận, nhưng chưa tính là đã kiểm tra. */
-export function unbackedNotice(): string {
+/** "verified" chưa đủ bằng chứng: bước được lưu là done, kèm lý do và việc cần làm để nâng lên verified. */
+export function unbackedNotice(reason: string): string {
   return (
-    '[focus-conductor] Evidence không nhắc lệnh kiểm tra hay file nào đã chạy trong mục tiêu này, nên chưa tính là đã kiểm tra. ' +
-    'Ghi rõ lệnh đã chạy (ví dụ "npm test: 12 pass") hoặc file đã đọc lại; nếu chưa kiểm tra, dùng done.'
+    `[focus-conductor] Bước được lưu là done, chưa tính là đã kiểm tra: ${reason}. ` +
+    'Muốn ghi verified, chạy lại lệnh kiểm tra (test, type-check, lint, build) sau thay đổi cuối cùng rồi ghi lệnh đó và kết quả vào evidence ' +
+    '(ví dụ "npm test: 12 pass"). Việc chỉ đọc, chưa sửa gì thì nêu lệnh hay file đã đọc.'
+  )
+}
+
+/** Bằng chứng mạnh nhưng chỉ có kiểm tĩnh (type-check, lint, build): ghi chú để Claude cân nhắc chạy test. */
+export function staticOnlyNotice(): string {
+  return '[focus-conductor] Ghi chú: bằng chứng chỉ là kiểm tĩnh (type-check, lint, build, validate), chưa chạy test hành vi. Nếu bước thay đổi hành vi, chạy test tương ứng.'
+}
+
+/** Bước có tiêu chí nghiệm thu: nhắc lại để Claude đối chiếu với bằng chứng vừa ghi. */
+export function criteriaNotice(step: { id: number; check?: string }): string {
+  return `[focus-conductor] Tiêu chí nghiệm thu của bước ${step.id}: ${step.check ?? ''}. Đối chiếu bằng chứng với tiêu chí này; chưa đạt thì mở lại bước (doing).`
+}
+
+/** Bước mở cuối cùng vừa đóng: yêu cầu xác nhận từng tiêu chí chất lượng của mục tiêu trước khi kết thúc. */
+export function qualityNotice(quality: readonly string[]): string {
+  return (
+    '[focus-conductor] Checklist đã đóng hết. Trước khi kết thúc, xác nhận từng tiêu chí chất lượng của mục tiêu bằng bằng chứng cụ thể ' +
+    `(lệnh đã chạy, kết quả, file): ${quality.map((q, i) => `(${i + 1}) ${q}`).join('; ')}. Tiêu chí nào chưa đạt thì thêm bước bằng action "add".`
   )
 }
 
@@ -195,7 +214,8 @@ export function renderPlan(brief: Brief | null, plan: readonly PlanStep[]): stri
   const { closed, total } = progress(plan)
   const rows = plan.map(step => {
     const note = step.note ? ` (${step.note})` : ''
-    return `${mark(step.status)} ${step.id}. ${step.title}${note}`
+    const check = step.check ? ` [nghiệm thu: ${step.check}]` : ''
+    return `${mark(step.status)} ${step.id}. ${step.title}${check}${note}`
   })
   const next = openSteps(plan)[0]
   const hint = next ? `\nBước tiếp theo: ${next.id}. ${next.title}` : ''
@@ -203,15 +223,25 @@ export function renderPlan(brief: Brief | null, plan: readonly PlanStep[]): stri
   return `${goal}Checklist (${closed}/${total} đã đóng):\n${rows.join('\n')}${hint}`
 }
 
-/** Lý do chặn kết thúc khi checklist còn mở. */
-export function stopBlockReason(plan: readonly PlanStep[]): string {
+/** Lý do chặn kết thúc khi checklist còn mở hoặc còn việc giao subagent đã lỗi chưa giao lại. */
+export function stopBlockReason(plan: readonly PlanStep[], failed: readonly string[] = []): string {
   const open = openSteps(plan)
-  return (
-    `[focus-conductor] Checklist còn ${open.length} bước mở: ` +
-    `${open.map(s => `${s.id}. ${s.title}`).join('; ')}. ` +
-    `Hoàn thành các bước đó, hoặc cập nhật trạng thái bằng ${PLAN_TOOL_FULL} ` +
-    '(skipped hoặc blocked kèm lý do) trước khi kết thúc. Nếu đang chờ người dùng, đánh dấu blocked.'
-  )
+  const parts: string[] = []
+  if (open.length > 0) {
+    parts.push(
+      `[focus-conductor] Checklist còn ${open.length} bước mở: ` +
+        `${open.map(s => `${s.id}. ${s.title}`).join('; ')}. ` +
+        `Hoàn thành các bước đó, hoặc cập nhật trạng thái bằng ${PLAN_TOOL_FULL} ` +
+        '(skipped hoặc blocked kèm lý do) trước khi kết thúc. Nếu đang chờ người dùng, đánh dấu blocked.',
+    )
+  }
+  if (failed.length > 0) {
+    parts.push(
+      `[focus-conductor] Việc giao subagent đã lỗi, chưa giao lại: Việc ${failed.join(', ')}. ` +
+        'Giao lại qua Agent với description "Việc N: ...", tự làm việc đó, hoặc báo người dùng lý do bỏ qua trước khi kết thúc.',
+    )
+  }
+  return parts.join('\n')
 }
 
 /** Một dòng tóm tắt cho status line. */

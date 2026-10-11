@@ -4,7 +4,7 @@ import { atom, derive, read, update } from 'claude-code'
 import type { Brief, Core } from '../../types'
 import { openSteps } from '../lib/drift'
 import { priceNote } from '../lib/cost'
-import { addUsage, formatUsd, ledgerLines } from '../lib/ledger'
+import { addUsage, estimateLine, formatUsd, ledgerLines } from '../lib/ledger'
 import { describePick } from '../lib/route'
 import { clipText } from '../lib/decisions'
 import { askRouter, bareBrief, briefOf, nextBrief, parseRoute, rerouted, routerRequest } from '../lib/router'
@@ -24,7 +24,7 @@ const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null
 
 export function registerCommand(on: On, ctx: Ctx): void {
   const L = ctx.local
-  const { blocked, decisionLog, decisionText, expectedMain, failures, policy, ranText, record, resetLocal, routerFamily, routerModel, trackDelegations, untrackedAgents, wantedPick } = ctx
+  const { blocked, decisionLog, decisionText, delegationItems, expectedMain, failures, noteRouterTime, policy, ranText, record, resetLocal, routerFamily, routerModel, routerTimeLine, trackDelegations, untrackedAgents, wantedPick } = ctx
   const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
   const mode = derive([modeState], modeOf(ctx.options))
 
@@ -60,7 +60,9 @@ export function registerCommand(on: On, ctx: Ctx): void {
       const rules = policy()
       // Lệnh do người dùng gõ: luôn hỏi router, kể cả khi router đang tạm ngừng sau các lần lỗi.
       const request = routerRequest({ text: arg, prev, ran: null, policy: rules, model: routerModel, isForcedNew: true })
+      const startedAt = await $.clock.now()
       const outcome = await askRouter(r => $.model.complete(r).catch(() => null), request, reply => parseRoute(reply, rules))
+      noteRouterTime((await $.clock.now()) - startedAt)
       const plan = outcome.result
       if (plan !== null) L.routerTrouble = { failures: 0, pausedUntil: 0 }
       const now = await $.clock.now()
@@ -83,6 +85,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       const wanted = wantedPick(brief, core.lift)
       const expected = wanted !== null ? expectedMain(core, brief, wanted, now) : null
       trackDelegations(brief.goalId, brief.isReference ? [] : brief.tasks)
+      await update($, coreState, S.withDelegations(brief.goalId, delegationItems(brief)))
       const dropped = openSteps(before.plan)
       const notice = dropped.length > 0 ? [droppedPlanNotice(dropped)] : []
       return {
@@ -110,7 +113,9 @@ export function registerCommand(on: On, ctx: Ctx): void {
       const rules = policy()
       // Lệnh do người dùng gõ: luôn hỏi router, kể cả khi router đang tạm ngừng.
       const request = routerRequest({ text: last.text, prev: last.prev, ran: ranText(before), policy: rules, model: routerModel })
+      const startedAt = await $.clock.now()
       const outcome = await askRouter(r => $.model.complete(r).catch(() => null), request, reply => parseRoute(reply, rules))
+      noteRouterTime((await $.clock.now()) - startedAt)
       const now = await $.clock.now()
       const withUsage = (c: Core): Core =>
         outcome.usages.reduce((acc, usage) => S.withLedger(l => addUsage(l, 'analyzer', routerFamily, usage).ledger)(acc), c)
@@ -148,6 +153,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       L.isGoalNew = true
       L.pinnedGoalId = null
       trackDelegations(brief.goalId, brief.isReference ? [] : brief.tasks)
+      await update($, coreState, S.withDelegations(brief.goalId, delegationItems(brief)))
       const core = S.normalizeCore(await read($, coreState))
       const isApplied = (await read($, mode)) === 'auto'
       const wanted = wantedPick(brief, core.lift)
@@ -167,7 +173,11 @@ export function registerCommand(on: On, ctx: Ctx): void {
       const costLines = ledgerLines(core.ledger)
       if (core.sysTokens > 0) costLines.push(`Phần cố định của ngữ cảnh (system prompt, tools): ${Math.round(core.sysTokens / 1000)}k token, đo ở đầu phiên`)
       if (usage?.cost) costLines.push(`Chi phí cả phiên theo Claude Code (gồm cả phần trước khi mod bắt đầu ghi sổ): ${formatUsd(usage.cost.usd)}`)
+      const estimate = estimateLine(core.log)
+      if (estimate) costLines.push(estimate)
       costLines.push(priceNote(await $.clock.now()))
+      const latency = routerTimeLine()
+      if (latency) costLines.push(latency)
       if (core.brief === null) return { text: [`Chế độ ${current}. Chưa có mục tiêu.`, ...costLines].join('\n') }
       const routeLine = core.route
         ? `${describePick(core.route)} (${core.route.reason})`
@@ -186,7 +196,10 @@ export function registerCommand(on: On, ctx: Ctx): void {
       const untracked = untrackedAgents()
       const untrackedLine =
         untracked.length > 0 ? `\nAgent ngoài điều phối (untracked agent, mod không chấm, không ép, không đo): ${untracked.length} (${[...new Set(untracked)].join(', ')})` : ''
-      const agentBlock = (agentLines.length > 0 ? `\nSubagent gần nhất:\n${agentLines.join('\n')}` : '') + untrackedLine
+      const items = core.delegations.goalId === core.brief.goalId ? core.delegations.items : []
+      const stateText = { pending: 'chờ giao', running: 'đang chạy', done: 'xong', failed: 'lỗi, chưa giao lại' } as const
+      const delegationBlock = items.length > 0 ? `\nViệc giao subagent:\n${items.map(item => `  ${item.index}. ${item.title}: ${stateText[item.state]}`).join('\n')}` : ''
+      const agentBlock = delegationBlock + (agentLines.length > 0 ? `\nSubagent gần nhất:\n${agentLines.join('\n')}` : '') + untrackedLine
       return {
         text: [
           `Chế độ ${current}`,

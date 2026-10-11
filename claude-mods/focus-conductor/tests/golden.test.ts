@@ -35,6 +35,13 @@ describe('golden-set: bộ chấm bắt được câu trả lời sai', () => {
     expect(check(again, reply({ relation: 'dissatisfied', goal: '', main: { model: 'sonnet', effort: 'medium' } }))).toEqual(['luồng chính sonnet/medium không cao hơn sonnet/medium'])
   })
 
+  test('ca đối kháng: phạm vi thiếu và quan hệ ngoài khoảng chấp nhận bị chấm lệch', () => {
+    const scoped = CASES.find(c => c.id === 'scope-bash')!
+    expect(check(scoped, reply({ goal: 'Đổi tên charge', kind: 'edit', main: { model: 'sonnet', effort: 'medium' }, scope: [] }))).toContain('phạm vi [], cần có src/')
+    const redo = CASES.find(c => c.id === 'redo')!
+    expect(check(redo, reply({ relation: 'new', goal: 'Làm lại', main: { model: 'sonnet', effort: 'medium' } }))[0]).toContain('relation new, cần continue|refine|dissatisfied')
+  })
+
   test('bảo đảm của phần kẹp được kiểm trên mọi câu trả lời', () => {
     const six = CASES.find(c => c.id === 'six')!
     const fails = check(six, REPLIES['six'] ?? '')
