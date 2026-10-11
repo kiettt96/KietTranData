@@ -234,10 +234,8 @@ describe('checkpoint kiểm tra', () => {
       'cd /x && npx tsc -p y',
       'node --test',
       'claude plugin test .',
-      'timeout 300 claude plugin test . 2>&1 | grep pass',
       'FOO=1 npm run build',
       'sed -i s/a/b/ f && npm test',
-      'npx --no-install tsc -p tsconfig.json 2>&1 | head',
       'npx -y vitest run',
     ]) {
       const tracker = newTracker('t1')
@@ -247,6 +245,13 @@ describe('checkpoint kiểm tra', () => {
       expect(tracker.mutationsSinceCheck, command).toBe(0)
       expect(tracker.isVerified, command).toBe(true)
     }
+  })
+
+  test('kiểm tra qua grep (ống sang lệnh lọc khác tail/cat) không được tính là đã kiểm tra (PR #13)', () => {
+    const tracker = newTracker('t1')
+    observe(tracker, edit, makeBrief(), [])
+    observe(tracker, { ...bash('timeout 300 claude plugin test . 2>&1 | grep pass'), output: '12 pass\n0 fail' }, makeBrief(), [])
+    expect(tracker.isVerified).toBe(false)
   })
 })
 

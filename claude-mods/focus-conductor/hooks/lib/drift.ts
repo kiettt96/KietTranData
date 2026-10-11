@@ -326,7 +326,18 @@ export type WriteTargets = { paths: string[]; isUnknown: boolean }
  * Một lệnh kiểm tra trong lệnh Bash: loại, có chắc đã chạy (không sau ||, không trong cấu trúc chưa hỗ trợ), và mã
  * thoát của nó có bị che không (có ;, ||, | hay xuống dòng đứng sau: mã thoát cuối là của lệnh khác).
  */
-export type CheckEffect = { kind: 'check'; check: CheckKind; trusted: boolean; exitHidden: boolean }
+export type CheckEffect = {
+  kind: 'check'
+  check: CheckKind
+  /** Đoạn lệnh kiểm tra (không kèm các đoạn khác của câu lệnh): bằng chứng gắn với đúng đoạn này. */
+  segment: string
+  trusted: boolean
+  /**
+   * visible: mã thoát của câu lệnh chính là của lệnh kiểm tra. filtered: lệnh kiểm tra đứng đầu, nối ống duy nhất sang
+   * tail hoặc cat, output chỉ đến từ nó. hidden: mã thoát và output bị lệnh khác che; không bao giờ tính là đạt.
+   */
+  exit: 'visible' | 'filtered' | 'hidden'
+}
 /** Một tác động ghi: definite (chuyển hướng, lệnh ghi đã biết), possible (lệnh lạ, script, cấu trúc chưa hỗ trợ). */
 export type WriteEffect = { kind: 'write'; level: 'definite' | 'possible' }
 export type BashEffect = CheckEffect | WriteEffect
@@ -368,6 +379,21 @@ function pieces(masked: string): Array<{ op: Operator; text: string }> {
     else if (out.length === 0) op = ''
   }
   return out
+}
+
+/**
+ * Mức che mã thoát của lệnh kiểm tra ở vị trí `index`, theo ngữ nghĩa shell. Lệnh sau nối bằng && (hoặc không có) thì
+ * mã thoát của lệnh kiểm tra không bị che: visible. Ống chỉ giữ được mức filtered khi lệnh kiểm tra đứng đầu, ống đó
+ * sang tail hoặc cat, và câu lệnh kết thúc ở đó. Mọi trường hợp khác (;, ||, xuống dòng, ống sang lệnh khác) là hidden.
+ */
+function exitOf(list: Array<{ op: Operator; text: string }>, index: number, unmask: (token: string) => string): CheckEffect['exit'] {
+  const rest = list.slice(index + 1)
+  if (rest.some(after => after.op === ';' || after.op === '||')) return 'hidden'
+  const next = rest[0]
+  if (next === undefined || next.op === '&&') return 'visible'
+  if (next.op !== '|') return 'hidden'
+  const isFilter = /^(?:tail|cat)(?:\s|$)/.test(unmask(next.text))
+  return index === 0 && rest.length === 1 && isFilter ? 'filtered' : 'hidden'
 }
 
 // Cấu trúc chưa phân tích được: thay thế lệnh, eval, shell con với -c, system() của awk.
@@ -436,9 +462,9 @@ export function classifyBash(command: string): BashClass {
       effects.push({
         kind: 'check',
         check: TEST_SEGMENT.test(text) ? 'test' : 'static',
+        segment: text,
         trusted: !isUnsupported && (piece.op === '' || piece.op === '&&' || piece.op === ';'),
-        // Mã thoát cuối chỉ phản ánh lệnh kiểm tra khi mọi đoạn sau nó đều nối bằng && (lỗi thì phần sau không chạy).
-        exitHidden: list.slice(index + 1).some(after => after.op !== '&&'),
+        exit: exitOf(list, index, unmask),
       })
       continue
     }
@@ -511,17 +537,40 @@ export function bashWriteTargets(command: string): WriteTargets {
   return { paths, isUnknown }
 }
 
-// Dấu hiệu đạt rõ ràng trong output (khi mã thoát bị che vì có ống, ; hay || đứng sau lệnh kiểm tra).
-const CHECK_PASSED = new RegExp(
-  [
-    '(?:^|\\n)\\s*#\\s*pass\\s+[1-9]', // TAP (node --test)
-    '\\b[1-9]\\d*\\s+(?:passed|passing|pass)\\b', // jest, mocha, bun, vitest, pytest
-    'test result:\\s*ok\\b', // cargo
-    '(?:^|\\n)ok\\s+\\S+', // go test
-    '\\bFound\\s+0\\s+errors?\\b', // tsc --pretty, mypy
-  ].join('|'),
-  'i',
-)
+/**
+ * Báo cáo tổng kết ĐẦY ĐỦ của một trình chạy test đã nhận diện, với số lỗi bằng 0 và số test đạt lớn hơn 0. Một token
+ * như "1 passed" không đủ. Không nhận ra định dạng thì không xác nhận.
+ */
+const COMPLETE_PASS: RegExp[] = [
+  // TAP (node --test): tests N, pass N, fail 0.
+  /#\s*tests\s+(\d+)[\s\S]*?#\s*pass\s+(\d+)[\s\S]*?#\s*fail\s+0\b/,
+  // Jest: "Tests:       12 passed, 12 total".
+  /^\s*Tests:\s+(\d+) passed, \1 total\s*$/m,
+  // Vitest: "Tests  12 passed (12)".
+  /^\s*Tests\s+(\d+) passed \(\1\)\s*$/m,
+  // Mocha: "12 passing".
+  /^\s*(\d+) passing\b/m,
+  // Bun: " 12 pass" theo sau là " 0 fail".
+  /^\s*(\d+) pass\s*\n\s*0 fail\s*$/m,
+  // Pytest: "=== 12 passed in 0.5s ===".
+  /=+\s*(\d+) passed[^=\n]*=+\s*$/m,
+  // Cargo: "test result: ok. 12 passed; 0 failed".
+  /test result: ok\. (\d+) passed; 0 failed/,
+]
+const COMPLETE_FAIL = /\b[1-9]\d*\s+(?:failed|failing|errors?)\b|^\s*#\s*fail\s+[1-9]|\bFAILED\b|^FAIL\b|--- FAIL/im
+
+/** Output là báo cáo tổng kết đầy đủ của một lượt test đạt: không có dấu hiệu lỗi và số test đạt lớn hơn 0. */
+export function completePass(output: string): boolean {
+  if (COMPLETE_FAIL.test(output)) return false
+  for (const pattern of COMPLETE_PASS) {
+    const match = pattern.exec(output)
+    if (match === null) continue
+    const counts = match.slice(1).map(Number)
+    if (counts.length > 0 && counts.every(n => Number.isFinite(n) && n > 0)) return true
+  }
+  // Go: dòng "ok <gói>" (đã loại dòng FAIL ở trên).
+  return /^ok\s+\S+/m.test(output)
+}
 
 /**
  * Áp các hiệu ứng của một tool call lên trạng thái kiểm tra của tracker, theo đúng thứ tự trong lệnh. `author` là
@@ -569,8 +618,9 @@ export function trackVerification(tracker: TurnTracker, observation: ToolObserva
  */
 function checkEffectPassed(effect: CheckEffect, observation: ToolObservation): boolean {
   if (!effect.trusted || observation.isError || outputFailed(observation.output)) return false
-  if (!effect.exitHidden) return true
-  return observation.output !== undefined && CHECK_PASSED.test(observation.output)
+  if (effect.exit === 'visible') return true
+  if (effect.exit === 'filtered') return observation.output !== undefined && completePass(observation.output)
+  return false
 }
 
 /** Cách router đọc prompt của turn: quan hệ với mục tiêu đang mở và bản chất việc; null khi router không đọc được. */
@@ -816,7 +866,7 @@ export function noteEvidence(log: EvidenceLog, observation: ToolObservation, aut
       }
       hasCheck = true
       log.seq += 1
-      log.commands.push({ command: command.slice(0, 500), ok: checkEffectPassed(effect, observation), check: effect.check, seq: log.seq, author })
+      log.commands.push({ command: effect.segment.slice(0, 500), ok: checkEffectPassed(effect, observation), check: effect.check, seq: log.seq, author })
     }
     if (!hasCheck) {
       log.seq += 1

@@ -4,7 +4,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import type { Brief } from '../types'
-import { bashWriteTargets, classifyBash, evidenceStrength, isMutation, isReadOnlyCommand, isVerification, newEvidenceLog, newTracker, noteEvidence, observe, trackVerification } from '../hooks/lib/drift'
+import { bashWriteTargets, classifyBash, completePass, evidenceStrength, isMutation, isReadOnlyCommand, isVerification, newEvidenceLog, newTracker, noteEvidence, observe, trackVerification } from '../hooks/lib/drift'
 
 function makeBrief(over: Partial<Brief> = {}): Brief {
   return {
@@ -124,13 +124,16 @@ describe('vòng cuối: phạm vi theo thư mục gốc', () => {
 
 describe('vòng cuối: API mới (phân loại chung, theo dõi theo tác giả)', () => {
   test('hiệu ứng theo thứ tự và toán tử; chuyển hướng trên lệnh kiểm tra là ghi trước kiểm tra', () => {
-    const kinds = (command: string) => classifyBash(command).effects.map(e => (e.kind === 'check' ? `check${e.trusted ? '' : '?'}${e.exitHidden ? '|' : ''}` : `write:${e.level}`))
-    expect(kinds('npm test > out.log')).toEqual(['write:definite', 'check'])
+    const kinds = (command: string) => classifyBash(command).effects.map(e => (e.kind === 'check' ? `check${e.trusted ? '' : '?'}:${e.exit}` : `write:${e.level}`))
+    expect(kinds('npm test > out.log')).toEqual(['write:definite', 'check:visible'])
     // || đứng sau che mã thoát của lệnh kiểm tra (PR #13 P1).
-    expect(kinds('npm test || echo x > f')).toEqual(['check|', 'write:definite'])
-    expect(kinds('npm test && echo done')).toEqual(['check'])
-    expect(kinds('echo x > f || npm test')).toEqual(['write:definite', 'check?'])
-    expect(kinds('node --test | tail -n 5')).toEqual(['check|'])
+    expect(kinds('npm test || echo x > f')).toEqual(['check:hidden', 'write:definite'])
+    expect(kinds('npm test && echo done')).toEqual(['check:visible'])
+    expect(kinds('echo x > f || npm test')).toEqual(['write:definite', 'check?:visible'])
+    expect(kinds('node --test | tail -n 5')).toEqual(['check:filtered'])
+    // Chỉ đoạn đầu tiên được lọc qua tail/cat thành filtered; lint đứng sau && và nối ống thì hidden.
+    expect(kinds('npm test && npm run lint | tail -3')).toEqual(['check:visible', 'check:hidden'])
+    expect(kinds('npm test | grep -v FAIL')).toEqual(['check:hidden'])
     expect(kinds('bash -c "npm test"')).toEqual(['write:possible', 'write:possible'])
     expect(verifiedAfter('npm test > out.log')).toBe(true)
   })
@@ -187,13 +190,49 @@ describe('PR #13 P1: mã thoát của lệnh kiểm tra bị che bởi lệnh đ
     }
   })
 
-  test('cùng các lệnh đó, output có dấu hiệu đạt rõ: được tính là đạt', () => {
-    expect(verifiedAfter('npm test; echo done', { output: 'Tests: 12 passed\ndone' })).toBe(true)
-    expect(verifiedAfter('node --test || echo fallback', { output: '# pass 3\n# fail 0' })).toBe(true)
+  test('mã thoát bị che (; hay ||) không bao giờ được tính là đạt, kể cả khi output có báo cáo đạt', () => {
+    expect(verifiedAfter('npm test; echo done', { output: 'Tests: 12 passed, 12 total\ndone' })).toBe(false)
+    expect(verifiedAfter('node --test || echo fallback', { output: '# tests 3\n# pass 3\n# fail 0' })).toBe(false)
+  })
+
+  test('npm test; printf "1 passed" (lệnh sau tự in báo đạt): chưa xác minh', () => {
+    expect(verifiedAfter("npm test; printf '1 passed\\n'", { output: '1 passed' })).toBe(false)
+  })
+
+  test('lọc ống: sed, grep, head, tee không xác nhận; tail hoặc cat chỉ khi có báo cáo tổng kết đầy đủ', () => {
+    expect(verifiedAfter('npm test | sed \'s/failed/passed/\'', { output: '12 passed' })).toBe(false)
+    expect(verifiedAfter('npm test | grep -v FAIL', { output: '12 passed' })).toBe(false)
+    expect(verifiedAfter('npm test 2>&1 | head -40', { output: '# tests 3\n# pass 3\n# fail 0' })).toBe(false)
+    expect(verifiedAfter('node --test | tail -n 5', { output: '# tests 3\n# pass 3\n# fail 0' })).toBe(true)
+    expect(verifiedAfter('node --test | tail -n 5', { output: '1 passed' })).toBe(false)
+    expect(verifiedAfter('npx jest | cat', { output: 'Tests:       12 passed, 12 total' })).toBe(true)
+    expect(verifiedAfter('node --test | tail -n 5', { output: '# tests 3\n# pass 2\n# fail 1' })).toBe(false)
+  })
+
+  test('mỗi lệnh kiểm tra gắn với đoạn của chính nó: evidence cho lint không xác nhận test và ngược lại', () => {
+    const log = newEvidenceLog(1)
+    noteEvidence(log, edit('/repo/src/a.ts'))
+    noteEvidence(log, { ...bash('npm test && npm run lint | tail -3'), output: '# tests 3\n# pass 3\n# fail 0\nlint: problem' })
+    expect(evidenceStrength('npm run lint: đạt', log).level).not.toBe('strong')
+    expect(evidenceStrength('npm test: 3 pass', log).level).toBe('strong')
   })
 
   test('đối chứng: kiểm tra mà mọi lệnh sau đều nối bằng && thì mã thoát phản ánh kiểm tra', () => {
     expect(verifiedAfter('npm test && echo done', { output: 'done' })).toBe(true)
     expect(verifiedAfter('npm test && npm run lint', { output: 'done' })).toBe(true)
+  })
+})
+
+describe('PR #13 vòng 2: báo cáo đầy đủ nhưng có dấu hiệu lỗi kèm theo', () => {
+  test('báo cáo jest đạt mà có dòng FAILED: không xác nhận', () => {
+    expect(verifiedAfter('npx jest | cat', { output: 'Tests:       12 passed, 12 total\nFAILED  src/x.test.ts' })).toBe(false)
+  })
+})
+
+describe('PR #13 vòng 2: completePass trực tiếp', () => {
+  test('báo cáo đầy đủ nhưng có dòng lỗi: không đạt, kể cả khi bỏ qua bước lọc lỗi bên ngoài', () => {
+    expect(completePass('Tests: 12 passed, 12 total\nFAILED src/x.test.ts')).toBe(false)
+    expect(completePass('# tests 3\n# pass 3\n# fail 0\nnot a report')).toBe(true)
+    expect(completePass('1 passed')).toBe(false)
   })
 })

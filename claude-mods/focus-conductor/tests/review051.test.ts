@@ -254,7 +254,7 @@ describe('04: kết quả thật của lệnh kiểm tra (từ phiên chạy th�
     noteEvidence(log, { ...edit('/repo/src/a.ts') })
     noteEvidence(log, { ...bash('node --test src/ 2>&1 | tail -15'), output: '# pass 0\n# fail 1' })
     expect(evidenceStrength('node --test: 1 pass', log).level).toBe('stale')
-    noteEvidence(log, { ...bash('node --test src/add.test.js 2>&1 | tail -12'), output: '# pass 1\n# fail 0' })
+    noteEvidence(log, { ...bash('node --test src/add.test.js 2>&1 | tail -12'), output: '# tests 1\n# pass 1\n# fail 0' })
     expect(evidenceStrength('node --test: 1 pass', log).level).toBe('strong')
   })
 

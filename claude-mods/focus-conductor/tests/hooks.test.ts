@@ -2251,3 +2251,31 @@ describe('PR #13 P1: verified dựa trên kiểm tra có mã thoát bị che', (
     expect(String(done.result)).toContain('[x] 1. Sửa')
   })
 })
+
+describe('PR #13 vòng 2: lệnh sau tự in báo đạt và evidence gắn đúng đoạn', () => {
+  const PLAN = 'mcp__focus-conductor__plan'
+
+  test("npm test; printf '1 passed' rồi verified: lưu done", {}, async ($, on) => {
+    base(on)
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    on('tool.call', { tool: 'Bash' }, () => ({ result: '1 passed' }))
+    await submit($, COMPLEX_PROMPT)
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa' }] })
+    await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' })
+    await $.tool.call({ tool: 'Bash', command: "npm test; printf '1 passed\\n'" })
+    const done = await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'npm test: 1 passed' })
+    expect(String(done.result)).toContain('[x] 1. Sửa')
+  })
+
+  test('npm test && npm run lint | tail -3: evidence về lint không xác nhận bằng kết quả của npm test', {}, async ($, on) => {
+    base(on)
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    on('tool.call', { tool: 'Bash' }, () => ({ result: '# tests 3\n# pass 3\n# fail 0\nlint: problem' }))
+    await submit($, COMPLEX_PROMPT)
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa' }] })
+    await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' })
+    await $.tool.call({ tool: 'Bash', command: 'npm test && npm run lint | tail -3' })
+    const done = await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'npm run lint: đạt' })
+    expect(String(done.result)).toContain('[x] 1. Sửa')
+  })
+})
