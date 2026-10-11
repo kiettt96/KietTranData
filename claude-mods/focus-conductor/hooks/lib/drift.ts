@@ -333,10 +333,13 @@ export type CheckEffect = {
   segment: string
   trusted: boolean
   /**
-   * visible: mã thoát của câu lệnh chính là của lệnh kiểm tra. filtered: lệnh kiểm tra đứng đầu, nối ống duy nhất sang
-   * tail hoặc cat, output chỉ đến từ nó. hidden: mã thoát và output bị lệnh khác che; không bao giờ tính là đạt.
+   * visible: mã thoát của câu lệnh chính là của lệnh kiểm tra. filtered: lệnh kiểm tra đứng đầu, không chuyển hướng
+   * nào ngoài 2>&1, nối ống duy nhất sang tail (chỉ số dòng) hoặc cat (không đối số), output chỉ đến từ nó. hidden: mã
+   * thoát hay output bị lệnh khác che; không bao giờ tính là đạt.
    */
   exit: 'visible' | 'filtered' | 'hidden'
+  /** Bộ lọc khi exit là filtered: tail cắt output (chỉ còn phần cuối), cat giữ đủ. */
+  filter?: 'tail' | 'cat'
 }
 /** Một tác động ghi: definite (chuyển hướng, lệnh ghi đã biết), possible (lệnh lạ, script, cấu trúc chưa hỗ trợ). */
 export type WriteEffect = { kind: 'write'; level: 'definite' | 'possible' }
@@ -347,9 +350,12 @@ export type BashClass = { effects: BashEffect[]; paths: string[]; isUnknown: boo
 
 type Operator = '' | '&&' | '||' | ';' | '|'
 
-/** Che chuỗi trong nháy bằng token giữ chỗ và bỏ thân heredoc, để dấu ngăn lệnh trong nháy không bị đọc nhầm. */
+/**
+ * Che chuỗi trong nháy bằng token giữ chỗ và bỏ thân heredoc (giữ lại dấu `<<H` để biết đoạn đó đọc từ heredoc), để
+ * dấu ngăn lệnh trong nháy hay trong heredoc không bị đọc nhầm.
+ */
 function maskCommand(command: string): { masked: string; unmask: (token: string) => string } {
-  const withoutHeredoc = command.replace(/<<-?\s*(['"]?)(\w+)\1([^\n]*)\n[\s\S]*?\n\s*\2\s*(?=\n|$)/g, (_m, _q: string, _tag: string, rest: string) => rest)
+  const withoutHeredoc = command.replace(/<<-?\s*(['"]?)(\w+)\1([^\n]*)\n[\s\S]*?\n\s*\2\s*(?=\n|$)/g, (_m, _q: string, _tag: string, rest: string) => `<<H${rest}`)
   const quoted: string[] = []
   const masked = withoutHeredoc.replace(/"((?:[^"\\]|\\.)*)"|'([^']*)'/g, (_m, a: string | undefined, b: string | undefined) => {
     quoted.push(a ?? b ?? '')
@@ -382,18 +388,40 @@ function pieces(masked: string): Array<{ op: Operator; text: string }> {
 }
 
 /**
- * Mức che mã thoát của lệnh kiểm tra ở vị trí `index`, theo ngữ nghĩa shell. Lệnh sau nối bằng && (hoặc không có) thì
- * mã thoát của lệnh kiểm tra không bị che: visible. Ống chỉ giữ được mức filtered khi lệnh kiểm tra đứng đầu, ống đó
- * sang tail hoặc cat, và câu lệnh kết thúc ở đó. Mọi trường hợp khác (;, ||, xuống dòng, ống sang lệnh khác) là hidden.
+ * Bộ lọc chỉ đọc từ ống: `cat` không đối số, `tail` chỉ với số dòng dương. Còn lại (file, <, heredoc, tùy chọn khác,
+ * token trong nháy kể cả rỗng) là null. `text` là đoạn lệnh đã che chuỗi trong nháy, nên token trong nháy là token giữ
+ * chỗ, không bao giờ khớp.
  */
-function exitOf(list: Array<{ op: Operator; text: string }>, index: number, unmask: (token: string) => string): CheckEffect['exit'] {
+function pipeFilter(text: string): 'tail' | 'cat' | null {
+  const [name, ...args] = text.trim().split(/\s+/)
+  if (name === 'cat') return args.length === 0 ? 'cat' : null
+  if (name !== 'tail') return null
+  const count = /^[1-9]\d*$/
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i] ?? ''
+    if (arg === '-n' || arg === '--lines') {
+      if (!count.test(args[i + 1] ?? '')) return null
+      i += 1
+    } else if (!/^(?:-n|-|--lines=)[1-9]\d*$/.test(arg)) return null
+  }
+  return 'tail'
+}
+
+/**
+ * Mức che mã thoát của lệnh kiểm tra ở vị trí `index`, theo ngữ nghĩa shell. Lệnh sau nối bằng && (hoặc không có) thì
+ * mã thoát của lệnh kiểm tra không bị che: visible. Ống chỉ giữ được mức filtered khi lệnh kiểm tra đứng đầu, không có
+ * chuyển hướng nào ngoài 2>&1 (output phải đi hết vào ống), ống đó sang bộ lọc chỉ đọc từ ống (pipeFilter), và câu
+ * lệnh kết thúc ở đó. Mọi trường hợp khác (;, ||, xuống dòng, ống sang lệnh khác) là hidden.
+ */
+function exitOf(list: Array<{ op: Operator; text: string }>, index: number): Pick<CheckEffect, 'exit' | 'filter'> {
   const rest = list.slice(index + 1)
-  if (rest.some(after => after.op === ';' || after.op === '||')) return 'hidden'
+  if (rest.some(after => after.op === ';' || after.op === '||')) return { exit: 'hidden' }
   const next = rest[0]
-  if (next === undefined || next.op === '&&') return 'visible'
-  if (next.op !== '|') return 'hidden'
-  const isFilter = /^(?:tail|cat)(?:\s|$)/.test(unmask(next.text))
-  return index === 0 && rest.length === 1 && isFilter ? 'filtered' : 'hidden'
+  if (next === undefined || next.op === '&&') return { exit: 'visible' }
+  if (next.op !== '|' || index !== 0 || rest.length !== 1) return { exit: 'hidden' }
+  const isRedirected = /[<>]/.test((list[index]?.text ?? '').replace(/(?:^|\s)2>&1(?=\s|$)/g, ' '))
+  const filter = pipeFilter(next.text)
+  return !isRedirected && filter !== null ? { exit: 'filtered', filter } : { exit: 'hidden' }
 }
 
 // Cấu trúc chưa phân tích được: thay thế lệnh, eval, shell con với -c, system() của awk.
@@ -464,7 +492,7 @@ export function classifyBash(command: string): BashClass {
         check: TEST_SEGMENT.test(text) ? 'test' : 'static',
         segment: text,
         trusted: !isUnsupported && (piece.op === '' || piece.op === '&&' || piece.op === ';'),
-        exit: exitOf(list, index, unmask),
+        ...exitOf(list, index),
       })
       continue
     }
@@ -538,12 +566,10 @@ export function bashWriteTargets(command: string): WriteTargets {
 }
 
 /**
- * Báo cáo tổng kết ĐẦY ĐỦ của một trình chạy test đã nhận diện, với số lỗi bằng 0 và số test đạt lớn hơn 0. Một token
- * như "1 passed" không đủ. Không nhận ra định dạng thì không xác nhận.
+ * Báo cáo tổng kết ĐẦY ĐỦ của các trình chạy test khác (Node, Go, Cargo có parser riêng), với số lỗi bằng 0 và số test
+ * đạt lớn hơn 0. Một token như "1 passed" không đủ. Không nhận ra định dạng thì không xác nhận.
  */
 const COMPLETE_PASS: RegExp[] = [
-  // TAP (node --test): tests N, pass N, fail 0.
-  /#\s*tests\s+(\d+)[\s\S]*?#\s*pass\s+(\d+)[\s\S]*?#\s*fail\s+0\b/,
   // Jest: "Tests:       12 passed, 12 total".
   /^\s*Tests:\s+(\d+) passed, \1 total\s*$/m,
   // Vitest: "Tests  12 passed (12)".
@@ -554,22 +580,78 @@ const COMPLETE_PASS: RegExp[] = [
   /^\s*(\d+) pass\s*\n\s*0 fail\s*$/m,
   // Pytest: "=== 12 passed in 0.5s ===".
   /=+\s*(\d+) passed[^=\n]*=+\s*$/m,
-  // Cargo: "test result: ok. 12 passed; 0 failed".
-  /test result: ok\. (\d+) passed; 0 failed/,
 ]
-const COMPLETE_FAIL = /\b[1-9]\d*\s+(?:failed|failing|errors?)\b|^\s*#\s*fail\s+[1-9]|\bFAILED\b|^FAIL\b|--- FAIL/im
+/** Dấu hiệu lỗi: có bất kỳ dấu hiệu nào thì output không bao giờ là báo cáo đạt. FAILED phân biệt hoa thường ("0 failed" của cargo không phải lỗi). */
+const COMPLETE_FAIL: RegExp[] = [
+  /\b[1-9]\d*\s+(?:failed|failing|errors?)\b/i,
+  /^\s*(?:#|\u2139)\s*fail\s+[1-9]/m, // Node (TAP, spec)
+  /\bFAILED\b/,
+  /^FAIL\b|--- FAIL|\[build failed\]/m, // go test
+  /^\s*panic:/m, // go
+  /^\s*error(?:\[E\d+\])?:/m, // cargo, rustc
+  /^\s*Bail out!/m, // TAP
+]
 
-/** Output là báo cáo tổng kết đầy đủ của một lượt test đạt: không có dấu hiệu lỗi và số test đạt lớn hơn 0. */
-export function completePass(output: string): boolean {
-  if (COMPLETE_FAIL.test(output)) return false
+/** Sáu bộ đếm trong tổng kết của node --test (TAP: "# tests 3", spec: "ℹ tests 3"); lấy giá trị cuối của mỗi bộ. */
+const NODE_COUNTER = /^\s*(?:#|\u2139)\s*(tests|pass|fail|cancelled|skipped|todo)\s+(\d+)\s*$/gm
+const NODE_FIELDS = ['tests', 'pass', 'fail', 'cancelled', 'skipped', 'todo'] as const
+
+/**
+ * Báo cáo của node --test: null khi không phải. Đạt khi có đủ sáu bộ đếm, fail = 0, cancelled = 0, pass > 0, tests =
+ * pass + skipped + todo, không có test lỗi thực (TAP "not ok", kể cả "# TODO"; spec "✖"). Output bị cắt (tail) mà có
+ * todo thì không đạt: không thấy được test TODO có ném lỗi hay không.
+ */
+function nodePass(output: string, truncated: boolean): boolean | null {
+  const counts = new Map<string, number>()
+  for (const match of output.matchAll(NODE_COUNTER)) counts.set(match[1] ?? '', Number(match[2]))
+  if (!counts.has('tests') && !counts.has('pass')) return null
+  const [tests, pass, fail, cancelled, skipped, todo] = NODE_FIELDS.map(field => counts.get(field))
+  if (tests === undefined || pass === undefined || fail === undefined || cancelled === undefined || skipped === undefined || todo === undefined) return false
+  if (fail !== 0 || cancelled !== 0 || pass <= 0 || tests !== pass + skipped + todo) return false
+  if (/^\s*not ok\b/m.test(output) || output.includes('\u2716')) return false
+  return !(truncated && todo > 0)
+}
+
+/** Dòng gói của go test: đạt ("ok <gói> 0.01s", "(cached)", có thể kèm coverage) và không có file test. */
+const GO_OK = /^ok\s+\S+\s+(?:\d+(?:\.\d+)?s|\(cached\))(?:\s+coverage:.*)?\s*$/
+const GO_NO_TESTS = /^\?\s+\S+\s+\[no test files\]\s*$/
+
+/** Báo cáo của go test: null khi không phải. Đạt khi mọi dòng gói (ok, FAIL, ?) đúng dạng và có ít nhất một gói ok. */
+function goPass(output: string): boolean | null {
+  const lines = output.split('\n').filter(line => /^(?:ok|FAIL|\?)(?:\s|$)/.test(line))
+  if (lines.length === 0) return null
+  return lines.some(line => GO_OK.test(line)) && lines.every(line => GO_OK.test(line) || GO_NO_TESTS.test(line))
+}
+
+/** Báo cáo của cargo test: null khi không phải. Đạt khi mọi dòng "test result:" (mỗi binary, doctest) là ok, 0 failed, và có test đạt. */
+function cargoPass(output: string): boolean | null {
+  const results = output.match(/^test result:.*$/gm)
+  if (results === null) return null
+  const ok = results.map(line => /^test result: ok\. (\d+) passed; 0 failed;/.exec(line))
+  return ok.every(match => match !== null) && ok.some(match => Number(match?.[1]) > 0)
+}
+
+/**
+ * Output là báo cáo tổng kết đầy đủ của một lượt test đạt: parser của trình chạy chứng minh được, không có dấu hiệu lỗi
+ * nào. `truncated`: output chỉ là phần cuối (qua tail); báo cáo Go và Cargo in theo từng gói hay binary nên phần cuối
+ * không bao giờ đủ. Không nhận ra định dạng thì không đạt.
+ */
+export function completePass(output: string, options: { truncated?: boolean } = {}): boolean {
+  const truncated = options.truncated === true
+  if (COMPLETE_FAIL.some(pattern => pattern.test(output))) return false
+  const node = nodePass(output, truncated)
+  if (node !== null) return node
+  const cargo = cargoPass(output)
+  if (cargo !== null) return !truncated && cargo
+  const go = goPass(output)
+  if (go !== null) return !truncated && go
   for (const pattern of COMPLETE_PASS) {
     const match = pattern.exec(output)
     if (match === null) continue
     const counts = match.slice(1).map(Number)
     if (counts.length > 0 && counts.every(n => Number.isFinite(n) && n > 0)) return true
   }
-  // Go: dòng "ok <gói>" (đã loại dòng FAIL ở trên).
-  return /^ok\s+\S+/m.test(output)
+  return false
 }
 
 /**
@@ -619,7 +701,7 @@ export function trackVerification(tracker: TurnTracker, observation: ToolObserva
 function checkEffectPassed(effect: CheckEffect, observation: ToolObservation): boolean {
   if (!effect.trusted || observation.isError || outputFailed(observation.output)) return false
   if (effect.exit === 'visible') return true
-  if (effect.exit === 'filtered') return observation.output !== undefined && completePass(observation.output)
+  if (effect.exit === 'filtered') return observation.output !== undefined && completePass(observation.output, { truncated: effect.filter === 'tail' })
   return false
 }
 

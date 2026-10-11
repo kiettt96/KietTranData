@@ -4,6 +4,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import type { Brief } from '../types'
+import { NODE, tailLines } from './fixtures/runner-output'
 import { bashWriteTargets, classifyBash, completePass, evidenceStrength, isMutation, isReadOnlyCommand, isVerification, newEvidenceLog, newTracker, noteEvidence, observe, trackVerification } from '../hooks/lib/drift'
 
 function makeBrief(over: Partial<Brief> = {}): Brief {
@@ -50,7 +51,7 @@ describe('vòng cuối: lệnh kiểm tra kèm ghi file theo đúng cú pháp sh
   })
 
   test('kiểm tra nối ống: cần dấu hiệu đạt rõ trong output, không đủ thông tin thì chưa kiểm tra', () => {
-    expect(verifiedAfter('node --test | tail -n 5', { output: '# tests 3\n# pass 3\n# fail 0' })).toBe(true)
+    expect(verifiedAfter('node --test | tail -n 12', { output: tailLines(NODE.pass_tap, 12) })).toBe(true)
     expect(verifiedAfter('node --test | tail -n 5', { output: '# tests 3\n# pass 2\n# fail 1' })).toBe(false)
     expect(verifiedAfter('node --test | tail -n 5', { output: 'done' })).toBe(false)
     expect(verifiedAfter('npm test', { output: 'done' })).toBe(true)
@@ -203,7 +204,7 @@ describe('PR #13 P1: mã thoát của lệnh kiểm tra bị che bởi lệnh đ
     expect(verifiedAfter('npm test | sed \'s/failed/passed/\'', { output: '12 passed' })).toBe(false)
     expect(verifiedAfter('npm test | grep -v FAIL', { output: '12 passed' })).toBe(false)
     expect(verifiedAfter('npm test 2>&1 | head -40', { output: '# tests 3\n# pass 3\n# fail 0' })).toBe(false)
-    expect(verifiedAfter('node --test | tail -n 5', { output: '# tests 3\n# pass 3\n# fail 0' })).toBe(true)
+    expect(verifiedAfter('node --test | tail -n 12', { output: tailLines(NODE.pass_tap, 12) })).toBe(true)
     expect(verifiedAfter('node --test | tail -n 5', { output: '1 passed' })).toBe(false)
     expect(verifiedAfter('npx jest | cat', { output: 'Tests:       12 passed, 12 total' })).toBe(true)
     expect(verifiedAfter('node --test | tail -n 5', { output: '# tests 3\n# pass 2\n# fail 1' })).toBe(false)
@@ -232,7 +233,8 @@ describe('PR #13 vòng 2: báo cáo đầy đủ nhưng có dấu hiệu lỗi k
 describe('PR #13 vòng 2: completePass trực tiếp', () => {
   test('báo cáo đầy đủ nhưng có dòng lỗi: không đạt, kể cả khi bỏ qua bước lọc lỗi bên ngoài', () => {
     expect(completePass('Tests: 12 passed, 12 total\nFAILED src/x.test.ts')).toBe(false)
-    expect(completePass('# tests 3\n# pass 3\n# fail 0\nnot a report')).toBe(true)
+    expect(completePass(`${NODE.pass_tap}not a report`)).toBe(true)
+    expect(completePass(`${NODE.pass_tap}FAILED src/x.test.ts`)).toBe(false)
     expect(completePass('1 passed')).toBe(false)
   })
 })

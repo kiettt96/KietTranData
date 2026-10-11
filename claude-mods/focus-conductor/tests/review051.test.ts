@@ -9,6 +9,7 @@ import { applyPlan } from '../hooks/lib/plan'
 import { fitPick, taskRoute } from '../hooks/lib/router'
 import { liftPick } from '../hooks/lib/route'
 import type { Policy } from '../hooks/lib/router'
+import { NODE, tailLines } from './fixtures/runner-output'
 
 function makeBrief(over: Partial<Brief> = {}): Brief {
   return {
@@ -254,7 +255,7 @@ describe('04: kết quả thật của lệnh kiểm tra (từ phiên chạy th�
     noteEvidence(log, { ...edit('/repo/src/a.ts') })
     noteEvidence(log, { ...bash('node --test src/ 2>&1 | tail -15'), output: '# pass 0\n# fail 1' })
     expect(evidenceStrength('node --test: 1 pass', log).level).toBe('stale')
-    noteEvidence(log, { ...bash('node --test src/add.test.js 2>&1 | tail -12'), output: '# tests 1\n# pass 1\n# fail 0' })
+    noteEvidence(log, { ...bash('node --test src/add.test.js 2>&1 | tail -12'), output: tailLines(NODE.pass_tap, 12) })
     expect(evidenceStrength('node --test: 1 pass', log).level).toBe('strong')
   })
 

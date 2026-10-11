@@ -6,6 +6,7 @@ import { describe, expect, mock, test } from 'claude-code/testing'
 import type { On, TurnStepInput } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
 import { K4_META_LEAD, K4_PROMPT } from './fixtures/prompt-k4'
+import { CARGO, NODE } from './fixtures/runner-output'
 import { calibrate, emptyLedger } from '../hooks/lib/ledger'
 
 const BIG_USAGE = { input_tokens: 100_000, output_tokens: 50_000, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
@@ -2277,5 +2278,36 @@ describe('PR #13 vòng 2: lệnh sau tự in báo đạt và evidence gắn đú
     await $.tool.call({ tool: 'Bash', command: 'npm test && npm run lint | tail -3' })
     const done = await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'npm run lint: đạt' })
     expect(String(done.result)).toContain('[x] 1. Sửa')
+  })
+})
+
+describe('PR #13 vòng 3: bộ lọc đọc file và chuyển hướng trên lệnh kiểm tra', () => {
+  const PLAN = 'mcp__focus-conductor__plan'
+
+  for (const command of ['npm test | cat < /tmp/fake.log', 'node --test 2>/dev/null | cat']) {
+    test(`${command} với output là báo cáo đạt thật: verified lưu done`, {}, async ($, on) => {
+      base(on)
+      on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+      on('tool.call', { tool: 'Bash' }, () => ({ result: NODE.pass_tap }))
+      await submit($, COMPLEX_PROMPT)
+      await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa' }] })
+      await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' })
+      await $.tool.call({ tool: 'Bash', command })
+      const done = await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: `${command}: pass 3` })
+      expect(String(done.result)).toContain('[x] 1. Sửa')
+      expect(String(done.result)).toContain('chưa tính là đã kiểm tra')
+    })
+  }
+
+  test('đối chứng: cargo test | cat với output đạt thật đầy đủ: verified được nhận', {}, async ($, on) => {
+    base(on)
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    on('tool.call', { tool: 'Bash' }, () => ({ result: CARGO.pass }))
+    await submit($, COMPLEX_PROMPT)
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa' }] })
+    await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' })
+    await $.tool.call({ tool: 'Bash', command: 'cargo test | cat' })
+    const done = await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'cargo test | cat: 3 passed' })
+    expect(String(done.result)).not.toContain('chưa tính là đã kiểm tra')
   })
 })
