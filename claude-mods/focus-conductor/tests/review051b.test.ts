@@ -124,9 +124,11 @@ describe('vòng cuối: phạm vi theo thư mục gốc', () => {
 
 describe('vòng cuối: API mới (phân loại chung, theo dõi theo tác giả)', () => {
   test('hiệu ứng theo thứ tự và toán tử; chuyển hướng trên lệnh kiểm tra là ghi trước kiểm tra', () => {
-    const kinds = (command: string) => classifyBash(command).effects.map(e => (e.kind === 'check' ? `check${e.trusted ? '' : '?'}${e.piped ? '|' : ''}` : `write:${e.level}`))
+    const kinds = (command: string) => classifyBash(command).effects.map(e => (e.kind === 'check' ? `check${e.trusted ? '' : '?'}${e.exitHidden ? '|' : ''}` : `write:${e.level}`))
     expect(kinds('npm test > out.log')).toEqual(['write:definite', 'check'])
-    expect(kinds('npm test || echo x > f')).toEqual(['check', 'write:definite'])
+    // || đứng sau che mã thoát của lệnh kiểm tra (PR #13 P1).
+    expect(kinds('npm test || echo x > f')).toEqual(['check|', 'write:definite'])
+    expect(kinds('npm test && echo done')).toEqual(['check'])
     expect(kinds('echo x > f || npm test')).toEqual(['write:definite', 'check?'])
     expect(kinds('node --test | tail -n 5')).toEqual(['check|'])
     expect(kinds('bash -c "npm test"')).toEqual(['write:possible', 'write:possible'])
@@ -175,5 +177,23 @@ describe('vòng cuối: ca biên do kiểm đột biến chỉ ra', () => {
     observe(tracker, edit('/repo/src/a.ts'), brief, [])
     observe(tracker, bash('D=$(pwd) npm test', { isReadOnly: true }), brief, [])
     expect(tracker.isVerified).toBe(false)
+  })
+})
+
+describe('PR #13 P1: mã thoát của lệnh kiểm tra bị che bởi lệnh đứng sau', () => {
+  test('kiểm tra trước ; hoặc || (output không rõ, mã thoát 0): chưa kiểm tra', () => {
+    for (const command of ['npm test; echo done', 'npm test || echo fallback', 'npm test && echo ok || echo bad', 'npm test; true']) {
+      expect(verifiedAfter(command, { output: 'done' }), command).toBe(false)
+    }
+  })
+
+  test('cùng các lệnh đó, output có dấu hiệu đạt rõ: được tính là đạt', () => {
+    expect(verifiedAfter('npm test; echo done', { output: 'Tests: 12 passed\ndone' })).toBe(true)
+    expect(verifiedAfter('node --test || echo fallback', { output: '# pass 3\n# fail 0' })).toBe(true)
+  })
+
+  test('đối chứng: kiểm tra mà mọi lệnh sau đều nối bằng && thì mã thoát phản ánh kiểm tra', () => {
+    expect(verifiedAfter('npm test && echo done', { output: 'done' })).toBe(true)
+    expect(verifiedAfter('npm test && npm run lint', { output: 'done' })).toBe(true)
   })
 })

@@ -2236,3 +2236,18 @@ describe('0.5.1 vòng cuối: thư mục gốc chốt theo mục tiêu', () => {
     expect((later.context ?? []).join('\n')).not.toContain('phạm vi')
   })
 })
+
+describe('PR #13 P1: verified dựa trên kiểm tra có mã thoát bị che', () => {
+  test('npm test; echo done với output không rõ: verified lưu done', {}, async ($, on) => {
+    const PLAN = 'mcp__focus-conductor__plan'
+    base(on)
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    on('tool.call', { tool: 'Bash' }, () => ({ result: 'done' }))
+    await submit($, COMPLEX_PROMPT)
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa' }] })
+    await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' })
+    await $.tool.call({ tool: 'Bash', command: 'npm test; echo done' })
+    const done = await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'npm test chạy xong' })
+    expect(String(done.result)).toContain('[x] 1. Sửa')
+  })
+})

@@ -322,8 +322,11 @@ const SED_VALUE_OPTIONS = new Set(['-e', '-f', '--expression', '--file', '-l', '
 
 export type WriteTargets = { paths: string[]; isUnknown: boolean }
 
-/** Một lệnh kiểm tra trong lệnh Bash: loại, có chắc đã chạy (không sau ||, không trong cấu trúc chưa hỗ trợ), có bị nối ống. */
-export type CheckEffect = { kind: 'check'; check: CheckKind; trusted: boolean; piped: boolean }
+/**
+ * Một lệnh kiểm tra trong lệnh Bash: loại, có chắc đã chạy (không sau ||, không trong cấu trúc chưa hỗ trợ), và mã
+ * thoát của nó có bị che không (có ;, ||, | hay xuống dòng đứng sau: mã thoát cuối là của lệnh khác).
+ */
+export type CheckEffect = { kind: 'check'; check: CheckKind; trusted: boolean; exitHidden: boolean }
 /** Một tác động ghi: definite (chuyển hướng, lệnh ghi đã biết), possible (lệnh lạ, script, cấu trúc chưa hỗ trợ). */
 export type WriteEffect = { kind: 'write'; level: 'definite' | 'possible' }
 export type BashEffect = CheckEffect | WriteEffect
@@ -430,12 +433,12 @@ export function classifyBash(command: string): BashClass {
       continue
     }
     if (VERIFY_SEGMENT.test(text)) {
-      const next = list[index + 1]
       effects.push({
         kind: 'check',
         check: TEST_SEGMENT.test(text) ? 'test' : 'static',
         trusted: !isUnsupported && (piece.op === '' || piece.op === '&&' || piece.op === ';'),
-        piped: next?.op === '|',
+        // Mã thoát cuối chỉ phản ánh lệnh kiểm tra khi mọi đoạn sau nó đều nối bằng && (lỗi thì phần sau không chạy).
+        exitHidden: list.slice(index + 1).some(after => after.op !== '&&'),
       })
       continue
     }
@@ -508,7 +511,7 @@ export function bashWriteTargets(command: string): WriteTargets {
   return { paths, isUnknown }
 }
 
-// Dấu hiệu đạt rõ ràng trong output (khi mã thoát bị che vì lệnh kiểm tra nối ống sang lệnh khác).
+// Dấu hiệu đạt rõ ràng trong output (khi mã thoát bị che vì có ống, ; hay || đứng sau lệnh kiểm tra).
 const CHECK_PASSED = new RegExp(
   [
     '(?:^|\\n)\\s*#\\s*pass\\s+[1-9]', // TAP (node --test)
@@ -560,10 +563,13 @@ export function trackVerification(tracker: TurnTracker, observation: ToolObserva
   return writes
 }
 
-/** Một lệnh kiểm tra trong tool call có đạt không. */
+/**
+ * Một lệnh kiểm tra trong tool call có đạt không. Mã thoát bị che (ống, ;, || đứng sau) thì mã thoát 0 không nói gì
+ * về lệnh kiểm tra: chỉ đạt khi output có dấu hiệu đạt rõ và không có dấu hiệu lỗi; không đủ thông tin thì chưa đạt.
+ */
 function checkEffectPassed(effect: CheckEffect, observation: ToolObservation): boolean {
   if (!effect.trusted || observation.isError || outputFailed(observation.output)) return false
-  if (!effect.piped) return true
+  if (!effect.exitHidden) return true
   return observation.output !== undefined && CHECK_PASSED.test(observation.output)
 }
 
