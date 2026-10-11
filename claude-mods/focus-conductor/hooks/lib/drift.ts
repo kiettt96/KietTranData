@@ -566,22 +566,34 @@ export function bashWriteTargets(command: string): WriteTargets {
 }
 
 /**
- * Báo cáo tổng kết ĐẦY ĐỦ của các trình chạy test khác (Node, Go, Cargo có parser riêng), với số lỗi bằng 0 và số test
- * đạt lớn hơn 0. Một token như "1 passed" không đủ. Không nhận ra định dạng thì không xác nhận.
+ * Khối tổng kết của các trình chạy khác (Node, Go, Cargo có parser riêng), theo output thật (tests/fixtures/runner-output.ts):
+ * dòng đạt (số test đạt lớn hơn 0) phải là khối tổng kết CUỐI của output; sau nó chỉ được có dòng trống hoặc dòng phụ
+ * của chính trình chạy đó (`trailer`). `requires`: dòng phụ bắt buộc phải có. Không nhận ra định dạng thì không xác nhận.
  */
-const COMPLETE_PASS: RegExp[] = [
-  // Jest: "Tests:       12 passed, 12 total".
-  /^\s*Tests:\s+(\d+) passed, \1 total\s*$/m,
-  // Vitest: "Tests  12 passed (12)".
-  /^\s*Tests\s+(\d+) passed \(\1\)\s*$/m,
-  // Mocha: "12 passing".
-  /^\s*(\d+) passing\b/m,
-  // Bun: " 12 pass" theo sau là " 0 fail".
-  /^\s*(\d+) pass\s*\n\s*0 fail\s*$/m,
-  // Pytest: "=== 12 passed in 0.5s ===".
-  /=+\s*(\d+) passed[^=\n]*=+\s*$/m,
+type Summary = { pass: RegExp; trailer: RegExp[]; requires?: RegExp }
+const SUMMARIES: Summary[] = [
+  // Jest: "Tests:       12 passed, 12 total", rồi Snapshots, Time, "Ran all test suites."
+  { pass: /^Tests:\s+(\d+) passed, \1 total$/, trailer: [/^Snapshots:\s+(?:\d+ passed, )?\d+ total$/, /^Time:\s+[\d.]+ m?s(?:, estimated [\d.]+ m?s)?$/, /^Ran all test suites\b[^\n]*\.$/] },
+  // Vitest: "Tests  12 passed (12)", rồi Start at, Duration.
+  { pass: /^Tests\s+(\d+) passed \(\1\)$/, trailer: [/^Start at\s+[\d:]+$/, /^Duration\s+[\d.]+m?s(?: \([^()\n]*\))?$/] },
+  // Mocha: "12 passing (3ms)", rồi "1 pending".
+  { pass: /^(\d+) passing \(\d+(?:ms|s|m)\)$/, trailer: [/^\d+ pending$/] },
+  // Bun: "12 pass", rồi skip, todo, "0 fail" (bắt buộc), expect() calls, "Ran 12 tests across 1 file. [10.00ms]".
+  { pass: /^(\d+) pass$/, trailer: [/^\d+ (?:skip|todo)$/, /^0 fail$/, /^\d+ expect\(\) calls$/, /^Ran \d+ tests? across \d+ files?\. \[[\d.]+m?s\]$/], requires: /^0 fail$/ },
+  // Pytest: "=== 12 passed in 0.5s ===" là dòng cuối.
+  { pass: /^=+ (\d+) passed(?:, \d+ (?:skipped|deselected|xfailed|xpassed|warnings?))* in [\d.]+s(?: \([\d:]+\))? =+$/, trailer: [] },
 ]
-/** Dấu hiệu lỗi: có bất kỳ dấu hiệu nào thì output không bao giờ là báo cáo đạt. FAILED phân biệt hoa thường ("0 failed" của cargo không phải lỗi). */
+
+/** Output kết thúc bằng khối tổng kết đạt của một trong SUMMARIES. */
+function summaryPass(output: string): boolean {
+  const lines = output.split('\n').map(line => line.trim())
+  return SUMMARIES.some(({ pass, trailer, requires }) => {
+    const at = lines.findLastIndex(line => pass.test(line))
+    if (at < 0 || !(Number(pass.exec(lines[at] ?? '')?.[1]) > 0)) return false
+    const after = lines.slice(at + 1).filter(line => line !== '')
+    return after.every(line => trailer.some(pattern => pattern.test(line))) && (requires === undefined || after.some(line => requires.test(line)))
+  })
+}
 const COMPLETE_FAIL: RegExp[] = [
   /\b[1-9]\d*\s+(?:failed|failing|errors?)\b/i,
   /^\s*(?:#|\u2139)\s*fail\s+[1-9]/m, // Node (TAP, spec)
@@ -590,6 +602,9 @@ const COMPLETE_FAIL: RegExp[] = [
   /^\s*panic:/m, // go
   /^\s*error(?:\[E\d+\])?:/m, // cargo, rustc
   /^\s*Bail out!/m, // TAP
+  /^\s*(?:Uncaught\s+)?(?:[A-Z]\w*)?Error(?:\s*\[[^\]\n]*\])?:/m, // JavaScript, Python: "Error:", "TypeError:", "AssertionError [ERR_X]:"
+  /^\s*Traceback \(most recent call last\)/m, // Python
+  /^\s*npm ERR!|\bELIFECYCLE\b|^\s*Command failed\b|\bexited with code [1-9]/m, // npm, trình chạy script
 ]
 
 /** Sáu bộ đếm trong tổng kết của node --test (TAP: "# tests 3", spec: "ℹ tests 3"); lấy giá trị cuối của mỗi bộ. */
@@ -645,13 +660,7 @@ export function completePass(output: string, options: { truncated?: boolean } = 
   if (cargo !== null) return !truncated && cargo
   const go = goPass(output)
   if (go !== null) return !truncated && go
-  for (const pattern of COMPLETE_PASS) {
-    const match = pattern.exec(output)
-    if (match === null) continue
-    const counts = match.slice(1).map(Number)
-    if (counts.length > 0 && counts.every(n => Number.isFinite(n) && n > 0)) return true
-  }
-  return false
+  return summaryPass(output)
 }
 
 /**
