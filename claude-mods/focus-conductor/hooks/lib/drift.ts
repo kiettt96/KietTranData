@@ -1052,64 +1052,160 @@ function covers(entry: EvidenceEntry, log: EvidenceLog): boolean {
 const PACKAGE_MANAGERS = new Set(['npm', 'pnpm', 'yarn', 'bun'])
 /** Tiền tố không đổi danh tính lệnh. */
 const WRAPPERS = new Set(['sudo', 'command', 'nohup', 'npx', 'exec', 'time'])
+/** Cờ của chính npx (không phải của lệnh được gọi), bỏ cùng wrapper. */
+const NPX_FLAGS = new Set(['--no-install', '-y', '--yes'])
 
 /**
- * Danh tính của một đoạn lệnh: các cách viết tương đương, mỗi cách là dãy token định danh (tên lệnh, lệnh con, tên
- * script, đối số vị trí), bỏ wrapper và tùy chọn. Script của trình quản lý gói giữ tên script: `npm run lint` khác
- * `npm run test`; `npm test` và `npm run test` là một; `pnpm`/`yarn X` và `run X` là một. Đối số `.` là mặc định nên bỏ.
+ * Tùy chọn chỉ đổi cách trình bày output, theo từng trình chạy, khớp tên chính xác: null là cờ không nhận giá trị,
+ * 'value' là cờ nhận một giá trị bất kỳ, chuỗi khác là cờ chỉ vô hại với đúng giá trị đó (`go test -count 1`). Mọi cờ
+ * khác (kể cả `--test`, `--`, `-run`, `-k`, `--test-name-pattern`, `-count 0`) là một phần danh tính lệnh.
  */
-export function commandIdentity(segment: string): string[][] {
-  const tokens = segment.toLowerCase().trim().split(/\s+/).filter(Boolean)
-  while (tokens.length > 0 && WRAPPERS.has(tokens[0] ?? '')) tokens.shift()
-  const words = tokens.filter(t => !t.startsWith('-') && t !== '.' && t !== './')
+const PRESENTATION_FLAGS: Partial<Record<Runner, Record<string, string | null>>> = {
+  node: { '--test-reporter': 'value' },
+  go: { '-v': null, '-count': '1' },
+  pytest: { '-v': null, '-q': null, '--tb': 'value' },
+  vitest: { '--reporter': 'value' },
+  mocha: { '--reporter': 'value' },
+  jest: { '--verbose': null },
+}
+
+/** Ranh giới trong evidence (dấu câu tách mệnh đề): một lệnh được nhắc không bao giờ vắt qua ranh giới. */
+const BOUNDARY = '\u0000'
+
+/** Bỏ wrapper ở đầu (và cờ của npx); trả vị trí token đầu tiên của lệnh thật. */
+function skipWrappers(tokens: string[], from = 0): number {
+  let at = from
+  while (at < tokens.length && WRAPPERS.has(tokens[at] ?? '')) {
+    const isNpx = tokens[at] === 'npx'
+    at += 1
+    while (isNpx && NPX_FLAGS.has(tokens[at] ?? '')) at += 1
+  }
+  return at
+}
+
+/**
+ * Chuẩn hóa dãy token của một lệnh theo trình chạy: tách `--cờ=giá-trị` thành `--cờ giá-trị` (hai cách viết là một),
+ * bỏ cờ trình bày của đúng trình chạy đó (kèm giá trị), bỏ đối số mặc định `.`. Mỗi token ra kèm vị trí token gốc.
+ * Dừng ở ranh giới.
+ */
+function normalizeTokens(tokens: string[], runner: Runner | null, from = 0): Array<{ token: string; raw: number }> {
+  const split: Array<{ token: string; raw: number }> = []
+  for (let raw = from; raw < tokens.length; raw++) {
+    const token = tokens[raw] ?? ''
+    if (token === BOUNDARY) break
+    const eq = token.indexOf('=')
+    if (token.startsWith('-') && eq > 0) split.push({ token: token.slice(0, eq), raw }, { token: token.slice(eq + 1), raw })
+    else split.push({ token, raw })
+  }
+  const flags = runner === null ? {} : (PRESENTATION_FLAGS[runner] ?? {})
+  const out: Array<{ token: string; raw: number }> = []
+  for (let i = 0; i < split.length; i++) {
+    const { token } = split[i] ?? { token: '' }
+    if (token === '.' || token === './') continue
+    if (Object.hasOwn(flags, token)) {
+      const spec = flags[token]
+      if (spec === null) continue
+      const value = split[i + 1]?.token
+      if (value !== undefined && (spec === 'value' || value === spec)) {
+        i += 1
+        continue
+      }
+    }
+    out.push(split[i] ?? { token, raw: 0 })
+  }
+  return out
+}
+
+/** Danh tính của một đoạn lệnh: các cách viết tương đương (dãy token đã chuẩn hóa) và trình chạy. */
+function identityOf(segment: string): { forms: string[][]; runner: Runner | null } {
+  const raw = segment.toLowerCase().trim().split(/\s+/).filter(Boolean)
+  const tokens = raw.slice(skipWrappers(raw))
+  const runner = runnerOf(tokens.join(' '))
+  const words = normalizeTokens(tokens, runner).map(entry => entry.token)
   const [name, sub, ...rest] = words
-  if (name === undefined) return []
-  if (!PACKAGE_MANAGERS.has(name) || sub === undefined) return [words]
+  if (name === undefined) return { forms: [], runner }
+  if (!PACKAGE_MANAGERS.has(name) || sub === undefined || sub.startsWith('-')) return { forms: [words], runner }
   if (sub === 'run' || sub === 'run-script') {
     const [script, ...args] = rest
-    if (script === undefined) return [[name, 'run']]
+    if (script === undefined) return { forms: [[name, 'run']], runner }
     const runForm = [name, 'run', script, ...args]
-    return name === 'bun' || (name === 'npm' && script !== 'test') ? [runForm] : [runForm, [name, script, ...args]]
+    return { forms: name === 'bun' || (name === 'npm' && script !== 'test') ? [runForm] : [runForm, [name, script, ...args]], runner }
   }
-  if (name === 'bun') return [words]
-  if (name === 'npm' && sub !== 'test' && sub !== 't') return [words]
+  if (name === 'bun' || (name === 'npm' && sub !== 'test' && sub !== 't')) return { forms: [words], runner }
   const script = sub === 't' ? 'test' : sub
-  return [[name, 'run', script, ...rest], [name, script, ...rest]]
-}
-
-/** Các từ của evidence: tách theo khoảng trắng và dấu câu, bỏ dấu `:`, `.`, `,` ở cuối từ (`lint:` là `lint`, `lint:fix` giữ nguyên). */
-function evidenceWords(text: string): string[] {
-  return text
-    .toLowerCase()
-    .split(/[\s`'"(),;]+/)
-    .map(word => word.replace(/[:.,!?]+$/, ''))
-    .filter(Boolean)
+  return { forms: [[name, 'run', script, ...rest], [name, script, ...rest]], runner }
 }
 
 /**
- * Evidence nhắc tới lệnh này: một cách viết của danh tính xuất hiện trọn trong evidence, theo thứ tự, mỗi token khớp
- * trọn một từ, giữa hai token chỉ được có tùy chọn (`-x`) hay wrapper. Chia chung tiền tố (`npm run`, `node`) không đủ.
+ * Danh tính của một đoạn lệnh: các cách viết tương đương, mỗi cách là dãy token đã chuẩn hóa (tên lệnh, lệnh con, tên
+ * script, mọi tùy chọn trừ cờ trình bày của đúng trình chạy, đối số). So khớp nghiêm ngặt: `--test-name-pattern`,
+ * `-run`, `-k`, `--` và cờ lạ là một phần danh tính. `npm test` và `npm run test` là một; `pnpm`/`yarn X` và `run X` là một.
  */
-function mentionsCommand(words: string[], command: string): boolean {
-  return segments(command).some(part =>
-    commandIdentity(part).some(identity => {
-      if (identity.length === 0) return false
-      for (let start = 0; start < words.length; start++) {
-        if (words[start] !== identity[0]) continue
-        let at = start
-        let matched = 1
-        for (let i = at + 1; i < words.length && matched < identity.length; i++) {
-          const word = words[i] ?? ''
-          if (word === identity[matched]) {
-            matched += 1
-            at = i
-          } else if (!word.startsWith('-') && !WRAPPERS.has(word)) break
-        }
-        if (matched === identity.length) return true
-      }
-      return false
-    }),
-  )
+export function commandIdentity(segment: string): string[][] {
+  return identityOf(segment).forms
+}
+
+/**
+ * Các từ của evidence, chữ thường. Dấu câu tách mệnh đề (`:`, `,`, `;`, `!`, `?`, ngoặc, dấu chấm cuối câu) thành ranh
+ * giới. Dấu chấm cuối từ chỉ là dấu chấm câu khi đứng một mình sau ký tự khác `.` và `/`: `./...` giữ nguyên,
+ * `src/a.test.ts.` thành `src/a.test.ts`; `./....` giữ nguyên (không đoán).
+ */
+function evidenceWords(text: string): string[] {
+  const out: string[] = []
+  for (const piece of text.toLowerCase().split(/\s+/)) {
+    const lead = /^[(\[`'"]+/.exec(piece)?.[0] ?? ''
+    if (lead.includes('(') || lead.includes('[')) out.push(BOUNDARY)
+    let word = piece.slice(lead.length)
+    const trail = /[:,;!?)\]`'"]+$/.exec(word)?.[0] ?? ''
+    word = word.slice(0, word.length - trail.length)
+    let isEnd = /[:,;!?)\]]/.test(trail)
+    if (/[^./]\.$/.test(word)) {
+      word = word.slice(0, -1)
+      isEnd = true
+    }
+    if (word !== '') out.push(word)
+    if (isEnd) out.push(BOUNDARY)
+  }
+  return out
+}
+
+/** Token evidence đứng sau một lệnh mà vẫn mở rộng phạm vi của lệnh đó: tùy chọn, đường dẫn hay tên file. */
+function extendsScope(token: string): boolean {
+  return token.startsWith('-') || /[\\/]/.test(token) || /\.[a-z0-9]+$/.test(token) || token === '...'
+}
+
+/**
+ * Số token evidence (tính từ `start`) mà một lệnh chiếm khi được nhắc ở đó, hoặc 0. Khớp NGHIÊM NGẶT: sau khi bỏ wrapper
+ * và chuẩn hóa như danh tính (theo trình chạy của lệnh), các token của evidence phải bằng đúng một cách viết của danh
+ * tính, liền nhau, trong cùng một mệnh đề; token kế tiếp không được mở rộng phạm vi (thêm file, gói hay tùy chọn).
+ */
+function matchLength(words: string[], start: number, command: string): number {
+  if (words[start] === BOUNDARY) return 0
+  const from = skipWrappers(words, start)
+  for (const part of segments(command)) {
+    const { forms, runner } = identityOf(part)
+    const normalized = normalizeTokens(words, runner, from)
+    for (const form of forms) {
+      if (form.length === 0 || normalized.length < form.length) continue
+      if (!form.every((token, i) => normalized[i]?.token === token)) continue
+      const next = normalized[form.length]
+      if (next !== undefined && extendsScope(next.token)) continue
+      return (normalized[form.length - 1]?.raw ?? start) - start + 1
+    }
+  }
+  return 0
+}
+
+/** Các vị trí evidence nhắc một lệnh kiểm tra (theo cùng nhận diện với lệnh Bash), bỏ qua wrapper. */
+function claimedChecks(words: string[]): number[] {
+  const positions: number[] = []
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i] ?? ''
+    if (word === BOUNDARY || WRAPPERS.has(word)) continue
+    const end = words.indexOf(BOUNDARY, i)
+    if (VERIFY_SEGMENT.test(words.slice(i, end < 0 ? undefined : end).join(' '))) positions.push(i)
+  }
+  return positions
 }
 
 /** Khóa gom các lần chạy của cùng một lệnh: cách viết đầu của danh tính, theo từng đoạn. */
@@ -1131,14 +1227,31 @@ export type EvidenceStrength = {
   reason?: string
 }
 
-/** Đối chiếu evidence của "verified" với dấu vết thật của mục tiêu. */
+/**
+ * Đối chiếu evidence của "verified" với dấu vết thật của mục tiêu. Mọi chỗ evidence nhắc một lệnh kiểm tra phải ứng với
+ * một lần chạy kiểm tra thật của đúng lệnh đó (khớp nghiêm ngặt); thiếu một lệnh là `stale`, không để lệnh đạt khác bù.
+ * Mỗi lệnh được nhắc tính theo lần chạy cuối của chính nó và phải đạt sau thay đổi cuối. Không phân tích câu phủ định:
+ * lệnh được nhắc mà chưa chạy thì bị từ chối dù câu nói "chưa chạy"; lệnh đã chạy đạt thì vẫn được tính.
+ */
 export function evidenceStrength(evidence: string, log: EvidenceLog): EvidenceStrength {
   const text = evidence.toLowerCase()
   const words = evidenceWords(evidence)
-  const mentioned = log.commands.filter(entry => mentionsCommand(words, entry.command))
+  const spans = log.commands.flatMap(entry =>
+    words.map((_, start) => ({ entry, start, length: matchLength(words, start, entry.command) })).filter(span => span.length > 0),
+  )
+  const mentioned = [...new Set(spans.map(span => span.entry))]
+  const unbacked = claimedChecks(words).find(
+    at => !spans.some(span => span.entry.check !== null && span.start <= at && at < span.start + span.length),
+  )
+  if (unbacked !== undefined) {
+    const end = words.indexOf(BOUNDARY, unbacked)
+    const shown = words.slice(unbacked, end < 0 ? unbacked + 6 : Math.min(end, unbacked + 6)).join(' ')
+    return { level: 'stale', reason: `evidence nhắc lệnh kiểm tra \`${shown}\` chưa chạy trong mục tiêu này` }
+  }
   // Mỗi lệnh kiểm tra được nhắc tính theo lần chạy cuối của chính nó; mọi lệnh được nhắc phải đạt, sau thay đổi cuối.
   const latest = new Map<string, EvidenceEntry>()
-  for (const entry of mentioned) if (entry.check !== null) latest.set(identityKey(entry.command), entry)
+  // Mọi lần chạy cùng danh tính đều khớp như nhau nên đều nằm trong `mentioned`; duyệt theo thứ tự log, lần cuối thắng.
+  for (const entry of log.commands) if (entry.check !== null && mentioned.includes(entry)) latest.set(identityKey(entry.command), entry)
   const checks = [...latest.values()]
   const isFresh = (entry: EvidenceEntry) => entry.ok && entry.seq > log.lastMutation && covers(entry, log)
   if (checks.length > 0 && checks.every(isFresh)) return { level: 'strong', check: checks.some(entry => entry.check === 'test') ? 'test' : 'static' }
