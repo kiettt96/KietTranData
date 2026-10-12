@@ -21,29 +21,29 @@ const accepted = (runs: string[], evidence: string) => strength(runs, evidence).
 
 describe('PR #14 vòng 2, P1-1: mọi lệnh kiểm tra được nhắc phải có lần chạy hợp lệ', () => {
   test('một lệnh đạt và một lệnh chưa chạy, ở đầu hay cuối evidence: không nhận', () => {
-    expect(accepted(['npm test'], 'npm test đạt, npm run lint đạt')).toBe(false)
-    expect(accepted(['npm test'], 'npm run lint đạt, npm test đạt')).toBe(false)
+    expect(accepted(['npm test'], 'npm test: đạt, npm run lint: đạt')).toBe(false)
+    expect(accepted(['npm test'], 'npm run lint: đạt, npm test: đạt')).toBe(false)
     expect(accepted(['go test ./...'], 'go test ./...: ok; cargo test: ok')).toBe(false)
   })
 
   test('lệnh A đạt, lệnh B chạy nhưng lần cuối lỗi: không nhận', () => {
-    expect(accepted(['npm test', 'npm run lint', '!npm run lint'], 'npm test đạt, npm run lint đạt')).toBe(false)
+    expect(accepted(['npm test', 'npm run lint', '!npm run lint'], 'npm test: đạt, npm run lint: đạt')).toBe(false)
   })
 
-  test('lệnh chưa chạy kèm file đã sửa: không nhận nhờ file khớp, lý do nêu đúng lệnh chưa chạy', () => {
-    const result = strength([], 'đã sửa src/a.ts, npm test đạt')
+  test('lệnh chưa chạy kèm file đã sửa: không nhận nhờ file khớp, lý do nêu đúng lệnh (vòng 3: lý do trung tính, khớp chính xác)', () => {
+    const result = strength([], 'đã sửa src/a.ts, npm test: đạt')
     expect(result.accepted).toBe(false)
     expect(result.level).toBe('stale')
     expect(result.reason ?? '').toContain('npm test')
-    expect(result.reason ?? '').toContain('chưa chạy')
+    expect(result.reason ?? '').toContain('khớp chính xác')
   })
 
   test('phủ định không được phân tích: lệnh chưa chạy nhắc trong câu "chưa chạy" vẫn không cho verified', () => {
-    expect(accepted(['npm test'], 'npm test đạt; npm run lint chưa chạy')).toBe(false)
+    expect(accepted(['npm test'], 'npm test: đạt; npm run lint: chưa chạy')).toBe(false)
   })
 
   test('đối chứng: mọi lệnh được nhắc đều đạt sau thay đổi cuối thì nhận', () => {
-    expect(accepted(['npm test', 'npm run lint'], 'npm test đạt, npm run lint đạt')).toBe(true)
+    expect(accepted(['npm test', 'npm run lint'], 'npm test: đạt, npm run lint: đạt')).toBe(true)
     expect(accepted(['npx tsc --noEmit'], 'đã chạy npx tsc --noEmit: sạch')).toBe(true)
   })
 })
@@ -83,8 +83,6 @@ describe('PR #14 vòng 2, P1-2: tùy chọn thu hẹp phạm vi là một phần
       ['node --test --test-reporter tap src/a.test.ts', 'node --test src/a.test.ts: đạt'],
       ['node --test src/a.test.ts', 'node --test --test-reporter=spec src/a.test.ts: đạt'],
       ['go test -v ./...', 'go test ./...: ok'],
-      ['go test -count=1 ./...', 'go test ./...: ok'],
-      ['go test -count 1 ./...', 'go test ./...: ok'],
       ['pytest -v tests/', 'pytest tests/: đạt'],
       ['pytest -q tests/', 'pytest tests/: đạt'],
       ['pytest --tb=short tests/', 'pytest tests/: đạt'],
@@ -92,9 +90,10 @@ describe('PR #14 vòng 2, P1-2: tùy chọn thu hẹp phạm vi là một phần
       ['npx vitest run --reporter=verbose', 'vitest run: đạt'],
       ['npx mocha --reporter dot', 'mocha: đạt'],
       ['npx jest --verbose', 'jest: đạt'],
-      ['npx --no-install tsc -p tsconfig.json', 'tsc -p tsconfig.json: sạch'],
-      ['npx -y tsc -p tsconfig.json', 'tsc -p tsconfig.json: sạch'],
-      ['npx --yes tsc -p tsconfig.json', 'tsc -p tsconfig.json: sạch'],
+      // Vòng 3: cờ của npx là một phần danh tính (xem review052c); evidence phải nêu cờ đó.
+      ['npx --no-install tsc -p tsconfig.json', 'npx --no-install tsc -p tsconfig.json: sạch'],
+      ['npx -y tsc -p tsconfig.json', 'npx --yes tsc -p tsconfig.json: sạch'],
+      ['npx tsc -p tsconfig.json', 'tsc -p tsconfig.json: sạch'],
     ] as const) {
       expect(accepted([run], evidence), `${run} / ${evidence}`).toBe(true)
     }

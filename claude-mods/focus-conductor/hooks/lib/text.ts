@@ -172,8 +172,8 @@ export function blockText(waiting: readonly string[], left: number): string {
 export function unbackedNotice(reason: string): string {
   return (
     `[focus-conductor] Bước được lưu là done, chưa tính là đã kiểm tra: ${reason}. ` +
-    'Muốn ghi verified, chạy lại lệnh kiểm tra (test, type-check, lint, build) sau thay đổi cuối cùng rồi ghi lệnh đó và kết quả vào evidence ' +
-    '(ví dụ "npm test: 12 pass"). Việc chỉ đọc, chưa sửa gì thì nêu lệnh hay file đã đọc.'
+    'Muốn ghi verified, chạy lại lệnh kiểm tra (test, type-check, lint, build) sau thay đổi cuối cùng rồi ghi vào evidence đúng lệnh như đã chạy, ' +
+    'dấu ":" và kết quả (ví dụ "npm test: 12 pass"). Việc chỉ đọc, chưa sửa gì thì nêu lệnh hay file đã đọc.'
   )
 }
 
