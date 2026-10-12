@@ -256,9 +256,15 @@ export function isMutation(observation: ToolObservation): boolean {
   return writeEffects(classifyBash(str(observation.input['command'])), observation.isReadOnly).length > 0
 }
 
-/** Các hiệu ứng ghi còn tính được sau khi xét thông tin chỉ đọc của engine. */
+/**
+ * Các hiệu ứng ghi còn tính được sau khi xét thông tin chỉ đọc của engine. Hiệu ứng chỉ ghi file kế hoạch
+ * (`.claude/plans/*.md`, mọi đích đọc được và không có đích lạ) không phải thay đổi mã, như với Edit và Write.
+ */
 function writeEffects(classified: BashClass, isReadOnly: boolean): WriteEffect[] {
-  return classified.effects.filter((e): e is WriteEffect => e.kind === 'write' && (e.level === 'definite' || !isReadOnly))
+  return classified.effects.filter(
+    (e): e is WriteEffect =>
+      e.kind === 'write' && (e.level === 'definite' || !isReadOnly) && !(e.paths.length > 0 && !e.isUnknown && e.paths.every(isPlanFile)),
+  )
 }
 
 /** Chuẩn hóa đường dẫn: dấu \\ thành /, bỏ ./, gộp .. (không đụng hệ thống tệp). */
@@ -342,7 +348,13 @@ export type CheckEffect = {
   filter?: 'tail' | 'cat'
 }
 /** Một tác động ghi: definite (chuyển hướng, lệnh ghi đã biết), possible (lệnh lạ, script, cấu trúc chưa hỗ trợ). */
-export type WriteEffect = { kind: 'write'; level: 'definite' | 'possible' }
+export type WriteEffect = {
+  kind: 'write'
+  level: 'definite' | 'possible'
+  /** File đích đọc được của chính đoạn lệnh này (để loại file kế hoạch); isUnknown: đoạn có đích không đọc được. */
+  paths: string[]
+  isUnknown: boolean
+}
 export type BashEffect = CheckEffect | WriteEffect
 
 /** Kết quả phân loại một lệnh Bash, dùng chung cho mọi hook: hiệu ứng theo thứ tự, file đích, cờ không xác định đích. */
@@ -443,14 +455,18 @@ export function classifyBash(command: string): BashClass {
     const token = unmask(raw)
     if (token === '' || token === '-' || /^\/dev\/(?:null|stdout|stderr|tty|fd\/\d+)$/.test(token)) return false
     if (/[$`*?]/.test(token) || token.startsWith('~')) {
-      isUnknown = true
+      isUnknown = segUnknown = true
       return true
     }
     const path = normalizePath(token.startsWith('/') || cwd === '' ? token : `${cwd}/${token}`)
     if (!paths.includes(path)) paths.push(path)
+    if (!segPaths.includes(path)) segPaths.push(path)
     return true
   }
-  const write = (level: WriteEffect['level']) => effects.push({ kind: 'write', level })
+  // Đích của đoạn đang xét: mỗi tác động ghi mang đích của chính đoạn đó.
+  let segPaths: string[] = []
+  let segUnknown = false
+  const write = (level: WriteEffect['level']) => effects.push({ kind: 'write', level, paths: [...segPaths], isUnknown: segUnknown })
   const isUnsupported = UNSUPPORTED.test(command)
 
   const list = pieces(masked)
@@ -458,6 +474,8 @@ export function classifyBash(command: string): BashClass {
     const piece = list[index]
     if (piece === undefined) continue
     const part = piece.text
+    segPaths = []
+    segUnknown = false
     // Chuyển hướng ghi trong đoạn: >, >>, 1>, &>, bỏ qua >&N (gộp luồng) và /dev/null.
     let redirected = false
     for (const match of part.matchAll(/(?:^|[^<>&\d])(?:\d*|&)>>?(?!&)\s*([^\s<>;&|]+)/g)) {
@@ -499,7 +517,7 @@ export function classifyBash(command: string): BashClass {
     if (AWK_COMMAND.test(name) || /^[gmn]?awk$/.test(name)) {
       // Script awk ghi file qua print > "file" hay print | "lệnh": đích không đọc được.
       if (AWK_WRITE.test(unmask(part))) {
-        isUnknown = true
+        isUnknown = segUnknown = true
         write('possible')
       }
       continue
@@ -529,7 +547,7 @@ export function classifyBash(command: string): BashClass {
       const t = args.findIndex(a => unmask(a) === '-t' || unmask(a).startsWith('--target-directory'))
       const target = t >= 0 ? (unmask(args[t] ?? '').includes('=') ? (args[t] ?? '').split('=')[1] : args[t + 1]) : positional[positional.length - 1]
       if (target !== undefined) add(target)
-      else isUnknown = true
+      else isUnknown = segUnknown = true
       write('definite')
     } else if (WRITE_AFTER_FIRST.has(name)) {
       positional.slice(1).forEach(add)
@@ -541,15 +559,15 @@ export function classifyBash(command: string): BashClass {
       const dash = args.findIndex(a => unmask(a) === '--')
       if (sub === 'restore') positional.slice(1).forEach(add)
       else if ((sub === 'checkout' || sub === 'reset') && dash >= 0) args.slice(dash + 1).forEach(add)
-      else isUnknown = true
+      else isUnknown = segUnknown = true
     } else {
       // Lệnh lạ, trình cài gói, script: có thể ghi, không đọc được đích.
-      isUnknown = true
+      isUnknown = segUnknown = true
       write('possible')
     }
   }
   if (isUnsupported) {
-    isUnknown = true
+    isUnknown = segUnknown = true
     write('possible')
   }
   if (cwd === '\u0000unknown') {
@@ -571,29 +589,29 @@ export function bashWriteTargets(command: string): WriteTargets {
  * của chính trình chạy đó (`trailer`). `requires`: dòng phụ bắt buộc phải có. Không nhận ra định dạng thì không xác nhận.
  */
 type Summary = { pass: RegExp; trailer: RegExp[]; requires?: RegExp }
-const SUMMARIES: Summary[] = [
+const SUMMARIES: Record<'jest' | 'vitest' | 'mocha' | 'bun' | 'pytest', Summary> = {
   // Jest: "Tests:       12 passed, 12 total", rồi Snapshots, Time, "Ran all test suites."
-  { pass: /^Tests:\s+(\d+) passed, \1 total$/, trailer: [/^Snapshots:\s+(?:\d+ passed, )?\d+ total$/, /^Time:\s+[\d.]+ m?s(?:, estimated [\d.]+ m?s)?$/, /^Ran all test suites\b[^\n]*\.$/] },
+  jest: { pass: /^Tests:\s+(\d+) passed, \1 total$/, trailer: [/^Snapshots:\s+(?:\d+ passed, )?\d+ total$/, /^Time:\s+[\d.]+ m?s(?:, estimated [\d.]+ m?s)?$/, /^Ran all test suites\b[^\n]*\.$/] },
   // Vitest: "Tests  12 passed (12)", rồi Start at, Duration.
-  { pass: /^Tests\s+(\d+) passed \(\1\)$/, trailer: [/^Start at\s+[\d:]+$/, /^Duration\s+[\d.]+m?s(?: \([^()\n]*\))?$/] },
+  vitest: { pass: /^Tests\s+(\d+) passed \(\1\)$/, trailer: [/^Start at\s+[\d:]+$/, /^Duration\s+[\d.]+m?s(?: \([^()\n]*\))?$/] },
   // Mocha: "12 passing (3ms)", rồi "1 pending".
-  { pass: /^(\d+) passing \(\d+(?:ms|s|m)\)$/, trailer: [/^\d+ pending$/] },
+  mocha: { pass: /^(\d+) passing \(\d+(?:ms|s|m)\)$/, trailer: [/^\d+ pending$/] },
   // Bun: "12 pass", rồi skip, todo, "0 fail" (bắt buộc), expect() calls, "Ran 12 tests across 1 file. [10.00ms]".
-  { pass: /^(\d+) pass$/, trailer: [/^\d+ (?:skip|todo)$/, /^0 fail$/, /^\d+ expect\(\) calls$/, /^Ran \d+ tests? across \d+ files?\. \[[\d.]+m?s\]$/], requires: /^0 fail$/ },
+  bun: { pass: /^(\d+) pass$/, trailer: [/^\d+ (?:skip|todo)$/, /^0 fail$/, /^\d+ expect\(\) calls$/, /^Ran \d+ tests? across \d+ files?\. \[[\d.]+m?s\]$/], requires: /^0 fail$/ },
   // Pytest: "=== 12 passed in 0.5s ===" là dòng cuối.
-  { pass: /^=+ (\d+) passed(?:, \d+ (?:skipped|deselected|xfailed|xpassed|warnings?))* in [\d.]+s(?: \([\d:]+\))? =+$/, trailer: [] },
-]
-
-/** Output kết thúc bằng khối tổng kết đạt của một trong SUMMARIES. */
-function summaryPass(output: string): boolean {
-  const lines = output.split('\n').map(line => line.trim())
-  return SUMMARIES.some(({ pass, trailer, requires }) => {
-    const at = lines.findLastIndex(line => pass.test(line))
-    if (at < 0 || !(Number(pass.exec(lines[at] ?? '')?.[1]) > 0)) return false
-    const after = lines.slice(at + 1).filter(line => line !== '')
-    return after.every(line => trailer.some(pattern => pattern.test(line))) && (requires === undefined || after.some(line => requires.test(line)))
-  })
+  pytest: { pass: /^=+ (\d+) passed(?:, \d+ (?:skipped|deselected|xfailed|xpassed|warnings?))* in [\d.]+s(?: \([\d:]+\))? =+$/, trailer: [] },
 }
+
+/** Output kết thúc bằng khối tổng kết đạt của trình chạy `summary`. */
+function summaryPass(output: string, { pass, trailer, requires }: Summary): boolean {
+  const lines = output.split('\n').map(line => line.trim())
+  const at = lines.findLastIndex(line => pass.test(line))
+  if (at < 0 || !(Number(pass.exec(lines[at] ?? '')?.[1]) > 0)) return false
+  const after = lines.slice(at + 1).filter(line => line !== '')
+  return after.every(line => trailer.some(pattern => pattern.test(line))) && (requires === undefined || after.some(line => requires.test(line)))
+}
+
+/** Dấu hiệu lỗi: có bất kỳ dấu hiệu nào thì output không bao giờ là báo cáo đạt. FAILED phân biệt hoa thường ("0 failed" của cargo không phải lỗi). */
 const COMPLETE_FAIL: RegExp[] = [
   /\b[1-9]\d*\s+(?:failed|failing|errors?)\b/i,
   /^\s*(?:#|\u2139)\s*fail\s+[1-9]/m, // Node (TAP, spec)
@@ -607,23 +625,41 @@ const COMPLETE_FAIL: RegExp[] = [
   /^\s*npm ERR!|\bELIFECYCLE\b|^\s*Command failed\b|\bexited with code [1-9]/m, // npm, trình chạy script
 ]
 
-/** Sáu bộ đếm trong tổng kết của node --test (TAP: "# tests 3", spec: "ℹ tests 3"); lấy giá trị cuối của mỗi bộ. */
-const NODE_COUNTER = /^\s*(?:#|\u2139)\s*(tests|pass|fail|cancelled|skipped|todo)\s+(\d+)\s*$/gm
-const NODE_FIELDS = ['tests', 'pass', 'fail', 'cancelled', 'skipped', 'todo'] as const
+/** Bộ đếm trong tổng kết của node --test (TAP: "# tests 3", spec: "ℹ tests 3"), theo đúng thứ tự in. */
+const NODE_COUNTER = /^\s*(?:#|\u2139)\s*(tests|suites|pass|fail|cancelled|skipped|todo|duration_ms)\s+(\d+(?:\.\d+)?)\s*$/
+const NODE_FIELDS = ['tests', 'suites', 'pass', 'fail', 'cancelled', 'skipped', 'todo', 'duration_ms'] as const
 
 /**
- * Báo cáo của node --test: null khi không phải. Đạt khi có đủ sáu bộ đếm, fail = 0, cancelled = 0, pass > 0, tests =
- * pass + skipped + todo, không có test lỗi thực (TAP "not ok", kể cả "# TODO"; spec "✖"). Output bị cắt (tail) mà có
- * todo thì không đạt: không thấy được test TODO có ném lỗi hay không.
+ * Báo cáo của node --test (TAP hoặc spec). Khối tổng kết phải là một khối duy nhất, liền mạch, đủ tám dòng theo đúng
+ * thứ tự (`tests` đến `duration_ms`), ở cột 0 và kết thúc output; không có dòng bộ đếm nào khác. TAP: ngay trước khối
+ * là dòng plan `1..N` (N là số mục cấp ngoài cùng); output đầy đủ thì có `TAP version` và đúng N dòng `ok`/`not ok`
+ * cấp ngoài cùng. Spec đầy đủ: số dòng kết quả (`✔`, `﹣`) trừ số suite bằng pass + skipped + todo. Đạt khi fail =
+ * cancelled = 0, pass > 0, tests = pass + skipped + todo, không có test lỗi thực (`not ok`, kể cả `# TODO`; `✖`);
+ * output bị cắt (tail) mà có todo thì không đạt.
  */
-function nodePass(output: string, truncated: boolean): boolean | null {
+function nodePass(output: string, truncated: boolean): boolean {
+  const lines = output.replace(/\s+$/, '').split('\n')
+  const block = lines.slice(-NODE_FIELDS.length)
+  const prefix = block[0]?.[0]
+  if (block.length !== NODE_FIELDS.length || (prefix !== '#' && prefix !== '\u2139')) return false
   const counts = new Map<string, number>()
-  for (const match of output.matchAll(NODE_COUNTER)) counts.set(match[1] ?? '', Number(match[2]))
-  if (!counts.has('tests') && !counts.has('pass')) return null
-  const [tests, pass, fail, cancelled, skipped, todo] = NODE_FIELDS.map(field => counts.get(field))
-  if (tests === undefined || pass === undefined || fail === undefined || cancelled === undefined || skipped === undefined || todo === undefined) return false
+  for (const [i, line] of block.entries()) {
+    const match = NODE_COUNTER.exec(line)
+    if (match === null || line[0] !== prefix || match[1] !== NODE_FIELDS[i]) return false
+    counts.set(match[1] ?? '', Number(match[2]))
+  }
+  const before = lines.slice(0, -NODE_FIELDS.length)
+  if (before.some(line => NODE_COUNTER.test(line))) return false
+  const [tests = 0, suites = 0, pass = 0, fail = 1, cancelled = 1, skipped = 0, todo = 0] = NODE_FIELDS.map(field => counts.get(field))
   if (fail !== 0 || cancelled !== 0 || pass <= 0 || tests !== pass + skipped + todo) return false
   if (/^\s*not ok\b/m.test(output) || output.includes('\u2716')) return false
+  if (prefix === '#') {
+    const plan = /^1\.\.([1-9]\d*)$/.exec(before[before.length - 1] ?? '')
+    if (plan === null) return false
+    if (!truncated && (!/^TAP version \d+$/m.test(output) || before.filter(line => /^ok \d+\b/.test(line)).length !== Number(plan[1]))) return false
+  } else if (!truncated && before.filter(line => /^\s*[\u2714\ufe63]/.test(line)).length - suites !== pass + skipped + todo) {
+    return false
+  }
   return !(truncated && todo > 0)
 }
 
@@ -631,36 +667,58 @@ function nodePass(output: string, truncated: boolean): boolean | null {
 const GO_OK = /^ok\s+\S+\s+(?:\d+(?:\.\d+)?s|\(cached\))(?:\s+coverage:.*)?\s*$/
 const GO_NO_TESTS = /^\?\s+\S+\s+\[no test files\]\s*$/
 
-/** Báo cáo của go test: null khi không phải. Đạt khi mọi dòng gói (ok, FAIL, ?) đúng dạng và có ít nhất một gói ok. */
-function goPass(output: string): boolean | null {
+/** Báo cáo của go test: mọi dòng gói (ok, FAIL, ?) đúng dạng và có ít nhất một gói ok. */
+function goPass(output: string): boolean {
   const lines = output.split('\n').filter(line => /^(?:ok|FAIL|\?)(?:\s|$)/.test(line))
-  if (lines.length === 0) return null
   return lines.some(line => GO_OK.test(line)) && lines.every(line => GO_OK.test(line) || GO_NO_TESTS.test(line))
 }
 
-/** Báo cáo của cargo test: null khi không phải. Đạt khi mọi dòng "test result:" (mỗi binary, doctest) là ok, 0 failed, và có test đạt. */
-function cargoPass(output: string): boolean | null {
-  const results = output.match(/^test result:.*$/gm)
-  if (results === null) return null
+/**
+ * Báo cáo của cargo test: mỗi binary và doctest đã chạy (dòng `Running`, `Doc-tests`) có đúng một dòng "test result:",
+ * mọi dòng đó là ok, 0 failed, và có test đạt.
+ */
+function cargoPass(output: string): boolean {
+  const results = output.match(/^test result:.*$/gm) ?? []
+  const targets = output.match(/^\s+(?:Running|Doc-tests)\s/gm) ?? []
+  if (results.length === 0 || results.length !== targets.length) return false
   const ok = results.map(line => /^test result: ok\. (\d+) passed; 0 failed;/.exec(line))
   return ok.every(match => match !== null) && ok.some(match => Number(match?.[1]) > 0)
 }
 
+/** Trình chạy test có parser báo cáo; script đóng gói (npm, make) và lệnh khác không có. */
+export type Runner = 'node' | 'jest' | 'vitest' | 'mocha' | 'bun' | 'pytest' | 'go' | 'cargo'
+
 /**
- * Output là báo cáo tổng kết đầy đủ của một lượt test đạt: parser của trình chạy chứng minh được, không có dấu hiệu lỗi
- * nào. `truncated`: output chỉ là phần cuối (qua tail); báo cáo Go và Cargo in theo từng gói hay binary nên phần cuối
- * không bao giờ đủ. Không nhận ra định dạng thì không đạt.
+ * Trình chạy của một đoạn lệnh kiểm tra, theo chính lệnh (không theo output): `node --test`, `jest`, `vitest`, `mocha`,
+ * `bun test`, `pytest` (cả `python -m pytest`), `go test`, `cargo test`. Script đóng gói (`npm test`, `npm run X`,
+ * `pnpm`/`yarn`/`bun run X`, `make test`) không biết gọi trình chạy nào: null.
  */
-export function completePass(output: string, options: { truncated?: boolean } = {}): boolean {
+export function runnerOf(segment: string): Runner | null {
+  const tokens = segment.toLowerCase().trim().split(/\s+/).filter(Boolean)
+  while (tokens.length > 0 && (WRAPPERS.has(tokens[0] ?? '') || (tokens[0] ?? '').startsWith('-'))) tokens.shift()
+  const [name, sub, third] = tokens
+  if (name === 'node') return tokens.includes('--test') ? 'node' : null
+  if (name === 'jest' || name === 'vitest' || name === 'mocha' || name === 'pytest') return name
+  if (name === 'bun') return sub === 'test' ? 'bun' : null
+  if ((name === 'python' || name === 'python3') && sub === '-m' && third === 'pytest') return 'pytest'
+  if (name === 'go') return sub === 'test' ? 'go' : null
+  if (name === 'cargo') return sub === 'test' ? 'cargo' : null
+  return null
+}
+
+/**
+ * Output là báo cáo tổng kết đầy đủ của một lượt test đạt, theo parser của đúng trình chạy `runner` (lấy từ lệnh, không
+ * đoán theo hình dạng output), không có dấu hiệu lỗi nào. `truncated`: output chỉ là phần cuối (qua tail); báo cáo Go
+ * và Cargo in theo từng gói hay binary nên phần cuối không bao giờ đủ. Parser loại các ca mơ hồ và false positive đã
+ * biết; không chứng minh được tính trung thực của một chương trình từ output của chính nó.
+ */
+export function completePass(output: string, runner: Runner, options: { truncated?: boolean } = {}): boolean {
   const truncated = options.truncated === true
   if (COMPLETE_FAIL.some(pattern => pattern.test(output))) return false
-  const node = nodePass(output, truncated)
-  if (node !== null) return node
-  const cargo = cargoPass(output)
-  if (cargo !== null) return !truncated && cargo
-  const go = goPass(output)
-  if (go !== null) return !truncated && go
-  return summaryPass(output)
+  if (runner === 'node') return nodePass(output, truncated)
+  if (runner === 'go') return !truncated && goPass(output)
+  if (runner === 'cargo') return !truncated && cargoPass(output)
+  return summaryPass(output, SUMMARIES[runner])
 }
 
 /**
@@ -710,8 +768,9 @@ export function trackVerification(tracker: TurnTracker, observation: ToolObserva
 function checkEffectPassed(effect: CheckEffect, observation: ToolObservation): boolean {
   if (!effect.trusted || observation.isError || outputFailed(observation.output)) return false
   if (effect.exit === 'visible') return true
-  if (effect.exit === 'filtered') return observation.output !== undefined && completePass(observation.output, { truncated: effect.filter === 'tail' })
-  return false
+  if (effect.exit !== 'filtered' || observation.output === undefined) return false
+  const runner = runnerOf(effect.segment)
+  return runner !== null && completePass(observation.output, runner, { truncated: effect.filter === 'tail' })
 }
 
 /** Cách router đọc prompt của turn: quan hệ với mục tiêu đang mở và bản chất việc; null khi router không đọc được. */
@@ -990,15 +1049,72 @@ function covers(entry: EvidenceEntry, log: EvidenceLog): boolean {
   return log.writes.every(w => w.seq <= lastMain || w.seq > entry.seq || w.author === entry.author)
 }
 
-/** Evidence nhắc tới lệnh này: vài từ đầu của một đoạn lệnh (có hoặc không kèm tùy chọn), hoặc một đối số dạng đường dẫn. */
-function mentionsCommand(text: string, command: string): boolean {
-  for (const part of segments(command)) {
-    const tokens = part.toLowerCase().split(/\s+/).filter(Boolean)
-    const words = tokens.filter(t => !t.startsWith('-'))
-    const keys = [tokens.slice(0, 3).join(' '), tokens.slice(0, 2).join(' '), words.slice(0, 2).join(' '), ...words.slice(1).filter(w => w.length >= 6 && /[\\/.]/.test(w))]
-    if (keys.some(key => key.length >= 4 && text.includes(key))) return true
+const PACKAGE_MANAGERS = new Set(['npm', 'pnpm', 'yarn', 'bun'])
+/** Tiền tố không đổi danh tính lệnh. */
+const WRAPPERS = new Set(['sudo', 'command', 'nohup', 'npx', 'exec', 'time'])
+
+/**
+ * Danh tính của một đoạn lệnh: các cách viết tương đương, mỗi cách là dãy token định danh (tên lệnh, lệnh con, tên
+ * script, đối số vị trí), bỏ wrapper và tùy chọn. Script của trình quản lý gói giữ tên script: `npm run lint` khác
+ * `npm run test`; `npm test` và `npm run test` là một; `pnpm`/`yarn X` và `run X` là một. Đối số `.` là mặc định nên bỏ.
+ */
+export function commandIdentity(segment: string): string[][] {
+  const tokens = segment.toLowerCase().trim().split(/\s+/).filter(Boolean)
+  while (tokens.length > 0 && WRAPPERS.has(tokens[0] ?? '')) tokens.shift()
+  const words = tokens.filter(t => !t.startsWith('-') && t !== '.' && t !== './')
+  const [name, sub, ...rest] = words
+  if (name === undefined) return []
+  if (!PACKAGE_MANAGERS.has(name) || sub === undefined) return [words]
+  if (sub === 'run' || sub === 'run-script') {
+    const [script, ...args] = rest
+    if (script === undefined) return [[name, 'run']]
+    const runForm = [name, 'run', script, ...args]
+    return name === 'bun' || (name === 'npm' && script !== 'test') ? [runForm] : [runForm, [name, script, ...args]]
   }
-  return false
+  if (name === 'bun') return [words]
+  if (name === 'npm' && sub !== 'test' && sub !== 't') return [words]
+  const script = sub === 't' ? 'test' : sub
+  return [[name, 'run', script, ...rest], [name, script, ...rest]]
+}
+
+/** Các từ của evidence: tách theo khoảng trắng và dấu câu, bỏ dấu `:`, `.`, `,` ở cuối từ (`lint:` là `lint`, `lint:fix` giữ nguyên). */
+function evidenceWords(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/[\s`'"(),;]+/)
+    .map(word => word.replace(/[:.,!?]+$/, ''))
+    .filter(Boolean)
+}
+
+/**
+ * Evidence nhắc tới lệnh này: một cách viết của danh tính xuất hiện trọn trong evidence, theo thứ tự, mỗi token khớp
+ * trọn một từ, giữa hai token chỉ được có tùy chọn (`-x`) hay wrapper. Chia chung tiền tố (`npm run`, `node`) không đủ.
+ */
+function mentionsCommand(words: string[], command: string): boolean {
+  return segments(command).some(part =>
+    commandIdentity(part).some(identity => {
+      if (identity.length === 0) return false
+      for (let start = 0; start < words.length; start++) {
+        if (words[start] !== identity[0]) continue
+        let at = start
+        let matched = 1
+        for (let i = at + 1; i < words.length && matched < identity.length; i++) {
+          const word = words[i] ?? ''
+          if (word === identity[matched]) {
+            matched += 1
+            at = i
+          } else if (!word.startsWith('-') && !WRAPPERS.has(word)) break
+        }
+        if (matched === identity.length) return true
+      }
+      return false
+    }),
+  )
+}
+
+/** Khóa gom các lần chạy của cùng một lệnh: cách viết đầu của danh tính, theo từng đoạn. */
+function identityKey(command: string): string {
+  return segments(command).map(part => (commandIdentity(part)[0] ?? []).join(' ')).join(' && ')
 }
 
 export type EvidenceLevel = 'strong' | 'stale' | 'weak' | 'none'
@@ -1018,11 +1134,15 @@ export type EvidenceStrength = {
 /** Đối chiếu evidence của "verified" với dấu vết thật của mục tiêu. */
 export function evidenceStrength(evidence: string, log: EvidenceLog): EvidenceStrength {
   const text = evidence.toLowerCase()
-  const mentioned = log.commands.filter(entry => mentionsCommand(text, entry.command))
-  const fresh = mentioned.filter(entry => entry.check !== null && entry.ok && entry.seq > log.lastMutation && covers(entry, log))
-  if (fresh.length > 0) return { level: 'strong', check: fresh.some(entry => entry.check === 'test') ? 'test' : 'static' }
-  const checks = mentioned.filter(entry => entry.check !== null)
-  const last = checks[checks.length - 1]
+  const words = evidenceWords(evidence)
+  const mentioned = log.commands.filter(entry => mentionsCommand(words, entry.command))
+  // Mỗi lệnh kiểm tra được nhắc tính theo lần chạy cuối của chính nó; mọi lệnh được nhắc phải đạt, sau thay đổi cuối.
+  const latest = new Map<string, EvidenceEntry>()
+  for (const entry of mentioned) if (entry.check !== null) latest.set(identityKey(entry.command), entry)
+  const checks = [...latest.values()]
+  const isFresh = (entry: EvidenceEntry) => entry.ok && entry.seq > log.lastMutation && covers(entry, log)
+  if (checks.length > 0 && checks.every(isFresh)) return { level: 'strong', check: checks.some(entry => entry.check === 'test') ? 'test' : 'static' }
+  const last = checks.find(entry => !isFresh(entry))
   if (last !== undefined) {
     const shown = last.command.slice(0, 80)
     return {

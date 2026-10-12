@@ -2088,7 +2088,7 @@ describe('0.5.1: output thật của lệnh kiểm tra', () => {
     await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa' }] })
     await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' })
     await $.tool.call({ tool: 'Bash', command: 'node --test src/ 2>&1 | tail -15' })
-    const done = await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'node --test: 1 pass' })
+    const done = await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'node --test src/: 1 pass' })
     expect(String(done.result)).toContain('[x] 1. Sửa')
     expect(String(done.result)).toContain('đã lỗi')
   })

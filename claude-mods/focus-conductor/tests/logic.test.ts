@@ -399,7 +399,8 @@ describe('0.5.0: đối chiếu evidence và lệnh in biến môi trường', (
     bash('npx --no-install tsc -p scratchpad/tc/tsconfig.repo.json')
     noteEvidence(log, { tool: 'Edit', input: { file_path: '/repo/mod/hooks/lib/drift.ts' }, isError: false, isReadOnly: false })
     expect(evidenceMatches('claude plugin test . 184 pass 0 fail', log)).toBe(true)
-    expect(evidenceMatches('npx tsc sạch', log)).toBe(true)
+    // 0.5.2: phải nêu đủ danh tính lệnh (kể cả đối số); `npx tsc` không nêu file cấu hình nên không khớp.
+    expect(evidenceMatches('npx tsc sạch', log)).toBe(false)
     expect(evidenceMatches('tsc -p scratchpad/tc/tsconfig.repo.json không lỗi', log)).toBe(true)
     expect(evidenceMatches('đã đọc lại drift.ts', log)).toBe(true)
     expect(evidenceMatches('đã kiểm tra kỹ, chạy ổn', log)).toBe(false)
