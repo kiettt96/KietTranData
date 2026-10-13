@@ -350,7 +350,8 @@ export const MUTANTS: Mutant[] = [
   { id: "054-E21", file: "hooks/lib/ledger.ts", note: "mục tiêu mới giữ chi phí thật của mục tiêu cũ", old: "covered: { ...base.covered, goal: 0 }", new: "covered: base.covered" },
   { id: "054-E22", file: "hooks/lib/ledger.ts", note: "ledgerLines bỏ dòng so sánh", old: "  if (net !== null) lines.push(net)\n", new: "" },
   { id: "054-E23", file: "hooks/lib/ledger.ts", note: "không ghi model của phiên", old: "family: args.session.family ?? prev?.family ?? null,", new: "family: prev?.family ?? null," },
-  { id: "054-E24", file: "hooks/parts/turn.ts", note: "subagents không ghi cơ sở", old: "      if (current === 'subagents') await markBaseline($, e, null, L.turnContext, isCacheFree)\n", new: "" },
+  { id: "054-E24", file: "hooks/parts/turn.ts", note: "subagents không ghi cơ sở", old: "      if (current === 'subagents' && L.turnRoute.turnId !== e.turnId) {\n        L.turnRoute = { turnId: e.turnId, route: null }\n        await markBaseline($, e, null, L.turnContext, isCacheFree)\n      }\n", new: "" },
+  { id: "054-E27", file: "hooks/parts/turn.ts", note: "subagents ghi cơ sở ở mọi step, không chỉ step đầu", old: "current === 'subagents' && L.turnRoute.turnId !== e.turnId", new: "current === 'subagents'", equivalent: "planSwitch đã bỏ qua lần gọi thứ hai của cùng turn; điều kiện chỉ tránh ghi state dư ở mỗi step, không đổi kết quả quan sát được" },
   { id: "054-E25", file: "hooks/parts/turn.ts", note: "suggest cũng coi là mod phục vụ", old: "const served = current === 'auto' && decided.route !== null", new: "const served = decided.route !== null" },
   { id: "054-E26", file: "hooks/context.ts", note: "isCacheFree bỏ TTL", old: "core.lastTurnAt === 0 || at - core.lastTurnAt > cacheTtlMs ||", new: "core.lastTurnAt === 0 ||" },
 ]
