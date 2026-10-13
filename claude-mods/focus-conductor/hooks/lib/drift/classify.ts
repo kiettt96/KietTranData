@@ -220,7 +220,7 @@ export function classifyBash(command: string): BashClass {
       continue
     }
     // Lệnh vừa kiểm vừa sửa file (--fix, --write...) không phải lệnh kiểm tra: rơi xuống nhánh ghi bên dưới.
-    if (isCheckText(text) && !isSelfFixing(bare.split(/\s+/))) {
+    if (isCheckText(text) && !isSelfFixing(bare.split(/\s+/), unmask)) {
       effects.push({
         kind: 'check',
         check: TEST_SEGMENT.test(text) || isCustomCheck(text) ? 'test' : 'static',
