@@ -95,7 +95,10 @@ export function registerTurn(on: On, ctx: Ctx): void {
     // Chế độ subagents/off không chạm luồng chính. Subagents vẫn ghi model của phiên làm cơ sở so với chạy thuần.
     if (current === 'off' || current === 'subagents') {
       L.sessionFamily = familyOf(e.model) ?? L.sessionFamily
-      if (current === 'subagents') await markBaseline($, e, null, L.turnContext, isCacheFree)
+      if (current === 'subagents' && L.turnRoute.turnId !== e.turnId) {
+        L.turnRoute = { turnId: e.turnId, route: null }
+        await markBaseline($, e, null, L.turnContext, isCacheFree)
+      }
       return yield* next(e)
     }
 
