@@ -175,7 +175,18 @@ focus-conductor/
   hooks/lib/cost.ts            bảng giá có ngày, ghi đè giá, hệ số ghi cache, cửa sổ mặc định, chi phí turn và ghi lại cache
   hooks/lib/ledger.ts          sổ chi phí theo nhóm, phiên và mục tiêu; hiệu chỉnh; token ra theo dạng việc; cơ sở so với chạy thuần
   hooks/lib/route.ts           chính sách model của phiên, nâng theo bằng chứng, quyết định đổi có tính cache, khớp việc đã phân
-  hooks/lib/drift.ts           phát hiện lặp, lan man, lạc phạm vi (cả đích của lệnh Bash), checkpoint; dấu vết thực thi và độ mạnh của evidence
+  hooks/lib/drift.ts           điểm vào công khai (chỉ re-export) của phần phát hiện lặp, lan man, lạc phạm vi, checkpoint và đối chiếu evidence
+  hooks/lib/drift/tool.ts      kiểu và hàm nền: quan sát tool call, đường dẫn file, file kế hoạch
+  hooks/lib/drift/verify.ts    nhận diện lệnh kiểm tra: bảng trình chạy, dạng bọc, kiểm tĩnh, checkCommands, lệnh tự sửa
+  hooks/lib/drift/readonly.ts  tách đoạn lệnh Bash và nhận ra lệnh chỉ đọc
+  hooks/lib/drift/scope.ts     chuẩn hóa đường dẫn, đối chiếu file với phạm vi
+  hooks/lib/drift/classify.ts  phân loại lệnh Bash theo từng đoạn: lệnh kiểm tra, tác động ghi, file đích, mức che mã thoát
+  hooks/lib/drift/effects.ts   hiệu ứng của một tool call: có chạy kiểm tra không, loại kiểm tra, có ghi file không
+  hooks/lib/drift/output.ts    output của lệnh kiểm tra: dấu hiệu lỗi và báo cáo tổng kết đầy đủ theo từng trình chạy
+  hooks/lib/drift/tracker.ts   theo dõi một turn của luồng chính và tổng kết cuối turn
+  hooks/lib/drift/evidence.ts  dấu vết thực thi của một mục tiêu (lệnh đã chạy kèm kết quả, các lần ghi)
+  hooks/lib/drift/identity.ts  danh tính của lệnh kiểm tra, để so khớp nghiêm ngặt
+  hooks/lib/drift/claims.ts    đối chiếu evidence của "verified" với dấu vết thật
   hooks/lib/plan.ts            schema và reducer của tool plan
   hooks/lib/state.ts           giá trị khởi tạo, chuẩn hóa trạng thái cũ, reducer thuần, cất và khôi phục mục tiêu
   hooks/lib/text.ts            mọi văn bản gửi model và hiển thị
@@ -184,19 +195,26 @@ focus-conductor/
   hooks/ui/labels.ts           nhãn vi/en của band và pane
   hooks/ui/style.ts            token màu, ký hiệu, giai đoạn và thanh tiến độ của band và pane
   types/index.d.ts             type contract của $.state
-  tests/                       logic thuần, router, chi phí và sổ, test tích hợp qua engine (router giả lập), kịch bản đầu cuối
+  tests/                       theo chức năng: logic thuần (router, chi phí và sổ, giá, ngưỡng, trạng thái, lợi ích ròng), golden-set, giao diện
+  tests/shell/                 phân loại lệnh Bash, mã thoát, đích ghi file, phạm vi
+  tests/output/                báo cáo của từng trình chạy test (Node, Go, Cargo, Jest, Vitest, Mocha, Bun, Pytest)
+  tests/evidence/              danh tính lệnh, đầu cụm claim, độ mạnh của evidence
+  tests/integration/           qua engine của `claude plugin test` (router giả lập): router đọc prompt, điều phối, subagent, checklist và Stop, lệnh /conductor, giao diện, kịch bản đầu cuối
   tests/support/engine.ts      khung chạy test tích hợp dùng chung (đồng hồ giả, router giả lập, các câu trả lời mặc định)
+  tests/support/commands.ts    dựng tool call giả (Bash, Edit) và brief mẫu cho test lệnh và evidence
   tests/golden/                golden-set của router: 30 prompt mẫu (5 ca đối kháng), kỳ vọng, câu trả lời router thật đã ghi cùng băm request và tỷ lệ đạt
   tests/fixtures/prompt-k4.ts  prompt dài tổng hợp (ẩn danh), dùng để kiểm request gửi router và phân việc nhiều mục
   scripts/eval-router.ts       eval router thật trên golden-set, nhiều lần mỗi ca (không chạy trong CI)
-  scripts/mutants.ts           344 định nghĩa đột biến (194 cũ cho hooks/lib/drift.ts, 150 mới của 0.5.4 cho giá, router, sổ chi phí, giao diện, nhận diện lệnh; dữ liệu thuần)
+  scripts/mutants.ts           344 định nghĩa đột biến (194 cũ cho hooks/lib/drift/, 150 mới của 0.5.4 cho giá, router, sổ chi phí, giao diện, nhận diện lệnh; dữ liệu thuần)
   scripts/mutate.ts            chạy đột biến, khôi phục tệp gốc, in sha256 trước và sau
   tsconfig.json                cấu hình type-check độc lập (cần tệp khai báo do engine sinh, xem "Phát triển")
   LICENSE                      MIT
 .github/workflows/focus-conductor.yml   (ở gốc repo) validate mod và marketplace, chạy test của mod
 ```
 
-Kiểm tra trước khi phát hành: `claude plugin validate .` và `claude plugin test .` (số test hiện hành ở mục "Kiểm chứng HEAD hiện tại"; gồm replay offline golden-set và test tái hiện từng lỗi trong `tests/review05*.test.ts`). Đổi prompt router thì chạy lại `bun scripts/eval-router.ts --model sonnet --runs 3 --record` để chấm router thật và ghi câu trả lời mới cho golden-set.
+Kiểm tra trước khi phát hành: `claude plugin validate .` và `claude plugin test .` (số test hiện hành ở mục "Kiểm chứng HEAD hiện tại"; gồm replay offline golden-set và test tái hiện từng lỗi của các vòng review, nay xếp theo chức năng ở `tests/shell/`, `tests/output/`, `tests/evidence/`, `tests/integration/`). Đổi prompt router thì chạy lại `bun scripts/eval-router.ts --model sonnet --runs 3 --record` để chấm router thật và ghi câu trả lời mới cho golden-set.
+
+Các mục "Thay đổi" và "Kiểm chứng" của bản cũ nêu tên tệp test theo vòng review (`tests/review05*.test.ts`, `tests/hooks.test.ts`). Các tệp đó đã được tách theo chức năng vào các thư mục trên và bộ hàm dựng chung vào `tests/support/`; tên `describe` và `test` giữ nguyên, nên tìm một test cũ bằng tên của nó (tập tên của 563 test trước và sau khi tách trùng nhau).
 
 ## Phát triển
 
