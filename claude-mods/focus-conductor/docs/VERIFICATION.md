@@ -4,6 +4,19 @@ Số đo của HEAD hiện tại và của các bản trước. Mọi số do t�
 
 ## Kiểm chứng HEAD hiện tại
 
+Bản 0.5.5 (vá nhỏ sau các PR #16 đến #18), ngày 2026-10-13. Mã (`hooks/`) và test trong commit chứa mục này đúng là nội dung đã kiểm (sha256 của `hooks/` và `tests/` in trước và sau các lượt đột biến, nêu bên dưới). Số dưới đây do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển], trừ dòng CI.
+
+- Môi trường: Claude Code 2.1.296, Node v22.22.0, Bun 1.4.2.
+- `claude plugin test .`: 585 test qua, 0 lỗi, 34 tệp (582 test của 0.5.4 sau tái cấu trúc, cộng 3). `claude plugin validate .` qua cho mod và marketplace. `bunx tsc -p tsconfig.json` sạch.
+- Test đỏ trên mã 0.5.4: test "cờ, giá trị cờ hay tên script đặt trong nháy vẫn là tự sửa" đỏ, liệt kê đủ cả 8 lệnh bị xếp sai thành lệnh kiểm tra; hai test còn lại (giá trị tùy chọn trong nháy là đối số; giới hạn `eslint --quiet "--fix"`) xanh sẵn vì ghim hành vi đúng đã có.
+- Kiểm đột biến: cổng 79 mẫu của `verify.ts` và `classify.ts` (gồm `054-C33`, `054-C43` viết lại và sáu mẫu mới `055-S1` đến `055-S6`): 79 bị bắt. Lượt đầy đủ trên HEAD (`bun scripts/mutate.ts --jobs 4`, 350 mẫu): 345 bị bắt, 5 tương đương có lý do ghi trong `scripts/mutants.ts`, 0 sống sót. Sha256 của `hooks/` (`6956e90fe10ba27f…`) và `tests/` (`92060108342deb09…`) trước và sau lượt không đổi.
+- Export của `hooks/lib/drift`: so bằng compiler API TypeScript 5.9.3 (`checker.getExportsOfModule`, chữ ký bỏ phần đường dẫn của `import("...")`) giữa `drift.ts` một tệp ở `98ddef4` (#16) và barrel của nhánh này: 32 giá trị và 18 kiểu giống nhau về tên, loại và chữ ký, 0 lỗi compiler. Hai đối chứng âm tính (thêm tham số vào `newTracker`, thêm một nhánh vào kiểu hợp `CheckKind`) đều bị bắt. Script không nằm trong repo vì `drift.ts` một tệp không còn ở nhánh này.
+- Quét chuỗi riêng tư (7 chuỗi, danh sách giữ ngoài repo) trên cây làm việc, kể cả README, CHANGELOG và `docs/`: sạch. Lịch sử git của #16 đến #18 vẫn chứa dòng liệt kê cũ (không viết lại lịch sử).
+- Chưa kiểm được: việc engine có ghi đè `tsconfig.json` đã commit khi nạp mod trong phiên tương tác; bậc cache thật trên máy người dùng (mặc định bậc 1 giờ theo phép đo ở container); ảnh chụp band và pane trên engine thật.
+- Bản trước: kiểm chứng của 0.5.4 ở mục ngay dưới.
+
+## Kiểm chứng của 0.5.4
+
 Bản 0.5.4 (xử lý báo cáo rà soát toàn mod trên `8820125`), ngày 2026-10-13. Mã (`hooks/`) và test trong commit chứa mục này đúng là nội dung đã kiểm (sha256 của `hooks/` và `tests/` in trước và sau các lượt đột biến, nêu bên dưới); README được điền kết quả sau khi kiểm. Mọi số dưới đây do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển].
 
 - Môi trường: Claude Code 2.1.296, Node v22.22.0, Bun 1.4.2.
