@@ -267,7 +267,7 @@ export const MUTANTS: Mutant[] = [
   { id: "054-C30", file: "hooks/lib/drift/verify.ts", note: "bỏ --apply-unsafe khỏi cờ tự sửa", old: "new Set(['--fix', '--write', '--apply', '--apply-unsafe', '--fix-only'])", new: "new Set(['--fix', '--write', '--apply', '--fix-only'])" },
   { id: "054-C31", file: "hooks/lib/drift/verify.ts", note: "bỏ --fix-only khỏi cờ tự sửa", old: "new Set(['--fix', '--write', '--apply', '--apply-unsafe', '--fix-only'])", new: "new Set(['--fix', '--write', '--apply', '--apply-unsafe'])" },
   { id: "054-C32", file: "hooks/lib/drift/verify.ts", note: "bỏ --fix= khỏi cờ tự sửa", old: "FIX_FLAGS.has(word) || word.startsWith('--fix=')", new: "FIX_FLAGS.has(word)" },
-  { id: "054-C33", file: "hooks/lib/drift/verify.ts", note: "không có ngoại lệ giá trị tùy chọn: mọi token nháy đều được xét như cờ", old: "WHOLE_QUOTED.test(token) && before !== undefined && before.startsWith('-') && !before.includes('=')", new: "false" },
+  { id: "054-C33", file: "hooks/lib/drift/verify.ts", note: "không có ngoại lệ giá trị tùy chọn: mọi token nháy đều được xét như cờ", old: "WHOLE_QUOTED.test(token) && before !== undefined && before !== '--' && before.startsWith('-') && !before.includes('=')", new: "false" },
   { id: "054-C34", file: "hooks/lib/drift/verify.ts", note: "bỏ prettier -w", old: "words.includes('prettier') && words.includes('-w')", new: "false" },
   { id: "054-C35", file: "hooks/lib/drift/verify.ts", note: "ruff format luôn là kiểm tra", old: "return !words.includes('--check') && !words.includes('--diff')", new: "return false" },
   { id: "054-C36", file: "hooks/lib/drift/verify.ts", note: "ruff format --diff vẫn là tự sửa", old: "return !words.includes('--check') && !words.includes('--diff')", new: "return !words.includes('--check')" },
@@ -361,4 +361,5 @@ export const MUTANTS: Mutant[] = [
   { id: "055-S4", file: "hooks/lib/drift/verify.ts", note: "giá trị tùy chọn: regex không neo", old: "/^\\u0000\\d+\\u0000$/", new: "/\\u0000\\d+\\u0000/" },
   { id: "055-S5", file: "hooks/lib/drift/verify.ts", note: "không bỏ nháy token trước khi xét cờ", old: "words.push(unmask(token))", new: "words.push(token)" },
   { id: "055-S6", file: "hooks/lib/drift/verify.ts", note: "giá trị tùy chọn: lệch chỉ số token đứng trước", old: "const before = tokens[at - 1]", new: "const before = tokens[at - 2]" },
+  { id: "055-S7", file: "hooks/lib/drift/verify.ts", note: "giá trị tùy chọn: dấu -- cũng được coi là tùy chọn nhận giá trị", old: "before !== '--' && ", new: "" },
 ]

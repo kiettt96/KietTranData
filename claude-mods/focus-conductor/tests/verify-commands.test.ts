@@ -170,6 +170,8 @@ describe('cờ tự sửa đặt trong nháy', () => {
       'yarn "lint:fix"',
       'eslint --max-warnings=0 "--fix" .',
       'eslint --quiet --fix="true" .',
+      'npm run lint -- "--fix"',
+      'eslint -- "--fix" .',
     ]
     expect(commands.filter(command => checkKindOf(command) !== null || !mutates(command))).toEqual([])
   })

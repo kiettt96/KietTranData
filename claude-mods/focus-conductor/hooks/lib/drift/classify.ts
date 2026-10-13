@@ -1,5 +1,5 @@
 // Phân loại một lệnh Bash theo từng đoạn: lệnh kiểm tra, tác động ghi, file đích, mức che mã thoát.
-// Chuyển nguyên văn từ hooks/lib/drift.ts (tách theo tầng, không đổi hành vi); hooks/lib/drift.ts là barrel.
+// Chuyển từ hooks/lib/drift.ts (tách theo tầng, không đổi hành vi lúc tách; 0.5.5 truyền unmask vào isSelfFixing); hooks/lib/drift.ts là barrel.
 
 import { TEST_SEGMENT, isCheckText, isCustomCheck, isSelfFixing } from './verify'
 import type { CheckKind } from './verify'
