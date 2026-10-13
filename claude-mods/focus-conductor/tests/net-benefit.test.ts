@@ -165,6 +165,33 @@ describe('lợi ích ròng so với chạy thuần: sổ', () => {
     expect(ledger.baseline?.pure.session).toBe(0.014)
   })
 
+  test('subagent xong trước luồng chính trong turn có phần bù: subagent không dùng phần bù và cũng không làm mất nó', () => {
+    reset()
+    let ledger = begin(emptyLedger(1), 't1', opus, opus, 100_000, { isFree: true })
+    ledger = finish(ledger, 'opus', usage(1000, 1000, 0, 100_000))
+    ledger = begin(ledger, 't2', opus, sonnet, 100_000)
+    expect(ledger.baseline?.rewrite).toBe(100_000)
+    // Subagent (Haiku) xong trước luồng chính: 1000 vào, 1000 ra, 50000 ghi cache. Thật 100 + 500 + 10000 = 10600;
+    // thuần (Opus, không bù) 4000 + 20000 + 400000 = 424000.
+    ledger = finish(ledger, 'haiku', usage(1000, 1000, 0, 50_000), 'agent')
+    expect(ledger.baseline?.rewrite).toBe(100_000)
+    // Luồng chính (Sonnet) sau đó vẫn được bù: thật 412000; thuần 44000.
+    ledger = finish(ledger, 'sonnet', usage(1000, 1000, 0, 100_000))
+    expect(ledger.baseline?.rewrite).toBe(0)
+    closeTo(net(ledger).session, (824_000 + 424_000 + 44_000 - (824_000 + 10_600 + 412_000)) / 1_000_000)
+  })
+
+  test('chính người dùng đổi effort (cùng họ) hay đổi họ (cùng effort): chạy thuần cũng mất cache, không bù', () => {
+    reset()
+    const high: Pair = { family: 'opus', effort: 'high' }
+    const low: Pair = { family: 'opus', effort: 'low' }
+    const sonnetHigh: Pair = { family: 'sonnet', effort: 'high' }
+    const effortOnly = begin(begin(emptyLedger(1), 't1', high, high, 100_000, { isFree: true }), 't2', low, low, 100_000)
+    expect(effortOnly.baseline?.rewrite).toBe(0)
+    const familyOnly = begin(begin(emptyLedger(1), 't1', high, high, 100_000, { isFree: true }), 't2', sonnetHigh, sonnetHigh, 100_000)
+    expect(familyOnly.baseline?.rewrite).toBe(0)
+  })
+
   test('mục tiêu mới zero phần mục tiêu, giữ phần phiên; reset bỏ cả cơ sở', () => {
     reset()
     let ledger = begin(emptyLedger(1), 't1', opus, sonnet, 50_000, { isFree: true })
@@ -222,6 +249,27 @@ describe('lợi ích ròng so với chạy thuần: hook', () => {
     const spawned = await $.agent.spawn({ prompt: 'Tìm file auth', description: 'Tìm file auth', subagentType: 'Explore' } as never)
     await $.turn.complete({ turnId: 'ag1', agentId: spawned.agentId, answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer', usage: { ...usage(2000, 1000, 0, 0), model: 'claude-haiku-5-5' } } as never)
     expect(String((await conductor($, 'status')).text)).toContain('So với chạy thuần sonnet: phiên tiết kiệm ~$0.006')
+  })
+
+  test('chế độ suggest: mod không đổi model nên lượt phục vụ là đúng model engine, không bù ghi cache', { options: { routing: 'suggest' } }, async ($, on) => {
+    let answer = small
+    const seen = base(on, { router: () => answer })
+    on('turn.complete', () => ({ text: '' }))
+    // Ngữ cảnh đo được 100K ở mọi turn: không phải ngữ cảnh vừa nén, nên có ghi lại cache nếu đổi model.
+    on('session.usage', () => ({ value: { startedAt: 0, context: { tokens: 100_000, window: 1_000_000 }, rateLimits: [] } }) as never)
+    const finish = (turnId: string, tokens: Tokens) =>
+      $.turn.complete({ turnId, answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer', usage: { ...tokens, model: 'claude-opus-5-5' } } as never)
+    await submit($, 'sửa typo trong README')
+    await step($, seen, { turnId: 't1', model: 'claude-opus-5-5', effort: 'high' })
+    await finish('t1', usage(1000, 1000, 0, 100_000))
+    // Router gợi ý model khác ở lượt sau (sonnet thay vì haiku), nhưng engine vẫn chạy opus: chạy thuần và thật là một.
+    answer = plan({ goal: 'Đổi tên biến', depth: 'none', kind: 'edit', main: { model: 'sonnet', effort: 'medium' } })
+    await submit($, 'đổi tên biến userId thành accountId')
+    await step($, seen, { turnId: 't2', model: 'claude-opus-5-5', effort: 'high' })
+    await finish('t2', usage(1000, 1000, 0, 100_000))
+    // Lượt sau ghi 100K cache: nếu mod coi gợi ý của router là lượt nó đã phục vụ thì sẽ bù phần ghi này và lệch số. Thật ra
+    // chạy thuần và thật là một, chênh lệch duy nhất là chi phí hai lượt router ($0.007 mỗi lượt).
+    expect(String((await conductor($, 'status')).text)).toContain('So với chạy thuần opus: phiên tốn thêm ~$0.014, mục tiêu này tốn thêm ~$0.007')
   })
 
   test('/conductor reset xóa cơ sở: không còn dòng so sánh', {}, async ($, on) => {

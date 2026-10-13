@@ -83,6 +83,39 @@ describe('nút Đặt lại hai bước', () => {
     await ui.unmount()
   })
 
+  test('bấm xác nhận rồi chờ lại: hẹn giờ cũ chạy khi nút đã chờ lại thì không hủy mốc mới', {}, async ($, on) => {
+    const seen = base(on)
+    await withGoal($)
+    const ui = await $.ui.mount(PANE)
+    await ui.press({ key: 'reset' })
+    await ui.press({ key: 'reset' })
+    await submit($, COMPLEX_PROMPT)
+    await seen.clock.advance(5_000)
+    await ui.press({ key: 'reset' })
+    expect((await ui.find({ key: 'reset' }))?.text).toBe('Bấm lại để xóa')
+    // Hẹn giờ của lần chờ đầu hết hạn ở giây thứ 10 tính từ lần bấm đầu; mốc mới còn 5 giây nữa.
+    await seen.clock.advance(5_000)
+    expect((await ui.find({ key: 'reset' }))?.text).toBe('Bấm lại để xóa')
+    expect(seen.toasts.some(text => text.includes('Đã hủy yêu cầu đặt lại'))).toBe(false)
+    await seen.clock.advance(5_000)
+    expect((await ui.find({ key: 'reset' }))?.text).toBe('Đặt lại mục tiêu')
+    expect(seen.toasts.filter(text => text.includes('Đã hủy yêu cầu đặt lại')).length).toBe(1)
+    await ui.unmount()
+  })
+
+  test('bấm lần hai xóa cả trạng thái cục bộ như /conductor reset: độ trễ router đã đo không còn', {}, async ($, on) => {
+    base(on)
+    await withGoal($)
+    expect(await statusText($)).toContain('Độ trễ router')
+    const ui = await $.ui.mount(PANE)
+    await ui.press({ key: 'reset' })
+    await ui.press({ key: 'reset' })
+    const after = await statusText($)
+    expect(after).toContain('Chưa có mục tiêu')
+    expect(after).not.toContain('Độ trễ router')
+    await ui.unmount()
+  })
+
   test('dòng chú thích dưới nút ghi phạm vi xóa và phần được giữ', {}, async ($, on) => {
     base(on)
     await withGoal($)

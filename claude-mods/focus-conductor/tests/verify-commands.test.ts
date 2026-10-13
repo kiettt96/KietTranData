@@ -133,6 +133,11 @@ describe('lệnh tự sửa là tác động ghi, không phải lệnh kiểm tr
     'npm run format',
     'pnpm run format',
     'npm run fix',
+    'biome check --apply-unsafe .',
+    'ruff check --fix-only .',
+    'eslint --fix=true .',
+    'prettier --check -w .',
+    'npm "run" lint:fix',
     ]
     expect(commands.filter(command => checkKindOf(command) !== null || !mutates(command))).toEqual([])
   })
@@ -197,6 +202,44 @@ describe('checkCommands: lệnh kiểm tra riêng của dự án', () => {
     try {
       expect(checkKindOf('make ci --fix')).toBeNull()
       expect(mutates('make ci --fix')).toBe(true)
+    } finally {
+      reset()
+    }
+  })
+
+  test('lệnh khai là trình quản lý gói: script tự sửa (fix, format, fmt, lint:fix, run-script) vẫn là ghi, script kiểm tra thì giữ', () => {
+    drift.applyCheckCommands(drift.parseCheckCommands('npm run, npm run-script, yarn, bun'))
+    try {
+      for (const command of ['npm run fix', 'npm run format', 'npm run fmt', 'npm run --silent format', 'npm run-script lint:fix', 'npm run-script format', 'yarn fix', 'yarn fmt', 'bun format']) {
+        expect(checkKindOf(command), command).toBeNull()
+        expect(mutates(command), command).toBe(true)
+      }
+      for (const command of ['npm run ci', 'npm run-script ci', 'yarn ci', 'bun ci']) {
+        expect(checkKindOf(command), command).toBe('test')
+        expect(mutates(command), command).toBe(false)
+      }
+    } finally {
+      reset()
+    }
+  })
+
+  test('so khớp lệnh khai không phân biệt hoa thường: khai Make CI thì make ci là lệnh kiểm tra', () => {
+    drift.applyCheckCommands([['Make', 'CI']])
+    try {
+      expect(checkKindOf('make ci')).toBe('test')
+      expect(checkKindOf('MAKE CI')).toBe('test')
+      expect(checkKindOf('make cinema')).toBeNull()
+    } finally {
+      reset()
+    }
+  })
+
+  test('lệnh khai rỗng không khớp lệnh nào', () => {
+    drift.applyCheckCommands([[]])
+    try {
+      expect(checkKindOf('make ci')).toBeNull()
+      expect(checkKindOf('rm -rf build')).toBeNull()
+      expect(mutates('rm -rf build')).toBe(true)
     } finally {
       reset()
     }
