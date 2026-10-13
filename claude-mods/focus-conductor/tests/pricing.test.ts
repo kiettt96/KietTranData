@@ -91,6 +91,20 @@ describe('catalog giá gửi router dựng từ bảng giá đang dùng', () => 
       reset()
     }
   })
+
+  test('request kèm bảng giá truyền vào dùng đúng bảng đó, không dùng bảng đã bị option prices ghi đè (golden-set băm theo bảng kèm mod)', () => {
+    applyPrices({ sonnet: { input: 3, output: 15, cacheRead: 0.15 } })
+    try {
+      const args = { text: 'Sửa lỗi đăng nhập', prev: null, ran: null, policy: OPEN, model: 'sonnet' }
+      const passed = systemOf(routerRequest({ ...args, prices: cost.bundledPrices() }))
+      expect(passed).toContain('- sonnet ($2/$10):')
+      expect(passed).not.toContain('- sonnet ($3/$15):')
+      // Không truyền bảng thì theo bảng đang dùng (đã ghi đè).
+      expect(systemOf(routerRequest(args))).toContain('- sonnet ($3/$15):')
+    } finally {
+      reset()
+    }
+  })
 })
 
 describe('hệ số ghi cache', () => {

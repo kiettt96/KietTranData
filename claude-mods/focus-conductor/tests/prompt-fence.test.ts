@@ -75,6 +75,13 @@ describe('mỗi chỗ nội suy đi qua fence', () => {
     expect(tags(prompt, 'context')).toBe(2)
   })
 
+  test('loại agent không có mô tả: chỉ tên, vẫn qua fence', () => {
+    const policy: Policy = { ...OPEN, agents: new Map([[ATTACK, '']]) }
+    const prompt = promptOf(routerRequest({ text: 'tiếp', prev: null, ran: null, policy, model: 'sonnet' }))
+    expect(tags(prompt, 'request')).toBe(2)
+    expect(tags(prompt, 'context')).toBe(2)
+  })
+
   const agentArgs = {
     description: 'Sửa',
     prompt: 'Sửa x',

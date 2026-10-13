@@ -4,7 +4,7 @@
 
 import { describe, expect, test } from 'claude-code/testing'
 
-import type { Brief, Choice, Core, PlanStep } from '../types'
+import type { Brief, Choice, Core, PlanStep, Route } from '../types'
 import { createContext } from '../hooks/context'
 import { askRouter, parseRoute, routerRequest } from '../hooks/lib/router'
 import type { Policy } from '../hooks/lib/router'
@@ -114,6 +114,25 @@ describe('cache nguội và ngữ cảnh co lại: đổi model không mất chi
 
   test('turn đầu của phiên (chưa có mốc thời gian) thì đổi không mất gì', () => {
     expect(decide({}, { at: LAST + 1, context: 100_000, lastTurnAt: 0, lastContext: 0 }).isHeld).toBe(false)
+  })
+
+  test('đã có route nhưng chưa có mốc thời gian của turn (lastTurnAt 0) thì coi cache là nguội: đổi không mất gì, dù thời điểm hiện tại còn trong TTL', () => {
+    const route: Route = { family: 'opus', effort: 'xhigh', tier: 'trivial', goalId: 1, reason: 'đã chạy' }
+    const call = (lastTurnAt: number) =>
+      createContext({}).mainDecision({
+        core: { ...EMPTY_CORE, route, lastTurnAt, lastContext: 100_000 },
+        brief,
+        wanted,
+        model: 'claude-opus-5-5',
+        effort: 'xhigh',
+        at: LAST + 1,
+        context: 100_000,
+        window: 1_000_000,
+        turnsLeft: 2,
+      })
+    expect(call(0).isHeld).toBe(false)
+    // Đối chứng: cùng trạng thái, có mốc turn trước 1 ms thì cache còn nóng nên giữ.
+    expect(call(LAST).isHeld).toBe(true)
   })
 
   test('ngữ cảnh co dưới 60% ngữ cảnh turn trước là đã nén: 55% và 59,999% là nén, đúng 60% và 65% thì không', () => {
