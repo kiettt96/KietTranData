@@ -22,7 +22,8 @@ export function registerUi(on: On, ctx: Ctx): void {
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
-    const tree = renderBand($.ui.resolve(e), await read($, view), e.props.maxRows, {
+    const { maxRows, bodyColumns, isWorking } = e.props
+    const tree = renderBand($.ui.resolve(e), await read($, view), { maxRows, columns: bodyColumns, isWorking }, {
       onDetails: () => $.ui.open({ id: PANE, title: PANE_TITLE }),
       onHide: () => update($, bandHiddenState, () => true),
     })
@@ -30,7 +31,7 @@ export function registerUi(on: On, ctx: Ctx): void {
   })
 
   on('ui.render', { component: 'Pane', requestId: 'focus-conductor' }, async ($, e) =>
-    renderPane($.ui.resolve(e), await read($, view), {
+    renderPane($.ui.resolve(e), await read($, view), { columns: e.props.bodyColumns, placement: e.props.placement }, {
       onMode: picked => update($, modeState, () => picked),
       onReset: async () => {
         resetLocal()
