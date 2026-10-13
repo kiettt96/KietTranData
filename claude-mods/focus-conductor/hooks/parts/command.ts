@@ -3,7 +3,7 @@
 import { atom, derive, read, update } from 'claude-code'
 import type { Brief, Core } from '../../types'
 import { openSteps } from '../lib/drift'
-import { priceNote } from '../lib/cost'
+import { cacheNote, priceNote } from '../lib/cost'
 import { addUsage, estimateLine, formatUsd, ledgerLines } from '../lib/ledger'
 import { describePick } from '../lib/route'
 import { clipText } from '../lib/decisions'
@@ -176,6 +176,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       const estimate = estimateLine(core.log)
       if (estimate) costLines.push(estimate)
       costLines.push(priceNote(await $.clock.now()))
+      costLines.push(cacheNote(ctx.cacheTtlMs / 60_000))
       const latency = routerTimeLine()
       if (latency) costLines.push(latency)
       if (core.brief === null) return { text: [`Chế độ ${current}. Chưa có mục tiêu.`, ...costLines].join('\n') }
