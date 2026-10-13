@@ -35,50 +35,50 @@ describe('PR #13 vòng 3: fixture là output thật', () => {
 
 describe('PR #13 vòng 3: báo cáo Node phải đủ sáu bộ đếm và khớp nhau', () => {
   test('tests khác pass + skipped + todo: không đạt', () => {
-    expect(completePass('# tests 3\n# pass 2\n# fail 0')).toBe(false)
-    expect(completePass(NODE.pass_tap.replace('# tests 3', '# tests 4'))).toBe(false)
-    expect(completePass(NODE.pass_spec.replace('ℹ tests 3', 'ℹ tests 4'))).toBe(false)
+    expect(completePass('# tests 3\n# pass 2\n# fail 0', 'node')).toBe(false)
+    expect(completePass(NODE.pass_tap.replace('# tests 3', '# tests 4'), 'node')).toBe(false)
+    expect(completePass(NODE.pass_spec.replace('ℹ tests 3', 'ℹ tests 4'), 'node')).toBe(false)
   })
 
   test('thiếu bất kỳ bộ đếm nào: không đạt (không tự điền 0)', () => {
-    expect(completePass('# tests 3\n# pass 3\n# fail 0')).toBe(false)
+    expect(completePass('# tests 3\n# pass 3\n# fail 0', 'node')).toBe(false)
     for (const field of ['tests', 'pass', 'fail', 'cancelled', 'skipped', 'todo']) {
       const cut = NODE.pass_tap.replace(new RegExp(`^# ${field} \\d+\\n`, 'm'), '')
-      expect(completePass(cut), field).toBe(false)
+      expect(completePass(cut, 'node'), field).toBe(false)
     }
   })
 
   test('cancelled khác 0: không đạt', () => {
-    expect(completePass(NODE.pass_tap.replace('# cancelled 0', '# cancelled 1').replace('# tests 3', '# tests 4'))).toBe(false)
+    expect(completePass(NODE.pass_tap.replace('# cancelled 0', '# cancelled 1').replace('# tests 3', '# tests 4'), 'node')).toBe(false)
   })
 
   test('báo cáo không nhất quán hay không có test đạt (do kiểm đột biến chỉ ra): không đạt', () => {
     // cancelled 1 mà tests vẫn bằng pass + skipped + todo: điều kiện cancelled = 0 phải tự đứng được.
-    expect(completePass(NODE.pass_tap.replace('# cancelled 0', '# cancelled 1'))).toBe(false)
+    expect(completePass(NODE.pass_tap.replace('# cancelled 0', '# cancelled 1'), 'node')).toBe(false)
     // Mọi test đều skip: tests = pass + skipped + todo nhưng pass = 0.
-    expect(completePass(NODE.skip_tap.replace('# pass 2', '# pass 0').replace('# skipped 1', '# skipped 3'))).toBe(false)
+    expect(completePass(NODE.skip_tap.replace('# pass 2', '# pass 0').replace('# skipped 1', '# skipped 3'), 'node')).toBe(false)
     // Dòng not ok không kèm khối YAML có error: (reporter TAP khác): vẫn là test lỗi.
     const bare = NODE.todothrow_tap.replace(/(not ok 2 - b # TODO\n) {2}---[\s\S]*? {2}\.\.\.\n/, '$1')
     expect(bare).not.toContain('error:')
-    expect(completePass(bare)).toBe(false)
+    expect(completePass(bare, 'node')).toBe(false)
   })
 
   test('output đạt đầy đủ (TAP và spec, kể cả có test skip hay todo không lỗi): đạt', () => {
     for (const key of ['pass_tap', 'pass_spec', 'skip_tap', 'skip_spec', 'todook_tap', 'todook_spec'] as const) {
-      expect(completePass(NODE[key]), key).toBe(true)
+      expect(completePass(NODE[key], 'node'), key).toBe(true)
     }
   })
 
   test('output có test lỗi: không đạt ở mọi mức cắt', () => {
     for (const key of ['fail_tap', 'fail_spec'] as const) {
       const lines = NODE[key].split('\n').length
-      for (let n = 1; n <= lines; n++) expect(completePass(tailLines(NODE[key], n)), `${key} tail ${n}`).toBe(false)
+      for (let n = 1; n <= lines; n++) expect(completePass(tailLines(NODE[key], n), 'node'), `${key} tail ${n}`).toBe(false)
     }
   })
 
   test('test TODO ném lỗi (not ok ... # TODO, tổng kết vẫn fail 0): không đạt, kể cả output đầy đủ', () => {
-    expect(completePass(NODE.todothrow_tap)).toBe(false)
-    expect(completePass(NODE.todothrow_spec)).toBe(false)
+    expect(completePass(NODE.todothrow_tap, 'node')).toBe(false)
+    expect(completePass(NODE.todothrow_spec, 'node')).toBe(false)
   })
 
   test('qua tail: thiếu bộ đếm thì không đạt; còn đủ tổng kết thì đạt; có todo thì không đạt', () => {
@@ -110,9 +110,12 @@ describe('PR #13 vòng 3: bộ lọc chỉ đọc từ ống', () => {
   })
 
   test('tail chỉ với số dòng (-n N, -nN, -N, --lines=N, --lines N) và cat không đối số: xác minh khi báo cáo đủ', () => {
-    for (const filter of ['tail -n 12', 'tail -n12', 'tail -12', 'tail --lines=12', 'tail --lines 12', 'tail', 'cat']) {
+    for (const filter of ['tail -n 12', 'tail -n12', 'tail -12', 'tail --lines=12', 'tail --lines 12', 'tail']) {
       expect(verifiedAfter(`node --test | ${filter}`, tailLines(NODE.pass_tap, 12)), filter).toBe(true)
     }
+    // cat giữ output đầy đủ: báo cáo phải đủ cả phần đầu (0.5.2: TAP version, đúng N dòng kết quả).
+    expect(verifiedAfter('node --test | cat', NODE.pass_tap)).toBe(true)
+    expect(verifiedAfter('node --test | cat', tailLines(NODE.pass_tap, 12))).toBe(false)
   })
 })
 
@@ -138,22 +141,22 @@ describe('PR #13 vòng 3: lệnh kiểm tra nối ống không được có chuy
 
 describe('PR #13 vòng 3: Go', () => {
   test('dòng thật (khoảng trắng và tab), (cached), kèm coverage: đạt khi output đầy đủ', () => {
-    expect(completePass(GO.pass)).toBe(true)
-    expect(completePass(GO.cached)).toBe(true)
-    expect(completePass(GO.cover)).toBe(true)
+    expect(completePass(GO.pass, 'go')).toBe(true)
+    expect(completePass(GO.cached, 'go')).toBe(true)
+    expect(completePass(GO.cover, 'go')).toBe(true)
     expect(verifiedAfter('go test ./... | cat', GO.pass)).toBe(true)
   })
 
   test('một gói FAIL hay lỗi biên dịch: không đạt', () => {
-    expect(completePass(GO.fail)).toBe(false)
-    expect(completePass(GO.build)).toBe(false)
-    expect(completePass('ok  \texample.com/fx/a\t0.002s\npanic: boom\n')).toBe(false)
+    expect(completePass(GO.fail, 'go')).toBe(false)
+    expect(completePass(GO.build, 'go')).toBe(false)
+    expect(completePass('ok  \texample.com/fx/a\t0.002s\npanic: boom\n', 'go')).toBe(false)
   })
 
   test('dòng TAP "ok 1 - a" hay dòng ok không đúng dạng: không phải báo cáo Go', () => {
-    expect(completePass('ok 1 - a\n')).toBe(false)
-    expect(completePass('ok  \texample.com/fx/a\n')).toBe(false)
-    expect(completePass('ok  \texample.com/fx/a\t0.002s\nok 1 - a\n')).toBe(false)
+    expect(completePass('ok 1 - a\n', 'go')).toBe(false)
+    expect(completePass('ok  \texample.com/fx/a\n', 'go')).toBe(false)
+    expect(completePass('ok  \texample.com/fx/a\t0.002s\nok 1 - a\n', 'go')).toBe(false)
   })
 
   test('qua tail: không bao giờ nhận, kể cả output toàn dòng đạt', () => {
@@ -165,20 +168,20 @@ describe('PR #13 vòng 3: Go', () => {
 
 describe('PR #13 vòng 3: Cargo', () => {
   test('mọi binary và doctest đạt: đạt khi output đầy đủ', () => {
-    expect(completePass(CARGO.pass)).toBe(true)
+    expect(completePass(CARGO.pass, 'cargo')).toBe(true)
     expect(verifiedAfter('cargo test | cat', CARGO.pass)).toBe(true)
   })
 
   test('một binary FAILED, dòng error:, hay lỗi biên dịch: không đạt', () => {
-    expect(completePass(CARGO.fail)).toBe(false)
-    expect(completePass(CARGO.build)).toBe(false)
-    expect(completePass(`${CARGO.pass}error: could not compile \`rs\` (test "c_broken") due to 1 previous error\n`)).toBe(false)
-    expect(completePass(`error[E0308]: mismatched types\n${CARGO.pass}`)).toBe(false)
+    expect(completePass(CARGO.fail, 'cargo')).toBe(false)
+    expect(completePass(CARGO.build, 'cargo')).toBe(false)
+    expect(completePass(`${CARGO.pass}error: could not compile \`rs\` (test "c_broken") due to 1 previous error\n`, 'cargo')).toBe(false)
+    expect(completePass(`error[E0308]: mismatched types\n${CARGO.pass}`, 'cargo')).toBe(false)
   })
 
   test('dòng test result không đúng dạng, hay mọi binary 0 passed (do kiểm đột biến chỉ ra): không đạt', () => {
-    expect(completePass(`${CARGO.pass}test result: ok. 1 passed;\n`)).toBe(false)
-    expect(completePass(CARGO.pass.replace(/test result: ok\. 1 passed/g, 'test result: ok. 0 passed'))).toBe(false)
+    expect(completePass(`${CARGO.pass}test result: ok. 1 passed;\n`, 'cargo')).toBe(false)
+    expect(completePass(CARGO.pass.replace(/test result: ok\. 1 passed/g, 'test result: ok. 0 passed'), 'cargo')).toBe(false)
   })
 
   test('qua tail: không bao giờ nhận, kể cả phần cuối chỉ có dòng đạt', () => {

@@ -254,9 +254,11 @@ describe('04: kết quả thật của lệnh kiểm tra (từ phiên chạy th�
     const log = newEvidenceLog(1)
     noteEvidence(log, { ...edit('/repo/src/a.ts') })
     noteEvidence(log, { ...bash('node --test src/ 2>&1 | tail -15'), output: '# pass 0\n# fail 1' })
-    expect(evidenceStrength('node --test: 1 pass', log).level).toBe('stale')
+    expect(evidenceStrength('node --test src/: 1 pass', log).level).toBe('stale')
     noteEvidence(log, { ...bash('node --test src/add.test.js 2>&1 | tail -12'), output: tailLines(NODE.pass_tap, 12) })
-    expect(evidenceStrength('node --test: 1 pass', log).level).toBe('strong')
+    expect(evidenceStrength('node --test src/add.test.js: 1 pass', log).level).toBe('strong')
+    // 0.5.2: evidence phải nêu đúng phạm vi (đối số) của lệnh; chỉ nêu trình chạy là nhắc một lệnh chưa chạy (PR #14).
+    expect(evidenceStrength('node --test: 1 pass', log).level).toBe('stale')
   })
 
   test('dấu hiệu lỗi của các trình chạy phổ biến; số 0 không phải lỗi', () => {

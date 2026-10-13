@@ -232,9 +232,11 @@ describe('PR #13 vòng 2: báo cáo đầy đủ nhưng có dấu hiệu lỗi k
 
 describe('PR #13 vòng 2: completePass trực tiếp', () => {
   test('báo cáo đầy đủ nhưng có dòng lỗi: không đạt, kể cả khi bỏ qua bước lọc lỗi bên ngoài', () => {
-    expect(completePass('Tests: 12 passed, 12 total\nFAILED src/x.test.ts')).toBe(false)
-    expect(completePass(`${NODE.pass_tap}not a report`)).toBe(true)
-    expect(completePass(`${NODE.pass_tap}FAILED src/x.test.ts`)).toBe(false)
-    expect(completePass('1 passed')).toBe(false)
+    expect(completePass('Tests: 12 passed, 12 total\nFAILED src/x.test.ts', 'jest')).toBe(false)
+    // 0.5.2: khối tổng kết phải kết thúc output; dòng lạ phía sau thì không đạt.
+    expect(completePass(`${NODE.pass_tap}not a report`, 'node')).toBe(false)
+    expect(completePass(NODE.pass_tap, 'node')).toBe(true)
+    expect(completePass(`${NODE.pass_tap}FAILED src/x.test.ts`, 'node')).toBe(false)
+    expect(completePass('1 passed', 'jest')).toBe(false)
   })
 })

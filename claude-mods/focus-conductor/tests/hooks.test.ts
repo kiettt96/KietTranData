@@ -1947,7 +1947,7 @@ describe('0.5.1: kiểm chứng sau thay đổi cuối, phạm vi Bash, Stop, vi
     expect(String(stale.result)).toContain('chạy trước thay đổi cuối cùng')
     failing = true
     await $.tool.call({ tool: 'Bash', command: 'npm test' })
-    const failed = await $.tool.call({ tool: PLAN, action: 'update', step: 2, status: 'verified', evidence: 'npm test chạy' })
+    const failed = await $.tool.call({ tool: PLAN, action: 'update', step: 2, status: 'verified', evidence: 'npm test: chạy' })
     expect(String(failed.result)).toContain('[x] 2. b')
     expect(String(failed.result)).toContain('đã lỗi')
     failing = false
@@ -1966,7 +1966,7 @@ describe('0.5.1: kiểm chứng sau thay đổi cuối, phạm vi Bash, Stop, vi
     await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa' }] })
     await edit($, 'src/a.ts')
     await $.tool.call({ tool: 'Bash', command: 'npx tsc --noEmit' })
-    const typed = await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'npx tsc --noEmit sạch' })
+    const typed = await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'npx tsc --noEmit: sạch' })
     expect(String(typed.result)).toContain('[v] 1. Sửa')
     expect(String(typed.result)).toContain('chỉ là kiểm tĩnh')
     await submit($, 'Đọc src/pay.ts và giải thích luồng')
@@ -2088,7 +2088,7 @@ describe('0.5.1: output thật của lệnh kiểm tra', () => {
     await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa' }] })
     await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' })
     await $.tool.call({ tool: 'Bash', command: 'node --test src/ 2>&1 | tail -15' })
-    const done = await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'node --test: 1 pass' })
+    const done = await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'node --test src/: 1 pass' })
     expect(String(done.result)).toContain('[x] 1. Sửa')
     expect(String(done.result)).toContain('đã lỗi')
   })
