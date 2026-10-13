@@ -10,19 +10,34 @@ const FILE_TOOLS = new Set(['Edit', 'Write', 'NotebookEdit', 'MultiEdit'])
 // Lệnh kiểm tra thật sự: bắt đầu một đoạn lệnh bằng một trình chạy test, lint,
 // type-check hay build. Không khớp theo chữ rời ("test", "check") ở giữa lệnh,
 // kẻo `ls tests/`, `cat test.txt` hay `echo check` bị tính là kiểm tra.
+//
+// Công cụ chạy bằng tên trần. CHỈ tên trong danh sách này mới được bọc (npx, pnpm exec, uv run...): phần bọc không
+// bao giờ tự biến một lệnh thành lệnh kiểm tra, nên `pnpm add x`, `yarn install`, `bunx create-x` vẫn là ghi.
+const CHECK_TOOLS = 'tsc|pytest|jest|vitest|mocha|eslint|ruff|mypy|flake8|pyright|biome|stylelint|rspec|phpunit|shellcheck|tox'
+const TEST_TOOLS = 'pytest|jest|vitest|mocha|rspec|phpunit|tox'
+// Dạng bọc đã biết, danh tính giữ nguyên tiền tố (`pnpm exec tsc -p x` khác `tsc -p x`).
+const WRAP =
+  '(?:npx\\s+(?:-\\S+\\s+)*|(?:pnpm|yarn)\\s+(?:exec\\s+)?|bunx\\s+|uv\\s+run\\s+|poetry\\s+run\\s+|bundle\\s+exec\\s+|\\./node_modules/\\.bin/)?'
 const VERIFY_SEGMENT = new RegExp(
   '^(?:' +
-    '(?:npm|pnpm|yarn|bun)\\s+(?:run\\s+)?(?:-\\S+\\s+)*(?:test|tests|lint|typecheck|type-check|build|check|validate|verify)\\b|' +
-    '(?:npx\\s+(?:-\\S+\\s+)*)?(?:tsc|pytest|jest|vitest|mocha|eslint|ruff|mypy|flake8|pyright|biome|stylelint)\\b|' +
+    '(?:npm|pnpm|yarn|bun)\\s+(?:run\\s+)?(?:-\\S+\\s+)*(?:test|tests|lint|typecheck|type-check|build|check|validate|verify|format:check)\\b|' +
+    `${WRAP}(?:${CHECK_TOOLS})\\b|` +
+    // Kiểm định dạng chỉ là lệnh kiểm khi có cờ chỉ-kiểm; thiếu cờ thì lệnh ghi file.
+    `${WRAP}(?:prettier|black)\\b(?=.*\\s--check\\b)|` +
+    'cargo\\s+fmt\\b(?=.*--check\\b)|' +
+    'terraform\\s+(?:fmt\\b(?=.*\\s-check\\b)|validate\\b)|' +
     'node\\s+--test\\b|' +
-    'python3?\\s+-m\\s+(?:pytest|unittest|mypy|ruff)\\b|' +
+    `${WRAP}python3?\\s+-m\\s+(?:pytest|unittest|mypy|ruff)\\b|` +
     'cargo\\s+(?:test|check|clippy|build)\\b|' +
     'go\\s+(?:test|vet|build)\\b|' +
     'make\\s+(?:test|check|lint|build)\\b|' +
     'claude\\s+plugin\\s+(?:test|validate)\\b|' +
+    'deno\\s+test\\b|swift\\s+test\\b|' +
     'dotnet\\s+(?:test|build)\\b|' +
     'mvn\\s+(?:test|verify)\\b|' +
-    'gradle\\s+(?:test|check|build)\\b' +
+    '\\./mvnw\\s+(?:test|verify)\\b|' +
+    'gradle\\s+(?:test|check|build)\\b|' +
+    '\\./gradlew\\s+(?:test|check)\\b' +
     ')',
 )
 
@@ -30,13 +45,63 @@ const VERIFY_SEGMENT = new RegExp(
 const TEST_SEGMENT = new RegExp(
   '^(?:' +
     '(?:npm|pnpm|yarn|bun)\\s+(?:run\\s+)?(?:-\\S+\\s+)*(?:test|tests|verify)\\b|' +
-    '(?:npx\\s+(?:-\\S+\\s+)*)?(?:pytest|jest|vitest|mocha)\\b|' +
+    `${WRAP}(?:${TEST_TOOLS})\\b|` +
     'node\\s+--test\\b|' +
-    'python3?\\s+-m\\s+(?:pytest|unittest)\\b|' +
+    `${WRAP}python3?\\s+-m\\s+(?:pytest|unittest)\\b|` +
     'cargo\\s+test\\b|go\\s+test\\b|make\\s+test\\b|claude\\s+plugin\\s+test\\b|' +
-    'dotnet\\s+test\\b|mvn\\s+(?:test|verify)\\b|gradle\\s+test\\b' +
+    'deno\\s+test\\b|swift\\s+test\\b|' +
+    'dotnet\\s+test\\b|mvn\\s+(?:test|verify)\\b|\\./mvnw\\s+(?:test|verify)\\b|gradle\\s+test\\b|\\./gradlew\\s+test\\b' +
     ')',
 )
+
+// Lệnh kiểm tra riêng của dự án (option checkCommands): tiền tố token, tính là kiểm tra chạy hành vi, danh tính nghiêm ngặt.
+let customChecks: string[][] = []
+
+/** Đọc option checkCommands: lệnh phân tách bằng dấu phẩy, mỗi lệnh tách theo khoảng trắng; mục rỗng bị bỏ. */
+export function parseCheckCommands(raw: unknown): string[][] {
+  if (typeof raw !== 'string') return []
+  return raw
+    .split(',')
+    .map(item => item.trim().split(/\s+/).filter(Boolean))
+    .filter(tokens => tokens.length > 0)
+}
+
+/** Áp danh sách lệnh kiểm tra riêng cho lần nạp mod này; danh sách rỗng là bỏ hết. */
+export function applyCheckCommands(commands: string[][]): void {
+  customChecks = commands.map(tokens => [...tokens])
+}
+
+/** Đoạn lệnh bắt đầu bằng đúng các token của một lệnh riêng (không phân biệt hoa thường, như phía claim của evidence). */
+function isCustomCheck(text: string): boolean {
+  const tokens = text.trim().split(/\s+/).map(token => token.toLowerCase())
+  return customChecks.some(command => command.length > 0 && command.every((token, at) => tokens[at] === token.toLowerCase()))
+}
+
+/** Đoạn lệnh (đã bỏ biến môi trường) là một lệnh kiểm tra, theo bảng trình chạy kèm mod hoặc lệnh riêng của dự án. */
+function isCheckText(text: string): boolean {
+  return VERIFY_SEGMENT.test(text) || isCustomCheck(text)
+}
+
+// Cờ cho công cụ kiểm tra sửa file ngay trong lúc chạy. `--fix-dry-run` (token khác) chỉ xem trước nên không nằm đây.
+const FIX_FLAGS = new Set(['--fix', '--write', '--apply', '--apply-unsafe', '--fix-only'])
+const PACKAGE_RUNNERS = new Set(['npm', 'pnpm', 'yarn', 'bun'])
+
+/**
+ * Đoạn lệnh vừa kiểm vừa sửa file: cờ tự sửa, `prettier -w`, `ruff format` không kèm `--check` hay `--diff`, script
+ * `*:fix` hoặc `format`. Lệnh đó là tác động ghi (mức possible), không phải lệnh kiểm tra. `tokens` là token của đoạn đã
+ * che chuỗi trong nháy: cờ nằm trong nháy (`pytest -k '--fix'`) là đối số, không tính.
+ */
+function isSelfFixing(tokens: string[]): boolean {
+  const words = tokens.filter(token => !token.includes('\u0000'))
+  if (words.some(word => FIX_FLAGS.has(word) || word.startsWith('--fix='))) return true
+  if (words.includes('prettier') && words.includes('-w')) return true
+  const ruff = words.indexOf('ruff')
+  if (ruff >= 0 && words[ruff + 1] === 'format') return !words.includes('--check') && !words.includes('--diff')
+  const manager = words.findIndex(word => PACKAGE_RUNNERS.has(word))
+  if (manager < 0) return false
+  const script = words.slice(manager + 1).find(word => !word.startsWith('-') && word !== 'run' && word !== 'run-script')
+  return script !== undefined && (/(?:^|:)fix$/.test(script) || script === 'format' || script === 'fmt')
+}
 
 /** Tách lệnh nối bằng &&, ||, ;, | hoặc xuống dòng, bỏ ngoặc, biến môi trường và timeout ở đầu mỗi đoạn. */
 function segments(command: string): string[] {
@@ -526,10 +591,11 @@ export function classifyBash(command: string): BashClass {
       else cwd = cwd === '' || dir.startsWith('/') ? normalizePath(dir) : normalizePath(`${cwd}/${dir}`)
       continue
     }
-    if (VERIFY_SEGMENT.test(text)) {
+    // Lệnh vừa kiểm vừa sửa file (--fix, --write...) không phải lệnh kiểm tra: rơi xuống nhánh ghi bên dưới.
+    if (isCheckText(text) && !isSelfFixing(bare.split(/\s+/))) {
       effects.push({
         kind: 'check',
-        check: TEST_SEGMENT.test(text) ? 'test' : 'static',
+        check: TEST_SEGMENT.test(text) || isCustomCheck(text) ? 'test' : 'static',
         segment: text,
         argv: [
           ...piece.env.map(argToken),
@@ -1104,7 +1170,7 @@ const PACKAGE_MANAGERS = new Set(['npm', 'pnpm', 'yarn', 'bun'])
 const CLAIM_PREFIXES = new Set([
   'sudo', 'doas', 'command', 'nohup', 'exec', 'time', 'env', 'nice', 'ionice', 'stdbuf', 'setsid', 'taskset', 'chrt', 'flock',
   'xargs', 'strace', 'unbuffer', 'cross-env', 'dotenv', 'bunx', 'pnpx', 'dlx', 'uvx', 'docker', 'podman', 'kubectl', 'ssh',
-  'bash', 'sh', 'zsh', 'dash', 'python', 'python3', 'node', 'bun', 'deno', 'npm', 'pnpm', 'yarn', 'uv', 'poetry', 'pipx',
+  'bash', 'sh', 'zsh', 'dash', 'python', 'python3', 'node', 'bun', 'deno', 'npm', 'pnpm', 'yarn', 'uv', 'poetry', 'pipx', 'bundle',
 ])
 /** Cờ của npx về cài và giải quyết gói, chuẩn hóa alias thật: `-y` là `--yes`; `--no-install` là tên cũ của `--no`. */
 const NPX_FLAGS: Record<string, string> = { '-y': '--yes', '--yes': '--yes', '--no': '--no', '--no-install': '--no' }
@@ -1237,7 +1303,8 @@ function normalizeArgv(argv: string[], runner?: Runner | null): { prefix: string
 function packageForms(words: string[]): string[][] {
   const [name, sub, ...rest] = words
   if (name === undefined) return []
-  if (!PACKAGE_MANAGERS.has(name) || sub === undefined || sub.startsWith('-')) return [words]
+  // `pnpm exec X` và `pnpm dlx X` chạy X, không phải script tên exec hay dlx: không có dạng tương đương `run`.
+  if (!PACKAGE_MANAGERS.has(name) || sub === undefined || sub.startsWith('-') || sub === 'exec' || sub === 'dlx') return [words]
   if (sub === 'run' || sub === 'run-script') {
     const [script, ...args] = rest
     if (script === undefined) return [[name, 'run']]
@@ -1321,7 +1388,7 @@ function evidenceWords(text: string): string[] {
   }
   const clauseHasCheck = () => {
     const clause = out.slice(out.lastIndexOf(BOUNDARY) + 1)
-    return clause.some((_, k) => VERIFY_SEGMENT.test(clause.slice(k).join(' ').toLowerCase()))
+    return clause.some((_, k) => isCheckText(clause.slice(k).join(' ').toLowerCase()))
   }
   let i = 0
   while (i < text.length) {
@@ -1482,7 +1549,7 @@ function claimedChecks(words: string[]): number[] {
   const starts = new Set<number>()
   for (let i = 0; i < lower.length; i++) {
     const end = lower.indexOf(BOUNDARY, i)
-    if (!VERIFY_SEGMENT.test(lower.slice(i, end < 0 ? undefined : end).join(' '))) continue
+    if (!isCheckText(lower.slice(i, end < 0 ? undefined : end).join(' '))) continue
     // `python -m pytest`: module là con của cụm bắt đầu ở `python`, không phải claim riêng.
     if (i >= 2 && lower[i - 1] === '-m' && (lower[i - 2] === 'python' || lower[i - 2] === 'python3')) continue
     starts.add(phraseStart(words, lower, i))

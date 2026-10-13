@@ -61,6 +61,12 @@
       "description": "Giá ghi cache bằng bao nhiêu lần giá vào: 2 cho bậc cache 1 giờ (mặc định), 1.25 cho bậc 5 phút; mod kẹp giá trị trong khoảng 1.25 đến 2. Đặt cặp với cacheTtlMinutes (2 và 60, hoặc 1.25 và 5); /conductor status cảnh báo khi hai option lệch bậc. Mặc định bậc 1 giờ theo đo ở một phiên claude -p, chưa kiểm trên mọi tài khoản",
       "default": 2
     },
+    "checkCommands": {
+      "type": "string",
+      "title": "Lệnh kiểm tra riêng của dự án",
+      "description": "Lệnh phân tách bằng dấu phẩy, ví dụ: make ci,./scripts/check.sh,just verify. Mỗi lệnh khớp theo tiền tố token, được tin mã thoát, tính là kiểm tra chạy hành vi và đối chiếu evidence nghiêm ngặt (./scripts/check.sh --fast khác ./scripts/check.sh). Lệnh kèm cờ tự sửa (--fix, --write) vẫn tính là ghi file",
+      "default": ""
+    },
     "routerSkip": {
       "type": "string",
       "title": "Prompt không cần hỏi router",
