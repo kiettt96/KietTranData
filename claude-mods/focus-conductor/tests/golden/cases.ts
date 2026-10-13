@@ -62,7 +62,7 @@ export const CASES: readonly GoldenCase[] = [
   },
   {
     id: 'three',
-    text: 'Làm 3 việc sau:\n1. Đọc file config.ts và liệt kê biến môi trường.\n2. Sửa lỗi nút đăng nhập bị lệch trên mobile.\n3. Viết unit test cho hàm refund.',
+    text: 'Làm giúp tôi ba việc:\n1. Tìm mọi chỗ dùng biến môi trường REDIS_URL trong repo và liệt kê.\n2. Sửa lỗi form đăng ký không hiện thông báo khi email đã tồn tại.\n3. Viết unit test cho hàm tính phí vận chuyển.',
     note: 'ba việc độc lập, việc 1 tra cứu',
     expect: { main: ['haiku', 'sonnet'], tasks: [3, 3], pieces: [{ index: 1, families: ['haiku', 'sonnet'] }] },
   },
@@ -74,14 +74,14 @@ export const CASES: readonly GoldenCase[] = [
   },
   {
     id: 'list',
-    text: 'Liệt kê các hàm export trong utils.ts',
+    text: 'Cho tôi danh sách các class được export từ src/models/index.ts',
     note: 'tra cứu một file',
     expect: { kind: ['answer', 'investigate'], main: ['haiku', 'sonnet'], tasks: [0, 0] },
   },
   {
     id: 'race',
-    text: 'Fix race condition khi hai worker cùng ghi file cache',
-    note: 'concurrency',
+    text: 'Hai request cùng cập nhật số dư tài khoản đôi khi cho kết quả sai (mất một lần cộng tiền). Tìm nguyên nhân và sửa.',
+    note: 'concurrency, không nêu tên lỗi',
     expect: { kind: ['edit', 'mixed'], main: ['opus'], tasks: [0, 1] },
   },
   {
@@ -106,7 +106,7 @@ export const CASES: readonly GoldenCase[] = [
   },
   {
     id: 'six',
-    text: 'Mục tiêu: nâng cấp module thanh toán của dự án shop-api.\n1. Tìm trong src/ tất cả chỗ gọi hàm charge và liệt kê đường dẫn.\n2. Đổi tên userId thành accountId trong 12 file controller.\n3. Thiết kế lại kiến trúc xử lý thanh toán đa tiền tệ, nêu trade-off, cân nhắc race condition khi hai worker cùng ghi số dư.\n4. Viết unit test cho hàm refund, bao phủ trường hợp hết hạn token.\n5. Rà soát lỗ hổng bảo mật trong luồng webhook của cổng thanh toán.\n6. Cập nhật README phần cài đặt.',
+    text: 'Mục tiêu: nâng cấp module thanh toán của dự án shop-api.\n1. Tìm trong src/ tất cả chỗ gọi hàm charge và liệt kê đường dẫn.\n2. Đổi tên userId thành accountId trong 12 file controller.\n3. Thiết kế lại kiến trúc xử lý thanh toán đa tiền tệ, nêu trade-off, cân nhắc hai giao dịch đồng thời cùng cập nhật một tài khoản.\n4. Viết test cho hàm hoàn tiền, bao phủ trường hợp thẻ hết hạn.\n5. Rà soát lỗ hổng bảo mật trong luồng webhook của cổng thanh toán.\n6. Cập nhật README phần cài đặt.',
     note: 'sáu việc; tra cứu rẻ, thiết kế và bảo mật mạnh',
     expect: { main: ['opus'], tasks: [6, 6], pieces: [{ index: 1, families: ['haiku', 'sonnet'] }, { index: 3, families: ['opus'] }, { index: 5, families: ['opus'] }] },
   },
@@ -180,5 +180,61 @@ export const CASES: readonly GoldenCase[] = [
     prev: PARSE_PREV,
     note: 'đối kháng: câu hỏi ngoài lề khi mục tiêu còn mở, phải là việc chỉ trả lời',
     expect: { kind: ['answer'], main: ['haiku', 'sonnet'], tasks: [0, 1] },
+  },
+  {
+    id: 'migration',
+    text: 'Tách địa chỉ giao hàng trong bảng orders ra bảng riêng shipping_addresses, viết migration và chuyển dữ liệu cũ (khoảng 2 triệu dòng) mà không được downtime.',
+    note: 'migration dữ liệu lớn không downtime',
+    expect: { kind: ['edit', 'mixed'], main: ['opus'], tasks: [0, 3] },
+  },
+  {
+    id: 'docs-only',
+    text: 'Cập nhật README: thêm mục hướng dẫn chạy dự án bằng Docker Compose.',
+    note: 'sửa tài liệu, việc nhỏ: sonnet vì có sửa file',
+    expect: { kind: ['edit', 'mixed'], main: ['sonnet'], tasks: [0, 1] },
+  },
+  {
+    id: 'en-prompt',
+    text: 'Add pagination to the GET /users endpoint with limit and offset query parameters, and update the OpenAPI spec to match.',
+    note: 'prompt hoàn toàn tiếng Anh',
+    expect: { kind: ['edit', 'mixed'], main: ['sonnet'], tasks: [0, 2] },
+  },
+  {
+    id: 'perf-root',
+    text: 'Trang dashboard load mất 8 giây từ khi thêm biểu đồ mới. Tìm nguyên nhân gốc và báo cáo, chưa sửa gì.',
+    note: 'điều tra nguyên nhân hiệu năng, chưa sửa',
+    expect: { kind: ['investigate', 'answer'], main: ['sonnet', 'opus'], tasks: [0, 2] },
+  },
+  {
+    id: 'security-audit',
+    text: 'Rà soát module auth xem có lỗ hổng bảo mật nào không (SQL injection, session fixation, lộ token trong log) và nêu cách sửa từng cái, chưa cần sửa code.',
+    note: 'rà soát bảo mật: cần lập luận sâu dù không sửa file',
+    expect: { kind: ['investigate', 'answer'], main: ['opus'], tasks: [0, 3] },
+  },
+  {
+    id: 'format-only',
+    text: 'Chạy prettier cho toàn bộ thư mục src/ rồi commit.',
+    note: 'việc cơ học một lệnh: sonnet, effort thấp',
+    expect: { kind: ['edit', 'mixed'], main: ['sonnet'], tasks: [0, 1] },
+  },
+  {
+    id: 'compare-libs',
+    text: 'So sánh dayjs, date-fns và luxon về kích thước bundle, hỗ trợ múi giờ và API, rồi tóm tắt cho tôi chọn.',
+    note: 'tra cứu và so sánh, không sửa file',
+    expect: { kind: ['investigate', 'answer'], main: ['haiku', 'sonnet'], tasks: [0, 3] },
+  },
+  {
+    id: 'polite-small',
+    text: 'Nhờ bạn đổi màu nút Gửi trong LoginForm.tsx từ xanh sang đỏ giúp mình nhé.',
+    note: 'việc nhỏ, câu lịch sự',
+    expect: { kind: ['edit'], main: ['sonnet'], tasks: [0, 1] },
+  },
+  {
+    id: 'new-after',
+    text: 'Bây giờ chuyển sang việc khác: viết script sao lưu database Postgres mỗi đêm và đẩy lên S3.',
+    prev: PARSE_PREV,
+    ran: 'sonnet/medium',
+    note: 'mục tiêu mới sau một mục tiêu cũ: không được coi là tiếp nối',
+    expect: { relation: 'new', kind: ['edit', 'mixed'], main: ['sonnet', 'opus'], tasks: [0, 2] },
   },
 ]

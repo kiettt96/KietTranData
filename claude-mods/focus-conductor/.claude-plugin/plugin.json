@@ -1,6 +1,6 @@
 {
   "name": "focus-conductor",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "author": { "name": "Kiet Tran" },
   "description": "Một model Claude (router) đọc kỹ prompt trước khi làm và điều phối model/effort/agent cho từng việc; mod kiểm, ép điều phối lúc chạy, giữ nhất quán mục tiêu với checklist và cảnh báo lạc đề.",
   "types": "./types/index.d.ts",
@@ -108,7 +108,7 @@
     "decisionLog": {
       "type": "string",
       "title": "File log quyết định (JSONL)",
-      "description": "Đường dẫn file ghi mỗi quyết định điều phối một dòng JSON (router đọc prompt, router lỗi, chấm subagent, đổi model). Để trống (mặc định): không ghi",
+      "description": "Đường dẫn file ghi mỗi quyết định điều phối một dòng JSON (router đọc prompt, router lỗi, chấm subagent, đổi model, verified bị hạ xuống done). Log có trích 300 ký tự đầu của prompt và của evidence: chỉ bật với đường dẫn không chia sẻ hay commit. Để trống (mặc định): không ghi",
       "default": ""
     },
     "agentTypes": {

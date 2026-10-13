@@ -49,7 +49,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
   on('tool.check', { tool: 'mcp__focus-conductor__plan' }, () => ({
     decision: 'allow' as const,
     reason: 'focus-conductor: checklist nội bộ của phiên',
-  }))
+  })).catch(($, e, next) => next(e))
 
   on('tool.call', { tool: 'mcp__focus-conductor__plan' }, async ($, e) => {
     if (e.agentId !== undefined) {

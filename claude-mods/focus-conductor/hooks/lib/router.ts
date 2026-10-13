@@ -124,6 +124,15 @@ Reply with ONE JSON object and nothing else, "why" under 15 words and in the lan
 {"why": string, "confidence": number, "task": number|null, "model": "haiku"|"sonnet"|"opus"|"fable", "effort": "low"|"medium"|"high"|"xhigh", "agent": string, "depth": string, "volume": string, "kind": string}`
 }
 
+/**
+ * Vô hiệu hóa thẻ của chính request (`request`, `context`, `task`, `previous_answer`; mở hay đóng, mọi kiểu viết hoa, có
+ * khoảng trắng) trong một giá trị đưa vào request router: nội dung của người dùng, tên việc, mô tả agent, dòng lệnh. Thẻ
+ * được thay `<` bằng `&lt;` nên vẫn đọc được nhưng không thoát khỏi khối của nó. Mọi giá trị nội suy đều đi qua hàm này.
+ */
+export function fence(text: string): string {
+  return text.replace(/<(?=\s*\/?\s*(?:request|context|task|previous_answer)\b)/gi, '&lt;')
+}
+
 function clip(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`
 }
@@ -142,7 +151,7 @@ function capText(text: string, limit: number, head: number, tail: number): strin
 function agentsLine(policy: Policy): string {
   const agents = policy.agents
   if (agents === undefined || agents.size === 0) return 'Agent types: Explore, Plan, general-purpose.'
-  const items = [...agents].slice(0, 20).map(([name, about]) => (about ? `${name} (${clip(about, 100)})` : name))
+  const items = [...agents].slice(0, 20).map(([name, about]) => (about ? `${fence(name)} (${fence(clip(about, 100))})` : fence(name)))
   return `Agent types: ${items.join('; ')}.`
 }
 
@@ -164,9 +173,9 @@ function previousLines(prev: Brief | null, ran: string | null): string[] {
   if (prev === null) return ['Previous goal: none.']
   const tasks = prev.tasks
     .slice(0, TASK_LIMIT)
-    .map(t => `  ${t.index}. ${t.title} (${t.run === 'agent' ? `${t.agentType ?? 'general-purpose'} ` : 'main '}${describePick(t.pick)})`)
+    .map(t => `  ${t.index}. ${fence(t.title)} (${t.run === 'agent' ? `${fence(t.agentType ?? 'general-purpose')} ` : 'main '}${describePick(t.pick)})`)
   return [
-    `Previous goal${prev.isReference ? ' (a reference-only review: its tasks were routed for comparison, not run)' : ''}: ${prev.goal}`,
+    `Previous goal${prev.isReference ? ' (a reference-only review: its tasks were routed for comparison, not run)' : ''}: ${fence(prev.goal)}`,
     ...(tasks.length > 0 ? ['Previous tasks:', ...tasks] : []),
     ...(prev.referenceMain ? [`Main thread the referenced prompt would need: ${describePick(prev.referenceMain)}`] : []),
     `Main thread ran: ${ran ?? 'unknown'}`,
@@ -183,6 +192,8 @@ export function routerRequest(args: {
   model: string
   /** Mục tiêu do người dùng đặt bằng lệnh: luôn là mục tiêu mới. */
   isForcedNew?: boolean
+  /** Bảng giá cho catalog; mặc định là bảng đang dùng (golden-set truyền bảng kèm mod để băm ổn định). */
+  prices?: Record<ModelFamily, Price>
 }): ModelCompleteRequest {
   const isLong = args.text.length > LONG_REQUEST
   const context = [
@@ -191,11 +202,11 @@ export function routerRequest(args: {
     agentsLine(args.policy),
     ...(args.isForcedNew ? ['The user set this goal by command: relation must be "new".'] : []),
   ]
-  const system: readonly ModelTextBlock[] = [{ text: routerSystem(), cache: true }]
+  const system: readonly ModelTextBlock[] = [{ text: routerSystem(args.prices), cache: true }]
   return {
     model: args.model,
     system,
-    prompt: `<context>\n${context.join('\n')}\n</context>\n\n<request>\n${capText(args.text, REQUEST_CHARS, REQUEST_HEAD, REQUEST_TAIL)}\n</request>`,
+    prompt: `<context>\n${context.join('\n')}\n</context>\n\n<request>\n${fence(capText(args.text, REQUEST_CHARS, REQUEST_HEAD, REQUEST_TAIL))}\n</request>`,
     maxTokens: isLong ? 16_000 : 8_000,
     effort: 'medium',
     timeoutMs: isLong ? 120_000 : 45_000,
@@ -219,17 +230,17 @@ export function agentRouterRequest(args: {
 }): ModelCompleteRequest {
   const tasks = (args.tasks ?? []).slice(0, TASK_LIMIT)
   const asked = [
-    args.subagentType ? `agent type ${args.subagentType}` : '',
-    args.requested.model ? `model ${args.requested.model}` : '',
-    args.requested.effort ? `effort ${args.requested.effort}` : '',
+    args.subagentType ? `agent type ${fence(args.subagentType)}` : '',
+    args.requested.model ? `model ${fence(args.requested.model)}` : '',
+    args.requested.effort ? `effort ${fence(args.requested.effort)}` : '',
   ].filter(Boolean)
   const context = [
-    `Goal of the session: ${args.goal ?? 'unknown'}`,
-    ...(args.parent ? [`Started from inside another subagent: ${args.parent.description} (${describePick(args.parent.pick)})`] : []),
+    `Goal of the session: ${fence(args.goal ?? 'unknown')}`,
+    ...(args.parent ? [`Started from inside another subagent: ${fence(args.parent.description)} (${describePick(args.parent.pick)})`] : []),
     ...(args.isWorkflow ? ['Started by a workflow script.'] : []),
     `The main thread asked for: ${asked.length > 0 ? asked.join(', ') : 'nothing specific'}.`,
-    ...(args.failed.length > 0 ? ['Failed pieces in this goal:', ...args.failed.map(f => `  - ${f}`)] : []),
-    ...(tasks.length > 0 ? ['Tasks of the goal:', ...tasks.map(t => `  ${t.index}. ${t.title}`)] : []),
+    ...(args.failed.length > 0 ? ['Failed pieces in this goal:', ...args.failed.map(f => `  - ${fence(f)}`)] : []),
+    ...(tasks.length > 0 ? ['Tasks of the goal:', ...tasks.map(t => `  ${t.index}. ${fence(t.title)}`)] : []),
     allowedLine(args.policy),
     agentsLine(args.policy),
   ]
@@ -238,7 +249,7 @@ export function agentRouterRequest(args: {
   return {
     model: args.model,
     system,
-    prompt: `<context>\n${context.join('\n')}\n</context>\n\n<task>\nDescription: ${args.description}\n${task}\n</task>`,
+    prompt: `<context>\n${context.join('\n')}\n</context>\n\n<task>\nDescription: ${fence(args.description)}\n${fence(task)}\n</task>`,
     maxTokens: 2_000,
     effort: 'low',
     timeoutMs: 20_000,
@@ -644,7 +655,7 @@ export function retryRequest(request: ModelCompleteRequest, previous: string, pr
   const prompt = typeof request.prompt === 'string' ? request.prompt : request.prompt.map(block => block.text).join('')
   return {
     ...request,
-    prompt: `${prompt}\n\n<previous_answer>\n${clip(previous, 6000)}\n</previous_answer>\n${note}`,
+    prompt: `${prompt}\n\n<previous_answer>\n${fence(clip(previous, 6000))}\n</previous_answer>\n${note}`,
     effort: problem === 'json' ? 'low' : 'high',
   }
 }
@@ -727,10 +738,10 @@ Reply with ONE JSON object and nothing else, "why" under 20 words and in the lan
 /** Request hỏi router xem các thay đổi gần đây còn phục vụ mục tiêu không (ở checkpoint). */
 export function driftRequest(args: { goal: string; steps: readonly string[]; commands: readonly string[]; paths: readonly string[]; model: string }): ModelCompleteRequest {
   const lines = [
-    `Goal: ${args.goal}`,
-    ...(args.steps.length > 0 ? ['Open steps:', ...args.steps.slice(0, 10).map(s => `  - ${s}`)] : []),
-    ...(args.commands.length > 0 ? ['Recent commands:', ...args.commands.slice(-10).map(c => `  $ ${clip(c, 200)}`)] : []),
-    ...(args.paths.length > 0 ? ['Files touched:', ...args.paths.slice(-15).map(p => `  ${p}`)] : []),
+    `Goal: ${fence(args.goal)}`,
+    ...(args.steps.length > 0 ? ['Open steps:', ...args.steps.slice(0, 10).map(s => `  - ${fence(s)}`)] : []),
+    ...(args.commands.length > 0 ? ['Recent commands:', ...args.commands.slice(-10).map(c => `  $ ${fence(clip(c, 200))}`)] : []),
+    ...(args.paths.length > 0 ? ['Files touched:', ...args.paths.slice(-15).map(p => `  ${fence(p)}`)] : []),
   ]
   const system: readonly ModelTextBlock[] = [{ text: DRIFT_SYSTEM, cache: true }]
   return { model: args.model, system, prompt: `<context>\n${lines.join('\n')}\n</context>`, maxTokens: 1_000, effort: 'low', timeoutMs: 20_000 }

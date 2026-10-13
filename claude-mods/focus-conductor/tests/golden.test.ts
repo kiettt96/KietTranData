@@ -4,13 +4,36 @@
 
 import { describe, expect, test } from 'claude-code/testing'
 
+import { routerSystem } from '../hooks/lib/router'
 import { CASES } from './golden/cases'
 import { check } from './golden/check'
-import { REPLIES } from './golden/replies'
+import { requestHash } from './golden/hash'
+import { HASHES, REPLIES } from './golden/replies'
 
 describe('golden-set: câu trả lời router đã ghi', () => {
   test('mỗi ca có câu trả lời đã ghi', () => {
     expect(CASES.filter(c => REPLIES[c.id] === undefined).map(c => c.id)).toEqual([])
+  })
+
+  test('câu trả lời đã ghi khớp request hiện tại của mod: băm request không đổi kể từ lần ghi', async () => {
+    const stale: string[] = []
+    for (const c of CASES) if ((await requestHash(c)) !== HASHES[c.id]) stale.push(c.id)
+    // Lệch nghĩa là prompt router, catalog giá, ngữ cảnh hay định dạng request đã đổi mà chưa ghi lại câu trả lời thật.
+    expect(stale).toEqual([])
+  })
+
+  test('không ca nào trùng hay gần nguyên văn ví dụ trong system prompt của router', () => {
+    const system = routerSystem()
+    const words = (text: string) => new Set((text.toLowerCase().match(/[\p{L}\p{N}_.]+/gu) ?? []).filter(word => word.length >= 3))
+    const examples = [...system.slice(system.indexOf('Examples (abridged)')).matchAll(/- "([^"]{20,})" ->/g)].map(m => m[1] ?? '')
+    expect(examples.length).toBe(3)
+    // Tỷ lệ từ của ví dụ xuất hiện trong ca: từ 0,7 trở lên là trùng hay gần nguyên văn.
+    const overlap = (example: string, text: string) => {
+      const have = words(text)
+      const wanted = [...words(example)]
+      return wanted.filter(word => have.has(word)).length / wanted.length
+    }
+    expect(CASES.filter(c => examples.some(example => overlap(example, c.text) >= 0.7)).map(c => c.id)).toEqual([])
   })
 
   for (const c of CASES) {
