@@ -3,6 +3,7 @@
 // `id` là tên dùng để chạy riêng (`bun scripts/mutate.ts P1 K3 r4-V1 054-C8`). Id không có tiền tố nhóm (`P1`, `F1`, `K1`...) là đột biến
 // viết cho mã của 0.5.2 trở về trước; id có tiền tố (`pr13-`, `r4-` đến `r7-`) là đột biến của các vòng trước vẫn áp dụng nguyên văn;
 // id `054-` là đột biến của 0.5.4: A giá và cache, B ngưỡng, C nhận diện lệnh, D nút Đặt lại, E lợi ích ròng, H fence.
+// id `055-` là đột biến của 0.5.5: S ngoại lệ giá trị tùy chọn đặt trong nháy của isSelfFixing (054-C33 và 054-C43 cũng viết lại theo mã 0.5.5).
 // Một đột biến mà bộ test không làm đỏ (SURVIVED) nghĩa là có hành vi chưa được test ghim hoặc đoạn mã thừa.
 
 // `equivalent`: lý do đột biến này không đổi hành vi quan sát được (sống sót là đúng); harness báo EQUIVALENT thay vì SURVIVED.
