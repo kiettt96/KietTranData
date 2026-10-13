@@ -145,6 +145,27 @@ export type Bucket = {
   usd: number
 }
 
+/**
+ * So với chạy thuần (không điều phối): cùng số token đo được, tính theo giá của model phiên. Phần ghi lại cache do mod đổi
+ * model hay effort giữa hai turn (mà chạy thuần đã đọc được) tính theo giá đọc; cache đã nguội hay vừa nén thì không bù.
+ * Lợi ích ròng = pure − (covered + chi phí router).
+ */
+export type Baseline = {
+  /** Turn luồng chính đã tính phần chuyển đổi gần nhất (tính một lần mỗi turn, kể cả khi mod nạp lại giữa turn). */
+  turn: string
+  /** Model và effort của phiên ở turn luồng chính gần nhất (lựa chọn của người dùng); family null khi chưa biết. */
+  family: ModelFamily | null
+  effort: string
+  /** Model và effort mod phục vụ ở turn luồng chính gần nhất; null trước turn đầu. */
+  served: { family: ModelFamily; effort: string } | null
+  /** Token ghi cache của turn luồng chính đang chạy mà chạy thuần đọc được; dùng một lần khi turn kết thúc. */
+  rewrite: number
+  /** USD nếu các lượt đã vào sổ chạy thuần theo model của phiên. */
+  pure: { session: number; goal: number }
+  /** USD thật của đúng các lượt đó (luồng chính và subagent), không gồm router. */
+  covered: { session: number; goal: number }
+}
+
 /** Sổ chi phí: theo phiên và theo mục tiêu hiện tại, cùng hệ số hiệu chỉnh ước lượng. */
 export type Ledger = {
   session: Record<Group, Bucket>
@@ -164,6 +185,8 @@ export type Ledger = {
    * Dùng để ước lượng chi phí lúc giao việc khi đã đủ số đo (không có ở trạng thái từ bản cũ).
    */
   shapes?: Record<string, { samples: number; output: number }>
+  /** Cơ sở so với chạy thuần; không có ở trạng thái từ bản cũ hoặc khi chưa biết model của phiên. */
+  baseline?: Baseline
 }
 
 /**
@@ -211,6 +234,8 @@ declare module 'claude-code' {
     'focus-conductor': {
       core: Core
       isBandHidden: boolean
+      /** Mốc thời gian (ms) tới khi nút Đặt lại đang chờ bấm lần hai; 0 khi không chờ. */
+      resetArmedUntil: number
       /** Ghi đè chế độ lúc chạy qua /conductor mode; null nghĩa là theo cấu hình. */
       mode: Mode | null
     }

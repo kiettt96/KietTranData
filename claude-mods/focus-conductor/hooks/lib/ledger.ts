@@ -3,7 +3,7 @@
 // và theo mục tiêu. Thuần, không gọi $.
 
 import type { Bucket, Depth, Effort, Group, Kind, Ledger, ModelFamily, RouteEvent, Volume } from '../../types'
-import { EFFORT_FACTOR, SIZE, type Tokens, usdOf } from './cost'
+import { EFFORT_FACTOR, SIZE, SYSTEM_TOKENS, type Tokens, usdOf } from './cost'
 
 export const GROUPS: readonly Group[] = ['main', 'agent', 'analyzer']
 const CALIB_MIN = 0.5
@@ -40,7 +40,10 @@ function addTo(bucket: Bucket, usage: Tokens, usd: number): Bucket {
   }
 }
 
-/** Cộng một lượt đã đo vào nhóm, cả phiên lẫn mục tiêu. Trả về USD của lượt đó. */
+/**
+ * Cộng một lượt đã đo vào nhóm, cả phiên lẫn mục tiêu. Trả về USD của lượt đó. Lượt luồng chính và subagent còn được tính
+ * vào cơ sở so với chạy thuần (xem Baseline); lượt router thì không, vì chạy thuần không có router.
+ */
 export function addUsage(
   ledger: Ledger,
   group: Group,
@@ -50,7 +53,85 @@ export function addUsage(
   const usd = usdOf(family, usage)
   const session = { ...ledger.session, [group]: addTo(ledger.session[group], usage, usd) }
   const buckets = { ...ledger.goal.buckets, [group]: addTo(ledger.goal.buckets[group], usage, usd) }
-  return { ledger: { ...ledger, session, goal: { ...ledger.goal, buckets } }, usd }
+  const baseline = accrue(ledger, group, usage, usd)
+  return { ledger: { ...ledger, session, goal: { ...ledger.goal, buckets }, ...(baseline !== undefined ? { baseline } : {}) }, usd }
+}
+
+/** Cộng một lượt vào cơ sở so với chạy thuần: cùng số token ở giá model phiên, phần ghi cache đổi-model về giá đọc. */
+function accrue(ledger: Ledger, group: Group, usage: Tokens, usd: number): Ledger['baseline'] {
+  const base = ledger.baseline
+  if (base === undefined || base.family === null || group === 'analyzer') return base
+  // Chặn trên bằng số token ghi thực của lượt: đổi qua lại trong TTL thì cache họ cũ còn sống, số ghi thực nhỏ hơn ngữ cảnh.
+  // Phần ghi mới của chính lượt này (không do đổi model) không tách được nên cũng bị coi là đọc: lợi ích ước tính thiên về thấp.
+  const shifted = group === 'main' ? Math.min(base.rewrite, usage.cache_creation_input_tokens) : 0
+  const pure = usdOf(base.family, {
+    ...usage,
+    cache_read_input_tokens: usage.cache_read_input_tokens + shifted,
+    cache_creation_input_tokens: usage.cache_creation_input_tokens - shifted,
+  })
+  return {
+    ...base,
+    rewrite: group === 'main' ? 0 : base.rewrite,
+    pure: { session: base.pure.session + pure, goal: base.pure.goal + pure },
+    covered: { session: base.covered.session + usd, goal: base.covered.goal + usd },
+  }
+}
+
+/**
+ * Đầu mỗi turn luồng chính: ghi model và effort của phiên (người dùng chọn) và của lượt mod phục vụ, và tính phần ghi cache
+ * mà chạy thuần đã đọc được. Mod đổi họ model so với turn trước: cả ngữ cảnh; chỉ đổi effort: ngữ cảnh trừ phần cố định.
+ * Không bù khi cache đã nguội hoặc vừa nén (chạy thuần cũng phải ghi), khi chưa có turn trước, hay khi chính người dùng đổi
+ * model hoặc effort của phiên (chạy thuần cũng mất cache).
+ */
+export function planSwitch(
+  ledger: Ledger,
+  args: {
+    turnId: string
+    session: { family: ModelFamily | null; effort: string }
+    served: { family: ModelFamily; effort: string } | null
+    context: number
+    isFree: boolean
+    sysTokens: number
+  },
+): Ledger {
+  const prev = ledger.baseline
+  if (prev !== undefined && prev.turn === args.turnId) return ledger
+  const previous = prev?.served ?? null
+  const { served } = args
+  const isUserSwitch = prev !== undefined && prev.family !== null && args.session.family !== null && (prev.family !== args.session.family || prev.effort !== args.session.effort)
+  let rewrite = 0
+  if (!args.isFree && !isUserSwitch && previous !== null && served !== null) {
+    if (previous.family !== served.family) rewrite = args.context
+    else if (previous.effort !== served.effort) rewrite = Math.max(0, args.context - (args.sysTokens > 0 ? args.sysTokens : SYSTEM_TOKENS))
+  }
+  const baseline = {
+    turn: args.turnId,
+    family: args.session.family ?? prev?.family ?? null,
+    effort: args.session.family !== null ? args.session.effort : (prev?.effort ?? ''),
+    served,
+    rewrite,
+    pure: prev?.pure ?? { session: 0, goal: 0 },
+    covered: prev?.covered ?? { session: 0, goal: 0 },
+  }
+  return { ...ledger, baseline }
+}
+
+/** USD ghi dạng có dấu: dương là tiết kiệm, âm là tốn thêm. */
+function netText(net: number): string {
+  return net >= 0 ? `tiết kiệm ~${formatUsd(net)}` : `tốn thêm ~${formatUsd(-net)}`
+}
+
+/**
+ * Một dòng lợi ích ròng so với chạy thuần theo model của phiên, cả phiên lẫn mục tiêu này: chi phí chạy thuần của đúng các
+ * lượt đã đo trừ (chi phí thật của các lượt đó cộng chi phí router). Cùng số token nên không tính chênh lệch token ra giữa
+ * các model hay effort. Null khi chưa có lượt nào được tính.
+ */
+export function netLine(ledger: Ledger): string | null {
+  const base = ledger.baseline
+  if (base === undefined || base.family === null || base.covered.session <= 0) return null
+  const session = base.pure.session - (base.covered.session + ledger.session.analyzer.usd)
+  const goal = base.pure.goal - (base.covered.goal + ledger.goal.buckets.analyzer.usd)
+  return `So với chạy thuần ${base.family}: phiên ${netText(session)}, mục tiêu này ${netText(goal)} (ước tính theo cùng số token, đã tính chi phí router)`
 }
 
 /** Tổng USD của phiên theo sổ (ước lượng cộng đo được), để so với số của engine. */
@@ -109,10 +190,15 @@ export function shapeOutput(ledger: Ledger, key: string, effort: Effort): number
 
 /** Mục tiêu mới: xóa các nhóm của mục tiêu cũ, giữ tổng phiên và hệ số hiệu chỉnh. */
 export function nextGoal(ledger: Ledger, goalId: number): Ledger {
-  return { ...ledger, goal: { goalId, buckets: emptyBuckets(), spawned: 0, fanoutWarned: false } }
+  const base = ledger.baseline
+  return {
+    ...ledger,
+    goal: { goalId, buckets: emptyBuckets(), spawned: 0, fanoutWarned: false },
+    ...(base !== undefined ? { baseline: { ...base, pure: { ...base.pure, goal: 0 }, covered: { ...base.covered, goal: 0 } } } : {}),
+  }
 }
 
-/** Reset hoàn toàn (/conductor reset, /clear), giữ hệ số hiệu chỉnh đã học. */
+/** Reset hoàn toàn (/conductor reset, /clear), giữ hệ số hiệu chỉnh đã học; cơ sở so với chạy thuần bắt đầu lại. */
 export function resetLedger(ledger: Ledger): Ledger {
   return { ...emptyLedger(0), calib: ledger.calib, samples: ledger.samples, ...(ledger.shapes ? { shapes: ledger.shapes } : {}) }
 }
@@ -130,6 +216,8 @@ export function ledgerLines(ledger: Ledger): string[] {
     `Phiên, đo được: ${formatUsd(sessionUsd(ledger))} (luồng chính ${formatUsd(main.usd)} trong ${main.calls} lượt; subagent ${formatUsd(agent.usd)} trong ${agent.calls} lượt; router ${formatUsd(analyzer.usd)} trong ${analyzer.calls} lượt)`,
     `Mục tiêu này, đo được: ${formatUsd(goalUsd)}, ${ledger.goal.spawned} subagent đã giao`,
   ]
+  const net = netLine(ledger)
+  if (net !== null) lines.push(net)
   if (ledger.samples > 0) {
     const calib = (['haiku', 'sonnet', 'opus', 'fable'] as const).map(f => `${f} ×${ledger.calib[f].toFixed(2)}`)
     lines.push(`Hiệu chỉnh ước lượng theo ${ledger.samples} lần đo: ${calib.join(', ')}`)

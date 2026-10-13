@@ -64,6 +64,11 @@ const VI = {
     drift: 'lạc đề',
   } as Record<WarningKind, string>,
   reset: 'Đặt lại mục tiêu',
+  resetConfirm: 'Bấm lại để xóa',
+  resetScope: 'Đặt lại xóa: mục tiêu, checklist, cảnh báo, mục tiêu đã cất, sổ chi phí, danh sách model bị chặn. Giữ nhật ký điều phối và hệ số hiệu chỉnh đã học.',
+  resetArmedToast: 'Bấm "Đặt lại mục tiêu" lần nữa trong 10 giây để xóa.',
+  resetExpiredToast: 'Đã hủy yêu cầu đặt lại (quá 10 giây).',
+  resetDoneToast: 'Đã đặt lại mục tiêu, checklist, cảnh báo, mục tiêu đã cất, sổ chi phí và danh sách model bị chặn.',
   showBand: 'Hiện band',
   hideBand: 'Ẩn band',
 }
@@ -122,6 +127,11 @@ const EN: typeof VI = {
     drift: 'drift',
   },
   reset: 'Reset goal',
+  resetConfirm: 'Press again to clear',
+  resetScope: 'Reset clears: goal, checklist, warnings, stashed goals, cost ledger, blocked-model list. Keeps the routing log and learned calibration.',
+  resetArmedToast: 'Press "Reset goal" again within 10 seconds to clear.',
+  resetExpiredToast: 'Reset request cancelled (10 seconds passed).',
+  resetDoneToast: 'Reset the goal, checklist, warnings, stashed goals, cost ledger and blocked-model list.',
   showBand: 'Show band',
   hideBand: 'Hide band',
 }

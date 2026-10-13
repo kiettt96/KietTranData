@@ -3,7 +3,7 @@
 
 import { mock } from 'claude-code/testing'
 import type { On, TurnStepInput } from 'claude-code'
-import type { Engine } from 'claude-code/testing'
+import type { Engine, MockClock } from 'claude-code/testing'
 
 export const BIG_USAGE = { input_tokens: 100_000, output_tokens: 50_000, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
 export const ROUTER_USAGE = { input_tokens: 1000, output_tokens: 500, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
@@ -107,6 +107,10 @@ export type Seen = {
   routerModels: string[]
   /** Request kiểm lạc đề (semanticDrift) mà router nhận. */
   drift: string[]
+  /** Dòng trạng thái mod đặt qua $.ui.status (undefined là xóa dòng). */
+  statuses: Array<string | undefined>
+  /** Đồng hồ giả: chỉ chạy khi test gọi advance hay set. */
+  clock: MockClock
 }
 
 /**
@@ -125,8 +129,8 @@ export function base(
     root?: string | null | (() => string)
   } = {},
 ): Seen {
-  mock.clock(on, { now: 1000 })
-  const seen: Seen = { contexts: [], steps: [], toasts: [], routed: [], agentRouted: [], routerModels: [], drift: [] }
+  const clock = mock.clock(on, { now: 1000 })
+  const seen: Seen = { contexts: [], steps: [], toasts: [], routed: [], agentRouted: [], routerModels: [], drift: [], statuses: [], clock }
   on('prompt.submit', ($, e) => {
     seen.contexts.push([...(e.context ?? [])])
     return { text: e.text, context: e.context }
@@ -166,7 +170,10 @@ export function base(
     seen.toasts.push(e.text)
     return { value: undefined }
   })
-  on('ui.status', () => ({ value: undefined }))
+  on('ui.status', (_$, e) => {
+    seen.statuses.push(e.text)
+    return { value: undefined }
+  })
   const root = engine.root === undefined ? '/repo' : engine.root
   const rootNow = () => (typeof root === 'function' ? root() : root)
   on('session.root', () => {

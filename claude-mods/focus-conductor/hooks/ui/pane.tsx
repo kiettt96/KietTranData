@@ -47,6 +47,8 @@ export type PaneProps = {
   columns: number
   /** dock: cạnh transcript; inline: phía trên prompt. */
   placement: 'dock' | 'inline'
+  /** Nút Đặt lại đang chờ bấm lần hai (trong 10 giây kể từ lần đầu). */
+  isResetArmed: boolean
 }
 
 export function renderPane(t: Elements[RenderSurface], view: View, props: PaneProps, handlers: PaneHandlers): RenderElement {
@@ -502,8 +504,11 @@ export function renderPane(t: Elements[RenderSurface], view: View, props: PanePr
       </Box>
       <Box flexDirection="row" justifyContent="space-between">
         <Button key="band" label={view.isBandHidden ? l.showBand : l.hideBand} onPress={handlers.onToggleBand} />
-        <Button key="reset" label={l.reset} onPress={handlers.onReset} />
+        <Button key="reset" label={props.isResetArmed ? l.resetConfirm : l.reset} onPress={handlers.onReset} />
       </Box>
+      <Text dimColor wrap="wrap">
+        {l.resetScope}
+      </Text>
     </Box>
   )
 }

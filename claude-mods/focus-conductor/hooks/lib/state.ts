@@ -8,7 +8,7 @@ import type { PluginOptions } from 'claude-code'
 
 import type { ArchivedGoal, Brief, Core, DelegationItem, Ledger, Lift, Mode, PlanStep, Route, RouteEvent, Warning } from '../../types'
 import { openSteps } from './drift'
-import { emptyLedger, nextGoal, resetLedger } from './ledger'
+import { emptyLedger, nextGoal, planSwitch, resetLedger } from './ledger'
 import { legacyOf } from './scale'
 import { statusLine } from './text'
 import type { Lang } from '../ui/labels'
@@ -239,6 +239,14 @@ export const withLift =
       effort: Math.min(LIFT_LIMIT, n.lift.effort + effortBy),
     }
     return { ...n, lift }
+  }
+
+/** Đầu turn luồng chính: ghi model của phiên và của lượt mod phục vụ vào cơ sở so với chạy thuần (xem planSwitch). */
+export const withBaseline =
+  (args: Omit<Parameters<typeof planSwitch>[1], 'sysTokens'>) =>
+  (c: Core): Core => {
+    const n = normalizeCore(c)
+    return { ...n, ledger: planSwitch(n.ledger, { ...args, sysTokens: n.sysTokens }) }
   }
 
 /** Đổi sổ chi phí bằng một hàm thuần. */

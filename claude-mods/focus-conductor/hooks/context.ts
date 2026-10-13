@@ -339,6 +339,11 @@ export function createContext(options: PluginOptions) {
     return local.sessionFamily ? { family: local.sessionFamily, policy: sessionPolicy } : null
   }
 
+  /** Cache đã nguội (quá TTL), hoặc ngữ cảnh vừa bị nén: đổi model không mất chi phí ghi lại. */
+  function isCacheFree(core: Core, at: number, context: number): boolean {
+    return core.lastTurnAt === 0 || at - core.lastTurnAt > cacheTtlMs || (core.lastContext > 0 && context < COMPACTION_DROP * core.lastContext)
+  }
+
   /**
    * Quyết định model + effort cho luồng chính so với mốc đang chạy, theo chi phí
    * cache (dùng cho turn thật và cho bản dự kiến lúc nhận prompt).
@@ -355,11 +360,7 @@ export function createContext(options: PluginOptions) {
     turnsLeft: number
   }) {
     const { core, brief, wanted, model, effort, at, context, window } = args
-    // Cache đã nguội (quá TTL), hoặc ngữ cảnh vừa bị nén: đổi model không mất gì.
-    const isFree =
-      core.lastTurnAt === 0 ||
-      at - core.lastTurnAt > cacheTtlMs ||
-      (core.lastContext > 0 && context < COMPACTION_DROP * core.lastContext)
+    const isFree = isCacheFree(core, at, context)
     // Route trước bị bỏ (người dùng tự đổi model, hoặc model được chọn không phản
     // hồi): mốc so sánh chi phí là model và effort engine đang thực sự chạy.
     const engineFamily = familyOf(model)
@@ -590,6 +591,7 @@ export function createContext(options: PluginOptions) {
     carryEvidence,
     contextWindows,
     decideTurn,
+    isCacheFree,
     decisionLog,
     decisionText,
     defaultWindows,
