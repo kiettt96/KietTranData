@@ -385,6 +385,29 @@ describe('0.5.0: hỏi lại router một lần', () => {
     expect((await askRouter(refused.ask, request, parse)).reason).toBe('engine từ chối gửi request tới model router')
   })
 
+  test('ask ném lỗi (engine từ chối): askRouter tự bắt, coi như engine từ chối; lần hai ném lỗi thì giữ câu trả lời lần một', async () => {
+    const rejecting = async (): Promise<never> => {
+      throw new Error('engine từ chối')
+    }
+    const refused = await askRouter(rejecting, request, parse)
+    expect(refused.result).toBeNull()
+    expect(refused.reason).toBe('engine từ chối gửi request tới model router')
+    expect(refused.usages).toEqual([])
+    expect(refused.retried).toBe(false)
+    // Lần một tin cậy thấp, lần hai ném lỗi: giữ lần một, đã hỏi lại, chỉ tính usage của lần một.
+    const low = JSON.stringify({ ...REPLY, confidence: 0.2, goal: 'Đọc lần một' })
+    let calls = 0
+    const flaky = async (): Promise<{ isAnswered: true; text: string; usage: typeof USAGE }> => {
+      calls += 1
+      if (calls === 2) throw new Error('engine từ chối')
+      return { isAnswered: true as const, text: low, usage: USAGE }
+    }
+    const kept = await askRouter(flaky, request, parse)
+    expect(kept.result?.goal).toBe('Đọc lần một')
+    expect(kept.retried).toBe(true)
+    expect(kept.usages.length).toBe(1)
+  })
+
   test('hỏi lại vẫn hỏng: không có kết quả, lý do là của lần hai', async () => {
     const { ask } = asker(['khong co json', 'api-error'])
     const outcome = await askRouter(ask, request, parse)

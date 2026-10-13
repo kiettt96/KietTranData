@@ -221,6 +221,14 @@ export function createContext(options: PluginOptions) {
   }
 
   /**
+   * Ghi log quyết định ra file (option decisionLog); không làm gì khi chưa bật, lỗi ghi bị bỏ qua. `write` do hook truyền vào
+   * (`(path, text) => $.fs.write(path, text)`) vì engine không cho `$` đi qua một import.
+   */
+  async function flushDecisions(write: (path: string, text: string) => Promise<unknown>): Promise<void> {
+    if (decisionLog) await write(decisionLog, decisionText()).catch(() => undefined)
+  }
+
+  /**
    * Model luồng chính mong muốn: lựa chọn của router, nâng theo bằng chứng lúc chạy, rồi kiểm lại
    * theo chính sách hiện tại (model của phiên chỉ biết từ step đầu; họ bị chặn có thể đã đổi).
    * Null khi router chưa chọn (mod không ép).
@@ -594,6 +602,7 @@ export function createContext(options: PluginOptions) {
     isCacheFree,
     decisionLog,
     decisionText,
+    flushDecisions,
     defaultWindows,
     delegationItems,
     evidenceFor,

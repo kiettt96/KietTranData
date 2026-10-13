@@ -1,32 +1,9 @@
-// Test tái hiện review PR #14 vòng 3: chữ hoa thường chỉ chuẩn hóa theo ngữ pháp lệnh (giữ đường dẫn, giá trị bộ lọc,
-// tên script); `=` chỉ tách cho cờ đã biết nhận giá trị và không tách sau `--`/`-args`; cờ của npx là một phần danh
-// tính; lệnh trong evidence phải kết thúc ở ranh giới; `.` là đối số; `-count` không phải cờ trình bày.
-// Chỉ dùng API đã có ở a844fbc; đã chạy đỏ trên đó.
+// Danh tính của lệnh kiểm tra (hooks/lib/drift/identity): chữ hoa thường theo ngữ pháp lệnh, dạng --cờ=giá-trị, cờ npx, ranh giới lệnh, `.` và -count, ống và gộp luồng.
+// Gom từ test của review PR #14 vòng 3; tên describe và test giữ nguyên.
 
 import { describe, expect, test } from 'claude-code/testing'
-
-import { acceptsVerified, evidenceStrength, newEvidenceLog, noteEvidence } from '../hooks/lib/drift'
-
-const bash = (command: string) => ({ tool: 'Bash', input: { command }, isError: false, isReadOnly: false, output: '' })
-const edit = { tool: 'Edit', input: { file_path: '/repo/src/a.ts' }, isError: false, isReadOnly: false }
-
-function strength(runs: string[], evidence: string) {
-  const log = newEvidenceLog(1)
-  noteEvidence(log, edit)
-  for (const run of runs) noteEvidence(log, bash(run))
-  const result = evidenceStrength(evidence, log)
-  return { ...result, accepted: acceptsVerified(result, log) }
-}
-const accepted = (run: string, evidence: string) => strength([run], evidence).accepted
-
-/** Ca âm: không nhận, mức stale, lý do trung tính nêu yêu cầu khớp chính xác (không khẳng định "chưa chạy"). */
-function rejected(run: string, evidence: string) {
-  const result = strength([run], evidence)
-  expect(result.accepted, `${run} / ${evidence}`).toBe(false)
-  expect(result.level, `${run} / ${evidence}`).toBe('stale')
-  expect(result.reason ?? '', `${run} / ${evidence}`).toContain('khớp chính xác')
-  expect(result.reason ?? '', `${run} / ${evidence}`).not.toContain('chưa chạy')
-}
+import { acceptsVerified, evidenceStrength, newEvidenceLog, noteEvidence } from '../../hooks/lib/drift'
+import { accepted, bash, rejectedNeutral as rejected } from '../support/commands'
 
 describe('PR #14 vòng 3: chữ hoa thường theo ngữ pháp lệnh', () => {
   test('đường dẫn, giá trị bộ lọc, tên script khác chữ hoa thường: không nhận', () => {

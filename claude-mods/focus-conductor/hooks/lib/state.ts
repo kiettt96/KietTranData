@@ -6,9 +6,10 @@
 
 import type { PluginOptions } from 'claude-code'
 
-import type { ArchivedGoal, Brief, Core, DelegationItem, Ledger, Lift, Mode, PlanStep, Route, RouteEvent, Warning } from '../../types'
+import type { ArchivedGoal, Brief, Core, DelegationItem, Ledger, Lift, ModelFamily, Mode, PlanStep, Route, RouteEvent, Warning } from '../../types'
 import { openSteps } from './drift'
-import { emptyLedger, nextGoal, planSwitch, resetLedger } from './ledger'
+import type { Tokens } from './cost'
+import { addUsage, emptyLedger, nextGoal, planSwitch, resetLedger } from './ledger'
 import { legacyOf } from './scale'
 import { statusLine } from './text'
 import type { Lang } from '../ui/labels'
@@ -240,6 +241,12 @@ export const withLift =
     }
     return { ...n, lift }
   }
+
+/** Cộng usage của các lượt router (đọc prompt, chấm subagent, kiểm lạc đề) vào nhóm analyzer của sổ, theo giá của model router. */
+export const withAnalyzerUsage =
+  (usages: readonly Tokens[], family: ModelFamily) =>
+  (c: Core): Core =>
+    usages.reduce((acc, usage) => withLedger(ledger => addUsage(ledger, 'analyzer', family, usage).ledger)(acc), c)
 
 /** Đầu turn luồng chính: ghi model của phiên và của lượt mod phục vụ vào cơ sở so với chạy thuần (xem planSwitch). */
 export const withBaseline =

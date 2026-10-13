@@ -3,7 +3,7 @@
 import { atom, derive, read, update } from 'claude-code'
 import type { RouteEvent, Warning } from '../../types'
 import { turnCost } from '../lib/cost'
-import { addUsage, countSpawn, shapeKey, shapeOutput } from '../lib/ledger'
+import { countSpawn, shapeKey, shapeOutput } from '../lib/ledger'
 import { EFFORTS, familyOf, taskMatch } from '../lib/route'
 import { clipText } from '../lib/decisions'
 import { agentRouterRequest, askRouter, parseAgentRoute, taskRoute } from '../lib/router'
@@ -21,7 +21,7 @@ const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null
 
 export function registerAgents(on: On, ctx: Ctx): void {
   const L = ctx.local
-  const { agentFailures, agentRoutes, agents, decisionLog, decisionText, delegationItems, isAgentRouterPaused, moveDelegation, noteAgentRouter, noteRouterTime, offered, pendingAgents, policy, recognized, record, refit, rememberAgentRoute, routerFamily, routerModel, spawnedIds, startedAgents, steppedEarly } = ctx
+  const { agentFailures, agentRoutes, agents, flushDecisions, delegationItems, isAgentRouterPaused, moveDelegation, noteAgentRouter, noteRouterTime, offered, pendingAgents, policy, recognized, record, refit, rememberAgentRoute, routerFamily, routerModel, spawnedIds, startedAgents, steppedEarly } = ctx
   const mode = derive([modeState], modeOf(ctx.options))
 
   // Agent khởi động mà không đi qua agent.spawn của mod: ghi để /conductor status báo là agent ngoài điều phối.
@@ -38,7 +38,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
     const result = await next(e)
     L.lastSwitch = { source: e.source, toModel: e.to_model }
     record(await $.clock.now(), 'model-switch', { source: e.source, from: e.from_model, to: e.to_model, requested: e.requested_model })
-    if (decisionLog) await $.fs.write(decisionLog, decisionText()).catch(() => undefined)
+    await flushDecisions((path, text) => $.fs.write(path, text))
     return result
   }).catch(($, e, next) => next(e))
 
@@ -102,10 +102,10 @@ export function registerAgents(on: On, ctx: Ctx): void {
           tasks: isNested || brief === null || brief.isReference ? [] : brief.tasks,
         })
         const startedAt = await $.clock.now()
-        const outcome = await askRouter(r => $.model.complete(r).catch(() => null), request, reply => parseAgentRoute(reply, rules))
+        const outcome = await askRouter(r => $.model.complete(r), request, reply => parseAgentRoute(reply, rules))
         noteRouterTime((await $.clock.now()) - startedAt)
         await update($, coreState, c =>
-          outcome.usages.reduce((acc, usage) => S.withLedger(ledger => addUsage(ledger, 'analyzer', routerFamily, usage).ledger)(acc), c),
+          S.withAnalyzerUsage(outcome.usages, routerFamily)(c),
         )
         route = outcome.result
         const pauseText = noteAgentRouter(route !== null)
@@ -131,7 +131,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
     }
     if (assigned === undefined && matched.miss !== undefined) {
       record(await $.clock.now(), 'agent', { description: clipText(e.description), miss: matched.miss, routed: route !== null })
-      if (decisionLog) await $.fs.write(decisionLog, decisionText()).catch(() => undefined)
+      await flushDecisions((path, text) => $.fs.write(path, text))
     }
 
     const isApplied = route !== null && (current === 'auto' || current === 'subagents')
@@ -212,10 +212,10 @@ export function registerAgents(on: On, ctx: Ctx): void {
           tasks: brief === null || brief.isReference ? [] : brief.tasks,
         })
         const startedAt = await $.clock.now()
-        const outcome = await askRouter(r => $.model.complete(r).catch(() => null), request, reply => parseAgentRoute(reply, rules))
+        const outcome = await askRouter(r => $.model.complete(r), request, reply => parseAgentRoute(reply, rules))
         noteRouterTime((await $.clock.now()) - startedAt)
         await update($, coreState, c =>
-          outcome.usages.reduce((acc, usage) => S.withLedger(ledger => addUsage(ledger, 'analyzer', routerFamily, usage).ledger)(acc), c),
+          S.withAnalyzerUsage(outcome.usages, routerFamily)(c),
         )
         workflowRoute = outcome.result
         const pauseText = noteAgentRouter(workflowRoute !== null)

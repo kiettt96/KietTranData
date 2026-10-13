@@ -1,30 +1,11 @@
-// Test tái hiện vòng review PR #13 lần 4: báo cáo đạt của Jest, Vitest, Mocha, Bun, Pytest phải là khối tổng kết
-// cuối của output (sau nó chỉ có dòng phụ của chính trình chạy), và không có dấu hiệu lỗi nào (kể cả `Error:` viết
-// hoa). Fixture là output thật (tests/fixtures/runner-output.ts). Chỉ dùng API đã có ở 664aa5d; đã chạy đỏ trên đó.
+// Báo cáo của Jest, Vitest, Mocha, Bun và Pytest (hooks/lib/drift/output): tổng kết cuối, không có lỗi theo sau.
+// Gom từ test của review PR #13 vòng 4; tên describe và test giữ nguyên.
 
 import { describe, expect, test } from 'claude-code/testing'
-
-import type { Brief } from '../types'
-import { completePass, newTracker, observe } from '../hooks/lib/drift'
-import type { Runner } from '../hooks/lib/drift'
-import { CARGO, GO, JS, NODE, PYTEST, VERSIONS, tailLines } from './fixtures/runner-output'
-
-function makeBrief(): Brief {
-  return {
-    goalId: 1, goal: 'Sửa module thanh toán', steps: [], tasks: [], constraints: [], quality: [], depth: 'substantial', volume: 'medium',
-    kind: 'edit', tier: 'complex', main: { family: 'opus', effort: 'high' }, why: '', relation: 'new', source: 'router', isFollowUp: false,
-    isReference: false, scopePaths: [], prompt: '', at: 1,
-  }
-}
-
-/** Trạng thái đã kiểm tra sau: sửa một file, rồi chạy lệnh có output cho trước (mã thoát 0). */
-function verifiedAfter(command: string, output: string): boolean {
-  const tracker = newTracker('t')
-  const brief = makeBrief()
-  observe(tracker, { tool: 'Edit', input: { file_path: '/repo/src/a.ts' }, isError: false, isReadOnly: false }, brief, [])
-  observe(tracker, { tool: 'Bash', input: { command }, isError: false, isReadOnly: false, output }, brief, [])
-  return tracker.isVerified
-}
+import { completePass } from '../../hooks/lib/drift'
+import type { Runner } from '../../hooks/lib/drift'
+import { CARGO, GO, JS, NODE, PYTEST, VERSIONS, tailLines } from '../fixtures/runner-output'
+import { verifiedAfter } from '../support/commands'
 
 const PASS = {
   mocha: ['npx mocha | cat', JS.mocha_pass],

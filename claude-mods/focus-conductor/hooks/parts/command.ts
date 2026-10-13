@@ -4,7 +4,7 @@ import { atom, derive, read, update } from 'claude-code'
 import type { Brief, Core } from '../../types'
 import { openSteps } from '../lib/drift'
 import { cacheNote, priceNote } from '../lib/cost'
-import { addUsage, estimateLine, formatUsd, ledgerLines } from '../lib/ledger'
+import { estimateLine, formatUsd, ledgerLines } from '../lib/ledger'
 import { describePick } from '../lib/route'
 import { clipText } from '../lib/decisions'
 import { askRouter, bareBrief, briefOf, nextBrief, parseRoute, rerouted, routerRequest } from '../lib/router'
@@ -25,7 +25,7 @@ const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null
 
 export function registerCommand(on: On, ctx: Ctx): void {
   const L = ctx.local
-  const { blocked, decisionLog, decisionText, delegationItems, expectedMain, failures, noteRouterTime, policy, ranText, record, resetLocal, routerFamily, routerModel, routerTimeLine, trackDelegations, untrackedAgents, wantedPick } = ctx
+  const { blocked, flushDecisions, delegationItems, expectedMain, failures, noteRouterTime, policy, ranText, record, resetLocal, routerFamily, routerModel, routerTimeLine, trackDelegations, untrackedAgents, wantedPick } = ctx
   const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
   const mode = derive([modeState], modeOf(ctx.options))
 
@@ -63,7 +63,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       // Lệnh do người dùng gõ: luôn hỏi router, kể cả khi router đang tạm ngừng sau các lần lỗi.
       const request = routerRequest({ text: arg, prev, ran: null, policy: rules, model: routerModel, isForcedNew: true })
       const startedAt = await $.clock.now()
-      const outcome = await askRouter(r => $.model.complete(r).catch(() => null), request, reply => parseRoute(reply, rules))
+      const outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules))
       noteRouterTime((await $.clock.now()) - startedAt)
       const plan = outcome.result
       if (plan !== null) L.routerTrouble = { failures: 0, pausedUntil: 0 }
@@ -76,13 +76,13 @@ export function registerCommand(on: On, ctx: Ctx): void {
       const core = await update($, coreState, c => {
         const adopted = S.adoptGoal(brief)(c)
         const withRoute = plan === null ? S.withRoute(null)(adopted) : adopted
-        return outcome.usages.reduce((acc, usage) => S.withLedger(l => addUsage(l, 'analyzer', routerFamily, usage).ledger)(acc), withRoute)
+        return S.withAnalyzerUsage(outcome.usages, routerFamily)(withRoute)
       })
       L.lastPrompt = null
       L.isGoalNew = true
       L.pinnedGoalId = null
       record(now, plan !== null ? 'route' : 'router-fail', { command: 'goal', prompt: clipText(arg), reason: outcome.reason, retried: outcome.retried })
-      if (decisionLog) await $.fs.write(decisionLog, decisionText()).catch(() => undefined)
+      await flushDecisions((path, text) => $.fs.write(path, text))
       $.ui.status(S.statusOf(await read($, view)))
       const wanted = wantedPick(brief, core.lift)
       const expected = wanted !== null ? expectedMain(core, brief, wanted, now) : null
@@ -116,16 +116,16 @@ export function registerCommand(on: On, ctx: Ctx): void {
       // Lệnh do người dùng gõ: luôn hỏi router, kể cả khi router đang tạm ngừng.
       const request = routerRequest({ text: last.text, prev: last.prev, ran: ranText(before), policy: rules, model: routerModel })
       const startedAt = await $.clock.now()
-      const outcome = await askRouter(r => $.model.complete(r).catch(() => null), request, reply => parseRoute(reply, rules))
+      const outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules))
       noteRouterTime((await $.clock.now()) - startedAt)
       const now = await $.clock.now()
       const withUsage = (c: Core): Core =>
-        outcome.usages.reduce((acc, usage) => S.withLedger(l => addUsage(l, 'analyzer', routerFamily, usage).ledger)(acc), c)
+        S.withAnalyzerUsage(outcome.usages, routerFamily)(c)
       const plan = outcome.result
       if (plan === null) {
         await update($, coreState, withUsage)
         record(now, 'router-fail', { command: 'reroute', prompt: clipText(last.text), reason: outcome.reason, retried: outcome.retried })
-        if (decisionLog) await $.fs.write(decisionLog, decisionText()).catch(() => undefined)
+        await flushDecisions((path, text) => $.fs.write(path, text))
         return { text: `Router không đọc được (${outcome.reason}); giữ điều phối hiện tại.` }
       }
       L.routerTrouble = { failures: 0, pausedUntil: 0 }
@@ -161,7 +161,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       const wanted = wantedPick(brief, core.lift)
       const expected = wanted !== null ? expectedMain(core, brief, wanted, now) : null
       record(now, 'reroute', { prompt: clipText(last.text), relation: plan.relation, confidence: plan.confidence, retried: outcome.retried, main: brief.main, expected })
-      if (decisionLog) await $.fs.write(decisionLog, decisionText()).catch(() => undefined)
+      await flushDecisions((path, text) => $.fs.write(path, text))
       $.ui.status(S.statusOf(await read($, view)))
       return {
         text: `Router đã đọc lại prompt gần nhất: ${brief.goal} (${brief.depth}, khối lượng ${brief.volume}, luồng chính ${expected ? describePick(expected) + (isApplied ? '' : ' (chỉ đề xuất)') : 'model của phiên'}).`,

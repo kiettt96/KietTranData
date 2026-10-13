@@ -678,14 +678,14 @@ export async function askRouter<T extends { confidence?: number }>(
   request: ModelCompleteRequest,
   parse: (text: string) => T | null,
 ): Promise<RouterOutcome<T>> {
-  const first = await ask(request)
+  const first = await ask(request).catch(() => null)
   const usages = first ? [first.usage] : []
   const firstResult = first?.isAnswered ? parse(first.text) : null
   const firstConfidence = firstResult?.confidence ?? 1
   if (first === null || !first.isAnswered || (firstResult !== null && firstConfidence >= LOW_CONFIDENCE)) {
     return { result: firstResult, reason: failureReason(first), usages, retried: false }
   }
-  const second = await ask(retryRequest(request, first.text, firstResult === null ? 'json' : 'confidence'))
+  const second = await ask(retryRequest(request, first.text, firstResult === null ? 'json' : 'confidence')).catch(() => null)
   if (second) usages.push(second.usage)
   const secondResult = second?.isAnswered ? parse(second.text) : null
   const pick =
