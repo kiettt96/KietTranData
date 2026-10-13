@@ -62,7 +62,7 @@ describe('0.5.2 P1a: bằng chứng của lệnh này không xác minh lệnh kh
     expect(accepted([['npm test']], 'npm test: 12 pass')).toBe(true)
     expect(accepted([['npm test']], 'npm run test: 12 pass')).toBe(true)
     expect(accepted([['npm run lint']], 'npm run lint: 0 problems')).toBe(true)
-    expect(accepted([['npx tsc --noEmit']], 'tsc --noEmit: 0 lỗi')).toBe(true)
+    expect(accepted([['npx tsc --noEmit']], 'npx tsc --noEmit: 0 lỗi')).toBe(true)
     expect(accepted([['node --test src/a.test.ts']], 'node --test src/a.test.ts: 3 pass')).toBe(true)
     expect(accepted([['node --test']], 'node --test: 3 pass')).toBe(true)
   })

@@ -87,13 +87,12 @@ describe('PR #14 vòng 2, P1-2: tùy chọn thu hẹp phạm vi là một phần
       ['pytest -q tests/', 'pytest tests/: đạt'],
       ['pytest --tb=short tests/', 'pytest tests/: đạt'],
       ['pytest --tb short tests/', 'pytest tests/: đạt'],
-      ['npx vitest run --reporter=verbose', 'vitest run: đạt'],
-      ['npx mocha --reporter dot', 'mocha: đạt'],
-      ['npx jest --verbose', 'jest: đạt'],
-      // Vòng 3: cờ của npx là một phần danh tính (xem review052c); evidence phải nêu cờ đó.
+      ['npx vitest run --reporter=verbose', 'npx vitest run: đạt'],
+      ['npx mocha --reporter dot', 'npx mocha: đạt'],
+      ['npx jest --verbose', 'npx jest: đạt'],
+      // Vòng 3: cờ của npx là một phần danh tính (xem review052c); evidence phải nêu cờ đó. Vòng 4: cả tiền tố npx.
       ['npx --no-install tsc -p tsconfig.json', 'npx --no-install tsc -p tsconfig.json: sạch'],
       ['npx -y tsc -p tsconfig.json', 'npx --yes tsc -p tsconfig.json: sạch'],
-      ['npx tsc -p tsconfig.json', 'tsc -p tsconfig.json: sạch'],
     ] as const) {
       expect(accepted([run], evidence), `${run} / ${evidence}`).toBe(true)
     }

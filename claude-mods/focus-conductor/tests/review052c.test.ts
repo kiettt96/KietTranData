@@ -82,10 +82,10 @@ describe('PR #14 vòng 3: cờ của npx là một phần danh tính', () => {
     rejected('npx --yes tsc -p x', 'tsc -p x: sạch')
   })
 
-  test('alias thật được đồng nhất; bỏ tên npx (không cờ) vẫn là cùng lệnh', () => {
+  test('alias thật được đồng nhất; vòng 4: bỏ tên npx (không cờ) là lệnh khác', () => {
     expect(accepted('npx -y tsc -p x', 'npx --yes tsc -p x: sạch')).toBe(true)
     expect(accepted('npx --no-install tsc -p x', 'npx --no tsc -p x: sạch')).toBe(true)
-    expect(accepted('npx tsc -p x', 'tsc -p x: sạch')).toBe(true)
+    rejected('npx tsc -p x', 'tsc -p x: sạch')
   })
 })
 
@@ -124,7 +124,8 @@ describe('PR #14 vòng 3: evidence chép nguyên câu lệnh có ống và gộp
   test('ống | là ranh giới và 2>&1 bị bỏ, như khi ghi lệnh vào dấu vết', () => {
     expect(accepted('cargo test', 'cargo test | cat: 3 passed')).toBe(true)
     expect(accepted('node --test src/a.test.ts', 'node --test src/a.test.ts 2>&1 | tail -n 12: đạt')).toBe(true)
-    rejected('node --test src/a.test.ts', 'node --test src/a.test.ts 2>/dev/null: đạt')
+    // Vòng 4: chuyển hướng đầu ra không thuộc danh tính (kết quả dựa vào mã thoát); xem review052d.
+    expect(accepted('node --test src/a.test.ts', 'node --test src/a.test.ts 2>/dev/null: đạt')).toBe(true)
   })
 })
 
