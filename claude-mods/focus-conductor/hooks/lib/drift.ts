@@ -1096,14 +1096,25 @@ function covers(entry: EvidenceEntry, log: EvidenceLog): boolean {
 
 const PACKAGE_MANAGERS = new Set(['npm', 'pnpm', 'yarn', 'bun'])
 /**
- * Wrapper của shell không bị bỏ khỏi danh tính: ở evidence chúng nằm trong cụm lệnh nên cụm không khớp lần chạy nào
- * (log không coi `sudo npm test` là lệnh kiểm tra). Ngoại lệ có chủ ý duy nhất là `timeout N` (bị bỏ khi ghi lệnh): nó
- * chỉ có thể làm lệnh lỗi, không thể tạo kết quả đạt giả.
+ * Từ đứng trước một lệnh kiểm tra mà đưa lệnh đó vào một cụm lớn hơn (wrapper, trình chạy gói, trình thông dịch, container,
+ * ssh). CHỈ dùng để dò đầu cụm của claim trong evidence (`phraseStart`), không bao giờ tham gia danh tính: log không coi
+ * `sudo npm test` là lệnh kiểm tra, nên cụm có từ này không khớp lần chạy nào. Ngoại lệ có chủ ý duy nhất là `timeout N`
+ * (bị bỏ khi ghi lệnh): nó chỉ có thể làm lệnh lỗi, không thể tạo kết quả đạt giả.
  */
-const SHELL_WRAPPERS = new Set(['sudo', 'command', 'nohup', 'exec', 'time'])
+const CLAIM_PREFIXES = new Set([
+  'sudo', 'doas', 'command', 'nohup', 'exec', 'time', 'env', 'nice', 'ionice', 'stdbuf', 'setsid', 'taskset', 'chrt', 'flock',
+  'xargs', 'strace', 'unbuffer', 'cross-env', 'dotenv', 'bunx', 'pnpx', 'dlx', 'uvx', 'docker', 'podman', 'kubectl', 'ssh',
+  'bash', 'sh', 'zsh', 'dash', 'python', 'python3', 'node', 'bun', 'deno', 'npm', 'pnpm', 'yarn', 'uv', 'poetry', 'pipx',
+])
 /** Cờ của npx về cài và giải quyết gói, chuẩn hóa alias thật: `-y` là `--yes`; `--no-install` là tên cũ của `--no`. */
 const NPX_FLAGS: Record<string, string> = { '-y': '--yes', '--yes': '--yes', '--no': '--no', '--no-install': '--no' }
 const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/
+/** Token gán biến môi trường, kể cả dạng có nháy đã đóng gói (`\u0001NAME=giá trị có khoảng trắng\u0001`). */
+const isEnvToken = (token: string) => ENV_ASSIGNMENT.test(token.startsWith(TAG) ? token.slice(1) : token)
+/** Token giống cờ (`-u`, `--package`): giá trị đi sau nó không phân biệt được với đối số, nên cả cụm là một tiền tố. */
+const FLAG_LIKE = /^-{1,2}[a-z0-9]/
+/** Token giống đường dẫn script: `./x`, `../x`, `/x`, `~/x`, hay đuôi file script. */
+const SCRIPT_PATH = /^(?:\.\/|\.\.\/|\/|~\/)|\.(?:sh|bash|zsh|py|js|mjs|cjs)$/
 
 /** Tên executable đã biết: chỉ những tên này được hạ chữ thường (viết hoa đầu câu vẫn là cùng lệnh). */
 const EXECUTABLES = new Set([
@@ -1211,7 +1222,7 @@ function normalizeTokens(tokens: string[], runner: Runner | null): string[] {
 function normalizeArgv(argv: string[], runner?: Runner | null): { prefix: string[]; words: string[]; runner: Runner | null } {
   let at = 0
   const prefix: string[] = []
-  while (at < argv.length && !isTagged(argv[at] ?? '') && ENV_ASSIGNMENT.test(argv[at] ?? '')) prefix.push(argv[at++] ?? '')
+  while (at < argv.length && isEnvToken(argv[at] ?? '')) prefix.push(argv[at++] ?? '')
   if (!isTagged(argv[at] ?? '') && (argv[at] ?? '').toLowerCase() === 'npx') {
     prefix.push('npx')
     at += 1
@@ -1263,6 +1274,16 @@ function entryIdentities(entry: EvidenceEntry): Array<{ forms: string[][]; runne
 function quotedToken(content: string): string {
   const value = content.replace(/\s+/g, ' ')
   return value === '' || /[\s<>|&;]/.test(value) ? `${TAG}${value}${TAG}` : value
+}
+
+/** Chỉ số dấu `)` đóng của `(` ở `open` (đếm lồng nhau), hoặc -1. */
+function substitutionEnd(text: string, open: number): number {
+  let depth = 0
+  for (let j = open; j < text.length; j++) {
+    if (text[j] === '(') depth += 1
+    else if (text[j] === ')' && --depth === 0) return j
+  }
+  return -1
 }
 
 /** Ký tự kết thúc một từ khi đứng ở cuối (kể cả cụm nhiều ký tự): dấu câu, ngoặc đóng, nháy. */
@@ -1319,6 +1340,19 @@ function evidenceWords(text: string): string[] {
         continue
       }
     }
+    // Thay thế lệnh không được mô hình hóa: `$(...)` (kể cả lồng nhau) và `NAME=\`...\`` dính vào từ, nên từ không khớp lần chạy
+    // nào và không bị dấu `)` hay backtick tách thành ranh giới (mất tiền tố biến môi trường).
+    if ((c === '$' && text[i + 1] === '(') || (c === '`' && /^[A-Za-z_][A-Za-z0-9_]*=$/.test(word))) {
+      const close = c === '`' ? text.indexOf('`', i + 1) : substitutionEnd(text, i + 1)
+      if (close < 0) {
+        word += c
+        i += 1
+        continue
+      }
+      word += text.slice(i, close + 1)
+      i = close + 1
+      continue
+    }
     if (c === '`' || c === '“' || c === '”' || c === '‘' || c === '’') {
       commit()
       boundary()
@@ -1326,6 +1360,23 @@ function evidenceWords(text: string): string[] {
       continue
     }
     if (c === '"' || c === "'") {
+      // `NAME="giá trị"`: nháy sau dấu = thuộc cùng từ, giá trị chuẩn hóa như phía lệnh đã chạy (bỏ nháy; có khoảng trắng hay
+      // toán tử thì thành token có nháy). Nháy không đóng hợp lệ vẫn dính vào từ, nên từ còn hình dạng biến môi trường.
+      if (/^[A-Za-z_][A-Za-z0-9_]*=$/.test(word)) {
+        const close = closingQuote(text, i)
+        if (close < 0) {
+          word += c
+          i += 1
+          continue
+        }
+        const inner = text.slice(i + 1, close).replace(/\s+/g, ' ')
+        if (/[\s<>|&;]/.test(inner)) {
+          out.push(`${TAG}${word}${inner}${TAG}`)
+          word = ''
+        } else word += inner
+        i = close + 1
+        continue
+      }
       // Đầu mệnh đề thì mệnh đề còn rỗng nên clauseHasCheck sai: nháy bao ngoài đứng đầu mệnh đề không bao giờ thành token.
       if (word === '' && clauseHasCheck()) {
         const close = closingQuote(text, i)
@@ -1406,30 +1457,23 @@ function matchLength(words: string[], start: number, entry: EvidenceEntry): numb
 }
 
 /**
- * Đầu cụm lệnh chứa vị trí `from`: lùi qua wrapper của shell, `npx` cùng cờ npx và biến môi trường đứng ngay trước. Một
- * claim được gắn với đầu cụm, nên token con của cụm (`tsc` sau `npx --no-install`) không thể thay cho cả cụm.
+ * Đầu cụm lệnh của claim ở `from`. Từ đầu mệnh đề đến claim, token đầu tiên thuộc tiền tố (wrapper và trình chạy trong
+ * `CLAIM_PREFIXES`, `npx`, gán biến môi trường kể cả có nháy, token giống cờ cùng giá trị đi sau nó) là đầu cụm: không lần
+ * chạy nào bắt đầu ở đó nên claim là stale, và token con (`npm test` sau `sudo -u alice`) không thay được cả cụm. Một `--`
+ * đứng sau từ đầu mệnh đề là dấu phân cách đối số: claim sau nó neo về chính dấu đó. `-`/`--` ở đầu mệnh đề là dấu đầu dòng. Nếu không có tiền tố, các token giống đường dẫn script
+ * liền trước (`./run`, `run.sh`) cũng thuộc cụm. Token có nháy (bắt đầu bằng TAG) không bao giờ khớp cờ hay đường dẫn.
  */
 function phraseStart(words: string[], lower: string[], from: number): number {
-  let p = from
-  for (;;) {
-    const previous = lower[p - 1]
-    const original = words[p - 1] ?? ''
-    if (previous === undefined || previous === BOUNDARY) return p
-    if (SHELL_WRAPPERS.has(previous) || previous === 'npx' || (!isTagged(original) && ENV_ASSIGNMENT.test(original))) {
-      p -= 1
-      continue
-    }
-    if (previous.startsWith('-')) {
-      let k = p - 1
-      while (k >= 0 && (lower[k] ?? '').startsWith('-')) k -= 1
-      const head = lower[k] ?? ''
-      if (k >= 0 && (head === 'npx' || SHELL_WRAPPERS.has(head))) {
-        p = k
-        continue
-      }
-    }
-    return p
+  let clauseStart = from
+  while (clauseStart > 0 && lower[clauseStart - 1] !== BOUNDARY) clauseStart -= 1
+  // Đối số sau `--` thuộc lệnh đứng trước nó: claim neo về chính dấu phân cách, dù trước đó có tiền tố nào.
+  for (let j = clauseStart + 1; j < from; j++) if (lower[j] === '--') return j
+  for (let j = clauseStart; j < from; j++) {
+    const low = lower[j] ?? ''
+    if (isEnvToken(words[j] ?? '') || CLAIM_PREFIXES.has(low) || low === 'npx' || FLAG_LIKE.test(low)) return j
   }
+  // Một đường dẫn script liền trước đã đủ làm claim không khớp lần chạy nào (lần chạy không bắt đầu bằng đường dẫn).
+  return SCRIPT_PATH.test(words[from - 1] ?? '') ? from - 1 : from
 }
 
 /** Các đầu cụm mà evidence nhắc một lệnh kiểm tra (dò trên bản chữ thường, cùng chỉ số token). */
