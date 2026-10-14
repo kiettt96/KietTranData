@@ -2,7 +2,7 @@
 
 import { atom, derive, read, update } from 'claude-code'
 import type { Warning } from '../../types'
-import { acceptsVerified, evidenceStrength, filePathOf, isExecuting, isGoalDone, isMutation, isPlanFile, newTracker, noteEvidence, observe, openSteps, summarize, trackVerification } from '../lib/drift'
+import { acceptsVerified, evidenceStrength, filePathOf, isExecuting, isGoalDone, isMutation, isPlanFile, newTracker, noteEvidence, observe, openSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
 import type { Focus } from '../lib/drift'
 import { clipText } from '../lib/decisions'
 import { addUsage, calibrate, recordShape, shapeKey } from '../lib/ledger'
@@ -108,7 +108,9 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       await update($, coreState, S.withWarnings({ at, kind: 'unverified', text }))
       record(at, 'verify-reject', { step: input.step, level: strength?.level ?? 'none', reason, evidence: clipText(evidence) })
       await flushDecisions((path, text) => $.fs.write(path, text))
-      notes.push(unbackedNotice(reason))
+      // weak và none: lệnh kiểm tra có thể là script riêng chưa khai checkCommands; stale thì option không liên quan.
+      const hasHint = (strength?.level ?? 'none') !== 'stale'
+      notes.push(unbackedNotice(reason, hasHint ? (log === null ? [] : suggestCheckCommands(log)) : undefined))
     } else if (isAccepted && strength?.level === 'strong' && strength.check === 'static') {
       notes.push(staticOnlyNotice())
     }

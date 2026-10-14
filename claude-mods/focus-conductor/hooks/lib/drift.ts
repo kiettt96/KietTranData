@@ -4,7 +4,7 @@
 // để test được và để register quyết định cách hiển thị.
 //
 // File này chỉ re-export API công khai; mã nằm ở hooks/lib/drift/ theo tầng: tool, verify, readonly, scope, classify, effects,
-// output, tracker, evidence, identity, claims. Tập khóa export không đổi so với bản một tệp.
+// output, tracker, evidence, identity, claims, suggest. Tập khóa export giữ nguyên so với bản một tệp; từ 0.5.6 chỉ thêm khóa mới.
 
 export { filePathOf, isPlanFile } from './drift/tool'
 export type { ToolObservation } from './drift/tool'
@@ -25,3 +25,4 @@ export type { EvidenceEntry, EvidenceLog } from './drift/evidence'
 export { commandIdentity } from './drift/identity'
 export { evidenceStrength, evidenceMatches, acceptsVerified } from './drift/claims'
 export type { EvidenceLevel, EvidenceStrength } from './drift/claims'
+export { suggestCheckCommands } from './drift/suggest'

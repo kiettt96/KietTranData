@@ -168,12 +168,22 @@ export function blockText(waiting: readonly string[], left: number): string {
   )
 }
 
-/** "verified" chưa đủ bằng chứng: bước được lưu là done, kèm lý do và việc cần làm để nâng lên verified. */
-export function unbackedNotice(reason: string): string {
-  return (
+/**
+ * "verified" chưa đủ bằng chứng: bước được lưu là done, kèm lý do và việc cần làm để nâng lên verified.
+ * `examples` (0.5.6): có mặt khi evidence không nhắc lệnh kiểm tra nào chạy sau thay đổi cuối (weak, none); thêm gợi ý
+ * option checkCommands, ví dụ lấy từ lệnh script đã chạy (rỗng thì dùng ví dụ trung tính). Mức stale không truyền.
+ */
+export function unbackedNotice(reason: string, examples?: readonly string[]): string {
+  const base =
     `[focus-conductor] Bước được lưu là done, chưa tính là đã kiểm tra: ${reason}. ` +
     'Muốn ghi verified, chạy lại lệnh kiểm tra (test, type-check, lint, build) sau thay đổi cuối cùng rồi ghi vào evidence đúng lệnh như đã chạy, ' +
     'dấu ":" và kết quả (ví dụ "npm test: 12 pass"). Việc chỉ đọc, chưa sửa gì thì nêu lệnh hay file đã đọc.'
+  if (examples === undefined) return base
+  const sample = examples[0] ?? 'python3 check_totals.py'
+  return (
+    `${base} Nếu bước này được kiểm bằng script riêng của dự án, người dùng khai option checkCommands của mod ` +
+    `(lệnh phân tách bằng dấu phẩy, khớp theo tiền tố token, ví dụ \`${sample}\`); model không tự khai được. ` +
+    'Khi chưa khai, bước vẫn là done: nêu với người dùng lệnh đã chạy và kết quả.'
   )
 }
 
