@@ -5,6 +5,7 @@ import { TEST_SEGMENT, isCheckText, isCustomCheck, isSelfFixing } from './verify
 import type { CheckKind } from './verify'
 import { normalizePath } from './scope'
 import { AWK_COMMAND, AWK_WRITE, segmentIsReadOnly } from './readonly'
+import { isReadOnlyInline } from './inline'
 
 // ------------------------------------------------------------ đích ghi của lệnh Bash
 
@@ -63,8 +64,11 @@ export type BashClass = { effects: BashEffect[]; paths: string[]; isUnknown: boo
 
 type Operator = '' | '&&' | '||' | ';' | '|' | '|&' | '&'
 
-/** Một đoạn của câu lệnh: toán tử đứng trước, văn bản đã che, tiền tố biến môi trường, và có chạy nền không (kết thúc bằng `&`). */
-type Piece = { op: Operator; text: string; env: string[]; background: boolean }
+/**
+ * Một đoạn của câu lệnh: toán tử đứng trước, văn bản đã che, tiền tố biến môi trường, có chạy nền không (kết thúc bằng `&`), và
+ * thân heredoc của chính đoạn này (null khi số dấu `<<H` không khớp số thân: không biết thân nào của đoạn nào).
+ */
+type Piece = { op: Operator; text: string; env: string[]; background: boolean; heredocs: string[] | null }
 
 /** Đánh dấu token có nháy là một đối số duy nhất (không bao giờ là toán tử); HEREDOC là stdin từ heredoc, nội dung không so được. */
 export const TAG = '\u0001'
@@ -72,17 +76,21 @@ const HEREDOC = '\u0002heredoc'
 
 /**
  * Che chuỗi trong nháy bằng token giữ chỗ và bỏ thân heredoc (giữ lại dấu `<<H` để biết đoạn đó đọc từ heredoc), để
- * dấu ngăn lệnh trong nháy hay trong heredoc không bị đọc nhầm.
+ * dấu ngăn lệnh trong nháy hay trong heredoc không bị đọc nhầm. Trả thêm các thân heredoc theo thứ tự xuất hiện.
  */
-function maskCommand(command: string): { masked: string; unmask: (token: string) => string } {
-  const withoutHeredoc = command.replace(/<<-?\s*(['"]?)(\w+)\1([^\n]*)\n[\s\S]*?\n\s*\2\s*(?=\n|$)/g, (_m, _q: string, _tag: string, rest: string) => `<<H${rest}`)
+function maskCommand(command: string): { masked: string; unmask: (token: string) => string; heredocs: string[] } {
+  const heredocs: string[] = []
+  const withoutHeredoc = command.replace(/<<-?\s*(['"]?)(\w+)\1([^\n]*)\n([\s\S]*?)\n\s*\2\s*(?=\n|$)/g, (_m, _q: string, _tag: string, rest: string, body: string) => {
+    heredocs.push(body)
+    return `<<H${rest}`
+  })
   const quoted: string[] = []
   const masked = withoutHeredoc.replace(/"((?:[^"\\]|\\.)*)"|'([^']*)'/g, (_m, a: string | undefined, b: string | undefined) => {
     quoted.push(a ?? b ?? '')
     return `\u0000${quoted.length - 1}\u0000`
   })
   const unmask = (token: string) => token.replace(/\u0000(\d+)\u0000/g, (_m, i: string) => quoted[Number(i)] ?? '')
-  return { masked, unmask }
+  return { masked, unmask, heredocs }
 }
 
 /**
@@ -90,9 +98,11 @@ function maskCommand(command: string): { masked: string; unmask: (token: string)
  * (không phải `&&`, `&>`, `>&`, `N>&M`) chạy cả danh sách &&/|| đứng trước nó ở nền: mã thoát không thuộc về các đoạn đó.
  * Mọi đoạn đứng trước `&` đều được đánh dấu: đoạn thuộc danh sách trước đó đã nền sẵn, đoạn trước `;` đã là hidden (exitOf).
  */
-function pieces(masked: string): Piece[] {
+function pieces(masked: string, heredocs: string[]): Piece[] {
   const parts = masked.split(/(\|\||&&|\|&|;|\|(?!\|)|\n|(?<![>&|])&(?![>&]))/)
   const out: Piece[] = []
+  const matched = (masked.match(/<<H/g) ?? []).length === heredocs.length
+  let used = 0
   let op: Operator = ''
   for (let i = 0; i < parts.length; i++) {
     const part = parts[i] ?? ''
@@ -105,7 +115,11 @@ function pieces(masked: string): Piece[] {
     const assignments = /^(?:[A-Za-z_][A-Za-z0-9_]*=\S*(?:\s+|$))+/.exec(text)?.[0] ?? ''
     // Biến môi trường đứng đầu đổi cách lệnh chạy (TEST_FILTER=smoke npm test): giữ lại làm một phần danh tính.
     text = text.slice(assignments.length).replace(/^timeout\s+\d+\s+/, '')
-    if (text !== '') out.push({ op, text, env: assignments.trim().split(/\s+/).filter(Boolean), background: false })
+    if (text !== '') {
+      const count = (text.match(/<<H/g) ?? []).length
+      out.push({ op, text, env: assignments.trim().split(/\s+/).filter(Boolean), background: false, heredocs: matched ? heredocs.slice(used, used + count) : null })
+      used += count
+    }
     else if (out.length === 0) op = ''
   }
   return out
@@ -158,7 +172,7 @@ const UNSUPPORTED = /\$\(|`|(?:^|[\s;&|(])eval\b|(?:^|[\s;&|(])(?:ba|z|da)?sh\s+
  * Đường dẫn tương đối nối với thư mục của `cd` đứng trước. Chỉ để giám sát; không phải phân quyền hệ thống tệp.
  */
 export function classifyBash(command: string): BashClass {
-  const { masked, unmask } = maskCommand(command)
+  const { masked, unmask, heredocs } = maskCommand(command)
   const effects: BashEffect[] = []
   const paths: string[] = []
   let isUnknown = false
@@ -181,7 +195,7 @@ export function classifyBash(command: string): BashClass {
   const write = (level: WriteEffect['level']) => effects.push({ kind: 'write', level, paths: [...segPaths], isUnknown: segUnknown })
   const isUnsupported = UNSUPPORTED.test(command)
 
-  const list = pieces(masked)
+  const list = pieces(masked, heredocs)
   for (let index = 0; index < list.length; index++) {
     const piece = list[index]
     if (piece === undefined) continue
@@ -282,6 +296,9 @@ export function classifyBash(command: string): BashClass {
       if (sub === 'restore') positional.slice(1).forEach(add)
       else if ((sub === 'checkout' || sub === 'reset') && dash >= 0) args.slice(dash + 1).forEach(add)
       else isUnknown = segUnknown = true
+    } else if (piece.heredocs !== null && piece.op !== '|' && piece.op !== '|&' && tokens[0] === cmd && inputs.every(m => m[2] === '<<' && m[3] === 'H') && isReadOnlyInline(name, args, piece.heredocs, unmask)) {
+      // sqlite3 và python với mã nội dòng chỉ đọc (E): không ống vào, không bọc sudo/xargs, không đọc từ tệp, mỗi đoạn dùng thân heredoc của nó.
+      continue
     } else {
       // Lệnh lạ, trình cài gói, script: có thể ghi, không đọc được đích.
       isUnknown = segUnknown = true
