@@ -26,11 +26,12 @@ export const PLAN_TOOL_SPEC: ToolSpec = {
     '"skipped", "blocked" và "waiting" bắt buộc có note giải thích. "waiting" là đang chờ việc bên ngoài rồi sẽ tiếp tục (lệnh nền, CI, người dùng); ' +
     '"blocked" là không tiến hành được và không có việc nào đang chạy để chờ. action "add": thêm bước vào cuối. ' +
     'action "restore": khôi phục mục tiêu cũ còn bước mở đã được lưu khi chuyển mục tiêu (index 1 là gần nhất). ' +
+    'Kết quả của "update" và "add" chỉ liệt kê các bước vừa đổi; action "show" xem lại toàn bộ checklist, không đổi gì. ' +
     'Gọi "set" trước khi thực thi việc từ mức moderate trở lên, và "update" sau mỗi bước quan trọng.',
   inputSchema: {
     type: 'object',
     properties: {
-      action: { type: 'string', enum: ['set', 'update', 'add', 'restore'] },
+      action: { type: 'string', enum: ['set', 'update', 'add', 'restore', 'show'] },
       goal: { type: 'string', description: 'Mục tiêu cuối cùng, một câu.' },
       steps: {
         type: 'array',
@@ -196,5 +197,5 @@ export function applyPlan(current: readonly PlanStep[], input: PlanInput): PlanO
     }
   }
 
-  return { error: 'action phải là "set", "update", "add" hoặc "restore".' }
+  return { error: 'action phải là "set", "update", "add", "restore" hoặc "show".' }
 }

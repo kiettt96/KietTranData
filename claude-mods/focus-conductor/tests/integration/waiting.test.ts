@@ -108,7 +108,7 @@ describe('0.5.6 C5, C6, C8: cập nhật hàng loạt qua tool', () => {
     const out = String((await $.tool.call({ tool: PLAN, action: 'update', allOpen: true, status: 'waiting', note: 'Người dùng yêu cầu tạm dừng' })).result)
     expect(out).toContain('Checklist (0/12 đã đóng, 12 đang chờ):')
     expect(out).toContain('Đã chuyển 12 bước sang waiting: id 1-12. Ghi chú: Người dùng yêu cầu tạm dừng')
-    expect(out).toContain('Đang chờ: 1. Bước 1; 2. Bước 2; 3. Bước 3')
+    expect(out).toContain('Không còn bước mở, nhưng còn 12 bước đang chờ hoặc bị chặn: 1. Bước 1; 2. Bước 2; 3. Bước 3')
     expect(out).not.toContain('Checklist đã đóng hết')
     expect(out).not.toContain('[w] 4.')
     expect(out.length).toBeLessThan(400)

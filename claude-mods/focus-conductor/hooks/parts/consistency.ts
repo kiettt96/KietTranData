@@ -75,6 +75,11 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       const core = S.normalizeCore(await read($, coreState))
       return { result: `Đã khôi phục mục tiêu: ${restored.goal}\n${renderPlan(core.brief, core.plan)}` }
     }
+    if (input.action === 'show') {
+      // Chỉ xem: không đổi trạng thái, không tính là cập nhật (L.tracker.planUpdates giữ nguyên).
+      const current = S.normalizeCore(await read($, coreState))
+      return { result: renderPlan(current.brief, current.plan) }
+    }
     const before = S.normalizeCore(await read($, coreState))
     // "verified" chỉ được lưu khi bằng chứng đủ mạnh (lệnh kiểm tra chạy thành công sau thay đổi cuối của mục tiêu,
     // hoặc việc chỉ đọc có nhắc lệnh hay file đã đụng tới); còn lại bước được lưu là done kèm lý do.
@@ -123,7 +128,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     if (isClosing && core.brief !== null && core.brief.quality.length > 0) notes.push(qualityNotice(core.brief.quality))
     if (isUpdate && openSteps(before.plan).length > 0 && openSteps(core.plan).length === 0 && pendingSteps(core.plan).length > 0) notes.push(pendingNotice(core.plan))
     $.ui.status(S.statusOf(await read($, view)))
-    const shown = outcome.bulk !== undefined ? renderBulk(core.plan, outcome.changed ?? [], outcome.bulk.status, outcome.bulk.note) : renderPlan(core.brief, core.plan)
+    const shown = outcome.bulk !== undefined ? renderBulk(core.plan, outcome.changed ?? [], outcome.bulk.status, outcome.bulk.note) : renderPlan(core.brief, core.plan, input.action === 'update' || input.action === 'add' ? outcome.changed : undefined)
     return { result: [shown, ...notes].join('\n') }
   }).catch(() => ({ deny: 'focus-conductor: lỗi nội bộ khi cập nhật checklist; tiếp tục làm việc không cần tool này.' }))
 

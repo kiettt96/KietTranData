@@ -239,12 +239,15 @@ export function driftContext(goal: string, why: string): string {
   )
 }
 
-/** Checklist dạng văn bản, trả về trong kết quả của tool plan. */
-export function renderPlan(brief: Brief | null, plan: readonly PlanStep[]): string {
+/**
+ * Checklist dạng văn bản, trả về trong kết quả của tool plan. `changed` (0.5.6): chỉ in hàng của các bước đó và bỏ dòng
+ * Mục tiêu (kết quả update và add); không truyền thì in đủ.
+ */
+export function renderPlan(brief: Brief | null, plan: readonly PlanStep[], changed?: readonly number[]): string {
   if (plan.length === 0) return `${brief ? `Mục tiêu: ${brief.goal}\n` : ''}Checklist trống.`
-  const rows = plan.map(step => stepRow(step))
-  const goal = brief ? `Mục tiêu: ${brief.goal}\n` : ''
-  return `${goal}${totalLine(plan)}\n${rows.join('\n')}${nextLine(plan)}`
+  const shown = changed === undefined ? plan : plan.filter(step => changed.includes(step.id))
+  const goal = brief && changed === undefined ? `Mục tiêu: ${brief.goal}\n` : ''
+  return `${goal}${totalLine(plan)}\n${shown.map(step => stepRow(step)).join('\n')}${nextLine(plan)}`
 }
 
 /** Một hàng của checklist: dấu trạng thái, id, tiêu đề, tiêu chí nghiệm thu và ghi chú. */
@@ -284,10 +287,11 @@ export function idRanges(ids: readonly number[]): string {
   return out.join(', ')
 }
 
-/** Kết quả của update hàng loạt: dòng tổng, một dòng nêu các bước đã chuyển và ghi chú chung, rồi bước tiếp theo hoặc đang chờ. Không in từng hàng. */
+/** Kết quả của update hàng loạt: dòng tổng, một dòng nêu các bước đã chuyển và ghi chú chung, rồi bước tiếp theo (nếu còn bước mở). Không in từng hàng. */
 export function renderBulk(plan: readonly PlanStep[], changed: readonly number[], status: StepStatus, note: string): string {
   const moved = `Đã chuyển ${changed.length} bước sang ${status}: id ${idRanges(changed)}.${note ? ` Ghi chú: ${note}` : ''}`
-  return `${totalLine(plan)}\n${moved}${nextLine(plan)}`
+  // Hết bước mở thì pendingNotice (đi kèm) đã liệt kê các bước đang chờ hoặc bị chặn, không lặp lại ở đây.
+  return `${totalLine(plan)}\n${moved}${openSteps(plan).length > 0 ? nextLine(plan) : ''}`
 }
 
 /** Mọi bước đã hết mở nhưng còn bước chờ hoặc bị chặn: không được tuyên bố hoàn tất. */
@@ -296,7 +300,7 @@ export function pendingNotice(plan: readonly PlanStep[]): string {
   return (
     `[focus-conductor] Không còn bước mở, nhưng còn ${pending.length} bước đang chờ hoặc bị chặn: ` +
     `${pending.slice(0, 3).map(s => `${s.id}. ${s.title}`).join('; ')}. ` +
-    'Các bước đó chưa tính là xong; nói rõ với người dùng thay vì tuyên bố hoàn tất.'
+    'Các bước đó chưa tính là xong: nói rõ với người dùng, không tuyên bố hoàn tất.'
   )
 }
 
