@@ -39,7 +39,7 @@ async function frameOf($: EngineInterface, roots: Map<number, string | null>, go
 
 export function registerConsistency(on: On, ctx: Ctx): void {
   const L = ctx.local
-  const { agentFailures, agentTrackers, agents, blockLimit, carryEvidence, decisionLog, decisionText, delegationItems, evidenceFor, failedFor, isRouterPaused, moveDelegation, noteRouterTime, pendingFor, record, remindSubagents, routerFamily, routerModel, semanticDrift, steppedEarly, strictDelegation, trackDelegations } = ctx
+  const { agentFailures, agentTrackers, agents, blockLimit, carryEvidence, flushDecisions, delegationItems, evidenceFor, failedFor, isRouterPaused, moveDelegation, noteRouterTime, pendingFor, record, remindSubagents, routerFamily, routerModel, semanticDrift, steppedEarly, strictDelegation, trackDelegations } = ctx
   const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
   const mode = derive([modeState], modeOf(ctx.options))
 
@@ -107,7 +107,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       const at = await $.clock.now()
       await update($, coreState, S.withWarnings({ at, kind: 'unverified', text }))
       record(at, 'verify-reject', { step: input.step, level: strength?.level ?? 'none', reason, evidence: clipText(evidence) })
-      if (decisionLog) await $.fs.write(decisionLog, decisionText()).catch(() => undefined)
+      await flushDecisions((path, text) => $.fs.write(path, text))
       notes.push(unbackedNotice(reason))
     } else if (isAccepted && strength?.level === 'strong' && strength.check === 'static') {
       notes.push(staticOnlyNotice())
@@ -238,16 +238,16 @@ export function registerConsistency(on: On, ctx: Ctx): void {
         model: routerModel,
       })
       const startedAt = await $.clock.now()
-      const outcome = await askRouter(r => $.model.complete(r).catch(() => null), request, parseDrift)
+      const outcome = await askRouter(r => $.model.complete(r), request, parseDrift)
       noteRouterTime((await $.clock.now()) - startedAt)
       const verdict = outcome.result
       const now = await $.clock.now()
       await update($, coreState, c => {
-        const used = outcome.usages.reduce((acc, usage) => S.withLedger(l => addUsage(l, 'analyzer', routerFamily, usage).ledger)(acc), c)
+        const used = S.withAnalyzerUsage(outcome.usages, routerFamily)(c)
         return verdict !== null && !verdict.onTrack ? S.withWarnings({ at: now, kind: 'drift', text: `Router: có thể lạc đề (${verdict.why})` })(used) : used
       })
       record(now, 'drift', { onTrack: verdict?.onTrack ?? null, why: verdict?.why ?? outcome.reason, retried: outcome.retried })
-      if (decisionLog) await $.fs.write(decisionLog, decisionText()).catch(() => undefined)
+      await flushDecisions((path, text) => $.fs.write(path, text))
       if (verdict !== null && !verdict.onTrack) driftNote = driftContext(core.brief.goal, verdict.why)
     }
     const top = findings.filter(f => f.context).sort((a, b) => b.priority - a.priority)[0]

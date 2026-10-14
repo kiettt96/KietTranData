@@ -175,7 +175,18 @@ focus-conductor/
   hooks/lib/cost.ts            bảng giá có ngày, ghi đè giá, hệ số ghi cache, cửa sổ mặc định, chi phí turn và ghi lại cache
   hooks/lib/ledger.ts          sổ chi phí theo nhóm, phiên và mục tiêu; hiệu chỉnh; token ra theo dạng việc; cơ sở so với chạy thuần
   hooks/lib/route.ts           chính sách model của phiên, nâng theo bằng chứng, quyết định đổi có tính cache, khớp việc đã phân
-  hooks/lib/drift.ts           phát hiện lặp, lan man, lạc phạm vi (cả đích của lệnh Bash), checkpoint; dấu vết thực thi và độ mạnh của evidence
+  hooks/lib/drift.ts           điểm vào công khai (chỉ re-export) của phần phát hiện lặp, lan man, lạc phạm vi, checkpoint và đối chiếu evidence
+  hooks/lib/drift/tool.ts      kiểu và hàm nền: quan sát tool call, đường dẫn file, file kế hoạch
+  hooks/lib/drift/verify.ts    nhận diện lệnh kiểm tra: bảng trình chạy, dạng bọc, kiểm tĩnh, checkCommands, lệnh tự sửa
+  hooks/lib/drift/readonly.ts  tách đoạn lệnh Bash và nhận ra lệnh chỉ đọc
+  hooks/lib/drift/scope.ts     chuẩn hóa đường dẫn, đối chiếu file với phạm vi
+  hooks/lib/drift/classify.ts  phân loại lệnh Bash theo từng đoạn: lệnh kiểm tra, tác động ghi, file đích, mức che mã thoát
+  hooks/lib/drift/effects.ts   hiệu ứng của một tool call: có chạy kiểm tra không, loại kiểm tra, có ghi file không
+  hooks/lib/drift/output.ts    output của lệnh kiểm tra: dấu hiệu lỗi và báo cáo tổng kết đầy đủ theo từng trình chạy
+  hooks/lib/drift/tracker.ts   theo dõi một turn của luồng chính và tổng kết cuối turn
+  hooks/lib/drift/evidence.ts  dấu vết thực thi của một mục tiêu (lệnh đã chạy kèm kết quả, các lần ghi)
+  hooks/lib/drift/identity.ts  danh tính của lệnh kiểm tra, để so khớp nghiêm ngặt
+  hooks/lib/drift/claims.ts    đối chiếu evidence của "verified" với dấu vết thật
   hooks/lib/plan.ts            schema và reducer của tool plan
   hooks/lib/state.ts           giá trị khởi tạo, chuẩn hóa trạng thái cũ, reducer thuần, cất và khôi phục mục tiêu
   hooks/lib/text.ts            mọi văn bản gửi model và hiển thị
@@ -184,19 +195,26 @@ focus-conductor/
   hooks/ui/labels.ts           nhãn vi/en của band và pane
   hooks/ui/style.ts            token màu, ký hiệu, giai đoạn và thanh tiến độ của band và pane
   types/index.d.ts             type contract của $.state
-  tests/                       logic thuần, router, chi phí và sổ, test tích hợp qua engine (router giả lập), kịch bản đầu cuối
+  tests/                       theo chức năng: logic thuần (router, chi phí và sổ, giá, ngưỡng, trạng thái, lợi ích ròng), golden-set, giao diện
+  tests/shell/                 phân loại lệnh Bash, mã thoát, đích ghi file, phạm vi
+  tests/output/                báo cáo của từng trình chạy test (Node, Go, Cargo, Jest, Vitest, Mocha, Bun, Pytest)
+  tests/evidence/              danh tính lệnh, đầu cụm claim, độ mạnh của evidence
+  tests/integration/           qua engine của `claude plugin test` (router giả lập): router đọc prompt, điều phối, subagent, checklist và Stop, lệnh /conductor, giao diện, kịch bản đầu cuối
   tests/support/engine.ts      khung chạy test tích hợp dùng chung (đồng hồ giả, router giả lập, các câu trả lời mặc định)
+  tests/support/commands.ts    dựng tool call giả (Bash, Edit) và brief mẫu cho test lệnh và evidence
   tests/golden/                golden-set của router: 30 prompt mẫu (5 ca đối kháng), kỳ vọng, câu trả lời router thật đã ghi cùng băm request và tỷ lệ đạt
   tests/fixtures/prompt-k4.ts  prompt dài tổng hợp (ẩn danh), dùng để kiểm request gửi router và phân việc nhiều mục
   scripts/eval-router.ts       eval router thật trên golden-set, nhiều lần mỗi ca (không chạy trong CI)
-  scripts/mutants.ts           344 định nghĩa đột biến (194 cũ cho hooks/lib/drift.ts, 150 mới của 0.5.4 cho giá, router, sổ chi phí, giao diện, nhận diện lệnh; dữ liệu thuần)
+  scripts/mutants.ts           344 định nghĩa đột biến (194 cũ cho hooks/lib/drift/, 150 mới của 0.5.4 cho giá, router, sổ chi phí, giao diện, nhận diện lệnh; dữ liệu thuần)
   scripts/mutate.ts            chạy đột biến, khôi phục tệp gốc, in sha256 trước và sau
   tsconfig.json                cấu hình type-check độc lập (cần tệp khai báo do engine sinh, xem "Phát triển")
   LICENSE                      MIT
 .github/workflows/focus-conductor.yml   (ở gốc repo) validate mod và marketplace, chạy test của mod
 ```
 
-Kiểm tra trước khi phát hành: `claude plugin validate .` và `claude plugin test .` (số test hiện hành ở mục "Kiểm chứng HEAD hiện tại"; gồm replay offline golden-set và test tái hiện từng lỗi trong `tests/review05*.test.ts`). Đổi prompt router thì chạy lại `bun scripts/eval-router.ts --model sonnet --runs 3 --record` để chấm router thật và ghi câu trả lời mới cho golden-set.
+Kiểm tra trước khi phát hành: `claude plugin validate .` và `claude plugin test .` (số test hiện hành ở mục "Kiểm chứng HEAD hiện tại"; gồm replay offline golden-set và test tái hiện từng lỗi của các vòng review, nay xếp theo chức năng ở `tests/shell/`, `tests/output/`, `tests/evidence/`, `tests/integration/`). Đổi prompt router thì chạy lại `bun scripts/eval-router.ts --model sonnet --runs 3 --record` để chấm router thật và ghi câu trả lời mới cho golden-set.
+
+Các mục "Thay đổi" và "Kiểm chứng" của bản cũ nêu tên tệp test theo vòng review (`tests/review05*.test.ts`, `tests/hooks.test.ts`). Các tệp đó đã được tách theo chức năng vào các thư mục trên và bộ hàm dựng chung vào `tests/support/`; tên `describe` và `test` giữ nguyên, nên tìm một test cũ bằng tên của nó (tập tên của 563 test trước và sau khi tách trùng nhau).
 
 ## Phát triển
 
@@ -246,12 +264,13 @@ bun scripts/mutate.ts                     # chạy đột biến (khoảng 30 gi
 Bản 0.5.4 (xử lý báo cáo rà soát toàn mod trên `8820125`), ngày 2026-10-13. Mã (`hooks/`) và test trong commit chứa mục này đúng là nội dung đã kiểm (sha256 của `hooks/` và `tests/` in trước và sau các lượt đột biến, nêu bên dưới); README được điền kết quả sau khi kiểm. Mọi số dưới đây do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển].
 
 - Môi trường: Claude Code 2.1.296, Node v22.22.0, Bun 1.4.2.
-- `claude plugin test .`: 574 test qua, 0 lỗi, 21 tệp (0.5.3 có 475 test). `claude plugin validate .` qua cho mod và marketplace; ba hook gating thiếu `.catch` (`prompt.submit`, `tool.call{Agent}`, `tool.check{plan}`) nay đã có. `bunx tsc -p tsconfig.json` sạch.
+- `claude plugin test .`: 582 test qua, 0 lỗi, 34 tệp (574 test của 0.5.4 trước khi tái cấu trúc, cộng 8 test cho ba hàm gộp; 0.5.3 có 475 test). `claude plugin validate .` qua cho mod và marketplace; ba hook gating thiếu `.catch` (`prompt.submit`, `tool.call{Agent}`, `tool.check{plan}`) nay đã có. `bunx tsc -p tsconfig.json` sạch.
 - Bộ test cuối chạy trên `hooks/` của `8820125` (cùng `plugin.json` cũ) để biết test mới có thật sự bắt lỗi cũ: 458 qua, 49 đỏ, và 3 tệp không nạp được (67 test, vì thiếu export mới: `golden.test.ts` 36, `net-benefit.test.ts` 18, `prompt-fence.test.ts` 13); 458 + 49 + 67 = 574. Trong 49 ca đỏ: `pricing.test.ts` 15 trên 15, `verify-commands.test.ts` 17 trên 22, `reset-button.test.ts` 9 trên 9, `boundaries.test.ts` 1 trên 11, và 7 test cũ ghim giá hay hệ số ghi cache cũ phải đổi kỳ vọng (`cost-ledger.test.ts` 6, `hooks.test.ts` 1). Test mới xanh sẵn trên mã cũ: 10 ca ngưỡng của `boundaries.test.ts` (ghim hành vi đúng đã có, giá trị của chúng nằm ở lượt đột biến) và 5 ca phủ định của `verify-commands.test.ts`.
+- Tái cấu trúc không đổi hành vi (mục 15): `hooks/lib/drift.ts` chỉ còn re-export, mã nằm ở `hooks/lib/drift/` (11 tệp, mỗi tệp dưới 330 dòng) và được chuyển nguyên văn bằng script theo cây cú pháp, không gõ lại. Ba mẫu lặp được gộp: `askRouter` tự bắt lỗi của hai lượt hỏi (thay cho sáu `r => $.model.complete(r).catch(() => null)`), `withAnalyzerUsage` (thay sáu phép cộng usage của router), `flushDecisions(write)` (thay mười lần ghi log quyết định). Dạng `runRouter($, ...)` và `flushDecisions($)` như báo cáo đề xuất không dùng được: engine chỉ cho truyền `$` vào hàm khai báo ở cấp cao nhất của chính tệp đang đăng ký hook, không qua import hay hàm lồng, nên các hàm gộp không nhận `$` mà nhận một hàm (`write`) do hook truyền vào. Test chuyển từ `tests/review05*.test.ts` và `tests/hooks.test.ts` sang `tests/shell/`, `tests/output/`, `tests/evidence/`, `tests/integration/` cùng bộ hàm dựng chung ở `tests/support/commands.ts`. Bất biến: tập tên test của 574 test trước đó có đủ trong 582 test sau (8 tên mới, cho ba hàm gộp, không tên nào mất); 32 khóa giá trị export của `hooks/lib/drift` không đổi; `tsc` và `validate` sạch; `scripts/mutate.ts --check` khớp 344/344 mẫu đúng một lần ở tệp mới. Lượt đột biến đầy đủ trên HEAD tái cấu trúc cho cùng kết quả với trước khi tách: 339 bị bắt, 5 tương đương, 0 sống sót; sha256 của `hooks/` (`8f72ce7f518e04f4…`) và `tests/` (`d5b121e51a4785fe…`) trước và sau lượt không đổi.
 - Eval router thật (`sonnet`, 30 ca, ba lần mỗi ca, 90 lượt): lần ghi đầu 90/90 (tổng $1,0812 [Nguồn: eval trong phiên phát triển]); sau khi viết lại ca `six` để bỏ hai đoạn trùng ví dụ trong system prompt và ghi lại riêng ca đó, `six` đạt 2/3 (một lượt chọn sonnet/medium cho luồng chính thay vì opus). Tổng 89/90 lượt, 29/30 ca đạt mọi lần. Bản ghi giữ nguyên cả lượt trượt; golden-set chấm theo khoảng chấp nhận được nên ca `six` vẫn nằm trong bộ.
 - Kiểm đột biến đầy đủ (một lượt trên một HEAD, `bun scripts/mutate.ts --jobs 4`, 344 mẫu: 194 của các vòng trước và 150 mới): 318 bị test bắt, 2 tương đương đã ghi từ trước (F2, E27) và 24 sống sót. Trong 24 mẫu sống sót, 21 là chỗ test còn hở và đã thêm 11 test: bảng giá truyền vào request router, nhánh chưa có mốc thời gian của turn, các cờ tự sửa `--apply-unsafe`, `--fix-only`, `--fix=`, `prettier -w`, script `fix`, `format`, `fmt` và `run-script`, so khớp lệnh khai không phân biệt hoa thường và lệnh khai rỗng, tên loại agent không có mô tả qua `fence`, hẹn giờ cũ không hủy mốc chờ mới, nút Đặt lại xóa trạng thái cục bộ như `/conductor reset`, subagent xong trước luồng chính, người dùng đổi effort hay đổi họ, chế độ suggest. Chạy lại riêng 24 mẫu: 21 bị bắt, 3 tương đương có lý do ghi trong `scripts/mutants.ts` (B9: điều kiện `lastContext > 0` chỉ là phòng thủ vì `context < 0` luôn sai; D3 và D4: chỉ lệch đúng mili giây hết hạn của nút chờ xác nhận, nơi bộ hẹn giờ đã xóa mốc). Tổng: 339 bị bắt, 5 tương đương, 0 sống sót. Sha256 của `hooks/` trước và sau cả hai lượt là `331ec8ad64400098…`, không đổi, nên không phải chạy lại toàn bộ; sha256 của `tests/` đổi từ `8c0bcae2c80b9661…` sang `cccc3846bd4671d9…` vì chỉ thêm test.
 - Quét chuỗi cá nhân (`taichinh`, `dongchilong`, `Long`, `regime_mapper`, `luat-engine`, `Bồn và pha`, `/Users/`) trên cây làm việc: sạch. Lịch sử git cũ vẫn chứa nội dung cũ (không viết lại lịch sử).
-- Workflow CI trên runner sạch (lượt chạy đầu, pull request #16, `ubuntu-latest`, Node 22, Claude Code 2.1.296): `plugin` qua, 574 test qua, 0 lỗi, 21 tệp, 38 giây [Nguồn: GitHub Actions run 38379689930, 2026-10-13]. Cảnh báo duy nhất của runner là `actions/checkout@v4` và `actions/setup-node@v4` chạy bắt buộc trên Node 24.
+- Workflow CI trên runner sạch (lượt chạy đầu, trên bản 0.5.4 trước khi tái cấu trúc, pull request #16, `ubuntu-latest`, Node 22, Claude Code 2.1.296): `plugin` qua, 574 test qua, 0 lỗi, 21 tệp, 38 giây [Nguồn: GitHub Actions run 38379689930, 2026-10-13]. Cảnh báo duy nhất của runner là `actions/checkout@v4` và `actions/setup-node@v4` chạy bắt buộc trên Node 24.
 - Chưa kiểm được: việc engine có ghi đè `tsconfig.json` đã commit khi nạp mod trong phiên tương tác; bậc cache thật trên máy người dùng (mặc định bậc 1 giờ theo phép đo ở container); ảnh chụp band và pane trên engine thật.
 - Các bản trước: kiểm chứng của 0.5.3 và trước đó giữ nguyên ở mục "Kiểm chứng của 0.5.3 và các vòng trước".
 

@@ -3,7 +3,6 @@
 import { atom, derive, read, update } from 'claude-code'
 import type { Brief, Core, Warning } from '../../types'
 import { openSteps } from '../lib/drift'
-import { addUsage } from '../lib/ledger'
 import { PLAN_TOOL_SPEC } from '../lib/plan'
 import { describePick } from '../lib/route'
 import { clipText, keptLines } from '../lib/decisions'
@@ -24,7 +23,7 @@ const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null
 
 export function registerSession(on: On, ctx: Ctx): void {
   const L = ctx.local
-  const { decisionLog, decisionText, delegationItems, expectedMain, isRouterPaused, noteRouter, noteRouterTime, policy, ranText, record, resetLocal, routerFallback, routerFamily, routerModel, skipPhrases, trackDelegations, wantedPick } = ctx
+  const { decisionLog, flushDecisions, delegationItems, expectedMain, isRouterPaused, noteRouter, noteRouterTime, policy, ranText, record, resetLocal, routerFallback, routerFamily, routerModel, skipPhrases, trackDelegations, wantedPick } = ctx
   const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
   const mode = derive([modeState], modeOf(ctx.options))
 
@@ -81,7 +80,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       record(at, 'skip', { prompt: text, goalId: prev.goalId })
       // Câu tiếp nối ngắn: turn này làm tiếp mục tiêu đang mở.
       L.promptIntent = { relation: 'continue', kind: prev.isReference ? 'answer' : prev.kind }
-      if (decisionLog) await $.fs.write(decisionLog, decisionText()).catch(() => undefined)
+      await flushDecisions((path, text) => $.fs.write(path, text))
       return next({ ...e, context: [...(e.context ?? []), skippedContext(prev, before.plan)] })
     }
 
@@ -94,7 +93,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       $.ui.status('router đang đọc prompt...')
       const request = routerRequest({ text, prev, ran: ranText(before), policy: rules, model: routerModel })
       const startedAt = await $.clock.now()
-      outcome = await askRouter(r => $.model.complete(r).catch(() => null), request, reply => parseRoute(reply, rules))
+      outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules))
       noteRouterTime((await $.clock.now()) - startedAt)
       pauseText = noteRouter(outcome.result !== null)
     }
@@ -103,7 +102,7 @@ export function registerSession(on: On, ctx: Ctx): void {
     // Router không đọc được thì không biết turn là hỏi đáp hay làm tiếp: Stop chỉ dựa vào hành vi tool.
     L.promptIntent = plan !== null ? { relation: plan.relation, kind: plan.isReference && !plan.runReference ? 'answer' : plan.kind } : null
     const withUsage = (c: Core): Core =>
-      outcome.usages.reduce((acc, usage) => S.withLedger(l => addUsage(l, 'analyzer', routerFamily, usage).ledger)(acc), c)
+      S.withAnalyzerUsage(outcome.usages, routerFamily)(c)
 
     if (plan === null) {
       // Mặc định không đoán: giữ mục tiêu, việc đã phân, phạm vi, ràng buộc và checklist; chỉ bỏ lựa chọn model
@@ -127,7 +126,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       })
       L.lastPrompt = { text, prev, goalId: kept?.goalId ?? null }
       record(now, 'router-fail', { prompt: clipText(text), reason: outcome.reason, retried: outcome.retried, reuse: isReuse })
-      if (decisionLog) await $.fs.write(decisionLog, decisionText()).catch(() => undefined)
+      await flushDecisions((path, text) => $.fs.write(path, text))
       if (!isPaused) $.ui.toast(pauseText ?? failText)
       $.ui.status(S.statusOf(await read($, view)))
       return next({ ...e, context: [...(e.context ?? []), unroutedContext(outcome.reason)] })
@@ -165,7 +164,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       notes: plan.notes,
       tasks: brief.tasks.map(t => ({ index: t.index, run: t.run, agentType: t.agentType, pick: t.pick })),
     })
-    if (decisionLog) await $.fs.write(decisionLog, decisionText()).catch(() => undefined)
+    await flushDecisions((path, text) => $.fs.write(path, text))
     if (outcome.retried) $.ui.toast('Router đã đọc lại một lần (câu trả lời đầu hỏng hoặc tin cậy thấp)')
     if (isNewGoal) {
       const delegated = brief.isReference ? 0 : brief.tasks.filter(task => task.run === 'agent').length

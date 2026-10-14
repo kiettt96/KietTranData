@@ -8,7 +8,7 @@ import { applyPrices, fixedContextTokens, parsePrices, priceNote, shouldDowngrad
 import { addUsage, calibrate, emptyLedger, formatUsd, ledgerLines, nextGoal, recordShape, resetLedger, sessionUsd, shapeKey, shapeOutput } from '../hooks/lib/ledger'
 import { createContext } from '../hooks/context'
 import { legacyOf, tierOf } from '../hooks/lib/scale'
-import { EMPTY_CORE, normalizeCore, withAgentUsd, withDecision, withLift, adoptGoal } from '../hooks/lib/state'
+import { EMPTY_CORE, normalizeCore, withAgentUsd, withAnalyzerUsage, withDecision, withLift, adoptGoal } from '../hooks/lib/state'
 
 const USAGE = { input_tokens: 1000, output_tokens: 500, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
 
@@ -89,6 +89,20 @@ describe('sổ chi phí', () => {
     expect(next.goal.goalId).toBe(2)
     expect(next.goal.buckets.main.calls).toBe(0)
     expect(next.session.main.calls).toBe(1)
+  })
+
+  test('withAnalyzerUsage cộng mọi lượt router vào nhóm router của sổ, theo giá của model router, không đụng nhóm khác', () => {
+    applyPrices({})
+    const two = [USAGE, { ...USAGE, input_tokens: 2000 }]
+    const core = withAnalyzerUsage(two, 'opus')(EMPTY_CORE)
+    const { analyzer, main, agent } = core.ledger.session
+    expect(analyzer.calls).toBe(2)
+    closeTo(analyzer.usd, usdOf('opus', two[0] as typeof USAGE) + usdOf('opus', two[1] as typeof USAGE))
+    expect(analyzer.usd).not.toBe(usdOf('sonnet', two[0] as typeof USAGE) + usdOf('sonnet', two[1] as typeof USAGE))
+    expect(main.calls + agent.calls).toBe(0)
+    expect(core.ledger.goal.buckets.analyzer.calls).toBe(2)
+    // Không có lượt nào: trạng thái không đổi.
+    expect(withAnalyzerUsage([], 'sonnet')(EMPTY_CORE).ledger.session.analyzer.calls).toBe(0)
   })
 
   test('hiệu chỉnh kéo hệ số về phía số đo, kẹp trong khoảng 0,5 đến 2, và đếm số lần đo', () => {
