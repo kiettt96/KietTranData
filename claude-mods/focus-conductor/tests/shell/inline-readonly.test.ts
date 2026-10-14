@@ -327,3 +327,24 @@ describe('E: ghim hành vi, script trong tệp vẫn là ghi có thể', () => {
     expect(isMutation(bash('python gen.py', { isReadOnly: true }))).toBe(false)
   })
 })
+
+describe('E: ghim thêm cho mẫu sống sót (056-E9, E13, E16, E20)', () => {
+  test('sqlite3 có đối số SQL nhưng đọc stdin từ tệp vẫn là ghi có thể', () => {
+    expect(mutates('sqlite3 data.db "SELECT 1" < q.sql')).toBe(true)
+  })
+
+  test('nạp extension trong sqlite3 của Python là ghi', () => {
+    expect(mutates(`python3 -c "import sqlite3; sqlite3.connect('x').load_extension('y')"`)).toBe(true)
+    expect(mutates(`python3 -c "import sqlite3; sqlite3.connect('x').enable_load_extension(True)"`)).toBe(true)
+  })
+
+  test('open gán cho biến hay truyền làm đối số không qua kiểm tra chế độ: là ghi', () => {
+    expect(mutates(`python3 -c "f = open; f('x', 'w')"`)).toBe(true)
+    expect(mutates(`python3 -c "print(list(map(open, ['a', 'b'])))"`)).toBe(true)
+  })
+
+  test('có ống từ lệnh khác vào sqlite3 hay python thì là ghi, dù có đối số', () => {
+    expect(mutates('echo q | sqlite3 data.db "SELECT 1"')).toBe(true)
+    expect(mutates('echo x | python3 -c "print(1)"')).toBe(true)
+  })
+})

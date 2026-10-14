@@ -87,3 +87,23 @@ describe('0.5.6 A: cổng verified không đổi (ghim hành vi)', () => {
     }
   })
 })
+
+describe('0.5.6 A: ghim thêm cho ứng viên gợi ý (mẫu 056-A4, A7, A13)', () => {
+  test('đường dẫn có dấu gạch chéo nhưng không có đuôi script không là ứng viên', () => {
+    expect(suggestCheckCommands(logOf('./configure --prefix=/x', '/usr/bin/env'))).toEqual([])
+  })
+
+  test('lệnh mod đã nhận là lệnh kiểm tra (mặc định hay khai checkCommands) không được gợi ý lại', () => {
+    expect(suggestCheckCommands(logOf('node --test tests/a.js'))).toEqual([])
+    applyCheckCommands(parseCheckCommands('python3 check_totals.py'))
+    try {
+      expect(suggestCheckCommands(logOf('python3 check_totals.py'))).toEqual([])
+    } finally {
+      applyCheckCommands([])
+    }
+  })
+
+  test('lệnh chạy hai lần chỉ gợi ý một lần', () => {
+    expect(suggestCheckCommands(logOf('python3 a.py', 'python3 a.py'))).toEqual(['python3 a.py'])
+  })
+})

@@ -153,3 +153,28 @@ describe('0.5.6 C5, C6, C8: cập nhật hàng loạt qua tool', () => {
     expect(block).toContain('allOpen')
   })
 })
+
+describe('0.5.6 B, C: ghim thêm (mẫu 056-B6, C14, C15)', () => {
+  test('pendingNotice chỉ ở lần cập nhật làm hết bước mở cuối, không lặp khi bước chờ đổi sang blocked', {}, async ($, on) => {
+    base(on)
+    await submit($, COMPLEX_PROMPT)
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'a' }] })
+    const first = String((await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'waiting', note: 'chờ lệnh nền' })).result)
+    expect(first).toContain('Không còn bước mở')
+    const second = String((await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'blocked', note: 'thiếu quyền' })).result)
+    expect(second).not.toContain('Không còn bước mở')
+  })
+
+  test('ids hoặc allOpen kèm verified và evidence yếu: từ chối nêu verified, không hạ về done', {}, async ($, on) => {
+    base(on)
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    await submit($, COMPLEX_PROMPT)
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'a' }, { title: 'b' }] })
+    await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'x', new_string: 'y' })
+    for (const selector of [{ ids: [1] }, { allOpen: true }]) {
+      const out = await $.tool.call({ tool: PLAN, action: 'update', ...selector, status: 'verified', evidence: 'đã kiểm tra kỹ, chạy ổn', note: 'x' })
+      expect(out.deny).toContain('verified')
+      expect(out.deny).not.toContain('done cần')
+    }
+  })
+})

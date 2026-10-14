@@ -125,3 +125,12 @@ describe('0.5.6 C9: changed', () => {
     expect(applyPlan(planOf('todo'), { action: 'add', steps: [{ title: 'x' }, { title: 'y' }] }).changed).toEqual([2, 3])
   })
 })
+
+describe('0.5.6 C: ghi chú chung của hàng loạt cắt ở 200 ký tự (mẫu 056-C13)', () => {
+  test('note 300 ký tự: lưu vào bước và vào bulk chỉ còn 200', () => {
+    const out = applyPlan(planOf('todo', 'todo'), { action: 'update', ids: [1, 2], status: 'waiting', note: 'x'.repeat(300) })
+    expect(out.plan?.[0]?.note).toHaveLength(200)
+    expect(out.plan?.[1]?.note).toHaveLength(200)
+    expect(out.bulk?.note).toHaveLength(200)
+  })
+})

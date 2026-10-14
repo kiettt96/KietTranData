@@ -165,3 +165,12 @@ describe('0.5.6 B8: giao diện', () => {
     expect(runs.some(r => r.text === STEP_MARK.waiting.glyph)).toBe(true)
   })
 })
+
+describe('0.5.6 D: dòng Đang chờ tối đa 3 bước (mẫu 056-D12)', () => {
+  test('bốn bước waiting, không còn bước mở: dòng Đang chờ chỉ liệt kê ba bước đầu', () => {
+    const plan = planOf('waiting', 'waiting', 'waiting', 'waiting')
+    const out = renderPlan(brief, plan, [1])
+    expect(out).toContain('Đang chờ: 1. Bước 1; 2. Bước 2; 3. Bước 3')
+    expect(out).not.toContain('4. Bước 4')
+  })
+})
