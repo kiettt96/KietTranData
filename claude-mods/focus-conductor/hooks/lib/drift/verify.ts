@@ -1,5 +1,5 @@
 // Nhận diện lệnh kiểm tra: bảng trình chạy (tên trần, dạng bọc), kiểm tĩnh, lệnh riêng của dự án (checkCommands) và lệnh tự sửa.
-// Chuyển nguyên văn từ hooks/lib/drift.ts (tách theo tầng, không đổi hành vi); hooks/lib/drift.ts là barrel.
+// Chuyển từ hooks/lib/drift.ts (tách theo tầng, không đổi hành vi lúc tách; 0.5.5 đổi isSelfFixing để xét token ở dạng shell thật sự chạy); hooks/lib/drift.ts là barrel.
 
 // Lệnh kiểm tra thật sự: bắt đầu một đoạn lệnh bằng một trình chạy test, lint,
 // type-check hay build. Không khớp theo chữ rời ("test", "check") ở giữa lệnh,
@@ -79,14 +79,23 @@ export function isCheckText(text: string): boolean {
 // Cờ cho công cụ kiểm tra sửa file ngay trong lúc chạy. `--fix-dry-run` (token khác) chỉ xem trước nên không nằm đây.
 const FIX_FLAGS = new Set(['--fix', '--write', '--apply', '--apply-unsafe', '--fix-only'])
 const PACKAGE_RUNNERS = new Set(['npm', 'pnpm', 'yarn', 'bun'])
+/** Token chỉ gồm một chuỗi trong nháy đã che (xem maskCommand ở classify.ts). */
+const WHOLE_QUOTED = /^\u0000\d+\u0000$/
 
 /**
  * Đoạn lệnh vừa kiểm vừa sửa file: cờ tự sửa, `prettier -w`, `ruff format` không kèm `--check` hay `--diff`, script
  * `*:fix` hoặc `format`. Lệnh đó là tác động ghi (mức possible), không phải lệnh kiểm tra. `tokens` là token của đoạn đã
- * che chuỗi trong nháy: cờ nằm trong nháy (`pytest -k '--fix'`) là đối số, không tính.
+ * che chuỗi trong nháy, `unmask` trả token về dạng shell thật sự chạy (shell bỏ nháy: `eslint "--fix"` là `eslint --fix`).
+ * Ngoại lệ: token nháy trọn vẹn đứng ngay sau một tùy chọn không có `=` là giá trị của tùy chọn đó, không phải cờ
+ * (`pytest -k '--fix'`), trừ dấu `--` (hết tùy chọn, `npm run lint -- "--fix"` vẫn truyền `--fix`). Mod không biết tùy chọn nào không nhận giá trị nên `eslint --quiet "--fix"` vẫn bị bỏ sót.
  */
-export function isSelfFixing(tokens: string[]): boolean {
-  const words = tokens.filter(token => !token.includes('\u0000'))
+export function isSelfFixing(tokens: string[], unmask: (token: string) => string = token => token): boolean {
+  const words: string[] = []
+  tokens.forEach((token, at) => {
+    const before = tokens[at - 1]
+    const isOptionValue = WHOLE_QUOTED.test(token) && before !== undefined && before !== '--' && before.startsWith('-') && !before.includes('=')
+    if (!isOptionValue) words.push(unmask(token))
+  })
   if (words.some(word => FIX_FLAGS.has(word) || word.startsWith('--fix='))) return true
   if (words.includes('prettier') && words.includes('-w')) return true
   const ruff = words.indexOf('ruff')

@@ -3,6 +3,7 @@
 // `id` là tên dùng để chạy riêng (`bun scripts/mutate.ts P1 K3 r4-V1 054-C8`). Id không có tiền tố nhóm (`P1`, `F1`, `K1`...) là đột biến
 // viết cho mã của 0.5.2 trở về trước; id có tiền tố (`pr13-`, `r4-` đến `r7-`) là đột biến của các vòng trước vẫn áp dụng nguyên văn;
 // id `054-` là đột biến của 0.5.4: A giá và cache, B ngưỡng, C nhận diện lệnh, D nút Đặt lại, E lợi ích ròng, H fence.
+// id `055-` là đột biến của 0.5.5: S ngoại lệ giá trị tùy chọn đặt trong nháy của isSelfFixing (054-C33 và 054-C43 cũng viết lại theo mã 0.5.5).
 // Một đột biến mà bộ test không làm đỏ (SURVIVED) nghĩa là có hành vi chưa được test ghim hoặc đoạn mã thừa.
 
 // `equivalent`: lý do đột biến này không đổi hành vi quan sát được (sống sót là đúng); harness báo EQUIVALENT thay vì SURVIVED.
@@ -266,7 +267,7 @@ export const MUTANTS: Mutant[] = [
   { id: "054-C30", file: "hooks/lib/drift/verify.ts", note: "bỏ --apply-unsafe khỏi cờ tự sửa", old: "new Set(['--fix', '--write', '--apply', '--apply-unsafe', '--fix-only'])", new: "new Set(['--fix', '--write', '--apply', '--fix-only'])" },
   { id: "054-C31", file: "hooks/lib/drift/verify.ts", note: "bỏ --fix-only khỏi cờ tự sửa", old: "new Set(['--fix', '--write', '--apply', '--apply-unsafe', '--fix-only'])", new: "new Set(['--fix', '--write', '--apply', '--apply-unsafe'])" },
   { id: "054-C32", file: "hooks/lib/drift/verify.ts", note: "bỏ --fix= khỏi cờ tự sửa", old: "FIX_FLAGS.has(word) || word.startsWith('--fix=')", new: "FIX_FLAGS.has(word)" },
-  { id: "054-C33", file: "hooks/lib/drift/verify.ts", note: "cờ trong nháy vẫn tính", old: "const words = tokens.filter(token => !token.includes('\\u0000'))", new: "const words = tokens" },
+  { id: "054-C33", file: "hooks/lib/drift/verify.ts", note: "không có ngoại lệ giá trị tùy chọn: mọi token nháy đều được xét như cờ", old: "WHOLE_QUOTED.test(token) && before !== undefined && before !== '--' && before.startsWith('-') && !before.includes('=')", new: "false" },
   { id: "054-C34", file: "hooks/lib/drift/verify.ts", note: "bỏ prettier -w", old: "words.includes('prettier') && words.includes('-w')", new: "false" },
   { id: "054-C35", file: "hooks/lib/drift/verify.ts", note: "ruff format luôn là kiểm tra", old: "return !words.includes('--check') && !words.includes('--diff')", new: "return false" },
   { id: "054-C36", file: "hooks/lib/drift/verify.ts", note: "ruff format --diff vẫn là tự sửa", old: "return !words.includes('--check') && !words.includes('--diff')", new: "return !words.includes('--check')" },
@@ -276,7 +277,7 @@ export const MUTANTS: Mutant[] = [
   { id: "054-C40", file: "hooks/lib/drift/verify.ts", note: "script format không nhận", old: "script === 'format' || script === 'fmt'", new: "script === 'fmt'" },
   { id: "054-C41", file: "hooks/lib/drift/verify.ts", note: "script fmt không nhận", old: "script === 'format' || script === 'fmt'", new: "script === 'format'" },
   { id: "054-C42", file: "hooks/lib/drift/verify.ts", note: "run-script không bỏ qua", old: "word !== 'run' && word !== 'run-script')", new: "word !== 'run')" },
-  { id: "054-C43", file: "hooks/lib/drift/classify.ts", note: "bỏ kiểm tự sửa khỏi phân loại", old: "if (isCheckText(text) && !isSelfFixing(bare.split(/\\s+/))) {", new: "if (isCheckText(text)) {" },
+  { id: "054-C43", file: "hooks/lib/drift/classify.ts", note: "bỏ kiểm tự sửa khỏi phân loại", old: "if (isCheckText(text) && !isSelfFixing(bare.split(/\\s+/), unmask)) {", new: "if (isCheckText(text)) {" },
   { id: "054-C44", file: "hooks/lib/drift/classify.ts", note: "lệnh riêng là kiểm tĩnh", old: "TEST_SEGMENT.test(text) || isCustomCheck(text) ? 'test' : 'static'", new: "TEST_SEGMENT.test(text) ? 'test' : 'static'" },
   { id: "054-C45", file: "hooks/lib/drift/verify.ts", note: "lệnh riêng khớp theo hoa thường", old: "tokens[at] === token.toLowerCase()", new: "tokens[at] === token" },
   { id: "054-C46", file: "hooks/lib/drift/verify.ts", note: "lệnh riêng rỗng khớp mọi thứ", old: "command.length > 0 && command.every", new: "command.every" },
@@ -354,4 +355,11 @@ export const MUTANTS: Mutant[] = [
   { id: "054-E27", file: "hooks/parts/turn.ts", note: "subagents ghi cơ sở ở mọi step, không chỉ step đầu", old: "current === 'subagents' && L.turnRoute.turnId !== e.turnId", new: "current === 'subagents'", equivalent: "planSwitch đã bỏ qua lần gọi thứ hai của cùng turn; điều kiện chỉ tránh ghi state dư ở mỗi step, không đổi kết quả quan sát được" },
   { id: "054-E25", file: "hooks/parts/turn.ts", note: "suggest cũng coi là mod phục vụ", old: "const served = current === 'auto' && decided.route !== null", new: "const served = decided.route !== null" },
   { id: "054-E26", file: "hooks/context.ts", note: "isCacheFree bỏ TTL", old: "core.lastTurnAt === 0 || at - core.lastTurnAt > cacheTtlMs ||", new: "core.lastTurnAt === 0 ||" },
+  { id: "055-S1", file: "hooks/lib/drift/verify.ts", note: "giá trị tùy chọn: bỏ điều kiện token nháy trọn vẹn (mọi token sau tùy chọn bị bỏ)", old: "WHOLE_QUOTED.test(token) && before", new: "before" },
+  { id: "055-S2", file: "hooks/lib/drift/verify.ts", note: "giá trị tùy chọn: bỏ điều kiện đứng sau token bắt đầu bằng '-'", old: "before.startsWith('-') && ", new: "" },
+  { id: "055-S3", file: "hooks/lib/drift/verify.ts", note: "giá trị tùy chọn: bỏ điều kiện tùy chọn không có '='", old: " && !before.includes('=')", new: "" },
+  { id: "055-S4", file: "hooks/lib/drift/verify.ts", note: "giá trị tùy chọn: regex không neo", old: "/^\\u0000\\d+\\u0000$/", new: "/\\u0000\\d+\\u0000/" },
+  { id: "055-S5", file: "hooks/lib/drift/verify.ts", note: "không bỏ nháy token trước khi xét cờ", old: "words.push(unmask(token))", new: "words.push(token)" },
+  { id: "055-S6", file: "hooks/lib/drift/verify.ts", note: "giá trị tùy chọn: lệch chỉ số token đứng trước", old: "const before = tokens[at - 1]", new: "const before = tokens[at - 2]" },
+  { id: "055-S7", file: "hooks/lib/drift/verify.ts", note: "giá trị tùy chọn: dấu -- cũng được coi là tùy chọn nhận giá trị", old: "before !== '--' && ", new: "" },
 ]

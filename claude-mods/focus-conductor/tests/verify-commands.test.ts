@@ -159,6 +159,34 @@ describe('lệnh tự sửa là tác động ghi, không phải lệnh kiểm tr
   })
 })
 
+describe('cờ tự sửa đặt trong nháy', () => {
+  test('cờ, giá trị cờ hay tên script đặt trong nháy vẫn là tự sửa: shell bỏ nháy trước khi chạy', () => {
+    const commands = [
+      'eslint --fix="true" .',
+      'eslint "--fix" .',
+      "eslint '--fix' .",
+      'npm run "lint:fix"',
+      'ruff "format" .',
+      'yarn "lint:fix"',
+      'eslint --max-warnings=0 "--fix" .',
+      'eslint --quiet --fix="true" .',
+      'npm run lint -- "--fix"',
+      'eslint -- "--fix" .',
+    ]
+    expect(commands.filter(command => checkKindOf(command) !== null || !mutates(command))).toEqual([])
+  })
+
+  test('giá trị của tùy chọn đặt trong nháy là đối số, không phải cờ', () => {
+    const commands = ["pytest -k '--fix'", 'pytest -k "--write"', 'pytest -k "not --fix" tests', 'eslint --fix-dry-run "src"', 'eslint "src" .']
+    expect(commands.filter(command => checkKindOf(command) === null || mutates(command))).toEqual([])
+  })
+
+  test('giới hạn đã biết: sau tùy chọn không có dấu =, token trong nháy bị coi là giá trị của tùy chọn đó', () => {
+    // `--quiet` không nhận giá trị nhưng mod không biết; `eslint --quiet "--fix" .` thực ra tự sửa, vẫn bị xếp là kiểm tra.
+    expect(checkKindOf('eslint --quiet "--fix" .')).not.toBeNull()
+  })
+})
+
 describe('checkCommands: lệnh kiểm tra riêng của dự án', () => {
   const reset = () => drift.applyCheckCommands([])
 
