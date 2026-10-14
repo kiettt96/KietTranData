@@ -40,12 +40,14 @@ describe('chi phí theo token', () => {
   test('chi phí turn ước lượng khớp các số tính tay trong kế hoạch', () => {
     // opus/xhigh, khối lượng nhỏ, ngữ cảnh 100k: 20k vào mới + 60k đọc cache + 88k ra.
     closeTo(turnCost('opus', 'xhigh', 'small', 100_000), 0.168)
-    closeTo(turnCost('sonnet', 'medium', 'small', 100_000), 0.09)
+    // sonnet/medium: 10k vào mới + 30k đọc cache ($0.10 từ 2026-10-07) + 20k ra.
+    closeTo(turnCost('sonnet', 'medium', 'small', 100_000), 0.06)
   })
 
   test('đổi model ghi lại cache theo giá vào của model mới; đổi effort chỉ ghi phần ngoài system prompt', () => {
-    closeTo(switchCost({ family: 'opus' }, { family: 'sonnet' }, 100_000), 0.23)
-    closeTo(switchCost({ family: 'opus' }, { family: 'opus' }, 100_000), 0.384)
+    // Hệ số ghi cache mặc định 2 (bậc 1 giờ): 100k × (2 × $2 − $0,2) / 1M và 80k × (2 × $4 − $0,2) / 1M.
+    closeTo(switchCost({ family: 'opus' }, { family: 'sonnet' }, 100_000), 0.38)
+    closeTo(switchCost({ family: 'opus' }, { family: 'opus' }, 100_000), 0.624)
   })
 
   test('hạ cấp chỉ khi lợi ích trong các turn còn lại vượt chi phí ghi lại cache với hệ số an toàn', () => {
@@ -70,8 +72,8 @@ describe('phần cố định của ngữ cảnh đo từ phiên', () => {
   })
 
   test('chi phí đổi effort tính theo phần cố định đo được', () => {
-    // Opus, ngữ cảnh 100k, phần cố định 50k: ghi lại 50k × (1,25 × 4 − 0,2) / 1M = 0,24.
-    closeTo(switchCost({ family: 'opus' }, { family: 'opus' }, 100_000, 50_000), 0.24)
+    // Opus, ngữ cảnh 100k, phần cố định 50k: ghi lại 50k × (2 × 4 − 0,2) / 1M = 0,39.
+    closeTo(switchCost({ family: 'opus' }, { family: 'opus' }, 100_000, 50_000), 0.39)
   })
 })
 
@@ -167,7 +169,7 @@ describe('0.5.0: bảng giá có ngày, ghi đè, giá Haiku prompt dài', () =>
 
   test('đọc option prices: vào/ra, kèm đọc cache tùy chọn; mục sai bị bỏ', () => {
     expect(parsePrices('sonnet=3/15, opus=5/25/0.5, gpt=1/2, haiku=x/1')).toEqual({
-      sonnet: { input: 3, output: 15, cacheRead: 0.30000000000000004 },
+      sonnet: { input: 3, output: 15, cacheRead: 0.15 },
       opus: { input: 5, output: 25, cacheRead: 0.5 },
     })
     expect(parsePrices(undefined)).toEqual({})
@@ -176,15 +178,15 @@ describe('0.5.0: bảng giá có ngày, ghi đè, giá Haiku prompt dài', () =>
   test('ghi đè áp lên mọi phép tính; áp lại thì làm lại từ bảng kèm mod', () => {
     applyPrices({ sonnet: { input: 3, output: 15, cacheRead: 0.3 } })
     expect(usdOf('sonnet', usage(1_000_000, 0))).toBe(3)
-    expect(priceNote(Date.parse('2026-10-10T00:00:00Z'))).toBe('Bảng giá kèm mod ngày 2026-10-06, ghi đè cho sonnet')
+    expect(priceNote(Date.parse('2026-10-10T00:00:00Z'))).toBe('Bảng giá kèm mod ngày 2026-10-13, ghi đè cho sonnet')
     applyPrices({})
     expect(usdOf('sonnet', usage(1_000_000, 0))).toBe(2)
   })
 
-  test('bảng giá quá 180 ngày thì có cảnh báo', () => {
+  test('bảng giá quá 30 ngày thì có cảnh báo', () => {
     applyPrices({})
-    expect(priceNote(Date.parse('2027-01-01T00:00:00Z'))).not.toContain('giá có thể đã đổi')
-    expect(priceNote(Date.parse('2027-06-01T00:00:00Z'))).toContain('đã 238 ngày, giá có thể đã đổi')
+    expect(priceNote(Date.parse('2026-11-12T00:00:00Z'))).not.toContain('giá có thể đã đổi')
+    expect(priceNote(Date.parse('2026-11-13T00:00:00Z'))).toContain('đã 31 ngày, giá có thể đã đổi')
   })
 
   test('Haiku với prompt trên 100K token tính theo giá bậc cao', () => {

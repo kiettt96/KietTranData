@@ -3,7 +3,7 @@
 import { atom, derive, read, update } from 'claude-code'
 import type { Brief, Core } from '../../types'
 import { openSteps } from '../lib/drift'
-import { priceNote } from '../lib/cost'
+import { cacheNote, priceNote } from '../lib/cost'
 import { addUsage, estimateLine, formatUsd, ledgerLines } from '../lib/ledger'
 import { describePick } from '../lib/route'
 import { clipText } from '../lib/decisions'
@@ -20,6 +20,7 @@ import { COMMAND_HELP } from '../context'
 // cùng plugin và key nên là cùng một giá trị trong $.state.
 const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EMPTY_CORE)
 const bandHiddenState = atom({ plugin: 'focus-conductor', key: 'isBandHidden' } as const, false)
+const resetArmedState = atom({ plugin: 'focus-conductor', key: 'resetArmedUntil' } as const, 0)
 const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null)
 
 export function registerCommand(on: On, ctx: Ctx): void {
@@ -49,8 +50,9 @@ export function registerCommand(on: On, ctx: Ctx): void {
     if (sub === 'reset') {
       resetLocal()
       await update($, coreState, S.resetCore)
+      await update($, resetArmedState, () => 0)
       $.ui.status(S.statusOf(await read($, view)))
-      return { text: 'Đã xóa mục tiêu, checklist, cảnh báo, sổ chi phí và danh sách model bị chặn.' }
+      return { text: 'Đã xóa mục tiêu, checklist, cảnh báo, mục tiêu đã cất, sổ chi phí và danh sách model bị chặn. Giữ nhật ký điều phối và hệ số hiệu chỉnh đã học.' }
     }
 
     if (sub === 'goal') {
@@ -176,6 +178,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       const estimate = estimateLine(core.log)
       if (estimate) costLines.push(estimate)
       costLines.push(priceNote(await $.clock.now()))
+      costLines.push(cacheNote(ctx.cacheTtlMs / 60_000))
       const latency = routerTimeLine()
       if (latency) costLines.push(latency)
       if (core.brief === null) return { text: [`Chế độ ${current}. Chưa có mục tiêu.`, ...costLines].join('\n') }

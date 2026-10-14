@@ -3,9 +3,9 @@
 
 import type { PluginOptions, PromptOrigin } from 'claude-code'
 import type { Brief, Choice, Core, DelegationItem, DelegationState, Effort, Lift, Mode, ModelFamily, Route, RouteEvent, Task, Tier, Volume } from '../types'
-import { newEvidenceLog, newTracker } from './lib/drift'
+import { applyCheckCommands, newEvidenceLog, newTracker, parseCheckCommands } from './lib/drift'
 import type { EvidenceLog, PromptIntent, TurnTracker } from './lib/drift'
-import { DEFAULT_CONTEXT, DEFAULT_WINDOWS, applyPrices, parsePrices } from './lib/cost'
+import { DEFAULT_CACHE_TTL_MINUTES, DEFAULT_CONTEXT, DEFAULT_WINDOWS, applyCacheWrite, applyPrices, parseCacheWrite, parsePrices } from './lib/cost'
 import { EFFORTS, decideMain, describePick, familyOf, liftPick, parseModelMap, parseWindows } from './lib/route'
 import type { SessionModel, SessionPolicy } from './lib/route'
 import { DECISION_LIMIT, decisionLine } from './lib/decisions'
@@ -183,13 +183,15 @@ export function createContext(options: PluginOptions) {
   const rawPolicy = options['sessionModel']
   const sessionPolicy: SessionPolicy = rawPolicy === 'ceiling' || rawPolicy === 'fixed' ? rawPolicy : 'auto'
   const ttl = Number(options['cacheTtlMinutes'])
-  const cacheTtlMs = (Number.isFinite(ttl) && ttl > 0 ? ttl : 5) * 60_000
+  const cacheTtlMs = (Number.isFinite(ttl) && ttl > 0 ? ttl : DEFAULT_CACHE_TTL_MINUTES) * 60_000
   // Cửa sổ mặc định chỉ áp cho họ dùng model ID mặc định của mod (modelMap đổi ID thì người dùng khai cửa sổ của ID đó).
   const defaultWindows = Object.fromEntries(
     Object.entries(DEFAULT_WINDOWS).filter(([family]) => modelMap[family as ModelFamily] === undefined),
   ) as Partial<Record<ModelFamily, number>>
   const contextWindows = { ...defaultWindows, ...parseWindows(options['contextWindows']) }
   applyPrices(parsePrices(options['prices']))
+  applyCacheWrite(parseCacheWrite(options['cacheWrite']))
+  applyCheckCommands(parseCheckCommands(options['checkCommands']))
 
   /** Chính sách áp lên mọi lựa chọn của router: allowFable, model của phiên, họ đang bị chặn, loại agent dùng được. */
   function policy(): Policy {
@@ -337,6 +339,11 @@ export function createContext(options: PluginOptions) {
     return local.sessionFamily ? { family: local.sessionFamily, policy: sessionPolicy } : null
   }
 
+  /** Cache đã nguội (quá TTL), hoặc ngữ cảnh vừa bị nén: đổi model không mất chi phí ghi lại. */
+  function isCacheFree(core: Core, at: number, context: number): boolean {
+    return core.lastTurnAt === 0 || at - core.lastTurnAt > cacheTtlMs || (core.lastContext > 0 && context < COMPACTION_DROP * core.lastContext)
+  }
+
   /**
    * Quyết định model + effort cho luồng chính so với mốc đang chạy, theo chi phí
    * cache (dùng cho turn thật và cho bản dự kiến lúc nhận prompt).
@@ -353,11 +360,7 @@ export function createContext(options: PluginOptions) {
     turnsLeft: number
   }) {
     const { core, brief, wanted, model, effort, at, context, window } = args
-    // Cache đã nguội (quá TTL), hoặc ngữ cảnh vừa bị nén: đổi model không mất gì.
-    const isFree =
-      core.lastTurnAt === 0 ||
-      at - core.lastTurnAt > cacheTtlMs ||
-      (core.lastContext > 0 && context < COMPACTION_DROP * core.lastContext)
+    const isFree = isCacheFree(core, at, context)
     // Route trước bị bỏ (người dùng tự đổi model, hoặc model được chọn không phản
     // hồi): mốc so sánh chi phí là model và effort engine đang thực sự chạy.
     const engineFamily = familyOf(model)
@@ -588,6 +591,7 @@ export function createContext(options: PluginOptions) {
     carryEvidence,
     contextWindows,
     decideTurn,
+    isCacheFree,
     decisionLog,
     decisionText,
     defaultWindows,

@@ -1,8 +1,9 @@
 // Log quyết định điều phối dạng JSONL (option decisionLog): mỗi dòng một quyết định (router đọc prompt,
-// router lỗi, bỏ qua router, chấm subagent, đổi model, nhận xét lạc đề), để gỡ lỗi và cải thiện prompt router.
+// router lỗi, bỏ qua router, chấm subagent, đổi model, nhận xét lạc đề, verified bị hạ xuống done), để gỡ lỗi và cải thiện
+// prompt router. Log có trích 300 ký tự đầu của prompt và của evidence; chỉ bật cho thư mục không chia sẻ.
 // Thuần: dựng dòng; hook ghi file bằng $.fs.write.
 
-export type DecisionKind = 'route' | 'router-fail' | 'skip' | 'reroute' | 'agent' | 'model-switch' | 'drift'
+export type DecisionKind = 'route' | 'router-fail' | 'skip' | 'reroute' | 'agent' | 'model-switch' | 'drift' | 'verify-reject'
 
 /** Số dòng giữ lại (file được ghi lại toàn bộ mỗi lần; giới hạn để không chạm 4 MiB của $.fs). */
 export const DECISION_LIMIT = 500

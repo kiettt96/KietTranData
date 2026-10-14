@@ -166,7 +166,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
       await update($, coreState, S.withDelegations(brief.goalId, delegationItems(brief)))
     }
     return result
-  })
+  }).catch(($, e, next) => next(e))
 
   // Ghi điều phối của subagent ngay khi nó khởi động (trước mọi await, để step đầu đã thấy), rồi ghi
   // nhật ký bằng model engine thực sự dùng, kèm chi phí ước tính. Model engine chạy khác model đã điều

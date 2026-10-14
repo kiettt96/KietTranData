@@ -1,0 +1,32 @@
+name: focus-conductor
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: focus-conductor-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plugin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Cài Claude Code (ghim bản)
+        run: npm install -g @anthropic-ai/claude-code@2.1.296
+      - name: Kiểm mod
+        working-directory: claude-mods/focus-conductor
+        run: claude plugin validate .
+      - name: Kiểm marketplace
+        run: claude plugin validate .
+      - name: Chạy test của mod
+        working-directory: claude-mods/focus-conductor
+        run: claude plugin test .

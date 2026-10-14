@@ -177,5 +177,5 @@ export function registerSession(on: On, ctx: Ctx): void {
     }
     $.ui.status(S.statusOf(await read($, view)))
     return next({ ...e, context: [...(e.context ?? []), context, ...notice] })
-  })
+  }).catch(($, e, next) => next(e))
 }

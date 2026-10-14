@@ -1,6 +1,6 @@
 {
   "name": "focus-conductor",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "author": { "name": "Kiet Tran" },
   "description": "Một model Claude (router) đọc kỹ prompt trước khi làm và điều phối model/effort/agent cho từng việc; mod kiểm, ép điều phối lúc chạy, giữ nhất quán mục tiêu với checklist và cảnh báo lạc đề.",
   "types": "./types/index.d.ts",
@@ -46,14 +46,26 @@
     "contextWindows": {
       "type": "string",
       "title": "Cửa sổ ngữ cảnh theo model",
-      "description": "Dạng family=token, phân tách bằng dấu phẩy, ví dụ: opus=1000000,sonnet=1000000,haiku=200000. Khi có, mod không đổi sang model có cửa sổ nhỏ hơn ngữ cảnh hiện tại, kể cả khi nâng cấp. Để trống thì chỉ kiểm tra khi hạ cấp",
+      "description": "Dạng family=token, phân tách bằng dấu phẩy, ví dụ: opus=1000000,sonnet=1000000,haiku=1000000. Khi có, mod không đổi sang model có cửa sổ nhỏ hơn ngữ cảnh hiện tại, kể cả khi nâng cấp. Để trống thì chỉ kiểm tra khi hạ cấp",
       "default": ""
     },
     "cacheTtlMinutes": {
       "type": "string",
       "title": "Thời gian sống của cache (phút)",
-      "description": "Sau bao nhiêu phút không có turn thì cache coi như nguội, khi đó đổi model không mất chi phí ghi lại cache. Mặc định 5 (theo TTL của Anthropic)",
-      "default": "5"
+      "description": "Sau bao nhiêu phút không có turn thì cache coi như nguội, khi đó đổi model không mất chi phí ghi lại cache. Mặc định 60 (bậc cache 1 giờ, đi cặp với cacheWrite 2); dùng bậc 5 phút thì đặt 5 và cacheWrite 1.25. Giá trị là chuỗi số",
+      "default": "60"
+    },
+    "cacheWrite": {
+      "type": "number",
+      "title": "Hệ số ghi cache",
+      "description": "Giá ghi cache bằng bao nhiêu lần giá vào: 2 cho bậc cache 1 giờ (mặc định), 1.25 cho bậc 5 phút; mod kẹp giá trị trong khoảng 1.25 đến 2. Đặt cặp với cacheTtlMinutes (2 và 60, hoặc 1.25 và 5); /conductor status cảnh báo khi hai option lệch bậc. Mặc định bậc 1 giờ theo đo ở một phiên claude -p, chưa kiểm trên mọi tài khoản",
+      "default": 2
+    },
+    "checkCommands": {
+      "type": "string",
+      "title": "Lệnh kiểm tra riêng của dự án",
+      "description": "Lệnh phân tách bằng dấu phẩy, ví dụ: make ci,./scripts/check.sh,just verify. Mỗi lệnh khớp theo tiền tố token, được tin mã thoát, tính là kiểm tra chạy hành vi và đối chiếu evidence nghiêm ngặt (./scripts/check.sh --fast khác ./scripts/check.sh). Lệnh kèm cờ tự sửa (--fix, --write) vẫn tính là ghi file",
+      "default": ""
     },
     "routerSkip": {
       "type": "string",
@@ -96,7 +108,7 @@
     "decisionLog": {
       "type": "string",
       "title": "File log quyết định (JSONL)",
-      "description": "Đường dẫn file ghi mỗi quyết định điều phối một dòng JSON (router đọc prompt, router lỗi, chấm subagent, đổi model). Để trống (mặc định): không ghi",
+      "description": "Đường dẫn file ghi mỗi quyết định điều phối một dòng JSON (router đọc prompt, router lỗi, chấm subagent, đổi model, verified bị hạ xuống done). Log có trích 300 ký tự đầu của prompt và của evidence: chỉ bật với đường dẫn không chia sẻ hay commit. Để trống (mặc định): không ghi",
       "default": ""
     },
     "agentTypes": {
@@ -108,7 +120,7 @@
     "prices": {
       "type": "string",
       "title": "Ghi đè bảng giá",
-      "description": "Dạng family=input/output USD mỗi 1M token, phân tách bằng dấu phẩy, ví dụ: sonnet=2/10,opus=4/20. Để trống dùng bảng giá kèm mod (ghi ngày ở /conductor status)",
+      "description": "Dạng family=input/output hoặc family=input/output/cacheRead (USD mỗi 1M token), phân tách bằng dấu phẩy, ví dụ: sonnet=2/10,opus=4/20/0.2. Thiếu giá trị thứ ba thì đọc cache theo tỷ lệ của họ đó trong bảng kèm mod (Sonnet và Opus 5% giá vào, Fable 2.5%, Haiku 10%). Giá này cũng là giá router thấy khi chọn model. Để trống dùng bảng giá kèm mod (ghi ngày ở /conductor status)",
       "default": ""
     },
     "uiLanguage": {

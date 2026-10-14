@@ -4,6 +4,7 @@ import { atom, derive, read, update } from 'claude-code'
 import type { Warning } from '../../types'
 import { acceptsVerified, evidenceStrength, filePathOf, isExecuting, isGoalDone, isMutation, isPlanFile, newTracker, noteEvidence, observe, openSteps, summarize, trackVerification } from '../lib/drift'
 import type { Focus } from '../lib/drift'
+import { clipText } from '../lib/decisions'
 import { addUsage, calibrate, recordShape, shapeKey } from '../lib/ledger'
 import { applyPlan } from '../lib/plan'
 import type { PlanInput } from '../lib/plan'
@@ -48,7 +49,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
   on('tool.check', { tool: 'mcp__focus-conductor__plan' }, () => ({
     decision: 'allow' as const,
     reason: 'focus-conductor: checklist nội bộ của phiên',
-  }))
+  })).catch(($, e, next) => next(e))
 
   on('tool.call', { tool: 'mcp__focus-conductor__plan' }, async ($, e) => {
     if (e.agentId !== undefined) {
@@ -103,7 +104,10 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     if (isDowngraded) {
       const reason = strength?.reason ?? 'chưa đối chiếu được evidence với mục tiêu hiện tại'
       const text = `Bước ${String(input.step)} ghi verified nhưng ${reason}: lưu là done`
-      await update($, coreState, S.withWarnings({ at: await $.clock.now(), kind: 'unverified', text }))
+      const at = await $.clock.now()
+      await update($, coreState, S.withWarnings({ at, kind: 'unverified', text }))
+      record(at, 'verify-reject', { step: input.step, level: strength?.level ?? 'none', reason, evidence: clipText(evidence) })
+      if (decisionLog) await $.fs.write(decisionLog, decisionText()).catch(() => undefined)
       notes.push(unbackedNotice(reason))
     } else if (isAccepted && strength?.level === 'strong' && strength.check === 'static') {
       notes.push(staticOnlyNotice())

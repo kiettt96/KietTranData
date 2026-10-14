@@ -1,12 +1,12 @@
 // Điều phối luồng chính và subagent lúc chạy: turn.start, turn.step (ép model + effort).
 
 import { atom, derive, read, update } from 'claude-code'
-import type { Warning } from '../../types'
+import type { ModelFamily, Warning } from '../../types'
 import { newTracker } from '../lib/drift'
 import { DEFAULT_CONTEXT, fixedContextTokens } from '../lib/cost'
 import { EFFORTS, familyOf, resolveModelId } from '../lib/route'
 import * as S from '../lib/state'
-import type { On } from 'claude-code'
+import type { EngineInterface, On, TurnStepInput } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
 import { BLOCK_TURNS, DEFAULT_WINDOW, FAIL_LIMIT } from '../context'
@@ -17,9 +17,26 @@ const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EM
 const bandHiddenState = atom({ plugin: 'focus-conductor', key: 'isBandHidden' } as const, false)
 const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null)
 
+/**
+ * Đầu turn luồng chính: ghi vào cơ sở so với chạy thuần model và effort của phiên (engine gửi) cùng lượt mod phục vụ
+ * (`served`; null là đúng lựa chọn của engine), và phần ghi cache mà chạy thuần đọc được.
+ */
+async function markBaseline(
+  $: EngineInterface,
+  e: TurnStepInput,
+  served: { family: ModelFamily; effort: string } | null,
+  context: number,
+  isCacheFree: Ctx['isCacheFree'],
+): Promise<void> {
+  const engine = { family: familyOf(e.model), effort: String(e.effort ?? '') }
+  const core = S.normalizeCore(await read($, coreState))
+  const pair = served ?? (engine.family !== null ? { family: engine.family, effort: engine.effort } : null)
+  await update($, coreState, S.withBaseline({ turnId: e.turnId, session: engine, served: pair, context, isFree: isCacheFree(core, await $.clock.now(), context) }))
+}
+
 export function registerTurn(on: On, ctx: Ctx): void {
   const L = ctx.local
-  const { agents, blocked, blockedUntil, decideTurn, expireBlocks, failures, modelMap, steppedEarly } = ctx
+  const { agents, blocked, blockedUntil, decideTurn, expireBlocks, failures, isCacheFree, modelMap, steppedEarly } = ctx
   const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
   const mode = derive([modeState], modeOf(ctx.options))
 
@@ -75,9 +92,13 @@ export function registerTurn(on: On, ctx: Ctx): void {
       $.ui.toast(text)
       return yield* next(e)
     }
-    // Chế độ subagents/off không chạm luồng chính.
+    // Chế độ subagents/off không chạm luồng chính. Subagents vẫn ghi model của phiên làm cơ sở so với chạy thuần.
     if (current === 'off' || current === 'subagents') {
       L.sessionFamily = familyOf(e.model) ?? L.sessionFamily
+      if (current === 'subagents' && L.turnRoute.turnId !== e.turnId) {
+        L.turnRoute = { turnId: e.turnId, route: null }
+        await markBaseline($, e, null, L.turnContext, isCacheFree)
+      }
       return yield* next(e)
     }
 
@@ -104,7 +125,10 @@ export function registerTurn(on: On, ctx: Ctx): void {
         window: L.lastWindow,
       })
       L.turnRoute = { turnId: e.turnId, route: decided.route }
+      // Lượt mod phục vụ: route đã áp (chế độ auto) hoặc đúng model và effort engine gửi.
+      const served = current === 'auto' && decided.route !== null ? { family: decided.route.family, effort: decided.route.effort } : null
       await update($, coreState, c => S.withLog(...decided.logs)(S.withRoute(decided.stored)(c)))
+      await markBaseline($, e, served, L.turnContext, isCacheFree)
       for (const notice of decided.notices) $.ui.toast(notice)
       $.ui.status(S.statusOf(await read($, view)))
     }

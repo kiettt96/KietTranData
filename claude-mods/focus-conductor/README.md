@@ -1,6 +1,6 @@
 # focus-conductor
 
-Mod cho Claude Code thực thi ba nguyên tắc: đọc kỹ prompt trước khi làm, điều phối model / effort / agent cho từng việc ngay từ đầu, và giữ nhất quán với mục tiêu cuối trong suốt phiên. Từ 0.4.0, việc đọc prompt và quyết định điều phối do một model Claude (router) làm; code của mod chỉ kiểm, ép và quay về an toàn. Bản 0.5.0 xử lý các điểm của một lượt đánh giá độc lập, sau khi kiểm từng điểm trên code (xem [Thay đổi 0.5.0](#thay-đổi-050-theo-đánh-giá)). Bản 0.5.1 sửa sáu lỗ hổng của lượt đánh giá thứ ba về kiểm chứng, phạm vi và cưỡng chế hoàn thành (xem [Thay đổi 0.5.1](#thay-đổi-051-theo-đánh-giá)).
+Mod cho Claude Code thực thi ba nguyên tắc: đọc kỹ prompt trước khi làm, điều phối model / effort / agent cho từng việc ngay từ đầu, và giữ nhất quán với mục tiêu cuối trong suốt phiên. Từ 0.4.0, việc đọc prompt và quyết định điều phối do một model Claude (router) làm; code của mod chỉ kiểm, ép và quay về an toàn. Bản 0.5.0 xử lý các điểm của một lượt đánh giá độc lập, sau khi kiểm từng điểm trên code (xem [Thay đổi 0.5.0](#thay-đổi-050-theo-đánh-giá)). Bản 0.5.1 sửa sáu lỗ hổng của lượt đánh giá thứ ba về kiểm chứng, phạm vi và cưỡng chế hoàn thành (xem [Thay đổi 0.5.1](#thay-đổi-051-theo-đánh-giá)). Bản 0.5.4 xử lý một lượt rà soát toàn mod: bảng giá và hệ số ghi cache theo bậc, nhận diện lệnh kiểm tra và lệnh tự sửa, nút Đặt lại hai bước, lợi ích ròng so với chạy thuần, golden-set có băm request, CI và type-check (xem [Thay đổi 0.5.4](#thay-đổi-054-theo-đánh-giá-toàn-mod)).
 
 ## Cách hoạt động
 
@@ -20,7 +20,7 @@ Prompt tiếp nối: router thấy mục tiêu trước, các việc đã phân 
 
 **2. Ép điều phối lúc chạy.** Luồng chính chốt model và effort router chọn ở step đầu của mỗi turn và giữ nguyên cho mọi step trong turn, vì prompt cache gắn với từng model và đổi effort cũng làm mất cache phần messages. Không dùng `max`.
 
-Đổi giữa các turn được tính bằng chi phí token. Nâng cấp luôn được áp. Hạ cấp chỉ được áp khi lợi ích tiết kiệm trong các turn còn lại vượt chi phí ghi lại cache của ngữ cảnh hiện tại với hệ số an toàn 1,2; nếu không, mod giữ model cũ và ghi lý do, và khối context ghi đúng model sẽ thật sự chạy. Khi cache đã nguội (quá `cacheTtlMinutes` không có turn, mặc định 5 phút) hoặc ngữ cảnh vừa bị nén, đổi model không mất chi phí ghi lại. Nếu ngữ cảnh gần đầy thì không đổi sang model khác. Người dùng tự đổi model hoặc effort bằng `/model` thì mod dừng điều phối luồng chính tới mục tiêu mới. Engine tự đổi model của phiên (hook `classic.PostModelSwitch` với `source` là `auto`, như khi quá tải, hoặc `resume`) không phải lựa chọn của người dùng: mod vẫn điều phối và ghi nhật ký. Khi engine không báo nguồn, mọi lần đổi giữa hai turn được coi là người dùng đổi, như trước. Model được chọn mà không phản hồi (không có quyền, sai ID) thì mod quay về model của phiên ngay trong turn đó; lỗi ở hai turn liên tiếp thì họ model bị chặn 5 turn.
+Đổi giữa các turn được tính bằng chi phí token. Nâng cấp luôn được áp. Hạ cấp chỉ được áp khi lợi ích tiết kiệm trong các turn còn lại vượt chi phí ghi lại cache của ngữ cảnh hiện tại với hệ số an toàn 1,2; nếu không, mod giữ model cũ và ghi lý do, và khối context ghi đúng model sẽ thật sự chạy. Khi cache đã nguội (quá `cacheTtlMinutes` không có turn, mặc định 60 phút theo bậc cache 1 giờ; xem "Đo bậc cache") hoặc ngữ cảnh vừa bị nén, đổi model không mất chi phí ghi lại. Nếu ngữ cảnh gần đầy thì không đổi sang model khác. Người dùng tự đổi model hoặc effort bằng `/model` thì mod dừng điều phối luồng chính tới mục tiêu mới. Engine tự đổi model của phiên (hook `classic.PostModelSwitch` với `source` là `auto`, như khi quá tải, hoặc `resume`) không phải lựa chọn của người dùng: mod vẫn điều phối và ghi nhật ký. Khi engine không báo nguồn, mọi lần đổi giữa hai turn được coi là người dùng đổi, như trước. Model được chọn mà không phản hồi (không có quyền, sai ID) thì mod quay về model của phiên ngay trong turn đó; lỗi ở hai turn liên tiếp thì họ model bị chặn 5 turn.
 
 Nâng theo bằng chứng trong cùng một prompt: lặp cùng một lỗi ba lần thì turn sau nâng họ model một bậc; vượt ngân sách tool call, hoặc có ba tool call lỗi trong một turn, thì nâng effort một bậc.
 
@@ -106,11 +106,11 @@ Mod chỉ nạp cho phiên mở bằng lệnh này và tự nạp lại khi sử
 | Lệnh | Tác dụng |
 |---|---|
 | `/conductor` | Mở pane Focus Conductor |
-| `/conductor status` | Tóm tắt chế độ, route luồng chính, model bị tạm ngừng, checklist, trạng thái việc giao subagent, chi phí đo được và phần còn ước tính, ngày bảng giá, độ trễ router, agent ngoài điều phối |
+| `/conductor status` | Tóm tắt chế độ, route luồng chính, model bị tạm ngừng, checklist, trạng thái việc giao subagent, chi phí đo được và phần còn ước tính, lợi ích ròng so với chạy thuần, ngày bảng giá, cặp bậc cache đang dùng (kèm cảnh báo khi lệch), độ trễ router, agent ngoài điều phối |
 | `/conductor mode auto\|subagents\|suggest\|off` | Đổi chế độ trong phiên |
 | `/conductor goal <mô tả>` | Đặt mục tiêu thủ công qua router (luôn là mục tiêu mới; Claude nhận bản đọc qua context) |
 | `/conductor reroute` | Router đọc lại prompt gần nhất (kể cả khi đang tạm ngừng); giữ mục tiêu và checklist |
-| `/conductor reset` | Xóa mục tiêu, checklist, cảnh báo, danh sách model bị tạm ngừng |
+| `/conductor reset` | Xóa mục tiêu, checklist, cảnh báo, mục tiêu đã cất, sổ chi phí, danh sách model bị tạm ngừng; giữ nhật ký điều phối và hệ số hiệu chỉnh đã học. Nút Đặt lại trong pane làm cùng việc nhưng hai bước: bấm lần đầu chỉ chờ xác nhận (10 giây), bấm lần hai mới xóa |
 
 Cấu hình qua `/config` (hoặc `pluginConfigs.focus-conductor.options` trong settings):
 
@@ -121,8 +121,10 @@ Cấu hình qua `/config` (hoặc `pluginConfigs.focus-conductor.options` trong 
 | `enforceChecklist` | `true` | Chặn kết thúc khi checklist còn bước mở |
 | `allowFable` | `false` | Cho router dùng Fable cho việc khó nhất; tắt thì lựa chọn fable bị kẹp về opus |
 | `sessionModel` | `auto` | `auto` mod tự chọn model; `ceiling` không vượt model của phiên; `fixed` giữ model của phiên, chỉ đổi effort |
-| `contextWindows` | trống | Cửa sổ ngữ cảnh theo họ model, dạng `opus=1000000,sonnet=1000000`; mod không đổi sang model có cửa sổ nhỏ hơn ngữ cảnh hiện tại, kể cả khi nâng cấp. Để trống thì họ dùng model ID mặc định của mod lấy 1M token [Nguồn: bảng model Claude 2026-10-06]; họ bị `modelMap` đổi ID thì cần khai ở đây |
-| `cacheTtlMinutes` | `5` | Sau bao nhiêu phút không có turn thì cache coi như nguội, khi đó đổi model không mất chi phí ghi lại |
+| `contextWindows` | trống | Cửa sổ ngữ cảnh theo họ model, dạng `opus=1000000,sonnet=1000000`; mod không đổi sang model có cửa sổ nhỏ hơn ngữ cảnh hiện tại, kể cả khi nâng cấp. Để trống thì họ dùng model ID mặc định của mod lấy 1M token [Nguồn: trang giá Anthropic 2026-10-13]; họ bị `modelMap` đổi ID thì cần khai ở đây (ví dụ `haiku=1000000`) |
+| `cacheTtlMinutes` | `60` | Sau bao nhiêu phút không có turn thì cache coi như nguội, khi đó đổi model không mất chi phí ghi lại. Giá trị là chuỗi số. Đi cặp với `cacheWrite`: bậc 1 giờ là `60` và `2`, bậc 5 phút là `5` và `1.25` |
+| `cacheWrite` | `2` | Giá ghi cache bằng bao nhiêu lần giá vào [Nguồn: trang giá Anthropic 2026-10-13: 1,25 lần ở bậc 5 phút, 2 lần ở bậc 1 giờ]. Mod kẹp giá trị trong 1,25 đến 2. Mặc định bậc 1 giờ theo một phép đo `claude -p` (xem "Đo bậc cache"), chưa kiểm trên mọi tài khoản |
+| `checkCommands` | trống | Lệnh kiểm tra riêng của dự án, phân tách bằng dấu phẩy, ví dụ `make ci,./scripts/check.sh`. Khớp theo tiền tố token, được tin mã thoát, tính là kiểm tra chạy hành vi, đối chiếu evidence nghiêm ngặt (`./scripts/check.sh --fast` khác `./scripts/check.sh`); kèm cờ tự sửa (`--fix`, `--write`) thì vẫn là ghi file |
 | `modelMap` | rỗng | Ghi đè model ID, ví dụ `opus=claude-opus-5-5,sonnet=claude-sonnet-5-5` (cần khi dùng gateway có ID riêng) |
 | `routerSkip` | trống | Câu tiếp nối ngắn không cần hỏi router, phân tách bằng dấu phẩy, ví dụ `ok,tiếp,tiếp tục,go` |
 | `routerFallback` | `session` | Khi router lỗi: `session` chạy theo model của phiên; `reuse` dùng lại lựa chọn luồng chính của prompt trước |
@@ -130,10 +132,27 @@ Cấu hình qua `/config` (hoặc `pluginConfigs.focus-conductor.options` trong 
 | `blockLimit` | `2` | Số lần `block` từ chối trong một mục tiêu, từ 1 đến 10 |
 | `remindSubagents` | `false` | Nhắc subagent lạc đề kèm việc được giao |
 | `semanticDrift` | `false` | Router kiểm lạc đề theo nội dung ở mỗi checkpoint (thêm một lượt router mỗi lần) |
-| `decisionLog` | trống | Đường dẫn file JSONL ghi mỗi quyết định điều phối (router đọc prompt, router lỗi, bỏ qua router, chấm subagent, đổi model, lạc đề), nối tiếp qua các phiên, giữ 500 dòng cuối |
+| `decisionLog` | trống | Đường dẫn file JSONL ghi mỗi quyết định điều phối (router đọc prompt, router lỗi, bỏ qua router, chấm subagent, đổi model, lạc đề, `verify-reject` khi `verified` bị hạ xuống `done`), nối tiếp qua các phiên, giữ 500 dòng cuối. Log có trích 300 ký tự đầu của prompt và của evidence: chỉ bật khi đường dẫn nằm ngoài thư mục chia sẻ hay commit |
 | `agentTypes` | trống | Loại agent thêm cho router, phân tách bằng dấu phẩy |
-| `prices` | trống | Ghi đè bảng giá, dạng `sonnet=2/10` hoặc `opus=4/20/0.2` (vào/ra/đọc cache, USD mỗi 1M token) |
+| `prices` | trống | Ghi đè bảng giá, dạng `sonnet=2/10` hoặc `opus=4/20/0.2` (vào/ra/đọc cache, USD mỗi 1M token). Thiếu giá trị thứ ba thì đọc cache theo tỷ lệ của đúng họ đó trong bảng kèm mod (Sonnet và Opus 5%, Fable 2,5%, Haiku 10% giá vào). Catalog giá mà router thấy khi chọn model dựng từ bảng này |
 | `uiLanguage` | `vi` | `vi` hoặc `en` cho nhãn của band và pane |
+
+### Đo bậc cache
+
+Mod giả định ghi cache theo bậc 1 giờ (`cacheWrite` 2, `cacheTtlMinutes` 60). Căn cứ là một phép đo `claude -p` ngày 2026-10-13 trong môi trường phát triển: toàn bộ token ghi cache nằm ở bậc 1 giờ và `total_cost_usd` khớp hệ số 2 [Nguồn: phiên phát triển]. Hook `turn.complete` chỉ nhận tổng `cache_creation_input_tokens`, không tách bậc, nên mod không tự nhận ra được; phép đo chưa được kiểm trên mọi tài khoản. Tự đo trên máy của mình:
+
+```
+claude -p "ok" --model haiku --output-format json | jq .usage.cache_creation
+```
+
+`ephemeral_1h_input_tokens` lớn hơn 0 và `ephemeral_5m_input_tokens` bằng 0 thì giữ mặc định. Ngược lại thì đặt `cacheWrite` 1.25 và `cacheTtlMinutes` 5. Người dùng đã lưu `cacheTtlMinutes` 5 từ bản cũ cần đổi cặp này; `/conductor status` in cặp đang dùng và cảnh báo khi hai option không cùng một bậc.
+
+### Khi nào nên tắt
+
+- Phiên rất ngắn (một đến hai prompt): mỗi prompt thêm một lượt gọi router trước khi Claude bắt đầu (xem "Giới hạn đã biết" về độ trễ và chi phí), lợi ích ít khi bù. Đặt `routing` là `off` để tắt hẳn, hoặc `subagents` để chỉ điều phối subagent và giữ nguyên cache luồng chính.
+- Đang chủ ý thử một model hay effort cụ thể (so sánh, benchmark): đặt `sessionModel` là `fixed` (giữ model, chỉ chỉnh effort) hoặc `off`.
+- Dùng gateway hay model ID riêng không thuộc họ haiku, sonnet, opus, fable: khai `modelMap` và `contextWindows`, hoặc `off`.
+- Đã quen đặt model theo từng việc bằng tay và không cần nhắc việc giao subagent: `suggest` chỉ hiển thị đề xuất, không ép.
 
 ## Cấu trúc
 
@@ -153,8 +172,8 @@ focus-conductor/
   hooks/lib/router.ts          system prompt và request của router, đọc JSON trả về, kẹp theo chính sách, hỏi lại một lần
   hooks/lib/decisions.ts       dòng log quyết định JSONL
   hooks/lib/scale.ts           nhãn độ sâu, khối lượng, bản chất, quan hệ; tier cũ
-  hooks/lib/cost.ts            bảng giá có ngày, ghi đè giá, cửa sổ mặc định, chi phí turn và ghi lại cache
-  hooks/lib/ledger.ts          sổ chi phí theo nhóm, phiên và mục tiêu; hiệu chỉnh; token ra theo dạng việc
+  hooks/lib/cost.ts            bảng giá có ngày, ghi đè giá, hệ số ghi cache, cửa sổ mặc định, chi phí turn và ghi lại cache
+  hooks/lib/ledger.ts          sổ chi phí theo nhóm, phiên và mục tiêu; hiệu chỉnh; token ra theo dạng việc; cơ sở so với chạy thuần
   hooks/lib/route.ts           chính sách model của phiên, nâng theo bằng chứng, quyết định đổi có tính cache, khớp việc đã phân
   hooks/lib/drift.ts           phát hiện lặp, lan man, lạc phạm vi (cả đích của lệnh Bash), checkpoint; dấu vết thực thi và độ mạnh của evidence
   hooks/lib/plan.ts            schema và reducer của tool plan
@@ -166,12 +185,37 @@ focus-conductor/
   hooks/ui/style.ts            token màu, ký hiệu, giai đoạn và thanh tiến độ của band và pane
   types/index.d.ts             type contract của $.state
   tests/                       logic thuần, router, chi phí và sổ, test tích hợp qua engine (router giả lập), kịch bản đầu cuối
-  tests/golden/                golden-set của router: 21 prompt mẫu (5 ca đối kháng), kỳ vọng, câu trả lời router thật đã ghi
-  tests/fixtures/prompt-k4.ts  prompt dài thật, dùng để kiểm request gửi router và phân việc nhiều mục
-  scripts/eval-router.ts       eval router thật trên golden-set (không chạy trong CI)
+  tests/support/engine.ts      khung chạy test tích hợp dùng chung (đồng hồ giả, router giả lập, các câu trả lời mặc định)
+  tests/golden/                golden-set của router: 30 prompt mẫu (5 ca đối kháng), kỳ vọng, câu trả lời router thật đã ghi cùng băm request và tỷ lệ đạt
+  tests/fixtures/prompt-k4.ts  prompt dài tổng hợp (ẩn danh), dùng để kiểm request gửi router và phân việc nhiều mục
+  scripts/eval-router.ts       eval router thật trên golden-set, nhiều lần mỗi ca (không chạy trong CI)
+  scripts/mutants.ts           344 định nghĩa đột biến (194 cũ cho hooks/lib/drift.ts, 150 mới của 0.5.4 cho giá, router, sổ chi phí, giao diện, nhận diện lệnh; dữ liệu thuần)
+  scripts/mutate.ts            chạy đột biến, khôi phục tệp gốc, in sha256 trước và sau
+  tsconfig.json                cấu hình type-check độc lập (cần tệp khai báo do engine sinh, xem "Phát triển")
+  LICENSE                      MIT
+.github/workflows/focus-conductor.yml   (ở gốc repo) validate mod và marketplace, chạy test của mod
 ```
 
-Kiểm tra trước khi phát hành: `claude plugin validate .` và `claude plugin test .` (số test hiện hành ở mục "Kiểm chứng HEAD hiện tại"; gồm replay offline golden-set và test tái hiện từng lỗi trong `tests/review05*.test.ts`). Đổi prompt router thì chạy lại `bun scripts/eval-router.ts --model sonnet --record` để chấm router thật và ghi câu trả lời mới cho golden-set.
+Kiểm tra trước khi phát hành: `claude plugin validate .` và `claude plugin test .` (số test hiện hành ở mục "Kiểm chứng HEAD hiện tại"; gồm replay offline golden-set và test tái hiện từng lỗi trong `tests/review05*.test.ts`). Đổi prompt router thì chạy lại `bun scripts/eval-router.ts --model sonnet --runs 3 --record` để chấm router thật và ghi câu trả lời mới cho golden-set.
+
+## Phát triển
+
+```
+cd claude-mods/focus-conductor
+claude plugin validate .                  # manifest, module hooks (hook gating thiếu .catch bị nêu ở đây)
+claude plugin test .                      # toàn bộ test, offline, router giả lập
+bunx tsc -p tsconfig.json                 # type-check strict
+bun scripts/eval-router.ts --runs 3       # router thật, cần Claude Code đã đăng nhập; thêm --record để ghi golden-set
+bun scripts/mutate.ts --check             # mọi mẫu đột biến còn khớp đúng một lần
+bun scripts/mutate.ts                     # chạy đột biến (khoảng 30 giây mỗi mẫu); khôi phục tệp gốc sau từng mẫu
+```
+
+- `tsc` cần các tệp khai báo mà engine ghi vào `.claude-plugin/types/` (đã `.gitignore`) mỗi khi nạp mod từ thư mục của người dùng. Trên clone sạch, mở một phiên `claude --plugin-dir .` một lần trước. Gói npm `@anthropic-ai/claude-code` không chứa các tệp này nên CI không chạy `tsc`.
+- `tsconfig.json` được commit và độc lập (không `extends` thư mục do engine sinh), dùng đúng các tùy chọn mà đầu tệp khai báo của engine khuyến nghị. Engine tự ghi `tsconfig.json` cho mod chưa có; việc engine có giữ nguyên tệp đã commit khi nạp mod trong phiên tương tác chưa được kiểm.
+- CI (`.github/workflows/focus-conductor.yml` ở gốc repo) chạy trên mọi pull request và push lên `main`, không lọc `paths` để check bắt buộc không treo ở PR không đụng mod: cài `@anthropic-ai/claude-code@2.1.296` (ghim), `claude plugin validate` cho mod và marketplace, rồi `claude plugin test`. Bật check đó thành bắt buộc là việc của người quản lý repo.
+- Đột biến: thêm mẫu vào `scripts/mutants.ts` (một lần thay đúng một chỗ), `--check` báo mẫu nào không còn khớp đúng một lần sau khi mã đổi. Đột biến sống sót nghĩa là có hành vi chưa được test ghim hoặc có đoạn mã thừa; mẫu tương đương thì ghi lý do vào trường `equivalent`.
+- Golden-set: `tests/golden/replies.ts` ghi câu trả lời router thật kèm SHA-256 của request đã gửi (system prompt, catalog giá của bảng kèm mod, ngữ cảnh, nội dung đã qua `fence`). Đổi prompt router hay định dạng request thì băm lệch và `golden.test.ts` đỏ cho tới khi chạy lại `--record`.
+- Giấy phép MIT (`LICENSE`).
 
 ## Giới hạn đã biết
 
@@ -189,12 +233,29 @@ Kiểm tra trước khi phát hành: `claude plugin validate .` và `claude plug
 - Engine chỉ báo nguồn đổi model qua `classic.PostModelSwitch`. Không có hook này thì mod không phân biệt được engine tự đổi với người dùng đổi, và tạm ngừng điều phối luồng chính tới mục tiêu mới.
 - Agent của workflow có thể chạy bước đầu trước khi mod kịp ghi điều phối (engine không có hook trước khi agent khởi động). Agent đó không bị ép ở các bước sau, để không phá cache của nó, và nhật ký ghi rõ.
 - Agent ngoài điều phối (không qua `agent.spawn` của mod) chỉ được đếm và liệt kê; mod không chấm, không ép, không đo được chi phí của nó.
-- Bảng giá kèm mod ghi ngày 2026-10-06 [Nguồn: bảng model Claude]; quá 180 ngày thì `/conductor status` cảnh báo. Giá Haiku 5.5 cho prompt trên 100K token được tính riêng. Đọc cache của Haiku là giả định (10% giá vào). Kích thước turn ước lượng là giả định, được hiệu chỉnh dần từ số đo trong phiên.
+- Bảng giá kèm mod ghi ngày 2026-10-13 [Nguồn: trang giá Anthropic]; quá 30 ngày thì `/conductor status` cảnh báo (giá đọc cache của Sonnet 5.5 đã đổi từ $0,20 sang $0,10 ngày 2026-10-07, nhanh hơn chu kỳ 180 ngày của bản trước). Giá Haiku 5.5 cho prompt trên 100K token được tính riêng, kể cả đọc cache ($0,05). Hệ số ghi cache và thời gian sống của cache đi cặp theo bậc (xem "Đo bậc cache"). Kích thước turn ước lượng là giả định, được hiệu chỉnh dần từ số đo trong phiên.
+- Lợi ích ròng so với chạy thuần là ước tính, không phải số đo: nó tính lại các lượt đã đo như thể chạy toàn bộ bằng model của phiên với đúng số token đã có (token ra của model hay effort khác nhau không được tính chênh lệch), trừ chi phí router. Phần ghi lại cache do mod đổi model hay effort giữa hai turn được tính theo giá đọc ở phía chạy thuần, chặn trên bằng số token ghi thực của lượt, nên con số thiên về thấp; không bù khi cache đã nguội hay vừa nén, hay khi chính người dùng đổi model hay effort. Chất lượng đầu ra không được tính.
+- Một số trạng thái cục bộ nằm trong bộ nhớ của mod và mất khi nạp lại module (hot reload): dấu vết thực thi dùng để đối chiếu `verified`, bộ đếm turn, danh sách model tạm ngừng, thống kê độ trễ router, việc giao subagent đang chờ. Mục tiêu, checklist, sổ chi phí và cơ sở so với chạy thuần nằm trong `$.state` nên được giữ.
+- Nhận diện lệnh tự sửa dựa trên cờ và tên script đã biết (`--fix`, `--write`, `--apply`, `-w` của prettier, `ruff format` không kèm `--check` hay `--diff`, script `*:fix` và `format`). Cờ tự sửa kèm giá trị trong nháy (`--fix="true"`) cũng không nhận ra, vì token chứa chuỗi trong nháy bị loại khi xét cờ (để `pytest -k '--fix'` không bị coi là tự sửa). Công cụ tự sửa bằng cờ khác, hay tự sửa trong một script đóng gói không nêu cờ (`npm run lint` mà script nội bộ có `--fix`), không nhận ra được; khi đó mod coi là lệnh kiểm tra nếu thuộc danh sách trình chạy. `gofmt -l` không được nhận là lệnh kiểm tra vì thoát mã 0 dù có tệp chưa format. Lệnh khai trong `checkCommands` được tin mã thoát như mọi lệnh kiểm tra.
 - Sổ chi phí chỉ gồm số đo của các lượt đã kết thúc. Subagent đã giao mà chưa kết thúc có dòng ước tính riêng, dựa trên token ra giả định theo khối lượng việc và hệ số hiệu chỉnh; dòng đó được thay bằng số đo khi agent kết thúc.
 - Một họ model lỗi (không phản hồi) ở một turn thì turn đó quay về model của phiên; lỗi ở hai turn liên tiếp thì bị tạm ngừng dùng 5 turn rồi thử lại.
 - Nhãn tiếng Anh (`uiLanguage: en`) chỉ áp cho nhãn cố định của band và pane; thông báo, cảnh báo và khối gửi Claude vẫn bằng tiếng Việt.
 
 ## Kiểm chứng HEAD hiện tại
+
+Bản 0.5.4 (xử lý báo cáo rà soát toàn mod trên `8820125`), ngày 2026-10-13. Mã (`hooks/`) và test trong commit chứa mục này đúng là nội dung đã kiểm (sha256 của `hooks/` và `tests/` in trước và sau các lượt đột biến, nêu bên dưới); README được điền kết quả sau khi kiểm. Mọi số dưới đây do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển].
+
+- Môi trường: Claude Code 2.1.296, Node v22.22.0, Bun 1.4.2.
+- `claude plugin test .`: 574 test qua, 0 lỗi, 21 tệp (0.5.3 có 475 test). `claude plugin validate .` qua cho mod và marketplace; ba hook gating thiếu `.catch` (`prompt.submit`, `tool.call{Agent}`, `tool.check{plan}`) nay đã có. `bunx tsc -p tsconfig.json` sạch.
+- Bộ test cuối chạy trên `hooks/` của `8820125` (cùng `plugin.json` cũ) để biết test mới có thật sự bắt lỗi cũ: 458 qua, 49 đỏ, và 3 tệp không nạp được (67 test, vì thiếu export mới: `golden.test.ts` 36, `net-benefit.test.ts` 18, `prompt-fence.test.ts` 13); 458 + 49 + 67 = 574. Trong 49 ca đỏ: `pricing.test.ts` 15 trên 15, `verify-commands.test.ts` 17 trên 22, `reset-button.test.ts` 9 trên 9, `boundaries.test.ts` 1 trên 11, và 7 test cũ ghim giá hay hệ số ghi cache cũ phải đổi kỳ vọng (`cost-ledger.test.ts` 6, `hooks.test.ts` 1). Test mới xanh sẵn trên mã cũ: 10 ca ngưỡng của `boundaries.test.ts` (ghim hành vi đúng đã có, giá trị của chúng nằm ở lượt đột biến) và 5 ca phủ định của `verify-commands.test.ts`.
+- Eval router thật (`sonnet`, 30 ca, ba lần mỗi ca, 90 lượt): lần ghi đầu 90/90 (tổng $1,0812 [Nguồn: eval trong phiên phát triển]); sau khi viết lại ca `six` để bỏ hai đoạn trùng ví dụ trong system prompt và ghi lại riêng ca đó, `six` đạt 2/3 (một lượt chọn sonnet/medium cho luồng chính thay vì opus). Tổng 89/90 lượt, 29/30 ca đạt mọi lần. Bản ghi giữ nguyên cả lượt trượt; golden-set chấm theo khoảng chấp nhận được nên ca `six` vẫn nằm trong bộ.
+- Kiểm đột biến đầy đủ (một lượt trên một HEAD, `bun scripts/mutate.ts --jobs 4`, 344 mẫu: 194 của các vòng trước và 150 mới): 318 bị test bắt, 2 tương đương đã ghi từ trước (F2, E27) và 24 sống sót. Trong 24 mẫu sống sót, 21 là chỗ test còn hở và đã thêm 11 test: bảng giá truyền vào request router, nhánh chưa có mốc thời gian của turn, các cờ tự sửa `--apply-unsafe`, `--fix-only`, `--fix=`, `prettier -w`, script `fix`, `format`, `fmt` và `run-script`, so khớp lệnh khai không phân biệt hoa thường và lệnh khai rỗng, tên loại agent không có mô tả qua `fence`, hẹn giờ cũ không hủy mốc chờ mới, nút Đặt lại xóa trạng thái cục bộ như `/conductor reset`, subagent xong trước luồng chính, người dùng đổi effort hay đổi họ, chế độ suggest. Chạy lại riêng 24 mẫu: 21 bị bắt, 3 tương đương có lý do ghi trong `scripts/mutants.ts` (B9: điều kiện `lastContext > 0` chỉ là phòng thủ vì `context < 0` luôn sai; D3 và D4: chỉ lệch đúng mili giây hết hạn của nút chờ xác nhận, nơi bộ hẹn giờ đã xóa mốc). Tổng: 339 bị bắt, 5 tương đương, 0 sống sót. Sha256 của `hooks/` trước và sau cả hai lượt là `331ec8ad64400098…`, không đổi, nên không phải chạy lại toàn bộ; sha256 của `tests/` đổi từ `8c0bcae2c80b9661…` sang `cccc3846bd4671d9…` vì chỉ thêm test.
+- Quét chuỗi cá nhân (`taichinh`, `dongchilong`, `Long`, `regime_mapper`, `luat-engine`, `Bồn và pha`, `/Users/`) trên cây làm việc: sạch. Lịch sử git cũ vẫn chứa nội dung cũ (không viết lại lịch sử).
+- Workflow CI trên runner sạch (lượt chạy đầu, pull request #16, `ubuntu-latest`, Node 22, Claude Code 2.1.296): `plugin` qua, 574 test qua, 0 lỗi, 21 tệp, 38 giây [Nguồn: GitHub Actions run 38379689930, 2026-10-13]. Cảnh báo duy nhất của runner là `actions/checkout@v4` và `actions/setup-node@v4` chạy bắt buộc trên Node 24.
+- Chưa kiểm được: việc engine có ghi đè `tsconfig.json` đã commit khi nạp mod trong phiên tương tác; bậc cache thật trên máy người dùng (mặc định bậc 1 giờ theo phép đo ở container); ảnh chụp band và pane trên engine thật.
+- Các bản trước: kiểm chứng của 0.5.3 và trước đó giữ nguyên ở mục "Kiểm chứng của 0.5.3 và các vòng trước".
+
+## Kiểm chứng của 0.5.3 và các vòng trước
 
 Bản 0.5.3 (PR #15, giao diện band và pane) trên nền 0.5.2 sau vòng review thứ năm của PR #14, ngày 2026-10-13. Mã (`hooks/`) và test trong commit chứa mục này đúng là nội dung đã kiểm (đối chiếu sha256 của `hooks/` trước và sau kiểm đột biến); README được điền kết quả sau khi kiểm. Mọi số dưới đây do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển]; chưa có CI độc lập xác nhận (PR không có check nào).
 
@@ -211,6 +272,27 @@ Bản 0.5.3 (PR #15, giao diện band và pane) trên nền 0.5.2 sau vòng revi
 - Test tái hiện vòng 4 PR #14 (`tests/review052d.test.ts`): 10 trên 16 ca chạy đỏ trên `0d693c4`; các ca còn lại là đối chứng hoặc ca biên thêm sau kiểm đột biến.
 - Kiểm đột biến đầy đủ trên mã cuối (vòng 5, một lượt trên một HEAD, 194 đột biến gồm 133 của các vòng trước và 61 mới về đầu cụm claim): 193 bị test bắt, 1 sống. Đột biến sống (F2: bỏ ngoại lệ `python -m` trong `claimedChecks`) tương đương: `python` và `python3` đã nằm trong `CLAIM_PREFIXES`, nên claim của `pytest` và claim của `python` cùng bắt đầu ở cùng một vị trí; `claimedChecks` khử trùng lặp các vị trí, nên bỏ ngoại lệ không đổi tập đầu cụm. Sha256 của `hooks/` và `tests/` trước và sau lượt: `eacb46f2…` và `0cc30afb…`, không đổi. Lượt vòng 4 (trước khi có đầu cụm mới): 133 đột biến, 133 bị bắt, 0 sống. Gồm bộ đột biến của các vòng trước viết lại theo mã hiện tại và đột biến mới của vòng 4 (claim lồng trong span, bỏ ngoại lệ `python -m`, bỏ `npx` khỏi tiền tố, wrapper bị bỏ lại, bỏ chuyển hướng đầu vào khỏi danh tính, không bỏ chuyển hướng đầu ra, token có nháy thành toán tử, không nhận biết nháy ở evidence, `&` thành `;`, bỏ `|&`, bỏ biến môi trường khỏi danh tính, bỏ trust của lệnh nền, dùng lại `segments()` cho lệnh kiểm tra). Trong lượt kiểm, 14 đột biến còn sống đã có test bổ sung, 4 đột biến là điều kiện thừa đã gỡ khỏi mã (không đổi hành vi, nên không có đột biến tương đương nào được giữ lại). Sha256 của `hooks/` và `tests/` trước và sau lượt: `e75619eb…` và `6d87bfcf…`, không đổi.
 - Kiểm tra khác trên cùng `hooks/`: type-check sạch; `claude plugin validate .` qua cho mod và marketplace; eval router thật (router sonnet) 21/21 đạt (lượt chạy ngày 2026-10-13, trước khi thêm hai test cuối và không đổi mã router).
+
+## Thay đổi 0.5.4 theo đánh giá toàn mod
+
+Một lượt rà soát toàn mod trên `8820125` (0.5.3) nêu 19 hạng mục. Mỗi điểm được kiểm lại trên mã và công cụ thật trước khi sửa; các điểm không đúng hay chỉ đúng một phần được ghi rõ bên dưới. Phần tái cấu trúc (mục 15) nằm ở PR riêng, README được tách ở PR sau đó.
+
+- **Giá và ghi cache (mục 1).** Đúng. Trang giá Anthropic ngày 2026-10-13 ghi đọc cache của Sonnet 5.5 là $0,10 (giảm từ $0,20 ngày 2026-10-07); Opus $0,20, Fable $0,25, Haiku $0,01 (prompt trên 100K: $0,05); ghi cache 1,25 lần giá vào ở bậc 5 phút và 2 lần ở bậc 1 giờ [Nguồn: trang giá Anthropic, 2026-10-13]. `cost.ts` cập nhật giá và ngày, cảnh báo giá cũ sau 30 ngày (trước đó 180). Catalog giá trong system prompt của router dựng từ bảng giá đang dùng thay vì chép tay. `prices` thiếu giá trị thứ ba thì đọc cache theo tỷ lệ của đúng họ. Thêm `cacheWrite` (kẹp 1,25 đến 2, mặc định 2) đi cặp với `cacheTtlMinutes` (mặc định 60); `usdOf` và `switchCost` dùng chung hệ số; `/conductor status` in cặp và cảnh báo khi lệch. Đo ở một phiên `claude -p --model haiku`: `cache_creation` 44.607 token nằm hết ở `ephemeral_1h`, `total_cost_usd` 0,008954 khớp hệ số 2 (hệ số 1,25 cho 0,005609). `ModelUsage` của hook chỉ có tổng `cache_creation_input_tokens`, không tách bậc, nên mod không tự nhận ra; mặc định bậc 1 giờ chưa kiểm trên máy người dùng (xem "Đo bậc cache").
+- **Golden-set (mục 2).** Đúng. Ba ca `list`, `race`, `three` trùng hay gần nguyên văn ví dụ trong system prompt của router, và ca `six` còn chứa hai đoạn của ví dụ (phát hiện khi viết test so trùng). Đã viết lại bốn ca, thêm chín ca ngoài prompt, thêm test báo ca trùng ví dụ. `replies.ts` ghi kèm SHA-256 của request đã gửi (system prompt, catalog giá của bảng kèm mod, ngữ cảnh) và tỷ lệ đạt: đổi prompt router hay định dạng request mà chưa ghi lại thì `golden.test.ts` đỏ. Ghi lại bằng router thật `sonnet`, ba lần mỗi ca. Sau khi bỏ chỗ trùng, ca `six` chỉ đạt 2/3: một lượt chọn sonnet/medium cho luồng chính thay vì opus, tức là bộ cũ đã che mất một chỗ yếu.
+- **CI và type-check (mục 3).** Đúng. Thêm `.github/workflows/focus-conductor.yml` (mọi pull request và push lên `main`, không lọc `paths`; validate mod và marketplace, chạy `claude plugin test`) và `tsconfig.json` độc lập. CI không chạy `tsc` vì gói npm không có tệp khai báo của mod (engine sinh khi nạp mod). Chưa kiểm được trong phiên tương tác việc engine có giữ nguyên `tsconfig.json` đã commit hay không.
+- **Giao diện trên engine thật (mục 4).** Đúng; chưa có ảnh chụp band và pane trên engine thật (việc của người dùng).
+- **Lệnh kiểm tra và lệnh tự sửa (mục 5 và 6).** Đúng, và rộng hơn báo cáo: `prettier --check`, `black --check`, `cargo fmt --check`, `npm run format:check`, `terraform fmt -check` bị tính là thay đổi (lệnh lạ, mức possible), còn `eslint --fix`, `npm run lint:fix`, `ruff check --fix`, `ruff format`, `biome check --write` và `--apply` lại được tính là lệnh kiểm tra. Nay trình chạy đã biết được bọc bởi `npx`, `pnpm exec`, `pnpm X`, `yarn X`, `bunx`, `uv run`, `poetry run`, `bundle exec`, `./node_modules/.bin` vẫn là lệnh kiểm tra, danh tính giữ nguyên tiền tố; phần bọc không biến lệnh lạ thành kiểm tra (`pnpm add`, `yarn install`, `bunx create-x` vẫn là ghi). Thêm `deno test`, `rspec`, `phpunit`, `swift test`, `tox`, `./gradlew test|check`, `./mvnw test|verify` và các kiểm tĩnh `prettier|black --check`, `ruff format --check`, `cargo fmt --check`, `terraform fmt -check|validate`, `shellcheck`, `format:check`. Lệnh tự sửa (`--fix`, `--write`, `--apply`, `-w` của prettier, `ruff format` không `--check` hay `--diff`, script `*:fix` và `format`) là tác động ghi mức possible, không phải lệnh kiểm tra. `gofmt -l` không được nhận (liệt kê file chưa format nhưng thoát 0). Thêm option `checkCommands` và dòng `verify-reject` trong log quyết định khi `verified` bị hạ xuống `done`.
+- **Test cho các ngưỡng (mục 7).** Đúng: 18 chỗ test đặt token cache bằng 0, tám lần gọi Stop đều `stop_hook_active: false`, và repo không giữ script đột biến. Thêm `usdOf` với đủ bốn loại token ở cả hai bậc, `Stop` với `stop_hook_active: true`, ngưỡng tin cậy 0,4 hai phía, cất tối đa ba mục tiêu, cache nguội đúng ranh giới TTL, ngữ cảnh co 60%. `scripts/mutants.ts` và `scripts/mutate.ts` giữ 194 mẫu đột biến của các vòng trước cộng 150 mẫu mới; `mutate.ts` chạy trên bản sao nên không bao giờ để lại tệp bị đột biến.
+- **Nút Đặt lại (mục 8).** Đúng: trước đây bấm là xóa ngay, không `$.ui.status`, không test. Nay hai bước: bấm lần đầu ghi mốc `resetArmedUntil` (10 giây), nhãn đổi, toast, `$.clock.after` vẽ lại và báo hủy khi hết hạn; bấm lần hai mới xóa và cập nhật dòng trạng thái. Dòng chú thích dưới nút và `/conductor reset` ghi đủ phạm vi (có mục tiêu đã cất) và phần được giữ.
+- **Lợi ích ròng (mục 9).** Đúng: sổ đã lưu token theo nhóm nhưng chưa có cơ sở so sánh. Thêm `Ledger.baseline` và dòng "So với chạy thuần" (cùng số token, giá model phiên, trừ chi phí router, phần ghi lại cache do mod đổi model hay effort tính theo giá đọc, chặn trên bằng số ghi thực; không bù khi cache nguội, vừa nén hay người dùng tự đổi). Là ước tính, không phải số đo (xem "Giới hạn đã biết").
+- **Tái cấu trúc (mục 15).** Đúng; làm ở PR riêng không đổi hành vi, sau khi bộ đột biến và CI đã có.
+- **Hook gating thiếu `.catch` (mục 11).** Đúng: `prompt.submit`, `tool.call{Agent}`, `tool.check{plan}`; đã thêm, `claude plugin validate` hết nhắc.
+- **Request router (mục 12).** Đúng: `prev.goal`, tên việc, mô tả và prompt agent, dòng lệnh, câu trả lời trước được nối vào request không trung hòa thẻ. Một hàm `fence` đổi `<` của thẻ `request`, `context`, `task`, `previous_answer` (mở hay đóng, mọi kiểu viết hoa, có khoảng trắng) thành `&lt;` cho mọi giá trị nội suy; mỗi chỗ nội suy có test riêng.
+- **Log quyết định (mục 13).** Đúng: log trích 300 ký tự đầu của prompt mà mô tả option không nói; đã ghi vào `plugin.json` và README.
+- **Fixture cá nhân (mục 14).** Đúng, repo công khai. `tests/fixtures/prompt-k4.ts` thay bằng prompt tổng hợp cùng cấu trúc (mã `K4.0` đến `K4.11`, hơn 12.000 ký tự); `replies.ts` ghi lại từ prompt mới. Lịch sử git không bị viết lại, nên các commit cũ vẫn chứa nội dung cũ.
+- **Option (mục 16).** `contextWindows` ví dụ `haiku=1000000`; mô tả `prices` nêu giá trị thứ ba và tỷ lệ mặc định; `cacheTtlMinutes` giữ kiểu chuỗi (đổi sang số làm mod không nạp với người dùng còn giá trị chuỗi), mặc định `"60"`; `cacheWrite` kiểu số, kẹp trong mã vì giá trị ngoài khoảng trong manifest cũng làm module không nạp.
+- **Giấy phép (mục 17).** Thêm `LICENSE` MIT; chưa tách repo.
+- **Tài liệu (mục 18 và 19).** README thêm "Phát triển", "Khi nào nên tắt", "Đo bậc cache", và nêu trạng thái cục bộ mất khi nạp lại module. Mục 10 (tách README) làm ở PR sau cùng.
 
 ## Thay đổi 0.5.3: giao diện band và pane
 
