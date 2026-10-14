@@ -7,7 +7,7 @@
 import type { PluginOptions } from 'claude-code'
 
 import type { ArchivedGoal, Brief, Core, DelegationItem, Ledger, Lift, ModelFamily, Mode, PlanStep, Route, RouteEvent, Warning } from '../../types'
-import { openSteps } from './drift'
+import { restorableSteps } from './drift'
 import type { Tokens } from './cost'
 import { addUsage, emptyLedger, nextGoal, planSwitch, resetLedger } from './ledger'
 import { legacyOf } from './scale'
@@ -122,9 +122,9 @@ export function retarget(brief: Brief, goal: string | undefined, steps: readonly
   return { ...brief, goal: nextGoal, steps: nextSteps, ...(scope !== undefined ? { scopePaths: [...scope] } : {}) }
 }
 
-/** Lưu mục tiêu hiện tại nếu checklist còn bước mở; mới nhất trước. */
+/** Lưu mục tiêu hiện tại nếu checklist còn bước mở hoặc đang chờ; mới nhất trước. */
 function archiveOf(n: Core): ArchivedGoal[] {
-  if (n.brief === null || openSteps(n.plan).length === 0) return n.archived
+  if (n.brief === null || restorableSteps(n.plan).length === 0) return n.archived
   return [{ brief: n.brief, plan: n.plan }, ...n.archived.filter(a => a.brief.goalId !== n.brief?.goalId)].slice(0, ARCHIVE_LIMIT)
 }
 

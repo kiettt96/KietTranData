@@ -2,7 +2,7 @@
 // giữ giọng văn nhất quán và dễ chỉnh.
 
 import type { Brief, Choice, PlanStep, Route, StepStatus, Task } from '../../types'
-import { openSteps } from './drift'
+import { openSteps, pendingSteps } from './drift'
 import { describePick } from './route'
 
 export const PLAN_TOOL = 'plan'
@@ -16,7 +16,7 @@ export const PLAN_TOOL_FULL = 'mcp__focus-conductor__plan'
 export const DISCIPLINE = `# Focus Conductor
 Mỗi prompt của người dùng có thể kèm một khối "[focus-conductor]" do model router của plugin đọc sẵn: mục tiêu cuối, các việc, ràng buộc, tiêu chí chất lượng, mức độ phức tạp và cách điều phối. Khối đó là bản đọc trước, không thay thế prompt gốc.
 1. Đọc kỹ trước khi làm: đối chiếu khối phân tích với prompt gốc, sửa chỗ sai hoặc thiếu, xác định rõ mục tiêu cuối, ràng buộc và tiêu chí nghiệm thu, rồi mới gọi tool thực thi đầu tiên.
-2. Với việc từ mức moderate trở lên: gọi ${PLAN_TOOL_FULL} (action "set") để ghi mục tiêu và checklist đã chuẩn hóa; cập nhật từng bước (doing, done, verified kèm bằng chứng, skipped hoặc blocked kèm lý do).
+2. Với việc từ mức moderate trở lên: gọi ${PLAN_TOOL_FULL} (action "set") để ghi mục tiêu và checklist đã chuẩn hóa; cập nhật từng bước (doing, done, verified kèm bằng chứng, skipped, blocked hoặc waiting kèm lý do).
 3. Nhất quán: mọi bước phải phục vụ mục tiêu cuối; không làm thêm việc ngoài phạm vi, không bỏ sót yêu cầu; giữ văn phong, quy ước đặt tên và định dạng đã dùng từ đầu.
 4. Tự kiểm tra sau mỗi bước quan trọng (chạy test, type-check, đọc lại thay đổi) trước khi sang bước sau.
 5. Khi giao việc cho subagent: nếu khối có mục "Phân việc", giao đúng các việc ghi "giao", description của Agent mở đầu "Việc N: " (N là số của việc) để chạy đúng model và effort đã phân; việc ghi "làm trực tiếp" thì tự làm. Việc ngoài danh sách: để trống model và effort, router của plugin chấm khi giao; chọn Explore cho tra cứu chỉ đọc, Plan cho thiết kế, general-purpose cho thực thi.
@@ -29,6 +29,7 @@ const MARKS: Record<StepStatus, string> = {
   verified: '[v]',
   skipped: '[-]',
   blocked: '[b]',
+  waiting: '[w]',
 }
 
 export function mark(status: StepStatus): string {
@@ -109,12 +110,30 @@ export function unroutedContext(reason: string): string {
   )
 }
 
-/** Báo cho Claude biết checklist cũ còn bước mở đã được lưu vì prompt được xếp là mục tiêu mới. */
+/** "N bước mở", "M bước đang chờ" hoặc cả hai, cho các bước khôi phục được (todo, doing, waiting). */
+export function restorableLabel(steps: readonly PlanStep[]): string {
+  const waiting = steps.filter(s => s.status === 'waiting').length
+  const open = steps.length - waiting
+  if (waiting === 0) return `${open} bước mở`
+  return open === 0 ? `${waiting} bước đang chờ` : `${open} bước mở và ${waiting} bước đang chờ`
+}
+
+/** Báo cho Claude biết checklist cũ còn bước mở (hoặc đang chờ) đã được lưu vì prompt được xếp là mục tiêu mới. */
 export function droppedPlanNotice(open: readonly PlanStep[]): string {
   return (
-    `[focus-conductor] Checklist cũ còn ${open.length} bước mở đã được lưu vì prompt này được xếp là mục tiêu mới ` +
+    `[focus-conductor] Checklist cũ còn ${restorableLabel(open)} đã được lưu vì prompt này được xếp là mục tiêu mới ` +
     `(${open.map(s => s.title).slice(0, 3).join('; ')}). Nếu thực ra đây là tiếp nối, gọi ${PLAN_TOOL_FULL} action "restore" ` +
     'để khôi phục mục tiêu và checklist cũ (trạng thái từng bước giữ nguyên).'
+  )
+}
+
+/** Dòng nhắc bước waiting hoặc blocked khi làm tiếp mục tiêu: các bước đó không chặn Stop nên phải được đặt lại thì mới được theo dõi. */
+function pendingLine(plan: readonly PlanStep[]): string {
+  const pending = pendingSteps(plan)
+  if (pending.length === 0) return ''
+  return (
+    `Bước đang chờ hoặc bị chặn: ${pending.map(s => `${s.id}. ${s.title}`).join('; ')}. ` +
+    'Khi làm tiếp các bước đó, đặt lại về todo hoặc doing bằng action "update" để cổng Stop theo dõi lại.'
   )
 }
 
@@ -139,6 +158,7 @@ export function followUpContext(
       ? `Việc mới (router đã chấm; khi giao, description của Agent mở đầu "Việc N: "):\n${added.map(task => taskLine(task, mainText)).join('\n')}`
       : '',
     open.length > 0 ? `Bước còn mở: ${open.map(s => `${s.id}. ${s.title}`).join('; ')}` : '',
+    pendingLine(plan),
     newConstraints.length > 0 ? `Ràng buộc mới: ${newConstraints.join('; ')}` : '',
     'Giữ nhất quán với phần đã làm; nếu yêu cầu này đổi mục tiêu, cập nhật lại checklist.',
   ]
@@ -152,6 +172,7 @@ export function skippedContext(brief: Brief, plan: readonly PlanStep[]): string 
     `[focus-conductor] Tiếp nối mục tiêu hiện tại: ${brief.goal}`,
     'Prompt nằm trong danh sách routerSkip nên router không đọc lại; giữ nguyên phân việc và điều phối đang có.',
     open.length > 0 ? `Bước còn mở: ${open.map(s => `${s.id}. ${s.title}`).join('; ')}` : '',
+    pendingLine(plan),
   ]
     .filter(Boolean)
     .join('\n')
@@ -221,16 +242,43 @@ export function driftContext(goal: string, why: string): string {
 /** Checklist dạng văn bản, trả về trong kết quả của tool plan. */
 export function renderPlan(brief: Brief | null, plan: readonly PlanStep[]): string {
   if (plan.length === 0) return `${brief ? `Mục tiêu: ${brief.goal}\n` : ''}Checklist trống.`
-  const { closed, total } = progress(plan)
-  const rows = plan.map(step => {
-    const note = step.note ? ` (${step.note})` : ''
-    const check = step.check ? ` [nghiệm thu: ${step.check}]` : ''
-    return `${mark(step.status)} ${step.id}. ${step.title}${check}${note}`
-  })
-  const next = openSteps(plan)[0]
-  const hint = next ? `\nBước tiếp theo: ${next.id}. ${next.title}` : ''
+  const rows = plan.map(step => stepRow(step))
   const goal = brief ? `Mục tiêu: ${brief.goal}\n` : ''
-  return `${goal}Checklist (${closed}/${total} đã đóng):\n${rows.join('\n')}${hint}`
+  return `${goal}${totalLine(plan)}\n${rows.join('\n')}${nextLine(plan)}`
+}
+
+/** Một hàng của checklist: dấu trạng thái, id, tiêu đề, tiêu chí nghiệm thu và ghi chú. */
+export function stepRow(step: PlanStep): string {
+  const note = step.note ? ` (${step.note})` : ''
+  const check = step.check ? ` [nghiệm thu: ${step.check}]` : ''
+  return `${mark(step.status)} ${step.id}. ${step.title}${check}${note}`
+}
+
+/** Dòng tổng: số bước đã đóng, thêm số bước đang chờ và bị chặn khi có (bỏ vế bằng 0). */
+export function totalLine(plan: readonly PlanStep[]): string {
+  const { closed, total } = progress(plan)
+  const waiting = plan.filter(s => s.status === 'waiting').length
+  const blocked = plan.filter(s => s.status === 'blocked').length
+  const extra = [waiting > 0 ? `${waiting} đang chờ` : '', blocked > 0 ? `${blocked} bị chặn` : ''].filter(Boolean)
+  return `Checklist (${closed}/${total} đã đóng${extra.length > 0 ? `, ${extra.join(', ')}` : ''}):`
+}
+
+/** Dòng cuối: bước mở tiếp theo; không còn bước mở mà còn bước waiting thì liệt kê các bước đang chờ (tối đa 3). */
+export function nextLine(plan: readonly PlanStep[]): string {
+  const next = openSteps(plan)[0]
+  if (next) return `\nBước tiếp theo: ${next.id}. ${next.title}`
+  const waiting = plan.filter(s => s.status === 'waiting').slice(0, 3)
+  return waiting.length > 0 ? `\nĐang chờ: ${waiting.map(s => `${s.id}. ${s.title}`).join('; ')}` : ''
+}
+
+/** Mọi bước đã hết mở nhưng còn bước chờ hoặc bị chặn: không được tuyên bố hoàn tất. */
+export function pendingNotice(plan: readonly PlanStep[]): string {
+  const pending = pendingSteps(plan)
+  return (
+    `[focus-conductor] Không còn bước mở, nhưng còn ${pending.length} bước đang chờ hoặc bị chặn: ` +
+    `${pending.slice(0, 3).map(s => `${s.id}. ${s.title}`).join('; ')}. ` +
+    'Các bước đó chưa tính là xong; nói rõ với người dùng thay vì tuyên bố hoàn tất.'
+  )
 }
 
 /** Lý do chặn kết thúc khi checklist còn mở hoặc còn việc giao subagent đã lỗi chưa giao lại. */
@@ -242,7 +290,7 @@ export function stopBlockReason(plan: readonly PlanStep[], failed: readonly stri
       `[focus-conductor] Checklist còn ${open.length} bước mở: ` +
         `${open.map(s => `${s.id}. ${s.title}`).join('; ')}. ` +
         `Hoàn thành các bước đó, hoặc cập nhật trạng thái bằng ${PLAN_TOOL_FULL} ` +
-        '(skipped hoặc blocked kèm lý do) trước khi kết thúc. Nếu đang chờ người dùng, đánh dấu blocked.',
+        '(skipped, blocked hoặc waiting kèm lý do) trước khi kết thúc. Đang chờ lệnh nền, tiến trình hay người dùng thì ghi waiting; blocked dành cho vướng mắc không tự gỡ được.',
     )
   }
   if (failed.length > 0) {

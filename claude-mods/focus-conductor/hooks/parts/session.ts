@@ -2,14 +2,14 @@
 
 import { atom, derive, read, update } from 'claude-code'
 import type { Brief, Core, Warning } from '../../types'
-import { openSteps } from '../lib/drift'
+import { restorableSteps } from '../lib/drift'
 import { PLAN_TOOL_SPEC } from '../lib/plan'
 import { describePick } from '../lib/route'
 import { clipText, keptLines } from '../lib/decisions'
 import { askRouter, isSkippable, nextBrief, parseRoute, routerRequest } from '../lib/router'
 import type { RouterOutcome, RouterPlan } from '../lib/router'
 import * as S from '../lib/state'
-import { DISCIPLINE, briefContext, droppedPlanNotice, followUpContext, skippedContext, unroutedContext } from '../lib/text'
+import { DISCIPLINE, briefContext, droppedPlanNotice, followUpContext, restorableLabel, skippedContext, unroutedContext } from '../lib/text'
 import type { On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -152,7 +152,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       ? briefContext(brief, expected, isApplied)
       : followUpContext(brief, core.plan, plan.constraints.filter(c => !prev?.constraints.includes(c)), added, expected, isApplied)
     // Checklist cũ còn bước mở không bị mất: nó được lưu, Claude khôi phục được nếu router xếp nhầm mục tiêu mới.
-    const archived = isNewGoal ? openSteps(before.plan) : []
+    const archived = isNewGoal ? restorableSteps(before.plan) : []
     const notice = archived.length > 0 ? [droppedPlanNotice(archived)] : []
     record(now, 'route', {
       prompt: clipText(text),
@@ -170,7 +170,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       const delegated = brief.isReference ? 0 : brief.tasks.filter(task => task.run === 'agent').length
       $.ui.toast(
         archived.length > 0
-          ? `Mục tiêu mới; checklist cũ còn ${archived.length} bước mở đã được lưu (khôi phục bằng plan action "restore")`
+          ? `Mục tiêu mới; checklist cũ còn ${restorableLabel(archived)} đã được lưu (khôi phục bằng plan action "restore")`
           : `Router đã đọc prompt: ${brief.depth}, khối lượng ${brief.volume}, luồng chính ${expected ? describePick(expected) + (isApplied ? '' : ' (chỉ đề xuất)') : 'model của phiên'}${delegated > 0 ? `, ${delegated} việc giao subagent` : ''}`,
       )
     }

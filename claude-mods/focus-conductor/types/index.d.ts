@@ -81,7 +81,8 @@ export type Brief = {
   at: number
 }
 
-export type StepStatus = 'todo' | 'doing' | 'done' | 'verified' | 'skipped' | 'blocked'
+/** `waiting`: bước đang chờ một việc bên ngoài rồi sẽ tiếp tục (lệnh nền, CI, người dùng); khác `blocked`: không tiến hành được và không có việc nào đang chạy để chờ. */
+export type StepStatus = 'todo' | 'doing' | 'done' | 'verified' | 'skipped' | 'blocked' | 'waiting'
 
 /** Một mục trong checklist mà Claude duy trì qua tool plan. */
 export type PlanStep = {
@@ -91,7 +92,7 @@ export type PlanStep = {
   tier?: Tier
   /** Tiêu chí nghiệm thu của bước (tùy chọn), Claude ghi khi lập checklist. */
   check?: string
-  /** Bằng chứng kiểm tra (bắt buộc khi verified) hoặc lý do (skipped, blocked). */
+  /** Bằng chứng kiểm tra (bắt buộc khi verified) hoặc lý do (skipped, blocked, waiting). */
   note?: string
 }
 

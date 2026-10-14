@@ -10,7 +10,7 @@ import { isPathLike } from './router'
 import { PLAN_TOOL } from './text'
 import { TIERS } from './scale'
 
-const STATUSES: readonly StepStatus[] = ['todo', 'doing', 'done', 'verified', 'skipped', 'blocked']
+const STATUSES: readonly StepStatus[] = ['todo', 'doing', 'done', 'verified', 'skipped', 'blocked', 'waiting']
 
 export const PLAN_TOOL_SPEC: ToolSpec = {
   name: PLAN_TOOL,
@@ -21,7 +21,8 @@ export const PLAN_TOOL_SPEC: ToolSpec = {
     'mỗi bước có thể kèm tier để ghi độ phức tạp và check là tiêu chí nghiệm thu của bước). ' +
     '"set" có thể kèm scope (đường dẫn được phép sửa; mảng rỗng là bỏ giới hạn). ' +
     'action "update": đổi status của một bước theo id; "verified" bắt buộc có evidence (lệnh đã chạy, kết quả), ' +
-    '"skipped" và "blocked" bắt buộc có note giải thích. action "add": thêm bước vào cuối. ' +
+    '"skipped", "blocked" và "waiting" bắt buộc có note giải thích. "waiting" là đang chờ việc bên ngoài rồi sẽ tiếp tục (lệnh nền, CI, người dùng); ' +
+    '"blocked" là không tiến hành được và không có việc nào đang chạy để chờ. action "add": thêm bước vào cuối. ' +
     'action "restore": khôi phục mục tiêu cũ còn bước mở đã được lưu khi chuyển mục tiêu (index 1 là gần nhất). ' +
     'Gọi "set" trước khi thực thi việc từ mức moderate trở lên, và "update" sau mỗi bước quan trọng.',
   inputSchema: {
@@ -45,7 +46,7 @@ export const PLAN_TOOL_SPEC: ToolSpec = {
       step: { type: 'integer', description: 'id của bước cần cập nhật (update).' },
       status: { type: 'string', enum: [...STATUSES] },
       evidence: { type: 'string', description: 'Bằng chứng kiểm tra, bắt buộc khi status là verified.' },
-      note: { type: 'string', description: 'Lý do, bắt buộc khi status là skipped hoặc blocked.' },
+      note: { type: 'string', description: 'Lý do, bắt buộc khi status là skipped, blocked hoặc waiting.' },
       scope: { type: 'array', items: { type: 'string' }, description: 'Đường dẫn được phép sửa (set); mảng rỗng là bỏ giới hạn.' },
       index: { type: 'integer', description: 'Mục tiêu đã lưu cần khôi phục (restore), 1 là gần nhất.' },
     },
@@ -129,7 +130,7 @@ export function applyPlan(current: readonly PlanStep[], input: PlanInput): PlanO
     if (status === 'verified' && !evidence) {
       return { error: 'Đánh dấu verified cần evidence: lệnh kiểm tra đã chạy và kết quả. Nếu chưa kiểm tra, dùng done.' }
     }
-    if ((status === 'skipped' || status === 'blocked') && !note) {
+    if ((status === 'skipped' || status === 'blocked' || status === 'waiting') && !note) {
       return { error: `Trạng thái ${status} cần note giải thích lý do.` }
     }
     const detail = (evidence || note).slice(0, 200)
