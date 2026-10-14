@@ -11,7 +11,7 @@ import type { PlanInput } from '../lib/plan'
 import { familyOf } from '../lib/route'
 import { askRouter, driftRequest, parseDrift } from '../lib/router'
 import * as S from '../lib/state'
-import { PLAN_TOOL_FULL, blockText, criteriaNotice, driftContext, pendingNotice, qualityNotice, renderPlan, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice } from '../lib/text'
+import { PLAN_TOOL_FULL, blockText, criteriaNotice, driftContext, pendingNotice, qualityNotice, renderBulk, renderPlan, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -79,7 +79,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     // "verified" chỉ được lưu khi bằng chứng đủ mạnh (lệnh kiểm tra chạy thành công sau thay đổi cuối của mục tiêu,
     // hoặc việc chỉ đọc có nhắc lệnh hay file đã đụng tới); còn lại bước được lưu là done kèm lý do.
     const evidence = typeof input.evidence === 'string' ? input.evidence.trim() : ''
-    const isVerifiedAsk = input.action === 'update' && input.status === 'verified' && evidence !== ''
+    const isVerifiedAsk = input.action === 'update' && input.status === 'verified' && evidence !== '' && input.ids === undefined && input.allOpen !== true
     const log = before.brief !== null ? evidenceFor(before.brief.goalId) : null
     const strength = isVerifiedAsk && log !== null ? evidenceStrength(evidence, log) : null
     const isAccepted = strength !== null && log !== null && acceptsVerified(strength, log)
@@ -123,7 +123,8 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     if (isClosing && core.brief !== null && core.brief.quality.length > 0) notes.push(qualityNotice(core.brief.quality))
     if (isUpdate && openSteps(before.plan).length > 0 && openSteps(core.plan).length === 0 && pendingSteps(core.plan).length > 0) notes.push(pendingNotice(core.plan))
     $.ui.status(S.statusOf(await read($, view)))
-    return { result: [renderPlan(core.brief, core.plan), ...notes].join('\n') }
+    const shown = outcome.bulk !== undefined ? renderBulk(core.plan, outcome.changed ?? [], outcome.bulk.status, outcome.bulk.note) : renderPlan(core.brief, core.plan)
+    return { result: [shown, ...notes].join('\n') }
   }).catch(() => ({ deny: 'focus-conductor: lỗi nội bộ khi cập nhật checklist; tiếp tục làm việc không cần tool này.' }))
 
   // Mọi tool: luồng chính được nhắc (context của kết quả tool) và nâng cấp theo

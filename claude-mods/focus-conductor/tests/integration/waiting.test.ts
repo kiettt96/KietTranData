@@ -95,3 +95,61 @@ describe('0.5.6 B7: lưu và khôi phục mục tiêu khi còn bước waiting',
     expect((await $.tool.call({ tool: PLAN, action: 'restore' })).deny).toContain('Không có mục tiêu cũ')
   })
 })
+
+describe('0.5.6 C5, C6, C8: cập nhật hàng loạt qua tool', () => {
+  const twelve = Array.from({ length: 12 }, (_, i) => ({ title: `Bước ${i + 1}` }))
+
+  test('12 bước dừng bằng một lần gọi: openSteps rỗng, cổng Stop không chặn, không có qualityNotice', {}, async ($, on) => {
+    base(on, { router: () => QUALITY })
+    on('classic.Stop', () => ({}))
+    await submit($, COMPLEX_PROMPT)
+    await $.tool.call({ tool: PLAN, action: 'set', steps: twelve })
+    expect((await $.classic.Stop({ stop_hook_active: false })).block).toContain('Checklist còn 12 bước mở')
+    const out = String((await $.tool.call({ tool: PLAN, action: 'update', allOpen: true, status: 'waiting', note: 'Người dùng yêu cầu tạm dừng' })).result)
+    expect(out).toContain('Checklist (0/12 đã đóng, 12 đang chờ):')
+    expect(out).toContain('Đã chuyển 12 bước sang waiting: id 1-12. Ghi chú: Người dùng yêu cầu tạm dừng')
+    expect(out).toContain('Đang chờ: 1. Bước 1; 2. Bước 2; 3. Bước 3')
+    expect(out).not.toContain('Checklist đã đóng hết')
+    expect(out).not.toContain('[w] 4.')
+    expect(out.length).toBeLessThan(400)
+    expect((await $.classic.Stop({ stop_hook_active: false })).block).toBeUndefined()
+  })
+
+  test('ids về todo thì cổng Stop chặn lại; id rời nhau được rút thành danh sách', {}, async ($, on) => {
+    base(on)
+    on('classic.Stop', () => ({}))
+    await submit($, COMPLEX_PROMPT)
+    await $.tool.call({ tool: PLAN, action: 'set', steps: twelve })
+    const first = String((await $.tool.call({ tool: PLAN, action: 'update', ids: [1, 2, 3, 5, 7, 8], status: 'blocked', note: 'x' })).result)
+    expect(first).toContain('Đã chuyển 6 bước sang blocked: id 1-3, 5, 7-8.')
+    await $.tool.call({ tool: PLAN, action: 'update', allOpen: true, status: 'waiting', note: 'tạm dừng' })
+    await $.tool.call({ tool: PLAN, action: 'update', ids: [4], status: 'todo' })
+    expect((await $.classic.Stop({ stop_hook_active: false })).block).toContain('Checklist còn 1 bước mở')
+  })
+
+  test('một lần gọi là một lần cập nhật: executing được tính một lần và skipped hàng loạt in qualityNotice đúng một lần', {}, async ($, on) => {
+    base(on, { router: () => QUALITY })
+    await submit($, COMPLEX_PROMPT)
+    await $.tool.call({ tool: PLAN, action: 'set', steps: twelve })
+    const out = String((await $.tool.call({ tool: PLAN, action: 'update', allOpen: true, status: 'skipped', note: 'người dùng hủy' })).result)
+    expect(out.match(/Checklist đã đóng hết/g)?.length).toBe(1)
+  })
+
+  test('lỗi của hàng loạt trả deny và không đổi checklist; subagent vẫn bị từ chối', {}, async ($, on) => {
+    base(on)
+    await submit($, COMPLEX_PROMPT)
+    await $.tool.call({ tool: PLAN, action: 'set', steps: twelve })
+    expect((await $.tool.call({ tool: PLAN, action: 'update', ids: [1, 99], status: 'waiting', note: 'x' })).deny).toContain('99')
+    const sub = await $.tool.call({ tool: PLAN, action: 'update', allOpen: true, status: 'waiting', note: 'x', agentId: 'agent-1' })
+    expect(String(sub.result)).toContain('Checklist chỉ dành cho luồng chính')
+  })
+
+  test('lý do chặn Stop nêu cách dừng cả checklist bằng một lần gọi', {}, async ($, on) => {
+    base(on)
+    on('classic.Stop', () => ({}))
+    await submit($, COMPLEX_PROMPT)
+    await $.tool.call({ tool: PLAN, action: 'set', steps: twelve })
+    const block = String((await $.classic.Stop({ stop_hook_active: false })).block)
+    expect(block).toContain('allOpen')
+  })
+})

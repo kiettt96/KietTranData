@@ -20,7 +20,9 @@ export const PLAN_TOOL_SPEC: ToolSpec = {
     'action "set": đặt goal (tùy chọn) và steps (thay toàn bộ checklist; steps rỗng là xóa checklist, không truyền steps là giữ checklist; ' +
     'mỗi bước có thể kèm tier để ghi độ phức tạp và check là tiêu chí nghiệm thu của bước). ' +
     '"set" có thể kèm scope (đường dẫn được phép sửa; mảng rỗng là bỏ giới hạn). ' +
-    'action "update": đổi status của một bước theo id; "verified" bắt buộc có evidence (lệnh đã chạy, kết quả), ' +
+    'action "update": đổi status của một bước (step), của nhiều bước (ids) hoặc của mọi bước đang mở (allOpen true), đúng một trong ba; ' +
+    'ids và allOpen chỉ nhận waiting, blocked, skipped (kèm một note chung) và todo (chỉ ids), để dừng hay đặt lại cả checklist bằng một lần gọi. ' +
+    '"verified" bắt buộc có evidence (lệnh đã chạy, kết quả), ' +
     '"skipped", "blocked" và "waiting" bắt buộc có note giải thích. "waiting" là đang chờ việc bên ngoài rồi sẽ tiếp tục (lệnh nền, CI, người dùng); ' +
     '"blocked" là không tiến hành được và không có việc nào đang chạy để chờ. action "add": thêm bước vào cuối. ' +
     'action "restore": khôi phục mục tiêu cũ còn bước mở đã được lưu khi chuyển mục tiêu (index 1 là gần nhất). ' +
@@ -44,6 +46,8 @@ export const PLAN_TOOL_SPEC: ToolSpec = {
         },
       },
       step: { type: 'integer', description: 'id của bước cần cập nhật (update).' },
+      ids: { type: 'array', items: { type: 'integer' }, description: 'id của nhiều bước cần cập nhật cùng một status (update hàng loạt).' },
+      allOpen: { type: 'boolean', description: 'true: cập nhật mọi bước todo hoặc doing cùng một status (update hàng loạt).' },
       status: { type: 'string', enum: [...STATUSES] },
       evidence: { type: 'string', description: 'Bằng chứng kiểm tra, bắt buộc khi status là verified.' },
       note: { type: 'string', description: 'Lý do, bắt buộc khi status là skipped, blocked hoặc waiting.' },
@@ -59,6 +63,8 @@ export type PlanInput = {
   goal?: unknown
   steps?: unknown
   step?: unknown
+  ids?: unknown
+  allOpen?: unknown
   status?: unknown
   evidence?: unknown
   note?: unknown
@@ -66,9 +72,10 @@ export type PlanInput = {
   index?: unknown
 }
 
+/** `changed`: id các bước đã đổi (update) hoặc vừa thêm (add); `bulk` có mặt khi update hàng loạt (ids, allOpen). */
 export type PlanOutcome =
-  | { plan: PlanStep[]; goal?: string; scope?: string[]; error?: undefined }
-  | { error: string; plan?: undefined; goal?: undefined }
+  | { plan: PlanStep[]; goal?: string; scope?: string[]; changed?: number[]; bulk?: { status: StepStatus; note: string }; error?: undefined }
+  | { error: string; plan?: undefined; goal?: undefined; changed?: undefined; bulk?: undefined }
 
 function text(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
@@ -96,6 +103,50 @@ function scopeOf(items: readonly unknown[]): string[] | null {
   return [...new Set(paths)].slice(0, 10)
 }
 
+const BULK_STATUSES: readonly StepStatus[] = ['waiting', 'blocked', 'skipped', 'todo']
+const IS_CLOSED: readonly StepStatus[] = ['done', 'verified', 'skipped']
+
+/**
+ * Update hàng loạt (0.5.6): ids hoặc allOpen cùng một status và một note. Tất cả hoặc không gì; không bao giờ đụng bước đã đóng.
+ * doing, done, verified bị từ chối vì mỗi bước cần cam kết riêng; todo chỉ với ids và xóa note cũ khi không kèm note mới.
+ */
+function bulkUpdate(current: readonly PlanStep[], input: PlanInput, status: StepStatus): PlanOutcome {
+  const isAll = input.allOpen === true
+  if (!BULK_STATUSES.includes(status)) {
+    return { error: `Cập nhật hàng loạt chỉ nhận waiting, blocked, skipped hoặc todo; ${status} cần cập nhật từng bước bằng step (mỗi bước cam kết riêng).` }
+  }
+  if (isAll && status === 'todo') return { error: 'allOpen không nhận todo (các bước mở đã là todo hoặc doing); dùng ids để đặt bước waiting hay blocked về todo.' }
+  const note = text(input.note)
+  if (status !== 'todo' && !note) return { error: `Trạng thái ${status} cần note giải thích lý do.` }
+  let ids: number[]
+  if (isAll) {
+    ids = current.filter(s => s.status === 'todo' || s.status === 'doing').map(s => s.id)
+    if (ids.length === 0) return { error: 'Không có bước mở nào để cập nhật hàng loạt.' }
+  } else {
+    if (!Array.isArray(input.ids) || input.ids.length === 0 || input.ids.some(v => typeof v !== 'number' || !Number.isInteger(v))) {
+      return { error: 'ids phải là mảng số nguyên không rỗng (id của các bước cần cập nhật).' }
+    }
+    ids = [...new Set(input.ids as number[])].sort((a, b) => a - b)
+    const unknown = ids.filter(id => !current.some(s => s.id === id))
+    const closed = ids.filter(id => IS_CLOSED.includes(current.find(s => s.id === id)?.status as StepStatus))
+    if (unknown.length > 0 || closed.length > 0) {
+      const parts = [
+        unknown.length > 0 ? `không có bước id ${unknown.join(', ')}` : '',
+        closed.length > 0 ? `bước id ${closed.join(', ')} đã đóng (done, verified hoặc skipped)` : '',
+      ].filter(Boolean)
+      return { error: `Không đổi bước nào: ${parts.join('; ')}. Các id hiện có: ${current.map(s => s.id).join(', ')}.` }
+    }
+  }
+  const detail = note.slice(0, 200)
+  const set = new Set(ids)
+  const plan = current.map(s => {
+    if (!set.has(s.id)) return s
+    const { note: _old, ...rest } = s
+    return { ...rest, status, ...(detail ? { note: detail } : {}) }
+  })
+  return { plan, changed: ids, bulk: { status, note: detail } }
+}
+
 export function applyPlan(current: readonly PlanStep[], input: PlanInput): PlanOutcome {
   const action = text(input.action)
 
@@ -116,14 +167,19 @@ export function applyPlan(current: readonly PlanStep[], input: PlanInput): PlanO
     const nextId = current.reduce((max, s) => Math.max(max, s.id), 0) + 1
     const steps = parseSteps(input.steps, nextId)
     if (steps.length === 0) return { error: 'action "add" cần ít nhất một bước trong steps.' }
-    return { plan: [...current, ...steps] }
+    return { plan: [...current, ...steps], changed: steps.map(step => step.id) }
   }
 
   if (action === 'update') {
+    const chosen = [input.step !== undefined, input.ids !== undefined, input.allOpen === true]
+    if (chosen.filter(Boolean).length > 1) return { error: 'action "update" chỉ nhận một trong step, ids hoặc allOpen.' }
+    if (!chosen.some(Boolean)) return { error: 'action "update" cần đúng một trong step, ids hoặc allOpen.' }
+    const status = STATUSES.find(s => s === input.status)
+    if (input.step === undefined && !status) return { error: `status phải là một trong: ${STATUSES.join(', ')}.` }
+    if (input.step === undefined) return bulkUpdate(current, input, status as StepStatus)
     const id = typeof input.step === 'number' ? input.step : Number.NaN
     const target = current.find(s => s.id === id)
     if (!target) return { error: `Không có bước id ${String(input.step)}. Các id hiện có: ${current.map(s => s.id).join(', ') || 'không có'}.` }
-    const status = STATUSES.find(s => s === input.status)
     if (!status) return { error: `status phải là một trong: ${STATUSES.join(', ')}.` }
     const evidence = text(input.evidence)
     const note = text(input.note)
@@ -136,6 +192,7 @@ export function applyPlan(current: readonly PlanStep[], input: PlanInput): PlanO
     const detail = (evidence || note).slice(0, 200)
     return {
       plan: current.map(s => (s.id === id ? { ...s, status, ...(detail ? { note: detail } : {}) } : s)),
+      changed: [id],
     }
   }
 

@@ -271,6 +271,25 @@ export function nextLine(plan: readonly PlanStep[]): string {
   return waiting.length > 0 ? `\nĐang chờ: ${waiting.map(s => `${s.id}. ${s.title}`).join('; ')}` : ''
 }
 
+/** id liên tiếp rút thành dải: [1,2,3,5,7,8] thành "1-3, 5, 7-8". */
+export function idRanges(ids: readonly number[]): string {
+  const sorted = [...new Set(ids)].sort((a, b) => a - b)
+  const out: string[] = []
+  for (let i = 0; i < sorted.length; ) {
+    let j = i
+    while (j + 1 < sorted.length && (sorted[j + 1] ?? 0) === (sorted[j] ?? 0) + 1) j += 1
+    out.push(j > i ? `${sorted[i]}-${sorted[j]}` : `${sorted[i]}`)
+    i = j + 1
+  }
+  return out.join(', ')
+}
+
+/** Kết quả của update hàng loạt: dòng tổng, một dòng nêu các bước đã chuyển và ghi chú chung, rồi bước tiếp theo hoặc đang chờ. Không in từng hàng. */
+export function renderBulk(plan: readonly PlanStep[], changed: readonly number[], status: StepStatus, note: string): string {
+  const moved = `Đã chuyển ${changed.length} bước sang ${status}: id ${idRanges(changed)}.${note ? ` Ghi chú: ${note}` : ''}`
+  return `${totalLine(plan)}\n${moved}${nextLine(plan)}`
+}
+
 /** Mọi bước đã hết mở nhưng còn bước chờ hoặc bị chặn: không được tuyên bố hoàn tất. */
 export function pendingNotice(plan: readonly PlanStep[]): string {
   const pending = pendingSteps(plan)
@@ -290,7 +309,8 @@ export function stopBlockReason(plan: readonly PlanStep[], failed: readonly stri
       `[focus-conductor] Checklist còn ${open.length} bước mở: ` +
         `${open.map(s => `${s.id}. ${s.title}`).join('; ')}. ` +
         `Hoàn thành các bước đó, hoặc cập nhật trạng thái bằng ${PLAN_TOOL_FULL} ` +
-        '(skipped, blocked hoặc waiting kèm lý do) trước khi kết thúc. Đang chờ lệnh nền, tiến trình hay người dùng thì ghi waiting; blocked dành cho vướng mắc không tự gỡ được.',
+        '(skipped, blocked hoặc waiting kèm lý do) trước khi kết thúc. Đang chờ lệnh nền, tiến trình hay người dùng thì ghi waiting; blocked dành cho vướng mắc không tự gỡ được. ' +
+        'Dừng cả checklist theo lệnh người dùng: một lần gọi action "update" với allOpen true, status waiting hoặc blocked và một note chung.',
     )
   }
   if (failed.length > 0) {
