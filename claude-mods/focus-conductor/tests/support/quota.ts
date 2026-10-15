@@ -26,11 +26,12 @@ export const session = (used: number, resetsAt = FAR): Limit => ({ kind: 'five_h
 /** Hạn mức tuần đã dùng `used` phần trăm. */
 export const week = (used: number, resetsAt = FAR): Limit => ({ kind: 'seven_day', percentUsed: used, resetsAt })
 
-/** Kho $.store trong bộ nhớ mà test đọc thẳng được; `failing` làm `set` bị từ chối (như khi vượt 4 MiB). */
+/** Kho $.store trong bộ nhớ mà test đọc thẳng được; `failing` làm `set` bị từ chối (như khi vượt 4 MiB); `sets` đếm số lần ghi. */
 export function memoryStore(on: On) {
-  const box = { data: new Map<string, unknown>(), failing: false }
+  const box = { data: new Map<string, unknown>(), failing: false, sets: 0 }
   on('store.get', (_$, e) => ({ value: box.data.has(e.key) ? JSON.parse(JSON.stringify(box.data.get(e.key))) : undefined }) as never)
   on('store.set', (_$, e) => {
+    box.sets += 1
     if (box.failing) throw new Error('kho đầy')
     box.data.set(e.key, JSON.parse(JSON.stringify(e.value)))
     return { value: undefined } as never
