@@ -69,7 +69,7 @@ export function registerSession(on: On, ctx: Ctx): void {
     await $.command.register({
       name: 'conductor',
       description: 'Focus Conductor: mục tiêu, checklist và điều phối model/effort/agent',
-      argumentHint: '[status | mode auto|subagents|suggest|off | goal <mô tả> | reroute | reset]',
+      argumentHint: '[status | mode auto|subagents|suggest|off | goal <mô tả> | reroute | reset | pause | resume [force|discard]]',
     })
     // Bảo vệ hạn mức: nạp điểm dừng còn mở của thư mục này (phiên mới hay resume). Bản resuming của phiên trước (chết
     // giữa chừng) quay về open. Chỉ khi chưa có mục tiêu thì khôi phục mục tiêu và checklist; không tự gửi prompt nào.

@@ -170,3 +170,14 @@ export function briefFromCheckpoint(cp: QuotaCheckpoint, now: number): Brief {
     at: now,
   }
 }
+
+/** Ghi một tool call vào năm tool call cuối (chỉ luồng chính). */
+export function pushRecent(recent: readonly string[], line: string): string[] {
+  return [...recent, line].slice(-RECENT_MAX)
+}
+
+/** Ghi các file vừa thấy bị sửa trong mục tiêu goalId; đổi mục tiêu thì bắt đầu lại. Tối đa FILES_MAX, mới nhất sau cùng. */
+export function addTouched(touched: { goalId: number; paths: readonly string[] }, goalId: number, paths: readonly string[]): { goalId: number; paths: string[] } {
+  const kept = touched.goalId === goalId ? touched.paths.filter(p => !paths.includes(p)) : []
+  return { goalId, paths: [...kept, ...paths].slice(-FILES_MAX) }
+}

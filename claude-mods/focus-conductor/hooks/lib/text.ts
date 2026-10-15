@@ -3,6 +3,10 @@
 
 import type { Brief, Choice, PlanStep, QuotaCheckpoint, QuotaReason, Route, StepStatus, Task } from '../../types'
 import { openSteps, pendingSteps } from './drift'
+import { evaluateQuota, isStale } from './quota'
+import type { QuotaBadge, QuotaThresholds } from './quota'
+import { labels } from '../ui/labels'
+import type { Lang } from '../ui/labels'
 import { describePick } from './route'
 
 export const PLAN_TOOL = 'plan'
@@ -425,4 +429,61 @@ export function resumeContext(cp: QuotaCheckpoint, changed: readonly string[]): 
     text = build(parts)
   }
   return text.length > RESUME_MAX ? `${text.slice(0, RESUME_MAX - 1)}…` : text
+}
+
+/** Phần trăm cho nhãn band và status line (dấu phẩy thập phân). */
+export function quotaPercent(value: number): string {
+  return percent(value)
+}
+
+/** Status line kèm nhãn hạn mức (đang dừng, hay phần còn lại khi gần ngưỡng); không có nhãn thì giữ nguyên. */
+export function withQuotaStatus(base: string | undefined, badge: QuotaBadge | null, lang: Lang): string | undefined {
+  if (base === undefined || badge === null) return base
+  const l = labels(lang)
+  return `${base} · ${badge.paused ? l.quotaPaused : l.quotaLeft(percent(badge.left ?? 0))}`
+}
+
+export type QuotaStatusInput = {
+  enabled: boolean
+  limits: readonly unknown[] | null
+  thresholds: QuotaThresholds
+  pause: { source: 'quota' | 'user' } | null
+  overrideUntil: number
+  checkpoint: QuotaCheckpoint | null
+  now: number
+}
+
+/** Mục Hạn mức của /conductor status: từng cửa sổ (đã dùng, còn lại, làm mới, ngưỡng), trạng thái và điểm dừng. */
+export function quotaStatusLines(input: QuotaStatusInput): string[] {
+  if (!input.enabled) return ['Hạn mức: bảo vệ đang tắt (quotaGuard false).']
+  const lines = ['Hạn mức:']
+  for (const raw of Array.isArray(input.limits) ? input.limits : []) {
+    const item = raw as { kind?: unknown; percentUsed?: unknown; resetsAt?: unknown }
+    if ((item.kind !== 'five_hour' && item.kind !== 'seven_day') || typeof item.percentUsed !== 'number' || !Number.isFinite(item.percentUsed)) continue
+    const resetsAt = typeof item.resetsAt === 'string' ? item.resetsAt : undefined
+    if (isStale(resetsAt, input.now)) continue
+    const threshold = item.kind === 'five_hour' ? input.thresholds.session : input.thresholds.week
+    const reset = resetLabel(resetsAt)
+    lines.push(
+      `  ${item.kind === 'five_hour' ? 'phiên (5 giờ)' : 'tuần'}: đã dùng ${percent(item.percentUsed)}, còn ${percent(Math.max(0, 100 - item.percentUsed))}` +
+        `${reset ? `, làm mới ${reset}` : ''}, ngưỡng còn ${percent(threshold)}`,
+    )
+  }
+  const zone = evaluateQuota(input.limits, input.now, input.thresholds).zone
+  const state =
+    input.pause?.source === 'user'
+      ? 'tạm dừng (người dùng)'
+      : input.overrideUntil > input.now
+        ? `ép tiếp tới ${resetLabel(new Date(input.overrideUntil).toISOString())}`
+        : input.pause !== null || zone === 'pause'
+          ? 'tạm dừng (hạn mức)'
+          : zone === 'ok'
+            ? 'ok'
+            : 'không có dữ liệu (engine không báo hạn mức: tài khoản không dùng gói subscription, chưa có lượt đọc đầu, hoặc số đo đã cũ)'
+  lines.push(`  trạng thái: ${state}`)
+  const cp = input.checkpoint
+  if (cp !== null && cp.status !== 'consumed') {
+    lines.push(`  điểm dừng: ${cp.status === 'open' ? 'đang mở' : 'đang tiếp tục'} (tạo lúc ${resetLabel(new Date(cp.createdAt).toISOString()) || 'không rõ giờ'}${cp.note ? '' : ', Claude chưa ghi note'})`)
+  }
+  return lines
 }

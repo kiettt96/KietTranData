@@ -2,8 +2,8 @@
 
 import { atom, derive, read, update } from 'claude-code'
 import type { Brief, Core, QuotaCheckpoint } from '../../types'
-import { forceUntil, storeKey } from '../lib/checkpoint'
-import { EMPTY_QUOTA, evaluateQuota, normalizeQuota, quotaSettings, reasonsOf } from '../lib/quota'
+import { buildCheckpoint, forceUntil, pruneKeys, storeKey } from '../lib/checkpoint'
+import { EMPTY_QUOTA, evaluateQuota, newPause, normalizeQuota, quotaSettings, reasonsOf } from '../lib/quota'
 import { restorableSteps } from '../lib/drift'
 import { cacheNote, priceNote } from '../lib/cost'
 import { estimateLine, formatUsd, ledgerLines } from '../lib/ledger'
@@ -11,7 +11,7 @@ import { describePick } from '../lib/route'
 import { clipText } from '../lib/decisions'
 import { askRouter, bareBrief, briefOf, nextBrief, parseRoute, rerouted, routerRequest } from '../lib/router'
 import * as S from '../lib/state'
-import { briefContext, droppedPlanNotice, renderPlan, resetLabel, unroutedContext } from '../lib/text'
+import { briefContext, droppedPlanNotice, quotaStatusLines, renderPlan, resetLabel, unroutedContext } from '../lib/text'
 import { PANE, PANE_TITLE } from '../ui/pane'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
@@ -28,6 +28,36 @@ const quotaState = atom({ plugin: 'focus-conductor', key: 'quota' } as const, EM
 
 /** /conductor resume discard phải gõ lần hai trong bấy nhiêu ms (như nút Đặt lại). */
 const DISCARD_ARM_MS = 10_000
+
+/**
+ * /conductor pause: ghi điểm dừng như khi vào vùng dừng (giai đoạn một), vào $.store theo thư mục, bỏ bản thừa để kho
+ * còn tối đa năm. Kho từ chối thì trả false (bản sao trong $.state vẫn giữ).
+ */
+async function savePauseCheckpoint($: EngineInterface, cp: QuotaCheckpoint): Promise<boolean> {
+  try {
+    const key = storeKey(cp.cwd)
+    await $.store.set(key, cp)
+    const entries: Array<{ key: string; status: QuotaCheckpoint['status']; createdAt: number }> = []
+    for (const k of (await $.store.keys()).filter(k => k.startsWith('checkpoint:'))) {
+      const value = (await $.store.get(k)) as Partial<QuotaCheckpoint> | undefined
+      entries.push({ key: k, status: value?.status ?? 'consumed', createdAt: value?.createdAt ?? 0 })
+    }
+    for (const k of pruneKeys(entries, key)) await $.store.delete(k)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Kích thước và thời điểm sửa của các file cho điểm dừng (-1 khi không đọc được). */
+async function pauseFileStats($: EngineInterface, paths: readonly string[]): Promise<Array<{ path: string; mtimeMs: number; size: number }>> {
+  const out: Array<{ path: string; mtimeMs: number; size: number }> = []
+  for (const path of paths) {
+    const stat = await $.fs.stat(path).catch(() => null)
+    out.push({ path, mtimeMs: stat?.mtimeMs ?? -1, size: stat?.size ?? -1 })
+  }
+  return out
+}
 
 /** Số đo hạn mức tươi cho lệnh (không tốn chi phí); engine không trả được thì null. */
 async function commandLimits($: EngineInterface): Promise<readonly unknown[] | null> {
@@ -186,6 +216,35 @@ export function registerCommand(on: On, ctx: Ctx): void {
       }
     }
 
+    if (sub === 'pause') {
+      // Người dùng chủ động dừng: cùng đường dừng mềm (tool bị từ chối trừ plan) và ghi điểm dừng ngay.
+      const settings = quotaSettings(ctx.options)
+      if (!settings.enabled) return { text: 'Bảo vệ hạn mức đang tắt (quotaGuard false); /conductor pause không có tác dụng.' }
+      const now = await $.clock.now()
+      const q = normalizeQuota(await read($, quotaState))
+      if (q.pause?.source === 'user') return { text: 'Đang tạm dừng theo yêu cầu; dùng /conductor resume để chạy tiếp.' }
+      const core = S.normalizeCore(await read($, coreState))
+      const goalId = core.brief?.goalId ?? 0
+      const root = await $.session.root().catch(() => null)
+      const dir = root || ((await $.session.cwd().catch(() => null)) ?? '')
+      const cp = buildCheckpoint({
+        id: `cp-${now}`,
+        now,
+        cwd: dir,
+        reason: [],
+        brief: core.brief,
+        plan: core.plan,
+        delegations: core.delegations.goalId === goalId ? core.delegations.items : [],
+        recent: q.recent,
+        files: await pauseFileStats($, q.touched.goalId === goalId ? q.touched.paths : []),
+        denied: null,
+      })
+      await update($, quotaState, c => ({ ...normalizeQuota(c), pause: newPause(now, 'user', []), checkpoint: cp, resume: null }))
+      const isSaved = await savePauseCheckpoint($, cp)
+      if (!isSaved) $.ui.toast('Focus Conductor: không lưu được điểm dừng vào kho của mod; điểm dừng chỉ còn trong phiên này')
+      return { text: 'Đã tạm dừng: mọi tool (trừ plan) bị từ chối tới khi dùng /conductor resume. Điểm dừng đã được ghi; prompt sau khi resume sẽ tiếp tục từ đó.' }
+    }
+
     if (sub === 'resume') {
       // Tiếp tục từ điểm dừng: force ép chạy tiếp tới mốc làm mới sớm nhất (không mất điểm dừng); discard bỏ điểm dừng
       // sau khi gõ lần hai trong 10 giây; không tham số thì mở lại sau /conductor pause và báo cách tiếp tục.
@@ -229,6 +288,18 @@ export function registerCommand(on: On, ctx: Ctx): void {
       costLines.push(cacheNote(ctx.cacheTtlMs / 60_000))
       const latency = routerTimeLine()
       if (latency) costLines.push(latency)
+      const quotaNow = normalizeQuota(await read($, quotaState))
+      costLines.push(
+        ...quotaStatusLines({
+          enabled: quotaSettings(ctx.options).enabled,
+          limits: usage !== null && Array.isArray(usage.rateLimits) ? usage.rateLimits : null,
+          thresholds: quotaSettings(ctx.options),
+          pause: quotaNow.pause,
+          overrideUntil: quotaNow.overrideUntil,
+          checkpoint: quotaNow.checkpoint,
+          now: await $.clock.now(),
+        }),
+      )
       if (core.brief === null) return { text: [`Chế độ ${current}. Chưa có mục tiêu.`, ...costLines].join('\n') }
       const routeLine = core.route
         ? `${describePick(core.route)} (${core.route.reason})`

@@ -2,21 +2,25 @@
 // Đăng ký trước mọi nhóm hook khác (register.tsx), nên hook tool.call ở đây là lớp ngoài cùng: lệnh bị từ chối
 // trước khi hook Agent kịp hỏi router chấm subagent, và trước mọi bước theo dõi của consistency.
 
-import { atom, read, update } from 'claude-code'
+import { atom, derive, read, update } from 'claude-code'
 import type { EngineInterface, On } from 'claude-code'
-import type { QuotaCheckpoint } from '../../types'
-import { buildCheckpoint, pruneKeys, recentLine, storeKey } from '../lib/checkpoint'
+import type { QuotaCheckpoint, QuotaState } from '../../types'
+import { addTouched, buildCheckpoint, pruneKeys, pushRecent, recentLine, storeKey } from '../lib/checkpoint'
 import type { CheckpointInput } from '../lib/checkpoint'
 import { classifyBash, filePathOf, isMutation } from '../lib/drift'
-import { EMPTY_QUOTA, QUOTA_CACHE_MS, deniedInput, evaluateQuota, isPauseActive, newPause, normalizeQuota, noteDenial, quotaSettings, reasonsOf } from '../lib/quota'
+import { EMPTY_QUOTA, QUOTA_CACHE_MS, deniedInput, evaluateQuota, isPauseActive, newPause, normalizeQuota, noteDenial, quotaBadge, quotaSettings, reasonsOf } from '../lib/quota'
+import type { QuotaEval } from '../lib/quota'
 import * as S from '../lib/state'
-import { PLAN_TOOL_FULL, quotaDenyText } from '../lib/text'
+import type { View } from '../lib/state'
+import { PLAN_TOOL_FULL, quotaDenyText, withQuotaStatus } from '../lib/text'
+import { viewOf } from '../atoms'
 import type { Ctx } from '../context'
 
 // Atom của mod, khai báo lại ở mỗi file dùng chúng (engine chỉ nhận tham chiếu state viết trong chính file đó).
 const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EMPTY_CORE)
 const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null)
 const quotaState = atom({ plugin: 'focus-conductor', key: 'quota' } as const, EMPTY_QUOTA)
+const bandHiddenState = atom({ plugin: 'focus-conductor', key: 'isBandHidden' } as const, false)
 
 type LimitCache = { at: number; limits: readonly unknown[] | null }
 
@@ -75,12 +79,15 @@ async function freshLimits($: EngineInterface, cache: LimitCache, now: number): 
   return cache.limits
 }
 
+/** Đặt status line kèm nhãn hạn mức (đang dừng, hay phần còn lại khi gần ngưỡng). */
+function setQuotaStatus($: EngineInterface, current: View, isPaused: boolean, evaluation: QuotaEval): void {
+  $.ui.status(withQuotaStatus(S.statusOf(current), quotaBadge(isPaused, evaluation), current.lang))
+}
+
 export function registerQuota(on: On, ctx: Ctx): void {
   const settings = quotaSettings(ctx.options)
+  const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
   const cache: LimitCache = { at: Number.NEGATIVE_INFINITY, limits: null }
-  // Năm tool call cuối của luồng chính và các file thấy bị sửa theo mục tiêu: dữ liệu cho điểm dừng (không có output).
-  const recent: string[] = []
-  const touched = new Map<number, string[]>()
 
   // Số đo mới sau mỗi turn hay khi một cửa sổ nhích: chỉ cập nhật $.state cho band và status, không dừng gì ở đây
   // (dừng thật nằm ở tool.call, ranh giới nguyên tử).
@@ -92,6 +99,8 @@ export function registerQuota(on: On, ctx: Ctx): void {
     cache.at = now
     cache.limits = Array.isArray(e.rateLimits) ? e.rateLimits : null
     await update($, quotaState, q => ({ ...normalizeQuota(q), zone: evaluation.zone, readings: [...(e.rateLimits ?? [])], measuredAt: now }))
+    const q = normalizeQuota(await read($, quotaState))
+    if (S.modeOf(await read($, modeState), ctx.options) !== 'off') setQuotaStatus($, await read($, view), q.pause !== null, evaluation)
     return result
   }).catch(($, e, next) => next(e))
 
@@ -128,28 +137,31 @@ export function registerQuota(on: On, ctx: Ctx): void {
   on('tool.call', { tool: /.*/ }, async ($, e, next) => {
     if (!settings.enabled || S.modeOf(await read($, modeState), ctx.options) === 'off') return next(e)
     const now = await $.clock.now()
+    const isFresh = now - cache.at >= QUOTA_CACHE_MS
     const limits = await freshLimits($, cache, now)
     const evaluation = evaluateQuota(limits, now, settings)
+    if (isFresh) await update($, quotaState, c => ({ ...normalizeQuota(c), readings: [...(limits ?? [])] as QuotaState['readings'], measuredAt: now }))
     const q = normalizeQuota(await read($, quotaState))
     if (!isPauseActive(true, evaluation.zone, q.pause, q.overrideUntil, now)) {
       // Hạn mức đã làm mới hay người dùng ép tiếp: dừng do hạn mức tự mở; điểm dừng (nếu có) vẫn còn để tiếp tục.
       if (q.pause !== null || q.zone !== evaluation.zone) {
         await update($, quotaState, c => ({ ...normalizeQuota(c), zone: evaluation.zone, pause: null }))
+        setQuotaStatus($, await read($, view), false, evaluation)
       }
       const result = await next(e)
       if (e.tool === PLAN_TOOL_FULL || result.deny !== undefined) return result
       const observation = { tool: e.tool, input: e as unknown as Record<string, unknown>, isError: result.isError === true, isReadOnly: result.isReadOnly === true }
       const path = filePathOf(observation)
-      if (e.agentId === undefined) {
-        const target = path || (e.tool === 'Bash' ? String((e as unknown as { command?: unknown }).command ?? '') : '')
-        recent.push(recentLine(e.tool, target, observation.isError))
-        if (recent.length > 5) recent.shift()
-      }
-      if (isMutation(observation)) {
+      // Năm tool call cuối của luồng chính và các file thấy bị sửa trong mục tiêu: dữ liệu cho điểm dừng (không có output).
+      const command = e.tool === 'Bash' ? String((e as unknown as { command?: unknown }).command ?? '') : ''
+      const line = e.agentId === undefined ? recentLine(e.tool, path || command, observation.isError) : null
+      const paths = isMutation(observation) ? (path ? [path] : command ? classifyBash(command).paths : []) : []
+      if (line !== null || paths.length > 0) {
         const goalId = S.normalizeCore(await read($, coreState)).brief?.goalId ?? 0
-        const paths = path ? [path] : e.tool === 'Bash' ? classifyBash(String((e as unknown as { command?: unknown }).command ?? '')).paths : []
-        const list = (touched.get(goalId) ?? []).filter(p => !paths.includes(p))
-        touched.set(goalId, [...list, ...paths].slice(-50))
+        await update($, quotaState, c => {
+          const n = normalizeQuota(c)
+          return { ...n, recent: line !== null ? pushRecent(n.recent, line) : n.recent, touched: paths.length > 0 ? addTouched(n.touched, goalId, paths) : n.touched }
+        })
       }
       return result
     }
@@ -166,6 +178,7 @@ export function registerQuota(on: On, ctx: Ctx): void {
       $.ui.toast('Focus Conductor: tạm dừng vì hạn mức sắp hết; Claude ghi điểm dừng rồi kết thúc')
       const entered = pause
       await update($, quotaState, c => ({ ...normalizeQuota(c), zone: evaluation.zone, pause: entered }))
+      setQuotaStatus($, await read($, view), true, evaluation)
       // Giai đoạn một: mod tự ghi điểm dừng ngay, nên dù Claude không kịp gọi plan checkpoint vẫn tiếp tục được.
       const fresh = S.normalizeCore(await read($, coreState))
       const cp = buildCheckpoint({
@@ -176,8 +189,8 @@ export function registerQuota(on: On, ctx: Ctx): void {
         brief: fresh.brief,
         plan: fresh.plan,
         delegations: fresh.delegations.goalId === fresh.brief?.goalId ? fresh.delegations.items : [],
-        recent,
-        files: await fileStats($, touched.get(fresh.brief?.goalId ?? 0) ?? []),
+        recent: q.recent,
+        files: await fileStats($, q.touched.goalId === (fresh.brief?.goalId ?? 0) ? q.touched.paths : []),
         denied: null,
       })
       await update($, quotaState, c => ({ ...normalizeQuota(c), checkpoint: cp }))

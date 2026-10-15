@@ -86,7 +86,7 @@ export const HARD_STOP_AFTER = 3
 /** Đầu vào của lệnh bị từ chối được cắt còn bấy nhiêu ký tự khi ghi vào điểm dừng. */
 export const DENIED_INPUT_MAX = 300
 
-export const EMPTY_QUOTA: QuotaState = { zone: 'unknown', readings: [], measuredAt: 0, pause: null, overrideUntil: 0, mainTurnId: '', checkpoint: null, resume: null, discardArmedUntil: 0 }
+export const EMPTY_QUOTA: QuotaState = { zone: 'unknown', readings: [], measuredAt: 0, pause: null, overrideUntil: 0, mainTurnId: '', checkpoint: null, resume: null, discardArmedUntil: 0, recent: [], touched: { goalId: -1, paths: [] } }
 
 export function normalizeQuota(raw: Partial<QuotaState> | null | undefined): QuotaState {
   return { ...EMPTY_QUOTA, ...(raw ?? {}) }
@@ -134,4 +134,12 @@ export function noteDenial(pause: QuotaPause, turnId: string, denied: { tool: st
   const aborted = sameTurn ? pause.aborted : false
   const abort = denials >= HARD_STOP_AFTER && !aborted && turnId !== ''
   return { pause: { ...pause, denials, denialTurn: turnId, aborted: aborted || abort, denied: pause.denied ?? denied }, abort }
+}
+
+/** Nhãn hạn mức cho band và status line: đang dừng, hoặc phần còn lại của cửa sổ gần ngưỡng nhất (trong vùng gấp đôi biên). */
+export type QuotaBadge = { paused: boolean; left: number | null }
+
+export function quotaBadge(isPaused: boolean, evaluation: QuotaEval): QuotaBadge | null {
+  if (isPaused) return { paused: true, left: null }
+  return evaluation.nearest !== null ? { paused: false, left: evaluation.nearest.remaining } : null
 }

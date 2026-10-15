@@ -297,6 +297,10 @@ export type QuotaState = {
   resume: { id: string; turnId: string } | null
   /** /conductor resume discard đang chờ gõ lần hai tới mốc này (ms); 0 khi không chờ. */
   discardArmedUntil: number
+  /** Năm tool call cuối của luồng chính (tool, đối tượng rút gọn, lỗi hay không): dữ liệu cho điểm dừng. */
+  recent: string[]
+  /** File thấy bị sửa trong mục tiêu goalId (tối đa 50): dữ liệu cho điểm dừng. */
+  touched: { goalId: number; paths: string[] }
 }
 
 declare module 'claude-code' {
