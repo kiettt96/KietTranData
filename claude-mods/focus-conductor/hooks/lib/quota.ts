@@ -3,6 +3,7 @@
 // nên dừng khi percentUsed >= 100 - còn_lại. Chỉ xét hạn mức phiên (five_hour) và tuần (seven_day).
 
 import type { QuotaPause, QuotaReason, QuotaState } from '../../types'
+import { maskSecrets } from './checkpoint'
 
 /** Cửa sổ hạn mức mod xét: phiên (5 giờ) và tuần. */
 export type QuotaKind = 'five_hour' | 'seven_day'
@@ -86,20 +87,36 @@ export const HARD_STOP_AFTER = 3
 /** Đầu vào của lệnh bị từ chối được cắt còn bấy nhiêu ký tự khi ghi vào điểm dừng. */
 export const DENIED_INPUT_MAX = 300
 
-export const EMPTY_QUOTA: QuotaState = { zone: 'unknown', readings: [], measuredAt: 0, pause: null, overrideUntil: 0, mainTurnId: '', checkpoint: null, resume: null, discardArmedUntil: 0, recent: [], touched: { goalId: -1, paths: [] } }
+export const EMPTY_QUOTA: QuotaState = { zone: 'unknown', readings: [], measuredAt: 0, pause: null, overrideUntil: 0, overrideKinds: [], resumeArmed: false, mainTurnId: '', checkpoint: null, resume: null, discardArmedUntil: 0, recent: [], touched: { goalId: -1, paths: [] } }
 
 export function normalizeQuota(raw: Partial<QuotaState> | null | undefined): QuotaState {
   return { ...EMPTY_QUOTA, ...(raw ?? {}) }
 }
 
 /**
- * Có đang dừng không: người dùng tự dừng (/conductor pause) luôn là dừng; dừng do hạn mức khi vùng là pause và không
- * trong thời gian ép tiếp (overrideUntil). Tắt quotaGuard thì không bao giờ dừng.
+ * Có đang dừng không: người dùng tự dừng (/conductor pause) luôn là dừng; dừng do hạn mức khi có cửa sổ qua ngưỡng mà
+ * không được ép tiếp (ép chỉ miễn các cửa sổ trong overrideKinds, tới overrideUntil). Tắt quotaGuard thì không dừng.
  */
-export function isPauseActive(enabled: boolean, zone: QuotaState['zone'], pause: QuotaPause | null, overrideUntil: number, now: number): boolean {
+export function isPauseActive(
+  enabled: boolean,
+  hits: ReadonlyArray<{ kind: QuotaKind }>,
+  pause: QuotaPause | null,
+  override: { until: number; kinds: readonly QuotaKind[] },
+  now: number,
+): boolean {
   if (!enabled) return false
   if (pause?.source === 'user') return true
-  return zone === 'pause' && now >= overrideUntil
+  return blockingHits(hits, override, now).length > 0
+}
+
+/** Các cửa sổ qua ngưỡng mà không được ép tiếp: chỉ chúng là lý do dừng. */
+export function blockingHits<T extends { kind: QuotaKind }>(hits: readonly T[], override: { until: number; kinds: readonly QuotaKind[] }, now: number): T[] {
+  return hits.filter(h => !(now < override.until && override.kinds.includes(h.kind)))
+}
+
+/** Phần ép tiếp của trạng thái, cho isPauseActive. */
+export function overrideOf(q: Pick<QuotaState, 'overrideUntil' | 'overrideKinds'>): { until: number; kinds: readonly QuotaKind[] } {
+  return { until: q.overrideUntil, kinds: q.overrideKinds }
 }
 
 /** Lý do dừng từ các cửa sổ đã qua ngưỡng. */
@@ -112,15 +129,39 @@ export function newPause(at: number, source: QuotaPause['source'], reason: Quota
   return { at, source, reason, denials: 0, denialTurn: '', aborted: false, denied: null }
 }
 
-/** Đầu vào của tool call, bỏ tên tool và định danh, cắt ngắn; không bao giờ có output. */
-export function deniedInput(e: Record<string, unknown>): string {
-  const { tool: _tool, agentId: _agent, tool_use_id: _id, ...input } = e
-  let text: string
+/** Tool ghi file: điểm dừng chỉ giữ đường dẫn và độ dài nội dung, không giữ nội dung. */
+const WRITE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit'])
+const CONTENT_FIELDS = ['content', 'old_string', 'new_string', 'new_source', 'edits'] as const
+
+function contentLength(value: unknown): number {
+  if (typeof value === 'string') return value.length
+  if (value === undefined) return 0
   try {
-    text = JSON.stringify(input)
+    return JSON.stringify(value)?.length ?? 0
   } catch {
-    text = ''
+    return 0
   }
+}
+
+/**
+ * Đầu vào của tool call, bỏ tên tool và định danh, che bí mật, cắt ngắn; không bao giờ có output. Tool ghi file chỉ
+ * còn đường dẫn và độ dài nội dung.
+ */
+export function deniedInput(e: Record<string, unknown>): string {
+  const { tool, agentId: _agent, tool_use_id: _id, ...input } = e
+  let text: string
+  if (typeof tool === 'string' && WRITE_TOOLS.has(tool)) {
+    const path = input['file_path'] ?? input['notebook_path'] ?? ''
+    const size = CONTENT_FIELDS.reduce((n, field) => n + contentLength(input[field]), 0)
+    text = `${String(path)}, nội dung ${size} ký tự`
+  } else {
+    try {
+      text = JSON.stringify(input)
+    } catch {
+      text = ''
+    }
+  }
+  text = maskSecrets(text)
   return text.length > DENIED_INPUT_MAX ? `${text.slice(0, DENIED_INPUT_MAX - 1)}…` : text
 }
 

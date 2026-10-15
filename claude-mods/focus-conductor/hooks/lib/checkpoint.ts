@@ -33,10 +33,30 @@ function clip(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text
 }
 
-/** Một dòng của năm tool call cuối: tool, đối tượng rút gọn, đánh dấu lỗi; tối đa 120 ký tự. */
+// Giá trị bí mật trong lệnh hay đầu vào tool (có thể nằm trong JSON nên dừng ở dấu nháy, \, dấu phẩy, }, &):
+// tiền tố được giữ, giá trị thành ***. Nháy mở đầu (kể cả \" trong JSON) được giữ.
+const SECRET_VALUE = String.raw`(\\?["']?)[^\s'"\\,}&]+`
+const SECRET_RULES: ReadonlyArray<RegExp> = [
+  new RegExp(String.raw`(\bAuthorization\s*[:=]\s*(?:(?:Bearer|Basic|Token)\s+)?)${SECRET_VALUE}`, 'gi'),
+  new RegExp(String.raw`(\bBearer\s+)${SECRET_VALUE}`, 'gi'),
+  new RegExp(String.raw`(\b(?:access_token|token|api[_-]?key|apikey|secret|password|passwd|pwd)=)${SECRET_VALUE}`, 'gi'),
+  new RegExp(String.raw`(--(?:password|passwd|token|api-key|secret)(?:=|\s+))${SECRET_VALUE}`, 'gi'),
+  new RegExp(String.raw`(\b[A-Z][A-Z0-9_]*=)${SECRET_VALUE}`, 'g'),
+]
+
+/**
+ * Che giá trị bí mật trước khi ghi vào điểm dừng: sau Authorization, Bearer, token=, password=, --password và mọi
+ * biến môi trường dạng KEY=... (chữ hoa). Thừa còn hơn thiếu: biến vô hại như CI=1 cũng bị che.
+ */
+export function maskSecrets(text: string): string {
+  return SECRET_RULES.reduce((out, rule) => out.replace(rule, (_m, head: string, quote: string | undefined) => `${head}${quote ?? ''}***`), text)
+}
+
+/** Một dòng của năm tool call cuối: tool, đối tượng rút gọn (bí mật đã che), đánh dấu lỗi; tối đa 120 ký tự. */
 export function recentLine(tool: string, target: string, isError: boolean): string {
   const tail = isError ? ' (lỗi)' : ''
-  return `${clip(`${tool}${target ? ` ${target}` : ''}`, RECENT_LINE_MAX - tail.length)}${tail}`
+  const shown = maskSecrets(target)
+  return `${clip(`${tool}${shown ? ` ${shown}` : ''}`, RECENT_LINE_MAX - tail.length)}${tail}`
 }
 
 function briefOf(brief: Brief | null): CheckpointBrief {

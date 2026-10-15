@@ -2,7 +2,8 @@
 
 import { describe, expect, test } from 'claude-code/testing'
 
-import { REMAINING_MAX, REMAINING_MIN, clampRemaining, evaluateQuota, isPastLimit, isPauseActive, isStale, newPause, noteDenial, quotaBadge, quotaSettings } from '../hooks/lib/quota'
+import { REMAINING_MAX, REMAINING_MIN, clampRemaining, deniedInput, evaluateQuota, isPastLimit, isPauseActive, isStale, newPause, noteDenial, quotaBadge, quotaSettings } from '../hooks/lib/quota'
+import { maskSecrets, recentLine } from '../hooks/lib/checkpoint'
 import { quotaReasonText } from '../hooks/lib/text'
 
 const NOW = Date.parse('2026-10-15T08:00:00Z')
@@ -111,13 +112,22 @@ describe('0.6.0 F: biên của các hàm quyết định (mẫu đột biến 06
   })
 
   test('isPauseActive: tắt thì không bao giờ dừng, kể cả dừng của người dùng', () => {
-    expect(isPauseActive(false, 'pause', newPause(0, 'user', []), 0, 1)).toBe(false)
-    expect(isPauseActive(false, 'pause', null, 0, 1)).toBe(false)
+    const NONE = { until: 0, kinds: [] }
+    expect(isPauseActive(false, [{ kind: 'five_hour' }], newPause(0, 'user', []), NONE, 1)).toBe(false)
+    expect(isPauseActive(false, [{ kind: 'five_hour' }], null, NONE, 1)).toBe(false)
   })
 
   test('isPauseActive: đúng mốc hết ép tiếp là dừng lại', () => {
-    expect(isPauseActive(true, 'pause', null, 1_000, 999)).toBe(false)
-    expect(isPauseActive(true, 'pause', null, 1_000, 1_000)).toBe(true)
+    const forced = { until: 1_000, kinds: ['five_hour' as const] }
+    expect(isPauseActive(true, [{ kind: 'five_hour' }], null, forced, 999)).toBe(false)
+    expect(isPauseActive(true, [{ kind: 'five_hour' }], null, forced, 1_000)).toBe(true)
+  })
+
+  test('isPauseActive: ép tiếp chỉ miễn cửa sổ đã ép; cửa sổ khác qua ngưỡng vẫn dừng (góp ý PR 21)', () => {
+    const forced = { until: 5_000, kinds: ['five_hour' as const] }
+    expect(isPauseActive(true, [{ kind: 'seven_day' }], null, forced, 1_000)).toBe(true)
+    expect(isPauseActive(true, [{ kind: 'five_hour' }, { kind: 'seven_day' }], null, forced, 1_000)).toBe(true)
+    expect(isPauseActive(true, [], null, { until: 0, kinds: [] }, 1_000)).toBe(false)
   })
 
   test('noteDenial: chưa biết turnId (chưa có turn.start) thì không bao giờ dừng cứng', () => {
@@ -155,5 +165,42 @@ describe('0.6.0 F: biên của các hàm quyết định (mẫu đột biến 06
     const text = quotaReasonText({ kind: 'five_hour', percentUsed: 101.5, thresholdRemainingPct: 5 })
     expect(text).toContain('chỉ còn 0%')
     expect(text).not.toContain('-')
+  })
+})
+
+describe('0.6.0: điểm dừng không chứa nội dung file hay bí mật (góp ý PR 21)', () => {
+  const BAIT = 'MOI_BI_MAT_9917'
+
+  test('deniedInput: Write, Edit, MultiEdit, NotebookEdit chỉ ghi đường dẫn và độ dài nội dung', () => {
+    expect(deniedInput({ tool: 'Write', file_path: 'src/a.ts', content: `${BAIT}xxxxx` })).toBe(`src/a.ts, nội dung ${BAIT.length + 5} ký tự`)
+    expect(deniedInput({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'abc', new_string: `${BAIT}` })).toBe(`src/a.ts, nội dung ${3 + BAIT.length} ký tự`)
+    expect(deniedInput({ tool: 'NotebookEdit', notebook_path: 'n.ipynb', new_source: BAIT })).toBe(`n.ipynb, nội dung ${BAIT.length} ký tự`)
+    const multi = deniedInput({ tool: 'MultiEdit', file_path: 'src/b.ts', edits: [{ old_string: 'a', new_string: BAIT }] })
+    expect(multi.startsWith('src/b.ts, nội dung ')).toBe(true)
+    expect(multi).not.toContain(BAIT)
+  })
+
+  test('deniedInput của Bash che Authorization, Bearer, token=, password=, --password và biến môi trường KEY=...', () => {
+    const command = [
+      `curl -H "Authorization: Bearer ${BAIT}1" https://x`,
+      `curl -H 'Authorization: Basic ${BAIT}2'`,
+      `curl "https://x?token=${BAIT}3&a=1"`,
+      `mysql --password ${BAIT}4`,
+      `./run --password=${BAIT}5 password=${BAIT}6`,
+      `API_KEY=${BAIT}7 DB_PASS="${BAIT}8" ./deploy.sh`,
+    ].join(' && ')
+    const out = deniedInput({ tool: 'Bash', command })
+    expect(out).not.toContain(BAIT)
+    expect(out).toContain('curl')
+  })
+
+  test('recentLine che bí mật trong lệnh Bash', () => {
+    const line = recentLine('Bash', `export TOKEN=${BAIT} && curl -H "Authorization: Bearer ${BAIT}"`, false)
+    expect(line).not.toContain(BAIT)
+    expect(line.startsWith('Bash export TOKEN=')).toBe(true)
+  })
+
+  test('maskSecrets giữ nguyên lệnh không có bí mật', () => {
+    expect(maskSecrets('npm test -- --runInBand src/a.test.ts')).toBe('npm test -- --runInBand src/a.test.ts')
   })
 })

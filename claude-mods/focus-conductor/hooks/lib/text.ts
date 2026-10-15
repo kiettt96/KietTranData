@@ -431,6 +431,17 @@ export function resumeContext(cp: QuotaCheckpoint, changed: readonly string[]): 
   return text.length > RESUME_MAX ? `${text.slice(0, RESUME_MAX - 1)}…` : text
 }
 
+/**
+ * Dòng nhắc khi có điểm dừng mở mà prompt được xếp là việc khác: điểm dừng giữ nguyên để tiếp tục sau.
+ */
+export function resumePendingContext(cp: QuotaCheckpoint): string {
+  const goal = cp.brief.goal ? `, mục tiêu: ${cp.brief.goal.length > 120 ? `${cp.brief.goal.slice(0, 119)}…` : cp.brief.goal}` : ''
+  return (
+    `[focus-conductor] Có điểm dừng chưa tiếp tục (tạo lúc ${resetLabel(new Date(cp.createdAt).toISOString()) || 'không rõ giờ'}${goal}). ` +
+    'Prompt này được xếp là việc khác nên điểm dừng giữ nguyên; người dùng muốn làm tiếp thì nói "tiếp tục" hoặc dùng /conductor resume.'
+  )
+}
+
 /** Phần trăm cho nhãn band và status line (dấu phẩy thập phân). */
 export function quotaPercent(value: number): string {
   return percent(value)
@@ -449,6 +460,7 @@ export type QuotaStatusInput = {
   thresholds: QuotaThresholds
   pause: { source: 'quota' | 'user' } | null
   overrideUntil: number
+  overrideKinds: ReadonlyArray<QuotaReason['kind']>
   checkpoint: QuotaCheckpoint | null
   now: number
 }
@@ -469,13 +481,16 @@ export function quotaStatusLines(input: QuotaStatusInput): string[] {
         `${reset ? `, làm mới ${reset}` : ''}, ngưỡng còn ${percent(threshold)}`,
     )
   }
-  const zone = evaluateQuota(input.limits, input.now, input.thresholds).zone
+  const evaluation = evaluateQuota(input.limits, input.now, input.thresholds)
+  const zone = evaluation.zone
+  const isForced = input.overrideUntil > input.now && input.overrideKinds.length > 0
+  const isBlocked = evaluation.hits.some(h => !(isForced && input.overrideKinds.includes(h.kind)))
   const state =
     input.pause?.source === 'user'
       ? 'tạm dừng (người dùng)'
-      : input.overrideUntil > input.now
-        ? `ép tiếp tới ${resetLabel(new Date(input.overrideUntil).toISOString())}`
-        : input.pause !== null || zone === 'pause'
+      : isForced && !isBlocked && input.pause === null
+        ? `ép tiếp ${input.overrideKinds.map(k => QUOTA_NAME[k]).join(' và ')} tới ${resetLabel(new Date(input.overrideUntil).toISOString())}`
+        : input.pause !== null || isBlocked
           ? 'tạm dừng (hạn mức)'
           : zone === 'ok'
             ? 'ok'

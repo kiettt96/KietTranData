@@ -9,9 +9,9 @@ import { describePick } from '../lib/route'
 import { clipText, keptLines } from '../lib/decisions'
 import { askRouter, isSkippable, nextBrief, parseRoute, routerRequest } from '../lib/router'
 import type { RouterOutcome, RouterPlan } from '../lib/router'
-import { EMPTY_QUOTA, evaluateQuota, isPauseActive, normalizeQuota, quotaSettings, reasonsOf } from '../lib/quota'
+import { EMPTY_QUOTA, blockingHits, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaSettings, reasonsOf } from '../lib/quota'
 import * as S from '../lib/state'
-import { DISCIPLINE, briefContext, droppedPlanNotice, followUpContext, quotaPausedContext, resetLabel, restorableLabel, resumeContext, skippedContext, unroutedContext } from '../lib/text'
+import { DISCIPLINE, briefContext, droppedPlanNotice, followUpContext, quotaPausedContext, resetLabel, restorableLabel, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -129,30 +129,39 @@ export function registerSession(on: On, ctx: Ctx): void {
     // Bảo vệ hạn mức: đang dừng thì không gọi router (mỗi lượt router tốn thêm hạn mức đúng lúc hạn mức cạn);
     // prompt đi thẳng, kèm một dòng báo trạng thái.
     const quota = quotaSettings(ctx.options)
-    let lead: string[] = []
-    let isResuming = false
+    // Điểm dừng mở chỉ được tiếp tục khi prompt là tiếp nối (router xếp continue, refine, dissatisfied; câu routerSkip;
+    // hoặc người dùng vừa gõ /conductor resume). Prompt việc khác giữ điểm dừng open và chỉ nhắc một dòng.
+    let openCp: QuotaCheckpoint | null = null
+    let isArmed = false
     if (quota.enabled) {
       const now = await $.clock.now()
       const evaluation = evaluateQuota(await quotaLimits($), now, quota)
       const q = normalizeQuota(await read($, quotaState))
-      if (isPauseActive(true, evaluation.zone, q.pause, q.overrideUntil, now)) {
-        const reasons = q.pause?.reason.length ? q.pause.reason : reasonsOf(evaluation.hits)
+      if (isPauseActive(true, evaluation.hits, q.pause, overrideOf(q), now)) {
+        const reasons = q.pause?.reason.length ? q.pause.reason : reasonsOf(blockingHits(evaluation.hits, overrideOf(q), now))
         $.ui.toast('Focus Conductor: đang tạm dừng vì hạn mức; dùng /conductor resume force để chạy tiếp ngay')
         return next({ ...e, context: [quotaPausedContext(reasons, q.pause?.source === 'user'), ...(e.context ?? [])] })
       }
       // Không còn ở vùng dừng (đã làm mới hay người dùng ép) mà có điểm dừng mở: chuyển sang resuming, so file với lúc
       // dừng, rồi chèn một khối ĐIỂM DỪNG đặt trước mọi context khác. Điểm dừng chỉ thành consumed khi turn này xong.
       // Dừng do hạn mức đã hết hiệu lực (làm mới hay ép tiếp): bỏ lần dừng cũ, như tool.call sẽ làm.
-      if (q.pause !== null) await update($, quotaState, c => ({ ...normalizeQuota(c), pause: null }))
+      if (q.pause !== null || q.resumeArmed) await update($, quotaState, c => ({ ...normalizeQuota(c), pause: null, resumeArmed: false }))
       if (q.checkpoint !== null && q.checkpoint.status === 'open') {
-        const stats = await currentStats($, q.checkpoint.files.map(f => f.path))
-        const cp: QuotaCheckpoint = { ...q.checkpoint, status: 'resuming' }
-        await update($, quotaState, c => ({ ...normalizeQuota(c), checkpoint: cp, resume: { id: cp.id, turnId: '' } }))
-        await $.store.set(storeKey(cp.cwd), cp).catch(() => undefined)
-        lead = [resumeContext(cp, changedFiles(cp.files, stats))]
-        isResuming = true
+        openCp = q.checkpoint
+        isArmed = q.resumeArmed
       }
     }
+    // Tiếp tục: chuyển sang resuming, so file với lúc dừng, trả khối ĐIỂM DỪNG đặt trước mọi context khác. Điểm dừng
+    // chỉ thành consumed khi turn này xong bằng câu trả lời.
+    const startResume = async (): Promise<string[]> => {
+      if (openCp === null) return []
+      const stats = await currentStats($, openCp.files.map(f => f.path))
+      const cp: QuotaCheckpoint = { ...openCp, status: 'resuming' }
+      await update($, quotaState, c => ({ ...normalizeQuota(c), checkpoint: cp, resume: { id: cp.id, turnId: '' } }))
+      await $.store.set(storeKey(cp.cwd), cp).catch(() => undefined)
+      return [resumeContext(cp, changedFiles(cp.files, stats))]
+    }
+    const pending = openCp !== null ? [resumePendingContext(openCp)] : []
 
     const before = S.normalizeCore(await read($, coreState))
     const prev = before.brief
@@ -163,6 +172,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       // Câu tiếp nối ngắn: turn này làm tiếp mục tiêu đang mở.
       L.promptIntent = { relation: 'continue', kind: prev.isReference ? 'answer' : prev.kind }
       await flushDecisions((path, text) => $.fs.write(path, text))
+      const lead = await startResume()
       return next({ ...e, context: [...lead, ...(e.context ?? []), skippedContext(prev, before.plan)] })
     }
 
@@ -179,8 +189,12 @@ export function registerSession(on: On, ctx: Ctx): void {
       noteRouterTime((await $.clock.now()) - startedAt)
       pauseText = noteRouter(outcome.result !== null)
     }
-    // Đang tiếp tục điểm dừng: router xếp mục tiêu mới thì vẫn giữ mục tiêu đã khôi phục (prompt kiểu "tiếp tục").
-    const plan = outcome.result !== null && isResuming && prev !== null && outcome.result.relation === 'new' ? { ...outcome.result, relation: 'continue' as const } : outcome.result
+    // Tiếp tục điểm dừng khi router xếp tiếp nối, hoặc khi người dùng vừa gõ /conductor resume (khi đó router xếp mục
+    // tiêu mới thì vẫn giữ mục tiêu đã khôi phục).
+    const isResuming = openCp !== null && (isArmed || (outcome.result !== null && outcome.result.relation !== 'new'))
+    const plan = outcome.result !== null && isResuming && isArmed && prev !== null && outcome.result.relation === 'new' ? { ...outcome.result, relation: 'continue' as const } : outcome.result
+    const lead = isResuming ? await startResume() : []
+    const tail = isResuming ? [] : pending
     const now = await $.clock.now()
     // Router không đọc được thì không biết turn là hỏi đáp hay làm tiếp: Stop chỉ dựa vào hành vi tool.
     L.promptIntent = plan !== null ? { relation: plan.relation, kind: plan.isReference && !plan.runReference ? 'answer' : plan.kind } : null
@@ -212,7 +226,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       await flushDecisions((path, text) => $.fs.write(path, text))
       if (!isPaused) $.ui.toast(pauseText ?? failText)
       $.ui.status(S.statusOf(await read($, view)))
-      return next({ ...e, context: [...lead, ...(e.context ?? []), unroutedContext(outcome.reason)] })
+      return next({ ...e, context: [...lead, ...(e.context ?? []), unroutedContext(outcome.reason), ...tail] })
     }
 
     // Mục tiêu mới, chạy thật prompt đã đối chiếu, hoặc tiếp nối cùng mục tiêu.
@@ -258,6 +272,6 @@ export function registerSession(on: On, ctx: Ctx): void {
       )
     }
     $.ui.status(S.statusOf(await read($, view)))
-    return next({ ...e, context: [...lead, ...(e.context ?? []), context, ...notice] })
+    return next({ ...e, context: [...lead, ...(e.context ?? []), context, ...notice, ...tail] })
   }).catch(($, e, next) => next(e))
 }

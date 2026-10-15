@@ -287,8 +287,12 @@ export type QuotaState = {
   readings: QuotaReading[]
   measuredAt: number
   pause: QuotaPause | null
-  /** /conductor resume force: tới mốc này (ms) vùng dừng do hạn mức không chặn; 0 khi không ép. */
+  /** /conductor resume force: tới mốc này (ms) các cửa sổ trong overrideKinds không gây dừng; 0 khi không ép. */
   overrideUntil: number
+  /** Các cửa sổ đang chạm ngưỡng lúc gõ force: chỉ chúng được miễn, cửa sổ khác chạm ngưỡng vẫn dừng. */
+  overrideKinds: Array<QuotaReason['kind']>
+  /** Người dùng vừa gõ /conductor resume (hay force) khi có điểm dừng mở: prompt kế tiếp tiếp tục từ đó. */
+  resumeArmed: boolean
   /** Turn luồng chính đang chạy (từ turn.start), cho $.turn.abort. */
   mainTurnId: string
   /** Bản sao của điểm dừng mới nhất của thư mục này (vẫn có khi $.store từ chối ghi). */

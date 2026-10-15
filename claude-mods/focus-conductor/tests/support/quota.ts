@@ -1,6 +1,8 @@
 // Khung test cho bảo vệ hạn mức (0.6.0): số đo hạn mức giả qua session.usage, đổi được giữa chừng.
 
 import type { On } from 'claude-code'
+import { DEFAULT_ROUTER, plan } from './engine'
+import type { Responder } from './engine'
 
 export type Limit = { kind: string; percentUsed: number; resetsAt?: string }
 
@@ -43,3 +45,10 @@ export function memoryStore(on: On) {
   on('store.keys', () => ({ value: [...box.data.keys()] }) as never)
   return box
 }
+
+/**
+ * Router giả cho test tiếp tục: "tiếp tục" là làm tiếp mục tiêu đang mở (relation continue), mọi prompt khác như
+ * router mặc định. Từ sau góp ý PR 21, khối ĐIỂM DỪNG chỉ được chèn khi router xếp prompt là tiếp nối.
+ */
+export const resumeRouter: Responder = request => (request.startsWith('tiếp tục') ? plan({ relation: 'continue', goal: 'tiếp tục' }) : DEFAULT_ROUTER(request))
+export const RESUME = { router: resumeRouter }

@@ -8,7 +8,7 @@ import type { QuotaCheckpoint, QuotaState } from '../../types'
 import { addTouched, buildCheckpoint, pruneKeys, pushRecent, recentLine, storeKey } from '../lib/checkpoint'
 import type { CheckpointInput } from '../lib/checkpoint'
 import { classifyBash, filePathOf, isMutation } from '../lib/drift'
-import { EMPTY_QUOTA, QUOTA_CACHE_MS, deniedInput, evaluateQuota, isPauseActive, newPause, normalizeQuota, noteDenial, quotaBadge, quotaSettings, reasonsOf } from '../lib/quota'
+import { EMPTY_QUOTA, QUOTA_CACHE_MS, deniedInput, evaluateQuota, blockingHits, isPauseActive, newPause, normalizeQuota, noteDenial, overrideOf, quotaBadge, quotaSettings, reasonsOf } from '../lib/quota'
 import type { QuotaEval } from '../lib/quota'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
@@ -116,7 +116,8 @@ export function registerQuota(on: On, ctx: Ctx): void {
     return result
   }).catch(($, e, next) => next(e))
 
-  // Vòng đời điểm dừng: turn tiếp tục kết thúc không lỗi và không dừng lại vì hạn mức thì consumed; lỗi thì về open.
+  // Vòng đời điểm dừng: turn tiếp tục kết thúc bằng câu trả lời (reason answer) và không dừng lại vì hạn mức thì
+  // consumed; ngắt, từ chối hay lỗi thì về open.
   // Dừng lại lần nữa thì điểm dừng mới (ghi lúc vào vùng dừng) đã thay bản cũ.
   // Ghi trạng thái trước khi chuyển tiếp: một turn lỗi vẫn phải đưa điểm dừng về open dù lớp trong ném lỗi.
   on('turn.complete', { turnId: /.*/ }, async ($, e, next) => {
@@ -128,7 +129,8 @@ export function registerQuota(on: On, ctx: Ctx): void {
       await update($, quotaState, c => ({ ...normalizeQuota(c), resume: null }))
       return next(e)
     }
-    const after: QuotaCheckpoint = { ...cp, status: e.reason === 'error' ? 'open' : 'consumed' }
+    // Chỉ một câu trả lời trọn vẹn mới là đã tiếp tục xong; người dùng ngắt (aborted), model từ chối hay lỗi thì về open.
+    const after: QuotaCheckpoint = { ...cp, status: e.reason === 'answer' ? 'consumed' : 'open' }
     await update($, quotaState, c => ({ ...normalizeQuota(c), checkpoint: after, resume: null }))
     if (!(await storeCheckpoint($, after))) $.ui.toast('Focus Conductor: không cập nhật được điểm dừng trong kho của mod')
     return next(e)
@@ -142,7 +144,7 @@ export function registerQuota(on: On, ctx: Ctx): void {
     const evaluation = evaluateQuota(limits, now, settings)
     if (isFresh) await update($, quotaState, c => ({ ...normalizeQuota(c), readings: [...(limits ?? [])] as QuotaState['readings'], measuredAt: now }))
     const q = normalizeQuota(await read($, quotaState))
-    if (!isPauseActive(true, evaluation.zone, q.pause, q.overrideUntil, now)) {
+    if (!isPauseActive(true, evaluation.hits, q.pause, overrideOf(q), now)) {
       // Hạn mức đã làm mới hay người dùng ép tiếp: dừng do hạn mức tự mở; điểm dừng (nếu có) vẫn còn để tiếp tục.
       if (q.pause !== null || q.zone !== evaluation.zone) {
         await update($, quotaState, c => ({ ...normalizeQuota(c), zone: evaluation.zone, pause: null }))
@@ -167,7 +169,7 @@ export function registerQuota(on: On, ctx: Ctx): void {
     }
     let pause = q.pause
     if (pause === null) {
-      pause = newPause(now, 'quota', reasonsOf(evaluation.hits))
+      pause = newPause(now, 'quota', reasonsOf(blockingHits(evaluation.hits, overrideOf(q), now)))
       // Subagent đang chạy sẽ bị từ chối và tự kết thúc: việc đã phân của nó phải được giao lại.
       const core = S.normalizeCore(await read($, coreState))
       const goalId = core.brief?.goalId

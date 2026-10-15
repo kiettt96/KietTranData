@@ -6,7 +6,7 @@ import type { Engine } from 'claude-code/testing'
 import type { QuotaCheckpoint } from '../../types'
 import { buildCheckpoint, storeKey, withNote } from '../../hooks/lib/checkpoint'
 import { COMPLEX_PROMPT, FOUR, PANE, base, conductor, submit } from '../support/engine'
-import { memoryStore, quotaMeter, session, week } from '../support/quota'
+import { RESUME, memoryStore, quotaMeter, session, week } from '../support/quota'
 
 const PLAN = 'mcp__focus-conductor__plan'
 const EDIT = { tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' } as const
@@ -73,7 +73,7 @@ async function resuming($: Engine, meter: ReturnType<typeof quotaMeter>, clock: 
 
 describe('0.6.0 F: dữ liệu của điểm dừng', () => {
   test('năm tool call cuối chỉ gồm tool của luồng chính: không có tool plan, không có tool của subagent (060-F4, 060-F17)', {}, async ($, on) => {
-    const seen = base(on)
+    const seen = base(on, RESUME)
     const box = memoryStore(on)
     const meter = quotaMeter(on, [session(10)])
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
@@ -89,7 +89,7 @@ describe('0.6.0 F: dữ liệu của điểm dừng', () => {
   })
 
   test('file đã sửa của mục tiêu trước không vào điểm dừng của mục tiêu mới (060-F15)', {}, async ($, on) => {
-    const seen = base(on)
+    const seen = base(on, RESUME)
     startHooks(on)
     const box = memoryStore(on)
     const meter = quotaMeter(on, [session(10)])
@@ -104,7 +104,7 @@ describe('0.6.0 F: dữ liệu của điểm dừng', () => {
   })
 
   test('lệnh bị từ chối chỉ được ghi vào kho ở lần từ chối đầu (060-F10)', {}, async ($, on) => {
-    const seen = base(on)
+    const seen = base(on, RESUME)
     const box = memoryStore(on)
     const meter = quotaMeter(on, [session(10)])
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
@@ -120,7 +120,7 @@ describe('0.6.0 F: dữ liệu của điểm dừng', () => {
   })
 
   test('kho đã có năm điểm dừng mới hơn: bản vừa ghi vẫn được giữ (060-H8)', {}, async ($, on) => {
-    const seen = base(on)
+    const seen = base(on, RESUME)
     const box = memoryStore(on)
     for (let i = 0; i < 5; i++) box.data.set(`checkpoint:x${i}`, storedCheckpoint({ id: `x${i}`, cwd: `/khac/${i}`, createdAt: 900_000 + i }))
     const meter = quotaMeter(on, [session(10)])
@@ -136,7 +136,7 @@ describe('0.6.0 F: dữ liệu của điểm dừng', () => {
 
 describe('0.6.0 F: đọc số đo tại tool.call', () => {
   test('số đo được dùng lại đúng 3 giây: 2999 ms vẫn dùng lại, 3000 ms thì hỏi lại (060-F6)', {}, async ($, on) => {
-    const seen = base(on)
+    const seen = base(on, RESUME)
     const meter = quotaMeter(on, [session(10)])
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, COMPLEX_PROMPT)
@@ -152,7 +152,7 @@ describe('0.6.0 F: đọc số đo tại tool.call', () => {
   })
 
   test('số đo hỏi lại sau đúng 3 giây được lưu cho band (060-F5)', {}, async ($, on) => {
-    const seen = base(on)
+    const seen = base(on, RESUME)
     memoryStore(on)
     const meter = quotaMeter(on, [session(50)])
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
@@ -167,7 +167,7 @@ describe('0.6.0 F: đọc số đo tại tool.call', () => {
   })
 
   test('vùng đổi (chưa có session.measure) thì status line cập nhật nhãn ngay ở tool.call (060-F9)', {}, async ($, on) => {
-    const seen = base(on)
+    const seen = base(on, RESUME)
     memoryStore(on)
     quotaMeter(on, [session(92)])
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
@@ -179,7 +179,7 @@ describe('0.6.0 F: đọc số đo tại tool.call', () => {
 
 describe('0.6.0 F: vòng đời điểm dừng', () => {
   test('dừng lần hai rồi hạn mức làm mới trong turn tiếp tục: điểm dừng mới vẫn open khi turn xong (060-E3)', {}, async ($, on) => {
-    const seen = base(on)
+    const seen = base(on, RESUME)
     startHooks(on)
     const box = memoryStore(on)
     const meter = quotaMeter(on, [session(10)])
@@ -198,7 +198,7 @@ describe('0.6.0 F: vòng đời điểm dừng', () => {
   })
 
   test('turn khác kết thúc giữa chừng không tiêu thụ điểm dừng; turn tiếp tục xong thì consumed (060-E4)', {}, async ($, on) => {
-    const seen = base(on)
+    const seen = base(on, RESUME)
     startHooks(on)
     const box = memoryStore(on)
     const meter = quotaMeter(on, [session(10)])
@@ -211,7 +211,7 @@ describe('0.6.0 F: vòng đời điểm dừng', () => {
   })
 
   test('subagent kết thúc (cùng turnId) không tiêu thụ điểm dừng (060-E5)', {}, async ($, on) => {
-    const seen = base(on)
+    const seen = base(on, RESUME)
     startHooks(on)
     const box = memoryStore(on)
     const meter = quotaMeter(on, [session(10)])
@@ -222,7 +222,7 @@ describe('0.6.0 F: vòng đời điểm dừng', () => {
   })
 
   test('turn tiếp tục là turn đầu tiên sau khi chèn khối: turn.start sau đó không thay nó (060-E6)', {}, async ($, on) => {
-    const seen = base(on)
+    const seen = base(on, RESUME)
     startHooks(on)
     const box = memoryStore(on)
     const meter = quotaMeter(on, [session(10)])
@@ -242,7 +242,7 @@ describe('0.6.0 F: nạp điểm dừng lúc session.start', () => {
   ]
   for (const [name, over] of cases) {
     test(`không nạp bản ghi ${name}`, {}, async ($, on) => {
-      const seen = base(on)
+      const seen = base(on, RESUME)
       startHooks(on)
       const box = memoryStore(on)
       box.data.set(storeKey('/repo'), storedCheckpoint(over))
@@ -254,7 +254,7 @@ describe('0.6.0 F: nạp điểm dừng lúc session.start', () => {
   }
 
   test('mode off: không nạp điểm dừng (060-J7)', { options: { routing: 'off' } }, async ($, on) => {
-    const seen = base(on)
+    const seen = base(on, RESUME)
     startHooks(on)
     const box = memoryStore(on)
     box.data.set(storeKey('/repo'), storedCheckpoint())
@@ -266,7 +266,7 @@ describe('0.6.0 F: nạp điểm dừng lúc session.start', () => {
 
 describe('0.6.0 F: prompt và thông báo cuối turn khi đang dừng', () => {
   test('prompt lúc đang dừng nêu lý do đã lưu lúc dừng, không lấy số đo mới (060-K4)', {}, async ($, on) => {
-    const seen = base(on)
+    const seen = base(on, RESUME)
     memoryStore(on)
     const meter = quotaMeter(on, [session(10)])
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
@@ -283,7 +283,7 @@ describe('0.6.0 F: prompt và thông báo cuối turn khi đang dừng', () => {
   })
 
   test('turn có thay đổi chưa kiểm rồi dừng: cuối turn không nhắc kiểm tra (060-L8)', {}, async ($, on) => {
-    const seen = base(on)
+    const seen = base(on, RESUME)
     startHooks(on)
     memoryStore(on)
     const meter = quotaMeter(on, [session(10)])
@@ -299,7 +299,7 @@ describe('0.6.0 F: prompt và thông báo cuối turn khi đang dừng', () => {
   })
 
   test('đối chứng: không dừng thì cuối turn có cảnh báo việc chưa giao subagent', {}, async ($, on) => {
-    base(on)
+    base(on, RESUME)
     startHooks(on)
     memoryStore(on)
     quotaMeter(on, [session(10)])
@@ -313,7 +313,7 @@ describe('0.6.0 F: prompt và thông báo cuối turn khi đang dừng', () => {
   })
 
   test('đang dừng: cuối turn không cảnh báo việc chưa giao subagent (060-L9)', {}, async ($, on) => {
-    const seen = base(on)
+    const seen = base(on, RESUME)
     startHooks(on)
     memoryStore(on)
     const meter = quotaMeter(on, [session(10)])
@@ -332,7 +332,7 @@ describe('0.6.0 F: prompt và thông báo cuối turn khi đang dừng', () => {
 
 describe('0.6.0 F: lệnh pause và resume', () => {
   test('quotaGuard tắt: /conductor pause báo đang tắt, tool vẫn chạy (060-M1)', { options: { quotaGuard: false } }, async ($, on) => {
-    base(on)
+    base(on, RESUME)
     quotaMeter(on, [session(10)])
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, COMPLEX_PROMPT)
@@ -341,7 +341,7 @@ describe('0.6.0 F: lệnh pause và resume', () => {
   })
 
   test('pause lần hai chỉ báo đang tạm dừng, không ghi điểm dừng mới (060-M2)', {}, async ($, on) => {
-    const seen = base(on)
+    const seen = base(on, RESUME)
     const box = memoryStore(on)
     quotaMeter(on, [session(10)])
     await submit($, COMPLEX_PROMPT)
@@ -353,7 +353,7 @@ describe('0.6.0 F: lệnh pause và resume', () => {
   })
 
   test('pause rồi resume force: tool chạy lại được ngay (060-M6)', {}, async ($, on) => {
-    const seen = base(on)
+    const seen = base(on, RESUME)
     memoryStore(on)
     quotaMeter(on, [session(10)])
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
@@ -366,7 +366,7 @@ describe('0.6.0 F: lệnh pause và resume', () => {
   })
 
   test('điểm dừng đã consumed: resume, discard và force đều coi như không có điểm dừng (060-M5)', {}, async ($, on) => {
-    const seen = base(on)
+    const seen = base(on, RESUME)
     startHooks(on)
     const box = memoryStore(on)
     const meter = quotaMeter(on, [session(10)])
@@ -380,7 +380,7 @@ describe('0.6.0 F: lệnh pause và resume', () => {
   })
 
   test('discard: đúng 10 giây sau lần đầu là hết hạn, lần sau chỉ chờ xác nhận lại (060-M7)', {}, async ($, on) => {
-    const seen = base(on)
+    const seen = base(on, RESUME)
     startHooks(on)
     const box = memoryStore(on)
     const meter = quotaMeter(on, [session(10)])
@@ -396,7 +396,7 @@ describe('0.6.0 F: lệnh pause và resume', () => {
 
 describe('0.6.0 F: band', () => {
   test('nhãn đậm khi đang dừng, thường khi chỉ gần ngưỡng (060-O1)', {}, async ($, on) => {
-    const seen = base(on)
+    const seen = base(on, RESUME)
     memoryStore(on)
     const meter = quotaMeter(on, [session(92)])
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
@@ -414,7 +414,7 @@ describe('0.6.0 F: band', () => {
   })
 
   test('mục tiêu khôi phục từ điểm dừng (chưa có route, chưa có chi phí) và đang tạm dừng: band vẫn hiện nhãn (060-O3)', {}, async ($, on) => {
-    base(on)
+    base(on, RESUME)
     startHooks(on)
     const box = memoryStore(on)
     box.data.set(storeKey('/repo'), storedCheckpoint())
@@ -427,7 +427,7 @@ describe('0.6.0 F: band', () => {
   })
 
   test('đã dừng vì hạn mức, số đo mới dưới ngưỡng nhưng chưa có tool call hay prompt: band vẫn báo đang dừng (060-O4)', {}, async ($, on) => {
-    const seen = base(on)
+    const seen = base(on, RESUME)
     memoryStore(on)
     const meter = quotaMeter(on, [session(10)])
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))

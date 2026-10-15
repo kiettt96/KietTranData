@@ -1,7 +1,7 @@
 // Giao diện: band trên prompt và pane chi tiết.
 
 import { atom, derive, read, update } from 'claude-code'
-import { EMPTY_QUOTA, evaluateQuota, isPauseActive, normalizeQuota, quotaBadge, quotaSettings } from '../lib/quota'
+import { EMPTY_QUOTA, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaBadge, quotaSettings } from '../lib/quota'
 import * as S from '../lib/state'
 import { renderBand } from '../ui/band'
 import { labels } from '../ui/labels'
@@ -35,7 +35,7 @@ export function registerUi(on: On, ctx: Ctx): void {
     const q = normalizeQuota(await read($, quotaState))
     const now = await $.clock.now()
     const evaluation = evaluateQuota(q.readings, now, settings)
-    const badge = settings.enabled ? quotaBadge(isPauseActive(true, evaluation.zone, q.pause, q.overrideUntil, now) || q.pause !== null, evaluation) : null
+    const badge = settings.enabled ? quotaBadge(isPauseActive(true, evaluation.hits, q.pause, overrideOf(q), now) || q.pause !== null, evaluation) : null
     const tree = renderBand($.ui.resolve(e), await read($, view), { maxRows, columns: bodyColumns, isWorking }, {
       onDetails: () => $.ui.open({ id: PANE, title: PANE_TITLE }),
       onHide: () => update($, bandHiddenState, () => true),

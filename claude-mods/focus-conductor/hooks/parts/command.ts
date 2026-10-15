@@ -252,12 +252,22 @@ export function registerCommand(on: On, ctx: Ctx): void {
       const q = normalizeQuota(await read($, quotaState))
       const cp = q.checkpoint !== null && q.checkpoint.status !== 'consumed' ? q.checkpoint : null
       if (arg === 'force') {
-        const reasons = q.pause?.reason.length ? q.pause.reason : reasonsOf(evaluateQuota(await commandLimits($), now, quotaSettings(ctx.options)).hits)
-        const until = forceUntil(reasons, now)
-        await update($, quotaState, c => ({ ...normalizeQuota(c), overrideUntil: until, pause: null }))
+        // Chỉ miễn các cửa sổ đang chạm ngưỡng lúc gõ force; cửa sổ khác chạm ngưỡng sau đó vẫn dừng.
+        const hits = evaluateQuota(await commandLimits($), now, quotaSettings(ctx.options)).hits
+        if (hits.length === 0) {
+          if (q.pause === null) return { text: 'Không có gì để ép: hạn mức chưa chạm ngưỡng và mod không đang tạm dừng.' }
+          await update($, quotaState, c => ({ ...normalizeQuota(c), pause: null, resumeArmed: cp !== null }))
+          $.ui.status(S.statusOf(await read($, view)))
+          return { text: `Đã mở tạm dừng; hạn mức chưa chạm ngưỡng nên không cần ép.${cp !== null ? ' Prompt kế tiếp sẽ tiếp tục từ điểm dừng.' : ''}` }
+        }
+        const until = forceUntil(reasonsOf(hits), now)
+        const kinds = hits.map(h => h.kind)
+        await update($, quotaState, c => ({ ...normalizeQuota(c), overrideUntil: until, overrideKinds: kinds, pause: null, resumeArmed: cp !== null }))
         $.ui.status(S.statusOf(await read($, view)))
         return {
-          text: `Đã ép chạy tiếp tới ${resetLabel(new Date(until).toISOString())}; sau mốc đó bảo vệ hạn mức tự bật lại.${cp !== null ? ' Điểm dừng giữ nguyên: prompt kế tiếp sẽ tiếp tục từ đó.' : ''}`,
+          text:
+            `Đã ép chạy tiếp ${kinds.map(k => (k === 'five_hour' ? 'hạn mức phiên' : 'hạn mức tuần')).join(' và ')} tới ${resetLabel(new Date(until).toISOString())}; ` +
+            `sau mốc đó bảo vệ tự bật lại, cửa sổ khác chạm ngưỡng vẫn dừng.${cp !== null ? ' Điểm dừng giữ nguyên: prompt kế tiếp sẽ tiếp tục từ đó.' : ''}`,
         }
       }
       if (arg === 'discard') {
@@ -273,6 +283,8 @@ export function registerCommand(on: On, ctx: Ctx): void {
       }
       if (q.pause?.source === 'user') await update($, quotaState, c => ({ ...normalizeQuota(c), pause: null }))
       if (cp === null) return { text: 'Không có điểm dừng nào đang mở cho thư mục này.' }
+      // Prompt kế tiếp tiếp tục điểm dừng dù router xếp nó là việc khác.
+      await update($, quotaState, c => ({ ...normalizeQuota(c), resumeArmed: true }))
       return { text: 'Có điểm dừng đang mở: gõ prompt (ví dụ "tiếp tục") để Claude tiếp tục từ đó. Nếu hạn mức chưa làm mới, dùng /conductor resume force.' }
     }
 
@@ -296,6 +308,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
           thresholds: quotaSettings(ctx.options),
           pause: quotaNow.pause,
           overrideUntil: quotaNow.overrideUntil,
+          overrideKinds: quotaNow.overrideKinds,
           checkpoint: quotaNow.checkpoint,
           now: await $.clock.now(),
         }),

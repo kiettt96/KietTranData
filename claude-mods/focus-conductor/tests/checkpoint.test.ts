@@ -231,7 +231,7 @@ describe('0.6.0 F: biên của điểm dừng (mẫu đột biến 060- sống s
   })
 
   test('quotaStatusLines: điểm dừng đã consumed không được liệt kê', () => {
-    const input = { enabled: true, limits: [], thresholds: { session: 5, week: 2 }, pause: null, overrideUntil: 0, now: 1_000 }
+    const input = { enabled: true, limits: [], thresholds: { session: 5, week: 2 }, pause: null, overrideUntil: 0, overrideKinds: [], now: 1_000 }
     expect(quotaStatusLines({ ...input, checkpoint: { ...sample(), status: 'consumed' } }).join('\n')).not.toContain('điểm dừng:')
     expect(quotaStatusLines({ ...input, checkpoint: sample() }).join('\n')).toContain('điểm dừng:')
   })
