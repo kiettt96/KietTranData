@@ -486,3 +486,62 @@ describe('PR #13 vòng 3: bộ lọc đọc file và chuyển hướng trên l�
     expect(String(done.result)).not.toContain('chưa tính là đã kiểm tra')
   })
 })
+
+describe('0.5.6 A: gợi ý checkCommands khi verified bị hạ', () => {
+  const PLAN = 'mcp__focus-conductor__plan'
+
+
+  test('script riêng đã chạy nhưng chưa khai option: hạ xuống done, nêu checkCommands và ví dụ từ lệnh thật', {}, async ($, on) => {
+    base(on)
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    on('tool.call', { tool: 'Bash' }, () => ({ result: 'ĐẠT toàn bộ' }))
+    await submit($, COMPLEX_PROMPT)
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Dựng bảng tổng' }] })
+    await $.tool.call({ tool: 'Edit', file_path: 'build_totals.py', old_string: 'x', new_string: 'y' })
+    await $.tool.call({ tool: 'Bash', command: 'python3 check_totals.py --final' })
+    const out = String((await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'python3 check_totals.py --final: ĐẠT toàn bộ' })).result)
+    expect(out).toContain('chưa tính là đã kiểm tra')
+    expect(out).toContain('checkCommands')
+    expect(out).toContain('`python3 check_totals.py`')
+    expect(out).not.toContain('--final`')
+    expect(out).toContain('[x] 1. Dựng bảng tổng')
+  })
+
+  test('mức none (evidence không nhắc gì): có checkCommands và ví dụ trung tính', {}, async ($, on) => {
+    base(on)
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    await submit($, COMPLEX_PROMPT)
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa' }] })
+    await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'x', new_string: 'y' })
+    const out = String((await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'đã kiểm tra kỹ, chạy ổn' })).result)
+    expect(out).toContain('checkCommands')
+    expect(out).toContain('`python3 check_totals.py`')
+  })
+
+  test('mức stale (lệnh kiểm tra nhận ra nhưng chạy trước thay đổi cuối): không nhắc checkCommands', {}, async ($, on) => {
+    base(on)
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    on('tool.call', { tool: 'Bash' }, () => ({ result: '12 pass' }))
+    await submit($, COMPLEX_PROMPT)
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa' }] })
+    await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'x', new_string: 'y' })
+    await $.tool.call({ tool: 'Bash', command: 'npm test' })
+    await $.tool.call({ tool: 'Edit', file_path: 'src/b.ts', old_string: 'x', new_string: 'y' })
+    const out = String((await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'npm test: 12 pass' })).result)
+    expect(out).toContain('chưa tính là đã kiểm tra')
+    expect(out).not.toContain('checkCommands')
+  })
+
+  test('cổng không đổi: cùng chuỗi lệnh, chưa khai option thì done; evidence lệnh kiểm tra thật vẫn verified', {}, async ($, on) => {
+    base(on)
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    on('tool.call', { tool: 'Bash' }, () => ({ result: '12 pass' }))
+    await submit($, COMPLEX_PROMPT)
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa' }] })
+    await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'x', new_string: 'y' })
+    await $.tool.call({ tool: 'Bash', command: 'npm test' })
+    const out = String((await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'npm test: 12 pass' })).result)
+    expect(out).not.toContain('chưa tính là đã kiểm tra')
+    expect(out).not.toContain('checkCommands')
+  })
+})

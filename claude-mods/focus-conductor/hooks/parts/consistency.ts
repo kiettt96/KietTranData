@@ -2,7 +2,7 @@
 
 import { atom, derive, read, update } from 'claude-code'
 import type { Warning } from '../../types'
-import { acceptsVerified, evidenceStrength, filePathOf, isExecuting, isGoalDone, isMutation, isPlanFile, newTracker, noteEvidence, observe, openSteps, summarize, trackVerification } from '../lib/drift'
+import { acceptsVerified, evidenceStrength, filePathOf, isExecuting, isFullyClosed, isGoalDone, isMutation, isPlanFile, newTracker, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
 import type { Focus } from '../lib/drift'
 import { clipText } from '../lib/decisions'
 import { addUsage, calibrate, recordShape, shapeKey } from '../lib/ledger'
@@ -11,7 +11,7 @@ import type { PlanInput } from '../lib/plan'
 import { familyOf } from '../lib/route'
 import { askRouter, driftRequest, parseDrift } from '../lib/router'
 import * as S from '../lib/state'
-import { PLAN_TOOL_FULL, blockText, criteriaNotice, driftContext, qualityNotice, renderPlan, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice } from '../lib/text'
+import { PLAN_TOOL_FULL, blockText, criteriaNotice, driftContext, pendingNotice, qualityNotice, renderBulk, renderPlan, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -75,11 +75,16 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       const core = S.normalizeCore(await read($, coreState))
       return { result: `Đã khôi phục mục tiêu: ${restored.goal}\n${renderPlan(core.brief, core.plan)}` }
     }
+    if (input.action === 'show') {
+      // Chỉ xem: không đổi trạng thái, không tính là cập nhật (L.tracker.planUpdates giữ nguyên).
+      const current = S.normalizeCore(await read($, coreState))
+      return { result: renderPlan(current.brief, current.plan) }
+    }
     const before = S.normalizeCore(await read($, coreState))
     // "verified" chỉ được lưu khi bằng chứng đủ mạnh (lệnh kiểm tra chạy thành công sau thay đổi cuối của mục tiêu,
     // hoặc việc chỉ đọc có nhắc lệnh hay file đã đụng tới); còn lại bước được lưu là done kèm lý do.
     const evidence = typeof input.evidence === 'string' ? input.evidence.trim() : ''
-    const isVerifiedAsk = input.action === 'update' && input.status === 'verified' && evidence !== ''
+    const isVerifiedAsk = input.action === 'update' && input.status === 'verified' && evidence !== '' && input.ids === undefined && input.allOpen !== true
     const log = before.brief !== null ? evidenceFor(before.brief.goalId) : null
     const strength = isVerifiedAsk && log !== null ? evidenceStrength(evidence, log) : null
     const isAccepted = strength !== null && log !== null && acceptsVerified(strength, log)
@@ -108,17 +113,23 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       await update($, coreState, S.withWarnings({ at, kind: 'unverified', text }))
       record(at, 'verify-reject', { step: input.step, level: strength?.level ?? 'none', reason, evidence: clipText(evidence) })
       await flushDecisions((path, text) => $.fs.write(path, text))
-      notes.push(unbackedNotice(reason))
+      // weak và none: lệnh kiểm tra có thể là script riêng chưa khai checkCommands; stale thì option không liên quan.
+      const hasHint = (strength?.level ?? 'none') !== 'stale'
+      notes.push(unbackedNotice(reason, hasHint ? (log === null ? [] : suggestCheckCommands(log)) : undefined))
     } else if (isAccepted && strength?.level === 'strong' && strength.check === 'static') {
       notes.push(staticOnlyNotice())
     }
     const target = input.action === 'update' ? core.plan.find(step => step.id === input.step) : undefined
     if (target?.check && (input.status === 'verified' || input.status === 'done')) notes.push(criteriaNotice(target))
-    // Bước mở cuối cùng vừa đóng: yêu cầu xác nhận từng tiêu chí chất lượng của mục tiêu.
-    const isClosing = input.action === 'update' && !isGoalDone(before.plan) && isGoalDone(core.plan) && core.plan.length > 0
+    // Checklist vừa đóng hẳn (mọi bước done, verified hay skipped): yêu cầu xác nhận từng tiêu chí chất lượng của mục tiêu.
+    // Bước mở cuối vừa hết mà còn bước đang chờ hoặc bị chặn thì chưa phải đóng hẳn: nhắc các bước đó thay cho tiêu chí chất lượng.
+    const isUpdate = input.action === 'update'
+    const isClosing = isUpdate && !isFullyClosed(before.plan) && isFullyClosed(core.plan)
     if (isClosing && core.brief !== null && core.brief.quality.length > 0) notes.push(qualityNotice(core.brief.quality))
+    if (isUpdate && openSteps(before.plan).length > 0 && openSteps(core.plan).length === 0 && pendingSteps(core.plan).length > 0) notes.push(pendingNotice(core.plan))
     $.ui.status(S.statusOf(await read($, view)))
-    return { result: [renderPlan(core.brief, core.plan), ...notes].join('\n') }
+    const shown = outcome.bulk !== undefined ? renderBulk(core.plan, outcome.changed ?? [], outcome.bulk.status, outcome.bulk.note) : renderPlan(core.brief, core.plan, input.action === 'update' || input.action === 'add' ? outcome.changed : undefined)
+    return { result: [shown, ...notes].join('\n') }
   }).catch(() => ({ deny: 'focus-conductor: lỗi nội bộ khi cập nhật checklist; tiếp tục làm việc không cần tool này.' }))
 
   // Mọi tool: luồng chính được nhắc (context của kết quả tool) và nâng cấp theo

@@ -25,18 +25,19 @@ export const FAMILY_HUE: Record<ModelFamily, Color> = {
   fable: 'bashBorder',
 }
 
-/** Sáu trạng thái của bước. ✓ có bằng chứng, ● xong nhưng chưa có bằng chứng, ◐ đang làm, ■ bị chặn. */
+/** Bảy trạng thái của bước. ✓ có bằng chứng, ● xong nhưng chưa có bằng chứng, ◐ đang làm, ■ bị chặn, ◇ đang chờ việc bên ngoài. */
 export const STEP_MARK: Record<StepStatus, Mark> = {
   verified: { glyph: '✓', color: 'success', bold: true },
   done: { glyph: '●', color: 'success', dim: true },
   doing: { glyph: '◐', color: 'claude', bold: true },
   blocked: { glyph: '■', color: 'warning', bold: true },
+  waiting: { glyph: '◇', color: 'ide' },
   todo: { glyph: '○', color: 'inactive' },
   skipped: { glyph: '–', color: 'inactive', dim: true },
 }
 
 /** Thứ tự chú giải: từ xong chắc chắn tới chưa bắt đầu. */
-export const STEP_ORDER: readonly StepStatus[] = ['verified', 'done', 'doing', 'blocked', 'todo', 'skipped']
+export const STEP_ORDER: readonly StepStatus[] = ['verified', 'done', 'doing', 'waiting', 'blocked', 'todo', 'skipped']
 
 export const TASK_MARK: Record<DelegationState, Mark> = {
   pending: STEP_MARK.todo,
@@ -67,9 +68,9 @@ export function isClosed(step: PlanStep): boolean {
   return step.status === 'done' || step.status === 'verified' || step.status === 'skipped'
 }
 
-/** Bước đang là tâm điểm: đang làm, nếu không thì bước bị chặn đầu tiên, nếu không thì bước chờ đầu tiên. */
+/** Bước đang là tâm điểm: đang làm, nếu không thì bước bị chặn đầu tiên, rồi bước chờ làm đầu tiên, rồi bước đang chờ việc ngoài. */
 export function currentStep(plan: readonly PlanStep[]): PlanStep | undefined {
-  return plan.find(s => s.status === 'doing') ?? plan.find(s => s.status === 'blocked') ?? plan.find(s => s.status === 'todo')
+  return plan.find(s => s.status === 'doing') ?? plan.find(s => s.status === 'blocked') ?? plan.find(s => s.status === 'todo') ?? plan.find(s => s.status === 'waiting')
 }
 
 // ------------------------------------------------------------ tiến độ
@@ -122,7 +123,9 @@ export function barRuns(plan: readonly PlanStep[], cells: number): Run[] {
       ? { text: STEP_MARK.doing.glyph, color: hue, bold: true }
       : status === 'blocked'
         ? { text: STEP_MARK.blocked.glyph, color: STEP_MARK.blocked.color, bold: true }
-        : null
+        : status === 'waiting'
+          ? { text: STEP_MARK.waiting.glyph, color: STEP_MARK.waiting.color, bold: true }
+          : null
   const runs: Run[] = []
   if (filled > 0) runs.push({ text: '━'.repeat(filled), color: hue })
   if (head) runs.push(head)

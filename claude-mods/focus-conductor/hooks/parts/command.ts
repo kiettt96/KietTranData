@@ -2,7 +2,7 @@
 
 import { atom, derive, read, update } from 'claude-code'
 import type { Brief, Core } from '../../types'
-import { openSteps } from '../lib/drift'
+import { restorableSteps } from '../lib/drift'
 import { cacheNote, priceNote } from '../lib/cost'
 import { estimateLine, formatUsd, ledgerLines } from '../lib/ledger'
 import { describePick } from '../lib/route'
@@ -88,7 +88,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       const expected = wanted !== null ? expectedMain(core, brief, wanted, now) : null
       trackDelegations(brief.goalId, brief.isReference ? [] : brief.tasks)
       await update($, coreState, S.withDelegations(brief.goalId, delegationItems(brief)))
-      const dropped = openSteps(before.plan)
+      const dropped = restorableSteps(before.plan)
       const notice = dropped.length > 0 ? [droppedPlanNotice(dropped)] : []
       return {
         text:
