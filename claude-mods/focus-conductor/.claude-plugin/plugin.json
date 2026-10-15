@@ -1,6 +1,6 @@
 {
   "name": "focus-conductor",
-  "version": "0.5.6",
+  "version": "0.6.0",
   "author": { "name": "Kiet Tran" },
   "description": "Một model Claude (router) đọc kỹ prompt trước khi làm và điều phối model/effort/agent cho từng việc; mod kiểm, ép điều phối lúc chạy, giữ nhất quán mục tiêu với checklist và cảnh báo lạc đề.",
   "types": "./types/index.d.ts",

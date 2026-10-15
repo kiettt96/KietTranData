@@ -81,11 +81,15 @@ Mod chỉ nạp cho phiên mở bằng lệnh này và tự nạp lại khi sử
 | Lệnh | Tác dụng |
 |---|---|
 | `/conductor` | Mở pane Focus Conductor |
-| `/conductor status` | Tóm tắt chế độ, route luồng chính, model bị tạm ngừng, checklist, trạng thái việc giao subagent, chi phí đo được và phần còn ước tính, lợi ích ròng so với chạy thuần, ngày bảng giá, cặp bậc cache đang dùng (kèm cảnh báo khi lệch), độ trễ router, agent ngoài điều phối |
+| `/conductor status` | Tóm tắt chế độ, route luồng chính, model bị tạm ngừng, checklist, trạng thái việc giao subagent, chi phí đo được và phần còn ước tính, lợi ích ròng so với chạy thuần, ngày bảng giá, cặp bậc cache đang dùng (kèm cảnh báo khi lệch), độ trễ router, agent ngoài điều phối, mục Hạn mức (phiên và tuần: đã dùng, còn lại, giờ làm mới, ngưỡng, trạng thái, điểm dừng đang mở) |
 | `/conductor mode auto\|subagents\|suggest\|off` | Đổi chế độ trong phiên |
 | `/conductor goal <mô tả>` | Đặt mục tiêu thủ công qua router (luôn là mục tiêu mới; Claude nhận bản đọc qua context) |
 | `/conductor reroute` | Router đọc lại prompt gần nhất (kể cả khi đang tạm ngừng); giữ mục tiêu và checklist |
 | `/conductor reset` | Xóa mục tiêu, checklist, cảnh báo, mục tiêu đã cất, sổ chi phí, danh sách model bị tạm ngừng; giữ nhật ký điều phối và hệ số hiệu chỉnh đã học. Nút Đặt lại trong pane làm cùng việc nhưng hai bước: bấm lần đầu chỉ chờ xác nhận (10 giây), bấm lần hai mới xóa |
+| `/conductor pause` | Tạm dừng chủ động như khi hạn mức sắp hết: mọi tool trừ `plan` bị từ chối, điểm dừng được ghi ngay |
+| `/conductor resume` | Mở lại sau `pause` và báo điểm dừng đang mở; prompt kế tiếp tiếp tục từ đó |
+| `/conductor resume force` | Chạy tiếp khi hạn mức chưa làm mới, tới mốc làm mới sớm nhất của các cửa sổ đang dừng (không có mốc thì 4 giờ), rồi bảo vệ tự bật lại; điểm dừng giữ nguyên |
+| `/conductor resume discard` | Bỏ điểm dừng đang mở; gõ lần hai trong 10 giây để xác nhận |
 
 Cấu hình qua `/config` (hoặc `pluginConfigs.focus-conductor.options` trong settings):
 
@@ -111,6 +115,25 @@ Cấu hình qua `/config` (hoặc `pluginConfigs.focus-conductor.options` trong 
 | `agentTypes` | trống | Loại agent thêm cho router, phân tách bằng dấu phẩy |
 | `prices` | trống | Ghi đè bảng giá, dạng `sonnet=2/10` hoặc `opus=4/20/0.2` (vào/ra/đọc cache, USD mỗi 1M token). Thiếu giá trị thứ ba thì đọc cache theo tỷ lệ của đúng họ đó trong bảng kèm mod (Sonnet và Opus 5%, Fable 2,5%, Haiku 10% giá vào). Catalog giá mà router thấy khi chọn model dựng từ bảng này |
 | `uiLanguage` | `vi` | `vi` hoặc `en` cho nhãn của band và pane |
+| `quotaGuard` | `true` | Bảo vệ hạn mức (xem mục dưới). Tắt thì mod chạy như 0.5.6 |
+| `pauseSessionRemainingPct` | `5` | Dừng khi hạn mức phiên (cửa sổ 5 giờ) còn không quá giá trị này, tính bằng phần trăm còn lại. Kẹp trong 0,5 đến 99 |
+| `pauseWeekRemainingPct` | `2` | Dừng khi hạn mức tuần còn không quá giá trị này, tính bằng phần trăm còn lại. Kẹp trong 0,5 đến 99 |
+
+### Bảo vệ hạn mức
+
+Từ 0.6.0, khi hạn mức phiên hoặc hạn mức tuần của gói subscription sắp hết, mod dừng công việc ở ranh giới tool call, ghi một điểm dừng bền, và ở lần người dùng ra lệnh tiếp theo thì Claude tiếp tục đúng từ đó.
+
+Engine báo phần đã dùng của mỗi cửa sổ; option nói bằng phần còn lại, nên mod dừng khi phần đã dùng không nhỏ hơn 100 trừ ngưỡng (mặc định 95% với phiên, 98% với tuần). Khi vào vùng dừng, mọi tool của luồng chính và subagent bị từ chối, trừ tool `plan` của mod. Claude được yêu cầu gọi `plan` với action `checkpoint` kèm một `note` về bước kế tiếp, rồi kết thúc turn; cổng chặn kết thúc khi checklist còn mở, các lời nhắc cuối turn, router và `semanticDrift` đều tạm tắt để không vòng lặp và không tốn thêm hạn mức. Nếu trong cùng turn model vẫn gọi tool bị từ chối đến lần thứ ba, mod hủy turn đó (dự phòng, không phải đường chính).
+
+Điểm dừng ghi lý do (cửa sổ, phần trăm, giờ làm mới), mục tiêu, checklist, bước đang làm, việc giao subagent, file đã sửa trong mục tiêu, năm tool call cuối, lệnh bị từ chối đầu tiên (điểm tiếp tục chính xác) và `note` của Claude. Nó nằm trong kho bền của mod (`$.store`), khóa theo thư mục làm việc, nên sống qua đóng phiên. Không ghi output của tool, nội dung file hay biến môi trường. Mở phiên mới trong cùng thư mục mà chưa có mục tiêu thì mod khôi phục mục tiêu và checklist từ điểm dừng; prompt kế tiếp nhận một khối ĐIỂM DỪNG (tối đa 2.000 ký tự) đứng trước mọi context khác, kèm danh sách file đã đổi sau lúc dừng và quy tắc tiếp tục. Điểm dừng chỉ được đánh dấu đã dùng khi turn tiếp tục kết thúc không lỗi. Hạn mức chưa làm mới thì prompt vẫn đi qua kèm một dòng báo, tool vẫn bị từ chối; dùng `/conductor resume force` hoặc đợi làm mới.
+
+Thử nhanh mà không đốt hạn mức (kịch bản nghiệm thu thủ công):
+
+1. Đặt `pauseSessionRemainingPct` thành `90` qua `/config`: mod dừng khi hạn mức phiên đã dùng khoảng 10%.
+2. Giao một việc nhiều bước. Xác nhận band hiện "tạm dừng: hạn mức", tool bị từ chối, Claude gọi `plan` `checkpoint` rồi dừng; `/conductor status` có mục Hạn mức và điểm dừng đang mở.
+3. Thoát, mở phiên mới trong cùng thư mục, chạy `/conductor resume force` (vì hạn mức chưa làm mới), gõ "tiếp tục".
+4. Xác nhận khối ĐIỂM DỪNG xuất hiện, Claude tiếp tục đúng bước đang làm, không làm lại bước đã xong.
+5. Trả `pauseSessionRemainingPct` về `5`.
 
 ### Đo bậc cache
 
@@ -143,6 +166,7 @@ focus-conductor/
   hooks/parts/agents.ts        agent ngoài điều phối, nguồn đổi model, agent.offer, lời gọi Agent, agent.spawn
   hooks/parts/consistency.ts   tool plan, theo dõi mọi tool, chặn kết thúc, cộng chi phí đo được
   hooks/parts/command.ts       lệnh /conductor
+  hooks/parts/quota.ts         bảo vệ hạn mức: số đo hạn mức, dừng mềm ở tool.call, dừng cứng dự phòng, vòng đời điểm dừng
   hooks/parts/ui.tsx           band và pane
   hooks/lib/router.ts          system prompt và request của router, đọc JSON trả về, kẹp theo chính sách, hỏi lại một lần
   hooks/lib/decisions.ts       dòng log quyết định JSONL
@@ -166,6 +190,8 @@ focus-conductor/
   hooks/lib/drift/steps.ts     phân loại bước checklist: đã đóng hẳn, đang chờ hoặc bị chặn, khôi phục được
   hooks/lib/drift/inline.ts    sqlite3 và python nội dòng (-c, heredoc) có chỉ đọc không; inline-sql.ts và inline-py.ts là phần SQL và Python
   hooks/lib/plan.ts            schema và reducer của tool plan
+  hooks/lib/quota.ts           ngưỡng, vùng dừng, số đo cũ, trạng thái dừng và đếm từ chối (hàm thuần)
+  hooks/lib/checkpoint.ts      điểm dừng: khóa theo thư mục, kẹp kích thước, bỏ bản thừa, file đổi sau lúc dừng (hàm thuần)
   hooks/lib/state.ts           giá trị khởi tạo, chuẩn hóa trạng thái cũ, reducer thuần, cất và khôi phục mục tiêu
   hooks/lib/text.ts            mọi văn bản gửi model và hiển thị
   hooks/ui/band.tsx            band phía trên prompt
@@ -180,10 +206,11 @@ focus-conductor/
   tests/integration/           qua engine của `claude plugin test` (router giả lập): router đọc prompt, điều phối, subagent, checklist và Stop, lệnh /conductor, giao diện, kịch bản đầu cuối
   tests/support/engine.ts      khung chạy test tích hợp dùng chung (đồng hồ giả, router giả lập, các câu trả lời mặc định)
   tests/support/commands.ts    dựng tool call giả (Bash, Edit) và brief mẫu cho test lệnh và evidence
+  tests/support/quota.ts       số đo hạn mức giả và kho $.store trong bộ nhớ cho test bảo vệ hạn mức
   tests/golden/                golden-set của router: 30 prompt mẫu (5 ca đối kháng), kỳ vọng, câu trả lời router thật đã ghi cùng băm request và tỷ lệ đạt
   tests/fixtures/prompt-k4.ts  prompt dài tổng hợp (ẩn danh), dùng để kiểm request gửi router và phân việc nhiều mục
   scripts/eval-router.ts       eval router thật trên golden-set, nhiều lần mỗi ca (không chạy trong CI)
-  scripts/mutants.ts           435 định nghĩa đột biến (194 cũ cho hooks/lib/drift/, 150 mới của 0.5.4 cho giá, router, sổ chi phí, giao diện, nhận diện lệnh, 7 mới của 0.5.5 cho giá trị tùy chọn đặt trong nháy, 84 mới của 0.5.6 cho gợi ý checkCommands, waiting, cập nhật hàng loạt, kết quả gọn và lệnh nội dòng chỉ đọc; dữ liệu thuần)
+  scripts/mutants.ts           547 định nghĩa đột biến (194 cũ cho hooks/lib/drift/, 150 mới của 0.5.4 cho giá, router, sổ chi phí, giao diện, nhận diện lệnh, 7 mới của 0.5.5 cho giá trị tùy chọn đặt trong nháy, 84 mới của 0.5.6 cho gợi ý checkCommands, waiting, cập nhật hàng loạt, kết quả gọn và lệnh nội dòng chỉ đọc, 112 mới của 0.6.0 cho bảo vệ hạn mức; dữ liệu thuần)
   scripts/mutate.ts            chạy đột biến, khôi phục tệp gốc, in sha256 trước và sau
   tsconfig.json                cấu hình type-check độc lập (cần tệp khai báo do engine sinh, xem "Phát triển")
   LICENSE                      MIT
@@ -239,3 +266,7 @@ bun scripts/mutate.ts                     # chạy đột biến (khoảng 30 gi
 - Sổ chi phí chỉ gồm số đo của các lượt đã kết thúc. Subagent đã giao mà chưa kết thúc có dòng ước tính riêng, dựa trên token ra giả định theo khối lượng việc và hệ số hiệu chỉnh; dòng đó được thay bằng số đo khi agent kết thúc.
 - Một họ model lỗi (không phản hồi) ở một turn thì turn đó quay về model của phiên; lỗi ở hai turn liên tiếp thì bị tạm ngừng dùng 5 turn rồi thử lại.
 - Nhãn tiếng Anh (`uiLanguage: en`) chỉ áp cho nhãn cố định của band và pane; thông báo, cảnh báo và khối gửi Claude vẫn bằng tiếng Việt.
+- Bảo vệ hạn mức (0.6.0) không bảo đảm tuyệt đối biên 5% hay 2%: số đo của engine là của phản hồi API gần nhất nên có độ trễ, và một turn có thể ăn nhiều hơn biên trước khi tool call kế tiếp đến. Muốn chắc hơn thì nâng hai option ngưỡng.
+- Mod chỉ dừng ở ranh giới tool call: một lệnh Bash đang chạy rất lâu không bị cắt giữa chừng (dừng cứng chỉ xảy ra ở tool call kế tiếp).
+- Không có dữ liệu hạn mức khi không dùng gói subscription (engine trả mảng rỗng) hay trước lần đọc đầu tiên; khi đó mod không dừng gì và `/conductor status` ghi lý do.
+- Kho `$.store` của mod dùng chung mọi dự án, tối đa 4 MiB [Nguồn: khai báo kiểu của engine 2.1.300]; điểm dừng khóa theo thư mục gốc của phiên, tối đa năm bản, mỗi bản tối đa 64 KiB. Kho từ chối ghi thì điểm dừng chỉ còn trong phiên hiện tại và có toast báo.
