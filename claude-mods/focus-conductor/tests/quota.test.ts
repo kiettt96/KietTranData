@@ -175,8 +175,9 @@ describe('0.6.0: điểm dừng không chứa nội dung file hay bí mật (gó
     expect(deniedInput({ tool: 'Write', file_path: 'src/a.ts', content: `${BAIT}xxxxx` })).toBe(`src/a.ts, nội dung ${BAIT.length + 5} ký tự`)
     expect(deniedInput({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'abc', new_string: `${BAIT}` })).toBe(`src/a.ts, nội dung ${3 + BAIT.length} ký tự`)
     expect(deniedInput({ tool: 'NotebookEdit', notebook_path: 'n.ipynb', new_source: BAIT })).toBe(`n.ipynb, nội dung ${BAIT.length} ký tự`)
-    const multi = deniedInput({ tool: 'MultiEdit', file_path: 'src/b.ts', edits: [{ old_string: 'a', new_string: BAIT }] })
-    expect(multi.startsWith('src/b.ts, nội dung ')).toBe(true)
+    const edits = [{ old_string: 'a', new_string: BAIT }]
+    const multi = deniedInput({ tool: 'MultiEdit', file_path: 'src/b.ts', edits })
+    expect(multi).toBe(`src/b.ts, nội dung ${JSON.stringify(edits).length} ký tự`)
     expect(multi).not.toContain(BAIT)
   })
 
@@ -198,6 +199,10 @@ describe('0.6.0: điểm dừng không chứa nội dung file hay bí mật (gó
     const line = recentLine('Bash', `export TOKEN=${BAIT} && curl -H "Authorization: Bearer ${BAIT}"`, false)
     expect(line).not.toContain(BAIT)
     expect(line.startsWith('Bash export TOKEN=')).toBe(true)
+  })
+
+  test('maskSecrets: Bearer đứng riêng (không có Authorization) cũng bị che', () => {
+    expect(maskSecrets(`curl -H "X-Auth: Bearer ${BAIT}" https://x`)).not.toContain(BAIT)
   })
 
   test('maskSecrets giữ nguyên lệnh không có bí mật', () => {

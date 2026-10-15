@@ -5,7 +5,7 @@
 // id `054-` là đột biến của 0.5.4: A giá và cache, B ngưỡng, C nhận diện lệnh, D nút Đặt lại, E lợi ích ròng, H fence.
 // id `055-` là đột biến của 0.5.5: S ngoại lệ giá trị tùy chọn đặt trong nháy của isSelfFixing (054-C33 và 054-C43 cũng viết lại theo mã 0.5.5).
 // id `056-` là đột biến của 0.5.6: A gợi ý checkCommands, B waiting, C hàng loạt, D kết quả gọn và show, E lệnh nội dòng chỉ đọc.
-// id `060-` là đột biến của 0.6.0 (bảo vệ hạn mức): A ngưỡng và kẹp, B isStale và nearest, C isPauseActive, D từ chối và dừng cứng, E vòng đời điểm dừng (consumed), F tool.call, G điểm dừng (checkpoint.ts), H pruneKeys, I changedFiles và forceUntil, J nạp điểm dừng lúc session.start, K prompt.submit khi dừng và tiếp tục, L consistency, M lệnh pause và resume, N text.ts và plan.ts, O band và ui.
+// id `060-` là đột biến của 0.6.0 (bảo vệ hạn mức; nhóm P thêm sau góp ý kiểm PR 21): A ngưỡng và kẹp, B isStale và nearest, C isPauseActive, D từ chối và dừng cứng, E vòng đời điểm dừng (consumed), F tool.call, G điểm dừng (checkpoint.ts), H pruneKeys, I changedFiles và forceUntil, J nạp điểm dừng lúc session.start, K prompt.submit khi dừng và tiếp tục, L consistency, M lệnh pause và resume, N text.ts và plan.ts, O band và ui.
 // Một đột biến mà bộ test không làm đỏ (SURVIVED) nghĩa là có hành vi chưa được test ghim hoặc đoạn mã thừa.
 
 // `equivalent`: lý do đột biến này không đổi hành vi quan sát được (sống sót là đúng); harness báo EQUIVALENT thay vì SURVIVED.
@@ -476,8 +476,8 @@ export const MUTANTS: Mutant[] = [
   { id: "060-C1", file: "hooks/lib/quota.ts", note: "tắt quotaGuard vẫn dừng", old: "  if (!enabled) return false\n", new: "" },
   { id: "060-C2", file: "hooks/lib/quota.ts", note: "mọi lần dừng (cả do hạn mức) coi như dừng người dùng", old: "if (pause?.source === 'user') return true", new: "if (pause !== null) return true" },
   { id: "060-C3", file: "hooks/lib/quota.ts", note: "dừng người dùng không còn luôn là dừng", old: "  if (pause?.source === 'user') return true\n", new: "" },
-  { id: "060-C4", file: "hooks/lib/quota.ts", note: "đúng mốc overrideUntil vẫn đang ép tiếp", old: "zone === 'pause' && now >= overrideUntil", new: "zone === 'pause' && now > overrideUntil" },
-  { id: "060-C5", file: "hooks/lib/quota.ts", note: "bỏ điều kiện vùng pause (hết ép tiếp là dừng)", old: "return zone === 'pause' && now >= overrideUntil", new: "return now >= overrideUntil" },
+  { id: "060-C4", file: "hooks/lib/quota.ts", note: "đúng mốc overrideUntil vẫn đang ép tiếp", old: "!(now < override.until && override.kinds.includes(h.kind))", new: "!(now <= override.until && override.kinds.includes(h.kind))" },
+  { id: "060-C5", file: "hooks/lib/quota.ts", note: "ép tiếp không bao giờ hết hạn", old: "!(now < override.until && override.kinds.includes(h.kind))", new: "!(override.kinds.includes(h.kind))" },
   // 060-D: từ chối và dừng cứng (lib/quota.ts, parts/quota.ts)
   { id: "060-D1", file: "hooks/lib/quota.ts", note: "dừng cứng ở lần từ chối thứ hai", old: "export const HARD_STOP_AFTER = 3", new: "export const HARD_STOP_AFTER = 2" },
   { id: "060-D2", file: "hooks/lib/quota.ts", note: "dừng cứng khi vượt chứ không phải đúng bằng HARD_STOP_AFTER", old: "denials >= HARD_STOP_AFTER", new: "denials > HARD_STOP_AFTER" },
@@ -486,12 +486,12 @@ export const MUTANTS: Mutant[] = [
   { id: "060-D5", file: "hooks/lib/quota.ts", note: "đếm từ chối không reset khi sang turn khác", old: "(sameTurn ? pause.denials : 0) + 1", new: "pause.denials + 1" },
   { id: "060-D6", file: "hooks/lib/quota.ts", note: "cờ aborted không reset khi sang turn khác", old: "const aborted = sameTurn ? pause.aborted : false", new: "const aborted = pause.aborted" },
   { id: "060-D8", file: "hooks/parts/quota.ts", note: "subagent cũng đếm từ chối và kích hoạt dừng cứng", old: "    if (!isAgent) {\n      const noted", new: "    if (true) {\n      const noted" },
-  { id: "060-D11", file: "hooks/lib/quota.ts", note: "đầu vào bị từ chối không bỏ agentId và tool_use_id", old: "const { tool: _tool, agentId: _agent, tool_use_id: _id, ...input } = e", new: "const { tool: _tool, ...input } = e" },
+  { id: "060-D11", file: "hooks/lib/quota.ts", note: "đầu vào bị từ chối không bỏ agentId và tool_use_id", old: "const { tool, agentId: _agent, tool_use_id: _id, ...input } = e", new: "const { tool, ...input } = e" },
   { id: "060-D12", file: "hooks/parts/quota.ts", note: "không bao giờ gọi $.turn.abort", old: "if (abort) await $.turn.abort(", new: "if (false) await $.turn.abort(" },
   { id: "060-D13", file: "hooks/parts/quota.ts", note: "$.turn.abort dùng turnId rỗng", old: "$.turn.abort({ turnId: q.mainTurnId })", new: "$.turn.abort({ turnId: '' })" },
   { id: "060-D14", file: "hooks/parts/quota.ts", note: "abort luôn false dù noteDenial báo true", old: "      abort = noted.abort\n", new: "      abort = false\n" },
   // 060-E: vòng đời điểm dừng, consumed (parts/quota.ts)
-  { id: "060-E1", file: "hooks/parts/quota.ts", note: "turn lỗi vẫn đánh dấu consumed", old: "status: e.reason === 'error' ? 'open' : 'consumed'", new: "status: 'consumed'" },
+  { id: "060-E1", file: "hooks/parts/quota.ts", note: "chỉ error mới về open (lỗi cũ: ngắt và từ chối bị coi là xong)", old: "e.reason === 'answer' ? 'consumed' : 'open'", new: "e.reason === 'error' ? 'open' : 'consumed'" },
   { id: "060-E2", file: "hooks/parts/quota.ts", note: "đang dừng lại vẫn đánh dấu consumed", old: "q.pause !== null || cp === null || cp.id !== q.resume.id", new: "cp === null || cp.id !== q.resume.id", equivalent: "điểm dừng mới khi vào lại vùng dừng có id cp-<now>, luôn khác id đang tiếp tục: trong turn tiếp tục chỉ vào lại vùng dừng được sau mốc ép tiếp hay sau khi đồng hồ chạy, còn /conductor pause đặt resume về null; nên q.pause khác null kéo theo cp.id khác resume.id và điều kiện sau đã chặn" },
   { id: "060-E3", file: "hooks/parts/quota.ts", note: "điểm dừng khác id vẫn bị đánh dấu consumed", old: "q.pause !== null || cp === null || cp.id !== q.resume.id", new: "q.pause !== null || cp === null" },
   { id: "060-E4", file: "hooks/parts/quota.ts", note: "turn khác turn tiếp tục cũng tiêu thụ điểm dừng", old: "if (q.resume === null || q.resume.turnId !== e.turnId) return next(e)", new: "if (q.resume === null) return next(e)" },
@@ -543,14 +543,14 @@ export const MUTANTS: Mutant[] = [
   { id: "060-J7", file: "hooks/parts/session.ts", note: "nạp điểm dừng cả khi mode off", old: "quotaSettings(ctx.options).enabled && (await read($, mode)) !== 'off'", new: "quotaSettings(ctx.options).enabled" },
   // 060-K: prompt.submit khi dừng và tiếp tục (parts/session.ts)
   { id: "060-K1", file: "hooks/parts/session.ts", note: "kiểm hạn mức cả khi quotaGuard tắt", old: "if (quota.enabled) {", new: "if (true) {" },
-  { id: "060-K2", file: "hooks/parts/session.ts", note: "prompt.submit bỏ overrideUntil khi xét dừng", old: "q.pause, q.overrideUntil, now)) {", new: "q.pause, 0, now)) {" },
-  { id: "060-K3", file: "hooks/parts/session.ts", note: "router vẫn chạy khi đang dừng", old: "if (isPauseActive(true, evaluation.zone, q.pause, q.overrideUntil, now)) {", new: "if (false && isPauseActive(true, evaluation.zone, q.pause, q.overrideUntil, now)) {" },
-  { id: "060-K4", file: "hooks/parts/session.ts", note: "lý do dừng luôn lấy từ số đo, bỏ lý do đã lưu", old: "const reasons = q.pause?.reason.length ? q.pause.reason : reasonsOf(evaluation.hits)", new: "const reasons = reasonsOf(evaluation.hits)" },
+  { id: "060-K2", file: "hooks/parts/session.ts", note: "prompt.submit bỏ ép tiếp khi xét dừng", old: "q.pause, overrideOf(q), now)) {", new: "q.pause, { until: 0, kinds: [] }, now)) {" },
+  { id: "060-K3", file: "hooks/parts/session.ts", note: "router vẫn chạy khi đang dừng", old: "if (isPauseActive(true, evaluation.hits, q.pause, overrideOf(q), now)) {", new: "if (false && isPauseActive(true, evaluation.hits, q.pause, overrideOf(q), now)) {" },
+  { id: "060-K4", file: "hooks/parts/session.ts", note: "lý do dừng luôn lấy từ số đo, bỏ lý do đã lưu", old: "const reasons = q.pause?.reason.length ? q.pause.reason : reasonsOf(blockingHits(evaluation.hits, overrideOf(q), now))", new: "const reasons = reasonsOf(blockingHits(evaluation.hits, overrideOf(q), now))" },
   { id: "060-K5", file: "hooks/parts/session.ts", note: "context dừng không phân biệt dừng người dùng", old: "quotaPausedContext(reasons, q.pause?.source === 'user')", new: "quotaPausedContext(reasons, false)" },
-  { id: "060-K6", file: "hooks/parts/session.ts", note: "lần dừng cũ hết hiệu lực không được bỏ", old: "      if (q.pause !== null) await update($, quotaState, c => ({ ...normalizeQuota(c), pause: null }))\n", new: "" },
+  { id: "060-K6", file: "hooks/parts/session.ts", note: "lần dừng cũ hết hiệu lực và cờ resume không được bỏ", old: "      if (q.pause !== null || q.resumeArmed) await update($, quotaState, c => ({ ...normalizeQuota(c), pause: null, resumeArmed: false }))\n", new: "" },
   { id: "060-K7", file: "hooks/parts/session.ts", note: "điểm dừng resuming cũng được chèn lại", old: "q.checkpoint !== null && q.checkpoint.status === 'open'", new: "q.checkpoint !== null && q.checkpoint.status !== 'consumed'" },
   { id: "060-K9", file: "hooks/parts/session.ts", note: "không ghi resume khi chuyển sang resuming", old: "resume: { id: cp.id, turnId: '' } }))", new: "resume: null }))" },
-  { id: "060-K12", file: "hooks/parts/session.ts", note: "ép relation continue cả khi không đang tiếp tục", old: "isResuming && prev !== null && outcome.result.relation === 'new'", new: "prev !== null && outcome.result.relation === 'new'" },
+  { id: "060-K12", file: "hooks/parts/session.ts", note: "ép relation continue cả khi không đang tiếp tục", old: "isResuming && isArmed && prev !== null", new: "prev !== null" },
   // 060-L: consistency (parts/consistency.ts)
   { id: "060-L1", file: "hooks/parts/consistency.ts", note: "plan checkpoint nhận cả khi không dừng", old: "if (q.pause === null) return { deny: 'action", new: "if (false) return { deny: 'action" },
   { id: "060-L2", file: "hooks/parts/consistency.ts", note: "plan checkpoint nuốt lỗi thiếu note", old: "if (noted.error !== undefined) return { deny: noted.error }", new: "" },
@@ -564,7 +564,7 @@ export const MUTANTS: Mutant[] = [
   { id: "060-M2", file: "hooks/parts/command.ts", note: "pause lần hai ghi lại điểm dừng", old: "if (q.pause?.source === 'user') return { text: 'Đang tạm dừng", new: "if (false) return { text: 'Đang tạm dừng" },
   { id: "060-M3", file: "hooks/parts/command.ts", note: "pause người dùng ghi nguồn quota", old: "pause: newPause(now, 'user', [])", new: "pause: newPause(now, 'quota', [])" },
   { id: "060-M5", file: "hooks/parts/command.ts", note: "resume coi điểm dừng consumed là đang mở", old: "q.checkpoint !== null && q.checkpoint.status !== 'consumed' ? q.checkpoint : null", new: "q.checkpoint" },
-  { id: "060-M6", file: "hooks/parts/command.ts", note: "resume force không mở dừng", old: "overrideUntil: until, pause: null }", new: "overrideUntil: until }" },
+  { id: "060-M6", file: "hooks/parts/command.ts", note: "resume force không mở dừng", old: "overrideKinds: kinds, pause: null, resumeArmed", new: "overrideKinds: kinds, resumeArmed" },
   { id: "060-M7", file: "hooks/parts/command.ts", note: "discard: đúng mốc đã arm vẫn coi chưa arm", old: "if (q.discardArmedUntil <= now) {", new: "if (q.discardArmedUntil < now) {" },
   { id: "060-M8", file: "hooks/parts/command.ts", note: "discard arm về quá khứ", old: "discardArmedUntil: now + DISCARD_ARM_MS", new: "discardArmedUntil: now - DISCARD_ARM_MS" },
   // 060-N: text.ts, plan.ts
@@ -579,5 +579,35 @@ export const MUTANTS: Mutant[] = [
   // 060-O: band và ui
   { id: "060-O1", file: "hooks/ui/band.tsx", note: "nhãn hạn mức luôn đậm", old: "<Text color=\"warning\" bold={quota.paused}>", new: "<Text color=\"warning\" bold>" },
   { id: "060-O3", file: "hooks/ui/band.tsx", note: "chip hạn mức không đủ để hiện hàng chip", old: "routeNode || costNode || quotaNode ? (", new: "routeNode || costNode ? (" },
-  { id: "060-O4", file: "hooks/parts/ui.tsx", note: "band không hiện dừng người dùng", old: "q.overrideUntil, now) || q.pause !== null, evaluation)", new: "q.overrideUntil, now), evaluation)" },
+  { id: "060-O4", file: "hooks/parts/ui.tsx", note: "band không hiện dừng người dùng", old: "overrideOf(q), now) || q.pause !== null, evaluation)", new: "overrideOf(q), now), evaluation)" },
+  // 060-P: góp ý kiểm PR 21 (consumed chỉ khi answer, tiếp tục chỉ khi prompt tiếp nối, che bí mật, ép tiếp theo cửa sổ)
+  { id: "060-P1", file: "hooks/parts/quota.ts", note: "refusal bị coi là turn tiếp tục đã xong", old: "e.reason === 'answer' ? 'consumed' : 'open'", new: "e.reason !== 'aborted' && e.reason !== 'error' ? 'consumed' : 'open'" },
+  { id: "060-P2", file: "hooks/parts/quota.ts", note: "aborted (người dùng ngắt) bị coi là turn tiếp tục đã xong", old: "e.reason === 'answer' ? 'consumed' : 'open'", new: "e.reason !== 'refusal' && e.reason !== 'error' ? 'consumed' : 'open'" },
+  { id: "060-P3", file: "hooks/parts/session.ts", note: "mọi prompt đều tiếp tục điểm dừng", old: "(isArmed || (outcome.result !== null && outcome.result.relation !== 'new'))", new: "(isArmed || outcome.result !== null)" },
+  { id: "060-P4", file: "hooks/parts/session.ts", note: "refine và dissatisfied không tiếp tục điểm dừng", old: "outcome.result.relation !== 'new'))", new: "outcome.result.relation === 'continue'))" },
+  { id: "060-P5", file: "hooks/parts/session.ts", note: "/conductor resume không làm prompt kế tiếp tiếp tục", old: "(isArmed || (outcome", new: "(false || (outcome" },
+  { id: "060-P6", file: "hooks/parts/session.ts", note: "prompt việc khác không nhận dòng nhắc có điểm dừng", old: "const tail = isResuming ? [] : pending", new: "const tail: string[] = []" },
+  { id: "060-P7", file: "hooks/parts/session.ts", note: "cờ resumeArmed không được đọc", old: "isArmed = q.resumeArmed", new: "isArmed = false" },
+  { id: "060-P8", file: "hooks/parts/session.ts", note: "cờ resumeArmed không được xóa sau prompt", old: "pause: null, resumeArmed: false }))\n      if (q.checkpoint", new: "pause: null }))\n      if (q.checkpoint" },
+  { id: "060-P9", file: "hooks/parts/command.ts", note: "/conductor resume không đặt cờ tiếp tục", old: "await update($, quotaState, c => ({ ...normalizeQuota(c), resumeArmed: true }))\n", new: "" },
+  { id: "060-P10", file: "hooks/parts/command.ts", note: "resume force không đặt cờ tiếp tục", old: "overrideKinds: kinds, pause: null, resumeArmed: cp !== null", new: "overrideKinds: kinds, pause: null, resumeArmed: false" },
+  { id: "060-P11", file: "hooks/lib/quota.ts", note: "Write không còn được rút gọn thành đường dẫn và độ dài", old: "new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit'])", new: "new Set(['Edit', 'MultiEdit', 'NotebookEdit'])" },
+  { id: "060-P12", file: "hooks/lib/quota.ts", note: "MultiEdit không còn được rút gọn", old: "new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit'])", new: "new Set(['Write', 'Edit', 'NotebookEdit'])" },
+  { id: "060-P13", file: "hooks/lib/quota.ts", note: "NotebookEdit không còn được rút gọn", old: "new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit'])", new: "new Set(['Write', 'Edit', 'MultiEdit'])" },
+  { id: "060-P14", file: "hooks/lib/quota.ts", note: "đường dẫn của NotebookEdit không được đọc", old: "const path = input['file_path'] ?? input['notebook_path'] ?? ''", new: "const path = input['file_path'] ?? ''" },
+  { id: "060-P15", file: "hooks/lib/quota.ts", note: "đầu vào bị từ chối không được che bí mật", old: "  text = maskSecrets(text)\n", new: "" },
+  { id: "060-P16", file: "hooks/lib/quota.ts", note: "độ dài nội dung bỏ qua trường edits", old: "const CONTENT_FIELDS = ['content', 'old_string', 'new_string', 'new_source', 'edits'] as const", new: "const CONTENT_FIELDS = ['content', 'old_string', 'new_string', 'new_source'] as const" },
+  { id: "060-P17", file: "hooks/lib/checkpoint.ts", note: "dòng tool call cuối không được che bí mật", old: "const shown = maskSecrets(target)", new: "const shown = target" },
+  { id: "060-P18", file: "hooks/lib/checkpoint.ts", note: "bỏ luật che bí mật: Authorization", old: "  new RegExp(String.raw`(\\bAuthorization\\s*[:=]\\s*(?:(?:Bearer|Basic|Token)\\s+)?)${SECRET_VALUE}`, 'gi'),\n", new: "" },
+  { id: "060-P19", file: "hooks/lib/checkpoint.ts", note: "bỏ luật che bí mật: Bearer", old: "  new RegExp(String.raw`(\\bBearer\\s+)${SECRET_VALUE}`, 'gi'),\n", new: "" },
+  { id: "060-P20", file: "hooks/lib/checkpoint.ts", note: "bỏ luật che bí mật: token=/password=", old: "  new RegExp(String.raw`(\\b(?:access_token|token|api[_-]?key|apikey|secret|password|passwd|pwd)=)${SECRET_VALUE}`, 'gi'),\n", new: "" },
+  { id: "060-P21", file: "hooks/lib/checkpoint.ts", note: "bỏ luật che bí mật: --password", old: "  new RegExp(String.raw`(--(?:password|passwd|token|api-key|secret)(?:=|\\s+))${SECRET_VALUE}`, 'gi'),\n", new: "" },
+  { id: "060-P22", file: "hooks/lib/checkpoint.ts", note: "bỏ luật che bí mật: KEY=...", old: "  new RegExp(String.raw`(\\b[A-Z][A-Z0-9_]*=)${SECRET_VALUE}`, 'g'),\n", new: "" },
+  { id: "060-P23", file: "hooks/lib/quota.ts", note: "ép tiếp miễn mọi cửa sổ, không chỉ cửa sổ đã ép", old: "override.kinds.includes(h.kind))", new: "true)" },
+  { id: "060-P24", file: "hooks/parts/command.ts", note: "force không còn kiểm có gì để ép", old: "if (hits.length === 0) {", new: "if (false) {" },
+  { id: "060-P25", file: "hooks/parts/command.ts", note: "force khi không dừng vẫn đặt mốc", old: "if (q.pause === null) return { text: 'Không có gì để ép", new: "if (false) return { text: 'Không có gì để ép" },
+  { id: "060-P26", file: "hooks/parts/command.ts", note: "force luôn ép cả hai cửa sổ", old: "const kinds = hits.map(h => h.kind)", new: "const kinds = ['five_hour' as const, 'seven_day' as const]" },
+  { id: "060-P27", file: "hooks/parts/quota.ts", note: "lý do dừng gồm cả cửa sổ đã được ép", old: "reasonsOf(blockingHits(evaluation.hits, overrideOf(q), now))", new: "reasonsOf(evaluation.hits)" },
+  { id: "060-P28", file: "hooks/lib/text.ts", note: "status coi cửa sổ khác qua ngưỡng là không chặn khi đang ép", old: "const isBlocked = evaluation.hits.some(h => !(isForced && input.overrideKinds.includes(h.kind)))", new: "const isBlocked = false" },
+  { id: "060-P29", file: "hooks/parts/command.ts", note: "force khi hạn mức chưa chạm ngưỡng mà đang dừng thì không mở dừng", old: "await update($, quotaState, c => ({ ...normalizeQuota(c), pause: null, resumeArmed: cp !== null }))", new: "await update($, quotaState, c => ({ ...normalizeQuota(c), resumeArmed: cp !== null }))" },
 ]

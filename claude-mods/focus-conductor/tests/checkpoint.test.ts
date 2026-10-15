@@ -230,6 +230,16 @@ describe('0.6.0 F: biên của điểm dừng (mẫu đột biến 060- sống s
     expect(text).not.toContain(' 20. Bước 20 t')
   })
 
+  test('quotaStatusLines: ép phiên mà tuần cũng chạm ngưỡng thì trạng thái vẫn là tạm dừng (hạn mức)', () => {
+    const limits = [{ kind: 'five_hour', percentUsed: 97, resetsAt: '2100-01-01T00:00:00.000Z' }, { kind: 'seven_day', percentUsed: 99.5, resetsAt: '2100-01-01T00:00:00.000Z' }]
+    const input = { enabled: true, limits, thresholds: { session: 5, week: 2 }, pause: null, overrideUntil: 5_000, checkpoint: null, now: 1_000 }
+    const onlySession = quotaStatusLines({ ...input, limits: limits.slice(0, 1), overrideKinds: ['five_hour'] }).join('\n')
+    expect(onlySession).toContain('ép tiếp hạn mức phiên')
+    const both = quotaStatusLines({ ...input, overrideKinds: ['five_hour'] }).join('\n')
+    expect(both).toContain('tạm dừng (hạn mức)')
+    expect(both).not.toContain('ép tiếp')
+  })
+
   test('quotaStatusLines: điểm dừng đã consumed không được liệt kê', () => {
     const input = { enabled: true, limits: [], thresholds: { session: 5, week: 2 }, pause: null, overrideUntil: 0, overrideKinds: [], now: 1_000 }
     expect(quotaStatusLines({ ...input, checkpoint: { ...sample(), status: 'consumed' } }).join('\n')).not.toContain('điểm dừng:')
