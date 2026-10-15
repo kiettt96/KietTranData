@@ -8,9 +8,10 @@ import { describePick } from '../lib/route'
 import { clipText, keptLines } from '../lib/decisions'
 import { askRouter, isSkippable, nextBrief, parseRoute, routerRequest } from '../lib/router'
 import type { RouterOutcome, RouterPlan } from '../lib/router'
+import { EMPTY_QUOTA, evaluateQuota, isPauseActive, normalizeQuota, quotaSettings, reasonsOf } from '../lib/quota'
 import * as S from '../lib/state'
-import { DISCIPLINE, briefContext, droppedPlanNotice, followUpContext, restorableLabel, skippedContext, unroutedContext } from '../lib/text'
-import type { On } from 'claude-code'
+import { DISCIPLINE, briefContext, droppedPlanNotice, followUpContext, quotaPausedContext, restorableLabel, skippedContext, unroutedContext } from '../lib/text'
+import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
 import { PERSON_ORIGINS, SLASH_COMMAND, newDelegation } from '../context'
@@ -20,6 +21,18 @@ import { PERSON_ORIGINS, SLASH_COMMAND, newDelegation } from '../context'
 const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EMPTY_CORE)
 const bandHiddenState = atom({ plugin: 'focus-conductor', key: 'isBandHidden' } as const, false)
 const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null)
+const quotaState = atom({ plugin: 'focus-conductor', key: 'quota' } as const, EMPTY_QUOTA)
+
+/** Số đo hạn mức tươi lúc prompt đến (không tốn chi phí); engine không có hoặc lỗi thì null. */
+async function quotaLimits($: EngineInterface): Promise<readonly unknown[] | null> {
+  let usage: { rateLimits?: unknown } | null = null
+  try {
+    usage = await $.session.usage()
+  } catch {
+    usage = null
+  }
+  return usage !== null && Array.isArray(usage.rateLimits) ? usage.rateLimits : null
+}
 
 export function registerSession(on: On, ctx: Ctx): void {
   const L = ctx.local
@@ -71,6 +84,20 @@ export function registerSession(on: On, ctx: Ctx): void {
     const current = await read($, mode)
     if (current === 'off') return next(e)
     const isApplied = current === 'auto'
+
+    // Bảo vệ hạn mức: đang dừng thì không gọi router (mỗi lượt router tốn thêm hạn mức đúng lúc hạn mức cạn);
+    // prompt đi thẳng, kèm một dòng báo trạng thái.
+    const quota = quotaSettings(ctx.options)
+    if (quota.enabled) {
+      const now = await $.clock.now()
+      const evaluation = evaluateQuota(await quotaLimits($), now, quota)
+      const q = normalizeQuota(await read($, quotaState))
+      if (isPauseActive(true, evaluation.zone, q.pause, q.overrideUntil, now)) {
+        const reasons = q.pause?.reason.length ? q.pause.reason : reasonsOf(evaluation.hits)
+        $.ui.toast('Focus Conductor: đang tạm dừng vì hạn mức; dùng /conductor resume force để chạy tiếp ngay')
+        return next({ ...e, context: [quotaPausedContext(reasons, q.pause?.source === 'user'), ...(e.context ?? [])] })
+      }
+    }
 
     const before = S.normalizeCore(await read($, coreState))
     const prev = before.brief

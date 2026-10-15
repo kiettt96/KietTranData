@@ -230,6 +230,38 @@ export type Core = {
   delegations: { goalId: number; items: DelegationItem[] }
 }
 
+/** Một cửa sổ hạn mức đã qua ngưỡng lúc dừng (0.6.0). */
+export type QuotaReason = { kind: 'five_hour' | 'seven_day'; percentUsed: number; resetsAt?: string; thresholdRemainingPct: number }
+
+/** Số đo hạn mức engine báo, giữ nguyên dạng SessionRateLimit. */
+export type QuotaReading = { kind: string; percentUsed: number; resetsAt?: string }
+
+/** Một lần dừng đang có hiệu lực: do hạn mức (tự mở khi hạn mức làm mới) hay do người dùng (/conductor pause). */
+export type QuotaPause = {
+  at: number
+  source: 'quota' | 'user'
+  reason: QuotaReason[]
+  /** Số lần từ chối tool của luồng chính trong turn denialTurn (dừng cứng ở lần thứ ba). */
+  denials: number
+  denialTurn: string
+  /** Đã gọi $.turn.abort cho turn denialTurn. */
+  aborted: boolean
+  /** Lệnh đầu tiên bị từ chối của lần dừng này: điểm tiếp tục chính xác. */
+  denied: { tool: string; input: string } | null
+}
+
+/** Trạng thái bảo vệ hạn mức trong $.state (0.6.0). */
+export type QuotaState = {
+  zone: 'ok' | 'pause' | 'unknown'
+  readings: QuotaReading[]
+  measuredAt: number
+  pause: QuotaPause | null
+  /** /conductor resume force: tới mốc này (ms) vùng dừng do hạn mức không chặn; 0 khi không ép. */
+  overrideUntil: number
+  /** Turn luồng chính đang chạy (từ turn.start), cho $.turn.abort. */
+  mainTurnId: string
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'focus-conductor': {
@@ -239,6 +271,8 @@ declare module 'claude-code' {
       resetArmedUntil: number
       /** Ghi đè chế độ lúc chạy qua /conductor mode; null nghĩa là theo cấu hình. */
       mode: Mode | null
+      /** Bảo vệ hạn mức (0.6.0). */
+      quota: QuotaState
     }
   }
 }

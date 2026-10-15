@@ -11,7 +11,8 @@
 //   turn.step      step đầu tiên của turn chốt model + effort router đã chọn cho luồng
 //                  chính (giữ model cũ khi hạ cấp không bù được chi phí ghi lại cache).
 //                  Subagent: ép model + effort đã điều phối ở mỗi request.            (parts/turn.ts)
-//   tool.call      Agent: việc đã phân dùng đúng lựa chọn của router; việc khác do router
+//   tool.call      Bảo vệ hạn mức: hạn mức phiên hay tuần sắp hết thì từ chối tool (trừ plan).   (parts/quota.ts)
+//                  Agent: việc đã phân dùng đúng lựa chọn của router; việc khác do router
 //                  chấm khi giao.                                                      (parts/agents.ts)
 //                  plan: checklist của Claude. Mọi tool: theo dõi lặp lỗi, vượt ngân sách,
 //                  ngoài phạm vi, nhắc checkpoint.                                     (parts/consistency.ts)
@@ -25,13 +26,16 @@ import { createContext } from './context'
 import { registerAgents } from './parts/agents'
 import { registerCommand } from './parts/command'
 import { registerConsistency } from './parts/consistency'
+import { registerQuota } from './parts/quota'
 import { registerSession } from './parts/session'
 import { registerTurn } from './parts/turn'
 import { registerUi } from './parts/ui'
 
 export const register: Register = (on, options) => {
   const ctx = createContext(options)
-  // Thứ tự đăng ký giữ như trước khi tách: hook tool.call của Agent và của plan chạy trước hook theo dõi mọi tool.
+  // Đăng ký trước là lớp ngoài cùng. Bảo vệ hạn mức đứng đầu: tool bị từ chối trước khi hook Agent hỏi router.
+  // Thứ tự còn lại giữ như trước khi tách: hook tool.call của Agent và của plan chạy trước hook theo dõi mọi tool.
+  registerQuota(on, ctx)
   registerSession(on, ctx)
   registerTurn(on, ctx)
   registerAgents(on, ctx)

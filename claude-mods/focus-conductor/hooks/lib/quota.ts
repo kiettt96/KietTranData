@@ -2,6 +2,8 @@
 // Hàm thuần, không gọi $. Engine báo phần đã dùng (percentUsed, 0 đến 100); người dùng đặt ngưỡng bằng phần còn lại,
 // nên dừng khi percentUsed >= 100 - còn_lại. Chỉ xét hạn mức phiên (five_hour) và tuần (seven_day).
 
+import type { QuotaPause, QuotaReason, QuotaState } from '../../types'
+
 /** Cửa sổ hạn mức mod xét: phiên (5 giờ) và tuần. */
 export type QuotaKind = 'five_hour' | 'seven_day'
 export type QuotaZone = 'ok' | 'pause' | 'unknown'
@@ -77,4 +79,59 @@ export function evaluateQuota(limits: readonly unknown[] | null | undefined, now
     }
   }
   return { zone: hits.length > 0 ? 'pause' : valid > 0 ? 'ok' : 'unknown', hits, nearest }
+}
+
+/** Lần từ chối tool thứ bấy nhiêu của luồng chính trong cùng một turn đang dừng thì gọi $.turn.abort (dừng cứng dự phòng). */
+export const HARD_STOP_AFTER = 3
+/** Đầu vào của lệnh bị từ chối được cắt còn bấy nhiêu ký tự khi ghi vào điểm dừng. */
+export const DENIED_INPUT_MAX = 300
+
+export const EMPTY_QUOTA: QuotaState = { zone: 'unknown', readings: [], measuredAt: 0, pause: null, overrideUntil: 0, mainTurnId: '' }
+
+export function normalizeQuota(raw: Partial<QuotaState> | null | undefined): QuotaState {
+  return { ...EMPTY_QUOTA, ...(raw ?? {}) }
+}
+
+/**
+ * Có đang dừng không: người dùng tự dừng (/conductor pause) luôn là dừng; dừng do hạn mức khi vùng là pause và không
+ * trong thời gian ép tiếp (overrideUntil). Tắt quotaGuard thì không bao giờ dừng.
+ */
+export function isPauseActive(enabled: boolean, zone: QuotaState['zone'], pause: QuotaPause | null, overrideUntil: number, now: number): boolean {
+  if (!enabled) return false
+  if (pause?.source === 'user') return true
+  return zone === 'pause' && now >= overrideUntil
+}
+
+/** Lý do dừng từ các cửa sổ đã qua ngưỡng. */
+export function reasonsOf(hits: readonly QuotaHit[]): QuotaReason[] {
+  return hits.map(h => ({ kind: h.kind, percentUsed: h.percentUsed, ...(h.resetsAt !== undefined ? { resetsAt: h.resetsAt } : {}), thresholdRemainingPct: h.threshold }))
+}
+
+/** Lần dừng mới, chưa có lệnh nào bị từ chối. */
+export function newPause(at: number, source: QuotaPause['source'], reason: QuotaReason[]): QuotaPause {
+  return { at, source, reason, denials: 0, denialTurn: '', aborted: false, denied: null }
+}
+
+/** Đầu vào của tool call, bỏ tên tool và định danh, cắt ngắn; không bao giờ có output. */
+export function deniedInput(e: Record<string, unknown>): string {
+  const { tool: _tool, agentId: _agent, tool_use_id: _id, ...input } = e
+  let text: string
+  try {
+    text = JSON.stringify(input)
+  } catch {
+    text = ''
+  }
+  return text.length > DENIED_INPUT_MAX ? `${text.slice(0, DENIED_INPUT_MAX - 1)}…` : text
+}
+
+/**
+ * Ghi một lần từ chối của luồng chính vào lần dừng: đếm theo turn, nhớ lệnh đầu tiên bị từ chối. `abort` là true đúng
+ * một lần, ở lần từ chối thứ HARD_STOP_AFTER trong cùng turn.
+ */
+export function noteDenial(pause: QuotaPause, turnId: string, denied: { tool: string; input: string }): { pause: QuotaPause; abort: boolean } {
+  const sameTurn = pause.denialTurn === turnId
+  const denials = (sameTurn ? pause.denials : 0) + 1
+  const aborted = sameTurn ? pause.aborted : false
+  const abort = denials >= HARD_STOP_AFTER && !aborted && turnId !== ''
+  return { pause: { ...pause, denials, denialTurn: turnId, aborted: aborted || abort, denied: pause.denied ?? denied }, abort }
 }

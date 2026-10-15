@@ -1,7 +1,7 @@
 // Văn bản mod gửi cho model và hiển thị cho người dùng. Gom về một chỗ để
 // giữ giọng văn nhất quán và dễ chỉnh.
 
-import type { Brief, Choice, PlanStep, Route, StepStatus, Task } from '../../types'
+import type { Brief, Choice, PlanStep, QuotaReason, Route, StepStatus, Task } from '../../types'
 import { openSteps, pendingSteps } from './drift'
 import { describePick } from './route'
 
@@ -333,4 +333,51 @@ export function statusLine(brief: Brief | null, plan: readonly PlanStep[], route
   const steps = total > 0 ? ` · ${closed}/${total}` : ''
   const model = route ? ` · ${describePick(route)}` : ''
   return `${brief.tier}${model}${steps}${mode === 'auto' ? '' : ` · ${mode}`}`
+}
+
+// ------------------------------------------------------------ bảo vệ hạn mức (0.6.0)
+
+const QUOTA_NAME: Record<QuotaReason['kind'], string> = { five_hour: 'hạn mức phiên (5 giờ)', seven_day: 'hạn mức tuần' }
+
+/** Mốc làm mới theo giờ của máy (HH:MM dd/MM); rỗng khi không có hoặc không đọc được. */
+export function resetLabel(resetsAt: string | undefined): string {
+  if (resetsAt === undefined) return ''
+  const at = new Date(resetsAt)
+  if (!Number.isFinite(at.getTime())) return ''
+  const two = (n: number) => String(n).padStart(2, '0')
+  return `${two(at.getHours())}:${two(at.getMinutes())} ${two(at.getDate())}/${two(at.getMonth() + 1)}`
+}
+
+function percent(value: number): string {
+  return `${String(Math.round(value * 10) / 10).replace('.', ',')}%`
+}
+
+/** Một cửa sổ đã qua ngưỡng: tên, phần còn lại, ngưỡng và giờ làm mới. */
+export function quotaReasonText(reason: QuotaReason): string {
+  const remaining = Math.max(0, Math.round((100 - reason.percentUsed) * 10) / 10)
+  const reset = resetLabel(reason.resetsAt)
+  return `${QUOTA_NAME[reason.kind]} chỉ còn ${percent(remaining)} (ngưỡng ${percent(reason.thresholdRemainingPct)})${reset ? `, làm mới lúc ${reset}` : ''}`
+}
+
+function pauseCause(reasons: readonly QuotaReason[], isUser: boolean): string {
+  if (isUser) return 'người dùng yêu cầu tạm dừng (/conductor pause)'
+  return reasons.length > 0 ? reasons.map(quotaReasonText).join('; ') : 'hạn mức sắp hết'
+}
+
+/** Lý do từ chối tool khi đang dừng: luồng chính ghi điểm dừng rồi kết thúc; subagent kết thúc ngay. */
+export function quotaDenyText(reasons: readonly QuotaReason[], isUser: boolean, isAgent: boolean): string {
+  const cause = `[focus-conductor] Tạm dừng: ${pauseCause(reasons, isUser)}.`
+  if (isAgent) return `${cause} Subagent không gọi tool nào khác; kết thúc ngay và báo ngắn phần đã làm, phần còn dở.`
+  return (
+    `${cause} Không gọi tool nào khác. Gọi ${PLAN_TOOL_FULL} với action "checkpoint" và note nêu: bước kế tiếp cụ thể, ` +
+    'những gì đã hoàn tất không được làm lại, và điều cần kiểm khi quay lại. Sau đó kết thúc turn bằng một câu báo điểm dừng.'
+  )
+}
+
+/** Dòng context của prompt đến khi đang dừng: router không chạy, tool vẫn bị từ chối. */
+export function quotaPausedContext(reasons: readonly QuotaReason[], isUser: boolean): string {
+  return (
+    `[focus-conductor] Đang tạm dừng: ${pauseCause(reasons, isUser)}. Router không chạy và mọi tool (trừ plan) bị từ chối. ` +
+    'Trả lời được những gì không cần tool; nói với người dùng dùng /conductor resume force để chạy tiếp ngay, hoặc đợi hạn mức làm mới.'
+  )
 }
