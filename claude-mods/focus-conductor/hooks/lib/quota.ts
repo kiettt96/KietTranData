@@ -1,0 +1,80 @@
+// Bảo vệ hạn mức (0.6.0): đọc số đo hạn mức của engine (SessionRateLimit) và quyết định có đang ở vùng dừng không.
+// Hàm thuần, không gọi $. Engine báo phần đã dùng (percentUsed, 0 đến 100); người dùng đặt ngưỡng bằng phần còn lại,
+// nên dừng khi percentUsed >= 100 - còn_lại. Chỉ xét hạn mức phiên (five_hour) và tuần (seven_day).
+
+/** Cửa sổ hạn mức mod xét: phiên (5 giờ) và tuần. */
+export type QuotaKind = 'five_hour' | 'seven_day'
+export type QuotaZone = 'ok' | 'pause' | 'unknown'
+
+/** Một cửa sổ đã qua ngưỡng. */
+export type QuotaHit = { kind: QuotaKind; percentUsed: number; remaining: number; resetsAt?: string; threshold: number }
+export type QuotaEval = { zone: QuotaZone; hits: QuotaHit[]; nearest: { kind: QuotaKind; remaining: number } | null }
+export type QuotaThresholds = { session: number; week: number }
+export type QuotaSettings = QuotaThresholds & { enabled: boolean }
+
+/** Khoảng kẹp của ngưỡng phần còn lại (%): cho phép đặt cao (ví dụ 90) để thử cơ chế mà không đốt hạn mức. */
+export const REMAINING_MIN = 0.5
+export const REMAINING_MAX = 99
+export const DEFAULT_SESSION_REMAINING = 5
+export const DEFAULT_WEEK_REMAINING = 2
+/** Kết quả đọc hạn mức tại chỗ được dùng lại trong bấy nhiêu ms (một lượt tool song song không gọi lặp). */
+export const QUOTA_CACHE_MS = 3_000
+
+/** Ngưỡng phần còn lại từ option: số hoặc chuỗi số, kẹp trong khoảng cho phép; không đọc được thì dùng mặc định. */
+export function clampRemaining(raw: unknown, fallback: number): number {
+  const value = typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : raw
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
+  return Math.min(REMAINING_MAX, Math.max(REMAINING_MIN, value))
+}
+
+export function quotaSettings(options: Record<string, unknown>): QuotaSettings {
+  return {
+    enabled: options['quotaGuard'] !== false,
+    session: clampRemaining(options['pauseSessionRemainingPct'], DEFAULT_SESSION_REMAINING),
+    week: clampRemaining(options['pauseWeekRemainingPct'], DEFAULT_WEEK_REMAINING),
+  }
+}
+
+/** Đã chạm vùng dừng: phần đã dùng không nhỏ hơn 100 trừ phần còn lại cho phép (đúng bằng ngưỡng thì dừng). */
+export function isPastLimit(percentUsed: number, remainingThreshold: number): boolean {
+  return percentUsed >= 100 - remainingThreshold
+}
+
+/** Mốc làm mới đã qua (hoặc đúng bằng bây giờ): số đo thuộc cửa sổ cũ. Mốc vắng hay không đọc được thì không coi là cũ. */
+export function isStale(resetsAt: string | undefined, now: number): boolean {
+  if (resetsAt === undefined) return false
+  const at = Date.parse(resetsAt)
+  return Number.isFinite(at) && at <= now
+}
+
+/**
+ * Vùng hiện tại từ các cửa sổ engine báo. `pause` khi ít nhất một cửa sổ hợp lệ qua ngưỡng; `ok` khi có cửa sổ hợp lệ
+ * và không cửa sổ nào qua ngưỡng; `unknown` khi không có cửa sổ hợp lệ nào (mảng rỗng, kind lạ, số hỏng, số đo cũ).
+ * `nearest`: cửa sổ còn trong vùng gấp đôi biên, gần ngưỡng nhất (cho band).
+ */
+export function evaluateQuota(limits: readonly unknown[] | null | undefined, now: number, thresholds: QuotaThresholds): QuotaEval {
+  const hits: QuotaHit[] = []
+  let valid = 0
+  let nearest: QuotaEval['nearest'] = null
+  let nearestRatio = Number.POSITIVE_INFINITY
+  for (const raw of Array.isArray(limits) ? limits : []) {
+    if (typeof raw !== 'object' || raw === null) continue
+    const item = raw as { kind?: unknown; percentUsed?: unknown; resetsAt?: unknown }
+    const kind = item.kind === 'five_hour' || item.kind === 'seven_day' ? item.kind : null
+    if (kind === null || typeof item.percentUsed !== 'number' || !Number.isFinite(item.percentUsed)) continue
+    const resetsAt = typeof item.resetsAt === 'string' ? item.resetsAt : undefined
+    if (isStale(resetsAt, now)) continue
+    valid += 1
+    const threshold = kind === 'five_hour' ? thresholds.session : thresholds.week
+    const remaining = Math.round((100 - item.percentUsed) * 10) / 10
+    if (isPastLimit(item.percentUsed, threshold)) {
+      hits.push({ kind, percentUsed: item.percentUsed, remaining, ...(resetsAt !== undefined ? { resetsAt } : {}), threshold })
+    }
+    const ratio = remaining / threshold
+    if (remaining <= threshold * 2 && ratio < nearestRatio) {
+      nearestRatio = ratio
+      nearest = { kind, remaining }
+    }
+  }
+  return { zone: hits.length > 0 ? 'pause' : valid > 0 ? 'ok' : 'unknown', hits, nearest }
+}

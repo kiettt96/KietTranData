@@ -123,6 +123,24 @@
       "description": "Dạng family=input/output hoặc family=input/output/cacheRead (USD mỗi 1M token), phân tách bằng dấu phẩy, ví dụ: sonnet=2/10,opus=4/20/0.2. Thiếu giá trị thứ ba thì đọc cache theo tỷ lệ của họ đó trong bảng kèm mod (Sonnet và Opus 5% giá vào, Fable 2.5%, Haiku 10%). Giá này cũng là giá router thấy khi chọn model. Để trống dùng bảng giá kèm mod (ghi ngày ở /conductor status)",
       "default": ""
     },
+    "quotaGuard": {
+      "type": "boolean",
+      "title": "Bảo vệ hạn mức",
+      "description": "Khi hạn mức phiên (5 giờ) hoặc tuần sắp hết, mod dừng việc ở ranh giới tool call, ghi điểm dừng bền và tiếp tục đúng chỗ ở lần ra lệnh sau. Chỉ có dữ liệu với gói subscription. Số đo của engine có độ trễ nên biên không phải bảo đảm tuyệt đối",
+      "default": true
+    },
+    "pauseSessionRemainingPct": {
+      "type": "number",
+      "title": "Dừng khi hạn mức phiên còn (%)",
+      "description": "Dừng khi phần còn lại của hạn mức phiên (5 giờ) không quá giá trị này, tính bằng phần trăm còn lại, không phải phần đã dùng. Kẹp trong khoảng 0,5 đến 99. Mặc định 5. Một turn có thể ăn quá biên, nên muốn chắc hơn thì nâng giá trị; đặt 90 để thử cơ chế sớm",
+      "default": 5
+    },
+    "pauseWeekRemainingPct": {
+      "type": "number",
+      "title": "Dừng khi hạn mức tuần còn (%)",
+      "description": "Dừng khi phần còn lại của hạn mức tuần không quá giá trị này, tính bằng phần trăm còn lại, không phải phần đã dùng. Kẹp trong khoảng 0,5 đến 99. Mặc định 2. Biên không phải bảo đảm tuyệt đối",
+      "default": 2
+    },
     "uiLanguage": {
       "type": "string",
       "title": "Ngôn ngữ giao diện",
