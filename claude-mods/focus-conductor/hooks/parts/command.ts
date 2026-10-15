@@ -1,7 +1,9 @@
-// Lệnh /conductor: pane, status, mode, goal, reroute, reset.
+// Lệnh /conductor: pane, status, mode, goal, reroute, reset, pause, resume.
 
 import { atom, derive, read, update } from 'claude-code'
-import type { Brief, Core } from '../../types'
+import type { Brief, Core, QuotaCheckpoint } from '../../types'
+import { forceUntil, storeKey } from '../lib/checkpoint'
+import { EMPTY_QUOTA, evaluateQuota, normalizeQuota, quotaSettings, reasonsOf } from '../lib/quota'
 import { restorableSteps } from '../lib/drift'
 import { cacheNote, priceNote } from '../lib/cost'
 import { estimateLine, formatUsd, ledgerLines } from '../lib/ledger'
@@ -9,9 +11,9 @@ import { describePick } from '../lib/route'
 import { clipText } from '../lib/decisions'
 import { askRouter, bareBrief, briefOf, nextBrief, parseRoute, rerouted, routerRequest } from '../lib/router'
 import * as S from '../lib/state'
-import { briefContext, droppedPlanNotice, renderPlan, unroutedContext } from '../lib/text'
+import { briefContext, droppedPlanNotice, renderPlan, resetLabel, unroutedContext } from '../lib/text'
 import { PANE, PANE_TITLE } from '../ui/pane'
-import type { On } from 'claude-code'
+import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
 import { COMMAND_HELP } from '../context'
@@ -22,6 +24,21 @@ const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EM
 const bandHiddenState = atom({ plugin: 'focus-conductor', key: 'isBandHidden' } as const, false)
 const resetArmedState = atom({ plugin: 'focus-conductor', key: 'resetArmedUntil' } as const, 0)
 const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null)
+const quotaState = atom({ plugin: 'focus-conductor', key: 'quota' } as const, EMPTY_QUOTA)
+
+/** /conductor resume discard phải gõ lần hai trong bấy nhiêu ms (như nút Đặt lại). */
+const DISCARD_ARM_MS = 10_000
+
+/** Số đo hạn mức tươi cho lệnh (không tốn chi phí); engine không trả được thì null. */
+async function commandLimits($: EngineInterface): Promise<readonly unknown[] | null> {
+  let usage: { rateLimits?: unknown } | null = null
+  try {
+    usage = await $.session.usage()
+  } catch {
+    usage = null
+  }
+  return usage !== null && Array.isArray(usage.rateLimits) ? usage.rateLimits : null
+}
 
 export function registerCommand(on: On, ctx: Ctx): void {
   const L = ctx.local
@@ -167,6 +184,37 @@ export function registerCommand(on: On, ctx: Ctx): void {
         text: `Router đã đọc lại prompt gần nhất: ${brief.goal} (${brief.depth}, khối lượng ${brief.volume}, luồng chính ${expected ? describePick(expected) + (isApplied ? '' : ' (chỉ đề xuất)') : 'model của phiên'}).`,
         context: [`Người dùng yêu cầu router đọc lại prompt gần nhất.\n${briefContext(brief, expected, isApplied)}`],
       }
+    }
+
+    if (sub === 'resume') {
+      // Tiếp tục từ điểm dừng: force ép chạy tiếp tới mốc làm mới sớm nhất (không mất điểm dừng); discard bỏ điểm dừng
+      // sau khi gõ lần hai trong 10 giây; không tham số thì mở lại sau /conductor pause và báo cách tiếp tục.
+      const now = await $.clock.now()
+      const q = normalizeQuota(await read($, quotaState))
+      const cp = q.checkpoint !== null && q.checkpoint.status !== 'consumed' ? q.checkpoint : null
+      if (arg === 'force') {
+        const reasons = q.pause?.reason.length ? q.pause.reason : reasonsOf(evaluateQuota(await commandLimits($), now, quotaSettings(ctx.options)).hits)
+        const until = forceUntil(reasons, now)
+        await update($, quotaState, c => ({ ...normalizeQuota(c), overrideUntil: until, pause: null }))
+        $.ui.status(S.statusOf(await read($, view)))
+        return {
+          text: `Đã ép chạy tiếp tới ${resetLabel(new Date(until).toISOString())}; sau mốc đó bảo vệ hạn mức tự bật lại.${cp !== null ? ' Điểm dừng giữ nguyên: prompt kế tiếp sẽ tiếp tục từ đó.' : ''}`,
+        }
+      }
+      if (arg === 'discard') {
+        if (cp === null) return { text: 'Không có điểm dừng nào đang mở cho thư mục này.' }
+        if (q.discardArmedUntil <= now) {
+          await update($, quotaState, c => ({ ...normalizeQuota(c), discardArmedUntil: now + DISCARD_ARM_MS }))
+          return { text: 'Bỏ điểm dừng thì không tiếp tục từ đó được nữa; gõ lại /conductor resume discard trong 10 giây để xác nhận.' }
+        }
+        const dropped: QuotaCheckpoint = { ...cp, status: 'consumed' }
+        await update($, quotaState, c => ({ ...normalizeQuota(c), checkpoint: dropped, resume: null, discardArmedUntil: 0 }))
+        await $.store.set(storeKey(dropped.cwd), dropped).catch(() => undefined)
+        return { text: 'Đã bỏ điểm dừng; prompt kế tiếp chạy như bình thường.' }
+      }
+      if (q.pause?.source === 'user') await update($, quotaState, c => ({ ...normalizeQuota(c), pause: null }))
+      if (cp === null) return { text: 'Không có điểm dừng nào đang mở cho thư mục này.' }
+      return { text: 'Có điểm dừng đang mở: gõ prompt (ví dụ "tiếp tục") để Claude tiếp tục từ đó. Nếu hạn mức chưa làm mới, dùng /conductor resume force.' }
     }
 
     if (sub === 'status') {

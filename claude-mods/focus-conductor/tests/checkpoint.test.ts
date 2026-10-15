@@ -3,7 +3,8 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import type { QuotaCheckpoint } from '../types'
-import { CHECKPOINT_BYTES, CHECKPOINT_LIMIT, NOTE_MAX, buildCheckpoint, clampCheckpoint, hashCwd, pruneKeys, recentLine, storeKey, withNote } from '../hooks/lib/checkpoint'
+import { CHECKPOINT_BYTES, CHECKPOINT_LIMIT, FORCE_FALLBACK_MS, NOTE_MAX, briefFromCheckpoint, buildCheckpoint, changedFiles, clampCheckpoint, forceUntil, hashCwd, pruneKeys, recentLine, storeKey, withNote } from '../hooks/lib/checkpoint'
+import { RESUME_MAX, resumeContext } from '../hooks/lib/text'
 import { makeBrief } from './support/commands'
 
 function sample(over: Partial<Parameters<typeof buildCheckpoint>[0]> = {}): QuotaCheckpoint {
@@ -102,5 +103,66 @@ describe('0.6.0 C: khóa theo thư mục, tối đa năm bản ghi', () => {
     expect(pruneKeys(entries.filter(e => e.status !== 'consumed'), 'k1')).toEqual([])
     const opens = Array.from({ length: 7 }, (_, i) => ({ key: `o${i}`, status: 'open' as const, createdAt: i }))
     expect(pruneKeys(opens, 'o0')).toEqual(['o1', 'o2'])
+  })
+})
+
+describe('0.6.0 D: khối tiếp tục và so sánh file (hàm thuần)', () => {
+  test('changedFiles: mtime hay size đổi, hoặc file mất, là đổi sau điểm dừng', () => {
+    const files = [
+      { path: 'a.ts', mtimeMs: 10, size: 5 },
+      { path: 'b.ts', mtimeMs: 10, size: 5 },
+      { path: 'c.ts', mtimeMs: 10, size: 5 },
+      { path: 'd.ts', mtimeMs: 10, size: 5 },
+    ]
+    const stats = new Map([
+      ['a.ts', { mtimeMs: 10, size: 5 }],
+      ['b.ts', { mtimeMs: 11, size: 5 }],
+      ['c.ts', { mtimeMs: 10, size: 6 }],
+    ])
+    expect(changedFiles(files, stats)).toEqual(['b.ts', 'c.ts', 'd.ts'])
+  })
+
+  test('resumeContext: tiêu đề ĐIỂM DỪNG, mục tiêu, checklist, note, lệnh bị từ chối, file đổi, quy tắc; tối đa 2000 ký tự', () => {
+    const cp = withNote(sample(), 'Chạy lại npm test sau khi sửa b.ts; a.ts đã xong, không sửa lại.')
+    const text = resumeContext(cp, ['src/a.ts'])
+    expect(text.startsWith('[focus-conductor] ĐIỂM DỪNG')).toBe(true)
+    for (const part of ['Sửa module', 'Không đổi API', 'Test xanh', '[~] 2. Sửa', 'Chạy lại npm test', 'Edit {"file_path":"src/b.ts"}', 'src/a.ts', 'git status', 'không chạy lại', 'hạn mức phiên']) {
+      expect(text).toContain(part)
+    }
+    expect(text.length).toBeLessThanOrEqual(RESUME_MAX)
+    expect(RESUME_MAX).toBe(2000)
+  })
+
+  test('resumeContext dài vẫn không quá 2000 ký tự và vẫn giữ quy tắc tiếp tục', () => {
+    const plan = Array.from({ length: 20 }, (_, i) => ({ id: i + 1, title: `Bước ${i + 1} ${'t'.repeat(150)}`, status: 'todo' as const }))
+    const cp = withNote(sample({ plan }), 'n'.repeat(600))
+    const text = resumeContext(cp, Array.from({ length: 40 }, (_, i) => `src/file-${i}.ts`))
+    expect(text.length).toBeLessThanOrEqual(RESUME_MAX)
+    expect(text).toContain('Quy tắc tiếp tục')
+    expect(text).toContain('ĐIỂM DỪNG')
+  })
+
+  test('không có file đổi: không có mục file đổi', () => {
+    expect(resumeContext(sample(), [])).not.toContain('đổi sau lúc dừng')
+  })
+
+  test('forceUntil: mốc làm mới sớm nhất của các cửa sổ đang dừng, không có thì bốn giờ sau', () => {
+    const reasons = [
+      { kind: 'five_hour' as const, percentUsed: 97, resetsAt: '1970-01-01T00:10:00.000Z', thresholdRemainingPct: 5 },
+      { kind: 'seven_day' as const, percentUsed: 99, resetsAt: '1970-01-01T00:05:00.000Z', thresholdRemainingPct: 2 },
+    ]
+    expect(forceUntil(reasons, 1_000)).toBe(300_000)
+    expect(forceUntil([{ kind: 'five_hour', percentUsed: 97, thresholdRemainingPct: 5 }], 1_000)).toBe(1_000 + FORCE_FALLBACK_MS)
+    expect(FORCE_FALLBACK_MS).toBe(4 * 3_600_000)
+  })
+
+  test('briefFromCheckpoint: dựng lại mục tiêu đủ trường từ điểm dừng', () => {
+    const brief = briefFromCheckpoint(sample(), 7_000)
+    expect(brief.goal).toBe('Sửa module')
+    expect(brief.constraints).toEqual(['Không đổi API'])
+    expect(brief.scopePaths).toEqual(['src/'])
+    expect(brief.steps).toEqual(['Đọc', 'Sửa', 'Test'])
+    expect(brief.main).toBeNull()
+    expect(brief.at).toBe(7_000)
   })
 })

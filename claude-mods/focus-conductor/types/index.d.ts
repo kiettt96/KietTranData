@@ -293,6 +293,10 @@ export type QuotaState = {
   mainTurnId: string
   /** Bản sao của điểm dừng mới nhất của thư mục này (vẫn có khi $.store từ chối ghi). */
   checkpoint: QuotaCheckpoint | null
+  /** Điểm dừng đang được tiếp tục: turn luồng chính đầu tiên sau khi chèn khối (turnId rỗng tới turn.start). */
+  resume: { id: string; turnId: string } | null
+  /** /conductor resume discard đang chờ gõ lần hai tới mốc này (ms); 0 khi không chờ. */
+  discardArmedUntil: number
 }
 
 declare module 'claude-code' {

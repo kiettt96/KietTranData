@@ -98,8 +98,31 @@ export function registerQuota(on: On, ctx: Ctx): void {
   // Turn luồng chính đang chạy: $.turn.abort cần đúng turnId của nó.
   on('turn.start', { turnId: /.*/ }, async ($, e, next) => {
     const result = await next(e)
-    if (settings.enabled) await update($, quotaState, q => ({ ...normalizeQuota(q), mainTurnId: e.turnId }))
+    if (!settings.enabled) return result
+    // Turn đầu tiên sau khi chèn khối ĐIỂM DỪNG là turn tiếp tục: nó xong không lỗi thì điểm dừng thành consumed.
+    await update($, quotaState, q => {
+      const n = normalizeQuota(q)
+      return { ...n, mainTurnId: e.turnId, resume: n.resume !== null && n.resume.turnId === '' ? { ...n.resume, turnId: e.turnId } : n.resume }
+    })
     return result
+  }).catch(($, e, next) => next(e))
+
+  // Vòng đời điểm dừng: turn tiếp tục kết thúc không lỗi và không dừng lại vì hạn mức thì consumed; lỗi thì về open.
+  // Dừng lại lần nữa thì điểm dừng mới (ghi lúc vào vùng dừng) đã thay bản cũ.
+  // Ghi trạng thái trước khi chuyển tiếp: một turn lỗi vẫn phải đưa điểm dừng về open dù lớp trong ném lỗi.
+  on('turn.complete', { turnId: /.*/ }, async ($, e, next) => {
+    if (!settings.enabled || e.agentId !== undefined) return next(e)
+    const q = normalizeQuota(await read($, quotaState))
+    if (q.resume === null || q.resume.turnId !== e.turnId) return next(e)
+    const cp = q.checkpoint
+    if (q.pause !== null || cp === null || cp.id !== q.resume.id) {
+      await update($, quotaState, c => ({ ...normalizeQuota(c), resume: null }))
+      return next(e)
+    }
+    const after: QuotaCheckpoint = { ...cp, status: e.reason === 'error' ? 'open' : 'consumed' }
+    await update($, quotaState, c => ({ ...normalizeQuota(c), checkpoint: after, resume: null }))
+    if (!(await storeCheckpoint($, after))) $.ui.toast('Focus Conductor: không cập nhật được điểm dừng trong kho của mod')
+    return next(e)
   }).catch(($, e, next) => next(e))
 
   on('tool.call', { tool: /.*/ }, async ($, e, next) => {

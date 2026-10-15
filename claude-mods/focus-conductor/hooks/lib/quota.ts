@@ -86,7 +86,7 @@ export const HARD_STOP_AFTER = 3
 /** Đầu vào của lệnh bị từ chối được cắt còn bấy nhiêu ký tự khi ghi vào điểm dừng. */
 export const DENIED_INPUT_MAX = 300
 
-export const EMPTY_QUOTA: QuotaState = { zone: 'unknown', readings: [], measuredAt: 0, pause: null, overrideUntil: 0, mainTurnId: '', checkpoint: null }
+export const EMPTY_QUOTA: QuotaState = { zone: 'unknown', readings: [], measuredAt: 0, pause: null, overrideUntil: 0, mainTurnId: '', checkpoint: null, resume: null, discardArmedUntil: 0 }
 
 export function normalizeQuota(raw: Partial<QuotaState> | null | undefined): QuotaState {
   return { ...EMPTY_QUOTA, ...(raw ?? {}) }

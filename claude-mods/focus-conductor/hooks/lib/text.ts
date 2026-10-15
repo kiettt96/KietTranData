@@ -1,7 +1,7 @@
 // Văn bản mod gửi cho model và hiển thị cho người dùng. Gom về một chỗ để
 // giữ giọng văn nhất quán và dễ chỉnh.
 
-import type { Brief, Choice, PlanStep, QuotaReason, Route, StepStatus, Task } from '../../types'
+import type { Brief, Choice, PlanStep, QuotaCheckpoint, QuotaReason, Route, StepStatus, Task } from '../../types'
 import { openSteps, pendingSteps } from './drift'
 import { describePick } from './route'
 
@@ -380,4 +380,49 @@ export function quotaPausedContext(reasons: readonly QuotaReason[], isUser: bool
     `[focus-conductor] Đang tạm dừng: ${pauseCause(reasons, isUser)}. Router không chạy và mọi tool (trừ plan) bị từ chối. ` +
     'Trả lời được những gì không cần tool; nói với người dùng dùng /conductor resume force để chạy tiếp ngay, hoặc đợi hạn mức làm mới.'
   )
+}
+
+/** Khối ĐIỂM DỪNG chèn vào prompt tiếp tục: tối đa bấy nhiêu ký tự. */
+export const RESUME_MAX = 2000
+
+const RESUME_RULES =
+  'Quy tắc tiếp tục: (1) kiểm trạng thái thật (git status, diff, file liên quan) trước khi chạy lại bất kỳ lệnh nào; ' +
+  '(2) không chạy lại thao tác đã hoàn tất, nhất là lệnh ghi hay lệnh không idempotent; (3) bước doing được tiếp tục, không bắt đầu lại; ' +
+  '(4) việc giao subagent pending hoặc failed được giao lại đúng như đã phân; (5) sau đó cập nhật checklist như bình thường.'
+
+/**
+ * Khối context đầu tiên của prompt tiếp tục: lúc và lý do dừng, mục tiêu, checklist, note của Claude, lệnh bị từ chối
+ * (điểm tiếp tục chính xác), năm tool call cuối, file đổi sau lúc dừng và quy tắc tiếp tục. Tối đa RESUME_MAX ký tự:
+ * phần dài bị cắt theo thứ tự tool call cuối, checklist, note; tiêu đề, lệnh bị từ chối, file đổi và quy tắc giữ.
+ */
+export function resumeContext(cp: QuotaCheckpoint, changed: readonly string[]): string {
+  const reasons = cp.reason.length > 0 ? cp.reason.map(quotaReasonText).join('; ') : 'người dùng tạm dừng'
+  const head = `[focus-conductor] ĐIỂM DỪNG (${resetLabel(new Date(cp.createdAt).toISOString()) || 'không rõ giờ'}): đã dừng vì ${reasons}.`
+  const goal = [
+    cp.brief.goal ? `Mục tiêu: ${cp.brief.goal}` : '',
+    cp.brief.constraints.length > 0 ? `Ràng buộc: ${cp.brief.constraints.join('; ')}` : '',
+    cp.brief.quality.length > 0 ? `Tiêu chí chất lượng: ${cp.brief.quality.join('; ')}` : '',
+  ].filter(Boolean)
+  const doing = cp.doing.length > 0 ? `Bước đang làm: ${cp.doing.join(', ')}.` : ''
+  const checklist = cp.plan.map(step => `${mark(step.status)} ${step.id}. ${step.title}${step.note ? ` (${step.note})` : ''}`)
+  const note = cp.note ? `Ghi chú của Claude lúc dừng: ${cp.note}` : 'Claude chưa kịp ghi note lúc dừng.'
+  const denied = cp.denied ? `Lệnh bị từ chối lúc dừng (điểm tiếp tục chính xác): ${cp.denied.tool} ${cp.denied.input}` : ''
+  const recent = cp.recent.length > 0 ? `Tool call cuối: ${cp.recent.join(' | ')}` : ''
+  const files = changed.length > 0 ? `File đổi sau lúc dừng (người dùng hay tiến trình khác đã sửa), đọc lại trước khi sửa: ${changed.join(', ')}` : ''
+  const build = (parts: { checklist: string[]; note: string; recent: string }) =>
+    [head, ...goal, 'Checklist:', ...parts.checklist, doing, parts.note, denied, parts.recent, files, RESUME_RULES].filter(Boolean).join('\n')
+  let parts = { checklist, note, recent }
+  let text = build(parts)
+  if (text.length > RESUME_MAX) parts = { ...parts, recent: '' }
+  text = build(parts)
+  while (text.length > RESUME_MAX && parts.checklist.length > 1) {
+    parts = { ...parts, checklist: parts.checklist.slice(0, -1) }
+    text = build(parts)
+  }
+  if (text.length > RESUME_MAX) {
+    const over = text.length - RESUME_MAX
+    parts = { ...parts, note: `${parts.note.slice(0, Math.max(0, parts.note.length - over - 1))}…` }
+    text = build(parts)
+  }
+  return text.length > RESUME_MAX ? `${text.slice(0, RESUME_MAX - 1)}…` : text
 }
