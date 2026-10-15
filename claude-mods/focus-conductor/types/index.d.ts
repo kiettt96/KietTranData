@@ -250,6 +250,37 @@ export type QuotaPause = {
   denied: { tool: string; input: string } | null
 }
 
+/** Phần mục tiêu cần để tiếp tục (cắt từ Brief); goal rỗng khi lúc dừng chưa có mục tiêu. */
+export type CheckpointBrief = {
+  goal: string
+  constraints: string[]
+  quality: string[]
+  scopePaths: string[]
+  tasks: Array<{ index: number; title: string; run: 'main' | 'agent'; agentType?: string; pick: Choice }>
+  kind: Kind
+}
+
+/** Điểm dừng bền (0.6.0), trong $.store theo khóa của thư mục làm việc. Không chứa output tool hay nội dung file. */
+export type QuotaCheckpoint = {
+  version: 1
+  id: string
+  createdAt: number
+  cwd: string
+  status: 'open' | 'resuming' | 'consumed'
+  reason: QuotaReason[]
+  brief: CheckpointBrief
+  plan: PlanStep[]
+  /** id các bước doing lúc dừng. */
+  doing: number[]
+  /** Câu Claude ghi bằng plan action "checkpoint" (tối đa 600 ký tự); rỗng khi Claude chưa kịp ghi. */
+  note: string
+  denied: { tool: string; input: string } | null
+  /** Năm tool call cuối của luồng chính: tool, đối tượng rút gọn, lỗi hay không. */
+  recent: string[]
+  files: Array<{ path: string; mtimeMs: number; size: number }>
+  delegations: DelegationItem[]
+}
+
 /** Trạng thái bảo vệ hạn mức trong $.state (0.6.0). */
 export type QuotaState = {
   zone: 'ok' | 'pause' | 'unknown'
@@ -260,6 +291,8 @@ export type QuotaState = {
   overrideUntil: number
   /** Turn luồng chính đang chạy (từ turn.start), cho $.turn.abort. */
   mainTurnId: string
+  /** Bản sao của điểm dừng mới nhất của thư mục này (vẫn có khi $.store từ chối ghi). */
+  checkpoint: QuotaCheckpoint | null
 }
 
 declare module 'claude-code' {

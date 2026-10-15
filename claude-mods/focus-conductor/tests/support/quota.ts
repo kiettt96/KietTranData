@@ -25,3 +25,20 @@ export function quotaMeter(on: On, initial: Limit[] = []) {
 export const session = (used: number, resetsAt = FAR): Limit => ({ kind: 'five_hour', percentUsed: used, resetsAt })
 /** Hạn mức tuần đã dùng `used` phần trăm. */
 export const week = (used: number, resetsAt = FAR): Limit => ({ kind: 'seven_day', percentUsed: used, resetsAt })
+
+/** Kho $.store trong bộ nhớ mà test đọc thẳng được; `failing` làm `set` bị từ chối (như khi vượt 4 MiB). */
+export function memoryStore(on: On) {
+  const box = { data: new Map<string, unknown>(), failing: false }
+  on('store.get', (_$, e) => ({ value: box.data.has(e.key) ? JSON.parse(JSON.stringify(box.data.get(e.key))) : undefined }) as never)
+  on('store.set', (_$, e) => {
+    if (box.failing) throw new Error('kho đầy')
+    box.data.set(e.key, JSON.parse(JSON.stringify(e.value)))
+    return { value: undefined } as never
+  })
+  on('store.delete', (_$, e) => {
+    box.data.delete(e.key)
+    return { value: undefined } as never
+  })
+  on('store.keys', () => ({ value: [...box.data.keys()] }) as never)
+  return box
+}

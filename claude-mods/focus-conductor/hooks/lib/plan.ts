@@ -27,11 +27,12 @@ export const PLAN_TOOL_SPEC: ToolSpec = {
     '"blocked" là không tiến hành được và không có việc nào đang chạy để chờ. action "add": thêm bước vào cuối. ' +
     'action "restore": khôi phục mục tiêu cũ còn bước mở đã được lưu khi chuyển mục tiêu (index 1 là gần nhất). ' +
     'Kết quả của "update" và "add" chỉ liệt kê các bước vừa đổi; action "show" xem lại toàn bộ checklist, không đổi gì. ' +
+    'action "checkpoint": chỉ khi mod tạm dừng, note ghi bước kế tiếp. ' +
     'Gọi "set" trước khi thực thi việc từ mức moderate trở lên, và "update" sau mỗi bước quan trọng.',
   inputSchema: {
     type: 'object',
     properties: {
-      action: { type: 'string', enum: ['set', 'update', 'add', 'restore', 'show'] },
+      action: { type: 'string', enum: ['set', 'update', 'add', 'restore', 'show', 'checkpoint'] },
       goal: { type: 'string', description: 'Mục tiêu cuối cùng, một câu.' },
       steps: {
         type: 'array',
@@ -75,7 +76,7 @@ export type PlanInput = {
 
 /** `changed`: id các bước đã đổi (update) hoặc vừa thêm (add); `bulk` có mặt khi update hàng loạt (ids, allOpen). */
 export type PlanOutcome =
-  | { plan: PlanStep[]; goal?: string; scope?: string[]; changed?: number[]; bulk?: { status: StepStatus; note: string }; error?: undefined }
+  | { plan: PlanStep[]; goal?: string; scope?: string[]; changed?: number[]; bulk?: { status: StepStatus; note: string }; checkpointNote?: string; error?: undefined }
   | { error: string; plan?: undefined; goal?: undefined; changed?: undefined; bulk?: undefined }
 
 function text(value: unknown): string {
@@ -197,5 +198,12 @@ export function applyPlan(current: readonly PlanStep[], input: PlanInput): PlanO
     }
   }
 
-  return { error: 'action phải là "set", "update", "add", "restore" hoặc "show".' }
+  if (action === 'checkpoint') {
+    // Điểm dừng do bảo vệ hạn mức (0.6.0): chỉ ghi note, không đổi checklist. Hook kiểm mod có đang tạm dừng không.
+    const note = text(input.note)
+    if (!note) return { error: 'action "checkpoint" cần note: bước kế tiếp cụ thể, việc đã xong không làm lại, điều cần kiểm khi quay lại.' }
+    return { plan: [...current], checkpointNote: note.slice(0, 600) }
+  }
+
+  return { error: 'action phải là "set", "update", "add", "restore", "show" hoặc "checkpoint".' }
 }

@@ -11,6 +11,7 @@ import type { PlanInput } from '../lib/plan'
 import { familyOf } from '../lib/route'
 import { askRouter, driftRequest, parseDrift } from '../lib/router'
 import { EMPTY_QUOTA, normalizeQuota } from '../lib/quota'
+import { storeKey, withNote } from '../lib/checkpoint'
 import * as S from '../lib/state'
 import { PLAN_TOOL_FULL, blockText, criteriaNotice, driftContext, pendingNotice, qualityNotice, renderBulk, renderPlan, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
@@ -81,6 +82,20 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       // Chỉ xem: không đổi trạng thái, không tính là cập nhật (L.tracker.planUpdates giữ nguyên).
       const current = S.normalizeCore(await read($, coreState))
       return { result: renderPlan(current.brief, current.plan) }
+    }
+    if (input.action === 'checkpoint') {
+      // Giai đoạn hai của điểm dừng (0.6.0): Claude ghi bước kế tiếp. Chỉ hợp lệ khi mod đang tạm dừng.
+      const q = normalizeQuota(await read($, quotaState))
+      if (q.pause === null) return { deny: 'action "checkpoint" chỉ dùng khi mod đang tạm dừng (hạn mức sắp hết hoặc /conductor pause).' }
+      const noted = applyPlan([], input)
+      if (noted.error !== undefined) return { deny: noted.error }
+      const cp = q.checkpoint !== null ? withNote(q.checkpoint, noted.checkpointNote ?? '') : null
+      if (cp !== null) {
+        await update($, quotaState, c => ({ ...normalizeQuota(c), checkpoint: cp }))
+        const isSaved = await $.store.set(storeKey(cp.cwd), cp).then(() => true).catch(() => false)
+        if (!isSaved) $.ui.toast('Focus Conductor: không lưu được điểm dừng vào kho của mod; điểm dừng chỉ còn trong phiên này')
+      }
+      return { result: 'Đã ghi điểm dừng. Kết thúc turn bằng một câu báo điểm dừng; lần ra lệnh sau sẽ tiếp tục từ đây.' }
     }
     const before = S.normalizeCore(await read($, coreState))
     // "verified" chỉ được lưu khi bằng chứng đủ mạnh (lệnh kiểm tra chạy thành công sau thay đổi cuối của mục tiêu,
