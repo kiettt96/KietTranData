@@ -11,6 +11,7 @@ import { askRouter, isSkippable, nextBrief, parseRoute, routerRequest } from '..
 import type { RouterOutcome, RouterPlan } from '../lib/router'
 import { EMPTY_QUOTA, blockingHits, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaSettings, reasonsOf } from '../lib/quota'
 import * as S from '../lib/state'
+import type { View } from '../lib/state'
 import { DISCIPLINE, briefContext, droppedPlanNotice, followUpContext, quotaPausedContext, resetLabel, resumeCommand, restorableLabel, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
@@ -49,6 +50,11 @@ async function currentStats($: EngineInterface, paths: readonly string[]): Promi
     out.set(path, stat === null ? null : { mtimeMs: stat.mtimeMs, size: stat.size })
   }
   return out
+}
+
+/** Status line kèm nhãn hạn mức (0.6.1): mọi chỗ đặt status của file này đi qua đây, nên nhãn không mất giữa các hook. */
+async function showStatus($: EngineInterface, current: View, options: Ctx['options']): Promise<void> {
+  $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
 }
 
 export function registerSession(on: On, ctx: Ctx): void {
@@ -95,7 +101,7 @@ export function registerSession(on: On, ctx: Ctx): void {
         }
       }
     }
-    $.ui.status(S.statusOf(await read($, view)))
+    await showStatus($, await read($, view), ctx.options)
     return next(e)
   })
 
@@ -103,7 +109,7 @@ export function registerSession(on: On, ctx: Ctx): void {
     if (e.reason === 'clear') {
       resetLocal()
       await update($, coreState, S.resetCore)
-      $.ui.status(S.statusOf(await read($, view)))
+      await showStatus($, await read($, view), ctx.options)
     }
     return next(e)
   })
@@ -227,7 +233,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       record(now, 'router-fail', { prompt: clipText(text), reason: outcome.reason, retried: outcome.retried, reuse: isReuse })
       await flushDecisions((path, text) => $.fs.write(path, text))
       if (!isPaused) $.ui.toast(pauseText ?? failText)
-      $.ui.status(S.statusOf(await read($, view)))
+      await showStatus($, await read($, view), ctx.options)
       return next({ ...e, context: [...lead, ...(e.context ?? []), unroutedContext(outcome.reason), ...tail] })
     }
 
@@ -273,7 +279,7 @@ export function registerSession(on: On, ctx: Ctx): void {
           : `Router đã đọc prompt: ${brief.depth}, khối lượng ${brief.volume}, luồng chính ${expected ? describePick(expected) + (isApplied ? '' : ' (chỉ đề xuất)') : 'model của phiên'}${delegated > 0 ? `, ${delegated} việc giao subagent` : ''}`,
       )
     }
-    $.ui.status(S.statusOf(await read($, view)))
+    await showStatus($, await read($, view), ctx.options)
     return next({ ...e, context: [...lead, ...(e.context ?? []), context, ...notice, ...tail] })
   }).catch(($, e, next) => next(e))
 }

@@ -3,10 +3,12 @@
 import { atom, derive, read, update } from 'claude-code'
 import { EMPTY_QUOTA, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaBadge, quotaSettings } from '../lib/quota'
 import * as S from '../lib/state'
+import type { View } from '../lib/state'
+import { quotaOverview, quotaPaneText } from '../lib/text'
 import { renderBand } from '../ui/band'
 import { labels } from '../ui/labels'
 import { PANE, PANE_TITLE, renderPane } from '../ui/pane'
-import type { On } from 'claude-code'
+import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { viewOf } from '../atoms'
 
@@ -20,6 +22,11 @@ const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null
 const resetArmedState = atom({ plugin: 'focus-conductor', key: 'resetArmedUntil' } as const, 0)
 const RESET_CONFIRM_MS = 10_000
 const quotaState = atom({ plugin: 'focus-conductor', key: 'quota' } as const, EMPTY_QUOTA)
+
+/** Status line kèm nhãn hạn mức (0.6.1): mọi chỗ đặt status của file này đi qua đây, nên nhãn không mất giữa các hook. */
+async function showStatus($: EngineInterface, current: View, options: Ctx['options']): Promise<void> {
+  $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
+}
 
 export function registerUi(on: On, ctx: Ctx): void {
   const { resetLocal } = ctx
@@ -46,7 +53,17 @@ export function registerUi(on: On, ctx: Ctx): void {
   on('ui.render', { component: 'Pane', requestId: 'focus-conductor' }, async ($, e) => {
     const current = await read($, view)
     const l = labels(current.lang)
-    const isResetArmed = (await read($, resetArmedState)) > (await $.clock.now())
+    const now = await $.clock.now()
+    const isResetArmed = (await read($, resetArmedState)) > now
+    // Mục Hạn mức theo số đo đã lưu (không gọi engine khi vẽ), cùng số liệu với /conductor status.
+    const settings = quotaSettings(ctx.options)
+    const q = normalizeQuota(await read($, quotaState))
+    const quota = settings.enabled
+      ? quotaPaneText(
+          quotaOverview({ enabled: true, limits: q.readings, thresholds: settings, pause: q.pause, overrideUntil: q.overrideUntil, overrideKinds: q.overrideKinds, checkpoint: q.checkpoint, now }),
+          current.lang,
+        )
+      : null
     return renderPane($.ui.resolve(e), current, { columns: e.props.bodyColumns, placement: e.props.placement, isResetArmed }, {
       onMode: picked => update($, modeState, () => picked),
       onReset: async () => {
@@ -56,7 +73,7 @@ export function registerUi(on: On, ctx: Ctx): void {
           await update($, resetArmedState, () => 0)
           resetLocal()
           await update($, coreState, S.resetCore)
-          $.ui.status(S.statusOf(await read($, view)))
+          await showStatus($, await read($, view), ctx.options)
           $.ui.toast(l.resetDoneToast)
           return
         }
@@ -71,6 +88,6 @@ export function registerUi(on: On, ctx: Ctx): void {
         })
       },
       onToggleBand: () => update($, bandHiddenState, hidden => !hidden),
-    })
+    }, quota)
   })
 }

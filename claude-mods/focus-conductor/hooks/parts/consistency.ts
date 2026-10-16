@@ -10,9 +10,10 @@ import { applyPlan } from '../lib/plan'
 import type { PlanInput } from '../lib/plan'
 import { familyOf } from '../lib/route'
 import { askRouter, driftRequest, parseDrift } from '../lib/router'
-import { EMPTY_QUOTA, normalizeQuota } from '../lib/quota'
+import { EMPTY_QUOTA, normalizeQuota, quotaSettings } from '../lib/quota'
 import { storeKey, withNote } from '../lib/checkpoint'
 import * as S from '../lib/state'
+import type { View } from '../lib/state'
 import { PLAN_TOOL_FULL, blockText, criteriaNotice, driftContext, pendingNotice, qualityNotice, renderBulk, renderPlan, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
@@ -38,6 +39,11 @@ async function frameOf($: EngineInterface, roots: Map<number, string | null>, go
     if (roots.size > 8 && oldest !== undefined) roots.delete(oldest)
   }
   return { root: roots.get(goalId) ?? null, cwd: await $.session.cwd().catch(() => null) }
+}
+
+/** Status line kèm nhãn hạn mức (0.6.1): mọi chỗ đặt status của file này đi qua đây, nên nhãn không mất giữa các hook. */
+async function showStatus($: EngineInterface, current: View, options: Ctx['options']): Promise<void> {
+  $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
 }
 
 export function registerConsistency(on: On, ctx: Ctx): void {
@@ -74,7 +80,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       await update($, coreState, S.withDelegations(restored.goalId, delegationItems(restored)))
       L.isGoalNew = true
       L.pinnedGoalId = null
-      $.ui.status(S.statusOf(await read($, view)))
+      await showStatus($, await read($, view), ctx.options)
       const core = S.normalizeCore(await read($, coreState))
       return { result: `Đã khôi phục mục tiêu: ${restored.goal}\n${renderPlan(core.brief, core.plan)}` }
     }
@@ -146,7 +152,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     const isClosing = isUpdate && !isFullyClosed(before.plan) && isFullyClosed(core.plan)
     if (isClosing && core.brief !== null && core.brief.quality.length > 0) notes.push(qualityNotice(core.brief.quality))
     if (isUpdate && openSteps(before.plan).length > 0 && openSteps(core.plan).length === 0 && pendingSteps(core.plan).length > 0) notes.push(pendingNotice(core.plan))
-    $.ui.status(S.statusOf(await read($, view)))
+    await showStatus($, await read($, view), ctx.options)
     const shown = outcome.bulk !== undefined ? renderBulk(core.plan, outcome.changed ?? [], outcome.bulk.status, outcome.bulk.note) : renderPlan(core.brief, core.plan, input.action === 'update' || input.action === 'add' ? outcome.changed : undefined)
     return { result: [shown, ...notes].join('\n') }
   }).catch(() => ({ deny: 'focus-conductor: lỗi nội bộ khi cập nhật checklist; tiếp tục làm việc không cần tool này.' }))
@@ -386,7 +392,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     await update($, coreState, c => S.withTurnMark(at, endContext)(S.withLedger(() => ledger)(S.withWarnings(...warnings)(c))))
     const unverified = findings.find(f => f.kind === 'unverified')
     if (unverified) $.ui.toast(unverified.text)
-    $.ui.status(S.statusOf(await read($, view)))
+    await showStatus($, await read($, view), ctx.options)
     return result
   })
 }

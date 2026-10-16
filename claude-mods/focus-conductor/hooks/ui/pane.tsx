@@ -1,4 +1,4 @@
-// Pane chi tiết, xếp theo thứ tự cần nhìn: mục tiêu và chế độ, cảnh báo, checklist, việc giao subagent,
+// Pane chi tiết, xếp theo thứ tự cần nhìn: mục tiêu và chế độ, hạn mức, cảnh báo, checklist, việc giao subagent,
 // điều phối, chi phí, nhật ký; ràng buộc và tiêu chí chất lượng (nội dung tĩnh) ở cuối.
 // Hàm vẽ thuần như band: handler do hook tạo và truyền vào.
 
@@ -8,6 +8,7 @@ import type { Mode } from '../../types'
 import { estimateLine, formatUsd, ledgerLines, sessionUsd } from '../lib/ledger'
 import type { View } from '../lib/state'
 import { progress } from '../lib/text'
+import type { QuotaPaneText } from '../lib/text'
 import { labels } from './labels'
 import type { Run } from './style'
 import {
@@ -51,7 +52,14 @@ export type PaneProps = {
   isResetArmed: boolean
 }
 
-export function renderPane(t: Elements[RenderSurface], view: View, props: PaneProps, handlers: PaneHandlers): RenderElement {
+export function renderPane(
+  t: Elements[RenderSurface],
+  view: View,
+  props: PaneProps,
+  handlers: PaneHandlers,
+  /** Mục Hạn mức (0.6.1): null khi quotaGuard tắt, mục không được vẽ. */
+  quota: QuotaPaneText | null = null,
+): RenderElement {
   const { Box, Text, Button } = t
   const { brief, plan, route, log, warnings, ledger } = view.core
   const l = labels(view.lang)
@@ -108,10 +116,29 @@ export function renderPane(t: Elements[RenderSurface], view: View, props: PanePr
     </Box>
   )
 
+  // Hạn mức (0.6.1): từng cửa sổ, trạng thái, điểm dừng chưa dùng xong và lệnh chạy tiếp. Đang dừng thì tô màu cảnh báo.
+  const quotaNode = quota ? (
+    <Box flexDirection="column">
+      {heading(l.quota)}
+      {quota.windows.map(line => (
+        <Text dimColor wrap="wrap">
+          {line}
+        </Text>
+      ))}
+      <Text color={quota.isPaused ? 'warning' : undefined} bold={quota.isPaused} wrap="wrap">
+        {quota.state}
+      </Text>
+      {quota.checkpoint.map(line => (
+        <Text wrap="wrap">{line}</Text>
+      ))}
+    </Box>
+  ) : null
+
   if (brief === null) {
     return (
       <Box flexDirection="column" gap={1} width={width}>
         {modeRow}
+        {quotaNode}
         <Text dimColor wrap="wrap">
           {l.noGoal}
         </Text>
@@ -200,10 +227,17 @@ export function renderPane(t: Elements[RenderSurface], view: View, props: PanePr
   const kindWidth = Math.max(0, ...recentWarnings.map(w => cellsOf(l.warningKind[w.kind])))
   const alerts =
     recentWarnings.length === 0 ? (
-      <Text wrap="wrap">
-        <Text color="success">✓</Text>
-        <Text dimColor>{` ${l.noWarnings}`}</Text>
-      </Text>
+      quota?.isPaused ? (
+        // Đang dừng thì không báo "Không có cảnh báo.": nêu lý do dừng.
+        <Text color="warning" wrap="wrap">
+          {`${l.quotaPausedNow}: ${quota.cause}`}
+        </Text>
+      ) : (
+        <Text wrap="wrap">
+          <Text color="success">✓</Text>
+          <Text dimColor>{` ${l.noWarnings}`}</Text>
+        </Text>
+      )
     ) : (
       <Box flexDirection="column">
         {heading(l.warnings, String(recentWarnings.length))}
@@ -436,6 +470,7 @@ export function renderPane(t: Elements[RenderSurface], view: View, props: PanePr
     <Box flexDirection="column" gap={1} width={width}>
       {header}
       {modeRow}
+      {quotaNode}
       {alerts}
       <Box flexDirection="column">
         {heading(plan.length > 0 ? 'Checklist' : l.planned, plan.length > 0 ? `${closed}/${total}` : undefined)}

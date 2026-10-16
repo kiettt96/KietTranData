@@ -8,11 +8,11 @@ import type { QuotaCheckpoint, QuotaPause, QuotaState } from '../../types'
 import { addTouched, buildCheckpoint, pruneKeys, pushRecent, recentLine, storeKey } from '../lib/checkpoint'
 import type { CheckpointInput } from '../lib/checkpoint'
 import { classifyBash, filePathOf, isMutation, restorableSteps } from '../lib/drift'
-import { EMPTY_QUOTA, QUOTA_CACHE_MS, deniedInput, evaluateQuota, blockingHits, isPauseActive, newPause, normalizeQuota, noteDenial, overrideOf, quotaBadge, quotaSettings, reasonsOf } from '../lib/quota'
+import { EMPTY_QUOTA, QUOTA_CACHE_MS, deniedInput, evaluateQuota, blockingHits, isPauseActive, newPause, normalizeQuota, noteDenial, overrideOf, quotaSettings, reasonsOf } from '../lib/quota'
 import type { QuotaEval } from '../lib/quota'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
-import { PLAN_TOOL_FULL, quotaDenyText, withQuotaStatus } from '../lib/text'
+import { PLAN_TOOL_FULL, quotaDenyText } from '../lib/text'
 import { viewOf } from '../atoms'
 import type { Ctx } from '../context'
 import { PERSON_ORIGINS, SLASH_COMMAND } from '../context'
@@ -162,9 +162,9 @@ async function savePauseOnEnd($: EngineInterface, ctx: Ctx): Promise<void> {
   await storeCheckpoint($, cp)
 }
 
-/** Đặt status line kèm nhãn hạn mức (đang dừng, hay phần còn lại khi gần ngưỡng). */
-function setQuotaStatus($: EngineInterface, current: View, isPaused: boolean, evaluation: QuotaEval): void {
-  $.ui.status(withQuotaStatus(S.statusOf(current), quotaBadge(isPaused, evaluation), current.lang))
+/** Status line kèm nhãn hạn mức (0.6.1): mọi chỗ đặt status của file này đi qua đây, nên nhãn không mất giữa các hook. */
+async function showStatus($: EngineInterface, current: View, options: Ctx['options']): Promise<void> {
+  $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
 }
 
 export function registerQuota(on: On, ctx: Ctx): void {
@@ -189,7 +189,7 @@ export function registerQuota(on: On, ctx: Ctx): void {
       await enterQuotaPause($, ctx, evaluation, now)
     }
     const q = normalizeQuota(await read($, quotaState))
-    setQuotaStatus($, await read($, view), q.pause !== null, evaluation)
+    await showStatus($, await read($, view), ctx.options)
     return result
   }).catch(($, e, next) => next(e))
 
@@ -200,12 +200,16 @@ export function registerQuota(on: On, ctx: Ctx): void {
     if (!settings.enabled || text === '' || SLASH_COMMAND.test(text) || !PERSON_ORIGINS.has(e.origin.kind)) return next(e)
     if (S.modeOf(await read($, modeState), ctx.options) === 'off') return next(e)
     const now = await $.clock.now()
-    const evaluation = evaluateQuota(await usageLimits($), now, settings)
+    const limits = await usageLimits($)
+    const evaluation = evaluateQuota(limits, now, settings)
+    // Số đo vừa đọc thay số đã lưu: nhãn trên band và status line theo đúng hạn mức lúc này (đã làm mới thì nhãn mất).
+    // Không ghi vào cache của tool.call: tool.call vẫn tự hỏi engine theo nhịp QUOTA_CACHE_MS như 0.6.0.
+    await update($, quotaState, c => ({ ...normalizeQuota(c), zone: evaluation.zone, readings: [...(limits ?? [])] as QuotaState['readings'], measuredAt: now }))
     const q = normalizeQuota(await read($, quotaState))
     if (q.pause === null && isPauseActive(true, evaluation.hits, null, overrideOf(q), now) && restorableSteps(S.normalizeCore(await read($, coreState)).plan).length > 0) {
       await enterQuotaPause($, ctx, evaluation, now)
-      setQuotaStatus($, await read($, view), true, evaluation)
     }
+    await showStatus($, await read($, view), ctx.options)
     return next(e)
   }).catch(($, e, next) => next(e))
 
@@ -262,7 +266,7 @@ export function registerQuota(on: On, ctx: Ctx): void {
       // Hạn mức đã làm mới hay người dùng ép tiếp: dừng do hạn mức tự mở; điểm dừng (nếu có) vẫn còn để tiếp tục.
       if (q.pause !== null || q.zone !== evaluation.zone) {
         await update($, quotaState, c => ({ ...normalizeQuota(c), zone: evaluation.zone, pause: null }))
-        setQuotaStatus($, await read($, view), false, evaluation)
+        await showStatus($, await read($, view), ctx.options)
       }
       const result = await next(e)
       if (e.tool === PLAN_TOOL_FULL || result.deny !== undefined) return result
@@ -284,7 +288,7 @@ export function registerQuota(on: On, ctx: Ctx): void {
     let pause = q.pause
     if (pause === null) {
       pause = await enterQuotaPause($, ctx, evaluation, now)
-      setQuotaStatus($, await read($, view), true, evaluation)
+      await showStatus($, await read($, view), ctx.options)
     }
     // Tool plan của chính mod được qua: Claude cần nó để ghi điểm dừng.
     if (e.tool === PLAN_TOOL_FULL) return next(e)

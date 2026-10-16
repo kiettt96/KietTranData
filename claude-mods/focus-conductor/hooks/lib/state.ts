@@ -6,12 +6,14 @@
 
 import type { PluginOptions } from 'claude-code'
 
-import type { ArchivedGoal, Brief, Core, DelegationItem, Ledger, Lift, ModelFamily, Mode, PlanStep, Route, RouteEvent, Warning } from '../../types'
+import type { ArchivedGoal, Brief, Core, QuotaState, DelegationItem, Ledger, Lift, ModelFamily, Mode, PlanStep, Route, RouteEvent, Warning } from '../../types'
 import { restorableSteps } from './drift'
 import type { Tokens } from './cost'
 import { addUsage, emptyLedger, nextGoal, planSwitch, resetLedger } from './ledger'
 import { legacyOf } from './scale'
-import { statusLine } from './text'
+import { statusLine, withQuotaStatus } from './text'
+import { evaluateQuota, isPauseActive, overrideOf, quotaBadge } from './quota'
+import type { QuotaSettings } from './quota'
 import type { Lang } from '../ui/labels'
 
 export const EMPTY_LIFT: Lift = { depth: 0, effort: 0 }
@@ -55,6 +57,18 @@ export function modeOf(override: Mode | null, options: PluginOptions): Mode {
 export function statusOf(view: View): string | undefined {
   if (view.mode === 'off') return undefined
   return statusLine(view.core.brief, view.core.plan, view.core.route, view.mode)
+}
+
+/**
+ * Status line của mọi hook: dòng của mod kèm nhãn hạn mức theo số đo đã lưu trong $.state (đang dừng, hay phần còn lại
+ * khi gần ngưỡng). Chưa có mục tiêu thì dòng của mod là tên chế độ, nhãn vẫn đi kèm. statusOf chỉ trả undefined khi
+ * mode off, lúc đó bảo vệ hạn mức không chạy nên không có nhãn. Tắt quotaGuard thì như statusOf.
+ */
+export function statusText(view: View, quota: QuotaState, now: number, settings: QuotaSettings): string | undefined {
+  const base = statusOf(view)
+  if (!settings.enabled) return base
+  const evaluation = evaluateQuota(quota.readings, now, settings)
+  return withQuotaStatus(base, quotaBadge(isPauseActive(true, evaluation.hits, quota.pause, overrideOf(quota), now), evaluation), view.lang)
 }
 
 /** Đưa trạng thái đọc được từ bản cũ về dạng đầy đủ của bản hiện tại. */

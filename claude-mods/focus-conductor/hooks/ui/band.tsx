@@ -16,6 +16,7 @@ import {
   FAMILY_HUE,
   SPINE,
   barRuns,
+  cellsOf,
   columnsOf,
   currentStep,
   goalUsd,
@@ -25,6 +26,11 @@ import {
   severityGlyph,
   severityOf,
 } from './style'
+
+/** Ô một nút của engine chiếm [Giả định: khoảng 10 ô cho nhãn ngắn, chưa đo trên surface thật]. */
+export const BUTTON_CELLS = 10
+const buttonCells = (label: string) => Math.max(BUTTON_CELLS, cellsOf(label) + 2)
+const runCells = (runs: readonly Run[]) => runs.reduce((sum, r) => sum + cellsOf(r.text), 0)
 
 export type BandHandlers = {
   onDetails: () => unknown
@@ -79,32 +85,77 @@ export function renderBand(
     </Text>
   )
 
-  // Chip model: nền đặc khi mod đang áp dụng, chỉ tô chữ khi mới đề xuất.
-  const routeNode = route ? (
-    view.mode === 'suggest' ? (
-      <Text>
-        <Text dimColor>{l.suggest} </Text>
-        <Text color={FAMILY_HUE[route.family]} bold>
-          {route.family}
-        </Text>
-        <Text dimColor> {route.effort}</Text>
-      </Text>
-    ) : (
-      <Text>
-        <Text backgroundColor={FAMILY_HUE[route.family]} color="inverseText" bold>
-          {` ${route.family} `}
-        </Text>
-        <Text dimColor> {route.effort}</Text>
-      </Text>
-    )
-  ) : null
   const pending = pendingUsd(log)
   const spent = goalUsd(ledger) + pending
-  const costNode = hasRoom && spent > 0 ? <Text dimColor>{`${pending > 0 ? '~' : ''}${formatUsd(spent)}`}</Text> : null
-  // Nhãn hạn mức dùng lại màu cảnh báo có sẵn: đang dừng thì đậm, gần ngưỡng thì thường.
+  const costText = hasRoom && spent > 0 ? `${pending > 0 ? '~' : ''}${formatUsd(spent)}` : ''
+  const modeText = isWide && view.mode === 'subagents' ? `${l.mode} ${view.mode}` : ''
+  // Nhãn hạn mức dùng lại màu cảnh báo có sẵn: đang dừng thì đậm, gần ngưỡng thì thường. Dưới 56 cột nhãn dừng rút gọn.
+  const quotaText = quota ? (quota.paused ? (hasTitle ? l.quotaPaused : l.quotaPausedShort) : l.quotaLeft(quotaPercent(quota.left ?? 0))) : ''
+
+  // Band hẹp (0.6.1): phần không co (gờ, tiến độ, chip, nút) không được vượt chiều rộng. Thừa thì bỏ lần lượt số bước,
+  // mức effort của chip model, rồi cả chip model.
+  const fit = { count: true, effort: true, route: true }
+  const countText = `${closed}/${total}`
+  const progressCells = () =>
+    bar.length > 0
+      ? runCells(bar) + (fit.count ? 1 + cellsOf(countText) : 0) + (isWide && phase !== 'done' ? 1 + cellsOf(l.phase[phase]) : 0)
+      : beads.length > 0
+        ? runCells(beads) + 1 + cellsOf(l.plannedSteps(planned))
+        : 0
+  const routeCells = () =>
+    route && fit.route
+      ? view.mode === 'suggest'
+        ? cellsOf(l.suggest) + 1 + cellsOf(route.family) + (fit.effort ? 1 + cellsOf(route.effort) : 0)
+        : cellsOf(route.family) + 2 + (fit.effort ? 1 + cellsOf(route.effort) : 0)
+      : 0
+  const chipCells = () => {
+    const parts = [cellsOf(quotaText), routeCells(), costText ? cellsOf(costText) : 0].filter(n => n > 0)
+    return parts.reduce((a, b) => a + b, 0) + Math.max(0, parts.length - 1)
+  }
+  // Một dòng: tiến độ, mục tiêu, chip, nút Chi tiết (và nút Ẩn khi có hai dòng) cách nhau một ô.
+  const compactCells = () => {
+    const parts = [progressCells(), 0, chipCells(), buttonCells(l.details), props.maxRows >= 2 && hasRoom ? buttonCells(l.hide) : 0]
+    const shown = parts.filter((n, i) => i === 1 || n > 0)
+    return 2 + shown.reduce((a, b) => a + b, 0) + (shown.length - 1)
+  }
+  // Hai dòng: dòng 1 mục tiêu và chip (gap 2); dòng 2 tiến độ, tâm điểm (lề 1), nhãn chế độ, các nút.
+  const rowCells = () => {
+    const first = 2 + (chipCells() > 0 ? 2 + chipCells() : 0)
+    const tail = [progressCells(), 1, modeText ? cellsOf(modeText) : 0, buttonCells(l.details), hasRoom ? buttonCells(l.hide) : 0]
+    const shown = tail.filter((n, i) => i === 1 || n > 0)
+    return Math.max(first, 2 + shown.reduce((a, b) => a + b, 0) + (shown.length - 1))
+  }
+  const isCompact = props.maxRows < 2 || (bar.length === 0 && beads.length === 0 && !current)
+  const fixedCells = () => (isCompact ? compactCells() : rowCells())
+  for (const drop of [() => (fit.count = false), () => (fit.effort = false), () => (fit.route = false)]) {
+    if (fixedCells() <= columns) break
+    drop()
+  }
+
+  // Chip model: nền đặc khi mod đang áp dụng, chỉ tô chữ khi mới đề xuất.
+  const routeNode =
+    route && fit.route ? (
+      view.mode === 'suggest' ? (
+        <Text>
+          <Text dimColor>{l.suggest} </Text>
+          <Text color={FAMILY_HUE[route.family]} bold>
+            {route.family}
+          </Text>
+          {fit.effort ? <Text dimColor> {route.effort}</Text> : null}
+        </Text>
+      ) : (
+        <Text>
+          <Text backgroundColor={FAMILY_HUE[route.family]} color="inverseText" bold>
+            {` ${route.family} `}
+          </Text>
+          {fit.effort ? <Text dimColor> {route.effort}</Text> : null}
+        </Text>
+      )
+    ) : null
+  const costNode = costText ? <Text dimColor>{costText}</Text> : null
   const quotaNode = quota ? (
     <Text color="warning" bold={quota.paused}>
-      {quota.paused ? l.quotaPaused : l.quotaLeft(quotaPercent(quota.left ?? 0))}
+      {quotaText}
     </Text>
   ) : null
   const chips =
@@ -116,12 +167,11 @@ export function renderBand(
       </Box>
     ) : null
 
-  const modeTag =
-    isWide && view.mode === 'subagents' ? (
-      <Box flexShrink={0}>
-        <Text dimColor>{`${l.mode} ${view.mode}`}</Text>
-      </Box>
-    ) : null
+  const modeTag = modeText ? (
+    <Box flexShrink={0}>
+      <Text dimColor>{modeText}</Text>
+    </Box>
+  ) : null
   const detailsButton = <Button key="details" label={l.details} onPress={handlers.onDetails} />
   const hideButton = hasRoom ? <Button key="hide" plain dimColor label={l.hide} onPress={handlers.onHide} /> : null
 
@@ -158,7 +208,7 @@ export function renderBand(
     bar.length > 0 ? (
       <Box key="progress" flexShrink={0} flexDirection="row" gap={1}>
         <Text>{bar.map(tint)}</Text>
-        <Text bold>{`${closed}/${total}`}</Text>
+        {fit.count ? <Text bold>{countText}</Text> : null}
         {isWide && phase !== 'done' ? <Text dimColor>{l.phase[phase]}</Text> : null}
       </Box>
     ) : beads.length > 0 ? (
@@ -169,7 +219,6 @@ export function renderBand(
     ) : null
 
   const rows: RenderElement[] = []
-  const isCompact = props.maxRows < 2 || (progressNode === null && !current)
   if (isCompact) {
     // Một dòng: tiến độ (nếu có), mục tiêu, model, nút. Cảnh báo (nếu có) xuống dòng dưới khi còn chỗ.
     rows.push(

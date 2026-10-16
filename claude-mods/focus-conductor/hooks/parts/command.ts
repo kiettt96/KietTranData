@@ -11,6 +11,7 @@ import { describePick } from '../lib/route'
 import { clipText } from '../lib/decisions'
 import { askRouter, bareBrief, briefOf, nextBrief, parseRoute, rerouted, routerRequest } from '../lib/router'
 import * as S from '../lib/state'
+import type { View } from '../lib/state'
 import { briefContext, droppedPlanNotice, quotaStatusLines, renderPlan, resetLabel, unroutedContext } from '../lib/text'
 import { PANE, PANE_TITLE } from '../ui/pane'
 import type { EngineInterface, On } from 'claude-code'
@@ -70,6 +71,11 @@ async function commandLimits($: EngineInterface): Promise<readonly unknown[] | n
   return usage !== null && Array.isArray(usage.rateLimits) ? usage.rateLimits : null
 }
 
+/** Status line kèm nhãn hạn mức (0.6.1): mọi chỗ đặt status của file này đi qua đây, nên nhãn không mất giữa các hook. */
+async function showStatus($: EngineInterface, current: View, options: Ctx['options']): Promise<void> {
+  $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
+}
+
 export function registerCommand(on: On, ctx: Ctx): void {
   const L = ctx.local
   const { blocked, flushDecisions, delegationItems, expectedMain, failures, noteRouterTime, policy, ranText, record, resetLocal, routerFamily, routerModel, routerTimeLine, trackDelegations, untrackedAgents, wantedPick } = ctx
@@ -90,7 +96,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
     if (sub === 'mode') {
       if (!S.isMode(arg)) return { text: `Chế độ phải là auto, subagents, suggest hoặc off.\n${COMMAND_HELP}` }
       await update($, modeState, () => arg)
-      $.ui.status(S.statusOf(await read($, view)))
+      await showStatus($, await read($, view), ctx.options)
       return { text: `Focus Conductor chuyển sang chế độ ${arg}.` }
     }
 
@@ -98,7 +104,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       resetLocal()
       await update($, coreState, S.resetCore)
       await update($, resetArmedState, () => 0)
-      $.ui.status(S.statusOf(await read($, view)))
+      await showStatus($, await read($, view), ctx.options)
       return { text: 'Đã xóa mục tiêu, checklist, cảnh báo, mục tiêu đã cất, sổ chi phí và danh sách model bị chặn. Giữ nhật ký điều phối và hệ số hiệu chỉnh đã học.' }
     }
 
@@ -130,7 +136,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       L.pinnedGoalId = null
       record(now, plan !== null ? 'route' : 'router-fail', { command: 'goal', prompt: clipText(arg), reason: outcome.reason, retried: outcome.retried })
       await flushDecisions((path, text) => $.fs.write(path, text))
-      $.ui.status(S.statusOf(await read($, view)))
+      await showStatus($, await read($, view), ctx.options)
       const wanted = wantedPick(brief, core.lift)
       const expected = wanted !== null ? expectedMain(core, brief, wanted, now) : null
       trackDelegations(brief.goalId, brief.isReference ? [] : brief.tasks)
@@ -209,7 +215,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       const expected = wanted !== null ? expectedMain(core, brief, wanted, now) : null
       record(now, 'reroute', { prompt: clipText(last.text), relation: plan.relation, confidence: plan.confidence, retried: outcome.retried, main: brief.main, expected })
       await flushDecisions((path, text) => $.fs.write(path, text))
-      $.ui.status(S.statusOf(await read($, view)))
+      await showStatus($, await read($, view), ctx.options)
       return {
         text: `Router đã đọc lại prompt gần nhất: ${brief.goal} (${brief.depth}, khối lượng ${brief.volume}, luồng chính ${expected ? describePick(expected) + (isApplied ? '' : ' (chỉ đề xuất)') : 'model của phiên'}).`,
         context: [`Người dùng yêu cầu router đọc lại prompt gần nhất.\n${briefContext(brief, expected, isApplied)}`],
@@ -257,13 +263,13 @@ export function registerCommand(on: On, ctx: Ctx): void {
         if (hits.length === 0) {
           if (q.pause === null) return { text: 'Không có gì để ép: hạn mức chưa chạm ngưỡng và mod không đang tạm dừng.' }
           await update($, quotaState, c => ({ ...normalizeQuota(c), pause: null, resumeArmed: cp !== null }))
-          $.ui.status(S.statusOf(await read($, view)))
+          await showStatus($, await read($, view), ctx.options)
           return { text: `Đã mở tạm dừng; hạn mức chưa chạm ngưỡng nên không cần ép.${cp !== null ? ' Prompt kế tiếp sẽ tiếp tục từ điểm dừng.' : ''}` }
         }
         const until = forceUntil(reasonsOf(hits), now)
         const kinds = hits.map(h => h.kind)
         await update($, quotaState, c => ({ ...normalizeQuota(c), overrideUntil: until, overrideKinds: kinds, pause: null, resumeArmed: cp !== null }))
-        $.ui.status(S.statusOf(await read($, view)))
+        await showStatus($, await read($, view), ctx.options)
         return {
           text:
             `Đã ép chạy tiếp ${kinds.map(k => (k === 'five_hour' ? 'hạn mức phiên' : 'hạn mức tuần')).join(' và ')} tới ${resetLabel(new Date(until).toISOString())}; ` +
