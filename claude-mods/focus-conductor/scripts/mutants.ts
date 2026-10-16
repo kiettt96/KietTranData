@@ -600,7 +600,7 @@ export const MUTANTS: Mutant[] = [
   { id: "060-P17", file: "hooks/lib/checkpoint.ts", note: "dòng tool call cuối không được che bí mật", old: "const shown = maskSecrets(target)", new: "const shown = target" },
   { id: "060-P18", file: "hooks/lib/checkpoint.ts", note: "bỏ luật che bí mật: Authorization", old: "  new RegExp(String.raw`(\\bAuthorization\\s*[:=]\\s*(?:(?:Bearer|Basic|Token)\\s+)?)${SECRET_VALUE}`, 'gi'),\n", new: "" },
   { id: "060-P19", file: "hooks/lib/checkpoint.ts", note: "bỏ luật che bí mật: Bearer", old: "  new RegExp(String.raw`(\\bBearer\\s+)${SECRET_VALUE}`, 'gi'),\n", new: "" },
-  { id: "060-P20", file: "hooks/lib/checkpoint.ts", note: "bỏ luật che bí mật: token=/password=", old: "  new RegExp(String.raw`(\\b(?:access_token|token|api[_-]?key|apikey|secret|password|passwd|pwd)=)${SECRET_VALUE}`, 'gi'),\n", new: "" },
+  { id: "060-P20", file: "hooks/lib/checkpoint.ts", note: "bỏ luật che bí mật: token=/password= (kể cả tiền tố)", old: "  new RegExp(String.raw`(\\b[\\w-]*(?:token|api[_-]?key|apikey|secret|password|passwd|pwd)=)${SECRET_VALUE}`, 'gi'),\n", new: "" },
   { id: "060-P21", file: "hooks/lib/checkpoint.ts", note: "bỏ luật che bí mật: --password", old: "  new RegExp(String.raw`(--(?:password|passwd|token|api-key|secret)(?:=|\\s+))${SECRET_VALUE}`, 'gi'),\n", new: "" },
   { id: "060-P22", file: "hooks/lib/checkpoint.ts", note: "bỏ luật che bí mật: KEY=...", old: "  new RegExp(String.raw`(\\b[A-Z][A-Z0-9_]*=)${SECRET_VALUE}`, 'g'),\n", new: "" },
   { id: "060-P23", file: "hooks/lib/quota.ts", note: "ép tiếp miễn mọi cửa sổ, không chỉ cửa sổ đã ép", old: "override.kinds.includes(h.kind))", new: "true)" },
@@ -611,4 +611,9 @@ export const MUTANTS: Mutant[] = [
   { id: "060-P28", file: "hooks/lib/text.ts", note: "status coi cửa sổ khác qua ngưỡng là không chặn khi đang ép", old: "const isBlocked = evaluation.hits.some(h => !(isForced && input.overrideKinds.includes(h.kind)))", new: "const isBlocked = false" },
   { id: "060-P29", file: "hooks/parts/command.ts", note: "force khi hạn mức chưa chạm ngưỡng mà đang dừng thì không mở dừng", old: "await update($, quotaState, c => ({ ...normalizeQuota(c), pause: null, resumeArmed: cp !== null }))", new: "await update($, quotaState, c => ({ ...normalizeQuota(c), resumeArmed: cp !== null }))" },
   { id: "060-P30", file: "hooks/parts/quota.ts", note: "turn.start của subagent ghi đè mã turn chính (dừng cứng nhắm sai turn)", old: "    if (e.agentId !== undefined) return next(e)\n", new: "" },
+  { id: "060-P31", file: "hooks/lib/checkpoint.ts", note: "bỏ luật che header X-Api-Key, X-Auth-Token", old: "  new RegExp(String.raw`(\\bX-[\\w-]*(?:key|token|secret|auth)[\\w-]*\\s*:\\s*)${SECRET_VALUE}`, 'gi'),\n", new: "" },
+  { id: "060-P32", file: "hooks/lib/checkpoint.ts", note: "bỏ luật che mysql -pMẬTKHẨU", old: "  new RegExp(String.raw`(\\bmysql(?:dump)?\\b(?:(?!&&)[^\\n|;])*?\\s-p)${SECRET_VALUE}`, 'g'),\n", new: "" },
+  { id: "060-P33", file: "hooks/lib/checkpoint.ts", note: "bỏ luật che curl -u, wget --user", old: "  new RegExp(String.raw`(\\b(?:curl|wget)\\b(?:(?!&&)[^\\n|;])*?\\s(?:-u|--user)(?:=|\\s+))${SECRET_VALUE}`, 'g'),\n", new: "" },
+  { id: "060-P34", file: "hooks/lib/checkpoint.ts", note: "bỏ luật che mật khẩu trong URL", old: "  new RegExp(String.raw`(\\b[a-z][a-z0-9+.-]*://[^\\s/:@]+:)()[^\\s/@'\"\\\\]+(?=@)`, 'gi'),\n", new: "" },
+  { id: "060-P35", file: "hooks/lib/checkpoint.ts", note: "token=/password= không còn nhận tiền tố (gh_token=)", old: "  new RegExp(String.raw`(\\b[\\w-]*(?:token|api[_-]?key|apikey|secret|password|passwd|pwd)=)${SECRET_VALUE}`, 'gi'),", new: "  new RegExp(String.raw`(\\b(?:token|api[_-]?key|apikey|secret|password|passwd|pwd)=)${SECRET_VALUE}`, 'gi')," },
 ]

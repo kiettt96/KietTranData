@@ -39,14 +39,22 @@ const SECRET_VALUE = String.raw`(\\?["']?)[^\s'"\\,}&]+`
 const SECRET_RULES: ReadonlyArray<RegExp> = [
   new RegExp(String.raw`(\bAuthorization\s*[:=]\s*(?:(?:Bearer|Basic|Token)\s+)?)${SECRET_VALUE}`, 'gi'),
   new RegExp(String.raw`(\bBearer\s+)${SECRET_VALUE}`, 'gi'),
-  new RegExp(String.raw`(\b(?:access_token|token|api[_-]?key|apikey|secret|password|passwd|pwd)=)${SECRET_VALUE}`, 'gi'),
+  new RegExp(String.raw`(\b[\w-]*(?:token|api[_-]?key|apikey|secret|password|passwd|pwd)=)${SECRET_VALUE}`, 'gi'),
   new RegExp(String.raw`(--(?:password|passwd|token|api-key|secret)(?:=|\s+))${SECRET_VALUE}`, 'gi'),
   new RegExp(String.raw`(\b[A-Z][A-Z0-9_]*=)${SECRET_VALUE}`, 'g'),
+  // Header kiểu X-Api-Key: giá trị, X-Auth-Token: giá trị.
+  new RegExp(String.raw`(\bX-[\w-]*(?:key|token|secret|auth)[\w-]*\s*:\s*)${SECRET_VALUE}`, 'gi'),
+  // mysql -pMẬTKHẨU (không có khoảng trắng sau -p).
+  new RegExp(String.raw`(\bmysql(?:dump)?\b(?:(?!&&)[^\n|;])*?\s-p)${SECRET_VALUE}`, 'g'),
+  // curl -u user:pass, wget --user=user:pass.
+  new RegExp(String.raw`(\b(?:curl|wget)\b(?:(?!&&)[^\n|;])*?\s(?:-u|--user)(?:=|\s+))${SECRET_VALUE}`, 'g'),
+  // Mật khẩu trong URL: scheme://user:mật-khẩu@host.
+  new RegExp(String.raw`(\b[a-z][a-z0-9+.-]*://[^\s/:@]+:)()[^\s/@'"\\]+(?=@)`, 'gi'),
 ]
 
 /**
- * Che giá trị bí mật trước khi ghi vào điểm dừng: sau Authorization, Bearer, token=, password=, --password và mọi
- * biến môi trường dạng KEY=... (chữ hoa). Thừa còn hơn thiếu: biến vô hại như CI=1 cũng bị che.
+ * Che giá trị bí mật trước khi ghi vào điểm dừng: sau Authorization, Bearer, header X-...-Key, token=, password= (kể cả
+ * tiền tố như gh_token=), --password, mysql -p, curl -u, mật khẩu trong URL và mọi biến môi trường dạng KEY=... (chữ hoa). Thừa còn hơn thiếu: biến vô hại như CI=1 cũng bị che.
  */
 export function maskSecrets(text: string): string {
   return SECRET_RULES.reduce((out, rule) => out.replace(rule, (_m, head: string, quote: string | undefined) => `${head}${quote ?? ''}***`), text)

@@ -205,6 +205,28 @@ describe('0.6.0: điểm dừng không chứa nội dung file hay bí mật (gó
     expect(maskSecrets(`curl -H "X-Auth: Bearer ${BAIT}" https://x`)).not.toContain(BAIT)
   })
 
+  test('maskSecrets: các dạng bí mật còn lọt ở lượt đầu (góp ý PR 21)', () => {
+    const cases = [
+      `mysql -u root -p${BAIT}a mydb`,
+      `mysqldump -h db -pS${BAIT}b > out.sql`,
+      `curl -H "X-Api-Key: ${BAIT}c" https://x`,
+      `curl -H 'X-Auth-Token: ${BAIT}d' https://x`,
+      `export gh_token=${BAIT}e && gh api /user`,
+      `MY_apikey=${BAIT}f ./run`,
+      `curl -u admin:${BAIT}g https://x`,
+      `wget --user=admin:${BAIT}h https://x`,
+      `psql postgres://app:${BAIT}i@db.example.test:5432/app`,
+      `git clone https://bot:${BAIT}j@github.example.test/o/r.git`,
+    ]
+    for (const c of cases) expect(maskSecrets(c)).not.toContain(BAIT)
+  })
+
+  test('maskSecrets: không che nhầm lệnh thường (git push -u, ls -p, URL không mật khẩu)', () => {
+    for (const c of ['git push -u origin main', 'ls -p src', 'curl https://example.test/a:b/c', 'git clone https://github.example.test/o/r.git', 'npm test -- -p']) {
+      expect(maskSecrets(c)).toBe(c)
+    }
+  })
+
   test('maskSecrets giữ nguyên lệnh không có bí mật', () => {
     expect(maskSecrets('npm test -- --runInBand src/a.test.ts')).toBe('npm test -- --runInBand src/a.test.ts')
   })
