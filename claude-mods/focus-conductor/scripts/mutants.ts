@@ -6,6 +6,7 @@
 // id `055-` là đột biến của 0.5.5: S ngoại lệ giá trị tùy chọn đặt trong nháy của isSelfFixing (054-C33 và 054-C43 cũng viết lại theo mã 0.5.5).
 // id `056-` là đột biến của 0.5.6: A gợi ý checkCommands, B waiting, C hàng loạt, D kết quả gọn và show, E lệnh nội dòng chỉ đọc.
 // id `060-` là đột biến của 0.6.0 (bảo vệ hạn mức; nhóm P thêm sau góp ý kiểm PR 21): A ngưỡng và kẹp, B isStale và nearest, C isPauseActive, D từ chối và dừng cứng, E vòng đời điểm dừng (consumed), F tool.call, G điểm dừng (checkpoint.ts), H pruneKeys, I changedFiles và forceUntil, J nạp điểm dừng lúc session.start, K prompt.submit khi dừng và tiếp tục, L consistency, M lệnh pause và resume, N text.ts và plan.ts, O band và ui.
+// id `061-` là đột biến của 0.6.1: A điểm dừng không cần tool call, B cắt trước khi che, C câu nhắc theo nguồn dừng, U giao diện, Q test còn thiếu của 0.5.6.
 // Một đột biến mà bộ test không làm đỏ (SURVIVED) nghĩa là có hành vi chưa được test ghim hoặc đoạn mã thừa.
 
 // `equivalent`: lý do đột biến này không đổi hành vi quan sát được (sống sót là đúng); harness báo EQUIVALENT thay vì SURVIVED.
@@ -546,7 +547,7 @@ export const MUTANTS: Mutant[] = [
   { id: "060-K2", file: "hooks/parts/session.ts", note: "prompt.submit bỏ ép tiếp khi xét dừng", old: "q.pause, overrideOf(q), now)) {", new: "q.pause, { until: 0, kinds: [] }, now)) {" },
   { id: "060-K3", file: "hooks/parts/session.ts", note: "router vẫn chạy khi đang dừng", old: "if (isPauseActive(true, evaluation.hits, q.pause, overrideOf(q), now)) {", new: "if (false && isPauseActive(true, evaluation.hits, q.pause, overrideOf(q), now)) {" },
   { id: "060-K4", file: "hooks/parts/session.ts", note: "lý do dừng luôn lấy từ số đo, bỏ lý do đã lưu", old: "const reasons = q.pause?.reason.length ? q.pause.reason : reasonsOf(blockingHits(evaluation.hits, overrideOf(q), now))", new: "const reasons = reasonsOf(blockingHits(evaluation.hits, overrideOf(q), now))" },
-  { id: "060-K5", file: "hooks/parts/session.ts", note: "context dừng không phân biệt dừng người dùng", old: "quotaPausedContext(reasons, q.pause?.source === 'user')", new: "quotaPausedContext(reasons, false)" },
+  { id: "060-K5", file: "hooks/parts/session.ts", note: "context dừng không phân biệt dừng người dùng", old: "const isUser = q.pause?.source === 'user'", new: "const isUser = false" },
   { id: "060-K6", file: "hooks/parts/session.ts", note: "lần dừng cũ hết hiệu lực và cờ resume không được bỏ", old: "      if (q.pause !== null || q.resumeArmed) await update($, quotaState, c => ({ ...normalizeQuota(c), pause: null, resumeArmed: false }))\n", new: "" },
   { id: "060-K7", file: "hooks/parts/session.ts", note: "điểm dừng resuming cũng được chèn lại", old: "q.checkpoint !== null && q.checkpoint.status === 'open'", new: "q.checkpoint !== null && q.checkpoint.status !== 'consumed'" },
   { id: "060-K9", file: "hooks/parts/session.ts", note: "không ghi resume khi chuyển sang resuming", old: "resume: { id: cp.id, turnId: '' } }))", new: "resume: null }))" },
@@ -595,9 +596,9 @@ export const MUTANTS: Mutant[] = [
   { id: "060-P12", file: "hooks/lib/quota.ts", note: "MultiEdit không còn được rút gọn", old: "new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit'])", new: "new Set(['Write', 'Edit', 'NotebookEdit'])" },
   { id: "060-P13", file: "hooks/lib/quota.ts", note: "NotebookEdit không còn được rút gọn", old: "new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit'])", new: "new Set(['Write', 'Edit', 'MultiEdit'])" },
   { id: "060-P14", file: "hooks/lib/quota.ts", note: "đường dẫn của NotebookEdit không được đọc", old: "const path = input['file_path'] ?? input['notebook_path'] ?? ''", new: "const path = input['file_path'] ?? ''" },
-  { id: "060-P15", file: "hooks/lib/quota.ts", note: "đầu vào bị từ chối không được che bí mật", old: "  text = maskSecrets(text)\n", new: "" },
+  { id: "060-P15", file: "hooks/lib/quota.ts", note: "đầu vào bị từ chối không được che bí mật", old: "  text = maskSecrets(text.slice(0, MASK_INPUT_MAX))\n", new: "" },
   { id: "060-P16", file: "hooks/lib/quota.ts", note: "độ dài nội dung bỏ qua trường edits", old: "const CONTENT_FIELDS = ['content', 'old_string', 'new_string', 'new_source', 'edits'] as const", new: "const CONTENT_FIELDS = ['content', 'old_string', 'new_string', 'new_source'] as const" },
-  { id: "060-P17", file: "hooks/lib/checkpoint.ts", note: "dòng tool call cuối không được che bí mật", old: "const shown = maskSecrets(target)", new: "const shown = target" },
+  { id: "060-P17", file: "hooks/lib/checkpoint.ts", note: "dòng tool call cuối không được che bí mật", old: "const shown = maskSecrets(target.slice(0, MASK_INPUT_MAX))", new: "const shown = target.slice(0, MASK_INPUT_MAX)" },
   { id: "060-P18", file: "hooks/lib/checkpoint.ts", note: "bỏ luật che bí mật: Authorization", old: "  new RegExp(String.raw`(\\bAuthorization\\s*[:=]\\s*(?:(?:Bearer|Basic|Token)\\s+)?)${SECRET_VALUE}`, 'gi'),\n", new: "" },
   { id: "060-P19", file: "hooks/lib/checkpoint.ts", note: "bỏ luật che bí mật: Bearer", old: "  new RegExp(String.raw`(\\bBearer\\s+)${SECRET_VALUE}`, 'gi'),\n", new: "" },
   { id: "060-P20", file: "hooks/lib/checkpoint.ts", note: "bỏ luật che bí mật: token=/password= (kể cả tiền tố)", old: "  new RegExp(String.raw`(\\b[\\w-]*(?:token|api[_-]?key|apikey|secret|password|passwd|pwd)=)${SECRET_VALUE}`, 'gi'),\n", new: "" },
@@ -616,4 +617,16 @@ export const MUTANTS: Mutant[] = [
   { id: "060-P33", file: "hooks/lib/checkpoint.ts", note: "bỏ luật che curl -u, wget --user", old: "  new RegExp(String.raw`(\\b(?:curl|wget)\\b(?:(?!&&)[^\\n|;])*?\\s(?:-u|--user)(?:=|\\s+))${SECRET_VALUE}`, 'g'),\n", new: "" },
   { id: "060-P34", file: "hooks/lib/checkpoint.ts", note: "bỏ luật che mật khẩu trong URL", old: "  new RegExp(String.raw`(\\b[a-z][a-z0-9+.-]*://[^\\s/:@]+:)()[^\\s/@'\"\\\\]+(?=@)`, 'gi'),\n", new: "" },
   { id: "060-P35", file: "hooks/lib/checkpoint.ts", note: "token=/password= không còn nhận tiền tố (gh_token=)", old: "  new RegExp(String.raw`(\\b[\\w-]*(?:token|api[_-]?key|apikey|secret|password|passwd|pwd)=)${SECRET_VALUE}`, 'gi'),", new: "  new RegExp(String.raw`(\\b(?:token|api[_-]?key|apikey|secret|password|passwd|pwd)=)${SECRET_VALUE}`, 'gi')," },
+  { id: "061-A1", file: "hooks/parts/quota.ts", note: "session.measure qua ngưỡng không vào dừng", old: "overrideOf(before), now) && restorableSteps", new: "overrideOf(before), now) && false && restorableSteps" },
+  { id: "061-A2", file: "hooks/parts/quota.ts", note: "session.measure vào dừng cả khi checklist trống", old: "overrideOf(before), now) && restorableSteps(S.normalizeCore(await read($, coreState)).plan).length > 0", new: "overrideOf(before), now)" },
+  { id: "061-A3", file: "hooks/parts/quota.ts", note: "prompt.submit ở vùng dừng không ghi điểm dừng", old: "overrideOf(q), now) && restorableSteps(S.normalizeCore(await read($, coreState)).plan).length > 0) {", new: "overrideOf(q), now) && false) {" },
+  { id: "061-A4", file: "hooks/parts/quota.ts", note: "session.end không ghi điểm dừng", old: "    await savePauseOnEnd($, ctx).catch(() => undefined)\n", new: "" },
+  { id: "061-A5", file: "hooks/parts/quota.ts", note: "session.end lần hai tạo điểm dừng mới thay vì cập nhật", old: "q.checkpoint.createdAt >= q.pause.at ? q.checkpoint : null", new: "false ? q.checkpoint : null" },
+  { id: "061-A6", file: "hooks/parts/quota.ts", note: "session.end ghi điểm dừng cả khi checklist trống", old: "  if (restorableSteps(S.normalizeCore(await read($, coreState)).plan).length === 0) return\n", new: "" },
+  { id: "061-A7", file: "hooks/parts/quota.ts", note: "session.end ghi điểm dừng cả khi ngoài vùng dừng", old: "if (q.pause === null && !isPauseActive(true, evaluation.hits, null, overrideOf(q), now)) return", new: "if (false) return" },
+  { id: "061-B1", file: "hooks/lib/quota.ts", note: "deniedInput che bí mật trên cả chuỗi dài", old: "maskSecrets(text.slice(0, MASK_INPUT_MAX))", new: "maskSecrets(text)" },
+  { id: "061-B2", file: "hooks/lib/checkpoint.ts", note: "recentLine che bí mật trên cả chuỗi dài", old: "maskSecrets(target.slice(0, MASK_INPUT_MAX))", new: "maskSecrets(target)" },
+  { id: "061-C1", file: "hooks/lib/text.ts", note: "lệnh chạy tiếp luôn là resume force", old: "return isUser ? '/conductor resume' : '/conductor resume force'", new: "return '/conductor resume force'" },
+  { id: "061-C2", file: "hooks/parts/session.ts", note: "toast lúc prompt luôn nhắc resume force", old: "resumeCommand(isUser)} để chạy tiếp ngay`)", new: "resumeCommand(false)} để chạy tiếp ngay`)" },
+  { id: "061-C3", file: "hooks/lib/text.ts", note: "quotaDenyText không nhắc lệnh chạy tiếp", old: "và nhắc người dùng chạy tiếp bằng ${resumeCommand(isUser)}.", new: "và nhắc người dùng chạy tiếp." },
 ]

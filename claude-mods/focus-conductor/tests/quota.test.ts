@@ -4,7 +4,7 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import { REMAINING_MAX, REMAINING_MIN, clampRemaining, deniedInput, evaluateQuota, isPastLimit, isPauseActive, isStale, newPause, noteDenial, quotaBadge, quotaSettings } from '../hooks/lib/quota'
 import { maskSecrets, recentLine } from '../hooks/lib/checkpoint'
-import { quotaReasonText } from '../hooks/lib/text'
+import { quotaDenyText, quotaPausedContext, quotaReasonText } from '../hooks/lib/text'
 
 const NOW = Date.parse('2026-10-15T08:00:00Z')
 const LATER = '2026-10-15T10:00:00Z'
@@ -229,5 +229,42 @@ describe('0.6.0: điểm dừng không chứa nội dung file hay bí mật (gó
 
   test('maskSecrets giữ nguyên lệnh không có bí mật', () => {
     expect(maskSecrets('npm test -- --runInBand src/a.test.ts')).toBe('npm test -- --runInBand src/a.test.ts')
+  })
+})
+
+describe('0.6.1 2.2: cắt đầu vào trước khi che bí mật', () => {
+  // Heredoc 300 KB, 20.000 lần chữ "mysql", không có dấu chấm phẩy hay xuống dòng thật (như sau khi JSON hóa đầu vào):
+  // luật mysql -p của maskSecrets quét tới cuối chuỗi cho từng chữ "mysql".
+  const heredoc = `cat <<'EOF' ${Array.from({ length: 20_000 }, (_, i) => `mysql dong ${i} xxxx`).join(' ')} EOF`
+
+  test('deniedInput xử lý heredoc 300 KB dưới 200 ms và vẫn cắt về giới hạn', () => {
+    expect(heredoc.length).toBeGreaterThan(300_000)
+    const started = performance.now()
+    const out = deniedInput({ tool: 'Bash', command: heredoc })
+    expect(performance.now() - started).toBeLessThan(200)
+    expect(out.length).toBeLessThanOrEqual(300)
+  })
+
+  test('recentLine xử lý heredoc 300 KB dưới 200 ms', () => {
+    const started = performance.now()
+    const line = recentLine('Bash', heredoc, false)
+    expect(performance.now() - started).toBeLessThan(200)
+    expect(line.length).toBeLessThanOrEqual(120)
+  })
+})
+
+describe('0.6.1 2.3: câu nhắc theo nguồn dừng (hàm thuần)', () => {
+  test('quotaPausedContext: người dùng tự dừng nhắc /conductor resume; dừng vì hạn mức nhắc resume force', () => {
+    const user = quotaPausedContext([], true)
+    expect(user).toContain('/conductor resume')
+    expect(user).not.toContain('resume force')
+    expect(quotaPausedContext([{ kind: 'five_hour', percentUsed: 97, thresholdRemainingPct: 5 }], false)).toContain('/conductor resume force')
+  })
+
+  test('quotaDenyText luồng chính: người dùng tự dừng nhắc /conductor resume; dừng vì hạn mức nhắc resume force', () => {
+    const user = quotaDenyText([], true, false)
+    expect(user).toContain('/conductor resume')
+    expect(user).not.toContain('resume force')
+    expect(quotaDenyText([{ kind: 'five_hour', percentUsed: 97, thresholdRemainingPct: 5 }], false, false)).toContain('/conductor resume force')
   })
 })

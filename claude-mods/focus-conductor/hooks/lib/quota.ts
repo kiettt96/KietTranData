@@ -3,7 +3,7 @@
 // nên dừng khi percentUsed >= 100 - còn_lại. Chỉ xét hạn mức phiên (five_hour) và tuần (seven_day).
 
 import type { QuotaPause, QuotaReason, QuotaState } from '../../types'
-import { maskSecrets } from './checkpoint'
+import { MASK_INPUT_MAX, maskSecrets } from './checkpoint'
 
 /** Cửa sổ hạn mức mod xét: phiên (5 giờ) và tuần. */
 export type QuotaKind = 'five_hour' | 'seven_day'
@@ -161,7 +161,7 @@ export function deniedInput(e: Record<string, unknown>): string {
       text = ''
     }
   }
-  text = maskSecrets(text)
+  text = maskSecrets(text.slice(0, MASK_INPUT_MAX))
   return text.length > DENIED_INPUT_MAX ? `${text.slice(0, DENIED_INPUT_MAX - 1)}…` : text
 }
 

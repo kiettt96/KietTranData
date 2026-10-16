@@ -368,13 +368,19 @@ function pauseCause(reasons: readonly QuotaReason[], isUser: boolean): string {
   return reasons.length > 0 ? reasons.map(quotaReasonText).join('; ') : 'hạn mức sắp hết'
 }
 
+/** Lệnh chạy tiếp: người dùng tự dừng thì /conductor resume là đủ; dừng vì hạn mức thì phải ép (resume force). */
+export function resumeCommand(isUser: boolean): string {
+  return isUser ? '/conductor resume' : '/conductor resume force'
+}
+
 /** Lý do từ chối tool khi đang dừng: luồng chính ghi điểm dừng rồi kết thúc; subagent kết thúc ngay. */
 export function quotaDenyText(reasons: readonly QuotaReason[], isUser: boolean, isAgent: boolean): string {
   const cause = `[focus-conductor] Tạm dừng: ${pauseCause(reasons, isUser)}.`
   if (isAgent) return `${cause} Subagent không gọi tool nào khác; kết thúc ngay và báo ngắn phần đã làm, phần còn dở.`
   return (
     `${cause} Không gọi tool nào khác. Gọi ${PLAN_TOOL_FULL} với action "checkpoint" và note nêu: bước kế tiếp cụ thể, ` +
-    'những gì đã hoàn tất không được làm lại, và điều cần kiểm khi quay lại. Sau đó kết thúc turn bằng một câu báo điểm dừng.'
+    'những gì đã hoàn tất không được làm lại, và điều cần kiểm khi quay lại. Sau đó kết thúc turn bằng một câu báo điểm dừng ' +
+    `và nhắc người dùng chạy tiếp bằng ${resumeCommand(isUser)}.`
   )
 }
 
@@ -382,7 +388,8 @@ export function quotaDenyText(reasons: readonly QuotaReason[], isUser: boolean, 
 export function quotaPausedContext(reasons: readonly QuotaReason[], isUser: boolean): string {
   return (
     `[focus-conductor] Đang tạm dừng: ${pauseCause(reasons, isUser)}. Router không chạy và mọi tool (trừ plan) bị từ chối. ` +
-    'Trả lời được những gì không cần tool; nói với người dùng dùng /conductor resume force để chạy tiếp ngay, hoặc đợi hạn mức làm mới.'
+    `Trả lời được những gì không cần tool; nói với người dùng dùng ${resumeCommand(isUser)} để chạy tiếp ngay` +
+    (isUser ? '.' : ', hoặc đợi hạn mức làm mới.')
   )
 }
 

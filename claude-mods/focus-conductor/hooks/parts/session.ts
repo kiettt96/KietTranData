@@ -11,7 +11,7 @@ import { askRouter, isSkippable, nextBrief, parseRoute, routerRequest } from '..
 import type { RouterOutcome, RouterPlan } from '../lib/router'
 import { EMPTY_QUOTA, blockingHits, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaSettings, reasonsOf } from '../lib/quota'
 import * as S from '../lib/state'
-import { DISCIPLINE, briefContext, droppedPlanNotice, followUpContext, quotaPausedContext, resetLabel, restorableLabel, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
+import { DISCIPLINE, briefContext, droppedPlanNotice, followUpContext, quotaPausedContext, resetLabel, resumeCommand, restorableLabel, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -138,9 +138,11 @@ export function registerSession(on: On, ctx: Ctx): void {
       const evaluation = evaluateQuota(await quotaLimits($), now, quota)
       const q = normalizeQuota(await read($, quotaState))
       if (isPauseActive(true, evaluation.hits, q.pause, overrideOf(q), now)) {
+        // Lần dừng (nếu mới vào vùng dừng) đã được ghi kèm điểm dừng ở hook prompt.submit của parts/quota.ts.
         const reasons = q.pause?.reason.length ? q.pause.reason : reasonsOf(blockingHits(evaluation.hits, overrideOf(q), now))
-        $.ui.toast('Focus Conductor: đang tạm dừng vì hạn mức; dùng /conductor resume force để chạy tiếp ngay')
-        return next({ ...e, context: [quotaPausedContext(reasons, q.pause?.source === 'user'), ...(e.context ?? [])] })
+        const isUser = q.pause?.source === 'user'
+        $.ui.toast(`Focus Conductor: ${isUser ? 'đang tạm dừng theo lệnh' : 'đang tạm dừng vì hạn mức'}; dùng ${resumeCommand(isUser)} để chạy tiếp ngay`)
+        return next({ ...e, context: [quotaPausedContext(reasons, isUser), ...(e.context ?? [])] })
       }
       // Không còn ở vùng dừng (đã làm mới hay người dùng ép) mà có điểm dừng mở: chuyển sang resuming, so file với lúc
       // dừng, rồi chèn một khối ĐIỂM DỪNG đặt trước mọi context khác. Điểm dừng chỉ thành consumed khi turn này xong.
