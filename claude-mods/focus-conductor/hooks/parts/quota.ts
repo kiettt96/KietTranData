@@ -106,6 +106,8 @@ export function registerQuota(on: On, ctx: Ctx): void {
 
   // Turn luồng chính đang chạy: $.turn.abort cần đúng turnId của nó.
   on('turn.start', { turnId: /.*/ }, async ($, e, next) => {
+    // Chỉ luồng chính: turn.start của subagent (e.agentId) không được ghi đè mã turn chính, nếu không $.turn.abort nhắm sai turn.
+    if (e.agentId !== undefined) return next(e)
     const result = await next(e)
     if (!settings.enabled) return result
     // Turn đầu tiên sau khi chèn khối ĐIỂM DỪNG là turn tiếp tục: nó xong không lỗi thì điểm dừng thành consumed.

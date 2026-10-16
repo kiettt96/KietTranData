@@ -198,6 +198,24 @@ describe('0.6.0 B: dừng cứng dự phòng', () => {
     expect(aborted).toEqual(['tx'])
   })
 
+  test('turn của subagent (turn.start có agentId) không ghi đè mã turn chính: abort nhận đúng turn chính (góp ý PR 21)', {}, async ($, on) => {
+    const { clock } = base(on)
+    const meter = quotaMeter(on, [session(10)])
+    const aborted: string[] = []
+    on('turn.abort', (_$, e) => {
+      aborted.push(e.turnId)
+      return { value: undefined }
+    })
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    await submit($, COMPLEX_PROMPT)
+    await $.turn.start({ text: 'làm', turnId: 'tx' })
+    await $.turn.start({ text: 'việc con', turnId: 'sx', agentId: 'agent-1' } as never)
+    meter.set([session(97)])
+    await clock.advance(10_000)
+    for (let i = 0; i < 3; i++) await $.tool.call(EDIT)
+    expect(aborted).toEqual(['tx'])
+  })
+
   test('từ chối subagent không tính vào bộ đếm dừng cứng; session.measure không bao giờ gọi abort', {}, async ($, on) => {
     const { clock } = base(on)
     quotaMeter(on, [session(99)])

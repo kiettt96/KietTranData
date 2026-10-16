@@ -610,4 +610,5 @@ export const MUTANTS: Mutant[] = [
   { id: "060-P27", file: "hooks/parts/quota.ts", note: "lý do dừng gồm cả cửa sổ đã được ép", old: "reasonsOf(blockingHits(evaluation.hits, overrideOf(q), now))", new: "reasonsOf(evaluation.hits)" },
   { id: "060-P28", file: "hooks/lib/text.ts", note: "status coi cửa sổ khác qua ngưỡng là không chặn khi đang ép", old: "const isBlocked = evaluation.hits.some(h => !(isForced && input.overrideKinds.includes(h.kind)))", new: "const isBlocked = false" },
   { id: "060-P29", file: "hooks/parts/command.ts", note: "force khi hạn mức chưa chạm ngưỡng mà đang dừng thì không mở dừng", old: "await update($, quotaState, c => ({ ...normalizeQuota(c), pause: null, resumeArmed: cp !== null }))", new: "await update($, quotaState, c => ({ ...normalizeQuota(c), resumeArmed: cp !== null }))" },
+  { id: "060-P30", file: "hooks/parts/quota.ts", note: "turn.start của subagent ghi đè mã turn chính (dừng cứng nhắm sai turn)", old: "    if (e.agentId !== undefined) return next(e)\n", new: "" },
 ]
