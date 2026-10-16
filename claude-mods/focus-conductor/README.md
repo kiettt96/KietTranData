@@ -87,8 +87,8 @@ Mod chỉ nạp cho phiên mở bằng lệnh này và tự nạp lại khi sử
 | `/conductor reroute` | Router đọc lại prompt gần nhất (kể cả khi đang tạm ngừng); giữ mục tiêu và checklist |
 | `/conductor reset` | Xóa mục tiêu, checklist, cảnh báo, mục tiêu đã cất, sổ chi phí, danh sách model bị tạm ngừng; giữ nhật ký điều phối và hệ số hiệu chỉnh đã học. Nút Đặt lại trong pane làm cùng việc nhưng hai bước: bấm lần đầu chỉ chờ xác nhận (10 giây), bấm lần hai mới xóa |
 | `/conductor pause` | Tạm dừng chủ động như khi hạn mức sắp hết: mọi tool trừ `plan` bị từ chối, điểm dừng được ghi ngay |
-| `/conductor resume` | Mở lại sau `pause` và báo điểm dừng đang mở; prompt kế tiếp tiếp tục từ đó |
-| `/conductor resume force` | Chạy tiếp khi hạn mức chưa làm mới, tới mốc làm mới sớm nhất của các cửa sổ đang dừng (không có mốc thì 4 giờ), rồi bảo vệ tự bật lại; điểm dừng giữ nguyên |
+| `/conductor resume` | Mở lại sau `pause` và báo điểm dừng đang mở; prompt kế tiếp tiếp tục từ đó, kể cả khi router xếp nó là việc khác |
+| `/conductor resume force` | Chạy tiếp khi hạn mức chưa làm mới: chỉ miễn các cửa sổ đang chạm ngưỡng lúc gõ, tới mốc làm mới sớm nhất của chúng (không có mốc thì 4 giờ), rồi bảo vệ tự bật lại; cửa sổ khác chạm ngưỡng sau đó vẫn dừng. Không có cửa sổ nào chạm ngưỡng thì báo không có gì để ép và không đặt mốc. Điểm dừng giữ nguyên |
 | `/conductor resume discard` | Bỏ điểm dừng đang mở; gõ lần hai trong 10 giây để xác nhận |
 
 Cấu hình qua `/config` (hoặc `pluginConfigs.focus-conductor.options` trong settings):
@@ -125,14 +125,14 @@ Từ 0.6.0, khi hạn mức phiên hoặc hạn mức tuần của gói subscrip
 
 Engine báo phần đã dùng của mỗi cửa sổ; option nói bằng phần còn lại, nên mod dừng khi phần đã dùng không nhỏ hơn 100 trừ ngưỡng (mặc định 95% với phiên, 98% với tuần). Khi vào vùng dừng, mọi tool của luồng chính và subagent bị từ chối, trừ tool `plan` của mod. Claude được yêu cầu gọi `plan` với action `checkpoint` kèm một `note` về bước kế tiếp, rồi kết thúc turn; cổng chặn kết thúc khi checklist còn mở, các lời nhắc cuối turn, router và `semanticDrift` đều tạm tắt để không vòng lặp và không tốn thêm hạn mức. Nếu trong cùng turn model vẫn gọi tool bị từ chối đến lần thứ ba, mod hủy turn đó (dự phòng, không phải đường chính).
 
-Điểm dừng ghi lý do (cửa sổ, phần trăm, giờ làm mới), mục tiêu, checklist, bước đang làm, việc giao subagent, file đã sửa trong mục tiêu, năm tool call cuối, lệnh bị từ chối đầu tiên (điểm tiếp tục chính xác) và `note` của Claude. Nó nằm trong kho bền của mod (`$.store`), khóa theo thư mục làm việc, nên sống qua đóng phiên. Không ghi output của tool, nội dung file hay biến môi trường. Mở phiên mới trong cùng thư mục mà chưa có mục tiêu thì mod khôi phục mục tiêu và checklist từ điểm dừng; prompt kế tiếp nhận một khối ĐIỂM DỪNG (tối đa 2.000 ký tự) đứng trước mọi context khác, kèm danh sách file đã đổi sau lúc dừng và quy tắc tiếp tục. Điểm dừng chỉ được đánh dấu đã dùng khi turn tiếp tục kết thúc không lỗi. Hạn mức chưa làm mới thì prompt vẫn đi qua kèm một dòng báo, tool vẫn bị từ chối; dùng `/conductor resume force` hoặc đợi làm mới.
+Điểm dừng ghi lý do (cửa sổ, phần trăm, giờ làm mới), mục tiêu, checklist, bước đang làm, việc giao subagent, file đã sửa trong mục tiêu, năm tool call cuối, lệnh bị từ chối đầu tiên (điểm tiếp tục chính xác) và `note` của Claude. Nó nằm trong kho bền của mod (`$.store`), khóa theo thư mục làm việc, nên sống qua đóng phiên. Không ghi output của tool, nội dung file hay biến môi trường: lệnh bị từ chối của Write, Edit, MultiEdit và NotebookEdit chỉ ghi đường dẫn và độ dài nội dung; lệnh Bash và đầu vào khác được che giá trị sau `Authorization`, `Bearer`, `token=`, `password=`, `--password` và mọi biến môi trường dạng `KEY=...` (việc che theo mẫu, nên một bí mật đặt ở dạng khác vẫn có thể lọt vào). Mở phiên mới trong cùng thư mục mà chưa có mục tiêu thì mod khôi phục mục tiêu và checklist từ điểm dừng; khi người dùng nói "tiếp tục" (router xếp tiếp nối, tinh chỉnh hoặc báo chưa đạt), gõ một câu trong `routerSkip` hay vừa gõ `/conductor resume`, prompt đó nhận một khối ĐIỂM DỪNG (tối đa 2.000 ký tự) đứng trước mọi context khác, kèm danh sách file đã đổi sau lúc dừng và quy tắc tiếp tục. Prompt về việc khác thì điểm dừng giữ nguyên và chỉ nhận một dòng nhắc. Điểm dừng chỉ được đánh dấu đã dùng khi turn tiếp tục kết thúc bằng câu trả lời; người dùng ngắt giữa chừng (Esc), model từ chối hay lỗi thì điểm dừng vẫn mở. Hạn mức chưa làm mới thì prompt vẫn đi qua kèm một dòng báo, tool vẫn bị từ chối; dùng `/conductor resume force` hoặc đợi làm mới.
 
 Thử nhanh mà không đốt hạn mức (kịch bản nghiệm thu thủ công):
 
 1. Đặt `pauseSessionRemainingPct` thành `90` qua `/config`: mod dừng khi hạn mức phiên đã dùng khoảng 10%.
 2. Giao một việc nhiều bước. Xác nhận band hiện "tạm dừng: hạn mức", tool bị từ chối, Claude gọi `plan` `checkpoint` rồi dừng; `/conductor status` có mục Hạn mức và điểm dừng đang mở.
 3. Thoát, mở phiên mới trong cùng thư mục, chạy `/conductor resume force` (vì hạn mức chưa làm mới), gõ "tiếp tục".
-4. Xác nhận khối ĐIỂM DỪNG xuất hiện, Claude tiếp tục đúng bước đang làm, không làm lại bước đã xong.
+4. Xác nhận khối ĐIỂM DỪNG xuất hiện (thử thêm một prompt về việc khác trước khi "tiếp tục": khối không được chèn), Claude tiếp tục đúng bước đang làm, không làm lại bước đã xong.
 5. Trả `pauseSessionRemainingPct` về `5`.
 
 ### Đo bậc cache
@@ -210,7 +210,7 @@ focus-conductor/
   tests/golden/                golden-set của router: 30 prompt mẫu (5 ca đối kháng), kỳ vọng, câu trả lời router thật đã ghi cùng băm request và tỷ lệ đạt
   tests/fixtures/prompt-k4.ts  prompt dài tổng hợp (ẩn danh), dùng để kiểm request gửi router và phân việc nhiều mục
   scripts/eval-router.ts       eval router thật trên golden-set, nhiều lần mỗi ca (không chạy trong CI)
-  scripts/mutants.ts           547 định nghĩa đột biến (194 cũ cho hooks/lib/drift/, 150 mới của 0.5.4 cho giá, router, sổ chi phí, giao diện, nhận diện lệnh, 7 mới của 0.5.5 cho giá trị tùy chọn đặt trong nháy, 84 mới của 0.5.6 cho gợi ý checkCommands, waiting, cập nhật hàng loạt, kết quả gọn và lệnh nội dòng chỉ đọc, 112 mới của 0.6.0 cho bảo vệ hạn mức; dữ liệu thuần)
+  scripts/mutants.ts           576 định nghĩa đột biến (194 cũ cho hooks/lib/drift/, 150 mới của 0.5.4 cho giá, router, sổ chi phí, giao diện, nhận diện lệnh, 7 mới của 0.5.5 cho giá trị tùy chọn đặt trong nháy, 84 mới của 0.5.6 cho gợi ý checkCommands, waiting, cập nhật hàng loạt, kết quả gọn và lệnh nội dòng chỉ đọc, 141 mới của 0.6.0 cho bảo vệ hạn mức; dữ liệu thuần)
   scripts/mutate.ts            chạy đột biến, khôi phục tệp gốc, in sha256 trước và sau
   tsconfig.json                cấu hình type-check độc lập (cần tệp khai báo do engine sinh, xem "Phát triển")
   LICENSE                      MIT

@@ -73,6 +73,9 @@ describe('0.6.0 D: tiếp tục cùng phiên', () => {
     expect((box.data.get(storeKey('/repo')) as QuotaCheckpoint).status).toBe('resuming')
     await submit($, 'còn gì nữa')
     expect((seen.contexts[seen.contexts.length - 1] ?? []).join('\n')).not.toContain('ĐIỂM DỪNG')
+    // Đang resuming, prompt tiếp nối nữa (router xếp continue) cũng không chèn lại khối.
+    await submit($, 'tiếp tục')
+    expect((seen.contexts[seen.contexts.length - 1] ?? []).join('\n')).not.toContain('ĐIỂM DỪNG')
   })
 
   test('vẫn trong vùng dừng mà không force: không tiếp tục lặng lẽ, điểm dừng vẫn open', {}, async ($, on) => {
