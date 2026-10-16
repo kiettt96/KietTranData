@@ -1,8 +1,12 @@
 // Văn bản mod gửi cho model và hiển thị cho người dùng. Gom về một chỗ để
 // giữ giọng văn nhất quán và dễ chỉnh.
 
-import type { Brief, Choice, PlanStep, Route, StepStatus, Task } from '../../types'
+import type { Brief, Choice, PlanStep, QuotaCheckpoint, QuotaReason, Route, StepStatus, Task } from '../../types'
 import { openSteps, pendingSteps } from './drift'
+import { evaluateQuota, isStale } from './quota'
+import type { QuotaBadge, QuotaThresholds } from './quota'
+import { labels } from '../ui/labels'
+import type { Lang } from '../ui/labels'
 import { describePick } from './route'
 
 export const PLAN_TOOL = 'plan'
@@ -333,4 +337,168 @@ export function statusLine(brief: Brief | null, plan: readonly PlanStep[], route
   const steps = total > 0 ? ` · ${closed}/${total}` : ''
   const model = route ? ` · ${describePick(route)}` : ''
   return `${brief.tier}${model}${steps}${mode === 'auto' ? '' : ` · ${mode}`}`
+}
+
+// ------------------------------------------------------------ bảo vệ hạn mức (0.6.0)
+
+const QUOTA_NAME: Record<QuotaReason['kind'], string> = { five_hour: 'hạn mức phiên (5 giờ)', seven_day: 'hạn mức tuần' }
+
+/** Mốc làm mới theo giờ của máy (HH:MM dd/MM); rỗng khi không có hoặc không đọc được. */
+export function resetLabel(resetsAt: string | undefined): string {
+  if (resetsAt === undefined) return ''
+  const at = new Date(resetsAt)
+  if (!Number.isFinite(at.getTime())) return ''
+  const two = (n: number) => String(n).padStart(2, '0')
+  return `${two(at.getHours())}:${two(at.getMinutes())} ${two(at.getDate())}/${two(at.getMonth() + 1)}`
+}
+
+function percent(value: number): string {
+  return `${String(Math.round(value * 10) / 10).replace('.', ',')}%`
+}
+
+/** Một cửa sổ đã qua ngưỡng: tên, phần còn lại, ngưỡng và giờ làm mới. */
+export function quotaReasonText(reason: QuotaReason): string {
+  const remaining = Math.max(0, Math.round((100 - reason.percentUsed) * 10) / 10)
+  const reset = resetLabel(reason.resetsAt)
+  return `${QUOTA_NAME[reason.kind]} chỉ còn ${percent(remaining)} (ngưỡng ${percent(reason.thresholdRemainingPct)})${reset ? `, làm mới lúc ${reset}` : ''}`
+}
+
+function pauseCause(reasons: readonly QuotaReason[], isUser: boolean): string {
+  if (isUser) return 'người dùng yêu cầu tạm dừng (/conductor pause)'
+  return reasons.length > 0 ? reasons.map(quotaReasonText).join('; ') : 'hạn mức sắp hết'
+}
+
+/** Lý do từ chối tool khi đang dừng: luồng chính ghi điểm dừng rồi kết thúc; subagent kết thúc ngay. */
+export function quotaDenyText(reasons: readonly QuotaReason[], isUser: boolean, isAgent: boolean): string {
+  const cause = `[focus-conductor] Tạm dừng: ${pauseCause(reasons, isUser)}.`
+  if (isAgent) return `${cause} Subagent không gọi tool nào khác; kết thúc ngay và báo ngắn phần đã làm, phần còn dở.`
+  return (
+    `${cause} Không gọi tool nào khác. Gọi ${PLAN_TOOL_FULL} với action "checkpoint" và note nêu: bước kế tiếp cụ thể, ` +
+    'những gì đã hoàn tất không được làm lại, và điều cần kiểm khi quay lại. Sau đó kết thúc turn bằng một câu báo điểm dừng.'
+  )
+}
+
+/** Dòng context của prompt đến khi đang dừng: router không chạy, tool vẫn bị từ chối. */
+export function quotaPausedContext(reasons: readonly QuotaReason[], isUser: boolean): string {
+  return (
+    `[focus-conductor] Đang tạm dừng: ${pauseCause(reasons, isUser)}. Router không chạy và mọi tool (trừ plan) bị từ chối. ` +
+    'Trả lời được những gì không cần tool; nói với người dùng dùng /conductor resume force để chạy tiếp ngay, hoặc đợi hạn mức làm mới.'
+  )
+}
+
+/** Khối ĐIỂM DỪNG chèn vào prompt tiếp tục: tối đa bấy nhiêu ký tự. */
+export const RESUME_MAX = 2000
+
+const RESUME_RULES =
+  'Quy tắc tiếp tục: (1) kiểm trạng thái thật (git status, diff, file liên quan) trước khi chạy lại bất kỳ lệnh nào; ' +
+  '(2) không chạy lại thao tác đã hoàn tất, nhất là lệnh ghi hay lệnh không idempotent; (3) bước doing được tiếp tục, không bắt đầu lại; ' +
+  '(4) việc giao subagent pending hoặc failed được giao lại đúng như đã phân; (5) sau đó cập nhật checklist như bình thường.'
+
+/**
+ * Khối context đầu tiên của prompt tiếp tục: lúc và lý do dừng, mục tiêu, checklist, note của Claude, lệnh bị từ chối
+ * (điểm tiếp tục chính xác), năm tool call cuối, file đổi sau lúc dừng và quy tắc tiếp tục. Tối đa RESUME_MAX ký tự:
+ * phần dài bị cắt theo thứ tự tool call cuối, checklist, note; tiêu đề, lệnh bị từ chối, file đổi và quy tắc giữ.
+ */
+export function resumeContext(cp: QuotaCheckpoint, changed: readonly string[]): string {
+  const reasons = cp.reason.length > 0 ? cp.reason.map(quotaReasonText).join('; ') : 'người dùng tạm dừng'
+  const head = `[focus-conductor] ĐIỂM DỪNG (${resetLabel(new Date(cp.createdAt).toISOString()) || 'không rõ giờ'}): đã dừng vì ${reasons}.`
+  const goal = [
+    cp.brief.goal ? `Mục tiêu: ${cp.brief.goal}` : '',
+    cp.brief.constraints.length > 0 ? `Ràng buộc: ${cp.brief.constraints.join('; ')}` : '',
+    cp.brief.quality.length > 0 ? `Tiêu chí chất lượng: ${cp.brief.quality.join('; ')}` : '',
+  ].filter(Boolean)
+  const doing = cp.doing.length > 0 ? `Bước đang làm: ${cp.doing.join(', ')}.` : ''
+  const checklist = cp.plan.map(step => `${mark(step.status)} ${step.id}. ${step.title}${step.note ? ` (${step.note})` : ''}`)
+  const note = cp.note ? `Ghi chú của Claude lúc dừng: ${cp.note}` : 'Claude chưa kịp ghi note lúc dừng.'
+  const denied = cp.denied ? `Lệnh bị từ chối lúc dừng (điểm tiếp tục chính xác): ${cp.denied.tool} ${cp.denied.input}` : ''
+  const recent = cp.recent.length > 0 ? `Tool call cuối: ${cp.recent.join(' | ')}` : ''
+  const files = changed.length > 0 ? `File đổi sau lúc dừng (người dùng hay tiến trình khác đã sửa), đọc lại trước khi sửa: ${changed.join(', ')}` : ''
+  const build = (parts: { checklist: string[]; note: string; recent: string }) =>
+    [head, ...goal, 'Checklist:', ...parts.checklist, doing, parts.note, denied, parts.recent, files, RESUME_RULES].filter(Boolean).join('\n')
+  let parts = { checklist, note, recent }
+  let text = build(parts)
+  if (text.length > RESUME_MAX) parts = { ...parts, recent: '' }
+  text = build(parts)
+  while (text.length > RESUME_MAX && parts.checklist.length > 1) {
+    parts = { ...parts, checklist: parts.checklist.slice(0, -1) }
+    text = build(parts)
+  }
+  if (text.length > RESUME_MAX) {
+    const over = text.length - RESUME_MAX
+    parts = { ...parts, note: `${parts.note.slice(0, Math.max(0, parts.note.length - over - 1))}…` }
+    text = build(parts)
+  }
+  return text.length > RESUME_MAX ? `${text.slice(0, RESUME_MAX - 1)}…` : text
+}
+
+/**
+ * Dòng nhắc khi có điểm dừng mở mà prompt được xếp là việc khác: điểm dừng giữ nguyên để tiếp tục sau.
+ */
+export function resumePendingContext(cp: QuotaCheckpoint): string {
+  const goal = cp.brief.goal ? `, mục tiêu: ${cp.brief.goal.length > 120 ? `${cp.brief.goal.slice(0, 119)}…` : cp.brief.goal}` : ''
+  return (
+    `[focus-conductor] Có điểm dừng chưa tiếp tục (tạo lúc ${resetLabel(new Date(cp.createdAt).toISOString()) || 'không rõ giờ'}${goal}). ` +
+    'Prompt này được xếp là việc khác nên điểm dừng giữ nguyên; người dùng muốn làm tiếp thì nói "tiếp tục" hoặc dùng /conductor resume.'
+  )
+}
+
+/** Phần trăm cho nhãn band và status line (dấu phẩy thập phân). */
+export function quotaPercent(value: number): string {
+  return percent(value)
+}
+
+/** Status line kèm nhãn hạn mức (đang dừng, hay phần còn lại khi gần ngưỡng); không có nhãn thì giữ nguyên. */
+export function withQuotaStatus(base: string | undefined, badge: QuotaBadge | null, lang: Lang): string | undefined {
+  if (base === undefined || badge === null) return base
+  const l = labels(lang)
+  return `${base} · ${badge.paused ? l.quotaPaused : l.quotaLeft(percent(badge.left ?? 0))}`
+}
+
+export type QuotaStatusInput = {
+  enabled: boolean
+  limits: readonly unknown[] | null
+  thresholds: QuotaThresholds
+  pause: { source: 'quota' | 'user' } | null
+  overrideUntil: number
+  overrideKinds: ReadonlyArray<QuotaReason['kind']>
+  checkpoint: QuotaCheckpoint | null
+  now: number
+}
+
+/** Mục Hạn mức của /conductor status: từng cửa sổ (đã dùng, còn lại, làm mới, ngưỡng), trạng thái và điểm dừng. */
+export function quotaStatusLines(input: QuotaStatusInput): string[] {
+  if (!input.enabled) return ['Hạn mức: bảo vệ đang tắt (quotaGuard false).']
+  const lines = ['Hạn mức:']
+  for (const raw of Array.isArray(input.limits) ? input.limits : []) {
+    const item = raw as { kind?: unknown; percentUsed?: unknown; resetsAt?: unknown }
+    if ((item.kind !== 'five_hour' && item.kind !== 'seven_day') || typeof item.percentUsed !== 'number' || !Number.isFinite(item.percentUsed)) continue
+    const resetsAt = typeof item.resetsAt === 'string' ? item.resetsAt : undefined
+    if (isStale(resetsAt, input.now)) continue
+    const threshold = item.kind === 'five_hour' ? input.thresholds.session : input.thresholds.week
+    const reset = resetLabel(resetsAt)
+    lines.push(
+      `  ${item.kind === 'five_hour' ? 'phiên (5 giờ)' : 'tuần'}: đã dùng ${percent(item.percentUsed)}, còn ${percent(Math.max(0, 100 - item.percentUsed))}` +
+        `${reset ? `, làm mới ${reset}` : ''}, ngưỡng còn ${percent(threshold)}`,
+    )
+  }
+  const evaluation = evaluateQuota(input.limits, input.now, input.thresholds)
+  const zone = evaluation.zone
+  const isForced = input.overrideUntil > input.now && input.overrideKinds.length > 0
+  const isBlocked = evaluation.hits.some(h => !(isForced && input.overrideKinds.includes(h.kind)))
+  const state =
+    input.pause?.source === 'user'
+      ? 'tạm dừng (người dùng)'
+      : isForced && !isBlocked && input.pause === null
+        ? `ép tiếp ${input.overrideKinds.map(k => QUOTA_NAME[k]).join(' và ')} tới ${resetLabel(new Date(input.overrideUntil).toISOString())}`
+        : input.pause !== null || isBlocked
+          ? 'tạm dừng (hạn mức)'
+          : zone === 'ok'
+            ? 'ok'
+            : 'không có dữ liệu (engine không báo hạn mức: tài khoản không dùng gói subscription, chưa có lượt đọc đầu, hoặc số đo đã cũ)'
+  lines.push(`  trạng thái: ${state}`)
+  const cp = input.checkpoint
+  if (cp !== null && cp.status !== 'consumed') {
+    lines.push(`  điểm dừng: ${cp.status === 'open' ? 'đang mở' : 'đang tiếp tục'} (tạo lúc ${resetLabel(new Date(cp.createdAt).toISOString()) || 'không rõ giờ'}${cp.note ? '' : ', Claude chưa ghi note'})`)
+  }
+  return lines
 }

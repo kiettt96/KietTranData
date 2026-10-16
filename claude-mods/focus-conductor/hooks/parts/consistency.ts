@@ -10,6 +10,8 @@ import { applyPlan } from '../lib/plan'
 import type { PlanInput } from '../lib/plan'
 import { familyOf } from '../lib/route'
 import { askRouter, driftRequest, parseDrift } from '../lib/router'
+import { EMPTY_QUOTA, normalizeQuota } from '../lib/quota'
+import { storeKey, withNote } from '../lib/checkpoint'
 import * as S from '../lib/state'
 import { PLAN_TOOL_FULL, blockText, criteriaNotice, driftContext, pendingNotice, qualityNotice, renderBulk, renderPlan, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
@@ -22,6 +24,7 @@ import { EDIT_TOOLS, ERROR_BURST } from '../context'
 const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EMPTY_CORE)
 const bandHiddenState = atom({ plugin: 'focus-conductor', key: 'isBandHidden' } as const, false)
 const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null)
+const quotaState = atom({ plugin: 'focus-conductor', key: 'quota' } as const, EMPTY_QUOTA)
 
 /**
  * Khung đối chiếu phạm vi của mục tiêu: thư mục gốc của phiên chốt một lần cho mỗi mục tiêu (không đổi theo `cd`
@@ -80,6 +83,20 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       const current = S.normalizeCore(await read($, coreState))
       return { result: renderPlan(current.brief, current.plan) }
     }
+    if (input.action === 'checkpoint') {
+      // Giai đoạn hai của điểm dừng (0.6.0): Claude ghi bước kế tiếp. Chỉ hợp lệ khi mod đang tạm dừng.
+      const q = normalizeQuota(await read($, quotaState))
+      if (q.pause === null) return { deny: 'action "checkpoint" chỉ dùng khi mod đang tạm dừng (hạn mức sắp hết hoặc /conductor pause).' }
+      const noted = applyPlan([], input)
+      if (noted.error !== undefined) return { deny: noted.error }
+      const cp = q.checkpoint !== null ? withNote(q.checkpoint, noted.checkpointNote ?? '') : null
+      if (cp !== null) {
+        await update($, quotaState, c => ({ ...normalizeQuota(c), checkpoint: cp }))
+        const isSaved = await $.store.set(storeKey(cp.cwd), cp).then(() => true).catch(() => false)
+        if (!isSaved) $.ui.toast('Focus Conductor: không lưu được điểm dừng vào kho của mod; điểm dừng chỉ còn trong phiên này')
+      }
+      return { result: 'Đã ghi điểm dừng. Kết thúc turn bằng một câu báo điểm dừng; lần ra lệnh sau sẽ tiếp tục từ đây.' }
+    }
     const before = S.normalizeCore(await read($, coreState))
     // "verified" chỉ được lưu khi bằng chứng đủ mạnh (lệnh kiểm tra chạy thành công sau thay đổi cuối của mục tiêu,
     // hoặc việc chỉ đọc có nhắc lệnh hay file đã đụng tới); còn lại bước được lưu là done kèm lý do.
@@ -123,7 +140,9 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     if (target?.check && (input.status === 'verified' || input.status === 'done')) notes.push(criteriaNotice(target))
     // Checklist vừa đóng hẳn (mọi bước done, verified hay skipped): yêu cầu xác nhận từng tiêu chí chất lượng của mục tiêu.
     // Bước mở cuối vừa hết mà còn bước đang chờ hoặc bị chặn thì chưa phải đóng hẳn: nhắc các bước đó thay cho tiêu chí chất lượng.
-    const isUpdate = input.action === 'update'
+    // Đang dừng vì hạn mức: không nhắc tiêu chí chất lượng hay bước chờ (Claude chỉ ghi điểm dừng rồi kết thúc).
+    const isPaused = normalizeQuota(await read($, quotaState)).pause !== null
+    const isUpdate = input.action === 'update' && !isPaused
     const isClosing = isUpdate && !isFullyClosed(before.plan) && isFullyClosed(core.plan)
     if (isClosing && core.brief !== null && core.brief.quality.length > 0) notes.push(qualityNotice(core.brief.quality))
     if (isUpdate && openSteps(before.plan).length > 0 && openSteps(core.plan).length === 0 && pendingSteps(core.plan).length > 0) notes.push(pendingNotice(core.plan))
@@ -274,6 +293,8 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     const result = await next(e)
     if (result.block || result.preventContinuation || e.stop_hook_active || !isExecuting(L.tracker, L.promptIntent)) return result
     if (ctx.options['enforceChecklist'] !== true || (await read($, mode)) === 'off') return result
+    // Đang dừng vì hạn mức (hay người dùng tạm dừng): cho kết thúc, nếu không sẽ vòng lặp chặn khi mọi tool bị từ chối.
+    if (normalizeQuota(await read($, quotaState)).pause !== null) return result
     const core = S.normalizeCore(await read($, coreState))
     const failed = failedFor(core.brief)
     if (isGoalDone(core.plan) && failed.length === 0) return result
@@ -309,7 +330,9 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       }
       // Việc đã phân mà agent này làm: ghi xong hoặc lỗi (lỗi thì Stop và cảnh báo cuối turn nhắc giao lại).
       if (meta?.taskIndex !== undefined) {
-        moveDelegation(meta.goalId, meta.taskIndex, e.reason === 'error' ? 'failed' : 'done')
+        // Agent kết thúc trong lúc dừng vì hạn mức là bị cắt ngang: việc đó phải giao lại.
+        const isCut = normalizeQuota(await read($, quotaState)).pause !== null
+        moveDelegation(meta.goalId, meta.taskIndex, e.reason === 'error' || isCut ? 'failed' : 'done')
         const brief = S.normalizeCore(await read($, coreState)).brief
         if (brief !== null && brief.goalId === meta.goalId) await update($, coreState, S.withDelegations(brief.goalId, delegationItems(brief)))
       }
@@ -317,7 +340,9 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     }
 
     const core = S.normalizeCore(await read($, coreState))
-    const findings = summarize(L.tracker, core.brief, core.plan)
+    // Đang dừng vì hạn mức: không có thông báo cuối turn nào (Claude đã được yêu cầu chỉ ghi điểm dừng).
+    const isPaused = normalizeQuota(await read($, quotaState)).pause !== null
+    const findings = isPaused ? [] : summarize(L.tracker, core.brief, core.plan)
     const warnings: Warning[] = findings.map(f => ({
       at,
       kind: f.kind === 'checkpoint' ? 'unverified' : f.kind,
@@ -344,12 +369,12 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     }
     // Turn có thực thi mà các việc ghi giao subagent vẫn chưa được giao: cảnh báo chi phí một lần.
     const waiting = pendingFor(core.brief)
-    if (waiting.length > 0 && !L.delegation.isWarned && isExecuting(L.tracker, L.promptIntent)) {
+    if (!isPaused && waiting.length > 0 && !L.delegation.isWarned && isExecuting(L.tracker, L.promptIntent)) {
       L.delegation.isWarned = true
       warnings.push({ at, kind: 'cost', text: `Việc ${waiting.join(', ')} ghi giao subagent nhưng chưa được giao; luồng chính tự làm sẽ chạy ở model đắt hơn` })
     }
     // Việc giao subagent đã lỗi mà chưa giao lại: cảnh báo mỗi việc một lần.
-    if (core.brief !== null && L.delegation.goalId === core.brief.goalId) {
+    if (!isPaused && core.brief !== null && L.delegation.goalId === core.brief.goalId) {
       const fresh = [...L.delegation.failed].filter(([index]) => !L.delegation.failWarned.has(index))
       for (const [index] of fresh) L.delegation.failWarned.add(index)
       if (fresh.length > 0) {

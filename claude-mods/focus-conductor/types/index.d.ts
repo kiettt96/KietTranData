@@ -230,6 +230,83 @@ export type Core = {
   delegations: { goalId: number; items: DelegationItem[] }
 }
 
+/** Một cửa sổ hạn mức đã qua ngưỡng lúc dừng (0.6.0). */
+export type QuotaReason = { kind: 'five_hour' | 'seven_day'; percentUsed: number; resetsAt?: string; thresholdRemainingPct: number }
+
+/** Số đo hạn mức engine báo, giữ nguyên dạng SessionRateLimit. */
+export type QuotaReading = { kind: string; percentUsed: number; resetsAt?: string }
+
+/** Một lần dừng đang có hiệu lực: do hạn mức (tự mở khi hạn mức làm mới) hay do người dùng (/conductor pause). */
+export type QuotaPause = {
+  at: number
+  source: 'quota' | 'user'
+  reason: QuotaReason[]
+  /** Số lần từ chối tool của luồng chính trong turn denialTurn (dừng cứng ở lần thứ ba). */
+  denials: number
+  denialTurn: string
+  /** Đã gọi $.turn.abort cho turn denialTurn. */
+  aborted: boolean
+  /** Lệnh đầu tiên bị từ chối của lần dừng này: điểm tiếp tục chính xác. */
+  denied: { tool: string; input: string } | null
+}
+
+/** Phần mục tiêu cần để tiếp tục (cắt từ Brief); goal rỗng khi lúc dừng chưa có mục tiêu. */
+export type CheckpointBrief = {
+  goal: string
+  constraints: string[]
+  quality: string[]
+  scopePaths: string[]
+  tasks: Array<{ index: number; title: string; run: 'main' | 'agent'; agentType?: string; pick: Choice }>
+  kind: Kind
+}
+
+/** Điểm dừng bền (0.6.0), trong $.store theo khóa của thư mục làm việc. Không chứa output tool hay nội dung file. */
+export type QuotaCheckpoint = {
+  version: 1
+  id: string
+  createdAt: number
+  cwd: string
+  status: 'open' | 'resuming' | 'consumed'
+  reason: QuotaReason[]
+  brief: CheckpointBrief
+  plan: PlanStep[]
+  /** id các bước doing lúc dừng. */
+  doing: number[]
+  /** Câu Claude ghi bằng plan action "checkpoint" (tối đa 600 ký tự); rỗng khi Claude chưa kịp ghi. */
+  note: string
+  denied: { tool: string; input: string } | null
+  /** Năm tool call cuối của luồng chính: tool, đối tượng rút gọn, lỗi hay không. */
+  recent: string[]
+  files: Array<{ path: string; mtimeMs: number; size: number }>
+  delegations: DelegationItem[]
+}
+
+/** Trạng thái bảo vệ hạn mức trong $.state (0.6.0). */
+export type QuotaState = {
+  zone: 'ok' | 'pause' | 'unknown'
+  readings: QuotaReading[]
+  measuredAt: number
+  pause: QuotaPause | null
+  /** /conductor resume force: tới mốc này (ms) các cửa sổ trong overrideKinds không gây dừng; 0 khi không ép. */
+  overrideUntil: number
+  /** Các cửa sổ đang chạm ngưỡng lúc gõ force: chỉ chúng được miễn, cửa sổ khác chạm ngưỡng vẫn dừng. */
+  overrideKinds: Array<QuotaReason['kind']>
+  /** Người dùng vừa gõ /conductor resume (hay force) khi có điểm dừng mở: prompt kế tiếp tiếp tục từ đó. */
+  resumeArmed: boolean
+  /** Turn luồng chính đang chạy (từ turn.start), cho $.turn.abort. */
+  mainTurnId: string
+  /** Bản sao của điểm dừng mới nhất của thư mục này (vẫn có khi $.store từ chối ghi). */
+  checkpoint: QuotaCheckpoint | null
+  /** Điểm dừng đang được tiếp tục: turn luồng chính đầu tiên sau khi chèn khối (turnId rỗng tới turn.start). */
+  resume: { id: string; turnId: string } | null
+  /** /conductor resume discard đang chờ gõ lần hai tới mốc này (ms); 0 khi không chờ. */
+  discardArmedUntil: number
+  /** Năm tool call cuối của luồng chính (tool, đối tượng rút gọn, lỗi hay không): dữ liệu cho điểm dừng. */
+  recent: string[]
+  /** File thấy bị sửa trong mục tiêu goalId (tối đa 50): dữ liệu cho điểm dừng. */
+  touched: { goalId: number; paths: string[] }
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'focus-conductor': {
@@ -239,6 +316,8 @@ declare module 'claude-code' {
       resetArmedUntil: number
       /** Ghi đè chế độ lúc chạy qua /conductor mode; null nghĩa là theo cấu hình. */
       mode: Mode | null
+      /** Bảo vệ hạn mức (0.6.0). */
+      quota: QuotaState
     }
   }
 }

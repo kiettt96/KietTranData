@@ -7,8 +7,9 @@
 import type { Color, Elements, RenderElement, RenderSurface } from 'claude-code'
 
 import { formatUsd } from '../lib/ledger'
+import type { QuotaBadge } from '../lib/quota'
 import type { View } from '../lib/state'
-import { progress } from '../lib/text'
+import { progress, quotaPercent } from '../lib/text'
 import { labels } from './labels'
 import type { Run } from './style'
 import {
@@ -45,6 +46,8 @@ export function renderBand(
   view: View,
   props: BandProps,
   handlers: BandHandlers,
+  /** Bảo vệ hạn mức (0.6.0): nhãn đang dừng hay phần còn lại khi gần ngưỡng; null hay vắng thì band như cũ. */
+  quota: QuotaBadge | null = null,
 ): RenderElement | null {
   const { brief, plan, route, warnings, ledger, log } = view.core
   if (view.mode === 'off' || brief === null || view.isBandHidden) return null
@@ -98,9 +101,16 @@ export function renderBand(
   const pending = pendingUsd(log)
   const spent = goalUsd(ledger) + pending
   const costNode = hasRoom && spent > 0 ? <Text dimColor>{`${pending > 0 ? '~' : ''}${formatUsd(spent)}`}</Text> : null
+  // Nhãn hạn mức dùng lại màu cảnh báo có sẵn: đang dừng thì đậm, gần ngưỡng thì thường.
+  const quotaNode = quota ? (
+    <Text color="warning" bold={quota.paused}>
+      {quota.paused ? l.quotaPaused : l.quotaLeft(quotaPercent(quota.left ?? 0))}
+    </Text>
+  ) : null
   const chips =
-    routeNode || costNode ? (
+    routeNode || costNode || quotaNode ? (
       <Box flexShrink={0} flexDirection="row" gap={1}>
+        {quotaNode}
         {routeNode}
         {costNode}
       </Box>

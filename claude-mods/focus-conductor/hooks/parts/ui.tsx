@@ -1,6 +1,7 @@
 // Giao diện: band trên prompt và pane chi tiết.
 
 import { atom, derive, read, update } from 'claude-code'
+import { EMPTY_QUOTA, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaBadge, quotaSettings } from '../lib/quota'
 import * as S from '../lib/state'
 import { renderBand } from '../ui/band'
 import { labels } from '../ui/labels'
@@ -18,6 +19,7 @@ const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null
 // khi mod nạp lại và hủy mất bộ hẹn giờ: lần vẽ sau so mốc với đồng hồ.
 const resetArmedState = atom({ plugin: 'focus-conductor', key: 'resetArmedUntil' } as const, 0)
 const RESET_CONFIRM_MS = 10_000
+const quotaState = atom({ plugin: 'focus-conductor', key: 'quota' } as const, EMPTY_QUOTA)
 
 export function registerUi(on: On, ctx: Ctx): void {
   const { resetLocal } = ctx
@@ -28,10 +30,16 @@ export function registerUi(on: On, ctx: Ctx): void {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
     const { maxRows, bodyColumns, isWorking } = e.props
+    // Bảo vệ hạn mức (0.6.0): nhãn theo số đo gần nhất đã lưu (không gọi engine khi vẽ).
+    const settings = quotaSettings(ctx.options)
+    const q = normalizeQuota(await read($, quotaState))
+    const now = await $.clock.now()
+    const evaluation = evaluateQuota(q.readings, now, settings)
+    const badge = settings.enabled ? quotaBadge(isPauseActive(true, evaluation.hits, q.pause, overrideOf(q), now) || q.pause !== null, evaluation) : null
     const tree = renderBand($.ui.resolve(e), await read($, view), { maxRows, columns: bodyColumns, isWorking }, {
       onDetails: () => $.ui.open({ id: PANE, title: PANE_TITLE }),
       onHide: () => update($, bandHiddenState, () => true),
-    })
+    }, badge)
     return tree ?? next(e)
   })
 
