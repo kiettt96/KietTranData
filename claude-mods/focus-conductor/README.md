@@ -224,7 +224,7 @@ focus-conductor/
   tests/golden/                golden-set của router: 30 prompt mẫu (5 ca đối kháng), kỳ vọng, câu trả lời router thật đã ghi cùng băm request và tỷ lệ đạt
   tests/fixtures/prompt-k4.ts  prompt dài tổng hợp (ẩn danh), dùng để kiểm request gửi router và phân việc nhiều mục
   scripts/eval-router.ts       eval router thật trên golden-set, nhiều lần mỗi ca (không chạy trong CI)
-  scripts/mutants.ts           676 định nghĩa đột biến (194 cũ cho hooks/lib/drift/, 150 mới của 0.5.4 cho giá, router, sổ chi phí, giao diện, nhận diện lệnh, 7 mới của 0.5.5 cho giá trị tùy chọn đặt trong nháy, 84 mới của 0.5.6 cho gợi ý checkCommands, waiting, cập nhật hàng loạt, kết quả gọn và lệnh nội dòng chỉ đọc, 147 mới của 0.6.0 cho bảo vệ hạn mức, 94 mới của 0.6.1 cho điểm dừng không cần tool call, giao diện hạn mức, tám test còn thiếu của 0.5.6 và thanh tiến độ; dữ liệu thuần)
+  scripts/mutants.ts           681 định nghĩa đột biến (194 cũ cho hooks/lib/drift/, 150 mới của 0.5.4 cho giá, router, sổ chi phí, giao diện, nhận diện lệnh, 7 mới của 0.5.5 cho giá trị tùy chọn đặt trong nháy, 84 mới của 0.5.6 cho gợi ý checkCommands, waiting, cập nhật hàng loạt, kết quả gọn và lệnh nội dòng chỉ đọc, 147 mới của 0.6.0 cho bảo vệ hạn mức, 99 mới của 0.6.1 cho điểm dừng không cần tool call, giao diện hạn mức, tám test còn thiếu của 0.5.6, thanh tiến độ và kết cục của subagent theo reason của turn.complete; dữ liệu thuần)
   scripts/mutate.ts            chạy đột biến, khôi phục tệp gốc, in sha256 trước và sau
   tsconfig.json                cấu hình type-check độc lập (cần tệp khai báo do engine sinh, xem "Phát triển")
   LICENSE                      MIT
