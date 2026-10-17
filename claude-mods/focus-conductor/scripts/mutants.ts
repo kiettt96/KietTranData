@@ -6,7 +6,7 @@
 // id `055-` là đột biến của 0.5.5: S ngoại lệ giá trị tùy chọn đặt trong nháy của isSelfFixing (054-C33 và 054-C43 cũng viết lại theo mã 0.5.5).
 // id `056-` là đột biến của 0.5.6: A gợi ý checkCommands, B waiting, C hàng loạt, D kết quả gọn và show, E lệnh nội dòng chỉ đọc.
 // id `060-` là đột biến của 0.6.0 (bảo vệ hạn mức; nhóm P thêm sau góp ý kiểm PR 21): A ngưỡng và kẹp, B isStale và nearest, C isPauseActive, D từ chối và dừng cứng, E vòng đời điểm dừng (consumed), F tool.call, G điểm dừng (checkpoint.ts), H pruneKeys, I changedFiles và forceUntil, J nạp điểm dừng lúc session.start, K prompt.submit khi dừng và tiếp tục, L consistency, M lệnh pause và resume, N text.ts và plan.ts, O band và ui.
-// id `061-` là đột biến của 0.6.1: A điểm dừng không cần tool call, B cắt trước khi che, C câu nhắc theo nguồn dừng, U giao diện, Q test còn thiếu của 0.5.6.
+// id `061-` là đột biến của 0.6.1: A điểm dừng không cần tool call, B cắt trước khi che, C câu nhắc theo nguồn dừng, U giao diện, Q test còn thiếu của 0.5.6, R kết cục của subagent theo reason của turn.complete (chỉ answer là xong).
 // Một đột biến mà bộ test không làm đỏ (SURVIVED) nghĩa là có hành vi chưa được test ghim hoặc đoạn mã thừa.
 
 // `equivalent`: lý do đột biến này không đổi hành vi quan sát được (sống sót là đúng); harness báo EQUIVALENT thay vì SURVIVED.
@@ -557,7 +557,7 @@ export const MUTANTS: Mutant[] = [
   { id: "060-L2", file: "hooks/parts/consistency.ts", note: "plan checkpoint nuốt lỗi thiếu note", old: "if (noted.error !== undefined) return { deny: noted.error }", new: "" },
   { id: "060-L5", file: "hooks/parts/consistency.ts", note: "plan update vẫn nhắc khi đang dừng", old: "const isUpdate = input.action === 'update' && !isPaused", new: "const isUpdate = input.action === 'update'" },
   { id: "060-L6", file: "hooks/parts/consistency.ts", note: "Stop vẫn chặn khi đang dừng", old: "if (normalizeQuota(await read($, quotaState)).pause !== null) return result", new: "if (false) return result" },
-  { id: "060-L7", file: "hooks/parts/consistency.ts", note: "agent bị cắt khi dừng vẫn tính là xong", old: "e.reason === 'error' || isCut ? 'failed' : 'done'", new: "e.reason === 'error' ? 'failed' : 'done'" },
+  { id: "060-L7", file: "hooks/parts/consistency.ts", note: "agent bị cắt khi dừng vẫn tính là xong", old: "{ agent: 'cut', delegation: 'failed' } : { agent: 'done'", new: "{ agent: 'cut', delegation: 'done' } : { agent: 'done'" },
   { id: "060-L8", file: "hooks/parts/consistency.ts", note: "turn.complete vẫn tổng kết khi đang dừng", old: "const findings = isPaused ? [] : summarize(L.tracker, core.brief, core.plan)", new: "const findings = summarize(L.tracker, core.brief, core.plan)" },
   { id: "060-L9", file: "hooks/parts/consistency.ts", note: "vẫn cảnh báo chi phí chờ giao khi đang dừng", old: "if (!isPaused && waiting.length > 0", new: "if (waiting.length > 0" },
   // 060-M: lệnh pause và resume (parts/command.ts)
@@ -703,12 +703,17 @@ export const MUTANTS: Mutant[] = [
   { id: "061-P20", file: "hooks/ui/pane.tsx", note: "pane không ghi số tool call và thời gian chạy", old: "const usage = row.tools !== undefined ? `${l.taskTools(row.tools)} · ${l.taskElapsed(row.elapsedMs ?? 0)}` : ''", new: "const usage = ''" },
   { id: "061-P21", file: "hooks/ui/pane.tsx", note: "việc làm trực tiếp đang làm ghi như agent đang chạy", old: "row.state === 'running' && row.kind !== 'agent'", new: "false" },
   { id: "061-P22", file: "hooks/parts/consistency.ts", note: "không đếm tool call của subagent", old: "      if (S.normalizeCore(await read($, coreState)).agentProgress.items.some(item => item.agentId === agentId)) await update($, coreState, S.withAgentTool(agentId))\n", new: "" },
-  { id: "061-P23", file: "hooks/parts/consistency.ts", note: "agent kết thúc không ghi trạng thái", old: "      await update($, coreState, S.withAgentEnd(agentId, e.reason === 'error' ? 'failed' : isCutHere ? 'cut' : 'done', at))\n", new: "" },
-  { id: "061-P24", file: "hooks/parts/consistency.ts", note: "agent kết thúc lúc tạm dừng ghi là xong", old: "e.reason === 'error' ? 'failed' : isCutHere ? 'cut' : 'done'", new: "e.reason === 'error' ? 'failed' : 'done'" },
+  { id: "061-P23", file: "hooks/parts/consistency.ts", note: "agent kết thúc không ghi trạng thái", old: "      await update($, coreState, S.withAgentEnd(agentId, end.agent, at))\n", new: "" },
+  { id: "061-P24", file: "hooks/parts/consistency.ts", note: "agent kết thúc lúc tạm dừng ghi là xong", old: "if (reason === 'answer') return isPaused ? { agent: 'cut',", new: "if (reason === 'answer') return isPaused ? { agent: 'done'," },
   { id: "061-P25", file: "hooks/parts/consistency.ts", note: "không đếm thay đổi của luồng chính", old: "    if (core.brief !== null && !observation.isError && isMutation(observation)) await update($, coreState, S.withActivity(core.brief.goalId))\n", new: "" },
   { id: "061-P26", file: "hooks/parts/agents.ts", note: "agent bắt đầu không có dòng tiến độ", old: "      return progressItem !== null ? S.withAgentStart(goalId, progressItem)(logged) : logged", new: "      return logged" },
   { id: "061-P27", file: "hooks/parts/agents.ts", note: "dòng tiến độ không gắn việc đã phân", old: "            ...(taskIndex !== undefined ? { taskIndex } : {}),\n", new: "" },
   { id: "061-P28", file: "hooks/parts/progress.ts", note: "danh sách việc của subagent không được phản chiếu", old: "      if (steps !== null) await update($, coreState, S.withAgentSteps(agentId, steps))\n", new: "" },
   { id: "061-P29", file: "hooks/lib/state.ts", note: "tiến độ agent không giới hạn số dòng", old: "[...items, item].slice(-AGENT_PROGRESS_LIMIT)", new: "[...items, item]" },
   { id: "061-P30", file: "hooks/lib/text.ts", note: "DISCIPLINE bỏ câu dặn tiêu đề \"Việc N: \"", old: " Khi checklist có việc của mục \"Phân việc\", tiêu đề bước mở đầu \"Việc N: \".", new: "" },
+  { id: "061-R1", file: "hooks/parts/consistency.ts", note: "aborted (người dùng ngắt) vẫn tính là xong", old: "if (reason === 'answer') return", new: "if (reason === 'answer' || reason === 'aborted') return" },
+  { id: "061-R2", file: "hooks/parts/consistency.ts", note: "refusal (model từ chối) vẫn tính là xong", old: "if (reason === 'answer') return", new: "if (reason === 'answer' || reason === 'refusal') return" },
+  { id: "061-R3", file: "hooks/parts/consistency.ts", note: "lỗi không còn thắng cắt: error lúc tạm dừng thành bị cắt", old: "  if (reason === 'error') return { agent: 'failed', delegation: 'failed' }\n", new: "" },
+  { id: "061-R4", file: "hooks/parts/consistency.ts", note: "refusal không vào danh sách việc lỗi, nên giao lại không được router chấm lại", old: "(e.reason === 'error' || e.reason === 'refusal') && meta !== undefined", new: "e.reason === 'error' && meta !== undefined" },
+  { id: "061-R5", file: "hooks/parts/consistency.ts", note: "aborted hay refusal lúc tạm dừng ghi là lỗi thay vì bị cắt", old: "return { agent: isPaused ? 'cut' : 'failed', delegation: 'failed' }", new: "return { agent: 'failed', delegation: 'failed' }" },
 ]

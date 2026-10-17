@@ -1,7 +1,7 @@
 // Giữ nhất quán: tool plan, theo dõi mọi tool, chặn kết thúc khi checklist còn mở, cộng chi phí đo được.
 
 import { atom, derive, read, update } from 'claude-code'
-import type { Warning } from '../../types'
+import type { AgentState, DelegationState, Warning } from '../../types'
 import { acceptsVerified, evidenceStrength, filePathOf, isExecuting, isFullyClosed, isGoalDone, isMutation, isPlanFile, newTracker, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
 import type { Focus } from '../lib/drift'
 import { clipText } from '../lib/decisions'
@@ -44,6 +44,17 @@ async function frameOf($: EngineInterface, roots: Map<number, string | null>, go
 /** Status line kèm nhãn hạn mức (0.6.1): mọi chỗ đặt status của file này đi qua đây, nên nhãn không mất giữa các hook. */
 async function showStatus($: EngineInterface, current: View, options: Ctx['options']): Promise<void> {
   $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
+}
+
+/**
+ * Kết cục của một subagent theo `reason` của turn.complete (0.6.1): chỉ 'answer' là xong. 'error' là lỗi; 'aborted' (người dùng
+ * ngắt) và 'refusal' (model từ chối, không có model dự phòng) cũng là lỗi. Đang tạm dừng vì hạn mức thì agent kết thúc là bị cắt
+ * ngang, trừ 'error' (lỗi thắng cắt). Việc đã phân luôn về `failed` khi chưa xong, để Stop và cảnh báo nhắc giao lại.
+ */
+function agentEnd(reason: string, isPaused: boolean): { agent: Exclude<AgentState, 'running'>; delegation: DelegationState } {
+  if (reason === 'answer') return isPaused ? { agent: 'cut', delegation: 'failed' } : { agent: 'done', delegation: 'done' }
+  if (reason === 'error') return { agent: 'failed', delegation: 'failed' }
+  return { agent: isPaused ? 'cut' : 'failed', delegation: 'failed' }
 }
 
 export function registerConsistency(on: On, ctx: Ctx): void {
@@ -335,18 +346,17 @@ export function registerConsistency(on: On, ctx: Ctx): void {
             : added.ledger
         await update($, coreState, c => S.withAgentUsd(agentId, added.usd)(S.withLedger(() => ledger)(c)))
       }
-      if (e.reason === 'error' && meta !== undefined) {
+      // Lỗi hoặc bị từ chối thì lần giao lại việc đó được router chấm lại; người dùng ngắt (aborted) thì không cần.
+      if ((e.reason === 'error' || e.reason === 'refusal') && meta !== undefined) {
         agentFailures.push({ description: meta.description, goalId: meta.goalId })
         if (agentFailures.length > 10) agentFailures.shift()
       }
-      // Tiến độ từng việc (0.6.1): agent kết thúc là xong, lỗi, hoặc bị cắt nếu đang tạm dừng vì hạn mức.
-      const isCutHere = normalizeQuota(await read($, quotaState)).pause !== null
-      await update($, coreState, S.withAgentEnd(agentId, e.reason === 'error' ? 'failed' : isCutHere ? 'cut' : 'done', at))
+      // Tiến độ từng việc (0.6.1): chỉ 'answer' là xong; còn lại là lỗi, hoặc bị cắt nếu đang tạm dừng vì hạn mức.
+      const end = agentEnd(e.reason, normalizeQuota(await read($, quotaState)).pause !== null)
+      await update($, coreState, S.withAgentEnd(agentId, end.agent, at))
       // Việc đã phân mà agent này làm: ghi xong hoặc lỗi (lỗi thì Stop và cảnh báo cuối turn nhắc giao lại).
       if (meta?.taskIndex !== undefined) {
-        // Agent kết thúc trong lúc dừng vì hạn mức là bị cắt ngang: việc đó phải giao lại.
-        const isCut = normalizeQuota(await read($, quotaState)).pause !== null
-        moveDelegation(meta.goalId, meta.taskIndex, e.reason === 'error' || isCut ? 'failed' : 'done')
+        moveDelegation(meta.goalId, meta.taskIndex, end.delegation)
         const brief = S.normalizeCore(await read($, coreState)).brief
         if (brief !== null && brief.goalId === meta.goalId) await update($, coreState, S.withDelegations(brief.goalId, delegationItems(brief)))
       }
