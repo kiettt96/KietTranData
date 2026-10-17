@@ -189,6 +189,9 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     }
 
     if (e.agentId !== undefined) {
+      // Tiến độ từng việc (0.6.1): đếm tool call của agent có dòng tiến độ (agent đi qua agent.spawn của mod).
+      const agentId = e.agentId
+      if (S.normalizeCore(await read($, coreState)).agentProgress.items.some(item => item.agentId === agentId)) await update($, coreState, S.withAgentTool(agentId))
       const meta = agents.get(e.agentId)
       if (meta === undefined) return result
       const agentTracker = agentTrackers.get(e.agentId) ?? newTracker('')
@@ -220,6 +223,8 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     const core = S.normalizeCore(await read($, coreState))
     // Ghi cả lệnh lỗi: evidence nhắc tới một lệnh kiểm tra đã lỗi thì không được tính là đã kiểm tra.
     if (core.brief !== null) noteEvidence(evidenceFor(core.brief.goalId), observation)
+    // Luồng chính vừa thay đổi file: việc làm trực tiếp chưa có bước chuyển từ chưa bắt đầu sang đang làm (0.6.1).
+    if (core.brief !== null && !observation.isError && isMutation(observation)) await update($, coreState, S.withActivity(core.brief.goalId))
     const focus: Focus | null = core.brief !== null ? { ...core.brief, ...(await frameOf($, L.roots, core.brief.goalId, core.brief.scopePaths)) } : null
     const findings = observe(L.tracker, observation, focus, core.plan)
     const isErrorBurst = L.tracker.errors === ERROR_BURST
@@ -334,6 +339,9 @@ export function registerConsistency(on: On, ctx: Ctx): void {
         agentFailures.push({ description: meta.description, goalId: meta.goalId })
         if (agentFailures.length > 10) agentFailures.shift()
       }
+      // Tiến độ từng việc (0.6.1): agent kết thúc là xong, lỗi, hoặc bị cắt nếu đang tạm dừng vì hạn mức.
+      const isCutHere = normalizeQuota(await read($, quotaState)).pause !== null
+      await update($, coreState, S.withAgentEnd(agentId, e.reason === 'error' ? 'failed' : isCutHere ? 'cut' : 'done', at))
       // Việc đã phân mà agent này làm: ghi xong hoặc lỗi (lỗi thì Stop và cảnh báo cuối turn nhắc giao lại).
       if (meta?.taskIndex !== undefined) {
         // Agent kết thúc trong lúc dừng vì hạn mức là bị cắt ngang: việc đó phải giao lại.

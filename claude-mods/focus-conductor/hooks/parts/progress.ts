@@ -29,9 +29,16 @@ export function registerProgress(on: On, ctx: Ctx): void {
     const result = await next(e)
     if (result.deny !== undefined || result.isError === true) return result
     if (S.modeOf(await read($, modeState), ctx.options) === 'off') return result
-    // Subagent ghi danh sách của riêng nó: không đụng checklist của luồng chính.
-    if (e.agentId !== undefined) return result
     const core = S.normalizeCore(await read($, coreState))
+    // Subagent ghi danh sách của riêng nó: phản chiếu vào dòng tiến độ của agent đó (2.4), không đụng checklist của luồng chính.
+    if (e.agentId !== undefined) {
+      const agentId = e.agentId
+      const item = core.agentProgress.items.find(i => i.agentId === agentId)
+      if (item === undefined) return result
+      const steps = applyTaskTool(item.steps, e.tool, e as unknown as Record<string, unknown>, result.result)
+      if (steps !== null) await update($, coreState, S.withAgentSteps(agentId, steps))
+      return result
+    }
     // Chưa có mục tiêu, hoặc checklist của tool plan đã có bước (tool plan luôn thắng): không phản chiếu.
     if (core.brief === null || core.plan.length > 0) return result
     const goalId = core.brief.goalId

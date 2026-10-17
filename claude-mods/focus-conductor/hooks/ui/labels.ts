@@ -68,6 +68,16 @@ const VI = {
   quotaContinueSoft: 'nói "tiếp tục" hoặc dùng /conductor resume',
   quotaPausedNow: 'Đang tạm dừng',
   mirrorShort: 'danh sách việc',
+  taskSection: 'Tiến độ từng việc',
+  taskMain: 'Việc chính',
+  taskNumber: (n: number) => `Việc ${n}`,
+  taskOwn: 'Claude tự giao',
+  taskState: { pending: 'chờ giao', idle: 'chưa bắt đầu', running: 'đang chạy', done: 'xong', failed: 'lỗi, chưa giao lại', cut: 'bị cắt vì tạm dừng' } as Record<'pending' | 'idle' | 'running' | 'done' | 'failed' | 'cut', string>,
+  taskDoing: 'đang làm',
+  taskTools: (n: number) => `${n} tool`,
+  taskElapsed: (ms: number) => (ms < 60_000 ? '<1 phút' : `${Math.floor(ms / 60_000)} phút`),
+  taskMore: (k: number) => `+${k} việc`,
+  agentChip: (done: number, total: number) => `subagent ${done}/${total} xong`,
   mirrorSource: 'Theo danh sách việc của Claude Code (chỉ để theo dõi, không chặn kết thúc)',
   costCalls: 'lượt',
   groupMain: 'luồng chính',
@@ -160,6 +170,16 @@ const EN: typeof VI = {
   quotaContinueSoft: 'say "continue" or use /conductor resume',
   quotaPausedNow: 'Paused',
   mirrorShort: 'task list',
+  taskSection: 'Progress by task',
+  taskMain: 'Main work',
+  taskNumber: n => `Task ${n}`,
+  taskOwn: 'Delegated by Claude',
+  taskState: { pending: 'not delegated yet', idle: 'not started', running: 'running', done: 'done', failed: 'failed, not re-delegated', cut: 'cut by pause' },
+  taskDoing: 'in progress',
+  taskTools: n => `${n} ${n === 1 ? 'tool' : 'tools'}`,
+  taskElapsed: ms => (ms < 60_000 ? '<1 min' : `${Math.floor(ms / 60_000)} min`),
+  taskMore: k => `+${k} ${k === 1 ? 'task' : 'tasks'}`,
+  agentChip: (done, total) => `${done}/${total} subagent done`,
   mirrorSource: "From Claude Code's task list (tracking only, never blocks stopping)",
   costCalls: 'calls',
   groupMain: 'main',
@@ -198,4 +218,10 @@ const EN: typeof VI = {
 
 export function labels(lang: Lang): typeof VI {
   return lang === 'en' ? EN : VI
+}
+
+/** Tên một dòng tiến độ (0.6.1): "Việc chính: ...", "Việc N: ...", hay "Claude tự giao: ...". Dùng chung cho band và pane. */
+export function taskLabel(l: typeof VI, row: { kind: 'main' | 'direct' | 'agent'; index?: number; title: string }): string {
+  const head = row.kind === 'main' ? l.taskMain : row.index !== undefined ? l.taskNumber(row.index) : l.taskOwn
+  return `${head}: ${row.title}`
 }

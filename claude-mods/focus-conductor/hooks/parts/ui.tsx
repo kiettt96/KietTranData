@@ -43,7 +43,7 @@ export function registerUi(on: On, ctx: Ctx): void {
     const now = await $.clock.now()
     const evaluation = evaluateQuota(q.readings, now, settings)
     const badge = settings.enabled ? quotaBadge(isPauseActive(true, evaluation.hits, q.pause, overrideOf(q), now) || q.pause !== null, evaluation) : null
-    const tree = renderBand($.ui.resolve(e), await read($, view), { maxRows, columns: bodyColumns, isWorking }, {
+    const tree = renderBand($.ui.resolve(e), await read($, view), { maxRows, columns: bodyColumns, isWorking, now }, {
       onDetails: () => $.ui.open({ id: PANE, title: PANE_TITLE }),
       onHide: () => update($, bandHiddenState, () => true),
     }, badge)
@@ -64,7 +64,7 @@ export function registerUi(on: On, ctx: Ctx): void {
           current.lang,
         )
       : null
-    return renderPane($.ui.resolve(e), current, { columns: e.props.bodyColumns, placement: e.props.placement, isResetArmed }, {
+    return renderPane($.ui.resolve(e), current, { columns: e.props.bodyColumns, placement: e.props.placement, isResetArmed, now }, {
       onMode: picked => update($, modeState, () => picked),
       onReset: async () => {
         // Hai bước: lần đầu chỉ chờ xác nhận; lần hai trong hạn mới xóa.

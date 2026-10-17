@@ -8,10 +8,11 @@ import type { Color, Elements, RenderElement, RenderSurface } from 'claude-code'
 
 import { formatUsd } from '../lib/ledger'
 import { shownPlan } from '../lib/mirror'
+import { byPriority, taskRows } from '../lib/progress'
 import type { QuotaBadge } from '../lib/quota'
 import type { View } from '../lib/state'
 import { progress, quotaPercent } from '../lib/text'
-import { labels } from './labels'
+import { labels, taskLabel } from './labels'
 import type { Run } from './style'
 import {
   FAMILY_HUE,
@@ -26,7 +27,12 @@ import {
   plannedRuns,
   severityGlyph,
   severityOf,
+  taskBarRuns,
 } from './style'
+
+/** Số dòng việc tối đa band thêm dưới dòng tiến độ chung, và số ô thanh của mỗi dòng (0.6.1). */
+const TASK_ROWS = 4
+const TASK_CELLS = 6
 
 /** Ô một nút của engine chiếm [Giả định: khoảng 10 ô cho nhãn ngắn, chưa đo trên surface thật]. */
 export const BUTTON_CELLS = 10
@@ -45,6 +51,8 @@ export type BandProps = {
   columns: number
   /** Đang có một turn chạy. */
   isWorking: boolean
+  /** Thời điểm vẽ (ms), cho thời gian chạy của subagent (0.6.1). Vắng thì 0. */
+  now?: number
 }
 
 /** Trả cây để vẽ, hoặc null khi band nên nhường chỗ cho engine. */
@@ -114,7 +122,7 @@ export function renderBand(
         : cellsOf(route.family) + 2 + (fit.effort ? 1 + cellsOf(route.effort) : 0)
       : 0
   const chipCells = () => {
-    const parts = [cellsOf(quotaText), routeCells(), costText ? cellsOf(costText) : 0].filter(n => n > 0)
+    const parts = [cellsOf(quotaText), routeCells(), costText ? cellsOf(costText) : 0, agentChip ? cellsOf(agentChip) : 0].filter(n => n > 0)
     return parts.reduce((a, b) => a + b, 0) + Math.max(0, parts.length - 1)
   }
   // Một dòng: tiến độ, mục tiêu, chip, nút Chi tiết (và nút Ẩn khi có hai dòng) cách nhau một ô.
@@ -131,6 +139,14 @@ export function renderBand(
     return Math.max(first, 2 + shown.reduce((a, b) => a + b, 0) + (shown.length - 1))
   }
   const isCompact = props.maxRows < 2 || (bar.length === 0 && beads.length === 0 && !current)
+  // Tiến độ từng việc (0.6.1): mọi việc ngoài việc chính. Còn dòng trống dưới maxRows thì mỗi dòng một việc (tối đa
+  // TASK_ROWS, đang chạy trước, rồi lỗi, chờ, xong); không còn dòng nào thì chỉ một chip tóm tắt subagent.
+  const extra = taskRows(view.core, props.now ?? 0).slice(1)
+  const baseRows = isCompact ? 1 + (latest && props.maxRows >= 2 ? 1 : 0) : 2 + (latest && props.maxRows >= 3 ? 1 : 0)
+  const spare = Math.max(0, props.maxRows - baseRows)
+  const taskShown = extra.length > 0 && spare > 0 ? byPriority(extra).slice(0, Math.min(TASK_ROWS, spare)) : []
+  const delegated = extra.filter(row => row.kind === 'agent')
+  const agentChip = taskShown.length === 0 && delegated.length > 0 ? l.agentChip(delegated.filter(row => row.state === 'done').length, delegated.length) : ''
   const fixedCells = () => (isCompact ? compactCells() : rowCells())
   for (const drop of [() => (fit.count = false), () => (fit.effort = false), () => (fit.route = false)]) {
     if (fixedCells() <= columns) break
@@ -163,12 +179,14 @@ export function renderBand(
       {quotaText}
     </Text>
   ) : null
+  const agentNode = agentChip ? <Text dimColor>{agentChip}</Text> : null
   const chips =
-    routeNode || costNode || quotaNode ? (
+    routeNode || costNode || quotaNode || agentNode ? (
       <Box flexShrink={0} flexDirection="row" gap={1}>
         {quotaNode}
         {routeNode}
         {costNode}
+        {agentNode}
       </Box>
     ) : null
 
@@ -269,6 +287,27 @@ export function renderBand(
     )
     if (hasThirdRow && alert) rows.push(alert)
   }
+
+  const more = extra.length - taskShown.length
+  taskShown.forEach((row, i) =>
+    rows.push(
+      <Box key={`task-${row.key}`} flexDirection="row" gap={1}>
+        <Box flexShrink={0}>
+          <Text>{taskBarRuns(row.bar, TASK_CELLS).map(tint)}</Text>
+        </Box>
+        <Box flexGrow={1} flexShrink={1}>
+          <Text wrap="truncate-end" dimColor={row.state === 'done'}>
+            {taskLabel(l, row)}
+          </Text>
+        </Box>
+        {i === taskShown.length - 1 && more > 0 ? (
+          <Box flexShrink={0}>
+            <Text dimColor>{l.taskMore(more)}</Text>
+          </Box>
+        ) : null}
+      </Box>,
+    ),
+  )
 
   return (
     <Box flexDirection="row">

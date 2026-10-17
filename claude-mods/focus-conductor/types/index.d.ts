@@ -208,6 +208,26 @@ export type DelegationItem = { index: number; title: string; state: DelegationSt
  */
 export type MirrorStep = { key: string; title: string; status: 'todo' | 'doing' | 'done' }
 
+/** Trạng thái của một lần gọi Agent (0.6.1): đang chạy, xong, lỗi, hoặc bị cắt vì tạm dừng hạn mức. */
+export type AgentState = 'running' | 'done' | 'failed' | 'cut'
+
+/** Tiến độ của một lần gọi Agent, gắn theo agentId (0.6.1). */
+export type AgentProgress = {
+  agentId: string
+  title: string
+  /** Việc router phân mà agent này làm; vắng khi Claude tự giao ngoài phân việc. */
+  taskIndex?: number
+  family: ModelFamily
+  effort?: Effort
+  state: AgentState
+  /** Số tool call agent đã chạy. */
+  tools: number
+  startedAt: number
+  endedAt?: number
+  /** Danh sách việc agent tự ghi bằng TodoWrite hay TaskCreate, TaskUpdate (phản chiếu như luồng chính). */
+  steps: MirrorStep[]
+}
+
 /** Nâng cấp theo bằng chứng, áp cho các turn sau trong cùng mục tiêu. */
 export type Lift = { depth: number; effort: number }
 
@@ -240,6 +260,10 @@ export type Core = {
    * verified và bảo vệ hạn mức chỉ đọc `plan`.
    */
   mirror: { goalId: number; steps: MirrorStep[] }
+  /** Tiến độ từng lần gọi Agent của mục tiêu goalId, tối đa 20 (0.6.1; không có ở trạng thái từ bản cũ). */
+  agentProgress: { goalId: number; items: AgentProgress[] }
+  /** Số lần luồng chính thay đổi file trong mục tiêu goalId: cho trạng thái của việc làm trực tiếp khi chưa có bước (0.6.1). */
+  activity: { goalId: number; changes: number }
 }
 
 /** Một cửa sổ hạn mức đã qua ngưỡng lúc dừng (0.6.0). */

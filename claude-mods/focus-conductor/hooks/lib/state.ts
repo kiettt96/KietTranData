@@ -6,7 +6,7 @@
 
 import type { PluginOptions } from 'claude-code'
 
-import type { ArchivedGoal, Brief, Core, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, Route, RouteEvent, Warning } from '../../types'
+import type { AgentProgress, AgentState, ArchivedGoal, Brief, Core, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, Route, RouteEvent, Warning } from '../../types'
 import { restorableSteps } from './drift'
 import type { Tokens } from './cost'
 import { addUsage, emptyLedger, nextGoal, planSwitch, resetLedger } from './ledger'
@@ -32,6 +32,8 @@ export const EMPTY_CORE: Core = {
   archived: [],
   delegations: { goalId: -1, items: [] },
   mirror: { goalId: -1, steps: [] },
+  agentProgress: { goalId: -1, items: [] },
+  activity: { goalId: -1, changes: 0 },
 }
 
 const LOG_LIMIT = 60
@@ -90,6 +92,8 @@ export function normalizeCore(raw: Partial<Core>): Core {
     archived: raw.archived ?? [],
     delegations: raw.delegations ?? { goalId: -1, items: [] },
     mirror: raw.mirror ?? { goalId: -1, steps: [] },
+    agentProgress: raw.agentProgress ?? { goalId: -1, items: [] },
+    activity: raw.activity ?? { goalId: -1, changes: 0 },
   }
 }
 
@@ -168,6 +172,7 @@ export function restoreArchived(c: Core, index: number): { core: Core; restored:
     ledger: nextGoal(n.ledger, goalId),
     archived,
     mirror: { goalId, steps: [] },
+    ...freshProgress(goalId),
   }
   return { core, restored: { brief, plan: restored.plan } }
 }
@@ -182,7 +187,7 @@ export const adoptGoal =
   (brief: Brief) =>
   (c: Core): Core => {
     const n = normalizeCore(c)
-    return { ...n, brief, plan: [], warnings: [], lift: EMPTY_LIFT, ledger: nextGoal(n.ledger, brief.goalId), archived: archiveOf(n), mirror: { goalId: brief.goalId, steps: [] } }
+    return { ...n, brief, plan: [], warnings: [], lift: EMPTY_LIFT, ledger: nextGoal(n.ledger, brief.goalId), archived: archiveOf(n), mirror: { goalId: brief.goalId, steps: [] }, ...freshProgress(brief.goalId) }
   }
 
 export const withBrief =
@@ -308,3 +313,46 @@ export function withMirror(goalId: number, steps: readonly MirrorStep[]): (core:
   return core => ({ ...normalizeCore(core), mirror: { goalId, steps: [...steps] } })
 }
 
+/** Số dòng tiến độ của agent giữ lại cho một mục tiêu. */
+export const AGENT_PROGRESS_LIMIT = 20
+
+/** Tiến độ agent và số thay đổi bắt đầu lại ở mục tiêu mới. */
+function freshProgress(goalId: number): Pick<Core, 'agentProgress' | 'activity'> {
+  return { agentProgress: { goalId, items: [] }, activity: { goalId, changes: 0 } }
+}
+
+/** Một lần gọi Agent bắt đầu chạy: thêm dòng tiến độ (thay dòng cũ cùng agentId), giữ tối đa AGENT_PROGRESS_LIMIT dòng. */
+export function withAgentStart(goalId: number, item: AgentProgress): (core: Core) => Core {
+  return core => {
+    const n = normalizeCore(core)
+    const items = n.agentProgress.goalId === goalId ? n.agentProgress.items.filter(i => i.agentId !== item.agentId) : []
+    return { ...n, agentProgress: { goalId, items: [...items, item].slice(-AGENT_PROGRESS_LIMIT) } }
+  }
+}
+
+/** Đổi dòng tiến độ của agentId (không có thì giữ nguyên). */
+function withAgent(agentId: string, change: (item: AgentProgress) => AgentProgress): (core: Core) => Core {
+  return core => {
+    const n = normalizeCore(core)
+    if (!n.agentProgress.items.some(i => i.agentId === agentId)) return n
+    return { ...n, agentProgress: { ...n.agentProgress, items: n.agentProgress.items.map(i => (i.agentId === agentId ? change(i) : i)) } }
+  }
+}
+
+/** Agent chạy thêm một tool call. */
+export const withAgentTool = (agentId: string) => withAgent(agentId, item => ({ ...item, tools: item.tools + 1 }))
+
+/** Agent kết thúc: xong, lỗi, hoặc bị cắt vì tạm dừng. */
+export const withAgentEnd = (agentId: string, state: Exclude<AgentState, 'running'>, at: number) =>
+  withAgent(agentId, item => ({ ...item, state, endedAt: at }))
+
+/** Danh sách việc agent tự ghi (phản chiếu). */
+export const withAgentSteps = (agentId: string, steps: readonly MirrorStep[]) => withAgent(agentId, item => ({ ...item, steps: [...steps] }))
+
+/** Luồng chính vừa thay đổi file trong mục tiêu goalId. */
+export function withActivity(goalId: number): (core: Core) => Core {
+  return core => {
+    const n = normalizeCore(core)
+    return { ...n, activity: { goalId, changes: (n.activity.goalId === goalId ? n.activity.changes : 0) + 1 } }
+  }
+}

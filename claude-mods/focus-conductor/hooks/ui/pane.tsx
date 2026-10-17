@@ -1,4 +1,4 @@
-// Pane chi tiết, xếp theo thứ tự cần nhìn: mục tiêu và chế độ, hạn mức, cảnh báo, checklist, việc giao subagent,
+// Pane chi tiết, xếp theo thứ tự cần nhìn: mục tiêu và chế độ, hạn mức, cảnh báo, checklist, tiến độ từng việc,
 // điều phối, chi phí, nhật ký; ràng buộc và tiêu chí chất lượng (nội dung tĩnh) ở cuối.
 // Hàm vẽ thuần như band: handler do hook tạo và truyền vào.
 
@@ -8,17 +8,16 @@ import type { Mode } from '../../types'
 import { estimateLine, formatUsd, ledgerLines, sessionUsd } from '../lib/ledger'
 import type { View } from '../lib/state'
 import { shownPlan } from '../lib/mirror'
+import { taskRows } from '../lib/progress'
 import { progress } from '../lib/text'
 import type { QuotaPaneText } from '../lib/text'
-import { labels } from './labels'
+import { labels, taskLabel } from './labels'
 import type { Run } from './style'
 import {
   FAMILY_HUE,
   SPINE,
   STEP_MARK,
   STEP_ORDER,
-  TASK_COLOR,
-  TASK_MARK,
   barRuns,
   cellsOf,
   columnsOf,
@@ -28,6 +27,7 @@ import {
   phaseOf,
   plannedRuns,
   severityGlyph,
+  taskBarRuns,
   severityOf,
   wrapText,
 } from './style'
@@ -51,6 +51,8 @@ export type PaneProps = {
   placement: 'dock' | 'inline'
   /** Nút Đặt lại đang chờ bấm lần hai (trong 10 giây kể từ lần đầu). */
   isResetArmed: boolean
+  /** Thời điểm vẽ (ms, $.clock.now()), cho thời gian chạy của subagent (0.6.1). Vắng thì 0. */
+  now?: number
 }
 
 export function renderPane(
@@ -339,8 +341,73 @@ export function renderPane(
     )
 
   // --------------------------------------------------- việc giao subagent
-  const delegations = view.core.delegations.goalId === brief.goalId ? view.core.delegations.items : []
-  const delegationIdWidth = Math.max(1, ...delegations.map(item => String(item.index).length))
+  // ------------------------------------------------- tiến độ từng việc (0.6.1)
+  // Thay mục "Việc giao subagent": việc chính, từng việc router phân (làm trực tiếp hay giao), rồi việc Claude tự giao.
+  // Chỉ vẽ khi có từ hai việc trở lên; thanh theo bề rộng pane, tối thiểu 6 ô; dưới 48 ô mỗi việc hai dòng.
+  const taskCells = Math.max(6, Math.min(16, Math.floor(width * 0.2)))
+  const taskNodes = taskRows(view.core, props.now ?? 0).map(row => {
+    const label = taskLabel(l, row)
+    const runs = taskBarRuns(row.bar, taskCells)
+    const counts = row.bar.kind === 'steps' ? progress(row.bar.plan) : null
+    const usage = row.tools !== undefined ? `${l.taskTools(row.tools)} · ${l.taskElapsed(row.elapsedMs ?? 0)}` : ''
+    const detail = [counts !== null ? `${counts.closed}/${counts.total}` : '', usage].filter(Boolean).join(' · ')
+    // Chữ trạng thái: thanh không có bước thì luôn ghi; thanh theo bước của agent chỉ ghi khi agent đã kết thúc.
+    const word =
+      row.bar.kind === 'state'
+        ? row.state === 'running' && row.kind !== 'agent'
+          ? l.taskDoing
+          : l.taskState[row.state]
+        : row.kind === 'agent' && row.state !== 'running'
+          ? l.taskState[row.state]
+          : ''
+    const wordColor = row.state === 'failed' ? 'error' : row.state === 'cut' ? 'warning' : row.state === 'running' ? 'claude' : undefined
+    const barNode = (
+      <Box flexShrink={0}>
+        <Text>{runs.map(tint)}</Text>
+      </Box>
+    )
+    const meta = [
+      row.pick ? (
+        <Box flexShrink={0}>
+          <Text color={FAMILY_HUE[row.pick.family]}>{`${row.pick.family} ${row.pick.effort}`}</Text>
+        </Box>
+      ) : null,
+      detail ? (
+        <Box flexShrink={0}>
+          <Text dimColor>{detail}</Text>
+        </Box>
+      ) : null,
+      word ? (
+        <Box flexShrink={0}>
+          <Text color={wordColor} dimColor={wordColor === undefined}>
+            {word}
+          </Text>
+        </Box>
+      ) : null,
+    ]
+    const labelNode = (
+      <Text wrap="truncate-end" bold={row.kind === 'main'} dimColor={row.state === 'done'}>
+        {label}
+      </Text>
+    )
+    return isNarrow ? (
+      <Box key={row.key} flexDirection="column">
+        {labelNode}
+        <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
+          {barNode}
+          {meta}
+        </Box>
+      </Box>
+    ) : (
+      <Box key={row.key} flexDirection="row" gap={1}>
+        {barNode}
+        <Box flexGrow={1} flexShrink={1}>
+          {labelNode}
+        </Box>
+        {meta}
+      </Box>
+    )
+  })
 
   // ----------------------------------------------------------- điều phối
   const routeNode = route ? (
@@ -484,45 +551,10 @@ export function renderPane(
         ) : null}
         {checklist}
       </Box>
-      {delegations.length > 0 ? (
+      {taskNodes.length > 1 ? (
         <Box flexDirection="column">
-          {heading(l.delegations, String(delegations.length))}
-          {delegations.map(item => {
-            const mark = TASK_MARK[item.state]
-            const state = l.delegationState[item.state]
-            // Trạng thái nằm cùng dòng với tên việc nếu còn chỗ, không thì xuống dòng riêng để không bị cắt giữa cụm.
-            const isInline = cellsOf(item.title) + 2 + cellsOf(state) <= width - 3 - delegationIdWidth
-            const stateNode = (
-              <Text color={TASK_COLOR[item.state]} dimColor={TASK_COLOR[item.state] === undefined} wrap="wrap">
-                {isInline ? `  ${state}` : state}
-              </Text>
-            )
-            return (
-              <Box flexDirection="row" gap={1}>
-                <Box flexShrink={0} flexDirection="row" gap={1}>
-                  <Text color={mark.color} dimColor={mark.dim} bold={mark.bold}>
-                    {mark.glyph}
-                  </Text>
-                  <Text dimColor>{padStart(String(item.index), delegationIdWidth)}</Text>
-                </Box>
-                <Box flexDirection="column" flexGrow={1} flexShrink={1}>
-                  {isInline ? (
-                    <Text wrap="wrap" dimColor={item.state === 'done'}>
-                      {item.title}
-                      {stateNode}
-                    </Text>
-                  ) : (
-                    <Box flexDirection="column">
-                      <Text wrap="wrap" dimColor={item.state === 'done'}>
-                        {item.title}
-                      </Text>
-                      {stateNode}
-                    </Box>
-                  )}
-                </Box>
-              </Box>
-            )
-          })}
+          {heading(l.taskSection, String(taskNodes.length))}
+          {taskNodes}
         </Box>
       ) : null}
       <Box flexDirection="column">
