@@ -245,6 +245,8 @@ export function registerSession(on: On, ctx: Ctx): void {
     if (isNewGoal) {
       L.isGoalNew = true
       L.pinnedGoalId = null
+      // Ẩn band (nút Ẩn) chỉ có tác dụng trong mục tiêu đang làm: mục tiêu mới thì band hiện lại (0.6.1).
+      await update($, bandHiddenState, () => false)
     }
 
     const wanted = wantedPick(brief, core.lift)

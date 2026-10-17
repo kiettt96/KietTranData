@@ -677,4 +677,6 @@ export const MUTANTS: Mutant[] = [
   { id: "061-M14", file: "hooks/ui/pane.tsx", note: "pane không ghi nguồn phản chiếu", old: "        {source === 'mirror' ? (\n", new: "        {false ? (\n" },
   { id: "061-M15", file: "hooks/lib/state.ts", note: "status line bỏ qua checklist phản chiếu", old: "shownPlan(view.core).plan", new: "view.core.plan" },
   { id: "061-M16", file: "hooks/ui/band.tsx", note: "band bỏ qua checklist phản chiếu", old: "  const { plan, source } = shownPlan(view.core)\n", new: "  const { plan } = view.core\n  const source = shownPlan(view.core).source\n" },
+  { id: "061-H1", file: "hooks/parts/session.ts", note: "mục tiêu mới không hiện lại band đã ẩn", old: "      await update($, bandHiddenState, () => false)\n", new: "" },
+  { id: "061-H2", file: "hooks/parts/session.ts", note: "prompt nào cũng hiện lại band đã ẩn", old: "      await update($, bandHiddenState, () => false)\n    }\n", new: "    }\n    await update($, bandHiddenState, () => false)\n" },
 ]
