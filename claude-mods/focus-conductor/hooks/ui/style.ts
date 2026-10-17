@@ -9,6 +9,7 @@ import type { Color } from 'claude-code'
 
 import type { DelegationState, Ledger, ModelFamily, PlanStep, RouteEvent, StepStatus, WarningKind } from '../../types'
 import { GROUPS } from '../lib/ledger'
+import type { TaskBar } from '../lib/progress'
 
 /** Một ký hiệu có màu. Hình dạng khác nhau để đọc được cả khi terminal không có màu. */
 export type Mark = { glyph: string; color: Color; dim?: boolean; bold?: boolean }
@@ -132,6 +133,29 @@ export function barRuns(plan: readonly PlanStep[], cells: number): Run[] {
   const track = cells - filled - (head ? 1 : 0)
   if (track > 0) runs.push({ text: '╌'.repeat(track), color: 'subtle' })
   return runs
+}
+
+/**
+ * Thanh của một việc (0.6.1), dùng chung cho band, pane và status line. Có các bước thật thì đúng như barRuns (phần trăm
+ * theo bước đã đóng). Không có thì chỉ trạng thái, không phần trăm: chờ giao hay chưa bắt đầu là nét đứt mờ, đang chạy là
+ * đầu ◐ trên nét đứt, xong là thanh đầy màu success, lỗi là ■ màu error, bị cắt vì tạm dừng là ■ màu warning.
+ */
+export function taskBarRuns(bar: TaskBar, cells: number): Run[] {
+  if (bar.kind === 'steps') return barRuns(bar.plan, cells)
+  if (cells < 3) return []
+  const track = (n: number): Run[] => (n > 0 ? [{ text: '╌'.repeat(n), color: 'subtle' }] : [])
+  switch (bar.state) {
+    case 'done':
+      return [{ text: '━'.repeat(cells), color: 'success' }]
+    case 'running':
+      return [{ text: STEP_MARK.doing.glyph, color: 'claude', bold: true }, ...track(cells - 1)]
+    case 'failed':
+      return [{ text: STEP_MARK.blocked.glyph, color: 'error', bold: true }, ...track(cells - 1)]
+    case 'cut':
+      return [{ text: STEP_MARK.blocked.glyph, color: 'warning', bold: true }, ...track(cells - 1)]
+    default:
+      return [{ text: '╌'.repeat(cells), color: 'subtle', dim: true }]
+  }
 }
 
 /**

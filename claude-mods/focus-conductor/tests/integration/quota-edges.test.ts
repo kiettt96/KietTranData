@@ -169,9 +169,13 @@ describe('0.6.0 F: đọc số đo tại tool.call', () => {
   test('vùng đổi (chưa có session.measure) thì status line cập nhật nhãn ngay ở tool.call (060-F9)', {}, async ($, on) => {
     const seen = base(on, RESUME)
     memoryStore(on)
-    quotaMeter(on, [session(92)])
+    const meter = quotaMeter(on, [])
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, COMPLEX_PROMPT)
+    // Từ 0.6.1 prompt.submit cũng cập nhật vùng và nhãn, nên vùng phải đổi sau prompt (chưa có số đo, rồi có) thì mới
+    // chạm nhánh của tool.call.
+    meter.set([session(92)])
+    await seen.clock.advance(10_000)
     await $.tool.call(EDIT)
     expect(seen.statuses.some(s => (s ?? '').includes('hạn mức còn 8%'))).toBe(true)
   })

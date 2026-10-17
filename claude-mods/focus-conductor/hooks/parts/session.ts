@@ -11,7 +11,8 @@ import { askRouter, isSkippable, nextBrief, parseRoute, routerRequest } from '..
 import type { RouterOutcome, RouterPlan } from '../lib/router'
 import { EMPTY_QUOTA, blockingHits, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaSettings, reasonsOf } from '../lib/quota'
 import * as S from '../lib/state'
-import { DISCIPLINE, briefContext, droppedPlanNotice, followUpContext, quotaPausedContext, resetLabel, restorableLabel, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
+import type { View } from '../lib/state'
+import { DISCIPLINE, briefContext, droppedPlanNotice, followUpContext, quotaPausedContext, resetLabel, resumeCommand, restorableLabel, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -49,6 +50,11 @@ async function currentStats($: EngineInterface, paths: readonly string[]): Promi
     out.set(path, stat === null ? null : { mtimeMs: stat.mtimeMs, size: stat.size })
   }
   return out
+}
+
+/** Status line kèm nhãn hạn mức (0.6.1): mọi chỗ đặt status của file này đi qua đây, nên nhãn không mất giữa các hook. */
+async function showStatus($: EngineInterface, current: View, options: Ctx['options']): Promise<void> {
+  $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
 }
 
 export function registerSession(on: On, ctx: Ctx): void {
@@ -95,7 +101,7 @@ export function registerSession(on: On, ctx: Ctx): void {
         }
       }
     }
-    $.ui.status(S.statusOf(await read($, view)))
+    await showStatus($, await read($, view), ctx.options)
     return next(e)
   })
 
@@ -103,7 +109,7 @@ export function registerSession(on: On, ctx: Ctx): void {
     if (e.reason === 'clear') {
       resetLocal()
       await update($, coreState, S.resetCore)
-      $.ui.status(S.statusOf(await read($, view)))
+      await showStatus($, await read($, view), ctx.options)
     }
     return next(e)
   })
@@ -138,9 +144,11 @@ export function registerSession(on: On, ctx: Ctx): void {
       const evaluation = evaluateQuota(await quotaLimits($), now, quota)
       const q = normalizeQuota(await read($, quotaState))
       if (isPauseActive(true, evaluation.hits, q.pause, overrideOf(q), now)) {
+        // Lần dừng (nếu mới vào vùng dừng) đã được ghi kèm điểm dừng ở hook prompt.submit của parts/quota.ts.
         const reasons = q.pause?.reason.length ? q.pause.reason : reasonsOf(blockingHits(evaluation.hits, overrideOf(q), now))
-        $.ui.toast('Focus Conductor: đang tạm dừng vì hạn mức; dùng /conductor resume force để chạy tiếp ngay')
-        return next({ ...e, context: [quotaPausedContext(reasons, q.pause?.source === 'user'), ...(e.context ?? [])] })
+        const isUser = q.pause?.source === 'user'
+        $.ui.toast(`Focus Conductor: ${isUser ? 'đang tạm dừng theo lệnh' : 'đang tạm dừng vì hạn mức'}; dùng ${resumeCommand(isUser)} để chạy tiếp ngay`)
+        return next({ ...e, context: [quotaPausedContext(reasons, isUser), ...(e.context ?? [])] })
       }
       // Không còn ở vùng dừng (đã làm mới hay người dùng ép) mà có điểm dừng mở: chuyển sang resuming, so file với lúc
       // dừng, rồi chèn một khối ĐIỂM DỪNG đặt trước mọi context khác. Điểm dừng chỉ thành consumed khi turn này xong.
@@ -225,7 +233,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       record(now, 'router-fail', { prompt: clipText(text), reason: outcome.reason, retried: outcome.retried, reuse: isReuse })
       await flushDecisions((path, text) => $.fs.write(path, text))
       if (!isPaused) $.ui.toast(pauseText ?? failText)
-      $.ui.status(S.statusOf(await read($, view)))
+      await showStatus($, await read($, view), ctx.options)
       return next({ ...e, context: [...lead, ...(e.context ?? []), unroutedContext(outcome.reason), ...tail] })
     }
 
@@ -237,6 +245,8 @@ export function registerSession(on: On, ctx: Ctx): void {
     if (isNewGoal) {
       L.isGoalNew = true
       L.pinnedGoalId = null
+      // Ẩn band (nút Ẩn) chỉ có tác dụng trong mục tiêu đang làm: mục tiêu mới thì band hiện lại (0.6.1).
+      await update($, bandHiddenState, () => false)
     }
 
     const wanted = wantedPick(brief, core.lift)
@@ -271,7 +281,7 @@ export function registerSession(on: On, ctx: Ctx): void {
           : `Router đã đọc prompt: ${brief.depth}, khối lượng ${brief.volume}, luồng chính ${expected ? describePick(expected) + (isApplied ? '' : ' (chỉ đề xuất)') : 'model của phiên'}${delegated > 0 ? `, ${delegated} việc giao subagent` : ''}`,
       )
     }
-    $.ui.status(S.statusOf(await read($, view)))
+    await showStatus($, await read($, view), ctx.options)
     return next({ ...e, context: [...lead, ...(e.context ?? []), context, ...notice, ...tail] })
   }).catch(($, e, next) => next(e))
 }

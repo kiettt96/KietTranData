@@ -14,6 +14,8 @@ export const NOTE_MAX = 600
 export const RECENT_MAX = 5
 export const RECENT_LINE_MAX = 120
 export const FILES_MAX = 50
+/** Đầu vào dài hơn thì cắt trước khi che bí mật: luật mysql, curl dò ngược theo chiều dài dòng, chuỗi vài trăm KB làm hook chạy quá hạn. */
+export const MASK_INPUT_MAX = 2000
 
 /** Băm FNV-1a 32 bit, 8 chữ số hex; không phụ thuộc crypto. */
 export function hashCwd(cwd: string): string {
@@ -63,7 +65,7 @@ export function maskSecrets(text: string): string {
 /** Một dòng của năm tool call cuối: tool, đối tượng rút gọn (bí mật đã che), đánh dấu lỗi; tối đa 120 ký tự. */
 export function recentLine(tool: string, target: string, isError: boolean): string {
   const tail = isError ? ' (lỗi)' : ''
-  const shown = maskSecrets(target)
+  const shown = maskSecrets(target.slice(0, MASK_INPUT_MAX))
   return `${clip(`${tool}${shown ? ` ${shown}` : ''}`, RECENT_LINE_MAX - tail.length)}${tail}`
 }
 

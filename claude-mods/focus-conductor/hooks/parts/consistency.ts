@@ -1,7 +1,7 @@
 // Giữ nhất quán: tool plan, theo dõi mọi tool, chặn kết thúc khi checklist còn mở, cộng chi phí đo được.
 
 import { atom, derive, read, update } from 'claude-code'
-import type { Warning } from '../../types'
+import type { AgentState, DelegationState, Warning } from '../../types'
 import { acceptsVerified, evidenceStrength, filePathOf, isExecuting, isFullyClosed, isGoalDone, isMutation, isPlanFile, newTracker, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
 import type { Focus } from '../lib/drift'
 import { clipText } from '../lib/decisions'
@@ -10,9 +10,10 @@ import { applyPlan } from '../lib/plan'
 import type { PlanInput } from '../lib/plan'
 import { familyOf } from '../lib/route'
 import { askRouter, driftRequest, parseDrift } from '../lib/router'
-import { EMPTY_QUOTA, normalizeQuota } from '../lib/quota'
+import { EMPTY_QUOTA, normalizeQuota, quotaSettings } from '../lib/quota'
 import { storeKey, withNote } from '../lib/checkpoint'
 import * as S from '../lib/state'
+import type { View } from '../lib/state'
 import { PLAN_TOOL_FULL, blockText, criteriaNotice, driftContext, pendingNotice, qualityNotice, renderBulk, renderPlan, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
@@ -38,6 +39,22 @@ async function frameOf($: EngineInterface, roots: Map<number, string | null>, go
     if (roots.size > 8 && oldest !== undefined) roots.delete(oldest)
   }
   return { root: roots.get(goalId) ?? null, cwd: await $.session.cwd().catch(() => null) }
+}
+
+/** Status line kèm nhãn hạn mức (0.6.1): mọi chỗ đặt status của file này đi qua đây, nên nhãn không mất giữa các hook. */
+async function showStatus($: EngineInterface, current: View, options: Ctx['options']): Promise<void> {
+  $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
+}
+
+/**
+ * Kết cục của một subagent theo `reason` của turn.complete (0.6.1): chỉ 'answer' là xong. 'error' là lỗi; 'aborted' (người dùng
+ * ngắt) và 'refusal' (model từ chối, không có model dự phòng) cũng là lỗi. Đang tạm dừng vì hạn mức thì agent kết thúc là bị cắt
+ * ngang, trừ 'error' (lỗi thắng cắt). Việc đã phân luôn về `failed` khi chưa xong, để Stop và cảnh báo nhắc giao lại.
+ */
+function agentEnd(reason: string, isPaused: boolean): { agent: Exclude<AgentState, 'running'>; delegation: DelegationState } {
+  if (reason === 'answer') return isPaused ? { agent: 'cut', delegation: 'failed' } : { agent: 'done', delegation: 'done' }
+  if (reason === 'error') return { agent: 'failed', delegation: 'failed' }
+  return { agent: isPaused ? 'cut' : 'failed', delegation: 'failed' }
 }
 
 export function registerConsistency(on: On, ctx: Ctx): void {
@@ -74,7 +91,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       await update($, coreState, S.withDelegations(restored.goalId, delegationItems(restored)))
       L.isGoalNew = true
       L.pinnedGoalId = null
-      $.ui.status(S.statusOf(await read($, view)))
+      await showStatus($, await read($, view), ctx.options)
       const core = S.normalizeCore(await read($, coreState))
       return { result: `Đã khôi phục mục tiêu: ${restored.goal}\n${renderPlan(core.brief, core.plan)}` }
     }
@@ -146,7 +163,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     const isClosing = isUpdate && !isFullyClosed(before.plan) && isFullyClosed(core.plan)
     if (isClosing && core.brief !== null && core.brief.quality.length > 0) notes.push(qualityNotice(core.brief.quality))
     if (isUpdate && openSteps(before.plan).length > 0 && openSteps(core.plan).length === 0 && pendingSteps(core.plan).length > 0) notes.push(pendingNotice(core.plan))
-    $.ui.status(S.statusOf(await read($, view)))
+    await showStatus($, await read($, view), ctx.options)
     const shown = outcome.bulk !== undefined ? renderBulk(core.plan, outcome.changed ?? [], outcome.bulk.status, outcome.bulk.note) : renderPlan(core.brief, core.plan, input.action === 'update' || input.action === 'add' ? outcome.changed : undefined)
     return { result: [shown, ...notes].join('\n') }
   }).catch(() => ({ deny: 'focus-conductor: lỗi nội bộ khi cập nhật checklist; tiếp tục làm việc không cần tool này.' }))
@@ -183,6 +200,9 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     }
 
     if (e.agentId !== undefined) {
+      // Tiến độ từng việc (0.6.1): đếm tool call của agent có dòng tiến độ (agent đi qua agent.spawn của mod).
+      const agentId = e.agentId
+      if (S.normalizeCore(await read($, coreState)).agentProgress.items.some(item => item.agentId === agentId)) await update($, coreState, S.withAgentTool(agentId))
       const meta = agents.get(e.agentId)
       if (meta === undefined) return result
       const agentTracker = agentTrackers.get(e.agentId) ?? newTracker('')
@@ -214,6 +234,8 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     const core = S.normalizeCore(await read($, coreState))
     // Ghi cả lệnh lỗi: evidence nhắc tới một lệnh kiểm tra đã lỗi thì không được tính là đã kiểm tra.
     if (core.brief !== null) noteEvidence(evidenceFor(core.brief.goalId), observation)
+    // Luồng chính vừa thay đổi file: việc làm trực tiếp chưa có bước chuyển từ chưa bắt đầu sang đang làm (0.6.1).
+    if (core.brief !== null && !observation.isError && isMutation(observation)) await update($, coreState, S.withActivity(core.brief.goalId))
     const focus: Focus | null = core.brief !== null ? { ...core.brief, ...(await frameOf($, L.roots, core.brief.goalId, core.brief.scopePaths)) } : null
     const findings = observe(L.tracker, observation, focus, core.plan)
     const isErrorBurst = L.tracker.errors === ERROR_BURST
@@ -324,15 +346,17 @@ export function registerConsistency(on: On, ctx: Ctx): void {
             : added.ledger
         await update($, coreState, c => S.withAgentUsd(agentId, added.usd)(S.withLedger(() => ledger)(c)))
       }
-      if (e.reason === 'error' && meta !== undefined) {
+      // Lỗi hoặc bị từ chối thì lần giao lại việc đó được router chấm lại; người dùng ngắt (aborted) thì không cần.
+      if ((e.reason === 'error' || e.reason === 'refusal') && meta !== undefined) {
         agentFailures.push({ description: meta.description, goalId: meta.goalId })
         if (agentFailures.length > 10) agentFailures.shift()
       }
+      // Tiến độ từng việc (0.6.1): chỉ 'answer' là xong; còn lại là lỗi, hoặc bị cắt nếu đang tạm dừng vì hạn mức.
+      const end = agentEnd(e.reason, normalizeQuota(await read($, quotaState)).pause !== null)
+      await update($, coreState, S.withAgentEnd(agentId, end.agent, at))
       // Việc đã phân mà agent này làm: ghi xong hoặc lỗi (lỗi thì Stop và cảnh báo cuối turn nhắc giao lại).
       if (meta?.taskIndex !== undefined) {
-        // Agent kết thúc trong lúc dừng vì hạn mức là bị cắt ngang: việc đó phải giao lại.
-        const isCut = normalizeQuota(await read($, quotaState)).pause !== null
-        moveDelegation(meta.goalId, meta.taskIndex, e.reason === 'error' || isCut ? 'failed' : 'done')
+        moveDelegation(meta.goalId, meta.taskIndex, end.delegation)
         const brief = S.normalizeCore(await read($, coreState)).brief
         if (brief !== null && brief.goalId === meta.goalId) await update($, coreState, S.withDelegations(brief.goalId, delegationItems(brief)))
       }
@@ -386,7 +410,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     await update($, coreState, c => S.withTurnMark(at, endContext)(S.withLedger(() => ledger)(S.withWarnings(...warnings)(c))))
     const unverified = findings.find(f => f.kind === 'unverified')
     if (unverified) $.ui.toast(unverified.text)
-    $.ui.status(S.statusOf(await read($, view)))
+    await showStatus($, await read($, view), ctx.options)
     return result
   })
 }

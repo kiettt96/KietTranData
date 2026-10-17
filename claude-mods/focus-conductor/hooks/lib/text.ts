@@ -3,9 +3,10 @@
 
 import type { Brief, Choice, PlanStep, QuotaCheckpoint, QuotaReason, Route, StepStatus, Task } from '../../types'
 import { openSteps, pendingSteps } from './drift'
-import { evaluateQuota, isStale } from './quota'
+import { evaluateQuota, isStale, reasonsOf } from './quota'
 import type { QuotaBadge, QuotaThresholds } from './quota'
 import { labels } from '../ui/labels'
+import { taskBarRuns } from '../ui/style'
 import type { Lang } from '../ui/labels'
 import { describePick } from './route'
 
@@ -20,11 +21,11 @@ export const PLAN_TOOL_FULL = 'mcp__focus-conductor__plan'
 export const DISCIPLINE = `# Focus Conductor
 Mỗi prompt của người dùng có thể kèm một khối "[focus-conductor]" do model router của plugin đọc sẵn: mục tiêu cuối, các việc, ràng buộc, tiêu chí chất lượng, mức độ phức tạp và cách điều phối. Khối đó là bản đọc trước, không thay thế prompt gốc.
 1. Đọc kỹ trước khi làm: đối chiếu khối phân tích với prompt gốc, sửa chỗ sai hoặc thiếu, xác định rõ mục tiêu cuối, ràng buộc và tiêu chí nghiệm thu, rồi mới gọi tool thực thi đầu tiên.
-2. Với việc từ mức moderate trở lên: gọi ${PLAN_TOOL_FULL} (action "set") để ghi mục tiêu và checklist đã chuẩn hóa; cập nhật từng bước (doing, done, verified kèm bằng chứng, skipped, blocked hoặc waiting kèm lý do).
+2. Với việc từ mức moderate trở lên: gọi ${PLAN_TOOL_FULL} (action "set") để ghi mục tiêu và checklist đã chuẩn hóa; cập nhật từng bước (doing, done, verified kèm bằng chứng, skipped, blocked hoặc waiting kèm lý do). Khi checklist có việc của mục "Phân việc", tiêu đề bước mở đầu "Việc N: ".
 3. Nhất quán: mọi bước phải phục vụ mục tiêu cuối; không làm thêm việc ngoài phạm vi, không bỏ sót yêu cầu; giữ văn phong, quy ước đặt tên và định dạng đã dùng từ đầu.
 4. Tự kiểm tra sau mỗi bước quan trọng (chạy test, type-check, đọc lại thay đổi) trước khi sang bước sau.
 5. Khi giao việc cho subagent: nếu khối có mục "Phân việc", giao đúng các việc ghi "giao", description của Agent mở đầu "Việc N: " (N là số của việc) để chạy đúng model và effort đã phân; việc ghi "làm trực tiếp" thì tự làm. Việc ngoài danh sách: để trống model và effort, router của plugin chấm khi giao; chọn Explore cho tra cứu chỉ đọc, Plan cho thiết kế, general-purpose cho thực thi.
-Nếu bạn là subagent: bỏ qua checklist, làm đúng nhiệm vụ được giao và báo cáo ngắn gọn.`
+Nếu bạn là subagent: không dùng tool plan của mod; việc từ ba bước trở lên thì ghi danh sách bằng tool danh sách việc có sẵn (nếu có trong phiên của bạn); làm đúng nhiệm vụ được giao và báo cáo ngắn gọn.`
 
 const MARKS: Record<StepStatus, string> = {
   todo: '[ ]',
@@ -331,10 +332,15 @@ export function stopBlockReason(plan: readonly PlanStep[], failed: readonly stri
 }
 
 /** Một dòng tóm tắt cho status line. */
+/** Số ô của thanh chữ trên status line (0.6.1). */
+export const STATUS_BAR = 8
+
 export function statusLine(brief: Brief | null, plan: readonly PlanStep[], route: Route | null, mode: string): string {
   if (brief === null) return mode
   const { closed, total } = progress(plan)
-  const steps = total > 0 ? ` · ${closed}/${total}` : ''
+  // Thanh chữ cùng ký hiệu với band (barRuns), không màu: surface không có band (vscode, mobile) vẫn thấy tiến độ.
+  const bar = taskBarRuns({ kind: 'steps', plan: [...plan] }, STATUS_BAR).map(run => run.text).join('')
+  const steps = total > 0 ? ` · ${bar ? `${bar} ` : ''}${closed}/${total}` : ''
   const model = route ? ` · ${describePick(route)}` : ''
   return `${brief.tier}${model}${steps}${mode === 'auto' ? '' : ` · ${mode}`}`
 }
@@ -368,13 +374,19 @@ function pauseCause(reasons: readonly QuotaReason[], isUser: boolean): string {
   return reasons.length > 0 ? reasons.map(quotaReasonText).join('; ') : 'hạn mức sắp hết'
 }
 
+/** Lệnh chạy tiếp: người dùng tự dừng thì /conductor resume là đủ; dừng vì hạn mức thì phải ép (resume force). */
+export function resumeCommand(isUser: boolean): string {
+  return isUser ? '/conductor resume' : '/conductor resume force'
+}
+
 /** Lý do từ chối tool khi đang dừng: luồng chính ghi điểm dừng rồi kết thúc; subagent kết thúc ngay. */
 export function quotaDenyText(reasons: readonly QuotaReason[], isUser: boolean, isAgent: boolean): string {
   const cause = `[focus-conductor] Tạm dừng: ${pauseCause(reasons, isUser)}.`
   if (isAgent) return `${cause} Subagent không gọi tool nào khác; kết thúc ngay và báo ngắn phần đã làm, phần còn dở.`
   return (
     `${cause} Không gọi tool nào khác. Gọi ${PLAN_TOOL_FULL} với action "checkpoint" và note nêu: bước kế tiếp cụ thể, ` +
-    'những gì đã hoàn tất không được làm lại, và điều cần kiểm khi quay lại. Sau đó kết thúc turn bằng một câu báo điểm dừng.'
+    'những gì đã hoàn tất không được làm lại, và điều cần kiểm khi quay lại. Sau đó kết thúc turn bằng một câu báo điểm dừng ' +
+    `và nhắc người dùng chạy tiếp bằng ${resumeCommand(isUser)}.`
   )
 }
 
@@ -382,7 +394,8 @@ export function quotaDenyText(reasons: readonly QuotaReason[], isUser: boolean, 
 export function quotaPausedContext(reasons: readonly QuotaReason[], isUser: boolean): string {
   return (
     `[focus-conductor] Đang tạm dừng: ${pauseCause(reasons, isUser)}. Router không chạy và mọi tool (trừ plan) bị từ chối. ` +
-    'Trả lời được những gì không cần tool; nói với người dùng dùng /conductor resume force để chạy tiếp ngay, hoặc đợi hạn mức làm mới.'
+    `Trả lời được những gì không cần tool; nói với người dùng dùng ${resumeCommand(isUser)} để chạy tiếp ngay` +
+    (isUser ? '.' : ', hoặc đợi hạn mức làm mới.')
   )
 }
 
@@ -458,47 +471,115 @@ export type QuotaStatusInput = {
   enabled: boolean
   limits: readonly unknown[] | null
   thresholds: QuotaThresholds
-  pause: { source: 'quota' | 'user' } | null
+  pause: { source: 'quota' | 'user'; reason?: readonly QuotaReason[] } | null
   overrideUntil: number
   overrideKinds: ReadonlyArray<QuotaReason['kind']>
   checkpoint: QuotaCheckpoint | null
   now: number
 }
 
-/** Mục Hạn mức của /conductor status: từng cửa sổ (đã dùng, còn lại, làm mới, ngưỡng), trạng thái và điểm dừng. */
-export function quotaStatusLines(input: QuotaStatusInput): string[] {
-  if (!input.enabled) return ['Hạn mức: bảo vệ đang tắt (quotaGuard false).']
-  const lines = ['Hạn mức:']
+/** Trạng thái hạn mức: bình thường, đang dừng (hạn mức hay người dùng), đang ép tiếp, hay không có số đo. */
+export type QuotaStateKind = 'ok' | 'quota' | 'user' | 'forced' | 'none'
+
+/** Số liệu chung của /conductor status và mục Hạn mức trong pane (không định dạng, không theo ngôn ngữ). */
+export type QuotaOverview = {
+  windows: Array<{ kind: QuotaReason['kind']; used: number; resetsAt?: string; threshold: number }>
+  state: QuotaStateKind
+  /** Cửa sổ đang ép tiếp và mốc hết ép (state forced). */
+  forcedKinds: ReadonlyArray<QuotaReason['kind']>
+  forcedUntil: number
+  /** Lý do dừng (state quota): lý do đã ghi lúc vào dừng, không có thì các cửa sổ đang qua ngưỡng. */
+  reasons: readonly QuotaReason[]
+  /** Điểm dừng chưa dùng xong (open hay resuming). */
+  checkpoint: QuotaCheckpoint | null
+}
+
+export function quotaOverview(input: QuotaStatusInput): QuotaOverview {
+  const windows: QuotaOverview['windows'] = []
   for (const raw of Array.isArray(input.limits) ? input.limits : []) {
     const item = raw as { kind?: unknown; percentUsed?: unknown; resetsAt?: unknown }
     if ((item.kind !== 'five_hour' && item.kind !== 'seven_day') || typeof item.percentUsed !== 'number' || !Number.isFinite(item.percentUsed)) continue
     const resetsAt = typeof item.resetsAt === 'string' ? item.resetsAt : undefined
     if (isStale(resetsAt, input.now)) continue
     const threshold = item.kind === 'five_hour' ? input.thresholds.session : input.thresholds.week
-    const reset = resetLabel(resetsAt)
-    lines.push(
-      `  ${item.kind === 'five_hour' ? 'phiên (5 giờ)' : 'tuần'}: đã dùng ${percent(item.percentUsed)}, còn ${percent(Math.max(0, 100 - item.percentUsed))}` +
-        `${reset ? `, làm mới ${reset}` : ''}, ngưỡng còn ${percent(threshold)}`,
-    )
+    windows.push({ kind: item.kind, used: item.percentUsed, ...(resetsAt !== undefined ? { resetsAt } : {}), threshold })
   }
   const evaluation = evaluateQuota(input.limits, input.now, input.thresholds)
-  const zone = evaluation.zone
   const isForced = input.overrideUntil > input.now && input.overrideKinds.length > 0
-  const isBlocked = evaluation.hits.some(h => !(isForced && input.overrideKinds.includes(h.kind)))
-  const state =
+  const blocking = evaluation.hits.filter(h => !(isForced && input.overrideKinds.includes(h.kind)))
+  const state: QuotaStateKind =
     input.pause?.source === 'user'
-      ? 'tạm dừng (người dùng)'
-      : isForced && !isBlocked && input.pause === null
-        ? `ép tiếp ${input.overrideKinds.map(k => QUOTA_NAME[k]).join(' và ')} tới ${resetLabel(new Date(input.overrideUntil).toISOString())}`
-        : input.pause !== null || isBlocked
-          ? 'tạm dừng (hạn mức)'
-          : zone === 'ok'
+      ? 'user'
+      : isForced && blocking.length === 0 && input.pause === null
+        ? 'forced'
+        : input.pause !== null || blocking.length > 0
+          ? 'quota'
+          : evaluation.zone === 'ok'
             ? 'ok'
-            : 'không có dữ liệu (engine không báo hạn mức: tài khoản không dùng gói subscription, chưa có lượt đọc đầu, hoặc số đo đã cũ)'
+            : 'none'
+  const reasons = state !== 'quota' ? [] : input.pause?.reason?.length ? input.pause.reason : reasonsOf(blocking)
+  const cp = input.checkpoint !== null && input.checkpoint.status !== 'consumed' ? input.checkpoint : null
+  return { windows, state, forcedKinds: input.overrideKinds, forcedUntil: input.overrideUntil, reasons, checkpoint: cp }
+}
+
+/** Mục Hạn mức của /conductor status: từng cửa sổ (đã dùng, còn lại, làm mới, ngưỡng), trạng thái và điểm dừng. */
+export function quotaStatusLines(input: QuotaStatusInput): string[] {
+  if (!input.enabled) return ['Hạn mức: bảo vệ đang tắt (quotaGuard false).']
+  const view = quotaOverview(input)
+  const lines = ['Hạn mức:']
+  for (const w of view.windows) {
+    const reset = resetLabel(w.resetsAt)
+    lines.push(
+      `  ${w.kind === 'five_hour' ? 'phiên (5 giờ)' : 'tuần'}: đã dùng ${percent(w.used)}, còn ${percent(Math.max(0, 100 - w.used))}` +
+        `${reset ? `, làm mới ${reset}` : ''}, ngưỡng còn ${percent(w.threshold)}`,
+    )
+  }
+  const state = {
+    user: 'tạm dừng (người dùng)',
+    forced: `ép tiếp ${view.forcedKinds.map(k => QUOTA_NAME[k]).join(' và ')} tới ${resetLabel(new Date(view.forcedUntil).toISOString())}`,
+    quota: 'tạm dừng (hạn mức)',
+    ok: 'ok',
+    none: 'không có dữ liệu (engine không báo hạn mức: tài khoản không dùng gói subscription, chưa có lượt đọc đầu, hoặc số đo đã cũ)',
+  }[view.state]
   lines.push(`  trạng thái: ${state}`)
-  const cp = input.checkpoint
-  if (cp !== null && cp.status !== 'consumed') {
+  const cp = view.checkpoint
+  if (cp !== null) {
     lines.push(`  điểm dừng: ${cp.status === 'open' ? 'đang mở' : 'đang tiếp tục'} (tạo lúc ${resetLabel(new Date(cp.createdAt).toISOString()) || 'không rõ giờ'}${cp.note ? '' : ', Claude chưa ghi note'})`)
   }
   return lines
+}
+
+/** Ghi chú của Claude trong mục Hạn mức của pane: tối đa bấy nhiêu ký tự. */
+export const PANE_NOTE_MAX = 160
+
+/** Các dòng chữ của mục Hạn mức trong pane theo ngôn ngữ giao diện. `cause` là câu thay "Không có cảnh báo." khi đang dừng. */
+export type QuotaPaneText = { windows: string[]; state: string; isPaused: boolean; cause: string; checkpoint: string[] }
+
+export function quotaPaneText(view: QuotaOverview, lang: Lang): QuotaPaneText {
+  const l = labels(lang)
+  const windows = view.windows.map(w => `${l.quotaWindow[w.kind]}: ${l.quotaUsage(percent(w.used), percent(Math.max(0, 100 - w.used)), resetLabel(w.resetsAt), percent(w.threshold))}`)
+  const reasonText = (r: QuotaReason) =>
+    l.quotaReason(l.quotaName[r.kind], percent(Math.max(0, Math.round((100 - r.percentUsed) * 10) / 10)), percent(r.thresholdRemainingPct), resetLabel(r.resetsAt))
+  const state = {
+    ok: l.quotaStateOk,
+    quota: l.quotaStateQuota,
+    user: l.quotaStateUser,
+    forced: l.quotaStateForced(view.forcedKinds.map(k => l.quotaName[k]).join(l.quotaAnd), resetLabel(new Date(view.forcedUntil).toISOString())),
+    none: l.quotaStateNone,
+  }[view.state]
+  const isPaused = view.state === 'quota' || view.state === 'user'
+  const cause = view.state === 'user' ? l.quotaUserCause : view.reasons.length > 0 ? view.reasons.map(reasonText).join('; ') : l.quotaNearlyOut
+  const checkpoint: string[] = []
+  const cp = view.checkpoint
+  if (cp !== null) {
+    const created = resetLabel(new Date(cp.createdAt).toISOString())
+    checkpoint.push(`${l.quotaCheckpoint}: ${cp.status === 'open' ? l.quotaCheckpointOpen : l.quotaCheckpointResuming}${created ? `, ${l.quotaCreated(created)}` : ''}`)
+    if (cp.reason.length > 0) checkpoint.push(`${l.quotaReasonLabel}: ${cp.reason.map(reasonText).join('; ')}`)
+    const note = cp.note.length > PANE_NOTE_MAX ? `${cp.note.slice(0, PANE_NOTE_MAX - 1)}…` : cp.note
+    checkpoint.push(note ? `${l.quotaNote}: ${note}` : l.quotaNoNote)
+    checkpoint.push(`${l.quotaContinue}: ${isPaused ? resumeCommand(view.state === 'user') : l.quotaContinueSoft}`)
+  } else if (isPaused) {
+    checkpoint.push(`${l.quotaContinue}: ${resumeCommand(view.state === 'user')}`)
+  }
+  return { windows, state: `${l.quotaState}: ${state}`, isPaused, cause, checkpoint }
 }

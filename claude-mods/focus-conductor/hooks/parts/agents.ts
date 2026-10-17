@@ -1,7 +1,7 @@
 // Subagent: agent ngoài điều phối, nguồn đổi model, loại agent engine mời, lời gọi Agent, agent.spawn.
 
 import { atom, derive, read, update } from 'claude-code'
-import type { RouteEvent, Warning } from '../../types'
+import type { AgentProgress, RouteEvent, Warning } from '../../types'
 import { turnCost } from '../lib/cost'
 import { countSpawn, shapeKey, shapeOutput } from '../lib/ledger'
 import { EFFORTS, familyOf, taskMatch } from '../lib/route'
@@ -311,7 +311,26 @@ export function registerAgents(on: On, ctx: Ctx): void {
     const warnings: Warning[] = []
     const mismatchText = `Agent ${shortId}: engine chạy ${engineFamily} thay vì ${sent} đã điều phối`
     if (isMismatch) warnings.push({ at, kind: 'model', text: mismatchText })
-    await update($, coreState, c => S.withWarnings(...warnings)(S.withLog(entry)(c)))
+    // Tiến độ từng việc (0.6.1): mỗi lần gọi Agent có agentId là một dòng, gắn việc đã phân nếu có; lưu trong $.state.
+    const taskIndex = info?.taskIndex ?? workflowTask
+    const progressItem: AgentProgress | null =
+      agentId !== undefined
+        ? {
+            agentId,
+            title: info?.description ?? (e.description || e.subagentType),
+            ...(taskIndex !== undefined ? { taskIndex } : {}),
+            family,
+            ...(effort !== undefined && effort !== null ? { effort } : {}),
+            state: 'running',
+            tools: 0,
+            startedAt: at,
+            steps: [],
+          }
+        : null
+    await update($, coreState, c => {
+      const logged = S.withWarnings(...warnings)(S.withLog(entry)(c))
+      return progressItem !== null ? S.withAgentStart(goalId, progressItem)(logged) : logged
+    })
     if (isMismatch) $.ui.toast(mismatchText)
     return result
   }).catch(($, e, next) => next(e))

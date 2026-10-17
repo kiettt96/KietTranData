@@ -7,15 +7,18 @@
 import type { Color, Elements, RenderElement, RenderSurface } from 'claude-code'
 
 import { formatUsd } from '../lib/ledger'
+import { shownPlan } from '../lib/mirror'
+import { byPriority, taskRows } from '../lib/progress'
 import type { QuotaBadge } from '../lib/quota'
 import type { View } from '../lib/state'
 import { progress, quotaPercent } from '../lib/text'
-import { labels } from './labels'
+import { labels, taskLabel } from './labels'
 import type { Run } from './style'
 import {
   FAMILY_HUE,
   SPINE,
   barRuns,
+  cellsOf,
   columnsOf,
   currentStep,
   goalUsd,
@@ -24,7 +27,17 @@ import {
   plannedRuns,
   severityGlyph,
   severityOf,
+  taskBarRuns,
 } from './style'
+
+/** Số dòng việc tối đa band thêm dưới dòng tiến độ chung, và số ô thanh của mỗi dòng (0.6.1). */
+const TASK_ROWS = 4
+const TASK_CELLS = 6
+
+/** Ô một nút của engine chiếm [Giả định: khoảng 10 ô cho nhãn ngắn, chưa đo trên surface thật]. */
+export const BUTTON_CELLS = 10
+const buttonCells = (label: string) => Math.max(BUTTON_CELLS, cellsOf(label) + 2)
+const runCells = (runs: readonly Run[]) => runs.reduce((sum, r) => sum + cellsOf(r.text), 0)
 
 export type BandHandlers = {
   onDetails: () => unknown
@@ -38,6 +51,8 @@ export type BandProps = {
   columns: number
   /** Đang có một turn chạy. */
   isWorking: boolean
+  /** Thời điểm vẽ (ms), cho thời gian chạy của subagent (0.6.1). Vắng thì 0. */
+  now?: number
 }
 
 /** Trả cây để vẽ, hoặc null khi band nên nhường chỗ cho engine. */
@@ -49,7 +64,9 @@ export function renderBand(
   /** Bảo vệ hạn mức (0.6.0): nhãn đang dừng hay phần còn lại khi gần ngưỡng; null hay vắng thì band như cũ. */
   quota: QuotaBadge | null = null,
 ): RenderElement | null {
-  const { brief, plan, route, warnings, ledger, log } = view.core
+  const { brief, route, warnings, ledger, log } = view.core
+  // Checklist để vẽ: của tool plan, nếu chưa có thì danh sách việc Claude Code tự ghi (phản chiếu, 0.6.1).
+  const { plan, source } = shownPlan(view.core)
   if (view.mode === 'off' || brief === null || view.isBandHidden) return null
   const { Box, Text, Button } = t
 
@@ -79,49 +96,105 @@ export function renderBand(
     </Text>
   )
 
-  // Chip model: nền đặc khi mod đang áp dụng, chỉ tô chữ khi mới đề xuất.
-  const routeNode = route ? (
-    view.mode === 'suggest' ? (
-      <Text>
-        <Text dimColor>{l.suggest} </Text>
-        <Text color={FAMILY_HUE[route.family]} bold>
-          {route.family}
-        </Text>
-        <Text dimColor> {route.effort}</Text>
-      </Text>
-    ) : (
-      <Text>
-        <Text backgroundColor={FAMILY_HUE[route.family]} color="inverseText" bold>
-          {` ${route.family} `}
-        </Text>
-        <Text dimColor> {route.effort}</Text>
-      </Text>
-    )
-  ) : null
   const pending = pendingUsd(log)
   const spent = goalUsd(ledger) + pending
-  const costNode = hasRoom && spent > 0 ? <Text dimColor>{`${pending > 0 ? '~' : ''}${formatUsd(spent)}`}</Text> : null
-  // Nhãn hạn mức dùng lại màu cảnh báo có sẵn: đang dừng thì đậm, gần ngưỡng thì thường.
+  const costText = hasRoom && spent > 0 ? `${pending > 0 ? '~' : ''}${formatUsd(spent)}` : ''
+  const modeText = isWide && view.mode === 'subagents' ? `${l.mode} ${view.mode}` : ''
+  // Nhãn hạn mức dùng lại màu cảnh báo có sẵn: đang dừng thì đậm, gần ngưỡng thì thường. Dưới 56 cột nhãn dừng rút gọn.
+  const quotaText = quota ? (quota.paused ? (hasTitle ? l.quotaPaused : l.quotaPausedShort) : l.quotaLeft(quotaPercent(quota.left ?? 0))) : ''
+
+  // Band hẹp (0.6.1): phần không co (gờ, tiến độ, chip, nút) không được vượt chiều rộng. Thừa thì bỏ lần lượt số bước,
+  // mức effort của chip model, rồi cả chip model.
+  const fit = { count: true, effort: true, route: true }
+  const countText = `${closed}/${total}`
+  // Nguồn phản chiếu ghi nhỏ cạnh số bước khi còn chỗ: người dùng biết checklist này không chặn kết thúc.
+  const mirrorText = source === 'mirror' && hasRoom ? l.mirrorShort : ''
+  const progressCells = () =>
+    bar.length > 0
+      ? runCells(bar) + (fit.count ? 1 + cellsOf(countText) : 0) + (isWide && phase !== 'done' ? 1 + cellsOf(l.phase[phase]) : 0) + (mirrorText ? 1 + cellsOf(mirrorText) : 0)
+      : beads.length > 0
+        ? runCells(beads) + 1 + cellsOf(l.plannedSteps(planned))
+        : 0
+  const routeCells = () =>
+    route && fit.route
+      ? view.mode === 'suggest'
+        ? cellsOf(l.suggest) + 1 + cellsOf(route.family) + (fit.effort ? 1 + cellsOf(route.effort) : 0)
+        : cellsOf(route.family) + 2 + (fit.effort ? 1 + cellsOf(route.effort) : 0)
+      : 0
+  const chipCells = () => {
+    const parts = [cellsOf(quotaText), routeCells(), costText ? cellsOf(costText) : 0, agentChip ? cellsOf(agentChip) : 0].filter(n => n > 0)
+    return parts.reduce((a, b) => a + b, 0) + Math.max(0, parts.length - 1)
+  }
+  // Một dòng: tiến độ, mục tiêu, chip, nút Chi tiết (và nút Ẩn khi có hai dòng) cách nhau một ô.
+  const compactCells = () => {
+    const parts = [progressCells(), 0, chipCells(), buttonCells(l.details), props.maxRows >= 2 && hasRoom ? buttonCells(l.hide) : 0]
+    const shown = parts.filter((n, i) => i === 1 || n > 0)
+    return 2 + shown.reduce((a, b) => a + b, 0) + (shown.length - 1)
+  }
+  // Hai dòng: dòng 1 mục tiêu và chip (gap 2); dòng 2 tiến độ, tâm điểm (lề 1), nhãn chế độ, các nút.
+  const rowCells = () => {
+    const first = 2 + (chipCells() > 0 ? 2 + chipCells() : 0)
+    const tail = [progressCells(), 1, modeText ? cellsOf(modeText) : 0, buttonCells(l.details), hasRoom ? buttonCells(l.hide) : 0]
+    const shown = tail.filter((n, i) => i === 1 || n > 0)
+    return Math.max(first, 2 + shown.reduce((a, b) => a + b, 0) + (shown.length - 1))
+  }
+  const isCompact = props.maxRows < 2 || (bar.length === 0 && beads.length === 0 && !current)
+  // Tiến độ từng việc (0.6.1): mọi việc ngoài việc chính. Còn dòng trống dưới maxRows thì mỗi dòng một việc (tối đa
+  // TASK_ROWS, đang chạy trước, rồi lỗi, chờ, xong); không còn dòng nào thì chỉ một chip tóm tắt subagent.
+  const extra = taskRows(view.core, props.now ?? 0).slice(1)
+  const baseRows = isCompact ? 1 + (latest && props.maxRows >= 2 ? 1 : 0) : 2 + (latest && props.maxRows >= 3 ? 1 : 0)
+  const spare = Math.max(0, props.maxRows - baseRows)
+  const taskShown = extra.length > 0 && spare > 0 ? byPriority(extra).slice(0, Math.min(TASK_ROWS, spare)) : []
+  const delegated = extra.filter(row => row.kind === 'agent')
+  const agentChip = taskShown.length === 0 && delegated.length > 0 ? l.agentChip(delegated.filter(row => row.state === 'done').length, delegated.length) : ''
+  const fixedCells = () => (isCompact ? compactCells() : rowCells())
+  for (const drop of [() => (fit.count = false), () => (fit.effort = false), () => (fit.route = false)]) {
+    if (fixedCells() <= columns) break
+    drop()
+  }
+
+  // Chip model: nền đặc khi mod đang áp dụng, chỉ tô chữ khi mới đề xuất.
+  const routeNode =
+    route && fit.route ? (
+      view.mode === 'suggest' ? (
+        <Text>
+          <Text dimColor>{l.suggest} </Text>
+          <Text color={FAMILY_HUE[route.family]} bold>
+            {route.family}
+          </Text>
+          {fit.effort ? <Text dimColor> {route.effort}</Text> : null}
+        </Text>
+      ) : (
+        <Text>
+          <Text backgroundColor={FAMILY_HUE[route.family]} color="inverseText" bold>
+            {` ${route.family} `}
+          </Text>
+          {fit.effort ? <Text dimColor> {route.effort}</Text> : null}
+        </Text>
+      )
+    ) : null
+  const costNode = costText ? <Text dimColor>{costText}</Text> : null
   const quotaNode = quota ? (
     <Text color="warning" bold={quota.paused}>
-      {quota.paused ? l.quotaPaused : l.quotaLeft(quotaPercent(quota.left ?? 0))}
+      {quotaText}
     </Text>
   ) : null
+  const agentNode = agentChip ? <Text dimColor>{agentChip}</Text> : null
   const chips =
-    routeNode || costNode || quotaNode ? (
+    routeNode || costNode || quotaNode || agentNode ? (
       <Box flexShrink={0} flexDirection="row" gap={1}>
         {quotaNode}
         {routeNode}
         {costNode}
+        {agentNode}
       </Box>
     ) : null
 
-  const modeTag =
-    isWide && view.mode === 'subagents' ? (
-      <Box flexShrink={0}>
-        <Text dimColor>{`${l.mode} ${view.mode}`}</Text>
-      </Box>
-    ) : null
+  const modeTag = modeText ? (
+    <Box flexShrink={0}>
+      <Text dimColor>{modeText}</Text>
+    </Box>
+  ) : null
   const detailsButton = <Button key="details" label={l.details} onPress={handlers.onDetails} />
   const hideButton = hasRoom ? <Button key="hide" plain dimColor label={l.hide} onPress={handlers.onHide} /> : null
 
@@ -158,8 +231,9 @@ export function renderBand(
     bar.length > 0 ? (
       <Box key="progress" flexShrink={0} flexDirection="row" gap={1}>
         <Text>{bar.map(tint)}</Text>
-        <Text bold>{`${closed}/${total}`}</Text>
+        {fit.count ? <Text bold>{countText}</Text> : null}
         {isWide && phase !== 'done' ? <Text dimColor>{l.phase[phase]}</Text> : null}
+        {mirrorText ? <Text dimColor>{mirrorText}</Text> : null}
       </Box>
     ) : beads.length > 0 ? (
       <Box key="progress" flexShrink={0} flexDirection="row" gap={1}>
@@ -169,7 +243,6 @@ export function renderBand(
     ) : null
 
   const rows: RenderElement[] = []
-  const isCompact = props.maxRows < 2 || (progressNode === null && !current)
   if (isCompact) {
     // Một dòng: tiến độ (nếu có), mục tiêu, model, nút. Cảnh báo (nếu có) xuống dòng dưới khi còn chỗ.
     rows.push(
@@ -214,6 +287,27 @@ export function renderBand(
     )
     if (hasThirdRow && alert) rows.push(alert)
   }
+
+  const more = extra.length - taskShown.length
+  taskShown.forEach((row, i) =>
+    rows.push(
+      <Box key={`task-${row.key}`} flexDirection="row" gap={1}>
+        <Box flexShrink={0}>
+          <Text>{taskBarRuns(row.bar, TASK_CELLS).map(tint)}</Text>
+        </Box>
+        <Box flexGrow={1} flexShrink={1}>
+          <Text wrap="truncate-end" dimColor={row.state === 'done'}>
+            {taskLabel(l, row)}
+          </Text>
+        </Box>
+        {i === taskShown.length - 1 && more > 0 ? (
+          <Box flexShrink={0}>
+            <Text dimColor>{l.taskMore(more)}</Text>
+          </Box>
+        ) : null}
+      </Box>,
+    ),
+  )
 
   return (
     <Box flexDirection="row">

@@ -127,13 +127,24 @@ Engine báo phần đã dùng của mỗi cửa sổ; option nói bằng phần 
 
 Điểm dừng ghi lý do (cửa sổ, phần trăm, giờ làm mới), mục tiêu, checklist, bước đang làm, việc giao subagent, file đã sửa trong mục tiêu, năm tool call cuối, lệnh bị từ chối đầu tiên (điểm tiếp tục chính xác) và `note` của Claude. Nó nằm trong kho bền của mod (`$.store`), khóa theo thư mục làm việc, nên sống qua đóng phiên. Không ghi output của tool, nội dung file hay biến môi trường: lệnh bị từ chối của Write, Edit, MultiEdit và NotebookEdit chỉ ghi đường dẫn và độ dài nội dung; lệnh Bash và đầu vào khác được che giá trị sau `Authorization`, `Bearer`, header `X-...-Key` hay `X-...-Token`, `token=` và `password=` (kể cả tiền tố như `gh_token=`), `--password`, `mysql -p`, `curl -u`, mật khẩu trong URL và mọi biến môi trường dạng `KEY=...` (việc che theo mẫu, nên một bí mật đặt ở dạng khác vẫn có thể lọt vào). Mở phiên mới trong cùng thư mục mà chưa có mục tiêu thì mod khôi phục mục tiêu và checklist từ điểm dừng; khi người dùng nói "tiếp tục" (router xếp tiếp nối, tinh chỉnh hoặc báo chưa đạt), gõ một câu trong `routerSkip` hay vừa gõ `/conductor resume`, prompt đó nhận một khối ĐIỂM DỪNG (tối đa 2.000 ký tự) đứng trước mọi context khác, kèm danh sách file đã đổi sau lúc dừng và quy tắc tiếp tục. Prompt về việc khác thì điểm dừng giữ nguyên và chỉ nhận một dòng nhắc. Điểm dừng chỉ được đánh dấu đã dùng khi turn tiếp tục kết thúc bằng câu trả lời; người dùng ngắt giữa chừng (Esc), model từ chối hay lỗi thì điểm dừng vẫn mở. Hạn mức chưa làm mới thì prompt vẫn đi qua kèm một dòng báo, tool vẫn bị từ chối; dùng `/conductor resume force` hoặc đợi làm mới.
 
+Từ 0.6.1, điểm dừng được ghi cả khi hạn mức qua ngưỡng lúc Claude chỉ trả lời bằng chữ: lúc engine báo số đo mới, lúc prompt kế tiếp đến, hoặc lúc phiên kết thúc (đã có điểm dừng của lần dừng này thì chỉ cập nhật). Status line luôn kèm nhãn hạn mức ("tạm dừng: hạn mức", hay phần còn lại khi gần ngưỡng) qua mọi hook, và nhãn mất ngay khi hạn mức làm mới. Pane có mục Hạn mức ngay sau mục tiêu và chế độ: từng cửa sổ (đã dùng, còn lại, giờ làm mới, ngưỡng), trạng thái (bình thường, tạm dừng vì hạn mức hay theo lệnh, ép tiếp tới mốc nào, hay không có dữ liệu kèm lý do), điểm dừng chưa dùng xong (giờ tạo, lý do, ghi chú của Claude) và lệnh chạy tiếp (`/conductor resume` khi tự dừng, `/conductor resume force` khi dừng vì hạn mức). Đang dừng thì mục Cảnh báo ghi "Đang tạm dừng" kèm lý do. Dưới 56 cột band rút nhãn còn "dừng".
+
 Thử nhanh mà không đốt hạn mức (kịch bản nghiệm thu thủ công):
 
 1. Đặt `pauseSessionRemainingPct` thành `90` qua `/config`: mod dừng khi hạn mức phiên đã dùng khoảng 10%.
 2. Giao một việc nhiều bước. Xác nhận band hiện "tạm dừng: hạn mức", tool bị từ chối, Claude gọi `plan` `checkpoint` rồi dừng; `/conductor status` có mục Hạn mức và điểm dừng đang mở.
+   Mở pane (nút Chi tiết trên band): mục Hạn mức ghi trạng thái tạm dừng (hạn mức), điểm dừng đang mở kèm ghi chú của Claude và lệnh `/conductor resume force`; mục Cảnh báo ghi "Đang tạm dừng"; status line vẫn còn nhãn dừng sau khi Claude kết thúc turn.
 3. Thoát, mở phiên mới trong cùng thư mục, chạy `/conductor resume force` (vì hạn mức chưa làm mới), gõ "tiếp tục".
 4. Xác nhận khối ĐIỂM DỪNG xuất hiện (thử thêm một prompt về việc khác trước khi "tiếp tục": khối không được chèn), Claude tiếp tục đúng bước đang làm, không làm lại bước đã xong.
 5. Trả `pauseSessionRemainingPct` về `5`.
+
+### Thanh tiến độ
+
+Mỗi việc có một thanh tiến độ riêng (0.6.1). Band phía trên prompt có thanh chung của mục tiêu; pane có mục "Tiến độ từng việc" gồm việc chính, từng việc router phân (làm trực tiếp hay giao subagent, kèm model và effort đã điều phối) và việc Claude tự giao ngoài phân việc. Khi còn dòng trống, band thêm tối đa bốn dòng việc (đang chạy trước, rồi việc lỗi, việc chờ, việc xong; phần dư ghi "+k việc"); hết chỗ thì chỉ một chip "subagent k/n xong".
+
+Thanh chỉ thể hiện phần trăm khi có số bước thật: checklist của tool `plan`; nếu Claude không dùng tool đó thì danh sách việc Claude Code tự ghi (`TodoWrite`, `TaskCreate`, `TaskUpdate`), được mod phản chiếu và ghi nhỏ nguồn "danh sách việc". Danh sách phản chiếu chỉ để theo dõi: nó không chặn kết thúc, không tính cho `verified` hay bảo vệ hạn mức, và tool `plan` luôn thắng khi có. Việc làm trực tiếp lấy các bước có tiêu đề mở đầu "Việc N"; subagent lấy danh sách việc nó tự ghi. Không có số bước thì thanh chỉ thể hiện trạng thái, không phần trăm: nét đứt mờ là chờ giao hay chưa bắt đầu, đầu ◐ là đang chạy (kèm số tool call và thời gian chạy của subagent), thanh đầy màu xanh lá là xong, ■ đỏ là lỗi, ■ vàng là bị cắt vì tạm dừng hạn mức.
+
+Band chỉ có trên terminal và desktop (engine không phát band ở vscode và mobile). Ở đó status line có thanh chữ 8 ô và số bước đã đóng, và pane mở bằng `/conductor` (không có nút Chi tiết vì nút nằm trên band). Bấm "Ẩn" trên band chỉ ẩn trong mục tiêu đang làm: mục tiêu mới thì band hiện lại; nút trong pane bật lại bất cứ lúc nào.
 
 ### Đo bậc cache
 
@@ -167,6 +178,7 @@ focus-conductor/
   hooks/parts/consistency.ts   tool plan, theo dõi mọi tool, chặn kết thúc, cộng chi phí đo được
   hooks/parts/command.ts       lệnh /conductor
   hooks/parts/quota.ts         bảo vệ hạn mức: số đo hạn mức, dừng mềm ở tool.call, dừng cứng dự phòng, vòng đời điểm dừng
+  hooks/parts/progress.ts      phản chiếu TodoWrite, TaskCreate, TaskUpdate (luồng chính và subagent) để vẽ tiến độ
   hooks/parts/ui.tsx           band và pane
   hooks/lib/router.ts          system prompt và request của router, đọc JSON trả về, kẹp theo chính sách, hỏi lại một lần
   hooks/lib/decisions.ts       dòng log quyết định JSONL
@@ -192,6 +204,8 @@ focus-conductor/
   hooks/lib/plan.ts            schema và reducer của tool plan
   hooks/lib/quota.ts           ngưỡng, vùng dừng, số đo cũ, trạng thái dừng và đếm từ chối (hàm thuần)
   hooks/lib/checkpoint.ts      điểm dừng: khóa theo thư mục, kẹp kích thước, bỏ bản thừa, file đổi sau lúc dừng (hàm thuần)
+  hooks/lib/mirror.ts          danh sách việc phản chiếu và checklist để hiển thị (hàm thuần)
+  hooks/lib/progress.ts        tiến độ từng việc: việc chính, việc router phân, việc Claude tự giao (hàm thuần)
   hooks/lib/state.ts           giá trị khởi tạo, chuẩn hóa trạng thái cũ, reducer thuần, cất và khôi phục mục tiêu
   hooks/lib/text.ts            mọi văn bản gửi model và hiển thị
   hooks/ui/band.tsx            band phía trên prompt
@@ -210,7 +224,7 @@ focus-conductor/
   tests/golden/                golden-set của router: 30 prompt mẫu (5 ca đối kháng), kỳ vọng, câu trả lời router thật đã ghi cùng băm request và tỷ lệ đạt
   tests/fixtures/prompt-k4.ts  prompt dài tổng hợp (ẩn danh), dùng để kiểm request gửi router và phân việc nhiều mục
   scripts/eval-router.ts       eval router thật trên golden-set, nhiều lần mỗi ca (không chạy trong CI)
-  scripts/mutants.ts           582 định nghĩa đột biến (194 cũ cho hooks/lib/drift/, 150 mới của 0.5.4 cho giá, router, sổ chi phí, giao diện, nhận diện lệnh, 7 mới của 0.5.5 cho giá trị tùy chọn đặt trong nháy, 84 mới của 0.5.6 cho gợi ý checkCommands, waiting, cập nhật hàng loạt, kết quả gọn và lệnh nội dòng chỉ đọc, 147 mới của 0.6.0 cho bảo vệ hạn mức; dữ liệu thuần)
+  scripts/mutants.ts           681 định nghĩa đột biến (194 cũ cho hooks/lib/drift/, 150 mới của 0.5.4 cho giá, router, sổ chi phí, giao diện, nhận diện lệnh, 7 mới của 0.5.5 cho giá trị tùy chọn đặt trong nháy, 84 mới của 0.5.6 cho gợi ý checkCommands, waiting, cập nhật hàng loạt, kết quả gọn và lệnh nội dòng chỉ đọc, 147 mới của 0.6.0 cho bảo vệ hạn mức, 99 mới của 0.6.1 cho điểm dừng không cần tool call, giao diện hạn mức, tám test còn thiếu của 0.5.6, thanh tiến độ và kết cục của subagent theo reason của turn.complete; dữ liệu thuần)
   scripts/mutate.ts            chạy đột biến, khôi phục tệp gốc, in sha256 trước và sau
   tsconfig.json                cấu hình type-check độc lập (cần tệp khai báo do engine sinh, xem "Phát triển")
   LICENSE                      MIT

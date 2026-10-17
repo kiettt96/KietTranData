@@ -4,17 +4,18 @@
 
 import { atom, derive, read, update } from 'claude-code'
 import type { EngineInterface, On } from 'claude-code'
-import type { QuotaCheckpoint, QuotaState } from '../../types'
+import type { QuotaCheckpoint, QuotaPause, QuotaState } from '../../types'
 import { addTouched, buildCheckpoint, pruneKeys, pushRecent, recentLine, storeKey } from '../lib/checkpoint'
 import type { CheckpointInput } from '../lib/checkpoint'
-import { classifyBash, filePathOf, isMutation } from '../lib/drift'
-import { EMPTY_QUOTA, QUOTA_CACHE_MS, deniedInput, evaluateQuota, blockingHits, isPauseActive, newPause, normalizeQuota, noteDenial, overrideOf, quotaBadge, quotaSettings, reasonsOf } from '../lib/quota'
+import { classifyBash, filePathOf, isMutation, restorableSteps } from '../lib/drift'
+import { EMPTY_QUOTA, QUOTA_CACHE_MS, deniedInput, evaluateQuota, blockingHits, isPauseActive, newPause, normalizeQuota, noteDenial, overrideOf, quotaSettings, reasonsOf } from '../lib/quota'
 import type { QuotaEval } from '../lib/quota'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
-import { PLAN_TOOL_FULL, quotaDenyText, withQuotaStatus } from '../lib/text'
+import { PLAN_TOOL_FULL, quotaDenyText } from '../lib/text'
 import { viewOf } from '../atoms'
 import type { Ctx } from '../context'
+import { PERSON_ORIGINS, SLASH_COMMAND } from '../context'
 
 // Atom của mod, khai báo lại ở mỗi file dùng chúng (engine chỉ nhận tham chiếu state viết trong chính file đó).
 const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EMPTY_CORE)
@@ -79,9 +80,91 @@ async function freshLimits($: EngineInterface, cache: LimitCache, now: number): 
   return cache.limits
 }
 
-/** Đặt status line kèm nhãn hạn mức (đang dừng, hay phần còn lại khi gần ngưỡng). */
-function setQuotaStatus($: EngineInterface, current: View, isPaused: boolean, evaluation: QuotaEval): void {
-  $.ui.status(withQuotaStatus(S.statusOf(current), quotaBadge(isPaused, evaluation), current.lang))
+/** Số đo hạn mức đọc thẳng từ $.session.usage(), không qua cache (prompt và kết thúc phiên hiếm, đọc không tốn chi phí). */
+async function usageLimits($: EngineInterface): Promise<readonly unknown[] | null> {
+  let usage: { rateLimits?: unknown } | null = null
+  try {
+    usage = await $.session.usage()
+  } catch {
+    usage = null
+  }
+  return usage !== null && Array.isArray(usage.rateLimits) ? usage.rateLimits : null
+}
+
+/**
+ * Điểm dừng giai đoạn một của lần dừng `pause` từ trạng thái hiện tại (mục tiêu, checklist, việc giao, năm tool call
+ * cuối, file đã sửa). `previous` là điểm dừng open của chính lần dừng này: giữ id, giờ tạo, note và lệnh bị từ chối.
+ */
+async function pauseCheckpoint($: EngineInterface, pause: QuotaPause, now: number, previous: QuotaCheckpoint | null): Promise<QuotaCheckpoint> {
+  const q = normalizeQuota(await read($, quotaState))
+  const fresh = S.normalizeCore(await read($, coreState))
+  const cp = buildCheckpoint({
+    id: previous?.id ?? `cp-${now}`,
+    now: previous?.createdAt ?? now,
+    cwd: previous?.cwd ?? (await checkpointDir($)),
+    reason: pause.reason,
+    brief: fresh.brief,
+    plan: fresh.plan,
+    delegations: fresh.delegations.goalId === fresh.brief?.goalId ? fresh.delegations.items : [],
+    recent: q.recent,
+    files: await fileStats($, q.touched.goalId === (fresh.brief?.goalId ?? 0) ? q.touched.paths : []),
+    denied: previous?.denied ?? null,
+  })
+  return previous?.note ? { ...cp, note: previous.note } : cp
+}
+
+/**
+ * Vào trạng thái dừng do hạn mức (lần đầu của lần dừng này): việc giao subagent đang chạy chuyển lỗi để giao lại, ghi
+ * pause, rồi ghi điểm dừng giai đoạn một vào $.state và $.store. Dùng chung cho tool.call, session.measure,
+ * prompt.submit và session.end, nên điểm dừng có cả khi hạn mức qua ngưỡng mà không còn tool call nào. Đã có pause thì
+ * trả lại pause đó, không ghi gì.
+ */
+async function enterQuotaPause($: EngineInterface, ctx: Ctx, evaluation: QuotaEval, now: number): Promise<QuotaPause> {
+  const q = normalizeQuota(await read($, quotaState))
+  if (q.pause !== null) return q.pause
+  const pause = newPause(now, 'quota', reasonsOf(blockingHits(evaluation.hits, overrideOf(q), now)))
+  // Subagent đang chạy sẽ bị từ chối và tự kết thúc: việc đã phân của nó phải được giao lại.
+  const core = S.normalizeCore(await read($, coreState))
+  const goalId = core.brief?.goalId
+  if (goalId !== undefined && ctx.local.delegation.goalId === goalId) {
+    for (const index of [...ctx.local.delegation.running.keys()]) ctx.moveDelegation(goalId, index, 'failed')
+    await update($, coreState, S.withDelegations(goalId, ctx.delegationItems(core.brief)))
+  }
+  $.ui.toast('Focus Conductor: tạm dừng vì hạn mức sắp hết; Claude ghi điểm dừng rồi kết thúc')
+  await update($, quotaState, c => ({ ...normalizeQuota(c), zone: evaluation.zone, pause }))
+  // Giai đoạn một: mod tự ghi điểm dừng ngay, nên dù Claude không kịp gọi plan checkpoint vẫn tiếp tục được.
+  const cp = await pauseCheckpoint($, pause, now, null)
+  await update($, quotaState, c => ({ ...normalizeQuota(c), checkpoint: cp }))
+  if (!(await storeCheckpoint($, cp))) $.ui.toast('Focus Conductor: không lưu được điểm dừng vào kho của mod; điểm dừng chỉ còn trong phiên này')
+  return pause
+}
+
+/**
+ * session.end: đang dừng (hay đang ở vùng dừng) mà checklist còn bước mở hoặc đang chờ thì điểm dừng của lần dừng này
+ * phải có trong kho. Chưa có lần dừng thì vào dừng; đã có điểm dừng open của chính lần dừng này thì chỉ cập nhật
+ * (không tạo bản trùng); chưa có thì ghi mới.
+ */
+async function savePauseOnEnd($: EngineInterface, ctx: Ctx): Promise<void> {
+  const settings = quotaSettings(ctx.options)
+  if (!settings.enabled || S.modeOf(await read($, modeState), ctx.options) === 'off') return
+  const now = await $.clock.now()
+  const evaluation = evaluateQuota(await usageLimits($), now, settings)
+  const q = normalizeQuota(await read($, quotaState))
+  if (q.pause === null && !isPauseActive(true, evaluation.hits, null, overrideOf(q), now)) return
+  if (restorableSteps(S.normalizeCore(await read($, coreState)).plan).length === 0) return
+  if (q.pause === null) {
+    await enterQuotaPause($, ctx, evaluation, now)
+    return
+  }
+  const previous = q.checkpoint !== null && q.checkpoint.status === 'open' && q.checkpoint.createdAt >= q.pause.at ? q.checkpoint : null
+  const cp = await pauseCheckpoint($, q.pause, now, previous)
+  await update($, quotaState, c => ({ ...normalizeQuota(c), checkpoint: cp }))
+  await storeCheckpoint($, cp)
+}
+
+/** Status line kèm nhãn hạn mức (0.6.1): mọi chỗ đặt status của file này đi qua đây, nên nhãn không mất giữa các hook. */
+async function showStatus($: EngineInterface, current: View, options: Ctx['options']): Promise<void> {
+  $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
 }
 
 export function registerQuota(on: On, ctx: Ctx): void {
@@ -99,9 +182,42 @@ export function registerQuota(on: On, ctx: Ctx): void {
     cache.at = now
     cache.limits = Array.isArray(e.rateLimits) ? e.rateLimits : null
     await update($, quotaState, q => ({ ...normalizeQuota(q), zone: evaluation.zone, readings: [...(e.rateLimits ?? [])], measuredAt: now }))
+    if (S.modeOf(await read($, modeState), ctx.options) === 'off') return result
+    // Qua ngưỡng lúc Claude đang trả lời bằng chữ (không còn tool call nào): điểm dừng vẫn phải có trong kho.
+    const before = normalizeQuota(await read($, quotaState))
+    if (before.pause === null && isPauseActive(true, evaluation.hits, null, overrideOf(before), now) && restorableSteps(S.normalizeCore(await read($, coreState)).plan).length > 0) {
+      await enterQuotaPause($, ctx, evaluation, now)
+    }
     const q = normalizeQuota(await read($, quotaState))
-    if (S.modeOf(await read($, modeState), ctx.options) !== 'off') setQuotaStatus($, await read($, view), q.pause !== null, evaluation)
+    await showStatus($, await read($, view), ctx.options)
     return result
+  }).catch(($, e, next) => next(e))
+
+  // Prompt đến khi đã ở vùng dừng mà chưa có lần dừng (ngưỡng bị vượt lúc Claude trả lời bằng chữ, không tool call nào
+  // chạm tới): vào dừng và ghi điểm dừng trước khi parts/session.ts chèn dòng đang tạm dừng.
+  on('prompt.submit', { text: /.*/ }, async ($, e, next) => {
+    const text = e.text.trim()
+    if (!settings.enabled || text === '' || SLASH_COMMAND.test(text) || !PERSON_ORIGINS.has(e.origin.kind)) return next(e)
+    if (S.modeOf(await read($, modeState), ctx.options) === 'off') return next(e)
+    const now = await $.clock.now()
+    const limits = await usageLimits($)
+    const evaluation = evaluateQuota(limits, now, settings)
+    // Số đo vừa đọc thay số đã lưu: nhãn trên band và status line theo đúng hạn mức lúc này (đã làm mới thì nhãn mất).
+    // Không ghi vào cache của tool.call: tool.call vẫn tự hỏi engine theo nhịp QUOTA_CACHE_MS như 0.6.0.
+    await update($, quotaState, c => ({ ...normalizeQuota(c), zone: evaluation.zone, readings: [...(limits ?? [])] as QuotaState['readings'], measuredAt: now }))
+    const q = normalizeQuota(await read($, quotaState))
+    if (q.pause === null && isPauseActive(true, evaluation.hits, null, overrideOf(q), now) && restorableSteps(S.normalizeCore(await read($, coreState)).plan).length > 0) {
+      await enterQuotaPause($, ctx, evaluation, now)
+    }
+    await showStatus($, await read($, view), ctx.options)
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
+  // Phiên kết thúc (kể cả /clear, trước khi parts/session.ts xóa trạng thái) khi đang ở vùng dừng mà checklist còn mở:
+  // điểm dừng phải có trong kho cho phiên sau.
+  on('session.end', { reason: /.*/ }, async ($, e, next) => {
+    await savePauseOnEnd($, ctx).catch(() => undefined)
+    return next(e)
   }).catch(($, e, next) => next(e))
 
   // Turn luồng chính đang chạy: $.turn.abort cần đúng turnId của nó.
@@ -150,7 +266,7 @@ export function registerQuota(on: On, ctx: Ctx): void {
       // Hạn mức đã làm mới hay người dùng ép tiếp: dừng do hạn mức tự mở; điểm dừng (nếu có) vẫn còn để tiếp tục.
       if (q.pause !== null || q.zone !== evaluation.zone) {
         await update($, quotaState, c => ({ ...normalizeQuota(c), zone: evaluation.zone, pause: null }))
-        setQuotaStatus($, await read($, view), false, evaluation)
+        await showStatus($, await read($, view), ctx.options)
       }
       const result = await next(e)
       if (e.tool === PLAN_TOOL_FULL || result.deny !== undefined) return result
@@ -171,34 +287,8 @@ export function registerQuota(on: On, ctx: Ctx): void {
     }
     let pause = q.pause
     if (pause === null) {
-      pause = newPause(now, 'quota', reasonsOf(blockingHits(evaluation.hits, overrideOf(q), now)))
-      // Subagent đang chạy sẽ bị từ chối và tự kết thúc: việc đã phân của nó phải được giao lại.
-      const core = S.normalizeCore(await read($, coreState))
-      const goalId = core.brief?.goalId
-      if (goalId !== undefined && ctx.local.delegation.goalId === goalId) {
-        for (const index of [...ctx.local.delegation.running.keys()]) ctx.moveDelegation(goalId, index, 'failed')
-        await update($, coreState, S.withDelegations(goalId, ctx.delegationItems(core.brief)))
-      }
-      $.ui.toast('Focus Conductor: tạm dừng vì hạn mức sắp hết; Claude ghi điểm dừng rồi kết thúc')
-      const entered = pause
-      await update($, quotaState, c => ({ ...normalizeQuota(c), zone: evaluation.zone, pause: entered }))
-      setQuotaStatus($, await read($, view), true, evaluation)
-      // Giai đoạn một: mod tự ghi điểm dừng ngay, nên dù Claude không kịp gọi plan checkpoint vẫn tiếp tục được.
-      const fresh = S.normalizeCore(await read($, coreState))
-      const cp = buildCheckpoint({
-        id: `cp-${now}`,
-        now,
-        cwd: await checkpointDir($),
-        reason: entered.reason,
-        brief: fresh.brief,
-        plan: fresh.plan,
-        delegations: fresh.delegations.goalId === fresh.brief?.goalId ? fresh.delegations.items : [],
-        recent: q.recent,
-        files: await fileStats($, q.touched.goalId === (fresh.brief?.goalId ?? 0) ? q.touched.paths : []),
-        denied: null,
-      })
-      await update($, quotaState, c => ({ ...normalizeQuota(c), checkpoint: cp }))
-      if (!(await storeCheckpoint($, cp))) $.ui.toast('Focus Conductor: không lưu được điểm dừng vào kho của mod; điểm dừng chỉ còn trong phiên này')
+      pause = await enterQuotaPause($, ctx, evaluation, now)
+      await showStatus($, await read($, view), ctx.options)
     }
     // Tool plan của chính mod được qua: Claude cần nó để ghi điểm dừng.
     if (e.tool === PLAN_TOOL_FULL) return next(e)

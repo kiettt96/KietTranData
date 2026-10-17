@@ -5,7 +5,9 @@ import type { ModelFamily, Warning } from '../../types'
 import { newTracker } from '../lib/drift'
 import { DEFAULT_CONTEXT, fixedContextTokens } from '../lib/cost'
 import { EFFORTS, familyOf, resolveModelId } from '../lib/route'
+import { EMPTY_QUOTA, normalizeQuota, quotaSettings } from '../lib/quota'
 import * as S from '../lib/state'
+import type { View } from '../lib/state'
 import type { EngineInterface, On, TurnStepInput } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -16,6 +18,7 @@ import { BLOCK_TURNS, DEFAULT_WINDOW, FAIL_LIMIT } from '../context'
 const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EMPTY_CORE)
 const bandHiddenState = atom({ plugin: 'focus-conductor', key: 'isBandHidden' } as const, false)
 const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null)
+const quotaState = atom({ plugin: 'focus-conductor', key: 'quota' } as const, EMPTY_QUOTA)
 
 /**
  * Đầu turn luồng chính: ghi vào cơ sở so với chạy thuần model và effort của phiên (engine gửi) cùng lượt mod phục vụ
@@ -32,6 +35,11 @@ async function markBaseline(
   const core = S.normalizeCore(await read($, coreState))
   const pair = served ?? (engine.family !== null ? { family: engine.family, effort: engine.effort } : null)
   await update($, coreState, S.withBaseline({ turnId: e.turnId, session: engine, served: pair, context, isFree: isCacheFree(core, await $.clock.now(), context) }))
+}
+
+/** Status line kèm nhãn hạn mức (0.6.1): mọi chỗ đặt status của file này đi qua đây, nên nhãn không mất giữa các hook. */
+async function showStatus($: EngineInterface, current: View, options: Ctx['options']): Promise<void> {
+  $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
 }
 
 export function registerTurn(on: On, ctx: Ctx): void {
@@ -130,7 +138,7 @@ export function registerTurn(on: On, ctx: Ctx): void {
       await update($, coreState, c => S.withLog(...decided.logs)(S.withRoute(decided.stored)(c)))
       await markBaseline($, e, served, L.turnContext, isCacheFree)
       for (const notice of decided.notices) $.ui.toast(notice)
-      $.ui.status(S.statusOf(await read($, view)))
+      await showStatus($, await read($, view), ctx.options)
     }
     const route = L.turnRoute.route
     if (route === null || current === 'suggest') return yield* next(e)

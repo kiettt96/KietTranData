@@ -6,12 +6,15 @@
 
 import type { PluginOptions } from 'claude-code'
 
-import type { ArchivedGoal, Brief, Core, DelegationItem, Ledger, Lift, ModelFamily, Mode, PlanStep, Route, RouteEvent, Warning } from '../../types'
+import type { AgentProgress, AgentState, ArchivedGoal, Brief, Core, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, Route, RouteEvent, Warning } from '../../types'
 import { restorableSteps } from './drift'
 import type { Tokens } from './cost'
 import { addUsage, emptyLedger, nextGoal, planSwitch, resetLedger } from './ledger'
 import { legacyOf } from './scale'
-import { statusLine } from './text'
+import { statusLine, withQuotaStatus } from './text'
+import { shownPlan } from './mirror'
+import { evaluateQuota, isPauseActive, overrideOf, quotaBadge } from './quota'
+import type { QuotaSettings } from './quota'
 import type { Lang } from '../ui/labels'
 
 export const EMPTY_LIFT: Lift = { depth: 0, effort: 0 }
@@ -28,6 +31,9 @@ export const EMPTY_CORE: Core = {
   sysTokens: 0,
   archived: [],
   delegations: { goalId: -1, items: [] },
+  mirror: { goalId: -1, steps: [] },
+  agentProgress: { goalId: -1, items: [] },
+  activity: { goalId: -1, changes: 0 },
 }
 
 const LOG_LIMIT = 60
@@ -54,7 +60,19 @@ export function modeOf(override: Mode | null, options: PluginOptions): Mode {
 /** Nội dung status line; undefined để xóa khi mod tắt. */
 export function statusOf(view: View): string | undefined {
   if (view.mode === 'off') return undefined
-  return statusLine(view.core.brief, view.core.plan, view.core.route, view.mode)
+  return statusLine(view.core.brief, shownPlan(view.core).plan, view.core.route, view.mode)
+}
+
+/**
+ * Status line của mọi hook: dòng của mod kèm nhãn hạn mức theo số đo đã lưu trong $.state (đang dừng, hay phần còn lại
+ * khi gần ngưỡng). Chưa có mục tiêu thì dòng của mod là tên chế độ, nhãn vẫn đi kèm. statusOf chỉ trả undefined khi
+ * mode off, lúc đó bảo vệ hạn mức không chạy nên không có nhãn. Tắt quotaGuard thì như statusOf.
+ */
+export function statusText(view: View, quota: QuotaState, now: number, settings: QuotaSettings): string | undefined {
+  const base = statusOf(view)
+  if (!settings.enabled) return base
+  const evaluation = evaluateQuota(quota.readings, now, settings)
+  return withQuotaStatus(base, quotaBadge(isPauseActive(true, evaluation.hits, quota.pause, overrideOf(quota), now), evaluation), view.lang)
 }
 
 /** Đưa trạng thái đọc được từ bản cũ về dạng đầy đủ của bản hiện tại. */
@@ -73,6 +91,9 @@ export function normalizeCore(raw: Partial<Core>): Core {
     sysTokens: raw.sysTokens ?? 0,
     archived: raw.archived ?? [],
     delegations: raw.delegations ?? { goalId: -1, items: [] },
+    mirror: raw.mirror ?? { goalId: -1, steps: [] },
+    agentProgress: raw.agentProgress ?? { goalId: -1, items: [] },
+    activity: raw.activity ?? { goalId: -1, changes: 0 },
   }
 }
 
@@ -150,6 +171,8 @@ export function restoreArchived(c: Core, index: number): { core: Core; restored:
     lift: EMPTY_LIFT,
     ledger: nextGoal(n.ledger, goalId),
     archived,
+    mirror: { goalId, steps: [] },
+    ...freshProgress(goalId),
   }
   return { core, restored: { brief, plan: restored.plan } }
 }
@@ -164,7 +187,7 @@ export const adoptGoal =
   (brief: Brief) =>
   (c: Core): Core => {
     const n = normalizeCore(c)
-    return { ...n, brief, plan: [], warnings: [], lift: EMPTY_LIFT, ledger: nextGoal(n.ledger, brief.goalId), archived: archiveOf(n) }
+    return { ...n, brief, plan: [], warnings: [], lift: EMPTY_LIFT, ledger: nextGoal(n.ledger, brief.goalId), archived: archiveOf(n), mirror: { goalId: brief.goalId, steps: [] }, ...freshProgress(brief.goalId) }
   }
 
 export const withBrief =
@@ -283,4 +306,53 @@ export const resetCore = (c: Core): Core => {
 /** Ghi trạng thái các việc giao subagent của một mục tiêu (bản sao để pane và status đọc). */
 export function withDelegations(goalId: number, items: readonly DelegationItem[]): (core: Core) => Core {
   return core => ({ ...normalizeCore(core), delegations: { goalId, items: [...items] } })
+}
+
+/** Ghi danh sách việc phản chiếu của luồng chính cho mục tiêu goalId (xem lib/mirror.ts). */
+export function withMirror(goalId: number, steps: readonly MirrorStep[]): (core: Core) => Core {
+  return core => ({ ...normalizeCore(core), mirror: { goalId, steps: [...steps] } })
+}
+
+/** Số dòng tiến độ của agent giữ lại cho một mục tiêu. */
+export const AGENT_PROGRESS_LIMIT = 20
+
+/** Tiến độ agent và số thay đổi bắt đầu lại ở mục tiêu mới. */
+function freshProgress(goalId: number): Pick<Core, 'agentProgress' | 'activity'> {
+  return { agentProgress: { goalId, items: [] }, activity: { goalId, changes: 0 } }
+}
+
+/** Một lần gọi Agent bắt đầu chạy: thêm dòng tiến độ (thay dòng cũ cùng agentId), giữ tối đa AGENT_PROGRESS_LIMIT dòng. */
+export function withAgentStart(goalId: number, item: AgentProgress): (core: Core) => Core {
+  return core => {
+    const n = normalizeCore(core)
+    const items = n.agentProgress.goalId === goalId ? n.agentProgress.items.filter(i => i.agentId !== item.agentId) : []
+    return { ...n, agentProgress: { goalId, items: [...items, item].slice(-AGENT_PROGRESS_LIMIT) } }
+  }
+}
+
+/** Đổi dòng tiến độ của agentId (không có thì giữ nguyên). */
+function withAgent(agentId: string, change: (item: AgentProgress) => AgentProgress): (core: Core) => Core {
+  return core => {
+    const n = normalizeCore(core)
+    if (!n.agentProgress.items.some(i => i.agentId === agentId)) return n
+    return { ...n, agentProgress: { ...n.agentProgress, items: n.agentProgress.items.map(i => (i.agentId === agentId ? change(i) : i)) } }
+  }
+}
+
+/** Agent chạy thêm một tool call. */
+export const withAgentTool = (agentId: string) => withAgent(agentId, item => ({ ...item, tools: item.tools + 1 }))
+
+/** Agent kết thúc: xong, lỗi, hoặc bị cắt vì tạm dừng. */
+export const withAgentEnd = (agentId: string, state: Exclude<AgentState, 'running'>, at: number) =>
+  withAgent(agentId, item => ({ ...item, state, endedAt: at }))
+
+/** Danh sách việc agent tự ghi (phản chiếu). */
+export const withAgentSteps = (agentId: string, steps: readonly MirrorStep[]) => withAgent(agentId, item => ({ ...item, steps: [...steps] }))
+
+/** Luồng chính vừa thay đổi file trong mục tiêu goalId. */
+export function withActivity(goalId: number): (core: Core) => Core {
+  return core => {
+    const n = normalizeCore(core)
+    return { ...n, activity: { goalId, changes: (n.activity.goalId === goalId ? n.activity.changes : 0) + 1 } }
+  }
 }
