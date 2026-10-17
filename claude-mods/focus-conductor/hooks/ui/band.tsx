@@ -7,6 +7,7 @@
 import type { Color, Elements, RenderElement, RenderSurface } from 'claude-code'
 
 import { formatUsd } from '../lib/ledger'
+import { shownPlan } from '../lib/mirror'
 import type { QuotaBadge } from '../lib/quota'
 import type { View } from '../lib/state'
 import { progress, quotaPercent } from '../lib/text'
@@ -55,7 +56,9 @@ export function renderBand(
   /** Bảo vệ hạn mức (0.6.0): nhãn đang dừng hay phần còn lại khi gần ngưỡng; null hay vắng thì band như cũ. */
   quota: QuotaBadge | null = null,
 ): RenderElement | null {
-  const { brief, plan, route, warnings, ledger, log } = view.core
+  const { brief, route, warnings, ledger, log } = view.core
+  // Checklist để vẽ: của tool plan, nếu chưa có thì danh sách việc Claude Code tự ghi (phản chiếu, 0.6.1).
+  const { plan, source } = shownPlan(view.core)
   if (view.mode === 'off' || brief === null || view.isBandHidden) return null
   const { Box, Text, Button } = t
 
@@ -96,9 +99,11 @@ export function renderBand(
   // mức effort của chip model, rồi cả chip model.
   const fit = { count: true, effort: true, route: true }
   const countText = `${closed}/${total}`
+  // Nguồn phản chiếu ghi nhỏ cạnh số bước khi còn chỗ: người dùng biết checklist này không chặn kết thúc.
+  const mirrorText = source === 'mirror' && hasRoom ? l.mirrorShort : ''
   const progressCells = () =>
     bar.length > 0
-      ? runCells(bar) + (fit.count ? 1 + cellsOf(countText) : 0) + (isWide && phase !== 'done' ? 1 + cellsOf(l.phase[phase]) : 0)
+      ? runCells(bar) + (fit.count ? 1 + cellsOf(countText) : 0) + (isWide && phase !== 'done' ? 1 + cellsOf(l.phase[phase]) : 0) + (mirrorText ? 1 + cellsOf(mirrorText) : 0)
       : beads.length > 0
         ? runCells(beads) + 1 + cellsOf(l.plannedSteps(planned))
         : 0
@@ -210,6 +215,7 @@ export function renderBand(
         <Text>{bar.map(tint)}</Text>
         {fit.count ? <Text bold>{countText}</Text> : null}
         {isWide && phase !== 'done' ? <Text dimColor>{l.phase[phase]}</Text> : null}
+        {mirrorText ? <Text dimColor>{mirrorText}</Text> : null}
       </Box>
     ) : beads.length > 0 ? (
       <Box key="progress" flexShrink={0} flexDirection="row" gap={1}>

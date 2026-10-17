@@ -7,6 +7,7 @@ import type { Elements, RenderElement, RenderSurface } from 'claude-code'
 import type { Mode } from '../../types'
 import { estimateLine, formatUsd, ledgerLines, sessionUsd } from '../lib/ledger'
 import type { View } from '../lib/state'
+import { shownPlan } from '../lib/mirror'
 import { progress } from '../lib/text'
 import type { QuotaPaneText } from '../lib/text'
 import { labels } from './labels'
@@ -61,7 +62,9 @@ export function renderPane(
   quota: QuotaPaneText | null = null,
 ): RenderElement {
   const { Box, Text, Button } = t
-  const { brief, plan, route, log, warnings, ledger } = view.core
+  const { brief, route, log, warnings, ledger } = view.core
+  // Checklist để vẽ: của tool plan, nếu chưa có thì danh sách việc Claude Code tự ghi (phản chiếu, 0.6.1).
+  const { plan, source } = shownPlan(view.core)
   const l = labels(view.lang)
   // Dòng chữ dài hơn ~100 ô khó đọc: pane inline rộng vẫn giữ nội dung trong 100 ô.
   const width = Math.max(36, Math.min(columnsOf(props.columns, 56), 100))
@@ -474,6 +477,11 @@ export function renderPane(
       {alerts}
       <Box flexDirection="column">
         {heading(plan.length > 0 ? 'Checklist' : l.planned, plan.length > 0 ? `${closed}/${total}` : undefined)}
+        {source === 'mirror' ? (
+          <Text dimColor wrap="wrap">
+            {l.mirrorSource}
+          </Text>
+        ) : null}
         {checklist}
       </Box>
       {delegations.length > 0 ? (

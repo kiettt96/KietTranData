@@ -202,6 +202,12 @@ export type DelegationState = 'pending' | 'running' | 'done' | 'failed'
 /** Một việc giao subagent của mục tiêu hiện tại, để pane và /conductor status hiện trạng thái. */
 export type DelegationItem = { index: number; title: string; state: DelegationState }
 
+/**
+ * Một bước của danh sách việc Claude Code tự ghi (TodoWrite, TaskCreate, TaskUpdate), phản chiếu để vẽ tiến độ (0.6.1).
+ * `key` là id của TaskCreate, hoặc thứ tự trong danh sách của TodoWrite. Không bao giờ có verified.
+ */
+export type MirrorStep = { key: string; title: string; status: 'todo' | 'doing' | 'done' }
+
 /** Nâng cấp theo bằng chứng, áp cho các turn sau trong cùng mục tiêu. */
 export type Lift = { depth: number; effort: number }
 
@@ -228,6 +234,12 @@ export type Core = {
   archived: ArchivedGoal[]
   /** Trạng thái các việc giao subagent của mục tiêu goalId (không có ở trạng thái từ bản cũ). */
   delegations: { goalId: number; items: DelegationItem[] }
+  /**
+   * Danh sách việc của Claude Code ở luồng chính, phản chiếu cho mục tiêu goalId (0.6.1; không có ở trạng thái từ bản
+   * cũ). Chỉ để hiển thị khi `plan` (checklist của tool plan) còn rỗng: cổng Stop, nhắc checkpoint, tiêu chí chất lượng,
+   * verified và bảo vệ hạn mức chỉ đọc `plan`.
+   */
+  mirror: { goalId: number; steps: MirrorStep[] }
 }
 
 /** Một cửa sổ hạn mức đã qua ngưỡng lúc dừng (0.6.0). */

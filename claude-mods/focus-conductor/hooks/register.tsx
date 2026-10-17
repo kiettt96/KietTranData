@@ -16,6 +16,7 @@
 //                  chấm khi giao.                                                      (parts/agents.ts)
 //                  plan: checklist của Claude. Mọi tool: theo dõi lặp lỗi, vượt ngân sách,
 //                  ngoài phạm vi, nhắc checkpoint.                                     (parts/consistency.ts)
+//                  TodoWrite, TaskCreate, TaskUpdate: phản chiếu danh sách việc để vẽ tiến độ. (parts/progress.ts)
 //   classic.Stop   checklist còn mở thì yêu cầu hoàn thành hoặc giải thích.
 //   turn.complete  cộng chi phí đo được vào sổ, hiệu chỉnh ước lượng, tổng kết cảnh báo cuối turn.
 // Giao diện: band trên prompt, pane chi tiết, status line (parts/ui.tsx), lệnh /conductor (parts/command.ts).
@@ -26,6 +27,7 @@ import { createContext } from './context'
 import { registerAgents } from './parts/agents'
 import { registerCommand } from './parts/command'
 import { registerConsistency } from './parts/consistency'
+import { registerProgress } from './parts/progress'
 import { registerQuota } from './parts/quota'
 import { registerSession } from './parts/session'
 import { registerTurn } from './parts/turn'
@@ -39,6 +41,7 @@ export const register: Register = (on, options) => {
   registerSession(on, ctx)
   registerTurn(on, ctx)
   registerAgents(on, ctx)
+  registerProgress(on, ctx)
   registerConsistency(on, ctx)
   registerCommand(on, ctx)
   registerUi(on, ctx)

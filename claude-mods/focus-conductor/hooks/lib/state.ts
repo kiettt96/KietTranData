@@ -6,12 +6,13 @@
 
 import type { PluginOptions } from 'claude-code'
 
-import type { ArchivedGoal, Brief, Core, QuotaState, DelegationItem, Ledger, Lift, ModelFamily, Mode, PlanStep, Route, RouteEvent, Warning } from '../../types'
+import type { ArchivedGoal, Brief, Core, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, Route, RouteEvent, Warning } from '../../types'
 import { restorableSteps } from './drift'
 import type { Tokens } from './cost'
 import { addUsage, emptyLedger, nextGoal, planSwitch, resetLedger } from './ledger'
 import { legacyOf } from './scale'
 import { statusLine, withQuotaStatus } from './text'
+import { shownPlan } from './mirror'
 import { evaluateQuota, isPauseActive, overrideOf, quotaBadge } from './quota'
 import type { QuotaSettings } from './quota'
 import type { Lang } from '../ui/labels'
@@ -30,6 +31,7 @@ export const EMPTY_CORE: Core = {
   sysTokens: 0,
   archived: [],
   delegations: { goalId: -1, items: [] },
+  mirror: { goalId: -1, steps: [] },
 }
 
 const LOG_LIMIT = 60
@@ -56,7 +58,7 @@ export function modeOf(override: Mode | null, options: PluginOptions): Mode {
 /** Nội dung status line; undefined để xóa khi mod tắt. */
 export function statusOf(view: View): string | undefined {
   if (view.mode === 'off') return undefined
-  return statusLine(view.core.brief, view.core.plan, view.core.route, view.mode)
+  return statusLine(view.core.brief, shownPlan(view.core).plan, view.core.route, view.mode)
 }
 
 /**
@@ -87,6 +89,7 @@ export function normalizeCore(raw: Partial<Core>): Core {
     sysTokens: raw.sysTokens ?? 0,
     archived: raw.archived ?? [],
     delegations: raw.delegations ?? { goalId: -1, items: [] },
+    mirror: raw.mirror ?? { goalId: -1, steps: [] },
   }
 }
 
@@ -164,6 +167,7 @@ export function restoreArchived(c: Core, index: number): { core: Core; restored:
     lift: EMPTY_LIFT,
     ledger: nextGoal(n.ledger, goalId),
     archived,
+    mirror: { goalId, steps: [] },
   }
   return { core, restored: { brief, plan: restored.plan } }
 }
@@ -178,7 +182,7 @@ export const adoptGoal =
   (brief: Brief) =>
   (c: Core): Core => {
     const n = normalizeCore(c)
-    return { ...n, brief, plan: [], warnings: [], lift: EMPTY_LIFT, ledger: nextGoal(n.ledger, brief.goalId), archived: archiveOf(n) }
+    return { ...n, brief, plan: [], warnings: [], lift: EMPTY_LIFT, ledger: nextGoal(n.ledger, brief.goalId), archived: archiveOf(n), mirror: { goalId: brief.goalId, steps: [] } }
   }
 
 export const withBrief =
@@ -298,3 +302,9 @@ export const resetCore = (c: Core): Core => {
 export function withDelegations(goalId: number, items: readonly DelegationItem[]): (core: Core) => Core {
   return core => ({ ...normalizeCore(core), delegations: { goalId, items: [...items] } })
 }
+
+/** Ghi danh sách việc phản chiếu của luồng chính cho mục tiêu goalId (xem lib/mirror.ts). */
+export function withMirror(goalId: number, steps: readonly MirrorStep[]): (core: Core) => Core {
+  return core => ({ ...normalizeCore(core), mirror: { goalId, steps: [...steps] } })
+}
+

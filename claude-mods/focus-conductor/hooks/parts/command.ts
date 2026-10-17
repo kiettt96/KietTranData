@@ -10,6 +10,7 @@ import { estimateLine, formatUsd, ledgerLines } from '../lib/ledger'
 import { describePick } from '../lib/route'
 import { clipText } from '../lib/decisions'
 import { askRouter, bareBrief, briefOf, nextBrief, parseRoute, rerouted, routerRequest } from '../lib/router'
+import { shownPlan } from '../lib/mirror'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
 import { briefContext, droppedPlanNotice, quotaStatusLines, renderPlan, resetLabel, unroutedContext } from '../lib/text'
@@ -338,6 +339,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       const untrackedLine =
         untracked.length > 0 ? `\nAgent ngoài điều phối (untracked agent, mod không chấm, không ép, không đo): ${untracked.length} (${[...new Set(untracked)].join(', ')})` : ''
       const items = core.delegations.goalId === core.brief.goalId ? core.delegations.items : []
+      const shown = shownPlan(core)
       const stateText = { pending: 'chờ giao', running: 'đang chạy', done: 'xong', failed: 'lỗi, chưa giao lại' } as const
       const delegationBlock = items.length > 0 ? `\nViệc giao subagent:\n${items.map(item => `  ${item.index}. ${item.title}: ${stateText[item.state]}`).join('\n')}` : ''
       const agentBlock = delegationBlock + (agentLines.length > 0 ? `\nSubagent gần nhất:\n${agentLines.join('\n')}` : '') + untrackedLine
@@ -346,7 +348,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
           `Chế độ ${current}`,
           judged,
           `Luồng chính: ${routeLine}${blockedLine}`,
-          renderPlan(core.brief, core.plan),
+          renderPlan(core.brief, shown.plan) + (shown.source === 'mirror' ? '\n(theo danh sách việc của Claude Code, chỉ để theo dõi)' : ''),
           ...costLines,
         ].join('\n') + agentBlock,
       }
