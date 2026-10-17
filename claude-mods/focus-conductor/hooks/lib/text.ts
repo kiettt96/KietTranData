@@ -6,6 +6,7 @@ import { openSteps, pendingSteps } from './drift'
 import { evaluateQuota, isStale, reasonsOf } from './quota'
 import type { QuotaBadge, QuotaThresholds } from './quota'
 import { labels } from '../ui/labels'
+import { barRuns } from '../ui/style'
 import type { Lang } from '../ui/labels'
 import { describePick } from './route'
 
@@ -331,10 +332,15 @@ export function stopBlockReason(plan: readonly PlanStep[], failed: readonly stri
 }
 
 /** Một dòng tóm tắt cho status line. */
+/** Số ô của thanh chữ trên status line (0.6.1). */
+export const STATUS_BAR = 8
+
 export function statusLine(brief: Brief | null, plan: readonly PlanStep[], route: Route | null, mode: string): string {
   if (brief === null) return mode
   const { closed, total } = progress(plan)
-  const steps = total > 0 ? ` · ${closed}/${total}` : ''
+  // Thanh chữ cùng ký hiệu với band (barRuns), không màu: surface không có band (vscode, mobile) vẫn thấy tiến độ.
+  const bar = barRuns(plan, STATUS_BAR).map(run => run.text).join('')
+  const steps = total > 0 ? ` · ${bar ? `${bar} ` : ''}${closed}/${total}` : ''
   const model = route ? ` · ${describePick(route)}` : ''
   return `${brief.tier}${model}${steps}${mode === 'auto' ? '' : ` · ${mode}`}`
 }

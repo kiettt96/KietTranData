@@ -679,4 +679,6 @@ export const MUTANTS: Mutant[] = [
   { id: "061-M16", file: "hooks/ui/band.tsx", note: "band bỏ qua checklist phản chiếu", old: "  const { plan, source } = shownPlan(view.core)\n", new: "  const { plan } = view.core\n  const source = shownPlan(view.core).source\n" },
   { id: "061-H1", file: "hooks/parts/session.ts", note: "mục tiêu mới không hiện lại band đã ẩn", old: "      await update($, bandHiddenState, () => false)\n", new: "" },
   { id: "061-H2", file: "hooks/parts/session.ts", note: "prompt nào cũng hiện lại band đã ẩn", old: "      await update($, bandHiddenState, () => false)\n    }\n", new: "    }\n    await update($, bandHiddenState, () => false)\n" },
+  { id: "061-S1", file: "hooks/lib/text.ts", note: "status line bỏ thanh chữ", old: "${bar ? `${bar} ` : ''}", new: "" },
+  { id: "061-S2", file: "hooks/lib/text.ts", note: "thanh chữ trên status line rộng 6 ô", old: "export const STATUS_BAR = 8", new: "export const STATUS_BAR = 6" },
 ]
