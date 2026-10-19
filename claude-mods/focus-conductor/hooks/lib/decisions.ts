@@ -3,7 +3,7 @@
 // prompt router. Log có trích 300 ký tự đầu của prompt và của evidence; chỉ bật cho thư mục không chia sẻ.
 // Thuần: dựng dòng; hook ghi file bằng $.fs.write.
 
-export type DecisionKind = 'route' | 'router-fail' | 'skip' | 'reroute' | 'agent' | 'model-switch' | 'drift' | 'verify-reject'
+export type DecisionKind = 'route' | 'router-fail' | 'skip' | 'reroute' | 'agent' | 'model-switch' | 'drift' | 'verify-reject' | 'verify-auto'
 
 /** Số dòng giữ lại (file được ghi lại toàn bộ mỗi lần; giới hạn để không chạm 4 MiB của $.fs). */
 export const DECISION_LIMIT = 500

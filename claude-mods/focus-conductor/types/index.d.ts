@@ -94,6 +94,8 @@ export type PlanStep = {
   check?: string
   /** Bằng chứng kiểm tra (bắt buộc khi verified) hoặc lý do (skipped, blocked, waiting). */
   note?: string
+  /** Bước verified do mod tự nâng (lệnh test chạy đạt sau thay đổi cuối): có thay đổi mới thì hạ về done (0.7.0). */
+  auto?: boolean
 }
 
 /** Lựa chọn model và effort đang áp cho luồng chính. */

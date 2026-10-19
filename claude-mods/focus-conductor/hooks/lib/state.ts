@@ -252,6 +252,33 @@ export const withPlan =
   (plan: PlanStep[]) =>
   (c: Core): Core => ({ ...normalizeCore(c), plan })
 
+/**
+ * Mod tự nâng các bước done (chỉ những bước có trong `only` nếu có) thành verified, ghi lệnh test đã chạy làm bằng chứng và đánh dấu
+ * `auto` để hạ lại khi có thay đổi mới (0.7.0). Không đổi gì khi không có bước done nào.
+ */
+export const withAutoVerified =
+  (command: string, only?: readonly number[]) =>
+  (c: Core): Core => {
+    const n = normalizeCore(c)
+    if (!n.plan.some(s => s.status === 'done' && (only === undefined || only.includes(s.id)))) return n
+    const note = `tự động: ${command.slice(0, 120)} chạy đạt sau thay đổi cuối`
+    return { ...n, plan: n.plan.map(s => (s.status === 'done' && (only === undefined || only.includes(s.id)) ? { ...s, status: 'verified' as const, auto: true, note } : s)) }
+  }
+
+/** Có thay đổi mới: các bước verified do mod tự nâng về done (bước verified do Claude ghi giữ nguyên). */
+export const withAutoDemoted = (c: Core): Core => {
+  const n = normalizeCore(c)
+  if (!n.plan.some(s => s.auto === true && s.status === 'verified')) return n
+  return {
+    ...n,
+    plan: n.plan.map(s => {
+      if (s.auto !== true || s.status !== 'verified') return s
+      const { auto: _auto, note: _note, ...rest } = s
+      return { ...rest, status: 'done' as const }
+    }),
+  }
+}
+
 export const withRoute =
   (route: Route | null) =>
   (c: Core): Core => ({ ...normalizeCore(c), route })

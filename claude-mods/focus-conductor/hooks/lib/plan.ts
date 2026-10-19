@@ -22,7 +22,7 @@ export const PLAN_TOOL_SPEC: ToolSpec = {
     '"set" có thể kèm scope (đường dẫn được phép sửa; mảng rỗng là bỏ giới hạn). ' +
     'action "update": đổi status của một bước (step), của nhiều bước (ids) hoặc của mọi bước đang mở (allOpen true), đúng một trong ba; ' +
     'ids và allOpen chỉ nhận waiting, blocked, skipped (kèm một note chung) và todo (chỉ ids), để dừng hay đặt lại cả checklist bằng một lần gọi. ' +
-    '"verified" bắt buộc có evidence (lệnh đã chạy, kết quả), ' +
+    '"verified" bắt buộc có evidence (lệnh đã chạy, kết quả); mod tự nâng bước done thành verified khi lệnh test chạy đạt sau thay đổi cuối, ' +
     '"skipped", "blocked" và "waiting" bắt buộc có note giải thích. "waiting" là đang chờ việc bên ngoài rồi sẽ tiếp tục (lệnh nền, CI, người dùng); ' +
     '"blocked" là không tiến hành được và không có việc nào đang chạy để chờ. action "add": thêm bước vào cuối. ' +
     'action "restore": khôi phục mục tiêu cũ còn bước mở đã được lưu khi chuyển mục tiêu (index 1 là gần nhất). ' +
@@ -143,7 +143,7 @@ function bulkUpdate(current: readonly PlanStep[], input: PlanInput, status: Step
   const set = new Set(ids)
   const plan = current.map(s => {
     if (!set.has(s.id)) return s
-    const { note: _old, ...rest } = s
+    const { note: _old, auto: _auto, ...rest } = s
     return { ...rest, status, ...(detail ? { note: detail } : {}) }
   })
   return { plan, changed: ids, bulk: { status, note: detail } }
@@ -193,7 +193,11 @@ export function applyPlan(current: readonly PlanStep[], input: PlanInput): PlanO
     }
     const detail = (evidence || note).slice(0, 200)
     return {
-      plan: current.map(s => (s.id === id ? { ...s, status, ...(detail ? { note: detail } : {}) } : s)),
+      plan: current.map(s => {
+        if (s.id !== id) return s
+        const { auto: _auto, ...rest } = s
+        return { ...rest, status, ...(detail ? { note: detail } : {}) }
+      }),
       changed: [id],
     }
   }

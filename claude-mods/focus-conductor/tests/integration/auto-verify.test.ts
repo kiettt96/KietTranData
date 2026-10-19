@@ -50,11 +50,12 @@ describe('0.7.0 5: tự nâng done thành verified', () => {
     expect(out).toContain('[v] 1. Sửa')
   })
 
-  test('đóng hàng loạt sau khi test đã đạt: các bước vừa đóng thành verified', {}, async ($, on) => {
+  test('đóng lần lượt hai bước sau khi test đã đạt: cả hai thành verified', {}, async ($, on) => {
     await goal($, on)
     await edit($)
     await bash($, 'npm test')
-    await $.tool.call({ tool: PLAN, action: 'update', allOpen: true, status: 'done', note: 'xong cả hai' })
+    await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'done' })
+    await $.tool.call({ tool: PLAN, action: 'update', step: 2, status: 'done' })
     const text = await show($)
     expect(text).toContain('[v] 1. Sửa')
     expect(text).toContain('[v] 2. Kiểm')
@@ -120,6 +121,33 @@ describe('0.7.0 5: hạ lại khi có thay đổi mới', () => {
     await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'npm test: 12 pass' })
     await edit($, 'src/d.ts')
     expect(await show($)).toContain('[v] 1. Sửa')
+  })
+
+  test('Claude ghi lại verified cho bước đã được mod tự nâng: thành verified của Claude, sửa tiếp không hạ', {}, async ($, on) => {
+    await goal($, on)
+    await edit($)
+    await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'done' })
+    await bash($, 'npm test')
+    expect(await show($)).toContain('[v] 1. Sửa')
+    await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'npm test: 12 pass' })
+    await edit($, 'src/f.ts')
+    expect(await show($)).toContain('[v] 1. Sửa')
+  })
+
+  test('bước tự nâng và bước verified của Claude cùng tồn tại: sửa tiếp chỉ hạ bước tự nâng', {}, async ($, on) => {
+    await goal($, on)
+    await edit($)
+    await bash($, 'npm test')
+    // Bước 1 do Claude ghi verified (có test đạt); bước 2 đóng bằng done và được mod tự nâng ngay.
+    await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'npm test: 12 pass' })
+    await $.tool.call({ tool: PLAN, action: 'update', step: 2, status: 'done' })
+    const before = await show($)
+    expect(before).toContain('[v] 1. Sửa')
+    expect(before).toContain('[v] 2. Kiểm')
+    await edit($, 'src/g.ts')
+    const after = await show($)
+    expect(after).toContain('[v] 1. Sửa')
+    expect(after).toContain('[x] 2. Kiểm')
   })
 
   test('Claude đổi trạng thái bước tự nâng: dấu tự nâng bị bỏ, sửa tiếp không hạ bước đã đổi', {}, async ($, on) => {

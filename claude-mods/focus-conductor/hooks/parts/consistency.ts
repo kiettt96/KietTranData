@@ -2,7 +2,7 @@
 
 import { atom, derive, read, update } from 'claude-code'
 import type { AgentState, DelegationState, Warning } from '../../types'
-import { acceptsVerified, evidenceStrength, filePathOf, isExecuting, isFullyClosed, isGoalDone, isMutation, isPlanFile, newTracker, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
+import { acceptsVerified, evidenceStrength, filePathOf, freshTestRun, isExecuting, isFullyClosed, isGoalDone, isMutation, isPlanFile, newTracker, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
 import type { Focus } from '../lib/drift'
 import { clipText } from '../lib/decisions'
 import { addUsage, calibrate, recordShape, shapeKey } from '../lib/ledger'
@@ -121,7 +121,10 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     const isVerifiedAsk = input.action === 'update' && input.status === 'verified' && evidence !== '' && input.ids === undefined && input.allOpen !== true
     const log = before.brief !== null ? evidenceFor(before.brief.goalId) : null
     const strength = isVerifiedAsk && log !== null ? evidenceStrength(evidence, log) : null
-    const isAccepted = strength !== null && log !== null && acceptsVerified(strength, log)
+    // Mod tự nâng (0.7.0): mục tiêu đã có sửa file và một lệnh test chạy đạt sau thay đổi cuối (phủ mọi thay đổi) thì verified do
+    // Claude ghi được nhận mà không đòi evidence chép đúng lệnh; còn lại giữ luật cũ.
+    const fresh = log !== null ? freshTestRun(log) : undefined
+    const isAccepted = isVerifiedAsk && log !== null && ((strength !== null && acceptsVerified(strength, log)) || fresh !== undefined)
     const isDowngraded = isVerifiedAsk && !isAccepted
     const outcome = applyPlan(before.plan, isDowngraded ? { ...input, status: 'done' } : input)
     if (outcome.error !== undefined) return { deny: outcome.error }
@@ -130,12 +133,21 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     // việc nhận diện prompt tiếp nối dựa trên mục tiêu mới, không phải mục tiêu cũ.
     const isSet = input.action === 'set'
     const titles = outcome.plan.map(step => step.title)
-    const core = await update($, coreState, c => {
+    let core = await update($, coreState, c => {
       const withPlan = S.withPlan(outcome.plan)(c)
       return isSet ? S.withRetarget(outcome.goal, titles, outcome.scope)(withPlan) : withPlan
     })
+    // Bước vừa đóng bằng done khi đã có test đạt sau thay đổi cuối: nâng ngay thành verified (0.7.0).
+    if (fresh !== undefined && input.action === 'update') {
+      const closed = (outcome.changed ?? []).filter(id => outcome.plan.some(s => s.id === id && s.status === 'done'))
+      if (closed.length > 0) {
+        core = await update($, coreState, S.withAutoVerified(fresh.command, closed))
+        record(await $.clock.now(), 'verify-auto', { steps: closed, command: clipText(fresh.command), at: 'close' })
+        await flushDecisions((path, text) => $.fs.write(path, text))
+      }
+    }
     L.tracker.planUpdates += 1
-    if (isAccepted && strength?.level === 'strong') {
+    if (isAccepted && (strength?.level === 'strong' || fresh !== undefined)) {
       L.tracker.isVerified = true
       L.tracker.mutationsSinceCheck = 0
     }
@@ -215,6 +227,8 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       if (agentBrief !== null && meta.goalId === agentBrief.goalId) {
         noteEvidence(evidenceFor(agentBrief.goalId), observation, e.agentId)
         trackVerification(L.tracker, observation, e.agentId)
+        // Subagent sửa file: bước tự nâng thành verified về done, như thay đổi của luồng chính (0.7.0).
+        if (!observation.isError && isMutation(observation)) await update($, coreState, S.withAutoDemoted)
       }
       const scopePaths = remindSubagents ? (agentBrief?.scopePaths ?? []) : []
       const frame = agentBrief !== null ? await frameOf($, L.roots, agentBrief.goalId, scopePaths) : { root: null, cwd: null }
@@ -235,7 +249,22 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     // Ghi cả lệnh lỗi: evidence nhắc tới một lệnh kiểm tra đã lỗi thì không được tính là đã kiểm tra.
     if (core.brief !== null) noteEvidence(evidenceFor(core.brief.goalId), observation)
     // Luồng chính vừa thay đổi file: việc làm trực tiếp chưa có bước chuyển từ chưa bắt đầu sang đang làm (0.6.1).
-    if (core.brief !== null && !observation.isError && isMutation(observation)) await update($, coreState, S.withActivity(core.brief.goalId))
+    // Thay đổi mới: các bước tự nâng thành verified về done, vì lần test trước không còn phủ thay đổi này (0.7.0).
+    if (core.brief !== null && !observation.isError && isMutation(observation)) {
+      const goalId = core.brief.goalId
+      await update($, coreState, c => S.withAutoDemoted(S.withActivity(goalId)(c)))
+    }
+    // Lệnh test vừa chạy đạt sau thay đổi cuối (phủ mọi thay đổi): các bước done thành verified (0.7.0).
+    if (core.brief !== null && observation.tool === 'Bash' && !observation.isError) {
+      const log = evidenceFor(core.brief.goalId)
+      const fresh = freshTestRun(log)
+      if (fresh !== undefined && fresh === log.commands.at(-1) && core.plan.some(s => s.status === 'done')) {
+        await update($, coreState, S.withAutoVerified(fresh.command))
+        record(await $.clock.now(), 'verify-auto', { command: clipText(fresh.command), at: 'test' })
+        await flushDecisions((path, text) => $.fs.write(path, text))
+        await showStatus($, await read($, view), ctx.options)
+      }
+    }
     const focus: Focus | null = core.brief !== null ? { ...core.brief, ...(await frameOf($, L.roots, core.brief.goalId, core.brief.scopePaths)) } : null
     const findings = observe(L.tracker, observation, focus, core.plan)
     const isErrorBurst = L.tracker.errors === ERROR_BURST
