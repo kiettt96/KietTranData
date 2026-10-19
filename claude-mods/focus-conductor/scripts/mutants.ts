@@ -719,4 +719,7 @@ export const MUTANTS: Mutant[] = [
   { id: "070-D1", file: "hooks/lib/state.ts", note: "checklist chưa có brief lại không được lưu", old: "  const brief = n.brief ?? stubBrief(n.plan)\n", new: "  if (n.brief === null) return n.archived\n  const brief = n.brief\n" },
   { id: "070-D2", file: "hooks/lib/state.ts", note: "lưu cả checklist đã đóng hết", old: "  if (restorableSteps(n.plan).length === 0) return n.archived\n  const brief", new: "  const brief" },
   { id: "070-D3", file: "hooks/lib/state.ts", note: "brief tạm không lấy tên mục tiêu từ bước mở đầu tiên", old: "open[0]?.title ?? 'Mục tiêu dở dang'", new: "'Mục tiêu dở dang'" },
+  { id: "070-S1", file: "hooks/lib/drift/scope.ts", note: "đường dẫn ngoài gốc phiên luôn là ngoài phạm vi, kể cả dưới mục phạm vi tuyệt đối", old: "return scopePaths.some(scope => entry(scope).startsWith('/') && isUnder(normalizePath(entry(scope)))) ? 'in' : 'out'", new: "return 'out'" },
+  { id: "070-S2", file: "hooks/lib/drift/scope.ts", note: "mục phạm vi tuyệt đối không được chuẩn hóa trước khi so", old: "isUnder(normalizePath(entry(scope)))", new: "isUnder(entry(scope))" },
+  { id: "070-S3", file: "hooks/lib/drift/scope.ts", note: "so khớp thư mục theo tiền tố chuỗi, không theo ranh giới", old: "file === dir || file.startsWith(`${dir}/`)", new: "file === dir || file.startsWith(dir)" },
 ]
