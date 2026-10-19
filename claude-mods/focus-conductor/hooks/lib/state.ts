@@ -143,10 +143,40 @@ export function retarget(brief: Brief, goal: string | undefined, steps: readonly
   return { ...brief, goal: nextGoal, steps: nextSteps, ...(scope !== undefined ? { scopePaths: [...scope] } : {}) }
 }
 
-/** Lưu mục tiêu hiện tại nếu checklist còn bước mở hoặc đang chờ; mới nhất trước. */
+/**
+ * Brief tạm cho checklist còn bước mở mà mục tiêu chưa có brief (router lỗi hay tạm ngừng, Claude tự `plan set`): để lưu và khôi
+ * phục được. Không có việc đã phân và không chọn model; khôi phục thì đánh số mục tiêu mới như mọi mục tiêu đã lưu.
+ */
+function stubBrief(plan: readonly PlanStep[]): Brief {
+  const open = restorableSteps(plan)
+  return {
+    goalId: 0,
+    goal: (open[0]?.title ?? 'Mục tiêu dở dang').slice(0, 200),
+    steps: plan.map(s => s.title.slice(0, 120)),
+    tasks: [],
+    constraints: [],
+    quality: [],
+    depth: 'substantial',
+    volume: 'medium',
+    kind: 'mixed',
+    tier: 'moderate',
+    main: null,
+    why: 'checklist chưa có brief (router lỗi hay tạm ngừng)',
+    relation: 'new',
+    source: 'none',
+    isFollowUp: false,
+    isReference: false,
+    scopePaths: [],
+    prompt: '',
+    at: 0,
+  }
+}
+
+/** Lưu mục tiêu hiện tại nếu checklist còn bước mở hoặc đang chờ (chưa có brief thì dùng brief tạm); mới nhất trước. */
 function archiveOf(n: Core): ArchivedGoal[] {
-  if (n.brief === null || restorableSteps(n.plan).length === 0) return n.archived
-  return [{ brief: n.brief, plan: n.plan }, ...n.archived.filter(a => a.brief.goalId !== n.brief?.goalId)].slice(0, ARCHIVE_LIMIT)
+  if (restorableSteps(n.plan).length === 0) return n.archived
+  const brief = n.brief ?? stubBrief(n.plan)
+  return [{ brief, plan: n.plan }, ...n.archived.filter(a => n.brief === null || a.brief.goalId !== n.brief.goalId)].slice(0, ARCHIVE_LIMIT)
 }
 
 /**

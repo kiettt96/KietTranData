@@ -716,4 +716,7 @@ export const MUTANTS: Mutant[] = [
   { id: "061-R3", file: "hooks/parts/consistency.ts", note: "lỗi không còn thắng cắt: error lúc tạm dừng thành bị cắt", old: "  if (reason === 'error') return { agent: 'failed', delegation: 'failed' }\n", new: "" },
   { id: "061-R4", file: "hooks/parts/consistency.ts", note: "refusal không vào danh sách việc lỗi, nên giao lại không được router chấm lại", old: "(e.reason === 'error' || e.reason === 'refusal') && meta !== undefined", new: "e.reason === 'error' && meta !== undefined" },
   { id: "061-R5", file: "hooks/parts/consistency.ts", note: "aborted hay refusal lúc tạm dừng ghi là lỗi thay vì bị cắt", old: "return { agent: isPaused ? 'cut' : 'failed', delegation: 'failed' }", new: "return { agent: 'failed', delegation: 'failed' }" },
+  { id: "070-D1", file: "hooks/lib/state.ts", note: "checklist chưa có brief lại không được lưu", old: "  const brief = n.brief ?? stubBrief(n.plan)\n", new: "  if (n.brief === null) return n.archived\n  const brief = n.brief\n" },
+  { id: "070-D2", file: "hooks/lib/state.ts", note: "lưu cả checklist đã đóng hết", old: "  if (restorableSteps(n.plan).length === 0) return n.archived\n  const brief", new: "  const brief" },
+  { id: "070-D3", file: "hooks/lib/state.ts", note: "brief tạm không lấy tên mục tiêu từ bước mở đầu tiên", old: "open[0]?.title ?? 'Mục tiêu dở dang'", new: "'Mục tiêu dở dang'" },
 ]

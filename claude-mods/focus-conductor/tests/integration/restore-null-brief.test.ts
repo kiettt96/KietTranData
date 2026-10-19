@@ -25,7 +25,9 @@ describe('0.7.0 1: lưu checklist khi mục tiêu chưa có brief', () => {
     const restored = await $.tool.call({ tool: PLAN, action: 'restore' })
     expect(restored.deny).toBeUndefined()
     expect(String(restored.result)).toContain('Đọc tài liệu v10')
-    expect(String((await conductor($, 'status')).text)).toContain('2. Sửa skill')
+    const status = String((await conductor($, 'status')).text)
+    expect(status).toContain('2. Sửa skill')
+    expect(status).toContain('Mục tiêu: Đọc tài liệu v10')
   })
 
   test('không có brief và checklist không còn bước mở: không có gì để lưu', {}, async ($, on) => {
