@@ -32,6 +32,12 @@ export const LOW_CONFIDENCE = 0.4
 
 /** Giới hạn đọc và trả về. */
 const TASK_LIMIT = 20
+/** Yêu cầu router liệt kê (0.7.0): tối đa bấy nhiêu mục, mỗi mục bấy nhiêu ký tự; quá REQUIREMENTS_RECHECK thì đọc kiểm lại một lần ở effort cao. */
+const REQUIREMENT_LIMIT = 30
+const REQUIREMENT_CHARS = 160
+export const REQUIREMENTS_RECHECK = 8
+/** Số bước đang mở của checklist hiện tại gửi kèm request router. */
+const OPEN_STEPS_LIMIT = 10
 const TEXT_LIMIT = 140
 const REQUEST_CHARS = 80_000
 const REQUEST_HEAD = 60_000
@@ -79,7 +85,9 @@ Delegation:
 
 Reading the request:
 - goal: the end result the user wants, one sentence.
-- tasks: the separate pieces of work the user explicitly asked for, in the user's order, each title a short quote of the request (under 80 characters). A heading with a code (K4.1, Bước 2, Task 3) starts one piece; keep the code at the start of its title. Never invent your own sub-steps: a request that is one piece of work has tasks [].
+- requirements: first list everything the request asks for, requires or forbids, one short item each in the user's words (under 100 characters, at most 30): every deliverable, rule, format, quality bar and constraint, including those hidden in paragraphs, tables or background text. Merge exact repeats and omit nothing: this is the checklist the work is checked against.
+- tasks: first, every heading with a code (K4.1, Bước 2, Task 3) is its own task, in the request's order, with the code at the start of its title: never merge coded headings with each other or with other pieces, even when they look alike, and the limit below does not apply to them. For work the request has not split by codes, split it the way that gets it done best, which need not follow how the request is laid out: merge pieces that are really one piece of work, and split a large piece into independent parts only when they can run separately. Each title is a short quote or summary (under 80 characters). Each task has "covers": the numbers (from 1) of the requirements it fulfils, and every requirement must be covered by at least one task. Apart from coded headings, at most 8 tasks. A request that is one piece of work has tasks [].
+- Run a task as "agent" only when it is truly independent: it needs no result of another task, does not edit the files another task edits, and is worth a fresh subagent prompt. Otherwise keep it on the main thread.
 - Items under "xong khi", "done when", "tiêu chí", "acceptance" or similar are quality criteria, never tasks. Background, context, definitions and notes are neither tasks nor constraints.
 - constraints: at most 6 hard rules (must, must not, only, format, scope), the most important first, each shortened to under 100 characters. quality: at most 5 acceptance criteria, same length.
 - scope: file or directory paths the user explicitly limits changes to, copied exactly as written; [] when there is no such limit.
@@ -97,12 +105,12 @@ Relation to the previous goal (shown in <context>):
 Use only the models <context> lists as allowed. Write every string, "why" included, in the language of the request: a Vietnamese request gets Vietnamese strings.
 Keep the reply short, it is read by a program: "why" of the request is one sentence under 25 words; "why" of main and of each task is under 15 words.
 Reply with ONE JSON object and nothing else. Fill "why" first. "confidence" is how sure you are of the routing, from 0 to 1.
-{"why": string, "confidence": number, "relation": "new"|"continue"|"refine"|"dissatisfied", "reference": boolean, "runReference": boolean, "goal": string, "constraints": string[], "quality": string[], "scope": string[], "depth": "none"|"light"|"substantial"|"hard", "volume": "small"|"medium"|"large", "kind": "answer"|"edit"|"investigate"|"mixed", "main": {"model": "haiku"|"sonnet"|"opus"|"fable", "effort": "low"|"medium"|"high"|"xhigh", "why": string}, "referenceMain": {"model": string, "effort": string}, "tasks": [{"title": string, "run": "main"|"agent", "agent": string, "model": string, "effort": string, "depth": string, "volume": string, "kind": string, "why": string}]}
+{"why": string, "confidence": number, "relation": "new"|"continue"|"refine"|"dissatisfied", "reference": boolean, "runReference": boolean, "goal": string, "requirements": string[], "constraints": string[], "quality": string[], "scope": string[], "depth": "none"|"light"|"substantial"|"hard", "volume": "small"|"medium"|"large", "kind": "answer"|"edit"|"investigate"|"mixed", "main": {"model": "haiku"|"sonnet"|"opus"|"fable", "effort": "low"|"medium"|"high"|"xhigh", "why": string}, "referenceMain": {"model": string, "effort": string}, "tasks": [{"title": string, "covers": number[], "run": "main"|"agent", "agent": string, "model": string, "effort": string, "depth": string, "volume": string, "kind": string, "why": string}]}
 
 Examples (abridged):
 - "Liệt kê các hàm export trong utils.ts" -> depth none, kind answer, main haiku/low, tasks [].
 - "Fix race condition khi hai worker cùng ghi file cache" -> depth hard, kind edit, main opus/high, tasks [].
-- "1. Đọc config.ts và liệt kê biến môi trường. 2. Sửa nút đăng nhập lệch trên mobile. 3. Viết unit test cho hàm refund." -> main sonnet/medium; task 1 agent Explore haiku/low; task 2 main sonnet/medium; task 3 agent general-purpose sonnet/medium.`
+- "1. Đọc config.ts và liệt kê biến môi trường. 2. Sửa nút đăng nhập lệch trên mobile. 3. Viết unit test cho hàm refund." -> requirements: the three items; main sonnet/medium; task 1 (covers [1]) agent Explore haiku/low; task 2 (covers [2]) main sonnet/medium; task 3 (covers [3]) agent general-purpose sonnet/medium.`
 }
 
 /** System prompt của router chấm subagent; catalog giá dựng từ bảng giá đang dùng. */
@@ -192,6 +200,8 @@ export function routerRequest(args: {
   model: string
   /** Mục tiêu do người dùng đặt bằng lệnh: luôn là mục tiêu mới. */
   isForcedNew?: boolean
+  /** Các bước đang mở của checklist hiện tại (tối đa 10): để xếp đúng quan hệ với lời nhắc tiếp nối ngắn. */
+  openSteps?: readonly string[]
   /** Phát hiện của turn trước (vòng lặp, chuỗi lỗi, vượt ngân sách, lệch mục tiêu): lựa chọn model đã thiếu, để router chấm lại. */
   observed?: string
   /** Bảng giá cho catalog; mặc định là bảng đang dùng (golden-set truyền bảng kèm mod để băm ổn định). */
@@ -203,6 +213,7 @@ export function routerRequest(args: {
     allowedLine(args.policy),
     agentsLine(args.policy),
     ...(args.isForcedNew ? ['The user set this goal by command: relation must be "new".'] : []),
+    ...((args.openSteps?.length ?? 0) > 0 ? [`Open checklist steps (still unfinished): ${(args.openSteps ?? []).slice(0, OPEN_STEPS_LIMIT).map(s => fence(clip(s, 100))).join('; ')}`] : []),
     ...(args.observed ? [`Observed in the previous turn (the main model's choice fell short; re-read the work and raise "main" model or effort if it is harder than first judged): ${fence(clip(args.observed, 400))}`] : []),
   ]
   const system: readonly ModelTextBlock[] = [{ text: routerSystem(args.prices), cache: true }]
@@ -286,6 +297,32 @@ function strings(value: unknown, max: number): string[] {
     value.filter((s): s is string => typeof s === 'string' && s.trim() !== '').map(s => clip(s.trim(), TEXT_LIMIT)),
     max,
   )
+}
+
+/** Yêu cầu của prompt do router liệt kê: chuỗi không rỗng, cắt ngắn, không trùng, tối đa REQUIREMENT_LIMIT mục. */
+function requirementsOf(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return unique(
+    value.filter((s): s is string => typeof s === 'string' && s.trim() !== '').map(s => clip(s.trim(), REQUIREMENT_CHARS)),
+    REQUIREMENT_LIMIT,
+  )
+}
+
+/** Số thứ tự yêu cầu một việc phủ: số nguyên từ 1 tới REQUIREMENT_LIMIT, không trùng; undefined khi router không ghi mảng. */
+function coversOf(value: unknown): number[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  return [...new Set(value.filter((n): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= REQUIREMENT_LIMIT))]
+}
+
+/**
+ * Yêu cầu chưa có việc nào phủ: chỉ khi router có chia việc và có ghi việc nào phủ yêu cầu nào. Yêu cầu một khối (không có việc)
+ * hay router bản cũ (không ghi covers) thì không suy ra gì.
+ */
+export function uncoveredRequirements(brief: Brief): string[] {
+  const requirements = brief.requirements ?? []
+  if (requirements.length === 0 || !brief.tasks.some(t => (t.covers?.length ?? 0) > 0)) return []
+  const covered = new Set(brief.tasks.flatMap(t => t.covers ?? []))
+  return requirements.filter((_, i) => !covered.has(i + 1))
 }
 
 /** Mục phạm vi phải có dạng đường dẫn (có / hoặc phần mở rộng, không khoảng trắng), kẻo kiểm tra phạm vi báo sai. */
@@ -373,6 +410,8 @@ export type RouterPlan = {
   isReference: boolean
   runReference: boolean
   goal: string
+  /** Mọi yêu cầu router đọc được từ prompt (0.7.0); rỗng khi router bản cũ không ghi. */
+  requirements: string[]
   constraints: string[]
   quality: string[]
   scope: string[]
@@ -407,6 +446,7 @@ function parseTask(value: unknown, index: number, main: Choice, whole: { depth: 
   // Việc giao subagent mà thiếu model hoặc effort hợp lệ thì làm ở luồng chính.
   const run = raw['run'] === 'agent' && own !== null ? 'agent' : 'main'
   const fitted = fitPick(own ?? main, kind, policy)
+  const covers = coversOf(raw['covers'])
   return {
     index,
     title,
@@ -417,6 +457,7 @@ function parseTask(value: unknown, index: number, main: Choice, whole: { depth: 
     volume,
     kind,
     why: [text(raw['why']), ...fitted.notes].filter(Boolean).join('; '),
+    ...(covers !== undefined ? { covers } : {}),
   }
 }
 
@@ -457,6 +498,7 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
     isReference,
     runReference,
     goal,
+    requirements: requirementsOf(raw['requirements']),
     constraints: strings(raw['constraints'], 10),
     quality: strings(raw['quality'], 8),
     scope: strings(raw['scope'], 10).filter(isPathLike),
@@ -537,6 +579,7 @@ export function briefOf(plan: RouterPlan, prompt: string, goalId: number, now: n
   return {
     goalId,
     goal: plan.goal || clip(prompt.trim(), 200),
+    ...(plan.requirements.length > 0 ? { requirements: plan.requirements } : {}),
     steps: plan.tasks.map(t => t.title),
     tasks: plan.tasks,
     constraints: plan.constraints,
@@ -564,9 +607,25 @@ export function briefOf(plan: RouterPlan, prompt: string, goalId: number, now: n
  */
 export function followUpOf(prev: Brief, plan: RouterPlan, now: number): { brief: Brief; added: Task[] } {
   const offset = prev.tasks.reduce((max, t) => Math.max(max, t.index), 0)
-  const added = plan.tasks.map(t => ({ ...t, index: t.index + offset }))
+  // Yêu cầu mới nối vào danh sách (bỏ trùng); covers của việc mới đổi sang số thứ tự trong danh sách đã gộp.
+  const requirements = [...(prev.requirements ?? [])]
+  const renumber = new Map<number, number>()
+  plan.requirements.forEach((item, i) => {
+    let at = requirements.indexOf(item)
+    if (at < 0 && requirements.length < REQUIREMENT_LIMIT) {
+      requirements.push(item)
+      at = requirements.length - 1
+    }
+    if (at >= 0) renumber.set(i + 1, at + 1)
+  })
+  const added = plan.tasks.map(t => ({
+    ...t,
+    index: t.index + offset,
+    ...(t.covers !== undefined ? { covers: t.covers.flatMap(n => renumber.get(n) ?? []) } : {}),
+  }))
   const brief: Brief = {
     ...prev,
+    ...(requirements.length > 0 ? { requirements } : {}),
     steps: added.length > 0 ? [...prev.steps, ...added.map(t => t.title)] : prev.steps,
     tasks: [...prev.tasks, ...added],
     constraints: unique([...prev.constraints, ...plan.constraints], 12),
@@ -598,6 +657,7 @@ export function promoteReference(prev: Brief, plan: RouterPlan, prompt: string, 
     goal: plan.goal || prev.goal,
     steps: prev.tasks.map(t => t.title),
     tasks: prev.tasks,
+    ...(prev.requirements !== undefined || plan.requirements.length > 0 ? { requirements: unique([...(prev.requirements ?? []), ...plan.requirements], REQUIREMENT_LIMIT) } : {}),
     constraints: unique([...prev.constraints, ...plan.constraints], 12),
     quality: unique([...prev.quality, ...plan.quality], 10),
     scopePaths: plan.scope.length > 0 ? plan.scope : prev.scopePaths,
@@ -651,11 +711,13 @@ export function failureReason(reply: ModelCompleteResult | null): string {
  * Request hỏi lại router đúng một lần: câu trả lời trước hỏng JSON (sửa lại cho đúng định dạng, effort thấp)
  * hoặc router tự báo tin cậy thấp (đọc lại kỹ, effort cao).
  */
-export function retryRequest(request: ModelCompleteRequest, previous: string, problem: 'json' | 'confidence'): ModelCompleteRequest {
+export function retryRequest(request: ModelCompleteRequest, previous: string, problem: 'json' | 'confidence' | 'coverage'): ModelCompleteRequest {
   const note =
     problem === 'json'
       ? 'Your previous answer was not one valid JSON object in the required shape. Reply again with ONE valid JSON object only, same content, fixed.'
-      : 'You reported low confidence. Re-read the request and the context carefully, fix any mistake, and reply again with ONE JSON object.'
+      : problem === 'coverage'
+        ? 'This request has many requirements. Re-read it carefully, check that every requirement is listed and that every requirement is covered by a task, fix any mistake, and reply again with ONE JSON object.'
+        : 'You reported low confidence. Re-read the request and the context carefully, fix any mistake, and reply again with ONE JSON object.'
   const prompt = typeof request.prompt === 'string' ? request.prompt : request.prompt.map(block => block.text).join('')
   return {
     ...request,
@@ -681,15 +743,19 @@ export async function askRouter<T extends { confidence?: number }>(
   ask: Ask,
   request: ModelCompleteRequest,
   parse: (text: string) => T | null,
+  /** Câu trả lời đã đọc được nhưng cần đọc kiểm lại một lần ở effort cao (ví dụ quá nhiều yêu cầu): 0.7.0. */
+  recheck?: (result: T) => boolean,
 ): Promise<RouterOutcome<T>> {
   const first = await ask(request).catch(() => null)
   const usages = first ? [first.usage] : []
   const firstResult = first?.isAnswered ? parse(first.text) : null
   const firstConfidence = firstResult?.confidence ?? 1
-  if (first === null || !first.isAnswered || (firstResult !== null && firstConfidence >= LOW_CONFIDENCE)) {
+  const isConfident = firstResult !== null && firstConfidence >= LOW_CONFIDENCE
+  const needsCoverage = isConfident && recheck !== undefined && recheck(firstResult)
+  if (first === null || !first.isAnswered || (isConfident && !needsCoverage)) {
     return { result: firstResult, reason: failureReason(first), usages, retried: false }
   }
-  const second = await ask(retryRequest(request, first.text, firstResult === null ? 'json' : 'confidence')).catch(() => null)
+  const second = await ask(retryRequest(request, first.text, firstResult === null ? 'json' : needsCoverage ? 'coverage' : 'confidence')).catch(() => null)
   if (second) usages.push(second.usage)
   const secondResult = second?.isAnswered ? parse(second.text) : null
   const pick =

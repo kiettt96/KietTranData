@@ -45,6 +45,8 @@ export type Task = {
   kind: Kind
   /** Lý do của router, kèm lý do kẹp theo chính sách nếu có. */
   why: string
+  /** Số thứ tự (từ 1) các yêu cầu của prompt (Brief.requirements) mà việc này phủ; vắng khi router không ghi (0.7.0). */
+  covers?: number[]
 }
 
 /** Kết quả router đọc prompt: mục tiêu cuối, việc, ràng buộc, tiêu chí, và điều phối. */
@@ -52,6 +54,8 @@ export type Brief = {
   /** Tăng mỗi khi có mục tiêu mới; dùng để nhận ra đổi task. */
   goalId: number
   goal: string
+  /** Mọi yêu cầu, ràng buộc và đầu ra router đọc được từ prompt (tối đa 30); vắng với brief từ bản cũ (0.7.0). */
+  requirements?: string[]
   /** Bước dự kiến: tên các việc lúc đầu, sau đó theo checklist Claude chốt. */
   steps: string[]
   tasks: Task[]

@@ -78,6 +78,7 @@ async function one(c: GoldenCase, n: number) {
       ? null
       : {
           tasks: parsed.tasks.length,
+          reqs: parsed.requirements.length,
           agents: parsed.tasks.filter(t => t.run === 'agent').length,
           main: `${parsed.main.family}/${parsed.main.effort}`,
           picks: parsed.tasks.map(t => `${t.run === 'agent' ? 'agent' : 'main'}:${t.pick.family}/${t.pick.effort}`),
@@ -121,10 +122,10 @@ const count = (xs: string[]) =>
 console.log('\nThống kê câu trả lời (việc tách ra / giao subagent, luồng chính):')
 for (const { c, runs } of summary) {
   const st = runs.flatMap(r => (r.stats === null ? [] : [r.stats]))
-  console.log(`  ${c.id.padEnd(14)} việc ${st.map(s => s.tasks).join('/') || '-'} (giao ${st.map(s => s.agents).join('/') || '-'}); main ${count(st.map(s => s.main)) || '-'}`)
+  console.log(`  ${c.id.padEnd(14)} việc ${st.map(s => s.tasks).join('/') || '-'} (giao ${st.map(s => s.agents).join('/') || '-'}); yêu cầu ${st.map(s => s.reqs).join('/') || '-'}; main ${count(st.map(s => s.main)) || '-'}`)
 }
 const allStats = results.flatMap(r => (r.stats === null ? [] : [r.stats]))
-console.log(`  Tổng: việc tách ra TB ${mean(allStats.map(s => s.tasks)).toFixed(2)}, giao subagent TB ${mean(allStats.map(s => s.agents)).toFixed(2)} (${allStats.length}/${results.length} lượt đọc được)`)
+console.log(`  Tổng: việc tách ra TB ${mean(allStats.map(s => s.tasks)).toFixed(2)}, giao subagent TB ${mean(allStats.map(s => s.agents)).toFixed(2)}, yêu cầu TB ${mean(allStats.map(s => s.reqs)).toFixed(2)} (${allStats.length}/${results.length} lượt đọc được)`)
 console.log(`  Luồng chính: ${count(allStats.map(s => s.main))}`)
 console.log(`  Việc: ${count(allStats.flatMap(s => s.picks))}`)
 console.log(`  Thời gian TB ${(mean(results.map(r => r.ms)) / 1000).toFixed(1)} s; chi phí ${results.reduce((sum, r) => sum + r.usd, 0).toFixed(3)} USD cho ${results.length} lượt (TB ${(results.reduce((sum, r) => sum + r.usd, 0) / Math.max(1, results.length)).toFixed(4)} USD)`)

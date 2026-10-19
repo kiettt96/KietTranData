@@ -7,6 +7,7 @@ import type { Brief, ModelFamily } from '../types'
 import { briefContext } from '../hooks/lib/text'
 import { askRouter, followUpOf, parseRoute, routerRequest, routerSystem, uncoveredRequirements } from '../hooks/lib/router'
 import type { Policy } from '../hooks/lib/router'
+import * as S from '../hooks/lib/state'
 import { makeBrief } from './support/commands'
 import { plan, task } from './support/engine'
 
@@ -45,6 +46,12 @@ describe('0.7.0 7: đọc requirements và covers', () => {
     expect(result.requirements.length).toBe(30)
     expect(result.requirements.every(r => r.length <= 160)).toBe(true)
     expect(result.tasks[0]?.covers).toEqual([1, 2])
+  })
+
+  test('mỗi yêu cầu cắt về 160 ký tự (kiểm riêng, không lẫn với giới hạn số mục)', () => {
+    const [only] = parsed({ requirements: ['y'.repeat(300)] }).requirements
+    expect(only?.length).toBeLessThanOrEqual(160)
+    expect(only?.length).toBeGreaterThan(100)
   })
 
   test('requirements không phải mảng chuỗi: bỏ qua phần hỏng', () => {
@@ -88,6 +95,13 @@ describe('0.7.0 7: yêu cầu chưa có việc nào phủ', () => {
     const next = followUpOf(prev, parsed({ relation: 'continue', goal: '', requirements: ['B', 'C'], tasks: [task('Việc C', 'main', 'sonnet', 'medium', { covers: [2] })] }), 9)
     expect(next.brief.requirements).toEqual(['A', 'B', 'C'])
     expect(next.added[0]?.covers).toEqual([3])
+  })
+})
+
+describe('0.7.0 7: yêu cầu sống qua trạng thái lưu', () => {
+  test('normalizeCore giữ requirements của brief; brief cũ không có thì vẫn không có', () => {
+    expect(S.normalizeCore({ brief: makeBrief({ requirements: ['A', 'B'] }) }).brief?.requirements).toEqual(['A', 'B'])
+    expect(S.normalizeCore({ brief: makeBrief() }).brief?.requirements).toBeUndefined()
   })
 })
 
@@ -151,13 +165,14 @@ describe('0.7.0 7: request của router', () => {
     const system = routerSystem()
     expect(system).toContain('requirements')
     expect(system).toContain('covers')
-    expect(system).toContain('At most 8 tasks')
+    expect(system).toContain('at most 8 tasks')
     expect(system).toContain('truly independent')
     expect(system).not.toContain('Never invent your own sub-steps')
   })
 
   test('mã đề mục (K4.1, Bước 2) vẫn là một việc riêng, không bị gộp', () => {
     expect(routerSystem()).toContain('K4.1')
-    expect(routerSystem()).toMatch(/always stays its own/)
+    expect(routerSystem()).toMatch(/is its own task/)
+    expect(routerSystem()).toContain('never merge coded headings')
   })
 })

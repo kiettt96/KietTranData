@@ -9,6 +9,7 @@ import { labels } from '../ui/labels'
 import { taskBarRuns } from '../ui/style'
 import type { Lang } from '../ui/labels'
 import { describePick } from './route'
+import { uncoveredRequirements } from './router'
 
 export const PLAN_TOOL = 'plan'
 export const PLAN_TOOL_FULL = 'mcp__focus-conductor__plan'
@@ -106,9 +107,12 @@ export function briefContext(brief: Brief, main: Choice | null, isApplied = true
       : `Điều phối: luồng chính ${mainText}; subagent (nếu cần) được router chấm khi giao.`
   // Lượt đối chiếu không hiển thị ràng buộc và tiêu chí: chúng thuộc prompt đính kèm, không phải việc của lượt này.
   const rules = brief.isReference ? '' : `${bullets('Ràng buộc:', brief.constraints)}${bullets('Tiêu chí chất lượng:', brief.quality)}`
+  // Yêu cầu router đã liệt kê mà không việc nào phủ (0.7.0): nhắc để không bị bỏ sót khi lập checklist.
+  const uncovered = brief.isReference ? [] : uncoveredRequirements(brief)
+  const gaps = uncovered.length > 0 ? `\nYêu cầu chưa có việc nào phủ (đừng bỏ sót khi lập checklist): ${uncovered.join('; ')}` : ''
   return [
     '[focus-conductor] Bản đọc prompt của router (đối chiếu lại với prompt gốc trước khi làm)',
-    `Mục tiêu cuối: ${brief.goal}${tasks}${rules}`,
+    `Mục tiêu cuối: ${brief.goal}${tasks}${gaps}${rules}`,
     `Đánh giá: độ sâu ${brief.depth}, khối lượng ${brief.volume}, bản chất ${brief.kind}${brief.why ? ` (${brief.why})` : ''}`,
     routing,
     brief.scopePaths.length > 0 ? `Phạm vi được sửa: ${brief.scopePaths.join(', ')}` : '',
@@ -175,6 +179,7 @@ export function followUpContext(
       ? `Việc mới (router đã chấm; khi giao, description của Agent mở đầu "Việc N: "):\n${added.map(task => taskLine(task, mainText)).join('\n')}`
       : '',
     open.length > 0 ? `Bước còn mở: ${open.map(s => `${s.id}. ${s.title}`).join('; ')}` : '',
+    uncoveredRequirements(brief).length > 0 ? `Yêu cầu chưa có việc nào phủ (đừng bỏ sót): ${uncoveredRequirements(brief).join('; ')}` : '',
     pendingLine(plan),
     newConstraints.length > 0 ? `Ràng buộc mới: ${newConstraints.join('; ')}` : '',
     'Giữ nhất quán với phần đã làm; nếu yêu cầu này đổi mục tiêu, cập nhật lại checklist.',

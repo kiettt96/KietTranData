@@ -111,6 +111,7 @@ function normalizeBrief(raw: Brief): Brief {
   return {
     goalId: brief.goalId,
     goal: brief.goal,
+    ...(brief.requirements !== undefined ? { requirements: brief.requirements } : {}),
     steps: brief.steps ?? [],
     tasks: brief.tasks ?? [],
     constraints: brief.constraints ?? [],
