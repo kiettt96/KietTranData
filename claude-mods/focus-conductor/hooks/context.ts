@@ -95,6 +95,8 @@ export function createContext(options: PluginOptions) {
     sessionNoticed: false,
     pinnedGoalId: null as number | null,
     turnCount: 0,
+    /** Turn hiện tại vừa có phát hiện làm tăng nâng cấp (vòng lặp, chuỗi lỗi, vượt ngân sách): chưa giảm ở cuối turn. */
+    liftRaised: false,
     /** Log quyết định (JSONL) của phiên, nối tiếp file cũ nếu có. */
     decisions: [] as string[],
     /** Prompt gần nhất đã qua router, brief trước nó và số mục tiêu sau lượt đó: cho /conductor reroute. */
@@ -314,6 +316,7 @@ export function createContext(options: PluginOptions) {
     failures.clear()
     blockedUntil.clear()
     local.turnCount = 0
+    local.liftRaised = false
     agents.clear()
     agentTrackers.clear()
     agentFailures.length = 0

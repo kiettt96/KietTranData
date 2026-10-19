@@ -12,7 +12,7 @@ import { PRICE } from './cost'
 import type { Price } from './cost'
 import { EFFORTS, applySession, avoidBlocked, describePick, familyOf } from './route'
 import type { SessionModel } from './route'
-import { DEPTHS, KINDS, RELATIONS, VOLUMES, tierOf } from './scale'
+import { DEPTHS, KINDS, RELATIONS, VOLUMES, maxTier, tierOf } from './scale'
 
 /** Chính sách lựa chọn model áp lên mọi kết quả của router. */
 export type Policy = {
@@ -571,7 +571,8 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number): { brief:
     depth: plan.depth,
     volume: plan.volume,
     kind: plan.kind,
-    tier: tierOf(plan.depth, plan.volume),
+    // Ngân sách tool call của mục tiêu không tụt khi prompt tiếp nối ngắn được đọc là nhẹ (0.7.0): tier chỉ tăng.
+    tier: maxTier(prev.tier, tierOf(plan.depth, plan.volume)),
     main: plan.main,
     why: reasonOf(plan),
     relation: plan.relation,

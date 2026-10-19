@@ -271,6 +271,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       effortLift = 1
     }
     const lifts = depthLift > 0 || effortLift > 0
+    if (lifts) L.liftRaised = true
     if (warnings.length > 0 || lifts) {
       await update($, coreState, c => {
         const withWarnings = S.withWarnings(...warnings)(c)
@@ -407,7 +408,13 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     }
     const end = await $.session.usage().catch(() => null)
     const endContext = end?.context.tokens ?? L.turnContext
-    await update($, coreState, c => S.withTurnMark(at, endContext)(S.withLedger(() => ledger)(S.withWarnings(...warnings)(c))))
+    // Turn không có phát hiện nào làm tăng nâng cấp: nâng cấp của mục tiêu giảm một bậc (0.7.0).
+    const hadFinding = L.liftRaised
+    L.liftRaised = false
+    await update($, coreState, c => {
+      const marked = S.withTurnMark(at, endContext)(S.withLedger(() => ledger)(S.withWarnings(...warnings)(c)))
+      return hadFinding ? marked : S.withLiftDecay(marked)
+    })
     const unverified = findings.find(f => f.kind === 'unverified')
     if (unverified) $.ui.toast(unverified.text)
     await showStatus($, await read($, view), ctx.options)

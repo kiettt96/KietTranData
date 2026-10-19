@@ -225,12 +225,20 @@ export const withBrief =
   (c: Core): Core => ({ ...normalizeCore(c), brief })
 
 /**
- * Router quyết lại cho prompt tiếp nối: thay brief và xóa nâng cấp theo bằng chứng, vì router
- * đã thấy model luồng chính thật sự chạy và tự nâng khi người dùng báo chưa đạt (không nâng hai lần).
+ * Router quyết lại cho prompt tiếp nối: thay brief. Nâng cấp theo bằng chứng (vòng lặp, chuỗi lỗi, vượt ngân sách) sống qua
+ * continue và refine (0.7.0), giảm dần bằng withLiftDecay; chỉ bị xóa khi người dùng báo chưa đạt (router đã thấy model luồng
+ * chính thật sự chạy và tự nâng, nên không nâng hai lần) hoặc khi sang mục tiêu mới.
  */
 export const withDecision =
   (brief: Brief) =>
-  (c: Core): Core => ({ ...normalizeCore(c), brief, lift: EMPTY_LIFT })
+  (c: Core): Core => ({ ...normalizeCore(c), brief, lift: brief.relation === 'dissatisfied' || brief.relation === 'new' ? EMPTY_LIFT : normalizeCore(c).lift })
+
+/** Một turn không có phát hiện mới: nâng cấp theo bằng chứng giảm một bậc mỗi chiều (không xuống dưới 0). */
+export const withLiftDecay = (c: Core): Core => {
+  const n = normalizeCore(c)
+  if (n.lift.depth === 0 && n.lift.effort === 0) return n
+  return { ...n, lift: { depth: Math.max(0, n.lift.depth - 1), effort: Math.max(0, n.lift.effort - 1) } }
+}
 
 /** Claude chốt lại mục tiêu/các bước qua tool plan (action "set"): xem retarget. */
 export const withRetarget =

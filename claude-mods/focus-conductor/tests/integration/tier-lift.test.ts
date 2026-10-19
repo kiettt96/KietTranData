@@ -99,16 +99,22 @@ describe('0.7.0 4: mức nâng qua prompt tiếp nối', () => {
     await submit($, 'Làm tiếp phần còn lại')
     expect((await step($, seen, { turnId: 't2' }))?.effort).toBe('high')
     await $.turn.complete(answer('t2'))
+    // Cache nguội: không còn lý do giữ lựa chọn cũ, nên effort của turn sau phản ánh đúng mức nâng còn lại.
+    await seen.clock.advance(2 * 60 * 60_000)
     expect((await step($, seen, { turnId: 't3' }))?.effort).toBe('medium')
   })
 
   test('turn lại có phát hiện mới (ba tool call lỗi) thì mức nâng không giảm', {}, async ($, on) => {
     const seen = await liftedGoal($, on, { relation: 'continue', goal: '' })
     await submit($, 'Làm tiếp phần còn lại')
+    // Turn mới: bộ đếm lỗi của turn bắt đầu lại, nên ba lỗi nữa là một chuỗi lỗi mới.
+    await $.turn.start({ text: 'Làm tiếp phần còn lại', turnId: 't2' })
     await step($, seen, { turnId: 't2' })
     for (const file of ['d.txt', 'e.txt', 'f.txt']) await $.tool.call({ tool: 'Bash', command: `cat ${file}` })
     await $.turn.complete(answer('t2'))
-    expect((await step($, seen, { turnId: 't3' }))?.effort).toBe('high')
+    await seen.clock.advance(2 * 60 * 60_000)
+    // Mức nâng 1 còn từ turn trước, cộng 1 của chuỗi lỗi mới: đủ hai bậc (trần), không giảm ở cuối turn.
+    expect((await step($, seen, { turnId: 't3' }))?.effort).toBe('xhigh')
   })
 
   test('dissatisfied: router đã thấy model đã chạy, mod không nâng thêm', {}, async ($, on) => {
