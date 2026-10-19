@@ -191,7 +191,9 @@ export function registerSession(on: On, ctx: Ctx): void {
     let pauseText: string | null = null
     if (!isPaused) {
       $.ui.status('router đang đọc prompt...')
-      const request = routerRequest({ text, prev, ran: ranText(before), policy: rules, model: routerModel })
+      const observed = L.observed.join('; ')
+      L.observed = []
+      const request = routerRequest({ text, prev, ran: ranText(before), policy: rules, model: routerModel, ...(observed ? { observed } : {}) })
       const startedAt = await $.clock.now()
       outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules))
       noteRouterTime((await $.clock.now()) - startedAt)

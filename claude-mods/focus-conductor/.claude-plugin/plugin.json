@@ -102,8 +102,8 @@
     "semanticDrift": {
       "type": "boolean",
       "title": "Kiểm lạc đề theo nội dung",
-      "description": "Ở mỗi checkpoint (5 thay đổi chưa kiểm tra), hỏi model router một lượt ngắn xem các thay đổi còn phục vụ mục tiêu không; lạc đề thì nhắc ở prompt sau. Tốn thêm một lượt router mỗi checkpoint. Mặc định tắt",
-      "default": false
+      "description": "Ở checkpoint (5 thay đổi chưa kiểm tra), hỏi model router một lượt ngắn xem các thay đổi còn phục vụ mục tiêu không; lạc đề thì nhắc ngay ở kết quả tool đó, nâng độ sâu cho turn sau và báo cho router ở prompt tiếp nối. Tối đa một lượt mỗi 10 phút, tự tắt khi hạn mức vào vùng gần ngưỡng; mỗi lượt là một lần gọi router. Mặc định bật; đặt false để tắt",
+      "default": true
     },
     "decisionLog": {
       "type": "string",

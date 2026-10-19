@@ -123,6 +123,31 @@ describe('0.7.0 6: phát hiện của lượt trước gửi kèm router ở pro
     expect(seen.routed[1]).not.toContain('Observed in the previous turn')
   })
 
+  test('vượt ngân sách tool call ở lượt trước được gửi kèm', {}, async ($, on) => {
+    const seen = base(on, { router: routerFor })
+    on('tool.call', { tool: 'Read' }, () => ({ result: 'nội dung' }))
+    on('turn.complete', () => ({ text: '' }))
+    await submit($, 'sửa typo trong README')
+    await $.turn.start({ text: 'sửa typo', turnId: 't1' })
+    for (let i = 0; i < 16; i++) await $.tool.call({ tool: 'Read', file_path: `src/f${i}.ts` })
+    await $.turn.complete(answer('t1'))
+    await submit($, 'Làm tiếp phần còn lại')
+    expect(seen.routed[1]).toContain('Observed in the previous turn')
+    expect(seen.routed[1]).toContain('vượt mức dự kiến')
+  })
+
+  test('lặp lại một tool call lỗi ở lượt trước được gửi kèm', {}, async ($, on) => {
+    const seen = base(on, { router: routerFor })
+    on('tool.call', { tool: 'Bash' }, () => ({ result: 'lỗi', isError: true }))
+    on('turn.complete', () => ({ text: '' }))
+    await submit($, 'sửa typo trong README')
+    await $.turn.start({ text: 'sửa typo', turnId: 't1' })
+    for (let i = 0; i < 3; i++) await $.tool.call({ tool: 'Bash', command: 'cat missing.txt' })
+    await $.turn.complete(answer('t1'))
+    await submit($, 'Làm tiếp phần còn lại')
+    expect(seen.routed[1]).toContain('Observed in the previous turn')
+  })
+
   test('lệch mục tiêu ở lượt trước cũng được gửi kèm', { options: { semanticDrift: true } }, async ($, on) => {
     const seen = base(on, { router: routerFor, drift: () => ({ onTrack: false, confidence: 0.8, why: 'đang sửa CSS' }) })
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))

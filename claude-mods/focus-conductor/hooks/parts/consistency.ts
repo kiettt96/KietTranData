@@ -10,7 +10,7 @@ import { applyPlan } from '../lib/plan'
 import type { PlanInput } from '../lib/plan'
 import { familyOf } from '../lib/route'
 import { askRouter, driftRequest, parseDrift } from '../lib/router'
-import { EMPTY_QUOTA, normalizeQuota, quotaSettings } from '../lib/quota'
+import { EMPTY_QUOTA, evaluateQuota, normalizeQuota, quotaSettings } from '../lib/quota'
 import { storeKey, withNote } from '../lib/checkpoint'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
@@ -46,6 +46,9 @@ async function showStatus($: EngineInterface, current: View, options: Ctx['optio
   $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
 }
 
+/** Khoảng tối thiểu giữa hai lượt kiểm lạc đề (đồng hồ engine, 0.7.0): mỗi lượt là một lần gọi router. */
+const DRIFT_EVERY_MS = 10 * 60_000
+
 /**
  * Kết cục của một subagent theo `reason` của turn.complete (0.6.1): chỉ 'answer' là xong. 'error' là lỗi; 'aborted' (người dùng
  * ngắt) và 'refusal' (model từ chối, không có model dự phòng) cũng là lỗi. Đang tạm dừng vì hạn mức thì agent kết thúc là bị cắt
@@ -59,6 +62,12 @@ function agentEnd(reason: string, isPaused: boolean): { agent: Exclude<AgentStat
 
 export function registerConsistency(on: On, ctx: Ctx): void {
   const L = ctx.local
+  /** Ghi phát hiện của turn để gửi kèm router ở prompt tiếp nối (0.7.0): tối đa 5 mục, mỗi mục 120 ký tự. */
+  const noteObserved = (text: string) => {
+    const item = text.slice(0, 120)
+    if (!L.observed.includes(item)) L.observed.push(item)
+    if (L.observed.length > 5) L.observed.shift()
+  }
   const { agentFailures, agentTrackers, agents, blockLimit, carryEvidence, flushDecisions, delegationItems, evidenceFor, failedFor, isRouterPaused, moveDelegation, noteRouterTime, pendingFor, record, remindSubagents, routerFamily, routerModel, semanticDrift, steppedEarly, strictDelegation, trackDelegations } = ctx
   const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
   const mode = derive([modeState], modeOf(ctx.options))
@@ -294,10 +303,13 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       // Lặp lỗi: turn sau nâng độ sâu. Vượt ngân sách: turn sau nâng effort.
       if (finding.kind === 'loop') depthLift = 1
       if (finding.kind === 'budget') effortLift = 1
+      // Gửi kèm router ở prompt tiếp nối (0.7.0): lựa chọn model của turn này đã thiếu.
+      if (finding.kind === 'loop' || finding.kind === 'budget') noteObserved(finding.text)
     }
     if (isErrorBurst) {
       warnings.push({ at, kind: 'loop', text: `${ERROR_BURST} tool call lỗi trong turn này: turn sau nâng effort một bậc` })
       effortLift = 1
+      noteObserved(`${ERROR_BURST} tool call lỗi trong turn này`)
     }
     const lifts = depthLift > 0 || effortLift > 0
     if (lifts) L.liftRaised = true
@@ -311,7 +323,12 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     // semanticDrift (người dùng tự bật): ở checkpoint, router đọc mục tiêu và các thay đổi gần đây để nhận ra lạc đề
     // theo nội dung, thứ mà theo dõi hành vi tool không thấy.
     let driftNote: string | null = null
-    if (semanticDrift && core.brief !== null && findings.some(f => f.kind === 'checkpoint') && !isRouterPaused()) {
+    // Tự tắt khi hạn mức đã vào vùng gần ngưỡng (hay đang dừng): mỗi lượt kiểm là một lượt gọi router. Tối đa một lượt mỗi 10 phút.
+    const quota = normalizeQuota(await read($, quotaState))
+    const isNearQuota = quota.pause !== null || evaluateQuota(quota.readings, at, quotaSettings(ctx.options)).nearest !== null
+    const isDriftDue = L.lastDriftAt === null || at - L.lastDriftAt >= DRIFT_EVERY_MS
+    if (semanticDrift && core.brief !== null && findings.some(f => f.kind === 'checkpoint') && !isRouterPaused() && !isNearQuota && isDriftDue) {
+      L.lastDriftAt = at
       const request = driftRequest({
         goal: core.brief.goal,
         steps: openSteps(core.plan).map(step => step.title),
@@ -324,10 +341,16 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       noteRouterTime((await $.clock.now()) - startedAt)
       const verdict = outcome.result
       const now = await $.clock.now()
+      const isOffTrack = verdict !== null && !verdict.onTrack
       await update($, coreState, c => {
         const used = S.withAnalyzerUsage(outcome.usages, routerFamily)(c)
-        return verdict !== null && !verdict.onTrack ? S.withWarnings({ at: now, kind: 'drift', text: `Router: có thể lạc đề (${verdict.why})` })(used) : used
+        // Lệch mục tiêu: cảnh báo, và turn sau nâng độ sâu một bậc (0.7.0).
+        return isOffTrack ? S.withLift(1, 0)(S.withWarnings({ at: now, kind: 'drift', text: `Router: có thể lạc đề (${verdict?.why ?? ''})` })(used)) : used
       })
+      if (isOffTrack) {
+        L.liftRaised = true
+        noteObserved(`Router: có thể lạc đề (${verdict?.why ?? ''})`)
+      }
       record(now, 'drift', { onTrack: verdict?.onTrack ?? null, why: verdict?.why ?? outcome.reason, retried: outcome.retried })
       await flushDecisions((path, text) => $.fs.write(path, text))
       if (verdict !== null && !verdict.onTrack) driftNote = driftContext(core.brief.goal, verdict.why)

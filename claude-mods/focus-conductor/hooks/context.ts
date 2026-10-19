@@ -97,6 +97,10 @@ export function createContext(options: PluginOptions) {
     turnCount: 0,
     /** Turn hiện tại vừa có phát hiện làm tăng nâng cấp (vòng lặp, chuỗi lỗi, vượt ngân sách): chưa giảm ở cuối turn. */
     liftRaised: false,
+    /** Mốc (đồng hồ engine) của lượt kiểm lạc đề gần nhất; null là chưa có. */
+    lastDriftAt: null as number | null,
+    /** Phát hiện của turn trước (vòng lặp, chuỗi lỗi, vượt ngân sách, lệch mục tiêu): gửi kèm router ở prompt tiếp nối rồi xóa. */
+    observed: [] as string[],
     /** Log quyết định (JSONL) của phiên, nối tiếp file cũ nếu có. */
     decisions: [] as string[],
     /** Prompt gần nhất đã qua router, brief trước nó và số mục tiêu sau lượt đó: cho /conductor reroute. */
@@ -166,7 +170,8 @@ export function createContext(options: PluginOptions) {
   const routerFallback = options['routerFallback'] === 'reuse' ? 'reuse' : 'session'
   const strictDelegation = options['strictDelegation'] === 'remind' || options['strictDelegation'] === 'block' ? options['strictDelegation'] : 'off'
   const remindSubagents = options['remindSubagents'] === true
-  const semanticDrift = options['semanticDrift'] === true
+  // Bật mặc định từ 0.7.0 (tắt khi đặt false); tự tắt gần ngưỡng hạn mức và tối đa một lượt mỗi 10 phút.
+  const semanticDrift = options['semanticDrift'] !== false
   const decisionLog = typeof options['decisionLog'] === 'string' ? options['decisionLog'].trim() : ''
   const rawBlockLimit = Number(options['blockLimit'])
   const blockLimit = Number.isInteger(rawBlockLimit) && rawBlockLimit >= 1 ? Math.min(BLOCK_LIMIT_MAX, rawBlockLimit) : BLOCK_EDITS
@@ -317,6 +322,8 @@ export function createContext(options: PluginOptions) {
     blockedUntil.clear()
     local.turnCount = 0
     local.liftRaised = false
+    local.lastDriftAt = null
+    local.observed = []
     agents.clear()
     agentTrackers.clear()
     agentFailures.length = 0

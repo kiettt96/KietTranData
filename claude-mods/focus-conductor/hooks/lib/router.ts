@@ -192,6 +192,8 @@ export function routerRequest(args: {
   model: string
   /** Mục tiêu do người dùng đặt bằng lệnh: luôn là mục tiêu mới. */
   isForcedNew?: boolean
+  /** Phát hiện của turn trước (vòng lặp, chuỗi lỗi, vượt ngân sách, lệch mục tiêu): lựa chọn model đã thiếu, để router chấm lại. */
+  observed?: string
   /** Bảng giá cho catalog; mặc định là bảng đang dùng (golden-set truyền bảng kèm mod để băm ổn định). */
   prices?: Record<ModelFamily, Price>
 }): ModelCompleteRequest {
@@ -201,6 +203,7 @@ export function routerRequest(args: {
     allowedLine(args.policy),
     agentsLine(args.policy),
     ...(args.isForcedNew ? ['The user set this goal by command: relation must be "new".'] : []),
+    ...(args.observed ? [`Observed in the previous turn (the main model's choice fell short; re-read the work and raise "main" model or effort if it is harder than first judged): ${fence(clip(args.observed, 400))}`] : []),
   ]
   const system: readonly ModelTextBlock[] = [{ text: routerSystem(args.prices), cache: true }]
   return {
