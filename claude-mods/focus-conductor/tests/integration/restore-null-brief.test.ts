@@ -17,7 +17,7 @@ describe('0.7.0 1: lưu checklist khi mục tiêu chưa có brief', () => {
   test('router lỗi ở prompt đầu, plan set, prompt sau là mục tiêu mới: thông báo "đã được lưu" đúng và restore khôi phục được', {}, async ($, on) => {
     let n = 0
     const seen = base(on, { router: request => ((n += 1) <= 2 ? null : DEFAULT_ROUTER(request)) })
-    await submit($, 'Cập nhật skill taichinh-dongchilong lên v10.0.0, đối chiếu đủ các mục trong tài liệu đính kèm')
+    await submit($, 'Cập nhật skill mẫu lên v10.0.0, đối chiếu đủ các mục trong tài liệu đính kèm')
     await $.tool.call({ tool: PLAN, action: 'set', goal: 'Cập nhật skill', steps: [{ title: 'Đọc tài liệu v10' }, { title: 'Sửa skill' }] })
     await whilePaused($)
     await submit($, 'Viết hàm slugify(text) bằng TypeScript, có unit test.')
@@ -33,7 +33,7 @@ describe('0.7.0 1: lưu checklist khi mục tiêu chưa có brief', () => {
   test('không có brief và checklist không còn bước mở: không có gì để lưu', {}, async ($, on) => {
     let n = 0
     base(on, { router: request => ((n += 1) <= 2 ? null : DEFAULT_ROUTER(request)) })
-    await submit($, 'Cập nhật skill taichinh-dongchilong lên v10.0.0')
+    await submit($, 'Cập nhật skill mẫu lên v10.0.0')
     await $.tool.call({ tool: PLAN, action: 'set', goal: 'Cập nhật skill', steps: [{ title: 'Đọc tài liệu v10' }] })
     await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'done' })
     await whilePaused($)
