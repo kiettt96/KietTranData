@@ -217,3 +217,27 @@ describe('0.7.0 5: điều kiện để tự nâng', () => {
     expect(await show($)).not.toContain('[v]')
   })
 })
+
+describe('0.7.0 5: verified do Claude ghi, nhận theo evidence lỏng hay khớp chặt', () => {
+  test('evidence lỏng ("xong rồi") được nhận nhờ test đạt, nhưng bị hạ về done khi sửa tiếp; test đạt lại thì nâng lại', {}, async ($, on) => {
+    await goal($, on)
+    await edit($)
+    await bash($, 'npm test')
+    const out = String((await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'xong rồi' })).result)
+    expect(out).toContain('[v] 1. Sửa')
+    await edit($, 'src/h.ts')
+    expect(await show($)).toContain('[x] 1. Sửa')
+    await bash($, 'npm test')
+    expect(await show($)).toContain('[v] 1. Sửa')
+  })
+
+  test('evidence khớp chặt (nêu đúng lệnh đã chạy và kết quả) giữ verified khi sửa tiếp', {}, async ($, on) => {
+    await goal($, on)
+    await edit($)
+    await bash($, 'npm test')
+    await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'npm test: 12 pass' })
+    await edit($, 'src/i.ts')
+    expect(await show($)).toContain('[v] 1. Sửa')
+  })
+})
+
