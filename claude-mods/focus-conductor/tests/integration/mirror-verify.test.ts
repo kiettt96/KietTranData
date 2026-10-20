@@ -191,4 +191,32 @@ describe('0.7.1: nhật ký quyết định', () => {
     const lines = (writes.at(-1) ?? '').trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
     expect(lines.find(line => line['kind'] === 'verify-auto')).toMatchObject({ kind: 'verify-auto', at: 'mirror' })
   })
+
+  test('đóng việc sau khi test đã đạt cũng ghi verify-auto với at "mirror" và ghi ra tệp ngay', { options: { decisionLog: '/tmp/fc-mirror-verify2.jsonl' } }, async ($, on) => {
+    const writes: string[] = []
+    on('fs.write', (_$, e) => {
+      writes.push(e.text)
+      return { value: undefined }
+    })
+    await twoTasks($, on)
+    await edit($)
+    await bash($, 'npm test')
+    expect(writes.join('')).not.toContain('verify-auto')
+    await done($, '1')
+    const lines = (writes.at(-1) ?? '').trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
+    expect(lines.filter(line => line['kind'] === 'verify-auto')).toMatchObject([{ kind: 'verify-auto', at: 'mirror' }])
+  })
+
+  test('chưa có việc nào done thì không ghi verify-auto dù test đã đạt', { options: { decisionLog: '/tmp/fc-mirror-verify3.jsonl' } }, async ($, on) => {
+    const writes: string[] = []
+    on('fs.write', (_$, e) => {
+      writes.push(e.text)
+      return { value: undefined }
+    })
+    await twoTasks($, on)
+    await edit($)
+    await bash($, 'npm test')
+    await $.tool.call({ tool: 'TaskUpdate', taskId: '1', status: 'in_progress' } as never)
+    expect(writes.join('')).not.toContain('verify-auto')
+  })
 })
