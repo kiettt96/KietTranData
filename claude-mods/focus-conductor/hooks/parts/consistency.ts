@@ -240,7 +240,10 @@ export function registerConsistency(on: On, ctx: Ctx): void {
         noteEvidence(evidenceFor(agentBrief.goalId), observation, e.agentId)
         trackVerification(L.tracker, observation, e.agentId)
         // Subagent sửa file: bước tự nâng thành verified về done, như thay đổi của luồng chính (0.7.0).
-        if (!observation.isError && isMutation(observation)) await update($, coreState, S.withAutoDemoted)
+        if (!observation.isError && isMutation(observation) && S.hasAutoVerified(S.normalizeCore(await read($, coreState)))) {
+          await update($, coreState, S.withAutoDemoted)
+          await showStatus($, await read($, view), ctx.options)
+        }
       }
       const scopePaths = remindSubagents ? (agentBrief?.scopePaths ?? []) : []
       const frame = agentBrief !== null ? await frameOf($, L.roots, agentBrief.goalId, scopePaths) : { root: null, cwd: null }
@@ -264,15 +267,17 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     // Thay đổi mới: các bước tự nâng thành verified về done, vì lần test trước không còn phủ thay đổi này (0.7.0).
     if (core.brief !== null && !observation.isError && isMutation(observation)) {
       const goalId = core.brief.goalId
+      const hadVerified = S.hasAutoVerified(core)
       await update($, coreState, c => S.withAutoDemoted(S.withActivity(goalId)(c)))
+      if (hadVerified) await showStatus($, await read($, view), ctx.options)
     }
     // Lệnh test vừa chạy đạt sau thay đổi cuối (phủ mọi thay đổi): các bước done thành verified (0.7.0).
     if (core.brief !== null && observation.tool === 'Bash' && !observation.isError) {
       const log = evidenceFor(core.brief.goalId)
       const fresh = freshTestRun(log)
-      if (fresh !== undefined && fresh === log.commands.at(-1) && core.plan.some(s => s.status === 'done')) {
+      if (fresh !== undefined && fresh === log.commands.at(-1) && (core.plan.some(s => s.status === 'done') || S.liveMirror(core).some(s => s.status === 'done'))) {
         await update($, coreState, S.withAutoVerified(fresh.command))
-        record(await $.clock.now(), 'verify-auto', { command: clipText(fresh.command), at: 'test' })
+        record(await $.clock.now(), 'verify-auto', { command: clipText(fresh.command), at: core.plan.length === 0 ? 'mirror' : 'test' })
         await flushDecisions((path, text) => $.fs.write(path, text))
         await showStatus($, await read($, view), ctx.options)
       }

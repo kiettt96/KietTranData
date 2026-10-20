@@ -261,15 +261,23 @@ export const withAutoVerified =
   (command: string, only?: readonly number[]) =>
   (c: Core): Core => {
     const n = normalizeCore(c)
-    if (!n.plan.some(s => s.status === 'done' && (only === undefined || only.includes(s.id)))) return n
+    const isPlanned = n.plan.some(s => s.status === 'done' && (only === undefined || only.includes(s.id)))
+    // Danh sách phản chiếu (0.7.1): lệnh test đạt sau thay đổi cuối phủ mọi bước done của nó; không có id ổn định nên không có `only`.
+    const isMirrored = only === undefined && liveMirror(n).some(s => s.status === 'done')
+    if (!isPlanned && !isMirrored) return n
     const note = `tự động: ${command.slice(0, 120)} chạy đạt sau thay đổi cuối`
-    return { ...n, plan: n.plan.map(s => (s.status === 'done' && (only === undefined || only.includes(s.id)) ? { ...s, status: 'verified' as const, auto: true, note } : s)) }
+    return {
+      ...n,
+      plan: n.plan.map(s => (s.status === 'done' && (only === undefined || only.includes(s.id)) ? { ...s, status: 'verified' as const, auto: true, note } : s)),
+      mirror: isMirrored ? { ...n.mirror, steps: n.mirror.steps.map(s => (s.status === 'done' ? { ...s, status: 'verified' as const } : s)) } : n.mirror,
+    }
   }
 
 /** Có thay đổi mới: các bước verified do mod tự nâng về done (bước verified do Claude ghi giữ nguyên). */
 export const withAutoDemoted = (c: Core): Core => {
   const n = normalizeCore(c)
-  if (!n.plan.some(s => s.auto === true && s.status === 'verified')) return n
+  const isMirrored = liveMirror(n).some(s => s.status === 'verified')
+  if (!hasAutoVerified(n)) return n
   return {
     ...n,
     plan: n.plan.map(s => {
@@ -277,8 +285,20 @@ export const withAutoDemoted = (c: Core): Core => {
       const { auto: _auto, note: _note, ...rest } = s
       return { ...rest, status: 'done' as const }
     }),
+    mirror: isMirrored ? { ...n.mirror, steps: n.mirror.steps.map(s => (s.status === 'verified' ? { ...s, status: 'done' as const } : s)) } : n.mirror,
   }
 }
+
+/** Có bước verified do mod tự nâng (của tool plan hay của danh sách phản chiếu) để hạ khi có thay đổi mới. */
+export const hasAutoVerified = (n: Core): boolean =>
+  n.plan.some(s => s.auto === true && s.status === 'verified') || liveMirror(n).some(s => s.status === 'verified')
+
+/**
+ * Các bước của danh sách việc phản chiếu khi nó là checklist đang hiển thị: tool plan chưa có bước (tool plan luôn thắng) và danh
+ * sách thuộc mục tiêu hiện tại. Rỗng nếu không. Mod chỉ nâng và hạ verified của danh sách này (0.7.1).
+ */
+export const liveMirror = (n: Core): readonly MirrorStep[] =>
+  n.plan.length === 0 && n.brief !== null && n.mirror.goalId === n.brief.goalId ? n.mirror.steps : []
 
 export const withRoute =
   (route: Route | null) =>

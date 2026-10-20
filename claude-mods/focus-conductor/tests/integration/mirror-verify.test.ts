@@ -42,7 +42,7 @@ async function twoTasks($: Engine, on: On) {
   await create($, 'Kiểm')
   return seen
 }
-const last = (seen: { statuses: string[] }) => seen.statuses.at(-1) ?? ''
+const last = (seen: { statuses: (string | undefined)[] }) => seen.statuses.at(-1) ?? ''
 
 describe('0.7.1: tự nâng verified cho danh sách phản chiếu', () => {
   test('đóng cả hai việc rồi test đạt: nâng; sửa tiếp: hạ; test lại: nâng lại', {}, async ($, on) => {
@@ -102,7 +102,7 @@ describe('0.7.1: tự nâng verified cho danh sách phản chiếu', () => {
     await write($, [todo('Sửa', 'completed'), todo('Kiểm', 'in_progress')])
     expect(last(seen)).toContain('1/2 · 1✓')
     // Không có lần đặt status nào ở giữa hiện bước đã hạ.
-    expect(seen.statuses.slice(before).every(s => s.includes('✓'))).toBe(true)
+    expect(seen.statuses.slice(before).every(s => s?.includes('✓'))).toBe(true)
   })
 })
 

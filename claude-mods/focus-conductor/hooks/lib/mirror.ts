@@ -1,6 +1,6 @@
 // Phản chiếu danh sách việc Claude Code tự ghi (TodoWrite, TaskCreate, TaskUpdate) thành bước có trạng thái (0.6.1).
-// Hàm thuần, không gọi $. Bước phản chiếu chỉ để vẽ tiến độ: không bao giờ có verified, và không thay checklist của
-// tool plan (checklist đó luôn thắng khi đã có).
+// Hàm thuần, không gọi $. Bước phản chiếu chỉ để vẽ tiến độ và không thay checklist của tool plan (checklist đó luôn thắng khi đã
+// có). Claude Code không có trạng thái verified; bước verified ở đây do mod tự nâng ở state.ts (0.7.1), không phải từ applyTaskTool.
 
 import type { Core, MirrorStep, PlanStep } from '../../types'
 
