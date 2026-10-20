@@ -4,6 +4,8 @@
 
 import { atom, derive, read, update } from 'claude-code'
 import type { EngineInterface, On } from 'claude-code'
+import { clipText } from '../lib/decisions'
+import { freshTestRun } from '../lib/drift'
 import { applyTaskTool } from '../lib/mirror'
 import { EMPTY_QUOTA, normalizeQuota, quotaSettings } from '../lib/quota'
 import * as S from '../lib/state'
@@ -45,7 +47,15 @@ export function registerProgress(on: On, ctx: Ctx): void {
     const before = core.mirror.goalId === goalId ? core.mirror.steps : []
     const next_ = applyTaskTool(before, e.tool, e as unknown as Record<string, unknown>, result.result)
     if (next_ === null) return result
-    await update($, coreState, S.withMirror(goalId, next_))
+    // Lệnh test đã đạt sau thay đổi cuối thì các bước done của danh sách nâng thành verified ngay trong cùng lần ghi (0.7.1), để status
+    // line không thoáng hiện bước đã hạ về done rồi mới nâng lại.
+    const fresh = freshTestRun(ctx.evidenceFor(goalId))
+    const isVerifying = fresh !== undefined && next_.some(s => s.status === 'done')
+    await update($, coreState, c => (isVerifying ? S.withAutoVerified(fresh.command)(S.withMirror(goalId, next_)(c)) : S.withMirror(goalId, next_)(c)))
+    if (isVerifying) {
+      ctx.record(await $.clock.now(), 'verify-auto', { command: clipText(fresh.command), at: 'mirror' })
+      await ctx.flushDecisions((path, text) => $.fs.write(path, text))
+    }
     await showStatus($, await read($, view), ctx.options)
     return result
   }).catch(($, e, next) => next(e))

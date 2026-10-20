@@ -210,9 +210,10 @@ export type DelegationItem = { index: number; title: string; state: DelegationSt
 
 /**
  * Một bước của danh sách việc Claude Code tự ghi (TodoWrite, TaskCreate, TaskUpdate), phản chiếu để vẽ tiến độ (0.6.1).
- * `key` là id của TaskCreate, hoặc thứ tự trong danh sách của TodoWrite. Không bao giờ có verified.
+ * `key` là id của TaskCreate, hoặc thứ tự trong danh sách của TodoWrite. Claude Code không có trạng thái verified: bước verified ở
+ * đây luôn do mod tự nâng khi lệnh test chạy đạt sau thay đổi cuối (0.7.1) và hạ về done khi có thay đổi mới.
  */
-export type MirrorStep = { key: string; title: string; status: 'todo' | 'doing' | 'done' }
+export type MirrorStep = { key: string; title: string; status: 'todo' | 'doing' | 'done' | 'verified' }
 
 /** Trạng thái của một lần gọi Agent (0.6.1): đang chạy, xong, lỗi, hoặc bị cắt vì tạm dừng hạn mức. */
 export type AgentState = 'running' | 'done' | 'failed' | 'cut'
