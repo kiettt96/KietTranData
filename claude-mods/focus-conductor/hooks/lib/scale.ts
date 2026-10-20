@@ -20,6 +20,11 @@ export function tierOf(depth: Depth, volume: Volume): Tier {
   return table[depth][volume]
 }
 
+/** Tier cao hơn của hai tier (ngân sách tool call của mục tiêu không tụt khi prompt tiếp nối được đọc là nhẹ hơn). */
+export function maxTier(a: Tier, b: Tier): Tier {
+  return TIERS.indexOf(a) >= TIERS.indexOf(b) ? a : b
+}
+
 /** Dữ liệu cũ (0.1.x) chỉ có tier: đổi sang depth và volume tương đương. */
 export function legacyOf(tier: Tier): { depth: Depth; volume: Volume } {
   switch (tier) {

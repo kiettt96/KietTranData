@@ -16,7 +16,8 @@ describe('0.6.1 2.3: thanh chữ trên status line', () => {
     expect(statusLine(brief, planOf('todo', 'todo', 'todo', 'todo'), route, 'auto')).toBe('complex · opus/high · ╌╌╌╌╌╌╌╌ 0/4')
     expect(statusLine(brief, planOf('done', 'doing', 'todo', 'todo'), route, 'auto')).toBe('complex · opus/high · ━━◐╌╌╌╌╌ 1/4')
     expect(statusLine(brief, planOf('done', 'done', 'todo', 'todo'), route, 'auto')).toBe('complex · opus/high · ━━━━╌╌╌╌ 2/4')
-    expect(statusLine(brief, planOf('done', 'verified', 'skipped', 'done'), route, 'auto')).toBe('complex · opus/high · ━━━━━━━━ 4/4')
+    // 0.7.0: bước verified được đếm riêng ("· k✓"); thanh vẫn đủ 8 ô.
+    expect(statusLine(brief, planOf('done', 'verified', 'skipped', 'done'), route, 'auto')).toBe('complex · opus/high · ━━━━━━━━ 4/4 · 1✓')
   })
 
   test('bước bị chặn và đang chờ dùng ■ và ◇ như band; chế độ khác auto vẫn ghi cuối', () => {

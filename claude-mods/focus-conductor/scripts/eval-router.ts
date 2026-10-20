@@ -2,7 +2,7 @@
 // `claude -p` (không tool, không hook, không MCP), chấm câu trả lời theo tests/golden/check.ts và in bảng.
 // Chỉ đọc và điều phối, không thực thi prompt nào.
 //
-//   bun scripts/eval-router.ts [--model sonnet] [--only id1,id2] [--runs 3] [--record]
+//   bun scripts/eval-router.ts [--model sonnet] [--only id1,id2] [--runs 3] [--record] [--out stats.json]
 //
 // --runs N chạy mỗi ca N lần và báo tỷ lệ đạt từng ca (router không tất định, một lần chạy không nói được độ ổn định).
 // --record ghi vào tests/golden/replies.ts (dữ liệu replay của golden.test.ts): câu trả lời đạt đầu tiên của mỗi ca, băm của
@@ -11,14 +11,18 @@
 // Mỗi lần gọi chạy với CLAUDE_CONFIG_DIR riêng (thư mục tạm), để plugin và mod đang bật trên máy (kể cả chính
 // focus-conductor) không điều phối lại request của router. Cột "served" là model thật sự trả lời (modelUsage);
 // khác model yêu cầu thì ca đó bị đánh dấu.
+// Sau bảng tỷ lệ đạt, in thống kê của chính câu trả lời (0.7.0): số việc router tách ra (và số việc giao subagent), phân bố model
+// và effort của luồng chính và của việc giao, thời gian và chi phí mỗi lượt. --out ghi từng lượt ra một tệp JSON để so trước và sau
+// khi đổi lời dặn router.
 
 import { spawn } from 'node:child_process'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { CASES } from '../tests/golden/cases'
+import { CASES, OPEN } from '../tests/golden/cases'
 import type { GoldenCase } from '../tests/golden/cases'
+import { parseRoute } from '../hooks/lib/router'
 import { check } from '../tests/golden/check'
 import { goldenRequest, requestHash } from '../tests/golden/hash'
 
@@ -30,6 +34,7 @@ const flag = (name: string) => {
 const MODEL = flag('--model') ?? 'sonnet'
 const ONLY = flag('--only')?.split(',')
 const RECORD = args.includes('--record')
+const OUT = flag('--out')
 const RUNS = Math.max(1, Number(flag('--runs') ?? '1') || 1)
 const REPLIES = join(import.meta.dir, '..', 'tests', 'golden', 'replies.ts')
 const work = mkdtempSync(join(tmpdir(), 'fc-eval-'))
@@ -67,7 +72,21 @@ async function one(c: GoldenCase, n: number) {
   }
   const fails = check(c, text)
   if (served !== '?' && !served.split('+').every(id => id.includes(MODEL))) fails.push(`model trả lời ${served}, không phải ${MODEL}`)
-  return { c, n, text, fails, ms, usd, served }
+  const parsed = parseRoute(text, OPEN)
+  const stats =
+    parsed === null
+      ? null
+      : {
+          tasks: parsed.tasks.length,
+          reqs: parsed.requirements.length,
+          agents: parsed.tasks.filter(t => t.run === 'agent').length,
+          main: `${parsed.main.family}/${parsed.main.effort}`,
+          picks: parsed.tasks.map(t => `${t.run === 'agent' ? 'agent' : 'main'}:${t.pick.family}/${t.pick.effort}`),
+          relation: parsed.relation,
+          depth: parsed.depth,
+          volume: parsed.volume,
+        }
+  return { c, n, text, fails, ms, usd, served, stats }
 }
 
 // Phiên bản Claude Code chạy eval, ghi kèm kết quả để số liệu gắn với đúng môi trường.
@@ -93,6 +112,25 @@ for (const { c, runs, passed } of summary) {
   const reasons = [...new Set(runs.flatMap(r => r.fails))]
   console.log(reasons.length === 0 ? head : `${head}\n     ${reasons.join('\n     ')}`)
 }
+// Thống kê của câu trả lời (0.7.0).
+const mean = (xs: number[]) => (xs.length === 0 ? 0 : xs.reduce((a, b) => a + b, 0) / xs.length)
+const count = (xs: string[]) =>
+  Object.entries(xs.reduce<Record<string, number>>((m, x) => ({ ...m, [x]: (m[x] ?? 0) + 1 }), {}))
+    .sort((a, b) => b[1] - a[1])
+    .map(([k, v]) => `${k} ${v}`)
+    .join(', ')
+console.log('\nThống kê câu trả lời (việc tách ra / giao subagent, luồng chính):')
+for (const { c, runs } of summary) {
+  const st = runs.flatMap(r => (r.stats === null ? [] : [r.stats]))
+  console.log(`  ${c.id.padEnd(14)} việc ${st.map(s => s.tasks).join('/') || '-'} (giao ${st.map(s => s.agents).join('/') || '-'}); yêu cầu ${st.map(s => s.reqs).join('/') || '-'}; main ${count(st.map(s => s.main)) || '-'}`)
+}
+const allStats = results.flatMap(r => (r.stats === null ? [] : [r.stats]))
+console.log(`  Tổng: việc tách ra TB ${mean(allStats.map(s => s.tasks)).toFixed(2)}, giao subagent TB ${mean(allStats.map(s => s.agents)).toFixed(2)}, yêu cầu TB ${mean(allStats.map(s => s.reqs)).toFixed(2)} (${allStats.length}/${results.length} lượt đọc được)`)
+console.log(`  Luồng chính: ${count(allStats.map(s => s.main))}`)
+console.log(`  Việc: ${count(allStats.flatMap(s => s.picks))}`)
+console.log(`  Thời gian TB ${(mean(results.map(r => r.ms)) / 1000).toFixed(1)} s; chi phí ${results.reduce((sum, r) => sum + r.usd, 0).toFixed(3)} USD cho ${results.length} lượt (TB ${(results.reduce((sum, r) => sum + r.usd, 0) / Math.max(1, results.length)).toFixed(4)} USD)`)
+if (OUT) writeFileSync(OUT, JSON.stringify({ version, startedAt, model: MODEL, runs: RUNS, results: results.map(r => ({ id: r.c.id, n: r.n, ok: r.fails.length === 0, fails: r.fails, ms: r.ms, usd: r.usd, stats: r.stats })) }, null, 2))
+
 const total = summary.reduce((sum, s) => sum + s.passed, 0)
 const attempts = summary.reduce((sum, s) => sum + s.runs.length, 0)
 console.log(`\n${summary.filter(s => s.passed === s.runs.length).length}/${summary.length} ca đạt mọi lần; ${total}/${attempts} lượt đạt (router ${MODEL}, tổng $${results.reduce((sum, r) => sum + r.usd, 0).toFixed(4)})`)

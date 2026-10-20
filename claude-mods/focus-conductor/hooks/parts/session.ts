@@ -3,11 +3,11 @@
 import { atom, derive, read, update } from 'claude-code'
 import type { Brief, Core, QuotaCheckpoint, Warning } from '../../types'
 import { briefFromCheckpoint, changedFiles, storeKey } from '../lib/checkpoint'
-import { restorableSteps } from '../lib/drift'
+import { openSteps, restorableSteps } from '../lib/drift'
 import { PLAN_TOOL_SPEC } from '../lib/plan'
 import { describePick } from '../lib/route'
 import { clipText, keptLines } from '../lib/decisions'
-import { askRouter, isSkippable, nextBrief, parseRoute, routerRequest } from '../lib/router'
+import { REQUIREMENTS_RECHECK, askRouter, isSkippable, nextBrief, parseRoute, routerRequest } from '../lib/router'
 import type { RouterOutcome, RouterPlan } from '../lib/router'
 import { EMPTY_QUOTA, blockingHits, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaSettings, reasonsOf } from '../lib/quota'
 import * as S from '../lib/state'
@@ -191,9 +191,11 @@ export function registerSession(on: On, ctx: Ctx): void {
     let pauseText: string | null = null
     if (!isPaused) {
       $.ui.status('router đang đọc prompt...')
-      const request = routerRequest({ text, prev, ran: ranText(before), policy: rules, model: routerModel })
+      const observed = L.observed.join('; ')
+      L.observed = []
+      const request = routerRequest({ text, prev, ran: ranText(before), policy: rules, model: routerModel, openSteps: openSteps(before.plan).map(s => s.title), ...(observed ? { observed } : {}) })
       const startedAt = await $.clock.now()
-      outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules))
+      outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), result => result.requirements.length > REQUIREMENTS_RECHECK)
       noteRouterTime((await $.clock.now()) - startedAt)
       pauseText = noteRouter(outcome.result !== null)
     }

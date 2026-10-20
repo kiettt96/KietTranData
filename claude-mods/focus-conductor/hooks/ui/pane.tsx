@@ -9,7 +9,7 @@ import { estimateLine, formatUsd, ledgerLines, sessionUsd } from '../lib/ledger'
 import type { View } from '../lib/state'
 import { shownPlan } from '../lib/mirror'
 import { taskRows } from '../lib/progress'
-import { progress } from '../lib/text'
+import { countLabel, progress } from '../lib/text'
 import type { QuotaPaneText } from '../lib/text'
 import { labels, taskLabel } from './labels'
 import type { Run } from './style'
@@ -190,7 +190,7 @@ export function renderPane(
               <Text>{bar.map(tint)}</Text>
             </Box>
             <Box flexShrink={0}>
-              <Text bold>{`${closed}/${total}`}</Text>
+              <Text bold>{countLabel(plan)}</Text>
             </Box>
             <Text dimColor wrap="truncate-end">
               {phaseWord}
@@ -543,7 +543,7 @@ export function renderPane(
       {quotaNode}
       {alerts}
       <Box flexDirection="column">
-        {heading(plan.length > 0 ? 'Checklist' : l.planned, plan.length > 0 ? `${closed}/${total}` : undefined)}
+        {heading(plan.length > 0 ? 'Checklist' : l.planned, plan.length > 0 ? countLabel(plan) : undefined)}
         {source === 'mirror' ? (
           <Text dimColor wrap="wrap">
             {l.mirrorSource}

@@ -37,6 +37,10 @@ export type Expect = {
   main: readonly ModelFamily[]
   /** Số việc router tách ra, [tối thiểu, tối đa]. */
   tasks: readonly [number, number]
+  /** Số yêu cầu router liệt kê, [tối thiểu, tối đa] (0.7.0). */
+  requirements?: readonly [number, number]
+  /** Router có tách việc thì mọi yêu cầu đã liệt kê phải có ít nhất một việc phủ (0.7.0). */
+  covered?: boolean
   /** Việc theo số: họ model và loại agent chấp nhận được khi giao. */
   pieces?: ReadonlyArray<{ index: number; families?: readonly ModelFamily[]; agents?: readonly string[] }>
   /** Chuỗi phải có (không phân biệt hoa thường) trong ràng buộc. */
@@ -236,5 +240,17 @@ export const CASES: readonly GoldenCase[] = [
     ran: 'sonnet/medium',
     note: 'mục tiêu mới sau một mục tiêu cũ: không được coi là tiếp nối',
     expect: { relation: 'new', kind: ['edit', 'mixed'], main: ['sonnet', 'opus'], tasks: [0, 2] },
+  },
+  {
+    id: 'prose-hidden',
+    text: 'Module báo cáo thuế của shop-api đang tính VAT sai cho hóa đơn xuất khẩu, nên xử lý luôn trong lượt này: trước hết tìm xem hàm tính thuế nằm ở đâu và vì sao ra sai, sau đó sửa cho đúng nhưng đừng đổi chữ ký hàm công khai vì ba service khác đang gọi nó, thêm unit test cho cả hóa đơn trong nước lẫn xuất khẩu, rồi cập nhật phần mô tả trong README cho khớp, và nếu có file cấu hình thuế suất thì chỉ đọc chứ không sửa.',
+    note: 'một đoạn văn, không đề mục: các yêu cầu nằm trong câu, router phải liệt kê đủ và phủ hết',
+    expect: { kind: ['edit', 'mixed'], main: ['sonnet', 'opus'], tasks: [0, 8], requirements: [5, 9], covered: true },
+  },
+  {
+    id: 'single-block',
+    text: 'Thêm vào src/utils/format.ts một hàm formatVnd(amount: number) trả về chuỗi tiền đồng có dấu chấm phân cách hàng nghìn, ví dụ 1234567 thành "1.234.567 ₫".',
+    note: 'một khối liền mạch, không có gì để chia: không tách việc',
+    expect: { kind: ['edit'], main: ['haiku', 'sonnet'], tasks: [0, 0], requirements: [1, 4] },
   },
 ]

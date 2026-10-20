@@ -443,10 +443,24 @@ describe('PR #13 vòng 2: lệnh sau tự in báo đạt và evidence gắn đú
     expect(String(done.result)).toContain('[x] 1. Sửa')
   })
 
-  test('npm test && npm run lint | tail -3: evidence về lint không xác nhận bằng kết quả của npm test', {}, async ($, on) => {
+  // 0.7.0: verified không còn dựa vào việc evidence chép đúng lệnh. `npm test` đạt sau thay đổi cuối là đủ, kể cả khi evidence nêu
+  // lệnh lint mà kết quả lint bị ống che; còn `npm test` lỗi thì verified vẫn bị hạ về done.
+  test('npm test && npm run lint | tail -3: npm test đạt sau thay đổi cuối thì verified được nhận dù evidence nêu lint', {}, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     on('tool.call', { tool: 'Bash' }, () => ({ result: '# tests 3\n# pass 3\n# fail 0\nlint: problem' }))
+    await submit($, COMPLEX_PROMPT)
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa' }] })
+    await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' })
+    await $.tool.call({ tool: 'Bash', command: 'npm test && npm run lint | tail -3' })
+    const done = await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'npm run lint: đạt' })
+    expect(String(done.result)).toContain('[v] 1. Sửa')
+  })
+
+  test('npm test && npm run lint | tail -3 mà npm test lỗi: verified vẫn bị hạ về done', {}, async ($, on) => {
+    base(on)
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    on('tool.call', { tool: 'Bash' }, () => ({ result: '# tests 3\n# pass 2\n# fail 1\nlint: problem' }))
     await submit($, COMPLEX_PROMPT)
     await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa' }] })
     await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' })

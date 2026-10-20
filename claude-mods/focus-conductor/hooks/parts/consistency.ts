@@ -2,7 +2,7 @@
 
 import { atom, derive, read, update } from 'claude-code'
 import type { AgentState, DelegationState, Warning } from '../../types'
-import { acceptsVerified, evidenceStrength, filePathOf, isExecuting, isFullyClosed, isGoalDone, isMutation, isPlanFile, newTracker, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
+import { acceptsVerified, evidenceStrength, filePathOf, freshTestRun, isExecuting, isFullyClosed, isGoalDone, isMutation, isPlanFile, newTracker, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
 import type { Focus } from '../lib/drift'
 import { clipText } from '../lib/decisions'
 import { addUsage, calibrate, recordShape, shapeKey } from '../lib/ledger'
@@ -10,7 +10,7 @@ import { applyPlan } from '../lib/plan'
 import type { PlanInput } from '../lib/plan'
 import { familyOf } from '../lib/route'
 import { askRouter, driftRequest, parseDrift } from '../lib/router'
-import { EMPTY_QUOTA, normalizeQuota, quotaSettings } from '../lib/quota'
+import { EMPTY_QUOTA, evaluateQuota, normalizeQuota, quotaSettings } from '../lib/quota'
 import { storeKey, withNote } from '../lib/checkpoint'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
@@ -46,6 +46,9 @@ async function showStatus($: EngineInterface, current: View, options: Ctx['optio
   $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
 }
 
+/** Khoảng tối thiểu giữa hai lượt kiểm lạc đề (đồng hồ engine, 0.7.0): mỗi lượt là một lần gọi router. */
+const DRIFT_EVERY_MS = 10 * 60_000
+
 /**
  * Kết cục của một subagent theo `reason` của turn.complete (0.6.1): chỉ 'answer' là xong. 'error' là lỗi; 'aborted' (người dùng
  * ngắt) và 'refusal' (model từ chối, không có model dự phòng) cũng là lỗi. Đang tạm dừng vì hạn mức thì agent kết thúc là bị cắt
@@ -59,6 +62,12 @@ function agentEnd(reason: string, isPaused: boolean): { agent: Exclude<AgentStat
 
 export function registerConsistency(on: On, ctx: Ctx): void {
   const L = ctx.local
+  /** Ghi phát hiện của turn để gửi kèm router ở prompt tiếp nối (0.7.0): tối đa 5 mục, mỗi mục 120 ký tự. */
+  const noteObserved = (text: string) => {
+    const item = text.slice(0, 120)
+    if (!L.observed.includes(item)) L.observed.push(item)
+    if (L.observed.length > 5) L.observed.shift()
+  }
   const { agentFailures, agentTrackers, agents, blockLimit, carryEvidence, flushDecisions, delegationItems, evidenceFor, failedFor, isRouterPaused, moveDelegation, noteRouterTime, pendingFor, record, remindSubagents, routerFamily, routerModel, semanticDrift, steppedEarly, strictDelegation, trackDelegations } = ctx
   const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
   const mode = derive([modeState], modeOf(ctx.options))
@@ -121,21 +130,36 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     const isVerifiedAsk = input.action === 'update' && input.status === 'verified' && evidence !== '' && input.ids === undefined && input.allOpen !== true
     const log = before.brief !== null ? evidenceFor(before.brief.goalId) : null
     const strength = isVerifiedAsk && log !== null ? evidenceStrength(evidence, log) : null
-    const isAccepted = strength !== null && log !== null && acceptsVerified(strength, log)
+    // Mod tự nâng (0.7.0): mục tiêu đã có sửa file và một lệnh test chạy đạt sau thay đổi cuối (phủ mọi thay đổi) thì verified do
+    // Claude ghi được nhận mà không đòi evidence chép đúng lệnh; còn lại giữ luật cũ.
+    const fresh = log !== null ? freshTestRun(log) : undefined
+    const isStrict = isVerifiedAsk && log !== null && strength !== null && acceptsVerified(strength, log)
+    const isAccepted = isStrict || (isVerifiedAsk && log !== null && fresh !== undefined)
     const isDowngraded = isVerifiedAsk && !isAccepted
-    const outcome = applyPlan(before.plan, isDowngraded ? { ...input, status: 'done' } : input)
+    // Nhận nhờ test đạt chứ evidence không khớp chặt: lưu done rồi để mod nâng thành verified có dấu auto, nên sửa tiếp thì bị hạ lại.
+    const isLoose = isAccepted && !isStrict
+    const outcome = applyPlan(before.plan, isDowngraded || isLoose ? { ...input, status: 'done' } : input)
     if (outcome.error !== undefined) return { deny: outcome.error }
 
     // "set" chốt lại mục tiêu và các bước: làm mới cả từ khóa của brief để
     // việc nhận diện prompt tiếp nối dựa trên mục tiêu mới, không phải mục tiêu cũ.
     const isSet = input.action === 'set'
     const titles = outcome.plan.map(step => step.title)
-    const core = await update($, coreState, c => {
+    let core = await update($, coreState, c => {
       const withPlan = S.withPlan(outcome.plan)(c)
       return isSet ? S.withRetarget(outcome.goal, titles, outcome.scope)(withPlan) : withPlan
     })
+    // Bước vừa đóng bằng done khi đã có test đạt sau thay đổi cuối: nâng ngay thành verified (0.7.0).
+    if (fresh !== undefined && input.action === 'update') {
+      const closed = (outcome.changed ?? []).filter(id => outcome.plan.some(s => s.id === id && s.status === 'done'))
+      if (closed.length > 0) {
+        core = await update($, coreState, S.withAutoVerified(fresh.command, closed))
+        record(await $.clock.now(), 'verify-auto', { steps: closed, command: clipText(fresh.command), at: 'close' })
+        await flushDecisions((path, text) => $.fs.write(path, text))
+      }
+    }
     L.tracker.planUpdates += 1
-    if (isAccepted && strength?.level === 'strong') {
+    if (isAccepted && (strength?.level === 'strong' || fresh !== undefined)) {
       L.tracker.isVerified = true
       L.tracker.mutationsSinceCheck = 0
     }
@@ -215,6 +239,8 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       if (agentBrief !== null && meta.goalId === agentBrief.goalId) {
         noteEvidence(evidenceFor(agentBrief.goalId), observation, e.agentId)
         trackVerification(L.tracker, observation, e.agentId)
+        // Subagent sửa file: bước tự nâng thành verified về done, như thay đổi của luồng chính (0.7.0).
+        if (!observation.isError && isMutation(observation)) await update($, coreState, S.withAutoDemoted)
       }
       const scopePaths = remindSubagents ? (agentBrief?.scopePaths ?? []) : []
       const frame = agentBrief !== null ? await frameOf($, L.roots, agentBrief.goalId, scopePaths) : { root: null, cwd: null }
@@ -235,7 +261,22 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     // Ghi cả lệnh lỗi: evidence nhắc tới một lệnh kiểm tra đã lỗi thì không được tính là đã kiểm tra.
     if (core.brief !== null) noteEvidence(evidenceFor(core.brief.goalId), observation)
     // Luồng chính vừa thay đổi file: việc làm trực tiếp chưa có bước chuyển từ chưa bắt đầu sang đang làm (0.6.1).
-    if (core.brief !== null && !observation.isError && isMutation(observation)) await update($, coreState, S.withActivity(core.brief.goalId))
+    // Thay đổi mới: các bước tự nâng thành verified về done, vì lần test trước không còn phủ thay đổi này (0.7.0).
+    if (core.brief !== null && !observation.isError && isMutation(observation)) {
+      const goalId = core.brief.goalId
+      await update($, coreState, c => S.withAutoDemoted(S.withActivity(goalId)(c)))
+    }
+    // Lệnh test vừa chạy đạt sau thay đổi cuối (phủ mọi thay đổi): các bước done thành verified (0.7.0).
+    if (core.brief !== null && observation.tool === 'Bash' && !observation.isError) {
+      const log = evidenceFor(core.brief.goalId)
+      const fresh = freshTestRun(log)
+      if (fresh !== undefined && fresh === log.commands.at(-1) && core.plan.some(s => s.status === 'done')) {
+        await update($, coreState, S.withAutoVerified(fresh.command))
+        record(await $.clock.now(), 'verify-auto', { command: clipText(fresh.command), at: 'test' })
+        await flushDecisions((path, text) => $.fs.write(path, text))
+        await showStatus($, await read($, view), ctx.options)
+      }
+    }
     const focus: Focus | null = core.brief !== null ? { ...core.brief, ...(await frameOf($, L.roots, core.brief.goalId, core.brief.scopePaths)) } : null
     const findings = observe(L.tracker, observation, focus, core.plan)
     const isErrorBurst = L.tracker.errors === ERROR_BURST
@@ -265,12 +306,16 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       // Lặp lỗi: turn sau nâng độ sâu. Vượt ngân sách: turn sau nâng effort.
       if (finding.kind === 'loop') depthLift = 1
       if (finding.kind === 'budget') effortLift = 1
+      // Gửi kèm router ở prompt tiếp nối (0.7.0): lựa chọn model của turn này đã thiếu.
+      if (finding.kind === 'loop' || finding.kind === 'budget') noteObserved(finding.text)
     }
     if (isErrorBurst) {
       warnings.push({ at, kind: 'loop', text: `${ERROR_BURST} tool call lỗi trong turn này: turn sau nâng effort một bậc` })
       effortLift = 1
+      noteObserved(`${ERROR_BURST} tool call lỗi trong turn này`)
     }
     const lifts = depthLift > 0 || effortLift > 0
+    if (lifts) L.liftRaised = true
     if (warnings.length > 0 || lifts) {
       await update($, coreState, c => {
         const withWarnings = S.withWarnings(...warnings)(c)
@@ -281,7 +326,12 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     // semanticDrift (người dùng tự bật): ở checkpoint, router đọc mục tiêu và các thay đổi gần đây để nhận ra lạc đề
     // theo nội dung, thứ mà theo dõi hành vi tool không thấy.
     let driftNote: string | null = null
-    if (semanticDrift && core.brief !== null && findings.some(f => f.kind === 'checkpoint') && !isRouterPaused()) {
+    // Tự tắt khi hạn mức đã vào vùng gần ngưỡng (hay đang dừng): mỗi lượt kiểm là một lượt gọi router. Tối đa một lượt mỗi 10 phút.
+    const quota = normalizeQuota(await read($, quotaState))
+    const isNearQuota = quota.pause !== null || evaluateQuota(quota.readings, at, quotaSettings(ctx.options)).nearest !== null
+    const isDriftDue = L.lastDriftAt === null || at - L.lastDriftAt >= DRIFT_EVERY_MS
+    if (semanticDrift && core.brief !== null && findings.some(f => f.kind === 'checkpoint') && !isRouterPaused() && !isNearQuota && isDriftDue) {
+      L.lastDriftAt = at
       const request = driftRequest({
         goal: core.brief.goal,
         steps: openSteps(core.plan).map(step => step.title),
@@ -294,10 +344,16 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       noteRouterTime((await $.clock.now()) - startedAt)
       const verdict = outcome.result
       const now = await $.clock.now()
+      const isOffTrack = verdict !== null && !verdict.onTrack
       await update($, coreState, c => {
         const used = S.withAnalyzerUsage(outcome.usages, routerFamily)(c)
-        return verdict !== null && !verdict.onTrack ? S.withWarnings({ at: now, kind: 'drift', text: `Router: có thể lạc đề (${verdict.why})` })(used) : used
+        // Lệch mục tiêu: cảnh báo, và turn sau nâng độ sâu một bậc (0.7.0).
+        return isOffTrack ? S.withLift(1, 0)(S.withWarnings({ at: now, kind: 'drift', text: `Router: có thể lạc đề (${verdict?.why ?? ''})` })(used)) : used
       })
+      if (isOffTrack) {
+        L.liftRaised = true
+        noteObserved(`Router: có thể lạc đề (${verdict?.why ?? ''})`)
+      }
       record(now, 'drift', { onTrack: verdict?.onTrack ?? null, why: verdict?.why ?? outcome.reason, retried: outcome.retried })
       await flushDecisions((path, text) => $.fs.write(path, text))
       if (verdict !== null && !verdict.onTrack) driftNote = driftContext(core.brief.goal, verdict.why)
@@ -407,7 +463,13 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     }
     const end = await $.session.usage().catch(() => null)
     const endContext = end?.context.tokens ?? L.turnContext
-    await update($, coreState, c => S.withTurnMark(at, endContext)(S.withLedger(() => ledger)(S.withWarnings(...warnings)(c))))
+    // Turn không có phát hiện nào làm tăng nâng cấp: nâng cấp của mục tiêu giảm một bậc (0.7.0).
+    const hadFinding = L.liftRaised
+    L.liftRaised = false
+    await update($, coreState, c => {
+      const marked = S.withTurnMark(at, endContext)(S.withLedger(() => ledger)(S.withWarnings(...warnings)(c)))
+      return hadFinding ? marked : S.withLiftDecay(marked)
+    })
     const unverified = findings.find(f => f.kind === 'unverified')
     if (unverified) $.ui.toast(unverified.text)
     await showStatus($, await read($, view), ctx.options)

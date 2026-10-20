@@ -9,6 +9,7 @@ import { labels } from '../ui/labels'
 import { taskBarRuns } from '../ui/style'
 import type { Lang } from '../ui/labels'
 import { describePick } from './route'
+import { uncoveredRequirements } from './router'
 
 export const PLAN_TOOL = 'plan'
 export const PLAN_TOOL_FULL = 'mcp__focus-conductor__plan'
@@ -23,7 +24,7 @@ Mỗi prompt của người dùng có thể kèm một khối "[focus-conductor]
 1. Đọc kỹ trước khi làm: đối chiếu khối phân tích với prompt gốc, sửa chỗ sai hoặc thiếu, xác định rõ mục tiêu cuối, ràng buộc và tiêu chí nghiệm thu, rồi mới gọi tool thực thi đầu tiên.
 2. Với việc từ mức moderate trở lên: gọi ${PLAN_TOOL_FULL} (action "set") để ghi mục tiêu và checklist đã chuẩn hóa; cập nhật từng bước (doing, done, verified kèm bằng chứng, skipped, blocked hoặc waiting kèm lý do). Khi checklist có việc của mục "Phân việc", tiêu đề bước mở đầu "Việc N: ".
 3. Nhất quán: mọi bước phải phục vụ mục tiêu cuối; không làm thêm việc ngoài phạm vi, không bỏ sót yêu cầu; giữ văn phong, quy ước đặt tên và định dạng đã dùng từ đầu.
-4. Tự kiểm tra sau mỗi bước quan trọng (chạy test, type-check, đọc lại thay đổi) trước khi sang bước sau.
+4. Tự kiểm tra sau mỗi bước quan trọng (chạy test, type-check, đọc lại thay đổi) trước khi sang bước sau. Lệnh test chạy đạt sau thay đổi cuối thì mod tự nâng bước đã xong thành verified, không cần chép lệnh; kiểm tĩnh (type-check, lint) không tính.
 5. Khi giao việc cho subagent: nếu khối có mục "Phân việc", giao đúng các việc ghi "giao", description của Agent mở đầu "Việc N: " (N là số của việc) để chạy đúng model và effort đã phân; việc ghi "làm trực tiếp" thì tự làm. Việc ngoài danh sách: để trống model và effort, router của plugin chấm khi giao; chọn Explore cho tra cứu chỉ đọc, Plan cho thiết kế, general-purpose cho thực thi.
 Nếu bạn là subagent: không dùng tool plan của mod; việc từ ba bước trở lên thì ghi danh sách bằng tool danh sách việc có sẵn (nếu có trong phiên của bạn); làm đúng nhiệm vụ được giao và báo cáo ngắn gọn.`
 
@@ -44,6 +45,18 @@ export function mark(status: StepStatus): string {
 export function progress(plan: readonly PlanStep[]): { closed: number; total: number } {
   const closed = plan.filter(s => s.status === 'done' || s.status === 'verified' || s.status === 'skipped').length
   return { closed, total: plan.length }
+}
+
+/** Số bước verified (đã kiểm chứng): mod tự nâng khi lệnh test chạy đạt sau thay đổi cuối, hoặc Claude ghi kèm bằng chứng (0.7.0). */
+export function verifiedCount(plan: readonly PlanStep[]): number {
+  return plan.filter(s => s.status === 'verified').length
+}
+
+/** Số bước đã đóng kèm " · k✓" khi có bước verified; band, pane và status line dùng chung một dạng. */
+export function countLabel(plan: readonly PlanStep[]): string {
+  const { closed, total } = progress(plan)
+  const verified = verifiedCount(plan)
+  return `${closed}/${total}${verified > 0 ? ` · ${verified}✓` : ''}`
 }
 
 function bullets(title: string, items: readonly string[]): string {
@@ -94,9 +107,12 @@ export function briefContext(brief: Brief, main: Choice | null, isApplied = true
       : `Điều phối: luồng chính ${mainText}; subagent (nếu cần) được router chấm khi giao.`
   // Lượt đối chiếu không hiển thị ràng buộc và tiêu chí: chúng thuộc prompt đính kèm, không phải việc của lượt này.
   const rules = brief.isReference ? '' : `${bullets('Ràng buộc:', brief.constraints)}${bullets('Tiêu chí chất lượng:', brief.quality)}`
+  // Yêu cầu router đã liệt kê mà không việc nào phủ (0.7.0): nhắc để không bị bỏ sót khi lập checklist.
+  const uncovered = brief.isReference ? [] : uncoveredRequirements(brief)
+  const gaps = uncovered.length > 0 ? `\nYêu cầu chưa có việc nào phủ (đừng bỏ sót khi lập checklist): ${uncovered.join('; ')}` : ''
   return [
     '[focus-conductor] Bản đọc prompt của router (đối chiếu lại với prompt gốc trước khi làm)',
-    `Mục tiêu cuối: ${brief.goal}${tasks}${rules}`,
+    `Mục tiêu cuối: ${brief.goal}${tasks}${gaps}${rules}`,
     `Đánh giá: độ sâu ${brief.depth}, khối lượng ${brief.volume}, bản chất ${brief.kind}${brief.why ? ` (${brief.why})` : ''}`,
     routing,
     brief.scopePaths.length > 0 ? `Phạm vi được sửa: ${brief.scopePaths.join(', ')}` : '',
@@ -163,6 +179,7 @@ export function followUpContext(
       ? `Việc mới (router đã chấm; khi giao, description của Agent mở đầu "Việc N: "):\n${added.map(task => taskLine(task, mainText)).join('\n')}`
       : '',
     open.length > 0 ? `Bước còn mở: ${open.map(s => `${s.id}. ${s.title}`).join('; ')}` : '',
+    uncoveredRequirements(brief).length > 0 ? `Yêu cầu chưa có việc nào phủ (đừng bỏ sót): ${uncoveredRequirements(brief).join('; ')}` : '',
     pendingLine(plan),
     newConstraints.length > 0 ? `Ràng buộc mới: ${newConstraints.join('; ')}` : '',
     'Giữ nhất quán với phần đã làm; nếu yêu cầu này đổi mục tiêu, cập nhật lại checklist.',
@@ -202,8 +219,8 @@ export function blockText(waiting: readonly string[], left: number): string {
 export function unbackedNotice(reason: string, examples?: readonly string[]): string {
   const base =
     `[focus-conductor] Bước được lưu là done, chưa tính là đã kiểm tra: ${reason}. ` +
-    'Muốn ghi verified, chạy lại lệnh kiểm tra (test, type-check, lint, build) sau thay đổi cuối cùng rồi ghi vào evidence đúng lệnh như đã chạy, ' +
-    'dấu ":" và kết quả (ví dụ "npm test: 12 pass"). Việc chỉ đọc, chưa sửa gì thì nêu lệnh hay file đã đọc.'
+    'Chạy lệnh test (không phải kiểm tĩnh như type-check, lint, build) sau thay đổi cuối cùng: mod sẽ tự nâng bước done thành verified, ' +
+    'không cần chép lệnh vào evidence. Việc chỉ đọc, chưa sửa gì thì nêu lệnh hay file đã đọc.'
   if (examples === undefined) return base
   const sample = examples[0] ?? 'python3 check_totals.py'
   return (
@@ -337,10 +354,10 @@ export const STATUS_BAR = 8
 
 export function statusLine(brief: Brief | null, plan: readonly PlanStep[], route: Route | null, mode: string): string {
   if (brief === null) return mode
-  const { closed, total } = progress(plan)
+  const { total } = progress(plan)
   // Thanh chữ cùng ký hiệu với band (barRuns), không màu: surface không có band (vscode, mobile) vẫn thấy tiến độ.
   const bar = taskBarRuns({ kind: 'steps', plan: [...plan] }, STATUS_BAR).map(run => run.text).join('')
-  const steps = total > 0 ? ` · ${bar ? `${bar} ` : ''}${closed}/${total}` : ''
+  const steps = total > 0 ? ` · ${bar ? `${bar} ` : ''}${countLabel(plan)}` : ''
   const model = route ? ` · ${describePick(route)}` : ''
   return `${brief.tier}${model}${steps}${mode === 'auto' ? '' : ` · ${mode}`}`
 }

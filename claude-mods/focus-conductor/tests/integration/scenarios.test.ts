@@ -140,7 +140,8 @@ describe('rà soát trước merge (0.4.0)', () => {
 describe('0.5.0: phần còn lại của đánh giá', () => {
   const PLAN = 'mcp__focus-conductor__plan'
 
-  test('semanticDrift tắt (mặc định): không hỏi router ở checkpoint', {}, async ($, on) => {
+  // 0.7.0: semanticDrift bật mặc định; test này giữ lại cho trường hợp người dùng đặt false.
+  test('semanticDrift đặt false: không hỏi router ở checkpoint', { options: { semanticDrift: false } }, async ($, on) => {
     const seen = base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, COMPLEX_PROMPT)

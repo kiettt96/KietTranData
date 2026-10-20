@@ -111,6 +111,7 @@ function normalizeBrief(raw: Brief): Brief {
   return {
     goalId: brief.goalId,
     goal: brief.goal,
+    ...(brief.requirements !== undefined ? { requirements: brief.requirements } : {}),
     steps: brief.steps ?? [],
     tasks: brief.tasks ?? [],
     constraints: brief.constraints ?? [],
@@ -143,10 +144,40 @@ export function retarget(brief: Brief, goal: string | undefined, steps: readonly
   return { ...brief, goal: nextGoal, steps: nextSteps, ...(scope !== undefined ? { scopePaths: [...scope] } : {}) }
 }
 
-/** Lưu mục tiêu hiện tại nếu checklist còn bước mở hoặc đang chờ; mới nhất trước. */
+/**
+ * Brief tạm cho checklist còn bước mở mà mục tiêu chưa có brief (router lỗi hay tạm ngừng, Claude tự `plan set`): để lưu và khôi
+ * phục được. Không có việc đã phân và không chọn model; khôi phục thì đánh số mục tiêu mới như mọi mục tiêu đã lưu.
+ */
+function stubBrief(plan: readonly PlanStep[]): Brief {
+  const open = restorableSteps(plan)
+  return {
+    goalId: 0,
+    goal: (open[0]?.title ?? 'Mục tiêu dở dang').slice(0, 200),
+    steps: plan.map(s => s.title.slice(0, 120)),
+    tasks: [],
+    constraints: [],
+    quality: [],
+    depth: 'substantial',
+    volume: 'medium',
+    kind: 'mixed',
+    tier: 'moderate',
+    main: null,
+    why: 'checklist chưa có brief (router lỗi hay tạm ngừng)',
+    relation: 'new',
+    source: 'none',
+    isFollowUp: false,
+    isReference: false,
+    scopePaths: [],
+    prompt: '',
+    at: 0,
+  }
+}
+
+/** Lưu mục tiêu hiện tại nếu checklist còn bước mở hoặc đang chờ (chưa có brief thì dùng brief tạm); mới nhất trước. */
 function archiveOf(n: Core): ArchivedGoal[] {
-  if (n.brief === null || restorableSteps(n.plan).length === 0) return n.archived
-  return [{ brief: n.brief, plan: n.plan }, ...n.archived.filter(a => a.brief.goalId !== n.brief?.goalId)].slice(0, ARCHIVE_LIMIT)
+  if (restorableSteps(n.plan).length === 0) return n.archived
+  const brief = n.brief ?? stubBrief(n.plan)
+  return [{ brief, plan: n.plan }, ...n.archived.filter(a => n.brief === null || a.brief.goalId !== n.brief.goalId)].slice(0, ARCHIVE_LIMIT)
 }
 
 /**
@@ -195,12 +226,20 @@ export const withBrief =
   (c: Core): Core => ({ ...normalizeCore(c), brief })
 
 /**
- * Router quyết lại cho prompt tiếp nối: thay brief và xóa nâng cấp theo bằng chứng, vì router
- * đã thấy model luồng chính thật sự chạy và tự nâng khi người dùng báo chưa đạt (không nâng hai lần).
+ * Router quyết lại cho prompt tiếp nối: thay brief. Nâng cấp theo bằng chứng (vòng lặp, chuỗi lỗi, vượt ngân sách) sống qua
+ * continue và refine (0.7.0), giảm dần bằng withLiftDecay; chỉ bị xóa khi người dùng báo chưa đạt (router đã thấy model luồng
+ * chính thật sự chạy và tự nâng, nên không nâng hai lần) hoặc khi sang mục tiêu mới.
  */
 export const withDecision =
   (brief: Brief) =>
-  (c: Core): Core => ({ ...normalizeCore(c), brief, lift: EMPTY_LIFT })
+  (c: Core): Core => ({ ...normalizeCore(c), brief, lift: brief.relation === 'dissatisfied' || brief.relation === 'new' ? EMPTY_LIFT : normalizeCore(c).lift })
+
+/** Một turn không có phát hiện mới: nâng cấp theo bằng chứng giảm một bậc mỗi chiều (không xuống dưới 0). */
+export const withLiftDecay = (c: Core): Core => {
+  const n = normalizeCore(c)
+  if (n.lift.depth === 0 && n.lift.effort === 0) return n
+  return { ...n, lift: { depth: Math.max(0, n.lift.depth - 1), effort: Math.max(0, n.lift.effort - 1) } }
+}
 
 /** Claude chốt lại mục tiêu/các bước qua tool plan (action "set"): xem retarget. */
 export const withRetarget =
@@ -213,6 +252,33 @@ export const withRetarget =
 export const withPlan =
   (plan: PlanStep[]) =>
   (c: Core): Core => ({ ...normalizeCore(c), plan })
+
+/**
+ * Mod tự nâng các bước done (chỉ những bước có trong `only` nếu có) thành verified, ghi lệnh test đã chạy làm bằng chứng và đánh dấu
+ * `auto` để hạ lại khi có thay đổi mới (0.7.0). Không đổi gì khi không có bước done nào.
+ */
+export const withAutoVerified =
+  (command: string, only?: readonly number[]) =>
+  (c: Core): Core => {
+    const n = normalizeCore(c)
+    if (!n.plan.some(s => s.status === 'done' && (only === undefined || only.includes(s.id)))) return n
+    const note = `tự động: ${command.slice(0, 120)} chạy đạt sau thay đổi cuối`
+    return { ...n, plan: n.plan.map(s => (s.status === 'done' && (only === undefined || only.includes(s.id)) ? { ...s, status: 'verified' as const, auto: true, note } : s)) }
+  }
+
+/** Có thay đổi mới: các bước verified do mod tự nâng về done (bước verified do Claude ghi giữ nguyên). */
+export const withAutoDemoted = (c: Core): Core => {
+  const n = normalizeCore(c)
+  if (!n.plan.some(s => s.auto === true && s.status === 'verified')) return n
+  return {
+    ...n,
+    plan: n.plan.map(s => {
+      if (s.auto !== true || s.status !== 'verified') return s
+      const { auto: _auto, note: _note, ...rest } = s
+      return { ...rest, status: 'done' as const }
+    }),
+  }
+}
 
 export const withRoute =
   (route: Route | null) =>

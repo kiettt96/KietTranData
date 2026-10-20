@@ -74,3 +74,31 @@ describe('golden-set: bộ chấm bắt được câu trả lời sai', () => {
     expect(check(race, edited).filter(f => f.includes('haiku') || f.includes('Explore') || f.includes('max'))).toEqual([])
   })
 })
+
+describe('golden-set: bộ chấm yêu cầu và phần phủ (0.7.0)', () => {
+  const prose = CASES.find(c => c.id === 'prose-hidden')!
+  const single = CASES.find(c => c.id === 'single-block')!
+  const reply = (over: Record<string, unknown>) =>
+    JSON.stringify({ why: 'w', relation: 'new', goal: 'Sửa VAT', depth: 'hard', volume: 'small', kind: 'edit', main: { model: 'sonnet', effort: 'medium' }, tasks: [], ...over })
+  const names = (n: number) => Array.from({ length: n }, (_, i) => `Yêu cầu ${i + 1}`)
+  const piece = (title: string, covers: number[]) => ({ title, run: 'main', covers })
+
+  test('số yêu cầu ngoài khoảng bị chấm lệch, trong khoảng thì đạt', () => {
+    expect(check(prose, reply({ requirements: names(2) }))).toEqual(['2 yêu cầu, cần 5 tới 9'])
+    expect(check(prose, reply({ requirements: names(12) }))).toEqual(['12 yêu cầu, cần 5 tới 9'])
+    expect(check(prose, reply({ requirements: names(6) }))).toEqual([])
+    expect(check(single, reply({ requirements: names(1) }))).toEqual([])
+  })
+
+  test('yêu cầu không việc nào phủ bị chấm lệch; không tách việc thì không đòi phủ', () => {
+    const tasks = [piece('Tìm và sửa', [1, 2]), piece('Test', [3, 4, 5])]
+    expect(check(prose, reply({ requirements: names(6), tasks }))).toEqual(['yêu cầu 6 không việc nào phủ'])
+    expect(check(prose, reply({ requirements: names(5), tasks }))).toEqual([])
+    expect(check(prose, reply({ requirements: names(6), tasks: [] }))).toEqual([])
+  })
+
+  test('một khối liền mạch mà bị tách việc thì lệch', () => {
+    expect(check(single, reply({ requirements: names(1), tasks: [piece('Viết hàm', [1]), piece('Viết test', [1])] }))[0]).toContain('2 việc, cần 0 tới 0')
+  })
+})
+

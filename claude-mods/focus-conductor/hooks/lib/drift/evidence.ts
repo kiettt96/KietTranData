@@ -104,6 +104,15 @@ export function noteEvidence(log: EvidenceLog, observation: ToolObservation, aut
 }
 
 /**
+ * Lần chạy TEST (hành vi, không phải kiểm tĩnh) đạt sau thay đổi cuối của mục tiêu và phủ mọi thay đổi (0.7.0): cơ sở để mod tự
+ * nâng bước done thành verified. Mục tiêu chưa có sửa file (chỉ tra cứu) thì không có: lệnh test khi đó không chứng minh điều gì.
+ */
+export function freshTestRun(log: EvidenceLog): EvidenceEntry | undefined {
+  if (log.mutations === 0) return undefined
+  return [...log.commands].reverse().find(c => c.check === 'test' && c.ok && c.seq > log.lastMutation && covers(c, log))
+}
+
+/**
  * Lần kiểm tra này có phủ mọi thay đổi trước nó không: kiểm tra của luồng chính phủ tất cả; kiểm tra của subagent chỉ
  * phủ khi mọi thay đổi kể từ lần kiểm tra đạt gần nhất của luồng chính đều do chính subagent đó làm.
  */

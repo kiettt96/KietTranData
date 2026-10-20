@@ -116,7 +116,14 @@ export function barRuns(plan: readonly PlanStep[], cells: number): Run[] {
   if (total === 0 || cells < 3) return []
   const closed = plan.filter(isClosed).length
   const hue = PHASE_HUE[phaseOf(plan)]
-  if (closed >= total) return [{ text: '━'.repeat(cells), color: hue }]
+  const verified = plan.filter(s => s.status === 'verified').length
+  // Phần đã đóng: phần verified (đã kiểm chứng) tô đậm đứng trước, phần done thường. Không có verified thì một đoạn như 0.6.1.
+  const solid = (n: number): Run[] => {
+    if (verified === 0) return [{ text: '━'.repeat(n), color: hue }]
+    const bold = verified >= closed ? n : Math.max(1, Math.min(n - 1, Math.round((n * verified) / closed)))
+    return [{ text: '━'.repeat(bold), color: hue, bold: true }, ...(n - bold > 0 ? [{ text: '━'.repeat(n - bold), color: hue }] : [])]
+  }
+  if (closed >= total) return solid(cells)
   const filled = closed === 0 ? 0 : Math.min(cells - 1, Math.max(1, Math.round((closed / total) * cells)))
   const status = currentStep(plan)?.status
   const head: Run | null =
@@ -128,7 +135,7 @@ export function barRuns(plan: readonly PlanStep[], cells: number): Run[] {
           ? { text: STEP_MARK.waiting.glyph, color: STEP_MARK.waiting.color, bold: true }
           : null
   const runs: Run[] = []
-  if (filled > 0) runs.push({ text: '━'.repeat(filled), color: hue })
+  if (filled > 0) runs.push(...solid(filled))
   if (head) runs.push(head)
   const track = cells - filled - (head ? 1 : 0)
   if (track > 0) runs.push({ text: '╌'.repeat(track), color: 'subtle' })

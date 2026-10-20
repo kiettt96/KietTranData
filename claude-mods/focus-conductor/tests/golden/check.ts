@@ -20,6 +20,15 @@ export function check(c: GoldenCase, reply: string): string[] {
   if (!e.main.includes(plan.main.family)) fails.push(`luồng chính ${plan.main.family}/${plan.main.effort}, cần ${e.main.join('|')}`)
   const [low, high] = e.tasks
   if (plan.tasks.length < low || plan.tasks.length > high) fails.push(`${plan.tasks.length} việc, cần ${low} tới ${high}`)
+  if (e.requirements !== undefined) {
+    const [least, most] = e.requirements
+    if (plan.requirements.length < least || plan.requirements.length > most) fails.push(`${plan.requirements.length} yêu cầu, cần ${least} tới ${most}`)
+  }
+  if (e.covered === true && plan.tasks.length > 0) {
+    const covered = new Set(plan.tasks.flatMap(t => t.covers ?? []))
+    const missing = plan.requirements.map((_, i) => i + 1).filter(n => !covered.has(n))
+    if (missing.length > 0) fails.push(`yêu cầu ${missing.join(', ')} không việc nào phủ`)
+  }
   for (const piece of e.pieces ?? []) {
     const task = plan.tasks.find(t => t.index === piece.index)
     if (task === undefined) {

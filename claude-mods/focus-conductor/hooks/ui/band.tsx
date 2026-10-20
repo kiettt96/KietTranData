@@ -11,7 +11,7 @@ import { shownPlan } from '../lib/mirror'
 import { byPriority, taskRows } from '../lib/progress'
 import type { QuotaBadge } from '../lib/quota'
 import type { View } from '../lib/state'
-import { progress, quotaPercent } from '../lib/text'
+import { countLabel, progress, quotaPercent } from '../lib/text'
 import { labels, taskLabel } from './labels'
 import type { Run } from './style'
 import {
@@ -106,7 +106,7 @@ export function renderBand(
   // Band hẹp (0.6.1): phần không co (gờ, tiến độ, chip, nút) không được vượt chiều rộng. Thừa thì bỏ lần lượt số bước,
   // mức effort của chip model, rồi cả chip model.
   const fit = { count: true, effort: true, route: true }
-  const countText = `${closed}/${total}`
+  const countText = countLabel(plan)
   // Nguồn phản chiếu ghi nhỏ cạnh số bước khi còn chỗ: người dùng biết checklist này không chặn kết thúc.
   const mirrorText = source === 'mirror' && hasRoom ? l.mirrorShort : ''
   const progressCells = () =>
