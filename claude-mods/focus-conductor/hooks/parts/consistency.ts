@@ -133,9 +133,12 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     // Mod tự nâng (0.7.0): mục tiêu đã có sửa file và một lệnh test chạy đạt sau thay đổi cuối (phủ mọi thay đổi) thì verified do
     // Claude ghi được nhận mà không đòi evidence chép đúng lệnh; còn lại giữ luật cũ.
     const fresh = log !== null ? freshTestRun(log) : undefined
-    const isAccepted = isVerifiedAsk && log !== null && ((strength !== null && acceptsVerified(strength, log)) || fresh !== undefined)
+    const isStrict = isVerifiedAsk && log !== null && strength !== null && acceptsVerified(strength, log)
+    const isAccepted = isStrict || (isVerifiedAsk && log !== null && fresh !== undefined)
     const isDowngraded = isVerifiedAsk && !isAccepted
-    const outcome = applyPlan(before.plan, isDowngraded ? { ...input, status: 'done' } : input)
+    // Nhận nhờ test đạt chứ evidence không khớp chặt: lưu done rồi để mod nâng thành verified có dấu auto, nên sửa tiếp thì bị hạ lại.
+    const isLoose = isAccepted && !isStrict
+    const outcome = applyPlan(before.plan, isDowngraded || isLoose ? { ...input, status: 'done' } : input)
     if (outcome.error !== undefined) return { deny: outcome.error }
 
     // "set" chốt lại mục tiêu và các bước: làm mới cả từ khóa của brief để

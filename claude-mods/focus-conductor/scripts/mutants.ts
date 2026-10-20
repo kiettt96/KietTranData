@@ -742,7 +742,7 @@ export const MUTANTS: Mutant[] = [
   { id: "070-V7", file: "hooks/lib/state.ts", note: "bước tự nâng không bao giờ hạ về done", old: "  if (!n.plan.some(s => s.auto === true && s.status === 'verified')) return n\n", new: "  return n\n" },
   { id: "070-V8", file: "hooks/lib/state.ts", note: "hạ cả bước verified do Claude ghi", old: "if (s.auto !== true || s.status !== 'verified') return s", new: "if (s.status !== 'verified') return s" },
   { id: "070-V9", file: "hooks/lib/plan.ts", note: "Claude cập nhật bước nhưng dấu auto còn lại", old: "        const { auto: _auto, ...rest } = s\n        return { ...rest, status, ...(detail ? { note: detail } : {}) }", new: "        return { ...s, status, ...(detail ? { note: detail } : {}) }" },
-  { id: "070-V10", file: "hooks/parts/consistency.ts", note: "verified do Claude ghi vẫn đòi evidence chép đúng lệnh", old: "|| fresh !== undefined)\n", new: ")\n" },
+  { id: "070-V10", file: "hooks/parts/consistency.ts", note: "verified do Claude ghi vẫn đòi evidence chép đúng lệnh", old: "const isAccepted = isStrict || (isVerifiedAsk && log !== null && fresh !== undefined)", new: "const isAccepted = isStrict" },
   { id: "070-V11", file: "hooks/parts/consistency.ts", note: "bước vừa đóng bằng done không được nâng khi đã có test đạt", old: "if (fresh !== undefined && input.action === 'update') {", new: "if (input.action === 'never') {" },
   { id: "070-V12", file: "hooks/parts/consistency.ts", note: "thay đổi mới của luồng chính không hạ bước tự nâng", old: "await update($, coreState, c => S.withAutoDemoted(S.withActivity(goalId)(c)))", new: "await update($, coreState, c => S.withActivity(goalId)(c))" },
   { id: "070-V13", file: "hooks/parts/consistency.ts", note: "lệnh test chạy đạt không nâng các bước done", old: "if (core.brief !== null && observation.tool === 'Bash' && !observation.isError) {", new: "if (core.brief === undefined) {" },
@@ -785,4 +785,6 @@ export const MUTANTS: Mutant[] = [
   { id: "070-B19", file: "hooks/parts/session.ts", note: "không kiểm lại khi quá nhiều yêu cầu ở prompt", old: ", result => result.requirements.length > REQUIREMENTS_RECHECK)", new: ")" },
   { id: "070-B20", file: "hooks/parts/session.ts", note: "ngưỡng kiểm lại lệch một", old: "result.requirements.length > REQUIREMENTS_RECHECK", new: "result.requirements.length > REQUIREMENTS_RECHECK + 1" },
   { id: "070-B21", file: "hooks/lib/state.ts", note: "normalizeBrief làm rơi requirements", old: "    ...(brief.requirements !== undefined ? { requirements: brief.requirements } : {}),\n", new: "" },
+  { id: "070-V18", file: "hooks/parts/consistency.ts", note: "verified nhận theo evidence lỏng không bị hạ khi sửa tiếp", old: "const isLoose = isAccepted && !isStrict", new: "const isLoose = false" },
+  { id: "070-V19", file: "hooks/parts/consistency.ts", note: "verified khớp chặt cũng bị coi là lỏng và bị hạ khi sửa tiếp", old: "const isLoose = isAccepted && !isStrict", new: "const isLoose = isAccepted" },
 ]
