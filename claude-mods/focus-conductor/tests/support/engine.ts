@@ -134,6 +134,8 @@ export function base(
     root?: string | null | (() => string)
     /** Lý do $.ui.open trả isPlaced false (pane chờ vì màn hình hẹp, chưa có surface); vắng là pane được đặt. */
     paneUnplaced?: string
+    /** $.ui.panes() luôn trả rỗng: mô phỏng pane đã bị đóng trước mỗi prompt (kit không phát được ui.close). */
+    panesClosed?: boolean
   } = {},
 ): Seen {
   const clock = mock.clock(on, { now: 1000 })
@@ -189,7 +191,7 @@ export function base(
     if (!seen.panes.includes(e.id)) seen.panes.push(e.id)
     return { value: engine.paneUnplaced !== undefined ? { isPlaced: false as const, reason: engine.paneUnplaced } : { isPlaced: true as const } }
   })
-  on('ui.panes', () => ({ value: seen.panes.map(id => ({ id, title: id, isShown: true, isFocused: false, isPlaced: true })) }) as never)
+  on('ui.panes', () => ({ value: (engine.panesClosed ? [] : seen.panes).map(id => ({ id, title: id, isShown: true, isFocused: false, isPlaced: true })) }) as never)
   on('ui.close', (_$, e) => {
     seen.panes = seen.panes.filter(id => id !== e.id)
     return {} as never

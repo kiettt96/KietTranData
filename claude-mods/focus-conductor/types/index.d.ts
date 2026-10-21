@@ -381,6 +381,8 @@ declare module 'claude-code' {
       mode: Mode | null
       /** Bảo vệ hạn mức (0.6.0). */
       quota: QuotaState
+      /** Mục tiêu mà người dùng đã tự đóng pane chi tiết; -1 là chưa (0.7.2). */
+      paneClosedGoal: number
     }
   }
 }

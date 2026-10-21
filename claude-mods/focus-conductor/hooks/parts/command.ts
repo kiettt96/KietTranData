@@ -14,6 +14,7 @@ import { shownPlan } from '../lib/mirror'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
 import { briefContext, droppedPlanNotice, quotaStatusLines, renderPlan, resetLabel, routerFailLines, unroutedContext } from '../lib/text'
+import { PANE_ROWS, shouldAutoOpenPane } from '../lib/pane'
 import { PANE, PANE_TITLE } from '../ui/pane'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
@@ -27,6 +28,20 @@ const bandHiddenState = atom({ plugin: 'focus-conductor', key: 'isBandHidden' } 
 const resetArmedState = atom({ plugin: 'focus-conductor', key: 'resetArmedUntil' } as const, 0)
 const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null)
 const quotaState = atom({ plugin: 'focus-conductor', key: 'quota' } as const, EMPTY_QUOTA)
+// Mục tiêu mà người dùng đã tự đóng pane chi tiết (-1 là chưa); ghi ở hook ui.close của parts/ui.tsx.
+const paneClosedState = atom({ plugin: 'focus-conductor', key: 'paneClosedGoal' } as const, -1)
+
+/** Mở pane chi tiết cho mục tiêu mới nếu cần (0.7.2), như parts/session.ts: không focus; kết quả ghi vào nhật ký quyết định. */
+async function autoOpenPane($: EngineInterface, ctx: Ctx, goalId: number, at: number): Promise<void> {
+  const panes = await $.ui.panes().catch(() => [])
+  const isOpen = panes.some(pane => pane.id === PANE)
+  if (!shouldAutoOpenPane({ enabled: ctx.autoPane, goalId, closedGoal: await read($, paneClosedState), isOpen })) return
+  const opened = await $.ui.open({ id: PANE, title: PANE_TITLE, rows: PANE_ROWS }).catch(() => null)
+  // Chỉ ghi khi pane chưa được đặt (màn hình hẹp, chưa có surface, engine từ chối): đặt được là trường hợp bình thường, không cần dòng log.
+  if (opened?.isPlaced === true) return
+  ctx.record(at, 'pane', { goalId, isPlaced: false, reason: opened === null ? 'engine từ chối mở pane' : opened.reason })
+  await ctx.flushDecisions((path, text) => $.fs.write(path, text))
+}
 
 /** /conductor resume discard phải gõ lần hai trong bấy nhiêu ms (như nút Đặt lại). */
 const DISCARD_ARM_MS = 10_000
@@ -143,6 +158,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       const expected = wanted !== null ? expectedMain(core, brief, wanted, now) : null
       trackDelegations(brief.goalId, brief.isReference ? [] : brief.tasks)
       await update($, coreState, S.withDelegations(brief.goalId, delegationItems(brief)))
+      await autoOpenPane($, ctx, brief.goalId, now)
       const dropped = restorableSteps(before.plan)
       const notice = dropped.length > 0 ? [droppedPlanNotice(dropped)] : []
       return {

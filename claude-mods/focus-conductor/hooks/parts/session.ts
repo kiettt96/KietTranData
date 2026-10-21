@@ -17,6 +17,20 @@ import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
 import { PERSON_ORIGINS, SLASH_COMMAND, newDelegation } from '../context'
+import { PANE_ROWS, shouldAutoOpenPane } from '../lib/pane'
+import { PANE, PANE_TITLE } from '../ui/pane'
+
+/** Mở pane chi tiết cho mục tiêu mới nếu cần (0.7.2): không focus, không chiếm phím; kết quả đặt hay chưa đặt ghi vào nhật ký quyết định. */
+async function autoOpenPane($: EngineInterface, ctx: Ctx, goalId: number, at: number): Promise<void> {
+  const panes = await $.ui.panes().catch(() => [])
+  const isOpen = panes.some(pane => pane.id === PANE)
+  if (!shouldAutoOpenPane({ enabled: ctx.autoPane, goalId, closedGoal: await read($, paneClosedState), isOpen })) return
+  const opened = await $.ui.open({ id: PANE, title: PANE_TITLE, rows: PANE_ROWS }).catch(() => null)
+  // Chỉ ghi khi pane chưa được đặt (màn hình hẹp, chưa có surface, engine từ chối): đặt được là trường hợp bình thường, không cần dòng log.
+  if (opened?.isPlaced === true) return
+  ctx.record(at, 'pane', { goalId, isPlaced: false, reason: opened === null ? 'engine từ chối mở pane' : opened.reason })
+  await ctx.flushDecisions((path, text) => $.fs.write(path, text))
+}
 
 // Atom của mod, khai báo lại ở mỗi file dùng chúng (engine chỉ nhận tham chiếu state viết trong chính file đó);
 // cùng plugin và key nên là cùng một giá trị trong $.state.
@@ -24,6 +38,8 @@ const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EM
 const bandHiddenState = atom({ plugin: 'focus-conductor', key: 'isBandHidden' } as const, false)
 const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null)
 const quotaState = atom({ plugin: 'focus-conductor', key: 'quota' } as const, EMPTY_QUOTA)
+// Mục tiêu mà người dùng đã tự đóng pane chi tiết (-1 là chưa); ghi ở hook ui.close của parts/ui.tsx.
+const paneClosedState = atom({ plugin: 'focus-conductor', key: 'paneClosedGoal' } as const, -1)
 
 /** Số đo hạn mức tươi lúc prompt đến (không tốn chi phí); engine không có hoặc lỗi thì null. */
 async function quotaLimits($: EngineInterface): Promise<readonly unknown[] | null> {
@@ -242,6 +258,7 @@ export function registerSession(on: On, ctx: Ctx): void {
         L.pinnedGoalId = null
         trackDelegations(bare.goalId, [])
         await update($, bandHiddenState, () => false)
+        await autoOpenPane($, ctx, bare.goalId, now)
       }
       L.lastPrompt = { text, prev, goalId: bare?.goalId ?? kept?.goalId ?? null }
       record(now, 'router-fail', { prompt: clipText(text), reason: outcome.reason, retried: outcome.retried, reuse: isReuse, ...failFields(fail) })
@@ -261,6 +278,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       L.pinnedGoalId = null
       // Ẩn band (nút Ẩn) chỉ có tác dụng trong mục tiêu đang làm: mục tiêu mới thì band hiện lại (0.6.1).
       await update($, bandHiddenState, () => false)
+      await autoOpenPane($, ctx, brief.goalId, now)
     }
 
     const wanted = wantedPick(brief, core.lift)

@@ -172,6 +172,8 @@ export function createContext(options: PluginOptions) {
   const remindSubagents = options['remindSubagents'] === true
   // Bật mặc định từ 0.7.0 (tắt khi đặt false); tự tắt gần ngưỡng hạn mức và tối đa một lượt mỗi 10 phút.
   const semanticDrift = options['semanticDrift'] !== false
+  // Pane chi tiết tự mở ở mỗi mục tiêu mới (0.7.2); đặt false để tắt.
+  const autoPane = options['autoPane'] !== false
   const decisionLog = typeof options['decisionLog'] === 'string' ? options['decisionLog'].trim() : ''
   const rawBlockLimit = Number(options['blockLimit'])
   const blockLimit = Number.isInteger(rawBlockLimit) && rawBlockLimit >= 1 ? Math.min(BLOCK_LIMIT_MAX, rawBlockLimit) : BLOCK_EDITS
@@ -647,6 +649,7 @@ export function createContext(options: PluginOptions) {
     routerModel,
     routerTimeLine,
     semanticDrift,
+    autoPane,
     sessionModel,
     sessionPolicy,
     skipPhrases,
