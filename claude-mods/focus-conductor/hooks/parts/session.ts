@@ -7,7 +7,7 @@ import { openSteps, restorableSteps } from '../lib/drift'
 import { PLAN_TOOL_SPEC } from '../lib/plan'
 import { describePick } from '../lib/route'
 import { clipText, keptLines } from '../lib/decisions'
-import { REQUIREMENTS_RECHECK, askRouter, failFields, isSkippable, nextBrief, parseRoute, routerFailOf, routerRequest } from '../lib/router'
+import { REQUIREMENTS_RECHECK, askRouter, bareBrief, failFields, isSkippable, nextBrief, parseRoute, routerFailOf, routerRequest } from '../lib/router'
 import type { RouterOutcome, RouterPlan } from '../lib/router'
 import { EMPTY_QUOTA, blockingHits, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaSettings, reasonsOf } from '../lib/quota'
 import * as S from '../lib/state'
@@ -228,18 +228,27 @@ export function registerSession(on: On, ctx: Ctx): void {
       ]
       // Route lưu về null (trừ khi dùng lại): mốc cache là model engine thật sự chạy, không phải route của lượt trước.
       const fail = routerFailOf(outcome, now, waitedMs)
+      // Chưa có mục tiêu nào: lập mục tiêu tối thiểu từ prompt (0.7.2), để band, pane, phản chiếu, verified và giám sát vẫn chạy;
+      // lần router đọc được tiếp theo (prompt kế hay /conductor reroute) nâng cấp nó mà giữ goalId.
+      const bare: Brief | null = prev === null ? { ...bareBrief(text, Math.max(0, before.ledger.goal.goalId, ...before.archived.map(a => a.brief.goalId)) + 1, now), isBare: true } : null
       await update($, coreState, c => {
-        const used = S.withRouterFail(fail)(withUsage(c))
+        const used = S.withRouterFail(fail)(withUsage(bare ? S.adoptGoal(bare)(c) : c))
         const withKept = kept ? S.withBrief(kept)(used) : used
         const withNotes = S.withWarnings(...warnings)(isReuse ? withKept : S.withRoute(null)(withKept))
-        return isReuse ? withNotes : S.withDelegations(-1, [])(withNotes)
+        return isReuse ? withNotes : S.withDelegations(bare?.goalId ?? -1, [])(withNotes)
       })
-      L.lastPrompt = { text, prev, goalId: kept?.goalId ?? null }
+      if (bare) {
+        L.isGoalNew = true
+        L.pinnedGoalId = null
+        trackDelegations(bare.goalId, [])
+        await update($, bandHiddenState, () => false)
+      }
+      L.lastPrompt = { text, prev, goalId: bare?.goalId ?? kept?.goalId ?? null }
       record(now, 'router-fail', { prompt: clipText(text), reason: outcome.reason, retried: outcome.retried, reuse: isReuse, ...failFields(fail) })
       await flushDecisions((path, text) => $.fs.write(path, text))
       if (!isPaused) $.ui.toast(pauseText ?? failText)
       await showStatus($, await read($, view), ctx.options)
-      return next({ ...e, context: [...lead, ...(e.context ?? []), unroutedContext(outcome.reason), ...tail] })
+      return next({ ...e, context: [...lead, ...(e.context ?? []), unroutedContext(outcome.reason, bare !== null), ...tail] })
     }
 
     // Mục tiêu mới, chạy thật prompt đã đối chiếu, hoặc tiếp nối cùng mục tiêu.

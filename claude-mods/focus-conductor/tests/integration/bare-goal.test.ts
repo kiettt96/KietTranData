@@ -53,7 +53,7 @@ describe('0.7.2 2: router lỗi ở prompt đầu lập mục tiêu tối thiể
     await submit($, 'Làm tiếp phần còn lại')
     const status = String((await conductor($, 'status')).text)
     expect(status).toContain('Router lỗi gần nhất')
-    expect(status).toContain('Mục tiêu: Refactor module thanh toán')
+    expect(status).toContain('Refactor module thanh toán')
   })
 
   test('danh sách phản chiếu và verified chạy trên mục tiêu tối thiểu', {}, async ($, on) => {
@@ -128,6 +128,24 @@ describe('0.7.2 2: nâng cấp khi router đọc được', () => {
     expect(await pane.find({ type: 'Text', text: /router chưa đọc/ })).toBeUndefined()
     await pane.unmount()
     expect(String((await $.tool.call({ tool: PLAN, action: 'show' })).result)).toContain('1. Sửa')
+    const band = await mountBand($)
+    expect(await band.find({ type: 'Text', text: /Refactor thanh toán sang sự kiện/ })).toBeDefined()
+    await band.unmount()
+  })
+
+  test('sau khi nâng cấp bằng prompt kế, tier theo router (không còn sàn của mục tiêu tối thiểu) và ngân sách tool call hoạt động lại', {}, async ($, on) => {
+    let n = 0
+    const seen = base(on, { router: () => (++n === 1 ? ROUTER_TIMEOUT : plan({ relation: 'continue', goal: 'Sửa nhỏ', depth: 'light', volume: 'small' })) })
+    hooks(on)
+    await submit($, COMPLEX_PROMPT)
+    await submit($, 'Chỉ sửa một dòng nhỏ')
+    expect(last(seen)).not.toContain('moderate')
+    const contexts: string[] = []
+    for (let i = 0; i < 20; i++) {
+      const out = await $.tool.call({ tool: 'Read', file_path: `src/f${i}.ts` } as never)
+      contexts.push(...((out as { context?: string[] }).context ?? []))
+    }
+    expect(contexts.join('\n')).toContain('vượt mức dự kiến')
   })
 
   test('prompt kế được đọc là mục tiêu mới: lập mục tiêu mới bình thường', {}, async ($, on) => {

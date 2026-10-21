@@ -71,7 +71,10 @@ describe('router lỗi: không đoán, turn chạy theo model của phiên', () 
     expect(await step($, seen)).toEqual({ model: 'claude-sonnet-5-5', effort: 'medium' })
     expect(seen.toasts).toContain('Router (sonnet) không đọc được prompt (lỗi API overloaded 529); turn này chạy theo model của phiên')
     expect(seen.contexts[0]?.join('\n')).toContain('Router không đọc được prompt này (lỗi API overloaded 529)')
-    expect(String((await conductor($, 'status')).text)).toContain('Chưa có mục tiêu')
+    // 0.7.2: router lỗi ở prompt đầu thì mod lập mục tiêu tối thiểu (không còn "Chưa có mục tiêu"), status ghi lần lỗi.
+    const status = String((await conductor($, 'status')).text)
+    expect(status).toContain('Router lỗi gần nhất: lỗi API overloaded 529')
+    expect(status).not.toContain('Chưa có mục tiêu')
   })
 
   test('JSON hỏng hoặc thiếu lựa chọn luồng chính: coi như router lỗi', {}, async ($, on) => {

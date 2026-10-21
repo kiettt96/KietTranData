@@ -78,6 +78,8 @@ export type Brief = {
   isFollowUp: boolean
   /** Prompt đính kèm chỉ để đối chiếu: các việc chỉ để hiển thị, không thực thi, không giao. */
   isReference: boolean
+  /** Mục tiêu tối thiểu mod lập khi router lỗi ở prompt đầu (0.7.2): câu mục tiêu và tier chỉ là đoán, router đọc được lần sau thì nâng cấp. */
+  isBare?: boolean
   /** Đường dẫn người dùng giới hạn việc sửa; rỗng là không giới hạn. */
   scopePaths: string[]
   /** Prompt gốc (cắt ngắn) để đối chiếu. */

@@ -623,8 +623,9 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number): { brief:
     index: t.index + offset,
     ...(t.covers !== undefined ? { covers: t.covers.flatMap(n => renumber.get(n) ?? []) } : {}),
   }))
+  const { isBare: _isBare, ...kept } = prev
   const brief: Brief = {
-    ...prev,
+    ...kept,
     ...(requirements.length > 0 ? { requirements } : {}),
     steps: added.length > 0 ? [...prev.steps, ...added.map(t => t.title)] : prev.steps,
     tasks: [...prev.tasks, ...added],
@@ -633,8 +634,11 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number): { brief:
     depth: plan.depth,
     volume: plan.volume,
     kind: plan.kind,
-    // Ngân sách tool call của mục tiêu không tụt khi prompt tiếp nối ngắn được đọc là nhẹ (0.7.0): tier chỉ tăng.
-    tier: maxTier(prev.tier, tierOf(plan.depth, plan.volume)),
+    // Ngân sách tool call của mục tiêu không tụt khi prompt tiếp nối ngắn được đọc là nhẹ (0.7.0): tier chỉ tăng. Tier của mục tiêu
+    // tối thiểu chỉ là đoán (0.7.2) nên không làm sàn.
+    tier: prev.isBare === true ? tierOf(plan.depth, plan.volume) : maxTier(prev.tier, tierOf(plan.depth, plan.volume)),
+    // Mục tiêu tối thiểu được router đọc lần đầu qua prompt tiếp nối: lấy câu mục tiêu của router nếu có (0.7.2).
+    ...(prev.isBare === true && plan.goal ? { goal: plan.goal } : {}),
     main: plan.main,
     why: reasonOf(plan),
     relation: plan.relation,
@@ -809,7 +813,8 @@ export function nextBrief(prev: Brief | null, plan: RouterPlan, prompt: string, 
  * (Claude có thể đã chốt lại qua plan set) và prompt gốc; phần đọc và điều phối lấy theo lần đọc mới.
  */
 export function rerouted(current: Brief, fresh: Brief): Brief {
-  return { ...fresh, goalId: current.goalId, goal: current.goal, steps: current.steps, prompt: current.prompt }
+  // Mục tiêu tối thiểu (router chưa từng đọc, 0.7.2): lấy câu mục tiêu của lần đọc này; mục tiêu do router đặt thì giữ câu cũ.
+  return { ...fresh, goalId: current.goalId, goal: current.isBare === true ? fresh.goal : current.goal, steps: current.steps, prompt: current.prompt }
 }
 
 /** Prompt ngắn người dùng cho phép bỏ qua router (option routerSkip): so khớp nguyên câu, bỏ dấu câu cuối, không phân biệt hoa thường. */

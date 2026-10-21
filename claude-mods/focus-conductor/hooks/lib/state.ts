@@ -134,6 +134,7 @@ function normalizeBrief(raw: Brief): Brief {
     source: brief.source === 'router' ? 'router' : 'none',
     isFollowUp: brief.isFollowUp ?? false,
     isReference: brief.isReference ?? brief.attached !== undefined,
+    ...(brief.isBare === true ? { isBare: true } : {}),
     scopePaths: brief.scopePaths ?? [],
     prompt: brief.prompt ?? '',
     at: brief.at ?? 0,

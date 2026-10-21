@@ -4,6 +4,8 @@
 
 import { describe, expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
+import * as S from '../../hooks/lib/state'
+import { makeBrief } from '../support/commands'
 import { DEFAULT_ROUTER, base, conductor, submit } from '../support/engine'
 
 const PLAN = 'mcp__focus-conductor__plan'
@@ -27,7 +29,9 @@ describe('0.7.0 1: lưu checklist khi mục tiêu chưa có brief', () => {
     expect(String(restored.result)).toContain('Đọc tài liệu v10')
     const status = String((await conductor($, 'status')).text)
     expect(status).toContain('2. Sửa skill')
-    expect(status).toContain('Mục tiêu: Đọc tài liệu v10')
+    // 0.7.2: router lỗi ở prompt đầu lập mục tiêu tối thiểu, nên checklist được lưu cùng brief thật (goal do plan set chốt),
+    // không còn brief tạm lấy tiêu đề bước mở đầu.
+    expect(status).toContain('Mục tiêu: Cập nhật skill')
   })
 
   test('không có brief và checklist không còn bước mở: không có gì để lưu', {}, async ($, on) => {
@@ -39,5 +43,14 @@ describe('0.7.0 1: lưu checklist khi mục tiêu chưa có brief', () => {
     await whilePaused($)
     await submit($, 'Viết hàm slugify(text) bằng TypeScript, có unit test.')
     expect((await $.tool.call({ tool: PLAN, action: 'restore' })).deny).toContain('Không có mục tiêu cũ')
+  })
+})
+
+describe('0.7.0 1: brief tạm khi checklist có bước mở mà không có brief (đường còn lại sau 0.7.2)', () => {
+  test('adoptGoal lưu checklist cũ bằng brief tạm lấy tiêu đề bước mở đầu', () => {
+    const base0 = S.normalizeCore({ plan: [{ id: 1, title: 'Đọc tài liệu v10', status: 'todo' }, { id: 2, title: 'Sửa skill', status: 'todo' }] })
+    const next = S.adoptGoal(makeBrief({ goalId: 2 }))(base0)
+    expect(next.archived[0]?.brief.goal).toBe('Đọc tài liệu v10')
+    expect(next.archived[0]?.plan.length).toBe(2)
   })
 })
