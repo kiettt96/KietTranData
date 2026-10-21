@@ -9,15 +9,25 @@ const reqs = (n: number) => Array.from({ length: n }, (_, i) => `Yêu cầu ${i 
 const ctx = (seen: { contexts: string[][] }, i = 0) => (seen.contexts[i] ?? []).join('\n')
 
 describe('0.7.0 7: kiểm lại khi quá nhiều yêu cầu (nối dây)', () => {
-  test('9 yêu cầu: router được hỏi hai lượt, lượt hai kèm câu trả lời trước', {}, async ($, on) => {
+  // 0.7.2: kiểm lại chỉ khi quá 8 yêu cầu mà còn yêu cầu không việc nào phủ (trước đó mỗi khi quá 8 yêu cầu).
+  const gappy = (goal: string, n: number) =>
+    plan({ goal, requirements: reqs(n), depth: 'substantial', tasks: [task('Việc', 'main', 'sonnet', 'medium', { covers: Array.from({ length: n - 1 }, (_, i) => i + 1) })] })
+
+  test('9 yêu cầu còn một yêu cầu chưa phủ: router được hỏi hai lượt, lượt hai kèm câu trả lời trước', {}, async ($, on) => {
     let n = 0
-    const seen = base(on, { router: () => plan({ goal: `Lần ${(n += 1)}`, requirements: reqs(9) }) })
+    const seen = base(on, { router: () => gappy(`Lần ${(n += 1)}`, 9) })
     await submit($, 'Cập nhật skill lên v10, đối chiếu đủ các mục')
     expect(seen.routed.length).toBe(2)
     expect(seen.routed[1]).toContain('<previous_answer>')
     expect(seen.routed[1]).toContain('every requirement')
     // Lượt kiểm lại được dùng.
     expect(ctx(seen)).toContain('Mục tiêu cuối: Lần 2')
+  })
+
+  test('9 yêu cầu đã phủ đủ: chỉ một lượt', {}, async ($, on) => {
+    const seen = base(on, { router: () => plan({ goal: 'Một lượt', requirements: reqs(9), tasks: [task('Việc', 'main', 'sonnet', 'medium', { covers: Array.from({ length: 9 }, (_, i) => i + 1) })] }) })
+    await submit($, 'Cập nhật skill lên v10')
+    expect(seen.routed.length).toBe(1)
   })
 
   test('8 yêu cầu: chỉ một lượt', {}, async ($, on) => {

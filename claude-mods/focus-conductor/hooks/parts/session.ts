@@ -7,7 +7,7 @@ import { openSteps, restorableSteps } from '../lib/drift'
 import { PLAN_TOOL_SPEC } from '../lib/plan'
 import { describePick } from '../lib/route'
 import { clipText, keptLines } from '../lib/decisions'
-import { REQUIREMENTS_RECHECK, askRouter, bareBrief, failFields, isSkippable, nextBrief, parseRoute, routerFailOf, routerRequest } from '../lib/router'
+import { askRouter, bareBrief, failFields, isSkippable, needsCoverageRecheck, nextBrief, parseRoute, routerFailOf, routerRequest } from '../lib/router'
 import type { RouterOutcome, RouterPlan } from '../lib/router'
 import { EMPTY_QUOTA, blockingHits, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaSettings, reasonsOf } from '../lib/quota'
 import * as S from '../lib/state'
@@ -196,7 +196,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       L.observed = []
       const request = routerRequest({ text, prev, ran: ranText(before), policy: rules, model: routerModel, openSteps: openSteps(before.plan).map(s => s.title), ...(observed ? { observed } : {}) })
       const startedAt = await $.clock.now()
-      outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), result => result.requirements.length > REQUIREMENTS_RECHECK)
+      outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), needsCoverageRecheck)
       waitedMs = (await $.clock.now()) - startedAt
       noteRouterTime(waitedMs)
       pauseText = noteRouter(outcome.result !== null)
