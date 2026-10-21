@@ -9,11 +9,11 @@ import { cacheNote, priceNote } from '../lib/cost'
 import { estimateLine, formatUsd, ledgerLines } from '../lib/ledger'
 import { describePick } from '../lib/route'
 import { clipText } from '../lib/decisions'
-import { askRouter, bareBrief, briefOf, nextBrief, parseRoute, rerouted, routerRequest } from '../lib/router'
+import { askRouter, bareBrief, briefOf, failFields, nextBrief, parseRoute, rerouted, routerFailOf, routerRequest } from '../lib/router'
 import { shownPlan } from '../lib/mirror'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
-import { briefContext, droppedPlanNotice, quotaStatusLines, renderPlan, resetLabel, unroutedContext } from '../lib/text'
+import { briefContext, droppedPlanNotice, quotaStatusLines, renderPlan, resetLabel, routerFailLines, unroutedContext } from '../lib/text'
 import { PANE, PANE_TITLE } from '../ui/pane'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
@@ -122,6 +122,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       const plan = outcome.result
       if (plan !== null) L.routerTrouble = { failures: 0, pausedUntil: 0 }
       const now = await $.clock.now()
+      const fail = plan === null ? routerFailOf(outcome, now, now - startedAt) : null
       const goalId = (prev?.goalId ?? 0) + 1
       // Mục tiêu đặt bằng lệnh luôn là mục tiêu mới; router lỗi thì đặt mục tiêu không có lựa chọn model.
       const brief: Brief = plan ? { ...briefOf(plan, arg, goalId, now), goal: plan.goal || arg.slice(0, 200) } : bareBrief(arg, goalId, now)
@@ -130,12 +131,12 @@ export function registerCommand(on: On, ctx: Ctx): void {
       const core = await update($, coreState, c => {
         const adopted = S.adoptGoal(brief)(c)
         const withRoute = plan === null ? S.withRoute(null)(adopted) : adopted
-        return S.withAnalyzerUsage(outcome.usages, routerFamily)(withRoute)
+        return S.withRouterFail(fail)(S.withAnalyzerUsage(outcome.usages, routerFamily)(withRoute))
       })
       L.lastPrompt = null
       L.isGoalNew = true
       L.pinnedGoalId = null
-      record(now, plan !== null ? 'route' : 'router-fail', { command: 'goal', prompt: clipText(arg), reason: outcome.reason, retried: outcome.retried })
+      record(now, plan !== null ? 'route' : 'router-fail', { command: 'goal', prompt: clipText(arg), reason: outcome.reason, retried: outcome.retried, ...(fail ? failFields(fail) : {}) })
       await flushDecisions((path, text) => $.fs.write(path, text))
       await showStatus($, await read($, view), ctx.options)
       const wanted = wantedPick(brief, core.lift)
@@ -177,12 +178,15 @@ export function registerCommand(on: On, ctx: Ctx): void {
         S.withAnalyzerUsage(outcome.usages, routerFamily)(c)
       const plan = outcome.result
       if (plan === null) {
-        await update($, coreState, withUsage)
-        record(now, 'router-fail', { command: 'reroute', prompt: clipText(last.text), reason: outcome.reason, retried: outcome.retried })
+        const fail = routerFailOf(outcome, now, now - startedAt)
+        await update($, coreState, c => S.withRouterFail(fail)(withUsage(c)))
+        record(now, 'router-fail', { command: 'reroute', prompt: clipText(last.text), reason: outcome.reason, retried: outcome.retried, ...failFields(fail) })
         await flushDecisions((path, text) => $.fs.write(path, text))
+        await showStatus($, await read($, view), ctx.options)
         return { text: `Router không đọc được (${outcome.reason}); giữ điều phối hiện tại.` }
       }
       L.routerTrouble = { failures: 0, pausedUntil: 0 }
+      await update($, coreState, S.withRouterFail(null))
       const fresh = nextBrief(last.prev, plan, last.text, now)
       // Prompt gần nhất đã lập mục tiêu hiện tại (không phải tiếp nối mục tiêu trước nó).
       const wasNew = current !== null && current.goalId !== (last.prev?.goalId ?? null)
@@ -320,7 +324,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
           now: await $.clock.now(),
         }),
       )
-      if (core.brief === null) return { text: [`Chế độ ${current}. Chưa có mục tiêu.`, ...costLines].join('\n') }
+      if (core.brief === null) return { text: [`Chế độ ${current}. Chưa có mục tiêu.`, ...routerFailLines(core.routerFail), ...costLines].join('\n') }
       const routeLine = core.route
         ? `${describePick(core.route)} (${core.route.reason})`
         : core.brief.main === null
@@ -348,6 +352,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
           `Chế độ ${current}`,
           judged,
           `Luồng chính: ${routeLine}${blockedLine}`,
+          ...routerFailLines(core.routerFail),
           renderPlan(core.brief, shown.plan) + (shown.source === 'mirror' ? '\n(theo danh sách việc của Claude Code, chỉ để theo dõi)' : ''),
           ...costLines,
         ].join('\n') + agentBlock,

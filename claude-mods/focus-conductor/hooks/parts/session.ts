@@ -7,7 +7,7 @@ import { openSteps, restorableSteps } from '../lib/drift'
 import { PLAN_TOOL_SPEC } from '../lib/plan'
 import { describePick } from '../lib/route'
 import { clipText, keptLines } from '../lib/decisions'
-import { REQUIREMENTS_RECHECK, askRouter, isSkippable, nextBrief, parseRoute, routerRequest } from '../lib/router'
+import { REQUIREMENTS_RECHECK, askRouter, failFields, isSkippable, nextBrief, parseRoute, routerFailOf, routerRequest } from '../lib/router'
 import type { RouterOutcome, RouterPlan } from '../lib/router'
 import { EMPTY_QUOTA, blockingHits, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaSettings, reasonsOf } from '../lib/quota'
 import * as S from '../lib/state'
@@ -187,7 +187,8 @@ export function registerSession(on: On, ctx: Ctx): void {
     L.promptCount += 1
     const rules = policy()
     const isPaused = isRouterPaused()
-    let outcome: RouterOutcome<RouterPlan> = { result: null, reason: 'router đang tạm ngừng sau các lần lỗi liên tiếp', usages: [], retried: false }
+    let outcome: RouterOutcome<RouterPlan> = { result: null, reason: 'router đang tạm ngừng sau các lần lỗi liên tiếp', usages: [], retried: false, failure: 'paused', timeoutMs: null, maxTokens: null, outputTokens: null }
+    let waitedMs = 0
     let pauseText: string | null = null
     if (!isPaused) {
       $.ui.status('router đang đọc prompt...')
@@ -196,7 +197,8 @@ export function registerSession(on: On, ctx: Ctx): void {
       const request = routerRequest({ text, prev, ran: ranText(before), policy: rules, model: routerModel, openSteps: openSteps(before.plan).map(s => s.title), ...(observed ? { observed } : {}) })
       const startedAt = await $.clock.now()
       outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), result => result.requirements.length > REQUIREMENTS_RECHECK)
-      noteRouterTime((await $.clock.now()) - startedAt)
+      waitedMs = (await $.clock.now()) - startedAt
+      noteRouterTime(waitedMs)
       pauseText = noteRouter(outcome.result !== null)
     }
     // Tiếp tục điểm dừng khi router xếp tiếp nối, hoặc khi người dùng vừa gõ /conductor resume (khi đó router xếp mục
@@ -225,14 +227,15 @@ export function registerSession(on: On, ctx: Ctx): void {
         ...(pauseText ? [{ at: now, kind: 'model' as const, text: pauseText }] : []),
       ]
       // Route lưu về null (trừ khi dùng lại): mốc cache là model engine thật sự chạy, không phải route của lượt trước.
+      const fail = routerFailOf(outcome, now, waitedMs)
       await update($, coreState, c => {
-        const used = withUsage(c)
+        const used = S.withRouterFail(fail)(withUsage(c))
         const withKept = kept ? S.withBrief(kept)(used) : used
         const withNotes = S.withWarnings(...warnings)(isReuse ? withKept : S.withRoute(null)(withKept))
         return isReuse ? withNotes : S.withDelegations(-1, [])(withNotes)
       })
       L.lastPrompt = { text, prev, goalId: kept?.goalId ?? null }
-      record(now, 'router-fail', { prompt: clipText(text), reason: outcome.reason, retried: outcome.retried, reuse: isReuse })
+      record(now, 'router-fail', { prompt: clipText(text), reason: outcome.reason, retried: outcome.retried, reuse: isReuse, ...failFields(fail) })
       await flushDecisions((path, text) => $.fs.write(path, text))
       if (!isPaused) $.ui.toast(pauseText ?? failText)
       await showStatus($, await read($, view), ctx.options)
@@ -242,7 +245,7 @@ export function registerSession(on: On, ctx: Ctx): void {
     // Mục tiêu mới, chạy thật prompt đã đối chiếu, hoặc tiếp nối cùng mục tiêu.
     const { brief, added, isNewGoal } = nextBrief(prev, plan, text, now)
     // adoptGoal lưu checklist cũ còn bước mở (khôi phục được bằng plan restore); chi phí router cộng sau, thuộc mục tiêu mới.
-    const core = await update($, coreState, c => withUsage(isNewGoal ? S.adoptGoal(brief)(c) : S.withDecision(brief)(c)))
+    const core = await update($, coreState, c => S.withRouterFail(null)(withUsage(isNewGoal ? S.adoptGoal(brief)(c) : S.withDecision(brief)(c))))
     L.lastPrompt = { text, prev, goalId: brief.goalId }
     if (isNewGoal) {
       L.isGoalNew = true

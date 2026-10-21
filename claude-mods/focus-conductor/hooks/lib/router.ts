@@ -7,7 +7,7 @@
 
 import type { ModelCompleteRequest, ModelCompleteResult, ModelTextBlock, ModelUsage } from 'claude-code'
 
-import type { Brief, Choice, Depth, Effort, Kind, ModelFamily, Relation, Task, Tier, Volume } from '../../types'
+import type { Brief, Choice, Depth, Effort, Kind, ModelFamily, Relation, RouterFail, RouterFailKind, Task, Tier, Volume } from '../../types'
 import { PRICE } from './cost'
 import type { Price } from './cost'
 import { EFFORTS, applySession, avoidBlocked, describePick, familyOf } from './route'
@@ -698,6 +698,15 @@ export function bareBrief(prompt: string, goalId: number, now: number): Brief {
  */
 export type Ask = (request: ModelCompleteRequest) => Promise<ModelCompleteResult | null>
 
+/** Loại lỗi của router (0.7.2), tách khỏi lý do bằng chữ để status line và nhật ký không phải đọc chuỗi. */
+export function failureKind(reply: ModelCompleteResult | null): RouterFailKind {
+  if (reply === null) return 'engine'
+  if (reply.isAnswered) return 'format'
+  if (reply.reason === 'api-error') return 'api'
+  if (reply.reason === 'aborted') return 'timeout'
+  return 'empty'
+}
+
 /** Lý do router không trả được kết quả dùng được. */
 export function failureReason(reply: ModelCompleteResult | null): string {
   if (reply === null) return 'engine từ chối gửi request tới model router'
@@ -733,6 +742,22 @@ export type RouterOutcome<T> = {
   /** Usage của mọi lượt gọi (lượt đầu và lượt hỏi lại). */
   usages: ModelUsage[]
   retried: boolean
+  /** Loại lỗi khi không có kết quả (0.7.2); null khi có kết quả. */
+  failure: RouterFailKind | null
+  /** Giới hạn của request đã gửi và số token đầu ra của lượt gọi cuối, để biết lỗi do hết giờ hay bị cắt (0.7.2). */
+  timeoutMs: number | null
+  maxTokens: number | null
+  outputTokens: number | null
+}
+
+/** Lần lỗi để lưu vào state từ kết quả không dùng được của router (0.7.2); `ms` là thời gian đã chờ. */
+export function routerFailOf(outcome: RouterOutcome<unknown>, at: number, ms: number): RouterFail {
+  return { at, kind: outcome.failure ?? 'empty', reason: outcome.reason, ms, timeoutMs: outcome.timeoutMs, maxTokens: outcome.maxTokens, outputTokens: outcome.outputTokens }
+}
+
+/** Các trường của dòng router-fail trong nhật ký quyết định (0.7.2). */
+export function failFields(fail: RouterFail): Record<string, unknown> {
+  return { failure: fail.kind, ms: fail.ms, timeoutMs: fail.timeoutMs, maxTokens: fail.maxTokens, outputTokens: fail.outputTokens }
 }
 
 /**
@@ -748,19 +773,20 @@ export async function askRouter<T extends { confidence?: number }>(
 ): Promise<RouterOutcome<T>> {
   const first = await ask(request).catch(() => null)
   const usages = first ? [first.usage] : []
+  const limits = (last: ModelCompleteResult | null) => ({ timeoutMs: request.timeoutMs ?? null, maxTokens: request.maxTokens ?? null, outputTokens: last ? last.usage.output_tokens : null })
   const firstResult = first?.isAnswered ? parse(first.text) : null
   const firstConfidence = firstResult?.confidence ?? 1
   const isConfident = firstResult !== null && firstConfidence >= LOW_CONFIDENCE
   const needsCoverage = isConfident && recheck !== undefined && recheck(firstResult)
   if (first === null || !first.isAnswered || (isConfident && !needsCoverage)) {
-    return { result: firstResult, reason: failureReason(first), usages, retried: false }
+    return { result: firstResult, reason: failureReason(first), usages, retried: false, failure: firstResult === null ? failureKind(first) : null, ...limits(first) }
   }
   const second = await ask(retryRequest(request, first.text, firstResult === null ? 'json' : needsCoverage ? 'coverage' : 'confidence')).catch(() => null)
   if (second) usages.push(second.usage)
   const secondResult = second?.isAnswered ? parse(second.text) : null
   const pick =
     secondResult !== null && (firstResult === null || (secondResult.confidence ?? 1) >= firstConfidence) ? secondResult : firstResult
-  return { result: pick, reason: pick === null ? failureReason(second) : '', usages, retried: true }
+  return { result: pick, reason: pick === null ? failureReason(second) : '', usages, retried: true, failure: pick === null ? failureKind(second) : null, ...limits(second ?? first) }
 }
 
 /**

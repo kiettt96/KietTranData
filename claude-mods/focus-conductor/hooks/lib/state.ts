@@ -6,12 +6,12 @@
 
 import type { PluginOptions } from 'claude-code'
 
-import type { AgentProgress, AgentState, ArchivedGoal, Brief, Core, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, Route, RouteEvent, Warning } from '../../types'
+import type { AgentProgress, AgentState, ArchivedGoal, Brief, Core, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, Route, RouteEvent, RouterFail, Warning } from '../../types'
 import { restorableSteps } from './drift'
 import type { Tokens } from './cost'
 import { addUsage, emptyLedger, nextGoal, planSwitch, resetLedger } from './ledger'
 import { legacyOf } from './scale'
-import { statusLine, withQuotaStatus } from './text'
+import { statusLine, withQuotaStatus, withRouterFailStatus } from './text'
 import { shownPlan } from './mirror'
 import { evaluateQuota, isPauseActive, overrideOf, quotaBadge } from './quota'
 import type { QuotaSettings } from './quota'
@@ -34,6 +34,7 @@ export const EMPTY_CORE: Core = {
   mirror: { goalId: -1, steps: [] },
   agentProgress: { goalId: -1, items: [] },
   activity: { goalId: -1, changes: 0 },
+  routerFail: null,
 }
 
 const LOG_LIMIT = 60
@@ -69,11 +70,16 @@ export function statusOf(view: View): string | undefined {
  * mode off, lúc đó bảo vệ hạn mức không chạy nên không có nhãn. Tắt quotaGuard thì như statusOf.
  */
 export function statusText(view: View, quota: QuotaState, now: number, settings: QuotaSettings): string | undefined {
-  const base = statusOf(view)
+  const base = withRouterFailStatus(statusOf(view), view.core.routerFail, view.lang)
   if (!settings.enabled) return base
   const evaluation = evaluateQuota(quota.readings, now, settings)
   return withQuotaStatus(base, quotaBadge(isPauseActive(true, evaluation.hits, quota.pause, overrideOf(quota), now), evaluation), view.lang)
 }
+
+/** Ghi (hoặc xóa, khi router đọc được lại) lần router lỗi gần nhất (0.7.2). */
+export const withRouterFail =
+  (fail: RouterFail | null) =>
+  (c: Core): Core => ({ ...normalizeCore(c), routerFail: fail })
 
 /** Đưa trạng thái đọc được từ bản cũ về dạng đầy đủ của bản hiện tại. */
 export function normalizeCore(raw: Partial<Core>): Core {
@@ -94,6 +100,7 @@ export function normalizeCore(raw: Partial<Core>): Core {
     mirror: raw.mirror ?? { goalId: -1, steps: [] },
     agentProgress: raw.agentProgress ?? { goalId: -1, items: [] },
     activity: raw.activity ?? { goalId: -1, changes: 0 },
+    routerFail: raw.routerFail ?? null,
   }
 }
 

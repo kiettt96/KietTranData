@@ -76,4 +76,39 @@ describe('0.7.2 1: nhật ký và /conductor status', () => {
     await submit($, 'Đọc lại')
     expect(String((await conductor($, 'status')).text)).not.toContain('Router lỗi gần nhất')
   })
+
+  test('đã có mục tiêu: /conductor status hiện lần lỗi gần nhất cạnh phần đánh giá', {}, async ($, on) => {
+    let n = 0
+    base(on, { router: () => (++n === 1 ? plan({ goal: 'Sửa lớn' }) : ROUTER_TIMEOUT) })
+    await submit($, COMPLEX_PROMPT)
+    await submit($, 'Làm tiếp phần còn lại')
+    const text = String((await conductor($, 'status')).text)
+    expect(text).toContain('Router lỗi gần nhất')
+    expect(text).toContain('Sửa lớn')
+  })
+})
+
+describe('0.7.2 1: lệnh /conductor goal và reroute', () => {
+  test('/conductor goal khi router lỗi: status line ghi lỗi; goal thành công thì xóa', {}, async ($, on) => {
+    let fail = true
+    const seen = base(on, { router: () => (fail ? ROUTER_TIMEOUT : plan({ goal: 'Sửa lớn' })) })
+    await conductor($, 'goal Sửa module thanh toán')
+    expect(last(seen)).toContain('router lỗi')
+    fail = false
+    await conductor($, 'goal Sửa module thanh toán lần hai')
+    expect(last(seen)).not.toContain('router lỗi')
+  })
+
+  test('/conductor reroute khi router lỗi: ghi lỗi và status line; reroute thành công thì xóa', {}, async ($, on) => {
+    let fail = false
+    const seen = base(on, { router: () => (fail ? ROUTER_TIMEOUT : plan({ goal: 'Sửa lớn' })) })
+    await submit($, COMPLEX_PROMPT)
+    expect(last(seen)).not.toContain('router lỗi')
+    fail = true
+    await conductor($, 'reroute')
+    expect(last(seen)).toContain('router lỗi')
+    fail = false
+    await conductor($, 'reroute')
+    expect(last(seen)).not.toContain('router lỗi')
+  })
 })
