@@ -62,10 +62,12 @@ async function one(c: GoldenCase, n: number) {
   let text = out
   let served = '?'
   let usd = 0
+  let outTokens = 0
   try {
-    const json = JSON.parse(out) as { result?: string; total_cost_usd?: number; modelUsage?: Record<string, unknown> }
+    const json = JSON.parse(out) as { result?: string; total_cost_usd?: number; modelUsage?: Record<string, unknown>; usage?: { output_tokens?: number } }
     text = json.result ?? ''
     usd = json.total_cost_usd ?? 0
+    outTokens = json.usage?.output_tokens ?? 0
     served = Object.keys(json.modelUsage ?? {}).join('+') || '?'
   } catch {
     // Không phải JSON của CLI: chấm thẳng đầu ra.
@@ -86,7 +88,7 @@ async function one(c: GoldenCase, n: number) {
           depth: parsed.depth,
           volume: parsed.volume,
         }
-  return { c, n, text, fails, ms, usd, served, stats }
+  return { c, n, text, fails, ms, usd, served, stats, outTokens }
 }
 
 // Phiên bản Claude Code chạy eval, ghi kèm kết quả để số liệu gắn với đúng môi trường.
@@ -128,8 +130,19 @@ const allStats = results.flatMap(r => (r.stats === null ? [] : [r.stats]))
 console.log(`  Tổng: việc tách ra TB ${mean(allStats.map(s => s.tasks)).toFixed(2)}, giao subagent TB ${mean(allStats.map(s => s.agents)).toFixed(2)}, yêu cầu TB ${mean(allStats.map(s => s.reqs)).toFixed(2)} (${allStats.length}/${results.length} lượt đọc được)`)
 console.log(`  Luồng chính: ${count(allStats.map(s => s.main))}`)
 console.log(`  Việc: ${count(allStats.flatMap(s => s.picks))}`)
+// Thời gian và số token đầu ra theo ca (0.7.2): trung vị và p95 (lượt chậm nhất khi ít hơn 20 lượt), để chọn timeout và maxTokens theo số đo.
+const pct = (xs: number[], p: number) => {
+  const sorted = [...xs].sort((a, b) => a - b)
+  return sorted.length === 0 ? 0 : (sorted[Math.min(sorted.length - 1, Math.ceil(p * sorted.length) - 1)] ?? 0)
+}
+console.log('\nThời gian (giây) và token đầu ra theo ca: trung vị / p95 / lớn nhất')
+for (const { c, runs } of summary) {
+  const secs = runs.map(r => r.ms / 1000)
+  const toks = runs.map(r => r.outTokens)
+  console.log(`  ${c.id.padEnd(14)} ${pct(secs, 0.5).toFixed(1)} / ${pct(secs, 0.95).toFixed(1)} / ${Math.max(...secs).toFixed(1)} s; token ${pct(toks, 0.5)} / ${pct(toks, 0.95)} / ${Math.max(...toks)}`)
+}
 console.log(`  Thời gian TB ${(mean(results.map(r => r.ms)) / 1000).toFixed(1)} s; chi phí ${results.reduce((sum, r) => sum + r.usd, 0).toFixed(3)} USD cho ${results.length} lượt (TB ${(results.reduce((sum, r) => sum + r.usd, 0) / Math.max(1, results.length)).toFixed(4)} USD)`)
-if (OUT) writeFileSync(OUT, JSON.stringify({ version, startedAt, model: MODEL, runs: RUNS, results: results.map(r => ({ id: r.c.id, n: r.n, ok: r.fails.length === 0, fails: r.fails, ms: r.ms, usd: r.usd, stats: r.stats })) }, null, 2))
+if (OUT) writeFileSync(OUT, JSON.stringify({ version, startedAt, model: MODEL, runs: RUNS, results: results.map(r => ({ id: r.c.id, n: r.n, ok: r.fails.length === 0, fails: r.fails, ms: r.ms, outTokens: r.outTokens, usd: r.usd, stats: r.stats })) }, null, 2))
 
 const total = summary.reduce((sum, s) => sum + s.passed, 0)
 const attempts = summary.reduce((sum, s) => sum + s.runs.length, 0)

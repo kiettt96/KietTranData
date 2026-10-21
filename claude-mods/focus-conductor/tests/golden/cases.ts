@@ -6,6 +6,7 @@
 import type { Brief, Kind, ModelFamily, Relation } from '../../types'
 import { briefOf, parseRoute } from '../../hooks/lib/router'
 import type { Policy } from '../../hooks/lib/router'
+import { LONG_VN_EXTRA, LONG_VN_PROMPT } from '../fixtures/prompt-long-vn'
 import { K4_META_LEAD, K4_PROMPT } from '../fixtures/prompt-k4'
 
 export const OPEN: Policy = { allowFable: false, blocked: new Set<ModelFamily>(), session: null }
@@ -252,5 +253,17 @@ export const CASES: readonly GoldenCase[] = [
     text: 'Thêm vào src/utils/format.ts một hàm formatVnd(amount: number) trả về chuỗi tiền đồng có dấu chấm phân cách hàng nghìn, ví dụ 1234567 thành "1.234.567 ₫".',
     note: 'một khối liền mạch, không có gì để chia: không tách việc',
     expect: { kind: ['edit'], main: ['haiku', 'sonnet'], tasks: [0, 0], requirements: [1, 4] },
+  },
+  {
+    id: 'long-vn',
+    text: LONG_VN_PROMPT,
+    note: 'prompt dài tiếng Việt khoảng 6.000 ký tự, hơn 20 yêu cầu trong đoạn văn: đọc đủ, phủ hết, trong giới hạn router',
+    expect: { reference: false, kind: ['edit', 'mixed'], main: ['sonnet', 'opus'], tasks: [0, 10], requirements: [12, 30], covered: true },
+  },
+  {
+    id: 'long-vn-xl',
+    text: `${LONG_VN_PROMPT}\n\n${LONG_VN_EXTRA}`,
+    note: 'prompt dài tiếng Việt khoảng 8.800 ký tự: hai nhóm việc, hơn 40 yêu cầu (router giới hạn 30)',
+    expect: { reference: false, kind: ['edit', 'mixed'], main: ['sonnet', 'opus'], tasks: [0, 10], requirements: [12, 30] },
   },
 ]
