@@ -7,6 +7,8 @@ import type { Engine, MockClock } from 'claude-code/testing'
 
 export const BIG_USAGE = { input_tokens: 100_000, output_tokens: 50_000, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
 export const ROUTER_USAGE = { input_tokens: 1000, output_tokens: 500, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
+/** Câu trả lời đặc biệt của responder router: model.complete báo hết giờ chờ. */
+export const ROUTER_TIMEOUT = '__router-timeout__'
 export const ZERO_USAGE = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
 
 export const COMPLEX_PROMPT = `### Mục tiêu
@@ -153,6 +155,8 @@ export function base(
     if (reply === null) {
       return { value: { isAnswered: false as const, reason: 'api-error' as const, status: 529, error: 'overloaded' as const, usage: ZERO_USAGE } }
     }
+    // Router hết giờ chờ (engine báo aborted).
+    if (reply === ROUTER_TIMEOUT) return { value: { isAnswered: false as const, reason: 'aborted' as const, usage: ZERO_USAGE } }
     return { value: { isAnswered: true as const, text: typeof reply === 'string' ? reply : JSON.stringify(reply), usage: ROUTER_USAGE } }
   })
   on('turn.step', async function* (_$, e) {
