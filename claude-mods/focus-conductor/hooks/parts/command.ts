@@ -151,6 +151,8 @@ export function registerCommand(on: On, ctx: Ctx): void {
       L.lastPrompt = null
       L.isGoalNew = true
       L.pinnedGoalId = null
+      // Mục tiêu mới đặt bằng lệnh thì band đã ẩn hiện lại, như mục tiêu mới do router đọc (0.7.2).
+      await update($, bandHiddenState, () => false)
       record(now, plan !== null ? 'route' : 'router-fail', { command: 'goal', prompt: clipText(arg), reason: outcome.reason, retried: outcome.retried, ...(fail ? failFields(fail) : {}) })
       await flushDecisions((path, text) => $.fs.write(path, text))
       await showStatus($, await read($, view), ctx.options)

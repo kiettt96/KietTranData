@@ -852,4 +852,5 @@ export const MUTANTS: Mutant[] = [
   { id: "072-P12", file: "hooks/parts/session.ts", note: "lý do chưa đặt pane không vào log", old: "reason: opened === null ? 'engine từ chối mở pane' : opened.reason })", new: "reason: 'khong ro' })" },
   { id: "072-P13", file: "hooks/context.ts", note: "option autoPane đặt false vẫn mở", old: "const autoPane = options['autoPane'] !== false", new: "const autoPane = options['autoPane'] === false" },
   { id: "072-P14", file: "hooks/parts/command.ts", note: "/conductor goal ghi sai kết quả đặt pane", old: "if (opened?.isPlaced === true) return\n", new: "if (opened?.isPlaced === false) return\n" },
+  { id: "072-H1", file: "hooks/parts/command.ts", note: "/conductor goal không hiện lại band đã ẩn", old: "      await update($, bandHiddenState, () => false)\n      record(now, plan !== null", new: "      record(now, plan !== null" },
 ]
