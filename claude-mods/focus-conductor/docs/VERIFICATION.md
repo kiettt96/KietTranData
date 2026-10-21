@@ -4,6 +4,34 @@ Số đo của HEAD hiện tại và của các bản trước. Mọi số do t�
 
 ## Kiểm chứng HEAD hiện tại
 
+Bản 0.7.2 (pane tự mở, mục tiêu tối thiểu khi router lỗi, lỗi router tự để lại bằng chứng, hạn chung và kiểm lại có điều kiện cho router, band hiện lại ở `/conductor goal`), ngày 2026-10-21, nhánh từ `main` `a0408b9`. Mã (`hooks/`) trong commit chứa mục này đúng là nội dung đã kiểm: sha256 của `hooks/` là `964c5df3cfc86d2bc90ba6db893b8a3a5b570d5673110a4d42daf282bf0acb5c` và của `tests/` là `0743aebe77e9367ffe245e080a70797fca70801327b811b396d09a23a54bd808`, giữ nguyên qua các commit chỉ đổi tài liệu sau đó. Số dưới đây do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển], trừ dòng CI.
+
+- Môi trường: Claude Code 2.1.296 (bản CI ghim), Node v22.22.0, Bun 1.4.2. Baseline trên `main` trước khi sửa: 1219 test qua, `tsc` sạch, `mutate --check` 767/767 [Đo trực tiếp].
+- `claude plugin test .`: 1285 test qua, 0 lỗi, 76 tệp (1219 của 0.7.1 cộng 66) [Đo trực tiếp]. `claude plugin validate .` qua cho mod và marketplace. `bunx tsc -p tsconfig.json` sạch.
+- Test đỏ trước khi viết mã, đo trên mã của commit ngay trước từng điểm [Đo trực tiếp]: điểm 1 là 7 trên 7 test mới đỏ (`tests/integration/router-fail-evidence.test.ts`); điểm 2 là 7 trên 10 (`bare-goal.test.ts`; ba test còn lại là đối chiếu xanh sẵn); điểm 3 là `tests/router-budget.test.ts` không nạp được (thiếu `needsCoverageRecheck` và tham số hạn chung); điểm 4 là 10 trên 12 test tích hợp đỏ (`auto-pane.test.ts`, hai test `autoPane` false và `mode off` xanh sẵn) và `tests/pane-open.test.ts` không nạp được (thiếu `hooks/lib/pane`); điểm 5 là 1 trên 2 (`band-hidden-reset.test.ts`, đối chiếu xanh sẵn). Test đóng pane của điểm 4 bản đầu dùng `$.ui.close` từ hook test và đỏ vì engine từ chối; chuyển sang option `panesClosed` và hàm thuần như CHANGELOG ghi.
+- Test cũ phải đổi, đủ và lý do ở [CHANGELOG](../CHANGELOG.md) (mục 0.7.2): `router-read.test.ts`, `restore-null-brief.test.ts`, `router-reading.test.ts`, `requirements.test.ts`. Sáu mẫu đột biến cũ viết lại: `061-H1`, `061-H2`, `070-T1`, `070-B7`, `070-B19`, `070-B20`.
+- Đo router với prompt dài (`scripts/eval-router.ts`, router `sonnet`, Claude Code 2.1.296, qua `claude -p`; prompt tiếng Việt tự viết) [Đo trực tiếp]:
+
+| Phép đo | Lượt | Thời gian trung vị / p95 | Token đầu ra trung vị / p95 / lớn nhất | Ghi chú |
+|---|---|---|---|---|
+| `long-vn` (5.990 ký tự), lượt đầu | 10 | 21,7 / 26,8 giây | 2.870 / 2.959 / 2.959 | 28 tới 30 yêu cầu, 8 tới 9 việc; đạt 5 trên 10 theo kỳ vọng ban đầu (9 việc vượt 8, yêu cầu 28 và 29 không việc nào phủ) |
+| `long-vn-xl` (8.833 ký tự), lượt đầu | 8 | 21,6 / 24,3 giây | 2.996 / 3.245 / 3.245 | 27 tới 30 yêu cầu, 8 tới 10 việc; đạt 8 trên 8 |
+| Bản ghi replay, `long-vn` | 6 | 20,1 / 21,7 giây | 2.901 / 3.154 / 3.154 | đạt 3 trên 6 (kỳ vọng tối đa 10 việc, mọi yêu cầu có việc phủ): yêu cầu 28, 29 hoặc 16, 28 không việc nào phủ |
+| Bản ghi replay, `long-vn-xl` | 6 | 22,2 / 24,2 giây | 3.043 / 3.256 / 3.256 | đạt 6 trên 6 |
+| Cả luồng `askRouter` (lượt đầu và kiểm lại), kiểm lại ở effort high (0.7.0), `long-vn-xl` | 4 | tổng 66,3 tới 70,8 giây | | lượt kiểm lại hết giờ 45 giây ở 4 trên 5 lần gọi, 1 lần xong ở 45,3 giây với 6.871 token |
+| Như trên, kiểm lại ở effort medium, `long-vn-xl` | 5 | tổng 52,2 tới 67,7 giây | | kiểm lại 30,6 tới 44,8 giây, 4.966 tới 6.736 token |
+| Như trên, `long-vn` | 6 | tổng 48,3 tới 55,3 giây | | trong 12 câu trả lời (6 lượt đầu, 6 lượt kiểm lại) chỉ 2 câu còn 1 yêu cầu chưa phủ |
+
+Từ số đo: giữ 45 giây và 8.000 token cho prompt tới 12.000 ký tự (p95 27 giây, tối đa 3.300 token); kiểm lại không còn mỗi khi quá 8 yêu cầu mà chỉ khi còn yêu cầu chưa phủ, ở effort medium, trong hạn chung 67,5 giây. Eval trước và sau cho 30 ca cũ không chạy lại: lời dặn router không đổi nên băm request và bản ghi của 30 ca không đổi. Số đo là qua CLI, không qua `$.model.complete` của engine nên thời gian thật có thể lệch.
+- Kiểm đột biến: 818 mẫu (767 của 0.7.1, 51 mới `072-E1` đến `E12`, `B1` đến `B11`, `R1` đến `R13`, `P1` đến `P14`, `H1`); `scripts/mutate.ts --check` khớp 818/818. Lượt chạy trên cây của commit mã (hooks `964c5df3…`, tests `0743aebe…`; sha256 trùng nhau trước và sau mỗi lượt), `--jobs 2`, ba nhóm [Đo trực tiếp]. (a) 57 mẫu mới và viết lại (51 mẫu `072-` và 6 mẫu cũ viết lại): 55 bị bắt ngay; 2 sống sót lần đầu (`072-B11`, `072-P14`), đã thêm test (commit `1537fef`) và bị bắt ở lần chạy lại, nên 0 sống sót. (b) Mẫu cũ của các tệp `hooks/` đã đổi: 240 mẫu; đã chạy 70: 36 mẫu đầu danh sách và 34 mẫu nằm trong 15 dòng quanh đoạn mã đổi so với `main`; 68 bị bắt, 2 tương đương (`054-D4`, `070-C1`, đã ghi lý do từ trước), 0 sống sót. (c) 170 mẫu cũ còn lại, nằm xa đoạn mã đổi, chưa chạy lại ở commit này; lý do chọn như vậy là mã quanh chúng không đổi nên kết quả trước đó áp dụng tiếp, chưa phải là bằng chứng cho bản 0.7.2 [Giả định: mã không đổi và test cũ không đổi thì mẫu vẫn bị bắt]. Kết quả chạy lại nếu có sẽ ghi ở dòng riêng bên dưới.
+- Không hồi quy: toàn bộ test của 0.7.1 vẫn qua trừ bốn tệp đổi có chủ đích. Khi `mode` là `off` không có thay đổi hành vi (test `mode off`).
+- Workflow CI trên runner sạch (`ubuntu-24.04`, Node 22, Claude Code 2.1.296): chưa có kết quả ở commit này, ghi bổ sung sau khi workflow `plugin` chạy xong trên PR.
+- Quét chuỗi riêng tư: biến `PRIVATE_PATTERNS_FILE` chưa đặt trong phiên cloud nên chưa quét bằng danh sách thật. Quét bằng tệp mẫu tạm ngoài repo (13 mẫu, không phải danh sách thật) trên `git log -p a0408b9..HEAD` (kể cả thông điệp commit) và phần chưa commit: 0 dòng khớp; không có em dash, emoji hay dấu chấm than trong văn bản thêm. Người dùng chạy quét bằng danh sách thật trên nhánh này trước khi gộp [Đo trực tiếp].
+- Chưa kiểm được (chỉ kiểm được trong phiên tương tác thật): app desktop có thật sự vẽ band của mod hay không; pane mở từ `prompt.submit` có nằm bên phải ở app desktop không; hook `ui.close` với lần đóng của người dùng (kit kiểm thử không phát được; chỉ có test hàm thuần); nguyên nhân thật của phiên đã báo (không có log); số đo router qua engine thay vì qua CLI.
+- Bản trước: kiểm chứng của 0.7.1 ở mục ngay dưới.
+
+## Kiểm chứng của 0.7.1
+
 Bản 0.7.1 (danh sách việc phản chiếu được tự nâng và hạ `verified`; status line làm mới khi bước tự nâng bị hạ), ngày 2026-10-20, nhánh từ `main` `36a3447`. Mã (`hooks/`) trong commit chứa mục này đúng là nội dung đã kiểm: sha256 của `hooks/` là `1d34a5c98f8d27da78034d1e9f3a3033b2481d223e1599d64058af35d288fcd6` và của `tests/` là `2e0c2ffbea3bb1d6663812a8c9b2197e9db9b019b70645aeb65418beabe49029`, giữ nguyên qua các commit chỉ đổi tài liệu sau đó. Số dưới đây do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển], trừ dòng CI.
 
 - Môi trường: Claude Code 2.1.296 (bản CI ghim), Node v22.22.0, Bun 1.4.2. Baseline trên `main` trước khi sửa: 1191 test qua, `tsc` sạch, `mutate --check` 752/752 [Đo trực tiếp].
