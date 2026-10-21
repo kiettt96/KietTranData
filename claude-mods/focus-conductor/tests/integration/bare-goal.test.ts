@@ -94,6 +94,25 @@ describe('0.7.2 2: router lỗi ở prompt đầu lập mục tiêu tối thiể
   })
 })
 
+describe('0.7.2 2: Claude được báo về mục tiêu tối thiểu', () => {
+  test('router lỗi ở prompt đầu: ngữ cảnh nhắc mục tiêu tối thiểu và /conductor reroute', {}, async ($, on) => {
+    const seen = base(on, { router: () => ROUTER_TIMEOUT })
+    await submit($, COMPLEX_PROMPT)
+    const context = (seen.contexts[0] ?? []).join('\n')
+    expect(context).toContain('Router không đọc được prompt này')
+    expect(context).toContain('mục tiêu tối thiểu')
+    expect(context).toContain('/conductor reroute')
+  })
+
+  test('router lỗi khi đã có mục tiêu do router đọc: không nhắc mục tiêu tối thiểu', {}, async ($, on) => {
+    let n = 0
+    const seen = base(on, { router: () => (++n === 1 ? plan({ goal: 'Sửa lớn' }) : ROUTER_TIMEOUT) })
+    await submit($, COMPLEX_PROMPT)
+    await submit($, 'Làm tiếp phần còn lại')
+    expect((seen.contexts[1] ?? []).join('\n')).not.toContain('mục tiêu tối thiểu')
+  })
+})
+
 describe('0.7.2 2: nâng cấp khi router đọc được', () => {
   test('/conductor reroute: giữ goalId, checklist và verified; mục tiêu lấy theo router; pane hết ghi chưa đọc', {}, async ($, on) => {
     let fail = true

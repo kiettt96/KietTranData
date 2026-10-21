@@ -94,3 +94,30 @@ describe('0.7.2 4: pane chưa được đặt', () => {
     expect(lines.find(line => line['kind'] === 'pane')).toBeUndefined()
   })
 })
+
+describe('0.7.2 4: /conductor goal và pane chưa được đặt', () => {
+  const logged = (writes: string[]) => writes.join('').trim().split('\n').filter(Boolean).map(line => JSON.parse(line) as Record<string, unknown>)
+
+  test('pane chưa được đặt: nhật ký ghi dòng pane kèm lý do', { options: { decisionLog: '/tmp/fc-auto-pane3.jsonl' } }, async ($, on) => {
+    const writes: string[] = []
+    on('fs.write', (_$, e) => {
+      writes.push(e.text)
+      return { value: undefined }
+    })
+    base(on, { paneUnplaced: 'chưa có surface' })
+    await conductor($, 'goal Sửa module thanh toán')
+    expect(logged(writes).find(line => line['kind'] === 'pane')).toMatchObject({ kind: 'pane', isPlaced: false, reason: 'chưa có surface' })
+  })
+
+  test('pane được đặt: không có dòng pane trong nhật ký', { options: { decisionLog: '/tmp/fc-auto-pane4.jsonl' } }, async ($, on) => {
+    const writes: string[] = []
+    on('fs.write', (_$, e) => {
+      writes.push(e.text)
+      return { value: undefined }
+    })
+    base(on)
+    await conductor($, 'goal Sửa module thanh toán')
+    expect(logged(writes).find(line => line['kind'] === 'pane')).toBeUndefined()
+  })
+})
+
