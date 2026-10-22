@@ -61,7 +61,9 @@ describe('0.7.3 điểm 1: python chạy bằng đường dẫn đầy đủ và
 
   test('-c, -m và -W đổi nghĩa lệnh: không bị bỏ qua, và lệnh không là lệnh kiểm tra khi chỉ khai tiền tố thư mục', () => {
     withDeclared('python3 tests/', () => {
-      for (const command of ['python3 -c "print(1)"', 'python3 -m json.tool tests/a.json', 'python3 -W error tests/a-check.py', 'python3 -X dev tests/a-check.py']) {
+      // `-c` với mã chỉ đọc nội dòng không phải ghi (hành vi có sẵn của bộ phân loại): chỉ kiểm không là lệnh kiểm tra.
+      expect(checkKindOf('python3 -c "print(1)"')).toBeNull()
+      for (const command of ['python3 -m json.tool tests/a.json', 'python3 -W error tests/a-check.py', 'python3 -X dev tests/a-check.py']) {
         expect(checkKindOf(command), command).toBeNull()
         expect(mutates(command), command).toBe(true)
       }

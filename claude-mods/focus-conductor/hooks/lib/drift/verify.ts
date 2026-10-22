@@ -49,7 +49,34 @@ export const TEST_SEGMENT = new RegExp(
 )
 
 // Lệnh kiểm tra riêng của dự án (option checkCommands): tiền tố token, tính là kiểm tra chạy hành vi, danh tính nghiêm ngặt.
+// Token khai đã chuẩn hóa python (normalizePython) và hạ chữ thường. Token kết thúc bằng "/" là tiền tố thư mục.
 let customChecks: string[][] = []
+
+/** Trình thông dịch python theo tên cuối của token đầu: `python`, `python3`, `python3.11` (không phân biệt thư mục). */
+const PYTHON_INTERPRETER = /^python(?:3(?:\.\d+)?)?$/
+/** Cờ của python không nhận giá trị và không đổi nghĩa lệnh sau nó; `-c`, `-m`, `-W`, `-X` không nằm đây (đổi nghĩa lệnh). */
+const PYTHON_PLAIN_FLAGS = new Set(['-B', '-u', '-I', '-E', '-s', '-S', '-O', '-OO', '-q'])
+/** Đoạn `..` trong đường dẫn: tiền tố thư mục không được chui ra ngoài thư mục đã khai. */
+const PARENT_SEGMENT = /(?:^|\/)\.\.(?:\/|$)/
+
+/**
+ * Chuẩn hóa token lệnh khi token đầu là trình thông dịch python (0.7.3): bỏ phần thư mục (`/usr/bin/python3` thành
+ * `python3`) và các cờ không nhận giá trị đứng ngay sau nó (`-B`, `-u`...), để `/usr/bin/python3 -B tests/a.py` và
+ * `python3 tests/a.py` là một lệnh. Lệnh khác (script tự chạy như `./scripts/check.sh`, `mytool`) giữ nguyên; `python3.11`
+ * giữ tên. Phải gọi TRƯỚC khi hạ chữ thường: `-B` và `-b` là hai cờ khác nhau. Dùng chung cho phân loại lệnh, đọc evidence
+ * và danh tính lệnh (identity.ts), nên không phía nào nhận mà phía kia từ chối.
+ */
+export function normalizePython(tokens: string[]): string[] {
+  const head = tokens[0]
+  if (head === undefined) return tokens
+  const name = head.slice(head.lastIndexOf('/') + 1)
+  if (!PYTHON_INTERPRETER.test(name)) return tokens
+  let at = 1
+  while (at < tokens.length && PYTHON_PLAIN_FLAGS.has(tokens[at] ?? '')) at += 1
+  return [name, ...tokens.slice(at)]
+}
+
+const lowerTokens = (tokens: string[]): string[] => normalizePython(tokens).map(token => token.toLowerCase())
 
 /** Đọc option checkCommands: lệnh phân tách bằng dấu phẩy, mỗi lệnh tách theo khoảng trắng; mục rỗng bị bỏ. */
 export function parseCheckCommands(raw: unknown): string[][] {
@@ -62,18 +89,28 @@ export function parseCheckCommands(raw: unknown): string[][] {
 
 /** Áp danh sách lệnh kiểm tra riêng cho lần nạp mod này; danh sách rỗng là bỏ hết. */
 export function applyCheckCommands(commands: string[][]): void {
-  customChecks = commands.map(tokens => [...tokens])
+  customChecks = commands.map(tokens => lowerTokens(tokens))
+}
+
+/** Token khai khớp token thật: so nguyên token, trừ token khai kết thúc bằng "/" (tiền tố thư mục, không chứa `..`). */
+function matchesToken(declared: string, actual: string | undefined): boolean {
+  if (actual === undefined) return false
+  return declared.endsWith('/') ? actual.startsWith(declared) && !PARENT_SEGMENT.test(actual) : actual === declared
 }
 
 /** Đoạn lệnh bắt đầu bằng đúng các token của một lệnh riêng (không phân biệt hoa thường, như phía claim của evidence). */
 export function isCustomCheck(text: string): boolean {
-  const tokens = text.trim().split(/\s+/).map(token => token.toLowerCase())
-  return customChecks.some(command => command.length > 0 && command.every((token, at) => tokens[at] === token.toLowerCase()))
+  const tokens = lowerTokens(text.trim().split(/\s+/).filter(Boolean))
+  return customChecks.some(command => command.length > 0 && command.every((token, at) => matchesToken(token, tokens[at])))
 }
 
-/** Đoạn lệnh (đã bỏ biến môi trường) là một lệnh kiểm tra, theo bảng trình chạy kèm mod hoặc lệnh riêng của dự án. */
-export function isCheckText(text: string): boolean {
-  return VERIFY_SEGMENT.test(text) || isCustomCheck(text)
+/**
+ * Đoạn lệnh (đã bỏ biến môi trường) là một lệnh kiểm tra, theo bảng trình chạy kèm mod hoặc lệnh riêng của dự án. `text` là
+ * bản đã hạ chữ thường cho bảng trình chạy; `original` là bản giữ chữ (mặc định như `text`) cho lệnh riêng, vì chuẩn hóa
+ * cờ python phân biệt `-B` và `-b`.
+ */
+export function isCheckText(text: string, original: string = text): boolean {
+  return VERIFY_SEGMENT.test(text) || isCustomCheck(original)
 }
 
 // Cờ cho công cụ kiểm tra sửa file ngay trong lúc chạy. `--fix-dry-run` (token khác) chỉ xem trước nên không nằm đây.

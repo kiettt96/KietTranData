@@ -78,7 +78,10 @@ function evidenceWords(text: string): string[] {
   }
   const clauseHasCheck = () => {
     const clause = out.slice(out.lastIndexOf(BOUNDARY) + 1)
-    return clause.some((_, k) => isCheckText(clause.slice(k).join(' ').toLowerCase()))
+    return clause.some((_, k) => {
+      const text = clause.slice(k).join(' ')
+      return isCheckText(text.toLowerCase(), text)
+    })
   }
   let i = 0
   while (i < text.length) {
@@ -239,7 +242,7 @@ function claimedChecks(words: string[]): number[] {
   const starts = new Set<number>()
   for (let i = 0; i < lower.length; i++) {
     const end = lower.indexOf(BOUNDARY, i)
-    if (!isCheckText(lower.slice(i, end < 0 ? undefined : end).join(' '))) continue
+    if (!isCheckText(lower.slice(i, end < 0 ? undefined : end).join(' '), words.slice(i, end < 0 ? undefined : end).join(' '))) continue
     // `python -m pytest`: module là con của cụm bắt đầu ở `python`, không phải claim riêng.
     if (i >= 2 && lower[i - 1] === '-m' && (lower[i - 2] === 'python' || lower[i - 2] === 'python3')) continue
     starts.add(phraseStart(words, lower, i))
