@@ -7,7 +7,7 @@ import { openSteps, restorableSteps } from '../lib/drift'
 import { PLAN_TOOL_SPEC } from '../lib/plan'
 import { describePick } from '../lib/route'
 import { clipText, keptLines } from '../lib/decisions'
-import { REQUIREMENTS_RECHECK, askRouter, isSkippable, nextBrief, parseRoute, routerRequest } from '../lib/router'
+import { askRouter, bareBrief, failFields, isSkippable, needsCoverageRecheck, nextBrief, parseRoute, routerFailOf, routerRequest } from '../lib/router'
 import type { RouterOutcome, RouterPlan } from '../lib/router'
 import { EMPTY_QUOTA, blockingHits, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaSettings, reasonsOf } from '../lib/quota'
 import * as S from '../lib/state'
@@ -17,6 +17,20 @@ import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
 import { PERSON_ORIGINS, SLASH_COMMAND, newDelegation } from '../context'
+import { PANE_ROWS, shouldAutoOpenPane } from '../lib/pane'
+import { PANE, PANE_TITLE } from '../ui/pane'
+
+/** Mở pane chi tiết cho mục tiêu mới nếu cần (0.7.2): không focus, không chiếm phím; kết quả đặt hay chưa đặt ghi vào nhật ký quyết định. */
+async function autoOpenPane($: EngineInterface, ctx: Ctx, goalId: number, at: number): Promise<void> {
+  const panes = await $.ui.panes().catch(() => [])
+  const isOpen = panes.some(pane => pane.id === PANE)
+  if (!shouldAutoOpenPane({ enabled: ctx.autoPane, goalId, closedGoal: await read($, paneClosedState), isOpen })) return
+  const opened = await $.ui.open({ id: PANE, title: PANE_TITLE, rows: PANE_ROWS }).catch(() => null)
+  // Chỉ ghi khi pane chưa được đặt (màn hình hẹp, chưa có surface, engine từ chối): đặt được là trường hợp bình thường, không cần dòng log.
+  if (opened?.isPlaced === true) return
+  ctx.record(at, 'pane', { goalId, isPlaced: false, reason: opened === null ? 'engine từ chối mở pane' : opened.reason })
+  await ctx.flushDecisions((path, text) => $.fs.write(path, text))
+}
 
 // Atom của mod, khai báo lại ở mỗi file dùng chúng (engine chỉ nhận tham chiếu state viết trong chính file đó);
 // cùng plugin và key nên là cùng một giá trị trong $.state.
@@ -24,6 +38,8 @@ const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EM
 const bandHiddenState = atom({ plugin: 'focus-conductor', key: 'isBandHidden' } as const, false)
 const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null)
 const quotaState = atom({ plugin: 'focus-conductor', key: 'quota' } as const, EMPTY_QUOTA)
+// Mục tiêu mà người dùng đã tự đóng pane chi tiết (-1 là chưa); ghi ở hook ui.close của parts/ui.tsx.
+const paneClosedState = atom({ plugin: 'focus-conductor', key: 'paneClosedGoal' } as const, -1)
 
 /** Số đo hạn mức tươi lúc prompt đến (không tốn chi phí); engine không có hoặc lỗi thì null. */
 async function quotaLimits($: EngineInterface): Promise<readonly unknown[] | null> {
@@ -187,7 +203,8 @@ export function registerSession(on: On, ctx: Ctx): void {
     L.promptCount += 1
     const rules = policy()
     const isPaused = isRouterPaused()
-    let outcome: RouterOutcome<RouterPlan> = { result: null, reason: 'router đang tạm ngừng sau các lần lỗi liên tiếp', usages: [], retried: false }
+    let outcome: RouterOutcome<RouterPlan> = { result: null, reason: 'router đang tạm ngừng sau các lần lỗi liên tiếp', usages: [], retried: false, failure: 'paused', timeoutMs: null, maxTokens: null, outputTokens: null }
+    let waitedMs = 0
     let pauseText: string | null = null
     if (!isPaused) {
       $.ui.status('router đang đọc prompt...')
@@ -195,8 +212,9 @@ export function registerSession(on: On, ctx: Ctx): void {
       L.observed = []
       const request = routerRequest({ text, prev, ran: ranText(before), policy: rules, model: routerModel, openSteps: openSteps(before.plan).map(s => s.title), ...(observed ? { observed } : {}) })
       const startedAt = await $.clock.now()
-      outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), result => result.requirements.length > REQUIREMENTS_RECHECK)
-      noteRouterTime((await $.clock.now()) - startedAt)
+      outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), needsCoverageRecheck)
+      waitedMs = (await $.clock.now()) - startedAt
+      noteRouterTime(waitedMs)
       pauseText = noteRouter(outcome.result !== null)
     }
     // Tiếp tục điểm dừng khi router xếp tiếp nối, hoặc khi người dùng vừa gõ /conductor resume (khi đó router xếp mục
@@ -225,30 +243,42 @@ export function registerSession(on: On, ctx: Ctx): void {
         ...(pauseText ? [{ at: now, kind: 'model' as const, text: pauseText }] : []),
       ]
       // Route lưu về null (trừ khi dùng lại): mốc cache là model engine thật sự chạy, không phải route của lượt trước.
+      const fail = routerFailOf(outcome, now, waitedMs)
+      // Chưa có mục tiêu nào: lập mục tiêu tối thiểu từ prompt (0.7.2), để band, pane, phản chiếu, verified và giám sát vẫn chạy;
+      // lần router đọc được tiếp theo (prompt kế hay /conductor reroute) nâng cấp nó mà giữ goalId.
+      const bare: Brief | null = prev === null ? { ...bareBrief(text, Math.max(0, before.ledger.goal.goalId, ...before.archived.map(a => a.brief.goalId)) + 1, now), isBare: true } : null
       await update($, coreState, c => {
-        const used = withUsage(c)
+        const used = S.withRouterFail(fail)(withUsage(bare ? S.adoptGoal(bare)(c) : c))
         const withKept = kept ? S.withBrief(kept)(used) : used
         const withNotes = S.withWarnings(...warnings)(isReuse ? withKept : S.withRoute(null)(withKept))
-        return isReuse ? withNotes : S.withDelegations(-1, [])(withNotes)
+        return isReuse ? withNotes : S.withDelegations(bare?.goalId ?? -1, [])(withNotes)
       })
-      L.lastPrompt = { text, prev, goalId: kept?.goalId ?? null }
-      record(now, 'router-fail', { prompt: clipText(text), reason: outcome.reason, retried: outcome.retried, reuse: isReuse })
+      if (bare) {
+        L.isGoalNew = true
+        L.pinnedGoalId = null
+        trackDelegations(bare.goalId, [])
+        await update($, bandHiddenState, () => false)
+        await autoOpenPane($, ctx, bare.goalId, now)
+      }
+      L.lastPrompt = { text, prev, goalId: bare?.goalId ?? kept?.goalId ?? null }
+      record(now, 'router-fail', { prompt: clipText(text), reason: outcome.reason, retried: outcome.retried, reuse: isReuse, ...failFields(fail) })
       await flushDecisions((path, text) => $.fs.write(path, text))
       if (!isPaused) $.ui.toast(pauseText ?? failText)
       await showStatus($, await read($, view), ctx.options)
-      return next({ ...e, context: [...lead, ...(e.context ?? []), unroutedContext(outcome.reason), ...tail] })
+      return next({ ...e, context: [...lead, ...(e.context ?? []), unroutedContext(outcome.reason, bare !== null), ...tail] })
     }
 
     // Mục tiêu mới, chạy thật prompt đã đối chiếu, hoặc tiếp nối cùng mục tiêu.
     const { brief, added, isNewGoal } = nextBrief(prev, plan, text, now)
     // adoptGoal lưu checklist cũ còn bước mở (khôi phục được bằng plan restore); chi phí router cộng sau, thuộc mục tiêu mới.
-    const core = await update($, coreState, c => withUsage(isNewGoal ? S.adoptGoal(brief)(c) : S.withDecision(brief)(c)))
+    const core = await update($, coreState, c => S.withRouterFail(null)(withUsage(isNewGoal ? S.adoptGoal(brief)(c) : S.withDecision(brief)(c))))
     L.lastPrompt = { text, prev, goalId: brief.goalId }
     if (isNewGoal) {
       L.isGoalNew = true
       L.pinnedGoalId = null
       // Ẩn band (nút Ẩn) chỉ có tác dụng trong mục tiêu đang làm: mục tiêu mới thì band hiện lại (0.6.1).
       await update($, bandHiddenState, () => false)
+      await autoOpenPane($, ctx, brief.goalId, now)
     }
 
     const wanted = wantedPick(brief, core.lift)

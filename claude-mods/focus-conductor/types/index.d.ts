@@ -78,6 +78,8 @@ export type Brief = {
   isFollowUp: boolean
   /** Prompt đính kèm chỉ để đối chiếu: các việc chỉ để hiển thị, không thực thi, không giao. */
   isReference: boolean
+  /** Mục tiêu tối thiểu mod lập khi router lỗi ở prompt đầu (0.7.2): câu mục tiêu và tier chỉ là đoán, router đọc được lần sau thì nâng cấp. */
+  isBare?: boolean
   /** Đường dẫn người dùng giới hạn việc sửa; rỗng là không giới hạn. */
   scopePaths: string[]
   /** Prompt gốc (cắt ngắn) để đối chiếu. */
@@ -242,6 +244,22 @@ export type Lift = { depth: number; effort: number }
  * Trạng thái mục tiêu của phiên, gộp một chỗ để mỗi thay đổi là một lần
  * update nguyên tử (reducer thuần) và mỗi lần vẽ chỉ cần một lần đọc.
  */
+/** Loại lỗi của router: hết giờ chờ, lỗi API, câu trả lời sai định dạng, rỗng, engine từ chối, hay router đang tạm ngừng. */
+export type RouterFailKind = 'timeout' | 'api' | 'format' | 'empty' | 'engine' | 'paused'
+
+/** Lần router lỗi gần nhất (0.7.2): để status line, /conductor status và nhật ký cho biết vì sao mod không đọc được prompt. */
+export type RouterFail = {
+  at: number
+  kind: RouterFailKind
+  /** Lý do bằng chữ (failureReason). */
+  reason: string
+  /** Mili giây đã chờ router (0 khi router bị bỏ qua vì tạm ngừng). */
+  ms: number
+  timeoutMs: number | null
+  maxTokens: number | null
+  outputTokens: number | null
+}
+
 export type Core = {
   brief: Brief | null
   plan: PlanStep[]
@@ -271,6 +289,8 @@ export type Core = {
   agentProgress: { goalId: number; items: AgentProgress[] }
   /** Số lần luồng chính thay đổi file trong mục tiêu goalId: cho trạng thái của việc làm trực tiếp khi chưa có bước (0.6.1). */
   activity: { goalId: number; changes: number }
+  /** Lần router lỗi gần nhất cho tới khi router đọc được lại (0.7.2); null là không có. */
+  routerFail: RouterFail | null
 }
 
 /** Một cửa sổ hạn mức đã qua ngưỡng lúc dừng (0.6.0). */
@@ -361,6 +381,8 @@ declare module 'claude-code' {
       mode: Mode | null
       /** Bảo vệ hạn mức (0.6.0). */
       quota: QuotaState
+      /** Mục tiêu mà người dùng đã tự đóng pane chi tiết; -1 là chưa (0.7.2). */
+      paneClosedGoal: number
     }
   }
 }

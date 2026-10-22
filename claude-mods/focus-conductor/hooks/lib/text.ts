@@ -1,7 +1,7 @@
 // Văn bản mod gửi cho model và hiển thị cho người dùng. Gom về một chỗ để
 // giữ giọng văn nhất quán và dễ chỉnh.
 
-import type { Brief, Choice, PlanStep, QuotaCheckpoint, QuotaReason, Route, StepStatus, Task } from '../../types'
+import type { Brief, Choice, PlanStep, QuotaCheckpoint, QuotaReason, Route, RouterFail, StepStatus, Task } from '../../types'
 import { openSteps, pendingSteps } from './drift'
 import { evaluateQuota, isStale, reasonsOf } from './quota'
 import type { QuotaBadge, QuotaThresholds } from './quota'
@@ -123,10 +123,11 @@ export function briefContext(brief: Brief, main: Choice | null, isApplied = true
 }
 
 /** Router không đọc được prompt: báo để Claude không dựa vào phân việc cũ. */
-export function unroutedContext(reason: string): string {
+export function unroutedContext(reason: string, isBare = false): string {
   return (
     `[focus-conductor] Router không đọc được prompt này (${reason}). Không có phân việc mới; ` +
     'mod không chọn model cho turn này, và phân việc cũ (nếu có) không còn hiệu lực. ' +
+    (isBare ? 'Mod đã lập mục tiêu tối thiểu từ prompt để vẫn theo dõi tiến độ; người dùng có thể /conductor reroute để router đọc lại. ' : '') +
     `Tự đọc kỹ prompt, và gọi ${PLAN_TOOL_FULL} action "set" nếu việc từ mức moderate trở lên.`
   )
 }
@@ -478,6 +479,40 @@ export function quotaPercent(value: number): string {
 }
 
 /** Status line kèm nhãn hạn mức (đang dừng, hay phần còn lại khi gần ngưỡng); không có nhãn thì giữ nguyên. */
+/** Nhãn lỗi router cho status line (0.7.2): nói vì sao mod không đọc được prompt và cách đọc lại. */
+export function routerFailLabel(fail: RouterFail, lang: Lang): string {
+  const isVi = lang !== 'en'
+  const seconds = fail.timeoutMs !== null && fail.timeoutMs > 0 ? ` ${Math.round(fail.timeoutMs / 1000)}s` : ''
+  const why =
+    fail.kind === 'paused'
+      ? isVi ? 'router tạm ngừng' : 'router paused'
+      : fail.kind === 'timeout'
+        ? isVi ? `router lỗi: hết giờ${seconds}` : `router failed: timed out${seconds}`
+        : fail.kind === 'api'
+          ? isVi ? 'router lỗi: lỗi API' : 'router failed: API error'
+          : fail.kind === 'format'
+            ? isVi ? 'router lỗi: sai định dạng' : 'router failed: bad format'
+            : isVi ? 'router lỗi' : 'router failed'
+  return `${why} · /conductor reroute`
+}
+
+/** Status line kèm nhãn lỗi router khi có (0.7.2); undefined (mod tắt) giữ nguyên. */
+export function withRouterFailStatus(base: string | undefined, fail: RouterFail | null, lang: Lang): string | undefined {
+  return base === undefined || fail === null ? base : `${base} · ${routerFailLabel(fail, lang)}`
+}
+
+/** Dòng "Router lỗi gần nhất" của /conductor status (0.7.2); rỗng khi router đã đọc được lại. */
+export function routerFailLines(fail: RouterFail | null): string[] {
+  if (fail === null) return []
+  const limits = [
+    fail.ms > 0 ? `đã chờ ${(fail.ms / 1000).toFixed(1)} giây` : '',
+    fail.timeoutMs !== null ? `giới hạn ${Math.round(fail.timeoutMs / 1000)} giây` : '',
+    fail.maxTokens !== null ? `tối đa ${fail.maxTokens} token` : '',
+    fail.outputTokens !== null ? `đã nhận ${fail.outputTokens} token` : '',
+  ].filter(Boolean)
+  return [`Router lỗi gần nhất: ${fail.reason}${limits.length > 0 ? ` (${limits.join(', ')})` : ''}. Dùng /conductor reroute để router đọc lại prompt.`]
+}
+
 export function withQuotaStatus(base: string | undefined, badge: QuotaBadge | null, lang: Lang): string | undefined {
   if (base === undefined || badge === null) return base
   const l = labels(lang)

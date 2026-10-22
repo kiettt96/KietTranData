@@ -1,6 +1,6 @@
 {
   "name": "focus-conductor",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "author": { "name": "Kiet Tran" },
   "description": "Một model Claude (router) đọc kỹ prompt trước khi làm và điều phối model/effort/agent cho từng việc; mod kiểm, ép điều phối lúc chạy, giữ nhất quán mục tiêu với checklist và cảnh báo lạc đề.",
   "types": "./types/index.d.ts",
@@ -103,6 +103,12 @@
       "type": "boolean",
       "title": "Kiểm lạc đề theo nội dung",
       "description": "Ở checkpoint (5 thay đổi chưa kiểm tra), hỏi model router một lượt ngắn xem các thay đổi còn phục vụ mục tiêu không; lạc đề thì nhắc ngay ở kết quả tool đó, nâng độ sâu cho turn sau và báo cho router ở prompt tiếp nối. Tối đa một lượt mỗi 10 phút, tự tắt khi hạn mức vào vùng gần ngưỡng; mỗi lượt là một lần gọi router. Mặc định bật; đặt false để tắt",
+      "default": true
+    },
+    "autoPane": {
+      "type": "boolean",
+      "title": "Tự mở pane chi tiết",
+      "description": "Mỗi mục tiêu mới thì mở pane chi tiết (không chiếm phím). Anh tự đóng pane thì mod không mở lại trong mục tiêu đó; sang mục tiêu mới thì mở lại. Mặc định bật; đặt false để tắt. Pane chỉ được đặt khi surface và độ rộng cho phép (cạnh transcript từ 110 cột ở chế độ toàn màn hình, không thì ngay trên prompt)",
       "default": true
     },
     "decisionLog": {

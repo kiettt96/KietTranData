@@ -7,6 +7,8 @@ import type { Engine, MockClock } from 'claude-code/testing'
 
 export const BIG_USAGE = { input_tokens: 100_000, output_tokens: 50_000, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
 export const ROUTER_USAGE = { input_tokens: 1000, output_tokens: 500, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
+/** Câu trả lời đặc biệt của responder router: model.complete báo hết giờ chờ. */
+export const ROUTER_TIMEOUT = '__router-timeout__'
 export const ZERO_USAGE = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
 
 export const COMPLEX_PROMPT = `### Mục tiêu
@@ -109,6 +111,9 @@ export type Seen = {
   drift: string[]
   /** Dòng trạng thái mod đặt qua $.ui.status (undefined là xóa dòng). */
   statuses: Array<string | undefined>
+  /** Các lần mod gọi $.ui.open (id, tiêu đề, số dòng, focus) và các pane đang mở theo "engine" giả (0.7.2). */
+  opened: Array<{ id: string; title?: string; rows?: number; focus?: boolean }>
+  panes: string[]
   /** Đồng hồ giả: chỉ chạy khi test gọi advance hay set. */
   clock: MockClock
 }
@@ -127,10 +132,14 @@ export function base(
     drift?: (context: string) => Json | null
     /** Thư mục gốc và thư mục làm việc của phiên; null là engine không trả được; hàm thì gọi lại mỗi lần hỏi. */
     root?: string | null | (() => string)
+    /** Lý do $.ui.open trả isPlaced false (pane chờ vì màn hình hẹp, chưa có surface); vắng là pane được đặt. */
+    paneUnplaced?: string
+    /** $.ui.panes() luôn trả rỗng: mô phỏng pane đã bị đóng trước mỗi prompt (kit không phát được ui.close). */
+    panesClosed?: boolean
   } = {},
 ): Seen {
   const clock = mock.clock(on, { now: 1000 })
-  const seen: Seen = { contexts: [], steps: [], toasts: [], routed: [], agentRouted: [], routerModels: [], drift: [], statuses: [], clock }
+  const seen: Seen = { contexts: [], steps: [], toasts: [], routed: [], agentRouted: [], routerModels: [], drift: [], statuses: [], opened: [], panes: [], clock }
   on('prompt.submit', ($, e) => {
     seen.contexts.push([...(e.context ?? [])])
     return { text: e.text, context: e.context }
@@ -153,6 +162,8 @@ export function base(
     if (reply === null) {
       return { value: { isAnswered: false as const, reason: 'api-error' as const, status: 529, error: 'overloaded' as const, usage: ZERO_USAGE } }
     }
+    // Router hết giờ chờ (engine báo aborted).
+    if (reply === ROUTER_TIMEOUT) return { value: { isAnswered: false as const, reason: 'aborted' as const, usage: ZERO_USAGE } }
     return { value: { isAnswered: true as const, text: typeof reply === 'string' ? reply : JSON.stringify(reply), usage: ROUTER_USAGE } }
   })
   on('turn.step', async function* (_$, e) {
@@ -173,6 +184,17 @@ export function base(
   on('ui.status', (_$, e) => {
     seen.statuses.push(e.text)
     return { value: undefined }
+  })
+  // Pane: "engine" giả ghi lại lần mở, nhớ pane đang mở cho $.ui.panes(), và bỏ pane khi ui.close tới được tầng dưới của mod.
+  on('ui.open', (_$, e) => {
+    seen.opened.push({ id: e.id, ...(e.title !== undefined ? { title: e.title } : {}), ...(e.rows !== undefined ? { rows: e.rows } : {}), ...(e.focus !== undefined ? { focus: e.focus } : {}) })
+    if (!seen.panes.includes(e.id)) seen.panes.push(e.id)
+    return { value: engine.paneUnplaced !== undefined ? { isPlaced: false as const, reason: engine.paneUnplaced } : { isPlaced: true as const } }
+  })
+  on('ui.panes', () => ({ value: (engine.panesClosed ? [] : seen.panes).map(id => ({ id, title: id, isShown: true, isFocused: false, isPlaced: true })) }) as never)
+  on('ui.close', (_$, e) => {
+    seen.panes = seen.panes.filter(id => id !== e.id)
+    return {} as never
   })
   const root = engine.root === undefined ? '/repo' : engine.root
   const rootNow = () => (typeof root === 'function' ? root() : root)

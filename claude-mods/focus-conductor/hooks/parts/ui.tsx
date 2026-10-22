@@ -7,6 +7,7 @@ import type { View } from '../lib/state'
 import { quotaOverview, quotaPaneText } from '../lib/text'
 import { renderBand } from '../ui/band'
 import { labels } from '../ui/labels'
+import { isPersonClose } from '../lib/pane'
 import { PANE, PANE_TITLE, renderPane } from '../ui/pane'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
@@ -22,6 +23,8 @@ const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null
 const resetArmedState = atom({ plugin: 'focus-conductor', key: 'resetArmedUntil' } as const, 0)
 const RESET_CONFIRM_MS = 10_000
 const quotaState = atom({ plugin: 'focus-conductor', key: 'quota' } as const, EMPTY_QUOTA)
+// Mục tiêu mà người dùng đã tự đóng pane chi tiết (-1 là chưa), để autoPane không mở lại trong mục tiêu đó (0.7.2).
+const paneClosedState = atom({ plugin: 'focus-conductor', key: 'paneClosedGoal' } as const, -1)
 
 /** Status line kèm nhãn hạn mức (0.6.1): mọi chỗ đặt status của file này đi qua đây, nên nhãn không mất giữa các hook. */
 async function showStatus($: EngineInterface, current: View, options: Ctx['options']): Promise<void> {
@@ -49,6 +52,16 @@ export function registerUi(on: On, ctx: Ctx): void {
     }, badge)
     return tree ?? next(e)
   })
+
+  // Người dùng tự đóng pane (dấu đóng hay phím): nhớ mục tiêu hiện tại để autoPane không mở lại. Luôn cho đóng đi tiếp (next): hook không
+  // gọi next thì engine giữ pane mở và người dùng không đóng được.
+  on('ui.close', { id: PANE }, async ($, e, next) => {
+    if (isPersonClose(e.origin)) {
+      const goalId = S.normalizeCore(await read($, coreState)).brief?.goalId ?? -1
+      if (goalId >= 0) await update($, paneClosedState, () => goalId)
+    }
+    return next(e)
+  }).catch(($, e, next) => next(e))
 
   on('ui.render', { component: 'Pane', requestId: 'focus-conductor' }, async ($, e) => {
     const current = await read($, view)

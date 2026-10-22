@@ -70,7 +70,15 @@ export function newTracker(turnId: string): TurnTracker {
  * của phiên chốt cho mục tiêu (null hoặc thiếu: không xác định được, khi đó không khẳng định file nào trong phạm vi);
  * `cwd` là thư mục làm việc hiện tại, để nối đường dẫn tương đối của lệnh Bash.
  */
-export type Focus = { goal: string; scopePaths: string[]; tier: Tier; root?: string | null; cwd?: string | null }
+export type Focus = {
+  goal: string
+  scopePaths: string[]
+  tier: Tier
+  root?: string | null
+  cwd?: string | null
+  /** Mục tiêu tối thiểu (router chưa đọc, tier chỉ là đoán): không cảnh báo ngân sách tool call (0.7.2). */
+  isBare?: boolean
+}
 
 
 /** Một phát hiện: `text` cho người dùng, `context` cho model (nếu cần nhắc). */
@@ -264,7 +272,7 @@ export function observe(
   }
 
   const budget = TOOL_BUDGET[focus.tier]
-  const level = tracker.toolCalls >= budget * 2 ? 2 : tracker.toolCalls >= budget ? 1 : 0
+  const level = focus.isBare === true ? 0 : tracker.toolCalls >= budget * 2 ? 2 : tracker.toolCalls >= budget ? 1 : 0
   if (level > tracker.budgetLevel) {
     tracker.budgetLevel = level
     findings.push({

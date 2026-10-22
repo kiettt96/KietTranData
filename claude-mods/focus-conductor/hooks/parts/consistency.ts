@@ -282,7 +282,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
         await showStatus($, await read($, view), ctx.options)
       }
     }
-    const focus: Focus | null = core.brief !== null ? { ...core.brief, ...(await frameOf($, L.roots, core.brief.goalId, core.brief.scopePaths)) } : null
+    const focus: Focus | null = core.brief !== null ? { ...core.brief, isBare: core.brief.isBare === true, ...(await frameOf($, L.roots, core.brief.goalId, core.brief.scopePaths)) } : null
     const findings = observe(L.tracker, observation, focus, core.plan)
     const isErrorBurst = L.tracker.errors === ERROR_BURST
     // Luồng chính bắt đầu tự sửa file trong khi còn việc đã ghi giao subagent: nhắc một lần.

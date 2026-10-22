@@ -7,7 +7,7 @@
 
 import type { ModelCompleteRequest, ModelCompleteResult, ModelTextBlock, ModelUsage } from 'claude-code'
 
-import type { Brief, Choice, Depth, Effort, Kind, ModelFamily, Relation, Task, Tier, Volume } from '../../types'
+import type { Brief, Choice, Depth, Effort, Kind, ModelFamily, Relation, RouterFail, RouterFailKind, Task, Tier, Volume } from '../../types'
 import { PRICE } from './cost'
 import type { Price } from './cost'
 import { EFFORTS, applySession, avoidBlocked, describePick, familyOf } from './route'
@@ -36,6 +36,13 @@ const TASK_LIMIT = 20
 const REQUIREMENT_LIMIT = 30
 const REQUIREMENT_CHARS = 160
 export const REQUIREMENTS_RECHECK = 8
+/** Hạn chung cho mọi lượt gọi router của một prompt là bấy nhiêu lần timeout của request; lượt kiểm lại phủ yêu cầu chỉ chạy khi lượt đầu chưa quá nửa hạn (0.7.2). */
+const BUDGET_FACTOR = 1.5
+/** Thời gian còn lại tối thiểu để thử lại JSON hay tin cậy thấp. */
+const RETRY_MIN_MS = 10_000
+/** Câu trả lời bị cắt vì chạm maxTokens thì thử lại với maxTokens nhân bấy nhiêu, trần MAX_TOKENS_CAP. */
+const TRUNCATION_GROWTH = 1.5
+const MAX_TOKENS_CAP = 32_000
 /** Số bước đang mở của checklist hiện tại gửi kèm request router. */
 const OPEN_STEPS_LIMIT = 10
 const TEXT_LIMIT = 140
@@ -623,8 +630,9 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number): { brief:
     index: t.index + offset,
     ...(t.covers !== undefined ? { covers: t.covers.flatMap(n => renumber.get(n) ?? []) } : {}),
   }))
+  const { isBare: _isBare, ...kept } = prev
   const brief: Brief = {
-    ...prev,
+    ...kept,
     ...(requirements.length > 0 ? { requirements } : {}),
     steps: added.length > 0 ? [...prev.steps, ...added.map(t => t.title)] : prev.steps,
     tasks: [...prev.tasks, ...added],
@@ -633,8 +641,11 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number): { brief:
     depth: plan.depth,
     volume: plan.volume,
     kind: plan.kind,
-    // Ngân sách tool call của mục tiêu không tụt khi prompt tiếp nối ngắn được đọc là nhẹ (0.7.0): tier chỉ tăng.
-    tier: maxTier(prev.tier, tierOf(plan.depth, plan.volume)),
+    // Ngân sách tool call của mục tiêu không tụt khi prompt tiếp nối ngắn được đọc là nhẹ (0.7.0): tier chỉ tăng. Tier của mục tiêu
+    // tối thiểu chỉ là đoán (0.7.2) nên không làm sàn.
+    tier: prev.isBare === true ? tierOf(plan.depth, plan.volume) : maxTier(prev.tier, tierOf(plan.depth, plan.volume)),
+    // Mục tiêu tối thiểu được router đọc lần đầu qua prompt tiếp nối: lấy câu mục tiêu của router nếu có (0.7.2).
+    ...(prev.isBare === true && plan.goal ? { goal: plan.goal } : {}),
     main: plan.main,
     why: reasonOf(plan),
     relation: plan.relation,
@@ -698,6 +709,15 @@ export function bareBrief(prompt: string, goalId: number, now: number): Brief {
  */
 export type Ask = (request: ModelCompleteRequest) => Promise<ModelCompleteResult | null>
 
+/** Loại lỗi của router (0.7.2), tách khỏi lý do bằng chữ để status line và nhật ký không phải đọc chuỗi. */
+export function failureKind(reply: ModelCompleteResult | null): RouterFailKind {
+  if (reply === null) return 'engine'
+  if (reply.isAnswered) return 'format'
+  if (reply.reason === 'api-error') return 'api'
+  if (reply.reason === 'aborted') return 'timeout'
+  return 'empty'
+}
+
 /** Lý do router không trả được kết quả dùng được. */
 export function failureReason(reply: ModelCompleteResult | null): string {
   if (reply === null) return 'engine từ chối gửi request tới model router'
@@ -711,9 +731,17 @@ export function failureReason(reply: ModelCompleteResult | null): string {
  * Request hỏi lại router đúng một lần: câu trả lời trước hỏng JSON (sửa lại cho đúng định dạng, effort thấp)
  * hoặc router tự báo tin cậy thấp (đọc lại kỹ, effort cao).
  */
-export function retryRequest(request: ModelCompleteRequest, previous: string, problem: 'json' | 'confidence' | 'coverage'): ModelCompleteRequest {
+export function retryRequest(
+  request: ModelCompleteRequest,
+  previous: string,
+  problem: 'json' | 'confidence' | 'coverage',
+  /** Timeout còn lại của hạn chung và việc câu trả lời trước bị cắt vì hết token (0.7.2). */
+  opts: { timeoutMs?: number; truncated?: boolean } = {},
+): ModelCompleteRequest {
   const note =
-    problem === 'json'
+    problem === 'json' && opts.truncated === true
+      ? 'Your previous answer was cut off because it was too long. Reply again with ONE valid JSON object only, same content but concise: at most about 20 words for each requirement, task title and why.'
+      : problem === 'json'
       ? 'Your previous answer was not one valid JSON object in the required shape. Reply again with ONE valid JSON object only, same content, fixed.'
       : problem === 'coverage'
         ? 'This request has many requirements. Re-read it carefully, check that every requirement is listed and that every requirement is covered by a task, fix any mistake, and reply again with ONE JSON object.'
@@ -722,7 +750,10 @@ export function retryRequest(request: ModelCompleteRequest, previous: string, pr
   return {
     ...request,
     prompt: `${prompt}\n\n<previous_answer>\n${fence(clip(previous, 6000))}\n</previous_answer>\n${note}`,
-    effort: problem === 'json' ? 'low' : 'high',
+    // Kiểm lại phủ yêu cầu ở effort medium: đo thật cho thấy effort high hết giờ 45 giây ở 4 trên 5 lượt (0.7.2).
+    effort: problem === 'json' ? 'low' : problem === 'coverage' ? 'medium' : 'high',
+    ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+    ...(opts.truncated === true ? { maxTokens: Math.min(MAX_TOKENS_CAP, Math.round((request.maxTokens ?? 8_000) * TRUNCATION_GROWTH)) } : {}),
   }
 }
 
@@ -733,6 +764,33 @@ export type RouterOutcome<T> = {
   /** Usage của mọi lượt gọi (lượt đầu và lượt hỏi lại). */
   usages: ModelUsage[]
   retried: boolean
+  /** Loại lỗi khi không có kết quả (0.7.2); null khi có kết quả. */
+  failure: RouterFailKind | null
+  /** Giới hạn của request đã gửi và số token đầu ra của lượt gọi cuối, để biết lỗi do hết giờ hay bị cắt (0.7.2). */
+  timeoutMs: number | null
+  maxTokens: number | null
+  outputTokens: number | null
+}
+
+/**
+ * Kiểm lại lượt đọc chỉ khi có quá REQUIREMENTS_RECHECK yêu cầu mà còn yêu cầu không việc nào phủ (0.7.2). Trước đó kiểm lại mỗi khi
+ * có quá nhiều yêu cầu; đo thật cho thấy lượt kiểm lại tốn thêm 30 tới 45 giây mà phần lớn câu trả lời đầu đã phủ đủ.
+ */
+export function needsCoverageRecheck(plan: RouterPlan): boolean {
+  if (plan.requirements.length <= REQUIREMENTS_RECHECK || plan.tasks.length === 0) return false
+  if (!plan.tasks.some(t => (t.covers?.length ?? 0) > 0)) return false
+  const covered = new Set(plan.tasks.flatMap(t => t.covers ?? []))
+  return plan.requirements.some((_, i) => !covered.has(i + 1))
+}
+
+/** Lần lỗi để lưu vào state từ kết quả không dùng được của router (0.7.2); `ms` là thời gian đã chờ. */
+export function routerFailOf(outcome: RouterOutcome<unknown>, at: number, ms: number): RouterFail {
+  return { at, kind: outcome.failure ?? 'empty', reason: outcome.reason, ms, timeoutMs: outcome.timeoutMs, maxTokens: outcome.maxTokens, outputTokens: outcome.outputTokens }
+}
+
+/** Các trường của dòng router-fail trong nhật ký quyết định (0.7.2). */
+export function failFields(fail: RouterFail): Record<string, unknown> {
+  return { failure: fail.kind, ms: fail.ms, timeoutMs: fail.timeoutMs, maxTokens: fail.maxTokens, outputTokens: fail.outputTokens }
 }
 
 /**
@@ -745,22 +803,33 @@ export async function askRouter<T extends { confidence?: number }>(
   parse: (text: string) => T | null,
   /** Câu trả lời đã đọc được nhưng cần đọc kiểm lại một lần ở effort cao (ví dụ quá nhiều yêu cầu): 0.7.0. */
   recheck?: (result: T) => boolean,
+  /** Đồng hồ (mặc định Date.now) và hạn chung cho mọi lượt gọi (mặc định 1,5 lần timeout của request): 0.7.2. */
+  opts: { now?: () => number; budgetMs?: number } = {},
 ): Promise<RouterOutcome<T>> {
+  const now = opts.now ?? Date.now
+  const budget = opts.budgetMs ?? Math.round((request.timeoutMs ?? 45_000) * BUDGET_FACTOR)
+  const startedAt = now()
   const first = await ask(request).catch(() => null)
   const usages = first ? [first.usage] : []
+  const limits = (last: ModelCompleteResult | null) => ({ timeoutMs: request.timeoutMs ?? null, maxTokens: request.maxTokens ?? null, outputTokens: last ? last.usage.output_tokens : null })
   const firstResult = first?.isAnswered ? parse(first.text) : null
   const firstConfidence = firstResult?.confidence ?? 1
   const isConfident = firstResult !== null && firstConfidence >= LOW_CONFIDENCE
   const needsCoverage = isConfident && recheck !== undefined && recheck(firstResult)
-  if (first === null || !first.isAnswered || (isConfident && !needsCoverage)) {
-    return { result: firstResult, reason: failureReason(first), usages, retried: false }
-  }
-  const second = await ask(retryRequest(request, first.text, firstResult === null ? 'json' : needsCoverage ? 'coverage' : 'confidence')).catch(() => null)
+  const settled = (retried: boolean) => ({ result: firstResult, reason: failureReason(first), usages, retried, failure: firstResult === null ? failureKind(first) : null, ...limits(first) })
+  if (first === null || !first.isAnswered || (isConfident && !needsCoverage)) return settled(false)
+  // Trong hạn chung: kiểm lại phủ yêu cầu chỉ khi lượt đầu chưa quá nửa hạn; thử lại JSON hay tin cậy thấp cần còn ít nhất RETRY_MIN_MS.
+  const spent = now() - startedAt
+  const problem = firstResult === null ? 'json' : needsCoverage ? 'coverage' : 'confidence'
+  const isAffordable = problem === 'coverage' ? spent <= budget / 2 : budget - spent >= RETRY_MIN_MS
+  if (!isAffordable) return settled(false)
+  const isTruncated = firstResult === null && request.maxTokens !== undefined && first.usage.output_tokens >= request.maxTokens * 0.98
+  const second = await ask(retryRequest(request, first.text, problem, { timeoutMs: Math.min(request.timeoutMs ?? budget, budget - spent), truncated: isTruncated })).catch(() => null)
   if (second) usages.push(second.usage)
   const secondResult = second?.isAnswered ? parse(second.text) : null
   const pick =
     secondResult !== null && (firstResult === null || (secondResult.confidence ?? 1) >= firstConfidence) ? secondResult : firstResult
-  return { result: pick, reason: pick === null ? failureReason(second) : '', usages, retried: true }
+  return { result: pick, reason: pick === null ? failureReason(second) : '', usages, retried: true, failure: pick === null ? failureKind(second) : null, ...limits(second ?? first) }
 }
 
 /**
@@ -783,7 +852,8 @@ export function nextBrief(prev: Brief | null, plan: RouterPlan, prompt: string, 
  * (Claude có thể đã chốt lại qua plan set) và prompt gốc; phần đọc và điều phối lấy theo lần đọc mới.
  */
 export function rerouted(current: Brief, fresh: Brief): Brief {
-  return { ...fresh, goalId: current.goalId, goal: current.goal, steps: current.steps, prompt: current.prompt }
+  // Mục tiêu tối thiểu (router chưa từng đọc, 0.7.2): lấy câu mục tiêu của lần đọc này; mục tiêu do router đặt thì giữ câu cũ.
+  return { ...fresh, goalId: current.goalId, goal: current.isBare === true ? fresh.goal : current.goal, steps: current.steps, prompt: current.prompt }
 }
 
 /** Prompt ngắn người dùng cho phép bỏ qua router (option routerSkip): so khớp nguyên câu, bỏ dấu câu cuối, không phân biệt hoa thường. */

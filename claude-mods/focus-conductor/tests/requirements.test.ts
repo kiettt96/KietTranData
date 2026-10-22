@@ -118,14 +118,15 @@ describe('0.7.0 7: kiểm lại khi có quá nhiều yêu cầu', () => {
     return { ask, seen }
   }
 
-  test('9 yêu cầu: lượt đọc được kiểm lại một lần ở effort cao, kèm câu trả lời trước; lần hai được dùng', async () => {
+  // 0.7.2: kiểm lại phủ yêu cầu chạy ở effort medium (effort high hết giờ chờ ở prompt dài); điều kiện kiểm lại do hook truyền vào.
+  test('9 yêu cầu: lượt đọc được kiểm lại một lần ở effort medium, kèm câu trả lời trước; lần hai được dùng', async () => {
     const { ask, seen } = asker([JSON.stringify(plan({ goal: 'Lần một', requirements: reqs(9) })), JSON.stringify(plan({ goal: 'Lần hai', requirements: reqs(11) }))])
     const outcome = await askRouter(ask, request, parse, recheck)
     expect(outcome.result?.goal).toBe('Lần hai')
     expect(outcome.retried).toBe(true)
     expect(outcome.usages.length).toBe(2)
     expect(seen[1]).toContain('<previous_answer>')
-    expect(seen[1]).toContain('|effort=high')
+    expect(seen[1]).toContain('|effort=medium')
     expect(seen[1]).toContain('every requirement')
   })
 
