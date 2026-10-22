@@ -41,9 +41,16 @@ describe('0.7.3 điểm 2: chuỗi gợi ý ở dạng sẽ khớp', () => {
   })
 
   test('nhóm thư mục xếp cùng các ứng viên khác, tối đa hai gợi ý', () => {
-    const out = suggestCheckCommands(logOf('python3 tests/a-check.py', 'python3 tests/b-check.py', 'python3 other/run-check.py', 'python3 third/c-check.py'))
-    expect(out.length).toBe(2)
-    expect(out).toContain('python3 tests/')
+    // Cùng mức ưu tiên thì gần nhất trước: nhóm tính theo lần chạy gần nhất của các script trong nhóm.
+    expect(suggestCheckCommands(logOf('python3 third/c-check.py', 'python3 other/run-check.py', 'python3 tests/a-check.py', 'python3 tests/b-check.py'))).toEqual(['python3 tests/', 'python3 other/run-check.py'])
+    expect(suggestCheckCommands(logOf('python3 tests/a-check.py', 'python3 tests/b-check.py', 'python3 other/run-check.py', 'python3 third/c-check.py'))).toEqual(['python3 third/c-check.py', 'python3 other/run-check.py'])
+  })
+
+  test('nhóm thư mục: mức ưu tiên lấy script tốt nhất, độ mới lấy lần chạy gần nhất của các script trong nhóm', () => {
+    // Nhóm có một script tên kiểm và một script tên thường: nhóm mang mức của script tên kiểm (mức 0), xếp trước đối thủ cũ hơn cùng mức 0.
+    expect(suggestCheckCommands(logOf('python3 other/run-check.py', 'python3 tests/a-check.py', 'python3 tests/build.py'))).toEqual(['python3 tests/', 'python3 other/run-check.py'])
+    // Nhóm mang lần chạy gần nhất của các script trong nhóm: script cũ của nhóm không kéo nhóm xuống dưới đối thủ ở giữa.
+    expect(suggestCheckCommands(logOf('python3 tests/a-check.py', 'python3 other/run-check.py', 'python3 tests/b-check.py'))).toEqual(['python3 tests/', 'python3 other/run-check.py'])
   })
 
   test('khai đúng chuỗi gợi ý thì lệnh đã chạy được nhận là lệnh kiểm (vòng khép kín với điểm 1)', () => {
@@ -172,6 +179,44 @@ describe('0.7.3 điểm 2: gợi ý tới người dùng trong phiên', () => {
     expect(found.length).toBe(1)
     expect(found[0]).toContain('python3 tests/')
     expect(found[0]).toContain('chỉ chứa script kiểm')
+  })
+
+  test('mục tiêu mới: dòng gợi ý của mục tiêu cũ không còn ở /conductor status và pane', {}, async ($, on) => {
+    await untilCheckpoint($, on)
+    expect(String((await conductor($, 'status')).text)).toContain('checkCommands')
+    await conductor($, 'goal Làm việc khác hẳn')
+    expect(String((await conductor($, 'status')).text)).not.toContain('checkCommands')
+    const pane = await $.ui.mount(PANE)
+    const texts = (await pane.findAll({ type: 'Text' })).map(e => e.text)
+    await pane.unmount()
+    expect(texts.some(t => typeof t === 'string' && t.includes('checkCommands'))).toBe(false)
+  })
+
+  test('gợi ý đổi giữa hai checkpoint (có thêm script cùng thư mục): cập nhật dòng ở status, không báo toast lần hai', {}, async ($, on) => {
+    const seen = await untilCheckpoint($, on)
+    expect(hints(seen.toasts).length).toBe(1)
+    expect(String((await conductor($, 'status')).text)).toContain('python3 tests/a-check.py')
+    await runScript($, 'cd /repo && /usr/bin/python3 -B tests/b-check.py')
+    for (let i = 0; i < 4; i++) await editFile($, `src/h${i}.ts`)
+    expect(hints(seen.toasts).length).toBe(1)
+    const status = String((await conductor($, 'status')).text)
+    expect(status).toContain('python3 tests/')
+    expect(status).not.toContain('python3 tests/a-check.py')
+  })
+
+  test('đã có lệnh kiểm nhận được chạy đạt rồi sửa tiếp: cảnh báo "chưa được kiểm tra lại" không kèm gợi ý', {}, async ($, on) => {
+    const seen = base(on)
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    on('tool.call', { tool: 'Bash' }, () => ({ result: '12 pass' }))
+    on('turn.complete', () => ({ text: '' }))
+    await submit($, COMPLEX_PROMPT)
+    await runScript($)
+    await editFile($)
+    await $.tool.call({ tool: 'Bash', command: 'npm test' } as never)
+    await editFile($, 'src/b.ts')
+    await $.turn.complete({ turnId: 't1', answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer' } as never)
+    expect(seen.toasts.some(t => t.includes('chưa được kiểm tra lại'))).toBe(true)
+    expect(hints(seen.toasts)).toEqual([])
   })
 
   test('chỉ gợi ý, không tự khai: sau gợi ý, script vẫn chưa là lệnh kiểm tra', {}, async ($, on) => {

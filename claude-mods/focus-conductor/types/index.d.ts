@@ -260,6 +260,9 @@ export type RouterFail = {
   outputTokens: number | null
 }
 
+/** Gợi ý khai option checkCommands cho mục tiêu goalId (0.7.3): các lệnh dạng sẽ khớp, và đã báo toast chưa (một lần mỗi mục tiêu). */
+export type CheckHint = { goalId: number; commands: string[]; isToasted: boolean }
+
 export type Core = {
   brief: Brief | null
   plan: PlanStep[]
@@ -291,6 +294,8 @@ export type Core = {
   activity: { goalId: number; changes: number }
   /** Lần router lỗi gần nhất cho tới khi router đọc được lại (0.7.2); null là không có. */
   routerFail: RouterFail | null
+  /** Gợi ý khai checkCommands khi script kiểm đã chạy mà mod chưa nhận (0.7.3); null là không có. */
+  checkHint: CheckHint | null
 }
 
 /** Một cửa sổ hạn mức đã qua ngưỡng lúc dừng (0.6.0). */

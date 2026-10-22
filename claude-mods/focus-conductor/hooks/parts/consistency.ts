@@ -14,7 +14,7 @@ import { EMPTY_QUOTA, evaluateQuota, normalizeQuota, quotaSettings } from '../li
 import { storeKey, withNote } from '../lib/checkpoint'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
-import { PLAN_TOOL_FULL, blockText, criteriaNotice, driftContext, pendingNotice, qualityNotice, renderBulk, renderPlan, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice } from '../lib/text'
+import { PLAN_TOOL_FULL, blockText, checkHintText, criteriaNotice, driftContext, pendingNotice, qualityNotice, renderBulk, renderPlan, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -44,6 +44,19 @@ async function frameOf($: EngineInterface, roots: Map<number, string | null>, go
 /** Status line kèm nhãn hạn mức (0.6.1): mọi chỗ đặt status của file này đi qua đây, nên nhãn không mất giữa các hook. */
 async function showStatus($: EngineInterface, current: View, options: Ctx['options']): Promise<void> {
   $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
+}
+
+/**
+ * Gợi ý khai option checkCommands tới người dùng (0.7.3): lưu vào Core (pane và /conductor status đọc) và báo toast một
+ * lần mỗi mục tiêu; gợi ý đổi (có script kiểm mới) thì chỉ cập nhật, không báo lại. Chỉ gợi ý, không tự khai.
+ */
+async function offerCheckHint($: EngineInterface, goalId: number, commands: string[]): Promise<void> {
+  const stored = S.normalizeCore(await read($, coreState)).checkHint
+  const current = stored !== null && stored.goalId === goalId ? stored : null
+  if (commands.length === 0) return
+  if (current !== null && current.commands.join('\n') === commands.join('\n')) return
+  await update($, coreState, S.withCheckHint({ goalId, commands, isToasted: true }))
+  if (current?.isToasted !== true) $.ui.toast(checkHintText(commands))
 }
 
 /** Khoảng tối thiểu giữa hai lượt kiểm lạc đề (đồng hồ engine, 0.7.0): mỗi lượt là một lần gọi router. */
@@ -298,6 +311,8 @@ export function registerConsistency(on: On, ctx: Ctx): void {
         : null
     if (nudge) L.delegation.isNudged = true
     const withNudge = (r: typeof result) => (nudge ? { ...r, context: [...(r.context ?? []), nudge] } : r)
+    // Đến checkpoint mà script kiểm đã chạy chưa được nhận: gợi ý người dùng khai checkCommands (0.7.3).
+    if (core.brief !== null && findings.some(f => f.kind === 'checkpoint')) await offerCheckHint($, core.brief.goalId, suggestCheckCommands(evidenceFor(core.brief.goalId)))
     if (findings.length === 0 && !isErrorBurst) return withNudge(result)
 
     const at = await $.clock.now()
@@ -477,6 +492,8 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     })
     const unverified = findings.find(f => f.kind === 'unverified')
     if (unverified) $.ui.toast(unverified.text)
+    // Cả turn không có lệnh kiểm nào được nhận: kèm gợi ý khai checkCommands nếu có script kiểm đã chạy (0.7.3).
+    if (unverified && L.tracker.checks === 0 && !isPaused && core.brief !== null) await offerCheckHint($, core.brief.goalId, suggestCheckCommands(evidenceFor(core.brief.goalId)))
     await showStatus($, await read($, view), ctx.options)
     return result
   })

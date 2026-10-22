@@ -276,6 +276,15 @@ export function renderPane(
       </Box>
     )
 
+  // Gợi ý khai checkCommands (0.7.3): một dòng mờ ngay dưới cảnh báo, chỉ khi gợi ý thuộc mục tiêu đang mở.
+  const hint = view.core.checkHint
+  const hintNode =
+    hint !== null && hint.goalId === brief.goalId && hint.commands.length > 0 ? (
+      <Text dimColor wrap="wrap">
+        {l.checkHint(hint.commands.join(', '), hint.commands.some(command => command.endsWith('/')))}
+      </Text>
+    ) : null
+
   // ----------------------------------------------------------- checklist
   const idWidth = Math.max(1, ...plan.map(step => String(step.id).length), String(brief.steps.length).length)
   const checklist =
@@ -542,6 +551,7 @@ export function renderPane(
       {modeRow}
       {quotaNode}
       {alerts}
+      {hintNode}
       <Box flexDirection="column">
         {heading(plan.length > 0 ? 'Checklist' : l.planned, plan.length > 0 ? countLabel(plan) : undefined)}
         {source === 'mirror' ? (

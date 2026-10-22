@@ -1,7 +1,7 @@
 // Văn bản mod gửi cho model và hiển thị cho người dùng. Gom về một chỗ để
 // giữ giọng văn nhất quán và dễ chỉnh.
 
-import type { Brief, Choice, PlanStep, QuotaCheckpoint, QuotaReason, Route, RouterFail, StepStatus, Task } from '../../types'
+import type { Brief, CheckHint, Choice, PlanStep, QuotaCheckpoint, QuotaReason, Route, RouterFail, StepStatus, Task } from '../../types'
 import { openSteps, pendingSteps } from './drift'
 import { evaluateQuota, isStale, reasonsOf } from './quota'
 import type { QuotaBadge, QuotaThresholds } from './quota'
@@ -511,6 +511,21 @@ export function routerFailLines(fail: RouterFail | null): string[] {
     fail.outputTokens !== null ? `đã nhận ${fail.outputTokens} token` : '',
   ].filter(Boolean)
   return [`Router lỗi gần nhất: ${fail.reason}${limits.length > 0 ? ` (${limits.join(', ')})` : ''}. Dùng /conductor reroute để router đọc lại prompt.`]
+}
+
+/**
+ * Gợi ý khai option checkCommands cho người dùng (0.7.3): toast, dòng của pane và của /conductor status dùng chung một câu.
+ * Chuỗi gợi ý ở dạng sẽ khớp; tiền tố thư mục (kết thúc bằng "/") kèm lời nhắc chỉ khai khi thư mục chỉ chứa script kiểm.
+ * Mod chỉ gợi ý, không tự khai.
+ */
+export function checkHintText(commands: readonly string[]): string {
+  const dir = commands.some(command => command.endsWith('/')) ? ' Tiền tố thư mục tin mọi script dưới thư mục đó: chỉ khai nếu thư mục chỉ chứa script kiểm.' : ''
+  return `Mod chưa nhận script kiểm đã chạy là lệnh kiểm. Gợi ý khai option checkCommands của mod: ${commands.join(', ')}.${dir}`
+}
+
+/** Dòng gợi ý của /conductor status (0.7.3): chỉ khi gợi ý thuộc đúng mục tiêu đang mở; rỗng thì không có dòng. */
+export function checkHintLines(hint: CheckHint | null, goalId: number | null): string[] {
+  return hint !== null && goalId !== null && hint.goalId === goalId && hint.commands.length > 0 ? [checkHintText(hint.commands)] : []
 }
 
 export function withQuotaStatus(base: string | undefined, badge: QuotaBadge | null, lang: Lang): string | undefined {

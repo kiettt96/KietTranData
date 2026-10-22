@@ -94,6 +94,8 @@ const VI = {
   skipped: ' (không áp dụng)',
   warnings: 'Cảnh báo nhất quán',
   noWarnings: 'Không có cảnh báo.',
+  checkHint: (list: string, isDir: boolean) =>
+    `Mod chưa nhận script kiểm đã chạy là lệnh kiểm. Gợi ý khai option checkCommands của mod: ${list}.${isDir ? ' Tiền tố thư mục tin mọi script dưới thư mục đó: chỉ khai nếu thư mục chỉ chứa script kiểm.' : ''}`,
   warningKind: {
     loop: 'lặp',
     budget: 'ngân sách',
@@ -196,6 +198,8 @@ const EN: typeof VI = {
   skipped: ' (not applied)',
   warnings: 'Consistency warnings',
   noWarnings: 'No warnings.',
+  checkHint: (list: string, isDir: boolean) =>
+    `The mod does not recognize the check script that ran as a check. Suggested checkCommands option: ${list}.${isDir ? ' A directory prefix trusts every script under it: declare it only if the directory holds check scripts only.' : ''}`,
   warningKind: {
     loop: 'loop',
     budget: 'budget',

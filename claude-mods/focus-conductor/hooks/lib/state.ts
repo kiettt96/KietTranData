@@ -6,7 +6,7 @@
 
 import type { PluginOptions } from 'claude-code'
 
-import type { AgentProgress, AgentState, ArchivedGoal, Brief, Core, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, Route, RouteEvent, RouterFail, Warning } from '../../types'
+import type { AgentProgress, AgentState, ArchivedGoal, Brief, CheckHint, Core, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, Route, RouteEvent, RouterFail, Warning } from '../../types'
 import { restorableSteps } from './drift'
 import type { Tokens } from './cost'
 import { addUsage, emptyLedger, nextGoal, planSwitch, resetLedger } from './ledger'
@@ -35,6 +35,7 @@ export const EMPTY_CORE: Core = {
   agentProgress: { goalId: -1, items: [] },
   activity: { goalId: -1, changes: 0 },
   routerFail: null,
+  checkHint: null,
 }
 
 const LOG_LIMIT = 60
@@ -81,6 +82,11 @@ export const withRouterFail =
   (fail: RouterFail | null) =>
   (c: Core): Core => ({ ...normalizeCore(c), routerFail: fail })
 
+/** Ghi gợi ý khai checkCommands của mục tiêu (0.7.3). */
+export const withCheckHint =
+  (hint: CheckHint | null) =>
+  (c: Core): Core => ({ ...normalizeCore(c), checkHint: hint })
+
 /** Đưa trạng thái đọc được từ bản cũ về dạng đầy đủ của bản hiện tại. */
 export function normalizeCore(raw: Partial<Core>): Core {
   const brief = raw.brief ? normalizeBrief(raw.brief) : null
@@ -101,6 +107,7 @@ export function normalizeCore(raw: Partial<Core>): Core {
     agentProgress: raw.agentProgress ?? { goalId: -1, items: [] },
     activity: raw.activity ?? { goalId: -1, changes: 0 },
     routerFail: raw.routerFail ?? null,
+    checkHint: raw.checkHint ?? null,
   }
 }
 
