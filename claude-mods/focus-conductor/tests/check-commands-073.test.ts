@@ -63,6 +63,9 @@ describe('0.7.3 điểm 1: python chạy bằng đường dẫn đầy đủ và
     withDeclared('python3 tests/', () => {
       // `-c` với mã chỉ đọc nội dòng không phải ghi (hành vi có sẵn của bộ phân loại): chỉ kiểm không là lệnh kiểm tra.
       expect(checkKindOf('python3 -c "print(1)"')).toBeNull()
+      for (const command of ['python3 -c tests/a-check.py', 'python3 -m tests/a-check.py', 'python3 -W tests/a-check.py', 'python3 -X tests/a-check.py']) {
+        expect(checkKindOf(command), command).toBeNull()
+      }
       for (const command of ['python3 -m json.tool tests/a.json', 'python3 -W error tests/a-check.py', 'python3 -X dev tests/a-check.py']) {
         expect(checkKindOf(command), command).toBeNull()
         expect(mutates(command), command).toBe(true)
@@ -78,6 +81,8 @@ describe('0.7.3 điểm 1: python chạy bằng đường dẫn đầy đủ và
       expect(checkKindOf('python3 mytests/a-check.py')).toBeNull()
       expect(checkKindOf('python3 tests/../x.py')).toBeNull()
       expect(checkKindOf('python3 tests/sub/../../x.py')).toBeNull()
+      expect(checkKindOf('python3 tests/..')).toBeNull()
+      expect(checkKindOf('python3 tests/../')).toBeNull()
       expect(mutates('python3 tests/../x.py')).toBe(true)
     })
   })
@@ -151,6 +156,9 @@ describe('0.7.3 điểm 1: evidence của Claude và danh tính lệnh dùng cù
       expect(accepted(['python3 tests/b-check.py'], 'tests/a-check.py: đạt')).toBe(false)
       expect(accepted(['python3 tests/b-check.py'], 'python3 tests/a-check.py: đạt')).toBe(false)
       expect(accepted(['/usr/bin/python3 -B tests/b-check.py'], 'python3 tests/a-check.py: đạt')).toBe(false)
+      // Evidence ghi đường dẫn đầy đủ kèm cờ cho script khác với script đã chạy: claim phải được nhận ra rồi bị từ chối.
+      expect(accepted(['python3 tests/b-check.py'], '/usr/bin/python3 -B tests/a-check.py: đạt')).toBe(false)
+      expect(accepted(['/usr/bin/python3 -B tests/b-check.py'], '/usr/bin/python3 -B tests/a-check.py: đạt')).toBe(false)
       expect(accepted(['python3 tests/b-check.py'], 'python3 tests/b-check.py: đạt')).toBe(true)
     })
   })
@@ -159,6 +167,13 @@ describe('0.7.3 điểm 1: evidence của Claude và danh tính lệnh dùng cù
     withDeclared('python3 tests/', () => {
       expect(accepted(['/usr/bin/python3 -B tests/a-check.py --final'], 'python3 tests/a-check.py: đạt')).toBe(false)
       expect(accepted(['/usr/bin/python3 -B tests/a-check.py --final'], 'python3 tests/a-check.py --final: đạt')).toBe(true)
+    })
+  })
+
+  test('evidence có đối số trong nháy sau lệnh riêng (đường dẫn đầy đủ kèm cờ) vẫn khớp lần chạy cùng đối số', () => {
+    withDeclared('python3 tests/', () => {
+      expect(accepted(["/usr/bin/python3 -B tests/a-check.py --only 'bảng tổng'"], "/usr/bin/python3 -B tests/a-check.py --only 'bảng tổng': đạt")).toBe(true)
+      expect(accepted(["/usr/bin/python3 -B tests/a-check.py --only 'bảng tổng'"], "/usr/bin/python3 -B tests/a-check.py --only 'bảng khác': đạt")).toBe(false)
     })
   })
 
