@@ -23,6 +23,14 @@ function accepted(runs: string[], evidence: string): boolean {
   return acceptsVerified(evidenceStrength(evidence, log), log)
 }
 
+/** Mức bằng chứng của evidence sau khi chạy các lệnh: stale là claim được nhận ra nhưng không khớp lần chạy nào; none là không nhận ra claim. */
+function levelOf(runs: string[], evidence: string): string {
+  const log = newEvidenceLog(1)
+  noteEvidence(log, editCall)
+  for (const run of runs) noteEvidence(log, bashCall(run))
+  return evidenceStrength(evidence, log).level
+}
+
 /** Chạy `fn` với danh sách khai `raw`, luôn trả lại danh sách rỗng sau đó. */
 function withDeclared<T>(raw: string, fn: () => T): T {
   declare(raw)
@@ -158,6 +166,9 @@ describe('0.7.3 điểm 1: evidence của Claude và danh tính lệnh dùng cù
       expect(accepted(['/usr/bin/python3 -B tests/b-check.py'], 'python3 tests/a-check.py: đạt')).toBe(false)
       // Evidence ghi đường dẫn đầy đủ kèm cờ cho script khác với script đã chạy: claim phải được nhận ra rồi bị từ chối.
       expect(accepted(['python3 tests/b-check.py'], '/usr/bin/python3 -B tests/a-check.py: đạt')).toBe(false)
+      // Claim phải được nhận ra (stale), không phải bị bỏ qua (none): chỗ này phân biệt đọc evidence theo bản giữ chữ hay bản hạ chữ thường.
+      expect(levelOf(['python3 tests/b-check.py'], '/usr/bin/python3 -B tests/a-check.py: đạt')).toBe('stale')
+      expect(levelOf(['python3 tests/b-check.py'], 'python3 tests/a-check.py: đạt')).toBe('stale')
       expect(accepted(['/usr/bin/python3 -B tests/b-check.py'], '/usr/bin/python3 -B tests/a-check.py: đạt')).toBe(false)
       expect(accepted(['python3 tests/b-check.py'], 'python3 tests/b-check.py: đạt')).toBe(true)
     })
