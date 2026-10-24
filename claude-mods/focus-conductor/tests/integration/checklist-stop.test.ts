@@ -10,7 +10,8 @@ describe('checklist và chặn kết thúc', () => {
     on('classic.Stop', () => ({}))
     await submit($, COMPLEX_PROMPT)
     const set = await $.tool.call({ tool: 'mcp__focus-conductor__plan', action: 'set', goal: 'Refactor thanh toán', steps: [{ title: 'Phân tích' }, { title: 'Thiết kế' }] })
-    expect(String(set.result)).toContain('Checklist (0/2 đã đóng)')
+    // 0.7.3: kết quả set là một dòng khi checklist lưu đúng như gửi.
+    expect(String(set.result)).toContain('Đã lưu 2 bước')
     expect(String(set.result)).toContain('Bước tiếp theo: 1. Phân tích')
     expect(String(set.result)).not.toContain('gợi ý')
     expect((await $.classic.Stop({ stop_hook_active: false })).block).toContain('Checklist còn 2 bước mở')

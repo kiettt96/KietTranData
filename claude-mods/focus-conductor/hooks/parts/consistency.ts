@@ -14,7 +14,7 @@ import { EMPTY_QUOTA, evaluateQuota, normalizeQuota, quotaSettings } from '../li
 import { storeKey, withNote } from '../lib/checkpoint'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
-import { PLAN_TOOL_FULL, blockText, checkHintText, criteriaNotice, driftContext, pendingNotice, qualityNotice, renderBulk, renderPlan, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice } from '../lib/text'
+import { PLAN_TOOL_FULL, blockText, checkHintText, criteriaNotice, driftContext, pendingNotice, qualityNotice, renderBulk, renderPlan, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -201,7 +201,12 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     if (isClosing && core.brief !== null && core.brief.quality.length > 0) notes.push(qualityNotice(core.brief.quality))
     if (isUpdate && openSteps(before.plan).length > 0 && openSteps(core.plan).length === 0 && pendingSteps(core.plan).length > 0) notes.push(pendingNotice(core.plan))
     await showStatus($, await read($, view), ctx.options)
-    const shown = outcome.bulk !== undefined ? renderBulk(core.plan, outcome.changed ?? [], outcome.bulk.status, outcome.bulk.note) : renderPlan(core.brief, core.plan, input.action === 'update' || input.action === 'add' ? outcome.changed : undefined)
+    const shown =
+      outcome.bulk !== undefined
+        ? renderBulk(core.plan, outcome.changed ?? [], outcome.bulk.status, outcome.bulk.note)
+        : outcome.set !== undefined
+          ? setResultText(core.brief, core.plan, outcome.set, outcome.goal, before.brief?.goal ?? null)
+          : renderPlan(core.brief, core.plan, input.action === 'update' || input.action === 'add' ? outcome.changed : undefined)
     return { result: [shown, ...notes].join('\n') }
   }).catch(() => ({ deny: 'focus-conductor: lỗi nội bộ khi cập nhật checklist; tiếp tục làm việc không cần tool này.' }))
 

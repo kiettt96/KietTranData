@@ -26,6 +26,7 @@ Mỗi prompt của người dùng có thể kèm một khối "[focus-conductor]
 3. Nhất quán: mọi bước phải phục vụ mục tiêu cuối; không làm thêm việc ngoài phạm vi, không bỏ sót yêu cầu; giữ văn phong, quy ước đặt tên và định dạng đã dùng từ đầu.
 4. Tự kiểm tra sau mỗi bước quan trọng (chạy test, type-check, đọc lại thay đổi) trước khi sang bước sau. Lệnh test chạy đạt sau thay đổi cuối thì mod tự nâng bước đã xong thành verified, không cần chép lệnh; kiểm tĩnh (type-check, lint) không tính.
 5. Khi giao việc cho subagent: nếu khối có mục "Phân việc", giao đúng các việc ghi "giao", description của Agent mở đầu "Việc N: " (N là số của việc) để chạy đúng model và effort đã phân; việc ghi "làm trực tiếp" thì tự làm. Việc ngoài danh sách: để trống model và effort, router của plugin chấm khi giao; chọn Explore cho tra cứu chỉ đọc, Plan cho thiết kế, general-purpose cho thực thi.
+6. Báo cáo gọn (chỉ áp cho luồng chính; subagent theo quy tắc riêng ở dòng cuối): giữa các tool call không tường thuật; khi chuyển sang việc khác chỉ viết một dòng "Đang làm việc N/M: ...", không chép lại checklist, không tóm tắt lại kết quả tool. Vẫn báo ngay khi bị chặn, khi cần người dùng quyết định, hoặc khi phát hiện rủi ro. Báo cáo cuối nêu kết quả, đã kiểm bằng lệnh nào, và chỗ còn hở. Hướng dẫn riêng của người dùng (CLAUDE.md, prompt) được ưu tiên hơn mục này.
 Nếu bạn là subagent: không dùng tool plan của mod; việc từ ba bước trở lên thì ghi danh sách bằng tool danh sách việc có sẵn (nếu có trong phiên của bạn); làm đúng nhiệm vụ được giao và báo cáo ngắn gọn.`
 
 const MARKS: Record<StepStatus, string> = {
@@ -271,6 +272,28 @@ export function renderPlan(brief: Brief | null, plan: readonly PlanStep[], chang
   const shown = changed === undefined ? plan : plan.filter(step => changed.includes(step.id))
   const goal = brief && changed === undefined ? `Mục tiêu: ${brief.goal}\n` : ''
   return `${goal}${totalLine(plan)}\n${shown.map(step => stepRow(step)).join('\n')}${nextLine(plan)}`
+}
+
+/**
+ * Kết quả của tool plan, action set (0.7.3). Checklist lưu đúng như Claude gửi (có steps, không bước nào bị bỏ hay cắt) thì
+ * chỉ một dòng: số bước đã lưu, mục tiêu nếu vừa đổi, bước tiếp theo kèm số. Khác đi thì in đầy đủ như trước kèm một dòng nói
+ * đã chỉnh gì. Phạm vi lưu khác phạm vi gửi thì dòng kết quả nêu phạm vi đã lưu (cả hai dạng). Chỉ đổi goal hay scope, hoặc xóa
+ * checklist (steps rỗng), thì in đầy đủ như cũ.
+ */
+export function setResultText(
+  brief: Brief | null,
+  plan: readonly PlanStep[],
+  report: { hasSteps: boolean; adjusted: readonly string[]; scopeSaved?: readonly string[] },
+  goal: string | undefined,
+  previousGoal: string | null,
+): string {
+  const scope = report.scopeSaved !== undefined ? `Phạm vi đã lưu: ${report.scopeSaved.length > 0 ? report.scopeSaved.join(', ') : 'không có'}.` : ''
+  if (report.hasSteps && plan.length > 0 && report.adjusted.length === 0) {
+    const isGoalChanged = goal !== undefined && goal !== previousGoal
+    return [`Đã lưu ${plan.length} bước.`, isGoalChanged ? `Mục tiêu: ${goal}.` : '', nextLine(plan).trim(), scope].filter(Boolean).join(' ')
+  }
+  const adjusted = report.adjusted.length > 0 ? `\nĐã chỉnh: ${report.adjusted.join('; ')}.` : ''
+  return `${renderPlan(brief, plan)}${adjusted}${scope ? `\n${scope}` : ''}`
 }
 
 /** Một hàng của checklist: dấu trạng thái, id, tiêu đề, tiêu chí nghiệm thu và ghi chú. */

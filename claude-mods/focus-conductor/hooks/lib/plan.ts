@@ -74,28 +74,65 @@ export type PlanInput = {
   index?: unknown
 }
 
+/**
+ * Báo cáo của action set (0.7.3): `hasSteps` là Claude có gửi steps; `adjusted` là các chỗ mod đã chỉnh so với bản gửi (rỗng
+ * là lưu đúng như gửi); `scopeSaved` có mặt khi phạm vi lưu khác phạm vi gửi (bỏ trùng, giới hạn 10 mục).
+ */
+export type SetReport = { hasSteps: boolean; adjusted: string[]; scopeSaved?: string[] }
+
 /** `changed`: id các bước đã đổi (update) hoặc vừa thêm (add); `bulk` có mặt khi update hàng loạt (ids, allOpen). */
 export type PlanOutcome =
-  | { plan: PlanStep[]; goal?: string; scope?: string[]; changed?: number[]; bulk?: { status: StepStatus; note: string }; checkpointNote?: string; error?: undefined }
+  | { plan: PlanStep[]; goal?: string; scope?: string[]; changed?: number[]; bulk?: { status: StepStatus; note: string }; checkpointNote?: string; set?: SetReport; error?: undefined }
   | { error: string; plan?: undefined; goal?: undefined; changed?: undefined; bulk?: undefined }
 
 function text(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
 }
 
-function parseSteps(value: unknown, startId: number): PlanStep[] {
-  if (!Array.isArray(value)) return []
+const MAX_STEPS = 20
+const MAX_TITLE = 160
+const MAX_CHECK = 200
+
+/**
+ * Đọc steps Claude gửi. `adjusted` ghi các chỗ mod chỉnh so với bản gửi (0.7.3): bước không có tiêu đề bị bỏ, bước vượt giới
+ * hạn bị bỏ, tiêu đề và tiêu chí bị cắt. Các bước lưu không đổi so với trước 0.7.3.
+ */
+function parseStepsDetailed(value: unknown, startId: number): { steps: PlanStep[]; adjusted: string[] } {
+  if (!Array.isArray(value)) return { steps: [], adjusted: [] }
   const out: PlanStep[] = []
+  let untitled = 0
+  let overLimit = 0
+  let cutTitles = 0
+  let cutChecks = 0
   for (const raw of value) {
     const item = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : {}
     const title = typeof raw === 'string' ? raw.trim() : text(item['title'])
-    if (!title) continue
+    if (!title) {
+      untitled += 1
+      continue
+    }
+    if (out.length >= MAX_STEPS) {
+      overLimit += 1
+      continue
+    }
     const tier = TIERS.find(t => t === item['tier']) as Tier | undefined
-    const check = text(item['check']).slice(0, 200)
-    out.push({ id: startId + out.length, title: title.slice(0, 160), status: 'todo', ...(tier ? { tier } : {}), ...(check ? { check } : {}) })
-    if (out.length >= 20) break
+    const fullCheck = text(item['check'])
+    const check = fullCheck.slice(0, MAX_CHECK)
+    if (title.length > MAX_TITLE) cutTitles += 1
+    if (fullCheck.length > MAX_CHECK) cutChecks += 1
+    out.push({ id: startId + out.length, title: title.slice(0, MAX_TITLE), status: 'todo', ...(tier ? { tier } : {}), ...(check ? { check } : {}) })
   }
-  return out
+  const adjusted = [
+    untitled > 0 ? `bỏ ${untitled} bước không có tiêu đề` : '',
+    overLimit > 0 ? `bỏ ${overLimit} bước vượt giới hạn ${MAX_STEPS}` : '',
+    cutTitles > 0 ? `cắt ${cutTitles} tiêu đề quá ${MAX_TITLE} ký tự` : '',
+    cutChecks > 0 ? `cắt ${cutChecks} tiêu chí quá ${MAX_CHECK} ký tự` : '',
+  ].filter(Boolean)
+  return { steps: out, adjusted }
+}
+
+function parseSteps(value: unknown, startId: number): PlanStep[] {
+  return parseStepsDetailed(value, startId).steps
 }
 
 /** Phạm vi Claude ghi: danh sách đường dẫn; null khi có mục không phải đường dẫn. */
@@ -153,7 +190,7 @@ export function applyPlan(current: readonly PlanStep[], input: PlanInput): PlanO
   const action = text(input.action)
 
   if (action === 'set') {
-    const steps = parseSteps(input.steps, 1)
+    const { steps, adjusted } = parseStepsDetailed(input.steps, 1)
     const goal = text(input.goal)
     // steps: [] là thay bằng checklist rỗng (xóa); không truyền steps là giữ checklist và chỉ đổi goal hay scope.
     const hasSteps = Array.isArray(input.steps)
@@ -162,7 +199,10 @@ export function applyPlan(current: readonly PlanStep[], input: PlanInput): PlanO
     if (!hasSteps && !goal) return { error: 'action "set" cần goal hoặc steps (steps rỗng là xóa checklist).' }
     const scope = Array.isArray(input.scope) ? scopeOf(input.scope) : undefined
     if (scope === null) return { error: 'scope chỉ nhận đường dẫn file hoặc thư mục (có / hoặc phần mở rộng, không khoảng trắng).' }
-    return { plan: hasSteps ? steps : [...current], ...(goal ? { goal } : {}), ...(scope !== undefined ? { scope } : {}) }
+    // Phạm vi lưu khác phạm vi gửi (bỏ trùng, giới hạn 10 mục, mục rỗng): kết quả nêu phạm vi đã lưu.
+    const sentScope = Array.isArray(input.scope) ? input.scope.length : 0
+    const set: SetReport = { hasSteps, adjusted, ...(scope !== undefined && scope !== null && scope.length !== sentScope ? { scopeSaved: scope } : {}) }
+    return { plan: hasSteps ? steps : [...current], ...(goal ? { goal } : {}), ...(scope !== undefined ? { scope } : {}), set }
   }
 
   if (action === 'add') {
