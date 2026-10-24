@@ -122,6 +122,17 @@ describe('0.7.3 điểm 4: bật netResume', () => {
     expect(text).toContain('Kiểm tổng')
   })
 
+  test('chỉ nêu tối đa năm bước còn mở, mục tiêu quá dài bị cắt', ON, async ($, on) => {
+    const { seen, net, sent } = await setup($, on)
+    net.reach = true
+    await $.tool.call({ tool: PLAN, action: 'set', steps: Array.from({ length: 8 }, (_, i) => ({ title: `Bước mở số ${i + 1}` })) })
+    await failTurn($)
+    await seen.clock.advance(PROBE_MS)
+    const text = sent.texts[0] ?? ''
+    expect(text).toContain('Bước mở số 5')
+    expect(text).not.toContain('Bước mở số 6')
+  })
+
   test('prompt do plugin gửi không qua router (không đổi mục tiêu)', ON, async ($, on) => {
     const { seen, net } = await setup($, on)
     net.reach = true

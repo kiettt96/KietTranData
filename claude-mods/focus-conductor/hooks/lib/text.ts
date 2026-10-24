@@ -534,6 +534,17 @@ export function withTurnFaultStatus(base: string | undefined, fault: TurnFault |
   return base === undefined || fault === null ? base : `${base} · ${turnFaultLabel(lang)}`
 }
 
+/**
+ * Prompt tiếp tục mod tự gửi khi netResume bật và có mạng lại (0.7.3): ngắn, chỉ nêu mục tiêu và các bước còn mở lúc turn lỗi,
+ * không chứa dữ liệu nào khác của phiên.
+ */
+export function netResumeText(fault: TurnFault): string {
+  const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max)}...` : text)
+  const goal = fault.goal !== null ? ` Mục tiêu: ${clip(fault.goal, 200)}.` : ''
+  const steps = fault.openSteps.length > 0 ? ` Bước còn mở: ${fault.openSteps.map(step => clip(step, 80)).join('; ')}.` : ''
+  return `Turn trước kết thúc vì lỗi (đã có mạng lại). Tiếp tục công việc đang làm dở từ chỗ dừng.${goal}${steps} Kiểm tra lại phần vừa làm trước khi sửa tiếp.`
+}
+
 /** Dòng "Router lỗi gần nhất" của /conductor status (0.7.2); rỗng khi router đã đọc được lại. */
 export function routerFailLines(fail: RouterFail | null): string[] {
   if (fail === null) return []
