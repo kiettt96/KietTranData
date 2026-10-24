@@ -1,7 +1,7 @@
 // Văn bản mod gửi cho model và hiển thị cho người dùng. Gom về một chỗ để
 // giữ giọng văn nhất quán và dễ chỉnh.
 
-import type { Brief, CheckHint, Choice, PlanStep, QuotaCheckpoint, QuotaReason, Route, RouterFail, StepStatus, Task } from '../../types'
+import type { Brief, CheckHint, Choice, PlanStep, QuotaCheckpoint, QuotaReason, Route, RouterFail, StepStatus, Task, TurnFault } from '../../types'
 import { openSteps, pendingSteps } from './drift'
 import { evaluateQuota, isStale, reasonsOf } from './quota'
 import type { QuotaBadge, QuotaThresholds } from './quota'
@@ -522,6 +522,16 @@ export function routerFailLabel(fail: RouterFail, lang: Lang): string {
 /** Status line kèm nhãn lỗi router khi có (0.7.2); undefined (mod tắt) giữ nguyên. */
 export function withRouterFailStatus(base: string | undefined, fail: RouterFail | null, lang: Lang): string | undefined {
   return base === undefined || fail === null ? base : `${base} · ${routerFailLabel(fail, lang)}`
+}
+
+/** Nhãn turn lỗi cho status line (0.7.3): turn kết thúc vì lỗi API; không nói nguyên nhân (reason "error" gồm mọi lỗi API). */
+export function turnFaultLabel(lang: Lang): string {
+  return lang === 'en' ? 'turn failed · type to retry' : 'turn lỗi · gõ tiếp để chạy lại'
+}
+
+/** Status line kèm nhãn turn lỗi khi có (0.7.3); undefined (mod tắt) giữ nguyên. */
+export function withTurnFaultStatus(base: string | undefined, fault: TurnFault | null, lang: Lang): string | undefined {
+  return base === undefined || fault === null ? base : `${base} · ${turnFaultLabel(lang)}`
 }
 
 /** Dòng "Router lỗi gần nhất" của /conductor status (0.7.2); rỗng khi router đã đọc được lại. */

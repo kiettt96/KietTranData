@@ -31,6 +31,7 @@ import { registerProgress } from './parts/progress'
 import { registerQuota } from './parts/quota'
 import { registerSession } from './parts/session'
 import { registerTurn } from './parts/turn'
+import { registerTurnFault } from './parts/turn-fault'
 import { registerUi } from './parts/ui'
 
 export const register: Register = (on, options) => {
@@ -43,6 +44,7 @@ export const register: Register = (on, options) => {
   registerAgents(on, ctx)
   registerProgress(on, ctx)
   registerConsistency(on, ctx)
+  registerTurnFault(on, ctx)
   registerCommand(on, ctx)
   registerUi(on, ctx)
 }

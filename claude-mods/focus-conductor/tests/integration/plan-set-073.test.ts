@@ -189,6 +189,13 @@ describe('0.7.3 điểm 8: phạm vi đã lưu', () => {
     expect(out).not.toContain('src/f10.ts')
   })
 
+  test('scope toàn mục rỗng: lưu phạm vi rỗng và nói "không có"', {}, async ($, on) => {
+    base(on)
+    await submit($, COMPLEX_PROMPT)
+    const out = await set($, { steps: titles(1), scope: ['', '  '] })
+    expect(out).toContain('Phạm vi đã lưu: không có.')
+  })
+
   test('scope không đổi sau khi lưu: không nêu phạm vi', {}, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
