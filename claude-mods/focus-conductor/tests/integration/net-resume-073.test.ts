@@ -347,14 +347,46 @@ describe('0.7.3 điểm 4: thời điểm hủy và bộ đếm duy nhất', () 
     const seen = base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     on('turn.complete', () => ({ text: '' }))
-    on('http.fetch', async ($$, _e) => {
-      await ($$ as unknown as Engine).turn.start({ text: 'tôi tự gõ', turnId: 'tu' })
+    // Phản hồi của lần dò bị giữ lại cho tới khi test cho qua.
+    let release: () => void = () => undefined
+    const gate = new Promise<void>(resolve => {
+      release = resolve
+    })
+    let started = 0
+    on('http.fetch', async () => {
+      started += 1
+      await gate
       return { value: { status: 200, ok: true, headers: {}, text: '' } } as never
     })
     await submit($, COMPLEX_PROMPT)
     await failTurn($)
     await seen.clock.advance(PROBE_MS)
+    expect(started).toBe(1)
+    await $.turn.start({ text: 'tôi tự gõ', turnId: 'tu' })
+    release()
+    await seen.clock.advance(1_000)
     expect(sent.texts).toEqual([])
+  })
+
+  test('đối chứng: không bị hủy trong lúc chờ phản hồi thì gửi như thường', ON, async ($, on) => {
+    const sent = submitted(on)
+    const seen = base(on)
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    on('turn.complete', () => ({ text: '' }))
+    let release: () => void = () => undefined
+    const gate = new Promise<void>(resolve => {
+      release = resolve
+    })
+    on('http.fetch', async () => {
+      await gate
+      return { value: { status: 200, ok: true, headers: {}, text: '' } } as never
+    })
+    await submit($, COMPLEX_PROMPT)
+    await failTurn($)
+    await seen.clock.advance(PROBE_MS)
+    release()
+    await seen.clock.advance(1_000)
+    expect(sent.texts.length).toBe(1)
   })
 
   test('lỗi lần hai khi bộ đếm còn sống không tạo bộ đếm thứ hai: mỗi nhịp một lần dò', ON, async ($, on) => {
