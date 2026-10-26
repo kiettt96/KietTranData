@@ -4,6 +4,31 @@ Số đo của HEAD hiện tại và của các bản trước. Mọi số do t�
 
 ## Kiểm chứng HEAD hiện tại
 
+Bản 0.7.3 (lệnh kiểm riêng khớp python chạy bằng đường dẫn đầy đủ và tiền tố thư mục, gợi ý `checkCommands` tới người dùng, mục báo cáo gọn của `DISCIPLINE` và `plan set` một dòng, ghi nhận turn lỗi, option `netResume`), ngày 2026-10-24, nhánh từ `main` `c09990a`. Mã (`hooks/`) trong commit chứa mục này đúng là nội dung đã kiểm: sha256 của `hooks/` là @@SHA_H@@ và của `tests/` là @@SHA_T@@, giữ nguyên qua các commit chỉ đổi tài liệu sau đó. Số dưới đây do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển], trừ dòng CI.
+
+- Môi trường: Claude Code 2.1.296 (bản CI ghim), Node v22.22.0, Bun 1.4.2. Baseline trên `main` trước khi sửa: 1285 test qua, `tsc` sạch, `mutate --check` 818/818 [Đo trực tiếp].
+- `claude plugin test .`: @@TESTS@@ test qua, 0 lỗi, 81 tệp (1285 của 0.7.2 cộng @@NEWT@@) [Đo trực tiếp]. `claude plugin validate .` qua cho mod và marketplace. `bunx tsc -p tsconfig.json` sạch.
+- Test đỏ trước khi viết mã, đo trên mã của commit ngay trước từng điểm [Đo trực tiếp]: điểm 1 là 13 test đỏ (`tests/check-commands-073.test.ts`); điểm 2 là 12 test đỏ (`tests/check-hint-073.test.ts`); điểm 8 là 15 test đỏ (`tests/integration/plan-set-073.test.ts`); điểm 3 là tệp `tests/integration/turn-fault-073.test.ts` không nạp được (thiếu `turnFaultLabel`, `withTurnFaultStatus`); điểm 4 là 10 trên 20 test đỏ (`tests/integration/net-resume-073.test.ts`, các test còn lại là đối chứng xanh sẵn). Khi viết mã điểm 3, hook `turn.complete` mới bị engine từ chối vì trùng hook không matcher của `consistency.ts` (đổi sang matcher `reason`) và một toast thiếu cụm "turn lỗi".
+- Test cũ phải đổi, đủ và lý do ở [CHANGELOG](../CHANGELOG.md) (mục 0.7.3): bốn test đọc kết quả của `plan set` (`checklist-stop`, `verified-evidence` mục 04, `plan-size`, `quota-checkpoint`). Không mẫu đột biến cũ nào phải viết lại.
+- Số đo kết quả `plan set` (hàm `renderPlan` trước, `setResultText` sau, tiêu đề 62 ký tự, tiêu chí 58 ký tự) [Đo trực tiếp]:
+
+| Checklist | Trước (ký tự) | Sau (ký tự) |
+|---|---|---|
+| 8 bước | 671 | 134 |
+| 8 bước có tiêu chí | 1.223 | 134 |
+| 20 bước | 1.450 | 135 |
+| 20 bước có tiêu chí | 2.830 | 135 |
+
+Mỗi lần Claude gọi `plan set` kết quả nằm trong ngữ cảnh của mọi tool call sau đó của phiên; số token thật của câu `DISCIPLINE` mới lên đầu ra của Claude chỉ đo được ở phiên thật.
+- Kiểm đột biến: @@MUT@@
+- Không hồi quy: toàn bộ test của 0.7.2 vẫn qua trừ bốn test đã nêu. Khi `mode` là `off` không có thay đổi hành vi (test `mode off` của điểm 2, 3, 4).
+- Workflow CI trên runner sạch (`ubuntu-24.04`, Node 22, Claude Code 2.1.296): @@CI@@
+- Quét chuỗi riêng tư: @@SCAN@@
+- Chưa kiểm được (chỉ kiểm được trong phiên tương tác thật): hiệu quả của mục 6 của `DISCIPLINE` lên token đầu ra của Claude; engine thật có phát `turn.complete` `reason: 'error'` cho lỗi mạng sau khi hết thử lại không; chính sách web-fetch của tổ chức có cho địa chỉ dò của `netResume` không; `$.prompt.submit` từ bộ đếm ngay khi có mạng lại. Nguyên nhân khoảng trống 1 giờ 19 phút trong phiên đã điều tra (máy ngủ hay mất mạng) và transcript trước ngày 22/10 chưa đọc.
+- Bản trước: kiểm chứng của 0.7.2 ở mục ngay dưới.
+
+## Kiểm chứng của 0.7.2
+
 Bản 0.7.2 (pane tự mở, mục tiêu tối thiểu khi router lỗi, lỗi router tự để lại bằng chứng, hạn chung và kiểm lại có điều kiện cho router, band hiện lại ở `/conductor goal`), ngày 2026-10-21, nhánh từ `main` `a0408b9`. Mã (`hooks/`) trong commit chứa mục này đúng là nội dung đã kiểm: sha256 của `hooks/` là `964c5df3cfc86d2bc90ba6db893b8a3a5b570d5673110a4d42daf282bf0acb5c` và của `tests/` là `0743aebe77e9367ffe245e080a70797fca70801327b811b396d09a23a54bd808`, giữ nguyên qua các commit chỉ đổi tài liệu sau đó. Số dưới đây do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển], trừ dòng CI.
 
 - Môi trường: Claude Code 2.1.296 (bản CI ghim), Node v22.22.0, Bun 1.4.2. Baseline trên `main` trước khi sửa: 1219 test qua, `tsc` sạch, `mutate --check` 767/767 [Đo trực tiếp].

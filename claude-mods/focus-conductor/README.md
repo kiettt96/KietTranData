@@ -103,7 +103,7 @@ Cấu hình qua `/config` (hoặc `pluginConfigs.focus-conductor.options` trong 
 | `contextWindows` | trống | Cửa sổ ngữ cảnh theo họ model, dạng `opus=1000000,sonnet=1000000`; mod không đổi sang model có cửa sổ nhỏ hơn ngữ cảnh hiện tại, kể cả khi nâng cấp. Để trống thì họ dùng model ID mặc định của mod lấy 1M token [Nguồn: trang giá Anthropic 2026-10-13]; họ bị `modelMap` đổi ID thì cần khai ở đây (ví dụ `haiku=1000000`) |
 | `cacheTtlMinutes` | `60` | Sau bao nhiêu phút không có turn thì cache coi như nguội, khi đó đổi model không mất chi phí ghi lại. Giá trị là chuỗi số. Đi cặp với `cacheWrite`: bậc 1 giờ là `60` và `2`, bậc 5 phút là `5` và `1.25` |
 | `cacheWrite` | `2` | Giá ghi cache bằng bao nhiêu lần giá vào [Nguồn: trang giá Anthropic 2026-10-13: 1,25 lần ở bậc 5 phút, 2 lần ở bậc 1 giờ]. Mod kẹp giá trị trong 1,25 đến 2. Mặc định bậc 1 giờ theo một phép đo `claude -p` (xem "Đo bậc cache"), chưa kiểm trên mọi tài khoản |
-| `checkCommands` | trống | Lệnh kiểm tra riêng của dự án, phân tách bằng dấu phẩy, ví dụ `make ci,./scripts/check.sh`. Khớp theo tiền tố token, được tin mã thoát, tính là kiểm tra chạy hành vi, đối chiếu evidence nghiêm ngặt (`./scripts/check.sh --fast` khác `./scripts/check.sh`); kèm cờ tự sửa (`--fix`, `--write`) thì vẫn là ghi file. Khi `verified` bị hạ xuống `done` vì lệnh kiểm tra không nhận ra, mod nhắc option này kèm một ví dụ lấy từ script đã chạy; model không tự khai được |
+| `checkCommands` | trống | Lệnh kiểm tra riêng của dự án, phân tách bằng dấu phẩy, ví dụ `make ci,./scripts/check.sh,python3 tests/`. Từ 0.7.3, khi token đầu là python thì phần thư mục (`/usr/bin/python3`) và cờ không giá trị (`-B`, `-u`...) được bỏ qua, và token kết thúc bằng `/` là tiền tố thư mục: mọi script dưới thư mục đó được tin mã thoát và không tính là thay đổi, nên chỉ khai thư mục chỉ chứa script kiểm (script in FAIL mà thoát mã 0 vẫn bị tính là đạt). Khớp theo tiền tố token, được tin mã thoát, tính là kiểm tra chạy hành vi, đối chiếu evidence nghiêm ngặt (`./scripts/check.sh --fast` khác `./scripts/check.sh`); kèm cờ tự sửa (`--fix`, `--write`) thì vẫn là ghi file. Khi `verified` bị hạ xuống `done` vì lệnh kiểm tra không nhận ra, mod nhắc option này kèm một ví dụ lấy từ script đã chạy; từ 0.7.3 mod cũng gợi ý tới anh (toast một lần mỗi mục tiêu, dòng trong pane và `/conductor status`) khi đến checkpoint mà có script kiểm chưa được nhận. Model không tự khai được |
 | `modelMap` | rỗng | Ghi đè model ID, ví dụ `opus=claude-opus-5-5,sonnet=claude-sonnet-5-5` (cần khi dùng gateway có ID riêng) |
 | `routerSkip` | trống | Câu tiếp nối ngắn không cần hỏi router, phân tách bằng dấu phẩy, ví dụ `ok,tiếp,tiếp tục,go` |
 | `routerFallback` | `session` | Khi router lỗi: `session` chạy theo model của phiên; `reuse` dùng lại lựa chọn luồng chính của prompt trước |
@@ -112,6 +112,7 @@ Cấu hình qua `/config` (hoặc `pluginConfigs.focus-conductor.options` trong 
 | `remindSubagents` | `false` | Nhắc subagent lạc đề kèm việc được giao |
 | `semanticDrift` | `true` | Ở checkpoint, router kiểm lạc đề theo nội dung (một lượt router mỗi lần). Tối đa một lượt mỗi 10 phút, tự tắt khi hạn mức vào vùng gần ngưỡng. Đặt `false` để tắt; chi phí ở mục "Giám sát giữa phiên" |
 | `autoPane` | `true` | Mỗi mục tiêu mới thì mở pane chi tiết (không chiếm phím, xin 16 dòng khi nằm trên prompt). Anh tự đóng pane thì không mở lại trong mục tiêu đó; sang mục tiêu mới thì mở lại. Pane chỉ được đặt khi surface và độ rộng cho phép. Đặt `false` để tắt |
+| `netResume` | `false` | Sau một turn của luồng chính kết thúc vì lỗi, dò nhẹ (GET `https://api.anthropic.com` mỗi 30 giây, tối đa 120 lần, không gửi dữ liệu của phiên) rồi tự gửi một prompt tiếp tục khi có phản hồi, tối đa một lần cho mỗi mục tiêu. Không chạy khi mod đang dừng vì hạn mức hay `mode` là `off`; anh gõ prompt thì hủy chờ. Mặc định tắt: chỉ nên bật sau khi `decisionLog` đã ghi được một dòng `net` thật ở một turn lỗi |
 | `decisionLog` | trống | Đường dẫn file JSONL ghi mỗi quyết định điều phối (router đọc prompt, router lỗi, bỏ qua router, chấm subagent, đổi model, lạc đề, `verify-reject` khi `verified` bị hạ xuống `done`, `verify-auto` khi mod tự nâng lên `verified`), nối tiếp qua các phiên, giữ 500 dòng cuối. Log có trích 300 ký tự đầu của prompt và của evidence: chỉ bật khi đường dẫn nằm ngoài thư mục chia sẻ hay commit |
 | `agentTypes` | trống | Loại agent thêm cho router, phân tách bằng dấu phẩy |
 | `prices` | trống | Ghi đè bảng giá, dạng `sonnet=2/10` hoặc `opus=4/20/0.2` (vào/ra/đọc cache, USD mỗi 1M token). Thiếu giá trị thứ ba thì đọc cache theo tỷ lệ của đúng họ đó trong bảng kèm mod (Sonnet và Opus 5%, Fable 2,5%, Haiku 10% giá vào). Catalog giá mà router thấy khi chọn model dựng từ bảng này |
@@ -162,6 +163,14 @@ Chi phí: mỗi lượt kiểm lạc đề là một lần gọi router, tối �
 ### Pane chi tiết tự mở
 
 Từ 0.7.2, mỗi mục tiêu mới (router đọc được, mục tiêu tối thiểu khi router lỗi, hay `/conductor goal`) mod mở pane chi tiết bằng `$.ui.open`, không `focus` nên không chiếm phím gõ. Prompt do chính anh gõ được engine tính là "anh yêu cầu", nên pane được đặt ở mọi độ rộng: cạnh transcript (từ 110 cột, chế độ toàn màn hình) hoặc ngay trên prompt. Anh tự đóng pane (dấu đóng hay phím) thì mod nhớ và không mở lại trong mục tiêu đó; sang mục tiêu mới thì mở lại. Pane chưa được đặt (màn hình hẹp, chưa có surface) không báo lỗi; nhật ký quyết định có dòng `pane` kèm lý do. Trên vscode, web và mobile (không có band, nên không có nút Chi tiết) pane tự mở là đường chính tới chi tiết. Đặt `autoPane` là `false` để tắt; `/conductor` mở pane bất cứ lúc nào.
+
+### Turn lỗi và lệnh kiểm riêng
+
+Từ 0.7.3, khi một turn của luồng chính kết thúc vì lỗi (`reason: 'error'`, gồm mọi lỗi API), status line ghi "turn lỗi · gõ tiếp để chạy lại" cho tới khi một turn trả lời xong, mod báo một toast và ghi dòng `net` vào nhật ký; mod không tự chạy lại (trừ khi bật `netResume`) và không chặn tool call nào. Thứ tự nhãn trên status line: hạn mức, lỗi router, turn lỗi. Engine tự thử lại khi gặp lỗi mạng (khoảng 3 phút) trước khi kết thúc turn; trong lúc đó mod không chen vào được.
+
+Nếu Claude chạy kiểm bằng script riêng (ví dụ `/usr/bin/python3 -B tests/a-check.py`), khai `checkCommands` như ở bảng tùy chọn; mod gợi ý chuỗi cần khai khi thấy script kiểm đã chạy mà chưa được nhận. Lệnh kiểm chạy qua ống (`| grep`) che mã thoát nên không được tin là đạt: chạy không qua ống hoặc dùng `set -o pipefail`.
+
+Kết quả của tool `plan` với `set` chỉ là một dòng (số bước đã lưu, mục tiêu nếu vừa đổi, bước tiếp theo) khi checklist lưu đúng như Claude gửi; xem đầy đủ bằng `show` hay `/conductor status`. `DISCIPLINE` có mục báo cáo gọn cho luồng chính (không tường thuật giữa các tool call, một dòng "Đang làm việc N/M: ..." khi chuyển việc); hướng dẫn riêng của anh (CLAUDE.md, prompt) được ưu tiên hơn mục đó.
 
 ### Khi router lỗi
 
@@ -225,7 +234,8 @@ focus-conductor/
   hooks/lib/drift/evidence.ts  dấu vết thực thi của một mục tiêu (lệnh đã chạy kèm kết quả, các lần ghi)
   hooks/lib/drift/identity.ts  danh tính của lệnh kiểm tra, để so khớp nghiêm ngặt
   hooks/lib/drift/claims.ts    đối chiếu evidence của "verified" với dấu vết thật
-  hooks/lib/drift/suggest.ts   ví dụ cho option checkCommands, lấy từ lệnh script đã chạy trong mục tiêu
+  hooks/lib/drift/suggest.ts   ví dụ cho option checkCommands, lấy từ lệnh script đã chạy trong mục tiêu (dạng sẽ khớp, gom tiền tố thư mục)
+  hooks/parts/turn-fault.ts    turn lỗi của luồng chính: Core.turnFault, nhãn status, netResume
   hooks/lib/drift/steps.ts     phân loại bước checklist: đã đóng hẳn, đang chờ hoặc bị chặn, khôi phục được
   hooks/lib/drift/inline.ts    sqlite3 và python nội dòng (-c, heredoc) có chỉ đọc không; inline-sql.ts và inline-py.ts là phần SQL và Python
   hooks/lib/plan.ts            schema và reducer của tool plan

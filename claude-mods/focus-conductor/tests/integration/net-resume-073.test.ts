@@ -118,6 +118,7 @@ describe('0.7.3 điểm 4: bật netResume', () => {
     const text = sent.texts[0] ?? ''
     expect(text.length).toBeLessThan(800)
     expect(text).toContain('Tiếp tục')
+    expect(text).toContain('Mục tiêu: ')
     expect(text).toContain('Dựng bảng tổng')
     expect(text).toContain('Kiểm tổng')
   })
@@ -289,5 +290,78 @@ describe('0.7.3 điểm 4: nhật ký quyết định', () => {
     for (let i = 0; i < 130; i++) await seen.clock.advance(PROBE_MS)
     const lines = writes.join('').trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>)
     expect(lines.filter(line => line['kind'] === 'net').map(line => line['reason'])).toContain('probe-gave-up')
+  })
+})
+
+describe('0.7.3 điểm 4: thời điểm hủy và bộ đếm duy nhất', () => {
+  test('turn của subagent bắt đầu giữa chừng không hủy chờ của luồng chính', ON, async ($, on) => {
+    const { seen, net, sent } = await setup($, on)
+    await failTurn($)
+    await $.turn.start({ text: 'việc con', turnId: 'ag-1', agentId: 'agent-1' } as never)
+    net.reach = true
+    await seen.clock.advance(PROBE_MS)
+    expect(sent.texts.length).toBe(1)
+  })
+
+  test('session.end (lý do không phải clear) hủy bộ đếm', ON, async ($, on) => {
+    const { seen, net, sent } = await setup($, on)
+    await failTurn($)
+    await $.session.end({ reason: 'other', sessionId: 's1' } as never)
+    net.reach = true
+    await seen.clock.advance(10 * PROBE_MS)
+    expect(net.calls).toEqual([])
+    expect(sent.texts).toEqual([])
+  })
+
+  test('turn trả lời hủy bộ đếm ngay: lỗi lần sau bắt đầu chu kỳ mới, không dùng nhịp cũ', ON, async ($, on) => {
+    const { seen, net } = await setup($, on)
+    await failTurn($, 't1')
+    await seen.clock.advance(15_000)
+    await $.turn.start({ text: 'y', turnId: 't2' })
+    await $.turn.complete(DONE('t2', 'answer'))
+    await seen.clock.advance(5_000)
+    await $.turn.complete(DONE('t3', 'error'))
+    await seen.clock.advance(PROBE_MS - 1_000)
+    expect(net.calls.length).toBe(0)
+    await seen.clock.advance(2_000)
+    expect(net.calls.length).toBe(1)
+  })
+
+  test('bản ghi turn lỗi mất do /conductor reset: bộ đếm dừng ở nhịp kế, lỗi sau bắt đầu chu kỳ mới', ON, async ($, on) => {
+    const { seen, net, sent } = await setup($, on)
+    await failTurn($, 't1')
+    await seen.clock.advance(10_000)
+    await conductor($, 'reset')
+    await seen.clock.advance(25_000)
+    expect(net.calls.length).toBe(0)
+    await $.turn.complete(DONE('t3', 'error'))
+    await seen.clock.advance(PROBE_MS - 1_000)
+    expect(net.calls.length).toBe(0)
+    net.reach = true
+    await seen.clock.advance(2_000)
+    expect(sent.texts.length).toBe(1)
+  })
+
+  test('hủy trong lúc chờ phản hồi dò (người dùng gõ prompt): không gửi', ON, async ($, on) => {
+    const sent = submitted(on)
+    const seen = base(on)
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    on('turn.complete', () => ({ text: '' }))
+    on('http.fetch', async ($$, _e) => {
+      await ($$ as unknown as Engine).turn.start({ text: 'tôi tự gõ', turnId: 'tu' })
+      return { value: { status: 200, ok: true, headers: {}, text: '' } } as never
+    })
+    await submit($, COMPLEX_PROMPT)
+    await failTurn($)
+    await seen.clock.advance(PROBE_MS)
+    expect(sent.texts).toEqual([])
+  })
+
+  test('lỗi lần hai khi bộ đếm còn sống không tạo bộ đếm thứ hai: mỗi nhịp một lần dò', ON, async ($, on) => {
+    const { seen, net } = await setup($, on)
+    await failTurn($, 't1')
+    await $.turn.complete(DONE('t2', 'error'))
+    await seen.clock.advance(PROBE_MS)
+    expect(net.calls.length).toBe(1)
   })
 })

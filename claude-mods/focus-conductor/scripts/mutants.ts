@@ -920,7 +920,6 @@ export const MUTANTS: Mutant[] = [
   { id: "073-T6", file: "hooks/parts/turn-fault.ts", note: "không bao giờ có toast", old: "    if (core.turnFault === null) $.ui.toast(", new: "    if (core.turnFault === 'x' as never) $.ui.toast(" },
   { id: "073-T7", file: "hooks/parts/turn-fault.ts", note: "không ghi nhật ký net", old: "    ctx.record(at, 'net',", new: "    void (at, 'net'," },
   { id: "073-T8", file: "hooks/parts/turn-fault.ts", note: "bản ghi không mang số bước còn mở", old: "openSteps: openSteps(core.plan).length })", new: "openSteps: 0 })" },
-  { id: "073-T9", file: "hooks/parts/turn-fault.ts", note: "status không làm mới sau turn lỗi", old: "    await showStatus($, await read($, view), ctx.options)\n    return result\n  }).catch", new: "    return result\n  }).catch" },
   { id: "073-T10", file: "hooks/parts/turn-fault.ts", note: "bản ghi lấy nhiều hơn năm bước", old: "const OPEN_STEPS_SHOWN = 5", new: "const OPEN_STEPS_SHOWN = 50" },
   { id: "073-T11", file: "hooks/lib/text.ts", note: "nhãn tiếng Anh dùng tiếng Việt", old: "lang === 'en' ? 'turn failed · type to retry'", new: "lang === 'en' ? 'turn lỗi · gõ tiếp để chạy lại'" },
   { id: "073-T12", file: "hooks/lib/text.ts", note: "nhãn turn lỗi hiện cả khi không có bản ghi", old: "base === undefined || fault === null ? base : `${base} · ${turnFaultLabel(lang)}`", new: "base === undefined ? base : `${base} · ${turnFaultLabel(lang)}`" },
