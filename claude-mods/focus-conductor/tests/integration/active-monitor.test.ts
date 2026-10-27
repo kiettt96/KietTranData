@@ -62,7 +62,8 @@ describe('0.7.0 6: tự tắt gần ngưỡng hạn mức và giới hạn tần
     for (const f of ['f', 'g', 'h', 'i', 'j']) await edit($, f)
     expect(seen.drift.length).toBe(1)
     await seen.clock.advance(6 * MINUTE)
-    for (const f of ['k', 'l', 'm', 'n', 'o']) await edit($, f)
+    // 0.7.4: mốc checkpoint sau 10 là 20 (không còn 15), nên cần mười lần sửa nữa mới tới checkpoint thứ ba.
+    for (const f of ['k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't']) await edit($, f)
     expect(seen.drift.length).toBe(2)
   })
 })
