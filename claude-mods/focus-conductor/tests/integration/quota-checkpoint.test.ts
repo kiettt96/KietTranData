@@ -102,7 +102,7 @@ describe('0.6.0 C: action checkpoint', () => {
     const box = memoryStore(on)
     quotaMeter(on, [session(10)])
     await submit($, COMPLEX_PROMPT)
-    expect(String((await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'a' }] })).result)).toContain('[ ] 1. a')
+    expect(String((await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'a' }] })).result)).toContain('Đã lưu 1 bước')
     expect(String((await $.tool.call({ tool: PLAN, action: 'add', steps: [{ title: 'b' }] })).result)).toContain('[ ] 2. b')
     expect(String((await $.tool.call({ tool: PLAN, action: 'show' })).result)).toContain('[ ] 2. b')
     expect((await $.tool.call({ tool: PLAN, action: 'xyz' })).deny).toContain('checkpoint')

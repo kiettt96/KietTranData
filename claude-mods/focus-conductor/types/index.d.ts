@@ -260,6 +260,15 @@ export type RouterFail = {
   outputTokens: number | null
 }
 
+/** Gợi ý khai option checkCommands cho mục tiêu goalId (0.7.3): các lệnh dạng sẽ khớp, và đã báo toast chưa (một lần mỗi mục tiêu). */
+export type CheckHint = { goalId: number; commands: string[]; isToasted: boolean }
+
+/**
+ * Turn của luồng chính chết vì lỗi (turn.complete reason "error", 0.7.3): bản ghi riêng, không chung khóa với điểm dừng hạn mức.
+ * `openSteps` là tiêu đề các bước còn mở lúc đó (tối đa 5). Tự xóa khi turn kế tiếp của luồng chính kết thúc bằng câu trả lời.
+ */
+export type TurnFault = { goalId: number | null; goal: string | null; openSteps: string[]; at: number }
+
 export type Core = {
   brief: Brief | null
   plan: PlanStep[]
@@ -291,6 +300,10 @@ export type Core = {
   activity: { goalId: number; changes: number }
   /** Lần router lỗi gần nhất cho tới khi router đọc được lại (0.7.2); null là không có. */
   routerFail: RouterFail | null
+  /** Gợi ý khai checkCommands khi script kiểm đã chạy mà mod chưa nhận (0.7.3); null là không có. */
+  checkHint: CheckHint | null
+  /** Turn lỗi gần nhất của luồng chính cho tới khi một turn trả lời xong (0.7.3); null là không có. */
+  turnFault: TurnFault | null
 }
 
 /** Một cửa sổ hạn mức đã qua ngưỡng lúc dừng (0.6.0). */

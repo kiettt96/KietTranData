@@ -1,7 +1,7 @@
 // Văn bản mod gửi cho model và hiển thị cho người dùng. Gom về một chỗ để
 // giữ giọng văn nhất quán và dễ chỉnh.
 
-import type { Brief, Choice, PlanStep, QuotaCheckpoint, QuotaReason, Route, RouterFail, StepStatus, Task } from '../../types'
+import type { Brief, CheckHint, Choice, PlanStep, QuotaCheckpoint, QuotaReason, Route, RouterFail, StepStatus, Task, TurnFault } from '../../types'
 import { openSteps, pendingSteps } from './drift'
 import { evaluateQuota, isStale, reasonsOf } from './quota'
 import type { QuotaBadge, QuotaThresholds } from './quota'
@@ -26,6 +26,7 @@ Mỗi prompt của người dùng có thể kèm một khối "[focus-conductor]
 3. Nhất quán: mọi bước phải phục vụ mục tiêu cuối; không làm thêm việc ngoài phạm vi, không bỏ sót yêu cầu; giữ văn phong, quy ước đặt tên và định dạng đã dùng từ đầu.
 4. Tự kiểm tra sau mỗi bước quan trọng (chạy test, type-check, đọc lại thay đổi) trước khi sang bước sau. Lệnh test chạy đạt sau thay đổi cuối thì mod tự nâng bước đã xong thành verified, không cần chép lệnh; kiểm tĩnh (type-check, lint) không tính.
 5. Khi giao việc cho subagent: nếu khối có mục "Phân việc", giao đúng các việc ghi "giao", description của Agent mở đầu "Việc N: " (N là số của việc) để chạy đúng model và effort đã phân; việc ghi "làm trực tiếp" thì tự làm. Việc ngoài danh sách: để trống model và effort, router của plugin chấm khi giao; chọn Explore cho tra cứu chỉ đọc, Plan cho thiết kế, general-purpose cho thực thi.
+6. Báo cáo gọn (chỉ áp cho luồng chính; subagent theo quy tắc riêng ở dòng cuối): giữa các tool call không tường thuật; khi chuyển sang việc khác chỉ viết một dòng "Đang làm việc N/M: ...", không chép lại checklist, không tóm tắt lại kết quả tool. Vẫn báo ngay khi bị chặn, khi cần người dùng quyết định, hoặc khi phát hiện rủi ro. Báo cáo cuối nêu kết quả, đã kiểm bằng lệnh nào, và chỗ còn hở. Hướng dẫn riêng của người dùng (CLAUDE.md, prompt) được ưu tiên hơn mục này.
 Nếu bạn là subagent: không dùng tool plan của mod; việc từ ba bước trở lên thì ghi danh sách bằng tool danh sách việc có sẵn (nếu có trong phiên của bạn); làm đúng nhiệm vụ được giao và báo cáo ngắn gọn.`
 
 const MARKS: Record<StepStatus, string> = {
@@ -273,6 +274,28 @@ export function renderPlan(brief: Brief | null, plan: readonly PlanStep[], chang
   return `${goal}${totalLine(plan)}\n${shown.map(step => stepRow(step)).join('\n')}${nextLine(plan)}`
 }
 
+/**
+ * Kết quả của tool plan, action set (0.7.3). Checklist lưu đúng như Claude gửi (có steps, không bước nào bị bỏ hay cắt) thì
+ * chỉ một dòng: số bước đã lưu, mục tiêu nếu vừa đổi, bước tiếp theo kèm số. Khác đi thì in đầy đủ như trước kèm một dòng nói
+ * đã chỉnh gì. Phạm vi lưu khác phạm vi gửi thì dòng kết quả nêu phạm vi đã lưu (cả hai dạng). Chỉ đổi goal hay scope, hoặc xóa
+ * checklist (steps rỗng), thì in đầy đủ như cũ.
+ */
+export function setResultText(
+  brief: Brief | null,
+  plan: readonly PlanStep[],
+  report: { hasSteps: boolean; adjusted: readonly string[]; scopeSaved?: readonly string[] },
+  goal: string | undefined,
+  previousGoal: string | null,
+): string {
+  const scope = report.scopeSaved !== undefined ? `Phạm vi đã lưu: ${report.scopeSaved.length > 0 ? report.scopeSaved.join(', ') : 'không có'}.` : ''
+  if (report.hasSteps && plan.length > 0 && report.adjusted.length === 0) {
+    const isGoalChanged = goal !== undefined && goal !== previousGoal
+    return [`Đã lưu ${plan.length} bước.`, isGoalChanged ? `Mục tiêu: ${goal}.` : '', nextLine(plan).trim(), scope].filter(Boolean).join(' ')
+  }
+  const adjusted = report.adjusted.length > 0 ? `\nĐã chỉnh: ${report.adjusted.join('; ')}.` : ''
+  return `${renderPlan(brief, plan)}${adjusted}${scope ? `\n${scope}` : ''}`
+}
+
 /** Một hàng của checklist: dấu trạng thái, id, tiêu đề, tiêu chí nghiệm thu và ghi chú. */
 export function stepRow(step: PlanStep): string {
   const note = step.note ? ` (${step.note})` : ''
@@ -501,6 +524,27 @@ export function withRouterFailStatus(base: string | undefined, fail: RouterFail 
   return base === undefined || fail === null ? base : `${base} · ${routerFailLabel(fail, lang)}`
 }
 
+/** Nhãn turn lỗi cho status line (0.7.3): turn kết thúc vì lỗi API; không nói nguyên nhân (reason "error" gồm mọi lỗi API). */
+export function turnFaultLabel(lang: Lang): string {
+  return lang === 'en' ? 'turn failed · type to retry' : 'turn lỗi · gõ tiếp để chạy lại'
+}
+
+/** Status line kèm nhãn turn lỗi khi có (0.7.3); undefined (mod tắt) giữ nguyên. */
+export function withTurnFaultStatus(base: string | undefined, fault: TurnFault | null, lang: Lang): string | undefined {
+  return base === undefined || fault === null ? base : `${base} · ${turnFaultLabel(lang)}`
+}
+
+/**
+ * Prompt tiếp tục mod tự gửi khi netResume bật và có mạng lại (0.7.3): ngắn, chỉ nêu mục tiêu và các bước còn mở lúc turn lỗi,
+ * không chứa dữ liệu nào khác của phiên.
+ */
+export function netResumeText(fault: TurnFault): string {
+  const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max)}...` : text)
+  const goal = fault.goal !== null ? ` Mục tiêu: ${clip(fault.goal, 200)}.` : ''
+  const steps = fault.openSteps.length > 0 ? ` Bước còn mở: ${fault.openSteps.map(step => clip(step, 80)).join('; ')}.` : ''
+  return `Turn trước kết thúc vì lỗi (đã có mạng lại). Tiếp tục công việc đang làm dở từ chỗ dừng.${goal}${steps} Kiểm tra lại phần vừa làm trước khi sửa tiếp.`
+}
+
 /** Dòng "Router lỗi gần nhất" của /conductor status (0.7.2); rỗng khi router đã đọc được lại. */
 export function routerFailLines(fail: RouterFail | null): string[] {
   if (fail === null) return []
@@ -511,6 +555,21 @@ export function routerFailLines(fail: RouterFail | null): string[] {
     fail.outputTokens !== null ? `đã nhận ${fail.outputTokens} token` : '',
   ].filter(Boolean)
   return [`Router lỗi gần nhất: ${fail.reason}${limits.length > 0 ? ` (${limits.join(', ')})` : ''}. Dùng /conductor reroute để router đọc lại prompt.`]
+}
+
+/**
+ * Gợi ý khai option checkCommands cho người dùng (0.7.3): toast, dòng của pane và của /conductor status dùng chung một câu.
+ * Chuỗi gợi ý ở dạng sẽ khớp; tiền tố thư mục (kết thúc bằng "/") kèm lời nhắc chỉ khai khi thư mục chỉ chứa script kiểm.
+ * Mod chỉ gợi ý, không tự khai.
+ */
+export function checkHintText(commands: readonly string[]): string {
+  const dir = commands.some(command => command.endsWith('/')) ? ' Tiền tố thư mục tin mọi script dưới thư mục đó: chỉ khai nếu thư mục chỉ chứa script kiểm.' : ''
+  return `Mod chưa nhận script kiểm đã chạy là lệnh kiểm. Gợi ý khai option checkCommands của mod: ${commands.join(', ')}.${dir}`
+}
+
+/** Dòng gợi ý của /conductor status (0.7.3): chỉ khi gợi ý thuộc đúng mục tiêu đang mở; rỗng thì không có dòng. */
+export function checkHintLines(hint: CheckHint | null, goalId: number | null): string[] {
+  return hint !== null && goalId !== null && hint.goalId === goalId && hint.commands.length > 0 ? [checkHintText(hint.commands)] : []
 }
 
 export function withQuotaStatus(base: string | undefined, badge: QuotaBadge | null, lang: Lang): string | undefined {

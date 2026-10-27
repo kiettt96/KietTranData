@@ -156,7 +156,9 @@ describe('0.5.1: kiểm chứng sau thay đổi cuối, phạm vi Bash, Stop, vi
     on('tool.call', { tool: 'Bash' }, () => ({ result: '12 pass' }))
     await submit($, COMPLEX_PROMPT)
     const set = await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Migrate', check: 'API công khai không đổi' }] })
-    expect(String(set.result)).toContain('[nghiệm thu: API công khai không đổi]')
+    // 0.7.3: kết quả set chỉ một dòng; tiêu chí nghiệm thu vẫn được lưu và in ở show.
+    expect(String(set.result)).toContain('Đã lưu 1 bước')
+    expect(String((await $.tool.call({ tool: PLAN, action: 'show' })).result)).toContain('[nghiệm thu: API công khai không đổi]')
     await edit($, 'src/a.ts')
     await $.tool.call({ tool: 'Bash', command: 'npm test' })
     const done = await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'npm test: 12 pass' })

@@ -6,12 +6,12 @@
 
 import type { PluginOptions } from 'claude-code'
 
-import type { AgentProgress, AgentState, ArchivedGoal, Brief, Core, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, Route, RouteEvent, RouterFail, Warning } from '../../types'
+import type { AgentProgress, AgentState, ArchivedGoal, Brief, CheckHint, Core, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, Route, RouteEvent, RouterFail, TurnFault, Warning } from '../../types'
 import { restorableSteps } from './drift'
 import type { Tokens } from './cost'
 import { addUsage, emptyLedger, nextGoal, planSwitch, resetLedger } from './ledger'
 import { legacyOf } from './scale'
-import { statusLine, withQuotaStatus, withRouterFailStatus } from './text'
+import { statusLine, withQuotaStatus, withRouterFailStatus, withTurnFaultStatus } from './text'
 import { shownPlan } from './mirror'
 import { evaluateQuota, isPauseActive, overrideOf, quotaBadge } from './quota'
 import type { QuotaSettings } from './quota'
@@ -35,6 +35,8 @@ export const EMPTY_CORE: Core = {
   agentProgress: { goalId: -1, items: [] },
   activity: { goalId: -1, changes: 0 },
   routerFail: null,
+  checkHint: null,
+  turnFault: null,
 }
 
 const LOG_LIMIT = 60
@@ -70,16 +72,29 @@ export function statusOf(view: View): string | undefined {
  * mode off, lúc đó bảo vệ hạn mức không chạy nên không có nhãn. Tắt quotaGuard thì như statusOf.
  */
 export function statusText(view: View, quota: QuotaState, now: number, settings: QuotaSettings): string | undefined {
-  const base = withRouterFailStatus(statusOf(view), view.core.routerFail, view.lang)
-  if (!settings.enabled) return base
+  const base = statusOf(view)
+  // Thứ tự nhãn (0.7.3): hạn mức, lỗi router, turn lỗi.
   const evaluation = evaluateQuota(quota.readings, now, settings)
-  return withQuotaStatus(base, quotaBadge(isPauseActive(true, evaluation.hits, quota.pause, overrideOf(quota), now), evaluation), view.lang)
+  const quotaLabelled = settings.enabled
+    ? withQuotaStatus(base, quotaBadge(isPauseActive(true, evaluation.hits, quota.pause, overrideOf(quota), now), evaluation), view.lang)
+    : base
+  return withTurnFaultStatus(withRouterFailStatus(quotaLabelled, view.core.routerFail, view.lang), view.core.turnFault, view.lang)
 }
 
 /** Ghi (hoặc xóa, khi router đọc được lại) lần router lỗi gần nhất (0.7.2). */
 export const withRouterFail =
   (fail: RouterFail | null) =>
   (c: Core): Core => ({ ...normalizeCore(c), routerFail: fail })
+
+/** Ghi gợi ý khai checkCommands của mục tiêu (0.7.3). */
+export const withCheckHint =
+  (hint: CheckHint | null) =>
+  (c: Core): Core => ({ ...normalizeCore(c), checkHint: hint })
+
+/** Ghi (hoặc xóa) turn lỗi gần nhất của luồng chính (0.7.3). */
+export const withTurnFault =
+  (fault: TurnFault | null) =>
+  (c: Core): Core => ({ ...normalizeCore(c), turnFault: fault })
 
 /** Đưa trạng thái đọc được từ bản cũ về dạng đầy đủ của bản hiện tại. */
 export function normalizeCore(raw: Partial<Core>): Core {
@@ -101,6 +116,8 @@ export function normalizeCore(raw: Partial<Core>): Core {
     agentProgress: raw.agentProgress ?? { goalId: -1, items: [] },
     activity: raw.activity ?? { goalId: -1, changes: 0 },
     routerFail: raw.routerFail ?? null,
+    checkHint: raw.checkHint ?? null,
+    turnFault: raw.turnFault ?? null,
   }
 }
 
@@ -226,7 +243,7 @@ export const adoptGoal =
   (brief: Brief) =>
   (c: Core): Core => {
     const n = normalizeCore(c)
-    return { ...n, brief, plan: [], warnings: [], lift: EMPTY_LIFT, ledger: nextGoal(n.ledger, brief.goalId), archived: archiveOf(n), mirror: { goalId: brief.goalId, steps: [] }, ...freshProgress(brief.goalId) }
+    return { ...n, brief, plan: [], warnings: [], lift: EMPTY_LIFT, ledger: nextGoal(n.ledger, brief.goalId), archived: archiveOf(n), mirror: { goalId: brief.goalId, steps: [] }, ...freshProgress(brief.goalId), turnFault: null }
   }
 
 export const withBrief =

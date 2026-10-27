@@ -1,6 +1,6 @@
 {
   "name": "focus-conductor",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "author": { "name": "Kiet Tran" },
   "description": "Một model Claude (router) đọc kỹ prompt trước khi làm và điều phối model/effort/agent cho từng việc; mod kiểm, ép điều phối lúc chạy, giữ nhất quán mục tiêu với checklist và cảnh báo lạc đề.",
   "types": "./types/index.d.ts",
@@ -110,6 +110,12 @@
       "title": "Tự mở pane chi tiết",
       "description": "Mỗi mục tiêu mới thì mở pane chi tiết (không chiếm phím). Anh tự đóng pane thì mod không mở lại trong mục tiêu đó; sang mục tiêu mới thì mở lại. Mặc định bật; đặt false để tắt. Pane chỉ được đặt khi surface và độ rộng cho phép (cạnh transcript từ 110 cột ở chế độ toàn màn hình, không thì ngay trên prompt)",
       "default": true
+    },
+    "netResume": {
+      "type": "boolean",
+      "title": "Tự chạy tiếp sau turn lỗi khi có mạng",
+      "description": "Khi turn của luồng chính kết thúc vì lỗi, dò nhẹ bằng một yêu cầu GET định kỳ (30 giây, tối đa 120 lần, tới https://api.anthropic.com, không gửi dữ liệu của phiên); có phản hồi thì tự gửi một prompt tiếp tục, tối đa một lần cho mỗi mục tiêu. Không chạy khi mod đang dừng vì hạn mức hay mode off; anh gõ prompt thì hủy chờ. Mặc định tắt: chỉ nên bật sau khi decisionLog đã ghi được một dòng net thật ở một turn lỗi",
+      "default": false
     },
     "decisionLog": {
       "type": "string",

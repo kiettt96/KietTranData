@@ -6,6 +6,7 @@ import { runnerOf } from './output'
 import type { Runner } from './output'
 import type { EvidenceEntry } from './evidence'
 import { segments } from './readonly'
+import { normalizePython } from './verify'
 
 const PACKAGE_MANAGERS = new Set(['npm', 'pnpm', 'yarn', 'bun'])
 /** Cờ của npx về cài và giải quyết gói, chuẩn hóa alias thật: `-y` là `--yes`; `--no-install` là tên cũ của `--no`. */
@@ -123,7 +124,7 @@ export function normalizeArgv(argv: string[], runner?: Runner | null): { prefix:
     at += 1
     while (Object.hasOwn(NPX_FLAGS, argv[at] ?? '')) prefix.push(NPX_FLAGS[argv[at++] ?? ''] ?? '')
   }
-  const tokens = canonicalCase(argv.slice(at))
+  const tokens = canonicalCase(normalizePython(argv.slice(at)))
   const resolved = runner === undefined ? runnerOf(tokens.join(' ')) : runner
   return { prefix, words: normalizeTokens(tokens, resolved), runner: resolved }
 }
