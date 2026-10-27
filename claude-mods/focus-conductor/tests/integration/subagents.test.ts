@@ -8,7 +8,7 @@ import { calibrate, emptyLedger } from '../../hooks/lib/ledger'
 import { BIG_USAGE, COMPLEX_PROMPT, DEFAULT_AGENT, DEFAULT_ROUTER, EDIT, FOUR, FOUR_PLAN, PANE, SEARCH, base, conductor, plan, spawnTool, step, submit, task } from '../support/engine'
 
 describe('subagent theo router', () => {
-  test('"Việc N" dùng đúng lựa chọn đã phân, không gọi router lần hai, kể cả khi Claude ghi model khác', {}, async ($, on) => {
+  test('"Việc N" dùng đúng lựa chọn đã phân, không gọi router lần hai; Claude ghi model cao hơn thì model đó là sàn (0.7.4)', {}, async ($, on) => {
     const seen = base(on)
     const calls: Array<{ model?: string; effort?: string; subagent_type?: string }> = []
     on('tool.call', { tool: 'Agent' }, (_$, e) => {
@@ -20,7 +20,7 @@ describe('subagent theo router', () => {
     await $.tool.call({ tool: 'Agent', description: 'Việc 2: đổi tên userId', prompt: EDIT, model: 'opus' })
     // Explore chỉ được gọi tên khi engine đã mời agent này; ở đây chưa mời nên giữ general-purpose.
     expect(calls[0]).toEqual({ model: 'haiku', effort: 'low', subagent_type: undefined })
-    expect(calls[1]).toEqual({ model: 'sonnet', effort: 'medium', subagent_type: undefined })
+    expect(calls[1]).toEqual({ model: 'opus', effort: 'medium', subagent_type: undefined })
     expect(seen.agentRouted.length).toBe(0)
   })
 
@@ -35,7 +35,8 @@ describe('subagent theo router', () => {
     await $.tool.call({ tool: 'Agent', description: 'Tìm file auth', prompt: 'Tìm trong codebase các file xử lý đăng nhập.', model: 'opus' })
     await $.tool.call({ tool: 'Agent', description: 'Rà race condition', prompt: 'Phân tích race condition trong luồng ghi số dư' })
     await $.tool.call({ tool: 'Agent', description: 'Tìm file auth', prompt: 'Tìm trong codebase các file xử lý đăng nhập.' })
-    expect(models).toEqual(['haiku', 'opus', 'haiku'])
+    // 0.7.4: Claude ghi opus là sàn, router chấm haiku cho lời gọi đầu vẫn gửi opus; lời gọi thứ ba không ghi model dùng kết quả nhớ.
+    expect(models).toEqual(['opus', 'opus', 'haiku'])
     expect(seen.agentRouted.length).toBe(2)
     // Router thấy mục tiêu và gợi ý của Claude.
     expect(seen.agentRouted[0]).toContain('Goal of the session: Refactor module thanh toán')
