@@ -5,7 +5,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
-import { base, plan, step, submit, task } from '../support/engine'
+import { base, conductor, plan, step, submit, task } from '../support/engine'
 
 const PLAN = 'mcp__focus-conductor__plan'
 const MARK = '[focus-conductor] Hội thoại vừa được nén.'
@@ -170,5 +170,34 @@ describe('0.7.4 4: đường dự phòng theo context giảm mạnh', () => {
     meter.tokens = 80_000
     await step($, seen, { turnId: 't2' })
     expect(reminders(await readFile($))).toEqual([])
+  })
+})
+
+describe('0.7.4 4: biên (bắt mẫu đột biến)', () => {
+  test('mục tiêu đã có rồi chuyển mode off: instructions không đổi, không nhắc', {}, async ($, on) => {
+    const { got } = await setup($, on)
+    await conductor($, 'mode off')
+    await compact($, 'manual', { instructions: 'a' })
+    expect(got).toEqual(['a'])
+    await conductor($, 'mode auto')
+    expect(reminders(await readFile($))).toEqual([])
+  })
+
+  test('sau một lần nén qua hook, lần context giảm mạnh kế tiếp (không có hook) vẫn nhắc', {}, async ($, on) => {
+    const seen = base(on, { router })
+    compactor(on)
+    const meter = { tokens: 100_000 }
+    on('session.usage', () => ({ value: { startedAt: 0, context: { tokens: meter.tokens, window: 200_000 }, rateLimits: [] } }) as never)
+    on('tool.call', { tool: 'Read' }, () => ({ result: 'x', isReadOnly: true }))
+    await submit($, 'Cập nhật dữ liệu theo các bước có mã')
+    await step($, seen, { turnId: 't1' })
+    await compact($, 'auto')
+    expect(reminders(await readFile($)).length).toBe(1)
+    meter.tokens = 40_000
+    await step($, seen, { turnId: 't2' })
+    expect(reminders(await readFile($))).toEqual([])
+    meter.tokens = 10_000
+    await step($, seen, { turnId: 't3' })
+    expect(reminders(await readFile($)).length).toBe(1)
   })
 })

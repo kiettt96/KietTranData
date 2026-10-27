@@ -136,7 +136,7 @@ describe('golden-set: bước có mã và quy định model (0.7.4)', () => {
     expect(check(coded, reply({ tasks: steps(twice) }))).toContain('BƯỚC 9 thành nhiều việc')
     const swapped = [all[0], all[2], all[1], ...all.slice(3)] as string[]
     expect(check(coded, reply({ tasks: steps(swapped) }))).toContain('việc có mã không theo thứ tự của prompt')
-    const noOne = [all[0], 'BƯỚC 10: kết thúc', ...all.slice(2, 10), 'Phần thêm']
+    const noOne = [all[0], 'BƯỚC 10: kết thúc', ...all.slice(2, 10), 'Phần thêm'] as string[]
     expect(check(coded, reply({ tasks: steps(noOne) }))).toContain('thiếu việc riêng cho BƯỚC 1')
   })
 

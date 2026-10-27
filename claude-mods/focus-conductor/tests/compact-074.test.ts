@@ -92,3 +92,32 @@ describe('0.7.4 4: trần độ dài chung', () => {
     for (const item of reqs.split('; ')) expect(item.replace(/ \(và \d+ yêu cầu khác\)$/, '').length).toBeLessThanOrEqual(130)
   })
 })
+
+describe('0.7.4 4: biên (bắt mẫu đột biến)', () => {
+  const long = (label: string, n: number) => `${label} ${n} ${'x'.repeat(300)}`
+  const big = makeBrief({
+    goal: 'Mục tiêu ngắn',
+    constraints: Array.from({ length: 6 }, (_, i) => long('Ràng buộc', i)),
+    requirements: Array.from({ length: 40 }, (_, i) => long('Yêu cầu', i)),
+    tasks: [task(1, [1])],
+  })
+  const steps: PlanStep[] = Array.from({ length: 20 }, (_, i) => ({ id: i + 1, title: long('Bước', i), status: i === 0 ? 'doing' : 'todo' }))
+
+  test('khối dài vẫn giữ quy định model (ràng buộc đầu) và dòng yêu cầu chưa phủ; mỗi ràng buộc khoảng 100 ký tự', () => {
+    for (const text of [compactKeepText(big, steps), compactReminderText(big, steps)]) {
+      const rules = text.split('\n').find(line => line.startsWith('Ràng buộc: ')) ?? ''
+      expect(rules.startsWith('Ràng buộc: Ràng buộc 0')).toBe(true)
+      for (const item of rules.slice('Ràng buộc: '.length).split('; ')) expect(item.replace(/ \(và \d+ ràng buộc khác\)$/, '').length).toBeLessThanOrEqual(110)
+      expect(text).toContain('Yêu cầu chưa có việc nào phủ: Yêu cầu 1')
+    }
+  })
+
+  test('bước đang làm là bước doing, kể cả khi có bước todo đứng trước', () => {
+    const mixed: PlanStep[] = [
+      { id: 1, title: 'BƯỚC 0', status: 'done' },
+      { id: 2, title: 'BƯỚC 1', status: 'todo' },
+      { id: 3, title: 'BƯỚC 2', status: 'doing' },
+    ]
+    expect(compactReminderText(brief, mixed)).toContain('Đang làm: 3. BƯỚC 2')
+  })
+})

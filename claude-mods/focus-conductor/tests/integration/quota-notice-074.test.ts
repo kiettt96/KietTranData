@@ -3,7 +3,7 @@
 
 import { describe, expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
-import { COMPLEX_PROMPT, base, submit } from '../support/engine'
+import { COMPLEX_PROMPT, PANE, base, submit } from '../support/engine'
 import { quotaMeter, week } from '../support/quota'
 
 const EDIT = { tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' } as const
@@ -105,5 +105,17 @@ describe('0.7.4 3: báo hạn mức mềm', () => {
     await submit($, COMPLEX_PROMPT)
     await edit($)
     expect(seen.statuses.some(s => (s ?? '').includes('báo hạn mức: tuần còn 19%'))).toBe(true)
+  })
+})
+
+describe('0.7.4 3: cảnh báo ngưỡng không hợp lệ trên pane', () => {
+  test('câu cảnh báo vào danh sách cảnh báo của mục tiêu', { options: { noticeWeekRemainingPct: 2 } }, async ($, on) => {
+    base(on)
+    quotaMeter(on, [week(50)])
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    await submit($, COMPLEX_PROMPT)
+    await edit($)
+    const pane = await $.ui.mount(PANE)
+    expect(await pane.find({ type: 'Text', text: /noticeWeekRemainingPct/ })).toBeDefined()
   })
 })

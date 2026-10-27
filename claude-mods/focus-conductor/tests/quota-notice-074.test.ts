@@ -88,3 +88,29 @@ describe('0.7.4 3: câu báo và nhãn status', () => {
     expect(statusText(view, { ...EMPTY_QUOTA, readings: [week(70)] as never }, 1000, settings) ?? '').not.toContain('báo hạn mức')
   })
 })
+
+describe('0.7.4 3: biên (bắt mẫu đột biến)', () => {
+  const settings = quotaSettings({ noticeWeekRemainingPct: 20, noticeSessionRemainingPct: 30 })
+  const view = (mode: string) => ({ core: S.EMPTY_CORE, mode, lang: 'vi', isBandHidden: false }) as unknown as S.View
+
+  test('option không đọc được: tắt, không có câu cảnh báo', () => {
+    expect(quotaSettings({ noticeWeekRemainingPct: 'abc' }).noticeIssues).toEqual([])
+  })
+
+  test('hai cửa sổ cùng vào vùng báo: mỗi cửa sổ một dòng', () => {
+    const text = quotaNoticeText(softNotices([week(81), session(75)], 1000, settings))
+    expect(text.split('\n').length).toBe(2)
+    expect(text.split('\n')[1]).toContain('Hạn mức phiên (5 giờ) còn 25%')
+  })
+
+  test('mode off: status line vẫn bị xóa dù ở vùng báo', () => {
+    expect(statusText(view('off'), { ...EMPTY_QUOTA, readings: [week(81)] as never }, 1000, settings)).toBeUndefined()
+  })
+
+  test('người dùng tự dừng: nhãn dừng, không phải nhãn báo mềm', () => {
+    const paused = { ...EMPTY_QUOTA, readings: [week(81)] as never, pause: { at: 1, source: 'user' as const, reason: [], denials: 0, denialTurn: '', aborted: false, denied: null } }
+    const text = statusText(view('auto'), paused, 1000, settings) ?? ''
+    expect(text).toContain('tạm dừng: hạn mức')
+    expect(text).not.toContain('báo hạn mức')
+  })
+})

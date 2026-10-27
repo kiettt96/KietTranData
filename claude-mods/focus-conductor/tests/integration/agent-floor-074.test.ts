@@ -4,7 +4,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
-import { COMPLEX_PROMPT, FOUR, base, plan, step, submit } from '../support/engine'
+import { COMPLEX_PROMPT, FOUR, base, conductor, plan, step, submit } from '../support/engine'
 
 type Sent = { model?: string; effort?: string }
 
@@ -151,5 +151,64 @@ describe('0.7.4 1: ràng buộc model của brief tới router chấm subagent',
     await submit($, 'Thêm bước đo hiệu năng cho module thanh toán sau khi refactor xong')
     expect(seen.routed[0]).not.toContain('Session model')
     expect(seen.routed[1]).toContain('Session model (the model the user runs this session on): opus.')
+  })
+})
+
+describe('0.7.4 1: lý do, nhật ký và các lối gọi router khác (bắt mẫu đột biến)', () => {
+  const spawn = (on: On, agentId: string, model = 'claude-sonnet-5-5') => {
+    on('tool.call', { tool: 'Agent' }, () => ({ result: 'đã giao' }))
+    on('agent.spawn', () => ({ model, agentId }))
+  }
+
+  test('lý do trong /conductor status có ghi chú sàn', {}, async ($, on) => {
+    base(on)
+    spawn(on, 'a-floor')
+    await submit($, COMPLEX_PROMPT)
+    await $.tool.call({ tool: 'Agent', tool_use_id: 'u1', description: 'Tìm file auth', prompt: 'Tìm trong codebase các file xử lý đăng nhập.', model: 'sonnet' } as never)
+    await $.agent.spawn({ prompt: 'Tìm trong codebase các file xử lý đăng nhập.', description: 'Tìm file auth', tool_use_id: 'u1' } as never)
+    expect(String((await conductor($, 'status')).text)).toContain('Claude ghi sonnet: không chọn thấp hơn')
+  })
+
+  test('việc đã phân cao hơn model Claude ghi: lý do nêu dùng model đã phân; Claude ghi cao hơn thì không', {}, async ($, on) => {
+    base(on)
+    spawn(on, 'a-task', 'claude-sonnet-5-5')
+    await submit($, FOUR)
+    await $.tool.call({ tool: 'Agent', tool_use_id: 'u1', description: 'Việc 2: đổi tên userId', prompt: 'Đổi tên', model: 'haiku' } as never)
+    await $.agent.spawn({ prompt: 'Đổi tên', description: 'Việc 2: đổi tên userId', tool_use_id: 'u1' } as never)
+    await $.tool.call({ tool: 'Agent', tool_use_id: 'u2', description: 'Việc 4: cập nhật README', prompt: 'README', model: 'opus' } as never)
+    await $.agent.spawn({ prompt: 'README', description: 'Việc 4: cập nhật README', tool_use_id: 'u2' } as never)
+    const status = String((await conductor($, 'status')).text)
+    expect(status).toContain('Claude ghi haiku, dùng sonnet đã phân')
+    expect(status).not.toContain('Claude ghi opus, dùng sonnet đã phân')
+  })
+
+  test('sàn effort ghi effort Claude ghi vào nhật ký', { options: { decisionLog: '/tmp/fc-floor-074d.jsonl' } }, async ($, on) => {
+    base(on)
+    const lines = logLines(on)
+    capture(on)
+    await submit($, COMPLEX_PROMPT)
+    await agent($, 'Sửa nhỏ', 'Sửa chú thích trong file cấu hình', { model: 'sonnet', effort: 'high' })
+    expect(lines().find(l => l['kind'] === 'agent-floor')).toMatchObject({ from: 'sonnet/medium', to: 'sonnet/high', claimed: 'sonnet', claimedEffort: 'high' })
+  })
+
+  test('agent workflow: request chấm có ràng buộc của brief và model của phiên', {}, async ($, on) => {
+    const seen = base(on, { router: () => plan({ goal: 'Cập nhật dữ liệu', constraints: ['Việc lọc tin chạy sonnet'] }) })
+    on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'wf-1' }))
+    await submit($, 'Cập nhật dữ liệu theo các bước')
+    await step($, seen, { model: 'claude-opus-5-5' })
+    await $.agent.spawn({ prompt: 'Lọc tin lô 3', description: 'Lọc tin lô 3', workflow: { runId: 'wf_x', agentIndex: 1 } } as never)
+    expect(seen.agentRouted[0]).toContain('  - Việc lọc tin chạy sonnet')
+    expect(seen.agentRouted[0]).toContain('Session model (the model the user runs this session on): opus.')
+  })
+
+  test('/conductor goal và /conductor reroute gửi router dòng model của phiên', {}, async ($, on) => {
+    const seen = base(on)
+    await submit($, COMPLEX_PROMPT)
+    await step($, seen, { model: 'claude-opus-5-5' })
+    await conductor($, 'goal Làm một việc khác hẳn')
+    expect(seen.routed.at(-1)).toContain('Session model (the model the user runs this session on): opus.')
+    await submit($, 'Thêm bước đo hiệu năng cho module thanh toán sau khi refactor xong')
+    await conductor($, 'reroute')
+    expect(seen.routed.at(-1)).toContain('Session model (the model the user runs this session on): opus.')
   })
 })

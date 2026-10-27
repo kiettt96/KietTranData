@@ -162,3 +162,32 @@ describe('0.7.4 1: DISCIPLINE', () => {
     expect(DISCIPLINE).toContain('Prompt quy định model cho việc giao (kể cả "model của phiên") thì ghi rõ model đó ở lời gọi Agent (model của phiên ghi bằng tên họ model đang chạy); model ghi ở lời gọi là mức sàn, mod không chọn thấp hơn.')
   })
 })
+
+describe('0.7.4 1: biên của sàn và ràng buộc (bắt mẫu đột biến)', () => {
+  test('mỗi ràng buộc gửi router chấm subagent cắt còn khoảng 120 ký tự', () => {
+    const request = agentRouterRequest({
+      description: 'x',
+      prompt: 'y',
+      subagentType: undefined,
+      requested: {},
+      goal: null,
+      parent: null,
+      failed: [],
+      isWorkflow: false,
+      policy: OPEN,
+      model: 'sonnet',
+      constraints: [`Quy định model ${'m'.repeat(300)}`],
+    })
+    const item = String(request.prompt).split('\n').find(line => line.startsWith('  - Quy định model')) ?? ''
+    expect(item.length).toBeGreaterThan(100)
+    expect(item.length).toBeLessThanOrEqual(124)
+  })
+
+  test('họ ở trần bị chặn mà effort đã ở xhigh: vẫn chưa chốt (chính sách đổi họ)', () => {
+    expect(isSettled('opus', 'xhigh', { ...OPEN, blocked: new Set(['opus'] as const) })).toBe(false)
+  })
+
+  test('effort Claude ghi bằng effort đã chọn: không có ghi chú sàn', () => {
+    expect(floorPick({ family: 'sonnet', effort: 'high' }, null, 'high')).toEqual({ pick: { family: 'sonnet', effort: 'high' }, notes: [] })
+  })
+})
