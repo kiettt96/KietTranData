@@ -84,10 +84,11 @@ describe('0.7.4 4: trần độ dài chung', () => {
   test('mỗi bước tối đa khoảng 100 ký tự, mỗi yêu cầu khoảng 120 ký tự', () => {
     const text = compactReminderText(big, steps)
     const open = (text.split('\n').find(line => line.startsWith('Bước còn mở: ')) ?? '').slice('Bước còn mở: '.length)
-    for (const item of open.split('; ')) expect(item.length).toBeLessThanOrEqual(110)
+    // Mục cuối có thể kèm "(và N bước khác)": bỏ phần đó trước khi đo một bước.
+    for (const item of open.split('; ')) expect(item.replace(/ \(và \d+ bước khác\)$/, '').length).toBeLessThanOrEqual(110)
     const keep = compactKeepText({ ...big, constraints: [] }, [])
     const reqs = (keep.split('\n').find(line => line.startsWith('Yêu cầu chưa có việc nào phủ: ')) ?? '').slice('Yêu cầu chưa có việc nào phủ: '.length)
     expect(reqs.length).toBeGreaterThan(0)
-    for (const item of reqs.split('; ')) expect(item.length).toBeLessThanOrEqual(130)
+    for (const item of reqs.split('; ')) expect(item.replace(/ \(và \d+ yêu cầu khác\)$/, '').length).toBeLessThanOrEqual(130)
   })
 })

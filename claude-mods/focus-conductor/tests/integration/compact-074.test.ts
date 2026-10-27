@@ -12,7 +12,7 @@ const MARK = '[focus-conductor] Hội thoại vừa được nén.'
 const KEEP = '[focus-conductor] Bản tóm tắt phải giữ nguyên các mục sau'
 const READ = { tool: 'Read', file_path: 'src/a.ts' } as const
 /** Một lần nén luôn để lại ít nhất một tin nhắn (engine của kit kiểm điều này). */
-const MESSAGES = [{ role: 'user', text: 'tóm tắt', toolUses: [] }]
+const MESSAGES = [{ role: 'user' as const, text: 'tóm tắt', toolUses: [] }]
 
 const router = () =>
   plan({

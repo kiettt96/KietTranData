@@ -719,3 +719,70 @@ export function quotaPaneText(view: QuotaOverview, lang: Lang): QuotaPaneText {
   }
   return { windows, state: `${l.quotaState}: ${state}`, isPaused, cause, checkpoint }
 }
+
+// ------------------------------------------------------------ giữ mục tiêu qua lần nén (0.7.4)
+
+/** Trần độ dài chung của khối nối vào instructions khi nén và khối nhắc sau nén. */
+export const COMPACT_BLOCK_CHARS = 1500
+/** Mỗi bước, mỗi ràng buộc, mỗi yêu cầu cắt còn bấy nhiêu ký tự; tối đa bấy nhiêu bước còn mở. */
+const COMPACT_STEP_CHARS = 100
+const COMPACT_RULE_CHARS = 100
+const COMPACT_REQUIREMENT_CHARS = 120
+const COMPACT_OPEN_STEPS = 10
+/** Phần của trần dành cho dòng bước còn mở và dòng ràng buộc; dòng yêu cầu chưa phủ lấy phần còn lại. */
+const COMPACT_STEPS_ROOM = 550
+const COMPACT_RULES_ROOM = 320
+
+function clipItem(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`
+}
+
+/**
+ * Dòng "Nhãn: a; b; c" thêm từng mục cho tới khi chạm `room` ký tự, kèm "(và N <đơn vị> khác)" khi còn mục chưa ghi
+ * (`hidden` là số mục đã bỏ trước khi gọi). Không mục nào vừa thì không có dòng.
+ */
+function listLine(label: string, unit: string, items: readonly string[], room: number, hidden = 0): string | null {
+  let line = ''
+  let count = 0
+  for (const item of items) {
+    const rest = items.length - count - 1 + hidden
+    const next = `${count === 0 ? `${label}: ` : `${line}; `}${item}`
+    if (`${next}${rest > 0 ? ` (và ${rest} ${unit} khác)` : ''}`.length > room) break
+    line = next
+    count += 1
+  }
+  if (count === 0) return null
+  const rest = items.length - count + hidden
+  return `${line}${rest > 0 ? ` (và ${rest} ${unit} khác)` : ''}`
+}
+
+/** Khối dựng từ trạng thái lúc gọi: mục tiêu, (bước đang làm), bước còn mở kèm số, ràng buộc, yêu cầu chưa phủ; tổng không quá trần. */
+function compactBlock(head: string, brief: Brief, plan: readonly PlanStep[], isReminder: boolean): string {
+  const open = openSteps(plan)
+  const stepItem = (step: PlanStep) => clipItem(`${step.id}. ${step.title}`, COMPACT_STEP_CHARS)
+  const lines = [head, `Mục tiêu: ${clipItem(brief.goal, 200)}`]
+  const current = open.find(step => step.status === 'doing') ?? open[0]
+  if (isReminder && current !== undefined) lines.push(`Đang làm: ${stepItem(current)}`)
+  const room = () => COMPACT_BLOCK_CHARS - lines.join('\n').length - 1
+  const shown = open.slice(0, COMPACT_OPEN_STEPS)
+  const sections: Array<[string, string, string[], number, number]> = [
+    ['Bước còn mở', 'bước', shown.map(stepItem), COMPACT_STEPS_ROOM, open.length - shown.length],
+    ['Ràng buộc', 'ràng buộc', brief.constraints.map(rule => clipItem(rule, COMPACT_RULE_CHARS)), COMPACT_RULES_ROOM, 0],
+    ['Yêu cầu chưa có việc nào phủ', 'yêu cầu', uncoveredRequirements(brief).map(item => clipItem(item, COMPACT_REQUIREMENT_CHARS)), COMPACT_BLOCK_CHARS, 0],
+  ]
+  for (const [label, unit, items, cap, hidden] of sections) {
+    const line = items.length > 0 ? listLine(label, unit, items, Math.min(cap, room()), hidden) : null
+    if (line !== null) lines.push(line)
+  }
+  return lines.join('\n')
+}
+
+/** Khối nối vào instructions của session.compact (luồng chính): điều bản tóm tắt phải giữ nguyên. */
+export function compactKeepText(brief: Brief, plan: readonly PlanStep[]): string {
+  return compactBlock('[focus-conductor] Bản tóm tắt phải giữ nguyên các mục sau (mục tiêu và checklist người dùng đang làm):', brief, plan, false)
+}
+
+/** Khối nhắc gắn một lần vào kết quả tool kế tiếp của luồng chính sau lần nén, dựng từ trạng thái lúc nhắc. */
+export function compactReminderText(brief: Brief, plan: readonly PlanStep[]): string {
+  return compactBlock('[focus-conductor] Hội thoại vừa được nén. Làm tiếp đúng mục tiêu và giữ các ràng buộc đã chốt:', brief, plan, true)
+}

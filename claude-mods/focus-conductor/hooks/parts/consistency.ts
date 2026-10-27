@@ -14,7 +14,7 @@ import { EMPTY_QUOTA, evaluateQuota, normalizeQuota, quotaSettings } from '../li
 import { storeKey, withNote } from '../lib/checkpoint'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
-import { PLAN_TOOL_FULL, blockText, checkHintText, criteriaNotice, driftContext, pendingNotice, qualityNotice, renderBulk, renderPlan, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice } from '../lib/text'
+import { PLAN_TOOL_FULL, blockText, checkHintText, compactReminderText, criteriaNotice, driftContext, pendingNotice, qualityNotice, renderBulk, renderPlan, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -279,6 +279,9 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     }
 
     const core = S.normalizeCore(await read($, coreState))
+    // Lời nhắc sau nén (0.7.4): gắn một lần vào tool call này, dựng từ mục tiêu và checklist lúc này.
+    const compactNote = L.compaction.pending && core.brief !== null ? compactReminderText(core.brief, core.plan) : null
+    L.compaction.pending = false
     // Ghi cả lệnh lỗi: evidence nhắc tới một lệnh kiểm tra đã lỗi thì không được tính là đã kiểm tra.
     if (core.brief !== null) noteEvidence(evidenceFor(core.brief.goalId), observation)
     // Luồng chính vừa thay đổi file: việc làm trực tiếp chưa có bước chuyển từ chưa bắt đầu sang đang làm (0.6.1).
@@ -315,7 +318,8 @@ export function registerConsistency(on: On, ctx: Ctx): void {
         ? `[focus-conductor] Phân việc còn việc ghi giao subagent chưa giao: Việc ${pending.join(', ')}. Nếu thay đổi này thuộc các việc đó, giao qua Agent với description "Việc N: ..." để chạy đúng model đã chấm.`
         : null
     if (nudge) L.delegation.isNudged = true
-    const withNudge = (r: typeof result) => (nudge ? { ...r, context: [...(r.context ?? []), nudge] } : r)
+    const notes = [...(nudge ? [nudge] : []), ...(compactNote !== null ? [compactNote] : [])]
+    const withNudge = (r: typeof result) => (notes.length > 0 ? { ...r, context: [...(r.context ?? []), ...notes] } : r)
     // Đến checkpoint mà script kiểm đã chạy chưa được nhận: gợi ý người dùng khai checkCommands (0.7.3).
     if (core.brief !== null && findings.some(f => f.kind === 'checkpoint')) await offerCheckHint($, core.brief.goalId, suggestCheckCommands(evidenceFor(core.brief.goalId)))
     if (findings.length === 0 && !isErrorBurst) return withNudge(result)

@@ -44,7 +44,7 @@ async function showStatus($: EngineInterface, current: View, options: Ctx['optio
 
 export function registerTurn(on: On, ctx: Ctx): void {
   const L = ctx.local
-  const { agents, blocked, blockedUntil, decideTurn, expireBlocks, failures, isCacheFree, modelMap, steppedEarly } = ctx
+  const { agents, blocked, blockedUntil, decideTurn, expireBlocks, failures, isCacheFree, modelMap, noteContext, steppedEarly } = ctx
   const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
   const mode = derive([modeState], modeOf(ctx.options))
 
@@ -116,6 +116,8 @@ export function registerTurn(on: On, ctx: Ctx): void {
       L.sessionFamily = familyOf(e.model)
       const usage = await $.session.usage().catch(() => null)
       L.turnContext = usage?.context.tokens ?? DEFAULT_CONTEXT
+      const measured = usage?.context.tokens
+      if (measured !== undefined) noteContext(measured)
       L.lastWindow = usage?.context.window ?? DEFAULT_WINDOW
       // Đo một lần phần cố định của ngữ cảnh (ước lượng cục bộ của engine, không tốn request).
       if (S.normalizeCore(await read($, coreState)).sysTokens === 0) {
