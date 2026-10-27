@@ -4,6 +4,41 @@ Số đo của HEAD hiện tại và của các bản trước. Mọi số do t�
 
 ## Kiểm chứng HEAD hiện tại
 
+Bản 0.7.4 (model Claude ghi là mức sàn và ràng buộc model tới router chấm subagent, nhắc checkpoint thưa dần, báo hạn mức mềm, giữ mục tiêu qua lần nén, ca golden rất dài), ngày 2026-10-27, nhánh từ `main` `4174570`. Mã (`hooks/`) trong commit chứa mục này đúng là nội dung đã kiểm: sha256 của `hooks/` là `9522aaaad55a2a60841a862850eaf48b1f151ac2376c87484bb38ee7328631b1` và của `tests/` là `8e91e5f3bd35f3a11fb94ddc760c5dff1407db4ca8557769ef1e184d1827265f`, giữ nguyên qua các commit chỉ đổi tài liệu sau đó. Số dưới đây do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển], trừ dòng CI.
+
+- Môi trường: Claude Code 2.1.311 (bản cài trong phiên) và 2.1.296 (bản CI ghim, cài riêng để chạy eval và chạy lại bộ test), Node v22.22.0, Bun 1.4.2. Baseline trên `main` trước khi sửa: 1400 test qua, `tsc` sạch, `mutate --check` 918/918 không có mẫu lệch [Đo trực tiếp].
+- `claude plugin test .`: 1499 test qua, 0 lỗi, 88 tệp (1400 của 0.7.3 cộng 99), trên cả 2.1.311 và 2.1.296 [Đo trực tiếp]. `claude plugin validate .` qua cho mod và marketplace. `bunx tsc -p tsconfig.json` sạch.
+- Test đỏ trước khi viết mã, đo trên mã của commit ngay trước từng điểm [Đo trực tiếp]: điểm 1 là 13 lỗi: 10 trên 13 ca tích hợp mới của `tests/integration/agent-floor-074.test.ts` (ba ca đối chứng xanh sẵn), hai ca cũ đổi kỳ vọng của `subagents.test.ts`, và tệp thuần `tests/agent-floor-074.test.ts` không nạp vì chưa có `floorPick`, `floorRoute`, `isSettled`; điểm 2 là tệp `tests/checkpoint-cadence-074.test.ts` không nạp (chưa có `isCheckpointDue`); điểm 3 là tệp thuần không nạp và 5 trên 9 ca tích hợp (bốn ca đối chứng xanh sẵn); điểm 4 là tệp thuần không nạp và 6 trên 11 ca tích hợp (năm ca đối chứng xanh sẵn). Khi viết mã: kit kiểm thử từ chối một lần nén để lại mảng `messages` rỗng (test đổi sang một tin nhắn), và một ca của điểm 2 có sẵn (`active-monitor`) đỏ vì mốc 15 không còn.
+- Test cũ phải đổi, đủ và lý do ở [CHANGELOG](../CHANGELOG.md) (mục 0.7.4): hai test của `subagents.test.ts` (model Claude ghi nay là sàn), một test của `active-monitor.test.ts` (mốc 20 thay cho 15), một test của `quota.test.ts` (hai trường mới của `quotaSettings`); `k4` của golden-set chấm thêm tiêu chí `codes`. Bốn mẫu đột biến cũ viết lại vì mã quanh chúng đổi: `060-B4`, `060-F4`, `061-U1`, `073-T14` (lần này đọc cả danh sách `mismatched` của `--check`).
+- Lời nhắc checkpoint với 1.000 thay đổi liên tiếp chưa kiểm (một turn, ba bước mở, đo trên `observe` của `tracker.ts` ở `main` và ở nhánh) [Đo trực tiếp]:
+
+| Bản | Số lời nhắc | Tổng ký tự context |
+|---|---|---|
+| 0.7.3 (mỗi 5) | 200 | 69.381 |
+| 0.7.4 (5, 10, 20, 40, rồi mỗi 40) | 28 | 11.699 |
+
+- Golden-set trước và sau khi đổi lời dặn router (`scripts/eval-router.ts --model sonnet --runs 3`, 34 ca, Claude Code 2.1.296 qua `claude -p`) [Đo trực tiếp]: trước 99 trên 102 lượt (33 trên 34 ca đạt mọi lần; `six` 0 trên 3, luồng chính `sonnet/medium` thay vì `opus`), sau 99 trên 102 (32 trên 34; `six` 1 trên 3 cùng lý do, `long-vn` 2 trên 3 vì một lượt để yêu cầu 28 không việc nào phủ, giống phát hiện của 0.7.2). Tỷ lệ đạt không giảm, trong nhiễu đã biết (2 trên 90 ca của 0.7.0). Thời gian mỗi lượt 12,1 xuống 11,6 giây; chi phí 1,712 xuống 1,660 USD cho 102 lượt. Hai tiêu chí mới (bước có mã đủ và tách riêng; quy định model đứng đầu ràng buộc) chỉ áp được cho ca có bước mã hay quy định model: `k4` đạt `codes` 5 trên 5 và `long-coded` đạt cả hai 5 trên 5 (bảng dưới); không ca nào trượt ở hai tiêu chí này.
+- Router với prompt rất dài, ca `long-coded` (prompt tự viết 29.511 ký tự, 11 bước có mã, hơn 40 yêu cầu đếm tay, quy định model theo loại việc), 5 lượt, router `sonnet`, Claude Code 2.1.296 qua `claude -p` [Đo trực tiếp]:
+
+| Chỉ số | Kết quả |
+|---|---|
+| Thời gian trung vị / p95 / lớn nhất | 21,3 / 27,6 / 27,6 giây (giới hạn 120 giây) |
+| Token đầu ra trung vị / p95 | 2.784 / 3.829 (giới hạn 16.000) |
+| Số việc | 11 ở cả 5 lượt, mỗi bước có mã một việc, đúng thứ tự |
+| Việc giao subagent | 3 lượt giao 3 việc, 2 lượt giao 2 việc, đều là bước lọc tin, đều `sonnet` (prompt quy định); còn lại làm ở luồng chính |
+| Yêu cầu liệt kê | 19, 20, 19, 20, 23 (trần 30); có việc phủ 16, 17, 15, 20, 20 |
+| Quy định model trong ràng buộc | đứng đầu ở 5 trên 5 (ví dụ "Lọc tin bằng sonnet; đọc/giải thích/tóm tắt dùng model của phiên") |
+| Chi phí | 0,377 USD cho 5 lượt |
+
+Không giới hạn nào đổi: p95 cách xa 120 giây, và router không chạm trần 30 yêu cầu (nó gộp các yêu cầu nhỏ). Lần đo đầu chấm khoảng 20 tới 30 yêu cầu nên 2 lượt (19 yêu cầu) bị chấm trượt; khoảng đặt lại thành 15 tới 30 theo số đo, và bản ghi giữ tỷ lệ của lần đó (3 trên 5). Ca `k4` cùng lần chạy: 5 trên 5, trung vị 22,1 giây.
+- Kiểm đột biến: (đang chạy, điền khi xong).
+- Không hồi quy: toàn bộ test của 0.7.3 vẫn qua trừ bốn test đã nêu. Khi `mode` là `off` không có thay đổi hành vi (test `mode off` của điểm 3 và 4; điểm 1 và 2 nằm sau kiểm `mode off` sẵn có).
+- Quét chuỗi riêng tư: biến `PRIVATE_PATTERNS_FILE` chưa đặt trong phiên cloud nên chưa quét bằng danh sách thật. Quét bằng tệp mẫu tạm ngoài repo (13 mẫu, không phải danh sách thật) trên `git log -p 4174570..HEAD` (kể cả thông điệp commit, trừ dòng `Claude-Session` bắt buộc) và phần chưa commit: 0 dòng khớp; không có em dash, emoji hay dấu chấm than trong văn bản thêm (1.890 dòng thêm). Người dùng chạy quét bằng danh sách thật trên nhánh này trước khi gộp [Đo trực tiếp].
+- Chưa kiểm được (chỉ kiểm được trong phiên tương tác thật): router với prompt thật của phiên dài; `session.compact` và lời nhắc sau nén trên engine thật (kể cả lần nén dùng lại bản tóm tắt `precompute`); báo hạn mức mềm với số đo hạn mức thật; Claude có ghi model ở lời gọi Agent theo câu `DISCIPLINE` mới không. Số đo router là qua `claude -p`, không qua `$.model.complete` của engine.
+- Bản trước: kiểm chứng của 0.7.3 ở mục ngay dưới.
+
+## Kiểm chứng của 0.7.3
+
 Bản 0.7.3 (lệnh kiểm riêng khớp python chạy bằng đường dẫn đầy đủ và tiền tố thư mục, gợi ý `checkCommands` tới người dùng, mục báo cáo gọn của `DISCIPLINE` và `plan set` một dòng, ghi nhận turn lỗi, option `netResume`), ngày 2026-10-24, nhánh từ `main` `c09990a`. Mã (`hooks/`) trong commit chứa mục này đúng là nội dung đã kiểm: sha256 của `hooks/` là `e69579185e31587b70527dfd9be7bd8442dd15d5f009c8d1df548f46730bea3b` và của `tests/` là `8100bb462d1c818deece41f607a64d1bbb70b5f9e829d18516526a756cfd7c76`, giữ nguyên qua các commit chỉ đổi tài liệu sau đó. Số dưới đây do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển], trừ dòng CI.
 
 - Môi trường: Claude Code 2.1.296 (bản CI ghim), Node v22.22.0, Bun 1.4.2. Baseline trên `main` trước khi sửa: 1285 test qua, `tsc` sạch, `mutate --check` 818/818 [Đo trực tiếp].
