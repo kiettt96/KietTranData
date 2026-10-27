@@ -58,7 +58,8 @@ describe('0.7.4 1: floorRoute áp sàn rồi mới kẹp theo chính sách', () 
 
   test('sessionModel fixed vẫn giữ model của phiên sau sàn', () => {
     const policy: Policy = { ...OPEN, session: { family: 'sonnet', policy: 'fixed' } }
-    expect(floorRoute(route({ pick: { family: 'opus', effort: 'high' } }), 'opus', null, policy).route.pick.family).toBe('sonnet')
+    // Route đã kẹp theo fixed (sonnet); Claude ghi opus: sàn nâng lên opus rồi fixed kẹp lại về sonnet.
+    expect(floorRoute(route({ pick: { family: 'sonnet', effort: 'low' } }), 'opus', null, policy).route.pick.family).toBe('sonnet')
   })
 
   test('họ bị chặn (avoidBlocked) vẫn hạ sau sàn và có dòng ghi chú', () => {
@@ -69,8 +70,9 @@ describe('0.7.4 1: floorRoute áp sàn rồi mới kẹp theo chính sách', () 
   })
 
   test('haiku vẫn bị chặn khi việc có sửa file, dù Claude ghi haiku', () => {
-    const out = floorRoute(route({ kind: 'edit' }), 'haiku', null, OPEN)
-    expect(out.route.pick.family).toBe('sonnet')
+    // Việc sửa file đã được kẹp lên sonnet; Claude ghi haiku và effort high: sàn chỉ nâng effort, họ vẫn là sonnet.
+    const out = floorRoute(route({ kind: 'edit', pick: { family: 'sonnet', effort: 'low' } }), 'haiku', 'high', OPEN)
+    expect(out.route.pick).toEqual({ family: 'sonnet', effort: 'high' })
   })
 })
 
@@ -123,7 +125,7 @@ describe('0.7.4 1: request của router', () => {
   test('ràng buộc cắt gọn tối đa khoảng 600 ký tự, mục đầu (quy định model) luôn còn', () => {
     const long = ['Việc lọc tin chạy sonnet', ...Array.from({ length: 12 }, (_, i) => `Ràng buộc dài số ${i} ${'x'.repeat(90)}`)]
     const request = agentRouterRequest({ ...base, constraints: long })
-    const block = request.prompt.split('User rules of this goal')[1]?.split('\nAllowed models')[0] ?? ''
+    const block = String(request.prompt).split('User rules of this goal')[1]?.split('\nAllowed models')[0] ?? ''
     expect(block.length).toBeLessThanOrEqual(700)
     expect(block).toContain('Việc lọc tin chạy sonnet')
   })

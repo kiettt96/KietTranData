@@ -130,7 +130,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       const prev = before.brief
       const rules = policy()
       // Lệnh do người dùng gõ: luôn hỏi router, kể cả khi router đang tạm ngừng sau các lần lỗi.
-      const request = routerRequest({ text: arg, prev, ran: null, policy: rules, model: routerModel, isForcedNew: true })
+      const request = routerRequest({ text: arg, prev, ran: null, policy: rules, model: routerModel, sessionFamily: L.sessionFamily, isForcedNew: true })
       const startedAt = await $.clock.now()
       const outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules))
       noteRouterTime((await $.clock.now()) - startedAt)
@@ -187,7 +187,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       }
       const rules = policy()
       // Lệnh do người dùng gõ: luôn hỏi router, kể cả khi router đang tạm ngừng.
-      const request = routerRequest({ text: last.text, prev: last.prev, ran: ranText(before), policy: rules, model: routerModel })
+      const request = routerRequest({ text: last.text, prev: last.prev, ran: ranText(before), policy: rules, model: routerModel, sessionFamily: L.sessionFamily })
       const startedAt = await $.clock.now()
       const outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules))
       noteRouterTime((await $.clock.now()) - startedAt)

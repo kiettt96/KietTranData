@@ -210,7 +210,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       $.ui.status('router đang đọc prompt...')
       const observed = L.observed.join('; ')
       L.observed = []
-      const request = routerRequest({ text, prev, ran: ranText(before), policy: rules, model: routerModel, openSteps: openSteps(before.plan).map(s => s.title), ...(observed ? { observed } : {}) })
+      const request = routerRequest({ text, prev, ran: ranText(before), policy: rules, model: routerModel, sessionFamily: L.sessionFamily, openSteps: openSteps(before.plan).map(s => s.title), ...(observed ? { observed } : {}) })
       const startedAt = await $.clock.now()
       outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), needsCoverageRecheck)
       waitedMs = (await $.clock.now()) - startedAt
