@@ -102,3 +102,46 @@ describe('golden-set: bộ chấm yêu cầu và phần phủ (0.7.0)', () => {
   })
 })
 
+
+describe('golden-set: bước có mã và quy định model (0.7.4)', () => {
+  const coded = CASES.find(c => c.id === 'long-coded')!
+  const steps = (titles: string[]) => titles.map(title => ({ title, run: 'main', kind: 'edit' }))
+  const all = Array.from({ length: 11 }, (_, i) => `BƯỚC ${i}: việc ${i}`)
+  const reply = (over: Record<string, unknown>) =>
+    JSON.stringify({
+      why: 'w',
+      relation: 'new',
+      goal: 'Cập nhật dữ liệu',
+      depth: 'substantial',
+      volume: 'large',
+      kind: 'edit',
+      main: { model: 'sonnet', effort: 'medium' },
+      requirements: Array.from({ length: 25 }, (_, i) => `Yêu cầu ${i}`),
+      constraints: ['Lọc tin chạy sonnet', 'Không tạo bộ test mới'],
+      tasks: steps(all),
+      ...over,
+    })
+
+  test('đủ 11 bước tách riêng, đúng thứ tự, quy định model đứng đầu: đạt', () => {
+    expect(check(coded, reply({}))).toEqual([])
+  })
+
+  test('gộp hai bước có mã: bước bị gộp thiếu việc riêng', () => {
+    const merged = [...all.slice(0, 9), 'BƯỚC 9 và BƯỚC 10: kết thúc']
+    expect(check(coded, reply({ tasks: steps(merged) }))).toContain('thiếu việc riêng cho BƯỚC 10')
+  })
+
+  test('một mã thành hai việc, hay sai thứ tự: lệch; "BƯỚC 1" không khớp "BƯỚC 10"', () => {
+    const twice = [...all.slice(0, 10), 'BƯỚC 9: phần hai']
+    expect(check(coded, reply({ tasks: steps(twice) }))).toContain('BƯỚC 9 thành nhiều việc')
+    const swapped = [all[0], all[2], all[1], ...all.slice(3)] as string[]
+    expect(check(coded, reply({ tasks: steps(swapped) }))).toContain('việc có mã không theo thứ tự của prompt')
+    const noOne = [all[0], 'BƯỚC 10: kết thúc', ...all.slice(2, 10), 'Phần thêm']
+    expect(check(coded, reply({ tasks: steps(noOne) }))).toContain('thiếu việc riêng cho BƯỚC 1')
+  })
+
+  test('ràng buộc đầu tiên không phải quy định model: lệch', () => {
+    expect(check(coded, reply({ constraints: ['Không tạo bộ test mới', 'Lọc tin chạy sonnet'] }))[0]).toContain('ràng buộc đầu tiên không phải quy định model')
+    expect(check(coded, reply({ constraints: ['Đọc, giải thích, tóm tắt dùng model của phiên'] }))).toEqual([])
+  })
+})

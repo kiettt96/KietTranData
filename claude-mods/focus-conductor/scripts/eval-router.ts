@@ -87,6 +87,9 @@ async function one(c: GoldenCase, n: number) {
           relation: parsed.relation,
           depth: parsed.depth,
           volume: parsed.volume,
+          // 0.7.4: số yêu cầu có việc phủ và ràng buộc đầu tiên (quy định model phải đứng đầu).
+          covered: parsed.requirements.filter((_, i) => parsed.tasks.some(t => (t.covers ?? []).includes(i + 1))).length,
+          firstConstraint: parsed.constraints[0] ?? '',
         }
   return { c, n, text, fails, ms, usd, served, stats, outTokens }
 }

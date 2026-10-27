@@ -8,6 +8,7 @@ import { briefOf, parseRoute } from '../../hooks/lib/router'
 import type { Policy } from '../../hooks/lib/router'
 import { LONG_VN_EXTRA, LONG_VN_PROMPT } from '../fixtures/prompt-long-vn'
 import { K4_META_LEAD, K4_PROMPT } from '../fixtures/prompt-k4'
+import { LONG_CODED_PROMPT } from '../fixtures/prompt-long-coded'
 
 export const OPEN: Policy = { allowFable: false, blocked: new Set<ModelFamily>(), session: null }
 
@@ -48,6 +49,10 @@ export type Expect = {
   constraint?: string
   /** Luồng chính phải cao hơn lựa chọn này (người dùng báo chưa đạt). */
   above?: { family: ModelFamily; effort: 'low' | 'medium' | 'high' | 'xhigh' }
+  /** Mã của các bước có mã (0.7.4): mỗi mã đúng một việc riêng, tiêu đề mở đầu bằng mã, theo thứ tự của prompt. */
+  codes?: readonly string[]
+  /** Quy định model theo loại việc (0.7.4): ràng buộc đầu tiên phải chứa một trong các chuỗi này (không phân biệt hoa thường). */
+  modelRule?: readonly string[]
 }
 
 export type GoldenCase = { id: string; text: string; prev?: Brief; ran?: string; expect: Expect; note: string }
@@ -63,7 +68,7 @@ export const CASES: readonly GoldenCase[] = [
     id: 'k4',
     text: K4_PROMPT,
     note: 'prompt dài nhiều mục có mã',
-    expect: { reference: false, main: ['opus'], tasks: [8, 14] },
+    expect: { reference: false, main: ['opus'], tasks: [8, 14], codes: Array.from({ length: 11 }, (_, i) => `K4.${i + 1}`) },
   },
   {
     id: 'three',
@@ -265,5 +270,20 @@ export const CASES: readonly GoldenCase[] = [
     text: `${LONG_VN_PROMPT}\n\n${LONG_VN_EXTRA}`,
     note: 'prompt dài tiếng Việt khoảng 8.800 ký tự: hai nhóm việc, hơn 40 yêu cầu (router giới hạn 30)',
     expect: { reference: false, kind: ['edit', 'mixed'], main: ['sonnet', 'opus'], tasks: [0, 10], requirements: [12, 30] },
+  },
+  {
+    id: 'long-coded',
+    text: LONG_CODED_PROMPT,
+    note: 'prompt rất dài tiếng Việt khoảng 30.000 ký tự: 11 bước có mã, hơn 40 yêu cầu, quy định model theo loại việc (0.7.4)',
+    expect: {
+      reference: false,
+      kind: ['edit', 'mixed'],
+      main: ['sonnet', 'opus'],
+      tasks: [11, 11],
+      // Lần đo đầu (5 lượt, Claude Code 2.1.296) router liệt kê 19 tới 23 yêu cầu, dưới trần 30: khoảng đặt lại từ 20 tới 30 thành 15 tới 30.
+      requirements: [15, 30],
+      codes: Array.from({ length: 11 }, (_, i) => `BƯỚC ${i}`),
+      modelRule: ['sonnet', 'model của phiên', 'mô hình của phiên'],
+    },
   },
 ]

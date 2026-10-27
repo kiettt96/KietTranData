@@ -41,6 +41,20 @@ export function check(c: GoldenCase, reply: string): string[] {
   if (e.constraint !== undefined && !plan.constraints.some(x => x.toLowerCase().includes(e.constraint!.toLowerCase()))) {
     fails.push(`thiếu ràng buộc chứa "${e.constraint}"`)
   }
+  if (e.codes !== undefined) {
+    // Bước có mã đủ và tách riêng (0.7.4): mỗi mã đúng một việc có tiêu đề mở đầu bằng mã ("BƯỚC 1" không khớp "BƯỚC 10").
+    const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const found = e.codes.map(code => plan.tasks.filter(t => new RegExp(`^${escape(code)}(?![0-9])`, 'i').test(t.title.trim())).map(t => t.index))
+    const missing = e.codes.filter((_, i) => (found[i] ?? []).length === 0)
+    const split = e.codes.filter((_, i) => (found[i] ?? []).length > 1)
+    if (missing.length > 0) fails.push(`thiếu việc riêng cho ${missing.join(', ')}`)
+    if (split.length > 0) fails.push(`${split.join(', ')} thành nhiều việc`)
+    const firsts = found.flatMap(indexes => indexes.slice(0, 1))
+    if (firsts.some((index, i) => i > 0 && index < (firsts[i - 1] ?? 0))) fails.push('việc có mã không theo thứ tự của prompt')
+  }
+  if (e.modelRule !== undefined && !e.modelRule.some(key => (plan.constraints[0] ?? '').toLowerCase().includes(key.toLowerCase()))) {
+    fails.push(`ràng buộc đầu tiên không phải quy định model (${plan.constraints[0] ?? 'không có ràng buộc'})`)
+  }
   if (e.above !== undefined && pickRank(plan.main) <= pickRank(e.above)) {
     fails.push(`luồng chính ${describePick(plan.main)} không cao hơn ${describePick(e.above)}`)
   }
