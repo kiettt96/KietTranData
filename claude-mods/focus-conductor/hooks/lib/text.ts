@@ -4,7 +4,7 @@
 import type { Brief, CheckHint, Choice, PlanStep, QuotaCheckpoint, QuotaReason, Route, RouterFail, StepStatus, Task, TurnFault } from '../../types'
 import { openSteps, pendingSteps } from './drift'
 import { evaluateQuota, isStale, reasonsOf } from './quota'
-import type { QuotaBadge, QuotaThresholds } from './quota'
+import type { QuotaBadge, QuotaNoticeHit, QuotaThresholds } from './quota'
 import { labels } from '../ui/labels'
 import { taskBarRuns } from '../ui/style'
 import type { Lang } from '../ui/labels'
@@ -418,6 +418,31 @@ function pauseCause(reasons: readonly QuotaReason[], isUser: boolean): string {
 /** Lệnh chạy tiếp: người dùng tự dừng thì /conductor resume là đủ; dừng vì hạn mức thì phải ép (resume force). */
 export function resumeCommand(isUser: boolean): string {
   return isUser ? '/conductor resume' : '/conductor resume force'
+}
+
+/**
+ * Báo hạn mức mềm cho luồng chính (0.7.4): phần còn lại, giờ làm mới nếu có, và nhắc áp quy tắc dừng của prompt (nếu có).
+ * Mod không chặn tool ở vùng này; nhiều cửa sổ cùng vào vùng báo thì mỗi cửa sổ một câu.
+ */
+export function quotaNoticeText(hits: readonly QuotaNoticeHit[]): string {
+  return hits
+    .map(hit => {
+      const reset = resetLabel(hit.resetsAt)
+      const name = QUOTA_NAME[hit.kind].replace(/^h/, 'H')
+      return (
+        `[focus-conductor] ${name} còn ${percent(hit.remaining)}${reset ? ` (làm mới lúc ${reset})` : ''}. ` +
+        'Nếu prompt có quy tắc dừng theo hạn mức thì áp dụng ngay: làm xong phần đang làm, ghi điểm dừng theo cách prompt quy định, rồi dừng.'
+      )
+    })
+    .join('\n')
+}
+
+/** Nhãn status line khi ở vùng báo mềm (0.7.4): cửa sổ và phần còn lại. */
+export function withQuotaNoticeStatus(base: string | undefined, hits: readonly QuotaNoticeHit[], lang: Lang): string | undefined {
+  const hit = hits[0]
+  if (base === undefined || hit === undefined) return base
+  const l = labels(lang)
+  return `${base} · ${l.quotaNotice(l.quotaWindowShort[hit.kind], percent(hit.remaining))}`
 }
 
 /** Lý do từ chối tool khi đang dừng: luồng chính ghi điểm dừng rồi kết thúc; subagent kết thúc ngay. */

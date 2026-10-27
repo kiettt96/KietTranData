@@ -153,6 +153,18 @@
       "description": "Dừng khi phần còn lại của hạn mức tuần không quá giá trị này, tính bằng phần trăm còn lại, không phải phần đã dùng. Kẹp trong khoảng 0,5 đến 99. Mặc định 2. Biên không phải bảo đảm tuyệt đối",
       "default": 2
     },
+    "noticeWeekRemainingPct": {
+      "type": "number",
+      "title": "Báo khi hạn mức tuần còn (%)",
+      "description": "Báo một lần cho Claude (gắn vào kết quả tool, không chặn tool) khi phần còn lại của hạn mức tuần không quá giá trị này, để Claude áp quy tắc dừng theo hạn mức của prompt nếu có. 0 là tắt. Phải lớn hơn pauseWeekRemainingPct, nếu không thì bị bỏ qua. Mặc định 0",
+      "default": 0
+    },
+    "noticeSessionRemainingPct": {
+      "type": "number",
+      "title": "Báo khi hạn mức phiên còn (%)",
+      "description": "Như noticeWeekRemainingPct, cho hạn mức phiên (5 giờ). 0 là tắt. Phải lớn hơn pauseSessionRemainingPct, nếu không thì bị bỏ qua. Mặc định 0",
+      "default": 0
+    },
     "uiLanguage": {
       "type": "string",
       "title": "Ngôn ngữ giao diện",

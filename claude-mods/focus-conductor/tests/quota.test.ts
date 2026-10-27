@@ -43,8 +43,10 @@ describe('0.6.0 A: ngưỡng phần còn lại', () => {
   })
 
   test('quotaSettings đọc option: mặc định bật, 5 và 2; quotaGuard false thì tắt', () => {
-    expect(quotaSettings({})).toEqual({ enabled: true, session: 5, week: 2 })
-    expect(quotaSettings({ quotaGuard: false, pauseSessionRemainingPct: 90, pauseWeekRemainingPct: 0 })).toEqual({ enabled: false, session: 90, week: 0.5 })
+    // 0.7.4: kèm ngưỡng báo mềm (mặc định tắt) và danh sách ngưỡng báo bị bỏ qua.
+    const off = { notice: { session: null, week: null }, noticeIssues: [] }
+    expect(quotaSettings({})).toEqual({ enabled: true, session: 5, week: 2, ...off })
+    expect(quotaSettings({ quotaGuard: false, pauseSessionRemainingPct: 90, pauseWeekRemainingPct: 0 })).toEqual({ enabled: false, session: 90, week: 0.5, ...off })
   })
 
   test('kind lạ, spend_limit, NaN, Infinity và mảng rỗng không gây dừng và không ném lỗi', () => {

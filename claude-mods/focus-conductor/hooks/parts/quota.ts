@@ -8,11 +8,11 @@ import type { QuotaCheckpoint, QuotaPause, QuotaState } from '../../types'
 import { addTouched, buildCheckpoint, pruneKeys, pushRecent, recentLine, storeKey } from '../lib/checkpoint'
 import type { CheckpointInput } from '../lib/checkpoint'
 import { classifyBash, filePathOf, isMutation, restorableSteps } from '../lib/drift'
-import { EMPTY_QUOTA, QUOTA_CACHE_MS, deniedInput, evaluateQuota, blockingHits, isPauseActive, newPause, normalizeQuota, noteDenial, overrideOf, quotaSettings, reasonsOf } from '../lib/quota'
+import { EMPTY_QUOTA, QUOTA_CACHE_MS, deniedInput, evaluateQuota, blockingHits, isPauseActive, newPause, normalizeQuota, noteDenial, overrideOf, quotaSettings, reasonsOf, softNotices } from '../lib/quota'
 import type { QuotaEval } from '../lib/quota'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
-import { PLAN_TOOL_FULL, quotaDenyText } from '../lib/text'
+import { PLAN_TOOL_FULL, quotaDenyText, quotaNoticeText } from '../lib/text'
 import { viewOf } from '../atoms'
 import type { Ctx } from '../context'
 import { PERSON_ORIGINS, SLASH_COMMAND } from '../context'
@@ -167,10 +167,20 @@ async function showStatus($: EngineInterface, current: View, options: Ctx['optio
   $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
 }
 
+/** Ngưỡng báo mềm không hợp lệ (0.7.4): cảnh báo một lần mỗi phiên, bằng toast và Core.warnings. */
+async function warnNoticeIssues($: EngineInterface, issues: readonly string[], flag: { isWarned: boolean }): Promise<void> {
+  if (flag.isWarned || issues.length === 0) return
+  flag.isWarned = true
+  const at = await $.clock.now()
+  await update($, coreState, S.withWarnings(...issues.map(text => ({ at, kind: 'cost' as const, text }))))
+  $.ui.toast(`Focus Conductor: ${issues.join('; ')}`)
+}
+
 export function registerQuota(on: On, ctx: Ctx): void {
   const settings = quotaSettings(ctx.options)
   const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
   const cache: LimitCache = { at: Number.NEGATIVE_INFINITY, limits: null }
+  const noticeFlag = { isWarned: false }
 
   // Số đo mới sau mỗi turn hay khi một cửa sổ nhích: chỉ cập nhật $.state cho band và status, không dừng gì ở đây
   // (dừng thật nằm ở tool.call, ranh giới nguyên tử).
@@ -256,6 +266,7 @@ export function registerQuota(on: On, ctx: Ctx): void {
 
   on('tool.call', { tool: /.*/ }, async ($, e, next) => {
     if (!settings.enabled || S.modeOf(await read($, modeState), ctx.options) === 'off') return next(e)
+    await warnNoticeIssues($, settings.noticeIssues, noticeFlag)
     const now = await $.clock.now()
     const isFresh = now - cache.at >= QUOTA_CACHE_MS
     const limits = await freshLimits($, cache, now)
@@ -269,7 +280,20 @@ export function registerQuota(on: On, ctx: Ctx): void {
         await showStatus($, await read($, view), ctx.options)
       }
       const result = await next(e)
-      if (e.tool === PLAN_TOOL_FULL || result.deny !== undefined) return result
+      if (result.deny !== undefined) return result
+      // Báo hạn mức mềm (0.7.4): cửa sổ vào vùng báo mà chưa báo lần nào thì gắn một lần vào kết quả tool của luồng chính.
+      // Đọc lại sau next: lời gọi tool song song có thể vừa báo cửa sổ này.
+      const shown = e.agentId === undefined ? normalizeQuota(await read($, quotaState)).noticed : []
+      const due = e.agentId === undefined ? softNotices(limits, now, settings).filter(hit => !shown.includes(hit.key)) : []
+      const noticed = due.length > 0 ? { ...result, context: [...(result.context ?? []), quotaNoticeText(due)] } : result
+      if (due.length > 0) {
+        await update($, quotaState, c => {
+          const n = normalizeQuota(c)
+          return { ...n, noticed: [...n.noticed, ...due.map(hit => hit.key)].slice(-8) }
+        })
+        await showStatus($, await read($, view), ctx.options)
+      }
+      if (e.tool === PLAN_TOOL_FULL) return noticed
       const observation = { tool: e.tool, input: e as unknown as Record<string, unknown>, isError: result.isError === true, isReadOnly: result.isReadOnly === true }
       const path = filePathOf(observation)
       // Năm tool call cuối của luồng chính và các file thấy bị sửa trong mục tiêu: dữ liệu cho điểm dừng (không có output).
@@ -283,7 +307,7 @@ export function registerQuota(on: On, ctx: Ctx): void {
           return { ...n, recent: line !== null ? pushRecent(n.recent, line) : n.recent, touched: paths.length > 0 ? addTouched(n.touched, goalId, paths) : n.touched }
         })
       }
-      return result
+      return noticed
     }
     let pause = q.pause
     if (pause === null) {

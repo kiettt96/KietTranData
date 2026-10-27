@@ -11,9 +11,9 @@ import { restorableSteps } from './drift'
 import type { Tokens } from './cost'
 import { addUsage, emptyLedger, nextGoal, planSwitch, resetLedger } from './ledger'
 import { legacyOf } from './scale'
-import { statusLine, withQuotaStatus, withRouterFailStatus, withTurnFaultStatus } from './text'
+import { statusLine, withQuotaNoticeStatus, withQuotaStatus, withRouterFailStatus, withTurnFaultStatus } from './text'
 import { shownPlan } from './mirror'
-import { evaluateQuota, isPauseActive, overrideOf, quotaBadge } from './quota'
+import { evaluateQuota, isPauseActive, overrideOf, quotaBadge, softNotices } from './quota'
 import type { QuotaSettings } from './quota'
 import type { Lang } from '../ui/labels'
 
@@ -75,9 +75,14 @@ export function statusText(view: View, quota: QuotaState, now: number, settings:
   const base = statusOf(view)
   // Thứ tự nhãn (0.7.3): hạn mức, lỗi router, turn lỗi.
   const evaluation = evaluateQuota(quota.readings, now, settings)
-  const quotaLabelled = settings.enabled
-    ? withQuotaStatus(base, quotaBadge(isPauseActive(true, evaluation.hits, quota.pause, overrideOf(quota), now), evaluation), view.lang)
-    : base
+  const isPaused = isPauseActive(true, evaluation.hits, quota.pause, overrideOf(quota), now)
+  // Vùng báo mềm (0.7.4) thay nhãn "hạn mức còn" khi chưa dừng; đang dừng thì chỉ nhãn dừng như cũ.
+  const notices = isPaused ? [] : softNotices(quota.readings, now, settings)
+  const quotaLabelled = !settings.enabled
+    ? base
+    : notices.length > 0
+      ? withQuotaNoticeStatus(base, notices, view.lang)
+      : withQuotaStatus(base, quotaBadge(isPaused, evaluation), view.lang)
   return withTurnFaultStatus(withRouterFailStatus(quotaLabelled, view.core.routerFail, view.lang), view.core.turnFault, view.lang)
 }
 

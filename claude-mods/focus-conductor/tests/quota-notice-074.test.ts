@@ -11,7 +11,7 @@ import { quotaNoticeText } from '../hooks/lib/text'
 
 const FAR = '2100-01-01T00:00:00.000Z'
 const OLD = '1970-01-01T00:00:00.000Z'
-const week = (used: number, resetsAt: string | undefined = FAR) => ({ kind: 'seven_day', percentUsed: used, ...(resetsAt !== undefined ? { resetsAt } : {}) })
+const week = (used: number, resetsAt = FAR) => ({ kind: 'seven_day', percentUsed: used, resetsAt })
 const session = (used: number) => ({ kind: 'five_hour', percentUsed: used, resetsAt: FAR })
 
 describe('0.7.4 3: quotaSettings đọc ngưỡng mềm', () => {
@@ -67,7 +67,7 @@ describe('0.7.4 3: softNotices', () => {
   })
 
   test('không có mốc làm mới: khóa vẫn theo cửa sổ', () => {
-    expect(softNotices([week(85, undefined)], 1000, settings)).toEqual([{ kind: 'seven_day', remaining: 15, key: 'seven_day:' }])
+    expect(softNotices([{ kind: 'seven_day', percentUsed: 85 }], 1000, settings)).toEqual([{ kind: 'seven_day', remaining: 15, key: 'seven_day:' }])
   })
 })
 
