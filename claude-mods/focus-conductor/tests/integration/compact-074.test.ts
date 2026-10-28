@@ -263,3 +263,28 @@ describe('0.7.4 4: danh sách phản chiếu (TodoWrite, TaskCreate) cũng đư�
     expect(got[0]).not.toContain('Bước còn mở')
   })
 })
+
+describe('0.7.4 4: precompute không đặt nhắc dù không skip (bắt mẫu 074-F6)', () => {
+  test('precompute trả kết quả bình thường: không nhắc; lần nén thật sau đó nhắc đúng một lần', {}, async ($, on) => {
+    await setup($, on)
+    await compact($, 'precompute')
+    expect(reminders(await readFile($))).toEqual([])
+    await compact($, 'auto')
+    expect(reminders(await readFile($)).length).toBe(1)
+    expect(reminders(await readFile($))).toEqual([])
+  })
+
+  test('precompute không đánh dấu đã nén qua hook: context giảm mạnh sau đó vẫn nhắc bằng đường dự phòng', {}, async ($, on) => {
+    const seen = base(on, { router })
+    compactor(on)
+    const meter = { tokens: 100_000 }
+    on('session.usage', () => ({ value: { startedAt: 0, context: { tokens: meter.tokens, window: 200_000 }, rateLimits: [] } }) as never)
+    on('tool.call', { tool: 'Read' }, () => ({ result: 'x', isReadOnly: true }))
+    await submit($, 'Cập nhật dữ liệu theo các bước có mã')
+    await step($, seen, { turnId: 't1' })
+    await compact($, 'precompute')
+    meter.tokens = 20_000
+    await step($, seen, { turnId: 't2' })
+    expect(reminders(await readFile($)).length).toBe(1)
+  })
+})

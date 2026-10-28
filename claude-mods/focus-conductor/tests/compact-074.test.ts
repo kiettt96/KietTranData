@@ -121,3 +121,34 @@ describe('0.7.4 4: biên (bắt mẫu đột biến)', () => {
     expect(compactReminderText(brief, mixed)).toContain('Đang làm: 3. BƯỚC 2')
   })
 })
+
+describe('0.7.4 4: trần theo từng dòng với mọi độ dài mục (bắt mẫu 074-F30)', () => {
+  const pad = (label: string, n: number, length: number) => `${label} ${n} `.padEnd(length, 'x').slice(0, length)
+
+  test('yêu cầu chưa phủ: tổng khối không vượt trần với mọi độ dài mục từ 30 tới 120 ký tự', () => {
+    for (let length = 30; length <= 120; length++) {
+      const many = makeBrief({ goal: 'Mục tiêu', requirements: Array.from({ length: 60 }, (_, i) => pad('Yêu cầu', i, length)), tasks: [task(1, [1])] })
+      for (const text of [compactKeepText(many, []), compactReminderText(many, [])]) expect(text.length).toBeLessThanOrEqual(COMPACT_BLOCK_CHARS)
+    }
+  })
+
+  test('bước còn mở: dòng không vượt phần trần riêng (550) với mọi độ dài bước từ 20 tới 100 ký tự', () => {
+    for (let length = 20; length <= 100; length++) {
+      const steps: PlanStep[] = Array.from({ length: 14 }, (_, i) => ({ id: i + 1, title: pad('Bước', i, length), status: 'todo' as const }))
+      for (const text of [compactKeepText(brief, steps), compactReminderText(brief, steps)]) {
+        const line = text.split('\n').find(l => l.startsWith('Bước còn mở: ')) ?? ''
+        expect(line.length).toBeLessThanOrEqual(550)
+      }
+    }
+  })
+
+  test('ràng buộc: dòng không vượt phần trần riêng (320) với mọi độ dài ràng buộc từ 20 tới 100 ký tự', () => {
+    for (let length = 20; length <= 100; length++) {
+      const many = makeBrief({ goal: 'Mục tiêu', constraints: Array.from({ length: 12 }, (_, i) => pad('Ràng buộc', i, length)) })
+      for (const text of [compactKeepText(many, []), compactReminderText(many, [])]) {
+        const line = text.split('\n').find(l => l.startsWith('Ràng buộc: ')) ?? ''
+        expect(line.length).toBeLessThanOrEqual(320)
+      }
+    }
+  })
+})
