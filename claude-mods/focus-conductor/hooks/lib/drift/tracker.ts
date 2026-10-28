@@ -11,8 +11,11 @@ import { isMutation, writeEffects } from './effects'
 import { checkEffectPassed } from './output'
 import { scopeStatus } from './scope'
 
-/** Số thay đổi liên tiếp chưa kiểm tra trước khi nhắc một checkpoint. */
+/** Số thay đổi liên tiếp chưa kiểm tra trước khi nhắc checkpoint đầu tiên. */
 export const CHECKPOINT_EVERY = 5
+/** Mốc nhắc checkpoint trong một turn (0.7.4): 5, 10, 20, 40 rồi mỗi CHECKPOINT_CAP thay đổi; lệnh kiểm đạt đặt lại về đầu. */
+const CHECKPOINT_STEPS = [CHECKPOINT_EVERY, 10, 20]
+const CHECKPOINT_CAP = 40
 /** Số lần cùng một lệnh lỗi trước khi coi là vòng lặp. */
 export const LOOP_AFTER = 3
 
@@ -88,6 +91,16 @@ export type Finding = {
   context?: string
   /** Ưu tiên khi nhiều phát hiện trùng một tool result: số lớn thắng. */
   priority: number
+}
+
+/** Số mốc checkpoint đã qua khi có `count` thay đổi liên tiếp chưa kiểm. */
+function checkpointsPassed(count: number): number {
+  return CHECKPOINT_STEPS.filter(step => count >= step).length + Math.floor(count / CHECKPOINT_CAP)
+}
+
+/** Bộ đếm thay đổi chưa kiểm đi từ `before` tới `after` có vượt qua một mốc checkpoint không (0.7.4). */
+export function isCheckpointDue(before: number, after: number): boolean {
+  return checkpointsPassed(after) > checkpointsPassed(before)
 }
 
 function signature(observation: ToolObservation): string {
@@ -286,15 +299,15 @@ export function observe(
     })
   }
 
-  if (isCounted && Math.floor(tracker.mutationsSinceCheck / CHECKPOINT_EVERY) > Math.floor(before / CHECKPOINT_EVERY)) {
+  if (isCounted && isCheckpointDue(before, tracker.mutationsSinceCheck)) {
     findings.push({
       kind: 'checkpoint',
       priority: 1,
       text: `${tracker.mutationsSinceCheck} thay đổi liên tiếp chưa kiểm tra`,
       context:
         `[focus-conductor] Checkpoint: ${tracker.mutationsSinceCheck} thay đổi liên tiếp chưa được kiểm tra. ` +
-        `${goalLine(focus, plan)}. Trước khi sửa tiếp, kiểm tra lại phần vừa làm ` +
-        '(chạy test, type-check hoặc đọc lại diff) và cập nhật checklist.',
+        `${goalLine(focus, plan)}. Trước khi sửa tiếp, kiểm lại phần vừa làm theo cách người dùng quy định ` +
+        '(đọc lại, chạy lệnh kiểm có sẵn); không tạo bộ kiểm mới nếu người dùng không yêu cầu; rồi cập nhật checklist.',
     })
   }
 

@@ -381,6 +381,8 @@ export type QuotaState = {
   recent: string[]
   /** File thấy bị sửa trong mục tiêu goalId (tối đa 50): dữ liệu cho điểm dừng. */
   touched: { goalId: number; paths: string[] }
+  /** Cửa sổ đã báo hạn mức mềm (0.7.4), khóa kind cộng mốc làm mới: mỗi cửa sổ báo một lần; cửa sổ mới báo lại. */
+  noticed: string[]
 }
 
 declare module 'claude-code' {

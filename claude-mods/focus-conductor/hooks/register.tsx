@@ -19,6 +19,7 @@
 //                  TodoWrite, TaskCreate, TaskUpdate: phản chiếu danh sách việc để vẽ tiến độ. (parts/progress.ts)
 //   classic.Stop   checklist còn mở thì yêu cầu hoàn thành hoặc giải thích.
 //   turn.complete  cộng chi phí đo được vào sổ, hiệu chỉnh ước lượng, tổng kết cảnh báo cuối turn.
+//   session.compact  nén hội thoại: nối khối giữ mục tiêu vào instructions, nhắc lại sau nén.   (parts/compact.ts)
 // Giao diện: band trên prompt, pane chi tiết, status line (parts/ui.tsx), lệnh /conductor (parts/command.ts).
 
 import type { Register } from 'claude-code'
@@ -26,6 +27,7 @@ import type { Register } from 'claude-code'
 import { createContext } from './context'
 import { registerAgents } from './parts/agents'
 import { registerCommand } from './parts/command'
+import { registerCompact } from './parts/compact'
 import { registerConsistency } from './parts/consistency'
 import { registerProgress } from './parts/progress'
 import { registerQuota } from './parts/quota'
@@ -45,6 +47,7 @@ export const register: Register = (on, options) => {
   registerProgress(on, ctx)
   registerConsistency(on, ctx)
   registerTurnFault(on, ctx)
+  registerCompact(on, ctx)
   registerCommand(on, ctx)
   registerUi(on, ctx)
 }

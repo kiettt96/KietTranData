@@ -4,9 +4,9 @@ import { atom, derive, read, update } from 'claude-code'
 import type { AgentProgress, RouteEvent, Warning } from '../../types'
 import { turnCost } from '../lib/cost'
 import { countSpawn, shapeKey, shapeOutput } from '../lib/ledger'
-import { EFFORTS, familyOf, taskMatch } from '../lib/route'
+import { EFFORTS, describePick, familyOf, familyRank, taskMatch } from '../lib/route'
 import { clipText } from '../lib/decisions'
-import { agentRouterRequest, askRouter, parseAgentRoute, taskRoute } from '../lib/router'
+import { agentRouterRequest, askRouter, floorRoute, isSettled, parseAgentRoute, taskRoute } from '../lib/router'
 import type { AgentRoute } from '../lib/router'
 import * as S from '../lib/state'
 import type { On } from 'claude-code'
@@ -72,10 +72,16 @@ export function registerAgents(on: On, ctx: Ctx): void {
     let assigned = matched.task
     let route: AgentRoute | null = null
     let reason: string
+    const requested = EFFORTS.find(x => x === e.effort) ?? null
     if (assigned !== undefined) {
       route = taskRoute(assigned, rules)
       reason = `việc ${assigned.index} đã phân trước${route.why ? `: ${route.why}` : ''}`
-      if (e.model !== undefined && claimed !== route.pick.family) reason += `; Claude ghi ${e.model}, dùng ${route.pick.family} đã phân`
+      if (claimed !== null && familyRank(claimed) < familyRank(route.pick.family)) reason += `; Claude ghi ${e.model}, dùng ${route.pick.family} đã phân`
+    } else if (isSettled(claimed, requested, rules)) {
+      // Claude đã chốt cả họ (ở mức trần chính sách cho phép) lẫn effort (0.7.4): router không thể chọn khác, không gọi.
+      reason = 'Claude đã chốt model và effort ở mức trần cho phép; không gọi router'
+      record(await $.clock.now(), 'agent-floor', { description: clipText(e.description), skip: true, claimed: `${claimed}/${requested}` })
+      await flushDecisions((path, text) => $.fs.write(path, text))
     } else if (isAgentRouterPaused()) {
       reason = 'router đang tạm ngừng; giữ lựa chọn của Claude'
     } else {
@@ -100,6 +106,8 @@ export function registerAgents(on: On, ctx: Ctx): void {
           policy: rules,
           model: routerModel,
           tasks: isNested || brief === null || brief.isReference ? [] : brief.tasks,
+          constraints: brief === null || brief.isReference ? [] : brief.constraints,
+          sessionFamily: L.sessionFamily,
         })
         const startedAt = await $.clock.now()
         const outcome = await askRouter(r => $.model.complete(r), request, reply => parseAgentRoute(reply, rules))
@@ -124,6 +132,22 @@ export function registerAgents(on: On, ctx: Ctx): void {
         reason = `router nhận ra việc ${byRouter.index} đã phân${route.why ? `: ${route.why}` : ''}`
       }
     }
+    // Model và effort Claude ghi là mức sàn (0.7.4): router, kết quả nhớ và việc đã phân chỉ được nâng; chính sách vẫn kẹp sau cùng.
+    if (route !== null) {
+      const floored = floorRoute(route, claimed, requested, rules)
+      if (floored.notes.length > 0) {
+        record(await $.clock.now(), 'agent-floor', {
+          description: clipText(e.description),
+          from: describePick(route.pick),
+          to: describePick(floored.route.pick),
+          claimed: e.model,
+          ...(requested !== null ? { claimedEffort: requested } : {}),
+        })
+        await flushDecisions((path, text) => $.fs.write(path, text))
+        route = floored.route
+        reason += `; ${floored.notes.join('; ')}`
+      }
+    }
     // Việc đã phân được nhận: chuyển sang đang chạy (giao lại một việc đã lỗi cũng vậy).
     if (assigned !== undefined && brief !== null) {
       moveDelegation(brief.goalId, assigned.index, 'running')
@@ -135,7 +159,6 @@ export function registerAgents(on: On, ctx: Ctx): void {
     }
 
     const isApplied = route !== null && (current === 'auto' || current === 'subagents')
-    const requested = EFFORTS.find(x => x === e.effort) ?? null
     // Họ model và effort thật sự gửi đi: lựa chọn của router khi áp dụng, nếu không thì của Claude.
     const sentFamily = isApplied && route !== null ? route.pick.family : claimed
     const sentEffort = isApplied && route !== null ? route.pick.effort : requested
@@ -210,6 +233,8 @@ export function registerAgents(on: On, ctx: Ctx): void {
           policy: rules,
           model: routerModel,
           tasks: brief === null || brief.isReference ? [] : brief.tasks,
+          constraints: brief === null || brief.isReference ? [] : brief.constraints,
+          sessionFamily: L.sessionFamily,
         })
         const startedAt = await $.clock.now()
         const outcome = await askRouter(r => $.model.complete(r), request, reply => parseAgentRoute(reply, rules))

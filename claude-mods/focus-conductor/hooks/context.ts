@@ -116,6 +116,12 @@ export function createContext(options: PluginOptions) {
     lastWindow: DEFAULT_WINDOW,
     /** Việc đã ghi "giao subagent" của mục tiêu hiện tại mà chưa có Agent nào nhận. */
     delegation: newDelegation(),
+    /**
+     * Giữ mục tiêu qua lần nén (0.7.4): `pending` là lời nhắc sau nén còn chờ gắn vào tool call kế tiếp của luồng chính;
+     * `hooked` là đã có session.compact thật từ lần đo context trước (để đường dự phòng không nhắc trùng); `lastContext` là
+     * context luồng chính đo được lần trước (0 khi chưa đo).
+     */
+    compaction: { pending: false, hooked: false, lastContext: 0 },
   }
   const blocked = new Set<ModelFamily>()
   // Một lần lỗi có thể chỉ là tạm thời (429, quá tải): chỉ chặn một họ model
@@ -314,6 +320,7 @@ export function createContext(options: PluginOptions) {
     local.routerTimes = []
     local.turnRoute = { turnId: '', route: null }
     local.turnContext = 0
+    local.compaction = { pending: false, hooked: false, lastContext: 0 }
     local.isGoalNew = false
     local.lastSession = null
     local.sessionFamily = null
@@ -357,6 +364,17 @@ export function createContext(options: PluginOptions) {
   /** Chính sách model của phiên dùng cho mọi lựa chọn (luồng chính và subagent). */
   function sessionModel(): SessionModel | null {
     return local.sessionFamily ? { family: local.sessionFamily, policy: sessionPolicy } : null
+  }
+
+  /**
+   * Đường dự phòng của lời nhắc sau nén (0.7.4): context luồng chính đo được giảm dưới COMPACTION_DROP so với lần đo trước mà
+   * không có session.compact thật xen giữa thì coi như đã nén. Lần nén đã đặt nhắc qua hook thì không nhắc lần nữa.
+   */
+  function noteContext(tokens: number): void {
+    const c = local.compaction
+    if (c.lastContext > 0 && tokens < COMPACTION_DROP * c.lastContext && !c.hooked) c.pending = true
+    c.hooked = false
+    c.lastContext = tokens
   }
 
   /** Cache đã nguội (quá TTL), hoặc ngữ cảnh vừa bị nén: đổi model không mất chi phí ghi lại. */
@@ -612,6 +630,7 @@ export function createContext(options: PluginOptions) {
     contextWindows,
     decideTurn,
     isCacheFree,
+    noteContext,
     decisionLog,
     decisionText,
     flushDecisions,

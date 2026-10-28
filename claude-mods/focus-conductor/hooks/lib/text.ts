@@ -4,7 +4,7 @@
 import type { Brief, CheckHint, Choice, PlanStep, QuotaCheckpoint, QuotaReason, Route, RouterFail, StepStatus, Task, TurnFault } from '../../types'
 import { openSteps, pendingSteps } from './drift'
 import { evaluateQuota, isStale, reasonsOf } from './quota'
-import type { QuotaBadge, QuotaThresholds } from './quota'
+import type { QuotaBadge, QuotaNoticeHit, QuotaThresholds } from './quota'
 import { labels } from '../ui/labels'
 import { taskBarRuns } from '../ui/style'
 import type { Lang } from '../ui/labels'
@@ -25,7 +25,7 @@ Mỗi prompt của người dùng có thể kèm một khối "[focus-conductor]
 2. Với việc từ mức moderate trở lên: gọi ${PLAN_TOOL_FULL} (action "set") để ghi mục tiêu và checklist đã chuẩn hóa; cập nhật từng bước (doing, done, verified kèm bằng chứng, skipped, blocked hoặc waiting kèm lý do). Khi checklist có việc của mục "Phân việc", tiêu đề bước mở đầu "Việc N: ".
 3. Nhất quán: mọi bước phải phục vụ mục tiêu cuối; không làm thêm việc ngoài phạm vi, không bỏ sót yêu cầu; giữ văn phong, quy ước đặt tên và định dạng đã dùng từ đầu.
 4. Tự kiểm tra sau mỗi bước quan trọng (chạy test, type-check, đọc lại thay đổi) trước khi sang bước sau. Lệnh test chạy đạt sau thay đổi cuối thì mod tự nâng bước đã xong thành verified, không cần chép lệnh; kiểm tĩnh (type-check, lint) không tính.
-5. Khi giao việc cho subagent: nếu khối có mục "Phân việc", giao đúng các việc ghi "giao", description của Agent mở đầu "Việc N: " (N là số của việc) để chạy đúng model và effort đã phân; việc ghi "làm trực tiếp" thì tự làm. Việc ngoài danh sách: để trống model và effort, router của plugin chấm khi giao; chọn Explore cho tra cứu chỉ đọc, Plan cho thiết kế, general-purpose cho thực thi.
+5. Khi giao việc cho subagent: nếu khối có mục "Phân việc", giao đúng các việc ghi "giao", description của Agent mở đầu "Việc N: " (N là số của việc) để chạy đúng model và effort đã phân; việc ghi "làm trực tiếp" thì tự làm. Việc ngoài danh sách: để trống model và effort, router của plugin chấm khi giao; chọn Explore cho tra cứu chỉ đọc, Plan cho thiết kế, general-purpose cho thực thi. Prompt quy định model cho việc giao (kể cả "model của phiên") thì ghi rõ model đó ở lời gọi Agent (model của phiên ghi bằng tên họ model đang chạy); model ghi ở lời gọi là mức sàn, mod không chọn thấp hơn.
 6. Báo cáo gọn (chỉ áp cho luồng chính; subagent theo quy tắc riêng ở dòng cuối): giữa các tool call không tường thuật; khi chuyển sang việc khác chỉ viết một dòng "Đang làm việc N/M: ...", không chép lại checklist, không tóm tắt lại kết quả tool. Vẫn báo ngay khi bị chặn, khi cần người dùng quyết định, hoặc khi phát hiện rủi ro. Báo cáo cuối nêu kết quả, đã kiểm bằng lệnh nào, và chỗ còn hở. Hướng dẫn riêng của người dùng (CLAUDE.md, prompt) được ưu tiên hơn mục này.
 Nếu bạn là subagent: không dùng tool plan của mod; việc từ ba bước trở lên thì ghi danh sách bằng tool danh sách việc có sẵn (nếu có trong phiên của bạn); làm đúng nhiệm vụ được giao và báo cáo ngắn gọn.`
 
@@ -420,6 +420,31 @@ export function resumeCommand(isUser: boolean): string {
   return isUser ? '/conductor resume' : '/conductor resume force'
 }
 
+/**
+ * Báo hạn mức mềm cho luồng chính (0.7.4): phần còn lại, giờ làm mới nếu có, và nhắc áp quy tắc dừng của prompt (nếu có).
+ * Mod không chặn tool ở vùng này; nhiều cửa sổ cùng vào vùng báo thì mỗi cửa sổ một câu.
+ */
+export function quotaNoticeText(hits: readonly QuotaNoticeHit[]): string {
+  return hits
+    .map(hit => {
+      const reset = resetLabel(hit.resetsAt)
+      const name = QUOTA_NAME[hit.kind].replace(/^h/, 'H')
+      return (
+        `[focus-conductor] ${name} còn ${percent(hit.remaining)}${reset ? ` (làm mới lúc ${reset})` : ''}. ` +
+        'Nếu prompt có quy tắc dừng theo hạn mức thì áp dụng ngay: làm xong phần đang làm, ghi điểm dừng theo cách prompt quy định, rồi dừng.'
+      )
+    })
+    .join('\n')
+}
+
+/** Nhãn status line khi ở vùng báo mềm (0.7.4): cửa sổ và phần còn lại. */
+export function withQuotaNoticeStatus(base: string | undefined, hits: readonly QuotaNoticeHit[], lang: Lang): string | undefined {
+  const hit = hits[0]
+  if (base === undefined || hit === undefined) return base
+  const l = labels(lang)
+  return `${base} · ${l.quotaNotice(l.quotaWindowShort[hit.kind], percent(hit.remaining))}`
+}
+
 /** Lý do từ chối tool khi đang dừng: luồng chính ghi điểm dừng rồi kết thúc; subagent kết thúc ngay. */
 export function quotaDenyText(reasons: readonly QuotaReason[], isUser: boolean, isAgent: boolean): string {
   const cause = `[focus-conductor] Tạm dừng: ${pauseCause(reasons, isUser)}.`
@@ -693,4 +718,71 @@ export function quotaPaneText(view: QuotaOverview, lang: Lang): QuotaPaneText {
     checkpoint.push(`${l.quotaContinue}: ${resumeCommand(view.state === 'user')}`)
   }
   return { windows, state: `${l.quotaState}: ${state}`, isPaused, cause, checkpoint }
+}
+
+// ------------------------------------------------------------ giữ mục tiêu qua lần nén (0.7.4)
+
+/** Trần độ dài chung của khối nối vào instructions khi nén và khối nhắc sau nén. */
+export const COMPACT_BLOCK_CHARS = 1500
+/** Mỗi bước, mỗi ràng buộc, mỗi yêu cầu cắt còn bấy nhiêu ký tự; tối đa bấy nhiêu bước còn mở. */
+const COMPACT_STEP_CHARS = 100
+const COMPACT_RULE_CHARS = 100
+const COMPACT_REQUIREMENT_CHARS = 120
+const COMPACT_OPEN_STEPS = 10
+/** Phần của trần dành cho dòng bước còn mở và dòng ràng buộc; dòng yêu cầu chưa phủ lấy phần còn lại. */
+const COMPACT_STEPS_ROOM = 550
+const COMPACT_RULES_ROOM = 320
+
+function clipItem(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`
+}
+
+/**
+ * Dòng "Nhãn: a; b; c" thêm từng mục cho tới khi chạm `room` ký tự, kèm "(và N <đơn vị> khác)" khi còn mục chưa ghi
+ * (`hidden` là số mục đã bỏ trước khi gọi). Không mục nào vừa thì không có dòng.
+ */
+function listLine(label: string, unit: string, items: readonly string[], room: number, hidden = 0): string | null {
+  let line = ''
+  let count = 0
+  for (const item of items) {
+    const rest = items.length - count - 1 + hidden
+    const next = `${count === 0 ? `${label}: ` : `${line}; `}${item}`
+    if (`${next}${rest > 0 ? ` (và ${rest} ${unit} khác)` : ''}`.length > room) break
+    line = next
+    count += 1
+  }
+  if (count === 0) return null
+  const rest = items.length - count + hidden
+  return `${line}${rest > 0 ? ` (và ${rest} ${unit} khác)` : ''}`
+}
+
+/** Khối dựng từ trạng thái lúc gọi: mục tiêu, (bước đang làm), bước còn mở kèm số, ràng buộc, yêu cầu chưa phủ; tổng không quá trần. */
+function compactBlock(head: string, brief: Brief, plan: readonly PlanStep[], isReminder: boolean): string {
+  const open = openSteps(plan)
+  const stepItem = (step: PlanStep) => clipItem(`${step.id}. ${step.title}`, COMPACT_STEP_CHARS)
+  const lines = [head, `Mục tiêu: ${clipItem(brief.goal, 200)}`]
+  const current = open.find(step => step.status === 'doing') ?? open[0]
+  if (isReminder && current !== undefined) lines.push(`Đang làm: ${stepItem(current)}`)
+  const room = () => COMPACT_BLOCK_CHARS - lines.join('\n').length - 1
+  const shown = open.slice(0, COMPACT_OPEN_STEPS)
+  const sections: Array<[string, string, string[], number, number]> = [
+    ['Bước còn mở', 'bước', shown.map(stepItem), COMPACT_STEPS_ROOM, open.length - shown.length],
+    ['Ràng buộc', 'ràng buộc', brief.constraints.map(rule => clipItem(rule, COMPACT_RULE_CHARS)), COMPACT_RULES_ROOM, 0],
+    ['Yêu cầu chưa có việc nào phủ', 'yêu cầu', uncoveredRequirements(brief).map(item => clipItem(item, COMPACT_REQUIREMENT_CHARS)), COMPACT_BLOCK_CHARS, 0],
+  ]
+  for (const [label, unit, items, cap, hidden] of sections) {
+    const line = items.length > 0 ? listLine(label, unit, items, Math.min(cap, room()), hidden) : null
+    if (line !== null) lines.push(line)
+  }
+  return lines.join('\n')
+}
+
+/** Khối nối vào instructions của session.compact (luồng chính): điều bản tóm tắt phải giữ nguyên. */
+export function compactKeepText(brief: Brief, plan: readonly PlanStep[]): string {
+  return compactBlock('[focus-conductor] Bản tóm tắt phải giữ nguyên các mục sau (mục tiêu và checklist người dùng đang làm):', brief, plan, false)
+}
+
+/** Khối nhắc gắn một lần vào kết quả tool kế tiếp của luồng chính sau lần nén, dựng từ trạng thái lúc nhắc. */
+export function compactReminderText(brief: Brief, plan: readonly PlanStep[]): string {
+  return compactBlock('[focus-conductor] Hội thoại vừa được nén. Làm tiếp đúng mục tiêu và giữ các ràng buộc đã chốt:', brief, plan, true)
 }

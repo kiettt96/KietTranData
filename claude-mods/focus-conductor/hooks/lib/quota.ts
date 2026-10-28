@@ -13,7 +13,16 @@ export type QuotaZone = 'ok' | 'pause' | 'unknown'
 export type QuotaHit = { kind: QuotaKind; percentUsed: number; remaining: number; resetsAt?: string; threshold: number }
 export type QuotaEval = { zone: QuotaZone; hits: QuotaHit[]; nearest: { kind: QuotaKind; remaining: number } | null }
 export type QuotaThresholds = { session: number; week: number }
-export type QuotaSettings = QuotaThresholds & { enabled: boolean }
+/** Ngưỡng báo mềm (0.7.4), tính bằng phần còn lại; null là tắt. */
+export type QuotaNotice = { session: number | null; week: number | null }
+export type QuotaSettings = QuotaThresholds & {
+  enabled: boolean
+  notice: QuotaNotice
+  /** Ngưỡng báo mềm bị bỏ qua vì không lớn hơn ngưỡng dừng cùng cửa sổ: mỗi câu báo một lần. */
+  noticeIssues: string[]
+}
+/** Một cửa sổ vừa vào vùng báo mềm; `key` (kind cộng mốc làm mới) để mỗi cửa sổ chỉ báo một lần. */
+export type QuotaNoticeHit = { kind: QuotaKind; remaining: number; resetsAt?: string; key: string }
 
 /** Khoảng kẹp của ngưỡng phần còn lại (%): cho phép đặt cao (ví dụ 90) để thử cơ chế mà không đốt hạn mức. */
 export const REMAINING_MIN = 0.5
@@ -30,12 +39,56 @@ export function clampRemaining(raw: unknown, fallback: number): number {
   return Math.min(REMAINING_MAX, Math.max(REMAINING_MIN, value))
 }
 
+/** Ngưỡng báo mềm từ option: vắng, rỗng hay 0 là tắt; số đọc được kẹp như ngưỡng dừng; không đọc được thì tắt. */
+function noticeRemaining(raw: unknown): number | null {
+  if (raw === undefined || raw === null || raw === 0 || (typeof raw === 'string' && (raw.trim() === '' || Number(raw) === 0))) return null
+  const value = clampRemaining(raw, Number.NaN)
+  return Number.isNaN(value) ? null : value
+}
+
 export function quotaSettings(options: Record<string, unknown>): QuotaSettings {
+  const session = clampRemaining(options['pauseSessionRemainingPct'], DEFAULT_SESSION_REMAINING)
+  const week = clampRemaining(options['pauseWeekRemainingPct'], DEFAULT_WEEK_REMAINING)
+  const noticeIssues: string[] = []
+  // Ngưỡng báo phải lớn hơn ngưỡng dừng cùng cửa sổ, nếu không thì vùng báo nằm trong vùng dừng: bỏ qua và nêu lý do.
+  const valid = (name: string, pause: string, soft: number | null, hard: number, window: string): number | null => {
+    if (soft === null || soft > hard) return soft
+    noticeIssues.push(`${name} (${soft}%) phải lớn hơn ${pause} (${hard}%): bỏ qua báo hạn mức ${window}`)
+    return null
+  }
   return {
     enabled: options['quotaGuard'] !== false,
-    session: clampRemaining(options['pauseSessionRemainingPct'], DEFAULT_SESSION_REMAINING),
-    week: clampRemaining(options['pauseWeekRemainingPct'], DEFAULT_WEEK_REMAINING),
+    session,
+    week,
+    notice: {
+      session: valid('noticeSessionRemainingPct', 'pauseSessionRemainingPct', noticeRemaining(options['noticeSessionRemainingPct']), session, 'phiên'),
+      week: valid('noticeWeekRemainingPct', 'pauseWeekRemainingPct', noticeRemaining(options['noticeWeekRemainingPct']), week, 'tuần'),
+    },
+    noticeIssues,
   }
+}
+
+/**
+ * Cửa sổ đang ở vùng báo mềm (0.7.4): số đo hợp lệ, không cũ, phần còn lại không quá ngưỡng báo, và chưa tới vùng dừng
+ * cứng (ở đó chỉ có thông báo dừng như cũ). quotaGuard tắt hay ngưỡng báo tắt thì rỗng. Không lọc các cửa sổ đã báo.
+ */
+export function softNotices(limits: readonly unknown[] | null | undefined, now: number, settings: QuotaSettings): QuotaNoticeHit[] {
+  if (!settings.enabled) return []
+  const out: QuotaNoticeHit[] = []
+  for (const raw of Array.isArray(limits) ? limits : []) {
+    if (typeof raw !== 'object' || raw === null) continue
+    const item = raw as { kind?: unknown; percentUsed?: unknown; resetsAt?: unknown }
+    const kind = item.kind === 'five_hour' || item.kind === 'seven_day' ? item.kind : null
+    if (kind === null || typeof item.percentUsed !== 'number' || !Number.isFinite(item.percentUsed)) continue
+    const resetsAt = typeof item.resetsAt === 'string' ? item.resetsAt : undefined
+    if (isStale(resetsAt, now)) continue
+    const soft = kind === 'five_hour' ? settings.notice.session : settings.notice.week
+    const hard = kind === 'five_hour' ? settings.session : settings.week
+    if (soft === null || !isPastLimit(item.percentUsed, soft) || isPastLimit(item.percentUsed, hard)) continue
+    const remaining = Math.round((100 - item.percentUsed) * 10) / 10
+    out.push({ kind, remaining, ...(resetsAt !== undefined ? { resetsAt } : {}), key: `${kind}:${resetsAt ?? ''}` })
+  }
+  return out
 }
 
 /** Đã chạm vùng dừng: phần đã dùng không nhỏ hơn 100 trừ phần còn lại cho phép (đúng bằng ngưỡng thì dừng). */
@@ -87,7 +140,7 @@ export const HARD_STOP_AFTER = 3
 /** Đầu vào của lệnh bị từ chối được cắt còn bấy nhiêu ký tự khi ghi vào điểm dừng. */
 export const DENIED_INPUT_MAX = 300
 
-export const EMPTY_QUOTA: QuotaState = { zone: 'unknown', readings: [], measuredAt: 0, pause: null, overrideUntil: 0, overrideKinds: [], resumeArmed: false, mainTurnId: '', checkpoint: null, resume: null, discardArmedUntil: 0, recent: [], touched: { goalId: -1, paths: [] } }
+export const EMPTY_QUOTA: QuotaState = { zone: 'unknown', readings: [], measuredAt: 0, pause: null, overrideUntil: 0, overrideKinds: [], resumeArmed: false, mainTurnId: '', checkpoint: null, resume: null, discardArmedUntil: 0, recent: [], touched: { goalId: -1, paths: [] }, noticed: [] }
 
 export function normalizeQuota(raw: Partial<QuotaState> | null | undefined): QuotaState {
   return { ...EMPTY_QUOTA, ...(raw ?? {}) }
