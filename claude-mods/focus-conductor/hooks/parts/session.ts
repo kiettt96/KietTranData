@@ -7,7 +7,7 @@ import { openSteps, restorableSteps } from '../lib/drift'
 import { PLAN_TOOL_SPEC } from '../lib/plan'
 import { describePick, familyOf } from '../lib/route'
 import { clipText, keptLines } from '../lib/decisions'
-import { askRouter, bareBrief, failFields, isSkippable, needsCoverageRecheck, nextBrief, parseRoute, routerFailOf, routerRequest } from '../lib/router'
+import { ROUTER_TASK_LIMIT, askRouter, bareBrief, failFields, isSkippable, needsCoverageRecheck, nextBrief, parseRoute, routerFailOf, routerRequest } from '../lib/router'
 import type { RouterOutcome, RouterPlan } from '../lib/router'
 import { EMPTY_QUOTA, blockingHits, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaSettings, reasonsOf } from '../lib/quota'
 import * as S from '../lib/state'
@@ -257,6 +257,7 @@ export function registerSession(on: On, ctx: Ctx): void {
         return isReuse || prev !== null ? withNotes : S.withDelegations(bare?.goalId ?? -1, [])(withNotes)
       })
       if (bare) {
+        L.goalPrompt = { text, prev, goalId: bare.goalId }
         L.isGoalNew = true
         L.pinnedGoalId = null
         trackDelegations(bare.goalId, [])
@@ -281,12 +282,18 @@ export function registerSession(on: On, ctx: Ctx): void {
     // adoptGoal lưu checklist cũ còn bước mở (khôi phục được bằng plan restore); chi phí router cộng sau, thuộc mục tiêu mới.
     const core = await update($, coreState, c => S.withRouterFail(null)(withUsage(isNewGoal ? S.adoptGoal(brief)(c) : S.withDecision(brief)(c))))
     L.lastPrompt = { text, prev, goalId: brief.goalId }
+    // Router chia quá ROUTER_TASK_LIMIT việc (0.7.5): phần sau bị bỏ khỏi Phân việc, báo một cảnh báo.
+    if (plan.droppedTasks !== undefined) {
+      const total = plan.droppedTasks + ROUTER_TASK_LIMIT
+      await update($, coreState, S.withWarnings({ at: now, kind: 'model', text: `Router chia ${total} việc; giữ ${ROUTER_TASK_LIMIT} việc đầu trong Phân việc, các việc sau làm theo prompt gốc` }))
+    }
     // Ràng buộc hay yêu cầu đã đầy trần (0.7.5): mục mới thay mục cũ nhất không phải quy định model; báo một cảnh báo.
     if (replaced.length > 0) {
       const text = `Ràng buộc và yêu cầu của mục tiêu đã đầy; mục mới thay ${replaced.length} mục cũ: ${replaced.map(item => clipText(item, 60)).join('; ')}`
       await update($, coreState, S.withWarnings({ at: now, kind: 'model', text }))
     }
     if (isNewGoal) {
+      L.goalPrompt = { text, prev, goalId: brief.goalId }
       L.isGoalNew = true
       L.pinnedGoalId = null
       // Ẩn band (nút Ẩn) chỉ có tác dụng trong mục tiêu đang làm: mục tiêu mới thì band hiện lại (0.6.1).

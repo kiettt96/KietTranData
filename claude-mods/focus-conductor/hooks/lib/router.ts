@@ -573,6 +573,8 @@ export type RouterPlan = {
   tasks: Task[]
   /** Lý do các lần kẹp, để ghi nhật ký. */
   notes: string[]
+  /** Số việc router chia vượt TASK_LIMIT bị bỏ (0.7.5); vắng khi không cắt. */
+  droppedTasks?: number
 }
 
 function agentTypeOf(value: unknown, kind: Kind, policy: Policy): string {
@@ -634,7 +636,8 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
   const referenceMain = refRaw ? fitPick(refRaw, kind, policy).pick : undefined
   const whole = { depth, volume, kind }
   const tasks: Task[] = []
-  for (const item of Array.isArray(raw['tasks']) ? raw['tasks'].slice(0, TASK_LIMIT) : []) {
+  const rawTasks = Array.isArray(raw['tasks']) ? raw['tasks'] : []
+  for (const item of rawTasks.slice(0, TASK_LIMIT)) {
     const task = parseTask(item, tasks.length + 1, main.pick, whole, policy)
     if (task) tasks.push(task)
   }
@@ -658,8 +661,12 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
     ...(referenceMain ? { referenceMain } : {}),
     tasks,
     notes: main.notes,
+    ...(rawTasks.length > TASK_LIMIT ? { droppedTasks: rawTasks.length - TASK_LIMIT } : {}),
   }
 }
+
+/** Số việc tối đa router phân cho một prompt. */
+export const ROUTER_TASK_LIMIT = TASK_LIMIT
 
 /** Kết quả router chấm cho một subagent. */
 export type AgentRoute = {
@@ -946,6 +953,15 @@ export async function askRouter<T extends { confidence?: number }>(
   const first = await ask(request).catch(() => null)
   const usages = first ? [first.usage] : []
   const limits = (last: ModelCompleteResult | null) => ({ timeoutMs: request.timeoutMs ?? null, maxTokens: request.maxTokens ?? null, outputTokens: last ? last.usage.output_tokens : null })
+  // Hết giờ chờ (0.7.5): thử lại đúng một lần cùng request nếu hạn chung còn ít nhất RETRY_MIN_MS, với thời gian chờ là phần còn lại.
+  if (first !== null && !first.isAnswered && first.reason === 'aborted') {
+    const left = budget - (now() - startedAt)
+    if (left < RETRY_MIN_MS) return { result: null, reason: failureReason(first), usages, retried: false, failure: failureKind(first), ...limits(first) }
+    const again = await ask({ ...request, timeoutMs: Math.min(request.timeoutMs ?? left, left) }).catch(() => null)
+    if (again) usages.push(again.usage)
+    const result = again?.isAnswered ? parse(again.text) : null
+    return { result, reason: result === null ? failureReason(again) : '', usages, retried: true, failure: result === null ? failureKind(again) : null, ...limits(again ?? first) }
+  }
   const firstResult = first?.isAnswered ? parse(first.text) : null
   const firstConfidence = firstResult?.confidence ?? 1
   const isConfident = firstResult !== null && firstConfidence >= LOW_CONFIDENCE

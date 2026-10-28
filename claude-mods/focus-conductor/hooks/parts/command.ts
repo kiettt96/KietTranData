@@ -181,7 +181,10 @@ export function registerCommand(on: On, ctx: Ctx): void {
       if ((await read($, mode)) === 'off') return { text: 'Focus Conductor đang tắt (mode off); bật lại bằng /conductor mode auto.' }
       const before = S.normalizeCore(await read($, coreState))
       const current = before.brief
-      const last = L.lastPrompt
+      // Router đọc được prompt gần nhất (0.7.5): đọc lại prompt đã lập mục tiêu hiện tại, không phải prompt tiếp nối ngắn gần nhất.
+      // Lần đọc gần nhất lỗi thì đọc lại chính prompt đó như cũ.
+      const isGoalRead = before.routerFail === null && L.goalPrompt !== null && L.goalPrompt.goalId === (current?.goalId ?? null)
+      const last = isGoalRead ? L.goalPrompt : L.lastPrompt
       if (last === null || (current?.goalId ?? null) !== last.goalId) {
         return { text: 'Không có prompt nào của mục tiêu hiện tại để router đọc lại. Đặt mục tiêu bằng /conductor goal kèm mô tả.' }
       }

@@ -24,7 +24,8 @@ describe('0.7.2 1: nhãn lỗi router trên status line', () => {
 
   test('router đọc được ở prompt sau: nhãn lỗi biến mất', {}, async ($, on) => {
     let n = 0
-    const seen = base(on, { router: () => (++n === 1 ? ROUTER_TIMEOUT : plan({ goal: 'Sửa lớn' })) })
+    // 0.7.5 B13: hết giờ thì router được hỏi lại một lần; lượt đọc lỗi là hai lần hết giờ liên tiếp.
+    const seen = base(on, { router: () => (++n <= 2 ? ROUTER_TIMEOUT : plan({ goal: 'Sửa lớn' })) })
     await submit($, COMPLEX_PROMPT)
     expect(last(seen)).toContain('router lỗi')
     await submit($, 'Làm lại từ đầu')
@@ -67,7 +68,8 @@ describe('0.7.2 1: nhật ký và /conductor status', () => {
 
   test('/conductor status hiện lần lỗi gần nhất kể cả khi chưa có mục tiêu, và hết khi router đọc được', {}, async ($, on) => {
     let n = 0
-    base(on, { router: () => (++n === 1 ? ROUTER_TIMEOUT : plan({ goal: 'Sửa lớn' })) })
+    // 0.7.5 B13: hết giờ thì router được hỏi lại một lần; lượt đọc lỗi là hai lần hết giờ liên tiếp.
+    base(on, { router: () => (++n <= 2 ? ROUTER_TIMEOUT : plan({ goal: 'Sửa lớn' })) })
     await submit($, COMPLEX_PROMPT)
     const failed = String((await conductor($, 'status')).text)
     expect(failed).toContain('Router lỗi gần nhất')
