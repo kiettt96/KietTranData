@@ -165,6 +165,12 @@
       "description": "Như noticeWeekRemainingPct, cho hạn mức phiên (5 giờ). 0 là tắt. Phải lớn hơn pauseSessionRemainingPct, nếu không thì bị bỏ qua. Mặc định 0",
       "default": 0
     },
+    "pauseAllowPaths": {
+      "type": "string",
+      "title": "Đường dẫn vẫn được ghi khi dừng vì hạn mức",
+      "description": "Đường dẫn phân tách bằng dấu phẩy (tương đối theo thư mục gốc của phiên hoặc tuyệt đối), ví dụ: .checkpoint/. Khi dừng cứng vì hạn mức, luồng chính vẫn được Write, Edit, hay chạy Bash mà mọi đích ghi nằm trong các đường dẫn này, để ghi file checkpoint theo quy tắc dừng của prompt. Rỗng là như cũ: chỉ tool plan được qua. Mặc định rỗng",
+      "default": ""
+    },
     "uiLanguage": {
       "type": "string",
       "title": "Ngôn ngữ giao diện",

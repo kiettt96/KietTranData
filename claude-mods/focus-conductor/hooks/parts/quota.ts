@@ -7,8 +7,9 @@ import type { EngineInterface, On } from 'claude-code'
 import type { QuotaCheckpoint, QuotaPause, QuotaState } from '../../types'
 import { addTouched, buildCheckpoint, pruneKeys, pushRecent, recentLine, storeKey } from '../lib/checkpoint'
 import type { CheckpointInput } from '../lib/checkpoint'
-import { classifyBash, filePathOf, isMutation, restorableSteps } from '../lib/drift'
-import { EMPTY_QUOTA, QUOTA_CACHE_MS, deniedInput, evaluateQuota, blockingHits, isPauseActive, newPause, normalizeQuota, noteDenial, overrideOf, quotaSettings, reasonsOf, softNotices } from '../lib/quota'
+import { classifyBash, filePathOf, isInScope, isMutation, restorableSteps } from '../lib/drift'
+import { FILE_TOOLS } from '../lib/drift/tool'
+import { EMPTY_QUOTA, QUOTA_CACHE_MS, deniedInput, evaluateQuota, blockingHits, isPauseActive, newPause, normalizeQuota, noteDenial, overrideOf, allowScopes, pauseAllowPaths, quotaSettings, reasonsOf, softNotices } from '../lib/quota'
 import type { QuotaEval } from '../lib/quota'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
@@ -176,8 +177,28 @@ async function warnNoticeIssues($: EngineInterface, issues: readonly string[], f
   $.ui.toast(`Focus Conductor: ${issues.join('; ')}`)
 }
 
+/**
+ * Lời gọi ghi mà mọi đích nằm trong pauseAllowPaths (0.7.5): Write, Edit (tool file) có đường dẫn; Bash chỉ gồm tác động
+ * ghi, đọc được mọi đích (không có đích lạ) và có ít nhất một đích. Đường dẫn tương đối neo theo thư mục gốc của phiên
+ * (của Bash thì theo thư mục làm việc), như phạm vi.
+ */
+async function isAllowedWrite($: EngineInterface, input: Record<string, unknown> & { tool: string }, allowPaths: readonly string[]): Promise<boolean> {
+  const root = await $.session.root().catch(() => null)
+  if (input.tool === 'Bash') {
+    const classified = classifyBash(String(input['command'] ?? ''))
+    if (classified.isUnknown || classified.paths.length === 0 || !classified.effects.every(effect => effect.kind === 'write')) return false
+    const cwd = await $.session.cwd().catch(() => null)
+    return classified.paths.every(path => isInScope(path, allowPaths, root, cwd))
+  }
+  if (!FILE_TOOLS.has(input.tool)) return false
+  const path = filePathOf({ tool: input.tool, input, isError: false, isReadOnly: false })
+  return path !== '' && isInScope(path, allowPaths, root, null)
+}
+
 export function registerQuota(on: On, ctx: Ctx): void {
   const settings = quotaSettings(ctx.options)
+  const allowPaths = pauseAllowPaths(ctx.options)
+  const allowScope = allowScopes(allowPaths)
   const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
   const cache: LimitCache = { at: Number.NEGATIVE_INFINITY, limits: null }
   const noticeFlag = { isWarned: false }
@@ -287,6 +308,8 @@ export function registerQuota(on: On, ctx: Ctx): void {
       const due = e.agentId === undefined ? softNotices(limits, now, settings).filter(hit => !shown.includes(hit.key)) : []
       const noticed = due.length > 0 ? { ...result, context: [...(result.context ?? []), quotaNoticeText(due)] } : result
       if (due.length > 0) {
+        // Turn đã nhận câu báo mềm (0.7.5): Stop của turn này không chặn vì checklist còn mở (quy tắc dừng của prompt áp được).
+        ctx.local.noticeTurn = ctx.local.tracker.turnId
         await update($, quotaState, c => {
           const n = normalizeQuota(c)
           return { ...n, noticed: [...n.noticed, ...due.map(hit => hit.key)].slice(-8) }
@@ -317,6 +340,8 @@ export function registerQuota(on: On, ctx: Ctx): void {
     // Tool plan của chính mod được qua: Claude cần nó để ghi điểm dừng.
     if (e.tool === PLAN_TOOL_FULL) return next(e)
     const isAgent = e.agentId !== undefined
+    // pauseAllowPaths (0.7.5): luồng chính vẫn ghi được file checkpoint theo quy tắc dừng của prompt.
+    if (!isAgent && allowPaths.length > 0 && (await isAllowedWrite($, e as unknown as Record<string, unknown> & { tool: string }, allowScope))) return next(e)
     let abort = false
     if (!isAgent) {
       const noted = noteDenial(pause, q.mainTurnId, { tool: e.tool, input: deniedInput(e as unknown as Record<string, unknown>) })
@@ -335,6 +360,6 @@ export function registerQuota(on: On, ctx: Ctx): void {
     // Dừng cứng dự phòng: model vẫn gọi tool bị từ chối lần thứ ba trong cùng turn. Gọi tại ranh giới tool call,
     // lệnh bị từ chối chưa chạy.
     if (abort) await $.turn.abort({ turnId: q.mainTurnId }).catch(() => undefined)
-    return { deny: quotaDenyText(saved.reason, saved.source === 'user', isAgent) }
+    return { deny: quotaDenyText(saved.reason, saved.source === 'user', isAgent, allowPaths) }
   }).catch(($, e, next) => next(e))
 }

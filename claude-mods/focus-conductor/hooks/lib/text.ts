@@ -358,8 +358,10 @@ export function stopBlockReason(plan: readonly PlanStep[], failed: readonly stri
     parts.push(
       `[focus-conductor] Checklist còn ${open.length} bước mở: ` +
         `${open.map(s => `${s.id}. ${s.title}`).join('; ')}. ` +
-        `Hoàn thành các bước đó, hoặc cập nhật trạng thái bằng ${PLAN_TOOL_FULL} ` +
-        '(skipped, blocked hoặc waiting kèm lý do) trước khi kết thúc. Đang chờ lệnh nền, tiến trình hay người dùng thì ghi waiting; blocked dành cho vướng mắc không tự gỡ được. ' +
+        // 0.7.5: hướng dẫn waiting đứng trước, để việc đang chờ (kể cả dừng theo quy tắc hạn mức của prompt) không bị đẩy làm tiếp.
+        'Đang chờ lệnh nền, tiến trình, người dùng hay đang dừng theo quy tắc dừng theo hạn mức của prompt thì ghi waiting; blocked dành cho vướng mắc không tự gỡ được. ' +
+        `Còn lại thì hoàn thành các bước đó, hoặc cập nhật trạng thái bằng ${PLAN_TOOL_FULL} ` +
+        '(skipped, blocked hoặc waiting kèm lý do) trước khi kết thúc. ' +
         'Dừng cả checklist theo lệnh người dùng: một lần gọi action "update" với allOpen true, status waiting hoặc blocked và một note chung.',
     )
   }
@@ -446,11 +448,16 @@ export function withQuotaNoticeStatus(base: string | undefined, hits: readonly Q
 }
 
 /** Lý do từ chối tool khi đang dừng: luồng chính ghi điểm dừng rồi kết thúc; subagent kết thúc ngay. */
-export function quotaDenyText(reasons: readonly QuotaReason[], isUser: boolean, isAgent: boolean): string {
+export function quotaDenyText(reasons: readonly QuotaReason[], isUser: boolean, isAgent: boolean, allowPaths: readonly string[] = []): string {
   const cause = `[focus-conductor] Tạm dừng: ${pauseCause(reasons, isUser)}.`
   if (isAgent) return `${cause} Subagent không gọi tool nào khác; kết thúc ngay và báo ngắn phần đã làm, phần còn dở.`
+  // pauseAllowPaths (0.7.5): luồng chính vẫn ghi được file checkpoint theo quy tắc dừng của prompt.
+  const allowed =
+    allowPaths.length > 0
+      ? ` Vẫn được ghi (Write, Edit, hay Bash có đích nằm hết) vào các đường dẫn của pauseAllowPaths: ${allowPaths.join(', ')}, ví dụ file checkpoint theo quy tắc dừng của prompt.`
+      : ''
   return (
-    `${cause} Không gọi tool nào khác. Gọi ${PLAN_TOOL_FULL} với action "checkpoint" và note nêu: bước kế tiếp cụ thể, ` +
+    `${cause} Không gọi tool nào khác.${allowed} Gọi ${PLAN_TOOL_FULL} với action "checkpoint" và note nêu: bước kế tiếp cụ thể, ` +
     'những gì đã hoàn tất không được làm lại, và điều cần kiểm khi quay lại. Sau đó kết thúc turn bằng một câu báo điểm dừng ' +
     `và nhắc người dùng chạy tiếp bằng ${resumeCommand(isUser)}.`
   )

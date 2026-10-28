@@ -12,7 +12,10 @@ const PLAN = 'mcp__focus-conductor__plan'
 type Out = { deny?: string; context?: string[] }
 const call = ($: Engine, input: Record<string, unknown>) => $.tool.call(input as never) as Promise<Out>
 const engineTools = (on: Parameters<typeof base>[0]) => {
-  for (const tool of ['Write', 'Edit', 'Bash', 'Read']) on('tool.call', { tool }, () => ({ result: 'ok' }))
+  on('tool.call', { tool: 'Write' }, () => ({ result: 'ok' }))
+  on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+  on('tool.call', { tool: 'Bash' }, () => ({ result: 'ok' }))
+  on('tool.call', { tool: 'Read' }, () => ({ result: 'ok' }))
 }
 
 describe('0.7.5 A6: pauseAllowPaths khi dừng cứng', () => {
@@ -35,6 +38,7 @@ describe('0.7.5 A6: pauseAllowPaths khi dừng cứng', () => {
     expect((await call($, { tool: 'Edit', file_path: '/repo/src/a.ts', old_string: 'a', new_string: 'b' })).deny).toContain('Tạm dừng')
     expect((await call($, { tool: 'Bash', command: '/usr/bin/python3 -B scripts/ghi.py > .checkpoint/a.md' })).deny).toContain('Tạm dừng')
     expect((await call($, { tool: 'Bash', command: 'ls /repo' })).deny).toContain('Tạm dừng')
+    expect((await call($, { tool: 'Bash', command: 'npm test > .checkpoint/test.txt' })).deny).toContain('Tạm dừng')
     expect((await call($, { tool: 'Write', file_path: '/repo/.checkpointx/a.md', content: 'x' })).deny).toContain('Tạm dừng')
   })
 

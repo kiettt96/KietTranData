@@ -403,6 +403,8 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     if (ctx.options['enforceChecklist'] !== true || (await read($, mode)) === 'off') return result
     // Đang dừng vì hạn mức (hay người dùng tạm dừng): cho kết thúc, nếu không sẽ vòng lặp chặn khi mọi tool bị từ chối.
     if (normalizeQuota(await read($, quotaState)).pause !== null) return result
+    // Turn đã nhận câu báo hạn mức mềm (0.7.5): quy tắc dừng theo hạn mức của prompt có thể đang áp, cho kết thúc.
+    if (L.noticeTurn !== null && L.noticeTurn === L.tracker.turnId) return result
     const core = S.normalizeCore(await read($, coreState))
     const failed = failedFor(core.brief)
     if (isGoalDone(core.plan) && failed.length === 0) return result

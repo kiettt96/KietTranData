@@ -69,6 +69,23 @@ export function quotaSettings(options: Record<string, unknown>): QuotaSettings {
 }
 
 /**
+ * Option pauseAllowPaths (0.7.5): các đường dẫn (phân tách bằng dấu phẩy, tương đối theo thư mục gốc của phiên hoặc tuyệt
+ * đối) mà luồng chính vẫn được ghi khi dừng cứng, như file checkpoint theo quy tắc dừng của prompt. Mục rỗng bị bỏ.
+ */
+export function pauseAllowPaths(options: Record<string, unknown>): string[] {
+  const raw = options['pauseAllowPaths']
+  return typeof raw === 'string' ? raw.split(',').map(item => item.trim()).filter(item => item !== '') : []
+}
+
+/**
+ * Mục pauseAllowPaths ở dạng phạm vi (0.7.5): mục kết thúc bằng "/" luôn là thư mục, kể cả tên có dấu chấm như
+ * ".checkpoint/" (phạm vi coi "tên.đuôi" không có "/" là tên file), nên mục tương đối một tầng được viết thành "./tên".
+ */
+export function allowScopes(paths: readonly string[]): string[] {
+  return paths.map(path => (path.endsWith('/') && !path.startsWith('/') && !path.slice(0, -1).includes('/') ? `./${path}` : path))
+}
+
+/**
  * Cửa sổ đang ở vùng báo mềm (0.7.4): số đo hợp lệ, không cũ, phần còn lại không quá ngưỡng báo, và chưa tới vùng dừng
  * cứng (ở đó chỉ có thông báo dừng như cũ). quotaGuard tắt hay ngưỡng báo tắt thì rỗng. Không lọc các cửa sổ đã báo.
  */
