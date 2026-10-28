@@ -71,12 +71,11 @@ export function registerUi(on: On, ctx: Ctx): void {
     // Mục Hạn mức theo số đo đã lưu (không gọi engine khi vẽ), cùng số liệu với /conductor status.
     const settings = quotaSettings(ctx.options)
     const q = normalizeQuota(await read($, quotaState))
-    const quota = settings.enabled
-      ? quotaPaneText(
-          quotaOverview({ enabled: true, limits: q.readings, thresholds: settings, pause: q.pause, overrideUntil: q.overrideUntil, overrideKinds: q.overrideKinds, checkpoint: q.checkpoint, now }),
-          current.lang,
-        )
+    const overview = settings.enabled
+      ? quotaOverview({ enabled: true, limits: q.readings, thresholds: settings, pause: q.pause, overrideUntil: q.overrideUntil, overrideKinds: q.overrideKinds, checkpoint: q.checkpoint, now })
       : null
+    // Chưa có số đo, không dừng, không có điểm dừng (0.7.5): ẩn mục Hạn mức, nhường chỗ cho checklist.
+    const quota = overview !== null && (overview.state !== 'none' || overview.checkpoint !== null) ? quotaPaneText(overview, current.lang) : null
     return renderPane($.ui.resolve(e), current, { columns: e.props.bodyColumns, placement: e.props.placement, isResetArmed, now }, {
       onMode: picked => update($, modeState, () => picked),
       onReset: async () => {

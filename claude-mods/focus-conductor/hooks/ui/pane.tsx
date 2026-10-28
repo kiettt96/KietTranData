@@ -549,10 +549,7 @@ export function renderPane(
   return (
     <Box flexDirection="column" gap={1} width={width}>
       {header}
-      {modeRow}
-      {quotaNode}
-      {alerts}
-      {hintNode}
+      {/* 0.7.5: checklist và tiến độ từng việc ngay sau phần đầu, để pane 16 dòng thấy được chúng; chế độ, hạn mức, cảnh báo sau. */}
       <Box flexDirection="column">
         {heading(plan.length > 0 ? 'Checklist' : l.planned, plan.length > 0 ? countLabel(plan) : undefined)}
         {source === 'mirror' ? (
@@ -568,6 +565,10 @@ export function renderPane(
           {taskNodes}
         </Box>
       ) : null}
+      {modeRow}
+      {quotaNode}
+      {alerts}
+      {hintNode}
       <Box flexDirection="column">
         {heading(l.mainRouting)}
         {routeNode}
