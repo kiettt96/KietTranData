@@ -47,6 +47,11 @@ export type TurnTracker = {
   failures: Map<string, number>
   budgetLevel: number
   outOfScope: Set<string>
+  /**
+   * Số mốc checkpoint đã nhắc của bộ đếm hiện tại (0.7.5): nhắc khi số mốc đã qua lớn hơn số này, kể cả khi ghi của subagent
+   * làm bộ đếm vượt mốc giữa hai lời gọi của luồng chính; lệnh kiểm đạt đặt lại về 0.
+   */
+  checkpointMark: number
 }
 
 export function newTracker(turnId: string): TurnTracker {
@@ -66,6 +71,7 @@ export function newTracker(turnId: string): TurnTracker {
     failures: new Map(),
     budgetLevel: 0,
     outOfScope: new Set(),
+    checkpointMark: 0,
   }
 }
 
@@ -166,6 +172,7 @@ export function trackVerification(tracker: TurnTracker, observation: ToolObserva
     if (tracker.pending.size === 0) {
       tracker.isVerified = true
       tracker.mutationsSinceCheck = 0
+      tracker.checkpointMark = 0
     }
   }
   return writes
@@ -237,10 +244,7 @@ export function observe(
     }
   }
 
-  // Lần gọi này có làm tăng bộ đếm thay đổi không (để checkpoint chỉ báo đúng lúc đếm đủ bội số).
-  const before = tracker.mutationsSinceCheck
   const writes = trackVerification(tracker, observation)
-  const isCounted = writes > 0 && tracker.mutationsSinceCheck > before
   // Đếm lỗi lặp (0.7.5): chính lệnh đó chạy đạt thì đặt lại đếm của nó; có ghi file sau lần lỗi trước thì đặt lại mọi đếm
   // (đã sửa gì đó trước khi thử lại, không phải lặp nguyên trạng).
   if (!observation.isError) {
@@ -330,7 +334,10 @@ export function observe(
     })
   }
 
-  if (isCounted && isCheckpointDue(before, tracker.mutationsSinceCheck)) {
+  // Theo mốc đã nhắc (0.7.5): ghi của subagent vượt mốc giữa hai lời gọi của luồng chính thì lời gọi kế tiếp vẫn nhắc.
+  const passed = checkpointsPassed(tracker.mutationsSinceCheck)
+  if (passed > tracker.checkpointMark) {
+    tracker.checkpointMark = passed
     findings.push({
       kind: 'checkpoint',
       priority: 1,
