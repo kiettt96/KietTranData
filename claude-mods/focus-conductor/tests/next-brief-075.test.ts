@@ -18,7 +18,7 @@ describe('0.7.5 B12: tin cậy thấp khi checklist còn mở', () => {
   })
 
   test('new với tin cậy 0,6, checklist còn bước mở: coi là tiếp nối, giữ mục tiêu', () => {
-    const out = (nextBrief as (...a: unknown[]) => ReturnType<typeof nextBrief> & { held?: boolean })(prev, routed({ relation: 'new', confidence: 0.6, goal: 'Một việc khác' }), 'làm BƯỚC 8', 2, { hasOpenSteps: true })
+    const out = (nextBrief as (...a: unknown[]) => ReturnType<typeof nextBrief> & { held?: boolean })(prev, routed({ relation: 'new', confidence: 0.6, goal: 'Một việc khác' }), 'làm BƯỚC 8', 2, { openSteps: ['Phân tích', 'Làm BƯỚC 8'] })
     expect(out.isNewGoal).toBe(false)
     expect(out.brief.goalId).toBe(4)
     expect(out.brief.goal).toBe('Cập nhật dữ liệu theo 11 bước')
@@ -27,8 +27,8 @@ describe('0.7.5 B12: tin cậy thấp khi checklist còn mở', () => {
 
   test('tin cậy từ 0,8 trở lên, hay checklist không còn bước mở: nhận mục tiêu mới', () => {
     const call = nextBrief as (...a: unknown[]) => ReturnType<typeof nextBrief>
-    expect(call(prev, routed({ relation: 'new', confidence: 0.85, goal: 'Một việc khác' }), 'p', 2, { hasOpenSteps: true }).isNewGoal).toBe(true)
-    expect(call(prev, routed({ relation: 'new', confidence: 0.6, goal: 'Một việc khác' }), 'p', 2, { hasOpenSteps: false }).isNewGoal).toBe(true)
+    expect(call(prev, routed({ relation: 'new', confidence: 0.85, goal: 'Một việc khác' }), 'p', 2, { openSteps: ['Phân tích', 'Làm BƯỚC 8'] }).isNewGoal).toBe(true)
+    expect(call(prev, routed({ relation: 'new', confidence: 0.6, goal: 'Một việc khác' }), 'p', 2, { openSteps: [] }).isNewGoal).toBe(true)
   })
 })
 

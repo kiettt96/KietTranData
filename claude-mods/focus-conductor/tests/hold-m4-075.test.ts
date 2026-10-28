@@ -19,7 +19,7 @@ const prev = makeBrief({
   tasks: STEPS.map((title, i) => ({ index: i + 1, title, run: 'main' as const, pick: { family: 'sonnet' as const, effort: 'medium' as const }, depth: 'light' as const, volume: 'small' as const, kind: 'edit' as const, why: '' })),
   main: { family: 'opus', effort: 'high' },
 })
-const opts = { hasOpenSteps: true, openSteps: STEPS.slice(1) }
+const opts = { openSteps: STEPS.slice(1) }
 const ask = (prompt: string, confidence = 0.75, over: Record<string, unknown> = {}) => call(prev, routed({ relation: 'new', confidence, goal: 'Việc khác', ...over }), prompt, 2, opts)
 
 describe('0.7.5 M4: chỉ giữ mục tiêu khi prompt nhắc tới bước đang mở hay mã của mục tiêu', () => {
@@ -51,12 +51,44 @@ describe('0.7.5 M4: chỉ giữ mục tiêu khi prompt nhắc tới bước đan
     expect(ask('Bước 7: làm đi').held).toBe(true)
     expect(ask('step 7 please').held).toBe(true)
     const coded = makeBrief({ goalId: 4, steps: ['K4.1 Kiểm kê', 'K4.2 Xếp loại'], tasks: [], main: { family: 'opus', effort: 'high' } })
-    expect(call(coded, routed({ relation: 'new', confidence: 0.6, goal: 'Khác' }), 'làm K4.2', 2, { hasOpenSteps: true, openSteps: ['K4.2 Xếp loại'] }).held).toBe(true)
+    expect(call(coded, routed({ relation: 'new', confidence: 0.6, goal: 'Khác' }), 'làm K4.2', 2, { openSteps: ['K4.2 Xếp loại'] }).held).toBe(true)
   })
 
   test('tin cậy từ 0,8 trở lên hay checklist không còn bước mở: mục tiêu mới dù prompt nhắc BƯỚC 6', () => {
     expect(ask('làm tiếp BƯỚC 6', 0.85).isNewGoal).toBe(true)
-    expect(call(prev, routed({ relation: 'new', confidence: 0.6, goal: 'Khác' }), 'làm tiếp BƯỚC 6', 2, { hasOpenSteps: false, openSteps: [] }).isNewGoal).toBe(true)
+    expect(call(prev, routed({ relation: 'new', confidence: 0.6, goal: 'Khác' }), 'làm tiếp BƯỚC 6', 2, { openSteps: [] }).isNewGoal).toBe(true)
+  })
+})
+
+describe('0.7.5 M4: biên của việc nhận ra', () => {
+  const heldBy = (prompt: string, openSteps: string[], over: Partial<Parameters<typeof makeBrief>[0]> = {}) =>
+    call(makeBrief({ goalId: 4, ...over }), routed({ relation: 'new', confidence: 0.6, goal: 'Khác' }), prompt, 2, { openSteps }).held
+
+  test('tiêu đề ngắn phải được nhắc đủ từ; một từ trong hai không đủ', () => {
+    expect(heldBy('xem lại phần thiết kế', ['Phân tích', 'Thiết kế'])).toBe(true)
+    expect(heldBy('phân loại hàng hóa', ['Phân tích', 'Thiết kế'])).toBe(false)
+  })
+
+  test('tiêu đề dài cần ít nhất ba từ và 60% số từ', () => {
+    const title = 'Kiểm kê toàn bộ bước của engine theo từng tệp nguồn'
+    expect(heldBy('kiểm kê toàn bộ bước của engine', [title])).toBe(true)
+    expect(heldBy('kiểm kê toàn bộ', [title])).toBe(false)
+  })
+
+  test('tiêu đề không có từ có nghĩa nào (ký hiệu, chữ số đơn) không bao giờ giữ', () => {
+    expect(heldBy('a 1 abc', ['A 1'])).toBe(false)
+    expect(heldBy('xong chưa', ['??'])).toBe(false)
+  })
+
+  test('mã viết "Step 2", "task 2", "bước 07" khớp việc có mã "Việc 2", "BƯỚC 7"', () => {
+    expect(heldBy('task 2 đi', ['Việc 2: dọn dữ liệu'])).toBe(true)
+    expect(heldBy('làm bước 07', ['BƯỚC 7: ghi'])).toBe(true)
+    expect(heldBy('step 3 nhé', ['BƯỚC 3: lọc'])).toBe(true)
+  })
+
+  test('mã mục tiêu (steps, tasks) không còn mở vẫn tính; mã lạ thì không', () => {
+    expect(heldBy('xem lại K4.1', ['K4.2 Xếp loại'], { steps: ['K4.1 Kiểm kê', 'K4.2 Xếp loại'] })).toBe(true)
+    expect(heldBy('xem lại K9.9', ['K4.2 Xếp loại'], { steps: ['K4.1 Kiểm kê', 'K4.2 Xếp loại'] })).toBe(false)
   })
 })
 

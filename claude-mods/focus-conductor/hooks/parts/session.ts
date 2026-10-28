@@ -277,7 +277,7 @@ export function registerSession(on: On, ctx: Ctx): void {
     }
 
     // Mục tiêu mới, chạy thật prompt đã đối chiếu, hoặc tiếp nối cùng mục tiêu.
-    const { brief, added, isNewGoal, replaced, held } = nextBrief(prev, plan, text, now, { hasOpenSteps: openSteps(before.plan).length > 0 })
+    const { brief, added, isNewGoal, replaced, held } = nextBrief(prev, plan, text, now, { openSteps: openSteps(before.plan).map(s => s.title) })
     // Router xếp mục tiêu mới với tin cậy thấp khi checklist còn bước mở (0.7.5): giữ mục tiêu, ghi nhật ký quyết định.
     if (held && prev !== null) {
       L.promptIntent = { relation: 'continue', kind: plan.kind }

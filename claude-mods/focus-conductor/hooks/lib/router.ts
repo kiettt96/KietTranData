@@ -789,7 +789,7 @@ export function briefOf(plan: RouterPlan, prompt: string, goalId: number, now: n
  * Prompt tiếp nối: giữ mục tiêu và các việc đã phân, nối việc mới (đánh số tiếp theo),
  * thêm ràng buộc và tiêu chí mới, dùng lựa chọn luồng chính và đánh giá mới của router.
  */
-export function followUpOf(prev: Brief, plan: RouterPlan, now: number): { brief: Brief; added: Task[] } {
+export function followUpOf(prev: Brief, plan: RouterPlan, now: number, isHeld = false): { brief: Brief; added: Task[] } {
   const offset = prev.tasks.reduce((max, t) => Math.max(max, t.index), 0)
   // Yêu cầu mới nối vào danh sách (bỏ trùng); covers của việc mới đổi sang số thứ tự trong danh sách đã gộp. Đầy trần thì
   // yêu cầu mới thay yêu cầu cũ (0.7.5): việc cũ không còn phủ chỗ bị thay.
@@ -818,7 +818,7 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number): { brief:
     // Mục tiêu tối thiểu được router đọc lần đầu qua prompt tiếp nối: lấy câu mục tiêu của router nếu có (0.7.2).
     ...(prev.isBare === true && plan.goal ? { goal: plan.goal } : {}),
     // Làm tiếp hay chỉnh thêm (0.7.5): luồng chính không thấp hơn lượt trước (họ và effort); dissatisfied tính lại theo router.
-    main: (plan.relation === 'continue' || plan.relation === 'refine') && prev.main !== null && plan.main !== null ? floorPick(plan.main, prev.main.family, prev.main.effort).pick : plan.main,
+    main: !isHeld && (plan.relation === 'continue' || plan.relation === 'refine') && prev.main !== null && plan.main !== null ? floorPick(plan.main, prev.main.family, prev.main.effort).pick : plan.main,
     why: reasonOf(plan),
     relation: plan.relation,
     source: 'router',
@@ -1026,25 +1026,64 @@ function replacedOf(prev: Brief, next: Brief): string[] {
 /** Tin cậy tối thiểu để nhận mục tiêu mới khi checklist còn bước mở (0.7.5) [Giả định: 0,8, chưa đo trên phiên thật]. */
 export const NEW_GOAL_CONFIDENCE = 0.8
 
+/** Mã trong một câu: số sau BƯỚC, Step, Việc, Task (dạng "buoc7") và mã mục như "k4.2"; so theo chữ bỏ dấu, viết thường. */
+function codesIn(text: string): Set<string> {
+  const folded = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase()
+  const codes = new Set<string>()
+  for (const m of folded.matchAll(/\b(buoc|step|viec|task)\s*#?\s*(\d+)\b/g)) codes.add(`${m[1] === 'step' ? 'buoc' : m[1] === 'task' ? 'viec' : m[1]}${Number(m[2])}`)
+  for (const m of folded.matchAll(/\b([a-z]{1,3}\d+(?:\.\d+)*)\b/g)) codes.add(m[1] ?? '')
+  return codes
+}
+
+/** Từ có nghĩa (bỏ dấu, viết thường, từ 2 ký tự trở lên) của một cụm. */
+function significantWords(text: string): Set<string> {
+  const folded = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase()
+  return new Set(folded.split(/[^a-z0-9]+/).filter(w => w.length >= 2))
+}
+
+/**
+ * Prompt có nhắc tới mục tiêu hiện tại không (0.7.5, vòng sửa 2): nhắc một mã bước hay mã việc có trong các bước, việc của mục
+ * tiêu, hoặc nhắc một bước đang mở theo tiêu đề (mọi từ có nghĩa của tiêu đề có trong prompt khi tiêu đề tới 3 từ; tiêu đề dài
+ * hơn cần ít nhất 3 từ và 60% số từ). Câu khác hẳn không nhắc gì thì không được giữ làm tiếp nối.
+ */
+function mentionsGoal(prompt: string, prev: Brief, openSteps: readonly string[]): boolean {
+  const asked = codesIn(prompt)
+  if (asked.size > 0) {
+    const known = new Set<string>()
+    for (const title of [...prev.steps, ...prev.tasks.map(t => t.title), ...openSteps]) for (const code of codesIn(title)) known.add(code)
+    if ([...asked].some(code => known.has(code))) return true
+  }
+  const words = significantWords(prompt)
+  return openSteps.some(title => {
+    const own = [...significantWords(title)]
+    if (own.length === 0) return false
+    const hit = own.filter(w => words.has(w)).length
+    return own.length <= 3 ? hit === own.length : hit >= 3 && hit / own.length >= 0.6
+  })
+}
+
 /**
  * Brief kế tiếp từ kế hoạch của router: chạy thật prompt đã đối chiếu, mục tiêu mới, hoặc tiếp nối.
  * Chạy thật được xét trước relation, vì "chạy đi" có thể mang relation new mà vẫn là chạy việc đã đối chiếu.
- * `hasOpenSteps` (0.7.5): checklist còn bước mở mà router xếp mục tiêu mới với tin cậy dưới
- * NEW_GOAL_CONFIDENCE thì coi là tiếp nối (`held`), để một prompt nhắc bước kế tiếp không cất checklist đang làm. Nhận mục
- * tiêu mới thì mang theo quy định model của brief trước (đứng đầu) khi prompt mới không nêu quy định model nào.
+ * `openSteps` (0.7.5): tiêu đề các bước còn mở; checklist còn bước mở mà router xếp mục tiêu mới với tin cậy dưới
+ * NEW_GOAL_CONFIDENCE và prompt nhắc tới bước đang mở hay mã bước, mã việc của mục tiêu (mentionsGoal) thì coi là tiếp nối
+ * (`held`), để một prompt nhắc bước kế tiếp không cất checklist đang làm; câu khác hẳn vẫn lập mục tiêu mới. Prompt được giữ
+ * không bị áp sàn main của mục tiêu cũ. Nhận mục tiêu mới thì mang theo quy định model của brief trước (đứng đầu) khi prompt
+ * mới không nêu quy định model nào.
  */
 export function nextBrief(
   prev: Brief | null,
   plan: RouterPlan,
   prompt: string,
   now: number,
-  options: { hasOpenSteps?: boolean } = {},
+  options: { openSteps?: readonly string[] } = {},
 ): { brief: Brief; added: Task[]; isNewGoal: boolean; replaced: string[]; held: boolean } {
   if (prev !== null && prev.isReference && plan.runReference) {
     const brief = promoteReference(prev, plan, prompt, now)
     return { brief, added: [], isNewGoal: true, replaced: replacedOf(prev, brief), held: false }
   }
-  const held = prev !== null && !prev.isReference && plan.relation === 'new' && options.hasOpenSteps === true && plan.confidence < NEW_GOAL_CONFIDENCE
+  const open = options.openSteps ?? []
+  const held = prev !== null && !prev.isReference && plan.relation === 'new' && open.length > 0 && plan.confidence < NEW_GOAL_CONFIDENCE && mentionsGoal(prompt, prev, open)
   if (prev === null || (plan.relation === 'new' && !held)) {
     const fresh = briefOf(plan, prompt, (prev?.goalId ?? 0) + 1, now)
     const carried = prev !== null && !prev.isReference && !plan.constraints.some(isModelRule) ? prev.constraints.filter(isModelRule) : []
@@ -1052,7 +1091,7 @@ export function nextBrief(
     const brief = carried.length > 0 ? { ...fresh, constraints: carriedConstraints, constraintsBase: carriedConstraints.length } : fresh
     return { brief, added: [], isNewGoal: true, replaced: [], held: false }
   }
-  const next = followUpOf(prev, held ? { ...plan, relation: 'continue' } : plan, now)
+  const next = followUpOf(prev, held ? { ...plan, relation: 'continue' } : plan, now, held)
   return { ...next, isNewGoal: false, replaced: replacedOf(prev, next.brief), held }
 }
 
