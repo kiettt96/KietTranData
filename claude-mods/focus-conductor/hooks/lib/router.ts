@@ -975,16 +975,34 @@ function replacedOf(prev: Brief, next: Brief): string[] {
   return [...prev.constraints.filter(x => !next.constraints.includes(x)), ...(prev.requirements ?? []).filter(x => !(next.requirements ?? []).includes(x))]
 }
 
-export function nextBrief(prev: Brief | null, plan: RouterPlan, prompt: string, now: number): { brief: Brief; added: Task[]; isNewGoal: boolean; replaced: string[] } {
+/** Tin cậy tối thiểu để nhận mục tiêu mới khi checklist còn bước mở (0.7.5) [Giả định: 0,8, chưa đo trên phiên thật]. */
+export const NEW_GOAL_CONFIDENCE = 0.8
+
+/**
+ * Brief của lượt router này. `hasOpenSteps` (0.7.5): checklist còn bước mở mà router xếp mục tiêu mới với tin cậy dưới
+ * NEW_GOAL_CONFIDENCE thì coi là tiếp nối (`held`), để một prompt nhắc bước kế tiếp không cất checklist đang làm. Nhận mục
+ * tiêu mới thì mang theo quy định model của brief trước (đứng đầu) khi prompt mới không nêu quy định model nào.
+ */
+export function nextBrief(
+  prev: Brief | null,
+  plan: RouterPlan,
+  prompt: string,
+  now: number,
+  options: { hasOpenSteps?: boolean } = {},
+): { brief: Brief; added: Task[]; isNewGoal: boolean; replaced: string[]; held: boolean } {
   if (prev !== null && prev.isReference && plan.runReference) {
     const brief = promoteReference(prev, plan, prompt, now)
-    return { brief, added: [], isNewGoal: true, replaced: replacedOf(prev, brief) }
+    return { brief, added: [], isNewGoal: true, replaced: replacedOf(prev, brief), held: false }
   }
-  if (prev === null || plan.relation === 'new') {
-    return { brief: briefOf(plan, prompt, (prev?.goalId ?? 0) + 1, now), added: [], isNewGoal: true, replaced: [] }
+  const held = prev !== null && !prev.isReference && plan.relation === 'new' && options.hasOpenSteps === true && plan.confidence < NEW_GOAL_CONFIDENCE
+  if (prev === null || (plan.relation === 'new' && !held)) {
+    const fresh = briefOf(plan, prompt, (prev?.goalId ?? 0) + 1, now)
+    const carried = prev !== null && !prev.isReference && !plan.constraints.some(isModelRule) ? prev.constraints.filter(isModelRule) : []
+    const brief = carried.length > 0 ? { ...fresh, constraints: unique([...carried, ...fresh.constraints], 12) } : fresh
+    return { brief, added: [], isNewGoal: true, replaced: [], held: false }
   }
-  const next = followUpOf(prev, plan, now)
-  return { ...next, isNewGoal: false, replaced: replacedOf(prev, next.brief) }
+  const next = followUpOf(prev, held ? { ...plan, relation: 'continue' } : plan, now)
+  return { ...next, isNewGoal: false, replaced: replacedOf(prev, next.brief), held }
 }
 
 /**
