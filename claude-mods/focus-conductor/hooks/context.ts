@@ -118,10 +118,10 @@ export function createContext(options: PluginOptions) {
     delegation: newDelegation(),
     /**
      * Giữ mục tiêu qua lần nén (0.7.4): `pending` là lời nhắc sau nén còn chờ gắn vào tool call kế tiếp của luồng chính;
-     * `hooked` là đã có session.compact thật từ lần đo context trước (để đường dự phòng không nhắc trùng); `lastContext` là
-     * context luồng chính đo được lần trước (0 khi chưa đo).
+     * `lastContext` là context luồng chính đo được lần trước, hay context sau lần nén qua hook (0.7.5, tokensAfter; 0 khi
+     * chưa đo hay engine không ghi), để đường dự phòng không nhắc trùng.
      */
-    compaction: { pending: false, hooked: false, lastContext: 0 },
+    compaction: { pending: false, lastContext: 0 },
     /** Turn luồng chính đã nhận câu báo hạn mức mềm (0.7.5): Stop của turn đó không chặn vì checklist còn mở. */
     noticeTurn: null as string | null,
     /** Khóa lệnh ghi không rõ đích đã cảnh báo, theo mục tiêu (0.7.5): không cảnh báo lại ở mỗi turn. */
@@ -326,7 +326,7 @@ export function createContext(options: PluginOptions) {
     local.routerTimes = []
     local.turnRoute = { turnId: '', route: null }
     local.turnContext = 0
-    local.compaction = { pending: false, hooked: false, lastContext: 0 }
+    local.compaction = { pending: false, lastContext: 0 }
     local.noticeTurn = null
     local.unknownWrites = { goalId: -1, keys: new Set() }
     local.goalPrompt = null
@@ -376,14 +376,22 @@ export function createContext(options: PluginOptions) {
   }
 
   /**
-   * Đường dự phòng của lời nhắc sau nén (0.7.4): context luồng chính đo được giảm dưới COMPACTION_DROP so với lần đo trước mà
-   * không có session.compact thật xen giữa thì coi như đã nén. Lần nén đã đặt nhắc qua hook thì không nhắc lần nữa.
+   * Đường dự phòng của lời nhắc sau nén (0.7.4): context luồng chính đo được giảm dưới COMPACTION_DROP so với mốc trước thì coi
+   * như đã nén. Lần nén qua hook đặt mốc là context sau nén (noteCompacted), nên lần đo sau nó không nhắc trùng.
    */
   function noteContext(tokens: number): void {
     const c = local.compaction
-    if (c.lastContext > 0 && tokens < COMPACTION_DROP * c.lastContext && !c.hooked) c.pending = true
-    c.hooked = false
+    if (c.lastContext > 0 && tokens < COMPACTION_DROP * c.lastContext) c.pending = true
     c.lastContext = tokens
+  }
+
+  /**
+   * Lần nén thật qua hook session.compact (0.7.5, gia cố): đặt lời nhắc sau nén và lấy context sau nén (tokensAfter) làm mốc
+   * cho đường dự phòng; engine không ghi tokensAfter thì mốc là 0 (lần đo kế tiếp chỉ đặt mốc, không nhắc).
+   */
+  function noteCompacted(tokensAfter: number | undefined): void {
+    local.compaction.pending = true
+    local.compaction.lastContext = tokensAfter ?? 0
   }
 
   /** Cache đã nguội (quá TTL), hoặc ngữ cảnh vừa bị nén: đổi model không mất chi phí ghi lại. */
@@ -651,6 +659,7 @@ export function createContext(options: PluginOptions) {
     decideTurn,
     isCacheFree,
     noteContext,
+    noteCompacted,
     decisionLog,
     decisionText,
     flushDecisions,
