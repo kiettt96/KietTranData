@@ -151,11 +151,14 @@ async function session($: Engine, on: On): Promise<Measure> {
   const pane = await $.ui.mount(PANE)
   const texts = (await pane.findAll({ type: 'Text' })).map(e => e.text)
   await pane.unmount()
-  // Dòng tiến độ của từng bước lọc tin: tiêu đề "Việc N: BƯỚC k" rồi dòng đếm lô ngay sau.
+  // Dòng tiến độ của từng bước lọc tin: nhãn là chính tiêu đề mang mã BƯỚC (vòng sửa 2, L6: không ghép "Việc N:"), rồi dòng đếm lô.
   m.taskRows = FILTER_STEPS.map(k => {
-    const at = texts.indexOf(`Việc ${k + 1}: ${TITLES[k]}`)
-    const count = at < 0 ? undefined : texts.slice(at + 1, at + 6).find(t => /lô xong/.test(t))
-    return at < 0 ? '' : `${texts[at]} | ${count ?? ''}`
+    const hit = texts
+      .map((t, i) => ({ t, i }))
+      .filter(x => x.t === TITLES[k])
+      .map(x => ({ label: x.t, count: texts.slice(x.i + 1, x.i + 6).find(t => /lô xong/.test(t)) }))
+      .find(x => x.count !== undefined)
+    return hit === undefined ? '' : `${hit.label} | ${hit.count ?? ''}`
   })
   return m
 }
@@ -169,7 +172,7 @@ describe('0.7.5 mục 6: nghiệm thu phiên dài', () => {
     // Lệnh kiểm qua | tail được tính: mỗi bước vừa đóng được nâng verified ngay, đúng bước đó.
     expect(m.autoVerifiedAtClose).toEqual(TITLES.map(() => true))
     // Subagent mô tả "BƯỚC N" khớp đúng việc, và dòng tiến độ đếm đúng: mỗi bước lọc tin 100/100 lô xong.
-    expect(m.taskRows).toEqual(FILTER_STEPS.map(k => `Việc ${k + 1}: ${TITLES[k]} | ${AGENTS_PER_STEP}/${AGENTS_PER_STEP} lô xong`))
+    expect(m.taskRows).toEqual(FILTER_STEPS.map(k => `${TITLES[k]} | ${AGENTS_PER_STEP}/${AGENTS_PER_STEP} lô xong`))
     // Tổng ký tự mod chèn vào kết quả tool không quá 20.000 [mục tiêu của đặc tả].
     expect(m.injectedChars).toBeLessThanOrEqual(20_000)
     // Cảnh báo phạm vi không quá một lần mỗi script.
