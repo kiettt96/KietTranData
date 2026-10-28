@@ -23,12 +23,12 @@ describe('0.7.5 B8: chỉ script tên kiểu kiểm', () => {
   })
 })
 
-describe('0.7.5 B8: tiền tố thư mục', () => {
-  test('thư mục có script không phải kiểm: không gợi ý tiền tố, nêu từng script kiểm', () => {
-    expect(suggestCheckCommands(logOf('python3 tests/a-check.py', 'python3 tests/b-check.py', 'python3 tests/build.py'))).toEqual(['python3 tests/b-check.py', 'python3 tests/a-check.py'])
+describe('0.7.5 B8: thư mục có script không phải kiểm', () => {
+  test('thư mục có script không phải kiểm: nêu từng script kiểm (không gợi ý tiền tố thư mục từ vòng sửa 2)', () => {
+    expect(suggestCheckCommands(logOf('python3 tests/check-a.py', 'python3 tests/check-b.py', 'python3 tests/build.py'))).toEqual(['python3 tests/check-b.py', 'python3 tests/check-a.py'])
   })
 
-  test('mọi script trong thư mục đều kiểu kiểm: gợi ý tiền tố như cũ', () => {
-    expect(suggestCheckCommands(logOf('python3 tests/a-check.py', 'python3 tests/b-check.py'))).toEqual(['python3 tests/'])
+  test('mọi script trong thư mục đều kiểu kiểm: cũng nêu từng script', () => {
+    expect(suggestCheckCommands(logOf('python3 tests/check-a.py', 'python3 tests/check-b.py'))).toEqual(['python3 tests/check-b.py', 'python3 tests/check-a.py'])
   })
 })

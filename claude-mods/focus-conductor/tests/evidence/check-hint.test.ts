@@ -19,7 +19,7 @@ describe('0.5.6 A2: ví dụ gợi ý lấy từ lệnh script đã chạy', () 
     expect(suggestCheckCommands(logOf('python3 check_totals.py --final'))).toEqual(['python3 check_totals.py'])
     expect(suggestCheckCommands(logOf('node scripts/audit.mjs --all'))).toEqual(['node scripts/audit.mjs'])
     // 0.7.5 B8: chỉ script tên kiểu kiểm được gợi ý (trước đây run.sh cũng được).
-    expect(suggestCheckCommands(logOf('bash ./run-check.sh x'))).toEqual(['bash ./run-check.sh'])
+    expect(suggestCheckCommands(logOf('bash ./check-run.sh x'))).toEqual(['bash ./check-run.sh'])
   })
 
   test('cờ của trình thông dịch đứng trước script bị bỏ qua', () => {
@@ -40,12 +40,12 @@ describe('0.5.6 A2: ví dụ gợi ý lấy từ lệnh script đã chạy', () 
   test('tên tiếng Việt không dấu và tiếng Anh đều khớp mẫu', () => {
     expect(suggestCheckCommands(logOf('python3 xu_ly.py', 'python3 kiem_tra_tong.py'))[0]).toBe('python3 kiem_tra_tong.py')
     expect(suggestCheckCommands(logOf('python3 xu_ly.py', 'python3 verify_counts.py'))[0]).toBe('python3 verify_counts.py')
-    expect(suggestCheckCommands(logOf('python3 xu_ly.py', 'python3 db-audit.py'))[0]).toBe('python3 db-audit.py')
+    expect(suggestCheckCommands(logOf('python3 xu_ly.py', 'python3 audit-db.py'))[0]).toBe('python3 audit-db.py')
   })
 
   test('cùng mức ưu tiên thì lệnh chạy gần nhất trước; tối đa hai ví dụ', () => {
     // 0.7.5 B8: dùng tên kiểu kiểm (a.py, b.py, c.py không còn được gợi ý).
-    expect(suggestCheckCommands(logOf('python3 a-check.py', 'python3 b-check.py', 'python3 c-check.py'))).toEqual(['python3 c-check.py', 'python3 b-check.py'])
+    expect(suggestCheckCommands(logOf('python3 check-a.py', 'python3 check-b.py', 'python3 check-c.py'))).toEqual(['python3 check-c.py', 'python3 check-b.py'])
   })
 
   test('lệnh lỗi không là ứng viên', () => {
@@ -108,6 +108,6 @@ describe('0.5.6 A: ghim thêm cho ứng viên gợi ý (mẫu 056-A4, A7, A13)',
 
   test('lệnh chạy hai lần chỉ gợi ý một lần', () => {
     // 0.7.5 B8: dùng tên kiểu kiểm.
-    expect(suggestCheckCommands(logOf('python3 a-check.py', 'python3 a-check.py'))).toEqual(['python3 a-check.py'])
+    expect(suggestCheckCommands(logOf('python3 check-a.py', 'python3 check-a.py'))).toEqual(['python3 check-a.py'])
   })
 })

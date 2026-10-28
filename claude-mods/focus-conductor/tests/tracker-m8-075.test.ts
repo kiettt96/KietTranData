@@ -7,7 +7,7 @@ import { newTracker, observe, trackVerification } from '../hooks/lib/drift'
 const FOCUS = { goal: 'Cập nhật dữ liệu theo các bước', scopePaths: [], tier: 'complex' as const }
 const edit = (path: string) => ({ tool: 'Edit', input: { file_path: path }, isError: false, isReadOnly: false })
 const bash = (command: string) => ({ tool: 'Bash', input: { command }, isError: false, isReadOnly: false })
-const fires = (tracker: ReturnType<typeof newTracker>, call: ReturnType<typeof edit>) => observe(tracker, call, FOCUS, []).some(f => f.kind === 'checkpoint')
+const fires = (tracker: ReturnType<typeof newTracker>, call: ReturnType<typeof edit> | ReturnType<typeof bash>) => observe(tracker, call, FOCUS, []).some(f => f.kind === 'checkpoint')
 
 describe('0.7.5 M8: ghi của subagent không tiến nhịp nhắc của luồng chính', () => {
   test('3 sửa của luồng chính, 4 ghi của subagent, sửa thứ 4 của luồng chính: chưa nhắc; sửa thứ 5 mới nhắc', () => {

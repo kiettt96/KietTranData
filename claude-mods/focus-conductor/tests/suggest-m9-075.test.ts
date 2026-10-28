@@ -31,6 +31,13 @@ describe('0.7.5 M9: từ kiểm chỉ khớp ở đầu tên script', () => {
   })
 })
 
+describe('0.7.5 M9: bộ lọc tên không thay luật nhận dạng script', () => {
+  test('lệnh dạng đường dẫn không có đuôi script (./tools/check-data) không được gợi ý dù tên kiểu kiểm', () => {
+    expect(suggestCheckCommands(logOf('./tools/check-data', './tools/verify.txt'))).toEqual([])
+    expect(suggestCheckCommands(logOf('./tools/check-data.sh'))).toEqual(['./tools/check-data.sh'])
+  })
+})
+
 describe('0.7.5 M9: không tự gợi ý tiền tố thư mục', () => {
   test('hai script kiểm cùng thư mục: nêu từng script, không nêu "python3 tests/"', () => {
     expect(suggestCheckCommands(logOf('python3 tests/check_a.py', 'python3 tests/check_b.py'))).toEqual(['python3 tests/check_b.py', 'python3 tests/check_a.py'])
