@@ -239,7 +239,14 @@ export function observe(
 
   // Lần gọi này có làm tăng bộ đếm thay đổi không (để checkpoint chỉ báo đúng lúc đếm đủ bội số).
   const before = tracker.mutationsSinceCheck
-  const isCounted = trackVerification(tracker, observation) > 0 && tracker.mutationsSinceCheck > before
+  const writes = trackVerification(tracker, observation)
+  const isCounted = writes > 0 && tracker.mutationsSinceCheck > before
+  // Đếm lỗi lặp (0.7.5): chính lệnh đó chạy đạt thì đặt lại đếm của nó; có ghi file sau lần lỗi trước thì đặt lại mọi đếm
+  // (đã sửa gì đó trước khi thử lại, không phải lặp nguyên trạng).
+  if (!observation.isError) {
+    tracker.failures.delete(signature(observation))
+    if (writes > 0) tracker.failures.clear()
+  }
   if (observation.tool === 'Agent' && !observation.isError) tracker.delegated += 1
 
   if (focus === null) return findings
