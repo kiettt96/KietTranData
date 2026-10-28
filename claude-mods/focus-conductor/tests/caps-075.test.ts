@@ -1,5 +1,6 @@
-// 0.7.5 B11: ràng buộc (trần 12) và yêu cầu (trần 30) đã đầy ở prompt tiếp nối: mục mới thay mục cũ nhất không phải quy định
-// model (quy định model không bao giờ bị thay), và có một cảnh báo; trước đây mục mới bị bỏ.
+// 0.7.5 B11: ràng buộc (trần 12) và yêu cầu (trần 30) đã đầy ở prompt tiếp nối: mục mới thay một mục không phải quy định model
+// (quy định model không bao giờ bị thay), và có một cảnh báo; trước đây mục mới bị bỏ. Từ vòng sửa 2 (M3) mục bị thay là mục
+// cuối danh sách và không bao giờ là mục của prompt lập mục tiêu (xem caps-m3-075.test.ts).
 
 import { describe, expect, test } from 'claude-code/testing'
 import { nextBrief, parseRoute } from '../hooks/lib/router'
@@ -12,14 +13,14 @@ const routed = (over: Record<string, unknown>): RouterPlan => parseRoute(JSON.st
 const rules = ['Việc lọc tin chạy sonnet', ...Array.from({ length: 11 }, (_, i) => `Ràng buộc cũ ${i}`)]
 
 describe('0.7.5 B11: ràng buộc đầy trần', () => {
-  test('mục mới thay ràng buộc cũ nhất không phải quy định model; quy định model còn', () => {
-    const prev = makeBrief({ constraints: rules })
+  test('mục mới thay ràng buộc cuối không phải quy định model; quy định model còn', () => {
+    const prev = makeBrief({ constraints: rules, constraintsBase: 1 })
     const out = nextBrief(prev, routed({ relation: 'continue', goal: '', constraints: ['Không tạo bộ kiểm mới'] }), 'tiếp', 2)
     expect(out.brief.constraints.length).toBe(12)
     expect(out.brief.constraints).toContain('Không tạo bộ kiểm mới')
     expect(out.brief.constraints).toContain('Việc lọc tin chạy sonnet')
-    expect(out.brief.constraints).not.toContain('Ràng buộc cũ 0')
-    expect(out.replaced).toEqual(['Ràng buộc cũ 0'])
+    expect(out.brief.constraints).not.toContain('Ràng buộc cũ 10')
+    expect(out.replaced).toEqual(['Ràng buộc cũ 10'])
   })
 
   test('chưa đầy: không thay gì', () => {
@@ -31,24 +32,25 @@ describe('0.7.5 B11: ràng buộc đầy trần', () => {
 
   test('mọi ràng buộc cũ đều là quy định model: không thay, mục mới bị bỏ', () => {
     const models = ['Việc ghi chạy bằng mô hình của phiên', ...Array.from({ length: 11 }, (_, i) => `Việc loại ${i} chạy opus`)]
-    const out = nextBrief(makeBrief({ constraints: models }), routed({ relation: 'continue', goal: '', constraints: ['Mục mới'] }), 'tiếp', 2)
+    const out = nextBrief(makeBrief({ constraints: models, constraintsBase: 0 }), routed({ relation: 'continue', goal: '', constraints: ['Mục mới'] }), 'tiếp', 2)
     expect(out.brief.constraints).toEqual(models)
   })
 })
 
 describe('0.7.5 B11: yêu cầu đầy trần', () => {
-  test('yêu cầu mới thay yêu cầu cũ nhất; việc cũ không còn phủ chỗ bị thay', () => {
+  test('yêu cầu mới thay yêu cầu cuối; việc cũ không còn phủ chỗ bị thay', () => {
     const requirements = Array.from({ length: 30 }, (_, i) => `Yêu cầu ${i + 1}`)
     const prev = makeBrief({
       requirements,
-      tasks: [{ index: 1, title: 'Việc 1', run: 'main', pick: { family: 'sonnet', effort: 'medium' }, depth: 'light', volume: 'small', kind: 'edit', why: '', covers: [1, 2] }],
+      requirementsBase: 0,
+      tasks: [{ index: 1, title: 'Việc 1', run: 'main', pick: { family: 'sonnet', effort: 'medium' }, depth: 'light', volume: 'small', kind: 'edit', why: '', covers: [1, 30] }],
     })
     const out = nextBrief(prev, routed({ relation: 'continue', goal: '', requirements: ['Yêu cầu mới'], tasks: [{ title: 'Việc mới', run: 'main', model: 'sonnet', effort: 'medium', kind: 'edit', covers: [1] }] }), 'tiếp', 2)
     expect(out.brief.requirements?.length).toBe(30)
-    expect(out.brief.requirements?.[0]).toBe('Yêu cầu mới')
-    expect(out.brief.tasks[0]?.covers).toEqual([2])
-    expect(out.brief.tasks[1]?.covers).toEqual([1])
-    expect(out.replaced).toEqual(['Yêu cầu 1'])
+    expect(out.brief.requirements?.[29]).toBe('Yêu cầu mới')
+    expect(out.brief.tasks[0]?.covers).toEqual([1])
+    expect(out.brief.tasks[1]?.covers).toEqual([30])
+    expect(out.replaced).toEqual(['Yêu cầu 30'])
   })
 })
 
@@ -67,6 +69,6 @@ describe('0.7.5 B11: một cảnh báo khi thay', () => {
     await submit($, 'tiếp 1 lô sau')
     await submit($, 'tiếp 2 lô sau nữa')
     const pane = await $.ui.mount(PANE)
-    expect(await pane.find({ type: 'Text', text: /mục mới thay 1 mục cũ: Ràng buộc cũ 0/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /mục mới thay 1 mục cũ: Thêm B/ })).toBeDefined()
   })
 })

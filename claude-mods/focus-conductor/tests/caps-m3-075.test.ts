@@ -6,6 +6,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import { briefOf, nextBrief, parseRoute } from '../hooks/lib/router'
 import type { Policy, RouterPlan } from '../hooks/lib/router'
 import type { Brief } from '../types'
+import { normalizeCore } from '../hooks/lib/state'
 import { makeBrief } from './support/commands'
 import { plan } from './support/engine'
 
@@ -46,6 +47,31 @@ describe('0.7.5 M3: ràng buộc đầy trần', () => {
   })
 })
 
+describe('0.7.5 M3: nguồn gốc của số mục đầu', () => {
+  test('brief không ghi số mục đầu (trạng thái cũ): coi mọi mục hiện có là của prompt đầu, mục mới bị bỏ khi đầy trần', () => {
+    const constraints = [...first(12)]
+    const out = nextBrief(makeBrief({ constraints, requirements: ['R1', 'R2'] }), routed({ relation: 'continue', goal: '', constraints: ['Mục mới'] }), 'tiếp', 2)
+    expect(out.brief.constraints).toEqual(constraints)
+    expect((out.brief as Brief & { constraintsBase?: number }).constraintsBase).toBe(12)
+    expect((out.brief as Brief & { requirementsBase?: number }).requirementsBase).toBe(2)
+  })
+
+  test('mục tiêu mới mang quy định model của mục tiêu trước: số mục đầu gồm cả quy định mang theo', () => {
+    const prev = makeBrief({ constraints: ['Việc lọc tin chạy sonnet'], constraintsBase: 1 })
+    const out = nextBrief(prev, routed({ relation: 'new', goal: 'Việc khác', constraints: ['A', 'B'] }), 'khác', 2)
+    expect(out.brief.constraints).toEqual(['Việc lọc tin chạy sonnet', 'A', 'B'])
+    expect((out.brief as Brief & { constraintsBase?: number }).constraintsBase).toBe(3)
+  })
+
+  test('chạy thật prompt đã đối chiếu: mọi mục gộp đều thuộc phần không bị thay', () => {
+    const prev = makeBrief({ isReference: true, constraints: ['A'], constraintsBase: 1, requirements: ['R1'], requirementsBase: 1 })
+    const out = nextBrief(prev, routed({ relation: 'new', runReference: true, goal: 'Chạy', constraints: ['B'], requirements: ['R2'] }), 'chạy đi', 2).brief as Brief & { constraintsBase?: number; requirementsBase?: number }
+    expect(out.constraints).toEqual(['A', 'B'])
+    expect(out.constraintsBase).toBe(2)
+    expect(out.requirementsBase).toBe(2)
+  })
+})
+
 describe('0.7.5 M3: yêu cầu đầy trần', () => {
   const requirements = Array.from({ length: 30 }, (_, i) => `Yêu cầu ${i + 1}`)
   const task = { index: 1, title: 'Việc 1', run: 'main' as const, pick: { family: 'sonnet' as const, effort: 'medium' as const }, depth: 'light' as const, volume: 'small' as const, kind: 'edit' as const, why: '' }
@@ -65,5 +91,14 @@ describe('0.7.5 M3: yêu cầu đầy trần', () => {
     const out = nextBrief(withBase({ requirements, requirementsBase: 30 } as Partial<Brief>), routed({ relation: 'continue', goal: '', requirements: ['Yêu cầu mới'] }), 'tiếp', 2)
     expect(out.brief.requirements).toEqual(requirements)
     expect(out.replaced).toEqual([])
+  })
+})
+
+describe('0.7.5 M3: trạng thái lưu giữ số mục của prompt đầu', () => {
+  test('normalizeCore giữ constraintsBase và requirementsBase', () => {
+    const brief = normalizeCore({ brief: makeBrief({ constraints: ['A'], constraintsBase: 1, requirements: ['R'], requirementsBase: 1 }) }).brief
+    expect(brief?.constraintsBase).toBe(1)
+    expect(brief?.requirementsBase).toBe(1)
+    expect(normalizeCore({ brief: makeBrief() }).brief?.constraintsBase).toBeUndefined()
   })
 })

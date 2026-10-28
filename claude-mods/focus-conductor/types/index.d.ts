@@ -56,10 +56,14 @@ export type Brief = {
   goal: string
   /** Mọi yêu cầu, ràng buộc và đầu ra router đọc được từ prompt (tối đa 30); vắng với brief từ bản cũ (0.7.0). */
   requirements?: string[]
+  /** Số yêu cầu đầu danh sách đến từ prompt lập mục tiêu (0.7.5): không bao giờ bị thay khi đầy trần; vắng thì coi mọi yêu cầu hiện có là của prompt đó. */
+  requirementsBase?: number
   /** Bước dự kiến: tên các việc lúc đầu, sau đó theo checklist Claude chốt. */
   steps: string[]
   tasks: Task[]
   constraints: string[]
+  /** Số ràng buộc đầu danh sách đến từ prompt lập mục tiêu (0.7.5), như requirementsBase. */
+  constraintsBase?: number
   quality: string[]
   depth: Depth
   volume: Volume
