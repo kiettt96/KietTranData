@@ -29,6 +29,15 @@ describe('0.7.5 B9: đếm lỗi lặp đặt lại', () => {
     expect(looped(observe(tracker, run(CMD, true), FOCUS, []))).toBe(false)
   })
 
+  test('lệnh không ghi file (npm test) lỗi hai lần, chạy đạt, lỗi hai lần nữa: không báo lặp', () => {
+    const tracker = newTracker('t')
+    observe(tracker, run('npm test', true), FOCUS, [])
+    observe(tracker, run('npm test', true), FOCUS, [])
+    observe(tracker, run('npm test', false), FOCUS, [])
+    expect(looped(observe(tracker, run('npm test', true), FOCUS, []))).toBe(false)
+    expect(looped(observe(tracker, run('npm test', true), FOCUS, []))).toBe(false)
+  })
+
   test('lỗi ba lần liên tiếp không thay đổi gì: vẫn báo lặp như cũ', () => {
     const tracker = newTracker('t')
     observe(tracker, run(CMD, true), FOCUS, [])
