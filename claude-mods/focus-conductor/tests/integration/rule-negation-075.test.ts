@@ -76,6 +76,14 @@ describe('0.7.5 H2: bỏ lượt router vẫn qua fitPick', () => {
     expect(calls.at(-1)).toEqual({ model: 'sonnet', effort: 'xhigh' })
   })
 
+  test('quy định "lọc tin chạy sonnet", Claude ghi opus (khác quy định): router vẫn được gọi, không bỏ lượt', {}, async ($, on) => {
+    const seen = base(on, { router: briefWith('Việc lọc tin chạy sonnet'), agent: () => EDIT })
+    capture(on)
+    await submit($, 'Cập nhật dữ liệu theo các lô')
+    await agent($, 'Lọc tin lô 1', { model: 'opus' })
+    expect(seen.agentRouted.length).toBe(1)
+  })
+
   test('quy định "lọc tin chạy sonnet", Claude ghi sonnet: vẫn không gọi router (giữ hành vi B6)', {}, async ($, on) => {
     const seen = base(on, { router: briefWith('Việc lọc tin chạy sonnet') })
     const calls = capture(on)
