@@ -11,7 +11,7 @@ const planStep = (id: number, status: PlanStep['status']): PlanStep => ({ id, ti
 const m = (key: string, status: MirrorStep['status']): MirrorStep => ({ key, title: `việc ${key}`, status })
 const coreOf = (over: Partial<Core> = {}): Core => ({ ...S.normalizeCore({}), brief: makeBrief({ goalId: 1 }), ...over })
 /** Một lần kiểm đạt ở luồng chính (lệnh test chạy đạt sau thay đổi cuối). */
-const pass = (c: Core): Core => (S.withAutoVerified as (command: string, only?: readonly number[], isPass?: boolean) => (c: Core) => Core)('npm test', undefined, true)(c)
+const pass = (c: Core): Core => S.withAutoVerified('npm test', undefined, true)(c)
 const status = (c: Core, id: number) => c.plan.find(s => s.id === id)?.status
 /** Bước done có mốc đóng `seq`, ghi thẳng vào state (không qua withPlan, nên không được đóng dấu lại). */
 const closedAt = (c: Core, id: number, seq: number): Core => ({ ...c, plan: [...c.plan, { ...planStep(id, 'done'), closedSeq: seq } as PlanStep] })
@@ -35,6 +35,14 @@ describe('0.7.5 D1: hai lần kiểm đạt cách nhau', () => {
   test('bước đóng trước lần kiểm đạt trước và không bị hạ: không được nâng ở lần sau', () => {
     let c = pass(S.withPlan([planStep(1, 'done')])(coreOf()))
     c = closedAt(c, 2, 0)
+    c = pass(c)
+    expect(status(c, 2)).toBe('done')
+  })
+
+  test('cập nhật plan sau đó (bước khác đổi trạng thái) không làm mới mốc của bước vẫn done', () => {
+    let c = pass(S.withPlan([planStep(1, 'done'), planStep(3, 'todo')])(coreOf()))
+    c = closedAt(c, 2, 0)
+    c = S.withPlan(c.plan.map(s => (s.id === 3 ? { ...s, status: 'doing' as const } : s)))(c)
     c = pass(c)
     expect(status(c, 2)).toBe('done')
   })

@@ -102,6 +102,8 @@ export type PlanStep = {
   note?: string
   /** Bước verified do mod tự nâng (lệnh test chạy đạt sau thay đổi cuối): có thay đổi mới thì hạ về done (0.7.0). */
   auto?: boolean
+  /** Mốc đóng (0.7.5, nội bộ, không có trong schema tool plan): giá trị của Core.closing.seq lúc bước thành done hay bị hạ về done. */
+  closedSeq?: number
 }
 
 /** Lựa chọn model và effort đang áp cho luồng chính. */
@@ -217,7 +219,7 @@ export type DelegationItem = { index: number; title: string; state: DelegationSt
  * `key` là id của TaskCreate, hoặc thứ tự trong danh sách của TodoWrite. Claude Code không có trạng thái verified: bước verified ở
  * đây luôn do mod tự nâng khi lệnh test chạy đạt sau thay đổi cuối (0.7.1) và hạ về done khi có thay đổi mới.
  */
-export type MirrorStep = { key: string; title: string; status: 'todo' | 'doing' | 'done' | 'verified' }
+export type MirrorStep = { key: string; title: string; status: 'todo' | 'doing' | 'done' | 'verified'; closedSeq?: number }
 
 /** Trạng thái của một lần gọi Agent (0.6.1): đang chạy, xong, lỗi, hoặc bị cắt vì tạm dừng hạn mức. */
 export type AgentState = 'running' | 'done' | 'failed' | 'cut'
@@ -313,6 +315,11 @@ export type Core = {
   checkHint: CheckHint | null
   /** Turn lỗi gần nhất của luồng chính cho tới khi một turn trả lời xong (0.7.3); null là không có. */
   turnFault: TurnFault | null
+  /**
+   * Mốc đóng bước (0.7.5): `seq` tăng mỗi lần một bước thành done, bị hạ về done hay có lần kiểm đạt; `lastPassSeq` là mốc của
+   * lần kiểm đạt gần nhất của mục tiêu goalId (null là chưa có). Lần kiểm đạt chỉ nâng bước có closedSeq lớn hơn mốc đó.
+   */
+  closing: { seq: number; goalId: number; lastPassSeq: number | null }
 }
 
 /** Một cửa sổ hạn mức đã qua ngưỡng lúc dừng (0.6.0). */

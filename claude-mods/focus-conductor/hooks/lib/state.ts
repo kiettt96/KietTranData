@@ -37,6 +37,7 @@ export const EMPTY_CORE: Core = {
   routerFail: null,
   checkHint: null,
   turnFault: null,
+  closing: { seq: 0, goalId: -1, lastPassSeq: null },
 }
 
 const LOG_LIMIT = 60
@@ -123,6 +124,7 @@ export function normalizeCore(raw: Partial<Core>): Core {
     routerFail: raw.routerFail ?? null,
     checkHint: raw.checkHint ?? null,
     turnFault: raw.turnFault ?? null,
+    closing: raw.closing ?? { seq: 0, goalId: -1, lastPassSeq: null },
   }
 }
 
@@ -281,41 +283,79 @@ export const withRetarget =
 
 export const withPlan =
   (plan: PlanStep[]) =>
-  (c: Core): Core => ({ ...normalizeCore(c), plan })
+  (c: Core): Core => {
+    const n = normalizeCore(c)
+    const { steps, seq } = stampClosed(n.plan, plan, (a, b) => a.id === b.id, n.closing.seq)
+    return { ...n, plan: steps, closing: { ...n.closing, seq } }
+  }
+
+/**
+ * Đóng dấu mốc đóng (0.7.5): bước vừa thành done (trước đó chưa done) nhận mốc mới; bước vẫn done giữ mốc cũ; bước không còn done
+ * hay verified bỏ mốc.
+ */
+function stampClosed<T extends { status: string; closedSeq?: number }>(before: readonly T[], after: readonly T[], same: (a: T, b: T) => boolean, seq: number): { steps: T[]; seq: number } {
+  let next = seq
+  const steps = after.map(step => {
+    if (step.status !== 'done') {
+      if (step.status === 'verified' || step.closedSeq === undefined) return step
+      const { closedSeq: _closed, ...rest } = step
+      return rest as T
+    }
+    const old = before.find(b => same(b, step))
+    if (old !== undefined && old.status === 'done' && old.closedSeq !== undefined) return { ...step, closedSeq: old.closedSeq }
+    next += 1
+    return { ...step, closedSeq: next }
+  })
+  return { steps, seq: next }
+}
+
+/** Mốc của lần kiểm đạt gần nhất của mục tiêu hiện tại; null khi chưa có (lần kiểm đạt đầu tiên nâng mọi bước done). */
+const passMark = (n: Core): number | null => (n.brief !== null && n.closing.goalId === n.brief.goalId ? n.closing.lastPassSeq : null)
 
 /**
  * Mod tự nâng các bước done (chỉ những bước có trong `only` nếu có) thành verified, ghi lệnh test đã chạy làm bằng chứng và đánh dấu
- * `auto` để hạ lại khi có thay đổi mới (0.7.0). Không đổi gì khi không có bước done nào.
+ * `auto` để hạ lại khi có thay đổi mới (0.7.0). Chỉ nâng bước đóng sau lần kiểm đạt trước của mục tiêu (0.7.5); `isPass` là chính
+ * lần kiểm đạt đó (lệnh test của luồng chính vừa chạy đạt), ghi mốc mới. Không đổi gì khi không có bước để nâng và không phải lần
+ * kiểm đạt.
  */
 export const withAutoVerified =
-  (command: string, only?: readonly number[]) =>
+  (command: string, only?: readonly number[], isPass = false) =>
   (c: Core): Core => {
     const n = normalizeCore(c)
-    const isPlanned = n.plan.some(s => s.status === 'done' && (only === undefined || only.includes(s.id)))
+    const mark = passMark(n)
+    const isDue = (s: { status: string; closedSeq?: number }) => s.status === 'done' && (mark === null || (s.closedSeq ?? 0) > mark)
+    const isPlanned = n.plan.some(s => isDue(s) && (only === undefined || only.includes(s.id)))
     // Danh sách phản chiếu (0.7.1): lệnh test đạt sau thay đổi cuối phủ mọi bước done của nó; không có id ổn định nên không có `only`.
-    const isMirrored = only === undefined && liveMirror(n).some(s => s.status === 'done')
-    if (!isPlanned && !isMirrored) return n
+    const isMirrored = only === undefined && liveMirror(n).some(isDue)
+    const closing = isPass && n.brief !== null ? { seq: n.closing.seq + 1, goalId: n.brief.goalId, lastPassSeq: n.closing.seq + 1 } : n.closing
+    if (!isPlanned && !isMirrored) return closing === n.closing ? n : { ...n, closing }
     const note = `tự động: ${command.slice(0, 120)} chạy đạt sau thay đổi cuối`
     return {
       ...n,
-      plan: n.plan.map(s => (s.status === 'done' && (only === undefined || only.includes(s.id)) ? { ...s, status: 'verified' as const, auto: true, note } : s)),
-      mirror: isMirrored ? { ...n.mirror, steps: n.mirror.steps.map(s => (s.status === 'done' ? { ...s, status: 'verified' as const } : s)) } : n.mirror,
+      plan: n.plan.map(s => (isDue(s) && (only === undefined || only.includes(s.id)) ? { ...s, status: 'verified' as const, auto: true, note } : s)),
+      mirror: isMirrored ? { ...n.mirror, steps: n.mirror.steps.map(s => (isDue(s) ? { ...s, status: 'verified' as const } : s)) } : n.mirror,
+      closing,
     }
   }
 
-/** Có thay đổi mới: các bước verified do mod tự nâng về done (bước verified do Claude ghi giữ nguyên). */
+/**
+ * Có thay đổi mới: các bước verified do mod tự nâng về done (bước verified do Claude ghi giữ nguyên). Bước bị hạ nhận mốc đóng mới
+ * (0.7.5), để lần kiểm đạt sau nâng lại được.
+ */
 export const withAutoDemoted = (c: Core): Core => {
   const n = normalizeCore(c)
   const isMirrored = liveMirror(n).some(s => s.status === 'verified')
   if (!hasAutoVerified(n)) return n
+  const seq = n.closing.seq + 1
   return {
     ...n,
     plan: n.plan.map(s => {
       if (s.auto !== true || s.status !== 'verified') return s
       const { auto: _auto, note: _note, ...rest } = s
-      return { ...rest, status: 'done' as const }
+      return { ...rest, status: 'done' as const, closedSeq: seq }
     }),
-    mirror: isMirrored ? { ...n.mirror, steps: n.mirror.steps.map(s => (s.status === 'verified' ? { ...s, status: 'done' as const } : s)) } : n.mirror,
+    mirror: isMirrored ? { ...n.mirror, steps: n.mirror.steps.map(s => (s.status === 'verified' ? { ...s, status: 'done' as const, closedSeq: seq } : s)) } : n.mirror,
+    closing: { ...n.closing, seq },
   }
 }
 
@@ -426,7 +466,12 @@ export function withDelegations(goalId: number, items: readonly DelegationItem[]
 
 /** Ghi danh sách việc phản chiếu của luồng chính cho mục tiêu goalId (xem lib/mirror.ts). */
 export function withMirror(goalId: number, steps: readonly MirrorStep[]): (core: Core) => Core {
-  return core => ({ ...normalizeCore(core), mirror: { goalId, steps: [...steps] } })
+  return core => {
+    const n = normalizeCore(core)
+    // Mốc đóng (0.7.5) theo key, chỉ so với danh sách của cùng mục tiêu.
+    const stamped = stampClosed(n.mirror.goalId === goalId ? n.mirror.steps : [], steps, (a, b) => a.key === b.key, n.closing.seq)
+    return { ...n, mirror: { goalId, steps: stamped.steps }, closing: { ...n.closing, seq: stamped.seq } }
+  }
 }
 
 /** Số dòng tiến độ của agent giữ lại cho một mục tiêu. */

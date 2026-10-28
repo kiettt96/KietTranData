@@ -292,12 +292,13 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       await update($, coreState, c => S.withAutoDemoted(S.withActivity(goalId)(c)))
       if (hadVerified) await showStatus($, await read($, view), ctx.options)
     }
-    // Lệnh test vừa chạy đạt sau thay đổi cuối (phủ mọi thay đổi): các bước done thành verified (0.7.0).
+    // Lệnh test vừa chạy đạt sau thay đổi cuối (phủ mọi thay đổi): các bước done thành verified (0.7.0), chỉ những bước đóng sau lần
+    // kiểm đạt trước của mục tiêu (0.7.5); lần này ghi mốc kiểm đạt mới.
     if (core.brief !== null && observation.tool === 'Bash' && !observation.isError) {
       const log = evidenceFor(core.brief.goalId)
       const fresh = freshTestRun(log)
       if (fresh !== undefined && fresh === log.commands.at(-1) && (core.plan.some(s => s.status === 'done') || S.liveMirror(core).some(s => s.status === 'done'))) {
-        await update($, coreState, S.withAutoVerified(fresh.command))
+        await update($, coreState, S.withAutoVerified(fresh.command, undefined, true))
         record(await $.clock.now(), 'verify-auto', { command: clipText(fresh.command), at: core.plan.length === 0 ? 'mirror' : 'test' })
         await flushDecisions((path, text) => $.fs.write(path, text))
         await showStatus($, await read($, view), ctx.options)
