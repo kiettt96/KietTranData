@@ -6,7 +6,7 @@
 
 import type { PluginOptions } from 'claude-code'
 
-import type { AgentProgress, AgentState, ArchivedGoal, Brief, CheckHint, Core, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, Route, RouteEvent, RouterFail, TurnFault, Warning } from '../../types'
+import type { AgentProgress, AgentState, AgentTally, ArchivedGoal, Brief, CheckHint, Core, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, Route, RouteEvent, RouterFail, TurnFault, Warning } from '../../types'
 import { restorableSteps } from './drift'
 import type { Tokens } from './cost'
 import { addUsage, emptyLedger, nextGoal, planSwitch, resetLedger } from './ledger'
@@ -437,12 +437,35 @@ function freshProgress(goalId: number): Pick<Core, 'agentProgress' | 'activity'>
   return { agentProgress: { goalId, items: [] }, activity: { goalId, changes: 0 } }
 }
 
-/** Một lần gọi Agent bắt đầu chạy: thêm dòng tiến độ (thay dòng cũ cùng agentId), giữ tối đa AGENT_PROGRESS_LIMIT dòng. */
+/** Số bộ đếm theo việc giữ lại cho một mục tiêu (0.7.5). */
+const AGENT_TALLY_LIMIT = 50
+
+/** Khóa bộ đếm của một lần gọi Agent (0.7.5): việc đã phân theo số; việc Claude tự giao theo dạng mô tả bỏ chữ số. */
+export function tallyKey(item: Pick<AgentProgress, 'title' | 'taskIndex'>): string {
+  return item.taskIndex !== undefined ? `task-${item.taskIndex}` : `own-${item.title.toLowerCase().replace(/\d+/g, '#').replace(/\s+/g, ' ').trim()}`
+}
+
+/**
+ * Một lần gọi Agent bắt đầu chạy: thêm dòng tiến độ (thay dòng cũ cùng agentId), giữ tối đa AGENT_PROGRESS_LIMIT dòng; bộ đếm
+ * theo việc (0.7.5) giữ ngoài trần đó, nên hàng chục lô vẫn đếm đúng. agentId đã đếm (khởi động lại) không đếm hai lần.
+ */
 export function withAgentStart(goalId: number, item: AgentProgress): (core: Core) => Core {
   return core => {
     const n = normalizeCore(core)
-    const items = n.agentProgress.goalId === goalId ? n.agentProgress.items.filter(i => i.agentId !== item.agentId) : []
-    return { ...n, agentProgress: { goalId, items: [...items, item].slice(-AGENT_PROGRESS_LIMIT) } }
+    const same = n.agentProgress.goalId === goalId
+    const items = same ? n.agentProgress.items.filter(i => i.agentId !== item.agentId) : []
+    const tally: AgentTally[] = same ? [...(n.agentProgress.tally ?? [])] : []
+    const open = same ? { ...(n.agentProgress.open ?? {}) } : {}
+    if (open[item.agentId] === undefined) {
+      const key = tallyKey(item)
+      const at = tally.findIndex(t => t.key === key)
+      const base: AgentTally = tally[at] ?? { key, title: item.title, ...(item.taskIndex !== undefined ? { taskIndex: item.taskIndex } : {}), spawned: 0, done: 0, failed: 0, running: 0 }
+      const counted = { ...base, spawned: base.spawned + 1, running: base.running + 1 }
+      if (at >= 0) tally[at] = counted
+      else tally.push(counted)
+      open[item.agentId] = key
+    }
+    return { ...n, agentProgress: { goalId, items: [...items, item].slice(-AGENT_PROGRESS_LIMIT), tally: tally.slice(-AGENT_TALLY_LIMIT), open } }
   }
 }
 
@@ -458,9 +481,19 @@ function withAgent(agentId: string, change: (item: AgentProgress) => AgentProgre
 /** Agent chạy thêm một tool call. */
 export const withAgentTool = (agentId: string) => withAgent(agentId, item => ({ ...item, tools: item.tools + 1 }))
 
-/** Agent kết thúc: xong, lỗi, hoặc bị cắt vì tạm dừng. */
-export const withAgentEnd = (agentId: string, state: Exclude<AgentState, 'running'>, at: number) =>
-  withAgent(agentId, item => ({ ...item, state, endedAt: at }))
+/** Agent kết thúc: xong, lỗi, hoặc bị cắt vì tạm dừng; bộ đếm theo việc cập nhật cả khi dòng đã bị đẩy khỏi danh sách (0.7.5). */
+export function withAgentEnd(agentId: string, state: Exclude<AgentState, 'running'>, at: number): (core: Core) => Core {
+  return core => {
+    const n = withAgent(agentId, item => ({ ...item, state, endedAt: at }))(core)
+    const key = n.agentProgress.open?.[agentId]
+    if (key === undefined) return n
+    const { [agentId]: _ended, ...open } = n.agentProgress.open ?? {}
+    const tally = (n.agentProgress.tally ?? []).map(t =>
+      t.key === key ? { ...t, running: Math.max(0, t.running - 1), ...(state === 'done' ? { done: t.done + 1 } : { failed: t.failed + 1 }) } : t,
+    )
+    return { ...n, agentProgress: { ...n.agentProgress, tally, open } }
+  }
+}
 
 /** Danh sách việc agent tự ghi (phản chiếu). */
 export const withAgentSteps = (agentId: string, steps: readonly MirrorStep[]) => withAgent(agentId, item => ({ ...item, steps: [...steps] }))

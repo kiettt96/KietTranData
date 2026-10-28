@@ -359,7 +359,8 @@ export function renderPane(
     const runs = taskBarRuns(row.bar, taskCells)
     const counts = row.bar.kind === 'steps' ? progress(row.bar.plan) : null
     const usage = row.tools !== undefined ? `${l.taskTools(row.tools)} · ${l.taskElapsed(row.elapsedMs ?? 0)}` : ''
-    const detail = [counts !== null ? `${counts.closed}/${counts.total}` : '', usage].filter(Boolean).join(' · ')
+    const batches = row.counts !== undefined ? l.taskBatches(row.counts.done, row.counts.total, row.counts.running) : ''
+    const detail = [counts !== null ? `${counts.closed}/${counts.total}` : '', batches, usage].filter(Boolean).join(' · ')
     // Chữ trạng thái: thanh không có bước thì luôn ghi; thanh theo bước của agent chỉ ghi khi agent đã kết thúc.
     const word =
       row.bar.kind === 'state'

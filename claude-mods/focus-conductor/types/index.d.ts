@@ -237,6 +237,12 @@ export type AgentProgress = {
   steps: MirrorStep[]
 }
 
+/**
+ * Bộ đếm các lần gọi Agent của một việc trong mục tiêu (0.7.5), giữ ngoài danh sách dòng tiến độ có trần: việc đã phân theo
+ * số (`task-N`), việc Claude tự giao theo dạng mô tả bỏ chữ số (`own-...`). `cut` (bị cắt vì tạm dừng) đếm vào `failed`.
+ */
+export type AgentTally = { key: string; title: string; taskIndex?: number; spawned: number; done: number; failed: number; running: number }
+
 /** Nâng cấp theo bằng chứng, áp cho các turn sau trong cùng mục tiêu. */
 export type Lift = { depth: number; effort: number }
 
@@ -295,7 +301,8 @@ export type Core = {
    */
   mirror: { goalId: number; steps: MirrorStep[] }
   /** Tiến độ từng lần gọi Agent của mục tiêu goalId, tối đa 20 (0.6.1; không có ở trạng thái từ bản cũ). */
-  agentProgress: { goalId: number; items: AgentProgress[] }
+  /** `tally` và `open` (agentId đang chạy đến khóa bộ đếm) từ 0.7.5; vắng ở trạng thái cũ. */
+  agentProgress: { goalId: number; items: AgentProgress[]; tally?: AgentTally[]; open?: Record<string, string> }
   /** Số lần luồng chính thay đổi file trong mục tiêu goalId: cho trạng thái của việc làm trực tiếp khi chưa có bước (0.6.1). */
   activity: { goalId: number; changes: number }
   /** Lần router lỗi gần nhất cho tới khi router đọc được lại (0.7.2); null là không có. */

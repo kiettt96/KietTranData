@@ -8,7 +8,7 @@ import type { Color, Elements, RenderElement, RenderSurface } from 'claude-code'
 
 import { formatUsd } from '../lib/ledger'
 import { shownPlan } from '../lib/mirror'
-import { byPriority, taskRows } from '../lib/progress'
+import { byPriority, chipCounts, taskRows } from '../lib/progress'
 import type { QuotaBadge } from '../lib/quota'
 import type { View } from '../lib/state'
 import { countLabel, progress, quotaPercent } from '../lib/text'
@@ -146,7 +146,8 @@ export function renderBand(
   const spare = Math.max(0, props.maxRows - baseRows)
   const taskShown = extra.length > 0 && spare > 0 ? byPriority(extra).slice(0, Math.min(TASK_ROWS, spare)) : []
   const delegated = extra.filter(row => row.kind === 'agent')
-  const agentChip = taskShown.length === 0 && delegated.length > 0 ? l.agentChip(delegated.filter(row => row.state === 'done').length, delegated.length) : ''
+  const chip = chipCounts(view.core, delegated)
+  const agentChip = taskShown.length === 0 && delegated.length > 0 ? l.agentChip(chip.done, chip.total) : ''
   const fixedCells = () => (isCompact ? compactCells() : rowCells())
   for (const drop of [() => (fit.count = false), () => (fit.effort = false), () => (fit.route = false)]) {
     if (fixedCells() <= columns) break
@@ -298,6 +299,7 @@ export function renderBand(
         <Box flexGrow={1} flexShrink={1}>
           <Text wrap="truncate-end" dimColor={row.state === 'done'}>
             {taskLabel(l, row)}
+            {row.counts !== undefined ? ` · ${l.taskBatches(row.counts.done, row.counts.total, row.counts.running)}` : ''}
           </Text>
         </Box>
         {i === taskShown.length - 1 && more > 0 ? (

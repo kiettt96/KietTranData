@@ -49,6 +49,14 @@ describe('0.7.5 B7: bộ đếm theo việc vượt 20 dòng', () => {
     expect(labels('vi').agentChip(30, 34)).toBe('subagent 30/34 xong')
   })
 
+  test('chip của band: tổng số lần gọi cộng việc giao chưa có lần gọi; agentId khởi động lại không đếm hai lần', () => {
+    const core = S.withAgentStart(1, item(34, 1))(batches(1))
+    const rows = taskRows(core, 200).filter(row => row.kind === 'agent')
+    expect(P.chipCounts(core, rows)).toEqual({ done: 30, total: 34 })
+    const extra = { key: 'task-9', kind: 'agent' as const, index: 9, title: 'Việc chưa giao', pick: null, bar: { kind: 'state' as const, state: 'pending' as const }, state: 'pending' as const }
+    expect(P.chipCounts(core, [...rows, extra])).toEqual({ done: 30, total: 35 })
+  })
+
   test('lô Claude tự giao cùng dạng mô tả: gộp một dòng theo tổng', () => {
     const rows = taskRows(batches(), 200).filter(row => row.kind === 'agent' && row.index === undefined)
     expect(rows.length).toBe(1)
