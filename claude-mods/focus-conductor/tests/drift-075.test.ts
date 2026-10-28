@@ -5,6 +5,7 @@
 
 import { describe, expect, test } from 'claude-code/testing'
 import { applyCheckCommands, isMutation, parseCheckCommands } from '../hooks/lib/drift'
+import { checkHintText } from '../hooks/lib/text'
 import { verifiedAfter } from './support/commands'
 
 const DECLARED = '/usr/bin/python3 -B /repo/tests/check_all.py'
@@ -103,6 +104,12 @@ describe('0.7.5 A4: cd <dir> && lệnh kiểm có đường dẫn tương đối
       expect(verifiedAfter('cd /repo && python3 tests/check_all.py | tail -3', { output: 'ĐẠT' })).toBe(true)
       expect(verifiedAfter('cd /other && python3 tests/check_all.py', { output: 'xong' })).toBe(false)
     })
+  })
+})
+
+describe('0.7.5 A4: câu gợi ý checkCommands', () => {
+  test('khuyên chạy lệnh kiểm không qua ống hoặc có set -o pipefail', () => {
+    expect(checkHintText(['/usr/bin/python3 -B /repo/tests/check_all.py'])).toContain('chạy lệnh kiểm không qua ống (| tail, | head) hoặc có set -o pipefail')
   })
 })
 
