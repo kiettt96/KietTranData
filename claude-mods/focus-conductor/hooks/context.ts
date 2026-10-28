@@ -72,6 +72,12 @@ export const COMMAND_HELP = [
   '/conductor reset       xóa mục tiêu, checklist, cảnh báo và danh sách model bị chặn',
 ].join('\n')
 
+/** Khoảng cách tối thiểu giữa hai lượt kiểm lạc đề (0.7.5, option driftIntervalMinutes): mặc định 10 phút, kẹp 5 đến 120. */
+export function driftIntervalMs(raw: unknown): number {
+  const minutes = typeof raw === 'number' && Number.isFinite(raw) ? Math.min(120, Math.max(5, raw)) : 10
+  return minutes * 60_000
+}
+
 export function createContext(options: PluginOptions) {
   // Trạng thái tạm của turn và phiên: hot-reload làm mất chúng mà không ảnh hưởng tính đúng
   // (trạng thái bền nằm trong $.state).
@@ -184,6 +190,7 @@ export function createContext(options: PluginOptions) {
   const remindSubagents = options['remindSubagents'] === true
   // Bật mặc định từ 0.7.0 (tắt khi đặt false); tự tắt gần ngưỡng hạn mức và tối đa một lượt mỗi 10 phút.
   const semanticDrift = options['semanticDrift'] !== false
+  const driftEveryMs = driftIntervalMs(options['driftIntervalMinutes'])
   // Pane chi tiết tự mở ở mỗi mục tiêu mới (0.7.2); đặt false để tắt.
   const autoPane = options['autoPane'] !== false
   const decisionLog = typeof options['decisionLog'] === 'string' ? options['decisionLog'].trim() : ''
@@ -697,6 +704,7 @@ export function createContext(options: PluginOptions) {
     routerModel,
     routerTimeLine,
     semanticDrift,
+    driftEveryMs,
     autoPane,
     sessionModel,
     sessionPolicy,

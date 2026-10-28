@@ -61,7 +61,6 @@ async function offerCheckHint($: EngineInterface, goalId: number, commands: stri
 }
 
 /** Khoảng tối thiểu giữa hai lượt kiểm lạc đề (đồng hồ engine, 0.7.0): mỗi lượt là một lần gọi router. */
-const DRIFT_EVERY_MS = 10 * 60_000
 
 /**
  * Kết cục của một subagent theo `reason` của turn.complete (0.6.1): chỉ 'answer' là xong. 'error' là lỗi; 'aborted' (người dùng
@@ -82,7 +81,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     if (!L.observed.includes(item)) L.observed.push(item)
     if (L.observed.length > 5) L.observed.shift()
   }
-  const { agentFailures, agentTrackers, agents, blockLimit, carryEvidence, flushDecisions, delegationItems, evidenceFor, failedFor, isRouterPaused, moveDelegation, noteRouterTime, pendingFor, record, remindSubagents, routerFamily, routerModel, semanticDrift, steppedEarly, strictDelegation, trackDelegations } = ctx
+  const { agentFailures, agentTrackers, agents, blockLimit, carryEvidence, flushDecisions, delegationItems, evidenceFor, failedFor, isRouterPaused, moveDelegation, noteRouterTime, pendingFor, record, remindSubagents, routerFamily, routerModel, semanticDrift, driftEveryMs, steppedEarly, strictDelegation, trackDelegations } = ctx
   const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
   const mode = derive([modeState], modeOf(ctx.options))
 
@@ -361,7 +360,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     // Tự tắt khi hạn mức đã vào vùng gần ngưỡng (hay đang dừng): mỗi lượt kiểm là một lượt gọi router. Tối đa một lượt mỗi 10 phút.
     const quota = normalizeQuota(await read($, quotaState))
     const isNearQuota = quota.pause !== null || evaluateQuota(quota.readings, at, quotaSettings(ctx.options)).nearest !== null
-    const isDriftDue = L.lastDriftAt === null || at - L.lastDriftAt >= DRIFT_EVERY_MS
+    const isDriftDue = L.lastDriftAt === null || at - L.lastDriftAt >= driftEveryMs
     if (semanticDrift && core.brief !== null && findings.some(f => f.kind === 'checkpoint') && !isRouterPaused() && !isNearQuota && isDriftDue) {
       L.lastDriftAt = at
       const request = driftRequest({
