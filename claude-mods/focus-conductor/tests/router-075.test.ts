@@ -20,7 +20,7 @@ describe('0.7.5 A7: ràng buộc của mục tiêu trước trong request tiếp
 
   test('nhiều ràng buộc dài: cắt gọn, ràng buộc đầu còn', () => {
     const many = makeBrief({ goal: 'g', constraints: Array.from({ length: 12 }, (_, i) => `Ràng buộc ${i} ${'x'.repeat(200)}`) })
-    const prompt = routerRequest({ text: 'tiếp', prev: many, ran: null, policy: OPEN, model: 'sonnet' }).prompt
+    const prompt = String(routerRequest({ text: 'tiếp', prev: many, ran: null, policy: OPEN, model: 'sonnet' }).prompt)
     const lines = prompt.split('\n').filter(line => line.startsWith('  - Ràng buộc'))
     expect(lines[0]).toContain('Ràng buộc 0')
     expect(lines.join('\n').length).toBeLessThanOrEqual(700)

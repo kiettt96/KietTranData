@@ -302,7 +302,8 @@ describe('brief từ kế hoạch của router', () => {
     expect(added.map(t => t.index)).toEqual([4])
     expect(brief.tasks.map(t => t.index)).toEqual([1, 2, 3, 4])
     expect(brief.constraints).toEqual(['Không đổi API công khai', 'Giữ log cũ'])
-    expect(brief.main).toEqual({ family: 'sonnet', effort: 'medium' })
+    // 0.7.5 A7: refine không hạ luồng chính dưới lượt trước (prev là opus/high); trước đây là sonnet/medium của router.
+    expect(brief.main).toEqual({ family: 'opus', effort: 'high' })
     expect(brief.isFollowUp).toBe(true)
     expect(brief.relation).toBe('refine')
   })

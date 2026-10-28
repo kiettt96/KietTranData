@@ -194,7 +194,7 @@ function sessionLine(family: ModelFamily | null | undefined): string[] {
 }
 
 /** Ràng buộc của brief gửi router chấm subagent: giữ thứ tự (quy định model đứng đầu), cắt gọn tổng khoảng RULES_CHARS ký tự. */
-function rulesLines(constraints: readonly string[] | undefined): string[] {
+function ruleItems(constraints: readonly string[] | undefined): string[] {
   const items: string[] = []
   let size = 0
   for (const rule of constraints ?? []) {
@@ -203,6 +203,11 @@ function rulesLines(constraints: readonly string[] | undefined): string[] {
     items.push(item)
     size += item.length + 1
   }
+  return items
+}
+
+function rulesLines(constraints: readonly string[] | undefined): string[] {
+  const items = ruleItems(constraints)
   return items.length > 0 ? ['User rules of this goal (a rule that names a model for this kind of work must be followed, never a lower model):', ...items] : []
 }
 
@@ -211,9 +216,12 @@ function previousLines(prev: Brief | null, ran: string | null): string[] {
   const tasks = prev.tasks
     .slice(0, TASK_LIMIT)
     .map(t => `  ${t.index}. ${fence(t.title)} (${t.run === 'agent' ? `${fence(t.agentType ?? 'general-purpose')} ` : 'main '}${describePick(t.pick)})`)
+  // Ràng buộc của mục tiêu trước (0.7.5), cắt gọn như khi chấm subagent: prompt tiếp nối ngắn không nhắc lại quy định model.
+  const rules = ruleItems(prev.constraints)
   return [
     `Previous goal${prev.isReference ? ' (a reference-only review: its tasks were routed for comparison, not run)' : ''}: ${fence(prev.goal)}`,
     ...(tasks.length > 0 ? ['Previous tasks:', ...tasks] : []),
+    ...(rules.length > 0 ? ['Previous constraints (still hold on a follow-up; a rule that names a model for this kind of work must be followed):', ...rules] : []),
     ...(prev.referenceMain ? [`Main thread the referenced prompt would need: ${describePick(prev.referenceMain)}`] : []),
     `Main thread ran: ${ran ?? 'unknown'}`,
   ]
@@ -723,7 +731,8 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number): { brief:
     tier: prev.isBare === true ? tierOf(plan.depth, plan.volume) : maxTier(prev.tier, tierOf(plan.depth, plan.volume)),
     // Mục tiêu tối thiểu được router đọc lần đầu qua prompt tiếp nối: lấy câu mục tiêu của router nếu có (0.7.2).
     ...(prev.isBare === true && plan.goal ? { goal: plan.goal } : {}),
-    main: plan.main,
+    // Làm tiếp hay chỉnh thêm (0.7.5): luồng chính không thấp hơn lượt trước (họ và effort); dissatisfied tính lại theo router.
+    main: (plan.relation === 'continue' || plan.relation === 'refine') && prev.main !== null && plan.main !== null ? floorPick(plan.main, prev.main.family, prev.main.effort).pick : plan.main,
     why: reasonOf(plan),
     relation: plan.relation,
     source: 'router',
