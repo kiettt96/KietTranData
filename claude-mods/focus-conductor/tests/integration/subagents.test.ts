@@ -170,7 +170,8 @@ describe('subagent theo router', () => {
 
   test('giao hơn sáu subagent trong một mục tiêu thì cảnh báo chi phí đúng một lần', {}, async ($, on) => {
     const seen = base(on)
-    on('tool.call', { tool: 'Agent' }, () => ({ deny: 'test: đã ghi nhận đầu vào' }))
+    // 0.7.5 C3: lời gọi bị từ chối không còn được đếm; "engine" cho chạy để đếm.
+    on('tool.call', { tool: 'Agent' }, () => ({ result: 'đã giao' }))
     await submit($, COMPLEX_PROMPT)
     for (let i = 0; i < 8; i++) await $.tool.call({ tool: 'Agent', description: `Tìm ${i}`, prompt: `Tìm file số ${i} trong codebase` })
     expect(seen.toasts.filter(t => t.includes('đã giao 7 subagent')).length).toBe(1)

@@ -181,8 +181,10 @@ export type Ledger = {
   goal: {
     goalId: number
     buckets: Record<Group, Bucket>
-    /** Số subagent đã giao trong mục tiêu này (để cảnh báo fan-out). */
+    /** Số subagent đã giao (chạy thật ở luồng chính) trong mục tiêu này. */
     spawned: number
+    /** Trong số đó, lời gọi không khớp việc đã phân (0.7.5): cảnh báo fan-out đếm theo số này; vắng ở trạng thái cũ. */
+    unplanned?: number
     fanoutWarned: boolean
   }
   /** Hệ số ước lượng theo họ model, học từ số đo; 1 nghĩa là chưa hiệu chỉnh. */

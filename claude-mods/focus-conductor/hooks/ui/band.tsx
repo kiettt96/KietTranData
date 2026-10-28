@@ -76,7 +76,8 @@ export function renderBand(
   const hasRoom = columns >= 72
   const hasTitle = columns >= 56
 
-  const recent = warnings.filter(w => w.at >= brief.at)
+  // Cảnh báo chi phí (0.7.5) không lên dòng cảnh báo của band: chỉ ở pane và /conductor status.
+  const recent = warnings.filter(w => w.at >= brief.at && w.kind !== 'cost')
   const latest = recent.at(-1)
   const others = recent.length - 1
   const severity = latest ? severityOf(latest.kind) : null

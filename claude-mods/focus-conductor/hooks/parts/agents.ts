@@ -166,17 +166,6 @@ export function registerAgents(on: On, ctx: Ctx): void {
     const sentFamily = isApplied && route !== null ? route.pick.family : claimed
     const sentEffort = isApplied && route !== null ? route.pick.effort : requested
     pendingAgents.set(e.tool_use_id, { route, reason, isApplied, description: e.description, sentFamily, sentEffort, ...(assigned !== undefined ? { taskIndex: assigned.index } : {}) })
-    const spawned = await update($, coreState, S.withLedger(countSpawn))
-    if (spawned.ledger.goal.spawned > FANOUT_WARN && !spawned.ledger.goal.fanoutWarned) {
-      const at = await $.clock.now()
-      const text = `Mục tiêu này đã giao ${spawned.ledger.goal.spawned} subagent; mỗi agent có chi phí riêng, xem /conductor status`
-      await update($, coreState, c =>
-        S.withWarnings({ at, kind: 'cost', text })(
-          S.withLedger(ledger => ({ ...ledger, goal: { ...ledger.goal, fanoutWarned: true } }))(c),
-        ),
-      )
-      $.ui.toast(text)
-    }
     // Đổi loại agent chỉ khi Claude để general-purpose và engine đã mời loại router chọn.
     const isGeneral = e.subagent_type === undefined || e.subagent_type === 'general-purpose'
     const swap = isApplied && route !== null && isGeneral && route.agentType !== 'general-purpose' && offered.has(route.agentType)
@@ -185,6 +174,22 @@ export function registerAgents(on: On, ctx: Ctx): void {
         ? e
         : { ...e, model: route.pick.family, effort: route.pick.effort, ...(swap ? { subagent_type: route.agentType } : {}) },
     )
+    // Fan-out (0.7.5): chỉ lời gọi chạy thật ở luồng chính (không bị từ chối, không lỗi, không lồng từ subagent); cảnh báo đếm
+    // lời gọi không khớp việc đã phân.
+    if (!isNested && result.deny === undefined && result.isError !== true) {
+      const spawned = await update($, coreState, S.withLedger(ledger => countSpawn(ledger, assigned === undefined)))
+      const unplanned = spawned.ledger.goal.unplanned ?? 0
+      if (unplanned > FANOUT_WARN && !spawned.ledger.goal.fanoutWarned) {
+        const at = await $.clock.now()
+        const text = `Mục tiêu này đã giao ${unplanned} subagent; mỗi agent có chi phí riêng, xem /conductor status`
+        await update($, coreState, c =>
+          S.withWarnings({ at, kind: 'cost', text })(
+            S.withLedger(ledger => ({ ...ledger, goal: { ...ledger.goal, fanoutWarned: true } }))(c),
+          ),
+        )
+        $.ui.toast(text)
+      }
+    }
     // Lời gọi Agent bị từ chối hoặc lỗi trước khi agent chạy: việc trở lại danh sách chờ giao.
     if (assigned !== undefined && brief !== null && (result.deny !== undefined || result.isError === true) && L.delegation.running.has(assigned.index)) {
       pendingAgents.delete(e.tool_use_id)
