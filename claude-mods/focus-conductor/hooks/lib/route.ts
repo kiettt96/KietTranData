@@ -246,6 +246,15 @@ function taskCode(text: string): string {
   return fold(text).match(/^\s*([a-z]{1,3}\d+(?:\.\d+)*|\d+(?:\.\d+)+|\d+(?=[.:)]))/)?.[1] ?? ''
 }
 
+/**
+ * Mã bước của prompt có mã (0.7.5): "BƯỚC 7", "Bước 7", "Step 7" đứng đầu câu, trả số nguyên dạng chuỗi ("7");
+ * rỗng nếu không có. So nguyên số, để BƯỚC 1 không khớp BƯỚC 10.
+ */
+export function stepCode(text: string): string {
+  const found = fold(text).match(/^[\s#*>-]*(?:buoc|step)\s*#?\s*(\d+)\b/)?.[1]
+  return found === undefined ? '' : String(Number(found))
+}
+
 /** Ngưỡng ghi log "gần giống" theo tên việc (hệ số Dice trên từ có nghĩa). Chỉ để ghi log, không dùng để khớp. */
 const TITLE_NEAR = 0.5
 const FILLER = new Set(['va', 'cho', 'cac', 'trong', 'mot', 'nhung', 'cua', 'voi', 'the', 'and', 'for', 'with', 'of', 'to', 'in', 'on', 'a', 'an'])
@@ -270,8 +279,9 @@ export type TaskMatch = {
 
 /**
  * Việc đã phân mà một lời gọi Agent đang làm, chỉ theo cấu trúc: description mở đầu bằng "Việc N" (hoặc
- * "Task N", "Task #N"; không nhận "Bước N" vì dễ trùng số bước của checklist), hoặc cùng mã mục với tên việc
- * (so nguyên mã, để K4.1 không khớp K4.10). Không đoán theo ý: lời gọi không khớp được router chấm, và router
+ * "Task N", "Task #N"; N là số thứ tự của việc), hoặc cùng mã mục với tên việc (so nguyên mã, để K4.1 không khớp
+ * K4.10), hoặc cùng mã bước "BƯỚC N" với tên việc (0.7.5; prompt không có mã bước thì "Bước N" không khớp vì dễ
+ * trùng số bước của checklist). Không đoán theo ý: lời gọi không khớp được router chấm, và router
  * nhận ra nó thuộc việc nào nếu có. Không khớp mà có dấu hiệu nhắm một việc thì trả lý do để ghi log.
  */
 export function taskMatch(tasks: readonly Task[], description: string): TaskMatch {
@@ -286,6 +296,11 @@ export function taskMatch(tasks: readonly Task[], description: string): TaskMatc
   const coded = code ? tasks.find(t => taskCode(t.title) === code) : undefined
   if (coded) return { task: coded }
   if (numbered) return { miss: `không có việc ${numbered[1]}` }
+  // Prompt có mã bước (0.7.5): description mở đầu bằng đúng mã bước của một việc thì khớp việc đó.
+  const stepped = stepCode(description)
+  const steppedTask = stepped ? tasks.find(t => stepCode(t.title) === stepped) : undefined
+  if (steppedTask) return { task: steppedTask }
+  if (stepped && tasks.some(t => stepCode(t.title) !== '')) return { miss: `không có việc mang mã "Bước ${stepped}"` }
   const step = folded.match(/^\s*(?:buoc|step)\s*#?\s*(\d+)\b/)
   if (step) return { miss: `"Bước ${step[1]}" là số bước của checklist, không phải số việc` }
   const asked = words(description)

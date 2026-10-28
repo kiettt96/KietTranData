@@ -1073,4 +1073,10 @@ export const MUTANTS: Mutant[] = [
   { id: "075-A1", file: "hooks/parts/turn.ts", note: "turn.start của subagent tạo lại bộ đếm luồng chính", old: "    if (e.agentId !== undefined) return next(e)\n    L.tracker = newTracker(e.turnId)", new: "    L.tracker = newTracker(e.turnId)" },
   { id: "075-A2a", file: "hooks/parts/session.ts", note: "không hỏi model của phiên ở prompt đầu", old: "    if (L.sessionFamily === null) L.sessionFamily = familyOf(await $.session.model().catch(() => ''))\n", new: "" },
   { id: "075-A2b", file: "hooks/parts/session.ts", note: "chỉ hỏi khi đã biết model của phiên", old: "if (L.sessionFamily === null) L.sessionFamily = familyOf(", new: "if (L.sessionFamily !== null) L.sessionFamily = familyOf(" },
+  { id: "075-A3a", file: "hooks/lib/route.ts", note: "mã bước chỉ nhận BƯỚC", old: "(?:buoc|step)\\s*#?\\s*(\\d+)\\b/)?.[1]", new: "(?:buoc)\\s*#?\\s*(\\d+)\\b/)?.[1]" },
+  { id: "075-A3b", file: "hooks/lib/route.ts", note: "không khớp theo mã bước", old: "  if (steppedTask) return { task: steppedTask }\n", new: "" },
+  { id: "075-A3c", file: "hooks/lib/route.ts", note: "so mã bước theo tiền tố", old: "tasks.find(t => stepCode(t.title) === stepped)", new: "tasks.find(t => stepCode(t.title).startsWith(stepped))" },
+  { id: "075-A3d", file: "hooks/lib/route.ts", note: "prompt không mã cũng nhận lý do mã bước", old: "if (stepped && tasks.some(t => stepCode(t.title) !== ''))", new: "if (stepped)" },
+  { id: "075-A3e", file: "hooks/lib/text.ts", note: "DISCIPLINE không nêu số thứ tự", old: "tiêu đề bước mở đầu \"Việc N: \" (N là số thứ tự của việc trong Phân việc); việc mang mã riêng của prompt (như \"BƯỚC 7\") thì tiêu đề bước mở đầu bằng chính mã đó.", new: "tiêu đề bước mở đầu \"Việc N: \"." },
+  { id: "075-A3f", file: "hooks/lib/text.ts", note: "Phân việc không nêu mã bước", old: "với N là số thứ tự của việc; việc mang mã riêng như \"BƯỚC 7\" thì mở đầu bằng chính mã đó):", new: "với N là số của việc):" },
 ]
