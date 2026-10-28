@@ -60,7 +60,7 @@ describe('0.7.5 M11: việc có mã khi chưa xác định được bước', ()
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, FOUR)
     await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'BƯỚC 2: đổi tên userId' }, { title: 'Dọn dẹp cuối' }] })
-    expect(nudgeOf(await edit($))).toContain('Việc 3 (sonnet/medium)')
+    expect(nudgeOf(await edit($))).toContain('Việc 1 (sonnet/medium), 3 (sonnet/medium)')
   })
 
   test('checklist đánh số Việc N cũng là checklist có mã', REMIND, async ($, on) => {
@@ -68,7 +68,7 @@ describe('0.7.5 M11: việc có mã khi chưa xác định được bước', ()
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, FOUR)
     await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Việc 1: đổi tên userId' }] })
-    expect(nudgeOf(await edit($))).toContain('Việc 3 (sonnet/medium)')
+    expect(nudgeOf(await edit($))).toContain('Việc 1 (sonnet/medium), 3 (sonnet/medium)')
   })
 
   test('checklist có mã, bước BƯỚC 4 đang làm: nhắc đúng việc đó', REMIND, async ($, on) => {
