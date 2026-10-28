@@ -45,6 +45,11 @@ describe('0.7.5 M1: "dung" không dấu và chuỗi con', () => {
     expect(ruleFamily(['Việc tin dùng opus'], 'Tinh chỉnh bảng giá', null)).toBe(null)
   })
 
+  test('vế có dấu: "nội dung" không bị cắt ở "dung"; loại việc quá ngắn (dưới 3 ký tự) bị bỏ', () => {
+    expect(ruleFamily(['Nội dung bài viết dùng sonnet'], 'Nội bộ lô 1', null)).toBe(null)
+    expect(ruleFamily(['Việc ăn dùng opus'], 'Ăn trưa', null)).toBe(null)
+  })
+
   test('ràng buộc viết không dấu hoàn toàn vẫn đọc được', () => {
     expect(ruleFamily(['Viec loc tin chay sonnet'], 'Loc tin lo 1', null)).toBe('sonnet')
   })

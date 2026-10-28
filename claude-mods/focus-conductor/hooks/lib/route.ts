@@ -317,26 +317,60 @@ export function agentMemoKey(description: string, agentType: string | undefined,
   return [shape, agentType ?? '', model ?? '', effort ?? ''].join('\n')
 }
 
-const RULE_FAMILY = /\b(haiku|sonnet|opus|fable)\b/
+const RULE_FAMILY = /(?<![\p{L}\p{N}])(haiku|sonnet|opus|fable)(?![\p{L}\p{N}])/iu
 /** Chữ phủ định trong một ràng buộc ("Không dùng haiku cho việc sửa file"): không phải quy định model cho loại việc (H2, vòng sửa 2). */
 const RULE_NEGATION = /(?<![\p{L}\p{N}])(?:không|khong|đừng|cấm|chẳng|chớ|never|not|no|don't)(?![\p{L}\p{N}])/iu
-/** Từ đứng giữa loại việc và model trong một quy định ("Việc lọc tin chạy sonnet"): cắt câu tại đó để lấy loại việc. */
-const RULE_CUT = /\b(?:chay|dung|bang|phai|luon|voi|haiku|sonnet|opus|fable|mo hinh|model)\b/
+/** Từ đứng giữa loại việc và model trong một quy định ("Việc lọc tin chạy sonnet"): cắt vế tại đó để lấy loại việc. */
+const RULE_CUT = /(?<![\p{L}\p{N}])(?:chạy|dùng|bằng|phải|luôn|với|haiku|sonnet|opus|fable|mô hình|model)(?![\p{L}\p{N}])/iu
+/** Vế viết hoàn toàn không dấu: nhận cả "chay", "dung", "bang"... làm từ cắt (vế có dấu thì "dung" là "nội dung", không cắt). */
+const RULE_CUT_ASCII = /(?<![a-z0-9])(?:chay|dung|bang|phai|luon|voi|mo hinh)(?![a-z0-9])/i
+const SESSION_MODEL = /(?:mô hình|model|mo hinh) (?:của|cua) (?:phiên|phien)|session model/iu
+/** Nhãn đầu description không phải loại việc: "BƯỚC 3:", "Việc 4:", "K4.10". */
+const LEADING_LABEL = /^\s*(?:(?:viec|task|buoc|step)\s*#?\s*\d+|[a-z]{1,3}\d+(?:\.\d+)*)\s*[:.)-]?\s*/
+
+/** Các từ (bỏ dấu, viết thường) của một cụm; rỗng nếu không còn gì. */
+function phraseWords(text: string): string[] {
+  return fold(text).replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter(Boolean)
+}
+
+/** Loại việc của một vế: phần trước từ cắt, tách theo "/", "và", "hoặc"; bỏ "việc", "bước", "các" đứng đầu. */
+function kindsOf(part: string): string[][] {
+  const low = part.toLowerCase().normalize('NFC')
+  const hasMarks = /[^\x00-\x7f]/.test(low)
+  const cut = low.search(RULE_CUT)
+  const ascii = hasMarks ? -1 : low.search(RULE_CUT_ASCII)
+  const at = [cut, ascii].filter(n => n >= 0).sort((a, b) => a - b)[0]
+  const head = at === undefined ? low : low.slice(0, at)
+  return head
+    .split(/\s*\/\s*|\s+(?:và|va|hoặc|hoac)\s+/u)
+    .map(kind => phraseWords(kind.replace(/^\s*(?:các\s+|cac\s+)?(?:việc|viec|bước|buoc|tác vụ|tac vu|task)\s+/u, '')))
+    .filter(words => words.join(' ').length >= 3)
+}
 
 /**
- * Họ model mà ràng buộc của brief quy định cho loại việc của một lời gọi Agent (0.7.5): ràng buộc nêu họ model (hay "mô hình
- * của phiên", khi biết model của phiên) và loại việc đứng trước ("Việc lọc tin chạy sonnet": "lọc tin"); description (bỏ dấu,
- * viết thường) chứa loại việc đó. Không có thì null.
+ * Họ model mà ràng buộc của brief quy định cho loại việc của một lời gọi Agent (0.7.5): ràng buộc tách theo vế (";" rồi ","), mỗi
+ * vế nêu một họ model (hay "mô hình của phiên", khi biết model của phiên) cho loại việc đứng trước từ cắt ("Việc lọc tin chạy
+ * sonnet": "lọc tin"); vế không nêu họ (ví dụ "đọc" trong "đọc, giải thích và tóm tắt dùng model của phiên") dùng họ của vế có họ kế
+ * tiếp. Loại việc phải là các từ trọn vẹn ở đầu description, sau nhãn "BƯỚC N:" hay "Việc N:". Đoạn (tách bằng ";") có chữ phủ
+ * định bị bỏ (H2). Không có thì null.
  */
 export function ruleFamily(constraints: readonly string[], description: string, session: ModelFamily | null): ModelFamily | null {
-  const asked = fold(description)
+  const asked = phraseWords(fold(description).replace(LEADING_LABEL, ''))
+  const startsWith = (kind: string[]) => kind.length > 0 && kind.every((word, i) => asked[i] === word)
   for (const rule of constraints) {
-    if (RULE_NEGATION.test(rule.normalize('NFC'))) continue
-    const text = fold(rule)
-    const named = (RULE_FAMILY.exec(text)?.[1] as ModelFamily | undefined) ?? (/(?:mo hinh|model) cua phien/.test(text) ? session : null)
-    if (named === null || named === undefined) continue
-    const kind = (text.split(RULE_CUT)[0] ?? '').replace(/^\s*(?:cac\s+)?(?:viec|buoc|tac vu|task)\s+/, '').replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim()
-    if (kind.length >= 3 && asked.includes(kind)) return named
+    for (const segment of rule.normalize('NFC').split(/[;；]/)) {
+      if (RULE_NEGATION.test(segment)) continue
+      let pending: string[][] = []
+      for (const part of segment.split(/[,，]/)) {
+        const named = (RULE_FAMILY.exec(part)?.[1]?.toLowerCase() as ModelFamily | undefined) ?? (SESSION_MODEL.test(part) ? session : null)
+        const kinds = kindsOf(part)
+        if (named === null || named === undefined) {
+          pending = [...pending, ...kinds]
+          continue
+        }
+        if ([...pending, ...kinds].some(startsWith)) return named
+      }
+    }
   }
   return null
 }
