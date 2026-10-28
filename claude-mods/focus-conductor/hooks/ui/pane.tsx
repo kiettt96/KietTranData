@@ -37,6 +37,8 @@ export const PANE_TITLE = 'Focus Conductor'
 
 const MODES: readonly Mode[] = ['auto', 'subagents', 'suggest', 'off']
 const BAR = 8
+/** Checklist dài hơn số bước này thì dồn các bước đã đóng thành một dòng (0.7.5). */
+const COLLAPSE_FROM = 6
 
 export type PaneHandlers = {
   onMode: (mode: Mode) => unknown
@@ -287,10 +289,23 @@ export function renderPane(
 
   // ----------------------------------------------------------- checklist
   const idWidth = Math.max(1, ...plan.map(step => String(step.id).length), String(brief.steps.length).length)
+  // Checklist dài (vòng sửa 2 của 0.7.5): các bước đã đóng dồn thành một dòng tóm tắt, để pane tự mở 16 dòng còn chỗ cho tiến độ
+  // từng việc. Chỉ khi dồn tiết kiệm được dòng (từ hai bước đóng); checklist ngắn giữ nguyên từng bước.
+  const closedSteps = plan.filter(step => progress([step]).closed === 1)
+  const isCollapsed = plan.length > COLLAPSE_FROM && closedSteps.length >= 2
+  const listed = isCollapsed ? plan.filter(step => !closedSteps.includes(step)) : plan
   const checklist =
     plan.length > 0 ? (
       <Box flexDirection="column">
-        {plan.map(step => {
+        {isCollapsed ? (
+          <Box flexDirection="row" gap={1}>
+            <Text color={STEP_MARK.done.color} dimColor>
+              {STEP_MARK.done.glyph}
+            </Text>
+            <Text dimColor>{l.stepsClosed(closedSteps.length)}</Text>
+          </Box>
+        ) : null}
+        {listed.map(step => {
           const mark = STEP_MARK[step.status]
           const isFaded = step.status === 'verified' || step.status === 'skipped'
           const isBlocked = step.status === 'blocked'
