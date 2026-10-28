@@ -2,7 +2,7 @@
 
 import { atom, derive, read, update } from 'claude-code'
 import type { AgentState, DelegationState, Warning } from '../../types'
-import { acceptsVerified, evidenceStrength, filePathOf, freshTestRun, isExecuting, isFullyClosed, isGoalDone, isMutation, isPlanFile, newTracker, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
+import { acceptsVerified, evidenceStrength, filePathOf, freshTestRun, isExecuting, isFullyClosed, isGoalDone, isMutation, isPlanFile, markVerified, newTracker, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
 import type { Focus } from '../lib/drift'
 import { clipText } from '../lib/decisions'
 import { addUsage, calibrate, recordShape, shapeKey } from '../lib/ledger'
@@ -172,10 +172,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       }
     }
     L.tracker.planUpdates += 1
-    if (isAccepted && (strength?.level === 'strong' || fresh !== undefined)) {
-      L.tracker.isVerified = true
-      L.tracker.mutationsSinceCheck = 0
-    }
+    if (isAccepted && (strength?.level === 'strong' || fresh !== undefined)) markVerified(L.tracker)
     const notes: string[] = []
     if (isDowngraded) {
       const reason = strength?.reason ?? 'chưa đối chiếu được evidence với mục tiêu hiện tại'

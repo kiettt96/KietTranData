@@ -170,13 +170,16 @@ export function trackVerification(tracker: TurnTracker, observation: ToolObserva
     tracker.checks += 1
     if (author === 'main') tracker.pending.clear()
     else tracker.pending.delete(author)
-    if (tracker.pending.size === 0) {
-      tracker.isVerified = true
-      tracker.mutationsSinceCheck = 0
-      tracker.checkpointMark = 0
-    }
+    if (tracker.pending.size === 0) markVerified(tracker)
   }
   return writes
+}
+
+/** Luồng chính đã được kiểm chứng: bộ đếm thay đổi chưa kiểm và mốc checkpoint đã nhắc cùng về 0 (vòng sửa 2 của 0.7.5). */
+export function markVerified(tracker: TurnTracker): void {
+  tracker.isVerified = true
+  tracker.mutationsSinceCheck = 0
+  tracker.checkpointMark = 0
 }
 
 /** Cách router đọc prompt của turn: quan hệ với mục tiêu đang mở và bản chất việc; null khi router không đọc được. */

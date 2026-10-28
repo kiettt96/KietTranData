@@ -18,7 +18,7 @@ export type { WriteTargets, CheckEffect, WriteEffect, BashEffect, BashClass } fr
 export { isVerification, checkKindOf, isMutation } from './drift/effects'
 export { outputFailed, runnerOf, completePass } from './drift/output'
 export type { Runner } from './drift/output'
-export { CHECKPOINT_EVERY, LOOP_AFTER, newTracker, trackVerification, isExecuting, turnRole, openSteps, isGoalDone, observe, summarize } from './drift/tracker'
+export { CHECKPOINT_EVERY, LOOP_AFTER, markVerified, newTracker, trackVerification, isExecuting, turnRole, openSteps, isGoalDone, observe, summarize } from './drift/tracker'
 export type { TurnTracker, Focus, Finding, PromptIntent, TurnRole } from './drift/tracker'
 export { newEvidenceLog, noteEvidence, freshTestRun } from './drift/evidence'
 export type { EvidenceEntry, EvidenceLog } from './drift/evidence'
