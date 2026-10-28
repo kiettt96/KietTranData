@@ -255,6 +255,14 @@ export function stepCode(text: string): string {
   return found === undefined ? '' : String(Number(found))
 }
 
+/**
+ * Tiêu đề (của việc hay của bước checklist) có mã để khớp với nhau (0.7.5): mã mục (K4.1), "BƯỚC N" hay "Việc N" đứng đầu.
+ * Tiêu đề không mã chỉ khớp được theo ý, mà mod không đoán.
+ */
+export function hasTitleCode(text: string): boolean {
+  return taskCode(text) !== '' || stepCode(text) !== '' || /^\s*(?:viec|task)\s*#?\s*\d+\b/.test(fold(text))
+}
+
 /** Ngưỡng ghi log "gần giống" theo tên việc (hệ số Dice trên từ có nghĩa). Chỉ để ghi log, không dùng để khớp. */
 const TITLE_NEAR = 0.5
 const FILLER = new Set(['va', 'cho', 'cac', 'trong', 'mot', 'nhung', 'cua', 'voi', 'the', 'and', 'for', 'with', 'of', 'to', 'in', 'on', 'a', 'an'])
