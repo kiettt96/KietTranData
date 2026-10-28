@@ -11,7 +11,10 @@ type Out = { deny?: string; context?: string[] }
 const call = ($: Engine, input: Record<string, unknown>) => $.tool.call(input as never) as Promise<Out>
 const bash = ($: Engine, command: string) => call($, { tool: 'Bash', command })
 const tools = (on: Parameters<typeof base>[0]) => {
-  for (const tool of ['Write', 'Edit', 'Bash', 'Read'] as const) on('tool.call', { tool }, () => ({ result: 'ok' }))
+  on('tool.call', { tool: 'Write' }, () => ({ result: 'ok' }))
+  on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+  on('tool.call', { tool: 'Bash' }, () => ({ result: 'ok' }))
+  on('tool.call', { tool: 'Read' }, () => ({ result: 'ok' }))
 }
 const DENIED = 'Tạm dừng'
 const OPTS = { options: { pauseAllowPaths: 'k6/' } }
