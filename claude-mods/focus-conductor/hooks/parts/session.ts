@@ -236,7 +236,8 @@ export function registerSession(on: On, ctx: Ctx): void {
       // luồng chính. routerFallback "reuse" (người dùng tự bật) giữ cả lựa chọn của prompt trước.
       const isReuse = routerFallback === 'reuse' && prev !== null && prev.main !== null
       const kept: Brief | null = prev ? { ...prev, ...(isReuse ? {} : { main: null }), at: now } : null
-      if (!isReuse) L.delegation = newDelegation()
+      // Prompt tiếp nối (0.7.5): phân việc đã có và trạng thái giao của từng việc vẫn giữ; chỉ bỏ lựa chọn luồng chính.
+      if (!isReuse && prev === null) L.delegation = newDelegation()
       const failText = isReuse
         ? `Router (${routerModel}) không đọc được prompt (${outcome.reason}); dùng lại lựa chọn của prompt trước`
         : `Router (${routerModel}) không đọc được prompt (${outcome.reason}); turn này chạy theo model của phiên`
@@ -253,7 +254,7 @@ export function registerSession(on: On, ctx: Ctx): void {
         const used = S.withRouterFail(fail)(withUsage(bare ? S.adoptGoal(bare)(c) : c))
         const withKept = kept ? S.withBrief(kept)(used) : used
         const withNotes = S.withWarnings(...warnings)(isReuse ? withKept : S.withRoute(null)(withKept))
-        return isReuse ? withNotes : S.withDelegations(bare?.goalId ?? -1, [])(withNotes)
+        return isReuse || prev !== null ? withNotes : S.withDelegations(bare?.goalId ?? -1, [])(withNotes)
       })
       if (bare) {
         L.isGoalNew = true
@@ -267,7 +268,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       await flushDecisions((path, text) => $.fs.write(path, text))
       if (!isPaused) $.ui.toast(pauseText ?? failText)
       await showStatus($, await read($, view), ctx.options)
-      return next({ ...e, context: [...lead, ...(e.context ?? []), unroutedContext(outcome.reason, bare !== null), ...tail] })
+      return next({ ...e, context: [...lead, ...(e.context ?? []), unroutedContext(outcome.reason, bare !== null, prev !== null && prev.tasks.length > 0), ...tail] })
     }
 
     // Mục tiêu mới, chạy thật prompt đã đối chiếu, hoặc tiếp nối cùng mục tiêu.

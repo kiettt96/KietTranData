@@ -124,10 +124,11 @@ export function briefContext(brief: Brief, main: Choice | null, isApplied = true
 }
 
 /** Router không đọc được prompt: báo để Claude không dựa vào phân việc cũ. */
-export function unroutedContext(reason: string, isBare = false): string {
+export function unroutedContext(reason: string, isBare = false, hasTasks = false): string {
   return (
     `[focus-conductor] Router không đọc được prompt này (${reason}). Không có phân việc mới; ` +
-    'mod không chọn model cho turn này, và phân việc cũ (nếu có) không còn hiệu lực. ' +
+    // 0.7.5: router lỗi ở prompt tiếp nối không làm mất phân việc đã có của mục tiêu.
+    (hasTasks ? 'mod không chọn model cho turn này; phân việc đã có của mục tiêu vẫn giữ (giao đúng các việc ghi "giao" còn lại). ' : 'mod không chọn model cho turn này. ') +
     (isBare ? 'Mod đã lập mục tiêu tối thiểu từ prompt để vẫn theo dõi tiến độ; người dùng có thể /conductor reroute để router đọc lại. ' : '') +
     `Tự đọc kỹ prompt, và gọi ${PLAN_TOOL_FULL} action "set" nếu việc từ mức moderate trở lên.`
   )
