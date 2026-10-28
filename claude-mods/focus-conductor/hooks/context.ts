@@ -125,9 +125,10 @@ export function createContext(options: PluginOptions) {
     /**
      * Giữ mục tiêu qua lần nén (0.7.4): `pending` là lời nhắc sau nén còn chờ gắn vào tool call kế tiếp của luồng chính;
      * `lastContext` là context luồng chính đo được lần trước, hay context sau lần nén qua hook (0.7.5, tokensAfter; 0 khi
-     * chưa đo hay engine không ghi), để đường dự phòng không nhắc trùng.
+     * chưa đo hay engine không ghi), để đường dự phòng không nhắc trùng. `skipNext` (vòng sửa 2): lần đo kế tiếp sau lần nén qua
+     * hook có thể còn là số cũ nên bị bỏ qua đúng một lần.
      */
-    compaction: { pending: false, lastContext: 0 },
+    compaction: { pending: false, lastContext: 0, skipNext: false },
     /** Turn luồng chính đã nhận câu báo hạn mức mềm (0.7.5): Stop của turn đó không chặn vì checklist còn mở. */
     noticeTurn: null as string | null,
     /** Khóa lệnh ghi không rõ đích đã cảnh báo, theo mục tiêu (0.7.5): không cảnh báo lại ở mỗi turn. */
@@ -337,7 +338,7 @@ export function createContext(options: PluginOptions) {
     local.routerTimes = []
     local.turnRoute = { turnId: '', route: null }
     local.turnContext = 0
-    local.compaction = { pending: false, lastContext: 0 }
+    local.compaction = { pending: false, lastContext: 0, skipNext: false }
     local.noticeTurn = null
     local.unknownWrites = { goalId: -1, keys: new Set() }
     local.goalPrompt = null
@@ -393,6 +394,11 @@ export function createContext(options: PluginOptions) {
    */
   function noteContext(tokens: number): void {
     const c = local.compaction
+    // Lần đo đầu sau lần nén qua hook có thể còn là số trước nén: bỏ qua đúng một lần, không làm mốc, không so.
+    if (c.skipNext) {
+      c.skipNext = false
+      return
+    }
     if (c.lastContext > 0 && tokens < COMPACTION_DROP * c.lastContext) c.pending = true
     c.lastContext = tokens
   }
@@ -404,6 +410,7 @@ export function createContext(options: PluginOptions) {
   function noteCompacted(tokensAfter: number | undefined): void {
     local.compaction.pending = true
     local.compaction.lastContext = tokensAfter ?? 0
+    local.compaction.skipNext = true
   }
 
   /** Cache đã nguội (quá TTL), hoặc ngữ cảnh vừa bị nén: đổi model không mất chi phí ghi lại. */

@@ -193,8 +193,10 @@ describe('0.7.4 4: biên (bắt mẫu đột biến)', () => {
     await step($, seen, { turnId: 't1' })
     await compact($, 'auto')
     expect(reminders(await readFile($)).length).toBe(1)
+    // Lần đo đầu sau lần nén qua hook bị bỏ qua (M7, vòng sửa 2: có thể còn là số cũ); lần đo sau đó mới là mốc.
     meter.tokens = 40_000
     await step($, seen, { turnId: 't2' })
+    await step($, seen, { turnId: 't2b' })
     expect(reminders(await readFile($))).toEqual([])
     meter.tokens = 10_000
     await step($, seen, { turnId: 't3' })

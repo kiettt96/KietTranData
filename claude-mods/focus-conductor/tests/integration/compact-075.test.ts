@@ -60,10 +60,13 @@ describe('0.7.5 C1: mốc context sau nén qua hook', () => {
     const { seen, box } = await setup($, on, 40_000)
     await $.session.compact({ trigger: 'auto', messages: MESSAGES } as never)
     expect(reminders(await readFile($))).toBe(1)
-    box.tokens = 120_000
+    // Lần đo đầu sau lần nén qua hook bị bỏ qua (M7, vòng sửa 2).
+    box.tokens = 40_000
     await step($, seen, { turnId: 't2' })
-    box.tokens = 30_000
+    box.tokens = 120_000
     await step($, seen, { turnId: 't3' })
+    box.tokens = 30_000
+    await step($, seen, { turnId: 't4' })
     expect(reminders(await readFile($))).toBe(1)
   })
 })
