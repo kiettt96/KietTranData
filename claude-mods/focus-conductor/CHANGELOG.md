@@ -2,6 +2,56 @@
 
 Các bản của focus-conductor, mới nhất trước. Số đo kiểm chứng của HEAD hiện tại nằm ở [docs/VERIFICATION.md](docs/VERIFICATION.md); cách dùng và tùy chọn ở [README](README.md).
 
+## Thay đổi 0.7.5: sửa các lỗi của đợt rà soát toàn diện sau 0.7.4
+
+Vấn đề: rà toàn bộ mod trên `main` (`19b0349`) với một phiên dài nhiều giờ (prompt khoảng 32.000 ký tự, 11 bước có mã `BƯỚC 0` tới `BƯỚC 10`, hàng trăm lô subagent, nhiều lần nén) cho thấy bộ đếm của luồng chính bị xóa giữa turn, router không biết model của phiên ở prompt đầu, subagent mô tả theo mã bước không khớp việc, lệnh kiểm qua `| tail` không được tính, câu nhắc đẩy Claude tạo test, cảnh báo phạm vi lặp ở mỗi lệnh, nhật ký bằng chứng bị đẩy mất, router chấm subagent ở mọi lô, tiến độ subagent mất đếm sau 20 lô, cùng các lỗi quanh hạn mức, nén, router tiếp nối và pane. Mỗi điểm dưới đây có test đỏ ở commit riêng trước commit sửa (số đỏ ở `docs/VERIFICATION.md`).
+
+Nhóm A:
+
+- **A1: `turn.start` của subagent.** Từ engine 2.1.301, `turn.start` phát cả cho lần chạy của subagent (có `agentId`) [khai báo kiểu 2.1.301]; mod tạo lại bộ đếm của luồng chính ở mỗi lần đó nên cổng Stop và nhịp checkpoint mất giữa turn. Nay `turn.start` có `agentId` đi thẳng qua. Engine 2.1.296 (CI ghim) không phát sự kiện này nên lỗi không xảy ra trên 2.1.296.
+- **A2: model của phiên ở prompt đầu.** Prompt đầu đọc model qua `$.session.model()` khi chưa biết, nên router nhận dòng `Session model` và chính sách model của phiên áp ngay ở turn đầu.
+- **A3: mã bước.** Description mở đầu bằng "BƯỚC N", "Bước N" hay "Step N" khớp việc có cùng mã (so nguyên số: "BƯỚC 1" không khớp "BƯỚC 10"); "Việc N" vẫn là số thứ tự. `DISCIPLINE` mục 2 và 5 nói rõ điều này.
+- **A4: lệnh kiểm khai qua ống.** Lệnh trong `checkCommands` chạy qua `| tail` hay `| head`, sau `cd <dir> &&` hay với `set -o pipefail` được tính: có pipefail thì mã thoát 0 và không có dấu hiệu lỗi; không có pipefail thì phần output còn thấy phải có dấu hiệu đạt rõ (kể cả "ĐẠT", "KHỚP", "OK", "0 lỗi") và không có dấu hiệu lỗi (kể cả "LỖI", "SAI", "KHÔNG KHỚP", "KHÔNG ĐẠT"), và `head` cắt output thì không đạt. Đường dẫn tương đối sau `cd` được nối vào thư mục đó trước khi so với lệnh khai. Câu gợi ý `checkCommands` khuyên chạy lệnh kiểm không qua ống hoặc có `set -o pipefail`.
+- **A5: lệnh chỉ đọc chạy bằng đường dẫn đầy đủ.** `classifyBash` lấy tên cuối cho mọi tên lệnh (`/bin/ls` là `ls`, `/usr/bin/python3` là `python3`) và bỏ tiền tố `env` (kể cả `/usr/bin/env`, có hay không có biến) trước khi xét; lệnh ghi qua `env` vẫn là thay đổi.
+- **A6: dừng theo quy tắc của prompt.** Option mới `pauseAllowPaths`: khi dừng cứng, luồng chính vẫn Write, Edit hay chạy Bash mà mọi đích ghi nằm trong các đường dẫn đó (để ghi file điểm dừng theo prompt); câu từ chối nêu các đường dẫn. Turn đã nhận báo hạn mức mềm thì Stop không chặn vì checklist còn mở. Lời chặn Stop đưa hướng dẫn `waiting` lên trước câu "Hoàn thành các bước đó".
+- **A7: prompt tiếp nối.** Request tiếp nối gửi kèm ràng buộc của mục tiêu trước (quy định model đứng đầu, cắt gọn như khi chấm subagent); `continue` và `refine` không hạ luồng chính dưới lượt trước (họ và effort), `new` và `dissatisfied` tính lại theo router.
+- **A8: lời dặn kiểm.** `DISCIPLINE` mục 4, câu nhắc `verified` chưa đủ bằng chứng và ghi chú kiểm tĩnh nói kiểm theo cách người dùng quy định (lệnh kiểm có sẵn, đọc lại kết quả), không tạo test hay script kiểm mới; không có lệnh script thật đã chạy thì không nêu ví dụ `checkCommands` (bỏ tên bịa `python3 check_totals.py`).
+
+Nhóm B:
+
+- **B1:** cảnh báo "lệnh ghi không xác định được file đích" khóa theo trình chạy và đường dẫn script (bỏ tham số), giữ theo mục tiêu (không lặp ở mỗi turn), loại `scope-unknown` mức vàng, không toast.
+- **B2:** nhật ký bằng chứng có hai vùng trần riêng (lần chạy kiểm, lệnh khác, mỗi vùng 100) trong cùng danh sách theo `seq`; lệnh chỉ đọc vẫn được ghi (luật `verified` của việc chỉ tra cứu dùng chúng), 100 lệnh đọc không còn đẩy mất lần kiểm đạt.
+- **B3:** router lỗi ở prompt tiếp nối giữ phân việc và trạng thái giao, chỉ bỏ lựa chọn luồng chính.
+- **B4:** turn chạy tiếp từ điểm dừng kết thúc không phải bằng câu trả lời thì điểm dừng được dựng lại từ trạng thái hiện tại (giữ id, giờ tạo, note, lệnh bị từ chối) và về `open`; `session.end` đổi bản `resuming` trong kho về `open`.
+- **B5:** cờ đã báo hạn mức mềm đặt lại ở mỗi prompt do người gõ; kết quả tool lỗi không đánh dấu đã báo; số đo đọc lại sau `next`, nên lời gọi Agent dài nhận câu báo khi trả về.
+- **B6:** khóa nhớ kết quả router chấm subagent là description bỏ chữ số và mã lô, cộng loại agent, model và effort Claude ghi (không gồm prompt); model Claude ghi khớp quy định model của loại việc trong brief thì không gọi router. 150 lô "Lọc tin lô N": 150 lượt router trước, 1 lượt sau; Claude ghi `sonnet` đúng quy định: 0 lượt [Đo trực tiếp].
+- **B7:** bộ đếm tiến độ subagent theo việc (đã giao, xong, lỗi, đang chạy) nằm ngoài danh sách 20 dòng; việc có nhiều lô có một dòng "k/n lô xong, r đang chạy"; chip của band đếm theo tổng.
+- **B8:** gợi ý `checkCommands` chỉ nêu script tên kiểu kiểm (không bao giờ gợi ý script ghi dữ liệu); tiền tố thư mục chỉ khi mọi script đã chạy trong thư mục đều kiểu kiểm.
+- **B9:** đếm lỗi lặp của một lệnh đặt lại khi có ghi file sau lần lỗi trước hoặc khi chính lệnh đó chạy đạt.
+- **B10:** nhịp checkpoint theo số mốc đã nhắc, nên ghi của subagent vượt mốc giữa hai lời gọi của luồng chính vẫn được nhắc ở lời gọi kế tiếp.
+- **B11:** ràng buộc hay yêu cầu đầy trần thì mục mới thay mục cũ nhất không phải quy định model (yêu cầu thay tại chỗ, việc cũ không còn phủ chỗ bị thay), kèm một cảnh báo; quy định model không bị thay.
+- **B12:** checklist còn bước mở mà router xếp `new` với tin cậy dưới `NEW_GOAL_CONFIDENCE` 0,8 [Giả định] thì coi là tiếp nối và ghi nhật ký quyết định; nhận mục tiêu mới thì mang quy định model của brief trước khi prompt mới không nêu quy định model khác.
+- **B13:** `/conductor reroute` đọc lại prompt đã lập mục tiêu (giữ trong bộ nhớ), không phải prompt tiếp nối ngắn gần nhất; router hết giờ thì hỏi lại đúng một lần nếu hạn chung còn ít nhất 10 giây; router chia quá 20 việc thì có cảnh báo phần bị bỏ.
+- **B14:** việc giao chỉ còn "đang chờ" khi bước checklist của nó đang làm hoặc là bước mở kế tiếp; bước đã xong hay bỏ qua thì không còn chờ.
+
+Nhóm C và D1:
+
+- **C1 (gia cố, không tái hiện được):** lần nén qua hook lấy `tokensAfter` làm mốc đo context (vắng thì 0), bỏ cờ `hooked`; hai kịch bản của đặc tả xanh sẵn trên `main`.
+- **C2:** option mới `driftIntervalMinutes` (mặc định 10, kẹp 5 tới 120) thay hằng 10 phút giữa hai lượt kiểm lạc đề; mô tả `semanticDrift` nói đúng nhịp checkpoint hiện tại. Phiên dài nên đặt 30.
+- **C3:** cảnh báo fan-out chỉ đếm lời gọi Agent chạy thật ở luồng chính và không khớp việc đã phân (không đếm lời gọi bị từ chối, lỗi hay lồng từ subagent); cảnh báo chi phí không lên dòng cảnh báo của band (vẫn ở pane).
+- **C4:** `/clear` (engine không phát `session.start` khi `/clear`; mod làm ở `session.end` lý do `clear`) khi có điểm dừng mở: prompt đầu sau đó không nhận khối ĐIỂM DỪNG mà chỉ một dòng gợi ý `/conductor resume`; `/conductor resume` vẫn tiếp tục được; cờ đã báo hạn mức mềm đặt lại.
+- **C5:** `netResume` không dò khi số đo đã lưu có cửa sổ chạm ngưỡng dừng cứng (dù chưa vào trạng thái dừng); phản hồi 429 không tính là có mạng.
+- **C6:** pane đưa Checklist và Tiến độ từng việc lên ngay sau phần đầu (trước chọn chế độ, Hạn mức, cảnh báo, gợi ý); mục Hạn mức ẩn khi chưa có số đo, không dừng và không có điểm dừng. Ở 16 dòng của pane, bước cuối của checklist bốn bước và dòng đầu của mục tiến độ từ dòng 17 và 22 lên dòng 9 và 14 [Đo trực tiếp].
+- **D1:** lần kiểm đạt chỉ tự nâng `verified` cho bước đóng sau lần kiểm đạt trước của cùng mục tiêu, ở cả checklist `plan` và danh sách phản chiếu; lần đầu nâng mọi bước `done` như cũ; bước bị hạ do thay đổi mới nhận mốc đóng mới để lần kiểm đạt sau nâng lại. Mốc đóng (`closedSeq`) là trường nội bộ, schema tool `plan` không đổi. Trong các luồng hiện có, mỗi lần kiểm đạt đã nâng mọi bước `done`, nên luật này là rào chắn và không đổi hành vi quan sát được qua engine.
+
+Mục 6, nghiệm thu phiên dài: `tests/integration/long-session-075.test.ts` chạy prompt có mã khoảng 30.000 ký tự, một turn 1.000 tool call của luồng chính, 300 subagent mỗi cái 4 tool call mô tả theo mã BƯỚC, hai lần nén, một lần báo mềm, và khẳng định cổng Stop, checkpoint, `verified` qua `| tail`, khớp việc theo mã bước, tổng ký tự mod chèn, cảnh báo phạm vi, số lượt router và dòng tiến độ. Bảng trước (`main` `19b0349`) và sau ở `docs/VERIFICATION.md`.
+
+- **Test cũ đã đổi (mỗi chỗ có chủ đích).** `tests/router.test.ts` và `tests/integration/router-read.test.ts`: tiếp nối `refine` nay giữ luồng chính của lượt trước (A7). `tests/integration/verified-evidence.test.ts` ca "mức none": không còn ví dụ `python3 check_totals.py` (A8). `tests/shell/scope.test.ts`: lọc theo loại mới `scope-unknown` (B1). `tests/integration/turn-fault-073.test.ts`: so phần định danh của điểm dừng, vì nội dung giờ theo tiến độ của turn (B4). `tests/integration/subagents.test.ts`: ca "subagent tự phát" (khóa nhớ gồm model Claude ghi, B6) và ca "giao hơn sáu subagent" (lời gọi bị từ chối không còn được đếm, engine giả cho chạy, C3). `tests/evidence/check-hint.test.ts` và `tests/check-hint-073.test.ts`: script tên không kiểu kiểm không còn được gợi ý (B8). `tests/integration/router-fail-evidence.test.ts`: hai ca giả lập lỗi bằng hai lần hết giờ liên tiếp vì router được hỏi lại (B13). `tests/integration/ui-061.test.ts`: hai ca chưa có số đo nay khẳng định không có mục Hạn mức (C6).
+- **Mẫu đột biến cũ viết lại** vì mã quanh chúng đổi (đọc cả danh sách `mismatched` của `--check`): `061-P30`, `056-E20`, `056-E21`, `061-Q5`, `P2` (đổi ý: `head` là bộ lọc), `P3`, `P4`, `P20`, `F12`, `054-C43`, `054-C44`, `056-A14`, `056-A15`, `060-E1`, `060-P1`, `060-P2`, `061-U8`, `074-E26`, `061-P6`, `073-S1`, `073-S5` (thành tương đương, có lý do), `074-D6`, `070-B9`, `074-F6` tới `074-F9`, `074-F14`, `074-F15`, `070-C6`, `060-P3`, `060-P5`, `073-W4`, `073-W5`, `073-W14`, `061-U16`, `061-U17`, `071-M1`, `071-M3`.
+- **Cache.** `DISCIPLINE` đổi (A3, A8) nên phần hệ thống được ghi lại cache một lần ở đầu mỗi phiên; request tiếp nối của router dài thêm phần ràng buộc trước (A7).
+- **Kiểm chứng.** Xem `docs/VERIFICATION.md` mục 0.7.5.
+- **Giới hạn còn lại.** Chưa kiểm được trên phiên thật: `$.session.model()` ở prompt đầu; A1 trên engine 2.1.301 trở lên; `pauseAllowPaths` với quy tắc dừng của prompt thật; số lượt router chấm subagent và chi phí thật với hàng trăm lô. Prompt do `netResume` tự gửi vẫn không qua router (giữ như cũ, option mặc định tắt). Lỗi mới thấy khi làm A6, chưa sửa vì ngoài danh sách: mục phạm vi một tầng có dấu chấm và `/` cuối (ví dụ `.checkpoint/`) bị phạm vi của mục tiêu coi là tên file; `pauseAllowPaths` đọc mục kết thúc bằng `/` là thư mục nên không bị ảnh hưởng.
+
 ## Thay đổi 0.7.4: sẵn sàng cho phiên dài nhiều giờ
 
 Vấn đề: một prompt rất dài (khoảng 32.000 ký tự, 11 bước có mã, hơn 30 yêu cầu) chạy trong một phiên nhiều giờ, giao nhiều lô cho subagent, ghi dữ liệu bằng script, tự dừng ở 80% hạn mức tuần và quy định model theo loại việc. Rà mã trên `main` (`4174570`) và khai báo engine [đọc mã và khai báo kiểu engine 2.1.301] cho thấy năm chỗ hở:

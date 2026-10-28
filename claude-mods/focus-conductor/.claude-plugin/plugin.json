@@ -1,6 +1,6 @@
 {
   "name": "focus-conductor",
-  "version": "0.7.4",
+  "version": "0.7.5",
   "author": { "name": "Kiet Tran" },
   "description": "Một model Claude (router) đọc kỹ prompt trước khi làm và điều phối model/effort/agent cho từng việc; mod kiểm, ép điều phối lúc chạy, giữ nhất quán mục tiêu với checklist và cảnh báo lạc đề.",
   "types": "./types/index.d.ts",
@@ -64,7 +64,7 @@
     "checkCommands": {
       "type": "string",
       "title": "Lệnh kiểm tra riêng của dự án",
-      "description": "Lệnh phân tách bằng dấu phẩy, ví dụ: make ci,./scripts/check.sh,just verify. Mỗi lệnh khớp theo tiền tố token, được tin mã thoát, tính là kiểm tra chạy hành vi và đối chiếu evidence nghiêm ngặt (./scripts/check.sh --fast khác ./scripts/check.sh). Lệnh kèm cờ tự sửa (--fix, --write) vẫn tính là ghi file",
+      "description": "Lệnh phân tách bằng dấu phẩy, ví dụ: make ci,./scripts/check.sh,just verify. Mỗi lệnh khớp theo tiền tố token, được tin mã thoát, tính là kiểm tra chạy hành vi và đối chiếu evidence nghiêm ngặt (./scripts/check.sh --fast khác ./scripts/check.sh). Lệnh kèm cờ tự sửa (--fix, --write) vẫn tính là ghi file. Lệnh khai chạy qua | tail hay | head chỉ đạt khi có set -o pipefail, hoặc khi phần output còn thấy có dấu hiệu đạt rõ (OK, ĐẠT, KHỚP, 0 lỗi) và không có dấu hiệu lỗi; tốt nhất chạy lệnh kiểm không qua ống",
       "default": ""
     },
     "routerSkip": {
