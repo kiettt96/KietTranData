@@ -455,13 +455,15 @@ export function withQuotaNoticeStatus(base: string | undefined, hits: readonly Q
 export function quotaDenyText(reasons: readonly QuotaReason[], isUser: boolean, isAgent: boolean, allowPaths: readonly string[] = []): string {
   const cause = `[focus-conductor] Tạm dừng: ${pauseCause(reasons, isUser)}.`
   if (isAgent) return `${cause} Subagent không gọi tool nào khác; kết thúc ngay và báo ngắn phần đã làm, phần còn dở.`
-  // pauseAllowPaths (0.7.5): luồng chính vẫn ghi được file checkpoint theo quy tắc dừng của prompt.
+  // pauseAllowPaths (0.7.5): luồng chính vẫn ghi được file checkpoint theo quy tắc dừng của prompt. Vòng sửa 2: nêu đường dẫn được
+  // ghi trước, rồi mới "Không gọi tool nào khác" (kèm ngoại lệ), để câu cấm không đứng trước ngoại lệ của chính nó.
   const allowed =
     allowPaths.length > 0
-      ? ` Vẫn được ghi (Write, Edit, hay Bash có đích nằm hết) vào các đường dẫn của pauseAllowPaths: ${allowPaths.join(', ')}, ví dụ file checkpoint theo quy tắc dừng của prompt.`
+      ? ` Được ghi vào các đường dẫn của pauseAllowPaths: ${allowPaths.join(', ')} (bằng Write, Edit, hay Bash có mọi đường dẫn đích nằm trong danh sách đó), ví dụ file checkpoint theo quy tắc dừng của prompt.`
       : ''
+  const ban = allowPaths.length > 0 ? 'Không gọi tool nào khác ngoài việc ghi vào các đường dẫn đó và tool plan.' : 'Không gọi tool nào khác.'
   return (
-    `${cause} Không gọi tool nào khác.${allowed} Gọi ${PLAN_TOOL_FULL} với action "checkpoint" và note nêu: bước kế tiếp cụ thể, ` +
+    `${cause}${allowed} ${ban} Gọi ${PLAN_TOOL_FULL} với action "checkpoint" và note nêu: bước kế tiếp cụ thể, ` +
     'những gì đã hoàn tất không được làm lại, và điều cần kiểm khi quay lại. Sau đó kết thúc turn bằng một câu báo điểm dừng ' +
     `và nhắc người dùng chạy tiếp bằng ${resumeCommand(isUser)}.`
   )
