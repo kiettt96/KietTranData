@@ -10,7 +10,7 @@ import { applyPlan } from '../lib/plan'
 import type { PlanInput } from '../lib/plan'
 import { familyOf } from '../lib/route'
 import { askRouter, driftRequest, parseDrift } from '../lib/router'
-import { EMPTY_QUOTA, evaluateQuota, normalizeQuota, quotaSettings } from '../lib/quota'
+import { EMPTY_QUOTA, evaluateQuota, normalizeQuota, quotaSettings, softNotices } from '../lib/quota'
 import { storeKey, withNote } from '../lib/checkpoint'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
@@ -401,13 +401,17 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     if (result.block || result.preventContinuation || e.stop_hook_active || !isExecuting(L.tracker, L.promptIntent)) return result
     if (ctx.options['enforceChecklist'] !== true || (await read($, mode)) === 'off') return result
     // Đang dừng vì hạn mức (hay người dùng tạm dừng): cho kết thúc, nếu không sẽ vòng lặp chặn khi mọi tool bị từ chối.
-    if (normalizeQuota(await read($, quotaState)).pause !== null) return result
-    // Turn đã nhận câu báo hạn mức mềm (0.7.5): quy tắc dừng theo hạn mức của prompt có thể đang áp, cho kết thúc.
-    if (L.noticeTurn !== null && L.noticeTurn === L.tracker.turnId) return result
+    const quota = normalizeQuota(await read($, quotaState))
+    if (quota.pause !== null) return result
     const core = S.normalizeCore(await read($, coreState))
     const failed = failedFor(core.brief)
-    if (isGoalDone(core.plan) && failed.length === 0) return result
-    return { ...result, block: stopBlockReason(core.plan, failed) }
+    // Turn đã nhận câu báo hạn mức mềm (0.7.5): quy tắc dừng theo hạn mức của prompt có thể đang áp, nên checklist còn mở không
+    // chặn kết thúc, nhưng chỉ khi cửa sổ vẫn còn trong vùng báo (vòng sửa 2: cửa sổ đã làm mới thì chặn như cũ); việc giao
+    // subagent đã lỗi vẫn bị chặn.
+    const isNoticed = L.noticeTurn !== null && L.noticeTurn === L.tracker.turnId && softNotices(quota.readings, await $.clock.now(), quotaSettings(ctx.options)).length > 0
+    const plan = isNoticed ? [] : core.plan
+    if (isGoalDone(plan) && failed.length === 0) return result
+    return { ...result, block: stopBlockReason(plan, failed) }
   }).catch(($, e, next) => next(e))
 
   // Chi phí đo được: luồng chính (không có agentId) vào nhóm luồng chính; subagent
