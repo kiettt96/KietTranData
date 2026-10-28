@@ -471,8 +471,9 @@ export function withDelegations(goalId: number, items: readonly DelegationItem[]
 export function withMirror(goalId: number, steps: readonly MirrorStep[]): (core: Core) => Core {
   return core => {
     const n = normalizeCore(core)
-    // Mốc đóng (0.7.5) theo key, chỉ so với danh sách của cùng mục tiêu.
-    const stamped = stampClosed(n.mirror.goalId === goalId ? n.mirror.steps : [], steps, (a, b) => a.key === b.key, n.closing.seq)
+    // Mốc đóng (0.7.5) chỉ so với danh sách của cùng mục tiêu, nhận dạng bước theo NỘI DUNG (vòng sửa 2): khóa của TodoWrite là vị
+    // trí (todo-N), nên bước mới ở vị trí cũ không được mang mốc cũ, và bước chỉ đổi vị trí giữ mốc của nó.
+    const stamped = stampClosed(n.mirror.goalId === goalId ? n.mirror.steps : [], steps, (a, b) => a.title === b.title, n.closing.seq)
     return { ...n, mirror: { goalId, steps: stamped.steps }, closing: { ...n.closing, seq: stamped.seq } }
   }
 }
