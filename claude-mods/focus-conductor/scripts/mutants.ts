@@ -710,7 +710,7 @@ export const MUTANTS: Mutant[] = [
   { id: "061-P27", file: "hooks/parts/agents.ts", note: "dòng tiến độ không gắn việc đã phân", old: "            ...(taskIndex !== undefined ? { taskIndex } : {}),\n", new: "" },
   { id: "061-P28", file: "hooks/parts/progress.ts", note: "danh sách việc của subagent không được phản chiếu", old: "      if (steps !== null) await update($, coreState, S.withAgentSteps(agentId, steps))\n", new: "" },
   { id: "061-P29", file: "hooks/lib/state.ts", note: "tiến độ agent không giới hạn số dòng", old: "[...items, item].slice(-AGENT_PROGRESS_LIMIT)", new: "[...items, item]" },
-  { id: "061-P30", file: "hooks/lib/text.ts", note: "DISCIPLINE bỏ câu dặn tiêu đề \"Việc N: \"", old: " Khi checklist có việc của mục \"Phân việc\", tiêu đề bước mở đầu \"Việc N: \".", new: "" },
+  { id: "061-P30", file: "hooks/lib/text.ts", note: "DISCIPLINE bỏ câu dặn tiêu đề \"Việc N: \"", old: " Khi checklist có việc của mục \"Phân việc\", tiêu đề bước mở đầu \"Việc N: \" (N là số thứ tự của việc trong Phân việc); việc mang mã riêng của prompt (như \"BƯỚC 7\") thì tiêu đề bước mở đầu bằng chính mã đó.", new: "" },
   { id: "061-R1", file: "hooks/parts/consistency.ts", note: "aborted (người dùng ngắt) vẫn tính là xong", old: "if (reason === 'answer') return", new: "if (reason === 'answer' || reason === 'aborted') return" },
   { id: "061-R2", file: "hooks/parts/consistency.ts", note: "refusal (model từ chối) vẫn tính là xong", old: "if (reason === 'answer') return", new: "if (reason === 'answer' || reason === 'refusal') return" },
   { id: "061-R3", file: "hooks/parts/consistency.ts", note: "lỗi không còn thắng cắt: error lúc tạm dừng thành bị cắt", old: "  if (reason === 'error') return { agent: 'failed', delegation: 'failed' }\n", new: "" },
