@@ -160,6 +160,62 @@ function unique(items: readonly string[], max: number): string[] {
   return [...new Set(items)].slice(0, max)
 }
 
+/** Ràng buộc nêu model cho một loại việc (họ model, hay "model/mô hình của phiên"): không bị thay khi đầy trần (0.7.5). */
+export function isModelRule(text: string): boolean {
+  const folded = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase()
+  return /\b(?:haiku|sonnet|opus|fable)\b/.test(folded) || /(?:mo hinh|model) cua phien/.test(folded)
+}
+
+/**
+ * Gộp mục mới vào danh sách có trần (0.7.5): bỏ trùng; đầy trần thì mỗi mục mới thay mục cũ nhất không phải quy định model
+ * (mục vừa thêm trong lần gộp này không bị thay); không còn mục thay được thì mục mới bị bỏ.
+ */
+function mergeCapped(prev: readonly string[], incoming: readonly string[], max: number): string[] {
+  const items = unique(prev, max)
+  const fresh = new Set<string>()
+  for (const item of incoming) {
+    if (items.includes(item)) continue
+    if (items.length < max) items.push(item)
+    else {
+      const old = items.findIndex(x => !isModelRule(x) && !fresh.has(x))
+      if (old < 0) continue
+      items.splice(old, 1)
+      items.push(item)
+    }
+    fresh.add(item)
+  }
+  return items
+}
+
+/**
+ * Gộp yêu cầu mới vào danh sách có trần REQUIREMENT_LIMIT (0.7.5): đầy thì yêu cầu mới thay tại chỗ yêu cầu cũ nhất không
+ * phải quy định model, để số thứ tự của các yêu cầu khác không đổi; `freed` là số thứ tự (từ 1) đã bị thay, việc cũ không
+ * còn phủ chúng. `renumber` đổi số thứ tự trong lượt router sang số thứ tự trong danh sách đã gộp.
+ */
+function mergeRequirements(prev: readonly string[], incoming: readonly string[]): { items: string[]; renumber: Map<number, number>; freed: Set<number> } {
+  const items = [...prev]
+  const renumber = new Map<number, number>()
+  const freed = new Set<number>()
+  const fresh = new Set<number>()
+  incoming.forEach((item, i) => {
+    let at = items.indexOf(item)
+    if (at < 0 && items.length < REQUIREMENT_LIMIT) {
+      items.push(item)
+      at = items.length - 1
+      fresh.add(at)
+    } else if (at < 0) {
+      at = items.findIndex((x, k) => !isModelRule(x) && !fresh.has(k))
+      if (at >= 0) {
+        items[at] = item
+        freed.add(at + 1)
+        fresh.add(at)
+      }
+    }
+    if (at >= 0) renumber.set(i + 1, at + 1)
+  })
+  return { items, renumber, freed }
+}
+
 /** Phần dài quá giới hạn: giữ đầu và cuối, ghi chú số ký tự đã lược. */
 function capText(text: string, limit: number, head: number, tail: number): string {
   if (text.length <= limit) return text
@@ -699,17 +755,9 @@ export function briefOf(plan: RouterPlan, prompt: string, goalId: number, now: n
  */
 export function followUpOf(prev: Brief, plan: RouterPlan, now: number): { brief: Brief; added: Task[] } {
   const offset = prev.tasks.reduce((max, t) => Math.max(max, t.index), 0)
-  // Yêu cầu mới nối vào danh sách (bỏ trùng); covers của việc mới đổi sang số thứ tự trong danh sách đã gộp.
-  const requirements = [...(prev.requirements ?? [])]
-  const renumber = new Map<number, number>()
-  plan.requirements.forEach((item, i) => {
-    let at = requirements.indexOf(item)
-    if (at < 0 && requirements.length < REQUIREMENT_LIMIT) {
-      requirements.push(item)
-      at = requirements.length - 1
-    }
-    if (at >= 0) renumber.set(i + 1, at + 1)
-  })
+  // Yêu cầu mới nối vào danh sách (bỏ trùng); covers của việc mới đổi sang số thứ tự trong danh sách đã gộp. Đầy trần thì
+  // yêu cầu mới thay yêu cầu cũ (0.7.5): việc cũ không còn phủ chỗ bị thay.
+  const { items: requirements, renumber, freed } = mergeRequirements(prev.requirements ?? [], plan.requirements)
   const added = plan.tasks.map(t => ({
     ...t,
     index: t.index + offset,
@@ -720,8 +768,8 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number): { brief:
     ...kept,
     ...(requirements.length > 0 ? { requirements } : {}),
     steps: added.length > 0 ? [...prev.steps, ...added.map(t => t.title)] : prev.steps,
-    tasks: [...prev.tasks, ...added],
-    constraints: unique([...prev.constraints, ...plan.constraints], 12),
+    tasks: [...prev.tasks.map(t => (t.covers !== undefined && t.covers.some(n => freed.has(n)) ? { ...t, covers: t.covers.filter(n => !freed.has(n)) } : t)), ...added],
+    constraints: mergeCapped(prev.constraints, plan.constraints, 12),
     quality: unique([...prev.quality, ...plan.quality], 10),
     depth: plan.depth,
     volume: plan.volume,
@@ -754,8 +802,8 @@ export function promoteReference(prev: Brief, plan: RouterPlan, prompt: string, 
     goal: plan.goal || prev.goal,
     steps: prev.tasks.map(t => t.title),
     tasks: prev.tasks,
-    ...(prev.requirements !== undefined || plan.requirements.length > 0 ? { requirements: unique([...(prev.requirements ?? []), ...plan.requirements], REQUIREMENT_LIMIT) } : {}),
-    constraints: unique([...prev.constraints, ...plan.constraints], 12),
+    ...(prev.requirements !== undefined || plan.requirements.length > 0 ? { requirements: mergeCapped(prev.requirements ?? [], plan.requirements, REQUIREMENT_LIMIT) } : {}),
+    constraints: mergeCapped(prev.constraints, plan.constraints, 12),
     quality: unique([...prev.quality, ...plan.quality], 10),
     scopePaths: plan.scope.length > 0 ? plan.scope : prev.scopePaths,
     isReference: false,
@@ -922,14 +970,21 @@ export async function askRouter<T extends { confidence?: number }>(
  * Brief kế tiếp từ kế hoạch của router: chạy thật prompt đã đối chiếu, mục tiêu mới, hoặc tiếp nối.
  * Chạy thật được xét trước relation, vì "chạy đi" có thể mang relation new mà vẫn là chạy việc đã đối chiếu.
  */
-export function nextBrief(prev: Brief | null, plan: RouterPlan, prompt: string, now: number): { brief: Brief; added: Task[]; isNewGoal: boolean } {
+/** Ràng buộc và yêu cầu của brief trước bị thay vì đầy trần (0.7.5), để báo một cảnh báo. */
+function replacedOf(prev: Brief, next: Brief): string[] {
+  return [...prev.constraints.filter(x => !next.constraints.includes(x)), ...(prev.requirements ?? []).filter(x => !(next.requirements ?? []).includes(x))]
+}
+
+export function nextBrief(prev: Brief | null, plan: RouterPlan, prompt: string, now: number): { brief: Brief; added: Task[]; isNewGoal: boolean; replaced: string[] } {
   if (prev !== null && prev.isReference && plan.runReference) {
-    return { brief: promoteReference(prev, plan, prompt, now), added: [], isNewGoal: true }
+    const brief = promoteReference(prev, plan, prompt, now)
+    return { brief, added: [], isNewGoal: true, replaced: replacedOf(prev, brief) }
   }
   if (prev === null || plan.relation === 'new') {
-    return { brief: briefOf(plan, prompt, (prev?.goalId ?? 0) + 1, now), added: [], isNewGoal: true }
+    return { brief: briefOf(plan, prompt, (prev?.goalId ?? 0) + 1, now), added: [], isNewGoal: true, replaced: [] }
   }
-  return { ...followUpOf(prev, plan, now), isNewGoal: false }
+  const next = followUpOf(prev, plan, now)
+  return { ...next, isNewGoal: false, replaced: replacedOf(prev, next.brief) }
 }
 
 /**

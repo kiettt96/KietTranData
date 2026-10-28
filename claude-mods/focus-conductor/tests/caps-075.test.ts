@@ -5,7 +5,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import { nextBrief, parseRoute } from '../hooks/lib/router'
 import type { Policy, RouterPlan } from '../hooks/lib/router'
 import { makeBrief } from './support/commands'
-import { plan } from './support/engine'
+import { PANE, base, plan, submit } from './support/engine'
 
 const OPEN: Policy = { allowFable: false, blocked: new Set(), session: null }
 const routed = (over: Record<string, unknown>): RouterPlan => parseRoute(JSON.stringify(plan(over)), OPEN)!
@@ -30,7 +30,7 @@ describe('0.7.5 B11: ràng buộc đầy trần', () => {
   })
 
   test('mọi ràng buộc cũ đều là quy định model: không thay, mục mới bị bỏ', () => {
-    const models = Array.from({ length: 12 }, (_, i) => `Việc loại ${i} chạy opus`)
+    const models = ['Việc ghi chạy bằng mô hình của phiên', ...Array.from({ length: 11 }, (_, i) => `Việc loại ${i} chạy opus`)]
     const out = nextBrief(makeBrief({ constraints: models }), routed({ relation: 'continue', goal: '', constraints: ['Mục mới'] }), 'tiếp', 2)
     expect(out.brief.constraints).toEqual(models)
   })
@@ -49,5 +49,24 @@ describe('0.7.5 B11: yêu cầu đầy trần', () => {
     expect(out.brief.tasks[0]?.covers).toEqual([2])
     expect(out.brief.tasks[1]?.covers).toEqual([1])
     expect(out.replaced).toEqual(['Yêu cầu 1'])
+  })
+})
+
+describe('0.7.5 B11: một cảnh báo khi thay', () => {
+  test('prompt tiếp nối làm đầy trần ràng buộc: cảnh báo nêu mục bị thay', {}, async ($, on) => {
+    // Router đọc prompt chỉ nhận tối đa 10 ràng buộc một lượt: hai lượt tiếp nối mới đầy trần 12 của mục tiêu.
+    base(on, {
+      router: request =>
+        request.startsWith('tiếp 1')
+          ? plan({ relation: 'continue', goal: '', constraints: ['Thêm A', 'Thêm B'] })
+          : request.startsWith('tiếp 2')
+            ? plan({ relation: 'continue', goal: '', constraints: ['Không tạo bộ kiểm mới'] })
+            : plan({ goal: 'Cập nhật dữ liệu', constraints: rules.slice(0, 10) }),
+    })
+    await submit($, 'Cập nhật dữ liệu theo các lô')
+    await submit($, 'tiếp 1 lô sau')
+    await submit($, 'tiếp 2 lô sau nữa')
+    const pane = await $.ui.mount(PANE)
+    expect(await pane.find({ type: 'Text', text: /mục mới thay 1 mục cũ: Ràng buộc cũ 0/ })).toBeDefined()
   })
 })

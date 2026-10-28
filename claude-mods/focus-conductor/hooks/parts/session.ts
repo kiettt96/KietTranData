@@ -272,10 +272,15 @@ export function registerSession(on: On, ctx: Ctx): void {
     }
 
     // Mục tiêu mới, chạy thật prompt đã đối chiếu, hoặc tiếp nối cùng mục tiêu.
-    const { brief, added, isNewGoal } = nextBrief(prev, plan, text, now)
+    const { brief, added, isNewGoal, replaced } = nextBrief(prev, plan, text, now)
     // adoptGoal lưu checklist cũ còn bước mở (khôi phục được bằng plan restore); chi phí router cộng sau, thuộc mục tiêu mới.
     const core = await update($, coreState, c => S.withRouterFail(null)(withUsage(isNewGoal ? S.adoptGoal(brief)(c) : S.withDecision(brief)(c))))
     L.lastPrompt = { text, prev, goalId: brief.goalId }
+    // Ràng buộc hay yêu cầu đã đầy trần (0.7.5): mục mới thay mục cũ nhất không phải quy định model; báo một cảnh báo.
+    if (replaced.length > 0) {
+      const text = `Ràng buộc và yêu cầu của mục tiêu đã đầy; mục mới thay ${replaced.length} mục cũ: ${replaced.map(item => clipText(item, 60)).join('; ')}`
+      await update($, coreState, S.withWarnings({ at: now, kind: 'model', text }))
+    }
     if (isNewGoal) {
       L.isGoalNew = true
       L.pinnedGoalId = null
