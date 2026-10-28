@@ -163,6 +163,18 @@ async function savePauseOnEnd($: EngineInterface, ctx: Ctx): Promise<void> {
   await storeCheckpoint($, cp)
 }
 
+/**
+ * session.end khi điểm dừng đang resuming (0.7.5): turn chạy tiếp chưa xong mà phiên đã kết thúc, nên điểm dừng trong kho
+ * về open, phiên sau tiếp tục được (trước đây chỉ session.start kế mới đổi).
+ */
+async function reopenResuming($: EngineInterface): Promise<void> {
+  const q = normalizeQuota(await read($, quotaState))
+  if (q.checkpoint === null || q.checkpoint.status !== 'resuming') return
+  const cp: QuotaCheckpoint = { ...q.checkpoint, status: 'open' }
+  await update($, quotaState, c => ({ ...normalizeQuota(c), checkpoint: cp, resume: null }))
+  await storeCheckpoint($, cp)
+}
+
 /** Status line kèm nhãn hạn mức (0.6.1): mọi chỗ đặt status của file này đi qua đây, nên nhãn không mất giữa các hook. */
 async function showStatus($: EngineInterface, current: View, options: Ctx['options']): Promise<void> {
   $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
@@ -248,6 +260,7 @@ export function registerQuota(on: On, ctx: Ctx): void {
   // điểm dừng phải có trong kho cho phiên sau.
   on('session.end', { reason: /.*/ }, async ($, e, next) => {
     await savePauseOnEnd($, ctx).catch(() => undefined)
+    await reopenResuming($).catch(() => undefined)
     return next(e)
   }).catch(($, e, next) => next(e))
 
@@ -278,8 +291,12 @@ export function registerQuota(on: On, ctx: Ctx): void {
       await update($, quotaState, c => ({ ...normalizeQuota(c), resume: null }))
       return next(e)
     }
-    // Chỉ một câu trả lời trọn vẹn mới là đã tiếp tục xong; người dùng ngắt (aborted), model từ chối hay lỗi thì về open.
-    const after: QuotaCheckpoint = { ...cp, status: e.reason === 'answer' ? 'consumed' : 'open' }
+    // Chỉ một câu trả lời trọn vẹn mới là đã tiếp tục xong; người dùng ngắt (aborted), model từ chối hay lỗi thì về open,
+    // dựng lại từ trạng thái hiện tại (0.7.5) để tiến độ của turn chạy tiếp không mất; giữ id, giờ tạo, note, lệnh bị từ chối.
+    const after: QuotaCheckpoint =
+      e.reason === 'answer'
+        ? { ...cp, status: 'consumed' }
+        : { ...(await pauseCheckpoint($, newPause(cp.createdAt, 'quota', cp.reason), await $.clock.now(), cp)), status: 'open' }
     await update($, quotaState, c => ({ ...normalizeQuota(c), checkpoint: after, resume: null }))
     if (!(await storeCheckpoint($, after))) $.ui.toast('Focus Conductor: không cập nhật được điểm dừng trong kho của mod')
     return next(e)

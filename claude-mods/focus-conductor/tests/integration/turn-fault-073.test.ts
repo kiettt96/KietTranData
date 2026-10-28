@@ -236,9 +236,12 @@ describe('0.7.3 điểm 3: tách khỏi bảo vệ hạn mức', () => {
 
   test('điểm dừng hạn mức có sẵn không bị bản ghi turn lỗi đè: nội dung điểm dừng không đổi sau turn lỗi', {}, async ($, on) => {
     const { box } = await resumedTurn($, on)
-    const before = JSON.stringify({ ...(box.data.get(storeKey('/repo')) as QuotaCheckpoint), status: 'x' })
+    // 0.7.5 B4: turn chạy tiếp không xong thì điểm dừng dựng lại từ trạng thái hiện tại (tiến độ của turn đó), nên chỉ so phần
+    // định danh của điểm dừng hạn mức: bản ghi turn lỗi không đè id, giờ tạo, lý do dừng, note và lệnh bị từ chối.
+    const identity = (cp: QuotaCheckpoint) => JSON.stringify({ id: cp.id, createdAt: cp.createdAt, cwd: cp.cwd, reason: cp.reason, note: cp.note, denied: cp.denied, goal: cp.brief?.goal })
+    const before = identity(box.data.get(storeKey('/repo')) as QuotaCheckpoint)
     await $.turn.complete(DONE('r1', 'error'))
-    const after = JSON.stringify({ ...(box.data.get(storeKey('/repo')) as QuotaCheckpoint), status: 'x' })
+    const after = identity(box.data.get(storeKey('/repo')) as QuotaCheckpoint)
     expect(after).toBe(before)
   })
 
