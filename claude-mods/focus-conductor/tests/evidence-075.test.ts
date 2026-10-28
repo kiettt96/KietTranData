@@ -17,6 +17,18 @@ describe('0.7.5 B2: lệnh đọc không đẩy mất lần kiểm đạt', () =
     expect(acceptsVerified(strength, log)).toBe(true)
   })
 
+  test('mỗi vùng giữ tối đa 100 mục, bỏ mục cũ nhất của chính vùng đó', () => {
+    const log = newEvidenceLog(1)
+    for (let i = 0; i < 150; i++) {
+      noteEvidence(log, bash(`ls /repo/d${i}`))
+      noteEvidence(log, bash('npx tsc --noEmit', ''))
+    }
+    expect(log.commands.filter(c => c.check !== null).length).toBe(100)
+    expect(log.commands.filter(c => c.check === null).length).toBe(100)
+    expect(log.commands.find(c => c.check === null)?.command).toBe('ls /repo/d50')
+    expect(log.commands.map(c => c.seq)).toEqual([...log.commands.map(c => c.seq)].sort((x, y) => x - y))
+  })
+
   test('lệnh chỉ đọc vẫn được ghi vào nhật ký', () => {
     const log = newEvidenceLog(1)
     noteEvidence(log, bash('rg charge src'))
