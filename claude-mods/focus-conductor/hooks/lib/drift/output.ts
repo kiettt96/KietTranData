@@ -167,32 +167,53 @@ export function completePass(output: string, runner: Runner, options: { truncate
 // Dấu hiệu của lệnh kiểm riêng (checkCommands) qua ống (0.7.5), kể cả tiếng Việt; ranh giới theo chữ Unicode.
 const EDGE_START = '(?:^|[^\\p{L}\\p{N}])'
 const EDGE_END = '(?=$|[^\\p{L}\\p{N}])'
-/** Dấu hiệu lỗi: KHÔNG ĐẠT và KHÔNG KHỚP đứng trước ĐẠT và KHỚP (lỗi thắng), LỖI, SAI, FAIL. */
-const CUSTOM_FAILED = new RegExp(`${EDGE_START}(?:không\\s+đạt|không\\s+khớp|lỗi|sai|fail(?:ed|ures?)?)${EDGE_END}`, 'iu')
-/** Dấu hiệu đạt rõ: ĐẠT, KHỚP, OK, PASS, passed, 0 lỗi, 0 failed. */
-const CUSTOM_PASSED = new RegExp(`${EDGE_START}(?:đạt|khớp|ok|pass(?:ed)?|passing|0\\s+lỗi|0\\s+failed|0\\s+errors?)${EDGE_END}`, 'iu')
-/** Số lỗi bằng 0 ("0 lỗi", "FAIL: 0") không phải dấu hiệu lỗi: bỏ trước khi tìm dấu hiệu lỗi. */
+/** Chữ phủ định đứng ngay trước một dấu hiệu đạt: "chưa đạt", "không OK", "not ok" không phải đạt. */
+const NEGATED = '(?<![\\p{L}\\p{N}])(?:chưa|chẳng|không|đừng|not|no|never)\\s*'
+/**
+ * Dấu hiệu lỗi: KHÔNG ĐẠT, KHÔNG KHỚP, CHƯA ĐẠT, CHƯA KHỚP, KHÔNG HỢP LỆ, LỖI, SAI, THIẾU, LỆCH (gồm CHÊNH LỆCH), FAIL, ERROR, MISMATCH
+ * (lỗi thắng dấu hiệu đạt). Thêm ở vòng sửa 2 của 0.7.5: chưa đạt, chưa khớp, thiếu, lệch, chênh lệch, không hợp lệ, mismatch, error.
+ */
+const CUSTOM_FAILED = new RegExp(
+  `${EDGE_START}(?:không\\s+đạt|không\\s+khớp|không\\s+hợp\\s+lệ|chưa\\s+(?:đạt|khớp|ok)|not\\s+ok|lỗi|sai|thiếu|lệch|mismatch(?:es|ed)?|errors?|fail(?:ed|ures?)?)${EDGE_END}`,
+  'iu',
+)
+/** Dấu ✗ và ✘ đứng riêng không có ranh giới chữ. */
+const CROSS_MARK = /[\u2717\u2718]/u
+/** Dấu hiệu đạt rõ: ĐẠT, KHỚP, OK, PASS, passed, 0 lỗi, 0 failed; không nằm sau chữ phủ định. */
+const CUSTOM_PASSED = new RegExp(`${EDGE_START}(?<!${NEGATED})(?:đạt|khớp|ok|pass(?:ed)?|passing|0\\s+lỗi|0\\s+failed|0\\s+errors?)${EDGE_END}`, 'iu')
+/** Số lỗi bằng 0 ("0 lỗi", "FAIL: 0", "Thiếu: 0") không phải dấu hiệu lỗi: bỏ trước khi tìm dấu hiệu lỗi. */
+const FAILURE_WORDS = 'lỗi|sai|thiếu|lệch|mismatch(?:es)?|fail(?:ed|ures?)?|errors?'
 const ZERO_FAILURES = new RegExp(
-  `${EDGE_START}0\\s+(?:lỗi|fail(?:ed|ures?)?|errors?)${EDGE_END}|${EDGE_START}(?:lỗi|sai|fail(?:ed|ures?)?|errors?)\\s*[:=]\\s*0${EDGE_END}`,
+  `${EDGE_START}0\\s+(?:${FAILURE_WORDS})${EDGE_END}|${EDGE_START}(?:${FAILURE_WORDS})\\s*[:=]\\s*0${EDGE_END}`,
   'giu',
 )
+/** Tỷ lệ "N/M" (không nằm trong đường dẫn hay ngày nhiều đoạn): N nhỏ hơn M là còn thiếu. */
+const RATIO = /(?<![\d/.,])(\d+)\s*\/\s*(\d+)(?![\d/])/gu
 
 /** Output của lệnh kiểm riêng có dấu hiệu lỗi (0.7.5): dấu hiệu chung của trình chạy, hay dấu hiệu tiếng Việt. */
 function customFailed(output: string): boolean {
   const text = output.normalize('NFC')
-  return COMPLETE_FAIL.some(pattern => pattern.test(text)) || CUSTOM_FAILED.test(text.replace(ZERO_FAILURES, ' '))
+  if (COMPLETE_FAIL.some(pattern => pattern.test(text))) return true
+  const cleaned = text.replace(ZERO_FAILURES, ' ')
+  if (CUSTOM_FAILED.test(cleaned) || CROSS_MARK.test(cleaned)) return true
+  return [...cleaned.matchAll(RATIO)].some(match => Number(match[1]) < Number(match[2]))
 }
 
-/** Output còn thấy có dấu hiệu đạt rõ và không có dấu hiệu lỗi (0.7.5). */
+/**
+ * Output của lệnh kiểm riêng qua ống không pipefail đạt: dòng không rỗng cuối cùng có dấu hiệu đạt rõ đứng riêng (không sau chữ
+ * phủ định) và toàn bộ phần đầu ra còn thấy không có dấu hiệu lỗi (0.7.5, siết ở vòng sửa 2).
+ */
 export function customPassed(output: string): boolean {
-  return !customFailed(output) && CUSTOM_PASSED.test(output.normalize('NFC'))
+  if (customFailed(output)) return false
+  const last = output.normalize('NFC').split('\n').map(line => line.trim()).filter(line => line !== '').at(-1)
+  return last !== undefined && CUSTOM_PASSED.test(last)
 }
 
 /**
  * Một lệnh kiểm tra trong tool call có đạt không. Mã thoát bị che (ống, ;, || đứng sau) thì mã thoát 0 không nói gì
  * về lệnh kiểm tra: chỉ đạt khi output có dấu hiệu đạt rõ và không có dấu hiệu lỗi; không đủ thông tin thì chưa đạt.
  * Lệnh khai trong checkCommands qua tail hay head (0.7.5): có `set -o pipefail` thì mã thoát 0 và không có dấu hiệu lỗi
- * là đạt; không có thì phần output còn thấy phải có dấu hiệu đạt rõ (customPassed). head cắt output (đủ số dòng giữ)
+ * là đạt; không có thì dòng không rỗng cuối cùng phải có dấu hiệu đạt rõ và cả output không có dấu hiệu lỗi (customPassed). head cắt output (đủ số dòng giữ)
  * thì lệnh kiểm có thể đã bị ngắt giữa chừng: không đạt khi không có pipefail.
  */
 export function checkEffectPassed(effect: CheckEffect, observation: ToolObservation): boolean {

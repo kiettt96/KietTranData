@@ -51,6 +51,15 @@ describe('0.7.5 H1: đầu ra lỗi nhưng có chữ đạt ở đâu đó khôn
       expect(piped('Kiểm xong\nkhông đạt')).toBe(false)
       expect(piped('Kiểm xong\nchưa OK')).toBe(false)
       expect(piped('Kiểm xong\nnot ok')).toBe(false)
+      expect(piped('Kiểm xong\nkhông OK')).toBe(false)
+      expect(piped('Kiểm xong\nnot   ok')).toBe(false)
+    })
+  })
+
+  test('chữ phủ định chỉ tính khi là từ riêng: "casino OK" vẫn đạt', () => {
+    declared(() => {
+      expect(piped('Kiểm xong tại casino OK')).toBe(true)
+      expect(piped('Kiểm xong\nknow OK')).toBe(true)
     })
   })
 
@@ -59,6 +68,9 @@ describe('0.7.5 H1: đầu ra lỗi nhưng có chữ đạt ở đâu đó khôn
       expect(withPipefail('đã xử lý lô 12')).toBe(true)
       expect(withPipefail('Thiếu 5 bản ghi')).toBe(false)
       expect(withPipefail('Tổng: 115/120 khớp')).toBe(false)
+      expect(withPipefail('K4 chưa đạt: 5 dòng')).toBe(false)
+      expect(withPipefail('lô 2 chưa khớp')).toBe(false)
+      expect(withPipefail('Kiểm xong, not ok')).toBe(false)
     })
   })
 })
