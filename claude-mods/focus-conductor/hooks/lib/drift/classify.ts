@@ -195,9 +195,16 @@ function resolvedText(text: string, cwd: string): string | null {
   return isChanged ? out.join(' ') : null
 }
 
-/** Tên lệnh bỏ phần thư mục: `/usr/bin/python3` là `python3` (0.7.5). */
+// Thư mục hệ thống mà tên lệnh bỏ phần thư mục (/usr/bin/python3 là python3), và trình thông dịch bỏ thư mục ở đâu cũng được
+// (venv, pyenv). Binary ở thư mục khác giữ tên đầy đủ: /abs/tools/cat không phải cat (vòng sửa 2 của 0.7.5).
+const SYSTEM_DIRS = new Set(['/bin', '/usr/bin', '/usr/local/bin', '/opt/homebrew/bin', '/usr/sbin', '/sbin'])
+const INTERPRETER_NAME = /^(?:python(?:3(?:\.\d+)?)?|sqlite3)$/
+
+/** Tên lệnh: bỏ phần thư mục khi lệnh nằm ở thư mục hệ thống hay là python, sqlite3; còn lại giữ nguyên (0.7.5). */
 function commandName(token: string): string {
-  return token.slice(token.lastIndexOf('/') + 1)
+  const slash = token.lastIndexOf('/')
+  const name = token.slice(slash + 1)
+  return SYSTEM_DIRS.has(token.slice(0, slash)) || INTERPRETER_NAME.test(name) ? name : token
 }
 
 /**
@@ -287,7 +294,7 @@ export function classifyBash(command: string): BashClass {
       }
     }
     if (cmd === undefined) continue
-    // Tên lệnh lấy tên cuối, bỏ thư mục (/usr/bin/python3 là python3, /bin/ls là ls), cho mọi lệnh (0.7.5).
+    // Tên lệnh lấy tên cuối, bỏ thư mục, chỉ cho thư mục hệ thống và python, sqlite3 (/usr/bin/python3 là python3, /bin/ls là ls).
     const name = commandName(unmask(cmd))
     segName = name
     const text = unmask(bare)
