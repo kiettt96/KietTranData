@@ -11,7 +11,7 @@ type Out = { deny?: string; context?: string[] }
 const call = ($: Engine, input: Record<string, unknown>) => $.tool.call(input as never) as Promise<Out>
 const bash = ($: Engine, command: string) => call($, { tool: 'Bash', command })
 const tools = (on: Parameters<typeof base>[0]) => {
-  for (const tool of ['Write', 'Edit', 'Bash', 'Read']) on('tool.call', { tool }, () => ({ result: 'ok' }))
+  for (const tool of ['Write', 'Edit', 'Bash', 'Read'] as const) on('tool.call', { tool }, () => ({ result: 'ok' }))
 }
 const DENIED = 'Tạm dừng'
 const OPTS = { options: { pauseAllowPaths: 'k6/' } }
@@ -49,7 +49,7 @@ describe('0.7.5 M6: tác động ghi phải có đường dẫn và nằm trong 
 })
 
 describe('0.7.5 M6: mục "." và "./" trong option', () => {
-  for (const entry of ['.', './', 'k6/, .']) {
+  for (const entry of ['.', './', '/', '..', 'k6/, .']) {
     test(`pauseAllowPaths "${entry}": mục "." bị bỏ, ghi ra ngoài danh sách vẫn bị từ chối, cảnh báo một lần`, { options: { pauseAllowPaths: entry } }, async ($, on) => {
       const seen = await paused($, on)
       expect((await call($, { tool: 'Write', file_path: '/repo/src/a.ts', content: 'x' })).deny).toContain(DENIED)
@@ -58,9 +58,12 @@ describe('0.7.5 M6: mục "." và "./" trong option', () => {
     })
   }
 
-  test('"k6/, ." vẫn cho ghi vào k6/', { options: { pauseAllowPaths: 'k6/, .' } }, async ($, on) => {
-    await paused($, on)
+  test('"k6/, ." vẫn cho ghi vào k6/; cảnh báo chỉ nêu mục bị bỏ', { options: { pauseAllowPaths: 'k6/, .' } }, async ($, on) => {
+    const seen = await paused($, on)
     expect((await call($, { tool: 'Write', file_path: '/repo/k6/DIEM-DUNG.md', content: 'x' })).deny).toBeUndefined()
+    const warning = seen.toasts.find(t => t.includes('pauseAllowPaths')) ?? ''
+    expect(warning).toContain('"."')
+    expect(warning).not.toContain('"k6/"')
   })
 })
 
@@ -70,5 +73,6 @@ describe('0.7.5 M6: đọc các đường dẫn được phép', () => {
     expect((await call($, { tool: 'Read', file_path: '/repo/k6/DIEM-DUNG.md' })).deny).toBeUndefined()
     expect((await call($, { tool: 'Read', file_path: 'k6/DIEM-DUNG.md' })).deny).toBeUndefined()
     expect((await call($, { tool: 'Read', file_path: '/repo/src/a.ts' })).deny).toContain(DENIED)
+    expect((await call($, { tool: 'Read' })).deny).toContain(DENIED)
   })
 })

@@ -9,7 +9,7 @@ import { addTouched, buildCheckpoint, pruneKeys, pushRecent, recentLine, storeKe
 import type { CheckpointInput } from '../lib/checkpoint'
 import { classifyBash, filePathOf, isInScope, isMutation, restorableSteps } from '../lib/drift'
 import { FILE_TOOLS } from '../lib/drift/tool'
-import { EMPTY_QUOTA, QUOTA_CACHE_MS, deniedInput, evaluateQuota, blockingHits, isPauseActive, newPause, normalizeQuota, noteDenial, overrideOf, allowScopes, pauseAllowPaths, quotaSettings, reasonsOf, softNotices } from '../lib/quota'
+import { EMPTY_QUOTA, QUOTA_CACHE_MS, deniedInput, evaluateQuota, blockingHits, isPauseActive, newPause, normalizeQuota, noteDenial, overrideOf, allowScopes, pauseAllowIssues, pauseAllowPaths, quotaSettings, reasonsOf, softNotices } from '../lib/quota'
 import type { QuotaEval } from '../lib/quota'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
@@ -198,9 +198,17 @@ async function isAllowedWrite($: EngineInterface, input: Record<string, unknown>
   const root = await $.session.root().catch(() => null)
   if (input.tool === 'Bash') {
     const classified = classifyBash(String(input['command'] ?? ''))
-    if (classified.isUnknown || classified.paths.length === 0 || !classified.effects.every(effect => effect.kind === 'write')) return false
+    // Mọi tác động phải là ghi có đường dẫn đọc được (git commit, git push và lệnh lạ không đường dẫn bị từ chối), không có ln
+    // (liên kết có thể trỏ ra ngoài), và mọi đường dẫn, kể cả nguồn của mv, nằm trong danh sách.
+    const isWriteOnly = classified.effects.length > 0 && classified.effects.every(e => e.kind === 'write' && e.paths.length > 0 && e.name !== 'ln')
+    if (classified.isUnknown || !isWriteOnly) return false
     const cwd = await $.session.cwd().catch(() => null)
     return classified.paths.every(path => isInScope(path, allowPaths, root, cwd))
+  }
+  // Đọc các đường dẫn được phép (file điểm dừng của lần trước) thì không cần ghi.
+  if (input.tool === 'Read') {
+    const path = String(input['file_path'] ?? '')
+    return path !== '' && isInScope(path, allowPaths, root, null)
   }
   if (!FILE_TOOLS.has(input.tool)) return false
   const path = filePathOf({ tool: input.tool, input, isError: false, isReadOnly: false })
@@ -211,6 +219,7 @@ export function registerQuota(on: On, ctx: Ctx): void {
   const settings = quotaSettings(ctx.options)
   const allowPaths = pauseAllowPaths(ctx.options)
   const allowScope = allowScopes(allowPaths)
+  const allowFlag = { isWarned: false }
   const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
   const cache: LimitCache = { at: Number.NEGATIVE_INFINITY, limits: null }
   const noticeFlag = { isWarned: false }
@@ -308,6 +317,7 @@ export function registerQuota(on: On, ctx: Ctx): void {
   on('tool.call', { tool: /.*/ }, async ($, e, next) => {
     if (!settings.enabled || S.modeOf(await read($, modeState), ctx.options) === 'off') return next(e)
     await warnNoticeIssues($, settings.noticeIssues, noticeFlag)
+    await warnNoticeIssues($, pauseAllowIssues(ctx.options), allowFlag)
     const now = await $.clock.now()
     const isFresh = now - cache.at >= QUOTA_CACHE_MS
     const limits = await freshLimits($, cache, now)

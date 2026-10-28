@@ -74,7 +74,20 @@ export function quotaSettings(options: Record<string, unknown>): QuotaSettings {
  */
 export function pauseAllowPaths(options: Record<string, unknown>): string[] {
   const raw = options['pauseAllowPaths']
-  return typeof raw === 'string' ? raw.split(',').map(item => item.trim()).filter(item => item !== '') : []
+  const items = typeof raw === 'string' ? raw.split(',').map(item => item.trim()).filter(item => item !== '') : []
+  return items.filter(item => !isWholeTree(item))
+}
+
+/** Mục cho phép ghi cả thư mục gốc hay cả hệ thống ("." "./" "/" ".."): không phải một đường dẫn checkpoint, bị bỏ (M6, vòng sửa 2). */
+function isWholeTree(item: string): boolean {
+  return ['', '.', '..'].includes(item.replace(/\/+$/, ''))
+}
+
+/** Câu cảnh báo khi option pauseAllowPaths có mục bị bỏ vì cho ghi cả thư mục gốc; rỗng nếu không có. */
+export function pauseAllowIssues(options: Record<string, unknown>): string[] {
+  const raw = options['pauseAllowPaths']
+  const dropped = typeof raw === 'string' ? raw.split(',').map(item => item.trim()).filter(item => item !== '' && isWholeTree(item)) : []
+  return dropped.length > 0 ? [`pauseAllowPaths có mục ${dropped.map(item => `"${item}"`).join(', ')} cho ghi cả thư mục gốc: bỏ qua; khai thư mục riêng cho file điểm dừng, ví dụ .checkpoint/`] : []
 }
 
 /**

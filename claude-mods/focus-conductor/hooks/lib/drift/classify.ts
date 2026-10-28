@@ -58,6 +58,8 @@ export type CheckEffect = {
 /** Một tác động ghi: definite (chuyển hướng, lệnh ghi đã biết), possible (lệnh lạ, script, cấu trúc chưa hỗ trợ). */
 export type WriteEffect = {
   kind: 'write'
+  /** Tên lệnh của đoạn (bỏ thư mục, sau env và sudo); rỗng với chuyển hướng ghi. */
+  name: string
   level: 'definite' | 'possible'
   /** File đích đọc được của chính đoạn lệnh này (để loại file kế hoạch); isUnknown: đoạn có đích không đọc được. */
   paths: string[]
@@ -245,7 +247,8 @@ export function classifyBash(command: string): BashClass {
   // Đích của đoạn đang xét: mỗi tác động ghi mang đích của chính đoạn đó.
   let segPaths: string[] = []
   let segUnknown = false
-  const write = (level: WriteEffect['level']) => effects.push({ kind: 'write', level, paths: [...segPaths], isUnknown: segUnknown })
+  let segName = ''
+  const write = (level: WriteEffect['level']) => effects.push({ kind: 'write', name: segName, level, paths: [...segPaths], isUnknown: segUnknown })
   const isUnsupported = UNSUPPORTED.test(command)
 
   const list = pieces(masked, heredocs)
@@ -255,6 +258,7 @@ export function classifyBash(command: string): BashClass {
     const part = piece.text
     segPaths = []
     segUnknown = false
+    segName = ''
     // Chuyển hướng ghi trong đoạn: >, >>, 1>, &>, bỏ qua >&N (gộp luồng) và /dev/null.
     let redirected = false
     for (const match of part.matchAll(/(?:^|[^<>&\d])(?:\d*|&)>>?(?!&)\s*([^\s<>;&|]+)/g)) {
@@ -285,6 +289,7 @@ export function classifyBash(command: string): BashClass {
     if (cmd === undefined) continue
     // Tên lệnh lấy tên cuối, bỏ thư mục (/usr/bin/python3 là python3, /bin/ls là ls), cho mọi lệnh (0.7.5).
     const name = commandName(unmask(cmd))
+    segName = name
     const text = unmask(bare)
     // Bản đoạn lệnh theo lệnh thật (bỏ env, tên lệnh bỏ thư mục), để xét chỉ đọc; danh tính của lệnh kiểm vẫn là `text`.
     const plain = unmask([...wrappers, name, ...args].join(' '))
@@ -361,6 +366,8 @@ export function classifyBash(command: string): BashClass {
       positional.forEach(add)
       write('definite')
     } else if (WRITE_LAST.has(name)) {
+      // mv xóa nguồn: nguồn cũng là đích ghi (vòng sửa 2 của 0.7.5).
+      if (name === 'mv') positional.forEach(add)
       const t = args.findIndex(a => unmask(a) === '-t' || unmask(a).startsWith('--target-directory'))
       const target = t >= 0 ? (unmask(args[t] ?? '').includes('=') ? (args[t] ?? '').split('=')[1] : args[t + 1]) : positional[positional.length - 1]
       if (target !== undefined) add(target)
