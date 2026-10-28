@@ -46,8 +46,14 @@ export type CheckEffect = {
    * thoát hay output bị lệnh khác che; không bao giờ tính là đạt.
    */
   exit: 'visible' | 'filtered' | 'hidden'
-  /** Bộ lọc khi exit là filtered: tail cắt output (chỉ còn phần cuối), cat giữ đủ. */
-  filter?: 'tail' | 'cat'
+  /** Bộ lọc khi exit là filtered: tail cắt output (chỉ còn phần cuối), head giữ phần đầu (0.7.5), cat giữ đủ. */
+  filter?: 'tail' | 'cat' | 'head'
+  /** Số dòng head giữ (0.7.5): output có ít dòng hơn thì head không cắt gì. */
+  limit?: number
+  /** Có `set -o pipefail` trước lệnh kiểm tra (0.7.5): mã thoát của ống là của lệnh kiểm tra khi nó lỗi. */
+  pipefail?: true
+  /** Đoạn lệnh với đường dẫn tương đối đã nối vào thư mục của `cd` đứng trước (0.7.5), khi chỉ dạng này khớp lệnh khai. */
+  resolved?: string
 }
 /** Một tác động ghi: definite (chuyển hướng, lệnh ghi đã biết), possible (lệnh lạ, script, cấu trúc chưa hỗ trợ). */
 export type WriteEffect = {
@@ -126,23 +132,31 @@ function pieces(masked: string, heredocs: string[]): Piece[] {
 }
 
 /**
- * Bộ lọc chỉ đọc từ ống: `cat` không đối số, `tail` chỉ với số dòng dương. Còn lại (file, <, heredoc, tùy chọn khác,
- * token trong nháy kể cả rỗng) là null. `text` là đoạn lệnh đã che chuỗi trong nháy, nên token trong nháy là token giữ
- * chỗ, không bao giờ khớp.
+ * Bộ lọc chỉ đọc từ ống: `cat` không đối số, `tail` và `head` (0.7.5) chỉ với số dòng dương. Còn lại (file, <, heredoc,
+ * tùy chọn khác, token trong nháy kể cả rỗng) là null. `text` là đoạn lệnh đã che chuỗi trong nháy, nên token trong nháy
+ * là token giữ chỗ, không bao giờ khớp. `limit` là số dòng head giữ (mặc định 10 như head).
  */
-function pipeFilter(text: string): 'tail' | 'cat' | null {
+function pipeFilter(text: string): { filter: 'tail' | 'cat' | 'head'; limit?: number } | null {
   const [name, ...args] = text.trim().split(/\s+/)
-  if (name === 'cat') return args.length === 0 ? 'cat' : null
-  if (name !== 'tail') return null
+  if (name === 'cat') return args.length === 0 ? { filter: 'cat' } : null
+  if (name !== 'tail' && name !== 'head') return null
   const count = /^[1-9]\d*$/
+  let limit = 10
   for (let i = 0; i < args.length; i++) {
     const arg = args[i] ?? ''
     if (arg === '-n' || arg === '--lines') {
       if (!count.test(args[i + 1] ?? '')) return null
+      limit = Number(args[i + 1])
       i += 1
-    } else if (!/^(?:-n|-|--lines=)[1-9]\d*$/.test(arg)) return null
+    } else if (/^(?:-n|-|--lines=)[1-9]\d*$/.test(arg)) limit = Number(arg.replace(/^\D+/, ''))
+    else return null
   }
-  return 'tail'
+  return name === 'head' ? { filter: 'head', limit } : { filter: 'tail' }
+}
+
+/** Đoạn chỉ đổi trạng thái shell, không có output, không ghi file (0.7.5): `cd <dir>`, `set <tùy chọn>`. */
+function isNeutral(piece: Piece): boolean {
+  return !piece.background && /^(?:cd|set)(?:\s|$)/.test(piece.text)
 }
 
 /**
@@ -151,15 +165,32 @@ function pipeFilter(text: string): 'tail' | 'cat' | null {
  * chuyển hướng nào ngoài 2>&1 (output phải đi hết vào ống), ống đó sang bộ lọc chỉ đọc từ ống (pipeFilter), và câu
  * lệnh kết thúc ở đó. Mọi trường hợp khác (;, ||, xuống dòng, ống sang lệnh khác) là hidden.
  */
-function exitOf(list: Piece[], index: number): Pick<CheckEffect, 'exit' | 'filter'> {
+function exitOf(list: Piece[], index: number): Pick<CheckEffect, 'exit' | 'filter' | 'limit'> {
   const rest = list.slice(index + 1)
   if (rest.some(after => after.op === ';' || after.op === '||')) return { exit: 'hidden' }
   const next = rest[0]
   if (next === undefined || next.op === '&&') return { exit: 'visible' }
-  if (next.op !== '|' || index !== 0 || rest.length !== 1) return { exit: 'hidden' }
+  // Lệnh kiểm tra đứng đầu, hoặc chỉ sau các đoạn cd/set nối bằng && hay ; (0.7.5): output vẫn chỉ đến từ nó.
+  const isLead = list.slice(0, index).every(isNeutral) && list.slice(1, index + 1).every(p => p.op === '&&' || p.op === ';')
+  if (next.op !== '|' || !isLead || rest.length !== 1) return { exit: 'hidden' }
   const isRedirected = /[<>]/.test((list[index]?.text ?? '').replace(/(?:^|\s)2>&1(?=\s|$)/g, ' '))
   const filter = pipeFilter(next.text)
-  return !isRedirected && filter !== null ? { exit: 'filtered', filter } : { exit: 'hidden' }
+  return !isRedirected && filter !== null ? { exit: 'filtered', ...filter } : { exit: 'hidden' }
+}
+
+/** Token trông như đường dẫn tương đối (có `/` hoặc phần mở rộng), không phải cờ: nối được vào thư mục của cd. */
+const RELATIVE_PATH = /^(?![-/~$])(?:[^\s]*\/[^\s]*|[^\s]+\.[A-Za-z0-9]+)$/
+
+/** Đoạn lệnh với đường dẫn tương đối nối vào `cwd` (0.7.5); null khi không có gì để nối. */
+function resolvedText(text: string, cwd: string): string | null {
+  const tokens = text.trim().split(/\s+/)
+  let isChanged = false
+  const out = tokens.map(token => {
+    if (!RELATIVE_PATH.test(token)) return token
+    isChanged = true
+    return normalizePath(`${cwd}/${token}`)
+  })
+  return isChanged ? out.join(' ') : null
 }
 
 /** Tên lệnh bỏ phần thư mục: `/usr/bin/python3` là `python3` (0.7.5). */
@@ -198,6 +229,7 @@ export function classifyBash(command: string): BashClass {
   const paths: string[] = []
   let isUnknown = false
   let cwd = ''
+  let pipefail = false
   const add = (raw: string) => {
     const token = unmask(raw)
     if (token === '' || token === '-' || /^\/dev\/(?:null|stdout|stderr|tty|fd\/\d+)$/.test(token)) return false
@@ -267,11 +299,24 @@ export function classifyBash(command: string): BashClass {
       else cwd = cwd === '' || dir.startsWith('/') ? normalizePath(dir) : normalizePath(`${cwd}/${dir}`)
       continue
     }
+    if (name === 'set') {
+      // set chỉ đổi tùy chọn của shell, không ghi file (0.7.5); -o pipefail (cả -euo pipefail) làm mã thoát của ống là của
+      // lệnh kiểm tra khi nó lỗi, +o pipefail tắt lại.
+      const values = args.map(unmask)
+      const flag = values[values.indexOf('pipefail') - 1] ?? ''
+      if (!piece.background && /^-[a-zA-Z]*o$/.test(flag)) pipefail = true
+      else if (/^\+[a-zA-Z]*o$/.test(flag)) pipefail = false
+      continue
+    }
+    // Lệnh khai (checkCommands) chạy sau cd với đường dẫn tương đối: so dạng đã nối thư mục với lệnh khai (0.7.5).
+    const resolved = cwd !== '' && !cwd.includes('\u0000') && !isCustomCheck(text) ? resolvedText(text, cwd) : null
+    const isResolvedCustom = resolved !== null && isCustomCheck(resolved)
     // Lệnh vừa kiểm vừa sửa file (--fix, --write...) không phải lệnh kiểm tra: rơi xuống nhánh ghi bên dưới.
-    if (isCheckText(text) && !isSelfFixing(bare.split(/\s+/), unmask)) {
+    if ((isCheckText(text) || isResolvedCustom) && !isSelfFixing(bare.split(/\s+/), unmask)) {
+      const exit = piece.background ? { exit: 'hidden' as const } : exitOf(list, index)
       effects.push({
         kind: 'check',
-        check: TEST_SEGMENT.test(text) || isCustomCheck(text) ? 'test' : 'static',
+        check: TEST_SEGMENT.test(text) || isCustomCheck(text) || isResolvedCustom ? 'test' : 'static',
         segment: text,
         argv: [
           ...piece.env.map(argToken),
@@ -280,7 +325,9 @@ export function classifyBash(command: string): BashClass {
         ],
         raw: unmask([...piece.env, part.trim()].join(' ')),
         trusted: !isUnsupported && (piece.op === '' || piece.op === '&&' || piece.op === ';' || piece.op === '&'),
-        ...(piece.background ? { exit: 'hidden' as const } : exitOf(list, index)),
+        ...exit,
+        ...(pipefail && exit.exit === 'filtered' ? { pipefail: true as const } : {}),
+        ...(isResolvedCustom ? { resolved } : {}),
       })
       continue
     }

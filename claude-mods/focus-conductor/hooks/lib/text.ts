@@ -589,7 +589,7 @@ export function routerFailLines(fail: RouterFail | null): string[] {
  */
 export function checkHintText(commands: readonly string[]): string {
   const dir = commands.some(command => command.endsWith('/')) ? ' Tiền tố thư mục tin mọi script dưới thư mục đó: chỉ khai nếu thư mục chỉ chứa script kiểm.' : ''
-  return `Mod chưa nhận script kiểm đã chạy là lệnh kiểm. Gợi ý khai option checkCommands của mod: ${commands.join(', ')}.${dir}`
+  return `Mod chưa nhận script kiểm đã chạy là lệnh kiểm. Gợi ý khai option checkCommands của mod: ${commands.join(', ')}.${dir} Nên chạy lệnh kiểm không qua ống (| tail, | head) hoặc có set -o pipefail, để mã thoát là của chính lệnh kiểm.`
 }
 
 /** Dòng gợi ý của /conductor status (0.7.3): chỉ khi gợi ý thuộc đúng mục tiêu đang mở; rỗng thì không có dòng. */

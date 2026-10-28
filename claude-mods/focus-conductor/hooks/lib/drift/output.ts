@@ -3,6 +3,7 @@
 
 import type { CheckEffect } from './classify'
 import type { ToolObservation } from './tool'
+import { isCustomCheck } from './verify'
 
 // Dấu hiệu lỗi trong output của các trình chạy test, type-check, lint phổ biến. Chỉ áp cho lệnh kiểm tra.
 const CHECK_FAILED = new RegExp(
@@ -163,14 +164,47 @@ export function completePass(output: string, runner: Runner, options: { truncate
   return summaryPass(output, SUMMARIES[runner])
 }
 
+// Dấu hiệu của lệnh kiểm riêng (checkCommands) qua ống (0.7.5), kể cả tiếng Việt; ranh giới theo chữ Unicode.
+const EDGE_START = '(?:^|[^\\p{L}\\p{N}])'
+const EDGE_END = '(?=$|[^\\p{L}\\p{N}])'
+/** Dấu hiệu lỗi: KHÔNG ĐẠT và KHÔNG KHỚP đứng trước ĐẠT và KHỚP (lỗi thắng), LỖI, SAI, FAIL. */
+const CUSTOM_FAILED = new RegExp(`${EDGE_START}(?:không\\s+đạt|không\\s+khớp|lỗi|sai|fail(?:ed|ures?)?)${EDGE_END}`, 'iu')
+/** Dấu hiệu đạt rõ: ĐẠT, KHỚP, OK, PASS, passed, 0 lỗi, 0 failed. */
+const CUSTOM_PASSED = new RegExp(`${EDGE_START}(?:đạt|khớp|ok|pass(?:ed)?|passing|0\\s+lỗi|0\\s+failed|0\\s+errors?)${EDGE_END}`, 'iu')
+/** Số lỗi bằng 0 ("0 lỗi", "FAIL: 0") không phải dấu hiệu lỗi: bỏ trước khi tìm dấu hiệu lỗi. */
+const ZERO_FAILURES = new RegExp(
+  `${EDGE_START}0\\s+(?:lỗi|fail(?:ed|ures?)?|errors?)${EDGE_END}|${EDGE_START}(?:lỗi|sai|fail(?:ed|ures?)?|errors?)\\s*[:=]\\s*0${EDGE_END}`,
+  'giu',
+)
+
+/** Output của lệnh kiểm riêng có dấu hiệu lỗi (0.7.5): dấu hiệu chung của trình chạy, hay dấu hiệu tiếng Việt. */
+function customFailed(output: string): boolean {
+  const text = output.normalize('NFC')
+  return COMPLETE_FAIL.some(pattern => pattern.test(text)) || CUSTOM_FAILED.test(text.replace(ZERO_FAILURES, ' '))
+}
+
+/** Output còn thấy có dấu hiệu đạt rõ và không có dấu hiệu lỗi (0.7.5). */
+export function customPassed(output: string): boolean {
+  return !customFailed(output) && CUSTOM_PASSED.test(output.normalize('NFC'))
+}
+
 /**
  * Một lệnh kiểm tra trong tool call có đạt không. Mã thoát bị che (ống, ;, || đứng sau) thì mã thoát 0 không nói gì
  * về lệnh kiểm tra: chỉ đạt khi output có dấu hiệu đạt rõ và không có dấu hiệu lỗi; không đủ thông tin thì chưa đạt.
+ * Lệnh khai trong checkCommands qua tail hay head (0.7.5): có `set -o pipefail` thì mã thoát 0 và không có dấu hiệu lỗi
+ * là đạt; không có thì phần output còn thấy phải có dấu hiệu đạt rõ (customPassed). head cắt output (đủ số dòng giữ)
+ * thì lệnh kiểm có thể đã bị ngắt giữa chừng: không đạt khi không có pipefail.
  */
 export function checkEffectPassed(effect: CheckEffect, observation: ToolObservation): boolean {
   if (!effect.trusted || observation.isError || outputFailed(observation.output)) return false
   if (effect.exit === 'visible') return true
-  if (effect.exit !== 'filtered' || observation.output === undefined) return false
+  if (effect.exit !== 'filtered') return false
+  const isCustom = isCustomCheck(effect.segment) || (effect.resolved !== undefined && isCustomCheck(effect.resolved))
+  if (isCustom && effect.pipefail === true) return !customFailed(observation.output ?? '')
+  if (observation.output === undefined) return false
+  const isCut = effect.filter === 'head' && observation.output.replace(/\n+$/, '').split('\n').length >= (effect.limit ?? 0)
+  if (isCut) return false
   const runner = runnerOf(effect.segment)
-  return runner !== null && completePass(observation.output, runner, { truncated: effect.filter === 'tail' })
+  if (runner !== null) return completePass(observation.output, runner, { truncated: effect.filter === 'tail' })
+  return isCustom && customPassed(observation.output)
 }
