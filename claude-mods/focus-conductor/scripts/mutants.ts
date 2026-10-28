@@ -1071,4 +1071,6 @@ export const MUTANTS: Mutant[] = [
   { id: "074-G1", file: "hooks/parts/compact.ts", note: "khối nối vào instructions bỏ danh sách phản chiếu", old: "compactKeepText(core.brief, shownPlan(core).plan)", new: "compactKeepText(core.brief, core.plan)" },
   { id: "074-G2", file: "hooks/parts/consistency.ts", note: "khối nhắc sau nén bỏ danh sách phản chiếu", old: "compactReminderText(core.brief, shownPlan(core).plan)", new: "compactReminderText(core.brief, core.plan)" },
   { id: "075-A1", file: "hooks/parts/turn.ts", note: "turn.start của subagent tạo lại bộ đếm luồng chính", old: "    if (e.agentId !== undefined) return next(e)\n    L.tracker = newTracker(e.turnId)", new: "    L.tracker = newTracker(e.turnId)" },
+  { id: "075-A2a", file: "hooks/parts/session.ts", note: "không hỏi model của phiên ở prompt đầu", old: "    if (L.sessionFamily === null) L.sessionFamily = familyOf(await $.session.model().catch(() => ''))\n", new: "" },
+  { id: "075-A2b", file: "hooks/parts/session.ts", note: "chỉ hỏi khi đã biết model của phiên", old: "if (L.sessionFamily === null) L.sessionFamily = familyOf(", new: "if (L.sessionFamily !== null) L.sessionFamily = familyOf(" },
 ]

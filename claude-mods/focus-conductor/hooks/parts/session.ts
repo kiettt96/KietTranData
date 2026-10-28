@@ -5,7 +5,7 @@ import type { Brief, Core, QuotaCheckpoint, Warning } from '../../types'
 import { briefFromCheckpoint, changedFiles, storeKey } from '../lib/checkpoint'
 import { openSteps, restorableSteps } from '../lib/drift'
 import { PLAN_TOOL_SPEC } from '../lib/plan'
-import { describePick } from '../lib/route'
+import { describePick, familyOf } from '../lib/route'
 import { clipText, keptLines } from '../lib/decisions'
 import { askRouter, bareBrief, failFields, isSkippable, needsCoverageRecheck, nextBrief, parseRoute, routerFailOf, routerRequest } from '../lib/router'
 import type { RouterOutcome, RouterPlan } from '../lib/router'
@@ -201,6 +201,8 @@ export function registerSession(on: On, ctx: Ctx): void {
     }
 
     L.promptCount += 1
+    // Model của phiên chưa biết (prompt đầu, trước step đầu): hỏi engine, để router và chính sách phiên dùng được ngay.
+    if (L.sessionFamily === null) L.sessionFamily = familyOf(await $.session.model().catch(() => ''))
     const rules = policy()
     const isPaused = isRouterPaused()
     let outcome: RouterOutcome<RouterPlan> = { result: null, reason: 'router đang tạm ngừng sau các lần lỗi liên tiếp', usages: [], retried: false, failure: 'paused', timeoutMs: null, maxTokens: null, outputTokens: null }
