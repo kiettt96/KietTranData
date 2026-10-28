@@ -1070,4 +1070,5 @@ export const MUTANTS: Mutant[] = [
   { id: "074-F31", file: "hooks/register.tsx", note: "không đăng ký hook nén", old: "  registerCompact(on, ctx)\n", new: "" },
   { id: "074-G1", file: "hooks/parts/compact.ts", note: "khối nối vào instructions bỏ danh sách phản chiếu", old: "compactKeepText(core.brief, shownPlan(core).plan)", new: "compactKeepText(core.brief, core.plan)" },
   { id: "074-G2", file: "hooks/parts/consistency.ts", note: "khối nhắc sau nén bỏ danh sách phản chiếu", old: "compactReminderText(core.brief, shownPlan(core).plan)", new: "compactReminderText(core.brief, core.plan)" },
+  { id: "075-A1", file: "hooks/parts/turn.ts", note: "turn.start của subagent tạo lại bộ đếm luồng chính", old: "    if (e.agentId !== undefined) return next(e)\n    L.tracker = newTracker(e.turnId)", new: "    L.tracker = newTracker(e.turnId)" },
 ]
