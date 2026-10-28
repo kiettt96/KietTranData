@@ -147,7 +147,8 @@ export function trackVerification(tracker: TurnTracker, observation: ToolObserva
   let writes = 0
   const onWrite = () => {
     tracker.mutations += 1
-    tracker.mutationsSinceCheck += 1
+    // Nhịp nhắc checkpoint là của luồng chính: ghi của subagent làm luồng chính chưa được kiểm chứng (pending) nhưng không tiến nhịp.
+    if (author === 'main') tracker.mutationsSinceCheck += 1
     tracker.pending.add(author)
     tracker.isVerified = false
     writes += 1

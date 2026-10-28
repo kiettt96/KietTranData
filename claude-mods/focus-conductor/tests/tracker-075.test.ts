@@ -1,5 +1,6 @@
 // 0.7.5 B9: đếm lỗi lặp của cùng một lệnh đặt lại khi có ghi file sau lần lỗi trước hoặc khi chính lệnh đó chạy đạt.
-// 0.7.5 B10: nhịp checkpoint theo mốc đã nhắc: ghi của subagent làm bộ đếm vượt mốc thì lần gọi kế tiếp của luồng chính vẫn nhắc.
+// 0.7.5 B10: nhịp checkpoint theo mốc đã nhắc: một lệnh ghi nhiều file làm bộ đếm vượt mốc thì vẫn nhắc ở lệnh đó (từ vòng sửa 2, M8,
+// ghi của subagent không tính vào nhịp của luồng chính).
 
 import { describe, expect, test } from 'claude-code/testing'
 import { newTracker, observe, trackVerification } from '../hooks/lib/drift'
@@ -54,17 +55,16 @@ describe('0.7.5 B9: đếm lỗi lặp đặt lại', () => {
   })
 })
 
-describe('0.7.5 B10: mốc checkpoint khi subagent ghi', () => {
-  test('4 sửa của luồng chính, 2 ghi của subagent (vượt mốc 5), sửa kế tiếp của luồng chính: nhắc checkpoint', () => {
+describe('0.7.5 B10: mốc checkpoint khi một lệnh ghi nhiều file', () => {
+  test('4 sửa của luồng chính, rồi một lệnh Bash ghi 3 file (vượt mốc 5): nhắc checkpoint ở lệnh đó, không nhắc lại ở sửa kế tiếp', () => {
     const tracker = newTracker('t')
     for (let i = 1; i <= 4; i++) observe(tracker, edit(`/repo/src/m${i}.ts`), FOCUS, [])
-    trackVerification(tracker, edit('/repo/src/s1.ts'), 'agent-1')
-    trackVerification(tracker, edit('/repo/src/s2.ts'), 'agent-1')
-    const findings = observe(tracker, edit('/repo/src/m5.ts'), FOCUS, [])
-    expect(findings.some(f => f.kind === 'checkpoint')).toBe(true)
+    const burst = observe(tracker, { tool: 'Bash', input: { command: 'cp a.ts b.ts; cp c.ts d.ts; cp e.ts f.ts' }, isError: false, isReadOnly: false }, FOCUS, [])
+    expect(burst.some(f => f.kind === 'checkpoint')).toBe(true)
+    expect(observe(tracker, edit('/repo/src/m5.ts'), FOCUS, []).some(f => f.kind === 'checkpoint')).toBe(false)
   })
 
-  test('mốc đã nhắc không nhắc lại; mốc kế tiếp (10) vẫn nhắc', () => {
+  test('mốc đã nhắc không nhắc lại; mốc kế tiếp (10) vẫn nhắc (ghi của subagent xen giữa không đổi nhịp)', () => {
     const tracker = newTracker('t')
     const fired: number[] = []
     for (let i = 1; i <= 12; i++) {
