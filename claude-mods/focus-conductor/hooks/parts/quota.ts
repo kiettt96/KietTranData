@@ -304,11 +304,12 @@ export function registerQuota(on: On, ctx: Ctx): void {
       return next(e)
     }
     // Chỉ một câu trả lời trọn vẹn mới là đã tiếp tục xong; người dùng ngắt (aborted), model từ chối hay lỗi thì về open,
-    // dựng lại từ trạng thái hiện tại (0.7.5) để tiến độ của turn chạy tiếp không mất; giữ id, giờ tạo, note, lệnh bị từ chối.
+    // dựng lại từ trạng thái hiện tại (0.7.5) để tiến độ của turn chạy tiếp không mất; giữ id, giờ tạo, note. Lệnh bị từ chối
+    // của lần dừng cũ bị xóa (vòng sửa 2): turn chạy tiếp đã nhận nó trong khối ĐIỂM DỪNG và xử lý rồi.
     const after: QuotaCheckpoint =
       e.reason === 'answer'
         ? { ...cp, status: 'consumed' }
-        : { ...(await pauseCheckpoint($, newPause(cp.createdAt, 'quota', cp.reason), await $.clock.now(), cp)), status: 'open' }
+        : { ...(await pauseCheckpoint($, newPause(cp.createdAt, 'quota', cp.reason), await $.clock.now(), { ...cp, denied: null })), status: 'open' }
     await update($, quotaState, c => ({ ...normalizeQuota(c), checkpoint: after, resume: null }))
     if (!(await storeCheckpoint($, after))) $.ui.toast('Focus Conductor: không cập nhật được điểm dừng trong kho của mod')
     return next(e)
