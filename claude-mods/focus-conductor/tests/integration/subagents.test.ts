@@ -35,9 +35,12 @@ describe('subagent theo router', () => {
     await $.tool.call({ tool: 'Agent', description: 'Tìm file auth', prompt: 'Tìm trong codebase các file xử lý đăng nhập.', model: 'opus' })
     await $.tool.call({ tool: 'Agent', description: 'Rà race condition', prompt: 'Phân tích race condition trong luồng ghi số dư' })
     await $.tool.call({ tool: 'Agent', description: 'Tìm file auth', prompt: 'Tìm trong codebase các file xử lý đăng nhập.' })
-    // 0.7.4: Claude ghi opus là sàn, router chấm haiku cho lời gọi đầu vẫn gửi opus; lời gọi thứ ba không ghi model dùng kết quả nhớ.
-    expect(models).toEqual(['opus', 'opus', 'haiku'])
-    expect(seen.agentRouted.length).toBe(2)
+    await $.tool.call({ tool: 'Agent', description: 'Tìm file auth', prompt: 'Tìm trong codebase các file xử lý đăng ký.' })
+    // 0.7.4: Claude ghi opus là sàn, router chấm haiku cho lời gọi đầu vẫn gửi opus.
+    // 0.7.5 B6: khóa nhớ gồm model Claude ghi (không gồm prompt): lời gọi thứ ba không ghi model được chấm riêng; lời gọi thứ tư
+    // cùng description, khác prompt, dùng lại kết quả của lời gọi thứ ba.
+    expect(models).toEqual(['opus', 'opus', 'haiku', 'haiku'])
+    expect(seen.agentRouted.length).toBe(3)
     // Router thấy mục tiêu và gợi ý của Claude.
     expect(seen.agentRouted[0]).toContain('Goal of the session: Refactor module thanh toán')
     expect(seen.agentRouted[0]).toContain('The main thread asked for: model opus.')

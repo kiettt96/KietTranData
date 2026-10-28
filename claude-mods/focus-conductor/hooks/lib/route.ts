@@ -308,6 +308,36 @@ export function taskMatch(tasks: readonly Task[], description: string): TaskMatc
   return near && near.score >= TITLE_NEAR ? { miss: `tên gần giống việc ${near.task.index} (độ trùng ${near.score.toFixed(2)})` } : {}
 }
 
+/**
+ * Khóa nhớ kết quả router chấm subagent (0.7.5): description bỏ chữ số (số lô, mã lô) và viết thường, loại agent, model và
+ * effort Claude ghi; không gồm prompt. "Lọc tin lô 1" và "Lọc tin lô 2" dùng chung một lần chấm.
+ */
+export function agentMemoKey(description: string, agentType: string | undefined, model: string | undefined, effort: string | undefined): string {
+  const shape = fold(description).replace(/\d+/g, '#').replace(/\s+/g, ' ').trim()
+  return [shape, agentType ?? '', model ?? '', effort ?? ''].join('\n')
+}
+
+const RULE_FAMILY = /\b(haiku|sonnet|opus|fable)\b/
+/** Từ đứng giữa loại việc và model trong một quy định ("Việc lọc tin chạy sonnet"): cắt câu tại đó để lấy loại việc. */
+const RULE_CUT = /\b(?:chay|dung|bang|phai|luon|voi|haiku|sonnet|opus|fable|mo hinh|model)\b/
+
+/**
+ * Họ model mà ràng buộc của brief quy định cho loại việc của một lời gọi Agent (0.7.5): ràng buộc nêu họ model (hay "mô hình
+ * của phiên", khi biết model của phiên) và loại việc đứng trước ("Việc lọc tin chạy sonnet": "lọc tin"); description (bỏ dấu,
+ * viết thường) chứa loại việc đó. Không có thì null.
+ */
+export function ruleFamily(constraints: readonly string[], description: string, session: ModelFamily | null): ModelFamily | null {
+  const asked = fold(description)
+  for (const rule of constraints) {
+    const text = fold(rule)
+    const named = (RULE_FAMILY.exec(text)?.[1] as ModelFamily | undefined) ?? (/(?:mo hinh|model) cua phien/.test(text) ? session : null)
+    if (named === null || named === undefined) continue
+    const kind = (text.split(RULE_CUT)[0] ?? '').replace(/^\s*(?:cac\s+)?(?:viec|buoc|tac vu|task)\s+/, '').replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim()
+    if (kind.length >= 3 && asked.includes(kind)) return named
+  }
+  return null
+}
+
 export function matchTask(tasks: readonly Task[], description: string): Task | undefined {
   return taskMatch(tasks, description).task
 }

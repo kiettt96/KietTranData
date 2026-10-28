@@ -4,7 +4,7 @@ import { atom, derive, read, update } from 'claude-code'
 import type { AgentProgress, RouteEvent, Warning } from '../../types'
 import { turnCost } from '../lib/cost'
 import { countSpawn, shapeKey, shapeOutput } from '../lib/ledger'
-import { EFFORTS, describePick, familyOf, familyRank, taskMatch } from '../lib/route'
+import { EFFORTS, agentMemoKey, describePick, familyOf, familyRank, ruleFamily, taskMatch } from '../lib/route'
 import { clipText } from '../lib/decisions'
 import { agentRouterRequest, askRouter, floorRoute, isSettled, parseAgentRoute, taskRoute } from '../lib/router'
 import type { AgentRoute } from '../lib/router'
@@ -82,11 +82,14 @@ export function registerAgents(on: On, ctx: Ctx): void {
       reason = 'Claude đã chốt model và effort ở mức trần cho phép; không gọi router'
       record(await $.clock.now(), 'agent-floor', { description: clipText(e.description), skip: true, claimed: `${claimed}/${requested}` })
       await flushDecisions((path, text) => $.fs.write(path, text))
+    } else if (claimed !== null && brief !== null && !brief.isReference && ruleFamily(brief.constraints, e.description, L.sessionFamily) === claimed) {
+      // Model Claude ghi đúng quy định model của loại việc trong brief (0.7.5): router không được chọn khác, không gọi.
+      reason = `Claude ghi ${claimed} đúng quy định model của loại việc; không gọi router`
     } else if (isAgentRouterPaused()) {
       reason = 'router đang tạm ngừng; giữ lựa chọn của Claude'
     } else {
       const failed = agentFailures.filter(f => f.goalId === goalId).map(f => f.description)
-      const key = `${e.description}\n${e.prompt}`
+      const key = agentMemoKey(e.description, e.subagent_type, e.model, e.effort !== undefined ? String(e.effort) : undefined)
       // Giao lại việc đã lỗi: hỏi lại router (nó thấy danh sách lỗi và tự nâng), không dùng kết quả nhớ.
       const known = failed.includes(e.description) ? undefined : agentRoutes.get(key)
       if (known !== undefined) {
@@ -209,7 +212,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
     let workflowReason = ''
     let workflowTask: number | undefined
     if (info === undefined && isWorkflow && !isScriptModel && current !== 'off') {
-      const key = `${e.description}\n${e.prompt}`
+      const key = agentMemoKey(e.description, e.subagentType, undefined, undefined)
       // Việc vừa lỗi trong mục tiêu này thì router chấm lại (nó thấy danh sách lỗi và tự nâng).
       const failedHere = agentFailures.some(f => f.goalId === goalId && f.description === e.description)
       const known = failedHere ? undefined : agentRoutes.get(key)
