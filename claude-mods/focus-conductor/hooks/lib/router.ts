@@ -966,10 +966,6 @@ export async function askRouter<T extends { confidence?: number }>(
   return { result: pick, reason: pick === null ? failureReason(second) : '', usages, retried: true, failure: pick === null ? failureKind(second) : null, ...limits(second ?? first) }
 }
 
-/**
- * Brief kế tiếp từ kế hoạch của router: chạy thật prompt đã đối chiếu, mục tiêu mới, hoặc tiếp nối.
- * Chạy thật được xét trước relation, vì "chạy đi" có thể mang relation new mà vẫn là chạy việc đã đối chiếu.
- */
 /** Ràng buộc và yêu cầu của brief trước bị thay vì đầy trần (0.7.5), để báo một cảnh báo. */
 function replacedOf(prev: Brief, next: Brief): string[] {
   return [...prev.constraints.filter(x => !next.constraints.includes(x)), ...(prev.requirements ?? []).filter(x => !(next.requirements ?? []).includes(x))]
@@ -979,7 +975,9 @@ function replacedOf(prev: Brief, next: Brief): string[] {
 export const NEW_GOAL_CONFIDENCE = 0.8
 
 /**
- * Brief của lượt router này. `hasOpenSteps` (0.7.5): checklist còn bước mở mà router xếp mục tiêu mới với tin cậy dưới
+ * Brief kế tiếp từ kế hoạch của router: chạy thật prompt đã đối chiếu, mục tiêu mới, hoặc tiếp nối.
+ * Chạy thật được xét trước relation, vì "chạy đi" có thể mang relation new mà vẫn là chạy việc đã đối chiếu.
+ * `hasOpenSteps` (0.7.5): checklist còn bước mở mà router xếp mục tiêu mới với tin cậy dưới
  * NEW_GOAL_CONFIDENCE thì coi là tiếp nối (`held`), để một prompt nhắc bước kế tiếp không cất checklist đang làm. Nhận mục
  * tiêu mới thì mang theo quy định model của brief trước (đứng đầu) khi prompt mới không nêu quy định model nào.
  */
