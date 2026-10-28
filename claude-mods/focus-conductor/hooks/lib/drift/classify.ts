@@ -162,6 +162,27 @@ function exitOf(list: Piece[], index: number): Pick<CheckEffect, 'exit' | 'filte
   return !isRedirected && filter !== null ? { exit: 'filtered', filter } : { exit: 'hidden' }
 }
 
+/** Tên lệnh bỏ phần thư mục: `/usr/bin/python3` là `python3` (0.7.5). */
+function commandName(token: string): string {
+  return token.slice(token.lastIndexOf('/') + 1)
+}
+
+/**
+ * Token của lệnh thật sau `env`: bỏ phép gán biến (FOO=1), cờ không giá trị (-i, -, --ignore-environment) và `-u TÊN`.
+ * Cờ lạ (-S, -C...) đổi cách chạy lệnh: không bỏ, trả rỗng để đoạn lệnh vẫn là env (lệnh lạ, ghi có thể).
+ */
+function afterEnv(args: string[], unmask: (token: string) => string): string[] {
+  let at = 0
+  while (at < args.length) {
+    const arg = unmask(args[at] ?? '')
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(arg) || arg === '-i' || arg === '-' || arg === '--ignore-environment') at += 1
+    else if (arg === '-u' || arg === '--unset') at += 2
+    else if (arg.startsWith('-')) return []
+    else break
+  }
+  return args.slice(at)
+}
+
 // Cấu trúc chưa phân tích được: thay thế lệnh, eval, shell con với -c, system() của awk.
 const UNSUPPORTED = /\$\(|`|(?:^|[\s;&|(])eval\b|(?:^|[\s;&|(])(?:ba|z|da)?sh\s+-c\b|\bsystem\s*\(/
 
@@ -215,13 +236,26 @@ export function classifyBash(command: string): BashClass {
     const tokens = bare.split(/\s+/).filter(Boolean)
     let cmd = tokens[0]
     let args = tokens.slice(1)
+    const wrappers: string[] = []
     while ((cmd === 'sudo' || cmd === 'command' || cmd === 'nohup' || cmd === 'xargs') && args.length > 0) {
+      wrappers.push(cmd)
       cmd = args[0]
       args = args.slice(1)
     }
+    // Tiền tố env (kể cả /usr/bin/env, có hay không có biến): xét lệnh thật đứng sau (0.7.5).
+    if (cmd !== undefined && commandName(unmask(cmd)) === 'env') {
+      const real = afterEnv(args, unmask)
+      if (real.length > 0) {
+        cmd = real[0]
+        args = real.slice(1)
+      }
+    }
     if (cmd === undefined) continue
-    const name = unmask(cmd)
+    // Tên lệnh lấy tên cuối, bỏ thư mục (/usr/bin/python3 là python3, /bin/ls là ls), cho mọi lệnh (0.7.5).
+    const name = commandName(unmask(cmd))
     const text = unmask(bare)
+    // Bản đoạn lệnh theo lệnh thật (bỏ env, tên lệnh bỏ thư mục), để xét chỉ đọc; danh tính của lệnh kiểm vẫn là `text`.
+    const plain = unmask([...wrappers, name, ...args].join(' '))
     // Token trong nháy có khoảng trắng hay toán tử là một đối số duy nhất; nháy đơn giản được bỏ ('smoke' là smoke).
     const argToken = (token: string): string => {
       const value = unmask(token)
@@ -258,7 +292,7 @@ export function classifyBash(command: string): BashClass {
       }
       continue
     }
-    if (segmentIsReadOnly(text)) continue
+    if (segmentIsReadOnly(plain)) continue
     const positional = args.filter(a => !unmask(a).startsWith('-'))
     if (name === 'tee') {
       positional.forEach(add)
@@ -296,7 +330,7 @@ export function classifyBash(command: string): BashClass {
       if (sub === 'restore') positional.slice(1).forEach(add)
       else if ((sub === 'checkout' || sub === 'reset') && dash >= 0) args.slice(dash + 1).forEach(add)
       else isUnknown = segUnknown = true
-    } else if (piece.heredocs !== null && piece.op !== '|' && piece.op !== '|&' && tokens[0] === cmd && inputs.every(m => m[2] === '<<' && m[3] === 'H') && isReadOnlyInline(name, args, piece.heredocs, unmask)) {
+    } else if (piece.heredocs !== null && piece.op !== '|' && piece.op !== '|&' && wrappers.length === 0 && inputs.every(m => m[2] === '<<' && m[3] === 'H') && isReadOnlyInline(name, args, piece.heredocs, unmask)) {
       // sqlite3 và python với mã nội dòng chỉ đọc (E): không ống vào, không bọc sudo/xargs, không đọc từ tệp, mỗi đoạn dùng thân heredoc của nó.
       continue
     } else {

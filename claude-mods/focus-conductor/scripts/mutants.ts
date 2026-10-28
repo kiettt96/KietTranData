@@ -1079,4 +1079,9 @@ export const MUTANTS: Mutant[] = [
   { id: "075-A3d", file: "hooks/lib/route.ts", note: "prompt không mã cũng nhận lý do mã bước", old: "if (stepped && tasks.some(t => stepCode(t.title) !== ''))", new: "if (stepped)" },
   { id: "075-A3e", file: "hooks/lib/text.ts", note: "DISCIPLINE không nêu số thứ tự", old: "tiêu đề bước mở đầu \"Việc N: \" (N là số thứ tự của việc trong Phân việc); việc mang mã riêng của prompt (như \"BƯỚC 7\") thì tiêu đề bước mở đầu bằng chính mã đó.", new: "tiêu đề bước mở đầu \"Việc N: \"." },
   { id: "075-A3f", file: "hooks/lib/text.ts", note: "Phân việc không nêu mã bước", old: "với N là số thứ tự của việc; việc mang mã riêng như \"BƯỚC 7\" thì mở đầu bằng chính mã đó):", new: "với N là số của việc):" },
+  { id: "075-A5a", file: "hooks/lib/drift/classify.ts", note: "tên lệnh giữ thư mục", old: "    const name = commandName(unmask(cmd))\n", new: "    const name = unmask(cmd)\n" },
+  { id: "075-A5b", file: "hooks/lib/drift/classify.ts", note: "xét chỉ đọc theo chữ lệnh gốc", old: "if (segmentIsReadOnly(plain)) continue", new: "if (segmentIsReadOnly(text)) continue" },
+  { id: "075-A5c", file: "hooks/lib/drift/classify.ts", note: "không bỏ tiền tố env", old: "if (cmd !== undefined && commandName(unmask(cmd)) === 'env') {", new: "if (false) {" },
+  { id: "075-A5d", file: "hooks/lib/drift/classify.ts", note: "env chặn mã nội dòng chỉ đọc", old: "piece.op !== '|&' && wrappers.length === 0 && inputs.every(", new: "piece.op !== '|&' && tokens[0] === cmd && inputs.every(" },
+  { id: "075-A5e", file: "hooks/lib/drift/classify.ts", note: "env không bỏ phép gán biến", old: "if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(arg) || arg === '-i'", new: "if (arg === '-i'" },
 ]
