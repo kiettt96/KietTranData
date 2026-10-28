@@ -8,7 +8,7 @@
 
 import { atom, derive, read, update } from 'claude-code'
 import type { EngineInterface, On } from 'claude-code'
-import { EMPTY_QUOTA, normalizeQuota, quotaSettings } from '../lib/quota'
+import { EMPTY_QUOTA, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaSettings } from '../lib/quota'
 import { openSteps } from '../lib/drift'
 import * as S from '../lib/state'
 import { netResumeText } from '../lib/text'
@@ -48,11 +48,16 @@ async function probeTick($: EngineInterface, ctx: Ctx, watch: Watch): Promise<vo
     stopWatch(watch)
     return
   }
-  // Đang dừng vì hạn mức (hay người dùng tạm dừng): giữ bộ đếm, không dò, không gửi.
-  if (normalizeQuota(await read($, quotaState)).pause !== null) return
+  // Đang dừng vì hạn mức (hay người dùng tạm dừng), hay số đo đã lưu có cửa sổ chạm ngưỡng dừng cứng (0.7.5, dù chưa vào trạng
+  // thái dừng): giữ bộ đếm, không dò, không gửi.
+  const q = normalizeQuota(await read($, quotaState))
+  if (q.pause !== null) return
+  const now = await $.clock.now()
+  if (isPauseActive(true, evaluateQuota(q.readings, now, quotaSettings(ctx.options)).hits, null, overrideOf(q), now)) return
   watch.probes += 1
   const probes = watch.probes
-  const isReachable = await $.http.fetch(PROBE_URL).then(() => true, () => false)
+  // 429 (quá giới hạn) không tính là có mạng (0.7.5): tự gửi prompt lúc đó chỉ lỗi lần nữa.
+  const isReachable = await $.http.fetch(PROBE_URL).then(response => response.status !== 429, () => false)
   // Bị hủy trong lúc chờ phản hồi (người dùng gõ prompt, turn trả lời, session.end).
   if (watch.timer === null) return
   const at = await $.clock.now()

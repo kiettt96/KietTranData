@@ -59,6 +59,7 @@ describe('0.7.5 C5: số đo đã lưu chạm ngưỡng dừng cứng', () => {
     const seen = base(on)
     on('turn.complete', () => ({ text: '' }))
     const net = network(on)
+    on('session.measure', (_$, e) => ({ changed: e.changed }))
     await submit($, COMPLEX_PROMPT)
     // Không có checklist: số đo chạm ngưỡng chỉ được lưu, không vào trạng thái dừng.
     await $.session.measure({ context: { tokens: 1, window: 200_000 }, rateLimits: [session(97)], changed: ['rateLimits'] } as never)
