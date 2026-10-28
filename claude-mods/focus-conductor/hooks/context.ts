@@ -2,11 +2,11 @@
 // mà nhiều nhóm hook cùng dùng. Không gọi $: lệnh gọi $ nằm trong thân hook ở hooks/parts/.
 
 import type { PluginOptions, PromptOrigin } from 'claude-code'
-import type { Brief, Choice, Core, DelegationItem, DelegationState, Effort, Lift, Mode, ModelFamily, Route, RouteEvent, Task, Tier, Volume } from '../types'
+import type { Brief, Choice, Core, DelegationItem, DelegationState, Effort, Lift, Mode, ModelFamily, PlanStep, Route, RouteEvent, Task, Tier, Volume } from '../types'
 import { applyCheckCommands, newEvidenceLog, newTracker, parseCheckCommands } from './lib/drift'
 import type { EvidenceLog, PromptIntent, TurnTracker } from './lib/drift'
 import { DEFAULT_CACHE_TTL_MINUTES, DEFAULT_CONTEXT, DEFAULT_WINDOWS, applyCacheWrite, applyPrices, parseCacheWrite, parsePrices } from './lib/cost'
-import { EFFORTS, decideMain, describePick, familyOf, liftPick, parseModelMap, parseWindows } from './lib/route'
+import { EFFORTS, decideMain, describePick, familyOf, liftPick, matchTask, parseModelMap, parseWindows } from './lib/route'
 import type { SessionModel, SessionPolicy } from './lib/route'
 import { DECISION_LIMIT, decisionLine } from './lib/decisions'
 import type { DecisionKind } from './lib/decisions'
@@ -467,9 +467,20 @@ export function createContext(options: PluginOptions) {
     local.delegation = keep ? local.delegation : newDelegation(goalId, pending)
   }
 
-  /** Danh sách việc giao còn chờ của mục tiêu này, rỗng nếu không có. */
-  function pendingFor(brief: Brief | null): string[] {
-    return brief && local.delegation.goalId === brief.goalId ? [...local.delegation.pending.values()] : []
+  /**
+   * Danh sách việc giao còn chờ của mục tiêu này, rỗng nếu không có. Có checklist (0.7.5): việc có bước trong checklist (khớp
+   * theo "Việc N" hay mã như khi giao) chỉ còn chờ khi một bước của nó đang làm hoặc là bước mở kế tiếp; bước đã done,
+   * verified hay skipped thì không còn chờ. Việc không có bước nào thì như cũ.
+   */
+  function pendingFor(brief: Brief | null, plan: readonly PlanStep[] = []): string[] {
+    if (!brief || local.delegation.goalId !== brief.goalId) return []
+    const next = plan.find(step => step.status === 'doing') ?? plan.find(step => step.status === 'todo')
+    return [...local.delegation.pending.entries()]
+      .filter(([index]) => {
+        const own = plan.filter(step => matchTask(brief.tasks, step.title)?.index === index)
+        return own.length === 0 || own.some(step => step.status === 'doing' || step === next)
+      })
+      .map(([, label]) => label)
   }
 
   /** Việc giao subagent đã lỗi mà chưa giao lại, của mục tiêu này. */

@@ -222,8 +222,8 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       e.tool === 'Bash' && isMutation({ tool: 'Bash', input: e as unknown as Record<string, unknown>, isError: false, isReadOnly: false })
     if (strictDelegation === 'block' && e.agentId === undefined && (EDIT_TOOLS.has(e.tool) || isBashWrite)) {
       const current = await read($, mode)
-      const brief = S.normalizeCore(await read($, coreState)).brief
-      const waiting = current === 'auto' || current === 'subagents' ? pendingFor(brief) : []
+      const now = S.normalizeCore(await read($, coreState))
+      const waiting = current === 'auto' || current === 'subagents' ? pendingFor(now.brief, shownPlan(now).plan) : []
       const path = filePathOf({ tool: e.tool, input: e as unknown as Record<string, unknown>, isError: false, isReadOnly: false })
       if (waiting.length > 0 && !isPlanFile(path) && L.delegation.blocks < blockLimit) {
         L.delegation.blocks += 1
@@ -311,7 +311,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     const isErrorBurst = L.tracker.errors === ERROR_BURST
     // Luồng chính bắt đầu tự sửa file trong khi còn việc đã ghi giao subagent: nhắc một lần.
     // Ghi file kế hoạch của plan mode không phải là làm một việc đã phân.
-    const pending = pendingFor(core.brief)
+    const pending = pendingFor(core.brief, shownPlan(core).plan)
     const planFile = isPlanFile(filePathOf(observation))
     // Mặc định nhắc một lần ở lần sửa file đầu tiên; strictDelegation remind/block nhắc ở mọi lần thay đổi (kể cả lệnh ghi file).
     const isStrict = strictDelegation !== 'off'
@@ -482,7 +482,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
           : added.ledger
     }
     // Turn có thực thi mà các việc ghi giao subagent vẫn chưa được giao: cảnh báo chi phí một lần.
-    const waiting = pendingFor(core.brief)
+    const waiting = pendingFor(core.brief, shownPlan(core).plan)
     if (!isPaused && waiting.length > 0 && !L.delegation.isWarned && isExecuting(L.tracker, L.promptIntent)) {
       L.delegation.isWarned = true
       warnings.push({ at, kind: 'cost', text: `Việc ${waiting.join(', ')} ghi giao subagent nhưng chưa được giao; luồng chính tự làm sẽ chạy ở model đắt hơn` })
