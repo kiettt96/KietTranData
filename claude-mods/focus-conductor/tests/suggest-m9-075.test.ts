@@ -37,6 +37,11 @@ describe('0.7.5 M9: bộ lọc tên không thay luật nhận dạng script', ()
     expect(suggestCheckCommands(logOf('./tools/check-data.sh'))).toEqual(['./tools/check-data.sh'])
   })
 
+  test('đường dẫn script có dấu phẩy (check,all.py) không được gợi ý vì checkCommands phân tách bằng dấu phẩy', () => {
+    expect(suggestCheckCommands(logOf('python3 tests/check,all.py'))).toEqual([])
+    expect(suggestCheckCommands(logOf('python3 tests/check_all.py'))).toEqual(['python3 tests/check_all.py'])
+  })
+
   test('trình thông dịch cộng đối số không có đuôi script (python3 check_data, node verify) không được gợi ý', () => {
     expect(suggestCheckCommands(logOf('python3 check_data', 'node verify', 'bash test_all'))).toEqual([])
     expect(suggestCheckCommands(logOf('python3 check_data.py'))).toEqual(['python3 check_data.py'])
