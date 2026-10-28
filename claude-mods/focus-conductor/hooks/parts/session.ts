@@ -291,7 +291,8 @@ export function registerSession(on: On, ctx: Ctx): void {
       const total = plan.droppedTasks + ROUTER_TASK_LIMIT
       await update($, coreState, S.withWarnings({ at: now, kind: 'model', text: `Router chia ${total} việc; giữ ${ROUTER_TASK_LIMIT} việc đầu trong Phân việc, các việc sau làm theo prompt gốc` }))
     }
-    // Ràng buộc hay yêu cầu đã đầy trần (0.7.5): mục mới thay mục cũ nhất không phải quy định model; báo một cảnh báo.
+    // Ràng buộc hay yêu cầu đã đầy trần (0.7.5): mục mới thay mục ở cuối danh sách (ít quan trọng nhất) không phải quy định model, không
+    // bao giờ thay mục của prompt lập mục tiêu (vòng sửa 2, M3); báo một cảnh báo.
     if (replaced.length > 0) {
       const text = `Ràng buộc và yêu cầu của mục tiêu đã đầy; mục mới thay ${replaced.length} mục cũ: ${replaced.map(item => clipText(item, 60)).join('; ')}`
       await update($, coreState, S.withWarnings({ at: now, kind: 'model', text }))

@@ -338,7 +338,8 @@ export function observe(
     })
   }
 
-  // Theo mốc đã nhắc (0.7.5): ghi của subagent vượt mốc giữa hai lời gọi của luồng chính thì lời gọi kế tiếp vẫn nhắc.
+  // Theo mốc đã nhắc (0.7.5): một lệnh ghi nhiều file làm bộ đếm vượt mốc thì vẫn nhắc ở lệnh đó, và mốc đã nhắc không nhắc lại.
+  // Chỉ ghi của luồng chính tiến bộ đếm (vòng sửa 2, M8); ghi của subagent không tiến nhịp.
   const passed = checkpointsPassed(tracker.mutationsSinceCheck)
   if (passed > tracker.checkpointMark) {
     tracker.checkpointMark = passed
