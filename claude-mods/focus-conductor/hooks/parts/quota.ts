@@ -247,7 +247,8 @@ export function registerQuota(on: On, ctx: Ctx): void {
     const evaluation = evaluateQuota(limits, now, settings)
     // Số đo vừa đọc thay số đã lưu: nhãn trên band và status line theo đúng hạn mức lúc này (đã làm mới thì nhãn mất).
     // Không ghi vào cache của tool.call: tool.call vẫn tự hỏi engine theo nhịp QUOTA_CACHE_MS như 0.6.0.
-    await update($, quotaState, c => ({ ...normalizeQuota(c), zone: evaluation.zone, readings: [...(limits ?? [])] as QuotaState['readings'], measuredAt: now }))
+    // Prompt mới do người gõ (0.7.5): câu báo hạn mức mềm được gắn lại một lần trong turn của prompt này.
+    await update($, quotaState, c => ({ ...normalizeQuota(c), zone: evaluation.zone, readings: [...(limits ?? [])] as QuotaState['readings'], measuredAt: now, noticed: [] }))
     const q = normalizeQuota(await read($, quotaState))
     if (q.pause === null && isPauseActive(true, evaluation.hits, null, overrideOf(q), now) && restorableSteps(S.normalizeCore(await read($, coreState)).plan).length > 0) {
       await enterQuotaPause($, ctx, evaluation, now)
@@ -319,10 +320,18 @@ export function registerQuota(on: On, ctx: Ctx): void {
       }
       const result = await next(e)
       if (result.deny !== undefined) return result
-      // Báo hạn mức mềm (0.7.4): cửa sổ vào vùng báo mà chưa báo lần nào thì gắn một lần vào kết quả tool của luồng chính.
-      // Đọc lại sau next: lời gọi tool song song có thể vừa báo cửa sổ này.
-      const shown = e.agentId === undefined ? normalizeQuota(await read($, quotaState)).noticed : []
-      const due = e.agentId === undefined ? softNotices(limits, now, settings).filter(hit => !shown.includes(hit.key)) : []
+      // Báo hạn mức mềm (0.7.4): cửa sổ vào vùng báo mà chưa báo thì gắn một lần vào kết quả tool của luồng chính (0.7.5:
+      // cờ đặt lại ở mỗi prompt do người gõ, nên tối đa một lần mỗi cửa sổ trong turn của prompt đó; turn tiếp nối không có
+      // prompt mới thì không báo lại). Kết quả lỗi không báo, không đánh dấu. Số đo đọc lại
+      // sau next (0.7.5): lời gọi Agent dài có thể kết thúc khi hạn mức đã vào vùng báo. Đọc lại cờ sau next: lời gọi tool
+      // song song có thể vừa báo cửa sổ này.
+      const isNoticeable = e.agentId === undefined && result.isError !== true
+      const later = isNoticeable ? await $.clock.now() : now
+      const isRefetch = isNoticeable && later - cache.at >= QUOTA_CACHE_MS
+      const current = isNoticeable ? await freshLimits($, cache, later) : limits
+      if (isRefetch) await update($, quotaState, c => ({ ...normalizeQuota(c), readings: [...(current ?? [])] as QuotaState['readings'], measuredAt: later }))
+      const shown = isNoticeable ? normalizeQuota(await read($, quotaState)).noticed : []
+      const due = isNoticeable ? softNotices(current, later, settings).filter(hit => !shown.includes(hit.key)) : []
       const noticed = due.length > 0 ? { ...result, context: [...(result.context ?? []), quotaNoticeText(due)] } : result
       if (due.length > 0) {
         // Turn đã nhận câu báo mềm (0.7.5): Stop của turn này không chặn vì checklist còn mở (quy tắc dừng của prompt áp được).
