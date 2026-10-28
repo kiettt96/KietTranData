@@ -370,6 +370,8 @@ export function renderPane(
         : row.kind === 'agent' && row.state !== 'running'
           ? l.taskState[row.state]
           : ''
+    // Dòng việc nhiều lô đã ghi "r đang chạy" trong phần chi tiết: không lặp chữ trạng thái (vòng sửa 2 của 0.7.5).
+    const shownWord = detail.includes(word) ? '' : word
     const wordColor = row.state === 'failed' ? 'error' : row.state === 'cut' ? 'warning' : row.state === 'running' ? 'claude' : undefined
     const barNode = (
       <Box flexShrink={0}>
@@ -387,10 +389,10 @@ export function renderPane(
           <Text dimColor>{detail}</Text>
         </Box>
       ) : null,
-      word ? (
+      shownWord ? (
         <Box flexShrink={0}>
           <Text color={wordColor} dimColor={wordColor === undefined}>
-            {word}
+            {shownWord}
           </Text>
         </Box>
       ) : null,

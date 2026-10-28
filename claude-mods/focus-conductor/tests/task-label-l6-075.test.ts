@@ -22,6 +22,10 @@ describe('0.7.5 L6: nhãn dòng việc theo mã', () => {
     expect(taskLabel(vi, { kind: 'direct', index: 3, title: 'Việc 3: thiết kế' })).toBe('Việc 3: thiết kế')
   })
 
+  test('việc Claude tự giao (không có số việc) mang mã trong mô tả vẫn có đầu "Claude tự giao"', () => {
+    expect(taskLabel(vi, { kind: 'agent', title: 'BƯỚC 9: lọc tin lô 2' })).toBe(`${vi.taskOwn}: BƯỚC 9: lọc tin lô 2`)
+  })
+
   test('việc không mã vẫn là "Việc N: tiêu đề"; việc chính và việc tự giao như cũ', () => {
     expect(taskLabel(vi, { kind: 'direct', index: 2, title: 'Đổi tên userId' })).toBe('Việc 2: Đổi tên userId')
     expect(taskLabel(vi, { kind: 'main', title: 'Cập nhật dữ liệu' })).toBe('Việc chính: Cập nhật dữ liệu')

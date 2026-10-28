@@ -2,6 +2,7 @@
 // router, cảnh báo, nhật ký, sổ chi phí) giữ nguyên ngôn ngữ của nó: router trả lời theo ngôn ngữ của prompt.
 
 import type { StepStatus, WarningKind } from '../../types'
+import { hasTitleCode } from '../lib/route'
 import type { Phase } from './style'
 
 export type Lang = 'vi' | 'en'
@@ -232,8 +233,12 @@ export function labels(lang: Lang): typeof VI {
   return lang === 'en' ? EN : VI
 }
 
-/** Tên một dòng tiến độ (0.6.1): "Việc chính: ...", "Việc N: ...", hay "Claude tự giao: ...". Dùng chung cho band và pane. */
+/**
+ * Tên một dòng tiến độ (0.6.1): "Việc chính: ...", "Việc N: ...", hay "Claude tự giao: ...". Dùng chung cho band và pane.
+ * Việc có mã (BƯỚC 4, K4.2, Việc 3) hiện chính tiêu đề mang mã đó, không ghép "Việc 5: BƯỚC 4: ..." (vòng sửa 2 của 0.7.5).
+ */
 export function taskLabel(l: typeof VI, row: { kind: 'main' | 'direct' | 'agent'; index?: number; title: string }): string {
+  if (row.index !== undefined && hasTitleCode(row.title)) return row.title
   const head = row.kind === 'main' ? l.taskMain : row.index !== undefined ? l.taskNumber(row.index) : l.taskOwn
   return `${head}: ${row.title}`
 }
