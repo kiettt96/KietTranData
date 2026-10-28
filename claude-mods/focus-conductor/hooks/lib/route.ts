@@ -313,7 +313,13 @@ export function taskMatch(tasks: readonly Task[], description: string): TaskMatc
  * effort Claude ghi; không gồm prompt. "Lọc tin lô 1" và "Lọc tin lô 2" dùng chung một lần chấm.
  */
 export function agentMemoKey(description: string, agentType: string | undefined, model: string | undefined, effort: string | undefined): string {
-  const shape = fold(description).replace(/\d+/g, '#').replace(/\s+/g, ' ').trim()
+  // Giữ mã bước và mã việc ("BƯỚC 3", "Việc 2", "K4.10"): hai bước khác nhau không dùng chung kết quả; số lô và số khác thành #.
+  const shape = fold(description)
+    .replace(/\b((?:buoc|step|viec|task)\s*#?\s*)(\d+)\b|\b([a-z]{1,3}\d+(?:\.\d+)*)\b|\d+/g, (_all, label: string | undefined, num: string | undefined, code: string | undefined) =>
+      label !== undefined ? `${label}${num}` : (code ?? '#'),
+    )
+    .replace(/\s+/g, ' ')
+    .trim()
   return [shape, agentType ?? '', model ?? '', effort ?? ''].join('\n')
 }
 

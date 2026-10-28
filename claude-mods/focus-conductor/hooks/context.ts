@@ -320,7 +320,9 @@ export function createContext(options: PluginOptions) {
   }
 
   function rememberAgentRoute(key: string, route: AgentRoute): void {
-    agentRoutes.set(key, route)
+    // Số việc đã phân chỉ đúng với lời gọi đã được chấm: kết quả nhớ không mang nó sang lời gọi khác.
+    const { taskIndex: _taskIndex, ...shared } = route
+    agentRoutes.set(key, shared)
     const oldest = agentRoutes.keys().next().value
     if (agentRoutes.size > AGENT_ROUTE_LIMIT && oldest !== undefined) agentRoutes.delete(oldest)
   }
