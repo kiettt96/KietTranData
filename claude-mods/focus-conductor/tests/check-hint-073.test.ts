@@ -37,7 +37,8 @@ describe('0.7.3 điểm 2: chuỗi gợi ý ở dạng sẽ khớp', () => {
   })
 
   test('script không có thư mục không gom (hành vi 0.5.6 giữ nguyên)', () => {
-    expect(suggestCheckCommands(logOf('python3 a.py', 'python3 b.py'))).toEqual(['python3 b.py', 'python3 a.py'])
+    // 0.7.5 B8: dùng tên kiểu kiểm (a.py, b.py không còn được gợi ý).
+    expect(suggestCheckCommands(logOf('python3 a-check.py', 'python3 b-check.py'))).toEqual(['python3 b-check.py', 'python3 a-check.py'])
   })
 
   test('nhóm thư mục xếp cùng các ứng viên khác, tối đa hai gợi ý', () => {
@@ -47,8 +48,8 @@ describe('0.7.3 điểm 2: chuỗi gợi ý ở dạng sẽ khớp', () => {
   })
 
   test('nhóm thư mục: mức ưu tiên lấy script tốt nhất, độ mới lấy lần chạy gần nhất của các script trong nhóm', () => {
-    // Nhóm có một script tên kiểm và một script tên thường: nhóm mang mức của script tên kiểm (mức 0), xếp trước đối thủ cũ hơn cùng mức 0.
-    expect(suggestCheckCommands(logOf('python3 other/run-check.py', 'python3 tests/a-check.py', 'python3 tests/build.py'))).toEqual(['python3 tests/', 'python3 other/run-check.py'])
+    // 0.7.5 B8: thư mục có script tên thường (build.py) không gợi ý tiền tố; nêu script kiểm của thư mục đó, mới nhất trước.
+    expect(suggestCheckCommands(logOf('python3 other/run-check.py', 'python3 tests/a-check.py', 'python3 tests/build.py'))).toEqual(['python3 tests/a-check.py', 'python3 other/run-check.py'])
     // Nhóm mang lần chạy gần nhất của các script trong nhóm: script cũ của nhóm không kéo nhóm xuống dưới đối thủ ở giữa.
     expect(suggestCheckCommands(logOf('python3 tests/a-check.py', 'python3 other/run-check.py', 'python3 tests/b-check.py'))).toEqual(['python3 tests/', 'python3 other/run-check.py'])
   })

@@ -43,9 +43,9 @@ type Found = { text: string; rank: number; seq: number }
 
 /**
  * Tối đa hai lệnh script đã chạy thành công trong mục tiêu mà mod không nhận là lệnh kiểm tra, làm ví dụ cho checkCommands.
- * Tên khớp mẫu kiểm xếp trước; cùng mức thì lệnh chạy gần nhất trước. Tên chỉ dùng để xếp thứ tự, không để tin cậy.
- * Từ hai script khác nhau của cùng một trình thông dịch trong cùng một thư mục thì gợi ý tiền tố thư mục (`python3 tests/`)
- * thay cho từng script (0.7.3).
+ * Chỉ script có tên kiểu kiểm (0.7.5: script ghi dữ liệu như ghi-du-lieu.py không bao giờ được gợi ý); lệnh chạy gần nhất
+ * trước. Từ hai script khác nhau của cùng một trình thông dịch trong cùng một thư mục thì gợi ý tiền tố thư mục
+ * (`python3 tests/`) thay cho từng script (0.7.3), chỉ khi mọi script đã chạy trong thư mục đó đều có tên kiểu kiểm (0.7.5).
  */
 export function suggestCheckCommands(log: EvidenceLog): string[] {
   const seen = new Set<string>()
@@ -69,11 +69,12 @@ export function suggestCheckCommands(log: EvidenceLog): string[] {
   const found: Found[] = []
   const covered = new Set<string>()
   for (const [key, items] of groups) {
-    if (items.length < 2) continue
+    // Tiền tố thư mục tin mọi script dưới nó: chỉ khi mọi script đã chạy trong thư mục đều có tên kiểu kiểm (0.7.5).
+    if (items.length < 2 || items.some(item => item.rank !== 0)) continue
     found.push({ text: key, rank: Math.min(...items.map(item => item.rank)), seq: Math.max(...items.map(item => item.seq)) })
     for (const item of items) covered.add(item.text)
   }
-  for (const script of scripts) if (!covered.has(script.text)) found.push(script)
+  for (const script of scripts) if (!covered.has(script.text) && script.rank === 0) found.push(script)
   return found
     .sort((a, b) => a.rank - b.rank || b.seq - a.seq)
     .slice(0, MAX_SUGGESTIONS)
