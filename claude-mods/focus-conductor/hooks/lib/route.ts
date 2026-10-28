@@ -318,6 +318,8 @@ export function agentMemoKey(description: string, agentType: string | undefined,
 }
 
 const RULE_FAMILY = /\b(haiku|sonnet|opus|fable)\b/
+/** Chữ phủ định trong một ràng buộc ("Không dùng haiku cho việc sửa file"): không phải quy định model cho loại việc (H2, vòng sửa 2). */
+const RULE_NEGATION = /(?<![\p{L}\p{N}])(?:không|khong|đừng|cấm|chẳng|chớ|never|not|no|don't)(?![\p{L}\p{N}])/iu
 /** Từ đứng giữa loại việc và model trong một quy định ("Việc lọc tin chạy sonnet"): cắt câu tại đó để lấy loại việc. */
 const RULE_CUT = /\b(?:chay|dung|bang|phai|luon|voi|haiku|sonnet|opus|fable|mo hinh|model)\b/
 
@@ -329,6 +331,7 @@ const RULE_CUT = /\b(?:chay|dung|bang|phai|luon|voi|haiku|sonnet|opus|fable|mo h
 export function ruleFamily(constraints: readonly string[], description: string, session: ModelFamily | null): ModelFamily | null {
   const asked = fold(description)
   for (const rule of constraints) {
+    if (RULE_NEGATION.test(rule.normalize('NFC'))) continue
     const text = fold(rule)
     const named = (RULE_FAMILY.exec(text)?.[1] as ModelFamily | undefined) ?? (/(?:mo hinh|model) cua phien/.test(text) ? session : null)
     if (named === null || named === undefined) continue

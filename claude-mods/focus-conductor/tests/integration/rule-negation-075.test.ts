@@ -23,11 +23,14 @@ const EDIT = { why: 'sửa', model: 'sonnet', effort: 'medium', agent: 'general-
 const READ = { why: 'đọc', model: 'haiku', effort: 'low', agent: 'Explore', depth: 'none', volume: 'small', kind: 'investigate' }
 
 describe('0.7.5 H2: ràng buộc phủ định không phải quy định model', () => {
-  test('ruleFamily bỏ ràng buộc có không, đừng, cấm, never, not, no', () => {
-    const asked = 'Sửa các file không hợp lệ'
-    for (const rule of ['Không dùng haiku cho việc sửa file', 'Đừng chạy haiku cho việc sửa các file', 'Cấm dùng haiku khi sửa các file', 'Never run haiku for sửa các file', 'Do not use haiku for sửa các file', 'No haiku for sửa các file']) {
-      expect(ruleFamily([rule], asked, null), rule).toBe(null)
+  test('ruleFamily bỏ ràng buộc có không, khong, đừng, cấm, chẳng, chớ, never, not, no, don\'t', () => {
+    // Chữ phủ định đứng sau họ model nên không làm sai lệch cách lấy loại việc: bỏ nó đi thì ràng buộc khớp "Lọc tin lô 1" và cho haiku.
+    expect(ruleFamily(['Việc lọc tin chạy haiku, cho việc sửa file'], 'Lọc tin lô 1', null)).toBe('haiku')
+    for (const word of ['không', 'khong', 'đừng', 'cấm', 'chẳng', 'chớ', 'never', 'not', 'no', "don't"]) {
+      const rule = `Việc lọc tin chạy haiku, ${word} cho việc sửa file`
+      expect(ruleFamily([rule], 'Lọc tin lô 1', null), rule).toBe(null)
     }
+    expect(ruleFamily(['Không dùng haiku cho việc sửa file'], 'Sửa các file không hợp lệ', null)).toBe(null)
     expect(ruleFamily(['Việc lọc tin chạy sonnet'], 'Lọc tin lô 1', null)).toBe('sonnet')
   })
 
@@ -62,6 +65,15 @@ describe('0.7.5 H2: bỏ lượt router vẫn qua fitPick', () => {
     reply = READ
     await agent($, 'Đọc tin về giá', { model: 'haiku' })
     expect(calls.at(-1)?.model).toBe('haiku')
+  })
+
+  test('quy định khớp, Claude ghi effort max: không gọi router, effort gửi đi hạ về xhigh', {}, async ($, on) => {
+    const seen = base(on, { router: briefWith('Việc lọc tin chạy sonnet') })
+    const calls = capture(on)
+    await submit($, 'Cập nhật dữ liệu theo các lô')
+    await agent($, 'Lọc tin lô 1', { model: 'sonnet', effort: 'max' })
+    expect(seen.agentRouted.length).toBe(0)
+    expect(calls.at(-1)).toEqual({ model: 'sonnet', effort: 'xhigh' })
   })
 
   test('quy định "lọc tin chạy sonnet", Claude ghi sonnet: vẫn không gọi router (giữ hành vi B6)', {}, async ($, on) => {

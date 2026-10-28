@@ -6,7 +6,7 @@ import { turnCost } from '../lib/cost'
 import { countSpawn, shapeKey, shapeOutput } from '../lib/ledger'
 import { EFFORTS, agentMemoKey, describePick, familyOf, familyRank, ruleFamily, taskMatch } from '../lib/route'
 import { clipText } from '../lib/decisions'
-import { agentRouterRequest, askRouter, floorRoute, isSettled, parseAgentRoute, taskRoute } from '../lib/router'
+import { agentRouterRequest, askRouter, floorRoute, isSettled, parseAgentRoute, ruleRoute, taskRoute } from '../lib/router'
 import type { AgentRoute } from '../lib/router'
 import * as S from '../lib/state'
 import type { On } from 'claude-code'
@@ -82,9 +82,12 @@ export function registerAgents(on: On, ctx: Ctx): void {
       reason = 'Claude đã chốt model và effort ở mức trần cho phép; không gọi router'
       record(await $.clock.now(), 'agent-floor', { description: clipText(e.description), skip: true, claimed: `${claimed}/${requested}` })
       await flushDecisions((path, text) => $.fs.write(path, text))
-    } else if (claimed !== null && brief !== null && !brief.isReference && ruleFamily(brief.constraints, e.description, L.sessionFamily) === claimed) {
-      // Model Claude ghi đúng quy định model của loại việc trong brief (0.7.5): router không được chọn khác, không gọi.
+    } else if (claimed !== null && claimed !== 'haiku' && brief !== null && !brief.isReference && ruleFamily(brief.constraints, e.description, L.sessionFamily) === claimed) {
+      // Model Claude ghi đúng quy định model của loại việc trong brief (0.7.5): router không được chọn khác, không gọi. Lựa chọn
+      // vẫn qua chính sách (fitPick). Haiku không bỏ qua router: chỉ router biết việc có sửa file (haiku không sửa file) hay không.
       reason = `Claude ghi ${claimed} đúng quy định model của loại việc; không gọi router`
+      route = ruleRoute(claimed, requested, rules)
+      if (route !== null) reason += `; ${route.why}`
     } else if (isAgentRouterPaused()) {
       reason = 'router đang tạm ngừng; giữ lựa chọn của Claude'
     } else {

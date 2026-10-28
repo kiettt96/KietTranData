@@ -533,6 +533,26 @@ export function floorRoute(route: AgentRoute, claimed: ModelFamily | null, claim
   return { route: { ...route, pick: fitted.pick, why: [route.why, ...floored.notes, ...fitted.notes].filter(Boolean).join('; ') }, notes: floored.notes }
 }
 
+/**
+ * Lời gọi Agent bỏ qua router vì model Claude ghi khớp quy định model của loại việc (0.7.5): lựa chọn vẫn qua fitPick (fable khi
+ * chưa bật allowFable về opus, model của phiên, họ bị chặn). Trả null khi chính sách không đổi gì; trả lựa chọn đã kẹp nếu đổi.
+ * Loại việc không biết (không có router) nên dùng 'mixed'; haiku là họ duy nhất phụ thuộc loại việc nên người gọi không dùng
+ * hàm này cho haiku mà hỏi router.
+ */
+export function ruleRoute(claimed: ModelFamily, claimedEffort: Effort | null, policy: Policy): AgentRoute | null {
+  const fitted = fitPick({ family: claimed, effort: claimedEffort ?? 'medium' }, 'mixed', policy)
+  if (fitted.pick.family === claimed && (claimedEffort === null || fitted.pick.effort === claimedEffort)) return null
+  return {
+    pick: { family: fitted.pick.family, effort: claimedEffort === null ? 'medium' : fitted.pick.effort },
+    agentType: 'general-purpose',
+    depth: 'light',
+    volume: 'small',
+    kind: 'mixed',
+    tier: tierOf('light', 'small'),
+    why: fitted.notes.join('; '),
+  }
+}
+
 /** Họ model cao nhất chính sách cho phép: model của phiên khi ceiling hay fixed, nếu không thì fable khi bật allowFable, còn lại opus. */
 function topFamily(policy: Policy): ModelFamily {
   const session = policy.session
