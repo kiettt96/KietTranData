@@ -262,6 +262,8 @@ export function registerQuota(on: On, ctx: Ctx): void {
   on('session.end', { reason: /.*/ }, async ($, e, next) => {
     await savePauseOnEnd($, ctx).catch(() => undefined)
     await reopenResuming($).catch(() => undefined)
+    // /clear (0.7.5): hội thoại mới không còn câu báo hạn mức mềm nào; đặt lại cờ đã báo.
+    if (e.reason === 'clear') await update($, quotaState, q => ({ ...normalizeQuota(q), noticed: [] }))
     return next(e)
   }).catch(($, e, next) => next(e))
 

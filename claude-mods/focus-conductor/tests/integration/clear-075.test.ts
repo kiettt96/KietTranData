@@ -60,6 +60,25 @@ describe('0.7.5 C4: /clear khi có điểm dừng đang mở', () => {
   })
 })
 
+describe('0.7.5 C4: sau /conductor resume, cờ không tự chèn được bỏ', () => {
+  test('resume bị ngắt, điểm dừng mở lại: prompt "tiếp tục" sau đó tự chèn như thường', {}, async ($, on) => {
+    const seen = base(on, RESUME)
+    startHooks(on)
+    memoryStore(on)
+    const meter = quotaMeter(on, [session(10)])
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    await submit($, COMPLEX_PROMPT)
+    await pauseThenRefresh($, meter, seen.clock)
+    await $.session.end({ reason: 'clear' } as never)
+    await conductor($, 'resume')
+    await submit($, 'làm tiếp')
+    await $.turn.start({ text: 'làm tiếp', turnId: 'r1' })
+    await $.turn.complete({ turnId: 'r1', answer: '', durationMs: 5, isAborted: true, reason: 'aborted' } as never)
+    await submit($, 'tiếp tục')
+    expect((seen.contexts.at(-1) ?? [])[0]).toContain('ĐIỂM DỪNG')
+  })
+})
+
 describe('0.7.5 C4: /clear đặt lại cờ đã báo hạn mức mềm', () => {
   test('đã báo trước /clear: lời gọi tool sau /clear báo lại', { options: { noticeWeekRemainingPct: 20 } }, async ($, on) => {
     const { clock } = base(on)

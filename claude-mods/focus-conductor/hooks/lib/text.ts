@@ -524,11 +524,13 @@ export function resumeContext(cp: QuotaCheckpoint, changed: readonly string[]): 
 /**
  * Dòng nhắc khi có điểm dừng mở mà prompt được xếp là việc khác: điểm dừng giữ nguyên để tiếp tục sau.
  */
-export function resumePendingContext(cp: QuotaCheckpoint): string {
+export function resumePendingContext(cp: QuotaCheckpoint, isAfterClear = false): string {
   const goal = cp.brief.goal ? `, mục tiêu: ${cp.brief.goal.length > 120 ? `${cp.brief.goal.slice(0, 119)}…` : cp.brief.goal}` : ''
   return (
     `[focus-conductor] Có điểm dừng chưa tiếp tục (tạo lúc ${resetLabel(new Date(cp.createdAt).toISOString()) || 'không rõ giờ'}${goal}). ` +
-    'Prompt này được xếp là việc khác nên điểm dừng giữ nguyên; người dùng muốn làm tiếp thì nói "tiếp tục" hoặc dùng /conductor resume.'
+    (isAfterClear
+      ? 'Hội thoại vừa được xóa (/clear) nên điểm dừng không tự chèn; người dùng muốn làm tiếp thì dùng /conductor resume.'
+      : 'Prompt này được xếp là việc khác nên điểm dừng giữ nguyên; người dùng muốn làm tiếp thì nói "tiếp tục" hoặc dùng /conductor resume.')
   )
 }
 

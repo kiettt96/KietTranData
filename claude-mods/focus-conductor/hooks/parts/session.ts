@@ -124,6 +124,9 @@ export function registerSession(on: On, ctx: Ctx): void {
   on('session.end', async ($, e, next) => {
     if (e.reason === 'clear') {
       resetLocal()
+      // /clear không phát session.start (0.7.5): điểm dừng đang mở không tự chèn ở prompt kế tiếp, chỉ gợi ý /conductor resume.
+      const q = normalizeQuota(await read($, quotaState))
+      L.noAutoResume = q.checkpoint?.status === 'open'
       await update($, coreState, S.resetCore)
       await showStatus($, await read($, view), ctx.options)
     }
@@ -185,7 +188,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       await $.store.set(storeKey(cp.cwd), cp).catch(() => undefined)
       return [resumeContext(cp, changedFiles(cp.files, stats))]
     }
-    const pending = openCp !== null ? [resumePendingContext(openCp)] : []
+    const pending = openCp !== null ? [resumePendingContext(openCp, L.noAutoResume && !isArmed)] : []
 
     const before = S.normalizeCore(await read($, coreState))
     const prev = before.brief
@@ -196,8 +199,8 @@ export function registerSession(on: On, ctx: Ctx): void {
       // Câu tiếp nối ngắn: turn này làm tiếp mục tiêu đang mở.
       L.promptIntent = { relation: 'continue', kind: prev.isReference ? 'answer' : prev.kind }
       await flushDecisions((path, text) => $.fs.write(path, text))
-      const lead = await startResume()
-      return next({ ...e, context: [...lead, ...(e.context ?? []), skippedContext(prev, before.plan)] })
+      const lead = L.noAutoResume && !isArmed ? [] : await startResume()
+      return next({ ...e, context: [...lead, ...(e.context ?? []), skippedContext(prev, before.plan), ...(lead.length === 0 ? pending : [])] })
     }
 
     L.promptCount += 1
@@ -221,7 +224,8 @@ export function registerSession(on: On, ctx: Ctx): void {
     }
     // Tiếp tục điểm dừng khi router xếp tiếp nối, hoặc khi người dùng vừa gõ /conductor resume (khi đó router xếp mục
     // tiêu mới thì vẫn giữ mục tiêu đã khôi phục).
-    const isResuming = openCp !== null && (isArmed || (outcome.result !== null && outcome.result.relation !== 'new'))
+    const isResuming = openCp !== null && (isArmed || (!L.noAutoResume && outcome.result !== null && outcome.result.relation !== 'new'))
+    if (isArmed) L.noAutoResume = false
     const plan = outcome.result !== null && isResuming && isArmed && prev !== null && outcome.result.relation === 'new' ? { ...outcome.result, relation: 'continue' as const } : outcome.result
     const lead = isResuming ? await startResume() : []
     const tail = isResuming ? [] : pending

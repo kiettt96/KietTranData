@@ -134,6 +134,8 @@ export function createContext(options: PluginOptions) {
     unknownWrites: { goalId: -1, keys: new Set<string>() },
     /** Prompt (đầy đủ, chỉ trong bộ nhớ) đã lập mục tiêu hiện tại (0.7.5): /conductor reroute đọc lại prompt này, không phải prompt tiếp nối ngắn. */
     goalPrompt: null as { text: string; prev: Brief | null; goalId: number } | null,
+    /** Vừa /clear khi có điểm dừng mở (0.7.5): prompt kế tiếp không tự chèn khối ĐIỂM DỪNG, chỉ gợi ý /conductor resume. */
+    noAutoResume: false,
   }
   const blocked = new Set<ModelFamily>()
   // Một lần lỗi có thể chỉ là tạm thời (429, quá tải): chỉ chặn một họ model
@@ -337,6 +339,7 @@ export function createContext(options: PluginOptions) {
     local.noticeTurn = null
     local.unknownWrites = { goalId: -1, keys: new Set() }
     local.goalPrompt = null
+    local.noAutoResume = false
     local.isGoalNew = false
     local.lastSession = null
     local.sessionFamily = null
