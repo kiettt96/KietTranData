@@ -201,3 +201,65 @@ describe('0.7.4 4: biên (bắt mẫu đột biến)', () => {
     expect(reminders(await readFile($)).length).toBe(1)
   })
 })
+
+describe('0.7.4 4: danh sách phản chiếu (TodoWrite, TaskCreate) cũng được giữ qua lần nén', () => {
+  type Todo = { content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm: string }
+  const todo = (content: string, status: Todo['status']): Todo => ({ content, status, activeForm: content })
+
+  function taskTools(on: On) {
+    let next = 0
+    on('tool.call', { tool: 'TodoWrite' }, (_$, e) => ({ result: { oldTodos: [], newTodos: (e as unknown as { todos: Todo[] }).todos } }) as never)
+    on('tool.call', { tool: 'TaskCreate' }, (_$, e) => {
+      next += 1
+      return { result: { task: { id: String(next), subject: (e as unknown as { subject: string }).subject } } } as never
+    })
+  }
+
+  async function mirrorOnly($: Engine, on: On) {
+    const seen = base(on, { router })
+    const got = compactor(on)
+    taskTools(on)
+    on('tool.call', { tool: 'Read' }, () => ({ result: 'nội dung', isReadOnly: true }))
+    await submit($, 'Cập nhật dữ liệu theo các bước có mã')
+    return { seen, got }
+  }
+
+  test('chỉ có TodoWrite: khối nối vào instructions và khối nhắc sau nén liệt kê bước còn mở kèm số', {}, async ($, on) => {
+    const { got } = await mirrorOnly($, on)
+    await $.tool.call({ tool: 'TodoWrite', todos: [todo('Đọc mã', 'completed'), todo('Sửa lô 1', 'in_progress'), todo('Kiểm lô 1', 'pending')] } as never)
+    await compact($, 'auto')
+    expect(got[0]).toContain('Bước còn mở: 2. Sửa lô 1; 3. Kiểm lô 1')
+    const text = reminders(await readFile($))[0] ?? ''
+    expect(text).toContain('Đang làm: 2. Sửa lô 1')
+    expect(text).toContain('Bước còn mở: 2. Sửa lô 1; 3. Kiểm lô 1')
+    expect(text).not.toContain('Đọc mã')
+  })
+
+  test('chỉ có TaskCreate: cả hai khối liệt kê các việc đã tạo', {}, async ($, on) => {
+    const { got } = await mirrorOnly($, on)
+    await $.tool.call({ tool: 'TaskCreate', subject: 'Lọc tin lô 1', description: 'd', activeForm: 'Lọc' } as never)
+    await $.tool.call({ tool: 'TaskCreate', subject: 'Lọc tin lô 2', description: 'd', activeForm: 'Lọc' } as never)
+    await compact($, 'manual')
+    expect(got[0]).toContain('Bước còn mở: 1. Lọc tin lô 1; 2. Lọc tin lô 2')
+    expect(reminders(await readFile($))[0]).toContain('Bước còn mở: 1. Lọc tin lô 1; 2. Lọc tin lô 2')
+  })
+
+  test('có cả checklist plan và danh sách phản chiếu: dùng checklist plan', {}, async ($, on) => {
+    const { got } = await mirrorOnly($, on)
+    await $.tool.call({ tool: 'TodoWrite', todos: [todo('Việc phản chiếu', 'pending')] } as never)
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Bước của plan' }] } as never)
+    await compact($, 'auto')
+    expect(got[0]).toContain('Bước còn mở: 1. Bước của plan')
+    expect(got[0]).not.toContain('Việc phản chiếu')
+    expect(reminders(await readFile($))[0]).not.toContain('Việc phản chiếu')
+  })
+
+  test('danh sách phản chiếu của mục tiêu cũ không được dùng cho mục tiêu mới', {}, async ($, on) => {
+    const { got } = await mirrorOnly($, on)
+    await $.tool.call({ tool: 'TodoWrite', todos: [todo('Việc của mục tiêu cũ', 'pending')] } as never)
+    await conductor($, 'goal Làm một việc khác hẳn')
+    await compact($, 'auto')
+    expect(got[0]).not.toContain('Việc của mục tiêu cũ')
+    expect(got[0]).not.toContain('Bước còn mở')
+  })
+})
