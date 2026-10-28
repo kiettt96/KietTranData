@@ -72,6 +72,8 @@ export type Brief = {
   tier: Tier
   /** Model và effort router chọn cho luồng chính; null khi router không đọc được prompt (mod không ép). */
   main: Choice | null
+  /** Main của prompt lập mục tiêu (0.7.5, vòng sửa 2): sàn cho prompt tiếp nối; vắng ở brief cũ thì dùng `main`. */
+  mainBase?: Choice
   /** Luồng chính mà prompt đính kèm cần nếu chạy thật (chỉ khi isReference). */
   referenceMain?: Choice
   /** Lý do router đưa ra. */

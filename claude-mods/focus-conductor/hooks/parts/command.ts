@@ -208,7 +208,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       }
       L.routerTrouble = { failures: 0, pausedUntil: 0 }
       await update($, coreState, S.withRouterFail(null))
-      const fresh = nextBrief(last.prev, plan, last.text, now)
+      const fresh = nextBrief(last.prev, plan, last.text, now, { sessionFamily: L.sessionFamily })
       // Prompt gần nhất đã lập mục tiêu hiện tại (không phải tiếp nối mục tiêu trước nó).
       const wasNew = current !== null && current.goalId !== (last.prev?.goalId ?? null)
       const archivedPrev = last.prev ? before.archived.findIndex(a => a.brief.goalId === last.prev?.goalId) : -1

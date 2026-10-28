@@ -10,7 +10,7 @@ import type { ModelCompleteRequest, ModelCompleteResult, ModelTextBlock, ModelUs
 import type { Brief, Choice, Depth, Effort, Kind, ModelFamily, Relation, RouterFail, RouterFailKind, Task, Tier, Volume } from '../../types'
 import { PRICE } from './cost'
 import type { Price } from './cost'
-import { EFFORTS, applySession, avoidBlocked, describePick, effortRank, familyOf, familyRank } from './route'
+import { EFFORTS, applySession, avoidBlocked, describePick, effortRank, familyOf, familyRank, sessionFloor } from './route'
 import type { SessionModel } from './route'
 import { DEPTHS, KINDS, RELATIONS, VOLUMES, maxTier, tierOf } from './scale'
 
@@ -773,6 +773,7 @@ export function briefOf(plan: RouterPlan, prompt: string, goalId: number, now: n
     kind: plan.kind,
     tier: tierOf(plan.depth, plan.volume),
     main: plan.main,
+    ...(plan.main !== null ? { mainBase: plan.main } : {}),
     ...(plan.referenceMain ? { referenceMain: plan.referenceMain } : {}),
     why: reasonOf(plan),
     relation: 'new',
@@ -783,6 +784,24 @@ export function briefOf(plan: RouterPlan, prompt: string, goalId: number, now: n
     prompt: clip(prompt.trim(), 600),
     at: now,
   }
+}
+
+/**
+ * Sàn main của mục tiêu (0.7.5, vòng sửa 2): main của prompt lập mục tiêu (`mainBase`; brief cũ không có thì main hiện tại), không
+ * phải lựa chọn gần nhất, nên sàn không chỉ tăng mãi. Báo chưa đạt nâng main thì sàn nâng theo (tính lại theo router, lấy mức
+ * cao hơn sàn cũ). Prompt được giữ ở tin cậy thấp (isHeld) không bị áp sàn nhưng không đổi sàn của mục tiêu.
+ */
+function mainBaseOf(prev: Brief, plan: RouterPlan, isHeld: boolean): Choice | null {
+  const base = prev.mainBase ?? prev.main
+  if (isHeld || plan.relation !== 'dissatisfied' || plan.main === null) return base
+  return base === null ? plan.main : floorPick(plan.main, base.family, base.effort).pick
+}
+
+/** Luồng chính của prompt tiếp nối: continue và refine không thấp hơn sàn mục tiêu (A7); dissatisfied và prompt được giữ theo router. */
+function followUpMain(prev: Brief, plan: RouterPlan, isHeld: boolean): Choice | null {
+  if (isHeld || (plan.relation !== 'continue' && plan.relation !== 'refine') || plan.main === null) return plan.main
+  const base = prev.mainBase ?? prev.main
+  return base === null ? plan.main : floorPick(plan.main, base.family, base.effort).pick
 }
 
 /**
@@ -818,7 +837,8 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number, isHeld = 
     // Mục tiêu tối thiểu được router đọc lần đầu qua prompt tiếp nối: lấy câu mục tiêu của router nếu có (0.7.2).
     ...(prev.isBare === true && plan.goal ? { goal: plan.goal } : {}),
     // Làm tiếp hay chỉnh thêm (0.7.5): luồng chính không thấp hơn lượt trước (họ và effort); dissatisfied tính lại theo router.
-    main: !isHeld && (plan.relation === 'continue' || plan.relation === 'refine') && prev.main !== null && plan.main !== null ? floorPick(plan.main, prev.main.family, prev.main.effort).pick : plan.main,
+    main: followUpMain(prev, plan, isHeld),
+    ...(mainBaseOf(prev, plan, isHeld) !== null ? { mainBase: mainBaseOf(prev, plan, isHeld) as Choice } : {}),
     why: reasonOf(plan),
     relation: plan.relation,
     source: 'router',
@@ -1076,7 +1096,25 @@ export function nextBrief(
   plan: RouterPlan,
   prompt: string,
   now: number,
-  options: { openSteps?: readonly string[] } = {},
+  options: { openSteps?: readonly string[]; sessionFamily?: ModelFamily | null } = {},
+): { brief: Brief; added: Task[]; isNewGoal: boolean; replaced: string[]; held: boolean } {
+  const out = nextBriefRaw(prev, plan, prompt, now, options)
+  return { ...out, brief: withSessionFloor(out.brief, options.sessionFamily ?? null) }
+}
+
+/** Luồng chính không thấp hơn model của phiên khi ràng buộc của brief quy định vậy (sessionFloor). */
+function withSessionFloor(brief: Brief, session: ModelFamily | null): Brief {
+  const floor = sessionFloor(brief.constraints, session)
+  if (floor === null || brief.main === null) return brief
+  return { ...brief, main: floorPick(brief.main, floor, null).pick }
+}
+
+function nextBriefRaw(
+  prev: Brief | null,
+  plan: RouterPlan,
+  prompt: string,
+  now: number,
+  options: { openSteps?: readonly string[] },
 ): { brief: Brief; added: Task[]; isNewGoal: boolean; replaced: string[]; held: boolean } {
   if (prev !== null && prev.isReference && plan.runReference) {
     const brief = promoteReference(prev, plan, prompt, now)

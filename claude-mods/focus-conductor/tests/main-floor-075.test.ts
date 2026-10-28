@@ -8,7 +8,8 @@ import type { Policy, RouterPlan } from '../hooks/lib/router'
 import * as R from '../hooks/lib/route'
 import type { Brief } from '../types'
 import { makeBrief } from './support/commands'
-import { plan } from './support/engine'
+import { base, plan, submit } from './support/engine'
+import { normalizeCore } from '../hooks/lib/state'
 
 const OPEN: Policy = { allowFable: false, blocked: new Set(), session: null }
 const routed = (over: Record<string, unknown>): RouterPlan => parseRoute(JSON.stringify(plan(over)), OPEN)!
@@ -21,7 +22,7 @@ describe('0.7.5 M5: sàn main theo mô hình của phiên', () => {
     for (const rule of ['Luồng chính dùng mô hình của phiên', 'Mọi việc khác dùng model của phiên', 'Các việc còn lại chạy bằng mô hình của phiên', 'Main thread runs on the session model', 'Việc lọc tin chạy sonnet; mọi việc khác dùng mô hình của phiên']) {
       expect(sessionFloor([rule], 'opus'), rule).toBe('opus')
     }
-    for (const rule of ['Đọc, giải thích và tóm tắt dùng model của phiên', 'Việc lọc tin chạy sonnet', 'Không dùng mô hình của phiên cho luồng chính']) {
+    for (const rule of ['Đọc, giải thích và tóm tắt dùng model của phiên', 'Việc lọc tin chạy sonnet', 'Không dùng mô hình của phiên cho luồng chính', 'Luồng chính chạy sonnet']) {
       expect(sessionFloor([rule], 'opus'), rule).toBe(null)
     }
     expect(sessionFloor(['Luồng chính dùng mô hình của phiên'], null)).toBe(null)
@@ -73,5 +74,19 @@ describe('0.7.5 M5: sàn main lấy từ prompt lập mục tiêu', () => {
     expect(up.mainBase).toEqual({ family: 'opus', effort: 'high' })
     const old = makeBrief({ main: { family: 'opus', effort: 'high' } })
     expect(nextBrief(old, routed({ relation: 'continue', goal: '', main: lead('sonnet', 'low') }), 'nhẹ', 2).brief.main).toEqual({ family: 'opus', effort: 'high' })
+  })
+})
+
+describe('0.7.5 M5: qua hook và trạng thái lưu', () => {
+  test('normalizeCore giữ mainBase', () => {
+    const brief = normalizeCore({ brief: makeBrief({ mainBase: { family: 'sonnet', effort: 'medium' } }) }).brief
+    expect(brief?.mainBase).toEqual({ family: 'sonnet', effort: 'medium' })
+  })
+
+  test('phiên chạy opus, quy định "luồng chính dùng mô hình của phiên", router chọn haiku: prompt đầu chạy opus', {}, async ($, on) => {
+    const seen = base(on, { router: () => plan({ goal: 'Trả lời câu hỏi', kind: 'answer', depth: 'none', constraints: ['Luồng chính dùng mô hình của phiên'], main: lead('haiku', 'low') }) })
+    on('session.model', () => ({ value: 'claude-opus-5-5' }) as never)
+    await submit($, 'Trả lời câu hỏi này, luồng chính dùng mô hình của phiên')
+    expect(seen.contexts[0]?.join('\n')).toContain('Điều phối: luồng chính opus/')
   })
 })

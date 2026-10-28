@@ -154,6 +154,7 @@ function normalizeBrief(raw: Brief): Brief {
     kind: brief.kind ?? 'mixed',
     tier,
     main: brief.main ?? null,
+    ...(brief.mainBase ? { mainBase: brief.mainBase } : {}),
     ...(brief.referenceMain ? { referenceMain: brief.referenceMain } : {}),
     why: brief.why ?? '',
     relation: brief.relation ?? 'new',
