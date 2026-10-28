@@ -35,10 +35,11 @@ describe('02: lệnh Bash ghi file bị đối chiếu với phạm vi', () => {
 
   test('không xác định được file đích thì cảnh báo riêng, mỗi lệnh khác nhau một lần (vòng cuối), không coi là đã kiểm soát', () => {
     const tracker = newTracker('t')
-    const first = observe(tracker, bash('python scripts/gen.py'), brief, []).filter(f => f.kind === 'scope')
+    // 0.7.5 B1: cảnh báo này có loại riêng 'scope-unknown' (mức vàng), không còn là 'scope'.
+    const first = observe(tracker, bash('python scripts/gen.py'), brief, []).filter(f => f.kind === 'scope-unknown')
     expect(first[0]?.text).toContain('không xác định được file đích')
-    expect(observe(tracker, bash('python scripts/gen.py'), brief, []).some(f => f.kind === 'scope')).toBe(false)
-    expect(observe(tracker, bash('node build.js'), brief, []).some(f => f.kind === 'scope')).toBe(true)
+    expect(observe(tracker, bash('python scripts/gen.py'), brief, []).some(f => f.kind === 'scope-unknown')).toBe(false)
+    expect(observe(tracker, bash('node build.js'), brief, []).some(f => f.kind === 'scope-unknown')).toBe(true)
   })
 
   test('không giới hạn phạm vi thì không cảnh báo; mỗi đường dẫn chỉ báo một lần', () => {

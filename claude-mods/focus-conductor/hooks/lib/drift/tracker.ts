@@ -10,6 +10,7 @@ import type { BashEffect } from './classify'
 import { isMutation, writeEffects } from './effects'
 import { checkEffectPassed } from './output'
 import { scopeStatus } from './scope'
+import { normalizePython } from './verify'
 
 /** Số thay đổi liên tiếp chưa kiểm tra trước khi nhắc checkpoint đầu tiên. */
 export const CHECKPOINT_EVERY = 5
@@ -81,6 +82,28 @@ export type Focus = {
   cwd?: string | null
   /** Mục tiêu tối thiểu (router chưa đọc, tier chỉ là đoán): không cảnh báo ngân sách tool call (0.7.2). */
   isBare?: boolean
+  /** Khóa lệnh ghi không rõ đích đã cảnh báo trong mục tiêu (0.7.5); vắng thì dùng tập của tracker (theo turn). */
+  warnedWrites?: Set<string>
+}
+
+/**
+ * Khóa của cảnh báo lệnh ghi không rõ đích (0.7.5): mỗi đoạn lệnh là tên trình chạy (bỏ thư mục, bỏ cờ python không giá trị)
+ * cộng đường dẫn script (đối số đầu không phải cờ), bỏ các tham số còn lại; đoạn cd, set bỏ qua. `ghi.py --lo 1` và
+ * `ghi.py --lo 2` là một khóa.
+ */
+export function unknownWriteKey(command: string): string {
+  return command
+    .split(/&&|\|\||[;|\n]/)
+    .map(part => {
+      const [head, ...rest] = normalizePython(part.trim().replace(/^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+/, '').split(/\s+/).filter(Boolean))
+      if (head === undefined || head === 'cd' || head === 'set') return ''
+      const name = head.slice(head.lastIndexOf('/') + 1)
+      const script = rest.find(token => !token.startsWith('-'))
+      return script !== undefined ? `${name} ${script}` : name
+    })
+    .filter(Boolean)
+    .join(' && ')
+    .slice(0, 300)
 }
 
 
@@ -268,12 +291,13 @@ export function observe(
             },
       )
     }
-    const key = command.trim().slice(0, 300)
-    if (classified?.isUnknown && !tracker.unknownWrites.has(key)) {
-      // Mỗi lệnh ghi không xác định đích khác nhau được cảnh báo một lần.
-      tracker.unknownWrites.add(key)
+    // Mỗi script ghi không xác định đích được cảnh báo một lần mỗi mục tiêu (0.7.5): khóa bỏ tham số; mức vàng, không toast.
+    const key = unknownWriteKey(command)
+    const warned = focus.warnedWrites ?? tracker.unknownWrites
+    if (classified?.isUnknown && !warned.has(key)) {
+      warned.add(key)
       findings.push({
-        kind: 'scope',
+        kind: 'scope-unknown',
         priority: 2,
         text: `Lệnh ghi không xác định được file đích (phạm vi: ${scopes}): ${command.slice(0, 80)}`,
         context:

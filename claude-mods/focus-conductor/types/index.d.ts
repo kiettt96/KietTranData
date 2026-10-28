@@ -132,7 +132,7 @@ export type RouteEvent = {
   isApplied: boolean
 }
 
-export type WarningKind = 'loop' | 'budget' | 'scope' | 'unverified' | 'open-steps' | 'model' | 'cost' | 'drift'
+export type WarningKind = 'loop' | 'budget' | 'scope' | 'scope-unknown' | 'unverified' | 'open-steps' | 'model' | 'cost' | 'drift'
 
 /** Cảnh báo nhất quán (lạc đề, lặp, vượt phạm vi, chưa kiểm tra, chi phí). */
 export type Warning = {

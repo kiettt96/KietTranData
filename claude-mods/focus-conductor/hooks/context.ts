@@ -124,6 +124,8 @@ export function createContext(options: PluginOptions) {
     compaction: { pending: false, hooked: false, lastContext: 0 },
     /** Turn luồng chính đã nhận câu báo hạn mức mềm (0.7.5): Stop của turn đó không chặn vì checklist còn mở. */
     noticeTurn: null as string | null,
+    /** Khóa lệnh ghi không rõ đích đã cảnh báo, theo mục tiêu (0.7.5): không cảnh báo lại ở mỗi turn. */
+    unknownWrites: { goalId: -1, keys: new Set<string>() },
   }
   const blocked = new Set<ModelFamily>()
   // Một lần lỗi có thể chỉ là tạm thời (429, quá tải): chỉ chặn một họ model
@@ -324,6 +326,7 @@ export function createContext(options: PluginOptions) {
     local.turnContext = 0
     local.compaction = { pending: false, hooked: false, lastContext: 0 }
     local.noticeTurn = null
+    local.unknownWrites = { goalId: -1, keys: new Set() }
     local.isGoalNew = false
     local.lastSession = null
     local.sessionFamily = null
