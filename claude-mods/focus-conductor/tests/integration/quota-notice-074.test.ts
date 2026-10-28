@@ -119,3 +119,16 @@ describe('0.7.4 3: cảnh báo ngưỡng không hợp lệ trên pane', () => {
     expect(await pane.find({ type: 'Text', text: /noticeWeekRemainingPct/ })).toBeDefined()
   })
 })
+
+describe('0.7.4 3: status line làm mới ngay khi câu báo gắn vào (bắt mẫu 074-E29)', () => {
+  test('tool chỉ đọc (không hook nào khác đổi trạng thái): status line có nhãn báo hạn mức ngay sau lời gọi đó', { options: { noticeWeekRemainingPct: 20 } }, async ($, on) => {
+    const seen = base(on)
+    quotaMeter(on, [week(81)])
+    on('tool.call', { tool: 'Read' }, () => ({ result: 'nội dung', isReadOnly: true }))
+    await submit($, COMPLEX_PROMPT)
+    const before = seen.statuses.length
+    const out = (await $.tool.call({ tool: 'Read', file_path: 'src/a.ts' } as never)) as { context?: string[] }
+    expect(noticed(out).length).toBe(1)
+    expect(seen.statuses.slice(before).some(s => (s ?? '').includes('báo hạn mức: tuần còn 19%'))).toBe(true)
+  })
+})

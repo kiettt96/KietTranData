@@ -14,6 +14,7 @@ import { EMPTY_QUOTA, evaluateQuota, normalizeQuota, quotaSettings } from '../li
 import { storeKey, withNote } from '../lib/checkpoint'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
+import { shownPlan } from '../lib/mirror'
 import { PLAN_TOOL_FULL, blockText, checkHintText, compactReminderText, criteriaNotice, driftContext, pendingNotice, qualityNotice, renderBulk, renderPlan, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
@@ -280,7 +281,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
 
     const core = S.normalizeCore(await read($, coreState))
     // Lời nhắc sau nén (0.7.4): gắn một lần vào tool call này, dựng từ mục tiêu và checklist lúc này.
-    const compactNote = L.compaction.pending && core.brief !== null ? compactReminderText(core.brief, core.plan) : null
+    const compactNote = L.compaction.pending && core.brief !== null ? compactReminderText(core.brief, shownPlan(core).plan) : null
     L.compaction.pending = false
     // Ghi cả lệnh lỗi: evidence nhắc tới một lệnh kiểm tra đã lỗi thì không được tính là đã kiểm tra.
     if (core.brief !== null) noteEvidence(evidenceFor(core.brief.goalId), observation)

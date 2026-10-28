@@ -1046,7 +1046,7 @@ export const MUTANTS: Mutant[] = [
   { id: "074-F7", file: "hooks/parts/compact.ts", note: "skip cũng đặt nhắc", old: "if (e.trigger !== 'precompute' && result.skip === undefined) {", new: "if (e.trigger !== 'precompute') {" },
   { id: "074-F8", file: "hooks/parts/compact.ts", note: "không đặt nhắc", old: "      L.compaction.pending = true\n", new: "" },
   { id: "074-F9", file: "hooks/parts/compact.ts", note: "không đánh dấu đã nén qua hook", old: "      L.compaction.hooked = true\n", new: "" },
-  { id: "074-F10", file: "hooks/parts/consistency.ts", note: "không nhắc sau nén", old: "const compactNote = L.compaction.pending && core.brief !== null ? compactReminderText(core.brief, core.plan) : null", new: "const compactNote = null" },
+  { id: "074-F10", file: "hooks/parts/consistency.ts", note: "không nhắc sau nén", old: "const compactNote = L.compaction.pending && core.brief !== null ? compactReminderText(core.brief, shownPlan(core).plan) : null", new: "const compactNote = null" },
   { id: "074-F11", file: "hooks/parts/consistency.ts", note: "nhắc mãi không xóa cờ", old: "    L.compaction.pending = false\n", new: "" },
   { id: "074-F12", file: "hooks/parts/consistency.ts", note: "lời nhắc không gắn vào kết quả", old: "...(compactNote !== null ? [compactNote] : [])", new: "...([] as string[])" },
   { id: "074-F13", file: "hooks/context.ts", note: "giảm ít cũng tính là nén", old: "tokens < COMPACTION_DROP * c.lastContext", new: "tokens < c.lastContext" },
@@ -1068,4 +1068,6 @@ export const MUTANTS: Mutant[] = [
   { id: "074-F29", file: "hooks/lib/text.ts", note: "không có dòng yêu cầu chưa phủ", old: "uncoveredRequirements(brief).map(item => clipItem(item, COMPACT_REQUIREMENT_CHARS))", new: "([] as string[])" },
   { id: "074-F30", file: "hooks/lib/text.ts", note: "phần ghi kèm chiếm chỗ không được tính", old: "if (`${next}${rest > 0 ? ` (và ${rest} ${unit} khác)` : ''}`.length > room) break", new: "if (next.length > room) break" },
   { id: "074-F31", file: "hooks/register.tsx", note: "không đăng ký hook nén", old: "  registerCompact(on, ctx)\n", new: "" },
+  { id: "074-G1", file: "hooks/parts/compact.ts", note: "khối nối vào instructions bỏ danh sách phản chiếu", old: "compactKeepText(core.brief, shownPlan(core).plan)", new: "compactKeepText(core.brief, core.plan)" },
+  { id: "074-G2", file: "hooks/parts/consistency.ts", note: "khối nhắc sau nén bỏ danh sách phản chiếu", old: "compactReminderText(core.brief, shownPlan(core).plan)", new: "compactReminderText(core.brief, core.plan)" },
 ]

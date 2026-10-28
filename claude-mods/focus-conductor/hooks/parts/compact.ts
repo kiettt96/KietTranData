@@ -6,6 +6,7 @@
 import { atom, derive, read } from 'claude-code'
 import type { On } from 'claude-code'
 import * as S from '../lib/state'
+import { shownPlan } from '../lib/mirror'
 import { compactKeepText } from '../lib/text'
 import { modeOf } from '../atoms'
 import type { Ctx } from '../context'
@@ -22,7 +23,7 @@ export function registerCompact(on: On, ctx: Ctx): void {
     if (e.agentId !== undefined || (await read($, mode)) === 'off') return next(e)
     const core = S.normalizeCore(await read($, coreState))
     if (core.brief === null) return next(e)
-    const block = compactKeepText(core.brief, core.plan)
+    const block = compactKeepText(core.brief, shownPlan(core).plan)
     const instructions = e.instructions ? `${e.instructions}\n\n${block}` : block
     const result = await next({ ...e, instructions })
     if (e.trigger !== 'precompute' && result.skip === undefined) {
