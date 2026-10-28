@@ -50,7 +50,9 @@ export function registerTurn(on: On, ctx: Ctx): void {
 
   // ------------------------------------- 2. điều phối model / effort
 
+  // Từ engine 2.1.301 turn.start phát cả cho lần chạy của subagent (có agentId): chỉ turn của luồng chính mở bộ đếm mới.
   on('turn.start', async ($, e, next) => {
+    if (e.agentId !== undefined) return next(e)
     L.tracker = newTracker(e.turnId)
     return next(e)
   })
