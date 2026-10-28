@@ -488,6 +488,12 @@ function freshProgress(goalId: number): Pick<Core, 'agentProgress' | 'activity'>
 /** Số bộ đếm theo việc giữ lại cho một mục tiêu (0.7.5). */
 const AGENT_TALLY_LIMIT = 50
 
+/**
+ * Số agent đang chạy chờ báo kết thúc giữ lại (`open`, vòng sửa 2 của 0.7.5) [Giả định: nhiều gấp 5 lần dòng tiến độ; số subagent
+ * chạy cùng lúc thực tế là vài chục]. Vượt trần thì bỏ mục cũ nhất, là agent không báo kết thúc.
+ */
+export const AGENT_OPEN_LIMIT = 100
+
 /** Khóa bộ đếm của một lần gọi Agent (0.7.5): việc đã phân theo số; việc Claude tự giao theo dạng mô tả bỏ chữ số. */
 export function tallyKey(item: Pick<AgentProgress, 'title' | 'taskIndex'>): string {
   return item.taskIndex !== undefined ? `task-${item.taskIndex}` : `own-${item.title.toLowerCase().replace(/\d+/g, '#').replace(/\s+/g, ' ').trim()}`
@@ -512,6 +518,13 @@ export function withAgentStart(goalId: number, item: AgentProgress): (core: Core
       if (at >= 0) tally[at] = counted
       else tally.push(counted)
       open[item.agentId] = key
+      // Vượt trần: bỏ mục cũ nhất, trừ nó khỏi số đang chạy của việc (không kẹt "đang chạy" mãi); báo kết thúc muộn của nó không đếm.
+      for (const agentId of Object.keys(open).slice(0, Math.max(0, Object.keys(open).length - AGENT_OPEN_LIMIT))) {
+        const dropped = tally.findIndex(t => t.key === open[agentId])
+        const entry = tally[dropped]
+        if (entry !== undefined) tally[dropped] = { ...entry, running: Math.max(0, entry.running - 1) }
+        delete open[agentId]
+      }
     }
     return { ...n, agentProgress: { goalId, items: [...items, item].slice(-AGENT_PROGRESS_LIMIT), tally: tally.slice(-AGENT_TALLY_LIMIT), open } }
   }

@@ -19,7 +19,7 @@ const start = (count: number): Core => {
 
 describe('0.7.5 L4: agentProgress.open có trần', () => {
   test('hàng trăm lần gọi không báo kết thúc: open giữ tối đa trần, giữ các mục mới nhất', () => {
-    expect(limit()).toBeGreaterThanOrEqual(50)
+    expect(limit()).toBe(100)
     const core = start(limit() + 40)
     const open = Object.keys(core.agentProgress.open ?? {})
     expect(open.length).toBe(limit())
