@@ -10,7 +10,7 @@ import type { ModelCompleteRequest, ModelCompleteResult, ModelTextBlock, ModelUs
 import type { Brief, Choice, Depth, Effort, Kind, ModelFamily, Relation, RouterFail, RouterFailKind, Task, Tier, Volume } from '../../types'
 import { PRICE } from './cost'
 import type { Price } from './cost'
-import { EFFORTS, applySession, avoidBlocked, describePick, effortRank, familyOf, familyRank, sessionFloor } from './route'
+import { EFFORTS, applySession, avoidBlocked, codesIn, describePick, effortRank, familyOf, familyRank, sessionFloor } from './route'
 import type { SessionModel } from './route'
 import { DEPTHS, KINDS, RELATIONS, VOLUMES, maxTier, tierOf } from './scale'
 
@@ -1077,13 +1077,11 @@ function replacedOf(prev: Brief, next: Brief): string[] {
 /** Tin cậy tối thiểu để nhận mục tiêu mới khi checklist còn bước mở (0.7.5) [Giả định: 0,8, chưa đo trên phiên thật]. */
 export const NEW_GOAL_CONFIDENCE = 0.8
 
-/** Mã trong một câu: số sau BƯỚC, Step, Việc, Task (dạng "buoc7") và mã mục như "k4.2"; so theo chữ bỏ dấu, viết thường. */
-function codesIn(text: string): Set<string> {
-  const folded = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase()
-  const codes = new Set<string>()
-  for (const m of folded.matchAll(/\b(buoc|step|viec|task)\s*#?\s*(\d+)\b/g)) codes.add(`${m[1] === 'step' ? 'buoc' : m[1] === 'task' ? 'viec' : m[1]}${Number(m[2])}`)
-  for (const m of folded.matchAll(/\b([a-z]{1,3}\d+(?:\.\d+)*)\b/g)) codes.add(m[1] ?? '')
-  return codes
+/** Mã có trong các tiêu đề của brief hay checklist (R11): mã bước, mã việc và mã mục như "k4.2" hay "b12". */
+export function briefCodes(titles: readonly string[]): Set<string> {
+  const known = new Set<string>()
+  for (const title of titles) for (const code of codesIn(title)) known.add(code)
+  return known
 }
 
 /** Từ có nghĩa (bỏ dấu, viết thường, từ 2 ký tự trở lên) của một cụm. */
@@ -1098,12 +1096,9 @@ function significantWords(text: string): Set<string> {
  * hơn cần ít nhất 3 từ và 60% số từ). Câu khác hẳn không nhắc gì thì không được giữ làm tiếp nối.
  */
 function mentionsGoal(prompt: string, prev: Brief, openSteps: readonly string[]): boolean {
-  const asked = codesIn(prompt)
-  if (asked.size > 0) {
-    const known = new Set<string>()
-    for (const title of [...prev.steps, ...prev.tasks.map(t => t.title), ...openSteps]) for (const code of codesIn(title)) known.add(code)
-    if ([...asked].some(code => known.has(code))) return true
-  }
+  // Chỉ mã có trong brief mới tính (R11): "utf8" hay "b12" trong câu hỏi không phải mã của mục tiêu.
+  const known = briefCodes([...prev.steps, ...prev.tasks.map(t => t.title), ...openSteps])
+  if ([...codesIn(prompt)].some(code => known.has(code))) return true
   const words = significantWords(prompt)
   return openSteps.some(title => {
     const own = [...significantWords(title)]

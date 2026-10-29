@@ -11,7 +11,7 @@ const agent = ($: Engine, description: string) => $.tool.call({ tool: 'Agent', d
 
 describe('0.7.5 M2: khóa nhớ giữ mã bước và mã việc', () => {
   test('cùng bước, khác số lô: cùng khóa; khác mã bước hay mã việc: khác khóa', () => {
-    const key = (d: string) => agentMemoKey(d, undefined, undefined, undefined)
+    const key = (d: string) => agentMemoKey(d, undefined, undefined, undefined, new Set(['k4.10', 'k4.11']))
     expect(key('BƯỚC 3: lọc tin lô 1')).toBe(key('BƯỚC 3: lọc tin lô 77'))
     expect(key('BƯỚC 3: lọc tin lô 1')).not.toBe(key('BƯỚC 9: lọc tin lô 1'))
     expect(key('Bước 3 lọc tin lô 1')).not.toBe(key('Bước 4 lọc tin lô 1'))

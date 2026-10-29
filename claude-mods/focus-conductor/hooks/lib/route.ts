@@ -316,15 +316,31 @@ export function taskMatch(tasks: readonly Task[], description: string): TaskMatc
   return near && near.score >= TITLE_NEAR ? { miss: `tên gần giống việc ${near.task.index} (độ trùng ${near.score.toFixed(2)})` } : {}
 }
 
+/** Gập chữ để so mã: bỏ dấu, đ thành d, viết thường. */
+function foldCode(text: string): string {
+  return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase()
+}
+
+/** Mã trong một câu: số sau BƯỚC, Step, Việc, Task (dạng "buoc7") và mã mục như "k4.2"; so theo chữ bỏ dấu, viết thường. */
+export function codesIn(text: string): Set<string> {
+  const folded = foldCode(text)
+  const codes = new Set<string>()
+  for (const m of folded.matchAll(/\b(buoc|step|viec|task)\s*#?\s*(\d+)\b/g)) codes.add(`${m[1] === 'step' ? 'buoc' : m[1] === 'task' ? 'viec' : m[1]}${Number(m[2])}`)
+  for (const m of folded.matchAll(/\b([a-z]{1,3}\d+(?:\.\d+)*)\b/g)) codes.add(m[1] ?? '')
+  return codes
+}
+
 /**
  * Khóa nhớ kết quả router chấm subagent (0.7.5): description bỏ chữ số (số lô, mã lô) và viết thường, loại agent, model và
- * effort Claude ghi; không gồm prompt. "Lọc tin lô 1" và "Lọc tin lô 2" dùng chung một lần chấm.
+ * effort Claude ghi; không gồm prompt. "Lọc tin lô 1" và "Lọc tin lô 2" dùng chung một lần chấm. `known` (R11): các mã có trong brief
+ * hay checklist (briefCodes); mã ngắn như b12, l3, utf8, s3 chỉ được giữ trong khóa khi nằm trong tập này, còn lại coi như số lô.
  */
-export function agentMemoKey(description: string, agentType: string | undefined, model: string | undefined, effort: string | undefined): string {
-  // Giữ mã bước và mã việc ("BƯỚC 3", "Việc 2", "K4.10"): hai bước khác nhau không dùng chung kết quả; số lô và số khác thành #.
+export function agentMemoKey(description: string, agentType: string | undefined, model: string | undefined, effort: string | undefined, known: ReadonlySet<string> = new Set()): string {
+  // Giữ mã bước và mã việc ("BƯỚC 3", "Việc 2") và mã mục có trong brief ("K4.10"): hai bước khác nhau không dùng chung kết quả; số lô
+  // và mã không có trong brief thành #.
   const shape = fold(description)
     .replace(/\b((?:buoc|step|viec|task)\s*#?\s*)(\d+)\b|\b([a-z]{1,3}\d+(?:\.\d+)*)\b|\d+/g, (_all, label: string | undefined, num: string | undefined, code: string | undefined) =>
-      label !== undefined ? `${label}${num}` : (code ?? '#'),
+      label !== undefined ? `${label}${num}` : code === undefined ? '#' : known.has(code) ? code : code.replace(/\d+(?:\.\d+)*/, '#'),
     )
     .replace(/\s+/g, ' ')
     .trim()

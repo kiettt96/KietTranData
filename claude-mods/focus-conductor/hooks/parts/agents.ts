@@ -6,7 +6,7 @@ import { turnCost } from '../lib/cost'
 import { countSpawn, shapeKey, shapeOutput } from '../lib/ledger'
 import { EFFORTS, agentMemoKey, describePick, familyOf, familyRank, ruleFamily, taskMatch } from '../lib/route'
 import { clipText } from '../lib/decisions'
-import { agentRouterRequest, askRouter, floorRoute, isSettled, parseAgentRoute, ruleRoute, taskRoute } from '../lib/router'
+import { agentRouterRequest, askRouter, briefCodes, floorRoute, isSettled, parseAgentRoute, ruleRoute, taskRoute } from '../lib/router'
 import type { AgentRoute } from '../lib/router'
 import * as S from '../lib/state'
 import type { On } from 'claude-code'
@@ -18,6 +18,14 @@ import { FANOUT_WARN } from '../context'
 // cùng plugin và key nên là cùng một giá trị trong $.state.
 const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EMPTY_CORE)
 const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null)
+
+/**
+ * Mã có trong các bước của brief (R11): tiêu đề các việc đã phân, và checklist của tool plan vì plan set/update đồng bộ vào brief.steps.
+ * Mã ngắn như b12 chỉ được giữ trong khóa nhớ khi nằm trong tập này.
+ */
+function codesOf(core: ReturnType<typeof S.normalizeCore>): ReadonlySet<string> {
+  return briefCodes(core.brief?.steps ?? [])
+}
 
 export function registerAgents(on: On, ctx: Ctx): void {
   const L = ctx.local
@@ -92,7 +100,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
       reason = 'router đang tạm ngừng; giữ lựa chọn của Claude'
     } else {
       const failed = agentFailures.filter(f => f.goalId === goalId).map(f => f.description)
-      const key = agentMemoKey(e.description, e.subagent_type, e.model, e.effort !== undefined ? String(e.effort) : undefined)
+      const key = agentMemoKey(e.description, e.subagent_type, e.model, e.effort !== undefined ? String(e.effort) : undefined, codesOf(core))
       // Giao lại việc đã lỗi: hỏi lại router (nó thấy danh sách lỗi và tự nâng), không dùng kết quả nhớ.
       const known = failed.includes(e.description) ? undefined : agentRoutes.get(key)
       if (known !== undefined) {
@@ -220,7 +228,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
     let workflowReason = ''
     let workflowTask: number | undefined
     if (info === undefined && isWorkflow && !isScriptModel && current !== 'off') {
-      const key = agentMemoKey(e.description, e.subagentType, undefined, undefined)
+      const key = agentMemoKey(e.description, e.subagentType, undefined, undefined, codesOf(core))
       // Việc vừa lỗi trong mục tiêu này thì router chấm lại (nó thấy danh sách lỗi và tự nâng).
       const failedHere = agentFailures.some(f => f.goalId === goalId && f.description === e.description)
       const known = failedHere ? undefined : agentRoutes.get(key)

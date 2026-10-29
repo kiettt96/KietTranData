@@ -4,14 +4,12 @@
 import { describe, expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import { agentMemoKey as keyOf } from '../../hooks/lib/route'
-import * as Router from '../../hooks/lib/router'
-import { nextBrief, parseRoute } from '../../hooks/lib/router'
+import { briefCodes, nextBrief, parseRoute } from '../../hooks/lib/router'
 import type { Policy, RouterPlan } from '../../hooks/lib/router'
 import { makeBrief } from '../support/commands'
 import { base, plan, submit, task } from '../support/engine'
 
-const briefCodes = (Router as Record<string, unknown>)['briefCodes'] as (titles: string[]) => Set<string>
-const agentMemoKey = keyOf as (d: string, a: string | undefined, m: string | undefined, e: string | undefined, known?: ReadonlySet<string>) => string
+const agentMemoKey = keyOf
 const key = (description: string, known: string[] = []) => agentMemoKey(description, undefined, undefined, undefined, new Set(known))
 
 describe('0.7.5 R11: mã ngắn chỉ giữ trong khóa khi có trong brief', () => {
@@ -31,6 +29,10 @@ describe('0.7.5 R11: mã ngắn chỉ giữ trong khóa khi có trong brief', ()
   test('mã trong brief chỉ giữ đúng mã đó: mã khác vẫn coi như số', () => {
     expect(key('Đọc b12 lô 3', ['b12'])).not.toBe(key('Đọc b13 lô 3', ['b12']))
     expect(key('Gộp s3 và t4', ['s3'])).toBe(key('Gộp s3 và t7', ['s3']))
+  })
+
+  test('mã không có trong brief giữ chữ cái đứng đầu: "b12" và "s3" vẫn khác khóa', () => {
+    expect(key('Đọc b12 lô')).not.toBe(key('Đọc s3 lô'))
   })
 
   test('mã bước và mã việc (BƯỚC N, Việc N) vẫn được giữ như trước', () => {
@@ -68,6 +70,47 @@ describe('0.7.5 R11: số lượt router khi ghi nhiều lô mã ngắn', () => 
     await agent($, 'Đọc b13 và ghi chú')
     await agent($, 'Đọc b14 và ghi chú')
     expect(seen.agentRouted.length).toBeGreaterThanOrEqual(2)
+  })
+})
+
+describe('0.7.5 R11: agent của workflow cũng dùng mã trong brief', () => {
+  const spawn = ($: Engine, index: number, description: string) => $.agent.spawn({ prompt: description, description, workflow: { runId: 'wf_r11', agentIndex: index } } as never)
+  const workflowHooks = (on: Parameters<typeof base>[0]) => {
+    let n = 0
+    on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: `w-${(n += 1)}` }))
+    on('turn.complete', () => ({ text: '' }))
+  }
+
+  test('brief không có mã b: hai agent "Đọc b12" và "Đọc b13" dùng chung một lần chấm', {}, async ($, on) => {
+    const seen = base(on, { router: () => plan({ goal: 'Dọn dữ liệu', depth: 'hard', volume: 'large' }) })
+    workflowHooks(on)
+    await submit($, 'Dọn dữ liệu')
+    await spawn($, 1, 'Đọc b12 và ghi chú')
+    await spawn($, 2, 'Đọc b13 và ghi chú')
+    expect(seen.agentRouted.length).toBe(1)
+  })
+
+  test('brief có mã b12 và b13: hai lần chấm riêng', {}, async ($, on) => {
+    const seen = base(on, { router: () => plan({ goal: 'Dọn dữ liệu', depth: 'hard', volume: 'large', tasks: [task('b12 chuẩn bị', 'main', 'opus', 'high'), task('b13 đối chiếu', 'main', 'opus', 'high')] }) })
+    workflowHooks(on)
+    await submit($, 'Dọn dữ liệu')
+    await spawn($, 1, 'Đọc b12 và ghi chú')
+    await spawn($, 2, 'Đọc b13 và ghi chú')
+    expect(seen.agentRouted.length).toBe(2)
+  })
+})
+
+describe('0.7.5 R11: mã trong checklist của tool plan cũng được tính', () => {
+  const agent = ($: Engine, description: string) => $.tool.call({ tool: 'Agent', description, prompt: `${description} trong codebase` } as never)
+
+  test('brief không có mã b nhưng checklist có b12 và b13: hai lần chấm riêng', {}, async ($, on) => {
+    const seen = base(on, { router: () => plan({ goal: 'Dọn dữ liệu', depth: 'hard', volume: 'large' }) })
+    on('tool.call', { tool: 'Agent' }, () => ({ result: 'xong' }))
+    await submit($, 'Dọn dữ liệu')
+    await $.tool.call({ tool: 'mcp__focus-conductor__plan', action: 'set', steps: [{ title: 'b12 chuẩn bị' }, { title: 'b13 đối chiếu' }] })
+    await agent($, 'Đọc b12 và ghi chú')
+    await agent($, 'Đọc b13 và ghi chú')
+    expect(seen.agentRouted.length).toBe(2)
   })
 })
 
