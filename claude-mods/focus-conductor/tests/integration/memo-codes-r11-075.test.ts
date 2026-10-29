@@ -54,7 +54,7 @@ describe('0.7.5 R11: mã ngắn chỉ giữ trong khóa khi có trong brief', ()
 describe('0.7.5 R11: số lượt router khi ghi nhiều lô mã ngắn', () => {
   const agent = ($: Engine, description: string) => $.tool.call({ tool: 'Agent', description, prompt: `${description} trong codebase` } as never)
 
-  test('20 lời gọi "Đọc b<N>" khi brief không có mã b: một lần chấm (cùng khóa)', {}, async ($, on) => {
+  test('20 lời gọi "Đọc b<N>" khi brief không có mã b: một lần chấm (cùng khóa)', { timeoutMs: 60_000 }, async ($, on) => {
     const seen = base(on, { router: () => plan({ goal: 'Dọn dữ liệu', depth: 'hard', volume: 'large' }) })
     on('tool.call', { tool: 'Agent' }, () => ({ result: 'xong' }))
     await submit($, 'Dọn dữ liệu')

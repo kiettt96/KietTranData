@@ -17,10 +17,12 @@ function capture(on: On): Sent[] {
   return calls
 }
 const agent = ($: Engine, description: string, prompt: string, over: Record<string, unknown> = {}) => $.tool.call({ tool: 'Agent', description, prompt, ...over } as never)
+/** Vòng 150 lô gọi engine liên tiếp: chạy yên 1,3 đến 1,6 giây, dưới tải gấp 4 vượt hạn mặc định 5000 ms (R12), nên hạn riêng. */
+const LOOP = { timeoutMs: 60_000 }
 const RULED = () => plan({ goal: 'Cập nhật dữ liệu theo các lô', constraints: ['Việc lọc tin chạy sonnet', 'Không tạo bộ kiểm mới'], depth: 'hard', volume: 'large' })
 
 describe('0.7.5 B6: khóa nhớ bỏ chữ số, không gồm prompt', () => {
-  test('150 lô "Lọc tin lô N" khác prompt: router chấm một lần', {}, async ($, on) => {
+  test('150 lô "Lọc tin lô N" khác prompt: router chấm một lần', LOOP, async ($, on) => {
     const seen = base(on, { router: RULED })
     capture(on)
     await submit($, 'Cập nhật dữ liệu theo các lô')
@@ -49,7 +51,7 @@ describe('0.7.5 B6: khóa nhớ bỏ chữ số, không gồm prompt', () => {
 })
 
 describe('0.7.5 B6: model Claude ghi khớp quy định model của loại việc', () => {
-  test('quy định "Việc lọc tin chạy sonnet", Claude ghi sonnet: không gọi router, gửi sonnet', {}, async ($, on) => {
+  test('quy định "Việc lọc tin chạy sonnet", Claude ghi sonnet: không gọi router, gửi sonnet', LOOP, async ($, on) => {
     const seen = base(on, { router: RULED })
     const calls = capture(on)
     await submit($, 'Cập nhật dữ liệu theo các lô')
