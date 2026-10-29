@@ -332,13 +332,27 @@ export function agentMemoKey(description: string, agentType: string | undefined,
 }
 
 const RULE_FAMILY = /(?<![\p{L}\p{N}])(haiku|sonnet|opus|fable)(?![\p{L}\p{N}])/iu
-/** Chữ phủ định trong một ràng buộc ("Không dùng haiku cho việc sửa file"): không phải quy định model cho loại việc (H2, vòng sửa 2). */
-const RULE_NEGATION = /(?<![\p{L}\p{N}])(?:không|khong|đừng|cấm|chẳng|chớ|never|not|no|don't)(?![\p{L}\p{N}])/iu
+/** Cụm "mô hình của phiên" (hay "session model") trong một ràng buộc. */
+const SESSION_PHRASE = '(?:mô hình|model|mo hinh) (?:của|cua) (?:phiên|phien)|session model'
+const MODEL_MENTION = `(?:haiku|sonnet|opus|fable|${SESSION_PHRASE})`
+/**
+ * Chữ phủ định đứng trước tên model (hay "mô hình của phiên") trong phạm vi 3 từ ("Không dùng haiku", "tránh haiku"): vế đó không phải
+ * quy định model cho loại việc (H2, vòng sửa 2). Chữ phủ định ở chỗ khác ("tránh lỗi định dạng") không làm mất quy định (R6).
+ */
+const RULE_NEGATION = new RegExp(
+  `(?<![\\p{L}\\p{N}])(?:không|khong|đừng|cấm|chẳng|chớ|tránh|avoid|never|not|no|don't)(?![\\p{L}\\p{N}])(?:\\s+[^\\s,;，；]+){0,3}?\\s+${MODEL_MENTION}(?![\\p{L}\\p{N}])`,
+  'iu',
+)
+/** Cắt một vế tại mỗi lần nêu model: mỗi model gắn với loại việc đứng ngay trước nó. */
+const MENTION_GLOBAL = new RegExp(`(?<![\\p{L}\\p{N}])${MODEL_MENTION}(?![\\p{L}\\p{N}])`, 'giu')
+/** Dấu hiệu ngoại lệ: "trừ", "ngoại trừ", "trừ khi", "except", "unless"; "khấu trừ", "cộng trừ" không phải ngoại lệ. */
+const RULE_EXCEPT = /(?<![\p{L}\p{N}])(?<!(?:khấu|cộng|phép|bù)\s)(?:ngoại trừ|ngoai tru|trừ khi|tru khi|trừ|except(?: for| when)?|unless)(?![\p{L}\p{N}])/iu
+const EXCEPT_THEN = /(?<![\p{L}\p{N}])(?:thì|thi|then)(?![\p{L}\p{N}])/iu
+const EXCEPT_STOP = new Set(['khi', 'neu', 'if', 'when', 'for', 'la', 'is', 'are', 'it', 'this', 'that', 'the', 'an', 'a', 'cho', 'cac', 'viec', 'voi'])
 /** Từ đứng giữa loại việc và model trong một quy định ("Việc lọc tin chạy sonnet"): cắt vế tại đó để lấy loại việc. */
 const RULE_CUT = /(?<![\p{L}\p{N}])(?:chạy|dùng|bằng|phải|luôn|với|haiku|sonnet|opus|fable|mô hình|model)(?![\p{L}\p{N}])/iu
 /** Vế viết hoàn toàn không dấu: nhận cả "chay", "dung", "bang"... làm từ cắt (vế có dấu thì "dung" là "nội dung", không cắt). */
 const RULE_CUT_ASCII = /(?<![a-z0-9])(?:chay|dung|bang|phai|luon|voi|mo hinh)(?![a-z0-9])/i
-const SESSION_MODEL = /(?:mô hình|model|mo hinh) (?:của|cua) (?:phiên|phien)|session model/iu
 /** Nhãn đầu description không phải loại việc: "BƯỚC 3:", "Việc 4:", "K4.10". */
 const LEADING_LABEL = /^\s*(?:(?:viec|task|buoc|step)\s*#?\s*\d+|[a-z]{1,3}\d+(?:\.\d+)*)\s*[:.)-]?\s*/
 
@@ -361,29 +375,93 @@ function kindsOf(part: string): string[][] {
     .filter(words => words.join(' ').length >= 3)
 }
 
+/** Một cặp "loại việc, model" của ràng buộc (R6). */
+type Clause = {
+  /** Đoạn chữ của cặp, từ sau nhau cắt trước đó đến chỗ nêu model. */
+  text: string
+  /** Họ model nêu tên, hay 'session' cho "mô hình của phiên". */
+  family: ModelFamily | 'session'
+  /** Các loại việc của cặp, gồm cả loại việc đứng trước chưa nêu model ("đọc, giải thích dùng model của phiên"). */
+  kinds: string[][]
+  /** Từ khóa của vế ngoại lệ ("trừ khi tin pháp lý": tin, pháp, lý); việc có đủ các từ này không bị chốt. */
+  except: string[]
+}
+
+/** Từ khóa của vế ngoại lệ: phần đầu vế đến từ cắt, "thì" hay dấu phẩy, bỏ từ nối. */
+function exceptionWords(text: string): string[] {
+  const cuts = [text.search(RULE_CUT), text.search(EXCEPT_THEN), text.search(/[,，]/)].filter(n => n >= 0)
+  const head = cuts.length > 0 ? text.slice(0, Math.min(...cuts)) : text
+  return phraseWords(head).filter(word => !EXCEPT_STOP.has(word))
+}
+
 /**
- * Họ model mà ràng buộc của brief quy định cho loại việc của một lời gọi Agent (0.7.5): ràng buộc tách theo vế (";" rồi ","), mỗi
- * vế nêu một họ model (hay "mô hình của phiên", khi biết model của phiên) cho loại việc đứng trước từ cắt ("Việc lọc tin chạy
- * sonnet": "lọc tin"); vế không nêu họ (ví dụ "đọc" trong "đọc, giải thích và tóm tắt dùng model của phiên") dùng họ của vế có họ kế
- * tiếp. Loại việc phải là các từ trọn vẹn ở đầu description, sau nhãn "BƯỚC N:" hay "Việc N:". Đoạn (tách bằng ";") có chữ phủ
- * định bị bỏ (H2). Không có thì null.
+ * Tách một ràng buộc thành các cặp (R6): vế theo ".", ":", ";" và xuống dòng (dấu chấm chỉ tách khi theo sau là khoảng trắng hay hết
+ * chuỗi, để "0.5" và "a.ts" không bị tách), rồi theo dấu phẩy, rồi theo mỗi lần nêu model. Loại việc của cặp là phần chữ trước từ
+ * cắt; vế không nêu model ("đọc" trong "đọc, giải thích dùng model của phiên") dùng model của cặp kế tiếp. Vế phủ định bị bỏ. Vế có
+ * dấu hiệu ngoại lệ chỉ lấy cặp ở phần không phải ngoại lệ và ghi từ khóa của ngoại lệ vào mỗi cặp.
+ */
+function ruleClauses(rule: string): Clause[] {
+  const clauses: Clause[] = []
+  for (const raw of rule.normalize('NFC').split(/[;；\n]|\.(?=\s|$)/u)) {
+    let segment = raw
+    let phrase: string[] = []
+    const marker = RULE_EXCEPT.exec(segment)
+    if (marker !== null) {
+      // Vế ngoại lệ dừng ở dấu phẩy đầu tiên; phần sau dấu phẩy, và phần trước dấu hiệu, là các cặp khác.
+      const before = segment.slice(0, marker.index)
+      const after = segment.slice(marker.index + marker[0].length)
+      const comma = after.search(/[,，]/)
+      phrase = exceptionWords(comma < 0 ? after : after.slice(0, comma))
+      segment = comma < 0 ? before : `${before},${after.slice(comma + 1)}`
+    }
+    const first = clauses.length
+    let pending: string[][] = []
+    for (const part of segment.split(/[,，]/)) {
+      let last = 0
+      const pieces: { text: string; mention: string | null }[] = []
+      for (const match of part.matchAll(MENTION_GLOBAL)) {
+        const end = (match.index ?? 0) + match[0].length
+        pieces.push({ text: part.slice(last, end), mention: match[0] })
+        last = end
+      }
+      if (last < part.length) pieces.push({ text: part.slice(last), mention: null })
+      for (const piece of pieces) {
+        // Nhãn trước dấu hai chấm ("Quy định: lọc tin dùng sonnet") bỏ đi khi phần sau tự có loại việc.
+        const colon = piece.text.indexOf(':')
+        const text = colon >= 0 && kindsOf(piece.text.slice(colon + 1)).length > 0 ? piece.text.slice(colon + 1) : piece.text
+        if (piece.mention === null) {
+          pending = [...pending, ...kindsOf(text)]
+          continue
+        }
+        if (RULE_NEGATION.test(text)) {
+          pending = []
+          continue
+        }
+        const family = RULE_FAMILY.exec(piece.mention)?.[1]?.toLowerCase() as ModelFamily | undefined
+        clauses.push({ text, family: family ?? 'session', kinds: [...pending, ...kindsOf(text)], except: [] })
+        pending = []
+      }
+    }
+    for (const clause of clauses.slice(first)) clause.except = phrase
+  }
+  return clauses
+}
+
+/**
+ * Họ model mà ràng buộc của brief quy định cho loại việc của một lời gọi Agent (0.7.5): ràng buộc tách thành các cặp (ruleClauses),
+ * mỗi cặp nêu một họ model (hay "mô hình của phiên", khi biết model của phiên) cho loại việc đứng trước nó ("Việc lọc tin chạy
+ * sonnet": "lọc tin"). Loại việc phải là các từ trọn vẹn ở đầu description, sau nhãn "BƯỚC N:" hay "Việc N:". Vế phủ định bị bỏ
+ * (H2). Description có đủ từ khóa của vế ngoại lệ ("trừ khi tin pháp lý") không bị chốt, để router chấm (R6). Không có thì null.
  */
 export function ruleFamily(constraints: readonly string[], description: string, session: ModelFamily | null): ModelFamily | null {
   const asked = phraseWords(fold(description).replace(LEADING_LABEL, ''))
   const startsWith = (kind: string[]) => kind.length > 0 && kind.every((word, i) => asked[i] === word)
   for (const rule of constraints) {
-    for (const segment of rule.normalize('NFC').split(/[;；]/)) {
-      if (RULE_NEGATION.test(segment)) continue
-      let pending: string[][] = []
-      for (const part of segment.split(/[,，]/)) {
-        const named = (RULE_FAMILY.exec(part)?.[1]?.toLowerCase() as ModelFamily | undefined) ?? (SESSION_MODEL.test(part) ? session : null)
-        const kinds = kindsOf(part)
-        if (named === null || named === undefined) {
-          pending = [...pending, ...kinds]
-          continue
-        }
-        if ([...pending, ...kinds].some(startsWith)) return named
-      }
+    for (const clause of ruleClauses(rule)) {
+      const family = clause.family === 'session' ? session : clause.family
+      if (family === null || !clause.kinds.some(startsWith)) continue
+      if (clause.except.length > 0 && clause.except.every(word => asked.includes(word))) continue
+      return family
     }
   }
   return null
@@ -399,9 +477,10 @@ const CATCH_ALL = /(?<![\p{L}\p{N}])(?:luồng chính|luong chinh|main(?: thread
  * của phiên") và quy định có chữ phủ định không tính.
  */
 export function sessionFloor(constraints: readonly string[], session: ModelFamily | null): ModelFamily | null {
+  if (session === null) return null
   for (const rule of constraints) {
-    for (const segment of rule.normalize('NFC').split(/[;；]/)) {
-      if (!RULE_NEGATION.test(segment) && SESSION_MODEL.test(segment) && CATCH_ALL.test(segment)) return session
+    for (const clause of ruleClauses(rule)) {
+      if (clause.family === 'session' && CATCH_ALL.test(clause.text)) return session
     }
   }
   return null

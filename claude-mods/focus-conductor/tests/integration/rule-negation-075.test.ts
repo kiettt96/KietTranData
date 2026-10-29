@@ -23,11 +23,11 @@ const EDIT = { why: 'sửa', model: 'sonnet', effort: 'medium', agent: 'general-
 const READ = { why: 'đọc', model: 'haiku', effort: 'low', agent: 'Explore', depth: 'none', volume: 'small', kind: 'investigate' }
 
 describe('0.7.5 H2: ràng buộc phủ định không phải quy định model', () => {
-  test('ruleFamily bỏ ràng buộc có không, khong, đừng, cấm, chẳng, chớ, never, not, no, don\'t', () => {
-    // Chữ phủ định đứng sau họ model nên không làm sai lệch cách lấy loại việc: bỏ nó đi thì ràng buộc khớp "Lọc tin lô 1" và cho haiku.
+  test('ruleFamily bỏ vế có không, khong, đừng, cấm, chẳng, chớ, never, not, no, don\'t', () => {
+    // R6 (vòng rà soát 3): chữ phủ định chỉ tính khi đứng trước tên model trong phạm vi 3 từ ("không dùng haiku").
     expect(ruleFamily(['Việc lọc tin chạy haiku, cho việc sửa file'], 'Lọc tin lô 1', null)).toBe('haiku')
     for (const word of ['không', 'khong', 'đừng', 'cấm', 'chẳng', 'chớ', 'never', 'not', 'no', "don't"]) {
-      const rule = `Việc lọc tin chạy haiku, ${word} cho việc sửa file`
+      const rule = `Việc lọc tin: ${word} dùng haiku cho việc sửa file`
       expect(ruleFamily([rule], 'Lọc tin lô 1', null), rule).toBe(null)
     }
     expect(ruleFamily(['Không dùng haiku cho việc sửa file'], 'Sửa các file không hợp lệ', null)).toBe(null)
