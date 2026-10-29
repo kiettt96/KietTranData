@@ -18,11 +18,12 @@ const sessionFloor = (...a: unknown[]) => ((R as Record<string, unknown>)['sessi
 const lead = (family: string, effort: string) => ({ model: family, effort, why: '' })
 
 describe('0.7.5 M5: sàn main theo mô hình của phiên', () => {
-  test('sessionFloor nhận quy định cho luồng chính hay mọi việc khác; không nhận quy định cho loại việc cụ thể', () => {
+  test('sessionFloor nhận quy định cho luồng chính hay mọi việc khác; không nhận quy định cho loại việc của subagent', () => {
     for (const rule of ['Luồng chính dùng mô hình của phiên', 'Mọi việc khác dùng model của phiên', 'Các việc còn lại chạy bằng mô hình của phiên', 'Main thread runs on the session model', 'Việc lọc tin chạy sonnet; mọi việc khác dùng mô hình của phiên']) {
       expect(sessionFloor([rule], 'opus'), rule).toBe('opus')
     }
-    for (const rule of ['Đọc, giải thích và tóm tắt dùng model của phiên', 'Việc lọc tin chạy sonnet', 'Không dùng mô hình của phiên cho luồng chính', 'Luồng chính chạy sonnet']) {
+    // R4: loại việc luồng chính tự làm ("đọc, giải thích và tóm tắt dùng model của phiên") nay tạo sàn; xem session-floor-r4-075.
+    for (const rule of ['Lọc tin dùng model của phiên', 'Việc lọc tin chạy sonnet', 'Không dùng mô hình của phiên cho luồng chính', 'Luồng chính chạy sonnet']) {
       expect(sessionFloor([rule], 'opus'), rule).toBe(null)
     }
     expect(sessionFloor(['Luồng chính dùng mô hình của phiên'], null)).toBe(null)
@@ -41,7 +42,7 @@ describe('0.7.5 M5: sàn main theo mô hình của phiên', () => {
   })
 
   test('không có quy định như vậy, hay chưa biết model của phiên: không đổi gì', () => {
-    const none = call(null, routed({ goal: 'x', constraints: ['Đọc dùng model của phiên'], kind: 'answer', main: lead('haiku', 'low') }), 'p', 1, { sessionFamily: 'opus' })
+    const none = call(null, routed({ goal: 'x', constraints: ['Lọc tin dùng model của phiên'], kind: 'answer', main: lead('haiku', 'low') }), 'p', 1, { sessionFamily: 'opus' })
     expect(none.brief.main?.family).toBe('haiku')
     const unknown = call(null, routed({ goal: 'x', constraints: ['Luồng chính dùng mô hình của phiên'], kind: 'answer', main: lead('haiku', 'low') }), 'p', 1, {})
     expect(unknown.brief.main?.family).toBe('haiku')

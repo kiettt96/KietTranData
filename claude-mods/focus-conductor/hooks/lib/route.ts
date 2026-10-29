@@ -470,17 +470,21 @@ export function ruleFamily(constraints: readonly string[], description: string, 
 /** Loại việc "bắt tất cả": luồng chính hay mọi việc khác, nghĩa là cả luồng chính chịu quy định model đó. */
 const CATCH_ALL = /(?<![\p{L}\p{N}])(?:luồng chính|luong chinh|main(?: thread)?|mọi việc|moi viec|tất cả|tat ca|các việc (?:khác|còn lại)|việc (?:khác|còn lại)|còn lại|con lai|everything|all (?:other )?(?:work|tasks)|the rest)(?![\p{L}\p{N}])/iu
 
+/** Loại việc luồng chính tự làm (R4): đọc, giải thích, đúc kết, tổng hợp, tóm tắt, viết, sửa (không dấu, từ đầu của loại việc). */
+const MAIN_KINDS = ['doc', 'giai thich', 'duc ket', 'tong hop', 'tom tat', 'viet', 'sua']
+
 /**
- * Sàn main theo model của phiên (0.7.5, vòng sửa 2): một ràng buộc của brief nêu "mô hình của phiên" (hay "session model") cho
- * luồng chính hoặc cho mọi việc không nêu model khác thì luồng chính không được thấp hơn model của phiên. Trả họ của phiên, hay
- * null khi không có quy định như vậy hoặc chưa biết model của phiên. Quy định cho loại việc cụ thể ("đọc, tóm tắt dùng model
- * của phiên") và quy định có chữ phủ định không tính.
+ * Sàn main theo model của phiên (0.7.5, vòng sửa 2 và R4): một ràng buộc của brief nêu "mô hình của phiên" (hay "session model") cho
+ * luồng chính, cho mọi việc không nêu model khác, hay cho loại việc mà luồng chính tự làm (đọc, giải thích, đúc kết, tổng hợp, viết,
+ * sửa) thì luồng chính không được thấp hơn model của phiên. Trả họ của phiên, hay null khi không có quy định như vậy hoặc chưa biết
+ * model của phiên (không tự nâng). Quy định cho loại việc của subagent ("lọc tin dùng model của phiên") và quy định có chữ phủ định
+ * không tính.
  */
 export function sessionFloor(constraints: readonly string[], session: ModelFamily | null): ModelFamily | null {
-  if (session === null) return null
+  const mainKind = (kind: string[]) => MAIN_KINDS.some(verb => kind.join(' ') === verb || kind.join(' ').startsWith(`${verb} `))
   for (const rule of constraints) {
     for (const clause of ruleClauses(rule)) {
-      if (clause.family === 'session' && CATCH_ALL.test(clause.text)) return session
+      if (clause.family === 'session' && (CATCH_ALL.test(clause.text) || clause.kinds.some(mainKind))) return session
     }
   }
   return null
