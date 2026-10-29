@@ -4,6 +4,102 @@ Số đo của HEAD hiện tại và của các bản trước. Mọi số do t�
 
 ## Kiểm chứng HEAD hiện tại
 
+Bản 0.7.5 (sửa các lỗi của đợt rà soát toàn diện sau 0.7.4: A1 tới A8, B1 tới B14, C1 tới C6, D1, cộng test nghiệm thu phiên dài; vòng sửa 2 sau góp ý cho bản đầu của PR: H1, H2, M1 tới M11, L1 tới L8), ngày 2026-10-28, nhánh `claude/focus-conductor-0-7-5` từ `main` `19b0349`. Mã (`hooks/`) trong commit chứa mục này đúng là nội dung đã kiểm: sha256 của `hooks/` là `a41c7ac58677aab046d3d043c1f462ce32eca96c49f1c56d88b689aa679fecaf` và của `tests/` là `bfa7998552976aec6c1e8a088ffd24fde78c4491f521adeb00aa3a8cae68ae72` (tính bằng `scripts/mutate.ts` trên cây cuối), giữ nguyên qua các commit chỉ đổi tài liệu sau đó. Số dưới đây do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển], trừ dòng CI.
+
+- Môi trường: Claude Code 2.1.296 (bản CI ghim, dùng cho mọi lần chạy test, eval và đột biến dưới đây) và 2.1.312 (bản cài trong phiên); khai báo kiểu đọc ở cả 2.1.296 và 2.1.301. Baseline trên `main` `19b0349`: 1509 test qua, `tsc` sạch, `mutate --check` 1035/1035 không có mẫu lệch [Đo trực tiếp].
+- `claude plugin test .` trên 2.1.296: 1781 test qua, 0 lỗi, 137 tệp (1509 của 0.7.4 cộng 272: 143 của bản đầu và 129 của vòng sửa 2, kể cả 7 ca thêm sau lượt đột biến cuối) [Đo trực tiếp]. `claude plugin validate .` qua cho mod và marketplace. `bunx tsc -p tsconfig.json` sạch. `scripts/mutate.ts --check`: 1307/1307 khớp, danh sách `mismatched` rỗng (1035 của 0.7.4, 136 mới của bản đầu, 145 mới của vòng sửa 2, trừ 9 mẫu bỏ vì đoạn mã không còn).
+- Test đỏ trước khi viết mã, đo trên mã của commit ngay trước từng điểm, mỗi điểm một commit test đỏ riêng [Đo trực tiếp]. Bản đầu (A, B, C, D1):
+
+| Điểm | Đỏ | Tệp test |
+|---|---|---|
+| A1 | 2 trên 3 | `tests/integration/subagent-turn-075.test.ts` |
+| A2 | 3 trên 4 | `tests/integration/session-model-075.test.ts` |
+| A3 | 6 trên 9 | `tests/route-075.test.ts` |
+| A4 | 7 (6 cộng 1 câu gợi ý) | `tests/drift-075.test.ts` |
+| A5 | 3 | `tests/drift-075.test.ts` |
+| A6 | 4 trên 9 | `tests/integration/quota-allow-075.test.ts` |
+| A7 | 4 trên 7 | `tests/router-075.test.ts` |
+| A8 | 4 trên 4 | `tests/text-075.test.ts` |
+| B1 | 3 trên 4 | `tests/integration/scope-unknown-075.test.ts` |
+| B2 | 2 trên 4 | `tests/evidence-075.test.ts` |
+| B3 | 2 trên 3 | `tests/integration/router-fail-075.test.ts` |
+| B4 | 4 trên 4 | `tests/integration/quota-resume-075.test.ts` |
+| B5 | 3 trên 3 | `tests/integration/quota-notice-075.test.ts` |
+| B6 | 2 trên 5 | `tests/integration/agent-memo-075.test.ts` |
+| B7 | 5 trên 5 | `tests/progress-075.test.ts` |
+| B8 | 3 trên 4 | `tests/suggest-075.test.ts` |
+| B9 | 2 | `tests/tracker-075.test.ts` |
+| B10 | 1 | `tests/tracker-075.test.ts` |
+| B11 | 3 trên 4 | `tests/caps-075.test.ts` |
+| B12 | 4 trên 6 | `tests/next-brief-075.test.ts` |
+| B13 | 4 trên 5 | `tests/integration/router-retry-075.test.ts` |
+| B14 | 2 trên 3 | `tests/integration/pending-075.test.ts` |
+| C1 | 1 (ca đơn vị của hàm mới; hai kịch bản xanh sẵn: gia cố, không tái hiện được) | `tests/integration/compact-075.test.ts` |
+| C2 | 2 trên 2 | `tests/integration/drift-interval-075.test.ts` |
+| C3 | 4 trên 5 | `tests/integration/fanout-075.test.ts` |
+| C4 | 2 trên 3 | `tests/integration/clear-075.test.ts` |
+| C5 | 2 trên 2 | `tests/integration/net-probe-075.test.ts` |
+| C6 | 2 trên 3 | `tests/integration/pane-order-075.test.ts` |
+| D1 | 2 trên 8 | `tests/closed-seq-075.test.ts` |
+
+  Vòng sửa 2 (đỏ trước khi sửa, 0 đỏ sau khi sửa ở mọi điểm; ca "đỏ" của L2 là hàm mới chưa tồn tại, nên test gọi qua `import *` để nạp được và đỏ ở khẳng định):
+
+| Điểm | Đỏ | Tệp test |
+|---|---|---|
+| H1 | 3 trên 4 | `tests/custom-pipe-075.test.ts` |
+| H2 | 4 trên 5 | `tests/integration/rule-negation-075.test.ts` |
+| M1 | 6 trên 7 | `tests/rule-clauses-075.test.ts` |
+| M2 | 2 trên 2 | `tests/integration/memo-step-075.test.ts` |
+| M3 | 5 trên 5 | `tests/caps-m3-075.test.ts` |
+| M4 | 4 trên 8 | `tests/hold-m4-075.test.ts` |
+| M5 | 6 trên 8 (thông điệp commit đỏ `d810124` ghi nhầm 7 trên 8; số đo đúng là 6) | `tests/main-floor-075.test.ts` |
+| M6 | 7 trên 8 | `tests/integration/quota-allow-m6-075.test.ts` |
+| M7 | 2 trên 4 | `tests/integration/compact-once-075.test.ts` |
+| M8 | 2 trên 3 | `tests/tracker-m8-075.test.ts` |
+| M9 | 3 trên 5 | `tests/suggest-m9-075.test.ts` |
+| M10 | 3 trên 5 | `tests/command-name-m10-075.test.ts` |
+| M11 | 3 trên 6 | `tests/integration/pending-m11-075.test.ts` |
+| L1 | 4 trên 5 | `tests/integration/quota-resume-075.test.ts` |
+| L2 | 1 trên 1 | `tests/tracker-l2-075.test.ts` |
+| L3 | 3 trên 5 | `tests/integration/stop-notice-l3-075.test.ts` |
+| L4 | 3 trên 4 | `tests/progress-l4-075.test.ts` |
+| L5 | 3 trên 5 | `tests/quota-deny-l5-075.test.ts` |
+| L6 | 3 trên 5 | `tests/task-label-l6-075.test.ts` |
+| L7 | 1 trên 5 | `tests/integration/pane-collapse-l7-075.test.ts` |
+| L8 | 2 trên 3 | `tests/closed-seq-l8-075.test.ts` |
+
+- A1 và engine: lỗi có trên 2.1.301 trở lên (khai báo kiểu 2.1.301: `turn.start` phát cả cho lần chạy của subagent, có `agentId`), không có trên 2.1.296 (khai báo 2.1.296: lần chạy của subagent không phát `turn.start`). Test A1 gửi `turn.start` có `agentId` nên kiểm được trên kit 2.1.296.
+- Test cũ phải đổi, đủ và lý do ở [CHANGELOG](../CHANGELOG.md) (mục 0.7.5, "Test cũ đã đổi"); mẫu đột biến cũ viết lại vì mã quanh chúng đổi cũng liệt kê ở đó.
+- B6, số lượt router chấm subagent với 150 lô "Lọc tin lô N" khác prompt, brief có ràng buộc "Việc lọc tin chạy sonnet" (`tests/integration/agent-memo-075.test.ts`) [Đo trực tiếp]: trên `main` 150 lượt; trên 0.7.5 1 lượt khi Claude không ghi model, 0 lượt khi Claude ghi `sonnet` đúng quy định.
+- Mục 6, nghiệm thu phiên dài (`tests/integration/long-session-075.test.ts`; cùng kịch bản chạy trên bản sao `main` `19b0349` bằng một script đo ngoài repo chèn dòng in số đo, engine 2.1.296) [Đo trực tiếp]. Kịch bản: prompt có mã 29.511 ký tự; một turn luồng chính 1.000 tool call (cứ 10 lời gọi có một script ghi dữ liệu `/usr/bin/python3 -B /srv/so-gia/scripts/<script>.py --lo N`, cuối mỗi bước hai lệnh kiểm đã khai chạy dạng `python3 ... 2>&1 | tail -n 3` in `KẾT QUẢ: ĐẠT`, còn lại là đọc); 300 subagent (100 cho mỗi bước lọc tin `BƯỚC 3`, `BƯỚC 4`, `BƯỚC 5`), mỗi cái `turn.start` có `agentId`, 3 lần đọc và 1 lần ghi; nén ở lời gọi 300 và 700; hạn mức tuần lên 76% đã dùng ở lời gọi 900 với `noticeWeekRemainingPct` 25.
+
+| Chỉ số | `main` 19b0349 | 0.7.5 bản đầu (`c38fd8b`) | 0.7.5 vòng sửa 2 (cây cuối) | Yêu cầu |
+|---|---|---|---|---|
+| Cổng Stop chặn sau các bước có subagent (checklist còn mở) | có | có | có | có |
+| Lời nhắc checkpoint sau khi có subagent | 0 | 16 | 9 | ít nhất 1 |
+| Bước được nâng `verified` ngay khi đóng, nhờ lệnh kiểm qua `\| tail` | 0 trên 11 | 11 trên 11, đúng bước vừa đóng | 11 trên 11, đúng bước vừa đóng | 11 trên 11 |
+| Dòng tiến độ ba bước lọc tin | "chờ giao" (0 trên 300 lô khớp việc) | "Việc 4: BƯỚC 3: ...", "100/100 lô xong" | "BƯỚC 3: ...", "100/100 lô xong" (nhãn theo mã, L6) | 100/100 |
+| Tổng ký tự mod chèn vào kết quả tool | 35.190 | 15.755 | 10.339 | không quá 20.000 |
+| Cảnh báo phạm vi mỗi script (9 script) | 9 tới 27 | 1 | 1 | không quá 1 |
+| Lượt router chấm subagent | 300 | 0 | 0 | không quá 150 |
+| Nhắc sau nén | 2 | 2 | 2 | 2 |
+| Báo hạn mức mềm | 1 | 1 | 1 | 1 |
+
+  Biến thể để minh bạch (cứ 3 lời gọi có một script ghi, các thứ khác như trên): `main` 106.063 ký tự (cảnh báo phạm vi 29 tới 87 lần mỗi script, 0 checkpoint sau subagent, 0 trên 11 bước nâng); 0.7.5 bản đầu 23.652 ký tự (vượt mục tiêu 20.000; 42 lời nhắc checkpoint chiếm 18.472 ký tự, 28 checkpoint sau subagent); 0.7.5 vòng sửa 2 19.587 ký tự (dưới mục tiêu 20.000; 24 checkpoint sau subagent, 11 trên 11 bước nâng, cảnh báo phạm vi 1 mỗi script). Mức giảm từ 15.755 xuống 10.339 và từ 23.652 xuống 19.587 là của M8: ghi của subagent không còn tiến nhịp nhắc checkpoint của luồng chính. Trên `main`, cảnh báo phạm vi chiếm chỗ của checkpoint trong kết quả tool (mỗi lần chỉ gắn một lời nhắc ưu tiên cao nhất), nên 0 checkpoint không có nghĩa là không có thay đổi chưa kiểm.
+- Golden-set trước và sau (`scripts/eval-router.ts --model sonnet --runs 3`, 34 ca, Claude Code 2.1.296 qua `claude -p`; script eval in thêm phân bố tin cậy router tự báo từ bản này) [Đo trực tiếp]: trước (`main`) 102 trên 105 lượt (33 trên 35 ca đạt mọi lần: `six` 1 trên 3, luồng chính `sonnet/medium` thay vì `opus`; `long-vn` 2 trên 3, một yêu cầu không việc nào phủ), sau (0.7.5) 101 trên 105 (32 trên 35: `six` 2 trên 3, `long-vn` 2 trên 3 cùng hai lý do trên, `long-coded` 1 trên 3 vì hai lượt gộp `BƯỚC 10` hay liệt kê 13 yêu cầu). Băm request của cả 35 ca giống hệt nhau ở hai bản (các ca có `prev` không mang ràng buộc nên A7 không đổi request của chúng; B13 chỉ đổi lúc hết giờ), nên chênh 1 lượt là nhiễu của router, trong mức nhiễu đã biết (2 trên 90 của 0.7.0); request tiếp nối mang ràng buộc của A7 không có ca golden nào kiểm. Thời gian mỗi lượt 12,1 giây ở cả hai; chi phí 1,659 và 1,715 USD cho 105 lượt. Phân bố tin cậy router tự báo (B12, `NEW_GOAL_CONFIDENCE` 0,8 [Giả định]), 105 lượt mỗi bản: trước 0,6 có 8, 0,7 có 11, 0,8 có 54, 0,9 trở lên có 32; sau 0,6 có 9, 0,7 có 9, 0,8 có 54, 0,9 trở lên có 33. Riêng lượt xếp `new`: 11 trên 96 dưới 0,8 ở cả hai bản (khoảng 11 phần trăm), gồm cả prompt dài (`long-coded`, `long-vn-xl`) và prompt mơ hồ (`vague`, `perf-root`). Nghĩa là với ngưỡng 0,8, khi checklist còn bước mở thì khoảng một trong chín prompt mới thật sẽ bị giữ làm tiếp nối [Giả định: phân bố của golden-set giống phiên thật]; người dùng thoát bằng `/conductor goal <mô tả>` hay hoàn tất hoặc bỏ các bước còn mở trước.
+- Golden-set ở vòng sửa 2: không chạy lại. Lời dặn router và request của cả 35 ca không đổi so với bản đầu và so với `main` (`tests/golden.test.ts` đối chiếu băm request của từng ca với `HASHES` trong `tests/golden/replies.ts`, tệp này không khác `main`, và test qua); request tiếp nối (A7) chỉ đổi ở bản đầu và chỉ khi brief trước có ràng buộc, điều không ca golden nào kiểm. Vòng sửa 2 đổi cách mod dùng kết quả của router (M4 giữ mục tiêu cần prompt nhắc bước hay mã, nên tỷ lệ "một trên chín prompt mới thật bị giữ làm tiếp nối" ở trên là chặn trên; M3, M5 là phép tính sau router), không đổi điều router nhìn thấy.
+- Kiểm đột biến: 1307 mẫu (1035 của 0.7.4, 136 mới của bản đầu, 145 mới của vòng sửa 2, trừ 9 mẫu bỏ vì đoạn mã không còn); `scripts/mutate.ts --check` khớp 1307/1307, `mismatched` rỗng. **Một lượt duy nhất trên mã cuối** (hooks `a41c7ac5…`, đúng sha256 của commit này) cho mọi mẫu của 27 tệp `hooks/` đã đổi so với `main`: 973 mẫu (279 mẫu `075-` chạy trước, 694 mẫu cũ), bộ chạy hai pha ngoài repo (`--jobs 2`, engine 2.1.296; pha 0 và 1 chạy tập test liên quan, mẫu không bị bắt chạy cả bộ test ở pha 2; test đỏ ở pha nào cũng là bị bắt thật), tests `4292bc9f…` lúc chạy [Đo trực tiếp]. Kết quả theo nhật ký: 951 bị bắt (719 ở pha 0, 118 ở pha 1a, 12 ở pha 1b, 102 ở pha 2; gồm một lần bắt giả của `054-D4`, xem dưới), 15 tương đương đã ghi lý do (`054-B9`, `054-D3`, `054-E27`, `060-B2`, `060-E2`, `060-F11`, `070-C1`, `073-S21`, `073-W11`, `073-T9b`, `074-E14`, `074-F3`, `075-B10a`, `075-D1h`, `075-L2a`; `075-B10a` và `075-L2a` mới, lý do trong `scripts/mutants.ts`), 7 sống sót lần đầu: `075-B6g` (thiếu ca Claude ghi model khác quy định thì router vẫn được gọi), `056-A3` và `056-A11` (sau M9 bộ lọc tên che hai ca cũ về đuôi script và dấu phẩy), `072-B6`, `072-B7`, `072-B8` (từ B13 router hết giờ được hỏi lại một lần, nên ba ca mục tiêu tối thiểu của `bare-goal.test.ts` đọc được ngay ở lần hỏi lại và không còn đi qua nhánh mục tiêu tối thiểu; đã sửa ba ca thành hai lần hết giờ liên tiếp và thêm test đơn vị `tests/bare-follow-075.test.ts`), `073-W14` (thiếu ca người dùng tự tạm dừng bằng `/conductor pause`). Cả 7 đã thêm test (commit riêng, chỉ đổi `tests/`) và bị bắt lại khi áp lên bản sao của cây cuối rồi chạy cả bộ test: `075-B6g` 1 đỏ, `056-A3` 1, `056-A11` 1, `072-B6` 2, `072-B7` 2, `072-B8` 2, `073-W14` 1; sha256 của `tests/` đổi từ `4292bc9f…` sang `bfa79985…` do các test thêm này, `hooks/` giữ `a41c7ac5…`. Nên 0 sống sót cuối và 16 mẫu tương đương trong phạm vi (15 ở trên và `054-D4`), mỗi mẫu có lý do trong `scripts/mutants.ts`. Kiểm lại lần bắt giả do tải: máy chạy tải khoảng 14 trên 4 nhân trong lượt đột biến, và `054-D4` (đã đánh dấu tương đương) ghi "bị bắt" bởi một test đỏ ở pha 2; chạy lại hai lần trên cả bộ test lúc máy ít tải thì 0 đỏ, nên dòng đó là lần bắt giả do tải và mẫu vẫn tương đương. Vì vậy chạy lại 57 mẫu bị bắt bởi đúng một test đỏ ở pha 2 (loại dễ bắt giả nhất) trên cả bộ test cuối lúc ít tải: 56 vẫn bị bắt, chỉ `054-D4` về 0 đỏ. Hạn chế: 849 mẫu bị bắt ở pha 0 và pha 1 chỉ được kiểm bằng tập test liên quan (số test ít, ít chịu lần bắt giả do tải), không chạy lại cả bộ; các tệp `hooks/` không đổi so với `main` không chạy lại (`F2` và `061-M2` tương đương, ngoài phạm vi).
+- Không hồi quy: toàn bộ test của 0.7.4 vẫn qua trừ các test đã nêu ở CHANGELOG. Khi `mode` là `off` không có thay đổi hành vi (các hook mới hay đổi đều nằm sau kiểm `mode off` sẵn có).
+- Diễn giải và lệch so với yêu cầu của vòng sửa 2: (1) M11 áp cho việc có mã (BƯỚC N, mã mục); việc không mã mà chưa có checklist vẫn "đang chờ" (nhắc mặc định ở lần sửa file đầu của prompt không mã vẫn chạy; ca B14 "chưa có checklist: như cũ" vẫn xanh), vì nếu áp cho mọi việc thì nhắc mặc định của prompt không mã không bao giờ chạy trước khi có checklist; ca K4 của `tests/integration/router-read.test.ts` (việc có mã, chưa có checklist) đã đổi theo. (2) L2: nhánh gọi `markVerified` của tool plan không tới được qua engine (lần kiểm đạt của luồng chính đã đặt lại bộ đếm và mốc qua tracker; lần kiểm của subagent chỉ phủ khi luồng chính không còn thay đổi chưa kiểm), nên L2 được kiểm ở mức hàm và mẫu `075-L2a` đánh dấu tương đương kèm chứng minh. (3) L7: dồn bước đã đóng chỉ tiết kiệm dòng khi có từ hai bước đóng; checklist 11 bước chưa đóng bước nào vẫn đẩy mục tiến độ từng việc xuống dòng 20 của pane 16 dòng (kéo cuộn thấy). (4) L4: trần 100 là [Giả định]. (5) L1 đổi yêu cầu của B4 ("giữ lệnh bị từ chối") thành xóa lệnh đó, theo góp ý; ca B4 và `turn-fault-073` đổi theo.
+- Lệch so với kế hoạch: B5 khóa câu báo theo cửa sổ (không kèm `turnId`), vì khóa theo turn làm turn tiếp nối không có prompt mới bị báo lại; B13 `/conductor reroute` đọc prompt lập mục tiêu chỉ khi lần đọc gần nhất không lỗi (lần đọc lỗi thì vẫn đọc lại chính prompt đó như 0.5.0); D1 là rào chắn, không đổi hành vi quan sát được qua engine (lý do ở DESIGN, mẫu `075-D1h` tương đương).
+- Lỗi mới thấy, chưa sửa (ngoài danh sách): prompt do `netResume` tự gửi không qua router (giữ như cũ, option mặc định tắt); mục phạm vi một tầng có dấu chấm và `/` cuối (ví dụ `.checkpoint/`) bị phạm vi của mục tiêu coi là tên file (`pauseAllowPaths` không bị ảnh hưởng).
+- Quét chuỗi riêng tư: quét bằng tệp mẫu nằm ngoài repo (13 chuỗi riêng tư: tên cá nhân và khách, đường dẫn máy người dùng, mã phiên) trên toàn bộ `git log -p 19b0349..HEAD`, phần chưa commit và các dòng thêm vào tài liệu: 0 dòng khớp (trừ dòng trailer `Claude-Session` của thông điệp commit, theo yêu cầu ghi nguồn); 0 em dash và 0 dấu chấm than trong các dòng tài liệu thêm; hai ký tự dấu kiểm và dấu sai trong tài liệu là dữ liệu trích (đầu ra lệnh kiểm của H1, nhãn `k✓`), không phải trang trí [Đo trực tiếp]. Quét lại bằng danh sách thật của người dùng là việc còn lại ở mục "Chưa kiểm được".
+- CI: check `plugin` thành công trên head của commit mã cuối `7dbddf8` (run 40808663597, 2 phút 4 giây; hooks `a41c7ac5…`, tests `bfa79985…` đúng như mục này) [Nguồn: GitHub Actions, 2026-10-29]. Commit tài liệu sau đó chỉ đổi tài liệu và `.claude-plugin/plugin.json` (mô tả option), nên CI của nó ghi ở mô tả PR.
+- Chưa kiểm được (chỉ kiểm được trong phiên tương tác thật): `$.session.model()` ở prompt đầu trên engine thật; A1 trên engine 2.1.301 trở lên trong phiên thật; `pauseAllowPaths` với quy tắc dừng của prompt thật; số lượt router chấm subagent và chi phí thật với hàng trăm lô; kịch bản mục 6 là mô phỏng qua kit, không phải phiên thật.
+- Bản trước: kiểm chứng của 0.7.4 ở mục ngay dưới.
+
+## Kiểm chứng của 0.7.4
+
 Bản 0.7.4 (model Claude ghi là mức sàn và ràng buộc model tới router chấm subagent, nhắc checkpoint thưa dần, báo hạn mức mềm, giữ mục tiêu qua lần nén, ca golden rất dài), ngày 2026-10-28, nhánh từ `main` `4174570`. Mã (`hooks/`) trong commit chứa mục này đúng là nội dung đã kiểm: sha256 của `hooks/` là `4383b0c054aa53187d080341c2e00d2cd5ddcea0621b1109b425c2bdefce3856` và của `tests/` là `affa625d58c78004ee38300e0a03f63901d0e9b4b328fc5eaa0bcc5c1c0f246a` (tính bằng `scripts/mutate.ts` trên cây cuối), giữ nguyên qua các commit chỉ đổi tài liệu sau đó. Số dưới đây do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển], trừ dòng CI.
 
 - Môi trường: Claude Code 2.1.311 (bản cài trong phiên) và 2.1.296 (bản CI ghim, cài riêng để chạy eval và chạy lại bộ test), Node v22.22.0, Bun 1.4.2. Baseline trên `main` trước khi sửa: 1400 test qua, `tsc` sạch, `mutate --check` 918/918 không có mẫu lệch [Đo trực tiếp].

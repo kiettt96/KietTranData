@@ -64,7 +64,7 @@
     "checkCommands": {
       "type": "string",
       "title": "Lệnh kiểm tra riêng của dự án",
-      "description": "Lệnh phân tách bằng dấu phẩy, ví dụ: make ci,./scripts/check.sh,just verify. Mỗi lệnh khớp theo tiền tố token, được tin mã thoát, tính là kiểm tra chạy hành vi và đối chiếu evidence nghiêm ngặt (./scripts/check.sh --fast khác ./scripts/check.sh). Lệnh kèm cờ tự sửa (--fix, --write) vẫn tính là ghi file. Lệnh khai chạy qua | tail hay | head chỉ đạt khi có set -o pipefail, hoặc khi phần output còn thấy có dấu hiệu đạt rõ (OK, ĐẠT, KHỚP, 0 lỗi) và không có dấu hiệu lỗi; tốt nhất chạy lệnh kiểm không qua ống",
+      "description": "Lệnh phân tách bằng dấu phẩy, ví dụ: make ci,./scripts/check.sh,just verify. Mỗi lệnh khớp theo tiền tố token, được tin mã thoát, tính là kiểm tra chạy hành vi và đối chiếu evidence nghiêm ngặt (./scripts/check.sh --fast khác ./scripts/check.sh). Lệnh kèm cờ tự sửa (--fix, --write) vẫn tính là ghi file. Lệnh khai chạy qua | tail hay | head chỉ đạt khi có set -o pipefail và mã thoát 0 không có dấu hiệu lỗi, hoặc khi dòng không rỗng cuối cùng có dấu hiệu đạt đứng riêng (OK, ĐẠT, KHỚP, 0 lỗi; không nằm sau chưa, không) và toàn bộ output còn thấy không có dấu hiệu lỗi (chưa đạt, thiếu, lệch, mismatch, tỷ lệ N/M với N nhỏ hơn M...); tốt nhất chạy lệnh kiểm không qua ống",
       "default": ""
     },
     "routerSkip": {
@@ -174,7 +174,7 @@
     "pauseAllowPaths": {
       "type": "string",
       "title": "Đường dẫn vẫn được ghi khi dừng vì hạn mức",
-      "description": "Đường dẫn phân tách bằng dấu phẩy (tương đối theo thư mục gốc của phiên hoặc tuyệt đối), ví dụ: .checkpoint/. Khi dừng cứng vì hạn mức, luồng chính vẫn được Write, Edit, hay chạy Bash mà mọi đích ghi nằm trong các đường dẫn này, để ghi file checkpoint theo quy tắc dừng của prompt. Rỗng là như cũ: chỉ tool plan được qua. Mặc định rỗng",
+      "description": "Đường dẫn phân tách bằng dấu phẩy (tương đối theo thư mục gốc của phiên hoặc tuyệt đối), ví dụ: .checkpoint/. Khi dừng cứng vì hạn mức, luồng chính vẫn được Write, Edit, hay chạy Bash mà mọi tác động ghi đều có đường dẫn và mọi đường dẫn nằm trong các đường dẫn này (mục . và ./ bị bỏ), và Read vào đó, để ghi file checkpoint theo quy tắc dừng của prompt. Rỗng là như cũ: chỉ tool plan được qua. Mặc định rỗng",
       "default": ""
     },
     "uiLanguage": {
