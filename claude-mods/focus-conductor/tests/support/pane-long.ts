@@ -78,7 +78,7 @@ export async function drawn($: Engine) {
 
 /** Các dòng chữ của riêng mục Checklist (từ tiêu đề Checklist tới tiêu đề Tiến độ từng việc); mục sau cũng ghi tiêu đề các việc. */
 export function checklistOf(texts: string[]): string[] {
-  const from = texts.findIndex(t => /^Checklist/.test(t))
+  const from = texts.findIndex(t => /^Danh sách bước/.test(t))
   const to = texts.findIndex(t => /^Tiến độ từng việc/.test(t))
   return texts.slice(from + 1, to < 0 ? undefined : to)
 }

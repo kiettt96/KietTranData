@@ -69,7 +69,7 @@ describe('0.7.5 C6: thứ tự mục của pane', () => {
     agents(on)
     await goal($)
     const all = await texts($)
-    const checklist = all.findIndex(t => /^Checklist/.test(t))
+    const checklist = all.findIndex(t => /^Danh sách bước/.test(t))
     const tasks = all.findIndex(t => /^Tiến độ từng việc/.test(t))
     const mode = all.findIndex(t => t === 'Chế độ')
     expect(checklist).toBeGreaterThanOrEqual(0)

@@ -83,7 +83,7 @@ describe('0.7.0 5: band và pane trên engine', () => {
 
   test('pane ghi số bước verified ở tiêu đề checklist', {}, async ($, on) => {
     await verifiedGoal($, on)
-    expect((await paneTexts($)).some(t => /^Checklist 1\/2 · 1✓/.test(t))).toBe(true)
+    expect((await paneTexts($)).some(t => /^Danh sách bước 1\/2 · 1✓/.test(t))).toBe(true)
   })
 
   test('đối chứng: chưa có bước verified thì band chỉ ghi "1/2"', {}, async ($, on) => {

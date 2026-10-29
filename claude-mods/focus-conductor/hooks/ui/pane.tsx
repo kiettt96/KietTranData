@@ -39,6 +39,11 @@ const MODES: readonly Mode[] = ['auto', 'subagents', 'suggest', 'off']
 const BAR = 8
 /** Checklist dài hơn số bước này thì dồn các bước đã đóng thành một dòng (0.7.5). */
 const COLLAPSE_FROM = 6
+/**
+ * Dạng gọn của checklist dài (R10): nhiều hơn số bước mở này thì chỉ hiện bước đang làm và các bước mở kế tiếp, tổng cộng số này, kèm
+ * dòng "+N bước"; không có chú giải ký hiệu. Với pane tự mở 16 dòng, đây là mức để dòng tiến độ từng việc còn nằm trong 16 dòng.
+ */
+const SHOWN_OPEN = 4
 
 export type PaneHandlers = {
   onMode: (mode: Mode) => unknown
@@ -290,10 +295,16 @@ export function renderPane(
   // ----------------------------------------------------------- checklist
   const idWidth = Math.max(1, ...plan.map(step => String(step.id).length), String(brief.steps.length).length)
   // Checklist dài (vòng sửa 2 của 0.7.5): các bước đã đóng dồn thành một dòng tóm tắt, để pane tự mở 16 dòng còn chỗ cho tiến độ
-  // từng việc. Chỉ khi dồn tiết kiệm được dòng (từ hai bước đóng); checklist ngắn giữ nguyên từng bước.
+  // từng việc; checklist ngắn giữ nguyên từng bước. Không dạng gọn mà checklist trên 6 bước thì còn tối đa 4 bước mở nên đã đóng ít
+  // nhất 3 bước: dòng tóm tắt luôn tiết kiệm được dòng.
   const closedSteps = plan.filter(step => progress([step]).closed === 1)
-  const isCollapsed = plan.length > COLLAPSE_FROM && closedSteps.length >= 2
-  const listed = isCollapsed ? plan.filter(step => !closedSteps.includes(step)) : plan
+  const openSteps = plan.filter(step => !closedSteps.includes(step))
+  // Dạng gọn (R10): checklist dài mà còn nhiều bước mở thì chỉ hiện bước đang làm (không có thì bước mở đầu tiên) và các bước mở kế tiếp.
+  const isCompact = plan.length > COLLAPSE_FROM && openSteps.length > SHOWN_OPEN
+  const start = Math.max(0, openSteps.findIndex(step => step.status === 'doing'))
+  const shown = isCompact ? openSteps.slice(start, start + SHOWN_OPEN) : []
+  const isCollapsed = !isCompact && plan.length > COLLAPSE_FROM
+  const listed = isCompact ? shown : isCollapsed ? openSteps : plan
   const checklist =
     plan.length > 0 ? (
       <Box flexDirection="column">
@@ -335,16 +346,20 @@ export function renderPane(
             </Box>
           )
         })}
-        <Box marginTop={1} flexDirection="row" flexWrap="wrap" columnGap={2}>
-          {STEP_ORDER.map(status => (
-            <Text>
-              <Text color={STEP_MARK[status].color} dimColor={STEP_MARK[status].dim}>
-                {STEP_MARK[status].glyph}
+        {isCompact ? (
+          <Text dimColor>{l.stepsMore(plan.length - shown.length)}</Text>
+        ) : (
+          <Box marginTop={1} flexDirection="row" flexWrap="wrap" columnGap={2}>
+            {STEP_ORDER.map(status => (
+              <Text>
+                <Text color={STEP_MARK[status].color} dimColor={STEP_MARK[status].dim}>
+                  {STEP_MARK[status].glyph}
+                </Text>
+                <Text dimColor>{` ${l.legend[status]}`}</Text>
               </Text>
-              <Text dimColor>{` ${l.legend[status]}`}</Text>
-            </Text>
-          ))}
-        </Box>
+            ))}
+          </Box>
+        )}
       </Box>
     ) : brief.steps.length > 0 ? (
       <Box flexDirection="column">
@@ -568,7 +583,7 @@ export function renderPane(
       {header}
       {/* 0.7.5: checklist và tiến độ từng việc ngay sau phần đầu, để pane 16 dòng thấy được chúng; chế độ, hạn mức, cảnh báo sau. */}
       <Box flexDirection="column">
-        {heading(plan.length > 0 ? 'Checklist' : l.planned, plan.length > 0 ? countLabel(plan) : undefined)}
+        {heading(plan.length > 0 ? l.checklist : l.planned, plan.length > 0 ? countLabel(plan) : undefined)}
         {source === 'mirror' ? (
           <Text dimColor wrap="wrap">
             {l.mirrorSource}

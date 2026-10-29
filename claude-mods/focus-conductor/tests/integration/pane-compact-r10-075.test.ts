@@ -5,7 +5,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { PANE_ROWS } from '../../hooks/lib/pane'
 import { labels } from '../../hooks/ui/labels'
-import { checklistOf, drawn, longGoal, rowOf } from '../support/pane-long'
+import { PLAN, checklistOf, drawn, longGoal, rowOf } from '../support/pane-long'
 
 const HEADING = /^Danh sách bước/
 const LEGEND = /đã kiểm chứng|chờ kết quả|bỏ qua/
@@ -47,6 +47,30 @@ describe('0.7.5 R10: dạng gọn khi không đủ chỗ', () => {
     expect(list.some(t => LEGEND.test(t))).toBe(false)
   })
 
+  test('bước đang làm không phải bước mở đầu tiên: cửa sổ bắt đầu từ bước đang làm, "+N" gồm cả các bước mở đứng trước', {}, async ($, on) => {
+    await longGoal($, on, 0)
+    await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'todo' })
+    await $.tool.call({ tool: PLAN, action: 'update', step: 5, status: 'doing' })
+    const { texts } = await drawn($)
+    const list = checklistOf(texts)
+    expect(list).toContain('BƯỚC 4: lọc tin lô 2')
+    expect(list).toContain('BƯỚC 7: tóm tắt tin')
+    expect(list).not.toContain('BƯỚC 0: chuẩn bị')
+    expect(list).not.toContain('BƯỚC 8: bảng giá tuần')
+    expect(list).toContain('+7 bước')
+  })
+
+  test('bước đang làm gần cuối: chỉ hiện các bước còn lại của cửa sổ, "+N" đếm đủ phần ẩn', {}, async ($, on) => {
+    await longGoal($, on, 0)
+    await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'todo' })
+    await $.tool.call({ tool: PLAN, action: 'update', step: 10, status: 'doing' })
+    const { texts } = await drawn($)
+    const list = checklistOf(texts)
+    expect(list).toContain('BƯỚC 9: bản tổng hợp tuần')
+    expect(list).toContain('BƯỚC 10: kết thúc phiên')
+    expect(list).toContain('+9 bước')
+  })
+
   test('đủ chỗ (3 bước còn mở trở xuống): giữ từng bước và chú giải ký hiệu như cũ', {}, async ($, on) => {
     await longGoal($, on, 8)
     const { texts } = await drawn($)
@@ -74,13 +98,11 @@ describe('0.7.5 R10: dạng gọn khi không đủ chỗ', () => {
 
 describe('0.7.5 R10: nhãn theo ngôn ngữ', () => {
   test('tiêu đề checklist và dòng "+N bước" có nhãn tiếng Việt và tiếng Anh', () => {
-    const vi = labels('vi') as unknown as { checklist?: string; stepsMore?: (n: number) => string }
-    const en = labels('en') as unknown as { checklist?: string; stepsMore?: (n: number) => string }
-    expect(vi.checklist).toBe('Danh sách bước')
-    expect(en.checklist).toBe('Checklist')
-    expect(vi.stepsMore?.(7)).toBe('+7 bước')
-    expect(en.stepsMore?.(1)).toBe('+1 step')
-    expect(en.stepsMore?.(7)).toBe('+7 steps')
+    expect(labels('vi').checklist).toBe('Danh sách bước')
+    expect(labels('en').checklist).toBe('Checklist')
+    expect(labels('vi').stepsMore(7)).toBe('+7 bước')
+    expect(labels('en').stepsMore(1)).toBe('+1 step')
+    expect(labels('en').stepsMore(7)).toBe('+7 steps')
   })
 
   test('tiêu đề checklist hiện bằng nhãn tiếng Việt trong pane', {}, async ($, on) => {
