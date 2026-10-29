@@ -116,6 +116,8 @@ describe('0.7.5 R6: phủ định chỉ tính khi đứng trước tên model tr
     for (const word of ['không', 'khong', 'đừng', 'cấm', 'chẳng', 'chớ', 'tránh', 'avoid', 'never', 'not', 'no', "don't"]) {
       const rule = `${word} dùng haiku cho việc lọc tin`
       expect(ruleFamily([rule], 'Lọc tin lô 1', null), rule).toBe(null)
+      // Chữ phủ định đứng sau từ cắt ("chạy"): loại việc "lọc tin" vẫn khớp, nên chỉ chữ phủ định mới làm vế này không phải quy định.
+      expect(ruleFamily([`Việc lọc tin chạy ${word} dùng haiku`], 'Lọc tin lô 1', null), word).toBe(null)
       expect(ruleFamily([`Việc lọc tin chạy haiku, ${word} cho việc sửa file`], 'Lọc tin lô 1', null), word).toBe('haiku')
     }
   })
