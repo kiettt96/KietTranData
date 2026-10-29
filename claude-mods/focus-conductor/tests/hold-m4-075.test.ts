@@ -1,6 +1,6 @@
 // 0.7.5 M4 (vòng sửa 2): router xếp mục tiêu mới với tin cậy dưới 0,8 khi checklist còn bước mở: chỉ giữ mục tiêu khi prompt nhắc
 // tới một bước đang mở (theo tiêu đề) hay một mã bước, mã việc của mục tiêu; câu hỏi khác hẳn lập mục tiêu mới. Khi giữ thì lựa
-// chọn luồng chính của prompt đó theo router, không áp sàn main của mục tiêu cũ.
+// chọn luồng chính của prompt đó có sàn main của mục tiêu (R5, vòng rà soát 3; vòng sửa 2 từng cho theo router không sàn).
 
 import { describe, expect, test } from 'claude-code/testing'
 import { nextBrief, parseRoute } from '../hooks/lib/router'
@@ -92,11 +92,11 @@ describe('0.7.5 M4: biên của việc nhận ra', () => {
   })
 })
 
-describe('0.7.5 M4: khi giữ, không áp sàn main của mục tiêu cũ', () => {
-  test('prompt được giữ ở 0,75 với router chọn sonnet/medium: luồng chính theo router, không bị nâng lên opus/high', () => {
+describe('0.7.5 M4 và R5: khi giữ, luồng chính có sàn main của mục tiêu', () => {
+  test('prompt được giữ ở 0,75 với router chọn sonnet/medium: luồng chính được nâng lên sàn opus/high của mục tiêu', () => {
     const out = ask('làm tiếp BƯỚC 6', 0.75, { main: { model: 'sonnet', effort: 'medium', why: '' } })
     expect(out.held).toBe(true)
-    expect(out.brief.main).toEqual({ family: 'sonnet', effort: 'medium' })
+    expect(out.brief.main).toEqual({ family: 'opus', effort: 'high' })
   })
 
   test('tiếp nối thật (relation continue) vẫn có sàn main như A7', () => {

@@ -1,5 +1,5 @@
 // 0.7.5 R5 (vòng rà soát 3): prompt được giữ làm tiếp nối (router xếp mục tiêu mới với tin cậy dưới 0,8 mà prompt nhắc bước đang mở)
-// chạy luồng chính có sàn: sàn main của mục tiêu (mainBase), sàn model của phiên khi R4 áp, và không bao giờ thấp hơn sonnet.
+// chạy luồng chính (việc tra cứu nên router chọn được haiku) có sàn: sàn main của mục tiêu (mainBase), sàn model của phiên khi R4 áp, và không bao giờ thấp hơn sonnet.
 
 import { describe, expect, test } from 'claude-code/testing'
 import { nextBrief, parseRoute } from '../hooks/lib/router'
@@ -15,7 +15,7 @@ const PROMPT = 'Ở BƯỚC 1, liệt kê nhanh các file đầu vào'
 const lead = (model: string, effort: string) => ({ model, effort, why: '' })
 const brief = (over: Record<string, unknown> = {}) => makeBrief({ goalId: 3, goal: 'Cập nhật sổ giá theo 11 bước', steps: STEPS, tasks: [], ...over })
 const ask = (prev: ReturnType<typeof makeBrief>, main: ReturnType<typeof lead>, options: Record<string, unknown> = {}) =>
-  call(prev, routed({ relation: 'new', confidence: 0.7, goal: 'Liệt kê file', main }), PROMPT, 2, { openSteps: STEPS, ...options })
+  call(prev, routed({ relation: 'new', confidence: 0.7, goal: 'Liệt kê file', kind: 'investigate', main }), PROMPT, 2, { openSteps: STEPS, ...options })
 
 describe('0.7.5 R5: prompt được giữ có sàn luồng chính', () => {
   test('sàn là main của mục tiêu: router chọn haiku/low, mục tiêu chạy opus/high: ra opus/high', () => {
@@ -54,5 +54,12 @@ describe('0.7.5 R5: prompt được giữ có sàn luồng chính', () => {
   test('prompt được giữ không đổi sàn của mục tiêu (mainBase giữ nguyên)', () => {
     const out = ask(brief({ main: { family: 'sonnet', effort: 'medium' } }), lead('opus', 'high'))
     expect((out.brief as { mainBase?: unknown }).mainBase).toEqual({ family: 'sonnet', effort: 'medium' })
+  })
+
+  test('chỉ prompt được giữ có sàn sonnet: tiếp nối thật chưa có main vẫn theo router (haiku); báo chưa đạt theo router, không áp sàn', () => {
+    const cont = call(brief({ main: null }), routed({ relation: 'continue', confidence: 0.9, goal: '', kind: 'investigate', main: lead('haiku', 'low') }), 'tiếp', 2, { openSteps: STEPS })
+    expect(cont.brief.main).toEqual({ family: 'haiku', effort: 'low' })
+    const bad = call(brief({ main: { family: 'opus', effort: 'high' } }), routed({ relation: 'dissatisfied', confidence: 0.9, goal: '', main: lead('sonnet', 'medium') }), 'sai rồi', 2, { openSteps: STEPS })
+    expect(bad.brief.main).toEqual({ family: 'sonnet', effort: 'medium' })
   })
 })

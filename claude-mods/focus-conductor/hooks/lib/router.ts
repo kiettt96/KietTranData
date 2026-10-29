@@ -812,7 +812,7 @@ export function briefOf(plan: RouterPlan, prompt: string, goalId: number, now: n
 /**
  * Sàn main của mục tiêu (0.7.5, vòng sửa 2): main của prompt lập mục tiêu (`mainBase`; brief cũ không có thì main hiện tại), không
  * phải lựa chọn gần nhất, nên sàn không chỉ tăng mãi. Báo chưa đạt nâng main thì sàn nâng theo (tính lại theo router, lấy mức
- * cao hơn sàn cũ). Prompt được giữ ở tin cậy thấp (isHeld) không bị áp sàn nhưng không đổi sàn của mục tiêu.
+ * cao hơn sàn cũ). Prompt được giữ ở tin cậy thấp (isHeld) không đổi sàn của mục tiêu.
  */
 function mainBaseOf(prev: Brief, plan: RouterPlan, isHeld: boolean): Choice | null {
   const base = prev.mainBase ?? prev.main
@@ -820,11 +820,15 @@ function mainBaseOf(prev: Brief, plan: RouterPlan, isHeld: boolean): Choice | nu
   return base === null ? plan.main : floorPick(plan.main, base.family, base.effort).pick
 }
 
-/** Luồng chính của prompt tiếp nối: continue và refine không thấp hơn sàn mục tiêu (A7); dissatisfied và prompt được giữ theo router. */
+/**
+ * Luồng chính của prompt tiếp nối: continue và refine không thấp hơn sàn mục tiêu (A7); dissatisfied theo router. Prompt được giữ
+ * làm tiếp nối cũng lấy sàn mục tiêu và không bao giờ thấp hơn sonnet (R5); sàn model của phiên áp sau đó ở withSessionFloor.
+ */
 function followUpMain(prev: Brief, plan: RouterPlan, isHeld: boolean): Choice | null {
-  if (isHeld || (plan.relation !== 'continue' && plan.relation !== 'refine') || plan.main === null) return plan.main
+  if (plan.main === null || (!isHeld && plan.relation !== 'continue' && plan.relation !== 'refine')) return plan.main
   const base = prev.mainBase ?? prev.main
-  return base === null ? plan.main : floorPick(plan.main, base.family, base.effort).pick
+  const floored = base === null ? plan.main : floorPick(plan.main, base.family, base.effort).pick
+  return isHeld ? floorPick(floored, 'sonnet', null).pick : floored
 }
 
 /**
