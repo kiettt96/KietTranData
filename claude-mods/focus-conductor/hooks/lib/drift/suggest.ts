@@ -9,6 +9,9 @@ const SCRIPT_FILE = /\.(?:py|js|mjs|cjs|ts|rb|pl|sh)$/
 // Tên script có vẻ là bước kiểm: từ kiểm đứng ĐẦU tên (kiem_tra, check_totals, verify_counts, test_all); từ kiểm nằm giữa tên
 // (cap_nhat_kiem_ke, ghi_test_data) không tính, và kiem_ke (kiểm kê, không phải kiểm tra) bị loại (vòng sửa 2 của 0.7.5).
 const CHECK_NAME = /^(?:kiem(?![_.-]?ke(?:[_.-]|$))|check|verify|validate|test|audit|reconcile)/i
+// Từ ghi dữ liệu trong tên script (R7): script có từ này, đứng đâu trong tên, không phải script kiểm dù tên bắt đầu bằng từ kiểm
+// (test_data_gen.py, check_and_fix.py, verify_and_update_db.py). Khớp theo từ trọn vẹn: check_fixtures.py vẫn là script kiểm.
+const WRITE_WORDS = new Set(['fix', 'update', 'gen', 'ghi', 'write', 'sua', 'sửa', 'capnhat'])
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/
 const MAX_LENGTH = 80
 const MAX_SUGGESTIONS = 2
@@ -41,10 +44,16 @@ function isUsable(text: string): boolean {
 
 type Found = { text: string; seq: number }
 
+/** Tên script có từ ghi dữ liệu (fix, update, gen, ghi, write, sua, cap_nhat) ở bất kỳ chỗ nào trong tên, trừ đuôi tệp. */
+function writesData(name: string): boolean {
+  const words = name.replace(SCRIPT_FILE, '').toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean)
+  return words.some((word, i) => WRITE_WORDS.has(word) || (word === 'cap' && words[i + 1] === 'nhat'))
+}
+
 /**
  * Tối đa hai lệnh script đã chạy thành công trong mục tiêu mà mod không nhận là lệnh kiểm tra, làm ví dụ cho checkCommands.
  * Chỉ script có tên kiểu kiểm với từ kiểm ở đầu tên (0.7.5: script ghi dữ liệu như ghi-du-lieu.py, cap_nhat_kiem_ke.py không bao
- * giờ được gợi ý); lệnh chạy gần nhất trước. Không bao giờ gợi ý tiền tố thư mục (vòng sửa 2 của 0.7.5): tiền tố tin mọi script
+ * giờ được gợi ý; R7: tên có fix, update, gen, ghi, write, sua, cap_nhat như check_and_fix.py cũng không); lệnh chạy gần nhất trước. Không bao giờ gợi ý tiền tố thư mục (vòng sửa 2 của 0.7.5): tiền tố tin mọi script
  * dưới thư mục, người dùng tự khai nếu muốn.
  */
 export function suggestCheckCommands(log: EvidenceLog): string[] {
@@ -57,7 +66,7 @@ export function suggestCheckCommands(log: EvidenceLog): string[] {
       if (script === null || !isUsable(script.text) || seen.has(script.text)) continue
       seen.add(script.text)
       const name = script.text.split(/\s+/).pop()?.split('/').pop() ?? ''
-      if (CHECK_NAME.test(name)) found.push({ text: script.text, seq: entry.seq })
+      if (CHECK_NAME.test(name) && !writesData(name)) found.push({ text: script.text, seq: entry.seq })
     }
   }
   return found
