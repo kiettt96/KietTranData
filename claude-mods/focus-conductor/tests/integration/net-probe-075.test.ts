@@ -4,7 +4,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
-import { COMPLEX_PROMPT, base, submit } from '../support/engine'
+import { COMPLEX_PROMPT, base, conductor, submit } from '../support/engine'
 import { session } from '../support/quota'
 
 const PROBE_MS = 30_000
@@ -64,6 +64,22 @@ describe('0.7.5 C5: số đo đã lưu chạm ngưỡng dừng cứng', () => {
     // Không có checklist: số đo chạm ngưỡng chỉ được lưu, không vào trạng thái dừng.
     await $.session.measure({ context: { tokens: 1, window: 200_000 }, rateLimits: [session(97)], changed: ['rateLimits'] } as never)
     await failTurn($)
+    await seen.clock.advance(PROBE_MS)
+    await seen.clock.advance(PROBE_MS)
+    expect(net.calls).toBe(0)
+    expect(sent.texts).toEqual([])
+  })
+})
+
+describe('0.7.5 (bắt mẫu 073-W14): người dùng tạm dừng bằng /conductor pause', () => {
+  test('turn lỗi rồi người dùng tạm dừng (số đo không chạm ngưỡng): không dò, không gửi', ON, async ($, on) => {
+    const sent = submitted(on)
+    const seen = base(on)
+    on('turn.complete', () => ({ text: '' }))
+    const net = network(on)
+    await submit($, COMPLEX_PROMPT)
+    await failTurn($)
+    await conductor($, 'pause')
     await seen.clock.advance(PROBE_MS)
     await seen.clock.advance(PROBE_MS)
     expect(net.calls).toBe(0)
