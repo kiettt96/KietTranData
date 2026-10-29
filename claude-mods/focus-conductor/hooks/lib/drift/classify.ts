@@ -223,8 +223,8 @@ function afterEnv(args: string[], unmask: (token: string) => string): string[] {
   return args.slice(at)
 }
 
-// Cấu trúc chưa phân tích được: thay thế lệnh, eval, shell con với -c, system() của awk.
-const UNSUPPORTED = /\$\(|`|(?:^|[\s;&|(])eval\b|(?:^|[\s;&|(])(?:ba|z|da)?sh\s+-c\b|\bsystem\s*\(/
+// Cấu trúc chưa phân tích được: thay thế lệnh, process substitution <( và >(, eval, shell con với -c, system() của awk.
+const UNSUPPORTED = /\$\(|`|[<>]\(|(?:^|[\s;&|(])eval\b|(?:^|[\s;&|(])(?:ba|z|da)?sh\s+-c\b|\bsystem\s*\(/
 
 /**
  * Phân loại một lệnh Bash theo từng đoạn, giữ thứ tự và toán tử: lệnh kiểm tra, tác động ghi, file đích. Kiểm tra chỉ
