@@ -34,6 +34,13 @@ export const LOW_CONFIDENCE = 0.4
 const TASK_LIMIT = 20
 /** Yêu cầu router liệt kê (0.7.0): tối đa bấy nhiêu mục, mỗi mục bấy nhiêu ký tự; quá REQUIREMENTS_RECHECK thì đọc kiểm lại một lần ở effort cao. */
 const REQUIREMENT_LIMIT = 30
+/** Trần ràng buộc của brief (0.7.4). */
+const CONSTRAINT_LIMIT = 12
+/**
+ * Phần tràn của ràng buộc và yêu cầu (0.7.5, vòng rà soát 3): mục của prompt tiếp nối mà không còn mục nào thay được (mọi mục là của
+ * prompt lập mục tiêu hay quy định model) vẫn được giữ, thêm tối đa bấy nhiêu mục ngoài trần [Giả định: 10]; quá nữa mới bỏ, kèm cảnh báo.
+ */
+export const CAP_OVERFLOW = 10
 const REQUIREMENT_CHARS = 160
 export const REQUIREMENTS_RECHECK = 8
 /** Hạn chung cho mọi lượt gọi router của một prompt là bấy nhiêu lần timeout của request; lượt kiểm lại phủ yêu cầu chỉ chạy khi lượt đầu chưa quá nửa hạn (0.7.2). */
@@ -175,23 +182,30 @@ function lastIndexFrom(length: number, from: number, test: (index: number) => bo
 /**
  * Gộp mục mới vào danh sách có trần (0.7.5): bỏ trùng; đầy trần thì mỗi mục mới thay mục CUỐI danh sách (ít quan trọng nhất)
  * không phải quy định model, không thuộc `base` mục đầu (mục của prompt lập mục tiêu, không bao giờ bị bỏ) và không vừa thêm
- * trong lần gộp này; không còn mục thay được thì mục mới bị bỏ.
+ * trong lần gộp này. Không còn mục thay được thì mục mới vào phần tràn (CAP_OVERFLOW mục ngoài trần, vòng rà soát 3); phần tràn cũng
+ * đầy thì mục bị bỏ và được đếm ở `dropped`, không bao giờ bỏ im lặng.
  */
-function mergeCapped(prev: readonly string[], incoming: readonly string[], max: number, base: number): string[] {
-  const items = unique(prev, max)
+function mergeCapped(prev: readonly string[], incoming: readonly string[], max: number, base: number): { items: string[]; dropped: number } {
+  const items = unique(prev, max + CAP_OVERFLOW)
   const fresh = new Set<string>()
+  let dropped = 0
   for (const item of incoming) {
     if (items.includes(item)) continue
     if (items.length < max) items.push(item)
     else {
       const old = lastIndexFrom(items.length, base, i => !isModelRule(items[i] ?? '') && !fresh.has(items[i] ?? ''))
-      if (old < 0) continue
-      items.splice(old, 1)
-      items.push(item)
+      if (old >= 0) {
+        items.splice(old, 1)
+        items.push(item)
+      } else if (items.length < max + CAP_OVERFLOW) items.push(item)
+      else {
+        dropped += 1
+        continue
+      }
     }
     fresh.add(item)
   }
-  return items
+  return { items, dropped }
 }
 
 /**
@@ -199,11 +213,12 @@ function mergeCapped(prev: readonly string[], incoming: readonly string[], max: 
  * phải quy định model và không thuộc `base` yêu cầu đầu (của prompt lập mục tiêu), để số thứ tự của các yêu cầu khác không đổi; `freed` là số thứ tự (từ 1) đã bị thay, việc cũ không
  * còn phủ chúng. `renumber` đổi số thứ tự trong lượt router sang số thứ tự trong danh sách đã gộp.
  */
-function mergeRequirements(prev: readonly string[], incoming: readonly string[], base: number): { items: string[]; renumber: Map<number, number>; freed: Set<number> } {
+function mergeRequirements(prev: readonly string[], incoming: readonly string[], base: number): { items: string[]; renumber: Map<number, number>; freed: Set<number>; dropped: number } {
   const items = [...prev]
   const renumber = new Map<number, number>()
   const freed = new Set<number>()
   const fresh = new Set<number>()
+  let dropped = 0
   incoming.forEach((item, i) => {
     let at = items.indexOf(item)
     if (at < 0 && items.length < REQUIREMENT_LIMIT) {
@@ -216,11 +231,16 @@ function mergeRequirements(prev: readonly string[], incoming: readonly string[],
         items[at] = item
         freed.add(at + 1)
         fresh.add(at)
-      }
+      } else if (items.length < REQUIREMENT_LIMIT + CAP_OVERFLOW) {
+        // Không còn yêu cầu thay được: vào phần tràn (vòng rà soát 3), vẫn có số thứ tự để việc mới phủ.
+        items.push(item)
+        at = items.length - 1
+        fresh.add(at)
+      } else dropped += 1
     }
     if (at >= 0) renumber.set(i + 1, at + 1)
   })
-  return { items, renumber, freed }
+  return { items, renumber, freed, dropped }
 }
 
 /** Phần dài quá giới hạn: giữ đầu và cuối, ghi chú số ký tự đã lược. */
@@ -281,10 +301,13 @@ function previousLines(prev: Brief | null, ran: string | null): string[] {
     .map(t => `  ${t.index}. ${fence(t.title)} (${t.run === 'agent' ? `${fence(t.agentType ?? 'general-purpose')} ` : 'main '}${describePick(t.pick)})`)
   // Ràng buộc của mục tiêu trước (0.7.5), cắt gọn như khi chấm subagent: prompt tiếp nối ngắn không nhắc lại quy định model.
   const rules = ruleItems(prev.constraints)
+  // Phần tràn (vòng rà soát 3): mục của prompt tiếp nối giữ ngoài trần luôn có trong request, kể cả khi ruleItems đã cắt.
+  const over = [...prev.constraints.slice(CONSTRAINT_LIMIT), ...(prev.requirements ?? []).slice(REQUIREMENT_LIMIT)]
   return [
     `Previous goal${prev.isReference ? ' (a reference-only review: its tasks were routed for comparison, not run)' : ''}: ${fence(prev.goal)}`,
     ...(tasks.length > 0 ? ['Previous tasks:', ...tasks] : []),
     ...(rules.length > 0 ? ['Previous constraints (still hold on a follow-up; a rule that names a model for this kind of work must be followed):', ...rules] : []),
+    ...(over.length > 0 ? ['Previous follow-up items kept over the limit (still hold):', ...over.map(item => `  - ${fence(clip(item, 120))}`)] : []),
     ...(prev.referenceMain ? [`Main thread the referenced prompt would need: ${describePick(prev.referenceMain)}`] : []),
     `Main thread ran: ${ran ?? 'unknown'}`,
   ]
@@ -808,11 +831,13 @@ function followUpMain(prev: Brief, plan: RouterPlan, isHeld: boolean): Choice | 
  * Prompt tiếp nối: giữ mục tiêu và các việc đã phân, nối việc mới (đánh số tiếp theo),
  * thêm ràng buộc và tiêu chí mới, dùng lựa chọn luồng chính và đánh giá mới của router.
  */
-export function followUpOf(prev: Brief, plan: RouterPlan, now: number, isHeld = false): { brief: Brief; added: Task[] } {
+export function followUpOf(prev: Brief, plan: RouterPlan, now: number, isHeld = false): { brief: Brief; added: Task[]; dropped: number } {
   const offset = prev.tasks.reduce((max, t) => Math.max(max, t.index), 0)
   // Yêu cầu mới nối vào danh sách (bỏ trùng); covers của việc mới đổi sang số thứ tự trong danh sách đã gộp. Đầy trần thì
   // yêu cầu mới thay yêu cầu cũ (0.7.5): việc cũ không còn phủ chỗ bị thay.
-  const { items: requirements, renumber, freed } = mergeRequirements(prev.requirements ?? [], plan.requirements, prev.requirementsBase ?? (prev.requirements ?? []).length)
+  const { items: requirements, renumber, freed, dropped: lostRequirements } = mergeRequirements(prev.requirements ?? [], plan.requirements, prev.requirementsBase ?? (prev.requirements ?? []).length)
+  const constraints = mergeCapped(prev.constraints, plan.constraints, CONSTRAINT_LIMIT, prev.constraintsBase ?? prev.constraints.length)
+  const dropped = lostRequirements + constraints.dropped
   const added = plan.tasks.map(t => ({
     ...t,
     index: t.index + offset,
@@ -824,7 +849,9 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number, isHeld = 
     ...(requirements.length > 0 ? { requirements } : {}),
     steps: added.length > 0 ? [...prev.steps, ...added.map(t => t.title)] : prev.steps,
     tasks: [...prev.tasks.map(t => (t.covers !== undefined && t.covers.some(n => freed.has(n)) ? { ...t, covers: t.covers.filter(n => !freed.has(n)) } : t)), ...added],
-    constraints: mergeCapped(prev.constraints, plan.constraints, 12, prev.constraintsBase ?? prev.constraints.length),
+    constraints: constraints.items,
+    // Số mục của prompt tiếp nối không giữ được (vòng rà soát 3), cộng dồn trong mục tiêu: /conductor status nêu số này.
+    ...((prev.dropped ?? 0) + dropped > 0 ? { dropped: (prev.dropped ?? 0) + dropped } : {}),
     constraintsBase: prev.constraintsBase ?? prev.constraints.length,
     requirementsBase: prev.requirementsBase ?? (prev.requirements ?? []).length,
     quality: unique([...prev.quality, ...plan.quality], 10),
@@ -846,7 +873,7 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number, isHeld = 
     scopePaths: plan.scope.length > 0 ? plan.scope : prev.scopePaths,
     at: now,
   }
-  return { brief, added }
+  return { brief, added, dropped }
 }
 
 /**
@@ -856,8 +883,8 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number, isHeld = 
 export function promoteReference(prev: Brief, plan: RouterPlan, prompt: string, now: number): Brief {
   // Ràng buộc, tiêu chí và phạm vi của prompt đính kèm được giữ từ lượt đối chiếu: lượt chạy thật phải có đủ. Cả hai lượt là prompt
   // lập mục tiêu nên mọi mục đều thuộc phần không bao giờ bị thay.
-  const mergedRequirements = mergeCapped(prev.requirements ?? [], plan.requirements, REQUIREMENT_LIMIT, prev.requirements?.length ?? 0)
-  const mergedConstraints = mergeCapped(prev.constraints, plan.constraints, 12, prev.constraints.length)
+  const mergedRequirements = mergeCapped(prev.requirements ?? [], plan.requirements, REQUIREMENT_LIMIT, prev.requirements?.length ?? 0).items
+  const mergedConstraints = mergeCapped(prev.constraints, plan.constraints, CONSTRAINT_LIMIT, prev.constraints.length).items
   return {
     ...briefOf(plan, prompt, prev.goalId + 1, now),
     goal: plan.goal || prev.goal,
@@ -1097,7 +1124,7 @@ export function nextBrief(
   prompt: string,
   now: number,
   options: { openSteps?: readonly string[]; sessionFamily?: ModelFamily | null } = {},
-): { brief: Brief; added: Task[]; isNewGoal: boolean; replaced: string[]; held: boolean } {
+): { brief: Brief; added: Task[]; isNewGoal: boolean; replaced: string[]; held: boolean; dropped: number } {
   const out = nextBriefRaw(prev, plan, prompt, now, options)
   return { ...out, brief: withSessionFloor(out.brief, options.sessionFamily ?? null) }
 }
@@ -1115,19 +1142,19 @@ function nextBriefRaw(
   prompt: string,
   now: number,
   options: { openSteps?: readonly string[] },
-): { brief: Brief; added: Task[]; isNewGoal: boolean; replaced: string[]; held: boolean } {
+): { brief: Brief; added: Task[]; isNewGoal: boolean; replaced: string[]; held: boolean; dropped: number } {
   if (prev !== null && prev.isReference && plan.runReference) {
     const brief = promoteReference(prev, plan, prompt, now)
-    return { brief, added: [], isNewGoal: true, replaced: replacedOf(prev, brief), held: false }
+    return { brief, added: [], isNewGoal: true, replaced: replacedOf(prev, brief), held: false, dropped: 0 }
   }
   const open = options.openSteps ?? []
   const held = prev !== null && !prev.isReference && plan.relation === 'new' && open.length > 0 && plan.confidence < NEW_GOAL_CONFIDENCE && mentionsGoal(prompt, prev, open)
   if (prev === null || (plan.relation === 'new' && !held)) {
     const fresh = briefOf(plan, prompt, (prev?.goalId ?? 0) + 1, now)
     const carried = prev !== null && !prev.isReference && !plan.constraints.some(isModelRule) ? prev.constraints.filter(isModelRule) : []
-    const carriedConstraints = unique([...carried, ...fresh.constraints], 12)
+    const carriedConstraints = unique([...carried, ...fresh.constraints], CONSTRAINT_LIMIT)
     const brief = carried.length > 0 ? { ...fresh, constraints: carriedConstraints, constraintsBase: carriedConstraints.length } : fresh
-    return { brief, added: [], isNewGoal: true, replaced: [], held: false }
+    return { brief, added: [], isNewGoal: true, replaced: [], held: false, dropped: 0 }
   }
   const next = followUpOf(prev, held ? { ...plan, relation: 'continue' } : plan, now, held)
   return { ...next, isNewGoal: false, replaced: replacedOf(prev, next.brief), held }

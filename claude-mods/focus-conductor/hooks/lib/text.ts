@@ -605,6 +605,11 @@ export function checkHintText(commands: readonly string[]): string {
   return `Mod chưa nhận script kiểm đã chạy là lệnh kiểm. Gợi ý khai option checkCommands của mod: ${commands.join(', ')}. Nên chạy lệnh kiểm không qua ống (| tail, | head) hoặc có set -o pipefail, để mã thoát là của chính lệnh kiểm.`
 }
 
+/** Mục của prompt tiếp nối không giữ được vì ràng buộc và yêu cầu đã đầy, kể cả phần tràn (0.7.5, vòng rà soát 3). */
+export function droppedItemsText(count: number): string {
+  return `${count} mục của prompt tiếp nối không giữ được vì ràng buộc và yêu cầu của mục tiêu đã đầy (kể cả phần tràn); nhắc lại các mục đó khi cần, hoặc lập mục tiêu mới`
+}
+
 /** Dòng gợi ý của /conductor status (0.7.3): chỉ khi gợi ý thuộc đúng mục tiêu đang mở; rỗng thì không có dòng. */
 export function checkHintLines(hint: CheckHint | null, goalId: number | null): string[] {
   return hint !== null && goalId !== null && hint.goalId === goalId && hint.commands.length > 0 ? [checkHintText(hint.commands)] : []

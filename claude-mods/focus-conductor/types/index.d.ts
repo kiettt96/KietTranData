@@ -74,6 +74,8 @@ export type Brief = {
   main: Choice | null
   /** Main của prompt lập mục tiêu (0.7.5, vòng sửa 2): sàn cho prompt tiếp nối; vắng ở brief cũ thì dùng `main`. */
   mainBase?: Choice
+  /** Số mục của prompt tiếp nối không giữ được vì ràng buộc và yêu cầu đã đầy, kể cả phần tràn (0.7.5, vòng rà soát 3). */
+  dropped?: number
   /** Luồng chính mà prompt đính kèm cần nếu chạy thật (chỉ khi isReference). */
   referenceMain?: Choice
   /** Lý do router đưa ra. */

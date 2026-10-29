@@ -30,10 +30,10 @@ describe('0.7.5 B11: ràng buộc đầy trần', () => {
     expect(out.replaced).toEqual([])
   })
 
-  test('mọi ràng buộc cũ đều là quy định model: không thay, mục mới bị bỏ', () => {
+  test('mọi ràng buộc cũ đều là quy định model: không thay, mục mới vào phần tràn (từ vòng rà soát 3, R1; trước đó bị bỏ)', () => {
     const models = ['Việc ghi chạy bằng mô hình của phiên', ...Array.from({ length: 11 }, (_, i) => `Việc loại ${i} chạy opus`)]
     const out = nextBrief(makeBrief({ constraints: models, constraintsBase: 0 }), routed({ relation: 'continue', goal: '', constraints: ['Mục mới'] }), 'tiếp', 2)
-    expect(out.brief.constraints).toEqual(models)
+    expect(out.brief.constraints).toEqual([...models, 'Mục mới'])
   })
 })
 

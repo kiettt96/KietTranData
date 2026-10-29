@@ -1,6 +1,7 @@
 // 0.7.5 M3 (vòng sửa 2): ràng buộc (trần 12) và yêu cầu (trần 30) đầy ở prompt tiếp nối: mục mới thay mục ở CUỐI danh sách (ít quan
 // trọng nhất) không phải quy định model; không bao giờ bỏ hay thay mục đến từ prompt lập mục tiêu (constraintsBase,
-// requirementsBase là số mục đầu của prompt đó); không còn mục thay được thì mục mới bị bỏ.
+// requirementsBase là số mục đầu của prompt đó); không còn mục thay được thì mục mới bị bỏ. Từ vòng rà soát 3 (R1) mục đó vào phần
+// tràn thay vì bị bỏ (xem tests/integration/caps-r1-075.test.ts).
 
 import { describe, expect, test } from 'claude-code/testing'
 import { briefOf, nextBrief, parseRoute } from '../hooks/lib/router'
@@ -29,10 +30,10 @@ describe('0.7.5 M3: ràng buộc đầy trần', () => {
     expect(out.replaced).toEqual(['Sau 7'])
   })
 
-  test('toàn bộ mười hai mục đến từ prompt đầu: không thay, mục mới bị bỏ', () => {
+  test('toàn bộ mười hai mục đến từ prompt đầu: không thay, mục mới vào phần tràn (R1)', () => {
     const constraints = [...first(12)]
     const out = nextBrief(withBase({ constraints, constraintsBase: 12 } as Partial<Brief>), routed({ relation: 'continue', goal: '', constraints: ['Mục mới'] }), 'tiếp', 2)
-    expect(out.brief.constraints).toEqual(constraints)
+    expect(out.brief.constraints).toEqual([...constraints, 'Mục mới'])
     expect(out.replaced).toEqual([])
   })
 
@@ -48,10 +49,10 @@ describe('0.7.5 M3: ràng buộc đầy trần', () => {
 })
 
 describe('0.7.5 M3: nguồn gốc của số mục đầu', () => {
-  test('brief không ghi số mục đầu (trạng thái cũ): coi mọi mục hiện có là của prompt đầu, mục mới bị bỏ khi đầy trần', () => {
+  test('brief không ghi số mục đầu (trạng thái cũ): coi mọi mục hiện có là của prompt đầu, mục mới vào phần tràn khi đầy trần (R1)', () => {
     const constraints = [...first(12)]
     const out = nextBrief(makeBrief({ constraints, requirements: ['R1', 'R2'] }), routed({ relation: 'continue', goal: '', constraints: ['Mục mới'] }), 'tiếp', 2)
-    expect(out.brief.constraints).toEqual(constraints)
+    expect(out.brief.constraints).toEqual([...constraints, 'Mục mới'])
     expect((out.brief as Brief & { constraintsBase?: number }).constraintsBase).toBe(12)
     expect((out.brief as Brief & { requirementsBase?: number }).requirementsBase).toBe(2)
   })
@@ -87,9 +88,9 @@ describe('0.7.5 M3: yêu cầu đầy trần', () => {
     expect(out.replaced).toEqual(['Yêu cầu 30'])
   })
 
-  test('mọi yêu cầu cũ đến từ prompt đầu: yêu cầu mới bị bỏ', () => {
+  test('mọi yêu cầu cũ đến từ prompt đầu: yêu cầu mới vào phần tràn (R1)', () => {
     const out = nextBrief(withBase({ requirements, requirementsBase: 30 } as Partial<Brief>), routed({ relation: 'continue', goal: '', requirements: ['Yêu cầu mới'] }), 'tiếp', 2)
-    expect(out.brief.requirements).toEqual(requirements)
+    expect(out.brief.requirements).toEqual([...requirements, 'Yêu cầu mới'])
     expect(out.replaced).toEqual([])
   })
 })

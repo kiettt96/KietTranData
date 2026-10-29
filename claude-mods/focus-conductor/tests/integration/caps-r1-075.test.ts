@@ -7,7 +7,7 @@ import { nextBrief, parseRoute, routerRequest } from '../../hooks/lib/router'
 import type { Policy, RouterPlan } from '../../hooks/lib/router'
 import { LONG_CODED_PROMPT } from '../fixtures/prompt-long-coded'
 import { makeBrief } from '../support/commands'
-import { base, conductor, plan, submit, task } from '../support/engine'
+import { PANE, base, conductor, plan, submit, task } from '../support/engine'
 
 const OPEN: Policy = { allowFable: false, blocked: new Set(), session: null }
 const routed = (over: Record<string, unknown>): RouterPlan => parseRoute(JSON.stringify(plan(over)), OPEN)!
@@ -55,6 +55,29 @@ describe('0.7.5 R1: mục của prompt tiếp nối khi đã đầy bằng mục
   })
 })
 
+describe('0.7.5 R1: phần tràn qua nhiều lượt tiếp nối', () => {
+  test('mục đã ở phần tràn còn nguyên ở lượt tiếp nối sau, mục mới cũng vào phần tràn', () => {
+    // Mục tràn là quy định model nên không bị thay (M3); mục mới không có chỗ thay nên vào phần tràn.
+    const prev = makeBrief({ constraints: [...CONSTRAINTS, 'Việc kiểm số liệu chạy opus'], constraintsBase: 12 })
+    const out = nextBrief(prev, routed({ relation: 'continue', goal: '', constraints: ['Tràn 2'] }), 'tiếp', 2)
+    expect(out.brief.constraints).toEqual([...CONSTRAINTS, 'Việc kiểm số liệu chạy opus', 'Tràn 2'])
+  })
+
+  test('mục tiếp nối ở phần tràn có thể bị mục tiếp nối mới hơn thay (M3), kèm cảnh báo, không im lặng', () => {
+    const prev = makeBrief({ constraints: [...CONSTRAINTS, 'Tràn 1'], constraintsBase: 12 })
+    const out = nextBrief(prev, routed({ relation: 'continue', goal: '', constraints: ['Tràn 2'] }), 'tiếp', 2)
+    expect(out.brief.constraints).toEqual([...CONSTRAINTS, 'Tràn 2'])
+    expect(out.replaced).toEqual(['Tràn 1'])
+  })
+
+  test('trần ràng buộc là 12: 11 mục rồi thêm một mục thì không thay mục nào', () => {
+    const eleven = Array.from({ length: 11 }, (_, i) => `Mục ${i + 1}`)
+    const out = nextBrief(makeBrief({ constraints: eleven, constraintsBase: 0 }), routed({ relation: 'continue', goal: '', constraints: ['Mục mới'] }), 'tiếp', 2)
+    expect(out.brief.constraints).toEqual([...eleven, 'Mục mới'])
+    expect(out.replaced).toEqual([])
+  })
+})
+
 describe('0.7.5 R1: phiên với prompt 32.000 ký tự', () => {
   test('prompt đầy 30 yêu cầu (12 ràng buộc ở ca nextBrief trên), rồi "BẮT BUỘC xuất file Excel": có việc phủ, có trong request kế tiếp', {}, async ($, on) => {
     const seen = base(on, { router: request => (request.includes(EXCEL) && !request.includes('Bối cảnh chung') ? REFINE : FIRST) })
@@ -76,5 +99,9 @@ describe('0.7.5 R1: phiên với prompt 32.000 ký tự', () => {
     await submit($, 'thêm 12 yêu cầu')
     const status = String((await conductor($, 'status')).text)
     expect(status).toContain('2 mục của prompt tiếp nối không giữ được')
+    const pane = await $.ui.mount(PANE)
+    const texts = (await pane.findAll({ type: 'Text' })).map(e => e.text)
+    await pane.unmount()
+    expect(texts.some(t => typeof t === 'string' && t.includes('2 mục của prompt tiếp nối không giữ được'))).toBe(true)
   })
 })

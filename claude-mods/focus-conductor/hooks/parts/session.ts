@@ -12,7 +12,7 @@ import type { RouterOutcome, RouterPlan } from '../lib/router'
 import { EMPTY_QUOTA, blockingHits, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaSettings, reasonsOf } from '../lib/quota'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
-import { DISCIPLINE, briefContext, droppedPlanNotice, followUpContext, quotaPausedContext, resetLabel, resumeCommand, restorableLabel, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
+import { DISCIPLINE, briefContext, droppedItemsText, droppedPlanNotice, followUpContext, quotaPausedContext, resetLabel, resumeCommand, restorableLabel, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -277,7 +277,7 @@ export function registerSession(on: On, ctx: Ctx): void {
     }
 
     // Mục tiêu mới, chạy thật prompt đã đối chiếu, hoặc tiếp nối cùng mục tiêu.
-    const { brief, added, isNewGoal, replaced, held } = nextBrief(prev, plan, text, now, { openSteps: openSteps(before.plan).map(s => s.title), sessionFamily: L.sessionFamily })
+    const { brief, added, isNewGoal, replaced, held, dropped } = nextBrief(prev, plan, text, now, { openSteps: openSteps(before.plan).map(s => s.title), sessionFamily: L.sessionFamily })
     // Router xếp mục tiêu mới với tin cậy thấp khi checklist còn bước mở (0.7.5): giữ mục tiêu, ghi nhật ký quyết định.
     if (held && prev !== null) {
       L.promptIntent = { relation: 'continue', kind: plan.kind }
@@ -297,6 +297,8 @@ export function registerSession(on: On, ctx: Ctx): void {
       const text = `Ràng buộc và yêu cầu của mục tiêu đã đầy; mục mới thay ${replaced.length} mục cũ: ${replaced.map(item => clipText(item, 60)).join('; ')}`
       await update($, coreState, S.withWarnings({ at: now, kind: 'model', text }))
     }
+    // Phần tràn cũng đầy (vòng rà soát 3): mục của prompt tiếp nối không giữ được thì báo số mục, không bỏ im lặng.
+    if (dropped > 0) await update($, coreState, S.withWarnings({ at: now, kind: 'model', text: droppedItemsText(dropped) }))
     if (isNewGoal) {
       L.goalPrompt = { text, prev, goalId: brief.goalId }
       L.isGoalNew = true

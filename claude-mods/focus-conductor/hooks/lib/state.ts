@@ -148,6 +148,7 @@ function normalizeBrief(raw: Brief): Brief {
     tasks: brief.tasks ?? [],
     constraints: brief.constraints ?? [],
     ...(typeof brief.constraintsBase === 'number' ? { constraintsBase: brief.constraintsBase } : {}),
+    ...(typeof brief.dropped === 'number' && brief.dropped > 0 ? { dropped: brief.dropped } : {}),
     quality: brief.quality ?? [],
     depth: brief.depth ?? legacy.depth,
     volume: brief.volume ?? legacy.volume,
