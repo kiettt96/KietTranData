@@ -174,7 +174,7 @@
     "pauseAllowPaths": {
       "type": "string",
       "title": "Đường dẫn vẫn được ghi khi dừng vì hạn mức",
-      "description": "Đường dẫn phân tách bằng dấu phẩy (tương đối theo thư mục gốc của phiên hoặc tuyệt đối), ví dụ: .checkpoint/. Khi dừng cứng vì hạn mức, luồng chính vẫn được Write, Edit, hay chạy Bash mà mọi tác động ghi đều có đường dẫn và mọi đường dẫn nằm trong các đường dẫn này (mục . và ./ bị bỏ), và Read vào đó, để ghi file checkpoint theo quy tắc dừng của prompt. Rỗng là như cũ: chỉ tool plan được qua. Mặc định rỗng",
+      "description": "Đường dẫn phân tách bằng dấu phẩy (tương đối theo thư mục gốc của phiên hoặc tuyệt đối), ví dụ: .checkpoint/. Khi dừng cứng vì hạn mức, luồng chính vẫn được Write, Edit, hay chạy Bash mà mọi tác động ghi đều có đường dẫn và mọi đường dẫn nằm trong các đường dẫn này (mục . và ./ bị bỏ), và Read vào đó, để ghi file checkpoint theo quy tắc dừng của prompt; mỗi đường dẫn phải đáp thật vào trong danh sách (symlink ra ngoài bị từ chối). Rỗng là như cũ: chỉ tool plan được qua. Mặc định rỗng",
       "default": ""
     },
     "uiLanguage": {

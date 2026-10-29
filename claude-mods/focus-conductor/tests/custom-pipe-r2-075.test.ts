@@ -80,3 +80,12 @@ describe('0.7.5 R2: ca đạt vẫn đạt', () => {
     })
   })
 })
+
+describe('0.7.5 R2: dấu hiệu đạt phải ở dòng không rỗng cuối cùng', () => {
+  test('"OK" ở dòng trước rồi dòng cuối không có dấu hiệu đạt: chưa xác minh; dòng cuối có dấu hiệu đạt thì đạt', () => {
+    declared(() => {
+      for (const output of ['OK\nĐã kiểm 12 lô, đang ghi báo cáo', 'ĐẠT\nTiếp tục bước sau\n\n']) expect(piped(output), output).toBe(false)
+      for (const output of ['Đang kiểm\nOK\n\n', 'Bước 1 xong\nKẾT QUẢ: ĐẠT']) expect(piped(output), output).toBe(true)
+    })
+  })
+})
