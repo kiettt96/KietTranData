@@ -1,6 +1,8 @@
 // 0.7.2 điểm 2: router lỗi hay tạm ngừng khi chưa có mục tiêu thì mod lập mục tiêu tối thiểu (bareBrief), không để brief rỗng.
 // Band, pane, danh sách phản chiếu, verified và giám sát chạy như mục tiêu thường; không cảnh báo ngân sách theo tier đoán.
 // Lần router đọc được tiếp theo nâng cấp brief nhưng giữ goalId, checklist và bằng chứng.
+// Từ 0.7.5 (B13) router hết giờ được hỏi lại một lần: ca "lần đầu hết giờ rồi đọc được" dùng ++n <= 2 (hai lần hết giờ liên tiếp), nếu không
+// lần hỏi lại đọc được ngay và mục tiêu tối thiểu không được lập (các mẫu 072-B6, B7, B8 sống sót vì thế ở lượt đột biến cuối).
 
 import { describe, expect, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
@@ -138,7 +140,7 @@ describe('0.7.2 2: nâng cấp khi router đọc được', () => {
 
   test('prompt kế được đọc là tiếp nối: cùng goalId, nguồn thành router, mục tiêu lấy theo router', {}, async ($, on) => {
     let n = 0
-    base(on, { router: () => (++n === 1 ? ROUTER_TIMEOUT : plan({ relation: 'continue', goal: 'Refactor thanh toán sang sự kiện' })) })
+    base(on, { router: () => (++n <= 2 ? ROUTER_TIMEOUT : plan({ relation: 'continue', goal: 'Refactor thanh toán sang sự kiện' })) })
     hooks(on)
     await submit($, COMPLEX_PROMPT)
     await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa' }] })
@@ -154,7 +156,7 @@ describe('0.7.2 2: nâng cấp khi router đọc được', () => {
 
   test('sau khi nâng cấp bằng prompt kế, tier theo router (không còn sàn của mục tiêu tối thiểu) và ngân sách tool call hoạt động lại', {}, async ($, on) => {
     let n = 0
-    const seen = base(on, { router: () => (++n === 1 ? ROUTER_TIMEOUT : plan({ relation: 'continue', goal: 'Sửa nhỏ', depth: 'light', volume: 'small' })) })
+    const seen = base(on, { router: () => (++n <= 2 ? ROUTER_TIMEOUT : plan({ relation: 'continue', goal: 'Sửa nhỏ', depth: 'light', volume: 'small' })) })
     hooks(on)
     await submit($, COMPLEX_PROMPT)
     await submit($, 'Chỉ sửa một dòng nhỏ')
@@ -169,7 +171,7 @@ describe('0.7.2 2: nâng cấp khi router đọc được', () => {
 
   test('prompt kế được đọc là mục tiêu mới: lập mục tiêu mới bình thường', {}, async ($, on) => {
     let n = 0
-    base(on, { router: () => (++n === 1 ? ROUTER_TIMEOUT : plan({ relation: 'new', goal: 'Việc hoàn toàn khác' })) })
+    base(on, { router: () => (++n <= 2 ? ROUTER_TIMEOUT : plan({ relation: 'new', goal: 'Việc hoàn toàn khác' })) })
     await submit($, COMPLEX_PROMPT)
     await submit($, 'Chuyển sang việc khác')
     const band = await mountBand($)
