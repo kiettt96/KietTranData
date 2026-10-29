@@ -7,9 +7,9 @@ import type { EngineInterface, On } from 'claude-code'
 import type { QuotaCheckpoint, QuotaPause, QuotaState } from '../../types'
 import { addTouched, buildCheckpoint, pruneKeys, pushRecent, recentLine, storeKey } from '../lib/checkpoint'
 import type { CheckpointInput } from '../lib/checkpoint'
-import { classifyBash, filePathOf, isInScope, isMutation, restorableSteps } from '../lib/drift'
+import { classifyBash, filePathOf, isInScope, isMutation, normalizePath, restorableSteps } from '../lib/drift'
 import { FILE_TOOLS } from '../lib/drift/tool'
-import { EMPTY_QUOTA, QUOTA_CACHE_MS, deniedInput, evaluateQuota, blockingHits, isPauseActive, newPause, normalizeQuota, noteDenial, overrideOf, allowScopes, pauseAllowIssues, pauseAllowPaths, quotaSettings, reasonsOf, softNotices } from '../lib/quota'
+import { EMPTY_QUOTA, QUOTA_CACHE_MS, deniedInput, evaluateQuota, blockingHits, isPauseActive, newPause, normalizeQuota, noteDenial, overrideOf, allowScopes, landsInsideAllowed, pauseAllowIssues, pauseAllowPaths, quotaSettings, reasonsOf, softNotices } from '../lib/quota'
 import type { QuotaEval } from '../lib/quota'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
@@ -190,29 +190,42 @@ async function warnNoticeIssues($: EngineInterface, issues: readonly string[], f
 }
 
 /**
- * Lời gọi ghi mà mọi đích nằm trong pauseAllowPaths (0.7.5): Write, Edit (tool file) có đường dẫn; Bash chỉ gồm tác động
- * ghi, đọc được mọi đích (không có đích lạ) và có ít nhất một đích. Đường dẫn tương đối neo theo thư mục gốc của phiên
- * (của Bash thì theo thư mục làm việc), như phạm vi.
+ * Lời gọi ghi mà mọi đích nằm trong pauseAllowPaths (0.7.5): Write, Edit, MultiEdit, NotebookEdit (tool file) có đường dẫn; Bash chỉ
+ * gồm tác động ghi, đọc được mọi đích (không có đích lạ) và có ít nhất một đích. Đường dẫn tương đối neo theo thư mục gốc của phiên
+ * (của Bash thì theo thư mục làm việc), như phạm vi. Sau khi khớp theo chữ, mọi đường dẫn còn phải đáp thật vào trong danh sách
+ * ($.fs.stat với resolve, R9): symlink dẫn ra ngoài không qua được.
  */
 async function isAllowedWrite($: EngineInterface, input: Record<string, unknown> & { tool: string }, allowPaths: readonly string[]): Promise<boolean> {
   const root = await $.session.root().catch(() => null)
+  let paths: string[]
+  let cwd: string | null = null
   if (input.tool === 'Bash') {
     const classified = classifyBash(String(input['command'] ?? ''))
     // Mọi tác động phải là ghi có đường dẫn đọc được (git commit, git push và lệnh lạ không đường dẫn bị từ chối), không có ln
     // (liên kết có thể trỏ ra ngoài), và mọi đường dẫn, kể cả nguồn của mv, nằm trong danh sách.
     const isWriteOnly = classified.effects.length > 0 && classified.effects.every(e => e.kind === 'write' && e.paths.length > 0 && e.name !== 'ln')
     if (classified.isUnknown || !isWriteOnly) return false
-    const cwd = await $.session.cwd().catch(() => null)
-    return classified.paths.every(path => isInScope(path, allowPaths, root, cwd))
+    cwd = await $.session.cwd().catch(() => null)
+    paths = classified.paths
+  } else if (input.tool === 'Read' || FILE_TOOLS.has(input.tool)) {
+    // Đọc các đường dẫn được phép (file điểm dừng của lần trước) thì không cần ghi.
+    const path = input.tool === 'Read' ? String(input['file_path'] ?? '') : filePathOf({ tool: input.tool, input, isError: false, isReadOnly: false })
+    if (path === '') return false
+    paths = [path]
+  } else {
+    return false
   }
-  // Đọc các đường dẫn được phép (file điểm dừng của lần trước) thì không cần ghi.
-  if (input.tool === 'Read') {
-    const path = String(input['file_path'] ?? '')
-    return path !== '' && isInScope(path, allowPaths, root, null)
+  if (!paths.every(path => isInScope(path, allowPaths, root, cwd))) return false
+  if (root === null) return false
+  const base = normalizePath(root)
+  const from = cwd === null ? base : normalizePath(cwd.replace(/\\/g, '/').startsWith('/') ? cwd : `${base}/${cwd}`)
+  const stat = (path: string) => $.fs.stat(path, { resolve: true })
+  for (const path of paths) {
+    const unified = path.replace(/\\/g, '/')
+    const absolute = normalizePath(unified.startsWith('/') ? unified : `${from}/${unified}`)
+    if (!(await landsInsideAllowed(absolute, root, allowPaths, stat))) return false
   }
-  if (!FILE_TOOLS.has(input.tool)) return false
-  const path = filePathOf({ tool: input.tool, input, isError: false, isReadOnly: false })
-  return path !== '' && isInScope(path, allowPaths, root, null)
+  return true
 }
 
 export function registerQuota(on: On, ctx: Ctx): void {

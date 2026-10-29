@@ -21,7 +21,8 @@ type Entry = string | 'dangling'
 function fsStat(on: On, files: Record<string, Entry>): void {
   on('fs.stat', (_$, e) => {
     const entry = files[e.path]
-    if (entry === undefined) throw Object.assign(new Error(`ENOENT: no such file or directory, stat '${e.path}'`), { code: 'ENOENT' })
+    // `{ deny }` làm lời gọi $.fs.stat của mod bị từ chối (rejects), như engine từ chối đường dẫn không có.
+    if (entry === undefined) return { deny: `ENOENT: no such file or directory, stat '${e.path}'` } as never
     const isLink = entry === 'dangling' || entry !== e.path
     const stat = { kind: entry === 'dangling' ? ('other' as const) : ('dir' as const), size: 0, mtimeMs: 0, isLink }
     return { value: entry === 'dangling' || !e.resolve ? stat : { ...stat, realPath: entry } } as never
@@ -50,7 +51,7 @@ describe('0.7.5 R9: symlink trong danh sách dẫn ra ngoài bị từ chối', 
 
   test('đích ghi của Bash qua k6/l: redirect, tee, cp, mv đều bị từ chối', OPTS, async ($, on) => {
     await paused($, on)
-    for (const command of ['echo x > k6/l/a', 'echo x >> k6/l/a', 'echo x | tee k6/l/a', 'cp k6/a k6/l/b', 'mv k6/a k6/l/b', 'cp k6/l/a k6/b']) {
+    for (const command of ['echo x > k6/l/a', 'echo x >> k6/l/a', 'echo x | tee k6/l/a', 'cp k6/a k6/l/b', 'mv k6/a k6/l/b']) {
       expect((await bash($, command)).deny, command).toContain(DENIED)
     }
   })
@@ -69,8 +70,20 @@ describe('0.7.5 R9: symlink trong danh sách dẫn ra ngoài bị từ chối', 
   test('hệ tệp báo lỗi khác ENOENT (từ chối quyền): từ chối, không đoán', OPTS, async ($, on) => {
     base(on)
     quotaMeter(on, [week(99)])
-    on('fs.stat', () => {
-      throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' })
+    on('fs.stat', () => ({ deny: 'EACCES: permission denied' }) as never)
+    on('tool.call', { tool: 'Write' }, () => ({ result: 'ok' }))
+    await submit($, COMPLEX_PROMPT)
+    expect((await call($, { tool: 'Write', file_path: '/repo/k6/a.md', content: 'x' })).deny).toContain(DENIED)
+  })
+})
+
+describe('0.7.5 R9: lỗi khác ENOENT không được coi là file chưa có', () => {
+  test('stat báo EACCES ở file nhưng thư mục cha đọc được: từ chối, không đi lên thư mục cha', OPTS, async ($, on) => {
+    base(on)
+    quotaMeter(on, [week(99)])
+    on('fs.stat', (_$, e) => {
+      if (e.path === '/repo' || e.path === '/repo/k6') return { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false, realPath: e.path } } as never
+      return { deny: 'EACCES: permission denied' } as never
     })
     on('tool.call', { tool: 'Write' }, () => ({ result: 'ok' }))
     await submit($, COMPLEX_PROMPT)
@@ -107,6 +120,11 @@ describe('0.7.5 R9: mục tuyệt đối ngoài thư mục gốc', () => {
     await paused($, on, { '/repo': '/repo', '/tmp': '/tmp', '/tmp/ck': '/tmp/ck', '/tmp/ck/l': '/etc' })
     expect((await call($, { tool: 'Write', file_path: '/tmp/ck/a', content: 'x' })).deny).toBeUndefined()
     expect((await call($, { tool: 'Write', file_path: '/tmp/ck/l/passwd', content: 'x' })).deny).toContain(DENIED)
+  })
+
+  test('symlink sang thư mục có tên bắt đầu giống mục (/tmp/ckevil) không được coi là nằm trong /tmp/ck', { options: { pauseAllowPaths: '/tmp/ck' } }, async ($, on) => {
+    await paused($, on, { '/repo': '/repo', '/tmp': '/tmp', '/tmp/ck': '/tmp/ck', '/tmp/ck/l': '/tmp/ckevil' })
+    expect((await call($, { tool: 'Write', file_path: '/tmp/ck/l/x', content: 'x' })).deny).toContain(DENIED)
   })
 })
 

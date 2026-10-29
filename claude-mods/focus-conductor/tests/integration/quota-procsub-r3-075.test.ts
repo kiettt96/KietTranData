@@ -5,7 +5,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import { classifyBash } from '../../hooks/lib/drift'
 import { COMPLEX_PROMPT, base, submit } from '../support/engine'
-import { quotaMeter, week } from '../support/quota'
+import { flatFs, quotaMeter, week } from '../support/quota'
 
 type Out = { deny?: string }
 const bash = ($: Engine, command: string) => $.tool.call({ tool: 'Bash', command } as never) as Promise<Out>
@@ -32,6 +32,7 @@ describe('0.7.5 R3: process substitution là không xác định', () => {
 
   test('lệnh ghi thường vào danh sách vẫn được qua; so sánh "<" và "<<" không phải process substitution', OPTS, async ($, on) => {
     base(on)
+    flatFs(on)
     quotaMeter(on, [week(99)])
     on('tool.call', { tool: 'Bash' }, () => ({ result: 'ok' }))
     await submit($, COMPLEX_PROMPT)

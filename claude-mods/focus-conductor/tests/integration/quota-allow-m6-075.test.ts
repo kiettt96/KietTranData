@@ -5,12 +5,13 @@
 import { describe, expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import { COMPLEX_PROMPT, base, submit } from '../support/engine'
-import { quotaMeter, week } from '../support/quota'
+import { flatFs, quotaMeter, week } from '../support/quota'
 
 type Out = { deny?: string; context?: string[] }
 const call = ($: Engine, input: Record<string, unknown>) => $.tool.call(input as never) as Promise<Out>
 const bash = ($: Engine, command: string) => call($, { tool: 'Bash', command })
 const tools = (on: Parameters<typeof base>[0]) => {
+  flatFs(on)
   on('tool.call', { tool: 'Write' }, () => ({ result: 'ok' }))
   on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
   on('tool.call', { tool: 'Bash' }, () => ({ result: 'ok' }))

@@ -15,15 +15,15 @@ describe('0.7.5 L5: câu từ chối có pauseAllowPaths', () => {
     expect(text).toContain('Không gọi tool nào khác')
   })
 
-  test('câu về đường dẫn đủ chữ: Write, Edit, Bash có mọi đường dẫn đích nằm trong danh sách đó', () => {
+  test('câu về đường dẫn đủ chữ: Write, Edit, MultiEdit, NotebookEdit, Bash có mọi đường dẫn đích nằm trong danh sách đó', () => {
     const text = quotaDenyText(REASONS, false, false, PATHS)
-    expect(text).toContain('Được ghi vào các đường dẫn của pauseAllowPaths: .checkpoint/, /tmp/ck (bằng Write, Edit, hay Bash có mọi đường dẫn đích nằm trong danh sách đó)')
+    expect(text).toContain('Được ghi vào các đường dẫn của pauseAllowPaths: .checkpoint/, /tmp/ck (bằng Write, Edit, MultiEdit, NotebookEdit hay Bash có mọi đường dẫn đích nằm trong danh sách đó; đọc các đường dẫn đó bằng Read vì Claude Code cần Read trước Edit)')
   })
 
   test('"Không gọi tool nào khác" nói rõ ngoại lệ là các đường dẫn đó, rồi tới hướng dẫn checkpoint', () => {
     const text = quotaDenyText(REASONS, false, false, PATHS)
     expect(text.indexOf('Không gọi tool nào khác')).toBeLessThan(text.indexOf('action "checkpoint"'))
-    expect(text).toContain('Không gọi tool nào khác ngoài việc ghi vào các đường dẫn đó và tool plan')
+    expect(text).toContain('Không gọi tool nào khác ngoài việc ghi và Read các đường dẫn đó và tool plan')
   })
 })
 
