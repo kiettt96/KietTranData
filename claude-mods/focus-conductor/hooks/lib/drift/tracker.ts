@@ -32,6 +32,8 @@ export type TurnTracker = {
    * xóa cả tập; kiểm tra đạt của subagent chỉ xóa phần của chính nó.
    */
   pending: Set<string>
+  /** Số thay đổi chưa được kiểm tra lại của từng tác giả trong `pending` (R8): câu cuối turn nêu số thay đổi của subagent. */
+  pendingChanges: Map<string, number>
   /** Số lệnh kiểm tra đạt trong turn (để câu báo phân biệt "chưa kiểm tra lần nào" với "sửa sau lần kiểm tra cuối"). */
   checks: number
   /** Số lời gọi Agent thành công: turn chỉ giao subagent vẫn là turn đang thực thi mục tiêu. */
@@ -62,6 +64,7 @@ export function newTracker(turnId: string): TurnTracker {
     mutationsSinceCheck: 0,
     isVerified: false,
     pending: new Set(),
+    pendingChanges: new Map(),
     checks: 0,
     delegated: 0,
     unknownWrites: new Set(),
@@ -150,6 +153,7 @@ export function trackVerification(tracker: TurnTracker, observation: ToolObserva
     // Nhịp nhắc checkpoint là của luồng chính: ghi của subagent làm luồng chính chưa được kiểm chứng (pending) nhưng không tiến nhịp.
     if (author === 'main') tracker.mutationsSinceCheck += 1
     tracker.pending.add(author)
+    tracker.pendingChanges.set(author, (tracker.pendingChanges.get(author) ?? 0) + 1)
     tracker.isVerified = false
     writes += 1
   }
@@ -168,8 +172,12 @@ export function trackVerification(tracker: TurnTracker, observation: ToolObserva
     }
     if (!checkEffectPassed(effect, observation)) continue
     tracker.checks += 1
-    if (author === 'main') tracker.pending.clear()
-    else tracker.pending.delete(author)
+    if (author === 'main') {
+      tracker.pending.clear()
+    } else {
+      tracker.pending.delete(author)
+      tracker.pendingChanges.delete(author)
+    }
     if (tracker.pending.size === 0) markVerified(tracker)
   }
   return writes
@@ -178,6 +186,7 @@ export function trackVerification(tracker: TurnTracker, observation: ToolObserva
 /** Luồng chính đã được kiểm chứng: bộ đếm thay đổi chưa kiểm và mốc checkpoint đã nhắc cùng về 0 (vòng sửa 2 của 0.7.5). */
 export function markVerified(tracker: TurnTracker): void {
   tracker.isVerified = true
+  tracker.pendingChanges.clear()
   tracker.mutationsSinceCheck = 0
   tracker.checkpointMark = 0
 }
@@ -357,6 +366,18 @@ export function observe(
   return findings
 }
 
+/**
+ * Câu báo còn thay đổi chưa kiểm tra lại sau lần kiểm tra cuối (R8): thay đổi của luồng chính và của subagent nêu riêng, để khi
+ * chỉ còn thay đổi của subagent câu không báo "0 thay đổi".
+ */
+function unverifiedText(tracker: TurnTracker): string {
+  let sub = 0
+  for (const [author, count] of tracker.pendingChanges) if (author !== 'main') sub += count
+  if (sub === 0) return `${tracker.mutationsSinceCheck} thay đổi sau lần kiểm tra cuối chưa được kiểm tra lại`
+  if (tracker.mutationsSinceCheck === 0) return `${sub} thay đổi của subagent sau lần kiểm tra cuối chưa được kiểm tra lại`
+  return `${tracker.mutationsSinceCheck} thay đổi của luồng chính và ${sub} thay đổi của subagent sau lần kiểm tra cuối chưa được kiểm tra lại`
+}
+
 /** Phát hiện ở cuối turn: còn thay đổi chưa kiểm tra, checklist còn mở. */
 export function summarize(tracker: TurnTracker, brief: Brief | null, plan: readonly PlanStep[]): Finding[] {
   const findings: Finding[] = []
@@ -368,7 +389,7 @@ export function summarize(tracker: TurnTracker, brief: Brief | null, plan: reado
       text:
         tracker.checks === 0
           ? `Turn có ${tracker.mutations} thay đổi nhưng không chạy bước kiểm tra nào`
-          : `${tracker.mutationsSinceCheck} thay đổi sau lần kiểm tra cuối chưa được kiểm tra lại`,
+          : unverifiedText(tracker),
     })
   }
   const open = openSteps(plan)

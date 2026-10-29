@@ -63,6 +63,8 @@ describe('0.7.5 R8: câu cuối turn khi còn thay đổi của subagent chưa k
     trackVerification(tracker, edit('/repo/src/x.ts'), 'agent-1')
     trackVerification(tracker, bash('npm test'))
     expect(unverified(tracker)).toBeUndefined()
+    trackVerification(tracker, edit('/repo/src/c.ts'))
+    expect(unverified(tracker)).toBe('1 thay đổi sau lần kiểm tra cuối chưa được kiểm tra lại')
   })
 
   test('chưa chạy bước kiểm tra nào: câu cũ về số thay đổi của turn', () => {
