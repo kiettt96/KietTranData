@@ -46,6 +46,23 @@ describe('0.7.5 R2: mười hai đầu ra lỗi', () => {
   }
 })
 
+describe('0.7.5 R2: cảnh báo kèm số khác 0 ở mọi dạng', () => {
+  test('"3 cảnh báo", "Cảnh báo 2 dòng", "2 warnings", "Warnings 2" là lỗi; "0 cảnh báo", "Cảnh báo 0" không', () => {
+    declared(() => {
+      for (const output of ['Kiểm xong, 3 cảnh báo\nOK', 'Cảnh báo 2 dòng\nOK', 'Done, 2 warnings\nOK', 'Warnings 2\nOK']) expect(piped(output), output).toBe(false)
+      for (const output of ['Kiểm xong, 0 cảnh báo\nOK', 'Cảnh báo 0\nOK']) expect(piped(output), output).toBe(true)
+    })
+  })
+})
+
+describe('0.7.5 R2: vế số lỗi chỉ là phần còn lại của dòng đó, số 0 viết kiểu thập phân là 0', () => {
+  test('"Thiếu: 0" rồi dòng khác có số: đạt; "Chênh lệch: 0,0" và "Lỗi = 0.0": đạt', () => {
+    declared(() => {
+      for (const output of ['Thiếu: 0\nĐã kiểm 12 lô\nOK', 'Chênh lệch: 0,0\nOK', 'Lỗi = 0.0\nOK']) expect(piped(output), output).toBe(true)
+    })
+  })
+})
+
 describe('0.7.5 R2: ca đạt vẫn đạt', () => {
   test('KẾT QUẢ: ĐẠT, 0 lỗi, số 0 đứng riêng, cảnh báo bằng 0, tỷ lệ đủ', () => {
     declared(() => {

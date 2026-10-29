@@ -172,31 +172,45 @@ const NEGATED = '(?<![\\p{L}\\p{N}])(?:chưa|chẳng|không|đừng|not|no|never
 /**
  * Dấu hiệu lỗi: KHÔNG ĐẠT, KHÔNG KHỚP, CHƯA ĐẠT, CHƯA KHỚP, KHÔNG HỢP LỆ, LỖI, SAI, THIẾU, LỆCH (gồm CHÊNH LỆCH), FAIL, ERROR, MISMATCH
  * (lỗi thắng dấu hiệu đạt). Thêm ở vòng sửa 2 của 0.7.5: chưa đạt, chưa khớp, thiếu, lệch, chênh lệch, không hợp lệ, mismatch, error.
+ * Thêm ở vòng rà soát 3: missing, (do/does) not match, invalid, exception, không đúng, khác biệt.
  */
 const CUSTOM_FAILED = new RegExp(
-  `${EDGE_START}(?:không\\s+đạt|không\\s+khớp|không\\s+hợp\\s+lệ|chưa\\s+(?:đạt|khớp|ok)|not\\s+ok|lỗi|sai|thiếu|lệch|mismatch(?:es|ed)?|errors?|fail(?:ed|ures?)?)${EDGE_END}`,
+  `${EDGE_START}(?:không\\s+đạt|không\\s+khớp|không\\s+hợp\\s+lệ|không\\s+đúng|khác\\s+biệt|chưa\\s+(?:đạt|khớp|ok)|not\\s+ok|lỗi|sai|thiếu|lệch|mismatch(?:es|ed)?|errors?|fail(?:ed|ures?)?|missing|(?:do|does|did)?\\s*not\\s+match(?:es|ed)?|doesn't\\s+match|invalid|exceptions?)${EDGE_END}`,
   'iu',
 )
-/** Dấu ✗ và ✘ đứng riêng không có ranh giới chữ. */
-const CROSS_MARK = /[\u2717\u2718]/u
+/** Dấu ✗ ✘ ✖ ❌ đứng riêng không có ranh giới chữ. */
+const CROSS_MARK = /[\u2717\u2718\u2716\u274C]/u
 /** Dấu hiệu đạt rõ: ĐẠT, KHỚP, OK, PASS, passed, 0 lỗi, 0 failed; không nằm sau chữ phủ định. */
 const CUSTOM_PASSED = new RegExp(`${EDGE_START}(?<!${NEGATED})(?:đạt|khớp|ok|pass(?:ed)?|passing|0\\s+lỗi|0\\s+failed|0\\s+errors?)${EDGE_END}`, 'iu')
+/** Từ chỉ số lỗi; "cảnh báo" chỉ là lỗi khi kèm số khác 0 (vòng rà soát 3). */
+const FAILURE_WORDS = 'lỗi|sai|thiếu|lệch|mismatch(?:es)?|fail(?:ed|ures?)?|errors?|missing|invalid|exceptions?|cảnh\\s+báo|warnings?'
+/** Số 0 đứng riêng (0, 0.0, 0,00), không phải 0.5 hay 0,3: "Lỗi = 0.5%" không là số lỗi bằng 0 (vòng rà soát 3). */
+const ZERO = `0(?:[.,]0+)?(?![.,]?\\d)${EDGE_END}`
 /** Số lỗi bằng 0 ("0 lỗi", "FAIL: 0", "Thiếu: 0") không phải dấu hiệu lỗi: bỏ trước khi tìm dấu hiệu lỗi. */
-const FAILURE_WORDS = 'lỗi|sai|thiếu|lệch|mismatch(?:es)?|fail(?:ed|ures?)?|errors?'
-const ZERO_FAILURES = new RegExp(
-  `${EDGE_START}0\\s+(?:${FAILURE_WORDS})${EDGE_END}|${EDGE_START}(?:${FAILURE_WORDS})\\s*[:=]\\s*0${EDGE_END}`,
-  'giu',
-)
+const ZERO_FAILURES = new RegExp(`${EDGE_START}${ZERO}\\s*(?:${FAILURE_WORDS})${EDGE_END}|${EDGE_START}(?:${FAILURE_WORDS})\\s*[:=]\\s*${ZERO}`, 'giu')
+/** Từ chỉ số lỗi theo sau là ":" hay "=" và phần còn lại của dòng: mọi số trong vế đó phải là 0 ("Thiếu: 0 cũ, 12 mới" là lỗi). */
+const FAILURE_CLAUSE = new RegExp(`${EDGE_START}(?:${FAILURE_WORDS})\\s*[:=]([^\\n]*)`, 'giu')
+/** "N cảnh báo", "Cảnh báo N" với N khác 0 (không qua dấu ":"). */
+const WARNING_COUNT = new RegExp(`${EDGE_START}(\\d+)\\s+(?:cảnh\\s+báo|warnings?)${EDGE_END}|${EDGE_START}(?:cảnh\\s+báo|warnings?)\\s+(\\d+)`, 'giu')
 /** Tỷ lệ "N/M" (không nằm trong đường dẫn hay ngày nhiều đoạn): N nhỏ hơn M là còn thiếu. */
 const RATIO = /(?<![\d/.,])(\d+)\s*\/\s*(\d+)(?![\d/])/gu
+/** Tỷ lệ bằng chữ "N trên M", "N of M", "N out of M" (vòng rà soát 3). */
+const RATIO_WORDS = new RegExp(`${EDGE_START}(\\d+)\\s+(?:trên|of|out\\s+of)\\s+(\\d+)${EDGE_END}`, 'giu')
+
+/** Một vế sau từ chỉ số lỗi có số khác 0 (số thập phân như 0.5 cũng khác 0). */
+function nonZero(clause: string): boolean {
+  return [...clause.matchAll(/\d+(?:[.,]\d+)?/gu)].some(match => Number(match[0].replace(',', '.')) !== 0)
+}
 
 /** Output của lệnh kiểm riêng có dấu hiệu lỗi (0.7.5): dấu hiệu chung của trình chạy, hay dấu hiệu tiếng Việt. */
 function customFailed(output: string): boolean {
   const text = output.normalize('NFC')
   if (COMPLETE_FAIL.some(pattern => pattern.test(text))) return true
+  if ([...text.matchAll(FAILURE_CLAUSE)].some(match => nonZero(match[1] ?? ''))) return true
+  if ([...text.matchAll(WARNING_COUNT)].some(match => Number(match[1] ?? match[2]) !== 0)) return true
   const cleaned = text.replace(ZERO_FAILURES, ' ')
   if (CUSTOM_FAILED.test(cleaned) || CROSS_MARK.test(cleaned)) return true
-  return [...cleaned.matchAll(RATIO)].some(match => Number(match[1]) < Number(match[2]))
+  return [...cleaned.matchAll(RATIO), ...cleaned.matchAll(RATIO_WORDS)].some(match => Number(match[1]) < Number(match[2]))
 }
 
 /**
