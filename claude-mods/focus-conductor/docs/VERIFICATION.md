@@ -2,7 +2,42 @@
 
 Số đo của HEAD hiện tại và của các bản trước. Mọi số do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển] trừ khi nêu khác; hợp đồng đối chiếu evidence ở [DESIGN.md](DESIGN.md), lịch sử thay đổi ở [CHANGELOG.md](../CHANGELOG.md), cách dùng ở [README](../README.md).
 
-## Kiểm chứng HEAD hiện tại
+## Kiểm chứng HEAD hiện tại: vòng rà soát 4
+
+Vòng rà soát 4 (probe độc lập trên head `49c6939`): S1 tới S10, ngày 2026-10-30, nhánh `claude/focus-conductor-0-7-5`. Mỗi điểm một commit test đỏ rồi một commit sửa (S10 chỉ đổi tài liệu, S9 có thêm một commit sửa sau khi đột biến bắt được lỗi thật). Mã (`hooks/`) của cây cuối `bceb435` có sha256 `3c37849671c6401d8b8a69f6022017678a9e42f57b41890a61a92444fcdf1ad7` và `tests/` có `1efa4d48967b1355bcb954ef0cb73fdb1eb84a9348831e78c6c1777541b213b8` (tính bằng `scripts/mutate.ts --check` trên cây cuối). Các commit tài liệu sau đó không đổi hai giá trị này.
+
+- Môi trường: Claude Code 2.1.296 (bản CI ghim) cho mọi lần chạy test và đột biến dưới đây [Đo trực tiếp].
+- `claude plugin test .` trên 2.1.296: 1999 test qua, 0 lỗi, tăng 92 so với vòng rà soát 3 (1907) [Đo trực tiếp]. `claude plugin validate .` qua ở thư mục mod và ở gốc repo. `bunx tsc -p tsconfig.json` sạch. `scripts/mutate.ts --check`: 1499/1499 khớp, danh sách `mismatched` rỗng [Đo trực tiếp].
+- Golden: `tests/golden.test.ts` khớp hash của 35 ca (nằm trong 1999 test qua), nên request của router không đổi và không chạy lại eval golden-set.
+- Test đỏ trước khi sửa, đo trên mã của commit ngay trước từng điểm [Đo trực tiếp]:
+
+| Điểm | Đỏ | Tệp test |
+|---|---|---|
+| S1 | 4 trên 5 | `tests/caps-s1-075.test.ts`, `tests/integration/caps-r1-075.test.ts` (đổi) |
+| S2 | 2 trên 5 | `tests/session-floor-s2-075.test.ts`, `tests/integration/session-floor-s2-engine-075.test.ts` |
+| S3 | 5 trên 7 | `tests/rule-override-s3-075.test.ts`, `tests/integration/agent-memo-r6-075.test.ts` (ca "Riêng") |
+| S4 | 2 trên 4 | `tests/integration/quota-hardlink-s4-075.test.ts` |
+| S5 | 20 trên 25 | `tests/custom-pipe-s5-075.test.ts` |
+| S6 | 15 trên 26 | `tests/integration/pane-height-s6-075.test.ts` |
+| S7 | 2 trên 3 | `tests/suggest-s7-075.test.ts` |
+| S8 | 2 trên 2 | `tests/integration/dropped-kind-s8-075.test.ts` |
+| S9 | 1 trên 2 | `tests/session-floor-s9-075.test.ts` |
+| S9 (sau đột biến `075-B11f`) | 1 trên 7 | `tests/session-floor-s2-075.test.ts` (ca quy định chỉ nêu "session model" được mang sang) |
+| S10 | chỉ tài liệu | `docs/DESIGN.md` |
+
+- Lỗi thật mà đột biến bắt được: `075-B11f` sống sót trong lượt đầu, vì `isModelRule` không nhận cụm "session model", nên quy định chỉ viết bằng tiếng Anh không được mang sang mục tiêu mới. Đây là lỗi của S9 và đã sửa ở `bceb435` kèm test (đỏ 1 trên 7 trước khi sửa).
+- Lệch so với đặc tả: đặc tả S5 yêu cầu "toàn bộ test H1, R2 hiện có vẫn đúng", nhưng luật dòng tổng kết chặt không tính đạt cho "Kiểm xong tại casino OK" và "know OK" (dòng cuối là `OK`, không khớp dòng tổng kết). Hai ca cũ này đổi thành kỳ vọng không đạt, ghi ở CHANGELOG mục "Test cũ đã đổi". Đây là điểm cần người rà soát quyết định.
+- B6, số lượt router chấm subagent với 150 lô (`tests/integration/agent-memo-075.test.ts` và `agent-memo-r6-075.test.ts`, gồm biến thể "Riêng tin pháp lý" và quy tắc thật của S2): các ca đều qua với số lượt như kỳ vọng ở vòng rà soát 3 (0 lượt khi Claude ghi đúng model, 1 lượt cho lô khớp ngoại lệ hay mã ngắn) [Đo trực tiếp]. Kịch bản S2 đi qua engine (`session-floor-s2-engine-075`): luồng chính giữ `haiku/low` sau một mục tiêu có quy định "đọc, giải thích, đúc kết dùng mô hình của phiên" [Đo trực tiếp].
+- Phiên dài sau S1 tới S10 (cùng kịch bản của mục 6, engine 2.1.296, đo lại trên cây cuối `bceb435`) [Đo trực tiếp]: cứ 10 lời gọi có một script ghi, 10.339 ký tự mod chèn, 9 lời nhắc checkpoint sau subagent, 0 lượt router, nâng `verified` 11 trên 11, cảnh báo phạm vi 1 mỗi script, "100/100 lô xong" ở ba dòng việc. Cứ 3 lời gọi, 19.587 ký tự và 24 lời nhắc checkpoint, các chỉ số khác như trên. Số này khớp vòng rà soát 3.
+- `main` 19b0349 đo lại trong vòng này: 35.190 ký tự (cứ 10 lời gọi có một script ghi) và 106.063 (cứ 3 lời gọi), 300 lượt router, 0 checkpoint sau subagent, 0 trên 11 bước nâng, cảnh báo phạm vi 9 tới 29 mỗi script; khớp số của vòng rà soát 3 [Đo trực tiếp].
+- Đột biến, một lượt đầy đủ trên 14 tệp `hooks/` đổi từ `49c6939`: 839 mẫu, bộ chạy hai pha ngoài repo (`--jobs 2`, engine 2.1.296), tests của cây đang chạy [Đo trực tiếp]. Kết quả: 823 bị bắt, 15 tương đương có lý do trong `scripts/mutants.ts` (`075-B10a`, `075-D1h`, `075-L2a`, `075-R2a`, `075-R9i`, `075-R9k`, `054-B9`, `054-D3`, `054-D4`, `060-B2`, `060-E2`, `060-F11`, `070-C1`, `073-S21`, `074-E14`), 1 sống sót (`075-B11f`, đã sửa như trên). Lượt này chạy trên bản sao của `bc55524`. Sau đó `bceb435` đổi một dòng regex (`isModelRule` trong `router.ts`), đúng chỗ mẫu `075-B11f` sống sót, nên chạy lại trên cây cuối: 56 mẫu gồm `075-B11e`, `075-B11f`, mọi `075-S2*`, `075-S9*` và 39 mẫu bị bắt bởi đúng một test đỏ ở pha 2 của lượt đầy đủ (xem bên dưới). Kết quả chạy lại trên máy yên: 56 trên 56 bị bắt, 0 sống sót [Đo trực tiếp].
+- Lần bắt giả do tải: lượt đầy đủ chạy khi máy tải khoảng 14 trên 4 nhân. Các mẫu bị bắt bởi đúng một test đỏ ở pha 2 được chạy lại trên bộ test của cây cuối lúc máy yên (39 mẫu, đều vẫn bị bắt). Các mẫu bị bắt ở pha 0 và pha 1 chỉ được kiểm bằng tập test liên quan, không chạy lại cả bộ.
+- Không hồi quy: toàn bộ 1999 test qua trên 2.1.296. Khi `mode` là `off` không có thay đổi hành vi (các chỗ mới đều nằm sau kiểm `mode off` sẵn có). Hành vi `plan`, ngưỡng dừng cứng mặc định, khối brief và quy tắc báo cáo của subagent giữ nguyên.
+- CI: check `plugin` xanh trên commit mã cuối `bceb435` (run 40997225792, lúc 2026-10-30) [Nguồn: GitHub Actions]. Commit tài liệu sau đó chỉ đổi `docs/`, `CHANGELOG.md`, mô tả PR; CI của nó ghi ở mô tả PR.
+- Quét chuỗi riêng tư: bằng tệp mẫu nằm ngoài repo, trên `git log -p 49c6939..HEAD`, phần chưa commit và các dòng thêm vào tài liệu: 0 dòng khớp trong diff; trong thông điệp commit chỉ có dòng trailer `Claude-Session` (theo yêu cầu ghi nguồn). Em dash: 0 dòng thêm trong mã, test, tài liệu và thông điệp commit. Dấu chấm than: 0 dòng thêm trong tài liệu (md, json). Ký hiệu trang trí: 0; có 1 dòng thêm chứa ký hiệu ✗ được trích làm dữ liệu (tên dấu của đầu ra lệnh kiểm) [Đo trực tiếp]. Quét lại bằng danh sách thật của người dùng là việc còn lại (xem dưới).
+- Chưa kiểm được (chỉ kiểm được trong phiên tương tác thật hoặc bằng dữ liệu của người dùng): quét chuỗi riêng tư bằng danh sách thật; `$.session.model()` ở prompt đầu trên engine thật (S2, S9 và B11f đã kiểm qua kit); quy tắc "Riêng" và "trừ khi" trong prompt thật; symlink và đường dẫn ghi (S4, S10) trên hệ tệp thật của người dùng; bố cục pane với dạng gọn (S6) ở terminal thật; A1 trên engine 2.1.301 trở lên trong phiên thật.
+
+## Kiểm chứng của vòng rà soát 3 (0.7.5)
 
 Bản 0.7.5 (sửa các lỗi của đợt rà soát toàn diện sau 0.7.4: A1 tới A8, B1 tới B14, C1 tới C6, D1, cộng test nghiệm thu phiên dài; vòng sửa 2 sau góp ý cho bản đầu của PR: H1, H2, M1 tới M11, L1 tới L8; vòng rà soát 3 bằng probe độc lập: R1 tới R12), ngày 2026-10-29, nhánh `claude/focus-conductor-0-7-5` từ `main` `19b0349`. Mã (`hooks/`) trong commit chứa mục này đúng là nội dung đã kiểm: sha256 của `hooks/` là `cef78a7a68c4faf5b4437a493a58138a34e0640213396838d305c7c087e5d08b` và của `tests/` là `83c5e0995abd23936967ee8b944256b82e3237e6e47f0edd6b0ea05a10daadc3` (tính bằng `scripts/mutate.ts` trên cây cuối), giữ nguyên qua các commit chỉ đổi tài liệu sau đó. Số dưới đây do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển], trừ dòng CI.
 
