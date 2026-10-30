@@ -170,7 +170,7 @@ function unique(items: readonly string[], max: number): string[] {
 /** Ràng buộc nêu model cho một loại việc (họ model, hay "model/mô hình của phiên"): không bị thay khi đầy trần (0.7.5). */
 export function isModelRule(text: string): boolean {
   const folded = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase()
-  return /\b(?:haiku|sonnet|opus|fable)\b/.test(folded) || /(?:mo hinh|model) cua phien/.test(folded)
+  return /\b(?:haiku|sonnet|opus|fable)\b/.test(folded) || /(?:mo hinh|model) cua phien|session model/.test(folded)
 }
 
 /** Khóa so khớp của một mục (S1): bỏ dấu cách thừa và dấu câu cuối, không phân biệt hoa thường; hai mục cùng khóa là cùng một mục. */

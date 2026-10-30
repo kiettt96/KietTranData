@@ -57,3 +57,15 @@ describe('0.7.5 S2: số quy định mang sang được lưu', () => {
     expect(normalizeCore({ brief: makeBrief() }).brief?.carriedRules).toBeUndefined()
   })
 })
+
+describe('0.7.5 S2: quy định chỉ nêu "mô hình của phiên" (không nêu họ model) cũng được mang sang', () => {
+  test('mục tiêu mới mang ràng buộc "Đọc, giải thích dùng mô hình của phiên"; thêm "model của phiên" và "session model"', () => {
+    for (const rule of ['Đọc, giải thích dùng mô hình của phiên', 'Đọc dùng model của phiên', 'Reading uses the session model']) {
+      const first = nextBrief(null, routed({ goal: 'Cập nhật kho tri thức', constraints: [rule], kind: 'edit', main: lead('sonnet', 'medium') }), 'p', 1, OPUS).brief
+      const next = nextBrief(first, routed({ relation: 'new', confidence: 0.95, goal: 'Việc khác', constraints: [], kind: 'answer', main: lead('haiku', 'low') }), 'việc khác', 2, OPUS)
+      expect(next.brief.constraints, rule).toContain(rule)
+      expect(next.brief.carriedRules, rule).toBe(1)
+    }
+  })
+})
+
