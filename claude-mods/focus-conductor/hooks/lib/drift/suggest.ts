@@ -11,7 +11,7 @@ const SCRIPT_FILE = /\.(?:py|js|mjs|cjs|ts|rb|pl|sh)$/
 const CHECK_NAME = /^(?:kiem(?![_.-]?ke(?:[_.-]|$))|check|verify|validate|test|audit|reconcile)/i
 // Từ ghi dữ liệu trong tên script (R7): script có từ này, đứng đâu trong tên, không phải script kiểm dù tên bắt đầu bằng từ kiểm
 // (test_data_gen.py, check_and_fix.py, verify_and_update_db.py). Khớp theo từ trọn vẹn: check_fixtures.py vẫn là script kiểm.
-const WRITE_WORDS = new Set(['fix', 'update', 'gen', 'ghi', 'write', 'sua', 'sửa', 'capnhat'])
+const WRITE_WORDS = new Set(['fix', 'update', 'ghi', 'write', 'sua', 'sửa', 'capnhat', 'patch', 'apply', 'import', 'load', 'sync'])
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/
 const MAX_LENGTH = 80
 const MAX_SUGGESTIONS = 2
@@ -44,10 +44,13 @@ function isUsable(text: string): boolean {
 
 type Found = { text: string; seq: number }
 
-/** Tên script có từ ghi dữ liệu (fix, update, gen, ghi, write, sua, cap_nhat) ở bất kỳ chỗ nào trong tên, trừ đuôi tệp. */
+/**
+ * Tên script có từ ghi dữ liệu (fix, update, gen, ghi, write, sua, cap_nhat; S7: patch, apply, import, load, sync, và từ có hậu tố gen như
+ * testgen) ở bất kỳ chỗ nào trong tên, trừ đuôi tệp.
+ */
 function writesData(name: string): boolean {
   const words = name.replace(SCRIPT_FILE, '').toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean)
-  return words.some((word, i) => WRITE_WORDS.has(word) || (word === 'cap' && words[i + 1] === 'nhat'))
+  return words.some((word, i) => WRITE_WORDS.has(word) || word.endsWith('gen') || (word === 'cap' && words[i + 1] === 'nhat'))
 }
 
 /**

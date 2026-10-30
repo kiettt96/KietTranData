@@ -26,8 +26,9 @@ describe('0.7.5 R7: tên script có từ ghi dữ liệu không được gợi �
     }
   })
 
-  test('từ ghi phải là từ trọn vẹn trong tên: check_fixtures, verify_general, test_regen, check_signature vẫn được gợi ý', () => {
-    for (const file of ['check_fixtures.py', 'verify_general.py', 'test_regen.py', 'check_signature.py', 'test_writer_api.py', 'check_updates.py']) {
+  // S7 (vòng rà soát 4): từ có hậu tố gen (test_regen, testgen) cũng là từ ghi, nên test_regen.py không còn ở danh sách này.
+  test('từ ghi phải là từ trọn vẹn trong tên: check_fixtures, verify_general, check_signature vẫn được gợi ý', () => {
+    for (const file of ['check_fixtures.py', 'verify_general.py', 'check_signature.py', 'test_writer_api.py', 'check_updates.py']) {
       expect(suggestCheckCommands(logOf(`python3 scripts/${file}`)), file).toEqual([`python3 scripts/${file}`])
     }
   })
