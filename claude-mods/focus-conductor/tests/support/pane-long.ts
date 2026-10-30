@@ -67,18 +67,21 @@ export async function longGoal($: Engine, on: On, closed: number, count = TITLES
   if (closed < count) await $.tool.call({ tool: PLAN, action: 'update', step: closed + 1, status: 'doing' })
 }
 
-/** Dựng pane như pane tự mở và trả cây vẽ cùng các dòng chữ. */
-export async function drawn($: Engine) {
-  const pane = await $.ui.mount(PANE)
+/** Dựng pane như pane tự mở (mặc định 16 dòng thân, như pane tự mở phía trên prompt) và trả cây vẽ cùng các dòng chữ. */
+export async function drawn($: Engine, rows = 16) {
+  const pane = await $.ui.mount({ ...PANE, props: { ...PANE.props, scroll: { offset: 0, bodyRows: rows } } })
   const tree = await pane.drawn()
   const texts = (await pane.findAll({ type: 'Text' })).map(e => e.text).filter((t): t is string => typeof t === 'string')
   await pane.unmount()
   return { tree, texts }
 }
 
+/** Tiêu đề mục checklist và mục tiến độ từng việc theo ngôn ngữ. */
+export const HEADINGS = { vi: { checklist: /^Danh sách bước/, tasks: /^Tiến độ từng việc/ }, en: { checklist: /^Checklist/, tasks: /^Progress by task/ } } as const
+
 /** Các dòng chữ của riêng mục Checklist (từ tiêu đề Checklist tới tiêu đề Tiến độ từng việc); mục sau cũng ghi tiêu đề các việc. */
-export function checklistOf(texts: string[]): string[] {
-  const from = texts.findIndex(t => /^Danh sách bước/.test(t))
-  const to = texts.findIndex(t => /^Tiến độ từng việc/.test(t))
+export function checklistOf(texts: string[], lang: 'vi' | 'en' = 'vi'): string[] {
+  const from = texts.findIndex(t => HEADINGS[lang].checklist.test(t))
+  const to = texts.findIndex(t => HEADINGS[lang].tasks.test(t))
   return texts.slice(from + 1, to < 0 ? undefined : to)
 }
