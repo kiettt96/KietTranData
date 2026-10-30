@@ -298,7 +298,8 @@ export function registerSession(on: On, ctx: Ctx): void {
       await update($, coreState, S.withWarnings({ at: now, kind: 'model', text }))
     }
     // Phần tràn cũng đầy (vòng rà soát 3): mục của prompt tiếp nối không giữ được thì báo số mục, không bỏ im lặng.
-    if (dropped > 0) await update($, coreState, S.withWarnings({ at: now, kind: 'model', text: droppedItemsText(dropped) }))
+    // Kind riêng (S8): chip của pane ghi "mục bị bỏ", không phải "model".
+    if (dropped > 0) await update($, coreState, S.withWarnings({ at: now, kind: 'dropped', text: droppedItemsText(dropped) }))
     if (isNewGoal) {
       L.goalPrompt = { text, prev, goalId: brief.goalId }
       L.isGoalNew = true
