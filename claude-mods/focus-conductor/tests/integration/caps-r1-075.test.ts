@@ -63,11 +63,11 @@ describe('0.7.5 R1: phần tràn qua nhiều lượt tiếp nối', () => {
     expect(out.brief.constraints).toEqual([...CONSTRAINTS, 'Việc kiểm số liệu chạy opus', 'Tràn 2'])
   })
 
-  test('mục tiếp nối ở phần tràn có thể bị mục tiếp nối mới hơn thay (M3), kèm cảnh báo, không im lặng', () => {
+  test('mục tiếp nối ở phần tràn không bị mục tiếp nối mới hơn thay (S1, vòng rà soát 4): cả hai còn', () => {
     const prev = makeBrief({ constraints: [...CONSTRAINTS, 'Tràn 1'], constraintsBase: 12 })
     const out = nextBrief(prev, routed({ relation: 'continue', goal: '', constraints: ['Tràn 2'] }), 'tiếp', 2)
-    expect(out.brief.constraints).toEqual([...CONSTRAINTS, 'Tràn 2'])
-    expect(out.replaced).toEqual(['Tràn 1'])
+    expect(out.brief.constraints).toEqual([...CONSTRAINTS, 'Tràn 1', 'Tràn 2'])
+    expect(out.replaced).toEqual([])
   })
 
   test('trần ràng buộc là 12: 11 mục rồi thêm một mục thì không thay mục nào', () => {

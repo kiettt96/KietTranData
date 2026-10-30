@@ -173,74 +173,53 @@ export function isModelRule(text: string): boolean {
   return /\b(?:haiku|sonnet|opus|fable)\b/.test(folded) || /(?:mo hinh|model) cua phien/.test(folded)
 }
 
-/** Chỉ số cuối cùng trong [from, length) thỏa điều kiện; -1 nếu không có. */
-function lastIndexFrom(length: number, from: number, test: (index: number) => boolean): number {
-  for (let i = length - 1; i >= from; i--) if (test(i)) return i
-  return -1
+/** Khóa so khớp của một mục (S1): bỏ dấu cách thừa và dấu câu cuối, không phân biệt hoa thường; hai mục cùng khóa là cùng một mục. */
+function itemKey(text: string): string {
+  return text.normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim().replace(/[.;,:!?…]+$/u, '').trim()
+}
+
+/** Vị trí của mục cùng khóa trong danh sách; -1 nếu không có. */
+function indexOfKey(items: readonly string[], item: string): number {
+  const key = itemKey(item)
+  return items.findIndex(existing => itemKey(existing) === key)
 }
 
 /**
- * Gộp mục mới vào danh sách có trần (0.7.5): bỏ trùng; đầy trần thì mỗi mục mới thay mục CUỐI danh sách (ít quan trọng nhất)
- * không phải quy định model, không thuộc `base` mục đầu (mục của prompt lập mục tiêu, không bao giờ bị bỏ) và không vừa thêm
- * trong lần gộp này. Không còn mục thay được thì mục mới vào phần tràn (CAP_OVERFLOW mục ngoài trần, vòng rà soát 3); phần tràn cũng
- * đầy thì mục bị bỏ và được đếm ở `dropped`, không bao giờ bỏ im lặng.
+ * Gộp mục mới vào danh sách có trần (0.7.5, S1 của vòng rà soát 4): mục cùng khóa với một mục có sẵn thay mục đó tại chỗ; mục khác
+ * được thêm khi còn chỗ trong trần cộng phần tràn (CAP_OVERFLOW mục), nên mọi lần tinh chỉnh đều được giữ, không thay mục nào khác.
+ * Phần tràn cũng đầy thì mục bị bỏ và được đếm ở `dropped`, không bao giờ bỏ im lặng. `max` là trần, `prev` có thể đã có phần tràn.
  */
-function mergeCapped(prev: readonly string[], incoming: readonly string[], max: number, base: number): { items: string[]; dropped: number } {
+function mergeCapped(prev: readonly string[], incoming: readonly string[], max: number): { items: string[]; dropped: number } {
   const items = unique(prev, max + CAP_OVERFLOW)
-  const fresh = new Set<string>()
   let dropped = 0
   for (const item of incoming) {
-    if (items.includes(item)) continue
-    if (items.length < max) items.push(item)
-    else {
-      const old = lastIndexFrom(items.length, base, i => !isModelRule(items[i] ?? '') && !fresh.has(items[i] ?? ''))
-      if (old >= 0) {
-        items.splice(old, 1)
-        items.push(item)
-      } else if (items.length < max + CAP_OVERFLOW) items.push(item)
-      else {
-        dropped += 1
-        continue
-      }
-    }
-    fresh.add(item)
+    const at = indexOfKey(items, item)
+    if (at >= 0) items[at] = item
+    else if (items.length < max + CAP_OVERFLOW) items.push(item)
+    else dropped += 1
   }
   return { items, dropped }
 }
 
 /**
- * Gộp yêu cầu mới vào danh sách có trần REQUIREMENT_LIMIT (0.7.5): đầy thì yêu cầu mới thay tại chỗ yêu cầu cuối danh sách không
- * phải quy định model và không thuộc `base` yêu cầu đầu (của prompt lập mục tiêu), để số thứ tự của các yêu cầu khác không đổi; `freed` là số thứ tự (từ 1) đã bị thay, việc cũ không
- * còn phủ chúng. `renumber` đổi số thứ tự trong lượt router sang số thứ tự trong danh sách đã gộp.
+ * Gộp yêu cầu mới vào danh sách có trần REQUIREMENT_LIMIT (0.7.5, S1): như mergeCapped, yêu cầu cùng khóa thay tại chỗ (số thứ tự
+ * giữ nguyên nên `covers` của việc cũ vẫn đúng), yêu cầu khác được thêm khi còn chỗ trong trần cộng phần tràn, không thì bị bỏ và đếm.
+ * `renumber` đổi số thứ tự trong lượt router sang số thứ tự trong danh sách đã gộp.
  */
-function mergeRequirements(prev: readonly string[], incoming: readonly string[], base: number): { items: string[]; renumber: Map<number, number>; freed: Set<number>; dropped: number } {
+function mergeRequirements(prev: readonly string[], incoming: readonly string[]): { items: string[]; renumber: Map<number, number>; dropped: number } {
   const items = [...prev]
   const renumber = new Map<number, number>()
-  const freed = new Set<number>()
-  const fresh = new Set<number>()
   let dropped = 0
   incoming.forEach((item, i) => {
-    let at = items.indexOf(item)
-    if (at < 0 && items.length < REQUIREMENT_LIMIT) {
+    let at = indexOfKey(items, item)
+    if (at >= 0) items[at] = item
+    else if (items.length < REQUIREMENT_LIMIT + CAP_OVERFLOW) {
       items.push(item)
       at = items.length - 1
-      fresh.add(at)
-    } else if (at < 0) {
-      at = lastIndexFrom(items.length, base, k => !isModelRule(items[k] ?? '') && !fresh.has(k))
-      if (at >= 0) {
-        items[at] = item
-        freed.add(at + 1)
-        fresh.add(at)
-      } else if (items.length < REQUIREMENT_LIMIT + CAP_OVERFLOW) {
-        // Không còn yêu cầu thay được: vào phần tràn (vòng rà soát 3), vẫn có số thứ tự để việc mới phủ.
-        items.push(item)
-        at = items.length - 1
-        fresh.add(at)
-      } else dropped += 1
-    }
+    } else dropped += 1
     if (at >= 0) renumber.set(i + 1, at + 1)
   })
-  return { items, renumber, freed, dropped }
+  return { items, renumber, dropped }
 }
 
 /** Phần dài quá giới hạn: giữ đầu và cuối, ghi chú số ký tự đã lược. */
@@ -839,8 +818,8 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number, isHeld = 
   const offset = prev.tasks.reduce((max, t) => Math.max(max, t.index), 0)
   // Yêu cầu mới nối vào danh sách (bỏ trùng); covers của việc mới đổi sang số thứ tự trong danh sách đã gộp. Đầy trần thì
   // yêu cầu mới thay yêu cầu cũ (0.7.5): việc cũ không còn phủ chỗ bị thay.
-  const { items: requirements, renumber, freed, dropped: lostRequirements } = mergeRequirements(prev.requirements ?? [], plan.requirements, prev.requirementsBase ?? (prev.requirements ?? []).length)
-  const constraints = mergeCapped(prev.constraints, plan.constraints, CONSTRAINT_LIMIT, prev.constraintsBase ?? prev.constraints.length)
+  const { items: requirements, renumber, dropped: lostRequirements } = mergeRequirements(prev.requirements ?? [], plan.requirements)
+  const constraints = mergeCapped(prev.constraints, plan.constraints, CONSTRAINT_LIMIT)
   const dropped = lostRequirements + constraints.dropped
   const added = plan.tasks.map(t => ({
     ...t,
@@ -852,7 +831,7 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number, isHeld = 
     ...kept,
     ...(requirements.length > 0 ? { requirements } : {}),
     steps: added.length > 0 ? [...prev.steps, ...added.map(t => t.title)] : prev.steps,
-    tasks: [...prev.tasks.map(t => (t.covers !== undefined && t.covers.some(n => freed.has(n)) ? { ...t, covers: t.covers.filter(n => !freed.has(n)) } : t)), ...added],
+    tasks: [...prev.tasks, ...added],
     constraints: constraints.items,
     // Số mục của prompt tiếp nối không giữ được (vòng rà soát 3), cộng dồn trong mục tiêu: /conductor status nêu số này.
     ...((prev.dropped ?? 0) + dropped > 0 ? { dropped: (prev.dropped ?? 0) + dropped } : {}),
@@ -887,8 +866,8 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number, isHeld = 
 export function promoteReference(prev: Brief, plan: RouterPlan, prompt: string, now: number): Brief {
   // Ràng buộc, tiêu chí và phạm vi của prompt đính kèm được giữ từ lượt đối chiếu: lượt chạy thật phải có đủ. Cả hai lượt là prompt
   // lập mục tiêu nên mọi mục đều thuộc phần không bao giờ bị thay.
-  const mergedRequirements = mergeCapped(prev.requirements ?? [], plan.requirements, REQUIREMENT_LIMIT, prev.requirements?.length ?? 0).items
-  const mergedConstraints = mergeCapped(prev.constraints, plan.constraints, CONSTRAINT_LIMIT, prev.constraints.length).items
+  const mergedRequirements = mergeCapped(prev.requirements ?? [], plan.requirements, REQUIREMENT_LIMIT).items
+  const mergedConstraints = mergeCapped(prev.constraints, plan.constraints, CONSTRAINT_LIMIT).items
   return {
     ...briefOf(plan, prompt, prev.goalId + 1, now),
     goal: plan.goal || prev.goal,

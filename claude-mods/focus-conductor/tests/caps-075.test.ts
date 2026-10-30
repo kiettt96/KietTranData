@@ -13,14 +13,14 @@ const routed = (over: Record<string, unknown>): RouterPlan => parseRoute(JSON.st
 const rules = ['Việc lọc tin chạy sonnet', ...Array.from({ length: 11 }, (_, i) => `Ràng buộc cũ ${i}`)]
 
 describe('0.7.5 B11: ràng buộc đầy trần', () => {
-  test('mục mới thay ràng buộc cuối không phải quy định model; quy định model còn', () => {
+  test('đầy trần: mục mới vào phần tràn, không thay ràng buộc nào (S1, vòng rà soát 4; trước đó thay ràng buộc cuối)', () => {
     const prev = makeBrief({ constraints: rules, constraintsBase: 1 })
     const out = nextBrief(prev, routed({ relation: 'continue', goal: '', constraints: ['Không tạo bộ kiểm mới'] }), 'tiếp', 2)
-    expect(out.brief.constraints.length).toBe(12)
+    expect(out.brief.constraints.length).toBe(13)
     expect(out.brief.constraints).toContain('Không tạo bộ kiểm mới')
     expect(out.brief.constraints).toContain('Việc lọc tin chạy sonnet')
-    expect(out.brief.constraints).not.toContain('Ràng buộc cũ 10')
-    expect(out.replaced).toEqual(['Ràng buộc cũ 10'])
+    expect(out.brief.constraints).toContain('Ràng buộc cũ 10')
+    expect(out.replaced).toEqual([])
   })
 
   test('chưa đầy: không thay gì', () => {
@@ -38,7 +38,7 @@ describe('0.7.5 B11: ràng buộc đầy trần', () => {
 })
 
 describe('0.7.5 B11: yêu cầu đầy trần', () => {
-  test('yêu cầu mới thay yêu cầu cuối; việc cũ không còn phủ chỗ bị thay', () => {
+  test('đầy trần: yêu cầu mới vào phần tràn, việc cũ giữ nguyên phần phủ (S1; trước đó thay yêu cầu cuối)', () => {
     const requirements = Array.from({ length: 30 }, (_, i) => `Yêu cầu ${i + 1}`)
     const prev = makeBrief({
       requirements,
@@ -46,23 +46,23 @@ describe('0.7.5 B11: yêu cầu đầy trần', () => {
       tasks: [{ index: 1, title: 'Việc 1', run: 'main', pick: { family: 'sonnet', effort: 'medium' }, depth: 'light', volume: 'small', kind: 'edit', why: '', covers: [1, 30] }],
     })
     const out = nextBrief(prev, routed({ relation: 'continue', goal: '', requirements: ['Yêu cầu mới'], tasks: [{ title: 'Việc mới', run: 'main', model: 'sonnet', effort: 'medium', kind: 'edit', covers: [1] }] }), 'tiếp', 2)
-    expect(out.brief.requirements?.length).toBe(30)
-    expect(out.brief.requirements?.[29]).toBe('Yêu cầu mới')
-    expect(out.brief.tasks[0]?.covers).toEqual([1])
-    expect(out.brief.tasks[1]?.covers).toEqual([30])
-    expect(out.replaced).toEqual(['Yêu cầu 30'])
+    expect(out.brief.requirements?.length).toBe(31)
+    expect(out.brief.requirements?.[30]).toBe('Yêu cầu mới')
+    expect(out.brief.tasks[0]?.covers).toEqual([1, 30])
+    expect(out.brief.tasks[1]?.covers).toEqual([31])
+    expect(out.replaced).toEqual([])
   })
 })
 
 describe('0.7.5 B11: một cảnh báo khi thay', () => {
-  test('prompt tiếp nối làm đầy trần ràng buộc: cảnh báo nêu mục bị thay', {}, async ($, on) => {
+  test('mục mới cùng khóa với ràng buộc cũ thay ràng buộc đó: cảnh báo nêu mục bị thay (S1: chỉ mục cùng khóa mới bị thay)', {}, async ($, on) => {
     // Router đọc prompt chỉ nhận tối đa 10 ràng buộc một lượt: hai lượt tiếp nối mới đầy trần 12 của mục tiêu.
     base(on, {
       router: request =>
         request.startsWith('tiếp 1')
           ? plan({ relation: 'continue', goal: '', constraints: ['Thêm A', 'Thêm B'] })
           : request.startsWith('tiếp 2')
-            ? plan({ relation: 'continue', goal: '', constraints: ['Không tạo bộ kiểm mới'] })
+            ? plan({ relation: 'continue', goal: '', constraints: ['thêm b.'] })
             : plan({ goal: 'Cập nhật dữ liệu', constraints: rules.slice(0, 10) }),
     })
     await submit($, 'Cập nhật dữ liệu theo các lô')

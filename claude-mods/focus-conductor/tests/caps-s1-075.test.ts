@@ -68,4 +68,11 @@ describe('0.7.5 S1: mục trùng khóa và phần tràn đầy', () => {
     expect(out.brief.requirements).toEqual(full)
     expect(out.dropped).toBe(1)
   })
+
+  test(`ràng buộc: phần tràn đầy (${CAP_OVERFLOW} mục) thì ràng buộc mới bị bỏ và đếm ở dropped`, () => {
+    const full = [...CONSTRAINTS, ...Array.from({ length: CAP_OVERFLOW }, (_, i) => `Ràng buộc tràn ${i + 1}`)]
+    const out = nextBrief(makeBrief({ constraints: full, constraintsBase: 12 }), routed({ relation: 'continue', goal: '', constraints: ['Ràng buộc thứ 23'] }), 'x', 2)
+    expect(out.brief.constraints).toEqual(full)
+    expect(out.dropped).toBe(1)
+  })
 })

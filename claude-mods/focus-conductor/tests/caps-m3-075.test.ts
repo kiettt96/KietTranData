@@ -18,16 +18,16 @@ const later = (n: number) => Array.from({ length: n }, (_, i) => `Sau ${i}`)
 const withBase = (over: Partial<Brief>) => makeBrief(over as Partial<Brief>)
 
 describe('0.7.5 M3: ràng buộc đầy trần', () => {
-  test('mục mới thay mục cuối của phần thêm sau, không phải mục cũ nhất; mục của prompt đầu và quy định model còn', () => {
+  test('đầy trần: mục mới vào phần tràn, mọi mục cũ còn (S1, vòng rà soát 4; trước đó thay mục cuối của phần thêm sau)', () => {
     const constraints = ['Việc lọc tin chạy sonnet', ...first(3), ...later(8)]
     const prev = withBase({ constraints, constraintsBase: 4 } as Partial<Brief>)
     const out = nextBrief(prev, routed({ relation: 'continue', goal: '', constraints: ['Không tạo bộ kiểm mới'] }), 'tiếp', 2)
-    expect(out.brief.constraints.length).toBe(12)
+    expect(out.brief.constraints.length).toBe(13)
     expect(out.brief.constraints).toContain('Không tạo bộ kiểm mới')
     expect(out.brief.constraints).toContain('Sau 0')
-    expect(out.brief.constraints).not.toContain('Sau 7')
+    expect(out.brief.constraints).toContain('Sau 7')
     for (const item of ['Việc lọc tin chạy sonnet', ...first(3)]) expect(out.brief.constraints).toContain(item)
-    expect(out.replaced).toEqual(['Sau 7'])
+    expect(out.replaced).toEqual([])
   })
 
   test('toàn bộ mười hai mục đến từ prompt đầu: không thay, mục mới vào phần tràn (R1)', () => {
@@ -77,15 +77,15 @@ describe('0.7.5 M3: yêu cầu đầy trần', () => {
   const requirements = Array.from({ length: 30 }, (_, i) => `Yêu cầu ${i + 1}`)
   const task = { index: 1, title: 'Việc 1', run: 'main' as const, pick: { family: 'sonnet' as const, effort: 'medium' as const }, depth: 'light' as const, volume: 'small' as const, kind: 'edit' as const, why: '' }
 
-  test('yêu cầu mới thay tại chỗ yêu cầu cuối của phần thêm sau; yêu cầu đầu danh sách giữ nguyên số thứ tự', () => {
+  test('đầy trần: yêu cầu mới vào phần tràn; số thứ tự và phần phủ của yêu cầu cũ giữ nguyên (S1)', () => {
     const prev = withBase({ requirements, requirementsBase: 10, tasks: [{ ...task, covers: [1, 30] }] } as Partial<Brief>)
     const out = nextBrief(prev, routed({ relation: 'continue', goal: '', requirements: ['Yêu cầu mới'], tasks: [{ title: 'Việc mới', run: 'main', model: 'sonnet', effort: 'medium', kind: 'edit', covers: [1] }] }), 'tiếp', 2)
-    expect(out.brief.requirements?.length).toBe(30)
+    expect(out.brief.requirements?.length).toBe(31)
     expect(out.brief.requirements?.[0]).toBe('Yêu cầu 1')
-    expect(out.brief.requirements?.[29]).toBe('Yêu cầu mới')
-    expect(out.brief.tasks[0]?.covers).toEqual([1])
-    expect(out.brief.tasks[1]?.covers).toEqual([30])
-    expect(out.replaced).toEqual(['Yêu cầu 30'])
+    expect(out.brief.requirements?.[30]).toBe('Yêu cầu mới')
+    expect(out.brief.tasks[0]?.covers).toEqual([1, 30])
+    expect(out.brief.tasks[1]?.covers).toEqual([31])
+    expect(out.replaced).toEqual([])
   })
 
   test('mọi yêu cầu cũ đến từ prompt đầu: yêu cầu mới vào phần tràn (R1)', () => {
