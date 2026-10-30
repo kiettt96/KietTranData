@@ -99,6 +99,27 @@ export function allowScopes(paths: readonly string[]): string[] {
   return paths.map(path => (path.endsWith('/') && !path.startsWith('/') && !path.slice(0, -1).includes('/') ? `./${path}` : path))
 }
 
+/**
+ * Lệnh cp tạo liên kết thay vì chép (S4, vòng rà soát 4; `link` và `ln` đã bị từ chối vì không phải lệnh ghi đọc được đích): `cp` có -l, --link, -s, --symbolic-link (kể cả cờ gộp như -al, -sf và
+ * dạng viết tắt --li, --sym). Ghi vào liên kết cứng trong danh sách sửa file gốc ngoài danh sách mà realpath không thấy, nên khi tạm dừng
+ * cứng các lệnh này bị từ chối như ln. Đọc thô theo đoạn và từ (bỏ nháy), đủ cho mục đích từ chối.
+ */
+export function makesLink(command: string): boolean {
+  for (const segment of command.split(/&&|\|\||[;|\n]/)) {
+    const tokens = segment.trim().split(/\s+/).filter(Boolean).map(token => token.replace(/^['"]|['"]$/g, ''))
+    while (tokens.length > 0 && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[0] ?? '') || ['sudo', 'command', 'nohup', 'env'].includes(tokens[0] ?? ''))) tokens.shift()
+    const name = (tokens[0] ?? '').split('/').pop() ?? ''
+    if (name !== 'cp') continue
+    for (const arg of tokens.slice(1)) {
+      if (arg === '--') break
+      if (/^-[A-Za-z]+$/.test(arg) && /[ls]/.test(arg)) return true
+      const long = arg.startsWith('--') ? (arg.slice(2).split('=')[0] ?? '') : ''
+      if (long.length >= 2 && ('link'.startsWith(long) || 'symbolic-link'.startsWith(long))) return true
+    }
+  }
+  return false
+}
+
 /** Hàm `$.fs.stat(path, { resolve: true })` của engine, rút gọn phần dùng ở đây. */
 export type ResolveStat = (path: string) => Promise<{ realPath?: string }>
 

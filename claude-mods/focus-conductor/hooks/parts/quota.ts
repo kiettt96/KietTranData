@@ -9,7 +9,7 @@ import { addTouched, buildCheckpoint, pruneKeys, pushRecent, recentLine, storeKe
 import type { CheckpointInput } from '../lib/checkpoint'
 import { classifyBash, filePathOf, isInScope, isMutation, normalizePath, restorableSteps } from '../lib/drift'
 import { FILE_TOOLS } from '../lib/drift/tool'
-import { EMPTY_QUOTA, QUOTA_CACHE_MS, deniedInput, evaluateQuota, blockingHits, isPauseActive, newPause, normalizeQuota, noteDenial, overrideOf, allowScopes, landsInsideAllowed, pauseAllowIssues, pauseAllowPaths, quotaSettings, reasonsOf, softNotices } from '../lib/quota'
+import { EMPTY_QUOTA, QUOTA_CACHE_MS, deniedInput, evaluateQuota, blockingHits, isPauseActive, newPause, normalizeQuota, noteDenial, overrideOf, allowScopes, landsInsideAllowed, makesLink, pauseAllowIssues, pauseAllowPaths, quotaSettings, reasonsOf, softNotices } from '../lib/quota'
 import type { QuotaEval } from '../lib/quota'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
@@ -204,7 +204,8 @@ async function isAllowedWrite($: EngineInterface, input: Record<string, unknown>
     // Mọi tác động phải là ghi có đường dẫn đọc được (git commit, git push và lệnh lạ không đường dẫn bị từ chối), không có ln
     // (liên kết có thể trỏ ra ngoài), và mọi đường dẫn, kể cả nguồn của mv, nằm trong danh sách.
     const isWriteOnly = classified.effects.length > 0 && classified.effects.every(e => e.kind === 'write' && e.paths.length > 0 && e.name !== 'ln')
-    if (classified.isUnknown || !isWriteOnly) return false
+    // cp -l, cp -s, link (S4): tạo liên kết, như ln.
+    if (classified.isUnknown || !isWriteOnly || makesLink(String(input['command'] ?? ''))) return false
     cwd = await $.session.cwd().catch(() => null)
     paths = classified.paths
   } else if (input.tool === 'Read' || FILE_TOOLS.has(input.tool)) {
