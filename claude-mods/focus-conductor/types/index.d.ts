@@ -64,6 +64,11 @@ export type Brief = {
   constraints: string[]
   /** Số ràng buộc đầu danh sách đến từ prompt lập mục tiêu (0.7.5), như requirementsBase. */
   constraintsBase?: number
+  /**
+   * Số quy định model đầu danh sách ràng buộc mang sang từ mục tiêu trước (0.7.5, S2): chỉ dùng định tuyến subagent, không tạo sàn
+   * model phiên cho luồng chính.
+   */
+  carriedRules?: number
   quality: string[]
   depth: Depth
   volume: Volume

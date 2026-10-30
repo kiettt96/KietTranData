@@ -5,6 +5,8 @@ import { describe, expect, test } from 'claude-code/testing'
 import { nextBrief, parseRoute } from '../hooks/lib/router'
 import type { Policy, RouterPlan } from '../hooks/lib/router'
 import { ruleFamily } from '../hooks/lib/route'
+import { normalizeCore } from '../hooks/lib/state'
+import { makeBrief } from './support/commands'
 import { plan } from './support/engine'
 
 const OPEN: Policy = { allowFable: false, blocked: new Set(), session: null }
@@ -44,5 +46,14 @@ describe('0.7.5 S2: quy định mang sang mục tiêu mới không tạo sàn lu
     const fresh = nextBrief(ruledGoal(), routed({ relation: 'new', confidence: 0.95, goal: 'Việc khác', constraints: [], kind: 'answer', main: lead('haiku', 'low') }), 'việc khác', 2, OPUS).brief
     const out = nextBrief(fresh, routed({ relation: 'refine', goal: '', constraints: ['Đọc tài liệu dùng mô hình của phiên'], kind: 'answer', main: lead('haiku', 'low') }), 'đọc bằng model phiên', 3, OPUS)
     expect(out.brief.main?.family).toBe('opus')
+  })
+})
+
+describe('0.7.5 S2: số quy định mang sang được lưu', () => {
+  test('mục tiêu mới ghi carriedRules; normalizeCore giữ số đó (khởi động lại vẫn không có sàn)', () => {
+    const fresh = nextBrief(ruledGoal(), routed({ relation: 'new', confidence: 0.95, goal: 'Việc khác', constraints: [], kind: 'answer', main: lead('haiku', 'low') }), 'việc khác', 2, OPUS).brief
+    expect(fresh.carriedRules).toBe(1)
+    expect(normalizeCore({ brief: fresh }).brief?.carriedRules).toBe(1)
+    expect(normalizeCore({ brief: makeBrief() }).brief?.carriedRules).toBeUndefined()
   })
 })

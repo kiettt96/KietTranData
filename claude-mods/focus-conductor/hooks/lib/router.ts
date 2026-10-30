@@ -1107,9 +1107,12 @@ export function nextBrief(
   return { ...out, brief: withSessionFloor(out.brief, options.sessionFamily ?? null) }
 }
 
-/** Luồng chính không thấp hơn model của phiên khi ràng buộc của brief quy định vậy (sessionFloor). */
+/**
+ * Luồng chính không thấp hơn model của phiên khi ràng buộc của brief quy định vậy (sessionFloor). Quy định mang sang từ mục tiêu trước
+ * (`carriedRules` mục đầu) không tính (S2): chúng chỉ định tuyến subagent.
+ */
 function withSessionFloor(brief: Brief, session: ModelFamily | null): Brief {
-  const floor = sessionFloor(brief.constraints, session)
+  const floor = sessionFloor(brief.constraints.slice(brief.carriedRules ?? 0), session)
   if (floor === null || brief.main === null) return brief
   return { ...brief, main: floorPick(brief.main, floor, null).pick }
 }
@@ -1131,7 +1134,8 @@ function nextBriefRaw(
     const fresh = briefOf(plan, prompt, (prev?.goalId ?? 0) + 1, now)
     const carried = prev !== null && !prev.isReference && !plan.constraints.some(isModelRule) ? prev.constraints.filter(isModelRule) : []
     const carriedConstraints = unique([...carried, ...fresh.constraints], CONSTRAINT_LIMIT)
-    const brief = carried.length > 0 ? { ...fresh, constraints: carriedConstraints, constraintsBase: carriedConstraints.length } : fresh
+    // Quy định mang sang đứng đầu danh sách (S2): ghi số mục để sàn model phiên chỉ đọc quy định của chính mục tiêu này.
+    const brief = carried.length > 0 ? { ...fresh, constraints: carriedConstraints, constraintsBase: carriedConstraints.length, carriedRules: carried.length } : fresh
     return { brief, added: [], isNewGoal: true, replaced: [], held: false, dropped: 0 }
   }
   const next = followUpOf(prev, held ? { ...plan, relation: 'continue' } : plan, now, held)
