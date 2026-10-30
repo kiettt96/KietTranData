@@ -512,8 +512,15 @@ export function ruleFamily(constraints: readonly string[], description: string, 
 /** Loại việc "bắt tất cả": luồng chính hay mọi việc khác, nghĩa là cả luồng chính chịu quy định model đó. */
 const CATCH_ALL = /(?<![\p{L}\p{N}])(?:luồng chính|luong chinh|main(?: thread)?|mọi việc|moi viec|tất cả|tat ca|các việc (?:khác|còn lại)|việc (?:khác|còn lại)|còn lại|con lai|everything|all (?:other )?(?:work|tasks)|the rest)(?![\p{L}\p{N}])/iu
 
-/** Loại việc luồng chính tự làm (R4): đọc, giải thích, đúc kết, tổng hợp, tóm tắt, viết, sửa (không dấu, từ đầu của loại việc). */
-const MAIN_KINDS = ['doc', 'giai thich', 'duc ket', 'tong hop', 'tom tat', 'viet', 'sua']
+/**
+ * Loại việc luồng chính tự làm (R4): đọc, giải thích, đúc kết, tổng hợp, tóm tắt, viết, sửa, và cụm tiếng Anh reading, synthesis, summary,
+ * explain, write cùng các dạng của chúng (S9); không dấu, so với từ đầu của loại việc.
+ */
+const MAIN_KINDS = [
+  'doc', 'giai thich', 'duc ket', 'tong hop', 'tom tat', 'viet', 'sua',
+  // Tiếng Anh (S9).
+  'read', 'reading', 'synthesis', 'synthesize', 'summary', 'summarize', 'explain', 'explanation', 'write', 'writing',
+]
 
 /**
  * Sàn main theo model của phiên (0.7.5, vòng sửa 2 và R4): một ràng buộc của brief nêu "mô hình của phiên" (hay "session model") cho
