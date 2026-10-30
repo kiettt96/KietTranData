@@ -363,7 +363,7 @@ const RULE_NEGATION = new RegExp(
 const MENTION_GLOBAL = new RegExp(`(?<![\\p{L}\\p{N}])${MODEL_MENTION}(?![\\p{L}\\p{N}])`, 'giu')
 /** Dấu hiệu ngoại lệ: "trừ", "ngoại trừ", "trừ khi", "except", "unless"; "khấu trừ", "cộng trừ" không phải ngoại lệ. */
 const RULE_EXCEPT = /(?<![\p{L}\p{N}])(?<!(?:khấu|cộng|phép|bù)\s)(?:ngoại trừ|ngoai tru|trừ khi|tru khi|trừ|except(?: for| when)?|unless)(?![\p{L}\p{N}])/iu
-const EXCEPT_THEN = /(?<![\p{L}\p{N}])(?:thì|thi|then)(?![\p{L}\p{N}])/iu
+const EXCEPT_THEN = /(?<![\p{L}\p{N}])(?:thì|thi|then|để)(?![\p{L}\p{N}])/iu
 const EXCEPT_STOP = new Set(['khi', 'neu', 'if', 'when', 'for', 'la', 'is', 'are', 'it', 'this', 'that', 'the', 'an', 'a', 'cho', 'cac', 'viec', 'voi'])
 /** Từ đứng giữa loại việc và model trong một quy định ("Việc lọc tin chạy sonnet"): cắt vế tại đó để lấy loại việc. */
 const RULE_CUT = /(?<![\p{L}\p{N}])(?:chạy|dùng|bằng|phải|luôn|với|haiku|sonnet|opus|fable|mô hình|model)(?![\p{L}\p{N}])/iu
@@ -399,9 +399,20 @@ type Clause = {
   family: ModelFamily | 'session'
   /** Các loại việc của cặp, gồm cả loại việc đứng trước chưa nêu model ("đọc, giải thích dùng model của phiên"). */
   kinds: string[][]
-  /** Từ khóa của vế ngoại lệ ("trừ khi tin pháp lý": tin, pháp, lý); việc có đủ các từ này không bị chốt. */
-  except: string[]
+  /**
+   * Từ khóa của các vế ngoại lệ ("trừ khi tin pháp lý": tin, pháp, lý; vế ghi đè "Riêng tin pháp lý ..." của S3); việc có đủ các từ của
+   * một trong các vế này không bị chốt.
+   */
+  excepts: string[][]
 }
+
+/**
+ * Vế ghi đè mở đầu bằng "riêng", "đặc biệt", "nhưng", "còn" (không phải "còn lại") hay "for ... only" (S3, vòng rà soát 4): là ngoại lệ
+ * của các cặp đứng trước trong cùng ràng buộc. Nhóm 1 là phần giữa "for" và "only".
+ */
+const RULE_OVERRIDE = /^\s*(?:riêng|rieng|đặc biệt|dac biet|nhưng|nhung|còn(?!\s+lại)|for\s+(.+?)\s+only)(?![\p{L}\p{N}])/iu
+/** Từ nối đứng ngay trước model thứ hai ("sonnet hoặc opus"): hai model là lựa chọn, không phải quy định (S3). */
+const MODEL_CHOICE = /^\s*(?:hoặc|hoac|hay|or)\s*$/iu
 
 /** Từ khóa của vế ngoại lệ: phần đầu vế đến từ cắt, "thì" hay dấu phẩy, bỏ từ nối. */
 function exceptionWords(text: string): string[] {
@@ -432,7 +443,16 @@ function ruleClauses(rule: string): Clause[] {
     }
     const first = clauses.length
     let pending: string[][] = []
-    for (const part of segment.split(/[,，]/)) {
+    for (const raw of segment.split(/[,，]/)) {
+      // Vế ghi đè (S3): từ khóa của nó là ngoại lệ của mọi cặp đứng trước; phần còn lại của vế đọc như vế thường.
+      let part = raw
+      const override = RULE_OVERRIDE.exec(part)
+      if (override !== null) {
+        const rest = part.slice(override[0].length)
+        const words = exceptionWords(override[1] ?? rest)
+        if (words.length > 0) for (const clause of clauses) clause.excepts.push(words)
+        part = rest
+      }
       let last = 0
       const pieces: { text: string; mention: string | null }[] = []
       for (const match of part.matchAll(MENTION_GLOBAL)) {
@@ -453,12 +473,18 @@ function ruleClauses(rule: string): Clause[] {
           pending = []
           continue
         }
+        // "sonnet hoặc opus" (S3): hai model là lựa chọn, cặp trước trong cùng vế (cả qua dấu phẩy) bị bỏ và không chốt model nào.
+        if (MODEL_CHOICE.test(text.slice(0, text.length - piece.mention.length)) && clauses.length > first) {
+          clauses.pop()
+          pending = []
+          continue
+        }
         const family = RULE_FAMILY.exec(piece.mention)?.[1]?.toLowerCase() as ModelFamily | undefined
-        clauses.push({ text, family: family ?? 'session', kinds: [...pending, ...kindsOf(text)], except: [] })
+        clauses.push({ text, family: family ?? 'session', kinds: [...pending, ...kindsOf(text)], excepts: [] })
         pending = []
       }
     }
-    for (const clause of clauses.slice(first)) clause.except = phrase
+    if (phrase.length > 0) for (const clause of clauses.slice(first)) clause.excepts.push(phrase)
   }
   return clauses
 }
@@ -476,7 +502,7 @@ export function ruleFamily(constraints: readonly string[], description: string, 
     for (const clause of ruleClauses(rule)) {
       const family = clause.family === 'session' ? session : clause.family
       if (family === null || !clause.kinds.some(startsWith)) continue
-      if (clause.except.length > 0 && clause.except.every(word => asked.includes(word))) continue
+      if (clause.excepts.some(words => words.every(word => asked.includes(word)))) continue
       return family
     }
   }

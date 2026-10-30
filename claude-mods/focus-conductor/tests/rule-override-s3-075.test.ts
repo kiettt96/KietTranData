@@ -3,7 +3,7 @@
 // nó, còn lại để router chấm. Hai model nối bằng "hoặc", "hay", "or" thì không chốt.
 
 import { describe, expect, test } from 'claude-code/testing'
-import { ruleFamily } from '../hooks/lib/route'
+import { ruleFamily, sessionFloor } from '../hooks/lib/route'
 
 describe('0.7.5 S3: vế ghi đè là ngoại lệ của vế trước', () => {
   const RULE = ['Lọc tin dùng sonnet. Riêng tin pháp lý dùng opus']
@@ -36,8 +36,9 @@ describe('0.7.5 S3: vế ghi đè là ngoại lệ của vế trước', () => {
     expect(ruleFamily(rule, 'Lọc tin lô 2', null)).toBe('sonnet')
   })
 
-  test('"còn lại" không phải dấu hiệu ghi đè: "Lọc tin dùng sonnet. Còn lại dùng opus" vẫn chốt lọc tin là sonnet', () => {
+  test('"còn lại" không phải dấu hiệu ghi đè: "Lọc tin dùng sonnet. Còn lại dùng opus" vẫn chốt lọc tin là sonnet; "còn lại dùng mô hình của phiên" vẫn là sàn', () => {
     expect(ruleFamily(['Lọc tin dùng sonnet. Còn lại dùng opus'], 'Lọc tin lô 2', null)).toBe('sonnet')
+    expect(sessionFloor(['Lọc tin dùng sonnet. Còn lại dùng mô hình của phiên'], 'opus')).toBe('opus')
   })
 })
 
@@ -50,5 +51,10 @@ describe('0.7.5 S3: hai model nối bằng "hoặc" không chốt', () => {
 
   test('cặp khác trong cùng ràng buộc vẫn chốt: "Lọc tin dùng sonnet hoặc opus; đúc kết dùng opus"', () => {
     expect(ruleFamily(['Lọc tin dùng sonnet hoặc opus; đúc kết dùng opus'], 'Đúc kết lô 3', null)).toBe('opus')
+  })
+
+  test('"hoặc" qua dấu phẩy trong cùng vế cũng là lựa chọn; "hoặc" mở đầu câu sau không bỏ cặp của câu trước', () => {
+    expect(ruleFamily(['Lọc tin dùng sonnet, hoặc opus'], 'Lọc tin lô 2', null)).toBe(null)
+    expect(ruleFamily(['Đúc kết dùng opus; hoặc sonnet cho lọc tin'], 'Đúc kết lô 3', null)).toBe('opus')
   })
 })
