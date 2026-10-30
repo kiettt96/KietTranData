@@ -4,7 +4,7 @@
 
 import type { Elements, RenderElement, RenderSurface } from 'claude-code'
 
-import type { Mode } from '../../types'
+import type { Mode, PlanStep } from '../../types'
 import { estimateLine, formatUsd, ledgerLines, sessionUsd } from '../lib/ledger'
 import type { View } from '../lib/state'
 import { shownPlan } from '../lib/mirror'
@@ -40,10 +40,12 @@ const BAR = 8
 /** Checklist dài hơn số bước này thì dồn các bước đã đóng thành một dòng (0.7.5). */
 const COLLAPSE_FROM = 6
 /**
- * Dạng gọn của checklist dài (R10): nhiều hơn số bước mở này thì chỉ hiện bước đang làm và các bước mở kế tiếp, tổng cộng số này, kèm
- * dòng "+N bước"; không có chú giải ký hiệu. Với pane tự mở 16 dòng, đây là mức để dòng tiến độ từng việc còn nằm trong 16 dòng.
+ * Dạng gọn của checklist dài (R10, S6): khi dạng đầy đủ không vừa số dòng của pane, chỉ hiện bước đang làm và các bước mở kế tiếp, tổng
+ * cộng số này, kèm dòng "k bước đã đóng" và "+m bước mở"; không có chú giải ký hiệu.
  */
 const SHOWN_OPEN = 4
+/** Số dòng thân của pane tự mở phía trên prompt (lib/pane.ts PANE_ROWS), dùng khi engine không báo số dòng. */
+const DEFAULT_ROWS = 16
 
 export type PaneHandlers = {
   onMode: (mode: Mode) => unknown
@@ -60,6 +62,11 @@ export type PaneProps = {
   isResetArmed: boolean
   /** Thời điểm vẽ (ms, $.clock.now()), cho thời gian chạy của subagent (0.6.1). Vắng thì 0. */
   now?: number
+  /**
+   * Số dòng thân pane (props.scroll.bodyRows của engine, S6). Checklist dài chỉ dùng dạng gọn khi dạng đầy đủ đẩy tiêu đề tiến độ từng
+   * việc ra ngoài số dòng này. Vắng thì coi như pane tự mở 16 dòng (PANE_ROWS).
+   */
+  rows?: number
 }
 
 export function renderPane(
@@ -299,12 +306,46 @@ export function renderPane(
   // nhất 3 bước: dòng tóm tắt luôn tiết kiệm được dòng.
   const closedSteps = plan.filter(step => progress([step]).closed === 1)
   const openSteps = plan.filter(step => !closedSteps.includes(step))
-  // Dạng gọn (R10): checklist dài mà còn nhiều bước mở thì chỉ hiện bước đang làm (không có thì bước mở đầu tiên) và các bước mở kế tiếp.
-  const isCompact = plan.length > COLLAPSE_FROM && openSteps.length > SHOWN_OPEN
+  // S6: ước lượng số dòng (ngắt chữ như wrapText) để biết dạng đầy đủ có đẩy tiêu đề tiến độ từng việc ra ngoài số dòng của pane không.
+  const rowsOf = (text: string, cells: number) => Math.max(1, wrapText(text, cells, 99).length)
+  const stepCells = width - idWidth - 3
+  const stepRows = (step: PlanStep) => rowsOf(step.title, stepCells) + (step.check ? rowsOf(`${l.check}: ${step.check}`, stepCells) : 0) + (step.note ? rowsOf(step.note, stepCells) : 0)
+  const legendRows = () => {
+    let lines = 1
+    let used = 0
+    for (const status of STEP_ORDER) {
+      const cells = 2 + cellsOf(l.legend[status])
+      if (used > 0 && used + 2 + cells > width) {
+        lines += 1
+        used = cells
+      } else used += (used > 0 ? 2 : 0) + cells
+    }
+    return 1 + lines
+  }
+  const headerRows =
+    goalLines.length +
+    (bar.length > 0 || beads.length > 0 ? 1 : 0) +
+    rowsOf(`${l.depth} ${brief.depth}   ${l.volume} ${brief.volume}   ${l.kind} ${brief.kind}`, width - 2) +
+    (brief.why ? rowsOf(brief.why, width - 2) : 0) +
+    (brief.source === 'router' ? 0 : rowsOf(l.notRead, width - 2))
+  const mirrorRows = source === 'mirror' ? rowsOf(l.mirrorSource, width) : 0
+  // Tiêu đề tiến độ từng việc ở dòng phần đầu + khoảng cách + tiêu đề checklist + danh sách + khoảng cách; nó và dòng việc đầu phải vừa.
+  const fits = (listRows: number) => headerRows + mirrorRows + listRows + 5 <= (props.rows ?? DEFAULT_ROWS)
+  // Checklist dài (vòng sửa 2 của 0.7.5): các bước đã đóng dồn thành một dòng tóm tắt; checklist ngắn giữ nguyên từng bước. Không dạng gọn
+  // mà checklist trên 6 bước thì vẫn có dòng tóm tắt bước đã đóng.
+  const isLong = plan.length > COLLAPSE_FROM
+  const fullRows = (isLong && closedSteps.length > 0 ? 1 : 0) + (isLong ? openSteps : plan).reduce((sum, step) => sum + stepRows(step), 0) + legendRows()
+  // Dạng gọn (R10, S6): checklist dài mà dạng đầy đủ không vừa thì chỉ hiện bước đang làm (không có thì bước mở đầu tiên) và các bước mở kế tiếp.
+  const isCompact = isLong && !fits(fullRows)
   const start = Math.max(0, openSteps.findIndex(step => step.status === 'doing'))
   const shown = isCompact ? openSteps.slice(start, start + SHOWN_OPEN) : []
-  const isCollapsed = !isCompact && plan.length > COLLAPSE_FROM
-  const listed = isCompact ? shown : isCollapsed ? openSteps : plan
+  const isCollapsed = isLong && closedSteps.length > 0
+  const listed = isCompact ? shown : isLong ? openSteps : plan
+  const hiddenOpen = openSteps.length - shown.length
+  // Bước dự kiến của router trước khi có checklist (S6): cùng luật, mọi bước đều còn mở.
+  const plannedFull = brief.steps.reduce((sum, step) => sum + rowsOf(step, stepCells), 0)
+  const plannedCompact = plan.length === 0 && brief.steps.length > COLLAPSE_FROM && !fits(plannedFull)
+  const plannedShown = plannedCompact ? brief.steps.slice(0, SHOWN_OPEN) : brief.steps
   const checklist =
     plan.length > 0 ? (
       <Box flexDirection="column">
@@ -346,9 +387,8 @@ export function renderPane(
             </Box>
           )
         })}
-        {isCompact ? (
-          <Text dimColor>{l.stepsMore(plan.length - shown.length)}</Text>
-        ) : (
+        {isCompact && hiddenOpen > 0 ? <Text dimColor>{l.stepsOpenMore(hiddenOpen)}</Text> : null}
+        {isCompact ? null : (
           <Box marginTop={1} flexDirection="row" flexWrap="wrap" columnGap={2}>
             {STEP_ORDER.map(status => (
               <Text>
@@ -363,7 +403,7 @@ export function renderPane(
       </Box>
     ) : brief.steps.length > 0 ? (
       <Box flexDirection="column">
-        {brief.steps.map((step, i) => (
+        {plannedShown.map((step, i) => (
           <Box flexDirection="row" gap={1}>
             <Box flexShrink={0} flexDirection="row" gap={1}>
               <Text color="inactive">○</Text>
@@ -374,6 +414,7 @@ export function renderPane(
             </Box>
           </Box>
         ))}
+        {plannedCompact ? <Text dimColor>{l.stepsOpenMore(brief.steps.length - plannedShown.length)}</Text> : null}
       </Box>
     ) : (
       <Text dimColor>{l.noChecklist}</Text>

@@ -31,11 +31,12 @@ describe('0.7.5 R10: dạng gọn khi không đủ chỗ', () => {
     expect(list).toContain('BƯỚC 1: chuẩn hóa đơn vị')
     expect(list).toContain('BƯỚC 3: lọc tin lô 1')
     expect(list).not.toContain('BƯỚC 4: lọc tin lô 2')
-    expect(list).toContain('+7 bước')
+    expect(list).toContain('+7 bước mở')
     expect(list.some(t => LEGEND.test(t))).toBe(false)
   })
 
-  test('6 bước đóng: chỉ bước đang làm và 3 bước kế tiếp, "+7 bước" gồm cả bước đã đóng', {}, async ($, on) => {
+  // S6 (vòng rà soát 4): "+N bước" tách thành "k bước đã đóng" và "+m bước mở".
+  test('6 bước đóng: chỉ bước đang làm và 3 bước kế tiếp, kèm "6 bước đã đóng" và "+1 bước mở"', {}, async ($, on) => {
     await longGoal($, on, 6)
     const { texts } = await drawn($)
     const list = checklistOf(texts)
@@ -43,7 +44,8 @@ describe('0.7.5 R10: dạng gọn khi không đủ chỗ', () => {
     expect(list).toContain('BƯỚC 9: bản tổng hợp tuần')
     expect(list).not.toContain('BƯỚC 10: kết thúc phiên')
     expect(list).not.toContain('BƯỚC 5: lọc tin lô 3')
-    expect(list).toContain('+7 bước')
+    expect(list).toContain('6 bước đã đóng')
+    expect(list).toContain('+1 bước mở')
     expect(list.some(t => LEGEND.test(t))).toBe(false)
   })
 
@@ -57,7 +59,7 @@ describe('0.7.5 R10: dạng gọn khi không đủ chỗ', () => {
     expect(list).toContain('BƯỚC 7: tóm tắt tin')
     expect(list).not.toContain('BƯỚC 0: chuẩn bị')
     expect(list).not.toContain('BƯỚC 8: bảng giá tuần')
-    expect(list).toContain('+7 bước')
+    expect(list).toContain('+7 bước mở')
   })
 
   test('bước đang làm gần cuối: chỉ hiện các bước còn lại của cửa sổ, "+N" đếm đủ phần ẩn', {}, async ($, on) => {
@@ -68,7 +70,7 @@ describe('0.7.5 R10: dạng gọn khi không đủ chỗ', () => {
     const list = checklistOf(texts)
     expect(list).toContain('BƯỚC 9: bản tổng hợp tuần')
     expect(list).toContain('BƯỚC 10: kết thúc phiên')
-    expect(list).toContain('+9 bước')
+    expect(list).toContain('+9 bước mở')
   })
 
   test('đủ chỗ (3 bước còn mở trở xuống): giữ từng bước và chú giải ký hiệu như cũ', {}, async ($, on) => {
@@ -97,12 +99,12 @@ describe('0.7.5 R10: dạng gọn khi không đủ chỗ', () => {
 })
 
 describe('0.7.5 R10: nhãn theo ngôn ngữ', () => {
-  test('tiêu đề checklist và dòng "+N bước" có nhãn tiếng Việt và tiếng Anh', () => {
+  test('tiêu đề checklist và dòng "+m bước mở" (S6) có nhãn tiếng Việt và tiếng Anh', () => {
     expect(labels('vi').checklist).toBe('Danh sách bước')
     expect(labels('en').checklist).toBe('Checklist')
-    expect(labels('vi').stepsMore(7)).toBe('+7 bước')
-    expect(labels('en').stepsMore(1)).toBe('+1 step')
-    expect(labels('en').stepsMore(7)).toBe('+7 steps')
+    expect(labels('vi').stepsOpenMore(7)).toBe('+7 bước mở')
+    expect(labels('en').stepsOpenMore(1)).toBe('+1 open step')
+    expect(labels('en').stepsOpenMore(7)).toBe('+7 open steps')
   })
 
   test('tiêu đề checklist hiện bằng nhãn tiếng Việt trong pane', {}, async ($, on) => {

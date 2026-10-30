@@ -81,3 +81,25 @@ describe('0.7.5 S6: bước dự kiến của router trước khi có checklist'
   })
 })
 
+describe('0.7.5 S6: ranh giới đúng của dạng gọn', () => {
+  const LONG_GOAL = 'Cập nhật sổ giá theo các bước, đối chiếu từng lô với bảng giá tuần trước và ghi lại mọi chênh lệch cho kế toán kiểm'
+
+  test('dạng gọn đúng khi dạng đầy đủ không vừa: so với vị trí đo được của dạng đầy đủ (pane 100 dòng), mục tiêu dài nhiều dòng', {}, async ($, on) => {
+    await longGoal($, on, 0, TITLES.length, LONG_GOAL)
+    const full = rowOf((await drawn($, 100)).tree, /^Tiến độ từng việc/)
+    for (let rows = 14; rows <= 32; rows++) {
+      const { texts } = await drawn($, rows)
+      const isCompact = checklistOf(texts).some(t => /^\+\d+ bước mở$/.test(t))
+      expect(isCompact, `${rows} dòng`).toBe(!(full + 1 < rows))
+    }
+  })
+
+  test('dạng gọn mà mọi bước mở đều hiện: không có dòng "+0 bước mở"', {}, async ($, on) => {
+    await longGoal($, on, 7)
+    const { texts } = await drawn($, 12)
+    const list = checklistOf(texts)
+    expect(list).toContain('7 bước đã đóng')
+    expect(list.some(t => /^\+0 /.test(t))).toBe(false)
+    expect(list.some(t => t.includes(labels('vi').legend.verified))).toBe(false)
+  })
+})

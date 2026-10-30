@@ -49,11 +49,11 @@ function hooks(on: On) {
 }
 
 /** Mục tiêu 11 bước có mã, bước BƯỚC 3 giao subagent (3 lô), checklist `count` bước, `closed` bước đầu đã done và bước kế tiếp đang làm. */
-export async function longGoal($: Engine, on: On, closed: number, count = TITLES.length) {
+export async function longGoal($: Engine, on: On, closed: number, count = TITLES.length, goal = 'Cập nhật sổ giá theo các bước') {
   base(on, {
     router: () =>
       plan({
-        goal: 'Cập nhật sổ giá theo các bước',
+        goal,
         depth: 'hard',
         volume: 'large',
         tasks: TITLES.map((title, k) => (k === 3 ? task(title, 'agent', 'sonnet', 'medium') : task(title, 'main', 'opus', 'high'))),

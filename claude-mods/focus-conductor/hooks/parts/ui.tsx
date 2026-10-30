@@ -76,7 +76,7 @@ export function registerUi(on: On, ctx: Ctx): void {
       : null
     // Chưa có số đo, không dừng, không có điểm dừng (0.7.5): ẩn mục Hạn mức, nhường chỗ cho checklist.
     const quota = overview !== null && (overview.state !== 'none' || overview.checkpoint !== null) ? quotaPaneText(overview, current.lang) : null
-    return renderPane($.ui.resolve(e), current, { columns: e.props.bodyColumns, placement: e.props.placement, isResetArmed, now }, {
+    return renderPane($.ui.resolve(e), current, { columns: e.props.bodyColumns, placement: e.props.placement, isResetArmed, now, rows: e.props.scroll.bodyRows }, {
       onMode: picked => update($, modeState, () => picked),
       onReset: async () => {
         // Hai bước: lần đầu chỉ chờ xác nhận; lần hai trong hạn mới xóa.

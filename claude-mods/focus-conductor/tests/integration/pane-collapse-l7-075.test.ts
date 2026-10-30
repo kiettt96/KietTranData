@@ -33,15 +33,22 @@ describe('0.7.5 L7: checklist dài ở pane 16 dòng', () => {
     expect(list).toContain('BƯỚC 6: đọc và giải thích')
   })
 
-  for (const closed of [0, 1]) {
-    test(`11 bước, ${closed} bước đóng, còn nhiều bước mở: dạng gọn của R10, không có dòng "bước đã đóng"`, {}, async ($, on) => {
-      await longGoal($, on, closed)
-      const { texts } = await drawn($)
-      const list = checklistOf(texts)
-      expect(list.some(t => /bước đã đóng$/.test(t))).toBe(false)
-      expect(list).toContain('+7 bước')
-    })
-  }
+  // S6 (vòng rà soát 4): dạng gọn có dòng "k bước đã đóng" riêng (khi có bước đóng) và "+m bước mở".
+  test('11 bước, 0 bước đóng, còn nhiều bước mở: dạng gọn, không có dòng "bước đã đóng", có "+7 bước mở"', {}, async ($, on) => {
+    await longGoal($, on, 0)
+    const { texts } = await drawn($)
+    const list = checklistOf(texts)
+    expect(list.some(t => /bước đã đóng$/.test(t))).toBe(false)
+    expect(list).toContain('+7 bước mở')
+  })
+
+  test('11 bước, 1 bước đóng: dạng gọn có "1 bước đã đóng" và "+6 bước mở"', {}, async ($, on) => {
+    await longGoal($, on, 1)
+    const { texts } = await drawn($)
+    const list = checklistOf(texts)
+    expect(list).toContain('1 bước đã đóng')
+    expect(list).toContain('+6 bước mở')
+  })
 
   test('checklist 6 bước (ngắn): giữ nguyên từng bước dù đã đóng', {}, async ($, on) => {
     await longGoal($, on, 4, 6)
