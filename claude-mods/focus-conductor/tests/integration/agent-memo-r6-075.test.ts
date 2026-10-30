@@ -53,3 +53,17 @@ describe('0.7.5 R6, R11: 150 lô với quy tắc thật và mã ngắn', () => {
     expect(seen.agentRouted.length).toBe(1)
   })
 })
+
+describe('0.7.5 S3: 150 lô với quy tắc có vế ghi đè "Riêng"', () => {
+  const OVERRIDE = 'Lọc tin dùng sonnet. Riêng tin pháp lý dùng opus'
+
+  test('"Lọc tin lô N" Claude ghi sonnet: 0 lượt router; "Lọc tin pháp lý lô N": 1 lượt cho 150 lô', LOOP, async ($, on) => {
+    const seen = base(on, { router: rulesOf(OVERRIDE) })
+    capture(on)
+    await submit($, 'Cập nhật dữ liệu theo các lô')
+    for (let n = 1; n <= 150; n++) await agent($, `Lọc tin lô ${n}`, `Lọc tin lô ${n}`, { model: 'sonnet' })
+    expect(seen.agentRouted.length).toBe(0)
+    for (let n = 1; n <= 150; n++) await agent($, `Lọc tin pháp lý lô ${n}`, `Lọc tin pháp lý lô ${n}`, { model: 'sonnet' })
+    expect(seen.agentRouted.length).toBe(1)
+  })
+})
