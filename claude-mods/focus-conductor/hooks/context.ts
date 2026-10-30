@@ -133,6 +133,8 @@ export function createContext(options: PluginOptions) {
     noticeTurn: null as string | null,
     /** Khóa lệnh ghi không rõ đích đã cảnh báo, theo mục tiêu (0.7.5): không cảnh báo lại ở mỗi turn. */
     unknownWrites: { goalId: -1, keys: new Set<string>() },
+    /** Lời nhắc đã nói trong phiên (S5): không đặt lại theo mục tiêu hay turn. */
+    sessionHints: new Set<string>(),
     /** Prompt (đầy đủ, chỉ trong bộ nhớ) đã lập mục tiêu hiện tại (0.7.5): /conductor reroute đọc lại prompt này, không phải prompt tiếp nối ngắn. */
     goalPrompt: null as { text: string; prev: Brief | null; goalId: number } | null,
     /** Vừa /clear khi có điểm dừng mở (0.7.5): prompt kế tiếp không tự chèn khối ĐIỂM DỪNG, chỉ gợi ý /conductor resume. */
@@ -341,6 +343,7 @@ export function createContext(options: PluginOptions) {
     local.compaction = { pending: false, lastContext: 0, skipNext: false }
     local.noticeTurn = null
     local.unknownWrites = { goalId: -1, keys: new Set() }
+    local.sessionHints.clear()
     local.goalPrompt = null
     local.noAutoResume = false
     local.isGoalNew = false

@@ -303,7 +303,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     }
     // Lệnh ghi không rõ đích cảnh báo một lần mỗi mục tiêu (0.7.5): tập khóa đổi khi đổi mục tiêu.
     if (core.brief !== null && L.unknownWrites.goalId !== core.brief.goalId) L.unknownWrites = { goalId: core.brief.goalId, keys: new Set() }
-    const focus: Focus | null = core.brief !== null ? { ...core.brief, isBare: core.brief.isBare === true, warnedWrites: L.unknownWrites.keys, ...(await frameOf($, L.roots, core.brief.goalId, core.brief.scopePaths)) } : null
+    const focus: Focus | null = core.brief !== null ? { ...core.brief, isBare: core.brief.isBare === true, warnedWrites: L.unknownWrites.keys, hints: L.sessionHints, ...(await frameOf($, L.roots, core.brief.goalId, core.brief.scopePaths)) } : null
     const findings = observe(L.tracker, observation, focus, core.plan)
     const isErrorBurst = L.tracker.errors === ERROR_BURST
     // Luồng chính bắt đầu tự sửa file trong khi còn việc đã ghi giao subagent: nhắc một lần.

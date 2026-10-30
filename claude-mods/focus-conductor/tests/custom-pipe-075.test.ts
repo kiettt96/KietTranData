@@ -56,10 +56,13 @@ describe('0.7.5 H1: đầu ra lỗi nhưng có chữ đạt ở đâu đó khôn
     })
   })
 
-  test('chữ phủ định chỉ tính khi là từ riêng: "casino OK" vẫn đạt', () => {
+  // S5 (vòng rà soát 4): dòng cuối phải là dòng tổng kết chặt, nên câu thường kết bằng OK không còn đạt; chữ "no" trong "know" không
+  // phải phủ định nên "Kiểm xong\nknow OK" không bị chặn vì phủ định mà vì không phải dòng tổng kết.
+  test('câu thường kết bằng OK ("casino OK", "know OK") không phải dòng tổng kết: không đạt', () => {
     declared(() => {
-      expect(piped('Kiểm xong tại casino OK')).toBe(true)
-      expect(piped('Kiểm xong\nknow OK')).toBe(true)
+      expect(piped('Kiểm xong tại casino OK')).toBe(false)
+      expect(piped('Kiểm xong\nknow OK')).toBe(false)
+      expect(piped('Kiểm xong\nOK')).toBe(true)
     })
   })
 

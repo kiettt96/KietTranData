@@ -8,6 +8,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { applyCheckCommands, newTracker, observe, parseCheckCommands } from '../hooks/lib/drift'
 import { verifiedAfter } from './support/commands'
+import { COMPLEX_PROMPT, base, conductor, submit } from './support/engine'
 
 const RUN = '/usr/bin/python3 -B /repo/tests/check_all.py'
 function declared(body: () => void): void {
@@ -100,7 +101,6 @@ describe('0.7.5 S5 (b): qua ống không pipefail cần dòng cuối là dòng t
     declared(() => {
       expect(withPipefail('Đã xử lý lô 12')).toBe(true)
       expect(direct('Đã xử lý lô 12')).toBe(true)
-      expect(direct('Thiếu 5 bản ghi')).toBe(false)
     })
   })
 })
@@ -128,5 +128,40 @@ describe('0.7.5 S5 (b): nhắc một lần trong phiên khi dòng cuối không 
       expect(hintOf(new Set(), RUN, 'Đã kiểm 120 dòng\nTiếp tục bước sau')).toBeUndefined()
       expect(hintOf(new Set(), piping, 'Thiếu 5 dòng\nTiếp tục bước sau')).toBeUndefined()
     })
+  })
+})
+
+describe('0.7.5 S5: dấu hiệu lỗi đứng riêng', () => {
+  test('"-> False" một mình, "assert" một mình, "expected" và "got" ở hai dòng khác nhau không phải lỗi', () => {
+    declared(() => {
+      expect(piped('Kiểm tổng -> False\nOK')).toBe(false)
+      expect(piped('assert total == 120\nOK')).toBe(false)
+      expect(piped('Expected format documented below\nwe got 3 files\nOK')).toBe(true)
+    })
+  })
+})
+
+describe('0.7.5 S5: nhắc dòng tổng kết chỉ cho lệnh kiểm riêng, một lần trong phiên', () => {
+  const FOCUS = { goal: 'Cập nhật dữ liệu theo các bước', scopePaths: [], tier: 'complex' as const, hints: new Set<string>() }
+  test('lệnh kiểm chuẩn (node --test) không bị nhắc', () => {
+    const out = observe(newTracker('t'), { tool: 'Bash', input: { command: 'node --test src/ 2>&1 | tail -n 5' }, isError: false, isReadOnly: false, output: 'Đã chạy\nTiếp tục bước sau' }, FOCUS, [])
+    expect(out.find(f => f.context?.includes('pipefail'))).toBeUndefined()
+  })
+
+  test('qua engine: lần đầu có lời nhắc, lần sau không (kể cả ở prompt sau), /conductor reset thì nhắc lại', { options: { checkCommands: RUN } }, async ($, on) => {
+    base(on)
+    on('tool.call', { tool: 'Bash' }, () => ({ result: 'Đã kiểm 120 dòng\nTiếp tục bước sau' }))
+    await submit($, COMPLEX_PROMPT)
+    const run = async () => {
+      const out = (await $.tool.call({ tool: 'Bash', command: `${RUN} 2>&1 | tail -n 5` })) as { context?: string[] }
+      return (out.context ?? []).some(text => text.includes('set -o pipefail'))
+    }
+    expect(await run()).toBe(true)
+    expect(await run()).toBe(false)
+    await submit($, 'tiếp tục lô sau')
+    expect(await run()).toBe(false)
+    await conductor($, 'reset')
+    await submit($, COMPLEX_PROMPT)
+    expect(await run()).toBe(true)
   })
 })

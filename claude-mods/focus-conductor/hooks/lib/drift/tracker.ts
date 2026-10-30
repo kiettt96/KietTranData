@@ -8,9 +8,9 @@ import type { ToolObservation } from './tool'
 import { classifyBash } from './classify'
 import type { BashEffect } from './classify'
 import { isMutation, writeEffects } from './effects'
-import { checkEffectPassed } from './output'
+import { checkEffectPassed, lacksSummary, outputFailed } from './output'
 import { scopeStatus } from './scope'
-import { normalizePython } from './verify'
+import { isCustomCheck, normalizePython } from './verify'
 
 /** Số thay đổi liên tiếp chưa kiểm tra trước khi nhắc checkpoint đầu tiên. */
 export const CHECKPOINT_EVERY = 5
@@ -93,6 +93,34 @@ export type Focus = {
   isBare?: boolean
   /** Khóa lệnh ghi không rõ đích đã cảnh báo trong mục tiêu (0.7.5); vắng thì dùng tập của tracker (theo turn). */
   warnedWrites?: Set<string>
+  /** Lời nhắc đã nói trong phiên (S5): mỗi khóa một lần, không đặt lại theo mục tiêu hay turn; vắng thì nhắc ở mỗi lần gặp. */
+  hints?: Set<string>
+}
+
+/**
+ * Lệnh kiểm riêng (checkCommands) qua ống không pipefail chạy xong, không có dấu hiệu lỗi, nhưng dòng không rỗng cuối cùng không phải dòng
+ * tổng kết chặt nên không được tính là đạt (S5): nhắc một lần trong phiên (khóa trong `focus.hints`) dùng `set -o pipefail` trước lệnh hoặc
+ * in một dòng tổng kết. null khi không áp dụng.
+ */
+function pipeSummaryHint(observation: ToolObservation, focus: Focus): Finding | null {
+  if (observation.tool !== 'Bash' || observation.isError || observation.output === undefined || outputFailed(observation.output)) return null
+  if (focus.hints?.has('pipe-summary')) return null
+  for (const effect of classifyBash(str(observation.input['command'])).effects) {
+    if (effect.kind !== 'check' || !effect.trusted || effect.exit !== 'filtered' || effect.pipefail === true) continue
+    if (!isCustomCheck(effect.segment) && !(effect.resolved !== undefined && isCustomCheck(effect.resolved))) continue
+    if (!lacksSummary(observation.output)) continue
+    focus.hints?.add('pipe-summary')
+    return {
+      kind: 'unverified',
+      priority: 1,
+      text: 'Lệnh kiểm qua ống không có dòng tổng kết ở cuối nên chưa tính là đạt',
+      context:
+        '[focus-conductor] Lệnh kiểm riêng này chạy qua ống (| tail, | head) không có `set -o pipefail`, và dòng cuối của output không phải một dòng tổng kết ' +
+        '(OK, PASS, ĐẠT, KẾT QUẢ: ĐẠT), nên mod không tính là đạt. Đặt `set -o pipefail;` trước lệnh, hoặc cho lệnh in một dòng tổng kết ở cuối. ' +
+        'Lời nhắc này chỉ nói một lần trong phiên.',
+    }
+  }
+  return null
 }
 
 /**
@@ -267,6 +295,10 @@ export function observe(
   if (observation.tool === 'Agent' && !observation.isError) tracker.delegated += 1
 
   if (focus === null) return findings
+
+  // Lệnh kiểm riêng qua ống không pipefail mà dòng cuối không phải dòng tổng kết (S5): nhắc một lần trong phiên.
+  const hint = pipeSummaryHint(observation, focus)
+  if (hint !== null) findings.push(hint)
 
   // Phạm vi: file của Edit/Write và file đích của lệnh Bash có ghi (kể cả lệnh lỗi, vì có thể đã ghi một phần).
   if (focus.scopePaths.length > 0 && isMutation(observation)) {

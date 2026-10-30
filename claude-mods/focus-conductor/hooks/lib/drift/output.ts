@@ -167,60 +167,115 @@ export function completePass(output: string, runner: Runner, options: { truncate
 // Dấu hiệu của lệnh kiểm riêng (checkCommands) qua ống (0.7.5), kể cả tiếng Việt; ranh giới theo chữ Unicode.
 const EDGE_START = '(?:^|[^\\p{L}\\p{N}])'
 const EDGE_END = '(?=$|[^\\p{L}\\p{N}])'
-/** Chữ phủ định đứng ngay trước một dấu hiệu đạt: "chưa đạt", "không OK", "not ok" không phải đạt. */
-const NEGATED = '(?<![\\p{L}\\p{N}])(?:chưa|chẳng|không|đừng|not|no|never)\\s*'
 /**
  * Dấu hiệu lỗi: KHÔNG ĐẠT, KHÔNG KHỚP, CHƯA ĐẠT, CHƯA KHỚP, KHÔNG HỢP LỆ, LỖI, SAI, THIẾU, LỆCH (gồm CHÊNH LỆCH), FAIL, ERROR, MISMATCH
  * (lỗi thắng dấu hiệu đạt). Thêm ở vòng sửa 2 của 0.7.5: chưa đạt, chưa khớp, thiếu, lệch, chênh lệch, không hợp lệ, mismatch, error.
  * Thêm ở vòng rà soát 3: missing, (do/does) not match, invalid, exception, không đúng, khác biệt.
+ * Thêm ở vòng rà soát 4 (S5): trùng, trùng lặp, duplicate, chưa xử lý, vượt ngưỡng, không cân, không tìm thấy, not found, differ, assert,
+ * `-> False`, `expected ... got`.
  */
 const CUSTOM_FAILED = new RegExp(
-  `${EDGE_START}(?:không\\s+đạt|không\\s+khớp|không\\s+hợp\\s+lệ|không\\s+đúng|khác\\s+biệt|chưa\\s+(?:đạt|khớp|ok)|not\\s+ok|lỗi|sai|thiếu|lệch|mismatch(?:es|ed)?|errors?|fail(?:ed|ures?)?|missing|(?:do|does|did)?\\s*not\\s+match(?:es|ed)?|doesn't\\s+match|invalid|exceptions?)${EDGE_END}`,
+  `${EDGE_START}(?:không\\s+đạt|không\\s+khớp|không\\s+hợp\\s+lệ|không\\s+đúng|không\\s+cân|không\\s+tìm\\s+thấy|not\\s+found|khác\\s+biệt|chưa\\s+(?:đạt|khớp|ok|xử\\s+lý)|vượt\\s+ngưỡng|trùng(?:\\s+lặp)?(?!\\s+khớp)|duplicat(?:e|es|ed)|differ(?:s|ed)?|assert|not\\s+ok|lỗi|sai|thiếu|lệch|mismatch(?:es|ed)?|errors?|fail(?:ed|ures?)?|missing|(?:do|does|did)?\\s*not\\s+match(?:es|ed)?|doesn't\\s+match|invalid|exceptions?)${EDGE_END}`,
   'iu',
 )
-/** Dấu ✗ ✘ ✖ ❌ đứng riêng không có ranh giới chữ. */
+/** Các dấu chéo U+2717, U+2718, U+2716, U+274C đứng riêng, không có ranh giới chữ. */
 const CROSS_MARK = /[\u2717\u2718\u2716\u274C]/u
-/** Dấu hiệu đạt rõ: ĐẠT, KHỚP, OK, PASS, passed, 0 lỗi, 0 failed; không nằm sau chữ phủ định. */
-const CUSTOM_PASSED = new RegExp(`${EDGE_START}(?<!${NEGATED})(?:đạt|khớp|ok|pass(?:ed)?|passing|0\\s+lỗi|0\\s+failed|0\\s+errors?)${EDGE_END}`, 'iu')
-/** Từ chỉ số lỗi; "cảnh báo" chỉ là lỗi khi kèm số khác 0 (vòng rà soát 3). */
-const FAILURE_WORDS = 'lỗi|sai|thiếu|lệch|mismatch(?:es)?|fail(?:ed|ures?)?|errors?|missing|invalid|exceptions?|cảnh\\s+báo|warnings?'
+/** `-> False`, `=> False`, `→ False` (một phép kiểm trả sai) và `expected ... got/actual/received ...` trong cùng dòng (S5). */
+const FALSE_RESULT = /(?:->|=>|→)\s*false(?![\p{L}\p{N}])/iu
+const EXPECTED_GOT = /(?<![\p{L}\p{N}])expected(?![\p{L}\p{N}])[^\n]*(?<![\p{L}\p{N}])(?:got|actual|received|but\s+was)(?![\p{L}\p{N}])/iu
+/**
+ * Từ chỉ số lỗi (cả từ ghép trước từ đơn để "sai lệch: 0" là một từ). "cảnh báo", "warn" chỉ là lỗi khi kèm số khác 0 (vòng rà soát 3 và S5).
+ */
+const FAILURE_WORDS =
+  'sai\\s+lệch|chênh\\s+lệch|chưa\\s+xử\\s+lý|vượt\\s+ngưỡng|trùng\\s+lặp|trùng(?!\\s+khớp)|duplicat(?:e|es|ed)|differ(?:s|ed)?|lỗi|sai|thiếu|lệch|mismatch(?:es)?|fail(?:ed|ures?)?|errors?|missing|invalid|exceptions?|cảnh\\s+báo|warn(?:ing)?s?|chênh|null(?:s)?'
 /** Số 0 đứng riêng (0, 0.0, 0,00), không phải 0.5 hay 0,3: "Lỗi = 0.5%" không là số lỗi bằng 0 (vòng rà soát 3). */
 const ZERO = `0(?:[.,]0+)?(?![.,]?\\d)${EDGE_END}`
 /** Số lỗi bằng 0 ("0 lỗi", "FAIL: 0", "Thiếu: 0") không phải dấu hiệu lỗi: bỏ trước khi tìm dấu hiệu lỗi. */
 const ZERO_FAILURES = new RegExp(`${EDGE_START}${ZERO}\\s*(?:${FAILURE_WORDS})${EDGE_END}|${EDGE_START}(?:${FAILURE_WORDS})\\s*[:=]\\s*${ZERO}`, 'giu')
 /** Từ chỉ số lỗi theo sau là ":" hay "=" và phần còn lại của dòng: mọi số trong vế đó phải là 0 ("Thiếu: 0 cũ, 12 mới" là lỗi). */
 const FAILURE_CLAUSE = new RegExp(`${EDGE_START}(?:${FAILURE_WORDS})\\s*[:=]([^\\n]*)`, 'giu')
-/** "N cảnh báo", "Cảnh báo N" với N khác 0 (không qua dấu ":"). */
-const WARNING_COUNT = new RegExp(`${EDGE_START}(\\d+)\\s+(?:cảnh\\s+báo|warnings?)${EDGE_END}|${EDGE_START}(?:cảnh\\s+báo|warnings?)\\s+(\\d+)`, 'giu')
+/**
+ * Từ đếm kèm số (S5): "3 cảnh báo", "Cảnh báo 2 dòng", "WARN 3 rows", "chênh 1.200.000đ", "NULL ở 7 dòng" là lỗi khi số khác 0. Số đứng
+ * trước từ, hoặc sau từ (cách tối đa một từ ngắn như "ở").
+ */
+const COUNTED = '(?:cảnh\\s+báo|warn(?:ing)?s?|chênh|null(?:s)?)'
+const NUMBER = '\\d[\\d.,]*'
+const COUNTED_BEFORE = new RegExp(`${EDGE_START}(${NUMBER})\\s*(?:đ|%)?\\s+${COUNTED}${EDGE_END}`, 'giu')
+const COUNTED_AFTER = new RegExp(`${EDGE_START}${COUNTED}(?:\\s+\\p{L}{1,3})?\\s*[:=]?\\s*(${NUMBER})`, 'giu')
 /** Tỷ lệ "N/M" (không nằm trong đường dẫn hay ngày nhiều đoạn): N nhỏ hơn M là còn thiếu. */
 const RATIO = /(?<![\d/.,])(\d+)\s*\/\s*(\d+)(?![\d/])/gu
 /** Tỷ lệ bằng chữ "N trên M", "N of M", "N out of M" (vòng rà soát 3). */
 const RATIO_WORDS = new RegExp(`${EDGE_START}(\\d+)\\s+(?:trên|of|out\\s+of)\\s+(\\d+)${EDGE_END}`, 'giu')
+/**
+ * Phủ định đứng trước từ lỗi (S5, d): "không có lỗi", "không thiếu", "no errors", "không có dòng sai lệch", "không tìm thấy lỗi nào" không
+ * phải lỗi; bỏ trước khi tìm dấu hiệu lỗi.
+ */
+const NEGATED_FAILURE = new RegExp(
+  `${EDGE_START}(?:không|chẳng|no|without|zero)\\s+(?:có\\s+|thấy\\s+|phát\\s+hiện\\s+|tìm\\s+thấy\\s+)?(?:(?:dòng|bản\\s+ghi|mã|bất\\s+kỳ|any)\\s+)*(?:${FAILURE_WORDS}|not\\s+match(?:es|ed)?|khác\\s+biệt|không\\s+đúng)${EDGE_END}`,
+  'giu',
+)
+
+/** Số khác 0: có chữ số khác 0 (kể cả "1.200.000" và "0,3"). */
+function hasNonZero(number: string): boolean {
+  return /[1-9]/.test(number)
+}
 
 /** Một vế sau từ chỉ số lỗi có số khác 0 (số thập phân như 0.5 cũng khác 0). */
 function nonZero(clause: string): boolean {
-  return [...clause.matchAll(/\d+(?:[.,]\d+)?/gu)].some(match => Number(match[0].replace(',', '.')) !== 0)
+  return [...clause.matchAll(/\d[\d.,]*/gu)].some(match => hasNonZero(match[0]))
 }
 
-/** Output của lệnh kiểm riêng có dấu hiệu lỗi (0.7.5): dấu hiệu chung của trình chạy, hay dấu hiệu tiếng Việt. */
+/** Output của lệnh kiểm riêng có dấu hiệu lỗi (0.7.5): dấu hiệu chung của trình chạy, hay dấu hiệu tiếng Việt và tiếng Anh. */
 function customFailed(output: string): boolean {
-  const text = output.normalize('NFC')
-  if (COMPLETE_FAIL.some(pattern => pattern.test(text))) return true
+  const original = output.normalize('NFC')
+  if (COMPLETE_FAIL.some(pattern => pattern.test(original))) return true
+  if (FALSE_RESULT.test(original) || EXPECTED_GOT.test(original)) return true
+  const text = original.replace(NEGATED_FAILURE, ' ')
   if ([...text.matchAll(FAILURE_CLAUSE)].some(match => nonZero(match[1] ?? ''))) return true
-  if ([...text.matchAll(WARNING_COUNT)].some(match => Number(match[1] ?? match[2]) !== 0)) return true
+  if ([...text.matchAll(COUNTED_BEFORE)].some(match => hasNonZero(match[1] ?? ''))) return true
+  if ([...text.matchAll(COUNTED_AFTER)].some(match => hasNonZero(match[1] ?? ''))) return true
   const cleaned = text.replace(ZERO_FAILURES, ' ')
   if (CUSTOM_FAILED.test(cleaned) || CROSS_MARK.test(cleaned)) return true
   return [...cleaned.matchAll(RATIO), ...cleaned.matchAll(RATIO_WORDS)].some(match => Number(match[1]) < Number(match[2]))
 }
 
 /**
- * Output của lệnh kiểm riêng qua ống không pipefail đạt: dòng không rỗng cuối cùng có dấu hiệu đạt rõ đứng riêng (không sau chữ
- * phủ định) và toàn bộ phần đầu ra còn thấy không có dấu hiệu lỗi (0.7.5, siết ở vòng sửa 2).
+ * Dòng tổng kết chặt (S5, b): cả dòng chỉ là một dấu hiệu đạt (OK, PASS, PASSED, ALL PASS, ĐẠT, KHỚP, hợp lệ, 0 lỗi), có thể kèm tiền
+ * tố nhãn (Kết quả:, Tổng kết, Done, Kiểm xong:, Tổng:) và số N/N đứng trước hoặc sau; không có chữ nào khác.
+ */
+const SUMMARY_LINE = new RegExp(
+  '^\\s*' +
+    '(?:(?:kết\\s+quả|ket\\s+qua|result|results|status|tổng\\s+kết|tổng\\s+hợp|tổng|summary|done|xong|kiểm\\s+xong|hoàn\\s+tất|finished)\\s*[:\\-]?\\s*)?' +
+    '(?:\\d+\\s*\\/\\s*\\d+\\s*)?' +
+    '(?:(?:all|tất\\s+cả)\\s+)?(?:(?:checks?|tests?)\\s+)?' +
+    '(?:\\d+\\s+)?' +
+    '(?:ok|pass(?:ed)?|passing|đạt|khớp|hợp\\s+lệ|0\\s+lỗi|0\\s+errors?|0\\s+failed|no\\s+errors?)' +
+    '(?:\\s*[:\\-(]?\\s*\\d+\\s*\\/\\s*\\d+\\s*\\)?)?' +
+    '\\s*[.]?\\s*$',
+  'iu',
+)
+
+/** Dòng không rỗng cuối cùng của output; undefined khi không có. */
+function lastLine(output: string): string | undefined {
+  return output.normalize('NFC').split('\n').map(line => line.trim()).filter(line => line !== '').at(-1)
+}
+
+/**
+ * Output của lệnh kiểm riêng qua ống không pipefail đạt (S5): không dòng nào có dấu hiệu lỗi và dòng không rỗng cuối cùng khớp chặt một
+ * dòng tổng kết (SUMMARY_LINE).
  */
 export function customPassed(output: string): boolean {
   if (customFailed(output)) return false
-  const last = output.normalize('NFC').split('\n').map(line => line.trim()).filter(line => line !== '').at(-1)
-  return last !== undefined && CUSTOM_PASSED.test(last)
+  const last = lastLine(output)
+  return last !== undefined && SUMMARY_LINE.test(last)
+}
+
+/**
+ * Output không lỗi nhưng dòng cuối không phải dòng tổng kết (S5): mod nhắc một lần trong phiên dùng `set -o pipefail` hoặc in dòng
+ * tổng kết.
+ */
+export function lacksSummary(output: string): boolean {
+  return !customFailed(output) && !customPassed(output)
 }
 
 /**
