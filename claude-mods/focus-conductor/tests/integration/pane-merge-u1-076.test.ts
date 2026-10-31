@@ -27,6 +27,15 @@ describe('0.7.6 U1: checklist và tiến độ từng việc là một danh sác
     expect(texts.some(t => /^sonnet 0\/3 · 3 đang chạy$/.test(t))).toBe(true)
   })
 
+  test('bước làm trực tiếp: chip "opus high" không kèm số bước "0/1" của chính bước đó', async ($, on) => {
+    await longGoal($, on, 3)
+    const { texts } = await drawn($, 40)
+    const at = texts.indexOf('BƯỚC 6: đọc và giải thích')
+    expect(at).toBeGreaterThanOrEqual(0)
+    expect(texts.slice(at + 1, at + 3)).toContain('opus high')
+    expect(texts.some(t => /^\d+\/1$/.test(t))).toBe(false)
+  })
+
   test('lô lỗi: chip của dòng bước ghi số lô lỗi', async ($, on) => {
     await longGoal($, on, 3)
     await $.turn.complete({ turnId: 't-u1', agentId: 'a-u1', answer: '', durationMs: 1, isAborted: false, reason: 'error' } as never)
