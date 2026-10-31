@@ -56,11 +56,11 @@ export function attentionItems(core: Core, lang: Lang, quota: { paused: boolean;
   const l = labels(lang)
   const items: (Attention & { order: number })[] = []
   if (quota.paused) items.push({ rank: 0, severity: 'warning', text: l.quotaPaused, kind: 'pause', order: 0 })
-  // Mỗi việc có lô lỗi một mục, ghi mã bước ("BƯỚC 4: 3 lô lỗi chưa giao lại"); việc Claude tự giao gom chung, không mã.
+  // Mỗi việc có lô lỗi một mục theo thứ tự bước, ghi mã bước ("BƯỚC 4: 3 lô lỗi chưa giao lại"); việc Claude tự giao gom chung, không mã.
   const byTask = failedByTask(core)
   const plain = byTask.filter(entry => entry.label === null).reduce((sum, entry) => sum + entry.failed, 0)
-  byTask.filter(entry => entry.label !== null).forEach((entry, i) => items.push({ rank: 1, severity: 'error', text: `${entry.label}: ${l.attentionFailed(entry.failed)}`, kind: 'failed', order: -i }))
-  if (plain > 0) items.push({ rank: 1, severity: 'error', text: l.attentionFailed(plain), kind: 'failed', order: 1 })
+  byTask.filter(entry => entry.label !== null).forEach((entry, i) => items.push({ rank: 1, severity: 'error', text: `${entry.label}: ${l.attentionFailed(entry.failed)}`, kind: 'failed', order: i }))
+  if (plain > 0) items.push({ rank: 1, severity: 'error', text: l.attentionFailed(plain), kind: 'failed', order: 1000 })
   if (quota.notice !== null) items.push({ rank: 3, severity: 'warning', text: quota.notice, kind: 'notice', order: 0 })
   const isPlannedFanout = brief.tasks.some(task => task.run === 'agent')
   core.warnings

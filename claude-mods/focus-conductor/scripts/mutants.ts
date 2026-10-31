@@ -1767,6 +1767,7 @@ export const MUTANTS: Mutant[] = [
   { id: "076-W4o", file: "hooks/ui/pane.tsx", note: "mục Đang chạy không ghi giờ bắt đầu", old: ", ` · ${l.runningSince(group.startedAt)}`].join('')}", new: "].join('')}" },
   { id: "076-W4p", file: "hooks/lib/progress.ts", note: "giờ bắt đầu của nhóm lấy agent cuối thay vì đầu", old: "    group.startedAt = Math.min(group.startedAt, item.startedAt)", new: "    group.startedAt = Math.max(group.startedAt, item.startedAt)" },
   { id: "076-W4q", file: "hooks/ui/labels.ts", note: "thời gian tác vụ làm tròn xuống", old: "taskElapsed: (ms: number) => (ms < 60_000 ? '<1 phút' : `${roundedMinutes(ms)} phút`)", new: "taskElapsed: (ms: number) => (ms < 60_000 ? '<1 phút' : `${Math.floor(ms / 60_000)} phút`)" },
+  { id: "076-W4r", file: "hooks/ui/attention.ts", note: "mục lô lỗi xếp việc mới trước thay vì theo thứ tự bước", old: "kind: 'failed', order: i }))", new: "kind: 'failed', order: -i }))" },
   { id: "075-A5a", file: "hooks/lib/drift/classify.ts", note: "tên lệnh giữ thư mục", old: "    const name = commandName(unmask(cmd))\n", new: "    const name = unmask(cmd)\n" },
   { id: "075-A5b", file: "hooks/lib/drift/classify.ts", note: "xét chỉ đọc theo chữ lệnh gốc", old: "if (segmentIsReadOnly(plain)) continue", new: "if (segmentIsReadOnly(text)) continue" },
   { id: "075-A5c", file: "hooks/lib/drift/classify.ts", note: "không bỏ tiền tố env", old: "if (cmd !== undefined && commandName(unmask(cmd)) === 'env') {", new: "if (false) {" },
