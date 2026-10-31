@@ -556,14 +556,14 @@ export function ruleFamily(constraints: readonly string[], description: string, 
 const CATCH_ALL = /(?<![\p{L}\p{N}])(?:luồng chính|luong chinh|main(?: thread)?|mọi việc|moi viec|tất cả|tat ca|các việc (?:khác|còn lại)|việc (?:khác|còn lại)|còn lại|con lai|everything|all (?:other )?(?:work|tasks)|the rest)(?![\p{L}\p{N}])/iu
 
 /**
- * Loại việc luồng chính tự làm (R4): đọc, giải thích, đúc kết, tổng hợp, tóm tắt, viết, sửa, và cụm tiếng Anh reading, synthesis, summary,
- * explain, write cùng các dạng của chúng (S9); không dấu, so với từ đầu của loại việc.
+ * Loại việc luồng chính tự làm (R4): đọc, giải thích, đúc kết, tổng hợp, tóm tắt, viết, sửa; không dấu, so với từ đầu của loại việc.
  */
-const MAIN_KINDS = [
-  'doc', 'giai thich', 'duc ket', 'tong hop', 'tom tat', 'viet', 'sua',
-  // Tiếng Anh (S9).
-  'read', 'reading', 'synthesis', 'synthesize', 'summary', 'summarize', 'explain', 'explanation', 'write', 'writing',
-]
+const MAIN_KINDS = ['doc', 'giai thich', 'duc ket', 'tong hop', 'tom tat', 'viet', 'sua']
+/**
+ * Loại việc luồng chính bằng tiếng Anh (S9), nhận theo gốc từ ở từ đầu của loại việc (T8): read, summary, synthesis, explain,
+ * explanation, write cùng số nhiều và các dạng của động từ ("summaries", "explaining", "reads"); "readme", "ready", "writer" không tính.
+ */
+const MAIN_ENGLISH = /^(?:read(?:s|ing)?|summar(?:y|ies|ize|izes|ized|izing|ise|ises|ised|ising)|synthes(?:is|es|ize|izes|ized|izing|ise|ises|ised|ising)|explain(?:s|ed|ing)?|explanations?|writ(?:e|es|ing|ten))$/
 
 /**
  * Sàn main theo model của phiên (0.7.5, vòng sửa 2 và R4): một ràng buộc của brief nêu "mô hình của phiên" (hay "session model") cho
@@ -573,7 +573,8 @@ const MAIN_KINDS = [
  * không tính.
  */
 export function sessionFloor(constraints: readonly string[], session: ModelFamily | null): ModelFamily | null {
-  const mainKind = (kind: string[]) => MAIN_KINDS.some(verb => kind.join(' ') === verb || kind.join(' ').startsWith(`${verb} `))
+  const mainKind = (kind: string[]) =>
+    MAIN_KINDS.some(verb => kind.join(' ') === verb || kind.join(' ').startsWith(`${verb} `)) || MAIN_ENGLISH.test(kind[0] ?? '')
   for (const rule of constraints) {
     for (const clause of ruleClauses(rule)) {
       if (clause.family === 'session' && (CATCH_ALL.test(clause.text) || clause.kinds.some(mainKind))) return session

@@ -15,8 +15,8 @@ describe('0.7.5 T8: gốc từ tiếng Anh của loại việc luồng chính', 
     }
   })
 
-  test('từ chỉ trùng phần đầu (readme, ready, writer) và việc của subagent không tạo sàn', () => {
-    for (const kind of ['Readme files', 'Ready checks', 'Filtering']) {
+  test('từ chỉ trùng phần đầu hay phần cuối (readme, ready, spreading) và việc của subagent không tạo sàn', () => {
+    for (const kind of ['Readme files', 'Ready checks', 'Spreading data', 'Filtering']) {
       expect(sessionFloor([`${kind} use the session model`], 'opus'), kind).toBe(null)
     }
   })
