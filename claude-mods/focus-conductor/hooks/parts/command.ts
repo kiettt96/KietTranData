@@ -1,7 +1,7 @@
 // Lệnh /conductor: pane, status, mode, goal, reroute, reset, pause, resume.
 
 import { atom, derive, read, update } from 'claude-code'
-import type { Brief, Core, QuotaCheckpoint } from '../../types'
+import type { Brief, Core, Depth, QuotaCheckpoint } from '../../types'
 import { buildCheckpoint, forceUntil, pruneKeys, storeKey } from '../lib/checkpoint'
 import { EMPTY_QUOTA, evaluateQuota, newPause, normalizeQuota, quotaSettings, reasonsOf } from '../lib/quota'
 import { restorableSteps } from '../lib/drift'
@@ -32,10 +32,10 @@ const quotaState = atom({ plugin: 'focus-conductor', key: 'quota' } as const, EM
 const paneClosedState = atom({ plugin: 'focus-conductor', key: 'paneClosedGoal' } as const, -1)
 
 /** Mở pane chi tiết cho mục tiêu mới nếu cần (0.7.2), như parts/session.ts: không focus; kết quả ghi vào nhật ký quyết định. */
-async function autoOpenPane($: EngineInterface, ctx: Ctx, goalId: number, at: number): Promise<void> {
+async function autoOpenPane($: EngineInterface, ctx: Ctx, goalId: number, at: number, depth: Depth | null): Promise<void> {
   const panes = await $.ui.panes().catch(() => [])
   const isOpen = panes.some(pane => pane.id === PANE)
-  if (!shouldAutoOpenPane({ enabled: ctx.autoPane, goalId, closedGoal: await read($, paneClosedState), isOpen })) return
+  if (!shouldAutoOpenPane({ enabled: ctx.autoPane, goalId, closedGoal: await read($, paneClosedState), isOpen, depth })) return
   const opened = await $.ui.open({ id: PANE, title: PANE_TITLE, rows: PANE_ROWS }).catch(() => null)
   // Chỉ ghi khi pane chưa được đặt (màn hình hẹp, chưa có surface, engine từ chối): đặt được là trường hợp bình thường, không cần dòng log.
   if (opened?.isPlaced === true) return
@@ -160,7 +160,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       const expected = wanted !== null ? expectedMain(core, brief, wanted, now) : null
       trackDelegations(brief.goalId, brief.isReference ? [] : brief.tasks)
       await update($, coreState, S.withDelegations(brief.goalId, delegationItems(brief)))
-      await autoOpenPane($, ctx, brief.goalId, now)
+      await autoOpenPane($, ctx, brief.goalId, now, null)
       const dropped = restorableSteps(before.plan)
       const notice = dropped.length > 0 ? [droppedPlanNotice(dropped)] : []
       return {

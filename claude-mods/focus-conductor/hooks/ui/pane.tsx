@@ -442,9 +442,7 @@ export function renderPane(
         ))}
         {plannedCompact ? <Text dimColor>{l.stepsOpenMore(brief.steps.length - plannedShown.length)}</Text> : null}
       </Box>
-    ) : (
-      <Text dimColor>{l.noChecklist}</Text>
-    )
+    ) : null
 
   // --------------------------------------------------- việc giao subagent
   // ------------------------------------------------- tiến độ từng việc (0.6.1)
@@ -653,15 +651,18 @@ export function renderPane(
     <Box flexDirection="column" gap={1} width={width}>
       {header}
       {/* 0.7.5: checklist và tiến độ từng việc ngay sau phần đầu, để pane 16 dòng thấy được chúng; chế độ, hạn mức, cảnh báo sau. */}
-      <Box flexDirection="column">
-        {heading(plan.length > 0 ? l.checklist : l.planned, plan.length > 0 ? countLabel(plan) : undefined)}
-        {source === 'mirror' ? (
-          <Text dimColor wrap="wrap">
-            {l.mirrorSource}
-          </Text>
-        ) : null}
-        {checklist}
-      </Box>
+      {/* U11: chưa có checklist thì bước dự kiến của router nằm dưới "Danh sách bước (dự kiến)"; không có bước nào thì không có mục. */}
+      {checklist !== null ? (
+        <Box flexDirection="column">
+          {heading(l.checklist, plan.length > 0 ? countLabel(plan) : l.plannedTag)}
+          {source === 'mirror' ? (
+            <Text dimColor wrap="wrap">
+              {l.mirrorSource}
+            </Text>
+          ) : null}
+          {checklist}
+        </Box>
+      ) : null}
       {taskNodes.length > 0 ? (
         <Box flexDirection="column">
           {heading(l.taskSection, String(taskNodes.length))}
