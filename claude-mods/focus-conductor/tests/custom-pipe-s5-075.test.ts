@@ -111,12 +111,16 @@ describe('0.7.5 S5 (b): nhắc một lần trong phiên khi dòng cuối không 
   const piping = `${RUN} 2>&1 | tail -n 5`
   const hintOf = (hints: Set<string>, command: string, output: string) => observe(newTracker('t'), call(command, output), FOCUS(hints), []).find(f => f.context?.includes('pipefail'))
 
-  test('lệnh kiểm qua ống không pipefail, không lỗi, dòng cuối không phải tổng kết: nhắc một lần, lần sau (cùng phiên) không nhắc', () => {
+  test('lệnh kiểm qua ống không pipefail, không lỗi, dòng cuối không phải tổng kết: nhắc; khóa đã ghi (lời nhắc đã chèn) thì không nhắc', () => {
     declared(() => {
       const hints = new Set<string>()
       const first = hintOf(hints, piping, 'Đã kiểm 120 dòng\nTiếp tục bước sau')
       expect(first?.context).toContain('set -o pipefail')
       expect(first?.context).toContain('dòng tổng kết')
+      // T6: observe không tự ghi khóa; hook ghi khi lời nhắc được chèn (tests/integration/pipe-hint-t6-075.test.ts).
+      expect(first?.hint).toBe('pipe-summary')
+      expect(hintOf(hints, piping, 'Đã kiểm 12 dòng\nTiếp tục bước sau')).toBeDefined()
+      hints.add('pipe-summary')
       expect(hintOf(hints, piping, 'Đã kiểm 12 dòng\nTiếp tục bước sau')).toBeUndefined()
     })
   })

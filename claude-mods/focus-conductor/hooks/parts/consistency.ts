@@ -388,6 +388,8 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       if (verdict !== null && !verdict.onTrack) driftNote = driftContext(core.brief.goal, verdict.why)
     }
     const top = findings.filter(f => f.context).sort((a, b) => b.priority - a.priority)[0]
+    // Lời nhắc một lần trong phiên (T6): chỉ ghi khóa khi chính lời nhắc này được chèn.
+    if (top?.hint !== undefined) L.sessionHints.add(top.hint)
     const extra = [...(top?.context ? [top.context] : []), ...(driftNote ? [driftNote] : [])]
     if (extra.length === 0) return withNudge(result)
     return withNudge({ ...result, context: [...(result.context ?? []), ...extra] })

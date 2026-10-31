@@ -99,8 +99,9 @@ export type Focus = {
 
 /**
  * Lệnh kiểm riêng (checkCommands) qua ống không pipefail chạy xong, không có dấu hiệu lỗi, nhưng dòng không rỗng cuối cùng không phải dòng
- * tổng kết chặt nên không được tính là đạt (S5): nhắc một lần trong phiên (khóa trong `focus.hints`) dùng `set -o pipefail` trước lệnh hoặc
- * in một dòng tổng kết. null khi không áp dụng.
+ * tổng kết chặt nên không được tính là đạt (S5): nhắc một lần trong phiên dùng `set -o pipefail` trước lệnh. Khóa `pipe-summary` chỉ được
+ * ghi vào `focus.hints` khi lời nhắc thật sự được chèn (T6), nên lần thua một phát hiện ưu tiên cao hơn không làm mất lời nhắc. null khi
+ * không áp dụng.
  */
 function pipeSummaryHint(observation: ToolObservation, focus: Focus): Finding | null {
   if (observation.tool !== 'Bash' || observation.isError || observation.output === undefined || outputFailed(observation.output)) return null
@@ -109,15 +110,16 @@ function pipeSummaryHint(observation: ToolObservation, focus: Focus): Finding | 
     if (effect.kind !== 'check' || !effect.trusted || effect.exit !== 'filtered' || effect.pipefail === true) continue
     if (!isCustomCheck(effect.segment) && !(effect.resolved !== undefined && isCustomCheck(effect.resolved))) continue
     if (!lacksSummary(observation.output)) continue
-    focus.hints?.add('pipe-summary')
     return {
       kind: 'unverified',
       priority: 1,
+      hint: 'pipe-summary',
       text: 'Lệnh kiểm qua ống không có dòng tổng kết ở cuối nên chưa tính là đạt',
       context:
         '[focus-conductor] Lệnh kiểm riêng này chạy qua ống (| tail, | head) không có `set -o pipefail`, và dòng cuối của output không phải một dòng tổng kết ' +
-        '(OK, PASS, ĐẠT, KẾT QUẢ: ĐẠT), nên mod không tính là đạt. Đặt `set -o pipefail;` trước lệnh, hoặc cho lệnh in một dòng tổng kết ở cuối. ' +
-        'Lời nhắc này chỉ nói một lần trong phiên.',
+        '(OK, PASS, ĐẠT, KẾT QUẢ: ĐẠT), nên mod không tính là đạt. Đặt `set -o pipefail;` trước lệnh kiểm. ' +
+        'Không sửa script kiểm nếu người dùng không yêu cầu. Khi lệnh kiểm in kết quả lỗi: có pipefail thì lệnh thoát khác 0 và mod tính là ' +
+        'chưa đạt; không có pipefail thì mod chỉ nhận ra lỗi qua dấu hiệu lỗi trong output. Lời nhắc này chỉ nói một lần trong phiên.',
     }
   }
   return null
@@ -151,6 +153,8 @@ export type Finding = {
   context?: string
   /** Ưu tiên khi nhiều phát hiện trùng một tool result: số lớn thắng. */
   priority: number
+  /** Khóa lời nhắc một lần trong phiên (T6): hook ghi khóa vào `focus.hints` chỉ khi phát hiện này được chèn vào kết quả tool. */
+  hint?: string
 }
 
 /** Số mốc checkpoint đã qua khi có `count` thay đổi liên tiếp chưa kiểm. */
