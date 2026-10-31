@@ -4,6 +4,10 @@
 
 import { describe, expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
+import type { Core } from '../../types'
+import { attentionItems } from '../../hooks/ui/attention'
+import * as S from '../../hooks/lib/state'
+import { makeBrief } from '../support/commands'
 import { PANE, base, plan, submit, task } from '../support/engine'
 
 const BAND = { plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: true, maxRows: 6, bodyColumns: 160, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as const
@@ -76,5 +80,24 @@ describe('0.7.6 U2: dòng cần chú ý theo mức độ', () => {
     expect(texts.some(t => /lô lỗi chưa giao lại/.test(t))).toBe(true)
     expect(texts.some(t => t.includes('ngoài phạm vi'))).toBe(false)
     expect(texts).toContain('+2')
+  })
+})
+
+describe('0.7.6 U2: attentionItems', () => {
+  const brief = makeBrief({ goalId: 2, at: 100, tasks: [] })
+  const core = (over: Partial<Core>): Core => ({ ...S.EMPTY_CORE, brief, ...over })
+
+  test('cùng hạng thì cảnh báo mới hơn đứng trước; cảnh báo của mục tiêu trước không lên', () => {
+    const items = attentionItems(core({ warnings: [
+      { at: 50, kind: 'scope', text: 'cũ của mục tiêu trước' },
+      { at: 110, kind: 'scope', text: 'phạm vi một' },
+      { at: 120, kind: 'scope', text: 'phạm vi hai' },
+    ] }), 'vi')
+    expect(items.map(i => i.text)).toEqual(['phạm vi hai', 'phạm vi một'])
+  })
+
+  test('việc giao subagent lỗi theo danh sách việc giao (chưa có bộ đếm) cũng là lô lỗi chưa giao lại', () => {
+    const items = attentionItems(core({ delegations: { goalId: 2, items: [{ index: 1, title: 'Lọc log', state: 'failed' }] } }), 'vi')
+    expect(items[0]?.text).toBe('1 lô lỗi chưa giao lại')
   })
 })

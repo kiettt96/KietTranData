@@ -11,7 +11,8 @@ import { byPriority, chipCounts, taskRows } from '../lib/progress'
 import type { QuotaBadge } from '../lib/quota'
 import type { View } from '../lib/state'
 import { countLabel, progress, quotaPercent } from '../lib/text'
-import { labels, shownWarning, taskLabel } from './labels'
+import { attentionItems } from './attention'
+import { labels, taskLabel } from './labels'
 import type { Run } from './style'
 import {
   FAMILY_HUE,
@@ -26,7 +27,6 @@ import {
   shownUsd,
   plannedRuns,
   severityGlyph,
-  severityOf,
   taskBarRuns,
 } from './style'
 
@@ -64,7 +64,7 @@ export function renderBand(
   /** Bảo vệ hạn mức (0.6.0): nhãn đang dừng hay phần còn lại khi gần ngưỡng; null hay vắng thì band như cũ. */
   quota: QuotaBadge | null = null,
 ): RenderElement | null {
-  const { brief, route, warnings, ledger, log } = view.core
+  const { brief, route, ledger, log } = view.core
   // Checklist để vẽ: của tool plan, nếu chưa có thì danh sách việc Claude Code tự ghi (phản chiếu, 0.6.1).
   const { plan, source } = shownPlan(view.core)
   if (view.mode === 'off' || brief === null || view.isBandHidden) return null
@@ -76,11 +76,11 @@ export function renderBand(
   const hasRoom = columns >= 72
   const hasTitle = columns >= 56
 
-  // Cảnh báo chi phí (0.7.5) không lên dòng cảnh báo của band: chỉ ở pane và /conductor status.
-  const recent = warnings.filter(w => w.at >= brief.at && w.kind !== 'cost')
-  const latest = recent.at(-1)
-  const others = recent.length - 1
-  const severity = latest ? severityOf(latest.kind) : null
+  // Dòng cần chú ý (0.7.6, U2): mục quan trọng nhất theo mức độ, không theo cảnh báo mới nhất; "+N" đếm phần còn lại.
+  const attention = attentionItems(view.core, view.lang, { paused: false, notice: null })
+  const latest = attention[0]
+  const others = attention.length - 1
+  const severity = latest ? latest.severity : null
   const spine: Color = severity ?? 'claude'
 
   const { closed, total } = progress(plan)
@@ -209,7 +209,7 @@ export function renderBand(
       </Box>
       <Box flexGrow={1} flexShrink={1}>
         <Text color={severity} wrap="truncate-end">
-          {shownWarning(latest.text, view.lang)}
+          {latest.text}
         </Text>
       </Box>
       {others > 0 ? (
