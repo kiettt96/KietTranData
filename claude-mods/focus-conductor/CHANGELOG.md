@@ -47,7 +47,7 @@ Test cũ đổi theo hiển thị mới (lý do):
 - `tests/integration/ui-061.test.ts`, `dropped-kind-s8-075.test.ts` (W1): tiêu đề "Cảnh báo khác"; cảnh báo đã hiện ở "Cần chú ý" không lặp ở mục dưới.
 - `tests/integration/pane-running-u8-076.test.ts` (W4): dòng của mục Đang chạy kết thúc bằng "· từ HH:MM" (en "since").
 - `tests/status-u5-076.test.ts` (W4): chưa có checklist và chưa có model thì status line ghi tên ngắn của mục tiêu, không chỉ tên chế độ.
-- Mẫu đột biến cũ sửa cho khớp mã mới, giữ ý: `060-O4`, `075-S5i`, `075-T9a`, `075-T9b`, `075-T10a` tới `075-T10f`, `076-U1e`, `076-U1f`, `076-U2d`, `076-U2f`, `076-U3i`, `076-U5a`, `076-U5c`, `076-U5g`, `076-U9a` tới `076-U9e`.
+- Mẫu đột biến cũ sửa cho khớp mã mới, giữ ý: `060-O4`, `075-S5i`, `075-T9a`, `075-T9b`, `075-T10a` tới `075-T10f`, `076-U1e`, `076-U1f`, `076-U2d`, `076-U2f`, `076-U3i`, `076-U5a`, `076-U5c`, `076-U5g`, `076-U9a` tới `076-U9e`; `061-U11` đánh dấu tương đương kèm lý do (nhánh không còn tới được từ hook sau W1).
 
 ## Thay đổi 0.7.5: sửa các lỗi của đợt rà soát toàn diện sau 0.7.4
 

@@ -2,18 +2,24 @@
 
 Số đo của HEAD hiện tại và của các bản trước. Mọi số do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển] trừ khi nêu khác; hợp đồng đối chiếu evidence ở [DESIGN.md](DESIGN.md), lịch sử thay đổi ở [CHANGELOG.md](../CHANGELOG.md), cách dùng ở [README](../README.md).
 
-## Kiểm chứng của 0.7.6 (band và pane theo thứ bậc thông tin)
+## Kiểm chứng của 0.7.6 (band và pane theo thứ bậc thông tin; vòng cuối)
 
-Bản 0.7.6 xếp chồng trên nhánh `claude/focus-conductor-0-7-5` (đã hợp nhất vòng 5, `f894982`). Mỗi điểm U1 tới U12 một commit test đỏ rồi một commit sửa; các ca ghim đột biến chỉ đổi `tests/` [Đo trực tiếp].
+Bản 0.7.6 nằm trên `main` sau khi PR 28 squash vào (merge `2815c4f`, không rebase; diff so với `main` chỉ còn phần 0.7.6). Mỗi điểm U1 tới U12, V1 tới V3 và W1 tới W4 một commit test đỏ rồi một commit sửa; các ca ghim đột biến chỉ đổi `tests/` [Đo trực tiếp].
 
 - Môi trường: Claude Code 2.1.296 cho mọi lần chạy test và đột biến dưới đây [Đo trực tiếp].
-- `claude plugin test .` trên cây hợp nhất: 2131 test qua, 0 lỗi, 183 tệp [Đo trực tiếp]. `claude plugin validate .` qua; `bunx tsc -p tsconfig.json` sạch; `bun scripts/mutate.ts --check` 1578/1578 chỉ kiểm khớp (mismatched rỗng). sha256 `hooks/` `1c6086131ffdbacff62b870a7fb3ccc9f2ad2f61c58e921f9bc6ad5ea9a9c9d8`, `tests/` `c1b01213a5be96487df1c5e822692ad0bfe60e3957360e233c9f0c255cc533ce`.
-- Đột biến trên mã 0.7.6 (`29e21c0`, 176 mẫu mới và mẫu của các tệp `hooks/ui/`, `hooks/lib/progress.ts`, `pane.ts`, `text.ts`), chia theo phần (bộ chạy hai pha, pha 2 là toàn bộ bộ test) [Đo trực tiếp]: 176 bị bắt, 0 sống sót chưa xử lý. Ba mẫu sống sót ở lượt quét sau (`075-L6d`, `075-R10c` và `061-U18`) đã có ca ghim (commit `3ff780e`; `061-U18` đánh dấu tương đương kèm lý do); cả hai ca ghim đã bắt mẫu khi áp lên cây (1 đỏ mỗi mẫu).
-- Phiên dài (cùng kịch bản mục 6): 10.339 ký tự mod chèn (cứ 10 lời gọi có một script ghi) và 19.587 (cứ 3 lời gọi), bằng số trước U1 đến U12 [Đo trực tiếp]; 0 lượt router, 11 trên 11 bước nâng, 24 lời nhắc checkpoint sau subagent khi cứ 3 lời gọi.
-- Số đo phần hiển thị: 10 trạng thái (mới vào, có bước dự kiến, giữa chừng 11 bước, 300 lô có lỗi, đã kiểm chứng bị hạ, nhiều cảnh báo chồng, báo hạn mức mềm, tạm dừng cứng, sau nén, hoàn thành) dựng ở band 56, 72, 120 cột và pane 16, 24, 40 dòng. Bảng trước và sau ở mô tả PR 29 (bộ vẽ chữ gần đúng terminal thật, [Giả định]). Pane 16 dòng của trạng thái giữa chừng 11 bước: 55 dòng trước, 38 dòng sau.
-- Quét dòng thêm (chuỗi riêng tư, em dash, emoji, dấu chấm than): 0 chuỗi riêng tư; 0 em dash; không emoji ngoài ký hiệu đã ghi ở CHANGELOG của vòng 5; dấu chấm than chỉ là toán tử trong mã [Đo trực tiếp].
+- `claude plugin test .` trên HEAD: 2190 test qua, 0 lỗi, 190 tệp [Đo trực tiếp]. `claude plugin validate .` qua ở thư mục mod và ở gốc repo; `bunx tsc --noEmit -p .` sạch; `bun scripts/mutate.ts --check` 1738 mẫu, mismatched rỗng. sha256 `hooks/` `8464586a31e4e10b8edf3738cc2080bd78ddeb233ad8c2bf2b4bef6eaf4a3525`, `tests/` `de60ac6dbcc736cfab11b6d01acf6684c16e4983a4e64e365586a8246a799957`.
+- Test đỏ trước khi sửa [Đo trực tiếp]: V1 6 trên 6, V2 3 trên 3, V3 3 trên 3, W1 6 trên 6, W2 5 trên 6, W3 2 trên 3, W4 10 trên 11, thứ tự mục lô lỗi 1 trên 1. T4, T5, T9 giữ kỳ vọng (ba tệp test đó không đổi, vẫn qua).
+- Đột biến, bộ chạy hai pha (pha 2 là toàn bộ bộ test), chia cho 14 phiên cloud và máy phát triển [Đo trực tiếp]:
+  - Phần logic và chi phí trên `87c0cb9` (325 mẫu của `lib/drift/output.ts`, `lib/route.ts`, `lib/ledger.ts`, `parts/command.ts`, gồm 67 mẫu mới của V1 tới V3 và W2): 323 bị bắt, 2 tương đương (`075-R2a`, `076-V2d`), 0 sống sót. Các mẫu chỉ bị bắt bởi một test ở pha 2 đều được chạy lại trên toàn bộ bộ test: đều bị bắt.
+  - Phần giao diện trên `d63697f` (318 mẫu của `hooks/ui/`, `parts/ui.tsx`, `lib/progress.ts`, `lib/text.ts`: 160 mẫu của `hooks/ui/`, gồm 63 mẫu cũ ngoài 0.7.6, 65 mẫu U1 tới U12 và 32 mẫu mới W1 tới W4): 313 bị bắt, 2 tương đương đã đánh dấu từ trước (`054-D3`, `060-O4`), 3 sống sót đã xử lý: `076-U12g` (ca ghim mới ở `pane-attention-w1-076.test.ts`, 1 đỏ khi áp mẫu), `076-U2g` (sau khi `failedBatches` thành tổng của `failedByTask` mẫu được viết lại và bị bắt, 2 đỏ), `061-U11` (đánh dấu tương đương kèm lý do: nhánh `quota?.isPaused` của mục cảnh báo không còn tới được từ hook sau W1, vì `quotaPaneText` và `bandQuota` cùng suy ra trạng thái dừng từ một `overview`). `054-D4` bị bắt một lần ở pha 2 nhưng ra tương đương khi chạy lại (nhiễu thời gian, mẫu đã đánh dấu tương đương từ trước).
+  - Sau `d63697f` chỉ đổi thứ tự mục lô lỗi và gộp `failedBatches`: 15 mẫu của `hooks/ui/attention.ts` chạy lại trên mã cuối với toàn bộ bộ test: 15 bị bắt.
+  - Tổng mẫu của `hooks/ui/`: 160 (63 cũ, 65 của U1 tới U12, 32 mới); mẫu mới của vòng này V1 tới W4: 67. Mẫu cũ sửa cho khớp mã mới ghi ở CHANGELOG.
+- Phiên dài (cùng kịch bản mục 6): 10.339 ký tự mod chèn (cứ 10 lời gọi có một script ghi) và 19.587 (cứ 3 lời gọi), bằng số trước vòng cuối [Đo trực tiếp]; 0 lượt router, 11 trên 11 bước nâng. B6 150 lô cho "Riêng BƯỚC 3, 5 dùng opus": 450 lời gọi, 2 lượt router (chỉ BƯỚC 3 và BƯỚC 5 mỗi mã một lượt; BƯỚC 4 ghi sonnet: 0 lượt).
+- Chi phí hiển thị (W2): câu lý do giữ hay hạ model chỉ vào `route.reason`, nhật ký và `text` của `/conductor status`, không vào context của Claude; bảng giá trong prompt router giữ nguyên, nên `golden.test.ts` và phiên dài không đổi.
+- Số đo phần hiển thị: 10 trạng thái dựng ở band 56, 72, 120 cột và pane 16, 24, 40 dòng; bảng trước và sau ở mô tả PR 29 (bộ vẽ chữ gần đúng terminal thật, [Giả định]). Câu cảnh báo bước ghi đã kiểm chứng thiếu bằng chứng chiếm 4 dòng ở pane 80 cột trong "Cần chú ý": đặc tả "tối đa 2 dòng" mâu thuẫn "không cắt cụt" với câu này, đã giữ nguyên câu (phần cuối câu là chỉ dẫn).
+- Quét dòng thêm (chuỗi riêng tư, em dash, emoji, dấu chấm than): 0 chuỗi riêng tư; 0 em dash; không emoji ngoài ký hiệu đã dùng; dấu chấm than chỉ là toán tử trong mã [Đo trực tiếp].
 - CI: xem mô tả PR 29 (commit cuối sau khi push).
-- Chưa kiểm được trên phiên thật: `$.ui` với terminal thật ở các độ rộng trong bảng xem trước; trạng thái dừng hạn mức thật; đổi base PR 29 sang `main` sau khi PR 28 merge (bằng merge, không rebase).
+- Chưa kiểm được trên phiên thật: `$.ui` với terminal thật ở các độ rộng trong bảng xem trước; trạng thái dừng hạn mức thật; giờ bắt đầu "từ HH:MM" theo múi giờ máy thật.
 
 ## Kiểm chứng của vòng rà soát 5 (0.7.5)
 
