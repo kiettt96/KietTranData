@@ -169,3 +169,12 @@ describe('0.7.5 S5: nhắc dòng tổng kết chỉ cho lệnh kiểm riêng, m�
     expect(await run()).toBe(true)
   })
 })
+
+describe('0.7.5 vòng rà soát 5: "không hợp lệ" một mình là dấu hiệu lỗi (ghim 075-H1i)', () => {
+  test('qua ống không pipefail: "Dòng 12 không hợp lệ⏎OK" không đạt', () => {
+    declared(() => {
+      expect(piped('Dòng 12 không hợp lệ\nOK')).toBe(false)
+      expect(withPipefail('Dòng 12 không hợp lệ\nOK')).toBe(false)
+    })
+  })
+})
