@@ -426,7 +426,9 @@ export function renderPane(
   // Thay mục "Việc giao subagent": việc chính, từng việc router phân (làm trực tiếp hay giao), rồi việc Claude tự giao.
   // Chỉ vẽ khi có từ hai việc trở lên; thanh theo bề rộng pane, tối thiểu 6 ô; dưới 48 ô mỗi việc hai dòng.
   const taskCells = Math.max(6, Math.min(16, Math.floor(width * 0.2)))
-  const taskNodes = taskRows(view.core, props.now ?? 0).map(row => {
+  // Mọi bước đã đóng (U10): ẩn dòng việc chưa từng giao.
+  const isFinished = total > 0 && closed === total
+  const taskNodes = taskRows(view.core, props.now ?? 0).filter(row => !(isFinished && row.state === 'pending')).map(row => {
     const label = taskLabel(l, row)
     const runs = taskBarRuns(row.bar, taskCells)
     const counts = row.bar.kind === 'steps' ? progress(row.bar.plan) : null

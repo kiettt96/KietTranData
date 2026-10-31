@@ -48,7 +48,8 @@ describe('giao diện', () => {
     const head = await band.find({ type: 'Text', text: /^[◐■]$/ })
     const count = await band.find({ type: 'Text', text: /^\d+\/\d+$/ })
     const word = await band.find({ type: 'Text', text: /^(chưa bắt đầu|mới bắt đầu|đang thực hiện|sắp xong)$/ })
-    const closedAll = await band.find({ type: 'Text', text: /^Đã xong mọi bước$/ })
+    // 0.7.6 U10: xong hết thì band một dòng "Hoàn thành: <mục tiêu>" thay cho "Đã xong mọi bước".
+    const closedAll = await band.find({ type: 'Text', text: /^Hoàn thành: / })
     await band.unmount()
     const pane = await $.ui.mount(PANE)
     const paneFill = (await pane.findAll({ type: 'Text', text: /^━+$/ })).find(e => e.props.color !== undefined)
@@ -99,7 +100,7 @@ describe('giao diện', () => {
     await mark(6, 'doing')
     expect(await progressOf($)).toMatchObject({ fill: 'warning', headColor: 'warning', count: '5/6', word: undefined, paneFill: 'warning', paneWord: 'sắp xong' })
 
-    // 6/6: thanh đầy màu xanh lá; band ghi "Đã xong mọi bước" thay cho tên giai đoạn, pane ghi hoàn thành.
+    // 6/6: thanh đầy màu xanh lá; band ghi "Hoàn thành: <mục tiêu>" (U10), pane ghi hoàn thành.
     await mark(6, 'done')
     const done = await progressOf($)
     expect(done).toMatchObject({ fill: 'success', head: undefined, count: '6/6', word: undefined, isAllClosed: true, paneFill: 'success', paneWord: 'hoàn thành' })

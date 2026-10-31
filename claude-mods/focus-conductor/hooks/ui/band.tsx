@@ -210,9 +210,10 @@ export function renderBand(
       <Text wrap="truncate-end" bold={props.isWorking}>
         {current.title}
       </Text>
-    ) : total > 0 && closed === total ? (
-      <Text dimColor wrap="truncate-end">
-        {l.allClosed}
+    ) : isFinished ? (
+      // Hoàn thành (U10): một dòng, mục tiêu đi sau chữ "Hoàn thành".
+      <Text color="success" wrap="truncate-end">
+        {l.completedGoal(brief.goal)}
       </Text>
     ) : (
       <Text bold wrap="truncate-end">
@@ -266,8 +267,9 @@ export function renderBand(
     </Box>,
   ]
 
-  // Dòng 2: cần chú ý; không có thì subagent đang chạy; không có nữa thì mục tiêu (mờ), trừ khi dòng 1 đã ghi mục tiêu.
-  if (hasSecondRow) {
+  // Dòng 2: cần chú ý; không có thì subagent đang chạy; không có nữa thì mục tiêu (mờ), trừ khi dòng 1 đã ghi mục tiêu. Hoàn thành thì
+  // band chỉ một dòng (U10).
+  if (hasSecondRow && !isFinished) {
     const first = rows.find(row => row.kind === 'agent' && row.state === 'running')
     if (alertNode) lines.push(alertNode)
     else if (first !== undefined)
