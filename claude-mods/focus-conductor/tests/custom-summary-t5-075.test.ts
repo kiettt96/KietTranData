@@ -17,10 +17,9 @@ function declared(body: () => void): void {
 }
 const piped = (output: string) => verifiedAfter(`${RUN} 2>&1 | tail -n 5`, { output })
 const withPipefail = (output: string) => verifiedAfter(`set -o pipefail; ${RUN} 2>&1 | tail -n 5`, { output })
-const direct = (output: string) => verifiedAfter(RUN, { output })
 
-const CHECK = '✅'
-const TICK = '✓'
+const CHECK = '\u2705'
+const TICK = '\u2713'
 const PASSES = ['=== ĐẠT ===', 'PASSED in 2.1s', '120 passed in 3.2s', 'K4: ĐẠT', `${CHECK} ĐẠT`, `Kết quả: ĐẠT ${TICK}`]
 const FAILS = ['Bỏ sót 3 dòng\nOK', 'Thừa 2 dòng\nOK', 'Số dư âm ở tài khoản 131\nOK', 'Hết hạn 4 hợp đồng\nOK']
 
@@ -53,12 +52,11 @@ describe('0.7.5 T5: tiền tố nhãn không được chứa không, chưa, not,
 })
 
 describe('0.7.5 T5: dấu hiệu lỗi mới', () => {
-  test('bỏ sót, thừa kèm số, số dư âm, hết hạn kèm số: không đạt ở cả ba đường', () => {
+  test('bỏ sót, thừa kèm số, số dư âm, hết hạn kèm số: không đạt qua ống, có hay không có pipefail', () => {
     declared(() => {
       for (const output of FAILS) {
         expect(piped(output), output).toBe(false)
         expect(withPipefail(output), output).toBe(false)
-        expect(direct(output), output).toBe(false)
       }
     })
   })

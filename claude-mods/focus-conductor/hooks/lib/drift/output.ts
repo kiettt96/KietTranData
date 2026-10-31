@@ -175,7 +175,7 @@ const EDGE_END = '(?=$|[^\\p{L}\\p{N}])'
  * `-> False`, `expected ... got`.
  */
 const CUSTOM_FAILED = new RegExp(
-  `${EDGE_START}(?:không\\s+đạt|không\\s+khớp|không\\s+hợp\\s+lệ|không\\s+đúng|không\\s+cân|không\\s+tìm\\s+thấy|not\\s+found|khác\\s+biệt|chưa\\s+(?:đạt|khớp|ok|xử\\s+lý)|vượt\\s+ngưỡng|trùng(?:\\s+lặp)?(?!\\s+khớp)|duplicat(?:e|es|ed)|differ(?:s|ed)?|assert|not\\s+ok|lỗi|sai|thiếu|lệch|mismatch(?:es|ed)?|errors?|fail(?:ed|ures?)?|missing|(?:do|does|did)?\\s*not\\s+match(?:es|ed)?|doesn't\\s+match|invalid|exceptions?)${EDGE_END}`,
+  `${EDGE_START}(?:không\\s+đạt|không\\s+khớp|không\\s+hợp\\s+lệ|không\\s+đúng|không\\s+cân|không\\s+tìm\\s+thấy|not\\s+found|khác\\s+biệt|chưa\\s+(?:đạt|khớp|ok|xử\\s+lý)|vượt\\s+ngưỡng|bỏ\\s+sót|số\\s+dư\\s+âm|trùng(?:\\s+lặp)?(?!\\s+khớp)|duplicat(?:e|es|ed)|differ(?:s|ed)?|assert|not\\s+ok|lỗi|sai|thiếu|lệch|mismatch(?:es|ed)?|errors?|fail(?:ed|ures?)?|missing|(?:do|does|did)?\\s*not\\s+match(?:es|ed)?|doesn't\\s+match|invalid|exceptions?)${EDGE_END}`,
   'iu',
 )
 /** Các dấu chéo U+2717, U+2718, U+2716, U+274C đứng riêng, không có ranh giới chữ. */
@@ -187,7 +187,7 @@ const EXPECTED_GOT = /(?<![\p{L}\p{N}])expected(?![\p{L}\p{N}])[^\n]*(?<![\p{L}\
  * Từ chỉ số lỗi (cả từ ghép trước từ đơn để "sai lệch: 0" là một từ). "cảnh báo", "warn" chỉ là lỗi khi kèm số khác 0 (vòng rà soát 3 và S5).
  */
 const FAILURE_WORDS =
-  'sai\\s+lệch|chênh\\s+lệch|chưa\\s+xử\\s+lý|vượt\\s+ngưỡng|trùng\\s+lặp|trùng(?!\\s+khớp)|duplicat(?:e|es|ed)|differ(?:s|ed)?|lỗi|sai|thiếu|lệch|mismatch(?:es)?|fail(?:ed|ures?)?|errors?|missing|invalid|exceptions?|cảnh\\s+báo|warn(?:ing)?s?|chênh|null(?:s)?'
+  'sai\\s+lệch|chênh\\s+lệch|chưa\\s+xử\\s+lý|vượt\\s+ngưỡng|bỏ\\s+sót|số\\s+dư\\s+âm|hết\\s+hạn|thừa|trùng\\s+lặp|trùng(?!\\s+khớp)|duplicat(?:e|es|ed)|differ(?:s|ed)?|lỗi|sai|thiếu|lệch|mismatch(?:es)?|fail(?:ed|ures?)?|errors?|missing|invalid|exceptions?|cảnh\\s+báo|warn(?:ing)?s?|chênh|null(?:s)?'
 /** Số 0 đứng riêng (0, 0.0, 0,00), không phải 0.5 hay 0,3: "Lỗi = 0.5%" không là số lỗi bằng 0 (vòng rà soát 3). */
 const ZERO = `0(?:[.,]0+)?(?![.,]?\\d)${EDGE_END}`
 /** Số lỗi bằng 0 ("0 lỗi", "FAIL: 0", "Thiếu: 0") không phải dấu hiệu lỗi: bỏ trước khi tìm dấu hiệu lỗi. */
@@ -198,7 +198,7 @@ const FAILURE_CLAUSE = new RegExp(`${EDGE_START}(?:${FAILURE_WORDS})\\s*[:=]([^\
  * Từ đếm kèm số (S5): "3 cảnh báo", "Cảnh báo 2 dòng", "WARN 3 rows", "chênh 1.200.000đ", "NULL ở 7 dòng" là lỗi khi số khác 0. Số đứng
  * trước từ, hoặc sau từ (cách tối đa một từ ngắn như "ở").
  */
-const COUNTED = '(?:cảnh\\s+báo|warn(?:ing)?s?|chênh|null(?:s)?)'
+const COUNTED = '(?:cảnh\\s+báo|warn(?:ing)?s?|chênh|null(?:s)?|thừa|hết\\s+hạn)'
 const NUMBER = '\\d[\\d.,]*'
 const COUNTED_BEFORE = new RegExp(`${EDGE_START}(${NUMBER})\\s*(?:đ|%)?\\s+${COUNTED}${EDGE_END}`, 'giu')
 const COUNTED_AFTER = new RegExp(`${EDGE_START}${COUNTED}(?:\\s+\\p{L}{1,3})?\\s*[:=]?\\s*(${NUMBER})`, 'giu')
@@ -255,6 +255,28 @@ const SUMMARY_LINE = new RegExp(
   'iu',
 )
 
+/** Dấu đạt U+2705, U+2713, U+2714 đứng đầu hay cuối dòng tổng kết (T5). */
+const PASS_MARK = /^[\u2705\u2713\u2714]\s*|\s*[\u2705\u2713\u2714]$/gu
+/** Viền "===" hay "---" hai bên dòng tổng kết (T5). */
+const BORDER = /^[=-]{2,}\s*|\s*[=-]{2,}$/g
+/** "PASSED in 2.1s", "120 passed in 3.2s" (T5); "0 passed" đã bị ranNothing (T4) chặn trước khi tới đây. */
+const PASSED_IN = /^(?:\d+\s+)?passed\s+in\s+\d+(?:[.,]\d+)?\s*m?s$/iu
+/** Nhãn ngắn trước dấu hai chấm ("K4: ĐẠT"): tối đa 4 từ, không có chữ phủ định hay chữ chỉ lỗi, bỏ qua (T5). */
+const LABEL = /^([^:]{1,60}):\s*(.+)$/u
+const LABEL_BLOCKED = /khong|chua|not|fail|skip/
+
+/** Một dòng là dòng tổng kết đạt (S5, T5): bỏ viền, dấu đạt và nhãn ngắn rồi khớp chặt SUMMARY_LINE hay PASSED_IN. */
+function isSummaryLine(line: string): boolean {
+  const bare = line.replace(BORDER, '').replace(PASS_MARK, '').trim()
+  if (PASSED_IN.test(bare)) return true
+  if (SUMMARY_LINE.test(bare)) return true
+  const labelled = LABEL.exec(bare)
+  if (labelled === null) return false
+  const label = (labelled[1] ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/gi, 'd').toLowerCase()
+  if (label.trim().split(/\s+/).length > 4 || LABEL_BLOCKED.test(label)) return false
+  return isSummaryLine(labelled[2] ?? '')
+}
+
 /** Dòng không rỗng cuối cùng của output; undefined khi không có. */
 function lastLine(output: string): string | undefined {
   return output.normalize('NFC').split('\n').map(line => line.trim()).filter(line => line !== '').at(-1)
@@ -267,7 +289,7 @@ function lastLine(output: string): string | undefined {
 export function customPassed(output: string): boolean {
   if (customFailed(output)) return false
   const last = lastLine(output)
-  return last !== undefined && SUMMARY_LINE.test(last)
+  return last !== undefined && isSummaryLine(last)
 }
 
 /**
