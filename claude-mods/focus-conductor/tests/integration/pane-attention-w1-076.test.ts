@@ -130,16 +130,16 @@ describe('0.7.6 W1: mục Cần chú ý ở đầu pane', () => {
     const { texts } = await drawn($, 40)
     expect(texts.some(t => /^Needs attention/.test(t))).toBe(true)
     expect(texts.some(t => /^Other warnings/.test(t))).toBe(true)
-    expect(texts.some(t => /^\+1 more$/.test(t))).toBe(true)
+    expect(texts.some(t => /^\+2 more$/.test(t))).toBe(true)
     expect(texts.some(t => /^Consistency warnings/.test(t))).toBe(false)
   })
 
-  test('quá 4 mục: dòng "+1 mục khác", mục dư hiện ở Cảnh báo khác đúng một lần', LONG, async ($, on) => {
+  test('quá 4 mục: dòng "+2 mục khác", mục dư (ngân sách, lệch model) hiện ở Cảnh báo khác đúng một lần', LONG, async ($, on) => {
     await stacked($, on, true)
     const { texts } = await drawn($, 40)
     const at = texts.findIndex(t => /^Cần chú ý/.test(t))
     const other = texts.findIndex(t => /^Cảnh báo khác/.test(t))
-    const more = texts.findIndex(t => /^\+1 mục khác$/.test(t))
+    const more = texts.findIndex(t => /^\+2 mục khác$/.test(t))
     expect(at).toBeGreaterThanOrEqual(0)
     expect(more).toBeGreaterThan(at)
     expect(other).toBeGreaterThan(more)
@@ -147,6 +147,24 @@ describe('0.7.6 W1: mục Cần chú ý ở đầu pane', () => {
     for (const want of [/^\u23F8 Tạm dừng:/, /lô lỗi chưa giao lại/, SCOPE, UNVERIFIED]) expect(shown.some(t => want.test(t)), String(want)).toBe(true)
     expect(shown.some(t => BUDGET.test(t))).toBe(false)
     expect(texts.slice(other).filter(t => BUDGET.test(t)).length).toBe(1)
+    const section = texts.slice(other, texts.findIndex(t => /^Chi phí/.test(t)))
+    expect(section.filter(t => /^\u25B3 Agent .*engine chạy sonnet thay vì opus/.test(t)).length).toBe(1)
     for (const want of [SCOPE, UNVERIFIED, BUDGET]) expect(texts.filter(t => want.test(t)).length, String(want)).toBe(1)
+  })
+
+  // Thêm ở commit sửa để ghim mẫu đột biến: số dòng của mục Cần chú ý tính vào luật dạng gọn, nên danh sách đầy đủ không tràn pane.
+  test('checklist dài đủ dạng đầy đủ thì mọi bước nằm trong số dòng của pane, dù có mục Cần chú ý', LONG, async ($, on) => {
+    await stacked($, on, false)
+    let full = 0
+    for (let rows = 12; rows <= 40; rows++) {
+      const { tree, texts } = await drawn($, rows)
+      const isCompact = texts.some(t => /^\+\d+ bước mở/.test(t))
+      if (isCompact) continue
+      full += 1
+      const last = rowOf(tree, /^BƯỚC 10:/)
+      expect(last, `${rows} dòng`).toBeGreaterThanOrEqual(0)
+      expect(last, `${rows} dòng`).toBeLessThan(rows)
+    }
+    expect(full).toBeGreaterThan(0)
   })
 })

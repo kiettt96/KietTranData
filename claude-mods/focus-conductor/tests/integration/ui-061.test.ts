@@ -186,7 +186,7 @@ describe('0.6.1 3.2: mục Hạn mức trong pane', () => {
     })
   }
 
-  test('dừng vì hạn mức: trạng thái, điểm dừng (giờ tạo, lý do, note, lệnh) và cảnh báo ghi Đang tạm dừng', {}, async ($, on) => {
+  test('dừng vì hạn mức: trạng thái, điểm dừng (giờ tạo, lý do, note, lệnh) và mục Cần chú ý ghi Tạm dừng', {}, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     memoryStore(on)
@@ -202,7 +202,8 @@ describe('0.6.1 3.2: mục Hạn mức trong pane', () => {
       expect(await pane.find({ type: 'Text', text: /Ghi chú của Claude: Tiếp: chạy npm test/ })).toBeDefined()
       expect(await pane.find({ type: 'Text', text: /Chạy tiếp: \/conductor resume force/ })).toBeDefined()
       expect(await pane.find({ type: 'Text', text: /Không có cảnh báo/ })).toBeUndefined()
-      expect(await pane.find({ type: 'Text', text: /Đang tạm dừng: hạn mức phiên \(5 giờ\) chỉ còn 3%/ })).toBeDefined()
+      expect(await pane.find({ type: 'Text', text: /^\u23F8 Tạm dừng: / })).toBeDefined()
+      expect(await pane.find({ type: 'Text', text: /Đang tạm dừng/ })).toBeUndefined()
       await pane.unmount()
     }
   })
@@ -217,7 +218,7 @@ describe('0.6.1 3.2: mục Hạn mức trong pane', () => {
     const pane = await $.ui.mount(PANE)
     expect(await pane.find({ type: 'Text', text: /Trạng thái: tạm dừng \(người dùng\)/ })).toBeDefined()
     expect(await pane.find({ type: 'Text', text: /Chạy tiếp: \/conductor resume$/ })).toBeDefined()
-    expect(await pane.find({ type: 'Text', text: /Đang tạm dừng: người dùng yêu cầu tạm dừng/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /^\u23F8 Tạm dừng: người dùng/ })).toBeDefined()
     await pane.unmount()
   })
 
@@ -295,7 +296,7 @@ describe('0.6.1 3.2: mục Hạn mức trong pane', () => {
     expect(await pane.find({ type: 'Text', text: /Reason: session quota \(5h\) only 3% left/ })).toBeDefined()
     expect(await pane.find({ type: 'Text', text: /Claude's note: Tiếp: chạy npm test/ })).toBeDefined()
     expect(await pane.find({ type: 'Text', text: /Continue with: \/conductor resume force/ })).toBeDefined()
-    expect(await pane.find({ type: 'Text', text: /Paused: session quota \(5h\) only 3% left/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /^\u23F8 Paused: / })).toBeDefined()
     expect(await pane.find({ type: 'Text', text: /No warnings/ })).toBeUndefined()
     await pane.unmount()
     await conductor($, 'resume force')
@@ -316,7 +317,7 @@ describe('0.6.1 3.2: mục Hạn mức trong pane', () => {
     await conductor($, 'pause')
     pane = await $.ui.mount(PANE)
     expect(await pane.find({ type: 'Text', text: /State: paused \(by you\)/ })).toBeDefined()
-    expect(await pane.find({ type: 'Text', text: /Paused: you asked to pause/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /^\u23F8 Paused: you asked to pause/ })).toBeDefined()
     await pane.unmount()
   })
 })
@@ -452,7 +453,7 @@ describe('0.6.1 3.4: band và pane trên vscode và mobile', () => {
         const pane = await $.ui.mount({ ...PANE, surface })
         expect(await pane.drawn()).toMatchObject({ type: 'Box' })
         expect(await pane.find({ type: 'Text', text: /Refactor module thanh toán/ })).toBeDefined()
-        if (state === 'warning') expect(await pane.find({ type: 'Text', text: /Cảnh báo nhất quán/ })).toBeDefined()
+        if (state === 'warning') expect(await pane.find({ type: 'Text', text: /^Cần chú ý/ })).toBeDefined()
         if (state === 'paused') expect(await pane.find({ type: 'Text', text: /Trạng thái: tạm dừng \(hạn mức\)/ })).toBeDefined()
         await pane.unmount()
       })

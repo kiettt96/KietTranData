@@ -83,6 +83,9 @@ export function registerUi(on: On, ctx: Ctx): void {
     // Chưa có số đo, không dừng, không có điểm dừng (0.7.5): ẩn mục Hạn mức, nhường chỗ cho checklist.
     const hasNotice = overview !== null && overview.state === 'ok' && softNotices(q.readings, now, settings).length > 0
     const quota = overview !== null && (overview.state !== 'none' || overview.checkpoint !== null) ? quotaPaneText(overview, current.lang, hasNotice) : null
+    // Mục Cần chú ý của pane (0.7.6, W1): cùng phép tính tạm dừng và báo mềm với band.
+    const isPaused = isPauseActive(true, evaluateQuota(q.readings, now, settings).hits, q.pause, overrideOf(q), now) || q.pause !== null
+    const pause = overview !== null ? bandQuota(overview, isPaused ? [] : softNotices(q.readings, now, settings), current.lang) : null
     return renderPane($.ui.resolve(e), current, { columns: e.props.bodyColumns, placement: e.props.placement, isResetArmed, now, rows: e.props.scroll.bodyRows }, {
       onMode: picked => update($, modeState, () => picked),
       onReset: async () => {
@@ -107,6 +110,6 @@ export function registerUi(on: On, ctx: Ctx): void {
         })
       },
       onToggleBand: () => update($, bandHiddenState, hidden => !hidden),
-    }, quota)
+    }, quota, pause)
   })
 }

@@ -10,7 +10,8 @@ import type { View } from '../lib/state'
 import { shownPlan } from '../lib/mirror'
 import { runningGroups, stepTaskRows, taskRows } from '../lib/progress'
 import { countLabel, progress } from '../lib/text'
-import type { QuotaPaneText } from '../lib/text'
+import type { BandQuota, QuotaPaneText } from '../lib/text'
+import { attentionItems } from './attention'
 import { labels, shownWarning, stepTaskMeta, taskLabel } from './labels'
 import type { Run } from './style'
 import {
@@ -46,6 +47,14 @@ const COLLAPSE_FROM = 6
 const SHOWN_OPEN = 4
 /** Số dòng thân của pane tự mở phía trên prompt (lib/pane.ts PANE_ROWS), dùng khi engine không báo số dòng. */
 const DEFAULT_ROWS = 16
+/**
+ * Mục Cần chú ý hiện tối đa số mục này (tạm dừng tính là một), phần còn lại gom thành "+N mục khác". Mỗi mục wrap theo chiều rộng
+ * (thường 1 đến 2 dòng) và không cắt cụt: câu dài hơn 2 dòng (như cảnh báo bước verified thiếu bằng chứng) vẫn hiện đủ câu, vì phần
+ * cuối câu là chỉ dẫn cần làm.
+ */
+const ATTENTION_MAX = 4
+/** Ký hiệu tạm dừng, như band. */
+const PAUSE_GLYPH = '\u23F8'
 
 export type PaneHandlers = {
   onMode: (mode: Mode) => unknown
@@ -76,6 +85,8 @@ export function renderPane(
   handlers: PaneHandlers,
   /** Mục Hạn mức (0.6.1): null khi quotaGuard tắt, mục không được vẽ. */
   quota: QuotaPaneText | null = null,
+  /** Tạm dừng và câu báo hạn mức mềm như band (0.7.6, W1); null khi quotaGuard tắt. */
+  pause: BandQuota | null = null,
 ): RenderElement {
   const { Box, Text, Button } = t
   const { brief, route, log, warnings, ledger } = view.core
@@ -166,8 +177,48 @@ export function renderPane(
   }
 
   const { closed, total } = progress(plan)
-  const recentWarnings = warnings.filter(w => w.at >= brief.at).slice(-5).reverse()
-  const latest = recentWarnings[0]
+  // ------------------------------------------------------- cần chú ý (W1)
+  // Cùng thứ tự mức độ với band: tạm dừng cứng (lý do, giờ làm mới, lệnh chạy tiếp) rồi các mục của attentionItems. Cảnh báo đã hiện ở đây
+  // không lặp ở "Cảnh báo khác"; mục bị dồn vào "+N" vẫn nằm ở "Cảnh báo khác" nên không mất cảnh báo nào.
+  const isPaused = pause?.paused === true
+  const attentionAll = attentionItems(view.core, view.lang, { paused: false, notice: pause?.notice ?? null })
+  const attentionTotal = (isPaused ? 1 : 0) + attentionAll.length
+  const attentionShown = attentionAll.slice(0, ATTENTION_MAX - (isPaused ? 1 : 0))
+  const attentionHidden = attentionTotal - (isPaused ? 1 : 0) - attentionShown.length
+  const attentionWidth = Math.max(8, width - 2)
+  // Ký hiệu ở dòng đầu, các dòng sau thụt hai ô cho thẳng chữ.
+  const hanging = (glyph: string, text: string) => wrapText(text, attentionWidth, 99).map((line, i) => `${i === 0 ? glyph : ' '} ${line}`)
+  const pauseLines = pause !== null && isPaused ? [hanging(PAUSE_GLYPH, pause.line), hanging(' ', pause.resume)] : []
+  const itemLines = attentionShown.map(item => ({ item, lines: hanging(severityGlyph(item.severity), item.text) }))
+  const attentionRows = attentionTotal === 0 ? 0 : 1 + pauseLines.reduce((sum, lines) => sum + lines.length, 0) + itemLines.reduce((sum, entry) => sum + entry.lines.length, 0) + (attentionHidden > 0 ? 1 : 0)
+  const attentionNode =
+    attentionTotal === 0 ? null : (
+      <Box flexDirection="column">
+        {heading(l.attention, String(attentionTotal))}
+        {pauseLines.map((lines, k) => (
+          <Box key={`pause-${k}`} flexDirection="column">
+            {lines.map(line => (
+              <Text color="warning" bold={k === 0} wrap="truncate-end">
+                {line}
+              </Text>
+            ))}
+          </Box>
+        ))}
+        {itemLines.map(({ item, lines }, k) => (
+          <Box key={`item-${k}`} flexDirection="column">
+            {lines.map(line => (
+              <Text color={item.severity} wrap="truncate-end">
+                {line}
+              </Text>
+            ))}
+          </Box>
+        ))}
+        {attentionHidden > 0 ? <Text dimColor>{l.attentionMore(attentionHidden)}</Text> : null}
+      </Box>
+    )
+  const shownWarnings = new Set(attentionShown.map(item => item.warning).filter(w => w !== undefined))
+  const recentWarnings = warnings.filter(w => w.at >= brief.at && !shownWarnings.has(w)).slice(-5).reverse()
+  const latest = warnings.filter(w => w.at >= brief.at).at(-1)
   const spine = latest ? severityOf(latest.kind) : 'claude'
 
   // ------------------------------------------------------------- mục tiêu
@@ -233,7 +284,8 @@ export function renderPane(
   const kindWidth = Math.max(0, ...recentWarnings.map(w => cellsOf(l.warningKind[w.kind])))
   const alerts =
     recentWarnings.length === 0 ? (
-      quota?.isPaused ? (
+      // Cần chú ý đã hiện cảnh báo hay dòng tạm dừng thì không lặp "Không có cảnh báo." hay "Đang tạm dừng".
+      attentionNode !== null ? null : quota?.isPaused ? (
         // Đang dừng thì không báo "Không có cảnh báo.": nêu lý do dừng.
         <Text color="warning" wrap="wrap">
           {`${l.quotaPausedNow}: ${quota.cause}`}
@@ -347,10 +399,12 @@ export function renderPane(
     }
     return 1 + lines
   }
+  // Mục Cần chú ý nằm ngay sau phần đầu, cách một dòng (gap), nên tính vào phần đầu của số dòng pane.
   const headerRows =
     goalLines.length +
     (bar.length > 0 || beads.length > 0 ? 1 : 0) +
-    (brief.source === 'router' ? 0 : rowsOf(l.notRead, width - 2))
+    (brief.source === 'router' ? 0 : rowsOf(l.notRead, width - 2)) +
+    (attentionRows > 0 ? attentionRows + 1 : 0)
   const mirrorRows = source === 'mirror' ? rowsOf(l.mirrorSource, width) : 0
   // Checklist và tiến độ từng việc là một danh sách (U1): dạng đầy đủ vừa khi phần đầu, khoảng cách, tiêu đề checklist và cả danh sách
   // nằm trong số dòng của pane.
@@ -650,6 +704,8 @@ export function renderPane(
   return (
     <Box flexDirection="column" gap={1} width={width}>
       {header}
+      {/* W1: mục Cần chú ý ngay dưới thanh tiến độ, trước checklist; chỉ vẽ khi có ít nhất một mục. */}
+      {attentionNode}
       {/* 0.7.5: checklist và tiến độ từng việc ngay sau phần đầu, để pane 16 dòng thấy được chúng; chế độ, hạn mức, cảnh báo sau. */}
       {/* U11: chưa có checklist thì bước dự kiến của router nằm dưới "Danh sách bước (dự kiến)"; không có bước nào thì không có mục. */}
       {checklist !== null ? (

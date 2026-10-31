@@ -2,14 +2,14 @@
 // Thứ tự: tạm dừng > lô lỗi chưa giao lại > sửa ngoài phạm vi > báo hạn mức mềm > mục bị bỏ > bước chưa kiểm chứng > vượt ngân sách
 // tool call > các cảnh báo khác. Hàm thuần: chỉ đọc View và dữ liệu hạn mức mà hook đã tính; không đổi cảnh báo đã lưu.
 
-import type { Core, WarningKind } from '../../types'
+import type { Core, Warning, WarningKind } from '../../types'
 import type { Severity } from './style'
 import { severityOf } from './style'
 import { labels, shownWarning } from './labels'
 import type { Lang } from './labels'
 
-/** Một mục cần chú ý: hạng (nhỏ là quan trọng hơn), mức màu và câu hiển thị. */
-export type Attention = { rank: number; severity: Severity; text: string; kind: 'pause' | 'failed' | 'notice' | WarningKind }
+/** Một mục cần chú ý: hạng (nhỏ là quan trọng hơn), mức màu và câu hiển thị; `warning` là cảnh báo đã lưu mà mục này đại diện (pane dùng để không hiện hai lần). */
+export type Attention = { rank: number; severity: Severity; text: string; kind: 'pause' | 'failed' | 'notice' | WarningKind; warning?: Warning }
 
 /** Hạng của từng loại cảnh báo đã lưu; loại không có trong bảng xếp sau vượt ngân sách. */
 const WARNING_RANK: Partial<Record<WarningKind, number>> = { scope: 2, dropped: 4, unverified: 5, budget: 6 }
@@ -43,6 +43,6 @@ export function attentionItems(core: Core, lang: Lang, quota: { paused: boolean;
   const isPlannedFanout = brief.tasks.some(task => task.run === 'agent')
   core.warnings
     .filter(w => w.at >= brief.at && w.kind !== 'cost' && !(w.kind === 'budget' && isPlannedFanout))
-    .forEach((w, i) => items.push({ rank: WARNING_RANK[w.kind] ?? OTHER_RANK, severity: severityOf(w.kind), text: shownWarning(w.text, lang), kind: w.kind, order: -i }))
+    .forEach((w, i) => items.push({ rank: WARNING_RANK[w.kind] ?? OTHER_RANK, severity: severityOf(w.kind), text: shownWarning(w.text, lang), kind: w.kind, warning: w, order: -i }))
   return items.sort((a, b) => a.rank - b.rank || a.order - b.order).map(({ order: _order, ...item }) => item)
 }

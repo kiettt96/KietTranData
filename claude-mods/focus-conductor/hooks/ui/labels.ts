@@ -111,7 +111,9 @@ const VI = {
   main: 'chính',
   estimatedNote: '~ ước tính lúc giao, chưa có số đo',
   skipped: ' (không áp dụng)',
-  warnings: 'Cảnh báo nhất quán',
+  warnings: 'Cảnh báo khác',
+  attention: 'Cần chú ý',
+  attentionMore: (n: number) => `+${n} mục khác`,
   noWarnings: 'Không có cảnh báo.',
   checkHint: (list: string, isDir: boolean) =>
     `Mod chưa nhận script kiểm đã chạy là lệnh kiểm. Gợi ý khai option checkCommands của mod: ${list}.${isDir ? ' Tiền tố thư mục tin mọi script dưới thư mục đó: chỉ khai nếu thư mục chỉ chứa script kiểm.' : ''}`,
@@ -231,7 +233,9 @@ const EN: typeof VI = {
   main: 'main',
   estimatedNote: '~ estimated at delegation, not measured yet',
   skipped: ' (not applied)',
-  warnings: 'Consistency warnings',
+  warnings: 'Other warnings',
+  attention: 'Needs attention',
+  attentionMore: n => `+${n} more`,
   noWarnings: 'No warnings.',
   checkHint: (list: string, isDir: boolean) =>
     `The mod does not recognize the check script that ran as a check. Suggested checkCommands option: ${list}.${isDir ? ' A directory prefix trusts every script under it: declare it only if the directory holds check scripts only.' : ''}`,
