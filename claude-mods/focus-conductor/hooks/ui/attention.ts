@@ -16,17 +16,6 @@ export type Attention = { rank: number; severity: Severity; text: string; kind: 
 const WARNING_RANK: Partial<Record<WarningKind, number>> = { scope: 2, dropped: 4, unverified: 5, budget: 6 }
 const OTHER_RANK = 7
 
-/** Số lô hay việc giao subagent đã lỗi mà chưa giao lại trong mục tiêu đang mở. */
-export function failedBatches(core: Core): number {
-  const brief = core.brief
-  if (brief === null) return 0
-  const tallies = core.agentProgress.goalId === brief.goalId ? (core.agentProgress.tally ?? []) : []
-  const tallied = new Set(tallies.map(t => t.taskIndex).filter((n): n is number => n !== undefined))
-  const fromTallies = tallies.reduce((sum, t) => sum + t.failed, 0)
-  const delegations = core.delegations.goalId === brief.goalId ? core.delegations.items : []
-  return fromTallies + delegations.filter(d => d.state === 'failed' && !tallied.has(d.index)).length
-}
-
 /** Lô lỗi chưa giao lại theo từng việc (0.7.6, W4): `label` là mã bước của việc ("BƯỚC 4") hay vắng với việc Claude tự giao. */
 export function failedByTask(core: Core): { label: string | null; failed: number }[] {
   const brief = core.brief
@@ -43,6 +32,11 @@ export function failedByTask(core: Core): { label: string | null; failed: number
     ...tallies.filter(t => t.failed > 0).map(t => ({ label: labelOf(t.taskIndex), failed: t.failed })),
     ...delegations.filter(d => d.state === 'failed' && !tallied.has(d.index)).map(d => ({ label: labelOf(d.index), failed: 1 })),
   ]
+}
+
+/** Số lô hay việc giao subagent đã lỗi mà chưa giao lại trong mục tiêu đang mở (tổng của failedByTask). */
+export function failedBatches(core: Core): number {
+  return failedByTask(core).reduce((sum, entry) => sum + entry.failed, 0)
 }
 
 /**

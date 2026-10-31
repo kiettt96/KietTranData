@@ -4,7 +4,7 @@ Các bản của focus-conductor, mới nhất trước. Số đo kiểm chứng
 
 ## Thay đổi 0.7.6: band và pane cho biết ngay đang ở bước nào, tiến độ chung và có gì cần can thiệp
 
-Vấn đề: trên phiên dài nhiều bước, band dồn quá nhiều thứ ngang hàng (tên giai đoạn, tier, chip lô "0/3 xong" trước khi giao, câu cảnh báo theo thứ tự đến), còn pane lặp từng bước hai lần (checklist và "Tiến độ từng việc"), đầu pane dành nhiều dòng cho độ sâu, khối lượng và lý do router, và tự mở cả với việc một dòng. Bản này chỉ đổi phần hiển thị (band, pane, status line, câu cảnh báo hiển thị); điều phối, checklist, cổng Stop, hạn mức và nội dung gửi Claude giữ nguyên. Mỗi điểm có test đỏ ở commit riêng trước commit sửa.
+Vấn đề: trên phiên dài nhiều bước, band dồn quá nhiều thứ ngang hàng (tên giai đoạn, tier, chip lô "0/3 xong" trước khi giao, câu cảnh báo theo thứ tự đến), còn pane lặp từng bước hai lần (checklist và "Tiến độ từng việc"), đầu pane dành nhiều dòng cho độ sâu, khối lượng và lý do router, và tự mở cả với việc một dòng. Bản này đổi phần hiển thị (band, pane, status line, câu cảnh báo hiển thị) và có ba bản vá logic của 0.7.5 (V1 tới V3, ghi riêng bên dưới); điều phối, checklist, cổng Stop, hạn mức và nội dung gửi Claude giữ nguyên. Mỗi điểm có test đỏ ở commit riêng trước commit sửa.
 
 - **U1: pane một danh sách.** Dòng bước khớp một việc (theo mã "BƯỚC N", "Việc N" hay tiêu đề trùng hệt bước dự kiến) mang luôn chip của việc: "sonnet 97/100 · 3 lỗi" với việc nhiều lô, "sonnet đang chạy" với việc một lần gọi, "opus high" với việc làm trực tiếp; phần chi tiết ghi số tool call và thời gian. Mục "Tiến độ từng việc" chỉ còn việc Claude tự giao và việc không khớp bước nào; luồng chính không còn dòng riêng vì chính là danh sách bước.
 - **U2: dòng cần chú ý theo mức độ.** Band dòng 2 chọn một mục theo thứ tự: tạm dừng, lô lỗi chưa giao lại, ghi ngoài phạm vi, báo hạn mức mềm, mục bị bỏ, bước ghi verified chưa đủ bằng chứng, vượt ngân sách tool call; "+N" đếm phần còn lại. Ngân sách tool call không lên band khi mục tiêu có giao subagent theo kế hoạch (pane vẫn ghi); cảnh báo chi phí chỉ ở pane như 0.7.5.
@@ -19,6 +19,19 @@ Vấn đề: trên phiên dài nhiều bước, band dồn quá nhiều thứ ng
 - **U11: trạng thái rỗng.** Pane chỉ tự mở ở mục tiêu substantial hay hard (mục tiêu không qua router chấm, như router lỗi ở prompt đầu hay `/conductor goal`, vẫn mở); chưa có checklist thì bước dự kiến nằm dưới "Danh sách bước (dự kiến)", không còn mục "Việc dự kiến (router)" và câu "Claude chưa chốt checklist.".
 - **U12: câu cảnh báo hiển thị.** Pane và band ghi câu cảnh báo bằng tiếng Việt thường ("deep" thành "rất sâu", "verified" thành "đã kiểm chứng", "evidence" thành "bằng chứng"); câu lưu trong trạng thái và câu gửi Claude giữ nguyên.
 
+- **W1: mục "Cần chú ý" ở đầu pane.** Ngay dưới thanh tiến độ, trước danh sách bước, xếp đúng thứ tự mức độ của band (tạm dừng, lô lỗi, ngoài phạm vi, báo hạn mức mềm, mục bị bỏ, chưa kiểm chứng, ngân sách). Tạm dừng cứng hiện lý do, giờ làm mới và lệnh chạy tiếp ngay trong pane. Mỗi mục hiện đủ câu (wrap, không cắt cụt), tối đa 4 mục rồi "+N mục khác"; câu dài như cảnh báo bước đã kiểm chứng thiếu bằng chứng có thể chiếm hơn 2 dòng ở pane 80 cột, vì phần cuối câu là chỉ dẫn phải làm [Đo trực tiếp: 4 dòng]. Mục cảnh báo cũ đổi tên "Cảnh báo khác" (en "Other warnings") và chỉ liệt kê cảnh báo chưa hiện ở "Cần chú ý", nên không cảnh báo nào hiện hai lần; mục bị dồn vào "+N" vẫn nằm ở "Cảnh báo khác" nên không mất cảnh báo nào.
+- **W2: một hàm định dạng chi phí.** `formatCost(giá trị, ngôn ngữ)` thay `formatUsd` và `shownUsd`: hai chữ số thập phân, dấu phẩy khi tiếng Việt, dấu chấm khi tiếng Anh, "<$0,01" khi dương dưới một xu. Dùng ở band, bảng chi phí và nhật ký của pane, dòng ước tính và sổ chi phí (có bản tiếng Anh), `/conductor status`. Câu lý do giữ hay hạ model trong `route.ts` chỉ vào `route.reason` và nhật ký (pane và `text` của `/conductor status`), không vào context của Claude, nên đổi theo hàm mới; bảng giá trong prompt router (`router.ts`) giữ nguyên.
+- **W3: pane hẹp.** Dưới 48 cột, chip model và số lô xuống dòng riêng dưới tên bước, trong cột tên (hàng tự xuống dòng), nên tên bước không bị bẻ từng chữ; luật dạng gọn của checklist cộng thêm các dòng chip.
+- **W4: bốn chỉnh nhỏ.** Bước còn todo mà có lô đang chạy hiện ◐ thay ○ (pane, đầu thanh và hạt dự kiến của band). Band ghi lô lỗi kèm mã bước ("BƯỚC 4: 3 lô lỗi chưa giao lại"), mỗi việc một mục theo thứ tự bước; chip lô vẫn đếm tổng. Status line chưa có checklist ghi tên ngắn của mục tiêu (24 ký tự, giữ mã đầu mục tiêu nếu có) thay cho chỉ tên chế độ [Giả định: "mã và tên ngắn" là phần đầu của chính câu mục tiêu]. Thời gian đã chạy làm tròn theo phút (150 giây là 3 phút) và mục Đang chạy của pane ghi "từ <giờ bắt đầu>" (giờ máy của agent đầu tiên; en "since").
+
+Bản vá logic của 0.7.5 (vòng cuối, commit riêng, test đỏ trước commit sửa):
+
+- **V1: dữ liệu rỗng.** "0 dòng trống", "(0 dòng rỗng)", "trống ở 0 dòng" là số lỗi bằng 0 như "0 lỗi", lệnh kiểm vẫn đạt. "0 kết quả", "Không có bản ghi nào", "Không có kết quả nào" là dữ liệu rỗng, lệnh kiểm không đạt; "0 kết quả lệch", "0 kết quả lỗi", "Đối chiếu: 0 kết quả sai", "Không có bản ghi nào bị thiếu" vẫn đạt. Test T4, T5, T9 giữ kỳ vọng.
+- **V2: danh sách trong vế ghi đè.** Số trần sau một mã là cùng loại mã ("Riêng BƯỚC 3, 5": BƯỚC 5; "Riêng K4, 6": K6); cụm chữ trong danh sách vẫn là từ khóa ngoại lệ ("BƯỚC 3, BƯỚC 5 và tin pháp lý"); mỗi mục cách nhau dấu phẩy là một ngoại lệ riêng ("Riêng tin pháp lý, tin tài chính"), mục cuối vẫn là loại việc của cặp nêu model. Cụm chữ nối bằng "và" mà không có mã ("Riêng tin pháp lý và tin thuế") giữ luật 0.7.5 (test T10 giữ kỳ vọng). B6 150 lô cho "Riêng BƯỚC 3, 5 dùng opus": 450 lời gọi, 2 lượt router.
+- **V3: khoảng mã.** "Riêng BƯỚC 3 đến BƯỚC 5", "BƯỚC 3-5", "từ BƯỚC 3 tới 5": mọi mã trong khoảng là ngoại lệ; khoảng ngược chiều đọc như xuôi; khoảng quá 50 mã [Giả định: đủ cho checklist thật] chỉ lấy hai đầu.
+
+Mẫu đột biến cũ sửa cho khớp mã mới, giữ ý: `075-S5i`, `075-T9a`, `075-T9b` (V1), `075-T10a` tới `075-T10f` (V2: bộ đọc danh sách thay biểu thức `OVERRIDE_CODES`).
+
 Test cũ đổi theo hiển thị mới (lý do):
 
 - `tests/progress-status.test.ts`, `tests/state.test.ts` (U5): status line không còn tier, thêm mã bước.
@@ -30,6 +43,11 @@ Test cũ đổi theo hiển thị mới (lý do):
 - `tests/integration/pane-compact-r10-075.test.ts`, `pane-height-s6-075.test.ts`, `pane-collapse-l7-075.test.ts` (U1, U6, U7, U11): dạng đầy đủ cần ít dòng hơn (không còn mục riêng, đầu pane ngắn hơn hai dòng) nên ranh giới dạng gọn đo ở 10 hay 14 dòng thay 12 hay 16; chú giải kiểm theo mục "đang làm"; tiêu đề "Danh sách bước (dự kiến)".
 - `tests/reset-button.test.ts` (U7): không còn dòng chú thích dưới nút.
 - `tests/integration/auto-pane.test.ts`, `tests/pane-open.test.ts` (U11): ca dùng mục tiêu mặc định (light) ghi rõ độ sâu substantial; hàm thuần nhận độ sâu.
+- `tests/cost-ledger.test.ts`, `tests/net-benefit.test.ts`, `tests/integration/cost-status.test.ts`, `cost-u9-076.test.ts`, `scenarios.test.ts`, `subagents.test.ts`, `router-read.test.ts` (W2): chi phí hiển thị hai chữ số thập phân ("$0,04", "<$0,01") thay ba hay bốn chữ số; `formatUsd` và `shownUsd` không còn.
+- `tests/integration/ui-061.test.ts`, `dropped-kind-s8-075.test.ts` (W1): tiêu đề "Cảnh báo khác"; cảnh báo đã hiện ở "Cần chú ý" không lặp ở mục dưới.
+- `tests/integration/pane-running-u8-076.test.ts` (W4): dòng của mục Đang chạy kết thúc bằng "· từ HH:MM" (en "since").
+- `tests/status-u5-076.test.ts` (W4): chưa có checklist và chưa có model thì status line ghi tên ngắn của mục tiêu, không chỉ tên chế độ.
+- Mẫu đột biến cũ sửa cho khớp mã mới, giữ ý: `060-O4`, `075-S5i`, `075-T9a`, `075-T9b`, `075-T10a` tới `075-T10f`, `076-U1e`, `076-U1f`, `076-U2d`, `076-U2f`, `076-U3i`, `076-U5a`, `076-U5c`, `076-U5g`, `076-U9a` tới `076-U9e`.
 
 ## Thay đổi 0.7.5: sửa các lỗi của đợt rà soát toàn diện sau 0.7.4
 

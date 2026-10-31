@@ -146,7 +146,7 @@ Thử nhanh mà không đốt hạn mức (kịch bản nghiệm thu thủ công
 
 ### Thanh tiến độ
 
-Từ 0.7.6 band và pane trả lời ba câu trước tiên: đang ở bước nào, tiến độ chung ra sao, có gì cần can thiệp. Band (khi có từ hai dòng) gồm dòng 1 là thanh tiến độ, số bước, bước hiện tại và bên phải chip model ("opus high"), thời gian đã chạy của mục tiêu, chi phí (từ 96 cột) và nút Chi tiết; dòng 2 là một việc cần chú ý theo mức độ (tạm dừng, lô lỗi chưa giao lại, ghi ngoài phạm vi, báo hạn mức mềm, mục bị bỏ, bước ghi đã kiểm chứng chưa đủ bằng chứng, vượt ngân sách tool call; "+N" là số việc còn lại), không có thì subagent đang chạy, không nữa thì mục tiêu (mờ). Chip lô chỉ hiện khi có lô đang chạy hay lỗi ("2 đang chạy · 3 lỗi"). Band một dòng thì dòng 1 thay tên bước bằng dòng đỏ hay dòng tạm dừng khi có. Xong mọi bước thì band một dòng "11/11 · 11✓ Hoàn thành: <mục tiêu> · <thời gian> · <chi phí>".
+Từ 0.7.6 band và pane trả lời ba câu trước tiên: đang ở bước nào, tiến độ chung ra sao, có gì cần can thiệp. Band (khi có từ hai dòng) gồm dòng 1 là thanh tiến độ, số bước, bước hiện tại và bên phải chip model ("opus high"), thời gian đã chạy của mục tiêu, chi phí (từ 96 cột) và nút Chi tiết; dòng 2 là một việc cần chú ý theo mức độ (tạm dừng, lô lỗi chưa giao lại, ghi ngoài phạm vi, báo hạn mức mềm, mục bị bỏ, bước ghi đã kiểm chứng chưa đủ bằng chứng, vượt ngân sách tool call; "+N" là số việc còn lại), không có thì subagent đang chạy, không nữa thì mục tiêu (mờ). Chip lô chỉ hiện khi có lô đang chạy hay lỗi ("2 đang chạy · 3 lỗi"); lô lỗi ở dòng 2 ghi kèm mã bước ("BƯỚC 4: 3 lô lỗi chưa giao lại") và bước còn todo mà có lô đang chạy hiện ◐. Band một dòng thì dòng 1 thay tên bước bằng dòng đỏ hay dòng tạm dừng khi có. Xong mọi bước thì band một dòng "11/11 · 11✓ Hoàn thành: <mục tiêu> · <thời gian> · <chi phí>".
 
 ```
 ▎ ━━━◐╌╌╌╌╌╌╌ 3/11 BƯỚC 3: lọc tin lô 1              3 lỗi [Chi tiết] Ẩn
@@ -160,7 +160,7 @@ Tạm dừng cứng vì hạn mức chiếm band:
 ▎ Điểm dừng đã ghi · chạy tiếp: /conductor resume force
 ```
 
-Pane là một danh sách bước: bước khớp một việc (theo mã "BƯỚC N", "Việc N" hay tiêu đề của bước dự kiến) mang chip của việc đó ngay trên dòng, nên mỗi bước chỉ xuất hiện một lần; bước đã đóng của checklist dài dồn thành một dòng "N bước đã đóng (k đã kiểm chứng, m bỏ qua)". Mục "Tiến độ từng việc" chỉ còn việc Claude tự giao và việc không khớp bước nào; mục "Đang chạy" ghi mỗi việc có subagent đang chạy một dòng (khoảng lô, số agent, thời gian). Độ sâu, khối lượng, loại việc và lý do router ở mục "Điều phối" cuối pane.
+Pane là một danh sách bước: bước khớp một việc (theo mã "BƯỚC N", "Việc N" hay tiêu đề của bước dự kiến) mang chip của việc đó ngay trên dòng, nên mỗi bước chỉ xuất hiện một lần; bước đã đóng của checklist dài dồn thành một dòng "N bước đã đóng (k đã kiểm chứng, m bỏ qua)". Ngay dưới thanh tiến độ, pane có mục "Cần chú ý" (cùng thứ tự mức độ với band; tạm dừng cứng kèm lý do, giờ làm mới và lệnh chạy tiếp; tối đa 4 mục rồi "+N mục khác"), còn "Cảnh báo khác" chỉ giữ cảnh báo chưa hiện ở đó. Dưới 48 cột, chip model và số lô xuống dòng riêng dưới tên bước. Mục "Tiến độ từng việc" chỉ còn việc Claude tự giao và việc không khớp bước nào; mục "Đang chạy" ghi mỗi việc có subagent đang chạy một dòng (khoảng lô, số agent, thời gian). Độ sâu, khối lượng, loại việc và lý do router ở mục "Điều phối" cuối pane.
 
 ```
 ▎ Cập nhật sổ giá tuần theo 11 bước, lọc tin bằng subagent và kiểm số liệu bằng

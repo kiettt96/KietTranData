@@ -128,6 +128,9 @@ describe('0.7.6 W4: band ghi lô lỗi kèm mã bước', () => {
   test('cả bốn lô lỗi: "BƯỚC 3: 4 lô lỗi chưa giao lại", đếm một lần', async ($, on) => {
     await failedBatches($, on, false)
     expect(await bandText($)).toContain('BƯỚC 3: 4 lô lỗi chưa giao lại')
+    // Pane liệt kê mọi mục: chỉ một mục cho BƯỚC 3, không thêm mục từ danh sách việc giao.
+    const { texts } = await paneTree($)
+    expect(texts.filter(t => /BƯỚC 3: \d+ lô lỗi chưa giao lại/.test(t))).toHaveLength(1)
   })
 
   test('bước có lô lỗi hay xong (không còn lô chạy) vẫn là ○ ở pane', async ($, on) => {

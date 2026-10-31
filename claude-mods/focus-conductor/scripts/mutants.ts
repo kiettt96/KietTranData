@@ -1628,7 +1628,7 @@ export const MUTANTS: Mutant[] = [
   { id: "076-U2d", file: "hooks/ui/attention.ts", note: "không có mục lô lỗi", old: "  const byTask = failedByTask(core)\n", new: "  const byTask: ReturnType<typeof failedByTask> = []\n" },
   { id: "076-U2e", file: "hooks/ui/attention.ts", note: "phạm vi xếp sau bước chưa kiểm chứng", old: "{ scope: 2, dropped: 4, unverified: 5, budget: 6 }", new: "{ scope: 6, dropped: 4, unverified: 5, budget: 6 }" },
   { id: "076-U2f", file: "hooks/ui/attention.ts", note: "lô lỗi xếp sau phạm vi", old: "items.push({ rank: 1, severity: 'error', text: `${entry.label}", new: "items.push({ rank: 3, severity: 'error', text: `${entry.label}" },
-  { id: "076-U2g", file: "hooks/ui/attention.ts", note: "không đếm việc giao lỗi theo danh sách việc giao", old: "  return fromTallies + delegations.filter(d => d.state === 'failed' && !tallied.has(d.index)).length", new: "  return fromTallies" },
+  { id: "076-U2g", file: "hooks/ui/attention.ts", note: "không đếm việc giao lỗi theo danh sách việc giao", old: "    ...delegations.filter(d => d.state === 'failed' && !tallied.has(d.index)).map(d => ({ label: labelOf(d.index), failed: 1 })),\n", new: "" },
   { id: "076-U2h", file: "hooks/ui/band.tsx", note: "+N đếm cả mục đang hiện", old: "  const others = attention.length - 1", new: "  const others = attention.length" },
   { id: "076-U2i", file: "hooks/ui/attention.ts", note: "cảnh báo của mục tiêu trước cũng lên band", old: ".filter(w => w.at >= brief.at && w.kind !== 'cost'", new: ".filter(w => w.kind !== 'cost'" },
   { id: "076-B1", file: "hooks/ui/band.tsx", note: "dòng 2 chỉ khi maxRows từ 3", old: "  const hasSecondRow = props.maxRows >= 2", new: "  const hasSecondRow = props.maxRows >= 3" },
