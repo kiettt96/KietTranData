@@ -11,7 +11,7 @@ import { shownPlan } from '../lib/mirror'
 import { taskRows } from '../lib/progress'
 import { countLabel, progress } from '../lib/text'
 import type { QuotaPaneText } from '../lib/text'
-import { labels, taskLabel } from './labels'
+import { labels, shownWarning, taskLabel } from './labels'
 import type { Run } from './style'
 import {
   FAMILY_HUE,
@@ -272,7 +272,7 @@ export function renderPane(
           )
           const message = (
             <Box flexGrow={1} flexShrink={1}>
-              <Text wrap="wrap">{`${severityGlyph(severity)} ${w.text}`}</Text>
+              <Text wrap="wrap">{`${severityGlyph(severity)} ${shownWarning(w.text, view.lang)}`}</Text>
             </Box>
           )
           // Pane hẹp: chip nằm trên dòng riêng để lời cảnh báo có đủ chiều rộng.

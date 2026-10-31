@@ -241,6 +241,23 @@ export function labels(lang: Lang): typeof VI {
   return lang === 'en' ? EN : VI
 }
 
+/** Tên tier bằng tiếng Việt thường trong câu cảnh báo hiển thị (0.7.6, U12). */
+const TIER_VI: Record<string, string> = { trivial: 'rất nhẹ', simple: 'đơn giản', moderate: 'vừa', complex: 'phức tạp', deep: 'rất sâu' }
+const WORD = (word: string) => new RegExp(`(?<![\\p{L}\\p{N}])${word}(?![\\p{L}\\p{N}])`, 'gu')
+
+/**
+ * Câu cảnh báo khi vẽ trên band và pane (0.7.6, U12): giao diện tiếng Việt thì tier, verified, evidence, done viết bằng tiếng Việt thường.
+ * Chỉ đổi chữ hiển thị: câu đã lưu, câu gửi router và context chèn cho Claude giữ nguyên.
+ */
+export function shownWarning(text: string, lang: Lang): string {
+  if (lang !== 'vi') return text
+  return text
+    .replace(/cho việc (trivial|simple|moderate|complex|deep)(?![\p{L}\p{N}])/gu, (_all, tier: string) => `cho việc ${TIER_VI[tier] ?? tier}`)
+    .replace(WORD('lưu là done'), 'lưu là xong')
+    .replace(WORD('verified'), 'đã kiểm chứng')
+    .replace(WORD('evidence'), 'bằng chứng')
+}
+
 /**
  * Tên một dòng tiến độ (0.6.1): "Việc chính: ...", "Việc N: ...", hay "Claude tự giao: ...". Dùng chung cho band và pane.
  * Việc có mã (BƯỚC 4, K4.2, Việc 3) hiện chính tiêu đề mang mã đó, không ghép "Việc 5: BƯỚC 4: ..." (vòng sửa 2 của 0.7.5).

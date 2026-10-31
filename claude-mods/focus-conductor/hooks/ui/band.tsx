@@ -11,7 +11,7 @@ import { byPriority, chipCounts, taskRows } from '../lib/progress'
 import type { QuotaBadge } from '../lib/quota'
 import type { View } from '../lib/state'
 import { countLabel, progress, quotaPercent } from '../lib/text'
-import { labels, taskLabel } from './labels'
+import { labels, shownWarning, taskLabel } from './labels'
 import type { Run } from './style'
 import {
   FAMILY_HUE,
@@ -209,7 +209,7 @@ export function renderBand(
       </Box>
       <Box flexGrow={1} flexShrink={1}>
         <Text color={severity} wrap="truncate-end">
-          {latest.text}
+          {shownWarning(latest.text, view.lang)}
         </Text>
       </Box>
       {others > 0 ? (

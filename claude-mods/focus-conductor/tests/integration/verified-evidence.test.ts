@@ -37,7 +37,8 @@ describe('0.5.0: verified phải có evidence thật', () => {
     const next = await $.tool.call({ tool: 'Edit', file_path: 'src/e.ts', old_string: 'x', new_string: 'y' })
     expect(JSON.stringify(next.context ?? [])).toContain('Checkpoint')
     const ui = await $.ui.mount(PANE)
-    expect(await ui.find({ type: 'Text', text: /evidence không nhắc lệnh hay file/ })).toBeDefined()
+    // 0.7.6 U12: pane ghi câu cảnh báo bằng tiếng Việt thường ("evidence" thành "bằng chứng"); câu lưu và câu gửi Claude giữ nguyên.
+    expect(await ui.find({ type: 'Text', text: /bằng chứng không nhắc lệnh hay file/ })).toBeDefined()
     await ui.unmount()
   })
 })
