@@ -6,7 +6,6 @@
 
 import type { Color, Elements, RenderElement, RenderSurface } from 'claude-code'
 
-import { formatUsd } from '../lib/ledger'
 import { shownPlan } from '../lib/mirror'
 import { byPriority, chipCounts, taskRows } from '../lib/progress'
 import type { QuotaBadge } from '../lib/quota'
@@ -24,6 +23,7 @@ import {
   goalUsd,
   pendingUsd,
   phaseOf,
+  shownUsd,
   plannedRuns,
   severityGlyph,
   severityOf,
@@ -99,7 +99,7 @@ export function renderBand(
 
   const pending = pendingUsd(log)
   const spent = goalUsd(ledger) + pending
-  const costText = hasRoom && spent > 0 ? `${pending > 0 ? '~' : ''}${formatUsd(spent)}` : ''
+  const costText = hasRoom && spent > 0 ? `${pending > 0 ? '~' : ''}${shownUsd(spent, view.lang)}` : ''
   const modeText = isWide && view.mode === 'subagents' ? `${l.mode} ${view.mode}` : ''
   // Nhãn hạn mức dùng lại màu cảnh báo có sẵn: đang dừng thì đậm, gần ngưỡng thì thường. Dưới 56 cột nhãn dừng rút gọn.
   const quotaText = quota ? (quota.paused ? (hasTitle ? l.quotaPaused : l.quotaPausedShort) : l.quotaLeft(quotaPercent(quota.left ?? 0))) : ''

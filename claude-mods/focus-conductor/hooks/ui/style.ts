@@ -191,6 +191,16 @@ export function pendingUsd(log: readonly RouteEvent[]): number {
 // ------------------------------------------------------------------ chữ
 
 /** Số ô terminal của một chuỗi (mọi ký tự đang dùng đều rộng một ô). */
+/**
+ * Chi phí hiển thị trên band và pane (0.7.6, U9): hai chữ số thập phân, dấu phẩy thập phân khi giao diện tiếng Việt, dấu chấm khi tiếng Anh;
+ * dương mà dưới 0,01 thì "<$0,01". Chỉ để hiển thị: sổ chi phí và /conductor status giữ formatUsd.
+ */
+export function shownUsd(value: number, lang: 'vi' | 'en'): string {
+  const mark = lang === 'vi' ? ',' : '.'
+  if (value > 0 && value < 0.01) return `<$0${mark}01`
+  return `$${value.toFixed(2).replace('.', mark)}`
+}
+
 export function cellsOf(text: string): number {
   return [...text.normalize('NFC')].length
 }

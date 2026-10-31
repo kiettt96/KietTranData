@@ -5,7 +5,7 @@
 import type { Elements, RenderElement, RenderSurface } from 'claude-code'
 
 import type { Mode, PlanStep } from '../../types'
-import { estimateLine, formatUsd, ledgerLines, sessionUsd } from '../lib/ledger'
+import { estimateLine, ledgerLines, sessionUsd } from '../lib/ledger'
 import type { View } from '../lib/state'
 import { shownPlan } from '../lib/mirror'
 import { taskRows } from '../lib/progress'
@@ -29,6 +29,7 @@ import {
   severityGlyph,
   taskBarRuns,
   severityOf,
+  shownUsd,
   wrapText,
 } from './style'
 
@@ -547,12 +548,12 @@ export function renderPane(
           {padEnd(g.label, labelWidth)}
           {hasBars ? <Text> </Text> : ''}
           {hasBars ? barOf(ledger.goal.buckets[g.key].usd) : ''}
-          {` ${padStart(formatUsd(ledger.goal.buckets[g.key].usd), moneyWidth)}`}
-          <Text dimColor>{` ${padStart(formatUsd(ledger.session[g.key].usd), moneyWidth)} ${padStart(String(ledger.session[g.key].calls), callWidth)}`}</Text>
+          {` ${padStart(shownUsd(ledger.goal.buckets[g.key].usd, view.lang), moneyWidth)}`}
+          <Text dimColor>{` ${padStart(shownUsd(ledger.session[g.key].usd, view.lang), moneyWidth)} ${padStart(String(ledger.session[g.key].calls), callWidth)}`}</Text>
         </Text>
       ))}
       <Text bold wrap="truncate-end">
-        {`${padEnd(l.total, labelWidth)}${hasBars ? ' '.repeat(BAR + 1) : ''} ${padStart(formatUsd(goalUsd(ledger)), moneyWidth)} ${padStart(formatUsd(sessionUsd(ledger)), moneyWidth)} ${padStart(String(totalCalls), callWidth)}`}
+        {`${padEnd(l.total, labelWidth)}${hasBars ? ' '.repeat(BAR + 1) : ''} ${padStart(shownUsd(goalUsd(ledger), view.lang), moneyWidth)} ${padStart(shownUsd(sessionUsd(ledger), view.lang), moneyWidth)} ${padStart(String(totalCalls), callWidth)}`}
       </Text>
       {ledger.goal.spawned > 0 ? (
         <Text dimColor wrap="wrap">
@@ -599,7 +600,7 @@ export function renderPane(
                 </Box>
                 {entry.usd !== undefined ? (
                   <Box flexShrink={0}>
-                    <Text dimColor>{`${entry.measured ? '' : '~'}${formatUsd(entry.usd)}`}</Text>
+                    <Text dimColor>{`${entry.measured ? '' : '~'}${shownUsd(entry.usd, view.lang)}`}</Text>
                   </Box>
                 ) : null}
               </Box>
