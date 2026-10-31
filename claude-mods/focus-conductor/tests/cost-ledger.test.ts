@@ -5,7 +5,7 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import type { Brief, Core, Route } from '../types'
 import { applyPrices, fixedContextTokens, parsePrices, priceNote, shouldDowngrade, switchCost, turnCost, usdOf } from '../hooks/lib/cost'
-import { addUsage, calibrate, emptyLedger, formatUsd, ledgerLines, nextGoal, recordShape, resetLedger, sessionUsd, shapeKey, shapeOutput } from '../hooks/lib/ledger'
+import { addUsage, calibrate, emptyLedger, formatCost, ledgerLines, nextGoal, recordShape, resetLedger, sessionUsd, shapeKey, shapeOutput } from '../hooks/lib/ledger'
 import { createContext } from '../hooks/context'
 import { legacyOf, tierOf } from '../hooks/lib/scale'
 import { EMPTY_CORE, normalizeCore, withAgentUsd, withAnalyzerUsage, withDecision, withLift, adoptGoal } from '../hooks/lib/state'
@@ -124,8 +124,8 @@ describe('sổ chi phí', () => {
   })
 
   test('định dạng USD và các dòng tóm tắt hiện đủ nhóm', () => {
-    expect(formatUsd(0.035)).toBe('$0.035')
-    expect(formatUsd(0.0004)).toBe('$0.0004')
+    expect(formatCost(0.035, 'en')).toBe('$0.04')
+    expect(formatCost(0.0004, 'en')).toBe('<$0.01')
     const lines = ledgerLines(addUsage(emptyLedger(1), 'agent', 'haiku', USAGE).ledger)
     expect(lines[0]).toContain('subagent')
     expect(lines[0]).toContain('trong 1 lượt')

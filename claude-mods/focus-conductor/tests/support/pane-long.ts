@@ -76,6 +76,12 @@ export async function drawn($: Engine, rows = 16) {
   return { tree, texts }
 }
 
+/** Dòng của bước thứ k (bước đang làm khi longGoal đóng k bước đầu) trong cây vẽ; từ 0.7.6 (U1) số lô của việc nằm trên cùng dòng này. */
+export function stepRow(tree: unknown, k: number): number {
+  const title = TITLES[k] ?? ''
+  return rowOf(tree, new RegExp(`^${title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))
+}
+
 /** Tiêu đề mục checklist và mục tiến độ từng việc theo ngôn ngữ. */
 export const HEADINGS = { vi: { checklist: /^Danh sách bước/, tasks: /^Tiến độ từng việc/ }, en: { checklist: /^Checklist/, tasks: /^Progress by task/ } } as const
 

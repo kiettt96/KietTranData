@@ -11,7 +11,7 @@ import { restorableSteps } from './drift'
 import type { Tokens } from './cost'
 import { addUsage, emptyLedger, nextGoal, planSwitch, resetLedger } from './ledger'
 import { legacyOf } from './scale'
-import { statusLine, withQuotaNoticeStatus, withQuotaStatus, withRouterFailStatus, withTurnFaultStatus } from './text'
+import { resumeCommand, statusLine, withQuotaNoticeStatus, withQuotaStatus, withRouterFailStatus, withTurnFaultStatus } from './text'
 import { shownPlan } from './mirror'
 import { evaluateQuota, isPauseActive, overrideOf, quotaBadge, softNotices } from './quota'
 import type { QuotaSettings } from './quota'
@@ -83,7 +83,7 @@ export function statusText(view: View, quota: QuotaState, now: number, settings:
     ? base
     : notices.length > 0
       ? withQuotaNoticeStatus(base, notices, view.lang)
-      : withQuotaStatus(base, quotaBadge(isPaused, evaluation), view.lang)
+      : withQuotaStatus(base, quotaBadge(isPaused, evaluation), view.lang, isPaused ? resumeCommand(quota.pause?.source === 'user') : undefined)
   return withTurnFaultStatus(withRouterFailStatus(quotaLabelled, view.core.routerFail, view.lang), view.core.turnFault, view.lang)
 }
 

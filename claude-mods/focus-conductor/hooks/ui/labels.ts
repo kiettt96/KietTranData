@@ -11,6 +11,19 @@ export function langOf(value: unknown): Lang {
   return value === 'en' ? 'en' : 'vi'
 }
 
+/** Số phút làm tròn (0.7.6, W4): 150 giây là 3 phút, để thời gian ghi gần với thực tế hơn khi chưa vẽ lại. */
+const roundedMinutes = (ms: number) => Math.round(ms / 60_000)
+
+/** Giờ máy HH:MM của một mốc thời gian (0.7.6, W4), cho "từ <giờ bắt đầu>". */
+function clockOf(at: number): string {
+  const d = new Date(at)
+  const two = (n: number) => String(n).padStart(2, '0')
+  return `${two(d.getHours())}:${two(d.getMinutes())}`
+}
+
+/** Phần trong ngoặc của dòng tóm tắt bước đã đóng (0.7.6, U7): chỉ các số khác 0, rỗng thì không có ngoặc. */
+const closedParts = (parts: string[]) => (parts.some(Boolean) ? ` (${parts.filter(Boolean).join(', ')})` : '')
+
 const VI = {
   suggest: 'đề xuất',
   mode: 'chế độ',
@@ -19,21 +32,22 @@ const VI = {
   plannedSteps: (n: number) => `${n} bước dự kiến`,
   phase: { idle: 'chưa bắt đầu', start: 'mới bắt đầu', active: 'đang thực hiện', almost: 'sắp xong', done: 'hoàn thành' } as Record<Phase, string>,
   allClosed: 'Đã xong mọi bước',
+  completedGoal: (goal: string) => `Hoàn thành: ${goal}`,
   modeLabel: 'Chế độ',
   noGoal: 'Chưa có mục tiêu. Gửi một prompt, hoặc dùng /conductor goal kèm mô tả mục tiêu.',
-  noChecklist: 'Claude chưa chốt checklist.',
-  depth: 'độ sâu',
-  volume: 'khối lượng',
-  kind: 'loại',
   notRead: 'router chưa đọc',
   constraints: 'Ràng buộc',
   noConstraints: 'Không nhận ra ràng buộc rõ ràng.',
   quality: 'Tiêu chí chất lượng',
   noQuality: 'Không nhận ra tiêu chí riêng.',
-  planned: 'Việc dự kiến (router)',
+  plannedTag: '(dự kiến)',
   check: 'đạt khi',
   legend: { verified: 'đã kiểm chứng', done: 'xong', doing: 'đang làm', blocked: 'bị chặn', waiting: 'chờ kết quả', todo: 'chờ', skipped: 'bỏ qua' } as Record<StepStatus, string>,
-  mainRouting: 'Điều phối luồng chính',
+  routing: 'Điều phối',
+  running: 'Đang chạy',
+  runningRange: (first: number, last: number) => (first === last ? `lô ${first}` : `lô ${first} đến ${last}`),
+  runningAgents: (n: number) => `${n} agent`,
+  routeShape: (depth: string, volume: string, kind: string) => `độ sâu ${depth} · khối lượng ${volume} · loại ${kind}`,
   forWork: (depth: string, volume: string) => ` cho việc ${depth}, khối lượng ${volume}`,
   notApplied: 'Chưa áp dụng; luồng chính đang dùng model của phiên.',
   cost: 'Chi phí',
@@ -53,6 +67,11 @@ const VI = {
     `${name} chỉ còn ${left} (ngưỡng ${threshold})${reset ? `, làm mới lúc ${reset}` : ''}`,
   quotaState: 'Trạng thái',
   quotaStateOk: 'bình thường',
+  quotaStateNotice: 'báo mềm',
+  quotaShortReason: (name: string, left: string) => `${name} còn ${left}`,
+  pauseLine: (cause: string, reset: string) => `Tạm dừng: ${cause}${reset ? ` · làm mới ${reset}` : ''}`,
+  pauseCheckpointDone: 'Điểm dừng đã ghi',
+  pauseResume: (command: string) => `chạy tiếp: ${command}`,
   quotaStateQuota: 'tạm dừng (hạn mức)',
   quotaStateUser: 'tạm dừng (người dùng)',
   quotaStateForced: (names: string, until: string) => `ép tiếp ${names} tới ${until}`,
@@ -79,12 +98,17 @@ const VI = {
   taskDoing: 'đang làm',
   taskTools: (n: number) => `${n} tool`,
   taskBatches: (done: number, total: number, running: number) => `${done}/${total} lô xong${running > 0 ? `, ${running} đang chạy` : ''}`,
-  taskElapsed: (ms: number) => (ms < 60_000 ? '<1 phút' : `${Math.floor(ms / 60_000)} phút`),
+  taskElapsed: (ms: number) => (ms < 60_000 ? '<1 phút' : `${roundedMinutes(ms)} phút`),
   taskMore: (k: number) => `+${k} việc`,
-  stepsClosed: (n: number) => `${n} bước đã đóng`,
+  stepsClosed: (n: number, verified = 0, skipped = 0) => `${n} bước đã đóng${closedParts([verified > 0 ? `${verified} đã kiểm chứng` : '', skipped > 0 ? `${skipped} bỏ qua` : ''])}`,
   stepsOpenMore: (n: number) => `+${n} bước mở`,
   checklist: 'Danh sách bước',
   agentChip: (done: number, total: number) => `subagent ${done}/${total} xong`,
+  attentionFailed: (n: number) => `${n} lô lỗi chưa giao lại`,
+  agentsRunning: (n: number) => `${n} subagent đang chạy`,
+  agentBatchChip: (running: number, failed: number) => [running > 0 ? `${running} đang chạy` : '', failed > 0 ? `${failed} lỗi` : ''].filter(Boolean).join(' · '),
+  goalElapsed: (ms: number) => (ms < 60_000 ? '<1 phút' : roundedMinutes(ms) < 60 ? `${roundedMinutes(ms)} phút` : `${Math.floor(roundedMinutes(ms) / 60)} giờ ${roundedMinutes(ms) % 60} phút`),
+  runningSince: (at: number) => `từ ${clockOf(at)}`,
   mirrorSource: 'Theo danh sách việc của Claude Code (chỉ để theo dõi, không chặn kết thúc)',
   costCalls: 'lượt',
   groupMain: 'luồng chính',
@@ -95,11 +119,12 @@ const VI = {
   delegations: 'Việc giao subagent',
   delegationState: { pending: 'chờ giao', running: 'đang chạy', done: 'xong', failed: 'lỗi, chưa giao lại' } as Record<'pending' | 'running' | 'done' | 'failed', string>,
   log: 'Nhật ký điều phối',
-  noLog: 'Chưa có quyết định nào.',
   main: 'chính',
   estimatedNote: '~ ước tính lúc giao, chưa có số đo',
   skipped: ' (không áp dụng)',
-  warnings: 'Cảnh báo nhất quán',
+  warnings: 'Cảnh báo khác',
+  attention: 'Cần chú ý',
+  attentionMore: (n: number) => `+${n} mục khác`,
   noWarnings: 'Không có cảnh báo.',
   checkHint: (list: string, isDir: boolean) =>
     `Mod chưa nhận script kiểm đã chạy là lệnh kiểm. Gợi ý khai option checkCommands của mod: ${list}.${isDir ? ' Tiền tố thư mục tin mọi script dưới thư mục đó: chỉ khai nếu thư mục chỉ chứa script kiểm.' : ''}`,
@@ -117,7 +142,6 @@ const VI = {
   } as Record<WarningKind, string>,
   reset: 'Đặt lại mục tiêu',
   resetConfirm: 'Bấm lại để xóa',
-  resetScope: 'Đặt lại xóa: mục tiêu, checklist, cảnh báo, mục tiêu đã cất, sổ chi phí, danh sách model bị chặn. Giữ nhật ký điều phối và hệ số hiệu chỉnh đã học.',
   resetArmedToast: 'Bấm "Đặt lại mục tiêu" lần nữa trong 10 giây để xóa.',
   resetExpiredToast: 'Đã hủy yêu cầu đặt lại (quá 10 giây).',
   resetDoneToast: 'Đã đặt lại mục tiêu, checklist, cảnh báo, mục tiêu đã cất, sổ chi phí và danh sách model bị chặn.',
@@ -133,21 +157,22 @@ const EN: typeof VI = {
   plannedSteps: n => `${n} planned steps`,
   phase: { idle: 'not started', start: 'just started', active: 'in progress', almost: 'almost done', done: 'completed' },
   allClosed: 'All steps closed',
+  completedGoal: goal => `Completed: ${goal}`,
   modeLabel: 'Mode',
   noGoal: 'No goal yet. Send a prompt, or use /conductor goal with a description.',
-  noChecklist: 'Claude has not set a checklist yet.',
-  depth: 'depth',
-  volume: 'volume',
-  kind: 'kind',
   notRead: 'not read by the router',
   constraints: 'Constraints',
   noConstraints: 'No explicit constraints found.',
   quality: 'Quality criteria',
   noQuality: 'No specific criteria found.',
-  planned: 'Planned work (router)',
+  plannedTag: '(planned)',
   check: 'passes when',
   legend: { verified: 'verified', done: 'done', doing: 'in progress', blocked: 'blocked', waiting: 'waiting', todo: 'to do', skipped: 'skipped' },
-  mainRouting: 'Main thread routing',
+  routing: 'Routing',
+  running: 'Running',
+  runningRange: (first, last) => (first === last ? `run ${first}` : `runs ${first} to ${last}`),
+  runningAgents: n => `${n} ${n === 1 ? 'agent' : 'agents'}`,
+  routeShape: (depth, volume, kind) => `depth ${depth} · volume ${volume} · kind ${kind}`,
   forWork: (depth, volume) => ` for ${depth} work, volume ${volume}`,
   notApplied: 'Not applied; the main thread runs the session model.',
   cost: 'Cost',
@@ -165,6 +190,11 @@ const EN: typeof VI = {
   quotaReason: (name, left, threshold, reset) => `${name} only ${left} left (threshold ${threshold})${reset ? `, resets at ${reset}` : ''}`,
   quotaState: 'State',
   quotaStateOk: 'normal',
+  quotaStateNotice: 'soft notice',
+  quotaShortReason: (name, left) => `${name} ${left} left`,
+  pauseLine: (cause, reset) => `Paused: ${cause}${reset ? ` · resets ${reset}` : ''}`,
+  pauseCheckpointDone: 'Checkpoint saved',
+  pauseResume: command => `continue with: ${command}`,
   quotaStateQuota: 'paused (quota)',
   quotaStateUser: 'paused (by you)',
   quotaStateForced: (names, until) => `forced past ${names} until ${until}`,
@@ -191,12 +221,17 @@ const EN: typeof VI = {
   taskDoing: 'in progress',
   taskTools: n => `${n} ${n === 1 ? 'tool' : 'tools'}`,
   taskBatches: (done, total, running) => `${done}/${total} runs done${running > 0 ? `, ${running} running` : ''}`,
-  taskElapsed: ms => (ms < 60_000 ? '<1 min' : `${Math.floor(ms / 60_000)} min`),
+  taskElapsed: ms => (ms < 60_000 ? '<1 min' : `${roundedMinutes(ms)} min`),
   taskMore: k => `+${k} ${k === 1 ? 'task' : 'tasks'}`,
-  stepsClosed: n => `${n} ${n === 1 ? 'step' : 'steps'} closed`,
+  stepsClosed: (n, verified = 0, skipped = 0) => `${n} ${n === 1 ? 'step' : 'steps'} closed${closedParts([verified > 0 ? `${verified} verified` : '', skipped > 0 ? `${skipped} skipped` : ''])}`,
   stepsOpenMore: n => `+${n} open ${n === 1 ? 'step' : 'steps'}`,
   checklist: 'Checklist',
   agentChip: (done, total) => `${done}/${total} subagent done`,
+  attentionFailed: n => `${n} failed ${n === 1 ? 'run' : 'runs'} not re-delegated`,
+  agentsRunning: n => `${n} ${n === 1 ? 'subagent' : 'subagents'} running`,
+  agentBatchChip: (running, failed) => [running > 0 ? `${running} running` : '', failed > 0 ? `${failed} failed` : ''].filter(Boolean).join(' · '),
+  goalElapsed: ms => (ms < 60_000 ? '<1 min' : roundedMinutes(ms) < 60 ? `${roundedMinutes(ms)} min` : `${Math.floor(roundedMinutes(ms) / 60)} h ${roundedMinutes(ms) % 60} min`),
+  runningSince: at => `since ${clockOf(at)}`,
   mirrorSource: "From Claude Code's task list (tracking only, never blocks stopping)",
   costCalls: 'calls',
   groupMain: 'main',
@@ -207,11 +242,12 @@ const EN: typeof VI = {
   delegations: 'Delegated tasks',
   delegationState: { pending: 'not delegated yet', running: 'running', done: 'done', failed: 'failed, not re-delegated' },
   log: 'Routing log',
-  noLog: 'No decisions yet.',
   main: 'main',
   estimatedNote: '~ estimated at delegation, not measured yet',
   skipped: ' (not applied)',
-  warnings: 'Consistency warnings',
+  warnings: 'Other warnings',
+  attention: 'Needs attention',
+  attentionMore: n => `+${n} more`,
   noWarnings: 'No warnings.',
   checkHint: (list: string, isDir: boolean) =>
     `The mod does not recognize the check script that ran as a check. Suggested checkCommands option: ${list}.${isDir ? ' A directory prefix trusts every script under it: declare it only if the directory holds check scripts only.' : ''}`,
@@ -229,7 +265,6 @@ const EN: typeof VI = {
   },
   reset: 'Reset goal',
   resetConfirm: 'Press again to clear',
-  resetScope: 'Reset clears: goal, checklist, warnings, stashed goals, cost ledger, blocked-model list. Keeps the routing log and learned calibration.',
   resetArmedToast: 'Press "Reset goal" again within 10 seconds to clear.',
   resetExpiredToast: 'Reset request cancelled (10 seconds passed).',
   resetDoneToast: 'Reset the goal, checklist, warnings, stashed goals, cost ledger and blocked-model list.',
@@ -239,6 +274,34 @@ const EN: typeof VI = {
 
 export function labels(lang: Lang): typeof VI {
   return lang === 'en' ? EN : VI
+}
+
+/** Tên tier bằng tiếng Việt thường trong câu cảnh báo hiển thị (0.7.6, U12). */
+const TIER_VI: Record<string, string> = { trivial: 'rất nhẹ', simple: 'đơn giản', moderate: 'vừa', complex: 'phức tạp', deep: 'rất sâu' }
+const WORD = (word: string) => new RegExp(`(?<![\\p{L}\\p{N}])${word}(?![\\p{L}\\p{N}])`, 'gu')
+
+/**
+ * Câu cảnh báo khi vẽ trên band và pane (0.7.6, U12): giao diện tiếng Việt thì tier, verified, evidence, done viết bằng tiếng Việt thường.
+ * Chỉ đổi chữ hiển thị: câu đã lưu, câu gửi router và context chèn cho Claude giữ nguyên.
+ */
+export function shownWarning(text: string, lang: Lang): string {
+  if (lang !== 'vi') return text
+  return text
+    .replace(/cho việc (trivial|simple|moderate|complex|deep)(?![\p{L}\p{N}])/gu, (_all, tier: string) => `cho việc ${TIER_VI[tier] ?? tier}`)
+    .replace(WORD('lưu là done'), 'lưu là xong')
+    .replace(WORD('verified'), 'đã kiểm chứng')
+    .replace(WORD('evidence'), 'bằng chứng')
+}
+
+/**
+ * Chip của dòng bước khớp một việc (0.7.6, U1): việc nhiều lô thì model và số lô ("sonnet 97/100 · 3 lỗi"); việc một lần gọi thì model
+ * và trạng thái ("sonnet đang chạy"); việc làm trực tiếp thì model và effort ("opus high"). Số tool call và thời gian đi ở phần chi tiết.
+ */
+export function stepTaskMeta(l: typeof VI, row: { kind: 'main' | 'direct' | 'agent'; pick: { family: string; effort: string } | null; state: 'pending' | 'idle' | 'running' | 'done' | 'failed' | 'cut'; counts?: { done: number; total: number; running: number }; failed?: number }): string {
+  const family = row.pick?.family ?? ''
+  if (row.counts !== undefined) return [`${family} ${row.counts.done}/${row.counts.total}`.trim(), l.agentBatchChip(row.counts.running, row.failed ?? 0)].filter(Boolean).join(' · ')
+  if (row.kind === 'agent') return `${family} ${l.taskState[row.state]}`.trim()
+  return row.pick ? `${row.pick.family} ${row.pick.effort}` : ''
 }
 
 /**

@@ -6,6 +6,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import { COMPLEX_PROMPT, ROUTER_TIMEOUT, base, conductor, plan, submit } from '../support/engine'
 
 const PANE_ID = 'focus-conductor'
+// 0.7.6 U11: pane chỉ tự mở ở mục tiêu substantial hay hard; các ca dùng plan() mặc định (light) ghi rõ độ sâu substantial.
 
 describe('0.7.2 4: pane tự mở ở mục tiêu mới', () => {
   test('mục tiêu đầu tiên: mở pane của mod, không focus, số dòng vừa phải', {}, async ($, on) => {
@@ -16,7 +17,7 @@ describe('0.7.2 4: pane tự mở ở mục tiêu mới', () => {
 
   test('prompt tiếp nối: không mở thêm dù pane đã đóng', {}, async ($, on) => {
     let n = 0
-    const seen = base(on, { panesClosed: true, router: () => (++n === 1 ? plan({ goal: 'Sửa lớn' }) : plan({ relation: 'continue', goal: '' })) })
+    const seen = base(on, { panesClosed: true, router: () => (++n === 1 ? plan({ goal: 'Sửa lớn', depth: 'substantial' }) : plan({ relation: 'continue', goal: '' })) })
     await submit($, COMPLEX_PROMPT)
     await submit($, 'Làm tiếp phần còn lại')
     expect(seen.opened.length).toBe(1)
@@ -24,7 +25,7 @@ describe('0.7.2 4: pane tự mở ở mục tiêu mới', () => {
 
   test('pane đã đóng: mục tiêu mới mở lại', {}, async ($, on) => {
     let n = 0
-    const seen = base(on, { panesClosed: true, router: () => plan({ goal: `Mục tiêu ${(n += 1)}`, relation: 'new' }) })
+    const seen = base(on, { panesClosed: true, router: () => plan({ goal: `Mục tiêu ${(n += 1)}`, relation: 'new', depth: 'substantial' }) })
     await submit($, COMPLEX_PROMPT)
     await submit($, 'Chuyển sang việc khác')
     expect(seen.opened.length).toBe(2)
@@ -32,7 +33,7 @@ describe('0.7.2 4: pane tự mở ở mục tiêu mới', () => {
 
   test('pane đã mở: mục tiêu mới không gọi mở lần nữa', {}, async ($, on) => {
     let n = 0
-    const seen = base(on, { router: () => plan({ goal: `Mục tiêu ${(n += 1)}`, relation: 'new' }) })
+    const seen = base(on, { router: () => plan({ goal: `Mục tiêu ${(n += 1)}`, relation: 'new', depth: 'substantial' }) })
     await submit($, COMPLEX_PROMPT)
     await submit($, 'Chuyển sang việc khác')
     expect(seen.opened.length).toBe(1)

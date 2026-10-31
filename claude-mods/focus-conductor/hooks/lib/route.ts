@@ -10,6 +10,7 @@
 
 import type { Choice, Effort, Kind, Lift, ModelFamily, Route, Task, Tier, Volume } from '../../types'
 import { SAFETY, shouldDowngrade, switchCost, turnCost } from './cost'
+import { formatCost } from './ledger'
 
 export type { Choice }
 
@@ -222,9 +223,9 @@ export function decideMain(args: {
     turnCost(current.family, current.effort, volume, context, calib[current.family]) -
     turnCost(wanted.family, wanted.effort, volume, context, calib[wanted.family])
   if (saving > 0 && shouldDowngrade({ saving, rewrite, turnsLeft })) {
-    return fresh(`hạ xuống ${describePick(wanted)}: tiết kiệm khoảng $${(saving * turnsLeft).toFixed(3)}, bù được chi phí ghi lại cache`)
+    return fresh(`hạ xuống ${describePick(wanted)}: tiết kiệm khoảng ${formatCost(saving * turnsLeft, 'vi')}, bù được chi phí ghi lại cache`)
   }
-  const reason = `giữ ${describePick(current)}: hạ xuống ${describePick(wanted)} chưa đủ lợi, ghi lại cache khoảng $${rewrite.toFixed(3)}`
+  const reason = `giữ ${describePick(current)}: hạ xuống ${describePick(wanted)} chưa đủ lợi, ghi lại cache khoảng ${formatCost(rewrite, 'vi')}`
   return { route: { ...current, tier, goalId, reason }, isChanged: false, isHeld: true, wanted, reason }
 }
 
@@ -416,8 +417,93 @@ type Clause = {
 const RULE_OVERRIDE = /^\s*(?:riêng|rieng|đặc biệt|dac biet|nhưng|nhung|còn(?!\s+lại)|for\s+(.+?)\s+only)(?![\p{L}\p{N}])/iu
 /** Một mã trong vế ghi đè (T10): mã bước "BƯỚC 3", "Step 5", "Việc 2" hay mã ngắn "K4". */
 const OVERRIDE_CODE = '(?:(?:bước|buoc|step|việc|viec|task)\\s*#?\\s*\\d+|[a-z]{1,3}\\d+(?:\\.\\d+)*)'
-/** Danh sách từ hai mã trở lên nối bằng dấu phẩy, "và", "and" ngay sau dấu hiệu ghi đè (T10): "Riêng BƯỚC 3, BƯỚC 5 dùng opus". */
-const OVERRIDE_CODES = new RegExp(`^\\s*(${OVERRIDE_CODE}(?:(?:\\s*[,，]\\s*|\\s+(?:và|va|and)\\s+)${OVERRIDE_CODE})+)(?![\\p{L}\\p{N}])`, 'iu')
+/** Một mục mã của danh sách ghi đè (T10, 0.7.6 V2): mã bước có số, hay mã ngắn; nhóm 1 và 2 là tiền tố và số khi tách được. */
+const LIST_CODE = /^(?:(?:(bước|buoc|step|việc|viec|task)\s*#?\s*|([a-z]{1,3}))(\d+)|[a-z]{1,3}\d+(?:\.\d+)+)$/iu
+/** Một mục khoảng (0.7.6 V3): "BƯỚC 3 đến BƯỚC 5", "BƯỚC 3-5", "từ BƯỚC 3 tới 5", "K3 to K5". */
+const LIST_RANGE = new RegExp(`^(?:từ|tu|from)?\\s*(${OVERRIDE_CODE})\\s*(?:đến|tới|den|toi|to|-|–)\\s*(${OVERRIDE_CODE}|\\d+)$`, 'iu')
+/** Số mã tối đa của một khoảng [Giả định: đủ cho checklist thật]; khoảng dài hơn chỉ lấy hai đầu. Khoảng ngược chiều đọc như xuôi. */
+const RANGE_MAX = 50
+
+type CodeParts = { prefix: string; isShort: boolean; number: number }
+/** Tiền tố và số của một mã ("BƯỚC 3": "buoc", 3; "K4": "k", 4, mã ngắn); null khi không tách được ("K4.1"). */
+function codeParts(code: string): CodeParts | null {
+  const match = LIST_CODE.exec(code.trim())
+  if (match === null || match[3] === undefined) return null
+  return { prefix: phraseWords(match[1] ?? match[2] ?? '').join(''), isShort: match[1] === undefined, number: Number(match[3]) }
+}
+/** Từ khóa của mã cùng tiền tố với số khác: "buoc 5", hay "k5" với mã ngắn (như phraseWords của description). */
+function codeWords(parts: CodeParts, number: number): string[] {
+  return parts.isShort ? [`${parts.prefix}${number}`] : [parts.prefix, String(number)]
+}
+
+/**
+ * Danh sách sau dấu hiệu ghi đè (T10, 0.7.6 V2, V3): phần từ sau dấu hiệu tới từ cắt ("dùng", tên model) hay "thì", tách theo dấu phẩy;
+ * mỗi phần tách tiếp theo "và", "and" khi có mục là mã. Mục là mã, khoảng mã (mọi mã trong khoảng), số trần (cùng tiền tố với mã liền
+ * trước: "BƯỚC 3, 5") hay cụm chữ (từ khóa ngoại lệ). Trả các ngoại lệ và số ký tự đã đọc (mục cuối là cụm chữ thì dừng trước nó, để
+ * cụm đó vẫn là loại việc của cặp nêu model). Null khi chỉ có một mục không phải khoảng: vế ghi đè thường giữ luật cũ.
+ */
+function overrideList(text: string): { items: string[][]; consumed: number } | null {
+  const hasMarks = /[^\x00-\x7f]/.test(text)
+  const ends = [text.search(RULE_CUT), text.search(EXCEPT_THEN), hasMarks ? -1 : text.search(RULE_CUT_ASCII)].filter(n => n >= 0)
+  const headEnd = ends.length > 0 ? Math.min(...ends) : text.length
+  const head = text.slice(0, headEnd)
+  const entries: { text: string; at: number }[] = []
+  for (const piece of head.matchAll(/[^,，]+/gu)) {
+    const subs: { text: string; at: number }[] = []
+    let last = 0
+    for (const join of piece[0].matchAll(/\s+(?:và|va|and)\s+/giu)) {
+      subs.push({ text: piece[0].slice(last, join.index), at: (piece.index ?? 0) + last })
+      last = (join.index ?? 0) + join[0].length
+    }
+    subs.push({ text: piece[0].slice(last), at: (piece.index ?? 0) + last })
+    const isCodeLike = (sub: { text: string }) => LIST_CODE.test(sub.text.trim()) || LIST_RANGE.test(sub.text.trim()) || /^#?\d+$/.test(sub.text.trim())
+    if (subs.length > 1 && subs.some(isCodeLike)) entries.push(...subs)
+    else entries.push({ text: piece[0], at: piece.index ?? 0 })
+  }
+  const cleaned = entries
+    .map(entry => ({ at: entry.at + entry.text.length - entry.text.trimStart().length, text: entry.text.trim() }))
+    .filter(entry => entry.text !== '')
+  const items: string[][] = []
+  let prefix: CodeParts | null = null
+  let hasRange = false
+  let lastIsPhrase = false
+  for (const entry of cleaned) {
+    lastIsPhrase = false
+    const range = LIST_RANGE.exec(entry.text)
+    if (range !== null) {
+      hasRange = true
+      const from = codeParts(range[1] ?? '')
+      const to = /^\d+$/.test(range[2] ?? '') && from !== null ? { ...from, number: Number(range[2]) } : codeParts(range[2] ?? '')
+      const isSame = from !== null && to !== null && from.prefix === to.prefix && from.isShort === to.isShort
+      const low = Math.min(from?.number ?? 0, to?.number ?? 0)
+      const high = Math.max(from?.number ?? 0, to?.number ?? 0)
+      if (from !== null && to !== null && isSame && high - low < RANGE_MAX) {
+        for (let n = low; n <= high; n++) items.push(codeWords(from, n))
+      } else {
+        items.push(phraseWords(range[1] ?? ''))
+        items.push(to !== null ? codeWords(to, to.number) : phraseWords(range[2] ?? ''))
+      }
+      prefix = from
+      continue
+    }
+    const bare = /^#?(\d+)$/.exec(entry.text)
+    if (bare !== null && prefix !== null) {
+      items.push(codeWords(prefix, Number(bare[1])))
+      continue
+    }
+    if (LIST_CODE.test(entry.text)) {
+      items.push(phraseWords(entry.text))
+      prefix = codeParts(entry.text)
+      continue
+    }
+    const words = exceptionWords(entry.text)
+    if (words.length > 0) items.push(words)
+    lastIsPhrase = true
+  }
+  if (cleaned.length < 2 && !hasRange) return null
+  const lastEntry = cleaned.at(-1)
+  return { items, consumed: lastIsPhrase && lastEntry !== undefined ? lastEntry.at : headEnd }
+}
 
 /** Từ nối đứng ngay trước model thứ hai ("sonnet hoặc opus"): hai model là lựa chọn, không phải quy định (S3). */
 const MODEL_CHOICE = /^\s*(?:hoặc|hoac|hay|or)\s*$/iu
@@ -452,17 +538,16 @@ function parseRule(rule: string): ParsedRule {
       if (phrase.length > 0) exceptions.push(phrase)
       segment = comma < 0 ? before : `${before},${after.slice(comma + 1)}`
     }
-    // Vế ghi đè là danh sách mã (T10): mỗi mã là một ngoại lệ riêng của các cặp đứng trước; phần sau danh sách đọc như vế thường.
+    // Vế ghi đè là danh sách (T10, 0.7.6 V2, V3): mỗi mục (mã, mã trong khoảng, cụm chữ) là một ngoại lệ riêng của các cặp đứng trước;
+    // phần sau danh sách đọc như vế thường.
     const lead = RULE_OVERRIDE.exec(segment)
-    const codes = lead !== null && lead[1] === undefined ? OVERRIDE_CODES.exec(segment.slice(lead[0].length)) : null
-    if (lead !== null && codes !== null) {
-      for (const code of (codes[1] ?? '').split(/\s*[,，]\s*|\s+(?:và|va|and)\s+/iu)) {
-        const words = phraseWords(code)
-        if (words.length === 0) continue
+    const list = lead !== null && lead[1] === undefined ? overrideList(segment.slice(lead[0].length)) : null
+    if (lead !== null && list !== null) {
+      for (const words of list.items) {
         for (const clause of clauses) clause.excepts.push(words)
         overrides.push(words)
       }
-      segment = segment.slice(lead[0].length + codes[0].length)
+      segment = segment.slice(lead[0].length + list.consumed)
     }
     const first = clauses.length
     let pending: string[][] = []

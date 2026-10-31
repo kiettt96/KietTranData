@@ -93,7 +93,8 @@ describe('0.6.0 E: band và status line', () => {
     await seen.clock.advance(10_000)
     await $.tool.call(EDIT)
     const ui = await band($)
-    expect(await ui.find({ type: 'Text', text: /tạm dừng: hạn mức/ })).toBeDefined()
+    // 0.7.6 U3: band ghi dòng tạm dừng thay cho chip.
+    expect(await ui.find({ type: 'Text', text: /^\u23F8 Tạm dừng: / })).toBeDefined()
     await ui.unmount()
     expect(seen.statuses.at(-1)).toContain('tạm dừng: hạn mức')
   })
@@ -108,7 +109,7 @@ describe('0.6.0 E: band và status line', () => {
     await seen.clock.advance(10_000)
     await $.tool.call(EDIT)
     const ui = await band($)
-    expect(await ui.find({ type: 'Text', text: /paused: quota/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^\u23F8 Paused: / })).toBeDefined()
     await ui.unmount()
   })
 

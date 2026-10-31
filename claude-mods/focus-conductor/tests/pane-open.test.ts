@@ -4,7 +4,8 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { PANE_ROWS, isPersonClose, shouldAutoOpenPane } from '../hooks/lib/pane'
 
-const base = { enabled: true, goalId: 3, closedGoal: -1, isOpen: false }
+// 0.7.6 U11: thêm độ sâu của mục tiêu; các ca cũ dùng hard (vẫn tự mở).
+const base = { enabled: true, goalId: 3, closedGoal: -1, isOpen: false, depth: 'hard' as const }
 
 describe('0.7.2 4: shouldAutoOpenPane', () => {
   test('bật, chưa đóng, chưa mở: mở', () => {

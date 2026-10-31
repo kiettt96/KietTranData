@@ -117,8 +117,8 @@ describe('subagent theo router', () => {
       usage: { ...BIG_USAGE, model: 'claude-haiku-5-5' },
     } as never)
     const status = String((await conductor($, 'status')).text)
-    expect(status).toContain('subagent $0.035 trong 1 lượt')
-    expect(status).toContain('luồng chính $0.0000 trong 0 lượt')
+    expect(status).toContain('subagent $0,04 trong 1 lượt')
+    expect(status).toContain('luồng chính $0,00 trong 0 lượt')
   })
 
   test('spawn bị từ chối không để lại kế hoạch chờ cho lần spawn sau', {}, async ($, on) => {

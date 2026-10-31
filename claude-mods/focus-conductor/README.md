@@ -112,7 +112,7 @@ Cấu hình qua `/config` (hoặc `pluginConfigs.focus-conductor.options` trong 
 | `remindSubagents` | `false` | Nhắc subagent lạc đề kèm việc được giao |
 | `semanticDrift` | `true` | Ở checkpoint, router kiểm lạc đề theo nội dung (một lượt router mỗi lần). Tối đa một lượt mỗi `driftIntervalMinutes` phút, tự tắt khi hạn mức vào vùng gần ngưỡng. Đặt `false` để tắt; chi phí ở mục "Giám sát giữa phiên" |
 | `driftIntervalMinutes` | `10` | Từ 0.7.5: số phút tối thiểu giữa hai lượt kiểm lạc đề, kẹp 5 đến 120. Phiên dài nhiều giờ nên đặt `30` |
-| `autoPane` | `true` | Mỗi mục tiêu mới thì mở pane chi tiết (không chiếm phím, xin 16 dòng khi nằm trên prompt). Anh tự đóng pane thì không mở lại trong mục tiêu đó; sang mục tiêu mới thì mở lại. Pane chỉ được đặt khi surface và độ rộng cho phép. Đặt `false` để tắt |
+| `autoPane` | `true` | Mỗi mục tiêu mới thì mở pane chi tiết (không chiếm phím, xin 16 dòng khi nằm trên prompt); từ 0.7.6 chỉ mục tiêu router chấm substantial hay hard, cùng mục tiêu tối thiểu khi router lỗi và `/conductor goal`. Anh tự đóng pane thì không mở lại trong mục tiêu đó; sang mục tiêu mới thì mở lại. Pane chỉ được đặt khi surface và độ rộng cho phép. Đặt `false` để tắt |
 | `netResume` | `false` | Sau một turn của luồng chính kết thúc vì lỗi, dò nhẹ (GET `https://api.anthropic.com` mỗi 30 giây, tối đa 120 lần, không gửi dữ liệu của phiên) rồi tự gửi một prompt tiếp tục khi có phản hồi, tối đa một lần cho mỗi mục tiêu. Không chạy khi mod đang dừng vì hạn mức hay `mode` là `off`; anh gõ prompt thì hủy chờ. Mặc định tắt: chỉ nên bật sau khi `decisionLog` đã ghi được một dòng `net` thật ở một turn lỗi |
 | `decisionLog` | trống | Đường dẫn file JSONL ghi mỗi quyết định điều phối (router đọc prompt, router lỗi, bỏ qua router, chấm subagent, đổi model, lạc đề, `verify-reject` khi `verified` bị hạ xuống `done`, `verify-auto` khi mod tự nâng lên `verified`), nối tiếp qua các phiên, giữ 500 dòng cuối. Log có trích 300 ký tự đầu của prompt và của evidence: chỉ bật khi đường dẫn nằm ngoài thư mục chia sẻ hay commit |
 | `agentTypes` | trống | Loại agent thêm cho router, phân tách bằng dấu phẩy |
@@ -138,7 +138,7 @@ Từ 0.6.1, điểm dừng được ghi cả khi hạn mức qua ngưỡng lúc 
 Thử nhanh mà không đốt hạn mức (kịch bản nghiệm thu thủ công):
 
 1. Đặt `pauseSessionRemainingPct` thành `90` qua `/config`: mod dừng khi hạn mức phiên đã dùng khoảng 10%.
-2. Giao một việc nhiều bước. Xác nhận band hiện "tạm dừng: hạn mức", tool bị từ chối, Claude gọi `plan` `checkpoint` rồi dừng; `/conductor status` có mục Hạn mức và điểm dừng đang mở.
+2. Giao một việc nhiều bước. Xác nhận band hiện "⏸ Tạm dừng: <lý do> · làm mới <giờ>" (từ 0.7.6; dòng 2 "Điểm dừng đã ghi · chạy tiếp: /conductor resume force" sau khi có điểm dừng), tool bị từ chối, Claude gọi `plan` `checkpoint` rồi dừng; `/conductor status` có mục Hạn mức và điểm dừng đang mở.
    Mở pane (nút Chi tiết trên band): mục Hạn mức ghi trạng thái tạm dừng (hạn mức), điểm dừng đang mở kèm ghi chú của Claude và lệnh `/conductor resume force`; mục Cảnh báo ghi "Đang tạm dừng"; status line vẫn còn nhãn dừng sau khi Claude kết thúc turn.
 3. Thoát, mở phiên mới trong cùng thư mục, chạy `/conductor resume force` (vì hạn mức chưa làm mới), gõ "tiếp tục".
 4. Xác nhận khối ĐIỂM DỪNG xuất hiện (thử thêm một prompt về việc khác trước khi "tiếp tục": khối không được chèn), Claude tiếp tục đúng bước đang làm, không làm lại bước đã xong.
@@ -146,7 +146,38 @@ Thử nhanh mà không đốt hạn mức (kịch bản nghiệm thu thủ công
 
 ### Thanh tiến độ
 
-Mỗi việc có một thanh tiến độ riêng (0.6.1). Band phía trên prompt có thanh chung của mục tiêu; pane có mục "Tiến độ từng việc" gồm việc chính, từng việc router phân (làm trực tiếp hay giao subagent, kèm model và effort đã điều phối) và việc Claude tự giao ngoài phân việc. Khi còn dòng trống, band thêm tối đa bốn dòng việc (đang chạy trước, rồi việc lỗi, việc chờ, việc xong; phần dư ghi "+k việc"); hết chỗ thì chỉ một chip "subagent k/n xong". Từ 0.7.5, việc giao thành nhiều lô có một dòng "k/n lô xong, r đang chạy" theo bộ đếm riêng của việc, nên hàng trăm lô vẫn đếm đúng; chip đếm theo tổng số lần gọi Agent. Lời gọi Agent khớp việc đã phân theo số thứ tự ("Việc N: ...") hoặc, khi prompt đánh mã bước, theo đúng mã đó ("BƯỚC 7: lọc tin lô 3" khớp việc "BƯỚC 7").
+Từ 0.7.6 band và pane trả lời ba câu trước tiên: đang ở bước nào, tiến độ chung ra sao, có gì cần can thiệp. Band (khi có từ hai dòng) gồm dòng 1 là thanh tiến độ, số bước, bước hiện tại và bên phải chip model ("opus high"), thời gian đã chạy của mục tiêu, chi phí (từ 96 cột) và nút Chi tiết; dòng 2 là một việc cần chú ý theo mức độ (tạm dừng, lô lỗi chưa giao lại, ghi ngoài phạm vi, báo hạn mức mềm, mục bị bỏ, bước ghi đã kiểm chứng chưa đủ bằng chứng, vượt ngân sách tool call; "+N" là số việc còn lại), không có thì subagent đang chạy, không nữa thì mục tiêu (mờ). Chip lô chỉ hiện khi có lô đang chạy hay lỗi ("2 đang chạy · 3 lỗi"); lô lỗi ở dòng 2 ghi kèm mã bước ("BƯỚC 4: 3 lô lỗi chưa giao lại") và bước còn todo mà có lô đang chạy hiện ◐. Band một dòng thì dòng 1 thay tên bước bằng dòng đỏ hay dòng tạm dừng khi có. Xong mọi bước thì band một dòng "11/11 · 11✓ Hoàn thành: <mục tiêu> · <thời gian> · <chi phí>".
+
+```
+▎ ━━━◐╌╌╌╌╌╌╌ 3/11 BƯỚC 3: lọc tin lô 1              3 lỗi [Chi tiết] Ẩn
+▎ ▲ 3 lô lỗi chưa giao lại
+```
+
+Tạm dừng cứng vì hạn mức chiếm band:
+
+```
+▎ ⏸ Tạm dừng: hạn mức tuần còn 1% · làm mới 00:00 01/01    [Chi tiết] Ẩn
+▎ Điểm dừng đã ghi · chạy tiếp: /conductor resume force
+```
+
+Pane là một danh sách bước: bước khớp một việc (theo mã "BƯỚC N", "Việc N" hay tiêu đề của bước dự kiến) mang chip của việc đó ngay trên dòng, nên mỗi bước chỉ xuất hiện một lần; bước đã đóng của checklist dài dồn thành một dòng "N bước đã đóng (k đã kiểm chứng, m bỏ qua)". Ngay dưới thanh tiến độ, pane có mục "Cần chú ý" (cùng thứ tự mức độ với band; tạm dừng cứng kèm lý do, giờ làm mới và lệnh chạy tiếp; tối đa 4 mục rồi "+N mục khác"), còn "Cảnh báo khác" chỉ giữ cảnh báo chưa hiện ở đó. Dưới 48 cột, chip model và số lô xuống dòng riêng dưới tên bước. Mục "Tiến độ từng việc" chỉ còn việc Claude tự giao và việc không khớp bước nào; mục "Đang chạy" ghi mỗi việc có subagent đang chạy một dòng (khoảng lô, số agent, thời gian). Độ sâu, khối lượng, loại việc và lý do router ở mục "Điều phối" cuối pane.
+
+```
+▎ Cập nhật sổ giá tuần theo 11 bước, lọc tin bằng subagent và kiểm số liệu bằng
+▎ script khai sẵn
+  ━━━━━━━◐╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌ 3/11 đang thực hiện
+
+Danh sách bước 3/11 ────────────────────────────────────────────────────────────
+● 3 bước đã đóng
+◐  4 BƯỚC 3: lọc tin lô 1                                  sonnet 98/100 · 2 lỗi
+○  5 BƯỚC 4: lọc tin lô 2                                  sonnet 99/100 · 1 lỗi
+○  6 BƯỚC 5: lọc tin lô 3                                         sonnet 100/100
+○  7 BƯỚC 6: đọc và giải thích                                         opus high
+
+◐ đang làm  ○ chờ
+```
+
+Status line dạng "4/11 · BƯỚC 4 · opus" (số bước, mã bước hiện tại hay 24 ký tự đầu của tiêu đề, họ model), kèm nhãn hạn mức và lệnh chạy tiếp khi đang dừng. Chi phí ghi theo dấu thập phân của ngôn ngữ ("$1,81", "<$0,01"); "~" là ước tính. Từ 0.7.5, việc giao thành nhiều lô đếm theo bộ đếm riêng của việc, nên hàng trăm lô vẫn đếm đúng. Lời gọi Agent khớp việc đã phân theo số thứ tự ("Việc N: ...") hoặc, khi prompt đánh mã bước, theo đúng mã đó ("BƯỚC 7: lọc tin lô 3" khớp việc "BƯỚC 7").
 
 Thanh chỉ thể hiện phần trăm khi có số bước thật: checklist của tool `plan`; nếu Claude không dùng tool đó thì danh sách việc Claude Code tự ghi (`TodoWrite`, `TaskCreate`, `TaskUpdate`), được mod phản chiếu và ghi nhỏ nguồn "danh sách việc". Danh sách phản chiếu chỉ để theo dõi: nó không chặn kết thúc, không tính cho bảo vệ hạn mức, và tool `plan` luôn thắng khi có. Từ 0.7.1 mod vẫn tự nâng và hạ `verified` cho danh sách này theo đúng luật ở mục "Đã kiểm chứng". Việc làm trực tiếp lấy các bước có tiêu đề mở đầu "Việc N"; subagent lấy danh sách việc nó tự ghi. Không có số bước thì thanh chỉ thể hiện trạng thái, không phần trăm: nét đứt mờ là chờ giao hay chưa bắt đầu, đầu ◐ là đang chạy (kèm số tool call và thời gian chạy của subagent), thanh đầy màu xanh lá là xong, ■ đỏ là lỗi, ■ vàng là bị cắt vì tạm dừng hạn mức.
 
@@ -166,7 +197,7 @@ Chi phí: mỗi lượt kiểm lạc đề là một lần gọi router, tối �
 
 ### Pane chi tiết tự mở
 
-Từ 0.7.2, mỗi mục tiêu mới (router đọc được, mục tiêu tối thiểu khi router lỗi, hay `/conductor goal`) mod mở pane chi tiết bằng `$.ui.open`, không `focus` nên không chiếm phím gõ. Prompt do chính anh gõ được engine tính là "anh yêu cầu", nên pane được đặt ở mọi độ rộng: cạnh transcript (từ 110 cột, chế độ toàn màn hình) hoặc ngay trên prompt. Anh tự đóng pane (dấu đóng hay phím) thì mod nhớ và không mở lại trong mục tiêu đó; sang mục tiêu mới thì mở lại. Pane chưa được đặt (màn hình hẹp, chưa có surface) không báo lỗi; nhật ký quyết định có dòng `pane` kèm lý do. Trên vscode, web và mobile (không có band, nên không có nút Chi tiết) pane tự mở là đường chính tới chi tiết. Đặt `autoPane` là `false` để tắt; `/conductor` mở pane bất cứ lúc nào.
+Từ 0.7.2, mỗi mục tiêu mới (router đọc được, mục tiêu tối thiểu khi router lỗi, hay `/conductor goal`) mod mở pane chi tiết bằng `$.ui.open`; từ 0.7.6 mục tiêu router chấm none hay light (việc nhỏ, thường không có checklist) không tự mở, band đã đủ, không `focus` nên không chiếm phím gõ. Prompt do chính anh gõ được engine tính là "anh yêu cầu", nên pane được đặt ở mọi độ rộng: cạnh transcript (từ 110 cột, chế độ toàn màn hình) hoặc ngay trên prompt. Anh tự đóng pane (dấu đóng hay phím) thì mod nhớ và không mở lại trong mục tiêu đó; sang mục tiêu mới thì mở lại. Pane chưa được đặt (màn hình hẹp, chưa có surface) không báo lỗi; nhật ký quyết định có dòng `pane` kèm lý do. Trên vscode, web và mobile (không có band, nên không có nút Chi tiết) pane tự mở là đường chính tới chi tiết. Đặt `autoPane` là `false` để tắt; `/conductor` mở pane bất cứ lúc nào.
 
 ### Turn lỗi và lệnh kiểm riêng
 

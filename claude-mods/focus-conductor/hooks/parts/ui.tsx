@@ -1,10 +1,10 @@
 // Giao diện: band trên prompt và pane chi tiết.
 
 import { atom, derive, read, update } from 'claude-code'
-import { EMPTY_QUOTA, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaBadge, quotaSettings } from '../lib/quota'
+import { EMPTY_QUOTA, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaBadge, quotaSettings, softNotices } from '../lib/quota'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
-import { quotaOverview, quotaPaneText } from '../lib/text'
+import { bandQuota, quotaOverview, quotaPaneText } from '../lib/text'
 import { renderBand } from '../ui/band'
 import { labels } from '../ui/labels'
 import { isPersonClose } from '../lib/pane'
@@ -45,11 +45,17 @@ export function registerUi(on: On, ctx: Ctx): void {
     const q = normalizeQuota(await read($, quotaState))
     const now = await $.clock.now()
     const evaluation = evaluateQuota(q.readings, now, settings)
-    const badge = settings.enabled ? quotaBadge(isPauseActive(true, evaluation.hits, q.pause, overrideOf(q), now) || q.pause !== null, evaluation) : null
-    const tree = renderBand($.ui.resolve(e), await read($, view), { maxRows, columns: bodyColumns, isWorking, now }, {
+    const isPaused = isPauseActive(true, evaluation.hits, q.pause, overrideOf(q), now) || q.pause !== null
+    const badge = settings.enabled ? quotaBadge(isPaused, evaluation) : null
+    const current = await read($, view)
+    // Dòng tạm dừng và câu báo mềm của band (0.7.6, U3), cùng số đo đã lưu với mục Hạn mức của pane.
+    const pause = settings.enabled
+      ? bandQuota(quotaOverview({ enabled: true, limits: q.readings, thresholds: settings, pause: q.pause, overrideUntil: q.overrideUntil, overrideKinds: q.overrideKinds, checkpoint: q.checkpoint, now }), isPaused ? [] : softNotices(q.readings, now, settings), current.lang)
+      : null
+    const tree = renderBand($.ui.resolve(e), current, { maxRows, columns: bodyColumns, isWorking, now }, {
       onDetails: () => $.ui.open({ id: PANE, title: PANE_TITLE }),
       onHide: () => update($, bandHiddenState, () => true),
-    }, badge)
+    }, badge, pause)
     return tree ?? next(e)
   })
 
@@ -75,7 +81,11 @@ export function registerUi(on: On, ctx: Ctx): void {
       ? quotaOverview({ enabled: true, limits: q.readings, thresholds: settings, pause: q.pause, overrideUntil: q.overrideUntil, overrideKinds: q.overrideKinds, checkpoint: q.checkpoint, now })
       : null
     // Chưa có số đo, không dừng, không có điểm dừng (0.7.5): ẩn mục Hạn mức, nhường chỗ cho checklist.
-    const quota = overview !== null && (overview.state !== 'none' || overview.checkpoint !== null) ? quotaPaneText(overview, current.lang) : null
+    const hasNotice = overview !== null && overview.state === 'ok' && softNotices(q.readings, now, settings).length > 0
+    const quota = overview !== null && (overview.state !== 'none' || overview.checkpoint !== null) ? quotaPaneText(overview, current.lang, hasNotice) : null
+    // Mục Cần chú ý của pane (0.7.6, W1): cùng phép tính tạm dừng và báo mềm với band.
+    const isPaused = isPauseActive(true, evaluateQuota(q.readings, now, settings).hits, q.pause, overrideOf(q), now) || q.pause !== null
+    const pause = overview !== null ? bandQuota(overview, isPaused ? [] : softNotices(q.readings, now, settings), current.lang) : null
     return renderPane($.ui.resolve(e), current, { columns: e.props.bodyColumns, placement: e.props.placement, isResetArmed, now, rows: e.props.scroll.bodyRows }, {
       onMode: picked => update($, modeState, () => picked),
       onReset: async () => {
@@ -100,6 +110,6 @@ export function registerUi(on: On, ctx: Ctx): void {
         })
       },
       onToggleBand: () => update($, bandHiddenState, hidden => !hidden),
-    }, quota)
+    }, quota, pause)
   })
 }

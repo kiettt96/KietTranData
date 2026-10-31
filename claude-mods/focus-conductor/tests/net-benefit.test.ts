@@ -72,7 +72,7 @@ describe('lợi ích ròng so với chạy thuần: sổ', () => {
     // Router: 1000 vào, 500 ra ở giá Sonnet = 7000.
     ledger = finish(ledger, 'sonnet', usage(1000, 500, 0, 0), 'analyzer')
     closeTo(net(ledger).session, (444_000 + 48_000 - 222_000 - 24_000 - 7000) / 1_000_000)
-    expect(netLine(ledger)).toBe('So với chạy thuần opus: phiên tiết kiệm ~$0.239, mục tiêu này tiết kiệm ~$0.239 (ước tính theo cùng số token, đã tính chi phí router)')
+    expect(netLine(ledger)).toBe('So với chạy thuần opus: phiên tiết kiệm ~$0,24, mục tiêu này tiết kiệm ~$0,24 (ước tính theo cùng số token, đã tính chi phí router)')
   })
 
   test('Opus sang Sonnet giữa phiên với 100K ngữ cảnh: phần ghi lại cache chạy thuần đã đọc được, kết quả là tốn thêm', () => {
@@ -86,7 +86,7 @@ describe('lợi ích ròng so với chạy thuần: sổ', () => {
     ledger = finish(ledger, 'sonnet', usage(1000, 1000, 0, 100_000))
     expect(ledger.baseline?.rewrite).toBe(0)
     closeTo(net(ledger).session, (44_000 - 412_000) / 1_000_000)
-    expect(netLine(ledger)).toContain('phiên tốn thêm ~$0.368, mục tiêu này tốn thêm ~$0.368')
+    expect(netLine(ledger)).toContain('phiên tốn thêm ~$0,37, mục tiêu này tốn thêm ~$0,37')
   })
 
   test('chỉ đổi effort cùng họ: phần ghi lại là ngữ cảnh trừ phần cố định đo được', () => {
@@ -112,7 +112,7 @@ describe('lợi ích ròng so với chạy thuần: sổ', () => {
     ledger = finish(ledger, 'sonnet', usage(1000, 1000, 0, 100_000))
     // Thuần 824000 + 824000, thật 824000 + 412000.
     closeTo(net(ledger).session, (824_000 - 412_000) / 1_000_000)
-    expect(netLine(ledger)).toContain('phiên tiết kiệm ~$0.412')
+    expect(netLine(ledger)).toContain('phiên tiết kiệm ~$0,41')
   })
 
   test('đổi qua lại trong TTL (Opus, Sonnet, Opus): bù chặn trên bằng số token ghi thực của lượt', () => {
@@ -129,7 +129,7 @@ describe('lợi ích ròng so với chạy thuần: sổ', () => {
     const pure = 824_000 + 44_000 + 38_600
     const covered = 824_000 + 412_000 + 62_000
     closeTo(net(ledger).session, (pure - covered) / 1_000_000)
-    expect(netLine(ledger)).toContain('phiên tốn thêm ~$0.391')
+    expect(netLine(ledger)).toContain('phiên tốn thêm ~$0,39')
   })
 
   test('chính người dùng đổi model phiên: chạy thuần cũng mất cache, không bù', () => {
@@ -159,9 +159,9 @@ describe('lợi ích ròng so với chạy thuần: sổ', () => {
     // Thật (Haiku) 200 + 500 = 700; thuần (Sonnet) 4000 + 10000 = 14000.
     ledger = finish(ledger, 'haiku', usage(2000, 1000, 0, 0), 'agent')
     closeTo(net(ledger).session, (14_000 - 700) / 1_000_000)
-    expect(netLine(ledger)).toContain('So với chạy thuần sonnet: phiên tiết kiệm ~$0.013')
+    expect(netLine(ledger)).toContain('So với chạy thuần sonnet: phiên tiết kiệm ~$0,01')
     ledger = finish(ledger, 'sonnet', usage(1000, 500, 0, 0), 'analyzer')
-    expect(netLine(ledger)).toContain('phiên tiết kiệm ~$0.006')
+    expect(netLine(ledger)).toContain('phiên tiết kiệm ~<$0,01')
     expect(ledger.baseline?.pure.session).toBe(0.014)
   })
 
@@ -201,7 +201,7 @@ describe('lợi ích ròng so với chạy thuần: sổ', () => {
     expect(next.baseline?.covered.goal).toBe(0)
     expect(next.baseline?.pure.session).toBe(ledger.baseline?.pure.session)
     expect(next.baseline?.covered.session).toBe(ledger.baseline?.covered.session)
-    expect(netLine(next)).toContain('mục tiêu này tiết kiệm ~$0.0000')
+    expect(netLine(next)).toContain('mục tiêu này tiết kiệm ~$0,00')
     expect(resetLedger(ledger).baseline).toBeUndefined()
     expect(netLine(resetLedger(ledger))).toBeNull()
   })
@@ -234,7 +234,7 @@ describe('lợi ích ròng so với chạy thuần: hook', () => {
     // Thật (Haiku) 300 + 500 = 800; thuần (Opus) 12000 + 20000 = 32000; router 7000: tiết kiệm 24200.
     await complete($, usage(3000, 1000, 0, 0), 'claude-haiku-5-5')
     const status = String((await conductor($, 'status')).text)
-    expect(status).toContain('So với chạy thuần opus: phiên tiết kiệm ~$0.024, mục tiêu này tiết kiệm ~$0.024')
+    expect(status).toContain('So với chạy thuần opus: phiên tiết kiệm ~$0,02, mục tiêu này tiết kiệm ~$0,02')
     const pane = await $.ui.mount(PANE)
     expect(await pane.find({ type: 'Text', text: /So với chạy thuần opus: phiên tiết kiệm/ })).toBeDefined()
     await pane.unmount()
@@ -248,7 +248,7 @@ describe('lợi ích ròng so với chạy thuần: hook', () => {
     await step($, seen, { turnId: 't1', model: 'claude-sonnet-5-5', effort: 'medium' })
     const spawned = await $.agent.spawn({ prompt: 'Tìm file auth', description: 'Tìm file auth', subagentType: 'Explore' } as never)
     await $.turn.complete({ turnId: 'ag1', agentId: spawned.agentId, answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer', usage: { ...usage(2000, 1000, 0, 0), model: 'claude-haiku-5-5' } } as never)
-    expect(String((await conductor($, 'status')).text)).toContain('So với chạy thuần sonnet: phiên tiết kiệm ~$0.006')
+    expect(String((await conductor($, 'status')).text)).toContain('So với chạy thuần sonnet: phiên tiết kiệm ~<$0,01')
   })
 
   test('chế độ suggest: mod không đổi model nên lượt phục vụ là đúng model engine, không bù ghi cache', { options: { routing: 'suggest' } }, async ($, on) => {
@@ -269,7 +269,7 @@ describe('lợi ích ròng so với chạy thuần: hook', () => {
     await finish('t2', usage(1000, 1000, 0, 100_000))
     // Lượt sau ghi 100K cache: nếu mod coi gợi ý của router là lượt nó đã phục vụ thì sẽ bù phần ghi này và lệch số. Thật ra
     // chạy thuần và thật là một, chênh lệch duy nhất là chi phí hai lượt router ($0.007 mỗi lượt).
-    expect(String((await conductor($, 'status')).text)).toContain('So với chạy thuần opus: phiên tốn thêm ~$0.014, mục tiêu này tốn thêm ~$0.007')
+    expect(String((await conductor($, 'status')).text)).toContain('So với chạy thuần opus: phiên tốn thêm ~$0,01, mục tiêu này tốn thêm ~<$0,01')
   })
 
   test('/conductor reset xóa cơ sở: không còn dòng so sánh', {}, async ($, on) => {

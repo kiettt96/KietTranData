@@ -1,12 +1,12 @@
 // Lệnh /conductor: pane, status, mode, goal, reroute, reset, pause, resume.
 
 import { atom, derive, read, update } from 'claude-code'
-import type { Brief, Core, QuotaCheckpoint } from '../../types'
+import type { Brief, Core, Depth, QuotaCheckpoint } from '../../types'
 import { buildCheckpoint, forceUntil, pruneKeys, storeKey } from '../lib/checkpoint'
 import { EMPTY_QUOTA, evaluateQuota, newPause, normalizeQuota, quotaSettings, reasonsOf } from '../lib/quota'
 import { restorableSteps } from '../lib/drift'
 import { cacheNote, priceNote } from '../lib/cost'
-import { estimateLine, formatUsd, ledgerLines } from '../lib/ledger'
+import { estimateLine, formatCost, ledgerLines } from '../lib/ledger'
 import { describePick } from '../lib/route'
 import { clipText } from '../lib/decisions'
 import { askRouter, bareBrief, briefOf, failFields, nextBrief, parseRoute, rerouted, routerFailOf, routerRequest } from '../lib/router'
@@ -32,10 +32,10 @@ const quotaState = atom({ plugin: 'focus-conductor', key: 'quota' } as const, EM
 const paneClosedState = atom({ plugin: 'focus-conductor', key: 'paneClosedGoal' } as const, -1)
 
 /** Mở pane chi tiết cho mục tiêu mới nếu cần (0.7.2), như parts/session.ts: không focus; kết quả ghi vào nhật ký quyết định. */
-async function autoOpenPane($: EngineInterface, ctx: Ctx, goalId: number, at: number): Promise<void> {
+async function autoOpenPane($: EngineInterface, ctx: Ctx, goalId: number, at: number, depth: Depth | null): Promise<void> {
   const panes = await $.ui.panes().catch(() => [])
   const isOpen = panes.some(pane => pane.id === PANE)
-  if (!shouldAutoOpenPane({ enabled: ctx.autoPane, goalId, closedGoal: await read($, paneClosedState), isOpen })) return
+  if (!shouldAutoOpenPane({ enabled: ctx.autoPane, goalId, closedGoal: await read($, paneClosedState), isOpen, depth })) return
   const opened = await $.ui.open({ id: PANE, title: PANE_TITLE, rows: PANE_ROWS }).catch(() => null)
   // Chỉ ghi khi pane chưa được đặt (màn hình hẹp, chưa có surface, engine từ chối): đặt được là trường hợp bình thường, không cần dòng log.
   if (opened?.isPlaced === true) return
@@ -160,7 +160,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       const expected = wanted !== null ? expectedMain(core, brief, wanted, now) : null
       trackDelegations(brief.goalId, brief.isReference ? [] : brief.tasks)
       await update($, coreState, S.withDelegations(brief.goalId, delegationItems(brief)))
-      await autoOpenPane($, ctx, brief.goalId, now)
+      await autoOpenPane($, ctx, brief.goalId, now, null)
       const dropped = restorableSteps(before.plan)
       const notice = dropped.length > 0 ? [droppedPlanNotice(dropped)] : []
       return {
@@ -321,12 +321,12 @@ export function registerCommand(on: On, ctx: Ctx): void {
     }
 
     if (sub === 'status') {
-      const { core, mode: current } = await read($, view)
+      const { core, mode: current, lang } = await read($, view)
       const usage = await $.session.usage().catch(() => null)
-      const costLines = ledgerLines(core.ledger)
+      const costLines = ledgerLines(core.ledger, lang)
       if (core.sysTokens > 0) costLines.push(`Phần cố định của ngữ cảnh (system prompt, tools): ${Math.round(core.sysTokens / 1000)}k token, đo ở đầu phiên`)
-      if (usage?.cost) costLines.push(`Chi phí cả phiên theo Claude Code (gồm cả phần trước khi mod bắt đầu ghi sổ): ${formatUsd(usage.cost.usd)}`)
-      const estimate = estimateLine(core.log)
+      if (usage?.cost) costLines.push(`Chi phí cả phiên theo Claude Code (gồm cả phần trước khi mod bắt đầu ghi sổ): ${formatCost(usage.cost.usd, lang)}`)
+      const estimate = estimateLine(core.log, lang)
       if (estimate) costLines.push(estimate)
       costLines.push(priceNote(await $.clock.now()))
       costLines.push(cacheNote(ctx.cacheTtlMs / 60_000))
@@ -357,7 +357,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
         .filter(entry => entry.where === 'agent')
         .slice(-5)
         .map(entry => {
-          const cost = entry.usd !== undefined ? ` ${formatUsd(entry.usd)}${entry.measured ? '' : ' ước tính'}` : ''
+          const cost = entry.usd !== undefined ? ` ${formatCost(entry.usd, lang)}${entry.measured ? '' : lang === 'en' ? ' estimated' : ' ước tính'}` : ''
           return `  ${entry.label}: ${entry.family}${entry.effort ? `/${entry.effort}` : ''}${cost} (${entry.reason})`
         })
       const untracked = untrackedAgents()
