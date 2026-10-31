@@ -39,8 +39,8 @@ describe('0.7.5 R10: dạng gọn khi không đủ chỗ', () => {
   // S6 (vòng rà soát 4): "+N bước" tách thành "k bước đã đóng" và "+m bước mở".
   test('6 bước đóng: chỉ bước đang làm và 3 bước kế tiếp, kèm "6 bước đã đóng" và "+1 bước mở"', {}, async ($, on) => {
     await longGoal($, on, 6)
-    // 0.7.6 U1: pane 16 dòng đủ cho dạng đầy đủ ở 6 bước đóng; dạng gọn đo ở 12 dòng.
-    const { texts } = await drawn($, 12)
+    // 0.7.6 U1: pane 16 dòng đủ cho dạng đầy đủ ở 6 bước đóng; U6 bỏ hai dòng ở phần đầu nên dạng gọn đo ở 10 dòng.
+    const { texts } = await drawn($, 10)
     const list = checklistOf(texts)
     expect(list).toContain('BƯỚC 6: đọc và giải thích')
     expect(list).toContain('BƯỚC 9: bản tổng hợp tuần')

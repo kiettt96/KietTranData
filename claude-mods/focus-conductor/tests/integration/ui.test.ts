@@ -27,7 +27,8 @@ describe('giao diện', () => {
     await submit($, COMPLEX_PROMPT)
     await $.tool.call({ tool: 'mcp__focus-conductor__plan', action: 'set', steps: [{ title: 'Phân tích luồng' }] })
     const ui = await $.ui.mount(PANE)
-    expect(await ui.find({ type: 'Text', text: /độ sâu hard\s+khối lượng large\s+loại mixed/ })).toBeDefined()
+    // 0.7.6 U6: dòng đánh giá của router dời xuống mục Điều phối ở cuối pane, dạng một dòng nối bằng dấu chấm giữa.
+    expect(await ui.find({ type: 'Text', text: /^độ sâu hard · khối lượng large · loại mixed$/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /^việc vừa$/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /Phân tích luồng/ })).toBeDefined()
     await ui.press({ key: 'mode-suggest' })

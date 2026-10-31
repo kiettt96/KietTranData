@@ -221,19 +221,6 @@ export function renderPane(
             </Text>
           </Box>
         ) : null}
-        <Text wrap="wrap">
-          <Text dimColor>{`${l.depth} `}</Text>
-          {brief.depth}
-          <Text dimColor>{`   ${l.volume} `}</Text>
-          {brief.volume}
-          <Text dimColor>{`   ${l.kind} `}</Text>
-          {brief.kind}
-        </Text>
-        {brief.why ? (
-          <Text dimColor wrap="wrap">
-            {brief.why}
-          </Text>
-        ) : null}
         {brief.source === 'router' ? null : (
           <Text color="warning" wrap="wrap">
             {l.notRead}
@@ -356,8 +343,6 @@ export function renderPane(
   const headerRows =
     goalLines.length +
     (bar.length > 0 || beads.length > 0 ? 1 : 0) +
-    rowsOf(`${l.depth} ${brief.depth}   ${l.volume} ${brief.volume}   ${l.kind} ${brief.kind}`, width - 2) +
-    (brief.why ? rowsOf(brief.why, width - 2) : 0) +
     (brief.source === 'router' ? 0 : rowsOf(l.notRead, width - 2))
   const mirrorRows = source === 'mirror' ? rowsOf(l.mirrorSource, width) : 0
   // Checklist và tiến độ từng việc là một danh sách (U1): dạng đầy đủ vừa khi phần đầu, khoảng cách, tiêu đề checklist và cả danh sách
@@ -675,10 +660,6 @@ export function renderPane(
       {alerts}
       {hintNode}
       <Box flexDirection="column">
-        {heading(l.mainRouting)}
-        {routeNode}
-      </Box>
-      <Box flexDirection="column">
         {heading(l.cost)}
         {cost}
       </Box>
@@ -693,6 +674,19 @@ export function renderPane(
       <Box flexDirection="column">
         {heading(l.quality)}
         {bullets(brief.quality, l.noQuality)}
+      </Box>
+      {/* U6: chi tiết điều phối (model luồng chính, độ sâu, khối lượng, loại, lý do router) ở cuối pane, mỗi ý một dòng cắt gọn. */}
+      <Box flexDirection="column">
+        {heading(l.routing)}
+        {routeNode}
+        <Text dimColor wrap="truncate-end">
+          {l.routeShape(brief.depth, brief.volume, brief.kind)}
+        </Text>
+        {brief.why ? (
+          <Text dimColor wrap="truncate-end">
+            {brief.why}
+          </Text>
+        ) : null}
       </Box>
       <Box flexDirection="row" justifyContent="space-between">
         <Button key="band" label={view.isBandHidden ? l.showBand : l.hideBand} onPress={handlers.onToggleBand} />
