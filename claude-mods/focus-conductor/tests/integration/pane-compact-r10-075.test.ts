@@ -95,6 +95,16 @@ describe('0.7.5 R10: dạng gọn khi không đủ chỗ', () => {
     expect(list).toContain(' đang làm')
   })
 
+  // Ghim 075-R10c: checklist không dài hơn 6 bước không bao giờ dùng dạng gọn, dù pane thiếu chỗ (từ 0.7.6 U1 dạng đầy đủ cần ít dòng
+  // hơn nên ca 6 bước ở 16 dòng luôn vừa; ở pane 6 dòng thì không vừa).
+  test('checklist 6 bước ở pane 6 dòng: vẫn liệt kê đủ 6 bước, không có dòng "+N bước mở"', {}, async ($, on) => {
+    await longGoal($, on, 1, 6)
+    const { texts } = await drawn($, 6)
+    const list = checklistOf(texts)
+    for (const title of ['BƯỚC 1: chuẩn hóa đơn vị', 'BƯỚC 2: chuyển dữ liệu cũ', 'BƯỚC 3: lọc tin lô 1', 'BƯỚC 4: lọc tin lô 2', 'BƯỚC 5: lọc tin lô 3']) expect(list, title).toContain(title)
+    expect(list.some(t => /^\+\d+ bước/.test(t))).toBe(false)
+  })
+
   test('dạng gọn không đổi số liệu tiến độ: dòng đếm vẫn hiện', {}, async ($, on) => {
     await longGoal($, on, 6)
     const { texts } = await drawn($)

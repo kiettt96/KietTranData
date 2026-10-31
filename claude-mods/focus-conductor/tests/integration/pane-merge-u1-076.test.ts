@@ -52,6 +52,8 @@ describe('0.7.6 U1: checklist và tiến độ từng việc là một danh sác
     const { texts } = await drawn($, 40)
     expect(texts.some(t => /^Claude tự giao: Kiểm tra log lô/.test(t))).toBe(true)
     expect(texts).toContain('0/3 lô xong, 3 đang chạy')
+    // Dòng việc nhiều lô đã ghi "r đang chạy" ở phần chi tiết: không lặp chữ trạng thái "đang chạy" đứng riêng (ghim 075-L6d).
+    expect(texts).not.toContain('đang chạy')
   })
 
   test('việc Claude tự giao vẫn có dòng riêng', async ($, on) => {
