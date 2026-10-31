@@ -2,6 +2,7 @@
 // bước chiếm không quá 2 dòng. Pane rộng (80 cột) giữ một hàng. Đo trên cây đã vẽ bằng một bộ đo bố cục nhỏ (Text ngắt theo từ, hàng chia chỗ).
 
 import { describe, expect, test } from 'claude-code/testing'
+import type { On } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
 import { PANE, base, plan, spawnTool, submit, task } from '../support/engine'
 import { PLAN, TITLES } from '../support/pane-long'
@@ -60,10 +61,11 @@ function measure(n: Node, cells: number): { rows: number; broken: boolean } {
     return { rows, broken: false }
   }
   // Hàng: các nút flexShrink 0 giữ bề ngang tự nhiên, phần còn lại chia cho nút co giãn (tối thiểu 1 ô).
-  const fixed = kids.filter(k => k.props?.flexShrink === 0)
-  const flexible = kids.filter(k => k.props?.flexShrink !== 0)
+  const isFixed = (k: Node) => k.props?.flexShrink === 0 || k.type === 'Text'
+  const fixed = kids.filter(isFixed)
+  const flexible = kids.filter(k => !isFixed(k))
   const left = Math.max(1, inner - fixed.reduce((a, k) => a + widthOf(k), 0) - gap * Math.max(0, kids.length - 1))
-  const parts = kids.map(k => measure(k, k.props?.flexShrink === 0 ? widthOf(k) : Math.max(1, Math.floor(left / flexible.length))))
+  const parts = kids.map(k => measure(k, isFixed(k) ? widthOf(k) : Math.max(1, Math.floor(left / flexible.length))))
   return { rows: Math.max(1, ...parts.map(x => x.rows)), broken: parts.some(x => x.broken) }
 }
 
@@ -77,18 +79,37 @@ function pathTo(n: Node, want: string, path: Node[] = []): Node[] | null {
   return null
 }
 
-async function mountSteps($: Engine, on: Parameters<Parameters<typeof test>[1]>[1], columns: number) {
+async function setupSteps($: Engine, on: On, options: { checklist?: boolean; every?: number; unmatched?: boolean } = {}) {
+  const { checklist = true, every = 1, unmatched = false } = options
   base(on, { router: () => plan({ goal: 'Cập nhật sổ giá', depth: 'hard', volume: 'large', tasks: TITLES.map(title => task(title, 'agent', 'sonnet', 'medium')) }) })
   on('agent.spawn', (_$, e) => ({ model: 'claude-sonnet-5-5', agentId: `a-${e.tool_use_id}` }))
   on('turn.complete', () => ({ text: '' }))
   on('tool.call', { tool: 'Agent' }, () => ({ result: 'đã giao' }))
   await submit($, 'Cập nhật sổ giá')
-  for (const [k, title] of TITLES.entries()) await spawnTool($, `u${k}`, `${title} lô 1`, 'x')
-  await $.tool.call({ tool: PLAN, action: 'set', steps: TITLES.map(title => ({ title })) })
-  const pane = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: columns, scroll: { offset: 0, bodyRows: 60 } } })
+  for (const [k, title] of TITLES.entries()) if (k % every === 0) await spawnTool($, `u${k}`, `${title} lô 1`, 'x')
+  // `unmatched`: bước lẻ đổi tên không mã nên không khớp việc nào, không có chip.
+  if (checklist) await $.tool.call({ tool: PLAN, action: 'set', steps: TITLES.map((title, k) => ({ title: unmatched && k % 2 === 1 ? `Hạng mục ${k}` : title })) })
+}
+
+async function drawAt($: Engine, columns: number, rows: number) {
+  const pane = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: columns, scroll: { offset: 0, bodyRows: rows } } })
   const tree = (await pane.drawn()) as Node
+  const texts = (await pane.findAll({ type: 'Text' })).map(e => e.text).filter((t): t is string => typeof t === 'string')
   await pane.unmount()
-  return tree
+  return { tree, texts }
+}
+
+async function mountSteps($: Engine, on: On, columns: number, options: { checklist?: boolean; every?: number; unmatched?: boolean } = {}) {
+  await setupSteps($, on, options)
+  return drawAt($, columns, 60)
+}
+
+/** Số dòng từ đầu pane tới hết mục chứa bước `title` (các con của gốc cách nhau một dòng). */
+function sectionEnd(tree: Node, title: string, cells: number) {
+  const kids = kidsOf(tree)
+  const at = kids.findIndex(k => pathTo(k, title) !== null)
+  if (at < 0) throw new Error(`không thấy bước ${title}`)
+  return kids.slice(0, at + 1).reduce((sum, k, i) => sum + measure(k, cells).rows + (i > 0 ? 1 : 0), 0)
 }
 
 /** Hàng bước chứa tên bước `title`: tổ tiên là con trực tiếp của cột checklist (cột có đủ 11 hàng bước). */
@@ -101,7 +122,7 @@ function stepRowOf(tree: Node, title: string) {
 
 describe('0.7.6 W3: dòng bước ở pane hẹp', () => {
   test('40 cột, 11 bước có lô đang chạy: mỗi bước không quá 2 dòng, tên bước không bị bẻ giữa từ', async ($, on) => {
-    const tree = await mountSteps($, on, 40)
+    const { tree } = await mountSteps($, on, 40)
     for (const title of TITLES) {
       const { row } = stepRowOf(tree, title)
       const m = measure(row, 40)
@@ -111,7 +132,7 @@ describe('0.7.6 W3: dòng bước ở pane hẹp', () => {
   })
 
   test('40 cột: chip model và chi tiết nằm trong cột tên, dưới tên bước (chung tổ tiên gần nhất là một cột)', async ($, on) => {
-    const tree = await mountSteps($, on, 40)
+    const { tree } = await mountSteps($, on, 40)
     for (const title of TITLES) {
       const { row, path } = stepRowOf(tree, title)
       const chip = pathTo(row, 'sonnet đang chạy')
@@ -119,11 +140,13 @@ describe('0.7.6 W3: dòng bước ở pane hẹp', () => {
       const shared = path.filter(n => chip!.includes(n)).at(-1)!
       expect(String(shared.props?.flexDirection), title).toBe('column')
       expect(kidsOf(row).length, title).toBe(2)
+      // Chip và chi tiết nằm trong một hàng tự xuống dòng khi dài hơn cột tên.
+      expect(chip!.at(-3)?.props?.flexWrap, title).toBe('wrap')
     }
   })
 
   test('80 cột: chip ở cùng hàng với tên bước, mỗi bước một dòng', async ($, on) => {
-    const tree = await mountSteps($, on, 80)
+    const { tree } = await mountSteps($, on, 80)
     for (const title of TITLES) {
       const { row, path } = stepRowOf(tree, title)
       const chip = pathTo(row, 'sonnet đang chạy')
@@ -133,4 +156,38 @@ describe('0.7.6 W3: dòng bước ở pane hẹp', () => {
       expect(measure(row, 80).rows, title).toBe(1)
     }
   })
+
+  // Thêm ở commit sửa để ghim mẫu đột biến: luật dạng gọn tính cả các dòng chip của pane hẹp, và bước dự kiến (chưa có checklist) cũng xuống dòng.
+  test('40 cột, bước dự kiến chưa có checklist: chip nằm trong cột tên, mỗi bước không quá 2 dòng', async ($, on) => {
+    const { tree } = await mountSteps($, on, 40, { checklist: false })
+    for (const title of TITLES) {
+      const path = pathTo(tree, title)
+      expect(path, title).not.toBeNull()
+      const at = path!.findLastIndex(n => kidsOf(n).length >= TITLES.length)
+      const row = path![at + 1]!
+      expect(kidsOf(row).length, title).toBe(2)
+      const m = measure(row, 40)
+      expect(m.broken, title).toBe(false)
+      expect(m.rows, title).toBeLessThanOrEqual(2)
+    }
+  })
+
+  for (const [name, options] of [
+    ['mọi bước có lô', { checklist: true, every: 1 }],
+    ['cứ ba bước có một lô', { checklist: true, every: 3 }],
+    ['một nửa số bước không khớp việc nào', { checklist: true, every: 1, unmatched: true }],
+    ['bước dự kiến, mọi bước có lô', { checklist: false, every: 1 }],
+    ['bước dự kiến, cứ ba bước có một lô', { checklist: false, every: 3 }],
+  ] as const) {
+    test(`ranh giới dạng gọn ở 40 cột khớp số dòng đo được (${name})`, async ($, on) => {
+      await setupSteps($, on, options)
+      const full = await drawAt($, 40, 400)
+      const end = sectionEnd(full.tree, 'BƯỚC 10: kết thúc phiên', 40)
+      expect(full.texts.some(t => /^\+\d+ bước mở/.test(t))).toBe(false)
+      const compactAt = async (rows: number) => (await drawAt($, 40, rows)).texts.some(t => /^\+\d+ bước mở/.test(t))
+      // Đủ chỗ (kể cả hai dòng đệm của luật) thì dạng đầy đủ; thiếu hơn một dòng so với số đo thì dạng gọn.
+      expect(await compactAt(end + 2), `${end + 2} dòng`).toBe(false)
+      expect(await compactAt(end - 1), `${end - 1} dòng`).toBe(true)
+    })
+  }
 })

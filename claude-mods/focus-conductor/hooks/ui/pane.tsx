@@ -370,6 +370,15 @@ export function renderPane(
       ) : null,
     ]
   }
+  // W3: pane hẹp (dưới 48 cột) đặt chip model và số lô xuống dòng riêng dưới tên bước, trong cột tên, để tên bước có đủ chiều rộng.
+  const narrowMeta = (title: string) => {
+    const nodes = isNarrow ? metaNode(title) : null
+    return nodes === null ? null : (
+      <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
+        {nodes}
+      </Box>
+    )
+  }
   const idWidth = Math.max(1, ...plan.map(step => String(step.id).length), String(brief.steps.length).length)
   // Checklist dài (vòng sửa 2 của 0.7.5): các bước đã đóng dồn thành một dòng tóm tắt, để pane tự mở 16 dòng còn chỗ cho tiến độ
   // từng việc; checklist ngắn giữ nguyên từng bước. Không dạng gọn mà checklist trên 6 bước thì còn tối đa 4 bước mở nên đã đóng ít
@@ -379,7 +388,14 @@ export function renderPane(
   // S6: ước lượng số dòng (ngắt chữ như wrapText) để biết dạng đầy đủ có đẩy tiêu đề tiến độ từng việc ra ngoài số dòng của pane không.
   const rowsOf = (text: string, cells: number) => Math.max(1, wrapText(text, cells, 99).length)
   const stepCells = width - idWidth - 3
-  const stepRows = (step: PlanStep) => rowsOf(step.title, stepCells) + (step.check ? rowsOf(`${l.check}: ${step.check}`, stepCells) : 0) + (step.note ? rowsOf(step.note, stepCells) : 0)
+  // W3: pane hẹp đặt chip và chi tiết của việc khớp bước xuống dòng riêng, nên cộng số dòng của chúng.
+  const metaRows = (title: string) => {
+    const row = byTitle.get(title)
+    const meta = row ? stepTaskMeta(l, row) : ''
+    return !isNarrow || row === undefined || !meta ? 0 : rowsOf([meta, rowDetail(row, true)].filter(Boolean).join(' '), stepCells)
+  }
+  const stepRows = (step: PlanStep) =>
+    rowsOf(step.title, stepCells) + (step.check ? rowsOf(`${l.check}: ${step.check}`, stepCells) : 0) + (step.note ? rowsOf(step.note, stepCells) : 0) + metaRows(step.title)
   // Chú giải (U7): chỉ các loại ký hiệu đang thấy, và chỉ khi các bước mở đang thấy có từ hai loại trở lên.
   const legendOf = (steps: readonly PlanStep[]) => {
     const kinds = new Set(steps.map(step => step.status))
@@ -421,7 +437,7 @@ export function renderPane(
   const listed = isCompact ? shown : isLong ? openSteps : plan
   const hiddenOpen = openSteps.length - shown.length
   // Bước dự kiến của router trước khi có checklist (S6): cùng luật, mọi bước đều còn mở.
-  const plannedFull = brief.steps.reduce((sum, step) => sum + rowsOf(step, stepCells), 0)
+  const plannedFull = brief.steps.reduce((sum, step) => sum + rowsOf(step, stepCells) + metaRows(step), 0)
   const plannedCompact = plan.length === 0 && brief.steps.length > COLLAPSE_FROM && !fits(plannedFull)
   const plannedShown = plannedCompact ? brief.steps.slice(0, SHOWN_OPEN) : brief.steps
   const checklist =
@@ -461,8 +477,9 @@ export function renderPane(
                     {step.note}
                   </Text>
                 ) : null}
+                {narrowMeta(step.title)}
               </Box>
-              {metaNode(step.title)}
+              {isNarrow ? null : metaNode(step.title)}
             </Box>
           )
         })}
@@ -488,10 +505,11 @@ export function renderPane(
               <Text color="inactive">○</Text>
               <Text dimColor>{padStart(String(i + 1), idWidth)}</Text>
             </Box>
-            <Box flexGrow={1} flexShrink={1}>
+            <Box flexDirection="column" flexGrow={1} flexShrink={1}>
               <Text wrap="wrap">{step}</Text>
+              {narrowMeta(step)}
             </Box>
-            {metaNode(step)}
+            {isNarrow ? null : metaNode(step)}
           </Box>
         ))}
         {plannedCompact ? <Text dimColor>{l.stepsOpenMore(brief.steps.length - plannedShown.length)}</Text> : null}
