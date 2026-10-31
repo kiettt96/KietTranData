@@ -147,6 +147,8 @@ describe('0.7.6 W1: mục Cần chú ý ở đầu pane', () => {
     for (const want of [/^\u23F8 Tạm dừng:/, /lô lỗi chưa giao lại/, SCOPE, UNVERIFIED]) expect(shown.some(t => want.test(t)), String(want)).toBe(true)
     expect(shown.some(t => BUDGET.test(t))).toBe(false)
     expect(texts.slice(other).filter(t => BUDGET.test(t)).length).toBe(1)
+    // Thêm ở commit ghim: mục Cảnh báo khác cũng ghi câu bằng tiếng Việt thường (cấp việc không còn là chữ tier tiếng Anh).
+    expect(texts.slice(other).filter(t => BUDGET.test(t) && !/cho việc (trivial|simple|moderate|complex|deep)(?![\p{L}\p{N}])/u.test(t)).length).toBe(1)
     const section = texts.slice(other, texts.findIndex(t => /^Chi phí/.test(t)))
     expect(section.filter(t => /^\u25B3 Agent .*engine chạy sonnet thay vì opus/.test(t)).length).toBe(1)
     for (const want of [SCOPE, UNVERIFIED, BUDGET]) expect(texts.filter(t => want.test(t)).length, String(want)).toBe(1)
