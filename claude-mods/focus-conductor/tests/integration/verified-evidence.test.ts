@@ -204,7 +204,8 @@ describe('0.5.1: kiểm chứng sau thay đổi cuối, phạm vi Bash, Stop, vi
     const pane = await $.ui.mount(PANE)
     expect(await pane.find({ type: 'Text', text: /giao subagent đã lỗi, chưa giao lại/ })).toBeDefined()
     expect(await pane.find({ type: 'Text', text: /accountId trong 12 file controller\./ })).toBeDefined()
-    expect(await pane.find({ type: 'Text', text: /^\s*lỗi, chưa giao lại$/ })).toBeDefined()
+    // Từ 0.7.6 (U1) trạng thái của việc đi cùng bước dự kiến, dạng chip "<model> <trạng thái>".
+    expect(await pane.find({ type: 'Text', text: /^\s*(haiku|sonnet|opus) lỗi, chưa giao lại$/ })).toBeDefined()
     await pane.unmount()
     await spawnTool($, 'u-2b', 'Việc 2: đổi tên userId, lần hai', EDIT)
     await $.turn.complete({ turnId: 'a-2b', agentId: 'dg-2', answer: 'xong', durationMs: 1, isAborted: false, reason: 'answer' } as never)

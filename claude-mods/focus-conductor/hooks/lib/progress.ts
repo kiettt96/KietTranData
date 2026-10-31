@@ -59,6 +59,8 @@ export type TaskRow = {
   elapsedMs?: number
   /** Việc có nhiều lần gọi Agent (0.7.5): một dòng theo bộ đếm, k/n lô xong, r đang chạy. */
   counts?: { done: number; total: number; running: number }
+  /** Số lô lỗi của việc nhiều lô, chỉ ghi khi có lô lỗi (0.7.6, U1). */
+  failed?: number
 }
 
 /** Thứ tự ưu tiên khi band thiếu chỗ: đang chạy, rồi lỗi hay bị cắt, rồi chờ hoặc chưa bắt đầu, rồi xong. */
@@ -122,7 +124,7 @@ export function taskRows(core: Core, now: number): TaskRow[] {
   const grouped = (key: string) => tallies.find(t => t.key === key && t.spawned > 1)
   const tallyRow = (t: AgentTally, title: string, pick: Choice | null, index?: number): TaskRow => {
     const state = tallyState(t)
-    return { key: `tally-${t.key}`, kind: 'agent', ...(index !== undefined ? { index } : {}), title, pick, bar: { kind: 'state', state }, state, counts: { done: t.done, total: t.spawned, running: t.running } }
+    return { key: `tally-${t.key}`, kind: 'agent', ...(index !== undefined ? { index } : {}), title, pick, bar: { kind: 'state', state }, state, counts: { done: t.done, total: t.spawned, running: t.running }, ...(t.failed > 0 ? { failed: t.failed } : {}) }
   }
 
   for (const task of tasks) {
@@ -162,4 +164,25 @@ export function taskRows(core: Core, now: number): TaskRow[] {
   for (const t of tallies) if (t.taskIndex === undefined && t.spawned > 1) rows.push(tallyRow(t, t.title, null))
   for (const item of agents) if (item.taskIndex === undefined && grouped(tallyKey(item)) === undefined) rows.push(agentRow(item))
   return rows
+}
+
+/**
+ * Dòng việc khớp từng bước (0.7.6, U1): bước có mã hay "Việc N" khớp một việc đã phân, hay trùng hệt tiêu đề của việc, thì dòng của việc đó (dòng đầu nếu việc có nhiều dòng)
+ * đi cùng bước. Trả bảng tiêu đề bước tới dòng việc, và khóa của mọi dòng việc đã đi cùng một bước (để pane không vẽ lại chúng ở mục riêng).
+ */
+export function stepTaskRows(core: Core, rows: readonly TaskRow[], titles: readonly string[]): { byTitle: Map<string, TaskRow>; matched: Set<string> } {
+  const tasks = core.brief === null || core.brief.isReference ? [] : core.brief.tasks
+  const byTitle = new Map<string, TaskRow>()
+  const matched = new Set<string>()
+  for (const title of titles) {
+    // Theo mã ("BƯỚC N", "Việc N"), hay tiêu đề trùng hệt một việc (bước dự kiến của router chính là tiêu đề của việc).
+    const index = matchTask(tasks, title)?.index ?? tasks.find(task => task.title.trim() === title.trim())?.index
+    if (index === undefined) continue
+    const own = rows.filter(row => row.kind !== 'main' && row.index === index)
+    const first = own[0]
+    if (first === undefined) continue
+    byTitle.set(title, first)
+    for (const row of own) matched.add(row.key)
+  }
+  return { byTitle, matched }
 }

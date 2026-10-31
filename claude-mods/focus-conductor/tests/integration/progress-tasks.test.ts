@@ -33,22 +33,24 @@ async function paneRows($: Engine, columns = 80) {
 const has = (texts: readonly string[], pattern: RegExp) => texts.some(t => pattern.test(t))
 
 describe('0.6.1 2.4: mục Tiến độ từng việc trong pane', () => {
-  test('mới vào mục tiêu: việc chính, việc làm trực tiếp chưa bắt đầu, việc giao ở trạng thái chờ giao', {}, async ($, on) => {
+  // 0.7.6 U1: việc router phân đi cùng dòng bước dự kiến của nó (chip model, trạng thái giao), không còn mục riêng hay dòng việc chính.
+  test('mới vào mục tiêu: bước dự kiến mang chip model; việc giao ở trạng thái chờ giao; không có mục riêng', {}, async ($, on) => {
     base(on)
     agentHooks(on)
     await submit($, FOUR)
     const { texts, at, hasOld } = await paneRows($)
-    expect(at).toBeGreaterThanOrEqual(0)
+    expect(at).toBe(-1)
     expect(hasOld).toBe(false)
-    expect(has(texts, /^Việc chính: Nâng cấp module thanh toán/)).toBe(true)
-    expect(has(texts, /^Việc 1: Tìm trong src/)).toBe(true)
-    expect(has(texts, /^Việc 3: Thiết kế lại kiến trúc/)).toBe(true)
-    expect(has(texts, /haiku low/)).toBe(true)
-    expect(has(texts, /chưa bắt đầu/)).toBe(true)
-    expect(texts.filter(t => /^chờ giao$/.test(t)).length).toBe(3)
+    expect(has(texts, /^Việc chính: /)).toBe(false)
+    expect(has(texts, /^Tìm trong src/)).toBe(true)
+    expect(has(texts, /^Thiết kế lại kiến trúc/)).toBe(true)
+    expect(has(texts, /^opus xhigh$/)).toBe(true)
+    expect(texts.filter(t => /^(haiku|sonnet) chờ giao$/.test(t)).length).toBe(3)
   })
 
-  test('việc giao: đang chạy (◐, số tool call, thời gian), rồi xong (thanh đầy); việc lỗi có ■', {}, async ($, on) => {
+  // 0.7.6 U1: việc khớp bước mang chip "<model> <trạng thái>" và chi tiết số tool call, thời gian trên dòng bước; dòng bước đã có ký hiệu
+  // trạng thái của checklist nên không còn thanh riêng của việc.
+  test('việc giao: chip đang chạy (số tool call, thời gian), rồi xong; việc lỗi có chip lỗi', {}, async ($, on) => {
     const seen = base(on)
     agentHooks(on)
     await submit($, FOUR)
@@ -59,15 +61,12 @@ describe('0.6.1 2.4: mục Tiến độ từng việc trong pane', () => {
     await seen.clock.advance(125_000)
     let rows = await paneRows($)
     expect(has(rows.texts, /^2 tool · 2 phút$/)).toBe(true)
-    expect(rows.texts.filter(t => /^đang chạy$/.test(t)).length).toBe(2)
-    expect(has(rows.texts, /^◐╌+$/)).toBe(true)
+    expect(rows.texts.filter(t => /^sonnet đang chạy$/.test(t)).length).toBe(2)
     await $.turn.complete(DONE('t1', 'a-u1'))
     await $.turn.complete(DONE('t2', 'a-u2', 'error'))
     rows = await paneRows($)
-    expect(has(rows.texts, /^xong$/)).toBe(true)
-    expect(has(rows.texts, /^━+$/)).toBe(true)
-    expect(has(rows.texts, /^lỗi, chưa giao lại$/)).toBe(true)
-    expect(has(rows.texts, /^■╌+$/)).toBe(true)
+    expect(has(rows.texts, /^sonnet xong$/)).toBe(true)
+    expect(has(rows.texts, /^sonnet lỗi, chưa giao lại$/)).toBe(true)
   })
 
   test('subagent ghi danh sách việc riêng bằng TodoWrite: thanh theo tỷ lệ bước đóng của riêng nó', {}, async ($, on) => {
@@ -94,8 +93,9 @@ describe('0.6.1 2.4: mục Tiến độ từng việc trong pane', () => {
     await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Việc 3: phác kiến trúc' }, { title: 'Việc 3: nêu trade-off' }, { title: 'Tổng hợp' }] })
     await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'done' })
     let rows = await paneRows($)
-    const at = rows.texts.findIndex(t => /^Việc 3: Thiết kế/.test(t))
-    expect(rows.texts.slice(at, at + 6).some(t => /^1\/2/.test(t))).toBe(true)
+    // 0.7.6 U1: bước "Việc 3: ..." mang chip của việc 3, không còn dòng việc 3 riêng.
+    expect(has(rows.texts, /^Việc 3: Thiết kế/)).toBe(false)
+    expect(rows.texts.filter(t => /^opus xhigh$/.test(t)).length).toBeGreaterThanOrEqual(1)
     await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Phác kiến trúc' }] })
     rows = await paneRows($)
     expect(has(rows.texts, /^chưa bắt đầu$/)).toBe(true)
@@ -119,7 +119,7 @@ describe('0.6.1 2.4: mục Tiến độ từng việc trong pane', () => {
     expect(own).toBeGreaterThan(four)
   })
 
-  test('subagent bị cắt vì tạm dừng hạn mức: ■ và trạng thái bị cắt', {}, async ($, on) => {
+  test('subagent bị cắt vì tạm dừng hạn mức: chip trạng thái bị cắt', {}, async ($, on) => {
     const seen = base(on)
     agentHooks(on)
     memoryStore(on)
@@ -131,20 +131,21 @@ describe('0.6.1 2.4: mục Tiến độ từng việc trong pane', () => {
     await $.tool.call({ tool: 'Read', file_path: 'src/a.ts', agentId: 'a-u1' } as never)
     await $.turn.complete(DONE('t1', 'a-u1'))
     const { texts } = await paneRows($)
-    expect(has(texts, /^bị cắt vì tạm dừng$/)).toBe(true)
+    expect(has(texts, /^sonnet bị cắt vì tạm dừng$/)).toBe(true)
   })
 
   for (const width of [36, 48, 80]) {
-    test(`pane ${width} ô: mục vẽ được, thanh tối thiểu 6 ô`, {}, async ($, on) => {
+    // 0.7.6 U1: không còn mục riêng và thanh của việc; ở mọi bề rộng, cả bốn bước dự kiến mang chip của việc.
+    test(`pane ${width} ô: mỗi bước dự kiến mang chip của việc`, {}, async ($, on) => {
       base(on)
       agentHooks(on)
       await submit($, FOUR)
       await spawnTool($, 'u1', 'Việc 1: tìm chỗ gọi charge', 'tìm')
       const { texts, at } = await paneRows($, width)
-      expect(at).toBeGreaterThanOrEqual(0)
-      // Mỗi dòng việc (việc chính và bốn việc router phân) có một thanh trọn vẹn từ 6 ô trở lên.
-      const bars = texts.filter(t => /^[━╌◐■◇]+$/.test(t) && [...t].length >= 6)
-      expect(bars.length).toBeGreaterThanOrEqual(5)
+      expect(at).toBe(-1)
+      expect(texts.filter(t => /^sonnet đang chạy$/.test(t)).length).toBe(1)
+      expect(texts.filter(t => /^sonnet chờ giao$/.test(t)).length).toBe(2)
+      expect(has(texts, /^opus xhigh$/)).toBe(true)
     })
   }
 
@@ -154,12 +155,11 @@ describe('0.6.1 2.4: mục Tiến độ từng việc trong pane', () => {
     await submit($, FOUR)
     await spawnTool($, 'u1', 'Việc 1: tìm chỗ gọi charge', 'tìm')
     const { texts, at } = await paneRows($)
-    expect(at).toBeGreaterThanOrEqual(0)
-    expect(has(texts, /^Main work: /)).toBe(true)
-    expect(has(texts, /^Task 1: /)).toBe(true)
-    expect(has(texts, /^not delegated yet$/)).toBe(true)
-    expect(has(texts, /^not started$/)).toBe(true)
-    expect(has(texts, /^0 tools · <1 min$/)).toBe(true)
+    // 0.7.6 U1: chưa có checklist thì mọi việc đi cùng bước dự kiến của nó.
+    expect(at).toBe(-1)
+    expect(has(texts, /^sonnet running$/)).toBe(true)
+    expect(has(texts, /^sonnet not delegated yet$/)).toBe(true)
+    expect(has(texts, /^opus xhigh$/)).toBe(true)
   })
 })
 

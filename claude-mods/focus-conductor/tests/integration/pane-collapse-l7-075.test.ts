@@ -3,7 +3,7 @@
 // còn nhiều hơn 4 bước mở thì dùng dạng gọn (pane-compact-r10-075) thay cho dòng tóm tắt.
 
 import { describe, expect, test } from 'claude-code/testing'
-import { checklistOf, drawn, longGoal, rowOf } from '../support/pane-long'
+import { checklistOf, drawn, longGoal, rowOf, stepRow } from '../support/pane-long'
 import { PANE_ROWS } from '../../hooks/lib/pane'
 import { labels } from '../../hooks/ui/labels'
 
@@ -18,9 +18,10 @@ describe('0.7.5 L7: checklist dài ở pane 16 dòng', () => {
     expect(list).not.toContain('BƯỚC 7: tóm tắt tin')
     expect(list).toContain('BƯỚC 8: bảng giá tuần')
     expect(list).toContain('BƯỚC 10: kết thúc phiên')
-    const section = rowOf(tree, /^Tiến độ từng việc/)
+    // 0.7.6 U1: bước đang làm (mang số lô của việc) nằm trong 16 dòng.
+    const section = stepRow(tree, 8)
     expect(section).toBeGreaterThanOrEqual(0)
-    expect(section + 1).toBeLessThan(PANE_ROWS)
+    expect(section).toBeLessThan(PANE_ROWS)
   })
 
   test('7 bước, 3 bước đóng, còn 4 bước mở (đủ chỗ, dạng gọn không áp): dồn thành "3 bước đã đóng"', {}, async ($, on) => {

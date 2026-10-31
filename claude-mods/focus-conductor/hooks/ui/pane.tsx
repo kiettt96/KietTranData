@@ -8,10 +8,10 @@ import type { Mode, PlanStep } from '../../types'
 import { estimateLine, ledgerLines, sessionUsd } from '../lib/ledger'
 import type { View } from '../lib/state'
 import { shownPlan } from '../lib/mirror'
-import { taskRows } from '../lib/progress'
+import { stepTaskRows, taskRows } from '../lib/progress'
 import { countLabel, progress } from '../lib/text'
 import type { QuotaPaneText } from '../lib/text'
-import { labels, shownWarning, taskLabel } from './labels'
+import { labels, shownWarning, stepTaskMeta, taskLabel } from './labels'
 import type { Run } from './style'
 import {
   FAMILY_HUE,
@@ -301,6 +301,36 @@ export function renderPane(
     ) : null
 
   // ----------------------------------------------------------- checklist
+  // Một danh sách (U1): dòng bước khớp một việc mang chip model và số lô của việc đó; mọi bước đã đóng thì bỏ việc chưa từng giao (U10).
+  const isFinished = total > 0 && closed === total
+  const allTaskRows = taskRows(view.core, props.now ?? 0).filter(row => !(isFinished && row.state === 'pending'))
+  const { byTitle, matched } = stepTaskRows(view.core, allTaskRows, plan.length > 0 ? plan.map(step => step.title) : brief.steps)
+  // Phần chi tiết của một dòng việc: k/n bước của subagent, số lô, số tool call và thời gian; dùng chung cho dòng bước và dòng việc riêng.
+  const rowDetail = (row: (typeof allTaskRows)[number], withBatches: boolean) => {
+    const counts = row.bar.kind === 'steps' ? progress(row.bar.plan) : null
+    const usage = row.tools !== undefined ? `${l.taskTools(row.tools)} · ${l.taskElapsed(row.elapsedMs ?? 0)}` : ''
+    const batches = withBatches && row.counts !== undefined ? l.taskBatches(row.counts.done, row.counts.total, row.counts.running) : ''
+    return [counts !== null ? `${counts.closed}/${counts.total}` : '', batches, usage].filter(Boolean).join(' · ')
+  }
+  const metaNode = (title: string) => {
+    const row = byTitle.get(title)
+    const meta = row ? stepTaskMeta(l, row) : ''
+    if (row === undefined || !meta) return null
+    const detail = rowDetail(row, false)
+    const tone = row.state === 'failed' || (row.failed ?? 0) > 0 ? 'error' : row.state === 'cut' ? 'warning' : undefined
+    return [
+      <Box key="chip" flexShrink={0}>
+        <Text color={tone ?? (row.pick ? FAMILY_HUE[row.pick.family] : undefined)} dimColor={row.state === 'done'}>
+          {meta}
+        </Text>
+      </Box>,
+      detail ? (
+        <Box key="detail" flexShrink={0}>
+          <Text dimColor>{detail}</Text>
+        </Box>
+      ) : null,
+    ]
+  }
   const idWidth = Math.max(1, ...plan.map(step => String(step.id).length), String(brief.steps.length).length)
   // Checklist dài (vòng sửa 2 của 0.7.5): các bước đã đóng dồn thành một dòng tóm tắt, để pane tự mở 16 dòng còn chỗ cho tiến độ
   // từng việc; checklist ngắn giữ nguyên từng bước. Không dạng gọn mà checklist trên 6 bước thì còn tối đa 4 bước mở nên đã đóng ít
@@ -330,8 +360,9 @@ export function renderPane(
     (brief.why ? rowsOf(brief.why, width - 2) : 0) +
     (brief.source === 'router' ? 0 : rowsOf(l.notRead, width - 2))
   const mirrorRows = source === 'mirror' ? rowsOf(l.mirrorSource, width) : 0
-  // Tiêu đề tiến độ từng việc ở dòng phần đầu + khoảng cách + tiêu đề checklist + danh sách + khoảng cách; nó và dòng việc đầu phải vừa.
-  const fits = (listRows: number) => headerRows + mirrorRows + listRows + 5 <= (props.rows ?? DEFAULT_ROWS)
+  // Checklist và tiến độ từng việc là một danh sách (U1): dạng đầy đủ vừa khi phần đầu, khoảng cách, tiêu đề checklist và cả danh sách
+  // nằm trong số dòng của pane.
+  const fits = (listRows: number) => headerRows + mirrorRows + listRows + 2 <= (props.rows ?? DEFAULT_ROWS)
   // Checklist dài (vòng sửa 2 của 0.7.5): các bước đã đóng dồn thành một dòng tóm tắt; checklist ngắn giữ nguyên từng bước. Không dạng gọn
   // mà checklist trên 6 bước thì vẫn có dòng tóm tắt bước đã đóng.
   const isLong = plan.length > COLLAPSE_FROM
@@ -385,6 +416,7 @@ export function renderPane(
                   </Text>
                 ) : null}
               </Box>
+              {metaNode(step.title)}
             </Box>
           )
         })}
@@ -413,6 +445,7 @@ export function renderPane(
             <Box flexGrow={1} flexShrink={1}>
               <Text wrap="wrap">{step}</Text>
             </Box>
+            {metaNode(step)}
           </Box>
         ))}
         {plannedCompact ? <Text dimColor>{l.stepsOpenMore(brief.steps.length - plannedShown.length)}</Text> : null}
@@ -426,15 +459,11 @@ export function renderPane(
   // Thay mục "Việc giao subagent": việc chính, từng việc router phân (làm trực tiếp hay giao), rồi việc Claude tự giao.
   // Chỉ vẽ khi có từ hai việc trở lên; thanh theo bề rộng pane, tối thiểu 6 ô; dưới 48 ô mỗi việc hai dòng.
   const taskCells = Math.max(6, Math.min(16, Math.floor(width * 0.2)))
-  // Mọi bước đã đóng (U10): ẩn dòng việc chưa từng giao.
-  const isFinished = total > 0 && closed === total
-  const taskNodes = taskRows(view.core, props.now ?? 0).filter(row => !(isFinished && row.state === 'pending')).map(row => {
+  // Chỉ việc không đi cùng bước nào (U1): việc Claude tự giao và việc không khớp bước; việc chính chính là danh sách bước ở trên.
+  const taskNodes = allTaskRows.filter(row => row.kind !== 'main' && !matched.has(row.key)).map(row => {
     const label = taskLabel(l, row)
     const runs = taskBarRuns(row.bar, taskCells)
-    const counts = row.bar.kind === 'steps' ? progress(row.bar.plan) : null
-    const usage = row.tools !== undefined ? `${l.taskTools(row.tools)} · ${l.taskElapsed(row.elapsedMs ?? 0)}` : ''
-    const batches = row.counts !== undefined ? l.taskBatches(row.counts.done, row.counts.total, row.counts.running) : ''
-    const detail = [counts !== null ? `${counts.closed}/${counts.total}` : '', batches, usage].filter(Boolean).join(' · ')
+    const detail = rowDetail(row, true)
     // Chữ trạng thái: thanh không có bước thì luôn ghi; thanh theo bước của agent chỉ ghi khi agent đã kết thúc.
     const word =
       row.bar.kind === 'state'
@@ -635,7 +664,7 @@ export function renderPane(
         ) : null}
         {checklist}
       </Box>
-      {taskNodes.length > 1 ? (
+      {taskNodes.length > 0 ? (
         <Box flexDirection="column">
           {heading(l.taskSection, String(taskNodes.length))}
           {taskNodes}

@@ -29,7 +29,7 @@ function hooks(on: On) {
 const status = async ($: Engine) => String((await conductor($, 'status')).text)
 const edit = ($: Engine) => $.tool.call({ tool: 'Edit', file_path: 'src/x.ts', old_string: 'a', new_string: 'b' })
 
-/** Các dòng chữ trong pane. */
+/** Các dòng chữ trong pane. Từ 0.7.6 (U1) việc 1 đi cùng bước dự kiến của nó, trạng thái ở chip "<model> <trạng thái>". */
 async function paneTexts($: Engine) {
   const pane = await $.ui.mount(PANE)
   expect(await pane.drawn()).toMatchObject({ type: 'Box' })
@@ -66,9 +66,9 @@ describe('0.6.1: turn.complete của subagent, không đang dừng', () => {
       await $.turn.complete(ended('a-u1', reason, { category: 'policy', explanation: 'từ chối' }))
       expect(await status($)).toContain(FAILED)
       const texts = await paneTexts($)
-      expect(has(texts, /^lỗi, chưa giao lại$/)).toBe(true)
-      expect(has(texts, /^xong$/)).toBe(false)
-      expect(has(texts, /^bị cắt vì tạm dừng$/)).toBe(false)
+      expect(has(texts, /^sonnet lỗi, chưa giao lại$/)).toBe(true)
+      expect(has(texts, /^sonnet xong$/)).toBe(false)
+      expect(has(texts, /^sonnet bị cắt vì tạm dừng$/)).toBe(false)
       await edit($)
       expect((await $.classic.Stop({ stop_hook_active: false })).block).toContain('Việc giao subagent đã lỗi, chưa giao lại: Việc 1')
     })
@@ -79,8 +79,8 @@ describe('0.6.1: turn.complete của subagent, không đang dừng', () => {
     await $.turn.complete(ended('a-u1', 'answer'))
     expect(await status($)).toContain(`1. ${SEARCH}.: xong`)
     const texts = await paneTexts($)
-    expect(has(texts, /^xong$/)).toBe(true)
-    expect(has(texts, /^lỗi, chưa giao lại$/)).toBe(false)
+    expect(has(texts, /^sonnet xong$/)).toBe(true)
+    expect(has(texts, /^sonnet lỗi, chưa giao lại$/)).toBe(false)
     await edit($)
     expect(String((await $.classic.Stop({ stop_hook_active: false })).block ?? '')).not.toContain('đã lỗi, chưa giao lại')
   })
@@ -94,9 +94,9 @@ describe('0.6.1: turn.complete của subagent, đang tạm dừng vì hạn mứ
       await $.turn.complete(ended('a-u1', reason, { category: null, explanation: null }))
       expect(await status($)).toContain(FAILED)
       const texts = await paneTexts($)
-      expect(has(texts, /^bị cắt vì tạm dừng$/)).toBe(true)
-      expect(has(texts, /^lỗi, chưa giao lại$/)).toBe(false)
-      expect(has(texts, /^xong$/)).toBe(false)
+      expect(has(texts, /^sonnet bị cắt vì tạm dừng$/)).toBe(true)
+      expect(has(texts, /^sonnet lỗi, chưa giao lại$/)).toBe(false)
+      expect(has(texts, /^sonnet xong$/)).toBe(false)
     })
   }
 
@@ -106,8 +106,8 @@ describe('0.6.1: turn.complete của subagent, đang tạm dừng vì hạn mứ
     await $.turn.complete(ended('a-u1', 'error'))
     expect(await status($)).toContain(FAILED)
     const texts = await paneTexts($)
-    expect(has(texts, /^lỗi, chưa giao lại$/)).toBe(true)
-    expect(has(texts, /^bị cắt vì tạm dừng$/)).toBe(false)
+    expect(has(texts, /^sonnet lỗi, chưa giao lại$/)).toBe(true)
+    expect(has(texts, /^sonnet bị cắt vì tạm dừng$/)).toBe(false)
   })
 })
 
