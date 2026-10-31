@@ -6,7 +6,7 @@ import { openSteps, pendingSteps } from './drift'
 import { evaluateQuota, isStale, reasonsOf } from './quota'
 import type { QuotaBadge, QuotaNoticeHit, QuotaThresholds } from './quota'
 import { labels } from '../ui/labels'
-import { taskBarRuns } from '../ui/style'
+import { currentStep, taskBarRuns } from '../ui/style'
 import type { Lang } from '../ui/labels'
 import { describePick } from './route'
 import { uncoveredRequirements } from './router'
@@ -382,14 +382,35 @@ export function stopBlockReason(plan: readonly PlanStep[], failed: readonly stri
 /** Số ô của thanh chữ trên status line (0.6.1). */
 export const STATUS_BAR = 8
 
+/** Độ dài tối đa của tên bước khi bước không có mã (0.7.6, U5). */
+const STEP_TAG = 24
+/** Mã đầu tiêu đề bước ("BƯỚC 4", "Step 2", "Việc 3", "K4.1"), giữ đúng chữ của tiêu đề. */
+const STEP_TAG_CODE = /^[\s#*>-]*((?:bước|step|việc|task)\s*#?\s*\d+|[a-z]{1,3}\d+(?:\.\d+)*)(?![\p{L}\p{N}])/iu
+
+/** Nhãn ngắn của một bước (0.7.6, U5): mã đầu tiêu đề nếu có, không thì tên bước cắt ở 24 ký tự. */
+export function stepTag(title: string): string {
+  const text = title.normalize('NFC').trim()
+  const code = STEP_TAG_CODE.exec(text)?.[1]
+  if (code !== undefined) return code
+  return [...text].length > STEP_TAG ? `${[...text].slice(0, STEP_TAG).join('').trimEnd()}…` : text
+}
+
+/**
+ * Status line (0.7.6, U5): thanh chữ (cùng ký hiệu với band, không màu, cho surface không có band), số bước, nhãn ngắn của bước hiện tại
+ * và họ model; không có tier. Chưa có checklist thì chỉ họ model, không có model thì tên chế độ. Chế độ khác auto ghi cuối.
+ */
 export function statusLine(brief: Brief | null, plan: readonly PlanStep[], route: Route | null, mode: string): string {
   if (brief === null) return mode
   const { total } = progress(plan)
-  // Thanh chữ cùng ký hiệu với band (barRuns), không màu: surface không có band (vscode, mobile) vẫn thấy tiến độ.
   const bar = taskBarRuns({ kind: 'steps', plan: [...plan] }, STATUS_BAR).map(run => run.text).join('')
-  const steps = total > 0 ? ` · ${bar ? `${bar} ` : ''}${countLabel(plan)}` : ''
-  const model = route ? ` · ${describePick(route)}` : ''
-  return `${brief.tier}${model}${steps}${mode === 'auto' ? '' : ` · ${mode}`}`
+  const current = currentStep(plan)
+  const parts = [
+    ...(total > 0 ? [`${bar ? `${bar} ` : ''}${countLabel(plan)}`] : []),
+    ...(total > 0 && current !== undefined ? [stepTag(current.title)] : []),
+    ...(route ? [route.family] : []),
+  ]
+  if (parts.length === 0) return mode
+  return `${parts.join(' · ')}${mode === 'auto' ? '' : ` · ${mode}`}`
 }
 
 // ------------------------------------------------------------ bảo vệ hạn mức (0.6.0)
