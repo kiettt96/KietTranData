@@ -497,12 +497,16 @@ function ruleClauses(rule: string): Clause[] {
  */
 export function ruleFamily(constraints: readonly string[], description: string, session: ModelFamily | null): ModelFamily | null {
   const asked = phraseWords(fold(description).replace(LEADING_LABEL, ''))
+  // Description còn nguyên nhãn (T1): ngoại lệ nêu mã bước ("Riêng BƯỚC 3") so trên đây, các từ trọn vẹn và liền nhau.
+  const full = phraseWords(fold(description))
   const startsWith = (kind: string[]) => kind.length > 0 && kind.every((word, i) => asked[i] === word)
+  const isExcepted = (words: string[]) =>
+    words.every(word => asked.includes(word)) || full.some((_, at) => words.every((word, i) => full[at + i] === word))
   for (const rule of constraints) {
     for (const clause of ruleClauses(rule)) {
       const family = clause.family === 'session' ? session : clause.family
       if (family === null || !clause.kinds.some(startsWith)) continue
-      if (clause.excepts.some(words => words.every(word => asked.includes(word)))) continue
+      if (clause.excepts.some(isExcepted)) continue
       return family
     }
   }
