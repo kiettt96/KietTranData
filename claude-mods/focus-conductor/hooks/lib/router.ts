@@ -202,6 +202,24 @@ function mergeCapped(prev: readonly string[], incoming: readonly string[], max: 
 }
 
 /**
+ * Quy tắc mang sang được prompt tiếp nối nhắc lại (T3, vòng rà soát 5): mục cùng khóa trong `carried` mục đầu thuộc mục tiêu hiện tại,
+ * nên được dời về cuối phần mang sang và phần đó thu lại một mục (danh sách giữ đủ mục, chỉ đổi thứ tự). Trả danh sách và số mục còn
+ * mang sang.
+ */
+function reclaimCarried(items: readonly string[], carried: number, incoming: readonly string[]): { items: string[]; carried: number } {
+  const out = [...items]
+  let count = Math.min(carried, out.length)
+  for (const item of incoming) {
+    const at = indexOfKey(out.slice(0, count), item)
+    if (at < 0) continue
+    const [moved] = out.splice(at, 1)
+    out.splice(count - 1, 0, moved as string)
+    count -= 1
+  }
+  return { items: out, carried: count }
+}
+
+/**
  * Gộp yêu cầu mới vào danh sách có trần REQUIREMENT_LIMIT (0.7.5, S1): như mergeCapped, yêu cầu cùng khóa thay tại chỗ (số thứ tự
  * giữ nguyên nên `covers` của việc cũ vẫn đúng), yêu cầu khác được thêm khi còn chỗ trong trần cộng phần tràn, không thì bị bỏ và đếm.
  * `renumber` đổi số thứ tự trong lượt router sang số thứ tự trong danh sách đã gộp.
@@ -819,16 +837,19 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number, isHeld = 
   // Yêu cầu mới nối vào danh sách (bỏ trùng); covers của việc mới đổi sang số thứ tự trong danh sách đã gộp. Đầy trần thì
   // yêu cầu mới thay yêu cầu cũ (0.7.5): việc cũ không còn phủ chỗ bị thay.
   const { items: requirements, renumber, dropped: lostRequirements } = mergeRequirements(prev.requirements ?? [], plan.requirements)
-  const constraints = mergeCapped(prev.constraints, plan.constraints, CONSTRAINT_LIMIT)
+  const reclaimed = reclaimCarried(prev.constraints, prev.carriedRules ?? 0, plan.constraints)
+  const constraints = mergeCapped(reclaimed.items, plan.constraints, CONSTRAINT_LIMIT)
   const dropped = lostRequirements + constraints.dropped
   const added = plan.tasks.map(t => ({
     ...t,
     index: t.index + offset,
     ...(t.covers !== undefined ? { covers: t.covers.flatMap(n => renumber.get(n) ?? []) } : {}),
   }))
-  const { isBare: _isBare, ...kept } = prev
+  const { isBare: _isBare, carriedRules: _carried, ...kept } = prev
   const brief: Brief = {
     ...kept,
+    // Quy tắc mang sang mà prompt này nhắc lại không còn tính là mang sang (T3).
+    ...(reclaimed.carried > 0 ? { carriedRules: reclaimed.carried } : {}),
     ...(requirements.length > 0 ? { requirements } : {}),
     steps: added.length > 0 ? [...prev.steps, ...added.map(t => t.title)] : prev.steps,
     tasks: [...prev.tasks, ...added],

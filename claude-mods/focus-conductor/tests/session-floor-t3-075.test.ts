@@ -44,6 +44,15 @@ describe('0.7.5 T3: quy tắc mang sang được nhắc lại trong prompt tinh 
     expect(ruleFamily(brief.constraints, 'Lọc tin lô 1', 'opus')).toBe('sonnet')
   })
 
+  test('nhắc lại ràng buộc của chính mục tiêu mới (không mang sang): số mang sang giữ nguyên', () => {
+    const first = nextBrief(null, routed({ goal: 'Cập nhật kho tri thức', constraints: [FILTER, RULE], kind: 'edit', main: lead('sonnet', 'medium') }), 'p', 1, OPUS).brief
+    const goal = nextBrief(first, routed({ relation: 'new', confidence: 0.95, goal: 'Việc khác', constraints: ['Giữ nguyên định dạng bảng'], kind: 'answer', main: lead('haiku', 'low') }), 'việc khác', 2, OPUS).brief
+    expect(goal.carriedRules).toBe(2)
+    const out = nextBrief(goal, routed({ relation: 'refine', goal: '', constraints: ['Giữ nguyên định dạng bảng'], kind: 'answer', main: lead('haiku', 'low') }), 'nhắc lại', 3, OPUS).brief
+    expect(out.carriedRules).toBe(2)
+    expect(out.main).toEqual({ family: 'haiku', effort: 'low' })
+  })
+
   test('nhắc lại quy tắc của subagent (không phải luồng chính) không tạo sàn', () => {
     expect(refine([FILTER]).main).toEqual({ family: 'haiku', effort: 'low' })
   })
