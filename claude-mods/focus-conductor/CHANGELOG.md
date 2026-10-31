@@ -2,6 +2,35 @@
 
 Các bản của focus-conductor, mới nhất trước. Số đo kiểm chứng của HEAD hiện tại nằm ở [docs/VERIFICATION.md](docs/VERIFICATION.md); cách dùng và tùy chọn ở [README](README.md).
 
+## Thay đổi 0.7.6: band và pane cho biết ngay đang ở bước nào, tiến độ chung và có gì cần can thiệp
+
+Vấn đề: trên phiên dài nhiều bước, band dồn quá nhiều thứ ngang hàng (tên giai đoạn, tier, chip lô "0/3 xong" trước khi giao, câu cảnh báo theo thứ tự đến), còn pane lặp từng bước hai lần (checklist và "Tiến độ từng việc"), đầu pane dành nhiều dòng cho độ sâu, khối lượng và lý do router, và tự mở cả với việc một dòng. Bản này chỉ đổi phần hiển thị (band, pane, status line, câu cảnh báo hiển thị); điều phối, checklist, cổng Stop, hạn mức và nội dung gửi Claude giữ nguyên. Mỗi điểm có test đỏ ở commit riêng trước commit sửa.
+
+- **U1: pane một danh sách.** Dòng bước khớp một việc (theo mã "BƯỚC N", "Việc N" hay tiêu đề trùng hệt bước dự kiến) mang luôn chip của việc: "sonnet 97/100 · 3 lỗi" với việc nhiều lô, "sonnet đang chạy" với việc một lần gọi, "opus high" với việc làm trực tiếp; phần chi tiết ghi số tool call và thời gian. Mục "Tiến độ từng việc" chỉ còn việc Claude tự giao và việc không khớp bước nào; luồng chính không còn dòng riêng vì chính là danh sách bước.
+- **U2: dòng cần chú ý theo mức độ.** Band dòng 2 chọn một mục theo thứ tự: tạm dừng, lô lỗi chưa giao lại, ghi ngoài phạm vi, báo hạn mức mềm, mục bị bỏ, bước ghi verified chưa đủ bằng chứng, vượt ngân sách tool call; "+N" đếm phần còn lại. Ngân sách tool call không lên band khi mục tiêu có giao subagent theo kế hoạch (pane vẫn ghi); cảnh báo chi phí chỉ ở pane như 0.7.5.
+- **U3: tạm dừng và báo mềm.** Tạm dừng cứng chiếm dòng 1 của band: "⏸ Tạm dừng: <lý do> · làm mới <giờ>"; dòng 2 "Điểm dừng đã ghi · chạy tiếp: /conductor resume force" (tự dừng thì `/conductor resume`); status line kèm lệnh chạy tiếp. Báo hạn mức mềm hiện ở dòng 2 và mục Hạn mức của pane ghi "báo mềm" thay "bình thường".
+- **U4: chip lô.** Chỉ hiện khi có lô đang chạy hay lỗi, dạng "2 đang chạy · 3 lỗi"; không hiện "0/3 xong" trước khi giao hay sau khi xong mục tiêu; thiếu chỗ thì chip bỏ trước tên bước.
+- **U5: status line.** Dạng "4/11 · BƯỚC 4 · opus": số bước, mã bước hiện tại (không có mã thì 24 ký tự đầu), họ model; bỏ tier.
+- **U6: đầu pane gọn.** Đầu pane chỉ còn mục tiêu và thanh tiến độ; độ sâu, khối lượng, loại việc và lý do router dời xuống mục "Điều phối" ở cuối pane (thay "Điều phối luồng chính"), mỗi ý một dòng cắt gọn. Band không ghi tên giai đoạn.
+- **U7: bước đã đóng và chú giải.** Dòng tóm tắt tách số: "4 bước đã đóng (2 đã kiểm chứng, 1 bỏ qua)"; chú giải ký hiệu chỉ ghi các loại đang thấy và chỉ khi bước mở đang thấy có từ hai loại; bỏ đoạn giải thích dưới nút Đặt lại (toast giữ nguyên, phạm vi xóa vẫn ở câu trả lời của `/conductor reset`); mục Nhật ký điều phối ẩn khi chưa có quyết định.
+- **U8: đang chạy.** Pane có mục "Đang chạy": mỗi việc có subagent đang chạy một dòng gồm tên việc, khoảng lô ("lô 101 đến 102"), số agent và thời gian; band ghi thời gian đã chạy của mục tiêu.
+- **U9: chi phí.** Ghi theo dấu thập phân của ngôn ngữ ("$1,81", "<$0,01"); dấu "~" (ước tính) được giải thích một lần trong pane.
+- **U10: hoàn thành.** Band một dòng "11/11 · 11✓ Hoàn thành: <mục tiêu> · <thời gian> · <chi phí>"; pane ẩn dòng việc chưa từng giao khi mọi bước đã đóng.
+- **U11: trạng thái rỗng.** Pane chỉ tự mở ở mục tiêu substantial hay hard (mục tiêu không qua router chấm, như router lỗi ở prompt đầu hay `/conductor goal`, vẫn mở); chưa có checklist thì bước dự kiến nằm dưới "Danh sách bước (dự kiến)", không còn mục "Việc dự kiến (router)" và câu "Claude chưa chốt checklist.".
+- **U12: câu cảnh báo hiển thị.** Pane và band ghi câu cảnh báo bằng tiếng Việt thường ("deep" thành "rất sâu", "verified" thành "đã kiểm chứng", "evidence" thành "bằng chứng"); câu lưu trong trạng thái và câu gửi Claude giữ nguyên.
+
+Test cũ đổi theo hiển thị mới (lý do):
+
+- `tests/progress-status.test.ts`, `tests/state.test.ts` (U5): status line không còn tier, thêm mã bước.
+- `tests/integration/verified-evidence.test.ts` (U12, U1): câu cảnh báo hiển thị bằng tiếng Việt thường; trạng thái việc thành chip "<model> <trạng thái>".
+- `tests/integration/bare-goal.test.ts`, `ui.test.ts`, `ui-061.test.ts`, `progress-tasks.test.ts` (band hai dòng, U4, U6, U10): mục tiêu đầy đủ ở pane, band ghi bước hiện tại; dòng việc riêng chỉ ở pane; chip lô chỉ số đang chạy và lỗi; "Hoàn thành: <mục tiêu>" thay "Đã xong mọi bước"; dòng đánh giá router ở mục Điều phối.
+- `tests/integration/quota-command.test.ts`, `quota-edges.test.ts`, `ui-061.test.ts` (U3): dòng tạm dừng của band thay chip.
+- `tests/integration/progress-tasks.test.ts`, `progress-surface.test.ts`, `pane-order-075.test.ts`, `agent-end-reason.test.ts`, `tests/task-label-l6-075.test.ts` (U1): không còn mục riêng cho việc khớp bước và dòng "Việc chính"; trạng thái và số lô ở chip trên dòng bước; thanh của việc bỏ vì dòng bước đã có ký hiệu trạng thái.
+- `tests/integration/long-session-075.test.ts` mục 6 (U1): số lô đo trên dòng bước ngay khi lô cuối xong (bước còn mở), vì bước đã đóng dồn vào dòng tóm tắt; số ký tự chèn không đổi.
+- `tests/integration/pane-compact-r10-075.test.ts`, `pane-height-s6-075.test.ts`, `pane-collapse-l7-075.test.ts` (U1, U6, U7, U11): dạng đầy đủ cần ít dòng hơn (không còn mục riêng, đầu pane ngắn hơn hai dòng) nên ranh giới dạng gọn đo ở 10 hay 14 dòng thay 12 hay 16; chú giải kiểm theo mục "đang làm"; tiêu đề "Danh sách bước (dự kiến)".
+- `tests/reset-button.test.ts` (U7): không còn dòng chú thích dưới nút.
+- `tests/integration/auto-pane.test.ts`, `tests/pane-open.test.ts` (U11): ca dùng mục tiêu mặc định (light) ghi rõ độ sâu substantial; hàm thuần nhận độ sâu.
+
 ## Thay đổi 0.7.5: sửa các lỗi của đợt rà soát toàn diện sau 0.7.4
 
 Vấn đề: rà toàn bộ mod trên `main` (`19b0349`) với một phiên dài nhiều giờ (prompt khoảng 32.000 ký tự, 11 bước có mã `BƯỚC 0` tới `BƯỚC 10`, hàng trăm lô subagent, nhiều lần nén) cho thấy bộ đếm của luồng chính bị xóa giữa turn, router không biết model của phiên ở prompt đầu, subagent mô tả theo mã bước không khớp việc, lệnh kiểm qua `| tail` không được tính, câu nhắc đẩy Claude tạo test, cảnh báo phạm vi lặp ở mỗi lệnh, nhật ký bằng chứng bị đẩy mất, router chấm subagent ở mọi lô, tiến độ subagent mất đếm sau 20 lô, cùng các lỗi quanh hạn mức, nén, router tiếp nối và pane. Mỗi điểm dưới đây có test đỏ ở commit riêng trước commit sửa (số đỏ ở `docs/VERIFICATION.md`).
