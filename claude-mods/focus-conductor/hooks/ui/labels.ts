@@ -11,6 +11,16 @@ export function langOf(value: unknown): Lang {
   return value === 'en' ? 'en' : 'vi'
 }
 
+/** Số phút làm tròn (0.7.6, W4): 150 giây là 3 phút, để thời gian ghi gần với thực tế hơn khi chưa vẽ lại. */
+const roundedMinutes = (ms: number) => Math.round(ms / 60_000)
+
+/** Giờ máy HH:MM của một mốc thời gian (0.7.6, W4), cho "từ <giờ bắt đầu>". */
+function clockOf(at: number): string {
+  const d = new Date(at)
+  const two = (n: number) => String(n).padStart(2, '0')
+  return `${two(d.getHours())}:${two(d.getMinutes())}`
+}
+
 /** Phần trong ngoặc của dòng tóm tắt bước đã đóng (0.7.6, U7): chỉ các số khác 0, rỗng thì không có ngoặc. */
 const closedParts = (parts: string[]) => (parts.some(Boolean) ? ` (${parts.filter(Boolean).join(', ')})` : '')
 
@@ -88,7 +98,7 @@ const VI = {
   taskDoing: 'đang làm',
   taskTools: (n: number) => `${n} tool`,
   taskBatches: (done: number, total: number, running: number) => `${done}/${total} lô xong${running > 0 ? `, ${running} đang chạy` : ''}`,
-  taskElapsed: (ms: number) => (ms < 60_000 ? '<1 phút' : `${Math.floor(ms / 60_000)} phút`),
+  taskElapsed: (ms: number) => (ms < 60_000 ? '<1 phút' : `${roundedMinutes(ms)} phút`),
   taskMore: (k: number) => `+${k} việc`,
   stepsClosed: (n: number, verified = 0, skipped = 0) => `${n} bước đã đóng${closedParts([verified > 0 ? `${verified} đã kiểm chứng` : '', skipped > 0 ? `${skipped} bỏ qua` : ''])}`,
   stepsOpenMore: (n: number) => `+${n} bước mở`,
@@ -97,7 +107,8 @@ const VI = {
   attentionFailed: (n: number) => `${n} lô lỗi chưa giao lại`,
   agentsRunning: (n: number) => `${n} subagent đang chạy`,
   agentBatchChip: (running: number, failed: number) => [running > 0 ? `${running} đang chạy` : '', failed > 0 ? `${failed} lỗi` : ''].filter(Boolean).join(' · '),
-  goalElapsed: (ms: number) => (ms < 60_000 ? '<1 phút' : ms < 3_600_000 ? `${Math.floor(ms / 60_000)} phút` : `${Math.floor(ms / 3_600_000)} giờ ${Math.floor((ms % 3_600_000) / 60_000)} phút`),
+  goalElapsed: (ms: number) => (ms < 60_000 ? '<1 phút' : roundedMinutes(ms) < 60 ? `${roundedMinutes(ms)} phút` : `${Math.floor(roundedMinutes(ms) / 60)} giờ ${roundedMinutes(ms) % 60} phút`),
+  runningSince: (at: number) => `từ ${clockOf(at)}`,
   mirrorSource: 'Theo danh sách việc của Claude Code (chỉ để theo dõi, không chặn kết thúc)',
   costCalls: 'lượt',
   groupMain: 'luồng chính',
@@ -210,7 +221,7 @@ const EN: typeof VI = {
   taskDoing: 'in progress',
   taskTools: n => `${n} ${n === 1 ? 'tool' : 'tools'}`,
   taskBatches: (done, total, running) => `${done}/${total} runs done${running > 0 ? `, ${running} running` : ''}`,
-  taskElapsed: ms => (ms < 60_000 ? '<1 min' : `${Math.floor(ms / 60_000)} min`),
+  taskElapsed: ms => (ms < 60_000 ? '<1 min' : `${roundedMinutes(ms)} min`),
   taskMore: k => `+${k} ${k === 1 ? 'task' : 'tasks'}`,
   stepsClosed: (n, verified = 0, skipped = 0) => `${n} ${n === 1 ? 'step' : 'steps'} closed${closedParts([verified > 0 ? `${verified} verified` : '', skipped > 0 ? `${skipped} skipped` : ''])}`,
   stepsOpenMore: n => `+${n} open ${n === 1 ? 'step' : 'steps'}`,
@@ -219,7 +230,8 @@ const EN: typeof VI = {
   attentionFailed: n => `${n} failed ${n === 1 ? 'run' : 'runs'} not re-delegated`,
   agentsRunning: n => `${n} ${n === 1 ? 'subagent' : 'subagents'} running`,
   agentBatchChip: (running, failed) => [running > 0 ? `${running} running` : '', failed > 0 ? `${failed} failed` : ''].filter(Boolean).join(' · '),
-  goalElapsed: ms => (ms < 60_000 ? '<1 min' : ms < 3_600_000 ? `${Math.floor(ms / 60_000)} min` : `${Math.floor(ms / 3_600_000)} h ${Math.floor((ms % 3_600_000) / 60_000)} min`),
+  goalElapsed: ms => (ms < 60_000 ? '<1 min' : roundedMinutes(ms) < 60 ? `${roundedMinutes(ms)} min` : `${Math.floor(roundedMinutes(ms) / 60)} h ${roundedMinutes(ms) % 60} min`),
+  runningSince: at => `since ${clockOf(at)}`,
   mirrorSource: "From Claude Code's task list (tracking only, never blocks stopping)",
   costCalls: 'calls',
   groupMain: 'main',

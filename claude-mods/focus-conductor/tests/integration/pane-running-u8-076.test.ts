@@ -38,7 +38,8 @@ describe('0.7.6 U8: mục Đang chạy của pane', () => {
     const texts = await paneTexts($)
     const at = texts.findIndex(t => /^Đang chạy ─/.test(t))
     expect(at).toBeGreaterThanOrEqual(0)
-    expect(texts.slice(at)).toContain('BƯỚC 2: lọc tin · lô 101 đến 102 · 2 agent · 3 phút')
+    // 0.7.6 W4: dòng ghi thêm "từ <giờ bắt đầu>" (giờ máy của agent đầu tiên).
+    expect(texts.slice(at).some(t => /^BƯỚC 2: lọc tin · lô 101 đến 102 · 2 agent · 3 phút · từ \d\d:\d\d$/.test(t))).toBe(true)
     expect(texts.findIndex(t => t === 'Chế độ')).toBeGreaterThan(at)
   })
 
@@ -47,15 +48,15 @@ describe('0.7.6 U8: mục Đang chạy của pane', () => {
     await spawnTool($, 'u1', 'BƯỚC 2: lọc tin lô 7', 'lọc')
     await spawnTool($, 'u9', 'Kiểm tra log lỗi thanh toán', 'kiểm tra')
     const texts = await paneTexts($)
-    expect(texts).toContain('BƯỚC 2: lọc tin · lô 7 · 1 agent · <1 phút')
-    expect(texts).toContain('Claude tự giao: Kiểm tra log lỗi thanh toán · 1 agent · <1 phút')
+    expect(texts.some(t => /^BƯỚC 2: lọc tin · lô 7 · 1 agent · <1 phút · từ \d\d:\d\d$/.test(t))).toBe(true)
+    expect(texts.some(t => /^Claude tự giao: Kiểm tra log lỗi thanh toán · 1 agent · <1 phút · từ \d\d:\d\d$/.test(t))).toBe(true)
   })
 
   test('25 lô đang chạy (danh sách agent chỉ giữ 20 agent gần nhất): số agent theo bộ đếm', async ($, on) => {
     await goal($, on)
     for (let n = 1; n <= 25; n++) await spawnTool($, `u${n}`, `BƯỚC 2: lọc tin lô ${n}`, 'lọc')
     const texts = await paneTexts($)
-    expect(texts.some(t => /^BƯỚC 2: lọc tin · lô \d+ đến 25 · 25 agent · <1 phút$/.test(t))).toBe(true)
+    expect(texts.some(t => /^BƯỚC 2: lọc tin · lô \d+ đến 25 · 25 agent · <1 phút · từ \d\d:\d\d$/.test(t))).toBe(true)
   })
 
   test('không có agent đang chạy: không có mục Đang chạy', async ($, on) => {
@@ -73,6 +74,6 @@ describe('0.7.6 U8: mục Đang chạy của pane', () => {
     await seen.clock.advance(180_000)
     const texts = await paneTexts($)
     expect(texts.some(t => /^Running ─/.test(t))).toBe(true)
-    expect(texts).toContain('BƯỚC 2: lọc tin · runs 101 to 102 · 2 agents · 3 min')
+    expect(texts.some(t => /^BƯỚC 2: lọc tin · runs 101 to 102 · 2 agents · 3 min · since \d\d:\d\d$/.test(t))).toBe(true)
   })
 })

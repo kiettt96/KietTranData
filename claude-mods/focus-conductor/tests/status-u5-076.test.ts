@@ -28,9 +28,9 @@ describe('0.7.6 U5: status line không có tier', () => {
     expect(statusLine(brief, plan, route, 'auto')).toBe('◐╌╌╌╌╌╌╌ 0/1 · Đổi tên userId thành acc… · opus')
   })
 
-  test('chưa có checklist: chỉ model; không có model thì tên chế độ; chế độ khác auto ghi cuối', () => {
+  test('chưa có checklist: chỉ model; không có model thì tên ngắn của mục tiêu (W4); chế độ khác auto ghi cuối', () => {
     expect(statusLine(brief, [], route, 'auto')).toBe('opus')
-    expect(statusLine(brief, [], null, 'auto')).toBe('auto')
+    expect(statusLine(brief, [], null, 'auto')).toBe('Sửa module thanh toán')
     expect(statusLine(brief, coded('doing'), null, 'suggest')).toBe('◐╌╌╌╌╌╌╌ 0/1 · BƯỚC 0 · suggest')
     expect(statusLine(null, [], null, 'auto')).toBe('auto')
   })

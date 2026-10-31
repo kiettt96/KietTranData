@@ -387,6 +387,12 @@ const STEP_TAG = 24
 /** Mã đầu tiêu đề bước ("BƯỚC 4", "Step 2", "Việc 3", "K4.1"), giữ đúng chữ của tiêu đề. */
 const STEP_TAG_CODE = /^[\s#*>-]*((?:bước|step|việc|task)\s*#?\s*\d+|[a-z]{1,3}\d+(?:\.\d+)*)(?![\p{L}\p{N}])/iu
 
+/** Tên ngắn của mục tiêu (0.7.6, W4): 24 ký tự đầu, giữ nguyên mã ở đầu nếu có. */
+export function goalTag(goal: string): string {
+  const text = goal.normalize('NFC').trim()
+  return [...text].length > STEP_TAG ? `${[...text].slice(0, STEP_TAG).join('').trimEnd()}…` : text
+}
+
 /** Nhãn ngắn của một bước (0.7.6, U5): mã đầu tiêu đề nếu có, không thì tên bước cắt ở 24 ký tự. */
 export function stepTag(title: string): string {
   const text = title.normalize('NFC').trim()
@@ -409,7 +415,8 @@ export function statusLine(brief: Brief | null, plan: readonly PlanStep[], route
     ...(total > 0 && current !== undefined ? [stepTag(current.title)] : []),
     ...(route ? [route.family] : []),
   ]
-  if (parts.length === 0) return mode
+  // W4: chưa có checklist và chưa có model thì ghi tên ngắn của mục tiêu (kèm mã đầu mục tiêu nếu có), không chỉ tên chế độ.
+  if (parts.length === 0) parts.push(goalTag(brief.goal))
   return `${parts.join(' · ')}${mode === 'auto' ? '' : ` · ${mode}`}`
 }
 

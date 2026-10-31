@@ -8,7 +8,7 @@
 import type { Color, Elements, RenderElement, RenderSurface } from 'claude-code'
 
 import { shownPlan } from '../lib/mirror'
-import { taskRows } from '../lib/progress'
+import { runningTitles, taskRows } from '../lib/progress'
 import type { QuotaBadge } from '../lib/quota'
 import type { View } from '../lib/state'
 import { countLabel, progress, quotaPercent } from '../lib/text'
@@ -78,9 +78,13 @@ export function renderBand(
   const { closed, total } = progress(plan)
   const planned = total === 0 ? brief.steps.length : 0
   const current = currentStep(plan)
+  const rows = taskRows(view.core, now)
+  // W4: bước còn todo mà đã có lô đang chạy: đầu thanh là ◐ (có checklist) hay hạt dự kiến là ◐ (chưa có).
+  const runningSteps = runningTitles(view.core, rows, plan.length > 0 ? plan.map(step => step.title) : brief.steps)
+  const runningBeads = new Set(brief.steps.flatMap((step, i) => (runningSteps.has(step) ? [i] : [])))
   // Thanh dài theo chiều rộng, tối thiểu 6 ô để còn thấy phần đã đóng.
-  const bar = barRuns(plan, Math.max(6, Math.min(20, Math.floor(columns * 0.16))))
-  const beads = plannedRuns(planned, Math.max(8, Math.min(24, Math.floor(columns * 0.22))))
+  const bar = barRuns(plan, Math.max(6, Math.min(20, Math.floor(columns * 0.16))), current !== undefined && runningSteps.has(current.title))
+  const beads = plannedRuns(planned, Math.max(8, Math.min(24, Math.floor(columns * 0.22))), runningBeads)
 
   const tint = (r: Run) => (
     <Text color={r.color} dimColor={r.dim} bold={r.bold}>
@@ -94,7 +98,6 @@ export function renderBand(
   const costText = isWide && spent > 0 ? `${pending > 0 ? '~' : ''}${formatCost(spent, view.lang)}` : ''
   const elapsedText = now > brief.at ? l.goalElapsed(now - brief.at) : ''
   const quotaText = quota ? (quota.paused ? (columns >= 56 ? l.quotaPaused : l.quotaPausedShort) : l.quotaLeft(quotaPercent(quota.left ?? 0))) : ''
-  const rows = taskRows(view.core, now)
   // Chip lô subagent (U4): chỉ khi có lô đang chạy hay lỗi, không hiện khi mọi bước đã đóng.
   const runningBatches = rows.filter(row => row.kind === 'agent' && row.state === 'running').reduce((sum, row) => sum + (row.counts?.running ?? 1), 0)
   const failed = failedBatches(view.core)

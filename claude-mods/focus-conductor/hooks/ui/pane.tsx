@@ -8,7 +8,7 @@ import type { Mode, PlanStep, StepStatus } from '../../types'
 import { estimateLine, formatCost, ledgerLines, sessionUsd } from '../lib/ledger'
 import type { View } from '../lib/state'
 import { shownPlan } from '../lib/mirror'
-import { runningGroups, stepTaskRows, taskRows } from '../lib/progress'
+import { runningGroups, runningTitles, stepTaskRows, taskRows } from '../lib/progress'
 import { countLabel, progress } from '../lib/text'
 import type { BandQuota, QuotaPaneText } from '../lib/text'
 import { attentionItems } from './attention'
@@ -342,7 +342,10 @@ export function renderPane(
   // Một danh sách (U1): dòng bước khớp một việc mang chip model và số lô của việc đó; mọi bước đã đóng thì bỏ việc chưa từng giao (U10).
   const isFinished = total > 0 && closed === total
   const allTaskRows = taskRows(view.core, props.now ?? 0).filter(row => !(isFinished && row.state === 'pending'))
-  const { byTitle, matched } = stepTaskRows(view.core, allTaskRows, plan.length > 0 ? plan.map(step => step.title) : brief.steps)
+  const stepTitles = plan.length > 0 ? plan.map(step => step.title) : brief.steps
+  const { byTitle, matched } = stepTaskRows(view.core, allTaskRows, stepTitles)
+  // W4: bước còn todo mà đã có lô đang chạy hiện ◐ thay ○.
+  const runningSteps = runningTitles(view.core, allTaskRows, stepTitles)
   // Phần chi tiết của một dòng việc: k/n bước, số lô, số tool call và thời gian; dùng chung cho dòng bước và dòng việc riêng. Trên dòng
   // bước (`isStepRow`), việc làm trực tiếp không ghi k/n: các bước của nó chính là các dòng bước.
   const rowDetail = (row: (typeof allTaskRows)[number], isStepRow: boolean) => {
@@ -452,7 +455,7 @@ export function renderPane(
           </Box>
         ) : null}
         {listed.map(step => {
-          const mark = STEP_MARK[step.status]
+          const mark = step.status === 'todo' && runningSteps.has(step.title) ? STEP_MARK.doing : STEP_MARK[step.status]
           const isFaded = step.status === 'verified' || step.status === 'skipped'
           const isBlocked = step.status === 'blocked'
           return (
@@ -502,7 +505,7 @@ export function renderPane(
         {plannedShown.map((step, i) => (
           <Box flexDirection="row" gap={1}>
             <Box flexShrink={0} flexDirection="row" gap={1}>
-              <Text color="inactive">○</Text>
+              <Text color={runningSteps.has(step) ? STEP_MARK.doing.color : 'inactive'}>{runningSteps.has(step) ? STEP_MARK.doing.glyph : STEP_MARK.todo.glyph}</Text>
               <Text dimColor>{padStart(String(i + 1), idWidth)}</Text>
             </Box>
             <Box flexDirection="column" flexGrow={1} flexShrink={1}>
@@ -591,7 +594,7 @@ export function renderPane(
   const runningNodes = runningGroups(view.core, props.now ?? 0).map(group => (
     <Text key={group.key} wrap="truncate-end">
       <Text color="claude">{taskLabel(l, group)}</Text>
-      <Text dimColor>{[group.range ? ` · ${l.runningRange(group.range.first, group.range.last)}` : '', ` · ${l.runningAgents(group.agents)}`, ` · ${l.taskElapsed(group.elapsedMs)}`].join('')}</Text>
+      <Text dimColor>{[group.range ? ` · ${l.runningRange(group.range.first, group.range.last)}` : '', ` · ${l.runningAgents(group.agents)}`, ` · ${l.taskElapsed(group.elapsedMs)}`, ` · ${l.runningSince(group.startedAt)}`].join('')}</Text>
     </Text>
   ))
 

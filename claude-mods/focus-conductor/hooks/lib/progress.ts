@@ -197,6 +197,8 @@ export type RunningGroup = {
   range: { first: number; last: number } | null
   agents: number
   elapsedMs: number
+  /** Mốc bắt đầu (ms) của agent đầu tiên trong nhóm (0.7.6, W4): pane ghi "từ <giờ>". */
+  startedAt: number
 }
 
 /**
@@ -233,10 +235,21 @@ export function runningGroups(core: Core, now: number): RunningGroup[] {
   }
   return [...groups.values()]
     .sort((a, b) => a.startedAt - b.startedAt)
-    .map(({ numbers, plain, startedAt, ...group }) => ({
+    .map(({ numbers, plain, ...group }) => ({
       ...group,
       range: !plain && numbers.length > 0 ? { first: Math.min(...numbers), last: Math.max(...numbers) } : null,
       agents: Math.max(group.agents, tallies.find(t => t.key === group.key)?.running ?? 0),
-      elapsedMs: Math.max(0, now - startedAt),
+      elapsedMs: Math.max(0, now - group.startedAt),
     }))
+}
+
+/**
+ * Tiêu đề các bước đang có việc chạy (0.7.6, W4): bước khớp một việc giao subagent còn lô đang chạy. Pane vẽ ◐ cho các bước này kể cả
+ * khi bước còn todo, vì Claude có thể chưa kịp ghi "doing" mà lô đã chạy.
+ */
+export function runningTitles(core: Core, rows: readonly TaskRow[], titles: readonly string[]): Set<string> {
+  const { byTitle } = stepTaskRows(core, rows, titles)
+  const running = new Set<string>()
+  for (const [title, row] of byTitle) if (row.kind === 'agent' && row.state === 'running') running.add(title)
+  return running
 }
