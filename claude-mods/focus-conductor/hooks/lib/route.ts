@@ -414,6 +414,11 @@ type Clause = {
  * của các cặp đứng trước trong cùng ràng buộc. Nhóm 1 là phần giữa "for" và "only".
  */
 const RULE_OVERRIDE = /^\s*(?:riêng|rieng|đặc biệt|dac biet|nhưng|nhung|còn(?!\s+lại)|for\s+(.+?)\s+only)(?![\p{L}\p{N}])/iu
+/** Một mã trong vế ghi đè (T10): mã bước "BƯỚC 3", "Step 5", "Việc 2" hay mã ngắn "K4". */
+const OVERRIDE_CODE = '(?:(?:bước|buoc|step|việc|viec|task)\\s*#?\\s*\\d+|[a-z]{1,3}\\d+(?:\\.\\d+)*)'
+/** Danh sách từ hai mã trở lên nối bằng dấu phẩy, "và", "and" ngay sau dấu hiệu ghi đè (T10): "Riêng BƯỚC 3, BƯỚC 5 dùng opus". */
+const OVERRIDE_CODES = new RegExp(`^\\s*(${OVERRIDE_CODE}(?:(?:\\s*[,，]\\s*|\\s+(?:và|va|and)\\s+)${OVERRIDE_CODE})+)(?![\\p{L}\\p{N}])`, 'iu')
+
 /** Từ nối đứng ngay trước model thứ hai ("sonnet hoặc opus"): hai model là lựa chọn, không phải quy định (S3). */
 const MODEL_CHOICE = /^\s*(?:hoặc|hoac|hay|or)\s*$/iu
 
@@ -446,6 +451,18 @@ function parseRule(rule: string): ParsedRule {
       phrase = exceptionWords(comma < 0 ? after : after.slice(0, comma))
       if (phrase.length > 0) exceptions.push(phrase)
       segment = comma < 0 ? before : `${before},${after.slice(comma + 1)}`
+    }
+    // Vế ghi đè là danh sách mã (T10): mỗi mã là một ngoại lệ riêng của các cặp đứng trước; phần sau danh sách đọc như vế thường.
+    const lead = RULE_OVERRIDE.exec(segment)
+    const codes = lead !== null && lead[1] === undefined ? OVERRIDE_CODES.exec(segment.slice(lead[0].length)) : null
+    if (lead !== null && codes !== null) {
+      for (const code of (codes[1] ?? '').split(/\s*[,，]\s*|\s+(?:và|va|and)\s+/iu)) {
+        const words = phraseWords(code)
+        if (words.length === 0) continue
+        for (const clause of clauses) clause.excepts.push(words)
+        overrides.push(words)
+      }
+      segment = segment.slice(lead[0].length + codes[0].length)
     }
     const first = clauses.length
     let pending: string[][] = []
