@@ -226,3 +226,28 @@ describe('0.7.6 W4: mục Đang chạy ghi "từ <giờ bắt đầu>"', () => {
     expect(texts.some(t => t.endsWith(`3 min · since ${clock(started)}`))).toBe(true)
   })
 })
+
+describe('0.7.6 W4: nhiều việc có lô lỗi', () => {
+  test('mỗi việc một mục, theo thứ tự bước: BƯỚC 3 trước BƯỚC 4', async ($, on) => {
+    base(on, { router: () => plan({ goal: GOAL, depth: 'hard', volume: 'large', tasks: TITLES.map((title, k) => (k === 3 || k === 4 ? task(title, 'agent', 'sonnet', 'medium') : task(title, 'main', 'opus', 'high'))) }) })
+    hooks(on)
+    await submit($, GOAL)
+    for (const step of [3, 4]) {
+      for (let n = 1; n <= 2; n++) {
+        const id = `s${step}-${n}`
+        const description = `BƯỚC ${step}: lọc tin lô ${n}`
+        await $.tool.call({ tool: 'Agent', tool_use_id: id, description, prompt: `Lọc tin lô ${n}`, model: 'sonnet', subagent_type: 'general-purpose' } as never)
+        await $.agent.spawn({ prompt: `Lọc tin lô ${n}`, description, tool_use_id: id } as never)
+        await $.turn.start({ text: `Lọc tin lô ${n}`, turnId: `a-${id}`, agentId: `ag-${id}` } as never)
+        await $.turn.complete({ turnId: `a-${id}`, agentId: `ag-${id}`, answer: '', durationMs: 5, isAborted: false, reason: 'error' } as never)
+      }
+    }
+    const { texts } = await paneTree($)
+    const at = texts.findIndex(t => /^Cần chú ý/.test(t))
+    const first = texts.findIndex(t => t.endsWith('BƯỚC 3: 2 lô lỗi chưa giao lại'))
+    const second = texts.findIndex(t => t.endsWith('BƯỚC 4: 2 lô lỗi chưa giao lại'))
+    expect(at).toBeGreaterThanOrEqual(0)
+    expect(first).toBeGreaterThan(at)
+    expect(second).toBeGreaterThan(first)
+  })
+})
