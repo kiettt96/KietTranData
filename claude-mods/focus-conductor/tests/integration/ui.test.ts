@@ -35,7 +35,7 @@ describe('giao diện', () => {
     await ui.unmount()
   })
 
-  /** Những gì band và pane vẽ cho thanh tiến độ: màu phần đã đóng, đầu thanh, số bước đã đóng và tên giai đoạn. */
+  /** Những gì band và pane vẽ cho thanh tiến độ: màu phần đã đóng, đầu thanh, số bước đã đóng và tên giai đoạn (0.7.6, U6: tên giai đoạn chỉ còn ở pane, `word` của band luôn trống). */
   async function progressOf($: Engine, columns = 120) {
     const band = await $.ui.mount({
       plugin: 'focus-conductor',
@@ -76,28 +76,28 @@ describe('giao diện', () => {
     const mark = (step: number, status: string) => $.tool.call({ tool: PLAN, action: 'update', step, status })
 
     // Chưa bước nào bắt đầu: thanh trống, chưa có màu.
-    expect(await progressOf($)).toMatchObject({ fill: undefined, head: undefined, count: '0/6', word: 'chưa bắt đầu', paneWord: 'chưa bắt đầu' })
+    expect(await progressOf($)).toMatchObject({ fill: undefined, head: undefined, count: '0/6', word: undefined, paneWord: 'chưa bắt đầu' })
 
     // Bước 1 đang làm, chưa đóng bước nào: đầu thanh xanh dương, mới bắt đầu.
     await mark(1, 'doing')
-    expect(await progressOf($)).toMatchObject({ fill: undefined, head: '◐', headColor: 'ide', count: '0/6', word: 'mới bắt đầu', paneWord: 'mới bắt đầu' })
+    expect(await progressOf($)).toMatchObject({ fill: undefined, head: '◐', headColor: 'ide', count: '0/6', word: undefined, paneWord: 'mới bắt đầu' })
 
     // 1/6: phần đã đóng xanh dương.
     await mark(1, 'done')
     await mark(2, 'doing')
-    expect(await progressOf($)).toMatchObject({ fill: 'ide', headColor: 'ide', count: '1/6', word: 'mới bắt đầu', paneFill: 'ide', paneWord: 'mới bắt đầu' })
+    expect(await progressOf($)).toMatchObject({ fill: 'ide', headColor: 'ide', count: '1/6', word: undefined, paneFill: 'ide', paneWord: 'mới bắt đầu' })
 
     // 3/6: cam, đang thực hiện.
     await mark(2, 'done')
     await mark(3, 'done')
     await mark(4, 'doing')
-    expect(await progressOf($)).toMatchObject({ fill: 'claude', headColor: 'claude', count: '3/6', word: 'đang thực hiện', paneFill: 'claude', paneWord: 'đang thực hiện' })
+    expect(await progressOf($)).toMatchObject({ fill: 'claude', headColor: 'claude', count: '3/6', word: undefined, paneFill: 'claude', paneWord: 'đang thực hiện' })
 
     // 5/6: vàng, sắp xong.
     await mark(4, 'done')
     await mark(5, 'done')
     await mark(6, 'doing')
-    expect(await progressOf($)).toMatchObject({ fill: 'warning', headColor: 'warning', count: '5/6', word: 'sắp xong', paneFill: 'warning', paneWord: 'sắp xong' })
+    expect(await progressOf($)).toMatchObject({ fill: 'warning', headColor: 'warning', count: '5/6', word: undefined, paneFill: 'warning', paneWord: 'sắp xong' })
 
     // 6/6: thanh đầy màu xanh lá; band ghi "Đã xong mọi bước" thay cho tên giai đoạn, pane ghi hoàn thành.
     await mark(6, 'done')
@@ -113,7 +113,7 @@ describe('giao diện', () => {
     await $.tool.call({ tool: PLAN, action: 'set', steps: ['Một', 'Hai', 'Ba', 'Bốn'].map(title => ({ title })) })
     await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'done' })
     await $.tool.call({ tool: PLAN, action: 'update', step: 2, status: 'blocked', note: 'chờ khóa API' })
-    expect(await progressOf($)).toMatchObject({ fill: 'claude', head: '■', headColor: 'warning', count: '1/4', word: 'đang thực hiện' })
+    expect(await progressOf($)).toMatchObject({ fill: 'claude', head: '■', headColor: 'warning', count: '1/4', word: undefined })
   })
 
   test('terminal hẹp: vẫn tô màu theo giai đoạn, chỉ bỏ tên giai đoạn trên band', {}, async ($, on) => {
@@ -125,7 +125,7 @@ describe('giao diện', () => {
     await $.tool.call({ tool: PLAN, action: 'update', step: 2, status: 'done' })
     const wide = await progressOf($, 120)
     const narrow = await progressOf($, 60)
-    expect(wide).toMatchObject({ fill: 'claude', count: '2/5', word: 'đang thực hiện' })
+    expect(wide).toMatchObject({ fill: 'claude', count: '2/5', word: undefined })
     expect(narrow).toMatchObject({ fill: 'claude', count: '2/5', word: undefined })
     expect(narrow.cells).toBeGreaterThan(0)
     expect(narrow.cells).toBeLessThan(wide.cells)

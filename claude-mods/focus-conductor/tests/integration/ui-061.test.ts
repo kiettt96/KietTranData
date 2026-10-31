@@ -341,14 +341,14 @@ describe('0.6.1 3.3: band hẹp khi dừng', () => {
     }
   }
 
-  test('có chip model: thiếu chỗ thì bỏ lần lượt số bước, effort, rồi cả chip model', {}, async ($, on) => {
+  // 0.7.6: số bước không bao giờ bị bỏ; thiếu chỗ thì bỏ lần lượt chip subagent, effort, thời gian đã chạy, rồi cả chip model.
+  test('có chip model: thiếu chỗ thì bỏ lần lượt effort rồi cả chip model, số bước luôn còn', {}, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     memoryStore(on)
-    const meter = quotaMeter(on, [session(10)])
+    quotaMeter(on, [session(10)])
     await goalWithSteps($)
     await step($, seen)
-    await pauseByQuota($, meter, seen.clock)
     const look = async (columns: number) => {
       const band = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: bandProps(columns, 1) })
       const tree = (await band.drawn()) as unknown as El
@@ -363,13 +363,10 @@ describe('0.6.1 3.3: band hẹp khi dừng', () => {
     }
     expect(await look(48)).toMatchObject({ count: true, family: true, effort: true })
     const at40 = await look(40)
-    expect(at40).toMatchObject({ count: false, family: true, effort: true })
+    expect(at40).toMatchObject({ count: true, family: true, effort: false })
     expect(at40.fixed).toBeLessThanOrEqual(40)
-    const at36 = await look(36)
-    expect(at36).toMatchObject({ count: false, family: true, effort: false })
-    expect(at36.fixed).toBeLessThanOrEqual(36)
     const at30 = await look(30)
-    expect(at30).toMatchObject({ count: false, family: false, effort: false })
+    expect(at30).toMatchObject({ count: true, family: false, effort: false })
     expect(at30.fixed).toBeLessThanOrEqual(30)
   })
 
@@ -377,10 +374,9 @@ describe('0.6.1 3.3: band hẹp khi dừng', () => {
     const seen = base(on, RESUME)
     startHooks(on)
     memoryStore(on)
-    const meter = quotaMeter(on, [session(10)])
+    quotaMeter(on, [session(10)])
     await goalWithSteps($)
     await step($, seen)
-    await pauseByQuota($, meter, seen.clock)
     await conductor($, 'mode suggest')
     const band = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: bandProps(40, 1) })
     expect(await band.find({ type: 'Text', text: /^opus$/ })).toBeDefined()
@@ -448,7 +444,8 @@ describe('0.6.1 3.4: band và pane trên vscode và mobile', () => {
         await reach($, on, state)
         const band = await $.ui.mount({ plugin: 'focus-conductor', surface, component: 'AbovePrompt', props: bandProps(80, 3) })
         expect(await band.drawn()).toMatchObject({ type: 'Box' })
-        expect(await band.find({ type: 'Text', text: /Refactor module thanh toán/ })).toBeDefined()
+        // 0.7.6: band ghi mục tiêu khi chưa có checklist; có checklist thì bước hiện tại, mục tiêu đầy đủ ở pane.
+        if (state === 'no-checklist') expect(await band.find({ type: 'Text', text: /Refactor module thanh toán/ })).toBeDefined()
         if (state === 'paused') expect(await band.find({ type: 'Text', text: /^tạm dừng: hạn mức$/ })).toBeDefined()
         if (state === 'near') expect(await band.find({ type: 'Text', text: /^hạn mức còn 8%$/ })).toBeDefined()
         await band.unmount()

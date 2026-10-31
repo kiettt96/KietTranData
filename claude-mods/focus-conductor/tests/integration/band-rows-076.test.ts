@@ -6,7 +6,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { Seen } from '../support/engine'
-import { base, plan, submit, task } from '../support/engine'
+import { base, plan, step, submit, task } from '../support/engine'
 
 type Node = { type?: string; props?: Record<string, unknown>; children?: unknown[] }
 const PLAN = 'mcp__focus-conductor__plan'
@@ -32,6 +32,8 @@ async function midGoal($: Engine, on: Parameters<typeof base>[0]): Promise<Seen>
   await $.tool.call({ tool: PLAN, action: 'set', steps: TITLES.map(title => ({ title })) } as never)
   for (let id = 1; id <= 5; id++) await $.tool.call({ tool: PLAN, action: 'update', step: id, status: 'done' } as never)
   await $.tool.call({ tool: PLAN, action: 'update', step: 6, status: 'doing' } as never)
+  // Một step của luồng chính để mod áp model (chip model chỉ hiện khi đã áp).
+  await step($, seen)
   await seen.clock.advance(12 * 60_000)
   return seen
 }
@@ -79,5 +81,15 @@ describe('0.7.6 band hai dòng', () => {
     expect(rows.length).toBe(1)
     expect(rows[0]).toContain('ngoài phạm vi')
     expect(rows[0]).not.toContain('BƯỚC 0: sửa')
+  })
+})
+
+describe('0.7.6 band hai dòng: chưa có checklist', () => {
+  test('dòng 1 ghi mục tiêu; không có gì cần chú ý thì không lặp mục tiêu ở dòng 2', async ($, on) => {
+    base(on, { router: () => plan({ goal: GOAL, depth: 'substantial', volume: 'small' }) })
+    await submit($, GOAL)
+    const rows = await bandRows($, 120, 2)
+    expect(rows.length).toBe(1)
+    expect(rows[0]).toContain(GOAL)
   })
 })

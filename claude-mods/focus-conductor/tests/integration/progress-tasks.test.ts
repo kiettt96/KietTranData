@@ -173,26 +173,19 @@ describe('0.6.1 2.4: band với nhiều việc', () => {
     return { rows, texts }
   }
 
-  test('maxRows 6: thêm tối đa 4 dòng việc, đang chạy trước, phần dư ghi +k việc; maxRows 3 và 2 không vượt', {}, async ($, on) => {
+  // 0.7.6: band luôn hai dòng; các dòng việc riêng chỉ ở pane. Không có gì cần chú ý thì dòng 2 ghi subagent đang chạy.
+  test('maxRows 6, 3, 2: band hai dòng; dòng 2 ghi subagent đang chạy, việc đầu tiên đang chạy', {}, async ($, on) => {
     base(on)
     agentHooks(on)
     await submit($, FOUR)
     await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Phác' }, { title: 'Gộp' }] })
     await spawnTool($, 'u2', 'Việc 2: đổi tên userId', 'đổi tên')
     await spawnTool($, 'u9', 'Kiểm tra log lỗi thanh toán', 'kiểm tra')
+    for (const max of [6, 3, 2]) expect((await bandAt($, max)).rows, String(max)).toBe(2)
     const six = await bandAt($, 6)
-    expect(six.rows).toBeLessThanOrEqual(6)
-    expect(six.rows).toBe(6)
-    expect(has(six.texts, /^\+1 việc$/)).toBe(true)
-    // Dòng việc đầu tiên là việc đang chạy.
-    const firstTask = six.texts.findIndex(t => /^(Việc \d|Claude tự giao)/.test(t))
-    expect(six.texts[firstTask]).toMatch(/^Việc 2: /)
-    const three = await bandAt($, 3)
-    expect(three.rows).toBeLessThanOrEqual(3)
-    expect(has(three.texts, /^\+\d việc$/)).toBe(true)
-    const two = await bandAt($, 2)
-    expect(two.rows).toBeLessThanOrEqual(2)
-    expect(has(two.texts, /^subagent 0\/4 xong$/)).toBe(true)
+    expect(has(six.texts, /^2 subagent đang chạy: Việc 2: /)).toBe(true)
+    expect(has(six.texts, /^\+\d việc$/)).toBe(false)
+    expect(has(six.texts, /^subagent 0\/4 xong$/)).toBe(true)
   })
 
   test('chỉ có việc chính: band như cũ, không thêm dòng việc', {}, async ($, on) => {
