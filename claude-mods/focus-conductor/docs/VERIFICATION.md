@@ -2,7 +2,20 @@
 
 Số đo của HEAD hiện tại và của các bản trước. Mọi số do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển] trừ khi nêu khác; hợp đồng đối chiếu evidence ở [DESIGN.md](DESIGN.md), lịch sử thay đổi ở [CHANGELOG.md](../CHANGELOG.md), cách dùng ở [README](../README.md).
 
-## Kiểm chứng HEAD hiện tại: vòng rà soát 5
+## Kiểm chứng của 0.7.6 (band và pane theo thứ bậc thông tin)
+
+Bản 0.7.6 xếp chồng trên nhánh `claude/focus-conductor-0-7-5` (đã hợp nhất vòng 5, `f894982`). Mỗi điểm U1 tới U12 một commit test đỏ rồi một commit sửa; các ca ghim đột biến chỉ đổi `tests/` [Đo trực tiếp].
+
+- Môi trường: Claude Code 2.1.296 cho mọi lần chạy test và đột biến dưới đây [Đo trực tiếp].
+- `claude plugin test .` trên cây hợp nhất: 2131 test qua, 0 lỗi, 183 tệp [Đo trực tiếp]. `claude plugin validate .` qua; `bunx tsc -p tsconfig.json` sạch; `bun scripts/mutate.ts --check` 1578/1578 chỉ kiểm khớp (mismatched rỗng). sha256 `hooks/` `1c6086131ffdbacff62b870a7fb3ccc9f2ad2f61c58e921f9bc6ad5ea9a9c9d8`, `tests/` `c1b01213a5be96487df1c5e822692ad0bfe60e3957360e233c9f0c255cc533ce`.
+- Đột biến trên mã 0.7.6 (`29e21c0`, 176 mẫu mới và mẫu của các tệp `hooks/ui/`, `hooks/lib/progress.ts`, `pane.ts`, `text.ts`), chia theo phần (bộ chạy hai pha, pha 2 là toàn bộ bộ test) [Đo trực tiếp]: 176 bị bắt, 0 sống sót chưa xử lý. Ba mẫu sống sót ở lượt quét sau (`075-L6d`, `075-R10c` và `061-U18`) đã có ca ghim (commit `3ff780e`; `061-U18` đánh dấu tương đương kèm lý do); cả hai ca ghim đã bắt mẫu khi áp lên cây (1 đỏ mỗi mẫu).
+- Phiên dài (cùng kịch bản mục 6): 10.339 ký tự mod chèn (cứ 10 lời gọi có một script ghi) và 19.587 (cứ 3 lời gọi), bằng số trước U1 đến U12 [Đo trực tiếp]; 0 lượt router, 11 trên 11 bước nâng, 24 lời nhắc checkpoint sau subagent khi cứ 3 lời gọi.
+- Số đo phần hiển thị: 10 trạng thái (mới vào, có bước dự kiến, giữa chừng 11 bước, 300 lô có lỗi, đã kiểm chứng bị hạ, nhiều cảnh báo chồng, báo hạn mức mềm, tạm dừng cứng, sau nén, hoàn thành) dựng ở band 56, 72, 120 cột và pane 16, 24, 40 dòng. Bảng trước và sau ở mô tả PR 29 (bộ vẽ chữ gần đúng terminal thật, [Giả định]). Pane 16 dòng của trạng thái giữa chừng 11 bước: 55 dòng trước, 38 dòng sau.
+- Quét dòng thêm (chuỗi riêng tư, em dash, emoji, dấu chấm than): 0 chuỗi riêng tư; 0 em dash; không emoji ngoài ký hiệu đã ghi ở CHANGELOG của vòng 5; dấu chấm than chỉ là toán tử trong mã [Đo trực tiếp].
+- CI: xem mô tả PR 29 (commit cuối sau khi push).
+- Chưa kiểm được trên phiên thật: `$.ui` với terminal thật ở các độ rộng trong bảng xem trước; trạng thái dừng hạn mức thật; đổi base PR 29 sang `main` sau khi PR 28 merge (bằng merge, không rebase).
+
+## Kiểm chứng của vòng rà soát 5 (0.7.5)
 
 Vòng rà soát 5 (probe độc lập trên head `340a09d`): T1 tới T10 (T9, T10 thêm sau khi T1 tới T8 đã sửa), ngày 2026-10-31, nhánh `claude/focus-conductor-0-7-5`. Mỗi điểm một commit test đỏ rồi một commit sửa; commit chỉ thêm ca ghim hay đo B6 chỉ đổi `tests/`. Người rà soát chấp nhận việc S5 đổi hai ca cũ "Kiểm xong tại casino OK" và "know OK" thành không đạt, và cách hiểu "0 dòng lệch", "Thiếu 0 dòng" phải đạt (T9).
 
