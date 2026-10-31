@@ -418,6 +418,11 @@ const RULE_OVERRIDE = /^\s*(?:riêng|rieng|đặc biệt|dac biet|nhưng|nhung|c
 const OVERRIDE_CODE = '(?:(?:bước|buoc|step|việc|viec|task)\\s*#?\\s*\\d+|[a-z]{1,3}\\d+(?:\\.\\d+)*)'
 /** Một mục mã của danh sách ghi đè (T10, 0.7.6 V2): mã bước có số, hay mã ngắn; nhóm 1 và 2 là tiền tố và số khi tách được. */
 const LIST_CODE = /^(?:(?:(bước|buoc|step|việc|viec|task)\s*#?\s*|([a-z]{1,3}))(\d+)|[a-z]{1,3}\d+(?:\.\d+)+)$/iu
+/** Một mục khoảng (0.7.6 V3): "BƯỚC 3 đến BƯỚC 5", "BƯỚC 3-5", "từ BƯỚC 3 tới 5", "K3 to K5". */
+const LIST_RANGE = new RegExp(`^(?:từ|tu|from)?\\s*(${OVERRIDE_CODE})\\s*(?:đến|tới|den|toi|to|-|–)\\s*(${OVERRIDE_CODE}|\\d+)$`, 'iu')
+/** Số mã tối đa của một khoảng [Giả định: đủ cho checklist thật]; khoảng dài hơn chỉ lấy hai đầu. Khoảng ngược chiều đọc như xuôi. */
+const RANGE_MAX = 50
+
 type CodeParts = { prefix: string; isShort: boolean; number: number }
 /** Tiền tố và số của một mã ("BƯỚC 3": "buoc", 3; "K4": "k", 4, mã ngắn); null khi không tách được ("K4.1"). */
 function codeParts(code: string): CodeParts | null {
@@ -431,10 +436,10 @@ function codeWords(parts: CodeParts, number: number): string[] {
 }
 
 /**
- * Danh sách sau dấu hiệu ghi đè (T10, 0.7.6 V2): phần từ sau dấu hiệu tới từ cắt ("dùng", tên model) hay "thì", tách theo dấu phẩy;
- * mỗi phần tách tiếp theo "và", "and" khi có mục là mã. Mục là mã, số trần (cùng tiền tố với mã liền
+ * Danh sách sau dấu hiệu ghi đè (T10, 0.7.6 V2, V3): phần từ sau dấu hiệu tới từ cắt ("dùng", tên model) hay "thì", tách theo dấu phẩy;
+ * mỗi phần tách tiếp theo "và", "and" khi có mục là mã. Mục là mã, khoảng mã (mọi mã trong khoảng), số trần (cùng tiền tố với mã liền
  * trước: "BƯỚC 3, 5") hay cụm chữ (từ khóa ngoại lệ). Trả các ngoại lệ và số ký tự đã đọc (mục cuối là cụm chữ thì dừng trước nó, để
- * cụm đó vẫn là loại việc của cặp nêu model). Null khi chỉ có một mục: vế ghi đè thường giữ luật cũ.
+ * cụm đó vẫn là loại việc của cặp nêu model). Null khi chỉ có một mục không phải khoảng: vế ghi đè thường giữ luật cũ.
  */
 function overrideList(text: string): { items: string[][]; consumed: number } | null {
   const hasMarks = /[^\x00-\x7f]/.test(text)
@@ -450,7 +455,7 @@ function overrideList(text: string): { items: string[][]; consumed: number } | n
       last = (join.index ?? 0) + join[0].length
     }
     subs.push({ text: piece[0].slice(last), at: (piece.index ?? 0) + last })
-    const isCodeLike = (sub: { text: string }) => LIST_CODE.test(sub.text.trim()) || /^#?\d+$/.test(sub.text.trim())
+    const isCodeLike = (sub: { text: string }) => LIST_CODE.test(sub.text.trim()) || LIST_RANGE.test(sub.text.trim()) || /^#?\d+$/.test(sub.text.trim())
     if (subs.length > 1 && subs.some(isCodeLike)) entries.push(...subs)
     else entries.push({ text: piece[0], at: piece.index ?? 0 })
   }
@@ -459,9 +464,27 @@ function overrideList(text: string): { items: string[][]; consumed: number } | n
     .filter(entry => entry.text !== '')
   const items: string[][] = []
   let prefix: CodeParts | null = null
+  let hasRange = false
   let lastIsPhrase = false
   for (const entry of cleaned) {
     lastIsPhrase = false
+    const range = LIST_RANGE.exec(entry.text)
+    if (range !== null) {
+      hasRange = true
+      const from = codeParts(range[1] ?? '')
+      const to = /^\d+$/.test(range[2] ?? '') && from !== null ? { ...from, number: Number(range[2]) } : codeParts(range[2] ?? '')
+      const isSame = from !== null && to !== null && from.prefix === to.prefix && from.isShort === to.isShort
+      const low = Math.min(from?.number ?? 0, to?.number ?? 0)
+      const high = Math.max(from?.number ?? 0, to?.number ?? 0)
+      if (from !== null && to !== null && isSame && high - low < RANGE_MAX) {
+        for (let n = low; n <= high; n++) items.push(codeWords(from, n))
+      } else {
+        items.push(phraseWords(range[1] ?? ''))
+        items.push(to !== null ? codeWords(to, to.number) : phraseWords(range[2] ?? ''))
+      }
+      prefix = from
+      continue
+    }
     const bare = /^#?(\d+)$/.exec(entry.text)
     if (bare !== null && prefix !== null) {
       items.push(codeWords(prefix, Number(bare[1])))
@@ -476,7 +499,7 @@ function overrideList(text: string): { items: string[][]; consumed: number } | n
     if (words.length > 0) items.push(words)
     lastIsPhrase = true
   }
-  if (cleaned.length < 2) return null
+  if (cleaned.length < 2 && !hasRange) return null
   const lastEntry = cleaned.at(-1)
   return { items, consumed: lastIsPhrase && lastEntry !== undefined ? lastEntry.at : headEnd }
 }
@@ -514,7 +537,7 @@ function parseRule(rule: string): ParsedRule {
       if (phrase.length > 0) exceptions.push(phrase)
       segment = comma < 0 ? before : `${before},${after.slice(comma + 1)}`
     }
-    // Vế ghi đè là danh sách (T10, 0.7.6 V2): mỗi mục (mã, cụm chữ) là một ngoại lệ riêng của các cặp đứng trước;
+    // Vế ghi đè là danh sách (T10, 0.7.6 V2, V3): mỗi mục (mã, mã trong khoảng, cụm chữ) là một ngoại lệ riêng của các cặp đứng trước;
     // phần sau danh sách đọc như vế thường.
     const lead = RULE_OVERRIDE.exec(segment)
     const list = lead !== null && lead[1] === undefined ? overrideList(segment.slice(lead[0].length)) : null

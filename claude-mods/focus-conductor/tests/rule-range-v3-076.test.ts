@@ -15,4 +15,17 @@ describe('0.7.6 V3: khoảng mã trong vế ghi đè', () => {
       expect(ruleFamily(rules, 'BƯỚC 2: lọc tin lô 1', null)).toBe('sonnet')
     })
   }
+  // Thêm ở commit sửa để ghim mẫu đột biến: khoảng ngược chiều đọc như xuôi; khoảng quá 50 mã [Giả định] chỉ lấy hai đầu.
+  test('"Riêng BƯỚC 5 đến BƯỚC 3": như BƯỚC 3 đến 5', () => {
+    const rules = ['Lọc tin dùng sonnet. Riêng BƯỚC 5 đến BƯỚC 3 dùng opus']
+    expect(ruleFamily(rules, 'BƯỚC 4: lọc tin lô 1', null)).not.toBe('sonnet')
+    expect(ruleFamily(rules, 'BƯỚC 6: lọc tin lô 1', null)).toBe('sonnet')
+  })
+
+  test('"Riêng K1 đến K200": chỉ K1 và K200 là ngoại lệ', () => {
+    const rules = ['Lọc tin dùng sonnet. Riêng K1 đến K200 dùng opus']
+    expect(ruleFamily(rules, 'K1: lọc tin lô 1', null)).not.toBe('sonnet')
+    expect(ruleFamily(rules, 'K200: lọc tin lô 1', null)).not.toBe('sonnet')
+    expect(ruleFamily(rules, 'K100: lọc tin lô 1', null)).toBe('sonnet')
+  })
 })
