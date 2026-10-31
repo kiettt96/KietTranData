@@ -83,7 +83,7 @@ describe('0.7.5 S5 (d): phủ định trước từ lỗi và số 0 của từ 
 describe('0.7.5 S5 (b): qua ống không pipefail cần dòng cuối là dòng tổng kết chặt', () => {
   test('dòng tổng kết: OK, PASS, PASSED, ĐẠT, KẾT QUẢ: ĐẠT, ALL PASS, kèm N/N bằng nhau, tiền tố Kết quả/Done/Tổng', () => {
     declared(() => {
-      for (const last of ['OK', 'ok.', 'PASS', 'PASSED', 'ĐẠT', 'KẾT QUẢ: ĐẠT', 'Kết quả: đạt', 'ALL PASS', 'All tests passed', 'OK 120/120', 'ĐẠT (120/120)', 'Done OK', 'Tổng: 120/120 khớp', 'Tổng hợp KHỚP', 'Kiểm xong: 0 lỗi', '12 passed']) {
+      for (const last of ['OK', 'ok.', 'PASS', 'PASSED', 'ĐẠT', 'KẾT QUẢ: ĐẠT', 'Kết quả: đạt', 'ALL PASS', 'All tests passed', 'OK 120/120', 'ĐẠT (120/120)', 'Done OK', 'Tổng: 120/120 khớp', 'Tổng hợp KHỚP', 'Kiểm xong: 0 lỗi', '12 passed', 'All 12 passed', 'Tổng: 12 đạt']) {
         expect(piped(`Đã kiểm 120 dòng\n${last}`), last).toBe(true)
       }
     })

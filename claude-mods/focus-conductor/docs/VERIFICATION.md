@@ -2,7 +2,41 @@
 
 Số đo của HEAD hiện tại và của các bản trước. Mọi số do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển] trừ khi nêu khác; hợp đồng đối chiếu evidence ở [DESIGN.md](DESIGN.md), lịch sử thay đổi ở [CHANGELOG.md](../CHANGELOG.md), cách dùng ở [README](../README.md).
 
-## Kiểm chứng HEAD hiện tại: vòng rà soát 4
+## Kiểm chứng HEAD hiện tại: vòng rà soát 5
+
+Vòng rà soát 5 (probe độc lập trên head `340a09d`): T1 tới T10 (T9, T10 thêm sau khi T1 tới T8 đã sửa), ngày 2026-10-31, nhánh `claude/focus-conductor-0-7-5`. Mỗi điểm một commit test đỏ rồi một commit sửa; commit chỉ thêm ca ghim hay đo B6 chỉ đổi `tests/`. Người rà soát chấp nhận việc S5 đổi hai ca cũ "Kiểm xong tại casino OK" và "know OK" thành không đạt, và cách hiểu "0 dòng lệch", "Thiếu 0 dòng" phải đạt (T9).
+
+- Môi trường: Claude Code 2.1.296 (bản CI ghim) cho mọi lần chạy test và đột biến dưới đây [Đo trực tiếp].
+- Cây cuối `851b9f3` (mã giống `53c2e09`, thêm một ca ghim): `claude plugin test .` 2062 test qua, 0 lỗi, 169 tệp, tăng 63 so với vòng rà soát 4 (1999) [Đo trực tiếp]. `claude plugin validate .` qua ở thư mục mod và gốc repo. `bunx tsc -p tsconfig.json` sạch. `bun scripts/mutate.ts --check` 1578/1578 chỉ kiểm khớp (mismatched rỗng). sha256 `hooks/` `dc1e10740d5016ba2c91b6ad37c20bc2878abf0825a28ab76687022b2c20528f`, `tests/` `ba63ecd2889571d6db00e0a2eba19d6d38abe32636b4a1a452b410366399edee` [Đo trực tiếp].
+- Golden: `tests/golden.test.ts` khớp hash (băm request không đổi), nên không chạy lại eval golden-set; nằm trong 2062 test qua.
+- Test đỏ trước khi sửa, đo trên mã của commit ngay trước từng điểm [Đo trực tiếp]:
+
+| Điểm | Đỏ | Tệp test |
+|---|---|---|
+| T1 | 2 trên 5 | `tests/rule-step-t1-075.test.ts` |
+| T2 | 4 trên 9 | `tests/rule-items-t2-075.test.ts` |
+| T3 | 3 trên 5 | `tests/session-floor-t3-075.test.ts` |
+| T4 | 4 trên 8 | `tests/custom-ran-nothing-t4-075.test.ts` |
+| T5 | 3 trên 6 | `tests/custom-summary-t5-075.test.ts` |
+| T6 | 2 trên 2 | `tests/pipe-hint-t6-075.test.ts` |
+| T7 | 2 trên 4 | `tests/integration/quota-hardlink-t7-075.test.ts` |
+| T8 | 2 trên 3 | `tests/session-floor-t8-075.test.ts` |
+| T9 | 8 trên 9 | `tests/custom-empty-t9-075.test.ts` |
+| T10 | 4 trên 5 | `tests/rule-codes-t10-075.test.ts` |
+
+- B6, số lượt router chấm subagent với 150 lô, đo lại sau T10 (`tests/integration/agent-memo-r6-075.test.ts`, `agent-memo-075.test.ts`) [Đo trực tiếp]: "Lọc tin lô N" và "BƯỚC 4: lọc tin lô N" Claude ghi `sonnet` đúng quy tắc: 0 lượt router; quy tắc "Lọc tin dùng sonnet. Riêng BƯỚC 3, BƯỚC 5 dùng opus": 150 lô "BƯỚC 3: ..." 1 lượt, 150 lô "BƯỚC 5: ..." thêm 1 lượt (không quá 1 lượt mỗi mã); các ca còn lại như vòng 4.
+- Phiên dài sau T1 tới T10 (cùng kịch bản của mục 6, engine 2.1.296, đo trên cây `851b9f3`) [Đo trực tiếp]: cứ 10 lời gọi có một script ghi, 10.339 ký tự mod chèn, 9 lời nhắc checkpoint sau subagent, 0 lượt router, nâng `verified` 11 trên 11, cảnh báo phạm vi 1 mỗi script, "100/100 lô xong" ở ba dòng việc; cứ 3 lời gọi, 19.587 ký tự và 24 lời nhắc checkpoint, các chỉ số khác như trên. Không đổi so với vòng rà soát 4 (`main` 19b0349: 35.190 và 106.063 ký tự).
+- Đột biến, hai lượt bằng bộ chạy hai pha ngoài repo (pha 1: test nhập trực tiếp tệp bị đột biến hay mang mã mẫu; pha 2: toàn bộ bộ test; engine 2.1.296), chia cho 10 phiên cloud và máy tác giả, mỗi phần chạy bộ test gốc trước (0 lỗi) [Đo trực tiếp]:
+  - Lượt 1: 574 mẫu của các tệp `hooks/` đổi từ vòng 4, trên `930ae75`: 565 bị bắt, 8 tương đương có lý do đã ghi, 1 sống sót là `075-H1i` (đã ghim bằng ca "Dòng 12 không hợp lệ⏎OK" ở `7a1656d`, 1 đỏ khi áp mẫu).
+  - Lượt 2: 236 mẫu của `hooks/lib/drift/output.ts` và `hooks/lib/route.ts` (và các mẫu cùng nhóm kiểm chạy qua ống, quy tắc model) trên cây sau T9, T10 `53c2e09`: 234 bị bắt, 1 tương đương (`075-R2a`), 1 sống sót là `075-S5f` (bỏ nhóm số đứng trước dấu hiệu đạt của dòng tổng kết; từ T9, "12 passed" được nhận qua luật dòng đếm nên ca cũ không phân biệt). Ghim ở `851b9f3` bằng ca "All 12 passed" và "Tổng: 12 đạt" qua ống không pipefail (1 đỏ khi áp mẫu).
+  - Mẫu bị bắt bởi đúng một test đỏ ở pha 2 (26 mẫu của lượt 2, gồm `r4-V1` tới `r4-V17`, `r5-B2` tới `r5-B10`, `P18`) được chạy lại trên toàn bộ bộ test bằng `bun scripts/mutate.ts <id>`: 26 trên 26 vẫn bị bắt [Đo trực tiếp].
+  - Phần mẫu 1 lượt đầu chạy khi máy tải 20 tới 28 trên 4 nhân; các mẫu bị bắt do tải được loại bằng cách chạy lại trên máy yên hay trên phiên cloud riêng, kết quả bị bắt giữ nguyên.
+- Không hồi quy: toàn bộ 2062 test qua trên 2.1.296. Khi `mode` là `off` không có thay đổi hành vi. Hành vi `plan`, ngưỡng dừng cứng mặc định, khối brief và quy tắc `routing` giữ nguyên ngoài các điểm T1 tới T10.
+- CI: check `plugin` xanh trên commit mã `53c2e09` (run 41160830417, lúc 2026-10-31) [Nguồn: GitHub Actions]; CI của commit ghim `851b9f3` ghi ở mô tả PR. Commit tài liệu sau đó chỉ đổi `docs/`, `CHANGELOG.md`.
+- Quét chuỗi riêng tư: bằng tệp mẫu nằm ngoài repo, trên `git log -p 340a09d..HEAD`, thông điệp commit và các dòng thêm vào tài liệu: 0 dòng khớp; em dash 0; emoji 1 (ký hiệu U+2705 ở commit test đỏ của T5, đã ghi ở CHANGELOG); dấu chấm than chỉ là toán tử trong mã [Đo trực tiếp]. Trong thông điệp commit chỉ có dòng trailer `Claude-Session`.
+- Chưa kiểm được (chỉ kiểm được trong phiên tương tác thật hoặc bằng dữ liệu của người dùng): sàn model phiên (T3, T8) với `$.session.model()` thật; lệnh kiểm thật in "Ran 0 tests", dữ liệu rỗng hay dòng tổng kết có viền (T4, T5, T9); `cp` và `rsync` tạo liên kết trên hệ tệp thật (T7); quét chuỗi riêng tư bằng danh sách thật.
+
+## Kiểm chứng của vòng rà soát 4 (0.7.5)
 
 Vòng rà soát 4 (probe độc lập trên head `49c6939`): S1 tới S10, ngày 2026-10-30, nhánh `claude/focus-conductor-0-7-5`. Mỗi điểm một commit test đỏ rồi một commit sửa (S10 chỉ đổi tài liệu, S9 có thêm một commit sửa sau khi đột biến bắt được lỗi thật). Mã (`hooks/`) của cây cuối `bceb435` có sha256 `3c37849671c6401d8b8a69f6022017678a9e42f57b41890a61a92444fcdf1ad7` và `tests/` có `1efa4d48967b1355bcb954ef0cb73fdb1eb84a9348831e78c6c1777541b213b8` (tính bằng `scripts/mutate.ts --check` trên cây cuối). Các commit tài liệu sau đó không đổi hai giá trị này.
 
