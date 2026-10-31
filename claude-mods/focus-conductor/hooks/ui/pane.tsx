@@ -8,7 +8,7 @@ import type { Mode, PlanStep, StepStatus } from '../../types'
 import { estimateLine, ledgerLines, sessionUsd } from '../lib/ledger'
 import type { View } from '../lib/state'
 import { shownPlan } from '../lib/mirror'
-import { stepTaskRows, taskRows } from '../lib/progress'
+import { runningGroups, stepTaskRows, taskRows } from '../lib/progress'
 import { countLabel, progress } from '../lib/text'
 import type { QuotaPaneText } from '../lib/text'
 import { labels, shownWarning, stepTaskMeta, taskLabel } from './labels'
@@ -516,6 +516,15 @@ export function renderPane(
     )
   })
 
+  // ----------------------------------------------------------- đang chạy
+  // U8: mỗi việc có subagent đang chạy một dòng: tên việc, khoảng lô, số agent đang chạy, thời gian từ agent đầu tiên của nhóm.
+  const runningNodes = runningGroups(view.core, props.now ?? 0).map(group => (
+    <Text key={group.key} wrap="truncate-end">
+      <Text color="claude">{taskLabel(l, group)}</Text>
+      <Text dimColor>{[group.range ? ` · ${l.runningRange(group.range.first, group.range.last)}` : '', ` · ${l.runningAgents(group.agents)}`, ` · ${l.taskElapsed(group.elapsedMs)}`].join('')}</Text>
+    </Text>
+  ))
+
   // ----------------------------------------------------------- điều phối
   const routeNode = route ? (
     <Box flexDirection="column">
@@ -657,6 +666,12 @@ export function renderPane(
         <Box flexDirection="column">
           {heading(l.taskSection, String(taskNodes.length))}
           {taskNodes}
+        </Box>
+      ) : null}
+      {runningNodes.length > 0 ? (
+        <Box flexDirection="column">
+          {heading(l.running)}
+          {runningNodes}
         </Box>
       ) : null}
       {modeRow}

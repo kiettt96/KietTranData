@@ -51,6 +51,13 @@ describe('0.7.6 U8: mục Đang chạy của pane', () => {
     expect(texts).toContain('Claude tự giao: Kiểm tra log lỗi thanh toán · 1 agent · <1 phút')
   })
 
+  test('25 lô đang chạy (danh sách agent chỉ giữ 20 agent gần nhất): số agent theo bộ đếm', async ($, on) => {
+    await goal($, on)
+    for (let n = 1; n <= 25; n++) await spawnTool($, `u${n}`, `BƯỚC 2: lọc tin lô ${n}`, 'lọc')
+    const texts = await paneTexts($)
+    expect(texts.some(t => /^BƯỚC 2: lọc tin · lô \d+ đến 25 · 25 agent · <1 phút$/.test(t))).toBe(true)
+  })
+
   test('không có agent đang chạy: không có mục Đang chạy', async ($, on) => {
     await goal($, on)
     await spawnTool($, 'u1', 'BƯỚC 2: lọc tin lô 1', 'lọc')

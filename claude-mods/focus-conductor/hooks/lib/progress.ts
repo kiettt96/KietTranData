@@ -186,3 +186,57 @@ export function stepTaskRows(core: Core, rows: readonly TaskRow[], titles: reado
   }
   return { byTitle, matched }
 }
+
+/** Một nhóm agent đang chạy của mục "Đang chạy" (0.7.6, U8): theo việc router phân, hay theo mô tả với việc Claude tự giao. */
+export type RunningGroup = {
+  key: string
+  kind: 'agent'
+  index?: number
+  title: string
+  /** Số cuối của mô tả nhỏ nhất và lớn nhất trong nhóm (khoảng lô); null khi có agent mà mô tả không kết thúc bằng số. */
+  range: { first: number; last: number } | null
+  agents: number
+  elapsedMs: number
+}
+
+/**
+ * Các nhóm agent đang chạy của mục tiêu hiện tại (0.7.6, U8), theo thứ tự agent đầu tiên của nhóm bắt đầu. Tên nhóm là tiêu đề việc
+ * router phân, hay mô tả của agent với việc Claude tự giao; số agent theo bộ đếm khi có (danh sách agent chỉ giữ 20 agent gần nhất).
+ */
+export function runningGroups(core: Core, now: number): RunningGroup[] {
+  const brief = core.brief
+  if (brief === null || core.agentProgress.goalId !== brief.goalId) return []
+  const tasks = brief.isReference ? [] : brief.tasks
+  const tallies = talliesOf(core)
+  const groups = new Map<string, RunningGroup & { numbers: number[]; plain: boolean; startedAt: number }>()
+  for (const item of core.agentProgress.items) {
+    if (item.state !== 'running') continue
+    const key = tallyKey(item)
+    const tail = /(\d+)\s*$/.exec(item.title)
+    const group = groups.get(key) ?? {
+      key,
+      kind: 'agent' as const,
+      ...(item.taskIndex !== undefined ? { index: item.taskIndex } : {}),
+      title: (item.taskIndex !== undefined ? tasks.find(task => task.index === item.taskIndex)?.title : undefined) ?? item.title,
+      range: null,
+      agents: 0,
+      elapsedMs: 0,
+      numbers: [],
+      plain: false,
+      startedAt: item.startedAt,
+    }
+    group.agents += 1
+    group.startedAt = Math.min(group.startedAt, item.startedAt)
+    if (tail) group.numbers.push(Number(tail[1]))
+    else group.plain = true
+    groups.set(key, group)
+  }
+  return [...groups.values()]
+    .sort((a, b) => a.startedAt - b.startedAt)
+    .map(({ numbers, plain, startedAt, ...group }) => ({
+      ...group,
+      range: !plain && numbers.length > 0 ? { first: Math.min(...numbers), last: Math.max(...numbers) } : null,
+      agents: Math.max(group.agents, tallies.find(t => t.key === group.key)?.running ?? 0),
+      elapsedMs: Math.max(0, now - startedAt),
+    }))
+}
