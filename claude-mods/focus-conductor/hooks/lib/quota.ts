@@ -99,18 +99,51 @@ export function allowScopes(paths: readonly string[]): string[] {
   return paths.map(path => (path.endsWith('/') && !path.startsWith('/') && !path.slice(0, -1).includes('/') ? `./${path}` : path))
 }
 
+/** Lệnh bọc chạy lệnh khác (S4, T7): bỏ qua cùng cờ và tham số của nó trước khi xét lệnh thật. */
+const LINK_WRAPPERS = new Set(['sudo', 'command', 'nohup', 'env', 'timeout', 'stdbuf', 'ionice', 'doas', 'chronic'])
+/** Cờ của lệnh bọc nhận giá trị ở token riêng ("timeout -s KILL", "ionice -c 3", "doas -u root"). */
+const WRAPPER_VALUE_FLAGS: Record<string, readonly string[]> = {
+  timeout: ['-s', '-k', '--signal', '--kill-after'],
+  ionice: ['-c', '-n', '-p', '-P', '-u'],
+  doas: ['-u', '-C'],
+  sudo: ['-u', '-g', '-C', '-D', '-h', '-p', '-r', '-t', '-U'],
+}
+
 /**
- * Lệnh cp tạo liên kết thay vì chép (S4, vòng rà soát 4; `link` và `ln` đã bị từ chối vì không phải lệnh ghi đọc được đích): `cp` có -l, --link, -s, --symbolic-link (kể cả cờ gộp như -al, -sf và
- * dạng viết tắt --li, --sym). Ghi vào liên kết cứng trong danh sách sửa file gốc ngoài danh sách mà realpath không thấy, nên khi tạm dừng
- * cứng các lệnh này bị từ chối như ln. Đọc thô theo đoạn và từ (bỏ nháy), đủ cho mục đích từ chối.
+ * Lệnh tạo liên kết thay vì chép (S4, vòng rà soát 4; `link` và `ln` đã bị từ chối vì không phải lệnh ghi đọc được đích): `cp` có -l,
+ * --link, -s, --symbolic-link (kể cả cờ gộp như -al, -sf và dạng viết tắt --li, --sym); từ T7 (vòng rà soát 5) thêm `rsync --link-dest`
+ * và `install -l`. Ghi vào liên kết cứng trong danh sách sửa file gốc ngoài danh sách mà realpath không thấy, nên khi tạm dừng cứng các lệnh
+ * này bị từ chối như ln. Đọc thô theo đoạn và từ, đủ cho mục đích từ chối: bỏ mọi nháy và gạch chéo trong từ như shell (cp -"l" là cp -l),
+ * bỏ qua lệnh bọc cùng cờ và tham số số của nó, và cp có ngoặc nhọn (mở rộng có thể sinh cờ) coi là tạo liên kết.
  */
 export function makesLink(command: string): boolean {
   for (const segment of command.split(/&&|\|\||[;|\n]/)) {
-    const tokens = segment.trim().split(/\s+/).filter(Boolean).map(token => token.replace(/^['"]|['"]$/g, ''))
-    while (tokens.length > 0 && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[0] ?? '') || ['sudo', 'command', 'nohup', 'env'].includes(tokens[0] ?? ''))) tokens.shift()
-    const name = (tokens[0] ?? '').split('/').pop() ?? ''
+    const tokens = segment.trim().split(/\s+/).filter(Boolean).map(token => token.replace(/['"\\]/g, ''))
+    let at = 0
+    while (at < tokens.length) {
+      const token = tokens[at] ?? ''
+      if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(token)) {
+        at += 1
+        continue
+      }
+      const wrapper = token.split('/').pop() ?? ''
+      if (!LINK_WRAPPERS.has(wrapper)) break
+      at += 1
+      const valued = WRAPPER_VALUE_FLAGS[wrapper] ?? []
+      while (at < tokens.length) {
+        const arg = tokens[at] ?? ''
+        if (valued.includes(arg)) at += 2
+        else if (arg.startsWith('-') || /^\d+(?:\.\d+)?[smhd]?$/.test(arg) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(arg)) at += 1
+        else break
+      }
+    }
+    const name = (tokens[at] ?? '').split('/').pop() ?? ''
+    const args = tokens.slice(at + 1)
+    if (name === 'rsync' && args.some(arg => arg === '--link-dest' || arg.startsWith('--link-dest='))) return true
+    if (name === 'install' && args.some(arg => /^-[A-Za-z]*l[A-Za-z]*$/.test(arg))) return true
     if (name !== 'cp') continue
-    for (const arg of tokens.slice(1)) {
+    if (args.some(arg => arg.includes('{'))) return true
+    for (const arg of args) {
       if (arg === '--') break
       if (/^-[A-Za-z]+$/.test(arg) && /[ls]/.test(arg)) return true
       const long = arg.startsWith('--') ? (arg.slice(2).split('=')[0] ?? '') : ''
