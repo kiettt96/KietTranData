@@ -25,6 +25,8 @@ describe('0.7.6 U1: checklist và tiến độ từng việc là một danh sác
     expect(step).toBeLessThan(24)
     expect(rowOf(tree, /^sonnet 0\/3 · 3 đang chạy$/)).toBe(step)
     expect(texts.some(t => /^sonnet 0\/3 · 3 đang chạy$/.test(t))).toBe(true)
+    // Số lô chỉ ở chip: không lặp dạng "0/3 lô xong, 3 đang chạy" ở phần chi tiết.
+    expect(texts.some(t => /lô xong/.test(t))).toBe(false)
   })
 
   test('bước làm trực tiếp: chip "opus high" không kèm số bước "0/1" của chính bước đó', async ($, on) => {
@@ -42,6 +44,14 @@ describe('0.7.6 U1: checklist và tiến độ từng việc là một danh sác
     const { tree, texts } = await drawn($, 24)
     expect(texts.some(t => /^sonnet 0\/3 · 2 đang chạy · 1 lỗi$/.test(t))).toBe(true)
     expect(rowOf(tree, /^sonnet 0\/3 · 2 đang chạy · 1 lỗi$/)).toBe(rowOf(tree, /BƯỚC 3: lọc tin lô 1/))
+  })
+
+  test('việc Claude tự giao nhiều lô: dòng riêng ghi số lô ở phần chi tiết', async ($, on) => {
+    await longGoal($, on, 3)
+    for (const n of [1, 2, 3]) await spawnTool($, `own${n}`, `Kiểm tra log lô ${n}`, 'kiểm tra')
+    const { texts } = await drawn($, 40)
+    expect(texts.some(t => /^Claude tự giao: Kiểm tra log lô/.test(t))).toBe(true)
+    expect(texts).toContain('0/3 lô xong, 3 đang chạy')
   })
 
   test('việc Claude tự giao vẫn có dòng riêng', async ($, on) => {

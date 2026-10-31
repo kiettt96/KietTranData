@@ -292,18 +292,19 @@ export function renderPane(
   const isFinished = total > 0 && closed === total
   const allTaskRows = taskRows(view.core, props.now ?? 0).filter(row => !(isFinished && row.state === 'pending'))
   const { byTitle, matched } = stepTaskRows(view.core, allTaskRows, plan.length > 0 ? plan.map(step => step.title) : brief.steps)
-  // Phần chi tiết của một dòng việc: k/n bước của subagent, số lô, số tool call và thời gian; dùng chung cho dòng bước và dòng việc riêng.
-  const rowDetail = (row: (typeof allTaskRows)[number], withBatches: boolean) => {
-    const counts = row.bar.kind === 'steps' ? progress(row.bar.plan) : null
+  // Phần chi tiết của một dòng việc: k/n bước, số lô, số tool call và thời gian; dùng chung cho dòng bước và dòng việc riêng. Trên dòng
+  // bước (`isStepRow`), việc làm trực tiếp không ghi k/n: các bước của nó chính là các dòng bước.
+  const rowDetail = (row: (typeof allTaskRows)[number], isStepRow: boolean) => {
+    const counts = row.bar.kind === 'steps' && !(isStepRow && row.kind === 'direct') ? progress(row.bar.plan) : null
     const usage = row.tools !== undefined ? `${l.taskTools(row.tools)} · ${l.taskElapsed(row.elapsedMs ?? 0)}` : ''
-    const batches = withBatches && row.counts !== undefined ? l.taskBatches(row.counts.done, row.counts.total, row.counts.running) : ''
+    const batches = !isStepRow && row.counts !== undefined ? l.taskBatches(row.counts.done, row.counts.total, row.counts.running) : ''
     return [counts !== null ? `${counts.closed}/${counts.total}` : '', batches, usage].filter(Boolean).join(' · ')
   }
   const metaNode = (title: string) => {
     const row = byTitle.get(title)
     const meta = row ? stepTaskMeta(l, row) : ''
     if (row === undefined || !meta) return null
-    const detail = rowDetail(row, false)
+    const detail = rowDetail(row, true)
     const tone = row.state === 'failed' || (row.failed ?? 0) > 0 ? 'error' : row.state === 'cut' ? 'warning' : undefined
     return [
       <Box key="chip" flexShrink={0}>
@@ -453,7 +454,7 @@ export function renderPane(
   const taskNodes = allTaskRows.filter(row => row.kind !== 'main' && !matched.has(row.key)).map(row => {
     const label = taskLabel(l, row)
     const runs = taskBarRuns(row.bar, taskCells)
-    const detail = rowDetail(row, true)
+    const detail = rowDetail(row, false)
     // Chữ trạng thái: thanh không có bước thì luôn ghi; thanh theo bước của agent chỉ ghi khi agent đã kết thúc.
     const word =
       row.bar.kind === 'state'
