@@ -70,7 +70,7 @@ describe('0.6.1 2.5: band và pane trên các surface', () => {
     }
     for (const surface of PANE_SURFACES) {
       const texts = await paneTexts($, surface)
-      expect(has(texts, /^Checklist 0\/2/), `pane ${surface} có Checklist`).toBe(true)
+      expect(has(texts, /^Danh sách bước 0\/2/), `pane ${surface} có tiêu đề checklist`).toBe(true)
       expect(has(texts, /danh sách việc của Claude Code/), `pane ${surface} không ghi nguồn`).toBe(false)
     }
   })

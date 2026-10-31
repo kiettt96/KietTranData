@@ -5,14 +5,14 @@ import type { Brief, Core, QuotaCheckpoint, Warning } from '../../types'
 import { briefFromCheckpoint, changedFiles, storeKey } from '../lib/checkpoint'
 import { openSteps, restorableSteps } from '../lib/drift'
 import { PLAN_TOOL_SPEC } from '../lib/plan'
-import { describePick } from '../lib/route'
+import { describePick, familyOf } from '../lib/route'
 import { clipText, keptLines } from '../lib/decisions'
-import { askRouter, bareBrief, failFields, isSkippable, needsCoverageRecheck, nextBrief, parseRoute, routerFailOf, routerRequest } from '../lib/router'
+import { ROUTER_TASK_LIMIT, askRouter, bareBrief, failFields, isSkippable, needsCoverageRecheck, nextBrief, parseRoute, routerFailOf, routerRequest } from '../lib/router'
 import type { RouterOutcome, RouterPlan } from '../lib/router'
 import { EMPTY_QUOTA, blockingHits, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaSettings, reasonsOf } from '../lib/quota'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
-import { DISCIPLINE, briefContext, droppedPlanNotice, followUpContext, quotaPausedContext, resetLabel, resumeCommand, restorableLabel, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
+import { DISCIPLINE, briefContext, droppedItemsText, droppedPlanNotice, followUpContext, quotaPausedContext, resetLabel, resumeCommand, restorableLabel, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -124,6 +124,9 @@ export function registerSession(on: On, ctx: Ctx): void {
   on('session.end', async ($, e, next) => {
     if (e.reason === 'clear') {
       resetLocal()
+      // /clear không phát session.start (0.7.5): điểm dừng đang mở không tự chèn ở prompt kế tiếp, chỉ gợi ý /conductor resume.
+      const q = normalizeQuota(await read($, quotaState))
+      L.noAutoResume = q.checkpoint?.status === 'open'
       await update($, coreState, S.resetCore)
       await showStatus($, await read($, view), ctx.options)
     }
@@ -185,7 +188,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       await $.store.set(storeKey(cp.cwd), cp).catch(() => undefined)
       return [resumeContext(cp, changedFiles(cp.files, stats))]
     }
-    const pending = openCp !== null ? [resumePendingContext(openCp)] : []
+    const pending = openCp !== null ? [resumePendingContext(openCp, L.noAutoResume && !isArmed)] : []
 
     const before = S.normalizeCore(await read($, coreState))
     const prev = before.brief
@@ -196,11 +199,13 @@ export function registerSession(on: On, ctx: Ctx): void {
       // Câu tiếp nối ngắn: turn này làm tiếp mục tiêu đang mở.
       L.promptIntent = { relation: 'continue', kind: prev.isReference ? 'answer' : prev.kind }
       await flushDecisions((path, text) => $.fs.write(path, text))
-      const lead = await startResume()
-      return next({ ...e, context: [...lead, ...(e.context ?? []), skippedContext(prev, before.plan)] })
+      const lead = L.noAutoResume && !isArmed ? [] : await startResume()
+      return next({ ...e, context: [...lead, ...(e.context ?? []), skippedContext(prev, before.plan), ...(lead.length === 0 ? pending : [])] })
     }
 
     L.promptCount += 1
+    // Model của phiên chưa biết (prompt đầu, trước step đầu): hỏi engine, để router và chính sách phiên dùng được ngay.
+    if (L.sessionFamily === null) L.sessionFamily = familyOf(await $.session.model().catch(() => ''))
     const rules = policy()
     const isPaused = isRouterPaused()
     let outcome: RouterOutcome<RouterPlan> = { result: null, reason: 'router đang tạm ngừng sau các lần lỗi liên tiếp', usages: [], retried: false, failure: 'paused', timeoutMs: null, maxTokens: null, outputTokens: null }
@@ -219,7 +224,8 @@ export function registerSession(on: On, ctx: Ctx): void {
     }
     // Tiếp tục điểm dừng khi router xếp tiếp nối, hoặc khi người dùng vừa gõ /conductor resume (khi đó router xếp mục
     // tiêu mới thì vẫn giữ mục tiêu đã khôi phục).
-    const isResuming = openCp !== null && (isArmed || (outcome.result !== null && outcome.result.relation !== 'new'))
+    const isResuming = openCp !== null && (isArmed || (!L.noAutoResume && outcome.result !== null && outcome.result.relation !== 'new'))
+    if (isArmed) L.noAutoResume = false
     const plan = outcome.result !== null && isResuming && isArmed && prev !== null && outcome.result.relation === 'new' ? { ...outcome.result, relation: 'continue' as const } : outcome.result
     const lead = isResuming ? await startResume() : []
     const tail = isResuming ? [] : pending
@@ -234,7 +240,8 @@ export function registerSession(on: On, ctx: Ctx): void {
       // luồng chính. routerFallback "reuse" (người dùng tự bật) giữ cả lựa chọn của prompt trước.
       const isReuse = routerFallback === 'reuse' && prev !== null && prev.main !== null
       const kept: Brief | null = prev ? { ...prev, ...(isReuse ? {} : { main: null }), at: now } : null
-      if (!isReuse) L.delegation = newDelegation()
+      // Prompt tiếp nối (0.7.5): phân việc đã có và trạng thái giao của từng việc vẫn giữ; chỉ bỏ lựa chọn luồng chính.
+      if (!isReuse && prev === null) L.delegation = newDelegation()
       const failText = isReuse
         ? `Router (${routerModel}) không đọc được prompt (${outcome.reason}); dùng lại lựa chọn của prompt trước`
         : `Router (${routerModel}) không đọc được prompt (${outcome.reason}); turn này chạy theo model của phiên`
@@ -251,9 +258,10 @@ export function registerSession(on: On, ctx: Ctx): void {
         const used = S.withRouterFail(fail)(withUsage(bare ? S.adoptGoal(bare)(c) : c))
         const withKept = kept ? S.withBrief(kept)(used) : used
         const withNotes = S.withWarnings(...warnings)(isReuse ? withKept : S.withRoute(null)(withKept))
-        return isReuse ? withNotes : S.withDelegations(bare?.goalId ?? -1, [])(withNotes)
+        return isReuse || prev !== null ? withNotes : S.withDelegations(bare?.goalId ?? -1, [])(withNotes)
       })
       if (bare) {
+        L.goalPrompt = { text, prev, goalId: bare.goalId }
         L.isGoalNew = true
         L.pinnedGoalId = null
         trackDelegations(bare.goalId, [])
@@ -265,15 +273,35 @@ export function registerSession(on: On, ctx: Ctx): void {
       await flushDecisions((path, text) => $.fs.write(path, text))
       if (!isPaused) $.ui.toast(pauseText ?? failText)
       await showStatus($, await read($, view), ctx.options)
-      return next({ ...e, context: [...lead, ...(e.context ?? []), unroutedContext(outcome.reason, bare !== null), ...tail] })
+      return next({ ...e, context: [...lead, ...(e.context ?? []), unroutedContext(outcome.reason, bare !== null, prev !== null && prev.tasks.length > 0), ...tail] })
     }
 
     // Mục tiêu mới, chạy thật prompt đã đối chiếu, hoặc tiếp nối cùng mục tiêu.
-    const { brief, added, isNewGoal } = nextBrief(prev, plan, text, now)
+    const { brief, added, isNewGoal, replaced, held, dropped } = nextBrief(prev, plan, text, now, { openSteps: openSteps(before.plan).map(s => s.title), sessionFamily: L.sessionFamily })
+    // Router xếp mục tiêu mới với tin cậy thấp khi checklist còn bước mở (0.7.5): giữ mục tiêu, ghi nhật ký quyết định.
+    if (held && prev !== null) {
+      L.promptIntent = { relation: 'continue', kind: plan.kind }
+      record(now, 'new-held', { prompt: clipText(text), confidence: plan.confidence, goalId: prev.goalId })
+    }
     // adoptGoal lưu checklist cũ còn bước mở (khôi phục được bằng plan restore); chi phí router cộng sau, thuộc mục tiêu mới.
     const core = await update($, coreState, c => S.withRouterFail(null)(withUsage(isNewGoal ? S.adoptGoal(brief)(c) : S.withDecision(brief)(c))))
     L.lastPrompt = { text, prev, goalId: brief.goalId }
+    // Router chia quá ROUTER_TASK_LIMIT việc (0.7.5): phần sau bị bỏ khỏi Phân việc, báo một cảnh báo.
+    if (plan.droppedTasks !== undefined) {
+      const total = plan.droppedTasks + ROUTER_TASK_LIMIT
+      await update($, coreState, S.withWarnings({ at: now, kind: 'model', text: `Router chia ${total} việc; giữ ${ROUTER_TASK_LIMIT} việc đầu trong Phân việc, các việc sau làm theo prompt gốc` }))
+    }
+    // Ràng buộc hay yêu cầu đã đầy trần (0.7.5): mục mới thay mục ở cuối danh sách (ít quan trọng nhất) không phải quy định model, không
+    // bao giờ thay mục của prompt lập mục tiêu (vòng sửa 2, M3); báo một cảnh báo.
+    if (replaced.length > 0) {
+      const text = `Ràng buộc và yêu cầu của mục tiêu đã đầy; mục mới thay ${replaced.length} mục cũ: ${replaced.map(item => clipText(item, 60)).join('; ')}`
+      await update($, coreState, S.withWarnings({ at: now, kind: 'model', text }))
+    }
+    // Phần tràn cũng đầy (vòng rà soát 3): mục của prompt tiếp nối không giữ được thì báo số mục, không bỏ im lặng.
+    // Kind riêng (S8): chip của pane ghi "mục bị bỏ", không phải "model".
+    if (dropped > 0) await update($, coreState, S.withWarnings({ at: now, kind: 'dropped', text: droppedItemsText(dropped) }))
     if (isNewGoal) {
+      L.goalPrompt = { text, prev, goalId: brief.goalId }
       L.isGoalNew = true
       L.pinnedGoalId = null
       // Ẩn band (nút Ẩn) chỉ có tác dụng trong mục tiêu đang làm: mục tiêu mới thì band hiện lại (0.6.1).

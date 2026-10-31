@@ -56,10 +56,19 @@ export type Brief = {
   goal: string
   /** Mọi yêu cầu, ràng buộc và đầu ra router đọc được từ prompt (tối đa 30); vắng với brief từ bản cũ (0.7.0). */
   requirements?: string[]
+  /** Số yêu cầu đầu danh sách đến từ prompt lập mục tiêu (0.7.5): không bao giờ bị thay khi đầy trần; vắng thì coi mọi yêu cầu hiện có là của prompt đó. */
+  requirementsBase?: number
   /** Bước dự kiến: tên các việc lúc đầu, sau đó theo checklist Claude chốt. */
   steps: string[]
   tasks: Task[]
   constraints: string[]
+  /** Số ràng buộc đầu danh sách đến từ prompt lập mục tiêu (0.7.5), như requirementsBase. */
+  constraintsBase?: number
+  /**
+   * Số quy định model đầu danh sách ràng buộc mang sang từ mục tiêu trước (0.7.5, S2): chỉ dùng định tuyến subagent, không tạo sàn
+   * model phiên cho luồng chính.
+   */
+  carriedRules?: number
   quality: string[]
   depth: Depth
   volume: Volume
@@ -68,6 +77,10 @@ export type Brief = {
   tier: Tier
   /** Model và effort router chọn cho luồng chính; null khi router không đọc được prompt (mod không ép). */
   main: Choice | null
+  /** Main của prompt lập mục tiêu (0.7.5, vòng sửa 2): sàn cho prompt tiếp nối; vắng ở brief cũ thì dùng `main`. */
+  mainBase?: Choice
+  /** Số mục của prompt tiếp nối không giữ được vì ràng buộc và yêu cầu đã đầy, kể cả phần tràn (0.7.5, vòng rà soát 3). */
+  dropped?: number
   /** Luồng chính mà prompt đính kèm cần nếu chạy thật (chỉ khi isReference). */
   referenceMain?: Choice
   /** Lý do router đưa ra. */
@@ -102,6 +115,8 @@ export type PlanStep = {
   note?: string
   /** Bước verified do mod tự nâng (lệnh test chạy đạt sau thay đổi cuối): có thay đổi mới thì hạ về done (0.7.0). */
   auto?: boolean
+  /** Mốc đóng (0.7.5, nội bộ, không có trong schema tool plan): giá trị của Core.closing.seq lúc bước thành done hay bị hạ về done. */
+  closedSeq?: number
 }
 
 /** Lựa chọn model và effort đang áp cho luồng chính. */
@@ -132,7 +147,7 @@ export type RouteEvent = {
   isApplied: boolean
 }
 
-export type WarningKind = 'loop' | 'budget' | 'scope' | 'unverified' | 'open-steps' | 'model' | 'cost' | 'drift'
+export type WarningKind = 'loop' | 'budget' | 'scope' | 'scope-unknown' | 'unverified' | 'open-steps' | 'model' | 'cost' | 'drift' | 'dropped'
 
 /** Cảnh báo nhất quán (lạc đề, lặp, vượt phạm vi, chưa kiểm tra, chi phí). */
 export type Warning = {
@@ -181,8 +196,10 @@ export type Ledger = {
   goal: {
     goalId: number
     buckets: Record<Group, Bucket>
-    /** Số subagent đã giao trong mục tiêu này (để cảnh báo fan-out). */
+    /** Số subagent đã giao (chạy thật ở luồng chính) trong mục tiêu này. */
     spawned: number
+    /** Trong số đó, lời gọi không khớp việc đã phân (0.7.5): cảnh báo fan-out đếm theo số này; vắng ở trạng thái cũ. */
+    unplanned?: number
     fanoutWarned: boolean
   }
   /** Hệ số ước lượng theo họ model, học từ số đo; 1 nghĩa là chưa hiệu chỉnh. */
@@ -215,7 +232,7 @@ export type DelegationItem = { index: number; title: string; state: DelegationSt
  * `key` là id của TaskCreate, hoặc thứ tự trong danh sách của TodoWrite. Claude Code không có trạng thái verified: bước verified ở
  * đây luôn do mod tự nâng khi lệnh test chạy đạt sau thay đổi cuối (0.7.1) và hạ về done khi có thay đổi mới.
  */
-export type MirrorStep = { key: string; title: string; status: 'todo' | 'doing' | 'done' | 'verified' }
+export type MirrorStep = { key: string; title: string; status: 'todo' | 'doing' | 'done' | 'verified'; closedSeq?: number }
 
 /** Trạng thái của một lần gọi Agent (0.6.1): đang chạy, xong, lỗi, hoặc bị cắt vì tạm dừng hạn mức. */
 export type AgentState = 'running' | 'done' | 'failed' | 'cut'
@@ -236,6 +253,12 @@ export type AgentProgress = {
   /** Danh sách việc agent tự ghi bằng TodoWrite hay TaskCreate, TaskUpdate (phản chiếu như luồng chính). */
   steps: MirrorStep[]
 }
+
+/**
+ * Bộ đếm các lần gọi Agent của một việc trong mục tiêu (0.7.5), giữ ngoài danh sách dòng tiến độ có trần: việc đã phân theo
+ * số (`task-N`), việc Claude tự giao theo dạng mô tả bỏ chữ số (`own-...`). `cut` (bị cắt vì tạm dừng) đếm vào `failed`.
+ */
+export type AgentTally = { key: string; title: string; taskIndex?: number; spawned: number; done: number; failed: number; running: number }
 
 /** Nâng cấp theo bằng chứng, áp cho các turn sau trong cùng mục tiêu. */
 export type Lift = { depth: number; effort: number }
@@ -295,7 +318,8 @@ export type Core = {
    */
   mirror: { goalId: number; steps: MirrorStep[] }
   /** Tiến độ từng lần gọi Agent của mục tiêu goalId, tối đa 20 (0.6.1; không có ở trạng thái từ bản cũ). */
-  agentProgress: { goalId: number; items: AgentProgress[] }
+  /** `tally` và `open` (agentId đang chạy đến khóa bộ đếm) từ 0.7.5; vắng ở trạng thái cũ. */
+  agentProgress: { goalId: number; items: AgentProgress[]; tally?: AgentTally[]; open?: Record<string, string> }
   /** Số lần luồng chính thay đổi file trong mục tiêu goalId: cho trạng thái của việc làm trực tiếp khi chưa có bước (0.6.1). */
   activity: { goalId: number; changes: number }
   /** Lần router lỗi gần nhất cho tới khi router đọc được lại (0.7.2); null là không có. */
@@ -304,6 +328,11 @@ export type Core = {
   checkHint: CheckHint | null
   /** Turn lỗi gần nhất của luồng chính cho tới khi một turn trả lời xong (0.7.3); null là không có. */
   turnFault: TurnFault | null
+  /**
+   * Mốc đóng bước (0.7.5): `seq` tăng mỗi lần một bước thành done, bị hạ về done hay có lần kiểm đạt; `lastPassSeq` là mốc của
+   * lần kiểm đạt gần nhất của mục tiêu goalId (null là chưa có). Lần kiểm đạt chỉ nâng bước có closedSeq lớn hơn mốc đó.
+   */
+  closing: { seq: number; goalId: number; lastPassSeq: number | null }
 }
 
 /** Một cửa sổ hạn mức đã qua ngưỡng lúc dừng (0.6.0). */

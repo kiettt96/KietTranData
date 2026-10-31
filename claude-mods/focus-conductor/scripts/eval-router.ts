@@ -90,6 +90,8 @@ async function one(c: GoldenCase, n: number) {
           // 0.7.4: số yêu cầu có việc phủ và ràng buộc đầu tiên (quy định model phải đứng đầu).
           covered: parsed.requirements.filter((_, i) => parsed.tasks.some(t => (t.covers ?? []).includes(i + 1))).length,
           firstConstraint: parsed.constraints[0] ?? '',
+          // 0.7.5: tin cậy router tự báo (vắng thì 1), để xem phân bố so với NEW_GOAL_CONFIDENCE.
+          confidence: parsed.confidence,
         }
   return { c, n, text, fails, ms, usd, served, stats, outTokens }
 }
@@ -133,6 +135,9 @@ const allStats = results.flatMap(r => (r.stats === null ? [] : [r.stats]))
 console.log(`  Tổng: việc tách ra TB ${mean(allStats.map(s => s.tasks)).toFixed(2)}, giao subagent TB ${mean(allStats.map(s => s.agents)).toFixed(2)}, yêu cầu TB ${mean(allStats.map(s => s.reqs)).toFixed(2)} (${allStats.length}/${results.length} lượt đọc được)`)
 console.log(`  Luồng chính: ${count(allStats.map(s => s.main))}`)
 console.log(`  Việc: ${count(allStats.flatMap(s => s.picks))}`)
+// 0.7.5: phân bố tin cậy router tự báo, theo nấc 0,1 (nấc 0,8 gồm từ 0,8 tới dưới 0,9).
+const bucket = (x: number) => (Math.floor(Math.round(x * 100) / 10) / 10).toFixed(1)
+console.log(`  Tin cậy: ${count(allStats.map(s => bucket(s.confidence)))}; dưới 0,8: ${allStats.filter(s => s.confidence < 0.8).length}/${allStats.length} lượt`)
 // Thời gian và số token đầu ra theo ca (0.7.2): trung vị và p95 (lượt chậm nhất khi ít hơn 20 lượt), để chọn timeout và maxTokens theo số đo.
 const pct = (xs: number[], p: number) => {
   const sorted = [...xs].sort((a, b) => a - b)

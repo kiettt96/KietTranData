@@ -8,8 +8,9 @@ import type { ToolObservation } from './tool'
 import { classifyBash } from './classify'
 import type { BashEffect } from './classify'
 import { isMutation, writeEffects } from './effects'
-import { checkEffectPassed } from './output'
+import { checkEffectPassed, lacksSummary, outputFailed } from './output'
 import { scopeStatus } from './scope'
+import { isCustomCheck, normalizePython } from './verify'
 
 /** Số thay đổi liên tiếp chưa kiểm tra trước khi nhắc checkpoint đầu tiên. */
 export const CHECKPOINT_EVERY = 5
@@ -31,6 +32,8 @@ export type TurnTracker = {
    * xóa cả tập; kiểm tra đạt của subagent chỉ xóa phần của chính nó.
    */
   pending: Set<string>
+  /** Số thay đổi chưa được kiểm tra lại của từng tác giả trong `pending` (R8): câu cuối turn nêu số thay đổi của subagent. */
+  pendingChanges: Map<string, number>
   /** Số lệnh kiểm tra đạt trong turn (để câu báo phân biệt "chưa kiểm tra lần nào" với "sửa sau lần kiểm tra cuối"). */
   checks: number
   /** Số lời gọi Agent thành công: turn chỉ giao subagent vẫn là turn đang thực thi mục tiêu. */
@@ -46,6 +49,11 @@ export type TurnTracker = {
   failures: Map<string, number>
   budgetLevel: number
   outOfScope: Set<string>
+  /**
+   * Số mốc checkpoint đã nhắc của bộ đếm hiện tại (0.7.5): nhắc khi số mốc đã qua lớn hơn số này, kể cả khi ghi của subagent
+   * làm bộ đếm vượt mốc giữa hai lời gọi của luồng chính; lệnh kiểm đạt đặt lại về 0.
+   */
+  checkpointMark: number
 }
 
 export function newTracker(turnId: string): TurnTracker {
@@ -56,6 +64,7 @@ export function newTracker(turnId: string): TurnTracker {
     mutationsSinceCheck: 0,
     isVerified: false,
     pending: new Set(),
+    pendingChanges: new Map(),
     checks: 0,
     delegated: 0,
     unknownWrites: new Set(),
@@ -65,6 +74,7 @@ export function newTracker(turnId: string): TurnTracker {
     failures: new Map(),
     budgetLevel: 0,
     outOfScope: new Set(),
+    checkpointMark: 0,
   }
 }
 
@@ -81,6 +91,58 @@ export type Focus = {
   cwd?: string | null
   /** Mục tiêu tối thiểu (router chưa đọc, tier chỉ là đoán): không cảnh báo ngân sách tool call (0.7.2). */
   isBare?: boolean
+  /** Khóa lệnh ghi không rõ đích đã cảnh báo trong mục tiêu (0.7.5); vắng thì dùng tập của tracker (theo turn). */
+  warnedWrites?: Set<string>
+  /** Lời nhắc đã nói trong phiên (S5): mỗi khóa một lần, không đặt lại theo mục tiêu hay turn; vắng thì nhắc ở mỗi lần gặp. */
+  hints?: Set<string>
+}
+
+/**
+ * Lệnh kiểm riêng (checkCommands) qua ống không pipefail chạy xong, không có dấu hiệu lỗi, nhưng dòng không rỗng cuối cùng không phải dòng
+ * tổng kết chặt nên không được tính là đạt (S5): nhắc một lần trong phiên dùng `set -o pipefail` trước lệnh. Khóa `pipe-summary` chỉ được
+ * ghi vào `focus.hints` khi lời nhắc thật sự được chèn (T6), nên lần thua một phát hiện ưu tiên cao hơn không làm mất lời nhắc. null khi
+ * không áp dụng.
+ */
+function pipeSummaryHint(observation: ToolObservation, focus: Focus): Finding | null {
+  if (observation.tool !== 'Bash' || observation.isError || observation.output === undefined || outputFailed(observation.output)) return null
+  if (focus.hints?.has('pipe-summary')) return null
+  for (const effect of classifyBash(str(observation.input['command'])).effects) {
+    if (effect.kind !== 'check' || !effect.trusted || effect.exit !== 'filtered' || effect.pipefail === true) continue
+    if (!isCustomCheck(effect.segment) && !(effect.resolved !== undefined && isCustomCheck(effect.resolved))) continue
+    if (!lacksSummary(observation.output)) continue
+    return {
+      kind: 'unverified',
+      priority: 1,
+      hint: 'pipe-summary',
+      text: 'Lệnh kiểm qua ống không có dòng tổng kết ở cuối nên chưa tính là đạt',
+      context:
+        '[focus-conductor] Lệnh kiểm riêng này chạy qua ống (| tail, | head) không có `set -o pipefail`, và dòng cuối của output không phải một dòng tổng kết ' +
+        '(OK, PASS, ĐẠT, KẾT QUẢ: ĐẠT), nên mod không tính là đạt. Đặt `set -o pipefail;` trước lệnh kiểm. ' +
+        'Không sửa script kiểm nếu người dùng không yêu cầu. Khi lệnh kiểm in kết quả lỗi: có pipefail thì lệnh thoát khác 0 và mod tính là ' +
+        'chưa đạt; không có pipefail thì mod chỉ nhận ra lỗi qua dấu hiệu lỗi trong output. Lời nhắc này chỉ nói một lần trong phiên.',
+    }
+  }
+  return null
+}
+
+/**
+ * Khóa của cảnh báo lệnh ghi không rõ đích (0.7.5): mỗi đoạn lệnh là tên trình chạy (bỏ thư mục, bỏ cờ python không giá trị)
+ * cộng đường dẫn script (đối số đầu không phải cờ), bỏ các tham số còn lại; đoạn cd, set bỏ qua. `ghi.py --lo 1` và
+ * `ghi.py --lo 2` là một khóa.
+ */
+export function unknownWriteKey(command: string): string {
+  return command
+    .split(/&&|\|\||[;|\n]/)
+    .map(part => {
+      const [head, ...rest] = normalizePython(part.trim().replace(/^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+/, '').split(/\s+/).filter(Boolean))
+      if (head === undefined || head === 'cd' || head === 'set') return ''
+      const name = head.slice(head.lastIndexOf('/') + 1)
+      const script = rest.find(token => !token.startsWith('-'))
+      return script !== undefined ? `${name} ${script}` : name
+    })
+    .filter(Boolean)
+    .join(' && ')
+    .slice(0, 300)
 }
 
 
@@ -91,6 +153,8 @@ export type Finding = {
   context?: string
   /** Ưu tiên khi nhiều phát hiện trùng một tool result: số lớn thắng. */
   priority: number
+  /** Khóa lời nhắc một lần trong phiên (T6): hook ghi khóa vào `focus.hints` chỉ khi phát hiện này được chèn vào kết quả tool. */
+  hint?: string
 }
 
 /** Số mốc checkpoint đã qua khi có `count` thay đổi liên tiếp chưa kiểm. */
@@ -118,8 +182,10 @@ export function trackVerification(tracker: TurnTracker, observation: ToolObserva
   let writes = 0
   const onWrite = () => {
     tracker.mutations += 1
-    tracker.mutationsSinceCheck += 1
+    // Nhịp nhắc checkpoint là của luồng chính: ghi của subagent làm luồng chính chưa được kiểm chứng (pending) nhưng không tiến nhịp.
+    if (author === 'main') tracker.mutationsSinceCheck += 1
     tracker.pending.add(author)
+    tracker.pendingChanges.set(author, (tracker.pendingChanges.get(author) ?? 0) + 1)
     tracker.isVerified = false
     writes += 1
   }
@@ -138,14 +204,23 @@ export function trackVerification(tracker: TurnTracker, observation: ToolObserva
     }
     if (!checkEffectPassed(effect, observation)) continue
     tracker.checks += 1
-    if (author === 'main') tracker.pending.clear()
-    else tracker.pending.delete(author)
-    if (tracker.pending.size === 0) {
-      tracker.isVerified = true
-      tracker.mutationsSinceCheck = 0
+    if (author === 'main') {
+      tracker.pending.clear()
+    } else {
+      tracker.pending.delete(author)
+      tracker.pendingChanges.delete(author)
     }
+    if (tracker.pending.size === 0) markVerified(tracker)
   }
   return writes
+}
+
+/** Luồng chính đã được kiểm chứng: bộ đếm thay đổi chưa kiểm và mốc checkpoint đã nhắc cùng về 0 (vòng sửa 2 của 0.7.5). */
+export function markVerified(tracker: TurnTracker): void {
+  tracker.isVerified = true
+  tracker.pendingChanges.clear()
+  tracker.mutationsSinceCheck = 0
+  tracker.checkpointMark = 0
 }
 
 /** Cách router đọc prompt của turn: quan hệ với mục tiêu đang mở và bản chất việc; null khi router không đọc được. */
@@ -214,12 +289,20 @@ export function observe(
     }
   }
 
-  // Lần gọi này có làm tăng bộ đếm thay đổi không (để checkpoint chỉ báo đúng lúc đếm đủ bội số).
-  const before = tracker.mutationsSinceCheck
-  const isCounted = trackVerification(tracker, observation) > 0 && tracker.mutationsSinceCheck > before
+  const writes = trackVerification(tracker, observation)
+  // Đếm lỗi lặp (0.7.5): chính lệnh đó chạy đạt thì đặt lại đếm của nó; có ghi file sau lần lỗi trước thì đặt lại mọi đếm
+  // (đã sửa gì đó trước khi thử lại, không phải lặp nguyên trạng).
+  if (!observation.isError) {
+    tracker.failures.delete(signature(observation))
+    if (writes > 0) tracker.failures.clear()
+  }
   if (observation.tool === 'Agent' && !observation.isError) tracker.delegated += 1
 
   if (focus === null) return findings
+
+  // Lệnh kiểm riêng qua ống không pipefail mà dòng cuối không phải dòng tổng kết (S5): nhắc một lần trong phiên.
+  const hint = pipeSummaryHint(observation, focus)
+  if (hint !== null) findings.push(hint)
 
   // Phạm vi: file của Edit/Write và file đích của lệnh Bash có ghi (kể cả lệnh lỗi, vì có thể đã ghi một phần).
   if (focus.scopePaths.length > 0 && isMutation(observation)) {
@@ -268,12 +351,13 @@ export function observe(
             },
       )
     }
-    const key = command.trim().slice(0, 300)
-    if (classified?.isUnknown && !tracker.unknownWrites.has(key)) {
-      // Mỗi lệnh ghi không xác định đích khác nhau được cảnh báo một lần.
-      tracker.unknownWrites.add(key)
+    // Mỗi script ghi không xác định đích được cảnh báo một lần mỗi mục tiêu (0.7.5): khóa bỏ tham số; mức vàng, không toast.
+    const key = unknownWriteKey(command)
+    const warned = focus.warnedWrites ?? tracker.unknownWrites
+    if (classified?.isUnknown && !warned.has(key)) {
+      warned.add(key)
       findings.push({
-        kind: 'scope',
+        kind: 'scope-unknown',
         priority: 2,
         text: `Lệnh ghi không xác định được file đích (phạm vi: ${scopes}): ${command.slice(0, 80)}`,
         context:
@@ -299,7 +383,11 @@ export function observe(
     })
   }
 
-  if (isCounted && isCheckpointDue(before, tracker.mutationsSinceCheck)) {
+  // Theo mốc đã nhắc (0.7.5): một lệnh ghi nhiều file làm bộ đếm vượt mốc thì vẫn nhắc ở lệnh đó, và mốc đã nhắc không nhắc lại.
+  // Chỉ ghi của luồng chính tiến bộ đếm (vòng sửa 2, M8); ghi của subagent không tiến nhịp.
+  const passed = checkpointsPassed(tracker.mutationsSinceCheck)
+  if (passed > tracker.checkpointMark) {
+    tracker.checkpointMark = passed
     findings.push({
       kind: 'checkpoint',
       priority: 1,
@@ -314,6 +402,18 @@ export function observe(
   return findings
 }
 
+/**
+ * Câu báo còn thay đổi chưa kiểm tra lại sau lần kiểm tra cuối (R8): thay đổi của luồng chính và của subagent nêu riêng, để khi
+ * chỉ còn thay đổi của subagent câu không báo "0 thay đổi".
+ */
+function unverifiedText(tracker: TurnTracker): string {
+  let sub = 0
+  for (const [author, count] of tracker.pendingChanges) if (author !== 'main') sub += count
+  if (sub === 0) return `${tracker.mutationsSinceCheck} thay đổi sau lần kiểm tra cuối chưa được kiểm tra lại`
+  if (tracker.mutationsSinceCheck === 0) return `${sub} thay đổi của subagent sau lần kiểm tra cuối chưa được kiểm tra lại`
+  return `${tracker.mutationsSinceCheck} thay đổi của luồng chính và ${sub} thay đổi của subagent sau lần kiểm tra cuối chưa được kiểm tra lại`
+}
+
 /** Phát hiện ở cuối turn: còn thay đổi chưa kiểm tra, checklist còn mở. */
 export function summarize(tracker: TurnTracker, brief: Brief | null, plan: readonly PlanStep[]): Finding[] {
   const findings: Finding[] = []
@@ -325,7 +425,7 @@ export function summarize(tracker: TurnTracker, brief: Brief | null, plan: reado
       text:
         tracker.checks === 0
           ? `Turn có ${tracker.mutations} thay đổi nhưng không chạy bước kiểm tra nào`
-          : `${tracker.mutationsSinceCheck} thay đổi sau lần kiểm tra cuối chưa được kiểm tra lại`,
+          : unverifiedText(tracker),
     })
   }
   const open = openSteps(plan)

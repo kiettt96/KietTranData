@@ -42,7 +42,13 @@ export type EvidenceLog = {
   paths: string[]
 }
 
-const EVIDENCE_COMMANDS = 100
+/**
+ * Trần của nhật ký lệnh (0.7.5): hai vùng có trần riêng trong cùng danh sách theo seq, lần chạy kiểm (check khác null) và
+ * lệnh khác (kể cả lệnh chỉ đọc mà luật verified của việc chỉ tra cứu dựa vào). Vùng nào vượt trần thì bỏ mục cũ nhất của
+ * chính vùng đó, nên trăm lệnh đọc không đẩy mất lần kiểm đạt và ngược lại.
+ */
+const EVIDENCE_CHECKS = 100
+const EVIDENCE_OTHERS = 100
 const EVIDENCE_PATHS = 200
 const EVIDENCE_WRITES = 300
 
@@ -88,7 +94,7 @@ export function noteEvidence(log: EvidenceLog, observation: ToolObservation, aut
       log.seq += 1
       log.commands.push({ command: command.slice(0, 500), ok: !observation.isError, check: null, seq: log.seq, author })
     }
-    while (log.commands.length > EVIDENCE_COMMANDS) log.commands.shift()
+    trimCommands(log)
   } else if (FILE_TOOLS.has(observation.tool) && !observation.isError && !isPlanFile(filePathOf(observation))) {
     onWrite()
   } else {
@@ -100,6 +106,17 @@ export function noteEvidence(log: EvidenceLog, observation: ToolObservation, aut
     if (path === '' || log.paths.includes(path)) continue
     log.paths.push(path)
     if (log.paths.length > EVIDENCE_PATHS) log.paths.shift()
+  }
+}
+
+/** Bỏ mục cũ nhất của vùng vượt trần (lần chạy kiểm hay lệnh khác), giữ thứ tự seq của phần còn lại. */
+function trimCommands(log: EvidenceLog): void {
+  for (const [isCheck, limit] of [[true, EVIDENCE_CHECKS], [false, EVIDENCE_OTHERS]] as const) {
+    let extra = log.commands.filter(c => (c.check !== null) === isCheck).length - limit
+    while (extra > 0) {
+      log.commands.splice(log.commands.findIndex(c => (c.check !== null) === isCheck), 1)
+      extra -= 1
+    }
   }
 }
 

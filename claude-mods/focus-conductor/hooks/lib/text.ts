@@ -22,10 +22,10 @@ export const PLAN_TOOL_FULL = 'mcp__focus-conductor__plan'
 export const DISCIPLINE = `# Focus Conductor
 Mỗi prompt của người dùng có thể kèm một khối "[focus-conductor]" do model router của plugin đọc sẵn: mục tiêu cuối, các việc, ràng buộc, tiêu chí chất lượng, mức độ phức tạp và cách điều phối. Khối đó là bản đọc trước, không thay thế prompt gốc.
 1. Đọc kỹ trước khi làm: đối chiếu khối phân tích với prompt gốc, sửa chỗ sai hoặc thiếu, xác định rõ mục tiêu cuối, ràng buộc và tiêu chí nghiệm thu, rồi mới gọi tool thực thi đầu tiên.
-2. Với việc từ mức moderate trở lên: gọi ${PLAN_TOOL_FULL} (action "set") để ghi mục tiêu và checklist đã chuẩn hóa; cập nhật từng bước (doing, done, verified kèm bằng chứng, skipped, blocked hoặc waiting kèm lý do). Khi checklist có việc của mục "Phân việc", tiêu đề bước mở đầu "Việc N: ".
+2. Với việc từ mức moderate trở lên: gọi ${PLAN_TOOL_FULL} (action "set") để ghi mục tiêu và checklist đã chuẩn hóa; cập nhật từng bước (doing, done, verified kèm bằng chứng, skipped, blocked hoặc waiting kèm lý do). Khi checklist có việc của mục "Phân việc", tiêu đề bước mở đầu "Việc N: " (N là số thứ tự của việc trong Phân việc); việc mang mã riêng của prompt (như "BƯỚC 7") thì tiêu đề bước mở đầu bằng chính mã đó.
 3. Nhất quán: mọi bước phải phục vụ mục tiêu cuối; không làm thêm việc ngoài phạm vi, không bỏ sót yêu cầu; giữ văn phong, quy ước đặt tên và định dạng đã dùng từ đầu.
-4. Tự kiểm tra sau mỗi bước quan trọng (chạy test, type-check, đọc lại thay đổi) trước khi sang bước sau. Lệnh test chạy đạt sau thay đổi cuối thì mod tự nâng bước đã xong thành verified, không cần chép lệnh; kiểm tĩnh (type-check, lint) không tính.
-5. Khi giao việc cho subagent: nếu khối có mục "Phân việc", giao đúng các việc ghi "giao", description của Agent mở đầu "Việc N: " (N là số của việc) để chạy đúng model và effort đã phân; việc ghi "làm trực tiếp" thì tự làm. Việc ngoài danh sách: để trống model và effort, router của plugin chấm khi giao; chọn Explore cho tra cứu chỉ đọc, Plan cho thiết kế, general-purpose cho thực thi. Prompt quy định model cho việc giao (kể cả "model của phiên") thì ghi rõ model đó ở lời gọi Agent (model của phiên ghi bằng tên họ model đang chạy); model ghi ở lời gọi là mức sàn, mod không chọn thấp hơn.
+4. Tự kiểm tra sau mỗi bước quan trọng theo cách người dùng quy định (lệnh kiểm có sẵn của dự án hay của prompt, đọc lại thay đổi) trước khi sang bước sau; không tạo test hay script kiểm mới nếu người dùng không yêu cầu. Lệnh kiểm mod nhận ra (trình chạy test, lệnh khai trong checkCommands) chạy đạt sau thay đổi cuối thì mod tự nâng bước đã xong thành verified, không cần chép lệnh; kiểm tĩnh (type-check, lint) không tính.
+5. Khi giao việc cho subagent: nếu khối có mục "Phân việc", giao đúng các việc ghi "giao", description của Agent mở đầu "Việc N: " (N là số thứ tự của việc, không phải số bước của prompt; việc mang mã riêng như "BƯỚC 7" thì mở đầu bằng chính mã đó) để chạy đúng model và effort đã phân; việc ghi "làm trực tiếp" thì tự làm. Việc ngoài danh sách: để trống model và effort, router của plugin chấm khi giao; chọn Explore cho tra cứu chỉ đọc, Plan cho thiết kế, general-purpose cho thực thi. Prompt quy định model cho việc giao (kể cả "model của phiên") thì ghi rõ model đó ở lời gọi Agent (model của phiên ghi bằng tên họ model đang chạy); model ghi ở lời gọi là mức sàn, mod không chọn thấp hơn.
 6. Báo cáo gọn (chỉ áp cho luồng chính; subagent theo quy tắc riêng ở dòng cuối): giữa các tool call không tường thuật; khi chuyển sang việc khác chỉ viết một dòng "Đang làm việc N/M: ...", không chép lại checklist, không tóm tắt lại kết quả tool. Vẫn báo ngay khi bị chặn, khi cần người dùng quyết định, hoặc khi phát hiện rủi ro. Báo cáo cuối nêu kết quả, đã kiểm bằng lệnh nào, và chỗ còn hở. Hướng dẫn riêng của người dùng (CLAUDE.md, prompt) được ưu tiên hơn mục này.
 Nếu bạn là subagent: không dùng tool plan của mod; việc từ ba bước trở lên thì ghi danh sách bằng tool danh sách việc có sẵn (nếu có trong phiên của bạn); làm đúng nhiệm vụ được giao và báo cáo ngắn gọn.`
 
@@ -82,7 +82,7 @@ function taskBlock(tasks: readonly Task[], main: string, isReference: boolean): 
   if (isReference) {
     return `\nPhân việc của prompt đính kèm (chỉ để đối chiếu: không thực thi, không giao subagent; luồng chính của prompt đó: ${main}):\n${lines.join('\n')}`
   }
-  return `\nPhân việc (router đã chấm trước khi làm; khi giao, description của Agent mở đầu "Việc N: " với N là số của việc):\n${lines.join('\n')}`
+  return `\nPhân việc (router đã chấm trước khi làm; khi giao, description của Agent mở đầu "Việc N: " với N là số thứ tự của việc; việc mang mã riêng như "BƯỚC 7" thì mở đầu bằng chính mã đó):\n${lines.join('\n')}`
 }
 
 /**
@@ -124,10 +124,11 @@ export function briefContext(brief: Brief, main: Choice | null, isApplied = true
 }
 
 /** Router không đọc được prompt: báo để Claude không dựa vào phân việc cũ. */
-export function unroutedContext(reason: string, isBare = false): string {
+export function unroutedContext(reason: string, isBare = false, hasTasks = false): string {
   return (
     `[focus-conductor] Router không đọc được prompt này (${reason}). Không có phân việc mới; ` +
-    'mod không chọn model cho turn này, và phân việc cũ (nếu có) không còn hiệu lực. ' +
+    // 0.7.5: router lỗi ở prompt tiếp nối không làm mất phân việc đã có của mục tiêu.
+    (hasTasks ? 'mod không chọn model cho turn này; phân việc đã có của mục tiêu vẫn giữ (giao đúng các việc ghi "giao" còn lại). ' : 'mod không chọn model cho turn này. ') +
     (isBare ? 'Mod đã lập mục tiêu tối thiểu từ prompt để vẫn theo dõi tiến độ; người dùng có thể /conductor reroute để router đọc lại. ' : '') +
     `Tự đọc kỹ prompt, và gọi ${PLAN_TOOL_FULL} action "set" nếu việc từ mức moderate trở lên.`
   )
@@ -221,20 +222,23 @@ export function blockText(waiting: readonly string[], left: number): string {
 export function unbackedNotice(reason: string, examples?: readonly string[]): string {
   const base =
     `[focus-conductor] Bước được lưu là done, chưa tính là đã kiểm tra: ${reason}. ` +
-    'Chạy lệnh test (không phải kiểm tĩnh như type-check, lint, build) sau thay đổi cuối cùng: mod sẽ tự nâng bước done thành verified, ' +
+    'Kiểm theo cách người dùng quy định (lệnh kiểm có sẵn của dự án hay của prompt, đọc lại kết quả) sau thay đổi cuối cùng; ' +
+    'không tạo test hay script kiểm mới nếu người dùng không yêu cầu. Lệnh kiểm mod nhận ra (trình chạy test, lệnh kiểm riêng ' +
+    'người dùng đã khai cho mod; kiểm tĩnh như type-check, lint, build không tính) chạy đạt thì mod tự nâng bước done thành verified, ' +
     'không cần chép lệnh vào evidence. Việc chỉ đọc, chưa sửa gì thì nêu lệnh hay file đã đọc.'
   if (examples === undefined) return base
-  const sample = examples[0] ?? 'python3 check_totals.py'
+  // Không có lệnh script thật đã chạy thì không nêu ví dụ (0.7.5): tên lệnh bịa dễ bị chép thành script mới.
+  const sample = examples[0] !== undefined ? `, ví dụ \`${examples[0]}\`` : ''
   return (
     `${base} Nếu bước này được kiểm bằng script riêng của dự án, người dùng khai option checkCommands của mod ` +
-    `(lệnh phân tách bằng dấu phẩy, khớp theo tiền tố token, ví dụ \`${sample}\`); model không tự khai được. ` +
+    `(lệnh phân tách bằng dấu phẩy, khớp theo tiền tố token${sample}); model không tự khai được. ` +
     'Khi chưa khai, bước vẫn là done: nêu với người dùng lệnh đã chạy và kết quả.'
   )
 }
 
 /** Bằng chứng mạnh nhưng chỉ có kiểm tĩnh (type-check, lint, build): ghi chú để Claude cân nhắc chạy test. */
 export function staticOnlyNotice(): string {
-  return '[focus-conductor] Ghi chú: bằng chứng chỉ là kiểm tĩnh (type-check, lint, build, validate), chưa chạy test hành vi. Nếu bước thay đổi hành vi, chạy test tương ứng.'
+  return '[focus-conductor] Ghi chú: bằng chứng chỉ là kiểm tĩnh (type-check, lint, build, validate), chưa kiểm hành vi. Nếu bước thay đổi hành vi, kiểm theo cách người dùng quy định (lệnh kiểm có sẵn, đọc lại kết quả); không tạo test mới nếu người dùng không yêu cầu.'
 }
 
 /** Bước có tiêu chí nghiệm thu: nhắc lại để Claude đối chiếu với bằng chứng vừa ghi. */
@@ -358,8 +362,10 @@ export function stopBlockReason(plan: readonly PlanStep[], failed: readonly stri
     parts.push(
       `[focus-conductor] Checklist còn ${open.length} bước mở: ` +
         `${open.map(s => `${s.id}. ${s.title}`).join('; ')}. ` +
-        `Hoàn thành các bước đó, hoặc cập nhật trạng thái bằng ${PLAN_TOOL_FULL} ` +
-        '(skipped, blocked hoặc waiting kèm lý do) trước khi kết thúc. Đang chờ lệnh nền, tiến trình hay người dùng thì ghi waiting; blocked dành cho vướng mắc không tự gỡ được. ' +
+        // 0.7.5: hướng dẫn waiting đứng trước, để việc đang chờ (kể cả dừng theo quy tắc hạn mức của prompt) không bị đẩy làm tiếp.
+        'Đang chờ lệnh nền, tiến trình, người dùng hay đang dừng theo quy tắc dừng theo hạn mức của prompt thì ghi waiting; blocked dành cho vướng mắc không tự gỡ được. ' +
+        `Còn lại thì hoàn thành các bước đó, hoặc cập nhật trạng thái bằng ${PLAN_TOOL_FULL} ` +
+        '(skipped, blocked hoặc waiting kèm lý do) trước khi kết thúc. ' +
         'Dừng cả checklist theo lệnh người dùng: một lần gọi action "update" với allOpen true, status waiting hoặc blocked và một note chung.',
     )
   }
@@ -446,11 +452,18 @@ export function withQuotaNoticeStatus(base: string | undefined, hits: readonly Q
 }
 
 /** Lý do từ chối tool khi đang dừng: luồng chính ghi điểm dừng rồi kết thúc; subagent kết thúc ngay. */
-export function quotaDenyText(reasons: readonly QuotaReason[], isUser: boolean, isAgent: boolean): string {
+export function quotaDenyText(reasons: readonly QuotaReason[], isUser: boolean, isAgent: boolean, allowPaths: readonly string[] = []): string {
   const cause = `[focus-conductor] Tạm dừng: ${pauseCause(reasons, isUser)}.`
   if (isAgent) return `${cause} Subagent không gọi tool nào khác; kết thúc ngay và báo ngắn phần đã làm, phần còn dở.`
+  // pauseAllowPaths (0.7.5): luồng chính vẫn ghi được file checkpoint theo quy tắc dừng của prompt. Vòng sửa 2: nêu đường dẫn được
+  // ghi trước, rồi mới "Không gọi tool nào khác" (kèm ngoại lệ), để câu cấm không đứng trước ngoại lệ của chính nó.
+  const allowed =
+    allowPaths.length > 0
+      ? ` Được ghi vào các đường dẫn của pauseAllowPaths: ${allowPaths.join(', ')} (bằng Write, Edit, MultiEdit, NotebookEdit hay Bash có mọi đường dẫn đích nằm trong danh sách đó; đọc các đường dẫn đó bằng Read vì Claude Code cần Read trước Edit), ví dụ file checkpoint theo quy tắc dừng của prompt.`
+      : ''
+  const ban = allowPaths.length > 0 ? 'Không gọi tool nào khác ngoài việc ghi và Read các đường dẫn đó và tool plan.' : 'Không gọi tool nào khác.'
   return (
-    `${cause} Không gọi tool nào khác. Gọi ${PLAN_TOOL_FULL} với action "checkpoint" và note nêu: bước kế tiếp cụ thể, ` +
+    `${cause}${allowed} ${ban} Gọi ${PLAN_TOOL_FULL} với action "checkpoint" và note nêu: bước kế tiếp cụ thể, ` +
     'những gì đã hoàn tất không được làm lại, và điều cần kiểm khi quay lại. Sau đó kết thúc turn bằng một câu báo điểm dừng ' +
     `và nhắc người dùng chạy tiếp bằng ${resumeCommand(isUser)}.`
   )
@@ -513,11 +526,13 @@ export function resumeContext(cp: QuotaCheckpoint, changed: readonly string[]): 
 /**
  * Dòng nhắc khi có điểm dừng mở mà prompt được xếp là việc khác: điểm dừng giữ nguyên để tiếp tục sau.
  */
-export function resumePendingContext(cp: QuotaCheckpoint): string {
+export function resumePendingContext(cp: QuotaCheckpoint, isAfterClear = false): string {
   const goal = cp.brief.goal ? `, mục tiêu: ${cp.brief.goal.length > 120 ? `${cp.brief.goal.slice(0, 119)}…` : cp.brief.goal}` : ''
   return (
     `[focus-conductor] Có điểm dừng chưa tiếp tục (tạo lúc ${resetLabel(new Date(cp.createdAt).toISOString()) || 'không rõ giờ'}${goal}). ` +
-    'Prompt này được xếp là việc khác nên điểm dừng giữ nguyên; người dùng muốn làm tiếp thì nói "tiếp tục" hoặc dùng /conductor resume.'
+    (isAfterClear
+      ? 'Hội thoại vừa được xóa (/clear) nên điểm dừng không tự chèn; người dùng muốn làm tiếp thì dùng /conductor resume.'
+      : 'Prompt này được xếp là việc khác nên điểm dừng giữ nguyên; người dùng muốn làm tiếp thì nói "tiếp tục" hoặc dùng /conductor resume.')
   )
 }
 
@@ -584,12 +599,15 @@ export function routerFailLines(fail: RouterFail | null): string[] {
 
 /**
  * Gợi ý khai option checkCommands cho người dùng (0.7.3): toast, dòng của pane và của /conductor status dùng chung một câu.
- * Chuỗi gợi ý ở dạng sẽ khớp; tiền tố thư mục (kết thúc bằng "/") kèm lời nhắc chỉ khai khi thư mục chỉ chứa script kiểm.
- * Mod chỉ gợi ý, không tự khai.
+ * Chuỗi gợi ý ở dạng sẽ khớp. Mod chỉ gợi ý, không tự khai, và không gợi ý tiền tố thư mục.
  */
 export function checkHintText(commands: readonly string[]): string {
-  const dir = commands.some(command => command.endsWith('/')) ? ' Tiền tố thư mục tin mọi script dưới thư mục đó: chỉ khai nếu thư mục chỉ chứa script kiểm.' : ''
-  return `Mod chưa nhận script kiểm đã chạy là lệnh kiểm. Gợi ý khai option checkCommands của mod: ${commands.join(', ')}.${dir}`
+  return `Mod chưa nhận script kiểm đã chạy là lệnh kiểm. Gợi ý khai option checkCommands của mod: ${commands.join(', ')}. Nên chạy lệnh kiểm không qua ống (| tail, | head) hoặc có set -o pipefail, để mã thoát là của chính lệnh kiểm.`
+}
+
+/** Mục của prompt tiếp nối không giữ được vì ràng buộc và yêu cầu đã đầy, kể cả phần tràn (0.7.5, vòng rà soát 3). */
+export function droppedItemsText(count: number): string {
+  return `${count} mục của prompt tiếp nối không giữ được vì ràng buộc và yêu cầu của mục tiêu đã đầy (kể cả phần tràn); nhắc lại các mục đó khi cần, hoặc lập mục tiêu mới`
 }
 
 /** Dòng gợi ý của /conductor status (0.7.3): chỉ khi gợi ý thuộc đúng mục tiêu đang mở; rỗng thì không có dòng. */

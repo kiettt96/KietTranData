@@ -523,7 +523,7 @@ describe('0.5.6 A: gợi ý checkCommands khi verified bị hạ', () => {
     expect(out).toContain('[x] 1. Dựng bảng tổng')
   })
 
-  test('mức none (evidence không nhắc gì): có checkCommands và ví dụ trung tính', {}, async ($, on) => {
+  test('mức none (evidence không nhắc gì): có checkCommands, không có ví dụ bịa', {}, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, COMPLEX_PROMPT)
@@ -531,7 +531,8 @@ describe('0.5.6 A: gợi ý checkCommands khi verified bị hạ', () => {
     await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'x', new_string: 'y' })
     const out = String((await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'đã kiểm tra kỹ, chạy ổn' })).result)
     expect(out).toContain('checkCommands')
-    expect(out).toContain('`python3 check_totals.py`')
+    // 0.7.5 A8: không có script thật đã chạy thì không nêu ví dụ (trước đây là tên bịa python3 check_totals.py).
+    expect(out).not.toContain('check_totals')
   })
 
   test('mức stale (lệnh kiểm tra nhận ra nhưng chạy trước thay đổi cuối): không nhắc checkCommands', {}, async ($, on) => {

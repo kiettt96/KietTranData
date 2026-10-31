@@ -10,7 +10,7 @@ import type { ModelCompleteRequest, ModelCompleteResult, ModelTextBlock, ModelUs
 import type { Brief, Choice, Depth, Effort, Kind, ModelFamily, Relation, RouterFail, RouterFailKind, Task, Tier, Volume } from '../../types'
 import { PRICE } from './cost'
 import type { Price } from './cost'
-import { EFFORTS, applySession, avoidBlocked, describePick, effortRank, familyOf, familyRank } from './route'
+import { EFFORTS, applySession, avoidBlocked, codesIn, describePick, effortRank, familyOf, familyRank, sessionFloor } from './route'
 import type { SessionModel } from './route'
 import { DEPTHS, KINDS, RELATIONS, VOLUMES, maxTier, tierOf } from './scale'
 
@@ -34,6 +34,13 @@ export const LOW_CONFIDENCE = 0.4
 const TASK_LIMIT = 20
 /** Yêu cầu router liệt kê (0.7.0): tối đa bấy nhiêu mục, mỗi mục bấy nhiêu ký tự; quá REQUIREMENTS_RECHECK thì đọc kiểm lại một lần ở effort cao. */
 const REQUIREMENT_LIMIT = 30
+/** Trần ràng buộc của brief (0.7.4). */
+const CONSTRAINT_LIMIT = 12
+/**
+ * Phần tràn của ràng buộc và yêu cầu (0.7.5, vòng rà soát 3): mục của prompt tiếp nối mà không còn mục nào thay được (mọi mục là của
+ * prompt lập mục tiêu hay quy định model) vẫn được giữ, thêm tối đa bấy nhiêu mục ngoài trần [Giả định: 10]; quá nữa mới bỏ, kèm cảnh báo.
+ */
+export const CAP_OVERFLOW = 10
 const REQUIREMENT_CHARS = 160
 export const REQUIREMENTS_RECHECK = 8
 /** Hạn chung cho mọi lượt gọi router của một prompt là bấy nhiêu lần timeout của request; lượt kiểm lại phủ yêu cầu chỉ chạy khi lượt đầu chưa quá nửa hạn (0.7.2). */
@@ -160,6 +167,79 @@ function unique(items: readonly string[], max: number): string[] {
   return [...new Set(items)].slice(0, max)
 }
 
+/** Ràng buộc nêu model cho một loại việc (họ model, hay "model/mô hình của phiên"): không bị thay khi đầy trần (0.7.5). */
+export function isModelRule(text: string): boolean {
+  const folded = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase()
+  return /\b(?:haiku|sonnet|opus|fable)\b/.test(folded) || /(?:mo hinh|model) cua phien|session model/.test(folded)
+}
+
+/** Khóa so khớp của một mục (S1): bỏ dấu cách thừa và dấu câu cuối, không phân biệt hoa thường; hai mục cùng khóa là cùng một mục. */
+function itemKey(text: string): string {
+  return text.normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim().replace(/[.;,:!?…]+$/u, '').trim()
+}
+
+/** Vị trí của mục cùng khóa trong danh sách; -1 nếu không có. */
+function indexOfKey(items: readonly string[], item: string): number {
+  const key = itemKey(item)
+  return items.findIndex(existing => itemKey(existing) === key)
+}
+
+/**
+ * Gộp mục mới vào danh sách có trần (0.7.5, S1 của vòng rà soát 4): mục cùng khóa với một mục có sẵn thay mục đó tại chỗ; mục khác
+ * được thêm khi còn chỗ trong trần cộng phần tràn (CAP_OVERFLOW mục), nên mọi lần tinh chỉnh đều được giữ, không thay mục nào khác.
+ * Phần tràn cũng đầy thì mục bị bỏ và được đếm ở `dropped`, không bao giờ bỏ im lặng. `max` là trần, `prev` có thể đã có phần tràn.
+ */
+function mergeCapped(prev: readonly string[], incoming: readonly string[], max: number): { items: string[]; dropped: number } {
+  const items = unique(prev, max + CAP_OVERFLOW)
+  let dropped = 0
+  for (const item of incoming) {
+    const at = indexOfKey(items, item)
+    if (at >= 0) items[at] = item
+    else if (items.length < max + CAP_OVERFLOW) items.push(item)
+    else dropped += 1
+  }
+  return { items, dropped }
+}
+
+/**
+ * Quy tắc mang sang được prompt tiếp nối nhắc lại (T3, vòng rà soát 5): mục cùng khóa trong `carried` mục đầu thuộc mục tiêu hiện tại,
+ * nên được dời về cuối phần mang sang và phần đó thu lại một mục (danh sách giữ đủ mục, chỉ đổi thứ tự). Trả danh sách và số mục còn
+ * mang sang.
+ */
+function reclaimCarried(items: readonly string[], carried: number, incoming: readonly string[]): { items: string[]; carried: number } {
+  const out = [...items]
+  let count = Math.min(carried, out.length)
+  for (const item of incoming) {
+    const at = indexOfKey(out.slice(0, count), item)
+    if (at < 0) continue
+    const [moved] = out.splice(at, 1)
+    out.splice(count - 1, 0, moved as string)
+    count -= 1
+  }
+  return { items: out, carried: count }
+}
+
+/**
+ * Gộp yêu cầu mới vào danh sách có trần REQUIREMENT_LIMIT (0.7.5, S1): như mergeCapped, yêu cầu cùng khóa thay tại chỗ (số thứ tự
+ * giữ nguyên nên `covers` của việc cũ vẫn đúng), yêu cầu khác được thêm khi còn chỗ trong trần cộng phần tràn, không thì bị bỏ và đếm.
+ * `renumber` đổi số thứ tự trong lượt router sang số thứ tự trong danh sách đã gộp.
+ */
+function mergeRequirements(prev: readonly string[], incoming: readonly string[]): { items: string[]; renumber: Map<number, number>; dropped: number } {
+  const items = [...prev]
+  const renumber = new Map<number, number>()
+  let dropped = 0
+  incoming.forEach((item, i) => {
+    let at = indexOfKey(items, item)
+    if (at >= 0) items[at] = item
+    else if (items.length < REQUIREMENT_LIMIT + CAP_OVERFLOW) {
+      items.push(item)
+      at = items.length - 1
+    } else dropped += 1
+    if (at >= 0) renumber.set(i + 1, at + 1)
+  })
+  return { items, renumber, dropped }
+}
+
 /** Phần dài quá giới hạn: giữ đầu và cuối, ghi chú số ký tự đã lược. */
 function capText(text: string, limit: number, head: number, tail: number): string {
   if (text.length <= limit) return text
@@ -194,7 +274,7 @@ function sessionLine(family: ModelFamily | null | undefined): string[] {
 }
 
 /** Ràng buộc của brief gửi router chấm subagent: giữ thứ tự (quy định model đứng đầu), cắt gọn tổng khoảng RULES_CHARS ký tự. */
-function rulesLines(constraints: readonly string[] | undefined): string[] {
+function ruleItems(constraints: readonly string[] | undefined): string[] {
   const items: string[] = []
   let size = 0
   for (const rule of constraints ?? []) {
@@ -203,6 +283,11 @@ function rulesLines(constraints: readonly string[] | undefined): string[] {
     items.push(item)
     size += item.length + 1
   }
+  return items
+}
+
+function rulesLines(constraints: readonly string[] | undefined): string[] {
+  const items = ruleItems(constraints)
   return items.length > 0 ? ['User rules of this goal (a rule that names a model for this kind of work must be followed, never a lower model):', ...items] : []
 }
 
@@ -211,9 +296,15 @@ function previousLines(prev: Brief | null, ran: string | null): string[] {
   const tasks = prev.tasks
     .slice(0, TASK_LIMIT)
     .map(t => `  ${t.index}. ${fence(t.title)} (${t.run === 'agent' ? `${fence(t.agentType ?? 'general-purpose')} ` : 'main '}${describePick(t.pick)})`)
+  // Ràng buộc của mục tiêu trước (0.7.5), cắt gọn như khi chấm subagent: prompt tiếp nối ngắn không nhắc lại quy định model.
+  const rules = ruleItems(prev.constraints)
+  // Phần tràn (vòng rà soát 3): mục của prompt tiếp nối giữ ngoài trần luôn có trong request, kể cả khi ruleItems đã cắt.
+  const over = [...prev.constraints.slice(CONSTRAINT_LIMIT), ...(prev.requirements ?? []).slice(REQUIREMENT_LIMIT)]
   return [
     `Previous goal${prev.isReference ? ' (a reference-only review: its tasks were routed for comparison, not run)' : ''}: ${fence(prev.goal)}`,
     ...(tasks.length > 0 ? ['Previous tasks:', ...tasks] : []),
+    ...(rules.length > 0 ? ['Previous constraints (still hold on a follow-up; a rule that names a model for this kind of work must be followed):', ...rules] : []),
+    ...(over.length > 0 ? ['Previous follow-up items kept over the limit (still hold):', ...over.map(item => `  - ${fence(clip(item, 120))}`)] : []),
     ...(prev.referenceMain ? [`Main thread the referenced prompt would need: ${describePick(prev.referenceMain)}`] : []),
     `Main thread ran: ${ran ?? 'unknown'}`,
   ]
@@ -469,6 +560,26 @@ export function floorRoute(route: AgentRoute, claimed: ModelFamily | null, claim
   return { route: { ...route, pick: fitted.pick, why: [route.why, ...floored.notes, ...fitted.notes].filter(Boolean).join('; ') }, notes: floored.notes }
 }
 
+/**
+ * Lời gọi Agent bỏ qua router vì model Claude ghi khớp quy định model của loại việc (0.7.5): lựa chọn vẫn qua fitPick (fable khi
+ * chưa bật allowFable về opus, model của phiên, họ bị chặn). Trả null khi chính sách không đổi gì; trả lựa chọn đã kẹp nếu đổi.
+ * Loại việc không biết (không có router) nên dùng 'mixed'; haiku là họ duy nhất phụ thuộc loại việc nên người gọi không dùng
+ * hàm này cho haiku mà hỏi router.
+ */
+export function ruleRoute(claimed: ModelFamily, claimedEffort: Effort | null, policy: Policy): AgentRoute | null {
+  const fitted = fitPick({ family: claimed, effort: claimedEffort ?? 'medium' }, 'mixed', policy)
+  if (fitted.pick.family === claimed && (claimedEffort === null || fitted.pick.effort === claimedEffort)) return null
+  return {
+    pick: { family: fitted.pick.family, effort: claimedEffort === null ? 'medium' : fitted.pick.effort },
+    agentType: 'general-purpose',
+    depth: 'light',
+    volume: 'small',
+    kind: 'mixed',
+    tier: tierOf('light', 'small'),
+    why: fitted.notes.join('; '),
+  }
+}
+
 /** Họ model cao nhất chính sách cho phép: model của phiên khi ceiling hay fixed, nếu không thì fable khi bật allowFable, còn lại opus. */
 function topFamily(policy: Policy): ModelFamily {
   const session = policy.session
@@ -509,6 +620,8 @@ export type RouterPlan = {
   tasks: Task[]
   /** Lý do các lần kẹp, để ghi nhật ký. */
   notes: string[]
+  /** Số việc router chia vượt TASK_LIMIT bị bỏ (0.7.5); vắng khi không cắt. */
+  droppedTasks?: number
 }
 
 function agentTypeOf(value: unknown, kind: Kind, policy: Policy): string {
@@ -570,7 +683,8 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
   const referenceMain = refRaw ? fitPick(refRaw, kind, policy).pick : undefined
   const whole = { depth, volume, kind }
   const tasks: Task[] = []
-  for (const item of Array.isArray(raw['tasks']) ? raw['tasks'].slice(0, TASK_LIMIT) : []) {
+  const rawTasks = Array.isArray(raw['tasks']) ? raw['tasks'] : []
+  for (const item of rawTasks.slice(0, TASK_LIMIT)) {
     const task = parseTask(item, tasks.length + 1, main.pick, whole, policy)
     if (task) tasks.push(task)
   }
@@ -594,8 +708,12 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
     ...(referenceMain ? { referenceMain } : {}),
     tasks,
     notes: main.notes,
+    ...(rawTasks.length > TASK_LIMIT ? { droppedTasks: rawTasks.length - TASK_LIMIT } : {}),
   }
 }
+
+/** Số việc tối đa router phân cho một prompt. */
+export const ROUTER_TASK_LIMIT = TASK_LIMIT
 
 /** Kết quả router chấm cho một subagent. */
 export type AgentRoute = {
@@ -664,15 +782,18 @@ export function briefOf(plan: RouterPlan, prompt: string, goalId: number, now: n
     goalId,
     goal: plan.goal || clip(prompt.trim(), 200),
     ...(plan.requirements.length > 0 ? { requirements: plan.requirements } : {}),
+    requirementsBase: plan.requirements.length,
     steps: plan.tasks.map(t => t.title),
     tasks: plan.tasks,
     constraints: plan.constraints,
+    constraintsBase: plan.constraints.length,
     quality: plan.quality,
     depth: plan.depth,
     volume: plan.volume,
     kind: plan.kind,
     tier: tierOf(plan.depth, plan.volume),
     main: plan.main,
+    ...(plan.main !== null ? { mainBase: plan.main } : {}),
     ...(plan.referenceMain ? { referenceMain: plan.referenceMain } : {}),
     why: reasonOf(plan),
     relation: 'new',
@@ -686,34 +807,57 @@ export function briefOf(plan: RouterPlan, prompt: string, goalId: number, now: n
 }
 
 /**
+ * Sàn main của mục tiêu (0.7.5, vòng sửa 2): main của prompt lập mục tiêu (`mainBase`; brief cũ không có thì main hiện tại), không
+ * phải lựa chọn gần nhất, nên sàn không chỉ tăng mãi. Báo chưa đạt nâng main thì sàn nâng theo (tính lại theo router, lấy mức
+ * cao hơn sàn cũ). Prompt được giữ ở tin cậy thấp (isHeld) không đổi sàn của mục tiêu.
+ */
+function mainBaseOf(prev: Brief, plan: RouterPlan, isHeld: boolean): Choice | null {
+  const base = prev.mainBase ?? prev.main
+  if (isHeld || plan.relation !== 'dissatisfied' || plan.main === null) return base
+  return base === null ? plan.main : floorPick(plan.main, base.family, base.effort).pick
+}
+
+/**
+ * Luồng chính của prompt tiếp nối: continue và refine không thấp hơn sàn mục tiêu (A7); dissatisfied theo router. Prompt được giữ
+ * làm tiếp nối cũng lấy sàn mục tiêu và không bao giờ thấp hơn sonnet (R5); sàn model của phiên áp sau đó ở withSessionFloor.
+ */
+function followUpMain(prev: Brief, plan: RouterPlan, isHeld: boolean): Choice | null {
+  if (plan.main === null || (!isHeld && plan.relation !== 'continue' && plan.relation !== 'refine')) return plan.main
+  const base = prev.mainBase ?? prev.main
+  const floored = base === null ? plan.main : floorPick(plan.main, base.family, base.effort).pick
+  return isHeld ? floorPick(floored, 'sonnet', null).pick : floored
+}
+
+/**
  * Prompt tiếp nối: giữ mục tiêu và các việc đã phân, nối việc mới (đánh số tiếp theo),
  * thêm ràng buộc và tiêu chí mới, dùng lựa chọn luồng chính và đánh giá mới của router.
  */
-export function followUpOf(prev: Brief, plan: RouterPlan, now: number): { brief: Brief; added: Task[] } {
+export function followUpOf(prev: Brief, plan: RouterPlan, now: number, isHeld = false): { brief: Brief; added: Task[]; dropped: number } {
   const offset = prev.tasks.reduce((max, t) => Math.max(max, t.index), 0)
-  // Yêu cầu mới nối vào danh sách (bỏ trùng); covers của việc mới đổi sang số thứ tự trong danh sách đã gộp.
-  const requirements = [...(prev.requirements ?? [])]
-  const renumber = new Map<number, number>()
-  plan.requirements.forEach((item, i) => {
-    let at = requirements.indexOf(item)
-    if (at < 0 && requirements.length < REQUIREMENT_LIMIT) {
-      requirements.push(item)
-      at = requirements.length - 1
-    }
-    if (at >= 0) renumber.set(i + 1, at + 1)
-  })
+  // Yêu cầu mới nối vào danh sách (bỏ trùng); covers của việc mới đổi sang số thứ tự trong danh sách đã gộp. Đầy trần thì
+  // yêu cầu mới thay yêu cầu cũ (0.7.5): việc cũ không còn phủ chỗ bị thay.
+  const { items: requirements, renumber, dropped: lostRequirements } = mergeRequirements(prev.requirements ?? [], plan.requirements)
+  const reclaimed = reclaimCarried(prev.constraints, prev.carriedRules ?? 0, plan.constraints)
+  const constraints = mergeCapped(reclaimed.items, plan.constraints, CONSTRAINT_LIMIT)
+  const dropped = lostRequirements + constraints.dropped
   const added = plan.tasks.map(t => ({
     ...t,
     index: t.index + offset,
     ...(t.covers !== undefined ? { covers: t.covers.flatMap(n => renumber.get(n) ?? []) } : {}),
   }))
-  const { isBare: _isBare, ...kept } = prev
+  const { isBare: _isBare, carriedRules: _carried, ...kept } = prev
   const brief: Brief = {
     ...kept,
+    // Quy tắc mang sang mà prompt này nhắc lại không còn tính là mang sang (T3).
+    ...(reclaimed.carried > 0 ? { carriedRules: reclaimed.carried } : {}),
     ...(requirements.length > 0 ? { requirements } : {}),
     steps: added.length > 0 ? [...prev.steps, ...added.map(t => t.title)] : prev.steps,
     tasks: [...prev.tasks, ...added],
-    constraints: unique([...prev.constraints, ...plan.constraints], 12),
+    constraints: constraints.items,
+    // Số mục của prompt tiếp nối không giữ được (vòng rà soát 3), cộng dồn trong mục tiêu: /conductor status nêu số này.
+    ...((prev.dropped ?? 0) + dropped > 0 ? { dropped: (prev.dropped ?? 0) + dropped } : {}),
+    constraintsBase: prev.constraintsBase ?? prev.constraints.length,
+    requirementsBase: prev.requirementsBase ?? (prev.requirements ?? []).length,
     quality: unique([...prev.quality, ...plan.quality], 10),
     depth: plan.depth,
     volume: plan.volume,
@@ -723,7 +867,9 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number): { brief:
     tier: prev.isBare === true ? tierOf(plan.depth, plan.volume) : maxTier(prev.tier, tierOf(plan.depth, plan.volume)),
     // Mục tiêu tối thiểu được router đọc lần đầu qua prompt tiếp nối: lấy câu mục tiêu của router nếu có (0.7.2).
     ...(prev.isBare === true && plan.goal ? { goal: plan.goal } : {}),
-    main: plan.main,
+    // Làm tiếp hay chỉnh thêm (0.7.5): luồng chính không thấp hơn lượt trước (họ và effort); dissatisfied tính lại theo router.
+    main: followUpMain(prev, plan, isHeld),
+    ...(mainBaseOf(prev, plan, isHeld) !== null ? { mainBase: mainBaseOf(prev, plan, isHeld) as Choice } : {}),
     why: reasonOf(plan),
     relation: plan.relation,
     source: 'router',
@@ -731,7 +877,7 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number): { brief:
     scopePaths: plan.scope.length > 0 ? plan.scope : prev.scopePaths,
     at: now,
   }
-  return { brief, added }
+  return { brief, added, dropped }
 }
 
 /**
@@ -739,14 +885,19 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number): { brief:
  * việc thật của một mục tiêu mới; luồng chính theo lựa chọn mới của router.
  */
 export function promoteReference(prev: Brief, plan: RouterPlan, prompt: string, now: number): Brief {
-  // Ràng buộc, tiêu chí và phạm vi của prompt đính kèm được giữ từ lượt đối chiếu: lượt chạy thật phải có đủ.
+  // Ràng buộc, tiêu chí và phạm vi của prompt đính kèm được giữ từ lượt đối chiếu: lượt chạy thật phải có đủ. Cả hai lượt là prompt
+  // lập mục tiêu nên mọi mục đều thuộc phần không bao giờ bị thay.
+  const mergedRequirements = mergeCapped(prev.requirements ?? [], plan.requirements, REQUIREMENT_LIMIT).items
+  const mergedConstraints = mergeCapped(prev.constraints, plan.constraints, CONSTRAINT_LIMIT).items
   return {
     ...briefOf(plan, prompt, prev.goalId + 1, now),
     goal: plan.goal || prev.goal,
     steps: prev.tasks.map(t => t.title),
     tasks: prev.tasks,
-    ...(prev.requirements !== undefined || plan.requirements.length > 0 ? { requirements: unique([...(prev.requirements ?? []), ...plan.requirements], REQUIREMENT_LIMIT) } : {}),
-    constraints: unique([...prev.constraints, ...plan.constraints], 12),
+    ...(prev.requirements !== undefined || plan.requirements.length > 0 ? { requirements: mergedRequirements } : {}),
+    requirementsBase: mergedRequirements.length,
+    constraints: mergedConstraints,
+    constraintsBase: mergedConstraints.length,
     quality: unique([...prev.quality, ...plan.quality], 10),
     scopePaths: plan.scope.length > 0 ? plan.scope : prev.scopePaths,
     isReference: false,
@@ -889,6 +1040,15 @@ export async function askRouter<T extends { confidence?: number }>(
   const first = await ask(request).catch(() => null)
   const usages = first ? [first.usage] : []
   const limits = (last: ModelCompleteResult | null) => ({ timeoutMs: request.timeoutMs ?? null, maxTokens: request.maxTokens ?? null, outputTokens: last ? last.usage.output_tokens : null })
+  // Hết giờ chờ (0.7.5): thử lại đúng một lần cùng request nếu hạn chung còn ít nhất RETRY_MIN_MS, với thời gian chờ là phần còn lại.
+  if (first !== null && !first.isAnswered && first.reason === 'aborted') {
+    const left = budget - (now() - startedAt)
+    if (left < RETRY_MIN_MS) return { result: null, reason: failureReason(first), usages, retried: false, failure: failureKind(first), ...limits(first) }
+    const again = await ask({ ...request, timeoutMs: Math.min(request.timeoutMs ?? left, left) }).catch(() => null)
+    if (again) usages.push(again.usage)
+    const result = again?.isAnswered ? parse(again.text) : null
+    return { result, reason: result === null ? failureReason(again) : '', usages, retried: true, failure: result === null ? failureKind(again) : null, ...limits(again ?? first) }
+  }
   const firstResult = first?.isAnswered ? parse(first.text) : null
   const firstConfidence = firstResult?.confidence ?? 1
   const isConfident = firstResult !== null && firstConfidence >= LOW_CONFIDENCE
@@ -909,18 +1069,98 @@ export async function askRouter<T extends { confidence?: number }>(
   return { result: pick, reason: pick === null ? failureReason(second) : '', usages, retried: true, failure: pick === null ? failureKind(second) : null, ...limits(second ?? first) }
 }
 
+/** Ràng buộc và yêu cầu của brief trước bị thay vì đầy trần (0.7.5), để báo một cảnh báo. */
+function replacedOf(prev: Brief, next: Brief): string[] {
+  return [...prev.constraints.filter(x => !next.constraints.includes(x)), ...(prev.requirements ?? []).filter(x => !(next.requirements ?? []).includes(x))]
+}
+
+/** Tin cậy tối thiểu để nhận mục tiêu mới khi checklist còn bước mở (0.7.5) [Giả định: 0,8, chưa đo trên phiên thật]. */
+export const NEW_GOAL_CONFIDENCE = 0.8
+
+/** Mã có trong các tiêu đề của brief hay checklist (R11): mã bước, mã việc và mã mục như "k4.2" hay "b12". */
+export function briefCodes(titles: readonly string[]): Set<string> {
+  const known = new Set<string>()
+  for (const title of titles) for (const code of codesIn(title)) known.add(code)
+  return known
+}
+
+/** Từ có nghĩa (bỏ dấu, viết thường, từ 2 ký tự trở lên) của một cụm. */
+function significantWords(text: string): Set<string> {
+  const folded = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase()
+  return new Set(folded.split(/[^a-z0-9]+/).filter(w => w.length >= 2))
+}
+
+/**
+ * Prompt có nhắc tới mục tiêu hiện tại không (0.7.5, vòng sửa 2): nhắc một mã bước hay mã việc có trong các bước, việc của mục
+ * tiêu, hoặc nhắc một bước đang mở theo tiêu đề (mọi từ có nghĩa của tiêu đề có trong prompt khi tiêu đề tới 3 từ; tiêu đề dài
+ * hơn cần ít nhất 3 từ và 60% số từ). Câu khác hẳn không nhắc gì thì không được giữ làm tiếp nối.
+ */
+function mentionsGoal(prompt: string, prev: Brief, openSteps: readonly string[]): boolean {
+  // Chỉ mã có trong brief mới tính (R11): "utf8" hay "b12" trong câu hỏi không phải mã của mục tiêu.
+  const known = briefCodes([...prev.steps, ...prev.tasks.map(t => t.title), ...openSteps])
+  if ([...codesIn(prompt)].some(code => known.has(code))) return true
+  const words = significantWords(prompt)
+  return openSteps.some(title => {
+    const own = [...significantWords(title)]
+    if (own.length === 0) return false
+    const hit = own.filter(w => words.has(w)).length
+    return own.length <= 3 ? hit === own.length : hit >= 3 && hit / own.length >= 0.6
+  })
+}
+
 /**
  * Brief kế tiếp từ kế hoạch của router: chạy thật prompt đã đối chiếu, mục tiêu mới, hoặc tiếp nối.
  * Chạy thật được xét trước relation, vì "chạy đi" có thể mang relation new mà vẫn là chạy việc đã đối chiếu.
+ * `openSteps` (0.7.5): tiêu đề các bước còn mở; checklist còn bước mở mà router xếp mục tiêu mới với tin cậy dưới
+ * NEW_GOAL_CONFIDENCE và prompt nhắc tới bước đang mở hay mã bước, mã việc của mục tiêu (mentionsGoal) thì coi là tiếp nối
+ * (`held`), để một prompt nhắc bước kế tiếp không cất checklist đang làm; câu khác hẳn vẫn lập mục tiêu mới. Prompt được giữ
+ * không bị áp sàn main của mục tiêu cũ. Nhận mục tiêu mới thì mang theo quy định model của brief trước (đứng đầu) khi prompt
+ * mới không nêu quy định model nào.
  */
-export function nextBrief(prev: Brief | null, plan: RouterPlan, prompt: string, now: number): { brief: Brief; added: Task[]; isNewGoal: boolean } {
+export function nextBrief(
+  prev: Brief | null,
+  plan: RouterPlan,
+  prompt: string,
+  now: number,
+  options: { openSteps?: readonly string[]; sessionFamily?: ModelFamily | null } = {},
+): { brief: Brief; added: Task[]; isNewGoal: boolean; replaced: string[]; held: boolean; dropped: number } {
+  const out = nextBriefRaw(prev, plan, prompt, now, options)
+  return { ...out, brief: withSessionFloor(out.brief, options.sessionFamily ?? null) }
+}
+
+/**
+ * Luồng chính không thấp hơn model của phiên khi ràng buộc của brief quy định vậy (sessionFloor). Quy định mang sang từ mục tiêu trước
+ * (`carriedRules` mục đầu) không tính (S2): chúng chỉ định tuyến subagent.
+ */
+function withSessionFloor(brief: Brief, session: ModelFamily | null): Brief {
+  const floor = sessionFloor(brief.constraints.slice(brief.carriedRules ?? 0), session)
+  if (floor === null || brief.main === null) return brief
+  return { ...brief, main: floorPick(brief.main, floor, null).pick }
+}
+
+function nextBriefRaw(
+  prev: Brief | null,
+  plan: RouterPlan,
+  prompt: string,
+  now: number,
+  options: { openSteps?: readonly string[] },
+): { brief: Brief; added: Task[]; isNewGoal: boolean; replaced: string[]; held: boolean; dropped: number } {
   if (prev !== null && prev.isReference && plan.runReference) {
-    return { brief: promoteReference(prev, plan, prompt, now), added: [], isNewGoal: true }
+    const brief = promoteReference(prev, plan, prompt, now)
+    return { brief, added: [], isNewGoal: true, replaced: replacedOf(prev, brief), held: false, dropped: 0 }
   }
-  if (prev === null || plan.relation === 'new') {
-    return { brief: briefOf(plan, prompt, (prev?.goalId ?? 0) + 1, now), added: [], isNewGoal: true }
+  const open = options.openSteps ?? []
+  const held = prev !== null && !prev.isReference && plan.relation === 'new' && open.length > 0 && plan.confidence < NEW_GOAL_CONFIDENCE && mentionsGoal(prompt, prev, open)
+  if (prev === null || (plan.relation === 'new' && !held)) {
+    const fresh = briefOf(plan, prompt, (prev?.goalId ?? 0) + 1, now)
+    const carried = prev !== null && !prev.isReference && !plan.constraints.some(isModelRule) ? prev.constraints.filter(isModelRule) : []
+    const carriedConstraints = unique([...carried, ...fresh.constraints], CONSTRAINT_LIMIT)
+    // Quy định mang sang đứng đầu danh sách (S2): ghi số mục để sàn model phiên chỉ đọc quy định của chính mục tiêu này.
+    const brief = carried.length > 0 ? { ...fresh, constraints: carriedConstraints, constraintsBase: carriedConstraints.length, carriedRules: carried.length } : fresh
+    return { brief, added: [], isNewGoal: true, replaced: [], held: false, dropped: 0 }
   }
-  return { ...followUpOf(prev, plan, now), isNewGoal: false }
+  const next = followUpOf(prev, held ? { ...plan, relation: 'continue' } : plan, now, held)
+  return { ...next, isNewGoal: false, replaced: replacedOf(prev, next.brief), held }
 }
 
 /**

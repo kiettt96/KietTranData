@@ -13,7 +13,7 @@ import { askRouter, bareBrief, briefOf, failFields, nextBrief, parseRoute, rerou
 import { shownPlan } from '../lib/mirror'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
-import { briefContext, checkHintLines, droppedPlanNotice, quotaStatusLines, renderPlan, resetLabel, routerFailLines, unroutedContext } from '../lib/text'
+import { briefContext, checkHintLines, droppedItemsText, droppedPlanNotice, quotaStatusLines, renderPlan, resetLabel, routerFailLines, unroutedContext } from '../lib/text'
 import { PANE_ROWS, shouldAutoOpenPane } from '../lib/pane'
 import { PANE, PANE_TITLE } from '../ui/pane'
 import type { EngineInterface, On } from 'claude-code'
@@ -181,7 +181,10 @@ export function registerCommand(on: On, ctx: Ctx): void {
       if ((await read($, mode)) === 'off') return { text: 'Focus Conductor đang tắt (mode off); bật lại bằng /conductor mode auto.' }
       const before = S.normalizeCore(await read($, coreState))
       const current = before.brief
-      const last = L.lastPrompt
+      // Router đọc được prompt gần nhất (0.7.5): đọc lại prompt đã lập mục tiêu hiện tại, không phải prompt tiếp nối ngắn gần nhất.
+      // Lần đọc gần nhất lỗi thì đọc lại chính prompt đó như cũ.
+      const isGoalRead = before.routerFail === null && L.goalPrompt !== null && L.goalPrompt.goalId === (current?.goalId ?? null)
+      const last = isGoalRead ? L.goalPrompt : L.lastPrompt
       if (last === null || (current?.goalId ?? null) !== last.goalId) {
         return { text: 'Không có prompt nào của mục tiêu hiện tại để router đọc lại. Đặt mục tiêu bằng /conductor goal kèm mô tả.' }
       }
@@ -205,7 +208,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       }
       L.routerTrouble = { failures: 0, pausedUntil: 0 }
       await update($, coreState, S.withRouterFail(null))
-      const fresh = nextBrief(last.prev, plan, last.text, now)
+      const fresh = nextBrief(last.prev, plan, last.text, now, { sessionFamily: L.sessionFamily })
       // Prompt gần nhất đã lập mục tiêu hiện tại (không phải tiếp nối mục tiêu trước nó).
       const wasNew = current !== null && current.goalId !== (last.prev?.goalId ?? null)
       const archivedPrev = last.prev ? before.archived.findIndex(a => a.brief.goalId === last.prev?.goalId) : -1
@@ -372,6 +375,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
           `Luồng chính: ${routeLine}${blockedLine}`,
           ...routerFailLines(core.routerFail),
           ...checkHintLines(core.checkHint, core.brief.goalId),
+          ...((core.brief.dropped ?? 0) > 0 ? [droppedItemsText(core.brief.dropped ?? 0)] : []),
           renderPlan(core.brief, shown.plan) + (shown.source === 'mirror' ? '\n(theo danh sách việc của Claude Code, chỉ để theo dõi)' : ''),
           ...costLines,
         ].join('\n') + agentBlock,

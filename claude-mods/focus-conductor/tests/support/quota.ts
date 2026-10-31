@@ -52,3 +52,11 @@ export function memoryStore(on: On) {
  */
 export const resumeRouter: Responder = request => (request.startsWith('tiếp tục') ? plan({ relation: 'continue', goal: 'tiếp tục' }) : DEFAULT_ROUTER(request))
 export const RESUME = { router: resumeRouter }
+
+/**
+ * Hệ tệp phẳng cho test pauseAllowPaths (R9): mọi đường dẫn có thật và không có symlink (`realPath` là chính nó). Mod hỏi
+ * `$.fs.stat(path, { resolve: true })` để biết đường dẫn ghi đáp vào đâu; không có hệ tệp giả thì engine thử không trả `realPath`.
+ */
+export function flatFs(on: On): void {
+  on('fs.stat', (_$, e) => ({ value: { kind: 'file' as const, size: 0, mtimeMs: 0, isLink: false, ...(e.resolve ? { realPath: e.path } : {}) } }) as never)
+}

@@ -2,6 +2,7 @@
 // router, cảnh báo, nhật ký, sổ chi phí) giữ nguyên ngôn ngữ của nó: router trả lời theo ngôn ngữ của prompt.
 
 import type { StepStatus, WarningKind } from '../../types'
+import { hasTitleCode } from '../lib/route'
 import type { Phase } from './style'
 
 export type Lang = 'vi' | 'en'
@@ -77,8 +78,12 @@ const VI = {
   taskState: { pending: 'chờ giao', idle: 'chưa bắt đầu', running: 'đang chạy', done: 'xong', failed: 'lỗi, chưa giao lại', cut: 'bị cắt vì tạm dừng' } as Record<'pending' | 'idle' | 'running' | 'done' | 'failed' | 'cut', string>,
   taskDoing: 'đang làm',
   taskTools: (n: number) => `${n} tool`,
+  taskBatches: (done: number, total: number, running: number) => `${done}/${total} lô xong${running > 0 ? `, ${running} đang chạy` : ''}`,
   taskElapsed: (ms: number) => (ms < 60_000 ? '<1 phút' : `${Math.floor(ms / 60_000)} phút`),
   taskMore: (k: number) => `+${k} việc`,
+  stepsClosed: (n: number) => `${n} bước đã đóng`,
+  stepsOpenMore: (n: number) => `+${n} bước mở`,
+  checklist: 'Danh sách bước',
   agentChip: (done: number, total: number) => `subagent ${done}/${total} xong`,
   mirrorSource: 'Theo danh sách việc của Claude Code (chỉ để theo dõi, không chặn kết thúc)',
   costCalls: 'lượt',
@@ -102,11 +107,13 @@ const VI = {
     loop: 'lặp',
     budget: 'ngân sách',
     scope: 'phạm vi',
+    'scope-unknown': 'đích chưa rõ',
     unverified: 'chưa kiểm',
     'open-steps': 'bước mở',
     model: 'model',
     cost: 'chi phí',
     drift: 'lạc đề',
+    dropped: 'mục bị bỏ',
   } as Record<WarningKind, string>,
   reset: 'Đặt lại mục tiêu',
   resetConfirm: 'Bấm lại để xóa',
@@ -183,8 +190,12 @@ const EN: typeof VI = {
   taskState: { pending: 'not delegated yet', idle: 'not started', running: 'running', done: 'done', failed: 'failed, not re-delegated', cut: 'cut by pause' },
   taskDoing: 'in progress',
   taskTools: n => `${n} ${n === 1 ? 'tool' : 'tools'}`,
+  taskBatches: (done, total, running) => `${done}/${total} runs done${running > 0 ? `, ${running} running` : ''}`,
   taskElapsed: ms => (ms < 60_000 ? '<1 min' : `${Math.floor(ms / 60_000)} min`),
   taskMore: k => `+${k} ${k === 1 ? 'task' : 'tasks'}`,
+  stepsClosed: n => `${n} ${n === 1 ? 'step' : 'steps'} closed`,
+  stepsOpenMore: n => `+${n} open ${n === 1 ? 'step' : 'steps'}`,
+  checklist: 'Checklist',
   agentChip: (done, total) => `${done}/${total} subagent done`,
   mirrorSource: "From Claude Code's task list (tracking only, never blocks stopping)",
   costCalls: 'calls',
@@ -208,11 +219,13 @@ const EN: typeof VI = {
     loop: 'loop',
     budget: 'budget',
     scope: 'scope',
+    'scope-unknown': 'unclear target',
     unverified: 'unverified',
     'open-steps': 'open steps',
     model: 'model',
     cost: 'cost',
     drift: 'drift',
+    dropped: 'dropped items',
   },
   reset: 'Reset goal',
   resetConfirm: 'Press again to clear',
@@ -228,8 +241,12 @@ export function labels(lang: Lang): typeof VI {
   return lang === 'en' ? EN : VI
 }
 
-/** Tên một dòng tiến độ (0.6.1): "Việc chính: ...", "Việc N: ...", hay "Claude tự giao: ...". Dùng chung cho band và pane. */
+/**
+ * Tên một dòng tiến độ (0.6.1): "Việc chính: ...", "Việc N: ...", hay "Claude tự giao: ...". Dùng chung cho band và pane.
+ * Việc có mã (BƯỚC 4, K4.2, Việc 3) hiện chính tiêu đề mang mã đó, không ghép "Việc 5: BƯỚC 4: ..." (vòng sửa 2 của 0.7.5).
+ */
 export function taskLabel(l: typeof VI, row: { kind: 'main' | 'direct' | 'agent'; index?: number; title: string }): string {
+  if (row.index !== undefined && hasTitleCode(row.title)) return row.title
   const head = row.kind === 'main' ? l.taskMain : row.index !== undefined ? l.taskNumber(row.index) : l.taskOwn
   return `${head}: ${row.title}`
 }

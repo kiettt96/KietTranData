@@ -7,8 +7,9 @@ import type { EngineInterface, On } from 'claude-code'
 import type { QuotaCheckpoint, QuotaPause, QuotaState } from '../../types'
 import { addTouched, buildCheckpoint, pruneKeys, pushRecent, recentLine, storeKey } from '../lib/checkpoint'
 import type { CheckpointInput } from '../lib/checkpoint'
-import { classifyBash, filePathOf, isMutation, restorableSteps } from '../lib/drift'
-import { EMPTY_QUOTA, QUOTA_CACHE_MS, deniedInput, evaluateQuota, blockingHits, isPauseActive, newPause, normalizeQuota, noteDenial, overrideOf, quotaSettings, reasonsOf, softNotices } from '../lib/quota'
+import { classifyBash, filePathOf, isInScope, isMutation, normalizePath, restorableSteps } from '../lib/drift'
+import { FILE_TOOLS } from '../lib/drift/tool'
+import { EMPTY_QUOTA, QUOTA_CACHE_MS, deniedInput, evaluateQuota, blockingHits, isPauseActive, newPause, normalizeQuota, noteDenial, overrideOf, allowScopes, landsInsideAllowed, makesLink, pauseAllowIssues, pauseAllowPaths, quotaSettings, reasonsOf, softNotices } from '../lib/quota'
 import type { QuotaEval } from '../lib/quota'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
@@ -162,6 +163,18 @@ async function savePauseOnEnd($: EngineInterface, ctx: Ctx): Promise<void> {
   await storeCheckpoint($, cp)
 }
 
+/**
+ * session.end khi điểm dừng đang resuming (0.7.5): turn chạy tiếp chưa xong mà phiên đã kết thúc, nên điểm dừng trong kho
+ * về open, phiên sau tiếp tục được (trước đây chỉ session.start kế mới đổi).
+ */
+async function reopenResuming($: EngineInterface): Promise<void> {
+  const q = normalizeQuota(await read($, quotaState))
+  if (q.checkpoint === null || q.checkpoint.status !== 'resuming') return
+  const cp: QuotaCheckpoint = { ...q.checkpoint, status: 'open' }
+  await update($, quotaState, c => ({ ...normalizeQuota(c), checkpoint: cp, resume: null }))
+  await storeCheckpoint($, cp)
+}
+
 /** Status line kèm nhãn hạn mức (0.6.1): mọi chỗ đặt status của file này đi qua đây, nên nhãn không mất giữa các hook. */
 async function showStatus($: EngineInterface, current: View, options: Ctx['options']): Promise<void> {
   $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
@@ -176,8 +189,51 @@ async function warnNoticeIssues($: EngineInterface, issues: readonly string[], f
   $.ui.toast(`Focus Conductor: ${issues.join('; ')}`)
 }
 
+/**
+ * Lời gọi ghi mà mọi đích nằm trong pauseAllowPaths (0.7.5): Write, Edit, MultiEdit, NotebookEdit (tool file) có đường dẫn; Bash chỉ
+ * gồm tác động ghi, đọc được mọi đích (không có đích lạ) và có ít nhất một đích. Đường dẫn tương đối neo theo thư mục gốc của phiên
+ * (của Bash thì theo thư mục làm việc), như phạm vi. Sau khi khớp theo chữ, mọi đường dẫn còn phải đáp thật vào trong danh sách
+ * ($.fs.stat với resolve, R9): symlink dẫn ra ngoài không qua được.
+ */
+async function isAllowedWrite($: EngineInterface, input: Record<string, unknown> & { tool: string }, allowPaths: readonly string[]): Promise<boolean> {
+  const root = await $.session.root().catch(() => null)
+  let paths: string[]
+  let cwd: string | null = null
+  if (input.tool === 'Bash') {
+    const classified = classifyBash(String(input['command'] ?? ''))
+    // Mọi tác động phải là ghi có đường dẫn đọc được (git commit, git push và lệnh lạ không đường dẫn bị từ chối), không có ln
+    // (liên kết có thể trỏ ra ngoài), và mọi đường dẫn, kể cả nguồn của mv, nằm trong danh sách.
+    const isWriteOnly = classified.effects.length > 0 && classified.effects.every(e => e.kind === 'write' && e.paths.length > 0 && e.name !== 'ln')
+    // cp -l, cp -s, link (S4): tạo liên kết, như ln.
+    if (classified.isUnknown || !isWriteOnly || makesLink(String(input['command'] ?? ''))) return false
+    cwd = await $.session.cwd().catch(() => null)
+    paths = classified.paths
+  } else if (input.tool === 'Read' || FILE_TOOLS.has(input.tool)) {
+    // Đọc các đường dẫn được phép (file điểm dừng của lần trước) thì không cần ghi.
+    const path = input.tool === 'Read' ? String(input['file_path'] ?? '') : filePathOf({ tool: input.tool, input, isError: false, isReadOnly: false })
+    if (path === '') return false
+    paths = [path]
+  } else {
+    return false
+  }
+  if (!paths.every(path => isInScope(path, allowPaths, root, cwd))) return false
+  if (root === null) return false
+  const base = normalizePath(root)
+  const from = cwd === null ? base : normalizePath(cwd.replace(/\\/g, '/').startsWith('/') ? cwd : `${base}/${cwd}`)
+  const stat = (path: string) => $.fs.stat(path, { resolve: true })
+  for (const path of paths) {
+    const unified = path.replace(/\\/g, '/')
+    const absolute = normalizePath(unified.startsWith('/') ? unified : `${from}/${unified}`)
+    if (!(await landsInsideAllowed(absolute, root, allowPaths, stat))) return false
+  }
+  return true
+}
+
 export function registerQuota(on: On, ctx: Ctx): void {
   const settings = quotaSettings(ctx.options)
+  const allowPaths = pauseAllowPaths(ctx.options)
+  const allowScope = allowScopes(allowPaths)
+  const allowFlag = { isWarned: false }
   const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
   const cache: LimitCache = { at: Number.NEGATIVE_INFINITY, limits: null }
   const noticeFlag = { isWarned: false }
@@ -214,7 +270,8 @@ export function registerQuota(on: On, ctx: Ctx): void {
     const evaluation = evaluateQuota(limits, now, settings)
     // Số đo vừa đọc thay số đã lưu: nhãn trên band và status line theo đúng hạn mức lúc này (đã làm mới thì nhãn mất).
     // Không ghi vào cache của tool.call: tool.call vẫn tự hỏi engine theo nhịp QUOTA_CACHE_MS như 0.6.0.
-    await update($, quotaState, c => ({ ...normalizeQuota(c), zone: evaluation.zone, readings: [...(limits ?? [])] as QuotaState['readings'], measuredAt: now }))
+    // Prompt mới do người gõ (0.7.5): câu báo hạn mức mềm được gắn lại một lần trong turn của prompt này.
+    await update($, quotaState, c => ({ ...normalizeQuota(c), zone: evaluation.zone, readings: [...(limits ?? [])] as QuotaState['readings'], measuredAt: now, noticed: [] }))
     const q = normalizeQuota(await read($, quotaState))
     if (q.pause === null && isPauseActive(true, evaluation.hits, null, overrideOf(q), now) && restorableSteps(S.normalizeCore(await read($, coreState)).plan).length > 0) {
       await enterQuotaPause($, ctx, evaluation, now)
@@ -227,6 +284,9 @@ export function registerQuota(on: On, ctx: Ctx): void {
   // điểm dừng phải có trong kho cho phiên sau.
   on('session.end', { reason: /.*/ }, async ($, e, next) => {
     await savePauseOnEnd($, ctx).catch(() => undefined)
+    await reopenResuming($).catch(() => undefined)
+    // /clear (0.7.5): hội thoại mới không còn câu báo hạn mức mềm nào; đặt lại cờ đã báo.
+    if (e.reason === 'clear') await update($, quotaState, q => ({ ...normalizeQuota(q), noticed: [] }))
     return next(e)
   }).catch(($, e, next) => next(e))
 
@@ -257,8 +317,13 @@ export function registerQuota(on: On, ctx: Ctx): void {
       await update($, quotaState, c => ({ ...normalizeQuota(c), resume: null }))
       return next(e)
     }
-    // Chỉ một câu trả lời trọn vẹn mới là đã tiếp tục xong; người dùng ngắt (aborted), model từ chối hay lỗi thì về open.
-    const after: QuotaCheckpoint = { ...cp, status: e.reason === 'answer' ? 'consumed' : 'open' }
+    // Chỉ một câu trả lời trọn vẹn mới là đã tiếp tục xong; người dùng ngắt (aborted), model từ chối hay lỗi thì về open,
+    // dựng lại từ trạng thái hiện tại (0.7.5) để tiến độ của turn chạy tiếp không mất; giữ id, giờ tạo, note. Lệnh bị từ chối
+    // của lần dừng cũ bị xóa (vòng sửa 2): turn chạy tiếp đã nhận nó trong khối ĐIỂM DỪNG và xử lý rồi.
+    const after: QuotaCheckpoint =
+      e.reason === 'answer'
+        ? { ...cp, status: 'consumed' }
+        : { ...(await pauseCheckpoint($, newPause(cp.createdAt, 'quota', cp.reason), await $.clock.now(), { ...cp, denied: null })), status: 'open' }
     await update($, quotaState, c => ({ ...normalizeQuota(c), checkpoint: after, resume: null }))
     if (!(await storeCheckpoint($, after))) $.ui.toast('Focus Conductor: không cập nhật được điểm dừng trong kho của mod')
     return next(e)
@@ -267,6 +332,7 @@ export function registerQuota(on: On, ctx: Ctx): void {
   on('tool.call', { tool: /.*/ }, async ($, e, next) => {
     if (!settings.enabled || S.modeOf(await read($, modeState), ctx.options) === 'off') return next(e)
     await warnNoticeIssues($, settings.noticeIssues, noticeFlag)
+    await warnNoticeIssues($, pauseAllowIssues(ctx.options), allowFlag)
     const now = await $.clock.now()
     const isFresh = now - cache.at >= QUOTA_CACHE_MS
     const limits = await freshLimits($, cache, now)
@@ -281,12 +347,22 @@ export function registerQuota(on: On, ctx: Ctx): void {
       }
       const result = await next(e)
       if (result.deny !== undefined) return result
-      // Báo hạn mức mềm (0.7.4): cửa sổ vào vùng báo mà chưa báo lần nào thì gắn một lần vào kết quả tool của luồng chính.
-      // Đọc lại sau next: lời gọi tool song song có thể vừa báo cửa sổ này.
-      const shown = e.agentId === undefined ? normalizeQuota(await read($, quotaState)).noticed : []
-      const due = e.agentId === undefined ? softNotices(limits, now, settings).filter(hit => !shown.includes(hit.key)) : []
+      // Báo hạn mức mềm (0.7.4): cửa sổ vào vùng báo mà chưa báo thì gắn một lần vào kết quả tool của luồng chính (0.7.5:
+      // cờ đặt lại ở mỗi prompt do người gõ, nên tối đa một lần mỗi cửa sổ trong turn của prompt đó; turn tiếp nối không có
+      // prompt mới thì không báo lại). Kết quả lỗi không báo, không đánh dấu. Số đo đọc lại
+      // sau next (0.7.5): lời gọi Agent dài có thể kết thúc khi hạn mức đã vào vùng báo. Đọc lại cờ sau next: lời gọi tool
+      // song song có thể vừa báo cửa sổ này.
+      const isNoticeable = e.agentId === undefined && result.isError !== true
+      const later = isNoticeable ? await $.clock.now() : now
+      const isRefetch = isNoticeable && later - cache.at >= QUOTA_CACHE_MS
+      const current = isNoticeable ? await freshLimits($, cache, later) : limits
+      if (isRefetch) await update($, quotaState, c => ({ ...normalizeQuota(c), readings: [...(current ?? [])] as QuotaState['readings'], measuredAt: later }))
+      const shown = isNoticeable ? normalizeQuota(await read($, quotaState)).noticed : []
+      const due = isNoticeable ? softNotices(current, later, settings).filter(hit => !shown.includes(hit.key)) : []
       const noticed = due.length > 0 ? { ...result, context: [...(result.context ?? []), quotaNoticeText(due)] } : result
       if (due.length > 0) {
+        // Turn đã nhận câu báo mềm (0.7.5): Stop của turn này không chặn vì checklist còn mở (quy tắc dừng của prompt áp được).
+        ctx.local.noticeTurn = ctx.local.tracker.turnId
         await update($, quotaState, c => {
           const n = normalizeQuota(c)
           return { ...n, noticed: [...n.noticed, ...due.map(hit => hit.key)].slice(-8) }
@@ -317,6 +393,8 @@ export function registerQuota(on: On, ctx: Ctx): void {
     // Tool plan của chính mod được qua: Claude cần nó để ghi điểm dừng.
     if (e.tool === PLAN_TOOL_FULL) return next(e)
     const isAgent = e.agentId !== undefined
+    // pauseAllowPaths (0.7.5): luồng chính vẫn ghi được file checkpoint theo quy tắc dừng của prompt.
+    if (!isAgent && allowPaths.length > 0 && (await isAllowedWrite($, e as unknown as Record<string, unknown> & { tool: string }, allowScope))) return next(e)
     let abort = false
     if (!isAgent) {
       const noted = noteDenial(pause, q.mainTurnId, { tool: e.tool, input: deniedInput(e as unknown as Record<string, unknown>) })
@@ -335,6 +413,6 @@ export function registerQuota(on: On, ctx: Ctx): void {
     // Dừng cứng dự phòng: model vẫn gọi tool bị từ chối lần thứ ba trong cùng turn. Gọi tại ranh giới tool call,
     // lệnh bị từ chối chưa chạy.
     if (abort) await $.turn.abort({ turnId: q.mainTurnId }).catch(() => undefined)
-    return { deny: quotaDenyText(saved.reason, saved.source === 'user', isAgent) }
+    return { deny: quotaDenyText(saved.reason, saved.source === 'user', isAgent, allowPaths) }
   }).catch(($, e, next) => next(e))
 }

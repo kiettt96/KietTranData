@@ -6,7 +6,7 @@
 
 import type { PluginOptions } from 'claude-code'
 
-import type { AgentProgress, AgentState, ArchivedGoal, Brief, CheckHint, Core, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, Route, RouteEvent, RouterFail, TurnFault, Warning } from '../../types'
+import type { AgentProgress, AgentState, AgentTally, ArchivedGoal, Brief, CheckHint, Core, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, Route, RouteEvent, RouterFail, TurnFault, Warning } from '../../types'
 import { restorableSteps } from './drift'
 import type { Tokens } from './cost'
 import { addUsage, emptyLedger, nextGoal, planSwitch, resetLedger } from './ledger'
@@ -37,6 +37,7 @@ export const EMPTY_CORE: Core = {
   routerFail: null,
   checkHint: null,
   turnFault: null,
+  closing: { seq: 0, goalId: -1, lastPassSeq: null },
 }
 
 const LOG_LIMIT = 60
@@ -123,6 +124,7 @@ export function normalizeCore(raw: Partial<Core>): Core {
     routerFail: raw.routerFail ?? null,
     checkHint: raw.checkHint ?? null,
     turnFault: raw.turnFault ?? null,
+    closing: raw.closing ?? { seq: 0, goalId: -1, lastPassSeq: null },
   }
 }
 
@@ -141,15 +143,20 @@ function normalizeBrief(raw: Brief): Brief {
     goalId: brief.goalId,
     goal: brief.goal,
     ...(brief.requirements !== undefined ? { requirements: brief.requirements } : {}),
+    ...(typeof brief.requirementsBase === 'number' ? { requirementsBase: brief.requirementsBase } : {}),
     steps: brief.steps ?? [],
     tasks: brief.tasks ?? [],
     constraints: brief.constraints ?? [],
+    ...(typeof brief.constraintsBase === 'number' ? { constraintsBase: brief.constraintsBase } : {}),
+    ...(typeof brief.carriedRules === 'number' && brief.carriedRules > 0 ? { carriedRules: brief.carriedRules } : {}),
+    ...(typeof brief.dropped === 'number' && brief.dropped > 0 ? { dropped: brief.dropped } : {}),
     quality: brief.quality ?? [],
     depth: brief.depth ?? legacy.depth,
     volume: brief.volume ?? legacy.volume,
     kind: brief.kind ?? 'mixed',
     tier,
     main: brief.main ?? null,
+    ...(brief.mainBase ? { mainBase: brief.mainBase } : {}),
     ...(brief.referenceMain ? { referenceMain: brief.referenceMain } : {}),
     why: brief.why ?? '',
     relation: brief.relation ?? 'new',
@@ -281,41 +288,79 @@ export const withRetarget =
 
 export const withPlan =
   (plan: PlanStep[]) =>
-  (c: Core): Core => ({ ...normalizeCore(c), plan })
+  (c: Core): Core => {
+    const n = normalizeCore(c)
+    const { steps, seq } = stampClosed(n.plan, plan, (a, b) => a.id === b.id, n.closing.seq)
+    return { ...n, plan: steps, closing: { ...n.closing, seq } }
+  }
+
+/**
+ * Đóng dấu mốc đóng (0.7.5): bước vừa thành done (trước đó chưa done) nhận mốc mới; bước vẫn done giữ mốc cũ; bước không còn done
+ * hay verified bỏ mốc.
+ */
+function stampClosed<T extends { status: string; closedSeq?: number }>(before: readonly T[], after: readonly T[], same: (a: T, b: T) => boolean, seq: number): { steps: T[]; seq: number } {
+  let next = seq
+  const steps = after.map(step => {
+    if (step.status !== 'done') {
+      if (step.status === 'verified' || step.closedSeq === undefined) return step
+      const { closedSeq: _closed, ...rest } = step
+      return rest as T
+    }
+    const old = before.find(b => same(b, step))
+    if (old !== undefined && old.status === 'done' && old.closedSeq !== undefined) return { ...step, closedSeq: old.closedSeq }
+    next += 1
+    return { ...step, closedSeq: next }
+  })
+  return { steps, seq: next }
+}
+
+/** Mốc của lần kiểm đạt gần nhất của mục tiêu hiện tại; null khi chưa có (lần kiểm đạt đầu tiên nâng mọi bước done). */
+const passMark = (n: Core): number | null => (n.brief !== null && n.closing.goalId === n.brief.goalId ? n.closing.lastPassSeq : null)
 
 /**
  * Mod tự nâng các bước done (chỉ những bước có trong `only` nếu có) thành verified, ghi lệnh test đã chạy làm bằng chứng và đánh dấu
- * `auto` để hạ lại khi có thay đổi mới (0.7.0). Không đổi gì khi không có bước done nào.
+ * `auto` để hạ lại khi có thay đổi mới (0.7.0). Chỉ nâng bước đóng sau lần kiểm đạt trước của mục tiêu (0.7.5); `isPass` là chính
+ * lần kiểm đạt đó (lệnh test của luồng chính vừa chạy đạt), ghi mốc mới. Không đổi gì khi không có bước để nâng và không phải lần
+ * kiểm đạt.
  */
 export const withAutoVerified =
-  (command: string, only?: readonly number[]) =>
+  (command: string, only?: readonly number[], isPass = false) =>
   (c: Core): Core => {
     const n = normalizeCore(c)
-    const isPlanned = n.plan.some(s => s.status === 'done' && (only === undefined || only.includes(s.id)))
+    const mark = passMark(n)
+    const isDue = (s: { status: string; closedSeq?: number }) => s.status === 'done' && (mark === null || (s.closedSeq ?? 0) > mark)
+    const isPlanned = n.plan.some(s => isDue(s) && (only === undefined || only.includes(s.id)))
     // Danh sách phản chiếu (0.7.1): lệnh test đạt sau thay đổi cuối phủ mọi bước done của nó; không có id ổn định nên không có `only`.
-    const isMirrored = only === undefined && liveMirror(n).some(s => s.status === 'done')
-    if (!isPlanned && !isMirrored) return n
+    const isMirrored = only === undefined && liveMirror(n).some(isDue)
+    const closing = isPass && n.brief !== null ? { seq: n.closing.seq + 1, goalId: n.brief.goalId, lastPassSeq: n.closing.seq + 1 } : n.closing
+    if (!isPlanned && !isMirrored) return closing === n.closing ? n : { ...n, closing }
     const note = `tự động: ${command.slice(0, 120)} chạy đạt sau thay đổi cuối`
     return {
       ...n,
-      plan: n.plan.map(s => (s.status === 'done' && (only === undefined || only.includes(s.id)) ? { ...s, status: 'verified' as const, auto: true, note } : s)),
-      mirror: isMirrored ? { ...n.mirror, steps: n.mirror.steps.map(s => (s.status === 'done' ? { ...s, status: 'verified' as const } : s)) } : n.mirror,
+      plan: n.plan.map(s => (isDue(s) && (only === undefined || only.includes(s.id)) ? { ...s, status: 'verified' as const, auto: true, note } : s)),
+      mirror: isMirrored ? { ...n.mirror, steps: n.mirror.steps.map(s => (isDue(s) ? { ...s, status: 'verified' as const } : s)) } : n.mirror,
+      closing,
     }
   }
 
-/** Có thay đổi mới: các bước verified do mod tự nâng về done (bước verified do Claude ghi giữ nguyên). */
+/**
+ * Có thay đổi mới: các bước verified do mod tự nâng về done (bước verified do Claude ghi giữ nguyên). Bước bị hạ nhận mốc đóng mới
+ * (0.7.5), để lần kiểm đạt sau nâng lại được.
+ */
 export const withAutoDemoted = (c: Core): Core => {
   const n = normalizeCore(c)
   const isMirrored = liveMirror(n).some(s => s.status === 'verified')
   if (!hasAutoVerified(n)) return n
+  const seq = n.closing.seq + 1
   return {
     ...n,
     plan: n.plan.map(s => {
       if (s.auto !== true || s.status !== 'verified') return s
       const { auto: _auto, note: _note, ...rest } = s
-      return { ...rest, status: 'done' as const }
+      return { ...rest, status: 'done' as const, closedSeq: seq }
     }),
-    mirror: isMirrored ? { ...n.mirror, steps: n.mirror.steps.map(s => (s.status === 'verified' ? { ...s, status: 'done' as const } : s)) } : n.mirror,
+    mirror: isMirrored ? { ...n.mirror, steps: n.mirror.steps.map(s => (s.status === 'verified' ? { ...s, status: 'done' as const, closedSeq: seq } : s)) } : n.mirror,
+    closing: { ...n.closing, seq },
   }
 }
 
@@ -426,7 +471,13 @@ export function withDelegations(goalId: number, items: readonly DelegationItem[]
 
 /** Ghi danh sách việc phản chiếu của luồng chính cho mục tiêu goalId (xem lib/mirror.ts). */
 export function withMirror(goalId: number, steps: readonly MirrorStep[]): (core: Core) => Core {
-  return core => ({ ...normalizeCore(core), mirror: { goalId, steps: [...steps] } })
+  return core => {
+    const n = normalizeCore(core)
+    // Mốc đóng (0.7.5) chỉ so với danh sách của cùng mục tiêu, nhận dạng bước theo NỘI DUNG (vòng sửa 2): khóa của TodoWrite là vị
+    // trí (todo-N), nên bước mới ở vị trí cũ không được mang mốc cũ, và bước chỉ đổi vị trí giữ mốc của nó.
+    const stamped = stampClosed(n.mirror.goalId === goalId ? n.mirror.steps : [], steps, (a, b) => a.title === b.title, n.closing.seq)
+    return { ...n, mirror: { goalId, steps: stamped.steps }, closing: { ...n.closing, seq: stamped.seq } }
+  }
 }
 
 /** Số dòng tiến độ của agent giữ lại cho một mục tiêu. */
@@ -437,12 +488,48 @@ function freshProgress(goalId: number): Pick<Core, 'agentProgress' | 'activity'>
   return { agentProgress: { goalId, items: [] }, activity: { goalId, changes: 0 } }
 }
 
-/** Một lần gọi Agent bắt đầu chạy: thêm dòng tiến độ (thay dòng cũ cùng agentId), giữ tối đa AGENT_PROGRESS_LIMIT dòng. */
+/** Số bộ đếm theo việc giữ lại cho một mục tiêu (0.7.5). */
+const AGENT_TALLY_LIMIT = 50
+
+/**
+ * Số agent đang chạy chờ báo kết thúc giữ lại (`open`, vòng sửa 2 của 0.7.5) [Giả định: nhiều gấp 5 lần dòng tiến độ; số subagent
+ * chạy cùng lúc thực tế là vài chục]. Vượt trần thì bỏ mục cũ nhất, là agent không báo kết thúc.
+ */
+export const AGENT_OPEN_LIMIT = 100
+
+/** Khóa bộ đếm của một lần gọi Agent (0.7.5): việc đã phân theo số; việc Claude tự giao theo dạng mô tả bỏ chữ số. */
+export function tallyKey(item: Pick<AgentProgress, 'title' | 'taskIndex'>): string {
+  return item.taskIndex !== undefined ? `task-${item.taskIndex}` : `own-${item.title.toLowerCase().replace(/\d+/g, '#').replace(/\s+/g, ' ').trim()}`
+}
+
+/**
+ * Một lần gọi Agent bắt đầu chạy: thêm dòng tiến độ (thay dòng cũ cùng agentId), giữ tối đa AGENT_PROGRESS_LIMIT dòng; bộ đếm
+ * theo việc (0.7.5) giữ ngoài trần đó, nên hàng chục lô vẫn đếm đúng. agentId đã đếm (khởi động lại) không đếm hai lần.
+ */
 export function withAgentStart(goalId: number, item: AgentProgress): (core: Core) => Core {
   return core => {
     const n = normalizeCore(core)
-    const items = n.agentProgress.goalId === goalId ? n.agentProgress.items.filter(i => i.agentId !== item.agentId) : []
-    return { ...n, agentProgress: { goalId, items: [...items, item].slice(-AGENT_PROGRESS_LIMIT) } }
+    const same = n.agentProgress.goalId === goalId
+    const items = same ? n.agentProgress.items.filter(i => i.agentId !== item.agentId) : []
+    const tally: AgentTally[] = same ? [...(n.agentProgress.tally ?? [])] : []
+    const open = same ? { ...(n.agentProgress.open ?? {}) } : {}
+    if (open[item.agentId] === undefined) {
+      const key = tallyKey(item)
+      const at = tally.findIndex(t => t.key === key)
+      const base: AgentTally = tally[at] ?? { key, title: item.title, ...(item.taskIndex !== undefined ? { taskIndex: item.taskIndex } : {}), spawned: 0, done: 0, failed: 0, running: 0 }
+      const counted = { ...base, spawned: base.spawned + 1, running: base.running + 1 }
+      if (at >= 0) tally[at] = counted
+      else tally.push(counted)
+      open[item.agentId] = key
+      // Vượt trần: bỏ mục cũ nhất, trừ nó khỏi số đang chạy của việc (không kẹt "đang chạy" mãi); báo kết thúc muộn của nó không đếm.
+      for (const agentId of Object.keys(open).slice(0, Math.max(0, Object.keys(open).length - AGENT_OPEN_LIMIT))) {
+        const dropped = tally.findIndex(t => t.key === open[agentId])
+        const entry = tally[dropped]
+        if (entry !== undefined) tally[dropped] = { ...entry, running: Math.max(0, entry.running - 1) }
+        delete open[agentId]
+      }
+    }
+    return { ...n, agentProgress: { goalId, items: [...items, item].slice(-AGENT_PROGRESS_LIMIT), tally: tally.slice(-AGENT_TALLY_LIMIT), open } }
   }
 }
 
@@ -458,9 +545,19 @@ function withAgent(agentId: string, change: (item: AgentProgress) => AgentProgre
 /** Agent chạy thêm một tool call. */
 export const withAgentTool = (agentId: string) => withAgent(agentId, item => ({ ...item, tools: item.tools + 1 }))
 
-/** Agent kết thúc: xong, lỗi, hoặc bị cắt vì tạm dừng. */
-export const withAgentEnd = (agentId: string, state: Exclude<AgentState, 'running'>, at: number) =>
-  withAgent(agentId, item => ({ ...item, state, endedAt: at }))
+/** Agent kết thúc: xong, lỗi, hoặc bị cắt vì tạm dừng; bộ đếm theo việc cập nhật cả khi dòng đã bị đẩy khỏi danh sách (0.7.5). */
+export function withAgentEnd(agentId: string, state: Exclude<AgentState, 'running'>, at: number): (core: Core) => Core {
+  return core => {
+    const n = withAgent(agentId, item => ({ ...item, state, endedAt: at }))(core)
+    const key = n.agentProgress.open?.[agentId]
+    if (key === undefined) return n
+    const { [agentId]: _ended, ...open } = n.agentProgress.open ?? {}
+    const tally = (n.agentProgress.tally ?? []).map(t =>
+      t.key === key ? { ...t, running: Math.max(0, t.running - 1), ...(state === 'done' ? { done: t.done + 1 } : { failed: t.failed + 1 }) } : t,
+    )
+    return { ...n, agentProgress: { ...n.agentProgress, tally, open } }
+  }
+}
 
 /** Danh sách việc agent tự ghi (phản chiếu). */
 export const withAgentSteps = (agentId: string, steps: readonly MirrorStep[]) => withAgent(agentId, item => ({ ...item, steps: [...steps] }))

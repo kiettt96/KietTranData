@@ -2,7 +2,7 @@
 
 import { atom, derive, read, update } from 'claude-code'
 import type { AgentState, DelegationState, Warning } from '../../types'
-import { acceptsVerified, evidenceStrength, filePathOf, freshTestRun, isExecuting, isFullyClosed, isGoalDone, isMutation, isPlanFile, newTracker, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
+import { acceptsVerified, evidenceStrength, filePathOf, freshTestRun, isExecuting, isFullyClosed, isGoalDone, isMutation, isPlanFile, markVerified, newTracker, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
 import type { Focus } from '../lib/drift'
 import { clipText } from '../lib/decisions'
 import { addUsage, calibrate, recordShape, shapeKey } from '../lib/ledger'
@@ -10,7 +10,7 @@ import { applyPlan } from '../lib/plan'
 import type { PlanInput } from '../lib/plan'
 import { familyOf } from '../lib/route'
 import { askRouter, driftRequest, parseDrift } from '../lib/router'
-import { EMPTY_QUOTA, evaluateQuota, normalizeQuota, quotaSettings } from '../lib/quota'
+import { EMPTY_QUOTA, evaluateQuota, normalizeQuota, quotaSettings, softNotices } from '../lib/quota'
 import { storeKey, withNote } from '../lib/checkpoint'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
@@ -61,7 +61,6 @@ async function offerCheckHint($: EngineInterface, goalId: number, commands: stri
 }
 
 /** Khoảng tối thiểu giữa hai lượt kiểm lạc đề (đồng hồ engine, 0.7.0): mỗi lượt là một lần gọi router. */
-const DRIFT_EVERY_MS = 10 * 60_000
 
 /**
  * Kết cục của một subagent theo `reason` của turn.complete (0.6.1): chỉ 'answer' là xong. 'error' là lỗi; 'aborted' (người dùng
@@ -82,7 +81,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     if (!L.observed.includes(item)) L.observed.push(item)
     if (L.observed.length > 5) L.observed.shift()
   }
-  const { agentFailures, agentTrackers, agents, blockLimit, carryEvidence, flushDecisions, delegationItems, evidenceFor, failedFor, isRouterPaused, moveDelegation, noteRouterTime, pendingFor, record, remindSubagents, routerFamily, routerModel, semanticDrift, steppedEarly, strictDelegation, trackDelegations } = ctx
+  const { agentFailures, agentTrackers, agents, blockLimit, carryEvidence, flushDecisions, delegationItems, evidenceFor, failedFor, isRouterPaused, moveDelegation, noteRouterTime, pendingFor, record, remindSubagents, routerFamily, routerModel, semanticDrift, driftEveryMs, steppedEarly, strictDelegation, trackDelegations } = ctx
   const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
   const mode = derive([modeState], modeOf(ctx.options))
 
@@ -173,10 +172,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       }
     }
     L.tracker.planUpdates += 1
-    if (isAccepted && (strength?.level === 'strong' || fresh !== undefined)) {
-      L.tracker.isVerified = true
-      L.tracker.mutationsSinceCheck = 0
-    }
+    if (isAccepted && (strength?.level === 'strong' || fresh !== undefined)) markVerified(L.tracker)
     const notes: string[] = []
     if (isDowngraded) {
       const reason = strength?.reason ?? 'chưa đối chiếu được evidence với mục tiêu hiện tại'
@@ -222,8 +218,8 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       e.tool === 'Bash' && isMutation({ tool: 'Bash', input: e as unknown as Record<string, unknown>, isError: false, isReadOnly: false })
     if (strictDelegation === 'block' && e.agentId === undefined && (EDIT_TOOLS.has(e.tool) || isBashWrite)) {
       const current = await read($, mode)
-      const brief = S.normalizeCore(await read($, coreState)).brief
-      const waiting = current === 'auto' || current === 'subagents' ? pendingFor(brief) : []
+      const now = S.normalizeCore(await read($, coreState))
+      const waiting = current === 'auto' || current === 'subagents' ? pendingFor(now.brief, shownPlan(now).plan) : []
       const path = filePathOf({ tool: e.tool, input: e as unknown as Record<string, unknown>, isError: false, isReadOnly: false })
       if (waiting.length > 0 && !isPlanFile(path) && L.delegation.blocks < blockLimit) {
         L.delegation.blocks += 1
@@ -293,23 +289,26 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       await update($, coreState, c => S.withAutoDemoted(S.withActivity(goalId)(c)))
       if (hadVerified) await showStatus($, await read($, view), ctx.options)
     }
-    // Lệnh test vừa chạy đạt sau thay đổi cuối (phủ mọi thay đổi): các bước done thành verified (0.7.0).
+    // Lệnh test vừa chạy đạt sau thay đổi cuối (phủ mọi thay đổi): các bước done thành verified (0.7.0), chỉ những bước đóng sau lần
+    // kiểm đạt trước của mục tiêu (0.7.5); lần này ghi mốc kiểm đạt mới.
     if (core.brief !== null && observation.tool === 'Bash' && !observation.isError) {
       const log = evidenceFor(core.brief.goalId)
       const fresh = freshTestRun(log)
       if (fresh !== undefined && fresh === log.commands.at(-1) && (core.plan.some(s => s.status === 'done') || S.liveMirror(core).some(s => s.status === 'done'))) {
-        await update($, coreState, S.withAutoVerified(fresh.command))
+        await update($, coreState, S.withAutoVerified(fresh.command, undefined, true))
         record(await $.clock.now(), 'verify-auto', { command: clipText(fresh.command), at: core.plan.length === 0 ? 'mirror' : 'test' })
         await flushDecisions((path, text) => $.fs.write(path, text))
         await showStatus($, await read($, view), ctx.options)
       }
     }
-    const focus: Focus | null = core.brief !== null ? { ...core.brief, isBare: core.brief.isBare === true, ...(await frameOf($, L.roots, core.brief.goalId, core.brief.scopePaths)) } : null
+    // Lệnh ghi không rõ đích cảnh báo một lần mỗi mục tiêu (0.7.5): tập khóa đổi khi đổi mục tiêu.
+    if (core.brief !== null && L.unknownWrites.goalId !== core.brief.goalId) L.unknownWrites = { goalId: core.brief.goalId, keys: new Set() }
+    const focus: Focus | null = core.brief !== null ? { ...core.brief, isBare: core.brief.isBare === true, warnedWrites: L.unknownWrites.keys, hints: L.sessionHints, ...(await frameOf($, L.roots, core.brief.goalId, core.brief.scopePaths)) } : null
     const findings = observe(L.tracker, observation, focus, core.plan)
     const isErrorBurst = L.tracker.errors === ERROR_BURST
     // Luồng chính bắt đầu tự sửa file trong khi còn việc đã ghi giao subagent: nhắc một lần.
     // Ghi file kế hoạch của plan mode không phải là làm một việc đã phân.
-    const pending = pendingFor(core.brief)
+    const pending = pendingFor(core.brief, shownPlan(core).plan)
     const planFile = isPlanFile(filePathOf(observation))
     // Mặc định nhắc một lần ở lần sửa file đầu tiên; strictDelegation remind/block nhắc ở mọi lần thay đổi (kể cả lệnh ghi file).
     const isStrict = strictDelegation !== 'off'
@@ -359,7 +358,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     // Tự tắt khi hạn mức đã vào vùng gần ngưỡng (hay đang dừng): mỗi lượt kiểm là một lượt gọi router. Tối đa một lượt mỗi 10 phút.
     const quota = normalizeQuota(await read($, quotaState))
     const isNearQuota = quota.pause !== null || evaluateQuota(quota.readings, at, quotaSettings(ctx.options)).nearest !== null
-    const isDriftDue = L.lastDriftAt === null || at - L.lastDriftAt >= DRIFT_EVERY_MS
+    const isDriftDue = L.lastDriftAt === null || at - L.lastDriftAt >= driftEveryMs
     if (semanticDrift && core.brief !== null && findings.some(f => f.kind === 'checkpoint') && !isRouterPaused() && !isNearQuota && isDriftDue) {
       L.lastDriftAt = at
       const request = driftRequest({
@@ -389,6 +388,8 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       if (verdict !== null && !verdict.onTrack) driftNote = driftContext(core.brief.goal, verdict.why)
     }
     const top = findings.filter(f => f.context).sort((a, b) => b.priority - a.priority)[0]
+    // Lời nhắc một lần trong phiên (T6): chỉ ghi khóa khi chính lời nhắc này được chèn.
+    if (top?.hint !== undefined) L.sessionHints.add(top.hint)
     const extra = [...(top?.context ? [top.context] : []), ...(driftNote ? [driftNote] : [])]
     if (extra.length === 0) return withNudge(result)
     return withNudge({ ...result, context: [...(result.context ?? []), ...extra] })
@@ -402,11 +403,17 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     if (result.block || result.preventContinuation || e.stop_hook_active || !isExecuting(L.tracker, L.promptIntent)) return result
     if (ctx.options['enforceChecklist'] !== true || (await read($, mode)) === 'off') return result
     // Đang dừng vì hạn mức (hay người dùng tạm dừng): cho kết thúc, nếu không sẽ vòng lặp chặn khi mọi tool bị từ chối.
-    if (normalizeQuota(await read($, quotaState)).pause !== null) return result
+    const quota = normalizeQuota(await read($, quotaState))
+    if (quota.pause !== null) return result
     const core = S.normalizeCore(await read($, coreState))
     const failed = failedFor(core.brief)
-    if (isGoalDone(core.plan) && failed.length === 0) return result
-    return { ...result, block: stopBlockReason(core.plan, failed) }
+    // Turn đã nhận câu báo hạn mức mềm (0.7.5): quy tắc dừng theo hạn mức của prompt có thể đang áp, nên checklist còn mở không
+    // chặn kết thúc, nhưng chỉ khi cửa sổ vẫn còn trong vùng báo (vòng sửa 2: cửa sổ đã làm mới thì chặn như cũ); việc giao
+    // subagent đã lỗi vẫn bị chặn.
+    const isNoticed = L.noticeTurn !== null && L.noticeTurn === L.tracker.turnId && softNotices(quota.readings, await $.clock.now(), quotaSettings(ctx.options)).length > 0
+    const plan = isNoticed ? [] : core.plan
+    if (isGoalDone(plan) && failed.length === 0) return result
+    return { ...result, block: stopBlockReason(plan, failed) }
   }).catch(($, e, next) => next(e))
 
   // Chi phí đo được: luồng chính (không có agentId) vào nhóm luồng chính; subagent
@@ -478,7 +485,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
           : added.ledger
     }
     // Turn có thực thi mà các việc ghi giao subagent vẫn chưa được giao: cảnh báo chi phí một lần.
-    const waiting = pendingFor(core.brief)
+    const waiting = pendingFor(core.brief, shownPlan(core).plan)
     if (!isPaused && waiting.length > 0 && !L.delegation.isWarned && isExecuting(L.tracker, L.promptIntent)) {
       L.delegation.isWarned = true
       warnings.push({ at, kind: 'cost', text: `Việc ${waiting.join(', ')} ghi giao subagent nhưng chưa được giao; luồng chính tự làm sẽ chạy ở model đắt hơn` })

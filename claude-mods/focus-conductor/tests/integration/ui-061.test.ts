@@ -235,13 +235,19 @@ describe('0.6.1 3.2: mục Hạn mức trong pane', () => {
     await pane.unmount()
   })
 
-  test('chưa có số đo: trạng thái không có dữ liệu kèm lý do', {}, async ($, on) => {
+  // 0.7.5 C6: chưa có số đo, không dừng và không có điểm dừng thì mục Hạn mức ẩn hẳn; khi người dùng tự dừng thì mục hiện lại
+  // (trạng thái dừng do người dùng).
+  test('chưa có số đo: không có mục Hạn mức; người dùng tự dừng thì mục hiện lại', {}, async ($, on) => {
     base(on, RESUME)
     startHooks(on)
     memoryStore(on)
     await goalWithSteps($)
-    const pane = await $.ui.mount(PANE)
-    expect(await pane.find({ type: 'Text', text: /Trạng thái: không có dữ liệu \(engine không báo hạn mức/ })).toBeDefined()
+    let pane = await $.ui.mount(PANE)
+    expect(await pane.find({ type: 'Text', text: /^Hạn mức ─/ })).toBeUndefined()
+    await pane.unmount()
+    await conductor($, 'pause')
+    pane = await $.ui.mount(PANE)
+    expect(await pane.find({ type: 'Text', text: /^Hạn mức ─/ })).toBeDefined()
     await pane.unmount()
   })
 
@@ -303,8 +309,9 @@ describe('0.6.1 3.2: mục Hạn mức trong pane', () => {
     startHooks(on)
     memoryStore(on)
     await goalWithSteps($)
+    // 0.7.5 C6: chưa có số đo và chưa dừng thì không có mục Hạn mức.
     let pane = await $.ui.mount(PANE)
-    expect(await pane.find({ type: 'Text', text: /State: no data \(the engine reports no quota/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /^Quota ─/ })).toBeUndefined()
     await pane.unmount()
     await conductor($, 'pause')
     pane = await $.ui.mount(PANE)

@@ -26,10 +26,7 @@ export function registerCompact(on: On, ctx: Ctx): void {
     const block = compactKeepText(core.brief, shownPlan(core).plan)
     const instructions = e.instructions ? `${e.instructions}\n\n${block}` : block
     const result = await next({ ...e, instructions })
-    if (e.trigger !== 'precompute' && result.skip === undefined) {
-      L.compaction.pending = true
-      L.compaction.hooked = true
-    }
+    if (e.trigger !== 'precompute' && result.skip === undefined) ctx.noteCompacted(result.tokensAfter)
     return result
   }).catch(($, e, next) => next(e))
 }

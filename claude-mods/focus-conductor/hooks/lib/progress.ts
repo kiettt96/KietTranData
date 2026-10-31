@@ -6,7 +6,36 @@ import type { Choice, Core, PlanStep } from '../../types'
 import { isFullyClosed } from './drift'
 import { mirrorPlan, shownPlan } from './mirror'
 import { matchTask } from './route'
+import { tallyKey } from './state'
 import { progress } from './text'
+import type { AgentTally } from '../../types'
+
+/** Bộ đếm theo việc của mục tiêu đang mở (0.7.5); trạng thái cũ không có thì rỗng. */
+function talliesOf(core: Core): AgentTally[] {
+  return core.brief !== null && core.agentProgress.goalId === core.brief.goalId ? (core.agentProgress.tally ?? []) : []
+}
+
+/** Tổng số lần gọi Agent đã xong và đã giao trong mục tiêu (0.7.5): chip của band đếm theo đây. */
+export function agentTotals(core: Core): { done: number; total: number } {
+  return talliesOf(core).reduce((sum, t) => ({ done: sum.done + t.done, total: sum.total + t.spawned }), { done: 0, total: 0 })
+}
+
+/**
+ * Số trên chip subagent của band (0.7.5): theo tổng số lần gọi Agent của bộ đếm, cộng các việc giao chưa có lần gọi nào;
+ * trạng thái cũ chưa có bộ đếm thì theo các dòng việc giao như trước. `delegated` là các dòng việc giao subagent.
+ */
+export function chipCounts(core: Core, delegated: readonly TaskRow[]): { done: number; total: number } {
+  const totals = agentTotals(core)
+  if (totals.total === 0) return { done: delegated.filter(row => row.state === 'done').length, total: delegated.length }
+  return { done: totals.done, total: totals.total + delegated.filter(row => row.counts === undefined && row.tools === undefined).length }
+}
+
+/** Trạng thái của việc nhiều lô: còn lô chạy, có lô lỗi, xong hết. */
+function tallyState(t: AgentTally): TaskState {
+  if (t.running > 0) return 'running'
+  if (t.failed > 0) return 'failed'
+  return t.done >= t.spawned ? 'done' : 'running'
+}
 
 /** Trạng thái của một việc khi không có số bước: chờ giao, chưa bắt đầu, đang chạy hay đang làm, xong, lỗi, bị cắt. */
 export type TaskState = 'pending' | 'idle' | 'running' | 'done' | 'failed' | 'cut'
@@ -28,6 +57,8 @@ export type TaskRow = {
   /** Agent: số tool call và thời gian chạy (ms). */
   tools?: number
   elapsedMs?: number
+  /** Việc có nhiều lần gọi Agent (0.7.5): một dòng theo bộ đếm, k/n lô xong, r đang chạy. */
+  counts?: { done: number; total: number; running: number }
 }
 
 /** Thứ tự ưu tiên khi band thiếu chỗ: đang chạy, rồi lỗi hay bị cắt, rồi chờ hoặc chưa bắt đầu, rồi xong. */
@@ -86,6 +117,14 @@ export function taskRows(core: Core, now: number): TaskRow[] {
     }
   }
 
+  // Việc có từ hai lần gọi Agent (0.7.5): một dòng theo bộ đếm, không theo từng dòng của danh sách có trần.
+  const tallies = talliesOf(core)
+  const grouped = (key: string) => tallies.find(t => t.key === key && t.spawned > 1)
+  const tallyRow = (t: AgentTally, title: string, pick: Choice | null, index?: number): TaskRow => {
+    const state = tallyState(t)
+    return { key: `tally-${t.key}`, kind: 'agent', ...(index !== undefined ? { index } : {}), title, pick, bar: { kind: 'state', state }, state, counts: { done: t.done, total: t.spawned, running: t.running } }
+  }
+
   for (const task of tasks) {
     if (task.run === 'main') {
       // Bước của checklist mở đầu "Việc N" (hay cùng mã mục) là bước của việc N, theo cùng quy tắc cấu trúc với Agent.
@@ -104,6 +143,12 @@ export function taskRows(core: Core, now: number): TaskRow[] {
       continue
     }
     const runs = agents.filter(item => item.taskIndex === task.index)
+    const many = grouped(`task-${task.index}`)
+    if (many !== undefined) {
+      const last = runs.at(-1)
+      rows.push(tallyRow(many, task.title, last !== undefined ? { family: last.family, effort: last.effort ?? task.pick.effort } : task.pick, task.index))
+      continue
+    }
     if (runs.length > 0) {
       for (const item of runs) rows.push({ ...agentRow(item), title: task.title, pick: { family: item.family, effort: item.effort ?? task.pick.effort } })
       continue
@@ -114,6 +159,7 @@ export function taskRows(core: Core, now: number): TaskRow[] {
     rows.push({ key: `task-${task.index}`, kind: 'agent', index: task.index, title: task.title, pick: task.pick, bar: { kind: 'state', state }, state })
   }
 
-  for (const item of agents) if (item.taskIndex === undefined) rows.push(agentRow(item))
+  for (const t of tallies) if (t.taskIndex === undefined && t.spawned > 1) rows.push(tallyRow(t, t.title, null))
+  for (const item of agents) if (item.taskIndex === undefined && grouped(tallyKey(item)) === undefined) rows.push(agentRow(item))
   return rows
 }

@@ -140,8 +140,9 @@ export function sessionUsd(ledger: Ledger): number {
 }
 
 /** Ghi nhận một subagent đã được giao trong mục tiêu hiện tại. */
-export function countSpawn(ledger: Ledger): Ledger {
-  return { ...ledger, goal: { ...ledger.goal, spawned: ledger.goal.spawned + 1 } }
+/** Một lời gọi Agent chạy thật ở luồng chính; `isUnplanned` (0.7.5): không khớp việc đã phân, tính cho cảnh báo fan-out. */
+export function countSpawn(ledger: Ledger, isUnplanned = true): Ledger {
+  return { ...ledger, goal: { ...ledger.goal, spawned: ledger.goal.spawned + 1, unplanned: (ledger.goal.unplanned ?? 0) + (isUnplanned ? 1 : 0) } }
 }
 
 /**

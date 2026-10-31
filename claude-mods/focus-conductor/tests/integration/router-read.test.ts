@@ -161,14 +161,16 @@ describe('prompt tiếp nối', () => {
     await submit($, 'Thêm test cho webhook thanh toán nữa')
     const context = seen.contexts[1]?.join('\n') ?? ''
     expect(context).toContain('Tiếp nối mục tiêu hiện tại: Nâng cấp module thanh toán')
-    expect(context).toContain('Router: refine; luồng chính sonnet/high')
+    // 0.7.5 A7: refine không hạ luồng chính dưới lượt trước (opus/xhigh của FOUR_PLAN); trước đây là sonnet/high của router.
+    expect(context).toContain('Router: refine; luồng chính opus/xhigh')
     expect(context).toContain('5. Viết test webhook → giao general-purpose sonnet/medium')
     // Router thấy mục tiêu và các việc trước.
     expect(seen.routed[1]).toContain('Previous goal: Nâng cấp module thanh toán')
     expect(seen.routed[1]).toContain('  2. Đổi tên userId thành accountId trong 12 file controller. (general-purpose sonnet/medium)')
     const edit = await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' })
     expect((edit.context ?? []).join('\n')).toContain('Việc 1 (haiku/low), 2 (sonnet/medium), 4 (sonnet/medium), 5 (sonnet/medium)')
-    expect(await step($, seen)).toEqual({ model: 'claude-sonnet-5-5', effort: 'high' })
+    // 0.7.5 A7: luồng chính giữ opus/xhigh của lượt trước (trước đây chạy sonnet/high của router).
+    expect(await step($, seen)).toEqual({ model: 'claude-opus-5-5', effort: 'xhigh' })
   })
 
   test('nâng theo bằng chứng về 0 khi router quyết lại, kẻo nâng hai lần', {}, async ($, on) => {
@@ -260,6 +262,13 @@ describe('prompt dài và prompt đính kèm', () => {
     const context = seen.contexts[1]?.join('\n') ?? ''
     expect(context).toContain('Phân việc (router đã chấm trước khi làm')
     expect(context).not.toContain('chỉ để đối chiếu')
+    // Vòng sửa 2 của 0.7.5 (M11): việc có mã (K4.N) chưa có checklist thì chưa xác định được bước nên chưa nhắc; checklist có
+    // mã (K4.2 đang làm) thì nhắc đủ các việc giao chưa có bước hay đang làm.
+    const before = await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' })
+    expect((before.context ?? []).join('\n')).not.toContain('chưa giao')
+    await $.tool.call({ tool: 'mcp__focus-conductor__plan', action: 'set', steps: [{ title: 'K4.1. Việc luồng chính' }, { title: 'K4.2. Việc giao' }] })
+    await $.tool.call({ tool: 'mcp__focus-conductor__plan', action: 'update', step: 1, status: 'done' })
+    await $.tool.call({ tool: 'mcp__focus-conductor__plan', action: 'update', step: 2, status: 'doing' })
     const edit = await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' })
     expect((edit.context ?? []).join('\n')).toContain('Việc 2 (sonnet/medium), 3 (sonnet/medium), 6 (sonnet/medium), 9 (sonnet/medium)')
     expect(await step($, seen)).toEqual({ model: 'claude-opus-5-5', effort: 'high' })

@@ -1,0 +1,74 @@
+// 0.7.5 B11: ràng buộc (trần 12) và yêu cầu (trần 30) đã đầy ở prompt tiếp nối: mục mới thay một mục không phải quy định model
+// (quy định model không bao giờ bị thay), và có một cảnh báo; trước đây mục mới bị bỏ. Từ vòng sửa 2 (M3) mục bị thay là mục
+// cuối danh sách và không bao giờ là mục của prompt lập mục tiêu (xem caps-m3-075.test.ts).
+
+import { describe, expect, test } from 'claude-code/testing'
+import { nextBrief, parseRoute } from '../hooks/lib/router'
+import type { Policy, RouterPlan } from '../hooks/lib/router'
+import { makeBrief } from './support/commands'
+import { PANE, base, plan, submit } from './support/engine'
+
+const OPEN: Policy = { allowFable: false, blocked: new Set(), session: null }
+const routed = (over: Record<string, unknown>): RouterPlan => parseRoute(JSON.stringify(plan(over)), OPEN)!
+const rules = ['Việc lọc tin chạy sonnet', ...Array.from({ length: 11 }, (_, i) => `Ràng buộc cũ ${i}`)]
+
+describe('0.7.5 B11: ràng buộc đầy trần', () => {
+  test('đầy trần: mục mới vào phần tràn, không thay ràng buộc nào (S1, vòng rà soát 4; trước đó thay ràng buộc cuối)', () => {
+    const prev = makeBrief({ constraints: rules, constraintsBase: 1 })
+    const out = nextBrief(prev, routed({ relation: 'continue', goal: '', constraints: ['Không tạo bộ kiểm mới'] }), 'tiếp', 2)
+    expect(out.brief.constraints.length).toBe(13)
+    expect(out.brief.constraints).toContain('Không tạo bộ kiểm mới')
+    expect(out.brief.constraints).toContain('Việc lọc tin chạy sonnet')
+    expect(out.brief.constraints).toContain('Ràng buộc cũ 10')
+    expect(out.replaced).toEqual([])
+  })
+
+  test('chưa đầy: không thay gì', () => {
+    const prev = makeBrief({ constraints: ['Việc lọc tin chạy sonnet'] })
+    const out = nextBrief(prev, routed({ relation: 'continue', goal: '', constraints: ['Không tạo bộ kiểm mới'] }), 'tiếp', 2)
+    expect(out.brief.constraints).toEqual(['Việc lọc tin chạy sonnet', 'Không tạo bộ kiểm mới'])
+    expect(out.replaced).toEqual([])
+  })
+
+  test('mọi ràng buộc cũ đều là quy định model: không thay, mục mới vào phần tràn (từ vòng rà soát 3, R1; trước đó bị bỏ)', () => {
+    const models = ['Việc ghi chạy bằng mô hình của phiên', ...Array.from({ length: 11 }, (_, i) => `Việc loại ${i} chạy opus`)]
+    const out = nextBrief(makeBrief({ constraints: models, constraintsBase: 0 }), routed({ relation: 'continue', goal: '', constraints: ['Mục mới'] }), 'tiếp', 2)
+    expect(out.brief.constraints).toEqual([...models, 'Mục mới'])
+  })
+})
+
+describe('0.7.5 B11: yêu cầu đầy trần', () => {
+  test('đầy trần: yêu cầu mới vào phần tràn, việc cũ giữ nguyên phần phủ (S1; trước đó thay yêu cầu cuối)', () => {
+    const requirements = Array.from({ length: 30 }, (_, i) => `Yêu cầu ${i + 1}`)
+    const prev = makeBrief({
+      requirements,
+      requirementsBase: 0,
+      tasks: [{ index: 1, title: 'Việc 1', run: 'main', pick: { family: 'sonnet', effort: 'medium' }, depth: 'light', volume: 'small', kind: 'edit', why: '', covers: [1, 30] }],
+    })
+    const out = nextBrief(prev, routed({ relation: 'continue', goal: '', requirements: ['Yêu cầu mới'], tasks: [{ title: 'Việc mới', run: 'main', model: 'sonnet', effort: 'medium', kind: 'edit', covers: [1] }] }), 'tiếp', 2)
+    expect(out.brief.requirements?.length).toBe(31)
+    expect(out.brief.requirements?.[30]).toBe('Yêu cầu mới')
+    expect(out.brief.tasks[0]?.covers).toEqual([1, 30])
+    expect(out.brief.tasks[1]?.covers).toEqual([31])
+    expect(out.replaced).toEqual([])
+  })
+})
+
+describe('0.7.5 B11: một cảnh báo khi thay', () => {
+  test('mục mới cùng khóa với ràng buộc cũ thay ràng buộc đó: cảnh báo nêu mục bị thay (S1: chỉ mục cùng khóa mới bị thay)', {}, async ($, on) => {
+    // Router đọc prompt chỉ nhận tối đa 10 ràng buộc một lượt: hai lượt tiếp nối mới đầy trần 12 của mục tiêu.
+    base(on, {
+      router: request =>
+        request.startsWith('tiếp 1')
+          ? plan({ relation: 'continue', goal: '', constraints: ['Thêm A', 'Thêm B'] })
+          : request.startsWith('tiếp 2')
+            ? plan({ relation: 'continue', goal: '', constraints: ['thêm b.'] })
+            : plan({ goal: 'Cập nhật dữ liệu', constraints: rules.slice(0, 10) }),
+    })
+    await submit($, 'Cập nhật dữ liệu theo các lô')
+    await submit($, 'tiếp 1 lô sau')
+    await submit($, 'tiếp 2 lô sau nữa')
+    const pane = await $.ui.mount(PANE)
+    expect(await pane.find({ type: 'Text', text: /mục mới thay 1 mục cũ: Thêm B/ })).toBeDefined()
+  })
+})

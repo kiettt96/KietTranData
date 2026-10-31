@@ -1,6 +1,6 @@
 {
   "name": "focus-conductor",
-  "version": "0.7.4",
+  "version": "0.7.5",
   "author": { "name": "Kiet Tran" },
   "description": "Một model Claude (router) đọc kỹ prompt trước khi làm và điều phối model/effort/agent cho từng việc; mod kiểm, ép điều phối lúc chạy, giữ nhất quán mục tiêu với checklist và cảnh báo lạc đề.",
   "types": "./types/index.d.ts",
@@ -64,7 +64,7 @@
     "checkCommands": {
       "type": "string",
       "title": "Lệnh kiểm tra riêng của dự án",
-      "description": "Lệnh phân tách bằng dấu phẩy, ví dụ: make ci,./scripts/check.sh,just verify. Mỗi lệnh khớp theo tiền tố token, được tin mã thoát, tính là kiểm tra chạy hành vi và đối chiếu evidence nghiêm ngặt (./scripts/check.sh --fast khác ./scripts/check.sh). Lệnh kèm cờ tự sửa (--fix, --write) vẫn tính là ghi file",
+      "description": "Lệnh phân tách bằng dấu phẩy, ví dụ: make ci,./scripts/check.sh,just verify. Mỗi lệnh khớp theo tiền tố token, được tin mã thoát, tính là kiểm tra chạy hành vi và đối chiếu evidence nghiêm ngặt (./scripts/check.sh --fast khác ./scripts/check.sh). Lệnh kèm cờ tự sửa (--fix, --write) vẫn tính là ghi file. Lệnh khai chạy qua | tail hay | head chỉ đạt khi có set -o pipefail và mã thoát 0 không có dấu hiệu lỗi, hoặc khi dòng không rỗng cuối cùng có dấu hiệu đạt đứng riêng (OK, ĐẠT, KHỚP, 0 lỗi; không nằm sau chưa, không) và toàn bộ output còn thấy không có dấu hiệu lỗi (chưa đạt, thiếu, lệch, mismatch, tỷ lệ N/M với N nhỏ hơn M...); tốt nhất chạy lệnh kiểm không qua ống",
       "default": ""
     },
     "routerSkip": {
@@ -102,8 +102,14 @@
     "semanticDrift": {
       "type": "boolean",
       "title": "Kiểm lạc đề theo nội dung",
-      "description": "Ở checkpoint (5 thay đổi chưa kiểm tra), hỏi model router một lượt ngắn xem các thay đổi còn phục vụ mục tiêu không; lạc đề thì nhắc ngay ở kết quả tool đó, nâng độ sâu cho turn sau và báo cho router ở prompt tiếp nối. Tối đa một lượt mỗi 10 phút, tự tắt khi hạn mức vào vùng gần ngưỡng; mỗi lượt là một lần gọi router. Mặc định bật; đặt false để tắt",
+      "description": "Ở checkpoint (mốc 5, 10, 20, 40 rồi mỗi 40 thay đổi chưa kiểm tra), hỏi model router một lượt ngắn xem các thay đổi còn phục vụ mục tiêu không; lạc đề thì nhắc ngay ở kết quả tool đó, nâng độ sâu cho turn sau và báo cho router ở prompt tiếp nối. Tối đa một lượt mỗi driftIntervalMinutes phút (mặc định 10), tự tắt khi hạn mức vào vùng gần ngưỡng; mỗi lượt là một lần gọi router. Mặc định bật; đặt false để tắt",
       "default": true
+    },
+    "driftIntervalMinutes": {
+      "type": "number",
+      "title": "Khoảng cách giữa hai lượt kiểm lạc đề (phút)",
+      "description": "Số phút tối thiểu giữa hai lượt router kiểm lạc đề của semanticDrift, kẹp từ 5 đến 120. Phiên dài nhiều giờ nên đặt 30 để bớt lượt gọi router. Mặc định 10",
+      "default": 10
     },
     "autoPane": {
       "type": "boolean",
@@ -164,6 +170,12 @@
       "title": "Báo khi hạn mức phiên còn (%)",
       "description": "Như noticeWeekRemainingPct, cho hạn mức phiên (5 giờ). 0 là tắt. Phải lớn hơn pauseSessionRemainingPct, nếu không thì bị bỏ qua. Mặc định 0",
       "default": 0
+    },
+    "pauseAllowPaths": {
+      "type": "string",
+      "title": "Đường dẫn vẫn được ghi khi dừng vì hạn mức",
+      "description": "Đường dẫn phân tách bằng dấu phẩy (tương đối theo thư mục gốc của phiên hoặc tuyệt đối), ví dụ: .checkpoint/. Khi dừng cứng vì hạn mức, luồng chính vẫn được Write, Edit, hay chạy Bash mà mọi tác động ghi đều có đường dẫn và mọi đường dẫn nằm trong các đường dẫn này (mục . và ./ bị bỏ), và Read vào đó, để ghi file checkpoint theo quy tắc dừng của prompt; mỗi đường dẫn phải đáp thật vào trong danh sách (symlink ra ngoài bị từ chối). Rỗng là như cũ: chỉ tool plan được qua. Mặc định rỗng",
+      "default": ""
     },
     "uiLanguage": {
       "type": "string",

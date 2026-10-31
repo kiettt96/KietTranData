@@ -4,6 +4,7 @@
 
 import type { QuotaPause, QuotaReason, QuotaState } from '../../types'
 import { MASK_INPUT_MAX, maskSecrets } from './checkpoint'
+import { normalizePath } from './drift/scope'
 
 /** Cửa sổ hạn mức mod xét: phiên (5 giờ) và tuần. */
 export type QuotaKind = 'five_hour' | 'seven_day'
@@ -66,6 +67,145 @@ export function quotaSettings(options: Record<string, unknown>): QuotaSettings {
     },
     noticeIssues,
   }
+}
+
+/**
+ * Option pauseAllowPaths (0.7.5): các đường dẫn (phân tách bằng dấu phẩy, tương đối theo thư mục gốc của phiên hoặc tuyệt
+ * đối) mà luồng chính vẫn được ghi khi dừng cứng, như file checkpoint theo quy tắc dừng của prompt. Mục rỗng bị bỏ.
+ */
+export function pauseAllowPaths(options: Record<string, unknown>): string[] {
+  const raw = options['pauseAllowPaths']
+  const items = typeof raw === 'string' ? raw.split(',').map(item => item.trim()).filter(item => item !== '') : []
+  return items.filter(item => !isWholeTree(item))
+}
+
+/** Mục cho phép ghi cả thư mục gốc hay cả hệ thống ("." "./" "/" ".."): không phải một đường dẫn checkpoint, bị bỏ (M6, vòng sửa 2). */
+function isWholeTree(item: string): boolean {
+  return ['', '.', '..'].includes(item.replace(/\/+$/, ''))
+}
+
+/** Câu cảnh báo khi option pauseAllowPaths có mục bị bỏ vì cho ghi cả thư mục gốc; rỗng nếu không có. */
+export function pauseAllowIssues(options: Record<string, unknown>): string[] {
+  const raw = options['pauseAllowPaths']
+  const dropped = typeof raw === 'string' ? raw.split(',').map(item => item.trim()).filter(item => item !== '' && isWholeTree(item)) : []
+  return dropped.length > 0 ? [`pauseAllowPaths có mục ${dropped.map(item => `"${item}"`).join(', ')} cho ghi cả thư mục gốc: bỏ qua; khai thư mục riêng cho file điểm dừng, ví dụ .checkpoint/`] : []
+}
+
+/**
+ * Mục pauseAllowPaths ở dạng phạm vi (0.7.5): mục kết thúc bằng "/" luôn là thư mục, kể cả tên có dấu chấm như
+ * ".checkpoint/" (phạm vi coi "tên.đuôi" không có "/" là tên file), nên mục tương đối một tầng được viết thành "./tên".
+ */
+export function allowScopes(paths: readonly string[]): string[] {
+  return paths.map(path => (path.endsWith('/') && !path.startsWith('/') && !path.slice(0, -1).includes('/') ? `./${path}` : path))
+}
+
+/** Lệnh bọc chạy lệnh khác (S4, T7): bỏ qua cùng cờ và tham số của nó trước khi xét lệnh thật. */
+const LINK_WRAPPERS = new Set(['sudo', 'command', 'nohup', 'env', 'timeout', 'stdbuf', 'ionice', 'doas', 'chronic'])
+/** Cờ của lệnh bọc nhận giá trị ở token riêng ("timeout -s KILL", "ionice -c 3", "doas -u root"). */
+const WRAPPER_VALUE_FLAGS: Record<string, readonly string[]> = {
+  timeout: ['-s', '-k', '--signal', '--kill-after'],
+  ionice: ['-c', '-n', '-p', '-P', '-u'],
+  doas: ['-u', '-C'],
+  sudo: ['-u', '-g', '-C', '-D', '-h', '-p', '-r', '-t', '-U'],
+}
+
+/**
+ * Lệnh tạo liên kết thay vì chép (S4, vòng rà soát 4; `link` và `ln` đã bị từ chối vì không phải lệnh ghi đọc được đích): `cp` có -l,
+ * --link, -s, --symbolic-link (kể cả cờ gộp như -al, -sf và dạng viết tắt --li, --sym); từ T7 (vòng rà soát 5) thêm `rsync --link-dest`
+ * và `install -l`. Ghi vào liên kết cứng trong danh sách sửa file gốc ngoài danh sách mà realpath không thấy, nên khi tạm dừng cứng các lệnh
+ * này bị từ chối như ln. Đọc thô theo đoạn và từ, đủ cho mục đích từ chối: bỏ mọi nháy và gạch chéo trong từ như shell (cp -"l" là cp -l),
+ * bỏ qua lệnh bọc cùng cờ và tham số số của nó, và cp có ngoặc nhọn (mở rộng có thể sinh cờ) coi là tạo liên kết.
+ */
+export function makesLink(command: string): boolean {
+  for (const segment of command.split(/&&|\|\||[;|\n]/)) {
+    const tokens = segment.trim().split(/\s+/).filter(Boolean).map(token => token.replace(/['"\\]/g, ''))
+    let at = 0
+    while (at < tokens.length) {
+      const token = tokens[at] ?? ''
+      if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(token)) {
+        at += 1
+        continue
+      }
+      const wrapper = token.split('/').pop() ?? ''
+      if (!LINK_WRAPPERS.has(wrapper)) break
+      at += 1
+      const valued = WRAPPER_VALUE_FLAGS[wrapper] ?? []
+      while (at < tokens.length) {
+        const arg = tokens[at] ?? ''
+        if (valued.includes(arg)) at += 2
+        else if (arg.startsWith('-') || /^\d+(?:\.\d+)?[smhd]?$/.test(arg) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(arg)) at += 1
+        else break
+      }
+    }
+    const name = (tokens[at] ?? '').split('/').pop() ?? ''
+    const args = tokens.slice(at + 1)
+    if (name === 'rsync' && args.some(arg => arg === '--link-dest' || arg.startsWith('--link-dest='))) return true
+    if (name === 'install' && args.some(arg => /^-[A-Za-z]*l[A-Za-z]*$/.test(arg))) return true
+    if (name !== 'cp') continue
+    if (args.some(arg => arg.includes('{'))) return true
+    for (const arg of args) {
+      if (arg === '--') break
+      if (/^-[A-Za-z]+$/.test(arg) && /[ls]/.test(arg)) return true
+      const long = arg.startsWith('--') ? (arg.slice(2).split('=')[0] ?? '') : ''
+      if (long.length >= 2 && ('link'.startsWith(long) || 'symbolic-link'.startsWith(long))) return true
+    }
+  }
+  return false
+}
+
+/** Hàm `$.fs.stat(path, { resolve: true })` của engine, rút gọn phần dùng ở đây. */
+export type ResolveStat = (path: string) => Promise<{ realPath?: string }>
+
+/** Lỗi "không có đường dẫn này" của `$.fs.stat` (ENOENT); lỗi khác (quyền, mạng) không phải là thiếu file. */
+function isMissing(error: unknown): boolean {
+  const code = typeof error === 'object' && error !== null ? (error as { code?: unknown }).code : undefined
+  return code === 'ENOENT' || String(code ?? error).includes('ENOENT')
+}
+
+/**
+ * Nơi một đường dẫn tuyệt đối đáp xuống (0.7.5, R9), theo mẫu "placed" của khai báo kiểu: đường dẫn có thật thì `realPath` của nó;
+ * chưa có (file hay thư mục sắp tạo) thì đi lên tới thư mục tồn tại gần nhất, lấy `realPath` của thư mục đó rồi nối phần còn lại.
+ * undefined khi không đặt được: liên kết trỏ vào hư không (ghi vào sẽ tạo file ở đích của liên kết), lỗi khác ENOENT, hay hệ tệp
+ * không trả đường dẫn thật.
+ */
+export async function placedPath(path: string, stat: ResolveStat): Promise<string | undefined> {
+  let current = path
+  const rest: string[] = []
+  for (;;) {
+    try {
+      const real = (await stat(current)).realPath
+      if (real === undefined) return undefined
+      return rest.length === 0 ? real : `${real.replace(/\/+$/, '')}/${rest.join('/')}`
+    } catch (error) {
+      if (!isMissing(error)) return undefined
+    }
+    const cut = current.lastIndexOf('/')
+    if (cut <= 0) return undefined
+    rest.unshift(current.slice(cut + 1))
+    current = current.slice(0, cut)
+  }
+}
+
+/**
+ * Đường dẫn tuyệt đối đã chuẩn hóa có thật sự đáp vào trong danh sách khi tạm dừng cứng (0.7.5, R9)? Trong thư mục gốc phiên: nơi
+ * nó đáp phải đúng `thư mục gốc thật + phần còn lại`, nên bất kỳ symlink nào trên đường (kể cả thư mục trong danh sách) đều bị từ
+ * chối. Ngoài thư mục gốc (mục tuyệt đối): phải đáp dưới nơi thật của mục chứa nó. Không đặt được thì không.
+ */
+export async function landsInsideAllowed(path: string, root: string, entries: readonly string[], stat: ResolveStat): Promise<boolean> {
+  const real = await placedPath(path, stat)
+  if (real === undefined) return false
+  const base = normalizePath(root)
+  if (path === base || path.startsWith(`${base}/`)) {
+    const realBase = await placedPath(base, stat)
+    return realBase !== undefined && real === `${realBase.replace(/\/+$/, '')}${path.slice(base.length)}`
+  }
+  for (const item of entries) {
+    const entry = normalizePath(item.trim())
+    if (!entry.startsWith('/') || !(path === entry || path.startsWith(`${entry}/`))) continue
+    const entryReal = await placedPath(entry, stat)
+    if (entryReal !== undefined && (real === entryReal || real.startsWith(`${entryReal.replace(/\/+$/, '')}/`))) return true
+  }
+  return false
 }
 
 /**

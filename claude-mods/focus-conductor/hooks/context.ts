@@ -2,11 +2,11 @@
 // mà nhiều nhóm hook cùng dùng. Không gọi $: lệnh gọi $ nằm trong thân hook ở hooks/parts/.
 
 import type { PluginOptions, PromptOrigin } from 'claude-code'
-import type { Brief, Choice, Core, DelegationItem, DelegationState, Effort, Lift, Mode, ModelFamily, Route, RouteEvent, Task, Tier, Volume } from '../types'
+import type { Brief, Choice, Core, DelegationItem, DelegationState, Effort, Lift, Mode, ModelFamily, PlanStep, Route, RouteEvent, Task, Tier, Volume } from '../types'
 import { applyCheckCommands, newEvidenceLog, newTracker, parseCheckCommands } from './lib/drift'
 import type { EvidenceLog, PromptIntent, TurnTracker } from './lib/drift'
 import { DEFAULT_CACHE_TTL_MINUTES, DEFAULT_CONTEXT, DEFAULT_WINDOWS, applyCacheWrite, applyPrices, parseCacheWrite, parsePrices } from './lib/cost'
-import { EFFORTS, decideMain, describePick, familyOf, liftPick, parseModelMap, parseWindows } from './lib/route'
+import { EFFORTS, decideMain, describePick, familyOf, hasTitleCode, liftPick, matchTask, parseModelMap, parseWindows } from './lib/route'
 import type { SessionModel, SessionPolicy } from './lib/route'
 import { DECISION_LIMIT, decisionLine } from './lib/decisions'
 import type { DecisionKind } from './lib/decisions'
@@ -72,6 +72,12 @@ export const COMMAND_HELP = [
   '/conductor reset       xóa mục tiêu, checklist, cảnh báo và danh sách model bị chặn',
 ].join('\n')
 
+/** Khoảng cách tối thiểu giữa hai lượt kiểm lạc đề (0.7.5, option driftIntervalMinutes): mặc định 10 phút, kẹp 5 đến 120. */
+export function driftIntervalMs(raw: unknown): number {
+  const minutes = typeof raw === 'number' && Number.isFinite(raw) ? Math.min(120, Math.max(5, raw)) : 10
+  return minutes * 60_000
+}
+
 export function createContext(options: PluginOptions) {
   // Trạng thái tạm của turn và phiên: hot-reload làm mất chúng mà không ảnh hưởng tính đúng
   // (trạng thái bền nằm trong $.state).
@@ -118,10 +124,21 @@ export function createContext(options: PluginOptions) {
     delegation: newDelegation(),
     /**
      * Giữ mục tiêu qua lần nén (0.7.4): `pending` là lời nhắc sau nén còn chờ gắn vào tool call kế tiếp của luồng chính;
-     * `hooked` là đã có session.compact thật từ lần đo context trước (để đường dự phòng không nhắc trùng); `lastContext` là
-     * context luồng chính đo được lần trước (0 khi chưa đo).
+     * `lastContext` là context luồng chính đo được lần trước, hay context sau lần nén qua hook (0.7.5, tokensAfter; 0 khi
+     * chưa đo hay engine không ghi), để đường dự phòng không nhắc trùng. `skipNext` (vòng sửa 2): lần đo kế tiếp sau lần nén qua
+     * hook có thể còn là số cũ nên bị bỏ qua đúng một lần.
      */
-    compaction: { pending: false, hooked: false, lastContext: 0 },
+    compaction: { pending: false, lastContext: 0, skipNext: false },
+    /** Turn luồng chính đã nhận câu báo hạn mức mềm (0.7.5): Stop của turn đó không chặn vì checklist còn mở. */
+    noticeTurn: null as string | null,
+    /** Khóa lệnh ghi không rõ đích đã cảnh báo, theo mục tiêu (0.7.5): không cảnh báo lại ở mỗi turn. */
+    unknownWrites: { goalId: -1, keys: new Set<string>() },
+    /** Lời nhắc đã nói trong phiên (S5): không đặt lại theo mục tiêu hay turn. */
+    sessionHints: new Set<string>(),
+    /** Prompt (đầy đủ, chỉ trong bộ nhớ) đã lập mục tiêu hiện tại (0.7.5): /conductor reroute đọc lại prompt này, không phải prompt tiếp nối ngắn. */
+    goalPrompt: null as { text: string; prev: Brief | null; goalId: number } | null,
+    /** Vừa /clear khi có điểm dừng mở (0.7.5): prompt kế tiếp không tự chèn khối ĐIỂM DỪNG, chỉ gợi ý /conductor resume. */
+    noAutoResume: false,
   }
   const blocked = new Set<ModelFamily>()
   // Một lần lỗi có thể chỉ là tạm thời (429, quá tải): chỉ chặn một họ model
@@ -178,6 +195,7 @@ export function createContext(options: PluginOptions) {
   const remindSubagents = options['remindSubagents'] === true
   // Bật mặc định từ 0.7.0 (tắt khi đặt false); tự tắt gần ngưỡng hạn mức và tối đa một lượt mỗi 10 phút.
   const semanticDrift = options['semanticDrift'] !== false
+  const driftEveryMs = driftIntervalMs(options['driftIntervalMinutes'])
   // Pane chi tiết tự mở ở mỗi mục tiêu mới (0.7.2); đặt false để tắt.
   const autoPane = options['autoPane'] !== false
   const decisionLog = typeof options['decisionLog'] === 'string' ? options['decisionLog'].trim() : ''
@@ -305,7 +323,9 @@ export function createContext(options: PluginOptions) {
   }
 
   function rememberAgentRoute(key: string, route: AgentRoute): void {
-    agentRoutes.set(key, route)
+    // Số việc đã phân chỉ đúng với lời gọi đã được chấm: kết quả nhớ không mang nó sang lời gọi khác.
+    const { taskIndex: _taskIndex, ...shared } = route
+    agentRoutes.set(key, shared)
     const oldest = agentRoutes.keys().next().value
     if (agentRoutes.size > AGENT_ROUTE_LIMIT && oldest !== undefined) agentRoutes.delete(oldest)
   }
@@ -320,7 +340,12 @@ export function createContext(options: PluginOptions) {
     local.routerTimes = []
     local.turnRoute = { turnId: '', route: null }
     local.turnContext = 0
-    local.compaction = { pending: false, hooked: false, lastContext: 0 }
+    local.compaction = { pending: false, lastContext: 0, skipNext: false }
+    local.noticeTurn = null
+    local.unknownWrites = { goalId: -1, keys: new Set() }
+    local.sessionHints.clear()
+    local.goalPrompt = null
+    local.noAutoResume = false
     local.isGoalNew = false
     local.lastSession = null
     local.sessionFamily = null
@@ -367,14 +392,28 @@ export function createContext(options: PluginOptions) {
   }
 
   /**
-   * Đường dự phòng của lời nhắc sau nén (0.7.4): context luồng chính đo được giảm dưới COMPACTION_DROP so với lần đo trước mà
-   * không có session.compact thật xen giữa thì coi như đã nén. Lần nén đã đặt nhắc qua hook thì không nhắc lần nữa.
+   * Đường dự phòng của lời nhắc sau nén (0.7.4): context luồng chính đo được giảm dưới COMPACTION_DROP so với mốc trước thì coi
+   * như đã nén. Lần nén qua hook đặt mốc là context sau nén (noteCompacted), nên lần đo sau nó không nhắc trùng.
    */
   function noteContext(tokens: number): void {
     const c = local.compaction
-    if (c.lastContext > 0 && tokens < COMPACTION_DROP * c.lastContext && !c.hooked) c.pending = true
-    c.hooked = false
+    // Lần đo đầu sau lần nén qua hook có thể còn là số trước nén: bỏ qua đúng một lần, không làm mốc, không so.
+    if (c.skipNext) {
+      c.skipNext = false
+      return
+    }
+    if (c.lastContext > 0 && tokens < COMPACTION_DROP * c.lastContext) c.pending = true
     c.lastContext = tokens
+  }
+
+  /**
+   * Lần nén thật qua hook session.compact (0.7.5, gia cố): đặt lời nhắc sau nén và lấy context sau nén (tokensAfter) làm mốc
+   * cho đường dự phòng; engine không ghi tokensAfter thì mốc là 0 (lần đo kế tiếp chỉ đặt mốc, không nhắc).
+   */
+  function noteCompacted(tokensAfter: number | undefined): void {
+    local.compaction.pending = true
+    local.compaction.lastContext = tokensAfter ?? 0
+    local.compaction.skipNext = true
   }
 
   /** Cache đã nguội (quá TTL), hoặc ngữ cảnh vừa bị nén: đổi model không mất chi phí ghi lại. */
@@ -458,9 +497,25 @@ export function createContext(options: PluginOptions) {
     local.delegation = keep ? local.delegation : newDelegation(goalId, pending)
   }
 
-  /** Danh sách việc giao còn chờ của mục tiêu này, rỗng nếu không có. */
-  function pendingFor(brief: Brief | null): string[] {
-    return brief && local.delegation.goalId === brief.goalId ? [...local.delegation.pending.values()] : []
+  /**
+   * Danh sách việc giao còn chờ của mục tiêu này, rỗng nếu không có. Có checklist (0.7.5): việc có bước trong checklist (khớp
+   * theo "Việc N" hay mã như khi giao) chỉ còn chờ khi một bước của nó đang làm hoặc là bước mở kế tiếp; bước đã done,
+   * verified hay skipped thì không còn chờ. Việc không có bước nào thì như cũ.
+   */
+  function pendingFor(brief: Brief | null, plan: readonly PlanStep[] = []): string[] {
+    if (!brief || local.delegation.goalId !== brief.goalId) return []
+    const next = plan.find(step => step.status === 'doing') ?? plan.find(step => step.status === 'todo')
+    const isCoded = plan.some(step => hasTitleCode(step.title))
+    return [...local.delegation.pending.entries()]
+      .filter(([index]) => {
+        const own = plan.filter(step => matchTask(brief.tasks, step.title)?.index === index)
+        if (own.length > 0) return own.some(step => step.status === 'doing' || step === next)
+        // Việc có mã mà chưa có checklist, hoặc tiêu đề các bước không mang mã nào: chưa xác định được bước của nó nên không
+        // coi là đang chờ (vòng sửa 2 của 0.7.5). Việc không mã, hay checklist có mã mà chưa có bước của việc đó, như cũ.
+        const task = brief.tasks.find(t => t.index === index)
+        return !(task !== undefined && hasTitleCode(task.title) && !isCoded)
+      })
+      .map(([, label]) => label)
   }
 
   /** Việc giao subagent đã lỗi mà chưa giao lại, của mục tiêu này. */
@@ -631,6 +686,7 @@ export function createContext(options: PluginOptions) {
     decideTurn,
     isCacheFree,
     noteContext,
+    noteCompacted,
     decisionLog,
     decisionText,
     flushDecisions,
@@ -668,6 +724,7 @@ export function createContext(options: PluginOptions) {
     routerModel,
     routerTimeLine,
     semanticDrift,
+    driftEveryMs,
     autoPane,
     sessionModel,
     sessionPolicy,
