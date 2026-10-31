@@ -103,3 +103,17 @@ describe('0.7.5 T10: 150 lô với vế ghi đè liệt kê nhiều mã', () => 
     expect(seen.agentRouted.length).toBe(2)
   })
 })
+
+describe('0.7.6 V2: 150 lô với vế ghi đè "Riêng BƯỚC 3, 5" (số trần sau mã)', () => {
+  test('"Riêng BƯỚC 3, 5 dùng opus": BƯỚC 4 Claude ghi sonnet 0 lượt; BƯỚC 3 và BƯỚC 5 mỗi mã không quá 1 lượt', LOOP, async ($, on) => {
+    const seen = base(on, { router: rulesOf('Lọc tin dùng sonnet. Riêng BƯỚC 3, 5 dùng opus') })
+    capture(on)
+    await submit($, 'Cập nhật dữ liệu theo các lô')
+    for (let n = 1; n <= 150; n++) await agent($, `BƯỚC 4: lọc tin lô ${n}`, `Lọc tin lô ${n}`, { model: 'sonnet' })
+    expect(seen.agentRouted.length).toBe(0)
+    for (let n = 1; n <= 150; n++) await agent($, `BƯỚC 3: lọc tin lô ${n}`, `Lọc tin lô ${n}`, { model: 'sonnet' })
+    expect(seen.agentRouted.length).toBe(1)
+    for (let n = 1; n <= 150; n++) await agent($, `BƯỚC 5: lọc tin lô ${n}`, `Lọc tin lô ${n}`, { model: 'sonnet' })
+    expect(seen.agentRouted.length).toBe(2)
+  })
+})
