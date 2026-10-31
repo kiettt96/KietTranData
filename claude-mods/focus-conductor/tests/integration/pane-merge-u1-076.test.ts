@@ -9,8 +9,8 @@ describe('0.7.6 U1: checklist và tiến độ từng việc là một danh sác
   test('mục tiêu 11 bước có mã: mỗi bước chỉ xuất hiện một lần trong pane (40 dòng)', async ($, on) => {
     await longGoal($, on, 3)
     const { texts } = await drawn($, 40)
-    // Nhật ký điều phối ghi từng lời gọi Agent theo description: không phải dòng bước, nên chỉ đếm phần trước mục đó.
-    const end = texts.findIndex(t => /^Nhật ký điều phối/.test(t))
+    // Mục Đang chạy (U8) và Nhật ký điều phối ghi tên việc, mô tả của lời gọi Agent: không phải dòng bước, nên chỉ đếm phần trước chúng.
+    const end = texts.findIndex(t => /^(Đang chạy|Nhật ký điều phối)/.test(t))
     const list = end < 0 ? texts : texts.slice(0, end)
     // Bước đã đóng dồn vào dòng tóm tắt (0 lần); bước mở đúng một lần.
     for (const title of TITLES) expect(list.filter(t => t.includes(title)).length, title).toBeLessThanOrEqual(1)
