@@ -5,7 +5,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
-import { COMPLEX_PROMPT, PANE, base, submit } from '../support/engine'
+import { COMPLEX_PROMPT, PANE, base, conductor, submit } from '../support/engine'
 import { RESUME, memoryStore, quotaMeter, session, week } from '../support/quota'
 
 type Node = { type?: string; props?: Record<string, unknown>; children?: unknown[] }
@@ -60,6 +60,19 @@ describe('0.7.6 U3: tạm dừng cứng trên band', () => {
     const rows = (await bandRows($, 72, 1)).map(textOf)
     expect(rows.length).toBe(1)
     expect(rows[0]).toContain(`${PAUSE} Tạm dừng`)
+  })
+
+  test('người dùng tự dừng (/conductor pause): dòng 2 ghi "chạy tiếp: /conductor resume", không có force', async ($, on) => {
+    base(on, RESUME)
+    hooks(on)
+    memoryStore(on)
+    quotaMeter(on, [session(10)])
+    await submit($, COMPLEX_PROMPT)
+    await conductor($, 'pause')
+    const rows = (await bandRows($, 120, 2)).map(textOf)
+    expect(rows[0]).toContain(`${PAUSE} Tạm dừng: người dùng yêu cầu tạm dừng`)
+    expect(rows[1]).toContain('chạy tiếp: /conductor resume')
+    expect(rows[1]).not.toContain('force')
   })
 
   test('status line kèm lệnh chạy tiếp', async ($, on) => {

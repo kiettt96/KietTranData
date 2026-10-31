@@ -12,6 +12,7 @@ import { chipCounts, taskRows } from '../lib/progress'
 import type { QuotaBadge } from '../lib/quota'
 import type { View } from '../lib/state'
 import { countLabel, progress, quotaPercent } from '../lib/text'
+import type { BandQuota } from '../lib/text'
 import { attentionItems } from './attention'
 import { labels, taskLabel } from './labels'
 import type { Run } from './style'
@@ -23,6 +24,8 @@ const buttonCells = (label: string) => Math.max(BUTTON_CELLS, cellsOf(label) + 2
 const runCells = (runs: readonly Run[]) => runs.reduce((sum, r) => sum + cellsOf(r.text), 0)
 /** Số ô tối thiểu giữ cho tên bước ở dòng 1 khi band hẹp phải bỏ chip [Giả định: đủ thấy mã bước như "BƯỚC 4"]. */
 const FOCUS_CELLS = 4
+/** Ký hiệu tạm dừng (0.7.6, U3): U+23F8. */
+const PAUSE_GLYPH = '\u23F8'
 
 export type BandHandlers = {
   onDetails: () => unknown
@@ -48,6 +51,8 @@ export function renderBand(
   handlers: BandHandlers,
   /** Bảo vệ hạn mức (0.6.0): nhãn đang dừng hay phần còn lại khi gần ngưỡng; null hay vắng thì band như cũ. */
   quota: QuotaBadge | null = null,
+  /** Hạn mức cho dòng 1, dòng 2 khi dừng và câu báo mềm (0.7.6, U3); null hay vắng thì không có. */
+  pause: BandQuota | null = null,
 ): RenderElement | null {
   const { brief, route, ledger, log } = view.core
   // Checklist để vẽ: của tool plan, nếu chưa có thì danh sách việc Claude Code tự ghi (phản chiếu, 0.6.1).
@@ -63,10 +68,11 @@ export function renderBand(
   const hasSecondRow = props.maxRows >= 2
 
   // Dòng cần chú ý (U2): mục quan trọng nhất theo mức độ; "+N" đếm phần còn lại.
-  const attention = attentionItems(view.core, view.lang, { paused: false, notice: null })
+  const isPaused = pause?.paused === true
+  const attention = attentionItems(view.core, view.lang, { paused: false, notice: pause?.notice ?? null })
   const top = attention[0]
   const others = attention.length - 1
-  const spine: Color = top?.severity ?? 'claude'
+  const spine: Color = isPaused ? 'warning' : (top?.severity ?? 'claude')
 
   const { closed, total } = progress(plan)
   const planned = total === 0 ? brief.steps.length : 0
@@ -210,6 +216,40 @@ export function renderBand(
         {brief.goal}
       </Text>
     )
+
+  // Tạm dừng cứng (U3) chiếm dòng 1: lý do và giờ làm mới; dòng 2 là điểm dừng và lệnh chạy tiếp. Không còn gì khác trên band.
+  if (isPaused && pause !== null) {
+    const pauseLines: RenderElement[] = [
+      <Box flexDirection="row" gap={1}>
+        <Box flexGrow={1} flexShrink={1}>
+          <Text color="warning" bold wrap="truncate-end">
+            {`${PAUSE_GLYPH} ${pause.line}`}
+          </Text>
+        </Box>
+        {detailsButton}
+        {hideButton}
+      </Box>,
+      ...(hasSecondRow
+        ? [
+            <Text color="warning" wrap="truncate-end">
+              {pause.resume}
+            </Text>,
+          ]
+        : []),
+    ]
+    return (
+      <Box flexDirection="row">
+        <Box flexDirection="column" flexShrink={0} marginRight={1}>
+          {pauseLines.map(() => (
+            <Text color={spine}>{SPINE}</Text>
+          ))}
+        </Box>
+        <Box flexDirection="column" flexGrow={1} flexShrink={1}>
+          {pauseLines}
+        </Box>
+      </Box>
+    )
+  }
 
   const lines: RenderElement[] = [
     <Box flexDirection="row" gap={1}>

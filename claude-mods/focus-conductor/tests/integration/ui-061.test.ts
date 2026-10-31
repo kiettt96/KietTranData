@@ -98,7 +98,7 @@ describe('0.6.1 3.1: status line giữ nhãn hạn mức', () => {
     memoryStore(on)
     quotaMeter(on, [session(97)])
     await measure($, 97)
-    expect(seen.statuses.at(-1)).toBe(`auto · ${LABEL.vi}`)
+    expect(seen.statuses.at(-1)).toBe(`auto · ${LABEL.vi} · /conductor resume force`)
     await conductor($, 'status')
     await submit($, 'giải thích ngắn kiến trúc hiện tại')
     expect(seen.statuses.at(-1)).toContain(LABEL.vi)
@@ -134,7 +134,7 @@ describe('0.6.1 3.1: status line giữ nhãn hạn mức', () => {
     await pane.press({ key: 'reset' })
     await pane.press({ key: 'reset' })
     await pane.unmount()
-    expect(seen.statuses.at(-1)).toBe(`auto · ${LABEL.vi}`)
+    expect(seen.statuses.at(-1)).toBe(`auto · ${LABEL.vi} · /conductor resume force`)
   })
 
   test('prompt đến khi vừa vào vùng dừng (không có số đo, không tool call nào): status có nhãn dừng ngay (061-U9)', {}, async ($, on) => {
@@ -333,8 +333,8 @@ describe('0.6.1 3.3: band hẹp khi dừng', () => {
         await pauseByQuota($, meter, seen.clock)
         const band = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: bandProps(columns, maxRows) })
         const tree = (await band.drawn()) as unknown as El
-        expect(await band.find({ type: 'Text', text: /^dừng$/ })).toBeDefined()
-        expect(await band.find({ type: 'Text', text: /tạm dừng: hạn mức/ })).toBeUndefined()
+        // 0.7.6 U3: tạm dừng chiếm dòng 1 ("⏸ Tạm dừng: <lý do> · làm mới <giờ>"), cắt theo chiều rộng thay cho nhãn ngắn.
+        expect(await band.find({ type: 'Text', text: /^\u23F8 Tạm dừng: / })).toBeDefined()
         for (const fixed of fixedRows(tree)) expect(fixed).toBeLessThanOrEqual(columns)
         await band.unmount()
       })
@@ -393,7 +393,7 @@ describe('0.6.1 3.3: band hẹp khi dừng', () => {
     await goalWithSteps($)
     await pauseByQuota($, meter, seen.clock)
     const band = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: bandProps(56, 2) })
-    expect(await band.find({ type: 'Text', text: /^tạm dừng: hạn mức$/ })).toBeDefined()
+    expect(await band.find({ type: 'Text', text: /^\u23F8 Tạm dừng: / })).toBeDefined()
     await band.unmount()
   })
 
@@ -405,7 +405,7 @@ describe('0.6.1 3.3: band hẹp khi dừng', () => {
     await goalWithSteps($)
     await pauseByQuota($, meter, seen.clock)
     const band = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: bandProps(40, 1) })
-    expect(await band.find({ type: 'Text', text: /^paused$/ })).toBeDefined()
+    expect(await band.find({ type: 'Text', text: /^\u23F8 Paused: / })).toBeDefined()
     const tree = (await band.drawn()) as unknown as El
     for (const fixed of fixedRows(tree)) expect(fixed).toBeLessThanOrEqual(40)
     await band.unmount()
@@ -446,7 +446,7 @@ describe('0.6.1 3.4: band và pane trên vscode và mobile', () => {
         expect(await band.drawn()).toMatchObject({ type: 'Box' })
         // 0.7.6: band ghi mục tiêu khi chưa có checklist; có checklist thì bước hiện tại, mục tiêu đầy đủ ở pane.
         if (state === 'no-checklist') expect(await band.find({ type: 'Text', text: /Refactor module thanh toán/ })).toBeDefined()
-        if (state === 'paused') expect(await band.find({ type: 'Text', text: /^tạm dừng: hạn mức$/ })).toBeDefined()
+        if (state === 'paused') expect(await band.find({ type: 'Text', text: /^\u23F8 Tạm dừng: / })).toBeDefined()
         if (state === 'near') expect(await band.find({ type: 'Text', text: /^hạn mức còn 8%$/ })).toBeDefined()
         await band.unmount()
         const pane = await $.ui.mount({ ...PANE, surface })

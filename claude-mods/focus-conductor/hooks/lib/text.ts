@@ -636,10 +636,11 @@ export function checkHintLines(hint: CheckHint | null, goalId: number | null): s
   return hint !== null && goalId !== null && hint.goalId === goalId && hint.commands.length > 0 ? [checkHintText(hint.commands)] : []
 }
 
-export function withQuotaStatus(base: string | undefined, badge: QuotaBadge | null, lang: Lang): string | undefined {
+/** Nhãn hạn mức của status line; đang dừng thì kèm lệnh chạy tiếp (0.7.6, U3) khi được truyền. */
+export function withQuotaStatus(base: string | undefined, badge: QuotaBadge | null, lang: Lang, resume?: string): string | undefined {
   if (base === undefined || badge === null) return base
   const l = labels(lang)
-  return `${base} · ${badge.paused ? l.quotaPaused : l.quotaLeft(percent(badge.left ?? 0))}`
+  return `${base} · ${badge.paused ? `${l.quotaPaused}${resume ? ` · ${resume}` : ''}` : l.quotaLeft(percent(badge.left ?? 0))}`
 }
 
 export type QuotaStatusInput = {
@@ -730,13 +731,36 @@ export const PANE_NOTE_MAX = 160
 /** Các dòng chữ của mục Hạn mức trong pane theo ngôn ngữ giao diện. `cause` là câu thay "Không có cảnh báo." khi đang dừng. */
 export type QuotaPaneText = { windows: string[]; state: string; isPaused: boolean; cause: string; checkpoint: string[] }
 
-export function quotaPaneText(view: QuotaOverview, lang: Lang): QuotaPaneText {
+/**
+ * Hạn mức trên band (0.7.6, U3): đang dừng thì dòng 1 là "Tạm dừng: <lý do> · làm mới <giờ>" và dòng 2 là "Điểm dừng đã ghi · chạy tiếp:
+ * <lệnh>"; chưa dừng mà đang trong vùng báo mềm thì câu báo cho dòng cần chú ý. Chỉ để hiển thị.
+ */
+export type BandQuota = { paused: boolean; line: string; resume: string; notice: string | null }
+
+export function bandQuota(view: QuotaOverview, notices: readonly QuotaNoticeHit[], lang: Lang): BandQuota {
+  const l = labels(lang)
+  const isUser = view.state === 'user'
+  const paused = view.state === 'quota' || isUser
+  const left = (r: QuotaReason) => percent(Math.max(0, Math.round((100 - r.percentUsed) * 10) / 10))
+  const cause = isUser ? l.quotaUserCause : view.reasons.length > 0 ? view.reasons.map(r => l.quotaShortReason(l.quotaName[r.kind], left(r))).join('; ') : l.quotaNearlyOut
+  const reset = view.reasons.map(r => resetLabel(r.resetsAt)).find(text => text !== '') ?? ''
+  const hit = notices[0]
+  return {
+    paused,
+    line: l.pauseLine(cause, reset),
+    resume: `${view.checkpoint !== null ? `${l.pauseCheckpointDone} · ` : ''}${l.pauseResume(resumeCommand(isUser))}`,
+    notice: !paused && hit !== undefined ? l.quotaNotice(l.quotaWindowShort[hit.kind], percent(hit.remaining)) : null,
+  }
+}
+
+export function quotaPaneText(view: QuotaOverview, lang: Lang, hasNotice = false): QuotaPaneText {
   const l = labels(lang)
   const windows = view.windows.map(w => `${l.quotaWindow[w.kind]}: ${l.quotaUsage(percent(w.used), percent(Math.max(0, 100 - w.used)), resetLabel(w.resetsAt), percent(w.threshold))}`)
   const reasonText = (r: QuotaReason) =>
     l.quotaReason(l.quotaName[r.kind], percent(Math.max(0, Math.round((100 - r.percentUsed) * 10) / 10)), percent(r.thresholdRemainingPct), resetLabel(r.resetsAt))
   const state = {
-    ok: l.quotaStateOk,
+    // Báo mềm (0.7.6, U3): chưa dừng mà một cửa sổ đã vào vùng báo thì không ghi "bình thường".
+    ok: hasNotice ? l.quotaStateNotice : l.quotaStateOk,
     quota: l.quotaStateQuota,
     user: l.quotaStateUser,
     forced: l.quotaStateForced(view.forcedKinds.map(k => l.quotaName[k]).join(l.quotaAnd), resetLabel(new Date(view.forcedUntil).toISOString())),
