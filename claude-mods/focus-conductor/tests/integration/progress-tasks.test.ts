@@ -185,7 +185,8 @@ describe('0.6.1 2.4: band với nhiều việc', () => {
     const six = await bandAt($, 6)
     expect(has(six.texts, /^2 subagent đang chạy: Việc 2: /)).toBe(true)
     expect(has(six.texts, /^\+\d việc$/)).toBe(false)
-    expect(has(six.texts, /^subagent 0\/4 xong$/)).toBe(true)
+    // 0.7.6 U4: chip lô chỉ ghi số đang chạy và số lỗi.
+    expect(has(six.texts, /^2 đang chạy$/)).toBe(true)
   })
 
   test('chỉ có việc chính: band như cũ, không thêm dòng việc', {}, async ($, on) => {

@@ -8,12 +8,12 @@
 import type { Color, Elements, RenderElement, RenderSurface } from 'claude-code'
 
 import { shownPlan } from '../lib/mirror'
-import { chipCounts, taskRows } from '../lib/progress'
+import { taskRows } from '../lib/progress'
 import type { QuotaBadge } from '../lib/quota'
 import type { View } from '../lib/state'
 import { countLabel, progress, quotaPercent } from '../lib/text'
 import type { BandQuota } from '../lib/text'
-import { attentionItems } from './attention'
+import { attentionItems, failedBatches } from './attention'
 import { labels, taskLabel } from './labels'
 import type { Run } from './style'
 import { FAMILY_HUE, SPINE, barRuns, cellsOf, columnsOf, currentStep, goalUsd, pendingUsd, plannedRuns, severityGlyph, shownUsd } from './style'
@@ -94,9 +94,11 @@ export function renderBand(
   const elapsedText = now > brief.at ? l.goalElapsed(now - brief.at) : ''
   const quotaText = quota ? (quota.paused ? (columns >= 56 ? l.quotaPaused : l.quotaPausedShort) : l.quotaLeft(quotaPercent(quota.left ?? 0))) : ''
   const rows = taskRows(view.core, now)
-  const delegated = rows.filter(row => row.kind === 'agent')
-  const chip = chipCounts(view.core, delegated)
-  const agentChip = delegated.length > 0 ? l.agentChip(chip.done, chip.total) : ''
+  // Chip lô subagent (U4): chỉ khi có lô đang chạy hay lỗi, không hiện khi mọi bước đã đóng.
+  const runningBatches = rows.filter(row => row.kind === 'agent' && row.state === 'running').reduce((sum, row) => sum + (row.counts?.running ?? 1), 0)
+  const failed = failedBatches(view.core)
+  const isFinished = total > 0 && closed === total
+  const agentChip = !isFinished && (runningBatches > 0 || failed > 0) ? l.agentBatchChip(runningBatches, failed) : ''
   const countText = countLabel(plan)
   // Nguồn phản chiếu ghi nhỏ cạnh số bước khi còn chỗ: người dùng biết checklist này không chặn kết thúc.
   const mirrorText = source === 'mirror' && hasRoom ? l.mirrorShort : ''
@@ -116,8 +118,9 @@ export function renderBand(
     ].filter(n => n > 0)
     return parts.reduce((a, b) => a + b, 0) + Math.max(0, parts.length - 1)
   }
-  // Tên bước được giữ ít nhất FOCUS_CELLS ô trước khi bỏ chip.
-  const fixedCells = () => 2 + progressCells() + 1 + FOCUS_CELLS + 1 + chipCells() + 1 + buttonCells(l.details) + (hasRoom ? 1 + buttonCells(l.hide) : 0)
+  // Tên bước được giữ ít nhất FOCUS_CELLS ô trước khi bỏ chip; riêng chip subagent nhường cả tên bước (U4: tên việc ưu tiên hơn chip).
+  const focusWant = () => (fit.agents && agentChip ? Math.max(FOCUS_CELLS, cellsOf(current?.title ?? brief.goal)) : FOCUS_CELLS)
+  const fixedCells = () => 2 + progressCells() + 1 + focusWant() + 1 + chipCells() + 1 + buttonCells(l.details) + (hasRoom ? 1 + buttonCells(l.hide) : 0)
   for (const drop of [() => (fit.agents = false), () => (fit.effort = false), () => (fit.elapsed = false), () => (fit.route = false)]) {
     if (fixedCells() <= columns) break
     drop()
@@ -265,14 +268,12 @@ export function renderBand(
 
   // Dòng 2: cần chú ý; không có thì subagent đang chạy; không có nữa thì mục tiêu (mờ), trừ khi dòng 1 đã ghi mục tiêu.
   if (hasSecondRow) {
-    const running = rows.filter(row => row.kind === 'agent' && row.state === 'running')
-    const runningCount = running.reduce((sum, row) => sum + (row.counts?.running ?? 1), 0)
-    const first = running[0]
+    const first = rows.find(row => row.kind === 'agent' && row.state === 'running')
     if (alertNode) lines.push(alertNode)
     else if (first !== undefined)
       lines.push(
         <Text dimColor wrap="truncate-end">
-          {`${l.agentsRunning(runningCount)}: ${taskLabel(l, first)}`}
+          {`${l.agentsRunning(runningBatches)}: ${taskLabel(l, first)}`}
         </Text>,
       )
     else if (!isGoalFocus)

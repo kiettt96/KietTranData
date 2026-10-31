@@ -58,12 +58,15 @@ describe('0.7.6 U4: chip lô subagent', () => {
     expect(await firstRow($, 120)).toContain('2 đang chạy · 3 lỗi')
   })
 
-  test('60 cột: tên việc được ưu tiên, chip bị bỏ trước', LONG, async ($, on) => {
+  test('60 cột: tên việc đủ và chip vẫn vừa; 48 cột: tên việc được ưu tiên, chip bị bỏ trước', LONG, async ($, on) => {
     await goal($, on)
     for (const step of [1, 2, 3]) for (let n = 1; n <= 100; n++) await batch($, step, n, n === 50 ? 'failed' : 'done')
-    const row = await firstRow($, 60)
-    expect(row).toContain('BƯỚC 1: lọc tin lô 1')
-    expect(row).not.toContain('3 lỗi')
+    const at60 = await firstRow($, 60)
+    expect(at60).toContain('BƯỚC 1: lọc tin lô 1')
+    expect(at60).toContain('3 lỗi')
+    const at48 = await firstRow($, 48)
+    expect(at48).toContain('BƯỚC 1: lọc tin lô 1')
+    expect(at48).not.toContain('3 lỗi')
   })
 
   test('xong mục tiêu: không có chip lô', LONG, async ($, on) => {
