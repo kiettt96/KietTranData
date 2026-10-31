@@ -67,3 +67,25 @@ describe('0.7.5 S3: 150 lô với quy tắc có vế ghi đè "Riêng"', () => {
     expect(seen.agentRouted.length).toBe(1)
   })
 })
+
+describe('0.7.5 T1, T2: 150 lô với vế ghi đè theo mã bước và vế ghi đè ở mục ràng buộc riêng', () => {
+  test('"Riêng BƯỚC 3 dùng opus": "BƯỚC 4: lọc tin lô N" Claude ghi sonnet 0 lượt router; "BƯỚC 3: lọc tin lô N" 1 lượt cho 150 lô', LOOP, async ($, on) => {
+    const seen = base(on, { router: rulesOf('Lọc tin dùng sonnet. Riêng BƯỚC 3 dùng opus') })
+    capture(on)
+    await submit($, 'Cập nhật dữ liệu theo các lô')
+    for (let n = 1; n <= 150; n++) await agent($, `BƯỚC 4: lọc tin lô ${n}`, `Lọc tin lô ${n}`, { model: 'sonnet' })
+    expect(seen.agentRouted.length).toBe(0)
+    for (let n = 1; n <= 150; n++) await agent($, `BƯỚC 3: lọc tin lô ${n}`, `Lọc tin lô ${n}`, { model: 'sonnet' })
+    expect(seen.agentRouted.length).toBe(1)
+  })
+
+  test('hai mục ["Lọc tin dùng sonnet", "Đặc biệt tin pháp lý dùng opus"]: lô thường 0 lượt, 150 lô pháp lý 1 lượt', LOOP, async ($, on) => {
+    const seen = base(on, { router: rulesOf('Lọc tin dùng sonnet', 'Đặc biệt tin pháp lý dùng opus') })
+    capture(on)
+    await submit($, 'Cập nhật dữ liệu theo các lô')
+    for (let n = 1; n <= 150; n++) await agent($, `Lọc tin lô ${n}`, `Lọc tin lô ${n}`, { model: 'sonnet' })
+    expect(seen.agentRouted.length).toBe(0)
+    for (let n = 1; n <= 150; n++) await agent($, `Lọc tin pháp lý lô ${n}`, `Lọc tin pháp lý lô ${n}`, { model: 'sonnet' })
+    expect(seen.agentRouted.length).toBe(1)
+  })
+})
