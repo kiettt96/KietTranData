@@ -279,6 +279,24 @@ export function lacksSummary(output: string): boolean {
 }
 
 /**
+ * Lệnh kiểm chạy mà không kiểm gì (T4, vòng rà soát 5): tỷ lệ 0/0, "Ran 0 tests", "0 passed", "0 tests", "no tests ran" (hay were run,
+ * collected, found). Số 0 khớp theo ranh giới số: không có chữ số hay dấu thập phân đứng trước, nên "10/10", "Ran 10", "100 tests" không khớp.
+ */
+const RAN_NOTHING =
+  /(?<![\d.,])0\s*\/\s*0(?![\d/])|(?<![\p{L}\p{N}])ran\s+0\s+tests?(?![\p{L}\p{N}])|(?<![\d.,])0\s+(?:pass(?:ed|es)?|tests?)(?![\p{L}\p{N}])|(?<![\p{L}\p{N}])no\s+tests?\s+(?:ran|run|were\s+run|collected|found)(?![\p{L}\p{N}])/iu
+/** Số đếm bỏ qua ("120 skipped", "skipped 120", "skipped: 3"): bỏ đi rồi xem output còn số đếm nào khác không. */
+const SKIPPED_COUNT = /(?<![\p{L}\p{N}])\d[\d.,]*\s+skip(?:ped|s)?(?![\p{L}\p{N}])|(?<![\p{L}\p{N}])skip(?:ped|s)?\s*[:=]?\s*\d[\d.,]*/giu
+const SKIPPED_ANY = new RegExp(SKIPPED_COUNT.source, 'iu')
+
+/** Output của lệnh kiểm cho thấy không có phép kiểm nào chạy: số 0 ở trên, hay số đếm duy nhất là skipped (T4). */
+export function ranNothing(output: string): boolean {
+  const text = output.normalize('NFC')
+  if (RAN_NOTHING.test(text)) return true
+  if (!SKIPPED_ANY.test(text)) return false
+  return !/[1-9]/.test(text.replace(SKIPPED_COUNT, ' '))
+}
+
+/**
  * Một lệnh kiểm tra trong tool call có đạt không. Mã thoát bị che (ống, ;, || đứng sau) thì mã thoát 0 không nói gì
  * về lệnh kiểm tra: chỉ đạt khi output có dấu hiệu đạt rõ và không có dấu hiệu lỗi; không đủ thông tin thì chưa đạt.
  * Lệnh khai trong checkCommands qua tail hay head (0.7.5): có `set -o pipefail` thì mã thoát 0 và không có dấu hiệu lỗi
@@ -287,6 +305,8 @@ export function lacksSummary(output: string): boolean {
  */
 export function checkEffectPassed(effect: CheckEffect, observation: ToolObservation): boolean {
   if (!effect.trusted || observation.isError || outputFailed(observation.output)) return false
+  // Đạt mà không kiểm gì (T4) không đạt, ở mọi đường, cả khi mã thoát 0.
+  if (observation.output !== undefined && ranNothing(observation.output)) return false
   if (effect.exit === 'visible') return true
   if (effect.exit !== 'filtered') return false
   const isCustom = isCustomCheck(effect.segment) || (effect.resolved !== undefined && isCustomCheck(effect.resolved))
