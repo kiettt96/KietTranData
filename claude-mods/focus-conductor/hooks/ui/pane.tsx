@@ -4,7 +4,7 @@
 
 import type { Elements, RenderElement, RenderSurface } from 'claude-code'
 
-import type { Mode, PlanStep } from '../../types'
+import type { Mode, PlanStep, StepStatus } from '../../types'
 import { estimateLine, ledgerLines, sessionUsd } from '../lib/ledger'
 import type { View } from '../lib/state'
 import { shownPlan } from '../lib/mirror'
@@ -328,10 +328,17 @@ export function renderPane(
   const rowsOf = (text: string, cells: number) => Math.max(1, wrapText(text, cells, 99).length)
   const stepCells = width - idWidth - 3
   const stepRows = (step: PlanStep) => rowsOf(step.title, stepCells) + (step.check ? rowsOf(`${l.check}: ${step.check}`, stepCells) : 0) + (step.note ? rowsOf(step.note, stepCells) : 0)
-  const legendRows = () => {
+  // Chú giải (U7): chỉ các loại ký hiệu đang thấy, và chỉ khi các bước mở đang thấy có từ hai loại trở lên.
+  const legendOf = (steps: readonly PlanStep[]) => {
+    const kinds = new Set(steps.map(step => step.status))
+    const openKinds = new Set(steps.filter(step => progress([step]).closed === 0).map(step => step.status))
+    return openKinds.size >= 2 ? STEP_ORDER.filter(status => kinds.has(status)) : []
+  }
+  const legendRows = (items: readonly StepStatus[]) => {
+    if (items.length === 0) return 0
     let lines = 1
     let used = 0
-    for (const status of STEP_ORDER) {
+    for (const status of items) {
       const cells = 2 + cellsOf(l.legend[status])
       if (used > 0 && used + 2 + cells > width) {
         lines += 1
@@ -351,7 +358,7 @@ export function renderPane(
   // Checklist dài (vòng sửa 2 của 0.7.5): các bước đã đóng dồn thành một dòng tóm tắt; checklist ngắn giữ nguyên từng bước. Không dạng gọn
   // mà checklist trên 6 bước thì vẫn có dòng tóm tắt bước đã đóng.
   const isLong = plan.length > COLLAPSE_FROM
-  const fullRows = (isLong && closedSteps.length > 0 ? 1 : 0) + (isLong ? openSteps : plan).reduce((sum, step) => sum + stepRows(step), 0) + legendRows()
+  const fullRows = (isLong && closedSteps.length > 0 ? 1 : 0) + (isLong ? openSteps : plan).reduce((sum, step) => sum + stepRows(step), 0) + legendRows(legendOf(isLong ? openSteps : plan))
   // Dạng gọn (R10, S6): checklist dài mà dạng đầy đủ không vừa thì chỉ hiện bước đang làm (không có thì bước mở đầu tiên) và các bước mở kế tiếp.
   const isCompact = isLong && !fits(fullRows)
   const start = Math.max(0, openSteps.findIndex(step => step.status === 'doing'))
@@ -371,7 +378,7 @@ export function renderPane(
             <Text color={STEP_MARK.done.color} dimColor>
               {STEP_MARK.done.glyph}
             </Text>
-            <Text dimColor>{l.stepsClosed(closedSteps.length)}</Text>
+            <Text dimColor>{l.stepsClosed(closedSteps.length, closedSteps.filter(step => step.status === 'verified').length, closedSteps.filter(step => step.status === 'skipped').length)}</Text>
           </Box>
         ) : null}
         {listed.map(step => {
@@ -406,9 +413,9 @@ export function renderPane(
           )
         })}
         {isCompact && hiddenOpen > 0 ? <Text dimColor>{l.stepsOpenMore(hiddenOpen)}</Text> : null}
-        {isCompact ? null : (
+        {isCompact || legendOf(listed).length === 0 ? null : (
           <Box marginTop={1} flexDirection="row" flexWrap="wrap" columnGap={2}>
-            {STEP_ORDER.map(status => (
+            {legendOf(listed).map(status => (
               <Text>
                 <Text color={STEP_MARK[status].color} dimColor={STEP_MARK[status].dim}>
                   {STEP_MARK[status].glyph}
@@ -587,54 +594,51 @@ export function renderPane(
   // ------------------------------------------------------------- nhật ký
   const recentLog = log.slice(-8).reverse()
   const hasEstimate = recentLog.some(entry => entry.usd !== undefined && !entry.measured)
-  const logNode =
-    recentLog.length === 0 ? (
-      <Text dimColor>{l.noLog}</Text>
-    ) : (
-      <Box flexDirection="column">
-        {recentLog.map(entry => {
-          const hue = FAMILY_HUE[entry.family]
-          const where = entry.where === 'main' ? l.main : (entry.agentType ?? 'agent')
-          return (
-            <Box flexDirection="column">
-              <Box flexDirection="row" gap={1}>
-                <Box flexShrink={0}>
-                  <Text color={hue} dimColor={!entry.isApplied}>
-                    {entry.isApplied ? '●' : '○'}
-                  </Text>
-                </Box>
-                <Box flexGrow={1} flexShrink={1}>
-                  <Text wrap="truncate-end" dimColor={!entry.isApplied}>
-                    <Text bold>{entry.label}</Text>
-                    <Text dimColor>{` ${where}`}</Text>
-                  </Text>
-                </Box>
-                <Box flexShrink={0}>
-                  <Text color={hue} dimColor={!entry.isApplied}>
-                    {`${entry.family}${entry.effort ? ` ${entry.effort}` : ''}`}
-                  </Text>
-                </Box>
-                {entry.usd !== undefined ? (
-                  <Box flexShrink={0}>
-                    <Text dimColor>{`${entry.measured ? '' : '~'}${shownUsd(entry.usd, view.lang)}`}</Text>
-                  </Box>
-                ) : null}
-              </Box>
-              <Box paddingLeft={2}>
-                <Text dimColor wrap="wrap">
-                  {`${entry.reason}${entry.isApplied ? '' : l.skipped}`}
+  const logNode = (
+    <Box flexDirection="column">
+      {recentLog.map(entry => {
+        const hue = FAMILY_HUE[entry.family]
+        const where = entry.where === 'main' ? l.main : (entry.agentType ?? 'agent')
+        return (
+          <Box flexDirection="column">
+            <Box flexDirection="row" gap={1}>
+              <Box flexShrink={0}>
+                <Text color={hue} dimColor={!entry.isApplied}>
+                  {entry.isApplied ? '●' : '○'}
                 </Text>
               </Box>
+              <Box flexGrow={1} flexShrink={1}>
+                <Text wrap="truncate-end" dimColor={!entry.isApplied}>
+                  <Text bold>{entry.label}</Text>
+                  <Text dimColor>{` ${where}`}</Text>
+                </Text>
+              </Box>
+              <Box flexShrink={0}>
+                <Text color={hue} dimColor={!entry.isApplied}>
+                  {`${entry.family}${entry.effort ? ` ${entry.effort}` : ''}`}
+                </Text>
+              </Box>
+              {entry.usd !== undefined ? (
+                <Box flexShrink={0}>
+                  <Text dimColor>{`${entry.measured ? '' : '~'}${shownUsd(entry.usd, view.lang)}`}</Text>
+                </Box>
+              ) : null}
             </Box>
-          )
-        })}
-        {hasEstimate ? (
-          <Text dimColor wrap="wrap">
-            {l.estimatedNote}
-          </Text>
-        ) : null}
-      </Box>
-    )
+            <Box paddingLeft={2}>
+              <Text dimColor wrap="wrap">
+                {`${entry.reason}${entry.isApplied ? '' : l.skipped}`}
+              </Text>
+            </Box>
+          </Box>
+        )
+      })}
+      {hasEstimate ? (
+        <Text dimColor wrap="wrap">
+          {l.estimatedNote}
+        </Text>
+      ) : null}
+    </Box>
+  )
 
   return (
     <Box flexDirection="column" gap={1} width={width}>
@@ -663,10 +667,13 @@ export function renderPane(
         {heading(l.cost)}
         {cost}
       </Box>
-      <Box flexDirection="column">
-        {heading(l.log, String(recentLog.length))}
-        {logNode}
-      </Box>
+      {/* U7: chưa có quyết định nào thì không vẽ mục nhật ký. */}
+      {recentLog.length > 0 ? (
+        <Box flexDirection="column">
+          {heading(l.log, String(recentLog.length))}
+          {logNode}
+        </Box>
+      ) : null}
       <Box flexDirection="column">
         {heading(l.constraints)}
         {bullets(brief.constraints, l.noConstraints)}
@@ -692,9 +699,6 @@ export function renderPane(
         <Button key="band" label={view.isBandHidden ? l.showBand : l.hideBand} onPress={handlers.onToggleBand} />
         <Button key="reset" label={props.isResetArmed ? l.resetConfirm : l.reset} onPress={handlers.onReset} />
       </Box>
-      <Text dimColor wrap="wrap">
-        {l.resetScope}
-      </Text>
     </Box>
   )
 }

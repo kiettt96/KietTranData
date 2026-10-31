@@ -57,7 +57,8 @@ for (const lang of ['vi', 'en'] as const) {
       await longGoal($, on, 0)
       const { texts } = await drawn($, 40)
       const list = checklistOf(texts, lang)
-      expect(list.some(t => t.includes(labels(lang).legend.verified))).toBe(true)
+      // 0.7.6 U7: chú giải chỉ ghi các loại ký hiệu đang thấy; bước đang làm luôn có.
+      expect(list.some(t => t.includes(labels(lang).legend.doing))).toBe(true)
     })
   })
 }
@@ -91,7 +92,8 @@ describe('0.7.5 S6: ranh giới đúng của dạng gọn', () => {
   test('dạng gọn đúng khi dạng đầy đủ không vừa: so với vị trí đo được của dạng đầy đủ (pane 100 dòng), mục tiêu dài nhiều dòng', {}, async ($, on) => {
     await longGoal($, on, 0, TITLES.length, LONG_GOAL)
     // 0.7.6 U1: dạng đầy đủ vừa khi cả danh sách, tới dòng chú giải ký hiệu, nằm trong số dòng của pane.
-    const full = rowOf((await drawn($, 100)).tree, new RegExp(labels('vi').legend.verified))
+    // 0.7.6 U7: chú giải chỉ ghi các loại đang thấy, đo theo mục "đang làm".
+    const full = rowOf((await drawn($, 100)).tree, new RegExp(labels('vi').legend.doing))
     for (let rows = 14; rows <= 32; rows++) {
       const { texts } = await drawn($, rows)
       const isCompact = checklistOf(texts).some(t => /^\+\d+ bước mở$/.test(t))
@@ -106,6 +108,6 @@ describe('0.7.5 S6: ranh giới đúng của dạng gọn', () => {
     const list = checklistOf(texts)
     expect(list).toContain('7 bước đã đóng')
     expect(list.some(t => /^\+0 /.test(t))).toBe(false)
-    expect(list.some(t => t.includes(labels('vi').legend.verified))).toBe(false)
+    expect(list.some(t => t.includes(labels('vi').legend.doing))).toBe(false)
   })
 })

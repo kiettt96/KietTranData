@@ -1,5 +1,5 @@
 // Nút Đặt lại của pane hai bước: lần bấm đầu chỉ chờ xác nhận (nhãn đổi, toast, hết hạn sau 10 giây), lần bấm thứ hai trong
-// hạn mới xóa. Dòng chú thích dưới nút và câu trả lời của /conductor reset ghi đúng phạm vi bị xóa.
+// hạn mới xóa. Câu trả lời của /conductor reset ghi đúng phạm vi bị xóa; từ 0.7.6 (U7) không còn dòng chú thích dưới nút.
 
 import { describe, expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
@@ -116,20 +116,21 @@ describe('nút Đặt lại hai bước', () => {
     await ui.unmount()
   })
 
-  test('dòng chú thích dưới nút ghi phạm vi xóa và phần được giữ', {}, async ($, on) => {
+  // 0.7.6 U7: bỏ đoạn chú thích dưới nút; phạm vi xóa và phần được giữ vẫn có ở câu trả lời của /conductor reset, toast giữ nguyên.
+  test('không còn dòng chú thích phạm vi xóa dưới nút', {}, async ($, on) => {
     base(on)
     await withGoal($)
     const ui = await $.ui.mount(PANE)
-    expect(await ui.find({ type: 'Text', text: SCOPE_VI })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: SCOPE_VI })).toBeUndefined()
     await ui.unmount()
   })
 
-  test('uiLanguage en: nhãn, toast và chú thích bằng tiếng Anh', { options: { uiLanguage: 'en' } }, async ($, on) => {
+  test('uiLanguage en: nhãn và toast bằng tiếng Anh, không còn chú thích dưới nút', { options: { uiLanguage: 'en' } }, async ($, on) => {
     const seen = base(on)
     await withGoal($)
     const ui = await $.ui.mount(PANE)
     expect((await ui.find({ key: 'reset' }))?.text).toBe('Reset goal')
-    expect(await ui.find({ type: 'Text', text: /Reset clears: goal, checklist, warnings, stashed goals, cost ledger, blocked-model list/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /Reset clears: goal, checklist, warnings, stashed goals, cost ledger, blocked-model list/ })).toBeUndefined()
     await ui.press({ key: 'reset' })
     expect((await ui.find({ key: 'reset' }))?.text).toBe('Press again to clear')
     expect(seen.toasts.some(text => text.includes('Press'))).toBe(true)

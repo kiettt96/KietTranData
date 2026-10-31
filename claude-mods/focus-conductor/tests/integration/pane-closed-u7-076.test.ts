@@ -26,16 +26,19 @@ async function paneTexts($: Engine, rows = 40): Promise<string[]> {
   return texts
 }
 
-/** Checklist 8 bước: bước 1, 2 đã kiểm chứng (lệnh test đạt sau thay đổi), bước 3 bỏ qua, bước 4 xong, bước 5 đang làm. */
+/** Checklist 8 bước: bước 1, 2 đã kiểm chứng (lệnh test đạt sau thay đổi, evidence được nhận), bước 3 bỏ qua, bước 4 xong, bước 5 đang làm. */
 async function eight($: Engine, on: On) {
   base(on)
   hooks(on)
   await submit($, COMPLEX_PROMPT)
   await $.tool.call({ tool: PLAN, action: 'set', steps: STEPS.map(title => ({ title })) } as never)
   await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' } as never)
-  for (const step of [1, 2]) await $.tool.call({ tool: PLAN, action: 'update', step, status: 'done' } as never)
   await $.tool.call({ tool: 'Bash', command: 'npm test' } as never)
+  // Claude ghi verified kèm evidence được nhận: không bị hạ khi sửa tiếp (bước mod tự nâng thì bị hạ).
+  for (const step of [1, 2]) await $.tool.call({ tool: PLAN, action: 'update', step, status: 'verified', evidence: 'npm test: 12 pass' } as never)
   await $.tool.call({ tool: PLAN, action: 'update', step: 3, status: 'skipped', note: 'không còn dùng' } as never)
+  // Sửa tiếp trước khi đóng bước 4: bước đóng sau lần test đạt mà chưa sửa gì sẽ được lưu verified ngay.
+  await $.tool.call({ tool: 'Edit', file_path: 'src/b.ts', old_string: 'a', new_string: 'b' } as never)
   await $.tool.call({ tool: PLAN, action: 'update', step: 4, status: 'done' } as never)
   await $.tool.call({ tool: PLAN, action: 'update', step: 5, status: 'doing' } as never)
 }
@@ -99,7 +102,7 @@ describe('0.7.6 U7: nút Đặt lại và nhật ký điều phối', () => {
     await submit($, COMPLEX_PROMPT)
     let texts = await paneTexts($)
     expect(texts.some(t => /^Nhật ký điều phối/.test(t))).toBe(false)
-    expect(texts).not.toContain(labels('vi').noLog)
+    expect(texts).not.toContain('Chưa có quyết định nào.')
     await spawnTool($, 'u1', 'Tìm chỗ gọi charge', 'tìm')
     texts = await paneTexts($)
     expect(texts.some(t => /^Nhật ký điều phối/.test(t))).toBe(true)

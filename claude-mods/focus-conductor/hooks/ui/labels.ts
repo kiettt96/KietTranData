@@ -11,6 +11,9 @@ export function langOf(value: unknown): Lang {
   return value === 'en' ? 'en' : 'vi'
 }
 
+/** Phần trong ngoặc của dòng tóm tắt bước đã đóng (0.7.6, U7): chỉ các số khác 0, rỗng thì không có ngoặc. */
+const closedParts = (parts: string[]) => (parts.some(Boolean) ? ` (${parts.filter(Boolean).join(', ')})` : '')
+
 const VI = {
   suggest: 'đề xuất',
   mode: 'chế độ',
@@ -85,7 +88,7 @@ const VI = {
   taskBatches: (done: number, total: number, running: number) => `${done}/${total} lô xong${running > 0 ? `, ${running} đang chạy` : ''}`,
   taskElapsed: (ms: number) => (ms < 60_000 ? '<1 phút' : `${Math.floor(ms / 60_000)} phút`),
   taskMore: (k: number) => `+${k} việc`,
-  stepsClosed: (n: number) => `${n} bước đã đóng`,
+  stepsClosed: (n: number, verified = 0, skipped = 0) => `${n} bước đã đóng${closedParts([verified > 0 ? `${verified} đã kiểm chứng` : '', skipped > 0 ? `${skipped} bỏ qua` : ''])}`,
   stepsOpenMore: (n: number) => `+${n} bước mở`,
   checklist: 'Danh sách bước',
   agentChip: (done: number, total: number) => `subagent ${done}/${total} xong`,
@@ -103,7 +106,6 @@ const VI = {
   delegations: 'Việc giao subagent',
   delegationState: { pending: 'chờ giao', running: 'đang chạy', done: 'xong', failed: 'lỗi, chưa giao lại' } as Record<'pending' | 'running' | 'done' | 'failed', string>,
   log: 'Nhật ký điều phối',
-  noLog: 'Chưa có quyết định nào.',
   main: 'chính',
   estimatedNote: '~ ước tính lúc giao, chưa có số đo',
   skipped: ' (không áp dụng)',
@@ -125,7 +127,6 @@ const VI = {
   } as Record<WarningKind, string>,
   reset: 'Đặt lại mục tiêu',
   resetConfirm: 'Bấm lại để xóa',
-  resetScope: 'Đặt lại xóa: mục tiêu, checklist, cảnh báo, mục tiêu đã cất, sổ chi phí, danh sách model bị chặn. Giữ nhật ký điều phối và hệ số hiệu chỉnh đã học.',
   resetArmedToast: 'Bấm "Đặt lại mục tiêu" lần nữa trong 10 giây để xóa.',
   resetExpiredToast: 'Đã hủy yêu cầu đặt lại (quá 10 giây).',
   resetDoneToast: 'Đã đặt lại mục tiêu, checklist, cảnh báo, mục tiêu đã cất, sổ chi phí và danh sách model bị chặn.',
@@ -205,7 +206,7 @@ const EN: typeof VI = {
   taskBatches: (done, total, running) => `${done}/${total} runs done${running > 0 ? `, ${running} running` : ''}`,
   taskElapsed: ms => (ms < 60_000 ? '<1 min' : `${Math.floor(ms / 60_000)} min`),
   taskMore: k => `+${k} ${k === 1 ? 'task' : 'tasks'}`,
-  stepsClosed: n => `${n} ${n === 1 ? 'step' : 'steps'} closed`,
+  stepsClosed: (n, verified = 0, skipped = 0) => `${n} ${n === 1 ? 'step' : 'steps'} closed${closedParts([verified > 0 ? `${verified} verified` : '', skipped > 0 ? `${skipped} skipped` : ''])}`,
   stepsOpenMore: n => `+${n} open ${n === 1 ? 'step' : 'steps'}`,
   checklist: 'Checklist',
   agentChip: (done, total) => `${done}/${total} subagent done`,
@@ -223,7 +224,6 @@ const EN: typeof VI = {
   delegations: 'Delegated tasks',
   delegationState: { pending: 'not delegated yet', running: 'running', done: 'done', failed: 'failed, not re-delegated' },
   log: 'Routing log',
-  noLog: 'No decisions yet.',
   main: 'main',
   estimatedNote: '~ estimated at delegation, not measured yet',
   skipped: ' (not applied)',
@@ -245,7 +245,6 @@ const EN: typeof VI = {
   },
   reset: 'Reset goal',
   resetConfirm: 'Press again to clear',
-  resetScope: 'Reset clears: goal, checklist, warnings, stashed goals, cost ledger, blocked-model list. Keeps the routing log and learned calibration.',
   resetArmedToast: 'Press "Reset goal" again within 10 seconds to clear.',
   resetExpiredToast: 'Reset request cancelled (10 seconds passed).',
   resetDoneToast: 'Reset the goal, checklist, warnings, stashed goals, cost ledger and blocked-model list.',

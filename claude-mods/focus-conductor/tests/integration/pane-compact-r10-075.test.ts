@@ -81,7 +81,8 @@ describe('0.7.5 R10: dạng gọn khi không đủ chỗ', () => {
     const list = checklistOf(texts)
     expect(list).toContain('BƯỚC 10: kết thúc phiên')
     expect(list.some(t => /^\+\d+ bước/.test(t))).toBe(false)
-    expect(list.some(t => LEGEND.test(t))).toBe(true)
+    // 0.7.6 U7: chú giải chỉ ghi các loại ký hiệu đang thấy (đang làm, chờ).
+    expect(list).toContain(' đang làm')
   })
 
   test('checklist ngắn (6 bước): giữ từng bước và chú giải ký hiệu', {}, async ($, on) => {
@@ -90,7 +91,8 @@ describe('0.7.5 R10: dạng gọn khi không đủ chỗ', () => {
     const list = checklistOf(texts)
     expect(list).toContain('BƯỚC 0: chuẩn bị')
     expect(list.some(t => /^\+\d+ bước/.test(t))).toBe(false)
-    expect(list.some(t => LEGEND.test(t))).toBe(true)
+    // 0.7.6 U7: chú giải chỉ ghi các loại ký hiệu đang thấy (xong, đang làm, chờ).
+    expect(list).toContain(' đang làm')
   })
 
   test('dạng gọn không đổi số liệu tiến độ: dòng đếm vẫn hiện', {}, async ($, on) => {
