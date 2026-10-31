@@ -1,0 +1,31 @@
+// 0.7.6 U1: pane gộp checklist và "Tiến độ từng việc": dòng bước nào khớp một việc thì mang luôn chip model và số lô ("sonnet 0/3 · 3
+// đang chạy"); chỉ giữ dòng riêng cho việc Claude tự giao và việc của luồng chính không khớp bước nào. Mỗi bước chỉ xuất hiện một lần.
+
+import { describe, expect, test } from 'claude-code/testing'
+import { spawnTool } from '../support/engine'
+import { TITLES, drawn, longGoal, rowOf } from '../support/pane-long'
+
+describe('0.7.6 U1: checklist và tiến độ từng việc là một danh sách', () => {
+  test('mục tiêu 11 bước có mã: mỗi bước chỉ xuất hiện một lần trong pane (40 dòng)', async ($, on) => {
+    await longGoal($, on, 3)
+    const { texts } = await drawn($, 40)
+    for (const title of TITLES) expect(texts.filter(t => t.includes(title)).length, title).toBeLessThanOrEqual(1)
+  })
+
+  test('pane 24 dòng: thấy bước đang làm và số lô của nó trên cùng dòng', async ($, on) => {
+    await longGoal($, on, 3)
+    const { tree, texts } = await drawn($, 24)
+    const step = rowOf(tree, /BƯỚC 3: lọc tin lô 1/)
+    expect(step).toBeGreaterThanOrEqual(0)
+    expect(step).toBeLessThan(24)
+    expect(rowOf(tree, /^sonnet 0\/3 · 3 đang chạy$/)).toBe(step)
+    expect(texts.some(t => /^sonnet 0\/3 · 3 đang chạy$/.test(t))).toBe(true)
+  })
+
+  test('việc Claude tự giao vẫn có dòng riêng', async ($, on) => {
+    await longGoal($, on, 3)
+    await spawnTool($, 'own1', 'Kiểm tra log lỗi thanh toán', 'kiểm tra')
+    const { texts } = await drawn($, 40)
+    expect(texts.some(t => /^Claude tự giao: Kiểm tra log lỗi thanh toán/.test(t))).toBe(true)
+  })
+})
