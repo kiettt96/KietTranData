@@ -14,9 +14,10 @@ import type { View } from '../lib/state'
 import { countLabel, progress, quotaPercent } from '../lib/text'
 import type { BandQuota } from '../lib/text'
 import { attentionItems, failedBatches } from './attention'
+import { formatCost } from '../lib/ledger'
 import { labels, taskLabel } from './labels'
 import type { Run } from './style'
-import { FAMILY_HUE, SPINE, barRuns, cellsOf, columnsOf, currentStep, goalUsd, pendingUsd, plannedRuns, severityGlyph, shownUsd } from './style'
+import { FAMILY_HUE, SPINE, barRuns, cellsOf, columnsOf, currentStep, goalUsd, pendingUsd, plannedRuns, severityGlyph } from './style'
 
 /** Ô một nút của engine chiếm [Giả định: khoảng 10 ô cho nhãn ngắn, chưa đo trên surface thật]. */
 export const BUTTON_CELLS = 10
@@ -90,7 +91,7 @@ export function renderBand(
   // Bên phải dòng 1: hạn mức, chip model, thời gian đã chạy của mục tiêu (U8), chi phí (từ 96 cột), chip subagent.
   const pending = pendingUsd(log)
   const spent = goalUsd(ledger) + pending
-  const costText = isWide && spent > 0 ? `${pending > 0 ? '~' : ''}${shownUsd(spent, view.lang)}` : ''
+  const costText = isWide && spent > 0 ? `${pending > 0 ? '~' : ''}${formatCost(spent, view.lang)}` : ''
   const elapsedText = now > brief.at ? l.goalElapsed(now - brief.at) : ''
   const quotaText = quota ? (quota.paused ? (columns >= 56 ? l.quotaPaused : l.quotaPausedShort) : l.quotaLeft(quotaPercent(quota.left ?? 0))) : ''
   const rows = taskRows(view.core, now)

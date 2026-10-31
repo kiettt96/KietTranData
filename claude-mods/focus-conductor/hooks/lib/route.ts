@@ -10,6 +10,7 @@
 
 import type { Choice, Effort, Kind, Lift, ModelFamily, Route, Task, Tier, Volume } from '../../types'
 import { SAFETY, shouldDowngrade, switchCost, turnCost } from './cost'
+import { formatCost } from './ledger'
 
 export type { Choice }
 
@@ -222,9 +223,9 @@ export function decideMain(args: {
     turnCost(current.family, current.effort, volume, context, calib[current.family]) -
     turnCost(wanted.family, wanted.effort, volume, context, calib[wanted.family])
   if (saving > 0 && shouldDowngrade({ saving, rewrite, turnsLeft })) {
-    return fresh(`hạ xuống ${describePick(wanted)}: tiết kiệm khoảng $${(saving * turnsLeft).toFixed(3)}, bù được chi phí ghi lại cache`)
+    return fresh(`hạ xuống ${describePick(wanted)}: tiết kiệm khoảng ${formatCost(saving * turnsLeft, 'vi')}, bù được chi phí ghi lại cache`)
   }
-  const reason = `giữ ${describePick(current)}: hạ xuống ${describePick(wanted)} chưa đủ lợi, ghi lại cache khoảng $${rewrite.toFixed(3)}`
+  const reason = `giữ ${describePick(current)}: hạ xuống ${describePick(wanted)} chưa đủ lợi, ghi lại cache khoảng ${formatCost(rewrite, 'vi')}`
   return { route: { ...current, tier, goalId, reason }, isChanged: false, isHeld: true, wanted, reason }
 }
 

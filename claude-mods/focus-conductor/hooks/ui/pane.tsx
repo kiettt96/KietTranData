@@ -5,7 +5,7 @@
 import type { Elements, RenderElement, RenderSurface } from 'claude-code'
 
 import type { Mode, PlanStep, StepStatus } from '../../types'
-import { estimateLine, ledgerLines, sessionUsd } from '../lib/ledger'
+import { estimateLine, formatCost, ledgerLines, sessionUsd } from '../lib/ledger'
 import type { View } from '../lib/state'
 import { shownPlan } from '../lib/mirror'
 import { runningGroups, stepTaskRows, taskRows } from '../lib/progress'
@@ -29,7 +29,6 @@ import {
   severityGlyph,
   taskBarRuns,
   severityOf,
-  shownUsd,
   wrapText,
 } from './style'
 
@@ -568,7 +567,7 @@ export function renderPane(
   }
   const costHead = `${padEnd('', labelWidth)}${hasBars ? ' '.repeat(BAR + 1) : ''} ${padStart(l.costGoal, moneyWidth)} ${padStart(l.costSession, moneyWidth)} ${padStart(l.costCalls, callWidth)}`
   const totalCalls = groups.reduce((sum, g) => sum + ledger.session[g.key].calls, 0)
-  const extraLines = [...ledgerLines(ledger).slice(2), ...(estimateLine(log) ? [estimateLine(log) as string] : [])]
+  const extraLines = [...ledgerLines(ledger, view.lang).slice(2), ...(estimateLine(log, view.lang) ? [estimateLine(log, view.lang) as string] : [])]
   const cost = (
     <Box flexDirection="column">
       <Text dimColor wrap="truncate-end">
@@ -579,12 +578,12 @@ export function renderPane(
           {padEnd(g.label, labelWidth)}
           {hasBars ? <Text> </Text> : ''}
           {hasBars ? barOf(ledger.goal.buckets[g.key].usd) : ''}
-          {` ${padStart(shownUsd(ledger.goal.buckets[g.key].usd, view.lang), moneyWidth)}`}
-          <Text dimColor>{` ${padStart(shownUsd(ledger.session[g.key].usd, view.lang), moneyWidth)} ${padStart(String(ledger.session[g.key].calls), callWidth)}`}</Text>
+          {` ${padStart(formatCost(ledger.goal.buckets[g.key].usd, view.lang), moneyWidth)}`}
+          <Text dimColor>{` ${padStart(formatCost(ledger.session[g.key].usd, view.lang), moneyWidth)} ${padStart(String(ledger.session[g.key].calls), callWidth)}`}</Text>
         </Text>
       ))}
       <Text bold wrap="truncate-end">
-        {`${padEnd(l.total, labelWidth)}${hasBars ? ' '.repeat(BAR + 1) : ''} ${padStart(shownUsd(goalUsd(ledger), view.lang), moneyWidth)} ${padStart(shownUsd(sessionUsd(ledger), view.lang), moneyWidth)} ${padStart(String(totalCalls), callWidth)}`}
+        {`${padEnd(l.total, labelWidth)}${hasBars ? ' '.repeat(BAR + 1) : ''} ${padStart(formatCost(goalUsd(ledger), view.lang), moneyWidth)} ${padStart(formatCost(sessionUsd(ledger), view.lang), moneyWidth)} ${padStart(String(totalCalls), callWidth)}`}
       </Text>
       {ledger.goal.spawned > 0 ? (
         <Text dimColor wrap="wrap">
@@ -628,7 +627,7 @@ export function renderPane(
               </Box>
               {entry.usd !== undefined ? (
                 <Box flexShrink={0}>
-                  <Text dimColor>{`${entry.measured ? '' : '~'}${shownUsd(entry.usd, view.lang)}`}</Text>
+                  <Text dimColor>{`${entry.measured ? '' : '~'}${formatCost(entry.usd, view.lang)}`}</Text>
                 </Box>
               ) : null}
             </Box>

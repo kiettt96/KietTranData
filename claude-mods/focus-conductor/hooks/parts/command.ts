@@ -6,7 +6,7 @@ import { buildCheckpoint, forceUntil, pruneKeys, storeKey } from '../lib/checkpo
 import { EMPTY_QUOTA, evaluateQuota, newPause, normalizeQuota, quotaSettings, reasonsOf } from '../lib/quota'
 import { restorableSteps } from '../lib/drift'
 import { cacheNote, priceNote } from '../lib/cost'
-import { estimateLine, formatUsd, ledgerLines } from '../lib/ledger'
+import { estimateLine, formatCost, ledgerLines } from '../lib/ledger'
 import { describePick } from '../lib/route'
 import { clipText } from '../lib/decisions'
 import { askRouter, bareBrief, briefOf, failFields, nextBrief, parseRoute, rerouted, routerFailOf, routerRequest } from '../lib/router'
@@ -321,12 +321,12 @@ export function registerCommand(on: On, ctx: Ctx): void {
     }
 
     if (sub === 'status') {
-      const { core, mode: current } = await read($, view)
+      const { core, mode: current, lang } = await read($, view)
       const usage = await $.session.usage().catch(() => null)
-      const costLines = ledgerLines(core.ledger)
+      const costLines = ledgerLines(core.ledger, lang)
       if (core.sysTokens > 0) costLines.push(`Phần cố định của ngữ cảnh (system prompt, tools): ${Math.round(core.sysTokens / 1000)}k token, đo ở đầu phiên`)
-      if (usage?.cost) costLines.push(`Chi phí cả phiên theo Claude Code (gồm cả phần trước khi mod bắt đầu ghi sổ): ${formatUsd(usage.cost.usd)}`)
-      const estimate = estimateLine(core.log)
+      if (usage?.cost) costLines.push(`Chi phí cả phiên theo Claude Code (gồm cả phần trước khi mod bắt đầu ghi sổ): ${formatCost(usage.cost.usd, lang)}`)
+      const estimate = estimateLine(core.log, lang)
       if (estimate) costLines.push(estimate)
       costLines.push(priceNote(await $.clock.now()))
       costLines.push(cacheNote(ctx.cacheTtlMs / 60_000))
@@ -357,7 +357,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
         .filter(entry => entry.where === 'agent')
         .slice(-5)
         .map(entry => {
-          const cost = entry.usd !== undefined ? ` ${formatUsd(entry.usd)}${entry.measured ? '' : ' ước tính'}` : ''
+          const cost = entry.usd !== undefined ? ` ${formatCost(entry.usd, lang)}${entry.measured ? '' : lang === 'en' ? ' estimated' : ' ước tính'}` : ''
           return `  ${entry.label}: ${entry.family}${entry.effort ? `/${entry.effort}` : ''}${cost} (${entry.reason})`
         })
       const untracked = untrackedAgents()

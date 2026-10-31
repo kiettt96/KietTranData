@@ -11,15 +11,15 @@ describe('chi phí luồng chính', () => {
     await submit($, 'sửa typo trong README')
     await $.turn.complete({ turnId: 't1', answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer', usage: { ...BIG_USAGE, model: 'claude-sonnet-5-5' } } as never)
     const status = String((await conductor($, 'status')).text)
-    expect(status).toContain('luồng chính $0.700 trong 1 lượt')
-    expect(status).toContain('subagent $0.0000 trong 0 lượt')
+    expect(status).toContain('luồng chính $0,70 trong 1 lượt')
+    expect(status).toContain('subagent $0,00 trong 0 lượt')
   })
 
   test('turn chưa có mục tiêu vẫn được cộng vào sổ', {}, async ($, on) => {
     base(on)
     on('turn.complete', () => ({ text: '' }))
     await $.turn.complete({ turnId: 't0', answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer', usage: { ...BIG_USAGE, model: 'claude-sonnet-5-5' } } as never)
-    expect(String((await conductor($, 'status')).text)).toContain('luồng chính $0.700 trong 1 lượt')
+    expect(String((await conductor($, 'status')).text)).toContain('luồng chính $0,70 trong 1 lượt')
   })
 
   test('chế độ suggest không áp route nên không hiệu chỉnh ước lượng', { options: { routing: 'suggest' } }, async ($, on) => {
