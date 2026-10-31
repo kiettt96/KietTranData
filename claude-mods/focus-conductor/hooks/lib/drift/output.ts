@@ -192,11 +192,19 @@ const FAILURE_WORDS =
 const ZERO = `0(?:[.,]0+)?(?![.,]?\\d)${EDGE_END}`
 /** Số lỗi bằng 0 ("0 lỗi", "FAIL: 0", "Thiếu: 0") không phải dấu hiệu lỗi: bỏ trước khi tìm dấu hiệu lỗi. */
 const ZERO_FAILURES = new RegExp(`${EDGE_START}${ZERO}\\s*(?:${FAILURE_WORDS})${EDGE_END}|${EDGE_START}(?:${FAILURE_WORDS})\\s*[:=]\\s*${ZERO}`, 'giu')
-/** Đơn vị đếm dữ liệu (T9): dòng, bản ghi, rows, records. */
-const DATA_UNIT = '(?:dòng|bản\\s+ghi|rows?|records?)'
+/** Đơn vị đếm dữ liệu (T9): dòng, bản ghi, rows, records; thêm kết quả, results ở 0.7.6 V1 ("0 kết quả" là dữ liệu rỗng). */
+const DATA_UNIT = '(?:dòng|bản\\s+ghi|kết\\s+quả|rows?|records?|results?)'
 /** Số lỗi bằng 0 có đơn vị (T9): "Lỗi: 0 dòng", "Thiếu 0 dòng", "0 dòng lệch" không phải dấu hiệu lỗi, cũng không phải dữ liệu rỗng. */
 const ZERO_UNIT_FAILURES = new RegExp(
   `${EDGE_START}(?:${FAILURE_WORDS})\\s*[:=]?\\s*${ZERO}\\s+${DATA_UNIT}${EDGE_END}|${EDGE_START}${ZERO}\\s+${DATA_UNIT}\\s+(?:${FAILURE_WORDS})${EDGE_END}`,
+  'giu',
+)
+/**
+ * Số dòng trống hay rỗng bằng 0 (0.7.6 V1): "0 dòng trống", "(0 dòng rỗng)", "trống ở 0 dòng" là số lỗi bằng 0 như "0 lỗi", không phải dữ
+ * liệu rỗng.
+ */
+const ZERO_EMPTY = new RegExp(
+  `${EDGE_START}${ZERO}\\s+${DATA_UNIT}\\s+(?:trống|rỗng|empty|blank)${EDGE_END}|${EDGE_START}(?:trống|rỗng|empty|blank)\\s+(?:ở|in|on)\\s+${ZERO}\\s+${DATA_UNIT}${EDGE_END}`,
   'giu',
 )
 /** Từ chỉ số lỗi theo sau là ":" hay "=" và phần còn lại của dòng: mọi số trong vế đó phải là 0 ("Thiếu: 0 cũ, 12 mới" là lỗi). */
@@ -218,7 +226,7 @@ const RATIO_WORDS = new RegExp(`${EDGE_START}(\\d+)\\s+(?:trên|of|out\\s+of)\\s
  * phải lỗi; bỏ trước khi tìm dấu hiệu lỗi.
  */
 const NEGATED_FAILURE = new RegExp(
-  `${EDGE_START}(?:không|chẳng|no|without|zero)\\s+(?:có\\s+|thấy\\s+|phát\\s+hiện\\s+|tìm\\s+thấy\\s+)?(?:(?:dòng|bản\\s+ghi|mã|bất\\s+kỳ|any)\\s+)*(?:${FAILURE_WORDS}|not\\s+match(?:es|ed)?|khác\\s+biệt|không\\s+đúng)${EDGE_END}`,
+  `${EDGE_START}(?:không|chẳng|no|without|zero)\\s+(?:có\\s+|thấy\\s+|phát\\s+hiện\\s+|tìm\\s+thấy\\s+)?(?:(?:dòng|bản\\s+ghi|kết\\s+quả|mã|bất\\s+kỳ|any)\\s+)*(?:nào\\s+)?(?:bị\\s+)?(?:${FAILURE_WORDS}|not\\s+match(?:es|ed)?|khác\\s+biệt|không\\s+đúng)${EDGE_END}`,
   'giu',
 )
 
@@ -335,6 +343,14 @@ const EMPTY_WHOLE = [
   /(?<![\p{L}\p{N}])(?:dữ[ \t]+liệu|kết[ \t]+quả|results?|output|dataset)[ \t]+(?:is[ \t]+)?(rỗng|trống|empty)(?![\p{L}\p{N}])/giu,
   /(?<![\p{L}\p{N}])(?:no[ \t]+data|empty[ \t]+(?:results?|output|table|dataset))(?![\p{L}\p{N}])/giu,
 ]
+/**
+ * Không có bản ghi hay kết quả nào (0.7.6 V1): dữ liệu rỗng, trừ khi theo sau là từ chỉ lỗi ("Không có bản ghi nào bị thiếu" là số lỗi
+ * bằng 0).
+ */
+const NO_ROWS = new RegExp(
+  `${EDGE_START}không\\s+có\\s+(?:bản\\s+ghi|kết\\s+quả)\\s+nào${EDGE_END}(?![ \\t]+(?:bị[ \\t]+)?(?:${FAILURE_WORDS})${EDGE_END})`,
+  'iu',
+)
 /** Phủ định hay số 0 trong 3 từ đứng trước dấu hiệu rỗng ("không có ô trống", "0 empty"): không phải dữ liệu rỗng (T9). */
 const EMPTY_NEGATED = /(?:^|[^\p{L}\p{N}])(?:không|no|0)(?![\p{L}\p{N}])/iu
 
@@ -365,7 +381,8 @@ const SKIPPED_ANY = new RegExp(SKIPPED_COUNT.source, 'iu')
 export function ranNothing(output: string): boolean {
   const text = output.normalize('NFC')
   if (RAN_NOTHING.test(text)) return true
-  if (ZERO_DATA.test(text.replace(ZERO_UNIT_FAILURES, ' '))) return true
+  if (ZERO_DATA.test(text.replace(ZERO_UNIT_FAILURES, ' ').replace(ZERO_EMPTY, ' '))) return true
+  if (NO_ROWS.test(text)) return true
   if (text.split('\n').some(isWholeEmpty)) return true
   if (!SKIPPED_ANY.test(text)) return false
   return !/[1-9]/.test(text.replace(SKIPPED_COUNT, ' '))
