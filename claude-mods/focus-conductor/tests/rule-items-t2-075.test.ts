@@ -24,6 +24,12 @@ describe('0.7.5 T2: vế ghi đè ở mục ràng buộc riêng', () => {
     expect(ruleFamily(rules, 'BƯỚC 4: lọc tin lô 1', null)).toBe('sonnet')
   })
 
+  test('mã ngắn: ["Lọc tin dùng sonnet", "Riêng K4 dùng opus"] thì "K4: lọc tin lô 1" không chốt sonnet', () => {
+    const rules = ['Lọc tin dùng sonnet', 'Riêng K4 dùng opus']
+    expect(ruleFamily(rules, 'K4: lọc tin lô 1', null)).not.toBe('sonnet')
+    expect(ruleFamily(rules, 'K5: lọc tin lô 1', null)).toBe('sonnet')
+  })
+
   test('vế ghi đè cho loại việc khác không bỏ chốt: ["Lọc tin dùng sonnet", "Riêng tóm tắt dùng opus"]', () => {
     expect(ruleFamily(['Lọc tin dùng sonnet', 'Riêng tóm tắt dùng opus'], 'Lọc tin tóm tắt lô 1', null)).toBe('sonnet')
   })

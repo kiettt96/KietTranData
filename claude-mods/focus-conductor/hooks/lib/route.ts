@@ -391,6 +391,9 @@ function kindsOf(part: string): string[][] {
     .filter(words => words.join(' ').length >= 3)
 }
 
+/** Một ràng buộc đã tách: các cặp, từ khóa của các vế ghi đè và của các vế ngoại lệ ("trừ ..."). */
+type ParsedRule = { clauses: Clause[]; overrides: string[][]; exceptions: string[][] }
+
 /** Một cặp "loại việc, model" của ràng buộc (R6). */
 type Clause = {
   /** Đoạn chữ của cặp, từ sau nhau cắt trước đó đến chỗ nêu model. */
@@ -427,8 +430,10 @@ function exceptionWords(text: string): string[] {
  * cắt; vế không nêu model ("đọc" trong "đọc, giải thích dùng model của phiên") dùng model của cặp kế tiếp. Vế phủ định bị bỏ. Vế có
  * dấu hiệu ngoại lệ chỉ lấy cặp ở phần không phải ngoại lệ và ghi từ khóa của ngoại lệ vào mỗi cặp.
  */
-function ruleClauses(rule: string): Clause[] {
+function parseRule(rule: string): ParsedRule {
   const clauses: Clause[] = []
+  const overrides: string[][] = []
+  const exceptions: string[][] = []
   for (const raw of rule.normalize('NFC').split(/[;；\n]|\.(?=\s|$)/u)) {
     let segment = raw
     let phrase: string[] = []
@@ -439,6 +444,7 @@ function ruleClauses(rule: string): Clause[] {
       const after = segment.slice(marker.index + marker[0].length)
       const comma = after.search(/[,，]/)
       phrase = exceptionWords(comma < 0 ? after : after.slice(0, comma))
+      if (phrase.length > 0) exceptions.push(phrase)
       segment = comma < 0 ? before : `${before},${after.slice(comma + 1)}`
     }
     const first = clauses.length
@@ -450,7 +456,10 @@ function ruleClauses(rule: string): Clause[] {
       if (override !== null) {
         const rest = part.slice(override[0].length)
         const words = exceptionWords(override[1] ?? rest)
-        if (words.length > 0) for (const clause of clauses) clause.excepts.push(words)
+        if (words.length > 0) {
+          for (const clause of clauses) clause.excepts.push(words)
+          overrides.push(words)
+        }
         part = rest
       }
       let last = 0
@@ -486,7 +495,39 @@ function ruleClauses(rule: string): Clause[] {
     }
     if (phrase.length > 0) for (const clause of clauses.slice(first)) clause.excepts.push(phrase)
   }
-  return clauses
+  return { clauses, overrides, exceptions }
+}
+
+function ruleClauses(rule: string): Clause[] {
+  return parseRule(rule).clauses
+}
+
+/** Ràng buộc có nêu model (họ model hay "mô hình của phiên"). */
+const MENTIONS_MODEL = new RegExp(`(?<![\\p{L}\\p{N}])${MODEL_MENTION}(?![\\p{L}\\p{N}])`, 'iu')
+/** Mã bước hay mã ngắn trong từ khóa ("buoc 3", "k4"): ngoại lệ theo mã áp cho mọi loại việc. */
+function hasCode(words: readonly string[]): boolean {
+  return words.some((word, i) => /^[a-z]{1,3}\d+$/.test(word) || (['buoc', 'step', 'viec', 'task'].includes(word) && /^\d+$/.test(words[i + 1] ?? '')))
+}
+
+/**
+ * Cặp của mọi ràng buộc, kèm ngoại lệ giữa các mục (T2, vòng rà soát 5): vế ghi đè ở một mục có nêu model áp cho cặp của các mục khác
+ * có cùng loại việc (chung một từ, hay từ khóa là mã bước); mục "Trừ ..." không nêu model áp cho cặp của mục ngay trước nó.
+ */
+function ruleSet(constraints: readonly string[]): Clause[] {
+  const parsed = constraints.map(parseRule)
+  parsed.forEach((rule, i) => {
+    if (MENTIONS_MODEL.test(constraints[i] ?? '')) {
+      for (const words of rule.overrides) {
+        parsed.forEach((other, k) => {
+          if (k === i) return
+          for (const clause of other.clauses) if (hasCode(words) || clause.kinds.some(kind => kind.some(word => words.includes(word)))) clause.excepts.push(words)
+        })
+      }
+    } else if (i > 0) {
+      for (const words of rule.exceptions) for (const clause of parsed[i - 1]?.clauses ?? []) clause.excepts.push(words)
+    }
+  })
+  return parsed.flatMap(rule => rule.clauses)
 }
 
 /**
@@ -502,13 +543,11 @@ export function ruleFamily(constraints: readonly string[], description: string, 
   const startsWith = (kind: string[]) => kind.length > 0 && kind.every((word, i) => asked[i] === word)
   const isExcepted = (words: string[]) =>
     words.every(word => asked.includes(word)) || full.some((_, at) => words.every((word, i) => full[at + i] === word))
-  for (const rule of constraints) {
-    for (const clause of ruleClauses(rule)) {
-      const family = clause.family === 'session' ? session : clause.family
-      if (family === null || !clause.kinds.some(startsWith)) continue
-      if (clause.excepts.some(isExcepted)) continue
-      return family
-    }
+  for (const clause of ruleSet(constraints)) {
+    const family = clause.family === 'session' ? session : clause.family
+    if (family === null || !clause.kinds.some(startsWith)) continue
+    if (clause.excepts.some(isExcepted)) continue
+    return family
   }
   return null
 }
