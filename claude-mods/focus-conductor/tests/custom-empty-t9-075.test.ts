@@ -29,6 +29,10 @@ const EMPTY = [
   'Bảng K4 trống\nĐẠT',
   'ĐẠT (10/0)',
   'ĐẠT (00/00)',
+  // Thêm ở commit sửa để ghim mẫu đột biến: kết quả rỗng, không có dữ liệu đầu dòng, no data.
+  'Kết quả rỗng\nĐẠT',
+  'Không có dữ liệu\nĐẠT',
+  'No data\nOK',
 ]
 const PASSES = [
   'Lỗi: 0 dòng\nĐẠT',
@@ -40,12 +44,16 @@ const PASSES = [
   '0 ô trống\nOK',
   'Số ô trống: 0\nĐẠT',
   'Checked 120 rows, 0 empty\nOK',
+  // Thêm ở commit sửa: phủ định trước chữ rỗng, kể cả trong tên bảng, và ": 0" ngay sau.
+  'Không có kết quả rỗng\nOK',
+  'Bảng K4 không trống\nOK',
+  'Dữ liệu rỗng: 0\nOK',
 ]
 const FALSE_NEGATIVES = ['0 skipped, 120 passed', 'Lỗi: 0 | Thiếu: 0 | Lệch: 0\nPASS']
 
 describe('0.7.5 T9: dữ liệu rỗng không đạt', () => {
   for (const [name, run] of Object.entries(PATHS)) {
-    test(`${name}: bảy đầu ra rỗng đều không đạt`, () => {
+    test(`${name}: mọi đầu ra rỗng đều không đạt`, () => {
       declared(() => {
         for (const output of EMPTY) expect(run(output), output).toBe(false)
       })
@@ -55,12 +63,21 @@ describe('0.7.5 T9: dữ liệu rỗng không đạt', () => {
 
 describe('0.7.5 T9: số lỗi bằng 0, phủ định và tỷ lệ đủ vẫn đạt', () => {
   for (const [name, run] of Object.entries(PATHS)) {
-    test(`${name}: chín đầu ra đạt`, () => {
+    test(`${name}: các đầu ra đạt`, () => {
       declared(() => {
         for (const output of PASSES) expect(run(output), output).toBe(true)
       })
     })
   }
+})
+
+describe('0.7.5 T9: dòng đếm kiểu trình chạy cần có mục passed', () => {
+  test('qua ống không pipefail: "2 xfailed, 3 skipped" không phải dòng tổng kết đạt', () => {
+    declared(() => {
+      expect(piped('2 xfailed, 3 skipped')).toBe(false)
+      expect(piped('120 passed, 3 skipped in 2.1s')).toBe(true)
+    })
+  })
 })
 
 describe('0.7.5 T9: hai âm tính giả', () => {
