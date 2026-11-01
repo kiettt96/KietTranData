@@ -86,9 +86,12 @@ describe('0.6.1 2.5: band và pane trên các surface', () => {
     for (const surface of PANE_SURFACES) {
       const texts = await paneTexts($, surface)
       expect(has(texts, /^Tiến độ từng việc \d+ ─/), `pane ${surface} tiêu đề`).toBe(true)
-      expect(has(texts, /^Việc chính: /), `pane ${surface} việc chính`).toBe(true)
+      // 0.7.6 U1: luồng chính chính là danh sách bước nên không còn dòng "Việc chính"; việc 3 khớp bước "Việc 3: ..." nên đi cùng
+      // dòng bước đó (chip "opus xhigh"), không có dòng riêng.
+      expect(has(texts, /^Việc chính: /), `pane ${surface} việc chính`).toBe(false)
       expect(has(texts, /^Việc 1: /), `pane ${surface} việc 1`).toBe(true)
-      expect(has(texts, /^Việc 3: Thiết kế/), `pane ${surface} việc 3`).toBe(true)
+      expect(has(texts, /^Việc 3: Thiết kế/), `pane ${surface} việc 3`).toBe(false)
+      expect(has(texts, /^opus xhigh$/), `pane ${surface} chip việc 3`).toBe(true)
       expect(has(texts, /^Claude tự giao: Kiểm tra log/), `pane ${surface} tự giao`).toBe(true)
       expect(has(texts, 'xong'), `pane ${surface} xong`).toBe(true)
       expect(has(texts, 'chờ giao'), `pane ${surface} chờ giao`).toBe(true)

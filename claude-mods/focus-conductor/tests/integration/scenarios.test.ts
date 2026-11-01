@@ -133,7 +133,7 @@ describe('rà soát trước merge (0.4.0)', () => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     // 1.000 token vào và 500 token ra ở giá sonnet ($2 và $10 mỗi 1M) = $0.007.
-    expect(String((await conductor($, 'status')).text)).toContain('Mục tiêu này, đo được: $0.0070')
+    expect(String((await conductor($, 'status')).text)).toContain('Mục tiêu này, đo được: <$0,01,')
   })
 })
 

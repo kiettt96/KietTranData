@@ -35,7 +35,7 @@ describe('router đọc prompt', () => {
     await submit($, COMPLEX_PROMPT)
     expect(seen.routerModels).toEqual(['opus'])
     // 1.000 token vào và 500 token ra ở giá opus ($4/$20 mỗi 1M) = $0.014.
-    expect(String((await conductor($, 'status')).text)).toContain('router $0.014 trong 1 lượt')
+    expect(String((await conductor($, 'status')).text)).toContain('router $0,01 trong 1 lượt')
   })
 
   test('Phân việc: việc giao kèm loại agent, model, effort; việc làm trực tiếp ghi model luồng chính', {}, async ($, on) => {
@@ -378,7 +378,7 @@ describe('0.5.0: hỏi lại router và bộ đếm lỗi riêng', () => {
     expect(seen.routed.length).toBe(2)
     expect(seen.contexts[0]?.join('\n')).toContain('Mục tiêu cuối: Refactor module thanh toán')
     // Hai lượt router, mỗi lượt $0.007 ở giá sonnet.
-    expect(String((await conductor($, 'status')).text)).toContain('Mục tiêu này, đo được: $0.014,')
+    expect(String((await conductor($, 'status')).text)).toContain('Mục tiêu này, đo được: $0,01,')
     expect(JSON.parse(writes[writes.length - 1]?.trim() ?? '{}')).toMatchObject({ kind: 'route', retried: true })
   })
 

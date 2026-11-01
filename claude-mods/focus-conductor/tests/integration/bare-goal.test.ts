@@ -147,10 +147,12 @@ describe('0.7.2 2: nâng cấp khi router đọc được', () => {
     await submit($, 'Làm tiếp phần còn lại')
     const pane = await $.ui.mount(PANE)
     expect(await pane.find({ type: 'Text', text: /router chưa đọc/ })).toBeUndefined()
+    // 0.7.6: mục tiêu đầy đủ nằm ở pane; band ghi bước hiện tại ở dòng 1.
+    expect(await pane.find({ type: 'Text', text: /Refactor thanh toán sang sự kiện/ })).toBeDefined()
     await pane.unmount()
     expect(String((await $.tool.call({ tool: PLAN, action: 'show' })).result)).toContain('1. Sửa')
     const band = await mountBand($)
-    expect(await band.find({ type: 'Text', text: /Refactor thanh toán sang sự kiện/ })).toBeDefined()
+    expect(await band.find({ type: 'Text', text: /^Sửa$/ })).toBeDefined()
     await band.unmount()
   })
 

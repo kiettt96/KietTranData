@@ -56,7 +56,8 @@ describe('0.7.5 L6: dòng pane của việc có mã và nhiều lô', () => {
     const texts = await paneTexts($)
     expect(texts).toContain('BƯỚC 4: lọc tin')
     expect(texts.some(t => t.startsWith('Việc 1: BƯỚC'))).toBe(false)
-    expect(texts).toContain('0/3 lô xong, 3 đang chạy')
+    // Từ 0.7.6 (U1) số lô nằm trên dòng bước, dạng chip "sonnet 0/3 · 3 đang chạy"; vẫn không có chữ trạng thái "đang chạy" đứng riêng.
+    expect(texts).toContain('sonnet 0/3 · 3 đang chạy')
     expect(texts).not.toContain('đang chạy')
   })
 
@@ -66,7 +67,8 @@ describe('0.7.5 L6: dòng pane của việc có mã và nhiều lô', () => {
     await submit($, 'Cập nhật dữ liệu theo các bước')
     await spawnTool($, 'u1', 'Việc 1: chuẩn hóa', 'x')
     const texts = await paneTexts($)
-    expect(texts).toContain('Việc 1: Chuẩn hóa đơn vị tính')
-    expect(texts).toContain('đang chạy')
+    // Từ 0.7.6 (U1) việc khớp bước dự kiến nằm trên dòng bước đó: tiêu đề bước, chip "sonnet đang chạy" ghi chữ trạng thái.
+    expect(texts).toContain('Chuẩn hóa đơn vị tính')
+    expect(texts).toContain('sonnet đang chạy')
   })
 })

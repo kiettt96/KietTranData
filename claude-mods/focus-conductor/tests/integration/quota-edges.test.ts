@@ -413,7 +413,8 @@ describe('0.6.0 F: band', () => {
     await seen.clock.advance(10_000)
     await $.tool.call(EDIT)
     ui = await band($)
-    expect((await ui.find({ type: 'Text', text: /tạm dừng: hạn mức/ }))?.props.bold).toBe(true)
+    // 0.7.6 U3: dòng tạm dừng của band (đậm) thay cho chip.
+    expect((await ui.find({ type: 'Text', text: /^\u23F8 Tạm dừng: / }))?.props.bold).toBe(true)
     await ui.unmount()
   })
 
@@ -426,7 +427,7 @@ describe('0.6.0 F: band', () => {
     await $.session.start({ cwd: '/repo', surface: null, isInteractive: true })
     await conductor($, 'pause')
     const ui = await band($)
-    expect(await ui.find({ type: 'Text', text: /tạm dừng: hạn mức/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^\u23F8 Tạm dừng: / })).toBeDefined()
     await ui.unmount()
   })
 
@@ -442,7 +443,7 @@ describe('0.6.0 F: band', () => {
     await $.tool.call(EDIT)
     await $.session.measure({ context: { tokens: 1, window: 200_000 }, rateLimits: [session(10)], changed: ['rateLimits'] } as never)
     const ui = await band($)
-    expect(await ui.find({ type: 'Text', text: /tạm dừng: hạn mức/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^\u23F8 Tạm dừng: / })).toBeDefined()
     await ui.unmount()
   })
 })

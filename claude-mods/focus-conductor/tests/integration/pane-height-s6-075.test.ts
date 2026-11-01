@@ -4,7 +4,7 @@
 
 import { describe, expect, test } from 'claude-code/testing'
 import { labels } from '../../hooks/ui/labels'
-import { TITLES, HEADINGS, checklistOf, drawn, longGoal, rowOf } from '../support/pane-long'
+import { TITLES, checklistOf, drawn, longGoal, rowOf, stepRow } from '../support/pane-long'
 import { base, plan, task, submit } from '../support/engine'
 
 /** Nhãn "+m bước mở" (S6); đọc qua kiểu rộng để tệp nạp được trước khi nhãn có. */
@@ -16,12 +16,13 @@ for (const lang of ['vi', 'en'] as const) {
   describe(`0.7.5 S6 (${lang}): dạng gọn theo số dòng của pane`, () => {
     for (const rows of [16, 30, 40]) {
       for (const closed of [0, 6, 10]) {
-        test(`${rows} dòng, 11 bước, ${closed} bước đóng: tiêu đề tiến độ từng việc và dòng việc đầu nằm trong ${rows} dòng`, opts, async ($, on) => {
+        // 0.7.6 U1: một danh sách; bước đang làm (mang số lô của việc) nằm trong số dòng của pane.
+        test(`${rows} dòng, 11 bước, ${closed} bước đóng: bước đang làm nằm trong ${rows} dòng`, opts, async ($, on) => {
           await longGoal($, on, closed)
           const { tree, texts } = await drawn($, rows)
-          const section = rowOf(tree, HEADINGS[lang].tasks)
+          const section = stepRow(tree, closed)
           expect(section).toBeGreaterThanOrEqual(0)
-          expect(section + 1).toBeLessThan(rows)
+          expect(section).toBeLessThan(rows)
           const list = checklistOf(texts, lang)
           const isCompact = list.some(t => OPEN_MORE[lang].test(t))
           if (rows >= 30) {
@@ -32,9 +33,11 @@ for (const lang of ['vi', 'en'] as const) {
       }
     }
 
-    test('16 dòng, 6 bước đóng: dạng gọn có dòng "6 bước đã đóng" và "+1 bước mở" riêng, không còn "+7 bước"', opts, async ($, on) => {
+    // 0.7.6 U1: không còn chừa chỗ cho mục tiến độ riêng nên pane 16 dòng đủ cho dạng đầy đủ ở 6 bước đóng; dạng gọn đo ở 12 dòng.
+    // 0.7.6 U6: phần đầu pane ngắn hơn hai dòng nên ranh giới dạng gọn đo ở 10 dòng thay 12.
+    test('10 dòng, 6 bước đóng: dạng gọn có dòng "6 bước đã đóng" và "+1 bước mở" riêng, không còn "+7 bước"', opts, async ($, on) => {
       await longGoal($, on, 6)
-      const { texts } = await drawn($, 16)
+      const { texts } = await drawn($, 10)
       const list = checklistOf(texts, lang)
       const l = labels(lang)
       expect(list).toContain(l.stepsClosed(6))
@@ -54,7 +57,8 @@ for (const lang of ['vi', 'en'] as const) {
       await longGoal($, on, 0)
       const { texts } = await drawn($, 40)
       const list = checklistOf(texts, lang)
-      expect(list.some(t => t.includes(labels(lang).legend.verified))).toBe(true)
+      // 0.7.6 U7: chú giải chỉ ghi các loại ký hiệu đang thấy; bước đang làm luôn có.
+      expect(list.some(t => t.includes(labels(lang).legend.doing))).toBe(true)
     })
   })
 }
@@ -62,12 +66,16 @@ for (const lang of ['vi', 'en'] as const) {
 describe('0.7.5 S6: bước dự kiến của router trước khi có checklist', () => {
   const router = () => plan({ goal: 'Cập nhật sổ giá theo các bước', depth: 'hard', volume: 'large', tasks: TITLES.map((title, k) => (k === 3 ? task(title, 'agent', 'sonnet', 'medium') : task(title, 'main', 'opus', 'high'))) })
 
-  test('16 dòng: 11 bước dự kiến dùng dạng gọn, tiêu đề tiến độ từng việc nằm trong 16 dòng', {}, async ($, on) => {
+  // 0.7.6 U6: phần đầu pane ngắn hơn hai dòng, 11 bước dự kiến vừa 16 dòng; dạng gọn đo ở 14 dòng.
+  test('14 dòng: 11 bước dự kiến dùng dạng gọn, bước dự kiến đầu nằm trong 14 dòng', {}, async ($, on) => {
     base(on, { router })
     await submit($, 'Cập nhật sổ giá theo các bước')
-    const { tree, texts } = await drawn($, 16)
-    expect(rowOf(tree, /^Tiến độ từng việc/) + 1).toBeLessThan(16)
-    const planned = texts.slice(texts.findIndex(t => /^Việc dự kiến/.test(t)) + 1, texts.findIndex(t => /^Tiến độ từng việc/.test(t)))
+    const { tree, texts } = await drawn($, 14)
+    expect(stepRow(tree, 0)).toBeLessThan(14)
+    // 0.7.6 U11: bước dự kiến nằm dưới tiêu đề "Danh sách bước (dự kiến)".
+    const at = texts.findIndex(t => /^Danh sách bước \(dự kiến\)/.test(t))
+    expect(at).toBeGreaterThanOrEqual(0)
+    const planned = texts.slice(at + 1)
     expect(planned).toContain(openMore('vi', 7))
     expect(planned).not.toContain('BƯỚC 10: kết thúc phiên')
   })
@@ -86,20 +94,23 @@ describe('0.7.5 S6: ranh giới đúng của dạng gọn', () => {
 
   test('dạng gọn đúng khi dạng đầy đủ không vừa: so với vị trí đo được của dạng đầy đủ (pane 100 dòng), mục tiêu dài nhiều dòng', {}, async ($, on) => {
     await longGoal($, on, 0, TITLES.length, LONG_GOAL)
-    const full = rowOf((await drawn($, 100)).tree, /^Tiến độ từng việc/)
+    // 0.7.6 U1: dạng đầy đủ vừa khi cả danh sách, tới dòng chú giải ký hiệu, nằm trong số dòng của pane.
+    // 0.7.6 U7: chú giải chỉ ghi các loại đang thấy, đo theo mục "đang làm".
+    const full = rowOf((await drawn($, 100)).tree, new RegExp(labels('vi').legend.doing))
     for (let rows = 14; rows <= 32; rows++) {
       const { texts } = await drawn($, rows)
       const isCompact = checklistOf(texts).some(t => /^\+\d+ bước mở$/.test(t))
-      expect(isCompact, `${rows} dòng`).toBe(!(full + 1 < rows))
+      expect(isCompact, `${rows} dòng`).toBe(!(full < rows))
     }
   })
 
+  // 0.7.6 U6: phần đầu pane ngắn hơn hai dòng, dạng gọn đo ở 10 dòng.
   test('dạng gọn mà mọi bước mở đều hiện: không có dòng "+0 bước mở"', {}, async ($, on) => {
     await longGoal($, on, 7)
-    const { texts } = await drawn($, 12)
+    const { texts } = await drawn($, 10)
     const list = checklistOf(texts)
     expect(list).toContain('7 bước đã đóng')
     expect(list.some(t => /^\+0 /.test(t))).toBe(false)
-    expect(list.some(t => t.includes(labels('vi').legend.verified))).toBe(false)
+    expect(list.some(t => t.includes(labels('vi').legend.doing))).toBe(false)
   })
 })

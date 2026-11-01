@@ -117,8 +117,9 @@ export function planSwitch(
 }
 
 /** USD ghi dạng có dấu: dương là tiết kiệm, âm là tốn thêm. */
-function netText(net: number): string {
-  return net >= 0 ? `tiết kiệm ~${formatUsd(net)}` : `tốn thêm ~${formatUsd(-net)}`
+function netText(net: number, lang: 'vi' | 'en'): string {
+  if (lang === 'en') return net >= 0 ? `saves ~${formatCost(net, lang)}` : `costs ~${formatCost(-net, lang)} more`
+  return net >= 0 ? `tiết kiệm ~${formatCost(net, lang)}` : `tốn thêm ~${formatCost(-net, lang)}`
 }
 
 /**
@@ -126,12 +127,13 @@ function netText(net: number): string {
  * lượt đã đo trừ (chi phí thật của các lượt đó cộng chi phí router). Cùng số token nên không tính chênh lệch token ra giữa
  * các model hay effort. Null khi chưa có lượt nào được tính.
  */
-export function netLine(ledger: Ledger): string | null {
+export function netLine(ledger: Ledger, lang: 'vi' | 'en' = 'vi'): string | null {
   const base = ledger.baseline
   if (base === undefined || base.family === null || base.covered.session <= 0) return null
   const session = base.pure.session - (base.covered.session + ledger.session.analyzer.usd)
   const goal = base.pure.goal - (base.covered.goal + ledger.goal.buckets.analyzer.usd)
-  return `So với chạy thuần ${base.family}: phiên ${netText(session)}, mục tiêu này ${netText(goal)} (ước tính theo cùng số token, đã tính chi phí router)`
+  if (lang === 'en') return `Versus running plain ${base.family}: session ${netText(session, lang)}, this goal ${netText(goal, lang)} (estimated on the same tokens, router cost included)`
+  return `So với chạy thuần ${base.family}: phiên ${netText(session, lang)}, mục tiêu này ${netText(goal, lang)} (ước tính theo cùng số token, đã tính chi phí router)`
 }
 
 /** Tổng USD của phiên theo sổ (ước lượng cộng đo được), để so với số của engine. */
@@ -204,31 +206,43 @@ export function resetLedger(ledger: Ledger): Ledger {
   return { ...emptyLedger(0), calib: ledger.calib, samples: ledger.samples, ...(ledger.shapes ? { shapes: ledger.shapes } : {}) }
 }
 
-/** USD có độ chính xác vừa đủ để đọc: dưới một xu hiển thị bốn chữ số thập phân. */
-export function formatUsd(value: number): string {
-  return value < 0.01 ? `$${value.toFixed(4)}` : `$${value.toFixed(3)}`
+/**
+ * Chi phí hiển thị ở mọi nơi (band, pane, nhật ký, /conductor status): hai chữ số thập phân, dấu phẩy thập phân khi giao diện
+ * tiếng Việt, dấu chấm khi tiếng Anh; dương mà dưới 0,01 thì "<$0,01".
+ */
+export function formatCost(value: number, lang: 'vi' | 'en'): string {
+  const mark = lang === 'vi' ? ',' : '.'
+  if (value > 0 && value < 0.01) return `<$0${mark}01`
+  return `$${value.toFixed(2).replace('.', mark)}`
 }
 
 /** Các dòng tóm tắt chi phí cho pane và /conductor status. */
-export function ledgerLines(ledger: Ledger): string[] {
+export function ledgerLines(ledger: Ledger, lang: 'vi' | 'en' = 'vi'): string[] {
   const { main, agent, analyzer } = ledger.session
   const goalUsd = GROUPS.reduce((sum, group) => sum + ledger.goal.buckets[group].usd, 0)
-  const lines = [
-    `Phiên, đo được: ${formatUsd(sessionUsd(ledger))} (luồng chính ${formatUsd(main.usd)} trong ${main.calls} lượt; subagent ${formatUsd(agent.usd)} trong ${agent.calls} lượt; router ${formatUsd(analyzer.usd)} trong ${analyzer.calls} lượt)`,
-    `Mục tiêu này, đo được: ${formatUsd(goalUsd)}, ${ledger.goal.spawned} subagent đã giao`,
-  ]
-  const net = netLine(ledger)
+  const c = (value: number): string => formatCost(value, lang)
+  const lines =
+    lang === 'en'
+      ? [
+          `Session, measured: ${c(sessionUsd(ledger))} (main thread ${c(main.usd)} in ${main.calls} turns; subagents ${c(agent.usd)} in ${agent.calls} turns; router ${c(analyzer.usd)} in ${analyzer.calls} turns)`,
+          `This goal, measured: ${c(goalUsd)}, ${ledger.goal.spawned} subagents delegated`,
+        ]
+      : [
+          `Phiên, đo được: ${c(sessionUsd(ledger))} (luồng chính ${c(main.usd)} trong ${main.calls} lượt; subagent ${c(agent.usd)} trong ${agent.calls} lượt; router ${c(analyzer.usd)} trong ${analyzer.calls} lượt)`,
+          `Mục tiêu này, đo được: ${c(goalUsd)}, ${ledger.goal.spawned} subagent đã giao`,
+        ]
+  const net = netLine(ledger, lang)
   if (net !== null) lines.push(net)
   if (ledger.samples > 0) {
     const calib = (['haiku', 'sonnet', 'opus', 'fable'] as const).map(f => `${f} ×${ledger.calib[f].toFixed(2)}`)
-    lines.push(`Hiệu chỉnh ước lượng theo ${ledger.samples} lần đo: ${calib.join(', ')}`)
+    lines.push(lang === 'en' ? `Estimate calibration from ${ledger.samples} measurements: ${calib.join(', ')}` : `Hiệu chỉnh ước lượng theo ${ledger.samples} lần đo: ${calib.join(', ')}`)
   }
   const shapes = Object.entries(ledger.shapes ?? {})
     .filter(([, shape]) => shape.samples >= SHAPE_MIN)
     .sort((a, b) => b[1].samples - a[1].samples)
     .slice(0, 4)
-    .map(([key, shape]) => `${key} ~${(shape.output / 1000).toFixed(1)}k (${shape.samples} lần)`)
-  if (shapes.length > 0) lines.push(`Token ra đo được theo dạng việc (quy về effort medium): ${shapes.join('; ')}`)
+    .map(([key, shape]) => `${key} ~${(shape.output / 1000).toFixed(1)}k (${shape.samples} ${lang === 'en' ? 'times' : 'lần'})`)
+  if (shapes.length > 0) lines.push(lang === 'en' ? `Measured output tokens by work shape (normalized to medium effort): ${shapes.join('; ')}` : `Token ra đo được theo dạng việc (quy về effort medium): ${shapes.join('; ')}`)
   return lines
 }
 
@@ -236,9 +250,12 @@ export function ledgerLines(ledger: Ledger): string[] {
  * Phần chi phí còn là ước tính: subagent đã giao mà chưa có số đo (ước tính lúc giao từ token ra giả định theo khối
  * lượng việc, hệ số hiệu chỉnh và số đo theo dạng việc khi có). Sổ ở trên chỉ gồm số đo; null khi không còn ước tính.
  */
-export function estimateLine(log: readonly RouteEvent[]): string | null {
+export function estimateLine(log: readonly RouteEvent[], lang: 'vi' | 'en' = 'vi'): string | null {
   const pending = log.filter(entry => entry.where === 'agent' && entry.usd !== undefined && entry.measured !== true)
   if (pending.length === 0) return null
   const usd = pending.reduce((sum, entry) => sum + (entry.usd ?? 0), 0)
-  return `Ước tính lúc giao, chưa có số đo: ${formatUsd(usd)} cho ${pending.length} subagent (giả định token ra theo khối lượng việc; được thay bằng số đo khi agent kết thúc)`
+  if (lang === 'en') {
+    return `Estimated at delegation, not measured yet: ${formatCost(usd, lang)} for ${pending.length} subagent${pending.length === 1 ? '' : 's'} (assumed output tokens by work volume; replaced by measurements when each agent finishes)`
+  }
+  return `Ước tính lúc giao, chưa có số đo: ${formatCost(usd, lang)} cho ${pending.length} subagent (giả định token ra theo khối lượng việc; được thay bằng số đo khi agent kết thúc)`
 }

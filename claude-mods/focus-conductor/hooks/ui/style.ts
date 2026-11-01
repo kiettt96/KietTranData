@@ -111,7 +111,7 @@ export function phaseOf(plan: readonly PlanStep[]): Phase {
  * đọc được cả khi không có màu). Ô đầu tiên sau phần đã đóng là ký hiệu của bước đang là tâm điểm: ◐ cùng màu giai đoạn
  * khi đang làm, ■ vàng khi bị chặn. Xong hết thì thanh đầy, không có đầu thanh.
  */
-export function barRuns(plan: readonly PlanStep[], cells: number): Run[] {
+export function barRuns(plan: readonly PlanStep[], cells: number, hasRunning = false): Run[] {
   const total = plan.length
   if (total === 0 || cells < 3) return []
   const closed = plan.filter(isClosed).length
@@ -126,8 +126,9 @@ export function barRuns(plan: readonly PlanStep[], cells: number): Run[] {
   if (closed >= total) return solid(cells)
   const filled = closed === 0 ? 0 : Math.min(cells - 1, Math.max(1, Math.round((closed / total) * cells)))
   const status = currentStep(plan)?.status
+  // W4: bước hiện tại còn todo mà đã có lô đang chạy thì đầu thanh cũng là ◐.
   const head: Run | null =
-    status === 'doing'
+    status === 'doing' || (status === 'todo' && hasRunning)
       ? { text: STEP_MARK.doing.glyph, color: hue, bold: true }
       : status === 'blocked'
         ? { text: STEP_MARK.blocked.glyph, color: STEP_MARK.blocked.color, bold: true }
@@ -169,11 +170,11 @@ export function taskBarRuns(bar: TaskBar, cells: number): Run[] {
  * Các ô ○ cho số bước router dự kiến khi Claude chưa chốt checklist: cách nhau một khoảng trắng nếu đủ chỗ, không thì
  * sát nhau, và không quá `cells` ô.
  */
-export function plannedRuns(planned: number, cells: number): Run[] {
+export function plannedRuns(planned: number, cells: number, running: ReadonlySet<number> = new Set()): Run[] {
   const n = Math.min(planned, Math.max(0, cells))
   if (n <= 0) return []
   const spaced = n * 2 - 1 <= cells
-  return Array.from({ length: n }, (_, i) => ({ text: STEP_MARK.todo.glyph + (spaced && i < n - 1 ? ' ' : ''), color: STEP_MARK.todo.color }))
+  return Array.from({ length: n }, (_, i) => ({ text: (running.has(i) ? STEP_MARK.doing.glyph : STEP_MARK.todo.glyph) + (spaced && i < n - 1 ? ' ' : ''), color: running.has(i) ? STEP_MARK.doing.color : STEP_MARK.todo.color }))
 }
 
 /** Tổng USD của mục tiêu hiện tại theo số đo. */

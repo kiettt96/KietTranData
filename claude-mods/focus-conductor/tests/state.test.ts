@@ -100,8 +100,8 @@ describe('status line và báo checklist bị bỏ', () => {
   test('status line không lặp tiền tố tên plugin mà engine đã thêm', () => {
     expect(statusLine(null, [], null, 'auto')).toBe('auto')
     const brief = makeBrief({ tier: 'complex' })
-    expect(statusLine(brief, [], route('opus', 'high'), 'auto')).toBe('complex · opus/high')
-    expect(statusLine(brief, [], route('opus', 'high'), 'suggest')).toBe('complex · opus/high · suggest')
+    expect(statusLine(brief, [], route('opus', 'high'), 'auto')).toBe('opus')
+    expect(statusLine(brief, [], route('opus', 'high'), 'suggest')).toBe('opus · suggest')
   })
 
   test('báo cho Claude biết checklist cũ còn bao nhiêu bước mở đã bị bỏ', () => {

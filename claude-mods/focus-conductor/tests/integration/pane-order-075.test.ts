@@ -63,30 +63,31 @@ async function goal($: Engine) {
 }
 
 describe('0.7.5 C6: thứ tự mục của pane', () => {
-  test('checklist và tiến độ từng việc đứng trước chọn chế độ và Hạn mức, trong 16 dòng đầu', {}, async ($, on) => {
+  // 0.7.6 U1: bốn bước đều khớp một việc nên tiến độ từng việc nằm trên chính dòng bước (không còn mục riêng); dòng bước cuối và chip
+  // của bước đang làm vẫn trong 16 dòng đầu, trước chọn chế độ.
+  test('checklist (kèm tiến độ từng việc) đứng trước chọn chế độ và Hạn mức, trong 16 dòng đầu', {}, async ($, on) => {
     base(on)
     quotaMeter(on, [session(40)])
     agents(on)
     await goal($)
     const all = await texts($)
     const checklist = all.findIndex(t => /^Danh sách bước/.test(t))
-    const tasks = all.findIndex(t => /^Tiến độ từng việc/.test(t))
+    const chip = all.findIndex(t => /^haiku đang chạy$/.test(t))
     const mode = all.findIndex(t => t === 'Chế độ')
     expect(checklist).toBeGreaterThanOrEqual(0)
-    expect(tasks).toBeGreaterThan(checklist)
-    expect(mode).toBeGreaterThan(tasks)
+    expect(all.some(t => /^Tiến độ từng việc/.test(t))).toBe(false)
+    expect(chip).toBeGreaterThan(checklist)
+    expect(mode).toBeGreaterThan(chip)
     expect(PANE_ROWS).toBe(16)
     const pane = await $.ui.mount(PANE)
     const tree = await pane.drawn()
     await pane.unmount()
-    // Bước cuối của checklist và dòng đầu của mục tiến độ từng việc (ngay dưới tiêu đề) đều trong 16 dòng đầu. Trên mã cũ hai
-    // dòng này ở dòng 17 và 22.
     const last = rowOf(tree, /^Việc 4: /)
-    const section = rowOf(tree, /^Tiến độ từng việc/)
+    const first = rowOf(tree, /^haiku đang chạy$/)
     expect(last).toBeGreaterThanOrEqual(0)
-    expect(section).toBeGreaterThanOrEqual(0)
+    expect(first).toBeGreaterThanOrEqual(0)
     expect(last).toBeLessThan(PANE_ROWS)
-    expect(section + 1).toBeLessThan(PANE_ROWS)
+    expect(first).toBe(rowOf(tree, /^Việc 1: /))
   })
 })
 

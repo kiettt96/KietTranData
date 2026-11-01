@@ -5,19 +5,20 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { PANE_ROWS } from '../../hooks/lib/pane'
 import { labels } from '../../hooks/ui/labels'
-import { PLAN, checklistOf, drawn, longGoal, rowOf } from '../support/pane-long'
+import { PLAN, checklistOf, drawn, longGoal, rowOf, stepRow } from '../support/pane-long'
 
 const HEADING = /^Danh sách bước/
 const LEGEND = /đã kiểm chứng|chờ kết quả|bỏ qua/
 
 describe('0.7.5 R10: dòng tiến độ từng việc nằm trong 16 dòng ở checklist 11 bước', () => {
   for (const closed of [0, 1, 2, 6, 8]) {
-    test(`${closed} bước đóng: tiêu đề "Tiến độ từng việc" và dòng việc đầu nằm trong ${PANE_ROWS} dòng`, {}, async ($, on) => {
+    // 0.7.6 U1: checklist và tiến độ từng việc là một danh sách; bước đang làm (mang số lô của việc) phải nằm trong 16 dòng.
+    test(`${closed} bước đóng: bước đang làm nằm trong ${PANE_ROWS} dòng`, {}, async ($, on) => {
       await longGoal($, on, closed)
       const { tree } = await drawn($)
-      const section = rowOf(tree, /^Tiến độ từng việc/)
+      const section = stepRow(tree, closed)
       expect(section, `${closed} bước đóng`).toBeGreaterThanOrEqual(0)
-      expect(section + 1).toBeLessThan(PANE_ROWS)
+      expect(section).toBeLessThan(PANE_ROWS)
     })
   }
 })
@@ -38,7 +39,8 @@ describe('0.7.5 R10: dạng gọn khi không đủ chỗ', () => {
   // S6 (vòng rà soát 4): "+N bước" tách thành "k bước đã đóng" và "+m bước mở".
   test('6 bước đóng: chỉ bước đang làm và 3 bước kế tiếp, kèm "6 bước đã đóng" và "+1 bước mở"', {}, async ($, on) => {
     await longGoal($, on, 6)
-    const { texts } = await drawn($)
+    // 0.7.6 U1: pane 16 dòng đủ cho dạng đầy đủ ở 6 bước đóng; U6 bỏ hai dòng ở phần đầu nên dạng gọn đo ở 10 dòng.
+    const { texts } = await drawn($, 10)
     const list = checklistOf(texts)
     expect(list).toContain('BƯỚC 6: đọc và giải thích')
     expect(list).toContain('BƯỚC 9: bản tổng hợp tuần')
@@ -79,7 +81,8 @@ describe('0.7.5 R10: dạng gọn khi không đủ chỗ', () => {
     const list = checklistOf(texts)
     expect(list).toContain('BƯỚC 10: kết thúc phiên')
     expect(list.some(t => /^\+\d+ bước/.test(t))).toBe(false)
-    expect(list.some(t => LEGEND.test(t))).toBe(true)
+    // 0.7.6 U7: chú giải chỉ ghi các loại ký hiệu đang thấy (đang làm, chờ).
+    expect(list).toContain(' đang làm')
   })
 
   test('checklist ngắn (6 bước): giữ từng bước và chú giải ký hiệu', {}, async ($, on) => {
@@ -88,7 +91,18 @@ describe('0.7.5 R10: dạng gọn khi không đủ chỗ', () => {
     const list = checklistOf(texts)
     expect(list).toContain('BƯỚC 0: chuẩn bị')
     expect(list.some(t => /^\+\d+ bước/.test(t))).toBe(false)
-    expect(list.some(t => LEGEND.test(t))).toBe(true)
+    // 0.7.6 U7: chú giải chỉ ghi các loại ký hiệu đang thấy (xong, đang làm, chờ).
+    expect(list).toContain(' đang làm')
+  })
+
+  // Ghim 075-R10c: checklist không dài hơn 6 bước không bao giờ dùng dạng gọn, dù pane thiếu chỗ (từ 0.7.6 U1 dạng đầy đủ cần ít dòng
+  // hơn nên ca 6 bước ở 16 dòng luôn vừa; ở pane 6 dòng thì không vừa).
+  test('checklist 6 bước ở pane 6 dòng: vẫn liệt kê đủ 6 bước, không có dòng "+N bước mở"', {}, async ($, on) => {
+    await longGoal($, on, 1, 6)
+    const { texts } = await drawn($, 6)
+    const list = checklistOf(texts)
+    for (const title of ['BƯỚC 1: chuẩn hóa đơn vị', 'BƯỚC 2: chuyển dữ liệu cũ', 'BƯỚC 3: lọc tin lô 1', 'BƯỚC 4: lọc tin lô 2', 'BƯỚC 5: lọc tin lô 3']) expect(list, title).toContain(title)
+    expect(list.some(t => /^\+\d+ bước/.test(t))).toBe(false)
   })
 
   test('dạng gọn không đổi số liệu tiến độ: dòng đếm vẫn hiện', {}, async ($, on) => {

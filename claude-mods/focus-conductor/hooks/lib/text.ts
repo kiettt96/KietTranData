@@ -6,7 +6,7 @@ import { openSteps, pendingSteps } from './drift'
 import { evaluateQuota, isStale, reasonsOf } from './quota'
 import type { QuotaBadge, QuotaNoticeHit, QuotaThresholds } from './quota'
 import { labels } from '../ui/labels'
-import { taskBarRuns } from '../ui/style'
+import { currentStep, taskBarRuns } from '../ui/style'
 import type { Lang } from '../ui/labels'
 import { describePick } from './route'
 import { uncoveredRequirements } from './router'
@@ -382,14 +382,42 @@ export function stopBlockReason(plan: readonly PlanStep[], failed: readonly stri
 /** Số ô của thanh chữ trên status line (0.6.1). */
 export const STATUS_BAR = 8
 
+/** Độ dài tối đa của tên bước khi bước không có mã (0.7.6, U5). */
+const STEP_TAG = 24
+/** Mã đầu tiêu đề bước ("BƯỚC 4", "Step 2", "Việc 3", "K4.1"), giữ đúng chữ của tiêu đề. */
+const STEP_TAG_CODE = /^[\s#*>-]*((?:bước|step|việc|task)\s*#?\s*\d+|[a-z]{1,3}\d+(?:\.\d+)*)(?![\p{L}\p{N}])/iu
+
+/** Tên ngắn của mục tiêu (0.7.6, W4): 24 ký tự đầu, giữ nguyên mã ở đầu nếu có. */
+export function goalTag(goal: string): string {
+  const text = goal.normalize('NFC').trim()
+  return [...text].length > STEP_TAG ? `${[...text].slice(0, STEP_TAG).join('').trimEnd()}…` : text
+}
+
+/** Nhãn ngắn của một bước (0.7.6, U5): mã đầu tiêu đề nếu có, không thì tên bước cắt ở 24 ký tự. */
+export function stepTag(title: string): string {
+  const text = title.normalize('NFC').trim()
+  const code = STEP_TAG_CODE.exec(text)?.[1]
+  if (code !== undefined) return code
+  return [...text].length > STEP_TAG ? `${[...text].slice(0, STEP_TAG).join('').trimEnd()}…` : text
+}
+
+/**
+ * Status line (0.7.6, U5): thanh chữ (cùng ký hiệu với band, không màu, cho surface không có band), số bước, nhãn ngắn của bước hiện tại
+ * và họ model; không có tier. Chưa có checklist thì chỉ họ model, không có model thì tên chế độ. Chế độ khác auto ghi cuối.
+ */
 export function statusLine(brief: Brief | null, plan: readonly PlanStep[], route: Route | null, mode: string): string {
   if (brief === null) return mode
   const { total } = progress(plan)
-  // Thanh chữ cùng ký hiệu với band (barRuns), không màu: surface không có band (vscode, mobile) vẫn thấy tiến độ.
   const bar = taskBarRuns({ kind: 'steps', plan: [...plan] }, STATUS_BAR).map(run => run.text).join('')
-  const steps = total > 0 ? ` · ${bar ? `${bar} ` : ''}${countLabel(plan)}` : ''
-  const model = route ? ` · ${describePick(route)}` : ''
-  return `${brief.tier}${model}${steps}${mode === 'auto' ? '' : ` · ${mode}`}`
+  const current = currentStep(plan)
+  const parts = [
+    ...(total > 0 ? [`${bar ? `${bar} ` : ''}${countLabel(plan)}`] : []),
+    ...(total > 0 && current !== undefined ? [stepTag(current.title)] : []),
+    ...(route ? [route.family] : []),
+  ]
+  // W4: chưa có checklist và chưa có model thì ghi tên ngắn của mục tiêu (kèm mã đầu mục tiêu nếu có), không chỉ tên chế độ.
+  if (parts.length === 0) parts.push(goalTag(brief.goal))
+  return `${parts.join(' · ')}${mode === 'auto' ? '' : ` · ${mode}`}`
 }
 
 // ------------------------------------------------------------ bảo vệ hạn mức (0.6.0)
@@ -615,10 +643,11 @@ export function checkHintLines(hint: CheckHint | null, goalId: number | null): s
   return hint !== null && goalId !== null && hint.goalId === goalId && hint.commands.length > 0 ? [checkHintText(hint.commands)] : []
 }
 
-export function withQuotaStatus(base: string | undefined, badge: QuotaBadge | null, lang: Lang): string | undefined {
+/** Nhãn hạn mức của status line; đang dừng thì kèm lệnh chạy tiếp (0.7.6, U3) khi được truyền. */
+export function withQuotaStatus(base: string | undefined, badge: QuotaBadge | null, lang: Lang, resume?: string): string | undefined {
   if (base === undefined || badge === null) return base
   const l = labels(lang)
-  return `${base} · ${badge.paused ? l.quotaPaused : l.quotaLeft(percent(badge.left ?? 0))}`
+  return `${base} · ${badge.paused ? `${l.quotaPaused}${resume ? ` · ${resume}` : ''}` : l.quotaLeft(percent(badge.left ?? 0))}`
 }
 
 export type QuotaStatusInput = {
@@ -709,13 +738,36 @@ export const PANE_NOTE_MAX = 160
 /** Các dòng chữ của mục Hạn mức trong pane theo ngôn ngữ giao diện. `cause` là câu thay "Không có cảnh báo." khi đang dừng. */
 export type QuotaPaneText = { windows: string[]; state: string; isPaused: boolean; cause: string; checkpoint: string[] }
 
-export function quotaPaneText(view: QuotaOverview, lang: Lang): QuotaPaneText {
+/**
+ * Hạn mức trên band (0.7.6, U3): đang dừng thì dòng 1 là "Tạm dừng: <lý do> · làm mới <giờ>" và dòng 2 là "Điểm dừng đã ghi · chạy tiếp:
+ * <lệnh>"; chưa dừng mà đang trong vùng báo mềm thì câu báo cho dòng cần chú ý. Chỉ để hiển thị.
+ */
+export type BandQuota = { paused: boolean; line: string; resume: string; notice: string | null }
+
+export function bandQuota(view: QuotaOverview, notices: readonly QuotaNoticeHit[], lang: Lang): BandQuota {
+  const l = labels(lang)
+  const isUser = view.state === 'user'
+  const paused = view.state === 'quota' || isUser
+  const left = (r: QuotaReason) => percent(Math.max(0, Math.round((100 - r.percentUsed) * 10) / 10))
+  const cause = isUser ? l.quotaUserCause : view.reasons.length > 0 ? view.reasons.map(r => l.quotaShortReason(l.quotaName[r.kind], left(r))).join('; ') : l.quotaNearlyOut
+  const reset = view.reasons.map(r => resetLabel(r.resetsAt)).find(text => text !== '') ?? ''
+  const hit = notices[0]
+  return {
+    paused,
+    line: l.pauseLine(cause, reset),
+    resume: `${view.checkpoint !== null ? `${l.pauseCheckpointDone} · ` : ''}${l.pauseResume(resumeCommand(isUser))}`,
+    notice: !paused && hit !== undefined ? l.quotaNotice(l.quotaWindowShort[hit.kind], percent(hit.remaining)) : null,
+  }
+}
+
+export function quotaPaneText(view: QuotaOverview, lang: Lang, hasNotice = false): QuotaPaneText {
   const l = labels(lang)
   const windows = view.windows.map(w => `${l.quotaWindow[w.kind]}: ${l.quotaUsage(percent(w.used), percent(Math.max(0, 100 - w.used)), resetLabel(w.resetsAt), percent(w.threshold))}`)
   const reasonText = (r: QuotaReason) =>
     l.quotaReason(l.quotaName[r.kind], percent(Math.max(0, Math.round((100 - r.percentUsed) * 10) / 10)), percent(r.thresholdRemainingPct), resetLabel(r.resetsAt))
   const state = {
-    ok: l.quotaStateOk,
+    // Báo mềm (0.7.6, U3): chưa dừng mà một cửa sổ đã vào vùng báo thì không ghi "bình thường".
+    ok: hasNotice ? l.quotaStateNotice : l.quotaStateOk,
     quota: l.quotaStateQuota,
     user: l.quotaStateUser,
     forced: l.quotaStateForced(view.forcedKinds.map(k => l.quotaName[k]).join(l.quotaAnd), resetLabel(new Date(view.forcedUntil).toISOString())),

@@ -1,7 +1,7 @@
 // Phiên và đọc prompt: session.start/end, mục system prompt cố định, prompt.submit (router đọc prompt).
 
 import { atom, derive, read, update } from 'claude-code'
-import type { Brief, Core, QuotaCheckpoint, Warning } from '../../types'
+import type { Brief, Core, Depth, QuotaCheckpoint, Warning } from '../../types'
 import { briefFromCheckpoint, changedFiles, storeKey } from '../lib/checkpoint'
 import { openSteps, restorableSteps } from '../lib/drift'
 import { PLAN_TOOL_SPEC } from '../lib/plan'
@@ -21,10 +21,10 @@ import { PANE_ROWS, shouldAutoOpenPane } from '../lib/pane'
 import { PANE, PANE_TITLE } from '../ui/pane'
 
 /** Mở pane chi tiết cho mục tiêu mới nếu cần (0.7.2): không focus, không chiếm phím; kết quả đặt hay chưa đặt ghi vào nhật ký quyết định. */
-async function autoOpenPane($: EngineInterface, ctx: Ctx, goalId: number, at: number): Promise<void> {
+async function autoOpenPane($: EngineInterface, ctx: Ctx, goalId: number, at: number, depth: Depth | null): Promise<void> {
   const panes = await $.ui.panes().catch(() => [])
   const isOpen = panes.some(pane => pane.id === PANE)
-  if (!shouldAutoOpenPane({ enabled: ctx.autoPane, goalId, closedGoal: await read($, paneClosedState), isOpen })) return
+  if (!shouldAutoOpenPane({ enabled: ctx.autoPane, goalId, closedGoal: await read($, paneClosedState), isOpen, depth })) return
   const opened = await $.ui.open({ id: PANE, title: PANE_TITLE, rows: PANE_ROWS }).catch(() => null)
   // Chỉ ghi khi pane chưa được đặt (màn hình hẹp, chưa có surface, engine từ chối): đặt được là trường hợp bình thường, không cần dòng log.
   if (opened?.isPlaced === true) return
@@ -266,7 +266,7 @@ export function registerSession(on: On, ctx: Ctx): void {
         L.pinnedGoalId = null
         trackDelegations(bare.goalId, [])
         await update($, bandHiddenState, () => false)
-        await autoOpenPane($, ctx, bare.goalId, now)
+        await autoOpenPane($, ctx, bare.goalId, now, null)
       }
       L.lastPrompt = { text, prev, goalId: bare?.goalId ?? kept?.goalId ?? null }
       record(now, 'router-fail', { prompt: clipText(text), reason: outcome.reason, retried: outcome.retried, reuse: isReuse, ...failFields(fail) })
@@ -306,7 +306,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       L.pinnedGoalId = null
       // Ẩn band (nút Ẩn) chỉ có tác dụng trong mục tiêu đang làm: mục tiêu mới thì band hiện lại (0.6.1).
       await update($, bandHiddenState, () => false)
-      await autoOpenPane($, ctx, brief.goalId, now)
+      await autoOpenPane($, ctx, brief.goalId, now, brief.depth)
     }
 
     const wanted = wantedPick(brief, core.lift)
