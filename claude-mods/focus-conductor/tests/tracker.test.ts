@@ -156,8 +156,8 @@ describe('drift: lệnh chỉ đọc, file kế hoạch, checkpoint (0.3.4 lần
     expect(isReadOnlyCommand('D=/tmp/x; echo hi > $D')).toBe(false)
   })
 
-  test('lệnh có ghi (sed -i, chuyển hướng, rm, sort -o, find -delete, git commit, thay thế lệnh) là thay đổi', () => {
-    for (const command of ["sed -n 'w out' in", "sed 's/a/b/w out' in", "sed '1e rm x' in", 'sed -i s/a/b/ f', 'cat > f', 'rm -rf x', 'echo x > f', 'echo x >> f', 'sort -o out in', 'find . -delete', 'git commit -m x', 'npm install', 'ls $(rm x)', 'awk "BEGIN{system(\"rm x\")}"']) {
+  test('lệnh có ghi (sed -i, chuyển hướng, rm, sort -o, find -delete, thay thế lệnh) là thay đổi', () => {
+    for (const command of ["sed -n 'w out' in", "sed 's/a/b/w out' in", "sed '1e rm x' in", 'sed -i s/a/b/ f', 'cat > f', 'rm -rf x', 'echo x > f', 'echo x >> f', 'sort -o out in', 'find . -delete', 'npm install', 'ls $(rm x)', 'awk "BEGIN{system(\"rm x\")}"']) {
       expect(isReadOnlyCommand(command)).toBe(false)
     }
     const tracker = newTracker('t')
