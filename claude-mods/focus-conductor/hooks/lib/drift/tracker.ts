@@ -8,7 +8,8 @@ import type { ToolObservation } from './tool'
 import { classifyBash } from './classify'
 import type { BashEffect } from './classify'
 import { isMutation, writeEffects } from './effects'
-import { checkEffectPassed, lacksSummary, outputFailed } from './output'
+import { checkEffectPassed, lacksSummary, outputFailed, rejectReason } from './output'
+import type { RejectReason } from './output'
 import { scopeStatus } from './scope'
 import { isCustomCheck, normalizePython } from './verify'
 
@@ -19,6 +20,11 @@ const CHECKPOINT_STEPS = [CHECKPOINT_EVERY, 10, 20]
 const CHECKPOINT_CAP = 40
 /** Số lần cùng một lệnh lỗi trước khi coi là vòng lặp. */
 export const LOOP_AFTER = 3
+
+/** Lệnh kiểm bị loại trong turn (0.7.7 X3): đoạn lệnh kiểm và lý do không được tính là đạt. */
+export type RejectedCheck = { command: string; reason: RejectReason }
+/** Số lệnh kiểm bị loại gần nhất giữ lại trong một turn. */
+const REJECTED_KEEP = 5
 
 export type TurnTracker = {
   turnId: string
@@ -36,6 +42,8 @@ export type TurnTracker = {
   pendingChanges: Map<string, number>
   /** Số lệnh kiểm tra đạt trong turn (để câu báo phân biệt "chưa kiểm tra lần nào" với "sửa sau lần kiểm tra cuối"). */
   checks: number
+  /** Lệnh kiểm bị loại trong turn, tối đa REJECTED_KEEP mục gần nhất, kể cả của subagent cùng mục tiêu (0.7.7 X3). */
+  rejected: RejectedCheck[]
   /** Số lời gọi Agent thành công: turn chỉ giao subagent vẫn là turn đang thực thi mục tiêu. */
   delegated: number
   /** Lệnh ghi không xác định được file đích đã cảnh báo trong turn (mỗi lệnh khác nhau một lần). */
@@ -66,6 +74,7 @@ export function newTracker(turnId: string): TurnTracker {
     pending: new Set(),
     pendingChanges: new Map(),
     checks: 0,
+    rejected: [],
     delegated: 0,
     unknownWrites: new Set(),
     rootWarned: false,
@@ -202,7 +211,12 @@ export function trackVerification(tracker: TurnTracker, observation: ToolObserva
       if (counted.has(effect)) onWrite()
       continue
     }
-    if (!checkEffectPassed(effect, observation)) continue
+    const reason = rejectReason(effect, observation)
+    if (reason !== null) {
+      tracker.rejected.push({ command: effect.segment, reason })
+      if (tracker.rejected.length > REJECTED_KEEP) tracker.rejected.shift()
+      continue
+    }
     tracker.checks += 1
     if (author === 'main') {
       tracker.pending.clear()
@@ -414,6 +428,28 @@ function unverifiedText(tracker: TurnTracker): string {
   return `${tracker.mutationsSinceCheck} thay đổi của luồng chính và ${sub} thay đổi của subagent sau lần kiểm tra cuối chưa được kiểm tra lại`
 }
 
+const REJECT_TEXT: Record<RejectReason, string> = {
+  failed: 'chưa đạt',
+  'ran-nothing': 'không có phép kiểm nào chạy',
+  untrusted: 'nằm trong lệnh có $( ), backtick, eval, sh -c hoặc đứng sau ||',
+  hidden: 'bị lệnh đứng sau che mã thoát',
+  pipe: 'chạy qua ống, mod không đọc được kết quả',
+}
+const REJECT_COMMAND_MAX = 60
+
+/**
+ * Câu cuối turn khi không có lệnh kiểm nào được tính (0.7.7 X3): nêu lệnh kiểm bị loại gần nhất và lý do; không có thì giữ câu cũ.
+ */
+function noCheckText(tracker: TurnTracker): string {
+  const base = `Turn có ${tracker.mutations} thay đổi nhưng không chạy bước kiểm tra nào`
+  const last = tracker.rejected.at(-1)
+  if (last !== undefined) {
+    const command = last.command.length > REJECT_COMMAND_MAX ? `${last.command.slice(0, REJECT_COMMAND_MAX)}…` : last.command
+    return `${base} được tính: "${command}" ${REJECT_TEXT[last.reason]}`
+  }
+  return base
+}
+
 /** Phát hiện ở cuối turn: còn thay đổi chưa kiểm tra, checklist còn mở. */
 export function summarize(tracker: TurnTracker, brief: Brief | null, plan: readonly PlanStep[]): Finding[] {
   const findings: Finding[] = []
@@ -422,10 +458,7 @@ export function summarize(tracker: TurnTracker, brief: Brief | null, plan: reado
     findings.push({
       kind: 'unverified',
       priority: 1,
-      text:
-        tracker.checks === 0
-          ? `Turn có ${tracker.mutations} thay đổi nhưng không chạy bước kiểm tra nào`
-          : unverifiedText(tracker),
+      text: tracker.checks === 0 ? noCheckText(tracker) : unverifiedText(tracker),
     })
   }
   const open = openSteps(plan)

@@ -1776,4 +1776,13 @@ export const MUTANTS: Mutant[] = [
   { id: "077-X1a", file: "hooks/lib/drift/classify.ts", note: "git chỉ đổi lịch sử không được đánh dấu isHistory", old: "if (!isUnsupported) (effects[effects.length - 1] as WriteEffect).isHistory = true", new: "" },
   { id: "077-X1b", file: "hooks/lib/drift/classify.ts", note: "git commit có thay thế lệnh vẫn bị coi là lịch sử", old: "if (!isUnsupported) (effects[effects.length - 1] as WriteEffect).isHistory = true", new: "(effects[effects.length - 1] as WriteEffect).isHistory = true" },
   { id: "077-X1c", file: "hooks/lib/drift/effects.ts", note: "writeEffects không bỏ tác động lịch sử", old: "e.kind === 'write' && !e.isHistory && (e.level", new: "e.kind === 'write' && (e.level" },
+  { id: "077-X3a", file: "hooks/lib/drift/output.ts", note: "lệnh không được tin không còn có lý do riêng", old: "  if (!effect.trusted) return 'untrusted'\n", new: "" },
+  { id: "077-X3b", file: "hooks/lib/drift/output.ts", note: "mã thoát bị che không còn có lý do riêng", old: "  if (effect.exit === 'hidden') return 'hidden'\n", new: "" },
+  { id: "077-X3c", file: "hooks/lib/drift/output.ts", note: "không có phép kiểm nào chạy không còn có lý do riêng", old: "  if (observation.output !== undefined && ranNothing(observation.output)) return 'ran-nothing'\n", new: "" },
+  { id: "077-X3d", file: "hooks/lib/drift/output.ts", note: "lệnh lỗi (isError) không còn là lý do failed", old: "if (observation.isError || outputFailed(observation.output) || (isCustom", new: "if (outputFailed(observation.output) || (isCustom" },
+  { id: "077-X3e", file: "hooks/lib/drift/tracker.ts", note: "không giới hạn số lệnh bị loại giữ lại", old: "      if (tracker.rejected.length > REJECTED_KEEP) tracker.rejected.shift()\n", new: "" },
+  { id: "077-X3f", file: "hooks/lib/drift/tracker.ts", note: "nêu lệnh bị loại đầu tiên thay vì cuối cùng", old: "const last = tracker.rejected.at(-1)", new: "const last = tracker.rejected[0]" },
+  { id: "077-X3g", file: "hooks/lib/drift/tracker.ts", note: "lệnh dài không bị cắt", old: "last.command.length > REJECT_COMMAND_MAX ?", new: "false ?" },
+  { id: "077-X3h", file: "hooks/lib/drift/output.ts", note: "lý do mặc định là hidden thay vì pipe", old: "  return 'pipe'\n}", new: "  return 'hidden'\n}" },
+  { id: "077-X3i", file: "hooks/lib/drift/tracker.ts", note: "không ghi lệnh bị loại", old: "tracker.rejected.push({ command: effect.segment, reason })", new: "void 0" },
 ]

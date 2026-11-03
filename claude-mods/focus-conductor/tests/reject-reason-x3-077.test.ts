@@ -11,10 +11,10 @@ import { bash, edit, makeBrief } from './support/commands'
 const brief = makeBrief()
 type Call = ReturnType<typeof bash> | ReturnType<typeof edit>
 
-function textOf(calls: readonly Call[], suggestions: readonly string[] = []): string | undefined {
+function textOf(calls: readonly Call[]): string | undefined {
   const tracker = newTracker('t')
   for (const call of calls) observe(tracker, call, brief, [])
-  return summarize(tracker, brief, [], suggestions).find(f => f.kind === 'unverified')?.text
+  return summarize(tracker, brief, []).find(f => f.kind === 'unverified')?.text
 }
 const EDIT = edit('/p/a.ts')
 const HEAD = 'Turn có 1 thay đổi nhưng không chạy bước kiểm tra nào được tính: '
@@ -30,7 +30,7 @@ describe('0.7.7 X3: câu cảnh báo nêu lệnh kiểm bị loại', () => {
 
   test('lệnh có thay thế lệnh', () => {
     expect(textOf([EDIT, bash('cd "$(git rev-parse --show-toplevel)" && npm test', '12 passing (3ms)')])).toBe(
-      `${HEAD}"npm test" nằm trong lệnh có $( ), backtick, eval, sh -c hoặc đứng sau ||`,
+      `${HEAD.replace('có 1', 'có 2')}"npm test" nằm trong lệnh có $( ), backtick, eval, sh -c hoặc đứng sau ||`,
     )
   })
 
@@ -58,14 +58,8 @@ describe('0.7.7 X3: câu cảnh báo nêu lệnh kiểm bị loại', () => {
     expect(textOf([EDIT, bash('ls')])).toBe('Turn có 1 thay đổi nhưng không chạy bước kiểm tra nào')
   })
 
-  test('không bị loại nhưng có script kiểm chưa khai: nêu gợi ý đầu tiên', () => {
-    expect(textOf([EDIT], ['python3 tests/check_all.py', 'bash scripts/verify.sh'])).toBe(
-      `${HEAD}script kiểm "python3 tests/check_all.py" chưa khai trong checkCommands`,
-    )
-  })
-
-  test('lệnh bị loại thắng gợi ý', () => {
-    expect(textOf([EDIT, bash('npm test', true)], ['python3 tests/check_all.py'])).toBe(`${HEAD}"npm test" chưa đạt`)
+  test('script kiểm chưa khai đã chạy đạt (không phải lệnh kiểm được nhận): câu giữ nguyên, gợi ý đi theo toast riêng của 0.7.3', () => {
+    expect(textOf([EDIT, bash('python3 tests/check_all.py', 'RESULT: 47 passed, 0 failed')])).toBe('Turn có 2 thay đổi nhưng không chạy bước kiểm tra nào')
   })
 
   test('đã có lệnh kiểm đạt: giữ câu chưa được kiểm tra lại, kể cả khi trước đó có lệnh bị loại', () => {
