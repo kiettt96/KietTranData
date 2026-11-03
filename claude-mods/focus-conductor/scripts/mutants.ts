@@ -1801,4 +1801,6 @@ export const MUTANTS: Mutant[] = [
   { id: "077-X4d", file: "hooks/lib/state.ts", note: "khóa đã toast không gắn mục tiêu", old: "return n.toasted.goalId === goalId && n.toasted.keys.includes(key)", new: "return n.toasted.keys.includes(key)" },
   { id: "077-X4e", file: "hooks/lib/drift/tracker.ts", note: "khóa bỏ đoạn lệnh bị loại", old: "`rejected:${branch.rejected.reason}:${branch.rejected.command}`", new: "`rejected:${branch.rejected.reason}`" },
   { id: "077-X4f", file: "hooks/lib/state.ts", note: "Core cũ không có mặc định toasted", old: "    toasted: raw.toasted ?? { goalId: -1, keys: [] },\n", new: "    toasted: raw.toasted as never,\n" },
+  { id: "077-S1", file: "hooks/lib/drift/scope.ts", note: "mục trông như tên file không còn khớp như thư mục (thư mục có số phiên bản)", old: "&& name === s) return true", new: "&& true) return name === s" },
+  { id: "077-S2", file: "hooks/lib/drift/scope.ts", note: "mục tên file không còn khớp theo tên file trong gốc", old: "/\\.[A-Za-z0-9]+$/.test(s) && name === s) return true", new: "/\\.[A-Za-z0-9]+$/.test(s) && false) return true" },
 ]
