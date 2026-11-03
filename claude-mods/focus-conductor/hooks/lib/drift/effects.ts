@@ -32,11 +32,12 @@ export function isMutation(observation: ToolObservation): boolean {
 
 /**
  * Các hiệu ứng ghi còn tính được sau khi xét thông tin chỉ đọc của engine. Hiệu ứng chỉ ghi file kế hoạch
- * (`.claude/plans/*.md`, mọi đích đọc được và không có đích lạ) không phải thay đổi mã, như với Edit và Write.
+ * (`.claude/plans/*.md`, mọi đích đọc được và không có đích lạ) không phải thay đổi mã, như với Edit và Write. Lệnh git chỉ đổi lịch
+ * sử hay cấu hình (`isHistory`) cũng không phải; tác động vẫn nằm trong `classified.effects` cho hạn mức tạm dừng.
  */
 export function writeEffects(classified: BashClass, isReadOnly: boolean): WriteEffect[] {
   return classified.effects.filter(
     (e): e is WriteEffect =>
-      e.kind === 'write' && (e.level === 'definite' || !isReadOnly) && !(e.paths.length > 0 && !e.isUnknown && e.paths.every(isPlanFile)),
+      e.kind === 'write' && !e.isHistory && (e.level === 'definite' || !isReadOnly) && !(e.paths.length > 0 && !e.isUnknown && e.paths.every(isPlanFile)),
   )
 }

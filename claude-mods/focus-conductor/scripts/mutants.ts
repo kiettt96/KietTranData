@@ -1773,4 +1773,7 @@ export const MUTANTS: Mutant[] = [
   { id: "075-A5c", file: "hooks/lib/drift/classify.ts", note: "không bỏ tiền tố env", old: "if (cmd !== undefined && commandName(unmask(cmd)) === 'env') {", new: "if (false) {" },
   { id: "075-A5d", file: "hooks/lib/drift/classify.ts", note: "env chặn mã nội dòng chỉ đọc", old: "piece.op !== '|&' && wrappers.length === 0 && inputs.every(", new: "piece.op !== '|&' && tokens[0] === cmd && inputs.every(" },
   { id: "075-A5e", file: "hooks/lib/drift/classify.ts", note: "env không bỏ phép gán biến", old: "if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(arg) || arg === '-i'", new: "if (arg === '-i'" },
+  { id: "077-X1a", file: "hooks/lib/drift/classify.ts", note: "git chỉ đổi lịch sử không được đánh dấu isHistory", old: "if (!isUnsupported) (effects[effects.length - 1] as WriteEffect).isHistory = true", new: "" },
+  { id: "077-X1b", file: "hooks/lib/drift/classify.ts", note: "git commit có thay thế lệnh vẫn bị coi là lịch sử", old: "if (!isUnsupported) (effects[effects.length - 1] as WriteEffect).isHistory = true", new: "(effects[effects.length - 1] as WriteEffect).isHistory = true" },
+  { id: "077-X1c", file: "hooks/lib/drift/effects.ts", note: "writeEffects không bỏ tác động lịch sử", old: "e.kind === 'write' && !e.isHistory && (e.level", new: "e.kind === 'write' && (e.level" },
 ]

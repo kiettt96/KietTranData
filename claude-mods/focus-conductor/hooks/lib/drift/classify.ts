@@ -64,6 +64,8 @@ export type WriteEffect = {
   /** File đích đọc được của chính đoạn lệnh này (để loại file kế hoạch); isUnknown: đoạn có đích không đọc được. */
   paths: string[]
   isUnknown: boolean
+  /** Lệnh git chỉ đổi lịch sử hay cấu hình (GIT_NO_FILES), không có thay thế lệnh: không đổi file làm việc, `writeEffects` bỏ qua. */
+  isHistory?: true
 }
 export type BashEffect = CheckEffect | WriteEffect
 
@@ -386,7 +388,10 @@ export function classifyBash(command: string): BashClass {
     } else if (name === 'git') {
       const sub = positional[0] !== undefined ? unmask(positional[0]) : ''
       write('definite')
-      if (GIT_NO_FILES.has(sub)) continue
+      if (GIT_NO_FILES.has(sub)) {
+        if (!isUnsupported) (effects[effects.length - 1] as WriteEffect).isHistory = true
+        continue
+      }
       const dash = args.findIndex(a => unmask(a) === '--')
       if (sub === 'restore') positional.slice(1).forEach(add)
       else if ((sub === 'checkout' || sub === 'reset') && dash >= 0) args.slice(dash + 1).forEach(add)
