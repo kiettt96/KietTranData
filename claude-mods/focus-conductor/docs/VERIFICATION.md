@@ -2,6 +2,21 @@
 
 Số đo của HEAD hiện tại và của các bản trước. Mọi số do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển] trừ khi nêu khác; hợp đồng đối chiếu evidence ở [DESIGN.md](DESIGN.md), lịch sử thay đổi ở [CHANGELOG.md](../CHANGELOG.md), cách dùng ở [README](../README.md).
 
+## Kiểm chứng của 0.7.7 (cảnh báo chưa kiểm đúng hơn và nêu lý do)
+
+Nhánh tách từ `main` 7fad617 (0.7.6). Mỗi điểm X1 tới X6 và bản sửa phạm vi một commit test đỏ rồi một commit sửa; không amend, rebase hay force-push [Đo trực tiếp].
+
+- Môi trường: Claude Code 2.1.296 cho mọi lần chạy test và đột biến dưới đây [Đo trực tiếp].
+- `claude plugin test .` trên `de3fb56`: 2283 test qua, 0 lỗi, 198 tệp (0.7.6: 2190 test, 190 tệp) [Đo trực tiếp]. `claude plugin validate .` qua ở thư mục mod và ở gốc repo; `bunx tsc --noEmit -p .` sạch; `bun scripts/mutate.ts --check` mismatched rỗng. sha256 `hooks/` `af833681be29ca89a0ba2caa445ec5021af452f869c78cea2ab916574cf3bd5d`, `tests/` `bf512af20f0d0c038602f8bb64c2241d8520dce058fc5174154d210253572bf2`.
+- Test đỏ trước khi sửa [Đo trực tiếp]: X1 15, X3 13, X3 nhánh gợi ý 2, X2 10, X4 3, X5 2, X6 7, phạm vi 4. Test cũ duy nhất đổi: `tests/tracker.test.ts` (bỏ `git commit` khỏi danh sách lệnh có ghi, đổi tên test). Các test ghim câu cũ của cảnh báo chưa kiểm giữ nguyên và vẫn qua.
+- Đột biến: `scripts/mutate.ts` gọi `claude` theo `PATH`; mọi lượt của bản này chạy với `PATH` trỏ vào 2.1.296. Lượt đầu trong phiên phát triển chạy nhầm bản trên `PATH` và với 4 worker trên máy 4 lõi, ra nhiều `fail=-1` (không đọc được kết quả nhưng bị tính là bị bắt); các kết quả đó không được dùng. Mẫu mới và mẫu viết lại chạy riêng trên 2.1.296 với 2 hoặc 3 worker, mỗi mẫu có số lỗi thật: `077-X2a` tới `077-X2g`, `077-X3g`, `077-X3j` tới `077-X3l`, `r4-V7`, `060-L8` (13 bị bắt); `077-S1`, `077-S2` (2 bị bắt). Lượt tổng 542 mẫu của các tệp đã đổi trên `de3fb56` đang chạy, chia 13 phần; kết quả ghi bổ sung ở đây.
+- Phiên dài (cùng kịch bản mục 6 của 0.7.5) [Đo trực tiếp]: 10.339 ký tự mod chèn (cứ 10 lời gọi có một script ghi) và 19.587 (cứ 3 lời gọi), bằng số của 0.7.6; 0 lượt router, 11 trên 11 bước nâng, cảnh báo phạm vi 1 mỗi script. Lời nhắc `check-shape` không bật trong kịch bản này vì lệnh kiểm của nó qua ống mà vẫn được tính là đạt; độ dài lời nhắc được test giữ không quá 400 ký tự, một lần mỗi phiên.
+- Xem trước: 4 trạng thái (không cảnh báo, thường, nhẹ, cả hai) ở band 56, 72, 120 cột và pane 16, 24, 40 dòng, trước (0.7.6) và sau, bảng ở mô tả PR (bộ vẽ chữ gần đúng terminal thật, [Giả định]).
+- Quét dòng thêm và thông điệp commit (chuỗi riêng tư, em dash, emoji, dấu chấm than trong tài liệu): 0 [Đo trực tiếp].
+- Định dạng `pytest -q`: chuỗi tự viết theo dạng dòng tổng kết của pytest khi không có viền [Giả định: định dạng pytest -q theo tài liệu pytest]; fixture có sẵn của pytest 9.1.1 có viền vẫn được nhận.
+- Chưa kiểm được trên phiên thật: hot reload thật (kit test 2.1.296 không cho hook của test đọc `$.state`; khóa toast được kiểm bằng hàm của `state.ts` qua vòng JSON); `$.ui` với terminal thật ở các độ rộng trong bảng xem trước; giá trị phạm vi router ghi trong phiên đã báo lỗi phạm vi (nguyên nhân được tái hiện bằng test, chưa đối chiếu dữ liệu phiên thật).
+- CI: xem mô tả PR (commit cuối sau khi push).
+
 ## Kiểm chứng của 0.7.6 (band và pane theo thứ bậc thông tin; vòng cuối)
 
 Bản 0.7.6 nằm trên `main` sau khi PR 28 squash vào (merge `2815c4f`, không rebase; diff so với `main` chỉ còn phần 0.7.6). Mỗi điểm U1 tới U12, V1 tới V3 và W1 tới W4 một commit test đỏ rồi một commit sửa; các ca ghim đột biến chỉ đổi `tests/` [Đo trực tiếp].
