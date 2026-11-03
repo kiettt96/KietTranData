@@ -41,8 +41,9 @@ const SUMMARIES: Record<'jest' | 'vitest' | 'mocha' | 'bun' | 'pytest', Summary>
   mocha: { pass: /^(\d+) passing \(\d+(?:ms|s|m)\)$/, trailer: [/^\d+ pending$/] },
   // Bun: "12 pass", rồi skip, todo, "0 fail" (bắt buộc), expect() calls, "Ran 12 tests across 1 file. [10.00ms]".
   bun: { pass: /^(\d+) pass$/, trailer: [/^\d+ (?:skip|todo)$/, /^0 fail$/, /^\d+ expect\(\) calls$/, /^Ran \d+ tests? across \d+ files?\. \[[\d.]+m?s\]$/], requires: /^0 fail$/ },
-  // Pytest: "=== 12 passed in 0.5s ===" là dòng cuối.
-  pytest: { pass: /^=+ (\d+) passed(?:, \d+ (?:skipped|deselected|xfailed|xpassed|warnings?))* in [\d.]+s(?: \([\d:]+\))? =+$/, trailer: [] },
+  // Pytest: "=== 12 passed in 0.5s ===" là dòng cuối; pytest -q in "12 passed in 0.5s" không viền (0.7.7 X2). Viền "=" phải có ở cả hai
+  // bên hoặc không bên nào: dòng chỉ có viền một bên là output bị cắt hay lẫn, không nhận.
+  pytest: { pass: /^(?:(?=.*=$)=+ |(?!.*=$))(\d+) passed(?:, \d+ (?:skipped|deselected|xfailed|xpassed|warnings?))* in [\d.]+s(?: \([\d:]+\))?(?: =+)?$/, trailer: [] },
 }
 
 /** Output kết thúc bằng khối tổng kết đạt của trình chạy `summary`. */

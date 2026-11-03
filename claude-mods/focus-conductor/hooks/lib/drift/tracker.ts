@@ -21,6 +21,20 @@ const CHECKPOINT_CAP = 40
 /** Số lần cùng một lệnh lỗi trước khi coi là vòng lặp. */
 export const LOOP_AFTER = 3
 
+const REJECT_TEXT: Record<RejectReason, string> = {
+  failed: 'chưa đạt',
+  'ran-nothing': 'không có phép kiểm nào chạy',
+  untrusted: 'nằm trong lệnh có $( ), backtick, eval, sh -c hoặc đứng sau ||',
+  hidden: 'bị lệnh đứng sau che mã thoát',
+  pipe: 'chạy qua ống, mod không đọc được kết quả',
+}
+const REJECT_COMMAND_MAX = 60
+
+/** Đoạn lệnh trong câu cho người dùng: cắt REJECT_COMMAND_MAX ký tự, quá thì kết bằng dấu ba chấm. */
+function clipCommand(command: string): string {
+  return command.length > REJECT_COMMAND_MAX ? `${command.slice(0, REJECT_COMMAND_MAX)}…` : command
+}
+
 /** Lệnh kiểm bị loại trong turn (0.7.7 X3): đoạn lệnh kiểm và lý do không được tính là đạt. */
 export type RejectedCheck = { command: string; reason: RejectReason }
 /** Số lệnh kiểm bị loại gần nhất giữ lại trong một turn. */
@@ -129,6 +143,36 @@ function pipeSummaryHint(observation: ToolObservation, focus: Focus): Finding | 
         '(OK, PASS, ĐẠT, KẾT QUẢ: ĐẠT), nên mod không tính là đạt. Đặt `set -o pipefail;` trước lệnh kiểm. ' +
         'Không sửa script kiểm nếu người dùng không yêu cầu. Khi lệnh kiểm in kết quả lỗi: có pipefail thì lệnh thoát khác 0 và mod tính là ' +
         'chưa đạt; không có pipefail thì mod chỉ nhận ra lỗi qua dấu hiệu lỗi trong output. Lời nhắc này chỉ nói một lần trong phiên.',
+    }
+  }
+  return null
+}
+
+/** Lý do bị loại vì hình dạng lệnh (0.7.7 X2): chạy lại riêng lệnh kiểm thì mod đọc được kết quả. */
+const SHAPE_REASONS = new Set<RejectReason>(['pipe', 'hidden', 'untrusted'])
+const SHAPE_COMMAND_MAX = 80
+
+/**
+ * Lệnh kiểm chạy xong không lỗi nhưng bị loại vì hình dạng (qua ống, che mã thoát, thay thế lệnh) (0.7.7 X2): nhắc một lần trong phiên chạy
+ * lại riêng lệnh kiểm. Như `pipeSummaryHint`, khóa `check-shape` chỉ được ghi khi lời nhắc thật sự được chèn. null khi không áp dụng.
+ */
+function checkShapeHint(observation: ToolObservation, focus: Focus): Finding | null {
+  if (observation.tool !== 'Bash' || observation.isError || outputFailed(observation.output)) return null
+  if (focus.hints?.has('check-shape')) return null
+  for (const effect of classifyBash(str(observation.input['command'])).effects) {
+    if (effect.kind !== 'check') continue
+    const reason = rejectReason(effect, observation)
+    if (reason === null || !SHAPE_REASONS.has(reason)) continue
+    const command = effect.segment.length > SHAPE_COMMAND_MAX ? `${effect.segment.slice(0, SHAPE_COMMAND_MAX)}…` : effect.segment
+    return {
+      kind: 'unverified',
+      priority: 1,
+      hint: 'check-shape',
+      text: `Lệnh kiểm "${clipCommand(effect.segment)}" ${REJECT_TEXT[reason]}, chưa tính là đạt`,
+      context:
+        `[focus-conductor] Lệnh kiểm "${command}" ${REJECT_TEXT[reason]}, nên chưa tính là đạt. Chạy lại riêng lệnh kiểm: không qua ống, ` +
+        'không có ; hay || đứng sau, không $( ); có thể dùng cờ rút gọn như -q, --silent. Không sửa script kiểm khi người dùng không yêu cầu. ' +
+        'Lời nhắc này chỉ nói một lần trong phiên.',
     }
   }
   return null
@@ -315,7 +359,7 @@ export function observe(
   if (focus === null) return findings
 
   // Lệnh kiểm riêng qua ống không pipefail mà dòng cuối không phải dòng tổng kết (S5): nhắc một lần trong phiên.
-  const hint = pipeSummaryHint(observation, focus)
+  const hint = pipeSummaryHint(observation, focus) ?? checkShapeHint(observation, focus)
   if (hint !== null) findings.push(hint)
 
   // Phạm vi: file của Edit/Write và file đích của lệnh Bash có ghi (kể cả lệnh lỗi, vì có thể đã ghi một phần).
@@ -428,14 +472,6 @@ function unverifiedText(tracker: TurnTracker): string {
   return `${tracker.mutationsSinceCheck} thay đổi của luồng chính và ${sub} thay đổi của subagent sau lần kiểm tra cuối chưa được kiểm tra lại`
 }
 
-const REJECT_TEXT: Record<RejectReason, string> = {
-  failed: 'chưa đạt',
-  'ran-nothing': 'không có phép kiểm nào chạy',
-  untrusted: 'nằm trong lệnh có $( ), backtick, eval, sh -c hoặc đứng sau ||',
-  hidden: 'bị lệnh đứng sau che mã thoát',
-  pipe: 'chạy qua ống, mod không đọc được kết quả',
-}
-const REJECT_COMMAND_MAX = 60
 
 /**
  * Câu cuối turn khi không có lệnh kiểm nào được tính (0.7.7 X3): nêu lệnh kiểm bị loại gần nhất và lý do; không có thì giữ câu cũ.
@@ -444,8 +480,7 @@ function noCheckText(tracker: TurnTracker): string {
   const base = `Turn có ${tracker.mutations} thay đổi nhưng không chạy bước kiểm tra nào`
   const last = tracker.rejected.at(-1)
   if (last !== undefined) {
-    const command = last.command.length > REJECT_COMMAND_MAX ? `${last.command.slice(0, REJECT_COMMAND_MAX)}…` : last.command
-    return `${base} được tính: "${command}" ${REJECT_TEXT[last.reason]}`
+    return `${base} được tính: "${clipCommand(last.command)}" ${REJECT_TEXT[last.reason]}`
   }
   return base
 }
