@@ -459,7 +459,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     const core = S.normalizeCore(await read($, coreState))
     // Đang dừng vì hạn mức: không có thông báo cuối turn nào (Claude đã được yêu cầu chỉ ghi điểm dừng).
     const isPaused = normalizeQuota(await read($, quotaState)).pause !== null
-    const findings = isPaused ? [] : summarize(L.tracker, core.brief, core.plan)
+    const findings = isPaused ? [] : summarize(L.tracker, core.brief, core.plan, core.brief !== null && L.tracker.checks === 0 ? suggestCheckCommands(evidenceFor(core.brief.goalId)) : [])
     const warnings: Warning[] = findings.map(f => ({
       at,
       kind: f.kind === 'checkpoint' ? 'unverified' : f.kind,

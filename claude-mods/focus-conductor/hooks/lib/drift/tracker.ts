@@ -474,26 +474,28 @@ function unverifiedText(tracker: TurnTracker): string {
 
 
 /**
- * Câu cuối turn khi không có lệnh kiểm nào được tính (0.7.7 X3): nêu lệnh kiểm bị loại gần nhất và lý do; không có thì giữ câu cũ.
+ * Câu cuối turn khi không có lệnh kiểm nào được tính (0.7.7 X3): nêu lệnh kiểm bị loại gần nhất và lý do; không có thì nêu script kiểm đã chạy
+ * mà chưa khai (gợi ý đầu tiên; câu không nêu tên option vì toast gợi ý của 0.7.3 đã nêu); không có gì thì giữ câu cũ.
  */
-function noCheckText(tracker: TurnTracker): string {
+function noCheckText(tracker: TurnTracker, suggestions: readonly string[]): string {
   const base = `Turn có ${tracker.mutations} thay đổi nhưng không chạy bước kiểm tra nào`
   const last = tracker.rejected.at(-1)
   if (last !== undefined) {
     return `${base} được tính: "${clipCommand(last.command)}" ${REJECT_TEXT[last.reason]}`
   }
-  return base
+  const hint = suggestions[0]
+  return hint !== undefined ? `${base} được tính: script kiểm "${hint}" chưa được khai là lệnh kiểm` : base
 }
 
-/** Phát hiện ở cuối turn: còn thay đổi chưa kiểm tra, checklist còn mở. */
-export function summarize(tracker: TurnTracker, brief: Brief | null, plan: readonly PlanStep[]): Finding[] {
+/** Phát hiện ở cuối turn: còn thay đổi chưa kiểm tra, checklist còn mở. `suggestions`: script kiểm đã chạy mà chưa khai (suggestCheckCommands). */
+export function summarize(tracker: TurnTracker, brief: Brief | null, plan: readonly PlanStep[], suggestions: readonly string[] = []): Finding[] {
   const findings: Finding[] = []
   if (brief === null) return findings
   if (tracker.mutations > 0 && !tracker.isVerified && brief.tier !== 'trivial') {
     findings.push({
       kind: 'unverified',
       priority: 1,
-      text: tracker.checks === 0 ? noCheckText(tracker) : unverifiedText(tracker),
+      text: tracker.checks === 0 ? noCheckText(tracker, suggestions) : unverifiedText(tracker),
     })
   }
   const open = openSteps(plan)

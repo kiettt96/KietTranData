@@ -558,7 +558,7 @@ export const MUTANTS: Mutant[] = [
   { id: "060-L5", file: "hooks/parts/consistency.ts", note: "plan update vẫn nhắc khi đang dừng", old: "const isUpdate = input.action === 'update' && !isPaused", new: "const isUpdate = input.action === 'update'" },
   { id: "060-L6", file: "hooks/parts/consistency.ts", note: "Stop vẫn chặn khi đang dừng", old: "if (quota.pause !== null) return result", new: "if (false) return result" },
   { id: "060-L7", file: "hooks/parts/consistency.ts", note: "agent bị cắt khi dừng vẫn tính là xong", old: "{ agent: 'cut', delegation: 'failed' } : { agent: 'done'", new: "{ agent: 'cut', delegation: 'done' } : { agent: 'done'" },
-  { id: "060-L8", file: "hooks/parts/consistency.ts", note: "turn.complete vẫn tổng kết khi đang dừng", old: "const findings = isPaused ? [] : summarize(L.tracker, core.brief, core.plan)", new: "const findings = summarize(L.tracker, core.brief, core.plan)" },
+  { id: "060-L8", file: "hooks/parts/consistency.ts", note: "turn.complete vẫn tổng kết khi đang dừng", old: "const findings = isPaused ? [] : summarize(", new: "const findings = summarize(" },
   { id: "060-L9", file: "hooks/parts/consistency.ts", note: "vẫn cảnh báo chi phí chờ giao khi đang dừng", old: "if (!isPaused && waiting.length > 0", new: "if (waiting.length > 0" },
   // 060-M: lệnh pause và resume (parts/command.ts)
   { id: "060-M1", file: "hooks/parts/command.ts", note: "pause khi quotaGuard tắt không báo", old: "if (!settings.enabled) return { text: 'Bảo vệ hạn mức", new: "if (false) return { text: 'Bảo vệ hạn mức" },
@@ -1792,4 +1792,7 @@ export const MUTANTS: Mutant[] = [
   { id: "077-X2e", file: "hooks/lib/drift/tracker.ts", note: "check-shape nhắc cả khi output báo lỗi", old: "if (observation.tool !== 'Bash' || observation.isError || outputFailed(observation.output)) return null\n  if (focus.hints?.has('check-shape'))", new: "if (observation.tool !== 'Bash' || observation.isError) return null\n  if (focus.hints?.has('check-shape'))" },
   { id: "077-X2f", file: "hooks/lib/drift/tracker.ts", note: "lệnh trong lời nhắc không bị cắt", old: "effect.segment.length > SHAPE_COMMAND_MAX ?", new: "false ?" },
   { id: "077-X2g", file: "hooks/lib/drift/tracker.ts", note: "nhắc cả khi bị loại vì không có phép kiểm nào chạy", old: "new Set<RejectReason>(['pipe', 'hidden', 'untrusted'])", new: "new Set<RejectReason>(['pipe', 'hidden', 'untrusted', 'ran-nothing'])" },
+  { id: "077-X3j", file: "hooks/lib/drift/tracker.ts", note: "không nêu gợi ý script kiểm chưa khai", old: "  return hint !== undefined ? `${base} được tính: script kiểm", new: "  return false ? `${base} được tính: script kiểm" },
+  { id: "077-X3k", file: "hooks/lib/drift/tracker.ts", note: "câu gợi ý nêu gợi ý cuối thay vì đầu", old: "const hint = suggestions[0]", new: "const hint = suggestions.at(-1)" },
+  { id: "077-X3l", file: "hooks/parts/consistency.ts", note: "không truyền gợi ý vào câu cuối turn", old: "core.brief !== null && L.tracker.checks === 0 ? suggestCheckCommands(evidenceFor(core.brief.goalId)) : [])", new: "[])" },
 ]
