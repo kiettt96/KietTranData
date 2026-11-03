@@ -23,6 +23,9 @@ import { EDIT_TOOLS, ERROR_BURST } from '../context'
 
 // Atom của mod, khai báo lại ở mỗi file dùng chúng (engine chỉ nhận tham chiếu state viết trong chính file đó);
 // cùng plugin và key nên là cùng một giá trị trong $.state.
+/** Số lệnh kiểm bị loại gần nhất ghi vào dòng unverified của nhật ký quyết định (0.7.7 X5). */
+const UNVERIFIED_REJECTED = 3
+
 const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EMPTY_CORE)
 const bandHiddenState = atom({ plugin: 'focus-conductor', key: 'isBandHidden' } as const, false)
 const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null)
@@ -515,6 +518,12 @@ export function registerConsistency(on: On, ctx: Ctx): void {
         $.ui.toast(unverified.text)
         await update($, coreState, S.withToasted(core.brief.goalId, key))
       }
+    }
+    // Nhật ký quyết định (0.7.7 X5): vì sao turn bị báo chưa kiểm, kể cả khi không toast.
+    if (unverified) {
+      const rejected = L.tracker.rejected.slice(-UNVERIFIED_REJECTED).map(r => ({ command: clipText(r.command, 120), reason: r.reason }))
+      record(at, 'unverified', { mutations: L.tracker.mutations, checks: L.tracker.checks, rejected, soft: false })
+      await flushDecisions((path, text) => $.fs.write(path, text))
     }
     // Cả turn không có lệnh kiểm nào được nhận: kèm gợi ý khai checkCommands nếu có script kiểm đã chạy (0.7.3).
     if (unverified && L.tracker.checks === 0 && !isPaused && core.brief !== null) await offerCheckHint($, core.brief.goalId, suggestCheckCommands(evidenceFor(core.brief.goalId)))

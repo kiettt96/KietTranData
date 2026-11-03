@@ -1803,4 +1803,8 @@ export const MUTANTS: Mutant[] = [
   { id: "077-X4f", file: "hooks/lib/state.ts", note: "Core cũ không có mặc định toasted", old: "    toasted: raw.toasted ?? { goalId: -1, keys: [] },\n", new: "    toasted: raw.toasted as never,\n" },
   { id: "077-S1", file: "hooks/lib/drift/scope.ts", note: "mục trông như tên file không còn khớp như thư mục (thư mục có số phiên bản)", old: "&& name === s) return true", new: "&& true) return name === s" },
   { id: "077-S2", file: "hooks/lib/drift/scope.ts", note: "mục tên file không còn khớp theo tên file trong gốc", old: "/\\.[A-Za-z0-9]+$/.test(s) && name === s) return true", new: "/\\.[A-Za-z0-9]+$/.test(s) && false) return true" },
+  { id: "077-X5a", file: "hooks/parts/consistency.ts", note: "không ghi dòng unverified", old: "      record(at, 'unverified', {", new: "      if (false) record(at, 'unverified', {" },
+  { id: "077-X5b", file: "hooks/parts/consistency.ts", note: "ghi mọi lệnh bị loại thay vì 3 mục gần nhất", old: "L.tracker.rejected.slice(-UNVERIFIED_REJECTED)", new: "L.tracker.rejected" },
+  { id: "077-X5c", file: "hooks/parts/consistency.ts", note: "lệnh trong dòng unverified không bị cắt", old: "command: clipText(r.command, 120)", new: "command: r.command" },
+  { id: "077-X5d", file: "hooks/parts/consistency.ts", note: "dòng unverified không được ghi ra file", old: "      record(at, 'unverified', { mutations: L.tracker.mutations, checks: L.tracker.checks, rejected, soft: false })\n      await flushDecisions((path, text) => $.fs.write(path, text))\n", new: "      record(at, 'unverified', { mutations: L.tracker.mutations, checks: L.tracker.checks, rejected, soft: false })\n" },
 ]
