@@ -218,7 +218,7 @@ export function renderPane(
     )
   const shownWarnings = new Set(attentionShown.map(item => item.warning).filter(w => w !== undefined))
   const recentWarnings = warnings.filter(w => w.at >= brief.at && !shownWarnings.has(w)).slice(-5).reverse()
-  const latest = warnings.filter(w => w.at >= brief.at).at(-1)
+  const latest = warnings.filter(w => w.at >= brief.at && w.isSoft !== true).at(-1)
   const spine = latest ? severityOf(latest.kind) : 'claude'
 
   // ------------------------------------------------------------- mục tiêu
@@ -310,7 +310,7 @@ export function renderPane(
           )
           const message = (
             <Box flexGrow={1} flexShrink={1}>
-              <Text wrap="wrap">{`${severityGlyph(severity)} ${shownWarning(w.text, view.lang)}`}</Text>
+              <Text wrap="wrap" dimColor={w.isSoft === true}>{`${severityGlyph(severity)} ${shownWarning(w.text, view.lang)}`}</Text>
             </Box>
           )
           // Pane hẹp: chip nằm trên dòng riêng để lời cảnh báo có đủ chiều rộng.

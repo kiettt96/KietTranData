@@ -10,7 +10,7 @@ import type { BashEffect } from './classify'
 import { isMutation, writeEffects } from './effects'
 import { checkEffectPassed, lacksSummary, outputFailed, rejectReason } from './output'
 import type { RejectReason } from './output'
-import { scopeStatus } from './scope'
+import { normalizePath, scopeStatus } from './scope'
 import { isCustomCheck, normalizePython } from './verify'
 
 /** Số thay đổi liên tiếp chưa kiểm tra trước khi nhắc checkpoint đầu tiên. */
@@ -56,6 +56,16 @@ export type TurnTracker = {
   pendingChanges: Map<string, number>
   /** Số lệnh kiểm tra đạt trong turn (để câu báo phân biệt "chưa kiểm tra lần nào" với "sửa sau lần kiểm tra cuối"). */
   checks: number
+  /**
+   * Tài liệu đã đọc lại (0.7.7 X6): từ lần kiểm đạt cuối của luồng chính (hay đầu turn), đích đã ghi và thứ tự lần ghi cuối (`docWrites`),
+   * số lần ghi (`docChanges`), có lần ghi không đọc được đích (`docUnknown`); `reads` là thứ tự lần Read cuối của từng file; `seq` đếm
+   * tool call của luồng chính và subagent cùng mục tiêu.
+   */
+  docWrites: Map<string, number>
+  docChanges: number
+  docUnknown: boolean
+  reads: Map<string, number>
+  seq: number
   /** Lệnh kiểm bị loại trong turn, tối đa REJECTED_KEEP mục gần nhất, kể cả của subagent cùng mục tiêu (0.7.7 X3). */
   rejected: RejectedCheck[]
   /** Số lời gọi Agent thành công: turn chỉ giao subagent vẫn là turn đang thực thi mục tiêu. */
@@ -89,6 +99,11 @@ export function newTracker(turnId: string): TurnTracker {
     pendingChanges: new Map(),
     checks: 0,
     rejected: [],
+    docWrites: new Map(),
+    docChanges: 0,
+    docUnknown: false,
+    reads: new Map(),
+    seq: 0,
     delegated: 0,
     unknownWrites: new Set(),
     rootWarned: false,
@@ -208,6 +223,8 @@ export type Finding = {
   priority: number
   /** Khóa lời nhắc một lần trong phiên (T6): hook ghi khóa vào `focus.hints` chỉ khi phát hiện này được chèn vào kết quả tool. */
   hint?: string
+  /** Cảnh báo chưa kiểm ở mức nhẹ (0.7.7 X6): chỉ ghi tài liệu và đã đọc lại; không toast, không vào band. */
+  isSoft?: true
   /** Nguyên nhân của cảnh báo chưa kiểm cuối turn (0.7.7 X4): nhánh câu, lý do và đoạn lệnh bị loại, không gồm số thay đổi. */
   cause?: string
 }
@@ -233,9 +250,14 @@ function signature(observation: ToolObservation): string {
  * tra chỉ đạt khi được tin, lệnh không lỗi, output không báo lỗi, và (khi bị nối ống) output có dấu hiệu đạt rõ.
  * Trả số lần ghi đã đếm.
  */
-export function trackVerification(tracker: TurnTracker, observation: ToolObservation, author = 'main'): number {
+export function trackVerification(tracker: TurnTracker, observation: ToolObservation, author = 'main', cwd: string | null = null): number {
   let writes = 0
+  tracker.seq += 1
+  const seq = tracker.seq
+  // Đích của Edit, Write, Read: tuyệt đối, hoặc nối với thư mục làm việc; không có thì giữ dạng chuẩn hóa (cùng cách cho ghi và đọc).
+  const fileTarget = (path: string) => (path.startsWith('/') || !cwd ? normalizePath(path) : normalizePath(`${cwd}/${path}`))
   const onWrite = () => {
+    tracker.docChanges += 1
     tracker.mutations += 1
     // Nhịp nhắc checkpoint là của luồng chính: ghi của subagent làm luồng chính chưa được kiểm chứng (pending) nhưng không tiến nhịp.
     if (author === 'main') tracker.mutationsSinceCheck += 1
@@ -246,7 +268,15 @@ export function trackVerification(tracker: TurnTracker, observation: ToolObserva
   }
   if (FILE_TOOLS.has(observation.tool)) {
     // Edit, Write, NotebookEdit lỗi thì không ghi file.
-    if (!observation.isError && !isPlanFile(filePathOf(observation))) onWrite()
+    if (!observation.isError && !isPlanFile(filePathOf(observation))) {
+      onWrite()
+      tracker.docWrites.set(fileTarget(filePathOf(observation)), seq)
+    }
+    return writes
+  }
+  if (observation.tool === 'Read' && !observation.isError) {
+    const path = str(observation.input['file_path'])
+    if (path !== '') tracker.reads.set(fileTarget(path), seq)
     return writes
   }
   if (observation.tool !== 'Bash') return writes
@@ -254,7 +284,15 @@ export function trackVerification(tracker: TurnTracker, observation: ToolObserva
   const counted = new Set<BashEffect>(writeEffects(classified, observation.isReadOnly))
   for (const effect of classified.effects) {
     if (effect.kind === 'write') {
-      if (counted.has(effect)) onWrite()
+      if (!counted.has(effect)) continue
+      onWrite()
+      // Đích đọc được của lệnh Bash; đường dẫn tương đối nối với thư mục làm việc như khi kiểm phạm vi, không nối được là đích lạ.
+      if (effect.isUnknown || effect.paths.length === 0) tracker.docUnknown = true
+      for (const path of effect.paths) {
+        if (path.startsWith('/')) tracker.docWrites.set(normalizePath(path), seq)
+        else if (cwd) tracker.docWrites.set(normalizePath(`${cwd}/${path}`), seq)
+        else tracker.docUnknown = true
+      }
       continue
     }
     const reason = rejectReason(effect, observation)
@@ -266,6 +304,9 @@ export function trackVerification(tracker: TurnTracker, observation: ToolObserva
     tracker.checks += 1
     if (author === 'main') {
       tracker.pending.clear()
+      tracker.docWrites.clear()
+      tracker.docChanges = 0
+      tracker.docUnknown = false
     } else {
       tracker.pending.delete(author)
       tracker.pendingChanges.delete(author)
@@ -349,7 +390,7 @@ export function observe(
     }
   }
 
-  const writes = trackVerification(tracker, observation)
+  const writes = trackVerification(tracker, observation, 'main', focus?.cwd ?? null)
   // Đếm lỗi lặp (0.7.5): chính lệnh đó chạy đạt thì đặt lại đếm của nó; có ghi file sau lần lỗi trước thì đặt lại mọi đếm
   // (đã sửa gì đó trước khi thử lại, không phải lặp nguyên trạng).
   if (!observation.isError) {
@@ -507,11 +548,31 @@ function causeOf(tracker: TurnTracker, suggestions: readonly string[]): string {
   return 'rejected' in branch ? `rejected:${branch.rejected.reason}:${branch.rejected.command}` : `hint:${branch.hint}`
 }
 
+/** Đuôi tài liệu của cảnh báo nhẹ (0.7.7 X6), không phân biệt hoa thường. */
+const DOC_FILE = /\.(?:md|markdown|txt)$/i
+
+/**
+ * Turn (từ lần kiểm đạt cuối của luồng chính) chỉ ghi tài liệu và đã Read lại từng file sau lần ghi cuối (0.7.7 X6): mọi lần ghi có đích đọc
+ * được, mọi đích là tài liệu, mỗi đích có một Read sau lần ghi cuối. Đọc lại là bằng chứng yếu: chỉ hạ mức hiển thị, không đổi isVerified.
+ */
+function isSoftDocs(tracker: TurnTracker): boolean {
+  if (tracker.docChanges === 0 || tracker.docUnknown || tracker.docWrites.size === 0) return false
+  return [...tracker.docWrites].every(([path, wrote]) => DOC_FILE.test(path) && (tracker.reads.get(path) ?? 0) > wrote)
+}
+
 /** Phát hiện ở cuối turn: còn thay đổi chưa kiểm tra, checklist còn mở. `suggestions`: script kiểm đã chạy mà chưa khai (suggestCheckCommands). */
 export function summarize(tracker: TurnTracker, brief: Brief | null, plan: readonly PlanStep[], suggestions: readonly string[] = []): Finding[] {
   const findings: Finding[] = []
   if (brief === null) return findings
-  if (tracker.mutations > 0 && !tracker.isVerified && brief.tier !== 'trivial') {
+  if (tracker.mutations > 0 && !tracker.isVerified && brief.tier !== 'trivial' && isSoftDocs(tracker)) {
+    findings.push({
+      kind: 'unverified',
+      priority: 1,
+      isSoft: true,
+      text: `Turn có ${tracker.docChanges} thay đổi tài liệu, đã đọc lại sau lần ghi cuối, chưa có lệnh kiểm`,
+      cause: 'soft-docs',
+    })
+  } else if (tracker.mutations > 0 && !tracker.isVerified && brief.tier !== 'trivial') {
     findings.push({
       kind: 'unverified',
       priority: 1,

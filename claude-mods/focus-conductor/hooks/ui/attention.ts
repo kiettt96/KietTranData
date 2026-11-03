@@ -58,7 +58,7 @@ export function attentionItems(core: Core, lang: Lang, quota: { paused: boolean;
   if (quota.notice !== null) items.push({ rank: 3, severity: 'warning', text: quota.notice, kind: 'notice', order: 0 })
   const isPlannedFanout = brief.tasks.some(task => task.run === 'agent')
   core.warnings
-    .filter(w => w.at >= brief.at && w.kind !== 'cost' && !(w.kind === 'budget' && isPlannedFanout))
+    .filter(w => w.at >= brief.at && w.kind !== 'cost' && w.isSoft !== true && !(w.kind === 'budget' && isPlannedFanout))
     .forEach((w, i) => items.push({ rank: WARNING_RANK[w.kind] ?? OTHER_RANK, severity: severityOf(w.kind), text: shownWarning(w.text, lang), kind: w.kind, warning: w, order: -i }))
   return items.sort((a, b) => a.rank - b.rank || a.order - b.order).map(({ order: _order, ...item }) => item)
 }

@@ -45,6 +45,10 @@ describe('0.7.7 X6: cảnh báo nhẹ khi chỉ sửa tài liệu và đã đọ
     expect(finding([bash("cat > /p/a.md <<'EOF'\nx\nEOF"), read('/p/a.md')]).found?.isSoft).toBe(true)
   })
 
+  test('Bash ghi a.md bằng đường dẫn tương đối khi không biết thư mục làm việc: thường', () => {
+    expect(finding([bash("cat > a.md <<'EOF'\nx\nEOF"), read('a.md')]).found?.isSoft).toBeUndefined()
+  })
+
   test('python3 gen.py cùng Edit a.md và Read a.md: thường (lệnh lạ không đọc được đích)', () => {
     expect(finding([bash('python3 gen.py'), edit('/p/a.md'), read('/p/a.md')]).found?.isSoft).toBeUndefined()
   })

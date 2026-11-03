@@ -154,6 +154,8 @@ export type Warning = {
   at: number
   kind: WarningKind
   text: string
+  /** Cảnh báo chưa kiểm ở mức nhẹ (0.7.7 X6): không vào band hay Cần chú ý, pane ghi mờ. Vắng ở trạng thái từ bản cũ. */
+  isSoft?: true
 }
 
 /** Nhóm chi phí: luồng chính, subagent, hoặc lượt router đọc prompt và chấm subagent (khóa cũ 'analyzer'). */

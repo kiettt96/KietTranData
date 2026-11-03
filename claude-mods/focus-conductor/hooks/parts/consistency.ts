@@ -256,7 +256,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       // subagent sửa sau lần test của luồng chính thì luồng chính phải kiểm tra lại; test của subagent chỉ phủ phần nó sửa.
       if (agentBrief !== null && meta.goalId === agentBrief.goalId) {
         noteEvidence(evidenceFor(agentBrief.goalId), observation, e.agentId)
-        trackVerification(L.tracker, observation, e.agentId)
+        trackVerification(L.tracker, observation, e.agentId, (await frameOf($, L.roots, agentBrief.goalId, agentBrief.scopePaths)).cwd)
         // Subagent sửa file: bước tự nâng thành verified về done, như thay đổi của luồng chính (0.7.0).
         if (!observation.isError && isMutation(observation) && S.hasAutoVerified(S.normalizeCore(await read($, coreState)))) {
           await update($, coreState, S.withAutoDemoted)
@@ -467,6 +467,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       at,
       kind: f.kind === 'checkpoint' ? 'unverified' : f.kind,
       text: f.text,
+      ...(f.isSoft === true ? { isSoft: true as const } : {}),
     }))
     let ledger = core.ledger
     if (e.usage) {
@@ -512,7 +513,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     })
     const unverified = findings.find(f => f.kind === 'unverified')
     // Mỗi nguyên nhân toast một lần trong mục tiêu (0.7.7 X4); khóa lưu trong Core nên giữ qua hot reload. Band và pane vẫn ghi.
-    if (unverified && core.brief !== null) {
+    if (unverified && core.brief !== null && unverified.isSoft !== true) {
       const key = unverified.cause ?? unverified.text
       if (!S.isToasted(S.normalizeCore(await read($, coreState)), core.brief.goalId, key)) {
         $.ui.toast(unverified.text)
@@ -522,11 +523,11 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     // Nhật ký quyết định (0.7.7 X5): vì sao turn bị báo chưa kiểm, kể cả khi không toast.
     if (unverified) {
       const rejected = L.tracker.rejected.slice(-UNVERIFIED_REJECTED).map(r => ({ command: clipText(r.command, 120), reason: r.reason }))
-      record(at, 'unverified', { mutations: L.tracker.mutations, checks: L.tracker.checks, rejected, soft: false })
+      record(at, 'unverified', { mutations: L.tracker.mutations, checks: L.tracker.checks, rejected, soft: unverified.isSoft === true })
       await flushDecisions((path, text) => $.fs.write(path, text))
     }
     // Cả turn không có lệnh kiểm nào được nhận: kèm gợi ý khai checkCommands nếu có script kiểm đã chạy (0.7.3).
-    if (unverified && L.tracker.checks === 0 && !isPaused && core.brief !== null) await offerCheckHint($, core.brief.goalId, suggestCheckCommands(evidenceFor(core.brief.goalId)))
+    if (unverified && unverified.isSoft !== true && L.tracker.checks === 0 && !isPaused && core.brief !== null) await offerCheckHint($, core.brief.goalId, suggestCheckCommands(evidenceFor(core.brief.goalId)))
     await showStatus($, await read($, view), ctx.options)
     return result
   })
