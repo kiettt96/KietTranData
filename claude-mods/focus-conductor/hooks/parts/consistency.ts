@@ -508,7 +508,14 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       return hadFinding ? marked : S.withLiftDecay(marked)
     })
     const unverified = findings.find(f => f.kind === 'unverified')
-    if (unverified) $.ui.toast(unverified.text)
+    // Mỗi nguyên nhân toast một lần trong mục tiêu (0.7.7 X4); khóa lưu trong Core nên giữ qua hot reload. Band và pane vẫn ghi.
+    if (unverified && core.brief !== null) {
+      const key = unverified.cause ?? unverified.text
+      if (!S.isToasted(S.normalizeCore(await read($, coreState)), core.brief.goalId, key)) {
+        $.ui.toast(unverified.text)
+        await update($, coreState, S.withToasted(core.brief.goalId, key))
+      }
+    }
     // Cả turn không có lệnh kiểm nào được nhận: kèm gợi ý khai checkCommands nếu có script kiểm đã chạy (0.7.3).
     if (unverified && L.tracker.checks === 0 && !isPaused && core.brief !== null) await offerCheckHint($, core.brief.goalId, suggestCheckCommands(evidenceFor(core.brief.goalId)))
     await showStatus($, await read($, view), ctx.options)

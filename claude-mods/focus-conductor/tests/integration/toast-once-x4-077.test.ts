@@ -48,6 +48,14 @@ describe('0.7.7 X4: một toast cho mỗi nguyên nhân trong mục tiêu', () =
     expect(seen.toasts.filter(isUnverified).length).toBe(2)
   })
 
+  test('turn hai cùng lý do nhưng lệnh bị loại khác: hai toast', {}, async ($, on) => {
+    const seen = setup(on)
+    await submit($, 'Sửa module thanh toán')
+    await turn($, 1, 'npm test 2>&1 | tail -20')
+    await turn($, 2, 'npx vitest run 2>&1 | tail -20')
+    expect(seen.toasts.filter(isUnverified).length).toBe(2)
+  })
+
   test('mục tiêu mới: toast lại cùng nguyên nhân', {}, async ($, on) => {
     const seen = setup(on)
     await submit($, 'Sửa module thanh toán')

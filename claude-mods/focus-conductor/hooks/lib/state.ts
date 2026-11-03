@@ -38,6 +38,7 @@ export const EMPTY_CORE: Core = {
   checkHint: null,
   turnFault: null,
   closing: { seq: 0, goalId: -1, lastPassSeq: null },
+  toasted: { goalId: -1, keys: [] },
 }
 
 const LOG_LIMIT = 60
@@ -97,6 +98,24 @@ export const withCheckHint =
   (hint: CheckHint | null) =>
   (c: Core): Core => ({ ...normalizeCore(c), checkHint: hint })
 
+/** Số khóa toast giữ lại cho một mục tiêu (0.7.7 X4). */
+const TOASTED_LIMIT = 20
+
+/** Khóa nguyên nhân đã toast trong mục tiêu (0.7.7 X4). */
+export function isToasted(c: Core, goalId: number, key: string): boolean {
+  const n = normalizeCore(c)
+  return n.toasted.goalId === goalId && n.toasted.keys.includes(key)
+}
+
+/** Ghi khóa nguyên nhân vừa toast; mục tiêu khác thì bắt đầu danh sách mới (0.7.7 X4). */
+export const withToasted =
+  (goalId: number, key: string) =>
+  (c: Core): Core => {
+    const n = normalizeCore(c)
+    const keys = n.toasted.goalId === goalId ? n.toasted.keys : []
+    return { ...n, toasted: { goalId, keys: [...keys.filter(k => k !== key), key].slice(-TOASTED_LIMIT) } }
+  }
+
 /** Ghi (hoặc xóa) turn lỗi gần nhất của luồng chính (0.7.3). */
 export const withTurnFault =
   (fault: TurnFault | null) =>
@@ -125,6 +144,7 @@ export function normalizeCore(raw: Partial<Core>): Core {
     checkHint: raw.checkHint ?? null,
     turnFault: raw.turnFault ?? null,
     closing: raw.closing ?? { seq: 0, goalId: -1, lastPassSeq: null },
+    toasted: raw.toasted ?? { goalId: -1, keys: [] },
   }
 }
 

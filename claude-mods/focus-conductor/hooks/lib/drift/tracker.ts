@@ -208,6 +208,8 @@ export type Finding = {
   priority: number
   /** Khóa lời nhắc một lần trong phiên (T6): hook ghi khóa vào `focus.hints` chỉ khi phát hiện này được chèn vào kết quả tool. */
   hint?: string
+  /** Nguyên nhân của cảnh báo chưa kiểm cuối turn (0.7.7 X4): nhánh câu, lý do và đoạn lệnh bị loại, không gồm số thay đổi. */
+  cause?: string
 }
 
 /** Số mốc checkpoint đã qua khi có `count` thay đổi liên tiếp chưa kiểm. */
@@ -479,12 +481,30 @@ function unverifiedText(tracker: TurnTracker): string {
  */
 function noCheckText(tracker: TurnTracker, suggestions: readonly string[]): string {
   const base = `Turn có ${tracker.mutations} thay đổi nhưng không chạy bước kiểm tra nào`
+  const branch = noCheckBranch(tracker, suggestions)
+  if (branch === null) return base
+  return 'rejected' in branch
+    ? `${base} được tính: "${clipCommand(branch.rejected.command)}" ${REJECT_TEXT[branch.rejected.reason]}`
+    : `${base} được tính: script kiểm "${branch.hint}" chưa được khai là lệnh kiểm`
+}
+
+/** Nhánh của câu khi không có lệnh kiểm nào được tính (0.7.7): lệnh kiểm bị loại gần nhất, không có thì gợi ý script kiểm đầu tiên. */
+function noCheckBranch(tracker: TurnTracker, suggestions: readonly string[]): { rejected: RejectedCheck } | { hint: string } | null {
   const last = tracker.rejected.at(-1)
-  if (last !== undefined) {
-    return `${base} được tính: "${clipCommand(last.command)}" ${REJECT_TEXT[last.reason]}`
-  }
+  if (last !== undefined) return { rejected: last }
   const hint = suggestions[0]
-  return hint !== undefined ? `${base} được tính: script kiểm "${hint}" chưa được khai là lệnh kiểm` : base
+  return hint !== undefined ? { hint } : null
+}
+
+/**
+ * Khóa nguyên nhân của cảnh báo chưa kiểm (0.7.7 X4), cùng nhánh với câu: sau lần kiểm cuối; có lệnh bị loại (lý do, đoạn lệnh); có gợi ý
+ * script kiểm chưa khai; không có lệnh kiểm. Không gồm số thay đổi.
+ */
+function causeOf(tracker: TurnTracker, suggestions: readonly string[]): string {
+  if (tracker.checks > 0) return 'after-check'
+  const branch = noCheckBranch(tracker, suggestions)
+  if (branch === null) return 'no-check'
+  return 'rejected' in branch ? `rejected:${branch.rejected.reason}:${branch.rejected.command}` : `hint:${branch.hint}`
 }
 
 /** Phát hiện ở cuối turn: còn thay đổi chưa kiểm tra, checklist còn mở. `suggestions`: script kiểm đã chạy mà chưa khai (suggestCheckCommands). */
@@ -496,6 +516,7 @@ export function summarize(tracker: TurnTracker, brief: Brief | null, plan: reado
       kind: 'unverified',
       priority: 1,
       text: tracker.checks === 0 ? noCheckText(tracker, suggestions) : unverifiedText(tracker),
+      cause: causeOf(tracker, suggestions),
     })
   }
   const open = openSteps(plan)
