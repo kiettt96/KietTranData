@@ -18,6 +18,8 @@ Vấn đề: lượt rà soát toàn mod trên 0.7.7 tìm ra tám lỗ hổng so
 
 Lệch đặc tả đã ghi: dòng `interject` ghi `toAgent: 0` và `liftable` lúc nhận tin, số việc thật sự chuyển sang subagent ghi ở dòng `interject-deliver`, vì engine chỉ báo tin đi đường nào sau `prompt.submit`.
 
+Lượt đột biến tổng 693 mẫu: 685 bị bắt, 8 tương đương, 0 sống sót. Mười hai mẫu sống sót ở lượt đầu có test bắt riêng, chỉ đổi `tests/`: `078-G1d`, `078-G1e`, `078-G4j`, `078-G9f`, `078-G9i`, `078-G9j`, `078-G9l`, `078-G9m`, `078-G9o`, `078-G9r`, và hai mẫu sống sót từ trước 0.7.8 (cả trên `main` 0.7.7): `075-S8a` (cảnh báo mục bị bỏ đứng trên cảnh báo chưa kiểm), `077-X6i` (ghi tài liệu bằng đường dẫn tương đối không nối được). `077-X2e` được đánh dấu tương đương.
+
 Mẫu đột biến cũ viết lại cùng ý vì `old` không còn khớp: `070-B19`, `072-R13` (lời gọi `askRouter` ở `session.ts` thêm tùy chọn), `075-B12b`, `075-B12c` (`confidence ?? 1`), `070-C14` (`routerRequest` thêm `interject`), `078-G3a`, `078-G3b` (G5 bọc `liftMain` trong `floorMain`). Mẫu mới: `078-G1a` tới `078-G9r`.
 
 ## Thay đổi 0.7.7: cảnh báo chưa kiểm đúng hơn và nêu lý do
