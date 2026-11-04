@@ -222,6 +222,18 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     return { result: [shown, ...notes].join('\n') }
   }).catch(() => ({ deny: 'focus-conductor: lỗi nội bộ khi cập nhật checklist; tiếp tục làm việc không cần tool này.' }))
 
+  /**
+   * Luồng chính kẹt (lặp lỗi hay router thấy lạc đề, 0.7.8 G6): thêm mục "luồng chính kẹt: <bước đang mở hoặc lệnh lỗi>" vào danh
+   * sách việc đã lỗi của mục tiêu, để router chấm subagent giao phần đó chọn cao hơn một bậc. Cổng Stop không đọc danh sách này.
+   */
+  function noteStuck(core: { brief: { goalId: number } | null; plan: Parameters<typeof openSteps>[0] }, fallback: string): void {
+    if (core.brief === null) return
+    const open = openSteps(core.plan)
+    const what = (open.find(step => step.status === 'doing') ?? open[0])?.title ?? fallback
+    agentFailures.push({ description: `luồng chính kẹt: ${clipText(what, 120)}`, goalId: core.brief.goalId })
+    if (agentFailures.length > 10) agentFailures.shift()
+  }
+
   // Mọi tool: luồng chính được nhắc (context của kết quả tool) và nâng cấp theo
   // bằng chứng cho turn sau; subagent chỉ được ghi nhật ký, không bị nhắc.
   // Lời nhắc đi kèm kết quả tool, không sửa system prompt, nên không ảnh hưởng cache.
@@ -352,6 +364,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       if (finding.kind === 'budget') effortLift = 1
       // Gửi kèm router ở prompt tiếp nối (0.7.0): lựa chọn model của turn này đã thiếu.
       if (finding.kind === 'loop' || finding.kind === 'budget') noteObserved(finding.text)
+      if (finding.kind === 'loop') noteStuck(core, typeof observation.input['command'] === 'string' ? observation.input['command'] : observation.tool)
     }
     if (isErrorBurst) {
       warnings.push({ at, kind: 'loop', text: `${ERROR_BURST} tool call lỗi trong turn này: turn sau nâng effort một bậc` })
@@ -389,6 +402,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       const verdict = outcome.result
       const now = await $.clock.now()
       const isOffTrack = verdict !== null && !verdict.onTrack
+      if (isOffTrack) noteStuck(core, core.brief.goal)
       await update($, coreState, c => {
         const used = S.withAnalyzerUsage(outcome.usages, routerFamily)(c)
         // Lệch mục tiêu: cảnh báo, và turn sau nâng độ sâu một bậc (0.7.0).

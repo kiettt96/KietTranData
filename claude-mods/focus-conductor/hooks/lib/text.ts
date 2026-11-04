@@ -2,7 +2,7 @@
 // giữ giọng văn nhất quán và dễ chỉnh.
 
 import type { Brief, CheckHint, Choice, PlanStep, QuotaCheckpoint, QuotaReason, Route, RouterFail, StepStatus, Task, TurnFault } from '../../types'
-import { openSteps, pendingSteps } from './drift'
+import { STUCK_HINT, openSteps, pendingSteps } from './drift'
 import { evaluateQuota, isStale, reasonsOf } from './quota'
 import type { QuotaBadge, QuotaNoticeHit, QuotaThresholds } from './quota'
 import { labels } from '../ui/labels'
@@ -284,7 +284,7 @@ export function subagentReminder(task: string, finding: string): string {
 export function driftContext(goal: string, why: string): string {
   return (
     `[focus-conductor] Router đọc các thay đổi gần đây và thấy có thể đang lệch mục tiêu: ${why}. ` +
-    `Mục tiêu: ${goal}. Nếu thay đổi này thật sự cần cho mục tiêu, ghi rõ lý do; nếu không, quay về bước còn mở.`
+    `Mục tiêu: ${goal}. Nếu thay đổi này thật sự cần cho mục tiêu, ghi rõ lý do; nếu không, quay về bước còn mở. ${STUCK_HINT}`
   )
 }
 

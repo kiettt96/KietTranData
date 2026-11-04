@@ -1869,4 +1869,11 @@ export const MUTANTS: Mutant[] = [
   { id: "078-G5f", file: "hooks/lib/router.ts", note: "không ghi chú sàn", old: "`việc mức ${depth}: luồng chính không chạy haiku`, ", new: "" },
   { id: "078-G7a", file: "hooks/lib/text.ts", note: "bỏ câu dặn prompt giao subagent tự đứng được", old: " Prompt giao subagent phải tự đứng được: nêu mục tiêu cuối, việc cụ thể, ràng buộc và phạm vi file liên quan, tiêu chí xong và dạng kết quả trả về.", new: "" },
   { id: "078-G7b", file: "hooks/lib/text.ts", note: "bỏ câu dặn đối chiếu kết quả subagent", old: " Nhận kết quả subagent thì đối chiếu với tiêu chí đó trước khi đóng bước.", new: "" },
+  { id: "078-G6a", file: "hooks/lib/drift/tracker.ts", note: "câu nhắc lặp lỗi không có đường giao subagent", old: "rồi đổi cách tiếp cận hoặc hỏi người dùng. ${STUCK_HINT}`,", new: "rồi đổi cách tiếp cận hoặc hỏi người dùng.`," },
+  { id: "078-G6b", file: "hooks/lib/text.ts", note: "câu nhắc lạc đề không có đường giao subagent", old: "quay về bước còn mở. ${STUCK_HINT}`", new: "quay về bước còn mở.`" },
+  { id: "078-G6c", file: "hooks/parts/consistency.ts", note: "lặp lỗi không ghi mục luồng chính kẹt", old: "      if (finding.kind === 'loop') noteStuck(core,", new: "      if (finding.kind === 'budget') noteStuck(core," },
+  { id: "078-G6d", file: "hooks/parts/consistency.ts", note: "lạc đề không ghi mục luồng chính kẹt", old: "      if (isOffTrack) noteStuck(core, core.brief.goal)\n", new: "" },
+  { id: "078-G6e", file: "hooks/parts/consistency.ts", note: "mục luồng chính kẹt không gắn mục tiêu hiện tại", old: "`luồng chính kẹt: ${clipText(what, 120)}`, goalId: core.brief.goalId })", new: "`luồng chính kẹt: ${clipText(what, 120)}`, goalId: -1 })" },
+  { id: "078-G6f", file: "hooks/parts/consistency.ts", note: "luôn ghi lệnh lỗi thay cho bước đang mở", old: "    const what = (open.find(step => step.status === 'doing') ?? open[0])?.title ?? fallback", new: "    const what = fallback" },
+  { id: "078-G6g", file: "hooks/parts/consistency.ts", note: "không ghi lệnh lỗi khi không có bước đang mở", old: "typeof observation.input['command'] === 'string' ? observation.input['command'] : observation.tool)", new: "observation.tool)" },
 ]
