@@ -1852,4 +1852,13 @@ export const MUTANTS: Mutant[] = [
   { id: "078-G2g", file: "hooks/lib/text.ts", note: "không bớt mục cho vừa trần", old: "  while (n > 1 && build(n).length > REQUIREMENTS_NOTICE_CHARS) n -= 1\n", new: "" },
   { id: "078-G2h", file: "hooks/lib/text.ts", note: "không báo số yêu cầu còn lại", old: "${rest > 0 ? `; và ${rest} yêu cầu nữa trong prompt gốc` : ''}", new: "" },
   { id: "078-G2i", file: "hooks/lib/state.ts", note: "trạng thái cũ không có mặc định reqNoticed", old: "    reqNoticed: raw.reqNoticed ?? -1,\n", new: "" },
+  { id: "078-G3a", file: "hooks/lib/router.ts", note: "không nâng luồng chính theo việc nó giữ", old: "const lead = isReference ? main : liftMain(main, held, kind, policy)", new: "const lead = main" },
+  { id: "078-G3b", file: "hooks/lib/router.ts", note: "brief isReference cũng nâng", old: "const lead = isReference ? main : liftMain(main, held, kind, policy)", new: "const lead = liftMain(main, held, kind, policy)" },
+  { id: "078-G3c", file: "hooks/lib/router.ts", note: "việc run: agent cũng nâng luồng chính", old: "    if (task.run === 'main') held.push(", new: "    if (task.run !== '') held.push(" },
+  { id: "078-G3d", file: "hooks/lib/router.ts", note: "chỉ xét họ, bỏ effort", old: "    const isHigherEffort = effortRank(t.pick.effort) > effortRank(top.effort)", new: "    const isHigherEffort = false" },
+  { id: "078-G3e", file: "hooks/lib/router.ts", note: "chỉ xét effort, bỏ họ", old: "    const isHigherFamily = familyRank(t.pick.family) > familyRank(top.family)", new: "    const isHigherFamily = false" },
+  { id: "078-G3f", file: "hooks/lib/router.ts", note: "không qua fitPick lần nữa", old: "  const refit = fitPick(top, kind, policy)", new: "  const refit = { pick: top, notes: [] as string[] }" },
+  { id: "078-G3g", file: "hooks/lib/router.ts", note: "không ghi chú nâng", old: "`việc ${first} giữ ở luồng chính cần ${top.family}/${top.effort}: nâng luồng chính`, ", new: "" },
+  { id: "078-G3h", file: "hooks/lib/router.ts", note: "việc thấp hơn hạ luồng chính", old: "    if (!isHigherFamily && !isHigherEffort) continue\n", new: "    if (!isHigherFamily && !isHigherEffort) { top = t.pick; first = first ?? t.index; continue }\n" },
+  { id: "078-G3i", file: "hooks/lib/router.ts", note: "việc lấy pick đã kẹp thay cho lựa chọn router ghi", old: "held.push({ index: task.index, pick: rawPick(item) ?? own })", new: "held.push({ index: task.index, pick: task.pick })" },
 ]

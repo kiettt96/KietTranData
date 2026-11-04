@@ -659,6 +659,26 @@ function parseTask(value: unknown, index: number, main: Choice, whole: { depth: 
 }
 
 /**
+ * Luồng chính đủ sức cho việc khó nhất nó giữ (0.7.8 G3): họ và effort cao nhất giữa main và các việc run: main (xét riêng họ và
+ * effort; việc lấy lựa chọn router ghi trước khi kẹp, main lấy kết quả đã kẹp), rồi qua fitPick lần nữa để chính sách phiên, allowFable và họ bị chặn vẫn là bước
+ * cuối. Không việc nào cao hơn main thì giữ nguyên kết quả kẹp của main.
+ */
+function liftMain(main: Fitted, held: ReadonlyArray<{ index: number; pick: Choice }>, kind: Kind, policy: Policy): Fitted {
+  let top = main.pick
+  let first: number | null = null
+  for (const t of held) {
+    const isHigherFamily = familyRank(t.pick.family) > familyRank(top.family)
+    const isHigherEffort = effortRank(t.pick.effort) > effortRank(top.effort)
+    if (!isHigherFamily && !isHigherEffort) continue
+    if (first === null) first = t.index
+    top = { family: isHigherFamily ? t.pick.family : top.family, effort: isHigherEffort ? t.pick.effort : top.effort }
+  }
+  if (first === null) return main
+  const refit = fitPick(top, kind, policy)
+  return { pick: refit.pick, notes: [...main.notes, `việc ${first} giữ ở luồng chính cần ${top.family}/${top.effort}: nâng luồng chính`, ...refit.notes] }
+}
+
+/**
  * Đọc câu trả lời của router thành kế hoạch điều phối đã kiểm và kẹp. Null khi không
  * có JSON, khi thiếu lựa chọn hợp lệ cho luồng chính, hoặc khi mục tiêu mới không có câu mục tiêu.
  */
@@ -683,11 +703,16 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
   const referenceMain = refRaw ? fitPick(refRaw, kind, policy).pick : undefined
   const whole = { depth, volume, kind }
   const tasks: Task[] = []
+  /** Lựa chọn router ghi cho từng việc làm ở luồng chính, chưa kẹp (0.7.8 G3). */
+  const held: Array<{ index: number; pick: Choice }> = []
   const rawTasks = Array.isArray(raw['tasks']) ? raw['tasks'] : []
   for (const item of rawTasks.slice(0, TASK_LIMIT)) {
     const task = parseTask(item, tasks.length + 1, main.pick, whole, policy)
-    if (task) tasks.push(task)
+    if (!task) continue
+    tasks.push(task)
+    if (task.run === 'main') held.push({ index: task.index, pick: rawPick(item) ?? own })
   }
+  const lead = isReference ? main : liftMain(main, held, kind, policy)
   const mainWhy = typeof raw['main'] === 'object' && raw['main'] !== null ? text((raw['main'] as Raw)['why']) : ''
   return {
     why: text(raw['why'], 200),
@@ -703,11 +728,11 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
     depth,
     volume,
     kind,
-    main: main.pick,
+    main: lead.pick,
     mainWhy,
     ...(referenceMain ? { referenceMain } : {}),
     tasks,
-    notes: main.notes,
+    notes: lead.notes,
     ...(rawTasks.length > TASK_LIMIT ? { droppedTasks: rawTasks.length - TASK_LIMIT } : {}),
   }
 }
