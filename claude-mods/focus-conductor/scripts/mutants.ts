@@ -1867,4 +1867,6 @@ export const MUTANTS: Mutant[] = [
   { id: "078-G5d", file: "hooks/lib/router.ts", note: "sàn không qua fitPick", old: "  const refit = fitPick({ family: 'sonnet', effort: main.pick.effort }, kind, policy)", new: "  const refit = { pick: { family: 'sonnet' as const, effort: main.pick.effort }, notes: [] as string[] }" },
   { id: "078-G5e", file: "hooks/lib/router.ts", note: "sàn đổi effort", old: "fitPick({ family: 'sonnet', effort: main.pick.effort }, kind, policy)", new: "fitPick({ family: 'sonnet', effort: 'medium' }, kind, policy)" },
   { id: "078-G5f", file: "hooks/lib/router.ts", note: "không ghi chú sàn", old: "`việc mức ${depth}: luồng chính không chạy haiku`, ", new: "" },
+  { id: "078-G7a", file: "hooks/lib/text.ts", note: "bỏ câu dặn prompt giao subagent tự đứng được", old: " Prompt giao subagent phải tự đứng được: nêu mục tiêu cuối, việc cụ thể, ràng buộc và phạm vi file liên quan, tiêu chí xong và dạng kết quả trả về.", new: "" },
+  { id: "078-G7b", file: "hooks/lib/text.ts", note: "bỏ câu dặn đối chiếu kết quả subagent", old: " Nhận kết quả subagent thì đối chiếu với tiêu chí đó trước khi đóng bước.", new: "" },
 ]
