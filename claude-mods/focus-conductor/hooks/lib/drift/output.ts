@@ -41,8 +41,9 @@ const SUMMARIES: Record<'jest' | 'vitest' | 'mocha' | 'bun' | 'pytest', Summary>
   mocha: { pass: /^(\d+) passing \(\d+(?:ms|s|m)\)$/, trailer: [/^\d+ pending$/] },
   // Bun: "12 pass", rồi skip, todo, "0 fail" (bắt buộc), expect() calls, "Ran 12 tests across 1 file. [10.00ms]".
   bun: { pass: /^(\d+) pass$/, trailer: [/^\d+ (?:skip|todo)$/, /^0 fail$/, /^\d+ expect\(\) calls$/, /^Ran \d+ tests? across \d+ files?\. \[[\d.]+m?s\]$/], requires: /^0 fail$/ },
-  // Pytest: "=== 12 passed in 0.5s ===" là dòng cuối.
-  pytest: { pass: /^=+ (\d+) passed(?:, \d+ (?:skipped|deselected|xfailed|xpassed|warnings?))* in [\d.]+s(?: \([\d:]+\))? =+$/, trailer: [] },
+  // Pytest: "=== 12 passed in 0.5s ===" là dòng cuối; pytest -q in "12 passed in 0.5s" không viền (0.7.7 X2). Viền "=" phải có ở cả hai
+  // bên hoặc không bên nào: dòng chỉ có viền một bên là output bị cắt hay lẫn, không nhận.
+  pytest: { pass: /^(?:(?=.*=$)=+ |(?!.*=$))(\d+) passed(?:, \d+ (?:skipped|deselected|xfailed|xpassed|warnings?))* in [\d.]+s(?: \([\d:]+\))?(?: =+)?$/, trailer: [] },
 }
 
 /** Output kết thúc bằng khối tổng kết đạt của trình chạy `summary`. */
@@ -388,6 +389,11 @@ export function ranNothing(output: string): boolean {
   return !/[1-9]/.test(text.replace(SKIPPED_COUNT, ' '))
 }
 
+/** Lệnh kiểm là lệnh riêng khai trong checkCommands (kể cả sau khi giải đường dẫn). */
+function isCustomEffect(effect: CheckEffect): boolean {
+  return isCustomCheck(effect.segment) || (effect.resolved !== undefined && isCustomCheck(effect.resolved))
+}
+
 /**
  * Một lệnh kiểm tra trong tool call có đạt không. Mã thoát bị che (ống, ;, || đứng sau) thì mã thoát 0 không nói gì
  * về lệnh kiểm tra: chỉ đạt khi output có dấu hiệu đạt rõ và không có dấu hiệu lỗi; không đủ thông tin thì chưa đạt.
@@ -401,7 +407,7 @@ export function checkEffectPassed(effect: CheckEffect, observation: ToolObservat
   if (observation.output !== undefined && ranNothing(observation.output)) return false
   if (effect.exit === 'visible') return true
   if (effect.exit !== 'filtered') return false
-  const isCustom = isCustomCheck(effect.segment) || (effect.resolved !== undefined && isCustomCheck(effect.resolved))
+  const isCustom = isCustomEffect(effect)
   if (isCustom && effect.pipefail === true) return !customFailed(observation.output ?? '')
   if (observation.output === undefined) return false
   const isCut = effect.filter === 'head' && observation.output.replace(/\n+$/, '').split('\n').length >= (effect.limit ?? 0)
@@ -409,4 +415,22 @@ export function checkEffectPassed(effect: CheckEffect, observation: ToolObservat
   const runner = runnerOf(effect.segment)
   if (runner !== null) return completePass(observation.output, runner, { truncated: effect.filter === 'tail' })
   return isCustom && customPassed(observation.output)
+}
+
+/** Vì sao một lệnh kiểm không được tính là đạt (0.7.7 X3), theo thứ tự xét trong `rejectReason`. */
+export type RejectReason = 'failed' | 'ran-nothing' | 'untrusted' | 'hidden' | 'pipe'
+
+/**
+ * Lý do một lệnh kiểm không được tính là đạt, cùng điều kiện với `checkEffectPassed`; null khi lệnh đạt. Thứ tự: lỗi (lệnh lỗi, dấu hiệu
+ * lỗi trong output, hay lệnh kiểm riêng có dấu hiệu lỗi), không có phép kiểm nào chạy, lệnh không được tin (thay thế lệnh, eval, sh -c, đứng
+ * sau ||), mã thoát bị che, rồi còn lại là qua ống mà output không chứng minh được một lượt đạt (kể cả head cắt output).
+ */
+export function rejectReason(effect: CheckEffect, observation: ToolObservation): RejectReason | null {
+  if (checkEffectPassed(effect, observation)) return null
+  const isCustom = isCustomEffect(effect)
+  if (observation.isError || outputFailed(observation.output) || (isCustom && customFailed(observation.output ?? ''))) return 'failed'
+  if (observation.output !== undefined && ranNothing(observation.output)) return 'ran-nothing'
+  if (!effect.trusted) return 'untrusted'
+  if (effect.exit === 'hidden') return 'hidden'
+  return 'pipe'
 }

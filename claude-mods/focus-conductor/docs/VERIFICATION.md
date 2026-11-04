@@ -2,6 +2,22 @@
 
 Số đo của HEAD hiện tại và của các bản trước. Mọi số do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển] trừ khi nêu khác; hợp đồng đối chiếu evidence ở [DESIGN.md](DESIGN.md), lịch sử thay đổi ở [CHANGELOG.md](../CHANGELOG.md), cách dùng ở [README](../README.md).
 
+## Kiểm chứng của 0.7.7 (cảnh báo chưa kiểm đúng hơn và nêu lý do)
+
+Nhánh tách từ `main` 7fad617 (0.7.6). Mỗi điểm X1 tới X6 và bản sửa phạm vi một commit test đỏ rồi một commit sửa; không amend, rebase hay force-push [Đo trực tiếp].
+
+- Môi trường: Claude Code 2.1.296 cho mọi lần chạy test và đột biến dưới đây [Đo trực tiếp].
+- `claude plugin test .` trên `2be6829` (commit mã cuối): 2286 test qua, 0 lỗi, 198 tệp (0.7.6: 2190 test, 190 tệp) [Đo trực tiếp]. `claude plugin validate .` qua ở thư mục mod và ở gốc repo; `bunx tsc --noEmit -p .` sạch; `bun scripts/mutate.ts --check` mismatched rỗng. sha256 `hooks/` `af833681be29ca89a0ba2caa445ec5021af452f869c78cea2ab916574cf3bd5d` (giống hệt `de3fb56`), `tests/` `fe63990801b1da1de9260e4db007ffbe3e6545f8e6e9df1be4d45bbf6c0ac637`.
+- Test đỏ trước khi sửa [Đo trực tiếp]: X1 15, X3 13, X3 nhánh gợi ý 2, X2 10, X4 3, X5 2, X6 7, phạm vi 4. Test cũ duy nhất đổi: `tests/tracker.test.ts` (bỏ `git commit` khỏi danh sách lệnh có ghi, đổi tên test). Các test ghim câu cũ của cảnh báo chưa kiểm giữ nguyên và vẫn qua.
+- Đột biến, lượt tổng 542 mẫu của các tệp đã đổi trên `de3fb56` (cùng `hooks/` với commit cuối), engine 2.1.296, chia 13 phần rồi 9 phiên chạy lại [Đo trực tiếp]: 538 bị bắt, 4 tương đương đã đánh dấu từ trước (`073-S21`, `075-B10a`, `061-U11`, `075-L2a`), 0 sống sót. Ba mẫu sống sót ở lượt tổng có test bắt riêng, mỗi test một commit chỉ đổi `tests/`: `077-X1b` (`23201dc`), `077-X2g` (`a83e7ae`), `077-X6k` (`2be6829`); chạy lại trên mã cuối, cả ba bị bắt.
+- Cách đọc kết quả: `scripts/mutate.ts` gọi `claude` theo `PATH`, nên mọi lượt đặt `PATH` vào 2.1.296; lượt đầu chạy nhầm bản trên `PATH` bị bỏ. Script tính `fail=-1` (không đọc được kết quả) là bị bắt, và ở 3 worker trên máy 4 lõi có phần bị quá tải (nhiều `fail=-1`, mẫu bị bắt với 30 đến 80 lỗi). Mọi kết quả 3 worker của các phần đó (04, 05, 07, 08) bị loại và chạy lại với 1 worker; `077-X2g` là kết quả bị bắt giả do quá tải, chạy lại thì sống sót. 15 kết quả 3 worker khác có từ 15 lỗi trở lên cũng chạy lại 1 worker: cả 15 bị bắt với số lỗi lệch không quá 1 so với lần đầu (ví dụ `P11` 52, `F22` 55 và 56), nên số lỗi lớn ở đó là thật.
+- Phiên dài (cùng kịch bản mục 6 của 0.7.5) [Đo trực tiếp]: 10.339 ký tự mod chèn (cứ 10 lời gọi có một script ghi) và 19.587 (cứ 3 lời gọi), bằng số của 0.7.6; 0 lượt router, 11 trên 11 bước nâng, cảnh báo phạm vi 1 mỗi script. Lời nhắc `check-shape` không bật trong kịch bản này vì lệnh kiểm của nó qua ống mà vẫn được tính là đạt; độ dài lời nhắc được test giữ không quá 400 ký tự, một lần mỗi phiên.
+- Xem trước: 4 trạng thái (không cảnh báo, thường, nhẹ, cả hai) ở band 56, 72, 120 cột và pane 16, 24, 40 dòng, trước (0.7.6) và sau, bảng ở mô tả PR (bộ vẽ chữ gần đúng terminal thật, [Giả định]).
+- Quét dòng thêm và thông điệp commit (chuỗi riêng tư, em dash, emoji, dấu chấm than trong tài liệu): 0 [Đo trực tiếp].
+- Định dạng `pytest -q`: chuỗi tự viết theo dạng dòng tổng kết của pytest khi không có viền [Giả định: định dạng pytest -q theo tài liệu pytest]; fixture có sẵn của pytest 9.1.1 có viền vẫn được nhận.
+- Chưa kiểm được trên phiên thật: hot reload thật (kit test 2.1.296 không cho hook của test đọc `$.state`; khóa toast được kiểm bằng hàm của `state.ts` qua vòng JSON); `$.ui` với terminal thật ở các độ rộng trong bảng xem trước; giá trị phạm vi router ghi trong phiên đã báo lỗi phạm vi (nguyên nhân được tái hiện bằng test, chưa đối chiếu dữ liệu phiên thật).
+- CI: run 41762882004 trên `2be6829` thành công; run của commit tài liệu cuối ghi ở mô tả PR 30.
+
 ## Kiểm chứng của 0.7.6 (band và pane theo thứ bậc thông tin; vòng cuối)
 
 Bản 0.7.6 nằm trên `main` sau khi PR 28 squash vào (merge `2815c4f`, không rebase; diff so với `main` chỉ còn phần 0.7.6). Mỗi điểm U1 tới U12, V1 tới V3 và W1 tới W4 một commit test đỏ rồi một commit sửa; các ca ghim đột biến chỉ đổi `tests/` [Đo trực tiếp].

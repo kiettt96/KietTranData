@@ -154,6 +154,8 @@ export type Warning = {
   at: number
   kind: WarningKind
   text: string
+  /** Cảnh báo chưa kiểm ở mức nhẹ (0.7.7 X6): không vào band hay Cần chú ý, pane ghi mờ. Vắng ở trạng thái từ bản cũ. */
+  isSoft?: true
 }
 
 /** Nhóm chi phí: luồng chính, subagent, hoặc lượt router đọc prompt và chấm subagent (khóa cũ 'analyzer'). */
@@ -333,6 +335,11 @@ export type Core = {
    * lần kiểm đạt gần nhất của mục tiêu goalId (null là chưa có). Lần kiểm đạt chỉ nâng bước có closedSeq lớn hơn mốc đó.
    */
   closing: { seq: number; goalId: number; lastPassSeq: number | null }
+  /**
+   * Nguyên nhân cảnh báo chưa kiểm đã toast trong mục tiêu goalId (0.7.7 X4): mỗi khóa (nhánh câu, lý do, đoạn lệnh bị loại) toast một
+   * lần; band và pane vẫn ghi mọi lần. Vắng ở trạng thái từ bản cũ.
+   */
+  toasted: { goalId: number; keys: string[] }
 }
 
 /** Một cửa sổ hạn mức đã qua ngưỡng lúc dừng (0.6.0). */

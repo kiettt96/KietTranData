@@ -20,7 +20,8 @@ export type ScopeStatus = 'in' | 'out' | 'unknown'
 /**
  * Vị trí của một đường dẫn so với phạm vi, neo theo thư mục gốc của phiên. Đường dẫn và phạm vi tương đối được nối
  * vào gốc (đường dẫn tương đối của lệnh Bash nối vào `cwd` nếu có); trong phạm vi chỉ khi bằng hoặc nằm dưới
- * `gốc/phạm vi`; phạm vi chỉ là tên file (có phần mở rộng, không có /) thì khớp theo tên file bên trong gốc; ngoài
+ * `gốc/phạm vi`; phạm vi chỉ là tên file (có phần mở rộng, không có /) thì khớp theo tên file bên trong gốc, và vẫn khớp như thư mục
+ * `gốc/phạm vi` (thư mục có số phiên bản như tool-v1.0.0, 0.7.7); ngoài
  * gốc (worktree hay checkout khác) là ngoài phạm vi, trừ khi nằm dưới một mục phạm vi tuyệt đối. Mọi so khớp theo ranh giới
  * thư mục sau chuẩn hóa. Không có gốc thì không khẳng định gì (unknown), không quay về khớp theo chuỗi.
  */
@@ -38,7 +39,9 @@ export function scopeStatus(path: string, scopePaths: readonly string[], root?: 
   return scopePaths.some(scope => {
     const s = entry(scope)
     if (s === '' || s === '.') return true
-    if (!s.includes('/') && /\.[A-Za-z0-9]+$/.test(s)) return name === s
+    // Mục không có "/" và trông như tên file: khớp theo tên file bên trong gốc, hoặc như một thư mục dưới gốc (0.7.7: thư mục có số
+    // phiên bản như tool-v1.0.0 cũng có dạng ".chữ-số" ở cuối).
+    if (!s.includes('/') && /\.[A-Za-z0-9]+$/.test(s) && name === s) return true
     return isUnder(resolve(s, base))
   })
     ? 'in'

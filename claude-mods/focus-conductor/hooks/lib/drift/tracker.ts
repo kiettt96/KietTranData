@@ -8,8 +8,9 @@ import type { ToolObservation } from './tool'
 import { classifyBash } from './classify'
 import type { BashEffect } from './classify'
 import { isMutation, writeEffects } from './effects'
-import { checkEffectPassed, lacksSummary, outputFailed } from './output'
-import { scopeStatus } from './scope'
+import { checkEffectPassed, lacksSummary, outputFailed, rejectReason } from './output'
+import type { RejectReason } from './output'
+import { normalizePath, scopeStatus } from './scope'
 import { isCustomCheck, normalizePython } from './verify'
 
 /** Số thay đổi liên tiếp chưa kiểm tra trước khi nhắc checkpoint đầu tiên. */
@@ -19,6 +20,25 @@ const CHECKPOINT_STEPS = [CHECKPOINT_EVERY, 10, 20]
 const CHECKPOINT_CAP = 40
 /** Số lần cùng một lệnh lỗi trước khi coi là vòng lặp. */
 export const LOOP_AFTER = 3
+
+const REJECT_TEXT: Record<RejectReason, string> = {
+  failed: 'chưa đạt',
+  'ran-nothing': 'không có phép kiểm nào chạy',
+  untrusted: 'nằm trong lệnh có $( ), backtick, eval, sh -c hoặc đứng sau ||',
+  hidden: 'bị lệnh đứng sau che mã thoát',
+  pipe: 'chạy qua ống, mod không đọc được kết quả',
+}
+const REJECT_COMMAND_MAX = 60
+
+/** Đoạn lệnh trong câu cho người dùng: cắt REJECT_COMMAND_MAX ký tự, quá thì kết bằng dấu ba chấm. */
+function clipCommand(command: string): string {
+  return command.length > REJECT_COMMAND_MAX ? `${command.slice(0, REJECT_COMMAND_MAX)}…` : command
+}
+
+/** Lệnh kiểm bị loại trong turn (0.7.7 X3): đoạn lệnh kiểm và lý do không được tính là đạt. */
+export type RejectedCheck = { command: string; reason: RejectReason }
+/** Số lệnh kiểm bị loại gần nhất giữ lại trong một turn. */
+const REJECTED_KEEP = 5
 
 export type TurnTracker = {
   turnId: string
@@ -36,6 +56,18 @@ export type TurnTracker = {
   pendingChanges: Map<string, number>
   /** Số lệnh kiểm tra đạt trong turn (để câu báo phân biệt "chưa kiểm tra lần nào" với "sửa sau lần kiểm tra cuối"). */
   checks: number
+  /**
+   * Tài liệu đã đọc lại (0.7.7 X6): từ lần kiểm đạt cuối của luồng chính (hay đầu turn), đích đã ghi và thứ tự lần ghi cuối (`docWrites`),
+   * số lần ghi (`docChanges`), có lần ghi không đọc được đích (`docUnknown`); `reads` là thứ tự lần Read cuối của từng file; `seq` đếm
+   * tool call của luồng chính và subagent cùng mục tiêu.
+   */
+  docWrites: Map<string, number>
+  docChanges: number
+  docUnknown: boolean
+  reads: Map<string, number>
+  seq: number
+  /** Lệnh kiểm bị loại trong turn, tối đa REJECTED_KEEP mục gần nhất, kể cả của subagent cùng mục tiêu (0.7.7 X3). */
+  rejected: RejectedCheck[]
   /** Số lời gọi Agent thành công: turn chỉ giao subagent vẫn là turn đang thực thi mục tiêu. */
   delegated: number
   /** Lệnh ghi không xác định được file đích đã cảnh báo trong turn (mỗi lệnh khác nhau một lần). */
@@ -66,6 +98,12 @@ export function newTracker(turnId: string): TurnTracker {
     pending: new Set(),
     pendingChanges: new Map(),
     checks: 0,
+    rejected: [],
+    docWrites: new Map(),
+    docChanges: 0,
+    docUnknown: false,
+    reads: new Map(),
+    seq: 0,
     delegated: 0,
     unknownWrites: new Set(),
     rootWarned: false,
@@ -125,6 +163,36 @@ function pipeSummaryHint(observation: ToolObservation, focus: Focus): Finding | 
   return null
 }
 
+/** Lý do bị loại vì hình dạng lệnh (0.7.7 X2): chạy lại riêng lệnh kiểm thì mod đọc được kết quả. */
+const SHAPE_REASONS = new Set<RejectReason>(['pipe', 'hidden', 'untrusted'])
+const SHAPE_COMMAND_MAX = 80
+
+/**
+ * Lệnh kiểm chạy xong không lỗi nhưng bị loại vì hình dạng (qua ống, che mã thoát, thay thế lệnh) (0.7.7 X2): nhắc một lần trong phiên chạy
+ * lại riêng lệnh kiểm. Như `pipeSummaryHint`, khóa `check-shape` chỉ được ghi khi lời nhắc thật sự được chèn. null khi không áp dụng.
+ */
+function checkShapeHint(observation: ToolObservation, focus: Focus): Finding | null {
+  if (observation.tool !== 'Bash' || observation.isError || outputFailed(observation.output)) return null
+  if (focus.hints?.has('check-shape')) return null
+  for (const effect of classifyBash(str(observation.input['command'])).effects) {
+    if (effect.kind !== 'check') continue
+    const reason = rejectReason(effect, observation)
+    if (reason === null || !SHAPE_REASONS.has(reason)) continue
+    const command = effect.segment.length > SHAPE_COMMAND_MAX ? `${effect.segment.slice(0, SHAPE_COMMAND_MAX)}…` : effect.segment
+    return {
+      kind: 'unverified',
+      priority: 1,
+      hint: 'check-shape',
+      text: `Lệnh kiểm "${clipCommand(effect.segment)}" ${REJECT_TEXT[reason]}, chưa tính là đạt`,
+      context:
+        `[focus-conductor] Lệnh kiểm "${command}" ${REJECT_TEXT[reason]}, nên chưa tính là đạt. Chạy lại riêng lệnh kiểm: không qua ống, ` +
+        'không có ; hay || đứng sau, không $( ); có thể dùng cờ rút gọn như -q, --silent. Không sửa script kiểm khi người dùng không yêu cầu. ' +
+        'Lời nhắc này chỉ nói một lần trong phiên.',
+    }
+  }
+  return null
+}
+
 /**
  * Khóa của cảnh báo lệnh ghi không rõ đích (0.7.5): mỗi đoạn lệnh là tên trình chạy (bỏ thư mục, bỏ cờ python không giá trị)
  * cộng đường dẫn script (đối số đầu không phải cờ), bỏ các tham số còn lại; đoạn cd, set bỏ qua. `ghi.py --lo 1` và
@@ -155,6 +223,10 @@ export type Finding = {
   priority: number
   /** Khóa lời nhắc một lần trong phiên (T6): hook ghi khóa vào `focus.hints` chỉ khi phát hiện này được chèn vào kết quả tool. */
   hint?: string
+  /** Cảnh báo chưa kiểm ở mức nhẹ (0.7.7 X6): chỉ ghi tài liệu và đã đọc lại; không toast, không vào band. */
+  isSoft?: true
+  /** Nguyên nhân của cảnh báo chưa kiểm cuối turn (0.7.7 X4): nhánh câu, lý do và đoạn lệnh bị loại, không gồm số thay đổi. */
+  cause?: string
 }
 
 /** Số mốc checkpoint đã qua khi có `count` thay đổi liên tiếp chưa kiểm. */
@@ -178,9 +250,14 @@ function signature(observation: ToolObservation): string {
  * tra chỉ đạt khi được tin, lệnh không lỗi, output không báo lỗi, và (khi bị nối ống) output có dấu hiệu đạt rõ.
  * Trả số lần ghi đã đếm.
  */
-export function trackVerification(tracker: TurnTracker, observation: ToolObservation, author = 'main'): number {
+export function trackVerification(tracker: TurnTracker, observation: ToolObservation, author = 'main', cwd: string | null = null): number {
   let writes = 0
+  tracker.seq += 1
+  const seq = tracker.seq
+  // Đích của Edit, Write, Read: tuyệt đối, hoặc nối với thư mục làm việc; không có thì giữ dạng chuẩn hóa (cùng cách cho ghi và đọc).
+  const fileTarget = (path: string) => (path.startsWith('/') || !cwd ? normalizePath(path) : normalizePath(`${cwd}/${path}`))
   const onWrite = () => {
+    tracker.docChanges += 1
     tracker.mutations += 1
     // Nhịp nhắc checkpoint là của luồng chính: ghi của subagent làm luồng chính chưa được kiểm chứng (pending) nhưng không tiến nhịp.
     if (author === 'main') tracker.mutationsSinceCheck += 1
@@ -191,7 +268,15 @@ export function trackVerification(tracker: TurnTracker, observation: ToolObserva
   }
   if (FILE_TOOLS.has(observation.tool)) {
     // Edit, Write, NotebookEdit lỗi thì không ghi file.
-    if (!observation.isError && !isPlanFile(filePathOf(observation))) onWrite()
+    if (!observation.isError && !isPlanFile(filePathOf(observation))) {
+      onWrite()
+      tracker.docWrites.set(fileTarget(filePathOf(observation)), seq)
+    }
+    return writes
+  }
+  if (observation.tool === 'Read' && !observation.isError) {
+    const path = str(observation.input['file_path'])
+    if (path !== '') tracker.reads.set(fileTarget(path), seq)
     return writes
   }
   if (observation.tool !== 'Bash') return writes
@@ -199,13 +284,29 @@ export function trackVerification(tracker: TurnTracker, observation: ToolObserva
   const counted = new Set<BashEffect>(writeEffects(classified, observation.isReadOnly))
   for (const effect of classified.effects) {
     if (effect.kind === 'write') {
-      if (counted.has(effect)) onWrite()
+      if (!counted.has(effect)) continue
+      onWrite()
+      // Đích đọc được của lệnh Bash; đường dẫn tương đối nối với thư mục làm việc như khi kiểm phạm vi, không nối được là đích lạ.
+      if (effect.isUnknown || effect.paths.length === 0) tracker.docUnknown = true
+      for (const path of effect.paths) {
+        if (path.startsWith('/')) tracker.docWrites.set(normalizePath(path), seq)
+        else if (cwd) tracker.docWrites.set(normalizePath(`${cwd}/${path}`), seq)
+        else tracker.docUnknown = true
+      }
       continue
     }
-    if (!checkEffectPassed(effect, observation)) continue
+    const reason = rejectReason(effect, observation)
+    if (reason !== null) {
+      tracker.rejected.push({ command: effect.segment, reason })
+      if (tracker.rejected.length > REJECTED_KEEP) tracker.rejected.shift()
+      continue
+    }
     tracker.checks += 1
     if (author === 'main') {
       tracker.pending.clear()
+      tracker.docWrites.clear()
+      tracker.docChanges = 0
+      tracker.docUnknown = false
     } else {
       tracker.pending.delete(author)
       tracker.pendingChanges.delete(author)
@@ -289,7 +390,7 @@ export function observe(
     }
   }
 
-  const writes = trackVerification(tracker, observation)
+  const writes = trackVerification(tracker, observation, 'main', focus?.cwd ?? null)
   // Đếm lỗi lặp (0.7.5): chính lệnh đó chạy đạt thì đặt lại đếm của nó; có ghi file sau lần lỗi trước thì đặt lại mọi đếm
   // (đã sửa gì đó trước khi thử lại, không phải lặp nguyên trạng).
   if (!observation.isError) {
@@ -301,7 +402,7 @@ export function observe(
   if (focus === null) return findings
 
   // Lệnh kiểm riêng qua ống không pipefail mà dòng cuối không phải dòng tổng kết (S5): nhắc một lần trong phiên.
-  const hint = pipeSummaryHint(observation, focus)
+  const hint = pipeSummaryHint(observation, focus) ?? checkShapeHint(observation, focus)
   if (hint !== null) findings.push(hint)
 
   // Phạm vi: file của Edit/Write và file đích của lệnh Bash có ghi (kể cả lệnh lỗi, vì có thể đã ghi một phần).
@@ -414,18 +515,69 @@ function unverifiedText(tracker: TurnTracker): string {
   return `${tracker.mutationsSinceCheck} thay đổi của luồng chính và ${sub} thay đổi của subagent sau lần kiểm tra cuối chưa được kiểm tra lại`
 }
 
-/** Phát hiện ở cuối turn: còn thay đổi chưa kiểm tra, checklist còn mở. */
-export function summarize(tracker: TurnTracker, brief: Brief | null, plan: readonly PlanStep[]): Finding[] {
+
+/**
+ * Câu cuối turn khi không có lệnh kiểm nào được tính (0.7.7 X3): nêu lệnh kiểm bị loại gần nhất và lý do; không có thì nêu script kiểm đã chạy
+ * mà chưa khai (gợi ý đầu tiên; câu không nêu tên option vì toast gợi ý của 0.7.3 đã nêu); không có gì thì giữ câu cũ.
+ */
+function noCheckText(tracker: TurnTracker, suggestions: readonly string[]): string {
+  const base = `Turn có ${tracker.mutations} thay đổi nhưng không chạy bước kiểm tra nào`
+  const branch = noCheckBranch(tracker, suggestions)
+  if (branch === null) return base
+  return 'rejected' in branch
+    ? `${base} được tính: "${clipCommand(branch.rejected.command)}" ${REJECT_TEXT[branch.rejected.reason]}`
+    : `${base} được tính: script kiểm "${branch.hint}" chưa được khai là lệnh kiểm`
+}
+
+/** Nhánh của câu khi không có lệnh kiểm nào được tính (0.7.7): lệnh kiểm bị loại gần nhất, không có thì gợi ý script kiểm đầu tiên. */
+function noCheckBranch(tracker: TurnTracker, suggestions: readonly string[]): { rejected: RejectedCheck } | { hint: string } | null {
+  const last = tracker.rejected.at(-1)
+  if (last !== undefined) return { rejected: last }
+  const hint = suggestions[0]
+  return hint !== undefined ? { hint } : null
+}
+
+/**
+ * Khóa nguyên nhân của cảnh báo chưa kiểm (0.7.7 X4), cùng nhánh với câu: sau lần kiểm cuối; có lệnh bị loại (lý do, đoạn lệnh); có gợi ý
+ * script kiểm chưa khai; không có lệnh kiểm. Không gồm số thay đổi.
+ */
+function causeOf(tracker: TurnTracker, suggestions: readonly string[]): string {
+  if (tracker.checks > 0) return 'after-check'
+  const branch = noCheckBranch(tracker, suggestions)
+  if (branch === null) return 'no-check'
+  return 'rejected' in branch ? `rejected:${branch.rejected.reason}:${branch.rejected.command}` : `hint:${branch.hint}`
+}
+
+/** Đuôi tài liệu của cảnh báo nhẹ (0.7.7 X6), không phân biệt hoa thường. */
+const DOC_FILE = /\.(?:md|markdown|txt)$/i
+
+/**
+ * Turn (từ lần kiểm đạt cuối của luồng chính) chỉ ghi tài liệu và đã Read lại từng file sau lần ghi cuối (0.7.7 X6): mọi lần ghi có đích đọc
+ * được, mọi đích là tài liệu, mỗi đích có một Read sau lần ghi cuối. Đọc lại là bằng chứng yếu: chỉ hạ mức hiển thị, không đổi isVerified.
+ */
+function isSoftDocs(tracker: TurnTracker): boolean {
+  if (tracker.docChanges === 0 || tracker.docUnknown || tracker.docWrites.size === 0) return false
+  return [...tracker.docWrites].every(([path, wrote]) => DOC_FILE.test(path) && (tracker.reads.get(path) ?? 0) > wrote)
+}
+
+/** Phát hiện ở cuối turn: còn thay đổi chưa kiểm tra, checklist còn mở. `suggestions`: script kiểm đã chạy mà chưa khai (suggestCheckCommands). */
+export function summarize(tracker: TurnTracker, brief: Brief | null, plan: readonly PlanStep[], suggestions: readonly string[] = []): Finding[] {
   const findings: Finding[] = []
   if (brief === null) return findings
-  if (tracker.mutations > 0 && !tracker.isVerified && brief.tier !== 'trivial') {
+  if (tracker.mutations > 0 && !tracker.isVerified && brief.tier !== 'trivial' && isSoftDocs(tracker)) {
     findings.push({
       kind: 'unverified',
       priority: 1,
-      text:
-        tracker.checks === 0
-          ? `Turn có ${tracker.mutations} thay đổi nhưng không chạy bước kiểm tra nào`
-          : unverifiedText(tracker),
+      isSoft: true,
+      text: `Turn có ${tracker.docChanges} thay đổi tài liệu, đã đọc lại sau lần ghi cuối, chưa có lệnh kiểm`,
+      cause: 'soft-docs',
+    })
+  } else if (tracker.mutations > 0 && !tracker.isVerified && brief.tier !== 'trivial') {
+    findings.push({
+      kind: 'unverified',
+      priority: 1,
+      text: tracker.checks === 0 ? noCheckText(tracker, suggestions) : unverifiedText(tracker),
+      cause: causeOf(tracker, suggestions),
     })
   }
   const open = openSteps(plan)
