@@ -33,6 +33,11 @@ describe('0.7.7 X1: git không đổi file không còn là thay đổi', () => {
     })
   }
 
+  test('git commit có thay thế lệnh vẫn là thay đổi cả khi engine báo chỉ đọc (tác động ghi có thể bị bỏ, chỉ còn tác động git)', () => {
+    expect(isMutation(bash('git commit -m "$(date)"', { isReadOnly: true }))).toBe(true)
+    expect(isMutation(bash('git commit -m x', { isReadOnly: true }))).toBe(false)
+  })
+
   test('chuỗi git add, commit, push sau lần chạy npm test đạt: vẫn đã kiểm, không cảnh báo chưa kiểm', () => {
     const tracker = newTracker('t')
     const brief = makeBrief()
