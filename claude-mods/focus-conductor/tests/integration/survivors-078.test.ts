@@ -8,7 +8,7 @@ import { FOUR, SEARCH, base, plan, spawnTool, step, submit, task } from '../supp
 import type { Json, Seen } from '../support/engine'
 import { quotaMeter, week } from '../support/quota'
 import { newTracker, observe, summarize } from '../../hooks/lib/drift'
-import { INTERJECT_CHARS, interjectContext } from '../../hooks/lib/text'
+import { INTERJECT_CHARS, interjectContext, missingTasksNotice } from '../../hooks/lib/text'
 import { bash as bashCall, edit as editCall, makeBrief } from '../support/commands'
 
 const PLAN = 'mcp__focus-conductor__plan'
@@ -141,5 +141,24 @@ describe('078-G9o: khối chen ngang bớt việc cho vừa trần', () => {
     expect(block.length).toBeLessThanOrEqual(INTERJECT_CHARS)
     expect(block.endsWith('giữ nguyên các bước đang có.')).toBe(true)
     expect(block).toMatch(/và \d+ việc nữa/)
+  })
+})
+
+describe('078-G4j, 078-G9r', () => {
+  test('dòng việc chưa có bước cắt tiêu đề dài ở 60 ký tự', () => {
+    const long = `Việc có tiêu đề rất dài ${'x'.repeat(100)}`
+    const line = missingTasksNotice([{ index: 2, title: long, run: 'main', pick: { family: 'sonnet', effort: 'medium' }, depth: 'light', volume: 'small', kind: 'edit', why: '' }])
+    expect(line).toContain('Việc 2: Việc có tiêu đề rất dài')
+    expect(line).not.toContain(long)
+  })
+
+  test('request router của tin chen ngang nói tin đến khi luồng chính đang làm, kèm bước đang mở', {}, async ($, on) => {
+    const seen = base(on, { router: routerWith(RACE) })
+    hooks(on)
+    await running($, seen)
+    await interject($, 'Sửa luôn race condition ghi cache')
+    const request = seen.routed.at(-1) ?? ''
+    expect(request).toContain('while the main model was still working on the current goal')
+    expect(request).toContain('Việc 1: đọc mã')
   })
 })
