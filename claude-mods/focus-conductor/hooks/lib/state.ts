@@ -39,6 +39,7 @@ export const EMPTY_CORE: Core = {
   turnFault: null,
   closing: { seq: 0, goalId: -1, lastPassSeq: null },
   toasted: { goalId: -1, keys: [] },
+  stopNudged: -1,
 }
 
 const LOG_LIMIT = 60
@@ -116,6 +117,11 @@ export const withToasted =
     return { ...n, toasted: { goalId, keys: [...keys.filter(k => k !== key), key].slice(-TOASTED_LIMIT) } }
   }
 
+/** Ghi mục tiêu cổng Stop vừa chặn vì chưa có checklist (0.7.8 G1): mỗi mục tiêu chỉ chặn một lần. */
+export const withStopNudged =
+  (goalId: number) =>
+  (c: Core): Core => ({ ...normalizeCore(c), stopNudged: goalId })
+
 /** Ghi (hoặc xóa) turn lỗi gần nhất của luồng chính (0.7.3). */
 export const withTurnFault =
   (fault: TurnFault | null) =>
@@ -145,6 +151,7 @@ export function normalizeCore(raw: Partial<Core>): Core {
     turnFault: raw.turnFault ?? null,
     closing: raw.closing ?? { seq: 0, goalId: -1, lastPassSeq: null },
     toasted: raw.toasted ?? { goalId: -1, keys: [] },
+    stopNudged: raw.stopNudged ?? -1,
   }
 }
 

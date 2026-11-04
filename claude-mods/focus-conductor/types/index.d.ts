@@ -340,6 +340,11 @@ export type Core = {
    * lần; band và pane vẫn ghi mọi lần. Vắng ở trạng thái từ bản cũ.
    */
   toasted: { goalId: number; keys: string[] }
+  /**
+   * Mục tiêu (goalId) mà cổng Stop đã chặn một lần vì chưa có checklist của tool plan (0.7.8 G1); -1 là chưa chặn. Vắng ở trạng thái
+   * từ bản cũ.
+   */
+  stopNudged: number
 }
 
 /** Một cửa sổ hạn mức đã qua ngưỡng lúc dừng (0.6.0). */

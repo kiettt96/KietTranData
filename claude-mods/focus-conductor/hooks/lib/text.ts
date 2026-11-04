@@ -378,6 +378,47 @@ export function stopBlockReason(plan: readonly PlanStep[], failed: readonly stri
   return parts.join('\n')
 }
 
+/** Trần ký tự của lý do chặn khi mục tiêu chưa có checklist (0.7.8 G1). */
+export const NO_CHECKLIST_CHARS = 1200
+const NO_CHECKLIST_TASKS = 8
+const NO_CHECKLIST_REQUIREMENTS = 10
+
+/**
+ * Mục tiêu cần checklist của tool plan trước khi kết thúc (0.7.8 G1): brief không phải isReference và có việc đã phân, hoặc tier từ
+ * moderate; brief isBare (router lỗi ở prompt đầu, tier chỉ là đoán) chỉ tính việc đã phân.
+ */
+export function needsChecklist(brief: Brief): boolean {
+  if (brief.isReference) return false
+  if (brief.tasks.length > 0) return true
+  return brief.isBare !== true && (brief.tier === 'moderate' || brief.tier === 'complex' || brief.tier === 'deep')
+}
+
+/**
+ * Lý do cổng Stop chặn khi mục tiêu chưa có checklist của tool plan (0.7.8 G1): liệt kê việc đã phân (tối đa 8, tiêu đề cắt 60 ký
+ * tự), không có việc thì yêu cầu router trích (tối đa 10, cắt 80 ký tự); không quá NO_CHECKLIST_CHARS ký tự.
+ */
+export function noChecklistReason(brief: Brief, hasMirror: boolean): string {
+  const head = `[focus-conductor] Mục tiêu "${clipItem(brief.goal, 120)}" chưa có checklist của ${PLAN_TOOL_FULL}.`
+  const tail =
+    `Gọi ${PLAN_TOOL_FULL} action "set" để ghi checklist rồi làm tiếp, hoặc nêu rõ vì sao mọi yêu cầu đã xong trước khi kết thúc.` +
+    (hasMirror ? ' Danh sách việc ghi bằng TodoWrite hay TaskCreate chỉ để hiển thị, cổng kết thúc không đọc danh sách đó.' : '')
+  const hasTasks = brief.tasks.length > 0
+  const all = hasTasks
+    ? brief.tasks.map(t => `Việc ${t.index}: ${clipItem(t.title, 60)}`)
+    : (brief.requirements ?? []).map((r, i) => `(${i + 1}) ${clipItem(r, 80)}`)
+  const limit = hasTasks ? NO_CHECKLIST_TASKS : NO_CHECKLIST_REQUIREMENTS
+  const label = hasTasks ? 'Các việc đã phân' : 'Các yêu cầu router đã trích'
+  const unit = hasTasks ? 'việc' : 'yêu cầu'
+  const build = (n: number) => {
+    if (n === 0) return `${head} ${tail}`
+    const rest = all.length - n
+    return `${head} ${label}: ${all.slice(0, n).join('; ')}${rest > 0 ? `; và ${rest} ${unit} nữa` : ''}. ${tail}`
+  }
+  let n = Math.min(all.length, limit)
+  while (n > 0 && build(n).length > NO_CHECKLIST_CHARS) n -= 1
+  return build(n).slice(0, NO_CHECKLIST_CHARS)
+}
+
 /** Một dòng tóm tắt cho status line. */
 /** Số ô của thanh chữ trên status line (0.6.1). */
 export const STATUS_BAR = 8

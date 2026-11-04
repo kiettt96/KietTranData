@@ -15,7 +15,7 @@ import { storeKey, withNote } from '../lib/checkpoint'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
 import { shownPlan } from '../lib/mirror'
-import { PLAN_TOOL_FULL, blockText, checkHintText, compactReminderText, criteriaNotice, driftContext, pendingNotice, qualityNotice, renderBulk, renderPlan, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice } from '../lib/text'
+import { PLAN_TOOL_FULL, blockText, checkHintText, compactReminderText, criteriaNotice, driftContext, needsChecklist, noChecklistReason, pendingNotice, qualityNotice, renderBulk, renderPlan, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -415,6 +415,14 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     // subagent đã lỗi vẫn bị chặn.
     const isNoticed = L.noticeTurn !== null && L.noticeTurn === L.tracker.turnId && softNotices(quota.readings, await $.clock.now(), quotaSettings(ctx.options)).length > 0
     const plan = isNoticed ? [] : core.plan
+    // Mục tiêu từ moderate (hoặc có việc đã phân) mà chưa có checklist (0.7.8 G1): chặn một lần mỗi mục tiêu, khóa trong Core nên
+    // giữ qua hot reload; danh sách phản chiếu từ TodoWrite chỉ để hiển thị nên không tính là checklist.
+    const brief = core.brief
+    if (brief !== null && core.plan.length === 0 && failed.length === 0 && !isNoticed && core.stopNudged !== brief.goalId && needsChecklist(brief)) {
+      await update($, coreState, S.withStopNudged(brief.goalId))
+      const hasMirror = core.mirror.goalId === brief.goalId && core.mirror.steps.length > 0
+      return { ...result, block: noChecklistReason(brief, hasMirror) }
+    }
     if (isGoalDone(plan) && failed.length === 0) return result
     return { ...result, block: stopBlockReason(plan, failed) }
   }).catch(($, e, next) => next(e))

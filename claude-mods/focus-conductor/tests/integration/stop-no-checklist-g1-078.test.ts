@@ -6,6 +6,8 @@ import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import type { Core } from '../../types'
 import * as S from '../../hooks/lib/state'
+import { NO_CHECKLIST_CHARS, needsChecklist, noChecklistReason } from '../../hooks/lib/text'
+import { makeBrief } from '../support/commands'
 import { base, conductor, plan, submit, task } from '../support/engine'
 import type { Json } from '../support/engine'
 
@@ -132,5 +134,21 @@ describe('0.7.8 G1: khóa đã chặn nằm trong Core, giữ qua hot reload', (
     const reloaded = S.normalizeCore(JSON.parse(JSON.stringify(core)) as Partial<Core>)
     expect(reloaded.stopNudged).toBe(7)
     expect(S.normalizeCore({} as Partial<Core>).stopNudged).toBe(-1)
+  })
+})
+
+describe('0.7.8 G1: needsChecklist và trần của lý do', () => {
+  test('brief isBare chỉ tính việc đã phân, không tính tier đoán', () => {
+    const bare = makeBrief({ tier: 'deep', tasks: [], isBare: true })
+    expect(needsChecklist(bare)).toBe(false)
+    expect(needsChecklist({ ...bare, isBare: undefined })).toBe(true)
+    expect(needsChecklist(makeBrief({ tier: 'simple', tasks: [] }))).toBe(false)
+  })
+
+  test('10 yêu cầu dài: bớt mục cho vừa trần, câu dặn cuối giữ nguyên', () => {
+    const reason = noChecklistReason(makeBrief({ goal: 'x'.repeat(200), tasks: [], requirements: Array.from({ length: 10 }, (_, i) => `${i} ${'y'.repeat(120)}`) }), true)
+    expect(reason.length).toBeLessThanOrEqual(NO_CHECKLIST_CHARS)
+    expect(reason.endsWith('cổng kết thúc không đọc danh sách đó.')).toBe(true)
+    expect(reason).toContain('yêu cầu nữa')
   })
 })
