@@ -97,7 +97,7 @@ Cấu hình qua `/config` (hoặc `pluginConfigs.focus-conductor.options` trong 
 |---|---|---|
 | `routing` | `auto` | `auto` điều phối cả luồng chính và subagent; `subagents` chỉ subagent, giữ nguyên model luồng chính (an toàn nhất cho cache); `suggest` chỉ hiển thị đề xuất (ở `suggest` và `subagents`, luồng chính trong khối context ghi là `(chỉ đề xuất)`); `off` tắt toàn bộ mod |
 | `router` | `sonnet` | Model Claude đọc prompt và điều phối: alias (`haiku`, `sonnet`, `opus`) hoặc model ID. Thay cho tùy chọn `analyzer` của bản 0.3 |
-| `enforceChecklist` | `true` | Chặn kết thúc khi checklist còn bước mở |
+| `enforceChecklist` | `true` | Chặn kết thúc khi checklist còn bước mở; từ 0.7.8 chặn thêm một lần mỗi mục tiêu khi mục tiêu từ moderate (hoặc có việc đã phân) chưa có checklist của tool `plan` |
 | `allowFable` | `false` | Cho router dùng Fable cho việc khó nhất; tắt thì lựa chọn fable bị kẹp về opus |
 | `sessionModel` | `auto` | `auto` mod tự chọn model; `ceiling` không vượt model của phiên; `fixed` giữ model của phiên, chỉ đổi effort |
 | `contextWindows` | trống | Cửa sổ ngữ cảnh theo họ model, dạng `opus=1000000,sonnet=1000000`; mod không đổi sang model có cửa sổ nhỏ hơn ngữ cảnh hiện tại, kể cả khi nâng cấp. Để trống thì họ dùng model ID mặc định của mod lấy 1M token [Nguồn: trang giá Anthropic 2026-10-13]; họ bị `modelMap` đổi ID thì cần khai ở đây (ví dụ `haiku=1000000`) |
@@ -190,6 +190,13 @@ Mỗi bước của checklist có ba mức: chưa xong, `done` (đã xong) và `
 `done` vẫn đủ để kết thúc mục tiêu: cổng chặn kết thúc không đòi `verified`, đây là tín hiệu chất lượng. Band, pane và status line ghi `đã đóng/tổng`, thêm hậu tố số bước `verified` kèm dấu kiểm khi có; thanh tiến độ vẽ phần `verified` đậm, phần `done` thường; `/conductor status` giữ `[v]` và `[x]`. `verified` do Claude ghi chỉ cần đã có lệnh test đạt sau thay đổi cuối, không còn đòi chép đúng từng chữ lệnh (evidence không khớp chặt thì bước được lưu như bước tự nâng và bị hạ khi sửa tiếp; evidence nêu đúng lệnh và kết quả giữ nguyên); chưa có lệnh đạt thì bước bị hạ về `done` kèm lời nhắc chạy lệnh kiểm tra (mod sẽ tự nâng).
 
 Cuối turn còn thay đổi chưa kiểm thì mod báo một câu; từ 0.7.7 câu nói rõ vì sao. Lệnh git chỉ đổi lịch sử hay cấu hình (`git add`, `commit`, `push`, `tag`, `branch`, `fetch`, `config`, `remote`, `notes`, `gc`) không còn là thay đổi. Khi có lệnh kiểm mà không được tính, câu nêu lệnh đó và lý do (chưa đạt, không có phép kiểm nào chạy, nằm trong `$( )` hay đứng sau `||`, bị lệnh đứng sau che mã thoát, chạy qua ống); không có lệnh bị loại mà đã chạy một script kiểm chưa khai thì câu nêu script đó. `pytest -q` qua `| tail` được nhận. Mỗi nguyên nhân chỉ toast một lần trong mục tiêu; band và pane vẫn ghi mọi lần. Turn chỉ sửa tài liệu (`.md`, `.markdown`, `.txt`) mà đã `Read` lại từng file sau lần ghi cuối thì cảnh báo ở mức nhẹ: không toast, không lên band, pane ghi mờ. Đọc lại chỉ hạ mức hiển thị, không bao giờ nâng bước lên `verified`; chỉ tool `Read` được tính là đọc lại.
+
+### Giữ mục tiêu và yêu cầu chen ngang (0.7.8)
+
+- **Cổng kết thúc khi chưa có checklist.** Mục tiêu từ moderate, hoặc có việc router đã phân, mà Claude chưa ghi checklist bằng tool `plan` thì lần định kết thúc đầu tiên bị chặn một lần: lý do liệt kê các việc đã phân (hoặc yêu cầu router trích) và dặn gọi `plan set`. Danh sách ghi bằng `TodoWrite` hay `TaskCreate` chỉ để hiển thị, không tính là checklist. Mỗi mục tiêu chỉ chặn một lần, kể cả qua hot reload.
+- **Việc chưa có bước.** Sau `plan set` hay `add`, việc đã phân chưa có bước nào khớp (theo "Việc N", mã mục hay mã bước, cùng luật với description của Agent) được nêu trong kết quả tool.
+- **Đối chiếu yêu cầu khi đóng bước cuối.** Checklist vừa đóng hẳn thì ngoài tiêu chí chất lượng, mod liệt kê lại các yêu cầu router đã trích từ prompt để Claude xác nhận từng yêu cầu bằng bằng chứng; một lần mỗi mục tiêu.
+- **Yêu cầu chen ngang.** Gửi thêm yêu cầu trong lúc Claude đang làm thì mod đọc nó như phần bổ sung của mục tiêu hiện tại: không cất checklist, việc mới đánh số tiếp, Claude được dặn thêm bước bằng `plan add` và hỏi lại nếu yêu cầu mới thay hẳn mục tiêu cũ. Luồng chính không đổi model giữa turn; khi engine chèn tin vào turn đang chạy, việc mới cần model cao hơn được dặn giao subagent general-purpose với đúng model router chấm.
 
 ### Giám sát giữa phiên
 
@@ -344,6 +351,8 @@ bun scripts/mutate.ts                     # chạy đột biến (khoảng 30 gi
 
 ## Giới hạn đã biết
 
+- Router chỉ đọc chữ của prompt, không đọc tệp hay ảnh đính kèm: `prompt.submit` của engine 2.1.296 chỉ báo loại, kiểu MIME, tên tệp và mã của tệp đính kèm, không có phần chữ (0.7.8). Prompt dài hơn 80.000 ký tự thì router chỉ đọc 60.000 ký tự đầu và 20.000 ký tự cuối; mod báo một cảnh báo và dặn Claude tự đọc kỹ phần giữa.
+- Yêu cầu chen ngang (0.7.8) dựa vào `turnId` engine gửi kèm `prompt.submit` và dòng attachment `queued_command` khi engine chèn tin vào turn đang chạy; tên attachment do engine đặt và có thể đổi giữa các bản. Mới kiểm bằng bộ test của engine, chưa kiểm trên phiên tương tác thật.
 - Mỗi prompt thêm một lượt gọi model router trước khi Claude bắt đầu làm (trừ câu trong `routerSkip`). Đo bằng `scripts/eval-router.ts` với router `sonnet`, ngày 2026-10-10, trên bộ golden-set 16 ca lúc đó (trước khi thêm 5 ca đối kháng; bộ hiện tại 21 ca) [Nguồn: eval trong phiên phát triển]: prompt ngắn và vừa 5 đến 9 giây, dưới $0,04 mỗi lượt; prompt cỡ K4 (37.000 ký tự, 14 mục) khoảng 14 giây và khoảng $0,10. Router `haiku` trên cùng bộ đạt 14 đến 15/16 ca qua ba lần chạy, và trượt ở chỗ khác nhau mỗi lần: ca K4 đối chiếu (không tách việc nào, hoặc xếp bản chất là mixed) và ca sáu việc (luồng chính sonnet thay vì opus). Vì vậy `sonnet` vẫn là mặc định.
 - Đính chính so với README 0.4.0: lượt eval trước đó bị chính mod (bản phát triển đang bật trên máy) điều phối lại request của router, nên model thật sự trả lời khác model yêu cầu. Script eval giờ chạy mỗi lượt với `CLAUDE_CONFIG_DIR` riêng và in model thật sự trả lời; số liệu ở mục trên là của lượt đã tách.
 - Chất lượng điều phối phụ thuộc model router. Code chỉ kẹp theo chính sách, không sửa phán đoán của router. Golden-set chấm theo khoảng chấp nhận được (họ model, số việc, quan hệ), không theo một câu trả lời duy nhất; đây là kiểm tra trong phiên phát triển, không phải số đo độc lập.
