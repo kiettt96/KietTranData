@@ -679,6 +679,16 @@ function liftMain(main: Fitted, held: ReadonlyArray<{ index: number; pick: Choic
 }
 
 /**
+ * Việc từ mức substantial thì luồng chính không chạy haiku (0.7.8 G5): luồng chính phải tổng hợp kết quả của việc khó. Lên sonnet,
+ * giữ effort, qua fitPick lần nữa để chính sách phiên vẫn là bước cuối.
+ */
+function floorMain(main: Fitted, depth: Depth, kind: Kind, policy: Policy): Fitted {
+  if (main.pick.family !== 'haiku' || (depth !== 'substantial' && depth !== 'hard')) return main
+  const refit = fitPick({ family: 'sonnet', effort: main.pick.effort }, kind, policy)
+  return { pick: refit.pick, notes: [...main.notes, `việc mức ${depth}: luồng chính không chạy haiku`, ...refit.notes] }
+}
+
+/**
  * Đọc câu trả lời của router thành kế hoạch điều phối đã kiểm và kẹp. Null khi không
  * có JSON, khi thiếu lựa chọn hợp lệ cho luồng chính, hoặc khi mục tiêu mới không có câu mục tiêu.
  */
@@ -712,7 +722,7 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
     tasks.push(task)
     if (task.run === 'main') held.push({ index: task.index, pick: rawPick(item) ?? own })
   }
-  const lead = isReference ? main : liftMain(main, held, kind, policy)
+  const lead = isReference ? main : floorMain(liftMain(main, held, kind, policy), depth, kind, policy)
   const mainWhy = typeof raw['main'] === 'object' && raw['main'] !== null ? text((raw['main'] as Raw)['why']) : ''
   return {
     why: text(raw['why'], 200),
