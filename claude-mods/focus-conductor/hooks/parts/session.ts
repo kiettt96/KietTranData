@@ -7,7 +7,7 @@ import { openSteps, restorableSteps } from '../lib/drift'
 import { PLAN_TOOL_SPEC } from '../lib/plan'
 import { describePick, familyOf } from '../lib/route'
 import { clipText, keptLines } from '../lib/decisions'
-import { ROUTER_TASK_LIMIT, askRouter, bareBrief, failFields, isSkippable, needsCoverageRecheck, nextBrief, parseRoute, routerFailOf, routerRequest } from '../lib/router'
+import { CLIPPED_CONTEXT, ROUTER_TASK_LIMIT, askRouter, bareBrief, clippedWarning, isClippedPrompt, failFields, isSkippable, needsCoverageRecheck, nextBrief, parseRoute, routerFailOf, routerRequest } from '../lib/router'
 import type { RouterOutcome, RouterPlan } from '../lib/router'
 import { EMPTY_QUOTA, blockingHits, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaSettings, reasonsOf } from '../lib/quota'
 import * as S from '../lib/state'
@@ -217,7 +217,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       L.observed = []
       const request = routerRequest({ text, prev, ran: ranText(before), policy: rules, model: routerModel, sessionFamily: L.sessionFamily, openSteps: openSteps(before.plan).map(s => s.title), ...(observed ? { observed } : {}) })
       const startedAt = await $.clock.now()
-      outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), needsCoverageRecheck)
+      outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), needsCoverageRecheck, { retryMissingConfidence: true })
       waitedMs = (await $.clock.now()) - startedAt
       noteRouterTime(waitedMs)
       pauseText = noteRouter(outcome.result !== null)
@@ -300,6 +300,9 @@ export function registerSession(on: On, ctx: Ctx): void {
     // Phần tràn cũng đầy (vòng rà soát 3): mục của prompt tiếp nối không giữ được thì báo số mục, không bỏ im lặng.
     // Kind riêng (S8): chip của pane ghi "mục bị bỏ", không phải "model".
     if (dropped > 0) await update($, coreState, S.withWarnings({ at: now, kind: 'dropped', text: droppedItemsText(dropped) }))
+    // Prompt dài hơn trần của router (0.7.8 G8): phần giữa bị lược, báo một cảnh báo và một dòng context cho prompt đó.
+    const isClipped = isClippedPrompt(text)
+    if (isClipped) await update($, coreState, S.withWarnings({ at: now, kind: 'model', text: clippedWarning(text.length) }))
     if (isNewGoal) {
       L.goalPrompt = { text, prev, goalId: brief.goalId }
       L.isGoalNew = true
@@ -342,6 +345,6 @@ export function registerSession(on: On, ctx: Ctx): void {
       )
     }
     await showStatus($, await read($, view), ctx.options)
-    return next({ ...e, context: [...lead, ...(e.context ?? []), context, ...notice, ...tail] })
+    return next({ ...e, context: [...lead, ...(e.context ?? []), context, ...notice, ...(isClipped ? [CLIPPED_CONTEXT] : []), ...tail] })
   }).catch(($, e, next) => next(e))
 }

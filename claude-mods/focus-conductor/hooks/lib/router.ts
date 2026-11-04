@@ -599,8 +599,11 @@ export function isSettled(claimed: ModelFamily | null, claimedEffort: Effort | n
 
 export type RouterPlan = {
   why: string
-  /** Mức tin cậy router tự báo, 0 đến 1; thiếu thì coi là 1. */
-  confidence: number
+  /**
+   * Mức tin cậy router tự báo, 0 đến 1; undefined khi thiếu hay không hợp lệ (0.7.8 G8): ba chỗ đọc prompt hỏi lại một lần, luật
+   * giữ mục tiêu tính như 1.
+   */
+  confidence: number | undefined
   relation: Relation
   isReference: boolean
   runReference: boolean
@@ -726,7 +729,7 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
   const mainWhy = typeof raw['main'] === 'object' && raw['main'] !== null ? text((raw['main'] as Raw)['why']) : ''
   return {
     why: text(raw['why'], 200),
-    confidence: confidenceOf(raw['confidence']) ?? 1,
+    confidence: confidenceOf(raw['confidence']),
     relation,
     isReference,
     runReference,
@@ -1067,7 +1070,7 @@ export async function askRouter<T extends { confidence?: number }>(
   /** Câu trả lời đã đọc được nhưng cần đọc kiểm lại một lần ở effort cao (ví dụ quá nhiều yêu cầu): 0.7.0. */
   recheck?: (result: T) => boolean,
   /** Đồng hồ (mặc định Date.now) và hạn chung cho mọi lượt gọi (mặc định 1,5 lần timeout của request): 0.7.2. */
-  opts: { now?: () => number; budgetMs?: number } = {},
+  opts: { now?: () => number; budgetMs?: number; retryMissingConfidence?: boolean } = {},
 ): Promise<RouterOutcome<T>> {
   const now = opts.now ?? Date.now
   const budget = opts.budgetMs ?? Math.round((request.timeoutMs ?? 45_000) * BUDGET_FACTOR)
@@ -1085,8 +1088,11 @@ export async function askRouter<T extends { confidence?: number }>(
     return { result, reason: result === null ? failureReason(again) : '', usages, retried: true, failure: result === null ? failureKind(again) : null, ...limits(again ?? first) }
   }
   const firstResult = first?.isAnswered ? parse(first.text) : null
+  // Thiếu confidence (0.7.8 G8): chỉ khi bật retryMissingConfidence (ba chỗ đọc prompt) thì coi như dưới LOW_CONFIDENCE và hỏi lại;
+  // chấm subagent và kiểm lạc đề giữ như 0.7.7 (thiếu tính là 1, không hỏi lại).
+  const isMissing = opts.retryMissingConfidence === true && firstResult !== null && firstResult.confidence === undefined
   const firstConfidence = firstResult?.confidence ?? 1
-  const isConfident = firstResult !== null && firstConfidence >= LOW_CONFIDENCE
+  const isConfident = firstResult !== null && !isMissing && firstConfidence >= LOW_CONFIDENCE
   const needsCoverage = isConfident && recheck !== undefined && recheck(firstResult)
   const settled = (retried: boolean) => ({ result: firstResult, reason: failureReason(first), usages, retried, failure: firstResult === null ? failureKind(first) : null, ...limits(first) })
   if (first === null || !first.isAnswered || (isConfident && !needsCoverage)) return settled(false)
@@ -1099,10 +1105,31 @@ export async function askRouter<T extends { confidence?: number }>(
   const second = await ask(retryRequest(request, first.text, problem, { timeoutMs: Math.min(request.timeoutMs ?? budget, budget - spent), truncated: isTruncated })).catch(() => null)
   if (second) usages.push(second.usage)
   const secondResult = second?.isAnswered ? parse(second.text) : null
-  const pick =
-    secondResult !== null && (firstResult === null || (secondResult.confidence ?? 1) >= firstConfidence) ? secondResult : firstResult
+  // Thiếu confidence xếp thấp nhất khi bật retryMissingConfidence: lần hai thắng khi nó có confidence và lần đầu không có hay thấp hơn.
+  const isSecondBetter =
+    opts.retryMissingConfidence === true
+      ? secondResult !== null && (firstResult === null || (secondResult.confidence !== undefined && (isMissing || secondResult.confidence >= firstConfidence)))
+      : secondResult !== null && (firstResult === null || (secondResult.confidence ?? 1) >= firstConfidence)
+  const pick = isSecondBetter ? secondResult : firstResult
   return { result: pick, reason: pick === null ? failureReason(second) : '', usages, retried: true, failure: pick === null ? failureKind(second) : null, ...limits(second ?? first) }
 }
+
+/** Prompt dài hơn REQUEST_CHARS bị router lược phần giữa (0.7.8 G8). */
+export function isClippedPrompt(text: string): boolean {
+  return text.length > REQUEST_CHARS
+}
+
+function grouped(n: number): string {
+  return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+}
+
+/** Cảnh báo model khi router lược phần giữa của prompt (0.7.8 G8). */
+export function clippedWarning(length: number): string {
+  return `Prompt dài ${grouped(length)} ký tự; router chỉ đọc ${grouped(REQUEST_HEAD)} ký tự đầu và ${grouped(REQUEST_TAIL)} ký tự cuối`
+}
+
+/** Dòng context kèm prompt bị lược (0.7.8 G8), tối đa 200 ký tự. */
+export const CLIPPED_CONTEXT = '[focus-conductor] Prompt quá dài nên router chưa đọc phần giữa; tự đọc kỹ phần đó khi lập checklist.'
 
 /** Ràng buộc và yêu cầu của brief trước bị thay vì đầy trần (0.7.5), để báo một cảnh báo. */
 function replacedOf(prev: Brief, next: Brief): string[] {
@@ -1185,7 +1212,7 @@ function nextBriefRaw(
     return { brief, added: [], isNewGoal: true, replaced: replacedOf(prev, brief), held: false, dropped: 0 }
   }
   const open = options.openSteps ?? []
-  const held = prev !== null && !prev.isReference && plan.relation === 'new' && open.length > 0 && plan.confidence < NEW_GOAL_CONFIDENCE && mentionsGoal(prompt, prev, open)
+  const held = prev !== null && !prev.isReference && plan.relation === 'new' && open.length > 0 && (plan.confidence ?? 1) < NEW_GOAL_CONFIDENCE && mentionsGoal(prompt, prev, open)
   if (prev === null || (plan.relation === 'new' && !held)) {
     const fresh = briefOf(plan, prompt, (prev?.goalId ?? 0) + 1, now)
     const carried = prev !== null && !prev.isReference && !plan.constraints.some(isModelRule) ? prev.constraints.filter(isModelRule) : []

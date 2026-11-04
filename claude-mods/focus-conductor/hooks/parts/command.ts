@@ -132,7 +132,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       // Lệnh do người dùng gõ: luôn hỏi router, kể cả khi router đang tạm ngừng sau các lần lỗi.
       const request = routerRequest({ text: arg, prev, ran: null, policy: rules, model: routerModel, sessionFamily: L.sessionFamily, isForcedNew: true })
       const startedAt = await $.clock.now()
-      const outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules))
+      const outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), undefined, { retryMissingConfidence: true })
       noteRouterTime((await $.clock.now()) - startedAt)
       const plan = outcome.result
       if (plan !== null) L.routerTrouble = { failures: 0, pausedUntil: 0 }
@@ -192,7 +192,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       // Lệnh do người dùng gõ: luôn hỏi router, kể cả khi router đang tạm ngừng.
       const request = routerRequest({ text: last.text, prev: last.prev, ran: ranText(before), policy: rules, model: routerModel, sessionFamily: L.sessionFamily })
       const startedAt = await $.clock.now()
-      const outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules))
+      const outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), undefined, { retryMissingConfidence: true })
       noteRouterTime((await $.clock.now()) - startedAt)
       const now = await $.clock.now()
       const withUsage = (c: Core): Core =>
