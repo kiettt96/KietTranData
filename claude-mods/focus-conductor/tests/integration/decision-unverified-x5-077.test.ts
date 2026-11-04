@@ -79,4 +79,15 @@ describe('0.7.7 X5: dòng unverified trong nhật ký quyết định', () => {
     await done($)
     expect(unverified(lines())).toEqual([])
   })
+
+  test('cảnh báo nhẹ (chỉ sửa tài liệu, đã đọc lại): dòng unverified ghi soft true', LOG, async ($, on) => {
+    const lines = logLines(on)
+    setup(on)
+    on('tool.call', { tool: 'Read' }, () => ({ result: 'nội dung' }))
+    await submit($, COMPLEX_PROMPT)
+    await edit($, 'docs/a.md')
+    await $.tool.call({ tool: 'Read', file_path: 'docs/a.md' } as never)
+    await done($)
+    expect(unverified(lines())[0]).toMatchObject({ kind: 'unverified', mutations: 1, checks: 0, soft: true, rejected: [] })
+  })
 })
