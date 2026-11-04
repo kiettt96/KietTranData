@@ -65,6 +65,10 @@ describe('0.7.7 X2: lời nhắc check-shape', () => {
     expect((found?.context ?? '').length).toBeLessThanOrEqual(400)
   })
 
+  test('lệnh kiểm bị loại vì không có phép kiểm nào chạy (0 passed): không nhắc, vì chạy lại riêng cũng không làm nó đạt', () => {
+    expect(shapeOf('npm test 2>&1 | tail -20', '0 passed in 0.01s')).toBeUndefined()
+  })
+
   test('output có FAIL: không nhắc', () => {
     expect(shapeOf('npm test 2>&1 | tail -20', 'FAIL src/a.test.ts')).toBeUndefined()
   })
