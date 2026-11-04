@@ -8,7 +8,7 @@ import type { QuotaBadge, QuotaNoticeHit, QuotaThresholds } from './quota'
 import { labels } from '../ui/labels'
 import { currentStep, taskBarRuns } from '../ui/style'
 import type { Lang } from '../ui/labels'
-import { describePick } from './route'
+import { describePick, taskMatch } from './route'
 import { uncoveredRequirements } from './router'
 
 export const PLAN_TOOL = 'plan'
@@ -417,6 +417,32 @@ export function noChecklistReason(brief: Brief, hasMirror: boolean): string {
   let n = Math.min(all.length, limit)
   while (n > 0 && build(n).length > NO_CHECKLIST_CHARS) n -= 1
   return build(n).slice(0, NO_CHECKLIST_CHARS)
+}
+
+/** Trần ký tự của dòng báo việc chưa có bước (0.7.8 G4). */
+export const MISSING_TASKS_CHARS = 500
+const MISSING_TASKS_SHOWN = 8
+
+/**
+ * Việc đã phân chưa có bước nào trong checklist (0.7.8 G4): một bước (mọi trạng thái) khớp việc khi taskMatch theo tên bước trả đúng
+ * việc đó, cùng luật khớp với description của Agent ("Việc N", mã mục, mã bước).
+ */
+export function missingTasks(tasks: readonly Task[], plan: readonly PlanStep[]): Task[] {
+  const covered = new Set(plan.map(step => taskMatch(tasks, step.title).task?.index))
+  return tasks.filter(t => !covered.has(t.index))
+}
+
+/** Dòng báo việc chưa có bước (0.7.8 G4): tối đa 8 việc, tiêu đề cắt 60 ký tự, không quá MISSING_TASKS_CHARS ký tự. */
+export function missingTasksNotice(missing: readonly Task[]): string {
+  const all = missing.map(t => `Việc ${t.index}: ${clipItem(t.title, 60)}`)
+  const tail = 'Thêm bước cho từng việc đó bằng action "add", hoặc ghi lý do bỏ (bước skipped kèm note).'
+  const build = (n: number) => {
+    const rest = all.length - n
+    return `[focus-conductor] Việc chưa có bước trong checklist: ${all.slice(0, n).join('; ')}${rest > 0 ? `; và ${rest} việc nữa` : ''}. ${tail}`
+  }
+  let n = Math.min(all.length, MISSING_TASKS_SHOWN)
+  while (n > 1 && build(n).length > MISSING_TASKS_CHARS) n -= 1
+  return build(n)
 }
 
 /** Một dòng tóm tắt cho status line. */

@@ -15,7 +15,7 @@ import { storeKey, withNote } from '../lib/checkpoint'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
 import { shownPlan } from '../lib/mirror'
-import { PLAN_TOOL_FULL, blockText, checkHintText, compactReminderText, criteriaNotice, driftContext, needsChecklist, noChecklistReason, pendingNotice, qualityNotice, renderBulk, renderPlan, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice } from '../lib/text'
+import { PLAN_TOOL_FULL, blockText, checkHintText, compactReminderText, criteriaNotice, driftContext, missingTasks, missingTasksNotice, needsChecklist, noChecklistReason, pendingNotice, qualityNotice, renderBulk, renderPlan, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -200,6 +200,12 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     const isClosing = isUpdate && !isFullyClosed(before.plan) && isFullyClosed(core.plan)
     if (isClosing && core.brief !== null && core.brief.quality.length > 0) notes.push(qualityNotice(core.brief.quality))
     if (isUpdate && openSteps(before.plan).length > 0 && openSteps(core.plan).length === 0 && pendingSteps(core.plan).length > 0) notes.push(pendingNotice(core.plan))
+    // Việc đã phân chưa có bước nào trong checklist (0.7.8 G4): chỉ sau set và add, brief không phải isReference.
+    const isListed = input.action === 'set' || input.action === 'add'
+    if (isListed && core.brief !== null && !core.brief.isReference && core.brief.tasks.length > 0) {
+      const missing = missingTasks(core.brief.tasks, core.plan)
+      if (missing.length > 0) notes.push(missingTasksNotice(missing))
+    }
     await showStatus($, await read($, view), ctx.options)
     const shown =
       outcome.bulk !== undefined
