@@ -40,6 +40,7 @@ export const EMPTY_CORE: Core = {
   closing: { seq: 0, goalId: -1, lastPassSeq: null },
   toasted: { goalId: -1, keys: [] },
   stopNudged: -1,
+  reqNoticed: -1,
 }
 
 const LOG_LIMIT = 60
@@ -122,6 +123,11 @@ export const withStopNudged =
   (goalId: number) =>
   (c: Core): Core => ({ ...normalizeCore(c), stopNudged: goalId })
 
+/** Ghi mục tiêu vừa được nhắc đối chiếu từng yêu cầu (0.7.8 G2): mỗi mục tiêu chỉ nhắc một lần. */
+export const withReqNoticed =
+  (goalId: number) =>
+  (c: Core): Core => ({ ...normalizeCore(c), reqNoticed: goalId })
+
 /** Ghi (hoặc xóa) turn lỗi gần nhất của luồng chính (0.7.3). */
 export const withTurnFault =
   (fault: TurnFault | null) =>
@@ -152,6 +158,7 @@ export function normalizeCore(raw: Partial<Core>): Core {
     closing: raw.closing ?? { seq: 0, goalId: -1, lastPassSeq: null },
     toasted: raw.toasted ?? { goalId: -1, keys: [] },
     stopNudged: raw.stopNudged ?? -1,
+    reqNoticed: raw.reqNoticed ?? -1,
   }
 }
 

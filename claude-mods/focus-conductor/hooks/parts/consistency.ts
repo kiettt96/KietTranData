@@ -15,7 +15,7 @@ import { storeKey, withNote } from '../lib/checkpoint'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
 import { shownPlan } from '../lib/mirror'
-import { PLAN_TOOL_FULL, blockText, checkHintText, compactReminderText, criteriaNotice, driftContext, missingTasks, missingTasksNotice, needsChecklist, noChecklistReason, pendingNotice, qualityNotice, renderBulk, renderPlan, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice } from '../lib/text'
+import { PLAN_TOOL_FULL, blockText, checkHintText, compactReminderText, criteriaNotice, driftContext, missingTasks, missingTasksNotice, needsChecklist, noChecklistReason, pendingNotice, qualityNotice, renderBulk, renderPlan, requirementsNotice, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -199,6 +199,12 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     const isUpdate = input.action === 'update' && !isPaused
     const isClosing = isUpdate && !isFullyClosed(before.plan) && isFullyClosed(core.plan)
     if (isClosing && core.brief !== null && core.brief.quality.length > 0) notes.push(qualityNotice(core.brief.quality))
+    // Đối chiếu từng yêu cầu router đã trích (0.7.8 G2): một lần mỗi mục tiêu, khóa trong Core; brief isReference thì không.
+    const asked = core.brief?.requirements ?? []
+    if (isClosing && core.brief !== null && !core.brief.isReference && asked.length > 0 && core.reqNoticed !== core.brief.goalId) {
+      notes.push(requirementsNotice(asked))
+      core = await update($, coreState, S.withReqNoticed(core.brief.goalId))
+    }
     if (isUpdate && openSteps(before.plan).length > 0 && openSteps(core.plan).length === 0 && pendingSteps(core.plan).length > 0) notes.push(pendingNotice(core.plan))
     // Việc đã phân chưa có bước nào trong checklist (0.7.8 G4): chỉ sau set và add, brief không phải isReference.
     const isListed = input.action === 'set' || input.action === 'add'

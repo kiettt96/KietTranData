@@ -1843,4 +1843,13 @@ export const MUTANTS: Mutant[] = [
   { id: "078-G4h", file: "hooks/lib/text.ts", note: "không báo số việc còn lại", old: "${rest > 0 ? `; và ${rest} việc nữa` : ''}. ${tail}`", new: ". ${tail}`" },
   { id: "078-G4i", file: "hooks/lib/text.ts", note: "không bớt việc cho vừa trần", old: "  while (n > 1 && build(n).length > MISSING_TASKS_CHARS) n -= 1\n", new: "" },
   { id: "078-G4j", file: "hooks/lib/text.ts", note: "không cắt tiêu đề việc", old: "missing.map(t => `Việc ${t.index}: ${clipItem(t.title, 60)}`)", new: "missing.map(t => `Việc ${t.index}: ${t.title}`)" },
+  { id: "078-G2a", file: "hooks/parts/consistency.ts", note: "nhắc đối chiếu yêu cầu mỗi lần đóng, không khóa theo mục tiêu", old: " && asked.length > 0 && core.reqNoticed !== core.brief.goalId)", new: " && asked.length > 0)" },
+  { id: "078-G2b", file: "hooks/parts/consistency.ts", note: "không ghi khóa đã nhắc", old: "      core = await update($, coreState, S.withReqNoticed(core.brief.goalId))\n", new: "" },
+  { id: "078-G2c", file: "hooks/parts/consistency.ts", note: "brief isReference cũng được nhắc", old: "core.brief !== null && !core.brief.isReference && asked.length > 0", new: "core.brief !== null && asked.length > 0" },
+  { id: "078-G2d", file: "hooks/parts/consistency.ts", note: "nhắc cả khi chưa đóng hẳn", old: "    if (isClosing && core.brief !== null && !core.brief.isReference && asked", new: "    if (core.brief !== null && !core.brief.isReference && asked" },
+  { id: "078-G2e", file: "hooks/parts/consistency.ts", note: "không nhắc đối chiếu yêu cầu", old: "      notes.push(requirementsNotice(asked))\n", new: "" },
+  { id: "078-G2f", file: "hooks/lib/text.ts", note: "không cắt từng yêu cầu", old: "map((r, i) => `(${i + 1}) ${clipItem(r, 100)}`)", new: "map((r, i) => `(${i + 1}) ${r}`)" },
+  { id: "078-G2g", file: "hooks/lib/text.ts", note: "không bớt mục cho vừa trần", old: "  while (n > 1 && build(n).length > REQUIREMENTS_NOTICE_CHARS) n -= 1\n", new: "" },
+  { id: "078-G2h", file: "hooks/lib/text.ts", note: "không báo số yêu cầu còn lại", old: "${rest > 0 ? `; và ${rest} yêu cầu nữa trong prompt gốc` : ''}", new: "" },
+  { id: "078-G2i", file: "hooks/lib/state.ts", note: "trạng thái cũ không có mặc định reqNoticed", old: "    reqNoticed: raw.reqNoticed ?? -1,\n", new: "" },
 ]

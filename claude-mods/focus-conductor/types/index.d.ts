@@ -345,6 +345,8 @@ export type Core = {
    * từ bản cũ.
    */
   stopNudged: number
+  /** Mục tiêu (goalId) đã được nhắc đối chiếu từng yêu cầu khi checklist đóng hẳn (0.7.8 G2); -1 là chưa nhắc. Vắng ở trạng thái cũ. */
+  reqNoticed: number
 }
 
 /** Một cửa sổ hạn mức đã qua ngưỡng lúc dừng (0.6.0). */

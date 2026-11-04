@@ -247,6 +247,27 @@ export function criteriaNotice(step: { id: number; check?: string }): string {
 }
 
 /** Bước mở cuối cùng vừa đóng: yêu cầu xác nhận từng tiêu chí chất lượng của mục tiêu trước khi kết thúc. */
+/** Trần ký tự của lời nhắc đối chiếu từng yêu cầu (0.7.8 G2). */
+export const REQUIREMENTS_NOTICE_CHARS = 2500
+const REQUIREMENTS_NOTICE_ITEMS = 30
+
+/**
+ * Lời nhắc đối chiếu từng yêu cầu router đã trích khi checklist đóng hẳn (0.7.8 G2): đánh số, mỗi mục cắt 100 ký tự, tối đa 30 mục;
+ * quá trần thì dừng ở mục cuối vừa đủ và thêm "và M yêu cầu nữa trong prompt gốc".
+ */
+export function requirementsNotice(requirements: readonly string[]): string {
+  const all = requirements.slice(0, REQUIREMENTS_NOTICE_ITEMS).map((r, i) => `(${i + 1}) ${clipItem(r, 100)}`)
+  const head = '[focus-conductor] Đối chiếu từng yêu cầu của prompt trước khi kết thúc, mỗi yêu cầu một bằng chứng cụ thể (lệnh đã chạy, kết quả, file):'
+  const tail = 'Yêu cầu nào chưa đạt thì thêm bước bằng action "add".'
+  const build = (n: number) => {
+    const rest = requirements.length - n
+    return `${head} ${all.slice(0, n).join('; ')}${rest > 0 ? `; và ${rest} yêu cầu nữa trong prompt gốc` : ''}. ${tail}`
+  }
+  let n = all.length
+  while (n > 1 && build(n).length > REQUIREMENTS_NOTICE_CHARS) n -= 1
+  return build(n)
+}
+
 export function qualityNotice(quality: readonly string[]): string {
   return (
     '[focus-conductor] Checklist đã đóng hết. Trước khi kết thúc, xác nhận từng tiêu chí chất lượng của mục tiêu bằng bằng chứng cụ thể ' +
