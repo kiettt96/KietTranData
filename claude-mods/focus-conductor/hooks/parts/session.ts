@@ -5,14 +5,14 @@ import type { Brief, Core, Depth, QuotaCheckpoint, Warning } from '../../types'
 import { briefFromCheckpoint, changedFiles, storeKey } from '../lib/checkpoint'
 import { openSteps, restorableSteps } from '../lib/drift'
 import { PLAN_TOOL_SPEC } from '../lib/plan'
-import { describePick, familyOf } from '../lib/route'
+import { describePick, effortRank, familyOf, familyRank } from '../lib/route'
 import { clipText, keptLines } from '../lib/decisions'
 import { CLIPPED_CONTEXT, ROUTER_TASK_LIMIT, askRouter, bareBrief, clippedWarning, isClippedPrompt, failFields, isSkippable, needsCoverageRecheck, nextBrief, parseRoute, routerFailOf, routerRequest } from '../lib/router'
 import type { RouterOutcome, RouterPlan } from '../lib/router'
 import { EMPTY_QUOTA, blockingHits, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaSettings, reasonsOf } from '../lib/quota'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
-import { DISCIPLINE, briefContext, droppedItemsText, droppedPlanNotice, followUpContext, quotaPausedContext, resetLabel, resumeCommand, restorableLabel, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
+import { DISCIPLINE, briefContext, droppedItemsText, droppedPlanNotice, followUpContext, interjectContext, interjectMovedNote, quotaPausedContext, resetLabel, resumeCommand, restorableLabel, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -203,6 +203,9 @@ export function registerSession(on: On, ctx: Ctx): void {
       return next({ ...e, context: [...lead, ...(e.context ?? []), skippedContext(prev, before.plan), ...(lead.length === 0 ? pending : [])] })
     }
 
+    // Tin chen ngang (0.7.8 G9): người dùng gửi khi luồng chính đang chạy (engine kèm turnId của turn đó) và đã có mục tiêu. Router đọc
+    // như prompt tiếp nối; không cất checklist, không đặt lại theo dõi giao việc; L.mainTurn chỉ để đối chiếu, không bắt buộc trùng.
+    const isInterject = e.turnId !== undefined && prev !== null
     L.promptCount += 1
     // Model của phiên chưa biết (prompt đầu, trước step đầu): hỏi engine, để router và chính sách phiên dùng được ngay.
     if (L.sessionFamily === null) L.sessionFamily = familyOf(await $.session.model().catch(() => ''))
@@ -215,7 +218,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       $.ui.status('router đang đọc prompt...')
       const observed = L.observed.join('; ')
       L.observed = []
-      const request = routerRequest({ text, prev, ran: ranText(before), policy: rules, model: routerModel, sessionFamily: L.sessionFamily, openSteps: openSteps(before.plan).map(s => s.title), ...(observed ? { observed } : {}) })
+      const request = routerRequest({ text, prev, ran: ranText(before), policy: rules, model: routerModel, sessionFamily: L.sessionFamily, openSteps: openSteps(before.plan).map(s => s.title), ...(observed ? { observed } : {}), ...(isInterject ? { interject: { step: openSteps(before.plan)[0]?.title ?? '' } } : {}) })
       const startedAt = await $.clock.now()
       outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), needsCoverageRecheck, { retryMissingConfidence: true })
       waitedMs = (await $.clock.now()) - startedAt
@@ -226,7 +229,9 @@ export function registerSession(on: On, ctx: Ctx): void {
     // tiêu mới thì vẫn giữ mục tiêu đã khôi phục).
     const isResuming = openCp !== null && (isArmed || (!L.noAutoResume && outcome.result !== null && outcome.result.relation !== 'new'))
     if (isArmed) L.noAutoResume = false
-    const plan = outcome.result !== null && isResuming && isArmed && prev !== null && outcome.result.relation === 'new' ? { ...outcome.result, relation: 'continue' as const } : outcome.result
+    const routed = outcome.result !== null && isResuming && isArmed && prev !== null && outcome.result.relation === 'new' ? { ...outcome.result, relation: 'continue' as const } : outcome.result
+    // Tin chen ngang router xếp mục tiêu mới: không đổi mục tiêu, việc và ràng buộc vào như prompt tiếp nối (0.7.8 G9).
+    const plan = isInterject && routed !== null && routed.relation === 'new' ? { ...routed, relation: 'continue' as const } : routed
     const lead = isResuming ? await startResume() : []
     const tail = isResuming ? [] : pending
     const now = await $.clock.now()
@@ -273,7 +278,11 @@ export function registerSession(on: On, ctx: Ctx): void {
       await flushDecisions((path, text) => $.fs.write(path, text))
       if (!isPaused) $.ui.toast(pauseText ?? failText)
       await showStatus($, await read($, view), ctx.options)
-      return next({ ...e, context: [...lead, ...(e.context ?? []), unroutedContext(outcome.reason, bare !== null, prev !== null && prev.tasks.length > 0), ...tail] })
+      // Router lỗi khi chen ngang (0.7.8 G9): mục tiêu, phân việc và checklist đã giữ; vẫn dặn thêm bước cho yêu cầu mới.
+      const unrouted = isInterject && prev !== null
+        ? interjectContext(prev, before.plan, [], [], { main: 'model đang chạy', mayReplace: true, isRouted: false })
+        : unroutedContext(outcome.reason, bare !== null, prev !== null && prev.tasks.length > 0)
+      return next({ ...e, context: [...lead, ...(e.context ?? []), unrouted, ...tail] })
     }
 
     // Mục tiêu mới, chạy thật prompt đã đối chiếu, hoặc tiếp nối cùng mục tiêu.
@@ -318,9 +327,23 @@ export function registerSession(on: On, ctx: Ctx): void {
     if (isNewGoal) trackDelegations(brief.goalId, brief.isReference ? [] : brief.tasks)
     else if (!brief.isReference) trackDelegations(brief.goalId, added, true)
     await update($, coreState, S.withDelegations(brief.goalId, delegationItems(brief)))
-    const context = isNewGoal
-      ? briefContext(brief, expected, isApplied)
-      : followUpContext(brief, core.plan, plan.constraints.filter(c => !prev?.constraints.includes(c)), added, expected, isApplied)
+    const newConstraints = plan.constraints.filter(c => !prev?.constraints.includes(c))
+    // Luồng chính đang chạy (0.7.8 G9): route đã chốt ở step đầu của turn đó; turn không có route thì là model của phiên.
+    const running = isInterject && L.turnRoute.turnId === e.turnId ? L.turnRoute.route : null
+    const context = isInterject && !isNewGoal
+      ? interjectContext(brief, core.plan, added, newConstraints, { main: running !== null ? describePick(running) : 'model đang chạy', mayReplace: routed?.relation === 'new', isRouted: true })
+      : isNewGoal
+        ? briefContext(brief, expected, isApplied)
+        : followUpContext(brief, core.plan, newConstraints, added, expected, isApplied)
+    if (isInterject && !isNewGoal) {
+      // Việc run: main cần họ hay effort cao hơn luồng chính đang chạy: chờ engine báo tin được chèn vào turn đang chạy thì mới
+      // chuyển sang subagent (session.append); tin thành turn mới thì lựa chọn của router áp ở turn đó như cũ.
+      const family = running?.family ?? L.sessionFamily
+      const lift = added.filter(t => t.run === 'main' && family !== null && (familyRank(t.pick.family) > familyRank(family) || (running !== null && effortRank(t.pick.effort) > effortRank(running.effort))))
+      L.pendingInterject = lift.length > 0 ? { goalId: brief.goalId, lift: lift.map(t => ({ index: t.index, family: t.pick.family, effort: t.pick.effort })) } : null
+      record(now, 'interject', { relation: routed?.relation ?? plan.relation, tasks: added.length, constraints: newConstraints.length, toAgent: 0, liftable: lift.length })
+      $.ui.toast(`Đã nhận yêu cầu chen ngang: ${added.length > 0 ? `thêm ${added.length} việc` : 'chỉ thêm ràng buộc'}`)
+    }
     // Checklist cũ còn bước mở không bị mất: nó được lưu, Claude khôi phục được nếu router xếp nhầm mục tiêu mới.
     const archived = isNewGoal ? restorableSteps(before.plan) : []
     const notice = archived.length > 0 ? [droppedPlanNotice(archived)] : []
@@ -346,5 +369,31 @@ export function registerSession(on: On, ctx: Ctx): void {
     }
     await showStatus($, await read($, view), ctx.options)
     return next({ ...e, context: [...lead, ...(e.context ?? []), context, ...notice, ...(isClipped ? [CLIPPED_CONTEXT] : []), ...tail] })
+  }).catch(($, e, next) => next(e))
+
+  // Engine chèn tin chen ngang vào turn đang chạy (0.7.8 G9): dòng attachment queued_command của luồng chính. Các việc run: main cần
+  // model cao hơn luồng chính đang chạy chuyển sang subagent general-purpose, giữ đúng pick router chấm; câu báo đi kèm kết quả tool kế.
+  on('session.append', async ($, e, next) => {
+    const pending = L.pendingInterject
+    if (pending === null || e.agentId !== undefined || e.door !== 'attachment' || e.message.name !== 'queued_command') return next(e)
+    L.pendingInterject = null
+    const core = S.normalizeCore(await read($, coreState))
+    const brief = core.brief
+    if (brief === null || brief.goalId !== pending.goalId) return next(e)
+    const indices = new Set(pending.lift.map(item => item.index))
+    const tasks = brief.tasks.map(t =>
+      indices.has(t.index) && t.run === 'main'
+        ? { ...t, run: 'agent' as const, agentType: 'general-purpose', why: [t.why, `chen ngang giữa turn: giao subagent để chạy đúng ${t.pick.family}/${t.pick.effort}`].filter(Boolean).join('; ') }
+        : t,
+    )
+    const moved = tasks.filter(t => indices.has(t.index) && t.run === 'agent')
+    if (moved.length === 0) return next(e)
+    const next_ = { ...brief, tasks }
+    trackDelegations(brief.goalId, moved, true)
+    await update($, coreState, c => S.withDelegations(brief.goalId, delegationItems(next_))(S.withBrief(next_)(c)))
+    L.interjectNote = interjectMovedNote(moved)
+    record(await $.clock.now(), 'interject-deliver', { goalId: brief.goalId, toAgent: moved.length, tasks: moved.map(t => t.index) })
+    await flushDecisions((path, text) => $.fs.write(path, text))
+    return next(e)
   }).catch(($, e, next) => next(e))
 }

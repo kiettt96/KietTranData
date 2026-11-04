@@ -324,6 +324,8 @@ export function routerRequest(args: {
   openSteps?: readonly string[]
   /** Phát hiện của turn trước (vòng lặp, chuỗi lỗi, vượt ngân sách, lệch mục tiêu): lựa chọn model đã thiếu, để router chấm lại. */
   observed?: string
+  /** Tin người dùng gửi chen ngang khi luồng chính đang làm mục tiêu hiện tại (0.7.8 G9): bước đang mở, rỗng là chưa có bước. */
+  interject?: { step: string }
   /** Bảng giá cho catalog; mặc định là bảng đang dùng (golden-set truyền bảng kèm mod để băm ổn định). */
   prices?: Record<ModelFamily, Price>
   /** Model người dùng chạy phiên (0.7.4), biết từ step đầu; vắng thì không có dòng Session model. */
@@ -337,6 +339,7 @@ export function routerRequest(args: {
     agentsLine(args.policy),
     ...(args.isForcedNew ? ['The user set this goal by command: relation must be "new".'] : []),
     ...((args.openSteps?.length ?? 0) > 0 ? [`Open checklist steps (still unfinished): ${(args.openSteps ?? []).slice(0, OPEN_STEPS_LIMIT).map(s => fence(clip(s, 100))).join('; ')}`] : []),
+    ...(args.interject ? [`The user sent this while the main model was still working on the current goal${args.interject.step ? ` (open step: ${fence(clip(args.interject.step, 100))})` : ''}; read it as an addition to that goal unless it clearly replaces it.`] : []),
     ...(args.observed ? [`Observed in the previous turn (the main model's choice fell short; re-read the work and raise "main" model or effort if it is harder than first judged): ${fence(clip(args.observed, 400))}`] : []),
   ]
   const system: readonly ModelTextBlock[] = [{ text: routerSystem(args.prices), cache: true }]

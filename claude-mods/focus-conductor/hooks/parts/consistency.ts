@@ -345,7 +345,10 @@ export function registerConsistency(on: On, ctx: Ctx): void {
         ? `[focus-conductor] Phân việc còn việc ghi giao subagent chưa giao: Việc ${pending.join(', ')}. Nếu thay đổi này thuộc các việc đó, giao qua Agent với description "Việc N: ..." để chạy đúng model đã chấm.`
         : null
     if (nudge) L.delegation.isNudged = true
-    const notes = [...(nudge ? [nudge] : []), ...(compactNote !== null ? [compactNote] : [])]
+    // Việc của tin chen ngang vừa chuyển sang subagent (0.7.8 G9): báo một lần ở kết quả tool kế tiếp của luồng chính.
+    const moved = L.interjectNote
+    L.interjectNote = null
+    const notes = [...(nudge ? [nudge] : []), ...(compactNote !== null ? [compactNote] : []), ...(moved !== null ? [moved] : [])]
     const withNudge = (r: typeof result) => (notes.length > 0 ? { ...r, context: [...(r.context ?? []), ...notes] } : r)
     // Đến checkpoint mà script kiểm đã chạy chưa được nhận: gợi ý người dùng khai checkCommands (0.7.3).
     if (core.brief !== null && findings.some(f => f.kind === 'checkpoint')) await offerCheckHint($, core.brief.goalId, suggestCheckCommands(evidenceFor(core.brief.goalId)))
@@ -457,6 +460,8 @@ export function registerConsistency(on: On, ctx: Ctx): void {
   // vào nhóm agent và gắn vào dòng nhật ký của đúng agent. Hiệu chỉnh ước lượng theo số đo.
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
+    // Turn luồng chính kết thúc (0.7.8 G9): không còn turn đang chạy để đối chiếu.
+    if (e.agentId === undefined) L.mainTurn = null
     if ((await read($, mode)) === 'off') return result
     const at = await $.clock.now()
 

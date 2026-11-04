@@ -23,7 +23,7 @@ export const DISCIPLINE = `# Focus Conductor
 Mỗi prompt của người dùng có thể kèm một khối "[focus-conductor]" do model router của plugin đọc sẵn: mục tiêu cuối, các việc, ràng buộc, tiêu chí chất lượng, mức độ phức tạp và cách điều phối. Khối đó là bản đọc trước, không thay thế prompt gốc.
 1. Đọc kỹ trước khi làm: đối chiếu khối phân tích với prompt gốc, sửa chỗ sai hoặc thiếu, xác định rõ mục tiêu cuối, ràng buộc và tiêu chí nghiệm thu, rồi mới gọi tool thực thi đầu tiên.
 2. Với việc từ mức moderate trở lên: gọi ${PLAN_TOOL_FULL} (action "set") để ghi mục tiêu và checklist đã chuẩn hóa; cập nhật từng bước (doing, done, verified kèm bằng chứng, skipped, blocked hoặc waiting kèm lý do). Khi checklist có việc của mục "Phân việc", tiêu đề bước mở đầu "Việc N: " (N là số thứ tự của việc trong Phân việc); việc mang mã riêng của prompt (như "BƯỚC 7") thì tiêu đề bước mở đầu bằng chính mã đó.
-3. Nhất quán: mọi bước phải phục vụ mục tiêu cuối; không làm thêm việc ngoài phạm vi, không bỏ sót yêu cầu; giữ văn phong, quy ước đặt tên và định dạng đã dùng từ đầu.
+3. Nhất quán: mọi bước phải phục vụ mục tiêu cuối; không làm thêm việc ngoài phạm vi, không bỏ sót yêu cầu; giữ văn phong, quy ước đặt tên và định dạng đã dùng từ đầu. Người dùng gửi thêm yêu cầu trong lúc đang làm: giữ mục tiêu và các bước đang có, thêm bước cho yêu cầu mới bằng action "add", hỏi lại nếu yêu cầu mới thay hẳn mục tiêu cũ.
 4. Tự kiểm tra sau mỗi bước quan trọng theo cách người dùng quy định (lệnh kiểm có sẵn của dự án hay của prompt, đọc lại thay đổi) trước khi sang bước sau; không tạo test hay script kiểm mới nếu người dùng không yêu cầu. Lệnh kiểm mod nhận ra (trình chạy test, lệnh khai trong checkCommands) chạy đạt sau thay đổi cuối thì mod tự nâng bước đã xong thành verified, không cần chép lệnh; kiểm tĩnh (type-check, lint) không tính.
 5. Khi giao việc cho subagent: nếu khối có mục "Phân việc", giao đúng các việc ghi "giao", description của Agent mở đầu "Việc N: " (N là số thứ tự của việc, không phải số bước của prompt; việc mang mã riêng như "BƯỚC 7" thì mở đầu bằng chính mã đó) để chạy đúng model và effort đã phân; việc ghi "làm trực tiếp" thì tự làm. Việc ngoài danh sách: để trống model và effort, router của plugin chấm khi giao; chọn Explore cho tra cứu chỉ đọc, Plan cho thiết kế, general-purpose cho thực thi. Prompt quy định model cho việc giao (kể cả "model của phiên") thì ghi rõ model đó ở lời gọi Agent (model của phiên ghi bằng tên họ model đang chạy); model ghi ở lời gọi là mức sàn, mod không chọn thấp hơn. Prompt giao subagent phải tự đứng được: nêu mục tiêu cuối, việc cụ thể, ràng buộc và phạm vi file liên quan, tiêu chí xong và dạng kết quả trả về. Nhận kết quả subagent thì đối chiếu với tiêu chí đó trước khi đóng bước.
 6. Báo cáo gọn (chỉ áp cho luồng chính; subagent theo quy tắc riêng ở dòng cuối): giữa các tool call không tường thuật; khi chuyển sang việc khác chỉ viết một dòng "Đang làm việc N/M: ...", không chép lại checklist, không tóm tắt lại kết quả tool. Vẫn báo ngay khi bị chặn, khi cần người dùng quyết định, hoặc khi phát hiện rủi ro. Báo cáo cuối nêu kết quả, đã kiểm bằng lệnh nào, và chỗ còn hở. Hướng dẫn riêng của người dùng (CLAUDE.md, prompt) được ưu tiên hơn mục này.
@@ -188,6 +188,57 @@ export function followUpContext(
     'Giữ nhất quán với phần đã làm; nếu yêu cầu này đổi mục tiêu, cập nhật lại checklist.',
   ]
   return lines.filter(Boolean).join('\n')
+}
+
+/** Trần ký tự của khối context cho tin chen ngang (0.7.8 G9). */
+export const INTERJECT_CHARS = 1500
+const INTERJECT_OPEN_STEPS = 5
+
+/**
+ * Khối context cho tin người dùng gửi chen ngang khi luồng chính đang làm (0.7.8 G9): việc mới kèm cách làm, ràng buộc mới, bước đang
+ * mở (tối đa 5), dặn thêm bước bằng plan add và giữ các bước đang có. `isRouted` false khi router không đọc được tin. Bớt việc liệt kê
+ * cho vừa INTERJECT_CHARS.
+ */
+export function interjectContext(
+  brief: Brief,
+  plan: readonly PlanStep[],
+  added: readonly Task[],
+  newConstraints: readonly string[],
+  options: { main: string; mayReplace: boolean; isRouted: boolean },
+): string {
+  const open = openSteps(plan).slice(0, INTERJECT_OPEN_STEPS)
+  const all = added.map(t =>
+    clipItem(`Việc ${t.index}: ${t.title} → ${t.run === 'main' ? `làm trực tiếp ở luồng chính (${options.main})` : `giao ${t.agentType ?? 'general-purpose'} ${describePick(t.pick)}`}`, 140),
+  )
+  const rules = newConstraints.length > 0 ? clipItem(`Ràng buộc mới: ${newConstraints.join('; ')}`, 300) : ''
+  const steps = open.length > 0 ? clipItem(`Bước đang mở: ${open.map(st => `${st.id}. ${st.title}`).join('; ')}`, 300) : ''
+  const ask =
+    'Hoàn tất hoặc tạm dừng đúng chỗ phần đang làm; thêm bước cho yêu cầu mới bằng plan add (action "add") trước khi làm phần mới, giữ nguyên các bước đang có.' +
+    (options.mayReplace ? ' Nếu yêu cầu mới thay hẳn mục tiêu cũ, hỏi lại người dùng trước khi đổi.' : '')
+  const build = (n: number) =>
+    [
+      `[focus-conductor] Yêu cầu chen ngang khi đang làm: ${clipItem(brief.goal, 160)}`,
+      options.isRouted ? '' : 'Router không đọc được tin này; tự đọc kỹ yêu cầu mới.',
+      n > 0 ? `Việc mới (khi giao, description của Agent mở đầu "Việc N: "):\n${all.slice(0, n).join('\n')}${all.length > n ? `\nvà ${all.length - n} việc nữa` : ''}` : '',
+      rules,
+      steps,
+      ask,
+    ]
+      .filter(Boolean)
+      .join('\n')
+  let n = all.length
+  while (n > 0 && build(n).length > INTERJECT_CHARS) n -= 1
+  return build(n).slice(0, INTERJECT_CHARS)
+}
+
+/** Câu báo việc của tin chen ngang đã chuyển sang subagent vì tin được chèn vào turn đang chạy (0.7.8 G9). */
+export function interjectMovedNote(moved: readonly Task[]): string {
+  return clipItem(
+    '[focus-conductor] Yêu cầu chen ngang đã vào turn đang chạy, luồng chính giữ model hiện tại. Giao subagent general-purpose để chạy đúng model, description mở đầu "Việc N: ": ' +
+      moved.map(t => `Việc ${t.index}: ${clipItem(t.title, 60)} (${t.pick.family}/${t.pick.effort})`).join('; ') +
+      '.',
+    600,
+  )
 }
 
 /** Prompt ngắn người dùng cho bỏ qua router (option routerSkip): giữ mục tiêu và điều phối đang có. */

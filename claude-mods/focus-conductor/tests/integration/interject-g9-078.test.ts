@@ -27,7 +27,6 @@ function routerWith(later: Json | null): (request: string) => Json | null {
 function hooks(on: On) {
   on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
   on('turn.complete', () => ({ text: '' }))
-  on('session.append', () => ({}) as never)
 }
 
 /** Mục tiêu có checklist 3 bước, luồng chính đang chạy turn t1 (đã qua step đầu). */
@@ -38,8 +37,8 @@ async function running($: Engine, seen: Seen) {
   await step($, seen, { turnId: 't1' })
 }
 
-const interject = ($: Engine, text: string, turnId: string | undefined = 't1', kind = 'composer') =>
-  $.prompt.submit({ text, wait: false, origin: { kind } as never, ...(turnId !== undefined ? { turnId } : {}) })
+const interject = ($: Engine, text: string, turnId: string | null = 't1', kind = 'composer') =>
+  $.prompt.submit({ text, wait: false, origin: { kind } as never, ...(turnId !== null ? { turnId } : {}) })
 
 /** Engine chèn tin chen ngang vào turn đang chạy: một dòng attachment queued_command của luồng chính. */
 const delivered = ($: Engine, text: string) =>
@@ -117,7 +116,7 @@ describe('0.7.8 G9: tiếp nhận yêu cầu chen ngang', () => {
     const seen = base(on, { router: routerWith(plan({ goal: 'Thêm báo cáo doanh thu' })) })
     hooks(on)
     await running($, seen)
-    await interject($, 'Thêm báo cáo doanh thu', undefined)
+    await interject($, 'Thêm báo cáo doanh thu', null)
     expect(lastContext(seen)).not.toContain(MARK)
     expect(lastContext(seen)).toContain('Checklist cũ còn 3 bước mở đã được lưu')
   })
