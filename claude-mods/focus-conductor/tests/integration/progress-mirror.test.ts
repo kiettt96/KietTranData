@@ -90,6 +90,9 @@ describe('0.6.1 2.1: phản chiếu danh sách việc của Claude Code', () => 
     await submit($, COMPLEX_PROMPT)
     await write($, [todo('A', 'in_progress'), todo('B', 'pending')])
     await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' } as never)
+    // 0.7.8 G1: mục tiêu deep chưa có checklist của tool plan thì cổng chặn một lần, nói rõ danh sách phản chiếu chỉ để hiển thị;
+    // danh sách phản chiếu không làm cổng chặn thêm lần nào.
+    expect((await $.classic.Stop({ stop_hook_active: false })).block).toContain('chỉ để hiển thị')
     expect((await $.classic.Stop({ stop_hook_active: false })).block).toBeUndefined()
     await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Một' }] })
     expect((await $.classic.Stop({ stop_hook_active: false })).block).toContain('Checklist còn 1 bước mở')
