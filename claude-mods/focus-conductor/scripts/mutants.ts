@@ -1936,4 +1936,7 @@ export const MUTANTS: Mutant[] = [
   { id: "079-Y1b", file: "hooks/lib/drift/evidence.ts", note: "công cụ kiểm tĩnh không so theo tên", old: "  return runnerOf(command) ?? staticTool(command) ?? `=${command}`", new: "  return runnerOf(command) ?? `=${command}`" },
   { id: "079-Y2a", file: "hooks/parts/consistency.ts", note: "turn đã nhận báo hạn mức mềm vẫn qua cổng lệnh kiểm", old: "const gate = isNoticed ? { reason: null, isPlanChanged: false } : await retryGate(", new: "const gate = false ? { reason: null, isPlanChanged: false } : await retryGate(" },
   { id: "079-Y3a", file: "hooks/lib/drift/evidence.ts", note: "dạng tệp::tên không còn là lệnh hẹp", old: "token.includes('::') || ", new: "" },
+  { id: "079-P1a", file: "hooks/ui/pane.tsx", note: "cảnh báo nhẹ không còn mờ ở pane", old: "dimColor={w.isSoft === true}", new: "dimColor={false}" },
+  { id: "079-P1b", file: "hooks/parts/consistency.ts", note: "offerCheckHint tính cả cảnh báo nhẹ", old: "unverified.isSoft !== true && L.tracker.checks === 0", new: "L.tracker.checks === 0" },
+  { id: "079-P1c", file: "hooks/lib/drift/tracker.ts", note: "Read lỗi vẫn tính là đã đọc lại", old: "if (observation.tool === 'Read' && !observation.isError) {", new: "if (observation.tool === 'Read') {" },
 ]
