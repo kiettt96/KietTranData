@@ -1895,8 +1895,8 @@ export const MUTANTS: Mutant[] = [
   { id: "078-G9f", file: "hooks/parts/session.ts", note: "chỉ xét họ khi so với luồng chính đang chạy", old: " || (running !== null && effortRank(t.pick.effort) > effortRank(running.effort))", new: "" },
   { id: "078-G9g", file: "hooks/parts/session.ts", note: "không toast tin chen ngang", old: "      $.ui.toast(`Đã nhận yêu cầu chen ngang: ${added.length > 0 ? `thêm ${added.length} việc` : 'chỉ thêm ràng buộc'}`)\n", new: "" },
   { id: "078-G9h", file: "hooks/parts/session.ts", note: "không ghi dòng interject", old: "      record(now, 'interject', {", new: "      void ({" },
-  { id: "078-G9i", file: "hooks/parts/session.ts", note: "chuyển việc cả với attachment khác", old: " || e.door !== 'attachment' || e.message.name !== 'queued_command') return next(e)", new: ") return next(e)" },
-  { id: "078-G9j", file: "hooks/parts/session.ts", note: "chuyển việc cả khi tin vào subagent", old: "if (pending === null || e.agentId !== undefined || e.door", new: "if (pending === null || e.door" },
+  { id: "078-G9i", file: "hooks/parts/session.ts", note: "chuyển việc cả với attachment khác", old: " || (e.door !== 'delivery' && e.door !== 'attachment') || e.message.name !== 'queued_command') return next(e)", new: ") return next(e)" },
+  { id: "078-G9j", file: "hooks/parts/session.ts", note: "chuyển việc cả khi tin vào subagent", old: "if (pending === null || e.agentId !== undefined || (e.door", new: "if (pending === null || (e.door" },
   { id: "078-G9k", file: "hooks/parts/session.ts", note: "không ghi câu báo việc đã chuyển", old: "    L.interjectNote = interjectMovedNote(moved)\n", new: "" },
   { id: "078-G9l", file: "hooks/parts/session.ts", note: "không theo dõi việc vừa chuyển sang subagent", old: "    trackDelegations(brief.goalId, moved, true)\n", new: "" },
   { id: "078-G9m", file: "hooks/parts/turn.ts", note: "turn mới không bỏ việc chờ chuyển", old: "    L.pendingInterject = null\n    return next(e)", new: "    return next(e)" },
@@ -1905,4 +1905,5 @@ export const MUTANTS: Mutant[] = [
   { id: "078-G9p", file: "hooks/lib/text.ts", note: "khối chen ngang không dặn plan add", old: "thêm bước cho yêu cầu mới bằng plan add (action \"add\") trước khi làm phần mới, giữ nguyên các bước đang có.", new: "giữ nguyên các bước đang có." },
   { id: "078-G9q", file: "hooks/lib/text.ts", note: "khối chen ngang không nêu ràng buộc mới", old: "  const rules = newConstraints.length > 0 ? clipItem(`Ràng buộc mới: ${newConstraints.join('; ')}`, 300) : ''", new: "  const rules = ''" },
   { id: "078-G9r", file: "hooks/lib/router.ts", note: "request router không nói tin đến khi luồng chính đang làm", old: "    ...(args.interject ? [`The user sent this", new: "    ...(false ? [`The user sent this" },
+  { id: "078-V1a", file: "hooks/parts/session.ts", note: "chỉ nhận door attachment, bỏ door delivery", old: "(e.door !== 'delivery' && e.door !== 'attachment')", new: "e.door !== 'attachment'" },
 ]

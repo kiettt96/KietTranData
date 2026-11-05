@@ -371,11 +371,12 @@ export function registerSession(on: On, ctx: Ctx): void {
     return next({ ...e, context: [...lead, ...(e.context ?? []), context, ...notice, ...(isClipped ? [CLIPPED_CONTEXT] : []), ...tail] })
   }).catch(($, e, next) => next(e))
 
-  // Engine chèn tin chen ngang vào turn đang chạy (0.7.8 G9): dòng attachment queued_command của luồng chính. Các việc run: main cần
+  // Engine chèn tin chen ngang vào turn đang chạy (0.7.8 G9): hàng attachment queued_command của luồng chính, door delivery (vòng sửa 2, V1; door
+  // attachment vẫn nhận để phòng engine đổi cách phân loại). Các việc run: main cần
   // model cao hơn luồng chính đang chạy chuyển sang subagent general-purpose, giữ đúng pick router chấm; câu báo đi kèm kết quả tool kế.
   on('session.append', async ($, e, next) => {
     const pending = L.pendingInterject
-    if (pending === null || e.agentId !== undefined || e.door !== 'attachment' || e.message.name !== 'queued_command') return next(e)
+    if (pending === null || e.agentId !== undefined || (e.door !== 'delivery' && e.door !== 'attachment') || e.message.name !== 'queued_command') return next(e)
     L.pendingInterject = null
     const core = S.normalizeCore(await read($, coreState))
     const brief = core.brief
