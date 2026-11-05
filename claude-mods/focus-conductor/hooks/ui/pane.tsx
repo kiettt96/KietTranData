@@ -54,6 +54,8 @@ const DEFAULT_ROWS = 16
  * cuối câu là chỉ dẫn cần làm.
  */
 const ATTENTION_MAX = 4
+/** Số ô tối thiểu giữ cho tên việc ở dòng Đang chạy khi phải cắt tên để giữ phần sau (UI2) [Giả định: đủ thấy mã bước như "BƯỚC 4"]. */
+const RUNNING_NAME_CELLS = 8
 /** Ký hiệu tạm dừng, như band. */
 const PAUSE_GLYPH = '\u23F8'
 
@@ -601,12 +603,18 @@ export function renderPane(
 
   // ----------------------------------------------------------- đang chạy
   // U8: mỗi việc có subagent đang chạy một dòng: tên việc, khoảng lô, số agent đang chạy, thời gian từ agent đầu tiên của nhóm.
-  const runningNodes = runningGroups(view.core, props.now ?? 0).map(group => (
-    <Text key={group.key} wrap="truncate-end">
-      <Text color="claude">{taskLabel(l, group)}</Text>
-      <Text dimColor>{[group.range ? ` · ${l.runningRange(group.range.first, group.range.last)}` : '', ` · ${l.runningAgents(group.agents)}`, ` · ${l.taskElapsed(group.elapsedMs)}`, ` · ${l.runningSince(group.startedAt)}`].join('')}</Text>
-    </Text>
-  ))
+  // UI2 (0.7.9): dòng dài hơn bề ngang thì cắt tên việc trước (oneLine), giữ trọn phần sau, nhất là "· từ HH:MM"; tên còn ít nhất
+  // RUNNING_NAME_CELLS ô, pane hẹp hơn nữa thì phần cuối dòng mới bị cắt.
+  const runningNodes = runningGroups(view.core, props.now ?? 0).map(group => {
+    const tail = [group.range ? ` · ${l.runningRange(group.range.first, group.range.last)}` : '', ` · ${l.runningAgents(group.agents)}`, ` · ${l.taskElapsed(group.elapsedMs)}`, ` · ${l.runningSince(group.startedAt)}`].join('')
+    const name = oneLine(taskLabel(l, group), Math.max(RUNNING_NAME_CELLS, width - cellsOf(tail)))
+    return (
+      <Text key={group.key} wrap="truncate-end">
+        <Text color="claude">{name}</Text>
+        <Text dimColor>{tail}</Text>
+      </Text>
+    )
+  })
 
   // ----------------------------------------------------------- điều phối
   const routeNode = route ? (

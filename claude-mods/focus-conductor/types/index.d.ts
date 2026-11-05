@@ -487,6 +487,8 @@ declare module 'claude-code' {
       quota: QuotaState
       /** Mục tiêu mà người dùng đã tự đóng pane chi tiết; -1 là chưa (0.7.2). */
       paneClosedGoal: number
+      /** Mã turn luồng chính đang chạy, rỗng khi không có (0.7.9, UI2): nhịp vẽ lại 60 giây đọc giá trị này để biết còn turn hay không. */
+      runningTurn: string
     }
   }
 }

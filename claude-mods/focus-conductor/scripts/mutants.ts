@@ -1764,7 +1764,7 @@ export const MUTANTS: Mutant[] = [
   { id: "076-W4l", file: "hooks/lib/text.ts", note: "tên ngắn của mục tiêu không cắt", old: "return [...text].length > STEP_TAG ? `${[...text].slice(0, STEP_TAG).join('').trimEnd()}…` : text\n}\n\n/** Nhãn ngắn của một bước", new: "return text\n}\n\n/** Nhãn ngắn của một bước" },
   { id: "076-W4m", file: "hooks/ui/labels.ts", note: "thời gian đã chạy của mục tiêu làm tròn xuống", old: "const roundedMinutes = (ms: number) => Math.round(ms / 60_000)", new: "const roundedMinutes = (ms: number) => Math.floor(ms / 60_000)" },
   { id: "076-W4n", file: "hooks/ui/labels.ts", note: "giờ bắt đầu thiếu số 0 đệm", old: "const two = (n: number) => String(n).padStart(2, '0')\n  return `${two(d.getHours())}:${two(d.getMinutes())}`\n}\n\n/** Phần trong ngoặc", new: "const two = (n: number) => String(n)\n  return `${two(d.getHours())}:${two(d.getMinutes())}`\n}\n\n/** Phần trong ngoặc" },
-  { id: "076-W4o", file: "hooks/ui/pane.tsx", note: "mục Đang chạy không ghi giờ bắt đầu", old: ", ` · ${l.runningSince(group.startedAt)}`].join('')}", new: "].join('')}" },
+  { id: "076-W4o", file: "hooks/ui/pane.tsx", note: "mục Đang chạy không ghi giờ bắt đầu", old: ", ` · ${l.runningSince(group.startedAt)}`].join('')", new: "].join('')" },
   { id: "076-W4p", file: "hooks/lib/progress.ts", note: "giờ bắt đầu của nhóm lấy agent cuối thay vì đầu", old: "    group.startedAt = Math.min(group.startedAt, item.startedAt)", new: "    group.startedAt = Math.max(group.startedAt, item.startedAt)" },
   { id: "076-W4q", file: "hooks/ui/labels.ts", note: "thời gian tác vụ làm tròn xuống", old: "taskElapsed: (ms: number) => (ms < 60_000 ? '<1 phút' : `${roundedMinutes(ms)} phút`)", new: "taskElapsed: (ms: number) => (ms < 60_000 ? '<1 phút' : `${Math.floor(ms / 60_000)} phút`)" },
   { id: "076-W4r", file: "hooks/ui/attention.ts", note: "mục lô lỗi xếp việc mới trước thay vì theo thứ tự bước", old: "kind: 'failed', order: i }))", new: "kind: 'failed', order: -i }))" },
@@ -1944,4 +1944,8 @@ export const MUTANTS: Mutant[] = [
   { id: "079-X6c", file: "hooks/lib/drift/tracker.ts", note: "tài liệu đã rm hay là nguồn của mv vẫn đòi đọc lại", old: "        if (removed.includes(path) && DOC_FILE.test(path)) {", new: "        if (false) {" },
   { id: "079-X4a", file: "hooks/lib/drift/tracker.ts", note: "khóa toast sau lần kiểm cuối bỏ phần lý do", old: "  if (tracker.checks > 0) return `after-check:${tracker.lastCheck ?? 'passed'}`", new: "  if (tracker.checks > 0) return 'after-check'" },
   { id: "079-UI1a", file: "hooks/ui/pane.tsx", note: "bỏ giới hạn một dòng của tên bước ở pane hẹp", old: "  const isOneLine = isNarrow\n", new: "  const isOneLine = false\n" },
+  { id: "079-UI2a", file: "hooks/ui/pane.tsx", note: "dòng Đang chạy không cắt tên trước, bỏ ưu tiên giữ từ HH:MM", old: "const name = oneLine(taskLabel(l, group), Math.max(RUNNING_NAME_CELLS, width - cellsOf(tail)))", new: "const name = taskLabel(l, group)" },
+  { id: "079-UI2b", file: "hooks/parts/ui.tsx", note: "nhịp không đọc $.state, vẫn vẽ lại khi hết turn", old: "  if ((await read($, runningTurnState)) === '') {\n    stopTick(tick)", new: "  if (false) {\n    stopTick(tick)" },
+  { id: "079-UI2c", file: "hooks/parts/ui.tsx", note: "nạp mod đặt nhịp cả khi không có turn đang chạy", old: "    if ((await read($, runningTurnState)) !== '') startTick($, tick)", new: "    startTick($, tick)" },
+  { id: "079-UI2d", file: "hooks/parts/ui.tsx", note: "đặt nhịp mới dù đã có nhịp, thành hai nhịp", old: "  if (tick.timer !== null) return\n", new: "" },
 ]
