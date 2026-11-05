@@ -3,7 +3,7 @@
 import { atom, derive, read, update } from 'claude-code'
 import { caught, noteHookError } from '../lib/errlog'
 import type { AgentState, Choice, Core, DelegationState, RetryItem, Warning } from '../../types'
-import { acceptsVerified, evidenceStrength, filePathOf, freshTestRun, isCheckTool, isExecuting, isFullyClosed, isGoalDone, isMutation, isPlanFile, markVerified, newTracker, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
+import { acceptsVerified, evidenceStrength, filePathOf, freshTestRun, isCheckTool, isExecuting, isSoftDocs, isFullyClosed, isGoalDone, isMutation, isPlanFile, markVerified, newTracker, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
 import type { Focus } from '../lib/drift'
 import { checkCommand, checkSignature, coversFailure, isFailedRun } from '../lib/drift/evidence'
 import type { CheckRun, EvidenceEntry, EvidenceLog } from '../lib/drift/evidence'
@@ -18,7 +18,7 @@ import { storeKey, withNote } from '../lib/checkpoint'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
 import { shownPlan } from '../lib/mirror'
-import { PLAN_TOOL_FULL, RETRY_REPORT, RETRY_ROUNDS, waiveAskText, blockText, firstErrorLine, joinStopReasons, retryDoneNote, retryEditNote, retryFailNotice, retryName, retryStepNote, retryStopReason, checkHintText, compactReminderText, criteriaNotice, driftContext, missingTasks, missingTasksNotice, needsChecklist, noChecklistReason, pendingNotice, qualityNotice, renderBulk, renderPlan, requirementsNotice, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice } from '../lib/text'
+import { PLAN_TOOL_FULL, RETRY_REPORT, RETRY_ROUNDS, noCheckReason, waiveAskText, blockText, firstErrorLine, joinStopReasons, retryDoneNote, retryEditNote, retryFailNotice, retryName, retryStepNote, retryStopReason, checkHintText, compactReminderText, criteriaNotice, driftContext, missingTasks, missingTasksNotice, needsChecklist, noChecklistReason, pendingNotice, qualityNotice, renderBulk, renderPlan, requirementsNotice, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -238,6 +238,57 @@ async function askWaived($: EngineInterface): Promise<string | null> {
   if (due.length === 0) return null
   await update($, coreState, S.withWaivers({ goalId: core.waivers.goalId, items: core.waivers.items.map(w => ({ ...w, asked: true })) }))
   return waiveAskText(due)
+}
+
+/** Script của package.json đáng chạy để kiểm, theo thứ tự ưu tiên (0.7.9 Y6). */
+const CHECK_SCRIPTS = ['test', 'typecheck', 'lint', 'check']
+
+/** Lệnh chạy một script của package.json theo trình quản lý gói nhận ra từ lockfile; không có lockfile thì npm. */
+async function scriptCommand($: EngineInterface, root: string, script: string): Promise<string> {
+  const has = async (name: string) => (await $.fs.stat(`${root}/${name}`).then(() => true, () => false))
+  const pm = (await has('bun.lock')) || (await has('bun.lockb')) ? 'bun' : (await has('pnpm-lock.yaml')) ? 'pnpm' : (await has('yarn.lock')) ? 'yarn' : 'npm'
+  if (pm === 'npm') return script === 'test' ? 'npm test' : `npm run ${script}`
+  return pm === 'yarn' ? `yarn ${script}` : `${pm} run ${script}`
+}
+
+/**
+ * Lệnh kiểm rõ ràng của dự án để nêu trong lý do chặn của Y6 (0.7.9), theo thứ tự: checkCommands, checkTools, lần kiểm đạt gần nhất của mục
+ * tiêu, script kiểm trong package.json ở thư mục gốc phiên (đọc lỗi thì coi như không có). Không có nguồn nào thì null.
+ */
+async function projectCheck($: EngineInterface, options: Ctx['options'], log: EvidenceLog): Promise<string | null> {
+  const declared = String(options['checkCommands'] ?? '').split(',').map(item => item.trim()).find(Boolean)
+  if (declared !== undefined) return declared
+  const tool = String(options['checkTools'] ?? '').split(',').map(item => item.trim()).find(name => name.startsWith('mcp__'))
+  if (tool !== undefined) return tool
+  const passed = [...log.commands].reverse().find(entry => entry.check !== null && entry.ok)
+  if (passed !== undefined) return checkCommand(passed)
+  const root = await $.session.root().catch(caught('session.root', null))
+  if (!root) return null
+  const text = await $.fs.read(`${root}/package.json`).catch(() => null)
+  if (typeof text !== 'string') return null
+  let scripts: Record<string, unknown> = {}
+  try {
+    const parsed = JSON.parse(text) as { scripts?: unknown }
+    if (parsed !== null && typeof parsed.scripts === 'object' && parsed.scripts !== null) scripts = parsed.scripts as Record<string, unknown>
+  } catch {
+    return null
+  }
+  const script = CHECK_SCRIPTS.find(name => typeof scripts[name] === 'string')
+  return script === undefined ? null : scriptCommand($, root, script)
+}
+
+/**
+ * Cổng Y6 (0.7.9): mục tiêu có thay đổi file mà chưa có lần kiểm nào chạy sau thay đổi cuối, turn không chỉ sửa tài liệu, tier không phải
+ * trivial, dự án có lệnh kiểm rõ ràng, và mục tiêu chưa bị chặn vì lý do này: ghi khóa noCheckNudged rồi trả lý do. Không thì null.
+ */
+async function noCheckGate($: EngineInterface, options: Ctx['options'], core: Core, log: EvidenceLog, isDocsOnly: boolean): Promise<string | null> {
+  const brief = core.brief
+  if (brief === null || core.noCheckNudged === brief.goalId || brief.tier === 'trivial' || isDocsOnly) return null
+  if (log.mutations === 0 || log.commands.some(entry => entry.check !== null && entry.seq > log.lastMutation)) return null
+  const command = await projectCheck($, options, log)
+  if (command === null) return null
+  await update($, coreState, S.withNoCheckNudged(brief.goalId))
+  return noCheckReason(command)
 }
 
 async function logExhausted($: EngineInterface, deps: RetryDeps, core: Core, answer: string | null, why: string | null): Promise<void> {
@@ -729,9 +780,13 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     const retryReason = gate.reason !== null && waiveReason !== null ? joinStopReasons(gate.reason, waiveReason) : gate.reason ?? waiveReason
     // stop_hook_active chỉ bỏ qua phần checklist và G1: hai cổng đó nhắc một lần mỗi chuỗi dừng.
     if (e.stop_hook_active) return retryReason !== null ? { ...result, block: retryReason } : result
-    const core = S.normalizeCore(await read($, coreState))
+    let core = S.normalizeCore(await read($, coreState))
+    // Đã sửa mà chưa chạy lần kiểm nào (0.7.9 Y6): sau W4, trước G1 và checklist; theo stop_hook_active như G1.
+    const noCheck = isNoticed || core.brief === null ? null : await noCheckGate($, ctx.options, core, evidenceFor(core.brief.goalId), isSoftDocs(L.tracker))
+    if (noCheck !== null) core = S.normalizeCore(await read($, coreState))
+    const prior = retryReason !== null && noCheck !== null ? joinStopReasons(retryReason, noCheck) : retryReason ?? noCheck
     const plan = isNoticed ? [] : core.plan
-    const withRetry = (reason: string) => (retryReason !== null ? joinStopReasons(retryReason, reason) : reason)
+    const withRetry = (reason: string) => (prior !== null ? joinStopReasons(prior, reason) : reason)
     // Mục tiêu từ moderate (hoặc có việc đã phân) mà chưa có checklist (0.7.8 G1): chặn một lần mỗi mục tiêu, khóa trong Core nên
     // giữ qua hot reload; danh sách phản chiếu từ TodoWrite chỉ để hiển thị nên không tính là checklist.
     const brief = core.brief
@@ -740,7 +795,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       const hasMirror = core.mirror.goalId === brief.goalId && core.mirror.steps.length > 0
       return { ...result, block: withRetry(noChecklistReason(brief, hasMirror)) }
     }
-    if (isGoalDone(plan) && failed.length === 0) return retryReason !== null ? { ...result, block: retryReason } : result
+    if (isGoalDone(plan) && failed.length === 0) return prior !== null ? { ...result, block: prior } : result
     return { ...result, block: withRetry(stopBlockReason(plan, failed)) }
   }).catch(($, e, next) => (noteHookError('classic.Stop', next.error), next(e)))
 

@@ -1961,4 +1961,8 @@ export const MUTANTS: Mutant[] = [
   { id: "079-Y5b", file: "hooks/parts/command.ts", note: "bỏ yêu cầu lý do", old: "      if (reason.length < WAIVE_REASON_MIN) return", new: "      if (false) return" },
   { id: "079-Y5c", file: "hooks/lib/state.ts", note: "lệnh miễn áp cả sang mục tiêu mới", old: "core.waivers.goalId === core.brief.goalId && core.waivers.items.some(w => w.sig === sig)", new: "core.waivers.items.some(w => w.sig === sig)" },
   { id: "079-Y5d", file: "hooks/parts/consistency.ts", note: "bỏ lần chặn đòi mục Lệnh kiểm được miễn", old: "    const waiveReason = await askWaived($)\n", new: "    const waiveReason: string | null = null\n" },
+  { id: "079-Y6a", file: "hooks/parts/consistency.ts", note: "bỏ điều kiện dự án có lệnh kiểm", old: "  const command = await projectCheck($, options, log)\n", new: "  const command = (await projectCheck($, options, log)) ?? 'lệnh kiểm của dự án'\n" },
+  { id: "079-Y6b", file: "hooks/parts/consistency.ts", note: "chặn cả turn chỉ sửa tài liệu", old: " || isDocsOnly) return null", new: ") return null" },
+  { id: "079-Y6c", file: "hooks/parts/consistency.ts", note: "chặn nhiều lần trong một mục tiêu", old: "core.noCheckNudged === brief.goalId || ", new: "" },
+  { id: "079-Y6d", file: "hooks/parts/consistency.ts", note: "bỏ ngoại lệ tier trivial", old: " || brief.tier === 'trivial' || isDocsOnly", new: " || isDocsOnly" },
 ]

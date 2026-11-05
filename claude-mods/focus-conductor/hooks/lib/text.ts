@@ -1073,6 +1073,17 @@ export function retryStopReason(advanced: readonly RetryLine[], exhausted: reado
   return build(0).slice(0, RETRY_REASON_CHARS)
 }
 
+/** Trần ký tự của lý do chặn khi đã sửa mà chưa kiểm (0.7.9 Y6). */
+const NO_CHECK_CHARS = 600
+
+/** Lý do chặn một lần khi mục tiêu đã sửa file mà chưa chạy lần kiểm nào sau thay đổi cuối (0.7.9 Y6). */
+export function noCheckReason(command: string): string {
+  return (
+    `[focus-conductor] Mục tiêu đã sửa file nhưng chưa chạy lần kiểm nào sau thay đổi cuối. Chạy \`${clipItem(command, 200)}\`, ` +
+    'rồi kết thúc nếu đạt, hoặc sửa tiếp theo kết quả. Mod chỉ chặn một lần cho mỗi mục tiêu.'
+  ).slice(0, NO_CHECK_CHARS)
+}
+
 /** Tên mục báo cáo cuối khi chủ mod đã miễn lệnh kiểm (0.7.9 Y5). */
 export const WAIVE_REPORT = 'Lệnh kiểm được miễn'
 /** Trần ký tự của câu đòi mục "Lệnh kiểm được miễn". */

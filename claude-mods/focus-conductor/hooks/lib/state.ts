@@ -44,6 +44,7 @@ export const EMPTY_CORE: Core = {
   missingNoticed: { goalId: -1, key: '' },
   retry: { goalId: -1, items: [] },
   waivers: { goalId: -1, items: [] },
+  noCheckNudged: -1,
 }
 
 const LOG_LIMIT = 60
@@ -173,6 +174,10 @@ export function isWaived(core: Core, sig: string): boolean {
   return core.brief !== null && core.waivers.goalId === core.brief.goalId && core.waivers.items.some(w => w.sig === sig)
 }
 
+export const withNoCheckNudged =
+  (goalId: number) =>
+  (c: Core): Core => ({ ...normalizeCore(c), noCheckNudged: goalId })
+
 export const withWaivers =
   (waivers: WaiverState) =>
   (c: Core): Core => ({ ...normalizeCore(c), waivers: normalizeWaivers(waivers) })
@@ -227,6 +232,7 @@ export function normalizeCore(raw: Partial<Core>): Core {
     missingNoticed: raw.missingNoticed ?? { goalId: -1, key: '' },
     retry: normalizeRetry(raw.retry),
     waivers: normalizeWaivers(raw.waivers),
+    noCheckNudged: typeof raw.noCheckNudged === 'number' ? raw.noCheckNudged : -1,
   }
 }
 

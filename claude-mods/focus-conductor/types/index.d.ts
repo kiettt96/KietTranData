@@ -359,6 +359,8 @@ export type Core = {
   retry: RetryState
   /** Lệnh kiểm chủ mod đã miễn trong mục tiêu (0.7.9 Y5). */
   waivers: WaiverState
+  /** Mục tiêu đã chặn một lần vì sửa mà chưa chạy lần kiểm nào (0.7.9 Y6); -1 là chưa. */
+  noCheckNudged: number
 }
 
 /**
