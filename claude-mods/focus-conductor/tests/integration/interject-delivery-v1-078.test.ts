@@ -131,3 +131,15 @@ describe('V4a: việc chờ chuyển của mục tiêu cũ không áp sang mục
     expect(lines().some(l => l['kind'] === 'interject-deliver')).toBe(false)
   })
 })
+
+describe('V4b: tin có turnId khi chưa có mục tiêu không phải tin chen ngang', () => {
+  test('prompt.submit của người có turnId khi chưa có mục tiêu: request router không có dòng "while the main model was still working", context không có khối chen ngang, không toast', {}, async ($, on) => {
+    const seen = base(on, { router: () => FIRST })
+    hooks(on)
+    await interject($, 'Sửa luồng thanh toán')
+    expect(seen.routed.length).toBe(1)
+    expect(seen.routed[0]).not.toContain('while the main model was still working')
+    expect((seen.contexts.at(-1) ?? []).join('\n')).not.toContain('Yêu cầu chen ngang khi đang làm')
+    expect(seen.toasts.some(t => t.includes('Đã nhận yêu cầu chen ngang'))).toBe(false)
+  })
+})
