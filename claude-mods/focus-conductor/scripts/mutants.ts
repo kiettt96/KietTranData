@@ -1899,11 +1899,12 @@ export const MUTANTS: Mutant[] = [
   { id: "078-G9j", file: "hooks/parts/session.ts", note: "chuyển việc cả khi tin vào subagent", old: "if (pending === null || e.agentId !== undefined || (e.door", new: "if (pending === null || (e.door" },
   { id: "078-G9k", file: "hooks/parts/session.ts", note: "không ghi câu báo việc đã chuyển", old: "    L.interjectNote = interjectMovedNote(moved)\n", new: "" },
   { id: "078-G9l", file: "hooks/parts/session.ts", note: "không theo dõi việc vừa chuyển sang subagent", old: "    trackDelegations(brief.goalId, moved, true)\n", new: "" },
-  { id: "078-G9m", file: "hooks/parts/turn.ts", note: "turn mới không bỏ việc chờ chuyển", old: "    L.pendingInterject = null\n    return next(e)", new: "    return next(e)" },
+  { id: "078-G9m", file: "hooks/parts/turn.ts", note: "turn mới không bỏ việc chờ chuyển", old: "    L.pendingInterject = null\n    // Câu báo chuyển việc", new: "    // Câu báo chuyển việc" },
   { id: "078-G9n", file: "hooks/parts/consistency.ts", note: "không báo việc đã chuyển ở kết quả tool", old: "...(moved !== null ? [moved] : [])]", new: "]" },
   { id: "078-G9o", file: "hooks/lib/text.ts", note: "không bớt việc cho vừa trần khối chen ngang", old: "  while (n > 0 && build(n).length > INTERJECT_CHARS) n -= 1\n", new: "" },
   { id: "078-G9p", file: "hooks/lib/text.ts", note: "khối chen ngang không dặn plan add", old: "thêm bước cho yêu cầu mới bằng plan add (action \"add\") trước khi làm phần mới, giữ nguyên các bước đang có.", new: "giữ nguyên các bước đang có." },
   { id: "078-G9q", file: "hooks/lib/text.ts", note: "khối chen ngang không nêu ràng buộc mới", old: "  const rules = newConstraints.length > 0 ? clipItem(`Ràng buộc mới: ${newConstraints.join('; ')}`, 300) : ''", new: "  const rules = ''" },
   { id: "078-G9r", file: "hooks/lib/router.ts", note: "request router không nói tin đến khi luồng chính đang làm", old: "    ...(args.interject ? [`The user sent this", new: "    ...(false ? [`The user sent this" },
   { id: "078-V1a", file: "hooks/parts/session.ts", note: "chỉ nhận door attachment, bỏ door delivery", old: "(e.door !== 'delivery' && e.door !== 'attachment')", new: "e.door !== 'attachment'" },
+  { id: "078-V2a", file: "hooks/parts/turn.ts", note: "turn mới không bỏ câu báo chuyển việc của turn trước", old: "    L.interjectNote = null\n    return next(e)", new: "    return next(e)" },
 ]
