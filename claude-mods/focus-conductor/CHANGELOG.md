@@ -16,6 +16,15 @@ Vấn đề: lượt rà soát toàn mod trên 0.7.7 tìm ra tám lỗ hổng so
 - **G8: ba chỗ nhỏ của router.** (1) confidence thiếu là undefined; ba chỗ đọc prompt hỏi lại một lần (tùy chọn `retryMissingConfidence`), chấm subagent và kiểm lạc đề giữ như cũ; luật giữ mục tiêu tính thiếu như 1. Test cũ sửa theo nhóm được phép: `tests/router.test.ts` (confidence thiếu là undefined); khung test `tests/support/engine.ts` thêm `confidence: 1` vào câu trả lời router giả, theo chủ mod chốt. (2) Prompt dài hơn 80.000 ký tự có cảnh báo và một dòng context (105 ký tự). (3) `prompt.submit` của engine 2.1.296 không có chữ của tệp đính kèm, nên chỉ ghi giới hạn vào README.
 - **G9: tiếp nhận yêu cầu chen ngang.** Trường hợp A: engine gọi `prompt.submit` cho tin gõ giữa turn, kèm `turnId`. Tin của người có `turnId` khi đã có mục tiêu được đọc như prompt tiếp nối (dòng `<context>` riêng cho router): không cất checklist, việc mới đánh số tiếp, khối context (không quá 1.500 ký tự) dặn thêm bước bằng `plan add`; router lỗi thì vẫn dặn. Việc `run: main` cần model cao hơn luồng chính đang chạy chỉ chuyển sang subagent general-purpose khi engine báo tin đã chèn vào turn đang chạy (attachment `queued_command`); tin thành turn mới thì không. Toast "Đã nhận yêu cầu chen ngang", dòng `interject` và `interject-deliver` trong nhật ký quyết định. `DISCIPLINE` mục 3 thêm một câu (173 ký tự) cho cả khi router lỗi.
 
+Vòng sửa 2 (sau rà soát độc lập):
+
+- **V1: nhánh chuyển việc của G9 không chạy trên engine thật.** Hàng `queued_command` tới `session.append` với door `delivery` và origin của người gõ tin, không phải door `attachment`. Handler nay nhận cả hai door; các điều kiện khác giữ nguyên. Fixture của test G9 đổi sang door `delivery`, origin `composer`.
+- **V2: câu báo chuyển việc không còn rơi sang turn sau.** `turn.start` của luồng chính xóa `L.interjectNote` cùng chỗ với `L.pendingInterject`.
+- **V3: bỏ `L.mainTurn`.** Biến chỉ được ghi, không nơi nào đọc; tin chen ngang chỉ dựa vào `turnId` của `prompt.submit`.
+- **V4: hai test ghim.** Việc chờ chuyển của mục tiêu cũ không áp sang mục tiêu mới (so `goalId`); tin có `turnId` khi chưa có mục tiêu không phải tin chen ngang (`prev !== null`).
+
+Mẫu mới vòng sửa 2: `078-V1a`, `078-V2a`, `078-V4a`, `078-V4b`. Viết lại cùng ý: `078-G9i`, `078-G9j`, `078-G9m`. Lượt đột biến 230 mẫu của bốn tệp mã đổi ở vòng này: 224 bị bắt, 6 tương đương, 0 sống sót.
+
 Lệch đặc tả đã ghi: dòng `interject` ghi `toAgent: 0` và `liftable` lúc nhận tin, số việc thật sự chuyển sang subagent ghi ở dòng `interject-deliver`, vì engine chỉ báo tin đi đường nào sau `prompt.submit`.
 
 Lượt đột biến tổng 693 mẫu: 685 bị bắt, 8 tương đương, 0 sống sót. Mười hai mẫu sống sót ở lượt đầu có test bắt riêng, chỉ đổi `tests/`: `078-G1d`, `078-G1e`, `078-G4j`, `078-G9f`, `078-G9i`, `078-G9j`, `078-G9l`, `078-G9m`, `078-G9o`, `078-G9r`, và hai mẫu sống sót từ trước 0.7.8 (cả trên `main` 0.7.7): `075-S8a` (cảnh báo mục bị bỏ đứng trên cảnh báo chưa kiểm), `077-X6i` (ghi tài liệu bằng đường dẫn tương đối không nối được). `077-X2e` được đánh dấu tương đương.
