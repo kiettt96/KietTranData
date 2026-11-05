@@ -67,8 +67,9 @@ async function running($: Engine, seen: Seen) {
   await step($, seen, { turnId: 't1' })
 }
 const interject = ($: Engine, text: string) => $.prompt.submit({ text, wait: false, origin: { kind: 'composer' }, turnId: 't1' })
+/** Hàng attachment như engine báo (vòng sửa 2, V1): door delivery, origin của người gõ tin. */
 const appended = ($: Engine, name: string, agentId?: string) =>
-  $.session.append({ message: { type: 'attachment', name, content: [{ type: 'text', text: 'x' }] }, door: 'attachment', origin: { kind: 'engine' }, uuid: `u-${name}`, ...(agentId !== undefined ? { agentId } : {}) } as never)
+  $.session.append({ message: { type: 'attachment', name, content: [{ type: 'text', text: 'x' }] }, door: 'delivery', origin: { kind: 'composer' }, uuid: `u-${name}`, ...(agentId !== undefined ? { agentId } : {}) } as never)
 
 describe('078-G9f, 078-G9i, 078-G9j, 078-G9l, 078-G9m: chuyển việc của tin chen ngang', () => {
   test('cùng họ, effort cao hơn luồng chính đang chạy (sonnet/high trên sonnet/medium): cũng chuyển sang subagent', {}, async ($, on) => {

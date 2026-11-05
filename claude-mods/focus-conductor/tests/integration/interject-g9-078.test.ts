@@ -40,9 +40,9 @@ async function running($: Engine, seen: Seen) {
 const interject = ($: Engine, text: string, turnId: string | null = 't1', kind = 'composer') =>
   $.prompt.submit({ text, wait: false, origin: { kind } as never, ...(turnId !== null ? { turnId } : {}) })
 
-/** Engine chèn tin chen ngang vào turn đang chạy: một dòng attachment queued_command của luồng chính. */
+/** Engine chèn tin chen ngang vào turn đang chạy: hàng attachment queued_command của luồng chính, door delivery, origin của người gõ tin (vòng sửa 2, V1). */
 const delivered = ($: Engine, text: string) =>
-  $.session.append({ message: { type: 'attachment', name: 'queued_command', content: [{ type: 'text', text }] }, door: 'attachment', origin: { kind: 'engine' }, uuid: 'q1' } as never)
+  $.session.append({ message: { type: 'attachment', name: 'queued_command', content: [{ type: 'text', text }] }, door: 'delivery', origin: { kind: 'composer' }, uuid: 'q1' } as never)
 
 const lastContext = (seen: Seen) => (seen.contexts.at(-1) ?? []).join('\n')
 
