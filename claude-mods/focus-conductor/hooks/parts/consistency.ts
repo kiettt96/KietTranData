@@ -460,8 +460,6 @@ export function registerConsistency(on: On, ctx: Ctx): void {
   // vào nhóm agent và gắn vào dòng nhật ký của đúng agent. Hiệu chỉnh ước lượng theo số đo.
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
-    // Turn luồng chính kết thúc (0.7.8 G9): không còn turn đang chạy để đối chiếu.
-    if (e.agentId === undefined) L.mainTurn = null
     if ((await read($, mode)) === 'off') return result
     const at = await $.clock.now()
 

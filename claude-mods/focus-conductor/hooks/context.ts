@@ -94,8 +94,6 @@ export function createContext(options: PluginOptions) {
     /** Thời gian chạy (ms) của các lượt router gần nhất. */
     routerTimes: [] as number[],
     turnRoute: { turnId: '', route: null } as { turnId: string; route: Route | null },
-    /** Turn luồng chính đang chạy (0.7.8 G9): đặt ở turn.start, xóa ở turn.complete; chỉ để đối chiếu, mất khi hot reload. */
-    mainTurn: null as string | null,
     /**
      * Tin chen ngang có việc run: main cần model cao hơn luồng chính đang chạy (0.7.8 G9), chờ engine báo tin đi đường nào: chèn vào
      * turn đang chạy (attachment queued_command) thì chuyển các việc đó sang subagent; turn mới bắt đầu thì bỏ.
@@ -348,7 +346,6 @@ export function createContext(options: PluginOptions) {
     local.promptIntent = null
     local.routerTimes = []
     local.turnRoute = { turnId: '', route: null }
-    local.mainTurn = null
     local.pendingInterject = null
     local.interjectNote = null
     local.turnContext = 0

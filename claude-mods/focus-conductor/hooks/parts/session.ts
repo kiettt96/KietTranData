@@ -204,7 +204,7 @@ export function registerSession(on: On, ctx: Ctx): void {
     }
 
     // Tin chen ngang (0.7.8 G9): người dùng gửi khi luồng chính đang chạy (engine kèm turnId của turn đó) và đã có mục tiêu. Router đọc
-    // như prompt tiếp nối; không cất checklist, không đặt lại theo dõi giao việc; L.mainTurn chỉ để đối chiếu, không bắt buộc trùng.
+    // như prompt tiếp nối; không cất checklist, không đặt lại theo dõi giao việc. Chỉ dựa vào turnId của prompt.submit nên hot reload giữa turn không làm mất khả năng nhận diện.
     const isInterject = e.turnId !== undefined && prev !== null
     L.promptCount += 1
     // Model của phiên chưa biết (prompt đầu, trước step đầu): hỏi engine, để router và chính sách phiên dùng được ngay.
