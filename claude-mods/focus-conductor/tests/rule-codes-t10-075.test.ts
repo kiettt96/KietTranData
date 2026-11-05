@@ -37,6 +37,6 @@ describe('0.7.5 T10: danh sách mã của vế ghi đè', () => {
   test('vế ghi đè không phải danh sách mã giữ luật cũ: "Riêng tin pháp lý và tin thuế dùng opus"', () => {
     const rules = ['Lọc tin dùng sonnet. Riêng tin pháp lý và tin thuế dùng opus']
     expect(ruleFamily(rules, 'Lọc tin lô 2', null)).toBe('sonnet')
-    expect(ruleFamily(rules, 'Lọc tin pháp lý lô 1', null)).toBe('sonnet')
+    expect(ruleFamily(rules, 'Lọc tin pháp lý lô 1', null)).toBe('opus')
   })
 })

@@ -447,8 +447,52 @@ function kindsOf(part: string): string[][] {
     .filter(words => words.join(' ').length >= 3)
 }
 
-/** Một ràng buộc đã tách: các cặp, từ khóa của các vế ghi đè và của các vế ngoại lệ ("trừ ..."). */
-type ParsedRule = { clauses: Clause[]; overrides: string[][]; exceptions: string[][] }
+/**
+ * Một ràng buộc đã tách: các cặp, từ khóa của các vế ghi đè và của các vế ngoại lệ ("trừ ..."), và quy tắc riêng của các vế ngoại lệ có
+ * nêu họ model (0.7.9 R1).
+ */
+type ParsedRule = { clauses: Clause[]; overrides: string[][]; exceptions: string[][]; picks: Pick[] }
+
+/** Quy tắc riêng của một vế ngoại lệ có họ ("Riêng tin xuất và nhập khẩu dùng opus", 0.7.9 R1): mỗi mục đã bung là một cụm từ liền nhau. */
+type Pick = { family: ModelFamily | 'session'; items: string[][] }
+
+/** Từ nối ở cuối danh sách, đứng ngay trước tên model ("dùng", "with"). */
+const PICK_TAIL = /(?:\s+(?:with|using|use|by|via|on|dùng|dung|chạy|chay|bằng|bang|với|voi|phải|phai|luôn|luon))+\s*$/iu
+/** Chỗ nối các mục của một danh sách: dấu phẩy, "và", "hoặc", "hay", "and", "or". */
+const LIST_JOIN = /\s*[,，]\s*|\s+(?:và|va|hoặc|hoac|hay|and|or)\s+/iu
+
+/**
+ * Bung một danh sách có tiền tố hay hậu tố chung (0.7.9 R1): "tin xuất và nhập khẩu" thành "tin xuất khẩu", "tin nhập khẩu"; "tin vàng,
+ * dầu và thép" thành "tin vàng", "tin dầu", "tin thép"; "import and export news" thành "import news", "export news". Chỉ bung khi các mục
+ * giữa là một từ, mục đầu hay mục cuối dài hơn một từ, và mục cuối không mở đầu bằng từ đầu của mục đầu ("tin pháp lý và tin thuế" là hai
+ * mục trọn vẹn). Không bung được thì mỗi mục giữ nguyên.
+ */
+export function expandItems(text: string): string[][] {
+  const parts = text.split(LIST_JOIN).map(part => phraseWords(part)).filter(words => words.length > 0)
+  const first = parts[0]
+  const last = parts.at(-1)
+  if (parts.length < 2 || first === undefined || last === undefined) return parts
+  const middle = parts.slice(1, -1)
+  const isShared = middle.every(words => words.length === 1) && (first.length > 1 || last.length > 1) && last[0] !== first[0]
+  if (!isShared) return parts
+  const prefix = first.slice(0, -1)
+  const suffix = last.slice(1)
+  const cores = [first.at(-1) ?? '', ...middle.map(words => words[0] ?? ''), last[0] ?? '']
+  return cores.map(core => [...prefix, core, ...suffix])
+}
+
+/**
+ * Quy tắc riêng của một vế ngoại lệ: phần trước lần nêu model đầu tiên, bỏ từ nối cuối, đã bung. Chỉ vế là danh sách từ hai mục
+ * trở lên mới sinh quy tắc riêng; vế một mục và mục là mã bước giữ luật cũ (ngoại lệ của cặp đứng trước, router chấm).
+ */
+function pickOf(text: string): Pick | null {
+  const mention = new RegExp(MENTION_GLOBAL.source, 'iu').exec(text)
+  if (mention === null || RULE_NEGATION.test(text.slice(0, mention.index + mention[0].length))) return null
+  const items = expandItems(text.slice(0, mention.index).replace(PICK_TAIL, '')).filter(words => !hasCode(words))
+  if (items.length < 2) return null
+  const family = RULE_FAMILY.exec(mention[0])?.[1]?.toLowerCase() as ModelFamily | undefined
+  return { family: family ?? 'session', items }
+}
 
 /** Một cặp "loại việc, model" của ràng buộc (R6). */
 type Clause = {
@@ -470,6 +514,8 @@ type Clause = {
  * của các cặp đứng trước trong cùng ràng buộc. Nhóm 1 là phần giữa "for" và "only".
  */
 const RULE_OVERRIDE = /^\s*(?:riêng|rieng|đặc biệt|dac biet|nhưng|nhung|còn(?!\s+lại)|for\s+(.+?)\s+only)(?![\p{L}\p{N}])/iu
+/** Dấu hiệu vế ghi đè ở đầu vế hay ngay sau dấu phẩy (0.7.9 R1): cùng các dấu hiệu của RULE_OVERRIDE. */
+const OVERRIDE_ANYWHERE = new RegExp(`(?:^|[,，])${RULE_OVERRIDE.source.slice(1)}`, 'giu')
 /** Một mã trong vế ghi đè (T10): mã bước "BƯỚC 3", "Step 5", "Việc 2" hay mã ngắn "K4". */
 const OVERRIDE_CODE = '(?:(?:bước|buoc|step|việc|viec|task)\\s*#?\\s*\\d+|[a-z]{1,3}\\d+(?:\\.\\d+)*)'
 /** Một mục mã của danh sách ghi đè (T10, 0.7.6 V2): mã bước có số, hay mã ngắn; nhóm 1 và 2 là tiền tố và số khi tách được. */
@@ -580,9 +626,18 @@ function parseRule(rule: string): ParsedRule {
   const clauses: Clause[] = []
   const overrides: string[][] = []
   const exceptions: string[][] = []
+  const picks: Pick[] = []
   for (const raw of rule.normalize('NFC').split(/[;；\n]|\.(?=\s|$)/u)) {
     let segment = raw
     let phrase: string[] = []
+    // Vế ngoại lệ có nêu họ model (0.7.9 R1): mỗi mục đã bung là một quy tắc riêng với họ đó, và là ngoại lệ của các cặp đứng trước.
+    const spread: string[][] = []
+    for (const found of segment.matchAll(OVERRIDE_ANYWHERE)) {
+      const pick = pickOf(segment.slice((found.index ?? 0) + found[0].length))
+      if (pick === null) continue
+      picks.push(pick)
+      spread.push(...pick.items)
+    }
     const marker = RULE_EXCEPT.exec(segment)
     if (marker !== null) {
       // Vế ngoại lệ dừng ở dấu phẩy đầu tiên; phần sau dấu phẩy, và phần trước dấu hiệu, là các cặp khác.
@@ -592,6 +647,15 @@ function parseRule(rule: string): ParsedRule {
       phrase = exceptionWords(comma < 0 ? after : after.slice(0, comma))
       if (phrase.length > 0) exceptions.push(phrase)
       segment = comma < 0 ? before : `${before},${after.slice(comma + 1)}`
+      const pick = pickOf(comma < 0 ? after : after.slice(0, comma))
+      if (pick !== null) {
+        picks.push(pick)
+        spread.push(...pick.items)
+      }
+    }
+    for (const words of spread) {
+      for (const clause of clauses) clause.excepts.push(words)
+      overrides.push(words)
     }
     // Vế ghi đè là danh sách (T10, 0.7.6 V2, V3): mỗi mục (mã, mã trong khoảng, cụm chữ) là một ngoại lệ riêng của các cặp đứng trước;
     // phần sau danh sách đọc như vế thường.
@@ -651,8 +715,10 @@ function parseRule(rule: string): ParsedRule {
       }
     }
     if (phrase.length > 0) for (const clause of clauses.slice(first)) clause.excepts.push(phrase)
+    // Mục đã bung là ngoại lệ của các cặp cùng vế mang họ khác (cặp đứng trước vế ngoại lệ).
+    for (const clause of clauses.slice(first)) for (const pick of picks) if (clause.family !== pick.family) clause.excepts.push(...pick.items)
   }
-  return { clauses, overrides, exceptions }
+  return { clauses, overrides, exceptions, picks }
 }
 
 function ruleClauses(rule: string): Clause[] {
@@ -670,7 +736,7 @@ function hasCode(words: readonly string[]): boolean {
  * Cặp của mọi ràng buộc, kèm ngoại lệ giữa các mục (T2, vòng rà soát 5): vế ghi đè ở một mục có nêu model áp cho cặp của các mục khác
  * có cùng loại việc (chung một từ, hay từ khóa là mã bước); mục "Trừ ..." không nêu model áp cho cặp của mục ngay trước nó.
  */
-function ruleSet(constraints: readonly string[]): Clause[] {
+function ruleSet(constraints: readonly string[]): { clauses: Clause[]; picks: Pick[] } {
   const parsed = constraints.map(parseRule)
   parsed.forEach((rule, i) => {
     if (MENTIONS_MODEL.test(constraints[i] ?? '')) {
@@ -684,7 +750,7 @@ function ruleSet(constraints: readonly string[]): Clause[] {
       for (const words of rule.exceptions) for (const clause of parsed[i - 1]?.clauses ?? []) clause.excepts.push(words)
     }
   })
-  return parsed.flatMap(rule => rule.clauses)
+  return { clauses: parsed.flatMap(rule => rule.clauses), picks: parsed.flatMap(rule => rule.picks) }
 }
 
 /**
@@ -698,9 +764,15 @@ export function ruleFamily(constraints: readonly string[], description: string, 
   // Description còn nguyên nhãn (T1): ngoại lệ nêu mã bước ("Riêng BƯỚC 3") so trên đây, các từ trọn vẹn và liền nhau.
   const full = phraseWords(fold(description))
   const startsWith = (kind: string[]) => kind.length > 0 && kind.every((word, i) => asked[i] === word)
-  const isExcepted = (words: string[]) =>
-    words.every(word => asked.includes(word)) || full.some((_, at) => words.every((word, i) => full[at + i] === word))
-  for (const clause of ruleSet(constraints)) {
+  const isWhole = (words: string[]) => full.some((_, at) => words.every((word, i) => full[at + i] === word))
+  const isExcepted = (words: string[]) => words.every(word => asked.includes(word)) || isWhole(words)
+  const rules = ruleSet(constraints)
+  // Quy tắc riêng của vế ngoại lệ có họ (0.7.9 R1) đứng trước quy tắc chung; mục chỉ khớp khi các từ liền nhau.
+  for (const pick of rules.picks) {
+    const family = pick.family === 'session' ? session : pick.family
+    if (family !== null && pick.items.some(isWhole)) return family
+  }
+  for (const clause of rules.clauses) {
     const family = clause.family === 'session' ? session : clause.family
     if (family === null || !clause.kinds.some(startsWith)) continue
     if (clause.excepts.some(isExcepted)) continue
