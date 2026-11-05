@@ -52,6 +52,19 @@ describe('W3: báo việc thiếu một lần cho mỗi tập việc thiếu', (
     expect(await out($, 'add', ['Ghi chú'])).toContain(`${MISSING}: Việc 4: Thêm báo cáo doanh thu`)
   })
 
+  test('chen ngang thêm Việc 4 rồi plan update: không báo (chỉ set và add báo); add sau đó thì báo', {}, async ($, on) => {
+    const later = plan({ relation: 'continue', goal: '', main: { model: 'sonnet', effort: 'medium' }, tasks: [task('Thêm báo cáo doanh thu', 'main', 'sonnet', 'medium')] })
+    const seen: Seen = base(on, { router: request => (request.startsWith('Làm ba việc') ? THREE : later) })
+    on('turn.complete', () => ({ text: '' }))
+    await submit($, 'Làm ba việc')
+    await out($, 'set', ['Việc 1: form', 'Việc 2: test', 'Việc 3: README'])
+    await $.turn.start({ text: 'Làm ba việc', turnId: 't1' })
+    await step($, seen, { turnId: 't1' })
+    await $.prompt.submit({ text: 'Thêm luôn báo cáo doanh thu', wait: false, origin: { kind: 'composer' }, turnId: 't1' })
+    expect(String((await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'doing' })).result)).not.toContain(MISSING)
+    expect(await out($, 'add', ['Ghi chú'])).toContain(`${MISSING}: Việc 4: Thêm báo cáo doanh thu`)
+  })
+
   test('mục tiêu mới cùng tập việc thiếu: báo lại', {}, async ($, on) => {
     base(on, { router: () => THREE })
     await submit($, 'Làm ba việc')
