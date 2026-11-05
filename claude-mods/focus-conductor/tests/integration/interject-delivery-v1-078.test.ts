@@ -90,3 +90,27 @@ describe('V1: hàng queued_command door delivery', () => {
     expect(await noteOf($)).toContain('general-purpose')
   })
 })
+
+describe('V2: câu báo chuyển việc không rơi sang turn sau', () => {
+  test('tin chèn vào turn t1, t1 kết thúc không còn lời gọi tool, t2 bắt đầu: Edit đầu của t2 không có câu báo chuyển việc', {}, async ($, on) => {
+    const seen = base(on, { router: routerWith(RACE) })
+    hooks(on)
+    await running($, seen)
+    await interject($, 'Sửa luôn race condition ghi cache')
+    await row($, 'queued_command', 'delivery')
+    await $.turn.complete({ turnId: 't1', answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer' } as never)
+    await $.turn.start({ text: 'tiếp', turnId: 't2' })
+    const note = await noteOf($)
+    expect(note).not.toContain('general-purpose')
+    expect(note).not.toContain('Yêu cầu chen ngang đã vào turn đang chạy')
+  })
+
+  test('cùng turn: câu báo có ở lời gọi tool kế tiếp', {}, async ($, on) => {
+    const seen = base(on, { router: routerWith(RACE) })
+    hooks(on)
+    await running($, seen)
+    await interject($, 'Sửa luôn race condition ghi cache')
+    await row($, 'queued_command', 'delivery')
+    expect(await noteOf($)).toContain('Yêu cầu chen ngang đã vào turn đang chạy')
+  })
+})
