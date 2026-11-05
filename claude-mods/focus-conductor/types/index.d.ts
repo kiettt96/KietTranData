@@ -347,6 +347,11 @@ export type Core = {
   stopNudged: number
   /** Mục tiêu (goalId) đã được nhắc đối chiếu từng yêu cầu khi checklist đóng hẳn (0.7.8 G2); -1 là chưa nhắc. Vắng ở trạng thái cũ. */
   reqNoticed: number
+  /**
+   * Tập việc thiếu bước đã báo sau plan set hay add (0.7.8 vòng sửa 3, W3): goalId và khóa là các index thiếu xếp tăng, nối bằng dấu phẩy
+   * (rỗng khi checklist đã phủ đủ). Chỉ báo lại khi khóa đổi. Vắng ở trạng thái cũ: goalId -1, khóa rỗng.
+   */
+  missingNoticed: { goalId: number; key: string }
 }
 
 /** Một cửa sổ hạn mức đã qua ngưỡng lúc dừng (0.6.0). */

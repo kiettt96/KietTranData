@@ -206,11 +206,16 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       core = await update($, coreState, S.withReqNoticed(core.brief.goalId))
     }
     if (isUpdate && openSteps(before.plan).length > 0 && openSteps(core.plan).length === 0 && pendingSteps(core.plan).length > 0) notes.push(pendingNotice(core.plan))
-    // Việc đã phân chưa có bước nào trong checklist (0.7.8 G4): chỉ sau set và add, brief không phải isReference.
+    // Việc đã phân chưa có bước nào trong checklist (0.7.8 G4): chỉ sau set và add, brief không phải isReference. Chỉ báo lại khi tập
+    // việc thiếu đổi (vòng sửa 3, W3): khóa là các index thiếu xếp tăng, lưu trong Core cùng goalId; phủ đủ thì ghi khóa rỗng.
     const isListed = input.action === 'set' || input.action === 'add'
     if (isListed && core.brief !== null && !core.brief.isReference && core.brief.tasks.length > 0) {
       const missing = missingTasks(core.brief.tasks, core.plan)
-      if (missing.length > 0) notes.push(missingTasksNotice(missing))
+      const key = missing.map(t => t.index).sort((a, b) => a - b).join(',')
+      const noticed = core.missingNoticed
+      const isNew = noticed.goalId !== core.brief.goalId || noticed.key !== key
+      if (missing.length > 0 && isNew) notes.push(missingTasksNotice(missing))
+      if (isNew) core = await update($, coreState, S.withMissingNoticed(core.brief.goalId, key))
     }
     await showStatus($, await read($, view), ctx.options)
     const shown =

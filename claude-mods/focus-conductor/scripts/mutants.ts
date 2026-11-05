@@ -1836,7 +1836,7 @@ export const MUTANTS: Mutant[] = [
   { id: "078-G4a", file: "hooks/parts/consistency.ts", note: "báo việc thiếu cả sau update", old: "const isListed = input.action === 'set' || input.action === 'add'", new: "const isListed = true" },
   { id: "078-G4b", file: "hooks/parts/consistency.ts", note: "action add không báo việc thiếu", old: "const isListed = input.action === 'set' || input.action === 'add'", new: "const isListed = input.action === 'set'" },
   { id: "078-G4c", file: "hooks/parts/consistency.ts", note: "brief isReference cũng báo việc thiếu", old: "core.brief !== null && !core.brief.isReference && core.brief.tasks.length > 0", new: "core.brief !== null && core.brief.tasks.length > 0" },
-  { id: "078-G4d", file: "hooks/parts/consistency.ts", note: "không báo việc thiếu", old: "      if (missing.length > 0) notes.push(missingTasksNotice(missing))\n", new: "" },
+  { id: "078-G4d", file: "hooks/parts/consistency.ts", note: "không báo việc thiếu", old: "      if (missing.length > 0 && isNew) notes.push(missingTasksNotice(missing))\n", new: "" },
   { id: "078-G4e", file: "hooks/lib/text.ts", note: "bước nào cũng tính là phủ mọi việc", old: "  return tasks.filter(t => !covered.has(t.index))", new: "  return covered.size > 0 ? [] : [...tasks]" },
   { id: "078-G4f", file: "hooks/lib/text.ts", note: "khớp theo vị trí bước thay vì theo việc khớp", old: "plan.map(step => stepCovers(tasks, step.title)?.index)", new: "plan.map(step => step.id)" },
   { id: "078-G4g", file: "hooks/lib/text.ts", note: "liệt kê 9 việc", old: "const MISSING_TASKS_SHOWN = 8", new: "const MISSING_TASKS_SHOWN = 9" },
@@ -1914,4 +1914,7 @@ export const MUTANTS: Mutant[] = [
   { id: "078-W1c", file: "hooks/lib/route.ts", note: "bỏ ngưỡng 12 ký tự của khớp chứa nhau", old: "if (shorter.length >= NAME_CONTAINS && longer.includes(shorter)) return 0.99", new: "if (longer.includes(shorter)) return 0.99" },
   { id: "078-W1d", file: "hooks/lib/route.ts", note: "bước có mã không khớp vẫn khớp theo tên", old: "  if (code !== '') return undefined\n  const key = nameKey(title)", new: "  const key = nameKey(title)" },
   { id: "078-W2a", file: "hooks/lib/text.ts", note: "câu dặn không nói tiêu đề mở đầu Việc N", old: "bằng action \"add\", tiêu đề mở đầu \"Việc N: \", hoặc", new: "bằng action \"add\", hoặc" },
+  { id: "078-W3a", file: "hooks/parts/consistency.ts", note: "báo việc thiếu sau mọi lần set và add", old: "if (missing.length > 0 && isNew) notes.push", new: "if (missing.length > 0) notes.push" },
+  { id: "078-W3b", file: "hooks/parts/consistency.ts", note: "không ghi khóa rỗng khi đã phủ đủ", old: "      if (isNew) core = await update($, coreState, S.withMissingNoticed(core.brief.goalId, key))", new: "      if (isNew && key !== '') core = await update($, coreState, S.withMissingNoticed(core.brief.goalId, key))" },
+  { id: "078-W3c", file: "hooks/parts/consistency.ts", note: "so khóa bỏ qua goalId", old: "const isNew = noticed.goalId !== core.brief.goalId || noticed.key !== key", new: "const isNew = noticed.key !== key" },
 ]

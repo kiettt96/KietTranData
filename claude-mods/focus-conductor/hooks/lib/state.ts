@@ -41,6 +41,7 @@ export const EMPTY_CORE: Core = {
   toasted: { goalId: -1, keys: [] },
   stopNudged: -1,
   reqNoticed: -1,
+  missingNoticed: { goalId: -1, key: '' },
 }
 
 const LOG_LIMIT = 60
@@ -128,6 +129,11 @@ export const withReqNoticed =
   (goalId: number) =>
   (c: Core): Core => ({ ...normalizeCore(c), reqNoticed: goalId })
 
+/** Ghi tập việc thiếu bước vừa báo (hoặc khóa rỗng khi đã phủ đủ) của mục tiêu goalId (0.7.8 vòng sửa 3, W3). */
+export const withMissingNoticed =
+  (goalId: number, key: string) =>
+  (c: Core): Core => ({ ...normalizeCore(c), missingNoticed: { goalId, key } })
+
 /** Ghi (hoặc xóa) turn lỗi gần nhất của luồng chính (0.7.3). */
 export const withTurnFault =
   (fault: TurnFault | null) =>
@@ -159,6 +165,7 @@ export function normalizeCore(raw: Partial<Core>): Core {
     toasted: raw.toasted ?? { goalId: -1, keys: [] },
     stopNudged: raw.stopNudged ?? -1,
     reqNoticed: raw.reqNoticed ?? -1,
+    missingNoticed: raw.missingNoticed ?? { goalId: -1, key: '' },
   }
 }
 
