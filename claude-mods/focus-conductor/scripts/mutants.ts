@@ -1908,4 +1908,5 @@ export const MUTANTS: Mutant[] = [
   { id: "078-V1a", file: "hooks/parts/session.ts", note: "chỉ nhận door attachment, bỏ door delivery", old: "(e.door !== 'delivery' && e.door !== 'attachment')", new: "e.door !== 'attachment'" },
   { id: "078-V2a", file: "hooks/parts/turn.ts", note: "turn mới không bỏ câu báo chuyển việc của turn trước", old: "    L.interjectNote = null\n    return next(e)", new: "    return next(e)" },
   { id: "078-V4a", file: "hooks/parts/session.ts", note: "việc chờ chuyển của mục tiêu cũ áp sang mục tiêu mới", old: "if (brief === null || brief.goalId !== pending.goalId) return next(e)", new: "if (brief === null) return next(e)" },
+  { id: "078-V4b", file: "hooks/parts/session.ts", note: "tin có turnId khi chưa có mục tiêu cũng là tin chen ngang", old: "const isInterject = e.turnId !== undefined && prev !== null", new: "const isInterject = e.turnId !== undefined" },
 ]
