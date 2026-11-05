@@ -1,6 +1,7 @@
 // Lệnh /conductor: pane, status, mode, goal, reroute, reset, pause, resume.
 
 import { atom, derive, read, update } from 'claude-code'
+import { caught } from '../lib/errlog'
 import type { Brief, Core, Depth, QuotaCheckpoint } from '../../types'
 import { buildCheckpoint, forceUntil, pruneKeys, storeKey } from '../lib/checkpoint'
 import { EMPTY_QUOTA, evaluateQuota, newPause, normalizeQuota, quotaSettings, reasonsOf } from '../lib/quota'
@@ -33,10 +34,10 @@ const paneClosedState = atom({ plugin: 'focus-conductor', key: 'paneClosedGoal' 
 
 /** Mở pane chi tiết cho mục tiêu mới nếu cần (0.7.2), như parts/session.ts: không focus; kết quả ghi vào nhật ký quyết định. */
 async function autoOpenPane($: EngineInterface, ctx: Ctx, goalId: number, at: number, depth: Depth | null): Promise<void> {
-  const panes = await $.ui.panes().catch(() => [])
+  const panes = await $.ui.panes().catch(caught('ui.panes', []))
   const isOpen = panes.some(pane => pane.id === PANE)
   if (!shouldAutoOpenPane({ enabled: ctx.autoPane, goalId, closedGoal: await read($, paneClosedState), isOpen, depth })) return
-  const opened = await $.ui.open({ id: PANE, title: PANE_TITLE, rows: PANE_ROWS }).catch(() => null)
+  const opened = await $.ui.open({ id: PANE, title: PANE_TITLE, rows: PANE_ROWS }).catch(caught('ui.open', null))
   // Chỉ ghi khi pane chưa được đặt (màn hình hẹp, chưa có surface, engine từ chối): đặt được là trường hợp bình thường, không cần dòng log.
   if (opened?.isPlaced === true) return
   ctx.record(at, 'pane', { goalId, isPlaced: false, reason: opened === null ? 'engine từ chối mở pane' : opened.reason })
@@ -70,7 +71,7 @@ async function savePauseCheckpoint($: EngineInterface, cp: QuotaCheckpoint): Pro
 async function pauseFileStats($: EngineInterface, paths: readonly string[]): Promise<Array<{ path: string; mtimeMs: number; size: number }>> {
   const out: Array<{ path: string; mtimeMs: number; size: number }> = []
   for (const path of paths) {
-    const stat = await $.fs.stat(path).catch(() => null)
+    const stat = await $.fs.stat(path).catch(caught('fs.stat', null))
     out.push({ path, mtimeMs: stat?.mtimeMs ?? -1, size: stat?.size ?? -1 })
   }
   return out
@@ -144,6 +145,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       const request = routerRequest({ text: arg, prev, ran: null, policy: rules, model: routerModel, sessionFamily: L.sessionFamily, isForcedNew: true })
       const startedAt = await $.clock.now()
       const outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), undefined, { retryMissingConfidence: true })
+      ctx.noteRouterFailure('prompt', outcome.failure)
       noteRouterTime((await $.clock.now()) - startedAt)
       const plan = outcome.result
       if (plan !== null) L.routerTrouble = { failures: 0, pausedUntil: 0 }
@@ -204,6 +206,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       const request = routerRequest({ text: last.text, prev: last.prev, ran: ranText(before), policy: rules, model: routerModel, sessionFamily: L.sessionFamily })
       const startedAt = await $.clock.now()
       const outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), undefined, { retryMissingConfidence: true })
+      ctx.noteRouterFailure('prompt', outcome.failure)
       noteRouterTime((await $.clock.now()) - startedAt)
       const now = await $.clock.now()
       const withUsage = (c: Core): Core =>
@@ -268,8 +271,8 @@ export function registerCommand(on: On, ctx: Ctx): void {
       if (q.pause?.source === 'user') return { text: 'Đang tạm dừng theo yêu cầu; dùng /conductor resume để chạy tiếp.' }
       const core = S.normalizeCore(await read($, coreState))
       const goalId = core.brief?.goalId ?? 0
-      const root = await $.session.root().catch(() => null)
-      const dir = root || ((await $.session.cwd().catch(() => null)) ?? '')
+      const root = await $.session.root().catch(caught('session.root', null))
+      const dir = root || ((await $.session.cwd().catch(caught('session.cwd', null))) ?? '')
       const cp = buildCheckpoint({
         id: `cp-${now}`,
         now,
@@ -321,7 +324,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
         }
         const dropped: QuotaCheckpoint = { ...cp, status: 'consumed' }
         await update($, quotaState, c => ({ ...normalizeQuota(c), checkpoint: dropped, resume: null, discardArmedUntil: 0 }))
-        await $.store.set(storeKey(dropped.cwd), dropped).catch(() => undefined)
+        await $.store.set(storeKey(dropped.cwd), dropped).catch(caught('store.set', undefined))
         return { text: 'Đã bỏ điểm dừng; prompt kế tiếp chạy như bình thường.' }
       }
       if (q.pause?.source === 'user') await update($, quotaState, c => ({ ...normalizeQuota(c), pause: null }))
@@ -331,9 +334,29 @@ export function registerCommand(on: On, ctx: Ctx): void {
       return { text: 'Có điểm dừng đang mở: gõ prompt (ví dụ "tiếp tục") để Claude tiếp tục từ đó. Nếu hạn mức chưa làm mới, dùng /conductor resume force.' }
     }
 
+    if (sub === 'errors') {
+      // Nhật ký lỗi của mod (0.7.9 L1): chỉ in cho người dùng, không chèn vào context của model.
+      const io = { read: (path: string) => $.fs.read(path), write: (path: string, text: string) => $.fs.write(path, text), root: () => $.session.root() }
+      if (arg === 'clear') {
+        if (ctx.errorLog === '') return { text: 'Nhật ký lỗi của mod đang tắt (errorLog: off).' }
+        const now = await $.clock.now()
+        if (L.errorsClearArmedUntil <= now) {
+          L.errorsClearArmedUntil = now + DISCARD_ARM_MS
+          return { text: 'Xóa toàn bộ nhật ký lỗi của mod; gõ lại /conductor errors clear trong 10 giây để xác nhận.' }
+        }
+        L.errorsClearArmedUntil = 0
+        return { text: (await ctx.clearErrors(io)) ? 'Đã xóa nhật ký lỗi của mod.' : 'Không ghi được file nhật ký lỗi.' }
+      }
+      const report = await ctx.errorReport(io)
+      if (report === null) return { text: 'Nhật ký lỗi của mod đang tắt (errorLog: off).' }
+      if (report.total === 0) return { text: `Nhật ký lỗi của mod trống (${ctx.errorLog}).` }
+      const head = `Nhật ký lỗi của mod: ${report.total} loại${report.dropped > 0 ? `, đã bỏ ${report.dropped} loại cũ nhất` : ''} (${ctx.errorLog}). Mới nhất trước:`
+      return { text: [head, ...report.lines.map(line => `- ${line}`)].join('\n') }
+    }
+
     if (sub === 'status') {
       const { core, mode: current, lang } = await read($, view)
-      const usage = await $.session.usage().catch(() => null)
+      const usage = await $.session.usage().catch(caught('session.usage', null))
       const costLines = ledgerLines(core.ledger, lang)
       if (core.sysTokens > 0) costLines.push(`Phần cố định của ngữ cảnh (system prompt, tools): ${Math.round(core.sysTokens / 1000)}k token, đo ở đầu phiên`)
       if (usage?.cost) costLines.push(`Chi phí cả phiên theo Claude Code (gồm cả phần trước khi mod bắt đầu ghi sổ): ${formatCost(usage.cost.usd, lang)}`)

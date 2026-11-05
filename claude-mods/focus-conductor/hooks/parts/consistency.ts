@@ -1,6 +1,7 @@
 // Giữ nhất quán: tool plan, theo dõi mọi tool, chặn kết thúc khi checklist còn mở, cộng chi phí đo được.
 
 import { atom, derive, read, update } from 'claude-code'
+import { caught, noteHookError } from '../lib/errlog'
 import type { AgentState, Choice, Core, DelegationState, RetryItem, Warning } from '../../types'
 import { acceptsVerified, evidenceStrength, filePathOf, freshTestRun, isExecuting, isFullyClosed, isGoalDone, isMutation, isPlanFile, markVerified, newTracker, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
 import type { Focus } from '../lib/drift'
@@ -239,11 +240,11 @@ async function logExhausted($: EngineInterface, deps: RetryDeps, core: Core, ans
 async function frameOf($: EngineInterface, roots: Map<number, string | null>, goalId: number, scopePaths: readonly string[]) {
   if (scopePaths.length === 0) return { root: null, cwd: null }
   if (!roots.has(goalId)) {
-    roots.set(goalId, await $.session.root().catch(() => null))
+    roots.set(goalId, await $.session.root().catch(caught('session.root', null)))
     const oldest = roots.keys().next().value
     if (roots.size > 8 && oldest !== undefined) roots.delete(oldest)
   }
-  return { root: roots.get(goalId) ?? null, cwd: await $.session.cwd().catch(() => null) }
+  return { root: roots.get(goalId) ?? null, cwd: await $.session.cwd().catch(caught('session.cwd', null)) }
 }
 
 /** Status line kèm nhãn hạn mức (0.6.1): mọi chỗ đặt status của file này đi qua đây, nên nhãn không mất giữa các hook. */
@@ -295,7 +296,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
   on('tool.check', { tool: 'mcp__focus-conductor__plan' }, () => ({
     decision: 'allow' as const,
     reason: 'focus-conductor: checklist nội bộ của phiên',
-  })).catch(($, e, next) => next(e))
+  })).catch(($, e, next) => (noteHookError('tool.check', next.error), next(e)))
 
   on('tool.call', { tool: 'mcp__focus-conductor__plan' }, async ($, e) => {
     if (e.agentId !== undefined) {
@@ -335,7 +336,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       const cp = q.checkpoint !== null ? withNote(q.checkpoint, noted.checkpointNote ?? '') : null
       if (cp !== null) {
         await update($, quotaState, c => ({ ...normalizeQuota(c), checkpoint: cp }))
-        const isSaved = await $.store.set(storeKey(cp.cwd), cp).then(() => true).catch(() => false)
+        const isSaved = await $.store.set(storeKey(cp.cwd), cp).then(() => true).catch(caught('store.set', false))
         if (!isSaved) $.ui.toast('Focus Conductor: không lưu được điểm dừng vào kho của mod; điểm dừng chỉ còn trong phiên này')
       }
       return { result: 'Đã ghi điểm dừng. Kết thúc turn bằng một câu báo điểm dừng; lần ra lệnh sau sẽ tiếp tục từ đây.' }
@@ -435,7 +436,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
           ? setResultText(core.brief, core.plan, outcome.set, outcome.goal, before.brief?.goal ?? null)
           : renderPlan(core.brief, core.plan, input.action === 'update' || input.action === 'add' ? outcome.changed : undefined)
     return { result: [shown, ...notes].join('\n') }
-  }).catch(() => ({ deny: 'focus-conductor: lỗi nội bộ khi cập nhật checklist; tiếp tục làm việc không cần tool này.' }))
+  }).catch(($, e, next) => (noteHookError('tool.call plan', next.error), { deny: 'focus-conductor: lỗi nội bộ khi cập nhật checklist; tiếp tục làm việc không cần tool này.' }))
 
   /**
    * Luồng chính kẹt (lặp lỗi hay router thấy lạc đề, 0.7.8 G6): thêm mục "luồng chính kẹt: <bước đang mở hoặc lệnh lỗi>" vào danh
@@ -652,6 +653,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       })
       const startedAt = await $.clock.now()
       const outcome = await askRouter(r => $.model.complete(r), request, parseDrift)
+      ctx.noteRouterFailure('drift', outcome.failure)
       noteRouterTime((await $.clock.now()) - startedAt)
       const verdict = outcome.result
       const now = await $.clock.now()
@@ -676,7 +678,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     const extra = [...(top?.context ? [top.context] : []), ...(driftNote ? [driftNote] : [])]
     if (extra.length === 0) return withNudge(result)
     return withNudge({ ...result, context: [...(result.context ?? []), ...extra] })
-  }).catch(($, e, next) => next(e))
+  }).catch(($, e, next) => (noteHookError('tool.call', next.error), next(e)))
 
   // Claude định kết thúc mà checklist còn mở, hoặc còn việc giao subagent đã lỗi chưa giao lại: yêu cầu hoàn thành
   // hoặc giải thích. stop_hook_active chặn vòng lặp: phần checklist và G1 chỉ nhắc một lần mỗi chuỗi dừng; lệnh kiểm chưa đạt (W4) thì
@@ -713,12 +715,13 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     }
     if (isGoalDone(plan) && failed.length === 0) return retryReason !== null ? { ...result, block: retryReason } : result
     return { ...result, block: withRetry(stopBlockReason(plan, failed)) }
-  }).catch(($, e, next) => next(e))
+  }).catch(($, e, next) => (noteHookError('classic.Stop', next.error), next(e)))
 
   // Chi phí đo được: luồng chính (không có agentId) vào nhóm luồng chính; subagent
   // vào nhóm agent và gắn vào dòng nhật ký của đúng agent. Hiệu chỉnh ước lượng theo số đo.
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
+    await ctx.flushErrors({ read: path => $.fs.read(path), write: (path, text) => $.fs.write(path, text), root: () => $.session.root() })
     if ((await read($, mode)) === 'off') return result
     const at = await $.clock.now()
 
@@ -798,7 +801,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
         warnings.push({ at, kind: 'open-steps', text: `Việc ${fresh.map(([, label]) => label).join(', ')} giao subagent đã lỗi, chưa giao lại` })
       }
     }
-    const end = await $.session.usage().catch(() => null)
+    const end = await $.session.usage().catch(caught('session.usage', null))
     const endContext = end?.context.tokens ?? L.turnContext
     // Còn lệnh kiểm chưa đạt khi turn kết thúc (0.7.8 vòng sửa 3, W4): router chấm lại luồng chính ở prompt sau (mục quan sát) và turn sau
     // nâng effort một bậc, như nhánh lặp lỗi.

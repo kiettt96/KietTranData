@@ -1,6 +1,7 @@
 // Giao diện: band trên prompt và pane chi tiết.
 
 import { atom, derive, read, update } from 'claude-code'
+import { caught, noteHookError } from '../lib/errlog'
 import { EMPTY_QUOTA, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaBadge, quotaSettings, softNotices } from '../lib/quota'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
@@ -54,7 +55,7 @@ async function redrawTick($: EngineInterface, tick: Tick): Promise<void> {
 function startTick($: EngineInterface, tick: Tick): void {
   if (tick.timer !== null) return
   tick.timer = $.clock.every(TICK_MS, () => {
-    void redrawTick($, tick).catch(() => undefined)
+    void redrawTick($, tick).catch(caught('redrawTick', undefined, 'hook'))
   })
 }
 
@@ -78,14 +79,14 @@ export function registerUi(on: On, ctx: Ctx): void {
     await update($, runningTurnState, () => e.turnId)
     startTick($, tick)
     return result
-  }).catch(($, e, next) => next(e))
+  }).catch(($, e, next) => (noteHookError('turn.start', next.error), next(e)))
 
   // Turn luồng chính kết thúc (mọi reason): xóa mã turn; nhịp kế tiếp đọc thấy rỗng thì tự hủy mà không vẽ lại.
   on('turn.complete', { reason: /./ }, async ($, e, next) => {
     const result = await next(e)
     if (e.agentId === undefined) await update($, runningTurnState, () => '')
     return result
-  }).catch(($, e, next) => next(e))
+  }).catch(($, e, next) => (noteHookError('turn.complete', next.error), next(e)))
 
   // Nạp mod (lần đầu hay nạp lại): hủy nhịp đang giữ, rồi đặt lại khi $.state còn ghi turn đang chạy (nạp lại giữa turn).
   on('session.start', { cwd: /.*/ }, async ($, e, next) => {
@@ -93,13 +94,13 @@ export function registerUi(on: On, ctx: Ctx): void {
     stopTick(tick)
     if ((await read($, runningTurnState)) !== '') startTick($, tick)
     return result
-  }).catch(($, e, next) => next(e))
+  }).catch(($, e, next) => (noteHookError('session.start', next.error), next(e)))
 
   on('session.end', { sessionId: /.*/ }, async ($, e, next) => {
     stopTick(tick)
     await update($, runningTurnState, () => '')
     return next(e)
-  }).catch(($, e, next) => next(e))
+  }).catch(($, e, next) => (noteHookError('session.end', next.error), next(e)))
 
   // ------------------------------------------------------- giao diện
 
@@ -133,7 +134,7 @@ export function registerUi(on: On, ctx: Ctx): void {
       if (goalId >= 0) await update($, paneClosedState, () => goalId)
     }
     return next(e)
-  }).catch(($, e, next) => next(e))
+  }).catch(($, e, next) => (noteHookError('ui.close', next.error), next(e)))
 
   on('ui.render', { component: 'Pane', requestId: 'focus-conductor' }, async ($, e) => {
     const current = await read($, view)

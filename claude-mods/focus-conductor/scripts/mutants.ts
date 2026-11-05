@@ -1948,4 +1948,10 @@ export const MUTANTS: Mutant[] = [
   { id: "079-UI2b", file: "hooks/parts/ui.tsx", note: "nhịp không đọc $.state, vẫn vẽ lại khi hết turn", old: "  if ((await read($, runningTurnState)) === '') {\n    stopTick(tick)", new: "  if (false) {\n    stopTick(tick)" },
   { id: "079-UI2c", file: "hooks/parts/ui.tsx", note: "nạp mod đặt nhịp cả khi không có turn đang chạy", old: "    if ((await read($, runningTurnState)) !== '') startTick($, tick)", new: "    startTick($, tick)" },
   { id: "079-UI2d", file: "hooks/parts/ui.tsx", note: "đặt nhịp mới dù đã có nhịp, thành hai nhịp", old: "  if (tick.timer !== null) return\n", new: "" },
+  { id: "079-L1a", file: "hooks/lib/errlog.ts", note: "gặp lại thì thêm mục mới thay vì tăng count", old: "  if (index >= 0) {\n    const old = file.entries[index]!", new: "  if (false) {\n    const old = file.entries[index]!" },
+  { id: "079-L1b", file: "hooks/lib/errlog.ts", note: "bỏ bước chuẩn hóa số", old: "    .replace(/\\d+(?:\\.\\d+)?/g, '<n>')\n", new: "" },
+  { id: "079-L1c", file: "hooks/lib/errlog.ts", note: "bỏ thay đường dẫn", old: "    .replace(/(^|[\\s\"'`(=:,[])(?:\\/[^\\s\"'`()[\\],:]+|[A-Za-z]:\\\\[^\\s\"'`()[\\],]+|~\\/[^\\s\"'`()[\\],:]+)/g, '$1<path>')\n", new: "" },
+  { id: "079-L1d", file: "hooks/lib/errlog.ts", note: "xóa mục trong sổ dù gặp lại sau fixedIn", old: "    if (compareVersion(entry.lastVersion, item.fixedIn) >= 0) entries.push", new: "    if (false) entries.push" },
+  { id: "079-L1e", file: "hooks/lib/errlog.ts", note: "xóa cả mục không có trong sổ", old: "    if (item === undefined) {\n      entries.push(entry)\n      continue", new: "    if (item === undefined) {\n      continue" },
+  { id: "079-L1f", file: "hooks/context.ts", note: "bỏ nuốt lỗi của bộ ghi", old: "    } catch {\n      // Bộ ghi không được làm hỏng hook đang chạy, cũng không tự ghi lỗi của nó.\n    }", new: "    } finally {\n    }" },
 ]

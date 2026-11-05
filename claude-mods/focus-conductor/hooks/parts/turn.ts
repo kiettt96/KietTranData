@@ -1,6 +1,7 @@
 // Điều phối luồng chính và subagent lúc chạy: turn.start, turn.step (ép model + effort).
 
 import { atom, derive, read, update } from 'claude-code'
+import { caught } from '../lib/errlog'
 import type { ModelFamily, Warning } from '../../types'
 import { newTracker } from '../lib/drift'
 import { DEFAULT_CONTEXT, fixedContextTokens } from '../lib/cost'
@@ -120,14 +121,14 @@ export function registerTurn(on: On, ctx: Ctx): void {
       L.turnCount += 1
       expireBlocks()
       L.sessionFamily = familyOf(e.model)
-      const usage = await $.session.usage().catch(() => null)
+      const usage = await $.session.usage().catch(caught('session.usage', null))
       L.turnContext = usage?.context.tokens ?? DEFAULT_CONTEXT
       const measured = usage?.context.tokens
       if (measured !== undefined) noteContext(measured)
       L.lastWindow = usage?.context.window ?? DEFAULT_WINDOW
       // Đo một lần phần cố định của ngữ cảnh (ước lượng cục bộ của engine, không tốn request).
       if (S.normalizeCore(await read($, coreState)).sysTokens === 0) {
-        const detail = await $.session.usage({ breakdown: 'summary' }).catch(() => null)
+        const detail = await $.session.usage({ breakdown: 'summary' }).catch(caught('session.usage', null))
         const fixed = fixedContextTokens(detail?.context.breakdown?.categories)
         if (fixed !== null) await update($, coreState, S.withSysTokens(fixed))
       }

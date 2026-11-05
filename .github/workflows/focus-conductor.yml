@@ -30,3 +30,6 @@ jobs:
       - name: Chạy test của mod
         working-directory: claude-mods/focus-conductor
         run: claude plugin test .
+      - name: Kiểm MOD_VERSION khớp plugin.json
+        working-directory: claude-mods/focus-conductor
+        run: node scripts/version-check.mjs

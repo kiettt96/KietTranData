@@ -1,6 +1,7 @@
 // Phiên và đọc prompt: session.start/end, mục system prompt cố định, prompt.submit (router đọc prompt).
 
 import { atom, derive, read, update } from 'claude-code'
+import { caught, noteHookError, noteMistyped } from '../lib/errlog'
 import type { Brief, Core, Depth, QuotaCheckpoint, Warning } from '../../types'
 import { briefFromCheckpoint, changedFiles, storeKey } from '../lib/checkpoint'
 import { openSteps, restorableSteps } from '../lib/drift'
@@ -22,10 +23,10 @@ import { PANE, PANE_TITLE } from '../ui/pane'
 
 /** Mở pane chi tiết cho mục tiêu mới nếu cần (0.7.2): không focus, không chiếm phím; kết quả đặt hay chưa đặt ghi vào nhật ký quyết định. */
 async function autoOpenPane($: EngineInterface, ctx: Ctx, goalId: number, at: number, depth: Depth | null): Promise<void> {
-  const panes = await $.ui.panes().catch(() => [])
+  const panes = await $.ui.panes().catch(caught('ui.panes', []))
   const isOpen = panes.some(pane => pane.id === PANE)
   if (!shouldAutoOpenPane({ enabled: ctx.autoPane, goalId, closedGoal: await read($, paneClosedState), isOpen, depth })) return
-  const opened = await $.ui.open({ id: PANE, title: PANE_TITLE, rows: PANE_ROWS }).catch(() => null)
+  const opened = await $.ui.open({ id: PANE, title: PANE_TITLE, rows: PANE_ROWS }).catch(caught('ui.open', null))
   // Chỉ ghi khi pane chưa được đặt (màn hình hẹp, chưa có surface, engine từ chối): đặt được là trường hợp bình thường, không cần dòng log.
   if (opened?.isPlaced === true) return
   ctx.record(at, 'pane', { goalId, isPlaced: false, reason: opened === null ? 'engine từ chối mở pane' : opened.reason })
@@ -54,7 +55,7 @@ async function quotaLimits($: EngineInterface): Promise<readonly unknown[] | nul
 
 /** Thư mục của khóa điểm dừng: thư mục gốc của phiên, không có thì `fallback`. */
 async function checkpointDir($: EngineInterface, fallback: string): Promise<string> {
-  const root = await $.session.root().catch(() => null)
+  const root = await $.session.root().catch(caught('session.root', null))
   return root || fallback
 }
 
@@ -62,7 +63,7 @@ async function checkpointDir($: EngineInterface, fallback: string): Promise<stri
 async function currentStats($: EngineInterface, paths: readonly string[]): Promise<Map<string, { mtimeMs: number; size: number } | null>> {
   const out = new Map<string, { mtimeMs: number; size: number } | null>()
   for (const path of paths) {
-    const stat = await $.fs.stat(path).catch(() => null)
+    const stat = await $.fs.stat(path).catch(caught('fs.stat', null))
     out.set(path, stat === null ? null : { mtimeMs: stat.mtimeMs, size: stat.size })
   }
   return out
@@ -82,25 +83,29 @@ export function registerSession(on: On, ctx: Ctx): void {
   // ---------------------------------------------------------------- phiên
 
   on('session.start', async ($, e, next) => {
+    // Nhật ký lỗi của mod (0.7.9 L1): tự xóa lỗi đã sửa theo sổ, báo trạng thái sai kiểu, gộp lỗi đang chờ ghi.
+    noteMistyped('normalizeCore', await read($, coreState), S.EMPTY_CORE)
+    noteMistyped('normalizeQuota', await read($, quotaState), EMPTY_QUOTA)
+    await ctx.openErrors({ read: path => $.fs.read(path), write: (path, text) => $.fs.write(path, text), root: () => $.session.root() })
     // Log quyết định nối tiếp file cũ (giữ DECISION_LIMIT dòng cuối); file chưa có hoặc đọc lỗi thì bắt đầu mới.
     if (decisionLog) {
-      const old = await $.fs.read(decisionLog).catch(() => '')
+      const old = await $.fs.read(decisionLog).catch(caught('fs.read', ''))
       L.decisions = typeof old === 'string' ? keptLines(old) : []
     }
     await $.tool.register(PLAN_TOOL_SPEC)
     await $.command.register({
       name: 'conductor',
       description: 'Focus Conductor: mục tiêu, checklist và điều phối model/effort/agent',
-      argumentHint: '[status | mode auto|subagents|suggest|off | goal <mô tả> | reroute | reset | pause | resume [force|discard]]',
+      argumentHint: '[status | mode auto|subagents|suggest|off | goal <mô tả> | reroute | reset | pause | resume [force|discard] | errors [clear]]',
     })
     // Bảo vệ hạn mức: nạp điểm dừng còn mở của thư mục này (phiên mới hay resume). Bản resuming của phiên trước (chết
     // giữa chừng) quay về open. Chỉ khi chưa có mục tiêu thì khôi phục mục tiêu và checklist; không tự gửi prompt nào.
     if (quotaSettings(ctx.options).enabled && (await read($, mode)) !== 'off') {
       const dir = await checkpointDir($, e.cwd)
-      const raw = (await $.store.get(storeKey(dir)).catch(() => undefined)) as QuotaCheckpoint | undefined
+      const raw = (await $.store.get(storeKey(dir)).catch(caught('store.get', undefined))) as QuotaCheckpoint | undefined
       if (raw !== undefined && raw !== null && raw.version === 1 && raw.cwd === dir && raw.status !== 'consumed') {
         const cp: QuotaCheckpoint = { ...raw, status: 'open' }
-        if (raw.status !== 'open') await $.store.set(storeKey(dir), cp).catch(() => undefined)
+        if (raw.status !== 'open') await $.store.set(storeKey(dir), cp).catch(caught('store.set', undefined))
         await update($, quotaState, q => ({ ...normalizeQuota(q), checkpoint: cp, resume: null }))
         const core = S.normalizeCore(await read($, coreState))
         if (core.brief === null) {
@@ -122,6 +127,7 @@ export function registerSession(on: On, ctx: Ctx): void {
   })
 
   on('session.end', async ($, e, next) => {
+    await ctx.flushErrors({ read: path => $.fs.read(path), write: (path, text) => $.fs.write(path, text), root: () => $.session.root() })
     if (e.reason === 'clear') {
       resetLocal()
       // /clear không phát session.start (0.7.5): điểm dừng đang mở không tự chèn ở prompt kế tiếp, chỉ gợi ý /conductor resume.
@@ -185,7 +191,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       const stats = await currentStats($, openCp.files.map(f => f.path))
       const cp: QuotaCheckpoint = { ...openCp, status: 'resuming' }
       await update($, quotaState, c => ({ ...normalizeQuota(c), checkpoint: cp, resume: { id: cp.id, turnId: '' } }))
-      await $.store.set(storeKey(cp.cwd), cp).catch(() => undefined)
+      await $.store.set(storeKey(cp.cwd), cp).catch(caught('store.set', undefined))
       return [resumeContext(cp, changedFiles(cp.files, stats))]
     }
     const pending = openCp !== null ? [resumePendingContext(openCp, L.noAutoResume && !isArmed)] : []
@@ -208,7 +214,7 @@ export function registerSession(on: On, ctx: Ctx): void {
     const isInterject = e.turnId !== undefined && prev !== null
     L.promptCount += 1
     // Model của phiên chưa biết (prompt đầu, trước step đầu): hỏi engine, để router và chính sách phiên dùng được ngay.
-    if (L.sessionFamily === null) L.sessionFamily = familyOf(await $.session.model().catch(() => ''))
+    if (L.sessionFamily === null) L.sessionFamily = familyOf(await $.session.model().catch(caught('session.model', '')))
     const rules = policy()
     const isPaused = isRouterPaused()
     let outcome: RouterOutcome<RouterPlan> = { result: null, reason: 'router đang tạm ngừng sau các lần lỗi liên tiếp', usages: [], retried: false, failure: 'paused', timeoutMs: null, maxTokens: null, outputTokens: null }
@@ -221,6 +227,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       const request = routerRequest({ text, prev, ran: ranText(before), policy: rules, model: routerModel, sessionFamily: L.sessionFamily, openSteps: openSteps(before.plan).map(s => s.title), ...(observed ? { observed } : {}), ...(isInterject ? { interject: { step: openSteps(before.plan)[0]?.title ?? '' } } : {}) })
       const startedAt = await $.clock.now()
       outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), needsCoverageRecheck, { retryMissingConfidence: true })
+      ctx.noteRouterFailure('prompt', outcome.failure)
       waitedMs = (await $.clock.now()) - startedAt
       noteRouterTime(waitedMs)
       pauseText = noteRouter(outcome.result !== null)
@@ -369,7 +376,7 @@ export function registerSession(on: On, ctx: Ctx): void {
     }
     await showStatus($, await read($, view), ctx.options)
     return next({ ...e, context: [...lead, ...(e.context ?? []), context, ...notice, ...(isClipped ? [CLIPPED_CONTEXT] : []), ...tail] })
-  }).catch(($, e, next) => next(e))
+  }).catch(($, e, next) => (noteHookError('prompt.submit', next.error), next(e)))
 
   // Engine chèn tin chen ngang vào turn đang chạy (0.7.8 G9): hàng attachment queued_command của luồng chính, door delivery (vòng sửa 2, V1; door
   // attachment vẫn nhận để phòng engine đổi cách phân loại). Các việc run: main cần
@@ -396,5 +403,5 @@ export function registerSession(on: On, ctx: Ctx): void {
     record(await $.clock.now(), 'interject-deliver', { goalId: brief.goalId, toAgent: moved.length, tasks: moved.map(t => t.index) })
     await flushDecisions((path, text) => $.fs.write(path, text))
     return next(e)
-  }).catch(($, e, next) => next(e))
+  }).catch(($, e, next) => (noteHookError('session.append', next.error), next(e)))
 }

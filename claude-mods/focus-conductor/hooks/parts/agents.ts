@@ -1,6 +1,7 @@
 // Subagent: agent ngoài điều phối, nguồn đổi model, loại agent engine mời, lời gọi Agent, agent.spawn.
 
 import { atom, derive, read, update } from 'claude-code'
+import { noteHookError } from '../lib/errlog'
 import type { AgentProgress, Choice, Core, RetryItem, RouteEvent, Warning } from '../../types'
 import { turnCost } from '../lib/cost'
 import { countSpawn, shapeKey, shapeOutput } from '../lib/ledger'
@@ -54,7 +55,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
     const result = await next(e)
     if (startedAgents.size < 1000) startedAgents.set(e.agent_id, e.agent_type)
     return result
-  }).catch(($, e, next) => next(e))
+  }).catch(($, e, next) => (noteHookError('classic.SubagentStart', next.error), next(e)))
 
   // Nguồn của lần đổi model phiên: người dùng (/model, picker, SDK) hay engine tự đổi (auto, resume).
   // Step đầu của turn sau đọc nó để quyết định có tạm dừng tự điều phối hay không.
@@ -64,7 +65,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
     record(await $.clock.now(), 'model-switch', { source: e.source, from: e.from_model, to: e.to_model, requested: e.requested_model })
     await flushDecisions((path, text) => $.fs.write(path, text))
     return result
-  }).catch(($, e, next) => next(e))
+  }).catch(($, e, next) => (noteHookError('classic.PostModelSwitch', next.error), next(e)))
 
   // Ghi nhận loại agent nào đang được mời dùng, để chỉ đổi sang Explore khi có.
   on('agent.offer', async ($, e, next) => {
@@ -72,7 +73,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
     if (result.isOffered) offered.set(e.agent, e.description)
     else offered.delete(e.agent)
     return result
-  }).catch(($, e, next) => next(e))
+  }).catch(($, e, next) => (noteHookError('agent.offer', next.error), next(e)))
 
   // Subagent: việc đã phân dùng đúng lựa chọn của router; việc khác do router chấm khi giao
   // (kèm gợi ý model và loại agent Claude ghi, agent cha, các agent đã lỗi). Router lỗi thì giữ
@@ -141,6 +142,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
         })
         const startedAt = await $.clock.now()
         const outcome = await askRouter(r => $.model.complete(r), request, reply => parseAgentRoute(reply, rules))
+        ctx.noteRouterFailure('agent', outcome.failure)
         noteRouterTime((await $.clock.now()) - startedAt)
         await update($, coreState, c =>
           S.withAnalyzerUsage(outcome.usages, routerFamily)(c),
@@ -245,7 +247,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
       await update($, coreState, S.withDelegations(brief.goalId, delegationItems(brief)))
     }
     return result
-  }).catch(($, e, next) => next(e))
+  }).catch(($, e, next) => (noteHookError('tool.call', next.error), next(e)))
 
   // Ghi điều phối của subagent ngay khi nó khởi động (trước mọi await, để step đầu đã thấy), rồi ghi
   // nhật ký bằng model engine thực sự dùng, kèm chi phí ước tính. Model engine chạy khác model đã điều
@@ -294,6 +296,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
         })
         const startedAt = await $.clock.now()
         const outcome = await askRouter(r => $.model.complete(r), request, reply => parseAgentRoute(reply, rules))
+        ctx.noteRouterFailure('agent', outcome.failure)
         noteRouterTime((await $.clock.now()) - startedAt)
         await update($, coreState, c =>
           S.withAnalyzerUsage(outcome.usages, routerFamily)(c),
@@ -414,5 +417,5 @@ export function registerAgents(on: On, ctx: Ctx): void {
     })
     if (isMismatch) $.ui.toast(mismatchText)
     return result
-  }).catch(($, e, next) => next(e))
+  }).catch(($, e, next) => (noteHookError('agent.spawn', next.error), next(e)))
 }

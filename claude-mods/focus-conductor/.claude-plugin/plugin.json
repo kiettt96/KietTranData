@@ -1,6 +1,6 @@
 {
   "name": "focus-conductor",
-  "version": "0.7.8",
+  "version": "0.7.9",
   "author": { "name": "Kiet Tran" },
   "description": "Một model Claude (router) đọc kỹ prompt trước khi làm và điều phối model/effort/agent cho từng việc; mod kiểm, ép điều phối lúc chạy, giữ nhất quán mục tiêu với checklist và cảnh báo lạc đề.",
   "types": "./types/index.d.ts",
@@ -128,6 +128,12 @@
       "title": "File log quyết định (JSONL)",
       "description": "Đường dẫn file ghi mỗi quyết định điều phối một dòng JSON (router đọc prompt, router lỗi, chấm subagent, đổi model, verified bị hạ xuống done). Log có trích 300 ký tự đầu của prompt và của evidence: chỉ bật với đường dẫn không chia sẻ hay commit. Để trống (mặc định): không ghi",
       "default": ""
+    },
+    "errorLog": {
+      "type": "string",
+      "title": "File nhật ký lỗi của mod (error log)",
+      "description": "Đường dẫn file JSON ghi các loại lỗi của chính mod (hook ném lỗi, router lỗi, engine từ chối, trạng thái sai kiểu), mỗi loại một mục; tương đối với thư mục gốc của phiên. Không ghi prompt, nội dung file hay output lệnh, và không gửi lên model. Gõ off để tắt; nên thêm .focus-conductor/ vào .gitignore. (en) JSON file listing each kind of error of the mod itself (hook throws, router failures, engine refusals, mistyped state), one entry per kind, relative to the session root. Never holds prompts, file content or command output, and is never sent to the model. Set off to disable; add .focus-conductor/ to .gitignore.",
+      "default": ".focus-conductor/errors.json"
     },
     "agentTypes": {
       "type": "string",
