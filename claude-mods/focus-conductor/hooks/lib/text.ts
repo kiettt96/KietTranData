@@ -8,7 +8,7 @@ import type { QuotaBadge, QuotaNoticeHit, QuotaThresholds } from './quota'
 import { labels } from '../ui/labels'
 import { currentStep, taskBarRuns } from '../ui/style'
 import type { Lang } from '../ui/labels'
-import { describePick, taskMatch } from './route'
+import { describePick, stepCovers } from './route'
 import { uncoveredRequirements } from './router'
 
 export const PLAN_TOOL = 'plan'
@@ -496,11 +496,11 @@ export const MISSING_TASKS_CHARS = 500
 const MISSING_TASKS_SHOWN = 8
 
 /**
- * Việc đã phân chưa có bước nào trong checklist (0.7.8 G4): một bước (mọi trạng thái) khớp việc khi taskMatch theo tên bước trả đúng
- * việc đó, cùng luật khớp với description của Agent ("Việc N", mã mục, mã bước).
+ * Việc đã phân chưa có bước nào trong checklist (0.7.8 G4): một bước (mọi trạng thái) phủ việc theo stepCovers, tức cùng luật khớp với
+ * description của Agent ("Việc N", mã mục, mã bước) rồi khớp theo tên (vòng sửa 3, W1). Mỗi bước phủ tối đa một việc.
  */
 export function missingTasks(tasks: readonly Task[], plan: readonly PlanStep[]): Task[] {
-  const covered = new Set(plan.map(step => taskMatch(tasks, step.title).task?.index))
+  const covered = new Set(plan.map(step => stepCovers(tasks, step.title)?.index))
   return tasks.filter(t => !covered.has(t.index))
 }
 

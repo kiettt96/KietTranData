@@ -1838,7 +1838,7 @@ export const MUTANTS: Mutant[] = [
   { id: "078-G4c", file: "hooks/parts/consistency.ts", note: "brief isReference cũng báo việc thiếu", old: "core.brief !== null && !core.brief.isReference && core.brief.tasks.length > 0", new: "core.brief !== null && core.brief.tasks.length > 0" },
   { id: "078-G4d", file: "hooks/parts/consistency.ts", note: "không báo việc thiếu", old: "      if (missing.length > 0) notes.push(missingTasksNotice(missing))\n", new: "" },
   { id: "078-G4e", file: "hooks/lib/text.ts", note: "bước nào cũng tính là phủ mọi việc", old: "  return tasks.filter(t => !covered.has(t.index))", new: "  return covered.size > 0 ? [] : [...tasks]" },
-  { id: "078-G4f", file: "hooks/lib/text.ts", note: "khớp theo vị trí bước thay vì theo việc khớp", old: "plan.map(step => taskMatch(tasks, step.title).task?.index)", new: "plan.map(step => step.id)" },
+  { id: "078-G4f", file: "hooks/lib/text.ts", note: "khớp theo vị trí bước thay vì theo việc khớp", old: "plan.map(step => stepCovers(tasks, step.title)?.index)", new: "plan.map(step => step.id)" },
   { id: "078-G4g", file: "hooks/lib/text.ts", note: "liệt kê 9 việc", old: "const MISSING_TASKS_SHOWN = 8", new: "const MISSING_TASKS_SHOWN = 9" },
   { id: "078-G4h", file: "hooks/lib/text.ts", note: "không báo số việc còn lại", old: "${rest > 0 ? `; và ${rest} việc nữa` : ''}. ${tail}`", new: ". ${tail}`" },
   { id: "078-G4i", file: "hooks/lib/text.ts", note: "không bớt việc cho vừa trần", old: "  while (n > 1 && build(n).length > MISSING_TASKS_CHARS) n -= 1\n", new: "" },
@@ -1909,4 +1909,8 @@ export const MUTANTS: Mutant[] = [
   { id: "078-V2a", file: "hooks/parts/turn.ts", note: "turn mới không bỏ câu báo chuyển việc của turn trước", old: "    L.interjectNote = null\n    return next(e)", new: "    return next(e)" },
   { id: "078-V4a", file: "hooks/parts/session.ts", note: "việc chờ chuyển của mục tiêu cũ áp sang mục tiêu mới", old: "if (brief === null || brief.goalId !== pending.goalId) return next(e)", new: "if (brief === null) return next(e)" },
   { id: "078-V4b", file: "hooks/parts/session.ts", note: "tin có turnId khi chưa có mục tiêu cũng là tin chen ngang", old: "const isInterject = e.turnId !== undefined && prev !== null", new: "const isInterject = e.turnId !== undefined" },
+  { id: "078-W1a", file: "hooks/lib/route.ts", note: "bỏ khớp bước với việc theo tên", old: "  if (code !== '') return undefined\n  const key = nameKey(title)", new: "  return undefined\n  const key = nameKey(title)" },
+  { id: "078-W1b", file: "hooks/lib/route.ts", note: "đồng hạng vẫn chọn việc đầu", old: "(second !== undefined && second.score === first.score)", new: "false" },
+  { id: "078-W1c", file: "hooks/lib/route.ts", note: "bỏ ngưỡng 12 ký tự của khớp chứa nhau", old: "if (shorter.length >= NAME_CONTAINS && longer.includes(shorter)) return 0.99", new: "if (longer.includes(shorter)) return 0.99" },
+  { id: "078-W1d", file: "hooks/lib/route.ts", note: "bước có mã không khớp vẫn khớp theo tên", old: "  if (code !== '') return undefined\n  const key = nameKey(title)", new: "  const key = nameKey(title)" },
 ]

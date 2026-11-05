@@ -264,13 +264,18 @@ export function hasTitleCode(text: string): boolean {
   return taskCode(text) !== '' || stepCode(text) !== '' || /^\s*(?:viec|task)\s*#?\s*\d+\b/.test(fold(text))
 }
 
-/** Ngưỡng ghi log "gần giống" theo tên việc (hệ số Dice trên từ có nghĩa). Chỉ để ghi log, không dùng để khớp. */
+/**
+ * Ngưỡng "gần giống" theo tên việc (hệ số Dice trên từ có nghĩa). Với description của Agent chỉ để ghi log, không dùng để khớp; với
+ * bước checklist thì là một cách khớp theo tên (0.7.8 W1, stepCovers).
+ */
 const TITLE_NEAR = 0.5
 const FILLER = new Set(['va', 'cho', 'cac', 'trong', 'mot', 'nhung', 'cua', 'voi', 'the', 'and', 'for', 'with', 'of', 'to', 'in', 'on', 'a', 'an'])
 
 /** Từ có nghĩa của một câu (bỏ dấu, viết thường), bỏ tiền tố "Việc N:" và mã mục. */
+const LEAD = /^\s*(?:(?:viec|task|buoc|step)\s*#?\s*\d+\s*[:.)-]?|[a-z]{1,3}\d+(?:\.\d+)*\s*[:.)-]?)\s*/
+
 function words(text: string): Set<string> {
-  const body = fold(text).replace(/^\s*(?:(?:viec|task|buoc|step)\s*#?\s*\d+\s*[:.)-]?|[a-z]{1,3}\d+(?:\.\d+)*\s*[:.)-]?)\s*/, '')
+  const body = fold(text).replace(LEAD, '')
   return new Set(body.split(/[^a-z0-9]+/).filter(w => w.length >= 2 && !FILLER.has(w)))
 }
 
@@ -315,6 +320,56 @@ export function taskMatch(tasks: readonly Task[], description: string): TaskMatc
   const asked = words(description)
   const near = tasks.map(t => ({ task: t, score: dice(words(t.title), asked) })).sort((x, y) => y.score - x.score)[0]
   return near && near.score >= TITLE_NEAR ? { miss: `tên gần giống việc ${near.task.index} (độ trùng ${near.score.toFixed(2)})` } : {}
+}
+
+/** Độ dài tối thiểu (sau khi gập) của tên ngắn hơn để "tên này chứa tên kia" được tính là khớp (0.7.8 W1). */
+const NAME_CONTAINS = 12
+
+/** Tên của một tiêu đề để so (0.7.8 W1): bỏ tiền tố "Việc N:" và mã đầu dòng, gập dấu, bỏ dấu câu, gộp khoảng trắng. */
+function nameKey(text: string): string {
+  return fold(text).replace(LEAD, '').replace(/[^a-z0-9]+/g, ' ').trim()
+}
+
+/** Mã của tiêu đề (mã mục hay mã bước "BƯỚC N"); rỗng nếu không có. */
+function codeOf(text: string): string {
+  const code = taskCode(text)
+  if (code !== '') return code
+  const stepped = stepCode(text)
+  return stepped !== '' ? `buoc ${stepped}` : ''
+}
+
+/** Điểm khớp tên giữa bước và việc: 1 khi bằng nhau, 0,99 khi chứa nhau (tên ngắn từ NAME_CONTAINS ký tự), không thì Dice từ ngưỡng. */
+function nameScore(key: string, asked: ReadonlySet<string>, title: string): number {
+  const other = nameKey(title)
+  if (key === '' || other === '') return 0
+  if (key === other) return 1
+  const [shorter, longer] = key.length <= other.length ? [key, other] : [other, key]
+  if (shorter.length >= NAME_CONTAINS && longer.includes(shorter)) return 0.99
+  const score = dice(words(title), asked)
+  return score >= TITLE_NEAR ? score : 0
+}
+
+/**
+ * Việc đã phân mà một bước checklist phủ (0.7.8 W1); mỗi bước phủ tối đa một việc. Thứ tự: theo taskMatch ("Việc N", mã mục, mã bước);
+ * bước có mã mà không việc nào cùng mã thì không phủ việc nào (K4.10 không phủ K4.1); còn lại khớp theo tên trên các việc không mang
+ * mã khác mã của bước, lấy điểm cao nhất, hai việc đồng hạng nhất thì không phủ việc nào. Chỉ dùng cho bước checklist; description
+ * của Agent vẫn chỉ khớp theo taskMatch.
+ */
+export function stepCovers(tasks: readonly Task[], title: string): Task | undefined {
+  const matched = taskMatch(tasks, title).task
+  if (matched !== undefined) return matched
+  const code = codeOf(title)
+  if (code !== '') return undefined
+  const key = nameKey(title)
+  const asked = words(title)
+  const scored = tasks
+    .filter(t => codeOf(t.title) === '' || codeOf(t.title) === code)
+    .map(t => ({ task: t, score: nameScore(key, asked, t.title) }))
+    .filter(s => s.score > 0)
+    .sort((a, b) => b.score - a.score)
+  const [first, second] = scored
+  if (first === undefined || (second !== undefined && second.score === first.score)) return undefined
+  return first.task
 }
 
 /** Gập chữ để so mã: bỏ dấu, đ thành d, viết thường. */
