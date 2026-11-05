@@ -352,7 +352,48 @@ export type Core = {
    * (rỗng khi checklist đã phủ đủ). Chỉ báo lại khi khóa đổi. Vắng ở trạng thái cũ: goalId -1, khóa rỗng.
    */
   missingNoticed: { goalId: number; key: string }
+  /**
+   * Lệnh kiểm chưa đạt của mục tiêu goalId và lượt nâng mức của từng lệnh (0.7.8 vòng sửa 3, W4). Lưu trong Core nên lượt, mức sàn và
+   * lỗi cuối giữ qua hot reload. Vắng ở trạng thái cũ: goalId -1, không có mục nào.
+   */
+  retry: RetryState
 }
+
+/**
+ * Một lệnh kiểm chưa đạt (0.7.8 vòng sửa 3, W4): chữ ký là loại kiểm và lệnh đã chuẩn hóa. Lượt 1 là phần làm dẫn tới lần lỗi đầu,
+ * ở mức `levels[0]`; mỗi lần cổng Stop chặn vì lệnh này là một lượt mới, mức nâng một bậc và thành mức sàn của lần giao sửa lỗi.
+ * Mục tổng (`more` khác rỗng) gộp các lệnh vượt trần 5 mục: vẫn chặn, vẫn tính lượt.
+ */
+export type RetryItem = {
+  sig: string
+  check: 'test' | 'static'
+  command: string
+  round: number
+  /** Mức đã dùng của từng lượt, dạng "họ/effort". */
+  levels: string[]
+  /** Mức sàn của lượt hiện tại cho lần giao sửa lỗi (lượt 2 trở đi); null ở lượt 1. */
+  floor: Choice | null
+  /** Mức của lượt hiện tại đã là mức cao nhất chính sách cho phép. */
+  isTop: boolean
+  lastError: string
+  /** Lượt đã chèn dòng báo lỗi cho luồng chính, lượt đã chèn câu dặn giao subagent khi luồng chính tự sửa file. */
+  noticed: number
+  edited: number
+  /** Số tool call của turn lúc cổng Stop chặn gần nhất. */
+  calls: number
+  /** Bước đóng done hay verified sau lần lỗi đầu, theo thứ tự đóng. */
+  closedSteps: number[]
+  exhausted: boolean
+  /** Đã chặn một lần đòi báo cáo cuối; đã ghi dòng retry-exhausted. */
+  reportAsked: boolean
+  logged: boolean
+  /** Bước blocked của lệnh này khi hết lượt. */
+  step: number | null
+  /** Mục tổng: chữ ký của các lệnh được gộp. */
+  more: string[]
+}
+
+export type RetryState = { goalId: number; items: RetryItem[] }
 
 /** Một cửa sổ hạn mức đã qua ngưỡng lúc dừng (0.6.0). */
 export type QuotaReason = { kind: 'five_hour' | 'seven_day'; percentUsed: number; resetsAt?: string; thresholdRemainingPct: number }

@@ -13,7 +13,7 @@ import { askRouter, bareBrief, briefOf, failFields, nextBrief, parseRoute, rerou
 import { shownPlan } from '../lib/mirror'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
-import { briefContext, checkHintLines, droppedItemsText, droppedPlanNotice, quotaStatusLines, renderPlan, resetLabel, routerFailLines, unroutedContext } from '../lib/text'
+import { RETRY_ROUNDS, briefContext, checkHintLines, droppedItemsText, droppedPlanNotice, quotaStatusLines, renderPlan, resetLabel, routerFailLines, unroutedContext } from '../lib/text'
 import { PANE_ROWS, shouldAutoOpenPane } from '../lib/pane'
 import { PANE, PANE_TITLE } from '../ui/pane'
 import type { EngineInterface, On } from 'claude-code'
@@ -90,6 +90,17 @@ async function commandLimits($: EngineInterface): Promise<readonly unknown[] | n
 /** Status line kèm nhãn hạn mức (0.6.1): mọi chỗ đặt status của file này đi qua đây, nên nhãn không mất giữa các hook. */
 async function showStatus($: EngineInterface, current: View, options: Ctx['options']): Promise<void> {
   $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
+}
+
+/** Lệnh kiểm chưa đạt của mục tiêu hiện tại cho /conductor status (0.7.8 vòng sửa 3, W4): lượt và mức của từng lượt. */
+function retryLines(core: Core): string[] {
+  if (core.brief === null || core.retry.goalId !== core.brief.goalId || core.retry.items.length === 0) return []
+  const rows = core.retry.items.map(item => {
+    const name = item.more.length > 0 ? `và ${item.more.length} lệnh khác` : item.command
+    const state = item.exhausted ? `hết ${RETRY_ROUNDS} lượt, chưa đạt` : `lượt ${item.round}/${RETRY_ROUNDS}`
+    return `  ${name}: ${state}; mức ${item.levels.join(', ')}`
+  })
+  return [`Lệnh kiểm chưa đạt:\n${rows.join('\n')}`]
 }
 
 export function registerCommand(on: On, ctx: Ctx): void {
@@ -377,6 +388,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
           ...checkHintLines(core.checkHint, core.brief.goalId),
           ...((core.brief.dropped ?? 0) > 0 ? [droppedItemsText(core.brief.dropped ?? 0)] : []),
           renderPlan(core.brief, shown.plan) + (shown.source === 'mirror' ? '\n(theo danh sách việc của Claude Code, chỉ để theo dõi)' : ''),
+          ...retryLines(core),
           ...costLines,
         ].join('\n') + agentBlock,
       }

@@ -1,12 +1,14 @@
 // Subagent: agent ngoài điều phối, nguồn đổi model, loại agent engine mời, lời gọi Agent, agent.spawn.
 
 import { atom, derive, read, update } from 'claude-code'
-import type { AgentProgress, RouteEvent, Warning } from '../../types'
+import type { AgentProgress, Choice, Core, RetryItem, RouteEvent, Warning } from '../../types'
 import { turnCost } from '../lib/cost'
 import { countSpawn, shapeKey, shapeOutput } from '../lib/ledger'
-import { EFFORTS, agentMemoKey, describePick, familyOf, familyRank, ruleFamily, taskMatch } from '../lib/route'
+import { EFFORTS, agentMemoKey, describePick, familyOf, familyRank, pickRank, ruleFamily, taskMatch } from '../lib/route'
 import { clipText } from '../lib/decisions'
-import { agentRouterRequest, askRouter, briefCodes, floorRoute, isSettled, parseAgentRoute, ruleRoute, taskRoute } from '../lib/router'
+import { agentRouterRequest, askRouter, briefCodes, fitPick, floorRoute, isSettled, parseAgentRoute, ruleRoute, taskRoute } from '../lib/router'
+import { RETRY_PREFIX, RETRY_ROUNDS } from '../lib/text'
+import { tierOf } from '../lib/scale'
 import type { AgentRoute } from '../lib/router'
 import * as S from '../lib/state'
 import type { On } from 'claude-code'
@@ -25,6 +27,20 @@ const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null
  */
 function codesOf(core: ReturnType<typeof S.normalizeCore>): ReadonlySet<string> {
   return briefCodes(core.brief?.steps ?? [])
+}
+
+/**
+ * Mức sàn cho một lần giao Agent khi còn lệnh kiểm chưa đạt ở lượt 2 trở đi (0.7.8 vòng sửa 3, W4): description mở đầu "Sửa lỗi kiểm: "
+ * thì lấy sàn cao nhất của các lệnh; general-purpose có prompt nhắc đúng một lệnh chưa đạt thì lấy sàn của lệnh đó. Còn lại null.
+ */
+function retryFloorOf(core: Core, description: string, subagentType: string | undefined, prompt: string | undefined): { floor: Choice; round: number; sig: string } | null {
+  if (core.brief === null || core.retry.goalId !== core.brief.goalId) return null
+  const live = core.retry.items.filter(item => !item.exhausted && item.round >= 2 && item.floor !== null)
+  const isFix = description.startsWith(RETRY_PREFIX)
+  const named = subagentType === 'general-purpose' ? live.filter(item => item.command !== '' && (prompt ?? '').includes(item.command)) : []
+  const pool = isFix ? live : named
+  const best = pool.reduce<RetryItem | null>((top, item) => (top === null || pickRank(item.floor as Choice) > pickRank(top.floor as Choice) ? item : top), null)
+  return best === null || best.floor === null ? null : { floor: best.floor, round: best.round, sig: best.sig }
 }
 
 export function registerAgents(on: On, ctx: Ctx): void {
@@ -160,6 +176,27 @@ export function registerAgents(on: On, ctx: Ctx): void {
         await flushDecisions((path, text) => $.fs.write(path, text))
         route = floored.route
         reason += `; ${floored.notes.join('; ')}`
+      }
+    }
+    // Lượt sửa lỗi kiểm (0.7.8 vòng sửa 3, W4): lần giao có description mở đầu "Sửa lỗi kiểm: ", hoặc general-purpose có prompt nhắc đúng
+    // lệnh chưa đạt, chạy tối thiểu ở mức sàn của lượt; chỉ nâng, chính sách kẹp sau cùng. Lần giao khác giữ route.
+    const retryFloor = isNested ? null : retryFloorOf(core, e.description, e.subagent_type, e.prompt)
+    if (retryFloor !== null) {
+      const from: AgentRoute | null = route
+      const lifted: AgentRoute =
+        from === null
+          ? { pick: fitPick(retryFloor.floor, 'edit', rules).pick, agentType: 'general-purpose', depth: 'substantial', volume: 'small', kind: 'edit', tier: tierOf('substantial', 'small'), why: `sửa lỗi kiểm lượt ${retryFloor.round}/${RETRY_ROUNDS}` }
+          : floorRoute(from, retryFloor.floor.family, retryFloor.floor.effort, rules).route
+      route = lifted
+      if (from === null || describePick(from.pick) !== describePick(lifted.pick)) {
+        record(await $.clock.now(), 'agent-floor', {
+          description: clipText(e.description),
+          from: from === null ? null : describePick(from.pick),
+          to: describePick(lifted.pick),
+          retry: retryFloor.sig,
+        })
+        await flushDecisions((path, text) => $.fs.write(path, text))
+        reason += `; sàn của lượt sửa lỗi kiểm ${retryFloor.round}/${RETRY_ROUNDS}: ${describePick(lifted.pick)}`
       }
     }
     // Việc đã phân được nhận: chuyển sang đang chạy (giao lại một việc đã lỗi cũng vậy).

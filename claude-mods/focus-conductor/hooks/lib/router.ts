@@ -10,7 +10,7 @@ import type { ModelCompleteRequest, ModelCompleteResult, ModelTextBlock, ModelUs
 import type { Brief, Choice, Depth, Effort, Kind, ModelFamily, Relation, RouterFail, RouterFailKind, Task, Tier, Volume } from '../../types'
 import { PRICE } from './cost'
 import type { Price } from './cost'
-import { EFFORTS, applySession, avoidBlocked, codesIn, describePick, effortRank, familyOf, familyRank, sessionFloor } from './route'
+import { EFFORTS, FAMILIES, applySession, avoidBlocked, codesIn, describePick, effortRank, familyOf, familyRank, sessionFloor } from './route'
 import type { SessionModel } from './route'
 import { DEPTHS, KINDS, RELATIONS, VOLUMES, maxTier, tierOf } from './scale'
 
@@ -532,6 +532,21 @@ export function fitPick(pick: Choice, kind: Kind, policy: Policy): Fitted {
     return { pick: { family: final, effort: safe.effort }, notes }
   }
   return { pick: safe, notes }
+}
+
+/**
+ * Mức của lượt sửa lỗi kiểm kế tiếp (0.7.8 vòng sửa 3, W4): nâng effort một bậc; effort đã ở xhigh (mức cao nhất fitPick cho phép) thì
+ * giữ effort và nâng họ một bậc. Kết quả qua fitPick (max về xhigh, fable về opus khi chưa bật allowFable, họ bị chặn, model của phiên);
+ * trùng mức trước thì `isTop` (đã ở mức cao nhất chính sách cho phép), lượt vẫn được tính.
+ */
+export function nextLevel(prev: Choice, policy: Policy): { pick: Choice; isTop: boolean } {
+  const rank = effortRank(prev.effort)
+  const raised: Choice =
+    rank < effortRank('xhigh')
+      ? { family: prev.family, effort: EFFORTS[rank + 1] ?? prev.effort }
+      : { family: FAMILIES[Math.min(familyRank(prev.family) + 1, FAMILIES.length - 1)] ?? prev.family, effort: prev.effort }
+  const pick = fitPick(raised, 'edit', policy).pick
+  return { pick, isTop: pick.family === prev.family && pick.effort === prev.effort }
 }
 
 /**

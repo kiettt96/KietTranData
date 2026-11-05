@@ -1,24 +1,28 @@
 // Giữ nhất quán: tool plan, theo dõi mọi tool, chặn kết thúc khi checklist còn mở, cộng chi phí đo được.
 
 import { atom, derive, read, update } from 'claude-code'
-import type { AgentState, DelegationState, Warning } from '../../types'
+import type { AgentState, Choice, Core, DelegationState, RetryItem, Warning } from '../../types'
 import { acceptsVerified, evidenceStrength, filePathOf, freshTestRun, isExecuting, isFullyClosed, isGoalDone, isMutation, isPlanFile, markVerified, newTracker, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
 import type { Focus } from '../lib/drift'
+import { checkCommand, checkSignature, coversFailure, isFailedRun } from '../lib/drift/evidence'
+import type { CheckRun, EvidenceEntry, EvidenceLog } from '../lib/drift/evidence'
 import { clipText } from '../lib/decisions'
 import { addUsage, calibrate, recordShape, shapeKey } from '../lib/ledger'
 import { applyPlan } from '../lib/plan'
 import type { PlanInput } from '../lib/plan'
-import { familyOf } from '../lib/route'
-import { askRouter, driftRequest, parseDrift } from '../lib/router'
+import { describePick, familyOf } from '../lib/route'
+import { askRouter, driftRequest, nextLevel, parseDrift } from '../lib/router'
 import { EMPTY_QUOTA, evaluateQuota, normalizeQuota, quotaSettings, softNotices } from '../lib/quota'
 import { storeKey, withNote } from '../lib/checkpoint'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
 import { shownPlan } from '../lib/mirror'
-import { PLAN_TOOL_FULL, blockText, checkHintText, compactReminderText, criteriaNotice, driftContext, missingTasks, missingTasksNotice, needsChecklist, noChecklistReason, pendingNotice, qualityNotice, renderBulk, renderPlan, requirementsNotice, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice } from '../lib/text'
+import { PLAN_TOOL_FULL, RETRY_REPORT, RETRY_ROUNDS, blockText, firstErrorLine, joinStopReasons, retryDoneNote, retryEditNote, retryFailNotice, retryName, retryStepNote, retryStopReason, checkHintText, compactReminderText, criteriaNotice, driftContext, missingTasks, missingTasksNotice, needsChecklist, noChecklistReason, pendingNotice, qualityNotice, renderBulk, renderPlan, requirementsNotice, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
+import { labels, langOf } from '../ui/labels'
+import type { Lang } from '../ui/labels'
 import { EDIT_TOOLS, ERROR_BURST } from '../context'
 
 // Atom của mod, khai báo lại ở mỗi file dùng chúng (engine chỉ nhận tham chiếu state viết trong chính file đó);
@@ -30,6 +34,203 @@ const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EM
 const bandHiddenState = atom({ plugin: 'focus-conductor', key: 'isBandHidden' } as const, false)
 const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null)
 const quotaState = atom({ plugin: 'focus-conductor', key: 'quota' } as const, EMPTY_QUOTA)
+
+/** Trần số lệnh kiểm chưa đạt có tên riêng (0.7.8 vòng sửa 3, W4); phần dư gộp vào một mục tổng, vẫn chặn và vẫn tính lượt. */
+const RETRY_ITEMS = 5
+/** Chữ ký của mục tổng gộp các lệnh vượt trần. */
+const RETRY_MORE = '*'
+
+/** Lần chạy kiểm của một chữ ký "loại:lệnh". */
+function runOf(sig: string): CheckRun {
+  const at = sig.indexOf(':')
+  return { check: sig.slice(0, at) === 'static' ? 'static' : 'test', command: sig.slice(at + 1) }
+}
+
+/** Mục chưa hết lượt của mục tiêu hiện tại. */
+function liveRetry(core: Core): RetryItem[] {
+  return core.brief !== null && core.retry.goalId === core.brief.goalId ? core.retry.items.filter(item => !item.exhausted) : []
+}
+
+/** Các lần chạy kiểm mới của nhật ký kể từ mốc seq. */
+function newChecks(log: EvidenceLog, since: number): EvidenceEntry[] {
+  return log.commands.filter(entry => entry.seq > since && entry.check !== null)
+}
+
+/** Mức "họ/effort" thành lựa chọn. */
+function pickOf(level: string | undefined, fallback: Choice): Choice {
+  const [family, effort] = (level ?? '').split('/')
+  return family && effort ? ({ family, effort } as Choice) : fallback
+}
+
+/** Phụ thuộc của phần lệnh kiểm chưa đạt (0.7.8 vòng sửa 3, W4), lấy từ ctx và trạng thái cục bộ của registerConsistency. */
+type RetryDeps = {
+  record: Ctx['record']
+  flushDecisions: Ctx['flushDecisions']
+  noteStuck: (core: Core, fallback: string) => void
+  policy: Ctx['policy']
+  mainLevel: () => Choice
+  toolCalls: () => number
+  lang: Lang
+}
+
+/**
+ * Ghi các lần chạy kiểm mới vào trạng thái lượt của mục tiêu (0.7.8 vòng sửa 3, W4): lần lỗi chưa có mục thì thêm mục lượt 1 ở mức
+ * `start`; lần lỗi của lệnh đã có mục thì ghi lỗi cuối và báo kẹt (G6); lần đạt xóa mọi mục nó phủ. Lượt và mức sàn chỉ tăng ở cổng
+ * Stop. Trả dòng báo cho luồng chính, một lần mỗi lệnh mỗi lượt.
+ */
+async function noteChecks($: EngineInterface, deps: RetryDeps, core: Core, goalId: number, entries: readonly EvidenceEntry[], observation: { output?: string; isError: boolean }, start: Choice, isMain: boolean): Promise<string[]> {
+  if (entries.length === 0) return []
+  const retry = core.retry.goalId === goalId ? core.retry : { goalId, items: [] }
+  let items: RetryItem[] = retry.items.map(item => ({ ...item, levels: [...item.levels], closedSteps: [...item.closedSteps], more: [...item.more] }))
+  const error = firstErrorLine(observation.output)
+  const touched = new Set<RetryItem>()
+  let stuck: string | null = null
+  for (const entry of entries) {
+    const run: CheckRun = { check: entry.check ?? 'test', command: checkCommand(entry) }
+    const sig = checkSignature(run)
+    if (entry.ok) {
+      items = items
+        .map(item => (item.sig === RETRY_MORE ? { ...item, more: item.more.filter(m => !coversFailure(run, runOf(m))) } : item))
+        .filter(item => (item.sig === RETRY_MORE ? item.more.length > 0 : (item.exhausted && !item.logged) || !coversFailure(run, item)))
+      continue
+    }
+    if (!isFailedRun(entry, observation as never)) continue
+    const known = items.find(item => item.sig === sig) ?? items.find(item => item.more.includes(sig))
+    if (known !== undefined) {
+      if (error !== '') known.lastError = error
+      touched.add(known)
+      stuck = sig
+      continue
+    }
+    const fresh: RetryItem = {
+      sig,
+      check: run.check,
+      command: run.command,
+      round: 1,
+      levels: [describePick(start)],
+      floor: null,
+      isTop: false,
+      lastError: error,
+      noticed: 0,
+      edited: 0,
+      calls: 0,
+      closedSteps: [],
+      exhausted: false,
+      reportAsked: false,
+      logged: false,
+      step: null,
+      more: [],
+    }
+    if (items.filter(item => item.sig !== RETRY_MORE).length < RETRY_ITEMS) {
+      items.push(fresh)
+      touched.add(fresh)
+      continue
+    }
+    const more = items.find(item => item.sig === RETRY_MORE)
+    if (more !== undefined) {
+      more.more.push(sig)
+      touched.add(more)
+    } else {
+      const merged = { ...fresh, sig: RETRY_MORE, command: '', more: [sig] }
+      items.push(merged)
+      touched.add(merged)
+    }
+  }
+  if (stuck !== null) deps.noteStuck(core, stuck)
+  const notes: string[] = []
+  if (isMain) {
+    for (const item of touched) {
+      if (item.exhausted || item.noticed >= item.round) continue
+      item.noticed = item.round
+      notes.push(retryFailNotice(item))
+    }
+  }
+  await update($, coreState, S.withRetry({ goalId, items }))
+  return notes
+}
+
+/**
+ * Cổng Stop cho lệnh kiểm chưa đạt (0.7.8 vòng sửa 3, W4). Mọi mục chưa hết lượt của mục tiêu: lượt dưới RETRY_ROUNDS thì tăng một lượt,
+ * nâng mức một bậc (nextLevel) làm sàn cho lần giao sửa lỗi; đã ở lượt cuối thì hết lượt: ghi bước blocked (nếu Claude chưa ghi), toast,
+ * cảnh báo loop, và chặn một lần đòi báo cáo cuối. Lần dừng sau lần đòi báo cáo thì ghi dòng retry-exhausted kèm `reported`. Trả lý do
+ * chặn, hoặc null khi không có gì cần chặn.
+ */
+async function retryGate($: EngineInterface, deps: RetryDeps, lastMessage: string | undefined): Promise<{ reason: string | null; isPlanChanged: boolean }> {
+  let core = S.normalizeCore(await read($, coreState))
+  if (core.brief === null) return { reason: null, isPlanChanged: false }
+  if (typeof lastMessage === 'string') await logExhausted($, deps, core, lastMessage, null)
+  core = S.normalizeCore(await read($, coreState))
+  const live = liveRetry(core)
+  if (live.length === 0) return { reason: null, isPlanChanged: false }
+  const rules = deps.policy()
+  const at = await $.clock.now()
+  const lang = deps.lang
+  let plan = core.plan
+  const advanced: Array<{ name: string; round: number; level: string; isTop: boolean; error: string }> = []
+  const exhausted: Array<{ name: string; round: number; level: string; isTop: boolean; error: string }> = []
+  const warnings: Warning[] = []
+  const items = core.retry.items.map(item => {
+    if (item.exhausted) return item
+    const isAdvance = item.round < RETRY_ROUNDS
+    if (isAdvance) {
+      const prev = item.floor ?? pickOf(item.levels.at(-1), deps.mainLevel())
+      const next = nextLevel(prev, rules)
+      const level = describePick(next.pick)
+      const round = item.round + 1
+      deps.record(at, 'retry', { signature: item.sig, round, level })
+      advanced.push({ name: retryName(item), round, level, isTop: next.isTop, error: item.lastError })
+      return { ...item, round, levels: [...item.levels, level], floor: next.pick, isTop: next.isTop, calls: deps.toolCalls() }
+    }
+    // Hết lượt: bước blocked kèm note của mod, trừ khi Claude đã ghi một bước blocked có note nhắc lệnh này.
+    const mentioned = item.more.length === 0 ? plan.find(step => step.status === 'blocked' && (step.note ?? '').includes(item.command)) : undefined
+    let stepId = mentioned?.id ?? null
+    if (mentioned === undefined) {
+      const note = retryStepNote(item)
+      const closed = [...item.closedSteps].reverse().map(id => plan.find(step => step.id === id)).find(step => step !== undefined && (step.status === 'done' || step.status === 'verified'))
+      const target = plan.find(step => step.status === 'doing') ?? closed
+      if (target !== undefined) {
+        stepId = target.id
+        plan = plan.map(step => (step.id === target.id ? { ...step, status: 'blocked' as const, note, auto: undefined } : step))
+      } else {
+        stepId = plan.reduce((max, step) => Math.max(max, step.id), 0) + 1
+        plan = [...plan, { id: stepId, title: `Chưa đạt: ${clipText(item.command || retryName(item), 80)}`, status: 'blocked' as const, note }]
+      }
+    }
+    const name = item.more.length > 0 ? retryName(item) : item.command
+    $.ui.toast(labels(lang).retryExhausted(name))
+    warnings.push({ at, kind: 'loop', text: `Chưa đạt sau ${RETRY_ROUNDS} lượt: ${name}` })
+    exhausted.push({ name: retryName(item), round: item.round, level: item.levels.at(-1) ?? '', isTop: item.isTop, error: item.lastError })
+    return { ...item, exhausted: true, reportAsked: true, step: stepId, calls: deps.toolCalls() }
+  })
+  await update($, coreState, c => {
+    const next = S.withRetry({ goalId: core.retry.goalId, items })(plan !== core.plan ? S.withPlan(plan)(c) : c)
+    return warnings.length > 0 ? S.withWarnings(...warnings)(next) : next
+  })
+  await deps.flushDecisions((path, text) => $.fs.write(path, text))
+  return { reason: retryStopReason(advanced, exhausted), isPlanChanged: plan !== core.plan }
+}
+
+/**
+ * Dòng retry-exhausted của các lệnh đã chặn đòi báo cáo mà chưa ghi (0.7.8 vòng sửa 3, W4): `reported` là câu trả lời cuối có mục
+ * "Chưa đạt yêu cầu". `answer` null là không có chữ câu trả lời: ghi reported null kèm lý do.
+ */
+async function logExhausted($: EngineInterface, deps: RetryDeps, core: Core, answer: string | null, why: string | null): Promise<void> {
+  if (core.brief === null || core.retry.goalId !== core.brief.goalId) return
+  const due = core.retry.items.filter(item => item.reportAsked && !item.logged)
+  if (due.length === 0) return
+  const at = await $.clock.now()
+  for (const item of due) {
+    deps.record(at, 'retry-exhausted', {
+      signature: item.sig === RETRY_MORE ? item.more.join(', ') : item.sig,
+      levels: item.levels,
+      step: item.step,
+      reported: answer === null ? null : answer.includes(RETRY_REPORT),
+      ...(answer === null && why !== null ? { why } : {}),
+    })
+  }
+  await update($, coreState, S.withRetry({ goalId: core.retry.goalId, items: core.retry.items.map(item => (due.includes(item) ? { ...item, logged: true } : item)) }))
+  await deps.flushDecisions((path, text) => $.fs.write(path, text))
+}
 
 /**
  * Khung đối chiếu phạm vi của mục tiêu: thư mục gốc của phiên chốt một lần cho mỗi mục tiêu (không đổi theo `cd`
@@ -206,6 +407,15 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       core = await update($, coreState, S.withReqNoticed(core.brief.goalId))
     }
     if (isUpdate && openSteps(before.plan).length > 0 && openSteps(core.plan).length === 0 && pendingSteps(core.plan).length > 0) notes.push(pendingNotice(core.plan))
+    // Đóng bước khi còn lệnh kiểm chưa đạt (0.7.8 vòng sửa 3, W4): cho phép, kèm một câu nói cổng kết thúc sẽ chặn; ghi bước vừa đóng để khi
+    // hết lượt mod biết bước nào ghi blocked. Luật verified không đổi.
+    const unresolved = liveRetry(core)
+    if (input.action === 'update' && unresolved.length > 0 && typeof input.step === 'number' && (input.status === 'done' || input.status === 'verified')) {
+      const id = input.step
+      if (input.status === 'done') notes.push(retryDoneNote(unresolved.length))
+      const items = core.retry.items.map(item => (unresolved.includes(item) ? { ...item, closedSteps: [...item.closedSteps.filter(s => s !== id), id] } : item))
+      core = await update($, coreState, S.withRetry({ goalId: core.retry.goalId, items }))
+    }
     // Việc đã phân chưa có bước nào trong checklist (0.7.8 G4): chỉ sau set và add, brief không phải isReference. Chỉ báo lại khi tập
     // việc thiếu đổi (vòng sửa 3, W3): khóa là các index thiếu xếp tăng, lưu trong Core cùng goalId; phủ đủ thì ghi khóa rỗng.
     const isListed = input.action === 'set' || input.action === 'add'
@@ -238,6 +448,22 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     agentFailures.push({ description: `luồng chính kẹt: ${clipText(what, 120)}`, goalId: core.brief.goalId })
     if (agentFailures.length > 10) agentFailures.shift()
   }
+
+  /** Mức của luồng chính đang chạy (0.7.8 vòng sửa 3, W4): lựa chọn router cho turn, không thì model của phiên. */
+  function mainLevel(): Choice {
+    const route = L.turnRoute.route
+    return route !== null ? { family: route.family, effort: route.effort } : { family: L.sessionFamily ?? 'sonnet', effort: 'medium' }
+  }
+  const retryDeps: RetryDeps = {
+    record,
+    flushDecisions,
+    noteStuck,
+    policy: ctx.policy,
+    mainLevel,
+    toolCalls: () => L.tracker.toolCalls,
+    lang: langOf(ctx.options['uiLanguage']),
+  }
+
 
   // Mọi tool: luồng chính được nhắc (context của kết quả tool) và nâng cấp theo
   // bằng chứng cho turn sau; subagent chỉ được ghi nhật ký, không bị nhắc.
@@ -284,7 +510,10 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       // Lệnh và thay đổi của subagent cùng mục tiêu vào dấu vết và trạng thái kiểm tra của luồng chính, theo tác giả:
       // subagent sửa sau lần test của luồng chính thì luồng chính phải kiểm tra lại; test của subagent chỉ phủ phần nó sửa.
       if (agentBrief !== null && meta.goalId === agentBrief.goalId) {
-        noteEvidence(evidenceFor(agentBrief.goalId), observation, e.agentId)
+        const agentLog = evidenceFor(agentBrief.goalId)
+        const agentSince = agentLog.seq
+        noteEvidence(agentLog, observation, e.agentId)
+        if (observation.tool === 'Bash') await noteChecks($, retryDeps, S.normalizeCore(await read($, coreState)), agentBrief.goalId, newChecks(agentLog, agentSince), observation, meta.pick, false)
         trackVerification(L.tracker, observation, e.agentId, (await frameOf($, L.roots, agentBrief.goalId, agentBrief.scopePaths)).cwd)
         // Subagent sửa file: bước tự nâng thành verified về done, như thay đổi của luồng chính (0.7.0).
         if (!observation.isError && isMutation(observation) && S.hasAutoVerified(S.normalizeCore(await read($, coreState)))) {
@@ -312,7 +541,24 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     const compactNote = L.compaction.pending && core.brief !== null ? compactReminderText(core.brief, shownPlan(core).plan) : null
     L.compaction.pending = false
     // Ghi cả lệnh lỗi: evidence nhắc tới một lệnh kiểm tra đã lỗi thì không được tính là đã kiểm tra.
-    if (core.brief !== null) noteEvidence(evidenceFor(core.brief.goalId), observation)
+    const retryNotes: string[] = []
+    if (core.brief !== null) {
+      const mainLog = evidenceFor(core.brief.goalId)
+      const mainSince = mainLog.seq
+      noteEvidence(mainLog, observation)
+      if (observation.tool === 'Bash') retryNotes.push(...(await noteChecks($, retryDeps, core, core.brief.goalId, newChecks(mainLog, mainSince), observation, mainLevel(), true)))
+    }
+    // Lượt 2 hay 3 của lệnh kiểm chưa đạt mà luồng chính tự sửa file (W4): dặn giao subagent ở mức đã nâng, một lần mỗi lượt, không chặn.
+    if (EDIT_TOOLS.has(e.tool) && !observation.isError && !isPlanFile(filePathOf(observation))) {
+      const fresh = S.normalizeCore(await read($, coreState))
+      const due = liveRetry(fresh).filter(item => item.round >= 2 && item.edited < item.round)
+      if (due.length > 0) {
+        const lead = due.reduce((a, b) => (b.round > a.round ? b : a))
+        retryNotes.push(retryEditNote(lead.round, lead.levels.at(-1) ?? ''))
+        const marked = fresh.retry.items.map(item => (due.includes(item) ? { ...item, edited: item.round } : item))
+        await update($, coreState, S.withRetry({ goalId: fresh.retry.goalId, items: marked }))
+      }
+    }
     // Luồng chính vừa thay đổi file: việc làm trực tiếp chưa có bước chuyển từ chưa bắt đầu sang đang làm (0.6.1).
     // Thay đổi mới: các bước tự nâng thành verified về done, vì lần test trước không còn phủ thay đổi này (0.7.0).
     if (core.brief !== null && !observation.isError && isMutation(observation)) {
@@ -353,7 +599,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     // Việc của tin chen ngang vừa chuyển sang subagent (0.7.8 G9): báo một lần ở kết quả tool kế tiếp của luồng chính.
     const moved = L.interjectNote
     L.interjectNote = null
-    const notes = [...(nudge ? [nudge] : []), ...(compactNote !== null ? [compactNote] : []), ...(moved !== null ? [moved] : [])]
+    const notes = [...(nudge ? [nudge] : []), ...(compactNote !== null ? [compactNote] : []), ...(moved !== null ? [moved] : []), ...retryNotes]
     const withNudge = (r: typeof result) => (notes.length > 0 ? { ...r, context: [...(r.context ?? []), ...notes] } : r)
     // Đến checkpoint mà script kiểm đã chạy chưa được nhận: gợi ý người dùng khai checkCommands (0.7.3).
     if (core.brief !== null && findings.some(f => f.kind === 'checkpoint')) await offerCheckHint($, core.brief.goalId, suggestCheckCommands(evidenceFor(core.brief.goalId)))
@@ -433,32 +679,40 @@ export function registerConsistency(on: On, ctx: Ctx): void {
   }).catch(($, e, next) => next(e))
 
   // Claude định kết thúc mà checklist còn mở, hoặc còn việc giao subagent đã lỗi chưa giao lại: yêu cầu hoàn thành
-  // hoặc giải thích. stop_hook_active chặn vòng lặp: chỉ nhắc một lần mỗi lần dừng. Chỉ chặn turn đang thực thi
-  // mục tiêu (có thay đổi, cập nhật checklist, giao subagent, hoặc làm tiếp mục tiêu); turn hỏi đáp thì không.
+  // hoặc giải thích. stop_hook_active chặn vòng lặp: phần checklist và G1 chỉ nhắc một lần mỗi chuỗi dừng; lệnh kiểm chưa đạt (W4) thì
+  // chặn theo lượt, tối đa RETRY_ROUNDS lượt rồi một lần đòi báo cáo. Chỉ chặn turn đang thực thi mục tiêu (có thay đổi, cập nhật
+  // checklist, giao subagent, hoặc làm tiếp mục tiêu); turn hỏi đáp thì không.
   on('classic.Stop', async ($, e, next) => {
     const result = await next(e)
-    if (result.block || result.preventContinuation || e.stop_hook_active || !isExecuting(L.tracker, L.promptIntent)) return result
+    if (result.block || result.preventContinuation || !isExecuting(L.tracker, L.promptIntent)) return result
     if (ctx.options['enforceChecklist'] !== true || (await read($, mode)) === 'off') return result
     // Đang dừng vì hạn mức (hay người dùng tạm dừng): cho kết thúc, nếu không sẽ vòng lặp chặn khi mọi tool bị từ chối.
     const quota = normalizeQuota(await read($, quotaState))
     if (quota.pause !== null) return result
-    const core = S.normalizeCore(await read($, coreState))
-    const failed = failedFor(core.brief)
+    const failed = failedFor(S.normalizeCore(await read($, coreState)).brief)
     // Turn đã nhận câu báo hạn mức mềm (0.7.5): quy tắc dừng theo hạn mức của prompt có thể đang áp, nên checklist còn mở không
     // chặn kết thúc, nhưng chỉ khi cửa sổ vẫn còn trong vùng báo (vòng sửa 2: cửa sổ đã làm mới thì chặn như cũ); việc giao
     // subagent đã lỗi vẫn bị chặn.
     const isNoticed = L.noticeTurn !== null && L.noticeTurn === L.tracker.turnId && softNotices(quota.readings, await $.clock.now(), quotaSettings(ctx.options)).length > 0
+    // Lệnh kiểm chưa đạt (0.7.8 vòng sửa 3, W4) xét trước checklist và G1, và không theo stop_hook_active: mỗi lần chặn là một lượt mới.
+    const gate = isNoticed ? { reason: null, isPlanChanged: false } : await retryGate($, retryDeps, e.last_assistant_message)
+    if (gate.isPlanChanged) await showStatus($, await read($, view), ctx.options)
+    const retryReason = gate.reason
+    // stop_hook_active chỉ bỏ qua phần checklist và G1: hai cổng đó nhắc một lần mỗi chuỗi dừng.
+    if (e.stop_hook_active) return retryReason !== null ? { ...result, block: retryReason } : result
+    const core = S.normalizeCore(await read($, coreState))
     const plan = isNoticed ? [] : core.plan
+    const withRetry = (reason: string) => (retryReason !== null ? joinStopReasons(retryReason, reason) : reason)
     // Mục tiêu từ moderate (hoặc có việc đã phân) mà chưa có checklist (0.7.8 G1): chặn một lần mỗi mục tiêu, khóa trong Core nên
     // giữ qua hot reload; danh sách phản chiếu từ TodoWrite chỉ để hiển thị nên không tính là checklist.
     const brief = core.brief
     if (brief !== null && core.plan.length === 0 && failed.length === 0 && !isNoticed && core.stopNudged !== brief.goalId && needsChecklist(brief)) {
       await update($, coreState, S.withStopNudged(brief.goalId))
       const hasMirror = core.mirror.goalId === brief.goalId && core.mirror.steps.length > 0
-      return { ...result, block: noChecklistReason(brief, hasMirror) }
+      return { ...result, block: withRetry(noChecklistReason(brief, hasMirror)) }
     }
-    if (isGoalDone(plan) && failed.length === 0) return result
-    return { ...result, block: stopBlockReason(plan, failed) }
+    if (isGoalDone(plan) && failed.length === 0) return retryReason !== null ? { ...result, block: retryReason } : result
+    return { ...result, block: withRetry(stopBlockReason(plan, failed)) }
   }).catch(($, e, next) => next(e))
 
   // Chi phí đo được: luồng chính (không có agentId) vào nhóm luồng chính; subagent
@@ -546,13 +800,20 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     }
     const end = await $.session.usage().catch(() => null)
     const endContext = end?.context.tokens ?? L.turnContext
+    // Còn lệnh kiểm chưa đạt khi turn kết thúc (0.7.8 vòng sửa 3, W4): router chấm lại luồng chính ở prompt sau (mục quan sát) và turn sau
+    // nâng effort một bậc, như nhánh lặp lỗi.
+    const unresolved = isPaused ? [] : liveRetry(core)
+    for (const item of unresolved) noteObserved(`Lệnh kiểm chưa đạt: ${item.more.length > 0 ? retryName(item) : item.command} (lượt ${item.round}/${RETRY_ROUNDS})`)
     // Turn không có phát hiện nào làm tăng nâng cấp: nâng cấp của mục tiêu giảm một bậc (0.7.0).
-    const hadFinding = L.liftRaised
+    const hadFinding = L.liftRaised || unresolved.length > 0
     L.liftRaised = false
     await update($, coreState, c => {
       const marked = S.withTurnMark(at, endContext)(S.withLedger(() => ledger)(S.withWarnings(...warnings)(c)))
+      if (unresolved.length > 0) return S.withLift(0, 1)(marked)
       return hadFinding ? marked : S.withLiftDecay(marked)
     })
+    // Báo cáo cuối khi hết lượt (W4): Stop không mang chữ câu trả lời thì đối chiếu answer của turn này.
+    if (!isPaused) await logExhausted($, retryDeps, S.normalizeCore(await read($, coreState)), e.reason === 'answer' ? e.answer : null, 'turn kết thúc không có câu trả lời')
     const unverified = findings.find(f => f.kind === 'unverified')
     // Mỗi nguyên nhân toast một lần trong mục tiêu (0.7.7 X4); khóa lưu trong Core nên giữ qua hot reload. Band và pane vẫn ghi.
     if (unverified && core.brief !== null && unverified.isSoft !== true) {

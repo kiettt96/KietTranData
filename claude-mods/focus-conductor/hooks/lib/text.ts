@@ -997,3 +997,97 @@ export function compactKeepText(brief: Brief, plan: readonly PlanStep[]): string
 export function compactReminderText(brief: Brief, plan: readonly PlanStep[]): string {
   return compactBlock('[focus-conductor] Hội thoại vừa được nén. Làm tiếp đúng mục tiêu và giữ các ràng buộc đã chốt:', brief, plan, true)
 }
+
+// ------------------------------------------------------------ lệnh kiểm chưa đạt (0.7.8 vòng sửa 3, W4)
+
+/** Số lượt sửa của một lệnh kiểm chưa đạt trong một mục tiêu: lượt 1 là phần làm dẫn tới lần lỗi đầu, lượt 2 và 3 mỗi lượt nâng một bậc. */
+export const RETRY_ROUNDS = 3
+/** Trần ký tự: dòng báo lỗi cho luồng chính, câu kèm plan update done, câu dặn khi luồng chính tự sửa file, lý do chặn Stop. */
+export const RETRY_NOTICE_CHARS = 300
+export const RETRY_DONE_CHARS = 200
+export const RETRY_EDIT_CHARS = 200
+export const RETRY_REASON_CHARS = 1200
+/** Tiền tố description của lần giao sửa lỗi kiểm: mod chạy subagent đó ở mức đã nâng của lượt. */
+export const RETRY_PREFIX = 'Sửa lỗi kiểm: '
+/** Tên mục báo cáo cuối khi hết lượt mà lệnh kiểm vẫn chưa đạt. */
+export const RETRY_REPORT = 'Chưa đạt yêu cầu'
+
+/** Tên hiển thị của một mục: lệnh trong dấu `, hoặc mục tổng "và N lệnh khác chưa đạt". */
+export function retryName(item: { command: string; more: readonly string[] }): string {
+  return item.more.length > 0 ? `và ${item.more.length} lệnh khác chưa đạt` : `\`${clipItem(item.command, 80)}\``
+}
+
+/** Dòng báo cho luồng chính ngay khi một lệnh kiểm vừa lỗi: một lần mỗi lệnh mỗi lượt. */
+export function retryFailNotice(item: { command: string; more: readonly string[]; round: number }): string {
+  const text =
+    `[focus-conductor] Lệnh kiểm chưa đạt: ${retryName(item)} (lượt ${item.round}/${RETRY_ROUNDS}). Đọc lỗi, sửa nguyên nhân gốc, rồi chạy lại ` +
+    'đúng lệnh đó; chưa đóng bước liên quan bằng done hay verified trước khi lệnh đạt.'
+  return text.slice(0, RETRY_NOTICE_CHARS)
+}
+
+/** Câu kèm kết quả plan update done khi còn lệnh kiểm chưa đạt. */
+export function retryDoneNote(count: number): string {
+  return `[focus-conductor] Còn ${count} lệnh kiểm chưa đạt của mục tiêu này: đóng bước vẫn được, nhưng cổng kết thúc sẽ chặn cho tới khi lệnh đó đạt.`.slice(0, RETRY_DONE_CHARS)
+}
+
+/** Câu dặn khi luồng chính tự sửa file ở lượt 2 hay 3. */
+export function retryEditNote(round: number, level: string): string {
+  return `[focus-conductor] Lượt ${round}/${RETRY_ROUNDS} của lệnh kiểm chưa đạt cần mức ${level}: giao phần sửa cho subagent general-purpose, description mở đầu "${RETRY_PREFIX}".`.slice(0, RETRY_EDIT_CHARS)
+}
+
+/** Một dòng của lý do chặn: lượt mới của một lệnh, hoặc lệnh vừa hết lượt. */
+export type RetryLine = { name: string; round: number; level: string; isTop: boolean; error: string }
+
+/**
+ * Lý do cổng Stop chặn vì còn lệnh kiểm chưa đạt (0.7.8 vòng sửa 3, W4): mỗi lệnh một dòng (lượt, mức nâng, lỗi đầu), hướng làm của lượt
+ * 2 hay 3, và với lệnh vừa hết lượt thì yêu cầu báo cáo cuối có mục "Chưa đạt yêu cầu". Không quá RETRY_REASON_CHARS ký tự: lỗi cắt dần.
+ */
+export function retryStopReason(advanced: readonly RetryLine[], exhausted: readonly RetryLine[]): string {
+  const build = (cut: number) => {
+    const err = (line: RetryLine) => (cut > 0 && line.error !== '' ? `; lỗi: ${clipItem(line.error, cut)}` : '')
+    const parts = ['[focus-conductor] Còn lệnh kiểm chưa đạt, chưa kết thúc được.']
+    for (const line of advanced) {
+      const top = line.isTop ? ' (đã ở mức cao nhất chính sách cho phép)' : ''
+      parts.push(`- ${line.name}: lượt ${line.round}/${RETRY_ROUNDS}, mức ${line.level}${top}${err(line)}`)
+    }
+    if (advanced.some(line => line.round === 2)) {
+      parts.push(
+        `Lượt 2: cách làm vừa rồi chưa được. Nêu một giả thuyết khác về nguyên nhân, giao phần sửa cho subagent general-purpose với description mở đầu "${RETRY_PREFIX}" và để trống model (mod chạy nó ở mức đã nâng), rồi chạy lại đúng lệnh kiểm.`,
+      )
+    }
+    if (advanced.some(line => line.round === 3)) {
+      parts.push(`Lượt 3: làm như lượt 2 ở mức nâng thêm một bậc; prompt của subagent nêu lỗi và các cách đã thử ở lượt 1 và 2.`)
+    }
+    if (exhausted.length > 0) {
+      for (const line of exhausted) parts.push(`- ${line.name}: hết ${RETRY_ROUNDS} lượt vẫn chưa đạt${err(line)}`)
+      parts.push(
+        `Mod đã ghi bước blocked. Câu trả lời cuối phải có mục "${RETRY_REPORT}", mỗi lệnh một dòng: việc hay bước liên quan, lệnh kiểm, lỗi cuối, ba lượt đã thử (mức và cách làm từng lượt), điều chủ cần quyết định hay cung cấp.`,
+      )
+    }
+    return parts.join('\n')
+  }
+  for (const cut of [200, 120, 60, 0]) {
+    const text = build(cut)
+    if (text.length <= RETRY_REASON_CHARS) return text
+  }
+  return build(0).slice(0, RETRY_REASON_CHARS)
+}
+
+/** Ghép lý do của phần lệnh kiểm chưa đạt với lý do của cổng checklist, trong trần RETRY_REASON_CHARS. */
+export function joinStopReasons(retry: string, other: string): string {
+  const room = RETRY_REASON_CHARS - retry.length - 1
+  return room <= 0 ? retry.slice(0, RETRY_REASON_CHARS) : `${retry}\n${other.slice(0, room)}`
+}
+
+/** Note mod ghi vào bước blocked khi hết lượt: lệnh, lỗi cuối, mức của ba lượt. */
+export function retryStepNote(item: { command: string; more: readonly string[]; lastError: string; levels: readonly string[] }): string {
+  const error = item.lastError !== '' ? `; lỗi cuối: ${clipItem(item.lastError, 120)}` : ''
+  return `Mod ghi: ${item.more.length > 0 ? retryName(item) : clipItem(item.command, 120)} chưa đạt sau ${RETRY_ROUNDS} lượt${error}; mức: ${item.levels.join(', ')}`
+}
+
+/** Dòng lỗi đầu của output một lần chạy kiểm: dòng đầu có dấu hiệu lỗi, không có thì dòng không rỗng đầu tiên; tối đa 200 ký tự. */
+export function firstErrorLine(output: string | undefined): string {
+  const lines = (output ?? '').split('\n').map(line => line.trim()).filter(Boolean)
+  const hit = lines.find(line => /error|fail|lỗi|✗|×|assert/i.test(line)) ?? lines[0] ?? ''
+  return hit.slice(0, 200)
+}
