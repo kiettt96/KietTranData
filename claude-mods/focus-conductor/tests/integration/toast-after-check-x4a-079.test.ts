@@ -18,7 +18,7 @@ const RESULTS: Record<string, { result: string; isError?: boolean }> = {
 function setup(on: Parameters<typeof base>[0]) {
   const seen = base(on, { router })
   on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
-  on('tool.call', { tool: 'Bash' }, (_$, e) => RESULTS[String((e as { command?: unknown }).command ?? '')] ?? { result: 'log' })
+  on('tool.call', { tool: 'Bash' }, (_$, e) => (RESULTS[String((e as { command?: unknown }).command ?? '')] ?? { result: 'log' }) as never)
   on('turn.complete', () => ({ text: '' }))
   return seen
 }

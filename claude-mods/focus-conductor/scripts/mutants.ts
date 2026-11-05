@@ -1942,4 +1942,5 @@ export const MUTANTS: Mutant[] = [
   { id: "079-X6a", file: "hooks/lib/drift/tracker.ts", note: "mkdir không còn trung tính", old: "      if (effect.name === 'mkdir') continue\n", new: "" },
   { id: "079-X6b", file: "hooks/lib/drift/tracker.ts", note: "Read một đoạn vẫn tính là đã đọc lại", old: "    if (path !== '' && isWholeRead(observation)) tracker.reads.set(fileTarget(path), seq)", new: "    if (path !== '') tracker.reads.set(fileTarget(path), seq)" },
   { id: "079-X6c", file: "hooks/lib/drift/tracker.ts", note: "tài liệu đã rm hay là nguồn của mv vẫn đòi đọc lại", old: "        if (removed.includes(path) && DOC_FILE.test(path)) {", new: "        if (false) {" },
+  { id: "079-X4a", file: "hooks/lib/drift/tracker.ts", note: "khóa toast sau lần kiểm cuối bỏ phần lý do", old: "  if (tracker.checks > 0) return `after-check:${tracker.lastCheck ?? 'passed'}`", new: "  if (tracker.checks > 0) return 'after-check'" },
 ]

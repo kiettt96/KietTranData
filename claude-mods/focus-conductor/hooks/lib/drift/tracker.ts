@@ -62,6 +62,8 @@ export type TurnTracker = {
   pendingChanges: Map<string, number>
   /** Số lệnh kiểm tra đạt trong turn (để câu báo phân biệt "chưa kiểm tra lần nào" với "sửa sau lần kiểm tra cuối"). */
   checks: number
+  /** Kết quả của lệnh kiểm gần nhất (0.7.9 X4a): đạt, hay lý do bị loại; null khi chưa có lệnh kiểm nào trong turn. */
+  lastCheck: RejectReason | 'passed' | null
   /**
    * Tài liệu đã đọc lại (0.7.7 X6): từ lần kiểm đạt cuối của luồng chính (hay đầu turn), đích đã ghi và thứ tự lần ghi cuối (`docWrites`),
    * số lần ghi (`docChanges`), có lần ghi không đọc được đích (`docUnknown`); `reads` là thứ tự lần Read cuối của từng file; `seq` đếm
@@ -106,6 +108,7 @@ export function newTracker(turnId: string): TurnTracker {
     pending: new Set(),
     pendingChanges: new Map(),
     checks: 0,
+    lastCheck: null,
     rejected: [],
     docWrites: new Map(),
     docRemoved: new Set(),
@@ -318,10 +321,12 @@ export function trackVerification(tracker: TurnTracker, observation: ToolObserva
     const reason = rejectReason(effect, observation)
     if (reason !== null) {
       tracker.rejected.push({ command: effect.segment, reason })
+      tracker.lastCheck = reason
       if (tracker.rejected.length > REJECTED_KEEP) tracker.rejected.shift()
       continue
     }
     tracker.checks += 1
+    tracker.lastCheck = 'passed'
     if (author === 'main') {
       tracker.pending.clear()
       tracker.docWrites.clear()
@@ -559,11 +564,11 @@ function noCheckBranch(tracker: TurnTracker, suggestions: readonly string[]): { 
 }
 
 /**
- * Khóa nguyên nhân của cảnh báo chưa kiểm (0.7.7 X4), cùng nhánh với câu: sau lần kiểm cuối; có lệnh bị loại (lý do, đoạn lệnh); có gợi ý
+ * Khóa nguyên nhân của cảnh báo chưa kiểm (0.7.7 X4), cùng nhánh với câu: sau lần kiểm cuối, kèm kết quả của lệnh kiểm gần nhất (0.7.9 X4a); có lệnh bị loại (lý do, đoạn lệnh); có gợi ý
  * script kiểm chưa khai; không có lệnh kiểm. Không gồm số thay đổi.
  */
 function causeOf(tracker: TurnTracker, suggestions: readonly string[]): string {
-  if (tracker.checks > 0) return 'after-check'
+  if (tracker.checks > 0) return `after-check:${tracker.lastCheck ?? 'passed'}`
   const branch = noCheckBranch(tracker, suggestions)
   if (branch === null) return 'no-check'
   return 'rejected' in branch ? `rejected:${branch.rejected.reason}:${branch.rejected.command}` : `hint:${branch.hint}`
