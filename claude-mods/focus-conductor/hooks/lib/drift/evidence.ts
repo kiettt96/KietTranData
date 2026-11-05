@@ -166,26 +166,43 @@ export function isFailedRun(entry: EvidenceEntry, observation: ToolObservation):
 /** Cờ lọc làm lượt chạy chỉ chạy một phần (tên test, mẫu, marker). */
 const FILTER_FLAGS = new Set(['-t', '--testnamepattern', '-k', '--filter', '-run', '--grep', '-m'])
 
+/** Cờ nhận một giá trị (tệp cấu hình, thư mục, số, tên reporter): token đứng ngay sau không phải tệp test nên không làm lệnh hẹp. */
+const VALUE_FLAGS = new Set([
+  '--config', '-c', '-p', '--project', '--manifest-path', '--timeout', '--reporter', '--workers', '-j', '--maxworkers',
+  '--rootdir', '--cwd', '--tsconfig', '--env',
+])
+
 /**
  * Lệnh kiểm hẹp: có cờ lọc (`-m` của `python -m pytest` không tính), hoặc đối số trỏ tới tệp cụ thể (có phần mở rộng) hay tên test dạng tệp::tên. Subcommand của trình chạy và
- * thư mục (., ./..., tests/, src/) không làm lệnh thành hẹp.
+ * thư mục (., ./..., tests/, src/) không làm lệnh thành hẹp. Giá trị của cờ nhận giá trị (VALUE_FLAGS) và token số cũng không làm lệnh hẹp.
  */
 export function isNarrow(command: string): boolean {
-  return command
+  const tokens = command
     .toLowerCase()
     .replace(/\bpython3? -m pytest\b/, 'pytest')
     .split(/\s+/)
-    .some(token => {
-      const flag = token.split('=')[0] ?? ''
-      if (FILTER_FLAGS.has(flag)) return true
-      if (token.startsWith('-')) return false
-      return token.includes('::') || /[^./]\.[a-z0-9]{1,5}$/.test(token)
-    })
+  return tokens.some((token, i) => {
+    const flag = token.split('=')[0] ?? ''
+    if (FILTER_FLAGS.has(flag)) return true
+    if (token.startsWith('-')) return false
+    if (VALUE_FLAGS.has(tokens[i - 1] ?? '')) return false
+    if (/^\d+(\.\d+)?$/.test(token)) return false
+    return token.includes('::') || /[^./]\.[a-z0-9]{1,5}$/.test(token)
+  })
 }
 
-/** Trình chạy của lệnh kiểm để so phủ: trình chạy có parser, không thì cả lệnh (chỉ lệnh trùng mới phủ nhau). */
+/** Công cụ kiểm tĩnh nhận theo tên (0.7.9 Y1): hai lệnh cùng công cụ so phủ theo luật lệnh rộng, như trình chạy có parser. */
+const STATIC_TOOLS = new Set(['tsc', 'eslint', 'mypy', 'ruff', 'pyright', 'biome'])
+
+/** Tên công cụ kiểm tĩnh đứng đầu lệnh (bỏ `npx`, `bunx`); không phải công cụ trong STATIC_TOOLS thì null. */
+function staticTool(command: string): string | null {
+  const name = command.toLowerCase().trim().split(/\s+/).find(token => token !== 'npx' && token !== 'bunx') ?? ''
+  return STATIC_TOOLS.has(name) ? name : null
+}
+
+/** Trình chạy của lệnh kiểm để so phủ: trình chạy có parser, công cụ kiểm tĩnh theo tên, không thì cả lệnh (chỉ lệnh trùng mới phủ nhau). */
 function runnerKey(command: string): string {
-  return runnerOf(command) ?? `=${command}`
+  return runnerOf(command) ?? staticTool(command) ?? `=${command}`
 }
 
 /**

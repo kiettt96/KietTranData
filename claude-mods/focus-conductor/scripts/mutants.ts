@@ -1932,4 +1932,6 @@ export const MUTANTS: Mutant[] = [
   { id: "079-R1b", file: "hooks/lib/route.ts", note: "khớp không trọn vẹn vẫn chốt họ của quy tắc chung", old: "    if (clause.excepts.some(isExcepted)) continue\n", new: "    if (false) continue\n" },
   { id: "079-R2a", file: "scripts/verdict.ts", note: "không đọc được kết quả tính là bị bắt", old: "  if (r.failed === -1) return 'ERROR'\n", new: "  if (r.failed === -1) return 'KILLED'\n" },
   { id: "079-R2b", file: "scripts/verdict.ts", note: "quá giờ tính là bị bắt", old: "  if (r.timedOut) return 'TIMEOUT'\n", new: "  if (r.timedOut) return 'KILLED'\n" },
+  { id: "079-Y1a", file: "hooks/lib/drift/evidence.ts", note: "bỏ luật bỏ qua giá trị của cờ", old: "    if (VALUE_FLAGS.has(tokens[i - 1] ?? '')) return false\n", new: "" },
+  { id: "079-Y1b", file: "hooks/lib/drift/evidence.ts", note: "công cụ kiểm tĩnh không so theo tên", old: "  return runnerOf(command) ?? staticTool(command) ?? `=${command}`", new: "  return runnerOf(command) ?? `=${command}`" },
 ]
