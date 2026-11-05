@@ -1939,4 +1939,7 @@ export const MUTANTS: Mutant[] = [
   { id: "079-P1a", file: "hooks/ui/pane.tsx", note: "cảnh báo nhẹ không còn mờ ở pane", old: "dimColor={w.isSoft === true}", new: "dimColor={false}" },
   { id: "079-P1b", file: "hooks/parts/consistency.ts", note: "offerCheckHint tính cả cảnh báo nhẹ", old: "unverified.isSoft !== true && L.tracker.checks === 0", new: "L.tracker.checks === 0" },
   { id: "079-P1c", file: "hooks/lib/drift/tracker.ts", note: "Read lỗi vẫn tính là đã đọc lại", old: "if (observation.tool === 'Read' && !observation.isError) {", new: "if (observation.tool === 'Read') {" },
+  { id: "079-X6a", file: "hooks/lib/drift/tracker.ts", note: "mkdir không còn trung tính", old: "      if (effect.name === 'mkdir') continue\n", new: "" },
+  { id: "079-X6b", file: "hooks/lib/drift/tracker.ts", note: "Read một đoạn vẫn tính là đã đọc lại", old: "    if (path !== '' && isWholeRead(observation)) tracker.reads.set(fileTarget(path), seq)", new: "    if (path !== '') tracker.reads.set(fileTarget(path), seq)" },
+  { id: "079-X6c", file: "hooks/lib/drift/tracker.ts", note: "tài liệu đã rm hay là nguồn của mv vẫn đòi đọc lại", old: "        if (removed.includes(path) && DOC_FILE.test(path)) {", new: "        if (false) {" },
 ]

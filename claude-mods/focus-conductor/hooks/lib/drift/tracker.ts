@@ -68,6 +68,8 @@ export type TurnTracker = {
    * tool call của luồng chính và subagent cùng mục tiêu.
    */
   docWrites: Map<string, number>
+  /** Tài liệu đã xóa bằng rm hay là nguồn của mv (0.7.9 X6a): không còn file để đọc lại, nên không cần đọc lại. */
+  docRemoved: Set<string>
   docChanges: number
   docUnknown: boolean
   reads: Map<string, number>
@@ -106,6 +108,7 @@ export function newTracker(turnId: string): TurnTracker {
     checks: 0,
     rejected: [],
     docWrites: new Map(),
+    docRemoved: new Set(),
     docChanges: 0,
     docUnknown: false,
     reads: new Map(),
@@ -282,7 +285,7 @@ export function trackVerification(tracker: TurnTracker, observation: ToolObserva
   }
   if (observation.tool === 'Read' && !observation.isError) {
     const path = str(observation.input['file_path'])
-    if (path !== '') tracker.reads.set(fileTarget(path), seq)
+    if (path !== '' && isWholeRead(observation)) tracker.reads.set(fileTarget(path), seq)
     return writes
   }
   if (observation.tool !== 'Bash') return writes
@@ -293,11 +296,22 @@ export function trackVerification(tracker: TurnTracker, observation: ToolObserva
       if (!counted.has(effect)) continue
       onWrite()
       // Đích đọc được của lệnh Bash; đường dẫn tương đối nối với thư mục làm việc như khi kiểm phạm vi, không nối được là đích lạ.
+      // mkdir chỉ tạo thư mục, không đổi nội dung nào cần đọc lại (0.7.9 X6a).
+      if (effect.name === 'mkdir') continue
       if (effect.isUnknown || effect.paths.length === 0) tracker.docUnknown = true
+      const targets: string[] = []
       for (const path of effect.paths) {
-        if (path.startsWith('/')) tracker.docWrites.set(normalizePath(path), seq)
-        else if (cwd) tracker.docWrites.set(normalizePath(`${cwd}/${path}`), seq)
+        if (path.startsWith('/')) targets.push(normalizePath(path))
+        else if (cwd) targets.push(normalizePath(`${cwd}/${path}`))
         else tracker.docUnknown = true
+      }
+      // rm tài liệu và nguồn tài liệu của mv không còn file để đọc lại; đích của mv thì phải đọc lại như file vừa ghi (0.7.9 X6a).
+      const removed = effect.name === 'rm' ? targets : effect.name === 'mv' ? targets.slice(0, -1) : []
+      for (const path of targets) {
+        if (removed.includes(path) && DOC_FILE.test(path)) {
+          tracker.docWrites.delete(path)
+          tracker.docRemoved.add(path)
+        } else tracker.docWrites.set(path, seq)
       }
       continue
     }
@@ -311,6 +325,7 @@ export function trackVerification(tracker: TurnTracker, observation: ToolObserva
     if (author === 'main') {
       tracker.pending.clear()
       tracker.docWrites.clear()
+      tracker.docRemoved.clear()
       tracker.docChanges = 0
       tracker.docUnknown = false
     } else {
@@ -558,11 +573,24 @@ function causeOf(tracker: TurnTracker, suggestions: readonly string[]): string {
 const DOC_FILE = /\.(?:md|markdown|txt)$/i
 
 /**
+ * Read đọc trọn file (0.7.9 X6a): không có offset quá dòng 1, và không có limit hoặc output ngắn hơn limit (file ngắn hơn đoạn đã
+ * đọc). Không biết output thì không tính.
+ */
+function isWholeRead(observation: ToolObservation): boolean {
+  const offset = Number(observation.input['offset'] ?? 1)
+  if (Number.isFinite(offset) && offset > 1) return false
+  const limit = observation.input['limit']
+  if (limit === undefined || limit === null) return true
+  if (observation.output === undefined) return false
+  return observation.output.replace(/\n+$/, '').split('\n').length < Number(limit)
+}
+
+/**
  * Turn (từ lần kiểm đạt cuối của luồng chính) chỉ ghi tài liệu và đã Read lại từng file sau lần ghi cuối (0.7.7 X6): mọi lần ghi có đích đọc
  * được, mọi đích là tài liệu, mỗi đích có một Read sau lần ghi cuối. Đọc lại là bằng chứng yếu: chỉ hạ mức hiển thị, không đổi isVerified.
  */
 function isSoftDocs(tracker: TurnTracker): boolean {
-  if (tracker.docChanges === 0 || tracker.docUnknown || tracker.docWrites.size === 0) return false
+  if (tracker.docChanges === 0 || tracker.docUnknown || (tracker.docWrites.size === 0 && tracker.docRemoved.size === 0)) return false
   return [...tracker.docWrites].every(([path, wrote]) => DOC_FILE.test(path) && (tracker.reads.get(path) ?? 0) > wrote)
 }
 
