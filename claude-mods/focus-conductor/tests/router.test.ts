@@ -373,7 +373,8 @@ describe('0.5.0: hỏi lại router một lần', () => {
     const silent = asker([JSON.stringify(REPLY)])
     const outcome = await askRouter(silent.ask, request, parse)
     expect(outcome.retried).toBe(false)
-    expect(outcome.result?.confidence).toBe(1)
+    // 0.7.8 G8: confidence thiếu là undefined (mặc định askRouter vẫn không hỏi lại).
+    expect(outcome.result?.confidence).toBeUndefined()
   })
 
   test('lỗi API, hết giờ hay engine từ chối: không hỏi lại', async () => {

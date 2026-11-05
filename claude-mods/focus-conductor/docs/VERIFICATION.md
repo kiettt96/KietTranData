@@ -2,6 +2,69 @@
 
 Số đo của HEAD hiện tại và của các bản trước. Mọi số do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển] trừ khi nêu khác; hợp đồng đối chiếu evidence ở [DESIGN.md](DESIGN.md), lịch sử thay đổi ở [CHANGELOG.md](../CHANGELOG.md), cách dùng ở [README](../README.md).
 
+## Kiểm chứng của 0.7.8 (giữ mục tiêu chặt hơn, điều phối đủ sức, tiếp nhận yêu cầu chen ngang)
+
+Nhánh tách từ `main` fc41fd8 (0.7.7). Mỗi điểm G1 tới G9 một commit test đỏ rồi một commit sửa, theo thứ tự G1, G4, G2, G3, G5, G7, G6, G8, G9; không amend, rebase hay force-push [Đo trực tiếp].
+
+- Môi trường: Claude Code 2.1.296 cho mọi lần chạy test, đo và đột biến dưới đây; mỗi lần chạy kiểm `command -v claude` trỏ vào bản 2.1.296 cài riêng và `claude --version` in 2.1.296 [Đo trực tiếp].
+- `claude plugin test .` trên `2de41a9`: 2372 test qua, 0 lỗi, 209 tệp (0.7.7: 2286 test, 198 tệp) [Đo trực tiếp]. `claude plugin validate .` qua ở thư mục mod và ở gốc repo; `bunx tsc --noEmit -p .` sạch; `bun scripts/mutate.ts --check` mismatched rỗng. sha256 `hooks/` `6291b14bd6f6fccb79a194f0b881b6ceff4b8707bbdbfde5c8f19d25921adea3` (giống hệt từ `634df21`, commit mã cuối), `tests/` `ce340f6d49e115bca6b0ceb62f37379868a7a967ce7561577b932e7ac36f51e5`.
+- Test đỏ trước khi sửa [Đo trực tiếp]: G1 7 (cộng 1 test cũ sửa ở commit riêng đỏ trước bản sửa), G4 6, G2 5, G3 5, G5 3, G7 2, G6 3, G8 6 (gồm 1 test cũ), G9 6. Test cũ sửa, đều thuộc nhóm được phép: `tests/integration/progress-mirror.test.ts` (Stop khi chỉ có danh sách phản chiếu, G1), `tests/router.test.ts` ca "tin cậy đủ, hoặc không ghi tin cậy" (confidence thiếu là undefined, G8); khung `tests/support/engine.ts` thêm `confidence: 1` vào câu trả lời router giả theo chủ mod chốt. Không test nào bị đổi tên hay bỏ.
+- Golden-set: chỉ ca `long-coded` đổi main (sonnet/medium thành sonnet/high, G3), cùng họ nên không sửa danh sách chấp nhận; G5 không đổi ca nào; hash request của router giữ nguyên [Đo trực tiếp].
+- Đột biến, lượt tổng 693 mẫu của các tệp đã đổi trên `634df21`, mỗi phần một phiên, 1 worker, không tính `fail=-1` hay test quá giờ là bị bắt (không mẫu nào `fail=-1`) [Đo trực tiếp]: 24 phần chạy trên phiên cloud; 12 mẫu của hai phần dừng giữa chừng vì giới hạn thời gian nền được chạy bù ở máy cục bộ. Kết quả cuối: 685 bị bắt, 8 tương đương, 0 sống sót.
+  - Tương đương: 7 mẫu đã đánh dấu từ trước (`054-B9`, `054-E27`, `070-C1`, `073-S21`, `075-B10a`, `075-D1h`, `075-L2a`) và `077-X2e`, đánh dấu ở bản này: khi output báo lỗi, `rejectReason` trả `failed` cho mọi tác động kiểm, mà `failed` không thuộc `SHAPE_REASONS`.
+  - Sống sót ở lượt đầu, đã có test bắt riêng (chỉ đổi `tests/`) và chạy lại bị bắt: `078-G1d`, `078-G1e`, `078-G4j`, `078-G9f`, `078-G9i`, `078-G9j`, `078-G9l`, `078-G9m`, `078-G9o`, `078-G9r` (`bb1e287`, `2de41a9`); `075-S8a` (`a6133be`) và `077-X6i` (`bb1e287`) sống sót cả trên `main` 0.7.7 khi chạy lại 1 worker, tức là lỗ hổng test có từ trước.
+- Phiên dài (`tests/integration/long-session-075.test.ts`, cách đo của 0.7.5: bản sao ngoài repo chỉ giữ test này, chèn dòng in số đo) trên `fc41fd8` và trên từng commit sửa G1 tới G9 [Đo trực tiếp]: cứ 10 lời gọi có một script ghi, 10.339 ký tự mod chèn; cứ 3 lời gọi, 19.587; 0 lượt router chấm subagent, nâng `verified` 11 trên 11, 9 và 24 lời nhắc checkpoint sau subagent, cảnh báo phạm vi 1 mỗi script; không đổi ở commit nào. Kịch bản này không đi qua chỗ chèn mới nào (không lặp lỗi, không lạc đề, không có yêu cầu router trích, không chen ngang, không Stop thiếu checklist).
+- Phần chèn mới theo từng điểm, chỉ khi điều kiện xảy ra [Đo trực tiếp, đếm ký tự trên mã]: G1 lý do chặn Stop tối đa 1.200 ký tự, một lần mỗi mục tiêu; G4 tối đa 500 ký tự mỗi lần `set` hay `add` còn thiếu việc; G2 tối đa 2.500 ký tự, một lần mỗi mục tiêu; G6 163 ký tự (cộng một khoảng trắng) nối vào câu nhắc lặp lỗi hay lạc đề; G8 105 ký tự cho prompt dài hơn 80.000 ký tự; G9 tối đa 1.500 ký tự mỗi tin chen ngang, và câu báo chuyển việc tối đa 600 ký tự khi engine chèn tin vào turn đang chạy. `DISCIPLINE` (mục system prompt scope session, không phá cache giữa các turn) từ 2.846 lên 3.239 ký tự: G7 220, G9 173.
+- Giao diện: band và pane không đổi bố cục hay nhãn. G1 chỉ đổi lý do chặn Stop; G9 thêm một toast; G8 thêm một câu cảnh báo kind `model` có sẵn ("Prompt dài N ký tự; router chỉ đọc 60.000 ký tự đầu và 20.000 ký tự cuối"), hiện như các cảnh báo `model` khác.
+- G9, khai báo kiểu của engine 2.1.296 (`.claude-plugin/types/claude-code/index.d.ts`): `prompt.submit` chạy lúc bấm Enter giữa turn, kèm `turnId` (`:4196`, `:9483-9489`); `wait` chỉ cho biết người dùng có chủ động bảo tin chờ hay không, engine xếp hàng mọi tin gõ giữa turn (`:9491-9498`); `next(e)` trả khi tin đã vào hoặc đã xếp sau turn đang chạy (`:9512-9513`); tin chèn vào turn đang chạy hiện thành attachment `queued_command` (`:11041`, `:15244`), tới `session.append` với door `delivery` (vòng sửa 2, V1). `PromptSubmitAttachment` (`:9390`) không có chữ của tệp đính kèm (G8).
+- Vòng sửa 2 (sau rà soát độc lập, từ `621d3f7`) [Đo trực tiếp]:
+  - V1 (P1): engine 2.1.296 báo tin chen ngang đã chèn vào turn đang chạy bằng hàng attachment `queued_command` với door `delivery` (door này có trong tập `SessionAppendDoor`, `index.d.ts:10984`; khai báo kiểu không nói tên attachment nào đi door nào) và origin của người gõ tin; `session.append` của mod chỉ nhận door `attachment` nên nhánh chuyển việc sang subagent của G9 không chạy. Sửa: nhận cả `delivery` và `attachment`. Test đỏ 6 (1 test mới, 5 test có sẵn đỏ theo vì fixture đổi sang door `delivery`, origin `composer` cho giống engine); commit `7593c2f`, `541f35c`.
+  - V2 (P3): câu báo chuyển việc có thể rơi sang turn sau; `turn.start` của luồng chính xóa thêm `L.interjectNote`. Test đỏ 1; commit `8f17cb2`, `4b28bda`.
+  - V3 (P3): bỏ `L.mainTurn` (chỉ được ghi, không nơi nào đọc), sửa DESIGN; dọn mã không đổi hành vi nên không có commit test đỏ; commit `248537e`.
+  - V4 (P3): hai test ghim (so `goalId` của việc chờ chuyển; `prev !== null` của `isInterject`), mỗi test qua trên mã hiện tại và đỏ khi áp mẫu tương ứng; commit `5245e8e`, `9b9b814`, `135ec2c`, `afe52da`.
+  - Bộ test trên `afe52da`: 2380 qua, 0 lỗi, 210 tệp; không test nào đổi tên hay mất. `validate` qua ở thư mục mod và gốc repo; `tsc` sạch; `mutate --check` mismatched rỗng. sha256 `hooks/` `c3fc9f35d5ef14718fe6002d986ecd383a2140afecb565f016add05164379ac9`, `tests/` `969669c9c02ebaf5308464fd4b25ae368464287f35004ccea5e3d6f264e6093d`.
+  - Đột biến, 230 mẫu của bốn tệp mã đổi ở vòng này (`hooks/parts/session.ts`, `hooks/parts/turn.ts`, `hooks/parts/consistency.ts`, `hooks/context.ts`) trên `afe52da`, 12 phần, 1 worker, không mẫu nào `fail=-1`: 224 bị bắt, 6 tương đương đã đánh dấu từ trước, 0 sống sót. Mẫu mới `078-V1a`, `078-V2a`, `078-V4a`, `078-V4b` đều bị bắt; viết lại cùng ý `078-G9i`, `078-G9j` (điều kiện door) và `078-G9m` (đoạn `turn.start`).
+  - Phiên dài đo trên `541f35c`, `4b28bda`, `248537e`, `afe52da`: vẫn 10.339 và 19.587 ký tự, 0 lượt router, nâng 11 trên 11 bước. Số ký tự mod chèn vào context không tăng.
+- Vòng sửa 3 (sau rà soát độc lập lần hai, từ `b331fdc`) [Đo trực tiếp]:
+  - Kiểm trước W4, khai báo kiểu engine 2.1.296 (`.claude-plugin/types/claude-code/index.d.ts`):
+    - `stop_hook_active` là trường `boolean` của `StopHookInput` (`:12701-12703`), không có chú thích.
+    - Không có khai báo nào giới hạn số lần chặn Stop liên tiếp, hay cấm chặn khi `stop_hook_active` là true.
+    - `block` của Stop là "the event's block, veto or re-prompt" (`:1310-1313`). Kết quả của Stop chỉ có `block`, `preventContinuation`, `stopReason`, `additionalContext` (`:1404`, `:1419-1421`).
+    - Khai báo không nói rõ sau khi chặn Claude chạy tiếp cùng turn hay sang turn mới. Bộ test giữ nguyên `turnId`, và thiết kế dựa vào cách đó.
+    - `last_assistant_message?: string` có trong `StopHookInput` (`:12707`).
+    - Checklist là state riêng của mod (`Core.plan`), nên hook ghi được trạng thái bước mà không qua tool `plan`.
+  - Test đỏ trước khi sửa: W1 9, W2 2 (gồm 1 test cũ), W3 2, W4 27. Commit theo cặp đỏ rồi sửa:
+    - W1: `cf66b0e`, `a8243fb`.
+    - W2: `5011f4c`, `4e44d48`.
+    - W3: `81630e4`, `3c42a6a`.
+    - W4: `911a754`, `b0b1b9e`.
+    - Test bắt mẫu `078-W2a`: `86ce7d4`; test bắt mẫu `078-G4a`: `ae2e75a`.
+  - Test cũ sửa, nhóm đặc tả đổi: "0.7.8 G4: hàm thuần > 12 việc tiêu đề dài: tối đa 8 việc, không quá 500 ký tự, câu dặn cuối giữ nguyên" (đuôi câu dặn đổi theo W2). Ca K4.1/K4.10 và ca "action add cũng báo việc còn thiếu; update thì không" giữ nguyên và vẫn qua. Test `stop_hook_active` trong `tests/boundaries.test.ts` không đổi và vẫn qua.
+  - Kiểm tĩnh và bộ test:
+    - `claude plugin test .` trên `86ce7d4`: 2432 qua, 0 lỗi, 213 tệp (vòng 2: 2380, 210 tệp). Trên `ae2e75a`: 2433 qua, 0 lỗi, 213 tệp; sha256 `tests/` `95a5911e48964cdd8ad671c53e44a729408348bdb9190e0bb7d614f60fe3ba81`, `hooks/` không đổi. Không test nào đổi tên hay mất.
+    - `claude plugin validate .` qua ở thư mục mod và ở gốc repo; `bunx tsc --noEmit -p .` sạch; `bun scripts/mutate.ts --check` không mẫu nào lệch.
+    - sha256 `hooks/` `8c964a0062d586a67ac8192474dd88b2887ce835b9a037bc9bbca9216c6289e5`, `tests/` `c326d269eb4f7309b9157058496546f61ce258feb8d138eb620ee30548fd3954`.
+  - CI: run 41969910718 trên `86ce7d4` thành công; run của commit tài liệu cuối ghi ở mô tả PR.
+  - Đột biến: 743 mẫu của mười tệp mã đổi ở vòng này, trên `86ce7d4`, chia 30 phần, mỗi phần 1 worker. Không mẫu nào `fail=-1`.
+    - Bảy phần chạm trần 2 giờ của lệnh nền giữa chừng; một phần khác bị khởi động lại container. Các mẫu còn lại được chạy riêng lần hai, cùng commit và cùng sha256.
+    - Kết quả: 738 bị bắt, 4 tương đương đã đánh dấu từ trước (`073-S21`, `075-D1h`, `075-L2a`, `076-V2d`), 1 sống sót.
+    - Mẫu sống sót là `078-G4a` (báo việc thiếu cả sau `plan update`): từ W3, lần `update` không đổi tập việc thiếu nên không báo lại. Test chen ngang thêm Việc 4 rồi `update` thì không báo (`ae2e75a`, chỉ đổi `tests/`); chạy lại trên `ae2e75a` thì bị bắt (fail=1).
+    - Mẫu mới `078-W1a` tới `078-W4k` và mẫu viết lại `078-G4d`, `078-G4f`, `054-B10`, `075-L3b`, `078-G9n` đều bị bắt.
+  - Phiên dài đo trên `a8243fb`, `4e44d48`, `3c42a6a`, `b0b1b9e`, `86ce7d4`: vẫn 10.339 và 19.587 ký tự, 0 lượt router, nâng 11 trên 11 bước. Kịch bản này chỉ có lệnh kiểm đạt, nên không đi qua chỗ chèn nào của W4.
+  - Kịch bản minh họa (3 việc, một lần `set` thiếu 2 việc rồi 5 lần `add` bước không liên quan), tổng ký tự của dòng "Việc chưa có bước": `b331fdc` 6 dòng, 1.164 ký tự; `86ce7d4` 1 dòng, 321 ký tự.
+  - Trần ký tự của phần chèn mới, chỉ khi còn lệnh kiểm chưa đạt [Đo trực tiếp, đếm trên mã]:
+
+    | Phần chèn | Trần | Ca đo |
+    |---|---|---|
+    | Dòng báo lỗi cho luồng chính | 300 | 185 với `bun test` |
+    | Câu kèm `plan update` done | 200 | 133 |
+    | Câu dặn khi luồng chính tự sửa file | 200 | 151 |
+    | Lý do chặn Stop | 1.200 | 904 với 7 lệnh cùng lỗi |
+
+    Đuôi mới của câu dặn W2 làm một dòng báo một việc dài 295 ký tự, vẫn trong trần 500.
+- CI: run của commit cuối ghi ở mô tả PR.
+- Chưa kiểm được trên engine thật (chỉ kiểm bằng bộ test của engine): tin chen ngang trên phiên tương tác (tên `queued_command`, context gắn lúc `prompt.submit` có theo tin vào turn đang chạy không); router thật với confidence thiếu; cổng Stop thiếu checklist với Claude thật; cổng lệnh kiểm chưa đạt (W4) với Claude thật, gồm việc lần chặn Stop có chạy tiếp trong cùng turn không.
+
 ## Kiểm chứng của 0.7.7 (cảnh báo chưa kiểm đúng hơn và nêu lý do)
 
 Nhánh tách từ `main` 7fad617 (0.7.6). Mỗi điểm X1 tới X6 và bản sửa phạm vi một commit test đỏ rồi một commit sửa; không amend, rebase hay force-push [Đo trực tiếp].

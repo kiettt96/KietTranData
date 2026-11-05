@@ -7,7 +7,7 @@ import type { ToolObservation } from './tool'
 import { classifyBash } from './classify'
 import type { BashEffect } from './classify'
 import { writeEffects } from './effects'
-import { checkEffectPassed } from './output'
+import { checkEffectPassed, outputFailed, ranNothing, runnerOf } from './output'
 
 // ------------------------------------------------------------ đối chiếu evidence
 
@@ -139,4 +139,60 @@ export function covers(entry: EvidenceEntry, log: EvidenceLog): boolean {
     .filter(c => c.author === 'main' && c.check !== null && c.ok && c.seq < entry.seq)
     .reduce((max, c) => Math.max(max, c.seq), -1)
   return log.writes.every(w => w.seq <= lastMain || w.seq > entry.seq || w.author === entry.author)
+}
+
+// ------------------------------------------------------------ lệnh kiểm chưa đạt (0.7.8 vòng sửa 3, W4)
+
+/** Một lần chạy kiểm để so phủ: loại kiểm và lệnh đã chuẩn hóa. */
+export type CheckRun = { check: CheckKind; command: string }
+
+/** Lệnh của một lần chạy kiểm đã chuẩn hóa: danh tính argv nếu có, không thì đoạn lệnh, gộp khoảng trắng. */
+export function checkCommand(entry: EvidenceEntry): string {
+  return (entry.argv !== undefined && entry.argv.length > 0 ? entry.argv.join(' ') : entry.command).replace(/\s+/g, ' ').trim()
+}
+
+/** Chữ ký của lệnh kiểm: loại kiểm và lệnh đã chuẩn hóa. */
+export function checkSignature(run: CheckRun): string {
+  return `${run.check}:${run.command}`
+}
+
+/** Lần chạy kiểm này là lỗi thật: không đạt và lệnh lỗi, output có dấu hiệu lỗi, output rỗng, hay không có phép kiểm nào chạy. */
+export function isFailedRun(entry: EvidenceEntry, observation: ToolObservation): boolean {
+  if (entry.ok || entry.check === null) return false
+  const output = observation.output ?? ''
+  return observation.isError || outputFailed(observation.output) || output.trim() === '' || ranNothing(output)
+}
+
+/** Cờ lọc làm lượt chạy chỉ chạy một phần (tên test, mẫu, marker). */
+const FILTER_FLAGS = new Set(['-t', '--testnamepattern', '-k', '--filter', '-run', '--grep', '-m'])
+
+/**
+ * Lệnh kiểm hẹp: có cờ lọc (`-m` của `python -m pytest` không tính), hoặc đối số trỏ tới tệp cụ thể (có phần mở rộng) hay tên test dạng tệp::tên. Subcommand của trình chạy và
+ * thư mục (., ./..., tests/, src/) không làm lệnh thành hẹp.
+ */
+export function isNarrow(command: string): boolean {
+  return command
+    .toLowerCase()
+    .replace(/\bpython3? -m pytest\b/, 'pytest')
+    .split(/\s+/)
+    .some(token => {
+      const flag = token.split('=')[0] ?? ''
+      if (FILTER_FLAGS.has(flag)) return true
+      if (token.startsWith('-')) return false
+      return token.includes('::') || /[^./]\.[a-z0-9]{1,5}$/.test(token)
+    })
+}
+
+/** Trình chạy của lệnh kiểm để so phủ: trình chạy có parser, không thì cả lệnh (chỉ lệnh trùng mới phủ nhau). */
+function runnerKey(command: string): string {
+  return runnerOf(command) ?? `=${command}`
+}
+
+/**
+ * Lần chạy đạt `pass` phủ lần lỗi `fail` (0.7.8 vòng sửa 3, W4): cùng loại kiểm, cùng trình chạy, và cùng lệnh đã chuẩn hóa hoặc lệnh
+ * đạt không hẹp (không cờ lọc, không trỏ tệp hay tên test cụ thể). Chạy đạt một tệp test nhỏ không phủ lần lỗi của cả bộ test.
+ */
+export function coversFailure(pass: CheckRun, fail: CheckRun): boolean {
+  if (pass.check !== fail.check || runnerKey(pass.command) !== runnerKey(fail.command)) return false
+  return pass.command === fail.command || !isNarrow(pass.command)
 }

@@ -34,6 +34,8 @@ export type Json = Record<string, unknown>
 export function plan(over: Json = {}): Json {
   return {
     why: 'việc vừa',
+    // 0.7.8 G8: router thật luôn ghi confidence; 1 giữ đúng hành vi các test cũ (0.7.7 tính confidence thiếu là 1).
+    confidence: 1,
     relation: 'new',
     reference: false,
     goal: 'Mục tiêu thử',

@@ -20,6 +20,12 @@ const CHECKPOINT_STEPS = [CHECKPOINT_EVERY, 10, 20]
 const CHECKPOINT_CAP = 40
 /** Số lần cùng một lệnh lỗi trước khi coi là vòng lặp. */
 export const LOOP_AFTER = 3
+/**
+ * Câu nhắc đường nâng ngay trong turn khi luồng chính kẹt (0.7.8 G6): luồng chính không đổi model giữa turn được (mất cache), còn
+ * subagent thì được; router chấm subagent thấy mục "luồng chính kẹt" trong danh sách việc đã lỗi và chọn cao hơn một bậc.
+ */
+export const STUCK_HINT =
+  'Nếu phần đang kẹt cần suy luận sâu hơn model đang chạy, giao phần đó cho subagent và để trống model; router của plugin sẽ chọn cao hơn một bậc vì phần này đã kẹt.'
 
 const REJECT_TEXT: Record<RejectReason, string> = {
   failed: 'chưa đạt',
@@ -385,7 +391,7 @@ export function observe(
         text: `${observation.tool} lỗi ${count} lần với cùng đầu vào: có dấu hiệu lặp`,
         context:
           `[focus-conductor] Lệnh này đã lỗi ${count} lần với cùng đầu vào. Dừng thử lại; ` +
-          'đọc kỹ thông báo lỗi, xác định nguyên nhân gốc, rồi đổi cách tiếp cận hoặc hỏi người dùng.',
+          `đọc kỹ thông báo lỗi, xác định nguyên nhân gốc, rồi đổi cách tiếp cận hoặc hỏi người dùng. ${STUCK_HINT}`,
       })
     }
   }

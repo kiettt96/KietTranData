@@ -10,7 +10,7 @@ import type { ModelCompleteRequest, ModelCompleteResult, ModelTextBlock, ModelUs
 import type { Brief, Choice, Depth, Effort, Kind, ModelFamily, Relation, RouterFail, RouterFailKind, Task, Tier, Volume } from '../../types'
 import { PRICE } from './cost'
 import type { Price } from './cost'
-import { EFFORTS, applySession, avoidBlocked, codesIn, describePick, effortRank, familyOf, familyRank, sessionFloor } from './route'
+import { EFFORTS, FAMILIES, applySession, avoidBlocked, codesIn, describePick, effortRank, familyOf, familyRank, sessionFloor } from './route'
 import type { SessionModel } from './route'
 import { DEPTHS, KINDS, RELATIONS, VOLUMES, maxTier, tierOf } from './scale'
 
@@ -324,6 +324,8 @@ export function routerRequest(args: {
   openSteps?: readonly string[]
   /** Phát hiện của turn trước (vòng lặp, chuỗi lỗi, vượt ngân sách, lệch mục tiêu): lựa chọn model đã thiếu, để router chấm lại. */
   observed?: string
+  /** Tin người dùng gửi chen ngang khi luồng chính đang làm mục tiêu hiện tại (0.7.8 G9): bước đang mở, rỗng là chưa có bước. */
+  interject?: { step: string }
   /** Bảng giá cho catalog; mặc định là bảng đang dùng (golden-set truyền bảng kèm mod để băm ổn định). */
   prices?: Record<ModelFamily, Price>
   /** Model người dùng chạy phiên (0.7.4), biết từ step đầu; vắng thì không có dòng Session model. */
@@ -337,6 +339,7 @@ export function routerRequest(args: {
     agentsLine(args.policy),
     ...(args.isForcedNew ? ['The user set this goal by command: relation must be "new".'] : []),
     ...((args.openSteps?.length ?? 0) > 0 ? [`Open checklist steps (still unfinished): ${(args.openSteps ?? []).slice(0, OPEN_STEPS_LIMIT).map(s => fence(clip(s, 100))).join('; ')}`] : []),
+    ...(args.interject ? [`The user sent this while the main model was still working on the current goal${args.interject.step ? ` (open step: ${fence(clip(args.interject.step, 100))})` : ''}; read it as an addition to that goal unless it clearly replaces it.`] : []),
     ...(args.observed ? [`Observed in the previous turn (the main model's choice fell short; re-read the work and raise "main" model or effort if it is harder than first judged): ${fence(clip(args.observed, 400))}`] : []),
   ]
   const system: readonly ModelTextBlock[] = [{ text: routerSystem(args.prices), cache: true }]
@@ -532,6 +535,21 @@ export function fitPick(pick: Choice, kind: Kind, policy: Policy): Fitted {
 }
 
 /**
+ * Mức của lượt sửa lỗi kiểm kế tiếp (0.7.8 vòng sửa 3, W4): nâng effort một bậc; effort đã ở xhigh (mức cao nhất fitPick cho phép) thì
+ * giữ effort và nâng họ một bậc. Kết quả qua fitPick (max về xhigh, fable về opus khi chưa bật allowFable, họ bị chặn, model của phiên);
+ * trùng mức trước thì `isTop` (đã ở mức cao nhất chính sách cho phép), lượt vẫn được tính.
+ */
+export function nextLevel(prev: Choice, policy: Policy): { pick: Choice; isTop: boolean } {
+  const rank = effortRank(prev.effort)
+  const raised: Choice =
+    rank < effortRank('xhigh')
+      ? { family: prev.family, effort: EFFORTS[rank + 1] ?? prev.effort }
+      : { family: FAMILIES[Math.min(familyRank(prev.family) + 1, FAMILIES.length - 1)] ?? prev.family, effort: prev.effort }
+  const pick = fitPick(raised, 'edit', policy).pick
+  return { pick, isTop: pick.family === prev.family && pick.effort === prev.effort }
+}
+
+/**
  * Sàn theo lời gọi Agent (0.7.4): model Claude ghi là mức tối thiểu, router và việc đã phân chỉ được nâng; effort chỉ làm
  * sàn khi Claude ghi rõ effort. Không kẹp chính sách: người gọi chạy fitPick sau đó.
  */
@@ -599,8 +617,11 @@ export function isSettled(claimed: ModelFamily | null, claimedEffort: Effort | n
 
 export type RouterPlan = {
   why: string
-  /** Mức tin cậy router tự báo, 0 đến 1; thiếu thì coi là 1. */
-  confidence: number
+  /**
+   * Mức tin cậy router tự báo, 0 đến 1; undefined khi thiếu hay không hợp lệ (0.7.8 G8): ba chỗ đọc prompt hỏi lại một lần, luật
+   * giữ mục tiêu tính như 1.
+   */
+  confidence: number | undefined
   relation: Relation
   isReference: boolean
   runReference: boolean
@@ -659,6 +680,36 @@ function parseTask(value: unknown, index: number, main: Choice, whole: { depth: 
 }
 
 /**
+ * Luồng chính đủ sức cho việc khó nhất nó giữ (0.7.8 G3): họ và effort cao nhất giữa main và các việc run: main (xét riêng họ và
+ * effort; việc lấy lựa chọn router ghi trước khi kẹp, main lấy kết quả đã kẹp), rồi qua fitPick lần nữa để chính sách phiên, allowFable và họ bị chặn vẫn là bước
+ * cuối. Không việc nào cao hơn main thì giữ nguyên kết quả kẹp của main.
+ */
+function liftMain(main: Fitted, held: ReadonlyArray<{ index: number; pick: Choice }>, kind: Kind, policy: Policy): Fitted {
+  let top = main.pick
+  let first: number | null = null
+  for (const t of held) {
+    const isHigherFamily = familyRank(t.pick.family) > familyRank(top.family)
+    const isHigherEffort = effortRank(t.pick.effort) > effortRank(top.effort)
+    if (!isHigherFamily && !isHigherEffort) continue
+    if (first === null) first = t.index
+    top = { family: isHigherFamily ? t.pick.family : top.family, effort: isHigherEffort ? t.pick.effort : top.effort }
+  }
+  if (first === null) return main
+  const refit = fitPick(top, kind, policy)
+  return { pick: refit.pick, notes: [...main.notes, `việc ${first} giữ ở luồng chính cần ${top.family}/${top.effort}: nâng luồng chính`, ...refit.notes] }
+}
+
+/**
+ * Việc từ mức substantial thì luồng chính không chạy haiku (0.7.8 G5): luồng chính phải tổng hợp kết quả của việc khó. Lên sonnet,
+ * giữ effort, qua fitPick lần nữa để chính sách phiên vẫn là bước cuối.
+ */
+function floorMain(main: Fitted, depth: Depth, kind: Kind, policy: Policy): Fitted {
+  if (main.pick.family !== 'haiku' || (depth !== 'substantial' && depth !== 'hard')) return main
+  const refit = fitPick({ family: 'sonnet', effort: main.pick.effort }, kind, policy)
+  return { pick: refit.pick, notes: [...main.notes, `việc mức ${depth}: luồng chính không chạy haiku`, ...refit.notes] }
+}
+
+/**
  * Đọc câu trả lời của router thành kế hoạch điều phối đã kiểm và kẹp. Null khi không
  * có JSON, khi thiếu lựa chọn hợp lệ cho luồng chính, hoặc khi mục tiêu mới không có câu mục tiêu.
  */
@@ -683,15 +734,20 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
   const referenceMain = refRaw ? fitPick(refRaw, kind, policy).pick : undefined
   const whole = { depth, volume, kind }
   const tasks: Task[] = []
+  /** Lựa chọn router ghi cho từng việc làm ở luồng chính, chưa kẹp (0.7.8 G3). */
+  const held: Array<{ index: number; pick: Choice }> = []
   const rawTasks = Array.isArray(raw['tasks']) ? raw['tasks'] : []
   for (const item of rawTasks.slice(0, TASK_LIMIT)) {
     const task = parseTask(item, tasks.length + 1, main.pick, whole, policy)
-    if (task) tasks.push(task)
+    if (!task) continue
+    tasks.push(task)
+    if (task.run === 'main') held.push({ index: task.index, pick: rawPick(item) ?? own })
   }
+  const lead = isReference ? main : floorMain(liftMain(main, held, kind, policy), depth, kind, policy)
   const mainWhy = typeof raw['main'] === 'object' && raw['main'] !== null ? text((raw['main'] as Raw)['why']) : ''
   return {
     why: text(raw['why'], 200),
-    confidence: confidenceOf(raw['confidence']) ?? 1,
+    confidence: confidenceOf(raw['confidence']),
     relation,
     isReference,
     runReference,
@@ -703,11 +759,11 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
     depth,
     volume,
     kind,
-    main: main.pick,
+    main: lead.pick,
     mainWhy,
     ...(referenceMain ? { referenceMain } : {}),
     tasks,
-    notes: main.notes,
+    notes: lead.notes,
     ...(rawTasks.length > TASK_LIMIT ? { droppedTasks: rawTasks.length - TASK_LIMIT } : {}),
   }
 }
@@ -1032,7 +1088,7 @@ export async function askRouter<T extends { confidence?: number }>(
   /** Câu trả lời đã đọc được nhưng cần đọc kiểm lại một lần ở effort cao (ví dụ quá nhiều yêu cầu): 0.7.0. */
   recheck?: (result: T) => boolean,
   /** Đồng hồ (mặc định Date.now) và hạn chung cho mọi lượt gọi (mặc định 1,5 lần timeout của request): 0.7.2. */
-  opts: { now?: () => number; budgetMs?: number } = {},
+  opts: { now?: () => number; budgetMs?: number; retryMissingConfidence?: boolean } = {},
 ): Promise<RouterOutcome<T>> {
   const now = opts.now ?? Date.now
   const budget = opts.budgetMs ?? Math.round((request.timeoutMs ?? 45_000) * BUDGET_FACTOR)
@@ -1050,8 +1106,11 @@ export async function askRouter<T extends { confidence?: number }>(
     return { result, reason: result === null ? failureReason(again) : '', usages, retried: true, failure: result === null ? failureKind(again) : null, ...limits(again ?? first) }
   }
   const firstResult = first?.isAnswered ? parse(first.text) : null
+  // Thiếu confidence (0.7.8 G8): chỉ khi bật retryMissingConfidence (ba chỗ đọc prompt) thì coi như dưới LOW_CONFIDENCE và hỏi lại;
+  // chấm subagent và kiểm lạc đề giữ như 0.7.7 (thiếu tính là 1, không hỏi lại).
+  const isMissing = opts.retryMissingConfidence === true && firstResult !== null && firstResult.confidence === undefined
   const firstConfidence = firstResult?.confidence ?? 1
-  const isConfident = firstResult !== null && firstConfidence >= LOW_CONFIDENCE
+  const isConfident = firstResult !== null && !isMissing && firstConfidence >= LOW_CONFIDENCE
   const needsCoverage = isConfident && recheck !== undefined && recheck(firstResult)
   const settled = (retried: boolean) => ({ result: firstResult, reason: failureReason(first), usages, retried, failure: firstResult === null ? failureKind(first) : null, ...limits(first) })
   if (first === null || !first.isAnswered || (isConfident && !needsCoverage)) return settled(false)
@@ -1064,10 +1123,31 @@ export async function askRouter<T extends { confidence?: number }>(
   const second = await ask(retryRequest(request, first.text, problem, { timeoutMs: Math.min(request.timeoutMs ?? budget, budget - spent), truncated: isTruncated })).catch(() => null)
   if (second) usages.push(second.usage)
   const secondResult = second?.isAnswered ? parse(second.text) : null
-  const pick =
-    secondResult !== null && (firstResult === null || (secondResult.confidence ?? 1) >= firstConfidence) ? secondResult : firstResult
+  // Thiếu confidence xếp thấp nhất khi bật retryMissingConfidence: lần hai thắng khi nó có confidence và lần đầu không có hay thấp hơn.
+  const isSecondBetter =
+    opts.retryMissingConfidence === true
+      ? secondResult !== null && (firstResult === null || (secondResult.confidence !== undefined && (isMissing || secondResult.confidence >= firstConfidence)))
+      : secondResult !== null && (firstResult === null || (secondResult.confidence ?? 1) >= firstConfidence)
+  const pick = isSecondBetter ? secondResult : firstResult
   return { result: pick, reason: pick === null ? failureReason(second) : '', usages, retried: true, failure: pick === null ? failureKind(second) : null, ...limits(second ?? first) }
 }
+
+/** Prompt dài hơn REQUEST_CHARS bị router lược phần giữa (0.7.8 G8). */
+export function isClippedPrompt(text: string): boolean {
+  return text.length > REQUEST_CHARS
+}
+
+function grouped(n: number): string {
+  return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+}
+
+/** Cảnh báo model khi router lược phần giữa của prompt (0.7.8 G8). */
+export function clippedWarning(length: number): string {
+  return `Prompt dài ${grouped(length)} ký tự; router chỉ đọc ${grouped(REQUEST_HEAD)} ký tự đầu và ${grouped(REQUEST_TAIL)} ký tự cuối`
+}
+
+/** Dòng context kèm prompt bị lược (0.7.8 G8), tối đa 200 ký tự. */
+export const CLIPPED_CONTEXT = '[focus-conductor] Prompt quá dài nên router chưa đọc phần giữa; tự đọc kỹ phần đó khi lập checklist.'
 
 /** Ràng buộc và yêu cầu của brief trước bị thay vì đầy trần (0.7.5), để báo một cảnh báo. */
 function replacedOf(prev: Brief, next: Brief): string[] {
@@ -1150,7 +1230,7 @@ function nextBriefRaw(
     return { brief, added: [], isNewGoal: true, replaced: replacedOf(prev, brief), held: false, dropped: 0 }
   }
   const open = options.openSteps ?? []
-  const held = prev !== null && !prev.isReference && plan.relation === 'new' && open.length > 0 && plan.confidence < NEW_GOAL_CONFIDENCE && mentionsGoal(prompt, prev, open)
+  const held = prev !== null && !prev.isReference && plan.relation === 'new' && open.length > 0 && (plan.confidence ?? 1) < NEW_GOAL_CONFIDENCE && mentionsGoal(prompt, prev, open)
   if (prev === null || (plan.relation === 'new' && !held)) {
     const fresh = briefOf(plan, prompt, (prev?.goalId ?? 0) + 1, now)
     const carried = prev !== null && !prev.isReference && !plan.constraints.some(isModelRule) ? prev.constraints.filter(isModelRule) : []
