@@ -18,7 +18,8 @@ import { storeKey, withNote } from '../lib/checkpoint'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
 import { shownPlan } from '../lib/mirror'
-import { PLAN_TOOL_FULL, RETRY_REPORT, RETRY_ROUNDS, noCheckReason, waiveAskText, blockText, firstErrorLine, joinStopReasons, retryDoneNote, retryEditNote, retryFailNotice, retryName, retryStepNote, retryStopReason, checkHintText, compactReminderText, criteriaNotice, driftContext, missingTasks, missingTasksNotice, needsChecklist, noChecklistReason, pendingNotice, qualityNotice, renderBulk, renderPlan, requirementsNotice, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice } from '../lib/text'
+import { forkFailures, forkFiles, forkResults, liveForks, mergeDue } from '../lib/forks'
+import { PLAN_TOOL_FULL, RETRY_REPORT, RETRY_ROUNDS, noCheckReason, waiveAskText, blockText, firstErrorLine, joinStopReasons, retryDoneNote, retryEditNote, retryFailNotice, retryName, retryStepNote, retryStopReason, checkHintText, compactReminderText, criteriaNotice, driftContext, missingTasks, missingTasksNotice, needsChecklist, noChecklistReason, pendingNotice, qualityNotice, renderBulk, renderPlan, requirementsNotice, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice, forkMergedNote } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -598,7 +599,9 @@ export function registerConsistency(on: On, ctx: Ctx): void {
           await showStatus($, await read($, view), ctx.options)
         }
       }
-      const scopePaths = remindSubagents ? (agentBrief?.scopePaths ?? []) : []
+      // Phiên con của một phần (0.7.9 F1): phạm vi là files của phần đó, theo cơ chế cảnh báo ngoài phạm vi sẵn có.
+      const forkScope = forkFiles(S.normalizeCore(await read($, coreState)), e.agentId)
+      const scopePaths = forkScope.length > 0 ? forkScope : remindSubagents ? (agentBrief?.scopePaths ?? []) : []
       const frame = agentBrief !== null ? await frameOf($, L.roots, agentBrief.goalId, scopePaths) : { root: null, cwd: null }
       const findings = observe(agentTracker, observation, { goal: meta.description, scopePaths, tier: meta.tier, ...frame }, [])
       const at = await $.clock.now()
@@ -677,6 +680,18 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     const moved = L.interjectNote
     L.interjectNote = null
     const notes = [...(nudge ? [nudge] : []), ...(compactNote !== null ? [compactNote] : []), ...(moved !== null ? [moved] : []), ...retryNotes]
+    // Gom (0.7.9 F1): mọi phần của việc tách đã có kết quả từ phiên con thì kết quả tool này kèm một câu, một lần mỗi việc, và một dòng
+    // fork-archive; pane và band thu các phần đó thành một dòng.
+    const merging = core.brief === null ? [] : mergeDue(core).filter(t => !L.forkMerging.has(`${core.brief?.goalId}:${t.index}`))
+    if (core.brief !== null && merging.length > 0) {
+      const goalId = core.brief.goalId
+      for (const t of merging) L.forkMerging.add(`${goalId}:${t.index}`)
+      const at = await $.clock.now()
+      for (const t of merging) record(at, 'fork-archive', { task: t.index, parts: t.split?.length ?? 0, results: forkResults(core, t.index) })
+      await update($, coreState, S.withForksMerged(goalId, merging.map(t => t.index)))
+      await flushDecisions((path, text) => $.fs.write(path, text))
+      notes.push(...merging.map(t => forkMergedNote(t.index)))
+    }
     const withNudge = (r: typeof result) => (notes.length > 0 ? { ...r, context: [...(r.context ?? []), ...notes] } : r)
     // Đến checkpoint mà script kiểm đã chạy chưa được nhận: gợi ý người dùng khai checkCommands (0.7.3).
     if (core.brief !== null && findings.some(f => f.kind === 'checkpoint')) await offerCheckHint($, core.brief.goalId, suggestCheckCommands(evidenceFor(core.brief.goalId)))
@@ -767,7 +782,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     // Đang dừng vì hạn mức (hay người dùng tạm dừng): cho kết thúc, nếu không sẽ vòng lặp chặn khi mọi tool bị từ chối.
     const quota = normalizeQuota(await read($, quotaState))
     if (quota.pause !== null) return result
-    const failed = failedFor(S.normalizeCore(await read($, coreState)).brief)
+    const failed = failedFor(S.normalizeCore(await read($, coreState)).brief).concat(forkFailures(S.normalizeCore(await read($, coreState))))
     // Turn đã nhận câu báo hạn mức mềm (0.7.5): quy tắc dừng theo hạn mức của prompt có thể đang áp, nên checklist còn mở không
     // chặn kết thúc, nhưng chỉ khi cửa sổ vẫn còn trong vùng báo (vòng sửa 2: cửa sổ đã làm mới thì chặn như cũ); việc giao
     // subagent đã lỗi vẫn bị chặn.
@@ -831,6 +846,14 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       // Tiến độ từng việc (0.6.1): chỉ 'answer' là xong; còn lại là lỗi, hoặc bị cắt nếu đang tạm dừng vì hạn mức.
       const end = agentEnd(e.reason, normalizeQuota(await read($, quotaState)).pause !== null)
       await update($, coreState, S.withAgentEnd(agentId, end.agent, at))
+      // Phiên con của một phần (0.7.9 F1): phần xong hay lỗi; lỗi thì Stop chặn tới khi phần được làm lại hay ghi skipped, blocked.
+      const forked = liveForks(S.normalizeCore(await read($, coreState))).find(p => p.agentId === agentId && p.state === 'running')
+      if (forked !== undefined) {
+        const outcome: 'done' | 'failed' = end.agent === 'done' ? 'done' : 'failed'
+        await update($, coreState, S.withForkEnd(agentId, outcome))
+        record(at, 'fork', { task: forked.task, part: forked.part, result: outcome })
+        await flushDecisions((path, text) => $.fs.write(path, text))
+      }
       // Việc đã phân mà agent này làm: ghi xong hoặc lỗi (lỗi thì Stop và cảnh báo cuối turn nhắc giao lại).
       if (meta?.taskIndex !== undefined) {
         moveDelegation(meta.goalId, meta.taskIndex, end.delegation)

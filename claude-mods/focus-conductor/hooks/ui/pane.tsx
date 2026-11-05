@@ -9,6 +9,7 @@ import { estimateLine, formatCost, ledgerLines, sessionUsd } from '../lib/ledger
 import type { View } from '../lib/state'
 import { shownPlan } from '../lib/mirror'
 import { runningGroups, runningTitles, stepTaskRows, taskRows } from '../lib/progress'
+import { liveForks } from '../lib/forks'
 import { countLabel, progress } from '../lib/text'
 import type { BandQuota, QuotaPaneText } from '../lib/text'
 import { attentionItems } from './attention'
@@ -660,7 +661,9 @@ export function renderPane(
   }
   const costHead = `${padEnd('', labelWidth)}${hasBars ? ' '.repeat(BAR + 1) : ''} ${padStart(l.costGoal, moneyWidth)} ${padStart(l.costSession, moneyWidth)} ${padStart(l.costCalls, callWidth)}`
   const totalCalls = groups.reduce((sum, g) => sum + ledger.session[g.key].calls, 0)
-  const extraLines = [...ledgerLines(ledger, view.lang).slice(2), ...(estimateLine(log, view.lang) ? [estimateLine(log, view.lang) as string] : [])]
+  // Phiên con (0.7.9 F1) tính vào nhóm subagent, không thêm nhóm: một dòng ghi số phiên con của mục tiêu.
+  const forkCount = liveForks(view.core).length
+  const extraLines = [...ledgerLines(ledger, view.lang).slice(2), ...(estimateLine(log, view.lang) ? [estimateLine(log, view.lang) as string] : []), ...(forkCount > 0 ? [l.forkCost(forkCount)] : [])]
   const cost = (
     <Box flexDirection="column">
       <Text dimColor wrap="truncate-end">

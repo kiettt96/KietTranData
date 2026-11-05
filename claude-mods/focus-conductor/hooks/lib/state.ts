@@ -6,7 +6,7 @@
 
 import type { PluginOptions } from 'claude-code'
 
-import type { AgentProgress, AgentState, AgentTally, ArchivedGoal, Brief, CheckHint, Core, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, RetryItem, RetryState, Route, Waiver, WaiverState, RouteEvent, RouterFail, TurnFault, Warning } from '../../types'
+import type { AgentProgress, AgentState, AgentTally, ArchivedGoal, Brief, CheckHint, Core, ForkPart, ForkPartState, ForkState, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, RetryItem, RetryState, Route, Waiver, WaiverState, RouteEvent, RouterFail, TurnFault, Warning } from '../../types'
 import { restorableSteps } from './drift'
 import type { Tokens } from './cost'
 import { addUsage, emptyLedger, nextGoal, planSwitch, resetLedger } from './ledger'
@@ -45,6 +45,7 @@ export const EMPTY_CORE: Core = {
   retry: { goalId: -1, items: [] },
   waivers: { goalId: -1, items: [] },
   noCheckNudged: -1,
+  forks: { goalId: -1, parts: [], merged: [], off: 'none' },
 }
 
 const LOG_LIMIT = 60
@@ -233,6 +234,71 @@ export function normalizeCore(raw: Partial<Core>): Core {
     retry: normalizeRetry(raw.retry),
     waivers: normalizeWaivers(raw.waivers),
     noCheckNudged: typeof raw.noCheckNudged === 'number' ? raw.noCheckNudged : -1,
+    forks: normalizeForks(raw.forks),
+  }
+}
+
+/** Số lần giao phiên con giữ lại cho một mục tiêu (0.7.9 F1) [Giả định: 6 phần mỗi việc, vài việc tách mỗi mục tiêu]. */
+const FORK_PART_LIMIT = 30
+
+/** Phiên con từ trạng thái đã lưu (0.7.9 F1); Core từ bản trước không có trường này thì rỗng, off là none. */
+function normalizeForks(raw: Partial<ForkState> | undefined): ForkState {
+  if (raw === undefined || raw === null) return { goalId: -1, parts: [], merged: [], off: 'none' }
+  const off = raw.off === 'logged' || raw.off === 'engine' ? raw.off : 'none'
+  const parts = (raw.parts ?? []).map(
+    (p: Partial<ForkPart>): ForkPart => ({ task: p.task ?? 0, part: p.part ?? '', toolUseId: p.toolUseId ?? '', agentId: p.agentId ?? null, state: p.state ?? 'running' }),
+  )
+  return { goalId: raw.goalId ?? -1, parts, merged: raw.merged ?? [], off }
+}
+
+/** Phần chạy bằng phiên con bắt đầu (0.7.9 F1): thay lần giao cũ của cùng phần (giao lại một phần lỗi thì phần lỗi được làm lại). */
+export function withForkStart(goalId: number, part: ForkPart): (core: Core) => Core {
+  return core => {
+    const n = normalizeCore(core)
+    const same = n.forks.goalId === goalId
+    const parts = same ? n.forks.parts.filter(p => !(p.task === part.task && p.part === part.part)) : []
+    return { ...n, forks: { ...n.forks, goalId, parts: [...parts, part].slice(-FORK_PART_LIMIT), merged: same ? n.forks.merged : [] } }
+  }
+}
+
+/** Đổi lần giao phiên con theo tool_use_id (không có thì giữ nguyên). */
+export function withForkCall(toolUseId: string, change: (part: ForkPart) => ForkPart): (core: Core) => Core {
+  return core => {
+    const n = normalizeCore(core)
+    if (!n.forks.parts.some(p => p.toolUseId === toolUseId)) return n
+    return { ...n, forks: { ...n.forks, parts: n.forks.parts.map(p => (p.toolUseId === toolUseId ? change(p) : p)) } }
+  }
+}
+
+/** Phiên con của agentId kết thúc: xong hay lỗi; phần đã chuyển về luồng chính giữ nguyên. */
+export function withForkEnd(agentId: string, state: Exclude<ForkPartState, 'running' | 'returned'>): (core: Core) => Core {
+  return core => {
+    const n = normalizeCore(core)
+    return { ...n, forks: { ...n.forks, parts: n.forks.parts.map(p => (p.agentId === agentId && p.state === 'running' ? { ...p, state } : p)) } }
+  }
+}
+
+/** Engine từ chối phiên con: tắt tách đến hết phiên; các phần chưa xong của `task` (nếu có) chuyển về luồng chính. */
+export function withForksReturned(task: number | null): (core: Core) => Core {
+  return core => {
+    const n = normalizeCore(core)
+    const parts = n.forks.parts.map(p => (task !== null && p.task === task && p.state !== 'done' ? { ...p, state: 'returned' as const } : p))
+    return { ...n, forks: { ...n.forks, parts, off: 'engine' } }
+  }
+}
+
+/** Đã ghi dòng fork-off vì option tắt (một lần mỗi phiên). */
+export const withForkOffLogged = (c: Core): Core => {
+  const n = normalizeCore(c)
+  return n.forks.off === 'none' ? { ...n, forks: { ...n.forks, off: 'logged' } } : n
+}
+
+/** Việc đã gom đủ kết quả của các phiên con (câu gom và dòng fork-archive đã ghi). */
+export function withForksMerged(goalId: number, tasks: readonly number[]): (core: Core) => Core {
+  return core => {
+    const n = normalizeCore(core)
+    if (n.forks.goalId !== goalId) return n
+    return { ...n, forks: { ...n.forks, merged: [...new Set([...n.forks.merged, ...tasks])] } }
   }
 }
 
@@ -569,7 +635,8 @@ export const withSysTokens =
 /** Xóa mục tiêu, checklist, route, cảnh báo và nâng cấp; giữ nhật ký, hệ số hiệu chỉnh và phần cố định đã đo. */
 export const resetCore = (c: Core): Core => {
   const n = normalizeCore(c)
-  return { ...EMPTY_CORE, log: n.log, ledger: resetLedger(n.ledger), sysTokens: n.sysTokens }
+  // Engine từ chối phiên con (0.7.9 F1) là sự thật của phiên, không của mục tiêu: giữ qua lần đặt lại.
+  return { ...EMPTY_CORE, log: n.log, ledger: resetLedger(n.ledger), sysTokens: n.sysTokens, forks: { ...EMPTY_CORE.forks, off: n.forks.off } }
 }
 
 /** Ghi trạng thái các việc giao subagent của một mục tiêu (bản sao để pane và status đọc). */

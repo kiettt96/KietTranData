@@ -47,7 +47,27 @@ export type Task = {
   why: string
   /** Số thứ tự (từ 1) các yêu cầu của prompt (Brief.requirements) mà việc này phủ; vắng khi router không ghi (0.7.0). */
   covers?: number[]
+  /**
+   * Các phần chạy song song bằng phiên con (0.7.9 F1): chỉ có ở việc run: main, volume large, từ 2 phần, file không giao nhau, đã kẹp
+   * theo maxForks. Vắng khi router không ghi, khi option forks tắt, hay khi mod bỏ vì sai điều kiện.
+   */
+  split?: ForkSplit[]
 }
+
+/** Một phần của việc tách (0.7.9 F1): mã phần (a, b, c...), tên phần, file phần đó được sửa (rỗng là chỉ đọc). */
+export type ForkSplit = { part: string; title: string; files: string[] }
+
+/** Trạng thái một phần chạy bằng phiên con: đang chạy, xong, lỗi (phải làm lại hay ghi skipped, blocked), hay đã chuyển về luồng chính vì engine từ chối. */
+export type ForkPartState = 'running' | 'done' | 'failed' | 'returned'
+
+/** Một lần giao phiên con cho một phần của việc (0.7.9 F1), ghép với lời gọi Agent qua tool_use_id và với agent qua agentId. */
+export type ForkPart = { task: number; part: string; toolUseId: string; agentId: string | null; state: ForkPartState }
+
+/**
+ * Phiên con của mục tiêu goalId (0.7.9 F1): các phần đã giao, các việc đã gom kết quả (câu gom và dòng fork-archive đã ghi). `off` theo
+ * phiên, không theo mục tiêu: `logged` là đã ghi fork-off vì option tắt, `engine` là engine từ chối phiên con nên tắt tách đến hết phiên.
+ */
+export type ForkState = { goalId: number; parts: ForkPart[]; merged: number[]; off: 'none' | 'logged' | 'engine' }
 
 /** Kết quả router đọc prompt: mục tiêu cuối, việc, ràng buộc, tiêu chí, và điều phối. */
 export type Brief = {
@@ -361,6 +381,8 @@ export type Core = {
   waivers: WaiverState
   /** Mục tiêu đã chặn một lần vì sửa mà chưa chạy lần kiểm nào (0.7.9 Y6); -1 là chưa. */
   noCheckNudged: number
+  /** Phiên con của các việc tách (0.7.9 F1). Vắng ở trạng thái cũ: chưa có phần nào, off là none. */
+  forks: ForkState
 }
 
 /**

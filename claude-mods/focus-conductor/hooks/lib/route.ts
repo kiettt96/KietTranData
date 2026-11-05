@@ -287,6 +287,8 @@ function dice(a: ReadonlySet<string>, b: ReadonlySet<string>): number {
 
 export type TaskMatch = {
   task?: Task
+  /** Mã phần (0.7.9 F1) khi description mở đầu "Việc Na" và việc N có phần a trong split; vắng với "Việc N". */
+  part?: string
   /** Lời gọi không khớp mà có dấu hiệu nhắm một việc đã phân: lý do, chỉ để ghi log và chỉnh dần. */
   miss?: string
 }
@@ -301,6 +303,14 @@ export type TaskMatch = {
 export function taskMatch(tasks: readonly Task[], description: string): TaskMatch {
   if (tasks.length === 0) return {}
   const folded = fold(description)
+  // Mã phần của việc tách (0.7.9 F1): "Việc 3a" khớp Việc 3 phần a chỉ khi Việc 3 có phần a; còn lại như không có số việc (\b của số
+  // việc không qua được chữ dính liền, nên "Việc 31" vẫn là việc 31 và "Việc 3x" không khớp Việc 3).
+  const parted = folded.match(/^\s*(?:viec|task)\s*#?\s*(\d+)([a-f])\b/)
+  if (parted) {
+    const owner = tasks.find(t => t.index === Number(parted[1]))
+    const part = owner?.split?.find(p => p.part === parted[2])
+    if (owner !== undefined && part !== undefined) return { task: owner, part: part.part }
+  }
   const numbered = folded.match(/^\s*(?:viec|task)\s*#?\s*(\d+)\b/)
   if (numbered) {
     const hit = tasks.find(t => t.index === Number(numbered[1]))

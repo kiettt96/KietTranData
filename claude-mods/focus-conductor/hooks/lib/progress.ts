@@ -2,8 +2,9 @@
 // giao subagent) và việc Claude tự giao. Hàm thuần, chỉ đọc Core (sống qua hot-reload vì nằm trong $.state).
 // Nguyên tắc: thanh chỉ thể hiện phần trăm khi có số bước thật; không có thì chỉ thể hiện trạng thái.
 
-import type { Choice, Core, PlanStep } from '../../types'
+import type { AgentProgress, Choice, Core, PlanStep, Task } from '../../types'
 import { isFullyClosed } from './drift'
+import { liveForks } from './forks'
 import { mirrorPlan, shownPlan } from './mirror'
 import { matchTask } from './route'
 import { tallyKey } from './state'
@@ -61,6 +62,8 @@ export type TaskRow = {
   counts?: { done: number; total: number; running: number }
   /** Số lô lỗi của việc nhiều lô, chỉ ghi khi có lô lỗi (0.7.6, U1). */
   failed?: number
+  /** Dòng phiên con của việc tách (0.7.9 F1): một phần (mã phần), hay dòng đã gom (số phiên con). Không mang `index` để không đi cùng bước. */
+  fork?: { task: number; part?: string; merged?: number }
 }
 
 /** Thứ tự ưu tiên khi band thiếu chỗ: đang chạy, rồi lỗi hay bị cắt, rồi chờ hoặc chưa bắt đầu, rồi xong. */
@@ -142,6 +145,7 @@ export function taskRows(core: Core, now: number): TaskRow[] {
         bar: own.length > 0 ? { kind: 'steps', plan: own } : { kind: 'state', state },
         state,
       })
+      rows.push(...forkRows(core, task, agents, now))
       continue
     }
     const runs = agents.filter(item => item.taskIndex === task.index)
@@ -164,6 +168,33 @@ export function taskRows(core: Core, now: number): TaskRow[] {
   for (const t of tallies) if (t.taskIndex === undefined && t.spawned > 1) rows.push(tallyRow(t, t.title, null))
   for (const item of agents) if (item.taskIndex === undefined && grouped(tallyKey(item)) === undefined) rows.push(agentRow(item))
   return rows
+}
+
+/**
+ * Dòng phiên con của một việc tách (0.7.9 F1), là dòng con của việc đó: việc đã gom thì một dòng "k phiên con đã gom"; chưa gom thì mỗi
+ * phần một dòng (phần lỗi giữ tới khi được làm lại). Phần đã chuyển về luồng chính vì engine từ chối không có dòng.
+ */
+function forkRows(core: Core, task: Task, agents: readonly AgentProgress[], now: number): TaskRow[] {
+  if ((task.split?.length ?? 0) < 2) return []
+  const parts = liveForks(core).filter(p => p.task === task.index && p.state !== 'returned')
+  if (parts.length === 0) return []
+  if (core.forks.merged.includes(task.index)) {
+    return [{ key: `forks-${task.index}`, kind: 'agent', title: task.title, pick: null, bar: { kind: 'state', state: 'done' }, state: 'done', fork: { task: task.index, merged: parts.length } }]
+  }
+  return parts.map(p => {
+    const agent = agents.find(item => item.agentId === p.agentId)
+    const state: TaskState = p.state === 'done' ? 'done' : p.state === 'failed' ? 'failed' : 'running'
+    return {
+      key: `fork-${task.index}${p.part}`,
+      kind: 'agent',
+      title: task.split?.find(s => s.part === p.part)?.title ?? task.title,
+      pick: agent !== undefined ? { family: agent.family, effort: agent.effort ?? 'medium' } : null,
+      bar: { kind: 'state', state },
+      state,
+      ...(agent !== undefined ? { tools: agent.tools, elapsedMs: Math.max(0, (agent.endedAt ?? now) - agent.startedAt) } : {}),
+      fork: { task: task.index, part: p.part },
+    }
+  })
 }
 
 /**

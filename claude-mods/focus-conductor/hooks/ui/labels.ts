@@ -96,6 +96,8 @@ const VI = {
   taskMain: 'Việc chính',
   taskNumber: (n: number) => `Việc ${n}`,
   taskOwn: 'Claude tự giao',
+  forksMerged: (n: number) => `${n} phiên con đã gom`,
+  forkCost: (n: number) => `Nhóm subagent gồm ${n} phiên con`,
   taskState: { pending: 'chờ giao', idle: 'chưa bắt đầu', running: 'đang chạy', done: 'xong', failed: 'lỗi, chưa giao lại', cut: 'bị cắt vì tạm dừng' } as Record<'pending' | 'idle' | 'running' | 'done' | 'failed' | 'cut', string>,
   taskDoing: 'đang làm',
   taskTools: (n: number) => `${n} tool`,
@@ -221,6 +223,8 @@ const EN: typeof VI = {
   taskMain: 'Main work',
   taskNumber: n => `Task ${n}`,
   taskOwn: 'Delegated by Claude',
+  forksMerged: n => `${n} ${n === 1 ? 'fork' : 'forks'} merged`,
+  forkCost: n => `Subagent group includes ${n} ${n === 1 ? 'fork' : 'forks'}`,
   taskState: { pending: 'not delegated yet', idle: 'not started', running: 'running', done: 'done', failed: 'failed, not re-delegated', cut: 'cut by pause' },
   taskDoing: 'in progress',
   taskTools: n => `${n} ${n === 1 ? 'tool' : 'tools'}`,
@@ -312,7 +316,9 @@ export function stepTaskMeta(l: typeof VI, row: { kind: 'main' | 'direct' | 'age
  * Tên một dòng tiến độ (0.6.1): "Việc chính: ...", "Việc N: ...", hay "Claude tự giao: ...". Dùng chung cho band và pane.
  * Việc có mã (BƯỚC 4, K4.2, Việc 3) hiện chính tiêu đề mang mã đó, không ghép "Việc 5: BƯỚC 4: ..." (vòng sửa 2 của 0.7.5).
  */
-export function taskLabel(l: typeof VI, row: { kind: 'main' | 'direct' | 'agent'; index?: number; title: string }): string {
+export function taskLabel(l: typeof VI, row: { kind: 'main' | 'direct' | 'agent'; index?: number; title: string; fork?: { task: number; part?: string; merged?: number } }): string {
+  // Phiên con của việc tách (0.7.9 F1): "Việc 3a: <phần>", hay một dòng "Việc 3: k phiên con đã gom" khi đã gom.
+  if (row.fork !== undefined) return row.fork.merged !== undefined ? `${l.taskNumber(row.fork.task)}: ${l.forksMerged(row.fork.merged)}` : `${l.taskNumber(row.fork.task)}${row.fork.part ?? ''}: ${row.title}`
   if (row.index !== undefined && hasTitleCode(row.title)) return row.title
   const head = row.kind === 'main' ? l.taskMain : row.index !== undefined ? l.taskNumber(row.index) : l.taskOwn
   return `${head}: ${row.title}`

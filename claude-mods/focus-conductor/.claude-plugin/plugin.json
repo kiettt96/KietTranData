@@ -105,6 +105,18 @@
       "description": "Subagent đã điều phối sửa file ngoài phạm vi, lặp lỗi hoặc vượt ngân sách thì được nhắc kèm việc được giao. Mặc định tắt để tránh nhiễu",
       "default": false
     },
+    "forks": {
+      "type": "boolean",
+      "title": "Tách việc lớn thành phiên con (forks)",
+      "description": "Bật thì router được đề xuất tách một việc luồng chính giữ (run main, khối lượng large) thành 2 đến maxForks phần độc lập, không sửa chung file, chạy song song bằng phiên con (Agent subagent_type fork); mod kẹp đề xuất, dặn cách gọi, theo dõi từng phần và gom kết quả. Phiên con luôn chạy model và effort của luồng chính; việc giao subagent không bị tách. Engine không mở được phiên con thì mod tắt tách đến hết phiên. Mặc định tắt: router và context giữ nguyên như khi chưa có tính năng này. (en) When on, the router may split a task the main thread keeps (run main, volume large) into 2 to maxForks independent parts that edit no common file, run in parallel as forks (Agent subagent_type fork); the mod checks the split, says how to call the forks, tracks each part and merges the results. A fork always runs the main thread's model and effort; tasks delegated to subagents are never split. If the engine cannot start a fork, splitting stays off for the rest of the session. Off by default: the router prompt and the context stay as they were before this feature.",
+      "default": false
+    },
+    "maxForks": {
+      "type": "number",
+      "title": "Số phần tối đa của một việc tách (max forks)",
+      "description": "forks bật: số phiên con tối đa cho một việc, số nguyên từ 0 đến 6 (mặc định 3); router chia nhiều hơn thì phần dư gộp vào phần cuối. 0 (hay 1) là tắt tách. (en) With forks on: the most forks for one task, an integer from 0 to 6 (default 3); extra parts the router proposes are merged into the last part. 0 (or 1) turns splitting off.",
+      "default": 3
+    },
     "semanticDrift": {
       "type": "boolean",
       "title": "Kiểm lạc đề theo nội dung",

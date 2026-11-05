@@ -6,7 +6,7 @@
 
 import { describe, expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
-import type { On } from 'claude-code'
+import type { ModelTextBlock, On } from 'claude-code'
 import type { Task } from '../../types'
 import { parseRoute, routerRequest, routerSystem } from '../../hooks/lib/router'
 import type { Policy, RouterPlan } from '../../hooks/lib/router'
@@ -229,7 +229,7 @@ describe('F1: router đề xuất tách, mod kẹp trong parseRoute', () => {
 
   test('18. routerSystem khi bật forks dài thêm không quá 400 ký tự, nằm trong khối cache, có trường split; nhóm luật cũ giữ nguyên chữ', () => {
     const before = routerSystem()
-    const system = routerRequest({ text: 'x', prev: null, ran: null, policy: withForks(3), model: 'sonnet' }).system ?? []
+    const system = (routerRequest({ text: 'x', prev: null, ran: null, policy: withForks(3), model: 'sonnet' }).system ?? []) as readonly ModelTextBlock[]
     expect(system.length).toBe(1)
     expect(system[0]?.cache).toBe(true)
     const after = system[0]?.text ?? ''
@@ -245,7 +245,7 @@ describe('F1: router đề xuất tách, mod kẹp trong parseRoute', () => {
     expect(text.length).toBe(8826)
     expect(hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))).toBe('713126c2a23389b3d457a3b36ab6f5000b758ada5fb631d2c0717a42e11ece0a')
     for (const policy of [OPEN, withForks(0)]) {
-      expect(routerRequest({ text: 'x', prev: null, ran: null, policy, model: 'sonnet' }).system?.[0]?.text).toBe(text)
+      expect(((routerRequest({ text: 'x', prev: null, ran: null, policy, model: 'sonnet' }).system ?? []) as readonly ModelTextBlock[])[0]?.text).toBe(text)
     }
     expect(routed(big(), OPEN).tasks.every(t => t.split === undefined)).toBe(true)
   })

@@ -119,7 +119,7 @@ const WAIVE_USAGE = `Cách dùng: /conductor waive <số thứ tự hoặc lện
 
 export function registerCommand(on: On, ctx: Ctx): void {
   const L = ctx.local
-  const { blocked, flushDecisions, delegationItems, expectedMain, failures, noteRouterTime, policy, ranText, record, resetLocal, routerFamily, routerModel, routerTimeLine, trackDelegations, untrackedAgents, wantedPick } = ctx
+  const { blocked, flushDecisions, delegationItems, expectedMain, failures, noteRouterTime, ranText, record, resetLocal, routerFamily, routerModel, routerTimeLine, trackDelegations, untrackedAgents, wantedPick } = ctx
   const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
   const mode = derive([modeState], modeOf(ctx.options))
 
@@ -197,7 +197,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       if (arg === '') return { text: 'Cần mô tả mục tiêu: /conductor goal kèm mô tả' }
       const before = S.normalizeCore(await read($, coreState))
       const prev = before.brief
-      const rules = policy()
+      const rules = ctx.routePolicy(before)
       // Lệnh do người dùng gõ: luôn hỏi router, kể cả khi router đang tạm ngừng sau các lần lỗi.
       const request = routerRequest({ text: arg, prev, ran: null, policy: rules, model: routerModel, sessionFamily: L.sessionFamily, isForcedNew: true })
       const startedAt = await $.clock.now()
@@ -258,7 +258,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       if (last === null || (current?.goalId ?? null) !== last.goalId) {
         return { text: 'Không có prompt nào của mục tiêu hiện tại để router đọc lại. Đặt mục tiêu bằng /conductor goal kèm mô tả.' }
       }
-      const rules = policy()
+      const rules = ctx.routePolicy(before)
       // Lệnh do người dùng gõ: luôn hỏi router, kể cả khi router đang tạm ngừng.
       const request = routerRequest({ text: last.text, prev: last.prev, ran: ranText(before), policy: rules, model: routerModel, sessionFamily: L.sessionFamily })
       const startedAt = await $.clock.now()

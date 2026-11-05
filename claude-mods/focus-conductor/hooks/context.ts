@@ -14,7 +14,7 @@ import { EMPTY_ERRORS, caught, noteModError, errorFileText, errorLines, localIso
 import type { ErrorEvent, ErrorFile } from './lib/errlog'
 import { FIXED_ERRORS } from './lib/fixed-errors'
 import { MOD_VERSION } from './lib/version'
-import { fitPick, skipKey } from './lib/router'
+import { MAX_FORKS, fitPick, skipKey } from './lib/router'
 import type { AgentRoute, Policy } from './lib/router'
 
 /** Prompt do chính người dùng gửi (hoặc lịch họ đặt), không phải thông báo nội bộ. */
@@ -154,6 +154,15 @@ export function createContext(options: PluginOptions) {
     noAutoResume: false,
     /** Mốc hết hạn xác nhận của /conductor errors clear (0.7.9 L1): gõ lại trong 10 giây thì mới xóa. */
     errorsClearArmedUntil: 0,
+    /**
+     * Lời gọi Agent của phiên con đang chạy (0.7.9 F1), theo tool_use_id: agent.spawn có fork true cùng tool_use_id đánh dấu `spawned`.
+     * Lời gọi lỗi mà chưa có spawn nào là engine từ chối phiên con; đã spawn rồi mới lỗi là lỗi của phần đó.
+     */
+    forkCalls: new Map<string, { spawned: boolean; task?: number; part?: string }>(),
+    /** Đã báo engine từ chối phiên con trong phiên (0.7.9 F1): câu chuyển về luồng chính và dòng fork-off chỉ một lần. */
+    forkRefused: false,
+    /** Việc đã chèn câu gom ("goalId:việc", 0.7.9 F1): hai kết quả tool song song không chèn hai lần; Core.forks.merged giữ qua hot reload. */
+    forkMerging: new Set<string>(),
   }
   const blocked = new Set<ModelFamily>()
   // Một lần lỗi có thể chỉ là tạm thời (429, quá tải): chỉ chặn một họ model
@@ -208,6 +217,8 @@ export function createContext(options: PluginOptions) {
   const routerFallback = options['routerFallback'] === 'reuse' ? 'reuse' : 'session'
   const strictDelegation = options['strictDelegation'] === 'remind' || options['strictDelegation'] === 'block' ? options['strictDelegation'] : 'off'
   const remindSubagents = options['remindSubagents'] === true
+  // Tách việc lớn thành phiên con (0.7.9 F1): option forks mặc định tắt; maxForks từ 0 đến 6, mặc định 3. Tắt hay 0 thì maxForks là 0.
+  const maxForks = forksOf(options)
   // Bật mặc định từ 0.7.0 (tắt khi đặt false); tự tắt gần ngưỡng hạn mức và tối đa một lượt mỗi 10 phút.
   const semanticDrift = options['semanticDrift'] !== false
   const driftEveryMs = driftIntervalMs(options['driftIntervalMinutes'])
@@ -253,6 +264,14 @@ export function createContext(options: PluginOptions) {
   /** Chính sách áp lên mọi lựa chọn của router: allowFable, model của phiên, họ đang bị chặn, loại agent dùng được. */
   function policy(): Policy {
     return { allowFable: options['allowFable'] === true, blocked, session: sessionModel(), agents: agentCatalog() }
+  }
+
+  /**
+   * Chính sách cho lượt router đọc prompt (0.7.9 F1): policy() kèm số phần tối đa của việc tách; engine đã từ chối phiên con trong
+   * phiên (lưu trong Core nên giữ qua hot reload) thì 0.
+   */
+  function routePolicy(core: Core): Policy {
+    return { ...policy(), forks: core.forks.off === 'engine' || local.forkRefused ? 0 : maxForks }
   }
 
   /** Loại agent dùng được: ba loại có sẵn, loại engine đang mời, và loại người dùng khai trong agentTypes. */
@@ -433,6 +452,8 @@ export function createContext(options: PluginOptions) {
     local.turnRoute = { turnId: '', route: null }
     local.pendingInterject = null
     local.interjectNote = null
+    local.forkCalls.clear()
+    local.forkMerging.clear()
     local.turnContext = 0
     local.compaction = { pending: false, lastContext: 0, skipNext: false }
     local.noticeTurn = null
@@ -801,6 +822,7 @@ export function createContext(options: PluginOptions) {
     isAgentRouterPaused,
     isRouterPaused,
     mainDecision,
+    maxForks,
     modelMap,
     moveDelegation,
     noteAgentRouter,
@@ -819,6 +841,7 @@ export function createContext(options: PluginOptions) {
     rememberAgentRoute,
     remindSubagents,
     resetLocal,
+    routePolicy,
     routerFallback,
     routerFamily,
     routerModel,
@@ -852,6 +875,17 @@ export type ErrorIO = {
 /** Số lỗi tối đa giữ trong bộ đệm giữa hai lần ghi. */
 const ERROR_BUFFER_MAX = 400
 export const DEFAULT_ERROR_LOG = '.focus-conductor/errors.json'
+
+/** Số phần tối đa của việc tách (0.7.9 F1): option forks phải là true; maxForks số nguyên 0 đến 6, vắng hay sai là 3. Tắt thì 0. */
+export function forksOf(options: PluginOptions): number {
+  if (options['forks'] !== true) return 0
+  const given = options['maxForks']
+  const raw = given === undefined || given === null || given === '' ? DEFAULT_FORKS : Number(given)
+  return Number.isInteger(raw) ? Math.min(MAX_FORKS, Math.max(0, raw)) : DEFAULT_FORKS
+}
+
+/** maxForks mặc định (0.7.9 F1). */
+export const DEFAULT_FORKS = 3
 
 /** Option errorLog: chuỗi rỗng hay không phải chuỗi là mặc định, "off" là tắt (trả chuỗi rỗng). */
 export function errorLogPath(raw: unknown): string {
