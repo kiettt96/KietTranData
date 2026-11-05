@@ -1907,4 +1907,5 @@ export const MUTANTS: Mutant[] = [
   { id: "078-G9r", file: "hooks/lib/router.ts", note: "request router không nói tin đến khi luồng chính đang làm", old: "    ...(args.interject ? [`The user sent this", new: "    ...(false ? [`The user sent this" },
   { id: "078-V1a", file: "hooks/parts/session.ts", note: "chỉ nhận door attachment, bỏ door delivery", old: "(e.door !== 'delivery' && e.door !== 'attachment')", new: "e.door !== 'attachment'" },
   { id: "078-V2a", file: "hooks/parts/turn.ts", note: "turn mới không bỏ câu báo chuyển việc của turn trước", old: "    L.interjectNote = null\n    return next(e)", new: "    return next(e)" },
+  { id: "078-V4a", file: "hooks/parts/session.ts", note: "việc chờ chuyển của mục tiêu cũ áp sang mục tiêu mới", old: "if (brief === null || brief.goalId !== pending.goalId) return next(e)", new: "if (brief === null) return next(e)" },
 ]
