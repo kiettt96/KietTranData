@@ -1934,4 +1934,5 @@ export const MUTANTS: Mutant[] = [
   { id: "079-R2b", file: "scripts/verdict.ts", note: "quá giờ tính là bị bắt", old: "  if (r.timedOut) return 'TIMEOUT'\n", new: "  if (r.timedOut) return 'KILLED'\n" },
   { id: "079-Y1a", file: "hooks/lib/drift/evidence.ts", note: "bỏ luật bỏ qua giá trị của cờ", old: "    if (VALUE_FLAGS.has(tokens[i - 1] ?? '')) return false\n", new: "" },
   { id: "079-Y1b", file: "hooks/lib/drift/evidence.ts", note: "công cụ kiểm tĩnh không so theo tên", old: "  return runnerOf(command) ?? staticTool(command) ?? `=${command}`", new: "  return runnerOf(command) ?? `=${command}`" },
+  { id: "079-Y2a", file: "hooks/parts/consistency.ts", note: "turn đã nhận báo hạn mức mềm vẫn qua cổng lệnh kiểm", old: "const gate = isNoticed ? { reason: null, isPlanChanged: false } : await retryGate(", new: "const gate = false ? { reason: null, isPlanChanged: false } : await retryGate(" },
 ]
