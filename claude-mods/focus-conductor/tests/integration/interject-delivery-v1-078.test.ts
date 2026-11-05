@@ -4,7 +4,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
-import { base, plan, step, submit, task } from '../support/engine'
+import { base, conductor, plan, step, submit, task } from '../support/engine'
 import type { Json, Seen } from '../support/engine'
 
 const PLAN = 'mcp__focus-conductor__plan'
@@ -112,5 +112,22 @@ describe('V2: câu báo chuyển việc không rơi sang turn sau', () => {
     await interject($, 'Sửa luôn race condition ghi cache')
     await row($, 'queued_command', 'delivery')
     expect(await noteOf($)).toContain('Yêu cầu chen ngang đã vào turn đang chạy')
+  })
+})
+
+describe('V4a: việc chờ chuyển của mục tiêu cũ không áp sang mục tiêu mới', () => {
+  test('tin chen ngang cho mục tiêu 1 đang chờ, người dùng đặt mục tiêu 2 bằng /conductor goal, rồi queued_command tới: không đổi run việc nào, không có interject-deliver', LOG, async ($, on) => {
+    const lines = logLines(on)
+    const many = plan({ goal: 'Làm việc khác', depth: 'light', volume: 'medium', main: { model: 'sonnet', effort: 'medium' }, tasks: Array.from({ length: 5 }, (_, i) => task(`Phần khác ${i + 1}`, 'main', 'sonnet', 'medium')) })
+    const seen = base(on, { router: request => (request.includes('Làm việc khác') ? many : routerWith(RACE)(request)) })
+    hooks(on)
+    await running($, seen)
+    await interject($, 'Sửa luôn race condition ghi cache')
+    await conductor($, 'goal Làm việc khác')
+    await row($, 'queued_command', 'delivery')
+    expect(await noteOf($)).not.toContain('general-purpose')
+    const shown = String((await $.tool.call({ tool: PLAN, action: 'show' })).result)
+    expect(shown).not.toContain('Việc 4')
+    expect(lines().some(l => l['kind'] === 'interject-deliver')).toBe(false)
   })
 })
