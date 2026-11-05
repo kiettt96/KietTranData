@@ -507,7 +507,9 @@ export function missingTasks(tasks: readonly Task[], plan: readonly PlanStep[]):
 /** Dòng báo việc chưa có bước (0.7.8 G4): tối đa 8 việc, tiêu đề cắt 60 ký tự, không quá MISSING_TASKS_CHARS ký tự. */
 export function missingTasksNotice(missing: readonly Task[]): string {
   const all = missing.map(t => `Việc ${t.index}: ${clipItem(t.title, 60)}`)
-  const tail = 'Thêm bước cho từng việc đó bằng action "add", hoặc ghi lý do bỏ (bước skipped kèm note).'
+  const tail =
+    'Thêm bước cho từng việc đó bằng action "add", tiêu đề mở đầu "Việc N: ", hoặc ghi lý do bỏ (bước skipped kèm note). ' +
+    'Việc đã có bước dưới tên khác thì không thêm bước trùng; lần set sau đặt tiêu đề mở đầu "Việc N: ".'
   const build = (n: number) => {
     const rest = all.length - n
     return `[focus-conductor] Việc chưa có bước trong checklist: ${all.slice(0, n).join('; ')}${rest > 0 ? `; và ${rest} việc nữa` : ''}. ${tail}`

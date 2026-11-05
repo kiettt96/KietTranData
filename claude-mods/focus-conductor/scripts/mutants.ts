@@ -1913,4 +1913,5 @@ export const MUTANTS: Mutant[] = [
   { id: "078-W1b", file: "hooks/lib/route.ts", note: "đồng hạng vẫn chọn việc đầu", old: "(second !== undefined && second.score === first.score)", new: "false" },
   { id: "078-W1c", file: "hooks/lib/route.ts", note: "bỏ ngưỡng 12 ký tự của khớp chứa nhau", old: "if (shorter.length >= NAME_CONTAINS && longer.includes(shorter)) return 0.99", new: "if (longer.includes(shorter)) return 0.99" },
   { id: "078-W1d", file: "hooks/lib/route.ts", note: "bước có mã không khớp vẫn khớp theo tên", old: "  if (code !== '') return undefined\n  const key = nameKey(title)", new: "  const key = nameKey(title)" },
+  { id: "078-W2a", file: "hooks/lib/text.ts", note: "câu dặn không nói tiêu đề mở đầu Việc N", old: "bằng action \"add\", tiêu đề mở đầu \"Việc N: \", hoặc", new: "bằng action \"add\", hoặc" },
 ]
