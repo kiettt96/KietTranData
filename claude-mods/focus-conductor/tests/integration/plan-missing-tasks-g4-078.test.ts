@@ -99,7 +99,7 @@ describe('0.7.8 G4: hàm thuần', () => {
     const line = T.missingTasksNotice(tasks)
     expect(line.length).toBeLessThanOrEqual(T.MISSING_TASKS_CHARS)
     expect(line).toContain('việc nữa')
-    expect(line.endsWith('(bước skipped kèm note).')).toBe(true)
+    expect(line.endsWith('lần set sau đặt tiêu đề mở đầu "Việc N: ".')).toBe(true)
     expect(line).not.toContain('Việc 9: ')
   })
 })

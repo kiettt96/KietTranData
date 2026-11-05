@@ -1,9 +1,11 @@
 // 0.7.8 vòng sửa 3, W1: bước checklist không có tiền tố "Việc N:" vẫn phủ việc đã phân khi tên khớp (bằng nhau sau khi gập,
 // chứa nhau với phần ngắn từ 12 ký tự, hay Dice trên từ có nghĩa từ ngưỡng TITLE_NEAR). Đồng hạng thì không phủ việc nào; bước có mã
 // mà không việc nào cùng mã thì không phủ theo tên. Khớp theo tên chỉ dùng cho bước checklist; taskMatch của Agent không đổi.
+// W2: câu dặn cuối nói cách đặt tiêu đề "Việc N: " và không thêm bước trùng.
 
 import { describe, expect, test } from 'claude-code/testing'
 import * as R from '../../hooks/lib/route'
+import * as T from '../../hooks/lib/text'
 import type { Task } from '../../types'
 import { base, plan, submit, task } from '../support/engine'
 
@@ -85,5 +87,20 @@ describe('W1: stepCovers', () => {
 
   test('mã bước khớp trước tên', () => {
     expect(R.stepCovers([fakeTask(1, 'Sửa form'), fakeTask(2, 'Sửa form đăng ký')], 'Việc 2: Sửa form')?.index).toBe(2)
+  })
+})
+
+describe('W2: câu dặn cuối của dòng việc chưa có bước', () => {
+  test('câu dặn nói tiêu đề mở đầu "Việc N: " và không thêm bước trùng', () => {
+    const line = T.missingTasksNotice([fakeTask(2, 'Viết test đăng ký')])
+    expect(line).toContain('"Việc N: "')
+    expect(line).toContain('không thêm bước trùng')
+    expect(line.endsWith('lần set sau đặt tiêu đề mở đầu "Việc N: ".')).toBe(true)
+  })
+
+  test('12 việc tiêu đề dài: không quá 500 ký tự, còn ít nhất một việc', () => {
+    const line = T.missingTasksNotice(Array.from({ length: 12 }, (_, i) => fakeTask(i + 1, `Việc dài số ${i + 1} ${'chữ '.repeat(30)}`)))
+    expect(line.length).toBeLessThanOrEqual(T.MISSING_TASKS_CHARS)
+    expect(line).toContain('Việc 1: Việc dài số 1')
   })
 })
