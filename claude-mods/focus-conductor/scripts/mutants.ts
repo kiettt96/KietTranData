@@ -1930,4 +1930,6 @@ export const MUTANTS: Mutant[] = [
   { id: "078-W4k", file: "hooks/parts/agents.ts", note: "áp sàn của lượt cho mọi lần giao", old: "  const pool = isFix ? live : named", new: "  const pool = live" },
   { id: "079-R1a", file: "hooks/lib/route.ts", note: "bỏ bước bung tiền tố và hậu tố chung", old: "  if (!isShared) return parts\n", new: "  return parts\n" },
   { id: "079-R1b", file: "hooks/lib/route.ts", note: "khớp không trọn vẹn vẫn chốt họ của quy tắc chung", old: "    if (clause.excepts.some(isExcepted)) continue\n", new: "    if (false) continue\n" },
+  { id: "079-R2a", file: "scripts/verdict.ts", note: "không đọc được kết quả tính là bị bắt", old: "  if (r.failed === -1) return 'ERROR'\n", new: "  if (r.failed === -1) return 'KILLED'\n" },
+  { id: "079-R2b", file: "scripts/verdict.ts", note: "quá giờ tính là bị bắt", old: "  if (r.timedOut) return 'TIMEOUT'\n", new: "  if (r.timedOut) return 'KILLED'\n" },
 ]
