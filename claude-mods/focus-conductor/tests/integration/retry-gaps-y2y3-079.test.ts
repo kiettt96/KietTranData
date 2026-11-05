@@ -50,3 +50,21 @@ describe('0.7.9 Y2: turn đã nhận báo hạn mức mềm', () => {
     expect(lines().some(l => l['kind'] === 'retry')).toBe(false)
   })
 })
+
+describe('0.7.9 Y3: lần đạt dạng tệp::tên là lệnh hẹp', () => {
+  test('pytest tests/test_a.py::test_x đạt không phủ pytest tests/ lỗi: Stop vẫn chặn', {}, async ($, on) => {
+    const passing = new Set<string>()
+    const seen = base(on, { router: () => plan({ goal: 'Sửa hàm tính phí', depth: 'substantial', volume: 'medium', main: { model: 'sonnet', effort: 'medium' } }) })
+    hooks(on, passing, PYTEST.fail)
+    await submit($, 'Sửa hàm tính phí')
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa hàm tính phí' }] })
+    await $.turn.start({ text: 'Sửa hàm tính phí', turnId: 't1' })
+    await step($, seen, { turnId: 't1' })
+    await edit($)
+    await bash($, 'pytest tests/')
+    await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'done' })
+    passing.add('pytest tests/test_a.py::test_x')
+    await bash($, 'pytest tests/test_a.py::test_x')
+    expect(await stop($)).toContain('pytest tests/')
+  })
+})
