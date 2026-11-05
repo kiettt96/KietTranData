@@ -10,7 +10,7 @@ import type { Lang } from './labels'
 import { stepTag } from '../lib/text'
 
 /** Một mục cần chú ý: hạng (nhỏ là quan trọng hơn), mức màu và câu hiển thị; `warning` là cảnh báo đã lưu mà mục này đại diện (pane dùng để không hiện hai lần). */
-export type Attention = { rank: number; severity: Severity; text: string; kind: 'pause' | 'failed' | 'notice' | WarningKind; warning?: Warning }
+export type Attention = { rank: number; severity: Severity; text: string; kind: 'pause' | 'failed' | 'notice' | 'waived' | WarningKind; warning?: Warning }
 
 /** Hạng của từng loại cảnh báo đã lưu; loại không có trong bảng xếp sau vượt ngân sách. */
 const WARNING_RANK: Partial<Record<WarningKind, number>> = { scope: 2, dropped: 4, unverified: 5, budget: 6 }
@@ -60,5 +60,7 @@ export function attentionItems(core: Core, lang: Lang, quota: { paused: boolean;
   core.warnings
     .filter(w => w.at >= brief.at && w.kind !== 'cost' && w.isSoft !== true && !(w.kind === 'budget' && isPlannedFanout))
     .forEach((w, i) => items.push({ rank: WARNING_RANK[w.kind] ?? OTHER_RANK, severity: severityOf(w.kind), text: shownWarning(w.text, lang), kind: w.kind, warning: w, order: -i }))
+  // Lệnh kiểm chủ mod đã miễn (0.7.9 Y5): xếp sau mọi cảnh báo, mức warning có sẵn.
+  if (core.waivers.goalId === brief.goalId) core.waivers.items.forEach((w, i) => items.push({ rank: OTHER_RANK + 1, severity: 'warning', text: l.waived(w.command), kind: 'waived', order: i }))
   return items.sort((a, b) => a.rank - b.rank || a.order - b.order).map(({ order: _order, ...item }) => item)
 }

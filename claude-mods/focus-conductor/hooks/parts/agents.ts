@@ -36,7 +36,7 @@ function codesOf(core: ReturnType<typeof S.normalizeCore>): ReadonlySet<string> 
  */
 function retryFloorOf(core: Core, description: string, subagentType: string | undefined, prompt: string | undefined): { floor: Choice; round: number; sig: string } | null {
   if (core.brief === null || core.retry.goalId !== core.brief.goalId) return null
-  const live = core.retry.items.filter(item => !item.exhausted && item.round >= 2 && item.floor !== null)
+  const live = core.retry.items.filter(item => !item.exhausted && item.round >= 2 && item.floor !== null && !S.isWaived(core, item.sig))
   const isFix = description.startsWith(RETRY_PREFIX)
   const named = subagentType === 'general-purpose' ? live.filter(item => item.command !== '' && (prompt ?? '').includes(item.command)) : []
   const pool = isFix ? live : named

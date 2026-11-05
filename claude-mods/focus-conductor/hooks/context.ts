@@ -74,6 +74,8 @@ export const COMMAND_HELP = [
   '/conductor goal ...    đặt mục tiêu thủ công',
   '/conductor reroute     router đọc lại prompt gần nhất (kể cả khi router đang tạm ngừng)',
   '/conductor reset       xóa mục tiêu, checklist, cảnh báo và danh sách model bị chặn',
+  '/conductor waive N lý do   miễn lệnh kiểm chưa đạt số N (hoặc ghi lệnh) cho mục tiêu này; waive undo N bỏ lệnh miễn',
+  '/conductor errors      nhật ký lỗi của mod; errors clear xóa nhật ký',
 ].join('\n')
 
 /** Khoảng cách tối thiểu giữa hai lượt kiểm lạc đề (0.7.5, option driftIntervalMinutes): mặc định 10 phút, kẹp 5 đến 120. */

@@ -357,6 +357,8 @@ export type Core = {
    * lỗi cuối giữ qua hot reload. Vắng ở trạng thái cũ: goalId -1, không có mục nào.
    */
   retry: RetryState
+  /** Lệnh kiểm chủ mod đã miễn trong mục tiêu (0.7.9 Y5). */
+  waivers: WaiverState
 }
 
 /**
@@ -394,6 +396,19 @@ export type RetryItem = {
 }
 
 export type RetryState = { goalId: number; items: RetryItem[] }
+
+/** Một lệnh kiểm chủ mod đã miễn (0.7.9 Y5): chữ ký, lệnh, lý do, lượt lúc miễn, đã chặn đòi mục báo cáo chưa, bước blocked đã đổi. */
+export type Waiver = {
+  sig: string
+  command: string
+  reason: string
+  round: number
+  asked: boolean
+  /** Bước blocked mà mod đổi sang skipped khi miễn, cùng trạng thái và note cũ để waive undo trả lại; null khi không đổi bước nào. */
+  step: { id: number; status: PlanStep['status']; note: string | null } | null
+}
+
+export type WaiverState = { goalId: number; items: Waiver[] }
 
 /** Một cửa sổ hạn mức đã qua ngưỡng lúc dừng (0.6.0). */
 export type QuotaReason = { kind: 'five_hour' | 'seven_day'; percentUsed: number; resetsAt?: string; thresholdRemainingPct: number }

@@ -18,7 +18,7 @@ import { storeKey, withNote } from '../lib/checkpoint'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
 import { shownPlan } from '../lib/mirror'
-import { PLAN_TOOL_FULL, RETRY_REPORT, RETRY_ROUNDS, blockText, firstErrorLine, joinStopReasons, retryDoneNote, retryEditNote, retryFailNotice, retryName, retryStepNote, retryStopReason, checkHintText, compactReminderText, criteriaNotice, driftContext, missingTasks, missingTasksNotice, needsChecklist, noChecklistReason, pendingNotice, qualityNotice, renderBulk, renderPlan, requirementsNotice, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice } from '../lib/text'
+import { PLAN_TOOL_FULL, RETRY_REPORT, RETRY_ROUNDS, waiveAskText, blockText, firstErrorLine, joinStopReasons, retryDoneNote, retryEditNote, retryFailNotice, retryName, retryStepNote, retryStopReason, checkHintText, compactReminderText, criteriaNotice, driftContext, missingTasks, missingTasksNotice, needsChecklist, noChecklistReason, pendingNotice, qualityNotice, renderBulk, renderPlan, requirementsNotice, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -52,9 +52,9 @@ function isCheckCall(tool: string): boolean {
   return tool === 'Bash' || isCheckTool(tool)
 }
 
-/** Mục chưa hết lượt của mục tiêu hiện tại. */
+/** Mục chưa hết lượt của mục tiêu hiện tại, trừ mục chủ mod đã miễn (0.7.9 Y5). */
 function liveRetry(core: Core): RetryItem[] {
-  return core.brief !== null && core.retry.goalId === core.brief.goalId ? core.retry.items.filter(item => !item.exhausted) : []
+  return core.brief !== null && core.retry.goalId === core.brief.goalId ? core.retry.items.filter(item => !item.exhausted && !S.isWaived(core, item.sig)) : []
 }
 
 /** Các lần chạy kiểm mới của nhật ký kể từ mốc seq. */
@@ -91,10 +91,14 @@ async function noteChecks($: EngineInterface, deps: RetryDeps, core: Core, goalI
   const error = firstErrorLine(observation.output)
   const touched = new Set<RetryItem>()
   let stuck: string | null = null
+  // Lệnh miễn của mục tiêu (0.7.9 Y5): lần chạy đạt phủ lệnh đó thì xóa lệnh miễn.
+  const waivers = core.waivers.goalId === goalId ? core.waivers.items : []
+  let waived = waivers
   for (const entry of entries) {
     const run: CheckRun = { check: entry.check ?? 'test', command: checkCommand(entry) }
     const sig = checkSignature(run)
     if (entry.ok) {
+      waived = waived.filter(w => !coversFailure(run, runOf(w.sig)))
       items = items
         .map(item => (item.sig === RETRY_MORE ? { ...item, more: item.more.filter(m => !coversFailure(run, runOf(m))) } : item))
         .filter(item => (item.sig === RETRY_MORE ? item.more.length > 0 : (item.exhausted && !item.logged) || !coversFailure(run, item)))
@@ -146,12 +150,15 @@ async function noteChecks($: EngineInterface, deps: RetryDeps, core: Core, goalI
   const notes: string[] = []
   if (isMain) {
     for (const item of touched) {
-      if (item.exhausted || item.noticed >= item.round) continue
+      if (item.exhausted || item.noticed >= item.round || waived.some(w => w.sig === item.sig)) continue
       item.noticed = item.round
       notes.push(retryFailNotice(item))
     }
   }
-  await update($, coreState, S.withRetry({ goalId, items }))
+  await update($, coreState, c => {
+    const next = S.withRetry({ goalId, items })(c)
+    return waived.length !== waivers.length ? S.withWaivers({ goalId, items: waived })(next) : next
+  })
   return notes
 }
 
@@ -176,7 +183,7 @@ async function retryGate($: EngineInterface, deps: RetryDeps, lastMessage: strin
   const exhausted: Array<{ name: string; round: number; level: string; isTop: boolean; error: string }> = []
   const warnings: Warning[] = []
   const items = core.retry.items.map(item => {
-    if (item.exhausted) return item
+    if (item.exhausted || S.isWaived(core, item.sig)) return item
     const isAdvance = item.round < RETRY_ROUNDS
     if (isAdvance) {
       const prev = item.floor ?? pickOf(item.levels.at(-1), deps.mainLevel())
@@ -220,6 +227,19 @@ async function retryGate($: EngineInterface, deps: RetryDeps, lastMessage: strin
  * Dòng retry-exhausted của các lệnh đã chặn đòi báo cáo mà chưa ghi (0.7.8 vòng sửa 3, W4): `reported` là câu trả lời cuối có mục
  * "Chưa đạt yêu cầu". `answer` null là không có chữ câu trả lời: ghi reported null kèm lý do.
  */
+/**
+ * Lần chặn đòi mục "Lệnh kiểm được miễn" (0.7.9 Y5): còn lệnh miễn của mục tiêu chưa đòi thì trả lý do và đánh dấu đã đòi, nên chỉ chặn
+ * một lần cho mỗi lệnh miễn. Không có thì null.
+ */
+async function askWaived($: EngineInterface): Promise<string | null> {
+  const core = S.normalizeCore(await read($, coreState))
+  if (core.brief === null || core.waivers.goalId !== core.brief.goalId) return null
+  const due = core.waivers.items.filter(w => !w.asked)
+  if (due.length === 0) return null
+  await update($, coreState, S.withWaivers({ goalId: core.waivers.goalId, items: core.waivers.items.map(w => ({ ...w, asked: true })) }))
+  return waiveAskText(due)
+}
+
 async function logExhausted($: EngineInterface, deps: RetryDeps, core: Core, answer: string | null, why: string | null): Promise<void> {
   if (core.brief === null || core.retry.goalId !== core.brief.goalId) return
   const due = core.retry.items.filter(item => item.reportAsked && !item.logged)
@@ -704,7 +724,9 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     // Lệnh kiểm chưa đạt (0.7.8 vòng sửa 3, W4) xét trước checklist và G1, và không theo stop_hook_active: mỗi lần chặn là một lượt mới.
     const gate = isNoticed ? { reason: null, isPlanChanged: false } : await retryGate($, retryDeps, e.last_assistant_message)
     if (gate.isPlanChanged) await showStatus($, await read($, view), ctx.options)
-    const retryReason = gate.reason
+    // Lệnh miễn chưa đòi báo cáo (0.7.9 Y5): chặn đúng một lần, đi chung lần chặn của W4 nếu có.
+    const waiveReason = await askWaived($)
+    const retryReason = gate.reason !== null && waiveReason !== null ? joinStopReasons(gate.reason, waiveReason) : gate.reason ?? waiveReason
     // stop_hook_active chỉ bỏ qua phần checklist và G1: hai cổng đó nhắc một lần mỗi chuỗi dừng.
     if (e.stop_hook_active) return retryReason !== null ? { ...result, block: retryReason } : result
     const core = S.normalizeCore(await read($, coreState))

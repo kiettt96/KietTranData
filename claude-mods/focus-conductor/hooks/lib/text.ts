@@ -1073,6 +1073,19 @@ export function retryStopReason(advanced: readonly RetryLine[], exhausted: reado
   return build(0).slice(0, RETRY_REASON_CHARS)
 }
 
+/** Tên mục báo cáo cuối khi chủ mod đã miễn lệnh kiểm (0.7.9 Y5). */
+export const WAIVE_REPORT = 'Lệnh kiểm được miễn'
+/** Trần ký tự của câu đòi mục "Lệnh kiểm được miễn". */
+const WAIVE_ASK_CHARS = 600
+
+/** Lý do chặn một lần khi có lệnh miễn mới (0.7.9 Y5): liệt kê lệnh, lý do, yêu cầu mục báo cáo; tối đa WAIVE_ASK_CHARS ký tự. */
+export function waiveAskText(items: readonly { command: string; reason: string }[]): string {
+  const head = '[focus-conductor] Chủ mod đã miễn lệnh kiểm chưa đạt:'
+  const tail = `Câu trả lời cuối phải có mục "${WAIVE_REPORT}", mỗi lệnh một dòng: lệnh, lý do miễn.`
+  const rows = items.map(item => `- \`${clipItem(item.command, 80)}\`: ${clipItem(item.reason, 120)}`)
+  return [head, ...rows, tail].join('\n').slice(0, WAIVE_ASK_CHARS)
+}
+
 /** Ghép lý do của phần lệnh kiểm chưa đạt với lý do của cổng checklist, trong trần RETRY_REASON_CHARS. */
 export function joinStopReasons(retry: string, other: string): string {
   const room = RETRY_REASON_CHARS - retry.length - 1

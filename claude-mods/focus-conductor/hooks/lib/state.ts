@@ -6,7 +6,7 @@
 
 import type { PluginOptions } from 'claude-code'
 
-import type { AgentProgress, AgentState, AgentTally, ArchivedGoal, Brief, CheckHint, Core, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, RetryItem, RetryState, Route, RouteEvent, RouterFail, TurnFault, Warning } from '../../types'
+import type { AgentProgress, AgentState, AgentTally, ArchivedGoal, Brief, CheckHint, Core, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, RetryItem, RetryState, Route, Waiver, WaiverState, RouteEvent, RouterFail, TurnFault, Warning } from '../../types'
 import { restorableSteps } from './drift'
 import type { Tokens } from './cost'
 import { addUsage, emptyLedger, nextGoal, planSwitch, resetLedger } from './ledger'
@@ -43,6 +43,7 @@ export const EMPTY_CORE: Core = {
   reqNoticed: -1,
   missingNoticed: { goalId: -1, key: '' },
   retry: { goalId: -1, items: [] },
+  waivers: { goalId: -1, items: [] },
 }
 
 const LOG_LIMIT = 60
@@ -167,6 +168,31 @@ function normalizeRetry(raw: Partial<RetryState> | undefined): RetryState {
   return { goalId: raw.goalId ?? -1, items }
 }
 
+/** Chữ ký này có lệnh miễn trong mục tiêu đang mở (0.7.9 Y5). */
+export function isWaived(core: Core, sig: string): boolean {
+  return core.brief !== null && core.waivers.goalId === core.brief.goalId && core.waivers.items.some(w => w.sig === sig)
+}
+
+export const withWaivers =
+  (waivers: WaiverState) =>
+  (c: Core): Core => ({ ...normalizeCore(c), waivers: normalizeWaivers(waivers) })
+
+/** Lệnh miễn từ trạng thái đã lưu; Core từ bản trước 0.7.9 không có trường này thì rỗng. */
+function normalizeWaivers(raw: Partial<WaiverState> | undefined): WaiverState {
+  if (raw === undefined || raw === null) return { goalId: -1, items: [] }
+  const items = (raw.items ?? []).map(
+    (item: Partial<Waiver>): Waiver => ({
+      sig: item.sig ?? '',
+      command: item.command ?? '',
+      reason: item.reason ?? '',
+      round: item.round ?? 1,
+      asked: item.asked ?? false,
+      step: item.step ?? null,
+    }),
+  )
+  return { goalId: raw.goalId ?? -1, items }
+}
+
 /** Ghi (hoặc xóa) turn lỗi gần nhất của luồng chính (0.7.3). */
 export const withTurnFault =
   (fault: TurnFault | null) =>
@@ -200,6 +226,7 @@ export function normalizeCore(raw: Partial<Core>): Core {
     reqNoticed: raw.reqNoticed ?? -1,
     missingNoticed: raw.missingNoticed ?? { goalId: -1, key: '' },
     retry: normalizeRetry(raw.retry),
+    waivers: normalizeWaivers(raw.waivers),
   }
 }
 

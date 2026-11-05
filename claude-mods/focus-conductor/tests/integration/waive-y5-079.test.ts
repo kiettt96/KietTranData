@@ -100,7 +100,7 @@ describe('0.7.9 Y5: /conductor waive', () => {
     await stop($)
     await stop($)
     expect(await stop($)).toContain('hết 3 lượt')
-    expect(await shown($)).toContain('[!] 1.')
+    expect(await shown($)).toContain('[b] 1.')
     await say($, `waive 1 ${REASON}`)
     const text = await shown($)
     expect(text).toContain('[-] 1.')

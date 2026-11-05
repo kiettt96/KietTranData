@@ -14,7 +14,7 @@ import { askRouter, bareBrief, briefOf, failFields, nextBrief, parseRoute, rerou
 import { shownPlan } from '../lib/mirror'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
-import { RETRY_ROUNDS, briefContext, checkHintLines, droppedItemsText, droppedPlanNotice, quotaStatusLines, renderPlan, resetLabel, routerFailLines, unroutedContext } from '../lib/text'
+import { RETRY_ROUNDS, WAIVE_REPORT, briefContext, checkHintLines, droppedItemsText, droppedPlanNotice, quotaStatusLines, renderPlan, resetLabel, routerFailLines, unroutedContext } from '../lib/text'
 import { PANE_ROWS, shouldAutoOpenPane } from '../lib/pane'
 import { PANE, PANE_TITLE } from '../ui/pane'
 import type { EngineInterface, On } from 'claude-code'
@@ -96,13 +96,26 @@ async function showStatus($: EngineInterface, current: View, options: Ctx['optio
 /** Lệnh kiểm chưa đạt của mục tiêu hiện tại cho /conductor status (0.7.8 vòng sửa 3, W4): lượt và mức của từng lượt. */
 function retryLines(core: Core): string[] {
   if (core.brief === null || core.retry.goalId !== core.brief.goalId || core.retry.items.length === 0) return []
-  const rows = core.retry.items.map(item => {
+  // Đánh số để /conductor waive N chọn đúng lệnh (0.7.9 Y5); lệnh đã miễn ghi kèm.
+  const rows = core.retry.items.map((item, i) => {
     const name = item.more.length > 0 ? `và ${item.more.length} lệnh khác` : item.command
     const state = item.exhausted ? `hết ${RETRY_ROUNDS} lượt, chưa đạt` : `lượt ${item.round}/${RETRY_ROUNDS}`
-    return `  ${name}: ${state}; mức ${item.levels.join(', ')}`
+    return `  ${i + 1}. ${name}: ${state}; mức ${item.levels.join(', ')}${S.isWaived(core, item.sig) ? ' (đã miễn)' : ''}`
   })
   return [`Lệnh kiểm chưa đạt:\n${rows.join('\n')}`]
 }
+
+/** Lệnh kiểm chủ mod đã miễn trong mục tiêu (0.7.9 Y5): số thứ tự, lệnh, lý do, lượt lúc miễn. */
+function waiverLines(core: Core): string[] {
+  if (core.brief === null || core.waivers.goalId !== core.brief.goalId || core.waivers.items.length === 0) return []
+  const rows = core.waivers.items.map((w, i) => `  ${i + 1}. ${w.command}: ${w.reason} (lượt ${w.round})`)
+  return [`${WAIVE_REPORT}:\n${rows.join('\n')}`]
+}
+
+/** Nơi phát lệnh được nhận cho /conductor waive (0.7.9 Y5): người gõ ở terminal hay qua Remote Control; plugin, SDK, lịch thì không. */
+const WAIVE_ORIGINS: ReadonlySet<string> = new Set(['composer', 'bridge'])
+const WAIVE_REASON_MIN = 10
+const WAIVE_USAGE = `Cách dùng: /conductor waive <số thứ tự hoặc lệnh> <lý do từ ${WAIVE_REASON_MIN} ký tự>; số thứ tự lấy từ mục "Lệnh kiểm chưa đạt" của /conductor status. Bỏ lệnh miễn: /conductor waive undo <số thứ tự>.`
 
 export function registerCommand(on: On, ctx: Ctx): void {
   const L = ctx.local
@@ -118,7 +131,51 @@ export function registerCommand(on: On, ctx: Ctx): void {
 
     if (sub === '' || sub === 'show') {
       const opened = await $.ui.open({ id: PANE, title: PANE_TITLE })
-      return { text: opened.isPlaced ? 'Đã mở pane Focus Conductor.' : 'Pane Focus Conductor sẽ hiện khi màn hình đủ rộng.' }
+      const head = opened.isPlaced ? 'Đã mở pane Focus Conductor.' : 'Pane Focus Conductor sẽ hiện khi màn hình đủ rộng.'
+      const core = S.normalizeCore(await read($, coreState))
+      return { text: [head, ...retryLines(core), ...waiverLines(core)].join('\n') }
+    }
+
+    if (sub === 'waive') {
+      // Chỉ người gõ (0.7.9 Y5): origin do engine đóng dấu (composer, bridge); Claude và plugin không có đường tự miễn.
+      if (!WAIVE_ORIGINS.has(e.origin.kind)) return { text: 'Chỉ nhận /conductor waive do người gõ; lệnh từ plugin, SDK hay lịch không miễn được.' }
+      const core = S.normalizeCore(await read($, coreState))
+      if (core.brief === null || core.retry.goalId !== core.brief.goalId) return { text: `Không có lệnh kiểm chưa đạt nào trong mục tiêu này. ${WAIVE_USAGE}` }
+      const goalId = core.brief.goalId
+      const waivers = core.waivers.goalId === goalId ? core.waivers.items : []
+      const now = await $.clock.now()
+      if (rest[0] === 'undo') {
+        const index = Number(rest[1]) - 1
+        const waiver = Number.isInteger(index) ? waivers[index] : undefined
+        if (waiver === undefined) return { text: `Không có lệnh miễn số ${rest[1] ?? ''}. ${WAIVE_USAGE}` }
+        const old = waiver.step
+        await update($, coreState, c => {
+          const next = S.withWaivers({ goalId, items: waivers.filter(w => w !== waiver) })(c)
+          return old === null ? next : S.withPlan(next.plan.map(s => (s.id === old.id ? { ...s, status: old.status, note: old.note ?? undefined } : s)))(next)
+        })
+        record(now, 'waive-undo', { signature: waiver.sig, round: waiver.round })
+        await flushDecisions((path, text) => $.fs.write(path, text))
+        await showStatus($, await read($, view), ctx.options)
+        return { text: `Đã bỏ lệnh miễn của \`${waiver.command}\`; lệnh quay lại lượt ${waiver.round}/${RETRY_ROUNDS}.` }
+      }
+      const byIndex = /^\d+$/.test(rest[0] ?? '') ? core.retry.items[Number(rest[0]) - 1] : undefined
+      const byCommand = byIndex === undefined ? [...core.retry.items].filter(item => item.command !== '' && (arg === item.command || arg.startsWith(`${item.command} `))).sort((a, b) => b.command.length - a.command.length)[0] : undefined
+      const item = byIndex ?? byCommand
+      const reason = (byIndex !== undefined ? rest.slice(1).join(' ') : item !== undefined ? arg.slice(item.command.length) : '').trim()
+      if (item === undefined || item.more.length > 0) return { text: `Không thấy lệnh kiểm chưa đạt đó. ${WAIVE_USAGE}` }
+      if (reason.length < WAIVE_REASON_MIN) return { text: `Cần lý do từ ${WAIVE_REASON_MIN} ký tự trở lên. ${WAIVE_USAGE}` }
+      if (waivers.some(w => w.sig === item.sig)) return { text: `\`${item.command}\` đã được miễn trong mục tiêu này.` }
+      // Bước blocked mod đã ghi cho lệnh này thành skipped, giữ trạng thái và note cũ cho waive undo.
+      const target = item.step !== null ? core.plan.find(s => s.id === item.step && s.status === 'blocked') : undefined
+      const waiver = { sig: item.sig, command: item.command, reason, round: item.round, asked: false, step: target === undefined ? null : { id: target.id, status: target.status, note: target.note ?? null } }
+      await update($, coreState, c => {
+        const next = S.withWaivers({ goalId, items: [...waivers, waiver] })(c)
+        return target === undefined ? next : S.withPlan(next.plan.map(s => (s.id === target.id ? { ...s, status: 'skipped' as const, note: `miễn bởi chủ mod: ${reason}` } : s)))(next)
+      })
+      record(now, 'waive', { signature: item.sig, reason, round: item.round })
+      await flushDecisions((path, text) => $.fs.write(path, text))
+      await showStatus($, await read($, view), ctx.options)
+      return { text: `Đã miễn \`${item.command}\` cho mục tiêu này (lượt ${item.round}/${RETRY_ROUNDS}): không còn chặn kết thúc. Câu trả lời cuối cần mục "${WAIVE_REPORT}".` }
     }
 
     if (sub === 'mode') {
@@ -412,6 +469,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
           ...((core.brief.dropped ?? 0) > 0 ? [droppedItemsText(core.brief.dropped ?? 0)] : []),
           renderPlan(core.brief, shown.plan) + (shown.source === 'mirror' ? '\n(theo danh sách việc của Claude Code, chỉ để theo dõi)' : ''),
           ...retryLines(core),
+          ...waiverLines(core),
           ...costLines,
         ].join('\n') + agentBlock,
       }

@@ -1957,4 +1957,8 @@ export const MUTANTS: Mutant[] = [
   { id: "079-Y4a", file: "hooks/parts/consistency.ts", note: "bỏ nhánh checkTools", old: "  return tool === 'Bash' || isCheckTool(tool)", new: "  return tool === 'Bash'" },
   { id: "079-Y4b", file: "hooks/lib/drift/evidence.ts", note: "tool cùng tên, đầu vào khác vẫn phủ", old: "return pass.check === fail.check && pass.command === fail.command", new: "return pass.check === fail.check" },
   { id: "079-Y4c", file: "hooks/lib/drift/verify.ts", note: "tool ngoài danh sách cũng được ghi", old: "  return checkTools.has(name)", new: "  return name.startsWith('mcp__')" },
+  { id: "079-Y5a", file: "hooks/parts/command.ts", note: "bỏ kiểm origin người gõ", old: "      if (!WAIVE_ORIGINS.has(e.origin.kind)) return", new: "      if (false) return" },
+  { id: "079-Y5b", file: "hooks/parts/command.ts", note: "bỏ yêu cầu lý do", old: "      if (reason.length < WAIVE_REASON_MIN) return", new: "      if (false) return" },
+  { id: "079-Y5c", file: "hooks/lib/state.ts", note: "lệnh miễn áp cả sang mục tiêu mới", old: "core.waivers.goalId === core.brief.goalId && core.waivers.items.some(w => w.sig === sig)", new: "core.waivers.items.some(w => w.sig === sig)" },
+  { id: "079-Y5d", file: "hooks/parts/consistency.ts", note: "bỏ lần chặn đòi mục Lệnh kiểm được miễn", old: "    const waiveReason = await askWaived($)\n", new: "    const waiveReason: string | null = null\n" },
 ]
