@@ -25,8 +25,8 @@ function setup(on: On) {
     const key = `${String(input.tool)}:${String(input.suite ?? '')}`
     return passing.has(key) ? { result: JS.bun_pass, text: JS.bun_pass } : { result: JS.bun_fail, text: JS.bun_fail, isError: true as const }
   }
-  on('tool.call', { tool: TOOL }, answer as never)
-  on('tool.call', { tool: OTHER }, answer as never)
+  on('tool.call', { tool: TOOL as never }, answer as never)
+  on('tool.call', { tool: OTHER as never }, answer as never)
   on('turn.complete', () => ({ text: '' }))
   on('classic.Stop', () => ({}))
   return { seen, passing }
@@ -97,6 +97,22 @@ describe('0.7.9 Y4: tool MCP trong checkTools là lệnh kiểm', () => {
     await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'done' })
     await run($, TOOL, 'all')
     expect(await shown($)).toContain('[v] 1. Sửa hàm tính phí')
+  })
+})
+
+describe('0.7.9 Y4: cảnh báo cuối turn', () => {
+  test('sửa file rồi tool kiểm đạt: không có cảnh báo "không chạy bước kiểm tra nào"; tool ngoài danh sách thì có', ON, async ($, on) => {
+    const { seen, passing } = setup(on)
+    passing.add(`${TOOL}:all`)
+    passing.add(`${OTHER}:all`)
+    for (const [n, tool] of [[1, TOOL], [2, OTHER]] as const) {
+      await submit($, `Sửa hàm tính phí lần ${n}`)
+      await $.turn.start({ text: `Sửa hàm tính phí lần ${n}`, turnId: `t${n}` })
+      await edit($)
+      await run($, tool, 'all')
+      await $.turn.complete({ turnId: `t${n}`, answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer' } as never)
+    }
+    expect(seen.toasts.filter(t => t.includes('không chạy bước kiểm tra nào')).length).toBe(1)
   })
 })
 

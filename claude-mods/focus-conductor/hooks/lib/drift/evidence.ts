@@ -2,6 +2,7 @@
 // Chuyển nguyên văn từ hooks/lib/drift.ts (tách theo tầng, không đổi hành vi); hooks/lib/drift.ts là barrel.
 
 import type { CheckKind } from './verify'
+import { isCheckTool } from './verify'
 import { FILE_TOOLS, filePathOf, isPlanFile, str } from './tool'
 import type { ToolObservation } from './tool'
 import { classifyBash } from './classify'
@@ -24,6 +25,8 @@ export type EvidenceEntry = {
   check: CheckKind | null
   seq: number
   author: string
+  /** Lần kiểm qua tool MCP khai trong checkTools (0.7.9 Y4): chỉ lần gọi đạt cùng tool, cùng đầu vào mới phủ. */
+  mcp?: true
 }
 
 /**
@@ -95,6 +98,10 @@ export function noteEvidence(log: EvidenceLog, observation: ToolObservation, aut
       log.commands.push({ command: command.slice(0, 500), ok: !observation.isError, check: null, seq: log.seq, author })
     }
     trimCommands(log)
+  } else if (isCheckTool(observation.tool)) {
+    log.seq += 1
+    log.commands.push({ command: checkToolCommand(observation.tool, observation.input), ok: checkToolPassed(observation), check: 'test', seq: log.seq, author, mcp: true })
+    trimCommands(log)
   } else if (FILE_TOOLS.has(observation.tool) && !observation.isError && !isPlanFile(filePathOf(observation))) {
     onWrite()
   } else {
@@ -156,9 +163,37 @@ export function checkSignature(run: CheckRun): string {
   return `${run.check}:${run.command}`
 }
 
+/** Khóa engine đặt vào đầu vào của mọi tool call (tên tool, id của tool_use, agent gọi): không thuộc đầu vào của lần kiểm. */
+const RESERVED_INPUT = new Set(['tool', 'tool_use_id', 'agentId'])
+
+/** JSON với khóa đối tượng sắp xếp, ở mọi tầng. */
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`
+  if (value !== null && typeof value === 'object') {
+    const record = value as Record<string, unknown>
+    return `{${Object.keys(record).sort().map(key => `${JSON.stringify(key)}:${stableJson(record[key])}`).join(',')}}`
+  }
+  return JSON.stringify(value) ?? 'null'
+}
+
+/** Lệnh của một lần kiểm qua tool MCP (0.7.9 Y4): tên tool cộng đầu vào đã chuẩn hóa (JSON sắp xếp khóa, cắt 200 ký tự). */
+export function checkToolCommand(tool: string, input: Record<string, unknown>): string {
+  const args = Object.fromEntries(Object.entries(input).filter(([key, value]) => !RESERVED_INPUT.has(key) && value !== undefined))
+  return `${tool} ${stableJson(args).slice(0, 200)}`
+}
+
+/** Lần kiểm qua tool MCP đạt: không isError; output dạng chữ thì còn phải không rỗng, không có dấu hiệu lỗi, không phải "không chạy gì". */
+export function checkToolPassed(observation: ToolObservation): boolean {
+  if (observation.isError) return false
+  const output = observation.output
+  if (output === undefined) return true
+  return output.trim() !== '' && !outputFailed(output) && !ranNothing(output)
+}
+
 /** Lần chạy kiểm này là lỗi thật: không đạt và lệnh lỗi, output có dấu hiệu lỗi, output rỗng, hay không có phép kiểm nào chạy. */
 export function isFailedRun(entry: EvidenceEntry, observation: ToolObservation): boolean {
   if (entry.ok || entry.check === null) return false
+  if (entry.mcp === true) return true
   const output = observation.output ?? ''
   return observation.isError || outputFailed(observation.output) || output.trim() === '' || ranNothing(output)
 }
@@ -200,6 +235,11 @@ function staticTool(command: string): string | null {
   return STATIC_TOOLS.has(name) ? name : null
 }
 
+/** Lệnh của lần kiểm qua tool MCP: bắt đầu bằng tên tool `mcp__...` rồi một khoảng trắng và đầu vào JSON. */
+function isMcpRun(run: CheckRun): boolean {
+  return /^mcp__\S+ [{[]/.test(run.command)
+}
+
 /** Trình chạy của lệnh kiểm để so phủ: trình chạy có parser, công cụ kiểm tĩnh theo tên, không thì cả lệnh (chỉ lệnh trùng mới phủ nhau). */
 function runnerKey(command: string): string {
   return runnerOf(command) ?? staticTool(command) ?? `=${command}`
@@ -210,6 +250,8 @@ function runnerKey(command: string): string {
  * đạt không hẹp (không cờ lọc, không trỏ tệp hay tên test cụ thể). Chạy đạt một tệp test nhỏ không phủ lần lỗi của cả bộ test.
  */
 export function coversFailure(pass: CheckRun, fail: CheckRun): boolean {
+  // Lần kiểm qua tool MCP (0.7.9 Y4): chỉ cùng tool, cùng đầu vào đã chuẩn hóa mới phủ; không áp isNarrow.
+  if (isMcpRun(pass) || isMcpRun(fail)) return pass.check === fail.check && pass.command === fail.command
   if (pass.check !== fail.check || runnerKey(pass.command) !== runnerKey(fail.command)) return false
   return pass.command === fail.command || !isNarrow(pass.command)
 }

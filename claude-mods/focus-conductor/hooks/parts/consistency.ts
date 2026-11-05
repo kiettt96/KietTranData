@@ -3,7 +3,7 @@
 import { atom, derive, read, update } from 'claude-code'
 import { caught, noteHookError } from '../lib/errlog'
 import type { AgentState, Choice, Core, DelegationState, RetryItem, Warning } from '../../types'
-import { acceptsVerified, evidenceStrength, filePathOf, freshTestRun, isExecuting, isFullyClosed, isGoalDone, isMutation, isPlanFile, markVerified, newTracker, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
+import { acceptsVerified, evidenceStrength, filePathOf, freshTestRun, isCheckTool, isExecuting, isFullyClosed, isGoalDone, isMutation, isPlanFile, markVerified, newTracker, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
 import type { Focus } from '../lib/drift'
 import { checkCommand, checkSignature, coversFailure, isFailedRun } from '../lib/drift/evidence'
 import type { CheckRun, EvidenceEntry, EvidenceLog } from '../lib/drift/evidence'
@@ -45,6 +45,11 @@ const RETRY_MORE = '*'
 function runOf(sig: string): CheckRun {
   const at = sig.indexOf(':')
   return { check: sig.slice(0, at) === 'static' ? 'static' : 'test', command: sig.slice(at + 1) }
+}
+
+/** Lời gọi có thể là lần kiểm: lệnh Bash, hay tool MCP khai trong checkTools (0.7.9 Y4). */
+function isCheckCall(tool: string): boolean {
+  return tool === 'Bash' || isCheckTool(tool)
 }
 
 /** Mục chưa hết lượt của mục tiêu hiện tại. */
@@ -514,7 +519,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
         const agentLog = evidenceFor(agentBrief.goalId)
         const agentSince = agentLog.seq
         noteEvidence(agentLog, observation, e.agentId)
-        if (observation.tool === 'Bash') await noteChecks($, retryDeps, S.normalizeCore(await read($, coreState)), agentBrief.goalId, newChecks(agentLog, agentSince), observation, meta.pick, false)
+        if (isCheckCall(observation.tool)) await noteChecks($, retryDeps, S.normalizeCore(await read($, coreState)), agentBrief.goalId, newChecks(agentLog, agentSince), observation, meta.pick, false)
         trackVerification(L.tracker, observation, e.agentId, (await frameOf($, L.roots, agentBrief.goalId, agentBrief.scopePaths)).cwd)
         // Subagent sửa file: bước tự nâng thành verified về done, như thay đổi của luồng chính (0.7.0).
         if (!observation.isError && isMutation(observation) && S.hasAutoVerified(S.normalizeCore(await read($, coreState)))) {
@@ -547,7 +552,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       const mainLog = evidenceFor(core.brief.goalId)
       const mainSince = mainLog.seq
       noteEvidence(mainLog, observation)
-      if (observation.tool === 'Bash') retryNotes.push(...(await noteChecks($, retryDeps, core, core.brief.goalId, newChecks(mainLog, mainSince), observation, mainLevel(), true)))
+      if (isCheckCall(observation.tool)) retryNotes.push(...(await noteChecks($, retryDeps, core, core.brief.goalId, newChecks(mainLog, mainSince), observation, mainLevel(), true)))
     }
     // Lượt 2 hay 3 của lệnh kiểm chưa đạt mà luồng chính tự sửa file (W4): dặn giao subagent ở mức đã nâng, một lần mỗi lượt, không chặn.
     if (EDIT_TOOLS.has(e.tool) && !observation.isError && !isPlanFile(filePathOf(observation))) {
@@ -570,7 +575,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     }
     // Lệnh test vừa chạy đạt sau thay đổi cuối (phủ mọi thay đổi): các bước done thành verified (0.7.0), chỉ những bước đóng sau lần
     // kiểm đạt trước của mục tiêu (0.7.5); lần này ghi mốc kiểm đạt mới.
-    if (core.brief !== null && observation.tool === 'Bash' && !observation.isError) {
+    if (core.brief !== null && isCheckCall(observation.tool) && !observation.isError) {
       const log = evidenceFor(core.brief.goalId)
       const fresh = freshTestRun(log)
       if (fresh !== undefined && fresh === log.commands.at(-1) && (core.plan.some(s => s.status === 'done') || S.liveMirror(core).some(s => s.status === 'done'))) {

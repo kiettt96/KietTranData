@@ -8,7 +8,7 @@
 
 export { filePathOf, isPlanFile } from './drift/tool'
 export type { ToolObservation } from './drift/tool'
-export { parseCheckCommands, applyCheckCommands } from './drift/verify'
+export { parseCheckCommands, applyCheckCommands, parseCheckTools, applyCheckTools, isCheckTool } from './drift/verify'
 export type { CheckKind } from './drift/verify'
 export { isReadOnlyCommand } from './drift/readonly'
 export { normalizePath, scopeStatus, isInScope } from './drift/scope'

@@ -11,7 +11,8 @@ import { isMutation, writeEffects } from './effects'
 import { checkEffectPassed, lacksSummary, outputFailed, rejectReason } from './output'
 import type { RejectReason } from './output'
 import { normalizePath, scopeStatus } from './scope'
-import { isCustomCheck, normalizePython } from './verify'
+import { isCheckTool, isCustomCheck, normalizePython } from './verify'
+import { checkToolCommand, checkToolPassed } from './evidence'
 
 /** Số thay đổi liên tiếp chưa kiểm tra trước khi nhắc checkpoint đầu tiên. */
 export const CHECKPOINT_EVERY = 5
@@ -286,6 +287,32 @@ export function trackVerification(tracker: TurnTracker, observation: ToolObserva
     }
     return writes
   }
+  const onReject = (command: string, reason: RejectReason) => {
+    tracker.rejected.push({ command, reason })
+    tracker.lastCheck = reason
+    if (tracker.rejected.length > REJECTED_KEEP) tracker.rejected.shift()
+  }
+  const onPass = () => {
+    tracker.checks += 1
+    tracker.lastCheck = 'passed'
+    if (author === 'main') {
+      tracker.pending.clear()
+      tracker.docWrites.clear()
+      tracker.docRemoved.clear()
+      tracker.docChanges = 0
+      tracker.docUnknown = false
+    } else {
+      tracker.pending.delete(author)
+      tracker.pendingChanges.delete(author)
+    }
+    if (tracker.pending.size === 0) markVerified(tracker)
+  }
+  // Tool MCP khai trong checkTools (0.7.9 Y4): một lần kiểm như lệnh test Bash; lỗi thì là lệnh kiểm bị loại.
+  if (isCheckTool(observation.tool)) {
+    if (checkToolPassed(observation)) onPass()
+    else onReject(checkToolCommand(observation.tool, observation.input), observation.isError ? 'failed' : 'ran-nothing')
+    return writes
+  }
   if (observation.tool === 'Read' && !observation.isError) {
     const path = str(observation.input['file_path'])
     if (path !== '' && isWholeRead(observation)) tracker.reads.set(fileTarget(path), seq)
@@ -320,24 +347,10 @@ export function trackVerification(tracker: TurnTracker, observation: ToolObserva
     }
     const reason = rejectReason(effect, observation)
     if (reason !== null) {
-      tracker.rejected.push({ command: effect.segment, reason })
-      tracker.lastCheck = reason
-      if (tracker.rejected.length > REJECTED_KEEP) tracker.rejected.shift()
+      onReject(effect.segment, reason)
       continue
     }
-    tracker.checks += 1
-    tracker.lastCheck = 'passed'
-    if (author === 'main') {
-      tracker.pending.clear()
-      tracker.docWrites.clear()
-      tracker.docRemoved.clear()
-      tracker.docChanges = 0
-      tracker.docUnknown = false
-    } else {
-      tracker.pending.delete(author)
-      tracker.pendingChanges.delete(author)
-    }
-    if (tracker.pending.size === 0) markVerified(tracker)
+    onPass()
   }
   return writes
 }

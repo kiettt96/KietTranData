@@ -67,6 +67,12 @@
       "description": "Lệnh phân tách bằng dấu phẩy, ví dụ: make ci,./scripts/check.sh,just verify. Mỗi lệnh khớp theo tiền tố token, được tin mã thoát, tính là kiểm tra chạy hành vi và đối chiếu evidence nghiêm ngặt (./scripts/check.sh --fast khác ./scripts/check.sh). Lệnh kèm cờ tự sửa (--fix, --write) vẫn tính là ghi file. Lệnh khai chạy qua | tail hay | head chỉ đạt khi có set -o pipefail và mã thoát 0 không có dấu hiệu lỗi, hoặc khi dòng không rỗng cuối cùng có dấu hiệu đạt đứng riêng (OK, ĐẠT, KHỚP, 0 lỗi; không nằm sau chưa, không) và toàn bộ output còn thấy không có dấu hiệu lỗi (chưa đạt, thiếu, lệch, mismatch, tỷ lệ N/M với N nhỏ hơn M...); tốt nhất chạy lệnh kiểm không qua ống",
       "default": ""
     },
+    "checkTools": {
+      "type": "string",
+      "title": "Tool MCP dùng để kiểm (check tools)",
+      "description": "Tên tool MCP phân tách bằng dấu phẩy, ví dụ: mcp__ci__run_tests. Mỗi lời gọi tool trong danh sách là một lần kiểm loại test: lỗi khi tool báo lỗi hay output lỗi, rỗng, không chạy gì; chỉ lần gọi đạt cùng tool, cùng đầu vào mới phủ lần lỗi. Mod không tự đoán tool kiểm theo tên. Để trống (mặc định): không tool MCP nào là lần kiểm. (en) Comma-separated MCP tool names, e.g. mcp__ci__run_tests. Each call of a listed tool is a test check: it fails on a tool error or on failing, empty or ran-nothing output; only a passing call of the same tool with the same input covers a failure. The mod never guesses check tools by name. Empty (default): no MCP tool counts as a check.",
+      "default": ""
+    },
     "routerSkip": {
       "type": "string",
       "title": "Prompt không cần hỏi router",

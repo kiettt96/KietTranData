@@ -1954,4 +1954,7 @@ export const MUTANTS: Mutant[] = [
   { id: "079-L1d", file: "hooks/lib/errlog.ts", note: "xóa mục trong sổ dù gặp lại sau fixedIn", old: "    if (compareVersion(entry.lastVersion, item.fixedIn) >= 0) entries.push", new: "    if (false) entries.push" },
   { id: "079-L1e", file: "hooks/lib/errlog.ts", note: "xóa cả mục không có trong sổ", old: "    if (item === undefined) {\n      entries.push(entry)\n      continue", new: "    if (item === undefined) {\n      continue" },
   { id: "079-L1f", file: "hooks/context.ts", note: "bỏ nuốt lỗi của bộ ghi", old: "    } catch {\n      // Bộ ghi không được làm hỏng hook đang chạy, cũng không tự ghi lỗi của nó.\n    }", new: "    } finally {\n    }" },
+  { id: "079-Y4a", file: "hooks/parts/consistency.ts", note: "bỏ nhánh checkTools", old: "  return tool === 'Bash' || isCheckTool(tool)", new: "  return tool === 'Bash'" },
+  { id: "079-Y4b", file: "hooks/lib/drift/evidence.ts", note: "tool cùng tên, đầu vào khác vẫn phủ", old: "return pass.check === fail.check && pass.command === fail.command", new: "return pass.check === fail.check" },
+  { id: "079-Y4c", file: "hooks/lib/drift/verify.ts", note: "tool ngoài danh sách cũng được ghi", old: "  return checkTools.has(name)", new: "  return name.startsWith('mcp__')" },
 ]
