@@ -1748,7 +1748,7 @@ export const MUTANTS: Mutant[] = [
   { id: "076-W3d", file: "hooks/ui/pane.tsx", note: "chip của pane rộng cũng xuống dòng", old: "const nodes = isNarrow ? metaNode(title) : null", new: "const nodes = metaNode(title)" },
   { id: "076-W3e", file: "hooks/ui/pane.tsx", note: "chip và chi tiết không xuống dòng khi dài", old: "<Box flexDirection=\"row\" flexWrap=\"wrap\" columnGap={1}>\n        {nodes}", new: "<Box flexDirection=\"row\" columnGap={1}>\n        {nodes}" },
   { id: "076-W3f", file: "hooks/ui/pane.tsx", note: "luật dạng gọn không tính dòng chip ở pane hẹp", old: "(step.note ? rowsOf(step.note, stepCells) : 0) + metaRows(step.title)", new: "(step.note ? rowsOf(step.note, stepCells) : 0)" },
-  { id: "076-W3g", file: "hooks/ui/pane.tsx", note: "bước dự kiến không tính dòng chip ở pane hẹp", old: "rowsOf(step, stepCells) + metaRows(step), 0)", new: "rowsOf(step, stepCells), 0)" },
+  { id: "076-W3g", file: "hooks/ui/pane.tsx", note: "bước dự kiến không tính dòng chip ở pane hẹp", old: "titleRows(step) + metaRows(step), 0)", new: "titleRows(step), 0)" },
   { id: "076-W3h", file: "hooks/ui/pane.tsx", note: "dòng chip pane hẹp tính cả khi việc không có chip", old: "return !isNarrow || row === undefined || !meta ? 0 :", new: "return !isNarrow ? 0 :" },
   { id: "076-W4a", file: "hooks/ui/pane.tsx", note: "dòng bước todo có lô chạy vẫn là ○", old: "const mark = step.status === 'todo' && runningSteps.has(step.title) ? STEP_MARK.doing : STEP_MARK[step.status]", new: "const mark = STEP_MARK[step.status]" },
   { id: "076-W4b", file: "hooks/ui/pane.tsx", note: "bước dự kiến có lô chạy vẫn là ○", old: "{runningSteps.has(step) ? STEP_MARK.doing.glyph : STEP_MARK.todo.glyph}", new: "{STEP_MARK.todo.glyph}" },
@@ -1943,4 +1943,5 @@ export const MUTANTS: Mutant[] = [
   { id: "079-X6b", file: "hooks/lib/drift/tracker.ts", note: "Read một đoạn vẫn tính là đã đọc lại", old: "    if (path !== '' && isWholeRead(observation)) tracker.reads.set(fileTarget(path), seq)", new: "    if (path !== '') tracker.reads.set(fileTarget(path), seq)" },
   { id: "079-X6c", file: "hooks/lib/drift/tracker.ts", note: "tài liệu đã rm hay là nguồn của mv vẫn đòi đọc lại", old: "        if (removed.includes(path) && DOC_FILE.test(path)) {", new: "        if (false) {" },
   { id: "079-X4a", file: "hooks/lib/drift/tracker.ts", note: "khóa toast sau lần kiểm cuối bỏ phần lý do", old: "  if (tracker.checks > 0) return `after-check:${tracker.lastCheck ?? 'passed'}`", new: "  if (tracker.checks > 0) return 'after-check'" },
+  { id: "079-UI1a", file: "hooks/ui/pane.tsx", note: "bỏ giới hạn một dòng của tên bước ở pane hẹp", old: "  const isOneLine = isNarrow\n", new: "  const isOneLine = false\n" },
 ]

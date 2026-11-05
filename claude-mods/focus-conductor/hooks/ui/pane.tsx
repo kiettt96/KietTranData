@@ -24,6 +24,7 @@ import {
   columnsOf,
   goalUsd,
   padEnd,
+  oneLine,
   padStart,
   phaseOf,
   plannedRuns,
@@ -391,6 +392,9 @@ export function renderPane(
   // S6: ước lượng số dòng (ngắt chữ như wrapText) để biết dạng đầy đủ có đẩy tiêu đề tiến độ từng việc ra ngoài số dòng của pane không.
   const rowsOf = (text: string, cells: number) => Math.max(1, wrapText(text, cells, 99).length)
   const stepCells = width - idWidth - 3
+  // UI1 (0.7.9): pane hẹp cắt tên bước còn đúng một dòng bằng oneLine (mã đầu tên giữ trọn); chip vẫn xuống dòng riêng như W3.
+  const isOneLine = isNarrow
+  const titleRows = (title: string) => (isOneLine ? 1 : rowsOf(title, stepCells))
   // W3: pane hẹp đặt chip và chi tiết của việc khớp bước xuống dòng riêng, nên cộng số dòng của chúng.
   const metaRows = (title: string) => {
     const row = byTitle.get(title)
@@ -398,7 +402,7 @@ export function renderPane(
     return !isNarrow || row === undefined || !meta ? 0 : rowsOf([meta, rowDetail(row, true)].filter(Boolean).join(' '), stepCells)
   }
   const stepRows = (step: PlanStep) =>
-    rowsOf(step.title, stepCells) + (step.check ? rowsOf(`${l.check}: ${step.check}`, stepCells) : 0) + (step.note ? rowsOf(step.note, stepCells) : 0) + metaRows(step.title)
+    titleRows(step.title) + (step.check ? rowsOf(`${l.check}: ${step.check}`, stepCells) : 0) + (step.note ? rowsOf(step.note, stepCells) : 0) + metaRows(step.title)
   // Chú giải (U7): chỉ các loại ký hiệu đang thấy, và chỉ khi các bước mở đang thấy có từ hai loại trở lên.
   const legendOf = (steps: readonly PlanStep[]) => {
     const kinds = new Set(steps.map(step => step.status))
@@ -440,7 +444,7 @@ export function renderPane(
   const listed = isCompact ? shown : isLong ? openSteps : plan
   const hiddenOpen = openSteps.length - shown.length
   // Bước dự kiến của router trước khi có checklist (S6): cùng luật, mọi bước đều còn mở.
-  const plannedFull = brief.steps.reduce((sum, step) => sum + rowsOf(step, stepCells) + metaRows(step), 0)
+  const plannedFull = brief.steps.reduce((sum, step) => sum + titleRows(step) + metaRows(step), 0)
   const plannedCompact = plan.length === 0 && brief.steps.length > COLLAPSE_FROM && !fits(plannedFull)
   const plannedShown = plannedCompact ? brief.steps.slice(0, SHOWN_OPEN) : brief.steps
   const checklist =
@@ -467,9 +471,15 @@ export function renderPane(
                 <Text dimColor>{padStart(String(step.id), idWidth)}</Text>
               </Box>
               <Box flexDirection="column" flexGrow={1} flexShrink={1}>
-                <Text wrap="wrap" bold={step.status === 'doing'} dimColor={isFaded}>
-                  {step.title}
-                </Text>
+                {isOneLine ? (
+                  <Text wrap="truncate-end" bold={step.status === 'doing'} dimColor={isFaded}>
+                    {oneLine(step.title, stepCells)}
+                  </Text>
+                ) : (
+                  <Text wrap="wrap" bold={step.status === 'doing'} dimColor={isFaded}>
+                    {step.title}
+                  </Text>
+                )}
                 {step.check ? (
                   <Text dimColor wrap="wrap">
                     {`${l.check}: ${step.check}`}
@@ -509,7 +519,7 @@ export function renderPane(
               <Text dimColor>{padStart(String(i + 1), idWidth)}</Text>
             </Box>
             <Box flexDirection="column" flexGrow={1} flexShrink={1}>
-              <Text wrap="wrap">{step}</Text>
+              {isOneLine ? <Text wrap="truncate-end">{oneLine(step, stepCells)}</Text> : <Text wrap="wrap">{step}</Text>}
               {narrowMeta(step)}
             </Box>
             {isNarrow ? null : metaNode(step)}

@@ -235,6 +235,34 @@ export function wrapText(text: string, width: number, maxLines: number): string[
   return kept
 }
 
+/** Cụm ký tự (grapheme) của chuỗi; không có Intl.Segmenter thì theo từng code point. */
+function graphemesOf(text: string): string[] {
+  return typeof Intl.Segmenter === 'function' ? [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text)].map(part => part.segment) : [...text]
+}
+
+/** Cụm ký tự rộng hai ô terminal: emoji, cờ, chữ CJK và chữ toàn khổ. */
+const WIDE_GRAPHEME = /\p{Extended_Pictographic}|\p{Regional_Indicator}|[\u1100-\u115F\u2E80-\u303E\u3041-\u33FF\u3400-\u4DBF\u4E00-\u9FFF\uA960-\uA97F\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFF60\uFFE0-\uFFE6]/u
+const graphemeCells = (g: string) => (WIDE_GRAPHEME.test(g) ? 2 : 1)
+
+/**
+ * Một dòng không quá `cells` ô, dòng bị cắt kết bằng "…" (0.7.9, UI1). Chữ thường cắt theo từ bằng wrapText như mọi chữ của pane, nên
+ * mã đầu tên ("BƯỚC 7", "Việc 3", "K4.1") giữ trọn. Chuỗi có chữ CJK, emoji hay cụm nhiều code point thì đếm ô thật (hai ô cho chữ rộng)
+ * và chỉ cắt giữa hai cụm ký tự, không tách đôi một emoji.
+ */
+export function oneLine(text: string, cells: number): string {
+  const units = graphemesOf(text.normalize('NFC').replace(/\s+/g, ' ').trim())
+  if (units.every(g => [...g].length === 1 && !WIDE_GRAPHEME.test(g))) return wrapText(text, cells, 1)[0] ?? ''
+  if (units.reduce((sum, g) => sum + graphemeCells(g), 0) <= cells) return units.join('')
+  let used = 1
+  let kept = ''
+  for (const g of units) {
+    if (used + graphemeCells(g) > cells) break
+    used += graphemeCells(g)
+    kept += g
+  }
+  return `${kept.trimEnd()}…`
+}
+
 /** Chiều rộng hợp lệ của vùng vẽ; dùng giá trị dự phòng khi engine không báo. */
 export function columnsOf(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback
