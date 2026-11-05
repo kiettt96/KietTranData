@@ -93,7 +93,7 @@ describe('W1: stepCovers', () => {
 describe('W2: câu dặn cuối của dòng việc chưa có bước', () => {
   test('câu dặn nói tiêu đề mở đầu "Việc N: " và không thêm bước trùng', () => {
     const line = T.missingTasksNotice([fakeTask(2, 'Viết test đăng ký')])
-    expect(line).toContain('"Việc N: "')
+    expect(line).toContain('bằng action "add", tiêu đề mở đầu "Việc N: ", hoặc ghi lý do bỏ')
     expect(line).toContain('không thêm bước trùng')
     expect(line.endsWith('lần set sau đặt tiêu đề mở đầu "Việc N: ".')).toBe(true)
   })
