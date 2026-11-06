@@ -326,6 +326,53 @@ function staticParts(command: string): { flags: string[]; sub: string; project: 
 }
 
 /**
+ * Cờ làm lần chạy test không chạy đủ (vòng 2 V2): chỉ in (phiên bản, trợ giúp, cấu hình), chỉ liệt kê hay thu thập (--collect-only,
+ * --listTests, -list của go test), chạy thử (--no-run, --dry-run), chạy lại một phần (--lf, --last-failed, --sw, --stepwise, -o và
+ * --onlyChanged của jest, --changed, --findRelatedTests) hay bỏ bớt (--deselect, --ignore). Nhận cả dạng `--cờ=giá trị`.
+ */
+const RUNNER_PARTIAL_FLAGS = new Set([
+  '--version', '-V', '--help', '-h', '--collect-only', '--co', '--listTests', '--list', '-list', '--showConfig', '--fixtures', '--markers',
+  '--lf', '--last-failed', '--sw', '--stepwise', '-o', '--onlyChanged', '--changed', '--findRelatedTests', '--deselect', '--ignore',
+  '--no-run', '--dry-run',
+])
+
+/** Cờ nhận một giá trị của trình chạy test (thêm vào VALUE_FLAGS của isNarrow): giá trị đi kèm không phải đường dẫn. */
+const RUNNER_VALUE_FLAGS = new Set([...VALUE_FLAGS, '--deselect', '--ignore'])
+
+/** Subcommand của trình chạy đứng ngay sau tên (vitest run, bun test, go test, cargo test): không phải đường dẫn. */
+const RUNNER_SUBCOMMANDS = new Map<string, Set<string>>([
+  ['vitest', new Set(['run', 'watch', 'dev', 'bench'])],
+  ['bun', new Set(['test'])],
+  ['go', new Set(['test'])],
+  ['cargo', new Set(['test'])],
+])
+
+/**
+ * Cờ và đường dẫn của một lệnh chạy test (vòng 2 V2), theo cách runnerOf nhận trình chạy: bỏ `npx`, tên trình chạy (và `-m pytest` của
+ * python), subcommand, cờ và giá trị của cờ nhận giá trị, token số. Lệnh không phải trình chạy có parser thì không có đường dẫn nào.
+ */
+function runnerParts(command: string): { flags: string[]; paths: string[] } {
+  const tokens = command.trim().split(/\s+/)
+  while (tokens.length > 0 && (tokens[0]?.toLowerCase() === 'npx' || (tokens[0] ?? '').startsWith('-'))) tokens.shift()
+  const name = (tokens.shift() ?? '').toLowerCase()
+  if ((name === 'python' || name === 'python3') && tokens[0] === '-m') tokens.splice(0, 2)
+  if (RUNNER_SUBCOMMANDS.get(name)?.has((tokens[0] ?? '').toLowerCase()) === true) tokens.shift()
+  const flags: string[] = []
+  const paths: string[] = []
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i] ?? ''
+    if (token.startsWith('-')) {
+      flags.push(token)
+      if (RUNNER_VALUE_FLAGS.has((token.split('=')[0] ?? '').toLowerCase()) && !token.includes('=')) i += 1
+      continue
+    }
+    if (/^\d+(\.\d+)?$/.test(token)) continue
+    paths.push(scopePath(token))
+  }
+  return { flags, paths }
+}
+
+/**
  * Lần chạy đạt `pass` phủ lần lỗi `fail` (0.7.8 vòng sửa 3, W4): cùng loại kiểm, cùng trình chạy, và cùng lệnh đã chuẩn hóa hoặc lệnh
  * đạt không hẹp (không cờ lọc, không trỏ tệp hay tên test cụ thể). Chạy đạt một tệp test nhỏ không phủ lần lỗi của cả bộ test.
  * Công cụ kiểm tĩnh (vòng 2 V1): lần đạt còn phải thật sự kiểm (không cờ chỉ in thông tin), cùng subcommand và cùng phạm vi.
@@ -343,5 +390,8 @@ export function coversFailure(pass: CheckRun, fail: CheckRun): boolean {
     if (p.sub !== f.sub) return false
     return p.project === f.project && pathsCover(p.paths, f.paths)
   }
-  return true
+  const p = runnerParts(pass.command)
+  const f = runnerParts(fail.command)
+  if (hasFlag(p.flags, RUNNER_PARTIAL_FLAGS)) return false
+  return pathsCover(p.paths, f.paths)
 }
