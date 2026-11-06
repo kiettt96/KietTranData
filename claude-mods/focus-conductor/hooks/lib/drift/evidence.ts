@@ -229,10 +229,32 @@ export function isNarrow(command: string): boolean {
 /** Công cụ kiểm tĩnh nhận theo tên (0.7.9 Y1): hai lệnh cùng công cụ so phủ theo luật lệnh rộng, như trình chạy có parser. */
 const STATIC_TOOLS = new Set(['tsc', 'eslint', 'mypy', 'ruff', 'pyright', 'biome'])
 
-/** Tên công cụ kiểm tĩnh đứng đầu lệnh (bỏ `npx`, `bunx`); không phải công cụ trong STATIC_TOOLS thì null. */
+/** Token bọc đứng trước công cụ kiểm tĩnh (npx, bunx, pnpm exec, yarn, uv run, poetry run, bundle exec), kể cả cờ của npx. */
+const STATIC_WRAPPERS = new Set(['npx', 'bunx', 'pnpm', 'yarn', 'exec', 'uv', 'poetry', 'bundle', 'run'])
+
+/** Tên công cụ của một token: phần sau dấu / cuối (`./node_modules/.bin/tsc` là tsc), chữ thường. */
+function toolName(token: string): string {
+  return token.toLowerCase().split('/').pop() ?? ''
+}
+
+/** Vị trí của công cụ kiểm tĩnh trong lệnh: các token trước nó đều là token bọc hay cờ; không có thì -1. */
+function staticAt(tokens: readonly string[]): number {
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i] ?? ''
+    if (STATIC_TOOLS.has(toolName(token))) return i
+    if (!STATIC_WRAPPERS.has(token.toLowerCase()) && !token.startsWith('-')) return -1
+  }
+  return -1
+}
+
+/**
+ * Khóa so của công cụ kiểm tĩnh (0.7.9 Y1, vòng 2 V1): tiền tố bọc cộng tên công cụ, chữ thường (`npx tsc`, `pnpm exec tsc`, `tsc`),
+ * giữ tiền tố như hợp đồng danh tính của lệnh kiểm; không phải công cụ trong STATIC_TOOLS thì null.
+ */
 function staticTool(command: string): string | null {
-  const name = command.toLowerCase().trim().split(/\s+/).find(token => token !== 'npx' && token !== 'bunx') ?? ''
-  return STATIC_TOOLS.has(name) ? name : null
+  const tokens = command.trim().split(/\s+/)
+  const at = staticAt(tokens)
+  return at < 0 ? null : tokens.slice(0, at + 1).join(' ').toLowerCase()
 }
 
 /** Lệnh của lần kiểm qua tool MCP: bắt đầu bằng tên tool `mcp__...` rồi một khoảng trắng và đầu vào JSON. */
@@ -245,13 +267,81 @@ function runnerKey(command: string): string {
   return runnerOf(command) ?? staticTool(command) ?? `=${command}`
 }
 
+/** Cờ chỉ in thông tin của công cụ kiểm tĩnh (vòng 2 V1): lần đạt có cờ này không kiểm gì, nên không phủ lần lỗi nào. */
+const STATIC_INFO_FLAGS = new Set(['--version', '-v', '-V', '--help', '-h', '--showConfig', '--print-config', '--init', '--listFiles', '--list-files'])
+
+/** Công cụ kiểm tĩnh có subcommand đổi việc kiểm (`ruff check` khác `ruff format`, `biome lint` khác `biome format`, `biome check`). */
+const STATIC_SUBCOMMANDS = new Set(['ruff', 'biome'])
+
+/** Cờ nhận phạm vi của công cụ kiểm tĩnh (tsc -p, --project). */
+const PROJECT_FLAGS = new Set(['-p', '--project'])
+
+/** Lệnh có một cờ trong `flags` (so phân biệt hoa thường, nhận cả dạng `--cờ=giá trị`). */
+function hasFlag(tokens: readonly string[], flags: ReadonlySet<string>): boolean {
+  return tokens.some(token => token.startsWith('-') && flags.has(token.split('=')[0] ?? ''))
+}
+
+/** Đường dẫn để so phạm vi: bỏ đuôi `::tên`, `/...` và `/`, bỏ `./` đầu; gốc (`.`, `./`) là chuỗi rỗng. */
+function scopePath(token: string): string {
+  const path = token.replace(/::.*$/, '').replace(/\/\.\.\.$/, '').replace(/\/+$/, '').replace(/^(?:\.\/)+/, '')
+  return path === '.' ? '' : path
+}
+
+/**
+ * Các đường dẫn của lần đạt chứa mọi đường dẫn của lần lỗi (vòng 2 V1, V2): lần đạt không có đường dẫn phủ hết; lần lỗi không có đường dẫn
+ * là gốc. So theo ranh giới thư mục.
+ */
+function pathsCover(pass: readonly string[], fail: readonly string[]): boolean {
+  if (pass.length === 0) return true
+  return (fail.length === 0 ? [''] : fail).every(f => pass.some(p => p === '' || f === p || f.startsWith(`${p}/`)))
+}
+
+/**
+ * Các phần để so phủ của một lệnh kiểm tĩnh (vòng 2 V1): cờ, subcommand (chỉ ruff và biome), phạm vi -p hay --project (vắng, `.`,
+ * `tsconfig.json` là một), và các đường dẫn (bỏ cờ, giá trị của cờ nhận giá trị, token số, true và false).
+ */
+function staticParts(command: string): { flags: string[]; sub: string; project: string; paths: string[] } {
+  const tokens = command.trim().split(/\s+/)
+  const at = staticAt(tokens)
+  const rest = tokens.slice(at + 1)
+  const sub = STATIC_SUBCOMMANDS.has(toolName(tokens[at] ?? '')) && !(rest[0] ?? '-').startsWith('-') ? (rest.shift() ?? '') : ''
+  let project = ''
+  const paths: string[] = []
+  for (let i = 0; i < rest.length; i++) {
+    const token = rest[i] ?? ''
+    const flag = (token.split('=')[0] ?? '').toLowerCase()
+    if (PROJECT_FLAGS.has(flag)) {
+      project = token.includes('=') ? token.slice(token.indexOf('=') + 1) : (rest[++i] ?? '')
+      continue
+    }
+    if (token.startsWith('-')) {
+      if (VALUE_FLAGS.has(flag) && !token.includes('=')) i += 1
+      continue
+    }
+    if (/^\d+(\.\d+)?$/.test(token) || token === 'true' || token === 'false') continue
+    paths.push(scopePath(token))
+  }
+  const scope = scopePath(project)
+  return { flags: rest.filter(t => t.startsWith('-')), sub, project: scope === 'tsconfig.json' ? '' : scope, paths }
+}
+
 /**
  * Lần chạy đạt `pass` phủ lần lỗi `fail` (0.7.8 vòng sửa 3, W4): cùng loại kiểm, cùng trình chạy, và cùng lệnh đã chuẩn hóa hoặc lệnh
  * đạt không hẹp (không cờ lọc, không trỏ tệp hay tên test cụ thể). Chạy đạt một tệp test nhỏ không phủ lần lỗi của cả bộ test.
+ * Công cụ kiểm tĩnh (vòng 2 V1): lần đạt còn phải thật sự kiểm (không cờ chỉ in thông tin), cùng subcommand và cùng phạm vi.
  */
 export function coversFailure(pass: CheckRun, fail: CheckRun): boolean {
   // Lần kiểm qua tool MCP (0.7.9 Y4): chỉ cùng tool, cùng đầu vào đã chuẩn hóa mới phủ; không áp isNarrow.
   if (isMcpRun(pass) || isMcpRun(fail)) return pass.check === fail.check && pass.command === fail.command
   if (pass.check !== fail.check || runnerKey(pass.command) !== runnerKey(fail.command)) return false
-  return pass.command === fail.command || !isNarrow(pass.command)
+  if (pass.command === fail.command) return true
+  if (isNarrow(pass.command)) return false
+  if (staticTool(pass.command) !== null) {
+    const p = staticParts(pass.command)
+    const f = staticParts(fail.command)
+    if (hasFlag(p.flags, STATIC_INFO_FLAGS)) return false
+    if (p.sub !== f.sub) return false
+    return p.project === f.project && pathsCover(p.paths, f.paths)
+  }
+  return true
 }
