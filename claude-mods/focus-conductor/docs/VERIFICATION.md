@@ -8,9 +8,9 @@ Nhánh tách từ `main` 05ac330 (0.7.8). Mỗi điểm một commit test đỏ 
 
 - Môi trường: Claude Code 2.1.296 cho mọi lần chạy test, đo và đột biến dưới đây [Đo trực tiếp]. Từ R2, `scripts/mutate.ts` tự kiểm `--version` trước khi chạy.
 - Bộ test, kiểm tĩnh và hash của commit cuối:
-  - `claude plugin test .` trên `a537a16`: 2585 test qua, 0 lỗi, 227 tệp (0.7.8: 2433 test, 213 tệp [Nguồn: mục 0.7.8 bên dưới]). Không test nào đổi tên hay mất.
+  - `claude plugin test .` trên `a537a16`: 2585 test qua, 0 lỗi, 227 tệp (0.7.8: 2433 test, 213 tệp [Nguồn: mục 0.7.8 bên dưới]). Trên `445814f`, sau hai test ghim mẫu sống sót: 2587 qua, 0 lỗi, 228 tệp. Không test nào đổi tên hay mất.
   - `claude plugin validate .` ở thư mục mod và gốc repo: qua. `bunx tsc --noEmit -p .`: sạch. `bun scripts/mutate.ts --check`: 1944 mẫu, danh sách `mismatched` rỗng (COUNT 0). `node scripts/version-check.mjs`: MOD_VERSION khớp `plugin.json`, 0.7.9.
-  - sha256 `hooks/` e3ec09fd5c42a752c420242b2cb5859f5e719c19a3ba96d88cba3e2fd4d5ae84, `tests/` 2906f7851eb4e250f2ca90d509bc85c0e576729a9f2bbe349f4d7e73a21bbb6b (tính bằng `scripts/mutate.ts --check` trên `a537a16`; các commit sau chỉ đổi tài liệu).
+  - sha256 `hooks/` e3ec09fd5c42a752c420242b2cb5859f5e719c19a3ba96d88cba3e2fd4d5ae84, `tests/` 2906f7851eb4e250f2ca90d509bc85c0e576729a9f2bbe349f4d7e73a21bbb6b (tính bằng `scripts/mutate.ts --check` trên `a537a16`, ảnh chụp của lượt đột biến). Trên `445814f`: `hooks/` không đổi, `tests/` 96fb1ab85e5d054315ea0b810ea16953092003dda137376598e450aef33258d9; `tsc` sạch. Các commit sau đó chỉ đổi tài liệu.
   - Tổng bộ test ở từng commit sửa có ghi trong thông điệp commit [Đo trực tiếp]: 2482 (X6a), 2486 (X4a), 2508 (L1), 2517 (Y4), 2544 (Y5), 2558 (Y6). Các điểm trước X6a không ghi tổng.
 - Test đỏ trước khi sửa và nơi nằm [Đo trực tiếp, số do thông điệp commit ghi; UI1 và UI2 do một tác nhân được giao làm, số đỏ 3 và 7 là số tác nhân báo]:
 
@@ -44,7 +44,10 @@ Nhánh tách từ `main` 05ac330 (0.7.8). Mỗi điểm một commit test đỏ 
 - Đột biến [Đo trực tiếp, engine 2.1.296, 1 worker, bằng `scripts/mutate.ts` đã sửa ở R2: `ERROR` và `TIMEOUT` không được tính là bị bắt]:
   - Mẫu mới: 51 mẫu `079-` cho 15 điểm (R1 2, R2 2, Y1 2, Y2 1, Y3 1, P1x 3, X6a 3, X4a 1, UI1 1, UI2 4, L1 6, Y4 3, Y5 4, Y6 4, F1 14).
   - Mẫu cũ viết lại cùng ý vì `old` không còn khớp: `075-R6f`, `075-T1c` (R1), `076-W3g` (UI1), `076-W4o` (UI2), và 14 mẫu ở `a537a16` (`077-X6j`, `061-A4`, `073-W8`, `073-W18`, `074-B8`, `074-B9`, `075-A2a`, `075-B4c`, `070-V13`, `075-B2b`, `077-X3e`, `077-X3i`, `078-W4i`, `075-L3b`). Các commit sửa X6a tới Y6 ghi `mutate --check` sạch là sai: lúc ấy chỉ đọc dòng đếm, bỏ sót danh sách `mismatched`.
-  - Lượt chạy trên các tệp mã đã đổi: TODO-FINAL mẫu; `KILLED` TODO-FINAL, `SURVIVED` TODO-FINAL, `EQUIVALENT` TODO-FINAL, `ERROR` TODO-FINAL, `TIMEOUT` TODO-FINAL. Mẫu sống sót và cách xử lý: TODO-FINAL.
+  - Lượt chạy trên các tệp mã đã đổi, ảnh chụp `a537a16`, 60 phần: 1.309 mẫu; `KILLED` 1.287, `SURVIVED` 2, `EQUIVALENT` 20 (đã đánh dấu sẵn), `ERROR` 0, `TIMEOUT` 0. Bốn phần chạm trần 30 phút của lệnh nền, các mẫu chưa có kết quả được chạy bù cùng commit và cùng sha256.
+  - Hai mẫu sống sót, xử lý bằng test ghim chỉ đổi `tests/`, mã `hooks/` không đổi:
+    - `076-V2e` (`overrideList` đọc hết cụm chữ cuối): từ R1, danh sách toàn cụm chữ đi qua quy tắc riêng nên các ca cũ không còn lộ mẫu. Commit `2b78c80` thêm ca danh sách lẫn mã và một cụm chữ ("Riêng BƯỚC 3 và tin pháp lý dùng opus"). Chạy lại mẫu trên cả bộ: `KILLED`.
+    - `079-R1a` (bỏ bước bung): các mục chưa bung ("tin xuất", "nhập khẩu") vẫn là cụm liền nhau trong mục đã bung, nên các ca R1 cũ vẫn ra opus. Commit `445814f` thêm "Lọc tin xuất bản" phải là sonnet. Chạy lại mẫu trên cả bộ: `KILLED`.
 - Phiên dài (`tests/integration/long-session-075.test.ts`, cách đo của 0.7.5: bản sao ngoài repo chỉ giữ test này, chèn dòng in số đo) [Đo trực tiếp]: cứ 10 lời gọi có một script ghi, 10.339 ký tự mod chèn; cứ 3 lời gọi, 19.587; 0 lượt router chấm subagent. Đo trên các commit sửa L1, Y4, Y5, Y6 và F1 (F1 với `forks` tắt và bật), không đổi ở commit nào so với 0.7.8. Kịch bản này không đi qua chỗ chèn mới nào (không lệnh kiểm chưa đạt, không lệnh miễn, không Stop thiếu lần kiểm).
 - Bản xem trước giao diện dạng chữ, trước (`05ac330`) và sau (`a537a16`), cùng một kịch bản 8 bước có mã và tên dài, một lô đang chạy, hai cảnh báo [Đo trực tiếp, bộ dựng chữ của bộ test, lưu ngoài repo]: band 56, 72, 120 cột giữ nguyên số dòng; pane 16, 24, 40 dòng ở 40, 48, 80 cột giữ nguyên số dòng, dòng tên bước tràn bề rộng ở 40 cột giảm từ 5 xuống 1, ở 48 cột từ 2 xuống 1 (UI1 chỉ áp dưới 48 cột), ở 80 cột từ 1 xuống 0. Câu cảnh báo dài nhất ở pane 80 cột chiếm 3 dòng, như 0.7.8.
 - Phần chèn mới theo từng điểm, chỉ khi điều kiện xảy ra [Đo trực tiếp, đếm ký tự trên mã]:
@@ -62,8 +65,8 @@ Nhánh tách từ `main` 05ac330 (0.7.8). Mỗi điểm một commit test đỏ 
   - Y4: kết quả tool MCP có `isError` và text (khoảng `:13389`, `:13399-13415`); khóa đầu vào dành riêng `tool`, `tool_use_id` (khoảng `:6121-6134`) và `agentId` bị bỏ khỏi chữ ký.
   - Y5: `CommandRunInput.origin` (`:1825-1843`); `composer` do engine đóng dấu, mod không giả định (khoảng `:9223-9232`).
 - CI1 [Đo trực tiếp]: thử trên bản lưu sạch với `HOME` rỗng, không lệnh nào sinh `.claude-plugin/types`: `claude plugin validate .` (mã thoát 0), `claude plugin details .` (mã thoát 1), `claude plugin test .` (2558 qua), `claude plugin init probe`, `claude -p "hi" --plugin-dir <mod>`. CI không đổi cho `tsc`; chi tiết ở [DESIGN.md](DESIGN.md), mục giới hạn.
-- CI: run TODO-FINAL của commit cuối.
-- Chưa kiểm được trên engine thật (chỉ kiểm bằng bộ test của engine): `/conductor waive` với origin `bridge` qua Remote Control thật; lần chặn Y6 với Claude thật (như W4, giả định lần chặn Stop cho chạy tiếp trong cùng turn); tool MCP thật trong `checkTools` (kết quả không phải chữ chỉ dựa vào `isError`); nhịp vẽ lại 60 giây của UI2 trên terminal thật; ghi file nhật ký lỗi trên máy thật ngoài kit test; số dòng của câu cảnh báo dài nhất ở pane 80 cột (UI3, chủ mod đo trên terminal thật): TODO-FINAL.
+- CI: xanh trên `d9e8f56` (run 42079385270). Run của commit cuối ghi trong mô tả PR, vì commit tài liệu này không biết trước số run của chính nó.
+- Chưa kiểm được trên engine thật (chỉ kiểm bằng bộ test của engine): `/conductor waive` với origin `bridge` qua Remote Control thật; lần chặn Y6 với Claude thật (như W4, giả định lần chặn Stop cho chạy tiếp trong cùng turn); tool MCP thật trong `checkTools` (kết quả không phải chữ chỉ dựa vào `isError`); nhịp vẽ lại 60 giây của UI2 trên terminal thật; ghi file nhật ký lỗi trên máy thật ngoài kit test; số dòng của câu cảnh báo dài nhất ở pane 80 cột (UI3, chủ mod đo trên terminal thật; bản xem trước dạng chữ ghi 3 dòng, như 0.7.8).
 
 ## Kiểm chứng của 0.7.8 (giữ mục tiêu chặt hơn, điều phối đủ sức, tiếp nhận yêu cầu chen ngang)
 
