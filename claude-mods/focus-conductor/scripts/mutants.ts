@@ -1937,6 +1937,7 @@ export const MUTANTS: Mutant[] = [
   { id: "079-V1a", file: "hooks/lib/drift/evidence.ts", note: "lần đạt chỉ in thông tin vẫn phủ", old: "    if (hasFlag(p.flags, STATIC_INFO_FLAGS)) return false\n", new: "" },
   { id: "079-V1b", file: "hooks/lib/drift/evidence.ts", note: "khác subcommand vẫn phủ", old: "    if (p.sub !== f.sub) return false\n", new: "" },
   { id: "079-V1c", file: "hooks/lib/drift/evidence.ts", note: "khác phạm vi vẫn phủ", old: "    return p.project === f.project && pathsCover(p.paths, f.paths)\n", new: "    return true\n" },
+  { id: "079-V1d", file: "hooks/lib/drift/evidence.ts", note: "cờ phép kiểm khác nhau (--max-warnings, --no-eslintrc, -c...) vẫn phủ", old: "    if (p.checks.join('\\n') !== f.checks.join('\\n')) return false\n", new: "" },
   { id: "079-V2a", file: "hooks/lib/drift/evidence.ts", note: "lần chạy test chỉ in hay chỉ liệt kê vẫn phủ", old: "  if (hasFlag(p.flags, RUNNER_PARTIAL_FLAGS)) return false\n", new: "" },
   { id: "079-V2b", file: "hooks/lib/drift/evidence.ts", note: "lần chạy test phạm vi hẹp hơn vẫn phủ", old: "  return pathsCover(p.paths, f.paths)\n}\n", new: "  return true\n}\n" },
   { id: "079-V3a", file: "hooks/lib/forks.ts", note: "isExcused luôn trả false: bước skipped hay blocked không miễn phần lỗi nào", old: "  const tasks = core.brief?.tasks ?? []\n  return core.plan.some(step => {", new: "  const tasks = core.brief?.tasks ?? []\n  return false && core.plan.some(step => {" },

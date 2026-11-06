@@ -296,33 +296,52 @@ function pathsCover(pass: readonly string[], fail: readonly string[]): boolean {
   return (fail.length === 0 ? [''] : fail).every(f => pass.some(p => p === '' || f === p || f.startsWith(`${p}/`)))
 }
 
+/** Cờ trung tính của công cụ kiểm tĩnh (vòng 2 V1d): đổi cách in hay bộ nhớ đệm hay bật điều đã có trong lệnh, không đổi phép kiểm. */
+const STATIC_NEUTRAL_FLAGS = new Set(['--pretty', '--color', '--no-color', '--format', '-f', '--cache', '--cache-location', '--noemit', '--quiet'])
+
+/** Cờ trung tính nhận một giá trị đứng sau (`--format json`, `-f json`, `--cache-location dir`); `--pretty false` được bỏ qua như token true hay false. */
+const STATIC_NEUTRAL_VALUED = new Set(['--format', '-f', '--cache-location'])
+
+/** Cờ không trung tính nhận một giá trị đứng sau, ngoài VALUE_FLAGS: giá trị là một phần của cờ (`--max-warnings 1000` khác `--max-warnings 0`). */
+const STATIC_VALUE_FLAGS = new Set(['--max-warnings', '--ext', '--rule', '--parser', '--plugin', '--ignore-path', '--ignore-pattern', '--output-file', '--stdin-filename'])
+
 /**
- * Các phần để so phủ của một lệnh kiểm tĩnh (vòng 2 V1): cờ, subcommand (chỉ ruff và biome), phạm vi -p hay --project (vắng, `.`,
- * `tsconfig.json` là một), và các đường dẫn (bỏ cờ, giá trị của cờ nhận giá trị, token số, true và false).
+ * Các phần để so phủ của một lệnh kiểm tĩnh (vòng 2 V1, V1d): cờ chỉ in (`flags`), tập cờ phép kiểm (`checks`: cờ không trung tính, không phải
+ * -p hay --project, kèm giá trị, đã sắp xếp), subcommand (chỉ ruff và biome), phạm vi -p hay --project (vắng, `.`, `tsconfig.json` là một),
+ * và các đường dẫn (bỏ cờ, giá trị của cờ nhận giá trị, token số, true và false).
  */
-function staticParts(command: string): { flags: string[]; sub: string; project: string; paths: string[] } {
+function staticParts(command: string): { flags: string[]; checks: string[]; sub: string; project: string; paths: string[] } {
   const tokens = command.trim().split(/\s+/)
   const at = staticAt(tokens)
   const rest = tokens.slice(at + 1)
   const sub = STATIC_SUBCOMMANDS.has(toolName(tokens[at] ?? '')) && !(rest[0] ?? '-').startsWith('-') ? (rest.shift() ?? '') : ''
   let project = ''
   const paths: string[] = []
+  const checks: string[] = []
   for (let i = 0; i < rest.length; i++) {
     const token = rest[i] ?? ''
     const flag = (token.split('=')[0] ?? '').toLowerCase()
+    const hasValue = token.includes('=')
     if (PROJECT_FLAGS.has(flag)) {
-      project = token.includes('=') ? token.slice(token.indexOf('=') + 1) : (rest[++i] ?? '')
+      project = hasValue ? token.slice(token.indexOf('=') + 1) : (rest[++i] ?? '')
       continue
     }
     if (token.startsWith('-')) {
-      if (VALUE_FLAGS.has(flag) && !token.includes('=')) i += 1
+      if (STATIC_NEUTRAL_FLAGS.has(flag)) {
+        if (STATIC_NEUTRAL_VALUED.has(flag) && !hasValue) i += 1
+        continue
+      }
+      const next = rest[i + 1] ?? ''
+      const takesValue = !hasValue && (VALUE_FLAGS.has(flag) || STATIC_VALUE_FLAGS.has(flag) || /^\d+(\.\d+)?$/.test(next))
+      checks.push(takesValue ? `${token} ${next}` : token)
+      if (takesValue) i += 1
       continue
     }
     if (/^\d+(\.\d+)?$/.test(token) || token === 'true' || token === 'false') continue
     paths.push(scopePath(token))
   }
   const scope = scopePath(project)
-  return { flags: rest.filter(t => t.startsWith('-')), sub, project: scope === 'tsconfig.json' ? '' : scope, paths }
+  return { flags: rest.filter(t => t.startsWith('-')), checks: checks.sort(), sub, project: scope === 'tsconfig.json' ? '' : scope, paths }
 }
 
 /**
@@ -388,6 +407,7 @@ export function coversFailure(pass: CheckRun, fail: CheckRun): boolean {
     const f = staticParts(fail.command)
     if (hasFlag(p.flags, STATIC_INFO_FLAGS)) return false
     if (p.sub !== f.sub) return false
+    if (p.checks.join('\n') !== f.checks.join('\n')) return false
     return p.project === f.project && pathsCover(p.paths, f.paths)
   }
   const p = runnerParts(pass.command)
