@@ -528,6 +528,28 @@ describe('F1: khớp mã phần', () => {
   })
 })
 
+describe('0.7.9 vòng 2 V4: gốc phiên đi từ prompt.submit tới kẹp split', () => {
+  test('gốc phiên /repo: /other/src/a.ts và src/a.ts không giao nhau nên split được giữ (khối tách có trong context)', { options: ON }, async ($, on) => {
+    const split = [
+      { title: 'Module thanh toán', files: ['/other/src/a.ts'] },
+      { title: 'Module kho', files: ['src/a.ts'] },
+    ]
+    const { seen } = setup(on, $, () => big(split))
+    await submit($, PROMPT)
+    expect(blockOf(contextOf(seen))).toBeDefined()
+  })
+
+  test('gốc phiên /repo: /repo/src/a.ts và src/a.ts là cùng một file nên split bị bỏ', { options: ON }, async ($, on) => {
+    const split = [
+      { title: 'Module thanh toán', files: ['/repo/src/a.ts'] },
+      { title: 'Module kho', files: ['src/a.ts'] },
+    ]
+    const { seen } = setup(on, $, () => big(split))
+    await submit($, PROMPT)
+    expect(blockOf(contextOf(seen))).toBeUndefined()
+  })
+})
+
 describe('0.7.9 vòng 2 V8: lời gọi mang mã phần không có trong split', () => {
   test('lời gọi "Việc 3c: ..." khi Việc 3 chỉ có a, b: nhật ký có dòng agent kèm miss nêu 3c', { options: ON }, async ($, on) => {
     const { seen, lines } = setup(on, $, () => big(SPLIT.slice(0, 2)))

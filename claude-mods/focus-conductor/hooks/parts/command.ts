@@ -197,7 +197,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       if (arg === '') return { text: 'Cần mô tả mục tiêu: /conductor goal kèm mô tả' }
       const before = S.normalizeCore(await read($, coreState))
       const prev = before.brief
-      const rules = ctx.routePolicy(before, await $.session.root().catch(caught('session.root', null)))
+      const rules = ctx.routePolicy(before, ctx.maxForks >= 2 ? await $.session.root().catch(caught('session.root', null)) : null)
       // Lệnh do người dùng gõ: luôn hỏi router, kể cả khi router đang tạm ngừng sau các lần lỗi.
       const request = routerRequest({ text: arg, prev, ran: null, policy: rules, model: routerModel, sessionFamily: L.sessionFamily, isForcedNew: true })
       const startedAt = await $.clock.now()
@@ -258,7 +258,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       if (last === null || (current?.goalId ?? null) !== last.goalId) {
         return { text: 'Không có prompt nào của mục tiêu hiện tại để router đọc lại. Đặt mục tiêu bằng /conductor goal kèm mô tả.' }
       }
-      const rules = ctx.routePolicy(before, await $.session.root().catch(caught('session.root', null)))
+      const rules = ctx.routePolicy(before, ctx.maxForks >= 2 ? await $.session.root().catch(caught('session.root', null)) : null)
       // Lệnh do người dùng gõ: luôn hỏi router, kể cả khi router đang tạm ngừng.
       const request = routerRequest({ text: last.text, prev: last.prev, ran: ranText(before), policy: rules, model: routerModel, sessionFamily: L.sessionFamily })
       const startedAt = await $.clock.now()
