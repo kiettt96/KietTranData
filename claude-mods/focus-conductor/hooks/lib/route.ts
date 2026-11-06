@@ -311,6 +311,14 @@ export function taskMatch(tasks: readonly Task[], description: string): TaskMatc
     const part = owner?.split?.find(p => p.part === parted[2])
     if (owner !== undefined && part !== undefined) return { task: owner, part: part.part }
   }
+  // Mã chữ không phải phần có trong split ("Việc 3c" khi Việc 3 chỉ có a, b; "Việc 3ab"): vẫn là lời gọi của Việc 3, không part, kèm lý do.
+  const lettered = folded.match(/^\s*(?:viec|task)\s*#?\s*(\d+)([a-z]+)\b/)
+  if (lettered) {
+    const owner = tasks.find(t => t.index === Number(lettered[1]))
+    if (owner?.split !== undefined && owner.split.length >= 2 && !owner.split.some(p => p.part === lettered[2])) {
+      return { task: owner, miss: `việc ${lettered[1]} không có phần "${lettered[1]}${lettered[2]}" trong split` }
+    }
+  }
   const numbered = folded.match(/^\s*(?:viec|task)\s*#?\s*(\d+)\b/)
   if (numbered) {
     const hit = tasks.find(t => t.index === Number(numbered[1]))

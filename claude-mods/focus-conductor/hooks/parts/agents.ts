@@ -258,7 +258,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
       moveDelegation(brief.goalId, assigned.index, 'running')
       await update($, coreState, S.withDelegations(brief.goalId, delegationItems(brief)))
     }
-    if (assigned === undefined && matched.miss !== undefined) {
+    if (matched.miss !== undefined) {
       record(await $.clock.now(), 'agent', { description: clipText(e.description), miss: matched.miss, routed: route !== null })
       await flushDecisions((path, text) => $.fs.write(path, text))
     }

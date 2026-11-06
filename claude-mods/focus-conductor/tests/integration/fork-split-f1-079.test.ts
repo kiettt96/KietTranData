@@ -512,7 +512,10 @@ describe('F1: khớp mã phần', () => {
     expect(taskMatch(tasks, 'Việc 3a: Module thanh toán')).toMatchObject({ task: { index: 3 }, part: 'a' })
     expect(taskMatch(tasks, 'Việc 3b: Module kho')).toMatchObject({ task: { index: 3 }, part: 'b' })
     expect(taskMatch(tasks, 'Việc 31: việc khác').task?.index).not.toBe(3)
-    expect(taskMatch(tasks, 'Việc 3d: phần không có').task).toBeUndefined()
+    // Vòng 2 V8: mã phần không có trong split vẫn gắn với Việc 3 (không part), kèm lý do; trước đó trả {}.
+    expect(taskMatch(tasks, 'Việc 3d: phần không có')).toMatchObject({ task: { index: 3 } })
+    expect(taskMatch(tasks, 'Việc 3d: phần không có').part).toBeUndefined()
+    expect(taskMatch(tasks, 'Việc 3d: phần không có').miss).toContain('3d')
     expect(taskMatch(tasks, 'Việc 3: cả việc')).toMatchObject({ task: { index: 3 } })
     expect(taskMatch(tasks, 'Việc 3: cả việc').part).toBeUndefined()
     expect(stepCovers(tasks, 'Việc 3a: Module thanh toán')?.index).toBe(3)
@@ -522,6 +525,16 @@ describe('F1: khớp mã phần', () => {
       { id: 3, title: 'Việc 3a: Module thanh toán', status: 'todo' as const },
     ]
     expect(missingTasks(tasks, steps).map(t => t.index)).toEqual([])
+  })
+})
+
+describe('0.7.9 vòng 2 V8: lời gọi mang mã phần không có trong split', () => {
+  test('lời gọi "Việc 3c: ..." khi Việc 3 chỉ có a, b: nhật ký có dòng agent kèm miss nêu 3c', { options: ON }, async ($, on) => {
+    const { seen, lines } = setup(on, $, () => big(SPLIT.slice(0, 2)))
+    await started($, seen)
+    await $.tool.call({ tool: 'Agent', tool_use_id: 'u9', subagent_type: 'general-purpose', description: 'Việc 3c: đổi tên ở module báo cáo', prompt: 'Đổi tên hàm tính phí ở module báo cáo' } as never)
+    const miss = lines().find(l => l['kind'] === 'agent' && typeof l['miss'] === 'string' && String(l['miss']).includes('3c'))
+    expect(miss).toBeDefined()
   })
 })
 
