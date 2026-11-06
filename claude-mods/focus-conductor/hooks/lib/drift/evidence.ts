@@ -353,10 +353,11 @@ const RUNNER_PARTIAL_FLAGS = new Set([
   '--version', '-V', '--help', '-h', '--collect-only', '--co', '--listTests', '--list', '-list', '--showConfig', '--fixtures', '--markers',
   '--lf', '--last-failed', '--sw', '--stepwise', '-o', '--onlyChanged', '--changed', '--findRelatedTests', '--deselect', '--ignore',
   '--no-run', '--dry-run',
+  '--testPathIgnorePatterns', '--exclude', '-short', '--passWithNoTests',
 ])
 
 /** Cờ nhận một giá trị của trình chạy test (thêm vào VALUE_FLAGS của isNarrow): giá trị đi kèm không phải đường dẫn. */
-const RUNNER_VALUE_FLAGS = new Set([...VALUE_FLAGS, '--deselect', '--ignore'])
+const RUNNER_VALUE_FLAGS = new Set([...VALUE_FLAGS, '--deselect', '--ignore', '--testpathignorepatterns', '--exclude'])
 
 /** Subcommand của trình chạy đứng ngay sau tên (vitest run, bun test, go test, cargo test): không phải đường dẫn. */
 const RUNNER_SUBCOMMANDS = new Map<string, Set<string>>([
