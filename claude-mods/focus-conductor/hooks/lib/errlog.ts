@@ -33,12 +33,13 @@ export const EMPTY_ERRORS: ErrorFile = { dropped: 0, entries: [] }
 const GROUPS: ReadonlySet<string> = new Set(['hook', 'router', 'engine', 'state'])
 
 /**
- * Chuẩn hóa thông điệp: đường dẫn tuyệt đối thành `<path>`, uuid và mã băm thành `<id>`, thời gian ISO thành `<time>`, số thành `<n>`,
- * gộp khoảng trắng, cắt MESSAGE_MAX ký tự. Đường dẫn thay trước để số trong đường dẫn không thành `<n>`.
+ * Chuẩn hóa thông điệp: đường dẫn tuyệt đối và tương đối (có `/` và đuôi tệp, hoặc bắt đầu bằng `./` hay `../`) thành `<path>`, uuid và mã băm thành `<id>`, thời gian ISO thành `<time>`, số thành `<n>`,
+ * gộp khoảng trắng, cắt MESSAGE_MAX ký tự. Đường dẫn thay trước mọi bước khác để số trong đường dẫn không thành `<n>`.
  */
 export function normalizeMessage(raw: string): string {
   return raw
     .replace(/(^|[\s"'`(=:,[])(?:\/[^\s"'`()[\],:]+|[A-Za-z]:\\[^\s"'`()[\],]+|~\/[^\s"'`()[\],:]+)/g, '$1<path>')
+    .replace(/(^|[\s"'`(=:,[])(?:\.{1,2}\/[^\s"'`()[\],:]*|[^\s"'`()[\],:]*\/[^\s"'`()[\],:]*\.[A-Za-z][A-Za-z0-9]{0,7}(?=\.?(?:$|[\s"'`()[\],:])))/g, '$1<path>')
     .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, '<id>')
     .replace(/\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?/g, '<time>')
     .replace(/\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,}\b/gi, '<id>')
