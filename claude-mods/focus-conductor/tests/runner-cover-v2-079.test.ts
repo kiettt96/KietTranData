@@ -32,6 +32,21 @@ describe('0.7.9 V2: lần đạt không chạy test hay chạy phạm vi hẹp h
   }
 })
 
+describe('0.7.9 V2 bổ sung: cờ bỏ bớt hay chạy thử khác (lỗ có từ trước 0.7.9)', () => {
+  const cases: Array<[string, string]> = [
+    ['jest --testPathIgnorePatterns=e2e', 'jest'],
+    ['go test -short ./...', 'go test ./...'],
+    ['npx vitest run --passWithNoTests', 'npx vitest run'],
+    ['npx vitest run --exclude e2e', 'npx vitest run'],
+  ]
+  for (const [pass, fail] of cases) {
+    test(`${pass} đạt không phủ ${fail} lỗi`, () => expect(covers(pass, fail)).toBe(false))
+  }
+  test('giá trị của --testPathIgnorePatterns ở lần lỗi không phải đường dẫn: jest đạt phủ jest --testPathIgnorePatterns e2e lỗi', () => {
+    expect(covers('jest', 'jest --testPathIgnorePatterns e2e')).toBe(true)
+  })
+})
+
 describe('0.7.9 V2: phạm vi đường dẫn', () => {
   test('pytest đạt phủ pytest tests/ lỗi', () => expect(covers('pytest', 'pytest tests/')).toBe(true))
   test('pytest tests đạt phủ pytest tests/unit lỗi', () => expect(covers('pytest tests', 'pytest tests/unit')).toBe(true))
