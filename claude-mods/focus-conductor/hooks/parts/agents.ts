@@ -1,13 +1,15 @@
 // Subagent: agent ngoài điều phối, nguồn đổi model, loại agent engine mời, lời gọi Agent, agent.spawn.
 
 import { atom, derive, read, update } from 'claude-code'
+import { noteHookError } from '../lib/errlog'
 import type { AgentProgress, Choice, Core, RetryItem, RouteEvent, Warning } from '../../types'
 import { turnCost } from '../lib/cost'
 import { countSpawn, shapeKey, shapeOutput } from '../lib/ledger'
 import { EFFORTS, agentMemoKey, describePick, familyOf, familyRank, pickRank, ruleFamily, taskMatch } from '../lib/route'
 import { clipText } from '../lib/decisions'
 import { agentRouterRequest, askRouter, briefCodes, fitPick, floorRoute, isSettled, parseAgentRoute, ruleRoute, taskRoute } from '../lib/router'
-import { RETRY_PREFIX, RETRY_ROUNDS } from '../lib/text'
+import { FORK_QUOTA_DENY, RETRY_PREFIX, RETRY_ROUNDS, forkRetryNote, forkReturnNote } from '../lib/text'
+import { liveForks, openParts } from '../lib/forks'
 import { tierOf } from '../lib/scale'
 import type { AgentRoute } from '../lib/router'
 import * as S from '../lib/state'
@@ -35,7 +37,7 @@ function codesOf(core: ReturnType<typeof S.normalizeCore>): ReadonlySet<string> 
  */
 function retryFloorOf(core: Core, description: string, subagentType: string | undefined, prompt: string | undefined): { floor: Choice; round: number; sig: string } | null {
   if (core.brief === null || core.retry.goalId !== core.brief.goalId) return null
-  const live = core.retry.items.filter(item => !item.exhausted && item.round >= 2 && item.floor !== null)
+  const live = core.retry.items.filter(item => !item.exhausted && item.round >= 2 && item.floor !== null && !S.isWaived(core, item.sig))
   const isFix = description.startsWith(RETRY_PREFIX)
   const named = subagentType === 'general-purpose' ? live.filter(item => item.command !== '' && (prompt ?? '').includes(item.command)) : []
   const pool = isFix ? live : named
@@ -54,7 +56,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
     const result = await next(e)
     if (startedAgents.size < 1000) startedAgents.set(e.agent_id, e.agent_type)
     return result
-  }).catch(($, e, next) => next(e))
+  }).catch(($, e, next) => (noteHookError('classic.SubagentStart', next.error), next(e)))
 
   // Nguồn của lần đổi model phiên: người dùng (/model, picker, SDK) hay engine tự đổi (auto, resume).
   // Step đầu của turn sau đọc nó để quyết định có tạm dừng tự điều phối hay không.
@@ -64,7 +66,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
     record(await $.clock.now(), 'model-switch', { source: e.source, from: e.from_model, to: e.to_model, requested: e.requested_model })
     await flushDecisions((path, text) => $.fs.write(path, text))
     return result
-  }).catch(($, e, next) => next(e))
+  }).catch(($, e, next) => (noteHookError('classic.PostModelSwitch', next.error), next(e)))
 
   // Ghi nhận loại agent nào đang được mời dùng, để chỉ đổi sang Explore khi có.
   on('agent.offer', async ($, e, next) => {
@@ -72,14 +74,65 @@ export function registerAgents(on: On, ctx: Ctx): void {
     if (result.isOffered) offered.set(e.agent, e.description)
     else offered.delete(e.agent)
     return result
-  }).catch(($, e, next) => next(e))
+  }).catch(($, e, next) => (noteHookError('agent.offer', next.error), next(e)))
 
   // Subagent: việc đã phân dùng đúng lựa chọn của router; việc khác do router chấm khi giao
   // (kèm gợi ý model và loại agent Claude ghi, agent cha, các agent đã lỗi). Router lỗi thì giữ
   // lựa chọn của Claude. Mọi lựa chọn đều qua kiểm và kẹp theo chính sách.
   on('tool.call', { tool: 'Agent' }, async ($, e, next) => {
     const current = await read($, mode)
-    if (current === 'off' || e.subagent_type === 'fork') return next(e)
+    // Phiên con chạy model và effort của luồng chính (engine bỏ qua model ghi trong lời gọi): mod không chấm, không ép. Option forks tắt
+    // thì đi thẳng như trước 0.7.9.
+    if (current === 'off' || (e.subagent_type === 'fork' && ctx.maxForks === 0)) return next(e)
+    // Phiên con của việc tách (0.7.9 F1): khớp phần theo mã "Việc Na", không gọi router, không áp mức sàn W4. Lời gọi lỗi mà không có
+    // agent.spawn fork nào cùng tool_use_id là engine từ chối phiên con; đã spawn rồi mới lỗi là phần lỗi.
+    if (e.subagent_type === 'fork') {
+      const core = S.normalizeCore(await read($, coreState))
+      const brief = core.brief
+      const isNested = e.agentId !== undefined
+      const hit = !isNested && brief !== null && !brief.isReference ? taskMatch(brief.tasks, e.description) : {}
+      const owner = hit.part !== undefined ? hit.task : undefined
+      // Turn đã nhận báo hạn mức mềm: không mở phiên con mới.
+      if (!isNested && L.noticeTurn !== null && L.noticeTurn === L.tracker.turnId) return { deny: FORK_QUOTA_DENY }
+      // Lần giao "Sửa lỗi kiểm: " ở lượt 2 hay 3: phiên con không đổi được model nên không là lượt nâng; dặn giao subagent general-purpose.
+      const fix = isNested ? null : retryFloorOf(core, e.description, e.subagent_type, e.prompt)
+      L.forkCalls.set(e.tool_use_id, { spawned: false, ...(owner !== undefined && hit.part !== undefined ? { task: owner.index, part: hit.part } : {}) })
+      if (owner !== undefined && hit.part !== undefined && brief !== null) {
+        await update($, coreState, S.withForkStart(brief.goalId, { task: owner.index, part: hit.part, toolUseId: e.tool_use_id, agentId: null, state: 'running' }))
+      }
+      const result = await next(e)
+      const call = L.forkCalls.get(e.tool_use_id)
+      L.forkCalls.delete(e.tool_use_id)
+      const notes: string[] = []
+      if (fix !== null) notes.push(forkRetryNote())
+      const at = await $.clock.now()
+      const label = owner !== undefined && hit.part !== undefined ? { task: owner.index, part: hit.part } : null
+      if (result.deny !== undefined) {
+        // Lời gọi bị từ chối trước khi chạy (quyền, hạn mức): phần đó về luồng chính, không tính là lỗi.
+        if (label !== null) await update($, coreState, S.withForkCall(e.tool_use_id, p => ({ ...p, state: 'returned' })))
+      } else if (result.isError === true && call?.spawned !== true) {
+        const fresh = S.normalizeCore(await read($, coreState))
+        const isFirst = !L.forkRefused && fresh.forks.off !== 'engine'
+        L.forkRefused = true
+        const parts = owner !== undefined ? openParts(fresh, owner.index) : []
+        await update($, coreState, S.withForksReturned(owner?.index ?? null))
+        if (isFirst) {
+          record(at, 'fork-off', { reason: 'engine', description: clipText(e.description, 120), error: clipText(String(result.text ?? result.result ?? ''), 200) })
+          notes.push(forkReturnNote(owner?.index ?? null, parts))
+        }
+        if (label !== null) record(at, 'fork', { ...label, result: 'returned' })
+        await flushDecisions((path, text) => $.fs.write(path, text))
+      } else if (result.isError === true && label !== null) {
+        const part = liveForks(S.normalizeCore(await read($, coreState))).find(p => p.toolUseId === e.tool_use_id)
+        if (part?.state === 'running') {
+          await update($, coreState, S.withForkCall(e.tool_use_id, p => ({ ...p, state: 'failed' })))
+          record(at, 'fork', { ...label, result: 'failed' })
+          await flushDecisions((path, text) => $.fs.write(path, text))
+        }
+      }
+      if (result.deny !== undefined || notes.length === 0) return result
+      return { ...result, context: [...(result.context ?? []), ...notes] }
+    }
     // Model Claude ghi không thuộc họ Claude (model riêng của người dùng): cho qua nguyên vẹn.
     const claimed = e.model !== undefined ? familyOf(e.model) : null
     if (e.model !== undefined && claimed === null) return next(e)
@@ -141,6 +194,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
         })
         const startedAt = await $.clock.now()
         const outcome = await askRouter(r => $.model.complete(r), request, reply => parseAgentRoute(reply, rules))
+        ctx.noteRouterFailure('agent', outcome.failure)
         noteRouterTime((await $.clock.now()) - startedAt)
         await update($, coreState, c =>
           S.withAnalyzerUsage(outcome.usages, routerFamily)(c),
@@ -204,7 +258,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
       moveDelegation(brief.goalId, assigned.index, 'running')
       await update($, coreState, S.withDelegations(brief.goalId, delegationItems(brief)))
     }
-    if (assigned === undefined && matched.miss !== undefined) {
+    if (matched.miss !== undefined) {
       record(await $.clock.now(), 'agent', { description: clipText(e.description), miss: matched.miss, routed: route !== null })
       await flushDecisions((path, text) => $.fs.write(path, text))
     }
@@ -245,7 +299,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
       await update($, coreState, S.withDelegations(brief.goalId, delegationItems(brief)))
     }
     return result
-  }).catch(($, e, next) => next(e))
+  }).catch(($, e, next) => (noteHookError('tool.call', next.error), next(e)))
 
   // Ghi điều phối của subagent ngay khi nó khởi động (trước mọi await, để step đầu đã thấy), rồi ghi
   // nhật ký bằng model engine thực sự dùng, kèm chi phí ước tính. Model engine chạy khác model đã điều
@@ -294,6 +348,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
         })
         const startedAt = await $.clock.now()
         const outcome = await askRouter(r => $.model.complete(r), request, reply => parseAgentRoute(reply, rules))
+        ctx.noteRouterFailure('agent', outcome.failure)
         noteRouterTime((await $.clock.now()) - startedAt)
         await update($, coreState, c =>
           S.withAnalyzerUsage(outcome.usages, routerFamily)(c),
@@ -318,6 +373,10 @@ export function registerAgents(on: On, ctx: Ctx): void {
 
     const result = await next(e)
     if (result.deny !== undefined) return result
+    // Phiên con (0.7.9 F1): lời gọi Agent đã có spawn, nên lỗi về sau là lỗi của phần đó, không phải engine từ chối.
+    const forkCall = e.fork === true ? L.forkCalls.get(e.tool_use_id) : undefined
+    if (forkCall !== undefined) forkCall.spawned = true
+    const forkPart = forkCall?.task !== undefined && forkCall.part !== undefined ? { task: forkCall.task, part: forkCall.part } : null
     const agentId = result.agentId
     const route = info?.route ?? workflowRoute
     const isMissed = agentId !== undefined && steppedEarly.has(agentId)
@@ -344,12 +403,29 @@ export function registerAgents(on: On, ctx: Ctx): void {
         fallback: false,
         ...(info?.taskIndex !== undefined ? { taskIndex: info.taskIndex } : workflowTask !== undefined ? { taskIndex: workflowTask } : {}),
       })
+    } else if (agentId !== undefined && forkPart !== null) {
+      // Phiên con của một phần: lệnh và thay đổi của nó vào dấu vết như subagent, kiểm phạm vi theo files của phần; không ép model.
+      const main = L.turnRoute.route
+      agents.set(agentId, {
+        description: e.description,
+        tier: core.brief?.tier ?? 'moderate',
+        goalId,
+        family,
+        volume: 'large',
+        shape: null,
+        pick: main !== null ? { family: main.family, effort: main.effort } : { family, effort: 'medium' },
+        applied: false,
+        enforceModel: false,
+        warned: false,
+        fallback: false,
+      })
     }
     if (agentId !== undefined) {
       steppedEarly.delete(agentId)
       if (spawnedIds.size < 1000) spawnedIds.add(agentId)
     }
     if (workflowTask !== undefined && core.brief !== null) await update($, coreState, S.withDelegations(core.brief.goalId, delegationItems(core.brief)))
+    if (forkPart !== null && agentId !== undefined) await update($, coreState, S.withForkCall(e.tool_use_id, p => ({ ...p, agentId })))
 
     const sent = info?.sentFamily ?? null
     const isMismatch = info !== undefined && sent !== null && engineFamily !== null && engineFamily !== sent
@@ -362,7 +438,9 @@ export function registerAgents(on: On, ctx: Ctx): void {
           ? isScriptModel
             ? 'agent workflow, model do script chọn'
             : `agent workflow: ${workflowReason || 'không qua điều phối'}`
-          : 'không qua điều phối'
+          : forkPart !== null
+            ? `phiên con của Việc ${forkPart.task}${forkPart.part}, chạy model của luồng chính`
+            : 'không qua điều phối'
     const reason = isMissed ? `${base}; bước đầu đã chạy trước khi mod kịp ghi, không ép` : base
     const at = await $.clock.now()
     const effort = info?.sentEffort ?? route?.pick.effort
@@ -393,7 +471,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
     const mismatchText = `Agent ${shortId}: engine chạy ${engineFamily} thay vì ${sent} đã điều phối`
     if (isMismatch) warnings.push({ at, kind: 'model', text: mismatchText })
     // Tiến độ từng việc (0.6.1): mỗi lần gọi Agent có agentId là một dòng, gắn việc đã phân nếu có; lưu trong $.state.
-    const taskIndex = info?.taskIndex ?? workflowTask
+    const taskIndex = info?.taskIndex ?? workflowTask ?? forkPart?.task
     const progressItem: AgentProgress | null =
       agentId !== undefined
         ? {
@@ -414,5 +492,5 @@ export function registerAgents(on: On, ctx: Ctx): void {
     })
     if (isMismatch) $.ui.toast(mismatchText)
     return result
-  }).catch(($, e, next) => next(e))
+  }).catch(($, e, next) => (noteHookError('agent.spawn', next.error), next(e)))
 }

@@ -7,12 +7,18 @@
 //   bun scripts/mutate.ts P1 K3 r4-V1      chạy riêng theo id
 //   bun scripts/mutate.ts --jobs 4         chạy song song bốn bản sao (mặc định 1; trên máy 4 lõi nhanh khoảng gấp đôi)
 //   bun scripts/mutate.ts --list           in id và ghi chú của từng mẫu
+//   bun scripts/mutate.ts --claude <đường dẫn>   chọn engine tường minh (thứ tự: cờ này, biến FC_CLAUDE, rồi `claude` theo PATH)
+//   bun scripts/mutate.ts --any-engine     bỏ qua kiểm phiên bản engine (mặc định phải là 2.1.296, sai thì thoát mã 2)
+//
+// Kết quả mỗi mẫu: KILLED, SURVIVED, EQUIVALENT, ERROR (không đọc được kết quả) hay TIMEOUT (quá 900 giây). Mẫu ERROR hoặc TIMEOUT
+// được chạy lại đúng một lần sau khi hàng đợi xong; lần lại vẫn vậy thì giữ nguyên. Mã thoát khác 0 khi có SURVIVED, COUNT, ERROR
+// hay TIMEOUT.
 //
 // An toàn: mỗi worker làm việc trên MỘT BẢN SAO của thư mục mod trong thư mục tạm; cây làm việc thật không bao giờ bị sửa, nên
 // ngắt giữa chừng (Ctrl+C, giết tiến trình) không để lại tệp bị đột biến nào. Script in sha256 của `hooks/` và `tests/` trước và sau
 // để chứng minh điều đó. Mỗi mẫu mất khoảng 30 giây (một lượt `claude plugin test`). Không chạy trong CI.
 
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -20,6 +26,8 @@ import { join, relative, sep } from 'node:path'
 
 import { MUTANTS } from './mutants'
 import type { Mutant } from './mutants'
+import { ENGINE_VERSION, engineMatches, engineOf, verdictOf } from './verdict'
+import type { Verdict } from './verdict'
 
 const ROOT = join(import.meta.dir, '..')
 const args = process.argv.slice(2)
@@ -29,9 +37,11 @@ const flag = (name: string) => {
 }
 const CHECK = args.includes('--check')
 const LIST = args.includes('--list')
+const ANY_ENGINE = args.includes('--any-engine')
 const JOBS = Math.max(1, Math.floor(Number(flag('--jobs') ?? '1')) || 1)
-// Đối số vị trí là id; giá trị của --jobs không phải id.
-const ONLY = args.filter((arg, at) => !arg.startsWith('--') && args[at - 1] !== '--jobs')
+const ENGINE = engineOf(args, process.env)
+// Đối số vị trí là id; giá trị của --jobs và --claude không phải id.
+const ONLY = args.filter((arg, at) => !arg.startsWith('--') && args[at - 1] !== '--jobs' && args[at - 1] !== '--claude')
 
 function tree(dir: string): string[] {
   const out: string[] = []
@@ -74,6 +84,15 @@ if (duplicated.length > 0) {
   process.exit(2)
 }
 
+if (!CHECK && !ANY_ENGINE) {
+  const probe = spawnSync(ENGINE, ['--version'], { encoding: 'utf8' })
+  const printed = `${probe.stdout ?? ''}${probe.stderr ?? ''}`.trim()
+  if (probe.error !== undefined || !engineMatches(printed)) {
+    console.error(`engine \`${ENGINE}\` in ra "${printed || String(probe.error)}", cần phiên bản ${ENGINE_VERSION}; chọn bằng --claude hoặc FC_CLAUDE, hoặc thêm --any-engine để bỏ qua kiểm này`)
+    process.exit(2)
+  }
+}
+
 const originals = new Map<string, string>()
 for (const mutant of MUTANTS) {
   if (!originals.has(mutant.file)) originals.set(mutant.file, readFileSync(join(ROOT, mutant.file), 'utf8'))
@@ -85,9 +104,10 @@ console.log(`tests sha256 ${before.tests}`)
 const selected = MUTANTS.filter(mutant => ONLY.length === 0 || ONLY.includes(mutant.id))
 console.log(`mutants ${selected.length}/${MUTANTS.length}, ${CHECK ? 'chỉ kiểm khớp' : `${JOBS} worker`}`)
 
-type Verdict = 'KILLED' | 'SURVIVED' | 'EQUIVALENT'
-const summary = { KILLED: 0, SURVIVED: 0, EQUIVALENT: 0, COUNT: 0 }
+const summary = { KILLED: 0, SURVIVED: 0, EQUIVALENT: 0, ERROR: 0, TIMEOUT: 0, COUNT: 0 }
 const survivors: string[] = []
+const errors: string[] = []
+const timeouts: string[] = []
 const mismatched: string[] = []
 
 const runnable: Mutant[] = []
@@ -100,19 +120,23 @@ for (const mutant of selected) {
   } else runnable.push(mutant)
 }
 
-/** Chạy `claude plugin test .` trong `cwd`; trả số ca lỗi (-1 nếu không đọc được hay mod không nạp). */
-function testIn(cwd: string): Promise<{ failed: number; loads: boolean }> {
+/** Chạy `<engine> plugin test .` trong `cwd`; trả số ca lỗi (-1 nếu không đọc được), mod có nạp không, và lượt có bị kill vì quá hạn không. */
+function testIn(cwd: string): Promise<{ failed: number; loads: boolean; timedOut: boolean }> {
   return new Promise(resolve => {
-    const child = spawn('claude', ['plugin', 'test', '.'], { cwd, stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(ENGINE, ['plugin', 'test', '.'], { cwd, stdio: ['ignore', 'pipe', 'pipe'] })
     let out = ''
+    let timedOut = false
     child.stdout.on('data', chunk => (out += chunk))
     child.stderr.on('data', chunk => (out += chunk))
-    const timer = setTimeout(() => child.kill('SIGKILL'), 900_000)
+    const timer = setTimeout(() => {
+      timedOut = true
+      child.kill('SIGKILL')
+    }, 900_000)
     child.on('close', () => {
       clearTimeout(timer)
       const match = out.match(/\n\s*(\d+) fail/)
       const failed = match ? Number(match[1]) : -1
-      resolve({ failed, loads: !(out.includes('did not load') || failed === -1) })
+      resolve({ failed, loads: !out.includes('did not load'), timedOut })
     })
   })
 }
@@ -129,35 +153,51 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   })
 }
 
-async function worker(index: number, queue: Mutant[]): Promise<void> {
+/** Chạy một mẫu trong thư mục `dir` rồi trả phán quyết cùng số ca lỗi. */
+async function judge(dir: string, mutant: Mutant): Promise<{ verdict: Verdict; failed: number }> {
+  const target = join(dir, mutant.file)
+  const source = originals.get(mutant.file) as string
+  writeFileSync(target, source.replace(mutant.old, () => mutant.new))
+  const { failed, loads, timedOut } = await testIn(dir)
+  writeFileSync(target, source)
+  return { verdict: verdictOf({ failed, loads, timedOut, equivalent: mutant.equivalent !== undefined }), failed }
+}
+
+function record(mutant: Mutant, verdict: Verdict, failed: number, note = ''): void {
+  summary[verdict] += 1
+  if (verdict === 'SURVIVED') survivors.push(mutant.id)
+  if (verdict === 'ERROR') errors.push(mutant.id)
+  if (verdict === 'TIMEOUT') timeouts.push(mutant.id)
+  console.log(`${mutant.id} ${verdict} fail=${failed}${note}`)
+}
+
+async function worker(index: number, queue: Mutant[], retries: Mutant[] | undefined): Promise<void> {
   // Bản sao riêng (không kèm tệp khai báo do engine sinh; engine tự ghi lại trong bản sao khi nạp mod).
   const dir = mkdtempSync(join(tmpdir(), `fc-mutate-${index}-`))
   copies.push(dir)
   cpSync(ROOT, dir, { recursive: true, filter: source => !source.includes(`${sep}.claude-plugin${sep}types`) })
   for (let mutant = queue.shift(); mutant !== undefined; mutant = queue.shift()) {
-    const target = join(dir, mutant.file)
-    const source = originals.get(mutant.file) as string
-    writeFileSync(target, source.replace(mutant.old, () => mutant.new))
-    const { failed, loads } = await testIn(dir)
-    writeFileSync(target, source)
-    const killed = failed !== 0 || !loads
-    const verdict: Verdict = killed ? 'KILLED' : mutant.equivalent === undefined ? 'SURVIVED' : 'EQUIVALENT'
-    summary[verdict] += 1
-    if (verdict === 'SURVIVED') survivors.push(mutant.id)
-    console.log(`${mutant.id} ${verdict} fail=${failed}`)
+    const { verdict, failed } = await judge(dir, mutant)
+    if (retries !== undefined && (verdict === 'ERROR' || verdict === 'TIMEOUT')) {
+      console.log(`${mutant.id} ${verdict} fail=${failed} (chạy lại một lần sau khi hàng đợi xong)`)
+      retries.push(mutant)
+    } else record(mutant, verdict, failed)
   }
 }
 
 try {
   if (!CHECK) {
     const queue = [...runnable]
-    await Promise.all(Array.from({ length: Math.min(JOBS, Math.max(1, queue.length)) }, (_, index) => worker(index, queue)))
+    const retries: Mutant[] = []
+    await Promise.all(Array.from({ length: Math.min(JOBS, Math.max(1, queue.length)) }, (_, index) => worker(index, queue, retries)))
+    // Chạy lại đúng một lần, một worker; lần lại vẫn ERROR hoặc TIMEOUT thì giữ.
+    if (retries.length > 0) await worker(JOBS, retries, undefined)
   }
 } finally {
   cleanup()
   const after = { hooks: digest('hooks'), tests: digest('tests') }
   console.log(`hooks sha256 ${after.hooks}${after.hooks === before.hooks ? '' : '  (KHÁC trước khi chạy)'}`)
   console.log(`tests sha256 ${after.tests}${after.tests === before.tests ? '' : '  (KHÁC trước khi chạy)'}`)
-  console.log(`SUMMARY ${JSON.stringify(summary)}${survivors.length > 0 ? ` survivors=${survivors.join(',')}` : ''}${mismatched.length > 0 ? ` mismatched=${mismatched.join(',')}` : ''} DONE`)
+  console.log(`SUMMARY ${JSON.stringify(summary)}${survivors.length > 0 ? ` survivors=${survivors.join(',')}` : ''}${errors.length > 0 ? ` errors=${errors.join(',')}` : ''}${timeouts.length > 0 ? ` timeouts=${timeouts.join(',')}` : ''}${mismatched.length > 0 ? ` mismatched=${mismatched.join(',')}` : ''} DONE`)
 }
-process.exit(summary.SURVIVED + summary.COUNT > 0 ? 1 : 0)
+process.exit(summary.SURVIVED + summary.COUNT + summary.ERROR + summary.TIMEOUT > 0 ? 1 : 0)

@@ -92,6 +92,28 @@ export function applyCheckCommands(commands: string[][]): void {
   customChecks = commands.map(tokens => lowerTokens(tokens))
 }
 
+/** Tool MCP người dùng khai là tool kiểm (option checkTools, 0.7.9 Y4); mod không tự đoán theo tên. */
+let checkTools: ReadonlySet<string> = new Set()
+
+/** Đọc option checkTools: tên tool MCP (`mcp__<server>__<tool>`) phân tách bằng dấu phẩy; mục rỗng hay không phải tên MCP bị bỏ. */
+export function parseCheckTools(raw: unknown): string[] {
+  if (typeof raw !== 'string') return []
+  return raw
+    .split(',')
+    .map(item => item.trim())
+    .filter(name => /^mcp__[^\s]+__[^\s]+$/.test(name))
+}
+
+/** Áp danh sách tool kiểm cho lần nạp mod này; danh sách rỗng là bỏ hết. */
+export function applyCheckTools(names: readonly string[]): void {
+  checkTools = new Set(names)
+}
+
+/** Tool này có được khai là tool kiểm không. */
+export function isCheckTool(name: string): boolean {
+  return checkTools.has(name)
+}
+
 /** Token khai khớp token thật: so nguyên token, trừ token khai kết thúc bằng "/" (tiền tố thư mục, không chứa `..`). */
 function matchesToken(declared: string, actual: string | undefined): boolean {
   if (actual === undefined) return false

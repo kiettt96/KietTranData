@@ -7,6 +7,7 @@
 // session.end thì hủy chờ; số lần dò có trần.
 
 import { atom, derive, read, update } from 'claude-code'
+import { caught, noteHookError } from '../lib/errlog'
 import type { EngineInterface, On } from 'claude-code'
 import { EMPTY_QUOTA, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaSettings } from '../lib/quota'
 import { openSteps } from '../lib/drift'
@@ -66,7 +67,7 @@ async function probeTick($: EngineInterface, ctx: Ctx, watch: Watch): Promise<vo
     watch.resumed.add(fault.goalId)
     ctx.record(at, 'net', { reason: 'auto-resume', goalId: fault.goalId, probes })
     await ctx.flushDecisions((path, text) => $.fs.write(path, text))
-    await $.prompt.submit({ text: netResumeText(fault) }).catch(() => undefined)
+    await $.prompt.submit({ text: netResumeText(fault) }).catch(caught('prompt.submit', undefined))
     return
   }
   if (probes >= MAX_PROBES) {
@@ -90,12 +91,12 @@ export function registerTurnFault(on: On, ctx: Ctx): void {
   on('turn.start', { text: /.*/ }, async ($, e, next) => {
     if (e.agentId === undefined) stopWatch(watch)
     return next(e)
-  }).catch(($, e, next) => next(e))
+  }).catch(($, e, next) => (noteHookError('turn.start', next.error), next(e)))
 
   on('session.end', { reason: /./ }, async ($, e, next) => {
     stopWatch(watch)
     return next(e)
-  }).catch(($, e, next) => next(e))
+  }).catch(($, e, next) => (noteHookError('session.end', next.error), next(e)))
 
   on('turn.complete', { reason: /.*/ }, async ($, e, next) => {
     const result = await next(e)
@@ -127,9 +128,9 @@ export function registerTurnFault(on: On, ctx: Ctx): void {
     // netResume bật: dò mạng để tự tiếp tục, tối đa một lần mỗi mục tiêu; đã có bộ đếm thì giữ.
     if (isNetResume && watch.timer === null && !watch.resumed.has(core.brief?.goalId ?? null)) {
       watch.timer = $.clock.every(PROBE_MS, () => {
-        void probeTick($, ctx, watch).catch(() => undefined)
+        void probeTick($, ctx, watch).catch(caught('probeTick', undefined, 'hook'))
       })
     }
     return result
-  }).catch(($, e, next) => next(e))
+  }).catch(($, e, next) => (noteHookError('turn.complete', next.error), next(e)))
 }

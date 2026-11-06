@@ -1,15 +1,16 @@
 // Phiên và đọc prompt: session.start/end, mục system prompt cố định, prompt.submit (router đọc prompt).
 
 import { atom, derive, read, update } from 'claude-code'
+import { caught, noteHookError, noteMistyped } from '../lib/errlog'
 import type { Brief, Core, Depth, QuotaCheckpoint, Warning } from '../../types'
 import { briefFromCheckpoint, changedFiles, storeKey } from '../lib/checkpoint'
 import { openSteps, restorableSteps } from '../lib/drift'
 import { PLAN_TOOL_SPEC } from '../lib/plan'
 import { describePick, effortRank, familyOf, familyRank } from '../lib/route'
 import { clipText, keptLines } from '../lib/decisions'
-import { CLIPPED_CONTEXT, ROUTER_TASK_LIMIT, askRouter, bareBrief, clippedWarning, isClippedPrompt, failFields, isSkippable, needsCoverageRecheck, nextBrief, parseRoute, routerFailOf, routerRequest } from '../lib/router'
+import { CLIPPED_CONTEXT, ROUTER_TASK_LIMIT, askRouter, bareBrief, clippedWarning, dropSplit, isClippedPrompt, failFields, isSkippable, needsCoverageRecheck, nextBrief, parseRoute, routerFailOf, routerRequest } from '../lib/router'
 import type { RouterOutcome, RouterPlan } from '../lib/router'
-import { EMPTY_QUOTA, blockingHits, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaSettings, reasonsOf } from '../lib/quota'
+import { EMPTY_QUOTA, blockingHits, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaSettings, reasonsOf, softNotices } from '../lib/quota'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
 import { DISCIPLINE, briefContext, droppedItemsText, droppedPlanNotice, followUpContext, interjectContext, interjectMovedNote, quotaPausedContext, resetLabel, resumeCommand, restorableLabel, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
@@ -22,10 +23,10 @@ import { PANE, PANE_TITLE } from '../ui/pane'
 
 /** Mở pane chi tiết cho mục tiêu mới nếu cần (0.7.2): không focus, không chiếm phím; kết quả đặt hay chưa đặt ghi vào nhật ký quyết định. */
 async function autoOpenPane($: EngineInterface, ctx: Ctx, goalId: number, at: number, depth: Depth | null): Promise<void> {
-  const panes = await $.ui.panes().catch(() => [])
+  const panes = await $.ui.panes().catch(caught('ui.panes', []))
   const isOpen = panes.some(pane => pane.id === PANE)
   if (!shouldAutoOpenPane({ enabled: ctx.autoPane, goalId, closedGoal: await read($, paneClosedState), isOpen, depth })) return
-  const opened = await $.ui.open({ id: PANE, title: PANE_TITLE, rows: PANE_ROWS }).catch(() => null)
+  const opened = await $.ui.open({ id: PANE, title: PANE_TITLE, rows: PANE_ROWS }).catch(caught('ui.open', null))
   // Chỉ ghi khi pane chưa được đặt (màn hình hẹp, chưa có surface, engine từ chối): đặt được là trường hợp bình thường, không cần dòng log.
   if (opened?.isPlaced === true) return
   ctx.record(at, 'pane', { goalId, isPlaced: false, reason: opened === null ? 'engine từ chối mở pane' : opened.reason })
@@ -54,7 +55,7 @@ async function quotaLimits($: EngineInterface): Promise<readonly unknown[] | nul
 
 /** Thư mục của khóa điểm dừng: thư mục gốc của phiên, không có thì `fallback`. */
 async function checkpointDir($: EngineInterface, fallback: string): Promise<string> {
-  const root = await $.session.root().catch(() => null)
+  const root = await $.session.root().catch(caught('session.root', null))
   return root || fallback
 }
 
@@ -62,7 +63,7 @@ async function checkpointDir($: EngineInterface, fallback: string): Promise<stri
 async function currentStats($: EngineInterface, paths: readonly string[]): Promise<Map<string, { mtimeMs: number; size: number } | null>> {
   const out = new Map<string, { mtimeMs: number; size: number } | null>()
   for (const path of paths) {
-    const stat = await $.fs.stat(path).catch(() => null)
+    const stat = await $.fs.stat(path).catch(caught('fs.stat', null))
     out.set(path, stat === null ? null : { mtimeMs: stat.mtimeMs, size: stat.size })
   }
   return out
@@ -75,32 +76,36 @@ async function showStatus($: EngineInterface, current: View, options: Ctx['optio
 
 export function registerSession(on: On, ctx: Ctx): void {
   const L = ctx.local
-  const { decisionLog, flushDecisions, delegationItems, expectedMain, isRouterPaused, noteRouter, noteRouterTime, policy, ranText, record, resetLocal, routerFallback, routerFamily, routerModel, skipPhrases, trackDelegations, wantedPick } = ctx
+  const { decisionLog, flushDecisions, delegationItems, expectedMain, isRouterPaused, noteRouter, noteRouterTime, ranText, record, resetLocal, routerFallback, routerFamily, routerModel, skipPhrases, trackDelegations, wantedPick } = ctx
   const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
   const mode = derive([modeState], modeOf(ctx.options))
 
   // ---------------------------------------------------------------- phiên
 
   on('session.start', async ($, e, next) => {
+    // Nhật ký lỗi của mod (0.7.9 L1): tự xóa lỗi đã sửa theo sổ, báo trạng thái sai kiểu, gộp lỗi đang chờ ghi.
+    noteMistyped('normalizeCore', await read($, coreState), S.EMPTY_CORE)
+    noteMistyped('normalizeQuota', await read($, quotaState), EMPTY_QUOTA)
+    await ctx.openErrors({ read: path => $.fs.read(path), write: (path, text) => $.fs.write(path, text), root: () => $.session.root() })
     // Log quyết định nối tiếp file cũ (giữ DECISION_LIMIT dòng cuối); file chưa có hoặc đọc lỗi thì bắt đầu mới.
     if (decisionLog) {
-      const old = await $.fs.read(decisionLog).catch(() => '')
+      const old = await $.fs.read(decisionLog).catch(caught('fs.read', ''))
       L.decisions = typeof old === 'string' ? keptLines(old) : []
     }
     await $.tool.register(PLAN_TOOL_SPEC)
     await $.command.register({
       name: 'conductor',
       description: 'Focus Conductor: mục tiêu, checklist và điều phối model/effort/agent',
-      argumentHint: '[status | mode auto|subagents|suggest|off | goal <mô tả> | reroute | reset | pause | resume [force|discard]]',
+      argumentHint: '[status | mode auto|subagents|suggest|off | goal <mô tả> | reroute | reset | pause | resume [force|discard] | errors [clear]]',
     })
     // Bảo vệ hạn mức: nạp điểm dừng còn mở của thư mục này (phiên mới hay resume). Bản resuming của phiên trước (chết
     // giữa chừng) quay về open. Chỉ khi chưa có mục tiêu thì khôi phục mục tiêu và checklist; không tự gửi prompt nào.
     if (quotaSettings(ctx.options).enabled && (await read($, mode)) !== 'off') {
       const dir = await checkpointDir($, e.cwd)
-      const raw = (await $.store.get(storeKey(dir)).catch(() => undefined)) as QuotaCheckpoint | undefined
+      const raw = (await $.store.get(storeKey(dir)).catch(caught('store.get', undefined))) as QuotaCheckpoint | undefined
       if (raw !== undefined && raw !== null && raw.version === 1 && raw.cwd === dir && raw.status !== 'consumed') {
         const cp: QuotaCheckpoint = { ...raw, status: 'open' }
-        if (raw.status !== 'open') await $.store.set(storeKey(dir), cp).catch(() => undefined)
+        if (raw.status !== 'open') await $.store.set(storeKey(dir), cp).catch(caught('store.set', undefined))
         await update($, quotaState, q => ({ ...normalizeQuota(q), checkpoint: cp, resume: null }))
         const core = S.normalizeCore(await read($, coreState))
         if (core.brief === null) {
@@ -122,6 +127,7 @@ export function registerSession(on: On, ctx: Ctx): void {
   })
 
   on('session.end', async ($, e, next) => {
+    await ctx.flushErrors({ read: path => $.fs.read(path), write: (path, text) => $.fs.write(path, text), root: () => $.session.root() })
     if (e.reason === 'clear') {
       resetLocal()
       // /clear không phát session.start (0.7.5): điểm dừng đang mở không tự chèn ở prompt kế tiếp, chỉ gợi ý /conductor resume.
@@ -158,9 +164,13 @@ export function registerSession(on: On, ctx: Ctx): void {
     // hoặc người dùng vừa gõ /conductor resume). Prompt việc khác giữ điểm dừng open và chỉ nhắc một dòng.
     let openCp: QuotaCheckpoint | null = null
     let isArmed = false
+    // Vùng báo hạn mức mềm lúc prompt đến (0.7.9 F1): prompt này không dặn tách việc thành phiên con.
+    let isSoftZone = false
     if (quota.enabled) {
       const now = await $.clock.now()
-      const evaluation = evaluateQuota(await quotaLimits($), now, quota)
+      const limits = await quotaLimits($)
+      const evaluation = evaluateQuota(limits, now, quota)
+      isSoftZone = softNotices(limits, now, quota).length > 0
       const q = normalizeQuota(await read($, quotaState))
       if (isPauseActive(true, evaluation.hits, q.pause, overrideOf(q), now)) {
         // Lần dừng (nếu mới vào vùng dừng) đã được ghi kèm điểm dừng ở hook prompt.submit của parts/quota.ts.
@@ -185,7 +195,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       const stats = await currentStats($, openCp.files.map(f => f.path))
       const cp: QuotaCheckpoint = { ...openCp, status: 'resuming' }
       await update($, quotaState, c => ({ ...normalizeQuota(c), checkpoint: cp, resume: { id: cp.id, turnId: '' } }))
-      await $.store.set(storeKey(cp.cwd), cp).catch(() => undefined)
+      await $.store.set(storeKey(cp.cwd), cp).catch(caught('store.set', undefined))
       return [resumeContext(cp, changedFiles(cp.files, stats))]
     }
     const pending = openCp !== null ? [resumePendingContext(openCp, L.noAutoResume && !isArmed)] : []
@@ -208,8 +218,9 @@ export function registerSession(on: On, ctx: Ctx): void {
     const isInterject = e.turnId !== undefined && prev !== null
     L.promptCount += 1
     // Model của phiên chưa biết (prompt đầu, trước step đầu): hỏi engine, để router và chính sách phiên dùng được ngay.
-    if (L.sessionFamily === null) L.sessionFamily = familyOf(await $.session.model().catch(() => ''))
-    const rules = policy()
+    if (L.sessionFamily === null) L.sessionFamily = familyOf(await $.session.model().catch(caught('session.model', '')))
+    // Số phần tối đa của việc tách (0.7.9 F1) theo option và theo việc engine đã từ chối phiên con hay chưa.
+    const rules = ctx.routePolicy(before, ctx.maxForks >= 2 ? await $.session.root().catch(caught('session.root', null)) : null)
     const isPaused = isRouterPaused()
     let outcome: RouterOutcome<RouterPlan> = { result: null, reason: 'router đang tạm ngừng sau các lần lỗi liên tiếp', usages: [], retried: false, failure: 'paused', timeoutMs: null, maxTokens: null, outputTokens: null }
     let waitedMs = 0
@@ -221,6 +232,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       const request = routerRequest({ text, prev, ran: ranText(before), policy: rules, model: routerModel, sessionFamily: L.sessionFamily, openSteps: openSteps(before.plan).map(s => s.title), ...(observed ? { observed } : {}), ...(isInterject ? { interject: { step: openSteps(before.plan)[0]?.title ?? '' } } : {}) })
       const startedAt = await $.clock.now()
       outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), needsCoverageRecheck, { retryMissingConfidence: true })
+      ctx.noteRouterFailure('prompt', outcome.failure)
       waitedMs = (await $.clock.now()) - startedAt
       noteRouterTime(waitedMs)
       pauseText = noteRouter(outcome.result !== null)
@@ -321,6 +333,14 @@ export function registerSession(on: On, ctx: Ctx): void {
       await autoOpenPane($, ctx, brief.goalId, now, brief.depth)
     }
 
+    // Phiên con đang tắt (option forks, maxForks 0, engine từ chối): router vẫn ghi split thì bỏ, ghi fork-off một lần mỗi phiên (0.7.9 F1).
+    if ((plan.droppedSplits ?? 0) > 0 && core.forks.off === 'none') {
+      record(now, 'fork-off', { reason: ctx.maxForks < 2 ? 'option' : 'engine', dropped: plan.droppedSplits })
+      await update($, coreState, S.withForkOffLogged)
+    }
+    // Không dặn tách (0.7.9 F1) khi đã vào vùng báo hạn mức mềm, hay còn lệnh kiểm chưa đạt ở lượt 2 hay 3 (W4 cần model cao hơn mà phiên
+    // con luôn chạy model của luồng chính).
+    const isSplitHeld = isSoftZone || (core.retry.goalId === brief.goalId && core.retry.items.some(item => !item.exhausted && item.round >= 2 && !S.isWaived(core, item.sig)))
     const wanted = wantedPick(brief, core.lift)
     // Model sẽ thật sự chạy (có thể là model cũ được giữ để bảo toàn cache): việc "làm trực tiếp" so với model này.
     const expected = wanted !== null && isNewGoal ? expectedMain(core, brief, wanted, now) : wanted
@@ -330,16 +350,20 @@ export function registerSession(on: On, ctx: Ctx): void {
     const newConstraints = plan.constraints.filter(c => !prev?.constraints.includes(c))
     // Luồng chính đang chạy (0.7.8 G9): route đã chốt ở step đầu của turn đó; turn không có route thì là model của phiên.
     const running = isInterject && L.turnRoute.turnId === e.turnId ? L.turnRoute.route : null
+    // Tin chen ngang: việc run: main cần họ hay effort cao hơn luồng chính đang chạy chờ engine báo tin được chèn vào turn đang chạy thì
+    // mới chuyển sang subagent (session.append); tin thành turn mới thì lựa chọn của router áp ở turn đó như cũ.
+    const family = running?.family ?? L.sessionFamily
+    const lift = isInterject && !isNewGoal ? added.filter(t => t.run === 'main' && family !== null && (familyRank(t.pick.family) > familyRank(family) || (running !== null && effortRank(t.pick.effort) > effortRank(running.effort)))) : []
+    // Khối dặn tách chỉ cho việc vẫn ở luồng chính: việc có thể chuyển sang subagent khi tin chen ngang được chèn thì không dặn tách.
+    const lifted = new Set(lift.map(t => t.index))
+    const shownAdded = added.map(t => (isSplitHeld || lifted.has(t.index) ? dropSplit(t) : t))
+    const shownBrief: Brief = isSplitHeld ? { ...brief, tasks: brief.tasks.map(dropSplit) } : brief
     const context = isInterject && !isNewGoal
-      ? interjectContext(brief, core.plan, added, newConstraints, { main: running !== null ? describePick(running) : 'model đang chạy', mayReplace: routed?.relation === 'new', isRouted: true })
+      ? interjectContext(brief, core.plan, shownAdded, newConstraints, { main: running !== null ? describePick(running) : 'model đang chạy', mayReplace: routed?.relation === 'new', isRouted: true })
       : isNewGoal
-        ? briefContext(brief, expected, isApplied)
-        : followUpContext(brief, core.plan, newConstraints, added, expected, isApplied)
+        ? briefContext(shownBrief, expected, isApplied)
+        : followUpContext(brief, core.plan, newConstraints, shownAdded, expected, isApplied)
     if (isInterject && !isNewGoal) {
-      // Việc run: main cần họ hay effort cao hơn luồng chính đang chạy: chờ engine báo tin được chèn vào turn đang chạy thì mới
-      // chuyển sang subagent (session.append); tin thành turn mới thì lựa chọn của router áp ở turn đó như cũ.
-      const family = running?.family ?? L.sessionFamily
-      const lift = added.filter(t => t.run === 'main' && family !== null && (familyRank(t.pick.family) > familyRank(family) || (running !== null && effortRank(t.pick.effort) > effortRank(running.effort))))
       L.pendingInterject = lift.length > 0 ? { goalId: brief.goalId, lift: lift.map(t => ({ index: t.index, family: t.pick.family, effort: t.pick.effort })) } : null
       record(now, 'interject', { relation: routed?.relation ?? plan.relation, tasks: added.length, constraints: newConstraints.length, toAgent: 0, liftable: lift.length })
       $.ui.toast(`Đã nhận yêu cầu chen ngang: ${added.length > 0 ? `thêm ${added.length} việc` : 'chỉ thêm ràng buộc'}`)
@@ -355,7 +379,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       main: brief.main,
       expected,
       notes: plan.notes,
-      tasks: brief.tasks.map(t => ({ index: t.index, run: t.run, agentType: t.agentType, pick: t.pick })),
+      tasks: brief.tasks.map(t => ({ index: t.index, run: t.run, agentType: t.agentType, pick: t.pick, ...(t.split !== undefined ? { split: t.split.length } : {}) })),
     })
     await flushDecisions((path, text) => $.fs.write(path, text))
     if (outcome.retried) $.ui.toast('Router đã đọc lại một lần (câu trả lời đầu hỏng hoặc tin cậy thấp)')
@@ -369,7 +393,7 @@ export function registerSession(on: On, ctx: Ctx): void {
     }
     await showStatus($, await read($, view), ctx.options)
     return next({ ...e, context: [...lead, ...(e.context ?? []), context, ...notice, ...(isClipped ? [CLIPPED_CONTEXT] : []), ...tail] })
-  }).catch(($, e, next) => next(e))
+  }).catch(($, e, next) => (noteHookError('prompt.submit', next.error), next(e)))
 
   // Engine chèn tin chen ngang vào turn đang chạy (0.7.8 G9): hàng attachment queued_command của luồng chính, door delivery (vòng sửa 2, V1; door
   // attachment vẫn nhận để phòng engine đổi cách phân loại). Các việc run: main cần
@@ -382,9 +406,10 @@ export function registerSession(on: On, ctx: Ctx): void {
     const brief = core.brief
     if (brief === null || brief.goalId !== pending.goalId) return next(e)
     const indices = new Set(pending.lift.map(item => item.index))
+    // Việc chuyển sang subagent không còn tách bằng phiên con (0.7.9 F1): split của việc đó bị bỏ.
     const tasks = brief.tasks.map(t =>
       indices.has(t.index) && t.run === 'main'
-        ? { ...t, run: 'agent' as const, agentType: 'general-purpose', why: [t.why, `chen ngang giữa turn: giao subagent để chạy đúng ${t.pick.family}/${t.pick.effort}`].filter(Boolean).join('; ') }
+        ? { ...dropSplit(t), run: 'agent' as const, agentType: 'general-purpose', why: [t.why, `chen ngang giữa turn: giao subagent để chạy đúng ${t.pick.family}/${t.pick.effort}`].filter(Boolean).join('; ') }
         : t,
     )
     const moved = tasks.filter(t => indices.has(t.index) && t.run === 'agent')
@@ -396,5 +421,5 @@ export function registerSession(on: On, ctx: Ctx): void {
     record(await $.clock.now(), 'interject-deliver', { goalId: brief.goalId, toAgent: moved.length, tasks: moved.map(t => t.index) })
     await flushDecisions((path, text) => $.fs.write(path, text))
     return next(e)
-  }).catch(($, e, next) => next(e))
+  }).catch(($, e, next) => (noteHookError('session.append', next.error), next(e)))
 }

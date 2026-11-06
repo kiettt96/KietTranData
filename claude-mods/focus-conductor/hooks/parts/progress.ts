@@ -3,6 +3,7 @@
 // chối hay vắng mặt trong phiên thì không đổi gì.
 
 import { atom, derive, read, update } from 'claude-code'
+import { noteHookError } from '../lib/errlog'
 import type { EngineInterface, On } from 'claude-code'
 import { clipText } from '../lib/decisions'
 import { freshTestRun } from '../lib/drift'
@@ -58,5 +59,5 @@ export function registerProgress(on: On, ctx: Ctx): void {
     }
     await showStatus($, await read($, view), ctx.options)
     return result
-  }).catch(($, e, next) => next(e))
+  }).catch(($, e, next) => (noteHookError('tool.call', next.error), next(e)))
 }

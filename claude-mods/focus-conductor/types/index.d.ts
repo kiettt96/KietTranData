@@ -47,7 +47,27 @@ export type Task = {
   why: string
   /** Số thứ tự (từ 1) các yêu cầu của prompt (Brief.requirements) mà việc này phủ; vắng khi router không ghi (0.7.0). */
   covers?: number[]
+  /**
+   * Các phần chạy song song bằng phiên con (0.7.9 F1): chỉ có ở việc run: main, volume large, từ 2 phần, file không giao nhau, đã kẹp
+   * theo maxForks. Vắng khi router không ghi, khi option forks tắt, hay khi mod bỏ vì sai điều kiện.
+   */
+  split?: ForkSplit[]
 }
+
+/** Một phần của việc tách (0.7.9 F1): mã phần (a, b, c...), tên phần, file phần đó được sửa (rỗng là chỉ đọc). */
+export type ForkSplit = { part: string; title: string; files: string[] }
+
+/** Trạng thái một phần chạy bằng phiên con: đang chạy, xong, lỗi (phải làm lại hay ghi skipped, blocked), hay đã chuyển về luồng chính vì engine từ chối. */
+export type ForkPartState = 'running' | 'done' | 'failed' | 'returned'
+
+/** Một lần giao phiên con cho một phần của việc (0.7.9 F1), ghép với lời gọi Agent qua tool_use_id và với agent qua agentId. */
+export type ForkPart = { task: number; part: string; toolUseId: string; agentId: string | null; state: ForkPartState }
+
+/**
+ * Phiên con của mục tiêu goalId (0.7.9 F1): các phần đã giao, các việc đã gom kết quả (câu gom và dòng fork-archive đã ghi). `off` theo
+ * phiên, không theo mục tiêu: `logged` là đã ghi fork-off vì option tắt, `engine` là engine từ chối phiên con nên tắt tách đến hết phiên.
+ */
+export type ForkState = { goalId: number; parts: ForkPart[]; merged: number[]; off: 'none' | 'logged' | 'engine' }
 
 /** Kết quả router đọc prompt: mục tiêu cuối, việc, ràng buộc, tiêu chí, và điều phối. */
 export type Brief = {
@@ -357,6 +377,12 @@ export type Core = {
    * lỗi cuối giữ qua hot reload. Vắng ở trạng thái cũ: goalId -1, không có mục nào.
    */
   retry: RetryState
+  /** Lệnh kiểm chủ mod đã miễn trong mục tiêu (0.7.9 Y5). */
+  waivers: WaiverState
+  /** Mục tiêu đã chặn một lần vì sửa mà chưa chạy lần kiểm nào (0.7.9 Y6); -1 là chưa. */
+  noCheckNudged: number
+  /** Phiên con của các việc tách (0.7.9 F1). Vắng ở trạng thái cũ: chưa có phần nào, off là none. */
+  forks: ForkState
 }
 
 /**
@@ -394,6 +420,19 @@ export type RetryItem = {
 }
 
 export type RetryState = { goalId: number; items: RetryItem[] }
+
+/** Một lệnh kiểm chủ mod đã miễn (0.7.9 Y5): chữ ký, lệnh, lý do, lượt lúc miễn, đã chặn đòi mục báo cáo chưa, bước blocked đã đổi. */
+export type Waiver = {
+  sig: string
+  command: string
+  reason: string
+  round: number
+  asked: boolean
+  /** Bước blocked mà mod đổi sang skipped khi miễn, cùng trạng thái và note cũ để waive undo trả lại; null khi không đổi bước nào. */
+  step: { id: number; status: PlanStep['status']; note: string | null } | null
+}
+
+export type WaiverState = { goalId: number; items: Waiver[] }
 
 /** Một cửa sổ hạn mức đã qua ngưỡng lúc dừng (0.6.0). */
 export type QuotaReason = { kind: 'five_hour' | 'seven_day'; percentUsed: number; resetsAt?: string; thresholdRemainingPct: number }
@@ -487,6 +526,8 @@ declare module 'claude-code' {
       quota: QuotaState
       /** Mục tiêu mà người dùng đã tự đóng pane chi tiết; -1 là chưa (0.7.2). */
       paneClosedGoal: number
+      /** Mã turn luồng chính đang chạy, rỗng khi không có (0.7.9, UI2): nhịp vẽ lại 60 giây đọc giá trị này để biết còn turn hay không. */
+      runningTurn: string
     }
   }
 }

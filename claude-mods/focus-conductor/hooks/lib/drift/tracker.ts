@@ -11,7 +11,8 @@ import { isMutation, writeEffects } from './effects'
 import { checkEffectPassed, lacksSummary, outputFailed, rejectReason } from './output'
 import type { RejectReason } from './output'
 import { normalizePath, scopeStatus } from './scope'
-import { isCustomCheck, normalizePython } from './verify'
+import { isCheckTool, isCustomCheck, normalizePython } from './verify'
+import { checkToolCommand, checkToolPassed } from './evidence'
 
 /** Số thay đổi liên tiếp chưa kiểm tra trước khi nhắc checkpoint đầu tiên. */
 export const CHECKPOINT_EVERY = 5
@@ -62,12 +63,16 @@ export type TurnTracker = {
   pendingChanges: Map<string, number>
   /** Số lệnh kiểm tra đạt trong turn (để câu báo phân biệt "chưa kiểm tra lần nào" với "sửa sau lần kiểm tra cuối"). */
   checks: number
+  /** Kết quả của lệnh kiểm gần nhất (0.7.9 X4a): đạt, hay lý do bị loại; null khi chưa có lệnh kiểm nào trong turn. */
+  lastCheck: RejectReason | 'passed' | null
   /**
    * Tài liệu đã đọc lại (0.7.7 X6): từ lần kiểm đạt cuối của luồng chính (hay đầu turn), đích đã ghi và thứ tự lần ghi cuối (`docWrites`),
    * số lần ghi (`docChanges`), có lần ghi không đọc được đích (`docUnknown`); `reads` là thứ tự lần Read cuối của từng file; `seq` đếm
    * tool call của luồng chính và subagent cùng mục tiêu.
    */
   docWrites: Map<string, number>
+  /** Tài liệu đã xóa bằng rm hay là nguồn của mv (0.7.9 X6a): không còn file để đọc lại, nên không cần đọc lại. */
+  docRemoved: Set<string>
   docChanges: number
   docUnknown: boolean
   reads: Map<string, number>
@@ -104,8 +109,10 @@ export function newTracker(turnId: string): TurnTracker {
     pending: new Set(),
     pendingChanges: new Map(),
     checks: 0,
+    lastCheck: null,
     rejected: [],
     docWrites: new Map(),
+    docRemoved: new Set(),
     docChanges: 0,
     docUnknown: false,
     reads: new Map(),
@@ -280,9 +287,35 @@ export function trackVerification(tracker: TurnTracker, observation: ToolObserva
     }
     return writes
   }
+  const onReject = (command: string, reason: RejectReason) => {
+    tracker.rejected.push({ command, reason })
+    tracker.lastCheck = reason
+    if (tracker.rejected.length > REJECTED_KEEP) tracker.rejected.shift()
+  }
+  const onPass = () => {
+    tracker.checks += 1
+    tracker.lastCheck = 'passed'
+    if (author === 'main') {
+      tracker.pending.clear()
+      tracker.docWrites.clear()
+      tracker.docRemoved.clear()
+      tracker.docChanges = 0
+      tracker.docUnknown = false
+    } else {
+      tracker.pending.delete(author)
+      tracker.pendingChanges.delete(author)
+    }
+    if (tracker.pending.size === 0) markVerified(tracker)
+  }
+  // Tool MCP khai trong checkTools (0.7.9 Y4): một lần kiểm như lệnh test Bash; lỗi thì là lệnh kiểm bị loại.
+  if (isCheckTool(observation.tool)) {
+    if (checkToolPassed(observation)) onPass()
+    else onReject(checkToolCommand(observation.tool, observation.input), observation.isError ? 'failed' : 'ran-nothing')
+    return writes
+  }
   if (observation.tool === 'Read' && !observation.isError) {
     const path = str(observation.input['file_path'])
-    if (path !== '') tracker.reads.set(fileTarget(path), seq)
+    if (path !== '' && isWholeRead(observation)) tracker.reads.set(fileTarget(path), seq)
     return writes
   }
   if (observation.tool !== 'Bash') return writes
@@ -293,31 +326,31 @@ export function trackVerification(tracker: TurnTracker, observation: ToolObserva
       if (!counted.has(effect)) continue
       onWrite()
       // Đích đọc được của lệnh Bash; đường dẫn tương đối nối với thư mục làm việc như khi kiểm phạm vi, không nối được là đích lạ.
+      // mkdir chỉ tạo thư mục, không đổi nội dung nào cần đọc lại (0.7.9 X6a).
+      if (effect.name === 'mkdir') continue
       if (effect.isUnknown || effect.paths.length === 0) tracker.docUnknown = true
+      const targets: string[] = []
       for (const path of effect.paths) {
-        if (path.startsWith('/')) tracker.docWrites.set(normalizePath(path), seq)
-        else if (cwd) tracker.docWrites.set(normalizePath(`${cwd}/${path}`), seq)
+        if (path.startsWith('/')) targets.push(normalizePath(path))
+        else if (cwd) targets.push(normalizePath(`${cwd}/${path}`))
         else tracker.docUnknown = true
+      }
+      // rm tài liệu và nguồn tài liệu của mv không còn file để đọc lại; đích của mv thì phải đọc lại như file vừa ghi (0.7.9 X6a).
+      const removed = effect.name === 'rm' ? targets : effect.name === 'mv' ? targets.slice(0, -1) : []
+      for (const path of targets) {
+        if (removed.includes(path) && DOC_FILE.test(path)) {
+          tracker.docWrites.delete(path)
+          tracker.docRemoved.add(path)
+        } else tracker.docWrites.set(path, seq)
       }
       continue
     }
     const reason = rejectReason(effect, observation)
     if (reason !== null) {
-      tracker.rejected.push({ command: effect.segment, reason })
-      if (tracker.rejected.length > REJECTED_KEEP) tracker.rejected.shift()
+      onReject(effect.segment, reason)
       continue
     }
-    tracker.checks += 1
-    if (author === 'main') {
-      tracker.pending.clear()
-      tracker.docWrites.clear()
-      tracker.docChanges = 0
-      tracker.docUnknown = false
-    } else {
-      tracker.pending.delete(author)
-      tracker.pendingChanges.delete(author)
-    }
-    if (tracker.pending.size === 0) markVerified(tracker)
+    onPass()
   }
   return writes
 }
@@ -544,11 +577,11 @@ function noCheckBranch(tracker: TurnTracker, suggestions: readonly string[]): { 
 }
 
 /**
- * Khóa nguyên nhân của cảnh báo chưa kiểm (0.7.7 X4), cùng nhánh với câu: sau lần kiểm cuối; có lệnh bị loại (lý do, đoạn lệnh); có gợi ý
+ * Khóa nguyên nhân của cảnh báo chưa kiểm (0.7.7 X4), cùng nhánh với câu: sau lần kiểm cuối, kèm kết quả của lệnh kiểm gần nhất (0.7.9 X4a); có lệnh bị loại (lý do, đoạn lệnh); có gợi ý
  * script kiểm chưa khai; không có lệnh kiểm. Không gồm số thay đổi.
  */
 function causeOf(tracker: TurnTracker, suggestions: readonly string[]): string {
-  if (tracker.checks > 0) return 'after-check'
+  if (tracker.checks > 0) return `after-check:${tracker.lastCheck ?? 'passed'}`
   const branch = noCheckBranch(tracker, suggestions)
   if (branch === null) return 'no-check'
   return 'rejected' in branch ? `rejected:${branch.rejected.reason}:${branch.rejected.command}` : `hint:${branch.hint}`
@@ -558,11 +591,24 @@ function causeOf(tracker: TurnTracker, suggestions: readonly string[]): string {
 const DOC_FILE = /\.(?:md|markdown|txt)$/i
 
 /**
+ * Read đọc trọn file (0.7.9 X6a): không có offset quá dòng 1, và không có limit hoặc output ngắn hơn limit (file ngắn hơn đoạn đã
+ * đọc). Không biết output thì không tính.
+ */
+function isWholeRead(observation: ToolObservation): boolean {
+  const offset = Number(observation.input['offset'] ?? 1)
+  if (Number.isFinite(offset) && offset > 1) return false
+  const limit = observation.input['limit']
+  if (limit === undefined || limit === null) return true
+  if (observation.output === undefined) return false
+  return observation.output.replace(/\n+$/, '').split('\n').length < Number(limit)
+}
+
+/**
  * Turn (từ lần kiểm đạt cuối của luồng chính) chỉ ghi tài liệu và đã Read lại từng file sau lần ghi cuối (0.7.7 X6): mọi lần ghi có đích đọc
  * được, mọi đích là tài liệu, mỗi đích có một Read sau lần ghi cuối. Đọc lại là bằng chứng yếu: chỉ hạ mức hiển thị, không đổi isVerified.
  */
-function isSoftDocs(tracker: TurnTracker): boolean {
-  if (tracker.docChanges === 0 || tracker.docUnknown || tracker.docWrites.size === 0) return false
+export function isSoftDocs(tracker: TurnTracker): boolean {
+  if (tracker.docChanges === 0 || tracker.docUnknown || (tracker.docWrites.size === 0 && tracker.docRemoved.size === 0)) return false
   return [...tracker.docWrites].every(([path, wrote]) => DOC_FILE.test(path) && (tracker.reads.get(path) ?? 0) > wrote)
 }
 

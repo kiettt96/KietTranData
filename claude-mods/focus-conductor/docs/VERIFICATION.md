@@ -2,6 +2,93 @@
 
 Số đo của HEAD hiện tại và của các bản trước. Mọi số do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển] trừ khi nêu khác; hợp đồng đối chiếu evidence ở [DESIGN.md](DESIGN.md), lịch sử thay đổi ở [CHANGELOG.md](../CHANGELOG.md), cách dùng ở [README](../README.md).
 
+## Kiểm chứng của 0.7.9 (lỗi tồn đọng, nhật ký lỗi của mod, ba kẽ hở của lệnh kiểm chưa đạt)
+
+Nhánh tách từ `main` 05ac330 (0.7.8). Mỗi điểm một commit test đỏ rồi một commit sửa, theo thứ tự R1, R2, Y1, Y2, Y3, P1x, X6a, X4a, UI1, UI2, L1, Y4, Y5, Y6, CI1; Y2, Y3, P1x chỉ thêm test ghim rồi thêm mẫu đột biến; không amend, không force-push, không merge. L1 và Y4 được dựng lại bằng cherry-pick lên trên UI2 trước khi đẩy; không commit nào đã đẩy bị viết lại [Đo trực tiếp].
+
+- Môi trường: Claude Code 2.1.296 cho mọi lần chạy test, đo và đột biến dưới đây [Đo trực tiếp]. Từ R2, `scripts/mutate.ts` tự kiểm `--version` trước khi chạy.
+- Bộ test, kiểm tĩnh và hash của commit cuối:
+  - `claude plugin test .` trên `a537a16`: 2585 test qua, 0 lỗi, 227 tệp (0.7.8: 2433 test, 213 tệp [Nguồn: mục 0.7.8 bên dưới]). Trên `445814f`, sau hai test ghim mẫu sống sót: 2587 qua, 0 lỗi, 228 tệp. Không test nào đổi tên hay mất.
+  - `claude plugin validate .` ở thư mục mod và gốc repo: qua. `bunx tsc --noEmit -p .`: sạch. `bun scripts/mutate.ts --check`: 1944 mẫu, danh sách `mismatched` rỗng (COUNT 0). `node scripts/version-check.mjs`: MOD_VERSION khớp `plugin.json`, 0.7.9.
+  - sha256 `hooks/` e3ec09fd5c42a752c420242b2cb5859f5e719c19a3ba96d88cba3e2fd4d5ae84, `tests/` 2906f7851eb4e250f2ca90d509bc85c0e576729a9f2bbe349f4d7e73a21bbb6b (tính bằng `scripts/mutate.ts --check` trên `a537a16`, ảnh chụp của lượt đột biến). Trên `445814f`: `hooks/` không đổi, `tests/` 96fb1ab85e5d054315ea0b810ea16953092003dda137376598e450aef33258d9; `tsc` sạch. Các commit sau đó chỉ đổi tài liệu.
+  - Tổng bộ test ở từng commit sửa có ghi trong thông điệp commit [Đo trực tiếp]: 2482 (X6a), 2486 (X4a), 2508 (L1), 2517 (Y4), 2544 (Y5), 2558 (Y6). Các điểm trước X6a không ghi tổng.
+- Test đỏ trước khi sửa và nơi nằm [Đo trực tiếp, số do thông điệp commit ghi; UI1 và UI2 do một tác nhân được giao làm, số đỏ 3 và 7 là số tác nhân báo]:
+
+  | Điểm | Test đỏ trên số test của tệp | Commit đỏ, commit sửa | Tệp test |
+  |---|---|---|---|
+  | R1 | 5 trên 7 | d784a8b, 02b2c66 | `tests/rule-shared-suffix-r1-079.test.ts` |
+  | R2 | cả tệp không nạp được (`scripts/verdict.ts` chưa có): 1 lỗi nạp, 10 ca chưa chạy; trong đó ca engine sai phiên bản (`engineMatches('2.1.000')` là false) | edeec6f, 43a65ad | `tests/mutate-verdict-r2-079.test.ts` |
+  | Y1 | 7 trên 12 | b3b893b, 29f4b3f | `tests/narrow-flags-y1-079.test.ts` |
+  | Y2 | 0 trên 1 (test ghim, qua trên mã hiện tại, đỏ khi áp `079-Y2a`) | 61d017d, 5450b06 | `tests/integration/retry-gaps-y2y3-079.test.ts` |
+  | Y3 | 0 trên 1 (đỏ khi áp `079-Y3a`) | b397017, ca836b6 | `tests/integration/retry-gaps-y2y3-079.test.ts` |
+  | P1x | 0 trên 7 (ba chi tiết, đỏ khi áp `079-P1a`, `079-P1b`, `079-P1c`) | 120e316, da7cd84 | `tests/integration/pins-p1x-079.test.ts` |
+  | X6a | 7 trên 11 | 6507ddd, 5983b63 | `tests/soft-docs-x6a-079.test.ts` |
+  | X4a | 2 trên 4 | 4ef4f4d, fdca9ba | `tests/integration/toast-after-check-x4a-079.test.ts` |
+  | UI1 | 3 trên 5 | b5c996e, b2590d6 | `tests/integration/pane-narrow-ui1-079.test.ts` |
+  | UI2 | 7 trên 9 | 059b987, aed4da8 | `tests/integration/band-since-ui2-079.test.ts` |
+  | L1 | 22 trên 22 (tệp không nạp được vì chưa có `hooks/lib/errlog.ts`) | 8ea445e, 4135e79 | `tests/integration/error-log-l1-079.test.ts` |
+  | Y4 | 4 trên 8 | cf1c502, 938b907 | `tests/integration/check-tools-y4-079.test.ts` |
+  | Y5 | 12 trên 13 | dad583d, 63685a2 | `tests/integration/waive-y5-079.test.ts` |
+  | Y6 | 8 trên 14 (6 ca ngoại lệ qua trên mã cũ) | f16107b, 37fb626 | `tests/integration/no-check-y6-079.test.ts` |
+  | CI1 | không có commit test đỏ | không có commit riêng | không có |
+  | F1 | 22 trên 27 (5 ca bảo toàn qua trên mã cũ) | 83d904f, 91a7b04 | `tests/integration/fork-split-f1-079.test.ts` |
+
+  F1, bổ sung của chủ mod giữa bản [Đo trực tiếp trừ khi ghi khác]:
+  - `routerSystem`: 8.826 ký tự trước F1; `forks` tắt hay `maxForks` dưới 2 vẫn 8.826 ký tự, cùng sha256; `forks` bật là 9.193 ký tự (thêm 367, dưới trần 400), như nhau với `maxForks` 2 tới 6. Đoạn mới nằm trong khối `cache: true`, các dòng cũ giữ nguyên.
+  - Golden: không ca nào đổi hash (golden dùng chính sách không bật `forks`).
+  - Trần chỗ chèn mới: khối dặn chạy song song 600 ký tự mỗi việc; câu gom 200; câu đưa các phần về luồng chính khi engine từ chối 200; câu dặn W4 cho phiên con "Sửa lỗi kiểm: " 200.
+  - Ràng buộc bảo toàn mục 4.6, mỗi ràng buộc có test trong tệp trên: (1) `split` hỏng chỉ bỏ `split` của việc đó, kế hoạch vẫn trả về (ca 17, 2, 3, 5, 6); (2) thêm 367 ký tự trong khối cache (ca 18 và ca chủ mod 1); (3) phiên con "Sửa lỗi kiểm: " không là lượt nâng, có câu dặn, không có khối tách ở lượt 2, 3 (ca 19); (4) `strictDelegation` không tính phần của F1 (ca 20); (5) "Việc 3a", "3b" khớp đúng phần, "Việc 31" không khớp Việc 3, bước "Việc 3a: ..." phủ Việc 3 (ca 21), test `taskMatch`, `stepCovers` và G4 cũ qua không sửa; (6) Việc 3 vẫn là một việc trên band, chi phí phiên con vào nhóm subagent, pane ghi "Nhóm subagent gồm k phiên con" (ca 22); (7) tin chen ngang chuyển việc sang subagent thì bỏ `split` (ca 23); (8) không có `split` thì context giống hệt chữ chụp từ mã trước F1 (ca 16) và hai số phiên dài không đổi.
+  - Chuỗi lỗi thật khi engine từ chối phiên con: chưa đo được, vì không có phiên engine thật; nhận biết chỉ dựa vào ghép `tool_use_id`.
+  - Phiên dài với `forks` bật: 10.339 và 19.587 ký tự, 0 lượt router chấm subagent; kịch bản phiên dài không có `split` nên số này không đo khối tách.
+- Test cũ sửa: một, nhóm đặc tả đổi (R1). `tests/rule-codes-t10-075.test.ts`, ca "Riêng tin pháp lý và tin thuế dùng opus": "Lọc tin pháp lý lô 1" nay là opus (trước là sonnet); các ca "Riêng BƯỚC 3" và khoảng mã vượt trần 50 giữ nguyên và vẫn qua. Test mới của X4a, Y4 chỉ được thêm ép kiểu ở commit sửa để `tsc` sạch; test mới của Y5 đổi ký hiệu bước `blocked` sang `[b]`, ký hiệu thật của `renderPlan`, ở commit sửa. Ba trường hợp này không đổi kỳ vọng và không phải test cũ.
+- Đột biến [Đo trực tiếp, engine 2.1.296, 1 worker, bằng `scripts/mutate.ts` đã sửa ở R2: `ERROR` và `TIMEOUT` không được tính là bị bắt]:
+  - Mẫu mới: 51 mẫu `079-` cho 15 điểm (R1 2, R2 2, Y1 2, Y2 1, Y3 1, P1x 3, X6a 3, X4a 1, UI1 1, UI2 4, L1 6, Y4 3, Y5 4, Y6 4, F1 14).
+  - Mẫu cũ viết lại cùng ý vì `old` không còn khớp: `075-R6f`, `075-T1c` (R1), `076-W3g` (UI1), `076-W4o` (UI2), và 14 mẫu ở `a537a16` (`077-X6j`, `061-A4`, `073-W8`, `073-W18`, `074-B8`, `074-B9`, `075-A2a`, `075-B4c`, `070-V13`, `075-B2b`, `077-X3e`, `077-X3i`, `078-W4i`, `075-L3b`). Các commit sửa X6a tới Y6 ghi `mutate --check` sạch là sai: lúc ấy chỉ đọc dòng đếm, bỏ sót danh sách `mismatched`.
+  - Lượt chạy trên các tệp mã đã đổi, ảnh chụp `a537a16`, 60 phần: 1.309 mẫu; `KILLED` 1.287, `SURVIVED` 2, `EQUIVALENT` 20 (đã đánh dấu sẵn), `ERROR` 0, `TIMEOUT` 0. Bốn phần chạm trần 30 phút của lệnh nền, các mẫu chưa có kết quả được chạy bù cùng commit và cùng sha256.
+  - Hai mẫu sống sót, xử lý bằng test ghim chỉ đổi `tests/`, mã `hooks/` không đổi:
+    - `076-V2e` (`overrideList` đọc hết cụm chữ cuối): từ R1, danh sách toàn cụm chữ đi qua quy tắc riêng nên các ca cũ không còn lộ mẫu. Commit `2b78c80` thêm ca danh sách lẫn mã và một cụm chữ ("Riêng BƯỚC 3 và tin pháp lý dùng opus"). Chạy lại mẫu trên cả bộ: `KILLED`.
+    - `079-R1a` (bỏ bước bung): các mục chưa bung ("tin xuất", "nhập khẩu") vẫn là cụm liền nhau trong mục đã bung, nên các ca R1 cũ vẫn ra opus. Commit `445814f` thêm "Lọc tin xuất bản" phải là sonnet. Chạy lại mẫu trên cả bộ: `KILLED`.
+- Phiên dài (`tests/integration/long-session-075.test.ts`, cách đo của 0.7.5: bản sao ngoài repo chỉ giữ test này, chèn dòng in số đo) [Đo trực tiếp]: cứ 10 lời gọi có một script ghi, 10.339 ký tự mod chèn; cứ 3 lời gọi, 19.587; 0 lượt router chấm subagent. Đo trên các commit sửa L1, Y4, Y5, Y6 và F1 (F1 với `forks` tắt và bật), không đổi ở commit nào so với 0.7.8. Kịch bản này không đi qua chỗ chèn mới nào (không lệnh kiểm chưa đạt, không lệnh miễn, không Stop thiếu lần kiểm).
+- Bản xem trước giao diện dạng chữ, trước (`05ac330`) và sau (`a537a16`), cùng một kịch bản 8 bước có mã và tên dài, một lô đang chạy, hai cảnh báo [Đo trực tiếp, bộ dựng chữ của bộ test, lưu ngoài repo]: band 56, 72, 120 cột giữ nguyên số dòng; pane 16, 24, 40 dòng ở 40, 48, 80 cột giữ nguyên số dòng, dòng tên bước tràn bề rộng ở 40 cột giảm từ 5 xuống 1, ở 48 cột từ 2 xuống 1 (UI1 chỉ áp dưới 48 cột), ở 80 cột từ 1 xuống 0. Câu cảnh báo dài nhất ở pane 80 cột chiếm 3 dòng, như 0.7.8.
+- Phần chèn mới theo từng điểm, chỉ khi điều kiện xảy ra [Đo trực tiếp, đếm ký tự trên mã]:
+
+  | Phần chèn | Trần | Ghi chú |
+  |---|---|---|
+  | Y5 câu đòi mục "Lệnh kiểm được miễn" (`WAIVE_ASK_CHARS`) | 600 | một lần mỗi mục tiêu có lệnh miễn |
+  | Y6 lý do chặn (`NO_CHECK_CHARS`) | 600 | một lần mỗi mục tiêu |
+  | Lý do chặn Stop gộp W4, Y5, Y6, G1 và checklist | 1.200 | thứ tự: W4 và Y5, Y6, G1 và checklist |
+
+  Y4 đi qua các câu W4 sẵn có (lý do chặn nêu tên tool thay cho lệnh), không thêm phần chèn riêng. L1 không chèn gì vào context; nhật ký lỗi và `/conductor errors` chỉ in cho người dùng. UI1, UI2 và nhãn "đã miễn" đổi chữ hiển thị, không đổi context.
+- Khai báo kiểu của engine 2.1.296 (`.claude-plugin/types/claude-code/index.d.ts`) cho các giả định của 0.7.9 [Nguồn: khai báo kiểu]:
+  - L1: handler `.catch` của hook nhận `next.error` kiểu `HookFailure` (`:5277-5289`); `$.fs.read` và `$.fs.write` phân giải đường dẫn tương đối theo thư mục làm việc của phiên và từ chối trên 4 MiB (`:3299-3332`), nên đường dẫn log nối với `$.session.root()`; `$.plugin` chỉ có tên và thư mục gốc, không có phiên bản; `session.start` phát cả lúc nạp lại (`:4436-4441`).
+  - UI2: `$.clock.every` (khoảng `:3547`), `Timer.cancel` (khoảng `:13252`); nạp lại nóng hủy các chờ của môi trường cũ (khoảng `:3504-3507`); không có sự kiện gỡ riêng.
+  - Y4: kết quả tool MCP có `isError` và text (khoảng `:13389`, `:13399-13415`); khóa đầu vào dành riêng `tool`, `tool_use_id` (khoảng `:6121-6134`) và `agentId` bị bỏ khỏi chữ ký.
+  - Y5: `CommandRunInput.origin` (`:1825-1843`); `composer` do engine đóng dấu, mod không giả định (khoảng `:9223-9232`).
+- CI1 [Đo trực tiếp]: thử trên bản lưu sạch với `HOME` rỗng, không lệnh nào sinh `.claude-plugin/types`: `claude plugin validate .` (mã thoát 0), `claude plugin details .` (mã thoát 1), `claude plugin test .` (2558 qua), `claude plugin init probe`, `claude -p "hi" --plugin-dir <mod>`. CI không đổi cho `tsc`; chi tiết ở [DESIGN.md](DESIGN.md), mục giới hạn.
+- CI: xanh trên `d9e8f56` (run 42079385270). Run của commit cuối ghi trong mô tả PR, vì commit tài liệu này không biết trước số run của chính nó.
+- Chưa kiểm được trên engine thật (chỉ kiểm bằng bộ test của engine): `/conductor waive` với origin `bridge` qua Remote Control thật; lần chặn Y6 với Claude thật (như W4, giả định lần chặn Stop cho chạy tiếp trong cùng turn); tool MCP thật trong `checkTools` (kết quả không phải chữ chỉ dựa vào `isError`); nhịp vẽ lại 60 giây của UI2 trên terminal thật; ghi file nhật ký lỗi trên máy thật ngoài kit test; số dòng của câu cảnh báo dài nhất ở pane 80 cột (UI3, chủ mod đo trên terminal thật; bản xem trước dạng chữ ghi 3 dòng, như 0.7.8).
+
+### Vòng 2 của 0.7.9 (rà soát PR 32: V1 tới V8, V1d, V2 bổ sung)
+
+Mỗi điểm một commit test đỏ rồi một commit sửa, nối tiếp `25afe1f`; không amend, không force-push [Đo trực tiếp, engine 2.1.296].
+- Test đỏ trước khi sửa: V1 12, V1d 6, V2 13, V2 bổ sung 3, V4 7, V7 4, V8 2. V3 chỉ thêm test qua trên mã hiện tại rồi thêm mẫu. V5 chỉ có tài liệu: bộ test của engine không mô phỏng được việc người dùng ngắt turn (`$.turn.abort` không có, khai báo kiểu của `claude-code/testing` không có abort, signal hay interrupt), nên không có mã, test và mẫu `079-V5a`. V6 chỉ đo.
+- Hồi quy giữa chừng: commit V4 đầu đọc `$.session.root()` ở mọi prompt, làm lệch test cũ về neo gốc theo mục tiêu (`tests/integration/verified-evidence.test.ts`); lộ ở lượt chạy cả bộ, sửa ở `4494092` (chỉ đọc gốc khi `maxForks` từ 2), thêm test cho `/conductor reroute` và `/conductor goal` ở `ad7bca1`.
+- Bộ test trên `5dcfb81`: 2696 qua, 0 lỗi, 237 tệp (trước vòng 2: 2587). Test cũ sửa: một, ca 21 của F1 (nhóm đặc tả đổi V8). `claude plugin validate .` qua ở thư mục mod và gốc repo; `bunx tsc --noEmit -p .` sạch; `bun scripts/mutate.ts --check`: 1962 mẫu, mismatched rỗng.
+- sha256 `hooks/` 3a38a31177d1ca186cf60150855d7da0ed7d7f79c7b52b0425d4b66062c5ed72, `tests/` 3d59290df19c03e077ba3f7fe2cd01a31ebb7cc04c9bf40eb8680f1610f13424 (trên `5dcfb81`; các commit sau chỉ đổi tài liệu).
+- Phiên dài: 10.339 và 19.587 ký tự, 0 lượt router chấm subagent, không đổi.
+- V6, phiên có việc tách (bản sao ngoài repo, `forks` bật, router trả một việc `large` ba phần, ba phiên con xong): mod chèn tổng 1.369 ký tự; khối dặn tách 398 (trần 600), câu gom 124 (trần 200), lời gọi phiên con không chèn gì.
+- Đột biến: chọn theo vùng đã đổi ở vòng này (mọi mẫu của `hooks/lib/drift/evidence.ts` và `hooks/lib/errlog.ts`, mẫu `079-` của các tệp đã đổi, mẫu của `router.ts` quanh `pathsOverlap` và `splitOf`, của `route.ts` quanh `taskMatch`), không chạy lại cả 545 mẫu của tám tệp vì một worker trên máy 4 lõi mất hơn một ngày; các vùng khác đã chạy đủ ở lượt trên `a537a16`. 9 phiên cloud, 1 worker: 54 mẫu trên `ed2ed58`, rồi 23 mẫu (mọi mẫu của `evidence.ts` sau V1d và V2 bổ sung, cùng `079-V4d`, `079-V4e`) trên `64e78c2`.
+
+  | Lượt chạy | KILLED | SURVIVED | EQUIVALENT | ERROR | TIMEOUT |
+  |---|---|---|---|---|---|
+  | 77 lượt (9 phiên) | 73 | 4 | 0 | 0 | 0 |
+
+  Bốn lượt sống sót thuộc ba mẫu, đều đã xử lý và chạy lại trên cả bộ ở `5dcfb81`:
+  - `078-W4f` (bỏ dòng lần đạt hẹp không phủ): từ V2 luật đường dẫn che phần lớn ca hẹp. Test ghim cờ lọc tên (`go test -run`, `jest --testNamePattern`, `pytest -k`, `vitest run -t`) ở `5e50567`; chạy lại KILLED.
+  - `079-L1c` (bỏ bước đường dẫn tuyệt đối): bước V7 thay hộ đường dẫn có đuôi. Test đường dẫn không đuôi (`/Users/name/proj`, `C:\Users\name\proj`, `~/work/acme`, `cwd=/home/u/acme`) ở `7dc6b4a`; chạy lại KILLED.
+  - `079-V1a` (bỏ kiểm cờ chỉ in của công cụ tĩnh): tương đương từ V1d, vì cờ chỉ in nằm trong tập cờ phép kiểm; chỉ khác ở cặp nhân tạo `tsc --version --noEmit` đạt với `tsc --version` lỗi. Đánh dấu `equivalent` kèm lý do ở `5dcfb81`, giữ dòng kiểm trong mã; harness báo EQUIVALENT.
+- CI: xanh trên `5dcfb81` (run 42179442985).
+
 ## Kiểm chứng của 0.7.8 (giữ mục tiêu chặt hơn, điều phối đủ sức, tiếp nhận yêu cầu chen ngang)
 
 Nhánh tách từ `main` fc41fd8 (0.7.7). Mỗi điểm G1 tới G9 một commit test đỏ rồi một commit sửa, theo thứ tự G1, G4, G2, G3, G5, G7, G6, G8, G9; không amend, rebase hay force-push [Đo trực tiếp].

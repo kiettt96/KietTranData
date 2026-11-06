@@ -7,7 +7,7 @@
 
 import type { ModelCompleteRequest, ModelCompleteResult, ModelTextBlock, ModelUsage } from 'claude-code'
 
-import type { Brief, Choice, Depth, Effort, Kind, ModelFamily, Relation, RouterFail, RouterFailKind, Task, Tier, Volume } from '../../types'
+import type { Brief, Choice, Depth, Effort, ForkSplit, Kind, ModelFamily, Relation, RouterFail, RouterFailKind, Task, Tier, Volume } from '../../types'
 import { PRICE } from './cost'
 import type { Price } from './cost'
 import { EFFORTS, FAMILIES, applySession, avoidBlocked, codesIn, describePick, effortRank, familyOf, familyRank, sessionFloor } from './route'
@@ -21,6 +21,13 @@ export type Policy = {
   session: SessionModel | null
   /** Loại agent dùng được trong phiên (tên và mô tả), từ danh mục engine mời và option agentTypes. */
   agents?: ReadonlyMap<string, string>
+  /**
+   * Số phần tối đa của một việc tách chạy bằng phiên con (0.7.9 F1): option maxForks khi option forks bật và engine chưa từ chối phiên
+   * con; vắng hay dưới 2 là tắt (routerSystem giữ nguyên chữ, parseRoute bỏ mọi split).
+   */
+  forks?: number
+  /** Thư mục gốc của phiên (vòng 2 V4): đường dẫn tuyệt đối dưới nó đổi thành tương đối khi so hai phần của việc tách; vắng thì so theo đuôi. */
+  root?: string | null
 }
 
 /** Ba loại agent có sẵn của Claude Code; danh mục thật của phiên lấy từ engine (agent.offer). */
@@ -128,6 +135,23 @@ Examples (abridged):
 - "Liệt kê các hàm export trong utils.ts" -> depth none, kind answer, main haiku/low, tasks [].
 - "Fix race condition khi hai worker cùng ghi file cache" -> depth hard, kind edit, main opus/high, tasks [].
 - "1. Đọc config.ts và liệt kê biến môi trường. 2. Sửa nút đăng nhập lệch trên mobile. 3. Viết unit test cho hàm refund." -> requirements: the three items; main sonnet/medium; task 1 (covers [1]) agent Explore haiku/low; task 2 (covers [2]) main sonnet/medium; task 3 (covers [3]) agent general-purpose sonnet/medium.`
+}
+
+/** Câu của routerSystem mà đoạn dặn tách (0.7.9 F1) chèn ngay sau: luật chọn run "agent" hay "main" của từng việc. */
+const SPLIT_ANCHOR = 'and is worth a fresh subagent prompt. Otherwise keep it on the main thread.'
+
+/** Đoạn dặn tách của routerSystem (0.7.9 F1), tối đa 400 ký tự; `max` là số phần tối đa (option maxForks). */
+function splitParagraph(max: number): string {
+  return `- Split, only after every task has its run: a "main" task with volume "large" may add "split": [{"title": string, "files": string[]}], 2 to ${max} parts the main thread runs in parallel as forks, when no two parts edit a common file (files [] = read-only), no part needs another's result and merging redoes none. Plan order, scope and criteria stay. Otherwise omit split.`
+}
+
+/**
+ * routerSystem kèm đoạn dặn tách khi phiên con bật (0.7.9 F1): đoạn nằm ngay sau luật run "agent", trong cùng khối có cache; các nhóm
+ * luật khác giữ nguyên chữ. Tắt (max dưới 2) thì trả nguyên chữ.
+ */
+export function splitRule(text: string, max: number): string {
+  if (max < 2) return text
+  return text.replace(SPLIT_ANCHOR, `${SPLIT_ANCHOR}\n${splitParagraph(max)}`)
 }
 
 /** System prompt của router chấm subagent; catalog giá dựng từ bảng giá đang dùng. */
@@ -342,7 +366,7 @@ export function routerRequest(args: {
     ...(args.interject ? [`The user sent this while the main model was still working on the current goal${args.interject.step ? ` (open step: ${fence(clip(args.interject.step, 100))})` : ''}; read it as an addition to that goal unless it clearly replaces it.`] : []),
     ...(args.observed ? [`Observed in the previous turn (the main model's choice fell short; re-read the work and raise "main" model or effort if it is harder than first judged): ${fence(clip(args.observed, 400))}`] : []),
   ]
-  const system: readonly ModelTextBlock[] = [{ text: routerSystem(args.prices), cache: true }]
+  const system: readonly ModelTextBlock[] = [{ text: routerSystem(args.prices), cache: true }].map(block => ({ text: splitRule(block.text, args.policy.forks ?? 0), cache: true as const }))
   return {
     model: args.model,
     system,
@@ -643,6 +667,8 @@ export type RouterPlan = {
   notes: string[]
   /** Số việc router chia vượt TASK_LIMIT bị bỏ (0.7.5); vắng khi không cắt. */
   droppedTasks?: number
+  /** Số split bị bỏ vì phiên con đang tắt (0.7.9 F1, option forks hay engine từ chối); vắng khi không có. */
+  droppedSplits?: number
 }
 
 function agentTypeOf(value: unknown, kind: Kind, policy: Policy): string {
@@ -677,6 +703,125 @@ function parseTask(value: unknown, index: number, main: Choice, whole: { depth: 
     why: [text(raw['why']), ...fitted.notes].filter(Boolean).join('; '),
     ...(covers !== undefined ? { covers } : {}),
   }
+}
+
+/** Số phần tối đa của một việc tách (option maxForks, 0.7.9 F1); mã phần là chữ cái theo thứ tự. */
+export const MAX_FORKS = 6
+const PART_CODES = 'abcdef'
+const PART_TITLE = 80
+const PART_FILES = 20
+
+/** Ký tự glob trong đường dẫn. */
+const GLOB = /[*?[{]/
+
+/** Giải `.` và `..` theo từng đoạn của đường dẫn (`..` vượt quá đầu đường dẫn tương đối thì giữ lại). */
+function resolveDots(path: string): string {
+  const out: string[] = []
+  for (const part of path.split('/')) {
+    if (part === '.' || part === '') continue
+    if (part === '..' && out.length > 0 && out[out.length - 1] !== '..') out.pop()
+    else out.push(part)
+  }
+  return out.join('/')
+}
+
+/**
+ * Đường dẫn để so giao nhau (vòng 2 V4): dấu \\ thành /, chữ thường, giải `.` và `..`; đường dẫn tuyệt đối nằm dưới `root` thì đổi thành
+ * tương đối. Đường dẫn tuyệt đối còn lại giữ dấu / đầu để phân biệt.
+ */
+function pathKey(path: string, root: string | null): string {
+  const slashed = path.trim().replace(/\\/g, '/').toLowerCase()
+  const isAbsolute = slashed.startsWith('/')
+  const resolved = resolveDots(slashed)
+  const base = root !== null && root.trim() !== '' ? resolveDots(root.trim().replace(/\\/g, '/').toLowerCase()) : ''
+  if (isAbsolute && base !== '' && (resolved === base || resolved.startsWith(`${base}/`))) return resolved.slice(base.length + 1)
+  return isAbsolute ? `/${resolved}` : resolved
+}
+
+/** Phần thư mục đứng trước ký tự glob đầu tiên (`src/*.ts` là `src`, `**\/a.ts` là rỗng). */
+function globBase(key: string): string {
+  const at = key.search(GLOB)
+  return key.slice(0, at).replace(/[^/]*$/, '').replace(/\/+$/, '')
+}
+
+/** Hai khóa đường dẫn đã chuẩn hóa giao nhau: trùng, hay một là thư mục chứa đường dẫn kia (so theo ranh giới thư mục). */
+function keysOverlap(x: string, y: string): boolean {
+  return x === y || x.startsWith(`${y}/`) || y.startsWith(`${x}/`)
+}
+
+/**
+ * Hai đường dẫn của hai phần giao nhau (0.7.9 F1, vòng 2 V4): trùng nhau, hay một là thư mục chứa đường dẫn kia, sau khi chuẩn hóa. Có
+ * ký tự glob thì coi là giao với mọi đường dẫn dưới phần thư mục trước ký tự glob đầu tiên. Một bên tuyệt đối, một bên tương đối mà không
+ * biết gốc phiên (hay tuyệt đối nằm ngoài gốc): giao khi bên tuyệt đối kết thúc bằng `/` cộng bên tương đối.
+ */
+export function pathsOverlap(a: string, b: string, root: string | null = null): boolean {
+  const x = pathKey(a, root)
+  const y = pathKey(b, root)
+  if (x === '' || y === '' || x === '.' || y === '.') return true
+  const gx = GLOB.test(x) ? globBase(x) : null
+  const gy = GLOB.test(y) ? globBase(y) : null
+  if (gx !== null || gy !== null) {
+    const px = gx ?? x
+    const py = gy ?? y
+    return px === '' || py === '' || keysOverlap(px, py)
+  }
+  if (keysOverlap(x, y)) return true
+  const known = root !== null && root.trim() !== ''
+  if (known) return false
+  const isXAbsolute = x.startsWith('/')
+  const isYAbsolute = y.startsWith('/')
+  if (isXAbsolute === isYAbsolute) return false
+  const absolute = isXAbsolute ? x : y
+  const relative = isXAbsolute ? y : x
+  return absolute.endsWith(`/${relative}`) || absolute.includes(`/${relative}/`)
+}
+
+/**
+ * Kẹp `split` router ghi cho một việc (0.7.9 F1). Mod không suy luận thay router, chỉ bỏ split sai điều kiện và ghi lý do: việc không
+ * phải run main, volume khác large, split sai kiểu hay có phần hỏng, ít hơn 2 phần, hai phần sửa chung file. Vượt `max` thì gộp phần dư
+ * vào phần cuối. `isOff`: phiên con đang tắt (option hay engine từ chối) nên split bị bỏ im lặng.
+ */
+function splitOf(value: unknown, task: Task, max: number, root: string | null = null): { split?: ForkSplit[]; note?: string; isOff?: true } {
+  if (value === undefined || value === null) return {}
+  if (max < 2) return { isOff: true }
+  const drop = (why: string) => ({ note: `bỏ split của việc ${task.index}: ${why}` })
+  if (task.run !== 'main') return drop('chỉ tách việc làm ở luồng chính')
+  if (task.volume !== 'large') return drop(`khối lượng ${task.volume}, chỉ tách việc large`)
+  if (!Array.isArray(value)) return drop('sai kiểu, cần một mảng phần')
+  const parts: Array<{ title: string; files: string[] }> = []
+  for (const item of value) {
+    if (typeof item !== 'object' || item === null) return drop('có phần sai kiểu')
+    const raw = item as Raw
+    const title = text(raw['title'], PART_TITLE)
+    if (title.length < 2) return drop('có phần thiếu title')
+    const files = raw['files']
+    if (!Array.isArray(files) || files.some(f => typeof f !== 'string')) return drop('có phần mà files không phải mảng đường dẫn')
+    parts.push({ title, files: unique((files as string[]).map(f => f.trim()).filter(Boolean), PART_FILES) })
+  }
+  if (parts.length < 2) return drop('ít hơn 2 phần')
+  for (let i = 0; i < parts.length; i++) {
+    for (let j = i + 1; j < parts.length; j++) {
+      if ((parts[i]?.files ?? []).some(a => (parts[j]?.files ?? []).some(b => pathsOverlap(a, b, root)))) return drop(`phần ${i + 1} và phần ${j + 1} sửa chung file`)
+    }
+  }
+  const cap = Math.min(parts.length, max, MAX_FORKS)
+  const kept = parts.slice(0, cap)
+  const extra = parts.slice(cap)
+  const last = kept[cap - 1]
+  if (extra.length > 0 && last !== undefined) {
+    kept[cap - 1] = { title: clip([last.title, ...extra.map(p => p.title)].join('; '), 200), files: unique([...last.files, ...extra.flatMap(p => p.files)], PART_FILES * MAX_FORKS) }
+  }
+  return {
+    split: kept.map((p, i) => ({ part: PART_CODES[i] ?? String(i + 1), title: p.title, files: p.files })),
+    ...(extra.length > 0 ? { note: `split của việc ${task.index}: gộp ${extra.length} phần dư vào phần cuối (maxForks ${max})` } : {}),
+  }
+}
+
+/** Việc bỏ split (0.7.9 F1): context không dặn tách, hay việc chuyển sang subagent. */
+export function dropSplit(task: Task): Task {
+  if (task.split === undefined) return task
+  const { split: _split, ...rest } = task
+  return rest
 }
 
 /**
@@ -737,9 +882,17 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
   /** Lựa chọn router ghi cho từng việc làm ở luồng chính, chưa kẹp (0.7.8 G3). */
   const held: Array<{ index: number; pick: Choice }> = []
   const rawTasks = Array.isArray(raw['tasks']) ? raw['tasks'] : []
+  // Tách bằng phiên con (0.7.9 F1) xét sau phân việc: split không đổi run, model hay effort của việc nào.
+  const forks = Math.min(policy.forks ?? 0, MAX_FORKS)
+  const splitNotes: string[] = []
+  let droppedSplits = 0
   for (const item of rawTasks.slice(0, TASK_LIMIT)) {
-    const task = parseTask(item, tasks.length + 1, main.pick, whole, policy)
-    if (!task) continue
+    const parsed = parseTask(item, tasks.length + 1, main.pick, whole, policy)
+    if (!parsed) continue
+    const cut = splitOf((item as Raw)['split'], parsed, forks, policy.root ?? null)
+    if (cut.note !== undefined) splitNotes.push(cut.note)
+    if (cut.isOff) droppedSplits += 1
+    const task: Task = cut.split !== undefined ? { ...parsed, split: cut.split } : parsed
     tasks.push(task)
     if (task.run === 'main') held.push({ index: task.index, pick: rawPick(item) ?? own })
   }
@@ -763,8 +916,9 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
     mainWhy,
     ...(referenceMain ? { referenceMain } : {}),
     tasks,
-    notes: lead.notes,
+    notes: [...lead.notes, ...splitNotes],
     ...(rawTasks.length > TASK_LIMIT ? { droppedTasks: rawTasks.length - TASK_LIMIT } : {}),
+    ...(droppedSplits > 0 ? { droppedSplits } : {}),
   }
 }
 

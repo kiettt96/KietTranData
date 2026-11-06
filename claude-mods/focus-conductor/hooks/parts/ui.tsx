@@ -1,6 +1,7 @@
 // Giao diện: band trên prompt và pane chi tiết.
 
 import { atom, derive, read, update } from 'claude-code'
+import { caught, noteHookError } from '../lib/errlog'
 import { EMPTY_QUOTA, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaBadge, quotaSettings, softNotices } from '../lib/quota'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
@@ -9,7 +10,7 @@ import { renderBand } from '../ui/band'
 import { labels } from '../ui/labels'
 import { isPersonClose } from '../lib/pane'
 import { PANE, PANE_TITLE, renderPane } from '../ui/pane'
-import type { EngineInterface, On } from 'claude-code'
+import type { EngineInterface, On, Timer } from 'claude-code'
 import type { Ctx } from '../context'
 import { viewOf } from '../atoms'
 
@@ -25,6 +26,38 @@ const RESET_CONFIRM_MS = 10_000
 const quotaState = atom({ plugin: 'focus-conductor', key: 'quota' } as const, EMPTY_QUOTA)
 // Mục tiêu mà người dùng đã tự đóng pane chi tiết (-1 là chưa), để autoPane không mở lại trong mục tiêu đó (0.7.2).
 const paneClosedState = atom({ plugin: 'focus-conductor', key: 'paneClosedGoal' } as const, -1)
+// Mã turn luồng chính đang chạy, rỗng khi không có (0.7.9, UI2). Chỉ ghi lúc turn bắt đầu và kết thúc, không ghi mỗi nhịp.
+const runningTurnState = atom({ plugin: 'focus-conductor', key: 'runningTurn' } as const, '')
+
+/**
+ * Nhịp vẽ lại (0.7.9, UI2): thời gian đã chạy ở band và pane tính lúc vẽ, nên có turn đang chạy thì cứ 60 giây xin engine vẽ lại một lần.
+ * Mỗi lần nạp mod giữ nhiều nhất một nhịp: lần nạp lại thì engine tự hủy các lần chờ của môi trường cũ, còn session.start (phát cả khi nạp
+ * lại) hủy nhịp đang giữ rồi đặt lại khi $.state còn ghi turn đang chạy.
+ */
+const TICK_MS = 60_000
+type Tick = { timer: Timer | null }
+
+function stopTick(tick: Tick): void {
+  tick.timer?.cancel()
+  tick.timer = null
+}
+
+/** Một nhịp: $.state không còn turn đang chạy thì nhịp tự hủy và không vẽ lại; còn thì chỉ xin vẽ lại, không ghi $.state, không chèn context. */
+async function redrawTick($: EngineInterface, tick: Tick): Promise<void> {
+  if ((await read($, runningTurnState)) === '') {
+    stopTick(tick)
+    return
+  }
+  $.ui.invalidate('ui.render')
+}
+
+/** Đặt nhịp khi chưa có: một nhịp tại một thời điểm, kể cả khi turn mới bắt đầu trước khi nhịp của turn cũ kịp tự hủy. */
+function startTick($: EngineInterface, tick: Tick): void {
+  if (tick.timer !== null) return
+  tick.timer = $.clock.every(TICK_MS, () => {
+    void redrawTick($, tick).catch(caught('redrawTick', undefined, 'hook'))
+  })
+}
 
 /** Status line kèm nhãn hạn mức (0.6.1): mọi chỗ đặt status của file này đi qua đây, nên nhãn không mất giữa các hook. */
 async function showStatus($: EngineInterface, current: View, options: Ctx['options']): Promise<void> {
@@ -34,6 +67,40 @@ async function showStatus($: EngineInterface, current: View, options: Ctx['optio
 export function registerUi(on: On, ctx: Ctx): void {
   const { resetLocal } = ctx
   const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
+  const tick: Tick = { timer: null }
+
+  // ------------------------------------------------ nhịp vẽ lại (UI2)
+
+  // Turn luồng chính bắt đầu: ghi mã turn vào $.state và đặt nhịp. Turn của subagent không đổi gì.
+  // Mỗi sự kiện đã có hook không matcher ở file khác: engine chỉ nhận lần đăng ký thứ hai khi có matcher riêng.
+  on('turn.start', { turnId: /./ }, async ($, e, next) => {
+    const result = await next(e)
+    if (e.agentId !== undefined) return result
+    await update($, runningTurnState, () => e.turnId)
+    startTick($, tick)
+    return result
+  }).catch(($, e, next) => (noteHookError('turn.start', next.error), next(e)))
+
+  // Turn luồng chính kết thúc (mọi reason): xóa mã turn; nhịp kế tiếp đọc thấy rỗng thì tự hủy mà không vẽ lại.
+  on('turn.complete', { reason: /./ }, async ($, e, next) => {
+    const result = await next(e)
+    if (e.agentId === undefined) await update($, runningTurnState, () => '')
+    return result
+  }).catch(($, e, next) => (noteHookError('turn.complete', next.error), next(e)))
+
+  // Nạp mod (lần đầu hay nạp lại): hủy nhịp đang giữ, rồi đặt lại khi $.state còn ghi turn đang chạy (nạp lại giữa turn).
+  on('session.start', { cwd: /.*/ }, async ($, e, next) => {
+    const result = await next(e)
+    stopTick(tick)
+    if ((await read($, runningTurnState)) !== '') startTick($, tick)
+    return result
+  }).catch(($, e, next) => (noteHookError('session.start', next.error), next(e)))
+
+  on('session.end', { sessionId: /.*/ }, async ($, e, next) => {
+    stopTick(tick)
+    await update($, runningTurnState, () => '')
+    return next(e)
+  }).catch(($, e, next) => (noteHookError('session.end', next.error), next(e)))
 
   // ------------------------------------------------------- giao diện
 
@@ -67,7 +134,7 @@ export function registerUi(on: On, ctx: Ctx): void {
       if (goalId >= 0) await update($, paneClosedState, () => goalId)
     }
     return next(e)
-  }).catch(($, e, next) => next(e))
+  }).catch(($, e, next) => (noteHookError('ui.close', next.error), next(e)))
 
   on('ui.render', { component: 'Pane', requestId: 'focus-conductor' }, async ($, e) => {
     const current = await read($, view)

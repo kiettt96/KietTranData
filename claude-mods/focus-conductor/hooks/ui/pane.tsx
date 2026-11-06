@@ -9,6 +9,7 @@ import { estimateLine, formatCost, ledgerLines, sessionUsd } from '../lib/ledger
 import type { View } from '../lib/state'
 import { shownPlan } from '../lib/mirror'
 import { runningGroups, runningTitles, stepTaskRows, taskRows } from '../lib/progress'
+import { liveForks } from '../lib/forks'
 import { countLabel, progress } from '../lib/text'
 import type { BandQuota, QuotaPaneText } from '../lib/text'
 import { attentionItems } from './attention'
@@ -24,6 +25,7 @@ import {
   columnsOf,
   goalUsd,
   padEnd,
+  oneLine,
   padStart,
   phaseOf,
   plannedRuns,
@@ -53,6 +55,8 @@ const DEFAULT_ROWS = 16
  * cuối câu là chỉ dẫn cần làm.
  */
 const ATTENTION_MAX = 4
+/** Số ô tối thiểu giữ cho tên việc ở dòng Đang chạy khi phải cắt tên để giữ phần sau (UI2) [Giả định: đủ thấy mã bước như "BƯỚC 4"]. */
+const RUNNING_NAME_CELLS = 8
 /** Ký hiệu tạm dừng, như band. */
 const PAUSE_GLYPH = '\u23F8'
 
@@ -391,6 +395,9 @@ export function renderPane(
   // S6: ước lượng số dòng (ngắt chữ như wrapText) để biết dạng đầy đủ có đẩy tiêu đề tiến độ từng việc ra ngoài số dòng của pane không.
   const rowsOf = (text: string, cells: number) => Math.max(1, wrapText(text, cells, 99).length)
   const stepCells = width - idWidth - 3
+  // UI1 (0.7.9): pane hẹp cắt tên bước còn đúng một dòng bằng oneLine (mã đầu tên giữ trọn); chip vẫn xuống dòng riêng như W3.
+  const isOneLine = isNarrow
+  const titleRows = (title: string) => (isOneLine ? 1 : rowsOf(title, stepCells))
   // W3: pane hẹp đặt chip và chi tiết của việc khớp bước xuống dòng riêng, nên cộng số dòng của chúng.
   const metaRows = (title: string) => {
     const row = byTitle.get(title)
@@ -398,7 +405,7 @@ export function renderPane(
     return !isNarrow || row === undefined || !meta ? 0 : rowsOf([meta, rowDetail(row, true)].filter(Boolean).join(' '), stepCells)
   }
   const stepRows = (step: PlanStep) =>
-    rowsOf(step.title, stepCells) + (step.check ? rowsOf(`${l.check}: ${step.check}`, stepCells) : 0) + (step.note ? rowsOf(step.note, stepCells) : 0) + metaRows(step.title)
+    titleRows(step.title) + (step.check ? rowsOf(`${l.check}: ${step.check}`, stepCells) : 0) + (step.note ? rowsOf(step.note, stepCells) : 0) + metaRows(step.title)
   // Chú giải (U7): chỉ các loại ký hiệu đang thấy, và chỉ khi các bước mở đang thấy có từ hai loại trở lên.
   const legendOf = (steps: readonly PlanStep[]) => {
     const kinds = new Set(steps.map(step => step.status))
@@ -440,7 +447,7 @@ export function renderPane(
   const listed = isCompact ? shown : isLong ? openSteps : plan
   const hiddenOpen = openSteps.length - shown.length
   // Bước dự kiến của router trước khi có checklist (S6): cùng luật, mọi bước đều còn mở.
-  const plannedFull = brief.steps.reduce((sum, step) => sum + rowsOf(step, stepCells) + metaRows(step), 0)
+  const plannedFull = brief.steps.reduce((sum, step) => sum + titleRows(step) + metaRows(step), 0)
   const plannedCompact = plan.length === 0 && brief.steps.length > COLLAPSE_FROM && !fits(plannedFull)
   const plannedShown = plannedCompact ? brief.steps.slice(0, SHOWN_OPEN) : brief.steps
   const checklist =
@@ -467,9 +474,15 @@ export function renderPane(
                 <Text dimColor>{padStart(String(step.id), idWidth)}</Text>
               </Box>
               <Box flexDirection="column" flexGrow={1} flexShrink={1}>
-                <Text wrap="wrap" bold={step.status === 'doing'} dimColor={isFaded}>
-                  {step.title}
-                </Text>
+                {isOneLine ? (
+                  <Text wrap="truncate-end" bold={step.status === 'doing'} dimColor={isFaded}>
+                    {oneLine(step.title, stepCells)}
+                  </Text>
+                ) : (
+                  <Text wrap="wrap" bold={step.status === 'doing'} dimColor={isFaded}>
+                    {step.title}
+                  </Text>
+                )}
                 {step.check ? (
                   <Text dimColor wrap="wrap">
                     {`${l.check}: ${step.check}`}
@@ -509,7 +522,7 @@ export function renderPane(
               <Text dimColor>{padStart(String(i + 1), idWidth)}</Text>
             </Box>
             <Box flexDirection="column" flexGrow={1} flexShrink={1}>
-              <Text wrap="wrap">{step}</Text>
+              {isOneLine ? <Text wrap="truncate-end">{oneLine(step, stepCells)}</Text> : <Text wrap="wrap">{step}</Text>}
               {narrowMeta(step)}
             </Box>
             {isNarrow ? null : metaNode(step)}
@@ -591,12 +604,18 @@ export function renderPane(
 
   // ----------------------------------------------------------- đang chạy
   // U8: mỗi việc có subagent đang chạy một dòng: tên việc, khoảng lô, số agent đang chạy, thời gian từ agent đầu tiên của nhóm.
-  const runningNodes = runningGroups(view.core, props.now ?? 0).map(group => (
-    <Text key={group.key} wrap="truncate-end">
-      <Text color="claude">{taskLabel(l, group)}</Text>
-      <Text dimColor>{[group.range ? ` · ${l.runningRange(group.range.first, group.range.last)}` : '', ` · ${l.runningAgents(group.agents)}`, ` · ${l.taskElapsed(group.elapsedMs)}`, ` · ${l.runningSince(group.startedAt)}`].join('')}</Text>
-    </Text>
-  ))
+  // UI2 (0.7.9): dòng dài hơn bề ngang thì cắt tên việc trước (oneLine), giữ trọn phần sau, nhất là "· từ HH:MM"; tên còn ít nhất
+  // RUNNING_NAME_CELLS ô, pane hẹp hơn nữa thì phần cuối dòng mới bị cắt.
+  const runningNodes = runningGroups(view.core, props.now ?? 0).map(group => {
+    const tail = [group.range ? ` · ${l.runningRange(group.range.first, group.range.last)}` : '', ` · ${l.runningAgents(group.agents)}`, ` · ${l.taskElapsed(group.elapsedMs)}`, ` · ${l.runningSince(group.startedAt)}`].join('')
+    const name = oneLine(taskLabel(l, group), Math.max(RUNNING_NAME_CELLS, width - cellsOf(tail)))
+    return (
+      <Text key={group.key} wrap="truncate-end">
+        <Text color="claude">{name}</Text>
+        <Text dimColor>{tail}</Text>
+      </Text>
+    )
+  })
 
   // ----------------------------------------------------------- điều phối
   const routeNode = route ? (
@@ -642,7 +661,9 @@ export function renderPane(
   }
   const costHead = `${padEnd('', labelWidth)}${hasBars ? ' '.repeat(BAR + 1) : ''} ${padStart(l.costGoal, moneyWidth)} ${padStart(l.costSession, moneyWidth)} ${padStart(l.costCalls, callWidth)}`
   const totalCalls = groups.reduce((sum, g) => sum + ledger.session[g.key].calls, 0)
-  const extraLines = [...ledgerLines(ledger, view.lang).slice(2), ...(estimateLine(log, view.lang) ? [estimateLine(log, view.lang) as string] : [])]
+  // Phiên con (0.7.9 F1) tính vào nhóm subagent, không thêm nhóm: một dòng ghi số phiên con của mục tiêu.
+  const forkCount = liveForks(view.core).length
+  const extraLines = [...ledgerLines(ledger, view.lang).slice(2), ...(estimateLine(log, view.lang) ? [estimateLine(log, view.lang) as string] : []), ...(forkCount > 0 ? [l.forkCost(forkCount)] : [])]
   const cost = (
     <Box flexDirection="column">
       <Text dimColor wrap="truncate-end">

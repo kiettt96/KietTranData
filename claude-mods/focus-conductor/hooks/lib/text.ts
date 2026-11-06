@@ -94,6 +94,8 @@ export function briefContext(brief: Brief, main: Choice | null, isApplied = true
   const reference = brief.referenceMain ? describePick(brief.referenceMain) : 'chưa rõ'
   const tasks =
     brief.tasks.length === 0 ? '' : taskBlock(brief.tasks, brief.isReference ? reference : mainText, brief.isReference)
+  // Việc tách chạy bằng phiên con (0.7.9 F1): mỗi việc có split một khối ngay sau phân việc; không có split thì không thêm chữ nào.
+  const splits = brief.isReference ? '' : splitLines(brief.tasks)
   const hasDelegation = brief.tasks.some(task => task.run === 'agent')
   const isSmall = brief.depth === 'none' || (brief.depth === 'light' && brief.volume === 'small')
   const next = brief.isReference
@@ -113,7 +115,7 @@ export function briefContext(brief: Brief, main: Choice | null, isApplied = true
   const gaps = uncovered.length > 0 ? `\nYêu cầu chưa có việc nào phủ (đừng bỏ sót khi lập checklist): ${uncovered.join('; ')}` : ''
   return [
     '[focus-conductor] Bản đọc prompt của router (đối chiếu lại với prompt gốc trước khi làm)',
-    `Mục tiêu cuối: ${brief.goal}${tasks}${gaps}${rules}`,
+    `Mục tiêu cuối: ${brief.goal}${tasks}${splits}${gaps}${rules}`,
     `Đánh giá: độ sâu ${brief.depth}, khối lượng ${brief.volume}, bản chất ${brief.kind}${brief.why ? ` (${brief.why})` : ''}`,
     routing,
     brief.scopePaths.length > 0 ? `Phạm vi được sửa: ${brief.scopePaths.join(', ')}` : '',
@@ -179,7 +181,7 @@ export function followUpContext(
     `[focus-conductor] Tiếp nối mục tiêu hiện tại: ${brief.goal}`,
     main ? `Router: ${brief.relation}; luồng chính ${mainText}${brief.why ? ` (${brief.why})` : ''}` : '',
     added.length > 0
-      ? `Việc mới (router đã chấm; khi giao, description của Agent mở đầu "Việc N: "):\n${added.map(task => taskLine(task, mainText)).join('\n')}`
+      ? `Việc mới (router đã chấm; khi giao, description của Agent mở đầu "Việc N: "):\n${added.map(task => taskLine(task, mainText)).join('\n')}${splitLines(added)}`
       : '',
     open.length > 0 ? `Bước còn mở: ${open.map(s => `${s.id}. ${s.title}`).join('; ')}` : '',
     uncoveredRequirements(brief).length > 0 ? `Yêu cầu chưa có việc nào phủ (đừng bỏ sót): ${uncoveredRequirements(brief).join('; ')}` : '',
@@ -228,8 +230,56 @@ export function interjectContext(
       .join('\n')
   let n = all.length
   while (n > 0 && build(n).length > INTERJECT_CHARS) n -= 1
-  return build(n).slice(0, INTERJECT_CHARS)
+  // Việc mới chia được (0.7.9 F1): khối tách của từng việc đi sau, mỗi khối có trần riêng.
+  return `${build(n).slice(0, INTERJECT_CHARS)}${splitLines(added)}`
 }
+
+/** Trần ký tự của khối dặn tách một việc (0.7.9 F1). */
+export const SPLIT_CHARS = 600
+
+/** Khối dặn tách của các việc có split, mỗi khối một dòng mở đầu bằng xuống dòng; không việc nào có split thì chuỗi rỗng. */
+function splitLines(tasks: readonly Task[]): string {
+  return tasks
+    .filter(t => (t.split?.length ?? 0) >= 2)
+    .map(t => `\n${splitBlock(t)}`)
+    .join('')
+}
+
+/**
+ * Khối dặn chạy song song một việc tách (0.7.9 F1), tối đa SPLIT_CHARS ký tự: số phần, cách gọi phiên con, mã phần ở đầu description,
+ * từng phần kèm file được sửa, rồi dặn đợi đủ kết quả, gộp và đối chiếu tiêu chí. Tên phần cắt đều cho vừa trần.
+ */
+export function splitBlock(task: Task): string {
+  const parts = task.split ?? []
+  const n = task.index
+  const head =
+    `Việc ${n} khối lượng lớn, tách ${parts.length} phần chạy song song bằng phiên con (Agent subagent_type "fork"), ` +
+    `mỗi phần một lời gọi trong cùng một lượt trả lời, description mở đầu bằng mã phần như "Việc ${n}a: ": `
+  const tail = `. Đợi đủ kết quả rồi gộp, đối chiếu tiêu chí của Việc ${n}, rồi mới sang bước sau. Các việc khác giữ nguyên phân việc.`
+  const room = SPLIT_CHARS - head.length - tail.length - 2 * Math.max(0, parts.length - 1)
+  const each = Math.max(12, Math.floor(room / Math.max(1, parts.length)))
+  const items = parts.map(p => clipItem(`${n}${p.part} ${p.title} (${p.files.length > 0 ? p.files.join(', ') : 'chỉ đọc'})`, each))
+  return `${head}${items.join('; ')}${tail}`.slice(0, SPLIT_CHARS)
+}
+
+/** Câu gom (0.7.9 F1), tối đa 200 ký tự: mọi phần của việc đã có kết quả từ phiên con. */
+export function forkMergedNote(index: number): string {
+  return `[focus-conductor] Việc ${index} đã đủ kết quả từ các phiên con: gộp kết quả và đối chiếu tiêu chí của Việc ${index} rồi mới sang bước sau.`.slice(0, 200)
+}
+
+/** Câu chuyển về luồng chính khi engine từ chối phiên con (0.7.9 F1), tối đa 200 ký tự; `index` null khi lời gọi không khớp việc tách nào. */
+export function forkReturnNote(index: number | null, parts: readonly string[]): string {
+  const what = index !== null && parts.length > 0 ? `làm Việc ${index} phần ${parts.join(', ')} ở luồng chính` : 'làm phần việc đó ở luồng chính'
+  return `[focus-conductor] Engine không mở được phiên con: ${what}, không tách thêm việc nào trong phiên này.`.slice(0, 200)
+}
+
+/** Câu dặn khi giao phiên con "Sửa lỗi kiểm: " ở lượt 2 hay 3 của W4 (0.7.9 F1), tối đa 200 ký tự. */
+export function forkRetryNote(): string {
+  return `[focus-conductor] Phiên con chạy model của luồng chính nên không là lượt sửa ở mức đã nâng: giao subagent general-purpose, description mở đầu "${RETRY_PREFIX}".`.slice(0, 200)
+}
+
+/** Lý do từ chối mở phiên con khi turn đã nhận báo hạn mức mềm (0.7.9 F1). */
+export const FORK_QUOTA_DENY = '[focus-conductor] Turn này đã nhận báo hạn mức mềm: không mở phiên con mới; làm phần còn lại ở luồng chính.'
 
 /** Câu báo việc của tin chen ngang đã chuyển sang subagent vì tin được chèn vào turn đang chạy (0.7.8 G9). */
 export function interjectMovedNote(moved: readonly Task[]): string {
@@ -1071,6 +1121,30 @@ export function retryStopReason(advanced: readonly RetryLine[], exhausted: reado
     if (text.length <= RETRY_REASON_CHARS) return text
   }
   return build(0).slice(0, RETRY_REASON_CHARS)
+}
+
+/** Trần ký tự của lý do chặn khi đã sửa mà chưa kiểm (0.7.9 Y6). */
+const NO_CHECK_CHARS = 600
+
+/** Lý do chặn một lần khi mục tiêu đã sửa file mà chưa chạy lần kiểm nào sau thay đổi cuối (0.7.9 Y6). */
+export function noCheckReason(command: string): string {
+  return (
+    `[focus-conductor] Mục tiêu đã sửa file nhưng chưa chạy lần kiểm nào sau thay đổi cuối. Chạy \`${clipItem(command, 200)}\`, ` +
+    'rồi kết thúc nếu đạt, hoặc sửa tiếp theo kết quả. Mod chỉ chặn một lần cho mỗi mục tiêu.'
+  ).slice(0, NO_CHECK_CHARS)
+}
+
+/** Tên mục báo cáo cuối khi chủ mod đã miễn lệnh kiểm (0.7.9 Y5). */
+export const WAIVE_REPORT = 'Lệnh kiểm được miễn'
+/** Trần ký tự của câu đòi mục "Lệnh kiểm được miễn". */
+const WAIVE_ASK_CHARS = 600
+
+/** Lý do chặn một lần khi có lệnh miễn mới (0.7.9 Y5): liệt kê lệnh, lý do, yêu cầu mục báo cáo; tối đa WAIVE_ASK_CHARS ký tự. */
+export function waiveAskText(items: readonly { command: string; reason: string }[]): string {
+  const head = '[focus-conductor] Chủ mod đã miễn lệnh kiểm chưa đạt:'
+  const tail = `Câu trả lời cuối phải có mục "${WAIVE_REPORT}", mỗi lệnh một dòng: lệnh, lý do miễn.`
+  const rows = items.map(item => `- \`${clipItem(item.command, 80)}\`: ${clipItem(item.reason, 120)}`)
+  return [head, ...rows, tail].join('\n').slice(0, WAIVE_ASK_CHARS)
 }
 
 /** Ghép lý do của phần lệnh kiểm chưa đạt với lý do của cổng checklist, trong trần RETRY_REASON_CHARS. */

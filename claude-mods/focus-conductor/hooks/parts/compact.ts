@@ -4,6 +4,7 @@
 // sau nén; parts/consistency.ts gắn nó một lần vào kết quả tool kế tiếp của luồng chính, dựng từ trạng thái lúc nhắc.
 
 import { atom, derive, read } from 'claude-code'
+import { noteHookError } from '../lib/errlog'
 import type { On } from 'claude-code'
 import * as S from '../lib/state'
 import { shownPlan } from '../lib/mirror'
@@ -28,5 +29,5 @@ export function registerCompact(on: On, ctx: Ctx): void {
     const result = await next({ ...e, instructions })
     if (e.trigger !== 'precompute' && result.skip === undefined) ctx.noteCompacted(result.tokensAfter)
     return result
-  }).catch(($, e, next) => next(e))
+  }).catch(($, e, next) => (noteHookError('session.compact', next.error), next(e)))
 }

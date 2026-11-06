@@ -3,14 +3,18 @@
 
 import type { PluginOptions, PromptOrigin } from 'claude-code'
 import type { Brief, Choice, Core, DelegationItem, DelegationState, Effort, Lift, Mode, ModelFamily, PlanStep, Route, RouteEvent, Task, Tier, Volume } from '../types'
-import { applyCheckCommands, newEvidenceLog, newTracker, parseCheckCommands } from './lib/drift'
+import { applyCheckCommands, applyCheckTools, newEvidenceLog, newTracker, parseCheckCommands, parseCheckTools } from './lib/drift'
 import type { EvidenceLog, PromptIntent, TurnTracker } from './lib/drift'
 import { DEFAULT_CACHE_TTL_MINUTES, DEFAULT_CONTEXT, DEFAULT_WINDOWS, applyCacheWrite, applyPrices, parseCacheWrite, parsePrices } from './lib/cost'
 import { EFFORTS, decideMain, describePick, familyOf, hasTitleCode, liftPick, matchTask, parseModelMap, parseWindows } from './lib/route'
 import type { SessionModel, SessionPolicy } from './lib/route'
 import { DECISION_LIMIT, decisionLine } from './lib/decisions'
 import type { DecisionKind } from './lib/decisions'
-import { fitPick, skipKey } from './lib/router'
+import { EMPTY_ERRORS, caught, noteModError, errorFileText, errorLines, localIso, mergeEntry, mergeFiles, parseErrorFile, pruneFixed, setErrorSink } from './lib/errlog'
+import type { ErrorEvent, ErrorFile } from './lib/errlog'
+import { FIXED_ERRORS } from './lib/fixed-errors'
+import { MOD_VERSION } from './lib/version'
+import { MAX_FORKS, fitPick, skipKey } from './lib/router'
 import type { AgentRoute, Policy } from './lib/router'
 
 /** Prompt do chính người dùng gửi (hoặc lịch họ đặt), không phải thông báo nội bộ. */
@@ -70,6 +74,8 @@ export const COMMAND_HELP = [
   '/conductor goal ...    đặt mục tiêu thủ công',
   '/conductor reroute     router đọc lại prompt gần nhất (kể cả khi router đang tạm ngừng)',
   '/conductor reset       xóa mục tiêu, checklist, cảnh báo và danh sách model bị chặn',
+  '/conductor waive N lý do   miễn lệnh kiểm chưa đạt số N (hoặc ghi lệnh) cho mục tiêu này; waive undo N bỏ lệnh miễn',
+  '/conductor errors      nhật ký lỗi của mod; errors clear xóa nhật ký',
 ].join('\n')
 
 /** Khoảng cách tối thiểu giữa hai lượt kiểm lạc đề (0.7.5, option driftIntervalMinutes): mặc định 10 phút, kẹp 5 đến 120. */
@@ -146,6 +152,17 @@ export function createContext(options: PluginOptions) {
     goalPrompt: null as { text: string; prev: Brief | null; goalId: number } | null,
     /** Vừa /clear khi có điểm dừng mở (0.7.5): prompt kế tiếp không tự chèn khối ĐIỂM DỪNG, chỉ gợi ý /conductor resume. */
     noAutoResume: false,
+    /** Mốc hết hạn xác nhận của /conductor errors clear (0.7.9 L1): gõ lại trong 10 giây thì mới xóa. */
+    errorsClearArmedUntil: 0,
+    /**
+     * Lời gọi Agent của phiên con đang chạy (0.7.9 F1), theo tool_use_id: agent.spawn có fork true cùng tool_use_id đánh dấu `spawned`.
+     * Lời gọi lỗi mà chưa có spawn nào là engine từ chối phiên con; đã spawn rồi mới lỗi là lỗi của phần đó.
+     */
+    forkCalls: new Map<string, { spawned: boolean; task?: number; part?: string }>(),
+    /** Đã báo engine từ chối phiên con trong phiên (0.7.9 F1): câu chuyển về luồng chính và dòng fork-off chỉ một lần. */
+    forkRefused: false,
+    /** Việc đã chèn câu gom ("goalId:việc", 0.7.9 F1): hai kết quả tool song song không chèn hai lần; Core.forks.merged giữ qua hot reload. */
+    forkMerging: new Set<string>(),
   }
   const blocked = new Set<ModelFamily>()
   // Một lần lỗi có thể chỉ là tạm thời (429, quá tải): chỉ chặn một họ model
@@ -200,12 +217,22 @@ export function createContext(options: PluginOptions) {
   const routerFallback = options['routerFallback'] === 'reuse' ? 'reuse' : 'session'
   const strictDelegation = options['strictDelegation'] === 'remind' || options['strictDelegation'] === 'block' ? options['strictDelegation'] : 'off'
   const remindSubagents = options['remindSubagents'] === true
+  // Tách việc lớn thành phiên con (0.7.9 F1): option forks mặc định tắt; maxForks từ 0 đến 6, mặc định 3. Tắt hay 0 thì maxForks là 0.
+  const maxForks = forksOf(options)
   // Bật mặc định từ 0.7.0 (tắt khi đặt false); tự tắt gần ngưỡng hạn mức và tối đa một lượt mỗi 10 phút.
   const semanticDrift = options['semanticDrift'] !== false
   const driftEveryMs = driftIntervalMs(options['driftIntervalMinutes'])
   // Pane chi tiết tự mở ở mỗi mục tiêu mới (0.7.2); đặt false để tắt.
   const autoPane = options['autoPane'] !== false
   const decisionLog = typeof options['decisionLog'] === 'string' ? options['decisionLog'].trim() : ''
+  // Nhật ký lỗi của mod (0.7.9 L1): mặc định .focus-conductor/errors.json dưới thư mục gốc của phiên; "off" là tắt.
+  const errorLog = errorLogPath(options['errorLog'])
+  // Lỗi đã gặp mà chưa ghi ra file, mỗi lỗi kèm giờ gặp; ghi ở turn.complete, session.start và session.end.
+  const errorBuffer: { event: ErrorEvent; at: string }[] = []
+  setErrorSink(errorLog === '' ? null : event => {
+    errorBuffer.push({ event, at: localIso(Date.now()) })
+    if (errorBuffer.length > ERROR_BUFFER_MAX) errorBuffer.shift()
+  })
   const rawBlockLimit = Number(options['blockLimit'])
   const blockLimit = Number.isInteger(rawBlockLimit) && rawBlockLimit >= 1 ? Math.min(BLOCK_LIMIT_MAX, rawBlockLimit) : BLOCK_EDITS
   const extraAgents = String(options['agentTypes'] ?? '')
@@ -232,10 +259,19 @@ export function createContext(options: PluginOptions) {
   applyPrices(parsePrices(options['prices']))
   applyCacheWrite(parseCacheWrite(options['cacheWrite']))
   applyCheckCommands(parseCheckCommands(options['checkCommands']))
+  applyCheckTools(parseCheckTools(options['checkTools']))
 
   /** Chính sách áp lên mọi lựa chọn của router: allowFable, model của phiên, họ đang bị chặn, loại agent dùng được. */
   function policy(): Policy {
     return { allowFable: options['allowFable'] === true, blocked, session: sessionModel(), agents: agentCatalog() }
+  }
+
+  /**
+   * Chính sách cho lượt router đọc prompt (0.7.9 F1): policy() kèm số phần tối đa của việc tách; engine đã từ chối phiên con trong
+   * phiên (lưu trong Core nên giữ qua hot reload) thì 0.
+   */
+  function routePolicy(core: Core, root: string | null = null): Policy {
+    return { ...policy(), forks: core.forks.off === 'engine' || local.forkRefused ? 0 : maxForks, root }
   }
 
   /** Loại agent dùng được: ba loại có sẵn, loại engine đang mời, và loại người dùng khai trong agentTypes. */
@@ -265,7 +301,75 @@ export function createContext(options: PluginOptions) {
    * (`(path, text) => $.fs.write(path, text)`) vì engine không cho `$` đi qua một import.
    */
   async function flushDecisions(write: (path: string, text: string) => Promise<unknown>): Promise<void> {
-    if (decisionLog) await write(decisionLog, decisionText()).catch(() => undefined)
+    if (decisionLog) await write(decisionLog, decisionText()).catch(caught('fs.write decisionLog', undefined))
+  }
+
+  /** Đường dẫn file nhật ký lỗi: tuyệt đối giữ nguyên, tương đối ghép với thư mục gốc của phiên (không có thì để engine nối với cwd). */
+  async function errorFilePath(io: ErrorIO): Promise<string> {
+    if (errorLog.startsWith('/')) return errorLog
+    const root = await io.root().catch(() => null)
+    return root ? `${root.replace(/\/+$/, '')}/${errorLog}` : errorLog
+  }
+
+  /** Đọc nhật ký trên đĩa; file chưa có, đọc lỗi hay hỏng thì nhật ký rỗng. */
+  async function readErrors(io: ErrorIO, path: string): Promise<ErrorFile> {
+    const text = await io.read(path).catch(() => '')
+    return typeof text === 'string' && text !== '' ? parseErrorFile(text) : EMPTY_ERRORS
+  }
+
+  /** Gộp các lỗi trong bộ đệm vào file. Mọi lỗi của chính bộ ghi bị nuốt và không được ghi lại vào nhật ký. */
+  async function flushErrors(io: ErrorIO): Promise<void> {
+    if (errorLog === '' || errorBuffer.length === 0) return
+    const pending = errorBuffer.splice(0)
+    try {
+      const path = await errorFilePath(io)
+      let file = await readErrors(io, path)
+      for (const { event, at } of pending) file = mergeEntry(file, event, at, MOD_VERSION)
+      await io.write(path, errorFileText(file))
+    } catch {
+      // Bộ ghi không được làm hỏng hook đang chạy, cũng không tự ghi lỗi của nó.
+    }
+  }
+
+  /** Lúc mở phiên hay nạp lại: tự xóa lỗi đã sửa theo sổ fixed-errors, gộp lỗi trong bộ đệm, ghi lại khi có thay đổi. */
+  async function openErrors(io: ErrorIO): Promise<void> {
+    if (errorLog === '') return
+    try {
+      const path = await errorFilePath(io)
+      const disk = await readErrors(io, path)
+      const pruned = pruneFixed(disk, MOD_VERSION, FIXED_ERRORS)
+      const changed = JSON.stringify(pruned) !== JSON.stringify(disk)
+      if (changed) await io.write(path, errorFileText(pruned))
+    } catch {
+      // Như flushErrors.
+    }
+    await flushErrors(io)
+  }
+
+  /** Dòng của /conductor errors (đã ghi bộ đệm trước). Null khi nhật ký tắt. */
+  async function errorReport(io: ErrorIO): Promise<{ lines: string[]; dropped: number; total: number } | null> {
+    if (errorLog === '') return null
+    await flushErrors(io)
+    const file = await readErrors(io, await errorFilePath(io).catch(() => errorLog))
+    return { lines: errorLines(file), dropped: file.dropped, total: file.entries.length }
+  }
+
+  /** Xóa toàn bộ nhật ký (/conductor errors clear sau xác nhận). */
+  async function clearErrors(io: ErrorIO): Promise<boolean> {
+    if (errorLog === '') return false
+    errorBuffer.length = 0
+    try {
+      await io.write(await errorFilePath(io), errorFileText(EMPTY_ERRORS))
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /** Lỗi của router theo failure (0.7.9 L1): chỉ ghi loại lỗi (hết giờ, lỗi API, sai định dạng, vượt token), không ghi prompt. */
+  function noteRouterFailure(where: 'prompt' | 'agent' | 'drift', failure: string | null): void {
+    if (failure === null || failure === 'paused') return
+    noteModError({ group: 'router', where, message: failure })
   }
 
   /**
@@ -348,6 +452,8 @@ export function createContext(options: PluginOptions) {
     local.turnRoute = { turnId: '', route: null }
     local.pendingInterject = null
     local.interjectNote = null
+    local.forkCalls.clear()
+    local.forkMerging.clear()
     local.turnContext = 0
     local.compaction = { pending: false, lastContext: 0, skipNext: false }
     local.noticeTurn = null
@@ -699,6 +805,12 @@ export function createContext(options: PluginOptions) {
     decisionLog,
     decisionText,
     flushDecisions,
+    errorLog,
+    flushErrors,
+    openErrors,
+    errorReport,
+    clearErrors,
+    noteRouterFailure,
     defaultWindows,
     delegationItems,
     evidenceFor,
@@ -710,6 +822,7 @@ export function createContext(options: PluginOptions) {
     isAgentRouterPaused,
     isRouterPaused,
     mainDecision,
+    maxForks,
     modelMap,
     moveDelegation,
     noteAgentRouter,
@@ -728,6 +841,7 @@ export function createContext(options: PluginOptions) {
     rememberAgentRoute,
     remindSubagents,
     resetLocal,
+    routePolicy,
     routerFallback,
     routerFamily,
     routerModel,
@@ -750,3 +864,32 @@ export function createContext(options: PluginOptions) {
 }
 
 export type Ctx = ReturnType<typeof createContext>
+
+/** Đọc, ghi file và thư mục gốc cho nhật ký lỗi: hook truyền vào (`$.fs.read`, `$.fs.write`, `$.session.root`) vì `$` không đi qua import. */
+export type ErrorIO = {
+  read: (path: string) => Promise<unknown>
+  write: (path: string, text: string) => Promise<unknown>
+  root: () => Promise<string | null>
+}
+
+/** Số lỗi tối đa giữ trong bộ đệm giữa hai lần ghi. */
+const ERROR_BUFFER_MAX = 400
+export const DEFAULT_ERROR_LOG = '.focus-conductor/errors.json'
+
+/** Số phần tối đa của việc tách (0.7.9 F1): option forks phải là true; maxForks số nguyên 0 đến 6, vắng hay sai là 3. Tắt thì 0. */
+export function forksOf(options: PluginOptions): number {
+  if (options['forks'] !== true) return 0
+  const given = options['maxForks']
+  const raw = given === undefined || given === null || given === '' ? DEFAULT_FORKS : Number(given)
+  return Number.isInteger(raw) ? Math.min(MAX_FORKS, Math.max(0, raw)) : DEFAULT_FORKS
+}
+
+/** maxForks mặc định (0.7.9 F1). */
+export const DEFAULT_FORKS = 3
+
+/** Option errorLog: chuỗi rỗng hay không phải chuỗi là mặc định, "off" là tắt (trả chuỗi rỗng). */
+export function errorLogPath(raw: unknown): string {
+  const value = typeof raw === 'string' ? raw.trim() : ''
+  if (value.toLowerCase() === 'off') return ''
+  return value === '' ? DEFAULT_ERROR_LOG : value
+}

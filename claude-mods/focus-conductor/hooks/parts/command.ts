@@ -1,6 +1,7 @@
 // Lệnh /conductor: pane, status, mode, goal, reroute, reset, pause, resume.
 
 import { atom, derive, read, update } from 'claude-code'
+import { caught } from '../lib/errlog'
 import type { Brief, Core, Depth, QuotaCheckpoint } from '../../types'
 import { buildCheckpoint, forceUntil, pruneKeys, storeKey } from '../lib/checkpoint'
 import { EMPTY_QUOTA, evaluateQuota, newPause, normalizeQuota, quotaSettings, reasonsOf } from '../lib/quota'
@@ -13,7 +14,7 @@ import { askRouter, bareBrief, briefOf, failFields, nextBrief, parseRoute, rerou
 import { shownPlan } from '../lib/mirror'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
-import { RETRY_ROUNDS, briefContext, checkHintLines, droppedItemsText, droppedPlanNotice, quotaStatusLines, renderPlan, resetLabel, routerFailLines, unroutedContext } from '../lib/text'
+import { RETRY_ROUNDS, WAIVE_REPORT, briefContext, checkHintLines, droppedItemsText, droppedPlanNotice, quotaStatusLines, renderPlan, resetLabel, routerFailLines, unroutedContext } from '../lib/text'
 import { PANE_ROWS, shouldAutoOpenPane } from '../lib/pane'
 import { PANE, PANE_TITLE } from '../ui/pane'
 import type { EngineInterface, On } from 'claude-code'
@@ -33,10 +34,10 @@ const paneClosedState = atom({ plugin: 'focus-conductor', key: 'paneClosedGoal' 
 
 /** Mở pane chi tiết cho mục tiêu mới nếu cần (0.7.2), như parts/session.ts: không focus; kết quả ghi vào nhật ký quyết định. */
 async function autoOpenPane($: EngineInterface, ctx: Ctx, goalId: number, at: number, depth: Depth | null): Promise<void> {
-  const panes = await $.ui.panes().catch(() => [])
+  const panes = await $.ui.panes().catch(caught('ui.panes', []))
   const isOpen = panes.some(pane => pane.id === PANE)
   if (!shouldAutoOpenPane({ enabled: ctx.autoPane, goalId, closedGoal: await read($, paneClosedState), isOpen, depth })) return
-  const opened = await $.ui.open({ id: PANE, title: PANE_TITLE, rows: PANE_ROWS }).catch(() => null)
+  const opened = await $.ui.open({ id: PANE, title: PANE_TITLE, rows: PANE_ROWS }).catch(caught('ui.open', null))
   // Chỉ ghi khi pane chưa được đặt (màn hình hẹp, chưa có surface, engine từ chối): đặt được là trường hợp bình thường, không cần dòng log.
   if (opened?.isPlaced === true) return
   ctx.record(at, 'pane', { goalId, isPlaced: false, reason: opened === null ? 'engine từ chối mở pane' : opened.reason })
@@ -70,7 +71,7 @@ async function savePauseCheckpoint($: EngineInterface, cp: QuotaCheckpoint): Pro
 async function pauseFileStats($: EngineInterface, paths: readonly string[]): Promise<Array<{ path: string; mtimeMs: number; size: number }>> {
   const out: Array<{ path: string; mtimeMs: number; size: number }> = []
   for (const path of paths) {
-    const stat = await $.fs.stat(path).catch(() => null)
+    const stat = await $.fs.stat(path).catch(caught('fs.stat', null))
     out.push({ path, mtimeMs: stat?.mtimeMs ?? -1, size: stat?.size ?? -1 })
   }
   return out
@@ -95,17 +96,30 @@ async function showStatus($: EngineInterface, current: View, options: Ctx['optio
 /** Lệnh kiểm chưa đạt của mục tiêu hiện tại cho /conductor status (0.7.8 vòng sửa 3, W4): lượt và mức của từng lượt. */
 function retryLines(core: Core): string[] {
   if (core.brief === null || core.retry.goalId !== core.brief.goalId || core.retry.items.length === 0) return []
-  const rows = core.retry.items.map(item => {
+  // Đánh số để /conductor waive N chọn đúng lệnh (0.7.9 Y5); lệnh đã miễn ghi kèm.
+  const rows = core.retry.items.map((item, i) => {
     const name = item.more.length > 0 ? `và ${item.more.length} lệnh khác` : item.command
     const state = item.exhausted ? `hết ${RETRY_ROUNDS} lượt, chưa đạt` : `lượt ${item.round}/${RETRY_ROUNDS}`
-    return `  ${name}: ${state}; mức ${item.levels.join(', ')}`
+    return `  ${i + 1}. ${name}: ${state}; mức ${item.levels.join(', ')}${S.isWaived(core, item.sig) ? ' (đã miễn)' : ''}`
   })
   return [`Lệnh kiểm chưa đạt:\n${rows.join('\n')}`]
 }
 
+/** Lệnh kiểm chủ mod đã miễn trong mục tiêu (0.7.9 Y5): số thứ tự, lệnh, lý do, lượt lúc miễn. */
+function waiverLines(core: Core): string[] {
+  if (core.brief === null || core.waivers.goalId !== core.brief.goalId || core.waivers.items.length === 0) return []
+  const rows = core.waivers.items.map((w, i) => `  ${i + 1}. ${w.command}: ${w.reason} (lượt ${w.round})`)
+  return [`${WAIVE_REPORT}:\n${rows.join('\n')}`]
+}
+
+/** Nơi phát lệnh được nhận cho /conductor waive (0.7.9 Y5): người gõ ở terminal hay qua Remote Control; plugin, SDK, lịch thì không. */
+const WAIVE_ORIGINS: ReadonlySet<string> = new Set(['composer', 'bridge'])
+const WAIVE_REASON_MIN = 10
+const WAIVE_USAGE = `Cách dùng: /conductor waive <số thứ tự hoặc lệnh> <lý do từ ${WAIVE_REASON_MIN} ký tự>; số thứ tự lấy từ mục "Lệnh kiểm chưa đạt" của /conductor status. Bỏ lệnh miễn: /conductor waive undo <số thứ tự>.`
+
 export function registerCommand(on: On, ctx: Ctx): void {
   const L = ctx.local
-  const { blocked, flushDecisions, delegationItems, expectedMain, failures, noteRouterTime, policy, ranText, record, resetLocal, routerFamily, routerModel, routerTimeLine, trackDelegations, untrackedAgents, wantedPick } = ctx
+  const { blocked, flushDecisions, delegationItems, expectedMain, failures, noteRouterTime, ranText, record, resetLocal, routerFamily, routerModel, routerTimeLine, trackDelegations, untrackedAgents, wantedPick } = ctx
   const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
   const mode = derive([modeState], modeOf(ctx.options))
 
@@ -117,7 +131,51 @@ export function registerCommand(on: On, ctx: Ctx): void {
 
     if (sub === '' || sub === 'show') {
       const opened = await $.ui.open({ id: PANE, title: PANE_TITLE })
-      return { text: opened.isPlaced ? 'Đã mở pane Focus Conductor.' : 'Pane Focus Conductor sẽ hiện khi màn hình đủ rộng.' }
+      const head = opened.isPlaced ? 'Đã mở pane Focus Conductor.' : 'Pane Focus Conductor sẽ hiện khi màn hình đủ rộng.'
+      const core = S.normalizeCore(await read($, coreState))
+      return { text: [head, ...retryLines(core), ...waiverLines(core)].join('\n') }
+    }
+
+    if (sub === 'waive') {
+      // Chỉ người gõ (0.7.9 Y5): origin do engine đóng dấu (composer, bridge); Claude và plugin không có đường tự miễn.
+      if (!WAIVE_ORIGINS.has(e.origin.kind)) return { text: 'Chỉ nhận /conductor waive do người gõ; lệnh từ plugin, SDK hay lịch không miễn được.' }
+      const core = S.normalizeCore(await read($, coreState))
+      if (core.brief === null || core.retry.goalId !== core.brief.goalId) return { text: `Không có lệnh kiểm chưa đạt nào trong mục tiêu này. ${WAIVE_USAGE}` }
+      const goalId = core.brief.goalId
+      const waivers = core.waivers.goalId === goalId ? core.waivers.items : []
+      const now = await $.clock.now()
+      if (rest[0] === 'undo') {
+        const index = Number(rest[1]) - 1
+        const waiver = Number.isInteger(index) ? waivers[index] : undefined
+        if (waiver === undefined) return { text: `Không có lệnh miễn số ${rest[1] ?? ''}. ${WAIVE_USAGE}` }
+        const old = waiver.step
+        await update($, coreState, c => {
+          const next = S.withWaivers({ goalId, items: waivers.filter(w => w !== waiver) })(c)
+          return old === null ? next : S.withPlan(next.plan.map(s => (s.id === old.id ? { ...s, status: old.status, note: old.note ?? undefined } : s)))(next)
+        })
+        record(now, 'waive-undo', { signature: waiver.sig, round: waiver.round })
+        await flushDecisions((path, text) => $.fs.write(path, text))
+        await showStatus($, await read($, view), ctx.options)
+        return { text: `Đã bỏ lệnh miễn của \`${waiver.command}\`; lệnh quay lại lượt ${waiver.round}/${RETRY_ROUNDS}.` }
+      }
+      const byIndex = /^\d+$/.test(rest[0] ?? '') ? core.retry.items[Number(rest[0]) - 1] : undefined
+      const byCommand = byIndex === undefined ? [...core.retry.items].filter(item => item.command !== '' && (arg === item.command || arg.startsWith(`${item.command} `))).sort((a, b) => b.command.length - a.command.length)[0] : undefined
+      const item = byIndex ?? byCommand
+      const reason = (byIndex !== undefined ? rest.slice(1).join(' ') : item !== undefined ? arg.slice(item.command.length) : '').trim()
+      if (item === undefined || item.more.length > 0) return { text: `Không thấy lệnh kiểm chưa đạt đó. ${WAIVE_USAGE}` }
+      if (reason.length < WAIVE_REASON_MIN) return { text: `Cần lý do từ ${WAIVE_REASON_MIN} ký tự trở lên. ${WAIVE_USAGE}` }
+      if (waivers.some(w => w.sig === item.sig)) return { text: `\`${item.command}\` đã được miễn trong mục tiêu này.` }
+      // Bước blocked mod đã ghi cho lệnh này thành skipped, giữ trạng thái và note cũ cho waive undo.
+      const target = item.step !== null ? core.plan.find(s => s.id === item.step && s.status === 'blocked') : undefined
+      const waiver = { sig: item.sig, command: item.command, reason, round: item.round, asked: false, step: target === undefined ? null : { id: target.id, status: target.status, note: target.note ?? null } }
+      await update($, coreState, c => {
+        const next = S.withWaivers({ goalId, items: [...waivers, waiver] })(c)
+        return target === undefined ? next : S.withPlan(next.plan.map(s => (s.id === target.id ? { ...s, status: 'skipped' as const, note: `miễn bởi chủ mod: ${reason}` } : s)))(next)
+      })
+      record(now, 'waive', { signature: item.sig, reason, round: item.round })
+      await flushDecisions((path, text) => $.fs.write(path, text))
+      await showStatus($, await read($, view), ctx.options)
+      return { text: `Đã miễn \`${item.command}\` cho mục tiêu này (lượt ${item.round}/${RETRY_ROUNDS}): không còn chặn kết thúc. Câu trả lời cuối cần mục "${WAIVE_REPORT}".` }
     }
 
     if (sub === 'mode') {
@@ -139,11 +197,12 @@ export function registerCommand(on: On, ctx: Ctx): void {
       if (arg === '') return { text: 'Cần mô tả mục tiêu: /conductor goal kèm mô tả' }
       const before = S.normalizeCore(await read($, coreState))
       const prev = before.brief
-      const rules = policy()
+      const rules = ctx.routePolicy(before, ctx.maxForks >= 2 ? await $.session.root().catch(caught('session.root', null)) : null)
       // Lệnh do người dùng gõ: luôn hỏi router, kể cả khi router đang tạm ngừng sau các lần lỗi.
       const request = routerRequest({ text: arg, prev, ran: null, policy: rules, model: routerModel, sessionFamily: L.sessionFamily, isForcedNew: true })
       const startedAt = await $.clock.now()
       const outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), undefined, { retryMissingConfidence: true })
+      ctx.noteRouterFailure('prompt', outcome.failure)
       noteRouterTime((await $.clock.now()) - startedAt)
       const plan = outcome.result
       if (plan !== null) L.routerTrouble = { failures: 0, pausedUntil: 0 }
@@ -199,11 +258,12 @@ export function registerCommand(on: On, ctx: Ctx): void {
       if (last === null || (current?.goalId ?? null) !== last.goalId) {
         return { text: 'Không có prompt nào của mục tiêu hiện tại để router đọc lại. Đặt mục tiêu bằng /conductor goal kèm mô tả.' }
       }
-      const rules = policy()
+      const rules = ctx.routePolicy(before, ctx.maxForks >= 2 ? await $.session.root().catch(caught('session.root', null)) : null)
       // Lệnh do người dùng gõ: luôn hỏi router, kể cả khi router đang tạm ngừng.
       const request = routerRequest({ text: last.text, prev: last.prev, ran: ranText(before), policy: rules, model: routerModel, sessionFamily: L.sessionFamily })
       const startedAt = await $.clock.now()
       const outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), undefined, { retryMissingConfidence: true })
+      ctx.noteRouterFailure('prompt', outcome.failure)
       noteRouterTime((await $.clock.now()) - startedAt)
       const now = await $.clock.now()
       const withUsage = (c: Core): Core =>
@@ -268,8 +328,8 @@ export function registerCommand(on: On, ctx: Ctx): void {
       if (q.pause?.source === 'user') return { text: 'Đang tạm dừng theo yêu cầu; dùng /conductor resume để chạy tiếp.' }
       const core = S.normalizeCore(await read($, coreState))
       const goalId = core.brief?.goalId ?? 0
-      const root = await $.session.root().catch(() => null)
-      const dir = root || ((await $.session.cwd().catch(() => null)) ?? '')
+      const root = await $.session.root().catch(caught('session.root', null))
+      const dir = root || ((await $.session.cwd().catch(caught('session.cwd', null))) ?? '')
       const cp = buildCheckpoint({
         id: `cp-${now}`,
         now,
@@ -321,7 +381,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
         }
         const dropped: QuotaCheckpoint = { ...cp, status: 'consumed' }
         await update($, quotaState, c => ({ ...normalizeQuota(c), checkpoint: dropped, resume: null, discardArmedUntil: 0 }))
-        await $.store.set(storeKey(dropped.cwd), dropped).catch(() => undefined)
+        await $.store.set(storeKey(dropped.cwd), dropped).catch(caught('store.set', undefined))
         return { text: 'Đã bỏ điểm dừng; prompt kế tiếp chạy như bình thường.' }
       }
       if (q.pause?.source === 'user') await update($, quotaState, c => ({ ...normalizeQuota(c), pause: null }))
@@ -331,9 +391,29 @@ export function registerCommand(on: On, ctx: Ctx): void {
       return { text: 'Có điểm dừng đang mở: gõ prompt (ví dụ "tiếp tục") để Claude tiếp tục từ đó. Nếu hạn mức chưa làm mới, dùng /conductor resume force.' }
     }
 
+    if (sub === 'errors') {
+      // Nhật ký lỗi của mod (0.7.9 L1): chỉ in cho người dùng, không chèn vào context của model.
+      const io = { read: (path: string) => $.fs.read(path), write: (path: string, text: string) => $.fs.write(path, text), root: () => $.session.root() }
+      if (arg === 'clear') {
+        if (ctx.errorLog === '') return { text: 'Nhật ký lỗi của mod đang tắt (errorLog: off).' }
+        const now = await $.clock.now()
+        if (L.errorsClearArmedUntil <= now) {
+          L.errorsClearArmedUntil = now + DISCARD_ARM_MS
+          return { text: 'Xóa toàn bộ nhật ký lỗi của mod; gõ lại /conductor errors clear trong 10 giây để xác nhận.' }
+        }
+        L.errorsClearArmedUntil = 0
+        return { text: (await ctx.clearErrors(io)) ? 'Đã xóa nhật ký lỗi của mod.' : 'Không ghi được file nhật ký lỗi.' }
+      }
+      const report = await ctx.errorReport(io)
+      if (report === null) return { text: 'Nhật ký lỗi của mod đang tắt (errorLog: off).' }
+      if (report.total === 0) return { text: `Nhật ký lỗi của mod trống (${ctx.errorLog}).` }
+      const head = `Nhật ký lỗi của mod: ${report.total} loại${report.dropped > 0 ? `, đã bỏ ${report.dropped} loại cũ nhất` : ''} (${ctx.errorLog}). Mới nhất trước:`
+      return { text: [head, ...report.lines.map(line => `- ${line}`)].join('\n') }
+    }
+
     if (sub === 'status') {
       const { core, mode: current, lang } = await read($, view)
-      const usage = await $.session.usage().catch(() => null)
+      const usage = await $.session.usage().catch(caught('session.usage', null))
       const costLines = ledgerLines(core.ledger, lang)
       if (core.sysTokens > 0) costLines.push(`Phần cố định của ngữ cảnh (system prompt, tools): ${Math.round(core.sysTokens / 1000)}k token, đo ở đầu phiên`)
       if (usage?.cost) costLines.push(`Chi phí cả phiên theo Claude Code (gồm cả phần trước khi mod bắt đầu ghi sổ): ${formatCost(usage.cost.usd, lang)}`)
@@ -389,6 +469,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
           ...((core.brief.dropped ?? 0) > 0 ? [droppedItemsText(core.brief.dropped ?? 0)] : []),
           renderPlan(core.brief, shown.plan) + (shown.source === 'mirror' ? '\n(theo danh sách việc của Claude Code, chỉ để theo dõi)' : ''),
           ...retryLines(core),
+          ...waiverLines(core),
           ...costLines,
         ].join('\n') + agentBlock,
       }

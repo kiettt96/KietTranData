@@ -1,6 +1,6 @@
 {
   "name": "focus-conductor",
-  "version": "0.7.8",
+  "version": "0.7.9",
   "author": { "name": "Kiet Tran" },
   "description": "Một model Claude (router) đọc kỹ prompt trước khi làm và điều phối model/effort/agent cho từng việc; mod kiểm, ép điều phối lúc chạy, giữ nhất quán mục tiêu với checklist và cảnh báo lạc đề.",
   "types": "./types/index.d.ts",
@@ -67,6 +67,12 @@
       "description": "Lệnh phân tách bằng dấu phẩy, ví dụ: make ci,./scripts/check.sh,just verify. Mỗi lệnh khớp theo tiền tố token, được tin mã thoát, tính là kiểm tra chạy hành vi và đối chiếu evidence nghiêm ngặt (./scripts/check.sh --fast khác ./scripts/check.sh). Lệnh kèm cờ tự sửa (--fix, --write) vẫn tính là ghi file. Lệnh khai chạy qua | tail hay | head chỉ đạt khi có set -o pipefail và mã thoát 0 không có dấu hiệu lỗi, hoặc khi dòng không rỗng cuối cùng có dấu hiệu đạt đứng riêng (OK, ĐẠT, KHỚP, 0 lỗi; không nằm sau chưa, không) và toàn bộ output còn thấy không có dấu hiệu lỗi (chưa đạt, thiếu, lệch, mismatch, tỷ lệ N/M với N nhỏ hơn M...); tốt nhất chạy lệnh kiểm không qua ống",
       "default": ""
     },
+    "checkTools": {
+      "type": "string",
+      "title": "Tool MCP dùng để kiểm (check tools)",
+      "description": "Tên tool MCP phân tách bằng dấu phẩy, ví dụ: mcp__ci__run_tests. Mỗi lời gọi tool trong danh sách là một lần kiểm loại test: lỗi khi tool báo lỗi hay output lỗi, rỗng, không chạy gì; chỉ lần gọi đạt cùng tool, cùng đầu vào mới phủ lần lỗi. Mod không tự đoán tool kiểm theo tên. Để trống (mặc định): không tool MCP nào là lần kiểm. (en) Comma-separated MCP tool names, e.g. mcp__ci__run_tests. Each call of a listed tool is a test check: it fails on a tool error or on failing, empty or ran-nothing output; only a passing call of the same tool with the same input covers a failure. The mod never guesses check tools by name. Empty (default): no MCP tool counts as a check.",
+      "default": ""
+    },
     "routerSkip": {
       "type": "string",
       "title": "Prompt không cần hỏi router",
@@ -99,6 +105,18 @@
       "description": "Subagent đã điều phối sửa file ngoài phạm vi, lặp lỗi hoặc vượt ngân sách thì được nhắc kèm việc được giao. Mặc định tắt để tránh nhiễu",
       "default": false
     },
+    "forks": {
+      "type": "boolean",
+      "title": "Tách việc lớn thành phiên con (forks)",
+      "description": "Bật thì router được đề xuất tách một việc luồng chính giữ (run main, khối lượng large) thành 2 đến maxForks phần độc lập, không sửa chung file, chạy song song bằng phiên con (Agent subagent_type fork); mod kẹp đề xuất, dặn cách gọi, theo dõi từng phần và gom kết quả. Phiên con luôn chạy model và effort của luồng chính; việc giao subagent không bị tách. Engine không mở được phiên con thì mod tắt tách đến hết phiên. Mặc định tắt: router và context giữ nguyên như khi chưa có tính năng này. (en) When on, the router may split a task the main thread keeps (run main, volume large) into 2 to maxForks independent parts that edit no common file, run in parallel as forks (Agent subagent_type fork); the mod checks the split, says how to call the forks, tracks each part and merges the results. A fork always runs the main thread's model and effort; tasks delegated to subagents are never split. If the engine cannot start a fork, splitting stays off for the rest of the session. Off by default: the router prompt and the context stay as they were before this feature.",
+      "default": false
+    },
+    "maxForks": {
+      "type": "number",
+      "title": "Số phần tối đa của một việc tách (max forks)",
+      "description": "forks bật: số phiên con tối đa cho một việc, số nguyên từ 0 đến 6 (mặc định 3); router chia nhiều hơn thì phần dư gộp vào phần cuối. 0 (hay 1) là tắt tách. (en) With forks on: the most forks for one task, an integer from 0 to 6 (default 3); extra parts the router proposes are merged into the last part. 0 (or 1) turns splitting off.",
+      "default": 3
+    },
     "semanticDrift": {
       "type": "boolean",
       "title": "Kiểm lạc đề theo nội dung",
@@ -128,6 +146,12 @@
       "title": "File log quyết định (JSONL)",
       "description": "Đường dẫn file ghi mỗi quyết định điều phối một dòng JSON (router đọc prompt, router lỗi, chấm subagent, đổi model, verified bị hạ xuống done). Log có trích 300 ký tự đầu của prompt và của evidence: chỉ bật với đường dẫn không chia sẻ hay commit. Để trống (mặc định): không ghi",
       "default": ""
+    },
+    "errorLog": {
+      "type": "string",
+      "title": "File nhật ký lỗi của mod (error log)",
+      "description": "Đường dẫn file JSON ghi các loại lỗi của chính mod (hook ném lỗi, router lỗi, engine từ chối, trạng thái sai kiểu), mỗi loại một mục; tương đối với thư mục gốc của phiên. Không ghi prompt, nội dung file hay output lệnh, và không gửi lên model. Gõ off để tắt; nên thêm .focus-conductor/ vào .gitignore. (en) JSON file listing each kind of error of the mod itself (hook throws, router failures, engine refusals, mistyped state), one entry per kind, relative to the session root. Never holds prompts, file content or command output, and is never sent to the model. Set off to disable; add .focus-conductor/ to .gitignore.",
+      "default": ".focus-conductor/errors.json"
     },
     "agentTypes": {
       "type": "string",

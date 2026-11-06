@@ -3,6 +3,7 @@
 // trước khi hook Agent kịp hỏi router chấm subagent, và trước mọi bước theo dõi của consistency.
 
 import { atom, derive, read, update } from 'claude-code'
+import { caught, noteHookError } from '../lib/errlog'
 import type { EngineInterface, On } from 'claude-code'
 import type { QuotaCheckpoint, QuotaPause, QuotaState } from '../../types'
 import { addTouched, buildCheckpoint, pruneKeys, pushRecent, recentLine, storeKey } from '../lib/checkpoint'
@@ -28,9 +29,9 @@ type LimitCache = { at: number; limits: readonly unknown[] | null }
 
 /** Thư mục làm việc của phiên cho khóa điểm dừng: thư mục gốc, nếu không có thì thư mục hiện tại; rỗng khi engine không trả được. */
 async function checkpointDir($: EngineInterface): Promise<string> {
-  const root = await $.session.root().catch(() => null)
+  const root = await $.session.root().catch(caught('session.root', null))
   if (root) return root
-  return (await $.session.cwd().catch(() => null)) ?? ''
+  return (await $.session.cwd().catch(caught('session.cwd', null))) ?? ''
 }
 
 /**
@@ -58,7 +59,7 @@ async function storeCheckpoint($: EngineInterface, cp: QuotaCheckpoint): Promise
 async function fileStats($: EngineInterface, paths: readonly string[]): Promise<CheckpointInput['files']> {
   const out: Array<{ path: string; mtimeMs: number; size: number }> = []
   for (const path of paths) {
-    const stat = await $.fs.stat(path).catch(() => null)
+    const stat = await $.fs.stat(path).catch(caught('fs.stat', null))
     out.push({ path, mtimeMs: stat?.mtimeMs ?? -1, size: stat?.size ?? -1 })
   }
   return out
@@ -196,7 +197,7 @@ async function warnNoticeIssues($: EngineInterface, issues: readonly string[], f
  * ($.fs.stat với resolve, R9): symlink dẫn ra ngoài không qua được.
  */
 async function isAllowedWrite($: EngineInterface, input: Record<string, unknown> & { tool: string }, allowPaths: readonly string[]): Promise<boolean> {
-  const root = await $.session.root().catch(() => null)
+  const root = await $.session.root().catch(caught('session.root', null))
   let paths: string[]
   let cwd: string | null = null
   if (input.tool === 'Bash') {
@@ -206,7 +207,7 @@ async function isAllowedWrite($: EngineInterface, input: Record<string, unknown>
     const isWriteOnly = classified.effects.length > 0 && classified.effects.every(e => e.kind === 'write' && e.paths.length > 0 && e.name !== 'ln')
     // cp -l, cp -s, link (S4): tạo liên kết, như ln.
     if (classified.isUnknown || !isWriteOnly || makesLink(String(input['command'] ?? ''))) return false
-    cwd = await $.session.cwd().catch(() => null)
+    cwd = await $.session.cwd().catch(caught('session.cwd', null))
     paths = classified.paths
   } else if (input.tool === 'Read' || FILE_TOOLS.has(input.tool)) {
     // Đọc các đường dẫn được phép (file điểm dừng của lần trước) thì không cần ghi.
@@ -257,7 +258,7 @@ export function registerQuota(on: On, ctx: Ctx): void {
     const q = normalizeQuota(await read($, quotaState))
     await showStatus($, await read($, view), ctx.options)
     return result
-  }).catch(($, e, next) => next(e))
+  }).catch(($, e, next) => (noteHookError('session.measure', next.error), next(e)))
 
   // Prompt đến khi đã ở vùng dừng mà chưa có lần dừng (ngưỡng bị vượt lúc Claude trả lời bằng chữ, không tool call nào
   // chạm tới): vào dừng và ghi điểm dừng trước khi parts/session.ts chèn dòng đang tạm dừng.
@@ -278,17 +279,17 @@ export function registerQuota(on: On, ctx: Ctx): void {
     }
     await showStatus($, await read($, view), ctx.options)
     return next(e)
-  }).catch(($, e, next) => next(e))
+  }).catch(($, e, next) => (noteHookError('prompt.submit', next.error), next(e)))
 
   // Phiên kết thúc (kể cả /clear, trước khi parts/session.ts xóa trạng thái) khi đang ở vùng dừng mà checklist còn mở:
   // điểm dừng phải có trong kho cho phiên sau.
   on('session.end', { reason: /.*/ }, async ($, e, next) => {
-    await savePauseOnEnd($, ctx).catch(() => undefined)
-    await reopenResuming($).catch(() => undefined)
+    await savePauseOnEnd($, ctx).catch(caught('savePauseOnEnd', undefined, 'hook'))
+    await reopenResuming($).catch(caught('reopenResuming', undefined, 'hook'))
     // /clear (0.7.5): hội thoại mới không còn câu báo hạn mức mềm nào; đặt lại cờ đã báo.
     if (e.reason === 'clear') await update($, quotaState, q => ({ ...normalizeQuota(q), noticed: [] }))
     return next(e)
-  }).catch(($, e, next) => next(e))
+  }).catch(($, e, next) => (noteHookError('session.end', next.error), next(e)))
 
   // Turn luồng chính đang chạy: $.turn.abort cần đúng turnId của nó.
   on('turn.start', { turnId: /.*/ }, async ($, e, next) => {
@@ -302,7 +303,7 @@ export function registerQuota(on: On, ctx: Ctx): void {
       return { ...n, mainTurnId: e.turnId, resume: n.resume !== null && n.resume.turnId === '' ? { ...n.resume, turnId: e.turnId } : n.resume }
     })
     return result
-  }).catch(($, e, next) => next(e))
+  }).catch(($, e, next) => (noteHookError('turn.start', next.error), next(e)))
 
   // Vòng đời điểm dừng: turn tiếp tục kết thúc bằng câu trả lời (reason answer) và không dừng lại vì hạn mức thì
   // consumed; ngắt, từ chối hay lỗi thì về open.
@@ -327,7 +328,7 @@ export function registerQuota(on: On, ctx: Ctx): void {
     await update($, quotaState, c => ({ ...normalizeQuota(c), checkpoint: after, resume: null }))
     if (!(await storeCheckpoint($, after))) $.ui.toast('Focus Conductor: không cập nhật được điểm dừng trong kho của mod')
     return next(e)
-  }).catch(($, e, next) => next(e))
+  }).catch(($, e, next) => (noteHookError('turn.complete', next.error), next(e)))
 
   on('tool.call', { tool: /.*/ }, async ($, e, next) => {
     if (!settings.enabled || S.modeOf(await read($, modeState), ctx.options) === 'off') return next(e)
@@ -412,7 +413,7 @@ export function registerQuota(on: On, ctx: Ctx): void {
     }
     // Dừng cứng dự phòng: model vẫn gọi tool bị từ chối lần thứ ba trong cùng turn. Gọi tại ranh giới tool call,
     // lệnh bị từ chối chưa chạy.
-    if (abort) await $.turn.abort({ turnId: q.mainTurnId }).catch(() => undefined)
+    if (abort) await $.turn.abort({ turnId: q.mainTurnId }).catch(caught('turn.abort', undefined))
     return { deny: quotaDenyText(saved.reason, saved.source === 'user', isAgent, allowPaths) }
-  }).catch(($, e, next) => next(e))
+  }).catch(($, e, next) => (noteHookError('tool.call', next.error), next(e)))
 }
