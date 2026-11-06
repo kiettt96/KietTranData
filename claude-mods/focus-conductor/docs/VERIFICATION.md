@@ -68,6 +68,27 @@ Nhánh tách từ `main` 05ac330 (0.7.8). Mỗi điểm một commit test đỏ 
 - CI: xanh trên `d9e8f56` (run 42079385270). Run của commit cuối ghi trong mô tả PR, vì commit tài liệu này không biết trước số run của chính nó.
 - Chưa kiểm được trên engine thật (chỉ kiểm bằng bộ test của engine): `/conductor waive` với origin `bridge` qua Remote Control thật; lần chặn Y6 với Claude thật (như W4, giả định lần chặn Stop cho chạy tiếp trong cùng turn); tool MCP thật trong `checkTools` (kết quả không phải chữ chỉ dựa vào `isError`); nhịp vẽ lại 60 giây của UI2 trên terminal thật; ghi file nhật ký lỗi trên máy thật ngoài kit test; số dòng của câu cảnh báo dài nhất ở pane 80 cột (UI3, chủ mod đo trên terminal thật; bản xem trước dạng chữ ghi 3 dòng, như 0.7.8).
 
+### Vòng 2 của 0.7.9 (rà soát PR 32: V1 tới V8, V1d, V2 bổ sung)
+
+Mỗi điểm một commit test đỏ rồi một commit sửa, nối tiếp `25afe1f`; không amend, không force-push [Đo trực tiếp, engine 2.1.296].
+- Test đỏ trước khi sửa: V1 12, V1d 6, V2 13, V2 bổ sung 3, V4 7, V7 4, V8 2. V3 chỉ thêm test qua trên mã hiện tại rồi thêm mẫu. V5 chỉ có tài liệu: bộ test của engine không mô phỏng được việc người dùng ngắt turn (`$.turn.abort` không có, khai báo kiểu của `claude-code/testing` không có abort, signal hay interrupt), nên không có mã, test và mẫu `079-V5a`. V6 chỉ đo.
+- Hồi quy giữa chừng: commit V4 đầu đọc `$.session.root()` ở mọi prompt, làm lệch test cũ về neo gốc theo mục tiêu (`tests/integration/verified-evidence.test.ts`); lộ ở lượt chạy cả bộ, sửa ở `4494092` (chỉ đọc gốc khi `maxForks` từ 2), thêm test cho `/conductor reroute` và `/conductor goal` ở `ad7bca1`.
+- Bộ test trên `5dcfb81`: 2696 qua, 0 lỗi, 237 tệp (trước vòng 2: 2587). Test cũ sửa: một, ca 21 của F1 (nhóm đặc tả đổi V8). `claude plugin validate .` qua ở thư mục mod và gốc repo; `bunx tsc --noEmit -p .` sạch; `bun scripts/mutate.ts --check`: 1962 mẫu, mismatched rỗng.
+- sha256 `hooks/` 3a38a31177d1ca186cf60150855d7da0ed7d7f79c7b52b0425d4b66062c5ed72, `tests/` 3d59290df19c03e077ba3f7fe2cd01a31ebb7cc04c9bf40eb8680f1610f13424 (trên `5dcfb81`; các commit sau chỉ đổi tài liệu).
+- Phiên dài: 10.339 và 19.587 ký tự, 0 lượt router chấm subagent, không đổi.
+- V6, phiên có việc tách (bản sao ngoài repo, `forks` bật, router trả một việc `large` ba phần, ba phiên con xong): mod chèn tổng 1.369 ký tự; khối dặn tách 398 (trần 600), câu gom 124 (trần 200), lời gọi phiên con không chèn gì.
+- Đột biến: chọn theo vùng đã đổi ở vòng này (mọi mẫu của `hooks/lib/drift/evidence.ts` và `hooks/lib/errlog.ts`, mẫu `079-` của các tệp đã đổi, mẫu của `router.ts` quanh `pathsOverlap` và `splitOf`, của `route.ts` quanh `taskMatch`), không chạy lại cả 545 mẫu của tám tệp vì một worker trên máy 4 lõi mất hơn một ngày; các vùng khác đã chạy đủ ở lượt trên `a537a16`. 9 phiên cloud, 1 worker: 54 mẫu trên `ed2ed58`, rồi 23 mẫu (mọi mẫu của `evidence.ts` sau V1d và V2 bổ sung, cùng `079-V4d`, `079-V4e`) trên `64e78c2`.
+
+  | Lượt chạy | KILLED | SURVIVED | EQUIVALENT | ERROR | TIMEOUT |
+  |---|---|---|---|---|---|
+  | 77 lượt (9 phiên) | 73 | 4 | 0 | 0 | 0 |
+
+  Bốn lượt sống sót thuộc ba mẫu, đều đã xử lý và chạy lại trên cả bộ ở `5dcfb81`:
+  - `078-W4f` (bỏ dòng lần đạt hẹp không phủ): từ V2 luật đường dẫn che phần lớn ca hẹp. Test ghim cờ lọc tên (`go test -run`, `jest --testNamePattern`, `pytest -k`, `vitest run -t`) ở `5e50567`; chạy lại KILLED.
+  - `079-L1c` (bỏ bước đường dẫn tuyệt đối): bước V7 thay hộ đường dẫn có đuôi. Test đường dẫn không đuôi (`/Users/name/proj`, `C:\Users\name\proj`, `~/work/acme`, `cwd=/home/u/acme`) ở `7dc6b4a`; chạy lại KILLED.
+  - `079-V1a` (bỏ kiểm cờ chỉ in của công cụ tĩnh): tương đương từ V1d, vì cờ chỉ in nằm trong tập cờ phép kiểm; chỉ khác ở cặp nhân tạo `tsc --version --noEmit` đạt với `tsc --version` lỗi. Đánh dấu `equivalent` kèm lý do ở `5dcfb81`, giữ dòng kiểm trong mã; harness báo EQUIVALENT.
+- CI: xanh trên `5dcfb81` (run 42179442985).
+
 ## Kiểm chứng của 0.7.8 (giữ mục tiêu chặt hơn, điều phối đủ sức, tiếp nhận yêu cầu chen ngang)
 
 Nhánh tách từ `main` fc41fd8 (0.7.7). Mỗi điểm G1 tới G9 một commit test đỏ rồi một commit sửa, theo thứ tự G1, G4, G2, G3, G5, G7, G6, G8, G9; không amend, rebase hay force-push [Đo trực tiếp].
