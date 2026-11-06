@@ -270,8 +270,8 @@ export function createContext(options: PluginOptions) {
    * Chính sách cho lượt router đọc prompt (0.7.9 F1): policy() kèm số phần tối đa của việc tách; engine đã từ chối phiên con trong
    * phiên (lưu trong Core nên giữ qua hot reload) thì 0.
    */
-  function routePolicy(core: Core): Policy {
-    return { ...policy(), forks: core.forks.off === 'engine' || local.forkRefused ? 0 : maxForks }
+  function routePolicy(core: Core, root: string | null = null): Policy {
+    return { ...policy(), forks: core.forks.off === 'engine' || local.forkRefused ? 0 : maxForks, root }
   }
 
   /** Loại agent dùng được: ba loại có sẵn, loại engine đang mời, và loại người dùng khai trong agentTypes. */

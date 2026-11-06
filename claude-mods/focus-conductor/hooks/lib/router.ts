@@ -26,6 +26,8 @@ export type Policy = {
    * con; vắng hay dưới 2 là tắt (routerSystem giữ nguyên chữ, parseRoute bỏ mọi split).
    */
   forks?: number
+  /** Thư mục gốc của phiên (vòng 2 V4): đường dẫn tuyệt đối dưới nó đổi thành tương đối khi so hai phần của việc tách; vắng thì so theo đuôi. */
+  root?: string | null
 }
 
 /** Ba loại agent có sẵn của Claude Code; danh mục thật của phiên lấy từ engine (agent.offer). */
@@ -709,17 +711,69 @@ const PART_CODES = 'abcdef'
 const PART_TITLE = 80
 const PART_FILES = 20
 
-/** Đường dẫn để so giao nhau: dấu \\ thành /, bỏ ./ đầu và / cuối. */
-function pathKey(path: string): string {
-  return path.trim().replace(/\\/g, '/').replace(/^(?:\.\/)+/, '').replace(/\/+$/, '')
+/** Ký tự glob trong đường dẫn. */
+const GLOB = /[*?[{]/
+
+/** Giải `.` và `..` theo từng đoạn của đường dẫn (`..` vượt quá đầu đường dẫn tương đối thì giữ lại). */
+function resolveDots(path: string): string {
+  const out: string[] = []
+  for (const part of path.split('/')) {
+    if (part === '.' || part === '') continue
+    if (part === '..' && out.length > 0 && out[out.length - 1] !== '..') out.pop()
+    else out.push(part)
+  }
+  return out.join('/')
 }
 
-/** Hai đường dẫn của hai phần giao nhau (0.7.9 F1): trùng nhau, hay một là thư mục chứa đường dẫn kia (so theo ranh giới thư mục). */
-export function pathsOverlap(a: string, b: string): boolean {
-  const x = pathKey(a)
-  const y = pathKey(b)
-  if (x === '' || y === '' || x === '.' || y === '.') return true
+/**
+ * Đường dẫn để so giao nhau (vòng 2 V4): dấu \\ thành /, chữ thường, giải `.` và `..`; đường dẫn tuyệt đối nằm dưới `root` thì đổi thành
+ * tương đối. Đường dẫn tuyệt đối còn lại giữ dấu / đầu để phân biệt.
+ */
+function pathKey(path: string, root: string | null): string {
+  const slashed = path.trim().replace(/\\/g, '/').toLowerCase()
+  const isAbsolute = slashed.startsWith('/')
+  const resolved = resolveDots(slashed)
+  const base = root !== null && root.trim() !== '' ? resolveDots(root.trim().replace(/\\/g, '/').toLowerCase()) : ''
+  if (isAbsolute && base !== '' && (resolved === base || resolved.startsWith(`${base}/`))) return resolved.slice(base.length + 1)
+  return isAbsolute ? `/${resolved}` : resolved
+}
+
+/** Phần thư mục đứng trước ký tự glob đầu tiên (`src/*.ts` là `src`, `**\/a.ts` là rỗng). */
+function globBase(key: string): string {
+  const at = key.search(GLOB)
+  return key.slice(0, at).replace(/[^/]*$/, '').replace(/\/+$/, '')
+}
+
+/** Hai khóa đường dẫn đã chuẩn hóa giao nhau: trùng, hay một là thư mục chứa đường dẫn kia (so theo ranh giới thư mục). */
+function keysOverlap(x: string, y: string): boolean {
   return x === y || x.startsWith(`${y}/`) || y.startsWith(`${x}/`)
+}
+
+/**
+ * Hai đường dẫn của hai phần giao nhau (0.7.9 F1, vòng 2 V4): trùng nhau, hay một là thư mục chứa đường dẫn kia, sau khi chuẩn hóa. Có
+ * ký tự glob thì coi là giao với mọi đường dẫn dưới phần thư mục trước ký tự glob đầu tiên. Một bên tuyệt đối, một bên tương đối mà không
+ * biết gốc phiên (hay tuyệt đối nằm ngoài gốc): giao khi bên tuyệt đối kết thúc bằng `/` cộng bên tương đối.
+ */
+export function pathsOverlap(a: string, b: string, root: string | null = null): boolean {
+  const x = pathKey(a, root)
+  const y = pathKey(b, root)
+  if (x === '' || y === '' || x === '.' || y === '.') return true
+  const gx = GLOB.test(x) ? globBase(x) : null
+  const gy = GLOB.test(y) ? globBase(y) : null
+  if (gx !== null || gy !== null) {
+    const px = gx ?? x
+    const py = gy ?? y
+    return px === '' || py === '' || keysOverlap(px, py)
+  }
+  if (keysOverlap(x, y)) return true
+  const known = root !== null && root.trim() !== ''
+  if (known) return false
+  const isXAbsolute = x.startsWith('/')
+  const isYAbsolute = y.startsWith('/')
+  if (isXAbsolute === isYAbsolute) return false
+  const absolute = isXAbsolute ? x : y
+  const relative = isXAbsolute ? y : x
+  return absolute.endsWith(`/${relative}`) || absolute.includes(`/${relative}/`)
 }
 
 /**
@@ -727,7 +781,7 @@ export function pathsOverlap(a: string, b: string): boolean {
  * phải run main, volume khác large, split sai kiểu hay có phần hỏng, ít hơn 2 phần, hai phần sửa chung file. Vượt `max` thì gộp phần dư
  * vào phần cuối. `isOff`: phiên con đang tắt (option hay engine từ chối) nên split bị bỏ im lặng.
  */
-function splitOf(value: unknown, task: Task, max: number): { split?: ForkSplit[]; note?: string; isOff?: true } {
+function splitOf(value: unknown, task: Task, max: number, root: string | null = null): { split?: ForkSplit[]; note?: string; isOff?: true } {
   if (value === undefined || value === null) return {}
   if (max < 2) return { isOff: true }
   const drop = (why: string) => ({ note: `bỏ split của việc ${task.index}: ${why}` })
@@ -747,7 +801,7 @@ function splitOf(value: unknown, task: Task, max: number): { split?: ForkSplit[]
   if (parts.length < 2) return drop('ít hơn 2 phần')
   for (let i = 0; i < parts.length; i++) {
     for (let j = i + 1; j < parts.length; j++) {
-      if ((parts[i]?.files ?? []).some(a => (parts[j]?.files ?? []).some(b => pathsOverlap(a, b)))) return drop(`phần ${i + 1} và phần ${j + 1} sửa chung file`)
+      if ((parts[i]?.files ?? []).some(a => (parts[j]?.files ?? []).some(b => pathsOverlap(a, b, root)))) return drop(`phần ${i + 1} và phần ${j + 1} sửa chung file`)
     }
   }
   const cap = Math.min(parts.length, max, MAX_FORKS)
@@ -835,7 +889,7 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
   for (const item of rawTasks.slice(0, TASK_LIMIT)) {
     const parsed = parseTask(item, tasks.length + 1, main.pick, whole, policy)
     if (!parsed) continue
-    const cut = splitOf((item as Raw)['split'], parsed, forks)
+    const cut = splitOf((item as Raw)['split'], parsed, forks, policy.root ?? null)
     if (cut.note !== undefined) splitNotes.push(cut.note)
     if (cut.isOff) droppedSplits += 1
     const task: Task = cut.split !== undefined ? { ...parsed, split: cut.split } : parsed
