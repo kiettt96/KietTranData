@@ -21,6 +21,10 @@ describe('0.7.9 R1: vế ghi đè có danh sách chung hậu tố', () => {
     expect(ruleFamily(SPLIT, 'Lọc tin trong nước', 'sonnet')).toBe('sonnet')
   })
 
+  test('"Lọc tin xuất bản": sonnet, vì mục đã bung là "tin xuất khẩu", không phải "tin xuất"', () => {
+    expect(ruleFamily(SPLIT, 'Lọc tin xuất bản', 'sonnet')).toBe('sonnet')
+  })
+
   test('danh sách ba mục chung tiền tố: "Lọc tin dầu" là opus', () => {
     expect(ruleFamily(['Lọc tin dùng sonnet, riêng tin vàng, dầu và thép dùng opus'], 'Lọc tin dầu', null)).toBe('opus')
   })
