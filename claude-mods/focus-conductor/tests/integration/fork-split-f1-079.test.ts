@@ -11,7 +11,7 @@ import type { Task } from '../../types'
 import { parseRoute, routerRequest, routerSystem } from '../../hooks/lib/router'
 import type { Policy, RouterPlan } from '../../hooks/lib/router'
 import { stepCovers, taskMatch } from '../../hooks/lib/route'
-import { missingTasks } from '../../hooks/lib/text'
+import { FORK_QUOTA_DENY, missingTasks } from '../../hooks/lib/text'
 import { JS } from '../fixtures/runner-output'
 import { BIG_USAGE, PANE, base, plan, step, submit, task } from '../support/engine'
 import type { Json, Seen } from '../support/engine'
@@ -83,6 +83,7 @@ function setup(on: On, $: Engine, router: (request: string) => Json | null = () 
   const passing = new Set<string>()
   const writes: string[] = []
   const state = { refuseAll: false }
+  const spawned: string[] = []
   on('tool.call', { tool: 'Agent' }, async (_x, e) => {
     const id = String(e.tool_use_id)
     const how = state.refuseAll ? 'refuse' : (modes.get(id) ?? 'spawn')
@@ -90,7 +91,10 @@ function setup(on: On, $: Engine, router: (request: string) => Json | null = () 
     await $.agent.spawn({ prompt: e.prompt, description: e.description, tool_use_id: id, fork: e.subagent_type === 'fork', subagentType: e.subagent_type ?? 'general-purpose' } as never)
     return how === 'fail' ? { result: 'phiên con dừng vì lỗi khi sửa file', isError: true } : { result: 'đã xong phần việc' }
   })
-  on('agent.spawn', (_x, e) => ({ model: 'claude-sonnet-5-5', agentId: `f-${e.tool_use_id}` }))
+  on('agent.spawn', (_x, e) => {
+    spawned.push(String(e.tool_use_id))
+    return { model: 'claude-sonnet-5-5', agentId: `f-${e.tool_use_id}` }
+  })
   on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
   on('tool.call', { tool: 'Read' }, () => ({ result: 'nội dung', isReadOnly: true }))
   on('tool.call', { tool: 'Bash' }, (_x, e) => {
@@ -104,7 +108,7 @@ function setup(on: On, $: Engine, router: (request: string) => Json | null = () 
     return { value: undefined }
   })
   const lines = () => (writes[writes.length - 1] ?? '').trim().split('\n').filter(Boolean).map(line => JSON.parse(line) as Record<string, unknown>)
-  return { seen, modes, passing, lines, state }
+  return { seen, modes, passing, lines, state, spawned }
 }
 
 const fork = ($: Engine, id: string, description: string, prompt = 'Làm phần việc được giao') =>
@@ -518,5 +522,83 @@ describe('F1: khớp mã phần', () => {
       { id: 3, title: 'Việc 3a: Module thanh toán', status: 'todo' as const },
     ]
     expect(missingTasks(tasks, steps).map(t => t.index)).toEqual([])
+  })
+})
+
+describe('0.7.9 vòng 2 V3: ba nhánh F1 chưa có test', () => {
+  const NOTE = 'phần này không làm nữa, đã ghi lý do'
+
+  /** Phiên con 3a và 3c xong, 3b đã chạy rồi lỗi; bước Việc 3 của checklist đã done. Checklist có thêm `extra` ở vị trí bước 2. */
+  async function failedB($: Engine, seen: Seen, modes: Map<string, 'fail' | 'refuse'>, extra: string) {
+    await started($, seen, ['Việc 3: đổi tên trong ba module', extra])
+    modes.set('u2', 'fail')
+    await fork($, 'u1', D.a)
+    await fork($, 'u2', D.b)
+    await fork($, 'u3', D.c)
+    await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'done' })
+    expect(await stop($)).toContain('3b')
+  }
+
+  test('1a. phần 3b lỗi: Stop chặn; bước "Việc 3b: ..." ghi skipped kèm note thì Stop không còn chặn vì phần đó', { options: ON }, async ($, on) => {
+    const { seen, modes } = setup(on, $)
+    await failedB($, seen, modes, 'Việc 3b: đổi tên ở module kho')
+    await $.tool.call({ tool: PLAN, action: 'update', step: 2, status: 'skipped', note: NOTE })
+    const reason = await stop($)
+    expect(reason).not.toContain('3b')
+    expect(reason).not.toContain('phiên con')
+  })
+
+  test('1b. phần 3b lỗi: bước "Việc 3b: ..." ghi blocked kèm note cũng làm Stop không còn chặn vì phần đó', { options: ON }, async ($, on) => {
+    const { seen, modes } = setup(on, $)
+    await failedB($, seen, modes, 'Việc 3b: đổi tên ở module kho')
+    await $.tool.call({ tool: PLAN, action: 'update', step: 2, status: 'blocked', note: NOTE })
+    const reason = await stop($)
+    expect(reason).not.toContain('3b')
+    expect(reason).not.toContain('phiên con')
+  })
+
+  test('2a. bước "Việc 3: ..." (cả việc) ghi skipped kèm note: miễn mọi phần lỗi của Việc 3, Stop qua', { options: ON }, async ($, on) => {
+    const { seen, modes } = setup(on, $)
+    await started($, seen, ['Việc 3: đổi tên trong ba module'])
+    modes.set('u1', 'fail')
+    modes.set('u2', 'fail')
+    await fork($, 'u1', D.a)
+    await fork($, 'u2', D.b)
+    await fork($, 'u3', D.c)
+    expect(await stop($)).toContain('phiên con')
+    await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'skipped', note: NOTE })
+    expect(await stop($)).toBe('')
+  })
+
+  test('2b. bước "Việc 3a: ..." ghi skipped chỉ miễn phần a: phần 3b lỗi vẫn làm Stop chặn, lý do nêu 3b', { options: ON }, async ($, on) => {
+    const { seen, modes } = setup(on, $)
+    await started($, seen, ['Việc 3a: đổi tên ở module thanh toán'])
+    modes.set('u1', 'fail')
+    modes.set('u2', 'fail')
+    await fork($, 'u1', D.a)
+    await fork($, 'u2', D.b)
+    await fork($, 'u3', D.c)
+    expect(await stop($)).toContain('3a')
+    await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'skipped', note: NOTE })
+    const reason = await stop($)
+    expect(reason).toContain('3b')
+    expect(reason).not.toContain('3a')
+  })
+
+  test('3. turn đã nhận báo hạn mức mềm: lời gọi fork bị từ chối bằng FORK_QUOTA_DENY, không có agent.spawn; turn kế tiếp mở được', { options: { ...ON, noticeWeekRemainingPct: 20 } }, async ($, on) => {
+    const { seen, spawned } = setup(on, $)
+    const meter = quotaMeter(on, [week(50)])
+    await started($, seen)
+    meter.set([week(81)])
+    await seen.clock.advance(10_000)
+    const out = await edit($, '/repo/src/a.ts')
+    expect((out.context ?? []).some(c => c.includes('Hạn mức tuần còn 19%'))).toBe(true)
+    const denied = await fork($, 'u1', D.a)
+    expect(denied.deny).toBe(FORK_QUOTA_DENY)
+    expect(spawned).toEqual([])
+    await $.turn.start({ text: PROMPT, turnId: 't2' })
+    const opened = await fork($, 'u2', D.a)
+    expect(opened.deny).toBeUndefined()
+    expect(spawned).toEqual(['u2'])
   })
 })
