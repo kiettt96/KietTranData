@@ -429,9 +429,10 @@ export type RetryItem = {
   more: string[]
   /**
    * Bước có sẵn mà mod ghi blocked khi hết lượt (0.8.0 A12): trạng thái và note cũ, cùng note mod ghi (`mark`). Lần chạy đạt phủ mục này trả
-   * bước về như cũ nếu bước vẫn là blocked với đúng note của mod. null khi mod không đổi bước có sẵn.
+   * bước về như cũ nếu bước vẫn là blocked với đúng note của mod. null khi mod không đổi bước có sẵn. Bước "Chưa đạt" mod tự tạo (0.8.0
+   * vòng 2 W1) trả về done, `stamp` báo note là câu giờ đạt dựng lúc chạy đạt.
    */
-  restore: { status: PlanStep['status']; note: string | null; mark: string } | null
+  restore: { status: PlanStep['status']; note: string | null; mark: string; stamp?: true } | null
   /**
    * Từ lần tăng lượt trước (0.8.0 A2): cùng lệnh đã chạy lại và vẫn lỗi (`retried`), số lần Stop liên tiếp chưa chạy lại (`idle`). Lượt chỉ
    * tăng khi retried, hoặc ở lần Stop thứ hai liên tiếp chưa chạy lại.

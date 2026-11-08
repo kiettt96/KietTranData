@@ -118,7 +118,9 @@ async function noteChecks($: EngineInterface, deps: RetryDeps, core: Core, goalI
         const at = plan.find(s => s.id === item.step)
         if (at === undefined || at.status !== 'blocked' || (at.note ?? '') !== back.mark) continue
         const status = back.status === 'verified' ? 'done' : back.status
-        plan = plan.map(s => (s.id === at.id ? { ...s, status, ...(back.note !== null ? { note: back.note } : { note: undefined }), auto: undefined } : s))
+        // Bước "Chưa đạt" mod tự tạo (0.8.0 vòng 2 W1): note là giờ đạt của lần chạy này.
+        const note = back.stamp === true ? labels(deps.lang).retryPassedAt(ranAt) : back.note
+        plan = plan.map(s => (s.id === at.id ? { ...s, status, ...(note !== null ? { note } : { note: undefined }), auto: undefined } : s))
         cleared.push({ item, step: at.id })
       }
       waived = waived.filter(w => !coversFailure(run, runOf(w.sig)))
@@ -259,6 +261,8 @@ async function retryGate($: EngineInterface, deps: RetryDeps, lastMessage: strin
         plan = plan.map(step => (step.id === target.id ? { ...step, status: 'blocked' as const, note, auto: undefined } : step))
       } else {
         stepId = plan.reduce((max, step) => Math.max(max, step.id), 0) + 1
+        // Bước mod tự tạo (0.8.0 vòng 2 W1): lần chạy đạt của đúng lệnh đóng bước thành done kèm giờ đạt.
+        restore = { status: 'done', note: null, mark: note, stamp: true }
         plan = [...plan, { id: stepId, title: `Chưa đạt: ${clipMiddle(item.command || retryName(item), RETRY_COMMAND_CHARS)}`, status: 'blocked' as const, note }]
       }
     }
