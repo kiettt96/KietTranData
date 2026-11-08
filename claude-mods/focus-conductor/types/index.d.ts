@@ -438,6 +438,9 @@ export type RetryItem = {
    */
   retried: boolean
   idle: number
+  /** Người chạy lần lỗi cuối (0.8.0 A6): rỗng là luồng chính, còn lại là description của subagent (cắt 60 ký tự); giờ chạy HH:MM. */
+  runner: string
+  ranAt: string
 }
 
 export type RetryState = { goalId: number; items: RetryItem[] }

@@ -2022,4 +2022,7 @@ export const MUTANTS: Mutant[] = [
   { id: "080-A5b", file: "hooks/lib/drift/soft.ts", note: "bỏ đuôi dữ liệu và báo cáo (csv tsv jsonl log) khỏi thay đổi nhẹ", old: "md|markdown|txt|csv|tsv|jsonl|log", new: "md|markdown|txt" },
   { id: "080-A5c", file: "hooks/lib/state.ts", note: "không gộp cảnh báo cùng nguyên nhân ở turn liên tiếp", old: "prev.cause === entry.cause && prev.at", new: "prev.cause === entry.cause && false && prev.at" },
   { id: "080-A5d", file: "hooks/parts/consistency.ts", note: "cảnh báo chưa kiểm cuối turn không hoãn khi subagent còn chạy", old: "const isWaiting = L.liveAgents.size > 0", new: "const isWaiting = false" },
+  { id: "080-A6a", file: "hooks/lib/text.ts", note: "lệnh dài cắt cuối thay cắt giữa, mất tên script", old: "`\\`${clipMiddle(item.command, RETRY_COMMAND_CHARS)}\\``", new: "`\\`${clipItem(item.command, RETRY_COMMAND_CHARS)}\\``" },
+  { id: "080-A6b", file: "hooks/lib/text.ts", note: "câu chặn bỏ người chạy và giờ chạy", old: ", chạy bởi ${retryWho(line.runner, descMax)}${line.at !== '' ? ` lúc ${line.at}` : ''}", new: "" },
+  { id: "080-A6c", file: "hooks/lib/text.ts", note: "không có dòng lỗi thì lấy dòng in đầu tiên như trước", old: "  const last = lines.at(-1)\n", new: "  const last = lines[0]\n" },
 ]

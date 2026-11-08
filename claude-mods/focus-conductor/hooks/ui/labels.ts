@@ -15,7 +15,7 @@ export function langOf(value: unknown): Lang {
 const roundedMinutes = (ms: number) => Math.round(ms / 60_000)
 
 /** Giờ máy HH:MM của một mốc thời gian (0.7.6, W4), cho "từ <giờ bắt đầu>". */
-function clockOf(at: number): string {
+export function clockOf(at: number): string {
   const d = new Date(at)
   const two = (n: number) => String(n).padStart(2, '0')
   return `${two(d.getHours())}:${two(d.getMinutes())}`

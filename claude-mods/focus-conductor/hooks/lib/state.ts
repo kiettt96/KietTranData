@@ -168,6 +168,8 @@ function normalizeRetry(raw: Partial<RetryState> | undefined): RetryState {
       restore: item.restore ?? null,
       retried: item.retried ?? false,
       idle: item.idle ?? 0,
+      runner: item.runner ?? '',
+      ranAt: item.ranAt ?? '',
     }),
   )
   return { goalId: raw.goalId ?? -1, items }

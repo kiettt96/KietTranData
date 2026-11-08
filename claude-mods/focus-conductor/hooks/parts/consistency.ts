@@ -10,6 +10,7 @@ import type { CheckRun, EvidenceEntry, EvidenceLog } from '../lib/drift/evidence
 import { clipText } from '../lib/decisions'
 import { addUsage, calibrate, recordShape, shapeKey } from '../lib/ledger'
 import { applyPlan } from '../lib/plan'
+import type { RetryLine } from '../lib/text'
 import type { PlanInput } from '../lib/plan'
 import { describePick, familyOf } from '../lib/route'
 import { askRouter, driftRequest, nextLevel, openPhase, parseDrift } from '../lib/router'
@@ -20,11 +21,11 @@ import * as S from '../lib/state'
 import type { View } from '../lib/state'
 import { shownPlan } from '../lib/mirror'
 import { forkFailures, forkFiles, forkResults, liveForks, mergeDue } from '../lib/forks'
-import { PLAN_TOOL_FULL, RETRY_REPORT, chainedCheckNote, retryAgentNotice, RETRY_ROUNDS, noCheckReason, waiveAskText, blockText, firstErrorLine, joinStopReasons, retryDoneNote, retryEditNote, retryFailNotice, retryName, retryStepNote, retryStopReason, checkHintText, compactReminderText, criteriaNotice, driftContext, missingTasks, missingTasksNotice, needsChecklist, noChecklistReason, pendingNotice, qualityNotice, renderBulk, renderPlan, requirementsNotice, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice, forkMergedNote } from '../lib/text'
+import { PLAN_TOOL_FULL, RETRY_REPORT, chainedCheckNote, retryAgentNotice, RETRY_ROUNDS, noCheckReason, waiveAskText, blockText, firstErrorLine, clipMiddle, RETRY_COMMAND_CHARS, joinStopReasons, retryDoneNote, retryEditNote, retryFailNotice, retryName, retryStepNote, retryStopReason, checkHintText, compactReminderText, criteriaNotice, driftContext, missingTasks, missingTasksNotice, needsChecklist, noChecklistReason, pendingNotice, qualityNotice, renderBulk, renderPlan, requirementsNotice, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice, forkMergedNote } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
-import { labels, langOf } from '../ui/labels'
+import { clockOf, labels, langOf } from '../ui/labels'
 import type { Lang } from '../ui/labels'
 import { EDIT_TOOLS, ERROR_BURST } from '../context'
 
@@ -93,7 +94,10 @@ async function noteChecks($: EngineInterface, deps: RetryDeps, core: Core, goalI
   if (entries.length === 0) return []
   const retry = core.retry.goalId === goalId ? core.retry : { goalId, items: [] }
   let items: RetryItem[] = retry.items.map(item => ({ ...item, levels: [...item.levels], closedSteps: [...item.closedSteps], more: [...item.more] }))
-  const error = firstErrorLine(observation.output)
+  const error = firstErrorLine(observation.output, observation.isError)
+  // Người chạy và giờ chạy lần lỗi (0.8.0 A6).
+  const runner = isMain ? '' : clipText(agent ?? 'không tên', 60)
+  const ranAt = clockOf(await $.clock.now())
   const touched = new Set<RetryItem>()
   let stuck: string | null = null
   // Lệnh miễn của mục tiêu (0.7.9 Y5): lần chạy đạt phủ lệnh đó thì xóa lệnh miễn.
@@ -127,6 +131,8 @@ async function noteChecks($: EngineInterface, deps: RetryDeps, core: Core, goalI
     const known = items.find(item => item.sig === sig) ?? items.find(item => item.more.includes(sig))
     if (known !== undefined) {
       if (error !== '') known.lastError = error
+      known.runner = runner
+      known.ranAt = ranAt
       // Chạy lại vẫn lỗi (0.8.0 A2): Stop kế tiếp được tăng lượt.
       known.retried = true
       known.idle = 0
@@ -155,6 +161,8 @@ async function noteChecks($: EngineInterface, deps: RetryDeps, core: Core, goalI
       restore: null,
       retried: false,
       idle: 0,
+      runner,
+      ranAt,
     }
     // Mục tạo từ lần chạy của subagent (0.8.0 A12): luồng chính được báo một lần, ở kết quả tool kế tiếp.
     if (!isMain && agent !== undefined) agentNotes.push(retryAgentNotice(run.command, agent))
@@ -214,9 +222,9 @@ async function retryGate($: EngineInterface, deps: RetryDeps, lastMessage: strin
   const at = await $.clock.now()
   const lang = deps.lang
   let plan = core.plan
-  const advanced: Array<{ name: string; round: number; level: string; isTop: boolean; error: string }> = []
-  const exhausted: Array<{ name: string; round: number; level: string; isTop: boolean; error: string }> = []
-  const waiting: Array<{ name: string; round: number; level: string; isTop: boolean; error: string }> = []
+  const advanced: RetryLine[] = []
+  const exhausted: RetryLine[] = []
+  const waiting: RetryLine[] = []
   const warnings: Warning[] = []
   let marked = 0
   const items = core.retry.items.map(item => {
@@ -224,7 +232,7 @@ async function retryGate($: EngineInterface, deps: RetryDeps, lastMessage: strin
     // Lần thử mới (0.8.0 A2): lượt 1 lên lượt 2 ngay; từ lượt 2 chỉ tăng khi đã chạy lại vẫn lỗi, hay ở lần Stop thứ hai liên tiếp chưa chạy lại.
     const isTried = item.round === 1 || item.retried || item.idle >= 1
     if (!isTried) {
-      waiting.push({ name: retryName(item), round: item.round, level: item.levels.at(-1) ?? '', isTop: item.isTop, error: item.lastError })
+      waiting.push({ name: retryName(item), round: item.round, level: item.levels.at(-1) ?? '', isTop: item.isTop, error: item.lastError, runner: item.runner, at: item.ranAt })
       return { ...item, idle: item.idle + 1, calls: deps.toolCalls() }
     }
     const isAdvance = item.round < RETRY_ROUNDS
@@ -234,7 +242,7 @@ async function retryGate($: EngineInterface, deps: RetryDeps, lastMessage: strin
       const level = describePick(next.pick)
       const round = item.round + 1
       deps.record(at, 'retry', { signature: item.sig, round, level })
-      advanced.push({ name: retryName(item), round, level, isTop: next.isTop, error: item.lastError })
+      advanced.push({ name: retryName(item), round, level, isTop: next.isTop, error: item.lastError, runner: item.runner, at: item.ranAt })
       return { ...item, round, levels: [...item.levels, level], floor: next.pick, isTop: next.isTop, calls: deps.toolCalls(), retried: false, idle: 0 }
     }
     // Hết lượt: bước blocked kèm note của mod, trừ khi Claude đã ghi một bước blocked có note nhắc lệnh này.
@@ -251,13 +259,13 @@ async function retryGate($: EngineInterface, deps: RetryDeps, lastMessage: strin
         plan = plan.map(step => (step.id === target.id ? { ...step, status: 'blocked' as const, note, auto: undefined } : step))
       } else {
         stepId = plan.reduce((max, step) => Math.max(max, step.id), 0) + 1
-        plan = [...plan, { id: stepId, title: `Chưa đạt: ${clipText(item.command || retryName(item), 80)}`, status: 'blocked' as const, note }]
+        plan = [...plan, { id: stepId, title: `Chưa đạt: ${clipMiddle(item.command || retryName(item), RETRY_COMMAND_CHARS)}`, status: 'blocked' as const, note }]
       }
     }
     const name = item.more.length > 0 ? retryName(item) : item.command
     $.ui.toast(labels(lang).retryExhausted(name))
     warnings.push({ at, kind: 'loop', text: `Chưa đạt sau ${RETRY_ROUNDS} lượt: ${name}` })
-    exhausted.push({ name: retryName(item), round: item.round, level: item.levels.at(-1) ?? '', isTop: item.isTop, error: item.lastError })
+    exhausted.push({ name: retryName(item), round: item.round, level: item.levels.at(-1) ?? '', isTop: item.isTop, error: item.lastError, runner: item.runner, at: item.ranAt })
     if (mentioned === undefined) marked += 1
     return { ...item, exhausted: true, reportAsked: true, step: stepId, calls: deps.toolCalls(), restore }
   })
