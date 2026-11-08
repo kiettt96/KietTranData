@@ -2,12 +2,13 @@
 // Chuyển nguyên văn từ hooks/lib/drift.ts (tách theo tầng, không đổi hành vi); hooks/lib/drift.ts là barrel.
 
 import type { CheckKind } from './verify'
-import { isCheckTool } from './verify'
+import { customKey, isCheckTool } from './verify'
 import { FILE_TOOLS, filePathOf, isPlanFile, str } from './tool'
 import type { ToolObservation } from './tool'
 import { classifyBash } from './classify'
 import type { BashEffect } from './classify'
 import { writeEffects } from './effects'
+import { isHardEffect, isSoftPath } from './soft'
 import { checkEffectPassed, outputFailed, ranNothing, runnerOf } from './output'
 
 // ------------------------------------------------------------ đối chiếu evidence
@@ -27,6 +28,8 @@ export type EvidenceEntry = {
   author: string
   /** Lần kiểm qua tool MCP khai trong checkTools (0.7.9 Y4): chỉ lần gọi đạt cùng tool, cùng đầu vào mới phủ. */
   mcp?: true
+  /** Lệnh kiểm nối && với lệnh khác, cả lệnh trả mã khác 0 (0.8.0 A11): kết quả chưa rõ, không lỗi cũng không đạt. */
+  chained?: true
 }
 
 /**
@@ -39,6 +42,9 @@ export type EvidenceLog = {
   /** Thứ tự của thay đổi thành công cuối cùng; -1 khi mục tiêu chưa có thay đổi. */
   lastMutation: number
   mutations: number
+  /** Thay đổi chắc chắn vào file không nhẹ (0.8.0 A5), dùng cho cổng Y6: số lượng và thứ tự của lần cuối (-1 khi chưa có). */
+  hard: number
+  lastHard: number
   commands: EvidenceEntry[]
   /** Các lần ghi theo thứ tự và tác giả, để biết lần kiểm tra của một subagent phủ thay đổi của ai. */
   writes: Array<{ seq: number; author: string }>
@@ -56,7 +62,7 @@ const EVIDENCE_PATHS = 200
 const EVIDENCE_WRITES = 300
 
 export function newEvidenceLog(goalId: number): EvidenceLog {
-  return { goalId, seq: 0, lastMutation: -1, mutations: 0, commands: [], writes: [], paths: [] }
+  return { goalId, seq: 0, lastMutation: -1, mutations: 0, hard: 0, lastHard: -1, commands: [], writes: [], paths: [] }
 }
 
 /**
@@ -64,33 +70,40 @@ export function newEvidenceLog(goalId: number): EvidenceLog {
  * (kể cả trong lệnh Bash lỗi), và đường dẫn file. `author` là "main" hoặc id subagent.
  */
 export function noteEvidence(log: EvidenceLog, observation: ToolObservation, author = 'main'): void {
-  const onWrite = () => {
+  const onWrite = (isHard: boolean) => {
     log.seq += 1
     log.lastMutation = log.seq
     log.mutations += 1
+    if (isHard) {
+      log.hard += 1
+      log.lastHard = log.seq
+    }
     log.writes.push({ seq: log.seq, author })
     if (log.writes.length > EVIDENCE_WRITES) log.writes.shift()
   }
   const command = str(observation.input['command']).trim()
   if (observation.tool === 'Bash' && command !== '') {
-    const classified = classifyBash(command)
+    const classified = classifyBash(command, observation.cwd)
     const counted = new Set<BashEffect>(writeEffects(classified, observation.isReadOnly))
     let hasCheck = false
     for (const effect of classified.effects) {
       if (effect.kind === 'write') {
-        if (counted.has(effect)) onWrite()
+        if (counted.has(effect)) onWrite(isHardEffect(effect))
         continue
       }
       hasCheck = true
       log.seq += 1
+      // Lệnh khai giải được đường dẫn (0.8.0 A1): lưu dạng đã giải, để chữ ký, coversFailure và danh tính so cùng một dạng.
+      const resolved = effect.resolved
       log.commands.push({
-        command: effect.segment.slice(0, 500),
-        argv: effect.argv,
+        command: (resolved ?? effect.segment).slice(0, 500),
+        argv: resolved !== undefined ? [...effect.argv.filter(token => /^[A-Za-z_][A-Za-z0-9_]*=/.test(token)), ...resolved.split(/\s+/)] : effect.argv,
         raw: effect.raw.slice(0, 500),
         ok: checkEffectPassed(effect, observation),
         check: effect.check,
         seq: log.seq,
         author,
+        ...(effect.exit === 'chained' && observation.isError ? { chained: true as const } : {}),
       })
     }
     if (!hasCheck) {
@@ -103,7 +116,7 @@ export function noteEvidence(log: EvidenceLog, observation: ToolObservation, aut
     log.commands.push({ command: checkToolCommand(observation.tool, observation.input), ok: checkToolPassed(observation), check: 'test', seq: log.seq, author, mcp: true })
     trimCommands(log)
   } else if (FILE_TOOLS.has(observation.tool) && !observation.isError && !isPlanFile(filePathOf(observation))) {
-    onWrite()
+    onWrite(!isSoftPath(filePathOf(observation)))
   } else {
     log.seq += 1
   }
@@ -160,7 +173,7 @@ export function checkCommand(entry: EvidenceEntry): string {
 
 /** Chữ ký của lệnh kiểm: loại kiểm và lệnh đã chuẩn hóa. */
 export function checkSignature(run: CheckRun): string {
-  return `${run.check}:${run.command}`
+  return `${run.check}:${customKey(run.command) ?? run.command}`
 }
 
 /** Khóa engine đặt vào đầu vào của mọi tool call (tên tool, id của tool_use, agent gọi): không thuộc đầu vào của lần kiểm. */
@@ -193,6 +206,7 @@ export function checkToolPassed(observation: ToolObservation): boolean {
 /** Lần chạy kiểm này là lỗi thật: không đạt và lệnh lỗi, output có dấu hiệu lỗi, output rỗng, hay không có phép kiểm nào chạy. */
 export function isFailedRun(entry: EvidenceEntry, observation: ToolObservation): boolean {
   if (entry.ok || entry.check === null) return false
+  if (entry.chained === true) return false
   if (entry.mcp === true) return true
   const output = observation.output ?? ''
   return observation.isError || outputFailed(observation.output) || output.trim() === '' || ranNothing(output)
@@ -400,6 +414,10 @@ function runnerParts(command: string): { flags: string[]; paths: string[] } {
 export function coversFailure(pass: CheckRun, fail: CheckRun): boolean {
   // Lần kiểm qua tool MCP (0.7.9 Y4): chỉ cùng tool, cùng đầu vào đã chuẩn hóa mới phủ; không áp isNarrow.
   if (isMcpRun(pass) || isMcpRun(fail)) return pass.check === fail.check && pass.command === fail.command
+  // Lệnh khai (0.8.0 A1): so theo dạng chuẩn sau khi giải đường dẫn và chuẩn hóa python; như trước, chỉ trùng lệnh mới phủ.
+  const passKey = customKey(pass.command)
+  const failKey = customKey(fail.command)
+  if (passKey !== null || failKey !== null) return pass.check === fail.check && passKey === failKey
   if (pass.check !== fail.check || runnerKey(pass.command) !== runnerKey(fail.command)) return false
   if (pass.command === fail.command) return true
   if (isNarrow(pass.command)) return false

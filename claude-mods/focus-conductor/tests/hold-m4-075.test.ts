@@ -23,9 +23,10 @@ const opts = { openSteps: STEPS.slice(1) }
 const ask = (prompt: string, confidence = 0.75, over: Record<string, unknown> = {}) => call(prev, routed({ relation: 'new', confidence, goal: 'Việc khác', ...over }), prompt, 2, opts)
 
 describe('0.7.5 M4: chỉ giữ mục tiêu khi prompt nhắc tới bước đang mở hay mã của mục tiêu', () => {
-  test('câu hỏi khác hẳn ở 0,75: lập mục tiêu mới', () => {
+  // 0.8.0 A3: tin cậy dưới 0,8 khi checklist còn bước mở thì mở đợt mới, không lập mục tiêu mới; held vẫn chỉ đúng khi prompt nhắc mục tiêu.
+  test('câu hỏi khác hẳn ở 0,75: không lập mục tiêu mới (đợt mới), không giữ', () => {
     const out = ask('Giá vàng SJC hôm nay bao nhiêu?')
-    expect(out.isNewGoal).toBe(true)
+    expect(out.isNewGoal).toBe(false)
     expect(out.held).toBe(false)
   })
 
@@ -36,15 +37,16 @@ describe('0.7.5 M4: chỉ giữ mục tiêu khi prompt nhắc tới bước đan
     expect(out.brief.goalId).toBe(4)
   })
 
-  test('mã bước không thuộc mục tiêu ("BƯỚC 99") hay không nhắc bước nào: mục tiêu mới', () => {
-    expect(ask('làm BƯỚC 99').isNewGoal).toBe(true)
-    expect(ask('làm tiếp đi').isNewGoal).toBe(true)
+  test('mã bước không thuộc mục tiêu ("BƯỚC 99") hay không nhắc bước nào: không giữ, đợt mới (0.8.0 A3)', () => {
+    expect(ask('làm BƯỚC 99').held).toBe(false)
+    expect(ask('làm tiếp đi').held).toBe(false)
+    expect(ask('làm tiếp đi').isNewGoal).toBe(false)
   })
 
   test('nhắc bước đang mở theo tiêu đề: giữ; nhắc bước đã xong (không còn mở) không đủ', () => {
     expect(ask('tóm tắt tin theo nhóm hàng giúp tôi').held).toBe(true)
     expect(ask('đọc và giải thích biến động giá của tuần này').held).toBe(true)
-    expect(ask('lọc tin lô 3 lại').isNewGoal).toBe(true)
+    expect(ask('lọc tin lô 3 lại').held).toBe(false)
   })
 
   test('mã bước viết "Bước 7:", "step 7" hay mã việc K4.2 của mục tiêu cũng giữ', () => {

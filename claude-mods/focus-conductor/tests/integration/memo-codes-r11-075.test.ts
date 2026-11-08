@@ -122,7 +122,8 @@ describe('0.7.5 R11: mentionsGoal chỉ đếm mã có trong brief', () => {
   test('prompt nhắc mã không có trong brief (utf8, b12) không được giữ làm tiếp nối', () => {
     const out = nextBrief(prev, routed({ relation: 'new', confidence: 0.7, goal: 'Việc khác' }), 'Kiểm utf8 của b12 giúp tôi', 2, { openSteps: prev.steps })
     expect(out.held).toBe(false)
-    expect(out.isNewGoal).toBe(true)
+    // 0.8.0 A3: checklist còn bước mở và tin cậy dưới 0,8 thì mở đợt mới, không lập mục tiêu mới.
+    expect(out.isNewGoal).toBe(false)
   })
 
   test('prompt nhắc mã có trong brief (K4.2) được giữ làm tiếp nối', () => {

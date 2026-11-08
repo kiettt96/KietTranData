@@ -17,6 +17,7 @@ import type { View } from '../lib/state'
 import { RETRY_ROUNDS, WAIVE_REPORT, briefContext, checkHintLines, droppedItemsText, droppedPlanNotice, quotaStatusLines, renderPlan, resetLabel, routerFailLines, unroutedContext } from '../lib/text'
 import { PANE_ROWS, shouldAutoOpenPane } from '../lib/pane'
 import { PANE, PANE_TITLE } from '../ui/pane'
+import { labels, langOf } from '../ui/labels'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -406,9 +407,11 @@ export function registerCommand(on: On, ctx: Ctx): void {
       }
       const report = await ctx.errorReport(io)
       if (report === null) return { text: 'Nhật ký lỗi của mod đang tắt (errorLog: off).' }
-      if (report.total === 0) return { text: `Nhật ký lỗi của mod trống (${ctx.errorLog}).` }
+      const lb = labels(langOf(ctx.options['uiLanguage']))
+      const behaviorLines = report.behavior.length > 0 ? [lb.behaviorHead(report.behavior.length), ...report.behavior.map(entry => `- ${lb.behaviorLine(entry.where, entry.message, entry.count, entry.firstSeen, entry.lastSeen)}`)] : []
+      if (report.total === 0) return { text: behaviorLines.length > 0 ? behaviorLines.join('\n') : `Nhật ký lỗi của mod trống (${ctx.errorLog}).` }
       const head = `Nhật ký lỗi của mod: ${report.total} loại${report.dropped > 0 ? `, đã bỏ ${report.dropped} loại cũ nhất` : ''} (${ctx.errorLog}). Mới nhất trước:`
-      return { text: [head, ...report.lines.map(line => `- ${line}`)].join('\n') }
+      return { text: [head, ...report.lines.map(line => `- ${line}`), ...behaviorLines].join('\n') }
     }
 
     if (sub === 'status') {

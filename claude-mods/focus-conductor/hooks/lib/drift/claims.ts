@@ -2,7 +2,7 @@
 // Chuyển nguyên văn từ hooks/lib/drift.ts (tách theo tầng, không đổi hành vi); hooks/lib/drift.ts là barrel.
 
 import { TAG } from './classify'
-import { isCheckText } from './verify'
+import { customScript, declaredScriptCount, isCheckText, isCustomCheck } from './verify'
 import type { CheckKind } from './verify'
 import { covers } from './evidence'
 import type { EvidenceEntry, EvidenceLog } from './evidence'
@@ -265,6 +265,23 @@ export type EvidenceStrength = {
 }
 
 /**
+ * 0.8.0 A7: token evidence là đường dẫn script (có đuôi tệp; có `/` hoặc là tên file trần) và là đoạn đuôi theo ranh giới `/` của đường dẫn
+ * đã giải của một lần chạy lệnh khai thì tính là nhắc lần chạy đó. Tên file trần chỉ tính khi đúng một lệnh khai mang script tên đó.
+ * Lệnh không khai không dùng luật này.
+ */
+function mentionsScript(words: string[], entry: EvidenceEntry): boolean {
+  if (entry.check === null || !isCustomCheck(entry.command)) return false
+  const script = customScript(entry.command)
+  if (script === null) return false
+  return words.some(word => {
+    const token = word.toLowerCase()
+    if (token === BOUNDARY || token.startsWith(TAG) || !/\.[a-z0-9]+$/.test(token) || token.split('/').includes('..')) return false
+    if (!token.includes('/')) return declaredScriptCount(token) === 1 && script.endsWith(`/${token}`)
+    return script === token || script.endsWith(`/${token}`)
+  })
+}
+
+/**
  * Đối chiếu evidence của "verified" với dấu vết thật của mục tiêu. Mọi chỗ evidence nhắc một lệnh kiểm tra phải ứng với
  * một lần chạy kiểm tra thật của đúng lệnh đó (khớp nghiêm ngặt); thiếu một lệnh là `stale`, không để lệnh đạt khác bù.
  * Mỗi lệnh được nhắc tính theo lần chạy cuối của chính nó và phải đạt sau thay đổi cuối. Không phân tích câu phủ định:
@@ -276,7 +293,7 @@ export function evidenceStrength(evidence: string, log: EvidenceLog): EvidenceSt
   const spans = log.commands.flatMap(entry =>
     words.map((_, start) => ({ entry, start, length: matchLength(words, start, entry) })).filter(span => span.length > 0),
   )
-  const mentioned = [...new Set(spans.map(span => span.entry))]
+  const mentioned = [...new Set([...spans.map(span => span.entry), ...log.commands.filter(entry => mentionsScript(words, entry))])]
   // Mỗi claim gắn với đầu cụm lệnh: chỉ một lần chạy kiểm tra khớp bắt đầu đúng tại đó mới là chỗ dựa.
   const unbacked = claimedChecks(words).find(at => !spans.some(span => span.entry.check !== null && span.start === at))
   if (unbacked !== undefined) {

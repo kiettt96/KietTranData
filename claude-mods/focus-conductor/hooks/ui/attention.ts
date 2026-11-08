@@ -5,7 +5,7 @@
 import type { Core, Warning, WarningKind } from '../../types'
 import type { Severity } from './style'
 import { severityOf } from './style'
-import { labels, shownWarning } from './labels'
+import { labels, shownEntry } from './labels'
 import type { Lang } from './labels'
 import { stepTag } from '../lib/text'
 
@@ -59,7 +59,7 @@ export function attentionItems(core: Core, lang: Lang, quota: { paused: boolean;
   const isPlannedFanout = brief.tasks.some(task => task.run === 'agent')
   core.warnings
     .filter(w => w.at >= brief.at && w.kind !== 'cost' && w.isSoft !== true && !(w.kind === 'budget' && isPlannedFanout))
-    .forEach((w, i) => items.push({ rank: WARNING_RANK[w.kind] ?? OTHER_RANK, severity: severityOf(w.kind), text: shownWarning(w.text, lang), kind: w.kind, warning: w, order: -i }))
+    .forEach((w, i) => items.push({ rank: WARNING_RANK[w.kind] ?? OTHER_RANK, severity: severityOf(w.kind), text: shownEntry(w, lang), kind: w.kind, warning: w, order: -i }))
   // Lệnh kiểm chủ mod đã miễn (0.7.9 Y5): xếp sau mọi cảnh báo, mức warning có sẵn.
   if (core.waivers.goalId === brief.goalId) core.waivers.items.forEach((w, i) => items.push({ rank: OTHER_RANK + 1, severity: 'warning', text: l.waived(w.command), kind: 'waived', order: i }))
   return items.sort((a, b) => a.rank - b.rank || a.order - b.order).map(({ order: _order, ...item }) => item)

@@ -82,6 +82,7 @@ describe('0.7.9 Y5: /conductor waive', () => {
     await stop($)
     expect(await say($, 'waive 1')).toContain('Cách dùng')
     expect(await say($, 'waive 1 hỏng rồi')).toContain('Cách dùng')
+    await bash($, 'bun test')  // 0.8.0 A2: lượt chỉ tăng khi đã chạy lại
     expect(await stop($)).toContain('3/3')
   })
 
@@ -91,6 +92,7 @@ describe('0.7.9 Y5: /conductor waive', () => {
     await stop($)
     const out = await $.command.run({ command: 'conductor', args: `waive 1 ${REASON}`, origin: { kind: 'plugin', name: 'khác' }, presentation: RUN.presentation } as never)
     expect(String((out as { text?: string }).text ?? '')).toContain('người gõ')
+    await bash($, 'bun test')  // 0.8.0 A2: lượt chỉ tăng khi đã chạy lại
     expect(await stop($)).toContain('3/3')
   })
 
@@ -98,7 +100,9 @@ describe('0.7.9 Y5: /conductor waive', () => {
     const { seen } = setup(on)
     await failing($, seen)
     await stop($)
+    await bash($, 'bun test')  // 0.8.0 A2: lượt chỉ tăng khi đã chạy lại
     await stop($)
+    await bash($, 'bun test')  // 0.8.0 A2: lượt chỉ tăng khi đã chạy lại
     expect(await stop($)).toContain('hết 3 lượt')
     expect(await shown($)).toContain('[b] 1.')
     await say($, `waive 1 ${REASON}`)
@@ -145,6 +149,7 @@ describe('0.7.9 Y5: /conductor waive', () => {
     await say($, `waive 1 ${REASON}`)
     await stop($)
     expect(await say($, 'waive undo 1')).toContain('Đã bỏ')
+    await bash($, 'bun test')  // 0.8.0 A2: lượt chỉ tăng khi đã chạy lại
     expect(await stop($)).toContain('3/3')
   })
 

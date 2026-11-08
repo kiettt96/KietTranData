@@ -1,8 +1,8 @@
 // Nhật ký lỗi của chính mod (0.7.9 L1): mỗi loại lỗi một mục, khóa gồm nhóm, nơi xảy ra và thông điệp đã chuẩn hóa. Hàm thuần ở đây
 // không gọi `$`; phần đọc ghi file nằm ở hooks/context.ts. Nhật ký không bao giờ được chèn vào context của model.
 
-/** Bốn nhóm lỗi của mod: hook ném lỗi, router lỗi, engine từ chối hay trả khác khai báo, trạng thái phải sửa kiểu. */
-export type ErrorGroup = 'hook' | 'router' | 'engine' | 'state'
+/** Nhóm lỗi của mod: hook ném lỗi, router lỗi, engine từ chối hay trả khác khai báo, trạng thái phải sửa kiểu; và (0.8.0 A9) sự cố hành vi: retry-exhausted, verify-reject lặp, dropped, replaced, router-fail. */
+export type ErrorGroup = 'hook' | 'router' | 'engine' | 'state' | 'behavior'
 
 export type ErrorEntry = {
   key: string
@@ -30,7 +30,7 @@ export const ERROR_CAP = 200
 export const MESSAGE_MAX = 200
 export const KEY_MESSAGE_MAX = 160
 export const EMPTY_ERRORS: ErrorFile = { dropped: 0, entries: [] }
-const GROUPS: ReadonlySet<string> = new Set(['hook', 'router', 'engine', 'state'])
+const GROUPS: ReadonlySet<string> = new Set(['hook', 'router', 'engine', 'state', 'behavior'])
 
 /**
  * Chuẩn hóa thông điệp: đường dẫn tuyệt đối và tương đối (có `/` và đuôi tệp, hoặc bắt đầu bằng `./` hay `../`) thành `<path>`, uuid và mã băm thành `<id>`, thời gian ISO thành `<time>`, số thành `<n>`,
@@ -245,12 +245,22 @@ export function localIso(ms: number): string {
   )
 }
 
-/** Dòng của `/conductor errors`: tối đa `limit` loại, mới nhất trước. */
+/** Dòng của `/conductor errors`: tối đa `limit` loại lỗi mã (không tính nhóm behavior), mới nhất trước. */
 export function errorLines(file: ErrorFile, limit = 20): string[] {
-  const sorted = [...file.entries].sort((a, b) => (a.lastSeen < b.lastSeen ? 1 : a.lastSeen > b.lastSeen ? -1 : 0)).slice(0, limit)
+  const sorted = file.entries.filter(entry => entry.group !== 'behavior').sort((a, b) => (a.lastSeen < b.lastSeen ? 1 : a.lastSeen > b.lastSeen ? -1 : 0)).slice(0, limit)
   return sorted.map(
     entry => `${entry.group} · ${entry.where} · ${entry.message} · ${entry.count} lần · ${entry.lastSeen}${entry.regressed === true ? ' · gặp lại sau bản sửa' : ''}`,
   )
+}
+
+/** Các mục nhóm behavior (0.8.0 A9), mới nhất trước, tối đa `limit`. */
+export function behaviorEntries(file: ErrorFile, limit = 20): ErrorEntry[] {
+  return file.entries.filter(entry => entry.group === 'behavior').sort((a, b) => (a.lastSeen < b.lastSeen ? 1 : a.lastSeen > b.lastSeen ? -1 : 0)).slice(0, limit)
+}
+
+/** Báo một sự cố hành vi (0.8.0 A9); `where` là loại sự cố, `message` là mô tả một dòng (được chuẩn hóa khi gộp, đường dẫn thành `<path>`). */
+export function noteBehavior(where: 'retry-exhausted' | 'verify-reject' | 'dropped' | 'replaced' | 'router-fail', message: string): void {
+  noteModError({ group: 'behavior', where, message })
 }
 
 /** Báo từng trường sai kiểu của trạng thái đã lưu (nhóm state; nơi là hàm chuẩn hóa sẽ phải sửa trường đó). */

@@ -15,7 +15,7 @@ export function langOf(value: unknown): Lang {
 const roundedMinutes = (ms: number) => Math.round(ms / 60_000)
 
 /** Giờ máy HH:MM của một mốc thời gian (0.7.6, W4), cho "từ <giờ bắt đầu>". */
-function clockOf(at: number): string {
+export function clockOf(at: number): string {
   const d = new Date(at)
   const two = (n: number) => String(n).padStart(2, '0')
   return `${two(d.getHours())}:${two(d.getMinutes())}`
@@ -31,6 +31,10 @@ const VI = {
   hide: 'Ẩn',
   plannedSteps: (n: number) => `${n} bước dự kiến`,
   retryExhausted: (command: string) => `Chưa đạt sau 3 lượt: ${command}`,
+  behaviorHead: (n: number) => `Sự cố hành vi của mod: ${n} loại`,
+  behaviorLine: (kind: string, message: string, count: number, first: string, last: string) => `${kind} · ${message} · ${count} lần · lần đầu ${first} · lần cuối ${last}`,
+  retryCleared: (command: string, step: number) => `Đã gỡ chặn: ${command} chạy lại đạt, bước ${step} về trạng thái cũ`,
+  retryPassedAt: (clock: string) => `đã đạt lúc ${clock}`,
   waived: (command: string) => `đã miễn: \`${command}\``,
   phase: { idle: 'chưa bắt đầu', start: 'mới bắt đầu', active: 'đang thực hiện', almost: 'sắp xong', done: 'hoàn thành' } as Record<Phase, string>,
   allClosed: 'Đã xong mọi bước',
@@ -93,6 +97,7 @@ const VI = {
   quotaPausedNow: 'Đang tạm dừng',
   mirrorShort: 'danh sách việc',
   taskSection: 'Tiến độ từng việc',
+  phaseArchived: (n: number) => `${n} việc của đợt trước`,
   taskMain: 'Việc chính',
   taskNumber: (n: number) => `Việc ${n}`,
   taskOwn: 'Claude tự giao',
@@ -100,6 +105,7 @@ const VI = {
   forkCost: (n: number) => `Nhóm subagent gồm ${n} phiên con`,
   taskState: { pending: 'chờ giao', idle: 'chưa bắt đầu', running: 'đang chạy', done: 'xong', failed: 'lỗi, chưa giao lại', cut: 'bị cắt vì tạm dừng' } as Record<'pending' | 'idle' | 'running' | 'done' | 'failed' | 'cut', string>,
   taskDoing: 'đang làm',
+  noStep: 'chưa gắn bước',
   taskTools: (n: number) => `${n} tool`,
   taskBatches: (done: number, total: number, running: number) => `${done}/${total} lô xong${running > 0 ? `, ${running} đang chạy` : ''}`,
   taskElapsed: (ms: number) => (ms < 60_000 ? '<1 phút' : `${roundedMinutes(ms)} phút`),
@@ -129,6 +135,7 @@ const VI = {
   warnings: 'Cảnh báo khác',
   attention: 'Cần chú ý',
   attentionMore: (n: number) => `+${n} mục khác`,
+  turnsSuffix: (n: number) => `(${n} turn)`,
   noWarnings: 'Không có cảnh báo.',
   checkHint: (list: string, isDir: boolean) =>
     `Mod chưa nhận script kiểm đã chạy là lệnh kiểm. Gợi ý khai option checkCommands của mod: ${list}.${isDir ? ' Tiền tố thư mục tin mọi script dưới thư mục đó: chỉ khai nếu thư mục chỉ chứa script kiểm.' : ''}`,
@@ -160,6 +167,10 @@ const EN: typeof VI = {
   hide: 'Hide',
   plannedSteps: n => `${n} planned steps`,
   retryExhausted: command => `Not passing after 3 rounds: ${command}`,
+  behaviorHead: n => `Mod behavior incidents: ${n} kinds`,
+  behaviorLine: (kind, message, count, first, last) => `${kind} · ${message} · ${count} times · first ${first} · last ${last}`,
+  retryCleared: (command, step) => `Unblocked: ${command} passed on a rerun, step ${step} restored`,
+  retryPassedAt: clock => `passed at ${clock}`,
   waived: command => `waived: \`${command}\``,
   phase: { idle: 'not started', start: 'just started', active: 'in progress', almost: 'almost done', done: 'completed' },
   allClosed: 'All steps closed',
@@ -220,6 +231,7 @@ const EN: typeof VI = {
   quotaPausedNow: 'Paused',
   mirrorShort: 'task list',
   taskSection: 'Progress by task',
+  phaseArchived: n => `${n} ${n === 1 ? 'task' : 'tasks'} from earlier phases`,
   taskMain: 'Main work',
   taskNumber: n => `Task ${n}`,
   taskOwn: 'Delegated by Claude',
@@ -227,6 +239,7 @@ const EN: typeof VI = {
   forkCost: n => `Subagent group includes ${n} ${n === 1 ? 'fork' : 'forks'}`,
   taskState: { pending: 'not delegated yet', idle: 'not started', running: 'running', done: 'done', failed: 'failed, not re-delegated', cut: 'cut by pause' },
   taskDoing: 'in progress',
+  noStep: 'no step',
   taskTools: n => `${n} ${n === 1 ? 'tool' : 'tools'}`,
   taskBatches: (done, total, running) => `${done}/${total} runs done${running > 0 ? `, ${running} running` : ''}`,
   taskElapsed: ms => (ms < 60_000 ? '<1 min' : `${roundedMinutes(ms)} min`),
@@ -256,6 +269,7 @@ const EN: typeof VI = {
   warnings: 'Other warnings',
   attention: 'Needs attention',
   attentionMore: n => `+${n} more`,
+  turnsSuffix: n => `(${n} turns)`,
   noWarnings: 'No warnings.',
   checkHint: (list: string, isDir: boolean) =>
     `The mod does not recognize the check script that ran as a check. Suggested checkCommands option: ${list}.${isDir ? ' A directory prefix trusts every script under it: declare it only if the directory holds check scripts only.' : ''}`,
@@ -299,6 +313,12 @@ export function shownWarning(text: string, lang: Lang): string {
     .replace(WORD('lưu là done'), 'lưu là xong')
     .replace(WORD('verified'), 'đã kiểm chứng')
     .replace(WORD('evidence'), 'bằng chứng')
+}
+
+/** Dòng cảnh báo đã lưu khi vẽ (0.8.0 A5): câu hiển thị, kèm số turn khi nhiều turn liên tiếp cùng nguyên nhân gộp vào một dòng. */
+export function shownEntry(w: { text: string; turns?: number }, lang: Lang): string {
+  const text = shownWarning(w.text, lang)
+  return w.turns !== undefined && w.turns > 1 ? `${text} ${labels(lang).turnsSuffix(w.turns)}` : text
 }
 
 /**

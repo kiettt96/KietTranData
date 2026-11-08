@@ -13,7 +13,7 @@ import { liveForks } from '../lib/forks'
 import { countLabel, progress } from '../lib/text'
 import type { BandQuota, QuotaPaneText } from '../lib/text'
 import { attentionItems } from './attention'
-import { labels, shownWarning, stepTaskMeta, taskLabel } from './labels'
+import { labels, shownEntry, stepTaskMeta, taskLabel } from './labels'
 import type { Run } from './style'
 import {
   FAMILY_HUE,
@@ -314,7 +314,7 @@ export function renderPane(
           )
           const message = (
             <Box flexGrow={1} flexShrink={1}>
-              <Text wrap="wrap" dimColor={w.isSoft === true}>{`${severityGlyph(severity)} ${shownWarning(w.text, view.lang)}`}</Text>
+              <Text wrap="wrap" dimColor={w.isSoft === true}>{`${severityGlyph(severity)} ${shownEntry(w, view.lang)}`}</Text>
             </Box>
           )
           // Pane hẹp: chip nằm trên dòng riêng để lời cảnh báo có đủ chiều rộng.
@@ -543,8 +543,9 @@ export function renderPane(
     const runs = taskBarRuns(row.bar, taskCells)
     const detail = rowDetail(row, false)
     // Chữ trạng thái: thanh không có bước thì luôn ghi; thanh theo bước của agent chỉ ghi khi agent đã kết thúc.
-    const word =
-      row.bar.kind === 'state'
+    const word = row.noStep === true
+      ? l.noStep
+      : row.bar.kind === 'state'
         ? row.state === 'running' && row.kind !== 'agent'
           ? l.taskDoing
           : l.taskState[row.state]
@@ -601,6 +602,16 @@ export function renderPane(
       </Box>
     )
   })
+
+  // Việc của các đợt trước đã cất (0.8.0 A3): một dòng mờ, không tính vào tiến độ.
+  const archived = brief.archived ?? 0
+  if (archived > 0) {
+    taskNodes.push(
+      <Text key="phase-archived" dimColor wrap="truncate-end">
+        {l.phaseArchived(archived)}
+      </Text>,
+    )
+  }
 
   // ----------------------------------------------------------- đang chạy
   // U8: mỗi việc có subagent đang chạy một dòng: tên việc, khoảng lô, số agent đang chạy, thời gian từ agent đầu tiên của nhóm.

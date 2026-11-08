@@ -166,9 +166,10 @@ describe('0.7.9 L1: tự xóa lỗi đã sửa (hàm thuần)', () => {
     expect(pruneFixed({ dropped: 0, entries: [entry('K', '0.7.7')] }, '0.7.8', fixed).entries.map(e => e.key)).toEqual(['K'])
   })
 
-  test('sổ 0.7.9 bắt đầu rỗng; MOD_VERSION là 0.7.9', () => {
+  // 0.8.0: sổ vẫn rỗng (chủ mod chưa gửi errors.json nào); MOD_VERSION theo plugin.json.
+  test('sổ 0.8.0 vẫn rỗng; MOD_VERSION là 0.8.0', () => {
     expect(FIXED_ERRORS).toEqual([])
-    expect(MOD_VERSION).toBe('0.7.9')
+    expect(MOD_VERSION).toBe('0.8.0')
   })
 })
 
@@ -251,7 +252,7 @@ describe('0.7.9 L1: nối vào mod', () => {
     expect(shown).toMatch(/- router · prompt · [a-z-]+ · 1 lần · \d{4}-\d{2}-\d{2}T/)
     const first = String((await conductor($, 'errors clear')).text)
     expect(first).toContain('gõ lại /conductor errors clear trong 10 giây')
-    expect(fs.log().entries.length).toBe(1)
+    expect(fs.log().entries.filter(e => e.group !== 'behavior').length).toBe(1)
     expect(String((await conductor($, 'errors clear')).text)).toContain('Đã xóa')
     expect(fs.log().entries.length).toBe(0)
     expect(String((await conductor($, 'errors')).text)).toContain('trống')

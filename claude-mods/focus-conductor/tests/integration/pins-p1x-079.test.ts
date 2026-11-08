@@ -1,7 +1,8 @@
 // 0.7.9 P1x: ghim ba chi tiết của 0.7.7 chưa có test bắt (lộ ra ở lượt đột biến của 0.7.9).
 // P1a (mẫu 079-P1a): pane ghi mờ (dimColor) dòng cảnh báo nhẹ của luật X6, cảnh báo thường thì không mờ.
 // P1b (mẫu 079-P1b): offerCheckHint không chạy khi cảnh báo cuối turn là cảnh báo nhẹ; cùng điều kiện mà cảnh báo thường thì vẫn gợi ý.
-// P1c (mẫu 079-P1c): Read lỗi (isError) không tính là đã đọc lại, nên turn sửa .md rồi Read lỗi vẫn là cảnh báo thường.
+// P1c (mẫu 079-P1c): Read lỗi (isError) không tính là đã đọc lại, nên turn sửa .md rồi Read lỗi không có cảnh báo nhẹ.
+// Từ 0.8.0 A5 file .md là thay đổi nhẹ nên Read lỗi cũng không còn cảnh báo thường.
 
 import { describe, expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
@@ -72,14 +73,14 @@ describe('0.7.9 P1c: Read lỗi không tính là đã đọc lại', () => {
       for (const call of [edit('/p/a.md'), read('/p/a.md', isError)]) observe(tracker, call, brief, [])
       return summarize(tracker, brief, []).find(f => f.kind === 'unverified')
     }
-    expect(finding(true)?.isSoft).toBeUndefined()
+    expect(finding(true)).toBeUndefined()
     expect(finding(false)?.isSoft).toBe(true)
   })
 
-  test('tích hợp: Edit .md rồi Read trả lỗi: pane có cảnh báo thường, không có dòng cảnh báo nhẹ', {}, async ($: Engine, on) => {
+  test('tích hợp: Edit .md rồi Read trả lỗi: pane không có cảnh báo thường, không có dòng cảnh báo nhẹ', {}, async ($: Engine, on) => {
     await runTurn($, on, 'docs/a.md', { isReadError: true })
     const pane = await $.ui.mount(PANE)
-    expect(await pane.find({ type: 'Text', text: PLAIN_TEXT })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: PLAIN_TEXT })).toBeUndefined()
     expect(await pane.find({ type: 'Text', text: SOFT_TEXT })).toBeUndefined()
     await pane.unmount()
   })

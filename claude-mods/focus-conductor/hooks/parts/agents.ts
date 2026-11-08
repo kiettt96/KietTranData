@@ -5,11 +5,12 @@ import { noteHookError } from '../lib/errlog'
 import type { AgentProgress, Choice, Core, RetryItem, RouteEvent, Warning } from '../../types'
 import { turnCost } from '../lib/cost'
 import { countSpawn, shapeKey, shapeOutput } from '../lib/ledger'
-import { EFFORTS, agentMemoKey, describePick, familyOf, familyRank, pickRank, ruleFamily, taskMatch } from '../lib/route'
+import { EFFORTS, agentMemoKey, describePick, familyOf, familyRank, pickRank, ruleFamily, stepCovers, taskMatch } from '../lib/route'
 import { clipText } from '../lib/decisions'
 import { agentRouterRequest, askRouter, briefCodes, fitPick, floorRoute, isSettled, parseAgentRoute, ruleRoute, taskRoute } from '../lib/router'
 import { FORK_QUOTA_DENY, RETRY_PREFIX, RETRY_ROUNDS, forkRetryNote, forkReturnNote } from '../lib/text'
 import { liveForks, openParts } from '../lib/forks'
+import { shownPlan } from '../lib/mirror'
 import { tierOf } from '../lib/scale'
 import type { AgentRoute } from '../lib/router'
 import * as S from '../lib/state'
@@ -258,8 +259,26 @@ export function registerAgents(on: On, ctx: Ctx): void {
       moveDelegation(brief.goalId, assigned.index, 'running')
       await update($, coreState, S.withDelegations(brief.goalId, delegationItems(brief)))
     }
-    if (matched.miss !== undefined) {
-      record(await $.clock.now(), 'agent', { description: clipText(e.description), miss: matched.miss, routed: route !== null })
+    // Lời gọi không khớp việc nào (0.8.0 A8): gắn vào việc của bước doing hiện tại (stepCovers) để pane hiện dưới việc ấy thay vì "Claude tự
+    // giao". Chỉ đổi chỗ hiện; lựa chọn model, sàn W4 và danh sách việc giao không đổi. Không có bước doing gắn được thì giữ như cũ.
+    let attachedTask: number | undefined
+    if (assigned === undefined && matched.miss === undefined && !isNested && brief !== null && !brief.isReference) {
+      for (const s of shownPlan(core).plan) {
+        if (s.status !== 'doing') continue
+        const covered = stepCovers(brief.tasks, s.title)
+        if (covered !== undefined) {
+          attachedTask = covered.index
+          break
+        }
+      }
+    }
+    if (matched.miss !== undefined || attachedTask !== undefined) {
+      record(await $.clock.now(), 'agent', {
+        description: clipText(e.description),
+        ...(matched.miss !== undefined ? { miss: matched.miss } : {}),
+        ...(attachedTask !== undefined ? { attached: 'doing-step', task: attachedTask } : {}),
+        routed: route !== null,
+      })
       await flushDecisions((path, text) => $.fs.write(path, text))
     }
 
@@ -267,7 +286,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
     // Họ model và effort thật sự gửi đi: lựa chọn của router khi áp dụng, nếu không thì của Claude.
     const sentFamily = isApplied && route !== null ? route.pick.family : claimed
     const sentEffort = isApplied && route !== null ? route.pick.effort : requested
-    pendingAgents.set(e.tool_use_id, { route, reason, isApplied, description: e.description, sentFamily, sentEffort, ...(assigned !== undefined ? { taskIndex: assigned.index } : {}) })
+    pendingAgents.set(e.tool_use_id, { route, reason, isApplied, description: e.description, sentFamily, sentEffort, ...(assigned !== undefined ? { taskIndex: assigned.index } : attachedTask !== undefined ? { taskIndex: attachedTask } : {}) })
     // Đổi loại agent chỉ khi Claude để general-purpose và engine đã mời loại router chọn.
     const isGeneral = e.subagent_type === undefined || e.subagent_type === 'general-purpose'
     const swap = isApplied && route !== null && isGeneral && route.agentType !== 'general-purpose' && offered.has(route.agentType)
@@ -420,6 +439,8 @@ export function registerAgents(on: On, ctx: Ctx): void {
         fallback: false,
       })
     }
+    // Subagent đang chạy (0.8.0 A5): chưa trả về thì cảnh báo chưa kiểm cuối turn và cổng Y6 được hoãn.
+    if (agentId !== undefined && L.liveAgents.size < 1000) L.liveAgents.add(agentId)
     if (agentId !== undefined) {
       steppedEarly.delete(agentId)
       if (spawnedIds.size < 1000) spawnedIds.add(agentId)

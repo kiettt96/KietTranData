@@ -1,7 +1,7 @@
 // Phân loại một lệnh Bash theo từng đoạn: lệnh kiểm tra, tác động ghi, file đích, mức che mã thoát.
 // Chuyển từ hooks/lib/drift.ts (tách theo tầng, không đổi hành vi lúc tách; 0.5.5 truyền unmask vào isSelfFixing); hooks/lib/drift.ts là barrel.
 
-import { TEST_SEGMENT, isCheckText, isCustomCheck, isSelfFixing } from './verify'
+import { TEST_SEGMENT, isCheckText, isCustomCheck, isSelfFixing, suffixCustomCheck } from './verify'
 import type { CheckKind } from './verify'
 import { normalizePath } from './scope'
 import { AWK_COMMAND, AWK_WRITE, segmentIsReadOnly } from './readonly'
@@ -43,9 +43,10 @@ export type CheckEffect = {
   /**
    * visible: mã thoát của câu lệnh chính là của lệnh kiểm tra. filtered: lệnh kiểm tra đứng đầu, không chuyển hướng
    * nào ngoài 2>&1, nối ống duy nhất sang tail (chỉ số dòng) hoặc cat (không đối số), output chỉ đến từ nó. hidden: mã
-   * thoát hay output bị lệnh khác che; không bao giờ tính là đạt.
+   * thoát hay output bị lệnh khác che; không bao giờ tính là đạt. chained (0.8.0 A11): sau lệnh kiểm tra còn đoạn nối && khác đoạn chỉ in
+   * hay đổi thư mục; mã thoát 0 là đạt như visible, mã thoát khác 0 không biết thuộc đoạn nào nên kết quả chưa rõ.
    */
-  exit: 'visible' | 'filtered' | 'hidden'
+  exit: 'visible' | 'filtered' | 'hidden' | 'chained'
   /** Bộ lọc khi exit là filtered: tail cắt output (chỉ còn phần cuối), head giữ phần đầu (0.7.5), cat giữ đủ. */
   filter?: 'tail' | 'cat' | 'head'
   /** Số dòng head giữ (0.7.5): output có ít dòng hơn thì head không cắt gì. */
@@ -70,7 +71,8 @@ export type WriteEffect = {
 export type BashEffect = CheckEffect | WriteEffect
 
 /** Kết quả phân loại một lệnh Bash, dùng chung cho mọi hook: hiệu ứng theo thứ tự, file đích, cờ không xác định đích. */
-export type BashClass = { effects: BashEffect[]; paths: string[]; isUnknown: boolean }
+/** `dir` (0.8.0 A1): thư mục làm việc sau lệnh khi lệnh có cd tới thư mục đọc được, tuyệt đối khi biết thư mục gốc. */
+export type BashClass = { effects: BashEffect[]; paths: string[]; isUnknown: boolean; dir?: string }
 
 type Operator = '' | '&&' | '||' | ';' | '|' | '|&' | '&'
 
@@ -104,6 +106,49 @@ function maskCommand(command: string): { masked: string; unmask: (token: string)
 }
 
 /**
+ * Tiền tố timeout ở mọi dạng hợp lệ (0.8.0 A1): `timeout 600`, `timeout 10m`, `timeout 1.5h`, `timeout -k 5 600`, `timeout --signal=KILL 600`,
+ * `timeout -s TERM 10m`; lệnh sau nó là lệnh thật.
+ */
+const TIMEOUT_PREFIX =
+  /^timeout(?:\s+(?:-[ks]\s+\S+|--(?:signal|kill-after)=\S+|--preserve-status|--foreground|-v|--verbose))*\s+\d+(?:\.\d+)?[smhd]?\s+/
+
+/** Phép gán biến đứng đầu lệnh, nối bằng ; hay && (0.8.0 A1): giá trị không chứa nháy, $, backtick hay toán tử. */
+const LEADING_ASSIGNMENT = /^\s*([A-Za-z_][A-Za-z0-9_]*)=([^\s;&|$`"'()<>]+)\s*(?:;|&&)\s*/
+
+/**
+ * Giải biến gán ngay trong lệnh (0.8.0 A1): `T=/a/tools; python3 $T/x.py`, `"$T/x.py"`, `${T}/x.py`. Chỉ biến gán ở đầu chính lệnh này
+ * (shell của Bash không giữ biến giữa các lần gọi); không thay trong nháy đơn. Không có phép gán thì giữ nguyên lệnh.
+ */
+function expandAssignments(command: string): string {
+  const vars = new Map<string, string>()
+  let head = ''
+  let rest = command
+  for (let match = LEADING_ASSIGNMENT.exec(rest); match !== null; match = LEADING_ASSIGNMENT.exec(rest)) {
+    vars.set(match[1] ?? '', match[2] ?? '')
+    head += match[0]
+    rest = rest.slice(match[0].length)
+  }
+  if (vars.size === 0) return command
+  let out = ''
+  let isSingle = false
+  for (let at = 0; at < rest.length; at++) {
+    const ch = rest[at] ?? ''
+    if (ch === "'") isSingle = !isSingle
+    else if (ch === '$' && !isSingle) {
+      const ref = /^\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/.exec(rest.slice(at))
+      const value = vars.get(ref?.[1] ?? ref?.[2] ?? '')
+      if (ref !== null && value !== undefined) {
+        out += value
+        at += ref[0].length - 1
+        continue
+      }
+    }
+    out += ch
+  }
+  return head + out
+}
+
+/**
  * Tách lệnh đã che thành các đoạn, giữ toán tử đứng trước mỗi đoạn (&&, ||, ;, |, |&, &; xuống dòng tính như ;). `&` đơn
  * (không phải `&&`, `&>`, `>&`, `N>&M`) chạy cả danh sách &&/|| đứng trước nó ở nền: mã thoát không thuộc về các đoạn đó.
  * Mọi đoạn đứng trước `&` đều được đánh dấu: đoạn thuộc danh sách trước đó đã nền sẵn, đoạn trước `;` đã là hidden (exitOf).
@@ -124,7 +169,7 @@ function pieces(masked: string, heredocs: string[]): Piece[] {
     let text = part.trim().replace(/^[({]+\s*/, '')
     const assignments = /^(?:[A-Za-z_][A-Za-z0-9_]*=\S*(?:\s+|$))+/.exec(text)?.[0] ?? ''
     // Biến môi trường đứng đầu đổi cách lệnh chạy (TEST_FILTER=smoke npm test): giữ lại làm một phần danh tính.
-    text = text.slice(assignments.length).replace(/^timeout\s+\d+\s+/, '')
+    text = text.slice(assignments.length).replace(TIMEOUT_PREFIX, '')
     if (text !== '') {
       const count = (text.match(/<<H/g) ?? []).length
       out.push({ op, text, env: assignments.trim().split(/\s+/).filter(Boolean), background: false, heredocs: matched ? heredocs.slice(used, used + count) : null })
@@ -163,6 +208,12 @@ function isNeutral(piece: Piece): boolean {
   return !piece.background && /^(?:cd|set)(?:\s|$)/.test(piece.text)
 }
 
+/** Đoạn đứng sau lệnh kiểm mà không đổi mã thoát (0.8.0 A11): cd, set, pwd, true, hay echo, printf không chuyển hướng. */
+function isTrailingNeutral(piece: Piece): boolean {
+  if (isNeutral(piece)) return true
+  return !piece.background && /^(?:echo|printf|pwd|true|:)(?:\s|$)/.test(piece.text) && !/[<>]/.test(piece.text)
+}
+
 /**
  * Mức che mã thoát của lệnh kiểm tra ở vị trí `index`, theo ngữ nghĩa shell. Lệnh sau nối bằng && (hoặc không có) thì
  * mã thoát của lệnh kiểm tra không bị che: visible. Ống chỉ giữ được mức filtered khi lệnh kiểm tra đứng đầu, không có
@@ -173,7 +224,9 @@ function exitOf(list: Piece[], index: number): Pick<CheckEffect, 'exit' | 'filte
   const rest = list.slice(index + 1)
   if (rest.some(after => after.op === ';' || after.op === '||')) return { exit: 'hidden' }
   const next = rest[0]
-  if (next === undefined || next.op === '&&') return { exit: 'visible' }
+  if (next === undefined) return { exit: 'visible' }
+  // Sau lệnh kiểm còn đoạn nối && (0.8.0 A11): chỉ đoạn in hay đổi thư mục thì mã thoát vẫn là của lệnh kiểm; đoạn khác thì chained.
+  if (next.op === '&&') return rest.every(isTrailingNeutral) ? { exit: 'visible' } : { exit: 'chained' }
   // Lệnh kiểm tra đứng đầu, hoặc chỉ sau các đoạn cd/set nối bằng && hay ; (0.7.5): output vẫn chỉ đến từ nó.
   const isLead = list.slice(0, index).every(isNeutral) && list.slice(1, index + 1).every(p => p.op === '&&' || p.op === ';')
   if (next.op !== '|' || !isLead || rest.length !== 1) return { exit: 'hidden' }
@@ -234,7 +287,9 @@ const UNSUPPORTED = /\$\(|`|[<>]\(|(?:^|[\s;&|(])eval\b|(?:^|[\s;&|(])(?:ba|z|da
  * động ghi đứng trước kiểm tra. Cấu trúc chưa hỗ trợ thì thêm tác động ghi có thể và không tin kiểm tra nào.
  * Đường dẫn tương đối nối với thư mục của `cd` đứng trước. Chỉ để giám sát; không phải phân quyền hệ thống tệp.
  */
-export function classifyBash(command: string): BashClass {
+export function classifyBash(input: string, base = ''): BashClass {
+  // base (0.8.0 A1): thư mục làm việc từ các lần Bash trước, chỉ dùng để giải lệnh khai có đường dẫn tương đối.
+  const command = expandAssignments(input)
   const { masked, unmask, heredocs } = maskCommand(command)
   const effects: BashEffect[] = []
   const paths: string[] = []
@@ -323,8 +378,17 @@ export function classifyBash(command: string): BashClass {
       continue
     }
     // Lệnh khai (checkCommands) chạy sau cd với đường dẫn tương đối: so dạng đã nối thư mục với lệnh khai (0.7.5).
-    const resolved = cwd !== '' && !cwd.includes('\u0000') && !isCustomCheck(text) ? resolvedText(text, cwd) : null
-    const isResolvedCustom = resolved !== null && isCustomCheck(resolved)
+    // Thư mục để giải: thư mục của cd trong lệnh, không có thì thư mục từ lần Bash trước (0.8.0 A1); cd tương đối nối vào thư mục đó.
+    const dir = cwd === '' ? base : cwd.startsWith('/') || base === '' ? cwd : normalizePath(`${base}/${cwd}`)
+    const isDeclared = isCustomCheck(text)
+    let resolved = dir !== '' && !dir.includes('\u0000') && !isDeclared ? resolvedText(text, dir) : null
+    let isResolvedCustom = resolved !== null && isCustomCheck(resolved)
+    // Vẫn chưa khớp và lệnh không tự cd tới thư mục khác: tên script khớp đuôi với đúng một lệnh khai python (0.8.0 A1).
+    const suffix = cwd === '' && !isDeclared && !isResolvedCustom ? suffixCustomCheck(text) : null
+    if (suffix !== null) {
+      resolved = suffix
+      isResolvedCustom = true
+    }
     // Lệnh vừa kiểm vừa sửa file (--fix, --write...) không phải lệnh kiểm tra: rơi xuống nhánh ghi bên dưới.
     if ((isCheckText(text) || isResolvedCustom) && !isSelfFixing(bare.split(/\s+/), unmask)) {
       const exit = piece.background ? { exit: 'hidden' as const } : exitOf(list, index)
@@ -341,7 +405,7 @@ export function classifyBash(command: string): BashClass {
         trusted: !isUnsupported && (piece.op === '' || piece.op === '&&' || piece.op === ';' || piece.op === '&'),
         ...exit,
         ...(pipefail && exit.exit === 'filtered' ? { pipefail: true as const } : {}),
-        ...(isResolvedCustom ? { resolved } : {}),
+        ...(isResolvedCustom && resolved !== null ? { resolved } : {}),
       })
       continue
     }
@@ -413,7 +477,8 @@ export function classifyBash(command: string): BashClass {
     // cd tới thư mục không đọc được: đường dẫn tương đối sau đó không đối chiếu được.
     return { effects, paths: paths.filter(path => path.startsWith('/') && !path.includes('\u0000')), isUnknown: true }
   }
-  return { effects, paths, isUnknown }
+  const dir = cwd === '' ? undefined : cwd.startsWith('/') ? cwd : base !== '' ? normalizePath(`${base}/${cwd}`) : undefined
+  return { effects, paths, isUnknown, ...(dir !== undefined ? { dir } : {}) }
 }
 
 /** File đích của một lệnh Bash có ghi (xem classifyBash). */

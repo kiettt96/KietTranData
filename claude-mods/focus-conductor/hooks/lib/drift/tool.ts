@@ -10,6 +10,8 @@ export type ToolObservation = {
   isReadOnly: boolean
   /** Output của tool như model đọc (nếu có): để nhận ra lệnh kiểm tra báo lỗi mà mã thoát vẫn 0 (ví dụ qua `| tail`). */
   output?: string
+  /** Thư mục làm việc của Bash từ các lần gọi trước (0.8.0 A1), để giải lệnh khai có đường dẫn tương đối. */
+  cwd?: string
 }
 
 export function str(value: unknown): string {

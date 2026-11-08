@@ -6,7 +6,7 @@ import type { AgentProgress, Choice, Core, PlanStep, Task } from '../../types'
 import { isFullyClosed } from './drift'
 import { liveForks } from './forks'
 import { mirrorPlan, shownPlan } from './mirror'
-import { matchTask } from './route'
+import { matchTask, stepCovers } from './route'
 import { tallyKey } from './state'
 import { progress } from './text'
 import type { AgentTally } from '../../types'
@@ -64,6 +64,10 @@ export type TaskRow = {
   failed?: number
   /** Dòng phiên con của việc tách (0.7.9 F1): một phần (mã phần), hay dòng đã gom (số phiên con). Không mang `index` để không đi cùng bước. */
   fork?: { task: number; part?: string; merged?: number }
+  /** Việc của luồng chính chưa có bước nào của riêng nó và không phải việc của bước đang làm (0.8.0 A4): nhãn "chưa gắn bước", mờ. */
+  noStep?: true
+  /** Dòng subagent Claude tự giao được gắn vào việc main của bước doing (0.8.0 A8): mang `index` của việc nhưng không đi cùng bước của việc. */
+  attached?: true
 }
 
 /** Thứ tự ưu tiên khi band thiếu chỗ: đang chạy, rồi lỗi hay bị cắt, rồi chờ hoặc chưa bắt đầu, rồi xong. */
@@ -130,12 +134,16 @@ export function taskRows(core: Core, now: number): TaskRow[] {
     return { key: `tally-${t.key}`, kind: 'agent', ...(index !== undefined ? { index } : {}), title, pick, bar: { kind: 'state', state }, state, counts: { done: t.done, total: t.spawned, running: t.running }, ...(t.failed > 0 ? { failed: t.failed } : {}) }
   }
 
+  const mainCount = tasks.filter(t => t.run === 'main').length
   for (const task of tasks) {
     if (task.run === 'main') {
       // Bước của checklist mở đầu "Việc N" (hay cùng mã mục) là bước của việc N, theo cùng quy tắc cấu trúc với Agent.
       const own = plan.filter(step => matchTask(tasks, step.title)?.index === task.index)
       const closedAny = progress(plan).closed > 0
-      const state: TaskState = own.length > 0 ? stepsState(own) : plan.length > 0 && isFullyClosed(plan) ? 'done' : !closedAny && changes === 0 ? 'idle' : 'running'
+      // Không có bước riêng (0.8.0 A4): chỉ đang làm khi là việc của bước doing (stepCovers) hay là việc main duy nhất; còn lại chưa gắn bước.
+      const isDoing = plan.some(s => s.status === 'doing' && stepCovers(tasks, s.title)?.index === task.index) || mainCount === 1
+      const isUnassigned = own.length === 0 && plan.length > 0 && !isFullyClosed(plan) && !isDoing
+      const state: TaskState = own.length > 0 ? stepsState(own) : plan.length > 0 && isFullyClosed(plan) ? 'done' : isUnassigned ? 'pending' : !closedAny && changes === 0 ? 'idle' : 'running'
       rows.push({
         key: `task-${task.index}`,
         kind: 'direct',
@@ -144,8 +152,13 @@ export function taskRows(core: Core, now: number): TaskRow[] {
         pick: task.pick,
         bar: own.length > 0 ? { kind: 'steps', plan: own } : { kind: 'state', state },
         state,
+        ...(isUnassigned ? { noStep: true as const } : {}),
       })
       rows.push(...forkRows(core, task, agents, now))
+      // Subagent Claude tự giao gắn vào việc này (0.8.0 A8): dòng con của việc, có số việc.
+      const many = grouped(`task-${task.index}`)
+      if (many !== undefined) rows.push({ ...tallyRow(many, many.title, null, task.index), attached: true })
+      else for (const item of agents.filter(a => a.taskIndex === task.index)) rows.push({ ...agentRow(item), attached: true })
       continue
     }
     const runs = agents.filter(item => item.taskIndex === task.index)
@@ -209,7 +222,7 @@ export function stepTaskRows(core: Core, rows: readonly TaskRow[], titles: reado
     // Theo mã ("BƯỚC N", "Việc N"), hay tiêu đề trùng hệt một việc (bước dự kiến của router chính là tiêu đề của việc).
     const index = matchTask(tasks, title)?.index ?? tasks.find(task => task.title.trim() === title.trim())?.index
     if (index === undefined) continue
-    const own = rows.filter(row => row.kind !== 'main' && row.index === index)
+    const own = rows.filter(row => row.kind !== 'main' && row.attached !== true && row.index === index)
     const first = own[0]
     if (first === undefined) continue
     byTitle.set(title, first)

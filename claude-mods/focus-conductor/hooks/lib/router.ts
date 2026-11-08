@@ -1042,14 +1042,22 @@ function followUpMain(prev: Brief, plan: RouterPlan, isHeld: boolean): Choice | 
  * Prompt tiếp nối: giữ mục tiêu và các việc đã phân, nối việc mới (đánh số tiếp theo),
  * thêm ràng buộc và tiêu chí mới, dùng lựa chọn luồng chính và đánh giá mới của router.
  */
-export function followUpOf(prev: Brief, plan: RouterPlan, now: number, isHeld = false): { brief: Brief; added: Task[]; dropped: number } {
-  const offset = prev.tasks.reduce((max, t) => Math.max(max, t.index), 0)
+export function followUpOf(prev: Brief, plan: RouterPlan, now: number, isHeld = false, isPhase = false): { brief: Brief; added: Task[]; dropped: number; replaced: string[] } {
+  const offset = prev.tasks.reduce((max, t) => Math.max(max, t.index), prev.archivedTop ?? 0)
   // Yêu cầu mới nối vào danh sách (bỏ trùng); covers của việc mới đổi sang số thứ tự trong danh sách đã gộp. Đầy trần thì
-  // yêu cầu mới thay yêu cầu cũ (0.7.5): việc cũ không còn phủ chỗ bị thay.
-  const { items: requirements, renumber, dropped: lostRequirements } = mergeRequirements(prev.requirements ?? [], plan.requirements)
+  // yêu cầu mới thay yêu cầu cũ (0.7.5): việc cũ không còn phủ chỗ bị thay. Đợt mới (0.8.0 A3): đầy thì mục mới thay mục cũ ở cuối.
+  const reqBase = prev.requirementsBase ?? (prev.requirements ?? []).length
+  const merged = isPhase
+    ? mergeReplacing(prev.requirements ?? [], plan.requirements, REQUIREMENT_LIMIT, (_item, at) => at < reqBase)
+    : { ...mergeRequirements(prev.requirements ?? [], plan.requirements), replaced: [] as string[], lost: new Set<number>() }
+  const { items: requirements, renumber, dropped: lostRequirements } = merged
   const reclaimed = reclaimCarried(prev.constraints, prev.carriedRules ?? 0, plan.constraints)
-  const constraints = mergeCapped(reclaimed.items, plan.constraints, CONSTRAINT_LIMIT)
+  const conBase = prev.constraintsBase ?? prev.constraints.length
+  const constraints = isPhase
+    ? mergeReplacing(reclaimed.items, plan.constraints, CONSTRAINT_LIMIT, (item, at) => at < conBase || isModelRule(item))
+    : { ...mergeCapped(reclaimed.items, plan.constraints, CONSTRAINT_LIMIT), replaced: [] as string[] }
   const dropped = lostRequirements + constraints.dropped
+  const keptTasks = merged.lost.size > 0 ? prev.tasks.map(t => (t.covers !== undefined ? { ...t, covers: t.covers.filter(n => !merged.lost.has(n)) } : t)) : prev.tasks
   const added = plan.tasks.map(t => ({
     ...t,
     index: t.index + offset,
@@ -1062,7 +1070,7 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number, isHeld = 
     ...(reclaimed.carried > 0 ? { carriedRules: reclaimed.carried } : {}),
     ...(requirements.length > 0 ? { requirements } : {}),
     steps: added.length > 0 ? [...prev.steps, ...added.map(t => t.title)] : prev.steps,
-    tasks: [...prev.tasks, ...added],
+    tasks: [...keptTasks, ...added],
     constraints: constraints.items,
     // Số mục của prompt tiếp nối không giữ được (vòng rà soát 3), cộng dồn trong mục tiêu: /conductor status nêu số này.
     ...((prev.dropped ?? 0) + dropped > 0 ? { dropped: (prev.dropped ?? 0) + dropped } : {}),
@@ -1087,7 +1095,7 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number, isHeld = 
     scopePaths: plan.scope.length > 0 ? plan.scope : prev.scopePaths,
     at: now,
   }
-  return { brief, added, dropped }
+  return { brief, added, dropped, replaced: [...merged.replaced, ...constraints.replaced] }
 }
 
 /**
@@ -1308,6 +1316,96 @@ function replacedOf(prev: Brief, next: Brief): string[] {
   return [...prev.constraints.filter(x => !next.constraints.includes(x)), ...(prev.requirements ?? []).filter(x => !(next.requirements ?? []).includes(x))]
 }
 
+/** Đợt vừa mở (0.8.0 A3): số đợt, số việc và số mục đã cất, số việc mới. */
+export type PhaseOpened = { number: number; tasks: number; items: number; added: number }
+
+/** Số việc tối thiểu, và số mục danh sách tối thiểu trong prompt, để một prompt tiếp nối mở đợt mới (0.8.0 A3). */
+const PHASE_MIN = 3
+/** Dòng là một mục danh sách việc: đánh số (1. hay 1)), "Việc N", "Task N", hay có mã đầu dòng (S0:, V8., A10 (P1):). */
+const LIST_ITEM = /^\s*(?:[-*•]\s*)?(?:\d{1,3}[.)]\s|(?:việc|task|bước|step)\s+\d+|[A-Za-z]{1,3}\d{1,3}(?:\.\d+)?\s*[:.)(])/iu
+
+/** Số mục danh sách việc trong prompt (0.8.0 A3). */
+function listItems(prompt: string): number {
+  return prompt.split('\n').filter(line => LIST_ITEM.test(line)).length
+}
+
+/**
+ * Mở đợt mới (0.8.0 A3): việc đã xong (`done`) được cất; yêu cầu chỉ thuộc việc đã cất được cất theo; ràng buộc của prompt lập mục tiêu và
+ * quy định model giữ nguyên, ràng buộc thêm sau được cất khi không còn việc nào của đợt trước. Covers của việc còn lại đổi theo số mới.
+ */
+export function openPhase(prev: Brief, done: ReadonlySet<number>): { brief: Brief; tasks: number; items: number } {
+  const kept = prev.tasks.filter(t => !done.has(t.index))
+  const gone = prev.tasks.filter(t => done.has(t.index))
+  const ofGone = new Set(gone.flatMap(t => t.covers ?? []))
+  const ofKept = new Set(kept.flatMap(t => t.covers ?? []))
+  const requirements = prev.requirements ?? []
+  const renumber = new Map<number, number>()
+  const keptRequirements: string[] = []
+  let requirementsBase = 0
+  requirements.forEach((item, i) => {
+    if (ofGone.has(i + 1) && !ofKept.has(i + 1)) return
+    keptRequirements.push(item)
+    renumber.set(i + 1, keptRequirements.length)
+    if (i < (prev.requirementsBase ?? requirements.length)) requirementsBase += 1
+  })
+  const base = prev.constraintsBase ?? prev.constraints.length
+  const constraints = prev.constraints.filter((item, i) => i < base || isModelRule(item) || kept.length > 0)
+  const constraintsBase = prev.constraints.slice(0, base).length
+  const goneTitles = new Set(gone.map(t => t.title))
+  const brief: Brief = {
+    ...prev,
+    tasks: kept.map(t => (t.covers !== undefined ? { ...t, covers: t.covers.flatMap(n => renumber.get(n) ?? []) } : t)),
+    steps: prev.steps.filter(title => !goneTitles.has(title)),
+    ...(requirements.length > 0 ? { requirements: keptRequirements, requirementsBase } : {}),
+    constraints,
+    constraintsBase: Math.min(constraintsBase, constraints.length),
+    phase: (prev.phase ?? 1) + 1,
+    archived: (prev.archived ?? 0) + gone.length,
+    archivedTop: Math.max(prev.archivedTop ?? 0, ...gone.map(t => t.index)),
+  }
+  return { brief, tasks: gone.length, items: requirements.length - keptRequirements.length + prev.constraints.length - constraints.length }
+}
+
+/**
+ * Gộp mục mới khi mở đợt (0.8.0 A3): như mergeCapped, nhưng trần cộng phần tràn đã đầy thì mục mới thay mục cũ ở cuối danh sách không được
+ * giữ (`isKept`: quy định model, mục của prompt lập mục tiêu); không còn mục nào thay được thì mới bỏ và đếm. Trả các mục bị thay và
+ * số thứ tự đổi (mục lượt router sang vị trí trong danh sách).
+ */
+function mergeReplacing(prev: readonly string[], incoming: readonly string[], max: number, isKept: (item: string, at: number) => boolean): { items: string[]; replaced: string[]; dropped: number; renumber: Map<number, number>; lost: Set<number> } {
+  const items = [...prev]
+  const replaced: string[] = []
+  const renumber = new Map<number, number>()
+  const lost = new Set<number>()
+  const fresh = new Set<number>()
+  let dropped = 0
+  incoming.forEach((item, i) => {
+    let at = indexOfKey(items, item)
+    if (at >= 0) items[at] = item
+    else if (items.length < max + CAP_OVERFLOW) {
+      items.push(item)
+      at = items.length - 1
+    } else {
+      at = -1
+      for (let j = items.length - 1; j >= 0; j--) {
+        if (fresh.has(j) || isKept(items[j] ?? '', j)) continue
+        at = j
+        break
+      }
+      if (at < 0) dropped += 1
+      else {
+        replaced.push(items[at] ?? '')
+        lost.add(at + 1)
+        items[at] = item
+      }
+    }
+    if (at >= 0) {
+      fresh.add(at)
+      renumber.set(i + 1, at + 1)
+    }
+  })
+  return { items, replaced, dropped, renumber, lost }
+}
+
 /** Tin cậy tối thiểu để nhận mục tiêu mới khi checklist còn bước mở (0.7.5) [Giả định: 0,8, chưa đo trên phiên thật]. */
 export const NEW_GOAL_CONFIDENCE = 0.8
 
@@ -1356,8 +1454,8 @@ export function nextBrief(
   plan: RouterPlan,
   prompt: string,
   now: number,
-  options: { openSteps?: readonly string[]; sessionFamily?: ModelFamily | null } = {},
-): { brief: Brief; added: Task[]; isNewGoal: boolean; replaced: string[]; held: boolean; dropped: number } {
+  options: { openSteps?: readonly string[]; sessionFamily?: ModelFamily | null; doneTasks?: ReadonlySet<number> } = {},
+): { brief: Brief; added: Task[]; isNewGoal: boolean; replaced: string[]; held: boolean; dropped: number; phase?: PhaseOpened } {
   const out = nextBriefRaw(prev, plan, prompt, now, options)
   return { ...out, brief: withSessionFloor(out.brief, options.sessionFamily ?? null) }
 }
@@ -1377,14 +1475,24 @@ function nextBriefRaw(
   plan: RouterPlan,
   prompt: string,
   now: number,
-  options: { openSteps?: readonly string[] },
-): { brief: Brief; added: Task[]; isNewGoal: boolean; replaced: string[]; held: boolean; dropped: number } {
+  options: { openSteps?: readonly string[]; doneTasks?: ReadonlySet<number> },
+): { brief: Brief; added: Task[]; isNewGoal: boolean; replaced: string[]; held: boolean; dropped: number; phase?: PhaseOpened } {
   if (prev !== null && prev.isReference && plan.runReference) {
     const brief = promoteReference(prev, plan, prompt, now)
     return { brief, added: [], isNewGoal: true, replaced: replacedOf(prev, brief), held: false, dropped: 0 }
   }
   const open = options.openSteps ?? []
-  const held = prev !== null && !prev.isReference && plan.relation === 'new' && open.length > 0 && (plan.confidence ?? 1) < NEW_GOAL_CONFIDENCE && mentionsGoal(prompt, prev, open)
+  // Mục tiêu mới tin cậy thấp khi checklist còn bước mở (0.8.0 A3): không thay checklist, mở đợt mới (thay cơ chế held của 0.7.5).
+  const isLowNew = prev !== null && !prev.isReference && plan.relation === 'new' && open.length > 0 && (plan.confidence ?? 1) < NEW_GOAL_CONFIDENCE
+  const held = isLowNew && prev !== null && mentionsGoal(prompt, prev, open)
+  // Prompt tiếp nối có danh sách việc riêng (0.8.0 A3): từ PHASE_MIN mục danh sách và router thêm từ PHASE_MIN việc.
+  const isListed = (plan.relation === 'continue' || plan.relation === 'refine') && plan.tasks.length >= PHASE_MIN && listItems(prompt) >= PHASE_MIN
+  if (prev !== null && !prev.isReference && (isLowNew || isListed)) {
+    const opened = openPhase(prev, options.doneTasks ?? new Set())
+    const next = followUpOf(opened.brief, isLowNew ? { ...plan, relation: 'continue' } : plan, now, isLowNew, true)
+    const phase: PhaseOpened = { number: opened.brief.phase ?? 2, tasks: opened.tasks, items: opened.items, added: next.added.length }
+    return { brief: next.brief, added: next.added, dropped: next.dropped, isNewGoal: false, replaced: next.replaced, held, phase }
+  }
   if (prev === null || (plan.relation === 'new' && !held)) {
     const fresh = briefOf(plan, prompt, (prev?.goalId ?? 0) + 1, now)
     const carried = prev !== null && !prev.isReference && !plan.constraints.some(isModelRule) ? prev.constraints.filter(isModelRule) : []

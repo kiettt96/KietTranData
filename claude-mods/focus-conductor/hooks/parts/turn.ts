@@ -55,6 +55,7 @@ export function registerTurn(on: On, ctx: Ctx): void {
   on('turn.start', async ($, e, next) => {
     if (e.agentId !== undefined) return next(e)
     L.tracker = newTracker(e.turnId)
+    L.chainedNoted = new Set()
     // Turn luồng chính mới (0.7.8 G9): tin chen ngang đang chờ mà chưa được chèn vào turn trước thì đã thành turn này, không chuyển việc.
     L.pendingInterject = null
     // Câu báo chuyển việc của tin chen ngang chỉ đúng trong turn đã nhận tin (vòng sửa 2, V2): turn mới thì luồng chính đã chạy model mới.

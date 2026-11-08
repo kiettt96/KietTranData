@@ -5,7 +5,7 @@ import type { Brief, CheckHint, Choice, PlanStep, QuotaCheckpoint, QuotaReason, 
 import { STUCK_HINT, openSteps, pendingSteps } from './drift'
 import { evaluateQuota, isStale, reasonsOf } from './quota'
 import type { QuotaBadge, QuotaNoticeHit, QuotaThresholds } from './quota'
-import { labels } from '../ui/labels'
+import { clockOf, labels } from '../ui/labels'
 import { currentStep, taskBarRuns } from '../ui/style'
 import type { Lang } from '../ui/labels'
 import { describePick, stepCovers } from './route'
@@ -98,11 +98,13 @@ export function briefContext(brief: Brief, main: Choice | null, isApplied = true
   const splits = brief.isReference ? '' : splitLines(brief.tasks)
   const hasDelegation = brief.tasks.some(task => task.run === 'agent')
   const isSmall = brief.depth === 'none' || (brief.depth === 'light' && brief.volume === 'small')
+  // Từ hai việc làm trực tiếp (0.8.0 A4): tên bước mang mã việc để pane gắn đúng bước cho từng việc.
+  const naming = brief.tasks.filter(task => task.run === 'main').length >= 2 ? ' Đặt tên bước plan mở đầu bằng mã việc (Việc N, S0, V8).' : ''
   const next = brief.isReference
     ? 'Không thực thi prompt đính kèm. Chỉ trả lời phần đối chiếu phân việc ở trên, rồi dừng.'
     : isSmall
       ? 'Việc nhỏ: làm trực tiếp, không cần checklist; vẫn kiểm tra kết quả trước khi trả lời.'
-      : `Trước khi thực thi: xác nhận mục tiêu, rồi gọi ${PLAN_TOOL_FULL} action "set" với checklist chuẩn hóa.`
+      : `Trước khi thực thi: xác nhận mục tiêu, rồi gọi ${PLAN_TOOL_FULL} action "set" với checklist chuẩn hóa.${naming}`
   const routing = brief.isReference
     ? `Điều phối: prompt đính kèm chỉ để đối chiếu, không thực thi việc nào trong đó; luồng chính của lượt này ${mainText}.`
     : hasDelegation
@@ -825,6 +827,12 @@ export function checkHintText(commands: readonly string[]): string {
 }
 
 /** Mục của prompt tiếp nối không giữ được vì ràng buộc và yêu cầu đã đầy, kể cả phần tràn (0.7.5, vòng rà soát 3). */
+/** Câu báo đợt mới (0.8.0 A3), tối đa 160 ký tự, chèn một lần mỗi đợt. */
+export function phaseNotice(phase: number, added: number, archived: number): string {
+  const kept = archived > 0 ? `; ${archived} việc đã xong của đợt trước đã cất` : ''
+  return `[focus-conductor] Đợt ${phase} của mục tiêu: ${added} việc mới${kept}. Checklist giữ các bước còn mở.`.slice(0, 160)
+}
+
 export function droppedItemsText(count: number): string {
   return `${count} mục của prompt tiếp nối không giữ được vì ràng buộc và yêu cầu của mục tiêu đã đầy (kể cả phần tràn); nhắc lại các mục đó khi cần, hoặc lập mục tiêu mới`
 }
@@ -1064,10 +1072,49 @@ export const RETRY_REPORT = 'Chưa đạt yêu cầu'
 
 /** Tên hiển thị của một mục: lệnh trong dấu `, hoặc mục tổng "và N lệnh khác chưa đạt". */
 export function retryName(item: { command: string; more: readonly string[] }): string {
-  return item.more.length > 0 ? `và ${item.more.length} lệnh khác chưa đạt` : `\`${clipItem(item.command, 80)}\``
+  return item.more.length > 0 ? `và ${item.more.length} lệnh khác chưa đạt` : `\`${clipMiddle(item.command, RETRY_COMMAND_CHARS)}\``
+}
+
+/** Trần ký tự của lệnh kiểm trong câu chặn, tiêu đề bước và note (0.8.0 A6). */
+export const RETRY_COMMAND_CHARS = 100
+
+/**
+ * Lệnh quá `max` ký tự thì cắt ở giữa (0.8.0 A6): giữ đầu (trình chạy, cờ) và đuôi; đuôi luôn trọn từ cuối cùng của lệnh (tên file script),
+ * tối thiểu 50 ký tự, tối đa max - 20 để còn chỗ cho đầu.
+ */
+export function clipMiddle(command: string, max: number): string {
+  if (command.length <= max) return command
+  const last = command.length - command.lastIndexOf(' ') - 1
+  const tail = Math.min(Math.max(last + 1, 50), max - 20)
+  return `${command.slice(0, max - tail - 1).trimEnd()}…${command.slice(command.length - tail)}`
+}
+
+/** Người chạy lần lỗi cuối của một mục W4: runner rỗng là luồng chính, còn lại là description của subagent (0.8.0 A6). */
+export function retryWho(runner: string, descMax = 60): string {
+  return runner === '' ? 'luồng chính' : `subagent "${clipItem(runner, descMax)}"`
 }
 
 /** Dòng báo cho luồng chính ngay khi một lệnh kiểm vừa lỗi: một lần mỗi lệnh mỗi lượt. */
+/** Đoạn lệnh trong câu ngắn: quá `max` ký tự thì giữ phần đuôi (tên script nằm cuối lệnh). */
+function clipTail(command: string, max: number): string {
+  return command.length <= max ? command : `…${command.slice(command.length - max + 1)}`
+}
+
+/**
+ * Lệnh kiểm nối && với lệnh khác và cả lệnh trả mã khác 0 (0.8.0 A11): mod không biết đoạn nào lỗi nên không tính lỗi hay đạt; một câu tối
+ * đa 160 ký tự đề nghị chạy riêng lệnh kiểm.
+ */
+export function chainedCheckNote(command: string): string {
+  return `[focus-conductor] ${clipTail(command, 60)} nối && và cả lệnh lỗi, chưa rõ lệnh kiểm đạt hay không: chạy riêng lệnh kiểm.`.slice(0, 160)
+}
+
+/**
+ * Mục W4 tạo từ lần chạy của subagent (0.8.0 A12): luồng chính nhận một câu tối đa 160 ký tự ở kết quả tool kế tiếp, nêu subagent và lệnh.
+ */
+export function retryAgentNotice(command: string, description: string): string {
+  return `[focus-conductor] Subagent "${clipItem(description, 60)}" chạy ${clipTail(command, 24)} lỗi; Stop chặn tới khi lệnh chạy lại đạt.`.slice(0, 160)
+}
+
 export function retryFailNotice(item: { command: string; more: readonly string[]; round: number }): string {
   const text =
     `[focus-conductor] Lệnh kiểm chưa đạt: ${retryName(item)} (lượt ${item.round}/${RETRY_ROUNDS}). Đọc lỗi, sửa nguyên nhân gốc, rồi chạy lại ` +
@@ -1086,19 +1133,25 @@ export function retryEditNote(round: number, level: string): string {
 }
 
 /** Một dòng của lý do chặn: lượt mới của một lệnh, hoặc lệnh vừa hết lượt. */
-export type RetryLine = { name: string; round: number; level: string; isTop: boolean; error: string }
+export type RetryLine = { name: string; round: number; level: string; isTop: boolean; error: string; runner: string; at: string }
 
 /**
  * Lý do cổng Stop chặn vì còn lệnh kiểm chưa đạt (0.7.8 vòng sửa 3, W4): mỗi lệnh một dòng (lượt, mức nâng, lỗi đầu), hướng làm của lượt
  * 2 hay 3, và với lệnh vừa hết lượt thì yêu cầu báo cáo cuối có mục "Chưa đạt yêu cầu". Không quá RETRY_REASON_CHARS ký tự: lỗi cắt dần.
  */
-export function retryStopReason(advanced: readonly RetryLine[], exhausted: readonly RetryLine[]): string {
-  const build = (cut: number) => {
-    const err = (line: RetryLine) => (cut > 0 && line.error !== '' ? `; lỗi: ${clipItem(line.error, cut)}` : '')
+export function retryStopReason(advanced: readonly RetryLine[], exhausted: readonly RetryLine[], marked = 0, waiting: readonly RetryLine[] = []): string {
+  const build = (cut: number, nameMax = 0, descMax = 60) => {
+    const err = (line: RetryLine) => `, chạy bởi ${retryWho(line.runner, descMax)}${line.at !== '' ? ` lúc ${line.at}` : ''}${cut > 0 && line.error !== '' ? `; lỗi: ${clipItem(line.error, cut)}` : ''}`
+    const nm = (line: RetryLine) => (nameMax > 0 ? clipMiddle(line.name, nameMax) : line.name)
     const parts = ['[focus-conductor] Còn lệnh kiểm chưa đạt, chưa kết thúc được.']
     for (const line of advanced) {
       const top = line.isTop ? ' (đã ở mức cao nhất chính sách cho phép)' : ''
-      parts.push(`- ${line.name}: lượt ${line.round}/${RETRY_ROUNDS}, mức ${line.level}${top}${err(line)}`)
+      parts.push(`- ${nm(line)}: lượt ${line.round}/${RETRY_ROUNDS}, mức ${line.level}${top}${err(line)}`)
+    }
+    // Chưa chạy lại sau lần chặn trước (0.8.0 A2): lượt giữ nguyên, đòi chạy lại đúng lệnh.
+    for (const line of waiting) {
+      const top = line.isTop ? ' (đã ở mức cao nhất chính sách cho phép)' : ''
+      parts.push(`- ${nm(line)}: lượt ${line.round}/${RETRY_ROUNDS}, mức ${line.level}${top}, chưa chạy lại; sửa rồi chạy lại đúng lệnh này, lượt chỉ tăng khi lần chạy lại vẫn lỗi${err(line)}`)
     }
     if (advanced.some(line => line.round === 2)) {
       parts.push(
@@ -1109,18 +1162,19 @@ export function retryStopReason(advanced: readonly RetryLine[], exhausted: reado
       parts.push(`Lượt 3: làm như lượt 2 ở mức nâng thêm một bậc; prompt của subagent nêu lỗi và các cách đã thử ở lượt 1 và 2.`)
     }
     if (exhausted.length > 0) {
-      for (const line of exhausted) parts.push(`- ${line.name}: hết ${RETRY_ROUNDS} lượt vẫn chưa đạt${err(line)}`)
+      for (const line of exhausted) parts.push(`- ${nm(line)}: hết ${RETRY_ROUNDS} lượt vẫn chưa đạt${line.isTop ? ' (đã ở mức cao nhất chính sách cho phép)' : ''}${err(line)}`)
       parts.push(
-        `Mod đã ghi bước blocked. Câu trả lời cuối phải có mục "${RETRY_REPORT}", mỗi lệnh một dòng: việc hay bước liên quan, lệnh kiểm, lỗi cuối, ba lượt đã thử (mức và cách làm từng lượt), điều chủ cần quyết định hay cung cấp.`,
+        `${marked > 0 ? `Mod đã ghi ${marked} bước blocked; lần chạy đạt của đúng lệnh đó sẽ tự gỡ. ` : ''}Câu trả lời cuối phải có mục "${RETRY_REPORT}", mỗi lệnh một dòng: việc hay bước liên quan, lệnh kiểm, lỗi cuối, ba lượt đã thử (mức và cách làm từng lượt), điều chủ cần quyết định hay cung cấp.`,
       )
     }
     return parts.join('\n')
   }
-  for (const cut of [200, 120, 60, 0]) {
-    const text = build(cut)
+  // Quá trần: lỗi cắt dần, rồi tên lệnh và description của subagent rút dần; người chạy và giờ chạy ở lại tới cùng.
+  for (const [cut, nameMax, descMax] of [[160, 0, 60], [120, 0, 60], [60, 0, 60], [0, 0, 60], [0, 70, 40], [0, 50, 24], [0, 40, 12]] as const) {
+    const text = build(cut, nameMax, descMax)
     if (text.length <= RETRY_REASON_CHARS) return text
   }
-  return build(0).slice(0, RETRY_REASON_CHARS)
+  return build(0, 40, 12).slice(0, RETRY_REASON_CHARS)
 }
 
 /** Trần ký tự của lý do chặn khi đã sửa mà chưa kiểm (0.7.9 Y6). */
@@ -1154,14 +1208,25 @@ export function joinStopReasons(retry: string, other: string): string {
 }
 
 /** Note mod ghi vào bước blocked khi hết lượt: lệnh, lỗi cuối, mức của ba lượt. */
-export function retryStepNote(item: { command: string; more: readonly string[]; lastError: string; levels: readonly string[] }): string {
-  const error = item.lastError !== '' ? `; lỗi cuối: ${clipItem(item.lastError, 120)}` : ''
-  return `Mod ghi: ${item.more.length > 0 ? retryName(item) : clipItem(item.command, 120)} chưa đạt sau ${RETRY_ROUNDS} lượt${error}; mức: ${item.levels.join(', ')}`
+export function retryStepNote(item: { command: string; more: readonly string[]; lastError: string; levels: readonly string[]; runner: string; ranAt: string }): string {
+  const error = item.lastError !== '' ? `; lỗi cuối: ${clipItem(item.lastError, RETRY_ERROR_CHARS)}` : ''
+  const who = `; chạy lần lỗi cuối bởi ${retryWho(item.runner)}${item.ranAt !== '' ? ` lúc ${item.ranAt}` : ''}`
+  return `Mod ghi: ${item.more.length > 0 ? retryName(item) : clipMiddle(item.command, RETRY_COMMAND_CHARS)} chưa đạt sau ${RETRY_ROUNDS} lượt${who}${error}; mức: ${item.levels.join(', ')}`
 }
 
-/** Dòng lỗi đầu của output một lần chạy kiểm: dòng đầu có dấu hiệu lỗi, không có thì dòng không rỗng đầu tiên; tối đa 200 ký tự. */
-export function firstErrorLine(output: string | undefined): string {
+/** Trần ký tự đoạn lỗi cuối của một mục W4 (0.8.0 A6). */
+export const RETRY_ERROR_CHARS = 160
+
+/**
+ * Dòng lỗi của output một lần chạy kiểm: dòng đầu có dấu hiệu lỗi. Không dòng nào có dấu hiệu thì lấy dòng không rỗng cuối của output (0.8.0
+ * A6), kèm ghi chú "không có dòng lỗi"; mã thoát chỉ biết là khác 0 khi tool báo lỗi (isError), không bịa số. Tối đa RETRY_ERROR_CHARS ký tự.
+ */
+export function firstErrorLine(output: string | undefined, isError = false): string {
   const lines = (output ?? '').split('\n').map(line => line.trim()).filter(Boolean)
-  const hit = lines.find(line => /error|fail|lỗi|✗|×|assert/i.test(line)) ?? lines[0] ?? ''
-  return hit.slice(0, 200)
+  const hit = lines.find(line => /error|fail|lỗi|✗|×|assert/i.test(line))
+  if (hit !== undefined) return hit.slice(0, RETRY_ERROR_CHARS)
+  const last = lines.at(-1)
+  if (last === undefined) return ''
+  const note = ` (không có dòng lỗi${isError ? ', mã thoát khác 0' : ''})`
+  return `${clipItem(last, RETRY_ERROR_CHARS - note.length)}${note}`
 }

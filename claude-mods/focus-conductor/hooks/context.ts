@@ -3,15 +3,15 @@
 
 import type { PluginOptions, PromptOrigin } from 'claude-code'
 import type { Brief, Choice, Core, DelegationItem, DelegationState, Effort, Lift, Mode, ModelFamily, PlanStep, Route, RouteEvent, Task, Tier, Volume } from '../types'
-import { applyCheckCommands, applyCheckTools, newEvidenceLog, newTracker, parseCheckCommands, parseCheckTools } from './lib/drift'
+import { applyCheckCommands, applyCheckTools, applyPassLines, applySoftPaths, newEvidenceLog, newTracker, parseCheckCommands, parseCheckTools, parsePassLines, parseSoftPaths } from './lib/drift'
 import type { EvidenceLog, PromptIntent, TurnTracker } from './lib/drift'
 import { DEFAULT_CACHE_TTL_MINUTES, DEFAULT_CONTEXT, DEFAULT_WINDOWS, applyCacheWrite, applyPrices, parseCacheWrite, parsePrices } from './lib/cost'
 import { EFFORTS, decideMain, describePick, familyOf, hasTitleCode, liftPick, matchTask, parseModelMap, parseWindows } from './lib/route'
 import type { SessionModel, SessionPolicy } from './lib/route'
 import { DECISION_LIMIT, decisionLine } from './lib/decisions'
 import type { DecisionKind } from './lib/decisions'
-import { EMPTY_ERRORS, caught, noteModError, errorFileText, errorLines, localIso, mergeEntry, mergeFiles, parseErrorFile, pruneFixed, setErrorSink } from './lib/errlog'
-import type { ErrorEvent, ErrorFile } from './lib/errlog'
+import { EMPTY_ERRORS, behaviorEntries, caught, noteBehavior, noteModError, errorFileText, errorLines, localIso, mergeEntry, mergeFiles, parseErrorFile, pruneFixed, setErrorSink } from './lib/errlog'
+import type { ErrorEntry, ErrorEvent, ErrorFile } from './lib/errlog'
 import { FIXED_ERRORS } from './lib/fixed-errors'
 import { MOD_VERSION } from './lib/version'
 import { MAX_FORKS, fitPick, skipKey } from './lib/router'
@@ -123,6 +123,8 @@ export function createContext(options: PluginOptions) {
     /** Log quyết định (JSONL) của phiên, nối tiếp file cũ nếu có. */
     decisions: [] as string[],
     /** Prompt gần nhất đã qua router, brief trước nó và số mục tiêu sau lượt đó: cho /conductor reroute. */
+    /** Số lần verify-reject theo mục tiêu và bước (0.8.0 A9): lần đầu không ghi nhật ký lỗi, từ lần hai thì ghi. */
+    verifyRejects: new Map<string, number>(),
     lastPrompt: null as { text: string; prev: Brief | null; goalId: number | null } | null,
     /** Lần đổi model gần nhất của phiên (classic.PostModelSwitch): người dùng hay engine tự đổi. */
     lastSwitch: null as { source: string; toModel: string } | null,
@@ -144,6 +146,16 @@ export function createContext(options: PluginOptions) {
     compaction: { pending: false, lastContext: 0, skipNext: false },
     /** Turn luồng chính đã nhận câu báo hạn mức mềm (0.7.5): Stop của turn đó không chặn vì checklist còn mở. */
     noticeTurn: null as string | null,
+    /** Lệnh kiểm nối && đã được đề nghị chạy riêng trong turn này (0.8.0 A11), theo chữ ký lệnh. */
+    chainedNoted: new Set<string>(),
+    /** Subagent đã khởi động mà chưa trả về (0.8.0 A5): còn mở thì hoãn cảnh báo chưa kiểm cuối turn và cổng Y6. */
+    liveAgents: new Set<string>(),
+    /** Tracker của turn đã hoãn cảnh báo chưa kiểm vì còn subagent chạy (0.8.0 A5); tính lại khi subagent cuối trả về hay ở Stop đầu tiên không còn subagent. */
+    deferred: [] as TurnTracker[],
+    /** Câu báo mục W4 do subagent tạo (0.8.0 A12), chờ gắn vào kết quả tool kế tiếp của luồng chính. */
+    agentRetryNotes: [] as string[],
+    /** Thư mục gốc của phiên đọc một lần (0.8.0 A1), mặc định cho thư mục làm việc của Bash; undefined là chưa đọc, null là engine không trả. */
+    sessionRoot: undefined as string | null | undefined,
     /** Khóa lệnh ghi không rõ đích đã cảnh báo, theo mục tiêu (0.7.5): không cảnh báo lại ở mỗi turn. */
     unknownWrites: { goalId: -1, keys: new Set<string>() },
     /** Lời nhắc đã nói trong phiên (S5): không đặt lại theo mục tiêu hay turn. */
@@ -260,6 +272,8 @@ export function createContext(options: PluginOptions) {
   applyCacheWrite(parseCacheWrite(options['cacheWrite']))
   applyCheckCommands(parseCheckCommands(options['checkCommands']))
   applyCheckTools(parseCheckTools(options['checkTools']))
+  applyPassLines(parsePassLines(options['passLines']))
+  applySoftPaths(parseSoftPaths(options['softPaths']))
 
   /** Chính sách áp lên mọi lựa chọn của router: allowFable, model của phiên, họ đang bị chặn, loại agent dùng được. */
   function policy(): Policy {
@@ -347,11 +361,12 @@ export function createContext(options: PluginOptions) {
   }
 
   /** Dòng của /conductor errors (đã ghi bộ đệm trước). Null khi nhật ký tắt. */
-  async function errorReport(io: ErrorIO): Promise<{ lines: string[]; dropped: number; total: number } | null> {
+  async function errorReport(io: ErrorIO): Promise<{ lines: string[]; behavior: ErrorEntry[]; dropped: number; total: number } | null> {
     if (errorLog === '') return null
     await flushErrors(io)
     const file = await readErrors(io, await errorFilePath(io).catch(() => errorLog))
-    return { lines: errorLines(file), dropped: file.dropped, total: file.entries.length }
+    const behavior = behaviorEntries(file)
+    return { lines: errorLines(file), behavior, dropped: file.dropped, total: file.entries.length - file.entries.filter(entry => entry.group === 'behavior').length }
   }
 
   /** Xóa toàn bộ nhật ký (/conductor errors clear sau xác nhận). */
@@ -370,6 +385,8 @@ export function createContext(options: PluginOptions) {
   function noteRouterFailure(where: 'prompt' | 'agent' | 'drift', failure: string | null): void {
     if (failure === null || failure === 'paused') return
     noteModError({ group: 'router', where, message: failure })
+    // Sự cố hành vi (0.8.0 A9): khóa theo loại lỗi, không theo nơi gọi.
+    noteBehavior('router-fail', failure)
   }
 
   /**
@@ -489,6 +506,8 @@ export function createContext(options: PluginOptions) {
     local.lastSwitch = null
     startedAgents.clear()
     spawnedIds.clear()
+    local.liveAgents.clear()
+    local.deferred = []
   }
 
   /** Hết chặn các họ model đã bị chặn đủ BLOCK_TURNS turn, để thử lại. */

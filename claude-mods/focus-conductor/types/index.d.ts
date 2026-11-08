@@ -84,6 +84,12 @@ export type Brief = {
   constraints: string[]
   /** Số ràng buộc đầu danh sách đến từ prompt lập mục tiêu (0.7.5), như requirementsBase. */
   constraintsBase?: number
+  /** Đợt giao việc trong mục tiêu (0.8.0 A3), bắt đầu từ 1; vắng là đợt 1. */
+  phase?: number
+  /** Số việc của các đợt trước đã cất (0.8.0 A3): pane gập thành một dòng, không tính vào tiến độ. */
+  archived?: number
+  /** Số lớn nhất của việc đã cất (0.8.0 A3): việc mới đánh số tiếp sau, không trùng việc đã cất. */
+  archivedTop?: number
   /**
    * Số quy định model đầu danh sách ràng buộc mang sang từ mục tiêu trước (0.7.5, S2): chỉ dùng định tuyến subagent, không tạo sàn
    * model phiên cho luồng chính.
@@ -176,6 +182,10 @@ export type Warning = {
   text: string
   /** Cảnh báo chưa kiểm ở mức nhẹ (0.7.7 X6): không vào band hay Cần chú ý, pane ghi mờ. Vắng ở trạng thái từ bản cũ. */
   isSoft?: true
+  /** Khóa nguyên nhân của cảnh báo chưa kiểm (0.8.0 A5): cảnh báo cùng khóa ở turn liền sau gộp vào dòng này thay vì thêm dòng mới. */
+  cause?: string
+  /** Số turn liên tiếp đã gộp vào dòng này (0.8.0 A5); vắng hay 1 là một turn. */
+  turns?: number
 }
 
 /** Nhóm chi phí: luồng chính, subagent, hoặc lượt router đọc prompt và chấm subagent (khóa cũ 'analyzer'). */
@@ -417,6 +427,21 @@ export type RetryItem = {
   step: number | null
   /** Mục tổng: chữ ký của các lệnh được gộp. */
   more: string[]
+  /**
+   * Bước có sẵn mà mod ghi blocked khi hết lượt (0.8.0 A12): trạng thái và note cũ, cùng note mod ghi (`mark`). Lần chạy đạt phủ mục này trả
+   * bước về như cũ nếu bước vẫn là blocked với đúng note của mod. null khi mod không đổi bước có sẵn. Bước "Chưa đạt" mod tự tạo (0.8.0
+   * vòng 2 W1) trả về done, `stamp` báo note là câu giờ đạt dựng lúc chạy đạt.
+   */
+  restore: { status: PlanStep['status']; note: string | null; mark: string; stamp?: true } | null
+  /**
+   * Từ lần tăng lượt trước (0.8.0 A2): cùng lệnh đã chạy lại và vẫn lỗi (`retried`), số lần Stop liên tiếp chưa chạy lại (`idle`). Lượt chỉ
+   * tăng khi retried, hoặc ở lần Stop thứ hai liên tiếp chưa chạy lại.
+   */
+  retried: boolean
+  idle: number
+  /** Người chạy lần lỗi cuối (0.8.0 A6): rỗng là luồng chính, còn lại là description của subagent (cắt 60 ký tự); giờ chạy HH:MM. */
+  runner: string
+  ranAt: string
 }
 
 export type RetryState = { goalId: number; items: RetryItem[] }
@@ -518,6 +543,10 @@ declare module 'claude-code' {
     'focus-conductor': {
       core: Core
       isBandHidden: boolean
+      /** Thư mục làm việc của Bash sau cd cuối, theo luồng ('main') hay agentId (0.8.0 A1). */
+      bashDirs: Record<string, string>
+      /** Mod đã tự đặt mode off vì phiên không tương tác (0.8.0 A13). */
+      headlessOff: boolean
       /** Mốc thời gian (ms) tới khi nút Đặt lại đang chờ bấm lần hai; 0 khi không chờ. */
       resetArmedUntil: number
       /** Ghi đè chế độ lúc chạy qua /conductor mode; null nghĩa là theo cấu hình. */

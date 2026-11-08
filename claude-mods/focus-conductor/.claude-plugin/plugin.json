@@ -1,6 +1,6 @@
 {
   "name": "focus-conductor",
-  "version": "0.7.9",
+  "version": "0.8.0",
   "author": { "name": "Kiet Tran" },
   "description": "Một model Claude (router) đọc kỹ prompt trước khi làm và điều phối model/effort/agent cho từng việc; mod kiểm, ép điều phối lúc chạy, giữ nhất quán mục tiêu với checklist và cảnh báo lạc đề.",
   "types": "./types/index.d.ts",
@@ -72,6 +72,25 @@
       "title": "Tool MCP dùng để kiểm (check tools)",
       "description": "Tên tool MCP phân tách bằng dấu phẩy, ví dụ: mcp__ci__run_tests. Mỗi lời gọi tool trong danh sách là một lần kiểm loại test: lỗi khi tool báo lỗi hay output lỗi, rỗng, không chạy gì; chỉ lần gọi đạt cùng tool, cùng đầu vào mới phủ lần lỗi. Mod không tự đoán tool kiểm theo tên. Để trống (mặc định): không tool MCP nào là lần kiểm. (en) Comma-separated MCP tool names, e.g. mcp__ci__run_tests. Each call of a listed tool is a test check: it fails on a tool error or on failing, empty or ran-nothing output; only a passing call of the same tool with the same input covers a failure. The mod never guesses check tools by name. Empty (default): no MCP tool counts as a check.",
       "default": ""
+    },
+    "passLines": {
+      "type": "string",
+      "title": "Dòng tổng kết đạt của lệnh kiểm riêng (pass lines)",
+      "description": "Tiền tố nguyên văn phân tách bằng dấu phẩy, ví dụ: TỔNG: ĐẠT,ALL CHECKS OK. Chỉ áp cho lệnh khai trong checkCommands chạy qua | tail hay | head không pipefail: dòng không rỗng cuối bắt đầu bằng một tiền tố (không phân biệt hoa thường) là dòng tổng kết đạt, khi cả output không có dấu hiệu lỗi và có phép kiểm đã chạy. Không dùng biểu thức chính quy. Để trống (mặc định): chỉ nhận các dạng tổng kết mod biết sẵn. (en) Comma-separated literal prefixes, e.g. TỔNG: ĐẠT,ALL CHECKS OK. Applies only to checkCommands entries run through | tail or | head without pipefail: a last non-empty line that starts with a prefix (case-insensitive) is a passing summary, provided the whole output shows no failure sign and something ran. No regular expressions. Empty (default): only the summary forms the mod already knows.",
+      "default": ""
+    },
+    "softPaths": {
+      "type": "string",
+      "title": "File dữ liệu và báo cáo là thay đổi nhẹ (soft paths)",
+      "description": "Glob phân tách bằng dấu phẩy, ví dụ: ket-qua/**,out/*.json. File khớp là thay đổi nhẹ: vẫn được đếm nhưng không đủ để cảnh báo \"không chạy bước kiểm tra nào\" hay để cổng Stop đòi lệnh kiểm. Đuôi .md .markdown .txt .csv .tsv .jsonl .log luôn là nhẹ; .json và .yaml không tự tính là nhẹ vì thường là cấu hình. Glob không bắt đầu bằng / khớp từ đầu một thư mục bất kỳ; ** khớp nhiều cấp thư mục. Để trống (mặc định): chỉ các đuôi trên. (en) Comma-separated globs, e.g. ket-qua/**,out/*.json. A matching file is a soft change: it is still counted but does not by itself trigger the \"no check ran\" warning or make the Stop gate ask for a check. The extensions .md .markdown .txt .csv .tsv .jsonl .log are always soft; .json and .yaml are not soft on their own because they are often configuration. A glob that does not start with / matches from any directory; ** spans directory levels. Empty (default): only the extensions above.",
+      "default": ""
+    },
+    "headlessRouting": {
+      "type": "string",
+      "title": "Điều phối ở phiên không tương tác (headless routing)",
+      "description": "off (mặc định): ở phiên không tương tác (claude -p, Agent SDK) mod chạy như routing off trong phiên đó: không gọi router, không đổi model hay effort, không chặn kết thúc; ghi một dòng headless-off. Không ghi đè mode đã đặt bằng /conductor mode. auto: điều phối như phiên thường. (en) off (default): in a non-interactive session (claude -p, Agent SDK) the mod behaves as routing off for that session: no router call, no model or effort change, no Stop blocking; it logs one headless-off line. A mode set with /conductor mode is kept. auto: route as in an interactive session.",
+      "default": "off",
+      "options": ["off", "auto"]
     },
     "routerSkip": {
       "type": "string",

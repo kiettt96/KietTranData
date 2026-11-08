@@ -9,7 +9,7 @@ import type { CheckKind } from './verify'
 
 /** Lệnh Bash có chạy một lệnh kiểm tra (theo phân loại giữ cú pháp, không tính chuỗi trong nháy). */
 export function isVerification(observation: ToolObservation): boolean {
-  return observation.tool === 'Bash' && classifyBash(str(observation.input['command'])).effects.some(e => e.kind === 'check')
+  return observation.tool === 'Bash' && classifyBash(str(observation.input['command']), observation.cwd).effects.some(e => e.kind === 'check')
 }
 
 /** Loại kiểm tra của một lệnh: test (chạy hành vi), static (type-check, lint, build, validate), hoặc null. */
@@ -27,7 +27,7 @@ export function checkKindOf(command: string): CheckKind | null {
 export function isMutation(observation: ToolObservation): boolean {
   if (FILE_TOOLS.has(observation.tool)) return !isPlanFile(filePathOf(observation))
   if (observation.tool !== 'Bash') return false
-  return writeEffects(classifyBash(str(observation.input['command'])), observation.isReadOnly).length > 0
+  return writeEffects(classifyBash(str(observation.input['command']), observation.cwd), observation.isReadOnly).length > 0
 }
 
 /**
