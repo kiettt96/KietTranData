@@ -66,6 +66,8 @@ export type TaskRow = {
   fork?: { task: number; part?: string; merged?: number }
   /** Việc của luồng chính chưa có bước nào của riêng nó và không phải việc của bước đang làm (0.8.0 A4): nhãn "chưa gắn bước", mờ. */
   noStep?: true
+  /** Dòng subagent Claude tự giao được gắn vào việc main của bước doing (0.8.0 A8): mang `index` của việc nhưng không đi cùng bước của việc. */
+  attached?: true
 }
 
 /** Thứ tự ưu tiên khi band thiếu chỗ: đang chạy, rồi lỗi hay bị cắt, rồi chờ hoặc chưa bắt đầu, rồi xong. */
@@ -153,6 +155,10 @@ export function taskRows(core: Core, now: number): TaskRow[] {
         ...(isUnassigned ? { noStep: true as const } : {}),
       })
       rows.push(...forkRows(core, task, agents, now))
+      // Subagent Claude tự giao gắn vào việc này (0.8.0 A8): dòng con của việc, có số việc.
+      const many = grouped(`task-${task.index}`)
+      if (many !== undefined) rows.push({ ...tallyRow(many, many.title, null, task.index), attached: true })
+      else for (const item of agents.filter(a => a.taskIndex === task.index)) rows.push({ ...agentRow(item), attached: true })
       continue
     }
     const runs = agents.filter(item => item.taskIndex === task.index)
@@ -216,7 +222,7 @@ export function stepTaskRows(core: Core, rows: readonly TaskRow[], titles: reado
     // Theo mã ("BƯỚC N", "Việc N"), hay tiêu đề trùng hệt một việc (bước dự kiến của router chính là tiêu đề của việc).
     const index = matchTask(tasks, title)?.index ?? tasks.find(task => task.title.trim() === title.trim())?.index
     if (index === undefined) continue
-    const own = rows.filter(row => row.kind !== 'main' && row.index === index)
+    const own = rows.filter(row => row.kind !== 'main' && row.attached !== true && row.index === index)
     const first = own[0]
     if (first === undefined) continue
     byTitle.set(title, first)

@@ -3,6 +3,8 @@
 
 import { describe, expect, test } from 'claude-code/testing'
 import { spawnTool } from '../support/engine'
+
+const PLAN = 'mcp__focus-conductor__plan'
 import { TITLES, drawn, longGoal, rowOf } from '../support/pane-long'
 
 describe('0.7.6 U1: checklist và tiến độ từng việc là một danh sách', () => {
@@ -48,6 +50,8 @@ describe('0.7.6 U1: checklist và tiến độ từng việc là một danh sác
 
   test('việc Claude tự giao nhiều lô: dòng riêng ghi số lô ở phần chi tiết', async ($, on) => {
     await longGoal($, on, 3)
+    // 0.8.0 A8: lời gọi không khớp việc gắn vào việc của bước doing; đưa bước 4 về todo để lời gọi vẫn là việc Claude tự giao.
+    await $.tool.call({ tool: PLAN, action: 'update', step: 4, status: 'todo' })
     for (const n of [1, 2, 3]) await spawnTool($, `own${n}`, `Kiểm tra log lô ${n}`, 'kiểm tra')
     const { texts } = await drawn($, 40)
     expect(texts.some(t => /^Claude tự giao: Kiểm tra log lô/.test(t))).toBe(true)
@@ -58,6 +62,8 @@ describe('0.7.6 U1: checklist và tiến độ từng việc là một danh sác
 
   test('việc Claude tự giao vẫn có dòng riêng', async ($, on) => {
     await longGoal($, on, 3)
+    // 0.8.0 A8: lời gọi không khớp việc gắn vào việc của bước doing; đưa bước 4 về todo để lời gọi vẫn là việc Claude tự giao.
+    await $.tool.call({ tool: PLAN, action: 'update', step: 4, status: 'todo' })
     await spawnTool($, 'own1', 'Kiểm tra log lỗi thanh toán', 'kiểm tra')
     const { texts } = await drawn($, 40)
     expect(texts.some(t => /^Claude tự giao: Kiểm tra log lỗi thanh toán/.test(t))).toBe(true)
