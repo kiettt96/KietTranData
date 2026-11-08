@@ -1112,13 +1112,18 @@ export type RetryLine = { name: string; round: number; level: string; isTop: boo
  * Lý do cổng Stop chặn vì còn lệnh kiểm chưa đạt (0.7.8 vòng sửa 3, W4): mỗi lệnh một dòng (lượt, mức nâng, lỗi đầu), hướng làm của lượt
  * 2 hay 3, và với lệnh vừa hết lượt thì yêu cầu báo cáo cuối có mục "Chưa đạt yêu cầu". Không quá RETRY_REASON_CHARS ký tự: lỗi cắt dần.
  */
-export function retryStopReason(advanced: readonly RetryLine[], exhausted: readonly RetryLine[], marked = 0): string {
+export function retryStopReason(advanced: readonly RetryLine[], exhausted: readonly RetryLine[], marked = 0, waiting: readonly RetryLine[] = []): string {
   const build = (cut: number) => {
     const err = (line: RetryLine) => (cut > 0 && line.error !== '' ? `; lỗi: ${clipItem(line.error, cut)}` : '')
     const parts = ['[focus-conductor] Còn lệnh kiểm chưa đạt, chưa kết thúc được.']
     for (const line of advanced) {
       const top = line.isTop ? ' (đã ở mức cao nhất chính sách cho phép)' : ''
       parts.push(`- ${line.name}: lượt ${line.round}/${RETRY_ROUNDS}, mức ${line.level}${top}${err(line)}`)
+    }
+    // Chưa chạy lại sau lần chặn trước (0.8.0 A2): lượt giữ nguyên, đòi chạy lại đúng lệnh.
+    for (const line of waiting) {
+      const top = line.isTop ? ' (đã ở mức cao nhất chính sách cho phép)' : ''
+      parts.push(`- ${line.name}: lượt ${line.round}/${RETRY_ROUNDS}, mức ${line.level}${top}, chưa chạy lại; sửa rồi chạy lại đúng lệnh này, lượt chỉ tăng khi lần chạy lại vẫn lỗi${err(line)}`)
     }
     if (advanced.some(line => line.round === 2)) {
       parts.push(
@@ -1129,7 +1134,7 @@ export function retryStopReason(advanced: readonly RetryLine[], exhausted: reado
       parts.push(`Lượt 3: làm như lượt 2 ở mức nâng thêm một bậc; prompt của subagent nêu lỗi và các cách đã thử ở lượt 1 và 2.`)
     }
     if (exhausted.length > 0) {
-      for (const line of exhausted) parts.push(`- ${line.name}: hết ${RETRY_ROUNDS} lượt vẫn chưa đạt${err(line)}`)
+      for (const line of exhausted) parts.push(`- ${line.name}: hết ${RETRY_ROUNDS} lượt vẫn chưa đạt${line.isTop ? ' (đã ở mức cao nhất chính sách cho phép)' : ''}${err(line)}`)
       parts.push(
         `${marked > 0 ? `Mod đã ghi ${marked} bước blocked; lần chạy đạt của đúng lệnh đó sẽ tự gỡ. ` : ''}Câu trả lời cuối phải có mục "${RETRY_REPORT}", mỗi lệnh một dòng: việc hay bước liên quan, lệnh kiểm, lỗi cuối, ba lượt đã thử (mức và cách làm từng lượt), điều chủ cần quyết định hay cung cấp.`,
       )

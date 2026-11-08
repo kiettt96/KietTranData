@@ -141,7 +141,9 @@ describe('W4: lượt nâng mức khi lệnh kiểm lỗi', () => {
     const { seen, lines } = setup(on)
     await failing($, seen)
     await stop($)
+    await bash($, 'bun test')  // 0.8.0 A2: lượt chỉ tăng khi đã chạy lại
     await stop($, true)
+    await bash($, 'bun test')  // 0.8.0 A2: lượt chỉ tăng khi đã chạy lại
     const report = await stop($, true)
     expect(report).toContain('Chưa đạt yêu cầu')
     const rows = (await shown($)).split('\n').filter(l => l.startsWith('[b] '))
@@ -168,7 +170,9 @@ describe('W4: lượt nâng mức khi lệnh kiểm lỗi', () => {
     const { seen } = setup(on)
     await failing($, seen)
     await stop($)
+    await bash($, 'bun test')  // 0.8.0 A2: lượt chỉ tăng khi đã chạy lại
     await stop($)
+    await bash($, 'bun test')  // 0.8.0 A2: lượt chỉ tăng khi đã chạy lại
     await stop($)
     const plan1 = await shown($)
     expect(plan1).toContain('Checklist (0/1 đã đóng, 1 bị chặn)')
@@ -180,7 +184,9 @@ describe('W4: lượt nâng mức khi lệnh kiểm lỗi', () => {
     await failing($, seen, 'bun test', ['Sửa hàm tính phí', 'Kiểm lại phí'])
     await $.tool.call({ tool: PLAN, action: 'update', step: 2, status: 'blocked', note: 'bun test vẫn lỗi ở ca làm tròn' })
     await stop($)
+    await bash($, 'bun test')  // 0.8.0 A2: lượt chỉ tăng khi đã chạy lại
     await stop($, true)
+    await bash($, 'bun test')  // 0.8.0 A2: lượt chỉ tăng khi đã chạy lại
     expect(await stop($, true)).toContain('Chưa đạt yêu cầu')
     const listed = await shown($)
     expect(listed).not.toContain('Chưa đạt: bun test')
@@ -192,7 +198,9 @@ describe('W4: lượt nâng mức khi lệnh kiểm lỗi', () => {
     const { seen, lines } = setup(on)
     await failing($, seen)
     await stop($)
+    await bash($, 'bun test')  // 0.8.0 A2: lượt chỉ tăng khi đã chạy lại
     await stop($, true)
+    await bash($, 'bun test')  // 0.8.0 A2: lượt chỉ tăng khi đã chạy lại
     await stop($, true)
     await stop($, true, '## Chưa đạt yêu cầu\n- Việc 1, bun test: lỗi làm tròn; ba lượt đã thử; cần chủ chốt cách làm tròn.')
     expect(lines().find(l => l['kind'] === 'retry-exhausted')).toMatchObject({ reported: true })
@@ -202,7 +210,9 @@ describe('W4: lượt nâng mức khi lệnh kiểm lỗi', () => {
     const { seen, lines } = setup(on)
     await failing($, seen)
     await stop($)
+    await bash($, 'bun test')  // 0.8.0 A2: lượt chỉ tăng khi đã chạy lại
     await stop($, true)
+    await bash($, 'bun test')  // 0.8.0 A2: lượt chỉ tăng khi đã chạy lại
     await stop($, true)
     await stop($, true, 'Xong.')
     expect(lines().find(l => l['kind'] === 'retry-exhausted')).toMatchObject({ reported: false })
@@ -213,22 +223,27 @@ describe('W4: lượt nâng mức khi lệnh kiểm lỗi', () => {
     const { seen, lines } = setup(on)
     await failing($, seen)
     await stop($)
+    await bash($, 'bun test')  // 0.8.0 A2: lượt chỉ tăng khi đã chạy lại
     await stop($, true)
+    await bash($, 'bun test')  // 0.8.0 A2: lượt chỉ tăng khi đã chạy lại
     await stop($, true)
     expect(await stop($, true)).toBe('')
     await $.turn.complete({ turnId: 't1', answer: '## Chưa đạt yêu cầu\n- bun test', durationMs: 5, isAborted: false, reason: 'answer' } as never)
     expect(lines().find(l => l['kind'] === 'retry-exhausted')).toMatchObject({ reported: true })
   })
 
-  test('9. bốn lần Stop liên tiếp không có tool call: lượt 2, lượt 3, hết lượt, rồi cho qua; tối đa 3 lần chặn', {}, async ($, on) => {
+  // 0.8.0 A2: Stop chưa chạy lại không tăng lượt; hai lần liên tiếp tính một lượt, nên trần chống vòng lặp là 5 lần chặn thay cho 3.
+  test('9. sáu lần Stop liên tiếp không có tool call: lượt 2, chờ, lượt 3, chờ, hết lượt, rồi cho qua; tối đa 5 lần chặn', {}, async ($, on) => {
     const { seen } = setup(on)
     await failing($, seen)
-    const blocks = [await stop($), await stop($, true), await stop($, true), await stop($, true)]
+    const blocks = [await stop($), await stop($, true), await stop($, true), await stop($, true), await stop($, true), await stop($, true)]
     expect(blocks[0]).toContain('2/3')
-    expect(blocks[1]).toContain('3/3')
-    expect(blocks[2]).toContain('Chưa đạt yêu cầu')
-    expect(blocks[3]).toBe('')
-    expect(blocks.filter(Boolean).length).toBeLessThanOrEqual(3)
+    expect(blocks[1]).toContain('chưa chạy lại')
+    expect(blocks[2]).toContain('3/3')
+    expect(blocks[3]).toContain('chưa chạy lại')
+    expect(blocks[4]).toContain('Chưa đạt yêu cầu')
+    expect(blocks[5]).toBe('')
+    expect(blocks.filter(Boolean).length).toBeLessThanOrEqual(5)
   })
 
   test('11. luồng chính tự sửa file ở lượt 2: kết quả Edit có câu dặn giao subagent đúng một lần, tối đa 200 ký tự, không deny', {}, async ($, on) => {
@@ -351,9 +366,11 @@ describe('W4: nhiều lệnh cùng chưa đạt (điều chỉnh 3, 4)', () => {
     expect(first).toContain('bun test tests/b.test.ts')
     passing.add('bun test tests/a.test.ts')
     await bash($, 'bun test tests/a.test.ts')
+    await bash($, 'bun test tests/b.test.ts')  // 0.8.0 A2: lượt chỉ tăng khi đã chạy lại
     const second = await stop($, true)
     expect(second).toContain('bun test tests/b.test.ts')
     expect(second).not.toContain('bun test tests/a.test.ts')
+    await bash($, 'bun test tests/b.test.ts')  // 0.8.0 A2: lượt chỉ tăng khi đã chạy lại
     expect(await stop($, true)).toContain('Chưa đạt yêu cầu')
     const rows = (await shown($)).split('\n').filter(l => l.startsWith('[b] '))
     expect(rows.length).toBe(1)

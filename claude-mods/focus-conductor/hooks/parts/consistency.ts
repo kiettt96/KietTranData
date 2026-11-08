@@ -126,6 +126,9 @@ async function noteChecks($: EngineInterface, deps: RetryDeps, core: Core, goalI
     const known = items.find(item => item.sig === sig) ?? items.find(item => item.more.includes(sig))
     if (known !== undefined) {
       if (error !== '') known.lastError = error
+      // Chạy lại vẫn lỗi (0.8.0 A2): Stop kế tiếp được tăng lượt.
+      known.retried = true
+      known.idle = 0
       touched.add(known)
       stuck = sig
       continue
@@ -149,6 +152,8 @@ async function noteChecks($: EngineInterface, deps: RetryDeps, core: Core, goalI
       step: null,
       more: [],
       restore: null,
+      retried: false,
+      idle: 0,
     }
     // Mục tạo từ lần chạy của subagent (0.8.0 A12): luồng chính được báo một lần, ở kết quả tool kế tiếp.
     if (!isMain && agent !== undefined) agentNotes.push(retryAgentNotice(run.command, agent))
@@ -210,10 +215,17 @@ async function retryGate($: EngineInterface, deps: RetryDeps, lastMessage: strin
   let plan = core.plan
   const advanced: Array<{ name: string; round: number; level: string; isTop: boolean; error: string }> = []
   const exhausted: Array<{ name: string; round: number; level: string; isTop: boolean; error: string }> = []
+  const waiting: Array<{ name: string; round: number; level: string; isTop: boolean; error: string }> = []
   const warnings: Warning[] = []
   let marked = 0
   const items = core.retry.items.map(item => {
     if (item.exhausted || S.isWaived(core, item.sig)) return item
+    // Lần thử mới (0.8.0 A2): lượt 1 lên lượt 2 ngay; từ lượt 2 chỉ tăng khi đã chạy lại vẫn lỗi, hay ở lần Stop thứ hai liên tiếp chưa chạy lại.
+    const isTried = item.round === 1 || item.retried || item.idle >= 1
+    if (!isTried) {
+      waiting.push({ name: retryName(item), round: item.round, level: item.levels.at(-1) ?? '', isTop: item.isTop, error: item.lastError })
+      return { ...item, idle: item.idle + 1, calls: deps.toolCalls() }
+    }
     const isAdvance = item.round < RETRY_ROUNDS
     if (isAdvance) {
       const prev = item.floor ?? pickOf(item.levels.at(-1), deps.mainLevel())
@@ -222,7 +234,7 @@ async function retryGate($: EngineInterface, deps: RetryDeps, lastMessage: strin
       const round = item.round + 1
       deps.record(at, 'retry', { signature: item.sig, round, level })
       advanced.push({ name: retryName(item), round, level, isTop: next.isTop, error: item.lastError })
-      return { ...item, round, levels: [...item.levels, level], floor: next.pick, isTop: next.isTop, calls: deps.toolCalls() }
+      return { ...item, round, levels: [...item.levels, level], floor: next.pick, isTop: next.isTop, calls: deps.toolCalls(), retried: false, idle: 0 }
     }
     // Hết lượt: bước blocked kèm note của mod, trừ khi Claude đã ghi một bước blocked có note nhắc lệnh này.
     const mentioned = item.more.length === 0 ? plan.find(step => step.status === 'blocked' && (step.note ?? '').includes(item.command)) : undefined
@@ -253,7 +265,7 @@ async function retryGate($: EngineInterface, deps: RetryDeps, lastMessage: strin
     return warnings.length > 0 ? S.withWarnings(...warnings)(next) : next
   })
   await deps.flushDecisions((path, text) => $.fs.write(path, text))
-  return { reason: retryStopReason(advanced, exhausted, marked), isPlanChanged: plan !== core.plan }
+  return { reason: retryStopReason(advanced, exhausted, marked, waiting), isPlanChanged: plan !== core.plan }
 }
 
 /**
