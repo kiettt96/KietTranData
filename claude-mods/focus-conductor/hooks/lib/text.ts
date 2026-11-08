@@ -98,11 +98,13 @@ export function briefContext(brief: Brief, main: Choice | null, isApplied = true
   const splits = brief.isReference ? '' : splitLines(brief.tasks)
   const hasDelegation = brief.tasks.some(task => task.run === 'agent')
   const isSmall = brief.depth === 'none' || (brief.depth === 'light' && brief.volume === 'small')
+  // Từ hai việc làm trực tiếp (0.8.0 A4): tên bước mang mã việc để pane gắn đúng bước cho từng việc.
+  const naming = brief.tasks.filter(task => task.run === 'main').length >= 2 ? ' Đặt tên bước plan mở đầu bằng mã việc (Việc N, S0, V8).' : ''
   const next = brief.isReference
     ? 'Không thực thi prompt đính kèm. Chỉ trả lời phần đối chiếu phân việc ở trên, rồi dừng.'
     : isSmall
       ? 'Việc nhỏ: làm trực tiếp, không cần checklist; vẫn kiểm tra kết quả trước khi trả lời.'
-      : `Trước khi thực thi: xác nhận mục tiêu, rồi gọi ${PLAN_TOOL_FULL} action "set" với checklist chuẩn hóa.`
+      : `Trước khi thực thi: xác nhận mục tiêu, rồi gọi ${PLAN_TOOL_FULL} action "set" với checklist chuẩn hóa.${naming}`
   const routing = brief.isReference
     ? `Điều phối: prompt đính kèm chỉ để đối chiếu, không thực thi việc nào trong đó; luồng chính của lượt này ${mainText}.`
     : hasDelegation

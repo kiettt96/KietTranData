@@ -2016,4 +2016,6 @@ export const MUTANTS: Mutant[] = [
   { id: "080-A3b", file: "hooks/lib/router.ts", note: "mở đợt không cất yêu cầu chỉ thuộc việc đã cất", old: "    if (ofGone.has(i + 1) && !ofKept.has(i + 1)) return\n", new: "" },
   { id: "080-A3c", file: "hooks/lib/router.ts", note: "router xếp new tin cậy thấp vẫn thay checklist đang mở", old: "  if (prev !== null && !prev.isReference && (isLowNew || isListed)) {", new: "  if (prev !== null && !prev.isReference && isListed && !isLowNew) {" },
   { id: "080-A3d", file: "hooks/parts/consistency.ts", note: "plan set giữa mục tiêu không cất việc đã xong", old: "    const opened = doneTasks.length > 0 && before.brief !== null ? openPhase(before.brief, new Set(doneTasks)) : null\n", new: "    const opened = null as ReturnType<typeof openPhase> | null\n" },
+  { id: "080-A4a", file: "hooks/lib/progress.ts", note: "việc main không có bước riêng lại running khi có thay đổi hay bước đã đóng", old: "      const isUnassigned = own.length === 0 && plan.length > 0 && !isFullyClosed(plan) && !isDoing\n", new: "      const isUnassigned = false\n" },
+  { id: "080-A4b", file: "hooks/lib/progress.ts", note: "bỏ điều kiện việc của bước doing", old: "      const isDoing = plan.some(s => s.status === 'doing' && stepCovers(tasks, s.title)?.index === task.index) || mainCount === 1\n", new: "      const isDoing = mainCount === 1\n" },
 ]

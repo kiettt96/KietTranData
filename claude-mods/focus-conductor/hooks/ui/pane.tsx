@@ -543,8 +543,9 @@ export function renderPane(
     const runs = taskBarRuns(row.bar, taskCells)
     const detail = rowDetail(row, false)
     // Chữ trạng thái: thanh không có bước thì luôn ghi; thanh theo bước của agent chỉ ghi khi agent đã kết thúc.
-    const word =
-      row.bar.kind === 'state'
+    const word = row.noStep === true
+      ? l.noStep
+      : row.bar.kind === 'state'
         ? row.state === 'running' && row.kind !== 'agent'
           ? l.taskDoing
           : l.taskState[row.state]
