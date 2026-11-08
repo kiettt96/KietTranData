@@ -73,6 +73,12 @@
       "description": "Tên tool MCP phân tách bằng dấu phẩy, ví dụ: mcp__ci__run_tests. Mỗi lời gọi tool trong danh sách là một lần kiểm loại test: lỗi khi tool báo lỗi hay output lỗi, rỗng, không chạy gì; chỉ lần gọi đạt cùng tool, cùng đầu vào mới phủ lần lỗi. Mod không tự đoán tool kiểm theo tên. Để trống (mặc định): không tool MCP nào là lần kiểm. (en) Comma-separated MCP tool names, e.g. mcp__ci__run_tests. Each call of a listed tool is a test check: it fails on a tool error or on failing, empty or ran-nothing output; only a passing call of the same tool with the same input covers a failure. The mod never guesses check tools by name. Empty (default): no MCP tool counts as a check.",
       "default": ""
     },
+    "passLines": {
+      "type": "string",
+      "title": "Dòng tổng kết đạt của lệnh kiểm riêng (pass lines)",
+      "description": "Tiền tố nguyên văn phân tách bằng dấu phẩy, ví dụ: TỔNG: ĐẠT,ALL CHECKS OK. Chỉ áp cho lệnh khai trong checkCommands chạy qua | tail hay | head không pipefail: dòng không rỗng cuối bắt đầu bằng một tiền tố (không phân biệt hoa thường) là dòng tổng kết đạt, khi cả output không có dấu hiệu lỗi và có phép kiểm đã chạy. Không dùng biểu thức chính quy. Để trống (mặc định): chỉ nhận các dạng tổng kết mod biết sẵn. (en) Comma-separated literal prefixes, e.g. TỔNG: ĐẠT,ALL CHECKS OK. Applies only to checkCommands entries run through | tail or | head without pipefail: a last non-empty line that starts with a prefix (case-insensitive) is a passing summary, provided the whole output shows no failure sign and something ran. No regular expressions. Empty (default): only the summary forms the mod already knows.",
+      "default": ""
+    },
     "routerSkip": {
       "type": "string",
       "title": "Prompt không cần hỏi router",

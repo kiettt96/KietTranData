@@ -218,6 +218,26 @@ const COUNTED = '(?:cảnh\\s+báo|warn(?:ing)?s?|chênh|null(?:s)?|thừa|hết
 const NUMBER = '\\d[\\d.,]*'
 const COUNTED_BEFORE = new RegExp(`${EDGE_START}(${NUMBER})\\s*(?:đ|%)?\\s+${COUNTED}${EDGE_END}`, 'giu')
 const COUNTED_AFTER = new RegExp(`${EDGE_START}${COUNTED}(?:\\s+\\p{L}{1,3})?\\s*[:=]?\\s*(${NUMBER})`, 'giu')
+/**
+ * Số đếm kèm màu lỗi (0.8.0 A10): "0 dòng đỏ", "0 phép đỏ", "0 mục đỏ", "đỏ: 0", "0 red" là số lỗi bằng 0, không phải dữ liệu rỗng; cùng
+ * dạng với số khác 0 ("3 dòng đỏ", "đỏ: 2") là dấu hiệu lỗi. Chữ "đỏ" đứng riêng, không có số đếm, không tính là gì.
+ */
+const RED = '(?:đỏ|red)'
+const COUNT_UNIT = `(?:${DATA_UNIT}|phép(?:\\s+kiểm)?|mục|checks?|tests?)`
+/** Số đếm không ăn dấu phẩy phân tách ở cuối ("12, đỏ: 0" là hai mục). */
+const RED_NUMBER = '\\d+(?:[.,]\\d+)*'
+const RED_COUNT = new RegExp(`${EDGE_START}(${RED_NUMBER})\\s+(?:${COUNT_UNIT}\\s+)?${RED}${EDGE_END}|${EDGE_START}${RED}\\s*[:=]\\s*(${RED_NUMBER})`, 'giu')
+
+/** Bỏ các số đếm màu lỗi bằng 0 khỏi output (0.8.0 A10), giữ nguyên số khác 0. */
+function dropZeroRed(text: string): string {
+  return text.replace(RED_COUNT, (match, before: string | undefined, after: string | undefined) => (hasNonZero(before ?? after ?? '') ? match : ' '))
+}
+
+/** Output có số đếm màu lỗi khác 0 (0.8.0 A10). */
+function hasRedCount(text: string): boolean {
+  return [...text.matchAll(RED_COUNT)].some(match => hasNonZero(match[1] ?? match[2] ?? ''))
+}
+
 /** Tỷ lệ "N/M" (không nằm trong đường dẫn hay ngày nhiều đoạn): N nhỏ hơn M là còn thiếu. */
 const RATIO = /(?<![\d/.,])(\d+)\s*\/\s*(\d+)(?![\d/])/gu
 /** Tỷ lệ bằng chữ "N trên M", "N of M", "N out of M" (vòng rà soát 3). */
@@ -250,6 +270,7 @@ function customFailed(output: string): boolean {
   if ([...text.matchAll(FAILURE_CLAUSE)].some(match => nonZero(match[1] ?? ''))) return true
   if ([...text.matchAll(COUNTED_BEFORE)].some(match => hasNonZero(match[1] ?? ''))) return true
   if ([...text.matchAll(COUNTED_AFTER)].some(match => hasNonZero(match[1] ?? ''))) return true
+  if (hasRedCount(text)) return true
   const cleaned = text.replace(ZERO_FAILURES, ' ')
   if (CUSTOM_FAILED.test(cleaned) || CROSS_MARK.test(cleaned)) return true
   return [...cleaned.matchAll(RATIO), ...cleaned.matchAll(RATIO_WORDS)].some(match => Number(match[1]) < Number(match[2]))
@@ -281,12 +302,56 @@ const PASSED_IN = /^(?:\d+\s+)?passed\s+in\s+\d+(?:[.,]\d+)?\s*m?s$/iu
 const LABEL = /^([^:]{1,60}):\s*(.+)$/u
 const LABEL_BLOCKED = /khong|chua|not|fail|skip/
 
+/**
+ * Dòng tổng kết có mục đếm (0.8.0 A10): "ĐẠT | 13 phép, 0 phép đỏ", "PASS, 13 checks, 0 failed", "OK - 4 mục, 0 lỗi", "ĐẠT (13 phép, 0 phép
+ * đỏ)" (nhãn ngắn đã bỏ ở isSummaryLine). Mọi mục là số đếm; có ít nhất một mục đếm không phải lỗi lớn hơn 0, mọi mục đếm lỗi bằng 0.
+ */
+const COUNTED_PASS = /^(?:ok|pass(?:ed)?|đạt)\s*[|,\-(]\s*(.+?)\s*\)?\s*\.?$/iu
+const FAIL_COUNT_WORD = '(?:đỏ|red|lỗi|fail(?:ed|s|ures?)?|errors?)'
+const COUNT_ENTRY = new RegExp(`^(\\d+)\\s+(?:${COUNT_UNIT}(?:\\s+(${FAIL_COUNT_WORD}))?|(${FAIL_COUNT_WORD}))$`, 'iu')
+
+function countedPass(bare: string): boolean {
+  const items = COUNTED_PASS.exec(bare)?.[1]?.split(/\s*[,|]\s*/u)
+  if (items === undefined) return false
+  let counted = false
+  for (const item of items) {
+    const entry = COUNT_ENTRY.exec(item)
+    if (entry === null) return false
+    const count = Number(entry[1])
+    if (entry[2] !== undefined || entry[3] !== undefined) {
+      if (count !== 0) return false
+    } else if (count > 0) counted = true
+  }
+  return counted
+}
+
+/** Tiền tố dòng tổng kết đạt người dùng khai (option passLines, 0.8.0 A10), đã chuẩn hóa NFC và hạ chữ thường; chỉ áp cho lệnh khai. */
+let passLines: string[] = []
+
+/** Đọc option passLines: tiền tố nguyên văn phân tách bằng dấu phẩy; mục rỗng bị bỏ. Không dùng biểu thức chính quy. */
+export function parsePassLines(raw: unknown): string[] {
+  if (typeof raw !== 'string') return []
+  return raw.split(',').map(item => item.trim().normalize('NFC').toLowerCase()).filter(Boolean)
+}
+
+/** Áp danh sách tiền tố passLines cho lần nạp mod này; danh sách rỗng là bỏ hết. */
+export function applyPassLines(prefixes: string[]): void {
+  passLines = prefixes
+}
+
+/** Dòng bắt đầu bằng một tiền tố passLines (không phân biệt hoa thường, sau NFC). */
+function isPassLine(line: string): boolean {
+  const text = line.normalize('NFC').toLowerCase()
+  return passLines.some(prefix => text.startsWith(prefix))
+}
+
 /** Một dòng là dòng tổng kết đạt (S5, T5): bỏ viền, dấu đạt và nhãn ngắn rồi khớp chặt SUMMARY_LINE hay PASSED_IN. */
 function isSummaryLine(line: string): boolean {
   const bare = line.replace(BORDER, '').replace(PASS_MARK, '').trim()
   if (PASSED_IN.test(bare)) return true
   if (COUNT_LINE.test(bare)) return /\d+\s+passed/iu.test(bare)
   if (SUMMARY_LINE.test(bare)) return true
+  if (countedPass(bare)) return true
   const labelled = LABEL.exec(bare)
   if (labelled === null) return false
   const label = (labelled[1] ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/gi, 'd').toLowerCase()
@@ -313,7 +378,7 @@ function lastLine(output: string): string | undefined {
 export function customPassed(output: string): boolean {
   if (customFailed(output)) return false
   const last = lastLine(output)
-  return last !== undefined && isSummaryLine(last)
+  return last !== undefined && (isSummaryLine(last) || isPassLine(last))
 }
 
 /**
@@ -382,7 +447,7 @@ const SKIPPED_ANY = new RegExp(SKIPPED_COUNT.source, 'iu')
 export function ranNothing(output: string): boolean {
   const text = output.normalize('NFC')
   if (RAN_NOTHING.test(text)) return true
-  if (ZERO_DATA.test(text.replace(ZERO_UNIT_FAILURES, ' ').replace(ZERO_EMPTY, ' '))) return true
+  if (ZERO_DATA.test(dropZeroRed(text).replace(ZERO_UNIT_FAILURES, ' ').replace(ZERO_EMPTY, ' '))) return true
   if (NO_ROWS.test(text)) return true
   if (text.split('\n').some(isWholeEmpty)) return true
   if (!SKIPPED_ANY.test(text)) return false

@@ -3,7 +3,7 @@
 
 import type { PluginOptions, PromptOrigin } from 'claude-code'
 import type { Brief, Choice, Core, DelegationItem, DelegationState, Effort, Lift, Mode, ModelFamily, PlanStep, Route, RouteEvent, Task, Tier, Volume } from '../types'
-import { applyCheckCommands, applyCheckTools, newEvidenceLog, newTracker, parseCheckCommands, parseCheckTools } from './lib/drift'
+import { applyCheckCommands, applyCheckTools, applyPassLines, newEvidenceLog, newTracker, parseCheckCommands, parseCheckTools, parsePassLines } from './lib/drift'
 import type { EvidenceLog, PromptIntent, TurnTracker } from './lib/drift'
 import { DEFAULT_CACHE_TTL_MINUTES, DEFAULT_CONTEXT, DEFAULT_WINDOWS, applyCacheWrite, applyPrices, parseCacheWrite, parsePrices } from './lib/cost'
 import { EFFORTS, decideMain, describePick, familyOf, hasTitleCode, liftPick, matchTask, parseModelMap, parseWindows } from './lib/route'
@@ -260,6 +260,7 @@ export function createContext(options: PluginOptions) {
   applyCacheWrite(parseCacheWrite(options['cacheWrite']))
   applyCheckCommands(parseCheckCommands(options['checkCommands']))
   applyCheckTools(parseCheckTools(options['checkTools']))
+  applyPassLines(parsePassLines(options['passLines']))
 
   /** Chính sách áp lên mọi lựa chọn của router: allowFable, model của phiên, họ đang bị chặn, loại agent dùng được. */
   function policy(): Policy {
