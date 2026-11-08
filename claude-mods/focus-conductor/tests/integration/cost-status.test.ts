@@ -61,7 +61,8 @@ describe('0.5.0: log quyết định và hiệu chỉnh', () => {
     on('tool.register', () => ({ value: { tool: 'mcp__focus-conductor__plan' } }))
     on('command.register', () => ({ value: { command: 'conductor' } }))
     on('session.start', (_$, e) => ({ cwd: e.cwd }))
-    await $.session.start({ cwd: '/repo', surface: null, isInteractive: false })
+    // 0.8.0 A13: phiên không tương tác thì mod tắt điều phối, nên ca này dựng phiên tương tác.
+    await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
     await submit($, COMPLEX_PROMPT)
     const lines = (writes[writes.length - 1] ?? '').trim().split('\n')
     expect(lines.length).toBe(2)

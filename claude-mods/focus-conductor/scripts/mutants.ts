@@ -2030,4 +2030,5 @@ export const MUTANTS: Mutant[] = [
   { id: "080-A8a", file: "hooks/parts/agents.ts", note: "bỏ gắn lời gọi Agent không khớp việc vào việc của bước doing", old: "        const covered = stepCovers(brief.tasks, s.title)\n", new: "        const covered = undefined as ReturnType<typeof stepCovers>\n" },
   { id: "080-A9a", file: "hooks/lib/errlog.ts", note: "sự cố hành vi không gộp theo khóa: mỗi lần một mục mới", old: "  const index = file.entries.findIndex(entry => entry.key === key)\n  if (index >= 0) {\n    const old", new: "  const index = event.group === 'behavior' ? -1 : file.entries.findIndex(entry => entry.key === key)\n  if (index >= 0) {\n    const old" },
   { id: "080-A9b", file: "hooks/parts/consistency.ts", note: "verify-reject ghi nhật ký lỗi ngay lần đầu", old: "if (rejects >= 2) noteBehavior(", new: "if (rejects >= 1) noteBehavior(" },
+  { id: "080-A13a", file: "hooks/parts/session.ts", note: "bỏ qua headlessRouting, phiên không tương tác vẫn điều phối", old: "    if (e.isInteractive === false && ctx.options['headlessRouting'] !== 'auto') {", new: "    if (false) {" },
 ]

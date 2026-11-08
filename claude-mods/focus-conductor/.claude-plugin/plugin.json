@@ -85,6 +85,13 @@
       "description": "Glob phân tách bằng dấu phẩy, ví dụ: ket-qua/**,out/*.json. File khớp là thay đổi nhẹ: vẫn được đếm nhưng không đủ để cảnh báo \"không chạy bước kiểm tra nào\" hay để cổng Stop đòi lệnh kiểm. Đuôi .md .markdown .txt .csv .tsv .jsonl .log luôn là nhẹ; .json và .yaml không tự tính là nhẹ vì thường là cấu hình. Glob không bắt đầu bằng / khớp từ đầu một thư mục bất kỳ; ** khớp nhiều cấp thư mục. Để trống (mặc định): chỉ các đuôi trên. (en) Comma-separated globs, e.g. ket-qua/**,out/*.json. A matching file is a soft change: it is still counted but does not by itself trigger the \"no check ran\" warning or make the Stop gate ask for a check. The extensions .md .markdown .txt .csv .tsv .jsonl .log are always soft; .json and .yaml are not soft on their own because they are often configuration. A glob that does not start with / matches from any directory; ** spans directory levels. Empty (default): only the extensions above.",
       "default": ""
     },
+    "headlessRouting": {
+      "type": "string",
+      "title": "Điều phối ở phiên không tương tác (headless routing)",
+      "description": "off (mặc định): ở phiên không tương tác (claude -p, Agent SDK) mod chạy như routing off trong phiên đó: không gọi router, không đổi model hay effort, không chặn kết thúc; ghi một dòng headless-off. Không ghi đè mode đã đặt bằng /conductor mode. auto: điều phối như phiên thường. (en) off (default): in a non-interactive session (claude -p, Agent SDK) the mod behaves as routing off for that session: no router call, no model or effort change, no Stop blocking; it logs one headless-off line. A mode set with /conductor mode is kept. auto: route as in an interactive session.",
+      "default": "off",
+      "options": ["off", "auto"]
+    },
     "routerSkip": {
       "type": "string",
       "title": "Prompt không cần hỏi router",

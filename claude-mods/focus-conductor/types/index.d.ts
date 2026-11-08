@@ -544,6 +544,8 @@ declare module 'claude-code' {
       isBandHidden: boolean
       /** Thư mục làm việc của Bash sau cd cuối, theo luồng ('main') hay agentId (0.8.0 A1). */
       bashDirs: Record<string, string>
+      /** Mod đã tự đặt mode off vì phiên không tương tác (0.8.0 A13). */
+      headlessOff: boolean
       /** Mốc thời gian (ms) tới khi nút Đặt lại đang chờ bấm lần hai; 0 khi không chờ. */
       resetArmedUntil: number
       /** Ghi đè chế độ lúc chạy qua /conductor mode; null nghĩa là theo cấu hình. */

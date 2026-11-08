@@ -39,6 +39,8 @@ async function autoOpenPane($: EngineInterface, ctx: Ctx, goalId: number, at: nu
 const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EMPTY_CORE)
 const bandHiddenState = atom({ plugin: 'focus-conductor', key: 'isBandHidden' } as const, false)
 const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null)
+/** Mod đã tự đặt mode off vì phiên không tương tác (0.8.0 A13): mở lại tương tác thì trả mode về cấu hình. */
+const headlessState = atom({ plugin: 'focus-conductor', key: 'headlessOff' } as const, false)
 const quotaState = atom({ plugin: 'focus-conductor', key: 'quota' } as const, EMPTY_QUOTA)
 // Mục tiêu mà người dùng đã tự đóng pane chi tiết (-1 là chưa); ghi ở hook ui.close của parts/ui.tsx.
 const paneClosedState = atom({ plugin: 'focus-conductor', key: 'paneClosedGoal' } as const, -1)
@@ -92,6 +94,19 @@ export function registerSession(on: On, ctx: Ctx): void {
     if (decisionLog) {
       const old = await $.fs.read(decisionLog).catch(caught('fs.read', ''))
       L.decisions = typeof old === 'string' ? keptLines(old) : []
+    }
+    // Phiên không tương tác (0.8.0 A13): claude -p hay SDK, isInteractive false (SessionStartInput). headlessRouting off (mặc định) thì mod chạy
+    // như routing off trong phiên đó, không ghi đè mode người dùng đã đặt; ghi một dòng headless-off. Mở lại tương tác thì trả mode về cấu hình.
+    if (e.isInteractive === false && ctx.options['headlessRouting'] !== 'auto') {
+      if ((await read($, modeState)) === null) {
+        await update($, modeState, () => 'off')
+        await update($, headlessState, () => true)
+        record(await $.clock.now(), 'headless-off', {})
+        await flushDecisions((path, text) => $.fs.write(path, text))
+      }
+    } else if (e.isInteractive !== false && (await read($, headlessState))) {
+      await update($, modeState, () => null)
+      await update($, headlessState, () => false)
     }
     await $.tool.register(PLAN_TOOL_SPEC)
     await $.command.register({
