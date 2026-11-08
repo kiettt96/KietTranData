@@ -16,7 +16,7 @@ Nhánh tách từ `main` 28022a6 (0.7.9). Mỗi điểm một commit test đỏ 
 - Đột biến: 74 mẫu (36 mẫu mới `080-*` và 38 mẫu cũ viết lại cùng ý) chạy trên đầu nhánh cecfc14, chia 12 phiên cloud, mỗi phiên 1 worker, engine 2.1.296: 74 KILLED, 0 SURVIVED, 0 EQUIVALENT, 0 ERROR, 0 TIMEOUT [Đo trực tiếp]. Các commit sau cecfc14 chỉ đổi tài liệu, phiên bản và ca ghim phiên bản.
 - Bản xem trước giao diện (ngoài repo, trước là main 28022a6, sau là đầu nhánh), pane 40 dòng 80 cột ở đợt 2 của kịch bản xem trước [Đo trực tiếp]: dòng "k việc của đợt trước" 0 thành 1; "chưa gắn bước" 0 thành 3; cảnh báo "Turn có N thay đổi" ở turn chỉ ghi dữ liệu 1 thành 0; việc của đợt cũ còn hiện 1 thành 0. Band ở 56, 72, 120 cột và pane 16, 24, 40 dòng ở 40, 48, 80 cột đã in đủ cho cả hai bản.
 - Đo `$.session.cwd()` trên engine thật (A1): xem [DESIGN.md](DESIGN.md), mục 0.8.0.
-- CI: CI_LINE
+- CI: run 42468146751 xanh trên 3ca47cc (commit tài liệu và phiên bản; mã và test giống commit này trừ dòng CI ở tệp này) [Đo trực tiếp].
 
 ## Kiểm chứng của 0.7.9 (lỗi tồn đọng, nhật ký lỗi của mod, ba kẽ hở của lệnh kiểm chưa đạt)
 
