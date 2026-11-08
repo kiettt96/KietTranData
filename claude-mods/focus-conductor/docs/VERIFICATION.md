@@ -18,6 +18,13 @@ Nhánh tách từ `main` 28022a6 (0.7.9). Mỗi điểm một commit test đỏ 
 - Đo `$.session.cwd()` trên engine thật (A1): xem [DESIGN.md](DESIGN.md), mục 0.8.0.
 - CI: run 42468146751 xanh trên 3ca47cc (commit tài liệu và phiên bản; mã và test giống commit này trừ dòng CI ở tệp này) [Đo trực tiếp].
 
+### Vòng 2 (rà soát PR 33): W1, W2
+
+- W1: commit test đỏ `fe32a14` (2 trên 3 ca đỏ trên `aa6bb45`; ca Claude đã sửa note vốn đúng), commit sửa `99d1739` [Đo trực tiếp].
+- Bộ test trên `99d1739`, engine 2.1.296: `claude plugin test .` 2827 test trên 252 tệp, 0 lỗi (vòng 1: 2824 trên 251; chỉ thêm `tests/integration/retry-created-w1-080.test.ts`, không test cũ nào đổi tên hay mất); `validate` đạt ở thư mục mod và gốc repo; `tsc` sạch; `mutate --check` 2000/2000 khớp, 0 lệch; sha256 `hooks/` `eb7752d4bc9ef5e5cb95d75eeafb6e6674919f81ee230b85ed8c2b5c42f82b2d`, `tests/` `1e89f0350eb8d6af968402c8dc2691641140b73e78e0b0979dd759db4b532490` [Đo trực tiếp].
+- Chạy riêng từng mẫu, một worker, trên `tests/integration/retry-created-w1-080.test.ts` và `tests/integration/retry-restore-a12-080.test.ts`: `080-A12a` 3 đỏ, `080-A12b` 2, `080-A12d` 2, `080-W1a` 2; cả bốn bị bắt [Đo trực tiếp].
+- W2: phạm vi `$.state` đọc từ khai báo kiểu, xem [DESIGN.md](DESIGN.md), mục A13 [Nguồn: khai báo kiểu engine 2.1.296 và 2.1.319].
+
 ## Kiểm chứng của 0.7.9 (lỗi tồn đọng, nhật ký lỗi của mod, ba kẽ hở của lệnh kiểm chưa đạt)
 
 Nhánh tách từ `main` 05ac330 (0.7.8). Mỗi điểm một commit test đỏ rồi một commit sửa, theo thứ tự R1, R2, Y1, Y2, Y3, P1x, X6a, X4a, UI1, UI2, L1, Y4, Y5, Y6, CI1; Y2, Y3, P1x chỉ thêm test ghim rồi thêm mẫu đột biến; không amend, không force-push, không merge. L1 và Y4 được dựng lại bằng cherry-pick lên trên UI2 trước khi đẩy; không commit nào đã đẩy bị viết lại [Đo trực tiếp].

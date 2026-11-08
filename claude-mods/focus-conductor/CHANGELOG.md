@@ -24,6 +24,11 @@ Vấn đề: một phiên thật dài khoảng 30 giờ trên 0.7.9 [Nguồn: nh
 - **Sổ `hooks/lib/fixed-errors.ts` không thêm mục:** chủ mod chưa gửi `errors.json` nào. Từ bản này, mọi prompt cập nhật sẽ gửi kèm `errors.json` khi có.
 - **Nhánh sao lưu `claude/focus-conductor-0-8-0-wip`** chỉ để phục hồi khi container của phiên bị dựng lại; không merge, nên xóa sau khi PR 0.8.0 merge.
 
+### Vòng 2 (rà soát PR 33): W1, W2
+
+- **W1 (P2): bước "Chưa đạt" mod tự tạo được gỡ khi lần chạy sau đạt.** Hết lượt W4 mà checklist không có bước `doing` hay bước vừa đóng thì mod tạo bước "Chưa đạt: <lệnh>" `blocked`, nhưng trước đây không lưu trạng thái trả, nên lần chạy đạt xóa mục W4 mà bước vẫn `blocked`, trái với câu chặn "lần chạy đạt của đúng lệnh đó sẽ tự gỡ". Giờ mục W4 lưu `restore` trả về `done`; lần chạy đạt phủ mục đó đóng bước, note "đã đạt lúc HH:MM" (en "passed at HH:MM") theo giờ của lần chạy đạt, nhật ký `retry-cleared`. Claude đã sửa note thì giữ nguyên như A12. Cờ tùy chọn `stamp` trong `restore` có vì giờ đạt chỉ biết lúc chạy đạt. Test đỏ 2/3. Mẫu `080-A12d`, `080-W1a`; `080-A12a` viết lại cùng ý theo dòng đã đổi.
+- **W2 (P3): phạm vi `$.state` của A13.** Khai báo kiểu của engine ghi `$.state` là giá trị host giữ cho phiên, nên cờ `headlessOff` và mode của phiên `claude -p` không lan sang phiên tương tác chạy song song. Ghi ở [DESIGN.md](docs/DESIGN.md), mục A13. Không đổi mã.
+
 ## Thay đổi 0.7.9: xử lý lỗi tồn đọng, thêm nhật ký lỗi của mod, bịt ba kẽ hở của lệnh kiểm chưa đạt
 
 Vấn đề: các lỗi tồn đọng từ lượt rà soát 0.7.8 (R1 và R2 mức P2, còn lại P3), chủ mod yêu cầu một file nhật ký lỗi của chính mod để rà sau khi chạy thật, và ba kẽ hở còn lại của W4 (lệnh kiểm chưa đạt thì làm tiếp) mà chủ mod đã chốt hướng xử lý. `routerSystem`, `agentSystem`, `DISCIPLINE` và schema tool `plan` không đổi; mỗi điểm một commit test đỏ rồi một commit sửa, riêng Y2, Y3, P1x chỉ thêm test ghim rồi thêm mẫu đột biến. Thứ tự làm: R1, R2, Y1, Y2, Y3, P1x, X6a, X4a, UI1, UI2, L1, Y4, Y5, Y6, CI1.
