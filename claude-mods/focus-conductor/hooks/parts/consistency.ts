@@ -1,7 +1,7 @@
 // Giữ nhất quán: tool plan, theo dõi mọi tool, chặn kết thúc khi checklist còn mở, cộng chi phí đo được.
 
 import { atom, derive, read, update } from 'claude-code'
-import { caught, noteHookError } from '../lib/errlog'
+import { caught, noteBehavior, noteHookError } from '../lib/errlog'
 import type { AgentState, Choice, Core, DelegationState, RetryItem, Warning } from '../../types'
 import { acceptsVerified, classifyBash, evidenceStrength, filePathOf, freshTestRun, hardChanges, isCheckTool, isExecuting, isFullyClosed, isGoalDone, isMutation, isPlanFile, markVerified, newTracker, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
 import type { Finding, Focus, ToolObservation, TurnTracker } from '../lib/drift'
@@ -353,6 +353,7 @@ async function logExhausted($: EngineInterface, deps: RetryDeps, core: Core, ans
   if (due.length === 0) return
   const at = await $.clock.now()
   for (const item of due) {
+    noteBehavior('retry-exhausted', `hết lượt chạy lại: ${item.sig === RETRY_MORE ? item.more.join(', ') : item.sig}`)
     deps.record(at, 'retry-exhausted', {
       signature: item.sig === RETRY_MORE ? item.more.join(', ') : item.sig,
       levels: item.levels,
@@ -573,6 +574,11 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       const text = `Bước ${String(input.step)} ghi verified nhưng ${reason}: lưu là done`
       const at = await $.clock.now()
       await update($, coreState, S.withWarnings({ at, kind: 'unverified', text }))
+      // Lặp lại cho cùng bước thì mới ghi nhật ký lỗi (0.8.0 A9).
+      const rejectKey = `${core.brief?.goalId ?? 0}:${String(input.step)}`
+      const rejects = (L.verifyRejects.get(rejectKey) ?? 0) + 1
+      L.verifyRejects.set(rejectKey, rejects)
+      if (rejects >= 2) noteBehavior('verify-reject', `bước ${String(input.step)} bị từ chối lần ${rejects}: ${reason}`)
       record(at, 'verify-reject', { step: input.step, level: strength?.level ?? 'none', reason, evidence: clipText(evidence) })
       await flushDecisions((path, text) => $.fs.write(path, text))
       // weak và none: lệnh kiểm tra có thể là script riêng chưa khai checkCommands; stale thì option không liên quan.

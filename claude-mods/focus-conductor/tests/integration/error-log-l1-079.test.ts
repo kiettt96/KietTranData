@@ -251,7 +251,7 @@ describe('0.7.9 L1: nối vào mod', () => {
     expect(shown).toMatch(/- router · prompt · [a-z-]+ · 1 lần · \d{4}-\d{2}-\d{2}T/)
     const first = String((await conductor($, 'errors clear')).text)
     expect(first).toContain('gõ lại /conductor errors clear trong 10 giây')
-    expect(fs.log().entries.length).toBe(1)
+    expect(fs.log().entries.filter(e => e.group !== 'behavior').length).toBe(1)
     expect(String((await conductor($, 'errors clear')).text)).toContain('Đã xóa')
     expect(fs.log().entries.length).toBe(0)
     expect(String((await conductor($, 'errors')).text)).toContain('trống')

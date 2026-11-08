@@ -62,8 +62,8 @@ describe('0.8.0 A9: nhóm behavior (hàm thuần)', () => {
   test('mục có đường dẫn tuyệt đối: lưu <path>', () => {
     const file = mergeEntry(EMPTY_ERRORS, behaviorEvent('retry-exhausted', 'hết lượt chạy lại: bash /srv/du-an/scripts/check.sh'), T0, '0.8.0')
     expect(file.entries[0]!.message).toContain('<path>')
-    expect(file.entries[0]!.message).not.toContain('/home/kiet')
-    expect(file.entries[0]!.key).not.toContain('/home/kiet')
+    expect(file.entries[0]!.message).not.toContain('/srv/du-an')
+    expect(file.entries[0]!.key).not.toContain('/srv/du-an')
   })
 
   test('noteBehavior đi qua bộ nhận lỗi với nhóm behavior', () => {

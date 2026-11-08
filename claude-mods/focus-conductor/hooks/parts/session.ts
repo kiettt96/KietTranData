@@ -1,7 +1,7 @@
 // Phiên và đọc prompt: session.start/end, mục system prompt cố định, prompt.submit (router đọc prompt).
 
 import { atom, derive, read, update } from 'claude-code'
-import { caught, noteHookError, noteMistyped } from '../lib/errlog'
+import { caught, noteBehavior, noteHookError, noteMistyped } from '../lib/errlog'
 import type { Brief, Core, Depth, QuotaCheckpoint, Warning } from '../../types'
 import { briefFromCheckpoint, changedFiles, storeKey } from '../lib/checkpoint'
 import { openSteps, restorableSteps } from '../lib/drift'
@@ -326,10 +326,14 @@ export function registerSession(on: On, ctx: Ctx): void {
     if (replaced.length > 0) {
       const text = `Ràng buộc và yêu cầu của mục tiêu đã đầy; mục mới thay ${replaced.length} mục cũ: ${replaced.map(item => clipText(item, 60)).join('; ')}`
       await update($, coreState, S.withWarnings({ at: now, kind: 'model', text }))
+      noteBehavior('replaced', `mục mới thay ${replaced.length} mục cũ vì ràng buộc và yêu cầu đã đầy`)
     }
     // Phần tràn cũng đầy (vòng rà soát 3): mục của prompt tiếp nối không giữ được thì báo số mục, không bỏ im lặng.
     // Kind riêng (S8): chip của pane ghi "mục bị bỏ", không phải "model".
-    if (dropped > 0) await update($, coreState, S.withWarnings({ at: now, kind: 'dropped', text: droppedItemsText(dropped) }))
+    if (dropped > 0) {
+      await update($, coreState, S.withWarnings({ at: now, kind: 'dropped', text: droppedItemsText(dropped) }))
+      noteBehavior('dropped', `${dropped} mục của prompt tiếp nối không giữ được vì ràng buộc và yêu cầu đã đầy`)
+    }
     // Prompt dài hơn trần của router (0.7.8 G8): phần giữa bị lược, báo một cảnh báo và một dòng context cho prompt đó.
     const isClipped = isClippedPrompt(text)
     if (isClipped) await update($, coreState, S.withWarnings({ at: now, kind: 'model', text: clippedWarning(text.length) }))

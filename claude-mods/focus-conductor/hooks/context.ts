@@ -10,8 +10,8 @@ import { EFFORTS, decideMain, describePick, familyOf, hasTitleCode, liftPick, ma
 import type { SessionModel, SessionPolicy } from './lib/route'
 import { DECISION_LIMIT, decisionLine } from './lib/decisions'
 import type { DecisionKind } from './lib/decisions'
-import { EMPTY_ERRORS, caught, noteModError, errorFileText, errorLines, localIso, mergeEntry, mergeFiles, parseErrorFile, pruneFixed, setErrorSink } from './lib/errlog'
-import type { ErrorEvent, ErrorFile } from './lib/errlog'
+import { EMPTY_ERRORS, behaviorEntries, caught, noteBehavior, noteModError, errorFileText, errorLines, localIso, mergeEntry, mergeFiles, parseErrorFile, pruneFixed, setErrorSink } from './lib/errlog'
+import type { ErrorEntry, ErrorEvent, ErrorFile } from './lib/errlog'
 import { FIXED_ERRORS } from './lib/fixed-errors'
 import { MOD_VERSION } from './lib/version'
 import { MAX_FORKS, fitPick, skipKey } from './lib/router'
@@ -123,6 +123,8 @@ export function createContext(options: PluginOptions) {
     /** Log quyết định (JSONL) của phiên, nối tiếp file cũ nếu có. */
     decisions: [] as string[],
     /** Prompt gần nhất đã qua router, brief trước nó và số mục tiêu sau lượt đó: cho /conductor reroute. */
+    /** Số lần verify-reject theo mục tiêu và bước (0.8.0 A9): lần đầu không ghi nhật ký lỗi, từ lần hai thì ghi. */
+    verifyRejects: new Map<string, number>(),
     lastPrompt: null as { text: string; prev: Brief | null; goalId: number | null } | null,
     /** Lần đổi model gần nhất của phiên (classic.PostModelSwitch): người dùng hay engine tự đổi. */
     lastSwitch: null as { source: string; toModel: string } | null,
@@ -359,11 +361,12 @@ export function createContext(options: PluginOptions) {
   }
 
   /** Dòng của /conductor errors (đã ghi bộ đệm trước). Null khi nhật ký tắt. */
-  async function errorReport(io: ErrorIO): Promise<{ lines: string[]; dropped: number; total: number } | null> {
+  async function errorReport(io: ErrorIO): Promise<{ lines: string[]; behavior: ErrorEntry[]; dropped: number; total: number } | null> {
     if (errorLog === '') return null
     await flushErrors(io)
     const file = await readErrors(io, await errorFilePath(io).catch(() => errorLog))
-    return { lines: errorLines(file), dropped: file.dropped, total: file.entries.length }
+    const behavior = behaviorEntries(file)
+    return { lines: errorLines(file), behavior, dropped: file.dropped, total: file.entries.length - file.entries.filter(entry => entry.group === 'behavior').length }
   }
 
   /** Xóa toàn bộ nhật ký (/conductor errors clear sau xác nhận). */
@@ -382,6 +385,8 @@ export function createContext(options: PluginOptions) {
   function noteRouterFailure(where: 'prompt' | 'agent' | 'drift', failure: string | null): void {
     if (failure === null || failure === 'paused') return
     noteModError({ group: 'router', where, message: failure })
+    // Sự cố hành vi (0.8.0 A9): khóa theo loại lỗi, không theo nơi gọi.
+    noteBehavior('router-fail', failure)
   }
 
   /**
