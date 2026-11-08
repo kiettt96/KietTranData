@@ -2,6 +2,22 @@
 
 Số đo của HEAD hiện tại và của các bản trước. Mọi số do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển] trừ khi nêu khác; hợp đồng đối chiếu evidence ở [DESIGN.md](DESIGN.md), lịch sử thay đổi ở [CHANGELOG.md](../CHANGELOG.md), cách dùng ở [README](../README.md).
 
+## Kiểm chứng của 0.8.0 (phiên dài nhiều đợt giao việc)
+
+Nhánh tách từ `main` 28022a6 (0.7.9). Mỗi điểm một commit test đỏ rồi một commit sửa, theo thứ tự A10, A11, A12, A1, A2, A3, A4, A5, A6, A7, A8, A9, A13, rồi một cặp cho kịch bản đầu cuối (vòng sửa A3); không amend, không force-push, không merge. Container của phiên phát triển bị dựng lại một lần giữa chừng, làm mất các commit chưa đẩy; các điểm được làm lại từ đầu, từ đó mỗi commit đẩy ngay và có nhánh sao lưu `claude/focus-conductor-0-8-0-wip` [Đo trực tiếp].
+
+- Môi trường: Claude Code 2.1.296 cho mọi lần chạy test, đo và đột biến [Đo trực tiếp]. `tsc` chạy với khai báo kiểu do engine 2.1.319 ghi: khai báo của 2.1.296 thiếu `agentId` ở `turn.start` mà mã dùng từ 0.7.8, nên có sẵn 4 lỗi trên main 28022a6 [Đo trực tiếp].
+- Số test đỏ của từng commit test đỏ, đo trên mã chưa sửa [Đo trực tiếp]: A10 10, A11 3, A12 3, A1 17, A2 3, A3 7, A4 4, A5 16, A6 6, A7 4, A8 1, A9 7, A13 1, kịch bản đầu cuối 1. Với A5 tới A9 (giao subagent), luồng chính tách phần sửa ra và chạy test mới trên mã chưa sửa để lấy số này.
+- Bộ test, kiểm tĩnh và hash: `claude plugin test .` 2824 test trên 251 tệp, 0 lỗi (lần chạy cả bộ sau khi đổi phiên bản lên 0.8.0 có 1 lỗi ở ca ghim `MOD_VERSION` của L1, ca đó đổi sang 0.8.0 và chạy lại riêng đạt); `claude plugin validate` đạt ở thư mục mod và gốc repo; `tsc` sạch; `scripts/version-check.mjs` khớp 0.8.0; `mutate --check` 0 lệch; sha256 `hooks/` `d56168c16a867dec975c8f8071502120f95ee317a194e50c13e1542ae30cbe85`, `tests/` `1a82091180e448e8959907b792ffb0843b8f585211218616193d07b76c9bd9a4` [Đo trực tiếp].
+- Hai số phiên dài [Đo trực tiếp, đo lại trên commit sửa A4 c4a3cf8 và trên commit sửa cuối]: 10.339 và 19.587, không tăng. Câu dặn A4 (55 ký tự) chỉ có khi brief có từ hai việc làm trực tiếp, nên kịch bản phiên dài không đổi.
+- Câu mới chèn khi có sự kiện, đo độ dài [Đo trực tiếp]: câu đề nghị chạy riêng lệnh kiểm nối `&&` (A11) 135 ký tự; câu báo mục W4 do subagent tạo (A12) 101 ký tự; câu báo đợt (A3) 117 ký tự; đều dưới trần 160.
+- Kịch bản ba đợt (`tests/integration/real-session-e2e-080.test.ts`) [Đo trực tiếp]: 253 ký tự chèn ở kết quả tool, 2.156 ký tự ở context của ba prompt, 2 câu báo đợt, giữ 4/4 yêu cầu của đợt 3.
+- Kịch bản đầu cuối tái hiện phiên thật bằng fixture ẩn danh (hai lệnh khai in output dạng A10, đối chứng cố ý đỏ do subagent chạy, lệnh ghép `&& ls` trả mã 1, ba đợt): không có dòng `retry-exhausted`, không còn bước `blocked` ở cuối, không có dòng `unverified` (turn sửa mã đều đã kiểm, turn chỉ ghi dữ liệu không bị cảnh báo). Kịch bản này bắt được một lỗi của A3 (việc chưa có bước riêng bị tính là xong khi checklist đóng hết, nên plan set mở đợt thừa), sửa ở cecfc14 kèm mẫu `080-A3e`, `080-A3f`.
+- Đột biến: 74 mẫu (36 mẫu mới `080-*` và 38 mẫu cũ viết lại cùng ý) chạy trên đầu nhánh cecfc14, chia 12 phiên cloud, mỗi phiên 1 worker, engine 2.1.296: 74 KILLED, 0 SURVIVED, 0 EQUIVALENT, 0 ERROR, 0 TIMEOUT [Đo trực tiếp]. Các commit sau cecfc14 chỉ đổi tài liệu, phiên bản và ca ghim phiên bản.
+- Bản xem trước giao diện (ngoài repo, trước là main 28022a6, sau là đầu nhánh), pane 40 dòng 80 cột ở đợt 2 của kịch bản xem trước [Đo trực tiếp]: dòng "k việc của đợt trước" 0 thành 1; "chưa gắn bước" 0 thành 3; cảnh báo "Turn có N thay đổi" ở turn chỉ ghi dữ liệu 1 thành 0; việc của đợt cũ còn hiện 1 thành 0. Band ở 56, 72, 120 cột và pane 16, 24, 40 dòng ở 40, 48, 80 cột đã in đủ cho cả hai bản.
+- Đo `$.session.cwd()` trên engine thật (A1): xem [DESIGN.md](DESIGN.md), mục 0.8.0.
+- CI: CI_LINE
+
 ## Kiểm chứng của 0.7.9 (lỗi tồn đọng, nhật ký lỗi của mod, ba kẽ hở của lệnh kiểm chưa đạt)
 
 Nhánh tách từ `main` 05ac330 (0.7.8). Mỗi điểm một commit test đỏ rồi một commit sửa, theo thứ tự R1, R2, Y1, Y2, Y3, P1x, X6a, X4a, UI1, UI2, L1, Y4, Y5, Y6, CI1; Y2, Y3, P1x chỉ thêm test ghim rồi thêm mẫu đột biến; không amend, không force-push, không merge. L1 và Y4 được dựng lại bằng cherry-pick lên trên UI2 trước khi đẩy; không commit nào đã đẩy bị viết lại [Đo trực tiếp].
