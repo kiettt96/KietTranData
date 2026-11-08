@@ -470,7 +470,8 @@ export function checkEffectPassed(effect: CheckEffect, observation: ToolObservat
   if (!effect.trusted || observation.isError || outputFailed(observation.output)) return false
   // Đạt mà không kiểm gì (T4) không đạt, ở mọi đường, cả khi mã thoát 0.
   if (observation.output !== undefined && ranNothing(observation.output)) return false
-  if (effect.exit === 'visible') return true
+  // chained (0.8.0 A11): tới đây mã thoát là 0, mọi đoạn nối && đều đã chạy đạt.
+  if (effect.exit === 'visible' || effect.exit === 'chained') return true
   if (effect.exit !== 'filtered') return false
   const isCustom = isCustomEffect(effect)
   if (isCustom && effect.pipefail === true) return !customFailed(observation.output ?? '')
@@ -483,7 +484,7 @@ export function checkEffectPassed(effect: CheckEffect, observation: ToolObservat
 }
 
 /** Vì sao một lệnh kiểm không được tính là đạt (0.7.7 X3), theo thứ tự xét trong `rejectReason`. */
-export type RejectReason = 'failed' | 'ran-nothing' | 'untrusted' | 'hidden' | 'pipe'
+export type RejectReason = 'failed' | 'ran-nothing' | 'untrusted' | 'hidden' | 'pipe' | 'chained'
 
 /**
  * Lý do một lệnh kiểm không được tính là đạt, cùng điều kiện với `checkEffectPassed`; null khi lệnh đạt. Thứ tự: lỗi (lệnh lỗi, dấu hiệu
@@ -493,6 +494,8 @@ export type RejectReason = 'failed' | 'ran-nothing' | 'untrusted' | 'hidden' | '
 export function rejectReason(effect: CheckEffect, observation: ToolObservation): RejectReason | null {
   if (checkEffectPassed(effect, observation)) return null
   const isCustom = isCustomEffect(effect)
+  // Lệnh kiểm nối && mà cả lệnh lỗi (0.8.0 A11): không biết đoạn nào lỗi, kết quả chưa rõ.
+  if (effect.exit === 'chained' && observation.isError) return 'chained'
   if (observation.isError || outputFailed(observation.output) || (isCustom && customFailed(observation.output ?? ''))) return 'failed'
   if (observation.output !== undefined && ranNothing(observation.output)) return 'ran-nothing'
   if (!effect.trusted) return 'untrusted'

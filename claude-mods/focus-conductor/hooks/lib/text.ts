@@ -1068,6 +1068,19 @@ export function retryName(item: { command: string; more: readonly string[] }): s
 }
 
 /** Dòng báo cho luồng chính ngay khi một lệnh kiểm vừa lỗi: một lần mỗi lệnh mỗi lượt. */
+/** Đoạn lệnh trong câu ngắn: quá `max` ký tự thì giữ phần đuôi (tên script nằm cuối lệnh). */
+function clipTail(command: string, max: number): string {
+  return command.length <= max ? command : `…${command.slice(command.length - max + 1)}`
+}
+
+/**
+ * Lệnh kiểm nối && với lệnh khác và cả lệnh trả mã khác 0 (0.8.0 A11): mod không biết đoạn nào lỗi nên không tính lỗi hay đạt; một câu tối
+ * đa 160 ký tự đề nghị chạy riêng lệnh kiểm.
+ */
+export function chainedCheckNote(command: string): string {
+  return `[focus-conductor] ${clipTail(command, 60)} nối && và cả lệnh lỗi, chưa rõ lệnh kiểm đạt hay không: chạy riêng lệnh kiểm.`.slice(0, 160)
+}
+
 export function retryFailNotice(item: { command: string; more: readonly string[]; round: number }): string {
   const text =
     `[focus-conductor] Lệnh kiểm chưa đạt: ${retryName(item)} (lượt ${item.round}/${RETRY_ROUNDS}). Đọc lỗi, sửa nguyên nhân gốc, rồi chạy lại ` +

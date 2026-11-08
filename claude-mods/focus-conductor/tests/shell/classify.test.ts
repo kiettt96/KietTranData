@@ -66,8 +66,9 @@ describe('vòng cuối: API mới (phân loại chung, theo dõi theo tác giả
     expect(kinds('npm test && echo done')).toEqual(['check:visible'])
     expect(kinds('echo x > f || npm test')).toEqual(['write:definite', 'check?:visible'])
     expect(kinds('node --test | tail -n 5')).toEqual(['check:filtered'])
-    // Chỉ đoạn đầu tiên được lọc qua tail/cat thành filtered; lint đứng sau && và nối ống thì hidden.
-    expect(kinds('npm test && npm run lint | tail -3')).toEqual(['check:visible', 'check:hidden'])
+    // Chỉ đoạn đầu tiên được lọc qua tail/cat thành filtered; lint đứng sau && và nối ống thì hidden. Từ 0.8.0 A11, npm test có đoạn
+    // && khác đoạn trung tính đứng sau nên là chained (mã thoát 0 vẫn đạt, mã khác 0 chưa rõ).
+    expect(kinds('npm test && npm run lint | tail -3')).toEqual(['check:chained', 'check:hidden'])
     expect(kinds('npm test | grep -v FAIL')).toEqual(['check:hidden'])
     expect(kinds('bash -c "npm test"')).toEqual(['write:possible', 'write:possible'])
     expect(verifiedAfter('npm test > out.log')).toBe(true)

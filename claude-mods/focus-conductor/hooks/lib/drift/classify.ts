@@ -43,9 +43,10 @@ export type CheckEffect = {
   /**
    * visible: mã thoát của câu lệnh chính là của lệnh kiểm tra. filtered: lệnh kiểm tra đứng đầu, không chuyển hướng
    * nào ngoài 2>&1, nối ống duy nhất sang tail (chỉ số dòng) hoặc cat (không đối số), output chỉ đến từ nó. hidden: mã
-   * thoát hay output bị lệnh khác che; không bao giờ tính là đạt.
+   * thoát hay output bị lệnh khác che; không bao giờ tính là đạt. chained (0.8.0 A11): sau lệnh kiểm tra còn đoạn nối && khác đoạn chỉ in
+   * hay đổi thư mục; mã thoát 0 là đạt như visible, mã thoát khác 0 không biết thuộc đoạn nào nên kết quả chưa rõ.
    */
-  exit: 'visible' | 'filtered' | 'hidden'
+  exit: 'visible' | 'filtered' | 'hidden' | 'chained'
   /** Bộ lọc khi exit là filtered: tail cắt output (chỉ còn phần cuối), head giữ phần đầu (0.7.5), cat giữ đủ. */
   filter?: 'tail' | 'cat' | 'head'
   /** Số dòng head giữ (0.7.5): output có ít dòng hơn thì head không cắt gì. */
@@ -163,6 +164,12 @@ function isNeutral(piece: Piece): boolean {
   return !piece.background && /^(?:cd|set)(?:\s|$)/.test(piece.text)
 }
 
+/** Đoạn đứng sau lệnh kiểm mà không đổi mã thoát (0.8.0 A11): cd, set, pwd, true, hay echo, printf không chuyển hướng. */
+function isTrailingNeutral(piece: Piece): boolean {
+  if (isNeutral(piece)) return true
+  return !piece.background && /^(?:echo|printf|pwd|true|:)(?:\s|$)/.test(piece.text) && !/[<>]/.test(piece.text)
+}
+
 /**
  * Mức che mã thoát của lệnh kiểm tra ở vị trí `index`, theo ngữ nghĩa shell. Lệnh sau nối bằng && (hoặc không có) thì
  * mã thoát của lệnh kiểm tra không bị che: visible. Ống chỉ giữ được mức filtered khi lệnh kiểm tra đứng đầu, không có
@@ -173,7 +180,9 @@ function exitOf(list: Piece[], index: number): Pick<CheckEffect, 'exit' | 'filte
   const rest = list.slice(index + 1)
   if (rest.some(after => after.op === ';' || after.op === '||')) return { exit: 'hidden' }
   const next = rest[0]
-  if (next === undefined || next.op === '&&') return { exit: 'visible' }
+  if (next === undefined) return { exit: 'visible' }
+  // Sau lệnh kiểm còn đoạn nối && (0.8.0 A11): chỉ đoạn in hay đổi thư mục thì mã thoát vẫn là của lệnh kiểm; đoạn khác thì chained.
+  if (next.op === '&&') return rest.every(isTrailingNeutral) ? { exit: 'visible' } : { exit: 'chained' }
   // Lệnh kiểm tra đứng đầu, hoặc chỉ sau các đoạn cd/set nối bằng && hay ; (0.7.5): output vẫn chỉ đến từ nó.
   const isLead = list.slice(0, index).every(isNeutral) && list.slice(1, index + 1).every(p => p.op === '&&' || p.op === ';')
   if (next.op !== '|' || !isLead || rest.length !== 1) return { exit: 'hidden' }

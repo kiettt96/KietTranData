@@ -27,6 +27,8 @@ export type EvidenceEntry = {
   author: string
   /** Lần kiểm qua tool MCP khai trong checkTools (0.7.9 Y4): chỉ lần gọi đạt cùng tool, cùng đầu vào mới phủ. */
   mcp?: true
+  /** Lệnh kiểm nối && với lệnh khác, cả lệnh trả mã khác 0 (0.8.0 A11): kết quả chưa rõ, không lỗi cũng không đạt. */
+  chained?: true
 }
 
 /**
@@ -91,6 +93,7 @@ export function noteEvidence(log: EvidenceLog, observation: ToolObservation, aut
         check: effect.check,
         seq: log.seq,
         author,
+        ...(effect.exit === 'chained' && observation.isError ? { chained: true as const } : {}),
       })
     }
     if (!hasCheck) {
@@ -193,6 +196,7 @@ export function checkToolPassed(observation: ToolObservation): boolean {
 /** Lần chạy kiểm này là lỗi thật: không đạt và lệnh lỗi, output có dấu hiệu lỗi, output rỗng, hay không có phép kiểm nào chạy. */
 export function isFailedRun(entry: EvidenceEntry, observation: ToolObservation): boolean {
   if (entry.ok || entry.check === null) return false
+  if (entry.chained === true) return false
   if (entry.mcp === true) return true
   const output = observation.output ?? ''
   return observation.isError || outputFailed(observation.output) || output.trim() === '' || ranNothing(output)

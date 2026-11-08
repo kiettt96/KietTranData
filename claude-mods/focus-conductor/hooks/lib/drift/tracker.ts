@@ -34,6 +34,7 @@ const REJECT_TEXT: Record<RejectReason, string> = {
   untrusted: 'nằm trong lệnh có $( ), backtick, eval, sh -c hoặc đứng sau ||',
   hidden: 'bị lệnh đứng sau che mã thoát',
   pipe: 'chạy qua ống, mod không đọc được kết quả',
+  chained: 'nối && với lệnh khác và cả lệnh lỗi, chưa rõ kết quả',
 }
 const REJECT_COMMAND_MAX = 60
 

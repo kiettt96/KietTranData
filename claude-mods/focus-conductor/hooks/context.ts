@@ -144,6 +144,8 @@ export function createContext(options: PluginOptions) {
     compaction: { pending: false, lastContext: 0, skipNext: false },
     /** Turn luồng chính đã nhận câu báo hạn mức mềm (0.7.5): Stop của turn đó không chặn vì checklist còn mở. */
     noticeTurn: null as string | null,
+    /** Lệnh kiểm nối && đã được đề nghị chạy riêng trong turn này (0.8.0 A11), theo chữ ký lệnh. */
+    chainedNoted: new Set<string>(),
     /** Khóa lệnh ghi không rõ đích đã cảnh báo, theo mục tiêu (0.7.5): không cảnh báo lại ở mỗi turn. */
     unknownWrites: { goalId: -1, keys: new Set<string>() },
     /** Lời nhắc đã nói trong phiên (S5): không đặt lại theo mục tiêu hay turn. */

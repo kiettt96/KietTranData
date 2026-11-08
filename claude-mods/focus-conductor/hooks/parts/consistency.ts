@@ -19,7 +19,7 @@ import * as S from '../lib/state'
 import type { View } from '../lib/state'
 import { shownPlan } from '../lib/mirror'
 import { forkFailures, forkFiles, forkResults, liveForks, mergeDue } from '../lib/forks'
-import { PLAN_TOOL_FULL, RETRY_REPORT, RETRY_ROUNDS, noCheckReason, waiveAskText, blockText, firstErrorLine, joinStopReasons, retryDoneNote, retryEditNote, retryFailNotice, retryName, retryStepNote, retryStopReason, checkHintText, compactReminderText, criteriaNotice, driftContext, missingTasks, missingTasksNotice, needsChecklist, noChecklistReason, pendingNotice, qualityNotice, renderBulk, renderPlan, requirementsNotice, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice, forkMergedNote } from '../lib/text'
+import { PLAN_TOOL_FULL, RETRY_REPORT, chainedCheckNote, RETRY_ROUNDS, noCheckReason, waiveAskText, blockText, firstErrorLine, joinStopReasons, retryDoneNote, retryEditNote, retryFailNotice, retryName, retryStepNote, retryStopReason, checkHintText, compactReminderText, criteriaNotice, driftContext, missingTasks, missingTasksNotice, needsChecklist, noChecklistReason, pendingNotice, qualityNotice, renderBulk, renderPlan, requirementsNotice, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice, forkMergedNote } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -285,7 +285,8 @@ async function projectCheck($: EngineInterface, options: Ctx['options'], log: Ev
 async function noCheckGate($: EngineInterface, options: Ctx['options'], core: Core, log: EvidenceLog, isDocsOnly: boolean): Promise<string | null> {
   const brief = core.brief
   if (brief === null || core.noCheckNudged === brief.goalId || brief.tier === 'trivial' || isDocsOnly) return null
-  if (log.mutations === 0 || log.commands.some(entry => entry.check !== null && entry.seq > log.lastMutation)) return null
+  // Lần chạy nối && chưa rõ kết quả (0.8.0 A11) không tính là đã kiểm.
+  if (log.mutations === 0 || log.commands.some(entry => entry.check !== null && entry.chained !== true && entry.seq > log.lastMutation)) return null
   const command = await projectCheck($, options, log)
   if (command === null) return null
   await update($, coreState, S.withNoCheckNudged(brief.goalId))
@@ -626,7 +627,18 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       const mainLog = evidenceFor(core.brief.goalId)
       const mainSince = mainLog.seq
       noteEvidence(mainLog, observation)
-      if (isCheckCall(observation.tool)) retryNotes.push(...(await noteChecks($, retryDeps, core, core.brief.goalId, newChecks(mainLog, mainSince), observation, mainLevel(), true)))
+      const fresh = isCheckCall(observation.tool) ? newChecks(mainLog, mainSince) : []
+      if (isCheckCall(observation.tool)) retryNotes.push(...(await noteChecks($, retryDeps, core, core.brief.goalId, fresh, observation, mainLevel(), true)))
+      // Lệnh kiểm nối && mà cả lệnh lỗi (0.8.0 A11): kết quả chưa rõ, không đụng W4; đề nghị chạy riêng, một lần mỗi lệnh mỗi turn.
+      for (const entry of fresh) {
+        if (entry.chained !== true) continue
+        const key = checkSignature({ check: entry.check ?? 'test', command: checkCommand(entry) })
+        if (L.chainedNoted.has(key)) continue
+        L.chainedNoted.add(key)
+        retryNotes.push(chainedCheckNote(entry.command))
+        record(await $.clock.now(), 'check-chained', { command: clipText(entry.command) })
+        await flushDecisions((path, text) => $.fs.write(path, text))
+      }
     }
     // Lượt 2 hay 3 của lệnh kiểm chưa đạt mà luồng chính tự sửa file (W4): dặn giao subagent ở mức đã nâng, một lần mỗi lượt, không chặn.
     if (EDIT_TOOLS.has(e.tool) && !observation.isError && !isPlanFile(filePathOf(observation))) {
