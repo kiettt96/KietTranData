@@ -825,6 +825,12 @@ export function checkHintText(commands: readonly string[]): string {
 }
 
 /** Mục của prompt tiếp nối không giữ được vì ràng buộc và yêu cầu đã đầy, kể cả phần tràn (0.7.5, vòng rà soát 3). */
+/** Câu báo đợt mới (0.8.0 A3), tối đa 160 ký tự, chèn một lần mỗi đợt. */
+export function phaseNotice(phase: number, added: number, archived: number): string {
+  const kept = archived > 0 ? `; ${archived} việc đã xong của đợt trước đã cất` : ''
+  return `[focus-conductor] Đợt ${phase} của mục tiêu: ${added} việc mới${kept}. Checklist giữ các bước còn mở.`.slice(0, 160)
+}
+
 export function droppedItemsText(count: number): string {
   return `${count} mục của prompt tiếp nối không giữ được vì ràng buộc và yêu cầu của mục tiêu đã đầy (kể cả phần tràn); nhắc lại các mục đó khi cần, hoặc lập mục tiêu mới`
 }

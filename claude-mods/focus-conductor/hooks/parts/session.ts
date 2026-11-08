@@ -13,12 +13,13 @@ import type { RouterOutcome, RouterPlan } from '../lib/router'
 import { EMPTY_QUOTA, blockingHits, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaSettings, reasonsOf, softNotices } from '../lib/quota'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
-import { DISCIPLINE, briefContext, droppedItemsText, droppedPlanNotice, followUpContext, interjectContext, interjectMovedNote, quotaPausedContext, resetLabel, resumeCommand, restorableLabel, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
+import { DISCIPLINE, phaseNotice, briefContext, droppedItemsText, droppedPlanNotice, followUpContext, interjectContext, interjectMovedNote, quotaPausedContext, resetLabel, resumeCommand, restorableLabel, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
 import { PERSON_ORIGINS, SLASH_COMMAND, newDelegation } from '../context'
 import { PANE_ROWS, shouldAutoOpenPane } from '../lib/pane'
+import { taskRows } from '../lib/progress'
 import { PANE, PANE_TITLE } from '../ui/pane'
 
 /** Mở pane chi tiết cho mục tiêu mới nếu cần (0.7.2): không focus, không chiếm phím; kết quả đặt hay chưa đặt ghi vào nhật ký quyết định. */
@@ -298,11 +299,19 @@ export function registerSession(on: On, ctx: Ctx): void {
     }
 
     // Mục tiêu mới, chạy thật prompt đã đối chiếu, hoặc tiếp nối cùng mục tiêu.
-    const { brief, added, isNewGoal, replaced, held, dropped } = nextBrief(prev, plan, text, now, { openSteps: openSteps(before.plan).map(s => s.title), sessionFamily: L.sessionFamily })
+    // Việc đã xong theo checklist hiện tại (0.8.0 A3): được cất khi prompt này mở đợt mới.
+    const doneTasks = new Set(taskRows(before, now).filter(row => row.index !== undefined && row.kind !== 'main' && row.state === 'done').map(row => row.index as number))
+    const { brief, added, isNewGoal, replaced, held, dropped, phase } = nextBrief(prev, plan, text, now, { openSteps: openSteps(before.plan).map(s => s.title), sessionFamily: L.sessionFamily, doneTasks })
     // Router xếp mục tiêu mới với tin cậy thấp khi checklist còn bước mở (0.7.5): giữ mục tiêu, ghi nhật ký quyết định.
     if (held && prev !== null) {
       L.promptIntent = { relation: 'continue', kind: plan.kind }
       record(now, 'new-held', { prompt: clipText(text), confidence: plan.confidence, goalId: prev.goalId })
+    }
+    // Đợt mới (0.8.0 A3): nhật ký phase, khóa Y6 tính theo đợt, một câu báo chèn một lần.
+    const phaseNote = phase !== undefined ? phaseNotice(phase.number, phase.added, phase.tasks) : null
+    if (phase !== undefined) {
+      record(now, 'phase', { phase: phase.number, tasks: phase.tasks, items: phase.items, cause: 'prompt' })
+      await update($, coreState, S.withNoCheckNudged(-1))
     }
     // adoptGoal lưu checklist cũ còn bước mở (khôi phục được bằng plan restore); chi phí router cộng sau, thuộc mục tiêu mới.
     const core = await update($, coreState, c => S.withRouterFail(null)(withUsage(isNewGoal ? S.adoptGoal(brief)(c) : S.withDecision(brief)(c))))
@@ -392,7 +401,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       )
     }
     await showStatus($, await read($, view), ctx.options)
-    return next({ ...e, context: [...lead, ...(e.context ?? []), context, ...notice, ...(isClipped ? [CLIPPED_CONTEXT] : []), ...tail] })
+    return next({ ...e, context: [...lead, ...(e.context ?? []), context, ...(phaseNote !== null ? [phaseNote] : []), ...notice, ...(isClipped ? [CLIPPED_CONTEXT] : []), ...tail] })
   }).catch(($, e, next) => (noteHookError('prompt.submit', next.error), next(e)))
 
   // Engine chèn tin chen ngang vào turn đang chạy (0.7.8 G9): hàng attachment queued_command của luồng chính, door delivery (vòng sửa 2, V1; door

@@ -12,7 +12,8 @@ import { addUsage, calibrate, recordShape, shapeKey } from '../lib/ledger'
 import { applyPlan } from '../lib/plan'
 import type { PlanInput } from '../lib/plan'
 import { describePick, familyOf } from '../lib/route'
-import { askRouter, driftRequest, nextLevel, parseDrift } from '../lib/router'
+import { askRouter, driftRequest, nextLevel, openPhase, parseDrift } from '../lib/router'
+import { taskRows } from '../lib/progress'
 import { EMPTY_QUOTA, evaluateQuota, normalizeQuota, quotaSettings, softNotices } from '../lib/quota'
 import { storeKey, withNote } from '../lib/checkpoint'
 import * as S from '../lib/state'
@@ -485,10 +486,19 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     // việc nhận diện prompt tiếp nối dựa trên mục tiêu mới, không phải mục tiêu cũ.
     const isSet = input.action === 'set'
     const titles = outcome.plan.map(step => step.title)
+    // Checklist mới giữa mục tiêu (0.8.0 A3): việc đã xong theo checklist cũ được cất vào đợt trước (nhật ký phase, cause plan-set);
+    // việc chưa xong vẫn hiển thị.
+    const hasSteps = isSet && Array.isArray(input.steps) && input.steps.length > 0
+    const doneTasks = hasSteps && before.brief !== null && before.plan.length > 0 ? taskRows(before, await $.clock.now()).filter(row => row.index !== undefined && row.kind !== 'main' && row.state === 'done').map(row => row.index as number) : []
+    const opened = doneTasks.length > 0 && before.brief !== null ? openPhase(before.brief, new Set(doneTasks)) : null
     let core = await update($, coreState, c => {
-      const withPlan = S.withPlan(outcome.plan)(c)
+      const withPlan = S.withPlan(outcome.plan)(opened !== null ? S.withNoCheckNudged(-1)(S.withBrief(opened.brief)(c)) : c)
       return isSet ? S.withRetarget(outcome.goal, titles, outcome.scope)(withPlan) : withPlan
     })
+    if (opened !== null) {
+      record(await $.clock.now(), 'phase', { phase: opened.brief.phase, tasks: opened.tasks, items: opened.items, cause: 'plan-set' })
+      await flushDecisions((path, text) => $.fs.write(path, text))
+    }
     // Bước vừa đóng bằng done khi đã có test đạt sau thay đổi cuối: nâng ngay thành verified (0.7.0).
     if (fresh !== undefined && input.action === 'update') {
       const closed = (outcome.changed ?? []).filter(id => outcome.plan.some(s => s.id === id && s.status === 'done'))

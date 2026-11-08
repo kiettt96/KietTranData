@@ -325,6 +325,10 @@ function normalizeBrief(raw: Brief): Brief {
     tasks: brief.tasks ?? [],
     constraints: brief.constraints ?? [],
     ...(typeof brief.constraintsBase === 'number' ? { constraintsBase: brief.constraintsBase } : {}),
+    // Đợt giao việc (0.8.0 A3).
+    ...(typeof brief.phase === 'number' ? { phase: brief.phase } : {}),
+    ...(typeof brief.archived === 'number' ? { archived: brief.archived } : {}),
+    ...(typeof brief.archivedTop === 'number' ? { archivedTop: brief.archivedTop } : {}),
     ...(typeof brief.carriedRules === 'number' && brief.carriedRules > 0 ? { carriedRules: brief.carriedRules } : {}),
     ...(typeof brief.dropped === 'number' && brief.dropped > 0 ? { dropped: brief.dropped } : {}),
     quality: brief.quality ?? [],

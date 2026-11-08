@@ -84,6 +84,12 @@ export type Brief = {
   constraints: string[]
   /** Số ràng buộc đầu danh sách đến từ prompt lập mục tiêu (0.7.5), như requirementsBase. */
   constraintsBase?: number
+  /** Đợt giao việc trong mục tiêu (0.8.0 A3), bắt đầu từ 1; vắng là đợt 1. */
+  phase?: number
+  /** Số việc của các đợt trước đã cất (0.8.0 A3): pane gập thành một dòng, không tính vào tiến độ. */
+  archived?: number
+  /** Số lớn nhất của việc đã cất (0.8.0 A3): việc mới đánh số tiếp sau, không trùng việc đã cất. */
+  archivedTop?: number
   /**
    * Số quy định model đầu danh sách ràng buộc mang sang từ mục tiêu trước (0.7.5, S2): chỉ dùng định tuyến subagent, không tạo sàn
    * model phiên cho luồng chính.

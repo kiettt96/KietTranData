@@ -602,6 +602,16 @@ export function renderPane(
     )
   })
 
+  // Việc của các đợt trước đã cất (0.8.0 A3): một dòng mờ, không tính vào tiến độ.
+  const archived = brief.archived ?? 0
+  if (archived > 0) {
+    taskNodes.push(
+      <Text key="phase-archived" dimColor wrap="truncate-end">
+        {l.phaseArchived(archived)}
+      </Text>,
+    )
+  }
+
   // ----------------------------------------------------------- đang chạy
   // U8: mỗi việc có subagent đang chạy một dòng: tên việc, khoảng lô, số agent đang chạy, thời gian từ agent đầu tiên của nhóm.
   // UI2 (0.7.9): dòng dài hơn bề ngang thì cắt tên việc trước (oneLine), giữ trọn phần sau, nhất là "· từ HH:MM"; tên còn ít nhất
