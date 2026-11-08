@@ -165,6 +165,7 @@ function normalizeRetry(raw: Partial<RetryState> | undefined): RetryState {
       logged: item.logged ?? false,
       step: item.step ?? null,
       more: item.more ?? [],
+      restore: item.restore ?? null,
     }),
   )
   return { goalId: raw.goalId ?? -1, items }

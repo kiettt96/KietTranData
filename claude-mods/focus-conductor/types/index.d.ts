@@ -417,6 +417,11 @@ export type RetryItem = {
   step: number | null
   /** Mục tổng: chữ ký của các lệnh được gộp. */
   more: string[]
+  /**
+   * Bước có sẵn mà mod ghi blocked khi hết lượt (0.8.0 A12): trạng thái và note cũ, cùng note mod ghi (`mark`). Lần chạy đạt phủ mục này trả
+   * bước về như cũ nếu bước vẫn là blocked với đúng note của mod. null khi mod không đổi bước có sẵn.
+   */
+  restore: { status: PlanStep['status']; note: string | null; mark: string } | null
 }
 
 export type RetryState = { goalId: number; items: RetryItem[] }

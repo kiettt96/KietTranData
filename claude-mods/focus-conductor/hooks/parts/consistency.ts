@@ -19,7 +19,7 @@ import * as S from '../lib/state'
 import type { View } from '../lib/state'
 import { shownPlan } from '../lib/mirror'
 import { forkFailures, forkFiles, forkResults, liveForks, mergeDue } from '../lib/forks'
-import { PLAN_TOOL_FULL, RETRY_REPORT, chainedCheckNote, RETRY_ROUNDS, noCheckReason, waiveAskText, blockText, firstErrorLine, joinStopReasons, retryDoneNote, retryEditNote, retryFailNotice, retryName, retryStepNote, retryStopReason, checkHintText, compactReminderText, criteriaNotice, driftContext, missingTasks, missingTasksNotice, needsChecklist, noChecklistReason, pendingNotice, qualityNotice, renderBulk, renderPlan, requirementsNotice, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice, forkMergedNote } from '../lib/text'
+import { PLAN_TOOL_FULL, RETRY_REPORT, chainedCheckNote, retryAgentNotice, RETRY_ROUNDS, noCheckReason, waiveAskText, blockText, firstErrorLine, joinStopReasons, retryDoneNote, retryEditNote, retryFailNotice, retryName, retryStepNote, retryStopReason, checkHintText, compactReminderText, criteriaNotice, driftContext, missingTasks, missingTasksNotice, needsChecklist, noChecklistReason, pendingNotice, qualityNotice, renderBulk, renderPlan, requirementsNotice, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice, forkMergedNote } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -85,7 +85,7 @@ type RetryDeps = {
  * `start`; lần lỗi của lệnh đã có mục thì ghi lỗi cuối và báo kẹt (G6); lần đạt xóa mọi mục nó phủ. Lượt và mức sàn chỉ tăng ở cổng
  * Stop. Trả dòng báo cho luồng chính, một lần mỗi lệnh mỗi lượt.
  */
-async function noteChecks($: EngineInterface, deps: RetryDeps, core: Core, goalId: number, entries: readonly EvidenceEntry[], observation: { output?: string; isError: boolean }, start: Choice, isMain: boolean): Promise<string[]> {
+async function noteChecks($: EngineInterface, deps: RetryDeps, core: Core, goalId: number, entries: readonly EvidenceEntry[], observation: { output?: string; isError: boolean }, start: Choice, isMain: boolean, agent?: string): Promise<string[]> {
   if (entries.length === 0) return []
   const retry = core.retry.goalId === goalId ? core.retry : { goalId, items: [] }
   let items: RetryItem[] = retry.items.map(item => ({ ...item, levels: [...item.levels], closedSteps: [...item.closedSteps], more: [...item.more] }))
@@ -95,10 +95,24 @@ async function noteChecks($: EngineInterface, deps: RetryDeps, core: Core, goalI
   // Lệnh miễn của mục tiêu (0.7.9 Y5): lần chạy đạt phủ lệnh đó thì xóa lệnh miễn.
   const waivers = core.waivers.goalId === goalId ? core.waivers.items : []
   let waived = waivers
+  let plan = core.plan
+  const cleared: Array<{ item: RetryItem; step: number }> = []
+  const agentNotes: string[] = []
   for (const entry of entries) {
     const run: CheckRun = { check: entry.check ?? 'test', command: checkCommand(entry) }
     const sig = checkSignature(run)
     if (entry.ok) {
+      // Hết lượt rồi chạy lại đạt (0.8.0 A12): trả bước mod đã ghi blocked về trạng thái và note cũ (verified về done), nếu Claude chưa sửa bước.
+      for (const item of items) {
+        const back = item.restore
+        if (!item.exhausted || back === null || item.step === null || item.sig === RETRY_MORE || !coversFailure(run, item)) continue
+        item.restore = null
+        const at = plan.find(s => s.id === item.step)
+        if (at === undefined || at.status !== 'blocked' || (at.note ?? '') !== back.mark) continue
+        const status = back.status === 'verified' ? 'done' : back.status
+        plan = plan.map(s => (s.id === at.id ? { ...s, status, ...(back.note !== null ? { note: back.note } : { note: undefined }), auto: undefined } : s))
+        cleared.push({ item, step: at.id })
+      }
       waived = waived.filter(w => !coversFailure(run, runOf(w.sig)))
       items = items
         .map(item => (item.sig === RETRY_MORE ? { ...item, more: item.more.filter(m => !coversFailure(run, runOf(m))) } : item))
@@ -131,7 +145,10 @@ async function noteChecks($: EngineInterface, deps: RetryDeps, core: Core, goalI
       logged: false,
       step: null,
       more: [],
+      restore: null,
     }
+    // Mục tạo từ lần chạy của subagent (0.8.0 A12): luồng chính được báo một lần, ở kết quả tool kế tiếp.
+    if (!isMain && agent !== undefined) agentNotes.push(retryAgentNotice(run.command, agent))
     if (items.filter(item => item.sig !== RETRY_MORE).length < RETRY_ITEMS) {
       items.push(fresh)
       touched.add(fresh)
@@ -148,7 +165,14 @@ async function noteChecks($: EngineInterface, deps: RetryDeps, core: Core, goalI
     }
   }
   if (stuck !== null) deps.noteStuck(core, stuck)
-  const notes: string[] = []
+  if (cleared.length > 0) {
+    const at = await $.clock.now()
+    for (const { item, step } of cleared) {
+      deps.record(at, 'retry-cleared', { signature: item.sig, step })
+      $.ui.toast(labels(deps.lang).retryCleared(item.command, step))
+    }
+  }
+  const notes: string[] = [...agentNotes]
   if (isMain) {
     for (const item of touched) {
       if (item.exhausted || item.noticed >= item.round || waived.some(w => w.sig === item.sig)) continue
@@ -157,9 +181,10 @@ async function noteChecks($: EngineInterface, deps: RetryDeps, core: Core, goalI
     }
   }
   await update($, coreState, c => {
-    const next = S.withRetry({ goalId, items })(c)
+    const next = S.withRetry({ goalId, items })(plan !== core.plan ? S.withPlan(plan)(c) : c)
     return waived.length !== waivers.length ? S.withWaivers({ goalId, items: waived })(next) : next
   })
+  if (cleared.length > 0) await deps.flushDecisions((path, text) => $.fs.write(path, text))
   return notes
 }
 
@@ -183,6 +208,7 @@ async function retryGate($: EngineInterface, deps: RetryDeps, lastMessage: strin
   const advanced: Array<{ name: string; round: number; level: string; isTop: boolean; error: string }> = []
   const exhausted: Array<{ name: string; round: number; level: string; isTop: boolean; error: string }> = []
   const warnings: Warning[] = []
+  let marked = 0
   const items = core.retry.items.map(item => {
     if (item.exhausted || S.isWaived(core, item.sig)) return item
     const isAdvance = item.round < RETRY_ROUNDS
@@ -198,12 +224,14 @@ async function retryGate($: EngineInterface, deps: RetryDeps, lastMessage: strin
     // Hết lượt: bước blocked kèm note của mod, trừ khi Claude đã ghi một bước blocked có note nhắc lệnh này.
     const mentioned = item.more.length === 0 ? plan.find(step => step.status === 'blocked' && (step.note ?? '').includes(item.command)) : undefined
     let stepId = mentioned?.id ?? null
+    let restore: RetryItem['restore'] = null
     if (mentioned === undefined) {
       const note = retryStepNote(item)
       const closed = [...item.closedSteps].reverse().map(id => plan.find(step => step.id === id)).find(step => step !== undefined && (step.status === 'done' || step.status === 'verified'))
       const target = plan.find(step => step.status === 'doing') ?? closed
       if (target !== undefined) {
         stepId = target.id
+        restore = { status: target.status, note: target.note ?? null, mark: note }
         plan = plan.map(step => (step.id === target.id ? { ...step, status: 'blocked' as const, note, auto: undefined } : step))
       } else {
         stepId = plan.reduce((max, step) => Math.max(max, step.id), 0) + 1
@@ -214,14 +242,15 @@ async function retryGate($: EngineInterface, deps: RetryDeps, lastMessage: strin
     $.ui.toast(labels(lang).retryExhausted(name))
     warnings.push({ at, kind: 'loop', text: `Chưa đạt sau ${RETRY_ROUNDS} lượt: ${name}` })
     exhausted.push({ name: retryName(item), round: item.round, level: item.levels.at(-1) ?? '', isTop: item.isTop, error: item.lastError })
-    return { ...item, exhausted: true, reportAsked: true, step: stepId, calls: deps.toolCalls() }
+    if (mentioned === undefined) marked += 1
+    return { ...item, exhausted: true, reportAsked: true, step: stepId, calls: deps.toolCalls(), restore }
   })
   await update($, coreState, c => {
     const next = S.withRetry({ goalId: core.retry.goalId, items })(plan !== core.plan ? S.withPlan(plan)(c) : c)
     return warnings.length > 0 ? S.withWarnings(...warnings)(next) : next
   })
   await deps.flushDecisions((path, text) => $.fs.write(path, text))
-  return { reason: retryStopReason(advanced, exhausted), isPlanChanged: plan !== core.plan }
+  return { reason: retryStopReason(advanced, exhausted, marked), isPlanChanged: plan !== core.plan }
 }
 
 /**
@@ -592,7 +621,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
         const agentLog = evidenceFor(agentBrief.goalId)
         const agentSince = agentLog.seq
         noteEvidence(agentLog, observation, e.agentId)
-        if (isCheckCall(observation.tool)) await noteChecks($, retryDeps, S.normalizeCore(await read($, coreState)), agentBrief.goalId, newChecks(agentLog, agentSince), observation, meta.pick, false)
+        if (isCheckCall(observation.tool)) L.agentRetryNotes.push(...(await noteChecks($, retryDeps, S.normalizeCore(await read($, coreState)), agentBrief.goalId, newChecks(agentLog, agentSince), observation, meta.pick, false, meta.description)))
         trackVerification(L.tracker, observation, e.agentId, (await frameOf($, L.roots, agentBrief.goalId, agentBrief.scopePaths)).cwd)
         // Subagent sửa file: bước tự nâng thành verified về done, như thay đổi của luồng chính (0.7.0).
         if (!observation.isError && isMutation(observation) && S.hasAutoVerified(S.normalizeCore(await read($, coreState)))) {
@@ -691,7 +720,9 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     // Việc của tin chen ngang vừa chuyển sang subagent (0.7.8 G9): báo một lần ở kết quả tool kế tiếp của luồng chính.
     const moved = L.interjectNote
     L.interjectNote = null
-    const notes = [...(nudge ? [nudge] : []), ...(compactNote !== null ? [compactNote] : []), ...(moved !== null ? [moved] : []), ...retryNotes]
+    // Mục W4 do subagent tạo (0.8.0 A12): câu báo chờ gắn vào kết quả tool kế tiếp của luồng chính (kết quả Agent khi subagent trả về).
+    const fromAgents = L.agentRetryNotes.splice(0)
+    const notes = [...(nudge ? [nudge] : []), ...(compactNote !== null ? [compactNote] : []), ...(moved !== null ? [moved] : []), ...retryNotes, ...fromAgents]
     // Gom (0.7.9 F1): mọi phần của việc tách đã có kết quả từ phiên con thì kết quả tool này kèm một câu, một lần mỗi việc, và một dòng
     // fork-archive; pane và band thu các phần đó thành một dòng.
     const merging = core.brief === null ? [] : mergeDue(core).filter(t => !L.forkMerging.has(`${core.brief?.goalId}:${t.index}`))

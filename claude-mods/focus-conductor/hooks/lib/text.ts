@@ -1081,6 +1081,13 @@ export function chainedCheckNote(command: string): string {
   return `[focus-conductor] ${clipTail(command, 60)} nối && và cả lệnh lỗi, chưa rõ lệnh kiểm đạt hay không: chạy riêng lệnh kiểm.`.slice(0, 160)
 }
 
+/**
+ * Mục W4 tạo từ lần chạy của subagent (0.8.0 A12): luồng chính nhận một câu tối đa 160 ký tự ở kết quả tool kế tiếp, nêu subagent và lệnh.
+ */
+export function retryAgentNotice(command: string, description: string): string {
+  return `[focus-conductor] Subagent "${clipItem(description, 60)}" chạy ${clipTail(command, 24)} lỗi; Stop chặn tới khi lệnh chạy lại đạt.`.slice(0, 160)
+}
+
 export function retryFailNotice(item: { command: string; more: readonly string[]; round: number }): string {
   const text =
     `[focus-conductor] Lệnh kiểm chưa đạt: ${retryName(item)} (lượt ${item.round}/${RETRY_ROUNDS}). Đọc lỗi, sửa nguyên nhân gốc, rồi chạy lại ` +
@@ -1105,7 +1112,7 @@ export type RetryLine = { name: string; round: number; level: string; isTop: boo
  * Lý do cổng Stop chặn vì còn lệnh kiểm chưa đạt (0.7.8 vòng sửa 3, W4): mỗi lệnh một dòng (lượt, mức nâng, lỗi đầu), hướng làm của lượt
  * 2 hay 3, và với lệnh vừa hết lượt thì yêu cầu báo cáo cuối có mục "Chưa đạt yêu cầu". Không quá RETRY_REASON_CHARS ký tự: lỗi cắt dần.
  */
-export function retryStopReason(advanced: readonly RetryLine[], exhausted: readonly RetryLine[]): string {
+export function retryStopReason(advanced: readonly RetryLine[], exhausted: readonly RetryLine[], marked = 0): string {
   const build = (cut: number) => {
     const err = (line: RetryLine) => (cut > 0 && line.error !== '' ? `; lỗi: ${clipItem(line.error, cut)}` : '')
     const parts = ['[focus-conductor] Còn lệnh kiểm chưa đạt, chưa kết thúc được.']
@@ -1124,7 +1131,7 @@ export function retryStopReason(advanced: readonly RetryLine[], exhausted: reado
     if (exhausted.length > 0) {
       for (const line of exhausted) parts.push(`- ${line.name}: hết ${RETRY_ROUNDS} lượt vẫn chưa đạt${err(line)}`)
       parts.push(
-        `Mod đã ghi bước blocked. Câu trả lời cuối phải có mục "${RETRY_REPORT}", mỗi lệnh một dòng: việc hay bước liên quan, lệnh kiểm, lỗi cuối, ba lượt đã thử (mức và cách làm từng lượt), điều chủ cần quyết định hay cung cấp.`,
+        `${marked > 0 ? `Mod đã ghi ${marked} bước blocked; lần chạy đạt của đúng lệnh đó sẽ tự gỡ. ` : ''}Câu trả lời cuối phải có mục "${RETRY_REPORT}", mỗi lệnh một dòng: việc hay bước liên quan, lệnh kiểm, lỗi cuối, ba lượt đã thử (mức và cách làm từng lượt), điều chủ cần quyết định hay cung cấp.`,
       )
     }
     return parts.join('\n')
