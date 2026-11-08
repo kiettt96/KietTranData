@@ -147,6 +147,22 @@ export function suffixCustomCheck(text: string): string | null {
   return hits.length === 1 ? (hits[0] ?? []).join(' ') : null
 }
 
+const SCRIPT_EXT = /\.[a-z0-9]+$/
+
+/** Số lệnh khai có script mang đúng tên file này (0.8.0 A7): tên file trần chỉ nhắc được lần chạy khi có đúng một lệnh như vậy. */
+export function declaredScriptCount(name: string): number {
+  return customChecks.filter(command => command.some(token => SCRIPT_EXT.test(token) && !token.startsWith('-') && (token.split('/').pop() ?? '') === name)).length
+}
+
+/** Đường dẫn script (đã giải) của một lần chạy lệnh khai (0.8.0 A7), hạ chữ thường; null khi không phải lệnh khai hay không có script. */
+export function customScript(text: string): string | null {
+  const tokens = lowerTokens(text.trim().split(/\s+/).filter(Boolean))
+  const command = customChecks.find(declared => declared.length > 0 && declared.every((token, at) => matchesToken(token, tokens[at])))
+  if (command === undefined) return null
+  const at = command.findIndex(token => SCRIPT_EXT.test(token) && !token.startsWith('-'))
+  return at < 0 ? null : (tokens[at] ?? null)
+}
+
 /** Đoạn lệnh bắt đầu bằng đúng các token của một lệnh riêng (không phân biệt hoa thường, như phía claim của evidence). */
 export function isCustomCheck(text: string): boolean {
   const tokens = lowerTokens(text.trim().split(/\s+/).filter(Boolean))

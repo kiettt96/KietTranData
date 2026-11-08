@@ -2025,4 +2025,6 @@ export const MUTANTS: Mutant[] = [
   { id: "080-A6a", file: "hooks/lib/text.ts", note: "lệnh dài cắt cuối thay cắt giữa, mất tên script", old: "`\\`${clipMiddle(item.command, RETRY_COMMAND_CHARS)}\\``", new: "`\\`${clipItem(item.command, RETRY_COMMAND_CHARS)}\\``" },
   { id: "080-A6b", file: "hooks/lib/text.ts", note: "câu chặn bỏ người chạy và giờ chạy", old: ", chạy bởi ${retryWho(line.runner, descMax)}${line.at !== '' ? ` lúc ${line.at}` : ''}", new: "" },
   { id: "080-A6c", file: "hooks/lib/text.ts", note: "không có dòng lỗi thì lấy dòng in đầu tiên như trước", old: "  const last = lines.at(-1)\n", new: "  const last = lines[0]\n" },
+  { id: "080-A7a", file: "hooks/lib/drift/claims.ts", note: "khớp đuôi đường dẫn script cho cả lệnh không khai", old: "  if (entry.check === null || !isCustomCheck(entry.command)) return false\n  const script = customScript(entry.command)\n", new: "  if (entry.check === null) return false\n  const script = customScript(entry.command) ?? entry.command.toLowerCase().split(' ').find(t => /\\.[a-z0-9]+$/.test(t)) ?? null\n" },
+  { id: "080-A7b", file: "hooks/lib/drift/claims.ts", note: "bỏ điều kiện ranh giới / của đoạn đuôi", old: "return script === token || script.endsWith(`/${token}`)", new: "return script.endsWith(token)" },
 ]
