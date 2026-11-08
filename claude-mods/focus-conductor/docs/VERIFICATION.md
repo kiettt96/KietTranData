@@ -24,6 +24,8 @@ Nhánh tách từ `main` 28022a6 (0.7.9). Mỗi điểm một commit test đỏ 
 - Bộ test trên `99d1739`, engine 2.1.296: `claude plugin test .` 2827 test trên 252 tệp, 0 lỗi (vòng 1: 2824 trên 251; chỉ thêm `tests/integration/retry-created-w1-080.test.ts`, không test cũ nào đổi tên hay mất); `validate` đạt ở thư mục mod và gốc repo; `tsc` sạch; `mutate --check` 2000/2000 khớp, 0 lệch; sha256 `hooks/` `eb7752d4bc9ef5e5cb95d75eeafb6e6674919f81ee230b85ed8c2b5c42f82b2d`, `tests/` `1e89f0350eb8d6af968402c8dc2691641140b73e78e0b0979dd759db4b532490` [Đo trực tiếp].
 - Chạy riêng từng mẫu, một worker, trên `tests/integration/retry-created-w1-080.test.ts` và `tests/integration/retry-restore-a12-080.test.ts`: `080-A12a` 3 đỏ, `080-A12b` 2, `080-A12d` 2, `080-W1a` 2; cả bốn bị bắt [Đo trực tiếp].
 - W2: phạm vi `$.state` đọc từ khai báo kiểu, xem [DESIGN.md](DESIGN.md), mục A13 [Nguồn: khai báo kiểu engine 2.1.296 và 2.1.319].
+- Tên test: so danh sách tên ca đạt của lần chạy cả bộ trên `99d1739` với lần chạy trên mã vòng 1, 0 ca mất hay đổi tên; chỉ thêm 3 ca W1 (ca ghim `MOD_VERSION` đã đổi tên ở vòng 1, giữ nguyên từ `aa6bb45`) [Đo trực tiếp].
+- CI: run 42476536703 xanh trên `a9679b4` (commit tài liệu; mã và test giống `99d1739`) [Đo trực tiếp].
 
 ## Kiểm chứng của 0.7.9 (lỗi tồn đọng, nhật ký lỗi của mod, ba kẽ hở của lệnh kiểm chưa đạt)
 
