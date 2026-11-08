@@ -158,7 +158,7 @@ export type Focus = {
 function pipeSummaryHint(observation: ToolObservation, focus: Focus): Finding | null {
   if (observation.tool !== 'Bash' || observation.isError || observation.output === undefined || outputFailed(observation.output)) return null
   if (focus.hints?.has('pipe-summary')) return null
-  for (const effect of classifyBash(str(observation.input['command'])).effects) {
+  for (const effect of classifyBash(str(observation.input['command']), observation.cwd).effects) {
     if (effect.kind !== 'check' || !effect.trusted || effect.exit !== 'filtered' || effect.pipefail === true) continue
     if (!isCustomCheck(effect.segment) && !(effect.resolved !== undefined && isCustomCheck(effect.resolved))) continue
     if (!lacksSummary(observation.output)) continue
@@ -188,7 +188,7 @@ const SHAPE_COMMAND_MAX = 80
 function checkShapeHint(observation: ToolObservation, focus: Focus): Finding | null {
   if (observation.tool !== 'Bash' || observation.isError || outputFailed(observation.output)) return null
   if (focus.hints?.has('check-shape')) return null
-  for (const effect of classifyBash(str(observation.input['command'])).effects) {
+  for (const effect of classifyBash(str(observation.input['command']), observation.cwd).effects) {
     if (effect.kind !== 'check') continue
     const reason = rejectReason(effect, observation)
     if (reason === null || !SHAPE_REASONS.has(reason)) continue
@@ -320,7 +320,7 @@ export function trackVerification(tracker: TurnTracker, observation: ToolObserva
     return writes
   }
   if (observation.tool !== 'Bash') return writes
-  const classified = classifyBash(str(observation.input['command']))
+  const classified = classifyBash(str(observation.input['command']), observation.cwd)
   const counted = new Set<BashEffect>(writeEffects(classified, observation.isReadOnly))
   for (const effect of classified.effects) {
     if (effect.kind === 'write') {

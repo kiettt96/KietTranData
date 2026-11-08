@@ -3,8 +3,8 @@
 import { atom, derive, read, update } from 'claude-code'
 import { caught, noteHookError } from '../lib/errlog'
 import type { AgentState, Choice, Core, DelegationState, RetryItem, Warning } from '../../types'
-import { acceptsVerified, evidenceStrength, filePathOf, freshTestRun, isCheckTool, isExecuting, isSoftDocs, isFullyClosed, isGoalDone, isMutation, isPlanFile, markVerified, newTracker, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
-import type { Focus } from '../lib/drift'
+import { acceptsVerified, classifyBash, evidenceStrength, filePathOf, freshTestRun, isCheckTool, isExecuting, isSoftDocs, isFullyClosed, isGoalDone, isMutation, isPlanFile, markVerified, newTracker, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
+import type { Focus, ToolObservation } from '../lib/drift'
 import { checkCommand, checkSignature, coversFailure, isFailedRun } from '../lib/drift/evidence'
 import type { CheckRun, EvidenceEntry, EvidenceLog } from '../lib/drift/evidence'
 import { clipText } from '../lib/decisions'
@@ -36,6 +36,9 @@ const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EM
 const bandHiddenState = atom({ plugin: 'focus-conductor', key: 'isBandHidden' } as const, false)
 const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null)
 const quotaState = atom({ plugin: 'focus-conductor', key: 'quota' } as const, EMPTY_QUOTA)
+/** Thư mục làm việc của Bash sau cd cuối, theo luồng ('main') hay agentId (0.8.0 A1); tối đa BASH_DIRS khóa. */
+const bashDirState = atom({ plugin: 'focus-conductor', key: 'bashDirs' } as const, {} as Record<string, string>)
+const BASH_DIRS = 50
 
 /** Trần số lệnh kiểm chưa đạt có tên riêng (0.7.8 vòng sửa 3, W4); phần dư gộp vào một mục tổng, vẫn chặn và vẫn tính lượt. */
 const RETRY_ITEMS = 5
@@ -596,12 +599,25 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     if (result.deny !== undefined || e.tool === PLAN_TOOL_FULL) return result
     if ((await read($, mode)) === 'off') return result
 
-    const observation = {
+    const observation: ToolObservation = {
       tool: e.tool,
       input: e as unknown as Record<string, unknown>,
       isError: result.isError === true,
       isReadOnly: result.isReadOnly === true,
       output: result.text ?? (typeof result.result === 'string' ? result.result : undefined),
+    }
+    // Thư mục làm việc giữa các lần Bash (0.8.0 A1): engine không cho trường thư mục của Bash, và $.session.cwd() không theo cd của subagent
+    // (đo trên engine thật, xem DESIGN). Mod tự lưu thư mục sau cd cuối theo luồng hay agentId, mặc định thư mục gốc của phiên.
+    if (e.tool === 'Bash') {
+      const thread = e.agentId ?? 'main'
+      const dirs = await read($, bashDirState)
+      if (L.sessionRoot === undefined) L.sessionRoot = await $.session.root().catch(caught('session.root', null))
+      const base = dirs[thread] ?? L.sessionRoot ?? ''
+      if (base !== '') observation.cwd = base
+      const after = classifyBash(String(observation.input['command'] ?? ''), base).dir
+      if (after !== undefined && after !== dirs[thread]) {
+        await update($, bashDirState, d => Object.fromEntries([...Object.entries(d).filter(([key]) => key !== thread), [thread, after]].slice(-BASH_DIRS)))
+      }
     }
 
     if (e.agentId !== undefined) {

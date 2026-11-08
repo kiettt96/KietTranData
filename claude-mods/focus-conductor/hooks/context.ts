@@ -148,6 +148,8 @@ export function createContext(options: PluginOptions) {
     chainedNoted: new Set<string>(),
     /** Câu báo mục W4 do subagent tạo (0.8.0 A12), chờ gắn vào kết quả tool kế tiếp của luồng chính. */
     agentRetryNotes: [] as string[],
+    /** Thư mục gốc của phiên đọc một lần (0.8.0 A1), mặc định cho thư mục làm việc của Bash; undefined là chưa đọc, null là engine không trả. */
+    sessionRoot: undefined as string | null | undefined,
     /** Khóa lệnh ghi không rõ đích đã cảnh báo, theo mục tiêu (0.7.5): không cảnh báo lại ở mỗi turn. */
     unknownWrites: { goalId: -1, keys: new Set<string>() },
     /** Lời nhắc đã nói trong phiên (S5): không đặt lại theo mục tiêu hay turn. */

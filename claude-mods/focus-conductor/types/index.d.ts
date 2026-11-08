@@ -523,6 +523,8 @@ declare module 'claude-code' {
     'focus-conductor': {
       core: Core
       isBandHidden: boolean
+      /** Thư mục làm việc của Bash sau cd cuối, theo luồng ('main') hay agentId (0.8.0 A1). */
+      bashDirs: Record<string, string>
       /** Mốc thời gian (ms) tới khi nút Đặt lại đang chờ bấm lần hai; 0 khi không chờ. */
       resetArmedUntil: number
       /** Ghi đè chế độ lúc chạy qua /conductor mode; null nghĩa là theo cấu hình. */

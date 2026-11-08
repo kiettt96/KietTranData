@@ -13,7 +13,7 @@
 export type Mutant = { id: string; file: string; note: string; old: string; new: string; equivalent?: string }
 
 export const MUTANTS: Mutant[] = [
-  { id: "pr13-evidence", file: "hooks/lib/drift/evidence.ts", note: "gắn cả câu lệnh", old: "command: effect.segment.slice(0, 500)", new: "command: command.slice(0, 500)" },
+  { id: "pr13-evidence", file: "hooks/lib/drift/evidence.ts", note: "gắn cả câu lệnh", old: "command: (resolved ?? effect.segment).slice(0, 500)", new: "command: (resolved ?? command).slice(0, 500)" },
   { id: "r4-V1", file: "hooks/lib/drift/output.ts", note: "bỏ điều kiện tổng kết cuối", old: "return after.every(line => trailer.some(pattern => pattern.test(line))) && (", new: "return (" },
   { id: "r4-V2", file: "hooks/lib/drift/output.ts", note: "lấy dòng đạt đầu tiên", old: "const at = lines.findLastIndex(", new: "const at = lines.findIndex(" },
   { id: "r4-V3", file: "hooks/lib/drift/output.ts", note: "Jest nhận mọi dòng sau", old: "trailer: [/^Snapshots:", new: "trailer: [/./, /^Snapshots:" },
@@ -109,7 +109,7 @@ export const MUTANTS: Mutant[] = [
   { id: "F11", file: "hooks/lib/drift/classify.ts", note: "biến môi trường bỏ khỏi danh tính", old: "          ...piece.env.map(argToken),\n", new: "" },
   { id: "F12", file: "hooks/lib/drift/classify.ts", note: "nền không hidden", old: "      const exit = piece.background ? { exit: 'hidden' as const } : exitOf(list, index)", new: "      const exit = exitOf(list, index)" },
   { id: "F13", file: "hooks/lib/drift/identity.ts", note: "dùng segments cho lệnh kiểm tra", old: "  if (entry.argv !== undefined) return [identityOf(entry.argv)]", new: "  if (false) return []" },
-  { id: "F14", file: "hooks/lib/drift/classify.ts", note: "timeout N không bị bỏ", old: "    text = text.slice(assignments.length).replace(/^timeout\\s+\\d+\\s+/, '')", new: "    text = text.slice(assignments.length)" },
+  { id: "F14", file: "hooks/lib/drift/classify.ts", note: "timeout N không bị bỏ", old: "    text = text.slice(assignments.length).replace(TIMEOUT_PREFIX, '')", new: "    text = text.slice(assignments.length)" },
   { id: "F15", file: "hooks/lib/drift/classify.ts", note: "heredoc so như chữ thường", old: "m[2] === '<<' && m[3] === 'H' ? HEREDOC : argToken(m[3] ?? '')", new: "argToken(m[3] ?? '')" },
   { id: "F16", file: "hooks/lib/drift/claims.ts", note: "không tách <file ở evidence", old: "    if (input !== null) {", new: "    if (false) {" },
   { id: "F22", file: "hooks/lib/drift/classify.ts", note: "lookbehind của & đơn", old: "|\\n|(?<![>&|])&(?![>&]))/", new: "|\\n|&(?![>&]))/" },
@@ -1071,7 +1071,7 @@ export const MUTANTS: Mutant[] = [
   { id: "075-A4b", file: "hooks/lib/drift/classify.ts", note: "lệnh kiểm qua ống phải đứng đầu (không sau cd, set)", old: "const isLead = list.slice(0, index).every(isNeutral) && list.slice(1, index + 1).every(p => p.op === '&&' || p.op === ';')", new: "const isLead = index === 0" },
   { id: "075-A4c", file: "hooks/lib/drift/classify.ts", note: "set là lệnh lạ (ghi có thể)", old: "    if (name === 'set') {\n", new: "    if (false) {\n" },
   { id: "075-A4d", file: "hooks/lib/drift/classify.ts", note: "không nhận set -o pipefail", old: "if (!piece.background && /^-[a-zA-Z]*o$/.test(flag)) pipefail = true", new: "if (false) pipefail = true" },
-  { id: "075-A4e", file: "hooks/lib/drift/classify.ts", note: "không so dạng đã nối thư mục của cd", old: "const isResolvedCustom = resolved !== null && isCustomCheck(resolved)", new: "const isResolvedCustom = false" },
+  { id: "075-A4e", file: "hooks/lib/drift/classify.ts", note: "không so dạng đã nối thư mục của cd", old: "    let isResolvedCustom = resolved !== null && isCustomCheck(resolved)", new: "    let isResolvedCustom = false" },
   { id: "075-A4f", file: "hooks/lib/drift/output.ts", note: "dấu hiệu đạt thắng dấu hiệu lỗi", old: "  if (customFailed(output)) return false\n", new: "" },
   { id: "075-A4g", file: "hooks/lib/drift/output.ts", note: "0 lỗi tính là dấu hiệu lỗi", old: "const cleaned = text.replace(ZERO_FAILURES, ' ')", new: "const cleaned = text" },
   { id: "075-A4h", file: "hooks/lib/drift/output.ts", note: "head cắt output vẫn tính", old: "  if (isCut) return false\n", new: "" },
@@ -2005,4 +2005,9 @@ export const MUTANTS: Mutant[] = [
   { id: "080-A12a", file: "hooks/parts/consistency.ts", note: "lần chạy đạt sau khi hết lượt không trả bước về trạng thái và note cũ", old: "        plan = plan.map(s => (s.id === at.id ? { ...s, status, ...(back.note !== null ? { note: back.note } : { note: undefined }), auto: undefined } : s))\n", new: "" },
   { id: "080-A12b", file: "hooks/parts/consistency.ts", note: "trả bước về trạng thái cũ cả khi Claude đã tự sửa bước sau khi mod ghi blocked", old: "if (at === undefined || at.status !== 'blocked' || (at.note ?? '') !== back.mark) continue", new: "if (at === undefined) continue" },
   { id: "080-A12c", file: "hooks/parts/consistency.ts", note: "mục W4 do subagent tạo không báo luồng chính", old: "    if (!isMain && agent !== undefined) agentNotes.push(retryAgentNotice(run.command, agent))\n", new: "" },
+  { id: "080-A1a", file: "hooks/lib/drift/evidence.ts", note: "lần chạy lệnh khai lưu theo segment thay dạng đã giải", old: "      const resolved = effect.resolved\n", new: "      const resolved = undefined as string | undefined\n" },
+  { id: "080-A1b", file: "hooks/parts/consistency.ts", note: "bỏ thư mục làm việc lưu giữa các lần Bash", old: "      if (base !== '') observation.cwd = base\n", new: "" },
+  { id: "080-A1c", file: "hooks/lib/drift/verify.ts", note: "tên trần khớp đuôi nhận cả khi trùng từ hai lệnh khai", old: "  return hits.length === 1 ? (hits[0] ?? []).join(' ') : null", new: "  return hits.length >= 1 ? (hits[0] ?? []).join(' ') : null" },
+  { id: "080-A1d", file: "hooks/lib/drift/classify.ts", note: "bỏ giải biến gán trong cùng lệnh", old: "  const command = expandAssignments(input)\n", new: "  const command = input\n" },
+  { id: "080-A1e", file: "hooks/lib/drift/classify.ts", note: "chỉ bỏ tiền tố timeout dạng timeout <số>", old: "    text = text.slice(assignments.length).replace(TIMEOUT_PREFIX, '')", new: "    text = text.slice(assignments.length).replace(/^timeout\\s+\\d+\\s+/, '')" },
 ]

@@ -120,6 +120,33 @@ function matchesToken(declared: string, actual: string | undefined): boolean {
   return declared.endsWith('/') ? actual.startsWith(declared) && !PARENT_SEGMENT.test(actual) : actual === declared
 }
 
+/**
+ * Dạng chuẩn của lệnh khai (0.8.0 A1): token đã chuẩn hóa python và hạ chữ thường, nối bằng một khoảng trắng; null khi không phải lệnh khai.
+ * Chữ ký W4, coversFailure và danh tính so lệnh khai theo dạng này, nên `/usr/bin/python3 -B /a/x.py` và `python3 /a/x.py` là một lệnh.
+ */
+export function customKey(text: string): string | null {
+  return isCustomCheck(text) ? lowerTokens(text.trim().split(/\s+/).filter(Boolean)).join(' ') : null
+}
+
+/**
+ * Lệnh `python[3] [cờ] <tên>.py` chưa khớp lệnh khai nào (0.8.0 A1): đường dẫn script (tương đối) khớp đuôi theo ranh giới `/` với script của
+ * đúng một lệnh khai python, các token còn lại trùng nhau, thì trả dạng chuẩn của lệnh khai đó. Khớp từ hai lệnh khai trở lên, hay không khớp,
+ * thì null.
+ */
+export function suffixCustomCheck(text: string): string | null {
+  const tokens = lowerTokens(text.trim().split(/\s+/).filter(Boolean))
+  const script = tokens[1] ?? ''
+  if (!PYTHON_INTERPRETER.test(tokens[0] ?? '') || !script.endsWith('.py') || script.startsWith('/') || PARENT_SEGMENT.test(script)) return null
+  const hits = customChecks.filter(
+    command =>
+      command.length === tokens.length &&
+      PYTHON_INTERPRETER.test(command[0] ?? '') &&
+      (command[1] ?? '').endsWith(`/${script}`) &&
+      command.slice(2).every((token, at) => token === tokens[at + 2]),
+  )
+  return hits.length === 1 ? (hits[0] ?? []).join(' ') : null
+}
+
 /** Đoạn lệnh bắt đầu bằng đúng các token của một lệnh riêng (không phân biệt hoa thường, như phía claim của evidence). */
 export function isCustomCheck(text: string): boolean {
   const tokens = lowerTokens(text.trim().split(/\s+/).filter(Boolean))

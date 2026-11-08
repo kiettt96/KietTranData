@@ -2,7 +2,7 @@
 // Chuyển nguyên văn từ hooks/lib/drift.ts (tách theo tầng, không đổi hành vi); hooks/lib/drift.ts là barrel.
 
 import type { CheckKind } from './verify'
-import { isCheckTool } from './verify'
+import { customKey, isCheckTool } from './verify'
 import { FILE_TOOLS, filePathOf, isPlanFile, str } from './tool'
 import type { ToolObservation } from './tool'
 import { classifyBash } from './classify'
@@ -75,7 +75,7 @@ export function noteEvidence(log: EvidenceLog, observation: ToolObservation, aut
   }
   const command = str(observation.input['command']).trim()
   if (observation.tool === 'Bash' && command !== '') {
-    const classified = classifyBash(command)
+    const classified = classifyBash(command, observation.cwd)
     const counted = new Set<BashEffect>(writeEffects(classified, observation.isReadOnly))
     let hasCheck = false
     for (const effect of classified.effects) {
@@ -85,9 +85,11 @@ export function noteEvidence(log: EvidenceLog, observation: ToolObservation, aut
       }
       hasCheck = true
       log.seq += 1
+      // Lệnh khai giải được đường dẫn (0.8.0 A1): lưu dạng đã giải, để chữ ký, coversFailure và danh tính so cùng một dạng.
+      const resolved = effect.resolved
       log.commands.push({
-        command: effect.segment.slice(0, 500),
-        argv: effect.argv,
+        command: (resolved ?? effect.segment).slice(0, 500),
+        argv: resolved !== undefined ? [...effect.argv.filter(token => /^[A-Za-z_][A-Za-z0-9_]*=/.test(token)), ...resolved.split(/\s+/)] : effect.argv,
         raw: effect.raw.slice(0, 500),
         ok: checkEffectPassed(effect, observation),
         check: effect.check,
@@ -163,7 +165,7 @@ export function checkCommand(entry: EvidenceEntry): string {
 
 /** Chữ ký của lệnh kiểm: loại kiểm và lệnh đã chuẩn hóa. */
 export function checkSignature(run: CheckRun): string {
-  return `${run.check}:${run.command}`
+  return `${run.check}:${customKey(run.command) ?? run.command}`
 }
 
 /** Khóa engine đặt vào đầu vào của mọi tool call (tên tool, id của tool_use, agent gọi): không thuộc đầu vào của lần kiểm. */
@@ -404,6 +406,10 @@ function runnerParts(command: string): { flags: string[]; paths: string[] } {
 export function coversFailure(pass: CheckRun, fail: CheckRun): boolean {
   // Lần kiểm qua tool MCP (0.7.9 Y4): chỉ cùng tool, cùng đầu vào đã chuẩn hóa mới phủ; không áp isNarrow.
   if (isMcpRun(pass) || isMcpRun(fail)) return pass.check === fail.check && pass.command === fail.command
+  // Lệnh khai (0.8.0 A1): so theo dạng chuẩn sau khi giải đường dẫn và chuẩn hóa python; như trước, chỉ trùng lệnh mới phủ.
+  const passKey = customKey(pass.command)
+  const failKey = customKey(fail.command)
+  if (passKey !== null || failKey !== null) return pass.check === fail.check && passKey === failKey
   if (pass.check !== fail.check || runnerKey(pass.command) !== runnerKey(fail.command)) return false
   if (pass.command === fail.command) return true
   if (isNarrow(pass.command)) return false
