@@ -13,7 +13,7 @@ import { liveForks } from '../lib/forks'
 import { countLabel, progress } from '../lib/text'
 import type { BandQuota, QuotaPaneText } from '../lib/text'
 import { attentionItems } from './attention'
-import { labels, shownWarning, stepTaskMeta, taskLabel } from './labels'
+import { labels, shownEntry, stepTaskMeta, taskLabel } from './labels'
 import type { Run } from './style'
 import {
   FAMILY_HUE,
@@ -314,7 +314,7 @@ export function renderPane(
           )
           const message = (
             <Box flexGrow={1} flexShrink={1}>
-              <Text wrap="wrap" dimColor={w.isSoft === true}>{`${severityGlyph(severity)} ${shownWarning(w.text, view.lang)}`}</Text>
+              <Text wrap="wrap" dimColor={w.isSoft === true}>{`${severityGlyph(severity)} ${shownEntry(w, view.lang)}`}</Text>
             </Box>
           )
           // Pane hẹp: chip nằm trên dòng riêng để lời cảnh báo có đủ chiều rộng.

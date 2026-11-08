@@ -132,6 +132,7 @@ const VI = {
   warnings: 'Cảnh báo khác',
   attention: 'Cần chú ý',
   attentionMore: (n: number) => `+${n} mục khác`,
+  turnsSuffix: (n: number) => `(${n} turn)`,
   noWarnings: 'Không có cảnh báo.',
   checkHint: (list: string, isDir: boolean) =>
     `Mod chưa nhận script kiểm đã chạy là lệnh kiểm. Gợi ý khai option checkCommands của mod: ${list}.${isDir ? ' Tiền tố thư mục tin mọi script dưới thư mục đó: chỉ khai nếu thư mục chỉ chứa script kiểm.' : ''}`,
@@ -262,6 +263,7 @@ const EN: typeof VI = {
   warnings: 'Other warnings',
   attention: 'Needs attention',
   attentionMore: n => `+${n} more`,
+  turnsSuffix: n => `(${n} turns)`,
   noWarnings: 'No warnings.',
   checkHint: (list: string, isDir: boolean) =>
     `The mod does not recognize the check script that ran as a check. Suggested checkCommands option: ${list}.${isDir ? ' A directory prefix trusts every script under it: declare it only if the directory holds check scripts only.' : ''}`,
@@ -305,6 +307,12 @@ export function shownWarning(text: string, lang: Lang): string {
     .replace(WORD('lưu là done'), 'lưu là xong')
     .replace(WORD('verified'), 'đã kiểm chứng')
     .replace(WORD('evidence'), 'bằng chứng')
+}
+
+/** Dòng cảnh báo đã lưu khi vẽ (0.8.0 A5): câu hiển thị, kèm số turn khi nhiều turn liên tiếp cùng nguyên nhân gộp vào một dòng. */
+export function shownEntry(w: { text: string; turns?: number }, lang: Lang): string {
+  const text = shownWarning(w.text, lang)
+  return w.turns !== undefined && w.turns > 1 ? `${text} ${labels(lang).turnsSuffix(w.turns)}` : text
 }
 
 /**

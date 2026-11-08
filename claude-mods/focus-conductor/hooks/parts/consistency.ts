@@ -3,8 +3,8 @@
 import { atom, derive, read, update } from 'claude-code'
 import { caught, noteHookError } from '../lib/errlog'
 import type { AgentState, Choice, Core, DelegationState, RetryItem, Warning } from '../../types'
-import { acceptsVerified, classifyBash, evidenceStrength, filePathOf, freshTestRun, isCheckTool, isExecuting, isSoftDocs, isFullyClosed, isGoalDone, isMutation, isPlanFile, markVerified, newTracker, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
-import type { Focus, ToolObservation } from '../lib/drift'
+import { acceptsVerified, classifyBash, evidenceStrength, filePathOf, freshTestRun, hardChanges, isCheckTool, isExecuting, isFullyClosed, isGoalDone, isMutation, isPlanFile, markVerified, newTracker, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
+import type { Finding, Focus, ToolObservation, TurnTracker } from '../lib/drift'
 import { checkCommand, checkSignature, coversFailure, isFailedRun } from '../lib/drift/evidence'
 import type { CheckRun, EvidenceEntry, EvidenceLog } from '../lib/drift/evidence'
 import { clipText } from '../lib/decisions'
@@ -324,14 +324,15 @@ async function projectCheck($: EngineInterface, options: Ctx['options'], log: Ev
 }
 
 /**
- * Cổng Y6 (0.7.9): mục tiêu có thay đổi file mà chưa có lần kiểm nào chạy sau thay đổi cuối, turn không chỉ sửa tài liệu, tier không phải
- * trivial, dự án có lệnh kiểm rõ ràng, và mục tiêu chưa bị chặn vì lý do này: ghi khóa noCheckNudged rồi trả lý do. Không thì null.
+ * Cổng Y6 (0.7.9): mục tiêu có thay đổi chắc chắn vào file không nhẹ (0.8.0 A5: lệnh "có thể ghi", file dữ liệu và báo cáo không tính) mà
+ * chưa có lần kiểm nào chạy sau thay đổi cuối, tier không phải trivial, không còn subagent chạy chưa trả về, dự án có lệnh kiểm rõ ràng, và
+ * mục tiêu chưa bị chặn vì lý do này: ghi khóa noCheckNudged rồi trả lý do. Không thì null.
  */
-async function noCheckGate($: EngineInterface, options: Ctx['options'], core: Core, log: EvidenceLog, isDocsOnly: boolean): Promise<string | null> {
+async function noCheckGate($: EngineInterface, options: Ctx['options'], core: Core, log: EvidenceLog, isWaiting: boolean): Promise<string | null> {
   const brief = core.brief
-  if (brief === null || core.noCheckNudged === brief.goalId || brief.tier === 'trivial' || isDocsOnly) return null
+  if (brief === null || core.noCheckNudged === brief.goalId || brief.tier === 'trivial' || isWaiting) return null
   // Lần chạy nối && chưa rõ kết quả (0.8.0 A11) không tính là đã kiểm.
-  if (log.mutations === 0 || log.commands.some(entry => entry.check !== null && entry.chained !== true && entry.seq > log.lastMutation)) return null
+  if (log.hard === 0 || log.commands.some(entry => entry.check !== null && entry.chained !== true && entry.seq > log.lastHard)) return null
   const command = await projectCheck($, options, log)
   if (command === null) return null
   await update($, coreState, S.withNoCheckNudged(brief.goalId))
@@ -399,6 +400,54 @@ function agentEnd(reason: string, isPaused: boolean): { agent: Exclude<AgentStat
   if (reason === 'answer') return isPaused ? { agent: 'cut', delegation: 'failed' } : { agent: 'done', delegation: 'done' }
   if (reason === 'error') return { agent: 'failed', delegation: 'failed' }
   return { agent: isPaused ? 'cut' : 'failed', delegation: 'failed' }
+}
+
+/**
+ * Sau cảnh báo chưa kiểm của một turn (0.8.0 A5): toast một lần mỗi nguyên nhân trong mục tiêu (0.7.7 X4, khóa lưu trong Core nên giữ qua
+ * hot reload), dòng nhật ký quyết định (X5), và gợi ý khai lệnh kiểm khi cả turn không có lệnh kiểm nào được nhận (0.7.3).
+ */
+async function announceUnverified($: EngineInterface, ctx: Ctx, finding: Finding, tracker: TurnTracker, brief: Core['brief'], at: number, isPaused: boolean): Promise<void> {
+  if (brief !== null && finding.isSoft !== true) {
+    const key = finding.cause ?? finding.text
+    if (!S.isToasted(S.normalizeCore(await read($, coreState)), brief.goalId, key)) {
+      $.ui.toast(finding.text)
+      await update($, coreState, S.withToasted(brief.goalId, key))
+    }
+  }
+  const rejected = tracker.rejected.slice(-UNVERIFIED_REJECTED).map(r => ({ command: clipText(r.command, 120), reason: r.reason }))
+  ctx.record(at, 'unverified', { mutations: tracker.mutations, hard: hardChanges(tracker), maybe: tracker.maybe, checks: tracker.checks, rejected, soft: finding.isSoft === true })
+  await ctx.flushDecisions((path, text) => $.fs.write(path, text))
+  if (finding.isSoft !== true && tracker.checks === 0 && !isPaused && brief !== null) await offerCheckHint($, brief.goalId, suggestCheckCommands(ctx.evidenceFor(brief.goalId)))
+}
+
+/** Cảnh báo chưa kiểm cuối turn của một tracker, không tính phần nhẹ (0.8.0 A5). */
+function unverifiedOf(ctx: Ctx, tracker: TurnTracker, core: Core): Finding | undefined {
+  const suggestions = core.brief !== null && tracker.checks === 0 ? suggestCheckCommands(ctx.evidenceFor(core.brief.goalId)) : []
+  return summarize(tracker, core.brief, core.plan, suggestions).find(f => f.kind === 'unverified' && f.isSoft !== true)
+}
+
+/**
+ * Tính lại cảnh báo chưa kiểm đã hoãn vì còn subagent chạy (0.8.0 A5), khi không còn subagent nào chưa trả về: subagent cuối trả về
+ * hay Stop đầu tiên thấy không còn subagent. Thay đổi trong lúc chờ đã nằm trong tracker nên được đếm; đã kiểm thì không còn gì để báo.
+ * Trả đúng khi có cảnh báo mới để người gọi vẽ lại band.
+ */
+async function settleDeferred($: EngineInterface, ctx: Ctx): Promise<boolean> {
+  const L = ctx.local
+  if (L.liveAgents.size > 0 || L.deferred.length === 0) return false
+  const trackers = L.deferred
+  L.deferred = []
+  const core = S.normalizeCore(await read($, coreState))
+  if (core.brief === null || normalizeQuota(await read($, quotaState)).pause !== null) return false
+  const at = await $.clock.now()
+  let isChanged = false
+  for (const tracker of trackers) {
+    const finding = unverifiedOf(ctx, tracker, core)
+    if (finding === undefined) continue
+    await update($, coreState, S.withWarnings({ at, kind: 'unverified', text: finding.text, ...(finding.cause !== undefined ? { cause: finding.cause } : {}) }))
+    await announceUnverified($, ctx, finding, tracker, core.brief, at, false)
+    isChanged = true
+  }
+  return isChanged
 }
 
 export function registerConsistency(on: On, ctx: Ctx): void {
@@ -858,6 +907,8 @@ export function registerConsistency(on: On, ctx: Ctx): void {
   // checklist, giao subagent, hoặc làm tiếp mục tiêu); turn hỏi đáp thì không.
   on('classic.Stop', async ($, e, next) => {
     const result = await next(e)
+    // Stop đầu tiên không còn subagent nào chạy: tính lại cảnh báo chưa kiểm đã hoãn (0.8.0 A5).
+    if (await settleDeferred($, ctx)) await showStatus($, await read($, view), ctx.options)
     if (result.block || result.preventContinuation || !isExecuting(L.tracker, L.promptIntent)) return result
     if (ctx.options['enforceChecklist'] !== true || (await read($, mode)) === 'off') return result
     // Đang dừng vì hạn mức (hay người dùng tạm dừng): cho kết thúc, nếu không sẽ vòng lặp chặn khi mọi tool bị từ chối.
@@ -878,7 +929,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     if (e.stop_hook_active) return retryReason !== null ? { ...result, block: retryReason } : result
     let core = S.normalizeCore(await read($, coreState))
     // Đã sửa mà chưa chạy lần kiểm nào (0.7.9 Y6): sau W4, trước G1 và checklist; theo stop_hook_active như G1.
-    const noCheck = isNoticed || core.brief === null ? null : await noCheckGate($, ctx.options, core, evidenceFor(core.brief.goalId), isSoftDocs(L.tracker))
+    const noCheck = isNoticed || core.brief === null ? null : await noCheckGate($, ctx.options, core, evidenceFor(core.brief.goalId), L.liveAgents.size > 0)
     if (noCheck !== null) core = S.normalizeCore(await read($, coreState))
     const prior = retryReason !== null && noCheck !== null ? joinStopReasons(retryReason, noCheck) : retryReason ?? noCheck
     const plan = isNoticed ? [] : core.plan
@@ -907,6 +958,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       const agentId = e.agentId
       const meta = agents.get(agentId)
       steppedEarly.delete(agentId)
+      L.liveAgents.delete(agentId)
       if (e.usage) {
         const family = familyOf(e.usage.model) ?? meta?.family ?? 'sonnet'
         const core = S.normalizeCore(await read($, coreState))
@@ -941,17 +993,25 @@ export function registerConsistency(on: On, ctx: Ctx): void {
         const brief = S.normalizeCore(await read($, coreState)).brief
         if (brief !== null && brief.goalId === meta.goalId) await update($, coreState, S.withDelegations(brief.goalId, delegationItems(brief)))
       }
+      // Subagent cuối trả về (0.8.0 A5): tính lại cảnh báo chưa kiểm đã hoãn.
+      if (await settleDeferred($, ctx)) await showStatus($, await read($, view), ctx.options)
       return result
     }
 
     const core = S.normalizeCore(await read($, coreState))
     // Đang dừng vì hạn mức: không có thông báo cuối turn nào (Claude đã được yêu cầu chỉ ghi điểm dừng).
     const isPaused = normalizeQuota(await read($, quotaState)).pause !== null
-    const findings = isPaused ? [] : summarize(L.tracker, core.brief, core.plan, core.brief !== null && L.tracker.checks === 0 ? suggestCheckCommands(evidenceFor(core.brief.goalId)) : [])
+    const summary = isPaused ? [] : summarize(L.tracker, core.brief, core.plan, core.brief !== null && L.tracker.checks === 0 ? suggestCheckCommands(evidenceFor(core.brief.goalId)) : [])
+    // Còn subagent chạy chưa trả về (0.8.0 A5): hoãn cảnh báo chưa kiểm; thay đổi vẫn nằm trong tracker và được tính lại khi subagent cuối trả về.
+    const isWaiting = L.liveAgents.size > 0
+    const held = isWaiting ? summary.filter(f => f.kind === 'unverified' && f.isSoft !== true) : []
+    if (held.length > 0 && L.deferred.length < 5) L.deferred.push(L.tracker)
+    const findings = summary.filter(f => !held.includes(f))
     const warnings: Warning[] = findings.map(f => ({
       at,
       kind: f.kind === 'checkpoint' ? 'unverified' : f.kind,
       text: f.text,
+      ...(f.cause !== undefined ? { cause: f.cause } : {}),
       ...(f.isSoft === true ? { isSoft: true as const } : {}),
     }))
     let ledger = core.ledger
@@ -997,29 +1057,16 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     const hadFinding = L.liftRaised || unresolved.length > 0
     L.liftRaised = false
     await update($, coreState, c => {
-      const marked = S.withTurnMark(at, endContext)(S.withLedger(() => ledger)(S.withWarnings(...warnings)(c)))
+      // Turn không có cảnh báo chưa kiểm thì chuỗi turn cùng nguyên nhân đứt (0.8.0 A5); turn hoãn vì còn subagent chưa tính là đứt.
+      const isStreak = isPaused || held.length > 0 || findings.some(f => f.kind === 'unverified')
+      const marked = S.withTurnMark(at, endContext)(S.withLedger(() => ledger)(S.withWarnings(...warnings)(isStreak ? c : S.withCauseBreak(c))))
       if (unresolved.length > 0) return S.withLift(0, 1)(marked)
       return hadFinding ? marked : S.withLiftDecay(marked)
     })
     // Báo cáo cuối khi hết lượt (W4): Stop không mang chữ câu trả lời thì đối chiếu answer của turn này.
     if (!isPaused) await logExhausted($, retryDeps, S.normalizeCore(await read($, coreState)), e.reason === 'answer' ? e.answer : null, 'turn kết thúc không có câu trả lời')
     const unverified = findings.find(f => f.kind === 'unverified')
-    // Mỗi nguyên nhân toast một lần trong mục tiêu (0.7.7 X4); khóa lưu trong Core nên giữ qua hot reload. Band và pane vẫn ghi.
-    if (unverified && core.brief !== null && unverified.isSoft !== true) {
-      const key = unverified.cause ?? unverified.text
-      if (!S.isToasted(S.normalizeCore(await read($, coreState)), core.brief.goalId, key)) {
-        $.ui.toast(unverified.text)
-        await update($, coreState, S.withToasted(core.brief.goalId, key))
-      }
-    }
-    // Nhật ký quyết định (0.7.7 X5): vì sao turn bị báo chưa kiểm, kể cả khi không toast.
-    if (unverified) {
-      const rejected = L.tracker.rejected.slice(-UNVERIFIED_REJECTED).map(r => ({ command: clipText(r.command, 120), reason: r.reason }))
-      record(at, 'unverified', { mutations: L.tracker.mutations, checks: L.tracker.checks, rejected, soft: unverified.isSoft === true })
-      await flushDecisions((path, text) => $.fs.write(path, text))
-    }
-    // Cả turn không có lệnh kiểm nào được nhận: kèm gợi ý khai checkCommands nếu có script kiểm đã chạy (0.7.3).
-    if (unverified && unverified.isSoft !== true && L.tracker.checks === 0 && !isPaused && core.brief !== null) await offerCheckHint($, core.brief.goalId, suggestCheckCommands(evidenceFor(core.brief.goalId)))
+    if (unverified) await announceUnverified($, ctx, unverified, L.tracker, core.brief, at, isPaused)
     await showStatus($, await read($, view), ctx.options)
     return result
   })

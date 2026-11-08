@@ -3,7 +3,7 @@
 
 import type { PluginOptions, PromptOrigin } from 'claude-code'
 import type { Brief, Choice, Core, DelegationItem, DelegationState, Effort, Lift, Mode, ModelFamily, PlanStep, Route, RouteEvent, Task, Tier, Volume } from '../types'
-import { applyCheckCommands, applyCheckTools, applyPassLines, newEvidenceLog, newTracker, parseCheckCommands, parseCheckTools, parsePassLines } from './lib/drift'
+import { applyCheckCommands, applyCheckTools, applyPassLines, applySoftPaths, newEvidenceLog, newTracker, parseCheckCommands, parseCheckTools, parsePassLines, parseSoftPaths } from './lib/drift'
 import type { EvidenceLog, PromptIntent, TurnTracker } from './lib/drift'
 import { DEFAULT_CACHE_TTL_MINUTES, DEFAULT_CONTEXT, DEFAULT_WINDOWS, applyCacheWrite, applyPrices, parseCacheWrite, parsePrices } from './lib/cost'
 import { EFFORTS, decideMain, describePick, familyOf, hasTitleCode, liftPick, matchTask, parseModelMap, parseWindows } from './lib/route'
@@ -146,6 +146,10 @@ export function createContext(options: PluginOptions) {
     noticeTurn: null as string | null,
     /** Lệnh kiểm nối && đã được đề nghị chạy riêng trong turn này (0.8.0 A11), theo chữ ký lệnh. */
     chainedNoted: new Set<string>(),
+    /** Subagent đã khởi động mà chưa trả về (0.8.0 A5): còn mở thì hoãn cảnh báo chưa kiểm cuối turn và cổng Y6. */
+    liveAgents: new Set<string>(),
+    /** Tracker của turn đã hoãn cảnh báo chưa kiểm vì còn subagent chạy (0.8.0 A5); tính lại khi subagent cuối trả về hay ở Stop đầu tiên không còn subagent. */
+    deferred: [] as TurnTracker[],
     /** Câu báo mục W4 do subagent tạo (0.8.0 A12), chờ gắn vào kết quả tool kế tiếp của luồng chính. */
     agentRetryNotes: [] as string[],
     /** Thư mục gốc của phiên đọc một lần (0.8.0 A1), mặc định cho thư mục làm việc của Bash; undefined là chưa đọc, null là engine không trả. */
@@ -267,6 +271,7 @@ export function createContext(options: PluginOptions) {
   applyCheckCommands(parseCheckCommands(options['checkCommands']))
   applyCheckTools(parseCheckTools(options['checkTools']))
   applyPassLines(parsePassLines(options['passLines']))
+  applySoftPaths(parseSoftPaths(options['softPaths']))
 
   /** Chính sách áp lên mọi lựa chọn của router: allowFable, model của phiên, họ đang bị chặn, loại agent dùng được. */
   function policy(): Policy {
@@ -496,6 +501,8 @@ export function createContext(options: PluginOptions) {
     local.lastSwitch = null
     startedAgents.clear()
     spawnedIds.clear()
+    local.liveAgents.clear()
+    local.deferred = []
   }
 
   /** Hết chặn các họ model đã bị chặn đủ BLOCK_TURNS turn, để thử lại. */

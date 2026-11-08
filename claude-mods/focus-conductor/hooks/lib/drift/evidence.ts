@@ -8,6 +8,7 @@ import type { ToolObservation } from './tool'
 import { classifyBash } from './classify'
 import type { BashEffect } from './classify'
 import { writeEffects } from './effects'
+import { isHardEffect, isSoftPath } from './soft'
 import { checkEffectPassed, outputFailed, ranNothing, runnerOf } from './output'
 
 // ------------------------------------------------------------ đối chiếu evidence
@@ -41,6 +42,9 @@ export type EvidenceLog = {
   /** Thứ tự của thay đổi thành công cuối cùng; -1 khi mục tiêu chưa có thay đổi. */
   lastMutation: number
   mutations: number
+  /** Thay đổi chắc chắn vào file không nhẹ (0.8.0 A5), dùng cho cổng Y6: số lượng và thứ tự của lần cuối (-1 khi chưa có). */
+  hard: number
+  lastHard: number
   commands: EvidenceEntry[]
   /** Các lần ghi theo thứ tự và tác giả, để biết lần kiểm tra của một subagent phủ thay đổi của ai. */
   writes: Array<{ seq: number; author: string }>
@@ -58,7 +62,7 @@ const EVIDENCE_PATHS = 200
 const EVIDENCE_WRITES = 300
 
 export function newEvidenceLog(goalId: number): EvidenceLog {
-  return { goalId, seq: 0, lastMutation: -1, mutations: 0, commands: [], writes: [], paths: [] }
+  return { goalId, seq: 0, lastMutation: -1, mutations: 0, hard: 0, lastHard: -1, commands: [], writes: [], paths: [] }
 }
 
 /**
@@ -66,10 +70,14 @@ export function newEvidenceLog(goalId: number): EvidenceLog {
  * (kể cả trong lệnh Bash lỗi), và đường dẫn file. `author` là "main" hoặc id subagent.
  */
 export function noteEvidence(log: EvidenceLog, observation: ToolObservation, author = 'main'): void {
-  const onWrite = () => {
+  const onWrite = (isHard: boolean) => {
     log.seq += 1
     log.lastMutation = log.seq
     log.mutations += 1
+    if (isHard) {
+      log.hard += 1
+      log.lastHard = log.seq
+    }
     log.writes.push({ seq: log.seq, author })
     if (log.writes.length > EVIDENCE_WRITES) log.writes.shift()
   }
@@ -80,7 +88,7 @@ export function noteEvidence(log: EvidenceLog, observation: ToolObservation, aut
     let hasCheck = false
     for (const effect of classified.effects) {
       if (effect.kind === 'write') {
-        if (counted.has(effect)) onWrite()
+        if (counted.has(effect)) onWrite(isHardEffect(effect))
         continue
       }
       hasCheck = true
@@ -108,7 +116,7 @@ export function noteEvidence(log: EvidenceLog, observation: ToolObservation, aut
     log.commands.push({ command: checkToolCommand(observation.tool, observation.input), ok: checkToolPassed(observation), check: 'test', seq: log.seq, author, mcp: true })
     trimCommands(log)
   } else if (FILE_TOOLS.has(observation.tool) && !observation.isError && !isPlanFile(filePathOf(observation))) {
-    onWrite()
+    onWrite(!isSoftPath(filePathOf(observation)))
   } else {
     log.seq += 1
   }

@@ -182,6 +182,10 @@ export type Warning = {
   text: string
   /** Cảnh báo chưa kiểm ở mức nhẹ (0.7.7 X6): không vào band hay Cần chú ý, pane ghi mờ. Vắng ở trạng thái từ bản cũ. */
   isSoft?: true
+  /** Khóa nguyên nhân của cảnh báo chưa kiểm (0.8.0 A5): cảnh báo cùng khóa ở turn liền sau gộp vào dòng này thay vì thêm dòng mới. */
+  cause?: string
+  /** Số turn liên tiếp đã gộp vào dòng này (0.8.0 A5); vắng hay 1 là một turn. */
+  turns?: number
 }
 
 /** Nhóm chi phí: luồng chính, subagent, hoặc lượt router đọc prompt và chấm subagent (khóa cũ 'analyzer'). */

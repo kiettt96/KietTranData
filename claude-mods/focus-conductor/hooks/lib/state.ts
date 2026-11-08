@@ -588,12 +588,30 @@ export const withWarnings =
     const n = normalizeCore(c)
     let list = n.warnings
     for (const entry of entries) {
+      // Cùng khóa nguyên nhân ở turn liền sau (0.8.0 A5): một dòng, đếm số turn; chuỗi đứt khi một turn không có cảnh báo (withCauseBreak)
+      // hay khi sang mục tiêu mới.
+      if (entry.cause !== undefined) {
+        const at = list.findLastIndex(w => w.kind === entry.kind)
+        const prev = at >= 0 ? list[at] : undefined
+        if (prev !== undefined && prev.cause === entry.cause && prev.at >= (n.brief?.at ?? 0)) {
+          list = [...list.slice(0, at), { ...entry, turns: (prev.turns ?? 1) + 1 }, ...list.slice(at + 1)]
+          continue
+        }
+      }
       const last = list[list.length - 1]
       if (last && last.kind === entry.kind && last.text === entry.text) continue
       list = [...list, entry]
     }
     return list === n.warnings ? n : { ...n, warnings: list.slice(-WARNING_LIMIT) }
   }
+
+/** Turn không có cảnh báo chưa kiểm (0.8.0 A5): chuỗi turn cùng nguyên nhân đứt, lần sau cùng nguyên nhân là một dòng mới. */
+export const withCauseBreak = (c: Core): Core => {
+  const n = normalizeCore(c)
+  const at = n.warnings.findLastIndex(w => w.cause !== undefined)
+  if (at < 0) return n
+  return { ...n, warnings: n.warnings.map((w, i) => (i === at ? (({ cause: _cause, ...rest }) => rest)(w) : w)) }
+}
 
 /** Nâng cấp theo bằng chứng cho các turn sau của mục tiêu hiện tại. */
 export const withLift =

@@ -420,6 +420,8 @@ export function registerAgents(on: On, ctx: Ctx): void {
         fallback: false,
       })
     }
+    // Subagent đang chạy (0.8.0 A5): chưa trả về thì cảnh báo chưa kiểm cuối turn và cổng Y6 được hoãn.
+    if (agentId !== undefined && L.liveAgents.size < 1000) L.liveAgents.add(agentId)
     if (agentId !== undefined) {
       steppedEarly.delete(agentId)
       if (spawnedIds.size < 1000) spawnedIds.add(agentId)

@@ -79,6 +79,12 @@
       "description": "Tiền tố nguyên văn phân tách bằng dấu phẩy, ví dụ: TỔNG: ĐẠT,ALL CHECKS OK. Chỉ áp cho lệnh khai trong checkCommands chạy qua | tail hay | head không pipefail: dòng không rỗng cuối bắt đầu bằng một tiền tố (không phân biệt hoa thường) là dòng tổng kết đạt, khi cả output không có dấu hiệu lỗi và có phép kiểm đã chạy. Không dùng biểu thức chính quy. Để trống (mặc định): chỉ nhận các dạng tổng kết mod biết sẵn. (en) Comma-separated literal prefixes, e.g. TỔNG: ĐẠT,ALL CHECKS OK. Applies only to checkCommands entries run through | tail or | head without pipefail: a last non-empty line that starts with a prefix (case-insensitive) is a passing summary, provided the whole output shows no failure sign and something ran. No regular expressions. Empty (default): only the summary forms the mod already knows.",
       "default": ""
     },
+    "softPaths": {
+      "type": "string",
+      "title": "File dữ liệu và báo cáo là thay đổi nhẹ (soft paths)",
+      "description": "Glob phân tách bằng dấu phẩy, ví dụ: ket-qua/**,out/*.json. File khớp là thay đổi nhẹ: vẫn được đếm nhưng không đủ để cảnh báo \"không chạy bước kiểm tra nào\" hay để cổng Stop đòi lệnh kiểm. Đuôi .md .markdown .txt .csv .tsv .jsonl .log luôn là nhẹ; .json và .yaml không tự tính là nhẹ vì thường là cấu hình. Glob không bắt đầu bằng / khớp từ đầu một thư mục bất kỳ; ** khớp nhiều cấp thư mục. Để trống (mặc định): chỉ các đuôi trên. (en) Comma-separated globs, e.g. ket-qua/**,out/*.json. A matching file is a soft change: it is still counted but does not by itself trigger the \"no check ran\" warning or make the Stop gate ask for a check. The extensions .md .markdown .txt .csv .tsv .jsonl .log are always soft; .json and .yaml are not soft on their own because they are often configuration. A glob that does not start with / matches from any directory; ** spans directory levels. Empty (default): only the extensions above.",
+      "default": ""
+    },
     "routerSkip": {
       "type": "string",
       "title": "Prompt không cần hỏi router",

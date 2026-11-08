@@ -293,6 +293,8 @@ describe('0.5.1 vòng cuối: phân loại lệnh, subagent, lệnh lỗi, phạ
     await spawnTool($, 'u-s1', 'Sửa B', 'Sửa src/b.ts')
     await edit($, 'src/b.ts', 'sub-1')
     await $.turn.complete(MAIN_DONE)
+    // 0.8.0 A5: còn subagent chạy thì cảnh báo hoãn tới khi subagent trả về.
+    await $.turn.complete({ turnId: 'sub-1-end', agentId: 'sub-1', answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer' } as never)
     expect(seen.toasts.some(t => t.includes('sau lần kiểm tra cuối chưa được kiểm tra lại'))).toBe(true)
   })
 
@@ -312,6 +314,8 @@ describe('0.5.1 vòng cuối: phân loại lệnh, subagent, lệnh lỗi, phạ
     const done = await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'npm test: 12 pass' })
     expect(String(done.result)).toContain('[x] 1. Sửa')
     await $.turn.complete(MAIN_DONE)
+    // 0.8.0 A5: còn subagent chạy thì cảnh báo hoãn tới khi subagent trả về.
+    await $.turn.complete({ turnId: 'sub-2-end', agentId: 'sub-2', answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer' } as never)
     expect(seen.toasts.some(t => t.includes('chưa được kiểm tra lại') || t.includes('không chạy bước kiểm tra nào'))).toBe(true)
   })
 
@@ -370,10 +374,10 @@ describe('0.5.1 vòng cuối: phân loại lệnh, subagent, lệnh lỗi, phạ
     on('tool.call', { tool: 'Bash' }, () => ({ result: '12 pass' }))
     on('turn.complete', () => ({ text: '' }))
     await submit($, 'Chỉ sửa trong src/: sửa hàm charge')
-    const combined = await bash($, 'npm test && echo changed > ../outside.txt')
-    expect((combined.context ?? []).join('\n')).toContain('/outside.txt, nằm ngoài phạm vi')
-    const piped = await bash($, 'npm test | tee ../out.log')
-    expect((piped.context ?? []).join('\n')).toContain('/out.log, nằm ngoài phạm vi')
+    const combined = await bash($, 'npm test && echo changed > ../outside.ts')
+    expect((combined.context ?? []).join('\n')).toContain('/outside.ts, nằm ngoài phạm vi')
+    const piped = await bash($, 'npm test | tee ../out.ts')
+    expect((piped.context ?? []).join('\n')).toContain('/out.ts, nằm ngoài phạm vi')
     await $.turn.complete(MAIN_DONE)
     expect(seen.toasts.some(t => t.includes('chưa được kiểm tra lại') || t.includes('không chạy bước kiểm tra nào'))).toBe(true)
   })
