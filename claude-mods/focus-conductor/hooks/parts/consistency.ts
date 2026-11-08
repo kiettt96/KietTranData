@@ -547,7 +547,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     // Checklist mới giữa mục tiêu (0.8.0 A3): việc đã xong theo checklist cũ được cất vào đợt trước (nhật ký phase, cause plan-set);
     // việc chưa xong vẫn hiển thị.
     const hasSteps = isSet && Array.isArray(input.steps) && input.steps.length > 0
-    const doneTasks = hasSteps && before.brief !== null && before.plan.length > 0 ? taskRows(before, await $.clock.now()).filter(row => row.index !== undefined && row.kind !== 'main' && row.state === 'done').map(row => row.index as number) : []
+    const doneTasks = hasSteps && before.brief !== null && before.plan.length > 0 ? taskRows(before, await $.clock.now()).filter(row => row.index !== undefined && row.kind !== 'main' && row.state === 'done' && row.bar.kind === 'steps').map(row => row.index as number) : []
     const opened = doneTasks.length > 0 && before.brief !== null ? openPhase(before.brief, new Set(doneTasks)) : null
     let core = await update($, coreState, c => {
       const withPlan = S.withPlan(outcome.plan)(opened !== null ? S.withNoCheckNudged(-1)(S.withBrief(opened.brief)(c)) : c)

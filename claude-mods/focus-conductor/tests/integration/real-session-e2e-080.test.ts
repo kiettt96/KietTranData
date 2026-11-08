@@ -145,6 +145,17 @@ describe('0.8.0: kịch bản đầu cuối tái hiện phiên thật', () => {
     expect(injected + contexts.reduce((sum, c) => sum + c.length, 0)).toBeGreaterThan(0)
   })
 
+  test('checklist đóng hết bằng các bước không mang mã việc: prompt mở đợt không cất việc nào chưa có bước riêng', { options: { decisionLog: LOG } }, async ($, on) => {
+    const { seen, lines } = setup(on)
+    await submit($, 'Chạy lô kiểm giá S0 đến S3')
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Chuẩn bị dữ liệu' }, { title: 'Dọn thư mục tạm' }] })
+    await $.turn.start({ text: 'Chạy lô kiểm giá', turnId: 't1' })
+    await step($, seen, { turnId: 't1' })
+    for (const id of [1, 2]) await $.tool.call({ tool: PLAN, action: 'update', step: id, status: 'done' })
+    await submit($, listOf('T', 4))
+    expect(lines().filter(l => l['kind'] === 'phase').map(l => l['tasks'])).toEqual([0])
+  })
+
   test('lệnh ghép && ls trả mã 1 trong đợt đầu: không tạo mục W4, có đúng một câu đề nghị chạy riêng', { options: { checkCommands: `${CHECK_A},${CHECK_B}`, decisionLog: LOG } }, async ($, on) => {
     const { seen, lines } = setup(on)
     await submit($, 'Chạy lô kiểm giá S0 đến S3')

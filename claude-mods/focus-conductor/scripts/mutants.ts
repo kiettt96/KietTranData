@@ -2031,4 +2031,6 @@ export const MUTANTS: Mutant[] = [
   { id: "080-A9a", file: "hooks/lib/errlog.ts", note: "sự cố hành vi không gộp theo khóa: mỗi lần một mục mới", old: "  const index = file.entries.findIndex(entry => entry.key === key)\n  if (index >= 0) {\n    const old", new: "  const index = event.group === 'behavior' ? -1 : file.entries.findIndex(entry => entry.key === key)\n  if (index >= 0) {\n    const old" },
   { id: "080-A9b", file: "hooks/parts/consistency.ts", note: "verify-reject ghi nhật ký lỗi ngay lần đầu", old: "if (rejects >= 2) noteBehavior(", new: "if (rejects >= 1) noteBehavior(" },
   { id: "080-A13a", file: "hooks/parts/session.ts", note: "bỏ qua headlessRouting, phiên không tương tác vẫn điều phối", old: "    if (e.isInteractive === false && ctx.options['headlessRouting'] !== 'auto') {", new: "    if (false) {" },
+  { id: "080-A3e", file: "hooks/parts/consistency.ts", note: "plan set cất cả việc chưa có bước riêng khi checklist cũ đóng hết", old: "row.state === 'done' && row.bar.kind === 'steps')", new: "row.state === 'done')" },
+  { id: "080-A3f", file: "hooks/parts/session.ts", note: "prompt mở đợt cất cả việc chưa có bước riêng khi checklist đóng hết", old: "row.state === 'done' && row.bar.kind === 'steps')", new: "row.state === 'done')" },
 ]
