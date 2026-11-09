@@ -306,6 +306,22 @@ export function skippedContext(brief: Brief, plan: readonly PlanStep[]): string 
     .join('\n')
 }
 
+/**
+ * Tin hỏi tiến độ (0.8.2 N1, intent status): trả lời từ checklist, không làm thêm việc, không đổi checklist; tin đến giữa turn thì trả lời
+ * một dòng rồi làm tiếp bước đang làm. Tối đa 300 ký tự.
+ */
+export function intentStatusContext(isInterject: boolean): string {
+  return isInterject
+    ? '[focus-conductor] Tin hỏi tiến độ giữa turn: trả lời một dòng từ checklist, rồi làm tiếp bước đang làm. Không thêm việc, không đổi checklist.'
+    : '[focus-conductor] Tin hỏi tiến độ: trả lời từ checklist hiện có (bước đã xong, đang làm, còn lại). Không làm thêm việc, không đổi checklist.'
+}
+
+/** Tin bảo chạy tiếp (0.8.2 N1, intent resume; approve khi không có kế hoạch chờ duyệt): chạy tiếp từ bước đang mở. Tối đa 300 ký tự. */
+export function intentResumeContext(plan: readonly PlanStep[]): string {
+  const next = openSteps(plan)[0]
+  return `[focus-conductor] Tin bảo chạy tiếp: chạy tiếp từ ${next !== undefined ? `bước ${next.id}. ${clipItem(next.title, 80)}` : 'bước đang mở'}; không thêm việc mới.`
+}
+
 /** strictDelegation "block": lý do từ chối luồng chính tự sửa file khi còn việc ghi giao subagent chưa giao. */
 export function blockText(waiting: readonly string[], left: number): string {
   return (

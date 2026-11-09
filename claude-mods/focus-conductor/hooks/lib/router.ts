@@ -7,12 +7,12 @@
 
 import type { ModelCompleteRequest, ModelCompleteResult, ModelTextBlock, ModelUsage } from 'claude-code'
 
-import type { Brief, Choice, Depth, Effort, ForkSplit, Kind, ModelFamily, Relation, RouterFail, RouterFailKind, Task, Tier, Volume } from '../../types'
+import type { Brief, Choice, Depth, Effort, ForkSplit, Intent, Kind, ModelFamily, Relation, RouterFail, RouterFailKind, Task, Tier, Volume } from '../../types'
 import { PRICE } from './cost'
 import type { Price } from './cost'
 import { EFFORTS, FAMILIES, applySession, avoidBlocked, codesIn, describePick, effortRank, familyOf, familyRank, sessionFloor } from './route'
 import type { SessionModel } from './route'
-import { DEPTHS, KINDS, RELATIONS, VOLUMES, maxTier, tierOf } from './scale'
+import { DEPTHS, INTENTS, KINDS, RELATIONS, VOLUMES, maxTier, tierOf } from './scale'
 
 /** Chính sách lựa chọn model áp lên mọi kết quả của router. */
 export type Policy = {
@@ -125,11 +125,12 @@ Relation to the previous goal (shown in <context>):
 - new: a different goal. continue: keep going on the previous goal. refine: a small change or addition to it. dissatisfied: the previous result is still wrong; choose the main model or effort one step above what the main thread ran.
 - For continue, refine and dissatisfied: goal may repeat the previous goal, and tasks lists only NEW pieces of work added by this request ([] if none).
 - runReference: true only when the previous goal was a reference-only review and the user now asks to actually run that prompt.
+- intent, for a message about the goal in <context>: "status" only asks about progress or state ("tới đâu rồi", "xong chưa", "how is it going"); "resume" says to keep going and adds nothing ("tiếp", "chạy tiếp đi", "continue"); "approve" accepts the plan <context> says awaits approval ("ok duyệt", "kế hoạch ổn, làm đi", "approved"); "amend" adds to or changes what the goal asks ("thêm cả phần README", "nhớ sửa luôn test", "also update the changelog"); "task" for anything else ("viết hàm đổi ngày sang ISO", "tạo trang giới thiệu mới", "write a CSV parser") and always with relation new. For status, resume and approve, tasks and requirements are [].
 
 Use only the models <context> lists as allowed. Write every string, "why" included, in the language of the request: a Vietnamese request gets Vietnamese strings.
 Keep the reply short, it is read by a program: "why" of the request is one sentence under 25 words; "why" of main and of each task is under 15 words.
 Reply with ONE JSON object and nothing else. Fill "why" first. "confidence" is how sure you are of the routing, from 0 to 1.
-{"why": string, "confidence": number, "relation": "new"|"continue"|"refine"|"dissatisfied", "reference": boolean, "runReference": boolean, "goal": string, "requirements": string[], "constraints": string[], "quality": string[], "scope": string[], "depth": "none"|"light"|"substantial"|"hard", "volume": "small"|"medium"|"large", "kind": "answer"|"edit"|"investigate"|"mixed", "main": {"model": "haiku"|"sonnet"|"opus"|"fable", "effort": "low"|"medium"|"high"|"xhigh", "why": string}, "referenceMain": {"model": string, "effort": string}, "tasks": [{"title": string, "covers": number[], "run": "main"|"agent", "agent": string, "model": string, "effort": string, "depth": string, "volume": string, "kind": string, "why": string}]}
+{"why": string, "confidence": number, "relation": "new"|"continue"|"refine"|"dissatisfied", "intent": "status"|"resume"|"approve"|"amend"|"task", "reference": boolean, "runReference": boolean, "goal": string, "requirements": string[], "constraints": string[], "quality": string[], "scope": string[], "depth": "none"|"light"|"substantial"|"hard", "volume": "small"|"medium"|"large", "kind": "answer"|"edit"|"investigate"|"mixed", "main": {"model": "haiku"|"sonnet"|"opus"|"fable", "effort": "low"|"medium"|"high"|"xhigh", "why": string}, "referenceMain": {"model": string, "effort": string}, "tasks": [{"title": string, "covers": number[], "run": "main"|"agent", "agent": string, "model": string, "effort": string, "depth": string, "volume": string, "kind": string, "why": string}]}
 
 Examples (abridged):
 - "Liệt kê các hàm export trong utils.ts" -> depth none, kind answer, main haiku/low, tasks [].
@@ -350,6 +351,8 @@ export function routerRequest(args: {
   observed?: string
   /** Tin người dùng gửi chen ngang khi luồng chính đang làm mục tiêu hiện tại (0.7.8 G9): bước đang mở, rỗng là chưa có bước. */
   interject?: { step: string }
+  /** Đang chờ người dùng (0.8.2 N1, N2): duyệt kế hoạch đã trình, hay trả lời câu hỏi làm rõ. */
+  awaiting?: 'approval' | 'answer'
   /** Bảng giá cho catalog; mặc định là bảng đang dùng (golden-set truyền bảng kèm mod để băm ổn định). */
   prices?: Record<ModelFamily, Price>
   /** Model người dùng chạy phiên (0.7.4), biết từ step đầu; vắng thì không có dòng Session model. */
@@ -363,6 +366,8 @@ export function routerRequest(args: {
     agentsLine(args.policy),
     ...(args.isForcedNew ? ['The user set this goal by command: relation must be "new".'] : []),
     ...((args.openSteps?.length ?? 0) > 0 ? [`Open checklist steps (still unfinished): ${(args.openSteps ?? []).slice(0, OPEN_STEPS_LIMIT).map(s => fence(clip(s, 100))).join('; ')}`] : []),
+    ...(args.awaiting === 'approval' ? ['A plan for the current goal was presented and awaits the user\'s approval: a short yes, ok or approval is intent approve.'] : []),
+    ...(args.awaiting === 'answer' ? ['The main model asked the user clarifying questions about the current goal and awaits the answers: a short reply answers them (intent amend), not a new goal.'] : []),
     ...(args.interject ? [`The user sent this while the main model was still working on the current goal${args.interject.step ? ` (open step: ${fence(clip(args.interject.step, 100))})` : ''}; read it as an addition to that goal unless it clearly replaces it.`] : []),
     ...(args.observed ? [`Observed in the previous turn (the main model's choice fell short; re-read the work and raise "main" model or effort if it is harder than first judged): ${fence(clip(args.observed, 400))}`] : []),
   ]
@@ -647,6 +652,8 @@ export type RouterPlan = {
    */
   confidence: number | undefined
   relation: Relation
+  /** Ý của tin nhắn (0.8.2 N1), đã kẹp: thiếu hay sai là task, relation new luôn là task. */
+  intent: Intent
   isReference: boolean
   runReference: boolean
   goal: string
@@ -902,6 +909,7 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
     why: text(raw['why'], 200),
     confidence: confidenceOf(raw['confidence']),
     relation,
+    intent: relation === 'new' ? 'task' : (INTENTS.find(i => i === raw['intent']) ?? 'task'),
     isReference,
     runReference,
     goal,
@@ -920,6 +928,14 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
     ...(rawTasks.length > TASK_LIMIT ? { droppedTasks: rawTasks.length - TASK_LIMIT } : {}),
     ...(droppedSplits > 0 ? { droppedSplits } : {}),
   }
+}
+
+/**
+ * Kẹp ý của tin nhắn theo trạng thái của mục tiêu (0.8.2 N1): approve khi không có kế hoạch chờ duyệt là resume. Thiếu, sai và relation
+ * new đã kẹp về task ở parseRoute.
+ */
+export function clampIntent(intent: Intent, isPresented: boolean): Intent {
+  return intent === 'approve' && !isPresented ? 'resume' : intent
 }
 
 /** Số việc tối đa router phân cho một prompt. */

@@ -14,6 +14,7 @@ export function check(c: GoldenCase, reply: string): string[] {
   const e = c.expect
   if (e.relation !== undefined && plan.relation !== e.relation) fails.push(`relation ${plan.relation}, cần ${e.relation}`)
   if (e.relations !== undefined && !e.relations.includes(plan.relation)) fails.push(`relation ${plan.relation}, cần ${e.relations.join('|')}`)
+  if (e.intent !== undefined && !e.intent.includes(plan.intent)) fails.push(`intent ${plan.intent}, cần ${e.intent.join('|')}`)
   if (e.scope !== undefined && !plan.scope.includes(e.scope)) fails.push(`phạm vi ${JSON.stringify(plan.scope)}, cần có ${e.scope}`)
   if (e.reference !== undefined && plan.isReference !== e.reference) fails.push(`reference ${plan.isReference}, cần ${e.reference}`)
   if (e.kind !== undefined && !e.kind.includes(plan.kind)) fails.push(`kind ${plan.kind}, cần ${e.kind.join('|')}`)

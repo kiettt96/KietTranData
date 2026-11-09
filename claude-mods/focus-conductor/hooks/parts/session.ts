@@ -8,12 +8,12 @@ import { openSteps, restorableSteps } from '../lib/drift'
 import { PLAN_TOOL_SPEC } from '../lib/plan'
 import { describePick, effortRank, familyOf, familyRank } from '../lib/route'
 import { clipText, keptLines } from '../lib/decisions'
-import { CLIPPED_CONTEXT, ROUTER_TASK_LIMIT, askRouter, bareBrief, clippedWarning, dropSplit, isClippedPrompt, failFields, isSkippable, needsCoverageRecheck, nextBrief, parseRoute, routerFailOf, routerRequest } from '../lib/router'
+import { CLIPPED_CONTEXT, ROUTER_TASK_LIMIT, askRouter, bareBrief, clampIntent, clippedWarning, dropSplit, isClippedPrompt, failFields, isSkippable, needsCoverageRecheck, nextBrief, parseRoute, routerFailOf, routerRequest } from '../lib/router'
 import type { RouterOutcome, RouterPlan } from '../lib/router'
 import { EMPTY_QUOTA, blockingHits, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaSettings, reasonsOf, softNotices } from '../lib/quota'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
-import { DISCIPLINE, phaseNotice, briefContext, droppedItemsText, droppedPlanNotice, followUpContext, interjectContext, interjectMovedNote, quotaPausedContext, resetLabel, resumeCommand, restorableLabel, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
+import { DISCIPLINE, phaseNotice, briefContext, droppedItemsText, droppedPlanNotice, followUpContext, intentResumeContext, intentStatusContext, interjectContext, interjectMovedNote, quotaPausedContext, resetLabel, resumeCommand, restorableLabel, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -255,14 +255,31 @@ export function registerSession(on: On, ctx: Ctx): void {
     }
     // Tiếp tục điểm dừng khi router xếp tiếp nối, hoặc khi người dùng vừa gõ /conductor resume (khi đó router xếp mục
     // tiêu mới thì vẫn giữ mục tiêu đã khôi phục).
-    const isResuming = openCp !== null && (isArmed || (!L.noAutoResume && outcome.result !== null && outcome.result.relation !== 'new'))
+    // Tin hỏi tiến độ (0.8.2 N1) không tiếp tục điểm dừng: chỉ báo cáo.
+    const isResuming = openCp !== null && (isArmed || (!L.noAutoResume && outcome.result !== null && outcome.result.relation !== 'new' && outcome.result.intent !== 'status'))
     if (isArmed) L.noAutoResume = false
     const routed = outcome.result !== null && isResuming && isArmed && prev !== null && outcome.result.relation === 'new' ? { ...outcome.result, relation: 'continue' as const } : outcome.result
     // Tin chen ngang router xếp mục tiêu mới: không đổi mục tiêu, việc và ràng buộc vào như prompt tiếp nối (0.7.8 G9).
-    const plan = isInterject && routed !== null && routed.relation === 'new' ? { ...routed, relation: 'continue' as const } : routed
+    const steered = isInterject && routed !== null && routed.relation === 'new' ? { ...routed, relation: 'continue' as const } : routed
+    // Ý của tin nhắn (0.8.2 N1): chỉ có nghĩa khi đã có mục tiêu; approve khi không có kế hoạch chờ duyệt là resume.
+    const intent = steered !== null && prev !== null ? clampIntent(steered.intent, false) : 'task'
+    L.lastIntent = steered !== null ? intent : null
+    // Tin bảo chạy tiếp: không thêm việc, không gộp yêu cầu.
+    const plan = steered !== null && intent === 'resume' ? { ...steered, tasks: [], requirements: [] } : steered
     const lead = isResuming ? await startResume() : []
     const tail = isResuming ? [] : pending
     const now = await $.clock.now()
+    // Tin hỏi tiến độ (0.8.2 N1): không đổi brief, checklist, việc, yêu cầu hay ràng buộc; chỉ cộng chi phí router. Tin gửi khi không có
+    // turn đang chạy thì turn đó là hỏi đáp (không qua các cổng Stop); tin chen ngang không đổi trạng thái thực thi của turn đang chạy.
+    if (plan !== null && prev !== null && intent === 'status') {
+      if (!isInterject) L.promptIntent = { relation: 'continue', kind: 'answer' }
+      await update($, coreState, c => S.withRouterFail(null)(S.withAnalyzerUsage(outcome.usages, routerFamily)(c)))
+      L.lastPrompt = { text, prev, goalId: prev.goalId }
+      record(now, 'route', { prompt: clipText(text), relation: plan.relation, intent, confidence: plan.confidence, retried: outcome.retried, goalId: prev.goalId })
+      await flushDecisions((path, text) => $.fs.write(path, text))
+      await showStatus($, await read($, view), ctx.options)
+      return next({ ...e, context: [...lead, ...(e.context ?? []), intentStatusContext(isInterject), ...tail] })
+    }
     // Router không đọc được thì không biết turn là hỏi đáp hay làm tiếp: Stop chỉ dựa vào hành vi tool.
     L.promptIntent = plan !== null ? { relation: plan.relation, kind: plan.isReference && !plan.runReference ? 'answer' : plan.kind } : null
     const withUsage = (c: Core): Core =>
@@ -387,7 +404,9 @@ export function registerSession(on: On, ctx: Ctx): void {
     const lifted = new Set(lift.map(t => t.index))
     const shownAdded = added.map(t => (isSplitHeld || lifted.has(t.index) ? dropSplit(t) : t))
     const shownBrief: Brief = isSplitHeld ? { ...brief, tasks: brief.tasks.map(dropSplit) } : brief
-    const context = isInterject && !isNewGoal
+    const context = intent === 'resume' && !isNewGoal
+      ? intentResumeContext(core.plan)
+      : isInterject && !isNewGoal
       ? interjectContext(brief, core.plan, shownAdded, newConstraints, { main: running !== null ? describePick(running) : 'model đang chạy', mayReplace: routed?.relation === 'new', isRouted: true })
       : isNewGoal
         ? briefContext(shownBrief, expected, isApplied)
@@ -403,6 +422,7 @@ export function registerSession(on: On, ctx: Ctx): void {
     record(now, 'route', {
       prompt: clipText(text),
       relation: plan.relation,
+      intent,
       confidence: plan.confidence,
       retried: outcome.retried,
       main: brief.main,

@@ -2,7 +2,7 @@
 // mà nhiều nhóm hook cùng dùng. Không gọi $: lệnh gọi $ nằm trong thân hook ở hooks/parts/.
 
 import type { PluginOptions, PromptOrigin } from 'claude-code'
-import type { Brief, Choice, Core, DelegationItem, DelegationState, Effort, Lift, Mode, ModelFamily, PlanStep, Route, RouteEvent, Task, Tier, Volume } from '../types'
+import type { Brief, Choice, Core, DelegationItem, DelegationState, Effort, Intent, Lift, Mode, ModelFamily, PlanStep, Route, RouteEvent, Task, Tier, Volume } from '../types'
 import { applyCheckCommands, applyCheckTools, applyPassLines, applySoftPaths, newEvidenceLog, newTracker, parseCheckCommands, parseCheckTools, parsePassLines, parseSoftPaths } from './lib/drift'
 import type { EvidenceLog, PromptIntent, TurnTracker } from './lib/drift'
 import { DEFAULT_CACHE_TTL_MINUTES, DEFAULT_CONTEXT, DEFAULT_WINDOWS, applyCacheWrite, applyPrices, parseCacheWrite, parsePrices } from './lib/cost'
@@ -95,6 +95,8 @@ export function createContext(options: PluginOptions) {
     evidenceLogs: new Map<number, EvidenceLog>(),
     /** Cách router đọc prompt gần nhất (quan hệ với mục tiêu, bản chất việc): để Stop phân biệt hỏi đáp với thực thi. */
     promptIntent: null as PromptIntent,
+    /** Ý của tin nhắn cuối router đã đọc (0.8.2 N1), cho /conductor status; null khi router chưa đọc được. */
+    lastIntent: null as Intent | null,
     /** Thư mục gốc của phiên chốt cho từng mục tiêu có giới hạn phạm vi (null: engine không trả được). */
     roots: new Map<number, string | null>(),
     /** Thời gian chạy (ms) của các lượt router gần nhất. */

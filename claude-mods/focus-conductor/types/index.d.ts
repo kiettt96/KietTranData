@@ -15,6 +15,8 @@ export type Kind = 'answer' | 'edit' | 'investigate' | 'mixed'
 
 /** Quan hệ của prompt mới với mục tiêu đang mở. */
 export type Relation = 'new' | 'continue' | 'refine' | 'dissatisfied'
+/** Ý của tin nhắn (0.8.2 N1): hỏi tiến độ, bảo chạy tiếp, đồng ý kế hoạch chờ duyệt, bổ sung yêu cầu, hay việc khác. */
+export type Intent = 'status' | 'resume' | 'approve' | 'amend' | 'task'
 
 /** Mức effort mà các model hiện tại nhận. */
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'

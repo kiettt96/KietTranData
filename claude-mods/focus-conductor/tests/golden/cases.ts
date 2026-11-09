@@ -3,7 +3,7 @@
 // scripts/eval-router.ts gửi cùng request tới router thật và chấm theo cùng kỳ vọng.
 // Kỳ vọng ghi theo khoảng chấp nhận được (họ model, loại agent, số việc), không theo một câu trả lời duy nhất.
 
-import type { Brief, Kind, ModelFamily, Relation } from '../../types'
+import type { Brief, Intent, Kind, ModelFamily, Relation } from '../../types'
 import { briefOf, parseRoute } from '../../hooks/lib/router'
 import type { Policy } from '../../hooks/lib/router'
 import { LONG_VN_EXTRA, LONG_VN_PROMPT } from '../fixtures/prompt-long-vn'
@@ -53,9 +53,22 @@ export type Expect = {
   codes?: readonly string[]
   /** Quy định model theo loại việc (0.7.4): ràng buộc đầu tiên phải chứa một trong các chuỗi này (không phân biệt hoa thường). */
   modelRule?: readonly string[]
+  /** Ý của tin nhắn chấp nhận được (0.8.2 N1), sau kẹp của parseRoute. */
+  intent?: readonly Intent[]
 }
 
-export type GoldenCase = { id: string; text: string; prev?: Brief; ran?: string; expect: Expect; note: string }
+export type GoldenCase = {
+  id: string
+  text: string
+  prev?: Brief
+  ran?: string
+  /** Bước còn mở của checklist (0.8.2 N1). */
+  openSteps?: readonly string[]
+  /** Đang chờ người dùng duyệt kế hoạch hay trả lời câu hỏi (0.8.2 N1). */
+  awaiting?: 'approval' | 'answer'
+  expect: Expect
+  note: string
+}
 
 export const CASES: readonly GoldenCase[] = [
   {
@@ -285,5 +298,143 @@ export const CASES: readonly GoldenCase[] = [
       codes: Array.from({ length: 11 }, (_, i) => `BƯỚC ${i}`),
       modelRule: ['sonnet', 'model của phiên', 'mô hình của phiên'],
     },
+  },
+  {
+    id: 'n1-status-1',
+    text: 'tới đâu rồi',
+    prev: PARSE_PREV,
+    ran: 'sonnet/medium',
+    openSteps: ['Viết hàm parseDate', 'Viết test cho parseDate', 'Cập nhật tài liệu'],
+    note: '0.8.2 N1: hỏi tiến độ',
+    expect: { intent: ['status'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 3] },
+  },
+  {
+    id: 'n1-status-2',
+    text: 'xong chưa',
+    prev: PARSE_PREV,
+    ran: 'sonnet/medium',
+    openSteps: ['Viết hàm parseDate', 'Viết test cho parseDate', 'Cập nhật tài liệu'],
+    note: '0.8.2 N1: hỏi tiến độ',
+    expect: { intent: ['status'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 3] },
+  },
+  {
+    id: 'n1-status-3',
+    text: 'how is it going',
+    prev: PARSE_PREV,
+    ran: 'sonnet/medium',
+    openSteps: ['Viết hàm parseDate', 'Viết test cho parseDate', 'Cập nhật tài liệu'],
+    note: '0.8.2 N1: hỏi tiến độ',
+    expect: { intent: ['status'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 3] },
+  },
+  {
+    id: 'n1-resume-1',
+    text: 'tiếp',
+    prev: PARSE_PREV,
+    ran: 'sonnet/medium',
+    openSteps: ['Viết hàm parseDate', 'Viết test cho parseDate', 'Cập nhật tài liệu'],
+    note: '0.8.2 N1: bảo chạy tiếp',
+    expect: { intent: ['resume'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 3] },
+  },
+  {
+    id: 'n1-resume-2',
+    text: 'chạy tiếp đi',
+    prev: PARSE_PREV,
+    ran: 'sonnet/medium',
+    openSteps: ['Viết hàm parseDate', 'Viết test cho parseDate', 'Cập nhật tài liệu'],
+    note: '0.8.2 N1: bảo chạy tiếp',
+    expect: { intent: ['resume'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 3] },
+  },
+  {
+    id: 'n1-resume-3',
+    text: 'continue',
+    prev: PARSE_PREV,
+    ran: 'sonnet/medium',
+    openSteps: ['Viết hàm parseDate', 'Viết test cho parseDate', 'Cập nhật tài liệu'],
+    note: '0.8.2 N1: bảo chạy tiếp',
+    expect: { intent: ['resume'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 3] },
+  },
+  {
+    id: 'n1-approve-1',
+    text: 'ok duyệt',
+    prev: PARSE_PREV,
+    ran: 'sonnet/medium',
+    openSteps: ['Viết hàm parseDate', 'Viết test cho parseDate', 'Cập nhật tài liệu'],
+    awaiting: 'approval',
+    note: '0.8.2 N1: đồng ý kế hoạch chờ duyệt',
+    expect: { intent: ['approve'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 3] },
+  },
+  {
+    id: 'n1-approve-2',
+    text: 'kế hoạch ổn, làm đi',
+    prev: PARSE_PREV,
+    ran: 'sonnet/medium',
+    openSteps: ['Viết hàm parseDate', 'Viết test cho parseDate', 'Cập nhật tài liệu'],
+    awaiting: 'approval',
+    note: '0.8.2 N1: đồng ý kế hoạch chờ duyệt',
+    expect: { intent: ['approve'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 3] },
+  },
+  {
+    id: 'n1-approve-3',
+    text: 'approved',
+    prev: PARSE_PREV,
+    ran: 'sonnet/medium',
+    openSteps: ['Viết hàm parseDate', 'Viết test cho parseDate', 'Cập nhật tài liệu'],
+    awaiting: 'approval',
+    note: '0.8.2 N1: đồng ý kế hoạch chờ duyệt',
+    expect: { intent: ['approve'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 3] },
+  },
+  {
+    id: 'n1-amend-1',
+    text: 'thêm cả phần README',
+    prev: PARSE_PREV,
+    ran: 'sonnet/medium',
+    openSteps: ['Viết hàm parseDate', 'Viết test cho parseDate', 'Cập nhật tài liệu'],
+    note: '0.8.2 N1: bổ sung yêu cầu',
+    expect: { intent: ['amend'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 3] },
+  },
+  {
+    id: 'n1-amend-2',
+    text: 'nhớ sửa luôn test',
+    prev: PARSE_PREV,
+    ran: 'sonnet/medium',
+    openSteps: ['Viết hàm parseDate', 'Viết test cho parseDate', 'Cập nhật tài liệu'],
+    note: '0.8.2 N1: bổ sung yêu cầu',
+    expect: { intent: ['amend'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 3] },
+  },
+  {
+    id: 'n1-amend-3',
+    text: 'also update the changelog',
+    prev: PARSE_PREV,
+    ran: 'sonnet/medium',
+    openSteps: ['Viết hàm parseDate', 'Viết test cho parseDate', 'Cập nhật tài liệu'],
+    note: '0.8.2 N1: bổ sung yêu cầu',
+    expect: { intent: ['amend'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 3] },
+  },
+  {
+    id: 'n1-task-1',
+    text: 'Viết script đổi tên ảnh theo ngày chụp',
+    prev: PARSE_PREV,
+    ran: 'sonnet/medium',
+    openSteps: ['Viết hàm parseDate', 'Viết test cho parseDate', 'Cập nhật tài liệu'],
+    note: '0.8.2 N1: việc khác',
+    expect: { intent: ['task'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 3] },
+  },
+  {
+    id: 'n1-task-2',
+    text: 'Tạo trang liên hệ có form gửi email',
+    prev: PARSE_PREV,
+    ran: 'sonnet/medium',
+    openSteps: ['Viết hàm parseDate', 'Viết test cho parseDate', 'Cập nhật tài liệu'],
+    note: '0.8.2 N1: việc khác',
+    expect: { intent: ['task'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 3] },
+  },
+  {
+    id: 'n1-task-3',
+    text: 'Write a function that converts CSV rows to JSON objects',
+    prev: PARSE_PREV,
+    ran: 'sonnet/medium',
+    openSteps: ['Viết hàm parseDate', 'Viết test cho parseDate', 'Cập nhật tài liệu'],
+    note: '0.8.2 N1: việc khác',
+    expect: { intent: ['task'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 3] },
   },
 ]

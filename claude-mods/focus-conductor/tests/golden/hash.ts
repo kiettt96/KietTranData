@@ -12,7 +12,7 @@ const hex = (bytes: ArrayBuffer): string => [...new Uint8Array(bytes)].map(byte 
 
 /** Request của mod cho một ca, với model router cố định để băm không phụ thuộc option router. */
 export function goldenRequest(c: GoldenCase, model = 'sonnet') {
-  return routerRequest({ text: c.text, prev: c.prev ?? null, ran: c.ran ?? null, policy: OPEN, model, prices: bundledPrices() })
+  return routerRequest({ text: c.text, prev: c.prev ?? null, ran: c.ran ?? null, policy: OPEN, model, prices: bundledPrices(), ...(c.openSteps !== undefined ? { openSteps: c.openSteps } : {}), ...(c.awaiting !== undefined ? { awaiting: c.awaiting } : {}) })
 }
 
 /** SHA-256 (hex) của request, không tính model. */

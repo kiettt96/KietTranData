@@ -426,6 +426,8 @@ export function registerCommand(on: On, ctx: Ctx): void {
       costLines.push(cacheNote(ctx.cacheTtlMs / 60_000))
       const latency = routerTimeLine()
       if (latency) costLines.push(latency)
+      // Ý của tin nhắn cuối router đã đọc (0.8.2 N1).
+      if (ctx.local.lastIntent !== null) costLines.push(`${lang === 'en' ? 'Last message intent' : 'Ý của tin nhắn cuối'}: ${ctx.local.lastIntent}`)
       const quotaNow = normalizeQuota(await read($, quotaState))
       costLines.push(
         ...quotaStatusLines({

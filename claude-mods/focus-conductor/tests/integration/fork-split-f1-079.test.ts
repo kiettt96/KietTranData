@@ -243,11 +243,12 @@ describe('F1: router đề xuất tách, mod kẹp trong parseRoute', () => {
     for (const line of before.split('\n')) expect(after).toContain(line)
   })
 
-  test('chủ mod 1. forks tắt: routerSystem giữ nguyên chữ như trước F1 (8826 ký tự, cùng mã băm)', async () => {
+  // 0.8.2 N1 thêm trường intent vào routerSystem (8826 lên 9535 ký tự); số ghim đổi theo, ý của ca giữ nguyên: forks tắt thì không có đoạn tách.
+  test('chủ mod 1. forks tắt: routerSystem không có đoạn tách (ghim số ký tự và mã băm)', async () => {
     const hex = (bytes: ArrayBuffer) => [...new Uint8Array(bytes)].map(b => b.toString(16).padStart(2, '0')).join('')
     const text = routerSystem()
-    expect(text.length).toBe(8826)
-    expect(hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))).toBe('713126c2a23389b3d457a3b36ab6f5000b758ada5fb631d2c0717a42e11ece0a')
+    expect(text.length).toBe(9535)
+    expect(hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))).toBe('663345095bc03c781b6a2236487e392e8580c5d45d0497c84f0c050da768e2f0')
     for (const policy of [OPEN, withForks(0)]) {
       expect(((routerRequest({ text: 'x', prev: null, ran: null, policy, model: 'sonnet' }).system ?? []) as readonly ModelTextBlock[])[0]?.text).toBe(text)
     }
