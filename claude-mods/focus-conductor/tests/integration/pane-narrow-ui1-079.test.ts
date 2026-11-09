@@ -213,7 +213,7 @@ describe('0.7.9 UI1: tên bước một dòng ở pane hẹp', () => {
     }
   })
 
-  test('40 cột, tên chứa chữ CJK và emoji: tên một dòng không vượt bề ngang cột tên, không cắt giữa một cụm ký tự, mã giữ trọn', async ($, on) => {
+  test('40 cột, tên chứa chữ CJK và emoji: tên một dòng không vượt bề ngang cột tên, không cắt giữa một cụm ký tự, mã giữ trọn', { options: { planApproval: 'off' } }, async ($, on) => {
     await setup($, on, WIDE)
     const { tree, out } = await drawAt($, 40, 60)
     for (const [k, full] of WIDE.entries()) {

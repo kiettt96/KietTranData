@@ -57,7 +57,7 @@ describe('0.7.7 X5: dòng unverified trong nhật ký quyết định', () => {
     expect(rejected[2]?.command.length).toBeLessThanOrEqual(120)
   })
 
-  test('chưa bật decisionLog: không ghi file', {}, async ($, on) => {
+  test('chưa bật decisionLog: không ghi file', { options: { planApproval: 'off' } }, async ($, on) => {
     const writes: string[] = []
     on('fs.write', (_$, e) => {
       writes.push(e.path)
@@ -71,7 +71,7 @@ describe('0.7.7 X5: dòng unverified trong nhật ký quyết định', () => {
     expect(writes.filter(p => p.endsWith('.jsonl'))).toEqual([])
   })
 
-  test('không có cảnh báo chưa kiểm: không có dòng unverified', LOG, async ($, on) => {
+  test('không có cảnh báo chưa kiểm: không có dòng unverified', { ...LOG, options: { ...(LOG as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const lines = logLines(on)
     setup(on, '12 passing (3ms)')
     await submit($, COMPLEX_PROMPT)

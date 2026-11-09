@@ -16,7 +16,7 @@ describe('0.7.5 B3: router lỗi ở prompt tiếp nối', () => {
     expect((edit.context ?? []).join('\n')).toContain('Việc 1 (haiku/low), 2 (sonnet/medium), 4 (sonnet/medium)')
   })
 
-  test('phân việc trên /conductor status vẫn còn; khối gửi Claude nói phân việc đã có vẫn giữ', {}, async ($, on) => {
+  test('phân việc trên /conductor status vẫn còn; khối gửi Claude nói phân việc đã có vẫn giữ', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, { router: failOn('làm tiếp') })
     await submit($, FOUR)
     await submit($, 'làm tiếp phần còn lại')
@@ -28,7 +28,7 @@ describe('0.7.5 B3: router lỗi ở prompt tiếp nối', () => {
     expect(context).not.toContain('không còn hiệu lực')
   })
 
-  test('lựa chọn model luồng chính bị bỏ: turn chạy model của phiên', {}, async ($, on) => {
+  test('lựa chọn model luồng chính bị bỏ: turn chạy model của phiên', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, { router: failOn('làm tiếp') })
     await submit($, FOUR)
     await submit($, 'làm tiếp phần còn lại')

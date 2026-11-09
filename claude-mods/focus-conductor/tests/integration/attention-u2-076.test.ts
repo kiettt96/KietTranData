@@ -40,7 +40,7 @@ describe('0.7.6 U2: dòng cần chú ý theo mức độ', () => {
     expect(texts).toContain('+1')
   })
 
-  test('vượt ngân sách tool call không lên band khi mục tiêu có giao subagent theo kế hoạch; pane vẫn ghi', async ($, on) => {
+  test('vượt ngân sách tool call không lên band khi mục tiêu có giao subagent theo kế hoạch; pane vẫn ghi', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, { router: routerOf(true) })
     on('tool.call', { tool: 'Read' }, () => ({ result: 'nội dung' }))
     await submit($, 'Sửa module thanh toán trong src/')
@@ -53,7 +53,7 @@ describe('0.7.6 U2: dòng cần chú ý theo mức độ', () => {
     await pane.unmount()
   })
 
-  test('mục tiêu không giao subagent: vượt ngân sách vẫn lên band khi là cảnh báo duy nhất', async ($, on) => {
+  test('mục tiêu không giao subagent: vượt ngân sách vẫn lên band khi là cảnh báo duy nhất', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, { router: routerOf(false) })
     on('tool.call', { tool: 'Read' }, () => ({ result: 'nội dung' }))
     await submit($, 'Sửa module thanh toán trong src/')

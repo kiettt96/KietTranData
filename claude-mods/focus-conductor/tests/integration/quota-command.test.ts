@@ -46,7 +46,7 @@ describe('0.6.0 E: /conductor pause', () => {
 })
 
 describe('0.6.0 E: mục Hạn mức trong /conductor status', () => {
-  test('phiên và tuần: đã dùng, còn lại, ngưỡng, trạng thái; điểm dừng đang mở', {}, async ($, on) => {
+  test('phiên và tuần: đã dùng, còn lại, ngưỡng, trạng thái; điểm dừng đang mở', { options: { planApproval: 'off' } }, async ($, on) => {
     const { clock } = base(on)
     memoryStore(on)
     const meter = quotaMeter(on, [session(40), week(97.5)])
@@ -66,7 +66,7 @@ describe('0.6.0 E: mục Hạn mức trong /conductor status', () => {
     expect(text).toContain('điểm dừng: đang mở')
   })
 
-  test('không có dữ liệu (không subscription): nói rõ lý do', {}, async ($, on) => {
+  test('không có dữ liệu (không subscription): nói rõ lý do', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     memoryStore(on)
     quotaMeter(on, [])
@@ -74,7 +74,7 @@ describe('0.6.0 E: mục Hạn mức trong /conductor status', () => {
     expect(String((await conductor($, 'status')).text)).toContain('không có dữ liệu')
   })
 
-  test('quotaGuard tắt: status ghi bảo vệ hạn mức đang tắt', { options: { quotaGuard: false } }, async ($, on) => {
+  test('quotaGuard tắt: status ghi bảo vệ hạn mức đang tắt', { options: { planApproval: 'off', quotaGuard: false } }, async ($, on) => {
     base(on)
     quotaMeter(on, [session(99)])
     await submit($, COMPLEX_PROMPT)
@@ -83,7 +83,7 @@ describe('0.6.0 E: mục Hạn mức trong /conductor status', () => {
 })
 
 describe('0.6.0 E: band và status line', () => {
-  test('đang dừng: band hiện "tạm dừng: hạn mức", status line có nhãn', {}, async ($, on) => {
+  test('đang dừng: band hiện "tạm dừng: hạn mức", status line có nhãn', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     memoryStore(on)
     const meter = quotaMeter(on, [session(10)])
@@ -99,7 +99,7 @@ describe('0.6.0 E: band và status line', () => {
     expect(seen.statuses.at(-1)).toContain('tạm dừng: hạn mức')
   })
 
-  test('tiếng Anh: "paused: quota"', { options: { uiLanguage: 'en' } }, async ($, on) => {
+  test('tiếng Anh: "paused: quota"', { options: { planApproval: 'off', uiLanguage: 'en' } }, async ($, on) => {
     const seen = base(on)
     memoryStore(on)
     const meter = quotaMeter(on, [session(10)])
@@ -113,7 +113,7 @@ describe('0.6.0 E: band và status line', () => {
     await ui.unmount()
   })
 
-  test('gần ngưỡng (còn không quá gấp đôi biên): band hiện phần còn lại', {}, async ($, on) => {
+  test('gần ngưỡng (còn không quá gấp đôi biên): band hiện phần còn lại', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     memoryStore(on)
     const meter = quotaMeter(on, [session(10)])
@@ -127,7 +127,7 @@ describe('0.6.0 E: band và status line', () => {
     await ui.unmount()
   })
 
-  test('quotaGuard tắt: band không có nhãn hạn mức', { options: { quotaGuard: false } }, async ($, on) => {
+  test('quotaGuard tắt: band không có nhãn hạn mức', { options: { planApproval: 'off', quotaGuard: false } }, async ($, on) => {
     const seen = base(on)
     quotaMeter(on, [session(99)])
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))

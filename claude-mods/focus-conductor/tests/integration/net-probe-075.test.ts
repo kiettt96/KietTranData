@@ -36,7 +36,7 @@ const failTurn = async ($: Engine, id = 't1') => {
 }
 
 describe('0.7.5 C5: 429 không tính là có mạng', () => {
-  test('phản hồi 429: không tự tiếp tục; phản hồi 200 sau đó thì tiếp tục', ON, async ($, on) => {
+  test('phản hồi 429: không tự tiếp tục; phản hồi 200 sau đó thì tiếp tục', { ...ON, options: { ...(ON as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const sent = submitted(on)
     const seen = base(on)
     on('turn.complete', () => ({ text: '' }))
@@ -54,7 +54,7 @@ describe('0.7.5 C5: 429 không tính là có mạng', () => {
 })
 
 describe('0.7.5 C5: số đo đã lưu chạm ngưỡng dừng cứng', () => {
-  test('cửa sổ phiên còn 3% (ngưỡng 5%) mà chưa dừng: không dò, không gửi', ON, async ($, on) => {
+  test('cửa sổ phiên còn 3% (ngưỡng 5%) mà chưa dừng: không dò, không gửi', { ...ON, options: { ...(ON as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const sent = submitted(on)
     const seen = base(on)
     on('turn.complete', () => ({ text: '' }))
@@ -72,7 +72,7 @@ describe('0.7.5 C5: số đo đã lưu chạm ngưỡng dừng cứng', () => {
 })
 
 describe('0.7.5 (bắt mẫu 073-W14): người dùng tạm dừng bằng /conductor pause', () => {
-  test('turn lỗi rồi người dùng tạm dừng (số đo không chạm ngưỡng): không dò, không gửi', ON, async ($, on) => {
+  test('turn lỗi rồi người dùng tạm dừng (số đo không chạm ngưỡng): không dò, không gửi', { ...ON, options: { ...(ON as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const sent = submitted(on)
     const seen = base(on)
     on('turn.complete', () => ({ text: '' }))

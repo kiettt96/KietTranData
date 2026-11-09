@@ -36,7 +36,7 @@ describe('0.7.5 A1: turn.start của subagent không xóa bộ đếm của lu�
     expect(fired).toEqual([5, 10, 20, 40])
   })
 
-  test('turn.start của luồng chính vẫn mở bộ đếm mới (turn sau không bị chặn)', {}, async ($, on) => {
+  test('turn.start của luồng chính vẫn mở bộ đếm mới (turn sau không bị chặn)', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('classic.Stop', () => ({}))
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))

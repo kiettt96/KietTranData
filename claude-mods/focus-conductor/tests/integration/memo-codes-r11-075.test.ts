@@ -81,7 +81,7 @@ describe('0.7.5 R11: agent của workflow cũng dùng mã trong brief', () => {
     on('turn.complete', () => ({ text: '' }))
   }
 
-  test('brief không có mã b: hai agent "Đọc b12" và "Đọc b13" dùng chung một lần chấm', {}, async ($, on) => {
+  test('brief không có mã b: hai agent "Đọc b12" và "Đọc b13" dùng chung một lần chấm', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, { router: () => plan({ goal: 'Dọn dữ liệu', depth: 'hard', volume: 'large' }) })
     workflowHooks(on)
     await submit($, 'Dọn dữ liệu')

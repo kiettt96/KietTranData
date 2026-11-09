@@ -52,7 +52,7 @@ describe('0.7.5 B6: khóa nhớ bỏ chữ số, không gồm prompt', () => {
 })
 
 describe('0.7.5 B6: model Claude ghi khớp quy định model của loại việc', () => {
-  test('quy định "Việc lọc tin chạy sonnet", Claude ghi sonnet: không gọi router, gửi sonnet', LOOP, async ($, on) => {
+  test('quy định "Việc lọc tin chạy sonnet", Claude ghi sonnet: không gọi router, gửi sonnet', { ...LOOP, options: { ...(LOOP as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, { router: RULED })
     const calls = capture(on)
     await submit($, 'Cập nhật dữ liệu theo các lô')

@@ -78,7 +78,7 @@ describe('0.6.0 C: ghi hai giai đoạn', () => {
 })
 
 describe('0.6.0 C: action checkpoint', () => {
-  test('ngoài trạng thái dừng thì bị từ chối rõ ràng; cần note', {}, async ($, on) => {
+  test('ngoài trạng thái dừng thì bị từ chối rõ ràng; cần note', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     const box = memoryStore(on)
     quotaMeter(on, [session(10)])
@@ -97,7 +97,7 @@ describe('0.6.0 C: action checkpoint', () => {
     expect((await $.tool.call({ tool: PLAN, action: 'checkpoint' })).deny).toContain('note')
   })
 
-  test('các action cũ không đổi: set, update, add, show vẫn chạy', {}, async ($, on) => {
+  test('các action cũ không đổi: set, update, add, show vẫn chạy', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     const box = memoryStore(on)
     quotaMeter(on, [session(10)])

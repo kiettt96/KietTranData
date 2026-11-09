@@ -11,7 +11,7 @@ const agent = ($: Engine, description: string, over: Record<string, unknown> = {
 const BAND = (maxRows = 3) => ({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows, bodyColumns: 120, scroll: { offset: 0, bodyRows: maxRows }, view: {} } }) as const
 
 describe('0.7.5 C3: chỉ đếm lời gọi thật sự chạy ở luồng chính', () => {
-  test('8 lời gọi bị từ chối: không cảnh báo', {}, async ($, on) => {
+  test('8 lời gọi bị từ chối: không cảnh báo', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     on('tool.call', { tool: 'Agent' }, () => ({ deny: 'không cho giao' }))
     await submit($, COMPLEX_PROMPT)
@@ -19,7 +19,7 @@ describe('0.7.5 C3: chỉ đếm lời gọi thật sự chạy ở luồng chí
     expect(seen.toasts.some(t => t.includes(FANOUT))).toBe(false)
   })
 
-  test('8 lời gọi lồng từ subagent: không cảnh báo', {}, async ($, on) => {
+  test('8 lời gọi lồng từ subagent: không cảnh báo', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     on('tool.call', { tool: 'Agent' }, () => ({ result: 'xong' }))
     await submit($, COMPLEX_PROMPT)
@@ -27,7 +27,7 @@ describe('0.7.5 C3: chỉ đếm lời gọi thật sự chạy ở luồng chí
     expect(seen.toasts.some(t => t.includes(FANOUT))).toBe(false)
   })
 
-  test('8 lần giao việc đã phân (Việc 2): không cảnh báo', {}, async ($, on) => {
+  test('8 lần giao việc đã phân (Việc 2): không cảnh báo', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     on('tool.call', { tool: 'Agent' }, () => ({ result: 'xong' }))
     await submit($, FOUR)

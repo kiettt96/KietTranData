@@ -62,7 +62,7 @@ describe('0.7.9 Y6: chặn một lần khi đã sửa mà chưa kiểm', () => {
     expect(await stop($)).toBe('')
   })
 
-  test('2. đã chạy bun test đạt sau thay đổi cuối: không chặn', DECLARED, async ($, on) => {
+  test('2. đã chạy bun test đạt sau thay đổi cuối: không chặn', { ...DECLARED, options: { ...(DECLARED as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const { seen } = setup(on)
     await goal($, seen, async () => {
       await edit($)
@@ -71,7 +71,7 @@ describe('0.7.9 Y6: chặn một lần khi đã sửa mà chưa kiểm', () => {
     expect(await stop($)).toBe('')
   })
 
-  test('3. dự án không có lệnh kiểm nào: không chặn', {}, async ($, on) => {
+  test('3. dự án không có lệnh kiểm nào: không chặn', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen } = setup(on)
     await goal($, seen)
     expect(await stop($)).toBe('')
@@ -99,7 +99,7 @@ describe('0.7.9 Y6: chặn một lần khi đã sửa mà chưa kiểm', () => {
     expect(await stop($)).toContain('bun test')
   })
 
-  test('5. turn chỉ sửa tài liệu đã đọc lại: không chặn', DECLARED, async ($, on) => {
+  test('5. turn chỉ sửa tài liệu đã đọc lại: không chặn', { ...DECLARED, options: { ...(DECLARED as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const { seen } = setup(on)
     await goal($, seen, async () => {
       await edit($, '/repo/docs/a.md')
@@ -125,13 +125,13 @@ describe('0.7.9 Y6: chặn một lần khi đã sửa mà chưa kiểm', () => {
     expect(await stop($)).toContain(NUDGE)
   })
 
-  test('8a. enforceChecklist false: không chặn', { options: { checkCommands: 'bun test', enforceChecklist: false } }, async ($, on) => {
+  test('8a. enforceChecklist false: không chặn', { options: { planApproval: 'off', checkCommands: 'bun test', enforceChecklist: false } }, async ($, on) => {
     const { seen } = setup(on)
     await goal($, seen)
     expect(await stop($)).toBe('')
   })
 
-  test('8b. đang tạm dừng (người dùng hay hạn mức): không chặn', DECLARED, async ($, on) => {
+  test('8b. đang tạm dừng (người dùng hay hạn mức): không chặn', { ...DECLARED, options: { ...(DECLARED as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const { seen } = setup(on)
     await goal($, seen)
     await conductor($, 'pause')

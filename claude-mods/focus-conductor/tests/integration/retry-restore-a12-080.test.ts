@@ -88,7 +88,7 @@ describe('0.8.0 A12: hết lượt rồi chạy lại đạt', () => {
     expect(seen.toasts.some(t => t.includes('npm test'))).toBe(true)
   })
 
-  test('Claude tự sửa bước 1 sau khi mod ghi blocked: lần chạy đạt không ghi đè', {}, async ($, on) => {
+  test('Claude tự sửa bước 1 sau khi mod ghi blocked: lần chạy đạt không ghi đè', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen, passing } = setup(on)
     await exhaust($, seen)
     await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'blocked', note: 'chờ chủ mod cung cấp bảng giá' })

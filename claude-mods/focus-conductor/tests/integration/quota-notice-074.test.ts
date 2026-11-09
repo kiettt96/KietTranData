@@ -61,7 +61,7 @@ describe('0.7.4 3: báo hạn mức mềm', () => {
     expect(noticed(out)).toEqual([])
   })
 
-  test('số đo cũ hay thiếu: không báo', { options: { noticeWeekRemainingPct: 20 } }, async ($, on) => {
+  test('số đo cũ hay thiếu: không báo', { options: { planApproval: 'off', noticeWeekRemainingPct: 20 } }, async ($, on) => {
     const { clock } = base(on)
     const meter = quotaMeter(on, [week(90, '1970-01-01T00:00:00.000Z')])
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
@@ -72,7 +72,7 @@ describe('0.7.4 3: báo hạn mức mềm', () => {
     expect(noticed(await edit($))).toEqual([])
   })
 
-  test('quotaGuard tắt: không báo', { options: { noticeWeekRemainingPct: 20, quotaGuard: false } }, async ($, on) => {
+  test('quotaGuard tắt: không báo', { options: { planApproval: 'off', noticeWeekRemainingPct: 20, quotaGuard: false } }, async ($, on) => {
     base(on)
     quotaMeter(on, [week(90)])
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
@@ -80,7 +80,7 @@ describe('0.7.4 3: báo hạn mức mềm', () => {
     expect(noticed(await edit($))).toEqual([])
   })
 
-  test('mặc định (không đặt option): không báo', {}, async ($, on) => {
+  test('mặc định (không đặt option): không báo', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     quotaMeter(on, [week(90)])
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
@@ -88,7 +88,7 @@ describe('0.7.4 3: báo hạn mức mềm', () => {
     expect(noticed(await edit($))).toEqual([])
   })
 
-  test('ngưỡng mềm không lớn hơn ngưỡng dừng: bỏ qua, cảnh báo đúng một lần', { options: { noticeWeekRemainingPct: 2 } }, async ($, on) => {
+  test('ngưỡng mềm không lớn hơn ngưỡng dừng: bỏ qua, cảnh báo đúng một lần', { options: { planApproval: 'off', noticeWeekRemainingPct: 2 } }, async ($, on) => {
     const seen = base(on)
     quotaMeter(on, [week(97.5)])
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
@@ -98,7 +98,7 @@ describe('0.7.4 3: báo hạn mức mềm', () => {
     expect(seen.toasts.filter(t => t.includes('noticeWeekRemainingPct')).length).toBe(1)
   })
 
-  test('status line có nhãn báo hạn mức khi ở vùng báo', { options: { noticeWeekRemainingPct: 20 } }, async ($, on) => {
+  test('status line có nhãn báo hạn mức khi ở vùng báo', { options: { planApproval: 'off', noticeWeekRemainingPct: 20 } }, async ($, on) => {
     const seen = base(on)
     quotaMeter(on, [week(81)])
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
@@ -109,7 +109,7 @@ describe('0.7.4 3: báo hạn mức mềm', () => {
 })
 
 describe('0.7.4 3: cảnh báo ngưỡng không hợp lệ trên pane', () => {
-  test('câu cảnh báo vào danh sách cảnh báo của mục tiêu', { options: { noticeWeekRemainingPct: 2 } }, async ($, on) => {
+  test('câu cảnh báo vào danh sách cảnh báo của mục tiêu', { options: { planApproval: 'off', noticeWeekRemainingPct: 2 } }, async ($, on) => {
     base(on)
     quotaMeter(on, [week(50)])
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
@@ -121,7 +121,7 @@ describe('0.7.4 3: cảnh báo ngưỡng không hợp lệ trên pane', () => {
 })
 
 describe('0.7.4 3: status line làm mới ngay khi câu báo gắn vào (bắt mẫu 074-E29)', () => {
-  test('tool chỉ đọc (không hook nào khác đổi trạng thái): status line có nhãn báo hạn mức ngay sau lời gọi đó', { options: { noticeWeekRemainingPct: 20 } }, async ($, on) => {
+  test('tool chỉ đọc (không hook nào khác đổi trạng thái): status line có nhãn báo hạn mức ngay sau lời gọi đó', { options: { planApproval: 'off', noticeWeekRemainingPct: 20 } }, async ($, on) => {
     const seen = base(on)
     quotaMeter(on, [week(81)])
     on('tool.call', { tool: 'Read' }, () => ({ result: 'nội dung', isReadOnly: true }))

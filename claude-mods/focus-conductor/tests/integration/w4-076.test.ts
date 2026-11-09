@@ -82,7 +82,7 @@ describe('0.7.6 W4: bước có lô đang chạy hiện \u25D0', () => {
     expect(await bandText($)).toContain('\u25D0')
   })
 
-  test('không có lô chạy: bước hiện tại còn todo thì đầu thanh của band không phải ◐', async ($, on) => {
+  test('không có lô chạy: bước hiện tại còn todo thì đầu thanh của band không phải ◐', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, { router: routed })
     hooks(on)
     await submit($, GOAL)
@@ -133,7 +133,7 @@ describe('0.7.6 W4: band ghi lô lỗi kèm mã bước', () => {
     expect(texts.filter(t => /BƯỚC 3: \d+ lô lỗi chưa giao lại/.test(t))).toHaveLength(1)
   })
 
-  test('bước có lô lỗi hay xong (không còn lô chạy) vẫn là ○ ở pane', async ($, on) => {
+  test('bước có lô lỗi hay xong (không còn lô chạy) vẫn là ○ ở pane', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, { router: routed })
     hooks(on)
     await submit($, GOAL)
@@ -206,7 +206,7 @@ describe('0.7.6 W4: mục Đang chạy ghi "từ <giờ bắt đầu>"', () => {
     expect(texts).toContain(`BƯỚC 3: lọc tin lô 1 · lô 1 · 1 agent · 3 phút · từ ${clock(started)}`)
   })
 
-  test('lô đến sau hai giờ: giờ bắt đầu là của agent đầu tiên', async ($, on) => {
+  test('lô đến sau hai giờ: giờ bắt đầu là của agent đầu tiên', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, { router: routed })
     hooks(on)
     await submit($, GOAL)
@@ -218,7 +218,7 @@ describe('0.7.6 W4: mục Đang chạy ghi "từ <giờ bắt đầu>"', () => {
     expect(texts.some(t => /lô 1 đến 2 · 2 agent/.test(t) && t.endsWith(`từ ${clock(started)}`))).toBe(true)
   })
 
-  test('en: "since HH:MM"', { options: { uiLanguage: 'en' } }, async ($, on) => {
+  test('en: "since HH:MM"', { options: { planApproval: 'off', uiLanguage: 'en' } }, async ($, on) => {
     const seen = base(on, { router: routed })
     hooks(on)
     await submit($, GOAL)

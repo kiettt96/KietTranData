@@ -58,7 +58,7 @@ describe('0.7.9 Y4: tool MCP trong checkTools là lệnh kiểm', () => {
     expect(reason).toContain('2/3')
   })
 
-  test('2. gọi lại cùng tool, cùng đầu vào, đạt: Stop qua', ON, async ($, on) => {
+  test('2. gọi lại cùng tool, cùng đầu vào, đạt: Stop qua', { ...ON, options: { ...(ON as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const { seen, passing } = setup(on)
     await failing($, seen)
     passing.add(`${TOOL}:all`)
@@ -74,14 +74,14 @@ describe('0.7.9 Y4: tool MCP trong checkTools là lệnh kiểm', () => {
     expect(await stop($)).toContain(TOOL)
   })
 
-  test('4. tool MCP không có trong checkTools lỗi: không ghi lần kiểm, Stop qua như cũ', ON, async ($, on) => {
+  test('4. tool MCP không có trong checkTools lỗi: không ghi lần kiểm, Stop qua như cũ', { ...ON, options: { ...(ON as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const { seen } = setup(on)
     await failing($, seen, OTHER)
     expect(await stop($)).not.toContain(OTHER)
     expect(await stop($)).not.toContain('2/3')
   })
 
-  test('5. checkTools rỗng: tool kiểm lỗi không chặn như trước 0.7.9', {}, async ($, on) => {
+  test('5. checkTools rỗng: tool kiểm lỗi không chặn như trước 0.7.9', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen } = setup(on)
     await failing($, seen)
     expect(await stop($)).not.toContain('2/3')

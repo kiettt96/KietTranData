@@ -34,7 +34,7 @@ const has = (texts: readonly string[], pattern: RegExp) => texts.some(t => patte
 
 describe('0.6.1 2.4: mục Tiến độ từng việc trong pane', () => {
   // 0.7.6 U1: việc router phân đi cùng dòng bước dự kiến của nó (chip model, trạng thái giao), không còn mục riêng hay dòng việc chính.
-  test('mới vào mục tiêu: bước dự kiến mang chip model; việc giao ở trạng thái chờ giao; không có mục riêng', {}, async ($, on) => {
+  test('mới vào mục tiêu: bước dự kiến mang chip model; việc giao ở trạng thái chờ giao; không có mục riêng', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     agentHooks(on)
     await submit($, FOUR)
@@ -69,7 +69,7 @@ describe('0.6.1 2.4: mục Tiến độ từng việc trong pane', () => {
     expect(has(rows.texts, /^sonnet lỗi, chưa giao lại$/)).toBe(true)
   })
 
-  test('subagent ghi danh sách việc riêng bằng TodoWrite: thanh theo tỷ lệ bước đóng của riêng nó', {}, async ($, on) => {
+  test('subagent ghi danh sách việc riêng bằng TodoWrite: thanh theo tỷ lệ bước đóng của riêng nó', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     agentHooks(on)
     await submit($, FOUR)
@@ -108,7 +108,7 @@ describe('0.6.1 2.4: mục Tiến độ từng việc trong pane', () => {
     expect(rows.texts.slice(direct, direct + 6).some(t => /^xong$/.test(t))).toBe(true)
   })
 
-  test('việc Claude tự giao (ngoài phân việc): có dòng riêng sau các việc router phân', {}, async ($, on) => {
+  test('việc Claude tự giao (ngoài phân việc): có dòng riêng sau các việc router phân', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     agentHooks(on)
     await submit($, FOUR)

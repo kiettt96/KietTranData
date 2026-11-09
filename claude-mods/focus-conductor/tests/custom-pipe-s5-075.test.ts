@@ -152,7 +152,7 @@ describe('0.7.5 S5: nhắc dòng tổng kết chỉ cho lệnh kiểm riêng, m�
     expect(out.find(f => f.context?.includes('pipefail'))).toBeUndefined()
   })
 
-  test('qua engine: lần đầu có lời nhắc, lần sau không (kể cả ở prompt sau), /conductor reset thì nhắc lại', { options: { checkCommands: RUN } }, async ($, on) => {
+  test('qua engine: lần đầu có lời nhắc, lần sau không (kể cả ở prompt sau), /conductor reset thì nhắc lại', { options: { planApproval: 'off', checkCommands: RUN } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Bash' }, () => ({ result: 'Đã kiểm 120 dòng\nTiếp tục bước sau' }))
     await submit($, COMPLEX_PROMPT)

@@ -24,7 +24,7 @@ const REMIND_PA_OFF = { ...REMIND, options: { ...REMIND.options, planApproval: '
 const BLOCK = { options: { planApproval: 'off', strictDelegation: 'block' } }
 
 describe('0.7.5 M11: việc có mã khi chưa xác định được bước', () => {
-  test('chưa có checklist: strictDelegation remind không nhắc việc có mã', REMIND, async ($, on) => {
+  test('chưa có checklist: strictDelegation remind không nhắc việc có mã', { ...REMIND, options: { ...(REMIND as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     base(on, { router: CODED })
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, FOUR)
@@ -38,7 +38,7 @@ describe('0.7.5 M11: việc có mã khi chưa xác định được bước', ()
     expect((await edit($)).deny).toBeUndefined()
   })
 
-  test('checklist mà tiêu đề các bước không mang mã: không nhắc việc có mã', REMIND, async ($, on) => {
+  test('checklist mà tiêu đề các bước không mang mã: không nhắc việc có mã', { ...REMIND, options: { ...(REMIND as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     base(on, { router: CODED })
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, FOUR)

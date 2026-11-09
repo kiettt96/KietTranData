@@ -59,7 +59,7 @@ describe('0.7.6 U8: mục Đang chạy của pane', () => {
     expect(texts.some(t => /^BƯỚC 2: lọc tin · lô \d+ đến 25 · 25 agent · <1 phút · từ \d\d:\d\d$/.test(t))).toBe(true)
   })
 
-  test('không có agent đang chạy: không có mục Đang chạy', async ($, on) => {
+  test('không có agent đang chạy: không có mục Đang chạy', { options: { planApproval: 'off' } }, async ($, on) => {
     await goal($, on)
     await spawnTool($, 'u1', 'BƯỚC 2: lọc tin lô 1', 'lọc')
     await $.turn.complete({ turnId: 't-u1', agentId: 'a-u1', answer: '', durationMs: 1, isAborted: false, reason: 'answer' } as never)

@@ -18,7 +18,7 @@ async function withGoal($: Engine): Promise<void> {
 const statusText = async ($: Engine) => String((await conductor($, 'status')).text)
 
 describe('nút Đặt lại hai bước', () => {
-  test('bấm lần đầu chỉ chờ xác nhận: nhãn đổi, có toast, mục tiêu và checklist còn nguyên', {}, async ($, on) => {
+  test('bấm lần đầu chỉ chờ xác nhận: nhãn đổi, có toast, mục tiêu và checklist còn nguyên', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     await withGoal($)
     const ui = await $.ui.mount(PANE)
@@ -33,7 +33,7 @@ describe('nút Đặt lại hai bước', () => {
     await ui.unmount()
   })
 
-  test('bấm lần hai trong hạn thì xóa và cập nhật dòng trạng thái; lần bấm kế tiếp lại phải xác nhận', {}, async ($, on) => {
+  test('bấm lần hai trong hạn thì xóa và cập nhật dòng trạng thái; lần bấm kế tiếp lại phải xác nhận', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     await withGoal($)
     const ui = await $.ui.mount(PANE)
@@ -55,7 +55,7 @@ describe('nút Đặt lại hai bước', () => {
     await ui.unmount()
   })
 
-  test('hết 10 giây thì nhãn về như cũ, có toast hủy, mục tiêu còn nguyên; bấm tiếp là xác nhận lại', {}, async ($, on) => {
+  test('hết 10 giây thì nhãn về như cũ, có toast hủy, mục tiêu còn nguyên; bấm tiếp là xác nhận lại', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     await withGoal($)
     const ui = await $.ui.mount(PANE)
@@ -72,7 +72,7 @@ describe('nút Đặt lại hai bước', () => {
     await ui.unmount()
   })
 
-  test('đã xóa bằng lần bấm thứ hai thì hết hạn sau đó không toast hủy', {}, async ($, on) => {
+  test('đã xóa bằng lần bấm thứ hai thì hết hạn sau đó không toast hủy', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     await withGoal($)
     const ui = await $.ui.mount(PANE)
@@ -83,7 +83,7 @@ describe('nút Đặt lại hai bước', () => {
     await ui.unmount()
   })
 
-  test('bấm xác nhận rồi chờ lại: hẹn giờ cũ chạy khi nút đã chờ lại thì không hủy mốc mới', {}, async ($, on) => {
+  test('bấm xác nhận rồi chờ lại: hẹn giờ cũ chạy khi nút đã chờ lại thì không hủy mốc mới', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     await withGoal($)
     const ui = await $.ui.mount(PANE)
@@ -103,7 +103,7 @@ describe('nút Đặt lại hai bước', () => {
     await ui.unmount()
   })
 
-  test('bấm lần hai xóa cả trạng thái cục bộ như /conductor reset: độ trễ router đã đo không còn', {}, async ($, on) => {
+  test('bấm lần hai xóa cả trạng thái cục bộ như /conductor reset: độ trễ router đã đo không còn', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await withGoal($)
     expect(await statusText($)).toContain('Độ trễ router')
@@ -117,7 +117,7 @@ describe('nút Đặt lại hai bước', () => {
   })
 
   // 0.7.6 U7: bỏ đoạn chú thích dưới nút; phạm vi xóa và phần được giữ vẫn có ở câu trả lời của /conductor reset, toast giữ nguyên.
-  test('không còn dòng chú thích phạm vi xóa dưới nút', {}, async ($, on) => {
+  test('không còn dòng chú thích phạm vi xóa dưới nút', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await withGoal($)
     const ui = await $.ui.mount(PANE)
@@ -125,7 +125,7 @@ describe('nút Đặt lại hai bước', () => {
     await ui.unmount()
   })
 
-  test('uiLanguage en: nhãn và toast bằng tiếng Anh, không còn chú thích dưới nút', { options: { uiLanguage: 'en' } }, async ($, on) => {
+  test('uiLanguage en: nhãn và toast bằng tiếng Anh, không còn chú thích dưới nút', { options: { planApproval: 'off', uiLanguage: 'en' } }, async ($, on) => {
     const seen = base(on)
     await withGoal($)
     const ui = await $.ui.mount(PANE)
@@ -139,7 +139,7 @@ describe('nút Đặt lại hai bước', () => {
     await ui.unmount()
   })
 
-  test('/conductor reset nêu đủ phạm vi và phần được giữ, và bỏ trạng thái chờ xác nhận của nút', {}, async ($, on) => {
+  test('/conductor reset nêu đủ phạm vi và phần được giữ, và bỏ trạng thái chờ xác nhận của nút', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await withGoal($)
     const ui = await $.ui.mount(PANE)

@@ -119,12 +119,12 @@ describe('0.7.3 điểm 2: gợi ý tới người dùng trong phiên', () => {
     expect(hints(seen.toasts).length).toBe(1)
   })
 
-  test('đã khai checkCommands và script được nhận: không có gợi ý', { options: { checkCommands: 'python3 tests/' } }, async ($, on) => {
+  test('đã khai checkCommands và script được nhận: không có gợi ý', { options: { planApproval: 'off', checkCommands: 'python3 tests/' } }, async ($, on) => {
     const seen = await untilCheckpoint($, on, { many: true })
     expect(hints(seen.toasts)).toEqual([])
   })
 
-  test('không có script kiểm nào đã chạy: không có gợi ý', {}, async ($, on) => {
+  test('không có script kiểm nào đã chạy: không có gợi ý', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, COMPLEX_PROMPT)
@@ -217,7 +217,7 @@ describe('0.7.3 điểm 2: gợi ý tới người dùng trong phiên', () => {
     expect(hints(seen.toasts)).toEqual([])
   })
 
-  test('chỉ gợi ý, không tự khai: sau gợi ý, script vẫn chưa là lệnh kiểm tra', {}, async ($, on) => {
+  test('chỉ gợi ý, không tự khai: sau gợi ý, script vẫn chưa là lệnh kiểm tra', { options: { planApproval: 'off' } }, async ($, on) => {
     await untilCheckpoint($, on)
     expect(checkKindOf('/usr/bin/python3 -B tests/check-a.py')).toBeNull()
   })

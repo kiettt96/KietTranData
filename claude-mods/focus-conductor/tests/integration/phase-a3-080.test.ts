@@ -92,7 +92,7 @@ const FIRST = plan({ goal: 'Chạy lô kiểm', depth: 'substantial', volume: 'l
 const SECOND = plan({ relation: 'continue', goal: '', depth: 'substantial', volume: 'large', tasks: NEW_TASKS })
 
 describe('0.8.0 A3: đầu cuối', () => {
-  test('prompt continue có 8 việc mới: pane gập 6 việc đã xong thành một dòng, câu báo đợt mới một lần, tối đa 160 ký tự', {}, async ($, on) => {
+  test('prompt continue có 8 việc mới: pane gập 6 việc đã xong thành một dòng, câu báo đợt mới một lần, tối đa 160 ký tự', { options: { planApproval: 'off' } }, async ($, on) => {
     let call = 0
     const seen = base(on, { router: () => (call++ === 0 ? FIRST : SECOND) })
     on('turn.complete', () => ({ text: '' }))
@@ -110,7 +110,7 @@ describe('0.8.0 A3: đầu cuối', () => {
     expect(notes[0]?.length ?? 0).toBeLessThanOrEqual(160)
   })
 
-  test('router xếp new tin cậy 0.7 khi checklist còn 3 bước mở: không mất bước nào', {}, async ($, on) => {
+  test('router xếp new tin cậy 0.7 khi checklist còn 3 bước mở: không mất bước nào', { options: { planApproval: 'off' } }, async ($, on) => {
     let call = 0
     const seen = base(on, { router: () => (call++ === 0 ? FIRST : plan({ relation: 'new', confidence: 0.7, goal: 'Lô khác', tasks: NEW_TASKS })) })
     on('turn.complete', () => ({ text: '' }))
@@ -124,7 +124,7 @@ describe('0.8.0 A3: đầu cuối', () => {
     for (const t of S_TASKS.slice(3)) expect(plan1).toContain(String(t['title']))
   })
 
-  test('sáu việc S0 đến S5 đã xong, rồi plan set mười bước V0 đến V9: sáu việc gập vào đợt trước, không việc nào đang làm', {}, async ($, on) => {
+  test('sáu việc S0 đến S5 đã xong, rồi plan set mười bước V0 đến V9: sáu việc gập vào đợt trước, không việc nào đang làm', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, { router: () => FIRST })
     on('turn.complete', () => ({ text: '' }))
     await submit($, 'Chạy lô kiểm S0 đến S5')

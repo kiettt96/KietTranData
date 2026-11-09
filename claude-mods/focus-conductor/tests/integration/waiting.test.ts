@@ -43,7 +43,7 @@ describe('0.5.6 B3: thông báo khi bước mở cuối cùng đóng', () => {
     return String((await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'done' })).result)
   }
 
-  test('còn bước blocked: không in "Checklist đã đóng hết", in pendingNotice; bước blocked xong thì qualityNotice đúng một lần', {}, async ($, on) => {
+  test('còn bước blocked: không in "Checklist đã đóng hết", in pendingNotice; bước blocked xong thì qualityNotice đúng một lần', { options: { planApproval: 'off' } }, async ($, on) => {
     const first = await setup($, on, 'blocked')
     expect(first).not.toContain('Checklist đã đóng hết')
     expect(first).toContain('Không còn bước mở')
@@ -53,14 +53,14 @@ describe('0.5.6 B3: thông báo khi bước mở cuối cùng đóng', () => {
     expect(third).not.toContain('Checklist đã đóng hết')
   })
 
-  test('còn bước waiting: cùng hành vi', {}, async ($, on) => {
+  test('còn bước waiting: cùng hành vi', { options: { planApproval: 'off' } }, async ($, on) => {
     const first = await setup($, on, 'waiting')
     expect(first).not.toContain('Checklist đã đóng hết')
     expect(first).toContain('Không còn bước mở')
     expect(String((await $.tool.call({ tool: PLAN, action: 'update', step: 2, status: 'skipped', note: 'bỏ' })).result)).toContain('Checklist đã đóng hết')
   })
 
-  test('đối chứng: bước mở cuối đóng khi không còn bước chờ thì vẫn in qualityNotice như cũ', {}, async ($, on) => {
+  test('đối chứng: bước mở cuối đóng khi không còn bước chờ thì vẫn in qualityNotice như cũ', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, { router: () => QUALITY })
     await submit($, COMPLEX_PROMPT)
     await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'a' }] })
@@ -71,7 +71,7 @@ describe('0.5.6 B3: thông báo khi bước mở cuối cùng đóng', () => {
 })
 
 describe('0.5.6 B7: lưu và khôi phục mục tiêu khi còn bước waiting', () => {
-  test('[done, waiting] rồi mục tiêu mới thì được lưu và restore trả lại đúng', {}, async ($, on) => {
+  test('[done, waiting] rồi mục tiêu mới thì được lưu và restore trả lại đúng', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     await submit($, COMPLEX_PROMPT)
     await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Phân tích' }, { title: 'Chờ kết quả đo' }] })
@@ -85,7 +85,7 @@ describe('0.5.6 B7: lưu và khôi phục mục tiêu khi còn bước waiting',
     expect(String(restored.result)).toContain('[w] 2. Chờ kết quả đo')
   })
 
-  test('[done, blocked] không lưu như cũ', {}, async ($, on) => {
+  test('[done, blocked] không lưu như cũ', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Phân tích' }, { title: 'Chờ' }] })
@@ -127,7 +127,7 @@ describe('0.5.6 C5, C6, C8: cập nhật hàng loạt qua tool', () => {
     expect((await $.classic.Stop({ stop_hook_active: false })).block).toContain('Checklist còn 1 bước mở')
   })
 
-  test('một lần gọi là một lần cập nhật: executing được tính một lần và skipped hàng loạt in qualityNotice đúng một lần', {}, async ($, on) => {
+  test('một lần gọi là một lần cập nhật: executing được tính một lần và skipped hàng loạt in qualityNotice đúng một lần', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, { router: () => QUALITY })
     await submit($, COMPLEX_PROMPT)
     await $.tool.call({ tool: PLAN, action: 'set', steps: twelve })
@@ -135,7 +135,7 @@ describe('0.5.6 C5, C6, C8: cập nhật hàng loạt qua tool', () => {
     expect(out.match(/Checklist đã đóng hết/g)?.length).toBe(1)
   })
 
-  test('lỗi của hàng loạt trả deny và không đổi checklist; subagent vẫn bị từ chối', {}, async ($, on) => {
+  test('lỗi của hàng loạt trả deny và không đổi checklist; subagent vẫn bị từ chối', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     await $.tool.call({ tool: PLAN, action: 'set', steps: twelve })
@@ -155,7 +155,7 @@ describe('0.5.6 C5, C6, C8: cập nhật hàng loạt qua tool', () => {
 })
 
 describe('0.5.6 B, C: ghim thêm (mẫu 056-B6, C14, C15)', () => {
-  test('pendingNotice chỉ ở lần cập nhật làm hết bước mở cuối, không lặp khi bước chờ đổi sang blocked', {}, async ($, on) => {
+  test('pendingNotice chỉ ở lần cập nhật làm hết bước mở cuối, không lặp khi bước chờ đổi sang blocked', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'a' }] })
@@ -165,7 +165,7 @@ describe('0.5.6 B, C: ghim thêm (mẫu 056-B6, C14, C15)', () => {
     expect(second).not.toContain('Không còn bước mở')
   })
 
-  test('ids hoặc allOpen kèm verified và evidence yếu: từ chối nêu verified, không hạ về done', {}, async ($, on) => {
+  test('ids hoặc allOpen kèm verified và evidence yếu: từ chối nêu verified, không hạ về done', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, COMPLEX_PROMPT)

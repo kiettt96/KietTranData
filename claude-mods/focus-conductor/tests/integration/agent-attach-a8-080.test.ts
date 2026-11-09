@@ -50,7 +50,7 @@ describe('0.8.0 A8: subagent Claude tự giao gắn vào việc của bước do
     expect(texts).not.toContain('Claude tự giao')
   })
 
-  test('không có bước doing: vẫn "Claude tự giao", nhật ký không có attached', { options: { decisionLog: LOG } }, async ($, on) => {
+  test('không có bước doing: vẫn "Claude tự giao", nhật ký không có attached', { options: { planApproval: 'off', decisionLog: LOG } }, async ($, on) => {
     const lines = logLines(on)
     on('tool.call', { tool: 'Agent' }, () => ({ result: 'ok' }))
     on('agent.spawn', (_$, e) => ({ model: 'claude-sonnet-5-5', agentId: `a-${e.tool_use_id}` }))

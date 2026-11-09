@@ -37,7 +37,7 @@ async function bandOf($: Engine) {
 const write = ($: Engine, todos: Todo[], agentId?: string) => $.tool.call({ tool: 'TodoWrite', todos, ...(agentId ? { agentId } : {}) } as never)
 
 describe('0.6.1 2.1: phản chiếu danh sách việc của Claude Code', () => {
-  test('router không tách việc, Claude chỉ dùng TodoWrite: band có thanh và đúng số bước, ghi nguồn phản chiếu', {}, async ($, on) => {
+  test('router không tách việc, Claude chỉ dùng TodoWrite: band có thanh và đúng số bước, ghi nguồn phản chiếu', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     taskTools(on)
     await submit($, COMPLEX_PROMPT)
@@ -52,7 +52,7 @@ describe('0.6.1 2.1: phản chiếu danh sách việc của Claude Code', () => 
     await pane.unmount()
   })
 
-  test('TaskCreate rồi TaskUpdate: đúng trạng thái từng bước; deleted thì bỏ bước', {}, async ($, on) => {
+  test('TaskCreate rồi TaskUpdate: đúng trạng thái từng bước; deleted thì bỏ bước', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     taskTools(on)
     await submit($, COMPLEX_PROMPT)
@@ -70,7 +70,7 @@ describe('0.6.1 2.1: phản chiếu danh sách việc của Claude Code', () => 
     expect(status).toContain('[~] 2. Viết test')
   })
 
-  test('plan set sau phản chiếu: checklist theo tool plan, TodoWrite sau đó không ghi đè', {}, async ($, on) => {
+  test('plan set sau phản chiếu: checklist theo tool plan, TodoWrite sau đó không ghi đè', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     taskTools(on)
     await submit($, COMPLEX_PROMPT)
@@ -98,7 +98,7 @@ describe('0.6.1 2.1: phản chiếu danh sách việc của Claude Code', () => 
     expect((await $.classic.Stop({ stop_hook_active: false })).block).toContain('Checklist còn 1 bước mở')
   })
 
-  test('subagent gọi TodoWrite: checklist của luồng chính không đổi', {}, async ($, on) => {
+  test('subagent gọi TodoWrite: checklist của luồng chính không đổi', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     taskTools(on)
     await submit($, COMPLEX_PROMPT)
@@ -106,14 +106,14 @@ describe('0.6.1 2.1: phản chiếu danh sách việc của Claude Code', () => 
     expect((await bandOf($)).bar).toBe(false)
   })
 
-  test('tool vắng mặt trong phiên: không phản chiếu, không ném lỗi', {}, async ($, on) => {
+  test('tool vắng mặt trong phiên: không phản chiếu, không ném lỗi', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     await write($, [todo('A', 'pending')]).catch(() => undefined)
     expect((await bandOf($)).bar).toBe(false)
   })
 
-  test('TodoWrite báo lỗi (đầu vào vẫn có danh sách): không phản chiếu từ đầu vào', {}, async ($, on) => {
+  test('TodoWrite báo lỗi (đầu vào vẫn có danh sách): không phản chiếu từ đầu vào', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'TodoWrite' }, () => ({ isError: true, result: 'lỗi', text: 'lỗi' }) as never)
     await submit($, COMPLEX_PROMPT)
@@ -121,7 +121,7 @@ describe('0.6.1 2.1: phản chiếu danh sách việc của Claude Code', () => 
     expect((await bandOf($)).bar).toBe(false)
   })
 
-  test('mục tiêu mới xóa phản chiếu cũ', {}, async ($, on) => {
+  test('mục tiêu mới xóa phản chiếu cũ', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     taskTools(on)
     await submit($, COMPLEX_PROMPT)
@@ -130,7 +130,7 @@ describe('0.6.1 2.1: phản chiếu danh sách việc của Claude Code', () => 
     expect((await bandOf($)).bar).toBe(false)
   })
 
-  test('uiLanguage en: nhãn nguồn tiếng Anh', { options: { uiLanguage: 'en' } }, async ($, on) => {
+  test('uiLanguage en: nhãn nguồn tiếng Anh', { options: { planApproval: 'off', uiLanguage: 'en' } }, async ($, on) => {
     base(on)
     taskTools(on)
     await submit($, COMPLEX_PROMPT)

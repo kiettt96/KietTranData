@@ -73,7 +73,7 @@ const OPTIONS_PA_OFF = { ...OPTIONS, options: { ...OPTIONS.options, planApproval
 const CHAINED = `${RUN} && ls /a/out/missing.txt`
 
 describe('0.8.0 A11: đầu cuối', () => {
-  test('lệnh ghép mã thoát 1: không có mục W4, có câu đề nghị chạy riêng và dòng check-chained', OPTIONS, async ($, on) => {
+  test('lệnh ghép mã thoát 1: không có mục W4, có câu đề nghị chạy riêng và dòng check-chained', { ...OPTIONS, options: { ...(OPTIONS as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const { seen, lines } = setup(on, new Map([[CHAINED, [`${PASS}\n${MISSING}`, true]]]))
     await start($, seen)
     const out = await bash($, CHAINED)
@@ -87,7 +87,7 @@ describe('0.8.0 A11: đầu cuối', () => {
     expect(lines().some(l => l['kind'] === 'check-chained')).toBe(true)
   })
 
-  test('câu đề nghị chạy riêng chỉ một lần mỗi lệnh mỗi turn', OPTIONS, async ($, on) => {
+  test('câu đề nghị chạy riêng chỉ một lần mỗi lệnh mỗi turn', { ...OPTIONS, options: { ...(OPTIONS as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const { seen } = setup(on, new Map([[CHAINED, [`${PASS}\n${MISSING}`, true]]]))
     await start($, seen)
     await bash($, CHAINED)
@@ -103,7 +103,7 @@ describe('0.8.0 A11: đầu cuối', () => {
     expect(await stop($)).toContain('check_a.py')
   })
 
-  test('lệnh khai rồi && echo xong, mã thoát 0: đạt, Stop không chặn', OPTIONS, async ($, on) => {
+  test('lệnh khai rồi && echo xong, mã thoát 0: đạt, Stop không chặn', { ...OPTIONS, options: { ...(OPTIONS as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const { seen } = setup(on, new Map())
     await start($, seen)
     await bash($, `${RUN} && echo xong`)

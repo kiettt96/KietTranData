@@ -115,7 +115,7 @@ describe('0.6.0 B: Stop, thông báo cuối turn, router', () => {
     expect(seen.contexts[0]?.join('\n')).toContain('/conductor resume force')
   })
 
-  test('đang dừng: Agent bị từ chối trước khi router chấm subagent', {}, async ($, on) => {
+  test('đang dừng: Agent bị từ chối trước khi router chấm subagent', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     const { clock } = seen
     const meter = quotaMeter(on, [session(10)])
@@ -127,7 +127,7 @@ describe('0.6.0 B: Stop, thông báo cuối turn, router', () => {
     expect(seen.agentRouted.length).toBe(0)
   })
 
-  test('đang dừng: không có cảnh báo cuối turn và không chạy semanticDrift', { options: { semanticDrift: true } }, async ($, on) => {
+  test('đang dừng: không có cảnh báo cuối turn và không chạy semanticDrift', { options: { planApproval: 'off', semanticDrift: true } }, async ($, on) => {
     const seen = base(on)
     const { clock } = seen
     const meter = quotaMeter(on, [session(10)])
@@ -144,7 +144,7 @@ describe('0.6.0 B: Stop, thông báo cuối turn, router', () => {
     expect(seen.toasts.slice(toastsBefore).filter(t => t.includes('thay đổi'))).toEqual([])
   })
 
-  test('đang dừng: cập nhật bước mở cuối không in qualityNotice hay pendingNotice', {}, async ($, on) => {
+  test('đang dừng: cập nhật bước mở cuối không in qualityNotice hay pendingNotice', { options: { planApproval: 'off' } }, async ($, on) => {
     const { clock } = base(on, { router: () => plan({ goal: 'G', quality: ['Q'], depth: 'hard', volume: 'large' }) })
     const meter = quotaMeter(on, [session(10)])
     await submit($, COMPLEX_PROMPT)
@@ -176,7 +176,7 @@ describe('0.6.0 B: việc giao subagent đang chạy được đánh dấu để
 })
 
 describe('0.6.0 B: dừng cứng dự phòng', () => {
-  test('lần từ chối thứ ba trong cùng turn gọi abort đúng một lần với đúng turnId; hai lần đầu thì không', {}, async ($, on) => {
+  test('lần từ chối thứ ba trong cùng turn gọi abort đúng một lần với đúng turnId; hai lần đầu thì không', { options: { planApproval: 'off' } }, async ($, on) => {
     const { clock } = base(on)
     const meter = quotaMeter(on, [session(10)])
     const aborted: string[] = []
@@ -198,7 +198,7 @@ describe('0.6.0 B: dừng cứng dự phòng', () => {
     expect(aborted).toEqual(['tx'])
   })
 
-  test('turn của subagent (turn.start có agentId) không ghi đè mã turn chính: abort nhận đúng turn chính (góp ý PR 21)', {}, async ($, on) => {
+  test('turn của subagent (turn.start có agentId) không ghi đè mã turn chính: abort nhận đúng turn chính (góp ý PR 21)', { options: { planApproval: 'off' } }, async ($, on) => {
     const { clock } = base(on)
     const meter = quotaMeter(on, [session(10)])
     const aborted: string[] = []

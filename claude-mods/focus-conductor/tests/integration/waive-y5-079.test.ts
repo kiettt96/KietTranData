@@ -111,7 +111,7 @@ describe('0.7.9 Y5: /conductor waive', () => {
     expect(text).toContain(`miễn bởi chủ mod: ${REASON}`)
   })
 
-  test('5. mục tiêu mới: lệnh miễn cũ không áp', {}, async ($, on) => {
+  test('5. mục tiêu mới: lệnh miễn cũ không áp', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen } = setup(on)
     await failing($, seen)
     await stop($)
@@ -128,7 +128,7 @@ describe('0.7.9 Y5: /conductor waive', () => {
     expect(reason).not.toContain(SECTION)
   })
 
-  test('6. miễn xong chạy lại vẫn lỗi: không chặn; chạy đạt: lệnh miễn bị xóa', {}, async ($, on) => {
+  test('6. miễn xong chạy lại vẫn lỗi: không chặn; chạy đạt: lệnh miễn bị xóa', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen, passing } = setup(on)
     await failing($, seen)
     await stop($)
@@ -170,7 +170,7 @@ describe('0.7.9 Y5: /conductor waive', () => {
     expect(await say($, 'status')).toContain('1. bun test: lượt 2/3')
   })
 
-  test('pane ghi "đã miễn" cạnh lệnh', {}, async ($, on) => {
+  test('pane ghi "đã miễn" cạnh lệnh', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen } = setup(on)
     await failing($, seen)
     await stop($)
@@ -180,7 +180,7 @@ describe('0.7.9 Y5: /conductor waive', () => {
     await pane.unmount()
   })
 
-  test('pane tiếng Anh ghi "waived"', { options: { uiLanguage: 'en' } }, async ($, on) => {
+  test('pane tiếng Anh ghi "waived"', { options: { planApproval: 'off', uiLanguage: 'en' } }, async ($, on) => {
     const { seen } = setup(on)
     await failing($, seen)
     await stop($)

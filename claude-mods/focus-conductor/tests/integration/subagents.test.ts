@@ -101,7 +101,7 @@ describe('subagent theo router', () => {
     expect(models).toEqual(['sonnet'])
   })
 
-  test('chi phí đo được của subagent cộng vào đúng agent, không vào luồng chính', {}, async ($, on) => {
+  test('chi phí đo được của subagent cộng vào đúng agent, không vào luồng chính', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: 'agent-1' }))
     on('turn.complete', () => ({ text: '' }))
@@ -146,7 +146,7 @@ describe('subagent theo router', () => {
     expect((second.context ?? []).join('\n')).not.toContain('chưa giao')
   })
 
-  test('mọi việc ghi giao đã có Agent nhận thì không nhắc', {}, async ($, on) => {
+  test('mọi việc ghi giao đã có Agent nhận thì không nhắc', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     // Engine nhận lời gọi Agent (từ 0.5.1, lời gọi bị từ chối thì việc trở lại danh sách chờ).
@@ -205,7 +205,7 @@ describe('subagent theo router', () => {
     expect(models).toEqual(['sonnet'])
   })
 
-  test('chế độ suggest: Claude để trống model thì không có cảnh báo lệch model (mod không gửi model nào)', { options: { routing: 'suggest' } }, async ($, on) => {
+  test('chế độ suggest: Claude để trống model thì không có cảnh báo lệch model (mod không gửi model nào)', { options: { planApproval: 'off', routing: 'suggest' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Agent' }, () => ({ result: 'đã giao' }))
     on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: 'a-sg' }))
@@ -242,7 +242,7 @@ describe('subagent chạy đúng điều phối', () => {
     expect(String((await conductor($, 'status')).text)).toContain('engine chạy opus thay vì haiku')
   })
 
-  test('agent workflow không do script chọn model: router chấm trước khi agent chạy, mod ép ở từng bước', {}, async ($, on) => {
+  test('agent workflow không do script chọn model: router chấm trước khi agent chạy, mod ép ở từng bước', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     on('agent.spawn', (_$, e) => ({ model: 'claude-opus-5-5', agentId: `w-${e.description.slice(0, 6)}` }))
     await submit($, FOUR)
@@ -259,7 +259,7 @@ describe('subagent chạy đúng điều phối', () => {
     ])
   })
 
-  test('agent workflow lặp lại cùng description và prompt chỉ hỏi router một lần', {}, async ($, on) => {
+  test('agent workflow lặp lại cùng description và prompt chỉ hỏi router một lần', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     let n = 0
     on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: `w-${(n += 1)}` }))
@@ -271,7 +271,7 @@ describe('subagent chạy đúng điều phối', () => {
     expect(seen.steps.slice(before)[0]).toEqual({ model: 'claude-haiku-5-5', effort: 'low' })
   })
 
-  test('agent workflow có model do script chọn thì giữ nguyên model và effort của engine', {}, async ($, on) => {
+  test('agent workflow có model do script chọn thì giữ nguyên model và effort của engine', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'w-script' }))
     await submit($, FOUR)
@@ -282,7 +282,7 @@ describe('subagent chạy đúng điều phối', () => {
     expect(seen.steps.slice(before)[0]).toEqual({ model: 'claude-sonnet-5-5', effort: 'high' })
   })
 
-  test('agent đã chạy step trước khi mod kịp ghi điều phối thì không bị ép về sau (đổi giữa chừng phá cache)', {}, async ($, on) => {
+  test('agent đã chạy step trước khi mod kịp ghi điều phối thì không bị ép về sau (đổi giữa chừng phá cache)', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: 'w-early' }))
     await submit($, FOUR)
@@ -294,7 +294,7 @@ describe('subagent chạy đúng điều phối', () => {
     expect(String((await conductor($, 'status')).text)).toContain('bước đầu đã chạy trước khi mod kịp ghi, không ép')
   })
 
-  test('chế độ suggest không ép model hay effort của subagent; nhật ký ghi là không áp dụng', { options: { routing: 'suggest' } }, async ($, on) => {
+  test('chế độ suggest không ép model hay effort của subagent; nhật ký ghi là không áp dụng', { options: { planApproval: 'off', routing: 'suggest' } }, async ($, on) => {
     const seen = base(on)
     on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: 'w-suggest' }))
     await submit($, FOUR)
@@ -307,7 +307,7 @@ describe('subagent chạy đúng điều phối', () => {
     await ui.unmount()
   })
 
-  test('agent workflow không phản hồi với model đã chọn thì quay về model của engine và ngừng ép', {}, async ($, on) => {
+  test('agent workflow không phản hồi với model đã chọn thì quay về model của engine và ngừng ép', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, { failFamily: 'haiku' })
     on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: 'w-fail' }))
     await submit($, FOUR)
@@ -493,7 +493,7 @@ describe('0.5.0: danh mục agent và nhắc subagent', () => {
     void seen
   })
 
-  test('mặc định không nhắc subagent (chỉ ghi cảnh báo lên pane)', {}, async ($, on) => {
+  test('mặc định không nhắc subagent (chỉ ghi cảnh báo lên pane)', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, { router: request => (request.startsWith('Mục tiêu: nâng cấp') ? { ...FOUR_PLAN, scope: ['src/pay/'] } : DEFAULT_ROUTER(request)) })
     on('tool.call', { tool: 'Agent' }, () => ({ result: 'đã giao' }))
     on('tool.call', { tool: 'Bash' }, () => ({ result: 'lỗi', isError: true }))

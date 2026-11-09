@@ -5,7 +5,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import { COMPLEX_PROMPT, DEFAULT_ROUTER, base, conductor, step, submit } from '../support/engine'
 
 describe('lệnh /conductor', () => {
-  test('mode off tắt điều phối, mode không hợp lệ trả trợ giúp', {}, async ($, on) => {
+  test('mode off tắt điều phối, mode không hợp lệ trả trợ giúp', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     expect((await conductor($, 'mode lung-tung')).text).toContain('auto, subagents, suggest hoặc off')
     await conductor($, 'mode off')
@@ -29,7 +29,7 @@ describe('lệnh /conductor', () => {
     expect((await conductor($, 'status')).text).toContain('Chưa có mục tiêu')
   })
 
-  test('goal khi router lỗi: đặt mục tiêu không có lựa chọn model, có báo checklist cũ đã được lưu', {}, async ($, on) => {
+  test('goal khi router lỗi: đặt mục tiêu không có lựa chọn model, có báo checklist cũ đã được lưu', { options: { planApproval: 'off' } }, async ($, on) => {
     let isDown = false
     const seen = base(on, { router: request => (isDown ? null : DEFAULT_ROUTER(request)) })
     await submit($, COMPLEX_PROMPT)
@@ -41,7 +41,7 @@ describe('lệnh /conductor', () => {
     expect(await step($, seen)).toEqual({ model: 'claude-sonnet-5-5', effort: 'medium' })
   })
 
-  test('/clear (session.end clear) xóa mục tiêu của phiên', {}, async ($, on) => {
+  test('/clear (session.end clear) xóa mục tiêu của phiên', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     expect((await conductor($, 'status')).text).toContain('Mục tiêu:')

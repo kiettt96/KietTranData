@@ -38,7 +38,7 @@ describe('0.7.5 B1: khóa theo script, giữ theo mục tiêu', () => {
     expect(warned(await run($, `${SCRIPT} --lo 9`))).toBe(true)
   })
 
-  test('không bật toast cho cảnh báo này', {}, async ($, on) => {
+  test('không bật toast cho cảnh báo này', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, { router: request => scoped(request.split('\n')[0] ?? 'g') })
     on('tool.call', { tool: 'Bash' }, () => ({ result: 'ok' }))
     await submit($, 'Ghi dữ liệu các lô vào bảng tổng')

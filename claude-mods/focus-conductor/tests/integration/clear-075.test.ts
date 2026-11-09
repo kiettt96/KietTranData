@@ -29,7 +29,7 @@ async function pauseThenRefresh($: Engine, meter: ReturnType<typeof quotaMeter>,
 }
 
 describe('0.7.5 C4: /clear khi có điểm dừng đang mở', () => {
-  test('prompt đầu sau /clear: không có khối ĐIỂM DỪNG, có dòng gợi ý /conductor resume', {}, async ($, on) => {
+  test('prompt đầu sau /clear: không có khối ĐIỂM DỪNG, có dòng gợi ý /conductor resume', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     memoryStore(on)
@@ -45,7 +45,7 @@ describe('0.7.5 C4: /clear khi có điểm dừng đang mở', () => {
     expect(context).toContain('/clear')
   })
 
-  test('sau /clear, /conductor resume rồi prompt: tiếp tục từ điểm dừng', {}, async ($, on) => {
+  test('sau /clear, /conductor resume rồi prompt: tiếp tục từ điểm dừng', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     memoryStore(on)
@@ -61,7 +61,7 @@ describe('0.7.5 C4: /clear khi có điểm dừng đang mở', () => {
 })
 
 describe('0.7.5 C4: sau /conductor resume, cờ không tự chèn được bỏ', () => {
-  test('resume bị ngắt, điểm dừng mở lại: prompt "tiếp tục" sau đó tự chèn như thường', {}, async ($, on) => {
+  test('resume bị ngắt, điểm dừng mở lại: prompt "tiếp tục" sau đó tự chèn như thường', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     memoryStore(on)

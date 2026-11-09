@@ -9,7 +9,7 @@ const twelve = Array.from({ length: 12 }, (_, i) => ({ title: `Bước ${i + 1}:
 const NOTE = 'Người dùng yêu cầu tạm dừng, chờ lệnh tiếp tục lại'
 
 describe('0.5.6 D6: kích thước kết quả', () => {
-  test('12 lần update đơn sang blocked kèm note khoảng 50 ký tự: tổng dưới 4000 ký tự', {}, async ($, on) => {
+  test('12 lần update đơn sang blocked kèm note khoảng 50 ký tự: tổng dưới 4000 ký tự', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     await $.tool.call({ tool: PLAN, action: 'set', steps: twelve })
@@ -21,7 +21,7 @@ describe('0.5.6 D6: kích thước kết quả', () => {
     expect(total).toBeLessThan(4000)
   })
 
-  test('một lần hàng loạt cho 12 bước: dưới 400 ký tự', {}, async ($, on) => {
+  test('một lần hàng loạt cho 12 bước: dưới 400 ký tự', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     await $.tool.call({ tool: PLAN, action: 'set', steps: twelve })
@@ -31,7 +31,7 @@ describe('0.5.6 D6: kích thước kết quả', () => {
 })
 
 describe('0.5.6 D2, D3: update, add và set', () => {
-  test('update chỉ in hàng của bước đổi, không in tiêu đề bước khác và không có dòng Mục tiêu', {}, async ($, on) => {
+  test('update chỉ in hàng của bước đổi, không in tiêu đề bước khác và không có dòng Mục tiêu', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     await $.tool.call({ tool: PLAN, action: 'set', goal: 'Dựng pipeline', steps: [{ title: 'Alpha' }, { title: 'Beta' }, { title: 'Gamma' }] })
@@ -45,7 +45,7 @@ describe('0.5.6 D2, D3: update, add và set', () => {
     expect(out).not.toContain('Mục tiêu:')
   })
 
-  test('add chỉ in bước mới', {}, async ($, on) => {
+  test('add chỉ in bước mới', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Alpha' }, { title: 'Beta' }] })
@@ -56,7 +56,7 @@ describe('0.5.6 D2, D3: update, add và set', () => {
     expect(out).not.toContain('[ ] 2. Beta')
   })
 
-  test('set và restore vẫn in đủ checklist', {}, async ($, on) => {
+  test('set và restore vẫn in đủ checklist', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     const set = String((await $.tool.call({ tool: PLAN, action: 'set', goal: 'Dựng pipeline', steps: [{ title: 'Alpha' }, { title: 'Beta' }] })).result)
@@ -75,7 +75,7 @@ describe('0.5.6 D2, D3: update, add và set', () => {
 })
 
 describe('0.5.6 D4, D5: action show', () => {
-  test('show in đủ checklist có dòng Mục tiêu, không đổi trạng thái', {}, async ($, on) => {
+  test('show in đủ checklist có dòng Mục tiêu, không đổi trạng thái', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     await $.tool.call({ tool: PLAN, action: 'set', goal: 'Dựng pipeline', steps: [{ title: 'Alpha' }, { title: 'Beta' }] })
@@ -88,13 +88,13 @@ describe('0.5.6 D4, D5: action show', () => {
     expect(again).toBe(out)
   })
 
-  test('show trên checklist rỗng', {}, async ($, on) => {
+  test('show trên checklist rỗng', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     expect(String((await $.tool.call({ tool: PLAN, action: 'show' })).result)).toContain('Checklist trống.')
   })
 
-  test('show không tính là cập nhật: turn hỏi đáp không bị cổng Stop chặn', {}, async ($, on) => {
+  test('show không tính là cập nhật: turn hỏi đáp không bị cổng Stop chặn', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('classic.Stop', () => ({}))
     await submit($, COMPLEX_PROMPT)
@@ -104,7 +104,7 @@ describe('0.5.6 D4, D5: action show', () => {
     expect((await $.classic.Stop({ stop_hook_active: false })).block).toBeUndefined()
   })
 
-  test('action không hợp lệ liệt kê cả show trong thông báo lỗi', {}, async ($, on) => {
+  test('action không hợp lệ liệt kê cả show trong thông báo lỗi', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     expect((await $.tool.call({ tool: PLAN, action: 'xyz' })).deny).toContain('show')

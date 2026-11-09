@@ -6,7 +6,7 @@ import type { Engine } from 'claude-code/testing'
 import { COMPLEX_PROMPT, FOUR, PANE, base, step, submit } from '../support/engine'
 
 describe('giao diện', () => {
-  test('band hiện mục tiêu trên terminal và desktop', {}, async ($, on) => {
+  test('band hiện mục tiêu trên terminal và desktop', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     for (const surface of ['terminal', 'desktop'] as const) {
@@ -22,7 +22,7 @@ describe('giao diện', () => {
     }
   })
 
-  test('pane hiện lý do của router, checklist, và đổi chế độ bằng nút', {}, async ($, on) => {
+  test('pane hiện lý do của router, checklist, và đổi chế độ bằng nút', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     await $.tool.call({ tool: 'mcp__focus-conductor__plan', action: 'set', steps: [{ title: 'Phân tích luồng' }] })
@@ -69,7 +69,7 @@ describe('giao diện', () => {
     }
   }
 
-  test('thanh tiến độ đổi màu theo bốn giai đoạn ở cả band và pane: xanh dương, cam, vàng, xanh lá', {}, async ($, on) => {
+  test('thanh tiến độ đổi màu theo bốn giai đoạn ở cả band và pane: xanh dương, cam, vàng, xanh lá', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     const PLAN = 'mcp__focus-conductor__plan'
@@ -108,7 +108,7 @@ describe('giao diện', () => {
     expect(done.cells).toBeGreaterThanOrEqual(6)
   })
 
-  test('bước bị chặn: đầu thanh là ■ vàng, phần đã đóng vẫn theo giai đoạn', {}, async ($, on) => {
+  test('bước bị chặn: đầu thanh là ■ vàng, phần đã đóng vẫn theo giai đoạn', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     const PLAN = 'mcp__focus-conductor__plan'
@@ -118,7 +118,7 @@ describe('giao diện', () => {
     expect(await progressOf($)).toMatchObject({ fill: 'claude', head: '■', headColor: 'warning', count: '1/4', word: undefined })
   })
 
-  test('terminal hẹp: vẫn tô màu theo giai đoạn, chỉ bỏ tên giai đoạn trên band', {}, async ($, on) => {
+  test('terminal hẹp: vẫn tô màu theo giai đoạn, chỉ bỏ tên giai đoạn trên band', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     const PLAN = 'mcp__focus-conductor__plan'
@@ -133,7 +133,7 @@ describe('giao diện', () => {
     expect(narrow.cells).toBeLessThan(wide.cells)
   })
 
-  test('chưa có checklist: band không vẽ thanh, chỉ các ô ○ của việc router dự kiến', {}, async ($, on) => {
+  test('chưa có checklist: band không vẽ thanh, chỉ các ô ○ của việc router dự kiến', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, FOUR)
     const band = await $.ui.mount({

@@ -144,7 +144,7 @@ describe('0.7.4 1: ràng buộc model của brief tới router chấm subagent',
     expect(seen.agentRouted[0]).toContain('Session model (the model the user runs this session on): opus.')
   })
 
-  test('router đọc prompt nhận dòng model của phiên từ lượt thứ hai (model của phiên biết từ step đầu)', {}, async ($, on) => {
+  test('router đọc prompt nhận dòng model của phiên từ lượt thứ hai (model của phiên biết từ step đầu)', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     await submit($, COMPLEX_PROMPT)
     await step($, seen, { model: 'claude-opus-5-5' })
@@ -201,7 +201,7 @@ describe('0.7.4 1: lý do, nhật ký và các lối gọi router khác (bắt m
     expect(seen.agentRouted[0]).toContain('Session model (the model the user runs this session on): opus.')
   })
 
-  test('/conductor goal và /conductor reroute gửi router dòng model của phiên', {}, async ($, on) => {
+  test('/conductor goal và /conductor reroute gửi router dòng model của phiên', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     await submit($, COMPLEX_PROMPT)
     await step($, seen, { model: 'claude-opus-5-5' })

@@ -16,7 +16,7 @@ async function textsOf($: Engine, target: typeof BAND | typeof PANE) {
 }
 
 describe('0.7.6 U12: câu cảnh báo hiển thị bằng tiếng Việt thường', () => {
-  test('vượt ngân sách của việc deep: band và pane ghi "rất sâu"; context chèn cho Claude vẫn như cũ', async ($, on) => {
+  test('vượt ngân sách của việc deep: band và pane ghi "rất sâu"; context chèn cho Claude vẫn như cũ', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, { router: () => plan({ goal: 'Đổi cấu trúc thư mục dữ liệu', depth: 'hard', volume: 'large' }) })
     on('tool.call', { tool: 'Read' }, () => ({ result: 'nội dung' }))
     await submit($, 'Đổi cấu trúc thư mục dữ liệu theo đề xuất')
@@ -31,7 +31,7 @@ describe('0.7.6 U12: câu cảnh báo hiển thị bằng tiếng Việt thườ
     }
   })
 
-  test('bước ghi verified bị hạ: band và pane ghi "đã kiểm chứng", "bằng chứng", "lưu là xong"', async ($, on) => {
+  test('bước ghi verified bị hạ: band và pane ghi "đã kiểm chứng", "bằng chứng", "lưu là xong"', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, { router: () => plan({ goal: 'Sửa lỗi đăng nhập', depth: 'substantial', volume: 'medium' }) })
     await submit($, 'Sửa lỗi đăng nhập trong module xác thực')
     await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa lỗi' }, { title: 'Chạy test' }] } as never)
@@ -45,7 +45,7 @@ describe('0.7.6 U12: câu cảnh báo hiển thị bằng tiếng Việt thườ
     }
   })
 
-  test('uiLanguage en: câu giữ nguyên', { options: { uiLanguage: 'en' } }, async ($, on) => {
+  test('uiLanguage en: câu giữ nguyên', { options: { planApproval: 'off', uiLanguage: 'en' } }, async ($, on) => {
     base(on, { router: () => plan({ goal: 'Fix login', depth: 'substantial', volume: 'medium' }) })
     await submit($, 'Fix the login bug in the auth module')
     await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Fix' }, { title: 'Test' }] } as never)

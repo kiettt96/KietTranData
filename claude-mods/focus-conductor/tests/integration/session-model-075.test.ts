@@ -9,14 +9,14 @@ const sessionModel = (on: On, model: string) => on('session.model', () => ({ val
 const SESSION_LINE = 'Session model (the model the user runs this session on): opus.'
 
 describe('0.7.5 A2: model của phiên ở prompt đầu', () => {
-  test('prompt đầu: request router có dòng Session model', {}, async ($, on) => {
+  test('prompt đầu: request router có dòng Session model', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     sessionModel(on, 'claude-opus-5-5')
     await submit($, COMPLEX_PROMPT)
     expect(seen.routed[0]).toContain(SESSION_LINE)
   })
 
-  test('sessionModel ceiling: luồng chính ở turn đầu không vượt model của phiên', { options: { sessionModel: 'ceiling' } }, async ($, on) => {
+  test('sessionModel ceiling: luồng chính ở turn đầu không vượt model của phiên', { options: { planApproval: 'off', sessionModel: 'ceiling' } }, async ($, on) => {
     const seen = base(on)
     sessionModel(on, 'claude-sonnet-5-5')
     await submit($, COMPLEX_PROMPT)
@@ -43,7 +43,7 @@ describe('0.7.5 A2: model của phiên ở prompt đầu', () => {
     expect(brief).not.toContain('haiku')
   })
 
-  test('engine không trả được model của phiên: như cũ, không có dòng Session model', {}, async ($, on) => {
+  test('engine không trả được model của phiên: như cũ, không có dòng Session model', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     on('session.model', () => {
       throw new Error('không có model')

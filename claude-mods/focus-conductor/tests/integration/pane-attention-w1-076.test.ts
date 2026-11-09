@@ -156,7 +156,7 @@ describe('0.7.6 W1: mục Cần chú ý ở đầu pane', () => {
   })
 
   // Thêm ở commit sửa để ghim mẫu đột biến: số dòng của mục Cần chú ý tính vào luật dạng gọn, nên danh sách đầy đủ không tràn pane.
-  test('checklist dài đủ dạng đầy đủ thì mọi bước nằm trong số dòng của pane, dù có mục Cần chú ý', LONG, async ($, on) => {
+  test('checklist dài đủ dạng đầy đủ thì mọi bước nằm trong số dòng của pane, dù có mục Cần chú ý', { ...LONG, options: { ...(LONG as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     await stacked($, on, false)
     let full = 0
     for (let rows = 12; rows <= 40; rows++) {

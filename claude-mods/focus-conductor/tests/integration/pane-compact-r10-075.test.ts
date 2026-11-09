@@ -13,7 +13,7 @@ const LEGEND = /đã kiểm chứng|chờ kết quả|bỏ qua/
 describe('0.7.5 R10: dòng tiến độ từng việc nằm trong 16 dòng ở checklist 11 bước', () => {
   for (const closed of [0, 1, 2, 6, 8]) {
     // 0.7.6 U1: checklist và tiến độ từng việc là một danh sách; bước đang làm (mang số lô của việc) phải nằm trong 16 dòng.
-    test(`${closed} bước đóng: bước đang làm nằm trong ${PANE_ROWS} dòng`, {}, async ($, on) => {
+    test(`${closed} bước đóng: bước đang làm nằm trong ${PANE_ROWS} dòng`, { options: { planApproval: 'off' } }, async ($, on) => {
       await longGoal($, on, closed)
       const { tree } = await drawn($)
       const section = stepRow(tree, closed)
@@ -24,7 +24,7 @@ describe('0.7.5 R10: dòng tiến độ từng việc nằm trong 16 dòng ở c
 })
 
 describe('0.7.5 R10: dạng gọn khi không đủ chỗ', () => {
-  test('0 bước đóng: bước đang làm và 3 bước mở kế tiếp, dòng "+N bước", không có chú giải ký hiệu', {}, async ($, on) => {
+  test('0 bước đóng: bước đang làm và 3 bước mở kế tiếp, dòng "+N bước", không có chú giải ký hiệu', { options: { planApproval: 'off' } }, async ($, on) => {
     await longGoal($, on, 0)
     const { texts } = await drawn($)
     const list = checklistOf(texts)
@@ -37,7 +37,7 @@ describe('0.7.5 R10: dạng gọn khi không đủ chỗ', () => {
   })
 
   // S6 (vòng rà soát 4): "+N bước" tách thành "k bước đã đóng" và "+m bước mở".
-  test('6 bước đóng: chỉ bước đang làm và 3 bước kế tiếp, kèm "6 bước đã đóng" và "+1 bước mở"', {}, async ($, on) => {
+  test('6 bước đóng: chỉ bước đang làm và 3 bước kế tiếp, kèm "6 bước đã đóng" và "+1 bước mở"', { options: { planApproval: 'off' } }, async ($, on) => {
     await longGoal($, on, 6)
     // 0.7.6 U1: pane 16 dòng đủ cho dạng đầy đủ ở 6 bước đóng; U6 bỏ hai dòng ở phần đầu nên dạng gọn đo ở 10 dòng.
     const { texts } = await drawn($, 10)
@@ -51,7 +51,7 @@ describe('0.7.5 R10: dạng gọn khi không đủ chỗ', () => {
     expect(list.some(t => LEGEND.test(t))).toBe(false)
   })
 
-  test('bước đang làm không phải bước mở đầu tiên: cửa sổ bắt đầu từ bước đang làm, "+N" gồm cả các bước mở đứng trước', {}, async ($, on) => {
+  test('bước đang làm không phải bước mở đầu tiên: cửa sổ bắt đầu từ bước đang làm, "+N" gồm cả các bước mở đứng trước', { options: { planApproval: 'off' } }, async ($, on) => {
     await longGoal($, on, 0)
     await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'todo' })
     await $.tool.call({ tool: PLAN, action: 'update', step: 5, status: 'doing' })
@@ -64,7 +64,7 @@ describe('0.7.5 R10: dạng gọn khi không đủ chỗ', () => {
     expect(list).toContain('+7 bước mở')
   })
 
-  test('bước đang làm gần cuối: chỉ hiện các bước còn lại của cửa sổ, "+N" đếm đủ phần ẩn', {}, async ($, on) => {
+  test('bước đang làm gần cuối: chỉ hiện các bước còn lại của cửa sổ, "+N" đếm đủ phần ẩn', { options: { planApproval: 'off' } }, async ($, on) => {
     await longGoal($, on, 0)
     await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'todo' })
     await $.tool.call({ tool: PLAN, action: 'update', step: 10, status: 'doing' })
@@ -75,7 +75,7 @@ describe('0.7.5 R10: dạng gọn khi không đủ chỗ', () => {
     expect(list).toContain('+9 bước mở')
   })
 
-  test('đủ chỗ (3 bước còn mở trở xuống): giữ từng bước và chú giải ký hiệu như cũ', {}, async ($, on) => {
+  test('đủ chỗ (3 bước còn mở trở xuống): giữ từng bước và chú giải ký hiệu như cũ', { options: { planApproval: 'off' } }, async ($, on) => {
     await longGoal($, on, 8)
     const { texts } = await drawn($)
     const list = checklistOf(texts)
@@ -85,7 +85,7 @@ describe('0.7.5 R10: dạng gọn khi không đủ chỗ', () => {
     expect(list).toContain(' đang làm')
   })
 
-  test('checklist ngắn (6 bước): giữ từng bước và chú giải ký hiệu', {}, async ($, on) => {
+  test('checklist ngắn (6 bước): giữ từng bước và chú giải ký hiệu', { options: { planApproval: 'off' } }, async ($, on) => {
     await longGoal($, on, 1, 6)
     const { texts } = await drawn($)
     const list = checklistOf(texts)
@@ -97,7 +97,7 @@ describe('0.7.5 R10: dạng gọn khi không đủ chỗ', () => {
 
   // Ghim 075-R10c: checklist không dài hơn 6 bước không bao giờ dùng dạng gọn, dù pane thiếu chỗ (từ 0.7.6 U1 dạng đầy đủ cần ít dòng
   // hơn nên ca 6 bước ở 16 dòng luôn vừa; ở pane 6 dòng thì không vừa).
-  test('checklist 6 bước ở pane 6 dòng: vẫn liệt kê đủ 6 bước, không có dòng "+N bước mở"', {}, async ($, on) => {
+  test('checklist 6 bước ở pane 6 dòng: vẫn liệt kê đủ 6 bước, không có dòng "+N bước mở"', { options: { planApproval: 'off' } }, async ($, on) => {
     await longGoal($, on, 1, 6)
     const { texts } = await drawn($, 6)
     const list = checklistOf(texts)
@@ -105,7 +105,7 @@ describe('0.7.5 R10: dạng gọn khi không đủ chỗ', () => {
     expect(list.some(t => /^\+\d+ bước/.test(t))).toBe(false)
   })
 
-  test('dạng gọn không đổi số liệu tiến độ: dòng đếm vẫn hiện', {}, async ($, on) => {
+  test('dạng gọn không đổi số liệu tiến độ: dòng đếm vẫn hiện', { options: { planApproval: 'off' } }, async ($, on) => {
     await longGoal($, on, 6)
     const { texts } = await drawn($)
     expect(texts.some(t => /^6\/11/.test(t))).toBe(true)
@@ -121,7 +121,7 @@ describe('0.7.5 R10: nhãn theo ngôn ngữ', () => {
     expect(labels('en').stepsOpenMore(7)).toBe('+7 open steps')
   })
 
-  test('tiêu đề checklist hiện bằng nhãn tiếng Việt trong pane', {}, async ($, on) => {
+  test('tiêu đề checklist hiện bằng nhãn tiếng Việt trong pane', { options: { planApproval: 'off' } }, async ($, on) => {
     await longGoal($, on, 2)
     const { texts } = await drawn($)
     expect(texts.some(t => HEADING.test(t))).toBe(true)

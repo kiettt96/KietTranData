@@ -64,7 +64,7 @@ describe('0.7.5 B4: turn chạy tiếp không xong', () => {
 })
 
 describe('0.7.5 L1: lệnh bị từ chối của lần dừng sau không lấy lại lệnh cũ', () => {
-  test('dựng lại hai lần liên tiếp (hai turn chạy tiếp lỗi): lần hai vẫn không có lệnh bị từ chối', {}, async ($, on) => {
+  test('dựng lại hai lần liên tiếp (hai turn chạy tiếp lỗi): lần hai vẫn không có lệnh bị từ chối', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     const box = memoryStore(on)
@@ -83,7 +83,7 @@ describe('0.7.5 L1: lệnh bị từ chối của lần dừng sau không lấy 
 })
 
 describe('0.7.5 B4: session.end khi đang resuming', () => {
-  test('kho về open', {}, async ($, on) => {
+  test('kho về open', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     const box = memoryStore(on)

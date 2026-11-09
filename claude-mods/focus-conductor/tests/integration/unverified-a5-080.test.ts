@@ -59,14 +59,14 @@ async function texts($: Engine): Promise<string[]> {
 const warned = async ($: Engine) => (await texts($)).filter(isUnverified)
 
 describe('0.8.0 A5: chỉ thay đổi chắc chắn vào file không nhẹ mới cảnh báo', () => {
-  test('turn chỉ chạy script không rõ, không Edit: không toast, band và pane không có cảnh báo', {}, async ($, on) => {
+  test('turn chỉ chạy script không rõ, không Edit: không toast, band và pane không có cảnh báo', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = setup(on)
     await turn($, 1, () => bash($, 'python3 scripts/chay_mo_hinh.py --nhanh'))
     expect(seen.toasts.filter(isUnverified)).toEqual([])
     expect(await warned($)).toEqual([])
   })
 
-  test('turn chỉ ghi out/a.csv và bao-cao.md: không cảnh báo', {}, async ($, on) => {
+  test('turn chỉ ghi out/a.csv và bao-cao.md: không cảnh báo', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = setup(on)
     await turn($, 1, async () => {
       await write($, 'out/a.csv')
@@ -100,7 +100,7 @@ describe('0.8.0 A5: chỉ thay đổi chắc chắn vào file không nhẹ mới
     expect((await warned($)).length).toBeGreaterThan(0)
   })
 
-  test('đuôi dữ liệu .tsv .jsonl .txt .markdown đều nhẹ', {}, async ($, on) => {
+  test('đuôi dữ liệu .tsv .jsonl .txt .markdown đều nhẹ', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = setup(on)
     await turn($, 1, async () => {
       for (const path of ['out/b.tsv', 'out/c.jsonl', 'ghi-chu.txt', 'docs/d.markdown']) await write($, path)
@@ -108,7 +108,7 @@ describe('0.8.0 A5: chỉ thay đổi chắc chắn vào file không nhẹ mới
     expect(seen.toasts.filter(isUnverified)).toEqual([])
   })
 
-  test('echo x >> /a/run/nhat-ky.log là thay đổi nhẹ: không cảnh báo', {}, async ($, on) => {
+  test('echo x >> /a/run/nhat-ky.log là thay đổi nhẹ: không cảnh báo', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = setup(on)
     await turn($, 1, () => bash($, 'echo x >> /a/run/nhat-ky.log'))
     expect(seen.toasts.filter(isUnverified)).toEqual([])
@@ -126,7 +126,7 @@ describe('0.8.0 A5: option softPaths', () => {
   const OPTIONS = { options: { softPaths: 'ket-qua/**' } }
 
 const OPTIONS_PA_OFF = { ...OPTIONS, options: { ...OPTIONS.options, planApproval: 'off' } }
-  test('softPaths là ket-qua/**: Write ket-qua/x.json là nhẹ', OPTIONS, async ($, on) => {
+  test('softPaths là ket-qua/**: Write ket-qua/x.json là nhẹ', { ...OPTIONS, options: { ...(OPTIONS as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const seen = setup(on)
     await turn($, 1, () => write($, 'ket-qua/x.json'))
     expect(seen.toasts.filter(isUnverified)).toEqual([])
@@ -217,7 +217,7 @@ describe('0.8.0 A5: còn subagent chạy chưa trả về thì hoãn cảnh báo
     expect((await warned($)).length).toBeGreaterThan(0)
   })
 
-  test('subagent trả về sau khi thay đổi đã được kiểm: không cảnh báo', { options: { checkCommands: 'bun test' } }, async ($, on) => {
+  test('subagent trả về sau khi thay đổi đã được kiểm: không cảnh báo', { options: { planApproval: 'off', checkCommands: 'bun test' } }, async ($, on) => {
     const seen = setup(on)
     on('tool.call', { tool: 'Bash' }, () => ({ result: 'bun test v1\n 12 pass\n 0 fail\nRan 12 tests across 2 files. [20ms]' }))
     await submit($, 'Sửa hàm tính phí')
@@ -264,7 +264,7 @@ const DECLARED_PA_OFF = { ...DECLARED, options: { ...DECLARED.options, planAppro
     expect(await stop($)).toContain(NUDGE)
   })
 
-  test('chỉ ghi dữ liệu và báo cáo (csv, md, log): Stop không chặn vì Y6', DECLARED, async ($, on) => {
+  test('chỉ ghi dữ liệu và báo cáo (csv, md, log): Stop không chặn vì Y6', { ...DECLARED, options: { ...(DECLARED as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const seen = setup(on)
     await goal($, seen, async () => {
       await write($, 'out/a.csv')
@@ -274,13 +274,13 @@ const DECLARED_PA_OFF = { ...DECLARED, options: { ...DECLARED.options, planAppro
     expect(await stop($)).not.toContain(NUDGE)
   })
 
-  test('chỉ chạy script không rõ: Stop không chặn vì Y6', DECLARED, async ($, on) => {
+  test('chỉ chạy script không rõ: Stop không chặn vì Y6', { ...DECLARED, options: { ...(DECLARED as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const seen = setup(on)
     await goal($, seen, () => bash($, 'python3 scripts/chay_mo_hinh.py'))
     expect(await stop($)).not.toContain(NUDGE)
   })
 
-  test('softPaths khai ket-qua/**: Write ket-qua/x.json không bị Y6 chặn', { options: { checkCommands: 'bun test', softPaths: 'ket-qua/**' } }, async ($, on) => {
+  test('softPaths khai ket-qua/**: Write ket-qua/x.json không bị Y6 chặn', { options: { planApproval: 'off', checkCommands: 'bun test', softPaths: 'ket-qua/**' } }, async ($, on) => {
     const seen = setup(on)
     await goal($, seen, () => write($, 'ket-qua/x.json'))
     expect(await stop($)).not.toContain(NUDGE)

@@ -77,7 +77,7 @@ describe('0.7.9 P1c: Read lỗi không tính là đã đọc lại', () => {
     expect(finding(false)?.isSoft).toBe(true)
   })
 
-  test('tích hợp: Edit .md rồi Read trả lỗi: pane không có cảnh báo thường, không có dòng cảnh báo nhẹ', {}, async ($: Engine, on) => {
+  test('tích hợp: Edit .md rồi Read trả lỗi: pane không có cảnh báo thường, không có dòng cảnh báo nhẹ', { options: { planApproval: 'off' } }, async ($: Engine, on) => {
     await runTurn($, on, 'docs/a.md', { isReadError: true })
     const pane = await $.ui.mount(PANE)
     expect(await pane.find({ type: 'Text', text: PLAIN_TEXT })).toBeUndefined()

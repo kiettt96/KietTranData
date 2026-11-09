@@ -130,7 +130,7 @@ async function start($: Engine, seen: Seen) {
 const OPTIONS = { options: { checkCommands: RUN, decisionLog: LOG } }
 
 describe('0.8.0 A1: đầu cuối', () => {
-  test('lệnh khai lỗi, rồi chạy lại dạng tương đối sau cd và đạt: Stop không chặn, không có dòng retry', OPTIONS, async ($, on) => {
+  test('lệnh khai lỗi, rồi chạy lại dạng tương đối sau cd và đạt: Stop không chặn, không có dòng retry', { ...OPTIONS, options: { ...(OPTIONS as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const { seen, lines } = setup(on, new Set([RUN]))
     await start($, seen)
     await bash($, RUN)
@@ -140,7 +140,7 @@ describe('0.8.0 A1: đầu cuối', () => {
     expect(lines().some(l => l['kind'] === 'retry')).toBe(false)
   })
 
-  test('hai lần Bash tách nhau: cd /a/tools rồi python3 -B check_a.py đạt phủ lần lỗi', OPTIONS, async ($, on) => {
+  test('hai lần Bash tách nhau: cd /a/tools rồi python3 -B check_a.py đạt phủ lần lỗi', { ...OPTIONS, options: { ...(OPTIONS as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const { seen } = setup(on, new Set([RUN]))
     await start($, seen)
     await bash($, RUN)
@@ -150,7 +150,7 @@ describe('0.8.0 A1: đầu cuối', () => {
     expect(await stop($)).toBe('')
   })
 
-  test('hai lệnh khai cùng tên file: cd /a/tools ở lần Bash trước rồi python3 -B check_a.py vẫn nhận đúng lệnh khai /a/tools', { options: { checkCommands: `${RUN},${OTHER}`, decisionLog: LOG } }, async ($, on) => {
+  test('hai lệnh khai cùng tên file: cd /a/tools ở lần Bash trước rồi python3 -B check_a.py vẫn nhận đúng lệnh khai /a/tools', { options: { planApproval: 'off', checkCommands: `${RUN},${OTHER}`, decisionLog: LOG } }, async ($, on) => {
     const { seen } = setup(on, new Set([RUN]))
     await start($, seen)
     await bash($, RUN)
@@ -160,7 +160,7 @@ describe('0.8.0 A1: đầu cuối', () => {
     expect(await stop($)).toBe('')
   })
 
-  test('đối chứng cố ý đỏ do subagent chạy, rồi luồng chính chạy lại dạng khác đường dẫn và đạt: mục W4 được xóa, không chặn', OPTIONS, async ($, on) => {
+  test('đối chứng cố ý đỏ do subagent chạy, rồi luồng chính chạy lại dạng khác đường dẫn và đạt: mục W4 được xóa, không chặn', { ...OPTIONS, options: { ...(OPTIONS as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const { seen } = setup(on, new Set([RUN]))
     await start($, seen)
     await spawnTool($, 'u1', 'Chạy đối chứng đỏ', `Chạy ${RUN}`)

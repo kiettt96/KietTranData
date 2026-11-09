@@ -86,7 +86,7 @@ describe('0.7.0 5: band và pane trên engine', () => {
     expect((await paneTexts($)).some(t => /^Danh sách bước 1\/2 · 1✓/.test(t))).toBe(true)
   })
 
-  test('đối chứng: chưa có bước verified thì band chỉ ghi "1/2"', {}, async ($, on) => {
+  test('đối chứng: chưa có bước verified thì band chỉ ghi "1/2"', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, COMPLEX_PROMPT)

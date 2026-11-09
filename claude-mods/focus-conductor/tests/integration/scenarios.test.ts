@@ -26,7 +26,7 @@ describe('rà soát trước merge (0.4.0)', () => {
     expect(JSON.stringify(edit.context ?? [])).toContain('ngoài phạm vi')
   })
 
-  test('/conductor goal khi router lỗi: route cũ bị xóa, không hiện trong status', {}, async ($, on) => {
+  test('/conductor goal khi router lỗi: route cũ bị xóa, không hiện trong status', { options: { planApproval: 'off' } }, async ($, on) => {
     let isDown = false
     const seen = base(on, { router: request => (isDown ? null : DEFAULT_ROUTER(request)) })
     await submit($, COMPLEX_PROMPT)
@@ -38,7 +38,7 @@ describe('rà soát trước merge (0.4.0)', () => {
     expect(String((await conductor($, 'status')).text)).not.toContain('opus/xhigh')
   })
 
-  test('chế độ suggest không lưu route: prompt sau ghi đúng model engine đang chạy, luồng chính ghi là chỉ đề xuất', { options: { routing: 'suggest' } }, async ($, on) => {
+  test('chế độ suggest không lưu route: prompt sau ghi đúng model engine đang chạy, luồng chính ghi là chỉ đề xuất', { options: { planApproval: 'off', routing: 'suggest' } }, async ($, on) => {
     const seen = base(on)
     await submit($, COMPLEX_PROMPT)
     expect(seen.contexts[0]?.join('\n')).toContain('luồng chính opus/xhigh (chỉ đề xuất)')
@@ -89,7 +89,7 @@ describe('rà soát trước merge (0.4.0)', () => {
     expect(seen.contexts[1]?.join('\n')).toContain('- Giữ API công khai')
   })
 
-  test('agent workflow lỗi thì lần giao lại được router chấm lại, không dùng kết quả nhớ', {}, async ($, on) => {
+  test('agent workflow lỗi thì lần giao lại được router chấm lại, không dùng kết quả nhớ', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     let n = 0
     on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: `w-${(n += 1)}` }))
@@ -101,7 +101,7 @@ describe('rà soát trước merge (0.4.0)', () => {
     expect(seen.agentRouted.length).toBe(2)
   })
 
-  test('kết quả router đã nhớ được kiểm lại theo model của phiên hiện tại trước khi dùng', { options: { sessionModel: 'ceiling' } }, async ($, on) => {
+  test('kết quả router đã nhớ được kiểm lại theo model của phiên hiện tại trước khi dùng', { options: { planApproval: 'off', sessionModel: 'ceiling' } }, async ($, on) => {
     const seen = base(on)
     let n = 0
     on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: `w-c${(n += 1)}` }))
@@ -129,7 +129,7 @@ describe('rà soát trước merge (0.4.0)', () => {
     expect(seen.agentRouted.length).toBe(1)
   })
 
-  test('chi phí router của prompt tạo mục tiêu mới được tính vào mục tiêu đó', {}, async ($, on) => {
+  test('chi phí router của prompt tạo mục tiêu mới được tính vào mục tiêu đó', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     // 1.000 token vào và 500 token ra ở giá sonnet ($2 và $10 mỗi 1M) = $0.007.
@@ -141,7 +141,7 @@ describe('0.5.0: phần còn lại của đánh giá', () => {
   const PLAN = 'mcp__focus-conductor__plan'
 
   // 0.7.0: semanticDrift bật mặc định; test này giữ lại cho trường hợp người dùng đặt false.
-  test('semanticDrift đặt false: không hỏi router ở checkpoint', { options: { semanticDrift: false } }, async ($, on) => {
+  test('semanticDrift đặt false: không hỏi router ở checkpoint', { options: { planApproval: 'off', semanticDrift: false } }, async ($, on) => {
     const seen = base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, COMPLEX_PROMPT)
@@ -166,7 +166,7 @@ describe('0.5.0: phần còn lại của đánh giá', () => {
     await ui.unmount()
   })
 
-  test('semanticDrift: router thấy vẫn đúng hướng thì không nhắc thêm', { options: { semanticDrift: true } }, async ($, on) => {
+  test('semanticDrift: router thấy vẫn đúng hướng thì không nhắc thêm', { options: { planApproval: 'off', semanticDrift: true } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, COMPLEX_PROMPT)
@@ -175,7 +175,7 @@ describe('0.5.0: phần còn lại của đánh giá', () => {
     expect((last?.context ?? []).join('\n')).not.toContain('lệch mục tiêu')
   })
 
-  test('agent engine báo khởi động mà không qua agent.spawn của mod: status ghi là agent ngoài điều phối', {}, async ($, on) => {
+  test('agent engine báo khởi động mà không qua agent.spawn của mod: status ghi là agent ngoài điều phối', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('classic.SubagentStart', () => ({}))
     on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: 'known-1' }))
@@ -187,7 +187,7 @@ describe('0.5.0: phần còn lại của đánh giá', () => {
     expect(status).toContain('Agent ngoài điều phối (untracked agent, mod không chấm, không ép, không đo): 1 (statusline-setup)')
   })
 
-  test('routerFallback reuse: router lỗi thì dùng lại lựa chọn luồng chính của prompt trước', { options: { routerFallback: 'reuse' } }, async ($, on) => {
+  test('routerFallback reuse: router lỗi thì dùng lại lựa chọn luồng chính của prompt trước', { options: { planApproval: 'off', routerFallback: 'reuse' } }, async ($, on) => {
     let isDown = false
     const seen = base(on, { router: request => (isDown ? null : DEFAULT_ROUTER(request)) })
     await submit($, COMPLEX_PROMPT)
@@ -198,7 +198,7 @@ describe('0.5.0: phần còn lại của đánh giá', () => {
     expect((await step($, seen, { turnId: 't2' }))?.model).toBe('claude-opus-5-5')
   })
 
-  test('uiLanguage en: band và pane dùng nhãn tiếng Anh; nội dung của router giữ nguyên', { options: { uiLanguage: 'en' } }, async ($, on) => {
+  test('uiLanguage en: band và pane dùng nhãn tiếng Anh; nội dung của router giữ nguyên', { options: { planApproval: 'off', uiLanguage: 'en' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     const band = await $.ui.mount({
@@ -268,7 +268,7 @@ describe('0.5.0: kịch bản đầu cuối', () => {
 })
 
 describe('0.5.0: các ca biên do kiểm đột biến chỉ ra', () => {
-  test('báo đổi model của engine chỉ dùng cho turn ngay sau đó: lần đổi sau của người dùng (không có hook) vẫn tạm dừng', {}, async ($, on) => {
+  test('báo đổi model của engine chỉ dùng cho turn ngay sau đó: lần đổi sau của người dùng (không có hook) vẫn tạm dừng', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     on('classic.PostModelSwitch', () => ({}))
     await submit($, COMPLEX_PROMPT)
@@ -281,7 +281,7 @@ describe('0.5.0: các ca biên do kiểm đột biến chỉ ra', () => {
     expect((await step($, seen, { turnId: 't4', model: 'claude-haiku-5-5' }))?.model).toBe('claude-haiku-5-5')
   })
 
-  test('khôi phục rồi lập mục tiêu mới nhiều lần: các mục tiêu đã lưu không đè nhau', {}, async ($, on) => {
+  test('khôi phục rồi lập mục tiêu mới nhiều lần: các mục tiêu đã lưu không đè nhau', { options: { planApproval: 'off' } }, async ($, on) => {
     const PLAN = 'mcp__focus-conductor__plan'
     base(on)
     await submit($, FOUR)
@@ -313,7 +313,7 @@ describe('0.5.0: siết theo đánh giá PR', () => {
     expect((await $.tool.call({ tool: 'Bash', command: 'echo x > src/a.ts' })).deny).toBeUndefined()
   })
 
-  test('router không ghi relation: checklist cũ nằm nguyên trong mục tiêu hiện tại, không có gì để khôi phục', {}, async ($, on) => {
+  test('router không ghi relation: checklist cũ nằm nguyên trong mục tiêu hiện tại, không có gì để khôi phục', { options: { planApproval: 'off' } }, async ($, on) => {
     const PLAN = 'mcp__focus-conductor__plan'
     base(on, { router: request => (request.startsWith('Làm tiếp') ? { ...plan({ goal: '' }), relation: undefined } : DEFAULT_ROUTER(request)) })
     await submit($, FOUR)
@@ -323,7 +323,7 @@ describe('0.5.0: siết theo đánh giá PR', () => {
     expect(String((await conductor($, 'status')).text)).toContain('1. Tìm chỗ gọi')
   })
 
-  test('router hỏi lại vì JSON hỏng thì có toast báo', {}, async ($, on) => {
+  test('router hỏi lại vì JSON hỏng thì có toast báo', { options: { planApproval: 'off' } }, async ($, on) => {
     let n = 0
     const seen = base(on, { router: request => ((n += 1) === 1 ? '{"goal": "x"' : DEFAULT_ROUTER(request)) })
     await submit($, COMPLEX_PROMPT)

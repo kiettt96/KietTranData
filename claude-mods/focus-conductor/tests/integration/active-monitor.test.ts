@@ -21,7 +21,7 @@ describe('0.7.0 6: semanticDrift mặc định bật', () => {
     expect(seen.drift.length).toBe(1)
   })
 
-  test('đặt semanticDrift false: không hỏi router ở checkpoint', { options: { semanticDrift: false } }, async ($, on) => {
+  test('đặt semanticDrift false: không hỏi router ở checkpoint', { options: { planApproval: 'off', semanticDrift: false } }, async ($, on) => {
     const seen = base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, COMPLEX_PROMPT)

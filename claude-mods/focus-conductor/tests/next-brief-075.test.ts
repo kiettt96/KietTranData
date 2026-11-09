@@ -45,7 +45,7 @@ describe('0.7.5 B12: mang theo quy định model', () => {
 })
 
 describe('0.7.5 B12: nhật ký quyết định', () => {
-  test('lần giữ mục tiêu được ghi vào nhật ký', { options: { decisionLog: '/tmp/fc-075-b12.jsonl' } }, async ($, on) => {
+  test('lần giữ mục tiêu được ghi vào nhật ký', { options: { planApproval: 'off', decisionLog: '/tmp/fc-075-b12.jsonl' } }, async ($, on) => {
     const writes: string[] = []
     on('fs.write', (_$, e) => {
       writes.push(e.text)

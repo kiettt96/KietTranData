@@ -37,7 +37,7 @@ async function goalWithSteps($: Engine) {
 }
 
 describe('0.6.1 2.1: điểm dừng được ghi cả khi không có tool call', () => {
-  test('hạn mức 97%, session.measure, prompt trả lời bằng chữ, turn.complete: đúng một điểm dừng open, phiên mới khôi phục được', {}, async ($, on) => {
+  test('hạn mức 97%, session.measure, prompt trả lời bằng chữ, turn.complete: đúng một điểm dừng open, phiên mới khôi phục được', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     const box = memoryStore(on)
@@ -59,7 +59,7 @@ describe('0.6.1 2.1: điểm dừng được ghi cả khi không có tool call',
     expect(status).toContain('[~] 1. Sửa')
   })
 
-  test('chỉ session.measure (không prompt, không tool call): đã có đúng một điểm dừng open', {}, async ($, on) => {
+  test('chỉ session.measure (không prompt, không tool call): đã có đúng một điểm dừng open', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     const box = memoryStore(on)
@@ -72,7 +72,7 @@ describe('0.6.1 2.1: điểm dừng được ghi cả khi không có tool call',
     expect(open[0]?.plan[0]?.status).toBe('doing')
   })
 
-  test('session.measure qua ngưỡng mà checklist trống: không tạo điểm dừng', {}, async ($, on) => {
+  test('session.measure qua ngưỡng mà checklist trống: không tạo điểm dừng', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     const box = memoryStore(on)
@@ -83,7 +83,7 @@ describe('0.6.1 2.1: điểm dừng được ghi cả khi không có tool call',
     expect(openCheckpoints(box).length).toBe(0)
   })
 
-  test('prompt đến khi đang ở vùng dừng mà chưa có lần dừng: ghi điểm dừng, không cần tool call', {}, async ($, on) => {
+  test('prompt đến khi đang ở vùng dừng mà chưa có lần dừng: ghi điểm dừng, không cần tool call', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     const box = memoryStore(on)
@@ -95,7 +95,7 @@ describe('0.6.1 2.1: điểm dừng được ghi cả khi không có tool call',
     expect(openCheckpoints(box).length).toBe(1)
   })
 
-  test('session.end khi đang ở vùng dừng và checklist còn mở: ghi điểm dừng; gọi lần hai chỉ cập nhật, không tạo bản trùng', {}, async ($, on) => {
+  test('session.end khi đang ở vùng dừng và checklist còn mở: ghi điểm dừng; gọi lần hai chỉ cập nhật, không tạo bản trùng', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     const box = memoryStore(on)
@@ -116,7 +116,7 @@ describe('0.6.1 2.1: điểm dừng được ghi cả khi không có tool call',
     expect(second[0]?.plan[0]?.status).toBe('done')
   })
 
-  test('session.end ở vùng dừng mà checklist trống: không ghi gì', {}, async ($, on) => {
+  test('session.end ở vùng dừng mà checklist trống: không ghi gì', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     const box = memoryStore(on)
@@ -128,7 +128,7 @@ describe('0.6.1 2.1: điểm dừng được ghi cả khi không có tool call',
     expect(openCheckpoints(box).length).toBe(0)
   })
 
-  test('session.end ngoài vùng dừng: không ghi gì', {}, async ($, on) => {
+  test('session.end ngoài vùng dừng: không ghi gì', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, RESUME)
     startHooks(on)
     const box = memoryStore(on)
@@ -138,7 +138,7 @@ describe('0.6.1 2.1: điểm dừng được ghi cả khi không có tool call',
     expect(openCheckpoints(box).length).toBe(0)
   })
 
-  test('quotaGuard false: session.measure, prompt và session.end không ghi gì', { options: { quotaGuard: false } }, async ($, on) => {
+  test('quotaGuard false: session.measure, prompt và session.end không ghi gì', { options: { planApproval: 'off', quotaGuard: false } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     const box = memoryStore(on)
@@ -154,7 +154,7 @@ describe('0.6.1 2.1: điểm dừng được ghi cả khi không có tool call',
 })
 
 describe('0.6.1 2.3: câu nhắc theo nguồn dừng', () => {
-  test('người dùng tự dừng: prompt được nhắc /conductor resume, không phải resume force', {}, async ($, on) => {
+  test('người dùng tự dừng: prompt được nhắc /conductor resume, không phải resume force', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     memoryStore(on)

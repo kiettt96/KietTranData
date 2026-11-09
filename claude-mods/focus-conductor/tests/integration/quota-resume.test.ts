@@ -52,7 +52,7 @@ async function pauseNow($: Engine, meter: ReturnType<typeof quotaMeter>, clock: 
 }
 
 describe('0.6.0 D: tiếp tục cùng phiên', () => {
-  test('hạn mức làm mới: prompt kế tiếp có khối ĐIỂM DỪNG đặt trước mọi context, đúng một lần, không quá 2000 ký tự', {}, async ($, on) => {
+  test('hạn mức làm mới: prompt kế tiếp có khối ĐIỂM DỪNG đặt trước mọi context, đúng một lần, không quá 2000 ký tự', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     const box = memoryStore(on)
@@ -78,7 +78,7 @@ describe('0.6.0 D: tiếp tục cùng phiên', () => {
     expect((seen.contexts[seen.contexts.length - 1] ?? []).join('\n')).not.toContain('ĐIỂM DỪNG')
   })
 
-  test('vẫn trong vùng dừng mà không force: không tiếp tục lặng lẽ, điểm dừng vẫn open', {}, async ($, on) => {
+  test('vẫn trong vùng dừng mà không force: không tiếp tục lặng lẽ, điểm dừng vẫn open', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     const box = memoryStore(on)
@@ -114,7 +114,7 @@ describe('0.6.0 D: tiếp tục cùng phiên', () => {
 })
 
 describe('0.6.0 D: chỉ prompt tiếp nối mới tiếp tục điểm dừng (góp ý PR 21)', () => {
-  test('prompt không liên quan (router xếp mục tiêu mới): không chèn khối, chỉ nhắc một dòng, điểm dừng vẫn open sau turn', {}, async ($, on) => {
+  test('prompt không liên quan (router xếp mục tiêu mới): không chèn khối, chỉ nhắc một dòng, điểm dừng vẫn open sau turn', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     const box = memoryStore(on)
@@ -153,7 +153,7 @@ describe('0.6.0 D: chỉ prompt tiếp nối mới tiếp tục điểm dừng (
     })
   }
 
-  test('câu trong routerSkip: tiếp tục điểm dừng mà không hỏi router', { options: { routerSkip: 'tiếp' } }, async ($, on) => {
+  test('câu trong routerSkip: tiếp tục điểm dừng mà không hỏi router', { options: { planApproval: 'off', routerSkip: 'tiếp' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     memoryStore(on)
@@ -169,7 +169,7 @@ describe('0.6.0 D: chỉ prompt tiếp nối mới tiếp tục điểm dừng (
     expect(seen.contexts[seen.contexts.length - 1]?.[0]).toContain('ĐIỂM DỪNG')
   })
 
-  test('vừa gõ /conductor resume: prompt kế tiếp tiếp tục điểm dừng dù router xếp mục tiêu mới, giữ mục tiêu cũ', {}, async ($, on) => {
+  test('vừa gõ /conductor resume: prompt kế tiếp tiếp tục điểm dừng dù router xếp mục tiêu mới, giữ mục tiêu cũ', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     const box = memoryStore(on)
@@ -190,7 +190,7 @@ describe('0.6.0 D: chỉ prompt tiếp nối mới tiếp tục điểm dừng (
 })
 
 describe('0.6.0 D: vòng đời', () => {
-  test('consumed chỉ sau turn.complete không lỗi của turn tiếp tục; turn lỗi thì quay về open', {}, async ($, on) => {
+  test('consumed chỉ sau turn.complete không lỗi của turn tiếp tục; turn lỗi thì quay về open', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     const box = memoryStore(on)
@@ -212,7 +212,7 @@ describe('0.6.0 D: vòng đời', () => {
 
   // Góp ý PR 21: chỉ reason "answer" là turn tiếp tục đã xong; người dùng ngắt (Esc) hay model từ chối thì việc chưa xong.
   for (const reason of ['aborted', 'refusal']) {
-    test(`turn tiếp tục kết thúc với reason ${reason}: điểm dừng quay về open, không consumed`, {}, async ($, on) => {
+    test(`turn tiếp tục kết thúc với reason ${reason}: điểm dừng quay về open, không consumed`, { options: { planApproval: 'off' } }, async ($, on) => {
       const seen = base(on, RESUME)
       startHooks(on)
       const box = memoryStore(on)
@@ -229,7 +229,7 @@ describe('0.6.0 D: vòng đời', () => {
     })
   }
 
-  test('dừng lần hai trong turn tiếp tục: điểm dừng mới thay thế, giữ nguyên checklist', {}, async ($, on) => {
+  test('dừng lần hai trong turn tiếp tục: điểm dừng mới thay thế, giữ nguyên checklist', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     const box = memoryStore(on)
@@ -286,7 +286,7 @@ describe('0.6.0 D: phiên mới', () => {
     expect((box.data.get(storeKey('/repo')) as QuotaCheckpoint).status).toBe('open')
   })
 
-  test('không đè mục tiêu đang có', {}, async ($, on) => {
+  test('không đè mục tiêu đang có', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, RESUME)
     startHooks(on)
     const box = memoryStore(on)
@@ -331,7 +331,7 @@ describe('0.6.0 D: /conductor resume force và discard', () => {
     expect((await $.tool.call(EDIT)).deny).toContain('hạn mức')
   })
 
-  test('resume discard cần gõ hai lần trong 10 giây rồi mới đánh dấu consumed', {}, async ($, on) => {
+  test('resume discard cần gõ hai lần trong 10 giây rồi mới đánh dấu consumed', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     const box = memoryStore(on)
@@ -379,7 +379,7 @@ describe('0.6.0 D: /conductor resume force và discard', () => {
     expect((await $.tool.call(EDIT)).deny).toBeUndefined()
   })
 
-  test('force khi đang dừng vì hạn mức: prompt kế tiếp tiếp tục điểm dừng dù router xếp việc khác', {}, async ($, on) => {
+  test('force khi đang dừng vì hạn mức: prompt kế tiếp tiếp tục điểm dừng dù router xếp việc khác', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     const box = memoryStore(on)
@@ -396,7 +396,7 @@ describe('0.6.0 D: /conductor resume force và discard', () => {
     expect((box.data.get(storeKey('/repo')) as QuotaCheckpoint).status).toBe('resuming')
   })
 
-  test('cờ resume chỉ dùng một lần: turn tiếp tục bị ngắt, prompt về việc khác sau đó không tiếp tục điểm dừng', {}, async ($, on) => {
+  test('cờ resume chỉ dùng một lần: turn tiếp tục bị ngắt, prompt về việc khác sau đó không tiếp tục điểm dừng', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     const box = memoryStore(on)
@@ -418,7 +418,7 @@ describe('0.6.0 D: /conductor resume force và discard', () => {
     expect((box.data.get(storeKey('/repo')) as QuotaCheckpoint).status).toBe('open')
   })
 
-  test('force khi không dừng và không cửa sổ nào chạm ngưỡng: báo không có gì để ép, không đặt mốc (góp ý PR 21)', {}, async ($, on) => {
+  test('force khi không dừng và không cửa sổ nào chạm ngưỡng: báo không có gì để ép, không đặt mốc (góp ý PR 21)', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     memoryStore(on)
@@ -432,7 +432,7 @@ describe('0.6.0 D: /conductor resume force và discard', () => {
     expect(String((await conductor($, 'status')).text)).not.toContain('ép tiếp')
   })
 
-  test('resume khi không có điểm dừng thì báo rõ', {}, async ($, on) => {
+  test('resume khi không có điểm dừng thì báo rõ', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, RESUME)
     startHooks(on)
     memoryStore(on)

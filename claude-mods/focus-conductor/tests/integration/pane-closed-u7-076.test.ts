@@ -44,17 +44,17 @@ async function eight($: Engine, on: On) {
 }
 
 describe('0.7.6 U7: dòng tóm tắt bước đã đóng', () => {
-  test('vi: "4 bước đã đóng (2 đã kiểm chứng, 1 bỏ qua)"', async ($, on) => {
+  test('vi: "4 bước đã đóng (2 đã kiểm chứng, 1 bỏ qua)"', { options: { planApproval: 'off' } }, async ($, on) => {
     await eight($, on)
     expect(await paneTexts($)).toContain('4 bước đã đóng (2 đã kiểm chứng, 1 bỏ qua)')
   })
 
-  test('en: "4 steps closed (2 verified, 1 skipped)"', { options: { uiLanguage: 'en' } }, async ($, on) => {
+  test('en: "4 steps closed (2 verified, 1 skipped)"', { options: { planApproval: 'off', uiLanguage: 'en' } }, async ($, on) => {
     await eight($, on)
     expect(await paneTexts($)).toContain('4 steps closed (2 verified, 1 skipped)')
   })
 
-  test('chỉ có bước xong: không có phần trong ngoặc', async ($, on) => {
+  test('chỉ có bước xong: không có phần trong ngoặc', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     hooks(on)
     await submit($, COMPLEX_PROMPT)
@@ -67,7 +67,7 @@ describe('0.7.6 U7: dòng tóm tắt bước đã đóng', () => {
 })
 
 describe('0.7.6 U7: chú giải ký hiệu', () => {
-  test('bước mở đang thấy có hai loại (đang làm, chờ): chú giải chỉ ghi hai loại đó', async ($, on) => {
+  test('bước mở đang thấy có hai loại (đang làm, chờ): chú giải chỉ ghi hai loại đó', { options: { planApproval: 'off' } }, async ($, on) => {
     await eight($, on)
     const texts = await paneTexts($)
     const l = labels('vi')
@@ -76,7 +76,7 @@ describe('0.7.6 U7: chú giải ký hiệu', () => {
     for (const other of [l.legend.blocked, l.legend.waiting, l.legend.verified, l.legend.skipped]) expect(texts, other).not.toContain(` ${other}`)
   })
 
-  test('bước mở chỉ một loại: không có chú giải', async ($, on) => {
+  test('bước mở chỉ một loại: không có chú giải', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     hooks(on)
     await submit($, COMPLEX_PROMPT)
@@ -90,13 +90,13 @@ describe('0.7.6 U7: chú giải ký hiệu', () => {
 })
 
 describe('0.7.6 U7: nút Đặt lại và nhật ký điều phối', () => {
-  test('không còn đoạn giải thích phạm vi của nút Đặt lại', async ($, on) => {
+  test('không còn đoạn giải thích phạm vi của nút Đặt lại', { options: { planApproval: 'off' } }, async ($, on) => {
     await eight($, on)
     const texts = await paneTexts($)
     expect(texts.some(t => t.startsWith('Đặt lại xóa:'))).toBe(false)
   })
 
-  test('chưa có quyết định: không có mục Nhật ký điều phối; có lời gọi Agent thì có', async ($, on) => {
+  test('chưa có quyết định: không có mục Nhật ký điều phối; có lời gọi Agent thì có', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     hooks(on)
     await submit($, COMPLEX_PROMPT)

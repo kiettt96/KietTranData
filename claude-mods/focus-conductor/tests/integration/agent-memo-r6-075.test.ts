@@ -38,7 +38,7 @@ describe('0.7.5 R6: 150 lô với quy tắc có vế ngoại lệ', () => {
 })
 
 describe('0.7.5 R6, R11: 150 lô với quy tắc thật và mã ngắn', () => {
-  test('quy tắc thật: "Lọc tin lô N" Claude ghi sonnet: 0 lượt router', LOOP, async ($, on) => {
+  test('quy tắc thật: "Lọc tin lô N" Claude ghi sonnet: 0 lượt router', { ...LOOP, options: { ...(LOOP as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, { router: rulesOf(REAL) })
     capture(on)
     await submit($, 'Cập nhật dữ liệu theo các lô')

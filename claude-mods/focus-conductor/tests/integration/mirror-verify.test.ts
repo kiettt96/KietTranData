@@ -107,7 +107,7 @@ describe('0.7.1: tự nâng verified cho danh sách phản chiếu', () => {
 })
 
 describe('0.7.1: điều kiện để tự nâng', () => {
-  test('kiểm tĩnh (type-check) không bao giờ tự nâng', {}, async ($, on) => {
+  test('kiểm tĩnh (type-check) không bao giờ tự nâng', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = await twoTasks($, on)
     await edit($)
     await done($, '1')
@@ -115,7 +115,7 @@ describe('0.7.1: điều kiện để tự nâng', () => {
     expect(last(seen)).not.toContain('✓')
   })
 
-  test('lệnh test lỗi không nâng', {}, async ($, on) => {
+  test('lệnh test lỗi không nâng', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = await twoTasks($, on)
     await edit($)
     await done($, '1')
@@ -123,7 +123,7 @@ describe('0.7.1: điều kiện để tự nâng', () => {
     expect(last(seen)).not.toContain('✓')
   })
 
-  test('mục tiêu chưa có sửa file (chỉ tra cứu): test đạt không nâng', {}, async ($, on) => {
+  test('mục tiêu chưa có sửa file (chỉ tra cứu): test đạt không nâng', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = await twoTasks($, on)
     await $.tool.call({ tool: 'Read', file_path: 'src/a.ts' })
     await done($, '1')
@@ -142,7 +142,7 @@ describe('0.7.1: điều kiện để tự nâng', () => {
     expect(last(seen)).not.toContain('✓')
   })
 
-  test('mode off: không theo dõi, không nâng', {}, async ($, on) => {
+  test('mode off: không theo dõi, không nâng', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     hooks(on)
     await submit($, COMPLEX_PROMPT)
@@ -166,7 +166,7 @@ describe('0.7.1: tool plan luôn thắng, mirror chỉ để theo dõi', () => {
     expect(last(seen)).toContain('1/2 · 1✓')
   })
 
-  test('cổng Stop không đọc mirror: việc đã nâng verified hay chưa đều không thay đổi việc được phép kết thúc', {}, async ($, on) => {
+  test('cổng Stop không đọc mirror: việc đã nâng verified hay chưa đều không thay đổi việc được phép kết thúc', { options: { planApproval: 'off' } }, async ($, on) => {
     await twoTasks($, on)
     await edit($)
     await done($, '1')
@@ -207,7 +207,7 @@ describe('0.7.1: nhật ký quyết định', () => {
     expect(lines.filter(line => line['kind'] === 'verify-auto')).toMatchObject([{ kind: 'verify-auto', at: 'mirror' }])
   })
 
-  test('chưa có việc nào done thì không ghi verify-auto dù test đã đạt', { options: { decisionLog: '/tmp/fc-mirror-verify3.jsonl' } }, async ($, on) => {
+  test('chưa có việc nào done thì không ghi verify-auto dù test đã đạt', { options: { planApproval: 'off', decisionLog: '/tmp/fc-mirror-verify3.jsonl' } }, async ($, on) => {
     const writes: string[] = []
     on('fs.write', (_$, e) => {
       writes.push(e.text)

@@ -6,7 +6,7 @@ import { askRouter } from '../../hooks/lib/router'
 import { DEFAULT_ROUTER, FOUR, PANE, ROUTER_TIMEOUT, base, conductor, plan, submit, task } from '../support/engine'
 
 describe('0.7.5 B13a: reroute đọc prompt gốc của mục tiêu', () => {
-  test('sau prompt tiếp nối ngắn, /conductor reroute gửi router prompt dài lập mục tiêu', {}, async ($, on) => {
+  test('sau prompt tiếp nối ngắn, /conductor reroute gửi router prompt dài lập mục tiêu', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, { router: request => (request.startsWith('tiếp') ? plan({ relation: 'continue', goal: '' }) : DEFAULT_ROUTER(request)) })
     await submit($, FOUR)
     await submit($, 'tiếp')
@@ -48,7 +48,7 @@ describe('0.7.5 B13b: thử lại khi router hết giờ', () => {
     expect(out.result).toBeNull()
   })
 
-  test('tích hợp: router hết giờ lượt đầu rồi trả lời: prompt có bản đọc của router', {}, async ($, on) => {
+  test('tích hợp: router hết giờ lượt đầu rồi trả lời: prompt có bản đọc của router', { options: { planApproval: 'off' } }, async ($, on) => {
     let calls = 0
     const seen = base(on, {
       router: request => {
@@ -63,7 +63,7 @@ describe('0.7.5 B13b: thử lại khi router hết giờ', () => {
 })
 
 describe('0.7.5 B13c: cắt ở TASK_LIMIT có cảnh báo', () => {
-  test('router chia 25 việc: giữ 20 việc đầu, cảnh báo nêu số việc bị cắt', {}, async ($, on) => {
+  test('router chia 25 việc: giữ 20 việc đầu, cảnh báo nêu số việc bị cắt', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, { router: () => plan({ goal: 'Nhiều việc', depth: 'hard', volume: 'large', tasks: Array.from({ length: 25 }, (_, i) => task(`Việc số ${i + 1}`, 'main', 'sonnet', 'medium')) }) })
     await submit($, 'Làm 25 việc theo danh sách')
     const pane = await $.ui.mount(PANE)

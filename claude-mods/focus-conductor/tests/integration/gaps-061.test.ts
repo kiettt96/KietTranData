@@ -21,14 +21,14 @@ async function goalWithWaiting($: Engine, withOpen: boolean) {
 }
 
 describe('0.6.1 mục 4: thay mục tiêu khi checklist cũ còn bước đang chờ', () => {
-  test('/conductor goal: bước waiting được tính là bước cần lưu và được báo cho Claude (061-Q1)', {}, async ($, on) => {
+  test('/conductor goal: bước waiting được tính là bước cần lưu và được báo cho Claude (061-Q1)', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await goalWithWaiting($, false)
     const out = await conductor($, 'goal Viết hàm parseDate cho ngày ISO, có unit test')
     expect((out.context ?? []).join('\n')).toContain('Checklist cũ còn 1 bước đang chờ đã được lưu')
   })
 
-  test('prompt mục tiêu mới: toast nêu đúng số bước mở và số bước đang chờ (061-Q2)', {}, async ($, on) => {
+  test('prompt mục tiêu mới: toast nêu đúng số bước mở và số bước đang chờ (061-Q2)', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     await goalWithWaiting($, true)
     await submit($, 'Viết hàm slugify(text) bằng TypeScript, có unit test.')

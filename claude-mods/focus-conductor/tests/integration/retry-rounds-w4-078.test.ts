@@ -258,7 +258,7 @@ describe('W4: lượt nâng mức khi lệnh kiểm lỗi', () => {
     expect((await edit($, 'src/b.ts')).context?.some(c => c.includes('Sửa lỗi kiểm')) ?? false).toBe(false)
   })
 
-  test('12. turn sau khi còn chưa đạt: router nhận mục quan sát có lệnh, effort luồng chính lên một bậc', {}, async ($, on) => {
+  test('12. turn sau khi còn chưa đạt: router nhận mục quan sát có lệnh, effort luồng chính lên một bậc', { options: { planApproval: 'off' } }, async ($, on) => {
     const later = plan({ relation: 'continue', goal: '', main: { model: 'sonnet', effort: 'medium' } })
     const { seen } = setup(on, request => (request.startsWith('Sửa hàm tính phí') ? GOAL : later))
     await failing($, seen)
@@ -270,7 +270,7 @@ describe('W4: lượt nâng mức khi lệnh kiểm lỗi', () => {
     expect((await step($, seen, { turnId: 't2' }))?.effort).toBe('high')
   })
 
-  test('13. plan update done khi còn chưa đạt: kết quả có câu cảnh báo tối đa 200 ký tự; không còn chưa đạt thì không có', {}, async ($, on) => {
+  test('13. plan update done khi còn chưa đạt: kết quả có câu cảnh báo tối đa 200 ký tự; không còn chưa đạt thì không có', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen, passing } = setup(on)
     await failing($, seen, 'bun test', ['Sửa hàm tính phí', 'Kiểm lại phí'])
     const warned = String((await $.tool.call({ tool: PLAN, action: 'update', step: 2, status: 'done' })).result)
@@ -294,27 +294,27 @@ describe('W4: lượt nâng mức khi lệnh kiểm lỗi', () => {
 })
 
 describe('W4: ngoại lệ, cho kết thúc như trước vòng sửa 3', () => {
-  test('enforceChecklist false', { options: { enforceChecklist: false } }, async ($, on) => {
+  test('enforceChecklist false', { options: { planApproval: 'off', enforceChecklist: false } }, async ($, on) => {
     const { seen } = setup(on)
     await failing($, seen)
     expect(await stop($)).toBe('')
   })
 
-  test('đang tạm dừng vì hạn mức (quota.pause khác null)', {}, async ($, on) => {
+  test('đang tạm dừng vì hạn mức (quota.pause khác null)', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen } = setup(on)
     await failing($, seen)
     await conductor($, 'pause')
     expect(await stop($)).toBe('')
   })
 
-  test('mode off', {}, async ($, on) => {
+  test('mode off', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen } = setup(on)
     await failing($, seen)
     await conductor($, 'mode off')
     expect(await stop($)).toBe('')
   })
 
-  test('turn hỏi đáp không thực thi', {}, async ($, on) => {
+  test('turn hỏi đáp không thực thi', { options: { planApproval: 'off' } }, async ($, on) => {
     const answer = plan({ relation: 'new', goal: 'Hỏi', kind: 'answer', depth: 'none', main: { model: 'haiku', effort: 'low' } })
     const { seen } = setup(on, request => (request.startsWith('Sửa hàm tính phí') ? GOAL : answer))
     await failing($, seen)
@@ -324,7 +324,7 @@ describe('W4: ngoại lệ, cho kết thúc như trước vòng sửa 3', () => 
     expect(await stop($)).toBe('')
   })
 
-  test('lỗi của mục tiêu cũ sau khi đổi mục tiêu', {}, async ($, on) => {
+  test('lỗi của mục tiêu cũ sau khi đổi mục tiêu', { options: { planApproval: 'off' } }, async ($, on) => {
     const other = plan({ goal: 'Đổi màu nút', depth: 'light', volume: 'small', main: { model: 'sonnet', effort: 'medium' } })
     const { seen } = setup(on, request => (request.startsWith('Sửa hàm tính phí') ? GOAL : other))
     await failing($, seen)
