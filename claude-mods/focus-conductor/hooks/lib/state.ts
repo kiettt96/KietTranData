@@ -6,7 +6,7 @@
 
 import type { PluginOptions } from 'claude-code'
 
-import type { AgentProgress, AgentState, ApprovalState, ApprovalStatus, AgentTally, ArchivedGoal, Brief, CheckHint, Core, ForkPart, ForkPartState, ForkState, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, RetryItem, RetryState, Route, Waiver, WaiverState, RouteEvent, RouterFail, SkillState, TurnFault, Warning } from '../../types'
+import type { AgentProgress, AgentState, ApprovalState, ApprovalStatus, AgentTally, ArchivedGoal, Brief, ChangedState, CheckHint, Core, ForkPart, ForkPartState, ForkState, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, RetryItem, RetryState, Route, Waiver, WaiverState, RouteEvent, RouterFail, SkillState, TurnFault, Warning } from '../../types'
 import { restorableSteps } from './drift'
 import type { Tokens } from './cost'
 import { addUsage, emptyLedger, nextGoal, planSwitch, resetLedger } from './ledger'
@@ -50,6 +50,8 @@ export const EMPTY_CORE: Core = {
   approval: { goalId: -1, status: 'none', rounds: 0, asked: false },
   skill: { goalId: -1, seq: 0, lastWrite: -1, trialAt: -1, path: '' },
   skillNudged: -1,
+  changed: { goalId: -1, paths: [], unknown: 0, overflow: 0 },
+  changedNoticed: -1,
 }
 
 const LOG_LIMIT = 60
@@ -249,8 +251,51 @@ export function normalizeCore(raw: Partial<Core>): Core {
     approval: normalizeApproval(raw.approval),
     skill: normalizeSkill(raw.skill),
     skillNudged: typeof raw.skillNudged === 'number' ? raw.skillNudged : -1,
+    changed: normalizeChanged(raw.changed),
+    changedNoticed: typeof raw.changedNoticed === 'number' ? raw.changedNoticed : -1,
   }
 }
+
+/** Trần số đường dẫn lưu mỗi mục tiêu (0.8.2 N5); vượt trần thì chỉ đếm vào overflow. */
+export const CHANGED_LIMIT = 200
+
+/** File đã đổi từ bản đã lưu (0.8.2 N5); Core từ bản trước không có trường này thì chưa có gì. */
+function normalizeChanged(raw: Partial<ChangedState> | undefined): ChangedState {
+  if (raw === undefined || raw === null) return { goalId: -1, paths: [], unknown: 0, overflow: 0 }
+  const num = (value: unknown, fallback: number) => (typeof value === 'number' && Number.isFinite(value) ? value : fallback)
+  const paths = Array.isArray(raw.paths) ? raw.paths.filter((p): p is string => typeof p === 'string').slice(0, CHANGED_LIMIT) : []
+  return { goalId: num(raw.goalId, -1), paths, unknown: num(raw.unknown, 0), overflow: num(raw.overflow, 0) }
+}
+
+/** File đã đổi của mục tiêu đang mở (0.8.2 N5): trạng thái lưu cho mục tiêu khác là chưa có gì. */
+export function changedOf(c: Core): ChangedState {
+  const n = normalizeCore(c)
+  return n.brief !== null && n.changed.goalId === n.brief.goalId ? n.changed : { goalId: n.brief?.goalId ?? -1, paths: [], unknown: 0, overflow: 0 }
+}
+
+/**
+ * Ghi các đích một lần ghi file của mục tiêu goalId (0.8.2 N5): mục tiêu khác thì đặt lại; đường dẫn mới thêm tới trần 200, vượt trần thì
+ * tăng overflow; `isUnknown` là lệnh ghi không đọc được đích.
+ */
+export const withChanged =
+  (goalId: number, paths: readonly string[], isUnknown: boolean) =>
+  (c: Core): Core => {
+    const n = normalizeCore(c)
+    const current = n.changed.goalId === goalId ? n.changed : { goalId, paths: [], unknown: 0, overflow: 0 }
+    const kept = [...current.paths]
+    let overflow = current.overflow
+    for (const path of paths) {
+      if (kept.includes(path)) continue
+      if (kept.length < CHANGED_LIMIT) kept.push(path)
+      else overflow += 1
+    }
+    return { ...n, changed: { goalId, paths: kept, unknown: current.unknown + (isUnknown ? 1 : 0), overflow } }
+  }
+
+/** Ghi mục tiêu vừa được nhắc ghép file đã đổi (0.8.2 N5): mỗi mục tiêu chỉ nhắc một lần. */
+export const withChangedNoticed =
+  (goalId: number) =>
+  (c: Core): Core => ({ ...normalizeCore(c), changedNoticed: goalId })
 
 /** Trạng thái thử skill từ bản đã lưu (0.8.2 N3); Core từ bản trước không có trường này thì chưa ghi, chưa thử. */
 function normalizeSkill(raw: Partial<SkillState> | undefined): SkillState {

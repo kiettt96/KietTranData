@@ -401,7 +401,17 @@ export type Core = {
   skill: SkillState
   /** Mục tiêu đã chặn một lần vì sửa skill mà chưa thử (0.8.2 N3); -1 là chưa. Vắng ở trạng thái cũ thì -1. */
   skillNudged: number
+  /** File đã đổi trong mục tiêu goalId (0.8.2 N5), cả luồng chính và subagent. Vắng ở trạng thái cũ: goalId -1, chưa có gì. */
+  changed: ChangedState
+  /** Mục tiêu đã được nhắc ghép file đã đổi khi đóng bước mở cuối (0.8.2 N5); -1 là chưa. Vắng ở trạng thái cũ thì -1. */
+  changedNoticed: number
 }
+
+/**
+ * File đã đổi của mục tiêu goalId (0.8.2 N5): `paths` là đường dẫn tương đối với thư mục gốc phiên (ngoài gốc thì giữ tuyệt đối), không trùng,
+ * tối đa 200; vượt trần thì chỉ tăng `overflow`. `unknown` đếm lệnh ghi không đọc được đích.
+ */
+export type ChangedState = { goalId: number; paths: string[]; unknown: number; overflow: number }
 
 /**
  * Lần ghi file skill và lần thử skill của mục tiêu goalId (0.8.2 N3), theo bộ đếm `seq` tăng dần của mod trong mục tiêu: `lastWrite` là thứ

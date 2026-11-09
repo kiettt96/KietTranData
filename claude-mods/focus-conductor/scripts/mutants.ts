@@ -2055,4 +2055,6 @@ export const MUTANTS: Mutant[] = [
   { id: "082-N3b", file: "hooks/lib/state.ts", note: "bằng chứng thử tính cả lần trước thay đổi cuối", old: "return skill.lastWrite >= 0 && skill.lastWrite > skill.trialAt", new: "return skill.lastWrite >= 0 && skill.trialAt < 0" },
   { id: "082-N3c", file: "hooks/parts/consistency.ts", note: "Agent bị hủy tính là đã thử", old: "isSkillTrial(meta.description) && end.agent === 'done')", new: "isSkillTrial(meta.description))" },
   { id: "082-N3d", file: "hooks/parts/consistency.ts", note: "chặn mỗi lần dừng thay vì một lần mỗi mục tiêu", old: "if (brief === null || core.skillNudged === brief.goalId || ", new: "if (brief === null || " },
+  { id: "082-N5a", file: "hooks/parts/consistency.ts", note: "nhắc file đã đổi mỗi lần đóng", old: "hasChanged && core.changedNoticed !== core.brief.goalId)", new: "hasChanged)" },
+  { id: "082-N5b", file: "hooks/lib/text.ts", note: "bỏ trần 20 file của lời nhắc file đã đổi", old: "changed.paths.slice(0, CHANGED_NOTICE_FILES).map(", new: "changed.paths.map(" },
 ]

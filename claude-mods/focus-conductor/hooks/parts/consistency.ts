@@ -3,7 +3,7 @@
 import { atom, derive, read, update } from 'claude-code'
 import { caught, noteBehavior, noteHookError } from '../lib/errlog'
 import type { AgentState, Choice, Core, DelegationState, RetryItem, Warning } from '../../types'
-import { acceptsVerified, classifyBash, evidenceStrength, filePathOf, freshTestRun, hardChanges, isCheckTool, isExecuting, isFullyClosed, isGoalDone, isMutation, isPlanFile, isSkillTrial, markVerified, newTracker, skillNameOf, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
+import { acceptsVerified, classifyBash, evidenceStrength, filePathOf, freshTestRun, hardChanges, isCheckTool, isExecuting, isFullyClosed, isGoalDone, isMutation, isPlanFile, normalizePath, isSkillTrial, markVerified, newTracker, skillNameOf, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
 import type { Finding, Focus, ToolObservation, TurnTracker } from '../lib/drift'
 import { checkCommand, checkSignature, coversFailure, isFailedRun } from '../lib/drift/evidence'
 import { isCustomCheck } from '../lib/drift/verify'
@@ -23,7 +23,7 @@ import * as S from '../lib/state'
 import type { View } from '../lib/state'
 import { shownPlan } from '../lib/mirror'
 import { forkFailures, forkFiles, forkResults, liveForks, mergeDue } from '../lib/forks'
-import { PLAN_TOOL_FULL, RETRY_REPORT, chainedCheckNote, retryAgentNotice, RETRY_ROUNDS, noCheckReason, waiveAskText, blockText, firstErrorLine, clipMiddle, RETRY_COMMAND_CHARS, joinStopReasons, retryDoneNote, retryEditNote, retryFailNotice, retryName, retryStepNote, retryStopReason, skillTrialReason, checkHintText, compactReminderText, criteriaNotice, driftContext, missingTasks, missingTasksNotice, needsChecklist, noChecklistReason, pendingNotice, qualityNotice, renderBulk, renderPlan, requirementsNotice, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice, forkMergedNote } from '../lib/text'
+import { PLAN_TOOL_FULL, RETRY_REPORT, chainedCheckNote, retryAgentNotice, RETRY_ROUNDS, noCheckReason, waiveAskText, blockText, firstErrorLine, clipMiddle, RETRY_COMMAND_CHARS, joinStopReasons, retryDoneNote, retryEditNote, retryFailNotice, retryName, retryStepNote, retryStopReason, skillTrialReason, changedFilesNotice, checkHintText, compactReminderText, criteriaNotice, driftContext, missingTasks, missingTasksNotice, needsChecklist, noChecklistReason, pendingNotice, qualityNotice, renderBulk, renderPlan, requirementsNotice, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice, forkMergedNote } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -449,12 +449,40 @@ async function logExhausted($: EngineInterface, deps: RetryDeps, core: Core, ans
  */
 async function frameOf($: EngineInterface, roots: Map<number, string | null>, goalId: number, scopePaths: readonly string[]) {
   if (scopePaths.length === 0) return { root: null, cwd: null }
+  return { root: await rootFor($, roots, goalId), cwd: await $.session.cwd().catch(caught('session.cwd', null)) }
+}
+
+/** Thư mục gốc của phiên chốt một lần cho mỗi mục tiêu (dùng chung cho phạm vi và file đã đổi của 0.8.2 N5); lỗi thì null. */
+async function rootFor($: EngineInterface, roots: Map<number, string | null>, goalId: number): Promise<string | null> {
   if (!roots.has(goalId)) {
     roots.set(goalId, await $.session.root().catch(caught('session.root', null)))
     const oldest = roots.keys().next().value
     if (roots.size > 8 && oldest !== undefined) roots.delete(oldest)
   }
-  return { root: roots.get(goalId) ?? null, cwd: await $.session.cwd().catch(caught('session.cwd', null)) }
+  return roots.get(goalId) ?? null
+}
+
+// File của mod và file kế hoạch không phải phần việc của mục tiêu (0.8.2 N5).
+const CHANGED_SKIP = /(?:^|\/)(?:\.claude\/plans\/|\.focus-conductor(?:\/|$))/
+
+/**
+ * Đích của một lần ghi file đã chạy xong không lỗi (0.8.2 N5), theo cách của hạn mức: filePathOf, không thì classifyBash(command).paths.
+ * Đường dẫn tương đối nối với thư mục của Bash rồi đổi về tương đối với thư mục gốc phiên; ngoài gốc thì giữ tuyệt đối. Không phải lần
+ * ghi thì null; Bash ghi mà không đọc được đích thì isUnknown.
+ */
+function changedTargets(observation: ToolObservation, root: string | null): { paths: string[]; isUnknown: boolean } | null {
+  if (observation.isError || !isMutation(observation)) return null
+  const path = filePathOf(observation)
+  const command = observation.tool === 'Bash' ? String(observation.input['command'] ?? '') : ''
+  const raw = path ? [path] : command ? classifyBash(command).paths : []
+  if (raw.length === 0) return { paths: [], isUnknown: observation.tool === 'Bash' }
+  const base = observation.cwd ?? root ?? ''
+  const relative = raw.map(item => {
+    const full = normalizePath(item.startsWith('/') || base === '' ? item : `${base}/${item}`)
+    const top = root ? normalizePath(root) : ''
+    return top !== '' && top !== '/' && full.startsWith(`${top}/`) ? full.slice(top.length + 1) : full
+  })
+  return { paths: relative.filter(item => item !== '' && !CHANGED_SKIP.test(item)), isUnknown: false }
 }
 
 /** Status line kèm nhãn hạn mức (0.6.1): mọi chỗ đặt status của file này đi qua đây, nên nhãn không mất giữa các hook. */
@@ -679,6 +707,13 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       notes.push(requirementsNotice(asked))
       core = await update($, coreState, S.withReqNoticed(core.brief.goalId))
     }
+    // File đã đổi của mục tiêu (0.8.2 N5): sau G2, một lần mỗi mục tiêu, khóa trong Core; brief isReference hay chưa đổi file nào thì không.
+    const changed = S.changedOf(core)
+    const hasChanged = changed.paths.length > 0 || changed.unknown > 0 || changed.overflow > 0
+    if (isClosing && core.brief !== null && !core.brief.isReference && hasChanged && core.changedNoticed !== core.brief.goalId) {
+      notes.push(changedFilesNotice(changed))
+      core = await update($, coreState, S.withChangedNoticed(core.brief.goalId))
+    }
     if (isUpdate && openSteps(before.plan).length > 0 && openSteps(core.plan).length === 0 && pendingSteps(core.plan).length > 0) notes.push(pendingNotice(core.plan))
     // Đóng bước khi còn lệnh kiểm chưa đạt (0.7.8 vòng sửa 3, W4): cho phép, kèm một câu nói cổng kết thúc sẽ chặn; ghi bước vừa đóng để khi
     // hết lượt mod biết bước nào ghi blocked. Luật verified không đổi.
@@ -780,6 +815,13 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       if (after !== undefined && after !== dirs[thread]) {
         await update($, bashDirState, d => Object.fromEntries([...Object.entries(d).filter(([key]) => key !== thread), [thread, after]].slice(-BASH_DIRS)))
       }
+    }
+
+    // File đã đổi của mục tiêu (0.8.2 N5): cả luồng chính và subagent, độc lập với hạn mức; dùng khi đóng bước mở cuối.
+    const changedBrief = S.normalizeCore(await read($, coreState)).brief
+    if (changedBrief !== null && !observation.isError && isMutation(observation)) {
+      const targets = changedTargets(observation, await rootFor($, L.roots, changedBrief.goalId))
+      if (targets !== null && (targets.paths.length > 0 || targets.isUnknown)) await update($, coreState, S.withChanged(changedBrief.goalId, targets.paths, targets.isUnknown))
     }
 
     if (e.agentId !== undefined) {

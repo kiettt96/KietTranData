@@ -387,6 +387,29 @@ export function requirementsNotice(requirements: readonly string[]): string {
   return build(n)
 }
 
+/** Trần của lời nhắc ghép file đã đổi (0.8.2 N5): số file liệt kê và tổng ký tự. */
+export const CHANGED_NOTICE_FILES = 20
+export const CHANGED_NOTICE_CHARS = 1200
+
+/**
+ * Lời nhắc ghép file đã đổi với bước hay yêu cầu khi đóng bước mở cuối (0.8.2 N5): tối đa 20 file, mỗi đường dẫn cắt 100 ký tự; phần tràn
+ * ghi "và M file nữa", lệnh ghi không rõ đích ghi "và N lệnh ghi không rõ đích"; tổng tối đa 1.200 ký tự.
+ */
+export function changedFilesNotice(changed: { paths: readonly string[]; unknown: number; overflow: number }): string {
+  const all = changed.paths.slice(0, CHANGED_NOTICE_FILES).map(path => clipItem(path, 100))
+  const head = '[focus-conductor] File đã đổi trong mục tiêu này:'
+  const tail =
+    'Ghép mỗi file với bước hay yêu cầu nó phục vụ; file không ghép được thì ghi vào mục "Ngoài yêu cầu" của báo cáo cuối kèm lý do, hoặc hoàn tác nếu không cần.'
+  const build = (n: number) => {
+    const rest = changed.paths.length + changed.overflow - n
+    const parts = [...all.slice(0, n), ...(rest > 0 ? [`và ${rest} file nữa`] : []), ...(changed.unknown > 0 ? [`và ${changed.unknown} lệnh ghi không rõ đích`] : [])]
+    return `${head} ${parts.join('; ')}. ${tail}`
+  }
+  let n = all.length
+  while (n > 0 && build(n).length > CHANGED_NOTICE_CHARS) n -= 1
+  return build(n)
+}
+
 export function qualityNotice(quality: readonly string[]): string {
   return (
     '[focus-conductor] Checklist đã đóng hết. Trước khi kết thúc, xác nhận từng tiêu chí chất lượng của mục tiêu bằng bằng chứng cụ thể ' +
