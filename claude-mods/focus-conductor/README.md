@@ -132,6 +132,10 @@ Cấu hình qua `/config` (hoặc `pluginConfigs.focus-conductor.options` trong 
 | `noticeWeekRemainingPct` | `0` (tắt) | Từ 0.7.4: khi hạn mức tuần còn không quá giá trị này, báo một lần cho Claude ở kết quả tool kế tiếp (không chặn tool) để Claude áp quy tắc dừng theo hạn mức của prompt. Phải lớn hơn `pauseWeekRemainingPct`, nếu không thì bị bỏ qua và mod báo một lần |
 | `noticeSessionRemainingPct` | `0` (tắt) | Như trên, cho hạn mức phiên (5 giờ); phải lớn hơn `pauseSessionRemainingPct` |
 | `pauseAllowPaths` | trống | Từ 0.7.5: đường dẫn phân tách bằng dấu phẩy (tương đối theo thư mục gốc của phiên hoặc tuyệt đối), ví dụ `.checkpoint/`. Khi dừng cứng vì hạn mức, luồng chính vẫn được Write, Edit hay chạy Bash mà mọi đích ghi nằm trong các đường dẫn này, để ghi file điểm dừng theo quy tắc dừng của prompt. Mục kết thúc bằng `/` là thư mục; mục `.` và `./` (cả cây) bị bỏ kèm cảnh báo một lần. Mọi tác động ghi của lệnh phải có đường dẫn và mọi đường dẫn đều nằm trong danh sách (nguồn của `mv` tính là ghi); `ln`, `cp` tạo liên kết (`-l`, `-s`, kể cả cờ trong nháy, ngoặc nhọn và sau `timeout`, `stdbuf`, `ionice`, `doas`, `chronic`), `rsync --link-dest`, `install -l` và lệnh không có đường dẫn đích (`git commit`, `git push`) bị từ chối; tool Read vào các đường dẫn này được qua. Mỗi đường dẫn còn phải đáp thật vào trong danh sách (`$.fs.stat` với `resolve`): symlink dẫn ra ngoài, liên kết trỏ vào hư không và lỗi hệ tệp khác ENOENT bị từ chối, còn thư mục con chưa tạo trong danh sách thì được ghi. Câu từ chối nêu các đường dẫn được ghi, kể cả Read, trước. Trống là như cũ: chỉ tool `plan` được qua |
+| `planApproval` | `auto` | Từ 0.8.2: `auto` thì việc lớn (sâu `substantial` hay `hard`, có sửa file) phải được duyệt kế hoạch trước khi sửa file; `off` tắt cổng này. Người dùng nói rõ "cứ làm, không cần duyệt" thì mục tiêu đó bỏ duyệt |
+| `planReviewRounds` | `2` | Từ 0.8.2: số lượt router rà kế hoạch tối đa trước khi trình duyệt, kẹp từ 1 đến 3 |
+| `skillPaths` | trống | Từ 0.8.2: tiền tố đường dẫn phân tách bằng dấu phẩy, file khớp được coi là file skill (ngoài `SKILL.md` và file `.md` dưới thư mục `skills/`) |
+| `pauseBackup` | `auto` | Từ 0.8.2: khi dừng vì hạn mức, cho Claude commit và push phần đang làm lên nhánh `<nhánh hiện tại>-wip` (tối đa 6 lệnh git). `auto` bật khi phiên chạy trên cloud (nhận qua biến `CLAUDE_CODE_REMOTE`); phiên cloud không đặt biến này thì đặt `on`; `off` tắt |
 
 ### Bảo vệ hạn mức
 
@@ -241,6 +245,14 @@ Cuối turn còn thay đổi chưa kiểm thì mod báo một câu; từ 0.7.7 c
 - **Thư mục làm việc và biến của lệnh kiểm.** `cd /a/tools` ở lần trước rồi `python3 -B check_a.py` vẫn là lệnh khai `/usr/bin/python3 -B /a/tools/check_a.py`; tên trần chỉ khớp khi đúng một lệnh khai có script đó. Biến gán ngay trong lệnh (`T=/a/tools; python3 $T/check_a.py`) được giải; biến của lần chạy trước thì không, vì shell của Claude Code không giữ biến giữa các lần gọi. `timeout 10m`, `timeout -k 5 600` đứng trước cũng được bỏ.
 - **`/conductor errors` có nhóm hành vi.** Ngoài lỗi của mã, file nhật ký ghi các lần hết lượt W4, `verify-reject` lặp, mục prompt bị bỏ hay bị thay, router lỗi; không gửi lên model. Gửi kèm `errors.json` khi báo lỗi mod.
 - **`headlessRouting`.** Mặc định `off`: phiên `claude -p` hay Agent SDK chạy như routing off (script tự chỉ định `--model` không bị mod đổi), ghi một dòng `headless-off`. Đặt `auto` để điều phối như phiên thường.
+
+### Duyệt kế hoạch, thử skill và báo cáo cuối (0.8.2)
+
+- **Câu hỏi làm rõ.** Với việc lớn mà yêu cầu còn chỗ mơ hồ làm đổi kết quả, Claude hỏi một lần, tối đa 3 câu, mỗi câu có sẵn vài lựa chọn. Anh chọn hay gõ câu trả lời ngắn; mod hiểu đó là câu trả lời, không coi là việc mới.
+- **Duyệt kế hoạch.** Việc lớn có sửa file: Claude lập checklist, mod nhờ router rà kế hoạch với yêu cầu, rồi Claude trình kế hoạch và chờ. Pane hiện "Chờ duyệt kế hoạch". Trả lời "duyệt", "ok làm đi" hay gõ `/conductor approve` để Claude bắt đầu sửa; nêu chỗ cần sửa thì Claude sửa kế hoạch rồi trình lại; hỏi "tới đâu rồi" thì chỉ được báo tiến độ. Không cần duyệt: ghi rõ trong yêu cầu "cứ làm, không cần duyệt", hoặc đặt `planApproval: off`.
+- **Hỏi tiến độ, bảo chạy tiếp.** "tới đâu rồi", "xong chưa" chỉ nhận báo cáo, checklist không đổi; "tiếp", "chạy tiếp đi" làm tiếp bước đang mở, không thêm việc.
+- **Mục "Thử skill" trong báo cáo cuối.** Sau khi sửa skill, Claude thử skill trên hai prompt mẫu (một ca skill phải chạy, một ca dễ nhầm skill không được chạy) và ghi cho từng ca: prompt, kết quả mong đợi, kết quả thực tế, đạt hay chưa. Ca nào chưa đạt thì Claude sửa tiếp chứ không báo xong. Pane hiện "Skill chưa thử" khi skill đã sửa mà chưa thử.
+- **Mục "Ngoài yêu cầu" trong báo cáo cuối.** Khi xong việc, mod đưa Claude danh sách file đã đổi; file nào không phục vụ bước hay yêu cầu nào được ghi vào mục này kèm lý do, hoặc được hoàn tác. Anh đọc mục này để biết Claude đã sửa chỗ nào mình không nhờ.
 
 ### Giám sát giữa phiên
 
