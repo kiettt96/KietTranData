@@ -2,6 +2,18 @@
 
 Số đo của HEAD hiện tại và của các bản trước. Mọi số do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển] trừ khi nêu khác; hợp đồng đối chiếu evidence ở [DESIGN.md](DESIGN.md), lịch sử thay đổi ở [CHANGELOG.md](../CHANGELOG.md), cách dùng ở [README](../README.md).
 
+## Kiểm chứng của 0.8.1 (dòng tổng kết lỗi của lệnh khai, xung đột vế ngoại lệ)
+
+Nhánh tách từ `main` `d14ea20` (0.8.0). Thứ tự C1, B3; mỗi điểm một commit test đỏ rồi một commit sửa; không amend, không force-push, không merge [Đo trực tiếp].
+
+- Tái hiện trên `d14ea20` [Đo trực tiếp]: lệnh khai `/usr/bin/python3 -B /a/tools/check_a.py` mã thoát 0 với dòng cuối `TỔNG: 13 phép, 3 phép đỏ`, `TỔNG: CHƯA ĐẠT | 2 lỗi`, `Summary: 11/13 checks`, và dạng nối `&& ls`, đều được ghi `ok=true`; `ruleFamily` cho `Lọc tin thuế quý 3` ra `opus` hay `haiku` theo thứ tự hai vế "Riêng".
+- Test đỏ: C1 5/18 (`8656606`), B3 3/6 (`47e0049`) [Đo trực tiếp].
+- Bộ test trên cây có phiên bản 0.8.1, engine 2.1.296: `claude plugin test .` 2851 test trên 254 tệp, 0 lỗi (0.8.0: 2827 trên 252). So danh sách tên ca đạt với cây `d14ea20`: thêm 24 ca C1 và B3; một ca đổi tên là ca ghim `MOD_VERSION` (0.8.0 sang 0.8.1); không ca nào mất [Đo trực tiếp].
+- `claude plugin validate` đạt ở thư mục mod và gốc repo; `tsc` sạch (khai báo kiểu 2.1.319, như 0.8.0); `scripts/version-check.mjs` khớp 0.8.1; `mutate --check` 0 lệch; sha256 `hooks/` `48be8da50fd2a1a679f6a9085611e41eca1391f755ea388cc69750b848039bfe`, `tests/` `9508f9622456c7d0a40864b455d7321ddb464997c1a45980aa1dad4c581e4a08` [Đo trực tiếp].
+- Chạy riêng từng mẫu mới, một worker [Đo trực tiếp]: `081-C1a` 5 đỏ, `081-C1b` 1, `081-C1c` 1, `081-C1d` 3 (tệp test C1); `081-B3a` 3 (tệp test B3). Mẫu cũ viết lại: `P5` 25 đỏ, `075-H1c` 9, `075-T9h` 6 (cả bộ test); `075-B6e` 5, `075-B6g` 1 (bốn tệp test của Agent và quy định model). Mọi mẫu bị bắt.
+- Hai số phiên dài: 10.339 và 19.587, không đổi so với 0.8.0 [Đo trực tiếp].
+- CI: run 42553885676 xanh trên `7abd2a9` (commit phiên bản và tài liệu; mã và test giống commit này trừ dòng CI ở tệp này) [Đo trực tiếp].
+
 ## Kiểm chứng của 0.8.0 (phiên dài nhiều đợt giao việc)
 
 Nhánh tách từ `main` 28022a6 (0.7.9). Mỗi điểm một commit test đỏ rồi một commit sửa, theo thứ tự A10, A11, A12, A1, A2, A3, A4, A5, A6, A7, A8, A9, A13, rồi một cặp cho kịch bản đầu cuối (vòng sửa A3); không amend, không force-push, không merge. Container của phiên phát triển bị dựng lại một lần giữa chừng, làm mất các commit chưa đẩy; các điểm được làm lại từ đầu, từ đó mỗi commit đẩy ngay và có nhánh sao lưu `claude/focus-conductor-0-8-0-wip` [Đo trực tiếp].

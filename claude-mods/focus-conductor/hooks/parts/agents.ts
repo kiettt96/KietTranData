@@ -5,7 +5,7 @@ import { noteHookError } from '../lib/errlog'
 import type { AgentProgress, Choice, Core, RetryItem, RouteEvent, Warning } from '../../types'
 import { turnCost } from '../lib/cost'
 import { countSpawn, shapeKey, shapeOutput } from '../lib/ledger'
-import { EFFORTS, agentMemoKey, describePick, familyOf, familyRank, pickRank, ruleFamily, stepCovers, taskMatch } from '../lib/route'
+import { EFFORTS, agentMemoKey, describePick, familyOf, familyRank, pickRank, ruleConflict, ruleFamily, stepCovers, taskMatch } from '../lib/route'
 import { clipText } from '../lib/decisions'
 import { agentRouterRequest, askRouter, briefCodes, fitPick, floorRoute, isSettled, parseAgentRoute, ruleRoute, taskRoute } from '../lib/router'
 import { FORK_QUOTA_DENY, RETRY_PREFIX, RETRY_ROUNDS, forkRetryNote, forkReturnNote } from '../lib/text'
@@ -147,6 +147,15 @@ export function registerAgents(on: On, ctx: Ctx): void {
     const isNested = e.agentId !== undefined
     const parent = e.agentId !== undefined ? agents.get(e.agentId) : undefined
     const matched = !isNested && brief !== null && !brief.isReference ? taskMatch(brief.tasks, e.description) : {}
+    // Quy định model của loại việc (0.7.5); hai vế ngoại lệ khác họ cùng khớp (0.8.1 B3) thì ghi rule-conflict, null để router chấm.
+    const ruled = async (constraints: readonly string[]) => {
+      const conflict = ruleConflict(constraints, e.description, L.sessionFamily)
+      if (conflict !== null) {
+        record(await $.clock.now(), 'rule-conflict', { description: clipText(e.description), families: conflict.families, items: conflict.items })
+        await flushDecisions((path, text) => $.fs.write(path, text))
+      }
+      return ruleFamily(constraints, e.description, L.sessionFamily)
+    }
     let assigned = matched.task
     let route: AgentRoute | null = null
     let reason: string
@@ -160,7 +169,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
       reason = 'Claude đã chốt model và effort ở mức trần cho phép; không gọi router'
       record(await $.clock.now(), 'agent-floor', { description: clipText(e.description), skip: true, claimed: `${claimed}/${requested}` })
       await flushDecisions((path, text) => $.fs.write(path, text))
-    } else if (claimed !== null && claimed !== 'haiku' && brief !== null && !brief.isReference && ruleFamily(brief.constraints, e.description, L.sessionFamily) === claimed) {
+    } else if (claimed !== null && claimed !== 'haiku' && brief !== null && !brief.isReference && (await ruled(brief.constraints)) === claimed) {
       // Model Claude ghi đúng quy định model của loại việc trong brief (0.7.5): router không được chọn khác, không gọi. Lựa chọn
       // vẫn qua chính sách (fitPick). Haiku không bỏ qua router: chỉ router biết việc có sửa file (haiku không sửa file) hay không.
       reason = `Claude ghi ${claimed} đúng quy định model của loại việc; không gọi router`

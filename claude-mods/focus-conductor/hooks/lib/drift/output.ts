@@ -277,6 +277,40 @@ function customFailed(output: string): boolean {
 }
 
 /**
+ * Nhãn của dòng tổng kết (0.8.1 C1), so trên dạng đã bỏ dấu và viết thường: tổng, tổng kết, tổng cộng, kết quả, summary, total, result,
+ * results, rồi dấu hai chấm. Chỉ nhận nhãn đã biết: báo lỗi sai làm chặn một lệnh đã đạt, nên nhãn khác ("Ghi chú:", "Tải về:", "K1:")
+ * không là dòng tổng kết.
+ */
+const SUMMARY_LABEL = /^(?:tong(?:\s+ket|\s+cong)?|ket\s+qua|summary|total|results?)\s*:/u
+/** Kết luận lỗi của dòng tổng kết (0.8.1 C1): CHƯA ĐẠT, KHÔNG ĐẠT, FAIL, FAILED. */
+const SUMMARY_FAIL = new RegExp(`${EDGE_START}(?:chưa\\s+đạt|không\\s+đạt|fail(?:ed)?)${EDGE_END}`, 'iu')
+/** Số đếm đứng trước từ lỗi, cách tối đa một từ (0.8.1 C1): "2 lỗi", "3 failed", "1 error", "2 phép lỗi". */
+const COUNTED_FAILURE = new RegExp(`${EDGE_START}(${NUMBER})\\s+(?:\\p{L}+\\s+)?(?:lỗi|fail(?:ed|ures?)?|errors?)${EDGE_END}`, 'giu')
+
+/** Bỏ dấu tiếng Việt và viết thường, để so nhãn của dòng tổng kết. */
+function foldLabel(text: string): string {
+  return text.normalize('NFD').replace(/\p{M}/gu, '').replace(/[đĐ]/gu, 'd').toLowerCase()
+}
+
+/**
+ * Dòng tổng kết cuối báo lỗi (0.8.1 C1). Chỉ xét dòng không rỗng cuối của output, và chỉ khi dòng đó bắt đầu bằng nhãn tổng kết đã biết:
+ * lỗi khi có kết luận lỗi, số đếm lỗi khác 0 (lỗi, đỏ, fail, failed, error, errors, và các từ đếm của `customFailed`), hay tỷ lệ N/M với
+ * N nhỏ hơn M. Chữ "lỗi" ở thân output không tính.
+ */
+export function summaryFailed(output: string): boolean {
+  const last = output.normalize('NFC').split('\n').map(line => line.trim()).filter(line => line !== '').at(-1) ?? ''
+  if (!SUMMARY_LABEL.test(foldLabel(last))) return false
+  const line = last.replace(NEGATED_FAILURE, ' ').replace(ZERO_UNIT_FAILURES, ' ').replace(ZERO_FAILURES, ' ')
+  if (SUMMARY_FAIL.test(line)) return true
+  if ([...line.matchAll(FAILURE_CLAUSE)].some(match => nonZero(match[1] ?? ''))) return true
+  if ([...line.matchAll(COUNTED_BEFORE)].some(match => hasNonZero(match[1] ?? ''))) return true
+  if ([...line.matchAll(COUNTED_AFTER)].some(match => hasNonZero(match[1] ?? ''))) return true
+  if ([...line.matchAll(COUNTED_FAILURE)].some(match => hasNonZero(match[1] ?? ''))) return true
+  if (hasRedCount(line)) return true
+  return [...line.matchAll(RATIO), ...line.matchAll(RATIO_WORDS)].some(match => Number(match[1]) < Number(match[2]))
+}
+
+/**
  * Dòng tổng kết chặt (S5, b): cả dòng chỉ là một dấu hiệu đạt (OK, PASS, PASSED, ALL PASS, ĐẠT, KHỚP, hợp lệ, 0 lỗi), có thể kèm tiền
  * tố nhãn (Kết quả:, Tổng kết, Done, Kiểm xong:, Tổng:) và số N/N đứng trước hoặc sau; không có chữ nào khác.
  */
@@ -470,8 +504,9 @@ export function checkEffectPassed(effect: CheckEffect, observation: ToolObservat
   if (!effect.trusted || observation.isError || outputFailed(observation.output)) return false
   // Đạt mà không kiểm gì (T4) không đạt, ở mọi đường, cả khi mã thoát 0.
   if (observation.output !== undefined && ranNothing(observation.output)) return false
-  // chained (0.8.0 A11): tới đây mã thoát là 0, mọi đoạn nối && đều đã chạy đạt.
-  if (effect.exit === 'visible' || effect.exit === 'chained') return true
+  // chained (0.8.0 A11): tới đây mã thoát là 0, mọi đoạn nối && đều đã chạy đạt. Lệnh khai có dòng tổng kết cuối báo lỗi (0.8.1 C1)
+  // thì không đạt dù mã thoát 0; lệnh không khai vẫn tin mã thoát.
+  if (effect.exit === 'visible' || effect.exit === 'chained') return !(isCustomEffect(effect) && summaryFailed(observation.output ?? ''))
   if (effect.exit !== 'filtered') return false
   const isCustom = isCustomEffect(effect)
   if (isCustom && effect.pipefail === true) return !customFailed(observation.output ?? '')
@@ -496,7 +531,7 @@ export function rejectReason(effect: CheckEffect, observation: ToolObservation):
   const isCustom = isCustomEffect(effect)
   // Lệnh kiểm nối && mà cả lệnh lỗi (0.8.0 A11): không biết đoạn nào lỗi, kết quả chưa rõ.
   if (effect.exit === 'chained' && observation.isError) return 'chained'
-  if (observation.isError || outputFailed(observation.output) || (isCustom && customFailed(observation.output ?? ''))) return 'failed'
+  if (observation.isError || outputFailed(observation.output) || (isCustom && (customFailed(observation.output ?? '') || summaryFailed(observation.output ?? '')))) return 'failed'
   if (observation.output !== undefined && ranNothing(observation.output)) return 'ran-nothing'
   if (!effect.trusted) return 'untrusted'
   if (effect.exit === 'hidden') return 'hidden'

@@ -771,6 +771,33 @@ function ruleSet(constraints: readonly string[]): { clauses: Clause[]; picks: Pi
   return { clauses: parsed.flatMap(rule => rule.clauses), picks: parsed.flatMap(rule => rule.picks) }
 }
 
+/** Mục khớp trọn trong description (còn nguyên nhãn, T1): ngoại lệ nêu mã bước ("Riêng BƯỚC 3") so trên đây, các từ liền nhau. */
+function wholeIn(description: string): (words: string[]) => boolean {
+  const full = phraseWords(fold(description))
+  return words => full.some((_, at) => words.every((word, i) => full[at + i] === word))
+}
+
+/** Các vế ngoại lệ có họ mà description khớp trọn một mục (0.8.1 B3): họ và mục khớp đầu tiên của mỗi vế. */
+function pickMatches(picks: readonly Pick[], isWhole: (words: string[]) => boolean, session: ModelFamily | null): Array<{ family: ModelFamily; item: string }> {
+  const found: Array<{ family: ModelFamily; item: string }> = []
+  for (const pick of picks) {
+    const family = pick.family === 'session' ? session : pick.family
+    const item = family === null ? undefined : pick.items.find(isWhole)
+    if (family !== null && item !== undefined) found.push({ family, item: item.join(' ') })
+  }
+  return found
+}
+
+/**
+ * Xung đột vế ngoại lệ (0.8.1 B3): hai vế "Riêng ... dùng <họ>" có họ khác nhau cùng khớp description. Trả các họ (không trùng) và mục
+ * khớp để ghi nhật ký rule-conflict; null khi không có xung đột.
+ */
+export function ruleConflict(constraints: readonly string[], description: string, session: ModelFamily | null): { families: ModelFamily[]; items: string[] } | null {
+  const matches = pickMatches(ruleSet(constraints).picks, wholeIn(description), session)
+  const families = [...new Set(matches.map(match => match.family))]
+  return families.length > 1 ? { families, items: matches.map(match => match.item) } : null
+}
+
 /**
  * Họ model mà ràng buộc của brief quy định cho loại việc của một lời gọi Agent (0.7.5): ràng buộc tách thành các cặp (ruleClauses),
  * mỗi cặp nêu một họ model (hay "mô hình của phiên", khi biết model của phiên) cho loại việc đứng trước nó ("Việc lọc tin chạy
@@ -779,17 +806,15 @@ function ruleSet(constraints: readonly string[]): { clauses: Clause[]; picks: Pi
  */
 export function ruleFamily(constraints: readonly string[], description: string, session: ModelFamily | null): ModelFamily | null {
   const asked = phraseWords(fold(description).replace(LEADING_LABEL, ''))
-  // Description còn nguyên nhãn (T1): ngoại lệ nêu mã bước ("Riêng BƯỚC 3") so trên đây, các từ trọn vẹn và liền nhau.
-  const full = phraseWords(fold(description))
   const startsWith = (kind: string[]) => kind.length > 0 && kind.every((word, i) => asked[i] === word)
-  const isWhole = (words: string[]) => full.some((_, at) => words.every((word, i) => full[at + i] === word))
+  const isWhole = wholeIn(description)
   const isExcepted = (words: string[]) => words.every(word => asked.includes(word)) || isWhole(words)
   const rules = ruleSet(constraints)
-  // Quy tắc riêng của vế ngoại lệ có họ (0.7.9 R1) đứng trước quy tắc chung; mục chỉ khớp khi các từ liền nhau.
-  for (const pick of rules.picks) {
-    const family = pick.family === 'session' ? session : pick.family
-    if (family !== null && pick.items.some(isWhole)) return family
-  }
+  // Quy tắc riêng của vế ngoại lệ có họ (0.7.9 R1) đứng trước quy tắc chung; mục chỉ khớp khi các từ liền nhau. Các vế khớp có họ khác
+  // nhau (0.8.1 B3) thì không tự chốt theo thứ tự câu: null để router chấm.
+  const families = new Set(pickMatches(rules.picks, isWhole, session).map(match => match.family))
+  if (families.size > 1) return null
+  for (const family of families) return family
   for (const clause of rules.clauses) {
     const family = clause.family === 'session' ? session : clause.family
     if (family === null || !clause.kinds.some(startsWith)) continue

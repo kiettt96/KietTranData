@@ -2,6 +2,16 @@
 
 Các bản của focus-conductor, mới nhất trước. Số đo kiểm chứng của HEAD hiện tại nằm ở [docs/VERIFICATION.md](docs/VERIFICATION.md); cách dùng và tùy chọn ở [README](README.md).
 
+## Thay đổi 0.8.1: dòng tổng kết lỗi của lệnh khai, xung đột vế ngoại lệ
+
+Hai điểm còn tồn sau 0.8.0, tái hiện bằng probe trên `main` `d14ea20` [Đo trực tiếp]. Mỗi điểm một commit test đỏ rồi một commit sửa; schema tool `plan` không đổi, không nới cổng kiểm.
+
+- **C1 (P2): lệnh khai trả mã thoát 0 mà dòng tổng kết cuối báo lỗi thì không đạt.** Trước đây lệnh khai trong `checkCommands` ở đường `visible` và `chained` đạt ngay khi mã thoát 0, nên `TỔNG: 13 phép, 3 phép đỏ`, `TỔNG: CHƯA ĐẠT | 2 lỗi`, `Summary: 11/13 checks` vẫn phủ được lần lỗi W4 và làm bằng chứng cho `verified`. Hàm mới `summaryFailed` chỉ xét dòng không rỗng cuối, và chỉ khi dòng đó bắt đầu bằng nhãn tổng kết đã biết (tổng, tổng kết, tổng cộng, kết quả, summary, total, result, results) rồi dấu hai chấm: lỗi khi có kết luận `CHƯA ĐẠT`, `KHÔNG ĐẠT`, `FAIL`, `FAILED`, số đếm lỗi khác 0, hay tỷ lệ N/M với N nhỏ hơn M. Chữ "lỗi" ở thân output, nhãn khác như `Ghi chú:` hay `K1:`, và output không có dòng tổng kết giữ như cũ. Lệnh không khai và đường `filtered` không đổi. `rejectReason` trả `failed`. Test đỏ 5/18. Mẫu `081-C1a` tới `081-C1d`.
+- **B3 (P3): hai vế ngoại lệ khác họ cùng phủ một mục thì router chấm.** Ràng buộc "Riêng tin pháp lý và tin thuế dùng opus. Riêng tin thuế và tin xuất khẩu dùng haiku" làm `Lọc tin thuế quý 3` ra họ của vế đứng trước, đổi theo thứ tự câu. Giờ `ruleFamily` gom họ của mọi vế khớp trọn: một họ (hay nhiều vế cùng họ) giữ như cũ, từ hai họ khác nhau trả null để router chấm; nhật ký `rule-conflict` ghi các họ và mục khớp, không chèn gì vào context. Test đỏ 3/6. Mẫu `081-B3a`.
+- **Mẫu cũ viết lại cùng ý** (dòng `old` khớp hai chỗ hay đã đổi): `P5`, `075-H1c`, `075-T9h` (C1); `075-B6e`, `075-B6g` (B3).
+- **Test cũ sửa:** chỉ ca ghim `MOD_VERSION` của L1 (đổi sang 0.8.1).
+- **Nhánh sao lưu `claude/focus-conductor-0-8-1-wip`** chỉ để phục hồi khi container của phiên bị dựng lại; không merge, nên xóa sau khi PR 0.8.1 merge.
+
 ## Thay đổi 0.8.0: điều phối được phiên dài nhiều đợt giao việc mà không báo sai
 
 Vấn đề: một phiên thật dài khoảng 30 giờ trên 0.7.9 [Nguồn: nhật ký quyết định của phiên, 06 tới 07/11/2026] cho thấy mod không công nhận lần kiểm đạt nào của hai script kiểm riêng, nên báo "Chưa đạt" sai, cảnh báo chưa kiểm lặp mãi và hết lượt W4 với lệnh đã chạy lại đạt; prompt giao việc mới dồn vào một mục tiêu, việc cũ vẫn hiện và yêu cầu mới bị bỏ. Không điểm nào nới cổng kiểm: lệnh kiểm lỗi vẫn phải chạy lại đạt mới thôi chặn, và lần chạy chưa rõ kết quả không bao giờ tính là đạt. Mỗi điểm một commit test đỏ rồi một commit sửa; schema tool `plan` không đổi. Thứ tự: A10, A11, A12, A1, A2, A3, A4, rồi A5 tới A9, A13.
