@@ -27,6 +27,7 @@ Nhánh tách từ `main` `974c73f` (0.8.1). Thứ tự N1, N2, N3, N5, N4; mỗi
 - **`routerSystem`** [Đo trực tiếp]: 8826 ký tự trước 0.8.2; 9535 sau N1 (cộng 709); 9892 sau N2 (cộng 357).
 - **Hai số phiên dài** [Đo trực tiếp]: 10.339 và 19.587, như 0.8.1, đo hai lần: với `planApproval: 'off'` (tệp `long-session-075` sau khi sửa test cũ) và với mặc định `auto` (bản sao bỏ `off`, duyệt bằng `/conductor approve` ngay sau `plan set`). Mục tiêu của kịch bản (hard, mixed) có lọt diện duyệt khi `auto`; số không đổi vì bộ đo chỉ cộng context chèn vào kết quả tool, không cộng context của prompt (đoạn dặn lập kế hoạch đi ở prompt), và duyệt ngay sau `plan set` nên không có lượt rà, không có lần từ chối.
 - **Chi phí N2 trên một mục tiêu substantial, edit** (`planReviewRounds` 2, router rà trả chỗ cần sửa cả hai lượt) [Đo trực tiếp]: đoạn dặn lập kế hoạch 372 ký tự (một lần, ở prompt); câu từ chối Edit 142 ký tự; lý do chặn lượt rà 1 là 291 ký tự, lượt 2 là 299 ký tự; lần Stop thứ ba cho kết thúc; 2 lượt router thêm (lượt rà kế hoạch).
+- **Workflow CI** trên runner sạch (`ubuntu-24.04`, Node 22, Claude Code 2.1.296): `plugin` qua trên `4c8932f`, head của PR 35 trước commit ghi dòng này (2957 test, 7 phút 2 giây) [Nguồn: GitHub Actions run 42716466569, 2026-11-09]. Commit ghi dòng này chỉ đổi tài liệu.
 
 ## Kiểm chứng của 0.8.1 (dòng tổng kết lỗi của lệnh khai, xung đột vế ngoại lệ)
 
