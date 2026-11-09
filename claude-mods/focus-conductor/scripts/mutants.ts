@@ -1302,7 +1302,7 @@ export const MUTANTS: Mutant[] = [
   { id: "075-L4c", file: "hooks/lib/state.ts", note: "mục bị bỏ không trừ khỏi số đang chạy", old: "if (entry !== undefined) tally[dropped] = { ...entry, running: Math.max(0, entry.running - 1) }", new: "if (entry !== undefined) tally[dropped] = entry" },
   { id: "075-L4d", file: "hooks/lib/state.ts", note: "trần agent chờ kết thúc là 101", old: "export const AGENT_OPEN_LIMIT = 100", new: "export const AGENT_OPEN_LIMIT = 101" },
   { id: "075-L4e", file: "hooks/lib/state.ts", note: "trần agent chờ kết thúc là 99", old: "export const AGENT_OPEN_LIMIT = 100", new: "export const AGENT_OPEN_LIMIT = 99" },
-  { id: "075-L5a", file: "hooks/lib/text.ts", note: "câu cấm đứng trước câu nêu đường dẫn được ghi", old: "`${cause}${allowed} ${ban} Gọi ${PLAN_TOOL_FULL}", new: "`${cause} ${ban}${allowed} Gọi ${PLAN_TOOL_FULL}" },
+  { id: "075-L5a", file: "hooks/lib/text.ts", note: "câu cấm đứng trước câu nêu đường dẫn được ghi", old: "`${cause}${allowed} ${ban}${saved} Gọi ${PLAN_TOOL_FULL}", new: "`${cause} ${ban}${allowed}${saved} Gọi ${PLAN_TOOL_FULL}" },
   { id: "075-L5b", file: "hooks/lib/text.ts", note: "câu cấm không nêu ngoại lệ khi có pauseAllowPaths", old: "const ban = allowPaths.length > 0 ? 'Không gọi tool nào khác ngoài việc ghi và Read các đường dẫn đó và tool plan.' : 'Không gọi tool nào khác.'", new: "const ban = 'Không gọi tool nào khác.'" },
   { id: "075-L5c", file: "hooks/lib/text.ts", note: "câu cấm có ngoại lệ ngay cả khi không có pauseAllowPaths", old: "const ban = allowPaths.length > 0 ?", new: "const ban = true ?" },
   { id: "075-L5d", file: "hooks/lib/text.ts", note: "câu về đường dẫn thiếu vế Bash có mọi đường dẫn đích", old: " (bằng Write, Edit, MultiEdit, NotebookEdit hay Bash có mọi đường dẫn đích nằm trong danh sách đó; đọc các đường dẫn đó bằng Read vì Claude Code cần Read trước Edit)", new: "" },
@@ -2057,4 +2057,8 @@ export const MUTANTS: Mutant[] = [
   { id: "082-N3d", file: "hooks/parts/consistency.ts", note: "chặn mỗi lần dừng thay vì một lần mỗi mục tiêu", old: "if (brief === null || core.skillNudged === brief.goalId || ", new: "if (brief === null || " },
   { id: "082-N5a", file: "hooks/parts/consistency.ts", note: "nhắc file đã đổi mỗi lần đóng", old: "hasChanged && core.changedNoticed !== core.brief.goalId)", new: "hasChanged)" },
   { id: "082-N5b", file: "hooks/lib/text.ts", note: "bỏ trần 20 file của lời nhắc file đã đổi", old: "changed.paths.slice(0, CHANGED_NOTICE_FILES).map(", new: "changed.paths.map(" },
+  { id: "082-N4a", file: "hooks/lib/quota.ts", note: "cho git push --force lên nhánh -wip khi dừng", old: "    if (args.length !== 2 || args[0] !== 'origin') return null", new: "    if (args[0] === '--force') args.shift()\n    if (args.length !== 2 || args[0] !== 'origin') return null" },
+  { id: "082-N4b", file: "hooks/lib/quota.ts", note: "cho push vào nhánh không có hậu tố -wip", old: "([A-Za-z0-9._/-]+-wip))$/", new: "([A-Za-z0-9._/-]+))$/" },
+  { id: "082-N4c", file: "hooks/parts/quota.ts", note: "bỏ trần 6 lời gọi sao lưu", old: "e.tool === 'Bash' && (pause.backupCalls ?? 0) < BACKUP_CALLS_MAX)", new: "e.tool === 'Bash')" },
+  { id: "082-N4d", file: "hooks/parts/quota.ts", note: "auto bật sao lưu cả khi không nhận biết được cloud", old: "backupMode === 'auto' && (await isCloudSession($, cloudMemo))", new: "backupMode === 'auto'" },
 ]

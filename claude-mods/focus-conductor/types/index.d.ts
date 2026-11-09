@@ -510,6 +510,8 @@ export type QuotaPause = {
   aborted: boolean
   /** Lệnh đầu tiên bị từ chối của lần dừng này: điểm tiếp tục chính xác. */
   denied: { tool: string; input: string } | null
+  /** 0.8.2 N4: số lời gọi Bash sao lưu (git add, commit, push lên nhánh -wip) đã cho qua trong lần dừng này; vắng là 0. */
+  backupCalls?: number
 }
 
 /** Phần mục tiêu cần để tiếp tục (cắt từ Brief); goal rỗng khi lúc dừng chưa có mục tiêu. */
@@ -541,7 +543,18 @@ export type QuotaCheckpoint = {
   recent: string[]
   files: Array<{ path: string; mtimeMs: number; size: number }>
   delegations: DelegationItem[]
+  /** 0.8.2 N4: kết quả lời gọi git push lên nhánh -wip trong lần dừng này; vắng khi chưa có lời gọi push nào. */
+  backup?: CheckpointBackup
 }
+
+/**
+ * 0.8.2 N4: kết quả sao lưu lúc dừng vì hạn mức, đọc từ mã thoát và output của git push: đã push (nhánh, hash nếu output có),
+ * bỏ qua (không phải git repo, không có remote) hay lỗi (thông điệp đã che bí mật và cắt ngắn).
+ */
+export type CheckpointBackup =
+  | { status: 'pushed'; at: number; branch: string; hash?: string }
+  | { status: 'skipped'; at: number; reason: 'no-repo' | 'no-remote' }
+  | { status: 'error'; at: number; message: string }
 
 /** Trạng thái bảo vệ hạn mức trong $.state (0.6.0). */
 export type QuotaState = {

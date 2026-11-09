@@ -1,9 +1,9 @@
 // Văn bản mod gửi cho model và hiển thị cho người dùng. Gom về một chỗ để
 // giữ giọng văn nhất quán và dễ chỉnh.
 
-import type { Brief, CheckHint, Choice, PlanStep, QuotaCheckpoint, QuotaReason, Route, RouterFail, StepStatus, Task, TurnFault } from '../../types'
+import type { Brief, CheckHint, CheckpointBackup, Choice, PlanStep, QuotaCheckpoint, QuotaReason, Route, RouterFail, StepStatus, Task, TurnFault } from '../../types'
 import { STUCK_HINT, openSteps, pendingSteps } from './drift'
-import { evaluateQuota, isStale, reasonsOf } from './quota'
+import { BACKUP_CALLS_MAX, evaluateQuota, isStale, reasonsOf } from './quota'
 import type { QuotaBadge, QuotaNoticeHit, QuotaThresholds } from './quota'
 import { clockOf, labels } from '../ui/labels'
 import { currentStep, taskBarRuns } from '../ui/style'
@@ -712,7 +712,7 @@ export function withQuotaNoticeStatus(base: string | undefined, hits: readonly Q
 }
 
 /** Lý do từ chối tool khi đang dừng: luồng chính ghi điểm dừng rồi kết thúc; subagent kết thúc ngay. */
-export function quotaDenyText(reasons: readonly QuotaReason[], isUser: boolean, isAgent: boolean, allowPaths: readonly string[] = []): string {
+export function quotaDenyText(reasons: readonly QuotaReason[], isUser: boolean, isAgent: boolean, allowPaths: readonly string[] = [], backup = false): string {
   const cause = `[focus-conductor] Tạm dừng: ${pauseCause(reasons, isUser)}.`
   if (isAgent) return `${cause} Subagent không gọi tool nào khác; kết thúc ngay và báo ngắn phần đã làm, phần còn dở.`
   // pauseAllowPaths (0.7.5): luồng chính vẫn ghi được file checkpoint theo quy tắc dừng của prompt. Vòng sửa 2: nêu đường dẫn được
@@ -722,8 +722,14 @@ export function quotaDenyText(reasons: readonly QuotaReason[], isUser: boolean, 
       ? ` Được ghi vào các đường dẫn của pauseAllowPaths: ${allowPaths.join(', ')} (bằng Write, Edit, MultiEdit, NotebookEdit hay Bash có mọi đường dẫn đích nằm trong danh sách đó; đọc các đường dẫn đó bằng Read vì Claude Code cần Read trước Edit), ví dụ file checkpoint theo quy tắc dừng của prompt.`
       : ''
   const ban = allowPaths.length > 0 ? 'Không gọi tool nào khác ngoài việc ghi và Read các đường dẫn đó và tool plan.' : 'Không gọi tool nào khác.'
+  // 0.8.2 N4: pauseBackup bật (dừng vì hạn mức, luồng chính): commit và push phần đang làm lên nhánh -wip trước khi dừng hẳn.
+  const saved = backup
+    ? ` Ngoại lệ (pauseBackup): trước khi dừng hẳn, commit phần đang làm và push lên <nhánh hiện tại>-wip, tối đa ${BACKUP_CALLS_MAX} lời gọi Bash, ` +
+      'mỗi lời gọi đúng một lệnh: git add -u (hay git add <đường dẫn trong thư mục gốc phiên>), git commit -m "<thông điệp>", ' +
+      'rồi git push origin HEAD:<nhánh hiện tại>-wip (không thêm cờ nào). Không phải git repo, không có remote, hay nhánh hiện tại là main hoặc master thì bỏ qua.'
+    : ''
   return (
-    `${cause}${allowed} ${ban} Gọi ${PLAN_TOOL_FULL} với action "checkpoint" và note nêu: bước kế tiếp cụ thể, ` +
+    `${cause}${allowed} ${ban}${saved} Gọi ${PLAN_TOOL_FULL} với action "checkpoint" và note nêu: bước kế tiếp cụ thể, ` +
     'những gì đã hoàn tất không được làm lại, và điều cần kiểm khi quay lại. Sau đó kết thúc turn bằng một câu báo điểm dừng ' +
     `và nhắc người dùng chạy tiếp bằng ${resumeCommand(isUser)}.`
   )
@@ -966,8 +972,18 @@ export function quotaStatusLines(input: QuotaStatusInput): string[] {
   const cp = view.checkpoint
   if (cp !== null) {
     lines.push(`  điểm dừng: ${cp.status === 'open' ? 'đang mở' : 'đang tiếp tục'} (tạo lúc ${resetLabel(new Date(cp.createdAt).toISOString()) || 'không rõ giờ'}${cp.note ? '' : ', Claude chưa ghi note'})`)
+    // 0.8.2 N4: kết quả sao lưu lên nhánh -wip của lần dừng này.
+    if (cp.backup !== undefined) lines.push(`  ${backupLine(cp.backup, 'vi').replace(/^S/, 's')}`)
   }
   return lines
+}
+
+/** 0.8.2 N4: dòng sao lưu lên nhánh -wip của điểm dừng, cho /conductor status và mục Hạn mức của pane. */
+export function backupLine(backup: CheckpointBackup, lang: Lang): string {
+  const l = labels(lang)
+  const state =
+    backup.status === 'pushed' ? l.quotaBackupPushed(backup.branch, backup.hash ?? '') : backup.status === 'skipped' ? l.quotaBackupSkipped(l.quotaBackupReason[backup.reason]) : l.quotaBackupError(backup.message)
+  return `${l.quotaBackup}: ${state}`
 }
 
 /** Ghi chú của Claude trong mục Hạn mức của pane: tối đa bấy nhiêu ký tự. */
@@ -1021,6 +1037,7 @@ export function quotaPaneText(view: QuotaOverview, lang: Lang, hasNotice = false
     if (cp.reason.length > 0) checkpoint.push(`${l.quotaReasonLabel}: ${cp.reason.map(reasonText).join('; ')}`)
     const note = cp.note.length > PANE_NOTE_MAX ? `${cp.note.slice(0, PANE_NOTE_MAX - 1)}…` : cp.note
     checkpoint.push(note ? `${l.quotaNote}: ${note}` : l.quotaNoNote)
+    if (cp.backup !== undefined) checkpoint.push(backupLine(cp.backup, lang))
     checkpoint.push(`${l.quotaContinue}: ${isPaused ? resumeCommand(view.state === 'user') : l.quotaContinueSoft}`)
   } else if (isPaused) {
     checkpoint.push(`${l.quotaContinue}: ${resumeCommand(view.state === 'user')}`)

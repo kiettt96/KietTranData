@@ -239,6 +239,13 @@
       "description": "Đường dẫn phân tách bằng dấu phẩy (tương đối theo thư mục gốc của phiên hoặc tuyệt đối), ví dụ: .checkpoint/. Khi dừng cứng vì hạn mức, luồng chính vẫn được Write, Edit, hay chạy Bash mà mọi tác động ghi đều có đường dẫn và mọi đường dẫn nằm trong các đường dẫn này (mục . và ./ bị bỏ), và Read vào đó, để ghi file checkpoint theo quy tắc dừng của prompt; mỗi đường dẫn phải đáp thật vào trong danh sách (symlink ra ngoài bị từ chối). Rỗng là như cũ: chỉ tool plan được qua. Mặc định rỗng",
       "default": ""
     },
+    "pauseBackup": {
+      "type": "string",
+      "title": "Sao lưu lên nhánh -wip khi dừng vì hạn mức (pause backup)",
+      "description": "auto (mặc định): bật khi phiên chạy trên cloud (biến môi trường CLAUDE_CODE_REMOTE có giá trị); on: luôn bật; off: tắt. Khi bật và dừng cứng vì hạn mức, luồng chính được thêm tối đa 6 lời gọi Bash trong một lần dừng, mỗi lời gọi đúng một lệnh: git add -u hay git add <đường dẫn trong thư mục gốc phiên> (không phải ., không chạm .focus-conductor/), git commit -m <thông điệp> (không --amend, không -a), git push origin HEAD:<tên>-wip (không cờ, không +, không main-wip hay master-wip). Kết quả push được ghi vào điểm dừng và hiện ở /conductor status và pane. (en) auto (default): on when the session runs in the cloud (CLAUDE_CODE_REMOTE is set); on: always; off: never. When on and paused by quota, the main thread may make up to 6 more Bash calls per pause, each exactly one of: git add -u or git add <paths inside the session root> (not ., not .focus-conductor/), git commit -m <message> (no --amend, no -a), git push origin HEAD:<name>-wip (no flags, no +, not main-wip or master-wip). The push result is saved in the checkpoint and shown in /conductor status and the pane.",
+      "default": "auto",
+      "options": ["auto", "on", "off"]
+    },
     "uiLanguage": {
       "type": "string",
       "title": "Ngôn ngữ giao diện",

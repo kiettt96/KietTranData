@@ -2,7 +2,7 @@
 // Hàm thuần, không gọi $. Engine báo phần đã dùng (percentUsed, 0 đến 100); người dùng đặt ngưỡng bằng phần còn lại,
 // nên dừng khi percentUsed >= 100 - còn_lại. Chỉ xét hạn mức phiên (five_hour) và tuần (seven_day).
 
-import type { QuotaPause, QuotaReason, QuotaState } from '../../types'
+import type { CheckpointBackup, QuotaPause, QuotaReason, QuotaState } from '../../types'
 import { MASK_INPUT_MAX, maskSecrets } from './checkpoint'
 import { normalizePath } from './drift/scope'
 
@@ -89,6 +89,127 @@ export function pauseAllowIssues(options: Record<string, unknown>): string[] {
   const raw = options['pauseAllowPaths']
   const dropped = typeof raw === 'string' ? raw.split(',').map(item => item.trim()).filter(item => item !== '' && isWholeTree(item)) : []
   return dropped.length > 0 ? [`pauseAllowPaths có mục ${dropped.map(item => `"${item}"`).join(', ')} cho ghi cả thư mục gốc: bỏ qua; khai thư mục riêng cho file điểm dừng, ví dụ .checkpoint/`] : []
+}
+
+/** 0.8.2 N4: option pauseBackup; on và off như tên, mọi giá trị khác (kể cả vắng) là auto: bật khi phiên chạy trên cloud. */
+export type PauseBackupMode = 'auto' | 'on' | 'off'
+
+export function pauseBackupMode(options: Record<string, unknown>): PauseBackupMode {
+  const raw = options['pauseBackup']
+  return raw === 'on' || raw === 'off' ? raw : 'auto'
+}
+
+/** 0.8.2 N4: số lời gọi Bash sao lưu tối đa của luồng chính trong một lần dừng; lời gọi sau đó bị từ chối như cũ. */
+export const BACKUP_CALLS_MAX = 6
+
+/** 0.8.2 N4: sao lưu có bật không: on luôn bật, off luôn tắt, auto chỉ bật khi đã nhận biết được phiên cloud. */
+export function isBackupOn(mode: PauseBackupMode, isCloud: boolean): boolean {
+  return mode === 'on' || (mode === 'auto' && isCloud)
+}
+
+/**
+ * 0.8.2 N4: tách một lệnh Bash thành token theo nháy đơn và nháy kép. Mọi ký tự có nghĩa với shell ngoài nháy (; & | < > ( )
+ * $ ` \ * ? [ ] { } ~ # ! xuống dòng) và $ ` \ ! trong nháy kép làm lệnh không đọc được: trả null, lệnh bị từ chối như cũ.
+ */
+function backupTokens(command: string): string[] | null {
+  const tokens: string[] = []
+  let current = ''
+  let hasToken = false
+  let quote: '' | "'" | '"' = ''
+  for (const ch of command) {
+    if (quote === "'") {
+      if (ch === "'") quote = ''
+      else if (ch === '\n') return null
+      else current += ch
+      continue
+    }
+    if (quote === '"') {
+      if (ch === '"') quote = ''
+      else if ('$`\\!\n'.includes(ch)) return null
+      else current += ch
+      continue
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch
+      hasToken = true
+    } else if (ch === ' ' || ch === '\t') {
+      if (hasToken) tokens.push(current)
+      current = ''
+      hasToken = false
+    } else if (';&|<>()$`\\*?[]{}~#!\n\r'.includes(ch)) {
+      return null
+    } else {
+      current += ch
+      hasToken = true
+    }
+  }
+  if (quote !== '') return null
+  if (hasToken) tokens.push(current)
+  return tokens
+}
+
+/** Lời gọi sao lưu đã nhận ra: push mang tên nhánh đích (đã có hậu tố -wip). */
+export type BackupCommand = { kind: 'add' } | { kind: 'commit' } | { kind: 'push'; branch: string }
+
+/** Nhánh đích không được nhận bản sao lưu dù có hậu tố -wip. */
+const PROTECTED_WIP = new Set(['main-wip', 'master-wip'])
+
+/**
+ * 0.8.2 N4: lệnh Bash có đúng một dạng sao lưu được phép khi dừng vì hạn mức không:
+ * `git add -u`; `git add <đường dẫn>...` với mọi đường dẫn nằm trong thư mục gốc phiên (không phải chính thư mục gốc hay ".",
+ * không phải cờ hay pathspec đặc biệt, không chạm .focus-conductor/); `git commit -m <thông điệp>` (không --amend, không -a);
+ * `git push origin HEAD:<tên>-wip` đúng bốn token, không cờ, không +, đích không phải main-wip hay master-wip. Không khớp thì null.
+ * Đường dẫn tương đối neo theo thư mục làm việc (vắng thì thư mục gốc). Thư mục gốc vắng thì git add có đường dẫn bị từ chối.
+ */
+export function backupCommand(command: string, root: string | null, cwd: string | null): BackupCommand | null {
+  const tokens = backupTokens(command.trim())
+  if (tokens === null || tokens[0] !== 'git') return null
+  const [, sub, ...args] = tokens
+  if (sub === 'add') {
+    if (args.length === 1 && args[0] === '-u') return { kind: 'add' }
+    if (args.length === 0 || root === null) return null
+    const base = normalizePath(root.replace(/\\/g, '/'))
+    const from = cwd === null ? base : normalizePath(cwd.replace(/\\/g, '/').startsWith('/') ? cwd : `${base}/${cwd}`)
+    for (const arg of args) {
+      if (arg === '' || arg.startsWith('-') || arg.startsWith(':')) return null
+      const absolute = normalizePath(arg.startsWith('/') ? arg : `${from}/${arg}`)
+      if (absolute === base || !absolute.startsWith(`${base === '/' ? '' : base}/`)) return null
+      if (absolute.slice(base.length).split('/').includes('.focus-conductor')) return null
+    }
+    return { kind: 'add' }
+  }
+  if (sub === 'commit') return args.length === 2 && args[0] === '-m' && (args[1] ?? '') !== '' ? { kind: 'commit' } : null
+  if (sub === 'push') {
+    if (args.length !== 2 || args[0] !== 'origin') return null
+    const match = /^HEAD:((?:refs\/heads\/)?([A-Za-z0-9._/-]+-wip))$/.exec(args[1] ?? '')
+    const branch = match?.[2]
+    if (match === null || branch === undefined || branch.startsWith('-') || branch.startsWith('/') || branch.includes('..') || PROTECTED_WIP.has(branch)) return null
+    return { kind: 'push', branch }
+  }
+  return null
+}
+
+/** Thông điệp lỗi của sao lưu: tối đa bấy nhiêu ký tự sau khi che bí mật. */
+export const BACKUP_MESSAGE_MAX = 160
+
+/**
+ * 0.8.2 N4: kết quả của lời gọi git push lên nhánh -wip từ mã thoát (isError) và output. Thành công là đã push, kèm hash mới
+ * nếu output có dạng cũ..mới. Lỗi vì không phải git repo hay không có remote là bỏ qua; lỗi khác giữ dòng lỗi đầu tiên đã che
+ * bí mật, gom khoảng trắng và cắt ngắn.
+ */
+export function backupOutcome(isError: boolean, output: string, branch: string, at: number): CheckpointBackup {
+  if (!isError) {
+    const hash = /\b[0-9a-f]{7,40}\.\.\.?([0-9a-f]{7,40})\b/.exec(output)?.[1]
+    return { status: 'pushed', at, branch, ...(hash !== undefined ? { hash } : {}) }
+  }
+  if (/'origin' does not appear to be a git repository|no such remote|no configured push destination/i.test(output)) return { status: 'skipped', at, reason: 'no-remote' }
+  if (/not a git repository/i.test(output)) return { status: 'skipped', at, reason: 'no-repo' }
+  const lines = maskSecrets(output.slice(0, MASK_INPUT_MAX))
+    .split('\n')
+    .map(line => line.replace(/\s+/g, ' ').trim())
+    .filter(line => line !== '')
+  const line = lines.find(text => /^(?:fatal|error|remote: error|!)/i.test(text)) ?? lines[0] ?? 'git push lỗi, không có output'
+  return { status: 'error', at, message: line.length > BACKUP_MESSAGE_MAX ? `${line.slice(0, BACKUP_MESSAGE_MAX - 1)}…` : line }
 }
 
 /**
