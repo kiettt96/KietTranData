@@ -8,7 +8,7 @@ import { openSteps, restorableSteps } from '../lib/drift'
 import { PLAN_TOOL_SPEC } from '../lib/plan'
 import { describePick, effortRank, familyOf, familyRank } from '../lib/route'
 import { clipText, keptLines } from '../lib/decisions'
-import { CLIPPED_CONTEXT, ROUTER_TASK_LIMIT, askRouter, bareBrief, clampIntent, clippedWarning, dropSplit, isClippedPrompt, failFields, isSkippable, needsCoverageRecheck, nextBrief, parseRoute, routerFailOf, routerRequest } from '../lib/router'
+import { CLIPPED_CONTEXT, NEW_GOAL_CONFIDENCE, ROUTER_TASK_LIMIT, answerMentionsGoal, askRouter, bareBrief, clampIntent, clippedWarning, dropSplit, isClippedPrompt, failFields, isSkippable, needsCoverageRecheck, nextBrief, parseRoute, routerFailOf, routerRequest } from '../lib/router'
 import type { RouterOutcome, RouterPlan } from '../lib/router'
 import { EMPTY_QUOTA, blockingHits, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaSettings, reasonsOf, softNotices } from '../lib/quota'
 import * as S from '../lib/state'
@@ -21,6 +21,7 @@ import { PERSON_ORIGINS, SLASH_COMMAND, newDelegation } from '../context'
 import { PANE_ROWS, shouldAutoOpenPane } from '../lib/pane'
 import { taskRows } from '../lib/progress'
 import { PANE, PANE_TITLE } from '../ui/pane'
+import { approvalDenial, approvedContext, askContext, needsApproval, planningContext } from '../lib/approval'
 
 /** Mở pane chi tiết cho mục tiêu mới nếu cần (0.7.2): không focus, không chiếm phím; kết quả đặt hay chưa đặt ghi vào nhật ký quyết định. */
 async function autoOpenPane($: EngineInterface, ctx: Ctx, goalId: number, at: number, depth: Depth | null): Promise<void> {
@@ -77,6 +78,11 @@ async function showStatus($: EngineInterface, current: View, options: Ctx['optio
   $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
 }
 
+/** permission_mode mà lần thoát plan mode là người dùng tự bấm duyệt (0.8.2 N2). */
+const PERSON_MODES: ReadonlySet<string> = new Set(['plan', 'default', 'acceptEdits'])
+/** Tool có thể bị chặn khi kế hoạch chưa duyệt (0.8.2 N2): sửa file, Bash (chỉ lệnh ghi file), Agent (trừ Explore, Plan). */
+const GATED_TOOLS = /^(?:Edit|Write|MultiEdit|NotebookEdit|Bash|Agent)$/
+
 export function registerSession(on: On, ctx: Ctx): void {
   const L = ctx.local
   const { decisionLog, flushDecisions, delegationItems, expectedMain, isRouterPaused, noteRouter, noteRouterTime, ranText, record, resetLocal, routerFallback, routerFamily, routerModel, skipPhrases, trackDelegations, wantedPick } = ctx
@@ -112,7 +118,7 @@ export function registerSession(on: On, ctx: Ctx): void {
     await $.command.register({
       name: 'conductor',
       description: 'Focus Conductor: mục tiêu, checklist và điều phối model/effort/agent',
-      argumentHint: '[status | mode auto|subagents|suggest|off | goal <mô tả> | reroute | reset | pause | resume [force|discard] | errors [clear]]',
+      argumentHint: '[status | mode auto|subagents|suggest|off | goal <mô tả> | reroute | reset | pause | resume [force|discard] | approve | errors [clear]]',
     })
     // Bảo vệ hạn mức: nạp điểm dừng còn mở của thư mục này (phiên mới hay resume). Bản resuming của phiên trước (chết
     // giữa chừng) quay về open. Chỉ khi chưa có mục tiêu thì khôi phục mục tiêu và checklist; không tự gửi prompt nào.
@@ -226,7 +232,10 @@ export function registerSession(on: On, ctx: Ctx): void {
       L.promptIntent = { relation: 'continue', kind: prev.isReference ? 'answer' : prev.kind }
       await flushDecisions((path, text) => $.fs.write(path, text))
       const lead = L.noAutoResume && !isArmed ? [] : await startResume()
-      return next({ ...e, context: [...lead, ...(e.context ?? []), skippedContext(prev, before.plan), ...(lead.length === 0 ? pending : [])] })
+      // Kế hoạch đang lập (0.8.2 N2): câu tiếp nối ngắn vẫn kèm đoạn dặn lập kế hoạch.
+      L.askTurn = null
+      const planning = S.approvalOf(before).status === 'planning' ? [planningContext()] : []
+      return next({ ...e, context: [...lead, ...(e.context ?? []), skippedContext(prev, before.plan), ...planning, ...(lead.length === 0 ? pending : [])] })
     }
 
     // Tin chen ngang (0.7.8 G9): người dùng gửi khi luồng chính đang chạy (engine kèm turnId của turn đó) và đã có mục tiêu. Router đọc
@@ -238,6 +247,12 @@ export function registerSession(on: On, ctx: Ctx): void {
     // Số phần tối đa của việc tách (0.7.9 F1) theo option và theo việc engine đã từ chối phiên con hay chưa.
     const rules = ctx.routePolicy(before, ctx.maxForks >= 2 ? await $.session.root().catch(caught('session.root', null)) : null)
     const isPaused = isRouterPaused()
+    // Duyệt kế hoạch (0.8.2 N2): kế hoạch đã trình thì router biết tin này có thể là lời duyệt; vừa dặn hỏi làm rõ thì tin này là câu trả lời.
+    const approvalBefore = S.approvalOf(before)
+    const isPresented = prev !== null && approvalBefore.status === 'presented'
+    const isAnswering = prev !== null && L.askTurn === prev.goalId
+    // Câu trả lời đến rồi: hết chờ câu trả lời.
+    L.askTurn = null
     let outcome: RouterOutcome<RouterPlan> = { result: null, reason: 'router đang tạm ngừng sau các lần lỗi liên tiếp', usages: [], retried: false, failure: 'paused', timeoutMs: null, maxTokens: null, outputTokens: null }
     let waitedMs = 0
     let pauseText: string | null = null
@@ -245,7 +260,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       $.ui.status('router đang đọc prompt...')
       const observed = L.observed.join('; ')
       L.observed = []
-      const request = routerRequest({ text, prev, ran: ranText(before), policy: rules, model: routerModel, sessionFamily: L.sessionFamily, openSteps: openSteps(before.plan).map(s => s.title), ...(observed ? { observed } : {}), ...(isInterject ? { interject: { step: openSteps(before.plan)[0]?.title ?? '' } } : {}) })
+      const request = routerRequest({ text, prev, ran: ranText(before), policy: rules, model: routerModel, sessionFamily: L.sessionFamily, openSteps: openSteps(before.plan).map(s => s.title), ...(observed ? { observed } : {}), ...(isInterject ? { interject: { step: openSteps(before.plan)[0]?.title ?? '' } } : {}), ...(isPresented ? { awaiting: 'approval' as const } : isAnswering ? { awaiting: 'answer' as const } : {}) })
       const startedAt = await $.clock.now()
       outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), needsCoverageRecheck, { retryMissingConfidence: true })
       ctx.noteRouterFailure('prompt', outcome.failure)
@@ -260,12 +275,20 @@ export function registerSession(on: On, ctx: Ctx): void {
     if (isArmed) L.noAutoResume = false
     const routed = outcome.result !== null && isResuming && isArmed && prev !== null && outcome.result.relation === 'new' ? { ...outcome.result, relation: 'continue' as const } : outcome.result
     // Tin chen ngang router xếp mục tiêu mới: không đổi mục tiêu, việc và ràng buộc vào như prompt tiếp nối (0.7.8 G9).
-    const steered = isInterject && routed !== null && routed.relation === 'new' ? { ...routed, relation: 'continue' as const } : routed
+    const interjected = isInterject && routed !== null && routed.relation === 'new' ? { ...routed, relation: 'continue' as const } : routed
     // Ý của tin nhắn (0.8.2 N1): chỉ có nghĩa khi đã có mục tiêu; approve khi không có kế hoạch chờ duyệt là resume.
-    const intent = steered !== null && prev !== null ? clampIntent(steered.intent, false) : 'task'
+    let intent = interjected !== null && prev !== null ? clampIntent(interjected.intent, isPresented) : 'task'
+    // Câu trả lời câu hỏi làm rõ (0.8.2 N2), chạy sau bước kẹp intent và thắng nó: router xếp mục tiêu mới thì giữ mục tiêu, coi như amend,
+    // trừ khi router chắc (confidence từ NEW_GOAL_CONFIDENCE, thiếu là chưa chắc) VÀ prompt không nhắc gì tới mục tiêu (answerMentionsGoal).
+    const isHeldAnswer = isAnswering && prev !== null && interjected !== null && interjected.relation === 'new' && !((interjected.confidence ?? 0) >= NEW_GOAL_CONFIDENCE && !answerMentionsGoal(text, prev))
+    const steered = isHeldAnswer && interjected !== null ? { ...interjected, relation: 'continue' as const, intent: 'amend' as const } : interjected
+    if (isHeldAnswer && prev !== null) {
+      intent = 'amend'
+      record(await $.clock.now(), 'answer-held', { prompt: clipText(text), confidence: interjected?.confidence ?? null, goalId: prev.goalId })
+    }
     L.lastIntent = steered !== null ? intent : null
-    // Tin bảo chạy tiếp: không thêm việc, không gộp yêu cầu.
-    const plan = steered !== null && intent === 'resume' ? { ...steered, tasks: [], requirements: [] } : steered
+    // Tin bảo chạy tiếp hay duyệt kế hoạch: không thêm việc, không gộp yêu cầu.
+    const plan = steered !== null && (intent === 'resume' || intent === 'approve') ? { ...steered, tasks: [], requirements: [] } : steered
     const lead = isResuming ? await startResume() : []
     const tail = isResuming ? [] : pending
     const now = await $.clock.now()
@@ -327,7 +350,9 @@ export function registerSession(on: On, ctx: Ctx): void {
       const unrouted = isInterject && prev !== null
         ? interjectContext(prev, before.plan, [], [], { main: 'model đang chạy', mayReplace: true, isRouted: false })
         : unroutedContext(outcome.reason, bare !== null, prev !== null && prev.tasks.length > 0)
-      return next({ ...e, context: [...lead, ...(e.context ?? []), unrouted, ...tail] })
+      // Router lỗi khi kế hoạch đang lập (0.8.2 N2): trạng thái giữ nguyên, vẫn dặn lập kế hoạch.
+      const planning = prev !== null && approvalBefore.status === 'planning' ? [planningContext()] : []
+      return next({ ...e, context: [...lead, ...(e.context ?? []), unrouted, ...planning, ...tail] })
     }
 
     // Mục tiêu mới, chạy thật prompt đã đối chiếu, hoặc tiếp nối cùng mục tiêu.
@@ -404,7 +429,27 @@ export function registerSession(on: On, ctx: Ctx): void {
     const lifted = new Set(lift.map(t => t.index))
     const shownAdded = added.map(t => (isSplitHeld || lifted.has(t.index) ? dropSplit(t) : t))
     const shownBrief: Brief = isSplitHeld ? { ...brief, tasks: brief.tasks.map(dropSplit) } : brief
-    const context = intent === 'resume' && !isNewGoal
+    // Duyệt kế hoạch (0.8.2 N2). Mục tiêu mới: thuộc diện duyệt thì planning, skipApproval thì skipped, còn lại none. Cùng mục tiêu: đã
+    // trình mà duyệt thì approved, sửa thì về planning (lượt rà về 0); còn lại giữ nguyên. Hỏi làm rõ một lần mỗi mục tiêu khi planning.
+    const stage = isNewGoal
+      ? { goalId: brief.goalId, status: needsApproval(brief, ctx.planApproval, plan.skipApproval === true) ? ('planning' as const) : plan.skipApproval === true ? ('skipped' as const) : ('none' as const), rounds: 0, asked: false }
+      : isPresented && intent === 'approve'
+        ? { ...approvalBefore, status: 'approved' as const }
+        : isPresented && intent === 'amend'
+          ? { ...approvalBefore, status: 'planning' as const, rounds: 0 }
+          : approvalBefore
+    const isAsking = stage.status === 'planning' && !stage.asked && (plan.questions?.length ?? 0) > 0
+    const approval = isAsking ? { ...stage, asked: true } : stage
+    if (approval !== approvalBefore && (isNewGoal ? approval.status !== 'none' : true)) {
+      await update($, coreState, S.withApproval(approval))
+      if (approval.status !== approvalBefore.status || isNewGoal) record(now, 'approval', { goalId: brief.goalId, status: approval.status, cause: isNewGoal ? 'goal' : intent })
+    }
+    if (isAsking) L.askTurn = brief.goalId
+    const approvalNotes = isAsking ? [askContext(plan.questions ?? [])] : approval.status === 'planning' ? [planningContext()] : []
+    const isApproved = !isNewGoal && isPresented && approval.status === 'approved'
+    const context = isApproved
+      ? approvedContext(core.plan)
+      : intent === 'resume' && !isNewGoal
       ? intentResumeContext(core.plan)
       : isInterject && !isNewGoal
       ? interjectContext(brief, core.plan, shownAdded, newConstraints, { main: running !== null ? describePick(running) : 'model đang chạy', mayReplace: routed?.relation === 'new', isRouted: true })
@@ -441,8 +486,34 @@ export function registerSession(on: On, ctx: Ctx): void {
       )
     }
     await showStatus($, await read($, view), ctx.options)
-    return next({ ...e, context: [...lead, ...(e.context ?? []), context, ...(phaseNote !== null ? [phaseNote] : []), ...notice, ...(isClipped ? [CLIPPED_CONTEXT] : []), ...tail] })
+    return next({ ...e, context: [...lead, ...(e.context ?? []), context, ...approvalNotes, ...(phaseNote !== null ? [phaseNote] : []), ...notice, ...(isClipped ? [CLIPPED_CONTEXT] : []), ...tail] })
   }).catch(($, e, next) => (noteHookError('prompt.submit', next.error), next(e)))
+
+  // Chặn sửa trước khi duyệt kế hoạch (0.8.2 N2): chỉ luồng chính, khi mục tiêu đang planning hay presented. Đăng ký ở đây (trước hook
+  // Agent của parts/agents.ts) nên lời gọi Agent bị từ chối không tốn lượt router chấm subagent. Tool plan của mod và tool chỉ đọc qua.
+  on('tool.call', { tool: GATED_TOOLS }, async ($, e, next) => {
+    if (e.agentId !== undefined) return next(e)
+    if ((await read($, mode)) === 'off') return next(e)
+    if (!S.isPlanGated(await read($, coreState))) return next(e)
+    const reason = approvalDenial(e.tool, e as unknown as Record<string, unknown>)
+    return reason === null ? next(e) : { deny: reason }
+  }).catch(($, e, next) => (noteHookError('tool.call approval', next.error), next(e)))
+
+  // Chấp nhận kế hoạch qua plan mode của engine (0.8.2 N2): ExitPlanMode chạy xong không lỗi (PostToolUse chỉ phát khi tool thành công) ở
+  // luồng chính tính là duyệt CHỈ khi permission_mode là plan, default hay acceptEdits (người dùng bấm duyệt); auto, bypassPermissions,
+  // dontAsk hay vắng là tự duyệt, không tính.
+  on('classic.PostToolUse', async ($, e, next) => {
+    const result = await next(e)
+    if (e.tool_name !== 'ExitPlanMode' || e.agent_id !== undefined || !PERSON_MODES.has(e.permission_mode ?? '')) return result
+    if ((await read($, mode)) === 'off') return result
+    const core = S.normalizeCore(await read($, coreState))
+    if (core.brief === null || !S.isPlanGated(core)) return result
+    await update($, coreState, S.withApproval({ ...S.approvalOf(core), status: 'approved' }))
+    record(await $.clock.now(), 'approval', { goalId: core.brief.goalId, status: 'approved', cause: 'exit-plan-mode' })
+    await flushDecisions((path, text) => $.fs.write(path, text))
+    await showStatus($, await read($, view), ctx.options)
+    return result
+  }).catch(($, e, next) => (noteHookError('classic.PostToolUse', next.error), next(e)))
 
   // Engine chèn tin chen ngang vào turn đang chạy (0.7.8 G9): hàng attachment queued_command của luồng chính, door delivery (vòng sửa 2, V1; door
   // attachment vẫn nhận để phòng engine đổi cách phân loại). Các việc run: main cần

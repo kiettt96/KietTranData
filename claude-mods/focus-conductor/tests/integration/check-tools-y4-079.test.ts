@@ -16,6 +16,7 @@ const OTHER = 'mcp__ci__lint'
 const GOAL = plan({ goal: 'Sửa hàm tính phí', depth: 'substantial', volume: 'medium', main: { model: 'sonnet', effort: 'medium' } })
 const ON = { options: { checkTools: TOOL } }
 
+const ON_PA_OFF = { ...ON, options: { ...ON.options, planApproval: 'off' } }
 function setup(on: On) {
   const passing = new Set<string>()
   const seen = base(on, { router: () => GOAL })
@@ -49,7 +50,7 @@ async function failing($: Engine, seen: Seen, tool = TOOL, suite = 'all') {
 }
 
 describe('0.7.9 Y4: tool MCP trong checkTools là lệnh kiểm', () => {
-  test('1. tool trong checkTools lỗi rồi Stop: chặn, lý do có tên tool và 2/3', ON, async ($, on) => {
+  test('1. tool trong checkTools lỗi rồi Stop: chặn, lý do có tên tool và 2/3', ON_PA_OFF, async ($, on) => {
     const { seen } = setup(on)
     await failing($, seen)
     const reason = await stop($)
@@ -65,7 +66,7 @@ describe('0.7.9 Y4: tool MCP trong checkTools là lệnh kiểm', () => {
     expect(await stop($)).toBe('')
   })
 
-  test('3. cùng tool, đầu vào khác, đạt: không phủ, Stop vẫn chặn', ON, async ($, on) => {
+  test('3. cùng tool, đầu vào khác, đạt: không phủ, Stop vẫn chặn', ON_PA_OFF, async ($, on) => {
     const { seen, passing } = setup(on)
     await failing($, seen)
     passing.add(`${TOOL}:unit`)
@@ -86,7 +87,7 @@ describe('0.7.9 Y4: tool MCP trong checkTools là lệnh kiểm', () => {
     expect(await stop($)).not.toContain('2/3')
   })
 
-  test('6. tool trong checkTools đạt sau thay đổi cuối: bước done tự lên verified như lệnh test Bash', ON, async ($, on) => {
+  test('6. tool trong checkTools đạt sau thay đổi cuối: bước done tự lên verified như lệnh test Bash', ON_PA_OFF, async ($, on) => {
     const { seen, passing } = setup(on)
     passing.add(`${TOOL}:all`)
     await submit($, 'Sửa hàm tính phí')
@@ -101,7 +102,7 @@ describe('0.7.9 Y4: tool MCP trong checkTools là lệnh kiểm', () => {
 })
 
 describe('0.7.9 Y4: cảnh báo cuối turn', () => {
-  test('sửa file rồi tool kiểm đạt: không có cảnh báo "không chạy bước kiểm tra nào"; tool ngoài danh sách thì có', ON, async ($, on) => {
+  test('sửa file rồi tool kiểm đạt: không có cảnh báo "không chạy bước kiểm tra nào"; tool ngoài danh sách thì có', ON_PA_OFF, async ($, on) => {
     const { seen, passing } = setup(on)
     passing.add(`${TOOL}:all`)
     passing.add(`${OTHER}:all`)

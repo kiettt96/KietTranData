@@ -14,7 +14,7 @@ const SCRIPT = '/usr/bin/python3 -B /repo/scripts/ghi_du_lieu.py'
 const scoped = (goal: string) => plan({ goal, scope: ['src/'], depth: 'hard', volume: 'large' })
 
 describe('0.7.5 B1: khóa theo script, giữ theo mục tiêu', () => {
-  test('cùng script khác tham số (--lo 1, 2, 3) và qua turn mới: chỉ cảnh báo một lần', {}, async ($, on) => {
+  test('cùng script khác tham số (--lo 1, 2, 3) và qua turn mới: chỉ cảnh báo một lần', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, { router: request => scoped(request.split('\n')[0] ?? 'g') })
     on('tool.call', { tool: 'Bash' }, () => ({ result: 'ok' }))
     await submit($, 'Ghi dữ liệu các lô vào bảng tổng')
@@ -26,7 +26,7 @@ describe('0.7.5 B1: khóa theo script, giữ theo mục tiêu', () => {
     expect(warned(await run($, `${SCRIPT} --lo 4`))).toBe(false)
   })
 
-  test('script khác thì cảnh báo; mục tiêu mới thì cảnh báo lại', {}, async ($, on) => {
+  test('script khác thì cảnh báo; mục tiêu mới thì cảnh báo lại', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, { router: request => scoped(request.split('\n')[0] ?? 'g') })
     on('tool.call', { tool: 'Bash' }, () => ({ result: 'ok' }))
     await submit($, 'Ghi dữ liệu các lô vào bảng tổng')

@@ -82,7 +82,7 @@ describe('0.7.7 X6: cảnh báo nhẹ khi chỉ sửa tài liệu và đã đọ
 })
 
 describe('0.7.7 X6: tích hợp', () => {
-  test('ba Edit .md đọc lại đủ: không toast, band không có dòng, pane có dòng cảnh báo nhẹ', {}, async ($: Engine, on) => {
+  test('ba Edit .md đọc lại đủ: không toast, band không có dòng, pane có dòng cảnh báo nhẹ', { options: { planApproval: 'off' } }, async ($: Engine, on) => {
     const seen = base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     on('tool.call', { tool: 'Read' }, () => ({ result: 'nội dung' }))

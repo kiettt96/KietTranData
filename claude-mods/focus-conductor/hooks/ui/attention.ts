@@ -1,5 +1,5 @@
 // Dòng cần chú ý của band (0.7.6, U2): các việc người dùng có thể phải can thiệp, xếp theo mức độ chứ không theo thời điểm.
-// Thứ tự: tạm dừng > lô lỗi chưa giao lại > sửa ngoài phạm vi > báo hạn mức mềm > mục bị bỏ > bước chưa kiểm chứng > vượt ngân sách
+// Thứ tự: tạm dừng > chờ duyệt kế hoạch (0.8.2 N2) > lô lỗi chưa giao lại > sửa ngoài phạm vi > báo hạn mức mềm > mục bị bỏ > bước chưa kiểm chứng > vượt ngân sách
 // tool call > các cảnh báo khác. Hàm thuần: chỉ đọc View và dữ liệu hạn mức mà hook đã tính; không đổi cảnh báo đã lưu.
 
 import type { Core, Warning, WarningKind } from '../../types'
@@ -8,9 +8,10 @@ import { severityOf } from './style'
 import { labels, shownEntry } from './labels'
 import type { Lang } from './labels'
 import { stepTag } from '../lib/text'
+import { approvalOf } from '../lib/state'
 
 /** Một mục cần chú ý: hạng (nhỏ là quan trọng hơn), mức màu và câu hiển thị; `warning` là cảnh báo đã lưu mà mục này đại diện (pane dùng để không hiện hai lần). */
-export type Attention = { rank: number; severity: Severity; text: string; kind: 'pause' | 'failed' | 'notice' | 'waived' | WarningKind; warning?: Warning }
+export type Attention = { rank: number; severity: Severity; text: string; kind: 'pause' | 'approval' | 'failed' | 'notice' | 'waived' | WarningKind; warning?: Warning }
 
 /** Hạng của từng loại cảnh báo đã lưu; loại không có trong bảng xếp sau vượt ngân sách. */
 const WARNING_RANK: Partial<Record<WarningKind, number>> = { scope: 2, dropped: 4, unverified: 5, budget: 6 }
@@ -50,6 +51,8 @@ export function attentionItems(core: Core, lang: Lang, quota: { paused: boolean;
   const l = labels(lang)
   const items: (Attention & { order: number })[] = []
   if (quota.paused) items.push({ rank: 0, severity: 'warning', text: l.quotaPaused, kind: 'pause', order: 0 })
+  // Kế hoạch đã trình chờ duyệt (0.8.2 N2): ngay sau tạm dừng, trước lô lỗi.
+  if (approvalOf(core).status === 'presented') items.push({ rank: 0.5, severity: 'warning', text: l.planAwaiting, kind: 'approval', order: 0 })
   // Mỗi việc có lô lỗi một mục theo thứ tự bước, ghi mã bước ("BƯỚC 4: 3 lô lỗi chưa giao lại"); việc Claude tự giao gom chung, không mã.
   const byTask = failedByTask(core)
   const plain = byTask.filter(entry => entry.label === null).reduce((sum, entry) => sum + entry.failed, 0)

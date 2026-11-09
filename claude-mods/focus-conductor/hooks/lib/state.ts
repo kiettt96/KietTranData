@@ -6,7 +6,7 @@
 
 import type { PluginOptions } from 'claude-code'
 
-import type { AgentProgress, AgentState, AgentTally, ArchivedGoal, Brief, CheckHint, Core, ForkPart, ForkPartState, ForkState, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, RetryItem, RetryState, Route, Waiver, WaiverState, RouteEvent, RouterFail, TurnFault, Warning } from '../../types'
+import type { AgentProgress, AgentState, ApprovalState, ApprovalStatus, AgentTally, ArchivedGoal, Brief, CheckHint, Core, ForkPart, ForkPartState, ForkState, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, RetryItem, RetryState, Route, Waiver, WaiverState, RouteEvent, RouterFail, TurnFault, Warning } from '../../types'
 import { restorableSteps } from './drift'
 import type { Tokens } from './cost'
 import { addUsage, emptyLedger, nextGoal, planSwitch, resetLedger } from './ledger'
@@ -16,6 +16,7 @@ import { shownPlan } from './mirror'
 import { evaluateQuota, isPauseActive, overrideOf, quotaBadge, softNotices } from './quota'
 import type { QuotaSettings } from './quota'
 import type { Lang } from '../ui/labels'
+import { labels } from '../ui/labels'
 
 export const EMPTY_LIFT: Lift = { depth: 0, effort: 0 }
 export const EMPTY_CORE: Core = {
@@ -46,6 +47,7 @@ export const EMPTY_CORE: Core = {
   waivers: { goalId: -1, items: [] },
   noCheckNudged: -1,
   forks: { goalId: -1, parts: [], merged: [], off: 'none' },
+  approval: { goalId: -1, status: 'none', rounds: 0, asked: false },
 }
 
 const LOG_LIMIT = 60
@@ -72,7 +74,9 @@ export function modeOf(override: Mode | null, options: PluginOptions): Mode {
 /** Nội dung status line; undefined để xóa khi mod tắt. */
 export function statusOf(view: View): string | undefined {
   if (view.mode === 'off') return undefined
-  return statusLine(view.core.brief, shownPlan(view.core).plan, view.core.route, view.mode)
+  const line = statusLine(view.core.brief, shownPlan(view.core).plan, view.core.route, view.mode)
+  // Kế hoạch đã trình chờ duyệt (0.8.2 N2): nhãn ngắn ngay sau dòng của mod, trước nhãn hạn mức.
+  return approvalOf(view.core).status === 'presented' ? `${line} · ${labels(view.lang).planAwaitingShort}` : line
 }
 
 /**
@@ -240,8 +244,35 @@ export function normalizeCore(raw: Partial<Core>): Core {
     waivers: normalizeWaivers(raw.waivers),
     noCheckNudged: typeof raw.noCheckNudged === 'number' ? raw.noCheckNudged : -1,
     forks: normalizeForks(raw.forks),
+    approval: normalizeApproval(raw.approval),
   }
 }
+
+const APPROVAL_STATUSES: readonly ApprovalStatus[] = ['none', 'planning', 'presented', 'approved', 'skipped']
+
+/** Trạng thái duyệt kế hoạch từ bản đã lưu (0.8.2 N2); Core từ bản trước không có trường này thì none, 0 lượt, chưa hỏi. */
+function normalizeApproval(raw: Partial<ApprovalState> | undefined): ApprovalState {
+  if (raw === undefined || raw === null) return { goalId: -1, status: 'none', rounds: 0, asked: false }
+  const status = APPROVAL_STATUSES.find(item => item === raw.status) ?? 'none'
+  return { goalId: typeof raw.goalId === 'number' ? raw.goalId : -1, status, rounds: typeof raw.rounds === 'number' ? raw.rounds : 0, asked: raw.asked === true }
+}
+
+/** Trạng thái duyệt của mục tiêu đang mở (0.8.2 N2): trạng thái lưu cho mục tiêu khác là none. */
+export function approvalOf(c: Core): ApprovalState {
+  const n = normalizeCore(c)
+  return n.brief !== null && n.approval.goalId === n.brief.goalId ? n.approval : { goalId: n.brief?.goalId ?? -1, status: 'none', rounds: 0, asked: false }
+}
+
+/** Mục tiêu đang mở chờ duyệt kế hoạch (0.8.2 N2): planning hay presented thì luồng chính chưa được sửa file. */
+export function isPlanGated(c: Core): boolean {
+  const status = approvalOf(c).status
+  return status === 'planning' || status === 'presented'
+}
+
+/** Ghi trạng thái duyệt kế hoạch (0.8.2 N2). */
+export const withApproval =
+  (approval: ApprovalState) =>
+  (c: Core): Core => ({ ...normalizeCore(c), approval: normalizeApproval(approval) })
 
 /** Số lần giao phiên con giữ lại cho một mục tiêu (0.7.9 F1) [Giả định: 6 phần mỗi việc, vài việc tách mỗi mục tiêu]. */
 const FORK_PART_LIMIT = 30

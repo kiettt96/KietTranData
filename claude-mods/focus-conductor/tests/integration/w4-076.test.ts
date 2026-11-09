@@ -70,14 +70,14 @@ async function runningTodo($: Engine, on: On) {
 }
 
 describe('0.7.6 W4: bước có lô đang chạy hiện \u25D0', () => {
-  test('pane: bước todo có lô đang chạy là \u25D0, các bước todo khác vẫn \u25CB', async ($, on) => {
+  test('pane: bước todo có lô đang chạy là \u25D0, các bước todo khác vẫn \u25CB', { options: { planApproval: 'off' } }, async ($, on) => {
     await runningTodo($, on)
     const { tree } = await paneTree($)
     expect(markOf(tree, 'BƯỚC 3: lọc tin lô 1')).toBe('\u25D0')
     expect(markOf(tree, 'BƯỚC 4: lọc tin lô 2')).toBe('\u25CB')
   })
 
-  test('band: đầu thanh là \u25D0 khi bước hiện tại còn todo mà có lô đang chạy', async ($, on) => {
+  test('band: đầu thanh là \u25D0 khi bước hiện tại còn todo mà có lô đang chạy', { options: { planApproval: 'off' } }, async ($, on) => {
     await runningTodo($, on)
     expect(await bandText($)).toContain('\u25D0')
   })
@@ -91,7 +91,7 @@ describe('0.7.6 W4: bước có lô đang chạy hiện \u25D0', () => {
     expect(await bandText($)).not.toContain('\u25D0')
   })
 
-  test('chưa có checklist: bước dự kiến có lô đang chạy là \u25D0 ở pane và band', async ($, on) => {
+  test('chưa có checklist: bước dự kiến có lô đang chạy là \u25D0 ở pane và band', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, { router: routed })
     hooks(on)
     await submit($, GOAL)
@@ -118,14 +118,14 @@ async function failedBatches($: Engine, on: On, lastOk = true) {
 }
 
 describe('0.7.6 W4: band ghi lô lỗi kèm mã bước', () => {
-  test('"BƯỚC 3: 3 lô lỗi chưa giao lại"', async ($, on) => {
+  test('"BƯỚC 3: 3 lô lỗi chưa giao lại"', { options: { planApproval: 'off' } }, async ($, on) => {
     await failedBatches($, on)
     const text = await bandText($)
     expect(text).toContain('BƯỚC 3: 3 lô lỗi chưa giao lại')
   })
 
   // Thêm ở commit sửa để ghim mẫu đột biến: lô lỗi của một việc đếm một lần dù việc giao cũng ghi lỗi; lô lỗi hay xong không phải đang chạy.
-  test('cả bốn lô lỗi: "BƯỚC 3: 4 lô lỗi chưa giao lại", đếm một lần', async ($, on) => {
+  test('cả bốn lô lỗi: "BƯỚC 3: 4 lô lỗi chưa giao lại", đếm một lần', { options: { planApproval: 'off' } }, async ($, on) => {
     await failedBatches($, on, false)
     expect(await bandText($)).toContain('BƯỚC 3: 4 lô lỗi chưa giao lại')
     // Pane liệt kê mọi mục: chỉ một mục cho BƯỚC 3, không thêm mục từ danh sách việc giao.
@@ -151,7 +151,7 @@ describe('0.7.6 W4: band ghi lô lỗi kèm mã bước', () => {
     expect(markOf(tree, 'BƯỚC 3: lọc tin lô 1')).toBe('\u25CB')
   })
 
-  test('uiLanguage en', { options: { uiLanguage: 'en' } }, async ($, on) => {
+  test('uiLanguage en', { options: { planApproval: 'off', uiLanguage: 'en' } }, async ($, on) => {
     await failedBatches($, on)
     expect(await bandText($)).toContain('BƯỚC 3: 3 failed runs not re-delegated')
   })
@@ -195,7 +195,7 @@ const clock = (ms: number) => {
 }
 
 describe('0.7.6 W4: mục Đang chạy ghi "từ <giờ bắt đầu>"', () => {
-  test('vi: "· từ HH:MM" theo giờ máy của agent đầu tiên', async ($, on) => {
+  test('vi: "· từ HH:MM" theo giờ máy của agent đầu tiên', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, { router: routed })
     hooks(on)
     await submit($, GOAL)
@@ -231,7 +231,7 @@ describe('0.7.6 W4: mục Đang chạy ghi "từ <giờ bắt đầu>"', () => {
 })
 
 describe('0.7.6 W4: nhiều việc có lô lỗi', () => {
-  test('mỗi việc một mục, theo thứ tự bước: BƯỚC 3 trước BƯỚC 4', async ($, on) => {
+  test('mỗi việc một mục, theo thứ tự bước: BƯỚC 3 trước BƯỚC 4', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, { router: () => plan({ goal: GOAL, depth: 'hard', volume: 'large', tasks: TITLES.map((title, k) => (k === 3 || k === 4 ? task(title, 'agent', 'sonnet', 'medium') : task(title, 'main', 'opus', 'high'))) }) })
     hooks(on)
     await submit($, GOAL)

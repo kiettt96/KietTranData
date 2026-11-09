@@ -10,7 +10,7 @@ const subagentStart = ($: Engine, n: number) => $.turn.start({ text: 'lô dữ l
 const edit = ($: Engine, n: number) => $.tool.call({ tool: 'Edit', file_path: `src/f${n}.ts`, old_string: 'a', new_string: 'b' } as never) as Promise<{ context?: string[] }>
 
 describe('0.7.5 A1: turn.start của subagent không xóa bộ đếm của luồng chính', () => {
-  test('Stop vẫn chặn khi checklist còn mở sau khi một subagent bắt đầu giữa turn', {}, async ($, on) => {
+  test('Stop vẫn chặn khi checklist còn mở sau khi một subagent bắt đầu giữa turn', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('classic.Stop', () => ({}))
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
@@ -22,7 +22,7 @@ describe('0.7.5 A1: turn.start của subagent không xóa bộ đếm của lu�
     expect((await $.classic.Stop({ stop_hook_active: false })).block).toContain('Checklist còn 2 bước mở')
   })
 
-  test('40 lần sửa xen 10 lần subagent bắt đầu: checkpoint ở 5, 10, 20, 40', {}, async ($, on) => {
+  test('40 lần sửa xen 10 lần subagent bắt đầu: checkpoint ở 5, 10, 20, 40', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, COMPLEX_PROMPT)

@@ -35,7 +35,7 @@ describe('078-G1d, 078-G1e: cổng Stop khi chưa có checklist', () => {
     expect(reason).not.toContain('chỉ để hiển thị')
   })
 
-  test('turn đã nhận báo hạn mức mềm, cửa sổ còn trong vùng báo: không chặn vì thiếu checklist', { options: { noticeWeekRemainingPct: 20 } }, async ($, on) => {
+  test('turn đã nhận báo hạn mức mềm, cửa sổ còn trong vùng báo: không chặn vì thiếu checklist', { options: { planApproval: 'off', noticeWeekRemainingPct: 20 } }, async ($, on) => {
     const seen = base(on)
     hooks(on)
     const meter = quotaMeter(on, [week(50)])

@@ -13,7 +13,8 @@ import { applyPlan } from '../lib/plan'
 import type { RetryLine } from '../lib/text'
 import type { PlanInput } from '../lib/plan'
 import { describePick, familyOf } from '../lib/route'
-import { askRouter, driftRequest, nextLevel, openPhase, parseDrift } from '../lib/router'
+import { askRouter, driftRequest, nextLevel, openPhase, parseDrift, parsePlanReview, planReviewRequest } from '../lib/router'
+import { hasFixes, reviewReason } from '../lib/approval'
 import { taskRows } from '../lib/progress'
 import { EMPTY_QUOTA, evaluateQuota, normalizeQuota, quotaSettings, softNotices } from '../lib/quota'
 import { storeKey, withNote } from '../lib/checkpoint'
@@ -296,6 +297,57 @@ async function askWaived($: EngineInterface): Promise<string | null> {
   if (due.length === 0) return null
   await update($, coreState, S.withWaivers({ goalId: core.waivers.goalId, items: core.waivers.items.map(w => ({ ...w, asked: true })) }))
   return waiveAskText(due)
+}
+
+/**
+ * Rà kế hoạch trước khi trình duyệt (0.8.2 N2), xét đầu tiên ở Stop. `allow`: cho kết thúc ngay, bỏ qua mọi cổng sau (turn hỏi làm rõ,
+ * kế hoạch đã trình, lượt rà đạt hay đã hết lượt, router lỗi). `block`: chặn với lý do của lượt rà. `none`: không liên quan (mục tiêu không
+ * thuộc diện duyệt, đã duyệt, hay checklist trống thì G1 xử lý như cũ).
+ */
+async function planReviewGate($: EngineInterface, ctx: Ctx): Promise<{ kind: 'none' | 'allow' } | { kind: 'block'; reason: string }> {
+  const core = S.normalizeCore(await read($, coreState))
+  const brief = core.brief
+  if (brief === null) return { kind: 'none' }
+  const approval = S.approvalOf(core)
+  // Turn hỏi làm rõ: không rà, không chặn.
+  if ((approval.status === 'planning' || approval.status === 'presented') && ctx.local.askTurn === brief.goalId) return { kind: 'allow' }
+  if (approval.status === 'presented') return { kind: 'allow' }
+  if (approval.status !== 'planning' || core.plan.length === 0) return { kind: 'none' }
+  const at = await $.clock.now()
+  const present = async (cause: string, warning?: string) => {
+    await update($, coreState, c => {
+      const next = S.withApproval({ ...S.approvalOf(c), status: 'presented' })(c)
+      return warning !== undefined ? S.withWarnings({ at, kind: 'model', text: warning })(next) : next
+    })
+    ctx.record(at, 'approval', { goalId: brief.goalId, status: 'presented', cause })
+    await ctx.flushDecisions((path, text) => $.fs.write(path, text))
+    return { kind: 'allow' as const }
+  }
+  // Lượt cuối đã chặn một lần: lần Stop này cho kết thúc, không rà thêm.
+  if (approval.rounds >= ctx.planReviewRounds) return present('rounds')
+  if (ctx.isRouterPaused()) return present('router-paused', 'Router đang tạm ngừng nên chưa rà kế hoạch; kế hoạch được trình như hiện có')
+  const request = planReviewRequest({
+    goal: brief.goal,
+    requirements: brief.requirements ?? [],
+    constraints: brief.constraints,
+    quality: brief.quality,
+    steps: core.plan.map(step => ({ title: step.title, ...(step.check !== undefined ? { check: step.check } : {}) })),
+    model: ctx.routerModel,
+  })
+  const startedAt = await $.clock.now()
+  const outcome = await askRouter(r => $.model.complete(r), request, parsePlanReview)
+  ctx.noteRouterFailure('review', outcome.failure)
+  ctx.noteRouterTime((await $.clock.now()) - startedAt)
+  const rounds = approval.rounds + 1
+  // Chi phí mỗi lượt rà cộng vào sổ nhóm router; lượt rà tăng sau mỗi lần gọi.
+  await update($, coreState, c => S.withApproval({ ...S.approvalOf(c), rounds })(S.withAnalyzerUsage(outcome.usages, ctx.routerFamily)(c)))
+  const review = outcome.result
+  ctx.record(at, 'plan-review', { goalId: brief.goalId, round: rounds, missing: review?.missing ?? null, extra: review?.extra ?? null, issues: review?.issues.length ?? null, ...(review === null ? { reason: outcome.reason } : {}) })
+  // Router lỗi: không đoán, trình kế hoạch như hiện có kèm cảnh báo.
+  if (review === null) return present('router-fail', `Router không rà được kế hoạch (${outcome.reason}); kế hoạch được trình như hiện có`)
+  if (!hasFixes(review)) return present('review')
+  await ctx.flushDecisions((path, text) => $.fs.write(path, text))
+  return { kind: 'block', reason: reviewReason(review, brief.requirements ?? [], core.plan, rounds, ctx.planReviewRounds, rounds >= ctx.planReviewRounds) }
 }
 
 /** Script của package.json đáng chạy để kiểm, theo thứ tự ưu tiên (0.7.9 Y6). */
@@ -928,11 +980,20 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     // Stop đầu tiên không còn subagent nào chạy: tính lại cảnh báo chưa kiểm đã hoãn (0.8.0 A5).
     if (await settleDeferred($, ctx)) await showStatus($, await read($, view), ctx.options)
     if (result.block || result.preventContinuation || !isExecuting(L.tracker, L.promptIntent)) return result
-    if (ctx.options['enforceChecklist'] !== true || (await read($, mode)) === 'off') return result
+    if ((await read($, mode)) === 'off') return result
     // Đang dừng vì hạn mức (hay người dùng tạm dừng): cho kết thúc, nếu không sẽ vòng lặp chặn khi mọi tool bị từ chối.
     const quota = normalizeQuota(await read($, quotaState))
     if (quota.pause !== null) return result
     const failed = failedFor(S.normalizeCore(await read($, coreState)).brief).concat(forkFailures(S.normalizeCore(await read($, coreState))))
+    // Rà kế hoạch trước khi trình duyệt (0.8.2 N2): xét đầu tiên, trước W4, Y6, G1; không theo stop_hook_active (mỗi lần chặn là một lượt rà)
+    // và không theo enforceChecklist (option planApproval riêng).
+    const review = await planReviewGate($, ctx)
+    if (review.kind === 'allow') {
+      await showStatus($, await read($, view), ctx.options)
+      return result
+    }
+    if (review.kind === 'block') return { ...result, block: review.reason }
+    if (ctx.options['enforceChecklist'] !== true) return result
     // Turn đã nhận câu báo hạn mức mềm (0.7.5): quy tắc dừng theo hạn mức của prompt có thể đang áp, nên checklist còn mở không
     // chặn kết thúc, nhưng chỉ khi cửa sổ vẫn còn trong vùng báo (vòng sửa 2: cửa sổ đã làm mới thì chặn như cũ); việc giao
     // subagent đã lỗi vẫn bị chặn.

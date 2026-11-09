@@ -10,6 +10,7 @@ import { TITLES, rowOf } from '../support/pane-long'
 
 const PLAN = 'mcp__focus-conductor__plan'
 const LONG = { timeoutMs: 120_000 }
+const LONG_PA_OFF = { ...LONG, options: { planApproval: 'off' } }
 const GOAL = 'Cập nhật sổ giá tuần theo 11 bước, lọc tin bằng subagent và kiểm số liệu bằng script khai sẵn'
 
 function hooks(on: On) {
@@ -78,7 +79,7 @@ const UNVERIFIED = /^\u25B3 Bước 5 ghi đã kiểm chứng/
 const BUDGET = /Đã 100 tool call/
 
 describe('0.7.6 W1: mục Cần chú ý ở đầu pane', () => {
-  test('pane 16 dòng: dòng tạm dừng và cảnh báo đỏ nằm trong 16 dòng, trước tiêu đề checklist', LONG, async ($, on) => {
+  test('pane 16 dòng: dòng tạm dừng và cảnh báo đỏ nằm trong 16 dòng, trước tiêu đề checklist', LONG_PA_OFF, async ($, on) => {
     await stacked($, on, false)
     const { tree, texts } = await drawn($, 16)
     const attention = rowOf(tree, /^Cần chú ý/)
@@ -99,7 +100,7 @@ describe('0.7.6 W1: mục Cần chú ý ở đầu pane', () => {
     expect(texts.some(t => /^\u25B2 .*ngoai\.py/.test(t))).toBe(true)
   })
 
-  test('thứ tự mục: tạm dừng, lô lỗi, ngoài phạm vi, chưa kiểm chứng, ngân sách', LONG, async ($, on) => {
+  test('thứ tự mục: tạm dừng, lô lỗi, ngoài phạm vi, chưa kiểm chứng, ngân sách', LONG_PA_OFF, async ($, on) => {
     await stacked($, on, true)
     const { tree } = await drawn($, 40)
     const rows = [/^\u23F8 Tạm dừng:/, /lô lỗi chưa giao lại/, SCOPE, UNVERIFIED, BUDGET].map(want => rowOf(tree, want))
@@ -108,7 +109,7 @@ describe('0.7.6 W1: mục Cần chú ý ở đầu pane', () => {
     expect(rows[0]).toBeGreaterThan(rowOf(tree, /^Cần chú ý/))
   })
 
-  test('mỗi câu cảnh báo xuất hiện đúng một lần trong toàn pane, tạm dừng không lặp', LONG, async ($, on) => {
+  test('mỗi câu cảnh báo xuất hiện đúng một lần trong toàn pane, tạm dừng không lặp', LONG_PA_OFF, async ($, on) => {
     await stacked($, on, false)
     const { texts } = await drawn($, 40)
     expect(texts.some(t => /^Cần chú ý/.test(t))).toBe(true)
@@ -117,7 +118,7 @@ describe('0.7.6 W1: mục Cần chú ý ở đầu pane', () => {
     expect(texts.filter(t => /^\u23F8 Tạm dừng:/.test(t)).length).toBe(1)
   })
 
-  test('tiêu đề vi: Cần chú ý và Cảnh báo khác, không còn "Cảnh báo nhất quán"', LONG, async ($, on) => {
+  test('tiêu đề vi: Cần chú ý và Cảnh báo khác, không còn "Cảnh báo nhất quán"', LONG_PA_OFF, async ($, on) => {
     await stacked($, on, true)
     const { texts } = await drawn($, 40)
     expect(texts.some(t => /^Cần chú ý/.test(t))).toBe(true)
@@ -125,7 +126,7 @@ describe('0.7.6 W1: mục Cần chú ý ở đầu pane', () => {
     expect(texts.some(t => /^Cảnh báo nhất quán/.test(t))).toBe(false)
   })
 
-  test('uiLanguage en: Needs attention và Other warnings', { ...LONG, options: { uiLanguage: 'en' } }, async ($, on) => {
+  test('uiLanguage en: Needs attention và Other warnings', { ...LONG, options: { planApproval: 'off', uiLanguage: 'en' } }, async ($, on) => {
     await stacked($, on, true)
     const { texts } = await drawn($, 40)
     expect(texts.some(t => /^Needs attention/.test(t))).toBe(true)
@@ -134,7 +135,7 @@ describe('0.7.6 W1: mục Cần chú ý ở đầu pane', () => {
     expect(texts.some(t => /^Consistency warnings/.test(t))).toBe(false)
   })
 
-  test('quá 4 mục: dòng "+2 mục khác", mục dư (ngân sách, lệch model) hiện ở Cảnh báo khác đúng một lần', LONG, async ($, on) => {
+  test('quá 4 mục: dòng "+2 mục khác", mục dư (ngân sách, lệch model) hiện ở Cảnh báo khác đúng một lần', LONG_PA_OFF, async ($, on) => {
     await stacked($, on, true)
     const { texts } = await drawn($, 40)
     const at = texts.findIndex(t => /^Cần chú ý/.test(t))

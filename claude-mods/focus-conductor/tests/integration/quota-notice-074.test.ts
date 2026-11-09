@@ -12,7 +12,7 @@ const noticed = (out: { context?: readonly string[] }) => (out.context ?? []).fi
 const edit = ($: Engine, over: Record<string, unknown> = {}) => $.tool.call({ ...EDIT, ...over } as never) as Promise<{ deny?: string; context?: string[] }>
 
 describe('0.7.4 3: báo hạn mức mềm', () => {
-  test('báo đúng một lần khi vào vùng báo, tool không bị từ chối', { options: { noticeWeekRemainingPct: 20 } }, async ($, on) => {
+  test('báo đúng một lần khi vào vùng báo, tool không bị từ chối', { options: { planApproval: 'off', noticeWeekRemainingPct: 20 } }, async ($, on) => {
     const { clock } = base(on)
     const meter = quotaMeter(on, [week(70)])
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
@@ -30,7 +30,7 @@ describe('0.7.4 3: báo hạn mức mềm', () => {
     expect(noticed(second)).toEqual([])
   })
 
-  test('cửa sổ mới (resetsAt khác) báo lại', { options: { noticeWeekRemainingPct: 20 } }, async ($, on) => {
+  test('cửa sổ mới (resetsAt khác) báo lại', { options: { planApproval: 'off', noticeWeekRemainingPct: 20 } }, async ($, on) => {
     const { clock } = base(on)
     const meter = quotaMeter(on, [week(81)])
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
@@ -41,7 +41,7 @@ describe('0.7.4 3: báo hạn mức mềm', () => {
     expect(noticed(await edit($)).length).toBe(1)
   })
 
-  test('subagent không nhận; luồng chính vẫn nhận lần báo đó', { options: { noticeWeekRemainingPct: 20 } }, async ($, on) => {
+  test('subagent không nhận; luồng chính vẫn nhận lần báo đó', { options: { planApproval: 'off', noticeWeekRemainingPct: 20 } }, async ($, on) => {
     base(on)
     quotaMeter(on, [week(81)])
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))

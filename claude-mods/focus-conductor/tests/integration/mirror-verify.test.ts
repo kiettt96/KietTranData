@@ -45,7 +45,7 @@ async function twoTasks($: Engine, on: On) {
 const last = (seen: { statuses: (string | undefined)[] }) => seen.statuses.at(-1) ?? ''
 
 describe('0.7.1: tự nâng verified cho danh sách phản chiếu', () => {
-  test('đóng cả hai việc rồi test đạt: nâng; sửa tiếp: hạ; test lại: nâng lại', {}, async ($, on) => {
+  test('đóng cả hai việc rồi test đạt: nâng; sửa tiếp: hạ; test lại: nâng lại', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = await twoTasks($, on)
     await edit($)
     await done($, '1')
@@ -61,7 +61,7 @@ describe('0.7.1: tự nâng verified cho danh sách phản chiếu', () => {
     expect(last(seen)).toContain('2/2 · 2✓')
   })
 
-  test('test đã đạt rồi mới đóng việc: nâng ngay khi đóng, bước chưa đóng giữ nguyên', {}, async ($, on) => {
+  test('test đã đạt rồi mới đóng việc: nâng ngay khi đóng, bước chưa đóng giữ nguyên', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = await twoTasks($, on)
     await edit($)
     await bash($, 'npm test')
@@ -69,7 +69,7 @@ describe('0.7.1: tự nâng verified cho danh sách phản chiếu', () => {
     expect(last(seen)).toContain('1/2 · 1✓')
   })
 
-  test('tình huống phiên thật (a): gọi lại TaskUpdate completed sau khi sửa file thì về done, test đạt thì nâng lại', {}, async ($, on) => {
+  test('tình huống phiên thật (a): gọi lại TaskUpdate completed sau khi sửa file thì về done, test đạt thì nâng lại', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = await twoTasks($, on)
     await edit($)
     await done($, '1')
@@ -83,7 +83,7 @@ describe('0.7.1: tự nâng verified cho danh sách phản chiếu', () => {
     expect(last(seen)).toContain('1/2 · 1✓')
   })
 
-  test('tình huống phiên thật (a): gọi lại TaskUpdate completed khi test vẫn phủ thay đổi cuối thì vẫn verified', {}, async ($, on) => {
+  test('tình huống phiên thật (a): gọi lại TaskUpdate completed khi test vẫn phủ thay đổi cuối thì vẫn verified', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = await twoTasks($, on)
     await edit($)
     await done($, '1')
@@ -92,7 +92,7 @@ describe('0.7.1: tự nâng verified cho danh sách phản chiếu', () => {
     expect(last(seen)).toContain('1/2 · 1✓')
   })
 
-  test('tình huống phiên thật (b): TodoWrite ghi lại cả danh sách khi chưa sửa gì thêm thì bước vẫn verified, không thoáng hiện done', {}, async ($, on) => {
+  test('tình huống phiên thật (b): TodoWrite ghi lại cả danh sách khi chưa sửa gì thêm thì bước vẫn verified, không thoáng hiện done', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = await twoTasks($, on)
     await edit($)
     await write($, [todo('Sửa', 'completed'), todo('Kiểm', 'in_progress')])
@@ -131,7 +131,7 @@ describe('0.7.1: điều kiện để tự nâng', () => {
     expect(last(seen)).not.toContain('✓')
   })
 
-  test('subagent sửa file trong mục tiêu cũng hạ bước đã nâng', {}, async ($, on) => {
+  test('subagent sửa file trong mục tiêu cũng hạ bước đã nâng', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = await twoTasks($, on)
     await spawnTool($, 'u1', 'Sửa file phụ', 'Sửa src/x.ts')
     await edit($)
@@ -156,7 +156,7 @@ describe('0.7.1: điều kiện để tự nâng', () => {
 })
 
 describe('0.7.1: tool plan luôn thắng, mirror chỉ để theo dõi', () => {
-  test('tool plan có bước sau khi đã có mirror: test đạt chỉ nâng bước plan, bảng hiển thị là của plan', {}, async ($, on) => {
+  test('tool plan có bước sau khi đã có mirror: test đạt chỉ nâng bước plan, bảng hiển thị là của plan', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = await twoTasks($, on)
     await edit($)
     await done($, '1')
@@ -178,7 +178,7 @@ describe('0.7.1: tool plan luôn thắng, mirror chỉ để theo dõi', () => {
 })
 
 describe('0.7.1: nhật ký quyết định', () => {
-  test('nâng mirror ghi verify-auto với at "mirror", tách khỏi nâng của tool plan', { options: { decisionLog: '/tmp/fc-mirror-verify.jsonl' } }, async ($, on) => {
+  test('nâng mirror ghi verify-auto với at "mirror", tách khỏi nâng của tool plan', { options: { planApproval: 'off', decisionLog: '/tmp/fc-mirror-verify.jsonl' } }, async ($, on) => {
     const writes: string[] = []
     on('fs.write', (_$, e) => {
       writes.push(e.text)
@@ -192,7 +192,7 @@ describe('0.7.1: nhật ký quyết định', () => {
     expect(lines.find(line => line['kind'] === 'verify-auto')).toMatchObject({ kind: 'verify-auto', at: 'mirror' })
   })
 
-  test('đóng việc sau khi test đã đạt cũng ghi verify-auto với at "mirror" và ghi ra tệp ngay', { options: { decisionLog: '/tmp/fc-mirror-verify2.jsonl' } }, async ($, on) => {
+  test('đóng việc sau khi test đã đạt cũng ghi verify-auto với at "mirror" và ghi ra tệp ngay', { options: { planApproval: 'off', decisionLog: '/tmp/fc-mirror-verify2.jsonl' } }, async ($, on) => {
     const writes: string[] = []
     on('fs.write', (_$, e) => {
       writes.push(e.text)

@@ -7,7 +7,7 @@ import { DEFAULT_ROUTER, FOUR, base, conductor, step, submit } from '../support/
 const failOn = (word: string) => (request: string) => (request.includes(word) ? null : DEFAULT_ROUTER(request))
 
 describe('0.7.5 B3: router lỗi ở prompt tiếp nối', () => {
-  test('việc ghi giao subagent chưa giao vẫn được nhắc sau khi router lỗi', {}, async ($, on) => {
+  test('việc ghi giao subagent chưa giao vẫn được nhắc sau khi router lỗi', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, { router: failOn('làm tiếp') })
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, FOUR)

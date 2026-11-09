@@ -36,7 +36,7 @@ async function start($: Engine, seen: ReturnType<typeof base>, steps: Array<{ ti
 }
 
 describe('0.8.0 A8: subagent Claude tự giao gắn vào việc của bước doing', () => {
-  test('bước doing "V8: chạy lại" phủ việc 20: subagent gắn việc 20, nhật ký attached, pane không ghi "Claude tự giao"', { options: { decisionLog: LOG } }, async ($, on) => {
+  test('bước doing "V8: chạy lại" phủ việc 20: subagent gắn việc 20, nhật ký attached, pane không ghi "Claude tự giao"', { options: { planApproval: 'off', decisionLog: LOG } }, async ($, on) => {
     const lines = logLines(on)
     on('tool.call', { tool: 'Agent' }, () => ({ result: 'ok' }))
     on('agent.spawn', (_$, e) => ({ model: 'claude-sonnet-5-5', agentId: `a-${e.tool_use_id}` }))

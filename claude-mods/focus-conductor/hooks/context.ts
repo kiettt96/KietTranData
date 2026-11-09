@@ -15,6 +15,7 @@ import type { ErrorEntry, ErrorEvent, ErrorFile } from './lib/errlog'
 import { FIXED_ERRORS } from './lib/fixed-errors'
 import { MOD_VERSION } from './lib/version'
 import { MAX_FORKS, fitPick, skipKey } from './lib/router'
+import { approvalModeOf, reviewRoundsOf } from './lib/approval'
 import type { AgentRoute, Policy } from './lib/router'
 
 /** Prompt do chính người dùng gửi (hoặc lịch họ đặt), không phải thông báo nội bộ. */
@@ -74,6 +75,7 @@ export const COMMAND_HELP = [
   '/conductor goal ...    đặt mục tiêu thủ công',
   '/conductor reroute     router đọc lại prompt gần nhất (kể cả khi router đang tạm ngừng)',
   '/conductor reset       xóa mục tiêu, checklist, cảnh báo và danh sách model bị chặn',
+  '/conductor approve     duyệt kế hoạch đang chờ (chỉ người gõ)',
   '/conductor waive N lý do   miễn lệnh kiểm chưa đạt số N (hoặc ghi lệnh) cho mục tiêu này; waive undo N bỏ lệnh miễn',
   '/conductor errors      nhật ký lỗi của mod; errors clear xóa nhật ký',
 ].join('\n')
@@ -97,6 +99,11 @@ export function createContext(options: PluginOptions) {
     promptIntent: null as PromptIntent,
     /** Ý của tin nhắn cuối router đã đọc (0.8.2 N1), cho /conductor status; null khi router chưa đọc được. */
     lastIntent: null as Intent | null,
+    /**
+     * Mục tiêu (goalId) vừa được dặn hỏi làm rõ (0.8.2 N2): turn đó cổng rà kế hoạch và G1 không chặn; prompt kế tiếp là câu trả lời
+     * (router nhận dòng awaiting answer) rồi xóa. null là không chờ câu trả lời nào.
+     */
+    askTurn: null as number | null,
     /** Thư mục gốc của phiên chốt cho từng mục tiêu có giới hạn phạm vi (null: engine không trả được). */
     roots: new Map<number, string | null>(),
     /** Thời gian chạy (ms) của các lượt router gần nhất. */
@@ -235,6 +242,9 @@ export function createContext(options: PluginOptions) {
   const maxForks = forksOf(options)
   // Bật mặc định từ 0.7.0 (tắt khi đặt false); tự tắt gần ngưỡng hạn mức và tối đa một lượt mỗi 10 phút.
   const semanticDrift = options['semanticDrift'] !== false
+  // Duyệt kế hoạch trước khi sửa file (0.8.2 N2): planApproval auto (mặc định) hay off; planReviewRounds kẹp 1 đến 3, mặc định 2.
+  const planApproval = approvalModeOf(options)
+  const planReviewRounds = reviewRoundsOf(options)
   const driftEveryMs = driftIntervalMs(options['driftIntervalMinutes'])
   // Pane chi tiết tự mở ở mỗi mục tiêu mới (0.7.2); đặt false để tắt.
   const autoPane = options['autoPane'] !== false
@@ -384,7 +394,7 @@ export function createContext(options: PluginOptions) {
   }
 
   /** Lỗi của router theo failure (0.7.9 L1): chỉ ghi loại lỗi (hết giờ, lỗi API, sai định dạng, vượt token), không ghi prompt. */
-  function noteRouterFailure(where: 'prompt' | 'agent' | 'drift', failure: string | null): void {
+  function noteRouterFailure(where: 'prompt' | 'agent' | 'drift' | 'review', failure: string | null): void {
     if (failure === null || failure === 'paused') return
     noteModError({ group: 'router', where, message: failure })
     // Sự cố hành vi (0.8.0 A9): khóa theo loại lỗi, không theo nơi gọi.
@@ -467,6 +477,7 @@ export function createContext(options: PluginOptions) {
     local.evidenceLogs.clear()
     local.roots.clear()
     local.promptIntent = null
+    local.askTurn = null
     local.routerTimes = []
     local.turnRoute = { turnId: '', route: null }
     local.pendingInterject = null
@@ -852,6 +863,8 @@ export function createContext(options: PluginOptions) {
     offered,
     pendingAgents,
     pendingFor,
+    planApproval,
+    planReviewRounds,
     policy,
     ranText,
     rawPolicy,

@@ -10,7 +10,7 @@ const FIRST = plan({ goal: 'Cập nhật sổ giá theo 11 bước', depth: 'har
 const MANY = plan({ relation: 'refine', goal: '', requirements: Array.from({ length: 12 }, (_, i) => `Tinh chỉnh ${i + 1}`) })
 
 describe('kind dropped xếp trên cảnh báo chưa kiểm trong Cần chú ý', () => {
-  test('mục bị bỏ (hạng 4) đứng trước cảnh báo chưa kiểm (hạng 5) dù đến trước', {}, async ($, on) => {
+  test('mục bị bỏ (hạng 4) đứng trước cảnh báo chưa kiểm (hạng 5) dù đến trước', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, { router: request => (request.includes('thêm 12 yêu cầu') ? MANY : FIRST) })
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     on('turn.complete', () => ({ text: '' }))

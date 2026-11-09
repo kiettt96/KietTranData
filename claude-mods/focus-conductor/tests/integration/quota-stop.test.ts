@@ -8,7 +8,7 @@ const PLAN = 'mcp__focus-conductor__plan'
 const EDIT = { tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' } as const
 
 describe('0.6.0 B: dừng mềm khi vào vùng dừng', () => {
-  test('dưới ngưỡng: tool chạy bình thường; qua ngưỡng: Edit, Bash, Read, Agent đều bị từ chối, plan được qua', {}, async ($, on) => {
+  test('dưới ngưỡng: tool chạy bình thường; qua ngưỡng: Edit, Bash, Read, Agent đều bị từ chối, plan được qua', { options: { planApproval: 'off' } }, async ($, on) => {
     const { clock } = base(on)
     const meter = quotaMeter(on, [session(50)])
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
@@ -57,7 +57,7 @@ describe('0.6.0 B: dừng mềm khi vào vùng dừng', () => {
     expect((await $.tool.call({ ...EDIT, agentId: 'agent-1' } as never)).deny).toContain('hạn mức')
   })
 
-  test('không có số đo, kind lạ, usage lỗi: không dừng, không ném lỗi', {}, async ($, on) => {
+  test('không có số đo, kind lạ, usage lỗi: không dừng, không ném lỗi', { options: { planApproval: 'off' } }, async ($, on) => {
     const { clock } = base(on)
     const meter = quotaMeter(on, [])
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
@@ -71,7 +71,7 @@ describe('0.6.0 B: dừng mềm khi vào vùng dừng', () => {
     expect((await $.tool.call(EDIT)).deny).toBeUndefined()
   })
 
-  test('quotaGuard false: qua ngưỡng vẫn không dừng', { options: { quotaGuard: false } }, async ($, on) => {
+  test('quotaGuard false: qua ngưỡng vẫn không dừng', { options: { planApproval: 'off', quotaGuard: false } }, async ($, on) => {
     const { clock } = base(on)
     quotaMeter(on, [session(99)])
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
@@ -89,7 +89,7 @@ describe('0.6.0 B: dừng mềm khi vào vùng dừng', () => {
 })
 
 describe('0.6.0 B: Stop, thông báo cuối turn, router', () => {
-  test('Stop không bị chặn bởi checklist còn mở khi đang dừng vì hạn mức', {}, async ($, on) => {
+  test('Stop không bị chặn bởi checklist còn mở khi đang dừng vì hạn mức', { options: { planApproval: 'off' } }, async ($, on) => {
     const { clock } = base(on)
     const meter = quotaMeter(on, [session(10)])
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
@@ -158,7 +158,7 @@ describe('0.6.0 B: Stop, thông báo cuối turn, router', () => {
 })
 
 describe('0.6.0 B: việc giao subagent đang chạy được đánh dấu để làm lại', () => {
-  test('agent đang chạy khi vào vùng dừng: việc đó chuyển sang lỗi (giao lại được), không phải xong', {}, async ($, on) => {
+  test('agent đang chạy khi vào vùng dừng: việc đó chuyển sang lỗi (giao lại được), không phải xong', { options: { planApproval: 'off' } }, async ($, on) => {
     const { clock } = base(on)
     const meter = quotaMeter(on, [session(10)])
     on('tool.call', { tool: 'Agent' }, () => ({ result: 'đã giao' }))

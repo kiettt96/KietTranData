@@ -82,7 +82,7 @@ describe('0.6.1 2.1: phản chiếu danh sách việc của Claude Code', () => 
     expect(band.source).toBeUndefined()
   })
 
-  test('Stop không bị chặn bởi checklist phản chiếu; checklist của tool plan vẫn chặn', { options: { enforceChecklist: true } }, async ($, on) => {
+  test('Stop không bị chặn bởi checklist phản chiếu; checklist của tool plan vẫn chặn', { options: { planApproval: 'off', enforceChecklist: true } }, async ($, on) => {
     base(on)
     taskTools(on)
     on('classic.Stop', () => ({}))

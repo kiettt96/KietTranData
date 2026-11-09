@@ -71,7 +71,7 @@ describe('0.7.5 A6: pauseAllowPaths khi dừng cứng', () => {
 })
 
 describe('0.7.5 A6: Stop sau câu báo hạn mức mềm', () => {
-  test('turn đã nhận câu báo mềm: Stop không chặn dù checklist còn mở', { options: { noticeWeekRemainingPct: 20 } }, async ($, on) => {
+  test('turn đã nhận câu báo mềm: Stop không chặn dù checklist còn mở', { options: { planApproval: 'off', noticeWeekRemainingPct: 20 } }, async ($, on) => {
     const { clock } = base(on)
     on('classic.Stop', () => ({}))
     const meter = quotaMeter(on, [week(50)])
@@ -86,7 +86,7 @@ describe('0.7.5 A6: Stop sau câu báo hạn mức mềm', () => {
     expect((await $.classic.Stop({ stop_hook_active: false })).block).toBeUndefined()
   })
 
-  test('turn sau (chưa nhận câu báo trong turn đó): Stop chặn như cũ', { options: { noticeWeekRemainingPct: 20 } }, async ($, on) => {
+  test('turn sau (chưa nhận câu báo trong turn đó): Stop chặn như cũ', { options: { planApproval: 'off', noticeWeekRemainingPct: 20 } }, async ($, on) => {
     const { clock } = base(on)
     on('classic.Stop', () => ({}))
     const meter = quotaMeter(on, [week(50)])
@@ -104,7 +104,7 @@ describe('0.7.5 A6: Stop sau câu báo hạn mức mềm', () => {
     expect((await $.classic.Stop({ stop_hook_active: false })).block).toContain('Checklist còn 1 bước mở')
   })
 
-  test('không có câu báo mềm: Stop chặn như cũ', {}, async ($, on) => {
+  test('không có câu báo mềm: Stop chặn như cũ', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('classic.Stop', () => ({}))
     quotaMeter(on, [week(81)])

@@ -149,7 +149,7 @@ describe('prompt tiếp nối', () => {
     expect(seen.contexts[1]?.join('\n')).toContain('Tiếp nối mục tiêu hiện tại: Nâng cấp module thanh toán')
   })
 
-  test('tiếp nối thêm việc: việc mới đánh số tiếp theo, vào phần chờ giao; lựa chọn luồng chính theo router', {}, async ($, on) => {
+  test('tiếp nối thêm việc: việc mới đánh số tiếp theo, vào phần chờ giao; lựa chọn luồng chính theo router', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, {
       router: request =>
         request.startsWith('Thêm')
@@ -208,7 +208,7 @@ describe('prompt dài và prompt đính kèm', () => {
   })
   const K4_PLAN = plan({ goal: 'Engine ra quyết định đúng luật', depth: 'hard', volume: 'large', kind: 'mixed', main: { model: 'opus', effort: 'high' }, tasks: K4_TASKS })
 
-  test('prompt K4: router nhận trọn prompt; phân việc đủ 11 mục, 4 việc giao, 7 việc ở luồng chính; "K4.N" khớp đúng việc', {}, async ($, on) => {
+  test('prompt K4: router nhận trọn prompt; phân việc đủ 11 mục, 4 việc giao, 7 việc ở luồng chính; "K4.N" khớp đúng việc', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, { router: () => K4_PLAN })
     const models: Array<string | undefined> = []
     on('tool.call', { tool: 'Agent' }, (_$, e) => {
@@ -366,7 +366,7 @@ describe('0.5.0: prompt tiếp nối ngắn và đọc lại prompt', () => {
 })
 
 describe('0.5.0: hỏi lại router và bộ đếm lỗi riêng', () => {
-  test('router trả JSON hỏng rồi trả đúng: prompt được đọc, chi phí cộng cả hai lượt, nhật ký ghi đã hỏi lại', { options: { decisionLog: '/tmp/fc.jsonl' } }, async ($, on) => {
+  test('router trả JSON hỏng rồi trả đúng: prompt được đọc, chi phí cộng cả hai lượt, nhật ký ghi đã hỏi lại', { options: { planApproval: 'off', decisionLog: '/tmp/fc.jsonl' } }, async ($, on) => {
     let n = 0
     const seen = base(on, { router: request => ((n += 1) === 1 ? '{"goal": "x", "main": {' : DEFAULT_ROUTER(request)) })
     const writes: string[] = []
@@ -382,7 +382,7 @@ describe('0.5.0: hỏi lại router và bộ đếm lỗi riêng', () => {
     expect(JSON.parse(writes[writes.length - 1]?.trim() ?? '{}')).toMatchObject({ kind: 'route', retried: true })
   })
 
-  test('router chấm subagent lỗi liên tiếp không làm tạm ngừng router đọc prompt', {}, async ($, on) => {
+  test('router chấm subagent lỗi liên tiếp không làm tạm ngừng router đọc prompt', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, { agent: () => null })
     on('tool.call', { tool: 'Agent' }, () => ({ deny: 'test' }))
     await submit($, FOUR)

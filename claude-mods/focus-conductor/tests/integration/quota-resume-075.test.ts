@@ -37,7 +37,7 @@ async function pauseAndResume($: Engine, meter: ReturnType<typeof quotaMeter>, c
 
 describe('0.7.5 B4: turn chạy tiếp không xong', () => {
   for (const reason of ['aborted', 'error', 'refusal']) {
-    test(`reason ${reason}: điểm dừng dựng lại từ tiến độ của turn, giữ id, giờ tạo, note; xóa lệnh bị từ chối cũ`, {}, async ($, on) => {
+    test(`reason ${reason}: điểm dừng dựng lại từ tiến độ của turn, giữ id, giờ tạo, note; xóa lệnh bị từ chối cũ`, { options: { planApproval: 'off' } }, async ($, on) => {
       const seen = base(on, RESUME)
       startHooks(on)
       const box = memoryStore(on)

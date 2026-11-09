@@ -80,7 +80,7 @@ describe('0.7.5 C4: sau /conductor resume, cờ không tự chèn được bỏ'
 })
 
 describe('0.7.5 C4: /clear đặt lại cờ đã báo hạn mức mềm', () => {
-  test('đã báo trước /clear: lời gọi tool sau /clear báo lại', { options: { noticeWeekRemainingPct: 20 } }, async ($, on) => {
+  test('đã báo trước /clear: lời gọi tool sau /clear báo lại', { options: { planApproval: 'off', noticeWeekRemainingPct: 20 } }, async ($, on) => {
     const { clock } = base(on)
     quotaMeter(on, [week(81)])
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))

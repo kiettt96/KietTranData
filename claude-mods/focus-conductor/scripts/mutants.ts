@@ -2043,4 +2043,12 @@ export const MUTANTS: Mutant[] = [
   { id: "082-N1a", file: "hooks/lib/router.ts", note: "intent thiếu hay sai không kẹp về task", old: "(INTENTS.find(i => i === raw['intent']) ?? 'task')", new: "(INTENTS.find(i => i === raw['intent']) ?? 'status')" },
   { id: "082-N1b", file: "hooks/parts/session.ts", note: "tin hỏi tiến độ vẫn nhận việc router trả", old: "    if (plan !== null && prev !== null && intent === 'status') {\n", new: "    if (plan !== null && prev !== null && intent === 'status' && plan.tasks.length === 0) {\n" },
   { id: "082-N1c", file: "hooks/parts/session.ts", note: "tin hỏi tiến độ vẫn là turn thực thi với các cổng Stop", old: "      if (!isInterject) L.promptIntent = { relation: 'continue', kind: 'answer' }\n", new: "      if (!isInterject) L.promptIntent = { relation: 'continue', kind: 'edit' }\n" },
+  { id: "082-N2a", file: "hooks/lib/approval.ts", note: "bỏ chặn Edit khi planning", old: "    return path !== '' && isExemptPath(path) ? null : DENY_EDIT\n", new: "    return null\n" },
+  { id: "082-N2b", file: "hooks/lib/approval.ts", note: "chặn cả mục tiêu light", old: "(brief.depth === 'substantial' || brief.depth === 'hard')", new: "brief.depth !== 'none'" },
+  { id: "082-N2c", file: "hooks/parts/consistency.ts", note: "bỏ trần planReviewRounds", old: "  if (approval.rounds >= ctx.planReviewRounds) return present('rounds')\n", new: "" },
+  { id: "082-N2d", file: "hooks/parts/consistency.ts", note: "router rà lỗi thì chặn mãi", old: "  if (review === null) return present('router-fail',", new: "  if (review === null) return { kind: 'block', reason: 'Router lỗi khi rà kế hoạch' }\n  if (false) return present('router-fail'," },
+  { id: "082-N2e", file: "hooks/parts/session.ts", note: "approved vẫn chặn sau amend", old: "        : isPresented && intent === 'amend'\n", new: "        : (isPresented || approvalBefore.status === 'approved') && intent === 'amend'\n" },
+  { id: "082-N2f", file: "hooks/parts/session.ts", note: "hỏi lại câu hỏi khi đã asked", old: "stage.status === 'planning' && !stage.asked && ", new: "stage.status === 'planning' && " },
+  { id: "082-N2g", file: "hooks/parts/session.ts", note: "câu trả lời bị xếp new thì lập mục tiêu mới", old: "    const isHeldAnswer = isAnswering && ", new: "    const isHeldAnswer = false && isAnswering && " },
+  { id: "082-N2h", file: "hooks/parts/session.ts", note: "ExitPlanMode mở chặn cả ở chế độ tự duyệt", old: "e.agent_id !== undefined || !PERSON_MODES.has(e.permission_mode ?? '')) return result", new: "e.agent_id !== undefined) return result" },
 ]

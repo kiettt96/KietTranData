@@ -69,7 +69,7 @@ describe('0.7.6 band hai dòng', () => {
     expect(rows[1]).toContain('BƯỚC 3: lọc tin lô 1')
   })
 
-  test('maxRows 1: chỉ dòng 1; cảnh báo mức đỏ (ngoài phạm vi) thế chỗ tên bước', async ($, on) => {
+  test('maxRows 1: chỉ dòng 1; cảnh báo mức đỏ (ngoài phạm vi) thế chỗ tên bước', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, { router: () => plan({ goal: GOAL, depth: 'substantial', volume: 'small', scope: ['src/'] }) })
     on('tool.call', { tool: 'Write' }, () => ({ result: 'đã ghi' }))
     await submit($, GOAL)

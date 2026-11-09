@@ -5,7 +5,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import { COMPLEX_PROMPT, DEFAULT_ROUTER, FOUR, base, plan, step, submit } from '../support/engine'
 
 describe('checklist và chặn kết thúc', () => {
-  test('checklist còn mở thì chặn dừng, đóng hết thì cho dừng', {}, async ($, on) => {
+  test('checklist còn mở thì chặn dừng, đóng hết thì cho dừng', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('classic.Stop', () => ({}))
     await submit($, COMPLEX_PROMPT)
@@ -95,7 +95,7 @@ describe('0.5.0: không mất tiến độ khi đổi mục tiêu', () => {
     expect(seen.contexts[1]?.join('\n')).toContain('Bước còn mở: 1. Tìm chỗ gọi')
   })
 
-  test('plan set nhận scope: sửa ngoài phạm vi bị cảnh báo; scope rỗng bỏ giới hạn; mục không phải đường dẫn bị từ chối', {}, async ($, on) => {
+  test('plan set nhận scope: sửa ngoài phạm vi bị cảnh báo; scope rỗng bỏ giới hạn; mục không phải đường dẫn bị từ chối', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, COMPLEX_PROMPT)

@@ -80,7 +80,7 @@ describe('0.7.3 điểm 3: turn lỗi của luồng chính', () => {
     expect(seen.toasts.filter(t => t.includes('turn lỗi')).length).toBe(1)
   })
 
-  test('turn lỗi không làm tool call sau đó bị từ chối', {}, async ($, on) => {
+  test('turn lỗi không làm tool call sau đó bị từ chối', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     startHooks(on)
     await submit($, COMPLEX_PROMPT)

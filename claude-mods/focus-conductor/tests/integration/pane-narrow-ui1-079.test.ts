@@ -150,7 +150,7 @@ function stepOf(tree: Node, code: string) {
 const chipOf = (row: Node) => pathTo(row, text => text === 'sonnet đang chạy')
 
 describe('0.7.9 UI1: tên bước một dòng ở pane hẹp', () => {
-  test('40 cột, 24 dòng, 8 bước có mã tên 80 ký tự: mỗi bước không quá 2 dòng (tên và chip), thấy ít nhất 6 bước mở', async ($, on) => {
+  test('40 cột, 24 dòng, 8 bước có mã tên 80 ký tự: mỗi bước không quá 2 dòng (tên và chip), thấy ít nhất 6 bước mở', { options: { planApproval: 'off' } }, async ($, on) => {
     expect(TITLES.every(title => title.length === 80)).toBe(true)
     await setup($, on, TITLES)
     const { tree, out } = await drawAt($, 40, 24)
@@ -171,7 +171,7 @@ describe('0.7.9 UI1: tên bước một dòng ở pane hẹp', () => {
     expect(visible).toBeGreaterThanOrEqual(6)
   })
 
-  test('47 cột (ca biên dưới 48): tên một dòng không quá bề ngang cột tên, chip nằm dòng riêng dưới tên', async ($, on) => {
+  test('47 cột (ca biên dưới 48): tên một dòng không quá bề ngang cột tên, chip nằm dòng riêng dưới tên', { options: { planApproval: 'off' } }, async ($, on) => {
     await setup($, on, TITLES)
     const { tree, out } = await drawAt($, 47, 60)
     for (const code of CODES) {
@@ -187,7 +187,7 @@ describe('0.7.9 UI1: tên bước một dòng ở pane hẹp', () => {
     }
   })
 
-  test('48 cột (ca biên từ 48): như 0.7.8, tên đầy đủ ngắt dòng, chip cùng hàng với tên', async ($, on) => {
+  test('48 cột (ca biên từ 48): như 0.7.8, tên đầy đủ ngắt dòng, chip cùng hàng với tên', { options: { planApproval: 'off' } }, async ($, on) => {
     await setup($, on, TITLES)
     const { tree } = await drawAt($, 48, 60)
     for (const [k, code] of CODES.entries()) {
@@ -200,7 +200,7 @@ describe('0.7.9 UI1: tên bước một dòng ở pane hẹp', () => {
     }
   })
 
-  test('120 cột: giữ nguyên như 0.7.8, tên đầy đủ, chip cùng hàng với tên', async ($, on) => {
+  test('120 cột: giữ nguyên như 0.7.8, tên đầy đủ, chip cùng hàng với tên', { options: { planApproval: 'off' } }, async ($, on) => {
     await setup($, on, TITLES)
     const { tree } = await drawAt($, 120, 60)
     for (const [k, code] of CODES.entries()) {

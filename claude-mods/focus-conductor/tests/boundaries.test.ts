@@ -150,7 +150,7 @@ describe('cache nguội và ngữ cảnh co lại: đổi model không mất chi
 })
 
 describe('hook Stop và stop_hook_active', () => {
-  test('stop_hook_active: true thì không chặn nữa (tránh vòng lặp); false thì chặn khi checklist còn mở', {}, async ($, on) => {
+  test('stop_hook_active: true thì không chặn nữa (tránh vòng lặp); false thì chặn khi checklist còn mở', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('classic.Stop', () => ({}))
     await submit($, COMPLEX_PROMPT)

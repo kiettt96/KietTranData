@@ -73,7 +73,7 @@ const answer = (turnId: string) => ({ turnId, answer: 'xong', durationMs: 5, isA
 const stop = async ($: Engine) => String(((await $.classic.Stop({ stop_hook_active: false } as never)) as { block?: string }).block ?? '')
 
 describe('0.8.0: kịch bản đầu cuối tái hiện phiên thật', () => {
-  test('ba đợt, đối chứng đỏ, lệnh ghép && ls: không retry-exhausted, không bước blocked, cảnh báo chưa kiểm chỉ ở turn sửa mã', { options: { checkCommands: `${CHECK_A},${CHECK_B}`, decisionLog: LOG } }, async ($, on) => {
+  test('ba đợt, đối chứng đỏ, lệnh ghép && ls: không retry-exhausted, không bước blocked, cảnh báo chưa kiểm chỉ ở turn sửa mã', { options: { planApproval: 'off', checkCommands: `${CHECK_A},${CHECK_B}`, decisionLog: LOG } }, async ($, on) => {
     const { seen, lines } = setup(on)
     let injected = 0
     const tool = async (input: Record<string, unknown>) => {

@@ -21,7 +21,7 @@ describe('0.7.5 B14: việc chờ giao theo bước checklist', () => {
     expect(nudgeOf(await edit($))).toBe('')
   })
 
-  test('bước của việc 4 đang làm: nhắc đúng việc 4', { options: { strictDelegation: 'remind' } }, async ($, on) => {
+  test('bước của việc 4 đang làm: nhắc đúng việc 4', { options: { planApproval: 'off', strictDelegation: 'remind' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, FOUR)
@@ -34,7 +34,7 @@ describe('0.7.5 B14: việc chờ giao theo bước checklist', () => {
     expect(nudge).not.toContain('Việc 1')
   })
 
-  test('chưa có checklist: như cũ, nhắc mọi việc chờ giao', {}, async ($, on) => {
+  test('chưa có checklist: như cũ, nhắc mọi việc chờ giao', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, FOUR)

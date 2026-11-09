@@ -20,7 +20,7 @@ async function band($: Engine) {
 }
 
 describe('0.6.0 E: /conductor pause', () => {
-  test('pause: từ chối tool như khi hạn mức sắp hết, ghi điểm dừng; Stop cho kết thúc; resume mở lại', {}, async ($, on) => {
+  test('pause: từ chối tool như khi hạn mức sắp hết, ghi điểm dừng; Stop cho kết thúc; resume mở lại', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     const box = memoryStore(on)
     quotaMeter(on, [session(10)])
@@ -141,7 +141,7 @@ describe('0.6.0 E: band và status line', () => {
 })
 
 describe('0.6.0: quotaGuard tắt thì hook mới không đổi gì', () => {
-  test('không hỏi số đo khi gọi tool, không ghi kho, không thêm context, status line như cũ', { options: { quotaGuard: false } }, async ($, on) => {
+  test('không hỏi số đo khi gọi tool, không ghi kho, không thêm context, status line như cũ', { options: { planApproval: 'off', quotaGuard: false } }, async ($, on) => {
     const seen = base(on)
     const box = memoryStore(on)
     const meter = quotaMeter(on, [session(99), week(99)])

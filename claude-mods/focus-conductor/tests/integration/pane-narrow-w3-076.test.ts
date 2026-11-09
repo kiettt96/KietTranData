@@ -131,7 +131,7 @@ describe('0.7.6 W3: dòng bước ở pane hẹp', () => {
     }
   })
 
-  test('40 cột: chip model và chi tiết nằm trong cột tên, dưới tên bước (chung tổ tiên gần nhất là một cột)', async ($, on) => {
+  test('40 cột: chip model và chi tiết nằm trong cột tên, dưới tên bước (chung tổ tiên gần nhất là một cột)', { options: { planApproval: 'off' } }, async ($, on) => {
     const { tree } = await mountSteps($, on, 40)
     for (const title of TITLES) {
       const { row, path } = stepRowOf(tree, title)
@@ -145,7 +145,7 @@ describe('0.7.6 W3: dòng bước ở pane hẹp', () => {
     }
   })
 
-  test('80 cột: chip ở cùng hàng với tên bước, mỗi bước một dòng', async ($, on) => {
+  test('80 cột: chip ở cùng hàng với tên bước, mỗi bước một dòng', { options: { planApproval: 'off' } }, async ($, on) => {
     const { tree } = await mountSteps($, on, 80)
     for (const title of TITLES) {
       const { row, path } = stepRowOf(tree, title)

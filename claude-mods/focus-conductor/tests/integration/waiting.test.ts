@@ -8,7 +8,7 @@ const PLAN = 'mcp__focus-conductor__plan'
 const QUALITY = plan({ goal: 'Dựng pipeline', depth: 'hard', volume: 'large', quality: ['Số dòng khớp nguồn'] })
 
 describe('0.5.6 B2: cổng Stop', () => {
-  test('[done, waiting] không chặn; [done, todo, waiting] chặn và nêu 1 bước mở; [done, blocked] không chặn', {}, async ($, on) => {
+  test('[done, waiting] không chặn; [done, todo, waiting] chặn và nêu 1 bước mở; [done, blocked] không chặn', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('classic.Stop', () => ({}))
     await submit($, COMPLEX_PROMPT)
@@ -22,7 +22,7 @@ describe('0.5.6 B2: cổng Stop', () => {
     expect((await $.classic.Stop({ stop_hook_active: false })).block).toBeUndefined()
   })
 
-  test('đặt lại bước waiting về todo thì cổng Stop chặn lại', {}, async ($, on) => {
+  test('đặt lại bước waiting về todo thì cổng Stop chặn lại', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('classic.Stop', () => ({}))
     await submit($, COMPLEX_PROMPT)
@@ -99,7 +99,7 @@ describe('0.5.6 B7: lưu và khôi phục mục tiêu khi còn bước waiting',
 describe('0.5.6 C5, C6, C8: cập nhật hàng loạt qua tool', () => {
   const twelve = Array.from({ length: 12 }, (_, i) => ({ title: `Bước ${i + 1}` }))
 
-  test('12 bước dừng bằng một lần gọi: openSteps rỗng, cổng Stop không chặn, không có qualityNotice', {}, async ($, on) => {
+  test('12 bước dừng bằng một lần gọi: openSteps rỗng, cổng Stop không chặn, không có qualityNotice', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, { router: () => QUALITY })
     on('classic.Stop', () => ({}))
     await submit($, COMPLEX_PROMPT)
@@ -115,7 +115,7 @@ describe('0.5.6 C5, C6, C8: cập nhật hàng loạt qua tool', () => {
     expect((await $.classic.Stop({ stop_hook_active: false })).block).toBeUndefined()
   })
 
-  test('ids về todo thì cổng Stop chặn lại; id rời nhau được rút thành danh sách', {}, async ($, on) => {
+  test('ids về todo thì cổng Stop chặn lại; id rời nhau được rút thành danh sách', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('classic.Stop', () => ({}))
     await submit($, COMPLEX_PROMPT)
@@ -144,7 +144,7 @@ describe('0.5.6 C5, C6, C8: cập nhật hàng loạt qua tool', () => {
     expect(String(sub.result)).toContain('Checklist chỉ dành cho luồng chính')
   })
 
-  test('lý do chặn Stop nêu cách dừng cả checklist bằng một lần gọi', {}, async ($, on) => {
+  test('lý do chặn Stop nêu cách dừng cả checklist bằng một lần gọi', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('classic.Stop', () => ({}))
     await submit($, COMPLEX_PROMPT)

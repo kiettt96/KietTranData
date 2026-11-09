@@ -19,7 +19,7 @@ import { quotaMeter, week } from '../support/quota'
 
 const PLAN = 'mcp__focus-conductor__plan'
 const LOG = '/tmp/fc-fork-f1-079.jsonl'
-const ON = { forks: true, maxForks: 3, decisionLog: LOG, enforceChecklist: true }
+const ON = { planApproval: 'off', forks: true, maxForks: 3, decisionLog: LOG, enforceChecklist: true }
 /** Description của phiên con theo phần: khác tên phần trong split, để dòng của phần ở pane khác nhãn ở nhật ký điều phối. */
 const D = { a: 'Việc 3a: đổi tên ở module thanh toán', b: 'Việc 3b: đổi tên ở module kho', c: 'Việc 3c: đổi tên ở module báo cáo' }
 const PROMPT = 'Đổi tên hàm tính phí trong ba module thanh toán, kho và báo cáo'
@@ -243,12 +243,12 @@ describe('F1: router đề xuất tách, mod kẹp trong parseRoute', () => {
     for (const line of before.split('\n')) expect(after).toContain(line)
   })
 
-  // 0.8.2 N1 thêm trường intent vào routerSystem (8826 lên 9535 ký tự); số ghim đổi theo, ý của ca giữ nguyên: forks tắt thì không có đoạn tách.
+  // 0.8.2 N1 thêm trường intent (8826 lên 9535 ký tự), N2 thêm skipApproval và questions (9535 lên 9892); số ghim đổi theo, ý của ca giữ nguyên: forks tắt thì không có đoạn tách.
   test('chủ mod 1. forks tắt: routerSystem không có đoạn tách (ghim số ký tự và mã băm)', async () => {
     const hex = (bytes: ArrayBuffer) => [...new Uint8Array(bytes)].map(b => b.toString(16).padStart(2, '0')).join('')
     const text = routerSystem()
-    expect(text.length).toBe(9535)
-    expect(hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))).toBe('663345095bc03c781b6a2236487e392e8580c5d45d0497c84f0c050da768e2f0')
+    expect(text.length).toBe(9892)
+    expect(hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))).toBe('546aea945e97d93529e56d04bc1357ad7c3d872f2a70eb0a98b5f19b1fc6ca43')
     for (const policy of [OPEN, withForks(0)]) {
       expect(((routerRequest({ text: 'x', prev: null, ran: null, policy, model: 'sonnet' }).system ?? []) as readonly ModelTextBlock[])[0]?.text).toBe(text)
     }

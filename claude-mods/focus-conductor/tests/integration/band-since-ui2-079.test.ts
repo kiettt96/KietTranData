@@ -83,7 +83,7 @@ const paneElapsed = async (pane: Awaited<ReturnType<typeof mountPane>>) => {
 
 describe('0.7.9 UI2: dòng Đang chạy giữ "từ HH:MM"', () => {
   for (const columns of [56, 60, 72]) {
-    test(`pane ${columns} cột, tên việc dài: dòng Đang chạy không quá bề ngang, cắt tên trước, còn đủ "· từ HH:MM"`, async ($, on) => {
+    test(`pane ${columns} cột, tên việc dài: dòng Đang chạy không quá bề ngang, cắt tên trước, còn đủ "· từ HH:MM"`, { options: { planApproval: 'off' } }, async ($, on) => {
       const seen = await goal($, on, LONG)
       await spawnTool($, 'u1', `${LONG} lô 101`, 'lọc')
       await spawnTool($, 'u2', `${LONG} lô 102`, 'lọc')
@@ -94,7 +94,7 @@ describe('0.7.9 UI2: dòng Đang chạy giữ "từ HH:MM"', () => {
     })
   }
 
-  test('uiLanguage en, 60 cột: còn đủ "· since HH:MM"', { options: { uiLanguage: 'en' } }, async ($, on) => {
+  test('uiLanguage en, 60 cột: còn đủ "· since HH:MM"', { options: { planApproval: 'off', uiLanguage: 'en' } }, async ($, on) => {
     const seen = await goal($, on, LONG)
     await spawnTool($, 'u1', `${LONG} lô 101`, 'lọc')
     await seen.clock.advance(180_000)
@@ -103,7 +103,7 @@ describe('0.7.9 UI2: dòng Đang chạy giữ "từ HH:MM"', () => {
     expect(line).toMatch(/^BƯỚC 2:.*… · run 101 · 1 agent · 3 min · since \d\d:\d\d$/)
   })
 
-  test('tên việc ngắn vừa 72 cột: giữ nguyên tên, không cắt', async ($, on) => {
+  test('tên việc ngắn vừa 72 cột: giữ nguyên tên, không cắt', { options: { planApproval: 'off' } }, async ($, on) => {
     await goal($, on)
     await spawnTool($, 'u1', 'BƯỚC 2: lọc tin lô 7', 'lọc')
     const line = await runningLine($, 72, /^Đang chạy ─/)
@@ -112,7 +112,7 @@ describe('0.7.9 UI2: dòng Đang chạy giữ "từ HH:MM"', () => {
 })
 
 describe('0.7.9 UI2: nhịp vẽ lại 60 giây khi có turn đang chạy', () => {
-  test('đồng hồ giả chạy 3 phút trong một turn: thời gian đã chạy ở band và pane tăng 3 lần, 3 lần vẽ lại, không ghi $.state', async ($, on) => {
+  test('đồng hồ giả chạy 3 phút trong một turn: thời gian đã chạy ở band và pane tăng 3 lần, 3 lần vẽ lại, không ghi $.state', { options: { planApproval: 'off' } }, async ($, on) => {
     const count = counters(on)
     const session = mock.session(on)
     const seen = await goal($, on)

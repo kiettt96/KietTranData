@@ -65,7 +65,7 @@ async function goal($: Engine) {
 describe('0.7.5 C6: thứ tự mục của pane', () => {
   // 0.7.6 U1: bốn bước đều khớp một việc nên tiến độ từng việc nằm trên chính dòng bước (không còn mục riêng); dòng bước cuối và chip
   // của bước đang làm vẫn trong 16 dòng đầu, trước chọn chế độ.
-  test('checklist (kèm tiến độ từng việc) đứng trước chọn chế độ và Hạn mức, trong 16 dòng đầu', {}, async ($, on) => {
+  test('checklist (kèm tiến độ từng việc) đứng trước chọn chế độ và Hạn mức, trong 16 dòng đầu', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     quotaMeter(on, [session(40)])
     agents(on)

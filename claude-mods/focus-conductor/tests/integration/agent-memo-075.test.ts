@@ -19,10 +19,11 @@ function capture(on: On): Sent[] {
 const agent = ($: Engine, description: string, prompt: string, over: Record<string, unknown> = {}) => $.tool.call({ tool: 'Agent', description, prompt, ...over } as never)
 /** Vòng 150 lô gọi engine liên tiếp: chạy yên 1,3 đến 1,6 giây, dưới tải gấp 4 vượt hạn mặc định 5000 ms (R12), nên hạn riêng. */
 const LOOP = { timeoutMs: 60_000 }
+const LOOP_PA_OFF = { ...LOOP, options: { planApproval: 'off' } }
 const RULED = () => plan({ goal: 'Cập nhật dữ liệu theo các lô', constraints: ['Việc lọc tin chạy sonnet', 'Không tạo bộ kiểm mới'], depth: 'hard', volume: 'large' })
 
 describe('0.7.5 B6: khóa nhớ bỏ chữ số, không gồm prompt', () => {
-  test('150 lô "Lọc tin lô N" khác prompt: router chấm một lần', LOOP, async ($, on) => {
+  test('150 lô "Lọc tin lô N" khác prompt: router chấm một lần', LOOP_PA_OFF, async ($, on) => {
     const seen = base(on, { router: RULED })
     capture(on)
     await submit($, 'Cập nhật dữ liệu theo các lô')
@@ -30,7 +31,7 @@ describe('0.7.5 B6: khóa nhớ bỏ chữ số, không gồm prompt', () => {
     expect(seen.agentRouted.length).toBe(1)
   })
 
-  test('khác loại agent hay khác model Claude ghi: chấm riêng', {}, async ($, on) => {
+  test('khác loại agent hay khác model Claude ghi: chấm riêng', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, { router: RULED })
     capture(on)
     await submit($, 'Cập nhật dữ liệu theo các lô')
@@ -40,7 +41,7 @@ describe('0.7.5 B6: khóa nhớ bỏ chữ số, không gồm prompt', () => {
     expect(seen.agentRouted.length).toBe(3)
   })
 
-  test('description khác chữ (không chỉ khác số): chấm riêng', {}, async ($, on) => {
+  test('description khác chữ (không chỉ khác số): chấm riêng', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, { router: RULED })
     capture(on)
     await submit($, 'Cập nhật dữ liệu theo các lô')
@@ -60,7 +61,7 @@ describe('0.7.5 B6: model Claude ghi khớp quy định model của loại việ
     expect(calls.every(c => c.model === 'sonnet')).toBe(true)
   })
 
-  test('Claude ghi model khác quy định, hay việc không thuộc quy định: vẫn gọi router', {}, async ($, on) => {
+  test('Claude ghi model khác quy định, hay việc không thuộc quy định: vẫn gọi router', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, { router: RULED })
     capture(on)
     await submit($, 'Cập nhật dữ liệu theo các lô')

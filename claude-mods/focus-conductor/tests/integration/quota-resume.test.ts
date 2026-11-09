@@ -93,7 +93,7 @@ describe('0.6.0 D: tiếp tục cùng phiên', () => {
     expect((box.data.get(storeKey('/repo')) as QuotaCheckpoint).status).toBe('open')
   })
 
-  test('phát hiện file đổi sau lúc dừng, buộc đọc lại trước khi sửa', {}, async ($, on) => {
+  test('phát hiện file đổi sau lúc dừng, buộc đọc lại trước khi sửa', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     memoryStore(on)
@@ -309,7 +309,7 @@ describe('0.6.0 D: phiên mới', () => {
 })
 
 describe('0.6.0 D: /conductor resume force và discard', () => {
-  test('force cho chạy tiếp dù chưa làm mới, không mất điểm dừng; hết hiệu lực đúng mốc', {}, async ($, on) => {
+  test('force cho chạy tiếp dù chưa làm mới, không mất điểm dừng; hết hiệu lực đúng mốc', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     const box = memoryStore(on)
@@ -345,7 +345,7 @@ describe('0.6.0 D: /conductor resume force và discard', () => {
     expect((box.data.get(storeKey('/repo')) as QuotaCheckpoint).status).toBe('consumed')
   })
 
-  test('force chỉ miễn cửa sổ đang chạm ngưỡng: ép hạn mức phiên rồi tuần chạm 98% thì vẫn dừng (góp ý PR 21)', {}, async ($, on) => {
+  test('force chỉ miễn cửa sổ đang chạm ngưỡng: ép hạn mức phiên rồi tuần chạm 98% thì vẫn dừng (góp ý PR 21)', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     memoryStore(on)

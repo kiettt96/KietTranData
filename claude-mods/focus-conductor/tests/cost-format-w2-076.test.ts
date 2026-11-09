@@ -101,7 +101,7 @@ describe('0.7.6 W2: các chỗ hiển thị còn lại', () => {
     return spawnTool($, 'u-e', 'Việc 2: đổi tên userId', EDIT)
   }
 
-  test('/conductor status vi: dòng ước tính và dòng cuối agent dùng "$x,xx"', async ($, on) => {
+  test('/conductor status vi: dòng ước tính và dòng cuối agent dùng "$x,xx"', { options: { planApproval: 'off' } }, async ($, on) => {
     await spawnOne($, on)
     const status = String((await conductor($, 'status')).text)
     expect(status).toContain('Ước tính lúc giao, chưa có số đo')
@@ -109,7 +109,7 @@ describe('0.7.6 W2: các chỗ hiển thị còn lại', () => {
     expect(status).toMatch(/\$\d+,\d{2} ước tính/)
   })
 
-  test('/conductor status en: dòng ước tính và sổ chi phí bằng tiếng Anh, dấu chấm', { options: { uiLanguage: 'en' } }, async ($, on) => {
+  test('/conductor status en: dòng ước tính và sổ chi phí bằng tiếng Anh, dấu chấm', { options: { planApproval: 'off', uiLanguage: 'en' } }, async ($, on) => {
     const spawned = await spawnOne($, on)
     const before = String((await conductor($, 'status')).text)
     expect(before).toContain('Estimated at delegation, not measured yet')
@@ -122,7 +122,7 @@ describe('0.7.6 W2: các chỗ hiển thị còn lại', () => {
     expect(status).not.toMatch(/\$\d+[.,]\d{3}/)
   })
 
-  test('pane en: dòng ước tính bằng tiếng Anh, tiền dạng "$x.xx"', { options: { uiLanguage: 'en' } }, async ($, on) => {
+  test('pane en: dòng ước tính bằng tiếng Anh, tiền dạng "$x.xx"', { options: { planApproval: 'off', uiLanguage: 'en' } }, async ($, on) => {
     await spawnOne($, on)
     const pane = await $.ui.mount(PANE)
     const texts = (await pane.findAll({ type: 'Text' })).map(e => e.text ?? '')

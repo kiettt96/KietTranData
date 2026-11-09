@@ -13,7 +13,7 @@ const answer = (turnId: string) => ({ turnId, answer: 'ok', durationMs: 5, isAbo
 const MINUTE = 60_000
 
 describe('0.7.0 6: semanticDrift mặc định bật', () => {
-  test('không đặt option: ở checkpoint router được hỏi một lượt kiểm lạc đề', {}, async ($, on) => {
+  test('không đặt option: ở checkpoint router được hỏi một lượt kiểm lạc đề', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, COMPLEX_PROMPT)
@@ -31,7 +31,7 @@ describe('0.7.0 6: semanticDrift mặc định bật', () => {
 })
 
 describe('0.7.0 6: tự tắt gần ngưỡng hạn mức và giới hạn tần suất', () => {
-  test('hạn mức còn trong vùng gấp đôi biên (còn 8%, ngưỡng 5%): không kiểm lạc đề', { options: { semanticDrift: true } }, async ($, on) => {
+  test('hạn mức còn trong vùng gấp đôi biên (còn 8%, ngưỡng 5%): không kiểm lạc đề', { options: { planApproval: 'off', semanticDrift: true } }, async ($, on) => {
     const seen = base(on)
     const meter = quotaMeter(on, [session(50)])
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
@@ -42,7 +42,7 @@ describe('0.7.0 6: tự tắt gần ngưỡng hạn mức và giới hạn tần
     expect(seen.drift.length).toBe(0)
   })
 
-  test('hạn mức còn thoải mái (còn 50%): vẫn kiểm lạc đề', { options: { semanticDrift: true } }, async ($, on) => {
+  test('hạn mức còn thoải mái (còn 50%): vẫn kiểm lạc đề', { options: { planApproval: 'off', semanticDrift: true } }, async ($, on) => {
     const seen = base(on)
     quotaMeter(on, [session(50)])
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
@@ -52,7 +52,7 @@ describe('0.7.0 6: tự tắt gần ngưỡng hạn mức và giới hạn tần
     expect(seen.drift.length).toBe(1)
   })
 
-  test('tối đa một lượt mỗi 10 phút: checkpoint thứ hai trong 10 phút bỏ qua, sau 10 phút thì hỏi lại', { options: { semanticDrift: true } }, async ($, on) => {
+  test('tối đa một lượt mỗi 10 phút: checkpoint thứ hai trong 10 phút bỏ qua, sau 10 phút thì hỏi lại', { options: { planApproval: 'off', semanticDrift: true } }, async ($, on) => {
     const seen = base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, COMPLEX_PROMPT)

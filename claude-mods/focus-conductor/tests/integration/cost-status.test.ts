@@ -50,7 +50,7 @@ describe('0.5.0: bảng giá trong /conductor status', () => {
 })
 
 describe('0.5.0: log quyết định và hiệu chỉnh', () => {
-  test('log quyết định nối tiếp file cũ khi phiên bắt đầu', { options: { decisionLog: '/tmp/fc-old.jsonl' } }, async ($, on) => {
+  test('log quyết định nối tiếp file cũ khi phiên bắt đầu', { options: { planApproval: 'off', decisionLog: '/tmp/fc-old.jsonl' } }, async ($, on) => {
     base(on)
     const writes: string[] = []
     on('fs.read', () => ({ value: '{"at":"2026-10-01T00:00:00.000Z","kind":"route"}\nkhông phải json\n' }))

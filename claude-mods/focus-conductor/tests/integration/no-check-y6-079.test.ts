@@ -15,6 +15,7 @@ const PLAN = 'mcp__focus-conductor__plan'
 const GOAL = plan({ goal: 'Sửa hàm tính phí', depth: 'substantial', volume: 'medium', main: { model: 'sonnet', effort: 'medium' } })
 const TRIVIAL = plan({ goal: 'Sửa một chữ', depth: 'none', volume: 'small', main: { model: 'sonnet', effort: 'low' } })
 const DECLARED = { options: { checkCommands: 'bun test' } }
+const DECLARED_PA_OFF = { ...DECLARED, options: { ...DECLARED.options, planApproval: 'off' } }
 const NUDGE = 'chưa chạy lần kiểm nào'
 
 type Files = Record<string, string>
@@ -51,7 +52,7 @@ async function goal($: Engine, seen: Seen, work: () => Promise<unknown> = () => 
 }
 
 describe('0.7.9 Y6: chặn một lần khi đã sửa mà chưa kiểm', () => {
-  test('1. sửa src/a.ts, không chạy kiểm, checkCommands có bun test: chặn một lần, lý do có bun test; lần sau qua', DECLARED, async ($, on) => {
+  test('1. sửa src/a.ts, không chạy kiểm, checkCommands có bun test: chặn một lần, lý do có bun test; lần sau qua', DECLARED_PA_OFF, async ($, on) => {
     const { seen } = setup(on)
     await goal($, seen)
     const reason = await stop($)
@@ -76,19 +77,19 @@ describe('0.7.9 Y6: chặn một lần khi đã sửa mà chưa kiểm', () => {
     expect(await stop($)).toBe('')
   })
 
-  test('4. package.json có script test: chặn, lý do nêu npm test; có bun.lock thì bun run test', {}, async ($, on) => {
+  test('4. package.json có script test: chặn, lý do nêu npm test; có bun.lock thì bun run test', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen } = setup(on, { '/repo/package.json': JSON.stringify({ scripts: { test: 'vitest run' } }) })
     await goal($, seen)
     expect(await stop($)).toContain('npm test')
   })
 
-  test('4b. package.json có script typecheck và bun.lock: lý do nêu bun run typecheck', {}, async ($, on) => {
+  test('4b. package.json có script typecheck và bun.lock: lý do nêu bun run typecheck', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen } = setup(on, { '/repo/package.json': JSON.stringify({ scripts: { typecheck: 'tsc --noEmit' } }), '/repo/bun.lock': '{}' })
     await goal($, seen)
     expect(await stop($)).toContain('bun run typecheck')
   })
 
-  test('lần kiểm đạt từng có trong mục tiêu là nguồn lệnh: sửa tiếp mà không kiểm lại thì chặn, nêu đúng lệnh đó', {}, async ($, on) => {
+  test('lần kiểm đạt từng có trong mục tiêu là nguồn lệnh: sửa tiếp mà không kiểm lại thì chặn, nêu đúng lệnh đó', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen } = setup(on)
     await goal($, seen, async () => {
       await edit($)
@@ -113,7 +114,7 @@ describe('0.7.9 Y6: chặn một lần khi đã sửa mà chưa kiểm', () => {
     expect(await stop($)).not.toContain(NUDGE)
   })
 
-  test('7. mục tiêu mới: chặn lại được một lần', DECLARED, async ($, on) => {
+  test('7. mục tiêu mới: chặn lại được một lần', DECLARED_PA_OFF, async ($, on) => {
     const { seen } = setup(on)
     await goal($, seen)
     expect(await stop($)).toContain(NUDGE)
@@ -137,14 +138,14 @@ describe('0.7.9 Y6: chặn một lần khi đã sửa mà chưa kiểm', () => {
     expect(await stop($)).not.toContain(NUDGE)
   })
 
-  test('stop_hook_active: không chặn trong cùng chuỗi dừng, khóa không bị dùng', DECLARED, async ($, on) => {
+  test('stop_hook_active: không chặn trong cùng chuỗi dừng, khóa không bị dùng', DECLARED_PA_OFF, async ($, on) => {
     const { seen } = setup(on)
     await goal($, seen)
     expect(await stop($, true)).toBe('')
     expect(await stop($)).toContain(NUDGE)
   })
 
-  test('9. có lệnh chưa đạt (W4) và bước mở: lý do gộp theo thứ tự W4, Y6, checklist, không quá 1.200 ký tự', DECLARED, async ($, on) => {
+  test('9. có lệnh chưa đạt (W4) và bước mở: lý do gộp theo thứ tự W4, Y6, checklist, không quá 1.200 ký tự', DECLARED_PA_OFF, async ($, on) => {
     const { seen, passing } = setup(on)
     passing.clear()
     await submit($, 'Sửa hàm tính phí')

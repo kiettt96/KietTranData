@@ -89,7 +89,7 @@ const bash = ($: Engine, command: string) => $.tool.call({ tool: 'Bash', command
 const stop = async ($: Engine) => String(((await $.classic.Stop({ stop_hook_active: false } as never)) as { block?: string }).block ?? '')
 
 describe('0.7.9 V2: đầu cuối', () => {
-  test('pytest lỗi rồi pytest --version đạt: Stop vẫn chặn', {}, async ($, on) => {
+  test('pytest lỗi rồi pytest --version đạt: Stop vẫn chặn', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, { router: () => plan({ goal: 'Sửa hàm tính phí', depth: 'substantial', volume: 'medium', main: { model: 'sonnet', effort: 'medium' } }) })
     hooks(on, new Set(['pytest --version']))
     await submit($, 'Sửa hàm tính phí')

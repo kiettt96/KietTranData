@@ -179,7 +179,7 @@ describe('0.8.0 A9: retry-exhausted theo danh tính lệnh (W4)', () => {
     return stop($, true, 'Đã sửa xong.')
   }
 
-  test('hai lần hết lượt cùng lệnh: một mục retry-exhausted, count 2', {}, async ($, on) => {
+  test('hai lần hết lượt cùng lệnh: một mục retry-exhausted, count 2', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen, fs } = setup(on)
     await exhaust($, seen, 'Sửa hàm tính phí', 't1')
     await conductor($, 'errors')

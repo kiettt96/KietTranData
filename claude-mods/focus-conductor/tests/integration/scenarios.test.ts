@@ -5,7 +5,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import { COMPLEX_PROMPT, DEFAULT_ROUTER, EDIT, FOUR, FOUR_PLAN, PANE, SEARCH, base, conductor, plan, spawnTool, step, submit, task } from '../support/engine'
 
 describe('rà soát trước merge (0.4.0)', () => {
-  test('router lỗi giữ việc, phạm vi và số thứ tự của mục tiêu: việc mới đánh số tiếp theo, phạm vi vẫn áp', {}, async ($, on) => {
+  test('router lỗi giữ việc, phạm vi và số thứ tự của mục tiêu: việc mới đánh số tiếp theo, phạm vi vẫn áp', { options: { planApproval: 'off' } }, async ($, on) => {
     let isDown = false
     const seen = base(on, {
       router: request => {
@@ -48,7 +48,7 @@ describe('rà soát trước merge (0.4.0)', () => {
     expect(seen.routed[1]).toContain('Main thread ran: claude-sonnet-5-5/medium')
   })
 
-  test('subagents + ceiling: subagent không vượt model của phiên khi chưa có bước nào ở chế độ auto', { options: { routing: 'subagents', sessionModel: 'ceiling' } }, async ($, on) => {
+  test('subagents + ceiling: subagent không vượt model của phiên khi chưa có bước nào ở chế độ auto', { options: { planApproval: 'off', routing: 'subagents', sessionModel: 'ceiling' } }, async ($, on) => {
     const seen = base(on)
     const models: Array<string | undefined> = []
     on('tool.call', { tool: 'Agent' }, (_$, e) => {
@@ -114,7 +114,7 @@ describe('rà soát trước merge (0.4.0)', () => {
     expect(seen.steps.slice(before)[0]?.model).toBe('claude-sonnet-5-5')
   })
 
-  test('lời gọi Agent dùng lại kết quả router đã nhớ vẫn kiểm theo model của phiên hiện tại', { options: { sessionModel: 'ceiling' } }, async ($, on) => {
+  test('lời gọi Agent dùng lại kết quả router đã nhớ vẫn kiểm theo model của phiên hiện tại', { options: { planApproval: 'off', sessionModel: 'ceiling' } }, async ($, on) => {
     const seen = base(on)
     const models: Array<string | undefined> = []
     on('tool.call', { tool: 'Agent' }, (_$, e) => {
@@ -149,7 +149,7 @@ describe('0.5.0: phần còn lại của đánh giá', () => {
     expect(seen.drift.length).toBe(0)
   })
 
-  test('semanticDrift: ở checkpoint router đọc mục tiêu, bước mở và các thay đổi; lạc đề thì nhắc và cảnh báo', { options: { semanticDrift: true } }, async ($, on) => {
+  test('semanticDrift: ở checkpoint router đọc mục tiêu, bước mở và các thay đổi; lạc đề thì nhắc và cảnh báo', { options: { planApproval: 'off', semanticDrift: true } }, async ($, on) => {
     const seen = base(on, { drift: () => ({ onTrack: false, confidence: 0.8, why: 'đang sửa CSS không liên quan' }) })
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, COMPLEX_PROMPT)
@@ -218,7 +218,7 @@ describe('0.5.0: phần còn lại của đánh giá', () => {
 })
 
 describe('0.5.0: kịch bản đầu cuối', () => {
-  test('mục tiêu nhiều việc → giao hai subagent → engine tự đổi model → mục tiêu mới giữa chừng → khôi phục → kiểm tra → kết thúc', { options: { strictDelegation: 'remind' } }, async ($, on) => {
+  test('mục tiêu nhiều việc → giao hai subagent → engine tự đổi model → mục tiêu mới giữa chừng → khôi phục → kiểm tra → kết thúc', { options: { planApproval: 'off', strictDelegation: 'remind' } }, async ($, on) => {
     const PLAN = 'mcp__focus-conductor__plan'
     const seen = base(on)
     let n = 0
@@ -299,7 +299,7 @@ describe('0.5.0: các ca biên do kiểm đột biến chỉ ra', () => {
 })
 
 describe('0.5.0: siết theo đánh giá PR', () => {
-  test('strictDelegation block chặn cả Bash ghi file của luồng chính; lệnh đọc, subagent và file kế hoạch thì không', { options: { strictDelegation: 'block' } }, async ($, on) => {
+  test('strictDelegation block chặn cả Bash ghi file của luồng chính; lệnh đọc, subagent và file kế hoạch thì không', { options: { planApproval: 'off', strictDelegation: 'block' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Bash' }, () => ({ result: 'ok' }))
     on('tool.call', { tool: 'Agent' }, () => ({ deny: 'test' }))

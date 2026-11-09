@@ -22,7 +22,7 @@ describe('0.7.5 M2: khóa nhớ giữ mã bước và mã việc', () => {
 })
 
 describe('0.7.5 M2: kết quả nhớ không mang số việc đã phân', () => {
-  test('router nhận ra lời gọi đầu là việc 1; 7 lời gọi cùng dạng sau đó không được tính là việc 1 (cảnh báo fan-out ra)', {}, async ($, on) => {
+  test('router nhận ra lời gọi đầu là việc 1; 7 lời gọi cùng dạng sau đó không được tính là việc 1 (cảnh báo fan-out ra)', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, {
       router: () => plan({ goal: 'Dọn dữ liệu', depth: 'hard', volume: 'large', tasks: [task('Chuẩn hóa đơn vị tính', 'agent', 'sonnet', 'medium')] }),
       agent: () => ({ why: 'khớp việc 1', task: 1, model: 'sonnet', effort: 'medium', agent: 'general-purpose', depth: 'light', volume: 'small', kind: 'edit' }),

@@ -20,7 +20,8 @@ const CODED = () => plan({
   ],
 })
 const REMIND = { options: { strictDelegation: 'remind' } }
-const BLOCK = { options: { strictDelegation: 'block' } }
+const REMIND_PA_OFF = { ...REMIND, options: { ...REMIND.options, planApproval: 'off' } }
+const BLOCK = { options: { planApproval: 'off', strictDelegation: 'block' } }
 
 describe('0.7.5 M11: việc có mã khi chưa xác định được bước', () => {
   test('chưa có checklist: strictDelegation remind không nhắc việc có mã', REMIND, async ($, on) => {
@@ -45,7 +46,7 @@ describe('0.7.5 M11: việc có mã khi chưa xác định được bước', ()
     expect(nudgeOf(await edit($))).toBe('')
   })
 
-  test('checklist có mã nhưng chưa có bước của việc: vẫn chờ (như B14)', REMIND, async ($, on) => {
+  test('checklist có mã nhưng chưa có bước của việc: vẫn chờ (như B14)', REMIND_PA_OFF, async ($, on) => {
     base(on, { router: CODED })
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, FOUR)
@@ -55,7 +56,7 @@ describe('0.7.5 M11: việc có mã khi chưa xác định được bước', ()
     expect(nudge).not.toContain('Việc 1')
   })
 
-  test('checklist trộn bước có mã và bước không mã: coi là checklist có mã, việc chưa có bước vẫn chờ', REMIND, async ($, on) => {
+  test('checklist trộn bước có mã và bước không mã: coi là checklist có mã, việc chưa có bước vẫn chờ', REMIND_PA_OFF, async ($, on) => {
     base(on, { router: CODED })
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, FOUR)
@@ -63,7 +64,7 @@ describe('0.7.5 M11: việc có mã khi chưa xác định được bước', ()
     expect(nudgeOf(await edit($))).toContain('Việc 1 (sonnet/medium), 3 (sonnet/medium)')
   })
 
-  test('checklist đánh số Việc N cũng là checklist có mã', REMIND, async ($, on) => {
+  test('checklist đánh số Việc N cũng là checklist có mã', REMIND_PA_OFF, async ($, on) => {
     base(on, { router: CODED })
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, FOUR)
@@ -71,7 +72,7 @@ describe('0.7.5 M11: việc có mã khi chưa xác định được bước', ()
     expect(nudgeOf(await edit($))).toContain('Việc 1 (sonnet/medium), 3 (sonnet/medium)')
   })
 
-  test('checklist có mã, bước BƯỚC 4 đang làm: nhắc đúng việc đó', REMIND, async ($, on) => {
+  test('checklist có mã, bước BƯỚC 4 đang làm: nhắc đúng việc đó', REMIND_PA_OFF, async ($, on) => {
     base(on, { router: CODED })
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, FOUR)
@@ -81,7 +82,7 @@ describe('0.7.5 M11: việc có mã khi chưa xác định được bước', ()
     expect(nudgeOf(await edit($))).toContain('Việc 3 (sonnet/medium)')
   })
 
-  test('việc không mã (FOUR) chưa có checklist: vẫn nhắc như cũ', REMIND, async ($, on) => {
+  test('việc không mã (FOUR) chưa có checklist: vẫn nhắc như cũ', REMIND_PA_OFF, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, FOUR)

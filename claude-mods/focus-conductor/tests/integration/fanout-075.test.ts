@@ -35,7 +35,7 @@ describe('0.7.5 C3: chỉ đếm lời gọi thật sự chạy ở luồng chí
     expect(seen.toasts.some(t => t.includes(FANOUT))).toBe(false)
   })
 
-  test('7 lời gọi tự phát chạy ở luồng chính: cảnh báo đúng một lần', {}, async ($, on) => {
+  test('7 lời gọi tự phát chạy ở luồng chính: cảnh báo đúng một lần', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     on('tool.call', { tool: 'Agent' }, () => ({ result: 'xong' }))
     await submit($, COMPLEX_PROMPT)
@@ -45,7 +45,7 @@ describe('0.7.5 C3: chỉ đếm lời gọi thật sự chạy ở luồng chí
 })
 
 describe('0.7.5 C3: cảnh báo chi phí không lên band', () => {
-  test('cảnh báo fan-out ở pane, không ở dòng cảnh báo của band', {}, async ($, on) => {
+  test('cảnh báo fan-out ở pane, không ở dòng cảnh báo của band', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Agent' }, () => ({ result: 'xong' }))
     await submit($, COMPLEX_PROMPT)

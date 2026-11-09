@@ -34,7 +34,7 @@ const MAIN_CALLS = 1000
 /** Một lời gọi script ghi dữ liệu trong mỗi SCRIPT_EVERY lời gọi của luồng chính, còn lại là đọc (VERIFICATION ghi thêm số đo với 3). */
 const SCRIPT_EVERY = 10
 const MESSAGES = [{ role: 'user' as const, text: 'tóm tắt', toolUses: [] }]
-const OPTIONS = { options: { checkCommands: CHECKS.join(','), noticeWeekRemainingPct: 25 }, timeoutMs: 600_000 }
+const OPTIONS = { options: { planApproval: 'off', checkCommands: CHECKS.join(','), noticeWeekRemainingPct: 25 }, timeoutMs: 600_000 }
 
 const LONG_PLAN = plan({
   goal: 'Cập nhật sổ giá nông sản theo 11 bước BƯỚC 0 tới BƯỚC 10',

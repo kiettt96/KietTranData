@@ -218,7 +218,7 @@ describe('0.7.3 điểm 8: phạm vi đã lưu', () => {
     expect(out).toContain('Phạm vi đã lưu: src/a.ts')
   })
 
-  test('scope lưu thật vẫn đúng (kiểm bằng ghi ngoài phạm vi)', {}, async ($, on) => {
+  test('scope lưu thật vẫn đúng (kiểm bằng ghi ngoài phạm vi)', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, COMPLEX_PROMPT)

@@ -54,7 +54,7 @@ async function failing($: Engine, seen: Seen, text = 'Sửa hàm tính phí') {
 }
 
 describe('0.7.9 Y5: /conductor waive', () => {
-  test('1. lượt 2, waive 1 kèm lý do: Stop chặn một lần đòi mục "Lệnh kiểm được miễn", lần sau qua; nhật ký có waive', { options: { decisionLog: LOG } }, async ($, on) => {
+  test('1. lượt 2, waive 1 kèm lý do: Stop chặn một lần đòi mục "Lệnh kiểm được miễn", lần sau qua; nhật ký có waive', { options: { planApproval: 'off', decisionLog: LOG } }, async ($, on) => {
     const { seen, lines } = setup(on)
     await failing($, seen)
     expect(await stop($)).toContain('2/3')
@@ -67,7 +67,7 @@ describe('0.7.9 Y5: /conductor waive', () => {
     expect(lines().find(l => l['kind'] === 'waive')).toMatchObject({ signature: 'test:bun test', reason: REASON, round: 2 })
   })
 
-  test('waive theo lệnh thay cho số thứ tự cũng được', {}, async ($, on) => {
+  test('waive theo lệnh thay cho số thứ tự cũng được', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen } = setup(on)
     await failing($, seen)
     await stop($)
@@ -76,7 +76,7 @@ describe('0.7.9 Y5: /conductor waive', () => {
     expect(await stop($)).toBe('')
   })
 
-  test('2. thiếu lý do hay lý do dưới 10 ký tự: không miễn, có hướng dẫn', {}, async ($, on) => {
+  test('2. thiếu lý do hay lý do dưới 10 ký tự: không miễn, có hướng dẫn', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen } = setup(on)
     await failing($, seen)
     await stop($)
@@ -86,7 +86,7 @@ describe('0.7.9 Y5: /conductor waive', () => {
     expect(await stop($)).toContain('3/3')
   })
 
-  test('3. lệnh do plugin phát (origin không phải người): không miễn', {}, async ($, on) => {
+  test('3. lệnh do plugin phát (origin không phải người): không miễn', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen } = setup(on)
     await failing($, seen)
     await stop($)
@@ -96,7 +96,7 @@ describe('0.7.9 Y5: /conductor waive', () => {
     expect(await stop($)).toContain('3/3')
   })
 
-  test('4. đã hết lượt, có bước blocked: miễn thì bước thành skipped kèm note', {}, async ($, on) => {
+  test('4. đã hết lượt, có bước blocked: miễn thì bước thành skipped kèm note', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen } = setup(on)
     await failing($, seen)
     await stop($)
@@ -142,7 +142,7 @@ describe('0.7.9 Y5: /conductor waive', () => {
     expect(await say($, 'status')).not.toContain(SECTION)
   })
 
-  test('7. waive undo: lệnh quay lại lượt lúc miễn, Stop chặn như trước khi miễn', {}, async ($, on) => {
+  test('7. waive undo: lệnh quay lại lượt lúc miễn, Stop chặn như trước khi miễn', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen } = setup(on)
     await failing($, seen)
     await stop($)
@@ -153,7 +153,7 @@ describe('0.7.9 Y5: /conductor waive', () => {
     expect(await stop($)).toContain('3/3')
   })
 
-  test('/conductor không đối số liệt kê "Lệnh kiểm được miễn": số thứ tự, lệnh, lý do, lượt lúc miễn', {}, async ($, on) => {
+  test('/conductor không đối số liệt kê "Lệnh kiểm được miễn": số thứ tự, lệnh, lý do, lượt lúc miễn', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen } = setup(on)
     await failing($, seen)
     await stop($)
@@ -163,7 +163,7 @@ describe('0.7.9 Y5: /conductor waive', () => {
     expect(text).toContain(`1. bun test: ${REASON} (lượt 2)`)
   })
 
-  test('/conductor status đánh số lệnh chưa đạt để waive dùng', {}, async ($, on) => {
+  test('/conductor status đánh số lệnh chưa đạt để waive dùng', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen } = setup(on)
     await failing($, seen)
     await stop($)

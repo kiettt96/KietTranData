@@ -30,7 +30,7 @@ async function scopeThenUnverified($: Engine) {
 }
 
 describe('0.7.6 U2: dòng cần chú ý theo mức độ', () => {
-  test('cảnh báo phạm vi đến trước, cảnh báo bước chưa kiểm chứng đến sau: band vẫn hiện cảnh báo phạm vi, kèm +1', async ($, on) => {
+  test('cảnh báo phạm vi đến trước, cảnh báo bước chưa kiểm chứng đến sau: band vẫn hiện cảnh báo phạm vi, kèm +1', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, { router: routerOf(false) })
     on('tool.call', { tool: 'Write' }, () => ({ result: 'đã ghi' }))
     await scopeThenUnverified($)
@@ -62,7 +62,7 @@ describe('0.7.6 U2: dòng cần chú ý theo mức độ', () => {
     expect((await bandTexts($)).some(t => t.includes('vượt mức dự kiến'))).toBe(true)
   })
 
-  test('lô lỗi chưa giao lại đứng trên cảnh báo phạm vi', async ($, on) => {
+  test('lô lỗi chưa giao lại đứng trên cảnh báo phạm vi', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, { router: routerOf(true) })
     on('tool.call', { tool: 'Write' }, () => ({ result: 'đã ghi' }))
     on('tool.call', { tool: 'Agent' }, () => ({ result: 'đã giao' }))

@@ -36,6 +36,9 @@ const VI = {
   retryCleared: (command: string, step: number) => `Đã gỡ chặn: ${command} chạy lại đạt, bước ${step} về trạng thái cũ`,
   retryPassedAt: (clock: string) => `đã đạt lúc ${clock}`,
   waived: (command: string) => `đã miễn: \`${command}\``,
+  // Kế hoạch đã trình chờ người dùng duyệt (0.8.2 N2): mục cần chú ý và nhãn status line.
+  planAwaiting: 'Chờ duyệt kế hoạch',
+  planAwaitingShort: 'chờ duyệt kế hoạch',
   phase: { idle: 'chưa bắt đầu', start: 'mới bắt đầu', active: 'đang thực hiện', almost: 'sắp xong', done: 'hoàn thành' } as Record<Phase, string>,
   allClosed: 'Đã xong mọi bước',
   completedGoal: (goal: string) => `Hoàn thành: ${goal}`,
@@ -172,6 +175,8 @@ const EN: typeof VI = {
   retryCleared: (command, step) => `Unblocked: ${command} passed on a rerun, step ${step} restored`,
   retryPassedAt: clock => `passed at ${clock}`,
   waived: command => `waived: \`${command}\``,
+  planAwaiting: 'Plan awaiting approval',
+  planAwaitingShort: 'plan awaiting approval',
   phase: { idle: 'not started', start: 'just started', active: 'in progress', almost: 'almost done', done: 'completed' },
   allClosed: 'All steps closed',
   completedGoal: goal => `Completed: ${goal}`,

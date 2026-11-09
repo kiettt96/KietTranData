@@ -29,7 +29,7 @@ async function paneTexts($: Engine): Promise<string[]> {
 }
 
 describe('0.7.6 U8: mục Đang chạy của pane', () => {
-  test('hai lô của BƯỚC 2 đang chạy 3 phút: "BƯỚC 2: lọc tin · lô 101 đến 102 · 2 agent · 3 phút", trước mục Chế độ', async ($, on) => {
+  test('hai lô của BƯỚC 2 đang chạy 3 phút: "BƯỚC 2: lọc tin · lô 101 đến 102 · 2 agent · 3 phút", trước mục Chế độ', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = await goal($, on)
     await spawnTool($, 'u1', 'BƯỚC 2: lọc tin lô 101', 'lọc')
     await seen.clock.advance(30_000)
@@ -43,7 +43,7 @@ describe('0.7.6 U8: mục Đang chạy của pane', () => {
     expect(texts.findIndex(t => t === 'Chế độ')).toBeGreaterThan(at)
   })
 
-  test('một lô: "lô 7"; việc Claude tự giao không có số: không ghi lô', async ($, on) => {
+  test('một lô: "lô 7"; việc Claude tự giao không có số: không ghi lô', { options: { planApproval: 'off' } }, async ($, on) => {
     await goal($, on)
     await spawnTool($, 'u1', 'BƯỚC 2: lọc tin lô 7', 'lọc')
     await spawnTool($, 'u9', 'Kiểm tra log lỗi thanh toán', 'kiểm tra')
@@ -52,7 +52,7 @@ describe('0.7.6 U8: mục Đang chạy của pane', () => {
     expect(texts.some(t => /^Claude tự giao: Kiểm tra log lỗi thanh toán · 1 agent · <1 phút · từ \d\d:\d\d$/.test(t))).toBe(true)
   })
 
-  test('25 lô đang chạy (danh sách agent chỉ giữ 20 agent gần nhất): số agent theo bộ đếm', async ($, on) => {
+  test('25 lô đang chạy (danh sách agent chỉ giữ 20 agent gần nhất): số agent theo bộ đếm', { options: { planApproval: 'off' } }, async ($, on) => {
     await goal($, on)
     for (let n = 1; n <= 25; n++) await spawnTool($, `u${n}`, `BƯỚC 2: lọc tin lô ${n}`, 'lọc')
     const texts = await paneTexts($)
@@ -67,7 +67,7 @@ describe('0.7.6 U8: mục Đang chạy của pane', () => {
     expect(texts.some(t => /^Đang chạy ─/.test(t))).toBe(false)
   })
 
-  test('uiLanguage en: "Running", "runs 101 to 102 · 2 agents · 3 min"', { options: { uiLanguage: 'en' } }, async ($, on) => {
+  test('uiLanguage en: "Running", "runs 101 to 102 · 2 agents · 3 min"', { options: { planApproval: 'off', uiLanguage: 'en' } }, async ($, on) => {
     const seen = await goal($, on)
     await spawnTool($, 'u1', 'BƯỚC 2: lọc tin lô 101', 'lọc')
     await spawnTool($, 'u2', 'BƯỚC 2: lọc tin lô 102', 'lọc')

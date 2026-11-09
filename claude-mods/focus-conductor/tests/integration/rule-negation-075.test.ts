@@ -34,7 +34,7 @@ describe('0.7.5 H2: ràng buộc phủ định không phải quy định model',
     expect(ruleFamily(['Việc lọc tin chạy sonnet'], 'Lọc tin lô 1', null)).toBe('sonnet')
   })
 
-  test('"Không dùng haiku cho việc sửa file", Claude ghi haiku cho "Sửa các file không hợp lệ": gửi đi không phải haiku', {}, async ($, on) => {
+  test('"Không dùng haiku cho việc sửa file", Claude ghi haiku cho "Sửa các file không hợp lệ": gửi đi không phải haiku', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, { router: briefWith('Không dùng haiku cho việc sửa file'), agent: () => EDIT })
     const calls = capture(on)
     await submit($, 'Cập nhật dữ liệu theo các lô')
@@ -45,7 +45,7 @@ describe('0.7.5 H2: ràng buộc phủ định không phải quy định model',
 })
 
 describe('0.7.5 H2: bỏ lượt router vẫn qua fitPick', () => {
-  test('quy định "lọc tin chạy fable", Claude ghi fable, chưa bật allowFable: không gọi router, gửi opus', {}, async ($, on) => {
+  test('quy định "lọc tin chạy fable", Claude ghi fable, chưa bật allowFable: không gọi router, gửi opus', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, { router: briefWith('Việc lọc tin chạy fable') })
     const calls = capture(on)
     await submit($, 'Cập nhật dữ liệu theo các lô')
@@ -54,7 +54,7 @@ describe('0.7.5 H2: bỏ lượt router vẫn qua fitPick', () => {
     expect(calls.at(-1)?.model).toBe('opus')
   })
 
-  test('quy định "đọc tin chạy haiku", Claude ghi haiku: router chấm loại việc; sửa file thì lên sonnet, tra cứu thì giữ haiku', {}, async ($, on) => {
+  test('quy định "đọc tin chạy haiku", Claude ghi haiku: router chấm loại việc; sửa file thì lên sonnet, tra cứu thì giữ haiku', { options: { planApproval: 'off' } }, async ($, on) => {
     let reply: Record<string, unknown> = EDIT
     const seen = base(on, { router: briefWith('Việc đọc tin chạy haiku'), agent: () => reply })
     const calls = capture(on)
@@ -67,7 +67,7 @@ describe('0.7.5 H2: bỏ lượt router vẫn qua fitPick', () => {
     expect(calls.at(-1)?.model).toBe('haiku')
   })
 
-  test('quy định khớp, Claude ghi effort max: không gọi router, effort gửi đi hạ về xhigh', {}, async ($, on) => {
+  test('quy định khớp, Claude ghi effort max: không gọi router, effort gửi đi hạ về xhigh', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, { router: briefWith('Việc lọc tin chạy sonnet') })
     const calls = capture(on)
     await submit($, 'Cập nhật dữ liệu theo các lô')
@@ -76,7 +76,7 @@ describe('0.7.5 H2: bỏ lượt router vẫn qua fitPick', () => {
     expect(calls.at(-1)).toEqual({ model: 'sonnet', effort: 'xhigh' })
   })
 
-  test('quy định "lọc tin chạy sonnet", Claude ghi opus (khác quy định): router vẫn được gọi, không bỏ lượt', {}, async ($, on) => {
+  test('quy định "lọc tin chạy sonnet", Claude ghi opus (khác quy định): router vẫn được gọi, không bỏ lượt', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, { router: briefWith('Việc lọc tin chạy sonnet'), agent: () => EDIT })
     capture(on)
     await submit($, 'Cập nhật dữ liệu theo các lô')

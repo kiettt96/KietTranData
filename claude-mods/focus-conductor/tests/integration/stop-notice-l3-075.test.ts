@@ -9,7 +9,7 @@ import { FOUR, SEARCH, base, spawnTool, submit } from '../support/engine'
 import { quotaMeter, week } from '../support/quota'
 
 const PLAN = 'mcp__focus-conductor__plan'
-const OPTIONS = { options: { noticeWeekRemainingPct: 20 } }
+const OPTIONS = { options: { planApproval: 'off', noticeWeekRemainingPct: 20 } }
 const call = ($: Engine, input: Record<string, unknown>) => $.tool.call(input as never) as Promise<{ deny?: string; context?: string[] }>
 const edit = ($: Engine, path = '/repo/src/a.ts') => call($, { tool: 'Edit', file_path: path, old_string: 'a', new_string: 'b' })
 const stop = async ($: Engine) => String(((await $.classic.Stop({ stop_hook_active: false })) as { block?: string }).block ?? '')

@@ -395,7 +395,17 @@ export type Core = {
   noCheckNudged: number
   /** Phiên con của các việc tách (0.7.9 F1). Vắng ở trạng thái cũ: chưa có phần nào, off là none. */
   forks: ForkState
+  /** Duyệt kế hoạch trước khi sửa file (0.8.2 N2). Vắng ở trạng thái cũ: goalId -1, none, 0 lượt, chưa hỏi. */
+  approval: ApprovalState
 }
+
+/**
+ * Trạng thái duyệt kế hoạch của mục tiêu goalId (0.8.2 N2): none (không thuộc diện duyệt), planning (đang lập hay sửa kế hoạch, chặn sửa
+ * file), presented (đã trình, chờ người dùng, vẫn chặn), approved (đã duyệt), skipped (người dùng nói không cần duyệt). `rounds` là số lượt
+ * router đã rà kế hoạch; `asked` là đã dặn hỏi làm rõ (mỗi mục tiêu một lần).
+ */
+export type ApprovalStatus = 'none' | 'planning' | 'presented' | 'approved' | 'skipped'
+export type ApprovalState = { goalId: number; status: ApprovalStatus; rounds: number; asked: boolean }
 
 /**
  * Một lệnh kiểm chưa đạt (0.7.8 vòng sửa 3, W4): chữ ký là loại kiểm và lệnh đã chuẩn hóa. Lượt 1 là phần làm dẫn tới lần lỗi đầu,

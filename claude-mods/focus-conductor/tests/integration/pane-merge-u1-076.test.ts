@@ -8,7 +8,7 @@ const PLAN = 'mcp__focus-conductor__plan'
 import { TITLES, drawn, longGoal, rowOf } from '../support/pane-long'
 
 describe('0.7.6 U1: checklist và tiến độ từng việc là một danh sách', () => {
-  test('mục tiêu 11 bước có mã: mỗi bước chỉ xuất hiện một lần trong pane (40 dòng)', async ($, on) => {
+  test('mục tiêu 11 bước có mã: mỗi bước chỉ xuất hiện một lần trong pane (40 dòng)', { options: { planApproval: 'off' } }, async ($, on) => {
     await longGoal($, on, 3)
     const { texts } = await drawn($, 40)
     // Mục Đang chạy (U8) và Nhật ký điều phối ghi tên việc, mô tả của lời gọi Agent: không phải dòng bước, nên chỉ đếm phần trước chúng.
@@ -19,7 +19,7 @@ describe('0.7.6 U1: checklist và tiến độ từng việc là một danh sác
     for (const title of TITLES.slice(3)) expect(list.filter(t => t.includes(title)).length, title).toBe(1)
   })
 
-  test('pane 24 dòng: thấy bước đang làm và số lô của nó trên cùng dòng', async ($, on) => {
+  test('pane 24 dòng: thấy bước đang làm và số lô của nó trên cùng dòng', { options: { planApproval: 'off' } }, async ($, on) => {
     await longGoal($, on, 3)
     const { tree, texts } = await drawn($, 24)
     const step = rowOf(tree, /BƯỚC 3: lọc tin lô 1/)
@@ -40,7 +40,7 @@ describe('0.7.6 U1: checklist và tiến độ từng việc là một danh sác
     expect(texts.some(t => /^\d+\/1$/.test(t))).toBe(false)
   })
 
-  test('lô lỗi: chip của dòng bước ghi số lô lỗi', async ($, on) => {
+  test('lô lỗi: chip của dòng bước ghi số lô lỗi', { options: { planApproval: 'off' } }, async ($, on) => {
     await longGoal($, on, 3)
     await $.turn.complete({ turnId: 't-u1', agentId: 'a-u1', answer: '', durationMs: 1, isAborted: false, reason: 'error' } as never)
     const { tree, texts } = await drawn($, 24)
