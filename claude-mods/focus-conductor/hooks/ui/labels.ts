@@ -39,6 +39,8 @@ const VI = {
   // Kế hoạch đã trình chờ người dùng duyệt (0.8.2 N2): mục cần chú ý và nhãn status line.
   planAwaiting: 'Chờ duyệt kế hoạch',
   planAwaitingShort: 'chờ duyệt kế hoạch',
+  // Đã sửa file skill mà chưa thử sau lần sửa cuối (0.8.2 N3): mục cần chú ý.
+  skillUntried: 'Skill chưa thử',
   phase: { idle: 'chưa bắt đầu', start: 'mới bắt đầu', active: 'đang thực hiện', almost: 'sắp xong', done: 'hoàn thành' } as Record<Phase, string>,
   allClosed: 'Đã xong mọi bước',
   completedGoal: (goal: string) => `Hoàn thành: ${goal}`,
@@ -177,6 +179,7 @@ const EN: typeof VI = {
   waived: command => `waived: \`${command}\``,
   planAwaiting: 'Plan awaiting approval',
   planAwaitingShort: 'plan awaiting approval',
+  skillUntried: 'Skill not trialled',
   phase: { idle: 'not started', start: 'just started', active: 'in progress', almost: 'almost done', done: 'completed' },
   allClosed: 'All steps closed',
   completedGoal: goal => `Completed: ${goal}`,

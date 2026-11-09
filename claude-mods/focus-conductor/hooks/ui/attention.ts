@@ -1,5 +1,6 @@
 // Dòng cần chú ý của band (0.7.6, U2): các việc người dùng có thể phải can thiệp, xếp theo mức độ chứ không theo thời điểm.
-// Thứ tự: tạm dừng > chờ duyệt kế hoạch (0.8.2 N2) > lô lỗi chưa giao lại > sửa ngoài phạm vi > báo hạn mức mềm > mục bị bỏ > bước chưa kiểm chứng > vượt ngân sách
+// Thứ tự: tạm dừng > chờ duyệt kế hoạch (0.8.2 N2) > lô lỗi chưa giao lại > sửa ngoài phạm vi > báo hạn mức mềm > mục bị bỏ > bước chưa kiểm chứng
+// và skill chưa thử (0.8.2 N3) > vượt ngân sách
 // tool call > các cảnh báo khác. Hàm thuần: chỉ đọc View và dữ liệu hạn mức mà hook đã tính; không đổi cảnh báo đã lưu.
 
 import type { Core, Warning, WarningKind } from '../../types'
@@ -8,10 +9,10 @@ import { severityOf } from './style'
 import { labels, shownEntry } from './labels'
 import type { Lang } from './labels'
 import { stepTag } from '../lib/text'
-import { approvalOf } from '../lib/state'
+import { approvalOf, isSkillUntried } from '../lib/state'
 
 /** Một mục cần chú ý: hạng (nhỏ là quan trọng hơn), mức màu và câu hiển thị; `warning` là cảnh báo đã lưu mà mục này đại diện (pane dùng để không hiện hai lần). */
-export type Attention = { rank: number; severity: Severity; text: string; kind: 'pause' | 'approval' | 'failed' | 'notice' | 'waived' | WarningKind; warning?: Warning }
+export type Attention = { rank: number; severity: Severity; text: string; kind: 'pause' | 'approval' | 'failed' | 'notice' | 'waived' | 'skill' | WarningKind; warning?: Warning }
 
 /** Hạng của từng loại cảnh báo đã lưu; loại không có trong bảng xếp sau vượt ngân sách. */
 const WARNING_RANK: Partial<Record<WarningKind, number>> = { scope: 2, dropped: 4, unverified: 5, budget: 6 }
@@ -63,6 +64,8 @@ export function attentionItems(core: Core, lang: Lang, quota: { paused: boolean;
   core.warnings
     .filter(w => w.at >= brief.at && w.kind !== 'cost' && w.isSoft !== true && !(w.kind === 'budget' && isPlannedFanout))
     .forEach((w, i) => items.push({ rank: WARNING_RANK[w.kind] ?? OTHER_RANK, severity: severityOf(w.kind), text: shownEntry(w, lang), kind: w.kind, warning: w, order: -i }))
+  // Đã sửa file skill mà chưa thử sau lần sửa cuối (0.8.2 N3): cùng hạng và mức màu với bước chưa kiểm chứng.
+  if (isSkillUntried(core)) items.push({ rank: WARNING_RANK.unverified ?? OTHER_RANK, severity: severityOf('unverified'), text: l.skillUntried, kind: 'skill', order: 0 })
   // Lệnh kiểm chủ mod đã miễn (0.7.9 Y5): xếp sau mọi cảnh báo, mức warning có sẵn.
   if (core.waivers.goalId === brief.goalId) core.waivers.items.forEach((w, i) => items.push({ rank: OTHER_RANK + 1, severity: 'warning', text: l.waived(w.command), kind: 'waived', order: i }))
   return items.sort((a, b) => a.rank - b.rank || a.order - b.order).map(({ order: _order, ...item }) => item)

@@ -1204,6 +1204,26 @@ export function noCheckReason(command: string): string {
   ).slice(0, NO_CHECK_CHARS)
 }
 
+/** Tên mục báo cáo cuối của lần thử skill (0.8.2 N3). */
+export const SKILL_TRIAL_REPORT = 'Thử skill'
+/** Trần ký tự lý do chặn của cổng thử skill (0.8.2 N3). */
+const SKILL_TRIAL_CHARS = 600
+
+/**
+ * Lý do chặn một lần khi đã sửa file skill mà chưa thử sau lần sửa cuối (0.8.2 N3): hai prompt mẫu (một ca phải kích hoạt, một ca dễ nhầm
+ * không được kích hoạt), ghi mong đợi trước, giao subagent general-purpose "Thử skill: <tên>", so kết quả, mục báo cáo "Thử skill".
+ */
+export function skillTrialReason(name: string, path: string): string {
+  const skill = clipItem(name, 30)
+  return (
+    `[focus-conductor] Đã sửa skill \`${skill}\` (${clipItem(path, 40)}), chưa thử sau lần sửa cuối. Lấy hai prompt mẫu từ yêu cầu: ` +
+    'một ca skill phải kích hoạt, một ca dễ nhầm skill không được kích hoạt; ghi kết quả mong đợi từng ca trước khi chạy. ' +
+    `Giao subagent general-purpose, description \`Thử skill: ${skill}\`, đọc skill từ đường dẫn đã sửa và làm theo trên từng prompt. ` +
+    `So kết quả với mong đợi. Báo cáo cuối có mục "${SKILL_TRIAL_REPORT}": prompt, mong đợi, thực tế, đạt hay chưa; chưa đạt thì sửa tiếp, không báo xong. ` +
+    'Mod chặn một lần mỗi mục tiêu.'
+  ).slice(0, SKILL_TRIAL_CHARS)
+}
+
 /** Tên mục báo cáo cuối khi chủ mod đã miễn lệnh kiểm (0.7.9 Y5). */
 export const WAIVE_REPORT = 'Lệnh kiểm được miễn'
 /** Trần ký tự của câu đòi mục "Lệnh kiểm được miễn". */

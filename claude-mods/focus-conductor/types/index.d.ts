@@ -397,7 +397,18 @@ export type Core = {
   forks: ForkState
   /** Duyệt kế hoạch trước khi sửa file (0.8.2 N2). Vắng ở trạng thái cũ: goalId -1, none, 0 lượt, chưa hỏi. */
   approval: ApprovalState
+  /** Lần ghi file skill và lần thử skill của mục tiêu goalId (0.8.2 N3). Vắng ở trạng thái cũ: goalId -1, chưa ghi, chưa thử. */
+  skill: SkillState
+  /** Mục tiêu đã chặn một lần vì sửa skill mà chưa thử (0.8.2 N3); -1 là chưa. Vắng ở trạng thái cũ thì -1. */
+  skillNudged: number
 }
+
+/**
+ * Lần ghi file skill và lần thử skill của mục tiêu goalId (0.8.2 N3), theo bộ đếm `seq` tăng dần của mod trong mục tiêu: `lastWrite` là thứ
+ * tự lần ghi file skill cuối, `trialAt` là thứ tự lần thử skill cuối (lời gọi Agent "Thử skill: " xong, hay lệnh khai trong checkCommands
+ * đạt); -1 là chưa có. Skill chưa thử khi lastWrite lớn hơn trialAt. `path` là file skill ghi gần nhất, để nêu tên skill.
+ */
+export type SkillState = { goalId: number; seq: number; lastWrite: number; trialAt: number; path: string }
 
 /**
  * Trạng thái duyệt kế hoạch của mục tiêu goalId (0.8.2 N2): none (không thuộc diện duyệt), planning (đang lập hay sửa kế hoạch, chặn sửa

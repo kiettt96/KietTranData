@@ -6,7 +6,7 @@
 
 import type { PluginOptions } from 'claude-code'
 
-import type { AgentProgress, AgentState, ApprovalState, ApprovalStatus, AgentTally, ArchivedGoal, Brief, CheckHint, Core, ForkPart, ForkPartState, ForkState, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, RetryItem, RetryState, Route, Waiver, WaiverState, RouteEvent, RouterFail, TurnFault, Warning } from '../../types'
+import type { AgentProgress, AgentState, ApprovalState, ApprovalStatus, AgentTally, ArchivedGoal, Brief, CheckHint, Core, ForkPart, ForkPartState, ForkState, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, RetryItem, RetryState, Route, Waiver, WaiverState, RouteEvent, RouterFail, SkillState, TurnFault, Warning } from '../../types'
 import { restorableSteps } from './drift'
 import type { Tokens } from './cost'
 import { addUsage, emptyLedger, nextGoal, planSwitch, resetLedger } from './ledger'
@@ -48,6 +48,8 @@ export const EMPTY_CORE: Core = {
   noCheckNudged: -1,
   forks: { goalId: -1, parts: [], merged: [], off: 'none' },
   approval: { goalId: -1, status: 'none', rounds: 0, asked: false },
+  skill: { goalId: -1, seq: 0, lastWrite: -1, trialAt: -1, path: '' },
+  skillNudged: -1,
 }
 
 const LOG_LIMIT = 60
@@ -245,8 +247,54 @@ export function normalizeCore(raw: Partial<Core>): Core {
     noCheckNudged: typeof raw.noCheckNudged === 'number' ? raw.noCheckNudged : -1,
     forks: normalizeForks(raw.forks),
     approval: normalizeApproval(raw.approval),
+    skill: normalizeSkill(raw.skill),
+    skillNudged: typeof raw.skillNudged === 'number' ? raw.skillNudged : -1,
   }
 }
+
+/** Trạng thái thử skill từ bản đã lưu (0.8.2 N3); Core từ bản trước không có trường này thì chưa ghi, chưa thử. */
+function normalizeSkill(raw: Partial<SkillState> | undefined): SkillState {
+  if (raw === undefined || raw === null) return { goalId: -1, seq: 0, lastWrite: -1, trialAt: -1, path: '' }
+  const num = (value: unknown, fallback: number) => (typeof value === 'number' && Number.isFinite(value) ? value : fallback)
+  return { goalId: num(raw.goalId, -1), seq: num(raw.seq, 0), lastWrite: num(raw.lastWrite, -1), trialAt: num(raw.trialAt, -1), path: typeof raw.path === 'string' ? raw.path : '' }
+}
+
+/** Trạng thái thử skill của mục tiêu đang mở (0.8.2 N3): trạng thái lưu cho mục tiêu khác là chưa ghi, chưa thử. */
+export function skillOf(c: Core): SkillState {
+  const n = normalizeCore(c)
+  return n.brief !== null && n.skill.goalId === n.brief.goalId ? n.skill : { goalId: n.brief?.goalId ?? -1, seq: 0, lastWrite: -1, trialAt: -1, path: '' }
+}
+
+/** Mục tiêu đang mở có lần ghi file skill chưa có lần thử nào sau đó (0.8.2 N3). */
+export function isSkillUntried(c: Core): boolean {
+  const skill = skillOf(c)
+  return skill.lastWrite >= 0 && skill.lastWrite > skill.trialAt
+}
+
+/** Ghi một lần ghi file skill của mục tiêu goalId (0.8.2 N3): bộ đếm tăng một, lần ghi cuối là thứ tự mới. */
+export const withSkillWrite =
+  (goalId: number, path: string) =>
+  (c: Core): Core => {
+    const n = normalizeCore(c)
+    const prev = n.skill.goalId === goalId ? n.skill : { goalId, seq: 0, lastWrite: -1, trialAt: -1, path: '' }
+    const seq = prev.seq + 1
+    return { ...n, skill: { ...prev, seq, lastWrite: seq, path: path || prev.path } }
+  }
+
+/** Ghi một lần thử skill của mục tiêu goalId (0.8.2 N3); `trialAt` cho sẵn là trả về mốc cũ (lần thử bị lỗi sau khi đã tính). */
+export const withSkillTrial =
+  (goalId: number, trialAt?: number) =>
+  (c: Core): Core => {
+    const n = normalizeCore(c)
+    const prev = n.skill.goalId === goalId ? n.skill : { goalId, seq: 0, lastWrite: -1, trialAt: -1, path: '' }
+    if (trialAt !== undefined) return { ...n, skill: { ...prev, trialAt } }
+    const seq = prev.seq + 1
+    return { ...n, skill: { ...prev, seq, trialAt: seq } }
+  }
+
+export const withSkillNudged =
+  (goalId: number) =>
+  (c: Core): Core => ({ ...normalizeCore(c), skillNudged: goalId })
 
 const APPROVAL_STATUSES: readonly ApprovalStatus[] = ['none', 'planning', 'presented', 'approved', 'skipped']
 

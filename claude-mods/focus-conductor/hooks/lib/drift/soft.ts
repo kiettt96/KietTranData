@@ -2,6 +2,7 @@
 // `.json` và `.yaml` không tự tính là nhẹ vì thường là cấu hình. Thay đổi vào file nhẹ vẫn được đếm, nhưng không đủ để cảnh báo chưa kiểm.
 
 import type { WriteEffect } from './classify'
+import { isSkillPath } from './skill'
 
 /** Đuôi tài liệu, dữ liệu và báo cáo (0.8.0 A5), không phân biệt hoa thường. */
 const SOFT_EXT = /\.(?:md|markdown|txt|csv|tsv|jsonl|log)$/i
@@ -54,5 +55,6 @@ export function isSoftPath(path: string): boolean {
  */
 export function isHardEffect(effect: WriteEffect): boolean {
   if (effect.level !== 'definite' || effect.name === 'mkdir') return false
-  return effect.isUnknown || effect.paths.length === 0 || effect.paths.some(path => !isSoftPath(path))
+  // File skill (0.8.2 N3) không là thay đổi chắc chắn: bằng chứng của nó là lần thử skill, không phải lệnh kiểm.
+  return effect.isUnknown || effect.paths.length === 0 || effect.paths.some(path => !isSoftPath(path) && !isSkillPath(path))
 }

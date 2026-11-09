@@ -10,6 +10,7 @@ import { clipText } from '../lib/decisions'
 import { agentRouterRequest, askRouter, briefCodes, fitPick, floorRoute, isSettled, parseAgentRoute, ruleRoute, taskRoute } from '../lib/router'
 import { FORK_QUOTA_DENY, RETRY_PREFIX, RETRY_ROUNDS, forkRetryNote, forkReturnNote } from '../lib/text'
 import { liveForks, openParts } from '../lib/forks'
+import { isSkillTrial } from '../lib/drift'
 import { shownPlan } from '../lib/mirror'
 import { tierOf } from '../lib/scale'
 import type { AgentRoute } from '../lib/router'
@@ -263,6 +264,19 @@ export function registerAgents(on: On, ctx: Ctx): void {
         reason += `; sàn của lượt sửa lỗi kiểm ${retryFloor.round}/${RETRY_ROUNDS}: ${describePick(lifted.pick)}`
       }
     }
+    // Lần thử skill (0.8.2 N3) không chạy haiku: kẹp như việc sửa file, cả khi router chọn haiku lẫn khi Claude ghi haiku mà không có route.
+    if (isSkillTrial(e.description)) {
+      const from: AgentRoute | null = route
+      if (from !== null && from.pick.family === 'haiku') {
+        const fitted = fitPick(from.pick, 'edit', rules)
+        route = { ...from, pick: fitted.pick, why: [from.why, 'thử skill không chạy haiku', ...fitted.notes].filter(Boolean).join('; ') }
+        reason += `; thử skill không chạy haiku: ${describePick(fitted.pick)}`
+      } else if (from === null && claimed === 'haiku') {
+        const fitted = fitPick({ family: 'haiku', effort: requested ?? 'medium' }, 'edit', rules)
+        route = { pick: fitted.pick, agentType: 'general-purpose', depth: 'light', volume: 'small', kind: 'edit', tier: tierOf('light', 'small'), why: 'thử skill không chạy haiku' }
+        reason += `; thử skill không chạy haiku: ${describePick(fitted.pick)}`
+      }
+    }
     // Việc đã phân được nhận: chuyển sang đang chạy (giao lại một việc đã lỗi cũng vậy).
     if (assigned !== undefined && brief !== null) {
       moveDelegation(brief.goalId, assigned.index, 'running')
@@ -319,6 +333,12 @@ export function registerAgents(on: On, ctx: Ctx): void {
         )
         $.ui.toast(text)
       }
+    }
+    // Lần thử skill (0.8.2 N3): kết quả tool Agent bị từ chối hay lỗi thì không là bằng chứng; đã tính ở turn.complete thì trả lại mốc cũ.
+    if (isSkillTrial(e.description)) {
+      const prior = L.trialCounted.get(e.tool_use_id)
+      L.trialCounted.delete(e.tool_use_id)
+      if (prior !== undefined && brief !== null && (result.deny !== undefined || result.isError === true)) await update($, coreState, S.withSkillTrial(brief.goalId, prior))
     }
     // Lời gọi Agent bị từ chối hoặc lỗi trước khi agent chạy: việc trở lại danh sách chờ giao.
     if (assigned !== undefined && brief !== null && (result.deny !== undefined || result.isError === true) && L.delegation.running.has(assigned.index)) {
@@ -448,6 +468,8 @@ export function registerAgents(on: On, ctx: Ctx): void {
         fallback: false,
       })
     }
+    // Subagent thử skill (0.8.2 N3): turn.complete của nó tính lần thử, kết quả tool Agent lỗi trả lại mốc theo tool_use_id.
+    if (agentId !== undefined && isSkillTrial(info?.description ?? e.description) && L.skillTrials.size < 100) L.skillTrials.set(agentId, e.tool_use_id)
     // Subagent đang chạy (0.8.0 A5): chưa trả về thì cảnh báo chưa kiểm cuối turn và cổng Y6 được hoãn.
     if (agentId !== undefined && L.liveAgents.size < 1000) L.liveAgents.add(agentId)
     if (agentId !== undefined) {

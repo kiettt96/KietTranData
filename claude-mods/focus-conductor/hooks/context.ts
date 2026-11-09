@@ -3,7 +3,7 @@
 
 import type { PluginOptions, PromptOrigin } from 'claude-code'
 import type { Brief, Choice, Core, DelegationItem, DelegationState, Effort, Intent, Lift, Mode, ModelFamily, PlanStep, Route, RouteEvent, Task, Tier, Volume } from '../types'
-import { applyCheckCommands, applyCheckTools, applyPassLines, applySoftPaths, newEvidenceLog, newTracker, parseCheckCommands, parseCheckTools, parsePassLines, parseSoftPaths } from './lib/drift'
+import { applyCheckCommands, applyCheckTools, applyPassLines, applySkillPaths, applySoftPaths, newEvidenceLog, newTracker, parseCheckCommands, parseCheckTools, parsePassLines, parseSkillPaths, parseSoftPaths } from './lib/drift'
 import type { EvidenceLog, PromptIntent, TurnTracker } from './lib/drift'
 import { DEFAULT_CACHE_TTL_MINUTES, DEFAULT_CONTEXT, DEFAULT_WINDOWS, applyCacheWrite, applyPrices, parseCacheWrite, parsePrices } from './lib/cost'
 import { EFFORTS, decideMain, describePick, familyOf, hasTitleCode, liftPick, matchTask, parseModelMap, parseWindows } from './lib/route'
@@ -180,6 +180,10 @@ export function createContext(options: PluginOptions) {
      * Lời gọi lỗi mà chưa có spawn nào là engine từ chối phiên con; đã spawn rồi mới lỗi là lỗi của phần đó.
      */
     forkCalls: new Map<string, { spawned: boolean; task?: number; part?: string }>(),
+    /** Subagent thử skill đang chạy (0.8.2 N3): agentId tới tool_use_id của lời gọi Agent, ghi ở agent.spawn. */
+    skillTrials: new Map<string, string>(),
+    /** Lần thử skill đã tính (0.8.2 N3): tool_use_id tới mốc trialAt trước đó, để kết quả tool Agent lỗi trả lại mốc cũ. */
+    trialCounted: new Map<string, number>(),
     /** Đã báo engine từ chối phiên con trong phiên (0.7.9 F1): câu chuyển về luồng chính và dòng fork-off chỉ một lần. */
     forkRefused: false,
     /** Việc đã chèn câu gom ("goalId:việc", 0.7.9 F1): hai kết quả tool song song không chèn hai lần; Core.forks.merged giữ qua hot reload. */
@@ -286,6 +290,8 @@ export function createContext(options: PluginOptions) {
   applyCheckTools(parseCheckTools(options['checkTools']))
   applyPassLines(parsePassLines(options['passLines']))
   applySoftPaths(parseSoftPaths(options['softPaths']))
+  // File skill (0.8.2 N3): tiền tố khai ở option skillPaths.
+  applySkillPaths(parseSkillPaths(options['skillPaths']))
 
   /** Chính sách áp lên mọi lựa chọn của router: allowFable, model của phiên, họ đang bị chặn, loại agent dùng được. */
   function policy(): Policy {
