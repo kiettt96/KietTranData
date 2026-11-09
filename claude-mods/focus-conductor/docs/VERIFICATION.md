@@ -12,6 +12,7 @@ Nhánh tách từ `main` `d14ea20` (0.8.0). Thứ tự C1, B3; mỗi điểm m�
 - `claude plugin validate` đạt ở thư mục mod và gốc repo; `tsc` sạch (khai báo kiểu 2.1.319, như 0.8.0); `scripts/version-check.mjs` khớp 0.8.1; `mutate --check` 0 lệch; sha256 `hooks/` `48be8da50fd2a1a679f6a9085611e41eca1391f755ea388cc69750b848039bfe`, `tests/` `9508f9622456c7d0a40864b455d7321ddb464997c1a45980aa1dad4c581e4a08` [Đo trực tiếp].
 - Chạy riêng từng mẫu mới, một worker [Đo trực tiếp]: `081-C1a` 5 đỏ, `081-C1b` 1, `081-C1c` 1, `081-C1d` 3 (tệp test C1); `081-B3a` 3 (tệp test B3). Mẫu cũ viết lại: `P5` 25 đỏ, `075-H1c` 9, `075-T9h` 6 (cả bộ test); `075-B6e` 5, `075-B6g` 1 (bốn tệp test của Agent và quy định model). Mọi mẫu bị bắt.
 - Hai số phiên dài: 10.339 và 19.587, không đổi so với 0.8.0 [Đo trực tiếp].
+- CI: run 42553885676 xanh trên `7abd2a9` (commit phiên bản và tài liệu; mã và test giống commit này trừ dòng CI ở tệp này) [Đo trực tiếp].
 
 ## Kiểm chứng của 0.8.0 (phiên dài nhiều đợt giao việc)
 
