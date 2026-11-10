@@ -84,6 +84,34 @@ describe('0.8.4 C6: router Fable tạm ngừng rồi thử lại', () => {
   })
 })
 
+describe('0.8.4 W3: vẫn gọi Fable khi router cũ còn tạm ngừng', () => {
+  /** Fable lỗi 2 prompt (tạm ngừng 3 prompt), router thay thế cũng lỗi 2 prompt (router cũ tạm ngừng 3 prompt); prompt 6 Fable sẵn sàng. */
+  async function bothPaused($: Engine, on: Parameters<typeof base>[0]) {
+    let fable = 0
+    const seen: Seen = base(on, { router: request => (seen.routerModels.at(-1) === ID ? (fable++ < 2 ? null : request.startsWith('Requirements:') ? { missing: [], extra: [], issues: [] } : BIG()) : null) })
+    on('turn.complete', () => ({ text: '' }))
+    on('classic.Stop', () => ({}))
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    for (let i = 1; i <= 6; i++) await submit($, i === 6 ? 'Sửa luồng thanh toán' : `làm tiếp bước ${i}`)
+    return seen
+  }
+
+  test('lượt đọc prompt và lượt rà kế hoạch gửi Fable dù router cũ còn tạm ngừng', { options: { conductor: 'fable', enforceChecklist: true } }, async ($, on) => {
+    const seen = await bothPaused($, on)
+    expect(prompts(seen).at(-1)?.model).toBe(ID)
+    await $.turn.start({ text: 'việc', turnId: 't6' })
+    await $.tool.call({ tool: 'mcp__focus-conductor__plan', action: 'set', steps: [{ title: 'Sửa hàm phí', check: 'bun test' }, { title: 'Thêm test', check: 'bun test' }] } as never)
+    await $.classic.Stop({ stop_hook_active: false } as never)
+    expect(seen.routerCalls.filter(c => c.kind === 'review').map(c => c.model)).toEqual([ID])
+  })
+
+  test('lượt kiểm lạc đề gửi Fable dù router cũ còn tạm ngừng', { options: { planApproval: 'off', conductor: 'fable' } }, async ($, on) => {
+    const seen = await bothPaused($, on)
+    for (const f of ['a', 'b', 'c', 'd', 'e']) await $.tool.call({ tool: 'Edit', file_path: `src/${f}.ts`, old_string: 'x', new_string: 'y' } as never)
+    expect(seen.routerCalls.filter(c => c.kind === 'drift').map(c => c.model)).toEqual([ID])
+  })
+})
+
 describe('0.8.4 C6: conductor mặc định giữ luật tạm ngừng router của 0.8.3', () => {
   test('router lỗi hai prompt: prompt thứ ba không hỏi router', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, { router: () => null })
