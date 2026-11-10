@@ -20,6 +20,14 @@ Yêu cầu mới của chủ mod [Nguồn: chủ mod, 10/11/2026]: lập kế ho
 - **Mẫu mới:** `084-S1a`, `084-S2a`, `084-C1a` tới `084-C1c`, `084-C2a` tới `084-C2c`, `084-C3a` tới `084-C3c`, `084-C4a` tới `084-C4d`, `084-C5a`, `084-C5b`, `084-C6a` tới `084-C6c`, `084-C7a`, `084-C7b`, `084-C8a`, `084-C8b`. Không viết mẫu chỉ đổi các hằng thời gian chờ (đã ghim bằng test).
 - **Nhánh sao lưu `claude/focus-conductor-0-8-4-wip`** chỉ để phục hồi; không merge, nên xóa sau khi PR 0.8.4 merge.
 
+### Vòng 2 (rà soát PR 37): V1, W1 tới W4
+
+- **V1 (P2): luồng chính được nhắc lại vai điều phối.** Khi luồng chính đang điều phối, câu `conductorKeepText` (177 ký tự, trần `CONDUCTOR_KEEP_CHARS` 200) nối vào lời nhắc sau nén ngữ cảnh và vào context của prompt chạy tiếp từ điểm dừng. Đoạn dặn đầy đủ chèn ở prompt đầu tiên mà luồng chính điều phối mục tiêu (`Core.fable.briefedGoal`, mặc định -1), nên mục tiêu mở lúc Fable chưa sẵn sàng vẫn nhận đúng một lần. Prompt đến lúc router Fable còn tạm ngừng thì cả router, luồng chính và turn của prompt đó coi Fable chưa sẵn sàng (`fablePromptPaused`). Test đỏ 4/6.
+- **W1 tới W3 (P3): chỉ thêm test.** W1: việc main loại mixed thành agent, ca đối chứng giữ model của chính việc. W2: mức nâng mới thêm dòng `conductor-hold` thứ hai. W3: lượt đọc prompt, rà kế hoạch và kiểm lạc đề vẫn gửi Fable khi router cũ đang tạm ngừng.
+- **W4 (P3): ghim ba chỗ, lộ một lỗi.** Ca mới: nguyên nhân đổi khi `ready` vẫn false thì có dòng `conductor` mới; hai lượt kiểm lạc đề gửi Fable lỗi thì router Fable tạm ngừng; phiên họ fable có hậu tố thì request dùng nguyên ID phiên. Ca thứ nhất đỏ (1/3): `noteConductor` chạy trước khi đặt lại `fablePromptPaused`, nên ở prompt đầu tiên hết tạm ngừng nó đọc cờ của prompt trước và ghi dòng nhật ký trễ một prompt. Sửa bằng cách đặt cờ trước `noteConductor`.
+- **Mẫu cũ viết lại cùng ý** (dòng `old` đổi vì V1): `074-F10`, `084-C5a`, `084-C5b`.
+- **Mẫu mới:** `084-V1a` tới `084-V1d`, `084-W1a`, `084-W2a`, `084-W3a` tới `084-W3c`, `084-W4a` tới `084-W4d`.
+
 ## Thay đổi 0.8.3: vá cổng duyệt kế hoạch và dòng tổng kết của lệnh khai
 
 Sáu điểm tồn đọng: R1 tới R4 từ lượt rà soát PR 35, D1 và D2 từ 0.8.1; tái hiện bằng probe trên `main` `2408fd4` (commit squash của PR 35) [Đo trực tiếp]. Mỗi điểm một commit test đỏ rồi một commit sửa, riêng R1 chỉ thêm test; schema tool `plan` và `routerSystem` không đổi.
