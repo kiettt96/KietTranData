@@ -66,6 +66,21 @@ describe('0.8.4 C3: luồng chính của mục tiêu lớn chạy fable/medium',
   })
 })
 
+describe('0.8.4 W2: khóa conductor-hold theo mức nâng', () => {
+  test('mức nâng tăng thêm một bậc sau dòng đầu: có dòng thứ hai ghi mức mới; các turn sau cùng mức không thêm dòng', FABLE, async ($, on) => {
+    const { seen, lines } = setup(on, BIG())
+    await submit($, 'Sửa luồng thanh toán')
+    await loopTurn($, seen, 't1')
+    await loopTurn($, seen, 't2')
+    for (const id of ['t3', 't4', 't5']) {
+      await $.turn.start({ text: 'làm', turnId: id })
+      await step($, seen, { turnId: id })
+    }
+    const holds = lines().filter(l => l['kind'] === 'conductor-hold')
+    expect(holds.map(l => l['depth'])).toEqual([1, 2])
+  })
+})
+
 describe('0.8.4 C3: các trường hợp không điều phối', () => {
   test('mục tiêu light, edit, main sonnet/low: luồng chính sonnet/low', FABLE, async ($, on) => {
     const { seen } = setup(on, BIG({ depth: 'light', volume: 'small', main: { model: 'sonnet', effort: 'low', why: '' } }))
