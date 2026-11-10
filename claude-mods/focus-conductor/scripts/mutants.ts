@@ -2065,4 +2065,5 @@ export const MUTANTS: Mutant[] = [
   { id: "083-D1b", file: "hooks/lib/drift/output.ts", note: "bỏ xét số đếm loi trên dạng bỏ dấu", old: "  if ([...folded.matchAll(FOLDED_COUNT)].some(match => hasNonZero(match[1] ?? ''))) return true\n", new: "" },
   { id: "083-D2a", file: "hooks/lib/drift/output.ts", note: "bỏ bước phủ định cách quãng của dòng tổng kết", old: ".replace(ZERO_FAILURES, ' ').replace(SPACED_NEGATION, dropSpacedNegation)\n", new: ".replace(ZERO_FAILURES, ' ')\n" },
   { id: "083-D2b", file: "hooks/lib/drift/output.ts", note: "bỏ danh sách từ chen giữa bị cấm của phủ định cách quãng", old: "  return SPACED_BANNED.test(foldLabel(middle)) ? match : ' '\n", new: "  return ' '\n" },
+  { id: "083-R1a", file: "hooks/lib/approval.ts", note: "bỏ mixed khỏi diện duyệt kế hoạch", old: "(brief.kind === 'edit' || brief.kind === 'mixed')", new: "(brief.kind === 'edit')" },
 ]
