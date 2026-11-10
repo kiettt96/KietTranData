@@ -287,6 +287,11 @@ const SUMMARY_FAIL = new RegExp(`${EDGE_START}(?:chưa\\s+đạt|không\\s+đạ
 /** Số đếm đứng trước từ lỗi, cách tối đa một từ (0.8.1 C1): "2 lỗi", "3 failed", "1 error", "2 phép lỗi". */
 const COUNTED_FAILURE = new RegExp(`${EDGE_START}(${NUMBER})\\s+(?:\\p{L}+\\s+)?(?:lỗi|fail(?:ed|ures?)?|errors?)${EDGE_END}`, 'giu')
 
+/** Kết luận lỗi trên dạng bỏ dấu của dòng tổng kết (0.8.3 D1): chua dat, khong dat. */
+const FOLDED_FAIL = new RegExp(`${EDGE_START}(?:chua|khong)\\s+dat${EDGE_END}`, 'u')
+/** Số đếm đứng trước "loi" trên dạng bỏ dấu, cách tối đa một từ (0.8.3 D1): "2 loi", "3 phep loi". Không đọc "do" (đỏ). */
+const FOLDED_COUNT = new RegExp(`${EDGE_START}(${NUMBER})\\s+(?:\\p{L}+\\s+)?loi${EDGE_END}`, 'gu')
+
 /** Bỏ dấu tiếng Việt và viết thường, để so nhãn của dòng tổng kết. */
 function foldLabel(text: string): string {
   return text.normalize('NFD').replace(/\p{M}/gu, '').replace(/[đĐ]/gu, 'd').toLowerCase()
@@ -302,6 +307,10 @@ export function summaryFailed(output: string): boolean {
   if (!SUMMARY_LABEL.test(foldLabel(last))) return false
   const line = last.replace(NEGATED_FAILURE, ' ').replace(ZERO_UNIT_FAILURES, ' ').replace(ZERO_FAILURES, ' ')
   if (SUMMARY_FAIL.test(line)) return true
+  // Dòng không dấu (0.8.3 D1): kết luận lỗi và số đếm lỗi xét trên dạng bỏ dấu của dòng.
+  const folded = foldLabel(line)
+  if (FOLDED_FAIL.test(folded)) return true
+  if ([...folded.matchAll(FOLDED_COUNT)].some(match => hasNonZero(match[1] ?? ''))) return true
   if ([...line.matchAll(FAILURE_CLAUSE)].some(match => nonZero(match[1] ?? ''))) return true
   if ([...line.matchAll(COUNTED_BEFORE)].some(match => hasNonZero(match[1] ?? ''))) return true
   if ([...line.matchAll(COUNTED_AFTER)].some(match => hasNonZero(match[1] ?? ''))) return true

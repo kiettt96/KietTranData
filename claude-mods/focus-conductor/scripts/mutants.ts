@@ -2061,4 +2061,6 @@ export const MUTANTS: Mutant[] = [
   { id: "082-N4b", file: "hooks/lib/quota.ts", note: "cho push vào nhánh không có hậu tố -wip", old: "([A-Za-z0-9._/-]+-wip))$/", new: "([A-Za-z0-9._/-]+))$/" },
   { id: "082-N4c", file: "hooks/parts/quota.ts", note: "bỏ trần 6 lời gọi sao lưu", old: "e.tool === 'Bash' && (pause.backupCalls ?? 0) < BACKUP_CALLS_MAX)", new: "e.tool === 'Bash')" },
   { id: "082-N4d", file: "hooks/parts/quota.ts", note: "auto bật sao lưu cả khi không nhận biết được cloud", old: "backupMode === 'auto' && (await isCloudSession($, cloudMemo))", new: "backupMode === 'auto'" },
+  { id: "083-D1a", file: "hooks/lib/drift/output.ts", note: "bỏ xét kết luận lỗi trên dạng bỏ dấu của dòng tổng kết", old: "  if (FOLDED_FAIL.test(folded)) return true\n", new: "" },
+  { id: "083-D1b", file: "hooks/lib/drift/output.ts", note: "bỏ xét số đếm loi trên dạng bỏ dấu", old: "  if ([...folded.matchAll(FOLDED_COUNT)].some(match => hasNonZero(match[1] ?? ''))) return true\n", new: "" },
 ]
