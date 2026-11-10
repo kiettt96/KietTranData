@@ -1306,3 +1306,15 @@ export function firstErrorLine(output: string | undefined, isError = false): str
   const note = ` (không có dòng lỗi${isError ? ', mã thoát khác 0' : ''})`
   return `${clipItem(last, RETRY_ERROR_CHARS - note.length)}${note}`
 }
+
+/** Trần đoạn dặn vai điều phối (0.8.4 C5). */
+export const CONDUCTOR_CHARS = 480
+
+/** Đoạn dặn vai điều phối (0.8.4 C5): chèn một lần mỗi mục tiêu cùng khối brief khi luồng chính điều phối. */
+export function conductorContext(): string {
+  return (
+    '[focus-conductor] Điều phối: luồng chính là vai điều phối, chạy fable/medium. Lập kế hoạch, rồi giao từng việc bằng Agent đúng loại ' +
+    'agent, model, effort đã phân, description mở đầu bằng "Việc N". Mỗi lời giao tự đứng được: mục tiêu, phạm vi file, ràng buộc, tiêu ' +
+    'chí xong và lệnh kiểm. Đọc kết quả, đối chiếu yêu cầu trước khi đóng bước. Chỉ tự sửa file khi chỉnh vài dòng để ráp kết quả.'
+  )
+}

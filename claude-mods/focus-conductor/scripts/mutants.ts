@@ -2087,4 +2087,6 @@ export const MUTANTS: Mutant[] = [
   { id: "084-C4b", file: "hooks/lib/router.ts", note: "đổi cả việc main không sửa file (answer) thành agent khi điều phối", old: "const isConductedEdit = isConducting && read.run === 'main' && (read.kind === 'edit' || read.kind === 'mixed')", new: "const isConductedEdit = isConducting && read.run === 'main'" },
   { id: "084-C4c", file: "hooks/lib/router.ts", note: "đổi việc main sửa file thiếu model thành agent theo lựa chọn luồng chính", old: "const parsed: Task = isConductedEdit && hasPick ?", new: "const parsed: Task = isConductedEdit ?" },
   { id: "084-C4d", file: "hooks/lib/router.ts", note: "vẫn nhận tách phiên con khi điều phối mục tiêu lớn", old: "const forks = isConducting ? 0 : Math.min(policy.forks ?? 0, MAX_FORKS)", new: "const forks = Math.min(policy.forks ?? 0, MAX_FORKS)" },
+  { id: "084-C5a", file: "hooks/parts/session.ts", note: "chèn đoạn dặn điều phối cả khi luồng chính không điều phối", old: "const conductNote = isNewGoal && wanted?.isConducting === true ?", new: "const conductNote = isNewGoal ?" },
+  { id: "084-C5b", file: "hooks/parts/session.ts", note: "chèn lại đoạn dặn điều phối ở prompt tiếp nối", old: "const conductNote = isNewGoal && wanted?.isConducting === true ?", new: "const conductNote = wanted?.isConducting === true ?" },
 ]
