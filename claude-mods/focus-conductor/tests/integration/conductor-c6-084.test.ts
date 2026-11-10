@@ -5,7 +5,7 @@
 
 import { describe, expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
-import { PANE, ROUTER_TIMEOUT, base, plan, step, submit } from '../support/engine'
+import { PANE, ROUTER_TIMEOUT, base, conductor, plan, step, submit } from '../support/engine'
 import type { Json, Seen } from '../support/engine'
 
 const LOG = '/tmp/fc-conductor-c6-084.jsonl'
@@ -118,5 +118,38 @@ describe('0.8.4 C6: conductor mặc định giữ luật tạm ngừng router c�
     for (let i = 0; i < 3; i++) await submit($, i === 0 ? 'Sửa luồng thanh toán' : `làm tiếp bước ${i}`)
     expect(prompts(seen).length).toBe(2)
     expect(seen.toasts.some(t => t.includes(PAUSE_TEXT))).toBe(false)
+  })
+})
+
+describe('0.8.4 W4: nhật ký nguyên nhân, lượt kiểm lạc đề và ID phiên', () => {
+  test('ready vẫn false nhưng nguyên nhân đổi từ tạm ngừng sang chế độ: có dòng conductor mới', FABLE, async ($, on) => {
+    const { lines } = setup(on, () => null)
+    await conductor($, 'mode subagents')
+    for (let i = 0; i < 6; i++) await submit($, i === 0 ? 'Sửa luồng thanh toán' : `làm tiếp bước ${i}`)
+    const reasons = lines().filter(l => l['kind'] === 'conductor').map(l => String(l['reason'] ?? ''))
+    expect(reasons).toEqual(['chế độ điều phối không phải auto', 'router Fable tạm ngừng sau các lần lỗi', 'chế độ điều phối không phải auto'])
+  })
+
+  test('hai lượt kiểm lạc đề gửi Fable đều lỗi: router Fable tạm ngừng, prompt kế gửi router cũ', FABLE, async ($, on) => {
+    const seen = base(on, { router: () => (seen.routerModels.at(-1) === ID ? BIG() : FOLLOW), drift: () => null })
+    on('turn.complete', () => ({ text: '' }))
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    await submit($, 'Sửa luồng thanh toán')
+    for (let i = 0; i < 10; i++) {
+      if (i === 5) await seen.clock.advance(600_000)
+      await $.tool.call({ tool: 'Edit', file_path: `src/f${i}.ts`, old_string: 'x', new_string: 'y' } as never)
+    }
+    expect(seen.routerCalls.filter(c => c.kind === 'drift').map(c => c.model)).toEqual([ID, ID])
+    await submit($, 'làm tiếp bước 1')
+    expect(prompts(seen).at(-1)?.model).toBe('sonnet')
+    expect(seen.toasts.filter(t => t.includes(PAUSE_TEXT)).length).toBe(1)
+  })
+
+  test('phiên họ fable có hậu tố: lượt router sau step đầu dùng nguyên ID của phiên', FABLE, async ($, on) => {
+    const seen = base(on, { router: () => BIG() })
+    await submit($, 'Sửa luồng thanh toán')
+    await step($, seen, { turnId: 't1', model: 'claude-fable-5-2[1m]' })
+    await submit($, 'làm tiếp bước 1')
+    expect(prompts(seen).map(c => c.model)).toEqual([ID, 'claude-fable-5-2[1m]'])
   })
 })
