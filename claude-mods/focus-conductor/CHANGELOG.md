@@ -2,6 +2,20 @@
 
 Các bản của focus-conductor, mới nhất trước. Số đo kiểm chứng của HEAD hiện tại nằm ở [docs/VERIFICATION.md](docs/VERIFICATION.md); cách dùng và tùy chọn ở [README](README.md).
 
+## Thay đổi 0.8.3: vá cổng duyệt kế hoạch và dòng tổng kết của lệnh khai
+
+Sáu điểm tồn đọng: R1 tới R4 từ lượt rà soát PR 35, D1 và D2 từ 0.8.1; tái hiện bằng probe trên `main` `2408fd4` (commit squash của PR 35) [Đo trực tiếp]. Mỗi điểm một commit test đỏ rồi một commit sửa, riêng R1 chỉ thêm test; schema tool `plan` và `routerSystem` không đổi.
+
+- **D1 (P3): dòng tổng kết không dấu báo lỗi là không đạt.** `TONG: CHUA DAT`, `TONG: KHONG DAT | 2 loi`, `TONG: DAT | 13 phep, 3 phep loi` trước đây được tính là đạt vì nhãn so trên dạng bỏ dấu còn kết luận và số đếm chỉ so dạng có dấu. `summaryFailed` xét thêm `chua dat`, `khong dat` và số đếm khác 0 trước `loi` (cách tối đa một từ) trên dạng bỏ dấu của dòng; không đọc `do` (đỏ). `customFailed` giữ nguyên.
+- **D2 (P3): phủ định cách quãng trên dòng tổng kết đạt không là lỗi.** `TỔNG: đạt, không có phép nào failed`, `Summary: passed, no test failed` trước đây bị chặn. `summaryFailed` bỏ phủ định `không`, `chẳng`, `no`, `zero`, `khong` cách tối đa 3 từ trước từ lỗi, trừ khi từ chen giữa là đạt, pass, passed, ok, thành công hay một số (`TỔNG: không đạt, 2 phép failed` vẫn là lỗi).
+- **R1 (P3): ghim diện duyệt kế hoạch với mục tiêu `mixed`.** Bỏ `mixed` khỏi `needsApproval` mà cả bộ 2957 test vẫn xanh; thêm ba ca (substantial và hard với mixed, substantial với investigate). Không đổi mã.
+- **R2 (P3): đường dẫn được miễn khi chưa duyệt so sau khi chuẩn hóa.** `Write` tới `.claude/plans/../../hooks/a.ts` trước đây lọt cổng duyệt. `isExemptPath` gộp `.` và `..` bằng `normalizePath`; còn bắt đầu bằng `..` thì không miễn.
+- **R4 (P3): lệnh tra cứu và lệnh chỉ ghi thư mục tạm được qua khi chưa duyệt.** `isPlanningSafeBash`: `gh pr|issue|run|repo|release|workflow view|list|diff|checks|status` và `gh api <đường dẫn>` không có cờ ghi (`-X`, `--method`, `-f`, `-F`, `--field`, `--raw-field`, `--input`), tách token bằng bộ tách chặt của N4 (`backupTokens`, chỉ thêm export) nên có ký tự shell đặc biệt ngoài nháy thì không phải lệnh tra cứu; hay lệnh mà mọi tác động ghi `classifyBash` đọc được đều có đích rõ dưới `/tmp/`, `/private/tmp/`, `/var/folders/`. Chỉ áp cho cổng duyệt; tracker, Y6, W4 và sổ file đã đổi giữ cách đọc lệnh.
+- **R3 (P3): cờ chờ câu trả lời câu hỏi làm rõ nằm trong Core.** `ApprovalState.awaitingAnswer` (mặc định `false` trong `normalizeCore`) thay biến module `askTurn`, nên sống qua hot reload; bỏ dòng giới hạn tương ứng ở DESIGN.
+- **Test cũ sửa:** ca ghim `MOD_VERSION` của L1 (0.8.2 sang 0.8.3, đổi tên); ca hot reload và ca band "Chờ duyệt kế hoạch" của `approval-n2-082` thêm `awaitingAnswer: false` vào giá trị kỳ vọng hay giá trị dựng (tên và ý giữ nguyên).
+- **Mẫu mới:** `083-D1a`, `083-D1b`, `083-D2a`, `083-D2b`, `083-R1a`, `083-R2a`, `083-R4a`, `083-R4b`, `083-R4c`, `083-R3a`, `083-R3b`. Không mẫu cũ nào phải viết lại.
+- **Nhánh sao lưu `claude/focus-conductor-0-8-3-wip`** chỉ để phục hồi; không merge, nên xóa sau khi PR 0.8.3 merge.
+
 ## Thay đổi 0.8.2: hiểu đúng ý tin nhắn, duyệt kế hoạch trước khi sửa, thử skill, báo phần ngoài yêu cầu, sao lưu khi dừng
 
 Năm điểm N1 tới N5 lấy từ buổi phỏng vấn chủ mod [Nguồn: phỏng vấn chủ mod 09/11/2026], đối chiếu với `main` `974c73f`. Mỗi điểm một commit test đỏ rồi một commit sửa; schema tool `plan` không đổi. Thứ tự: N1, N2, N3, N5, N4.

@@ -311,7 +311,7 @@ async function planReviewGate($: EngineInterface, ctx: Ctx): Promise<{ kind: 'no
   if (brief === null) return { kind: 'none' }
   const approval = S.approvalOf(core)
   // Turn hỏi làm rõ: không rà, không chặn.
-  if ((approval.status === 'planning' || approval.status === 'presented') && ctx.local.askTurn === brief.goalId) return { kind: 'allow' }
+  if ((approval.status === 'planning' || approval.status === 'presented') && approval.awaitingAnswer) return { kind: 'allow' }
   if (approval.status === 'presented') return { kind: 'allow' }
   if (approval.status !== 'planning' || core.plan.length === 0) return { kind: 'none' }
   const at = await $.clock.now()

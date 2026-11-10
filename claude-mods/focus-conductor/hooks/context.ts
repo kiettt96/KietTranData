@@ -99,11 +99,6 @@ export function createContext(options: PluginOptions) {
     promptIntent: null as PromptIntent,
     /** Ý của tin nhắn cuối router đã đọc (0.8.2 N1), cho /conductor status; null khi router chưa đọc được. */
     lastIntent: null as Intent | null,
-    /**
-     * Mục tiêu (goalId) vừa được dặn hỏi làm rõ (0.8.2 N2): turn đó cổng rà kế hoạch và G1 không chặn; prompt kế tiếp là câu trả lời
-     * (router nhận dòng awaiting answer) rồi xóa. null là không chờ câu trả lời nào.
-     */
-    askTurn: null as number | null,
     /** Thư mục gốc của phiên chốt cho từng mục tiêu có giới hạn phạm vi (null: engine không trả được). */
     roots: new Map<number, string | null>(),
     /** Thời gian chạy (ms) của các lượt router gần nhất. */
@@ -483,7 +478,6 @@ export function createContext(options: PluginOptions) {
     local.evidenceLogs.clear()
     local.roots.clear()
     local.promptIntent = null
-    local.askTurn = null
     local.routerTimes = []
     local.turnRoute = { turnId: '', route: null }
     local.pendingInterject = null

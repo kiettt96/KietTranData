@@ -2,7 +2,7 @@
 
 import { atom, derive, read, update } from 'claude-code'
 import { caught, noteBehavior, noteHookError, noteMistyped } from '../lib/errlog'
-import type { Brief, Core, Depth, QuotaCheckpoint, Warning } from '../../types'
+import type { ApprovalState, Brief, Core, Depth, QuotaCheckpoint, Warning } from '../../types'
 import { briefFromCheckpoint, changedFiles, storeKey } from '../lib/checkpoint'
 import { openSteps, restorableSteps } from '../lib/drift'
 import { PLAN_TOOL_SPEC } from '../lib/plan'
@@ -76,6 +76,14 @@ async function currentStats($: EngineInterface, paths: readonly string[]): Promi
 /** Status line kèm nhãn hạn mức (0.6.1): mọi chỗ đặt status của file này đi qua đây, nên nhãn không mất giữa các hook. */
 async function showStatus($: EngineInterface, current: View, options: Ctx['options']): Promise<void> {
   $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
+}
+
+/** Hết chờ câu trả lời câu hỏi làm rõ (0.8.3 R3): xóa cờ trong Core nếu đang bật; trả trạng thái duyệt đã xóa cờ. */
+async function clearAwaiting($: EngineInterface, approval: ApprovalState): Promise<ApprovalState> {
+  if (!approval.awaitingAnswer) return approval
+  const cleared = { ...approval, awaitingAnswer: false }
+  await update($, coreState, S.withApproval(cleared))
+  return cleared
 }
 
 /** permission_mode mà lần thoát plan mode là người dùng tự bấm duyệt (0.8.2 N2). */
@@ -232,8 +240,8 @@ export function registerSession(on: On, ctx: Ctx): void {
       L.promptIntent = { relation: 'continue', kind: prev.isReference ? 'answer' : prev.kind }
       await flushDecisions((path, text) => $.fs.write(path, text))
       const lead = L.noAutoResume && !isArmed ? [] : await startResume()
-      // Kế hoạch đang lập (0.8.2 N2): câu tiếp nối ngắn vẫn kèm đoạn dặn lập kế hoạch.
-      L.askTurn = null
+      // Kế hoạch đang lập (0.8.2 N2): câu tiếp nối ngắn vẫn kèm đoạn dặn lập kế hoạch. Câu này là câu trả lời: hết chờ (0.8.3 R3).
+      await clearAwaiting($, S.approvalOf(before))
       const planning = S.approvalOf(before).status === 'planning' ? [planningContext()] : []
       return next({ ...e, context: [...lead, ...(e.context ?? []), skippedContext(prev, before.plan), ...planning, ...(lead.length === 0 ? pending : [])] })
     }
@@ -248,11 +256,11 @@ export function registerSession(on: On, ctx: Ctx): void {
     const rules = ctx.routePolicy(before, ctx.maxForks >= 2 ? await $.session.root().catch(caught('session.root', null)) : null)
     const isPaused = isRouterPaused()
     // Duyệt kế hoạch (0.8.2 N2): kế hoạch đã trình thì router biết tin này có thể là lời duyệt; vừa dặn hỏi làm rõ thì tin này là câu trả lời.
-    const approvalBefore = S.approvalOf(before)
-    const isPresented = prev !== null && approvalBefore.status === 'presented'
-    const isAnswering = prev !== null && L.askTurn === prev.goalId
-    // Câu trả lời đến rồi: hết chờ câu trả lời.
-    L.askTurn = null
+    const approvalStored = S.approvalOf(before)
+    const isPresented = prev !== null && approvalStored.status === 'presented'
+    const isAnswering = prev !== null && approvalStored.awaitingAnswer
+    // Câu trả lời đến rồi: hết chờ câu trả lời (0.8.3 R3: cờ nằm trong Core).
+    const approvalBefore = await clearAwaiting($, approvalStored)
     let outcome: RouterOutcome<RouterPlan> = { result: null, reason: 'router đang tạm ngừng sau các lần lỗi liên tiếp', usages: [], retried: false, failure: 'paused', timeoutMs: null, maxTokens: null, outputTokens: null }
     let waitedMs = 0
     let pauseText: string | null = null
@@ -432,19 +440,19 @@ export function registerSession(on: On, ctx: Ctx): void {
     // Duyệt kế hoạch (0.8.2 N2). Mục tiêu mới: thuộc diện duyệt thì planning, skipApproval thì skipped, còn lại none. Cùng mục tiêu: đã
     // trình mà duyệt thì approved, sửa thì về planning (lượt rà về 0); còn lại giữ nguyên. Hỏi làm rõ một lần mỗi mục tiêu khi planning.
     const stage = isNewGoal
-      ? { goalId: brief.goalId, status: needsApproval(brief, ctx.planApproval, plan.skipApproval === true) ? ('planning' as const) : plan.skipApproval === true ? ('skipped' as const) : ('none' as const), rounds: 0, asked: false }
+      ? { goalId: brief.goalId, status: needsApproval(brief, ctx.planApproval, plan.skipApproval === true) ? ('planning' as const) : plan.skipApproval === true ? ('skipped' as const) : ('none' as const), rounds: 0, asked: false, awaitingAnswer: false }
       : isPresented && intent === 'approve'
         ? { ...approvalBefore, status: 'approved' as const }
         : isPresented && intent === 'amend'
           ? { ...approvalBefore, status: 'planning' as const, rounds: 0 }
           : approvalBefore
     const isAsking = stage.status === 'planning' && !stage.asked && (plan.questions?.length ?? 0) > 0
-    const approval = isAsking ? { ...stage, asked: true } : stage
+    // Dặn hỏi làm rõ: chờ câu trả lời ở prompt kế tiếp (0.8.3 R3, ghi vào Core cùng lượt ghi trạng thái duyệt).
+    const approval = isAsking ? { ...stage, asked: true, awaitingAnswer: true } : stage
     if (approval !== approvalBefore && (isNewGoal ? approval.status !== 'none' : true)) {
       await update($, coreState, S.withApproval(approval))
       if (approval.status !== approvalBefore.status || isNewGoal) record(now, 'approval', { goalId: brief.goalId, status: approval.status, cause: isNewGoal ? 'goal' : intent })
     }
-    if (isAsking) L.askTurn = brief.goalId
     const approvalNotes = isAsking ? [askContext(plan.questions ?? [])] : approval.status === 'planning' ? [planningContext()] : []
     const isApproved = !isNewGoal && isPresented && approval.status === 'approved'
     const context = isApproved
