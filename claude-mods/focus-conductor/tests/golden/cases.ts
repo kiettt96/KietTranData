@@ -55,6 +55,10 @@ export type Expect = {
   modelRule?: readonly string[]
   /** Ý của tin nhắn chấp nhận được (0.8.2 N1), sau kẹp của parseRoute. */
   intent?: readonly Intent[]
+  /** Fable điều phối (0.8.4 C4): mọi việc edit hay mixed giao subagent, chạy model thực thi (haiku, sonnet, opus). */
+  editAgents?: boolean
+  /** Fable điều phối (0.8.4 C4): không việc nào giao subagent (việc nhỏ làm thẳng ở luồng chính). */
+  noDelegation?: boolean
 }
 
 export type GoldenCase = {
@@ -66,6 +70,8 @@ export type GoldenCase = {
   openSteps?: readonly string[]
   /** Đang chờ người dùng duyệt kế hoạch hay trả lời câu hỏi (0.8.2 N1). */
   awaiting?: 'approval' | 'answer'
+  /** Request dựng với biến thể điều phối của lời dặn router (0.8.4 C4); ca cũ vắng nên giữ nguyên băm. */
+  conductor?: true
   expect: Expect
   note: string
 }
@@ -436,5 +442,36 @@ export const CASES: readonly GoldenCase[] = [
     openSteps: ['Viết hàm parseDate', 'Viết test cho parseDate', 'Cập nhật tài liệu'],
     note: '0.8.2 N1: việc khác',
     expect: { intent: ['task'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 3] },
+  },
+  {
+    id: 'c4-big-coded',
+    conductor: true,
+    text: 'Nâng cấp module báo cáo theo các bước. Bước 1: tách hàm tổng hợp ra src/report/sum.ts. Bước 2: thêm bộ lọc theo ngày vào src/report/filter.ts và sửa các nơi gọi. Bước 3: viết test cho cả hai trong tests/report/. Bước 4: cập nhật docs/report.md. Chạy bun test sau mỗi bước.',
+    note: '0.8.4 C4: việc lớn có mã mục, Fable điều phối: mọi việc sửa file giao subagent chạy model thực thi',
+    expect: { kind: ['edit', 'mixed'], main: ['sonnet', 'opus'], tasks: [4, 6], codes: ['Bước 1', 'Bước 2', 'Bước 3', 'Bước 4'], editAgents: true },
+  },
+  {
+    id: 'c4-big-skill',
+    conductor: true,
+    text: 'Sửa skill tóm tắt biên bản họp trong skills/meeting-notes/SKILL.md: thêm mục việc cần làm có người phụ trách và hạn, bỏ phần lời chào đầu bản tóm tắt, giữ nguyên giọng văn hiện có. Sau đó thử skill trên ba biên bản mẫu trong examples/ và đối chiếu kết quả với các yêu cầu trên.',
+    note: '0.8.4 C4: việc lớn sửa skill rồi thử trên ví dụ, Fable điều phối: việc sửa file giao subagent',
+    expect: { kind: ['edit', 'mixed'], main: ['sonnet', 'opus'], tasks: [2, 6], editAgents: true },
+  },
+  {
+    id: 'c4-small',
+    conductor: true,
+    text: "Sửa lỗi chính tả 'recieve' thành 'receive' trong src/net/client.ts",
+    note: '0.8.4 C4: việc nhỏ sửa một chỗ, biến thể điều phối: không giao subagent',
+    expect: { kind: ['edit'], main: ['haiku', 'sonnet'], tasks: [0, 1], noDelegation: true },
+  },
+  {
+    id: 'c4-status',
+    conductor: true,
+    text: 'tới đâu rồi?',
+    prev: PARSE_PREV,
+    ran: 'fable/medium',
+    openSteps: ['Viết hàm parseDate', 'Viết test cho parseDate', 'Cập nhật tài liệu'],
+    note: '0.8.4 C4: hỏi tiến độ giữa phiên, biến thể điều phối: intent status, không việc',
+    expect: { intent: ['status'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 0] },
   },
 ]

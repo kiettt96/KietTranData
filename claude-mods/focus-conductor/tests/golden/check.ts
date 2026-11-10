@@ -59,6 +59,14 @@ export function check(c: GoldenCase, reply: string): string[] {
   if (e.above !== undefined && pickRank(plan.main) <= pickRank(e.above)) {
     fails.push(`luồng chính ${describePick(plan.main)} không cao hơn ${describePick(e.above)}`)
   }
+  // Fable điều phối (0.8.4 C4): đọc câu trả lời thô của router (không kẹp của conductor), nên luật việc lớn phải do router tự làm.
+  if (e.editAgents === true) {
+    for (const task of plan.tasks) {
+      const isEdit = task.kind === 'edit' || task.kind === 'mixed'
+      if (isEdit && (task.run !== 'agent' || task.pick.family === 'fable')) fails.push(`việc ${task.index} sửa file mà ${task.run === 'agent' ? `giao ${task.pick.family}` : 'ở luồng chính'}`)
+    }
+  }
+  if (e.noDelegation === true && plan.tasks.some(t => t.run === 'agent')) fails.push('việc nhỏ mà có việc giao subagent')
   // Bảo đảm của phần kẹp, đúng với mọi câu trả lời.
   for (const pick of [plan.main, ...plan.tasks.map(t => t.pick)]) {
     if (pick.effort === 'max') fails.push('có effort max sau kẹp')
