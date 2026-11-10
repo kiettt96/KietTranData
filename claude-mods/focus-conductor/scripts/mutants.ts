@@ -2070,4 +2070,6 @@ export const MUTANTS: Mutant[] = [
   { id: "083-R4a", file: "hooks/lib/approval.ts", note: "cho mọi lệnh gh khi chưa duyệt", old: "  if (tokens !== null && tokens[0] === 'gh') return isGhRead(tokens)\n", new: "  if (tokens !== null && tokens[0] === 'gh') return true\n" },
   { id: "083-R4b", file: "hooks/lib/approval.ts", note: "bỏ kiểm cờ ghi của gh api", old: "    return args.some(arg => !arg.startsWith('-')) && !args.some(arg => GH_API_WRITE_FLAGS.some(flag => arg === flag || arg.startsWith(flag.startsWith('--') ? `${flag}=` : flag)))\n", new: "    return args.some(arg => !arg.startsWith('-'))\n" },
   { id: "083-R4c", file: "hooks/lib/approval.ts", note: "so tiền tố thư mục tạm không có dấu / cuối", old: "const TEMP_DIRS = ['/tmp/', '/private/tmp/', '/var/folders/']\n", new: "const TEMP_DIRS = ['/tmp', '/private/tmp', '/var/folders']\n" },
+  { id: "083-R3a", file: "hooks/parts/session.ts", note: "không đặt awaitingAnswer khi dặn hỏi làm rõ", old: "isAsking ? { ...stage, asked: true, awaitingAnswer: true } : stage", new: "isAsking ? { ...stage, asked: true } : stage" },
+  { id: "083-R3b", file: "hooks/parts/session.ts", note: "không xóa awaitingAnswer sau câu trả lời", old: "  if (!approval.awaitingAnswer) return approval\n", new: "  return approval\n" },
 ]

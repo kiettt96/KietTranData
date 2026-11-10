@@ -287,10 +287,10 @@ describe('0.8.2 N2: sau khi trình', () => {
     await presented($)
     await $.session.start({ cwd: '/repo', surface: null, isInteractive: true } as never)
     expect((await edit($)).deny).toContain('chưa được duyệt')
-    const core = S.withApproval({ goalId: 4, status: 'presented', rounds: 2, asked: true })(S.EMPTY_CORE)
+    const core = S.withApproval({ goalId: 4, status: 'presented', rounds: 2, asked: true, awaitingAnswer: false })(S.EMPTY_CORE)
     const reloaded = S.normalizeCore(JSON.parse(JSON.stringify(core)) as Partial<Core>)
-    expect(reloaded.approval).toEqual({ goalId: 4, status: 'presented', rounds: 2, asked: true })
-    expect(S.normalizeCore({} as Partial<Core>).approval).toEqual({ goalId: -1, status: 'none', rounds: 0, asked: false })
+    expect(reloaded.approval).toEqual({ goalId: 4, status: 'presented', rounds: 2, asked: true, awaitingAnswer: false })
+    expect(S.normalizeCore({} as Partial<Core>).approval).toEqual({ goalId: -1, status: 'none', rounds: 0, asked: false, awaitingAnswer: false })
   })
 
   test('mục tiêu đã approved, tin amend: không chặn lại', OPTIONS, async ($, on) => {
@@ -319,10 +319,10 @@ describe('0.8.2 N2: sau khi trình', () => {
 
   test('band: mục cần chú ý "Chờ duyệt kế hoạch" khi presented, ngay sau tạm dừng', () => {
     const brief = { goalId: 2, at: 0, tasks: [], isReference: false } as never
-    const items = attentionItems({ ...S.EMPTY_CORE, brief, approval: { goalId: 2, status: 'presented', rounds: 1, asked: false } } as Core, 'vi', { paused: true, notice: null })
+    const items = attentionItems({ ...S.EMPTY_CORE, brief, approval: { goalId: 2, status: 'presented', rounds: 1, asked: false, awaitingAnswer: false } } as Core, 'vi', { paused: true, notice: null })
     expect(items.map(i => i.kind).slice(0, 2)).toEqual(['pause', 'approval'])
     expect(items[1]?.text).toBe('Chờ duyệt kế hoạch')
-    expect(attentionItems({ ...S.EMPTY_CORE, brief, approval: { goalId: 2, status: 'presented', rounds: 1, asked: false } } as Core, 'en')[0]?.text).toBe('Plan awaiting approval')
+    expect(attentionItems({ ...S.EMPTY_CORE, brief, approval: { goalId: 2, status: 'presented', rounds: 1, asked: false, awaitingAnswer: false } } as Core, 'en')[0]?.text).toBe('Plan awaiting approval')
   })
 })
 

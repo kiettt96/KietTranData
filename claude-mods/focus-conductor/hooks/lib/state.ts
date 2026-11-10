@@ -47,7 +47,7 @@ export const EMPTY_CORE: Core = {
   waivers: { goalId: -1, items: [] },
   noCheckNudged: -1,
   forks: { goalId: -1, parts: [], merged: [], off: 'none' },
-  approval: { goalId: -1, status: 'none', rounds: 0, asked: false },
+  approval: { goalId: -1, status: 'none', rounds: 0, asked: false, awaitingAnswer: false },
   skill: { goalId: -1, seq: 0, lastWrite: -1, trialAt: -1, path: '' },
   skillNudged: -1,
   changed: { goalId: -1, paths: [], unknown: 0, overflow: 0 },
@@ -345,15 +345,15 @@ const APPROVAL_STATUSES: readonly ApprovalStatus[] = ['none', 'planning', 'prese
 
 /** Trạng thái duyệt kế hoạch từ bản đã lưu (0.8.2 N2); Core từ bản trước không có trường này thì none, 0 lượt, chưa hỏi. */
 function normalizeApproval(raw: Partial<ApprovalState> | undefined): ApprovalState {
-  if (raw === undefined || raw === null) return { goalId: -1, status: 'none', rounds: 0, asked: false }
+  if (raw === undefined || raw === null) return { goalId: -1, status: 'none', rounds: 0, asked: false, awaitingAnswer: false }
   const status = APPROVAL_STATUSES.find(item => item === raw.status) ?? 'none'
-  return { goalId: typeof raw.goalId === 'number' ? raw.goalId : -1, status, rounds: typeof raw.rounds === 'number' ? raw.rounds : 0, asked: raw.asked === true }
+  return { goalId: typeof raw.goalId === 'number' ? raw.goalId : -1, status, rounds: typeof raw.rounds === 'number' ? raw.rounds : 0, asked: raw.asked === true, awaitingAnswer: raw.awaitingAnswer === true }
 }
 
 /** Trạng thái duyệt của mục tiêu đang mở (0.8.2 N2): trạng thái lưu cho mục tiêu khác là none. */
 export function approvalOf(c: Core): ApprovalState {
   const n = normalizeCore(c)
-  return n.brief !== null && n.approval.goalId === n.brief.goalId ? n.approval : { goalId: n.brief?.goalId ?? -1, status: 'none', rounds: 0, asked: false }
+  return n.brief !== null && n.approval.goalId === n.brief.goalId ? n.approval : { goalId: n.brief?.goalId ?? -1, status: 'none', rounds: 0, asked: false, awaitingAnswer: false }
 }
 
 /** Mục tiêu đang mở chờ duyệt kế hoạch (0.8.2 N2): planning hay presented thì luồng chính chưa được sửa file. */

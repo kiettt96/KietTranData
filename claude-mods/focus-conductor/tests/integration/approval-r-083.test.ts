@@ -123,6 +123,15 @@ describe('0.8.3 R3: cờ chờ câu trả lời nằm trong Core', () => {
     expect((await edit($)).deny).toContain('chưa được duyệt')
   })
 
+  test('sau câu trả lời hết chờ: turn kế mà checklist trống thì Stop chặn như thường', LOGGED, async ($, on) => {
+    setup(on, [asking, answer])
+    await submit($, 'Sửa luồng thanh toán')
+    await submit($, 'giữ, lên')
+    await $.turn.start({ text: 'việc', turnId: 't2' })
+    await $.tool.call({ tool: 'mcp__focus-conductor__plan', action: 'set', steps: [] } as never)
+    expect(await stop($)).not.toBe('')
+  })
+
   test('Core từ 0.8.2 không có awaitingAnswer: nạp được, mặc định false', () => {
     const old = { ...S.EMPTY_CORE, approval: { goalId: 4, status: 'planning', rounds: 0, asked: true } }
     const loaded = S.normalizeCore(JSON.parse(JSON.stringify(old)) as Partial<Core>)
