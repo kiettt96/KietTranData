@@ -111,6 +111,8 @@ export type Seen = {
   routerModels: string[]
   /** Request kiểm lạc đề (semanticDrift) mà router nhận. */
   drift: string[]
+  /** Mọi lượt gọi router (0.8.4): loại request, model, effort, thời gian chờ mà engine nhận. */
+  routerCalls: Array<{ kind: 'prompt' | 'agent' | 'drift' | 'review'; model: string; effort?: string; timeoutMs?: number }>
   /** Dòng trạng thái mod đặt qua $.ui.status (undefined là xóa dòng). */
   statuses: Array<string | undefined>
   /** Các lần mod gọi $.ui.open (id, tiêu đề, số dòng, focus) và các pane đang mở theo "engine" giả (0.7.2). */
@@ -141,7 +143,7 @@ export function base(
   } = {},
 ): Seen {
   const clock = mock.clock(on, { now: 1000 })
-  const seen: Seen = { contexts: [], steps: [], toasts: [], routed: [], agentRouted: [], routerModels: [], drift: [], statuses: [], opened: [], panes: [], clock }
+  const seen: Seen = { contexts: [], steps: [], toasts: [], routed: [], agentRouted: [], routerModels: [], drift: [], routerCalls: [], statuses: [], opened: [], panes: [], clock }
   on('prompt.submit', ($, e) => {
     seen.contexts.push([...(e.context ?? [])])
     return { text: e.text, context: e.context }
@@ -149,6 +151,8 @@ export function base(
   on('model.complete', (_$, e) => {
     if (engine.isRejected) throw new Error('model bị chặn')
     const isAgent = (e.system ?? '').includes('about to start a subagent')
+    const kind = (e.system ?? '').includes('still working toward') ? 'drift' : isAgent ? 'agent' : e.prompt.startsWith('Requirements:') || e.prompt.includes('<request>\nRequirements:') ? 'review' : 'prompt'
+    seen.routerCalls.push({ kind, model: e.model, ...(e.effort !== undefined ? { effort: String(e.effort) } : {}), ...(e.timeoutMs !== undefined ? { timeoutMs: e.timeoutMs } : {}) })
     if ((e.system ?? '').includes('still working toward')) {
       seen.drift.push(e.prompt)
       const verdict = engine.drift ? engine.drift(e.prompt) : { onTrack: true, why: 'ổn' }
