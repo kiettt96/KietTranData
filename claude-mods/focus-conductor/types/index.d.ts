@@ -431,9 +431,10 @@ export type SkillState = { goalId: number; seq: number; lastWrite: number; trial
 /**
  * Trạng thái của Fable điều phối (0.8.4). `failures`: số lượt router Fable lỗi liên tiếp; `pauseLeft`: số prompt router Fable còn tạm
  * ngừng; `ready`: trạng thái điều phối đã ghi nhật ký gần nhất (null là chưa ghi); `reason`: nguyên nhân khi không điều phối;
- * `holdKey`: mục tiêu và mức nâng đã ghi dòng conductor-hold.
+ * `holdKey`: mục tiêu và mức nâng đã ghi dòng conductor-hold. `briefedGoal` (0.8.4 V1): mục tiêu đã nhận đoạn dặn vai điều phối đầy
+ * đủ, -1 là chưa có.
  */
-export type FableState = { failures: number; pauseLeft: number; ready: boolean | null; reason: string; holdKey: string }
+export type FableState = { failures: number; pauseLeft: number; ready: boolean | null; reason: string; holdKey: string; briefedGoal: number }
 
 export type ApprovalStatus = 'none' | 'planning' | 'presented' | 'approved' | 'skipped'
 export type ApprovalState = { goalId: number; status: ApprovalStatus; rounds: number; asked: boolean; awaitingAnswer: boolean }

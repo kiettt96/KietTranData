@@ -1318,3 +1318,11 @@ export function conductorContext(): string {
     'chí xong và lệnh kiểm. Đọc kết quả, đối chiếu yêu cầu trước khi đóng bước. Chỉ tự sửa file khi chỉnh vài dòng để ráp kết quả.'
   )
 }
+
+/** Trần câu nhắc lại vai điều phối (0.8.4 V1). */
+export const CONDUCTOR_KEEP_CHARS = 200
+
+/** Câu nhắc lại vai điều phối (0.8.4 V1): nối vào lời nhắc sau nén và ngữ cảnh chạy tiếp khi luồng chính đang điều phối. */
+export function conductorKeepText(): string {
+  return '[focus-conductor] Vẫn là vai điều phối chạy fable/medium: giao việc sửa file bằng Agent theo phân việc, lời giao tự đứng được; đối chiếu kết quả với yêu cầu trước khi đóng bước.'
+}

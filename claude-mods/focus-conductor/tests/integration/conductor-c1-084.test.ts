@@ -83,6 +83,6 @@ describe('0.8.4 C1: chính sách model của phiên thắng', () => {
 describe('0.8.4 C1: trạng thái từ bản cũ', () => {
   test('Core 0.8.3 không có trường fable: nạp được, mặc định không tạm ngừng, chưa ghi trạng thái', () => {
     const core = S.normalizeCore(JSON.parse(JSON.stringify({ ...S.EMPTY_CORE, fable: undefined })) as Partial<Core>)
-    expect(core.fable).toEqual({ failures: 0, pauseLeft: 0, ready: null, reason: '', holdKey: '' })
+    expect(core.fable).toEqual({ failures: 0, pauseLeft: 0, ready: null, reason: '', holdKey: '', briefedGoal: -1 })
   })
 })

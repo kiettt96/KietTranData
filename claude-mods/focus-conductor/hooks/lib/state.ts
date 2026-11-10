@@ -52,7 +52,7 @@ export const EMPTY_CORE: Core = {
   skillNudged: -1,
   changed: { goalId: -1, paths: [], unknown: 0, overflow: 0 },
   changedNoticed: -1,
-  fable: { failures: 0, pauseLeft: 0, ready: null, reason: '', holdKey: '' },
+  fable: { failures: 0, pauseLeft: 0, ready: null, reason: '', holdKey: '', briefedGoal: -1 },
 }
 
 const LOG_LIMIT = 60
@@ -352,8 +352,8 @@ const APPROVAL_STATUSES: readonly ApprovalStatus[] = ['none', 'planning', 'prese
 /** Trạng thái Fable điều phối (0.8.4); vắng hay sai kiểu ở trạng thái từ bản cũ là mặc định. */
 function normalizeFable(raw: Partial<FableState> | undefined): FableState {
   const count = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0)
-  if (raw === undefined || raw === null || typeof raw !== 'object') return { failures: 0, pauseLeft: 0, ready: null, reason: '', holdKey: '' }
-  return { failures: count(raw.failures), pauseLeft: count(raw.pauseLeft), ready: typeof raw.ready === 'boolean' ? raw.ready : null, reason: typeof raw.reason === 'string' ? raw.reason : '', holdKey: typeof raw.holdKey === 'string' ? raw.holdKey : '' }
+  if (raw === undefined || raw === null || typeof raw !== 'object') return { failures: 0, pauseLeft: 0, ready: null, reason: '', holdKey: '', briefedGoal: -1 }
+  return { failures: count(raw.failures), pauseLeft: count(raw.pauseLeft), ready: typeof raw.ready === 'boolean' ? raw.ready : null, reason: typeof raw.reason === 'string' ? raw.reason : '', holdKey: typeof raw.holdKey === 'string' ? raw.holdKey : '', briefedGoal: typeof raw.briefedGoal === 'number' && Number.isInteger(raw.briefedGoal) ? raw.briefedGoal : -1 }
 }
 
 /** Ghi trạng thái Fable điều phối (0.8.4). */

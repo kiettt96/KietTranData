@@ -21,10 +21,11 @@ import { EMPTY_QUOTA, evaluateQuota, normalizeQuota, quotaSettings, softNotices 
 import { storeKey, withNote } from '../lib/checkpoint'
 import * as S from '../lib/state'
 import { fableStep } from './fable'
+import { isMainConducting } from '../lib/conductor'
 import type { View } from '../lib/state'
 import { shownPlan } from '../lib/mirror'
 import { forkFailures, forkFiles, forkResults, liveForks, mergeDue } from '../lib/forks'
-import { PLAN_TOOL_FULL, RETRY_REPORT, chainedCheckNote, retryAgentNotice, RETRY_ROUNDS, noCheckReason, waiveAskText, blockText, firstErrorLine, clipMiddle, RETRY_COMMAND_CHARS, joinStopReasons, retryDoneNote, retryEditNote, retryFailNotice, retryName, retryStepNote, retryStopReason, skillTrialReason, changedFilesNotice, checkHintText, compactReminderText, criteriaNotice, driftContext, missingTasks, missingTasksNotice, needsChecklist, noChecklistReason, pendingNotice, qualityNotice, renderBulk, renderPlan, requirementsNotice, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice, forkMergedNote } from '../lib/text'
+import { PLAN_TOOL_FULL, RETRY_REPORT, chainedCheckNote, retryAgentNotice, RETRY_ROUNDS, noCheckReason, waiveAskText, blockText, firstErrorLine, clipMiddle, RETRY_COMMAND_CHARS, joinStopReasons, retryDoneNote, retryEditNote, retryFailNotice, retryName, retryStepNote, retryStopReason, skillTrialReason, changedFilesNotice, checkHintText, compactReminderText, conductorKeepText, criteriaNotice, driftContext, missingTasks, missingTasksNotice, needsChecklist, noChecklistReason, pendingNotice, qualityNotice, renderBulk, renderPlan, requirementsNotice, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice, forkMergedNote } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -890,7 +891,9 @@ export function registerConsistency(on: On, ctx: Ctx): void {
 
     const core = S.normalizeCore(await read($, coreState))
     // Lời nhắc sau nén (0.7.4): gắn một lần vào tool call này, dựng từ mục tiêu và checklist lúc này.
-    const compactNote = L.compaction.pending && core.brief !== null ? compactReminderText(core.brief, shownPlan(core).plan) : null
+    // Luồng chính đang điều phối (0.8.4 V1): lời nhắc sau nén kèm câu nhắc lại vai điều phối.
+    const keepRole = L.compaction.pending && core.brief !== null && isMainConducting(ctx.conductorInputs(core, S.modeOf(await read($, modeState), ctx.options)), core.brief)
+    const compactNote = L.compaction.pending && core.brief !== null ? `${compactReminderText(core.brief, shownPlan(core).plan)}${keepRole ? `\n${conductorKeepText()}` : ''}` : null
     L.compaction.pending = false
     // Ghi cả lệnh lỗi: evidence nhắc tới một lệnh kiểm tra đã lỗi thì không được tính là đã kiểm tra.
     const retryNotes: string[] = []

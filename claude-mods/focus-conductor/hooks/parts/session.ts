@@ -3,7 +3,7 @@
 import { atom, derive, read, update } from 'claude-code'
 import { caught, noteBehavior, noteHookError, noteMistyped } from '../lib/errlog'
 import type { ApprovalState, Brief, Core, Depth, Mode, QuotaCheckpoint, Warning } from '../../types'
-import { blockerText } from '../lib/conductor'
+import { blockerText, isMainConducting } from '../lib/conductor'
 import { fableStep } from './fable'
 import { briefFromCheckpoint, changedFiles, storeKey } from '../lib/checkpoint'
 import { openSteps, restorableSteps } from '../lib/drift'
@@ -15,7 +15,7 @@ import type { RouterOutcome, RouterPlan } from '../lib/router'
 import { EMPTY_QUOTA, blockingHits, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaSettings, reasonsOf, softNotices } from '../lib/quota'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
-import { DISCIPLINE, conductorContext, phaseNotice, briefContext, droppedItemsText, droppedPlanNotice, followUpContext, intentResumeContext, intentStatusContext, interjectContext, interjectMovedNote, quotaPausedContext, resetLabel, resumeCommand, restorableLabel, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
+import { DISCIPLINE, conductorContext, conductorKeepText, phaseNotice, briefContext, droppedItemsText, droppedPlanNotice, followUpContext, intentResumeContext, intentStatusContext, interjectContext, interjectMovedNote, quotaPausedContext, resetLabel, resumeCommand, restorableLabel, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -252,7 +252,10 @@ export function registerSession(on: On, ctx: Ctx): void {
       const cp: QuotaCheckpoint = { ...openCp, status: 'resuming' }
       await update($, quotaState, c => ({ ...normalizeQuota(c), checkpoint: cp, resume: { id: cp.id, turnId: '' } }))
       await $.store.set(storeKey(cp.cwd), cp).catch(caught('store.set', undefined))
-      return [resumeContext(cp, changedFiles(cp.files, stats))]
+      // Luồng chính điều phối mục tiêu được tiếp tục (0.8.4 V1): kèm câu nhắc lại vai điều phối.
+      const now = S.normalizeCore(await read($, coreState))
+      const keepRole = isMainConducting(ctx.conductorInputs(now, current, (await read($, headlessState)) === true), now.brief)
+      return [resumeContext(cp, changedFiles(cp.files, stats)), ...(keepRole ? [conductorKeepText()] : [])]
     }
     const pending = openCp !== null ? [resumePendingContext(openCp, L.noAutoResume && !isArmed)] : []
 
@@ -260,6 +263,7 @@ export function registerSession(on: On, ctx: Ctx): void {
     // Fable điều phối (0.8.4 C1): ghi một dòng nhật ký mỗi khi trạng thái điều phối đổi (bật, tắt kèm nguyên nhân).
     await noteConductor($, ctx, before, current)
     // Một prompt đi qua trong lúc router Fable tạm ngừng (0.8.4 C6); lượt này vẫn đọc theo trạng thái lúc prompt đến (before).
+    L.fablePromptPaused = before.fable.pauseLeft > 0
     if (before.fable.pauseLeft > 0) await update($, coreState, S.withFable(f => ({ pauseLeft: f.pauseLeft - 1 })))
     const prev = before.brief
     // routerSkip (người dùng tự bật): câu ngắn đúng nguyên văn trong danh sách thì là tiếp nối, không hỏi router.
@@ -530,8 +534,11 @@ export function registerSession(on: On, ctx: Ctx): void {
       )
     }
     await showStatus($, await read($, view), ctx.options)
-    // Vai điều phối (0.8.4 C5): một lần mỗi mục tiêu, cùng khối brief của mục tiêu mới.
-    const conductNote = isNewGoal && wanted?.isConducting === true ? [conductorContext()] : []
+    // Vai điều phối (0.8.4 C5, V1): đoạn dặn đầy đủ một lần mỗi mục tiêu, ở prompt đầu tiên luồng chính điều phối mục tiêu đó (mục tiêu
+    // mới, hay mục tiêu mở lúc Fable chưa sẵn sàng); khóa Core.fable.briefedGoal.
+    const isBriefed = S.normalizeCore(await read($, coreState)).fable.briefedGoal === brief.goalId
+    const conductNote = wanted?.isConducting === true && !isBriefed ? [conductorContext()] : []
+    if (conductNote.length > 0) await update($, coreState, S.withFable(() => ({ briefedGoal: brief.goalId })))
     return next({ ...e, context: [...lead, ...(e.context ?? []), context, ...conductNote, ...approvalNotes, ...(phaseNote !== null ? [phaseNote] : []), ...notice, ...(isClipped ? [CLIPPED_CONTEXT] : []), ...tail] })
   }).catch(($, e, next) => (noteHookError('prompt.submit', next.error), next(e)))
 
