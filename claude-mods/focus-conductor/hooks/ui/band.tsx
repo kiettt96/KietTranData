@@ -7,6 +7,7 @@
 
 import type { Color, Elements, RenderElement, RenderSurface } from 'claude-code'
 
+import { conductorShown } from '../lib/conductor'
 import { shownPlan } from '../lib/mirror'
 import { runningTitles, taskRows } from '../lib/progress'
 import type { QuotaBadge } from '../lib/quota'
@@ -23,6 +24,8 @@ import { FAMILY_HUE, SPINE, barRuns, cellsOf, columnsOf, currentStep, goalUsd, p
 export const BUTTON_CELLS = 10
 const buttonCells = (label: string) => Math.max(BUTTON_CELLS, cellsOf(label) + 2)
 const runCells = (runs: readonly Run[]) => runs.reduce((sum, r) => sum + cellsOf(r.text), 0)
+/** Band rộng từ bấy nhiêu ô mới có nhãn vai điều phối trên chip model (0.8.4 C8). */
+const ROLE_COLUMNS = 72
 /** Số ô tối thiểu giữ cho tên bước ở dòng 1 khi band hẹp phải bỏ chip [Giả định: đủ thấy mã bước như "BƯỚC 4"]. */
 const FOCUS_CELLS = 4
 /** Ký hiệu tạm dừng (0.7.6, U3): U+23F8. */
@@ -109,13 +112,15 @@ export function renderBand(
 
   // Band hẹp: phần không co (gờ, tiến độ, chip, nút) không được vượt chiều rộng. Thừa thì bỏ lần lượt chip subagent, mức effort, thời gian
   // đã chạy, rồi cả chip model.
-  const fit = { agents: true, effort: true, elapsed: true, route: true }
+  const fit = { agents: true, effort: true, elapsed: true, route: true, role: true }
+  // Vai điều phối (0.8.4 C8): nhãn trên chip model của luồng chính điều phối, chỉ khi band rộng từ ROLE_COLUMNS ô.
+  const roleText = view.conductor !== undefined && columns >= ROLE_COLUMNS && route?.family === 'fable' && conductorShown(view.core).state === 'on' ? l.conductorRole : ''
   const progressCells = () =>
     bar.length > 0 ? runCells(bar) + 1 + cellsOf(countText) + (mirrorText ? 1 + cellsOf(mirrorText) : 0) : beads.length > 0 ? runCells(beads) + 1 + cellsOf(l.plannedSteps(planned)) : 0
   const chipCells = () => {
     const parts = [
       cellsOf(quotaText),
-      route && fit.route ? cellsOf(route.family) + 2 + (fit.effort ? 1 + cellsOf(route.effort) : 0) : 0,
+      route && fit.route ? cellsOf(route.family) + 2 + (fit.effort ? 1 + cellsOf(route.effort) : 0) + (fit.role && roleText ? 1 + cellsOf(roleText) : 0) : 0,
       fit.elapsed ? cellsOf(elapsedText) : 0,
       cellsOf(costText),
       fit.agents ? cellsOf(agentChip) : 0,
@@ -125,7 +130,7 @@ export function renderBand(
   // Tên bước được giữ ít nhất FOCUS_CELLS ô trước khi bỏ chip; riêng chip subagent nhường cả tên bước (U4: tên việc ưu tiên hơn chip).
   const focusWant = () => (fit.agents && agentChip ? Math.max(FOCUS_CELLS, cellsOf(current?.title ?? brief.goal)) : FOCUS_CELLS)
   const fixedCells = () => 2 + progressCells() + 1 + focusWant() + 1 + chipCells() + 1 + buttonCells(l.details) + (hasRoom ? 1 + buttonCells(l.hide) : 0)
-  for (const drop of [() => (fit.agents = false), () => (fit.effort = false), () => (fit.elapsed = false), () => (fit.route = false)]) {
+  for (const drop of [() => (fit.role = false), () => (fit.agents = false), () => (fit.effort = false), () => (fit.elapsed = false), () => (fit.route = false)]) {
     if (fixedCells() <= columns) break
     drop()
   }
@@ -146,6 +151,7 @@ export function renderBand(
             {` ${route.family} `}
           </Text>
           {fit.effort ? <Text dimColor> {route.effort}</Text> : null}
+          {fit.role && roleText ? <Text dimColor> {roleText}</Text> : null}
         </Text>
       )
     ) : null

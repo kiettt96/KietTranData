@@ -17,7 +17,7 @@ import type { View } from '../lib/state'
 import { RETRY_ROUNDS, WAIVE_REPORT, briefContext, checkHintLines, droppedItemsText, droppedPlanNotice, quotaStatusLines, renderPlan, resetLabel, routerFailLines, unroutedContext } from '../lib/text'
 import { PANE_ROWS, shouldAutoOpenPane } from '../lib/pane'
 import { PANE, PANE_TITLE } from '../ui/pane'
-import { labels, langOf } from '../ui/labels'
+import { conductorLine, labels, langOf } from '../ui/labels'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -458,7 +458,9 @@ export function registerCommand(on: On, ctx: Ctx): void {
           now: await $.clock.now(),
         }),
       )
-      if (core.brief === null) return { text: [`Chế độ ${current}. Chưa có mục tiêu.`, ...routerFailLines(core.routerFail), ...costLines].join('\n') }
+      // Fable điều phối (0.8.4 C8): một dòng trạng thái, chỉ khi option conductor là fable.
+      const conductorLines = ctx.conductorOption === 'fable' ? [conductorLine(core, ctx.routerModel, lang)] : []
+      if (core.brief === null) return { text: [`Chế độ ${current}. Chưa có mục tiêu.`, ...conductorLines, ...routerFailLines(core.routerFail), ...costLines].join('\n') }
       const routeLine = core.route
         ? `${describePick(core.route)} (${core.route.reason})`
         : core.brief.main === null
@@ -486,6 +488,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
           `Chế độ ${current}`,
           judged,
           `Luồng chính: ${routeLine}${blockedLine}`,
+          ...conductorLines,
           ...routerFailLines(core.routerFail),
           ...checkHintLines(core.checkHint, core.brief.goalId),
           ...((core.brief.dropped ?? 0) > 0 ? [droppedItemsText(core.brief.dropped ?? 0)] : []),

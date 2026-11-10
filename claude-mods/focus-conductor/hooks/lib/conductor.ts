@@ -117,3 +117,17 @@ export function fableAfterCall(state: { failures: number; pauseLeft: number }, i
   if (failures < limit) return { failures, pauseLeft: state.pauseLeft, isPausedNow: false }
   return { failures: 0, pauseLeft: pause, isPausedNow: true }
 }
+
+/** Trạng thái điều phối để hiện (0.8.4 C8): đang điều phối, tạm ngừng, hay tắt kèm nguyên nhân. */
+export type ConductorShown = { state: 'on' } | { state: 'paused' } | { state: 'off'; reason: ConductorBlocker | 'small' | 'none' }
+
+/**
+ * Trạng thái điều phối theo Core (0.8.4 C8): router Fable tạm ngừng; đã ghi sẵn sàng và mục tiêu lớn là đang điều phối; còn lại tắt, với
+ * nguyên nhân đã ghi ở lần đọc prompt gần nhất (small: mục tiêu không lớn; none: chưa đọc prompt nào).
+ */
+export function conductorShown(core: { fable: { pauseLeft: number; ready: boolean | null; reason: string }; brief: Pick<Brief, 'depth' | 'kind' | 'isReference' | 'isBare'> | null }): ConductorShown {
+  if (core.fable.pauseLeft > 0) return { state: 'paused' }
+  if (core.fable.ready === true) return isBigGoal(core.brief) ? { state: 'on' } : { state: 'off', reason: 'small' }
+  const known: readonly string[] = ['option', 'mode', 'headless', 'blocked', 'paused', 'session']
+  return { state: 'off', reason: known.includes(core.fable.reason) ? (core.fable.reason as ConductorBlocker) : 'none' }
+}

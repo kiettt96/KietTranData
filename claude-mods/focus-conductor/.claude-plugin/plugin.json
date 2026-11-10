@@ -15,7 +15,7 @@
     "router": {
       "type": "string",
       "title": "Model router",
-      "description": "Model Claude đọc prompt và điều phối việc, agent, model, effort ngay từ đầu: alias haiku, sonnet, opus hoặc model ID. Mặc định sonnet",
+      "description": "Model Claude đọc prompt và điều phối việc, agent, model, effort ngay từ đầu: alias haiku, sonnet, opus hoặc model ID. Mặc định sonnet. Khi conductor là fable, router là Fable và option này chỉ dùng lúc router Fable tạm ngừng.",
       "default": "sonnet"
     },
     "conductor": {
@@ -34,7 +34,7 @@
     "allowFable": {
       "type": "boolean",
       "title": "Cho phép dùng Fable cho việc rất khó",
-      "description": "Cho router dùng Fable cho việc khó nhất; tắt thì lựa chọn fable bị kẹp về Opus. Chi phí cao hơn khoảng 2,5 lần Opus",
+      "description": "Cho router dùng Fable cho việc khó nhất; tắt thì lựa chọn fable bị kẹp về Opus. Chi phí cao hơn khoảng 2,5 lần Opus. Chỉ quyết Fable có được làm model thực thi không; vai điều phối của Fable bật bằng option conductor.",
       "default": false
     },
     "modelMap": {

@@ -13,7 +13,7 @@ import { liveForks } from '../lib/forks'
 import { countLabel, progress } from '../lib/text'
 import type { BandQuota, QuotaPaneText } from '../lib/text'
 import { attentionItems } from './attention'
-import { labels, shownEntry, stepTaskMeta, taskLabel } from './labels'
+import { conductorLine, labels, shownEntry, stepTaskMeta, taskLabel } from './labels'
 import type { Run } from './style'
 import {
   FAMILY_HUE,
@@ -629,6 +629,8 @@ export function renderPane(
   })
 
   // ----------------------------------------------------------- điều phối
+  // Fable điều phối (0.8.4 C8): một dòng trạng thái, chỉ khi option conductor là fable.
+  const conductorText = view.conductor !== undefined ? conductorLine(view.core, view.conductor.fallback, view.lang) : null
   const routeNode = route ? (
     <Box flexDirection="column">
       <Text wrap="wrap">
@@ -643,11 +645,19 @@ export function renderPane(
           {route.reason}
         </Text>
       ) : null}
+      {conductorText !== null ? <Text wrap="wrap">{conductorText}</Text> : null}
     </Box>
-  ) : (
+  ) : conductorText === null ? (
     <Text dimColor wrap="wrap">
       {l.notApplied}
     </Text>
+  ) : (
+    <Box flexDirection="column">
+      <Text dimColor wrap="wrap">
+        {l.notApplied}
+      </Text>
+      <Text wrap="wrap">{conductorText}</Text>
+    </Box>
   )
 
   // ------------------------------------------------------------ chi phí

@@ -2094,4 +2094,6 @@ export const MUTANTS: Mutant[] = [
   { id: "084-C6c", file: "hooks/parts/session.ts", note: "không giảm số prompt tạm ngừng nên không thử lại Fable", old: "    if (before.fable.pauseLeft > 0) await update($, coreState, S.withFable(f => ({ pauseLeft: f.pauseLeft - 1 })))\n", new: "" },
   { id: "084-C7a", file: "hooks/parts/agents.ts", note: "Agent Explore cũng chạy fable/medium khi Fable sẵn sàng", old: "if (route !== null && e.subagent_type === 'Plan' && isFableReady(", new: "if (route !== null && (e.subagent_type === 'Plan' || e.subagent_type === 'Explore') && isFableReady(" },
   { id: "084-C7b", file: "hooks/parts/agents.ts", note: "Agent Plan chạy fable bỏ qua sessionModel ceiling", old: "      const family = applySession('fable', rules.session)\n", new: "      const family = 'fable' as const\n" },
+  { id: "084-C8a", file: "hooks/ui/band.tsx", note: "hiện nhãn vai điều phối trên chip model cả khi không điều phối", old: "view.conductor !== undefined && columns >= ROLE_COLUMNS && route?.family === 'fable' && conductorShown(view.core).state === 'on' ? l.conductorRole : ''", new: "columns >= ROLE_COLUMNS && route !== null ? l.conductorRole : ''" },
+  { id: "084-C8b", file: "hooks/ui/band.tsx", note: "hiện nhãn vai điều phối ở band dưới 72 ô", old: "const ROLE_COLUMNS = 72\n", new: "const ROLE_COLUMNS = 0\n" },
 ]
