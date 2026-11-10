@@ -2072,4 +2072,5 @@ export const MUTANTS: Mutant[] = [
   { id: "083-R4c", file: "hooks/lib/approval.ts", note: "so tiền tố thư mục tạm không có dấu / cuối", old: "const TEMP_DIRS = ['/tmp/', '/private/tmp/', '/var/folders/']\n", new: "const TEMP_DIRS = ['/tmp', '/private/tmp', '/var/folders']\n" },
   { id: "083-R3a", file: "hooks/parts/session.ts", note: "không đặt awaitingAnswer khi dặn hỏi làm rõ", old: "isAsking ? { ...stage, asked: true, awaitingAnswer: true } : stage", new: "isAsking ? { ...stage, asked: true } : stage" },
   { id: "083-R3b", file: "hooks/parts/session.ts", note: "không xóa awaitingAnswer sau câu trả lời", old: "  if (!approval.awaitingAnswer) return approval\n", new: "  return approval\n" },
+  { id: "084-S1a", file: "hooks/lib/drift/output.ts", note: "bỏ pass, passed, ok khỏi danh sách từ chen giữa bị cấm của phủ định cách quãng", old: "(?:dat|pass|passed|ok|thanh\\s+cong)", new: "(?:dat|thanh\\s+cong)" },
 ]
