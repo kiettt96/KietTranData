@@ -292,6 +292,19 @@ const FOLDED_FAIL = new RegExp(`${EDGE_START}(?:chua|khong)\\s+dat${EDGE_END}`, 
 /** Số đếm đứng trước "loi" trên dạng bỏ dấu, cách tối đa một từ (0.8.3 D1): "2 loi", "3 phep loi". Không đọc "do" (đỏ). */
 const FOLDED_COUNT = new RegExp(`${EDGE_START}(${NUMBER})\\s+(?:\\p{L}+\\s+)?loi${EDGE_END}`, 'gu')
 
+/**
+ * Phủ định cách quãng của dòng tổng kết (0.8.3 D2): không, chẳng, no, zero, khong, rồi tối đa 3 từ bất kỳ, rồi từ lỗi ("không có phép nào
+ * failed", "no test failed"). Chỉ dùng trong `summaryFailed`.
+ */
+const SPACED_NEGATION = new RegExp(`${EDGE_START}(?:không|chẳng|no|zero|khong)\\s+((?:\\S+\\s+){0,3})(?:lỗi|loi|fail(?:ed|ures)?|errors?)${EDGE_END}`, 'giu')
+/** Từ chen giữa làm phủ định không còn là phủ định của từ lỗi (0.8.3 D2): đạt, pass, passed, ok, thành công, hay một số. */
+const SPACED_BANNED = /(?:^|[^\p{L}\p{N}])(?:dat|pass|passed|ok|thanh\s+cong)(?![\p{L}\p{N}])|\d/u
+
+/** Bỏ một phủ định cách quãng, trừ khi từ chen giữa thuộc SPACED_BANNED: "không đạt, 2 phép failed" vẫn là lỗi. */
+function dropSpacedNegation(match: string, middle: string): string {
+  return SPACED_BANNED.test(foldLabel(middle)) ? match : ' '
+}
+
 /** Bỏ dấu tiếng Việt và viết thường, để so nhãn của dòng tổng kết. */
 function foldLabel(text: string): string {
   return text.normalize('NFD').replace(/\p{M}/gu, '').replace(/[đĐ]/gu, 'd').toLowerCase()
@@ -305,7 +318,7 @@ function foldLabel(text: string): string {
 export function summaryFailed(output: string): boolean {
   const last = output.normalize('NFC').split('\n').map(line => line.trim()).filter(line => line !== '').at(-1) ?? ''
   if (!SUMMARY_LABEL.test(foldLabel(last))) return false
-  const line = last.replace(NEGATED_FAILURE, ' ').replace(ZERO_UNIT_FAILURES, ' ').replace(ZERO_FAILURES, ' ')
+  const line = last.replace(NEGATED_FAILURE, ' ').replace(ZERO_UNIT_FAILURES, ' ').replace(ZERO_FAILURES, ' ').replace(SPACED_NEGATION, dropSpacedNegation)
   if (SUMMARY_FAIL.test(line)) return true
   // Dòng không dấu (0.8.3 D1): kết luận lỗi và số đếm lỗi xét trên dạng bỏ dấu của dòng.
   const folded = foldLabel(line)

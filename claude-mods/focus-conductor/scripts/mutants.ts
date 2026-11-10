@@ -2063,4 +2063,6 @@ export const MUTANTS: Mutant[] = [
   { id: "082-N4d", file: "hooks/parts/quota.ts", note: "auto bật sao lưu cả khi không nhận biết được cloud", old: "backupMode === 'auto' && (await isCloudSession($, cloudMemo))", new: "backupMode === 'auto'" },
   { id: "083-D1a", file: "hooks/lib/drift/output.ts", note: "bỏ xét kết luận lỗi trên dạng bỏ dấu của dòng tổng kết", old: "  if (FOLDED_FAIL.test(folded)) return true\n", new: "" },
   { id: "083-D1b", file: "hooks/lib/drift/output.ts", note: "bỏ xét số đếm loi trên dạng bỏ dấu", old: "  if ([...folded.matchAll(FOLDED_COUNT)].some(match => hasNonZero(match[1] ?? ''))) return true\n", new: "" },
+  { id: "083-D2a", file: "hooks/lib/drift/output.ts", note: "bỏ bước phủ định cách quãng của dòng tổng kết", old: ".replace(ZERO_FAILURES, ' ').replace(SPACED_NEGATION, dropSpacedNegation)\n", new: ".replace(ZERO_FAILURES, ' ')\n" },
+  { id: "083-D2b", file: "hooks/lib/drift/output.ts", note: "bỏ danh sách từ chen giữa bị cấm của phủ định cách quãng", old: "  return SPACED_BANNED.test(foldLabel(middle)) ? match : ' '\n", new: "  return ' '\n" },
 ]
