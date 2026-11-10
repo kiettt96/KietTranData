@@ -4,6 +4,7 @@ import { atom, derive, read, update } from 'claude-code'
 import { caught, noteBehavior, noteHookError, noteMistyped } from '../lib/errlog'
 import type { ApprovalState, Brief, Core, Depth, Mode, QuotaCheckpoint, Warning } from '../../types'
 import { blockerText } from '../lib/conductor'
+import { fableStep } from './fable'
 import { briefFromCheckpoint, changedFiles, storeKey } from '../lib/checkpoint'
 import { openSteps, restorableSteps } from '../lib/drift'
 import { PLAN_TOOL_SPEC } from '../lib/plan'
@@ -39,6 +40,19 @@ async function autoOpenPane($: EngineInterface, ctx: Ctx, goalId: number, at: nu
 // Atom của mod, khai báo lại ở mỗi file dùng chúng (engine chỉ nhận tham chiếu state viết trong chính file đó);
 // cùng plugin và key nên là cùng một giá trị trong $.state.
 const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EMPTY_CORE)
+
+/** Áp kết quả một lượt router gửi Fable vào Core (0.8.4 C6): vừa tạm ngừng thì toast và một dòng nhật ký conductor. */
+async function noteFableRouter($: EngineInterface, ctx: Ctx, isOk: boolean): Promise<void> {
+  const at = await $.clock.now()
+  const step = fableStep(S.normalizeCore(await read($, coreState)), isOk, ctx.routerModel, at)
+  if (step === null) return
+  await update($, coreState, step.change)
+  if (step.text !== null) $.ui.toast(step.text)
+  if (step.log !== null) {
+    ctx.record(at, 'conductor', step.log)
+    await ctx.flushDecisions((path, body) => $.fs.write(path, body))
+  }
+}
 const bandHiddenState = atom({ plugin: 'focus-conductor', key: 'isBandHidden' } as const, false)
 const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null)
 /** Mod đã tự đặt mode off vì phiên không tương tác (0.8.0 A13): mở lại tương tác thì trả mode về cấu hình. */
@@ -245,6 +259,8 @@ export function registerSession(on: On, ctx: Ctx): void {
     const before = S.normalizeCore(await read($, coreState))
     // Fable điều phối (0.8.4 C1): ghi một dòng nhật ký mỗi khi trạng thái điều phối đổi (bật, tắt kèm nguyên nhân).
     await noteConductor($, ctx, before, current)
+    // Một prompt đi qua trong lúc router Fable tạm ngừng (0.8.4 C6); lượt này vẫn đọc theo trạng thái lúc prompt đến (before).
+    if (before.fable.pauseLeft > 0) await update($, coreState, S.withFable(f => ({ pauseLeft: f.pauseLeft - 1 })))
     const prev = before.brief
     // routerSkip (người dùng tự bật): câu ngắn đúng nguyên văn trong danh sách thì là tiếp nối, không hỏi router.
     if (prev !== null && isSkippable(text, skipPhrases)) {
@@ -270,7 +286,9 @@ export function registerSession(on: On, ctx: Ctx): void {
     const basePolicy = ctx.routePolicy(before, ctx.maxForks >= 2 ? await $.session.root().catch(caught('session.root', null)) : null)
     // Fable điều phối (0.8.4 C4): điều phối khả dụng thì router dùng biến thể điều phối và parseRoute kẹp việc sửa file của việc lớn.
     const rules = ctx.conductorState(before, current, (await read($, headlessState)) === true) === null ? { ...basePolicy, conductor: true } : basePolicy
-    const isPaused = isRouterPaused()
+    // Model của lượt router (0.8.4 C2): Fable khi sẵn sàng, không thì option router. Tạm ngừng router cũ chỉ áp khi không gọi Fable (C6).
+    const target = ctx.routerTarget(before, current, (await read($, headlessState)) === true)
+    const isPaused = !target.isFable && isRouterPaused()
     // Duyệt kế hoạch (0.8.2 N2): kế hoạch đã trình thì router biết tin này có thể là lời duyệt; vừa dặn hỏi làm rõ thì tin này là câu trả lời.
     const approvalStored = S.approvalOf(before)
     const isPresented = prev !== null && approvalStored.status === 'presented'
@@ -280,8 +298,6 @@ export function registerSession(on: On, ctx: Ctx): void {
     let outcome: RouterOutcome<RouterPlan> = { result: null, reason: 'router đang tạm ngừng sau các lần lỗi liên tiếp', usages: [], retried: false, failure: 'paused', timeoutMs: null, maxTokens: null, outputTokens: null }
     let waitedMs = 0
     let pauseText: string | null = null
-    // Model của lượt router (0.8.4 C2): Fable khi sẵn sàng, không thì option router.
-    const target = ctx.routerTarget(before, current, (await read($, headlessState)) === true)
     if (!isPaused) {
       $.ui.status('router đang đọc prompt...')
       const observed = L.observed.join('; ')
@@ -292,7 +308,9 @@ export function registerSession(on: On, ctx: Ctx): void {
       ctx.noteRouterFailure('prompt', outcome.failure)
       waitedMs = (await $.clock.now()) - startedAt
       noteRouterTime(waitedMs)
-      pauseText = noteRouter(outcome.result !== null)
+      // Lỗi của router Fable có bộ đếm riêng trong Core (0.8.4 C6), không cộng vào bộ đếm tạm ngừng router cũ.
+      if (target.isFable) await noteFableRouter($, ctx, outcome.result !== null)
+      else pauseText = noteRouter(outcome.result !== null)
     }
     // Tiếp tục điểm dừng khi router xếp tiếp nối, hoặc khi người dùng vừa gõ /conductor resume (khi đó router xếp mục
     // tiêu mới thì vẫn giữ mục tiêu đã khôi phục).

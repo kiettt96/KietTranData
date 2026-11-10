@@ -20,6 +20,7 @@ import { taskRows } from '../lib/progress'
 import { EMPTY_QUOTA, evaluateQuota, normalizeQuota, quotaSettings, softNotices } from '../lib/quota'
 import { storeKey, withNote } from '../lib/checkpoint'
 import * as S from '../lib/state'
+import { fableStep } from './fable'
 import type { View } from '../lib/state'
 import { shownPlan } from '../lib/mirror'
 import { forkFailures, forkFiles, forkResults, liveForks, mergeDue } from '../lib/forks'
@@ -37,6 +38,19 @@ import { EDIT_TOOLS, ERROR_BURST } from '../context'
 const UNVERIFIED_REJECTED = 3
 
 const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EMPTY_CORE)
+
+/** Áp kết quả một lượt router gửi Fable vào Core (0.8.4 C6): vừa tạm ngừng thì toast và một dòng nhật ký conductor. */
+async function noteFableRouter($: EngineInterface, ctx: Ctx, isOk: boolean): Promise<void> {
+  const at = await $.clock.now()
+  const step = fableStep(S.normalizeCore(await read($, coreState)), isOk, ctx.routerModel, at)
+  if (step === null) return
+  await update($, coreState, step.change)
+  if (step.text !== null) $.ui.toast(step.text)
+  if (step.log !== null) {
+    ctx.record(at, 'conductor', step.log)
+    await ctx.flushDecisions((path, body) => $.fs.write(path, body))
+  }
+}
 const bandHiddenState = atom({ plugin: 'focus-conductor', key: 'isBandHidden' } as const, false)
 const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null)
 const quotaState = atom({ plugin: 'focus-conductor', key: 'quota' } as const, EMPTY_QUOTA)
@@ -326,9 +340,9 @@ async function planReviewGate($: EngineInterface, ctx: Ctx): Promise<{ kind: 'no
   }
   // Lượt cuối đã chặn một lần: lần Stop này cho kết thúc, không rà thêm.
   if (approval.rounds >= ctx.planReviewRounds) return present('rounds')
-  if (ctx.isRouterPaused()) return present('router-paused', 'Router đang tạm ngừng nên chưa rà kế hoạch; kế hoạch được trình như hiện có')
-  // Model của lượt rà (0.8.4 C2): Fable khi sẵn sàng, không thì option router.
+  // Model của lượt rà (0.8.4 C2): Fable khi sẵn sàng, không thì option router. Tạm ngừng router cũ chỉ áp khi không gọi Fable (C6).
   const target = ctx.routerTarget(core, S.modeOf(await read($, modeState), ctx.options))
+  if (!target.isFable && ctx.isRouterPaused()) return present('router-paused', 'Router đang tạm ngừng nên chưa rà kế hoạch; kế hoạch được trình như hiện có')
   const request = planReviewRequest({
     goal: brief.goal,
     requirements: brief.requirements ?? [],
@@ -341,6 +355,7 @@ async function planReviewGate($: EngineInterface, ctx: Ctx): Promise<{ kind: 'no
   const startedAt = await $.clock.now()
   const outcome = await askRouter(r => $.model.complete(r), request, parsePlanReview)
   ctx.noteRouterFailure('review', outcome.failure)
+  if (target.isFable) await noteFableRouter($, ctx, outcome.result !== null)
   ctx.noteRouterTime((await $.clock.now()) - startedAt)
   const rounds = approval.rounds + 1
   // Chi phí mỗi lượt rà cộng vào sổ nhóm router; lượt rà tăng sau mỗi lần gọi.
@@ -1010,9 +1025,10 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     const quota = normalizeQuota(await read($, quotaState))
     const isNearQuota = quota.pause !== null || evaluateQuota(quota.readings, at, quotaSettings(ctx.options)).nearest !== null
     const isDriftDue = L.lastDriftAt === null || at - L.lastDriftAt >= driftEveryMs
-    if (semanticDrift && core.brief !== null && findings.some(f => f.kind === 'checkpoint') && !isRouterPaused() && !isNearQuota && isDriftDue) {
+    const driftTarget = ctx.routerTarget(core, S.modeOf(await read($, modeState), ctx.options))
+    if (semanticDrift && core.brief !== null && findings.some(f => f.kind === 'checkpoint') && (driftTarget.isFable || !isRouterPaused()) && !isNearQuota && isDriftDue) {
       L.lastDriftAt = at
-      const target = ctx.routerTarget(core, S.modeOf(await read($, modeState), ctx.options))
+      const target = driftTarget
       const request = driftRequest({
         goal: core.brief.goal,
         steps: openSteps(core.plan).map(step => step.title),
@@ -1024,6 +1040,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       const startedAt = await $.clock.now()
       const outcome = await askRouter(r => $.model.complete(r), request, parseDrift)
       ctx.noteRouterFailure('drift', outcome.failure)
+      if (target.isFable) await noteFableRouter($, ctx, outcome.result !== null)
       noteRouterTime((await $.clock.now()) - startedAt)
       const verdict = outcome.result
       const now = await $.clock.now()

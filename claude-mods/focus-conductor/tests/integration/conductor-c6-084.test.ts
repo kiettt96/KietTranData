@@ -63,9 +63,16 @@ describe('0.8.4 C6: router Fable tạm ngừng rồi thử lại', () => {
   })
 
   test('Fable hết giờ một lần rồi đạt: bộ đếm về 0, lỗi tiếp theo không làm tạm ngừng', FABLE, async ($, on) => {
-    const { seen } = setup(on, n => (n === 0 || n === 2 ? ROUTER_TIMEOUT : BIG()))
-    for (let i = 0; i < 4; i++) await submit($, i === 0 ? 'Sửa luồng thanh toán' : `làm tiếp bước ${i}`)
-    expect(prompts(seen).map(c => c.model)).toEqual([ID, ID, ID, ID])
+    // Mỗi prompt một kết quả: prompt 1 hết giờ (cả lượt thử lại), prompt 2 đạt, prompt 3 hết giờ, prompt 4 vẫn gửi Fable.
+    let prompt = 0
+    const { seen } = setup(on, () => (prompt === 1 || prompt === 3 ? ROUTER_TIMEOUT : BIG()))
+    const models: string[] = []
+    for (prompt = 1; prompt <= 4; prompt++) {
+      const before = prompts(seen).length
+      await submit($, prompt === 1 ? 'Sửa luồng thanh toán' : `làm tiếp bước ${prompt}`)
+      models.push(prompts(seen)[before]?.model ?? '')
+    }
+    expect(models).toEqual([ID, ID, ID, ID])
     expect(seen.toasts.some(t => t.includes(PAUSE_TEXT))).toBe(false)
   })
 

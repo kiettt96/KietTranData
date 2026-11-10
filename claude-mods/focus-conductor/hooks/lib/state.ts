@@ -101,7 +101,9 @@ export function statusText(view: View, quota: QuotaState, now: number, settings:
     : notices.length > 0
       ? withQuotaNoticeStatus(base, notices, view.lang)
       : withQuotaStatus(base, quotaBadge(isPaused, evaluation), view.lang, isPaused ? resumeCommand(quota.pause?.source === 'user') : undefined)
-  return withTurnFaultStatus(withRouterFailStatus(quotaLabelled, view.core.routerFail, view.lang), view.core.turnFault, view.lang)
+  // Router Fable tạm ngừng (0.8.4 C6): nhãn đứng sau các nhãn hạn mức, lỗi router và turn lỗi.
+  const faulted = withTurnFaultStatus(withRouterFailStatus(quotaLabelled, view.core.routerFail, view.lang), view.core.turnFault, view.lang)
+  return view.core.fable.pauseLeft > 0 && faulted !== undefined ? `${faulted} · ${labels(view.lang).fablePaused}` : faulted
 }
 
 /** Ghi (hoặc xóa, khi router đọc được lại) lần router lỗi gần nhất (0.7.2). */

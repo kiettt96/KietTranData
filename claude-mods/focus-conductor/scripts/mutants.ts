@@ -2089,4 +2089,7 @@ export const MUTANTS: Mutant[] = [
   { id: "084-C4d", file: "hooks/lib/router.ts", note: "vẫn nhận tách phiên con khi điều phối mục tiêu lớn", old: "const forks = isConducting ? 0 : Math.min(policy.forks ?? 0, MAX_FORKS)", new: "const forks = Math.min(policy.forks ?? 0, MAX_FORKS)" },
   { id: "084-C5a", file: "hooks/parts/session.ts", note: "chèn đoạn dặn điều phối cả khi luồng chính không điều phối", old: "const conductNote = isNewGoal && wanted?.isConducting === true ?", new: "const conductNote = isNewGoal ?" },
   { id: "084-C5b", file: "hooks/parts/session.ts", note: "chèn lại đoạn dặn điều phối ở prompt tiếp nối", old: "const conductNote = isNewGoal && wanted?.isConducting === true ?", new: "const conductNote = wanted?.isConducting === true ?" },
+  { id: "084-C6a", file: "hooks/lib/conductor.ts", note: "router Fable tạm ngừng mà vẫn coi Fable sẵn sàng (vẫn gửi Fable)", old: "  if (input.pauseLeft > 0) return 'paused'\n", new: "" },
+  { id: "084-C6b", file: "hooks/lib/conductor.ts", note: "bộ đếm lỗi của router Fable không về 0 khi một lượt đạt", old: "  if (isOk) return { failures: 0, pauseLeft: state.pauseLeft, isPausedNow: false }\n", new: "  if (isOk) return { failures: state.failures, pauseLeft: state.pauseLeft, isPausedNow: false }\n" },
+  { id: "084-C6c", file: "hooks/parts/session.ts", note: "không giảm số prompt tạm ngừng nên không thử lại Fable", old: "    if (before.fable.pauseLeft > 0) await update($, coreState, S.withFable(f => ({ pauseLeft: f.pauseLeft - 1 })))\n", new: "" },
 ]

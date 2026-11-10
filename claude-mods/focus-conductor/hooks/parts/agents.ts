@@ -15,7 +15,8 @@ import { shownPlan } from '../lib/mirror'
 import { tierOf } from '../lib/scale'
 import type { AgentRoute } from '../lib/router'
 import * as S from '../lib/state'
-import type { On } from 'claude-code'
+import { fableStep } from './fable'
+import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf } from '../atoms'
 import { FANOUT_WARN } from '../context'
@@ -23,6 +24,19 @@ import { FANOUT_WARN } from '../context'
 // Atom của mod, khai báo lại ở mỗi file dùng chúng (engine chỉ nhận tham chiếu state viết trong chính file đó);
 // cùng plugin và key nên là cùng một giá trị trong $.state.
 const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EMPTY_CORE)
+
+/** Áp kết quả một lượt router gửi Fable vào Core (0.8.4 C6): vừa tạm ngừng thì toast và một dòng nhật ký conductor. */
+async function noteFableRouter($: EngineInterface, ctx: Ctx, isOk: boolean): Promise<void> {
+  const at = await $.clock.now()
+  const step = fableStep(S.normalizeCore(await read($, coreState)), isOk, ctx.routerModel, at)
+  if (step === null) return
+  await update($, coreState, step.change)
+  if (step.text !== null) $.ui.toast(step.text)
+  if (step.log !== null) {
+    ctx.record(at, 'conductor', step.log)
+    await ctx.flushDecisions((path, body) => $.fs.write(path, body))
+  }
+}
 const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null)
 
 /**
@@ -176,7 +190,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
       reason = `Claude ghi ${claimed} đúng quy định model của loại việc; không gọi router`
       route = ruleRoute(claimed, requested, rules)
       if (route !== null) reason += `; ${route.why}`
-    } else if (isAgentRouterPaused()) {
+    } else if (!ctx.routerTarget(core, current).isFable && isAgentRouterPaused()) {
       reason = 'router đang tạm ngừng; giữ lựa chọn của Claude'
     } else {
       const failed = agentFailures.filter(f => f.goalId === goalId).map(f => f.description)
@@ -212,7 +226,8 @@ export function registerAgents(on: On, ctx: Ctx): void {
           S.withAnalyzerUsage(outcome.usages, ctx.routerTarget(core, current).family)(c),
         )
         route = outcome.result
-        const pauseText = noteAgentRouter(route !== null)
+        // Lỗi của router Fable có bộ đếm riêng (0.8.4 C6).
+        const pauseText = ctx.routerTarget(core, current).isFable ? (await noteFableRouter($, ctx, route !== null), null) : noteAgentRouter(route !== null)
         if (route !== null) rememberAgentRoute(key, route)
         reason = route !== null ? `router: ${route.why}` : `router không chấm được (${outcome.reason}); giữ lựa chọn của Claude`
         if (pauseText !== null) {
@@ -375,7 +390,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
       if (known !== undefined) {
         workflowRoute = refit(known)
         workflowReason = `router (đã chấm trước): ${known.why}`
-      } else if (isAgentRouterPaused()) {
+      } else if (!ctx.routerTarget(core, current).isFable && isAgentRouterPaused()) {
         workflowReason = 'router đang tạm ngừng'
       } else {
         L.agentCalls += 1
@@ -404,7 +419,8 @@ export function registerAgents(on: On, ctx: Ctx): void {
           S.withAnalyzerUsage(outcome.usages, ctx.routerTarget(core, current).family)(c),
         )
         workflowRoute = outcome.result
-        const pauseText = noteAgentRouter(workflowRoute !== null)
+        // Lỗi của router Fable có bộ đếm riêng (0.8.4 C6).
+        const pauseText = ctx.routerTarget(core, current).isFable ? (await noteFableRouter($, ctx, workflowRoute !== null), null) : noteAgentRouter(workflowRoute !== null)
         if (workflowRoute !== null) rememberAgentRoute(key, workflowRoute)
         workflowReason = workflowRoute !== null ? `router: ${workflowRoute.why}` : `router không chấm được (${outcome.reason})`
         if (pauseText !== null) {

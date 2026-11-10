@@ -103,3 +103,17 @@ export function blockerText(reason: ConductorBlocker): string {
       return 'sessionModel giữ model của phiên'
   }
 }
+
+/** Mở đầu câu báo router Fable tạm ngừng (0.8.4 C6): toast, cảnh báo model và test dùng chung. */
+export const FABLE_PAUSE_TEXT = 'Fable điều phối tạm ngừng'
+
+/**
+ * Bộ đếm lỗi của router Fable sau một lượt gọi (0.8.4 C6): đạt thì về 0; lỗi thì cộng một, đủ `limit` lần liên tiếp thì tạm ngừng
+ * `pause` prompt và bộ đếm về 0. `isPausedNow`: lượt này vừa làm router Fable tạm ngừng.
+ */
+export function fableAfterCall(state: { failures: number; pauseLeft: number }, isOk: boolean, limit: number, pause: number): { failures: number; pauseLeft: number; isPausedNow: boolean } {
+  if (isOk) return { failures: 0, pauseLeft: state.pauseLeft, isPausedNow: false }
+  const failures = state.failures + 1
+  if (failures < limit) return { failures, pauseLeft: state.pauseLeft, isPausedNow: false }
+  return { failures: 0, pauseLeft: pause, isPausedNow: true }
+}

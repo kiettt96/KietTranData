@@ -134,6 +134,8 @@ const VI = {
   costCalls: 'lượt',
   groupMain: 'luồng chính',
   groupAgent: 'subagent',
+  /** Router Fable tạm ngừng (0.8.4 C6): nhãn status line và /conductor status. */
+  fablePaused: 'Fable tạm ngừng',
   groupRouter: 'router',
   total: 'tổng',
   spawned: (n: number) => `${n} subagent đã giao trong mục tiêu này`,
@@ -276,6 +278,7 @@ const EN: typeof VI = {
   costCalls: 'calls',
   groupMain: 'main',
   groupAgent: 'subagent',
+  fablePaused: 'Fable paused',
   groupRouter: 'router',
   total: 'total',
   spawned: n => `${n} subagents spawned in this goal`,
