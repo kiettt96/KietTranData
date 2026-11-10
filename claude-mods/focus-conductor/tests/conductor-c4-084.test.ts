@@ -45,6 +45,18 @@ describe('0.8.4 C4: parseRoute khi điều phối', () => {
     expect(parsed?.notes.some(n => n.includes('việc 1') && n.includes('điều phối'))).toBe(true)
   })
 
+  test('W1: việc main loại mixed có sonnet/medium: thành agent general-purpose sonnet/medium', () => {
+    const parsed = parseRoute(BIG([task('Sửa và rà hàm phí', 'main', 'sonnet', 'medium', { kind: 'mixed' })]), ON)
+    const [a] = parsed?.tasks ?? []
+    expect([a?.run, a?.agentType, `${a?.pick.family}/${a?.pick.effort}`]).toEqual(['agent', 'general-purpose', 'sonnet/medium'])
+  })
+
+  test('W1 đối chứng: luồng chính opus/high, việc main edit sonnet/low: thành agent chạy đúng sonnet/low của việc', () => {
+    const parsed = parseRoute(BIG([task('Đổi tên biến', 'main', 'sonnet', 'low')], { main: { model: 'opus', effort: 'high', why: '' } }), ON)
+    const [a] = parsed?.tasks ?? []
+    expect([a?.run, `${a?.pick.family}/${a?.pick.effort}`]).toEqual(['agent', 'sonnet/low'])
+  })
+
   test('việc main edit thiếu model: giữ ở luồng chính, có lý do', () => {
     const parsed = parseRoute(BIG([{ title: 'Sửa hàm phí', run: 'main', kind: 'edit', depth: 'light', volume: 'small', why: 'w' }]), ON)
     expect(parsed?.tasks[0]?.run).toBe('main')
