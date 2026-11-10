@@ -2,7 +2,8 @@
 
 import { atom, derive, read, update } from 'claude-code'
 import { caught, noteBehavior, noteHookError, noteMistyped } from '../lib/errlog'
-import type { ApprovalState, Brief, Core, Depth, QuotaCheckpoint, Warning } from '../../types'
+import type { ApprovalState, Brief, Core, Depth, Mode, QuotaCheckpoint, Warning } from '../../types'
+import { blockerText } from '../lib/conductor'
 import { briefFromCheckpoint, changedFiles, storeKey } from '../lib/checkpoint'
 import { openSteps, restorableSteps } from '../lib/drift'
 import { PLAN_TOOL_SPEC } from '../lib/plan'
@@ -76,6 +77,17 @@ async function currentStats($: EngineInterface, paths: readonly string[]): Promi
 /** Status line kèm nhãn hạn mức (0.6.1): mọi chỗ đặt status của file này đi qua đây, nên nhãn không mất giữa các hook. */
 async function showStatus($: EngineInterface, current: View, options: Ctx['options']): Promise<void> {
   $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
+}
+
+/** Trạng thái Fable điều phối (0.8.4 C1): ghi dòng conductor khi bật, tắt hay đổi nguyên nhân; option off từ đầu thì không ghi gì. */
+async function noteConductor($: EngineInterface, ctx: Ctx, core: Core, current: Mode): Promise<void> {
+  const blocker = ctx.conductorState(core, current, (await read($, headlessState)) === true)
+  const ready = blocker === null
+  const stored = core.fable
+  if (ctx.conductorOption !== 'fable' && stored.ready === null) return
+  if (stored.ready === ready && stored.reason === (blocker ?? '')) return
+  ctx.record(await $.clock.now(), 'conductor', { ready, ...(blocker !== null ? { reason: blockerText(blocker) } : {}) })
+  await update($, coreState, S.withFable(() => ({ ready, reason: blocker ?? '' })))
 }
 
 /** Hết chờ câu trả lời câu hỏi làm rõ (0.8.3 R3): xóa cờ trong Core nếu đang bật; trả trạng thái duyệt đã xóa cờ. */
@@ -231,6 +243,8 @@ export function registerSession(on: On, ctx: Ctx): void {
     const pending = openCp !== null ? [resumePendingContext(openCp, L.noAutoResume && !isArmed)] : []
 
     const before = S.normalizeCore(await read($, coreState))
+    // Fable điều phối (0.8.4 C1): ghi một dòng nhật ký mỗi khi trạng thái điều phối đổi (bật, tắt kèm nguyên nhân).
+    await noteConductor($, ctx, before, current)
     const prev = before.brief
     // routerSkip (người dùng tự bật): câu ngắn đúng nguyên văn trong danh sách thì là tiếp nối, không hỏi router.
     if (prev !== null && isSkippable(text, skipPhrases)) {

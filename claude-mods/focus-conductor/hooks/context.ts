@@ -16,6 +16,9 @@ import { FIXED_ERRORS } from './lib/fixed-errors'
 import { MOD_VERSION } from './lib/version'
 import { MAX_FORKS, fitPick, skipKey } from './lib/router'
 import { approvalModeOf, reviewRoundsOf } from './lib/approval'
+import { conductorBlocker, conductorOf } from './lib/conductor'
+import { normalizeCore } from './lib/state'
+import type { ConductorBlocker, ConductorInputs } from './lib/conductor'
 import type { AgentRoute, Policy } from './lib/router'
 
 /** Prompt do chính người dùng gửi (hoặc lịch họ đặt), không phải thông báo nội bộ. */
@@ -116,6 +119,8 @@ export function createContext(options: PluginOptions) {
     lastSession: null as { model: string; effort: string } | null,
     sessionFamily: null as ModelFamily | null,
     sessionNoticed: false,
+    /** Đã cảnh báo chính sách model của phiên chặn Fable điều phối (0.8.4 C1), một lần mỗi phiên. */
+    conductorSessionNoticed: false,
     pinnedGoalId: null as number | null,
     turnCount: 0,
     /** Turn hiện tại vừa có phát hiện làm tăng nâng cấp (vòng lặp, chuỗi lỗi, vượt ngân sách): chưa giảm ở cuối turn. */
@@ -287,6 +292,19 @@ export function createContext(options: PluginOptions) {
   applySoftPaths(parseSoftPaths(options['softPaths']))
   // File skill (0.8.2 N3): tiền tố khai ở option skillPaths.
   applySkillPaths(parseSkillPaths(options['skillPaths']))
+
+  /** Option conductor (0.8.4): off như 0.8.3, fable là Fable điều phối. */
+  const conductorOption = conductorOf(options)
+
+  /** Đầu vào của các định nghĩa Fable điều phối (hooks/lib/conductor.ts) ở thời điểm hiện tại. */
+  function conductorInputs(core: Core, mode: Mode, headless = false): ConductorInputs {
+    return { option: conductorOption, mode, headless, blocked, pauseLeft: normalizeCore(core).fable.pauseLeft, sessionPolicy, sessionFamily: local.sessionFamily }
+  }
+
+  /** Nguyên nhân luồng chính không điều phối bằng Fable lúc này; null là điều phối khả dụng. */
+  function conductorState(core: Core, mode: Mode, headless = false): ConductorBlocker | null {
+    return conductorBlocker(conductorInputs(core, mode, headless))
+  }
 
   /** Chính sách áp lên mọi lựa chọn của router: allowFable, model của phiên, họ đang bị chặn, loại agent dùng được. */
   function policy(): Policy {
@@ -495,6 +513,7 @@ export function createContext(options: PluginOptions) {
     local.lastSession = null
     local.sessionFamily = null
     local.sessionNoticed = false
+    local.conductorSessionNoticed = false
     local.pinnedGoalId = null
     blocked.clear()
     failures.clear()
@@ -806,6 +825,11 @@ export function createContext(options: PluginOptions) {
       local.sessionNoticed = true
       notices.push(`Focus Conductor chạy luồng chính bằng ${decision.route.family}, khác model của phiên (${local.sessionFamily}).`)
     }
+    // Fable điều phối (0.8.4 C1): sessionModel ceiling hay fixed với phiên không phải Fable thì chính sách của người dùng thắng; báo một lần.
+    if (conductorOption === 'fable' && local.sessionFamily !== null && !local.conductorSessionNoticed && conductorState(core, current) === 'session') {
+      local.conductorSessionNoticed = true
+      notices.push(`Fable điều phối không áp cho luồng chính: sessionModel ${sessionPolicy} giữ model của phiên (${local.sessionFamily}). Đổi model phiên sang Fable hay đặt sessionModel về auto.`)
+    }
     // Chế độ suggest chỉ đề xuất: route lưu là null để mốc cache và "model đã chạy" là model engine thật.
     return { route: decision.route, stored: current === 'auto' ? decision.route : null, logs, notices }
   }
@@ -879,6 +903,9 @@ export function createContext(options: PluginOptions) {
     routerFallback,
     routerFamily,
     routerModel,
+    conductorOption,
+    conductorInputs,
+    conductorState,
     routerTimeLine,
     semanticDrift,
     driftEveryMs,

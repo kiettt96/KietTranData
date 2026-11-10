@@ -1,0 +1,105 @@
+// Fable điều phối (0.8.4): option conductor và các định nghĩa dùng chung. Thuần: không gọi $; context.ts, parts/session.ts,
+// parts/agents.ts và giao diện gọi các hàm này, không viết lại điều kiện ở chỗ khác.
+
+import type { PluginOptions } from 'claude-code'
+import type { Brief, ModelFamily } from '../../types'
+import type { SessionPolicy } from './route'
+import { familyOf, resolveModelId } from './route'
+
+export type ConductorOption = 'off' | 'fable'
+
+/** Option conductor: đúng chuỗi fable là fable; mọi giá trị khác (kể cả vắng, rỗng, Fable viết hoa) là off. */
+export function conductorOf(options: PluginOptions): ConductorOption {
+  return options['conductor'] === 'fable' ? 'fable' : 'off'
+}
+
+/**
+ * Thời gian chờ của router khi gọi Fable, theo loại request (0.8.4 C2). Đo tuần tự trên engine 2.1.322 ngày 10/11/2026, 35 lượt
+ * [Đo trực tiếp]: 1,5 lần giá trị lớn nhất làm tròn lên bội số 5 giây (đọc prompt thường lớn nhất 17,3 s, prompt dài 76,6 s, chấm
+ * subagent 8,4 s, kiểm lạc đề 8,7 s, rà kế hoạch 9,3 s) đều không vượt giá trị hiện có, nên giữ đúng giá trị hiện có.
+ */
+export const FABLE_PROMPT_TIMEOUT_MS = 45_000
+export const FABLE_LONG_TIMEOUT_MS = 120_000
+export const FABLE_AGENT_TIMEOUT_MS = 20_000
+export const FABLE_DRIFT_TIMEOUT_MS = 20_000
+export const FABLE_REVIEW_TIMEOUT_MS = 30_000
+
+/** Đầu vào của "Fable sẵn sàng": option, chế độ điều phối, headless-off, họ đang bị chặn, số prompt router Fable còn tạm ngừng. */
+export type FableInputs = {
+  option: ConductorOption
+  mode: string
+  headless: boolean
+  blocked: ReadonlySet<ModelFamily>
+  pauseLeft: number
+}
+
+/** Nguyên nhân Fable không sẵn sàng; null là sẵn sàng. */
+export type FableBlocker = 'option' | 'mode' | 'headless' | 'blocked' | 'paused'
+
+export function fableBlocker(input: FableInputs): FableBlocker | null {
+  if (input.option !== 'fable') return 'option'
+  if (input.headless) return 'headless'
+  if (input.mode === 'off') return 'mode'
+  if (input.blocked.has('fable')) return 'blocked'
+  if (input.pauseLeft > 0) return 'paused'
+  return null
+}
+
+export function isFableReady(input: FableInputs): boolean {
+  return fableBlocker(input) === null
+}
+
+/** Mục tiêu lớn: độ sâu substantial hay hard, loại khác answer, không phải đối chiếu, không phải mục tiêu tối thiểu. */
+export function isBigGoal(brief: Pick<Brief, 'depth' | 'kind' | 'isReference' | 'isBare'> | null): boolean {
+  if (brief === null) return false
+  return (brief.depth === 'substantial' || brief.depth === 'hard') && brief.kind !== 'answer' && !brief.isReference && brief.isBare !== true
+}
+
+/** Đầu vào của "điều phối khả dụng": như Fable sẵn sàng, cộng chính sách model của phiên và họ model phiên (null khi chưa biết). */
+export type ConductorInputs = FableInputs & { sessionPolicy: SessionPolicy; sessionFamily: ModelFamily | null }
+
+/** Nguyên nhân luồng chính không điều phối bằng Fable; null là điều phối khả dụng. `session`: chính sách model của phiên thắng. */
+export type ConductorBlocker = FableBlocker | 'session'
+
+export function conductorBlocker(input: ConductorInputs): ConductorBlocker | null {
+  const fable = fableBlocker(input)
+  if (fable !== null) return fable
+  if (input.mode !== 'auto') return 'mode'
+  if (input.sessionPolicy !== 'auto' && input.sessionFamily !== 'fable') return 'session'
+  return null
+}
+
+export function isConductorAvailable(input: ConductorInputs): boolean {
+  return conductorBlocker(input) === null
+}
+
+/** Luồng chính điều phối: điều phối khả dụng và mục tiêu hiện tại là mục tiêu lớn. */
+export function isMainConducting(input: ConductorInputs, brief: Pick<Brief, 'depth' | 'kind' | 'isReference' | 'isBare'> | null): boolean {
+  return isConductorAvailable(input) && isBigGoal(brief)
+}
+
+/** ID Fable cho vai điều phối: modelMap.fable, rồi ID phiên khi phiên thuộc họ fable (giữ hậu tố), rồi ID mặc định. */
+export function fableModelId(map: Partial<Record<ModelFamily, string>>, sessionModelId: string | null): string {
+  const override = map.fable
+  if (override) return override
+  if (sessionModelId !== null && familyOf(sessionModelId) === 'fable') return sessionModelId
+  return resolveModelId('fable', sessionModelId ?? '', {})
+}
+
+/** Câu nêu nguyên nhân (nhật ký conductor, pane, status). */
+export function blockerText(reason: ConductorBlocker): string {
+  switch (reason) {
+    case 'option':
+      return 'option conductor là off'
+    case 'mode':
+      return 'chế độ điều phối không phải auto'
+    case 'headless':
+      return 'phiên không tương tác (headless)'
+    case 'blocked':
+      return 'họ fable đang bị chặn vì không phản hồi'
+    case 'paused':
+      return 'router Fable tạm ngừng sau các lần lỗi'
+    case 'session':
+      return 'sessionModel giữ model của phiên'
+  }
+}

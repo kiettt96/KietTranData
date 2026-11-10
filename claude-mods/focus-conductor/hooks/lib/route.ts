@@ -29,7 +29,8 @@ const DEFAULT_IDS: Record<ModelFamily, string> = {
   haiku: 'claude-haiku-5-5',
   sonnet: 'claude-sonnet-5-5',
   opus: 'claude-opus-5-5',
-  fable: 'claude-fable-5-1',
+  // Fable 5.2 (0.8.4): ID kiểm trên engine 2.1.322, có trong gói engine và gọi được qua claude -p [Đo trực tiếp, 10/11/2026].
+  fable: 'claude-fable-5-2',
 }
 
 export function familyRank(family: ModelFamily): number {

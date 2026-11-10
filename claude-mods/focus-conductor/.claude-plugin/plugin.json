@@ -18,6 +18,13 @@
       "description": "Model Claude đọc prompt và điều phối việc, agent, model, effort ngay từ đầu: alias haiku, sonnet, opus hoặc model ID. Mặc định sonnet",
       "default": "sonnet"
     },
+    "conductor": {
+      "type": "string",
+      "title": "Fable điều phối (conductor)",
+      "description": "off (mặc định): như 0.8.3. fable: Fable 5.2 giữ ba vai ở effort medium: đọc và phân việc ở mọi lượt router, lập kế hoạch và điều phối luồng chính của việc lớn (độ sâu substantial hay hard, loại khác answer); việc sửa file, chạy kiểm và đọc khối lượng lớn giao subagent chạy haiku, sonnet hay opus. Fable đắt hơn Opus, nên việc lớn tốn hạn mức hơn. Router Fable lỗi liên tiếp thì tạm dùng option router. Nên dùng Claude Code từ 2.1.322. (en) off (default): as 0.8.3. fable: Fable 5.2 reads and routes every request, plans and coordinates the main thread of large goals at effort medium, while file edits, checks and bulk reading go to subagents on haiku, sonnet or opus. Fable costs more than Opus. Repeated Fable router failures fall back to the router option for a few prompts. Use Claude Code 2.1.322 or later.",
+      "default": "off",
+      "options": ["off", "fable"]
+    },
     "enforceChecklist": {
       "type": "boolean",
       "title": "Chặn kết thúc khi checklist còn mở",

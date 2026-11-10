@@ -2074,4 +2074,7 @@ export const MUTANTS: Mutant[] = [
   { id: "083-R3b", file: "hooks/parts/session.ts", note: "không xóa awaitingAnswer sau câu trả lời", old: "  if (!approval.awaitingAnswer) return approval\n", new: "  return approval\n" },
   { id: "084-S1a", file: "hooks/lib/drift/output.ts", note: "bỏ pass, passed, ok khỏi danh sách từ chen giữa bị cấm của phủ định cách quãng", old: "(?:dat|pass|passed|ok|thanh\\s+cong)", new: "(?:dat|thanh\\s+cong)" },
   { id: "084-S2a", file: "hooks/lib/drift/output.ts", note: "bỏ error, errors khỏi từ lỗi của phủ định cách quãng", old: "(?:lỗi|loi|fail(?:ed|ures)?|errors?)", new: "(?:lỗi|loi|fail(?:ed|ures)?)" },
+  { id: "084-C1a", file: "hooks/lib/conductor.ts", note: "coi mọi giá trị option conductor khác rỗng là fable", old: "  return options['conductor'] === 'fable' ? 'fable' : 'off'\n", new: "  return typeof options['conductor'] === 'string' && options['conductor'] !== '' ? 'fable' : 'off'\n" },
+  { id: "084-C1b", file: "hooks/lib/conductor.ts", note: "bỏ investigate khỏi mục tiêu lớn", old: "(brief.depth === 'substantial' || brief.depth === 'hard') && brief.kind !== 'answer'", new: "(brief.depth === 'substantial' || brief.depth === 'hard') && (brief.kind === 'edit' || brief.kind === 'mixed')" },
+  { id: "084-C1c", file: "hooks/lib/conductor.ts", note: "bỏ ưu tiên modelMap.fable khi chọn ID Fable", old: "  if (override) return override\n  if (sessionModelId !== null", new: "  if (sessionModelId !== null" },
 ]

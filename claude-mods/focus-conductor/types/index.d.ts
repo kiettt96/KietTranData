@@ -405,6 +405,8 @@ export type Core = {
   changed: ChangedState
   /** Mục tiêu đã được nhắc ghép file đã đổi khi đóng bước mở cuối (0.8.2 N5); -1 là chưa. Vắng ở trạng thái cũ thì -1. */
   changedNoticed: number
+  /** Fable điều phối (0.8.4): bộ đếm lỗi của router Fable, số prompt còn tạm ngừng, trạng thái sẵn sàng đã ghi và khóa conductor-hold. */
+  fable: FableState
 }
 
 /**
@@ -426,6 +428,13 @@ export type SkillState = { goalId: number; seq: number; lastWrite: number; trial
  * router đã rà kế hoạch; `asked` là đã dặn hỏi làm rõ (mỗi mục tiêu một lần). `awaitingAnswer` (0.8.3 R3) là đang chờ câu trả lời cho
  * lần dặn hỏi đó: turn hỏi không bị cổng rà và G1 chặn, prompt kế tiếp là câu trả lời; nằm trong Core nên sống qua hot reload.
  */
+/**
+ * Trạng thái của Fable điều phối (0.8.4). `failures`: số lượt router Fable lỗi liên tiếp; `pauseLeft`: số prompt router Fable còn tạm
+ * ngừng; `ready`: trạng thái điều phối đã ghi nhật ký gần nhất (null là chưa ghi); `reason`: nguyên nhân khi không điều phối;
+ * `holdKey`: mục tiêu và mức nâng đã ghi dòng conductor-hold.
+ */
+export type FableState = { failures: number; pauseLeft: number; ready: boolean | null; reason: string; holdKey: string }
+
 export type ApprovalStatus = 'none' | 'planning' | 'presented' | 'approved' | 'skipped'
 export type ApprovalState = { goalId: number; status: ApprovalStatus; rounds: number; asked: boolean; awaitingAnswer: boolean }
 
