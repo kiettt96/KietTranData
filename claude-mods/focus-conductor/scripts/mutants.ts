@@ -2066,4 +2066,5 @@ export const MUTANTS: Mutant[] = [
   { id: "083-D2a", file: "hooks/lib/drift/output.ts", note: "bỏ bước phủ định cách quãng của dòng tổng kết", old: ".replace(ZERO_FAILURES, ' ').replace(SPACED_NEGATION, dropSpacedNegation)\n", new: ".replace(ZERO_FAILURES, ' ')\n" },
   { id: "083-D2b", file: "hooks/lib/drift/output.ts", note: "bỏ danh sách từ chen giữa bị cấm của phủ định cách quãng", old: "  return SPACED_BANNED.test(foldLabel(middle)) ? match : ' '\n", new: "  return ' '\n" },
   { id: "083-R1a", file: "hooks/lib/approval.ts", note: "bỏ mixed khỏi diện duyệt kế hoạch", old: "(brief.kind === 'edit' || brief.kind === 'mixed')", new: "(brief.kind === 'edit')" },
+  { id: "083-R2a", file: "hooks/lib/approval.ts", note: "isExemptPath so trên đường dẫn thô, không gộp . và ..", old: "  const normalized = normalizePath(path)\n", new: "  const normalized = path\n" },
 ]

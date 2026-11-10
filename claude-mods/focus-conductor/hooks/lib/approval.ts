@@ -5,6 +5,7 @@
 import type { PluginOptions } from 'claude-code'
 import type { Brief, PlanStep } from '../../types'
 import { classifyBash, filePathOf, openSteps } from './drift'
+import { normalizePath } from './drift/scope'
 import type { PlanReview } from './router'
 
 /** Số lượt rà kế hoạch mặc định và khoảng kẹp của option planReviewRounds (0.8.2 N2). */
@@ -35,8 +36,10 @@ export function needsApproval(brief: Brief, mode: 'auto' | 'off', skipApproval: 
 /** Đích được ghi khi chưa duyệt: file kế hoạch của plan mode (.claude/plans/) và thư mục riêng của mod (.focus-conductor/). */
 const EXEMPT = /(?:^|[\\/])(?:\.claude[\\/]plans|\.focus-conductor)[\\/]/
 
+/** Đích được miễn so sau khi gộp . và .. (0.8.3 R2): đích còn bắt đầu bằng .. sau khi gộp thì không được miễn. */
 export function isExemptPath(path: string): boolean {
-  return EXEMPT.test(path)
+  const normalized = normalizePath(path)
+  return !normalized.startsWith('..') && EXEMPT.test(normalized)
 }
 
 /** Tool sửa file bị chặn khi chưa duyệt. */
