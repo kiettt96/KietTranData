@@ -1,5 +1,6 @@
 // 0.8.3: vá cổng duyệt kế hoạch của 0.8.2 N2. R1: diện duyệt gồm mục tiêu loại mixed (ghim điều kiện của needsApproval). R2: đường dẫn
-// được miễn so sau khi gộp . và .., nên đích có .. đi ra khỏi thư mục được miễn bị từ chối.
+// được miễn so sau khi gộp . và .., nên đích có .. đi ra khỏi thư mục được miễn bị từ chối. R4: khi chưa duyệt, lệnh tra cứu gh chỉ đọc
+// và lệnh chỉ ghi dưới thư mục tạm được qua.
 // Test kiểm cổng duyệt nên để planApproval mặc định (auto).
 
 import { describe, expect, test } from 'claude-code/testing'
@@ -57,5 +58,27 @@ describe('0.8.3 R2: đường dẫn được miễn so sau khi chuẩn hóa', ()
     test(`${tool} ${String(input['file_path'])}: ${allowed ? 'qua' : 'từ chối'}`, () => {
       expect(approvalDenial(tool, input) === null).toBe(allowed)
     })
+  }
+})
+
+describe('0.8.3 R4: lệnh tra cứu và lệnh chỉ ghi thư mục tạm khi chưa duyệt', () => {
+  const bash = (command: string) => approvalDenial('Bash', { command }) === null
+  for (const command of ['gh pr view 35', 'gh pr diff 35 -R a/b', 'gh run list --json status', 'gh api repos/a/b/pulls/1', 'mkdir -p /tmp/x', 'echo x > /tmp/a.txt']) {
+    test(`qua: ${command}`, () => expect(bash(command)).toBe(true))
+  }
+  for (const command of [
+    'gh pr merge 35',
+    'gh pr create',
+    'gh api -X POST repos/a/b/issues',
+    'gh api repos/a/b/issues -f title=x',
+    'gh pr view 35; rm a',
+    'mkdir -p /tmp/../srv/x',
+    'echo x > /tmp/a && echo y > b',
+    'cp /tmp/a hooks/a.ts',
+    'echo $(rm -rf hooks) > /tmp/x',
+    'bash -c "rm a" > /tmp/x',
+    'echo x > /tmpx/a',
+  ]) {
+    test(`từ chối: ${command}`, () => expect(bash(command)).toBe(false))
   }
 })
