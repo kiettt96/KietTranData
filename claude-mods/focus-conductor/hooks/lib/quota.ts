@@ -110,8 +110,9 @@ export function isBackupOn(mode: PauseBackupMode, isCloud: boolean): boolean {
 /**
  * 0.8.2 N4: tách một lệnh Bash thành token theo nháy đơn và nháy kép. Mọi ký tự có nghĩa với shell ngoài nháy (; & | < > ( )
  * $ ` \ * ? [ ] { } ~ # ! xuống dòng) và $ ` \ ! trong nháy kép làm lệnh không đọc được: trả null, lệnh bị từ chối như cũ.
+ * Cổng duyệt kế hoạch (0.8.3 R4) dùng lại bộ tách này cho lệnh tra cứu gh.
  */
-function backupTokens(command: string): string[] | null {
+export function backupTokens(command: string): string[] | null {
   const tokens: string[] = []
   let current = ''
   let hasToken = false

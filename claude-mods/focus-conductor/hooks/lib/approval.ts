@@ -6,6 +6,7 @@ import type { PluginOptions } from 'claude-code'
 import type { Brief, PlanStep } from '../../types'
 import { classifyBash, filePathOf, openSteps } from './drift'
 import { normalizePath } from './drift/scope'
+import { backupTokens } from './quota'
 import type { PlanReview } from './router'
 
 /** Số lượt rà kế hoạch mặc định và khoảng kẹp của option planReviewRounds (0.8.2 N2). */
@@ -42,6 +43,41 @@ export function isExemptPath(path: string): boolean {
   return !normalized.startsWith('..') && EXEMPT.test(normalized)
 }
 
+/** Nhóm và hành động chỉ đọc của gh được qua khi chưa duyệt (0.8.3 R4). */
+const GH_READ_GROUPS = new Set(['pr', 'issue', 'run', 'repo', 'release', 'workflow'])
+const GH_READ_ACTIONS = new Set(['view', 'list', 'diff', 'checks', 'status'])
+/** Cờ làm gh api ghi (đổi method hay gửi trường, tệp): có một trong các cờ này thì không phải lệnh tra cứu. */
+const GH_API_WRITE_FLAGS = ['-X', '--method', '-f', '-F', '--field', '--raw-field', '--input']
+/** Thư mục tạm: lệnh chỉ ghi dưới các thư mục này được qua khi chưa duyệt (0.8.3 R4). */
+const TEMP_DIRS = ['/tmp/', '/private/tmp/', '/var/folders/']
+
+function isTempPath(path: string): boolean {
+  const normalized = normalizePath(path)
+  return TEMP_DIRS.some(dir => normalized.startsWith(dir))
+}
+
+function isGhRead(tokens: readonly string[]): boolean {
+  const [, group, action] = tokens
+  if (group === 'api') {
+    const args = tokens.slice(2)
+    return args.some(arg => !arg.startsWith('-')) && !args.some(arg => GH_API_WRITE_FLAGS.some(flag => arg === flag || arg.startsWith(flag.startsWith('--') ? `${flag}=` : flag)))
+  }
+  return group !== undefined && action !== undefined && GH_READ_GROUPS.has(group) && GH_READ_ACTIONS.has(action)
+}
+
+/**
+ * Lệnh Bash an toàn khi đang lập kế hoạch (0.8.3 R4): lệnh tra cứu gh chỉ đọc (`gh pr|issue|run|repo|release|workflow
+ * view|list|diff|checks|status`, `gh api <đường dẫn>` không có cờ ghi), tách token bằng bộ tách chặt của sao lưu nên không có ký tự shell
+ * đặc biệt ngoài nháy; hay lệnh mà mọi tác động ghi `classifyBash` đọc được đều có đích rõ dưới /tmp/, /private/tmp/, /var/folders/.
+ * Chỉ dùng cho cổng duyệt; tracker, Y6, W4 và sổ file đã đổi giữ nguyên cách đọc lệnh.
+ */
+export function isPlanningSafeBash(command: string): boolean {
+  const tokens = backupTokens(command.trim())
+  if (tokens !== null && tokens[0] === 'gh') return isGhRead(tokens)
+  const writes = classifyBash(command).effects.filter(effect => effect.kind === 'write' && effect.isHistory !== true)
+  return writes.length > 0 && writes.every(effect => effect.kind === 'write' && !effect.isUnknown && effect.paths.length > 0 && effect.paths.every(isTempPath))
+}
+
 /** Tool sửa file bị chặn khi chưa duyệt. */
 const EDITORS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
 /** Subagent chỉ đọc được giao khi chưa duyệt. */
@@ -64,6 +100,7 @@ export function approvalDenial(tool: string, input: Record<string, unknown>): st
     return path !== '' && isExemptPath(path) ? null : DENY_EDIT
   }
   if (tool === 'Bash') {
+    if (typeof input['command'] === 'string' && isPlanningSafeBash(input['command'])) return null
     const writes = classifyBash(typeof input['command'] === 'string' ? input['command'] : '').effects.filter(effect => effect.kind === 'write' && effect.isHistory !== true)
     if (writes.length === 0) return null
     const isExempt = writes.every(effect => effect.kind === 'write' && !effect.isUnknown && effect.paths.length > 0 && effect.paths.every(isExemptPath))

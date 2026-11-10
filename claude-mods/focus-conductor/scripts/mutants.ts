@@ -2067,4 +2067,7 @@ export const MUTANTS: Mutant[] = [
   { id: "083-D2b", file: "hooks/lib/drift/output.ts", note: "bỏ danh sách từ chen giữa bị cấm của phủ định cách quãng", old: "  return SPACED_BANNED.test(foldLabel(middle)) ? match : ' '\n", new: "  return ' '\n" },
   { id: "083-R1a", file: "hooks/lib/approval.ts", note: "bỏ mixed khỏi diện duyệt kế hoạch", old: "(brief.kind === 'edit' || brief.kind === 'mixed')", new: "(brief.kind === 'edit')" },
   { id: "083-R2a", file: "hooks/lib/approval.ts", note: "isExemptPath so trên đường dẫn thô, không gộp . và ..", old: "  const normalized = normalizePath(path)\n", new: "  const normalized = path\n" },
+  { id: "083-R4a", file: "hooks/lib/approval.ts", note: "cho mọi lệnh gh khi chưa duyệt", old: "  if (tokens !== null && tokens[0] === 'gh') return isGhRead(tokens)\n", new: "  if (tokens !== null && tokens[0] === 'gh') return true\n" },
+  { id: "083-R4b", file: "hooks/lib/approval.ts", note: "bỏ kiểm cờ ghi của gh api", old: "    return args.some(arg => !arg.startsWith('-')) && !args.some(arg => GH_API_WRITE_FLAGS.some(flag => arg === flag || arg.startsWith(flag.startsWith('--') ? `${flag}=` : flag)))\n", new: "    return args.some(arg => !arg.startsWith('-'))\n" },
+  { id: "083-R4c", file: "hooks/lib/approval.ts", note: "so tiền tố thư mục tạm không có dấu / cuối", old: "const TEMP_DIRS = ['/tmp/', '/private/tmp/', '/var/folders/']\n", new: "const TEMP_DIRS = ['/tmp', '/private/tmp', '/var/folders']\n" },
 ]
