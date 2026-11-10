@@ -2,6 +2,24 @@
 
 Các bản của focus-conductor, mới nhất trước. Số đo kiểm chứng của HEAD hiện tại nằm ở [docs/VERIFICATION.md](docs/VERIFICATION.md); cách dùng và tùy chọn ở [README](README.md).
 
+## Thay đổi 0.8.4: Fable điều phối
+
+Yêu cầu mới của chủ mod [Nguồn: chủ mod, 10/11/2026]: lập kế hoạch, điều phối model và effort, điều phối công việc lúc chạy do Fable 5.2 làm ở effort medium; model khác thực thi. Tính năng nằm sau option `conductor` (mặc định `off`, như 0.8.3 từng byte). Mỗi điểm một commit test đỏ rồi một commit sửa, riêng S1, S2 chỉ thêm test; schema tool `plan` và schema JSON router không đổi.
+
+- **S1, S2 (P3): ghim hai chỗ của phủ định cách quãng.** `084-S1a` (bỏ pass, passed, ok khỏi từ chen giữa bị cấm) và `084-S2a` (bỏ errors?) sống trên `4a6c04c`; thêm ca bắt được. Hai ca của đặc tả cho S2 không bắt được `084-S2a` (errors đứng riêng không là dấu hiệu lỗi), nên thêm hai ca có dấu hai chấm sau errors.
+- **C1 (P1): option `conductor` và ID Fable 5.2.** `hooks/lib/conductor.ts` chứa mọi định nghĩa; ID mặc định của fable là `claude-fable-5-2`; `Core.fable` có mặc định trong `normalizeCore`; dòng nhật ký `conductor` khi trạng thái đổi; `sessionModel` ceiling hay fixed với phiên không phải Fable thì cảnh báo một lần mỗi phiên.
+- **C2 (P1): mọi lượt router do Fable làm khi Fable sẵn sàng**, effort không quá medium, thời gian chờ `FABLE_*_TIMEOUT_MS`, sổ chi phí theo họ thật đã gọi.
+- **C3 (P1): luồng chính của mục tiêu lớn chạy fable/medium suốt mục tiêu**, bằng chứng lẽ ra nâng thì ghi `conductor-hold` một lần mỗi mức nâng mới.
+- **C4 (P1): router phân việc thực thi cho subagent** (biến thể điều phối của lời dặn, `parseRoute` đổi việc sửa file thành agent, bỏ split); 4 ca golden `c4-*` ghi bằng Fable (`--record --only`, ca cũ giữ nguyên).
+- **C5 (P2): đoạn dặn vai điều phối** một lần mỗi mục tiêu.
+- **C6 (P1): đường lùi khi router Fable lỗi**: tạm ngừng 3 prompt, router dùng option `router`, rồi thử lại; toast, cảnh báo, nhật ký, nhãn "Fable tạm ngừng".
+- **C7 (P2): Agent loại Plan chạy fable/medium** khi Fable sẵn sàng.
+- **C8 (P2): band, pane, `/conductor status` và tài liệu** thể hiện vai điều phối.
+- **Test cũ sửa:** ca ghim `MOD_VERSION` của L1; ca `router-read` ghim ID mặc định của fable (`claude-fable-5-1` sang `claude-fable-5-2`). `tests/support/engine.ts` ghi thêm `routerCalls`.
+- **Mẫu cũ viết lại cùng ý** (dòng `old` đổi vì 0.8.4): `061-U22`, `070-B19`, `072-E11`, `072-R7`, `073-T13`, `073-T14`, `074-B8`, `074-B9`, `074-C2`, `074-C3`, `076-B8`, `078-G8i`, `079-V4c`, `079-V4d`, `079-V4e`.
+- **Mẫu mới:** `084-S1a`, `084-S2a`, `084-C1a` tới `084-C1c`, `084-C2a` tới `084-C2c`, `084-C3a` tới `084-C3c`, `084-C4a` tới `084-C4d`, `084-C5a`, `084-C5b`, `084-C6a` tới `084-C6c`, `084-C7a`, `084-C7b`, `084-C8a`, `084-C8b`. Không viết mẫu chỉ đổi các hằng thời gian chờ (đã ghim bằng test).
+- **Nhánh sao lưu `claude/focus-conductor-0-8-4-wip`** chỉ để phục hồi; không merge, nên xóa sau khi PR 0.8.4 merge.
+
 ## Thay đổi 0.8.3: vá cổng duyệt kế hoạch và dòng tổng kết của lệnh khai
 
 Sáu điểm tồn đọng: R1 tới R4 từ lượt rà soát PR 35, D1 và D2 từ 0.8.1; tái hiện bằng probe trên `main` `2408fd4` (commit squash của PR 35) [Đo trực tiếp]. Mỗi điểm một commit test đỏ rồi một commit sửa, riêng R1 chỉ thêm test; schema tool `plan` và `routerSystem` không đổi.

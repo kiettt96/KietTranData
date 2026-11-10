@@ -100,9 +100,10 @@ Cấu hình qua `/config` (hoặc `pluginConfigs.focus-conductor.options` trong 
 | Trường | Mặc định | Ý nghĩa |
 |---|---|---|
 | `routing` | `auto` | `auto` điều phối cả luồng chính và subagent; `subagents` chỉ subagent, giữ nguyên model luồng chính (an toàn nhất cho cache); `suggest` chỉ hiển thị đề xuất (ở `suggest` và `subagents`, luồng chính trong khối context ghi là `(chỉ đề xuất)`); `off` tắt toàn bộ mod |
-| `router` | `sonnet` | Model Claude đọc prompt và điều phối: alias (`haiku`, `sonnet`, `opus`) hoặc model ID. Thay cho tùy chọn `analyzer` của bản 0.3 |
+| `router` | `sonnet` | Model Claude đọc prompt và điều phối: alias (`haiku`, `sonnet`, `opus`) hoặc model ID. Thay cho tùy chọn `analyzer` của bản 0.3. Từ 0.8.4, khi `conductor` là `fable`, router là Fable và option này chỉ dùng lúc router Fable tạm ngừng |
+| `conductor` | `off` | Từ 0.8.4: `fable` thì Fable 5.2 điều phối ở effort medium (đọc và phân việc ở mọi lượt router, lập kế hoạch, điều phối luồng chính của việc lớn); model khác thực thi qua subagent. Tốn hạn mức hơn; xem mục "Fable điều phối" |
 | `enforceChecklist` | `true` | Chặn kết thúc khi checklist còn bước mở; từ 0.7.8 chặn thêm một lần mỗi mục tiêu khi mục tiêu từ moderate (hoặc có việc đã phân) chưa có checklist của tool `plan`; từ 0.7.9 tắt cả lần chặn khi đã sửa mà chưa chạy lần kiểm nào (xem "Nhật ký lỗi, lệnh miễn và lần kiểm bắt buộc") |
-| `allowFable` | `false` | Cho router dùng Fable cho việc khó nhất; tắt thì lựa chọn fable bị kẹp về opus |
+| `allowFable` | `false` | Cho router dùng Fable cho việc khó nhất; tắt thì lựa chọn fable bị kẹp về opus. Chỉ quyết Fable có được làm model thực thi không; vai điều phối của Fable bật bằng `conductor` |
 | `sessionModel` | `auto` | `auto` mod tự chọn model; `ceiling` không vượt model của phiên; `fixed` giữ model của phiên, chỉ đổi effort |
 | `contextWindows` | trống | Cửa sổ ngữ cảnh theo họ model, dạng `opus=1000000,sonnet=1000000`; mod không đổi sang model có cửa sổ nhỏ hơn ngữ cảnh hiện tại, kể cả khi nâng cấp. Để trống thì họ dùng model ID mặc định của mod lấy 1M token [Nguồn: trang giá Anthropic 2026-10-13]; họ bị `modelMap` đổi ID thì cần khai ở đây (ví dụ `haiku=1000000`) |
 | `cacheTtlMinutes` | `60` | Sau bao nhiêu phút không có turn thì cache coi như nguội, khi đó đổi model không mất chi phí ghi lại. Giá trị là chuỗi số. Đi cặp với `cacheWrite`: bậc 1 giờ là `60` và `2`, bậc 5 phút là `5` và `1.25` |
@@ -253,6 +254,16 @@ Cuối turn còn thay đổi chưa kiểm thì mod báo một câu; từ 0.7.7 c
 - **Hỏi tiến độ, bảo chạy tiếp.** "tới đâu rồi", "xong chưa" chỉ nhận báo cáo, checklist không đổi; "tiếp", "chạy tiếp đi" làm tiếp bước đang mở, không thêm việc.
 - **Mục "Thử skill" trong báo cáo cuối.** Sau khi sửa skill, Claude thử skill trên hai prompt mẫu (một ca skill phải chạy, một ca dễ nhầm skill không được chạy) và ghi cho từng ca: prompt, kết quả mong đợi, kết quả thực tế, đạt hay chưa. Ca nào chưa đạt thì Claude sửa tiếp chứ không báo xong. Pane hiện "Skill chưa thử" khi skill đã sửa mà chưa thử.
 - **Mục "Ngoài yêu cầu" trong báo cáo cuối.** Khi xong việc, mod đưa Claude danh sách file đã đổi; file nào không phục vụ bước hay yêu cầu nào được ghi vào mục này kèm lý do, hoặc được hoàn tác. Anh đọc mục này để biết Claude đã sửa chỗ nào mình không nhờ.
+
+### Fable điều phối (0.8.4)
+
+- **Cách bật.** Đặt option `conductor` là `fable` trong cấu hình plugin (mục userConfig của focus-conductor), rồi mở phiên mới hay nạp lại plugin. Tài khoản phải gọi được Fable 5.2 (`claude-fable-5-2`); ID khác thì khai trong `modelMap` (ví dụ `fable=<ID>`).
+- **Ba vai của Fable, effort medium.** Đọc và phân việc ở mọi lượt router (đọc prompt, chấm subagent, kiểm lạc đề, rà kế hoạch); lập kế hoạch (luồng chính và subagent loại Plan); điều phối luồng chính của việc lớn.
+- **Việc lớn và việc nhỏ.** Việc lớn là độ sâu `substantial` hay `hard`, loại khác `answer`: luồng chính chạy fable/medium suốt mục tiêu, giao mọi việc sửa file, chạy kiểm và đọc khối lượng lớn cho subagent chạy haiku, sonnet hay opus, và không tách phiên con. Việc nhỏ: Fable vẫn đọc và phân việc, model rẻ làm thẳng ở luồng chính như trước.
+- **Chi phí** [Đo trực tiếp, 10/11/2026, engine 2.1.322]: một lượt đọc prompt thường khoảng 0,04 USD (lớn nhất 0,09), prompt dài khoảng 0,56 USD, chấm subagent, kiểm lạc đề, rà kế hoạch khoảng 0,03 USD mỗi lượt. Fable giá 10 và 50 USD mỗi triệu token vào và ra [Nguồn: hooks/lib/cost.ts], cao hơn Opus.
+- **Phiên dài.** Nên đặt `driftIntervalMinutes` là `30` để bớt lượt kiểm lạc đề.
+- **Khi Fable lỗi.** Router Fable lỗi 2 lần liên tiếp thì 3 prompt kế tiếp router dùng option `router`, luồng chính theo lựa chọn của router; status line và pane hiện "Fable tạm ngừng". Pane và `/conductor status` có dòng "Điều phối" nêu trạng thái.
+- **Giới hạn đã biết.** Số đo Fable lấy trong một khung giờ ngày 10/11/2026 trên engine 2.1.322, 35 lượt [Đo trực tiếp]; giờ khác hay engine khác có thể chậm hơn. Engine 2.1.296 gọi được `claude-fable-5-2` qua CLI (`claude -p`), kèm cảnh báo `unrecognized_model`, và báo sai chi phí của lượt đó; đường `$.model.complete` và `turn.step` với ID này trên engine cũ chưa kiểm trong phiên tương tác. Khi bật `conductor`, nên dùng Claude Code từ 2.1.322. `sessionModel` là `ceiling` hay `fixed` với phiên không phải Fable thì luồng chính không điều phối (cảnh báo một lần mỗi phiên).
 
 ### Giám sát giữa phiên
 
