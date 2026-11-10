@@ -260,10 +260,11 @@ export function registerSession(on: On, ctx: Ctx): void {
     const pending = openCp !== null ? [resumePendingContext(openCp, L.noAutoResume && !isArmed)] : []
 
     const before = S.normalizeCore(await read($, coreState))
+    // Một prompt đi qua trong lúc router Fable tạm ngừng (0.8.4 C6); lượt này vẫn đọc theo trạng thái lúc prompt đến (before). Đặt cờ
+    // trước noteConductor để nhật ký không đọc cờ của prompt trước (0.8.4 W4).
+    L.fablePromptPaused = before.fable.pauseLeft > 0
     // Fable điều phối (0.8.4 C1): ghi một dòng nhật ký mỗi khi trạng thái điều phối đổi (bật, tắt kèm nguyên nhân).
     await noteConductor($, ctx, before, current)
-    // Một prompt đi qua trong lúc router Fable tạm ngừng (0.8.4 C6); lượt này vẫn đọc theo trạng thái lúc prompt đến (before).
-    L.fablePromptPaused = before.fable.pauseLeft > 0
     if (before.fable.pauseLeft > 0) await update($, coreState, S.withFable(f => ({ pauseLeft: f.pauseLeft - 1 })))
     const prev = before.brief
     // routerSkip (người dùng tự bật): câu ngắn đúng nguyên văn trong danh sách thì là tiếp nối, không hỏi router.
