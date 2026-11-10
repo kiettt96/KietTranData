@@ -120,7 +120,7 @@ const WAIVE_USAGE = `Cách dùng: /conductor waive <số thứ tự hoặc lện
 
 export function registerCommand(on: On, ctx: Ctx): void {
   const L = ctx.local
-  const { blocked, flushDecisions, delegationItems, expectedMain, failures, noteRouterTime, ranText, record, resetLocal, routerFamily, routerModel, routerTimeLine, trackDelegations, untrackedAgents, wantedPick } = ctx
+  const { blocked, flushDecisions, delegationItems, expectedMain, failures, noteRouterTime, ranText, record, resetLocal, routerTimeLine, trackDelegations, untrackedAgents, wantedPick } = ctx
   const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
   const mode = derive([modeState], modeOf(ctx.options))
 
@@ -213,9 +213,10 @@ export function registerCommand(on: On, ctx: Ctx): void {
       const prev = before.brief
       const rules = ctx.routePolicy(before, ctx.maxForks >= 2 ? await $.session.root().catch(caught('session.root', null)) : null)
       // Lệnh do người dùng gõ: luôn hỏi router, kể cả khi router đang tạm ngừng sau các lần lỗi.
-      const request = routerRequest({ text: arg, prev, ran: null, policy: rules, model: routerModel, sessionFamily: L.sessionFamily, isForcedNew: true })
+      const target = ctx.routerTarget(before, await read($, mode))
+      const request = routerRequest({ text: arg, prev, ran: null, policy: rules, model: target.model, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily, isForcedNew: true })
       const startedAt = await $.clock.now()
-      const outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), undefined, { retryMissingConfidence: true })
+      const outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), undefined, { retryMissingConfidence: true, ...(target.isFable ? { isFable: true } : {}) })
       ctx.noteRouterFailure('prompt', outcome.failure)
       noteRouterTime((await $.clock.now()) - startedAt)
       const plan = outcome.result
@@ -230,7 +231,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       const core = await update($, coreState, c => {
         const adopted = S.adoptGoal(brief)(c)
         const withRoute = plan === null ? S.withRoute(null)(adopted) : adopted
-        return S.withRouterFail(fail)(S.withAnalyzerUsage(outcome.usages, routerFamily)(withRoute))
+        return S.withRouterFail(fail)(S.withAnalyzerUsage(outcome.usages, target.family)(withRoute))
       })
       L.lastPrompt = null
       L.isGoalNew = true
@@ -274,14 +275,15 @@ export function registerCommand(on: On, ctx: Ctx): void {
       }
       const rules = ctx.routePolicy(before, ctx.maxForks >= 2 ? await $.session.root().catch(caught('session.root', null)) : null)
       // Lệnh do người dùng gõ: luôn hỏi router, kể cả khi router đang tạm ngừng.
-      const request = routerRequest({ text: last.text, prev: last.prev, ran: ranText(before), policy: rules, model: routerModel, sessionFamily: L.sessionFamily })
+      const target = ctx.routerTarget(before, await read($, mode))
+      const request = routerRequest({ text: last.text, prev: last.prev, ran: ranText(before), policy: rules, model: target.model, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily })
       const startedAt = await $.clock.now()
-      const outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), undefined, { retryMissingConfidence: true })
+      const outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), undefined, { retryMissingConfidence: true, ...(target.isFable ? { isFable: true } : {}) })
       ctx.noteRouterFailure('prompt', outcome.failure)
       noteRouterTime((await $.clock.now()) - startedAt)
       const now = await $.clock.now()
       const withUsage = (c: Core): Core =>
-        S.withAnalyzerUsage(outcome.usages, routerFamily)(c)
+        S.withAnalyzerUsage(outcome.usages, target.family)(c)
       const plan = outcome.result
       if (plan === null) {
         const fail = routerFailOf(outcome, now, now - startedAt)

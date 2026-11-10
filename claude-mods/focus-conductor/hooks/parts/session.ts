@@ -105,7 +105,7 @@ const GATED_TOOLS = /^(?:Edit|Write|MultiEdit|NotebookEdit|Bash|Agent)$/
 
 export function registerSession(on: On, ctx: Ctx): void {
   const L = ctx.local
-  const { decisionLog, flushDecisions, delegationItems, expectedMain, isRouterPaused, noteRouter, noteRouterTime, ranText, record, resetLocal, routerFallback, routerFamily, routerModel, skipPhrases, trackDelegations, wantedPick } = ctx
+  const { decisionLog, flushDecisions, delegationItems, expectedMain, isRouterPaused, noteRouter, noteRouterTime, ranText, record, resetLocal, routerFallback, skipPhrases, trackDelegations, wantedPick } = ctx
   const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
   const mode = derive([modeState], modeOf(ctx.options))
 
@@ -278,13 +278,15 @@ export function registerSession(on: On, ctx: Ctx): void {
     let outcome: RouterOutcome<RouterPlan> = { result: null, reason: 'router đang tạm ngừng sau các lần lỗi liên tiếp', usages: [], retried: false, failure: 'paused', timeoutMs: null, maxTokens: null, outputTokens: null }
     let waitedMs = 0
     let pauseText: string | null = null
+    // Model của lượt router (0.8.4 C2): Fable khi sẵn sàng, không thì option router.
+    const target = ctx.routerTarget(before, current, (await read($, headlessState)) === true)
     if (!isPaused) {
       $.ui.status('router đang đọc prompt...')
       const observed = L.observed.join('; ')
       L.observed = []
-      const request = routerRequest({ text, prev, ran: ranText(before), policy: rules, model: routerModel, sessionFamily: L.sessionFamily, openSteps: openSteps(before.plan).map(s => s.title), ...(observed ? { observed } : {}), ...(isInterject ? { interject: { step: openSteps(before.plan)[0]?.title ?? '' } } : {}), ...(isPresented ? { awaiting: 'approval' as const } : isAnswering ? { awaiting: 'answer' as const } : {}) })
+      const request = routerRequest({ text, prev, ran: ranText(before), policy: rules, model: target.model, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily, openSteps: openSteps(before.plan).map(s => s.title), ...(observed ? { observed } : {}), ...(isInterject ? { interject: { step: openSteps(before.plan)[0]?.title ?? '' } } : {}), ...(isPresented ? { awaiting: 'approval' as const } : isAnswering ? { awaiting: 'answer' as const } : {}) })
       const startedAt = await $.clock.now()
-      outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), needsCoverageRecheck, { retryMissingConfidence: true })
+      outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), needsCoverageRecheck, { retryMissingConfidence: true, ...(target.isFable ? { isFable: true } : {}) })
       ctx.noteRouterFailure('prompt', outcome.failure)
       waitedMs = (await $.clock.now()) - startedAt
       noteRouterTime(waitedMs)
@@ -318,7 +320,7 @@ export function registerSession(on: On, ctx: Ctx): void {
     // turn đang chạy thì turn đó là hỏi đáp (không qua các cổng Stop); tin chen ngang không đổi trạng thái thực thi của turn đang chạy.
     if (plan !== null && prev !== null && intent === 'status') {
       if (!isInterject) L.promptIntent = { relation: 'continue', kind: 'answer' }
-      await update($, coreState, c => S.withRouterFail(null)(S.withAnalyzerUsage(outcome.usages, routerFamily)(c)))
+      await update($, coreState, c => S.withRouterFail(null)(S.withAnalyzerUsage(outcome.usages, target.family)(c)))
       L.lastPrompt = { text, prev, goalId: prev.goalId }
       record(now, 'route', { prompt: clipText(text), relation: plan.relation, intent, confidence: plan.confidence, retried: outcome.retried, goalId: prev.goalId })
       await flushDecisions((path, text) => $.fs.write(path, text))
@@ -328,7 +330,7 @@ export function registerSession(on: On, ctx: Ctx): void {
     // Router không đọc được thì không biết turn là hỏi đáp hay làm tiếp: Stop chỉ dựa vào hành vi tool.
     L.promptIntent = plan !== null ? { relation: plan.relation, kind: plan.isReference && !plan.runReference ? 'answer' : plan.kind } : null
     const withUsage = (c: Core): Core =>
-      S.withAnalyzerUsage(outcome.usages, routerFamily)(c)
+      S.withAnalyzerUsage(outcome.usages, target.family)(c)
 
     if (plan === null) {
       // Mặc định không đoán: giữ mục tiêu, việc đã phân, phạm vi, ràng buộc và checklist; chỉ bỏ lựa chọn model
@@ -338,8 +340,8 @@ export function registerSession(on: On, ctx: Ctx): void {
       // Prompt tiếp nối (0.7.5): phân việc đã có và trạng thái giao của từng việc vẫn giữ; chỉ bỏ lựa chọn luồng chính.
       if (!isReuse && prev === null) L.delegation = newDelegation()
       const failText = isReuse
-        ? `Router (${routerModel}) không đọc được prompt (${outcome.reason}); dùng lại lựa chọn của prompt trước`
-        : `Router (${routerModel}) không đọc được prompt (${outcome.reason}); turn này chạy theo model của phiên`
+        ? `Router (${target.model}) không đọc được prompt (${outcome.reason}); dùng lại lựa chọn của prompt trước`
+        : `Router (${target.model}) không đọc được prompt (${outcome.reason}); turn này chạy theo model của phiên`
       const warnings: Warning[] = [
         ...(isPaused ? [] : [{ at: now, kind: 'model' as const, text: failText }]),
         ...(pauseText ? [{ at: now, kind: 'model' as const, text: pauseText }] : []),

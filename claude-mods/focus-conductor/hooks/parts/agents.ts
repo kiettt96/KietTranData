@@ -49,7 +49,7 @@ function retryFloorOf(core: Core, description: string, subagentType: string | un
 
 export function registerAgents(on: On, ctx: Ctx): void {
   const L = ctx.local
-  const { agentFailures, agentRoutes, agents, flushDecisions, delegationItems, isAgentRouterPaused, moveDelegation, noteAgentRouter, noteRouterTime, offered, pendingAgents, policy, recognized, record, refit, rememberAgentRoute, routerFamily, routerModel, spawnedIds, startedAgents, steppedEarly } = ctx
+  const { agentFailures, agentRoutes, agents, flushDecisions, delegationItems, isAgentRouterPaused, moveDelegation, noteAgentRouter, noteRouterTime, offered, pendingAgents, policy, recognized, record, refit, rememberAgentRoute, spawnedIds, startedAgents, steppedEarly } = ctx
   const mode = derive([modeState], modeOf(ctx.options))
 
   // Agent khởi động mà không đi qua agent.spawn của mod: ghi để /conductor status báo là agent ngoài điều phối.
@@ -198,7 +198,8 @@ export function registerAgents(on: On, ctx: Ctx): void {
           failed: failed.slice(-5),
           isWorkflow: false,
           policy: rules,
-          model: routerModel,
+          model: ctx.routerTarget(core, current).model,
+          ...(ctx.routerTarget(core, current).isFable ? { isFable: true } : {}),
           tasks: isNested || brief === null || brief.isReference ? [] : brief.tasks,
           constraints: brief === null || brief.isReference ? [] : brief.constraints,
           sessionFamily: L.sessionFamily,
@@ -208,7 +209,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
         ctx.noteRouterFailure('agent', outcome.failure)
         noteRouterTime((await $.clock.now()) - startedAt)
         await update($, coreState, c =>
-          S.withAnalyzerUsage(outcome.usages, routerFamily)(c),
+          S.withAnalyzerUsage(outcome.usages, ctx.routerTarget(core, current).family)(c),
         )
         route = outcome.result
         const pauseText = noteAgentRouter(route !== null)
@@ -389,7 +390,8 @@ export function registerAgents(on: On, ctx: Ctx): void {
           failed: agentFailures.filter(f => f.goalId === goalId).map(f => f.description).slice(-5),
           isWorkflow: true,
           policy: rules,
-          model: routerModel,
+          model: ctx.routerTarget(core, current).model,
+          ...(ctx.routerTarget(core, current).isFable ? { isFable: true } : {}),
           tasks: brief === null || brief.isReference ? [] : brief.tasks,
           constraints: brief === null || brief.isReference ? [] : brief.constraints,
           sessionFamily: L.sessionFamily,
@@ -399,7 +401,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
         ctx.noteRouterFailure('agent', outcome.failure)
         noteRouterTime((await $.clock.now()) - startedAt)
         await update($, coreState, c =>
-          S.withAnalyzerUsage(outcome.usages, routerFamily)(c),
+          S.withAnalyzerUsage(outcome.usages, ctx.routerTarget(core, current).family)(c),
         )
         workflowRoute = outcome.result
         const pauseText = noteAgentRouter(workflowRoute !== null)

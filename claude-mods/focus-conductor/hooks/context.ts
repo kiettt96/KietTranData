@@ -16,7 +16,7 @@ import { FIXED_ERRORS } from './lib/fixed-errors'
 import { MOD_VERSION } from './lib/version'
 import { MAX_FORKS, fitPick, skipKey } from './lib/router'
 import { approvalModeOf, reviewRoundsOf } from './lib/approval'
-import { conductorBlocker, conductorOf } from './lib/conductor'
+import { conductorBlocker, conductorOf, fableModelId, isFableReady } from './lib/conductor'
 import { normalizeCore } from './lib/state'
 import type { ConductorBlocker, ConductorInputs } from './lib/conductor'
 import type { AgentRoute, Policy } from './lib/router'
@@ -304,6 +304,15 @@ export function createContext(options: PluginOptions) {
   /** Nguyên nhân luồng chính không điều phối bằng Fable lúc này; null là điều phối khả dụng. */
   function conductorState(core: Core, mode: Mode, headless = false): ConductorBlocker | null {
     return conductorBlocker(conductorInputs(core, mode, headless))
+  }
+
+  /**
+   * Model của lượt router (0.8.4 C2): Fable sẵn sàng thì ID Fable (modelMap.fable, ID phiên họ fable, ID mặc định), không thì option
+   * router. `family` là họ của model đã gọi, cho sổ chi phí; `isFable` đặt thời gian chờ và effort của lượt đọc lại.
+   */
+  function routerTarget(core: Core, mode: Mode, headless = false): { model: string; family: ModelFamily; isFable: boolean } {
+    if (isFableReady(conductorInputs(core, mode, headless))) return { model: fableModelId(modelMap, local.lastSession?.model ?? null), family: 'fable', isFable: true }
+    return { model: routerModel, family: routerFamily, isFable: false }
   }
 
   /** Chính sách áp lên mọi lựa chọn của router: allowFable, model của phiên, họ đang bị chặn, loại agent dùng được. */
@@ -906,6 +915,7 @@ export function createContext(options: PluginOptions) {
     conductorOption,
     conductorInputs,
     conductorState,
+    routerTarget,
     routerTimeLine,
     semanticDrift,
     driftEveryMs,

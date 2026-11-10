@@ -8,6 +8,7 @@
 import type { ModelCompleteRequest, ModelCompleteResult, ModelTextBlock, ModelUsage } from 'claude-code'
 
 import type { Brief, Choice, Depth, Effort, ForkSplit, Intent, Kind, ModelFamily, Relation, RouterFail, RouterFailKind, Task, Tier, Volume } from '../../types'
+import { FABLE_AGENT_TIMEOUT_MS, FABLE_DRIFT_TIMEOUT_MS, FABLE_LONG_TIMEOUT_MS, FABLE_PROMPT_TIMEOUT_MS, FABLE_REVIEW_TIMEOUT_MS } from './conductor'
 import { PRICE } from './cost'
 import type { Price } from './cost'
 import { EFFORTS, FAMILIES, applySession, avoidBlocked, codesIn, describePick, effortRank, familyOf, familyRank, sessionFloor } from './route'
@@ -358,6 +359,8 @@ export function routerRequest(args: {
   prices?: Record<ModelFamily, Price>
   /** Model người dùng chạy phiên (0.7.4), biết từ step đầu; vắng thì không có dòng Session model. */
   sessionFamily?: ModelFamily | null
+  /** Lượt này gọi Fable điều phối (0.8.4 C2): thời gian chờ theo hằng FABLE_*_TIMEOUT_MS. */
+  isFable?: boolean
 }): ModelCompleteRequest {
   const isLong = args.text.length > LONG_REQUEST
   const context = [
@@ -379,7 +382,7 @@ export function routerRequest(args: {
     prompt: `<context>\n${context.join('\n')}\n</context>\n\n<request>\n${fence(capText(args.text, REQUEST_CHARS, REQUEST_HEAD, REQUEST_TAIL))}\n</request>`,
     maxTokens: isLong ? 16_000 : 8_000,
     effort: 'medium',
-    timeoutMs: isLong ? 120_000 : 45_000,
+    timeoutMs: args.isFable === true ? (isLong ? FABLE_LONG_TIMEOUT_MS : FABLE_PROMPT_TIMEOUT_MS) : isLong ? 120_000 : 45_000,
   }
 }
 
@@ -397,6 +400,8 @@ export function agentRouterRequest(args: {
   model: string
   /** Các việc router đã phân cho mục tiêu: router cho biết lời gọi này có phải một trong số đó. */
   tasks?: readonly Task[]
+  /** Lượt này gọi Fable điều phối (0.8.4 C2): thời gian chờ FABLE_AGENT_TIMEOUT_MS. */
+  isFable?: boolean
   /** Ràng buộc của brief (0.7.4), kể cả quy định model theo loại việc. */
   constraints?: readonly string[]
   /** Model người dùng chạy phiên (0.7.4). */
@@ -428,7 +433,7 @@ export function agentRouterRequest(args: {
     prompt: `<context>\n${context.join('\n')}\n</context>\n\n<task>\nDescription: ${fence(args.description)}\n${fence(task)}\n</task>`,
     maxTokens: 2_000,
     effort: 'low',
-    timeoutMs: 20_000,
+    timeoutMs: args.isFable === true ? FABLE_AGENT_TIMEOUT_MS : 20_000,
   }
 }
 
@@ -1213,7 +1218,7 @@ export function retryRequest(
   previous: string,
   problem: 'json' | 'confidence' | 'coverage',
   /** Timeout còn lại của hạn chung và việc câu trả lời trước bị cắt vì hết token (0.7.2). */
-  opts: { timeoutMs?: number; truncated?: boolean } = {},
+  opts: { timeoutMs?: number; truncated?: boolean; isFable?: boolean } = {},
 ): ModelCompleteRequest {
   const note =
     problem === 'json' && opts.truncated === true
@@ -1228,7 +1233,8 @@ export function retryRequest(
     ...request,
     prompt: `${prompt}\n\n<previous_answer>\n${fence(clip(previous, 6000))}\n</previous_answer>\n${note}`,
     // Kiểm lại phủ yêu cầu ở effort medium: đo thật cho thấy effort high hết giờ 45 giây ở 4 trên 5 lượt (0.7.2).
-    effort: problem === 'json' ? 'low' : problem === 'coverage' ? 'medium' : 'high',
+    // Fable điều phối (0.8.4 C2): effort không quá medium, nên lượt đọc lại vì tin cậy thấp chạy medium.
+    effort: problem === 'json' ? 'low' : problem === 'coverage' || opts.isFable === true ? 'medium' : 'high',
     ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
     ...(opts.truncated === true ? { maxTokens: Math.min(MAX_TOKENS_CAP, Math.round((request.maxTokens ?? 8_000) * TRUNCATION_GROWTH)) } : {}),
   }
@@ -1281,7 +1287,7 @@ export async function askRouter<T extends { confidence?: number }>(
   /** Câu trả lời đã đọc được nhưng cần đọc kiểm lại một lần ở effort cao (ví dụ quá nhiều yêu cầu): 0.7.0. */
   recheck?: (result: T) => boolean,
   /** Đồng hồ (mặc định Date.now) và hạn chung cho mọi lượt gọi (mặc định 1,5 lần timeout của request): 0.7.2. */
-  opts: { now?: () => number; budgetMs?: number; retryMissingConfidence?: boolean } = {},
+  opts: { now?: () => number; budgetMs?: number; retryMissingConfidence?: boolean; isFable?: boolean } = {},
 ): Promise<RouterOutcome<T>> {
   const now = opts.now ?? Date.now
   const budget = opts.budgetMs ?? Math.round((request.timeoutMs ?? 45_000) * BUDGET_FACTOR)
@@ -1313,7 +1319,7 @@ export async function askRouter<T extends { confidence?: number }>(
   const isAffordable = problem === 'coverage' ? spent <= budget / 2 : budget - spent >= RETRY_MIN_MS
   if (!isAffordable) return settled(false)
   const isTruncated = firstResult === null && request.maxTokens !== undefined && first.usage.output_tokens >= request.maxTokens * 0.98
-  const second = await ask(retryRequest(request, first.text, problem, { timeoutMs: Math.min(request.timeoutMs ?? budget, budget - spent), truncated: isTruncated })).catch(() => null)
+  const second = await ask(retryRequest(request, first.text, problem, { timeoutMs: Math.min(request.timeoutMs ?? budget, budget - spent), truncated: isTruncated, ...(opts.isFable === true ? { isFable: true } : {}) })).catch(() => null)
   if (second) usages.push(second.usage)
   const secondResult = second?.isAnswered ? parse(second.text) : null
   // Thiếu confidence xếp thấp nhất khi bật retryMissingConfidence: lần hai thắng khi nó có confidence và lần đầu không có hay thấp hơn.
@@ -1566,7 +1572,7 @@ Reply with ONE JSON object and nothing else, "why" under 20 words and in the lan
 {"onTrack": boolean, "confidence": number, "why": string}`
 
 /** Request hỏi router xem các thay đổi gần đây còn phục vụ mục tiêu không (ở checkpoint). */
-export function driftRequest(args: { goal: string; steps: readonly string[]; commands: readonly string[]; paths: readonly string[]; model: string }): ModelCompleteRequest {
+export function driftRequest(args: { goal: string; steps: readonly string[]; commands: readonly string[]; paths: readonly string[]; model: string; isFable?: boolean }): ModelCompleteRequest {
   const lines = [
     `Goal: ${fence(args.goal)}`,
     ...(args.steps.length > 0 ? ['Open steps:', ...args.steps.slice(0, 10).map(s => `  - ${fence(s)}`)] : []),
@@ -1574,7 +1580,7 @@ export function driftRequest(args: { goal: string; steps: readonly string[]; com
     ...(args.paths.length > 0 ? ['Files touched:', ...args.paths.slice(-15).map(p => `  ${fence(p)}`)] : []),
   ]
   const system: readonly ModelTextBlock[] = [{ text: DRIFT_SYSTEM, cache: true }]
-  return { model: args.model, system, prompt: `<context>\n${lines.join('\n')}\n</context>`, maxTokens: 1_000, effort: 'low', timeoutMs: 20_000 }
+  return { model: args.model, system, prompt: `<context>\n${lines.join('\n')}\n</context>`, maxTokens: 1_000, effort: 'low', timeoutMs: args.isFable === true ? FABLE_DRIFT_TIMEOUT_MS : 20_000 }
 }
 
 export type DriftVerdict = { onTrack: boolean; why: string; confidence?: number }
@@ -1595,7 +1601,7 @@ Reply with ONE JSON object and nothing else:
 {"missing": number[], "extra": number[], "issues": string[]}`
 
 /** Request rà kế hoạch ở Stop (0.8.2 N2): yêu cầu, ràng buộc, tiêu chí và các bước (tên, check) đánh số từ 1. */
-export function planReviewRequest(args: { goal: string; requirements: readonly string[]; constraints: readonly string[]; quality: readonly string[]; steps: ReadonlyArray<{ title: string; check?: string }>; model: string }): ModelCompleteRequest {
+export function planReviewRequest(args: { goal: string; requirements: readonly string[]; constraints: readonly string[]; quality: readonly string[]; steps: ReadonlyArray<{ title: string; check?: string }>; model: string; isFable?: boolean }): ModelCompleteRequest {
   const numbered = (items: readonly string[]) => items.map((item, i) => `${i + 1}. ${fence(clip(item, 200))}`)
   const lines = [
     'Requirements:',
@@ -1606,7 +1612,7 @@ export function planReviewRequest(args: { goal: string; requirements: readonly s
     ...args.steps.slice(0, 40).map((step, i) => `${i + 1}. ${fence(clip(step.title, 200))}${step.check ? ` (check: ${fence(clip(step.check, 200))})` : ' (no check)'}`),
   ]
   const system: readonly ModelTextBlock[] = [{ text: PLAN_REVIEW_SYSTEM, cache: true }]
-  return { model: args.model, system, prompt: `<context>\nGoal: ${fence(clip(args.goal, 200))}\n</context>\n\n<request>\n${lines.join('\n')}\n</request>`, maxTokens: 1_000, effort: 'medium', timeoutMs: 30_000 }
+  return { model: args.model, system, prompt: `<context>\nGoal: ${fence(clip(args.goal, 200))}\n</context>\n\n<request>\n${lines.join('\n')}\n</request>`, maxTokens: 1_000, effort: 'medium', timeoutMs: args.isFable === true ? FABLE_REVIEW_TIMEOUT_MS : 30_000 }
 }
 
 export type PlanReview = { missing: number[]; extra: number[]; issues: string[]; confidence?: number }

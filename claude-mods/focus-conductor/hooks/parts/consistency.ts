@@ -327,13 +327,16 @@ async function planReviewGate($: EngineInterface, ctx: Ctx): Promise<{ kind: 'no
   // Lượt cuối đã chặn một lần: lần Stop này cho kết thúc, không rà thêm.
   if (approval.rounds >= ctx.planReviewRounds) return present('rounds')
   if (ctx.isRouterPaused()) return present('router-paused', 'Router đang tạm ngừng nên chưa rà kế hoạch; kế hoạch được trình như hiện có')
+  // Model của lượt rà (0.8.4 C2): Fable khi sẵn sàng, không thì option router.
+  const target = ctx.routerTarget(core, S.modeOf(await read($, modeState), ctx.options))
   const request = planReviewRequest({
     goal: brief.goal,
     requirements: brief.requirements ?? [],
     constraints: brief.constraints,
     quality: brief.quality,
     steps: core.plan.map(step => ({ title: step.title, ...(step.check !== undefined ? { check: step.check } : {}) })),
-    model: ctx.routerModel,
+    model: target.model,
+    ...(target.isFable ? { isFable: true } : {}),
   })
   const startedAt = await $.clock.now()
   const outcome = await askRouter(r => $.model.complete(r), request, parsePlanReview)
@@ -341,7 +344,7 @@ async function planReviewGate($: EngineInterface, ctx: Ctx): Promise<{ kind: 'no
   ctx.noteRouterTime((await $.clock.now()) - startedAt)
   const rounds = approval.rounds + 1
   // Chi phí mỗi lượt rà cộng vào sổ nhóm router; lượt rà tăng sau mỗi lần gọi.
-  await update($, coreState, c => S.withApproval({ ...S.approvalOf(c), rounds })(S.withAnalyzerUsage(outcome.usages, ctx.routerFamily)(c)))
+  await update($, coreState, c => S.withApproval({ ...S.approvalOf(c), rounds })(S.withAnalyzerUsage(outcome.usages, target.family)(c)))
   const review = outcome.result
   ctx.record(at, 'plan-review', { goalId: brief.goalId, round: rounds, missing: review?.missing ?? null, extra: review?.extra ?? null, issues: review?.issues.length ?? null, ...(review === null ? { reason: outcome.reason } : {}) })
   // Router lỗi: không đoán, trình kế hoạch như hiện có kèm cảnh báo.
@@ -572,7 +575,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     if (!L.observed.includes(item)) L.observed.push(item)
     if (L.observed.length > 5) L.observed.shift()
   }
-  const { agentFailures, agentTrackers, agents, blockLimit, carryEvidence, flushDecisions, delegationItems, evidenceFor, failedFor, isRouterPaused, moveDelegation, noteRouterTime, pendingFor, record, remindSubagents, routerFamily, routerModel, semanticDrift, driftEveryMs, steppedEarly, strictDelegation, trackDelegations } = ctx
+  const { agentFailures, agentTrackers, agents, blockLimit, carryEvidence, flushDecisions, delegationItems, evidenceFor, failedFor, isRouterPaused, moveDelegation, noteRouterTime, pendingFor, record, remindSubagents, semanticDrift, driftEveryMs, steppedEarly, strictDelegation, trackDelegations } = ctx
   const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
   const mode = derive([modeState], modeOf(ctx.options))
 
@@ -1009,12 +1012,14 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     const isDriftDue = L.lastDriftAt === null || at - L.lastDriftAt >= driftEveryMs
     if (semanticDrift && core.brief !== null && findings.some(f => f.kind === 'checkpoint') && !isRouterPaused() && !isNearQuota && isDriftDue) {
       L.lastDriftAt = at
+      const target = ctx.routerTarget(core, S.modeOf(await read($, modeState), ctx.options))
       const request = driftRequest({
         goal: core.brief.goal,
         steps: openSteps(core.plan).map(step => step.title),
         commands: L.evidenceLog.commands.map(entry => entry.command),
         paths: L.evidenceLog.paths,
-        model: routerModel,
+        model: target.model,
+        ...(target.isFable ? { isFable: true } : {}),
       })
       const startedAt = await $.clock.now()
       const outcome = await askRouter(r => $.model.complete(r), request, parseDrift)
@@ -1025,7 +1030,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       const isOffTrack = verdict !== null && !verdict.onTrack
       if (isOffTrack) noteStuck(core, core.brief.goal)
       await update($, coreState, c => {
-        const used = S.withAnalyzerUsage(outcome.usages, routerFamily)(c)
+        const used = S.withAnalyzerUsage(outcome.usages, target.family)(c)
         // Lệch mục tiêu: cảnh báo, và turn sau nâng độ sâu một bậc (0.7.0).
         return isOffTrack ? S.withLift(1, 0)(S.withWarnings({ at: now, kind: 'drift', text: `Router: có thể lạc đề (${verdict?.why ?? ''})` })(used)) : used
       })
