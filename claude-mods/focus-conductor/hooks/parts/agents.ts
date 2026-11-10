@@ -5,7 +5,7 @@ import { noteHookError } from '../lib/errlog'
 import type { AgentProgress, Choice, Core, RetryItem, RouteEvent, Warning } from '../../types'
 import { turnCost } from '../lib/cost'
 import { countSpawn, shapeKey, shapeOutput } from '../lib/ledger'
-import { EFFORTS, agentMemoKey, describePick, familyOf, familyRank, pickRank, ruleConflict, ruleFamily, stepCovers, taskMatch } from '../lib/route'
+import { EFFORTS, agentMemoKey, applySession, describePick, familyOf, familyRank, pickRank, ruleConflict, ruleFamily, stepCovers, taskMatch } from '../lib/route'
 import { clipText } from '../lib/decisions'
 import { agentRouterRequest, askRouter, briefCodes, fitPick, floorRoute, isSettled, parseAgentRoute, ruleRoute, taskRoute } from '../lib/router'
 import { FORK_QUOTA_DENY, RETRY_PREFIX, RETRY_ROUNDS, forkRetryNote, forkReturnNote } from '../lib/text'
@@ -16,6 +16,7 @@ import { tierOf } from '../lib/scale'
 import type { AgentRoute } from '../lib/router'
 import * as S from '../lib/state'
 import { fableStep } from './fable'
+import { isFableReady } from '../lib/conductor'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf } from '../atoms'
@@ -321,6 +322,13 @@ export function registerAgents(on: On, ctx: Ctx): void {
       await flushDecisions((path, text) => $.fs.write(path, text))
     }
 
+    // Lập kế hoạch thuộc vai của Fable (0.8.4 C7): Agent Plan chạy fable/medium khi Fable sẵn sàng, sau các bước kẹp (việc đã phân,
+    // kết quả nhớ, kết quả chấm), không kẹp theo allowFable; sessionModel ceiling hay fixed vẫn thắng.
+    if (route !== null && e.subagent_type === 'Plan' && isFableReady(ctx.conductorInputs(core, current))) {
+      const family = applySession('fable', rules.session)
+      route = { ...route, pick: { family, effort: 'medium' }, why: [route.why, 'Plan theo vai điều phối'].filter(Boolean).join('; ') }
+      reason += `; Plan theo vai điều phối: ${family}/medium`
+    }
     const isApplied = route !== null && (current === 'auto' || current === 'subagents')
     // Họ model và effort thật sự gửi đi: lựa chọn của router khi áp dụng, nếu không thì của Claude.
     const sentFamily = isApplied && route !== null ? route.pick.family : claimed

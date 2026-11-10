@@ -2092,4 +2092,6 @@ export const MUTANTS: Mutant[] = [
   { id: "084-C6a", file: "hooks/lib/conductor.ts", note: "router Fable tạm ngừng mà vẫn coi Fable sẵn sàng (vẫn gửi Fable)", old: "  if (input.pauseLeft > 0) return 'paused'\n", new: "" },
   { id: "084-C6b", file: "hooks/lib/conductor.ts", note: "bộ đếm lỗi của router Fable không về 0 khi một lượt đạt", old: "  if (isOk) return { failures: 0, pauseLeft: state.pauseLeft, isPausedNow: false }\n", new: "  if (isOk) return { failures: state.failures, pauseLeft: state.pauseLeft, isPausedNow: false }\n" },
   { id: "084-C6c", file: "hooks/parts/session.ts", note: "không giảm số prompt tạm ngừng nên không thử lại Fable", old: "    if (before.fable.pauseLeft > 0) await update($, coreState, S.withFable(f => ({ pauseLeft: f.pauseLeft - 1 })))\n", new: "" },
+  { id: "084-C7a", file: "hooks/parts/agents.ts", note: "Agent Explore cũng chạy fable/medium khi Fable sẵn sàng", old: "if (route !== null && e.subagent_type === 'Plan' && isFableReady(", new: "if (route !== null && (e.subagent_type === 'Plan' || e.subagent_type === 'Explore') && isFableReady(" },
+  { id: "084-C7b", file: "hooks/parts/agents.ts", note: "Agent Plan chạy fable bỏ qua sessionModel ceiling", old: "      const family = applySession('fable', rules.session)\n", new: "      const family = 'fable' as const\n" },
 ]
