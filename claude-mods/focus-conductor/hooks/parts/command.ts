@@ -241,7 +241,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       record(now, plan !== null ? 'route' : 'router-fail', { command: 'goal', prompt: clipText(arg), reason: outcome.reason, retried: outcome.retried, ...(fail ? failFields(fail) : {}) })
       await flushDecisions((path, text) => $.fs.write(path, text))
       await showStatus($, await read($, view), ctx.options)
-      const wanted = wantedPick(brief, core.lift)
+      const wanted = wantedPick(brief, core.lift, core, await read($, mode))
       const expected = wanted !== null ? expectedMain(core, brief, wanted, now) : null
       trackDelegations(brief.goalId, brief.isReference ? [] : brief.tasks)
       await update($, coreState, S.withDelegations(brief.goalId, delegationItems(brief)))
@@ -324,7 +324,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       await update($, coreState, S.withDelegations(brief.goalId, delegationItems(brief)))
       const core = S.normalizeCore(await read($, coreState))
       const isApplied = (await read($, mode)) === 'auto'
-      const wanted = wantedPick(brief, core.lift)
+      const wanted = wantedPick(brief, core.lift, core, await read($, mode))
       const expected = wanted !== null ? expectedMain(core, brief, wanted, now) : null
       record(now, 'reroute', { prompt: clipText(last.text), relation: plan.relation, confidence: plan.confidence, retried: outcome.retried, main: brief.main, expected })
       await flushDecisions((path, text) => $.fs.write(path, text))

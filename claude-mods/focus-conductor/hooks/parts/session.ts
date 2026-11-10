@@ -436,7 +436,7 @@ export function registerSession(on: On, ctx: Ctx): void {
     // Không dặn tách (0.7.9 F1) khi đã vào vùng báo hạn mức mềm, hay còn lệnh kiểm chưa đạt ở lượt 2 hay 3 (W4 cần model cao hơn mà phiên
     // con luôn chạy model của luồng chính).
     const isSplitHeld = isSoftZone || (core.retry.goalId === brief.goalId && core.retry.items.some(item => !item.exhausted && item.round >= 2 && !S.isWaived(core, item.sig)))
-    const wanted = wantedPick(brief, core.lift)
+    const wanted = wantedPick(brief, core.lift, core, current)
     // Model sẽ thật sự chạy (có thể là model cũ được giữ để bảo toàn cache): việc "làm trực tiếp" so với model này.
     const expected = wanted !== null && isNewGoal ? expectedMain(core, brief, wanted, now) : wanted
     if (isNewGoal) trackDelegations(brief.goalId, brief.isReference ? [] : brief.tasks)

@@ -16,7 +16,7 @@ import { FIXED_ERRORS } from './lib/fixed-errors'
 import { MOD_VERSION } from './lib/version'
 import { MAX_FORKS, fitPick, skipKey } from './lib/router'
 import { approvalModeOf, reviewRoundsOf } from './lib/approval'
-import { conductorBlocker, conductorOf, fableModelId, isFableReady } from './lib/conductor'
+import { conductorBlocker, conductorOf, fableModelId, isFableReady, isMainConducting } from './lib/conductor'
 import { normalizeCore } from './lib/state'
 import type { ConductorBlocker, ConductorInputs } from './lib/conductor'
 import type { AgentRoute, Policy } from './lib/router'
@@ -432,9 +432,11 @@ export function createContext(options: PluginOptions) {
   /**
    * Model luồng chính mong muốn: lựa chọn của router, nâng theo bằng chứng lúc chạy, rồi kiểm lại
    * theo chính sách hiện tại (model của phiên chỉ biết từ step đầu; họ bị chặn có thể đã đổi).
-   * Null khi router chưa chọn (mod không ép).
+   * Null khi router chưa chọn (mod không ép). Luồng chính điều phối (0.8.4 C3, cần core và chế độ): fable/medium kèm ghi chú
+   * "điều phối", không nâng theo bằng chứng, không kẹp theo allowFable; brief.main vẫn giữ lựa chọn của router cho lúc Fable hết sẵn sàng.
    */
-  function wantedPick(brief: Brief, lift: Lift): (Choice & { notes: string[] }) | null {
+  function wantedPick(brief: Brief, lift: Lift, core?: Core, mode?: Mode): (Choice & { notes: string[]; isConducting?: true }) | null {
+    if (core !== undefined && mode !== undefined && isMainConducting(conductorInputs(core, mode), brief)) return { family: 'fable', effort: 'medium', notes: ['điều phối'], isConducting: true }
     if (brief.main === null) return null
     const lifted = liftPick(brief.main, lift, options['allowFable'] === true)
     const fitted = fitPick(lifted, brief.isReference ? 'answer' : brief.kind, policy())
@@ -806,8 +808,13 @@ export function createContext(options: PluginOptions) {
     if (local.pinnedGoalId === brief.goalId) return { route: null, stored: null, logs, notices }
 
     // Router chưa chọn (không đọc được prompt): không ép, mốc cache là model engine đang chạy.
-    const wanted = wantedPick(brief, core.lift)
+    const wanted = wantedPick(brief, core.lift, core, current)
     if (wanted === null) return { route: null, stored: null, logs, notices }
+    // Bằng chứng lẽ ra nâng luồng chính khi đang điều phối (0.8.4 C3): không đổi model hay effort; ghi conductor-hold một lần mỗi mức nâng
+    // mới trong một mục tiêu (khóa trong Core.fable.holdKey).
+    const holdKey = wanted.isConducting === true && (core.lift.depth > 0 || core.lift.effort > 0) ? `${brief.goalId}:${core.lift.depth}:${core.lift.effort}` : null
+    const fableHold = holdKey !== null && normalizeCore(core).fable.holdKey !== holdKey ? holdKey : null
+    if (fableHold !== null) record(at, 'conductor-hold', { goalId: brief.goalId, depth: core.lift.depth, effort: core.lift.effort, main: 'fable/medium' })
     const decision = mainDecision({ core, brief, wanted, model, effort, at, context, window, turnsLeft: local.isGoalNew ? 2 : 1 })
     local.isGoalNew = false
     const capNote = wanted.notes.length > 0 ? ` (${wanted.notes.join('; ')})` : ''
@@ -840,7 +847,7 @@ export function createContext(options: PluginOptions) {
       notices.push(`Fable điều phối không áp cho luồng chính: sessionModel ${sessionPolicy} giữ model của phiên (${local.sessionFamily}). Đổi model phiên sang Fable hay đặt sessionModel về auto.`)
     }
     // Chế độ suggest chỉ đề xuất: route lưu là null để mốc cache và "model đã chạy" là model engine thật.
-    return { route: decision.route, stored: current === 'auto' ? decision.route : null, logs, notices }
+    return { route: decision.route, stored: current === 'auto' ? decision.route : null, logs, notices, ...(fableHold !== null ? { fableHold } : {}) }
   }
 
 

@@ -28,6 +28,7 @@ function setup(on: On, reply: Json, engine: { failFamily?: string } = {}) {
 
 /** Một turn có ba lần cùng một tool call lỗi: turn sau lẽ ra nâng độ sâu. */
 async function loopTurn($: Engine, seen: Seen, turnId: string) {
+  await $.turn.start({ text: 'làm', turnId })
   await step($, seen, { turnId })
   for (let i = 0; i < 3; i++) await $.tool.call({ tool: 'Bash', command: 'cat missing.txt' } as never)
   await $.turn.complete({ turnId, answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer' } as never)
@@ -46,7 +47,9 @@ describe('0.8.4 C3: luồng chính của mục tiêu lớn chạy fable/medium',
     const { seen, lines } = setup(on, BIG())
     await submit($, 'Sửa luồng thanh toán')
     await loopTurn($, seen, 't1')
+    await $.turn.start({ text: 'làm', turnId: 't2' })
     expect(pick(await step($, seen, { turnId: 't2' }))).toBe('claude-fable-5-2/medium')
+    await $.turn.complete({ turnId: 't2', answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer' } as never)
     expect(lines().filter(l => l['kind'] === 'conductor-hold').length).toBe(1)
   })
 
@@ -55,6 +58,7 @@ describe('0.8.4 C3: luồng chính của mục tiêu lớn chạy fable/medium',
     await submit($, 'Sửa luồng thanh toán')
     await loopTurn($, seen, 't1')
     for (const id of ['t2', 't3', 't4']) {
+      await $.turn.start({ text: 'làm', turnId: id })
       await step($, seen, { turnId: id })
       await $.turn.complete({ turnId: id, answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer' } as never)
     }
