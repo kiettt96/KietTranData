@@ -49,10 +49,13 @@ export function isFableReady(input: FableInputs): boolean {
   return fableBlocker(input) === null
 }
 
-/** Mục tiêu lớn: độ sâu substantial hay hard, loại khác answer, không phải đối chiếu, không phải mục tiêu tối thiểu. */
-export function isBigGoal(brief: Pick<Brief, 'depth' | 'kind' | 'isReference' | 'isBare'> | null): boolean {
-  if (brief === null) return false
-  return (brief.depth === 'substantial' || brief.depth === 'hard') && brief.kind !== 'answer' && !brief.isReference && brief.isBare !== true
+/**
+ * Mục tiêu lớn: không phải đối chiếu, không phải mục tiêu tối thiểu, và hoặc đã từng là mục tiêu lớn (`isBig`, 0.8.4 X1) hoặc độ sâu
+ * substantial hay hard với loại khác answer.
+ */
+export function isBigGoal(brief: Pick<Brief, 'depth' | 'kind' | 'isReference' | 'isBare' | 'isBig'> | null): boolean {
+  if (brief === null || brief.isReference || brief.isBare === true) return false
+  return brief.isBig === true || ((brief.depth === 'substantial' || brief.depth === 'hard') && brief.kind !== 'answer')
 }
 
 /** Đầu vào của "điều phối khả dụng": như Fable sẵn sàng, cộng chính sách model của phiên và họ model phiên (null khi chưa biết). */

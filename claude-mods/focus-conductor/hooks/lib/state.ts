@@ -491,6 +491,7 @@ function normalizeBrief(raw: Brief): Brief {
     isFollowUp: brief.isFollowUp ?? false,
     isReference: brief.isReference ?? brief.attached !== undefined,
     ...(brief.isBare === true ? { isBare: true } : {}),
+    ...(brief.isBig === true ? { isBig: true as const } : {}),
     scopePaths: brief.scopePaths ?? [],
     prompt: brief.prompt ?? '',
     at: brief.at ?? 0,

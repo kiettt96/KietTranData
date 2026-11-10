@@ -1134,9 +1134,12 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number, isHeld = 
     index: t.index + offset,
     ...(t.covers !== undefined ? { covers: t.covers.flatMap(n => renumber.get(n) ?? []) } : {}),
   }))
-  const { isBare: _isBare, carriedRules: _carried, ...kept } = prev
+  const { isBare: _isBare, carriedRules: _carried, isBig: _isBig, ...kept } = prev
+  // Mục tiêu lớn bền theo mục tiêu (0.8.4 X1): tin tiếp nối chấm nhẹ không làm mục tiêu lớn mất vai điều phối.
+  const isBig = isBigGoal(prev) || isBigGoal({ depth: plan.depth, kind: plan.kind, isReference: prev.isReference })
   const brief: Brief = {
     ...kept,
+    ...(isBig ? { isBig: true as const } : {}),
     // Quy tắc mang sang mà prompt này nhắc lại không còn tính là mang sang (T3).
     ...(reclaimed.carried > 0 ? { carriedRules: reclaimed.carried } : {}),
     ...(requirements.length > 0 ? { requirements } : {}),

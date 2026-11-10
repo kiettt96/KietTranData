@@ -121,6 +121,8 @@ export type Brief = {
   isReference: boolean
   /** Mục tiêu tối thiểu mod lập khi router lỗi ở prompt đầu (0.7.2): câu mục tiêu và tier chỉ là đoán, router đọc được lần sau thì nâng cấp. */
   isBare?: boolean
+  /** Mục tiêu đã từng là mục tiêu lớn (0.8.4 X1): tin tiếp nối được router chấm nhẹ không làm mục tiêu mất vai điều phối. */
+  isBig?: true
   /** Đường dẫn người dùng giới hạn việc sửa; rỗng là không giới hạn. */
   scopePaths: string[]
   /** Prompt gốc (cắt ngắn) để đối chiếu. */
