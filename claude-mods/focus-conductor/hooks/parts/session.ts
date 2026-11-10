@@ -267,7 +267,9 @@ export function registerSession(on: On, ctx: Ctx): void {
     // Model của phiên chưa biết (prompt đầu, trước step đầu): hỏi engine, để router và chính sách phiên dùng được ngay.
     if (L.sessionFamily === null) L.sessionFamily = familyOf(await $.session.model().catch(caught('session.model', '')))
     // Số phần tối đa của việc tách (0.7.9 F1) theo option và theo việc engine đã từ chối phiên con hay chưa.
-    const rules = ctx.routePolicy(before, ctx.maxForks >= 2 ? await $.session.root().catch(caught('session.root', null)) : null)
+    const basePolicy = ctx.routePolicy(before, ctx.maxForks >= 2 ? await $.session.root().catch(caught('session.root', null)) : null)
+    // Fable điều phối (0.8.4 C4): điều phối khả dụng thì router dùng biến thể điều phối và parseRoute kẹp việc sửa file của việc lớn.
+    const rules = ctx.conductorState(before, current, (await read($, headlessState)) === true) === null ? { ...basePolicy, conductor: true } : basePolicy
     const isPaused = isRouterPaused()
     // Duyệt kế hoạch (0.8.2 N2): kế hoạch đã trình thì router biết tin này có thể là lời duyệt; vừa dặn hỏi làm rõ thì tin này là câu trả lời.
     const approvalStored = S.approvalOf(before)

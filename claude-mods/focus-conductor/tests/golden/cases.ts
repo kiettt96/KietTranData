@@ -453,7 +453,7 @@ export const CASES: readonly GoldenCase[] = [
   {
     id: 'c4-big-skill',
     conductor: true,
-    text: 'Sửa skill tóm tắt biên bản họp trong skills/meeting-notes/SKILL.md: thêm mục việc cần làm có người phụ trách và hạn, bỏ phần lời chào đầu bản tóm tắt, giữ nguyên giọng văn hiện có. Sau đó thử skill trên ba biên bản mẫu trong examples/ và đối chiếu kết quả với các yêu cầu trên.',
+    text: 'Làm lại skill tóm tắt biên bản họp trong skills/meeting-notes/: viết lại SKILL.md theo bố cục mới (mục quyết định, mục việc cần làm có người phụ trách và hạn, mục rủi ro), tách phần quy tắc định dạng sang tệp mới skills/meeting-notes/format.md, bỏ phần lời chào đầu bản tóm tắt, giữ nguyên giọng văn hiện có. Sau đó thử skill trên năm biên bản mẫu trong examples/, ghi kết quả vào examples/out/ và đối chiếu từng bản với các yêu cầu trên.',
     note: '0.8.4 C4: việc lớn sửa skill rồi thử trên ví dụ, Fable điều phối: việc sửa file giao subagent',
     expect: { kind: ['edit', 'mixed'], main: ['sonnet', 'opus'], tasks: [2, 6], editAgents: true },
   },

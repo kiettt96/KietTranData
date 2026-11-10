@@ -8,7 +8,7 @@
 import type { ModelCompleteRequest, ModelCompleteResult, ModelTextBlock, ModelUsage } from 'claude-code'
 
 import type { Brief, Choice, Depth, Effort, ForkSplit, Intent, Kind, ModelFamily, Relation, RouterFail, RouterFailKind, Task, Tier, Volume } from '../../types'
-import { FABLE_AGENT_TIMEOUT_MS, FABLE_DRIFT_TIMEOUT_MS, FABLE_LONG_TIMEOUT_MS, FABLE_PROMPT_TIMEOUT_MS, FABLE_REVIEW_TIMEOUT_MS } from './conductor'
+import { FABLE_AGENT_TIMEOUT_MS, FABLE_DRIFT_TIMEOUT_MS, FABLE_LONG_TIMEOUT_MS, FABLE_PROMPT_TIMEOUT_MS, FABLE_REVIEW_TIMEOUT_MS, isBigGoal } from './conductor'
 import { PRICE } from './cost'
 import type { Price } from './cost'
 import { EFFORTS, FAMILIES, applySession, avoidBlocked, codesIn, describePick, effortRank, familyOf, familyRank, sessionFloor } from './route'
@@ -27,6 +27,11 @@ export type Policy = {
    * con; vắng hay dưới 2 là tắt (routerSystem giữ nguyên chữ, parseRoute bỏ mọi split).
    */
   forks?: number
+  /**
+   * Fable điều phối (0.8.4 C4): bật khi điều phối khả dụng. routerRequest dùng biến thể điều phối của lời dặn; parseRoute đổi việc main
+   * sửa file có model hợp lệ thành agent và bỏ mọi split, với mục tiêu lớn. Vắng hay false: như 0.8.3.
+   */
+  conductor?: boolean
   /** Thư mục gốc của phiên (vòng 2 V4): đường dẫn tuyệt đối dưới nó đổi thành tương đối khi so hai phần của việc tách; vắng thì so theo đuôi. */
   root?: string | null
 }
@@ -152,6 +157,29 @@ function splitParagraph(max: number): string {
  * routerSystem kèm đoạn dặn tách khi phiên con bật (0.7.9 F1): đoạn nằm ngay sau luật run "agent", trong cùng khối có cache; các nhóm
  * luật khác giữ nguyên chữ. Tắt (max dưới 2) thì trả nguyên chữ.
  */
+/** Câu về fable trong catalog (0.8.4 C4): biến thể điều phối thay câu này, giữ giá. */
+const FABLE_LINE = /^- fable \(([^)\n]*)\): only when <context> lists it as allowed, and only for the hardest piece where opus is likely to fail\.$/m
+/** Mốc chèn khối luật việc lớn: ngay trước các luật giao việc. */
+const DELEGATION_ANCHOR = '\nDelegation:\n'
+const CONDUCTOR_BLOCK = `
+Large requests (the main thread is the conductor):
+- A request with depth "substantial" or "hard" and kind other than "answer" is large. Its main thread is the conductor: it only understands the request, plans, orders the pieces, checks results against the requirements and reports.
+- In a large request every piece that edits files, or runs checks or reads at large volume, is run "agent" on the cheapest model and effort that does it well. A piece that needs an earlier result or edits the same files is still "agent": list pieces in run order; the main thread runs them in turn and passes results on.
+- "main" still names what the main thread would need to do the work itself (used when fable is unavailable).
+- The delegation rules below, and running a task as "agent" only when truly independent, apply to requests that are not large.
+`
+
+/**
+ * Biến thể điều phối của lời dặn router (0.8.4 C4): thay có đích câu về fable của catalog và chèn khối luật việc lớn ngay trước các luật
+ * giao việc; mọi chữ khác giữ nguyên. Không thấy đích thay thì trả nguyên văn (không đoán).
+ */
+export function conductorRule(text: string): string {
+  if (!FABLE_LINE.test(text) || !text.includes(DELEGATION_ANCHOR)) return text
+  return text
+    .replace(FABLE_LINE, (_line, rate: string) => `- fable (${rate}): the conductor model the program sets for the main thread of large requests (see below); never choose fable for any piece unless <context> lists it as allowed.`)
+    .replace(DELEGATION_ANCHOR, `\n${CONDUCTOR_BLOCK.slice(1)}${DELEGATION_ANCHOR}`)
+}
+
 export function splitRule(text: string, max: number): string {
   if (max < 2) return text
   return text.replace(SPLIT_ANCHOR, `${SPLIT_ANCHOR}\n${splitParagraph(max)}`)
@@ -375,7 +403,7 @@ export function routerRequest(args: {
     ...(args.interject ? [`The user sent this while the main model was still working on the current goal${args.interject.step ? ` (open step: ${fence(clip(args.interject.step, 100))})` : ''}; read it as an addition to that goal unless it clearly replaces it.`] : []),
     ...(args.observed ? [`Observed in the previous turn (the main model's choice fell short; re-read the work and raise "main" model or effort if it is harder than first judged): ${fence(clip(args.observed, 400))}`] : []),
   ]
-  const system: readonly ModelTextBlock[] = [{ text: routerSystem(args.prices), cache: true }].map(block => ({ text: splitRule(block.text, args.policy.forks ?? 0), cache: true as const }))
+  const system: readonly ModelTextBlock[] = [{ text: routerSystem(args.prices), cache: true }].map(block => ({ text: args.policy.conductor === true ? conductorRule(splitRule(block.text, args.policy.forks ?? 0)) : splitRule(block.text, args.policy.forks ?? 0), cache: true as const }))
   return {
     model: args.model,
     system,
@@ -903,13 +931,20 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
   /** Lựa chọn router ghi cho từng việc làm ở luồng chính, chưa kẹp (0.7.8 G3). */
   const held: Array<{ index: number; pick: Choice }> = []
   const rawTasks = Array.isArray(raw['tasks']) ? raw['tasks'] : []
+  // Fable điều phối (0.8.4 C4): mục tiêu lớn thì việc sửa file giao subagent và không tách phiên con (phiên con chạy model của luồng chính).
+  const isConducting = policy.conductor === true && isBigGoal({ depth, kind, isReference })
   // Tách bằng phiên con (0.7.9 F1) xét sau phân việc: split không đổi run, model hay effort của việc nào.
-  const forks = Math.min(policy.forks ?? 0, MAX_FORKS)
+  const forks = isConducting ? 0 : Math.min(policy.forks ?? 0, MAX_FORKS)
+  const conductNotes: string[] = []
   const splitNotes: string[] = []
   let droppedSplits = 0
   for (const item of rawTasks.slice(0, TASK_LIMIT)) {
-    const parsed = parseTask(item, tasks.length + 1, main.pick, whole, policy)
-    if (!parsed) continue
+    const read = parseTask(item, tasks.length + 1, main.pick, whole, policy)
+    if (!read) continue
+    const isConductedEdit = isConducting && read.run === 'main' && (read.kind === 'edit' || read.kind === 'mixed')
+    const hasPick = rawPick(item) !== null
+    if (isConductedEdit) conductNotes.push(hasPick ? `việc ${read.index}: luồng chính điều phối, giao subagent ${agentTypeOf((item as Raw)['agent'], read.kind, policy)} ${describePick(read.pick)}` : `việc ${read.index}: luồng chính điều phối nhưng router không ghi model hợp lệ, giữ ở luồng chính`)
+    const parsed: Task = isConductedEdit && hasPick ? { ...read, run: 'agent', agentType: agentTypeOf((item as Raw)['agent'], read.kind, policy) } : read
     const cut = splitOf((item as Raw)['split'], parsed, forks, policy.root ?? null)
     if (cut.note !== undefined) splitNotes.push(cut.note)
     if (cut.isOff) droppedSplits += 1
@@ -942,7 +977,7 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
     mainWhy,
     ...(referenceMain ? { referenceMain } : {}),
     tasks,
-    notes: [...lead.notes, ...splitNotes],
+    notes: [...lead.notes, ...splitNotes, ...conductNotes],
     ...(rawTasks.length > TASK_LIMIT ? { droppedTasks: rawTasks.length - TASK_LIMIT } : {}),
     ...(droppedSplits > 0 ? { droppedSplits } : {}),
     ...(raw['skipApproval'] === true ? { skipApproval: true } : {}),
