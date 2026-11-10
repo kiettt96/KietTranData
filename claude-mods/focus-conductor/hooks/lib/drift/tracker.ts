@@ -14,6 +14,7 @@ import { normalizePath, scopeStatus } from './scope'
 import { isCheckTool, isCustomCheck, normalizePython } from './verify'
 import { checkToolCommand, checkToolPassed } from './evidence'
 import { isHardEffect, isSoftPath } from './soft'
+import { isSkillPath } from './skill'
 
 /** Số thay đổi liên tiếp chưa kiểm tra trước khi nhắc checkpoint đầu tiên. */
 export const CHECKPOINT_EVERY = 5
@@ -106,6 +107,10 @@ export type TurnTracker = {
    * làm bộ đếm vượt mốc giữa hai lời gọi của luồng chính; lệnh kiểm đạt đặt lại về 0.
    */
   checkpointMark: number
+  /** Số lần ghi vào file skill trong turn (0.8.2 N3), của luồng chính và subagent cùng mục tiêu; hook đọc chênh lệch để ghi Core.skill. */
+  skillWrites: number
+  /** File skill ghi gần nhất trong turn (0.8.2 N3), để nêu tên skill trong lý do chặn; rỗng khi chưa có. */
+  skillPath: string
 }
 
 export function newTracker(turnId: string): TurnTracker {
@@ -137,6 +142,8 @@ export function newTracker(turnId: string): TurnTracker {
     budgetLevel: 0,
     outOfScope: new Set(),
     checkpointMark: 0,
+    skillWrites: 0,
+    skillPath: '',
   }
 }
 
@@ -295,7 +302,10 @@ export function trackVerification(tracker: TurnTracker, observation: ToolObserva
     // Edit, Write, NotebookEdit lỗi thì không ghi file.
     if (!observation.isError && !isPlanFile(filePathOf(observation))) {
       const target = fileTarget(filePathOf(observation))
-      onWrite(!isSoftPath(target))
+      // File skill (0.8.2 N3): không là thay đổi chắc chắn, ghi riêng lần ghi để cổng thử skill xét.
+      const isSkill = isSkillPath(target)
+      onWrite(!isSoftPath(target) && !isSkill)
+      if (isSkill) noteSkillWrite(tracker, target)
       tracker.docWrites.set(target, seq)
     }
     return writes
@@ -354,6 +364,7 @@ export function trackVerification(tracker: TurnTracker, observation: ToolObserva
       // rm tài liệu và nguồn tài liệu của mv không còn file để đọc lại; đích của mv thì phải đọc lại như file vừa ghi (0.7.9 X6a).
       const removed = effect.name === 'rm' ? targets : effect.name === 'mv' ? targets.slice(0, -1) : []
       for (const path of targets) {
+        if (isSkillPath(path)) noteSkillWrite(tracker, path)
         if (removed.includes(path) && isSoftPath(path)) {
           tracker.docWrites.delete(path)
           tracker.docRemoved.add(path)
@@ -369,6 +380,12 @@ export function trackVerification(tracker: TurnTracker, observation: ToolObserva
     onPass()
   }
   return writes
+}
+
+/** Một lần ghi vào file skill (0.8.2 N3). */
+function noteSkillWrite(tracker: TurnTracker, path: string): void {
+  tracker.skillWrites += 1
+  tracker.skillPath = path
 }
 
 /** Luồng chính đã được kiểm chứng: bộ đếm thay đổi chưa kiểm và mốc checkpoint đã nhắc cùng về 0 (vòng sửa 2 của 0.7.5). */
@@ -630,7 +647,8 @@ function isWholeRead(observation: ToolObservation): boolean {
  */
 export function isSoftDocs(tracker: TurnTracker): boolean {
   if (tracker.docChanges === 0 || tracker.docUnknown || (tracker.docWrites.size === 0 && tracker.docRemoved.size === 0)) return false
-  return [...tracker.docWrites].every(([path, wrote]) => isSoftPath(path) && (tracker.reads.get(path) ?? 0) > wrote)
+  // File skill (0.8.2 N3) không là tài liệu nhẹ: đọc lại không thay được lần thử skill.
+  return [...tracker.docWrites].every(([path, wrote]) => isSoftPath(path) && !isSkillPath(path) && (tracker.reads.get(path) ?? 0) > wrote)
 }
 
 /** Phát hiện ở cuối turn: còn thay đổi chưa kiểm tra, checklist còn mở. `suggestions`: script kiểm đã chạy mà chưa khai (suggestCheckCommands). */

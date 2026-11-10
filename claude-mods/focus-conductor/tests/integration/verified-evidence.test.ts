@@ -10,7 +10,7 @@ import type { Responder } from '../support/engine'
 describe('0.5.0: verified phải có evidence thật', () => {
   const PLAN = 'mcp__focus-conductor__plan'
 
-  test('evidence nhắc lệnh đã chạy: tính là đã kiểm tra, không cảnh báo', {}, async ($, on) => {
+  test('evidence nhắc lệnh đã chạy: tính là đã kiểm tra, không cảnh báo', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     on('tool.call', { tool: 'Bash' }, () => ({ result: '12 pass' }))
@@ -25,7 +25,7 @@ describe('0.5.0: verified phải có evidence thật', () => {
     expect(JSON.stringify(next.context ?? [])).not.toContain('Checkpoint')
   })
 
-  test('evidence không nhắc lệnh hay file nào đã chạy: lưu là done (0.5.1), cảnh báo và chưa tính là đã kiểm tra', {}, async ($, on) => {
+  test('evidence không nhắc lệnh hay file nào đã chạy: lưu là done (0.5.1), cảnh báo và chưa tính là đã kiểm tra', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, COMPLEX_PROMPT)
@@ -48,7 +48,7 @@ describe('0.5.1: kiểm chứng sau thay đổi cuối, phạm vi Bash, Stop, vi
   const MAIN_DONE = { turnId: 't1', answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer' } as never
   const edit = ($: Engine, path: string) => $.tool.call({ tool: 'Edit', file_path: path, old_string: 'a', new_string: 'b' })
 
-  test('01: test đạt, sửa tiếp, không test lại: cuối turn báo thay đổi sau lần kiểm tra cuối', {}, async ($, on) => {
+  test('01: test đạt, sửa tiếp, không test lại: cuối turn báo thay đổi sau lần kiểm tra cuối', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     on('tool.call', { tool: 'Bash' }, () => ({ result: '12 pass' }))
@@ -74,7 +74,7 @@ describe('0.5.1: kiểm chứng sau thay đổi cuối, phạm vi Bash, Stop, vi
     expect((unknown.context ?? []).join('\n')).toContain('không xác định được file đích')
   })
 
-  test('03: Stop chặn turn chỉ giao subagent hoặc chỉ đọc khi làm tiếp; câu hỏi ngoài lề thì không', {}, async ($, on) => {
+  test('03: Stop chặn turn chỉ giao subagent hoặc chỉ đọc khi làm tiếp; câu hỏi ngoài lề thì không', { options: { planApproval: 'off' } }, async ($, on) => {
     const router: Responder = request =>
       request.startsWith('làm tiếp') ? plan({ relation: 'continue', kind: 'mixed' }) : request.startsWith('hỏi') ? plan({ relation: 'continue', kind: 'answer' }) : DEFAULT_ROUTER(request)
     base(on, { router })
@@ -99,7 +99,7 @@ describe('0.5.1: kiểm chứng sau thay đổi cuối, phạm vi Bash, Stop, vi
     expect((await $.classic.Stop({ stop_hook_active: false })).block).toContain('Checklist còn 2 bước mở')
   })
 
-  test('05: set với steps rỗng xóa checklist', {}, async ($, on) => {
+  test('05: set với steps rỗng xóa checklist', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'a' }, { title: 'b' }] })
@@ -107,7 +107,7 @@ describe('0.5.1: kiểm chứng sau thay đổi cuối, phạm vi Bash, Stop, vi
     expect(String(cleared.result)).toContain('Checklist trống')
   })
 
-  test('04: verified sau thay đổi mà chưa test lại, hoặc nhắc lệnh test đã lỗi, thì lưu done kèm lý do', {}, async ($, on) => {
+  test('04: verified sau thay đổi mà chưa test lại, hoặc nhắc lệnh test đã lỗi, thì lưu done kèm lý do', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     let failing = false
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
@@ -132,7 +132,7 @@ describe('0.5.1: kiểm chứng sau thay đổi cuối, phạm vi Bash, Stop, vi
     expect(String(ok.result)).not.toContain('chưa tính là đã kiểm tra')
   })
 
-  test('04: chỉ kiểm tĩnh thì ghi chú; việc chỉ đọc nêu file đã đọc thì nhận verified', {}, async ($, on) => {
+  test('04: chỉ kiểm tĩnh thì ghi chú; việc chỉ đọc nêu file đã đọc thì nhận verified', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, { router: request => (request.startsWith('Đọc') ? plan({ goal: 'Đọc hiểu', kind: 'investigate' }) : DEFAULT_ROUTER(request)) })
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     on('tool.call', { tool: 'Bash' }, () => ({ result: 'sạch' }))
@@ -151,7 +151,7 @@ describe('0.5.1: kiểm chứng sau thay đổi cuối, phạm vi Bash, Stop, vi
     expect(String(read.result)).toContain('[v] 1. Đọc luồng')
   })
 
-  test('04: tiêu chí nghiệm thu của bước được nhắc khi đóng bước; đóng bước cuối thì nhắc tiêu chí chất lượng', {}, async ($, on) => {
+  test('04: tiêu chí nghiệm thu của bước được nhắc khi đóng bước; đóng bước cuối thì nhắc tiêu chí chất lượng', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     on('tool.call', { tool: 'Bash' }, () => ({ result: '12 pass' }))
@@ -167,7 +167,7 @@ describe('0.5.1: kiểm chứng sau thay đổi cuối, phạm vi Bash, Stop, vi
     expect(String(done.result)).toContain('(1) Hiệu năng không giảm')
   })
 
-  test('04: subagent tự sửa rồi tự chạy test: lệnh test đó là bằng chứng cho phần nó sửa', {}, async ($, on) => {
+  test('04: subagent tự sửa rồi tự chạy test: lệnh test đó là bằng chứng cho phần nó sửa', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     on('tool.call', { tool: 'Bash' }, () => ({ result: '12 pass' }))
@@ -182,7 +182,7 @@ describe('0.5.1: kiểm chứng sau thay đổi cuối, phạm vi Bash, Stop, vi
     expect(String(done.result)).toContain('[v] 1. Sửa')
   })
 
-  test('việc giao subagent: chờ, đang chạy, lỗi (Stop và cảnh báo nhắc), giao lại rồi xong; lời gọi bị từ chối thì về chờ', {}, async ($, on) => {
+  test('việc giao subagent: chờ, đang chạy, lỗi (Stop và cảnh báo nhắc), giao lại rồi xong; lời gọi bị từ chối thì về chờ', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     let n = 0
     let isDenied = false
@@ -216,7 +216,7 @@ describe('0.5.1: kiểm chứng sau thay đổi cuối, phạm vi Bash, Stop, vi
     expect(await status()).toContain('4. Cập nhật README phần cài đặt.: chờ giao')
   })
 
-  test('blockLimit: số lần chặn theo cấu hình', { options: { strictDelegation: 'block', blockLimit: 3 } }, async ($, on) => {
+  test('blockLimit: số lần chặn theo cấu hình', { options: { planApproval: 'off', strictDelegation: 'block', blockLimit: 3 } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, FOUR)
@@ -224,7 +224,7 @@ describe('0.5.1: kiểm chứng sau thay đổi cuối, phạm vi Bash, Stop, vi
     expect((await edit($, 'src/a.ts')).deny).toBeUndefined()
   })
 
-  test('status tách chi phí đo được với phần còn ước tính, và báo độ trễ router', {}, async ($, on) => {
+  test('status tách chi phí đo được với phần còn ước tính, và báo độ trễ router', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Agent' }, () => ({ result: 'đã giao' }))
     on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'est-1' }))
@@ -238,7 +238,7 @@ describe('0.5.1: kiểm chứng sau thay đổi cuối, phạm vi Bash, Stop, vi
 })
 
 describe('0.5.1: dấu vết thực thi giữ theo mục tiêu', () => {
-  test('khôi phục mục tiêu cũ không mất lịch sử thay đổi: evidence chỉ nhắc file vẫn lưu done', {}, async ($, on) => {
+  test('khôi phục mục tiêu cũ không mất lịch sử thay đổi: evidence chỉ nhắc file vẫn lưu done', { options: { planApproval: 'off' } }, async ($, on) => {
     const PLAN = 'mcp__focus-conductor__plan'
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
@@ -258,7 +258,7 @@ describe('0.5.1: dấu vết thực thi giữ theo mục tiêu', () => {
 })
 
 describe('0.5.1: output thật của lệnh kiểm tra', () => {
-  test('test qua | tail không lỗi theo mã thoát nhưng output báo fail: verified lưu done', {}, async ($, on) => {
+  test('test qua | tail không lỗi theo mã thoát nhưng output báo fail: verified lưu done', { options: { planApproval: 'off' } }, async ($, on) => {
     const PLAN = 'mcp__focus-conductor__plan'
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
@@ -280,7 +280,7 @@ describe('0.5.1 vòng cuối: phân loại lệnh, subagent, lệnh lỗi, phạ
     $.tool.call({ tool: 'Edit', file_path: path, old_string: 'a', new_string: 'b', ...(agentId ? { agentId } : {}) } as never)
   const bash = ($: Engine, command: string, agentId?: string) => $.tool.call({ tool: 'Bash', command, ...(agentId ? { agentId } : {}) } as never)
 
-  test('luồng chính sửa, test đạt, subagent sửa tiếp: cuối turn báo chưa kiểm tra', {}, async ($, on) => {
+  test('luồng chính sửa, test đạt, subagent sửa tiếp: cuối turn báo chưa kiểm tra', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     on('tool.call', { tool: 'Bash' }, () => ({ result: '12 pass' }))
@@ -298,7 +298,7 @@ describe('0.5.1 vòng cuối: phân loại lệnh, subagent, lệnh lỗi, phạ
     expect(seen.toasts.some(t => t.includes('sau lần kiểm tra cuối chưa được kiểm tra lại'))).toBe(true)
   })
 
-  test('luồng chính sửa A, subagent sửa B rồi tự test đạt: A chưa được kiểm tra lại, verified dựa trên test đó lưu done', {}, async ($, on) => {
+  test('luồng chính sửa A, subagent sửa B rồi tự test đạt: A chưa được kiểm tra lại, verified dựa trên test đó lưu done', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     on('tool.call', { tool: 'Bash' }, () => ({ result: '12 pass' }))
@@ -319,7 +319,7 @@ describe('0.5.1 vòng cuối: phân loại lệnh, subagent, lệnh lỗi, phạ
     expect(seen.toasts.some(t => t.includes('chưa được kiểm tra lại') || t.includes('không chạy bước kiểm tra nào'))).toBe(true)
   })
 
-  test('subagent tự sửa rồi tự test đạt (luồng chính không sửa gì): không báo chưa kiểm tra', {}, async ($, on) => {
+  test('subagent tự sửa rồi tự test đạt (luồng chính không sửa gì): không báo chưa kiểm tra', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     on('tool.call', { tool: 'Bash' }, () => ({ result: '12 pass' }))
@@ -334,7 +334,7 @@ describe('0.5.1 vòng cuối: phân loại lệnh, subagent, lệnh lỗi, phạ
     expect(seen.toasts.some(t => t.includes('chưa được kiểm tra lại') || t.includes('không chạy bước kiểm tra nào'))).toBe(false)
   })
 
-  test('subagent của mục tiêu cũ sửa file không đụng trạng thái kiểm tra của mục tiêu hiện tại', {}, async ($, on) => {
+  test('subagent của mục tiêu cũ sửa file không đụng trạng thái kiểm tra của mục tiêu hiện tại', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     on('tool.call', { tool: 'Bash' }, () => ({ result: '12 pass' }))
@@ -351,7 +351,7 @@ describe('0.5.1 vòng cuối: phân loại lệnh, subagent, lệnh lỗi, phạ
     expect(seen.toasts.some(t => t.includes('chưa được kiểm tra lại'))).toBe(false)
   })
 
-  test('test đạt rồi lệnh ghi file thất bại ở bước cuối: mất trạng thái đã kiểm tra, verified lưu done', {}, async ($, on) => {
+  test('test đạt rồi lệnh ghi file thất bại ở bước cuối: mất trạng thái đã kiểm tra, verified lưu done', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     on('tool.call', { tool: 'Bash' }, (_$, e) =>
@@ -382,7 +382,7 @@ describe('0.5.1 vòng cuối: phân loại lệnh, subagent, lệnh lỗi, phạ
     expect(seen.toasts.some(t => t.includes('chưa được kiểm tra lại') || t.includes('không chạy bước kiểm tra nào'))).toBe(true)
   })
 
-  test('strictDelegation block từ chối lệnh test kèm ghi file khi còn việc chưa giao', { options: { strictDelegation: 'block' } }, async ($, on) => {
+  test('strictDelegation block từ chối lệnh test kèm ghi file khi còn việc chưa giao', { options: { planApproval: 'off', strictDelegation: 'block' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Bash' }, () => ({ result: 'ok' }))
     await submit($, FOUR)
@@ -422,7 +422,7 @@ describe('0.5.1 vòng cuối: thư mục gốc chốt theo mục tiêu', () => {
 })
 
 describe('PR #13 P1: verified dựa trên kiểm tra có mã thoát bị che', () => {
-  test('npm test; echo done với output không rõ: verified lưu done', {}, async ($, on) => {
+  test('npm test; echo done với output không rõ: verified lưu done', { options: { planApproval: 'off' } }, async ($, on) => {
     const PLAN = 'mcp__focus-conductor__plan'
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
@@ -439,7 +439,7 @@ describe('PR #13 P1: verified dựa trên kiểm tra có mã thoát bị che', (
 describe('PR #13 vòng 2: lệnh sau tự in báo đạt và evidence gắn đúng đoạn', () => {
   const PLAN = 'mcp__focus-conductor__plan'
 
-  test("npm test; printf '1 passed' rồi verified: lưu done", {}, async ($, on) => {
+  test("npm test; printf '1 passed' rồi verified: lưu done", { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     on('tool.call', { tool: 'Bash' }, () => ({ result: '1 passed' }))
@@ -453,7 +453,7 @@ describe('PR #13 vòng 2: lệnh sau tự in báo đạt và evidence gắn đú
 
   // 0.7.0: verified không còn dựa vào việc evidence chép đúng lệnh. `npm test` đạt sau thay đổi cuối là đủ, kể cả khi evidence nêu
   // lệnh lint mà kết quả lint bị ống che; còn `npm test` lỗi thì verified vẫn bị hạ về done.
-  test('npm test && npm run lint | tail -3: npm test đạt sau thay đổi cuối thì verified được nhận dù evidence nêu lint', {}, async ($, on) => {
+  test('npm test && npm run lint | tail -3: npm test đạt sau thay đổi cuối thì verified được nhận dù evidence nêu lint', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     on('tool.call', { tool: 'Bash' }, () => ({ result: '# tests 3\n# pass 3\n# fail 0\nlint: problem' }))
@@ -465,7 +465,7 @@ describe('PR #13 vòng 2: lệnh sau tự in báo đạt và evidence gắn đú
     expect(String(done.result)).toContain('[v] 1. Sửa')
   })
 
-  test('npm test && npm run lint | tail -3 mà npm test lỗi: verified vẫn bị hạ về done', {}, async ($, on) => {
+  test('npm test && npm run lint | tail -3 mà npm test lỗi: verified vẫn bị hạ về done', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     on('tool.call', { tool: 'Bash' }, () => ({ result: '# tests 3\n# pass 2\n# fail 1\nlint: problem' }))
@@ -482,7 +482,7 @@ describe('PR #13 vòng 3: bộ lọc đọc file và chuyển hướng trên l�
   const PLAN = 'mcp__focus-conductor__plan'
 
   for (const command of ['npm test | cat < /tmp/fake.log', 'node --test 2>/dev/null | cat']) {
-    test(`${command} với output là báo cáo đạt thật: verified lưu done`, {}, async ($, on) => {
+    test(`${command} với output là báo cáo đạt thật: verified lưu done`, { options: { planApproval: 'off' } }, async ($, on) => {
       base(on)
       on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
       on('tool.call', { tool: 'Bash' }, () => ({ result: NODE.pass_tap }))
@@ -496,7 +496,7 @@ describe('PR #13 vòng 3: bộ lọc đọc file và chuyển hướng trên l�
     })
   }
 
-  test('đối chứng: cargo test | cat với output đạt thật đầy đủ: verified được nhận', {}, async ($, on) => {
+  test('đối chứng: cargo test | cat với output đạt thật đầy đủ: verified được nhận', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     on('tool.call', { tool: 'Bash' }, () => ({ result: CARGO.pass }))
@@ -513,7 +513,7 @@ describe('0.5.6 A: gợi ý checkCommands khi verified bị hạ', () => {
   const PLAN = 'mcp__focus-conductor__plan'
 
 
-  test('script riêng đã chạy nhưng chưa khai option: hạ xuống done, nêu checkCommands và ví dụ từ lệnh thật', {}, async ($, on) => {
+  test('script riêng đã chạy nhưng chưa khai option: hạ xuống done, nêu checkCommands và ví dụ từ lệnh thật', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     on('tool.call', { tool: 'Bash' }, () => ({ result: 'ĐẠT toàn bộ' }))
@@ -529,7 +529,7 @@ describe('0.5.6 A: gợi ý checkCommands khi verified bị hạ', () => {
     expect(out).toContain('[x] 1. Dựng bảng tổng')
   })
 
-  test('mức none (evidence không nhắc gì): có checkCommands, không có ví dụ bịa', {}, async ($, on) => {
+  test('mức none (evidence không nhắc gì): có checkCommands, không có ví dụ bịa', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, COMPLEX_PROMPT)
@@ -541,7 +541,7 @@ describe('0.5.6 A: gợi ý checkCommands khi verified bị hạ', () => {
     expect(out).not.toContain('check_totals')
   })
 
-  test('mức stale (lệnh kiểm tra nhận ra nhưng chạy trước thay đổi cuối): không nhắc checkCommands', {}, async ($, on) => {
+  test('mức stale (lệnh kiểm tra nhận ra nhưng chạy trước thay đổi cuối): không nhắc checkCommands', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     on('tool.call', { tool: 'Bash' }, () => ({ result: '12 pass' }))
@@ -555,7 +555,7 @@ describe('0.5.6 A: gợi ý checkCommands khi verified bị hạ', () => {
     expect(out).not.toContain('checkCommands')
   })
 
-  test('cổng không đổi: cùng chuỗi lệnh, chưa khai option thì done; evidence lệnh kiểm tra thật vẫn verified', {}, async ($, on) => {
+  test('cổng không đổi: cùng chuỗi lệnh, chưa khai option thì done; evidence lệnh kiểm tra thật vẫn verified', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     on('tool.call', { tool: 'Bash' }, () => ({ result: '12 pass' }))

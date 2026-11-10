@@ -5,7 +5,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import { COMPLEX_PROMPT, PANE, base, conductor, step, submit } from '../support/engine'
 
 describe('điều phối luồng chính theo router', () => {
-  test('step đầu nhận đúng model và effort router chọn, giữ nguyên cho mọi step của turn', {}, async ($, on) => {
+  test('step đầu nhận đúng model và effort router chọn, giữ nguyên cho mọi step của turn', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     await submit($, COMPLEX_PROMPT)
     const first = await step($, seen)
@@ -19,13 +19,13 @@ describe('điều phối luồng chính theo router', () => {
     expect(await step($, seen)).toEqual({ model: 'claude-haiku-5-5', effort: 'low' })
   })
 
-  test('chế độ subagents không chạm luồng chính', { options: { routing: 'subagents' } }, async ($, on) => {
+  test('chế độ subagents không chạm luồng chính', { options: { planApproval: 'off', routing: 'subagents' } }, async ($, on) => {
     const seen = base(on)
     await submit($, COMPLEX_PROMPT)
     expect(await step($, seen)).toEqual({ model: 'claude-sonnet-5-5', effort: 'medium' })
   })
 
-  test('sessionModel ceiling: luồng chính không vượt model của phiên', { options: { sessionModel: 'ceiling' } }, async ($, on) => {
+  test('sessionModel ceiling: luồng chính không vượt model của phiên', { options: { planApproval: 'off', sessionModel: 'ceiling' } }, async ($, on) => {
     const seen = base(on)
     await submit($, COMPLEX_PROMPT)
     expect((await step($, seen, { model: 'claude-sonnet-5-5', effort: 'medium' }))?.model).toBe('claude-sonnet-5-5')
@@ -37,7 +37,7 @@ describe('điều phối luồng chính theo router', () => {
     expect(await step($, seen, { model: 'claude-sonnet-5-5', effort: 'high' })).toEqual({ model: 'claude-sonnet-5-5', effort: 'low' })
   })
 
-  test('không có route đã lưu thì so với model engine đang chạy: nâng cấp ghi đúng "từ haiku/xhigh"', {}, async ($, on) => {
+  test('không có route đã lưu thì so với model engine đang chạy: nâng cấp ghi đúng "từ haiku/xhigh"', { options: { planApproval: 'off' } }, async ($, on) => {
     // Turn đầu chạy opus nhưng model thất bại nên route bị xóa; engine vẫn là haiku/xhigh.
     const seen = base(on, { failFamily: 'opus' })
     on('turn.complete', () => ({ text: '' }))
@@ -49,7 +49,7 @@ describe('điều phối luồng chính theo router', () => {
     expect(String((await conductor($, 'status')).text)).toContain('sonnet/medium (việc khó hơn, nâng cấp từ haiku/xhigh)')
   })
 
-  test('người dùng tự đổi model rồi sang mục tiêu mới: quyết định so với model đang chạy, có tính chi phí cache', {}, async ($, on) => {
+  test('người dùng tự đổi model rồi sang mục tiêu mới: quyết định so với model đang chạy, có tính chi phí cache', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     on('turn.complete', () => ({ text: '' }))
     await submit($, COMPLEX_PROMPT)
@@ -63,7 +63,7 @@ describe('điều phối luồng chính theo router', () => {
     expect(status).not.toContain('turn đầu tiên')
   })
 
-  test('model cũ được giữ vì đổi không đáng chi phí cache: bản đọc ghi đúng model sẽ chạy', {}, async ($, on) => {
+  test('model cũ được giữ vì đổi không đáng chi phí cache: bản đọc ghi đúng model sẽ chạy', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     on('turn.complete', () => ({ text: '' }))
     await submit($, COMPLEX_PROMPT)
@@ -77,7 +77,7 @@ describe('điều phối luồng chính theo router', () => {
 })
 
 describe('model được chọn không phản hồi', () => {
-  test('lỗi một lần chỉ quay về model của engine; lỗi hai turn liên tiếp mới bị chặn, hết chặn sau 5 turn', {}, async ($, on) => {
+  test('lỗi một lần chỉ quay về model của engine; lỗi hai turn liên tiếp mới bị chặn, hết chặn sau 5 turn', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, { failFamily: 'opus' })
     await submit($, COMPLEX_PROMPT)
     const attempts = async (turnId: string) => {
@@ -92,7 +92,7 @@ describe('model được chọn không phản hồi', () => {
     expect(await attempts('t7')).toEqual(retried)
   })
 
-  test('lỗi một lần chưa chặn: /conductor status không báo model tạm ngừng', {}, async ($, on) => {
+  test('lỗi một lần chưa chặn: /conductor status không báo model tạm ngừng', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, { failFamily: 'opus' })
     await submit($, COMPLEX_PROMPT)
     await step($, seen, { turnId: 't1', messageCount: 3 })
@@ -117,7 +117,7 @@ describe('system prompt', () => {
 describe('0.5.0: engine tự đổi model khác người dùng đổi model', () => {
   const SWITCH = { from_model: 'claude-sonnet-5-5', requested_model: null, context_tokens: 0, prompt_cache_warm: false, cache_ttl: '5m', estimated_cache_write_usd: 0 } as const
 
-  test('engine tự đổi (source auto): mod vẫn điều phối luồng chính, nhật ký ghi là engine', {}, async ($, on) => {
+  test('engine tự đổi (source auto): mod vẫn điều phối luồng chính, nhật ký ghi là engine', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     on('classic.PostModelSwitch', () => ({}))
     await submit($, COMPLEX_PROMPT)
@@ -129,7 +129,7 @@ describe('0.5.0: engine tự đổi model khác người dùng đổi model', ()
     await ui.unmount()
   })
 
-  test('người dùng gõ /model (source command): tạm dừng tự điều phối tới mục tiêu mới', {}, async ($, on) => {
+  test('người dùng gõ /model (source command): tạm dừng tự điều phối tới mục tiêu mới', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     on('classic.PostModelSwitch', () => ({}))
     await submit($, COMPLEX_PROMPT)
@@ -138,14 +138,14 @@ describe('0.5.0: engine tự đổi model khác người dùng đổi model', ()
     expect((await step($, seen, { turnId: 't2', model: 'claude-haiku-5-5' }))?.model).toBe('claude-haiku-5-5')
   })
 
-  test('engine không báo nguồn (không có hook): đổi model giữa các turn vẫn coi là người dùng đổi', {}, async ($, on) => {
+  test('engine không báo nguồn (không có hook): đổi model giữa các turn vẫn coi là người dùng đổi', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     await submit($, COMPLEX_PROMPT)
     await step($, seen, { turnId: 't1' })
     expect((await step($, seen, { turnId: 't2', model: 'claude-haiku-5-5' }))?.model).toBe('claude-haiku-5-5')
   })
 
-  test('lần đổi do engine chỉ áp cho đúng lần đổi đó: người dùng đổi tiếp sau đó thì tạm dừng', {}, async ($, on) => {
+  test('lần đổi do engine chỉ áp cho đúng lần đổi đó: người dùng đổi tiếp sau đó thì tạm dừng', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     on('classic.PostModelSwitch', () => ({}))
     await submit($, COMPLEX_PROMPT)

@@ -6,7 +6,7 @@ import { K4_META_LEAD, K4_PROMPT } from '../fixtures/prompt-k4'
 import { COMPLEX_PROMPT, DEFAULT_ROUTER, EDIT, FOUR, base, conductor, plan, requestOf, step, submit, task } from '../support/engine'
 
 describe('router đọc prompt', () => {
-  test('khối context lấy đúng từ router: mục tiêu, ràng buộc, tiêu chí, đánh giá, điều phối', {}, async ($, on) => {
+  test('khối context lấy đúng từ router: mục tiêu, ràng buộc, tiêu chí, đánh giá, điều phối', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     await submit($, COMPLEX_PROMPT)
     const context = seen.contexts[0]?.join('\n') ?? ''
@@ -30,7 +30,7 @@ describe('router đọc prompt', () => {
     expect(seen.routed.length).toBe(0)
   })
 
-  test('option router chọn model router; chi phí router ghi theo đúng họ model đó', { options: { router: 'opus' } }, async ($, on) => {
+  test('option router chọn model router; chi phí router ghi theo đúng họ model đó', { options: { planApproval: 'off', router: 'opus' } }, async ($, on) => {
     const seen = base(on)
     await submit($, COMPLEX_PROMPT)
     expect(seen.routerModels).toEqual(['opus'])
@@ -38,7 +38,7 @@ describe('router đọc prompt', () => {
     expect(String((await conductor($, 'status')).text)).toContain('router $0,01 trong 1 lượt')
   })
 
-  test('Phân việc: việc giao kèm loại agent, model, effort; việc làm trực tiếp ghi model luồng chính', {}, async ($, on) => {
+  test('Phân việc: việc giao kèm loại agent, model, effort; việc làm trực tiếp ghi model luồng chính', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     await submit($, FOUR)
     const context = seen.contexts[0]?.join('\n') ?? ''
@@ -91,7 +91,7 @@ describe('router lỗi: không đoán, turn chạy theo model của phiên', () 
     expect(seen.toasts.some(t => t.includes('engine từ chối'))).toBe(true)
   })
 
-  test('router lỗi sau một mục tiêu đã có: lựa chọn luồng chính không bị áp lên prompt mới; việc đã phân vẫn là của mục tiêu', {}, async ($, on) => {
+  test('router lỗi sau một mục tiêu đã có: lựa chọn luồng chính không bị áp lên prompt mới; việc đã phân vẫn là của mục tiêu', { options: { planApproval: 'off' } }, async ($, on) => {
     let isDown = false
     const seen = base(on, { router: request => (isDown ? null : DEFAULT_ROUTER(request)) })
     const agents: Array<string | undefined> = []
@@ -111,7 +111,7 @@ describe('router lỗi: không đoán, turn chạy theo model của phiên', () 
     expect(seen.agentRouted.length).toBe(0)
   })
 
-  test('router lỗi ngay sau một turn đã chạy: route cũ không còn hiện trong status, trước cả turn mới', {}, async ($, on) => {
+  test('router lỗi ngay sau một turn đã chạy: route cũ không còn hiện trong status, trước cả turn mới', { options: { planApproval: 'off' } }, async ($, on) => {
     let isDown = false
     const seen = base(on, { router: request => (isDown ? null : DEFAULT_ROUTER(request)) })
     await submit($, COMPLEX_PROMPT)
@@ -141,7 +141,7 @@ describe('router lỗi: không đoán, turn chạy theo model của phiên', () 
 })
 
 describe('prompt tiếp nối', () => {
-  test('prompt một từ cũng hỏi router: router nói tiếp nối thì giữ mục tiêu', {}, async ($, on) => {
+  test('prompt một từ cũng hỏi router: router nói tiếp nối thì giữ mục tiêu', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, { router: request => (request.includes('tiếp') ? plan({ relation: 'continue', goal: '' }) : DEFAULT_ROUTER(request)) })
     await submit($, FOUR)
     await submit($, 'tiếp')
@@ -149,7 +149,7 @@ describe('prompt tiếp nối', () => {
     expect(seen.contexts[1]?.join('\n')).toContain('Tiếp nối mục tiêu hiện tại: Nâng cấp module thanh toán')
   })
 
-  test('tiếp nối thêm việc: việc mới đánh số tiếp theo, vào phần chờ giao; lựa chọn luồng chính theo router', {}, async ($, on) => {
+  test('tiếp nối thêm việc: việc mới đánh số tiếp theo, vào phần chờ giao; lựa chọn luồng chính theo router', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, {
       router: request =>
         request.startsWith('Thêm')
@@ -208,7 +208,7 @@ describe('prompt dài và prompt đính kèm', () => {
   })
   const K4_PLAN = plan({ goal: 'Engine ra quyết định đúng luật', depth: 'hard', volume: 'large', kind: 'mixed', main: { model: 'opus', effort: 'high' }, tasks: K4_TASKS })
 
-  test('prompt K4: router nhận trọn prompt; phân việc đủ 11 mục, 4 việc giao, 7 việc ở luồng chính; "K4.N" khớp đúng việc', {}, async ($, on) => {
+  test('prompt K4: router nhận trọn prompt; phân việc đủ 11 mục, 4 việc giao, 7 việc ở luồng chính; "K4.N" khớp đúng việc', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, { router: () => K4_PLAN })
     const models: Array<string | undefined> = []
     on('tool.call', { tool: 'Agent' }, (_$, e) => {
@@ -276,14 +276,14 @@ describe('prompt dài và prompt đính kèm', () => {
 })
 
 describe('0.5.0: prompt tiếp nối ngắn và đọc lại prompt', () => {
-  test('mặc định (routerSkip trống) prompt "ok" vẫn qua router', {}, async ($, on) => {
+  test('mặc định (routerSkip trống) prompt "ok" vẫn qua router', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     await submit($, FOUR)
     await submit($, 'ok')
     expect(seen.routed.length).toBe(2)
   })
 
-  test('routerSkip: câu trong danh sách không hỏi router, giữ mục tiêu và điều phối; câu khác vẫn hỏi', { options: { routerSkip: 'ok, tiếp tục' } }, async ($, on) => {
+  test('routerSkip: câu trong danh sách không hỏi router, giữ mục tiêu và điều phối; câu khác vẫn hỏi', { options: { planApproval: 'off', routerSkip: 'ok, tiếp tục' } }, async ($, on) => {
     const seen = base(on)
     await submit($, FOUR)
     await step($, seen, { turnId: 't1' })
@@ -324,7 +324,7 @@ describe('0.5.0: prompt tiếp nối ngắn và đọc lại prompt', () => {
     expect(String((await conductor($, 'status')).text)).toContain('1. Đổi tên')
   })
 
-  test('/conductor reroute khi router vẫn lỗi: giữ điều phối hiện tại; khi chưa có prompt: báo rõ', {}, async ($, on) => {
+  test('/conductor reroute khi router vẫn lỗi: giữ điều phối hiện tại; khi chưa có prompt: báo rõ', { options: { planApproval: 'off' } }, async ($, on) => {
     let isDown = false
     base(on, { router: request => (isDown ? null : DEFAULT_ROUTER(request)) })
     expect((await conductor($, 'reroute')).text).toContain('Không có prompt nào')
@@ -334,7 +334,7 @@ describe('0.5.0: prompt tiếp nối ngắn và đọc lại prompt', () => {
     expect(String((await conductor($, 'status')).text)).toContain('Mục tiêu: Nâng cấp module thanh toán')
   })
 
-  test('/conductor reroute sau khi router lỗi ở prompt tiếp nối: áp phần đọc mới lên mục tiêu, không lập mục tiêu mới', {}, async ($, on) => {
+  test('/conductor reroute sau khi router lỗi ở prompt tiếp nối: áp phần đọc mới lên mục tiêu, không lập mục tiêu mới', { options: { planApproval: 'off' } }, async ($, on) => {
     let isDown = false
     const seen = base(on, {
       router: request =>
@@ -366,7 +366,7 @@ describe('0.5.0: prompt tiếp nối ngắn và đọc lại prompt', () => {
 })
 
 describe('0.5.0: hỏi lại router và bộ đếm lỗi riêng', () => {
-  test('router trả JSON hỏng rồi trả đúng: prompt được đọc, chi phí cộng cả hai lượt, nhật ký ghi đã hỏi lại', { options: { decisionLog: '/tmp/fc.jsonl' } }, async ($, on) => {
+  test('router trả JSON hỏng rồi trả đúng: prompt được đọc, chi phí cộng cả hai lượt, nhật ký ghi đã hỏi lại', { options: { planApproval: 'off', decisionLog: '/tmp/fc.jsonl' } }, async ($, on) => {
     let n = 0
     const seen = base(on, { router: request => ((n += 1) === 1 ? '{"goal": "x", "main": {' : DEFAULT_ROUTER(request)) })
     const writes: string[] = []
@@ -382,7 +382,7 @@ describe('0.5.0: hỏi lại router và bộ đếm lỗi riêng', () => {
     expect(JSON.parse(writes[writes.length - 1]?.trim() ?? '{}')).toMatchObject({ kind: 'route', retried: true })
   })
 
-  test('router chấm subagent lỗi liên tiếp không làm tạm ngừng router đọc prompt', {}, async ($, on) => {
+  test('router chấm subagent lỗi liên tiếp không làm tạm ngừng router đọc prompt', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, { agent: () => null })
     on('tool.call', { tool: 'Agent' }, () => ({ deny: 'test' }))
     await submit($, FOUR)

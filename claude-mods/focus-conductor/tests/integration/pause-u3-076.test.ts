@@ -45,7 +45,7 @@ async function hardPause($: Engine, on: On) {
 
 describe('0.7.6 U3: tạm dừng cứng trên band', () => {
   for (const columns of [56, 72, 120]) {
-    test(`${columns} cột: dòng 1 "⏸ Tạm dừng: ..." kèm giờ làm mới, dòng 2 "Điểm dừng đã ghi · chạy tiếp: /conductor resume force"`, async ($, on) => {
+    test(`${columns} cột: dòng 1 "⏸ Tạm dừng: ..." kèm giờ làm mới, dòng 2 "Điểm dừng đã ghi · chạy tiếp: /conductor resume force"`, { options: { planApproval: 'off' } }, async ($, on) => {
       await hardPause($, on)
       const rows = (await bandRows($, columns, 2)).map(textOf)
       expect(rows[0]).toContain(`${PAUSE} Tạm dừng: hạn mức phiên (5 giờ) còn 3%`)
@@ -55,14 +55,14 @@ describe('0.7.6 U3: tạm dừng cứng trên band', () => {
     })
   }
 
-  test('maxRows 1: dòng tạm dừng vẫn thấy', async ($, on) => {
+  test('maxRows 1: dòng tạm dừng vẫn thấy', { options: { planApproval: 'off' } }, async ($, on) => {
     await hardPause($, on)
     const rows = (await bandRows($, 72, 1)).map(textOf)
     expect(rows.length).toBe(1)
     expect(rows[0]).toContain(`${PAUSE} Tạm dừng`)
   })
 
-  test('người dùng tự dừng (/conductor pause): dòng 2 ghi "chạy tiếp: /conductor resume", không có force', async ($, on) => {
+  test('người dùng tự dừng (/conductor pause): dòng 2 ghi "chạy tiếp: /conductor resume", không có force', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, RESUME)
     hooks(on)
     memoryStore(on)
@@ -75,14 +75,14 @@ describe('0.7.6 U3: tạm dừng cứng trên band', () => {
     expect(rows[1]).not.toContain('force')
   })
 
-  test('status line kèm lệnh chạy tiếp', async ($, on) => {
+  test('status line kèm lệnh chạy tiếp', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = await hardPause($, on)
     expect(seen.statuses.filter(s => s !== undefined).at(-1)).toContain('/conductor resume force')
   })
 })
 
 describe('0.7.6 U3: báo hạn mức mềm', () => {
-  test('dòng 2 của band ghi báo hạn mức; mục Hạn mức của pane ghi "báo mềm"', { options: { noticeWeekRemainingPct: 25 } }, async ($, on) => {
+  test('dòng 2 của band ghi báo hạn mức; mục Hạn mức của pane ghi "báo mềm"', { options: { planApproval: 'off', noticeWeekRemainingPct: 25 } }, async ($, on) => {
     const seen = base(on, RESUME)
     hooks(on)
     const meter = quotaMeter(on, [week(10)])
@@ -102,7 +102,7 @@ describe('0.7.6 U3: báo hạn mức mềm', () => {
 
 describe('0.7.6 U3: mục tiêu không bị cắt còn một ký tự', () => {
   for (const columns of [56, 72, 120]) {
-    test(`${columns} cột, chưa có checklist: mục tiêu còn ít nhất 10 ô`, async ($, on) => {
+    test(`${columns} cột, chưa có checklist: mục tiêu còn ít nhất 10 ô`, { options: { planApproval: 'off' } }, async ($, on) => {
       base(on, RESUME)
       hooks(on)
       quotaMeter(on, [session(10)])

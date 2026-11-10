@@ -121,7 +121,7 @@ function stepRowOf(tree: Node, title: string) {
 }
 
 describe('0.7.6 W3: dòng bước ở pane hẹp', () => {
-  test('40 cột, 11 bước có lô đang chạy: mỗi bước không quá 2 dòng, tên bước không bị bẻ giữa từ', async ($, on) => {
+  test('40 cột, 11 bước có lô đang chạy: mỗi bước không quá 2 dòng, tên bước không bị bẻ giữa từ', { options: { planApproval: 'off' } }, async ($, on) => {
     const { tree } = await mountSteps($, on, 40)
     for (const title of TITLES) {
       const { row } = stepRowOf(tree, title)
@@ -131,7 +131,7 @@ describe('0.7.6 W3: dòng bước ở pane hẹp', () => {
     }
   })
 
-  test('40 cột: chip model và chi tiết nằm trong cột tên, dưới tên bước (chung tổ tiên gần nhất là một cột)', async ($, on) => {
+  test('40 cột: chip model và chi tiết nằm trong cột tên, dưới tên bước (chung tổ tiên gần nhất là một cột)', { options: { planApproval: 'off' } }, async ($, on) => {
     const { tree } = await mountSteps($, on, 40)
     for (const title of TITLES) {
       const { row, path } = stepRowOf(tree, title)
@@ -145,7 +145,7 @@ describe('0.7.6 W3: dòng bước ở pane hẹp', () => {
     }
   })
 
-  test('80 cột: chip ở cùng hàng với tên bước, mỗi bước một dòng', async ($, on) => {
+  test('80 cột: chip ở cùng hàng với tên bước, mỗi bước một dòng', { options: { planApproval: 'off' } }, async ($, on) => {
     const { tree } = await mountSteps($, on, 80)
     for (const title of TITLES) {
       const { row, path } = stepRowOf(tree, title)
@@ -158,7 +158,7 @@ describe('0.7.6 W3: dòng bước ở pane hẹp', () => {
   })
 
   // Thêm ở commit sửa để ghim mẫu đột biến: luật dạng gọn tính cả các dòng chip của pane hẹp, và bước dự kiến (chưa có checklist) cũng xuống dòng.
-  test('40 cột, bước dự kiến chưa có checklist: chip nằm trong cột tên, mỗi bước không quá 2 dòng', async ($, on) => {
+  test('40 cột, bước dự kiến chưa có checklist: chip nằm trong cột tên, mỗi bước không quá 2 dòng', { options: { planApproval: 'off' } }, async ($, on) => {
     const { tree } = await mountSteps($, on, 40, { checklist: false })
     for (const title of TITLES) {
       const path = pathTo(tree, title)
@@ -179,7 +179,7 @@ describe('0.7.6 W3: dòng bước ở pane hẹp', () => {
     ['bước dự kiến, mọi bước có lô', { checklist: false, every: 1 }],
     ['bước dự kiến, cứ ba bước có một lô', { checklist: false, every: 3 }],
   ] as const) {
-    test(`ranh giới dạng gọn ở 40 cột khớp số dòng đo được (${name})`, async ($, on) => {
+    test(`ranh giới dạng gọn ở 40 cột khớp số dòng đo được (${name})`, { options: { planApproval: 'off' } }, async ($, on) => {
       await setupSteps($, on, options)
       const full = await drawAt($, 40, 400)
       const end = sectionEnd(full.tree, 'BƯỚC 10: kết thúc phiên', 40)

@@ -54,7 +54,7 @@ describe('0.7.5 R11: mã ngắn chỉ giữ trong khóa khi có trong brief', ()
 describe('0.7.5 R11: số lượt router khi ghi nhiều lô mã ngắn', () => {
   const agent = ($: Engine, description: string) => $.tool.call({ tool: 'Agent', description, prompt: `${description} trong codebase` } as never)
 
-  test('20 lời gọi "Đọc b<N>" khi brief không có mã b: một lần chấm (cùng khóa)', { timeoutMs: 60_000 }, async ($, on) => {
+  test('20 lời gọi "Đọc b<N>" khi brief không có mã b: một lần chấm (cùng khóa)', { options: { planApproval: 'off' }, timeoutMs: 60_000 }, async ($, on) => {
     const seen = base(on, { router: () => plan({ goal: 'Dọn dữ liệu', depth: 'hard', volume: 'large' }) })
     on('tool.call', { tool: 'Agent' }, () => ({ result: 'xong' }))
     await submit($, 'Dọn dữ liệu')
@@ -62,7 +62,7 @@ describe('0.7.5 R11: số lượt router khi ghi nhiều lô mã ngắn', () => 
     expect(seen.agentRouted.length).toBe(1)
   })
 
-  test('brief có mã b12 và b13: hai lần chấm riêng', {}, async ($, on) => {
+  test('brief có mã b12 và b13: hai lần chấm riêng', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, { router: () => plan({ goal: 'Dọn dữ liệu', depth: 'hard', volume: 'large', tasks: [task('b12 chuẩn bị', 'main', 'opus', 'high'), task('b13 đối chiếu', 'main', 'opus', 'high')] }) })
     on('tool.call', { tool: 'Agent' }, () => ({ result: 'xong' }))
     await submit($, 'Dọn dữ liệu')
@@ -81,7 +81,7 @@ describe('0.7.5 R11: agent của workflow cũng dùng mã trong brief', () => {
     on('turn.complete', () => ({ text: '' }))
   }
 
-  test('brief không có mã b: hai agent "Đọc b12" và "Đọc b13" dùng chung một lần chấm', {}, async ($, on) => {
+  test('brief không có mã b: hai agent "Đọc b12" và "Đọc b13" dùng chung một lần chấm', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, { router: () => plan({ goal: 'Dọn dữ liệu', depth: 'hard', volume: 'large' }) })
     workflowHooks(on)
     await submit($, 'Dọn dữ liệu')
@@ -90,7 +90,7 @@ describe('0.7.5 R11: agent của workflow cũng dùng mã trong brief', () => {
     expect(seen.agentRouted.length).toBe(1)
   })
 
-  test('brief có mã b12 và b13: hai lần chấm riêng', {}, async ($, on) => {
+  test('brief có mã b12 và b13: hai lần chấm riêng', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, { router: () => plan({ goal: 'Dọn dữ liệu', depth: 'hard', volume: 'large', tasks: [task('b12 chuẩn bị', 'main', 'opus', 'high'), task('b13 đối chiếu', 'main', 'opus', 'high')] }) })
     workflowHooks(on)
     await submit($, 'Dọn dữ liệu')
@@ -103,7 +103,7 @@ describe('0.7.5 R11: agent của workflow cũng dùng mã trong brief', () => {
 describe('0.7.5 R11: mã trong checklist của tool plan cũng được tính', () => {
   const agent = ($: Engine, description: string) => $.tool.call({ tool: 'Agent', description, prompt: `${description} trong codebase` } as never)
 
-  test('brief không có mã b nhưng checklist có b12 và b13: hai lần chấm riêng', {}, async ($, on) => {
+  test('brief không có mã b nhưng checklist có b12 và b13: hai lần chấm riêng', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, { router: () => plan({ goal: 'Dọn dữ liệu', depth: 'hard', volume: 'large' }) })
     on('tool.call', { tool: 'Agent' }, () => ({ result: 'xong' }))
     await submit($, 'Dọn dữ liệu')

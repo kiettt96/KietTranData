@@ -17,7 +17,7 @@ async function isShown($: Engine, goal: RegExp) {
 }
 
 describe('0.6.1 2.2: band tự hiện lại ở mục tiêu mới', () => {
-  test('ẩn band, prompt tiếp nối thì vẫn ẩn; mục tiêu mới thì band hiện lại', {}, async ($, on) => {
+  test('ẩn band, prompt tiếp nối thì vẫn ẩn; mục tiêu mới thì band hiện lại', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, RESUME)
     await submit($, COMPLEX_PROMPT)
     const band = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: bandProps })

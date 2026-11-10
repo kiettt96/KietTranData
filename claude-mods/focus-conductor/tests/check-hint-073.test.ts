@@ -83,7 +83,7 @@ describe('0.7.3 điểm 2: gợi ý tới người dùng trong phiên', () => {
     return seen
   }
 
-  test('đến checkpoint: toast nêu option checkCommands và chuỗi gợi ý dạng chuẩn, không chép nguyên đường dẫn đầy đủ', {}, async ($, on) => {
+  test('đến checkpoint: toast nêu option checkCommands và chuỗi gợi ý dạng chuẩn, không chép nguyên đường dẫn đầy đủ', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = await untilCheckpoint($, on)
     const found = hints(seen.toasts)
     expect(found.length).toBe(1)
@@ -92,12 +92,12 @@ describe('0.7.3 điểm 2: gợi ý tới người dùng trong phiên', () => {
     expect(found[0]).not.toContain('-B')
   })
 
-  test('toast đúng một lần mỗi mục tiêu: các checkpoint sau không báo lại', {}, async ($, on) => {
+  test('toast đúng một lần mỗi mục tiêu: các checkpoint sau không báo lại', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = await untilCheckpoint($, on, { many: true })
     expect(hints(seen.toasts).length).toBe(1)
   })
 
-  test('mục tiêu mới báo lại', {}, async ($, on) => {
+  test('mục tiêu mới báo lại', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = await untilCheckpoint($, on)
     expect(hints(seen.toasts).length).toBe(1)
     await conductor($, 'goal Làm việc khác hẳn')
@@ -106,7 +106,7 @@ describe('0.7.3 điểm 2: gợi ý tới người dùng trong phiên', () => {
     expect(hints(seen.toasts).length).toBe(2)
   })
 
-  test('cuối turn không có lệnh kiểm nào được nhận: cũng gợi ý (cảnh báo "không chạy bước kiểm tra nào" đi kèm gợi ý)', {}, async ($, on) => {
+  test('cuối turn không có lệnh kiểm nào được nhận: cũng gợi ý (cảnh báo "không chạy bước kiểm tra nào" đi kèm gợi ý)', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     on('tool.call', { tool: 'Bash' }, () => ({ result: 'RESULT: 47 passed, 0 failed' }))
@@ -119,12 +119,12 @@ describe('0.7.3 điểm 2: gợi ý tới người dùng trong phiên', () => {
     expect(hints(seen.toasts).length).toBe(1)
   })
 
-  test('đã khai checkCommands và script được nhận: không có gợi ý', { options: { checkCommands: 'python3 tests/' } }, async ($, on) => {
+  test('đã khai checkCommands và script được nhận: không có gợi ý', { options: { planApproval: 'off', checkCommands: 'python3 tests/' } }, async ($, on) => {
     const seen = await untilCheckpoint($, on, { many: true })
     expect(hints(seen.toasts)).toEqual([])
   })
 
-  test('không có script kiểm nào đã chạy: không có gợi ý', {}, async ($, on) => {
+  test('không có script kiểm nào đã chạy: không có gợi ý', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, COMPLEX_PROMPT)
@@ -143,7 +143,7 @@ describe('0.7.3 điểm 2: gợi ý tới người dùng trong phiên', () => {
     expect(hints(seen.toasts)).toEqual([])
   })
 
-  test('/conductor status có một dòng gợi ý; chưa có gợi ý thì không có dòng đó', {}, async ($, on) => {
+  test('/conductor status có một dòng gợi ý; chưa có gợi ý thì không có dòng đó', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     on('tool.call', { tool: 'Bash' }, () => ({ result: 'RESULT: 47 passed, 0 failed' }))
@@ -157,7 +157,7 @@ describe('0.7.3 điểm 2: gợi ý tới người dùng trong phiên', () => {
     expect(hints(seen.toasts).length).toBe(1)
   })
 
-  test('pane có một dòng gợi ý khi có gợi ý', {}, async ($, on) => {
+  test('pane có một dòng gợi ý khi có gợi ý', { options: { planApproval: 'off' } }, async ($, on) => {
     await untilCheckpoint($, on)
     const pane = await $.ui.mount(PANE)
     const texts = (await pane.findAll({ type: 'Text' })).map(e => e.text)
@@ -165,7 +165,7 @@ describe('0.7.3 điểm 2: gợi ý tới người dùng trong phiên', () => {
     expect(texts.some(t => typeof t === 'string' && t.includes('checkCommands') && t.includes('python3 tests/check-a.py'))).toBe(true)
   })
 
-  test('hai script cùng thư mục: gợi ý từng script, không gợi ý tiền tố thư mục (từ vòng sửa 2 của 0.7.5)', {}, async ($, on) => {
+  test('hai script cùng thư mục: gợi ý từng script, không gợi ý tiền tố thư mục (từ vòng sửa 2 của 0.7.5)', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     on('tool.call', { tool: 'Bash' }, () => ({ result: 'RESULT: 47 passed, 0 failed' }))
@@ -180,7 +180,7 @@ describe('0.7.3 điểm 2: gợi ý tới người dùng trong phiên', () => {
     expect(found[0]).not.toContain('chỉ chứa script kiểm')
   })
 
-  test('mục tiêu mới: dòng gợi ý của mục tiêu cũ không còn ở /conductor status và pane', {}, async ($, on) => {
+  test('mục tiêu mới: dòng gợi ý của mục tiêu cũ không còn ở /conductor status và pane', { options: { planApproval: 'off' } }, async ($, on) => {
     await untilCheckpoint($, on)
     expect(String((await conductor($, 'status')).text)).toContain('checkCommands')
     await conductor($, 'goal Làm việc khác hẳn')
@@ -191,7 +191,7 @@ describe('0.7.3 điểm 2: gợi ý tới người dùng trong phiên', () => {
     expect(texts.some(t => typeof t === 'string' && t.includes('checkCommands'))).toBe(false)
   })
 
-  test('gợi ý đổi giữa hai checkpoint (có thêm script kiểm): cập nhật dòng ở status, không báo toast lần hai', {}, async ($, on) => {
+  test('gợi ý đổi giữa hai checkpoint (có thêm script kiểm): cập nhật dòng ở status, không báo toast lần hai', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = await untilCheckpoint($, on)
     expect(hints(seen.toasts).length).toBe(1)
     expect(String((await conductor($, 'status')).text)).toContain('python3 tests/check-a.py')
@@ -202,7 +202,7 @@ describe('0.7.3 điểm 2: gợi ý tới người dùng trong phiên', () => {
     expect(status).toContain('python3 tests/check-b.py, python3 tests/check-a.py')
   })
 
-  test('đã có lệnh kiểm nhận được chạy đạt rồi sửa tiếp: cảnh báo "chưa được kiểm tra lại" không kèm gợi ý', {}, async ($, on) => {
+  test('đã có lệnh kiểm nhận được chạy đạt rồi sửa tiếp: cảnh báo "chưa được kiểm tra lại" không kèm gợi ý', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     on('tool.call', { tool: 'Bash' }, () => ({ result: '12 pass' }))
@@ -217,12 +217,12 @@ describe('0.7.3 điểm 2: gợi ý tới người dùng trong phiên', () => {
     expect(hints(seen.toasts)).toEqual([])
   })
 
-  test('chỉ gợi ý, không tự khai: sau gợi ý, script vẫn chưa là lệnh kiểm tra', {}, async ($, on) => {
+  test('chỉ gợi ý, không tự khai: sau gợi ý, script vẫn chưa là lệnh kiểm tra', { options: { planApproval: 'off' } }, async ($, on) => {
     await untilCheckpoint($, on)
     expect(checkKindOf('/usr/bin/python3 -B tests/check-a.py')).toBeNull()
   })
 
-  test('plan tool: bước done sau khi chạy script chưa khai vẫn nêu checkCommands cho Claude với chuỗi dạng chuẩn', {}, async ($, on) => {
+  test('plan tool: bước done sau khi chạy script chưa khai vẫn nêu checkCommands cho Claude với chuỗi dạng chuẩn', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     on('tool.call', { tool: 'Bash' }, () => ({ result: 'RESULT: 47 passed, 0 failed' }))

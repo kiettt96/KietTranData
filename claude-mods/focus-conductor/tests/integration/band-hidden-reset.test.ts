@@ -46,7 +46,7 @@ describe('0.7.2 5: band đã ẩn hiện lại', () => {
     expect(await isBandShown($)).toBe(false)
   })
 
-  test('/conductor goal: mục tiêu mới đặt bằng lệnh thì band hiện lại', {}, async ($, on) => {
+  test('/conductor goal: mục tiêu mới đặt bằng lệnh thì band hiện lại', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     await hideBand($)

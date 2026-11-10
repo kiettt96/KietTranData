@@ -47,7 +47,7 @@ describe('0.7.5 C1: mốc context sau nén qua hook', () => {
     expect(ctx.local.compaction.lastContext).toBe(0)
   })
 
-  test('nén qua hook có tokensAfter, lần đo sau gần bằng: một lời nhắc, không nhắc trùng', {}, async ($, on) => {
+  test('nén qua hook có tokensAfter, lần đo sau gần bằng: một lời nhắc, không nhắc trùng', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen, box } = await setup($, on, 40_000)
     await $.session.compact({ trigger: 'auto', messages: MESSAGES } as never)
     box.tokens = 38_000
@@ -56,7 +56,7 @@ describe('0.7.5 C1: mốc context sau nén qua hook', () => {
     expect(reminders(await readFile($))).toBe(0)
   })
 
-  test('nén qua hook rồi context giảm mạnh lần nữa không qua hook: nhắc lần nữa (đường dự phòng)', {}, async ($, on) => {
+  test('nén qua hook rồi context giảm mạnh lần nữa không qua hook: nhắc lần nữa (đường dự phòng)', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen, box } = await setup($, on, 40_000)
     await $.session.compact({ trigger: 'auto', messages: MESSAGES } as never)
     expect(reminders(await readFile($))).toBe(1)

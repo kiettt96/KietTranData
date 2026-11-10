@@ -8,7 +8,7 @@ import { PANE_ROWS } from '../../hooks/lib/pane'
 import { labels } from '../../hooks/ui/labels'
 
 describe('0.7.5 L7: checklist dài ở pane 16 dòng', () => {
-  test('11 bước, 8 bước đầu đã đóng: các bước đã đóng dồn một dòng tóm tắt, dòng đầu của tiến độ từng việc nằm trong 16 dòng đầu', {}, async ($, on) => {
+  test('11 bước, 8 bước đầu đã đóng: các bước đã đóng dồn một dòng tóm tắt, dòng đầu của tiến độ từng việc nằm trong 16 dòng đầu', { options: { planApproval: 'off' } }, async ($, on) => {
     await longGoal($, on, 8)
     const { tree, texts } = await drawn($)
     expect(PANE_ROWS).toBe(16)
@@ -24,7 +24,7 @@ describe('0.7.5 L7: checklist dài ở pane 16 dòng', () => {
     expect(section).toBeLessThan(PANE_ROWS)
   })
 
-  test('7 bước, 3 bước đóng, còn 4 bước mở (đủ chỗ, dạng gọn không áp): dồn thành "3 bước đã đóng"', {}, async ($, on) => {
+  test('7 bước, 3 bước đóng, còn 4 bước mở (đủ chỗ, dạng gọn không áp): dồn thành "3 bước đã đóng"', { options: { planApproval: 'off' } }, async ($, on) => {
     await longGoal($, on, 3, 7)
     const { texts } = await drawn($)
     const list = checklistOf(texts)
@@ -35,7 +35,7 @@ describe('0.7.5 L7: checklist dài ở pane 16 dòng', () => {
   })
 
   // S6 (vòng rà soát 4): dạng gọn có dòng "k bước đã đóng" riêng (khi có bước đóng) và "+m bước mở".
-  test('11 bước, 0 bước đóng, còn nhiều bước mở: dạng gọn, không có dòng "bước đã đóng", có "+7 bước mở"', {}, async ($, on) => {
+  test('11 bước, 0 bước đóng, còn nhiều bước mở: dạng gọn, không có dòng "bước đã đóng", có "+7 bước mở"', { options: { planApproval: 'off' } }, async ($, on) => {
     await longGoal($, on, 0)
     const { texts } = await drawn($)
     const list = checklistOf(texts)
@@ -43,7 +43,7 @@ describe('0.7.5 L7: checklist dài ở pane 16 dòng', () => {
     expect(list).toContain('+7 bước mở')
   })
 
-  test('11 bước, 1 bước đóng: dạng gọn có "1 bước đã đóng" và "+6 bước mở"', {}, async ($, on) => {
+  test('11 bước, 1 bước đóng: dạng gọn có "1 bước đã đóng" và "+6 bước mở"', { options: { planApproval: 'off' } }, async ($, on) => {
     await longGoal($, on, 1)
     const { texts } = await drawn($)
     const list = checklistOf(texts)
@@ -51,7 +51,7 @@ describe('0.7.5 L7: checklist dài ở pane 16 dòng', () => {
     expect(list).toContain('+6 bước mở')
   })
 
-  test('checklist 6 bước (ngắn): giữ nguyên từng bước dù đã đóng', {}, async ($, on) => {
+  test('checklist 6 bước (ngắn): giữ nguyên từng bước dù đã đóng', { options: { planApproval: 'off' } }, async ($, on) => {
     await longGoal($, on, 4, 6)
     const { texts } = await drawn($)
     const list = checklistOf(texts)
@@ -59,7 +59,7 @@ describe('0.7.5 L7: checklist dài ở pane 16 dòng', () => {
     expect(list).toContain('BƯỚC 0: chuẩn bị')
   })
 
-  test('dồn bước đã đóng không đổi số liệu tiến độ: dòng đếm 8/11 của checklist vẫn hiện', {}, async ($, on) => {
+  test('dồn bước đã đóng không đổi số liệu tiến độ: dòng đếm 8/11 của checklist vẫn hiện', { options: { planApproval: 'off' } }, async ($, on) => {
     await longGoal($, on, 8)
     const { texts } = await drawn($)
     expect(texts.some(t => /^8\/11/.test(t))).toBe(true)

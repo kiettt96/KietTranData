@@ -14,7 +14,7 @@ function stored(box: { data: Map<string, unknown> }, root = '/repo') {
 }
 
 describe('0.6.0 C: ghi hai giai đoạn', () => {
-  test('vào vùng dừng: bản ghi open có ngay (chưa có note); plan checkpoint thêm note', {}, async ($, on) => {
+  test('vào vùng dừng: bản ghi open có ngay (chưa có note); plan checkpoint thêm note', { options: { planApproval: 'off' } }, async ($, on) => {
     const { clock } = base(on)
     const box = memoryStore(on)
     const meter = quotaMeter(on, [session(10)])
@@ -78,7 +78,7 @@ describe('0.6.0 C: ghi hai giai đoạn', () => {
 })
 
 describe('0.6.0 C: action checkpoint', () => {
-  test('ngoài trạng thái dừng thì bị từ chối rõ ràng; cần note', {}, async ($, on) => {
+  test('ngoài trạng thái dừng thì bị từ chối rõ ràng; cần note', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     const box = memoryStore(on)
     quotaMeter(on, [session(10)])
@@ -97,7 +97,7 @@ describe('0.6.0 C: action checkpoint', () => {
     expect((await $.tool.call({ tool: PLAN, action: 'checkpoint' })).deny).toContain('note')
   })
 
-  test('các action cũ không đổi: set, update, add, show vẫn chạy', {}, async ($, on) => {
+  test('các action cũ không đổi: set, update, add, show vẫn chạy', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     const box = memoryStore(on)
     quotaMeter(on, [session(10)])
@@ -110,7 +110,7 @@ describe('0.6.0 C: action checkpoint', () => {
 })
 
 describe('0.6.0 C: kho không chứa nội dung file hay bí mật (góp ý PR 21)', () => {
-  test('lệnh Write bị từ chối chỉ ghi đường dẫn và độ dài; lệnh Bash trong năm tool call cuối được che bí mật', {}, async ($, on) => {
+  test('lệnh Write bị từ chối chỉ ghi đường dẫn và độ dài; lệnh Bash trong năm tool call cuối được che bí mật', { options: { planApproval: 'off' } }, async ($, on) => {
     const { clock } = base(on)
     const box = memoryStore(on)
     const meter = quotaMeter(on, [session(10)])

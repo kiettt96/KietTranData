@@ -75,7 +75,7 @@ async function exhaust($: Engine, seen: Seen): Promise<string> {
 }
 
 describe('0.8.0 A12: hết lượt rồi chạy lại đạt', () => {
-  test('bước 1 done có note: hết lượt thành blocked; chạy lại đạt thì về done, note cũ còn, có dòng retry-cleared và toast', { options: { decisionLog: LOG } }, async ($, on) => {
+  test('bước 1 done có note: hết lượt thành blocked; chạy lại đạt thì về done, note cũ còn, có dòng retry-cleared và toast', { options: { planApproval: 'off', decisionLog: LOG } }, async ($, on) => {
     const { seen, passing, lines } = setup(on)
     await exhaust($, seen)
     expect(await row($, 1)).toContain('[b] 1.')
@@ -88,7 +88,7 @@ describe('0.8.0 A12: hết lượt rồi chạy lại đạt', () => {
     expect(seen.toasts.some(t => t.includes('npm test'))).toBe(true)
   })
 
-  test('Claude tự sửa bước 1 sau khi mod ghi blocked: lần chạy đạt không ghi đè', {}, async ($, on) => {
+  test('Claude tự sửa bước 1 sau khi mod ghi blocked: lần chạy đạt không ghi đè', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen, passing } = setup(on)
     await exhaust($, seen)
     await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'blocked', note: 'chờ chủ mod cung cấp bảng giá' })
@@ -99,7 +99,7 @@ describe('0.8.0 A12: hết lượt rồi chạy lại đạt', () => {
     expect(after).toContain('chờ chủ mod cung cấp bảng giá')
   })
 
-  test('câu chặn khi hết lượt nêu số bước mod đã ghi blocked và nói lần chạy đạt sẽ tự gỡ', {}, async ($, on) => {
+  test('câu chặn khi hết lượt nêu số bước mod đã ghi blocked và nói lần chạy đạt sẽ tự gỡ', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen } = setup(on)
     const reason = await exhaust($, seen)
     expect(reason).toContain('Chưa đạt yêu cầu')
@@ -110,7 +110,7 @@ describe('0.8.0 A12: hết lượt rồi chạy lại đạt', () => {
 })
 
 describe('0.8.0 A12: lỗi do subagent chạy', () => {
-  test('subagent chạy lệnh kiểm lỗi: kết quả tool Agent có câu báo, đúng một lần', {}, async ($, on) => {
+  test('subagent chạy lệnh kiểm lỗi: kết quả tool Agent có câu báo, đúng một lần', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen, hold, release, entered } = setup(on)
     await submit($, 'Sửa hàm tính phí')
     await $.turn.start({ text: 'Sửa hàm tính phí', turnId: 't1' })

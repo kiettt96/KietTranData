@@ -41,7 +41,7 @@ describe('0.8.0 A13: phiên không tương tác', () => {
     expect(await stop($)).toBe('')
   })
 
-  test('headlessRouting auto: điều phối như phiên thường (có dòng route)', { options: { decisionLog: LOG, headlessRouting: 'auto' } }, async ($, on) => {
+  test('headlessRouting auto: điều phối như phiên thường (có dòng route)', { options: { planApproval: 'off', decisionLog: LOG, headlessRouting: 'auto' } }, async ($, on) => {
     const { lines } = setup(on)
     await start($, false)
     await submit($, 'Sửa hàm tính phí')
@@ -49,7 +49,7 @@ describe('0.8.0 A13: phiên không tương tác', () => {
     expect(lines().some(l => l['kind'] === 'headless-off')).toBe(false)
   })
 
-  test('phiên tương tác: không đổi (có dòng route, không có headless-off)', { options: { decisionLog: LOG } }, async ($, on) => {
+  test('phiên tương tác: không đổi (có dòng route, không có headless-off)', { options: { planApproval: 'off', decisionLog: LOG } }, async ($, on) => {
     const { lines } = setup(on)
     await start($, true)
     await submit($, 'Sửa hàm tính phí')
@@ -57,7 +57,7 @@ describe('0.8.0 A13: phiên không tương tác', () => {
     expect(lines().some(l => l['kind'] === 'headless-off')).toBe(false)
   })
 
-  test('phiên không tương tác rồi mở lại tương tác: mod điều phối lại', { options: { decisionLog: LOG } }, async ($, on) => {
+  test('phiên không tương tác rồi mở lại tương tác: mod điều phối lại', { options: { planApproval: 'off', decisionLog: LOG } }, async ($, on) => {
     const { lines } = setup(on)
     await start($, false)
     await start($, true)

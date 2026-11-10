@@ -72,7 +72,7 @@ async function resuming($: Engine, meter: ReturnType<typeof quotaMeter>, clock: 
 }
 
 describe('0.6.0 F: dữ liệu của điểm dừng', () => {
-  test('năm tool call cuối chỉ gồm tool của luồng chính: không có tool plan, không có tool của subagent (060-F4, 060-F17)', {}, async ($, on) => {
+  test('năm tool call cuối chỉ gồm tool của luồng chính: không có tool plan, không có tool của subagent (060-F4, 060-F17)', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     const box = memoryStore(on)
     const meter = quotaMeter(on, [session(10)])
@@ -88,7 +88,7 @@ describe('0.6.0 F: dữ liệu của điểm dừng', () => {
     expect(stored(box).recent).toEqual(['Edit src/a.ts'])
   })
 
-  test('file đã sửa của mục tiêu trước không vào điểm dừng của mục tiêu mới (060-F15)', {}, async ($, on) => {
+  test('file đã sửa của mục tiêu trước không vào điểm dừng của mục tiêu mới (060-F15)', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     const box = memoryStore(on)
@@ -103,7 +103,7 @@ describe('0.6.0 F: dữ liệu của điểm dừng', () => {
     expect(stored(box).files).toEqual([])
   })
 
-  test('lệnh bị từ chối chỉ được ghi vào kho ở lần từ chối đầu (060-F10)', {}, async ($, on) => {
+  test('lệnh bị từ chối chỉ được ghi vào kho ở lần từ chối đầu (060-F10)', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     const box = memoryStore(on)
     const meter = quotaMeter(on, [session(10)])
@@ -119,7 +119,7 @@ describe('0.6.0 F: dữ liệu của điểm dừng', () => {
     expect(stored(box).denied?.tool).toBe('Edit')
   })
 
-  test('kho đã có năm điểm dừng mới hơn: bản vừa ghi vẫn được giữ (060-H8)', {}, async ($, on) => {
+  test('kho đã có năm điểm dừng mới hơn: bản vừa ghi vẫn được giữ (060-H8)', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     const box = memoryStore(on)
     for (let i = 0; i < 5; i++) box.data.set(`checkpoint:x${i}`, storedCheckpoint({ id: `x${i}`, cwd: `/khac/${i}`, createdAt: 900_000 + i }))
@@ -135,7 +135,7 @@ describe('0.6.0 F: dữ liệu của điểm dừng', () => {
 })
 
 describe('0.6.0 F: đọc số đo tại tool.call', () => {
-  test('số đo được dùng lại đúng 3 giây: 2999 ms vẫn dùng lại, 3000 ms thì hỏi lại (060-F6)', {}, async ($, on) => {
+  test('số đo được dùng lại đúng 3 giây: 2999 ms vẫn dùng lại, 3000 ms thì hỏi lại (060-F6)', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     const meter = quotaMeter(on, [session(10)])
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
@@ -151,7 +151,7 @@ describe('0.6.0 F: đọc số đo tại tool.call', () => {
     expect(meter.calls).toBe(before + 2)
   })
 
-  test('số đo hỏi lại sau đúng 3 giây được lưu cho band (060-F5)', {}, async ($, on) => {
+  test('số đo hỏi lại sau đúng 3 giây được lưu cho band (060-F5)', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     memoryStore(on)
     const meter = quotaMeter(on, [session(50)])
@@ -166,7 +166,7 @@ describe('0.6.0 F: đọc số đo tại tool.call', () => {
     await ui.unmount()
   })
 
-  test('vùng đổi (chưa có session.measure) thì status line cập nhật nhãn ngay ở tool.call (060-F9)', {}, async ($, on) => {
+  test('vùng đổi (chưa có session.measure) thì status line cập nhật nhãn ngay ở tool.call (060-F9)', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     memoryStore(on)
     const meter = quotaMeter(on, [])
@@ -182,7 +182,7 @@ describe('0.6.0 F: đọc số đo tại tool.call', () => {
 })
 
 describe('0.6.0 F: vòng đời điểm dừng', () => {
-  test('dừng lần hai rồi hạn mức làm mới trong turn tiếp tục: điểm dừng mới vẫn open khi turn xong (060-E3)', {}, async ($, on) => {
+  test('dừng lần hai rồi hạn mức làm mới trong turn tiếp tục: điểm dừng mới vẫn open khi turn xong (060-E3)', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     const box = memoryStore(on)
@@ -201,7 +201,7 @@ describe('0.6.0 F: vòng đời điểm dừng', () => {
     expect(stored(box).status).toBe('open')
   })
 
-  test('turn khác kết thúc giữa chừng không tiêu thụ điểm dừng; turn tiếp tục xong thì consumed (060-E4)', {}, async ($, on) => {
+  test('turn khác kết thúc giữa chừng không tiêu thụ điểm dừng; turn tiếp tục xong thì consumed (060-E4)', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     const box = memoryStore(on)
@@ -214,7 +214,7 @@ describe('0.6.0 F: vòng đời điểm dừng', () => {
     expect(stored(box).status).toBe('consumed')
   })
 
-  test('subagent kết thúc (cùng turnId) không tiêu thụ điểm dừng (060-E5)', {}, async ($, on) => {
+  test('subagent kết thúc (cùng turnId) không tiêu thụ điểm dừng (060-E5)', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     const box = memoryStore(on)
@@ -225,7 +225,7 @@ describe('0.6.0 F: vòng đời điểm dừng', () => {
     expect(stored(box).status).toBe('resuming')
   })
 
-  test('turn tiếp tục là turn đầu tiên sau khi chèn khối: turn.start sau đó không thay nó (060-E6)', {}, async ($, on) => {
+  test('turn tiếp tục là turn đầu tiên sau khi chèn khối: turn.start sau đó không thay nó (060-E6)', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     const box = memoryStore(on)
@@ -269,7 +269,7 @@ describe('0.6.0 F: nạp điểm dừng lúc session.start', () => {
 })
 
 describe('0.6.0 F: prompt và thông báo cuối turn khi đang dừng', () => {
-  test('prompt lúc đang dừng nêu lý do đã lưu lúc dừng, không lấy số đo mới (060-K4)', {}, async ($, on) => {
+  test('prompt lúc đang dừng nêu lý do đã lưu lúc dừng, không lấy số đo mới (060-K4)', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     memoryStore(on)
     const meter = quotaMeter(on, [session(10)])
@@ -286,7 +286,7 @@ describe('0.6.0 F: prompt và thông báo cuối turn khi đang dừng', () => {
     expect(context).not.toContain('hạn mức tuần')
   })
 
-  test('turn có thay đổi chưa kiểm rồi dừng: cuối turn không nhắc kiểm tra (060-L8)', {}, async ($, on) => {
+  test('turn có thay đổi chưa kiểm rồi dừng: cuối turn không nhắc kiểm tra (060-L8)', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     memoryStore(on)
@@ -302,7 +302,7 @@ describe('0.6.0 F: prompt và thông báo cuối turn khi đang dừng', () => {
     expect(seen.toasts.slice(before).filter(t => t.includes('kiểm tra'))).toEqual([])
   })
 
-  test('đối chứng: không dừng thì cuối turn có cảnh báo việc chưa giao subagent', {}, async ($, on) => {
+  test('đối chứng: không dừng thì cuối turn có cảnh báo việc chưa giao subagent', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, RESUME)
     startHooks(on)
     memoryStore(on)
@@ -316,7 +316,7 @@ describe('0.6.0 F: prompt và thông báo cuối turn khi đang dừng', () => {
     await pane.unmount()
   })
 
-  test('đang dừng: cuối turn không cảnh báo việc chưa giao subagent (060-L9)', {}, async ($, on) => {
+  test('đang dừng: cuối turn không cảnh báo việc chưa giao subagent (060-L9)', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     memoryStore(on)
@@ -335,7 +335,7 @@ describe('0.6.0 F: prompt và thông báo cuối turn khi đang dừng', () => {
 })
 
 describe('0.6.0 F: lệnh pause và resume', () => {
-  test('quotaGuard tắt: /conductor pause báo đang tắt, tool vẫn chạy (060-M1)', { options: { quotaGuard: false } }, async ($, on) => {
+  test('quotaGuard tắt: /conductor pause báo đang tắt, tool vẫn chạy (060-M1)', { options: { planApproval: 'off', quotaGuard: false } }, async ($, on) => {
     base(on, RESUME)
     quotaMeter(on, [session(10)])
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
@@ -344,7 +344,7 @@ describe('0.6.0 F: lệnh pause và resume', () => {
     expect((await $.tool.call(EDIT)).deny).toBeUndefined()
   })
 
-  test('pause lần hai chỉ báo đang tạm dừng, không ghi điểm dừng mới (060-M2)', {}, async ($, on) => {
+  test('pause lần hai chỉ báo đang tạm dừng, không ghi điểm dừng mới (060-M2)', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     const box = memoryStore(on)
     quotaMeter(on, [session(10)])
@@ -356,7 +356,7 @@ describe('0.6.0 F: lệnh pause và resume', () => {
     expect(stored(box).id).toBe(firstId)
   })
 
-  test('pause rồi resume force: tool chạy lại được ngay (060-M6)', {}, async ($, on) => {
+  test('pause rồi resume force: tool chạy lại được ngay (060-M6)', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     memoryStore(on)
     quotaMeter(on, [session(10)])
@@ -369,7 +369,7 @@ describe('0.6.0 F: lệnh pause và resume', () => {
     expect((await $.tool.call(EDIT)).deny).toBeUndefined()
   })
 
-  test('điểm dừng đã consumed: resume, discard và force đều coi như không có điểm dừng (060-M5)', {}, async ($, on) => {
+  test('điểm dừng đã consumed: resume, discard và force đều coi như không có điểm dừng (060-M5)', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     const box = memoryStore(on)
@@ -383,7 +383,7 @@ describe('0.6.0 F: lệnh pause và resume', () => {
     expect(String((await conductor($, 'resume force')).text)).not.toContain('Điểm dừng giữ nguyên')
   })
 
-  test('discard: đúng 10 giây sau lần đầu là hết hạn, lần sau chỉ chờ xác nhận lại (060-M7)', {}, async ($, on) => {
+  test('discard: đúng 10 giây sau lần đầu là hết hạn, lần sau chỉ chờ xác nhận lại (060-M7)', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     const box = memoryStore(on)
@@ -399,7 +399,7 @@ describe('0.6.0 F: lệnh pause và resume', () => {
 })
 
 describe('0.6.0 F: band', () => {
-  test('nhãn đậm khi đang dừng, thường khi chỉ gần ngưỡng (060-O1)', {}, async ($, on) => {
+  test('nhãn đậm khi đang dừng, thường khi chỉ gần ngưỡng (060-O1)', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     memoryStore(on)
     const meter = quotaMeter(on, [session(92)])
@@ -431,7 +431,7 @@ describe('0.6.0 F: band', () => {
     await ui.unmount()
   })
 
-  test('đã dừng vì hạn mức, số đo mới dưới ngưỡng nhưng chưa có tool call hay prompt: band vẫn báo đang dừng (060-O4)', {}, async ($, on) => {
+  test('đã dừng vì hạn mức, số đo mới dưới ngưỡng nhưng chưa có tool call hay prompt: band vẫn báo đang dừng (060-O4)', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     memoryStore(on)
     const meter = quotaMeter(on, [session(10)])

@@ -32,7 +32,7 @@ async function runTurn($: Engine, on: Parameters<typeof base>[0], file: string, 
 }
 
 describe('0.7.9 P1a: pane ghi mờ cảnh báo nhẹ', () => {
-  test('cảnh báo nhẹ (sửa .md rồi đọc lại) có dimColor, cảnh báo thường (sửa .ts) không mờ', {}, async ($: Engine, on) => {
+  test('cảnh báo nhẹ (sửa .md rồi đọc lại) có dimColor, cảnh báo thường (sửa .ts) không mờ', { options: { planApproval: 'off' } }, async ($: Engine, on) => {
     await runTurn($, on, 'docs/a.md', {})
     const pane = await $.ui.mount(PANE)
     const soft = await pane.find({ type: 'Text', text: SOFT_TEXT })
@@ -41,7 +41,7 @@ describe('0.7.9 P1a: pane ghi mờ cảnh báo nhẹ', () => {
     await pane.unmount()
   })
 
-  test('đối chiếu: cảnh báo thường không mờ', {}, async ($: Engine, on) => {
+  test('đối chiếu: cảnh báo thường không mờ', { options: { planApproval: 'off' } }, async ($: Engine, on) => {
     await runTurn($, on, 'src/a.ts', {})
     const pane = await $.ui.mount(PANE)
     const plain = await pane.find({ type: 'Text', text: PLAIN_TEXT })
@@ -52,7 +52,7 @@ describe('0.7.9 P1a: pane ghi mờ cảnh báo nhẹ', () => {
 })
 
 describe('0.7.9 P1b: cảnh báo nhẹ không gợi ý khai checkCommands', () => {
-  test('sửa .md đã đọc lại sau một script kiểm chưa khai: cảnh báo nhẹ, không có toast checkCommands', {}, async ($: Engine, on) => {
+  test('sửa .md đã đọc lại sau một script kiểm chưa khai: cảnh báo nhẹ, không có toast checkCommands', { options: { planApproval: 'off' } }, async ($: Engine, on) => {
     const seen = await runTurn($, on, 'docs/a.md', { hasScript: true })
     const pane = await $.ui.mount(PANE)
     expect(await pane.find({ type: 'Text', text: SOFT_TEXT })).toBeDefined()
@@ -60,7 +60,7 @@ describe('0.7.9 P1b: cảnh báo nhẹ không gợi ý khai checkCommands', () =
     expect(seen.toasts.filter(t => t.includes('checkCommands')).length).toBe(0)
   })
 
-  test('đối chiếu: sửa .ts sau cùng script kiểm chưa khai thì vẫn đúng một toast gợi ý', {}, async ($: Engine, on) => {
+  test('đối chiếu: sửa .ts sau cùng script kiểm chưa khai thì vẫn đúng một toast gợi ý', { options: { planApproval: 'off' } }, async ($: Engine, on) => {
     const seen = await runTurn($, on, 'src/a.ts', { hasScript: true })
     expect(seen.toasts.filter(t => t.includes('checkCommands')).length).toBe(1)
   })
@@ -77,7 +77,7 @@ describe('0.7.9 P1c: Read lỗi không tính là đã đọc lại', () => {
     expect(finding(false)?.isSoft).toBe(true)
   })
 
-  test('tích hợp: Edit .md rồi Read trả lỗi: pane không có cảnh báo thường, không có dòng cảnh báo nhẹ', {}, async ($: Engine, on) => {
+  test('tích hợp: Edit .md rồi Read trả lỗi: pane không có cảnh báo thường, không có dòng cảnh báo nhẹ', { options: { planApproval: 'off' } }, async ($: Engine, on) => {
     await runTurn($, on, 'docs/a.md', { isReadError: true })
     const pane = await $.ui.mount(PANE)
     expect(await pane.find({ type: 'Text', text: PLAIN_TEXT })).toBeUndefined()
@@ -85,7 +85,7 @@ describe('0.7.9 P1c: Read lỗi không tính là đã đọc lại', () => {
     await pane.unmount()
   })
 
-  test('tích hợp: Edit .md rồi Read thành công: pane có cảnh báo nhẹ', {}, async ($: Engine, on) => {
+  test('tích hợp: Edit .md rồi Read thành công: pane có cảnh báo nhẹ', { options: { planApproval: 'off' } }, async ($: Engine, on) => {
     await runTurn($, on, 'docs/a.md', {})
     const pane = await $.ui.mount(PANE)
     expect(await pane.find({ type: 'Text', text: SOFT_TEXT })).toBeDefined()

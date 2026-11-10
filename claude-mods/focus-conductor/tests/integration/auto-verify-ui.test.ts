@@ -76,17 +76,17 @@ describe('0.7.0 5: band và pane trên engine', () => {
     return texts
   }
 
-  test('band ghi "1/2 · 1✓" sau khi mod tự nâng bước 1', {}, async ($, on) => {
+  test('band ghi "1/2 · 1✓" sau khi mod tự nâng bước 1', { options: { planApproval: 'off' } }, async ($, on) => {
     await verifiedGoal($, on)
     expect((await bandTexts($)).some(t => t === '1/2 · 1✓')).toBe(true)
   })
 
-  test('pane ghi số bước verified ở tiêu đề checklist', {}, async ($, on) => {
+  test('pane ghi số bước verified ở tiêu đề checklist', { options: { planApproval: 'off' } }, async ($, on) => {
     await verifiedGoal($, on)
     expect((await paneTexts($)).some(t => /^Danh sách bước 1\/2 · 1✓/.test(t))).toBe(true)
   })
 
-  test('đối chứng: chưa có bước verified thì band chỉ ghi "1/2"', {}, async ($, on) => {
+  test('đối chứng: chưa có bước verified thì band chỉ ghi "1/2"', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, COMPLEX_PROMPT)

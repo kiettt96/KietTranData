@@ -42,7 +42,7 @@ describe('chi phí luồng chính', () => {
 })
 
 describe('0.5.0: bảng giá trong /conductor status', () => {
-  test('status ghi ngày bảng giá và phần ghi đè theo option prices', { options: { prices: 'opus=5/25' } }, async ($, on) => {
+  test('status ghi ngày bảng giá và phần ghi đè theo option prices', { options: { planApproval: 'off', prices: 'opus=5/25' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     expect(String((await conductor($, 'status')).text)).toContain('Bảng giá kèm mod ngày 2026-10-13, ghi đè cho opus')
@@ -50,7 +50,7 @@ describe('0.5.0: bảng giá trong /conductor status', () => {
 })
 
 describe('0.5.0: log quyết định và hiệu chỉnh', () => {
-  test('log quyết định nối tiếp file cũ khi phiên bắt đầu', { options: { decisionLog: '/tmp/fc-old.jsonl' } }, async ($, on) => {
+  test('log quyết định nối tiếp file cũ khi phiên bắt đầu', { options: { planApproval: 'off', decisionLog: '/tmp/fc-old.jsonl' } }, async ($, on) => {
     base(on)
     const writes: string[] = []
     on('fs.read', () => ({ value: '{"at":"2026-10-01T00:00:00.000Z","kind":"route"}\nkhông phải json\n' }))
@@ -70,7 +70,7 @@ describe('0.5.0: log quyết định và hiệu chỉnh', () => {
     expect(JSON.parse(lines[1] ?? '{}')).toMatchObject({ kind: 'route' })
   })
 
-  test('agent không có kết quả chấm của router không được dùng để hiệu chỉnh ước lượng', {}, async ($, on) => {
+  test('agent không có kết quả chấm của router không được dùng để hiệu chỉnh ước lượng', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, { agent: () => null })
     on('tool.call', { tool: 'Agent' }, () => ({ result: 'đã giao' }))
     on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a-raw' }))

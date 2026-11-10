@@ -63,7 +63,7 @@ describe('0.7.7 X1: git không đổi file không còn là thay đổi', () => {
     }
   })
 
-  test('tích hợp: bước verified giữ nguyên sau git commit, cuối turn không toast', {}, async ($: Engine, on) => {
+  test('tích hợp: bước verified giữ nguyên sau git commit, cuối turn không toast', { options: { planApproval: 'off' } }, async ($: Engine, on) => {
     const seen = base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     on('tool.call', { tool: 'Bash' }, () => ({ result: '12 pass' }))
@@ -80,7 +80,7 @@ describe('0.7.7 X1: git không đổi file không còn là thay đổi', () => {
     expect(seen.toasts.some(t => t.includes('không chạy bước kiểm tra nào') || t.includes('chưa được kiểm tra lại'))).toBe(false)
   })
 
-  test('strictDelegation block: git commit của luồng chính không bị chặn khi còn việc chờ giao', { options: { strictDelegation: 'block' } }, async ($: Engine, on) => {
+  test('strictDelegation block: git commit của luồng chính không bị chặn khi còn việc chờ giao', { options: { planApproval: 'off', strictDelegation: 'block' } }, async ($: Engine, on) => {
     base(on)
     on('tool.call', { tool: 'Bash' }, () => ({ result: 'ok' }))
     await submit($, FOUR)

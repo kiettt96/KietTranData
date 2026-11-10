@@ -30,7 +30,7 @@ const agent = ($: Engine, description: string, prompt: string, over: Record<stri
   $.tool.call({ tool: 'Agent', description, prompt, ...over } as never)
 
 describe('0.7.4 1a: sàn nâng', () => {
-  test('Claude ghi sonnet, router chấm haiku: gửi sonnet, effort của router', {}, async ($, on) => {
+  test('Claude ghi sonnet, router chấm haiku: gửi sonnet, effort của router', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     const calls = capture(on)
     await submit($, COMPLEX_PROMPT)
@@ -39,7 +39,7 @@ describe('0.7.4 1a: sàn nâng', () => {
     expect(calls).toEqual([{ model: 'sonnet', effort: 'low' }])
   })
 
-  test('việc đã phân haiku, Claude ghi sonnet: gửi sonnet', {}, async ($, on) => {
+  test('việc đã phân haiku, Claude ghi sonnet: gửi sonnet', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     const calls = capture(on)
     await submit($, FOUR)
@@ -47,7 +47,7 @@ describe('0.7.4 1a: sàn nâng', () => {
     expect(calls).toEqual([{ model: 'sonnet', effort: 'low' }])
   })
 
-  test('sàn effort khi Claude ghi effort: router chấm medium, Claude ghi high thì gửi high', {}, async ($, on) => {
+  test('sàn effort khi Claude ghi effort: router chấm medium, Claude ghi high thì gửi high', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     const calls = capture(on)
     await submit($, COMPLEX_PROMPT)
@@ -55,7 +55,7 @@ describe('0.7.4 1a: sàn nâng', () => {
     expect(calls).toEqual([{ model: 'sonnet', effort: 'high' }])
   })
 
-  test('sàn đổi lựa chọn thì nhật ký quyết định có dòng agent-floor', { options: { decisionLog: '/tmp/fc-floor-074.jsonl' } }, async ($, on) => {
+  test('sàn đổi lựa chọn thì nhật ký quyết định có dòng agent-floor', { options: { planApproval: 'off', decisionLog: '/tmp/fc-floor-074.jsonl' } }, async ($, on) => {
     base(on)
     const lines = logLines(on)
     capture(on)
@@ -64,7 +64,7 @@ describe('0.7.4 1a: sàn nâng', () => {
     expect(lines().find(l => l['kind'] === 'agent-floor')).toMatchObject({ kind: 'agent-floor', from: 'haiku/low', to: 'sonnet/low', claimed: 'sonnet' })
   })
 
-  test('Claude không ghi model: như cũ, router chấm haiku thì gửi haiku, không có dòng agent-floor', { options: { decisionLog: '/tmp/fc-floor-074b.jsonl' } }, async ($, on) => {
+  test('Claude không ghi model: như cũ, router chấm haiku thì gửi haiku, không có dòng agent-floor', { options: { planApproval: 'off', decisionLog: '/tmp/fc-floor-074b.jsonl' } }, async ($, on) => {
     base(on)
     const lines = logLines(on)
     const calls = capture(on)
@@ -74,7 +74,7 @@ describe('0.7.4 1a: sàn nâng', () => {
     expect(lines().some(l => l['kind'] === 'agent-floor')).toBe(false)
   })
 
-  test('fable không có allowFable vẫn về opus', {}, async ($, on) => {
+  test('fable không có allowFable vẫn về opus', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     const calls = capture(on)
     await submit($, COMPLEX_PROMPT)
@@ -82,7 +82,7 @@ describe('0.7.4 1a: sàn nâng', () => {
     expect(calls[0]?.model).toBe('opus')
   })
 
-  test('sessionModel ceiling vẫn kẹp khi Claude ghi opus', { options: { sessionModel: 'ceiling' } }, async ($, on) => {
+  test('sessionModel ceiling vẫn kẹp khi Claude ghi opus', { options: { planApproval: 'off', sessionModel: 'ceiling' } }, async ($, on) => {
     const seen = base(on)
     const calls = capture(on)
     await submit($, COMPLEX_PROMPT)
@@ -93,7 +93,7 @@ describe('0.7.4 1a: sàn nâng', () => {
 })
 
 describe('0.7.4 1b: bỏ lượt router khi họ và effort đã chốt', () => {
-  test('Claude ghi opus và effort, allowFable tắt: router không được gọi, gửi đúng lựa chọn, nhật ký có dòng', { options: { decisionLog: '/tmp/fc-floor-074c.jsonl' } }, async ($, on) => {
+  test('Claude ghi opus và effort, allowFable tắt: router không được gọi, gửi đúng lựa chọn, nhật ký có dòng', { options: { planApproval: 'off', decisionLog: '/tmp/fc-floor-074c.jsonl' } }, async ($, on) => {
     const seen = base(on)
     const lines = logLines(on)
     const calls = capture(on)
@@ -104,7 +104,7 @@ describe('0.7.4 1b: bỏ lượt router khi họ và effort đã chốt', () => 
     expect(lines().find(l => l['kind'] === 'agent-floor')).toMatchObject({ kind: 'agent-floor', skip: true, claimed: 'opus/high' })
   })
 
-  test('Claude ghi opus mà không ghi effort: router vẫn chấm effort', {}, async ($, on) => {
+  test('Claude ghi opus mà không ghi effort: router vẫn chấm effort', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     const calls = capture(on)
     await submit($, COMPLEX_PROMPT)
@@ -113,7 +113,7 @@ describe('0.7.4 1b: bỏ lượt router khi họ và effort đã chốt', () => 
     expect(calls).toEqual([{ model: 'opus', effort: 'high' }])
   })
 
-  test('sessionModel fixed, Claude không ghi effort: router vẫn được gọi', { options: { sessionModel: 'fixed' } }, async ($, on) => {
+  test('sessionModel fixed, Claude không ghi effort: router vẫn được gọi', { options: { planApproval: 'off', sessionModel: 'fixed' } }, async ($, on) => {
     const seen = base(on)
     capture(on)
     await submit($, COMPLEX_PROMPT)
@@ -122,7 +122,7 @@ describe('0.7.4 1b: bỏ lượt router khi họ và effort đã chốt', () => 
     expect(seen.agentRouted.length).toBe(1)
   })
 
-  test('sessionModel fixed, Claude ghi model của phiên và effort: không gọi router', { options: { sessionModel: 'fixed' } }, async ($, on) => {
+  test('sessionModel fixed, Claude ghi model của phiên và effort: không gọi router', { options: { planApproval: 'off', sessionModel: 'fixed' } }, async ($, on) => {
     const seen = base(on)
     const calls = capture(on)
     await submit($, COMPLEX_PROMPT)
@@ -144,7 +144,7 @@ describe('0.7.4 1: ràng buộc model của brief tới router chấm subagent',
     expect(seen.agentRouted[0]).toContain('Session model (the model the user runs this session on): opus.')
   })
 
-  test('router đọc prompt nhận dòng model của phiên từ lượt thứ hai (model của phiên biết từ step đầu)', {}, async ($, on) => {
+  test('router đọc prompt nhận dòng model của phiên từ lượt thứ hai (model của phiên biết từ step đầu)', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     await submit($, COMPLEX_PROMPT)
     await step($, seen, { model: 'claude-opus-5-5' })
@@ -160,7 +160,7 @@ describe('0.7.4 1: lý do, nhật ký và các lối gọi router khác (bắt m
     on('agent.spawn', () => ({ model, agentId }))
   }
 
-  test('lý do trong /conductor status có ghi chú sàn', {}, async ($, on) => {
+  test('lý do trong /conductor status có ghi chú sàn', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     spawn(on, 'a-floor')
     await submit($, COMPLEX_PROMPT)
@@ -169,7 +169,7 @@ describe('0.7.4 1: lý do, nhật ký và các lối gọi router khác (bắt m
     expect(String((await conductor($, 'status')).text)).toContain('Claude ghi sonnet: không chọn thấp hơn')
   })
 
-  test('việc đã phân cao hơn model Claude ghi: lý do nêu dùng model đã phân; Claude ghi cao hơn thì không', {}, async ($, on) => {
+  test('việc đã phân cao hơn model Claude ghi: lý do nêu dùng model đã phân; Claude ghi cao hơn thì không', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     spawn(on, 'a-task', 'claude-sonnet-5-5')
     await submit($, FOUR)
@@ -182,7 +182,7 @@ describe('0.7.4 1: lý do, nhật ký và các lối gọi router khác (bắt m
     expect(status).not.toContain('Claude ghi opus, dùng sonnet đã phân')
   })
 
-  test('sàn effort ghi effort Claude ghi vào nhật ký', { options: { decisionLog: '/tmp/fc-floor-074d.jsonl' } }, async ($, on) => {
+  test('sàn effort ghi effort Claude ghi vào nhật ký', { options: { planApproval: 'off', decisionLog: '/tmp/fc-floor-074d.jsonl' } }, async ($, on) => {
     base(on)
     const lines = logLines(on)
     capture(on)
@@ -201,7 +201,7 @@ describe('0.7.4 1: lý do, nhật ký và các lối gọi router khác (bắt m
     expect(seen.agentRouted[0]).toContain('Session model (the model the user runs this session on): opus.')
   })
 
-  test('/conductor goal và /conductor reroute gửi router dòng model của phiên', {}, async ($, on) => {
+  test('/conductor goal và /conductor reroute gửi router dòng model của phiên', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     await submit($, COMPLEX_PROMPT)
     await step($, seen, { model: 'claude-opus-5-5' })

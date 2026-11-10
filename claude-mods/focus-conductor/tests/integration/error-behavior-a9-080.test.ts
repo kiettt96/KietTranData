@@ -88,7 +88,7 @@ describe('0.8.0 A9: nhóm behavior (hàm thuần)', () => {
 })
 
 describe('0.8.0 A9: nối vào mod', () => {
-  test('verify-reject một lần: không ghi; lần hai cùng bước: ghi, count 1, kèm lần đầu và lần cuối', {}, async ($, on) => {
+  test('verify-reject một lần: không ghi; lần hai cùng bước: ghi, count 1, kèm lần đầu và lần cuối', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     const fs = disk(on)
@@ -124,7 +124,7 @@ describe('0.8.0 A9: nối vào mod', () => {
     expect(out.indexOf('router · ')).toBeLessThan(out.indexOf('Sự cố hành vi'))
   })
 
-  test('mục prompt tiếp nối bị bỏ: một mục dropped; mô tả không chứa nội dung prompt', {}, async ($, on) => {
+  test('mục prompt tiếp nối bị bỏ: một mục dropped; mô tả không chứa nội dung prompt', { options: { planApproval: 'off' } }, async ($, on) => {
     const first = plan({ goal: 'Cập nhật sổ giá theo 11 bước', depth: 'hard', volume: 'large', requirements: Array.from({ length: 30 }, (_, i) => `Yêu cầu gốc ${i + 1}`) })
     const many = plan({ relation: 'refine', goal: '', requirements: Array.from({ length: 12 }, (_, i) => `Tinh chỉnh ${i + 1}`) })
     base(on, { router: request => (request.includes('thêm 12 yêu cầu') ? many : first) })
@@ -179,7 +179,7 @@ describe('0.8.0 A9: retry-exhausted theo danh tính lệnh (W4)', () => {
     return stop($, true, 'Đã sửa xong.')
   }
 
-  test('hai lần hết lượt cùng lệnh: một mục retry-exhausted, count 2', {}, async ($, on) => {
+  test('hai lần hết lượt cùng lệnh: một mục retry-exhausted, count 2', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen, fs } = setup(on)
     await exhaust($, seen, 'Sửa hàm tính phí', 't1')
     await conductor($, 'errors')

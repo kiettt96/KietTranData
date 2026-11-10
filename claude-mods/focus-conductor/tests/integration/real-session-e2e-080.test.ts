@@ -73,7 +73,7 @@ const answer = (turnId: string) => ({ turnId, answer: 'xong', durationMs: 5, isA
 const stop = async ($: Engine) => String(((await $.classic.Stop({ stop_hook_active: false } as never)) as { block?: string }).block ?? '')
 
 describe('0.8.0: kịch bản đầu cuối tái hiện phiên thật', () => {
-  test('ba đợt, đối chứng đỏ, lệnh ghép && ls: không retry-exhausted, không bước blocked, cảnh báo chưa kiểm chỉ ở turn sửa mã', { options: { checkCommands: `${CHECK_A},${CHECK_B}`, decisionLog: LOG } }, async ($, on) => {
+  test('ba đợt, đối chứng đỏ, lệnh ghép && ls: không retry-exhausted, không bước blocked, cảnh báo chưa kiểm chỉ ở turn sửa mã', { options: { planApproval: 'off', checkCommands: `${CHECK_A},${CHECK_B}`, decisionLog: LOG } }, async ($, on) => {
     const { seen, lines } = setup(on)
     let injected = 0
     const tool = async (input: Record<string, unknown>) => {
@@ -145,7 +145,7 @@ describe('0.8.0: kịch bản đầu cuối tái hiện phiên thật', () => {
     expect(injected + contexts.reduce((sum, c) => sum + c.length, 0)).toBeGreaterThan(0)
   })
 
-  test('checklist đóng hết bằng các bước không mang mã việc: prompt mở đợt không cất việc nào chưa có bước riêng', { options: { decisionLog: LOG } }, async ($, on) => {
+  test('checklist đóng hết bằng các bước không mang mã việc: prompt mở đợt không cất việc nào chưa có bước riêng', { options: { planApproval: 'off', decisionLog: LOG } }, async ($, on) => {
     const { seen, lines } = setup(on)
     await submit($, 'Chạy lô kiểm giá S0 đến S3')
     await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Chuẩn bị dữ liệu' }, { title: 'Dọn thư mục tạm' }] })
@@ -156,7 +156,7 @@ describe('0.8.0: kịch bản đầu cuối tái hiện phiên thật', () => {
     expect(lines().filter(l => l['kind'] === 'phase').map(l => l['tasks'])).toEqual([0])
   })
 
-  test('lệnh ghép && ls trả mã 1 trong đợt đầu: không tạo mục W4, có đúng một câu đề nghị chạy riêng', { options: { checkCommands: `${CHECK_A},${CHECK_B}`, decisionLog: LOG } }, async ($, on) => {
+  test('lệnh ghép && ls trả mã 1 trong đợt đầu: không tạo mục W4, có đúng một câu đề nghị chạy riêng', { options: { planApproval: 'off', checkCommands: `${CHECK_A},${CHECK_B}`, decisionLog: LOG } }, async ($, on) => {
     const { seen, lines } = setup(on)
     await submit($, 'Chạy lô kiểm giá S0 đến S3')
     await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'S0: phần S0' }] })

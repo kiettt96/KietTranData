@@ -61,7 +61,7 @@ const FAILED = `1. ${SEARCH}.: lỗi, chưa giao lại`
 
 describe('0.6.1: turn.complete của subagent, không đang dừng', () => {
   for (const reason of ['aborted', 'refusal', 'error'] as const) {
-    test(`reason ${reason}: dòng tiến độ và việc đã phân là lỗi, Stop nhắc giao lại`, {}, async ($, on) => {
+    test(`reason ${reason}: dòng tiến độ và việc đã phân là lỗi, Stop nhắc giao lại`, { options: { planApproval: 'off' } }, async ($, on) => {
       await runningAgent($, on)
       await $.turn.complete(ended('a-u1', reason, { category: 'policy', explanation: 'từ chối' }))
       expect(await status($)).toContain(FAILED)
@@ -74,7 +74,7 @@ describe('0.6.1: turn.complete của subagent, không đang dừng', () => {
     })
   }
 
-  test('reason answer: xong cả hai nơi, không nhắc giao lại', {}, async ($, on) => {
+  test('reason answer: xong cả hai nơi, không nhắc giao lại', { options: { planApproval: 'off' } }, async ($, on) => {
     await runningAgent($, on)
     await $.turn.complete(ended('a-u1', 'answer'))
     expect(await status($)).toContain(`1. ${SEARCH}.: xong`)
@@ -88,7 +88,7 @@ describe('0.6.1: turn.complete của subagent, không đang dừng', () => {
 
 describe('0.6.1: turn.complete của subagent, đang tạm dừng vì hạn mức', () => {
   for (const reason of ['aborted', 'refusal', 'answer'] as const) {
-    test(`reason ${reason}: dòng tiến độ là bị cắt, việc đã phân là lỗi (giao lại được)`, {}, async ($, on) => {
+    test(`reason ${reason}: dòng tiến độ là bị cắt, việc đã phân là lỗi (giao lại được)`, { options: { planApproval: 'off' } }, async ($, on) => {
       const ctx = await runningAgent($, on)
       await pause($, ctx)
       await $.turn.complete(ended('a-u1', reason, { category: null, explanation: null }))
@@ -100,7 +100,7 @@ describe('0.6.1: turn.complete của subagent, đang tạm dừng vì hạn mứ
     })
   }
 
-  test('reason error: lỗi thắng cắt, dòng tiến độ là lỗi chứ không phải bị cắt', {}, async ($, on) => {
+  test('reason error: lỗi thắng cắt, dòng tiến độ là lỗi chứ không phải bị cắt', { options: { planApproval: 'off' } }, async ($, on) => {
     const ctx = await runningAgent($, on)
     await pause($, ctx)
     await $.turn.complete(ended('a-u1', 'error'))

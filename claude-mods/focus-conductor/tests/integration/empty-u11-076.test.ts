@@ -24,7 +24,7 @@ describe('0.7.6 U11: pane chỉ tự mở ở mục tiêu substantial, hard', ()
     })
   }
   for (const depth of ['substantial', 'hard'] as const) {
-    test(`độ sâu ${depth}: tự mở`, async ($, on) => {
+    test(`độ sâu ${depth}: tự mở`, { options: { planApproval: 'off' } }, async ($, on) => {
       const seen = base(on, { router: () => plan({ goal: 'Sửa module thanh toán', depth }) })
       await submit($, 'Sửa module thanh toán')
       expect(seen.opened.filter(o => o.id === PANE_ID).length).toBe(1)
@@ -33,7 +33,7 @@ describe('0.7.6 U11: pane chỉ tự mở ở mục tiêu substantial, hard', ()
 })
 
 describe('0.7.6 U11: pane khi chưa có checklist', () => {
-  test('bước dự kiến của router nằm dưới "Danh sách bước (dự kiến)", không còn mục "Việc dự kiến (router)"', async ($, on) => {
+  test('bước dự kiến của router nằm dưới "Danh sách bước (dự kiến)", không còn mục "Việc dự kiến (router)"', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, { router: () => plan({ goal: 'Sửa module thanh toán', depth: 'hard', tasks: [task('Đọc mã', 'main', 'opus', 'high'), task('Sửa', 'main', 'opus', 'high')] }) })
     await submit($, 'Sửa module thanh toán')
     const texts = await paneTexts($)
@@ -42,7 +42,7 @@ describe('0.7.6 U11: pane khi chưa có checklist', () => {
     expect(texts).toContain('Đọc mã')
   })
 
-  test('uiLanguage en: "Checklist (planned)"', { options: { uiLanguage: 'en' } }, async ($, on) => {
+  test('uiLanguage en: "Checklist (planned)"', { options: { planApproval: 'off', uiLanguage: 'en' } }, async ($, on) => {
     base(on, { router: () => plan({ goal: 'Fix the payment module', depth: 'hard', tasks: [task('Read the code', 'main', 'opus', 'high'), task('Fix', 'main', 'opus', 'high')] }) })
     await submit($, 'Fix the payment module')
     const texts = await paneTexts($)
@@ -50,7 +50,7 @@ describe('0.7.6 U11: pane khi chưa có checklist', () => {
     expect(texts.some(t => /^Checklist \(planned\) ─/.test(t))).toBe(true)
   })
 
-  test('không có bước nào: không có mục checklist, không có "Claude chưa chốt checklist."', async ($, on) => {
+  test('không có bước nào: không có mục checklist, không có "Claude chưa chốt checklist."', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, { router: () => plan({ goal: 'Sửa module thanh toán', depth: 'hard', tasks: [] }) })
     await submit($, 'Sửa module thanh toán')
     const texts = await paneTexts($)

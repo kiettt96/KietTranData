@@ -5,7 +5,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import { COMPLEX_PROMPT, DEFAULT_ROUTER, FOUR, base, plan, step, submit } from '../support/engine'
 
 describe('checklist và chặn kết thúc', () => {
-  test('checklist còn mở thì chặn dừng, đóng hết thì cho dừng', {}, async ($, on) => {
+  test('checklist còn mở thì chặn dừng, đóng hết thì cho dừng', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('classic.Stop', () => ({}))
     await submit($, COMPLEX_PROMPT)
@@ -25,7 +25,7 @@ describe('checklist và chặn kết thúc', () => {
     expect((await $.classic.Stop({ stop_hook_active: false })).block).toBeUndefined()
   })
 
-  test('mục tiêu mới khi checklist cũ còn bước mở thì báo cho Claude', {}, async ($, on) => {
+  test('mục tiêu mới khi checklist cũ còn bước mở thì báo cho Claude', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     await submit($, COMPLEX_PROMPT)
     await $.tool.call({ tool: 'mcp__focus-conductor__plan', action: 'set', steps: [{ title: 'Phân tích luồng thanh toán' }, { title: 'Thiết kế lại kiến trúc' }] })
@@ -48,7 +48,7 @@ describe('checklist và chặn kết thúc', () => {
 describe('0.5.0: không mất tiến độ khi đổi mục tiêu', () => {
   const PLAN = 'mcp__focus-conductor__plan'
 
-  test('mục tiêu mới cất checklist cũ còn bước mở; restore khôi phục đúng mục tiêu và trạng thái từng bước', {}, async ($, on) => {
+  test('mục tiêu mới cất checklist cũ còn bước mở; restore khôi phục đúng mục tiêu và trạng thái từng bước', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     await submit($, COMPLEX_PROMPT)
     await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Phân tích' }, { title: 'Thiết kế' }] })
@@ -66,7 +66,7 @@ describe('0.5.0: không mất tiến độ khi đổi mục tiêu', () => {
     expect(String(back.result)).toContain('Viết slugify')
   })
 
-  test('restore khi không có gì đã lưu, hoặc index ngoài phạm vi, thì bị từ chối kèm lý do', {}, async ($, on) => {
+  test('restore khi không có gì đã lưu, hoặc index ngoài phạm vi, thì bị từ chối kèm lý do', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     expect((await $.tool.call({ tool: PLAN, action: 'restore' })).deny).toContain('Không có mục tiêu cũ')
@@ -75,7 +75,7 @@ describe('0.5.0: không mất tiến độ khi đổi mục tiêu', () => {
     expect((await $.tool.call({ tool: PLAN, action: 'restore', index: 2 })).deny).toContain('index từ 1')
   })
 
-  test('checklist cũ đã đóng hết thì không cần lưu', {}, async ($, on) => {
+  test('checklist cũ đã đóng hết thì không cần lưu', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Phân tích' }] })
@@ -84,7 +84,7 @@ describe('0.5.0: không mất tiến độ khi đổi mục tiêu', () => {
     expect((await $.tool.call({ tool: PLAN, action: 'restore' })).deny).toContain('Không có mục tiêu cũ')
   })
 
-  test('router không ghi relation (hoặc ghi sai) thì giữ mục tiêu, không cất checklist', {}, async ($, on) => {
+  test('router không ghi relation (hoặc ghi sai) thì giữ mục tiêu, không cất checklist', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, {
       router: request => (request.startsWith('Làm tiếp') ? { ...plan({ goal: '' }), relation: undefined } : DEFAULT_ROUTER(request)),
     })
@@ -95,7 +95,7 @@ describe('0.5.0: không mất tiến độ khi đổi mục tiêu', () => {
     expect(seen.contexts[1]?.join('\n')).toContain('Bước còn mở: 1. Tìm chỗ gọi')
   })
 
-  test('plan set nhận scope: sửa ngoài phạm vi bị cảnh báo; scope rỗng bỏ giới hạn; mục không phải đường dẫn bị từ chối', {}, async ($, on) => {
+  test('plan set nhận scope: sửa ngoài phạm vi bị cảnh báo; scope rỗng bỏ giới hạn; mục không phải đường dẫn bị từ chối', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, COMPLEX_PROMPT)

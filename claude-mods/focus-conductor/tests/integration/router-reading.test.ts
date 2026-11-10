@@ -13,7 +13,7 @@ describe('0.7.0 7: kiểm lại khi quá nhiều yêu cầu (nối dây)', () =>
   const gappy = (goal: string, n: number) =>
     plan({ goal, requirements: reqs(n), depth: 'substantial', tasks: [task('Việc', 'main', 'sonnet', 'medium', { covers: Array.from({ length: n - 1 }, (_, i) => i + 1) })] })
 
-  test('9 yêu cầu còn một yêu cầu chưa phủ: router được hỏi hai lượt, lượt hai kèm câu trả lời trước', {}, async ($, on) => {
+  test('9 yêu cầu còn một yêu cầu chưa phủ: router được hỏi hai lượt, lượt hai kèm câu trả lời trước', { options: { planApproval: 'off' } }, async ($, on) => {
     let n = 0
     const seen = base(on, { router: () => gappy(`Lần ${(n += 1)}`, 9) })
     await submit($, 'Cập nhật skill lên v10, đối chiếu đủ các mục')
@@ -54,7 +54,7 @@ describe('0.7.0 7: bước đang mở đi kèm request của router', () => {
 describe('0.7.0 7: nhắc yêu cầu chưa có việc nào phủ', () => {
   const pieces = (covers: number[][]) => covers.map((c, i) => task(`Việc ${i + 1}`, 'main', 'sonnet', 'medium', { covers: c }))
 
-  test('yêu cầu 2 không việc nào phủ: context nhắc đúng yêu cầu đó', {}, async ($, on) => {
+  test('yêu cầu 2 không việc nào phủ: context nhắc đúng yêu cầu đó', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, { router: () => plan({ goal: 'Mục tiêu', depth: 'substantial', requirements: ['R1 giữ API', 'R2 viết test'], tasks: pieces([[1]]) }) })
     await submit($, 'làm hai việc')
     expect(ctx(seen)).toContain('Yêu cầu chưa có việc nào phủ')
@@ -62,7 +62,7 @@ describe('0.7.0 7: nhắc yêu cầu chưa có việc nào phủ', () => {
     expect(ctx(seen)).not.toContain('R1 giữ API')
   })
 
-  test('đã phủ đủ: không có dòng nhắc', {}, async ($, on) => {
+  test('đã phủ đủ: không có dòng nhắc', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, { router: () => plan({ goal: 'Mục tiêu', depth: 'substantial', requirements: ['R1', 'R2'], tasks: pieces([[1], [2]]) }) })
     await submit($, 'làm hai việc')
     expect(ctx(seen)).not.toContain('Yêu cầu chưa có việc nào phủ')
@@ -74,7 +74,7 @@ describe('0.7.0 7: nhắc yêu cầu chưa có việc nào phủ', () => {
     expect(ctx(seen)).not.toContain('Yêu cầu chưa có việc nào phủ')
   })
 
-  test('prompt tiếp nối thêm yêu cầu mới mà chưa việc nào phủ: nhắc ở context tiếp nối', {}, async ($, on) => {
+  test('prompt tiếp nối thêm yêu cầu mới mà chưa việc nào phủ: nhắc ở context tiếp nối', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, {
       router: request =>
         request.startsWith('Làm tiếp')

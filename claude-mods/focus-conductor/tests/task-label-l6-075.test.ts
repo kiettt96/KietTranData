@@ -48,7 +48,7 @@ async function paneTexts($: Engine): Promise<string[]> {
 }
 
 describe('0.7.5 L6: dòng pane của việc có mã và nhiều lô', () => {
-  test('3 lô của "BƯỚC 4": nhãn là mã bước, chi tiết "r đang chạy" và không lặp chữ "đang chạy"', {}, async ($, on) => {
+  test('3 lô của "BƯỚC 4": nhãn là mã bước, chi tiết "r đang chạy" và không lặp chữ "đang chạy"', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, { router: () => plan({ goal: 'Cập nhật dữ liệu theo các bước', depth: 'hard', volume: 'large', tasks: [task('BƯỚC 4: lọc tin', 'agent', 'sonnet', 'medium')] }) })
     hooks(on)
     await submit($, 'Cập nhật dữ liệu theo các bước')
@@ -61,7 +61,7 @@ describe('0.7.5 L6: dòng pane của việc có mã và nhiều lô', () => {
     expect(texts).not.toContain('đang chạy')
   })
 
-  test('việc không mã một lô đang chạy: vẫn ghi chữ "đang chạy" của trạng thái', {}, async ($, on) => {
+  test('việc không mã một lô đang chạy: vẫn ghi chữ "đang chạy" của trạng thái', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, { router: () => plan({ goal: 'Cập nhật dữ liệu theo các bước', depth: 'hard', volume: 'large', tasks: [task('Chuẩn hóa đơn vị tính', 'agent', 'sonnet', 'medium'), task('Đổi tên cột', 'main', 'sonnet', 'medium')] }) })
     hooks(on)
     await submit($, 'Cập nhật dữ liệu theo các bước')

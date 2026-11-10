@@ -67,7 +67,7 @@ async function failing($: Engine, seen: Seen, command = 'bun test', steps = ['S�
 }
 
 describe('W4: lượt nâng mức khi lệnh kiểm lỗi', () => {
-  test('1. lượt 1 sang 2: checklist đóng hẳn vẫn chặn; lý do có lệnh, 2/3, sonnet/high; lần giao "Sửa lỗi kiểm: " không ghi model được nâng tối thiểu sonnet/high, có dòng agent-floor', { options: { decisionLog: LOG } }, async ($, on) => {
+  test('1. lượt 1 sang 2: checklist đóng hẳn vẫn chặn; lý do có lệnh, 2/3, sonnet/high; lần giao "Sửa lỗi kiểm: " không ghi model được nâng tối thiểu sonnet/high, có dòng agent-floor', { options: { planApproval: 'off', decisionLog: LOG } }, async ($, on) => {
     const { seen, sent, lines } = setup(on)
     await failing($, seen)
     const reason = await stop($)
@@ -82,7 +82,7 @@ describe('W4: lượt nâng mức khi lệnh kiểm lỗi', () => {
     expect(lines().some(l => l['kind'] === 'retry' && l['round'] === 2 && l['level'] === 'sonnet/high')).toBe(true)
   })
 
-  test('2. lượt 2 sang 3: chạy lại vẫn lỗi, stop_hook_active true vẫn chặn; 3/3, sonnet/xhigh; lần giao sau tối thiểu sonnet/xhigh', {}, async ($, on) => {
+  test('2. lượt 2 sang 3: chạy lại vẫn lỗi, stop_hook_active true vẫn chặn; 3/3, sonnet/xhigh; lần giao sau tối thiểu sonnet/xhigh', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen, sent } = setup(on)
     await failing($, seen)
     await stop($)
@@ -101,7 +101,7 @@ describe('W4: lượt nâng mức khi lệnh kiểm lỗi', () => {
     expect(R.nextLevel({ family: 'opus', effort: 'xhigh' }, POLICY)).toMatchObject({ pick: { family: 'opus', effort: 'xhigh' }, isTop: true })
   })
 
-  test('3b. luồng chính opus/xhigh: lượt vẫn tăng, lý do nói đã ở mức cao nhất chính sách cho phép', {}, async ($, on) => {
+  test('3b. luồng chính opus/xhigh: lượt vẫn tăng, lý do nói đã ở mức cao nhất chính sách cho phép', { options: { planApproval: 'off' } }, async ($, on) => {
     const top = plan({ goal: 'Sửa hàm tính phí', depth: 'hard', volume: 'medium', main: { model: 'opus', effort: 'xhigh' } })
     const { seen } = setup(on, () => top)
     await failing($, seen)
@@ -110,7 +110,7 @@ describe('W4: lượt nâng mức khi lệnh kiểm lỗi', () => {
     expect(reason).toContain('đã ở mức cao nhất chính sách cho phép')
   })
 
-  test('4. đạt ở lượt 2: subagent sửa và bun test đạt phủ lần lỗi; Stop cho qua, không còn sàn, không có cảnh báo hết lượt', {}, async ($, on) => {
+  test('4. đạt ở lượt 2: subagent sửa và bun test đạt phủ lần lỗi; Stop cho qua, không còn sàn, không có cảnh báo hết lượt', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen, passing, sent } = setup(on)
     await failing($, seen)
     await stop($)
@@ -126,7 +126,7 @@ describe('W4: lượt nâng mức khi lệnh kiểm lỗi', () => {
     expect(texts).not.toContain('Chưa đạt sau 3 lượt')
   })
 
-  test('5. lần chạy hẹp không phủ: bun test tests/a.test.ts đạt vẫn chặn; bun test đạt thì cho qua', {}, async ($, on) => {
+  test('5. lần chạy hẹp không phủ: bun test tests/a.test.ts đạt vẫn chặn; bun test đạt thì cho qua', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen, passing } = setup(on)
     await failing($, seen)
     passing.add('bun test tests/a.test.ts')
@@ -137,7 +137,7 @@ describe('W4: lượt nâng mức khi lệnh kiểm lỗi', () => {
     expect(await stop($)).toBe('')
   })
 
-  test('6. hết 3 lượt, Claude chưa ghi blocked: mod ghi đúng một bước blocked kèm lệnh và ba mức, đòi báo cáo, toast, cảnh báo, log; lần sau cho qua; cảnh báo còn sau turn; /conductor status có lệnh', { options: { decisionLog: LOG } }, async ($, on) => {
+  test('6. hết 3 lượt, Claude chưa ghi blocked: mod ghi đúng một bước blocked kèm lệnh và ba mức, đòi báo cáo, toast, cảnh báo, log; lần sau cho qua; cảnh báo còn sau turn; /conductor status có lệnh', { options: { planApproval: 'off', decisionLog: LOG } }, async ($, on) => {
     const { seen, lines } = setup(on)
     await failing($, seen)
     await stop($)
@@ -166,7 +166,7 @@ describe('W4: lượt nâng mức khi lệnh kiểm lỗi', () => {
     expect(status).toContain('sonnet/xhigh')
   })
 
-  test('6b. bước blocked do mod ghi: đúng một bước, note có lệnh và ba mức, không tính là đã đóng', {}, async ($, on) => {
+  test('6b. bước blocked do mod ghi: đúng một bước, note có lệnh và ba mức, không tính là đã đóng', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen } = setup(on)
     await failing($, seen)
     await stop($)
@@ -179,7 +179,7 @@ describe('W4: lượt nâng mức khi lệnh kiểm lỗi', () => {
     expect(plan1).toContain('[b] 1. Sửa hàm tính phí')
   })
 
-  test('7. hết lượt, Claude đã ghi blocked kèm lệnh: không thêm bước, chỉ chặn đòi báo cáo', {}, async ($, on) => {
+  test('7. hết lượt, Claude đã ghi blocked kèm lệnh: không thêm bước, chỉ chặn đòi báo cáo', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen } = setup(on)
     await failing($, seen, 'bun test', ['Sửa hàm tính phí', 'Kiểm lại phí'])
     await $.tool.call({ tool: PLAN, action: 'update', step: 2, status: 'blocked', note: 'bun test vẫn lỗi ở ca làm tròn' })
@@ -194,7 +194,7 @@ describe('W4: lượt nâng mức khi lệnh kiểm lỗi', () => {
     expect(listed.split('\n').filter(l => l.startsWith('[b] ')).length).toBe(1)
   })
 
-  test('8. reported: câu trả lời cuối có mục "Chưa đạt yêu cầu" thì true; không có thì false, toast và cảnh báo vẫn có; không có last_assistant_message thì lấy answer của turn.complete', { options: { decisionLog: LOG } }, async ($, on) => {
+  test('8. reported: câu trả lời cuối có mục "Chưa đạt yêu cầu" thì true; không có thì false, toast và cảnh báo vẫn có; không có last_assistant_message thì lấy answer của turn.complete', { options: { planApproval: 'off', decisionLog: LOG } }, async ($, on) => {
     const { seen, lines } = setup(on)
     await failing($, seen)
     await stop($)
@@ -206,7 +206,7 @@ describe('W4: lượt nâng mức khi lệnh kiểm lỗi', () => {
     expect(lines().find(l => l['kind'] === 'retry-exhausted')).toMatchObject({ reported: true })
   })
 
-  test('8b. không có mục báo cáo: reported false, toast và cảnh báo vẫn có', { options: { decisionLog: LOG } }, async ($, on) => {
+  test('8b. không có mục báo cáo: reported false, toast và cảnh báo vẫn có', { options: { planApproval: 'off', decisionLog: LOG } }, async ($, on) => {
     const { seen, lines } = setup(on)
     await failing($, seen)
     await stop($)
@@ -219,7 +219,7 @@ describe('W4: lượt nâng mức khi lệnh kiểm lỗi', () => {
     expect(seen.toasts.some(t => t.includes('Chưa đạt sau 3 lượt'))).toBe(true)
   })
 
-  test('8c. Stop không có last_assistant_message: reported lấy từ answer của turn.complete', { options: { decisionLog: LOG } }, async ($, on) => {
+  test('8c. Stop không có last_assistant_message: reported lấy từ answer của turn.complete', { options: { planApproval: 'off', decisionLog: LOG } }, async ($, on) => {
     const { seen, lines } = setup(on)
     await failing($, seen)
     await stop($)
@@ -233,7 +233,7 @@ describe('W4: lượt nâng mức khi lệnh kiểm lỗi', () => {
   })
 
   // 0.8.0 A2: Stop chưa chạy lại không tăng lượt; hai lần liên tiếp tính một lượt, nên trần chống vòng lặp là 5 lần chặn thay cho 3.
-  test('9. sáu lần Stop liên tiếp không có tool call: lượt 2, chờ, lượt 3, chờ, hết lượt, rồi cho qua; tối đa 5 lần chặn', {}, async ($, on) => {
+  test('9. sáu lần Stop liên tiếp không có tool call: lượt 2, chờ, lượt 3, chờ, hết lượt, rồi cho qua; tối đa 5 lần chặn', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen } = setup(on)
     await failing($, seen)
     const blocks = [await stop($), await stop($, true), await stop($, true), await stop($, true), await stop($, true), await stop($, true)]
@@ -246,7 +246,7 @@ describe('W4: lượt nâng mức khi lệnh kiểm lỗi', () => {
     expect(blocks.filter(Boolean).length).toBeLessThanOrEqual(5)
   })
 
-  test('11. luồng chính tự sửa file ở lượt 2: kết quả Edit có câu dặn giao subagent đúng một lần, tối đa 200 ký tự, không deny', {}, async ($, on) => {
+  test('11. luồng chính tự sửa file ở lượt 2: kết quả Edit có câu dặn giao subagent đúng một lần, tối đa 200 ký tự, không deny', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen } = setup(on)
     await failing($, seen)
     await stop($)
@@ -258,7 +258,7 @@ describe('W4: lượt nâng mức khi lệnh kiểm lỗi', () => {
     expect((await edit($, 'src/b.ts')).context?.some(c => c.includes('Sửa lỗi kiểm')) ?? false).toBe(false)
   })
 
-  test('12. turn sau khi còn chưa đạt: router nhận mục quan sát có lệnh, effort luồng chính lên một bậc', {}, async ($, on) => {
+  test('12. turn sau khi còn chưa đạt: router nhận mục quan sát có lệnh, effort luồng chính lên một bậc', { options: { planApproval: 'off' } }, async ($, on) => {
     const later = plan({ relation: 'continue', goal: '', main: { model: 'sonnet', effort: 'medium' } })
     const { seen } = setup(on, request => (request.startsWith('Sửa hàm tính phí') ? GOAL : later))
     await failing($, seen)
@@ -270,7 +270,7 @@ describe('W4: lượt nâng mức khi lệnh kiểm lỗi', () => {
     expect((await step($, seen, { turnId: 't2' }))?.effort).toBe('high')
   })
 
-  test('13. plan update done khi còn chưa đạt: kết quả có câu cảnh báo tối đa 200 ký tự; không còn chưa đạt thì không có', {}, async ($, on) => {
+  test('13. plan update done khi còn chưa đạt: kết quả có câu cảnh báo tối đa 200 ký tự; không còn chưa đạt thì không có', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen, passing } = setup(on)
     await failing($, seen, 'bun test', ['Sửa hàm tính phí', 'Kiểm lại phí'])
     const warned = String((await $.tool.call({ tool: PLAN, action: 'update', step: 2, status: 'done' })).result)
@@ -294,27 +294,27 @@ describe('W4: lượt nâng mức khi lệnh kiểm lỗi', () => {
 })
 
 describe('W4: ngoại lệ, cho kết thúc như trước vòng sửa 3', () => {
-  test('enforceChecklist false', { options: { enforceChecklist: false } }, async ($, on) => {
+  test('enforceChecklist false', { options: { planApproval: 'off', enforceChecklist: false } }, async ($, on) => {
     const { seen } = setup(on)
     await failing($, seen)
     expect(await stop($)).toBe('')
   })
 
-  test('đang tạm dừng vì hạn mức (quota.pause khác null)', {}, async ($, on) => {
+  test('đang tạm dừng vì hạn mức (quota.pause khác null)', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen } = setup(on)
     await failing($, seen)
     await conductor($, 'pause')
     expect(await stop($)).toBe('')
   })
 
-  test('mode off', {}, async ($, on) => {
+  test('mode off', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen } = setup(on)
     await failing($, seen)
     await conductor($, 'mode off')
     expect(await stop($)).toBe('')
   })
 
-  test('turn hỏi đáp không thực thi', {}, async ($, on) => {
+  test('turn hỏi đáp không thực thi', { options: { planApproval: 'off' } }, async ($, on) => {
     const answer = plan({ relation: 'new', goal: 'Hỏi', kind: 'answer', depth: 'none', main: { model: 'haiku', effort: 'low' } })
     const { seen } = setup(on, request => (request.startsWith('Sửa hàm tính phí') ? GOAL : answer))
     await failing($, seen)
@@ -324,7 +324,7 @@ describe('W4: ngoại lệ, cho kết thúc như trước vòng sửa 3', () => 
     expect(await stop($)).toBe('')
   })
 
-  test('lỗi của mục tiêu cũ sau khi đổi mục tiêu', {}, async ($, on) => {
+  test('lỗi của mục tiêu cũ sau khi đổi mục tiêu', { options: { planApproval: 'off' } }, async ($, on) => {
     const other = plan({ goal: 'Đổi màu nút', depth: 'light', volume: 'small', main: { model: 'sonnet', effort: 'medium' } })
     const { seen } = setup(on, request => (request.startsWith('Sửa hàm tính phí') ? GOAL : other))
     await failing($, seen)
@@ -347,7 +347,7 @@ describe('W4: phủ lần lỗi theo lệnh hẹp hay rộng (điều chỉnh 2)
 })
 
 describe('W4: nhiều lệnh cùng chưa đạt (điều chỉnh 3, 4)', () => {
-  test('7 lệnh khác nhau cùng lỗi: Stop vẫn chặn, lý do có 5 tên và "và 2 lệnh khác"', {}, async ($, on) => {
+  test('7 lệnh khác nhau cùng lỗi: Stop vẫn chặn, lý do có 5 tên và "và 2 lệnh khác"', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen } = setup(on)
     await failing($, seen, 'bun test tests/a1.test.ts')
     for (let i = 2; i <= 7; i++) await bash($, `bun test tests/a${i}.test.ts`)
@@ -357,7 +357,7 @@ describe('W4: nhiều lệnh cùng chưa đạt (điều chỉnh 3, 4)', () => {
     expect(reason.length).toBeLessThanOrEqual(1200)
   })
 
-  test('hai lệnh: một lệnh đạt ở lượt 2, lệnh kia hết lượt và được ghi blocked', {}, async ($, on) => {
+  test('hai lệnh: một lệnh đạt ở lượt 2, lệnh kia hết lượt và được ghi blocked', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen, passing } = setup(on)
     await failing($, seen, 'bun test tests/a.test.ts')
     await bash($, 'bun test tests/b.test.ts')
@@ -380,7 +380,7 @@ describe('W4: nhiều lệnh cùng chưa đạt (điều chỉnh 3, 4)', () => {
 })
 
 describe('W4: sàn chỉ áp cho lần giao sửa lỗi kiểm (điều chỉnh 5)', () => {
-  test('lượt 2: giao Explore tra cứu không bị nâng; giao "Sửa lỗi kiểm: ..." được nâng', {}, async ($, on) => {
+  test('lượt 2: giao Explore tra cứu không bị nâng; giao "Sửa lỗi kiểm: ..." được nâng', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen, sent } = setup(on)
     await failing($, seen)
     await stop($)
@@ -390,7 +390,7 @@ describe('W4: sàn chỉ áp cho lần giao sửa lỗi kiểm (điều chỉnh 
     expect(sent.at(-1)).toMatchObject({ model: 'sonnet', effort: 'high' })
   })
 
-  test('general-purpose có prompt nhắc đúng lệnh chưa đạt: được nâng; prompt không nhắc: giữ route', {}, async ($, on) => {
+  test('general-purpose có prompt nhắc đúng lệnh chưa đạt: được nâng; prompt không nhắc: giữ route', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen, sent } = setup(on)
     await failing($, seen)
     await stop($)

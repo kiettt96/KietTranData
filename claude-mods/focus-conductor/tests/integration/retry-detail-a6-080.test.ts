@@ -54,7 +54,7 @@ async function begin($: Engine, seen: Seen) {
 const close = ($: Engine) => $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'done' })
 
 const scriptOf = (name: string) => `/usr/bin/python3 -B /repo/tools/${'thu-muc-dai-'.repeat(10)}/${name}`
-const OPTS = { options: { checkCommands: [...['x', 'a', 'b', 'c', 'd', 'e'].map(k => scriptOf(k === 'x' ? 'check_x.py' : `check_${k}.py`)), 'bun run gen-check'].join(',') } }
+const OPTS = { options: { planApproval: 'off', checkCommands: [...['x', 'a', 'b', 'c', 'd', 'e'].map(k => scriptOf(k === 'x' ? 'check_x.py' : `check_${k}.py`)), 'bun run gen-check'].join(',') } }
 
 describe('0.8.0 A6: lệnh dài cắt ở giữa', () => {
   test('lệnh 160 ký tự: câu chặn giữ đầu và đuôi check_x.py, lệnh trong dấu ` không quá 100 ký tự', OPTS, async ($, on) => {

@@ -31,7 +31,7 @@ const agent = ($: Engine, description: string, model: string) =>
   $.tool.call({ tool: 'Agent', description, prompt: description, model } as never) as Promise<{ context?: string[] }>
 
 describe('0.8.1 B3: đầu cuối', () => {
-  test('Claude ghi opus cho "Lọc tin thuế quý 3": router được gọi, nhật ký có rule-conflict với hai họ, context không nhắc xung đột', { options: { decisionLog: LOG } }, async ($, on) => {
+  test('Claude ghi opus cho "Lọc tin thuế quý 3": router được gọi, nhật ký có rule-conflict với hai họ, context không nhắc xung đột', { options: { planApproval: 'off', decisionLog: LOG } }, async ($, on) => {
     const writes: string[] = []
     const seen = base(on, { router: () => plan({ goal: 'Lọc tin theo các lô', constraints: [FIRST], depth: 'hard', volume: 'large' }), agent: () => EDIT })
     on('tool.call', { tool: 'Agent' }, () => ({ result: 'xong' }))

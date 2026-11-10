@@ -30,7 +30,7 @@ async function finished($: Engine, on: On) {
 }
 
 describe('0.7.6 U10: trạng thái hoàn thành', () => {
-  test('band một dòng: số bước, "Hoàn thành: <mục tiêu>", thời gian đã chạy, chi phí', async ($, on) => {
+  test('band một dòng: số bước, "Hoàn thành: <mục tiêu>", thời gian đã chạy, chi phí', { options: { planApproval: 'off' } }, async ($, on) => {
     await finished($, on)
     const rows = await bandRows($, 120, 2)
     expect(rows.length).toBe(1)
@@ -38,7 +38,7 @@ describe('0.7.6 U10: trạng thái hoàn thành', () => {
     expect(rows[0]).not.toContain('Đã xong mọi bước')
   })
 
-  test('pane ẩn dòng việc chưa từng giao khi mọi bước đã đóng', async ($, on) => {
+  test('pane ẩn dòng việc chưa từng giao khi mọi bước đã đóng', { options: { planApproval: 'off' } }, async ($, on) => {
     await finished($, on)
     const pane = await $.ui.mount(PANE)
     expect(await pane.find({ type: 'Text', text: /chờ giao/ })).toBeUndefined()

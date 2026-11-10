@@ -65,7 +65,7 @@ async function goal($: Engine) {
 describe('0.7.5 C6: thứ tự mục của pane', () => {
   // 0.7.6 U1: bốn bước đều khớp một việc nên tiến độ từng việc nằm trên chính dòng bước (không còn mục riêng); dòng bước cuối và chip
   // của bước đang làm vẫn trong 16 dòng đầu, trước chọn chế độ.
-  test('checklist (kèm tiến độ từng việc) đứng trước chọn chế độ và Hạn mức, trong 16 dòng đầu', {}, async ($, on) => {
+  test('checklist (kèm tiến độ từng việc) đứng trước chọn chế độ và Hạn mức, trong 16 dòng đầu', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     quotaMeter(on, [session(40)])
     agents(on)
@@ -92,14 +92,14 @@ describe('0.7.5 C6: thứ tự mục của pane', () => {
 })
 
 describe('0.7.5 C6: mục Hạn mức khi chưa có số đo', () => {
-  test('chưa có số đo, không dừng, không có điểm dừng: không có mục Hạn mức', {}, async ($, on) => {
+  test('chưa có số đo, không dừng, không có điểm dừng: không có mục Hạn mức', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     agents(on)
     await goal($)
     expect((await texts($)).some(t => /^Hạn mức ─/.test(t))).toBe(false)
   })
 
-  test('có số đo: mục Hạn mức như cũ', {}, async ($, on) => {
+  test('có số đo: mục Hạn mức như cũ', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     quotaMeter(on, [session(40)])
     agents(on)
@@ -109,7 +109,7 @@ describe('0.7.5 C6: mục Hạn mức khi chưa có số đo', () => {
 })
 
 describe('0.7.5 C6: mục Hạn mức khi có điểm dừng mà không có số đo', () => {
-  test('dừng vì hạn mức, ghi điểm dừng, chạy tiếp rồi số đo mất: mục Hạn mức vẫn hiện, trạng thái không có dữ liệu', {}, async ($, on) => {
+  test('dừng vì hạn mức, ghi điểm dừng, chạy tiếp rồi số đo mất: mục Hạn mức vẫn hiện, trạng thái không có dữ liệu', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     on('tool.register', () => ({ value: { tool: PLAN } }))
     on('session.measure', (_$, e) => ({ changed: e.changed }))
@@ -137,7 +137,7 @@ describe('0.7.5 C6: mục Hạn mức khi có điểm dừng mà không có số
 describe('0.7.5 C6: quotaGuard false', () => {
   // Sau C6, trạng thái không dữ liệu đã ẩn mục; ca này giữ cho quotaGuard false không vẽ mục Hạn mức cả khi /conductor resume
   // force (không bị chặn bởi quotaGuard) đã ghi mốc ép chạy tiếp.
-  test('resume force khi quotaGuard false: không có mục Hạn mức', { options: { quotaGuard: false } }, async ($, on) => {
+  test('resume force khi quotaGuard false: không có mục Hạn mức', { options: { planApproval: 'off', quotaGuard: false } }, async ($, on) => {
     base(on, RESUME)
     on('command.register', () => ({ value: { command: 'conductor' } }))
     memoryStore(on)

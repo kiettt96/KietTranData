@@ -15,7 +15,7 @@ async function paneTexts($: Engine): Promise<string[]> {
 }
 
 describe('0.7.6 U6: phần đầu pane gọn, chi tiết điều phối ở cuối', () => {
-  test('phần đầu (trước Danh sách bước) không có độ sâu, khối lượng, loại hay lý do router', async ($, on) => {
+  test('phần đầu (trước Danh sách bước) không có độ sâu, khối lượng, loại hay lý do router', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, FOUR)
     await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Việc 1: tìm' }, { title: 'Việc 2: đổi tên' }] } as never)
@@ -25,7 +25,7 @@ describe('0.7.6 U6: phần đầu pane gọn, chi tiết điều phối ở cu�
     for (const word of ['độ sâu', 'khối lượng', 'loại', 'việc vừa']) expect(head.some(t => t.includes(word)), word).toBe(false)
   })
 
-  test('mục "Điều phối" ở cuối pane, sau Tiêu chí chất lượng: model luồng chính, độ sâu, khối lượng, loại, lý do router', async ($, on) => {
+  test('mục "Điều phối" ở cuối pane, sau Tiêu chí chất lượng: model luồng chính, độ sâu, khối lượng, loại, lý do router', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, FOUR)
     const texts = await paneTexts($)
@@ -38,7 +38,7 @@ describe('0.7.6 U6: phần đầu pane gọn, chi tiết điều phối ở cu�
     expect(section.some(t => t === 'việc vừa')).toBe(true)
   })
 
-  test('uiLanguage en: mục "Routing"', { options: { uiLanguage: 'en' } }, async ($, on) => {
+  test('uiLanguage en: mục "Routing"', { options: { planApproval: 'off', uiLanguage: 'en' } }, async ($, on) => {
     base(on)
     await submit($, FOUR)
     const texts = await paneTexts($)

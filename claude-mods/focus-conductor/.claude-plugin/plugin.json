@@ -1,6 +1,6 @@
 {
   "name": "focus-conductor",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "author": { "name": "Kiet Tran" },
   "description": "Một model Claude (router) đọc kỹ prompt trước khi làm và điều phối model/effort/agent cho từng việc; mod kiểm, ép điều phối lúc chạy, giữ nhất quán mục tiêu với checklist và cảnh báo lạc đề.",
   "types": "./types/index.d.ts",
@@ -85,6 +85,12 @@
       "description": "Glob phân tách bằng dấu phẩy, ví dụ: ket-qua/**,out/*.json. File khớp là thay đổi nhẹ: vẫn được đếm nhưng không đủ để cảnh báo \"không chạy bước kiểm tra nào\" hay để cổng Stop đòi lệnh kiểm. Đuôi .md .markdown .txt .csv .tsv .jsonl .log luôn là nhẹ; .json và .yaml không tự tính là nhẹ vì thường là cấu hình. Glob không bắt đầu bằng / khớp từ đầu một thư mục bất kỳ; ** khớp nhiều cấp thư mục. Để trống (mặc định): chỉ các đuôi trên. (en) Comma-separated globs, e.g. ket-qua/**,out/*.json. A matching file is a soft change: it is still counted but does not by itself trigger the \"no check ran\" warning or make the Stop gate ask for a check. The extensions .md .markdown .txt .csv .tsv .jsonl .log are always soft; .json and .yaml are not soft on their own because they are often configuration. A glob that does not start with / matches from any directory; ** spans directory levels. Empty (default): only the extensions above.",
       "default": ""
     },
+    "skillPaths": {
+      "type": "string",
+      "title": "File skill ngoài SKILL.md (skill paths)",
+      "description": "Tiền tố đường dẫn phân tách bằng dấu phẩy, ví dụ: prompts/,.claude/agents/. Ngoài file tên SKILL.md và file .md nằm dưới một thư mục skills/, file khớp tiền tố cũng là file skill: sửa file skill thì phải thử skill trên ví dụ trước khi báo xong (lời gọi Agent có description mở đầu \"Thử skill: \" trả lời xong, hay lệnh khai trong checkCommands chạy đạt, sau lần sửa cuối); cổng Stop chặn một lần mỗi mục tiêu khi chưa thử. File skill không tính là tài liệu nhẹ và không vào cảnh báo chưa kiểm. Tiền tố tương đối khớp từ đầu một thư mục bất kỳ, tiền tố tuyệt đối khớp từ gốc; mục . và ./ bị bỏ. Để trống (mặc định): chỉ SKILL.md và file .md dưới skills/. (en) Comma-separated path prefixes, e.g. prompts/,.claude/agents/. Besides files named SKILL.md and .md files under a skills/ directory, matching files are skill files: after changing one, the skill must be trialled on examples before reporting done (an Agent call whose description starts with \"Skill trial: \" that answers, or a passing checkCommands entry, after the last change); the Stop gate blocks once per goal when it was not. Skill files are not soft docs and do not count toward the unverified warning. A relative prefix matches from any directory, an absolute one from the root; . and ./ are ignored. Empty (default): only SKILL.md and .md files under skills/.",
+      "default": ""
+    },
     "headlessRouting": {
       "type": "string",
       "title": "Điều phối ở phiên không tương tác (headless routing)",
@@ -116,6 +122,19 @@
       "type": "number",
       "title": "Số lần chặn tối đa (block)",
       "description": "strictDelegation block: số lần từ chối luồng chính sửa file trong một mục tiêu trước khi chuyển sang nhắc, từ 1 đến 10 (mặc định 2). Không có mức chặn vô hạn, để phiên không kẹt khi việc không giao được.",
+      "default": 2
+    },
+    "planApproval": {
+      "type": "string",
+      "title": "Duyệt kế hoạch trước khi sửa file (plan approval)",
+      "description": "auto (mặc định): mục tiêu độ sâu substantial hay hard, loại edit hay mixed (không phải đối chiếu, người dùng không nói bỏ qua duyệt) phải lập checklist, được router rà tối đa planReviewRounds lượt rồi trình người dùng duyệt; trước khi duyệt, luồng chính không được sửa file (Edit, Write, NotebookEdit, lệnh Bash ghi file, trừ .claude/plans/ và .focus-conductor/) và chỉ giao subagent Explore hay Plan. Duyệt bằng một tin đồng ý, bằng /conductor approve, hay bằng nút duyệt của plan mode. Chỗ mơ hồ làm đổi kết quả thì Claude hỏi gộp một lần trước khi lập kế hoạch. off: không duyệt, không chặn, không chèn gì. (en) auto (default): a goal of depth substantial or hard and kind edit or mixed must be planned as a checklist, reviewed by the router for up to planReviewRounds rounds and presented for approval; until approved the main thread cannot change files (except under .claude/plans/ and .focus-conductor/) and may only delegate to Explore or Plan. Approve with a yes, with /conductor approve or with plan mode's approve button. off: no approval, no blocking.",
+      "default": "auto",
+      "options": ["auto", "off"]
+    },
+    "planReviewRounds": {
+      "type": "number",
+      "title": "Số lượt router rà kế hoạch (plan review rounds)",
+      "description": "planApproval auto: số lượt tối đa router rà checklist trước khi trình duyệt, số nguyên từ 1 đến 3 (mặc định 2). Mỗi lượt còn chỗ cần sửa thì chặn kết thúc một lần; lượt cuối còn chỗ sửa thì dặn ghi các chỗ còn sót vào bản trình, lần dừng sau cho kết thúc. Mỗi lượt là một lần gọi router. (en) With planApproval auto: the most router review rounds before the plan is presented, an integer from 1 to 3 (default 2). Each round with fixes blocks the stop once; after the last round the plan is presented with what is left noted.",
       "default": 2
     },
     "remindSubagents": {
@@ -219,6 +238,13 @@
       "title": "Đường dẫn vẫn được ghi khi dừng vì hạn mức",
       "description": "Đường dẫn phân tách bằng dấu phẩy (tương đối theo thư mục gốc của phiên hoặc tuyệt đối), ví dụ: .checkpoint/. Khi dừng cứng vì hạn mức, luồng chính vẫn được Write, Edit, hay chạy Bash mà mọi tác động ghi đều có đường dẫn và mọi đường dẫn nằm trong các đường dẫn này (mục . và ./ bị bỏ), và Read vào đó, để ghi file checkpoint theo quy tắc dừng của prompt; mỗi đường dẫn phải đáp thật vào trong danh sách (symlink ra ngoài bị từ chối). Rỗng là như cũ: chỉ tool plan được qua. Mặc định rỗng",
       "default": ""
+    },
+    "pauseBackup": {
+      "type": "string",
+      "title": "Sao lưu lên nhánh -wip khi dừng vì hạn mức (pause backup)",
+      "description": "auto (mặc định): bật khi phiên chạy trên cloud (biến môi trường CLAUDE_CODE_REMOTE có giá trị); on: luôn bật; off: tắt. Khi bật và dừng cứng vì hạn mức, luồng chính được thêm tối đa 6 lời gọi Bash trong một lần dừng, mỗi lời gọi đúng một lệnh: git add -u hay git add <đường dẫn trong thư mục gốc phiên> (không phải ., không chạm .focus-conductor/), git commit -m <thông điệp> (không --amend, không -a), git push origin HEAD:<tên>-wip (không cờ, không +, không main-wip hay master-wip). Kết quả push được ghi vào điểm dừng và hiện ở /conductor status và pane. (en) auto (default): on when the session runs in the cloud (CLAUDE_CODE_REMOTE is set); on: always; off: never. When on and paused by quota, the main thread may make up to 6 more Bash calls per pause, each exactly one of: git add -u or git add <paths inside the session root> (not ., not .focus-conductor/), git commit -m <message> (no --amend, no -a), git push origin HEAD:<name>-wip (no flags, no +, not main-wip or master-wip). The push result is saved in the checkpoint and shown in /conductor status and the pane.",
+      "default": "auto",
+      "options": ["auto", "on", "off"]
     },
     "uiLanguage": {
       "type": "string",

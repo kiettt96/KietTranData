@@ -26,13 +26,13 @@ async function start($: Engine, seen: Seen, steps: Array<{ title: string; status
 }
 
 describe('0.8.0 A4: việc main không có bước riêng', () => {
-  test('5 việc main, một bước doing mang mã việc 3: bốn việc kia là chưa gắn bước', {}, async ($, on) => {
+  test('5 việc main, một bước doing mang mã việc 3: bốn việc kia là chưa gắn bước', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, { router: () => plan({ goal: 'Làm năm phần', depth: 'substantial', volume: 'large', tasks: FIVE }) })
     await start($, seen, [{ title: 'Chuẩn bị dữ liệu', status: 'done' }, { title: 'Việc 3: chạy lại', status: 'doing' }])
     expect(count(await paneText($), 'chưa gắn bước')).toBe(4)
   })
 
-  test('checklist không bước nào mang mã: không việc nào đang làm, cả năm việc chưa gắn bước', {}, async ($, on) => {
+  test('checklist không bước nào mang mã: không việc nào đang làm, cả năm việc chưa gắn bước', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, { router: () => plan({ goal: 'Làm năm phần', depth: 'substantial', volume: 'large', tasks: FIVE }) })
     await start($, seen, [{ title: 'Chuẩn bị dữ liệu', status: 'done' }, { title: 'Làm tiếp', status: 'doing' }])
     const texts = await paneText($)
@@ -40,21 +40,21 @@ describe('0.8.0 A4: việc main không có bước riêng', () => {
     expect(texts).not.toContain('đang làm')
   })
 
-  test('bước doing không mang mã nhưng phủ việc 2 theo tên (stepCovers): việc 2 đang làm, bốn việc kia chưa gắn bước', {}, async ($, on) => {
+  test('bước doing không mang mã nhưng phủ việc 2 theo tên (stepCovers): việc 2 đang làm, bốn việc kia chưa gắn bước', { options: { planApproval: 'off' } }, async ($, on) => {
     const tasks = FIVE.map((t, i) => (i === 1 ? task('Việc 2: kiểm kho hàng tồn', 'main', 'sonnet', 'medium') : t))
     const seen = base(on, { router: () => plan({ goal: 'Làm năm phần', depth: 'substantial', volume: 'large', tasks }) })
     await start($, seen, [{ title: 'Chuẩn bị dữ liệu', status: 'done' }, { title: 'Kiểm kho hàng tồn lô mới', status: 'doing' }])
     expect(count(await paneText($), 'chưa gắn bước')).toBe(4)
   })
 
-  test('chỉ một việc main: việc đó vẫn đang làm', {}, async ($, on) => {
+  test('chỉ một việc main: việc đó vẫn đang làm', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, { router: () => plan({ goal: 'Làm một phần', depth: 'substantial', volume: 'medium', tasks: FIVE.slice(0, 1) }) })
     await start($, seen, [{ title: 'Chuẩn bị dữ liệu', status: 'done' }, { title: 'Làm tiếp', status: 'doing' }])
     const texts = await paneText($)
     expect(texts).not.toContain('chưa gắn bước')
   })
 
-  test('nhãn tiếng Anh "no step"', { options: { uiLanguage: 'en' } }, async ($, on) => {
+  test('nhãn tiếng Anh "no step"', { options: { planApproval: 'off', uiLanguage: 'en' } }, async ($, on) => {
     const seen = base(on, { router: () => plan({ goal: 'Làm năm phần', depth: 'substantial', volume: 'large', tasks: FIVE }) })
     await start($, seen, [{ title: 'Chuẩn bị dữ liệu', status: 'done' }, { title: 'Làm tiếp', status: 'doing' }])
     expect(count(await paneText($), 'no step')).toBe(5)

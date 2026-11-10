@@ -288,7 +288,7 @@ describe('checkCommands: lệnh kiểm tra riêng của dự án', () => {
 describe('verified bị hạ: ghi vào log quyết định', () => {
   const PLAN = 'mcp__focus-conductor__plan'
 
-  test('evidence không đủ mạnh: dòng verify-reject kèm bước, mức, lý do và đoạn đầu evidence', { options: { decisionLog: '/tmp/fc-verify.jsonl' } }, async ($, on) => {
+  test('evidence không đủ mạnh: dòng verify-reject kèm bước, mức, lý do và đoạn đầu evidence', { options: { planApproval: 'off', decisionLog: '/tmp/fc-verify.jsonl' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     const writes: string[] = []
@@ -308,7 +308,7 @@ describe('verified bị hạ: ghi vào log quyết định', () => {
     expect(String(reject?.['evidence'])).toBe('npm test: 12 pass')
   })
 
-  test('evidence đủ mạnh: không có dòng verify-reject', { options: { decisionLog: '/tmp/fc-verify2.jsonl' } }, async ($, on) => {
+  test('evidence đủ mạnh: không có dòng verify-reject', { options: { planApproval: 'off', decisionLog: '/tmp/fc-verify2.jsonl' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     on('tool.call', { tool: 'Bash' }, () => ({ result: '12 pass' }))

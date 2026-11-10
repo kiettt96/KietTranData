@@ -9,6 +9,7 @@ import { classifyBash } from './classify'
 import type { BashEffect } from './classify'
 import { writeEffects } from './effects'
 import { isHardEffect, isSoftPath } from './soft'
+import { isSkillPath } from './skill'
 import { checkEffectPassed, outputFailed, ranNothing, runnerOf } from './output'
 
 // ------------------------------------------------------------ đối chiếu evidence
@@ -116,7 +117,8 @@ export function noteEvidence(log: EvidenceLog, observation: ToolObservation, aut
     log.commands.push({ command: checkToolCommand(observation.tool, observation.input), ok: checkToolPassed(observation), check: 'test', seq: log.seq, author, mcp: true })
     trimCommands(log)
   } else if (FILE_TOOLS.has(observation.tool) && !observation.isError && !isPlanFile(filePathOf(observation))) {
-    onWrite(!isSoftPath(filePathOf(observation)))
+    // File skill (0.8.2 N3) không vào số thay đổi chắc chắn của cổng Y6.
+    onWrite(!isSoftPath(filePathOf(observation)) && !isSkillPath(filePathOf(observation)))
   } else {
     log.seq += 1
   }

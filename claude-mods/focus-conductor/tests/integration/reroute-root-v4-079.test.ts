@@ -7,7 +7,7 @@ import { COMPLEX_PROMPT, base, conductor, step, submit } from '../support/engine
 const FORKS_ON = { options: { forks: true, maxForks: 3 } }
 
 describe('0.7.9 vòng 2 V4: lời gọi session.root() của lệnh /conductor', () => {
-  test('forks tắt: /conductor reroute không gọi session.root()', {}, async ($, on) => {
+  test('forks tắt: /conductor reroute không gọi session.root()', { options: { planApproval: 'off' } }, async ($, on) => {
     let calls = 0
     const seen = base(on, { root: () => ((calls += 1), '/repo') })
     await submit($, COMPLEX_PROMPT)
@@ -17,7 +17,7 @@ describe('0.7.9 vòng 2 V4: lời gọi session.root() của lệnh /conductor',
     expect(calls).toBe(before)
   })
 
-  test('forks tắt: /conductor goal không gọi session.root()', {}, async ($, on) => {
+  test('forks tắt: /conductor goal không gọi session.root()', { options: { planApproval: 'off' } }, async ($, on) => {
     let calls = 0
     const seen = base(on, { root: () => ((calls += 1), '/repo') })
     await submit($, COMPLEX_PROMPT)
@@ -27,7 +27,7 @@ describe('0.7.9 vòng 2 V4: lời gọi session.root() của lệnh /conductor',
     expect(calls).toBe(before)
   })
 
-  test('forks bật: /conductor reroute gọi session.root() để kẹp split theo gốc phiên', FORKS_ON, async ($, on) => {
+  test('forks bật: /conductor reroute gọi session.root() để kẹp split theo gốc phiên', { ...FORKS_ON, options: { ...(FORKS_ON as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     let calls = 0
     const seen = base(on, { root: () => ((calls += 1), '/repo') })
     await submit($, COMPLEX_PROMPT)
@@ -37,7 +37,7 @@ describe('0.7.9 vòng 2 V4: lời gọi session.root() của lệnh /conductor',
     expect(calls).toBeGreaterThan(before)
   })
 
-  test('forks bật: /conductor goal gọi session.root() để kẹp split theo gốc phiên', FORKS_ON, async ($, on) => {
+  test('forks bật: /conductor goal gọi session.root() để kẹp split theo gốc phiên', { ...FORKS_ON, options: { ...(FORKS_ON as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     let calls = 0
     const seen = base(on, { root: () => ((calls += 1), '/repo') })
     await submit($, COMPLEX_PROMPT)

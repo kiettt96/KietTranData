@@ -11,7 +11,7 @@ const nudgeOf = (context: string[]) => context.find(c => c.includes('Phân việ
 const STEPS = [{ title: 'Việc 1: tìm chỗ gọi charge' }, { title: 'Việc 2: đổi tên userId' }, { title: 'Việc 3: thiết kế đa tiền tệ' }, { title: 'Việc 4: cập nhật README' }]
 
 describe('0.7.5 B14: việc chờ giao theo bước checklist', () => {
-  test('bước của việc 1, 2 đã done, skipped; bước kế tiếp là việc 3 (làm trực tiếp): không nhắc việc nào', { options: { strictDelegation: 'remind' } }, async ($, on) => {
+  test('bước của việc 1, 2 đã done, skipped; bước kế tiếp là việc 3 (làm trực tiếp): không nhắc việc nào', { options: { planApproval: 'off', strictDelegation: 'remind' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, FOUR)
@@ -21,7 +21,7 @@ describe('0.7.5 B14: việc chờ giao theo bước checklist', () => {
     expect(nudgeOf(await edit($))).toBe('')
   })
 
-  test('bước của việc 4 đang làm: nhắc đúng việc 4', { options: { strictDelegation: 'remind' } }, async ($, on) => {
+  test('bước của việc 4 đang làm: nhắc đúng việc 4', { options: { planApproval: 'off', strictDelegation: 'remind' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, FOUR)
@@ -34,7 +34,7 @@ describe('0.7.5 B14: việc chờ giao theo bước checklist', () => {
     expect(nudge).not.toContain('Việc 1')
   })
 
-  test('chưa có checklist: như cũ, nhắc mọi việc chờ giao', {}, async ($, on) => {
+  test('chưa có checklist: như cũ, nhắc mọi việc chờ giao', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, FOUR)

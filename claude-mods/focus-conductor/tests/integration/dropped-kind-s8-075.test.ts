@@ -13,7 +13,7 @@ const MANY = plan({ relation: 'refine', goal: '', requirements: Array.from({ len
 
 describe('0.7.5 S8: kind riêng cho cảnh báo mục bị bỏ', () => {
   // 0.7.6 W1: cảnh báo đã hiện ở "Cần chú ý" thì không lặp ở "Cảnh báo khác" (nơi có chip loại), nên câu nằm dưới "Cần chú ý", một lần.
-  test('pane hiện câu cảnh báo mục bị bỏ ở Cần chú ý, một lần, không có chip "model"', {}, async ($, on) => {
+  test('pane hiện câu cảnh báo mục bị bỏ ở Cần chú ý, một lần, không có chip "model"', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, { router: request => (request.includes('thêm 12 yêu cầu') ? MANY : FIRST) })
     await submit($, LONG_CODED_PROMPT)
     await submit($, 'thêm 12 yêu cầu')

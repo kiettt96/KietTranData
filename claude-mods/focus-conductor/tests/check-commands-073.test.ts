@@ -208,7 +208,7 @@ describe('0.7.3 điểm 1: cả luồng trong engine', () => {
   const bash = ($: Engine, command: string) => $.tool.call({ tool: 'Bash', command } as never)
   const show = async ($: Engine) => String((await $.tool.call({ tool: PLAN, action: 'show' })).result)
 
-  test('script kiểm chạy bằng đường dẫn đầy đủ, đã khai tiền tố thư mục: bước done tự thành verified', { options: { checkCommands: 'python3 tests/' } }, async ($, on) => {
+  test('script kiểm chạy bằng đường dẫn đầy đủ, đã khai tiền tố thư mục: bước done tự thành verified', { options: { planApproval: 'off', checkCommands: 'python3 tests/' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     on('tool.call', { tool: 'Bash' }, () => ({ result: 'RESULT: 47 passed, 0 failed' }))
@@ -221,7 +221,7 @@ describe('0.7.3 điểm 1: cả luồng trong engine', () => {
     expect(await show($)).toContain('[v] 1. Sửa')
   })
 
-  test('verified do Claude ghi với evidence tên ngắn được nhận khi lệnh chạy thật là đường dẫn đầy đủ', { options: { checkCommands: 'python3 tests/a-check.py' } }, async ($, on) => {
+  test('verified do Claude ghi với evidence tên ngắn được nhận khi lệnh chạy thật là đường dẫn đầy đủ', { options: { planApproval: 'off', checkCommands: 'python3 tests/a-check.py' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     on('tool.call', { tool: 'Bash' }, () => ({ result: 'RESULT: 47 passed, 0 failed' }))
@@ -234,7 +234,7 @@ describe('0.7.3 điểm 1: cả luồng trong engine', () => {
     expect(out).not.toContain('chưa tính là đã kiểm tra')
   })
 
-  test('chưa khai: script kiểm bị đếm là thay đổi và không nâng verified (hành vi cũ)', {}, async ($, on) => {
+  test('chưa khai: script kiểm bị đếm là thay đổi và không nâng verified (hành vi cũ)', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     on('tool.call', { tool: 'Bash' }, () => ({ result: 'RESULT: 47 passed, 0 failed' }))

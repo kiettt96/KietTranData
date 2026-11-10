@@ -34,7 +34,7 @@ const edit = ($: Engine, path = 'src/a.ts') => $.tool.call({ tool: 'Edit', file_
 const stop = async ($: Engine, active = false) => String(((await $.classic.Stop({ stop_hook_active: active } as never)) as { block?: string }).block ?? '')
 
 describe('0.7.9 Y2: turn đã nhận báo hạn mức mềm', () => {
-  test('lệnh kiểm chưa đạt: Stop qua, lượt không tăng (không có dòng retry)',{ options: { noticeWeekRemainingPct: 20, decisionLog: LOG } }, async ($, on) => {
+  test('lệnh kiểm chưa đạt: Stop qua, lượt không tăng (không có dòng retry)',{ options: { planApproval: 'off', noticeWeekRemainingPct: 20, decisionLog: LOG } }, async ($, on) => {
     const seen = base(on)
     const lines = hooks(on, new Set(), JS.bun_fail)
     const meter = quotaMeter(on, [week(50)])
@@ -52,7 +52,7 @@ describe('0.7.9 Y2: turn đã nhận báo hạn mức mềm', () => {
 })
 
 describe('0.7.9 Y3: lần đạt dạng tệp::tên là lệnh hẹp', () => {
-  test('pytest tests/test_a.py::test_x đạt không phủ pytest tests/ lỗi: Stop vẫn chặn', {}, async ($, on) => {
+  test('pytest tests/test_a.py::test_x đạt không phủ pytest tests/ lỗi: Stop vẫn chặn', { options: { planApproval: 'off' } }, async ($, on) => {
     const passing = new Set<string>()
     const seen = base(on, { router: () => plan({ goal: 'Sửa hàm tính phí', depth: 'substantial', volume: 'medium', main: { model: 'sonnet', effort: 'medium' } }) })
     hooks(on, passing, PYTEST.fail)

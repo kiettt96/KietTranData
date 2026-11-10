@@ -34,7 +34,7 @@ describe('0.7.7 X3: câu nêu script kiểm chưa được khai', () => {
 })
 
 describe('0.7.7 X3: tích hợp với toast gợi ý của 0.7.3', () => {
-  test('cuối turn: câu nêu script kiểm chưa khai, và vẫn đúng một toast có chữ checkCommands', {}, async ($: Engine, on) => {
+  test('cuối turn: câu nêu script kiểm chưa khai, và vẫn đúng một toast có chữ checkCommands', { options: { planApproval: 'off' } }, async ($: Engine, on) => {
     const seen = base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     on('tool.call', { tool: 'Bash' }, () => ({ result: 'RESULT: 47 passed, 0 failed' }))

@@ -31,7 +31,7 @@ async function goal($: Engine, on: On) {
 }
 
 describe('0.7.0 5: tự nâng done thành verified', () => {
-  test('lệnh test đạt sau thay đổi cuối: bước done thành verified, bước chưa đóng giữ nguyên', {}, async ($, on) => {
+  test('lệnh test đạt sau thay đổi cuối: bước done thành verified, bước chưa đóng giữ nguyên', { options: { planApproval: 'off' } }, async ($, on) => {
     await goal($, on)
     await edit($)
     await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'done' })
@@ -42,7 +42,7 @@ describe('0.7.0 5: tự nâng done thành verified', () => {
     expect(text).toContain('[ ] 2. Kiểm')
   })
 
-  test('đóng bước sau khi test đã đạt: lưu verified ngay, không cần evidence', {}, async ($, on) => {
+  test('đóng bước sau khi test đã đạt: lưu verified ngay, không cần evidence', { options: { planApproval: 'off' } }, async ($, on) => {
     await goal($, on)
     await edit($)
     await bash($, 'npm test')
@@ -50,7 +50,7 @@ describe('0.7.0 5: tự nâng done thành verified', () => {
     expect(out).toContain('[v] 1. Sửa')
   })
 
-  test('đóng lần lượt hai bước sau khi test đã đạt: cả hai thành verified', {}, async ($, on) => {
+  test('đóng lần lượt hai bước sau khi test đã đạt: cả hai thành verified', { options: { planApproval: 'off' } }, async ($, on) => {
     await goal($, on)
     await edit($)
     await bash($, 'npm test')
@@ -61,7 +61,7 @@ describe('0.7.0 5: tự nâng done thành verified', () => {
     expect(text).toContain('[v] 2. Kiểm')
   })
 
-  test('Claude ghi verified với evidence không chép lệnh: được nhận khi đã có test đạt sau thay đổi cuối', {}, async ($, on) => {
+  test('Claude ghi verified với evidence không chép lệnh: được nhận khi đã có test đạt sau thay đổi cuối', { options: { planApproval: 'off' } }, async ($, on) => {
     await goal($, on)
     await edit($)
     await bash($, 'npm test')
@@ -70,7 +70,7 @@ describe('0.7.0 5: tự nâng done thành verified', () => {
     expect(out).not.toContain('chưa tính là đã kiểm tra')
   })
 
-  test('đối chứng: verified khi chưa có test nào đạt sau thay đổi cuối vẫn bị hạ về done', {}, async ($, on) => {
+  test('đối chứng: verified khi chưa có test nào đạt sau thay đổi cuối vẫn bị hạ về done', { options: { planApproval: 'off' } }, async ($, on) => {
     await goal($, on)
     await edit($)
     const out = String((await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'đã xem lại mã' })).result)
@@ -78,7 +78,7 @@ describe('0.7.0 5: tự nâng done thành verified', () => {
     expect(out).toContain('chưa tính là đã kiểm tra')
   })
 
-  test('lệnh test chạy trước thay đổi cuối thì chưa đủ; chạy lại sau đó thì nâng', {}, async ($, on) => {
+  test('lệnh test chạy trước thay đổi cuối thì chưa đủ; chạy lại sau đó thì nâng', { options: { planApproval: 'off' } }, async ($, on) => {
     await goal($, on)
     await edit($)
     await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'done' })
@@ -91,7 +91,7 @@ describe('0.7.0 5: tự nâng done thành verified', () => {
 })
 
 describe('0.7.0 5: hạ lại khi có thay đổi mới', () => {
-  test('bước tự nâng thành verified, sửa thêm thì về done, test lại thì nâng lại', {}, async ($, on) => {
+  test('bước tự nâng thành verified, sửa thêm thì về done, test lại thì nâng lại', { options: { planApproval: 'off' } }, async ($, on) => {
     await goal($, on)
     await edit($)
     await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'done' })
@@ -103,7 +103,7 @@ describe('0.7.0 5: hạ lại khi có thay đổi mới', () => {
     expect(await show($)).toContain('[v] 1. Sửa')
   })
 
-  test('subagent sửa file trong mục tiêu cũng hạ bước tự nâng về done', {}, async ($, on) => {
+  test('subagent sửa file trong mục tiêu cũng hạ bước tự nâng về done', { options: { planApproval: 'off' } }, async ($, on) => {
     await goal($, on)
     await spawnTool($, 'u1', 'Sửa file phụ', 'Sửa src/x.ts')
     await edit($)
@@ -114,7 +114,7 @@ describe('0.7.0 5: hạ lại khi có thay đổi mới', () => {
     expect(await show($)).toContain('[x] 1. Sửa')
   })
 
-  test('bước verified do Claude ghi (evidence được nhận) không bị mod hạ khi sửa tiếp', {}, async ($, on) => {
+  test('bước verified do Claude ghi (evidence được nhận) không bị mod hạ khi sửa tiếp', { options: { planApproval: 'off' } }, async ($, on) => {
     await goal($, on)
     await edit($)
     await bash($, 'npm test')
@@ -123,7 +123,7 @@ describe('0.7.0 5: hạ lại khi có thay đổi mới', () => {
     expect(await show($)).toContain('[v] 1. Sửa')
   })
 
-  test('Claude ghi lại verified cho bước đã được mod tự nâng: thành verified của Claude, sửa tiếp không hạ', {}, async ($, on) => {
+  test('Claude ghi lại verified cho bước đã được mod tự nâng: thành verified của Claude, sửa tiếp không hạ', { options: { planApproval: 'off' } }, async ($, on) => {
     await goal($, on)
     await edit($)
     await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'done' })
@@ -134,7 +134,7 @@ describe('0.7.0 5: hạ lại khi có thay đổi mới', () => {
     expect(await show($)).toContain('[v] 1. Sửa')
   })
 
-  test('bước tự nâng và bước verified của Claude cùng tồn tại: sửa tiếp chỉ hạ bước tự nâng', {}, async ($, on) => {
+  test('bước tự nâng và bước verified của Claude cùng tồn tại: sửa tiếp chỉ hạ bước tự nâng', { options: { planApproval: 'off' } }, async ($, on) => {
     await goal($, on)
     await edit($)
     await bash($, 'npm test')
@@ -150,7 +150,7 @@ describe('0.7.0 5: hạ lại khi có thay đổi mới', () => {
     expect(after).toContain('[x] 2. Kiểm')
   })
 
-  test('Claude đổi trạng thái bước tự nâng: dấu tự nâng bị bỏ, sửa tiếp không hạ bước đã đổi', {}, async ($, on) => {
+  test('Claude đổi trạng thái bước tự nâng: dấu tự nâng bị bỏ, sửa tiếp không hạ bước đã đổi', { options: { planApproval: 'off' } }, async ($, on) => {
     await goal($, on)
     await edit($)
     await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'done' })
@@ -163,7 +163,7 @@ describe('0.7.0 5: hạ lại khi có thay đổi mới', () => {
 })
 
 describe('0.7.0 5: điều kiện để tự nâng', () => {
-  test('kiểm tĩnh (type-check, validate) không bao giờ tự nâng', {}, async ($, on) => {
+  test('kiểm tĩnh (type-check, validate) không bao giờ tự nâng', { options: { planApproval: 'off' } }, async ($, on) => {
     await goal($, on)
     await edit($)
     await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'done' })
@@ -172,7 +172,7 @@ describe('0.7.0 5: điều kiện để tự nâng', () => {
     expect(await show($)).toContain('[x] 1. Sửa')
   })
 
-  test('lệnh test lỗi không nâng', {}, async ($, on) => {
+  test('lệnh test lỗi không nâng', { options: { planApproval: 'off' } }, async ($, on) => {
     await goal($, on)
     await edit($)
     await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'done' })
@@ -180,7 +180,7 @@ describe('0.7.0 5: điều kiện để tự nâng', () => {
     expect(await show($)).toContain('[x] 1. Sửa')
   })
 
-  test('mục tiêu chưa có sửa file (chỉ tra cứu): test đạt không tự nâng', {}, async ($, on) => {
+  test('mục tiêu chưa có sửa file (chỉ tra cứu): test đạt không tự nâng', { options: { planApproval: 'off' } }, async ($, on) => {
     await goal($, on)
     await $.tool.call({ tool: 'Read', file_path: 'src/a.ts' })
     await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'done' })
@@ -188,14 +188,14 @@ describe('0.7.0 5: điều kiện để tự nâng', () => {
     expect(await show($)).toContain('[x] 1. Sửa')
   })
 
-  test('mục tiêu chưa có sửa file: verified kèm evidence nhắc file đã đọc vẫn được nhận như trước', {}, async ($, on) => {
+  test('mục tiêu chưa có sửa file: verified kèm evidence nhắc file đã đọc vẫn được nhận như trước', { options: { planApproval: 'off' } }, async ($, on) => {
     await goal($, on)
     await $.tool.call({ tool: 'Read', file_path: 'src/a.ts' })
     const out = String((await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'đã đọc src/a.ts, đúng' })).result)
     expect(out).toContain('[v] 1. Sửa')
   })
 
-  test('bước đang làm hoặc chưa làm không bị nâng', {}, async ($, on) => {
+  test('bước đang làm hoặc chưa làm không bị nâng', { options: { planApproval: 'off' } }, async ($, on) => {
     await goal($, on)
     await edit($)
     await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'doing' })
@@ -205,7 +205,7 @@ describe('0.7.0 5: điều kiện để tự nâng', () => {
     expect(text).toContain('[ ] 2. Kiểm')
   })
 
-  test('mode off: không theo dõi, không tự nâng', { options: {} }, async ($, on) => {
+  test('mode off: không theo dõi, không tự nâng', { options: { planApproval: 'off',} }, async ($, on) => {
     base(on)
     hooks(on)
     await submit($, COMPLEX_PROMPT)
@@ -219,7 +219,7 @@ describe('0.7.0 5: điều kiện để tự nâng', () => {
 })
 
 describe('0.7.0 5: verified do Claude ghi, nhận theo evidence lỏng hay khớp chặt', () => {
-  test('evidence lỏng ("xong rồi") được nhận nhờ test đạt, nhưng bị hạ về done khi sửa tiếp; test đạt lại thì nâng lại', {}, async ($, on) => {
+  test('evidence lỏng ("xong rồi") được nhận nhờ test đạt, nhưng bị hạ về done khi sửa tiếp; test đạt lại thì nâng lại', { options: { planApproval: 'off' } }, async ($, on) => {
     await goal($, on)
     await edit($)
     await bash($, 'npm test')
@@ -231,7 +231,7 @@ describe('0.7.0 5: verified do Claude ghi, nhận theo evidence lỏng hay khớ
     expect(await show($)).toContain('[v] 1. Sửa')
   })
 
-  test('evidence khớp chặt (nêu đúng lệnh đã chạy và kết quả) giữ verified khi sửa tiếp', {}, async ($, on) => {
+  test('evidence khớp chặt (nêu đúng lệnh đã chạy và kết quả) giữ verified khi sửa tiếp', { options: { planApproval: 'off' } }, async ($, on) => {
     await goal($, on)
     await edit($)
     await bash($, 'npm test')

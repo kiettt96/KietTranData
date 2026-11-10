@@ -11,7 +11,7 @@ const noticed = (out: { context?: readonly string[] }) => (out.context ?? []).fi
 const edit = ($: Engine, path = 'src/a.ts') => $.tool.call({ tool: 'Edit', file_path: path, old_string: 'a', new_string: 'b' } as never) as Promise<{ context?: string[] }>
 
 describe('0.7.5 B5: báo lại theo prompt, tối đa một lần mỗi turn', () => {
-  test('prompt mới do người gõ trong cùng cửa sổ: báo lại một lần', { options: { noticeWeekRemainingPct: 20 } }, async ($, on) => {
+  test('prompt mới do người gõ trong cùng cửa sổ: báo lại một lần', { options: { planApproval: 'off', noticeWeekRemainingPct: 20 } }, async ($, on) => {
     const { clock } = base(on)
     quotaMeter(on, [week(81)])
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
@@ -30,7 +30,7 @@ describe('0.7.5 B5: báo lại theo prompt, tối đa một lần mỗi turn', (
 })
 
 describe('0.7.5 B5: kết quả lỗi không đánh dấu đã báo', () => {
-  test('tool lỗi: không tính là đã báo; lời gọi kế tiếp không lỗi nhận câu báo', { options: { noticeWeekRemainingPct: 20 } }, async ($, on) => {
+  test('tool lỗi: không tính là đã báo; lời gọi kế tiếp không lỗi nhận câu báo', { options: { planApproval: 'off', noticeWeekRemainingPct: 20 } }, async ($, on) => {
     const { clock } = base(on)
     quotaMeter(on, [week(81)])
     let fail = true
@@ -45,7 +45,7 @@ describe('0.7.5 B5: kết quả lỗi không đánh dấu đã báo', () => {
 })
 
 describe('0.7.5 B5: lời gọi Agent dài', () => {
-  test('hạn mức vào vùng báo trong lúc Agent chạy: kết quả Agent nhận câu báo', { options: { noticeWeekRemainingPct: 20 } }, async ($, on) => {
+  test('hạn mức vào vùng báo trong lúc Agent chạy: kết quả Agent nhận câu báo', { options: { planApproval: 'off', noticeWeekRemainingPct: 20 } }, async ($, on) => {
     const { clock } = base(on)
     const meter = quotaMeter(on, [week(50)])
     on('tool.call', { tool: 'Agent' }, async () => {

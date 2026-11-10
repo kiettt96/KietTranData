@@ -8,6 +8,7 @@ import { COMPLEX_PROMPT, base, submit } from '../support/engine'
 
 const LOG = { options: { decisionLog: '/tmp/fc-unverified-077.jsonl' } }
 
+const LOG_PA_OFF = { ...LOG, options: { ...LOG.options, planApproval: 'off' } }
 function logLines(on: On): () => Array<Record<string, unknown>> {
   const writes: string[] = []
   on('fs.write', (_$, e) => {
@@ -30,7 +31,7 @@ const done = ($: Engine) => $.turn.complete({ turnId: 't1', answer: 'ok', durati
 const unverified = (lines: Array<Record<string, unknown>>) => lines.filter(l => l['kind'] === 'unverified')
 
 describe('0.7.7 X5: dòng unverified trong nhật ký quyết định', () => {
-  test('đủ trường, đúng kiểu', LOG, async ($, on) => {
+  test('đủ trường, đúng kiểu', LOG_PA_OFF, async ($, on) => {
     const lines = logLines(on)
     setup(on)
     await submit($, COMPLEX_PROMPT)
@@ -42,7 +43,7 @@ describe('0.7.7 X5: dòng unverified trong nhật ký quyết định', () => {
     expect(typeof line?.['at']).toBe('string')
   })
 
-  test('tối đa 3 lệnh bị loại, gần nhất; lệnh cắt 120 ký tự', LOG, async ($, on) => {
+  test('tối đa 3 lệnh bị loại, gần nhất; lệnh cắt 120 ký tự', LOG_PA_OFF, async ($, on) => {
     const lines = logLines(on)
     setup(on)
     await submit($, COMPLEX_PROMPT)
@@ -56,7 +57,7 @@ describe('0.7.7 X5: dòng unverified trong nhật ký quyết định', () => {
     expect(rejected[2]?.command.length).toBeLessThanOrEqual(120)
   })
 
-  test('chưa bật decisionLog: không ghi file', {}, async ($, on) => {
+  test('chưa bật decisionLog: không ghi file', { options: { planApproval: 'off' } }, async ($, on) => {
     const writes: string[] = []
     on('fs.write', (_$, e) => {
       writes.push(e.path)
@@ -70,7 +71,7 @@ describe('0.7.7 X5: dòng unverified trong nhật ký quyết định', () => {
     expect(writes.filter(p => p.endsWith('.jsonl'))).toEqual([])
   })
 
-  test('không có cảnh báo chưa kiểm: không có dòng unverified', LOG, async ($, on) => {
+  test('không có cảnh báo chưa kiểm: không có dòng unverified', { ...LOG, options: { ...(LOG as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const lines = logLines(on)
     setup(on, '12 passing (3ms)')
     await submit($, COMPLEX_PROMPT)
@@ -80,7 +81,7 @@ describe('0.7.7 X5: dòng unverified trong nhật ký quyết định', () => {
     expect(unverified(lines())).toEqual([])
   })
 
-  test('cảnh báo nhẹ (chỉ sửa tài liệu, đã đọc lại): dòng unverified ghi soft true', LOG, async ($, on) => {
+  test('cảnh báo nhẹ (chỉ sửa tài liệu, đã đọc lại): dòng unverified ghi soft true', LOG_PA_OFF, async ($, on) => {
     const lines = logLines(on)
     setup(on)
     on('tool.call', { tool: 'Read' }, () => ({ result: 'nội dung' }))

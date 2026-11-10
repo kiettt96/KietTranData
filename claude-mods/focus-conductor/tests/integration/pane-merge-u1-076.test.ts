@@ -8,7 +8,7 @@ const PLAN = 'mcp__focus-conductor__plan'
 import { TITLES, drawn, longGoal, rowOf } from '../support/pane-long'
 
 describe('0.7.6 U1: checklist và tiến độ từng việc là một danh sách', () => {
-  test('mục tiêu 11 bước có mã: mỗi bước chỉ xuất hiện một lần trong pane (40 dòng)', async ($, on) => {
+  test('mục tiêu 11 bước có mã: mỗi bước chỉ xuất hiện một lần trong pane (40 dòng)', { options: { planApproval: 'off' } }, async ($, on) => {
     await longGoal($, on, 3)
     const { texts } = await drawn($, 40)
     // Mục Đang chạy (U8) và Nhật ký điều phối ghi tên việc, mô tả của lời gọi Agent: không phải dòng bước, nên chỉ đếm phần trước chúng.
@@ -19,7 +19,7 @@ describe('0.7.6 U1: checklist và tiến độ từng việc là một danh sác
     for (const title of TITLES.slice(3)) expect(list.filter(t => t.includes(title)).length, title).toBe(1)
   })
 
-  test('pane 24 dòng: thấy bước đang làm và số lô của nó trên cùng dòng', async ($, on) => {
+  test('pane 24 dòng: thấy bước đang làm và số lô của nó trên cùng dòng', { options: { planApproval: 'off' } }, async ($, on) => {
     await longGoal($, on, 3)
     const { tree, texts } = await drawn($, 24)
     const step = rowOf(tree, /BƯỚC 3: lọc tin lô 1/)
@@ -31,7 +31,7 @@ describe('0.7.6 U1: checklist và tiến độ từng việc là một danh sác
     expect(texts.some(t => /lô xong/.test(t))).toBe(false)
   })
 
-  test('bước làm trực tiếp: chip "opus high" không kèm số bước "0/1" của chính bước đó', async ($, on) => {
+  test('bước làm trực tiếp: chip "opus high" không kèm số bước "0/1" của chính bước đó', { options: { planApproval: 'off' } }, async ($, on) => {
     await longGoal($, on, 3)
     const { texts } = await drawn($, 40)
     const at = texts.indexOf('BƯỚC 6: đọc và giải thích')
@@ -40,7 +40,7 @@ describe('0.7.6 U1: checklist và tiến độ từng việc là một danh sác
     expect(texts.some(t => /^\d+\/1$/.test(t))).toBe(false)
   })
 
-  test('lô lỗi: chip của dòng bước ghi số lô lỗi', async ($, on) => {
+  test('lô lỗi: chip của dòng bước ghi số lô lỗi', { options: { planApproval: 'off' } }, async ($, on) => {
     await longGoal($, on, 3)
     await $.turn.complete({ turnId: 't-u1', agentId: 'a-u1', answer: '', durationMs: 1, isAborted: false, reason: 'error' } as never)
     const { tree, texts } = await drawn($, 24)
@@ -48,7 +48,7 @@ describe('0.7.6 U1: checklist và tiến độ từng việc là một danh sác
     expect(rowOf(tree, /^sonnet 0\/3 · 2 đang chạy · 1 lỗi$/)).toBe(rowOf(tree, /BƯỚC 3: lọc tin lô 1/))
   })
 
-  test('việc Claude tự giao nhiều lô: dòng riêng ghi số lô ở phần chi tiết', async ($, on) => {
+  test('việc Claude tự giao nhiều lô: dòng riêng ghi số lô ở phần chi tiết', { options: { planApproval: 'off' } }, async ($, on) => {
     await longGoal($, on, 3)
     // 0.8.0 A8: lời gọi không khớp việc gắn vào việc của bước doing; đưa bước 4 về todo để lời gọi vẫn là việc Claude tự giao.
     await $.tool.call({ tool: PLAN, action: 'update', step: 4, status: 'todo' })
@@ -60,7 +60,7 @@ describe('0.7.6 U1: checklist và tiến độ từng việc là một danh sác
     expect(texts).not.toContain('đang chạy')
   })
 
-  test('việc Claude tự giao vẫn có dòng riêng', async ($, on) => {
+  test('việc Claude tự giao vẫn có dòng riêng', { options: { planApproval: 'off' } }, async ($, on) => {
     await longGoal($, on, 3)
     // 0.8.0 A8: lời gọi không khớp việc gắn vào việc của bước doing; đưa bước 4 về todo để lời gọi vẫn là việc Claude tự giao.
     await $.tool.call({ tool: PLAN, action: 'update', step: 4, status: 'todo' })

@@ -52,7 +52,7 @@ async function exhaust($: Engine, seen: Seen): Promise<void> {
 }
 
 describe('0.8.0 vòng 2 W1: bước "Chưa đạt" mod tự tạo', () => {
-  test('hết lượt tạo bước 3 blocked; chạy lại đạt thì bước 3 thành done, note có giờ đạt, có dòng retry-cleared', { options: { decisionLog: LOG } }, async ($, on) => {
+  test('hết lượt tạo bước 3 blocked; chạy lại đạt thì bước 3 thành done, note có giờ đạt, có dòng retry-cleared', { options: { planApproval: 'off', decisionLog: LOG } }, async ($, on) => {
     const { seen, passing, lines } = setup(on)
     await exhaust($, seen)
     const before = await row($, 3)
@@ -67,7 +67,7 @@ describe('0.8.0 vòng 2 W1: bước "Chưa đạt" mod tự tạo', () => {
     expect(lines().some(l => l['kind'] === 'retry-cleared' && l['step'] === 3)).toBe(true)
   })
 
-  test('Claude sửa note của bước "Chưa đạt" trước lần chạy đạt: bước giữ nguyên', {}, async ($, on) => {
+  test('Claude sửa note của bước "Chưa đạt" trước lần chạy đạt: bước giữ nguyên', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen, passing } = setup(on)
     await exhaust($, seen)
     await $.tool.call({ tool: PLAN, action: 'update', step: 3, status: 'blocked', note: 'chờ chủ mod cung cấp bảng giá' })
@@ -78,7 +78,7 @@ describe('0.8.0 vòng 2 W1: bước "Chưa đạt" mod tự tạo', () => {
     expect(after).toContain('chờ chủ mod cung cấp bảng giá')
   })
 
-  test('uiLanguage en: note ghi "passed at HH:MM"', { options: { uiLanguage: 'en' } }, async ($, on) => {
+  test('uiLanguage en: note ghi "passed at HH:MM"', { options: { planApproval: 'off', uiLanguage: 'en' } }, async ($, on) => {
     const { seen, passing } = setup(on)
     await exhaust($, seen)
     passing.add('npm test')

@@ -6,7 +6,7 @@
 
 import type { PluginOptions } from 'claude-code'
 
-import type { AgentProgress, AgentState, AgentTally, ArchivedGoal, Brief, CheckHint, Core, ForkPart, ForkPartState, ForkState, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, RetryItem, RetryState, Route, Waiver, WaiverState, RouteEvent, RouterFail, TurnFault, Warning } from '../../types'
+import type { AgentProgress, AgentState, ApprovalState, ApprovalStatus, AgentTally, ArchivedGoal, Brief, ChangedState, CheckHint, Core, ForkPart, ForkPartState, ForkState, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, RetryItem, RetryState, Route, Waiver, WaiverState, RouteEvent, RouterFail, SkillState, TurnFault, Warning } from '../../types'
 import { restorableSteps } from './drift'
 import type { Tokens } from './cost'
 import { addUsage, emptyLedger, nextGoal, planSwitch, resetLedger } from './ledger'
@@ -16,6 +16,7 @@ import { shownPlan } from './mirror'
 import { evaluateQuota, isPauseActive, overrideOf, quotaBadge, softNotices } from './quota'
 import type { QuotaSettings } from './quota'
 import type { Lang } from '../ui/labels'
+import { labels } from '../ui/labels'
 
 export const EMPTY_LIFT: Lift = { depth: 0, effort: 0 }
 export const EMPTY_CORE: Core = {
@@ -46,6 +47,11 @@ export const EMPTY_CORE: Core = {
   waivers: { goalId: -1, items: [] },
   noCheckNudged: -1,
   forks: { goalId: -1, parts: [], merged: [], off: 'none' },
+  approval: { goalId: -1, status: 'none', rounds: 0, asked: false },
+  skill: { goalId: -1, seq: 0, lastWrite: -1, trialAt: -1, path: '' },
+  skillNudged: -1,
+  changed: { goalId: -1, paths: [], unknown: 0, overflow: 0 },
+  changedNoticed: -1,
 }
 
 const LOG_LIMIT = 60
@@ -72,7 +78,9 @@ export function modeOf(override: Mode | null, options: PluginOptions): Mode {
 /** Nội dung status line; undefined để xóa khi mod tắt. */
 export function statusOf(view: View): string | undefined {
   if (view.mode === 'off') return undefined
-  return statusLine(view.core.brief, shownPlan(view.core).plan, view.core.route, view.mode)
+  const line = statusLine(view.core.brief, shownPlan(view.core).plan, view.core.route, view.mode)
+  // Kế hoạch đã trình chờ duyệt (0.8.2 N2): nhãn ngắn ngay sau dòng của mod, trước nhãn hạn mức.
+  return approvalOf(view.core).status === 'presented' ? `${line} · ${labels(view.lang).planAwaitingShort}` : line
 }
 
 /**
@@ -240,8 +248,124 @@ export function normalizeCore(raw: Partial<Core>): Core {
     waivers: normalizeWaivers(raw.waivers),
     noCheckNudged: typeof raw.noCheckNudged === 'number' ? raw.noCheckNudged : -1,
     forks: normalizeForks(raw.forks),
+    approval: normalizeApproval(raw.approval),
+    skill: normalizeSkill(raw.skill),
+    skillNudged: typeof raw.skillNudged === 'number' ? raw.skillNudged : -1,
+    changed: normalizeChanged(raw.changed),
+    changedNoticed: typeof raw.changedNoticed === 'number' ? raw.changedNoticed : -1,
   }
 }
+
+/** Trần số đường dẫn lưu mỗi mục tiêu (0.8.2 N5); vượt trần thì chỉ đếm vào overflow. */
+export const CHANGED_LIMIT = 200
+
+/** File đã đổi từ bản đã lưu (0.8.2 N5); Core từ bản trước không có trường này thì chưa có gì. */
+function normalizeChanged(raw: Partial<ChangedState> | undefined): ChangedState {
+  if (raw === undefined || raw === null) return { goalId: -1, paths: [], unknown: 0, overflow: 0 }
+  const num = (value: unknown, fallback: number) => (typeof value === 'number' && Number.isFinite(value) ? value : fallback)
+  const paths = Array.isArray(raw.paths) ? raw.paths.filter((p): p is string => typeof p === 'string').slice(0, CHANGED_LIMIT) : []
+  return { goalId: num(raw.goalId, -1), paths, unknown: num(raw.unknown, 0), overflow: num(raw.overflow, 0) }
+}
+
+/** File đã đổi của mục tiêu đang mở (0.8.2 N5): trạng thái lưu cho mục tiêu khác là chưa có gì. */
+export function changedOf(c: Core): ChangedState {
+  const n = normalizeCore(c)
+  return n.brief !== null && n.changed.goalId === n.brief.goalId ? n.changed : { goalId: n.brief?.goalId ?? -1, paths: [], unknown: 0, overflow: 0 }
+}
+
+/**
+ * Ghi các đích một lần ghi file của mục tiêu goalId (0.8.2 N5): mục tiêu khác thì đặt lại; đường dẫn mới thêm tới trần 200, vượt trần thì
+ * tăng overflow; `isUnknown` là lệnh ghi không đọc được đích.
+ */
+export const withChanged =
+  (goalId: number, paths: readonly string[], isUnknown: boolean) =>
+  (c: Core): Core => {
+    const n = normalizeCore(c)
+    const current = n.changed.goalId === goalId ? n.changed : { goalId, paths: [], unknown: 0, overflow: 0 }
+    const kept = [...current.paths]
+    let overflow = current.overflow
+    for (const path of paths) {
+      if (kept.includes(path)) continue
+      if (kept.length < CHANGED_LIMIT) kept.push(path)
+      else overflow += 1
+    }
+    return { ...n, changed: { goalId, paths: kept, unknown: current.unknown + (isUnknown ? 1 : 0), overflow } }
+  }
+
+/** Ghi mục tiêu vừa được nhắc ghép file đã đổi (0.8.2 N5): mỗi mục tiêu chỉ nhắc một lần. */
+export const withChangedNoticed =
+  (goalId: number) =>
+  (c: Core): Core => ({ ...normalizeCore(c), changedNoticed: goalId })
+
+/** Trạng thái thử skill từ bản đã lưu (0.8.2 N3); Core từ bản trước không có trường này thì chưa ghi, chưa thử. */
+function normalizeSkill(raw: Partial<SkillState> | undefined): SkillState {
+  if (raw === undefined || raw === null) return { goalId: -1, seq: 0, lastWrite: -1, trialAt: -1, path: '' }
+  const num = (value: unknown, fallback: number) => (typeof value === 'number' && Number.isFinite(value) ? value : fallback)
+  return { goalId: num(raw.goalId, -1), seq: num(raw.seq, 0), lastWrite: num(raw.lastWrite, -1), trialAt: num(raw.trialAt, -1), path: typeof raw.path === 'string' ? raw.path : '' }
+}
+
+/** Trạng thái thử skill của mục tiêu đang mở (0.8.2 N3): trạng thái lưu cho mục tiêu khác là chưa ghi, chưa thử. */
+export function skillOf(c: Core): SkillState {
+  const n = normalizeCore(c)
+  return n.brief !== null && n.skill.goalId === n.brief.goalId ? n.skill : { goalId: n.brief?.goalId ?? -1, seq: 0, lastWrite: -1, trialAt: -1, path: '' }
+}
+
+/** Mục tiêu đang mở có lần ghi file skill chưa có lần thử nào sau đó (0.8.2 N3). */
+export function isSkillUntried(c: Core): boolean {
+  const skill = skillOf(c)
+  return skill.lastWrite >= 0 && skill.lastWrite > skill.trialAt
+}
+
+/** Ghi một lần ghi file skill của mục tiêu goalId (0.8.2 N3): bộ đếm tăng một, lần ghi cuối là thứ tự mới. */
+export const withSkillWrite =
+  (goalId: number, path: string) =>
+  (c: Core): Core => {
+    const n = normalizeCore(c)
+    const prev = n.skill.goalId === goalId ? n.skill : { goalId, seq: 0, lastWrite: -1, trialAt: -1, path: '' }
+    const seq = prev.seq + 1
+    return { ...n, skill: { ...prev, seq, lastWrite: seq, path: path || prev.path } }
+  }
+
+/** Ghi một lần thử skill của mục tiêu goalId (0.8.2 N3); `trialAt` cho sẵn là trả về mốc cũ (lần thử bị lỗi sau khi đã tính). */
+export const withSkillTrial =
+  (goalId: number, trialAt?: number) =>
+  (c: Core): Core => {
+    const n = normalizeCore(c)
+    const prev = n.skill.goalId === goalId ? n.skill : { goalId, seq: 0, lastWrite: -1, trialAt: -1, path: '' }
+    if (trialAt !== undefined) return { ...n, skill: { ...prev, trialAt } }
+    const seq = prev.seq + 1
+    return { ...n, skill: { ...prev, seq, trialAt: seq } }
+  }
+
+export const withSkillNudged =
+  (goalId: number) =>
+  (c: Core): Core => ({ ...normalizeCore(c), skillNudged: goalId })
+
+const APPROVAL_STATUSES: readonly ApprovalStatus[] = ['none', 'planning', 'presented', 'approved', 'skipped']
+
+/** Trạng thái duyệt kế hoạch từ bản đã lưu (0.8.2 N2); Core từ bản trước không có trường này thì none, 0 lượt, chưa hỏi. */
+function normalizeApproval(raw: Partial<ApprovalState> | undefined): ApprovalState {
+  if (raw === undefined || raw === null) return { goalId: -1, status: 'none', rounds: 0, asked: false }
+  const status = APPROVAL_STATUSES.find(item => item === raw.status) ?? 'none'
+  return { goalId: typeof raw.goalId === 'number' ? raw.goalId : -1, status, rounds: typeof raw.rounds === 'number' ? raw.rounds : 0, asked: raw.asked === true }
+}
+
+/** Trạng thái duyệt của mục tiêu đang mở (0.8.2 N2): trạng thái lưu cho mục tiêu khác là none. */
+export function approvalOf(c: Core): ApprovalState {
+  const n = normalizeCore(c)
+  return n.brief !== null && n.approval.goalId === n.brief.goalId ? n.approval : { goalId: n.brief?.goalId ?? -1, status: 'none', rounds: 0, asked: false }
+}
+
+/** Mục tiêu đang mở chờ duyệt kế hoạch (0.8.2 N2): planning hay presented thì luồng chính chưa được sửa file. */
+export function isPlanGated(c: Core): boolean {
+  const status = approvalOf(c).status
+  return status === 'planning' || status === 'presented'
+}
+
+/** Ghi trạng thái duyệt kế hoạch (0.8.2 N2). */
+export const withApproval =
+  (approval: ApprovalState) =>
+  (c: Core): Core => ({ ...normalizeCore(c), approval: normalizeApproval(approval) })
 
 /** Số lần giao phiên con giữ lại cho một mục tiêu (0.7.9 F1) [Giả định: 6 phần mỗi việc, vài việc tách mỗi mục tiêu]. */
 const FORK_PART_LIMIT = 30

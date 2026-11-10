@@ -34,7 +34,7 @@ const has = (texts: readonly string[], pattern: RegExp) => texts.some(t => patte
 
 describe('0.6.1 2.4: mục Tiến độ từng việc trong pane', () => {
   // 0.7.6 U1: việc router phân đi cùng dòng bước dự kiến của nó (chip model, trạng thái giao), không còn mục riêng hay dòng việc chính.
-  test('mới vào mục tiêu: bước dự kiến mang chip model; việc giao ở trạng thái chờ giao; không có mục riêng', {}, async ($, on) => {
+  test('mới vào mục tiêu: bước dự kiến mang chip model; việc giao ở trạng thái chờ giao; không có mục riêng', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     agentHooks(on)
     await submit($, FOUR)
@@ -50,7 +50,7 @@ describe('0.6.1 2.4: mục Tiến độ từng việc trong pane', () => {
 
   // 0.7.6 U1: việc khớp bước mang chip "<model> <trạng thái>" và chi tiết số tool call, thời gian trên dòng bước; dòng bước đã có ký hiệu
   // trạng thái của checklist nên không còn thanh riêng của việc.
-  test('việc giao: chip đang chạy (số tool call, thời gian), rồi xong; việc lỗi có chip lỗi', {}, async ($, on) => {
+  test('việc giao: chip đang chạy (số tool call, thời gian), rồi xong; việc lỗi có chip lỗi', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     agentHooks(on)
     await submit($, FOUR)
@@ -69,7 +69,7 @@ describe('0.6.1 2.4: mục Tiến độ từng việc trong pane', () => {
     expect(has(rows.texts, /^sonnet lỗi, chưa giao lại$/)).toBe(true)
   })
 
-  test('subagent ghi danh sách việc riêng bằng TodoWrite: thanh theo tỷ lệ bước đóng của riêng nó', {}, async ($, on) => {
+  test('subagent ghi danh sách việc riêng bằng TodoWrite: thanh theo tỷ lệ bước đóng của riêng nó', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     agentHooks(on)
     await submit($, FOUR)
@@ -86,7 +86,7 @@ describe('0.6.1 2.4: mục Tiến độ từng việc trong pane', () => {
     expect(has(texts, /^Checklist ─/)).toBe(false)
   })
 
-  test('việc làm trực tiếp: có bước "Việc N" thì theo tỷ lệ bước; không có thì chưa bắt đầu, đang làm, xong', {}, async ($, on) => {
+  test('việc làm trực tiếp: có bước "Việc N" thì theo tỷ lệ bước; không có thì chưa bắt đầu, đang làm, xong', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     agentHooks(on)
     await submit($, FOUR)
@@ -108,7 +108,7 @@ describe('0.6.1 2.4: mục Tiến độ từng việc trong pane', () => {
     expect(rows.texts.slice(direct, direct + 6).some(t => /^xong$/.test(t))).toBe(true)
   })
 
-  test('việc Claude tự giao (ngoài phân việc): có dòng riêng sau các việc router phân', {}, async ($, on) => {
+  test('việc Claude tự giao (ngoài phân việc): có dòng riêng sau các việc router phân', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     agentHooks(on)
     await submit($, FOUR)
@@ -119,7 +119,7 @@ describe('0.6.1 2.4: mục Tiến độ từng việc trong pane', () => {
     expect(own).toBeGreaterThan(four)
   })
 
-  test('subagent bị cắt vì tạm dừng hạn mức: chip trạng thái bị cắt', {}, async ($, on) => {
+  test('subagent bị cắt vì tạm dừng hạn mức: chip trạng thái bị cắt', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     agentHooks(on)
     memoryStore(on)
@@ -136,7 +136,7 @@ describe('0.6.1 2.4: mục Tiến độ từng việc trong pane', () => {
 
   for (const width of [36, 48, 80]) {
     // 0.7.6 U1: không còn mục riêng và thanh của việc; ở mọi bề rộng, cả bốn bước dự kiến mang chip của việc.
-    test(`pane ${width} ô: mỗi bước dự kiến mang chip của việc`, {}, async ($, on) => {
+    test(`pane ${width} ô: mỗi bước dự kiến mang chip của việc`, { options: { planApproval: 'off' } }, async ($, on) => {
       base(on)
       agentHooks(on)
       await submit($, FOUR)
@@ -149,7 +149,7 @@ describe('0.6.1 2.4: mục Tiến độ từng việc trong pane', () => {
     })
   }
 
-  test('uiLanguage en: nhãn tiếng Anh', { options: { uiLanguage: 'en' } }, async ($, on) => {
+  test('uiLanguage en: nhãn tiếng Anh', { options: { planApproval: 'off', uiLanguage: 'en' } }, async ($, on) => {
     base(on)
     agentHooks(on)
     await submit($, FOUR)
@@ -174,7 +174,7 @@ describe('0.6.1 2.4: band với nhiều việc', () => {
   }
 
   // 0.7.6: band luôn hai dòng; các dòng việc riêng chỉ ở pane. Không có gì cần chú ý thì dòng 2 ghi subagent đang chạy.
-  test('maxRows 6, 3, 2: band hai dòng; dòng 2 ghi subagent đang chạy, việc đầu tiên đang chạy', {}, async ($, on) => {
+  test('maxRows 6, 3, 2: band hai dòng; dòng 2 ghi subagent đang chạy, việc đầu tiên đang chạy', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     agentHooks(on)
     await submit($, FOUR)

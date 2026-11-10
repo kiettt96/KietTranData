@@ -60,7 +60,7 @@ describe('0.7.3 điểm 8: DISCIPLINE báo cáo gọn, chỉ luồng chính', ()
 })
 
 describe('0.7.3 điểm 8: plan set trả một dòng khi checklist lưu đúng như đã gửi', () => {
-  test('ba bước hợp lệ: một dòng có số bước, bước tiếp theo kèm số; không in lại checklist', {}, async ($, on) => {
+  test('ba bước hợp lệ: một dòng có số bước, bước tiếp theo kèm số; không in lại checklist', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     const out = await set($, { steps: titles(3) })
@@ -72,7 +72,7 @@ describe('0.7.3 điểm 8: plan set trả một dòng khi checklist lưu đúng 
     expect(out).not.toContain('Bước số 2')
   })
 
-  test('checklist vẫn được lưu đầy đủ (show in đủ)', {}, async ($, on) => {
+  test('checklist vẫn được lưu đầy đủ (show in đủ)', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     await set($, { steps: titles(3) })
@@ -80,7 +80,7 @@ describe('0.7.3 điểm 8: plan set trả một dòng khi checklist lưu đúng 
     for (const n of [1, 2, 3]) expect(shown).toContain(`[ ] ${n}. Bước số ${n}`)
   })
 
-  test('ngắn hơn bản đầy đủ của cùng checklist 20 bước', {}, async ($, on) => {
+  test('ngắn hơn bản đầy đủ của cùng checklist 20 bước', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     const out = await set($, { steps: titles(20) })
@@ -89,7 +89,7 @@ describe('0.7.3 điểm 8: plan set trả một dòng khi checklist lưu đúng 
     expect(out.length).toBeLessThan(full.length / 4)
   })
 
-  test('đúng 160 ký tự tiêu đề, 200 ký tự tiêu chí, 20 bước: không bị coi là đã chỉnh', {}, async ($, on) => {
+  test('đúng 160 ký tự tiêu đề, 200 ký tự tiêu chí, 20 bước: không bị coi là đã chỉnh', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     const out = await set($, { steps: [{ title: 'a'.repeat(160), check: 'b'.repeat(200) }, ...titles(19)] })
@@ -98,7 +98,7 @@ describe('0.7.3 điểm 8: plan set trả một dòng khi checklist lưu đúng 
     expect(out).not.toContain('\n')
   })
 
-  test('mục tiêu vừa đổi thì nêu mục tiêu; mục tiêu không đổi thì không nêu', {}, async ($, on) => {
+  test('mục tiêu vừa đổi thì nêu mục tiêu; mục tiêu không đổi thì không nêu', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     const current = /Mục tiêu: (.*)/.exec(await show($))?.[1] ?? ''
@@ -111,7 +111,7 @@ describe('0.7.3 điểm 8: plan set trả một dòng khi checklist lưu đúng 
 })
 
 describe('0.7.3 điểm 8: plan set in đầy đủ kèm một dòng nói đã chỉnh gì', () => {
-  test('bước không có tiêu đề bị bỏ', {}, async ($, on) => {
+  test('bước không có tiêu đề bị bỏ', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     const out = await set($, { steps: [{ title: 'Một' }, { title: '   ' }, { title: 'Hai' }] })
@@ -120,7 +120,7 @@ describe('0.7.3 điểm 8: plan set in đầy đủ kèm một dòng nói đã c
     expect(out).toContain('Đã chỉnh: bỏ 1 bước không có tiêu đề')
   })
 
-  test('gửi 21 bước: lưu 20, nói bỏ bước vượt giới hạn 20', {}, async ($, on) => {
+  test('gửi 21 bước: lưu 20, nói bỏ bước vượt giới hạn 20', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     const out = await set($, { steps: titles(21) })
@@ -129,7 +129,7 @@ describe('0.7.3 điểm 8: plan set in đầy đủ kèm một dòng nói đã c
     expect(out).toContain('Đã chỉnh: bỏ 1 bước vượt giới hạn 20')
   })
 
-  test('tiêu đề quá 160 ký tự bị cắt', {}, async ($, on) => {
+  test('tiêu đề quá 160 ký tự bị cắt', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     const out = await set($, { steps: [{ title: 'a'.repeat(161) }, { title: 'b'.repeat(200) }] })
@@ -138,7 +138,7 @@ describe('0.7.3 điểm 8: plan set in đầy đủ kèm một dòng nói đã c
     expect(out).not.toContain('a'.repeat(161))
   })
 
-  test('tiêu chí quá 200 ký tự bị cắt', {}, async ($, on) => {
+  test('tiêu chí quá 200 ký tự bị cắt', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     const out = await set($, { steps: [{ title: 'Một', check: 'c'.repeat(201) }] })
@@ -146,7 +146,7 @@ describe('0.7.3 điểm 8: plan set in đầy đủ kèm một dòng nói đã c
     expect(out).toContain(`[nghiệm thu: ${'c'.repeat(200)}]`)
   })
 
-  test('nhiều chỉnh cùng lúc: một dòng liệt kê đủ', {}, async ($, on) => {
+  test('nhiều chỉnh cùng lúc: một dòng liệt kê đủ', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     const out = await set($, { steps: [{ title: '' }, { title: 'a'.repeat(161), check: 'c'.repeat(201) }, ...titles(20)] })
@@ -157,7 +157,7 @@ describe('0.7.3 điểm 8: plan set in đầy đủ kèm một dòng nói đã c
     expect(line).toContain('cắt 1 tiêu chí quá 200 ký tự')
   })
 
-  test('chỉ đổi goal hay scope (không gửi steps) và xóa checklist (steps rỗng): giữ cách in đầy đủ như cũ', {}, async ($, on) => {
+  test('chỉ đổi goal hay scope (không gửi steps) và xóa checklist (steps rỗng): giữ cách in đầy đủ như cũ', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     await set($, { steps: titles(2) })
@@ -170,7 +170,7 @@ describe('0.7.3 điểm 8: plan set in đầy đủ kèm một dòng nói đã c
 })
 
 describe('0.7.3 điểm 8: phạm vi đã lưu', () => {
-  test('scope trùng bị gộp: dòng kết quả nêu phạm vi đã lưu', {}, async ($, on) => {
+  test('scope trùng bị gộp: dòng kết quả nêu phạm vi đã lưu', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     const out = await set($, { steps: titles(2), scope: ['src/a.ts', 'src/a.ts', 'src/b.ts'] })
@@ -179,7 +179,7 @@ describe('0.7.3 điểm 8: phạm vi đã lưu', () => {
     expect(out).not.toContain('\n')
   })
 
-  test('scope quá 10 mục: lưu 10, nêu phạm vi đã lưu', {}, async ($, on) => {
+  test('scope quá 10 mục: lưu 10, nêu phạm vi đã lưu', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     const scope = Array.from({ length: 12 }, (_, i) => `src/f${i}.ts`)
@@ -189,27 +189,27 @@ describe('0.7.3 điểm 8: phạm vi đã lưu', () => {
     expect(out).not.toContain('src/f10.ts')
   })
 
-  test('scope toàn mục rỗng: lưu phạm vi rỗng và nói "không có"', {}, async ($, on) => {
+  test('scope toàn mục rỗng: lưu phạm vi rỗng và nói "không có"', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     const out = await set($, { steps: titles(1), scope: ['', '  '] })
     expect(out).toContain('Phạm vi đã lưu: không có.')
   })
 
-  test('scope không đổi sau khi lưu: không nêu phạm vi', {}, async ($, on) => {
+  test('scope không đổi sau khi lưu: không nêu phạm vi', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     const out = await set($, { steps: titles(2), scope: ['src/a.ts', 'src/b.ts'] })
     expect(out).not.toContain('Phạm vi')
   })
 
-  test('không gửi scope: không nêu phạm vi', {}, async ($, on) => {
+  test('không gửi scope: không nêu phạm vi', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     expect(await set($, { steps: titles(2) })).not.toContain('Phạm vi')
   })
 
-  test('checklist bị chỉnh và scope bị gộp: bản đầy đủ có cả dòng đã chỉnh và phạm vi đã lưu', {}, async ($, on) => {
+  test('checklist bị chỉnh và scope bị gộp: bản đầy đủ có cả dòng đã chỉnh và phạm vi đã lưu', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     const out = await set($, { steps: [{ title: '' }, ...titles(2)], scope: ['src/a.ts', 'src/a.ts'] })
@@ -218,7 +218,7 @@ describe('0.7.3 điểm 8: phạm vi đã lưu', () => {
     expect(out).toContain('Phạm vi đã lưu: src/a.ts')
   })
 
-  test('scope lưu thật vẫn đúng (kiểm bằng ghi ngoài phạm vi)', {}, async ($, on) => {
+  test('scope lưu thật vẫn đúng (kiểm bằng ghi ngoài phạm vi)', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, COMPLEX_PROMPT)
@@ -229,7 +229,7 @@ describe('0.7.3 điểm 8: phạm vi đã lưu', () => {
 })
 
 describe('0.7.3 điểm 8: update, add, show, restore không đổi', () => {
-  test('add và update in hàng của bước đổi như 0.5.6; show in đủ', {}, async ($, on) => {
+  test('add và update in hàng của bước đổi như 0.5.6; show in đủ', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     await set($, { steps: titles(2) })

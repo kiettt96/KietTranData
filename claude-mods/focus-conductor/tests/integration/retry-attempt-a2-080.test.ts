@@ -36,7 +36,7 @@ async function failing($: Engine, seen: Seen) {
 }
 
 describe('0.8.0 A2: lượt chỉ tăng khi có lần thử mới', () => {
-  test('lỗi, Stop (lượt 2), Stop ngay không chạy lại: vẫn lượt 2, có câu đòi chạy lại', {}, async ($, on) => {
+  test('lỗi, Stop (lượt 2), Stop ngay không chạy lại: vẫn lượt 2, có câu đòi chạy lại', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = setup(on)
     await failing($, seen)
     expect(await stop($, false)).toContain('2/3')
@@ -47,7 +47,7 @@ describe('0.8.0 A2: lượt chỉ tăng khi có lần thử mới', () => {
     expect(reason).toContain('bun test')
   })
 
-  test('lỗi, Stop (lượt 2), chạy lại vẫn lỗi, Stop: lượt 3', {}, async ($, on) => {
+  test('lỗi, Stop (lượt 2), chạy lại vẫn lỗi, Stop: lượt 3', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = setup(on)
     await failing($, seen)
     await stop($, false)
@@ -55,7 +55,7 @@ describe('0.8.0 A2: lượt chỉ tăng khi có lần thử mới', () => {
     expect(await stop($)).toContain('3/3')
   })
 
-  test('hai lần Stop liên tiếp không chạy lại: tăng một lượt', {}, async ($, on) => {
+  test('hai lần Stop liên tiếp không chạy lại: tăng một lượt', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = setup(on)
     await failing($, seen)
     await stop($, false)
@@ -63,7 +63,7 @@ describe('0.8.0 A2: lượt chỉ tăng khi có lần thử mới', () => {
     expect(await stop($)).toContain('3/3')
   })
 
-  test('bắt đầu ở opus/xhigh: câu chặn và báo cáo cuối có "đã ở mức cao nhất"', {}, async ($, on) => {
+  test('bắt đầu ở opus/xhigh: câu chặn và báo cáo cuối có "đã ở mức cao nhất"', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = setup(on, TOP)
     await failing($, seen)
     expect(await stop($, false)).toContain('đã ở mức cao nhất')

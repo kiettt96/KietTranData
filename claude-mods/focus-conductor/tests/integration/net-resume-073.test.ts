@@ -53,7 +53,7 @@ const failTurn = async ($: Engine, id = 't1') => {
 }
 
 describe('0.7.3 điểm 4: netResume tắt mặc định', () => {
-  test('không đặt option: turn lỗi không tạo bộ đếm, không dò, không gửi prompt', {}, async ($, on) => {
+  test('không đặt option: turn lỗi không tạo bộ đếm, không dò, không gửi prompt', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen, net, sent } = await setup($, on)
     await failTurn($)
     await seen.clock.advance(10 * 60_000)
@@ -61,7 +61,7 @@ describe('0.7.3 điểm 4: netResume tắt mặc định', () => {
     expect(sent.texts).toEqual([])
   })
 
-  test('netResume false: như không đặt', { options: { netResume: false } }, async ($, on) => {
+  test('netResume false: như không đặt', { options: { planApproval: 'off', netResume: false } }, async ($, on) => {
     const { seen, net, sent } = await setup($, on)
     await failTurn($)
     await seen.clock.advance(10 * 60_000)
@@ -71,7 +71,7 @@ describe('0.7.3 điểm 4: netResume tắt mặc định', () => {
 })
 
 describe('0.7.3 điểm 4: bật netResume', () => {
-  test('chưa có mạng thì dò tiếp mà không gửi; có mạng thì gửi đúng một prompt rồi dừng dò', ON, async ($, on) => {
+  test('chưa có mạng thì dò tiếp mà không gửi; có mạng thì gửi đúng một prompt rồi dừng dò', { ...ON, options: { ...(ON as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const { seen, net, sent } = await setup($, on)
     await failTurn($)
     expect(net.calls.length).toBe(0)
@@ -88,7 +88,7 @@ describe('0.7.3 điểm 4: bật netResume', () => {
     expect(sent.texts.length).toBe(1)
   })
 
-  test('mã trạng thái nào có phản hồi cũng tính là có mạng (404 vẫn là có)', ON, async ($, on) => {
+  test('mã trạng thái nào có phản hồi cũng tính là có mạng (404 vẫn là có)', { ...ON, options: { ...(ON as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const { seen, net, sent } = await setup($, on)
     net.reach = true
     net.status = 404
@@ -97,7 +97,7 @@ describe('0.7.3 điểm 4: bật netResume', () => {
     expect(sent.texts.length).toBe(1)
   })
 
-  test('dò chỉ đọc: GET, không gửi dữ liệu của phiên, không auth', ON, async ($, on) => {
+  test('dò chỉ đọc: GET, không gửi dữ liệu của phiên, không auth', { ...ON, options: { ...(ON as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const { seen, net } = await setup($, on)
     await failTurn($)
     await seen.clock.advance(PROBE_MS)
@@ -110,7 +110,7 @@ describe('0.7.3 điểm 4: bật netResume', () => {
     expect(init.headers).toBeUndefined()
   })
 
-  test('prompt tiếp tục ngắn, nêu mục tiêu và các bước còn mở, không chứa dữ liệu khác', ON, async ($, on) => {
+  test('prompt tiếp tục ngắn, nêu mục tiêu và các bước còn mở, không chứa dữ liệu khác', { ...ON, options: { ...(ON as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const { seen, net, sent } = await setup($, on)
     net.reach = true
     await failTurn($)
@@ -123,7 +123,7 @@ describe('0.7.3 điểm 4: bật netResume', () => {
     expect(text).toContain('Kiểm tổng')
   })
 
-  test('chỉ nêu tối đa năm bước còn mở, mục tiêu quá dài bị cắt', ON, async ($, on) => {
+  test('chỉ nêu tối đa năm bước còn mở, mục tiêu quá dài bị cắt', { ...ON, options: { ...(ON as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const { seen, net, sent } = await setup($, on)
     net.reach = true
     await $.tool.call({ tool: PLAN, action: 'set', steps: Array.from({ length: 8 }, (_, i) => ({ title: `Bước mở số ${i + 1}` })) })
@@ -134,7 +134,7 @@ describe('0.7.3 điểm 4: bật netResume', () => {
     expect(text).not.toContain('Bước mở số 6')
   })
 
-  test('prompt do plugin gửi không qua router (không đổi mục tiêu)', ON, async ($, on) => {
+  test('prompt do plugin gửi không qua router (không đổi mục tiêu)', { ...ON, options: { ...(ON as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const { seen, net } = await setup($, on)
     net.reach = true
     const routedBefore = seen.routed.length
@@ -143,7 +143,7 @@ describe('0.7.3 điểm 4: bật netResume', () => {
     expect(seen.routed.length).toBe(routedBefore)
   })
 
-  test('tối đa một lần tự tiếp tục mỗi mục tiêu: lỗi lần hai cùng mục tiêu không dò, không gửi', ON, async ($, on) => {
+  test('tối đa một lần tự tiếp tục mỗi mục tiêu: lỗi lần hai cùng mục tiêu không dò, không gửi', { ...ON, options: { ...(ON as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const { seen, net, sent } = await setup($, on)
     net.reach = true
     await failTurn($, 't1')
@@ -156,7 +156,7 @@ describe('0.7.3 điểm 4: bật netResume', () => {
     expect(sent.texts.length).toBe(1)
   })
 
-  test('mục tiêu mới thì được tự tiếp tục lại', ON, async ($, on) => {
+  test('mục tiêu mới thì được tự tiếp tục lại', { ...ON, options: { ...(ON as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const { seen, net, sent } = await setup($, on)
     net.reach = true
     await failTurn($, 't1')
@@ -167,7 +167,7 @@ describe('0.7.3 điểm 4: bật netResume', () => {
     expect(sent.texts.length).toBe(2)
   })
 
-  test('số lần dò có trần: hết trần thì thôi dò', ON, async ($, on) => {
+  test('số lần dò có trần: hết trần thì thôi dò', { ...ON, options: { ...(ON as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const { seen, net, sent } = await setup($, on)
     await failTurn($)
     for (let i = 0; i < 130; i++) await seen.clock.advance(PROBE_MS)
@@ -177,7 +177,7 @@ describe('0.7.3 điểm 4: bật netResume', () => {
 })
 
 describe('0.7.3 điểm 4: các trường hợp hủy hay bỏ qua', () => {
-  test('người dùng gõ prompt sau turn lỗi: hủy chờ', ON, async ($, on) => {
+  test('người dùng gõ prompt sau turn lỗi: hủy chờ', { ...ON, options: { ...(ON as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const { seen, net, sent } = await setup($, on)
     await failTurn($)
     await seen.clock.advance(PROBE_MS)
@@ -189,7 +189,7 @@ describe('0.7.3 điểm 4: các trường hợp hủy hay bỏ qua', () => {
     expect(sent.texts).toEqual([])
   })
 
-  test('turn trả lời xong trước khi có mạng (nhãn đã xóa): không gửi', ON, async ($, on) => {
+  test('turn trả lời xong trước khi có mạng (nhãn đã xóa): không gửi', { ...ON, options: { ...(ON as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const { seen, net, sent } = await setup($, on)
     await failTurn($)
     await $.turn.start({ text: 'x', turnId: 't2' })
@@ -199,7 +199,7 @@ describe('0.7.3 điểm 4: các trường hợp hủy hay bỏ qua', () => {
     expect(sent.texts).toEqual([])
   })
 
-  test('session.end hủy bộ đếm', ON, async ($, on) => {
+  test('session.end hủy bộ đếm', { ...ON, options: { ...(ON as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const { seen, net, sent } = await setup($, on)
     await failTurn($)
     await $.session.end({ reason: 'clear', sessionId: 's1' } as never)
@@ -209,7 +209,7 @@ describe('0.7.3 điểm 4: các trường hợp hủy hay bỏ qua', () => {
     expect(sent.texts).toEqual([])
   })
 
-  test('mode off: không tạo bộ đếm', ON, async ($, on) => {
+  test('mode off: không tạo bộ đếm', { ...ON, options: { ...(ON as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const { seen, net, sent } = await setup($, on)
     await conductor($, 'mode off')
     net.reach = true
@@ -219,7 +219,7 @@ describe('0.7.3 điểm 4: các trường hợp hủy hay bỏ qua', () => {
     expect(sent.texts).toEqual([])
   })
 
-  test('đổi sang mode off sau khi đã có bộ đếm: không gửi', ON, async ($, on) => {
+  test('đổi sang mode off sau khi đã có bộ đếm: không gửi', { ...ON, options: { ...(ON as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const { seen, net, sent } = await setup($, on)
     await failTurn($)
     await conductor($, 'mode off')
@@ -228,7 +228,7 @@ describe('0.7.3 điểm 4: các trường hợp hủy hay bỏ qua', () => {
     expect(sent.texts).toEqual([])
   })
 
-  test('turn lỗi của subagent, aborted và refusal: không tạo bộ đếm', ON, async ($, on) => {
+  test('turn lỗi của subagent, aborted và refusal: không tạo bộ đếm', { ...ON, options: { ...(ON as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const { seen, net, sent } = await setup($, on)
     net.reach = true
     await $.turn.complete(DONE('ag-1', 'error', 'agent-1'))
@@ -241,7 +241,7 @@ describe('0.7.3 điểm 4: các trường hợp hủy hay bỏ qua', () => {
     expect(sent.texts).toEqual([])
   })
 
-  test('đang dừng vì hạn mức: có mạng cũng không gửi', ON, async ($, on) => {
+  test('đang dừng vì hạn mức: có mạng cũng không gửi', { ...ON, options: { ...(ON as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const sent = submitted(on)
     const seen = base(on, RESUME)
     on('tool.register', () => ({ value: { tool: PLAN } }))
@@ -265,7 +265,7 @@ describe('0.7.3 điểm 4: các trường hợp hủy hay bỏ qua', () => {
 })
 
 describe('0.7.3 điểm 4: nhật ký quyết định', () => {
-  test('tự tiếp tục ghi dòng net kèm lý do auto-resume', { options: { netResume: true, decisionLog: '/tmp/fc-net-resume.jsonl' } }, async ($, on) => {
+  test('tự tiếp tục ghi dòng net kèm lý do auto-resume', { options: { planApproval: 'off', netResume: true, decisionLog: '/tmp/fc-net-resume.jsonl' } }, async ($, on) => {
     const writes: string[] = []
     on('fs.write', (_$, e) => {
       writes.push(e.text)
@@ -279,7 +279,7 @@ describe('0.7.3 điểm 4: nhật ký quyết định', () => {
     expect(lines.filter(line => line['kind'] === 'net').map(line => line['reason'])).toContain('auto-resume')
   })
 
-  test('hết trần dò ghi dòng net kèm lý do probe-gave-up', { options: { netResume: true, decisionLog: '/tmp/fc-net-resume2.jsonl' } }, async ($, on) => {
+  test('hết trần dò ghi dòng net kèm lý do probe-gave-up', { options: { planApproval: 'off', netResume: true, decisionLog: '/tmp/fc-net-resume2.jsonl' } }, async ($, on) => {
     const writes: string[] = []
     on('fs.write', (_$, e) => {
       writes.push(e.text)
@@ -294,7 +294,7 @@ describe('0.7.3 điểm 4: nhật ký quyết định', () => {
 })
 
 describe('0.7.3 điểm 4: thời điểm hủy và bộ đếm duy nhất', () => {
-  test('turn của subagent bắt đầu giữa chừng không hủy chờ của luồng chính', ON, async ($, on) => {
+  test('turn của subagent bắt đầu giữa chừng không hủy chờ của luồng chính', { ...ON, options: { ...(ON as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const { seen, net, sent } = await setup($, on)
     await failTurn($)
     await $.turn.start({ text: 'việc con', turnId: 'ag-1', agentId: 'agent-1' } as never)
@@ -303,7 +303,7 @@ describe('0.7.3 điểm 4: thời điểm hủy và bộ đếm duy nhất', () 
     expect(sent.texts.length).toBe(1)
   })
 
-  test('session.end (lý do không phải clear) hủy bộ đếm', ON, async ($, on) => {
+  test('session.end (lý do không phải clear) hủy bộ đếm', { ...ON, options: { ...(ON as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const { seen, net, sent } = await setup($, on)
     await failTurn($)
     await $.session.end({ reason: 'other', sessionId: 's1' } as never)
@@ -313,7 +313,7 @@ describe('0.7.3 điểm 4: thời điểm hủy và bộ đếm duy nhất', () 
     expect(sent.texts).toEqual([])
   })
 
-  test('turn trả lời hủy bộ đếm ngay: lỗi lần sau bắt đầu chu kỳ mới, không dùng nhịp cũ', ON, async ($, on) => {
+  test('turn trả lời hủy bộ đếm ngay: lỗi lần sau bắt đầu chu kỳ mới, không dùng nhịp cũ', { ...ON, options: { ...(ON as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const { seen, net } = await setup($, on)
     await failTurn($, 't1')
     await seen.clock.advance(15_000)
@@ -327,7 +327,7 @@ describe('0.7.3 điểm 4: thời điểm hủy và bộ đếm duy nhất', () 
     expect(net.calls.length).toBe(1)
   })
 
-  test('bản ghi turn lỗi mất do /conductor reset: bộ đếm dừng ở nhịp kế, lỗi sau bắt đầu chu kỳ mới', ON, async ($, on) => {
+  test('bản ghi turn lỗi mất do /conductor reset: bộ đếm dừng ở nhịp kế, lỗi sau bắt đầu chu kỳ mới', { ...ON, options: { ...(ON as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const { seen, net, sent } = await setup($, on)
     await failTurn($, 't1')
     await seen.clock.advance(10_000)
@@ -342,7 +342,7 @@ describe('0.7.3 điểm 4: thời điểm hủy và bộ đếm duy nhất', () 
     expect(sent.texts.length).toBe(1)
   })
 
-  test('hủy trong lúc chờ phản hồi dò (người dùng gõ prompt): không gửi', ON, async ($, on) => {
+  test('hủy trong lúc chờ phản hồi dò (người dùng gõ prompt): không gửi', { ...ON, options: { ...(ON as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const sent = submitted(on)
     const seen = base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
@@ -368,7 +368,7 @@ describe('0.7.3 điểm 4: thời điểm hủy và bộ đếm duy nhất', () 
     expect(sent.texts).toEqual([])
   })
 
-  test('đối chứng: không bị hủy trong lúc chờ phản hồi thì gửi như thường', ON, async ($, on) => {
+  test('đối chứng: không bị hủy trong lúc chờ phản hồi thì gửi như thường', { ...ON, options: { ...(ON as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const sent = submitted(on)
     const seen = base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
@@ -389,7 +389,7 @@ describe('0.7.3 điểm 4: thời điểm hủy và bộ đếm duy nhất', () 
     expect(sent.texts.length).toBe(1)
   })
 
-  test('lỗi lần hai khi bộ đếm còn sống không tạo bộ đếm thứ hai: mỗi nhịp một lần dò', ON, async ($, on) => {
+  test('lỗi lần hai khi bộ đếm còn sống không tạo bộ đếm thứ hai: mỗi nhịp một lần dò', { ...ON, options: { ...(ON as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const { seen, net } = await setup($, on)
     await failTurn($, 't1')
     await $.turn.complete(DONE('t2', 'error'))

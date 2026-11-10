@@ -3,9 +3,10 @@
 import { atom, derive, read, update } from 'claude-code'
 import { caught, noteBehavior, noteHookError } from '../lib/errlog'
 import type { AgentState, Choice, Core, DelegationState, RetryItem, Warning } from '../../types'
-import { acceptsVerified, classifyBash, evidenceStrength, filePathOf, freshTestRun, hardChanges, isCheckTool, isExecuting, isFullyClosed, isGoalDone, isMutation, isPlanFile, markVerified, newTracker, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
+import { acceptsVerified, classifyBash, evidenceStrength, filePathOf, freshTestRun, hardChanges, isCheckTool, isExecuting, isFullyClosed, isGoalDone, isMutation, isPlanFile, normalizePath, isSkillTrial, markVerified, newTracker, skillNameOf, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
 import type { Finding, Focus, ToolObservation, TurnTracker } from '../lib/drift'
 import { checkCommand, checkSignature, coversFailure, isFailedRun } from '../lib/drift/evidence'
+import { isCustomCheck } from '../lib/drift/verify'
 import type { CheckRun, EvidenceEntry, EvidenceLog } from '../lib/drift/evidence'
 import { clipText } from '../lib/decisions'
 import { addUsage, calibrate, recordShape, shapeKey } from '../lib/ledger'
@@ -13,7 +14,8 @@ import { applyPlan } from '../lib/plan'
 import type { RetryLine } from '../lib/text'
 import type { PlanInput } from '../lib/plan'
 import { describePick, familyOf } from '../lib/route'
-import { askRouter, driftRequest, nextLevel, openPhase, parseDrift } from '../lib/router'
+import { askRouter, driftRequest, nextLevel, openPhase, parseDrift, parsePlanReview, planReviewRequest } from '../lib/router'
+import { hasFixes, reviewReason } from '../lib/approval'
 import { taskRows } from '../lib/progress'
 import { EMPTY_QUOTA, evaluateQuota, normalizeQuota, quotaSettings, softNotices } from '../lib/quota'
 import { storeKey, withNote } from '../lib/checkpoint'
@@ -21,7 +23,7 @@ import * as S from '../lib/state'
 import type { View } from '../lib/state'
 import { shownPlan } from '../lib/mirror'
 import { forkFailures, forkFiles, forkResults, liveForks, mergeDue } from '../lib/forks'
-import { PLAN_TOOL_FULL, RETRY_REPORT, chainedCheckNote, retryAgentNotice, RETRY_ROUNDS, noCheckReason, waiveAskText, blockText, firstErrorLine, clipMiddle, RETRY_COMMAND_CHARS, joinStopReasons, retryDoneNote, retryEditNote, retryFailNotice, retryName, retryStepNote, retryStopReason, checkHintText, compactReminderText, criteriaNotice, driftContext, missingTasks, missingTasksNotice, needsChecklist, noChecklistReason, pendingNotice, qualityNotice, renderBulk, renderPlan, requirementsNotice, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice, forkMergedNote } from '../lib/text'
+import { PLAN_TOOL_FULL, RETRY_REPORT, chainedCheckNote, retryAgentNotice, RETRY_ROUNDS, noCheckReason, waiveAskText, blockText, firstErrorLine, clipMiddle, RETRY_COMMAND_CHARS, joinStopReasons, retryDoneNote, retryEditNote, retryFailNotice, retryName, retryStepNote, retryStopReason, skillTrialReason, changedFilesNotice, checkHintText, compactReminderText, criteriaNotice, driftContext, missingTasks, missingTasksNotice, needsChecklist, noChecklistReason, pendingNotice, qualityNotice, renderBulk, renderPlan, requirementsNotice, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice, forkMergedNote } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -298,6 +300,57 @@ async function askWaived($: EngineInterface): Promise<string | null> {
   return waiveAskText(due)
 }
 
+/**
+ * Rà kế hoạch trước khi trình duyệt (0.8.2 N2), xét đầu tiên ở Stop. `allow`: cho kết thúc ngay, bỏ qua mọi cổng sau (turn hỏi làm rõ,
+ * kế hoạch đã trình, lượt rà đạt hay đã hết lượt, router lỗi). `block`: chặn với lý do của lượt rà. `none`: không liên quan (mục tiêu không
+ * thuộc diện duyệt, đã duyệt, hay checklist trống thì G1 xử lý như cũ).
+ */
+async function planReviewGate($: EngineInterface, ctx: Ctx): Promise<{ kind: 'none' | 'allow' } | { kind: 'block'; reason: string }> {
+  const core = S.normalizeCore(await read($, coreState))
+  const brief = core.brief
+  if (brief === null) return { kind: 'none' }
+  const approval = S.approvalOf(core)
+  // Turn hỏi làm rõ: không rà, không chặn.
+  if ((approval.status === 'planning' || approval.status === 'presented') && ctx.local.askTurn === brief.goalId) return { kind: 'allow' }
+  if (approval.status === 'presented') return { kind: 'allow' }
+  if (approval.status !== 'planning' || core.plan.length === 0) return { kind: 'none' }
+  const at = await $.clock.now()
+  const present = async (cause: string, warning?: string) => {
+    await update($, coreState, c => {
+      const next = S.withApproval({ ...S.approvalOf(c), status: 'presented' })(c)
+      return warning !== undefined ? S.withWarnings({ at, kind: 'model', text: warning })(next) : next
+    })
+    ctx.record(at, 'approval', { goalId: brief.goalId, status: 'presented', cause })
+    await ctx.flushDecisions((path, text) => $.fs.write(path, text))
+    return { kind: 'allow' as const }
+  }
+  // Lượt cuối đã chặn một lần: lần Stop này cho kết thúc, không rà thêm.
+  if (approval.rounds >= ctx.planReviewRounds) return present('rounds')
+  if (ctx.isRouterPaused()) return present('router-paused', 'Router đang tạm ngừng nên chưa rà kế hoạch; kế hoạch được trình như hiện có')
+  const request = planReviewRequest({
+    goal: brief.goal,
+    requirements: brief.requirements ?? [],
+    constraints: brief.constraints,
+    quality: brief.quality,
+    steps: core.plan.map(step => ({ title: step.title, ...(step.check !== undefined ? { check: step.check } : {}) })),
+    model: ctx.routerModel,
+  })
+  const startedAt = await $.clock.now()
+  const outcome = await askRouter(r => $.model.complete(r), request, parsePlanReview)
+  ctx.noteRouterFailure('review', outcome.failure)
+  ctx.noteRouterTime((await $.clock.now()) - startedAt)
+  const rounds = approval.rounds + 1
+  // Chi phí mỗi lượt rà cộng vào sổ nhóm router; lượt rà tăng sau mỗi lần gọi.
+  await update($, coreState, c => S.withApproval({ ...S.approvalOf(c), rounds })(S.withAnalyzerUsage(outcome.usages, ctx.routerFamily)(c)))
+  const review = outcome.result
+  ctx.record(at, 'plan-review', { goalId: brief.goalId, round: rounds, missing: review?.missing ?? null, extra: review?.extra ?? null, issues: review?.issues.length ?? null, ...(review === null ? { reason: outcome.reason } : {}) })
+  // Router lỗi: không đoán, trình kế hoạch như hiện có kèm cảnh báo.
+  if (review === null) return present('router-fail', `Router không rà được kế hoạch (${outcome.reason}); kế hoạch được trình như hiện có`)
+  if (!hasFixes(review)) return present('review')
+  await ctx.flushDecisions((path, text) => $.fs.write(path, text))
+  return { kind: 'block', reason: reviewReason(review, brief.requirements ?? [], core.plan, rounds, ctx.planReviewRounds, rounds >= ctx.planReviewRounds) }
+}
+
 /** Script của package.json đáng chạy để kiểm, theo thứ tự ưu tiên (0.7.9 Y6). */
 const CHECK_SCRIPTS = ['test', 'typecheck', 'lint', 'check']
 
@@ -351,6 +404,26 @@ async function noCheckGate($: EngineInterface, options: Ctx['options'], core: Co
   return noCheckReason(command)
 }
 
+/**
+ * Lần chạy đạt của một lệnh khai trong checkCommands (0.8.2 N3): là bằng chứng thử skill. Lần nối && chưa rõ kết quả không tính.
+ */
+function passedDeclared(entries: readonly EvidenceEntry[]): boolean {
+  return entries.some(entry => entry.ok && entry.chained !== true && (isCustomCheck(entry.command) || (entry.raw !== undefined && isCustomCheck(entry.raw))))
+}
+
+/**
+ * Cổng thử skill (0.8.2 N3): mục tiêu có lần ghi file skill mà chưa có lần thử nào sau đó, tier không phải trivial, không còn subagent chạy
+ * chưa trả về, và mục tiêu chưa bị chặn vì lý do này: ghi khóa skillNudged rồi trả lý do. Không thì null.
+ */
+async function skillTrialGate($: EngineInterface, core: Core, isWaiting: boolean): Promise<string | null> {
+  const brief = core.brief
+  if (brief === null || core.skillNudged === brief.goalId || brief.tier === 'trivial' || isWaiting) return null
+  if (!S.isSkillUntried(core)) return null
+  await update($, coreState, S.withSkillNudged(brief.goalId))
+  const path = S.skillOf(core).path
+  return skillTrialReason(skillNameOf(path), path)
+}
+
 async function logExhausted($: EngineInterface, deps: RetryDeps, core: Core, answer: string | null, why: string | null): Promise<void> {
   if (core.brief === null || core.retry.goalId !== core.brief.goalId) return
   const due = core.retry.items.filter(item => item.reportAsked && !item.logged)
@@ -376,12 +449,40 @@ async function logExhausted($: EngineInterface, deps: RetryDeps, core: Core, ans
  */
 async function frameOf($: EngineInterface, roots: Map<number, string | null>, goalId: number, scopePaths: readonly string[]) {
   if (scopePaths.length === 0) return { root: null, cwd: null }
+  return { root: await rootFor($, roots, goalId), cwd: await $.session.cwd().catch(caught('session.cwd', null)) }
+}
+
+/** Thư mục gốc của phiên chốt một lần cho mỗi mục tiêu (dùng chung cho phạm vi và file đã đổi của 0.8.2 N5); lỗi thì null. */
+async function rootFor($: EngineInterface, roots: Map<number, string | null>, goalId: number): Promise<string | null> {
   if (!roots.has(goalId)) {
     roots.set(goalId, await $.session.root().catch(caught('session.root', null)))
     const oldest = roots.keys().next().value
     if (roots.size > 8 && oldest !== undefined) roots.delete(oldest)
   }
-  return { root: roots.get(goalId) ?? null, cwd: await $.session.cwd().catch(caught('session.cwd', null)) }
+  return roots.get(goalId) ?? null
+}
+
+// File của mod và file kế hoạch không phải phần việc của mục tiêu (0.8.2 N5).
+const CHANGED_SKIP = /(?:^|\/)(?:\.claude\/plans\/|\.focus-conductor(?:\/|$))/
+
+/**
+ * Đích của một lần ghi file đã chạy xong không lỗi (0.8.2 N5), theo cách của hạn mức: filePathOf, không thì classifyBash(command).paths.
+ * Đường dẫn tương đối nối với thư mục của Bash rồi đổi về tương đối với thư mục gốc phiên; ngoài gốc thì giữ tuyệt đối. Không phải lần
+ * ghi thì null; Bash ghi mà không đọc được đích thì isUnknown.
+ */
+function changedTargets(observation: ToolObservation, root: string | null): { paths: string[]; isUnknown: boolean } | null {
+  if (observation.isError || !isMutation(observation)) return null
+  const path = filePathOf(observation)
+  const command = observation.tool === 'Bash' ? String(observation.input['command'] ?? '') : ''
+  const raw = path ? [path] : command ? classifyBash(command).paths : []
+  if (raw.length === 0) return { paths: [], isUnknown: observation.tool === 'Bash' }
+  const base = observation.cwd ?? root ?? ''
+  const relative = raw.map(item => {
+    const full = normalizePath(item.startsWith('/') || base === '' ? item : `${base}/${item}`)
+    const top = root ? normalizePath(root) : ''
+    return top !== '' && top !== '/' && full.startsWith(`${top}/`) ? full.slice(top.length + 1) : full
+  })
+  return { paths: relative.filter(item => item !== '' && !CHANGED_SKIP.test(item)), isUnknown: false }
 }
 
 /** Status line kèm nhãn hạn mức (0.6.1): mọi chỗ đặt status của file này đi qua đây, nên nhãn không mất giữa các hook. */
@@ -606,6 +707,13 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       notes.push(requirementsNotice(asked))
       core = await update($, coreState, S.withReqNoticed(core.brief.goalId))
     }
+    // File đã đổi của mục tiêu (0.8.2 N5): sau G2, một lần mỗi mục tiêu, khóa trong Core; brief isReference hay chưa đổi file nào thì không.
+    const changed = S.changedOf(core)
+    const hasChanged = changed.paths.length > 0 || changed.unknown > 0 || changed.overflow > 0
+    if (isClosing && core.brief !== null && !core.brief.isReference && hasChanged && core.changedNoticed !== core.brief.goalId) {
+      notes.push(changedFilesNotice(changed))
+      core = await update($, coreState, S.withChangedNoticed(core.brief.goalId))
+    }
     if (isUpdate && openSteps(before.plan).length > 0 && openSteps(core.plan).length === 0 && pendingSteps(core.plan).length > 0) notes.push(pendingNotice(core.plan))
     // Đóng bước khi còn lệnh kiểm chưa đạt (0.7.8 vòng sửa 3, W4): cho phép, kèm một câu nói cổng kết thúc sẽ chặn; ghi bước vừa đóng để khi
     // hết lượt mod biết bước nào ghi blocked. Luật verified không đổi.
@@ -709,6 +817,13 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       }
     }
 
+    // File đã đổi của mục tiêu (0.8.2 N5): cả luồng chính và subagent, độc lập với hạn mức; dùng khi đóng bước mở cuối.
+    const changedBrief = S.normalizeCore(await read($, coreState)).brief
+    if (changedBrief !== null && !observation.isError && isMutation(observation)) {
+      const targets = changedTargets(observation, await rootFor($, L.roots, changedBrief.goalId))
+      if (targets !== null && (targets.paths.length > 0 || targets.isUnknown)) await update($, coreState, S.withChanged(changedBrief.goalId, targets.paths, targets.isUnknown))
+    }
+
     if (e.agentId !== undefined) {
       // Tiến độ từng việc (0.6.1): đếm tool call của agent có dòng tiến độ (agent đi qua agent.spawn của mod).
       const agentId = e.agentId
@@ -727,7 +842,11 @@ export function registerConsistency(on: On, ctx: Ctx): void {
         const agentSince = agentLog.seq
         noteEvidence(agentLog, observation, e.agentId)
         if (isCheckCall(observation.tool)) L.agentRetryNotes.push(...(await noteChecks($, retryDeps, S.normalizeCore(await read($, coreState)), agentBrief.goalId, newChecks(agentLog, agentSince), observation, meta.pick, false, meta.description)))
+        const skillBefore = L.tracker.skillWrites
         trackVerification(L.tracker, observation, e.agentId, (await frameOf($, L.roots, agentBrief.goalId, agentBrief.scopePaths)).cwd)
+        // File skill subagent ghi và lệnh khai đạt của subagent (0.8.2 N3): như của luồng chính, ghi trước, thử sau.
+        if (L.tracker.skillWrites > skillBefore) await update($, coreState, S.withSkillWrite(agentBrief.goalId, L.tracker.skillPath))
+        if (isCheckCall(observation.tool) && passedDeclared(newChecks(agentLog, agentSince))) await update($, coreState, S.withSkillTrial(agentBrief.goalId))
         // Subagent sửa file: bước tự nâng thành verified về done, như thay đổi của luồng chính (0.7.0).
         if (!observation.isError && isMutation(observation) && S.hasAutoVerified(S.normalizeCore(await read($, coreState)))) {
           await update($, coreState, S.withAutoDemoted)
@@ -757,11 +876,14 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     L.compaction.pending = false
     // Ghi cả lệnh lỗi: evidence nhắc tới một lệnh kiểm tra đã lỗi thì không được tính là đã kiểm tra.
     const retryNotes: string[] = []
+    // Lệnh khai trong checkCommands chạy đạt (0.8.2 N3): bằng chứng thử skill, ghi sau lần ghi file skill của cùng lời gọi.
+    let isDeclaredPass = false
     if (core.brief !== null) {
       const mainLog = evidenceFor(core.brief.goalId)
       const mainSince = mainLog.seq
       noteEvidence(mainLog, observation)
       const fresh = isCheckCall(observation.tool) ? newChecks(mainLog, mainSince) : []
+      isDeclaredPass = passedDeclared(fresh)
       if (isCheckCall(observation.tool)) retryNotes.push(...(await noteChecks($, retryDeps, core, core.brief.goalId, fresh, observation, mainLevel(), true)))
       // Lệnh kiểm nối && mà cả lệnh lỗi (0.8.0 A11): kết quả chưa rõ, không đụng W4; đề nghị chạy riêng, một lần mỗi lệnh mỗi turn.
       for (const entry of fresh) {
@@ -808,7 +930,11 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     // Lệnh ghi không rõ đích cảnh báo một lần mỗi mục tiêu (0.7.5): tập khóa đổi khi đổi mục tiêu.
     if (core.brief !== null && L.unknownWrites.goalId !== core.brief.goalId) L.unknownWrites = { goalId: core.brief.goalId, keys: new Set() }
     const focus: Focus | null = core.brief !== null ? { ...core.brief, isBare: core.brief.isBare === true, warnedWrites: L.unknownWrites.keys, hints: L.sessionHints, ...(await frameOf($, L.roots, core.brief.goalId, core.brief.scopePaths)) } : null
+    const skillBefore = L.tracker.skillWrites
     const findings = observe(L.tracker, observation, focus, core.plan)
+    // File skill (0.8.2 N3): lần ghi cuối và lần thử lưu trong Core theo mục tiêu, nên giữ qua nhiều turn.
+    if (core.brief !== null && L.tracker.skillWrites > skillBefore) await update($, coreState, S.withSkillWrite(core.brief.goalId, L.tracker.skillPath))
+    if (core.brief !== null && isDeclaredPass) await update($, coreState, S.withSkillTrial(core.brief.goalId))
     const isErrorBurst = L.tracker.errors === ERROR_BURST
     // Luồng chính bắt đầu tự sửa file trong khi còn việc đã ghi giao subagent: nhắc một lần.
     // Ghi file kế hoạch của plan mode không phải là làm một việc đã phân.
@@ -928,11 +1054,20 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     // Stop đầu tiên không còn subagent nào chạy: tính lại cảnh báo chưa kiểm đã hoãn (0.8.0 A5).
     if (await settleDeferred($, ctx)) await showStatus($, await read($, view), ctx.options)
     if (result.block || result.preventContinuation || !isExecuting(L.tracker, L.promptIntent)) return result
-    if (ctx.options['enforceChecklist'] !== true || (await read($, mode)) === 'off') return result
+    if ((await read($, mode)) === 'off') return result
     // Đang dừng vì hạn mức (hay người dùng tạm dừng): cho kết thúc, nếu không sẽ vòng lặp chặn khi mọi tool bị từ chối.
     const quota = normalizeQuota(await read($, quotaState))
     if (quota.pause !== null) return result
     const failed = failedFor(S.normalizeCore(await read($, coreState)).brief).concat(forkFailures(S.normalizeCore(await read($, coreState))))
+    // Rà kế hoạch trước khi trình duyệt (0.8.2 N2): xét đầu tiên, trước W4, Y6, G1; không theo stop_hook_active (mỗi lần chặn là một lượt rà)
+    // và không theo enforceChecklist (option planApproval riêng).
+    const review = await planReviewGate($, ctx)
+    if (review.kind === 'allow') {
+      await showStatus($, await read($, view), ctx.options)
+      return result
+    }
+    if (review.kind === 'block') return { ...result, block: review.reason }
+    if (ctx.options['enforceChecklist'] !== true) return result
     // Turn đã nhận câu báo hạn mức mềm (0.7.5): quy tắc dừng theo hạn mức của prompt có thể đang áp, nên checklist còn mở không
     // chặn kết thúc, nhưng chỉ khi cửa sổ vẫn còn trong vùng báo (vòng sửa 2: cửa sổ đã làm mới thì chặn như cũ); việc giao
     // subagent đã lỗi vẫn bị chặn.
@@ -949,7 +1084,10 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     // Đã sửa mà chưa chạy lần kiểm nào (0.7.9 Y6): sau W4, trước G1 và checklist; theo stop_hook_active như G1.
     const noCheck = isNoticed || core.brief === null ? null : await noCheckGate($, ctx.options, core, evidenceFor(core.brief.goalId), L.liveAgents.size > 0)
     if (noCheck !== null) core = S.normalizeCore(await read($, coreState))
-    const prior = retryReason !== null && noCheck !== null ? joinStopReasons(retryReason, noCheck) : retryReason ?? noCheck
+    // Sửa skill mà chưa thử (0.8.2 N3): sau Y6, trước G1; theo stop_hook_active như Y6 và G1.
+    const skillReason = isNoticed || core.brief === null ? null : await skillTrialGate($, core, L.liveAgents.size > 0)
+    if (skillReason !== null) core = S.normalizeCore(await read($, coreState))
+    const prior = [retryReason, noCheck, skillReason].reduce<string | null>((acc, reason) => (reason === null ? acc : acc === null ? reason : joinStopReasons(acc, reason)), null)
     const plan = isNoticed ? [] : core.plan
     const withRetry = (reason: string) => (prior !== null ? joinStopReasons(prior, reason) : reason)
     // Mục tiêu từ moderate (hoặc có việc đã phân) mà chưa có checklist (0.7.8 G1): chặn một lần mỗi mục tiêu, khóa trong Core nên
@@ -997,6 +1135,17 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       // Tiến độ từng việc (0.6.1): chỉ 'answer' là xong; còn lại là lỗi, hoặc bị cắt nếu đang tạm dừng vì hạn mức.
       const end = agentEnd(e.reason, normalizeQuota(await read($, quotaState)).pause !== null)
       await update($, coreState, S.withAgentEnd(agentId, end.agent, at))
+      // Lần thử skill (0.8.2 N3): chỉ subagent "Thử skill: " trả lời xong mới là bằng chứng; lỗi, bị hủy, bị từ chối hay bị cắt thì không.
+      // Ghi mốc cũ theo tool_use_id để kết quả tool Agent lỗi về sau trả lại mốc đó.
+      const trialCall = L.skillTrials.get(agentId)
+      L.skillTrials.delete(agentId)
+      if (meta !== undefined && isSkillTrial(meta.description) && end.agent === 'done') {
+        const before = S.normalizeCore(await read($, coreState))
+        if (before.brief !== null && before.brief.goalId === meta.goalId) {
+          if (trialCall !== undefined && L.trialCounted.size < 100) L.trialCounted.set(trialCall, S.skillOf(before).trialAt)
+          await update($, coreState, S.withSkillTrial(meta.goalId))
+        }
+      }
       // Phiên con của một phần (0.7.9 F1): phần xong hay lỗi; lỗi thì Stop chặn tới khi phần được làm lại hay ghi skipped, blocked.
       const forked = liveForks(S.normalizeCore(await read($, coreState))).find(p => p.agentId === agentId && p.state === 'running')
       if (forked !== undefined) {

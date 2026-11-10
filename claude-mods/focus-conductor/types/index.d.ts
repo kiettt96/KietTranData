@@ -15,6 +15,8 @@ export type Kind = 'answer' | 'edit' | 'investigate' | 'mixed'
 
 /** Quan hệ của prompt mới với mục tiêu đang mở. */
 export type Relation = 'new' | 'continue' | 'refine' | 'dissatisfied'
+/** Ý của tin nhắn (0.8.2 N1): hỏi tiến độ, bảo chạy tiếp, đồng ý kế hoạch chờ duyệt, bổ sung yêu cầu, hay việc khác. */
+export type Intent = 'status' | 'resume' | 'approve' | 'amend' | 'task'
 
 /** Mức effort mà các model hiện tại nhận. */
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
@@ -393,7 +395,38 @@ export type Core = {
   noCheckNudged: number
   /** Phiên con của các việc tách (0.7.9 F1). Vắng ở trạng thái cũ: chưa có phần nào, off là none. */
   forks: ForkState
+  /** Duyệt kế hoạch trước khi sửa file (0.8.2 N2). Vắng ở trạng thái cũ: goalId -1, none, 0 lượt, chưa hỏi. */
+  approval: ApprovalState
+  /** Lần ghi file skill và lần thử skill của mục tiêu goalId (0.8.2 N3). Vắng ở trạng thái cũ: goalId -1, chưa ghi, chưa thử. */
+  skill: SkillState
+  /** Mục tiêu đã chặn một lần vì sửa skill mà chưa thử (0.8.2 N3); -1 là chưa. Vắng ở trạng thái cũ thì -1. */
+  skillNudged: number
+  /** File đã đổi trong mục tiêu goalId (0.8.2 N5), cả luồng chính và subagent. Vắng ở trạng thái cũ: goalId -1, chưa có gì. */
+  changed: ChangedState
+  /** Mục tiêu đã được nhắc ghép file đã đổi khi đóng bước mở cuối (0.8.2 N5); -1 là chưa. Vắng ở trạng thái cũ thì -1. */
+  changedNoticed: number
 }
+
+/**
+ * File đã đổi của mục tiêu goalId (0.8.2 N5): `paths` là đường dẫn tương đối với thư mục gốc phiên (ngoài gốc thì giữ tuyệt đối), không trùng,
+ * tối đa 200; vượt trần thì chỉ tăng `overflow`. `unknown` đếm lệnh ghi không đọc được đích.
+ */
+export type ChangedState = { goalId: number; paths: string[]; unknown: number; overflow: number }
+
+/**
+ * Lần ghi file skill và lần thử skill của mục tiêu goalId (0.8.2 N3), theo bộ đếm `seq` tăng dần của mod trong mục tiêu: `lastWrite` là thứ
+ * tự lần ghi file skill cuối, `trialAt` là thứ tự lần thử skill cuối (lời gọi Agent "Thử skill: " xong, hay lệnh khai trong checkCommands
+ * đạt); -1 là chưa có. Skill chưa thử khi lastWrite lớn hơn trialAt. `path` là file skill ghi gần nhất, để nêu tên skill.
+ */
+export type SkillState = { goalId: number; seq: number; lastWrite: number; trialAt: number; path: string }
+
+/**
+ * Trạng thái duyệt kế hoạch của mục tiêu goalId (0.8.2 N2): none (không thuộc diện duyệt), planning (đang lập hay sửa kế hoạch, chặn sửa
+ * file), presented (đã trình, chờ người dùng, vẫn chặn), approved (đã duyệt), skipped (người dùng nói không cần duyệt). `rounds` là số lượt
+ * router đã rà kế hoạch; `asked` là đã dặn hỏi làm rõ (mỗi mục tiêu một lần).
+ */
+export type ApprovalStatus = 'none' | 'planning' | 'presented' | 'approved' | 'skipped'
+export type ApprovalState = { goalId: number; status: ApprovalStatus; rounds: number; asked: boolean }
 
 /**
  * Một lệnh kiểm chưa đạt (0.7.8 vòng sửa 3, W4): chữ ký là loại kiểm và lệnh đã chuẩn hóa. Lượt 1 là phần làm dẫn tới lần lỗi đầu,
@@ -477,6 +510,8 @@ export type QuotaPause = {
   aborted: boolean
   /** Lệnh đầu tiên bị từ chối của lần dừng này: điểm tiếp tục chính xác. */
   denied: { tool: string; input: string } | null
+  /** 0.8.2 N4: số lời gọi Bash sao lưu (git add, commit, push lên nhánh -wip) đã cho qua trong lần dừng này; vắng là 0. */
+  backupCalls?: number
 }
 
 /** Phần mục tiêu cần để tiếp tục (cắt từ Brief); goal rỗng khi lúc dừng chưa có mục tiêu. */
@@ -508,7 +543,18 @@ export type QuotaCheckpoint = {
   recent: string[]
   files: Array<{ path: string; mtimeMs: number; size: number }>
   delegations: DelegationItem[]
+  /** 0.8.2 N4: kết quả lời gọi git push lên nhánh -wip trong lần dừng này; vắng khi chưa có lời gọi push nào. */
+  backup?: CheckpointBackup
 }
+
+/**
+ * 0.8.2 N4: kết quả sao lưu lúc dừng vì hạn mức, đọc từ mã thoát và output của git push: đã push (nhánh, hash nếu output có),
+ * bỏ qua (không phải git repo, không có remote) hay lỗi (thông điệp đã che bí mật và cắt ngắn).
+ */
+export type CheckpointBackup =
+  | { status: 'pushed'; at: number; branch: string; hash?: string }
+  | { status: 'skipped'; at: number; reason: 'no-repo' | 'no-remote' }
+  | { status: 'error'; at: number; message: string }
 
 /** Trạng thái bảo vệ hạn mức trong $.state (0.6.0). */
 export type QuotaState = {

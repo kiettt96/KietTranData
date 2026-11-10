@@ -12,7 +12,7 @@ const MINUTE = 60_000
 const names = (from: number, count: number) => Array.from({ length: count }, (_, i) => `f${from + i}`)
 
 describe('0.7.5 C2: driftIntervalMinutes', () => {
-  test('đặt 30: checkpoint sau 20 phút không hỏi, sau hơn 30 phút thì hỏi', { options: { driftIntervalMinutes: 30 } }, async ($, on) => {
+  test('đặt 30: checkpoint sau 20 phút không hỏi, sau hơn 30 phút thì hỏi', { options: { planApproval: 'off', driftIntervalMinutes: 30 } }, async ($, on) => {
     const seen = base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, COMPLEX_PROMPT)

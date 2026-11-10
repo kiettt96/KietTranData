@@ -74,10 +74,10 @@ async function scenario($: Engine, on: On, fail: string, pass: string): Promise<
 }
 
 describe('0.7.9 V1: đầu cuối', () => {
-  test('npx tsc --noEmit lỗi rồi npx tsc --version đạt: Stop vẫn chặn', {}, async ($, on) => {
+  test('npx tsc --noEmit lỗi rồi npx tsc --version đạt: Stop vẫn chặn', { options: { planApproval: 'off' } }, async ($, on) => {
     expect(await scenario($, on, 'npx tsc --noEmit', 'npx tsc --version')).toContain('npx tsc --noEmit')
   })
-  test('npx eslint . lỗi rồi npx eslint src/ui đạt: Stop vẫn chặn', {}, async ($, on) => {
+  test('npx eslint . lỗi rồi npx eslint src/ui đạt: Stop vẫn chặn', { options: { planApproval: 'off' } }, async ($, on) => {
     expect(await scenario($, on, 'npx eslint .', 'npx eslint src/ui')).toContain('npx eslint .')
   })
 })

@@ -69,7 +69,7 @@ const bandProps = (columns: number, maxRows: number) => ({ hasSurvey: false, isW
 
 describe('0.6.1 3.1: status line giữ nhãn hạn mức', () => {
   for (const lang of ['vi', 'en'] as const) {
-    test(`dừng, plan checkpoint, turn.complete, một prompt: status luôn có nhãn dừng; hạn mức làm mới thì nhãn mất (${lang})`, { options: { uiLanguage: lang } }, async ($, on) => {
+    test(`dừng, plan checkpoint, turn.complete, một prompt: status luôn có nhãn dừng; hạn mức làm mới thì nhãn mất (${lang})`, { options: { planApproval: 'off', uiLanguage: lang } }, async ($, on) => {
       const seen = base(on, RESUME)
       startHooks(on)
       memoryStore(on)
@@ -104,7 +104,7 @@ describe('0.6.1 3.1: status line giữ nhãn hạn mức', () => {
     expect(seen.statuses.at(-1)).toContain(LABEL.vi)
   })
 
-  test('gần ngưỡng: prompt qua router và step đầu của turn vẫn giữ nhãn phần còn lại (061-U3, 061-U4)', {}, async ($, on) => {
+  test('gần ngưỡng: prompt qua router và step đầu của turn vẫn giữ nhãn phần còn lại (061-U3, 061-U4)', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     memoryStore(on)
@@ -120,7 +120,7 @@ describe('0.6.1 3.1: status line giữ nhãn hạn mức', () => {
     expect(seen.statuses.at(-1)).toContain('hạn mức còn 8%')
   })
 
-  test('lệnh /conductor mode và nút Đặt lại khi đang dừng: status vẫn có nhãn dừng (061-U5, 061-U6)', {}, async ($, on) => {
+  test('lệnh /conductor mode và nút Đặt lại khi đang dừng: status vẫn có nhãn dừng (061-U5, 061-U6)', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     memoryStore(on)
@@ -137,7 +137,7 @@ describe('0.6.1 3.1: status line giữ nhãn hạn mức', () => {
     expect(seen.statuses.at(-1)).toBe(`auto · ${LABEL.vi} · /conductor resume force`)
   })
 
-  test('prompt đến khi vừa vào vùng dừng (không có số đo, không tool call nào): status có nhãn dừng ngay (061-U9)', {}, async ($, on) => {
+  test('prompt đến khi vừa vào vùng dừng (không có số đo, không tool call nào): status có nhãn dừng ngay (061-U9)', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     memoryStore(on)
@@ -149,7 +149,7 @@ describe('0.6.1 3.1: status line giữ nhãn hạn mức', () => {
     expect(seen.statuses.at(-1)).toContain(LABEL.vi)
   })
 
-  test('quotaGuard false: status như 0.6.0, không nhãn hạn mức', { options: { quotaGuard: false } }, async ($, on) => {
+  test('quotaGuard false: status như 0.6.0, không nhãn hạn mức', { options: { planApproval: 'off', quotaGuard: false } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     memoryStore(on)
@@ -163,7 +163,7 @@ describe('0.6.1 3.1: status line giữ nhãn hạn mức', () => {
 
 describe('0.6.1 3.2: mục Hạn mức trong pane', () => {
   for (const width of [36, 48, 80]) {
-    test(`bình thường (${width} cột): từng cửa sổ và trạng thái bình thường, trước mục Cảnh báo`, {}, async ($, on) => {
+    test(`bình thường (${width} cột): từng cửa sổ và trạng thái bình thường, trước mục Cảnh báo`, { options: { planApproval: 'off' } }, async ($, on) => {
       const seen = base(on, RESUME)
       startHooks(on)
       memoryStore(on)
@@ -186,7 +186,7 @@ describe('0.6.1 3.2: mục Hạn mức trong pane', () => {
     })
   }
 
-  test('dừng vì hạn mức: trạng thái, điểm dừng (giờ tạo, lý do, note, lệnh) và mục Cần chú ý ghi Tạm dừng', {}, async ($, on) => {
+  test('dừng vì hạn mức: trạng thái, điểm dừng (giờ tạo, lý do, note, lệnh) và mục Cần chú ý ghi Tạm dừng', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     memoryStore(on)
@@ -208,7 +208,7 @@ describe('0.6.1 3.2: mục Hạn mức trong pane', () => {
     }
   })
 
-  test('người dùng tự dừng: trạng thái và lệnh /conductor resume', {}, async ($, on) => {
+  test('người dùng tự dừng: trạng thái và lệnh /conductor resume', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, RESUME)
     startHooks(on)
     memoryStore(on)
@@ -222,7 +222,7 @@ describe('0.6.1 3.2: mục Hạn mức trong pane', () => {
     await pane.unmount()
   })
 
-  test('ép tiếp: trạng thái ghi cửa sổ được ép và mốc hết ép', {}, async ($, on) => {
+  test('ép tiếp: trạng thái ghi cửa sổ được ép và mốc hết ép', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     memoryStore(on)
@@ -238,7 +238,7 @@ describe('0.6.1 3.2: mục Hạn mức trong pane', () => {
 
   // 0.7.5 C6: chưa có số đo, không dừng và không có điểm dừng thì mục Hạn mức ẩn hẳn; khi người dùng tự dừng thì mục hiện lại
   // (trạng thái dừng do người dùng).
-  test('chưa có số đo: không có mục Hạn mức; người dùng tự dừng thì mục hiện lại', {}, async ($, on) => {
+  test('chưa có số đo: không có mục Hạn mức; người dùng tự dừng thì mục hiện lại', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, RESUME)
     startHooks(on)
     memoryStore(on)
@@ -252,7 +252,7 @@ describe('0.6.1 3.2: mục Hạn mức trong pane', () => {
     await pane.unmount()
   })
 
-  test('quotaGuard false: không vẽ mục Hạn mức', { options: { quotaGuard: false } }, async ($, on) => {
+  test('quotaGuard false: không vẽ mục Hạn mức', { options: { planApproval: 'off', quotaGuard: false } }, async ($, on) => {
     base(on, RESUME)
     startHooks(on)
     memoryStore(on)
@@ -276,7 +276,7 @@ describe('0.6.1 3.2: mục Hạn mức trong pane', () => {
     await pane.unmount()
   })
 
-  test('uiLanguage en: nhãn tiếng Anh ở mọi trạng thái', { options: { uiLanguage: 'en' } }, async ($, on) => {
+  test('uiLanguage en: nhãn tiếng Anh ở mọi trạng thái', { options: { planApproval: 'off', uiLanguage: 'en' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     memoryStore(on)
@@ -305,7 +305,7 @@ describe('0.6.1 3.2: mục Hạn mức trong pane', () => {
     await pane.unmount()
   })
 
-  test('uiLanguage en: người dùng tự dừng và chưa có số đo', { options: { uiLanguage: 'en' } }, async ($, on) => {
+  test('uiLanguage en: người dùng tự dừng và chưa có số đo', { options: { planApproval: 'off', uiLanguage: 'en' } }, async ($, on) => {
     base(on, RESUME)
     startHooks(on)
     memoryStore(on)
@@ -325,7 +325,7 @@ describe('0.6.1 3.2: mục Hạn mức trong pane', () => {
 describe('0.6.1 3.3: band hẹp khi dừng', () => {
   for (const columns of [40, 48]) {
     for (const maxRows of [1, 2]) {
-      test(`${columns} cột, maxRows ${maxRows}: nhãn ngắn, phần cố định không vượt chiều rộng`, {}, async ($, on) => {
+      test(`${columns} cột, maxRows ${maxRows}: nhãn ngắn, phần cố định không vượt chiều rộng`, { options: { planApproval: 'off' } }, async ($, on) => {
         const seen = base(on, RESUME)
         startHooks(on)
         memoryStore(on)
@@ -343,7 +343,7 @@ describe('0.6.1 3.3: band hẹp khi dừng', () => {
   }
 
   // 0.7.6: số bước không bao giờ bị bỏ; thiếu chỗ thì bỏ lần lượt chip subagent, effort, thời gian đã chạy, rồi cả chip model.
-  test('có chip model: thiếu chỗ thì bỏ lần lượt effort rồi cả chip model, số bước luôn còn', {}, async ($, on) => {
+  test('có chip model: thiếu chỗ thì bỏ lần lượt effort rồi cả chip model, số bước luôn còn', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     memoryStore(on)
@@ -371,7 +371,7 @@ describe('0.6.1 3.3: band hẹp khi dừng', () => {
     expect(at30.fixed).toBeLessThanOrEqual(30)
   })
 
-  test('chế độ suggest: thiếu chỗ thì bỏ effort của chip đề xuất, giữ tên model (061-U21)', {}, async ($, on) => {
+  test('chế độ suggest: thiếu chỗ thì bỏ effort của chip đề xuất, giữ tên model (061-U21)', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     memoryStore(on)
@@ -386,7 +386,7 @@ describe('0.6.1 3.3: band hẹp khi dừng', () => {
     await band.unmount()
   })
 
-  test('56 cột trở lên: nhãn đầy đủ; en dưới 56 cột: paused', {}, async ($, on) => {
+  test('56 cột trở lên: nhãn đầy đủ; en dưới 56 cột: paused', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     memoryStore(on)
@@ -398,7 +398,7 @@ describe('0.6.1 3.3: band hẹp khi dừng', () => {
     await band.unmount()
   })
 
-  test('en dưới 56 cột: nhãn ngắn paused', { options: { uiLanguage: 'en' } }, async ($, on) => {
+  test('en dưới 56 cột: nhãn ngắn paused', { options: { planApproval: 'off', uiLanguage: 'en' } }, async ($, on) => {
     const seen = base(on, RESUME)
     startHooks(on)
     memoryStore(on)
@@ -441,7 +441,7 @@ describe('0.6.1 3.4: band và pane trên vscode và mobile', () => {
 
   for (const surface of ['vscode', 'mobile'] as const) {
     for (const state of ['no-checklist', 'warning', 'paused', 'near'] as const) {
-      test(`${surface}, ${state}: band và pane vẽ được`, {}, async ($, on) => {
+      test(`${surface}, ${state}: band và pane vẽ được`, { options: { planApproval: 'off' } }, async ($, on) => {
         await reach($, on, state)
         const band = await $.ui.mount({ plugin: 'focus-conductor', surface, component: 'AbovePrompt', props: bandProps(80, 3) })
         expect(await band.drawn()).toMatchObject({ type: 'Box' })

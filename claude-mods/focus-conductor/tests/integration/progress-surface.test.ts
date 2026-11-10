@@ -47,7 +47,7 @@ async function paneTexts($: Engine, surface: (typeof PANE_SURFACES)[number]) {
 const has = (texts: readonly string[], pattern: RegExp | string) => texts.some(t => (typeof pattern === 'string' ? t === pattern : pattern.test(t)))
 
 describe('0.6.1 2.5: band và pane trên các surface', () => {
-  test('checklist nguồn mirror: band có 1/2, pane ghi nguồn danh sách việc của Claude Code, trên mọi surface', {}, async ($, on) => {
+  test('checklist nguồn mirror: band có 1/2, pane ghi nguồn danh sách việc của Claude Code, trên mọi surface', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     hooks(on)
     await submit($, COMPLEX_PROMPT)
@@ -60,7 +60,7 @@ describe('0.6.1 2.5: band và pane trên các surface', () => {
     }
   })
 
-  test('checklist nguồn plan: band có 0/2, pane có Checklist 0/2 và không ghi nguồn phản chiếu, trên mọi surface', {}, async ($, on) => {
+  test('checklist nguồn plan: band có 0/2, pane có Checklist 0/2 và không ghi nguồn phản chiếu, trên mọi surface', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     hooks(on)
     await submit($, COMPLEX_PROMPT)
@@ -75,7 +75,7 @@ describe('0.6.1 2.5: band và pane trên các surface', () => {
     }
   })
 
-  test('mục Tiến độ từng việc đủ các loại việc, trên mọi surface', {}, async ($, on) => {
+  test('mục Tiến độ từng việc đủ các loại việc, trên mọi surface', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     hooks(on)
     await submit($, FOUR)

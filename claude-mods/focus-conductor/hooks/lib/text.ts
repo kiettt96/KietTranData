@@ -1,9 +1,9 @@
 // Văn bản mod gửi cho model và hiển thị cho người dùng. Gom về một chỗ để
 // giữ giọng văn nhất quán và dễ chỉnh.
 
-import type { Brief, CheckHint, Choice, PlanStep, QuotaCheckpoint, QuotaReason, Route, RouterFail, StepStatus, Task, TurnFault } from '../../types'
+import type { Brief, CheckHint, CheckpointBackup, Choice, PlanStep, QuotaCheckpoint, QuotaReason, Route, RouterFail, StepStatus, Task, TurnFault } from '../../types'
 import { STUCK_HINT, openSteps, pendingSteps } from './drift'
-import { evaluateQuota, isStale, reasonsOf } from './quota'
+import { BACKUP_CALLS_MAX, evaluateQuota, isStale, reasonsOf } from './quota'
 import type { QuotaBadge, QuotaNoticeHit, QuotaThresholds } from './quota'
 import { clockOf, labels } from '../ui/labels'
 import { currentStep, taskBarRuns } from '../ui/style'
@@ -306,6 +306,22 @@ export function skippedContext(brief: Brief, plan: readonly PlanStep[]): string 
     .join('\n')
 }
 
+/**
+ * Tin hỏi tiến độ (0.8.2 N1, intent status): trả lời từ checklist, không làm thêm việc, không đổi checklist; tin đến giữa turn thì trả lời
+ * một dòng rồi làm tiếp bước đang làm. Tối đa 300 ký tự.
+ */
+export function intentStatusContext(isInterject: boolean): string {
+  return isInterject
+    ? '[focus-conductor] Tin hỏi tiến độ giữa turn: trả lời một dòng từ checklist, rồi làm tiếp bước đang làm. Không thêm việc, không đổi checklist.'
+    : '[focus-conductor] Tin hỏi tiến độ: trả lời từ checklist hiện có (bước đã xong, đang làm, còn lại). Không làm thêm việc, không đổi checklist.'
+}
+
+/** Tin bảo chạy tiếp (0.8.2 N1, intent resume; approve khi không có kế hoạch chờ duyệt): chạy tiếp từ bước đang mở. Tối đa 300 ký tự. */
+export function intentResumeContext(plan: readonly PlanStep[]): string {
+  const next = openSteps(plan)[0]
+  return `[focus-conductor] Tin bảo chạy tiếp: chạy tiếp từ ${next !== undefined ? `bước ${next.id}. ${clipItem(next.title, 80)}` : 'bước đang mở'}; không thêm việc mới.`
+}
+
 /** strictDelegation "block": lý do từ chối luồng chính tự sửa file khi còn việc ghi giao subagent chưa giao. */
 export function blockText(waiting: readonly string[], left: number): string {
   return (
@@ -368,6 +384,29 @@ export function requirementsNotice(requirements: readonly string[]): string {
   }
   let n = all.length
   while (n > 1 && build(n).length > REQUIREMENTS_NOTICE_CHARS) n -= 1
+  return build(n)
+}
+
+/** Trần của lời nhắc ghép file đã đổi (0.8.2 N5): số file liệt kê và tổng ký tự. */
+export const CHANGED_NOTICE_FILES = 20
+export const CHANGED_NOTICE_CHARS = 1200
+
+/**
+ * Lời nhắc ghép file đã đổi với bước hay yêu cầu khi đóng bước mở cuối (0.8.2 N5): tối đa 20 file, mỗi đường dẫn cắt 100 ký tự; phần tràn
+ * ghi "và M file nữa", lệnh ghi không rõ đích ghi "và N lệnh ghi không rõ đích"; tổng tối đa 1.200 ký tự.
+ */
+export function changedFilesNotice(changed: { paths: readonly string[]; unknown: number; overflow: number }): string {
+  const all = changed.paths.slice(0, CHANGED_NOTICE_FILES).map(path => clipItem(path, 100))
+  const head = '[focus-conductor] File đã đổi trong mục tiêu này:'
+  const tail =
+    'Ghép mỗi file với bước hay yêu cầu nó phục vụ; file không ghép được thì ghi vào mục "Ngoài yêu cầu" của báo cáo cuối kèm lý do, hoặc hoàn tác nếu không cần.'
+  const build = (n: number) => {
+    const rest = changed.paths.length + changed.overflow - n
+    const parts = [...all.slice(0, n), ...(rest > 0 ? [`và ${rest} file nữa`] : []), ...(changed.unknown > 0 ? [`và ${changed.unknown} lệnh ghi không rõ đích`] : [])]
+    return `${head} ${parts.join('; ')}. ${tail}`
+  }
+  let n = all.length
+  while (n > 0 && build(n).length > CHANGED_NOTICE_CHARS) n -= 1
   return build(n)
 }
 
@@ -673,7 +712,7 @@ export function withQuotaNoticeStatus(base: string | undefined, hits: readonly Q
 }
 
 /** Lý do từ chối tool khi đang dừng: luồng chính ghi điểm dừng rồi kết thúc; subagent kết thúc ngay. */
-export function quotaDenyText(reasons: readonly QuotaReason[], isUser: boolean, isAgent: boolean, allowPaths: readonly string[] = []): string {
+export function quotaDenyText(reasons: readonly QuotaReason[], isUser: boolean, isAgent: boolean, allowPaths: readonly string[] = [], backup = false): string {
   const cause = `[focus-conductor] Tạm dừng: ${pauseCause(reasons, isUser)}.`
   if (isAgent) return `${cause} Subagent không gọi tool nào khác; kết thúc ngay và báo ngắn phần đã làm, phần còn dở.`
   // pauseAllowPaths (0.7.5): luồng chính vẫn ghi được file checkpoint theo quy tắc dừng của prompt. Vòng sửa 2: nêu đường dẫn được
@@ -683,8 +722,14 @@ export function quotaDenyText(reasons: readonly QuotaReason[], isUser: boolean, 
       ? ` Được ghi vào các đường dẫn của pauseAllowPaths: ${allowPaths.join(', ')} (bằng Write, Edit, MultiEdit, NotebookEdit hay Bash có mọi đường dẫn đích nằm trong danh sách đó; đọc các đường dẫn đó bằng Read vì Claude Code cần Read trước Edit), ví dụ file checkpoint theo quy tắc dừng của prompt.`
       : ''
   const ban = allowPaths.length > 0 ? 'Không gọi tool nào khác ngoài việc ghi và Read các đường dẫn đó và tool plan.' : 'Không gọi tool nào khác.'
+  // 0.8.2 N4: pauseBackup bật (dừng vì hạn mức, luồng chính): commit và push phần đang làm lên nhánh -wip trước khi dừng hẳn.
+  const saved = backup
+    ? ` Ngoại lệ (pauseBackup): trước khi dừng hẳn, commit phần đang làm và push lên <nhánh hiện tại>-wip, tối đa ${BACKUP_CALLS_MAX} lời gọi Bash, ` +
+      'mỗi lời gọi đúng một lệnh: git add -u (hay git add <đường dẫn trong thư mục gốc phiên>), git commit -m "<thông điệp>", ' +
+      'rồi git push origin HEAD:<nhánh hiện tại>-wip (không thêm cờ nào). Không phải git repo, không có remote, hay nhánh hiện tại là main hoặc master thì bỏ qua.'
+    : ''
   return (
-    `${cause}${allowed} ${ban} Gọi ${PLAN_TOOL_FULL} với action "checkpoint" và note nêu: bước kế tiếp cụ thể, ` +
+    `${cause}${allowed} ${ban}${saved} Gọi ${PLAN_TOOL_FULL} với action "checkpoint" và note nêu: bước kế tiếp cụ thể, ` +
     'những gì đã hoàn tất không được làm lại, và điều cần kiểm khi quay lại. Sau đó kết thúc turn bằng một câu báo điểm dừng ' +
     `và nhắc người dùng chạy tiếp bằng ${resumeCommand(isUser)}.`
   )
@@ -927,8 +972,18 @@ export function quotaStatusLines(input: QuotaStatusInput): string[] {
   const cp = view.checkpoint
   if (cp !== null) {
     lines.push(`  điểm dừng: ${cp.status === 'open' ? 'đang mở' : 'đang tiếp tục'} (tạo lúc ${resetLabel(new Date(cp.createdAt).toISOString()) || 'không rõ giờ'}${cp.note ? '' : ', Claude chưa ghi note'})`)
+    // 0.8.2 N4: kết quả sao lưu lên nhánh -wip của lần dừng này.
+    if (cp.backup !== undefined) lines.push(`  ${backupLine(cp.backup, 'vi').replace(/^S/, 's')}`)
   }
   return lines
+}
+
+/** 0.8.2 N4: dòng sao lưu lên nhánh -wip của điểm dừng, cho /conductor status và mục Hạn mức của pane. */
+export function backupLine(backup: CheckpointBackup, lang: Lang): string {
+  const l = labels(lang)
+  const state =
+    backup.status === 'pushed' ? l.quotaBackupPushed(backup.branch, backup.hash ?? '') : backup.status === 'skipped' ? l.quotaBackupSkipped(l.quotaBackupReason[backup.reason]) : l.quotaBackupError(backup.message)
+  return `${l.quotaBackup}: ${state}`
 }
 
 /** Ghi chú của Claude trong mục Hạn mức của pane: tối đa bấy nhiêu ký tự. */
@@ -982,6 +1037,7 @@ export function quotaPaneText(view: QuotaOverview, lang: Lang, hasNotice = false
     if (cp.reason.length > 0) checkpoint.push(`${l.quotaReasonLabel}: ${cp.reason.map(reasonText).join('; ')}`)
     const note = cp.note.length > PANE_NOTE_MAX ? `${cp.note.slice(0, PANE_NOTE_MAX - 1)}…` : cp.note
     checkpoint.push(note ? `${l.quotaNote}: ${note}` : l.quotaNoNote)
+    if (cp.backup !== undefined) checkpoint.push(backupLine(cp.backup, lang))
     checkpoint.push(`${l.quotaContinue}: ${isPaused ? resumeCommand(view.state === 'user') : l.quotaContinueSoft}`)
   } else if (isPaused) {
     checkpoint.push(`${l.quotaContinue}: ${resumeCommand(view.state === 'user')}`)
@@ -1186,6 +1242,26 @@ export function noCheckReason(command: string): string {
     `[focus-conductor] Mục tiêu đã sửa file nhưng chưa chạy lần kiểm nào sau thay đổi cuối. Chạy \`${clipItem(command, 200)}\`, ` +
     'rồi kết thúc nếu đạt, hoặc sửa tiếp theo kết quả. Mod chỉ chặn một lần cho mỗi mục tiêu.'
   ).slice(0, NO_CHECK_CHARS)
+}
+
+/** Tên mục báo cáo cuối của lần thử skill (0.8.2 N3). */
+export const SKILL_TRIAL_REPORT = 'Thử skill'
+/** Trần ký tự lý do chặn của cổng thử skill (0.8.2 N3). */
+const SKILL_TRIAL_CHARS = 600
+
+/**
+ * Lý do chặn một lần khi đã sửa file skill mà chưa thử sau lần sửa cuối (0.8.2 N3): hai prompt mẫu (một ca phải kích hoạt, một ca dễ nhầm
+ * không được kích hoạt), ghi mong đợi trước, giao subagent general-purpose "Thử skill: <tên>", so kết quả, mục báo cáo "Thử skill".
+ */
+export function skillTrialReason(name: string, path: string): string {
+  const skill = clipItem(name, 30)
+  return (
+    `[focus-conductor] Đã sửa skill \`${skill}\` (${clipItem(path, 40)}), chưa thử sau lần sửa cuối. Lấy hai prompt mẫu từ yêu cầu: ` +
+    'một ca skill phải kích hoạt, một ca dễ nhầm skill không được kích hoạt; ghi kết quả mong đợi từng ca trước khi chạy. ' +
+    `Giao subagent general-purpose, description \`Thử skill: ${skill}\`, đọc skill từ đường dẫn đã sửa và làm theo trên từng prompt. ` +
+    `So kết quả với mong đợi. Báo cáo cuối có mục "${SKILL_TRIAL_REPORT}": prompt, mong đợi, thực tế, đạt hay chưa; chưa đạt thì sửa tiếp, không báo xong. ` +
+    'Mod chặn một lần mỗi mục tiêu.'
+  ).slice(0, SKILL_TRIAL_CHARS)
 }
 
 /** Tên mục báo cáo cuối khi chủ mod đã miễn lệnh kiểm (0.7.9 Y5). */

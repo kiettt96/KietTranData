@@ -48,7 +48,7 @@ describe('0.7.0 3: tier của prompt tiếp nối không tụt', () => {
     return text.includes('vượt mức dự kiến')
   }
 
-  test('mục tiêu complex, prompt tiếp nối ngắn: 16 tool call chưa vượt ngân sách 60', {}, async ($, on) => {
+  test('mục tiêu complex, prompt tiếp nối ngắn: 16 tool call chưa vượt ngân sách 60', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, {
       router: request =>
         request.startsWith('Làm tiếp') ? plan({ relation: 'continue', goal: '', depth: 'light', volume: 'small' }) : plan({ goal: 'Sửa lớn', depth: 'substantial', volume: 'medium', kind: 'mixed' }),

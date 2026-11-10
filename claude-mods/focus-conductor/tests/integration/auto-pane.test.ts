@@ -9,13 +9,13 @@ const PANE_ID = 'focus-conductor'
 // 0.7.6 U11: pane chỉ tự mở ở mục tiêu substantial hay hard; các ca dùng plan() mặc định (light) ghi rõ độ sâu substantial.
 
 describe('0.7.2 4: pane tự mở ở mục tiêu mới', () => {
-  test('mục tiêu đầu tiên: mở pane của mod, không focus, số dòng vừa phải', {}, async ($, on) => {
+  test('mục tiêu đầu tiên: mở pane của mod, không focus, số dòng vừa phải', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     await submit($, COMPLEX_PROMPT)
     expect(seen.opened).toEqual([{ id: PANE_ID, title: 'Focus Conductor', rows: 16 }])
   })
 
-  test('prompt tiếp nối: không mở thêm dù pane đã đóng', {}, async ($, on) => {
+  test('prompt tiếp nối: không mở thêm dù pane đã đóng', { options: { planApproval: 'off' } }, async ($, on) => {
     let n = 0
     const seen = base(on, { panesClosed: true, router: () => (++n === 1 ? plan({ goal: 'Sửa lớn', depth: 'substantial' }) : plan({ relation: 'continue', goal: '' })) })
     await submit($, COMPLEX_PROMPT)
@@ -23,7 +23,7 @@ describe('0.7.2 4: pane tự mở ở mục tiêu mới', () => {
     expect(seen.opened.length).toBe(1)
   })
 
-  test('pane đã đóng: mục tiêu mới mở lại', {}, async ($, on) => {
+  test('pane đã đóng: mục tiêu mới mở lại', { options: { planApproval: 'off' } }, async ($, on) => {
     let n = 0
     const seen = base(on, { panesClosed: true, router: () => plan({ goal: `Mục tiêu ${(n += 1)}`, relation: 'new', depth: 'substantial' }) })
     await submit($, COMPLEX_PROMPT)
@@ -31,7 +31,7 @@ describe('0.7.2 4: pane tự mở ở mục tiêu mới', () => {
     expect(seen.opened.length).toBe(2)
   })
 
-  test('pane đã mở: mục tiêu mới không gọi mở lần nữa', {}, async ($, on) => {
+  test('pane đã mở: mục tiêu mới không gọi mở lần nữa', { options: { planApproval: 'off' } }, async ($, on) => {
     let n = 0
     const seen = base(on, { router: () => plan({ goal: `Mục tiêu ${(n += 1)}`, relation: 'new', depth: 'substantial' }) })
     await submit($, COMPLEX_PROMPT)
@@ -41,7 +41,7 @@ describe('0.7.2 4: pane tự mở ở mục tiêu mới', () => {
 })
 
 describe('0.7.2 4: tắt hay không áp dụng', () => {
-  test('autoPane false: không mở', { options: { autoPane: false } }, async ($, on) => {
+  test('autoPane false: không mở', { options: { planApproval: 'off', autoPane: false } }, async ($, on) => {
     const seen = base(on)
     await submit($, COMPLEX_PROMPT)
     expect(seen.opened).toEqual([])
@@ -70,7 +70,7 @@ describe('0.7.2 4: các đường lập mục tiêu khác', () => {
 })
 
 describe('0.7.2 4: pane chưa được đặt', () => {
-  test('isPlaced false (màn hình hẹp): không toast lỗi, ghi nhật ký quyết định kèm lý do', { options: { decisionLog: '/tmp/fc-auto-pane.jsonl' } }, async ($, on) => {
+  test('isPlaced false (màn hình hẹp): không toast lỗi, ghi nhật ký quyết định kèm lý do', { options: { planApproval: 'off', decisionLog: '/tmp/fc-auto-pane.jsonl' } }, async ($, on) => {
     const writes: string[] = []
     on('fs.write', (_$, e) => {
       writes.push(e.text)
@@ -83,7 +83,7 @@ describe('0.7.2 4: pane chưa được đặt', () => {
     expect(lines.find(line => line['kind'] === 'pane')).toMatchObject({ kind: 'pane', isPlaced: false, reason: 'màn hình 100 cột, cần 110' })
   })
 
-  test('isPlaced true (trường hợp bình thường): không thêm dòng pane vào nhật ký', { options: { decisionLog: '/tmp/fc-auto-pane2.jsonl' } }, async ($, on) => {
+  test('isPlaced true (trường hợp bình thường): không thêm dòng pane vào nhật ký', { options: { planApproval: 'off', decisionLog: '/tmp/fc-auto-pane2.jsonl' } }, async ($, on) => {
     const writes: string[] = []
     on('fs.write', (_$, e) => {
       writes.push(e.text)

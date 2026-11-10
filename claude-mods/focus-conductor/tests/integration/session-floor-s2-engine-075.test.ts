@@ -9,7 +9,7 @@ const sessionModel = (on: On, model: string) => on('session.model', () => ({ val
 const RULE = 'Lọc tin dùng sonnet; đọc, giải thích, đúc kết dùng mô hình của phiên'
 
 describe('0.7.5 S2: sàn model phiên qua engine', () => {
-  test('mục tiêu có quy tắc: luồng chính opus; prompt mới nhỏ, router chọn haiku/low: luồng chính haiku/low', {}, async ($, on) => {
+  test('mục tiêu có quy tắc: luồng chính opus; prompt mới nhỏ, router chọn haiku/low: luồng chính haiku/low', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, {
       router: request =>
         request.includes('Giá vàng')

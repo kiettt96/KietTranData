@@ -69,10 +69,11 @@ async function start($: Engine, seen: Seen) {
 }
 
 const OPTIONS = { options: { checkCommands: RUN, decisionLog: LOG } }
+const OPTIONS_PA_OFF = { ...OPTIONS, options: { ...OPTIONS.options, planApproval: 'off' } }
 const CHAINED = `${RUN} && ls /a/out/missing.txt`
 
 describe('0.8.0 A11: đầu cuối', () => {
-  test('lệnh ghép mã thoát 1: không có mục W4, có câu đề nghị chạy riêng và dòng check-chained', OPTIONS, async ($, on) => {
+  test('lệnh ghép mã thoát 1: không có mục W4, có câu đề nghị chạy riêng và dòng check-chained', { ...OPTIONS, options: { ...(OPTIONS as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const { seen, lines } = setup(on, new Map([[CHAINED, [`${PASS}\n${MISSING}`, true]]]))
     await start($, seen)
     const out = await bash($, CHAINED)
@@ -86,7 +87,7 @@ describe('0.8.0 A11: đầu cuối', () => {
     expect(lines().some(l => l['kind'] === 'check-chained')).toBe(true)
   })
 
-  test('câu đề nghị chạy riêng chỉ một lần mỗi lệnh mỗi turn', OPTIONS, async ($, on) => {
+  test('câu đề nghị chạy riêng chỉ một lần mỗi lệnh mỗi turn', { ...OPTIONS, options: { ...(OPTIONS as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const { seen } = setup(on, new Map([[CHAINED, [`${PASS}\n${MISSING}`, true]]]))
     await start($, seen)
     await bash($, CHAINED)
@@ -94,7 +95,7 @@ describe('0.8.0 A11: đầu cuối', () => {
     expect((again.context ?? []).some(c => c.includes('chạy riêng'))).toBe(false)
   })
 
-  test('lệnh ghép mã thoát 1 không tính là đạt: Y6 vẫn đòi chạy lệnh kiểm', OPTIONS, async ($, on) => {
+  test('lệnh ghép mã thoát 1 không tính là đạt: Y6 vẫn đòi chạy lệnh kiểm', OPTIONS_PA_OFF, async ($, on) => {
     const { seen } = setup(on, new Map([[CHAINED, [`${PASS}\n${MISSING}`, true]]]))
     await start($, seen)
     await bash($, CHAINED)
@@ -102,7 +103,7 @@ describe('0.8.0 A11: đầu cuối', () => {
     expect(await stop($)).toContain('check_a.py')
   })
 
-  test('lệnh khai rồi && echo xong, mã thoát 0: đạt, Stop không chặn', OPTIONS, async ($, on) => {
+  test('lệnh khai rồi && echo xong, mã thoát 0: đạt, Stop không chặn', { ...OPTIONS, options: { ...(OPTIONS as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     const { seen } = setup(on, new Map())
     await start($, seen)
     await bash($, `${RUN} && echo xong`)
@@ -110,7 +111,7 @@ describe('0.8.0 A11: đầu cuối', () => {
     expect(await stop($)).toBe('')
   })
 
-  test('cd rồi lệnh khai, mã thoát 1: lỗi như cũ, Stop chặn lượt 2/3', OPTIONS, async ($, on) => {
+  test('cd rồi lệnh khai, mã thoát 1: lỗi như cũ, Stop chặn lượt 2/3', OPTIONS_PA_OFF, async ($, on) => {
     const { seen } = setup(on, new Map([[`cd /a/tools && ${RUN}`, [FAIL, true]]]))
     await start($, seen)
     await bash($, `cd /a/tools && ${RUN}`)
@@ -118,7 +119,7 @@ describe('0.8.0 A11: đầu cuối', () => {
     expect(await stop($)).toContain('2/3')
   })
 
-  test('mục W4 đang sống rồi lệnh ghép mã thoát khác 0: mục giữ nguyên, lỗi cuối không đổi', OPTIONS, async ($, on) => {
+  test('mục W4 đang sống rồi lệnh ghép mã thoát khác 0: mục giữ nguyên, lỗi cuối không đổi', OPTIONS_PA_OFF, async ($, on) => {
     const { seen } = setup(on, new Map<string, [string, boolean]>([[RUN, [FAIL, true]], [CHAINED, [`${PASS}\n${MISSING}`, true]]]))
     await start($, seen)
     await bash($, RUN)

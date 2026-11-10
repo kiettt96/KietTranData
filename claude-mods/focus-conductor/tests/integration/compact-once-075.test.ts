@@ -36,7 +36,7 @@ async function setup($: Engine, on: On, tokensAfter?: number) {
 describe('0.7.5 M7: một lần nén qua hook chỉ nhắc một lần', () => {
   for (const tokensAfter of [40_000, undefined]) {
     const label = tokensAfter === undefined ? 'engine không ghi tokensAfter' : 'có tokensAfter'
-    test(`${label}: lần đo kế tiếp còn là số cũ (150k), lần sau đúng (38k): đúng một lời nhắc`, {}, async ($, on) => {
+    test(`${label}: lần đo kế tiếp còn là số cũ (150k), lần sau đúng (38k): đúng một lời nhắc`, { options: { planApproval: 'off' } }, async ($, on) => {
       const { seen, box } = await setup($, on, tokensAfter)
       await $.session.compact({ trigger: 'auto', messages: MESSAGES } as never)
       expect(reminders(await readFile($))).toBe(1)
@@ -47,7 +47,7 @@ describe('0.7.5 M7: một lần nén qua hook chỉ nhắc một lần', () => {
       expect(reminders(await readFile($))).toBe(0)
     })
 
-    test(`${label}: sau lần đo bị bỏ qua, một lần nén thật không qua hook vẫn được nhận ra`, {}, async ($, on) => {
+    test(`${label}: sau lần đo bị bỏ qua, một lần nén thật không qua hook vẫn được nhận ra`, { options: { planApproval: 'off' } }, async ($, on) => {
       const { seen, box } = await setup($, on, tokensAfter)
       await $.session.compact({ trigger: 'auto', messages: MESSAGES } as never)
       expect(reminders(await readFile($))).toBe(1)

@@ -179,6 +179,19 @@ export function registerCommand(on: On, ctx: Ctx): void {
       return { text: `Đã miễn \`${item.command}\` cho mục tiêu này (lượt ${item.round}/${RETRY_ROUNDS}): không còn chặn kết thúc. Câu trả lời cuối cần mục "${WAIVE_REPORT}".` }
     }
 
+    if (sub === 'approve') {
+      // Duyệt kế hoạch (0.8.2 N2): chỉ người gõ, cùng luật origin như /conductor waive; Claude và plugin không tự duyệt được.
+      const isTyped = WAIVE_ORIGINS.has(e.origin.kind)
+      if (!isTyped) return { text: 'Chỉ nhận /conductor approve do người gõ; lệnh từ plugin, SDK hay lịch không duyệt được kế hoạch.' }
+      const core = S.normalizeCore(await read($, coreState))
+      if (core.brief === null || !S.isPlanGated(core)) return { text: 'Không có kế hoạch nào đang chờ duyệt.' }
+      await update($, coreState, S.withApproval({ ...S.approvalOf(core), status: 'approved' }))
+      record(await $.clock.now(), 'approval', { goalId: core.brief.goalId, status: 'approved', cause: 'command' })
+      await flushDecisions((path, text) => $.fs.write(path, text))
+      await showStatus($, await read($, view), ctx.options)
+      return { text: 'Đã duyệt kế hoạch; Claude được sửa file theo checklist.' }
+    }
+
     if (sub === 'mode') {
       if (!S.isMode(arg)) return { text: `Chế độ phải là auto, subagents, suggest hoặc off.\n${COMMAND_HELP}` }
       await update($, modeState, () => arg)
@@ -426,6 +439,8 @@ export function registerCommand(on: On, ctx: Ctx): void {
       costLines.push(cacheNote(ctx.cacheTtlMs / 60_000))
       const latency = routerTimeLine()
       if (latency) costLines.push(latency)
+      // Ý của tin nhắn cuối router đã đọc (0.8.2 N1).
+      if (ctx.local.lastIntent !== null) costLines.push(`${lang === 'en' ? 'Last message intent' : 'Ý của tin nhắn cuối'}: ${ctx.local.lastIntent}`)
       const quotaNow = normalizeQuota(await read($, quotaState))
       costLines.push(
         ...quotaStatusLines({

@@ -59,7 +59,7 @@ describe('0.7.3 điểm 3: nhãn status', () => {
 })
 
 describe('0.7.3 điểm 3: turn lỗi của luồng chính', () => {
-  test('reason error: status ghi nhãn, một toast', {}, async ($, on) => {
+  test('reason error: status ghi nhãn, một toast', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     startHooks(on)
     await submit($, COMPLEX_PROMPT)
@@ -69,7 +69,7 @@ describe('0.7.3 điểm 3: turn lỗi của luồng chính', () => {
     expect(seen.toasts.filter(t => t.includes('turn lỗi')).length).toBe(1)
   })
 
-  test('lỗi liên tiếp khi bản ghi còn đó: không toast lần hai', {}, async ($, on) => {
+  test('lỗi liên tiếp khi bản ghi còn đó: không toast lần hai', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     startHooks(on)
     await submit($, COMPLEX_PROMPT)
@@ -80,7 +80,7 @@ describe('0.7.3 điểm 3: turn lỗi của luồng chính', () => {
     expect(seen.toasts.filter(t => t.includes('turn lỗi')).length).toBe(1)
   })
 
-  test('turn lỗi không làm tool call sau đó bị từ chối', {}, async ($, on) => {
+  test('turn lỗi không làm tool call sau đó bị từ chối', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on)
     startHooks(on)
     await submit($, COMPLEX_PROMPT)
@@ -90,7 +90,7 @@ describe('0.7.3 điểm 3: turn lỗi của luồng chính', () => {
     expect(out.deny).toBeUndefined()
   })
 
-  test('turn trả lời bình thường kế tiếp xóa nhãn', {}, async ($, on) => {
+  test('turn trả lời bình thường kế tiếp xóa nhãn', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     startHooks(on)
     await submit($, COMPLEX_PROMPT)
@@ -102,7 +102,7 @@ describe('0.7.3 điểm 3: turn lỗi của luồng chính', () => {
     expect(lastStatus(seen.statuses)).not.toContain(LABEL)
   })
 
-  test('sau khi nhãn đã xóa, lỗi mới báo toast lại', {}, async ($, on) => {
+  test('sau khi nhãn đã xóa, lỗi mới báo toast lại', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     startHooks(on)
     await submit($, COMPLEX_PROMPT)
@@ -116,7 +116,7 @@ describe('0.7.3 điểm 3: turn lỗi của luồng chính', () => {
   })
 
   for (const reason of ['aborted', 'refusal']) {
-    test(`reason ${reason}: không tạo nhãn`, {}, async ($, on) => {
+    test(`reason ${reason}: không tạo nhãn`, { options: { planApproval: 'off' } }, async ($, on) => {
       const seen = base(on)
       startHooks(on)
       await submit($, COMPLEX_PROMPT)
@@ -127,7 +127,7 @@ describe('0.7.3 điểm 3: turn lỗi của luồng chính', () => {
     })
   }
 
-  test('aborted hay refusal không xóa nhãn đang có', {}, async ($, on) => {
+  test('aborted hay refusal không xóa nhãn đang có', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     startHooks(on)
     await submit($, COMPLEX_PROMPT)
@@ -138,7 +138,7 @@ describe('0.7.3 điểm 3: turn lỗi của luồng chính', () => {
     expect(lastStatus(seen.statuses)).toContain(LABEL)
   })
 
-  test('turn lỗi của subagent không tạo nhãn', {}, async ($, on) => {
+  test('turn lỗi của subagent không tạo nhãn', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     startHooks(on)
     await submit($, COMPLEX_PROMPT)
@@ -147,7 +147,7 @@ describe('0.7.3 điểm 3: turn lỗi của luồng chính', () => {
     expect(seen.toasts.some(t => t.includes('turn lỗi'))).toBe(false)
   })
 
-  test('turn của subagent kết thúc bằng câu trả lời không xóa nhãn của luồng chính', {}, async ($, on) => {
+  test('turn của subagent kết thúc bằng câu trả lời không xóa nhãn của luồng chính', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     startHooks(on)
     await submit($, COMPLEX_PROMPT)
@@ -157,7 +157,7 @@ describe('0.7.3 điểm 3: turn lỗi của luồng chính', () => {
     expect(lastStatus(seen.statuses)).toContain(LABEL)
   })
 
-  test('mục tiêu mới (/conductor goal) và /conductor reset xóa nhãn', {}, async ($, on) => {
+  test('mục tiêu mới (/conductor goal) và /conductor reset xóa nhãn', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on)
     startHooks(on)
     await submit($, COMPLEX_PROMPT)
@@ -183,7 +183,7 @@ describe('0.7.3 điểm 3: turn lỗi của luồng chính', () => {
     expect(lastStatus(seen.statuses)).not.toContain(LABEL)
   })
 
-  test('nhật ký quyết định có dòng net kèm mục tiêu và số bước còn mở', { options: { decisionLog: '/tmp/fc-turn-fault.jsonl' } }, async ($, on) => {
+  test('nhật ký quyết định có dòng net kèm mục tiêu và số bước còn mở', { options: { planApproval: 'off', decisionLog: '/tmp/fc-turn-fault.jsonl' } }, async ($, on) => {
     const writes: string[] = []
     on('fs.write', (_$, e) => {
       writes.push(e.text)
@@ -227,14 +227,14 @@ describe('0.7.3 điểm 3: tách khỏi bảo vệ hạn mức', () => {
     return { seen, box }
   }
 
-  test('turn tiếp tục chết vì lỗi: điểm dừng hạn mức về open như cũ và nhãn turn lỗi cùng có', {}, async ($, on) => {
+  test('turn tiếp tục chết vì lỗi: điểm dừng hạn mức về open như cũ và nhãn turn lỗi cùng có', { options: { planApproval: 'off' } }, async ($, on) => {
     const { seen, box } = await resumedTurn($, on)
     await $.turn.complete(DONE('r1', 'error'))
     expect((box.data.get(storeKey('/repo')) as QuotaCheckpoint).status).toBe('open')
     expect(lastStatus(seen.statuses)).toContain(LABEL)
   })
 
-  test('điểm dừng hạn mức có sẵn không bị bản ghi turn lỗi đè: nội dung điểm dừng không đổi sau turn lỗi', {}, async ($, on) => {
+  test('điểm dừng hạn mức có sẵn không bị bản ghi turn lỗi đè: nội dung điểm dừng không đổi sau turn lỗi', { options: { planApproval: 'off' } }, async ($, on) => {
     const { box } = await resumedTurn($, on)
     // 0.7.5 B4: turn chạy tiếp không xong thì điểm dừng dựng lại từ trạng thái hiện tại (tiến độ của turn đó), nên chỉ so phần
     // định danh của điểm dừng hạn mức: bản ghi turn lỗi không đè id, giờ tạo, lý do dừng và note. Từ vòng sửa 2 (L1) lệnh bị từ
@@ -247,7 +247,7 @@ describe('0.7.3 điểm 3: tách khỏi bảo vệ hạn mức', () => {
     expect((box.data.get(storeKey('/repo')) as QuotaCheckpoint).denied).toBeNull()
   })
 
-  test('đang dừng vì hạn mức mà turn lỗi: nhãn hạn mức vẫn hiện, đứng trước nhãn turn lỗi', {}, async ($, on) => {
+  test('đang dừng vì hạn mức mà turn lỗi: nhãn hạn mức vẫn hiện, đứng trước nhãn turn lỗi', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, RESUME)
     on('tool.register', () => ({ value: { tool: PLAN } }))
     on('session.start', (_$, e) => ({ cwd: e.cwd }))

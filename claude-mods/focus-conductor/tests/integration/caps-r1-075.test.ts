@@ -79,7 +79,7 @@ describe('0.7.5 R1: phần tràn qua nhiều lượt tiếp nối', () => {
 })
 
 describe('0.7.5 R1: phiên với prompt 32.000 ký tự', () => {
-  test('prompt đầy 30 yêu cầu (12 ràng buộc ở ca nextBrief trên), rồi "BẮT BUỘC xuất file Excel": có việc phủ, có trong request kế tiếp', {}, async ($, on) => {
+  test('prompt đầy 30 yêu cầu (12 ràng buộc ở ca nextBrief trên), rồi "BẮT BUỘC xuất file Excel": có việc phủ, có trong request kế tiếp', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = base(on, { router: request => (request.includes(EXCEL) && !request.includes('Bối cảnh chung') ? REFINE : FIRST) })
     expect(PROMPT_32K.length).toBe(32_000)
     await submit($, PROMPT_32K)
@@ -92,7 +92,7 @@ describe('0.7.5 R1: phiên với prompt 32.000 ký tự', () => {
     expect(String((await conductor($, 'status')).text)).not.toContain('không giữ được')
   })
 
-  test('cả phần tràn đầy: cảnh báo nêu số mục không giữ được, hiện ở /conductor status', {}, async ($, on) => {
+  test('cả phần tràn đầy: cảnh báo nêu số mục không giữ được, hiện ở /conductor status', { options: { planApproval: 'off' } }, async ($, on) => {
     const many = plan({ relation: 'refine', goal: '', requirements: Array.from({ length: 12 }, (_, i) => `Tinh chỉnh ${i + 1}`) })
     base(on, { router: request => (request.includes('thêm 12 yêu cầu') ? many : FIRST) })
     await submit($, PROMPT_32K)

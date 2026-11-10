@@ -42,13 +42,13 @@ async function batch($: Engine, step: number, n: number, outcome: 'done' | 'fail
 }
 
 describe('0.7.6 U4: chip lô subagent', () => {
-  test('trước khi giao: không có chip lô', async ($, on) => {
+  test('trước khi giao: không có chip lô', { options: { planApproval: 'off' } }, async ($, on) => {
     await goal($, on)
     const row = await firstRow($, 120)
     expect(row).not.toMatch(/xong|đang chạy|lỗi/)
   })
 
-  test('3 việc x 100 lô, 3 lô lỗi: 120 cột chip "3 lỗi"; còn lô chạy thì "2 đang chạy · 3 lỗi"', LONG, async ($, on) => {
+  test('3 việc x 100 lô, 3 lô lỗi: 120 cột chip "3 lỗi"; còn lô chạy thì "2 đang chạy · 3 lỗi"', { ...LONG, options: { ...(LONG as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     await goal($, on)
     for (const step of [1, 2, 3]) for (let n = 1; n <= 100; n++) await batch($, step, n, n === 50 ? 'failed' : 'done')
     expect(await firstRow($, 120)).toContain('3 lỗi')
@@ -58,7 +58,7 @@ describe('0.7.6 U4: chip lô subagent', () => {
     expect(await firstRow($, 120)).toContain('2 đang chạy · 3 lỗi')
   })
 
-  test('60 cột: tên việc đủ và chip vẫn vừa; 48 cột: tên việc được ưu tiên, chip bị bỏ trước', LONG, async ($, on) => {
+  test('60 cột: tên việc đủ và chip vẫn vừa; 48 cột: tên việc được ưu tiên, chip bị bỏ trước', { ...LONG, options: { ...(LONG as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     await goal($, on)
     for (const step of [1, 2, 3]) for (let n = 1; n <= 100; n++) await batch($, step, n, n === 50 ? 'failed' : 'done')
     const at60 = await firstRow($, 60)
@@ -69,7 +69,7 @@ describe('0.7.6 U4: chip lô subagent', () => {
     expect(at48).not.toContain('3 lỗi')
   })
 
-  test('xong mục tiêu: không có chip lô', LONG, async ($, on) => {
+  test('xong mục tiêu: không có chip lô', { ...LONG, options: { ...(LONG as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
     await goal($, on)
     for (let n = 1; n <= 3; n++) await batch($, 1, n, n === 2 ? 'failed' : 'done')
     for (let id = 2; id <= TITLES.length; id++) await $.tool.call({ tool: PLAN, action: 'update', step: id, status: 'done' } as never)

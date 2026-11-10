@@ -39,7 +39,7 @@ async function midGoal($: Engine, on: Parameters<typeof base>[0]): Promise<Seen>
 }
 
 describe('0.7.6 band hai dòng', () => {
-  test('120 cột: dòng 1 có thanh, số bước, mã và tên bước, chip "opus high", thời gian đã chạy, chi phí, Chi tiết; dòng 2 là mục tiêu mờ', async ($, on) => {
+  test('120 cột: dòng 1 có thanh, số bước, mã và tên bước, chip "opus high", thời gian đã chạy, chi phí, Chi tiết; dòng 2 là mục tiêu mờ', { options: { planApproval: 'off' } }, async ($, on) => {
     await midGoal($, on)
     const rows = await bandRows($, 120, 2)
     expect(rows.length).toBe(2)
@@ -49,18 +49,18 @@ describe('0.7.6 band hai dòng', () => {
     expect(rows[1]).toContain(GOAL)
   })
 
-  test('maxRows 6 vẫn chỉ hai dòng: không còn các dòng việc riêng', async ($, on) => {
+  test('maxRows 6 vẫn chỉ hai dòng: không còn các dòng việc riêng', { options: { planApproval: 'off' } }, async ($, on) => {
     await midGoal($, on)
     expect((await bandRows($, 120, 6)).length).toBe(2)
   })
 
-  test('72 cột: không có chi phí; 96 cột trở lên: có', async ($, on) => {
+  test('72 cột: không có chi phí; 96 cột trở lên: có', { options: { planApproval: 'off' } }, async ($, on) => {
     await midGoal($, on)
     expect((await bandRows($, 72, 2))[0]).not.toContain('$')
     expect((await bandRows($, 96, 2))[0]).toContain('$')
   })
 
-  test('không có gì cần chú ý mà có subagent đang chạy: dòng 2 là subagent đang chạy', async ($, on) => {
+  test('không có gì cần chú ý mà có subagent đang chạy: dòng 2 là subagent đang chạy', { options: { planApproval: 'off' } }, async ($, on) => {
     await midGoal($, on)
     await $.tool.call({ tool: 'Agent', tool_use_id: 'r1', description: 'BƯỚC 3: lọc tin lô 1', prompt: 'lọc', model: 'sonnet' } as never)
     await $.agent.spawn({ prompt: 'lọc', description: 'BƯỚC 3: lọc tin lô 1', tool_use_id: 'r1' } as never)
@@ -69,7 +69,7 @@ describe('0.7.6 band hai dòng', () => {
     expect(rows[1]).toContain('BƯỚC 3: lọc tin lô 1')
   })
 
-  test('maxRows 1: chỉ dòng 1; cảnh báo mức đỏ (ngoài phạm vi) thế chỗ tên bước', async ($, on) => {
+  test('maxRows 1: chỉ dòng 1; cảnh báo mức đỏ (ngoài phạm vi) thế chỗ tên bước', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, { router: () => plan({ goal: GOAL, depth: 'substantial', volume: 'small', scope: ['src/'] }) })
     on('tool.call', { tool: 'Write' }, () => ({ result: 'đã ghi' }))
     await submit($, GOAL)
@@ -85,7 +85,7 @@ describe('0.7.6 band hai dòng', () => {
 })
 
 describe('0.7.6 band hai dòng: chưa có checklist', () => {
-  test('dòng 1 ghi mục tiêu; không có gì cần chú ý thì không lặp mục tiêu ở dòng 2', async ($, on) => {
+  test('dòng 1 ghi mục tiêu; không có gì cần chú ý thì không lặp mục tiêu ở dòng 2', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, { router: () => plan({ goal: GOAL, depth: 'substantial', volume: 'small' }) })
     await submit($, GOAL)
     const rows = await bandRows($, 120, 2)

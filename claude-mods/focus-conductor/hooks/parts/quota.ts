@@ -10,7 +10,7 @@ import { addTouched, buildCheckpoint, pruneKeys, pushRecent, recentLine, storeKe
 import type { CheckpointInput } from '../lib/checkpoint'
 import { classifyBash, filePathOf, isInScope, isMutation, normalizePath, restorableSteps } from '../lib/drift'
 import { FILE_TOOLS } from '../lib/drift/tool'
-import { EMPTY_QUOTA, QUOTA_CACHE_MS, deniedInput, evaluateQuota, blockingHits, isPauseActive, newPause, normalizeQuota, noteDenial, overrideOf, allowScopes, landsInsideAllowed, makesLink, pauseAllowIssues, pauseAllowPaths, quotaSettings, reasonsOf, softNotices } from '../lib/quota'
+import { BACKUP_CALLS_MAX, EMPTY_QUOTA, QUOTA_CACHE_MS, backupCommand, backupOutcome, deniedInput, isBackupOn, pauseBackupMode, evaluateQuota, blockingHits, isPauseActive, newPause, normalizeQuota, noteDenial, overrideOf, allowScopes, landsInsideAllowed, makesLink, pauseAllowIssues, pauseAllowPaths, quotaSettings, reasonsOf, softNotices } from '../lib/quota'
 import type { QuotaEval } from '../lib/quota'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
@@ -112,7 +112,9 @@ async function pauseCheckpoint($: EngineInterface, pause: QuotaPause, now: numbe
     files: await fileStats($, q.touched.goalId === (fresh.brief?.goalId ?? 0) ? q.touched.paths : []),
     denied: previous?.denied ?? null,
   })
-  return previous?.note ? { ...cp, note: previous.note } : cp
+  const noted = previous?.note ? { ...cp, note: previous.note } : cp
+  // 0.8.2 N4: kết quả sao lưu của chính lần dừng này được giữ khi dựng lại điểm dừng.
+  return previous?.backup !== undefined ? { ...noted, backup: previous.backup } : noted
 }
 
 /**
@@ -230,6 +232,32 @@ async function isAllowedWrite($: EngineInterface, input: Record<string, unknown>
   return true
 }
 
+/**
+ * 0.8.2 N4: phiên có chạy trên cloud không, theo đúng một biến CLAUDE_CODE_REMOTE có giá trị khác rỗng (chủ mod đã chốt). Không đọc
+ * biến nào khác, không ghi giá trị đi đâu. Engine không có $.env hay đọc lỗi thì coi như không phải cloud. Đọc một lần mỗi phiên.
+ */
+async function isCloudSession($: EngineInterface, memo: { value: boolean | null }): Promise<boolean> {
+  if (memo.value !== null) return memo.value
+  let value: string | undefined
+  try {
+    // Engine thiếu $.env thì lời gọi ném lỗi, rơi vào catch.
+    value = await $.env.get('CLAUDE_CODE_REMOTE')
+  } catch {
+    value = undefined
+  }
+  memo.value = typeof value === 'string' && value.trim() !== ''
+  return memo.value
+}
+
+/** 0.8.2 N4: output của lời gọi Bash cho backupOutcome: chữ model đọc, nếu không có thì stdout và stderr của bản ghi tool. */
+function bashOutput(result: { text?: string; result?: unknown }): string {
+  if (typeof result.text === 'string') return result.text
+  const record = result.result as { stdout?: unknown; stderr?: unknown } | string | undefined
+  if (typeof record === 'string') return record
+  if (record === undefined || record === null) return ''
+  return [record.stdout, record.stderr].filter((part): part is string => typeof part === 'string').join('\n')
+}
+
 export function registerQuota(on: On, ctx: Ctx): void {
   const settings = quotaSettings(ctx.options)
   const allowPaths = pauseAllowPaths(ctx.options)
@@ -238,6 +266,8 @@ export function registerQuota(on: On, ctx: Ctx): void {
   const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
   const cache: LimitCache = { at: Number.NEGATIVE_INFINITY, limits: null }
   const noticeFlag = { isWarned: false }
+  const backupMode = pauseBackupMode(ctx.options)
+  const cloudMemo: { value: boolean | null } = { value: null }
 
   // Số đo mới sau mỗi turn hay khi một cửa sổ nhích: chỉ cập nhật $.state cho band và status, không dừng gì ở đây
   // (dừng thật nằm ở tool.call, ranh giới nguyên tử).
@@ -394,6 +424,31 @@ export function registerQuota(on: On, ctx: Ctx): void {
     // Tool plan của chính mod được qua: Claude cần nó để ghi điểm dừng.
     if (e.tool === PLAN_TOOL_FULL) return next(e)
     const isAgent = e.agentId !== undefined
+    // 0.8.2 N4: pauseBackup bật khi dừng vì hạn mức: luồng chính được tối đa BACKUP_CALLS_MAX lời gọi Bash git add, commit và push lên
+    // nhánh -wip trong lần dừng này; lời gọi khác dạng hay quá trần bị từ chối như cũ. auto chỉ bật khi nhận biết được phiên cloud.
+    const backup = !isAgent && pause.source === 'quota' && backupMode !== 'off' && isBackupOn(backupMode, backupMode === 'auto' && (await isCloudSession($, cloudMemo)))
+    if (backup && e.tool === 'Bash' && (pause.backupCalls ?? 0) < BACKUP_CALLS_MAX) {
+      const root = await $.session.root().catch(caught('session.root', null))
+      const cwd = await $.session.cwd().catch(caught('session.cwd', null))
+      const command = backupCommand(String((e as unknown as { command?: unknown }).command ?? ''), root, cwd)
+      if (command !== null) {
+        await update($, quotaState, c => {
+          const n = normalizeQuota(c)
+          return n.pause === null ? n : { ...n, pause: { ...n.pause, backupCalls: (n.pause.backupCalls ?? 0) + 1 } }
+        })
+        const result = await next(e)
+        if (command.kind === 'push' && result.deny === undefined) {
+          const outcome = backupOutcome(result.isError === true, bashOutput(result), command.branch, await $.clock.now())
+          const current = normalizeQuota(await read($, quotaState)).checkpoint
+          if (current !== null) {
+            const cp: QuotaCheckpoint = { ...current, backup: outcome }
+            await update($, quotaState, c => ({ ...normalizeQuota(c), checkpoint: cp }))
+            if (!(await storeCheckpoint($, cp))) $.ui.toast('Focus Conductor: không lưu được điểm dừng vào kho của mod; điểm dừng chỉ còn trong phiên này')
+          }
+        }
+        return result
+      }
+    }
     // pauseAllowPaths (0.7.5): luồng chính vẫn ghi được file checkpoint theo quy tắc dừng của prompt.
     if (!isAgent && allowPaths.length > 0 && (await isAllowedWrite($, e as unknown as Record<string, unknown> & { tool: string }, allowScope))) return next(e)
     let abort = false
@@ -414,6 +469,6 @@ export function registerQuota(on: On, ctx: Ctx): void {
     // Dừng cứng dự phòng: model vẫn gọi tool bị từ chối lần thứ ba trong cùng turn. Gọi tại ranh giới tool call,
     // lệnh bị từ chối chưa chạy.
     if (abort) await $.turn.abort({ turnId: q.mainTurnId }).catch(caught('turn.abort', undefined))
-    return { deny: quotaDenyText(saved.reason, saved.source === 'user', isAgent, allowPaths) }
+    return { deny: quotaDenyText(saved.reason, saved.source === 'user', isAgent, allowPaths, backup) }
   }).catch(($, e, next) => (noteHookError('tool.call', next.error), next(e)))
 }
