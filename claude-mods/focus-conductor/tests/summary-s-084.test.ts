@@ -26,3 +26,9 @@ describe('0.8.4 S1: pass, ok chen giữa phủ định và từ lỗi', () => {
     test(`"${out}": không đạt`, () => expect(passed(out)).toBe(false))
   }
 })
+
+describe('0.8.4 S2: error, errors là từ lỗi của phủ định cách quãng', () => {
+  for (const out of ['Summary: passed, no test errors', 'Summary: passed, no test error']) {
+    test(`"${out}": đạt`, () => expect(passed(out)).toBe(true))
+  }
+})
