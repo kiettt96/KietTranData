@@ -153,13 +153,14 @@ describe('0.8.4 A2: tiếp tục quay lại mục tiêu đã cất', () => {
     expect(await show($)).toContain('Mục tiêu: Sửa chú thích')
   })
 
+  // 0.8.5 K5: tên giữ như 0.8.4; kỳ vọng đổi thành khôi phục mục tiêu đã cất gần nhất còn dở (mục tiêu ở giữa không dở nên không được cất).
   test('mục tiêu đã cất gần nhất không phải mục tiêu bị mục tiêu hiện tại thay: không khôi phục', { options: OPTIONS[0][1] }, async ($, on) => {
     const { seen } = setup(on, [BIG(), NEW('Viết hàm slugify'), NEW('Sửa chú thích'), RESUME])
     await goalA($, seen)
     await submit($, 'Viết hàm slugify(text)')
     await goalB($, true)
     await submit($, 'tiếp tục')
-    expect(await show($)).toContain('Mục tiêu: Sửa chú thích')
+    expect(await show($)).toContain(`Mục tiêu: ${A}`)
   })
 
   test('tin hỏi tiến độ trong cùng tình huống: không khôi phục', { options: OPTIONS[0][1] }, async ($, on) => {
@@ -300,5 +301,60 @@ describe('0.8.4 Z2: các hành vi của nhánh A2', () => {
     expect((lastContext(seen)[0] ?? '')).toContain('ĐIỂM DỪNG')
     expect(await show($)).toContain('Mục tiêu: Sửa chú thích')
     expect(lines().some(l => l['kind'] === 'restore' && l['cause'] === 'resume')).toBe(false)
+  })
+})
+
+// 0.8.5 K5: tin bảo chạy tiếp lùi được nhiều tầng (mục tiêu đã cất gần nhất còn dở, duyệt từ mới tới cũ), và báo không còn việc khi checklist
+// hiện tại đã đóng hết mà không còn mục tiêu đã cất nào đang dở.
+const NOTHING_LEFT = 'không còn việc nào đã cất'
+describe('0.8.5 K5: tiếp tục lùi nhiều tầng và báo khi không còn gì', () => {
+  /** A còn bước mở bị B thay; B còn bước mở bị C thay; C đóng hết. */
+  async function threeLevels($: Engine, seen: Seen) {
+    await goalA($, seen)
+    await submit($, 'Sửa chú thích README')
+    await setPlan($, ['Sửa chú thích', 'Thêm ví dụ'])
+    await mark($, 1, 'doing')
+    await submit($, 'Đổi tên biến cấu hình')
+    await setPlan($, ['Đổi tên biến'])
+    await mark($, 1, 'done')
+  }
+
+  test('C xong, tiếp tục quay lại B; B xong, tiếp tục lần hai quay lại A với đúng 2 bước mở', { options: OPTIONS[0][1] }, async ($, on) => {
+    const { seen } = setup(on, [BIG(), NEW('Sửa chú thích'), NEW('Đổi tên biến'), RESUME])
+    await threeLevels($, seen)
+    await submit($, 'tiếp tục')
+    expect(await show($)).toContain('Mục tiêu: Sửa chú thích')
+    await mark($, 1, 'done')
+    await mark($, 2, 'done')
+    await submit($, 'tiếp tục')
+    const shown = await show($)
+    expect(shown).toContain(`Mục tiêu: ${A}`)
+    expect(shown).toContain('[~] 2. Thêm test')
+    expect(shown).toContain('[ ] 3. Cập nhật tài liệu')
+  })
+
+  test('A cũng xong, tiếp tục lần ba: dòng báo không còn việc, không có chạy tiếp từ bước đang mở, không có dòng restore mới', { options: OPTIONS[0][1] }, async ($, on) => {
+    const { seen, lines } = setup(on, [BIG(), NEW('Sửa chú thích'), NEW('Đổi tên biến'), RESUME])
+    await threeLevels($, seen)
+    await submit($, 'tiếp tục')
+    await mark($, 1, 'done')
+    await mark($, 2, 'done')
+    await submit($, 'tiếp tục')
+    expect(await show($)).toContain(`Mục tiêu: ${A}`)
+    await mark($, 2, 'done')
+    await mark($, 3, 'done')
+    const restores = lines().filter(l => l['kind'] === 'restore').length
+    await submit($, 'tiếp tục')
+    expect(lastContext(seen).filter(c => c.includes(NOTHING_LEFT)).length).toBe(1)
+    expect(lastContext(seen).some(c => c.includes('chạy tiếp từ bước đang mở'))).toBe(false)
+    expect(lines().filter(l => l['kind'] === 'restore').length).toBe(restores)
+  })
+
+  test('checklist trống (việc nhỏ không lập checklist), không có mục tiêu đã cất: giữ dòng chạy tiếp, không có dòng báo không còn việc', { options: OPTIONS[0][1] }, async ($, on) => {
+    const { seen } = setup(on, [plan({ goal: 'Sửa phí', depth: 'light', volume: 'small', kind: 'edit' }), RESUME])
+    await submit($, 'Sửa phí')
+    await submit($, 'tiếp tục')
+    expect(lastContext(seen).some(c => c.includes('chạy tiếp từ bước đang mở'))).toBe(true)
+    expect(lastContext(seen).some(c => c.includes(NOTHING_LEFT))).toBe(false)
   })
 })
