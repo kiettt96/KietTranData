@@ -7,8 +7,9 @@
 
 import type { ModelCompleteRequest, ModelCompleteResult, ModelTextBlock, ModelUsage } from 'claude-code'
 
-import type { ApprovalStatus, Brief, Choice, Depth, Effort, ForkSplit, Intent, Kind, ModelFamily, Relation, RouterFail, RouterFailKind, Task, Tier, Volume } from '../../types'
-import { FABLE_AGENT_TIMEOUT_MS, FABLE_DRIFT_TIMEOUT_MS, FABLE_LONG_TIMEOUT_MS, FABLE_PROMPT_TIMEOUT_MS, FABLE_REVIEW_TIMEOUT_MS, isBigGoal } from './conductor'
+import type { Brief, Choice, Depth, Effort, ForkSplit, Intent, Kind, ModelFamily, Relation, RouterFail, RouterFailKind, Task, Tier, Volume } from '../../types'
+import { FABLE_AGENT_TIMEOUT_MS, FABLE_DRIFT_TIMEOUT_MS, FABLE_LONG_TIMEOUT_MS, FABLE_PROMPT_TIMEOUT_MS, FABLE_REVIEW_TIMEOUT_MS, isBigGoal, isPendingGoal } from './conductor'
+import type { PendingState } from './conductor'
 import { PRICE } from './cost'
 import type { Price } from './cost'
 import { EFFORTS, FAMILIES, applySession, avoidBlocked, codesIn, describePick, effortRank, familyOf, familyRank, sessionFloor } from './route'
@@ -1529,10 +1530,8 @@ function mentionsGoal(prompt: string, prev: Brief, openSteps: readonly string[])
  * còn bước mở, hay cổng duyệt đang planning hay presented, hay mục tiêu lớn chưa lập checklist. Tin ngoài lề: router xếp new, không việc,
  * không đối chiếu, và loại answer (mọi độ sâu) hay investigate với độ sâu none hay light. Mức tin cậy không xét.
  */
-export function isAside(plan: Pick<RouterPlan, 'relation' | 'tasks' | 'isReference' | 'runReference' | 'kind' | 'depth'>, prev: Brief | null, state: { open: number; total: number; approval: ApprovalStatus }): boolean {
-  if (prev === null || prev.isReference) return false
-  const isPending = state.open > 0 || state.approval === 'planning' || state.approval === 'presented' || (isBigGoal(prev) && state.total === 0)
-  if (!isPending) return false
+export function isAside(plan: Pick<RouterPlan, 'relation' | 'tasks' | 'isReference' | 'runReference' | 'kind' | 'depth'>, prev: Brief | null, state: PendingState): boolean {
+  if (!isPendingGoal(prev, state)) return false
   if (plan.relation !== 'new' || plan.tasks.length > 0 || plan.isReference || plan.runReference) return false
   return plan.kind === 'answer' || (plan.kind === 'investigate' && (plan.depth === 'none' || plan.depth === 'light'))
 }
@@ -1542,7 +1541,7 @@ export function nextBrief(
   plan: RouterPlan,
   prompt: string,
   now: number,
-  options: { openSteps?: readonly string[]; sessionFamily?: ModelFamily | null; doneTasks?: ReadonlySet<number> } = {},
+  options: { openSteps?: readonly string[]; sessionFamily?: ModelFamily | null; doneTasks?: ReadonlySet<number>; isPending?: boolean } = {},
 ): { brief: Brief; added: Task[]; isNewGoal: boolean; replaced: string[]; held: boolean; dropped: number; phase?: PhaseOpened } {
   const out = nextBriefRaw(prev, plan, prompt, now, options)
   return { ...out, brief: withSessionFloor(out.brief, options.sessionFamily ?? null) }
@@ -1563,15 +1562,16 @@ function nextBriefRaw(
   plan: RouterPlan,
   prompt: string,
   now: number,
-  options: { openSteps?: readonly string[]; doneTasks?: ReadonlySet<number> },
+  options: { openSteps?: readonly string[]; doneTasks?: ReadonlySet<number>; isPending?: boolean },
 ): { brief: Brief; added: Task[]; isNewGoal: boolean; replaced: string[]; held: boolean; dropped: number; phase?: PhaseOpened } {
   if (prev !== null && prev.isReference && plan.runReference) {
     const brief = promoteReference(prev, plan, prompt, now)
     return { brief, added: [], isNewGoal: true, replaced: replacedOf(prev, brief), held: false, dropped: 0 }
   }
   const open = options.openSteps ?? []
-  // Mục tiêu mới tin cậy thấp khi checklist còn bước mở (0.8.0 A3): không thay checklist, mở đợt mới (thay cơ chế held của 0.7.5).
-  const isLowNew = prev !== null && !prev.isReference && plan.relation === 'new' && open.length > 0 && (plan.confidence ?? 1) < NEW_GOAL_CONFIDENCE
+  // Mục tiêu mới tin cậy thấp khi mục tiêu đang dở (0.8.0 A3; 0.8.5 K2: `isPending` theo isPendingGoal, vắng thì checklist còn bước mở): không
+  // thay mục tiêu, mở đợt mới (thay cơ chế held của 0.7.5).
+  const isLowNew = prev !== null && !prev.isReference && plan.relation === 'new' && (options.isPending ?? open.length > 0) && (plan.confidence ?? 1) < NEW_GOAL_CONFIDENCE
   const held = isLowNew && prev !== null && mentionsGoal(prompt, prev, open)
   // Prompt tiếp nối có danh sách việc riêng (0.8.0 A3): từ PHASE_MIN mục danh sách và router thêm từ PHASE_MIN việc.
   const isListed = (plan.relation === 'continue' || plan.relation === 'refine') && plan.tasks.length >= PHASE_MIN && listItems(prompt) >= PHASE_MIN

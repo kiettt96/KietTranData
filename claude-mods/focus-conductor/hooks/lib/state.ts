@@ -7,7 +7,8 @@
 import type { PluginOptions } from 'claude-code'
 
 import type { AgentProgress, AgentState, ApprovalState, ApprovalStatus, AgentTally, ArchivedGoal, Brief, ChangedState, CheckHint, Core, FableState, ForkPart, ForkPartState, ForkState, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, RetryItem, RetryState, Route, Waiver, WaiverState, RouteEvent, RouterFail, SkillState, TurnFault, Warning } from '../../types'
-import { restorableSteps } from './drift'
+import { openSteps, restorableSteps } from './drift'
+import { isPendingGoal } from './conductor'
 import type { Tokens } from './cost'
 import { addUsage, emptyLedger, nextGoal, planSwitch, resetLedger } from './ledger'
 import { legacyOf } from './scale'
@@ -538,9 +539,23 @@ function stubBrief(plan: readonly PlanStep[]): Brief {
   }
 }
 
-/** Lưu mục tiêu hiện tại nếu checklist còn bước mở hoặc đang chờ (chưa có brief thì dùng brief tạm); mới nhất trước. */
+/** Mục tiêu hiện tại đang dở (0.8.5 K2) theo định nghĩa chung isPendingGoal. */
+export function pendingOf(c: Core): boolean {
+  const n = normalizeCore(c)
+  return isPendingGoal(n.brief, { open: openSteps(n.plan).length, total: n.plan.length, approval: approvalOf(n).status })
+}
+
+/** Mục tiêu đã cất còn dở (0.8.5 K2): checklist còn bước mở, hay trạng thái duyệt lúc cất, hay mục tiêu lớn chưa có checklist. */
+export function archivedPending(a: ArchivedGoal): boolean {
+  return isPendingGoal(a.brief, { open: openSteps(a.plan).length, total: a.plan.length, approval: 'none' })
+}
+
+/**
+ * Lưu mục tiêu hiện tại nếu checklist còn bước mở hoặc đang chờ, hay mục tiêu đang dở dù chưa có checklist (0.8.5 K2); chưa có brief thì
+ * dùng brief tạm; mới nhất trước.
+ */
 function archiveOf(n: Core): ArchivedGoal[] {
-  if (restorableSteps(n.plan).length === 0) return n.archived
+  if (restorableSteps(n.plan).length === 0 && !pendingOf(n)) return n.archived
   const brief = n.brief ?? stubBrief(n.plan)
   return [{ brief, plan: n.plan }, ...n.archived.filter(a => n.brief === null || a.brief.goalId !== n.brief.goalId)].slice(0, ARCHIVE_LIMIT)
 }

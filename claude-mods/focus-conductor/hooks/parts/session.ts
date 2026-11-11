@@ -15,7 +15,7 @@ import type { RouterOutcome, RouterPlan } from '../lib/router'
 import { EMPTY_QUOTA, blockingHits, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaSettings, reasonsOf, softNotices } from '../lib/quota'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
-import { DISCIPLINE, asideContext, conductorContext, conductorKeepText, phaseNotice, briefContext, droppedItemsText, droppedPlanNotice, followUpContext, intentResumeContext, intentStatusContext, interjectContext, interjectMovedNote, quotaPausedContext, resetLabel, resumeCommand, restorableLabel, restoreResumeContext, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
+import { DISCIPLINE, asideContext, conductorContext, conductorKeepText, phaseNotice, briefContext, droppedGoalNotice, droppedItemsText, droppedPlanNotice, followUpContext, intentResumeContext, intentStatusContext, interjectContext, interjectMovedNote, quotaPausedContext, resetLabel, resumeCommand, restorableLabel, restoreGoalOnlyContext, restoreResumeContext, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -349,7 +349,7 @@ export function registerSession(on: On, ctx: Ctx): void {
     // là mục tiêu bị chính mục tiêu hiện tại thay (mục tiêu mới mang số của mục tiêu trước cộng 1): khôi phục bằng cùng đường với plan
     // action restore. Tin chạy tiếp điểm dừng giữ ưu tiên.
     const lastArchived = before.archived[0]
-    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && openSteps(lastArchived.plan).length > 0 && lastArchived.brief.goalId === prev.goalId - 1
+    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && S.archivedPending(lastArchived) && lastArchived.brief.goalId === prev.goalId - 1
     if (isBackToArchived && plan !== null && prev !== null && lastArchived !== undefined) {
       // Khôi phục trên Core đọc ngay lúc này, không trên before (0.8.4 Z1): các lần ghi Core trước đó của prompt này (lượt Fable đạt
       // đưa bộ đếm lỗi về 0, giảm số prompt còn tạm ngừng, hết chờ câu trả lời) không bị ghi đè.
@@ -367,7 +367,10 @@ export function registerSession(on: On, ctx: Ctx): void {
         const wanted = wantedPick(restored, core.lift, core, current)
         const conductNote = wanted?.isConducting === true && core.fable.briefedGoal !== restored.goalId ? [conductorContext()] : []
         if (conductNote.length > 0) await update($, coreState, S.withFable(() => ({ briefedGoal: restored.goalId })))
-        return next({ ...e, context: [...lead, ...(e.context ?? []), restoreResumeContext(restored.goal, openSteps(core.plan)[0]), ...conductNote, ...tail] })
+        // Mục tiêu đã cất chưa có checklist (0.8.5 K2): một dòng riêng; đang lập kế hoạch thì kèm đoạn dặn như mọi mục tiêu planning.
+        const backLine = core.plan.length === 0 ? restoreGoalOnlyContext(restored.goal) : restoreResumeContext(restored.goal, openSteps(core.plan)[0])
+        const backPlanning = S.approvalOf(core).status === 'planning' ? [planningContext()] : []
+        return next({ ...e, context: [...lead, ...(e.context ?? []), backLine, ...conductNote, ...backPlanning, ...tail] })
       }
     }
     // Tin hỏi tiến độ (0.8.2 N1): không đổi brief, checklist, việc, yêu cầu hay ràng buộc; chỉ cộng chi phí router. Tin gửi khi không có
@@ -448,7 +451,7 @@ export function registerSession(on: On, ctx: Ctx): void {
     // Việc đã xong theo checklist hiện tại (0.8.0 A3): có bước riêng và các bước đó đã đóng hết; được cất khi prompt này mở đợt mới. Việc chưa
     // có bước riêng không tính là xong chỉ vì checklist đóng hết (checklist đó có thể là của đợt trước).
     const doneTasks = new Set(taskRows(before, now).filter(row => row.index !== undefined && row.kind !== 'main' && row.state === 'done' && row.bar.kind === 'steps').map(row => row.index as number))
-    const { brief, added, isNewGoal, replaced, held, dropped, phase } = nextBrief(prev, plan, text, now, { openSteps: openSteps(before.plan).map(s => s.title), sessionFamily: L.sessionFamily, doneTasks })
+    const { brief, added, isNewGoal, replaced, held, dropped, phase } = nextBrief(prev, plan, text, now, { openSteps: openSteps(before.plan).map(s => s.title), sessionFamily: L.sessionFamily, doneTasks, isPending: S.pendingOf(before) })
     // Router xếp mục tiêu mới với tin cậy thấp khi checklist còn bước mở (0.7.5): giữ mục tiêu, ghi nhật ký quyết định.
     if (held && prev !== null) {
       L.promptIntent = { relation: 'continue', kind: plan.kind }
@@ -552,7 +555,9 @@ export function registerSession(on: On, ctx: Ctx): void {
     }
     // Checklist cũ còn bước mở không bị mất: nó được lưu, Claude khôi phục được nếu router xếp nhầm mục tiêu mới.
     const archived = isNewGoal ? restorableSteps(before.plan) : []
-    const notice = archived.length > 0 ? [droppedPlanNotice(archived)] : []
+    // Mục tiêu đang dở chưa có checklist (0.8.5 K2) cũng được lưu: một dòng báo riêng.
+    const isGoalSaved = isNewGoal && archived.length === 0 && prev !== null && S.pendingOf(before)
+    const notice = archived.length > 0 ? [droppedPlanNotice(archived)] : isGoalSaved && prev !== null ? [droppedGoalNotice(prev.goal)] : []
     record(now, 'route', {
       prompt: clipText(text),
       relation: plan.relation,
