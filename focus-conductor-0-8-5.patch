@@ -346,7 +346,7 @@ index 292b882..cbf4833 100644
        return hadFinding ? marked : S.withLiftDecay(marked)
      })
 diff --git a/claude-mods/focus-conductor/hooks/parts/session.ts b/claude-mods/focus-conductor/hooks/parts/session.ts
-index a1aafa3..4ef00d8 100644
+index a1aafa3..38e418f 100644
 --- a/claude-mods/focus-conductor/hooks/parts/session.ts
 +++ b/claude-mods/focus-conductor/hooks/parts/session.ts
 @@ -15,7 +15,7 @@ import type { RouterOutcome, RouterPlan } from '../lib/router'
@@ -462,7 +462,27 @@ index a1aafa3..4ef00d8 100644
      // Router xếp mục tiêu mới với tin cậy thấp khi checklist còn bước mở (0.7.5): giữ mục tiêu, ghi nhật ký quyết định.
      if (held && prev !== null) {
        L.promptIntent = { relation: 'continue', kind: plan.kind }
-@@ -539,7 +568,7 @@ export function registerSession(on: On, ctx: Ctx): void {
+@@ -520,13 +549,18 @@ export function registerSession(on: On, ctx: Ctx): void {
+     const shownBrief: Brief = isSplitHeld ? { ...brief, tasks: brief.tasks.map(dropSplit) } : brief
+     // Duyệt kế hoạch (0.8.2 N2). Mục tiêu mới: thuộc diện duyệt thì planning, skipApproval thì skipped, còn lại none. Cùng mục tiêu: đã
+     // trình mà duyệt thì approved, sửa thì về planning (lượt rà về 0); còn lại giữ nguyên. Hỏi làm rõ một lần mỗi mục tiêu khi planning.
++    // Bổ sung lớn sau khi đã duyệt (0.8.5 D2): mục tiêu thuộc diện duyệt, tin amend mà router đọc là substantial hay hard, edit hay mixed, có
++    // việc mới: kế hoạch về planning để trình lại.
++    const isBigAmend = !isNewGoal && approvalBefore.status === 'approved' && intent === 'amend' && needsApproval(brief, ctx.planApproval, false) && (plan.depth === 'substantial' || plan.depth === 'hard') && (plan.kind === 'edit' || plan.kind === 'mixed') && added.length > 0
+     const stage = isNewGoal
+       ? { goalId: brief.goalId, status: needsApproval(brief, ctx.planApproval, plan.skipApproval === true) ? ('planning' as const) : plan.skipApproval === true ? ('skipped' as const) : ('none' as const), rounds: 0, asked: false, awaitingAnswer: false }
+       : isPresented && intent === 'approve'
+         ? { ...approvalBefore, status: 'approved' as const }
+         : isPresented && intent === 'amend'
+           ? { ...approvalBefore, status: 'planning' as const, rounds: 0 }
+-          : approvalBefore
++          : isBigAmend
++            ? { ...approvalBefore, status: 'planning' as const, rounds: 0 }
++            : approvalBefore
+     const isAsking = stage.status === 'planning' && !stage.asked && (plan.questions?.length ?? 0) > 0
+     // Dặn hỏi làm rõ: chờ câu trả lời ở prompt kế tiếp (0.8.3 R3, ghi vào Core cùng lượt ghi trạng thái duyệt).
+     const approval = isAsking ? { ...stage, asked: true, awaitingAnswer: true } : stage
+@@ -539,7 +573,7 @@ export function registerSession(on: On, ctx: Ctx): void {
      const context = isApproved
        ? approvedContext(core.plan)
        : intent === 'resume' && !isNewGoal
@@ -471,7 +491,7 @@ index a1aafa3..4ef00d8 100644
        : isInterject && !isNewGoal
        ? interjectContext(brief, core.plan, shownAdded, newConstraints, { main: running !== null ? describePick(running) : 'model đang chạy', mayReplace: routed?.relation === 'new', isRouted: true })
        : isNewGoal
-@@ -552,7 +581,9 @@ export function registerSession(on: On, ctx: Ctx): void {
+@@ -552,7 +586,9 @@ export function registerSession(on: On, ctx: Ctx): void {
      }
      // Checklist cũ còn bước mở không bị mất: nó được lưu, Claude khôi phục được nếu router xếp nhầm mục tiêu mới.
      const archived = isNewGoal ? restorableSteps(before.plan) : []
@@ -483,7 +503,7 @@ index a1aafa3..4ef00d8 100644
        prompt: clipText(text),
        relation: plan.relation,
 diff --git a/claude-mods/focus-conductor/scripts/mutants.ts b/claude-mods/focus-conductor/scripts/mutants.ts
-index a621d3b..a1807b2 100644
+index a621d3b..63686a2 100644
 --- a/claude-mods/focus-conductor/scripts/mutants.ts
 +++ b/claude-mods/focus-conductor/scripts/mutants.ts
 @@ -712,7 +712,7 @@ export const MUTANTS: Mutant[] = [
@@ -528,7 +548,7 @@ index a621d3b..a1807b2 100644
    { id: "075-M5j", file: "hooks/lib/state.ts", note: "đọc lại trạng thái làm mất main của prompt lập mục tiêu", old: "    ...(brief.mainBase ? { mainBase: brief.mainBase } : {}),\n", new: "" },
    { id: "075-M6a", file: "hooks/lib/drift/classify.ts", note: "nguồn của mv không tính là đích ghi", old: "      if (name === 'mv') positional.forEach(add)\n", new: "" },
    { id: "075-M6b", file: "hooks/parts/quota.ts", note: "ln được qua khi đích nằm trong danh sách", old: " && e.name !== 'ln'", new: "" },
-@@ -2117,19 +2117,41 @@ export const MUTANTS: Mutant[] = [
+@@ -2117,19 +2117,43 @@ export const MUTANTS: Mutant[] = [
    { id: "084-A1b", file: "hooks/parts/session.ts", note: "tin ngoài lề vẫn cất checklist như mục tiêu mới", old: "      if (!isInterject) L.promptIntent = { relation: 'continue', kind: 'answer' }\n      await update($, coreState, c => S.withRouterFail(null)(S.withAnalyzerUsage(outcome.usages, target.family)(c)))\n      L.lastPrompt = { text, prev, goalId: prev.goalId }\n      record(now, 'route', { prompt: clipText(text), relation: plan.relation, intent: 'aside'", new: "      if (!isInterject) L.promptIntent = { relation: 'continue', kind: 'answer' }\n      await update($, coreState, c => S.adoptGoal({ ...prev, goalId: prev.goalId + 1 })(S.withRouterFail(null)(S.withAnalyzerUsage(outcome.usages, target.family)(c))))\n      L.lastPrompt = { text, prev, goalId: prev.goalId }\n      record(now, 'route', { prompt: clipText(text), relation: plan.relation, intent: 'aside'" },
    { id: "084-A1c", file: "hooks/lib/router.ts", note: "coi tin new có việc là ngoài lề", old: "  if (plan.relation !== 'new' || plan.tasks.length > 0 || plan.isReference || plan.runReference) return false\n", new: "  if (plan.relation !== 'new' || plan.isReference || plan.runReference) return false\n" },
    { id: "084-A1d", file: "hooks/lib/router.ts", note: "coi investigate mọi độ sâu là ngoài lề", old: "  return plan.kind === 'answer' || (plan.kind === 'investigate' && (plan.depth === 'none' || plan.depth === 'light'))\n", new: "  return plan.kind === 'answer' || plan.kind === 'investigate'\n" },
@@ -580,13 +600,15 @@ index a621d3b..a1807b2 100644
 +  { id: "085-D1a", file: "hooks/parts/consistency.ts", note: "không nâng mức strictDelegation khi điều phối", old: "(strictDelegation === 'block' || isConductingNow(blockCore, await read($, mode)))", new: "(strictDelegation === 'block')" },
 +  { id: "085-D1b", file: "hooks/parts/consistency.ts", note: "nâng mức strictDelegation cả khi không điều phối", old: "ctx.conductorOption === 'fable' && isMainConducting(ctx.conductorInputs(core, current), core.brief)", new: "ctx.conductorOption === 'fable'" },
 +  { id: "085-D1c", file: "hooks/parts/consistency.ts", note: "lời nhắc sau khi hết lượt chặn không theo mức block khi điều phối", old: "    const isStrict = strictDelegation !== 'off' || (e.agentId === undefined && isConductingNow(core, await read($, mode)))\n", new: "    const isStrict = strictDelegation !== 'off'\n" },
++  { id: "085-D2a", file: "hooks/parts/session.ts", note: "bổ sung lớn sau khi duyệt giữ approved", old: "          : isBigAmend\n            ? { ...approvalBefore, status: 'planning' as const, rounds: 0 }\n", new: "          : false\n            ? { ...approvalBefore, status: 'planning' as const, rounds: 0 }\n" },
++  { id: "085-D2b", file: "hooks/parts/session.ts", note: "bổ sung nhỏ sau khi duyệt cũng về planning", old: " && intent === 'amend' && needsApproval(brief, ctx.planApproval, false) && (plan.depth === 'substantial' || plan.depth === 'hard') && (plan.kind === 'edit' || plan.kind === 'mixed') && added.length > 0\n", new: " && intent === 'amend' && ctx.planApproval === 'auto' && (plan.kind === 'edit' || plan.kind === 'mixed') && added.length > 0\n" },
  ]
 diff --git a/claude-mods/focus-conductor/tests/integration/approval-k3-085.test.ts b/claude-mods/focus-conductor/tests/integration/approval-k3-085.test.ts
 new file mode 100644
-index 0000000..4cb992a
+index 0000000..5c8c007
 --- /dev/null
 +++ b/claude-mods/focus-conductor/tests/integration/approval-k3-085.test.ts
-@@ -0,0 +1,100 @@
+@@ -0,0 +1,142 @@
 +// 0.8.5 K3: mục tiêu được cất mang theo trạng thái duyệt kế hoạch lúc bị cất; khôi phục (tin bảo chạy tiếp hay plan action restore) đặt lại
 +// trạng thái đó cho số mục tiêu mới. Mục tiêu đang planning chưa duyệt thì sau khi khôi phục luồng chính vẫn chưa được sửa file. Trạng thái
 +// Core của 0.8.4 (mục tiêu đã cất không có trường mới) khôi phục được, trạng thái duyệt none.
@@ -597,7 +619,7 @@ index 0000000..4cb992a
 +import type { Brief, Core } from '../../types'
 +import * as S from '../../hooks/lib/state'
 +import { planningContext } from '../../hooks/lib/approval'
-+import { base, plan, submit } from '../support/engine'
++import { base, plan, submit, task } from '../support/engine'
 +import type { Json, Seen } from '../support/engine'
 +import { makeBrief } from '../support/commands'
 +
@@ -686,6 +708,48 @@ index 0000000..4cb992a
 +    expect(S.approvalOf(outcome.core).status).toBe('none')
 +    expect(S.isPlanGated(outcome.core)).toBe(false)
 +  })
++})
++
++// 0.8.5 D2: bổ sung lớn sau khi đã duyệt (intent amend, depth substantial hay hard, kind edit hay mixed, có việc mới) đưa kế hoạch về
++// planning để trình lại; bổ sung không đạt các điều kiện đó giữ approved.
++describe('0.8.5 D2: bổ sung lớn sau khi duyệt được trình lại', () => {
++  const AMEND = (over: Json = {}) => plan({ relation: 'continue', intent: 'amend', goal: '', depth: 'substantial', volume: 'medium', kind: 'edit', main: MAIN, tasks: [task('Thêm kênh thanh toán mới', 'main', 'sonnet', 'medium')], ...over })
++  /** A lớn: lập checklist, trình, duyệt; Edit chạy được. */
++  async function approved($: Engine) {
++    await submit($, A)
++    await $.turn.start({ text: 'việc', turnId: 't1' })
++    await setSteps($)
++    expect(await stop($)).toBe('')
++    await submit($, 'ok duyệt')
++    expect((await edit($)).deny).toBeUndefined()
++  }
++
++  test('bổ sung substantial, edit, có việc mới: Edit bị từ chối; lập lại checklist, trình, duyệt thì Edit chạy', OPTS, async ($, on) => {
++    const seen = setup(on, [BIG, APPROVE, AMEND(), APPROVE])
++    await approved($)
++    await submit($, 'thêm cả kênh thanh toán mới')
++    expect(String((await edit($)).deny ?? '')).toContain('chưa được duyệt')
++    expect(lastContext(seen).filter(c => c === planningContext()).length).toBe(1)
++    await $.turn.start({ text: 'lập lại', turnId: 't2' })
++    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa hàm phí', check: 'bun test' }, { title: 'Thêm test', check: 'bun test' }, { title: 'Thêm kênh thanh toán mới', check: 'bun test' }] } as never)
++    expect(await stop($)).toBe('')
++    await submit($, 'duyệt')
++    expect((await edit($)).deny).toBeUndefined()
++  })
++
++  const KEEPS: Array<[string, Json]> = [
++    ['bổ sung light có việc mới', { depth: 'light', volume: 'small' }],
++    ['bổ sung substantial không có việc mới', { tasks: [] }],
++    ['bổ sung substantial, kind answer', { kind: 'answer', tasks: [task('Giải thích kênh mới', 'main', 'sonnet', 'medium', { kind: 'answer' })] }],
++  ]
++  for (const [name, over] of KEEPS) {
++    test(`${name}: giữ approved, Edit chạy`, OPTS, async ($, on) => {
++      setup(on, [BIG, APPROVE, AMEND(over)])
++      await approved($)
++      await submit($, 'thêm cả kênh thanh toán mới')
++      expect((await edit($)).deny).toBeUndefined()
++    })
++  }
 +})
 diff --git a/claude-mods/focus-conductor/tests/integration/awaiting-k1-085.test.ts b/claude-mods/focus-conductor/tests/integration/awaiting-k1-085.test.ts
 new file mode 100644
