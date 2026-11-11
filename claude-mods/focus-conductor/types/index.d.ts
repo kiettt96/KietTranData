@@ -255,7 +255,8 @@ export type Ledger = {
  * Mục tiêu cũ còn bước mở, lưu lại khi chuyển sang mục tiêu mới, để router xếp nhầm "mục tiêu mới"
  * không làm mất tiến độ: Claude khôi phục bằng plan action "restore".
  */
-export type ArchivedGoal = { brief: Brief; plan: PlanStep[] }
+/** `approval` (0.8.5 K3): trạng thái duyệt kế hoạch của mục tiêu lúc bị cất; vắng ở trạng thái từ bản cũ là none. */
+export type ArchivedGoal = { brief: Brief; plan: PlanStep[]; approval?: ApprovalStatus }
 
 /** Trạng thái một việc router ghi giao subagent: chờ giao, đang chạy, xong, hoặc lỗi. */
 export type DelegationState = 'pending' | 'running' | 'done' | 'failed'

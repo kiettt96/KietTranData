@@ -547,7 +547,7 @@ export function pendingOf(c: Core): boolean {
 
 /** Mục tiêu đã cất còn dở (0.8.5 K2): checklist còn bước mở, hay trạng thái duyệt lúc cất, hay mục tiêu lớn chưa có checklist. */
 export function archivedPending(a: ArchivedGoal): boolean {
-  return isPendingGoal(a.brief, { open: openSteps(a.plan).length, total: a.plan.length, approval: 'none' })
+  return isPendingGoal(a.brief, { open: openSteps(a.plan).length, total: a.plan.length, approval: a.approval ?? 'none' })
 }
 
 /**
@@ -557,7 +557,14 @@ export function archivedPending(a: ArchivedGoal): boolean {
 function archiveOf(n: Core): ArchivedGoal[] {
   if (restorableSteps(n.plan).length === 0 && !pendingOf(n)) return n.archived
   const brief = n.brief ?? stubBrief(n.plan)
-  return [{ brief, plan: n.plan }, ...n.archived.filter(a => n.brief === null || a.brief.goalId !== n.brief.goalId)].slice(0, ARCHIVE_LIMIT)
+  // Trạng thái duyệt lúc cất (0.8.5 K3): khôi phục đặt lại cho số mục tiêu mới; cờ chờ câu trả lời không mang theo.
+  return [{ brief, plan: n.plan, approval: approvalOf(n).status }, ...n.archived.filter(a => n.brief === null || a.brief.goalId !== n.brief.goalId)].slice(0, ARCHIVE_LIMIT)
+}
+
+/** Trạng thái duyệt của mục tiêu khôi phục (0.8.5 K3): trạng thái lúc cất, gắn với số mục tiêu mới; vắng (bản cũ) là none. */
+function restoredApproval(goalId: number, status: ApprovalStatus | undefined): ApprovalState {
+  const kept = status ?? 'none'
+  return { goalId, status: kept, rounds: 0, asked: kept !== 'none', awaitingAnswer: false }
 }
 
 /**
@@ -584,6 +591,7 @@ export function restoreArchived(c: Core, index: number): { core: Core; restored:
     archived,
     mirror: { goalId, steps: [] },
     ...freshProgress(goalId),
+    approval: restoredApproval(goalId, restored.approval),
   }
   return { core, restored: { brief, plan: restored.plan } }
 }

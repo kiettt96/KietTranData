@@ -2136,4 +2136,7 @@ export const MUTANTS: Mutant[] = [
   { id: "085-K2b", file: "hooks/lib/router.ts", note: "isLowNew chỉ xét bước mở", old: "(options.isPending ?? open.length > 0)", new: "open.length > 0" },
   { id: "085-K2c", file: "hooks/parts/session.ts", note: "khôi phục bỏ qua mục tiêu đã cất không có checklist", old: "lastArchived !== undefined && S.archivedPending(lastArchived) && lastArchived.brief.goalId === prev.goalId - 1\n", new: "lastArchived !== undefined && openSteps(lastArchived.plan).length > 0 && lastArchived.brief.goalId === prev.goalId - 1\n" },
   { id: "085-K2d", file: "hooks/lib/state.ts", note: "cất cả mục tiêu không dở", old: "  if (restorableSteps(n.plan).length === 0 && !pendingOf(n)) return n.archived\n", new: "  if (n.brief === null && restorableSteps(n.plan).length === 0) return n.archived\n" },
+  { id: "085-K3a", file: "hooks/lib/state.ts", note: "không cất trạng thái duyệt", old: "  return [{ brief, plan: n.plan, approval: approvalOf(n).status }, ...n.archived", new: "  return [{ brief, plan: n.plan }, ...n.archived" },
+  { id: "085-K3b", file: "hooks/lib/state.ts", note: "khôi phục không đặt lại trạng thái duyệt", old: "    approval: restoredApproval(goalId, restored.approval),\n", new: "" },
+  { id: "085-K3c", file: "hooks/lib/state.ts", note: "khôi phục luôn đặt approved", old: "  const kept = status ?? 'none'\n", new: "  const kept: ApprovalStatus = 'approved'\n" },
 ]
