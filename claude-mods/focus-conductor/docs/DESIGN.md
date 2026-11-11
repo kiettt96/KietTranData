@@ -208,6 +208,25 @@ Không điểm nào nới cổng kiểm. Schema tool `plan` không đổi; hai s
 - **Thứ tự các cổng Stop.** (0) N2 rà kế hoạch khi `planning` (xét trước, không theo `stop_hook_active`; turn hỏi làm rõ và kế hoạch đã trình thì cho kết thúc, bỏ các cổng sau); (1) W4 cùng Y5; (2) Y6; (3) N3; (4) G1 và checklist. Gộp lý do theo thứ tự đó trong 1.200 ký tự.
 - **Giới hạn đã biết của 0.8.2.** Chấp nhận kế hoạch ở plan mode chỉ nhận được khi engine đưa `permission_mode` vào `classic.PostToolUse`; vắng thì không tính là duyệt, người dùng trả lời "duyệt" hay gõ `/conductor approve`. Phiên cloud chỉ nhận được qua `CLAUDE_CODE_REMOTE`; nơi khác đặt `pauseBackup: on`. Mod không chấm chất lượng lần thử skill. Cổng duyệt chỉ áp cho mục tiêu lập từ prompt, không áp cho `/conductor goal`, reroute hay plan restore.
 
+## Tin nhắn giữa phiên: tin ngoài lề và quay lại mục tiêu đã cất (0.8.4 A1, A2)
+
+Áp cho mọi giá trị của `conductor`. Mod quyết định bằng các trường router đã trả; lời dặn router không đổi.
+
+- **Mục tiêu đang dở.** Có brief, không phải đối chiếu, và thỏa ít nhất một điều: checklist còn bước mở (`todo` hay `doing`); cổng duyệt `planning` hay `presented`; brief là mục tiêu lớn (`isBigGoal`) mà checklist trống. Checklist đã đóng hết thì không còn dở, kể cả mục tiêu lớn.
+- **Tin ngoài lề** (`isAside`, `hooks/lib/router.ts`). Router trả `relation: new`, `tasks` rỗng, `reference` và `runReference` false, và loại `answer` (mọi độ sâu) hay `investigate` độ sâu `none`, `light`. Mức tin cậy không xét.
+- **Bốn loại tin khi có mục tiêu đang dở:**
+
+| Loại tin | Router trả | Mod làm |
+|---|---|---|
+| Bổ sung yêu cầu | `continue` hay `refine`, intent `amend` | `followUpOf`: nối việc, yêu cầu, ràng buộc vào mục tiêu |
+| Hỏi tiến độ | intent `status` | không đổi gì, `intentStatusContext`, turn hỏi đáp |
+| Bảo chạy tiếp | intent `resume` | chạy tiếp từ bước mở; checklist hiện tại hết bước mở thì quay lại mục tiêu đã cất (A2) |
+| Ngoài lề | `new`, không việc, `answer` hay `investigate` nhẹ | không đổi gì, `asideContext`, turn hỏi đáp; chen ngang thì trả lời ngắn rồi làm tiếp |
+
+- **Thứ tự trong `prompt.submit`.** Tin chạy tiếp điểm dừng (`routed`) trước; `isHeldAnswer` tính theo công thức cũ trên bản chen ngang cũ (mọi tin chen ngang `new` thành `continue`); rồi `isAsideMsg` trên `routed`, chỉ khi không phải câu trả lời câu hỏi làm rõ; rồi `interjected` cuối, bỏ qua tin ngoài lề; `clearAwaiting` chỉ chạy khi tin không phải ngoài lề. Nhánh A2 đặt trước nhánh tin hỏi tiến độ (hai nhánh loại trừ nhau theo intent), nhánh tin ngoài lề đặt sau nhánh tin hỏi tiến độ.
+- **Quay lại mục tiêu đã cất (A2).** Điều kiện: intent `resume` sau bước kẹp, không phải chạy tiếp điểm dừng, checklist hiện tại không còn bước mở, mục tiêu đã cất gần nhất còn bước mở (`todo`, `doing`; mục tiêu chỉ còn bước `waiting` không quay lại), và số của nó bằng số mục tiêu hiện tại trừ 1. Mục tiêu mới luôn mang số của mục tiêu trước cộng 1 (`briefOf`, `promoteReference`, `/conductor goal`), nên điều kiện cuối chọn đúng mục tiêu bị thay. Khôi phục bằng `ctx.restoreGoal` (dùng chung với `plan` action `restore`: `restoreArchived`, mang dấu vết thực thi, theo dõi việc giao); đoạn dặn điều phối theo khóa `briefedGoal`.
+- **Giới hạn đã biết.** Phân loại tin ngoài lề dựa vào `kind` và `tasks` do router trả, chưa đo trên phiên thật. Turn trả lời tin ngoài lề dùng model và effort của mục tiêu đang dở, không hạ model. Khi đang `awaitingAnswer`, tin ngoài lề có tin cậy dưới `NEW_GOAL_CONFIDENCE` vẫn đi nhánh câu trả lời (`isHeldAnswer`). Mục tiêu `planning` chưa duyệt được khôi phục thì cổng duyệt không còn, vì `restoreArchived` cấp số mục tiêu mới mà trạng thái duyệt gắn với số cũ [Đo trực tiếp, probe]; áp cho cả "tiếp tục" lẫn `plan` action `restore`.
+
 ## Vá cổng duyệt kế hoạch và dòng tổng kết (0.8.3)
 
 - **Dòng tổng kết không dấu (D1).** Sau các luật có dấu, `summaryFailed` xét dòng ở dạng bỏ dấu (`foldLabel`): kết luận `chua dat`, `khong dat`, và số đếm khác 0 trước `loi` cách tối đa một từ. `do` (dạng bỏ dấu của "đỏ") không được đọc vì trùng nhiều từ khác. Phủ định không dấu (`khong co loi`) đã bị bỏ ở bước phủ định cách quãng, `0 loi` là số 0.

@@ -34,6 +34,16 @@ Yêu cầu mới của chủ mod [Nguồn: chủ mod, 10/11/2026]: lập kế ho
 - **Mẫu cũ viết lại cùng ý** (dòng `old` đổi vì X1): `072-B8`.
 - **Mẫu mới:** `084-X1a` tới `084-X1d`.
 
+### Vòng 4 (rà soát PR 37): A1, A2
+
+Yêu cầu của chủ mod [Nguồn: chủ mod, 11/11/2026]: tin gửi trong lúc đang làm một luồng việc có bốn loại: bổ sung yêu cầu (intent `amend`), hỏi tiến độ (`status`), bảo chạy tiếp (`resume`), và câu hỏi hay câu nói ngoài lề. Ba loại đầu có từ 0.8.2; vòng này thêm loại thứ tư và việc quay lại luồng việc đã cất. Cả A1 và A2 áp cho mọi giá trị của `conductor`; lời dặn router, schema JSON router, schema tool `plan` và hai số phiên dài không đổi.
+
+- **A1 (P1): câu hỏi ngoài lề không làm mất luồng việc đang dở.** Trước đây câu hỏi kiến thức (router xếp `new`, `answer`, không việc, như bản ghi ca `explain`) thay mục tiêu và cất checklist khi tin cậy cao, mở "Đợt 2" với 0 việc khi tin cậy thấp, và bị gộp vào yêu cầu của mục tiêu khi chen ngang giữa turn. `isAside` nhận tin ngoài lề khi có mục tiêu đang dở (checklist còn bước mở, cổng duyệt `planning` hay `presented`, hay mục tiêu lớn chưa lập checklist; không phải đối chiếu) và tin `new`, không việc, không đối chiếu, loại `answer` hay `investigate` độ sâu `none` hoặc `light`. Nhánh tin ngoài lề làm như tin hỏi tiến độ: không đổi brief, checklist, việc, yêu cầu, trạng thái duyệt hay mục tiêu đã cất, không mở đợt mới, thêm một dòng `asideContext`, ghi dòng `route` có `intent: 'aside'`. Câu trả lời cho câu hỏi làm rõ (`isHeldAnswer`) và tin chạy tiếp điểm dừng giữ ưu tiên; tin ngoài lề không xóa `awaitingAnswer`. Test đỏ 22/50.
+- **A2 (P2): "tiếp tục" sau một việc chen vào quay lại luồng việc đã cất.** Tin bảo chạy tiếp khi checklist hiện tại không còn bước mở, mục tiêu đã cất gần nhất còn bước mở và là mục tiêu bị chính mục tiêu hiện tại thay (số mục tiêu liền trước): khôi phục bằng cùng đường với `plan` action `restore` (phần dùng chung tách thành `ctx.restoreGoal`; hành vi của tool giữ nguyên), một dòng `restoreResumeContext` báo đã quay lại và bước mở kế tiếp, nhật ký `restore`. Mục tiêu khôi phục là mục tiêu lớn thì vai điều phối quay lại theo luật hiện có. Test đỏ 4/10.
+- **Test cũ sửa kỳ vọng, giữ tên** (ghim hành vi cũ của đúng tình huống A1): `scenarios` "khôi phục rồi lập mục tiêu mới nhiều lần: các mục tiêu đã lưu không đè nhau" (tin "Liệt kê..." gửi khi mục tiêu còn bước mở là tin ngoài lề nên không lập mục tiêu C; còn 2 mục tiêu đã lưu, mục tiêu B vẫn khôi phục được ở index 2); `session-floor-s2-engine-075` "mục tiêu có quy tắc: luồng chính opus; prompt mới nhỏ, router chọn haiku/low: luồng chính haiku/low" (câu hỏi giá vàng gửi khi mục tiêu hard chưa lập checklist là tin ngoài lề, nên không có brief mới chọn haiku/low).
+- **Mẫu cũ viết lại cùng ý** (dòng `old` khớp hai chỗ sau A1): `082-N1c`.
+- **Mẫu mới (13):** `084-A1a` tới `084-A1h`, `084-A2a` tới `084-A2e`.
+
 ## Thay đổi 0.8.3: vá cổng duyệt kế hoạch và dòng tổng kết của lệnh khai
 
 Sáu điểm tồn đọng: R1 tới R4 từ lượt rà soát PR 35, D1 và D2 từ 0.8.1; tái hiện bằng probe trên `main` `2408fd4` (commit squash của PR 35) [Đo trực tiếp]. Mỗi điểm một commit test đỏ rồi một commit sửa, riêng R1 chỉ thêm test; schema tool `plan` và `routerSystem` không đổi.
