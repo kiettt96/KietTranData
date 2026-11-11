@@ -28,6 +28,12 @@ Yêu cầu mới của chủ mod [Nguồn: chủ mod, 10/11/2026]: lập kế ho
 - **Mẫu cũ viết lại cùng ý** (dòng `old` đổi vì V1): `074-F10`, `084-C5a`, `084-C5b`.
 - **Mẫu mới:** `084-V1a` tới `084-V1d`, `084-W1a`, `084-W2a`, `084-W3a` tới `084-W3c`, `084-W4a` tới `084-W4d`.
 
+### Vòng 3 (rà soát PR 37): X1
+
+- **X1 (P1): tin nhắn giữa chừng không làm mục tiêu lớn mất vai điều phối.** `followUpOf` ghi `depth`, `volume`, `kind` của tin tiếp nối vào brief, mà router thật chấm light hay none cho tin bảo chạy tiếp, hỏi tiến độ, bổ sung nhỏ hay duyệt kế hoạch, nên trước đây sau tin đó mục tiêu không còn là mục tiêu lớn: pane báo "Điều phối: tắt", nâng theo bằng chứng áp lại, câu nhắc sau nén mất, luồng chính có thể rời Fable. `Brief.isBig` ghi mục tiêu đã từng là mục tiêu lớn: `followUpOf` đặt cờ khi brief trước là mục tiêu lớn hay kế hoạch của tin tiếp nối tự nó lớn; `isBigGoal` trả true khi có cờ, trừ brief đối chiếu và mục tiêu tối thiểu; `normalizeBrief` giữ cờ, nên cờ còn qua cất và khôi phục mục tiêu. Mục tiêu mới không mang cờ của mục tiêu trước; Core và brief từ bản trước không có cờ thì tính theo công thức cũ. Cách ghi `depth`, `volume`, `kind` và lời gọi trong `parseRoute` không đổi; `conductor` off không đổi hành vi. Test đỏ 13/21.
+- **Mẫu cũ viết lại cùng ý** (dòng `old` đổi vì X1): `072-B8`.
+- **Mẫu mới:** `084-X1a` tới `084-X1d`.
+
 ## Thay đổi 0.8.3: vá cổng duyệt kế hoạch và dòng tổng kết của lệnh khai
 
 Sáu điểm tồn đọng: R1 tới R4 từ lượt rà soát PR 35, D1 và D2 từ 0.8.1; tái hiện bằng probe trên `main` `2408fd4` (commit squash của PR 35) [Đo trực tiếp]. Mỗi điểm một commit test đỏ rồi một commit sửa, riêng R1 chỉ thêm test; schema tool `plan` và `routerSystem` không đổi.

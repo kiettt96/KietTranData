@@ -39,6 +39,17 @@ Nhánh tách từ `main` `4a6c04c` (0.8.3). Thứ tự S1, S2, C1 tới C8; mỗ
 - **Kiểm tĩnh** trên `ad7b287` [Đo trực tiếp]: `claude plugin validate` đạt; `scripts/version-check.mjs` khớp 0.8.4; `mutate --check` 0 lệch; `tsc` với khai báo kiểu 2.1.322: cùng 26 lỗi có sẵn ở test giao diện cũ, `hooks/` và test mới không lỗi; sha256 `hooks/` `0e0f29c86c620d1975f13ae4acab0e4963f08bab9e977b6c15c29adbf4de1dfa`, `tests/` `af8b0e39c5a2607a92c8b67fa06c5e10457c4b4b4c991ee7f68986a00a4c7f9f`.
 - **Mẫu mới, chạy riêng trên tệp test của điểm** [Đo trực tiếp]: `084-W1a` 1 đỏ, `084-W2a` 1, `084-W3a`, `084-W3b`, `084-W3c`, `084-W4a`, `084-W4b`, `084-W4c`, `084-W4d` mỗi mẫu 1 (cả 13 mẫu mới cũng bị bắt khi chạy lại trên cả bộ, xem trên).
 - **CI** [Đo trực tiếp]: run 42816514115 xanh trên `bdfe0b0`; run 42827770225 xanh trên `ad7b287`. Hai run đỏ 42823447762 (`a4d1510`) và 42826076272 (`8d219bc`) là commit test đỏ theo quy ước.
+
+### Vòng 3 (rà soát PR 37): X1
+
+- **Tái hiện trên `6164975`** [Đo trực tiếp]: mục tiêu substantial, edit, rồi một tin giữa chừng (refine amend, resume, continue answer, status none hay dissatisfied, đều light hay none) và tin bảo chạy tiếp light: `turn.step` kế không gửi họ fable, `/conductor status` không còn "đang điều phối".
+- **Test đỏ** [Đo trực tiếp]: X1 13/21 (`969e7b6`); 8 ca xanh trên mã cũ là các ca giữ hành vi (mục tiêu mới không lớn, brief cũ không có cờ, brief từ điểm dừng, năm ca `conductor` mặc định). Sửa ở `970cd76`.
+- **Bộ test** trên `970cd76`, engine 2.1.296: 3117 test trên 272 tệp, 0 lỗi; so tên ca đạt với `ad7b287` (cây test trùng `6164975`): thêm 21 ca, không ca nào mất hay đổi tên.
+- **Kiểm tĩnh** trên `970cd76` [Đo trực tiếp]: `claude plugin validate` đạt ở mod và gốc repo; `version-check` khớp 0.8.4; `mutate --check` 0 lệch sau khi viết lại `072-B8`; `tsc` với khai báo kiểu 2.1.322: cùng 26 lỗi có sẵn trên cùng các tệp test giao diện cũ; sha256 `hooks/` `6f0058c3648796f4274b93c6d35686d3f726efcb2bd92c2a5e70f99e184eb40f`, `tests/` `448db2f3048c16e5f8ce145751bb9b05f5102a3c77eab4be5801537920244e0a`.
+- **Mẫu mới, chạy riêng trên tệp X1** [Đo trực tiếp]: `084-X1a` 11 đỏ, `084-X1b` 12, `084-X1c` 1, `084-X1d` 2; mọi mẫu được xác nhận dòng `old` khớp đúng một chỗ.
+- **Chạy lại sau vòng 3** [Đo trực tiếp]: 22 mẫu chạy lại trên `970cd76`, engine 2.1.296, bộ chạy hai pha: 21 mẫu có dòng `old` nằm trong vùng diff của vòng 3 so với `6164975` (cộng trừ 20 dòng, gồm `072-B8` đã viết lại và `084-X1a` tới `084-X1c`), cộng `084-X1d` (dòng `old` ngoài vùng diff). Kết quả 22 KILLED (19 ở pha 1, 3 ở pha 2), 0 sống, 0 lỗi. Mẫu ngoài vùng giữ kết quả đã có.
+- **Hai số phiên dài** trên `970cd76` [Đo trực tiếp]: 10.339 và 19.587 với `conductor` mặc định; 10.695 và 19.943 với `conductor: 'fable'`, như sau V1.
+- **CI** [Đo trực tiếp]: run 42926842990 xanh trên `970cd76`; run 42926079782 trên `969e7b6` (commit test đỏ) bị hủy khi commit sửa đến. Run của commit tài liệu ghi ở mô tả PR.
 - **Chưa kiểm được trên phiên tương tác thật:** Fable có làm theo đoạn dặn điều phối (giao đúng việc, lời giao tự đứng được) không; chi phí và thời gian của một mục tiêu lớn trọn vẹn; hành vi khi hạn mức riêng của Fable cạn; đường `$.model.complete` và `turn.step` với `claude-fable-5-2` trên engine 2.1.296.
 
 ## Kiểm chứng của 0.8.3 (vá cổng duyệt kế hoạch và dòng tổng kết của lệnh khai)
