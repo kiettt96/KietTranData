@@ -91,7 +91,7 @@ index 2d4ad74..16e9f39 100644
    // Prompt tiếp nối có danh sách việc riêng (0.8.0 A3): từ PHASE_MIN mục danh sách và router thêm từ PHASE_MIN việc.
    const isListed = (plan.relation === 'continue' || plan.relation === 'refine') && plan.tasks.length >= PHASE_MIN && listItems(prompt) >= PHASE_MIN
 diff --git a/claude-mods/focus-conductor/hooks/lib/state.ts b/claude-mods/focus-conductor/hooks/lib/state.ts
-index 6837166..41235d9 100644
+index 6837166..cbb6954 100644
 --- a/claude-mods/focus-conductor/hooks/lib/state.ts
 +++ b/claude-mods/focus-conductor/hooks/lib/state.ts
 @@ -6,8 +6,9 @@
@@ -101,7 +101,7 @@ index 6837166..41235d9 100644
 -import type { AgentProgress, AgentState, ApprovalState, ApprovalStatus, AgentTally, ArchivedGoal, Brief, ChangedState, CheckHint, Core, FableState, ForkPart, ForkPartState, ForkState, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, RetryItem, RetryState, Route, Waiver, WaiverState, RouteEvent, RouterFail, SkillState, TurnFault, Warning } from '../../types'
 -import { restorableSteps } from './drift'
 +import type { AgentProgress, AgentState, ApprovalState, ApprovalStatus, AgentTally, ArchivedGoal, Brief, ChangedState, CheckHint, Core, FableState, ForkPart, GoalTurns, ForkPartState, ForkState, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, RetryItem, RetryState, Route, Waiver, WaiverState, RouteEvent, RouterFail, SkillState, TurnFault, Warning } from '../../types'
-+import { openSteps, restorableSteps } from './drift'
++import { isFullyClosed, openSteps, restorableSteps } from './drift'
 +import { isPendingGoal } from './conductor'
  import type { Tokens } from './cost'
  import { addUsage, emptyLedger, nextGoal, planSwitch, resetLedger } from './ledger'
@@ -150,7 +150,7 @@ index 6837166..41235d9 100644
  /** Trần số đường dẫn lưu mỗi mục tiêu (0.8.2 N5); vượt trần thì chỉ đếm vào overflow. */
  export const CHANGED_LIMIT = 200
  
-@@ -538,11 +566,34 @@ function stubBrief(plan: readonly PlanStep[]): Brief {
+@@ -538,11 +566,52 @@ function stubBrief(plan: readonly PlanStep[]): Brief {
    }
  }
  
@@ -164,6 +164,24 @@ index 6837166..41235d9 100644
 +/** Mục tiêu đã cất còn dở (0.8.5 K2): checklist còn bước mở, hay trạng thái duyệt lúc cất, hay mục tiêu lớn chưa có checklist. */
 +export function archivedPending(a: ArchivedGoal): boolean {
 +  return isPendingGoal(a.brief, { open: openSteps(a.plan).length, total: a.plan.length, approval: a.approval ?? 'none', turnsDone: a.turns?.done ?? 0 })
++}
++
++/**
++ * Mục tiêu đã cất mà tin bảo chạy tiếp quay lại (0.8.4 A2, 0.8.5 K5): thứ tự trong danh sách đã cất (1 là gần nhất), null là không quay lại.
++ * Mục tiêu hiện tại không còn dở; lấy mục đã cất gần nhất còn dở (duyệt từ mới tới cũ).
++ */
++export function resumeTarget(c: Core): number | null {
++  const n = normalizeCore(c)
++  if (n.brief === null) return null
++  if (pendingOf(n)) return null
++  const index = n.archived.findIndex(a => archivedPending(a))
++  return index < 0 ? null : index + 1
++}
++
++/** Tin bảo chạy tiếp mà không còn gì (0.8.5 K5): checklist hiện tại có bước và đã đóng hết, không có mục tiêu đã cất nào còn dở. */
++export function isNothingLeft(c: Core): boolean {
++  const n = normalizeCore(c)
++  return isFullyClosed(n.plan) && !n.archived.some(a => archivedPending(a))
 +}
 +
 +/**
@@ -188,7 +206,7 @@ index 6837166..41235d9 100644
  }
  
  /**
-@@ -569,6 +620,8 @@ export function restoreArchived(c: Core, index: number): { core: Core; restored:
+@@ -569,6 +638,8 @@ export function restoreArchived(c: Core, index: number): { core: Core; restored:
      archived,
      mirror: { goalId, steps: [] },
      ...freshProgress(goalId),
@@ -198,7 +216,7 @@ index 6837166..41235d9 100644
    return { core, restored: { brief, plan: restored.plan } }
  }
 diff --git a/claude-mods/focus-conductor/hooks/lib/text.ts b/claude-mods/focus-conductor/hooks/lib/text.ts
-index 1530304..c4ab7f0 100644
+index 1530304..d4f7c47 100644
 --- a/claude-mods/focus-conductor/hooks/lib/text.ts
 +++ b/claude-mods/focus-conductor/hooks/lib/text.ts
 @@ -155,6 +155,14 @@ export function droppedPlanNotice(open: readonly PlanStep[]): string {
@@ -216,13 +234,21 @@ index 1530304..c4ab7f0 100644
  /** Dòng nhắc bước waiting hoặc blocked khi làm tiếp mục tiêu: các bước đó không chặn Stop nên phải được đặt lại thì mới được theo dõi. */
  function pendingLine(plan: readonly PlanStep[]): string {
    const pending = pendingSteps(plan)
-@@ -335,6 +343,11 @@ export function restoreResumeContext(goal: string, next: PlanStep | undefined):
+@@ -335,6 +343,19 @@ export function restoreResumeContext(goal: string, next: PlanStep | undefined):
    return `[focus-conductor] Tin bảo chạy tiếp: đã quay lại mục tiêu đã cất "${clipItem(goal, 120)}"; chạy tiếp từ ${next !== undefined ? `bước ${next.id}. ${clipItem(next.title, 80)}` : 'bước đang mở'}; không thêm việc mới.`
  }
  
 +/** Tin bảo chạy tiếp quay lại mục tiêu đã cất chưa có checklist (0.8.5 K2): làm tiếp mục tiêu đó từ đầu. Một dòng, tối đa 300 ký tự. */
 +export function restoreGoalOnlyContext(goal: string): string {
 +  return `[focus-conductor] Tin bảo chạy tiếp: đã quay lại mục tiêu đã cất "${clipItem(goal, 120)}"; mục tiêu này chưa có checklist, làm tiếp mục tiêu đó; không thêm việc mới.`
++}
++
++/**
++ * Tin bảo chạy tiếp mà không còn gì để chạy (0.8.5 K5): checklist hiện tại đã đóng hết và không còn việc nào đã cất đang dở. Một dòng, tối
++ * đa 300 ký tự.
++ */
++export function nothingLeftContext(): string {
++  return '[focus-conductor] Tin bảo chạy tiếp: checklist hiện tại đã đóng hết và không còn việc nào đã cất đang dở; tóm tắt kết quả đã làm rồi hỏi người dùng muốn làm gì tiếp, không tự thêm việc mới.'
 +}
 +
  /** Tin bảo chạy tiếp (0.8.2 N1, intent resume; approve khi không có kế hoạch chờ duyệt): chạy tiếp từ bước đang mở. Tối đa 300 ký tự. */
@@ -273,7 +299,7 @@ index 292b882..c7caeea 100644
        return hadFinding ? marked : S.withLiftDecay(marked)
      })
 diff --git a/claude-mods/focus-conductor/hooks/parts/session.ts b/claude-mods/focus-conductor/hooks/parts/session.ts
-index a1aafa3..3344605 100644
+index a1aafa3..28a13be 100644
 --- a/claude-mods/focus-conductor/hooks/parts/session.ts
 +++ b/claude-mods/focus-conductor/hooks/parts/session.ts
 @@ -15,7 +15,7 @@ import type { RouterOutcome, RouterPlan } from '../lib/router'
@@ -281,7 +307,7 @@ index a1aafa3..3344605 100644
  import * as S from '../lib/state'
  import type { View } from '../lib/state'
 -import { DISCIPLINE, asideContext, conductorContext, conductorKeepText, phaseNotice, briefContext, droppedItemsText, droppedPlanNotice, followUpContext, intentResumeContext, intentStatusContext, interjectContext, interjectMovedNote, quotaPausedContext, resetLabel, resumeCommand, restorableLabel, restoreResumeContext, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
-+import { DISCIPLINE, asideContext, conductorContext, conductorKeepText, phaseNotice, briefContext, droppedGoalNotice, droppedItemsText, droppedPlanNotice, followUpContext, intentResumeContext, intentStatusContext, interjectContext, interjectMovedNote, quotaPausedContext, resetLabel, resumeCommand, restorableLabel, restoreGoalOnlyContext, restoreResumeContext, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
++import { DISCIPLINE, asideContext, conductorContext, conductorKeepText, phaseNotice, briefContext, droppedGoalNotice, droppedItemsText, droppedPlanNotice, followUpContext, intentResumeContext, intentStatusContext, interjectContext, interjectMovedNote, quotaPausedContext, resetLabel, resumeCommand, nothingLeftContext, restorableLabel, restoreGoalOnlyContext, restoreResumeContext, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
  import type { EngineInterface, On } from 'claude-code'
  import type { Ctx } from '../context'
  import { modeOf, viewOf } from '../atoms'
@@ -312,15 +338,29 @@ index a1aafa3..3344605 100644
      const steered = isHeldAnswer && interjected !== null ? { ...interjected, relation: 'continue' as const, intent: 'amend' as const } : interjected
      if (isHeldAnswer && prev !== null) {
        intent = 'amend'
-@@ -349,7 +351,7 @@ export function registerSession(on: On, ctx: Ctx): void {
-     // là mục tiêu bị chính mục tiêu hiện tại thay (mục tiêu mới mang số của mục tiêu trước cộng 1): khôi phục bằng cùng đường với plan
-     // action restore. Tin chạy tiếp điểm dừng giữ ưu tiên.
-     const lastArchived = before.archived[0]
+@@ -345,15 +347,15 @@ export function registerSession(on: On, ctx: Ctx): void {
+     const lead = isResuming ? await startResume() : []
+     const tail = isResuming ? [] : pending
+     const now = await $.clock.now()
+-    // Tin bảo chạy tiếp sau một việc chen vào (0.8.4 A2): checklist hiện tại không còn bước mở, mục tiêu đã cất gần nhất còn bước mở và
+-    // là mục tiêu bị chính mục tiêu hiện tại thay (mục tiêu mới mang số của mục tiêu trước cộng 1): khôi phục bằng cùng đường với plan
+-    // action restore. Tin chạy tiếp điểm dừng giữ ưu tiên.
+-    const lastArchived = before.archived[0]
 -    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && openSteps(lastArchived.plan).length > 0 && lastArchived.brief.goalId === prev.goalId - 1
-+    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && S.archivedPending(lastArchived) && lastArchived.brief.goalId === prev.goalId - 1
-     if (isBackToArchived && plan !== null && prev !== null && lastArchived !== undefined) {
+-    if (isBackToArchived && plan !== null && prev !== null && lastArchived !== undefined) {
++    // Tin bảo chạy tiếp sau một việc chen vào (0.8.4 A2): mục tiêu đã cất nào được quay lại do S.resumeTarget quyết; khôi phục bằng cùng
++    // đường với plan action restore. Tin chạy tiếp điểm dừng giữ ưu tiên.
++    const isResumeMsg = plan !== null && prev !== null && intent === 'resume' && !isResuming
++    const backIndex = isResumeMsg ? S.resumeTarget(before) : null
++    const lastArchived = backIndex !== null ? before.archived[backIndex - 1] : undefined
++    if (backIndex !== null && plan !== null && prev !== null && lastArchived !== undefined) {
        // Khôi phục trên Core đọc ngay lúc này, không trên before (0.8.4 Z1): các lần ghi Core trước đó của prompt này (lượt Fable đạt
        // đưa bộ đếm lỗi về 0, giảm số prompt còn tạm ngừng, hết chờ câu trả lời) không bị ghi đè.
+-      const back = ctx.restoreGoal(S.normalizeCore(await read($, coreState)), 1)
++      const back = ctx.restoreGoal(S.normalizeCore(await read($, coreState)), backIndex)
+       if (!('error' in back)) {
+         await update($, coreState, () => S.withRouterFail(null)(S.withAnalyzerUsage(outcome.usages, target.family)(back.core)))
+         const restored = back.brief
 @@ -367,7 +369,10 @@ export function registerSession(on: On, ctx: Ctx): void {
          const wanted = wantedPick(restored, core.lift, core, current)
          const conductNote = wanted?.isConducting === true && core.fable.briefedGoal !== restored.goalId ? [conductorContext()] : []
@@ -342,6 +382,15 @@ index a1aafa3..3344605 100644
      // Router xếp mục tiêu mới với tin cậy thấp khi checklist còn bước mở (0.7.5): giữ mục tiêu, ghi nhật ký quyết định.
      if (held && prev !== null) {
        L.promptIntent = { relation: 'continue', kind: plan.kind }
+@@ -539,7 +544,7 @@ export function registerSession(on: On, ctx: Ctx): void {
+     const context = isApproved
+       ? approvedContext(core.plan)
+       : intent === 'resume' && !isNewGoal
+-      ? intentResumeContext(core.plan)
++      ? isResumeMsg && S.isNothingLeft(before) ? nothingLeftContext() : intentResumeContext(core.plan)
+       : isInterject && !isNewGoal
+       ? interjectContext(brief, core.plan, shownAdded, newConstraints, { main: running !== null ? describePick(running) : 'model đang chạy', mayReplace: routed?.relation === 'new', isRouted: true })
+       : isNewGoal
 @@ -552,7 +557,9 @@ export function registerSession(on: On, ctx: Ctx): void {
      }
      // Checklist cũ còn bước mở không bị mất: nó được lưu, Claude khôi phục được nếu router xếp nhầm mục tiêu mới.
@@ -354,7 +403,7 @@ index a1aafa3..3344605 100644
        prompt: clipText(text),
        relation: plan.relation,
 diff --git a/claude-mods/focus-conductor/scripts/mutants.ts b/claude-mods/focus-conductor/scripts/mutants.ts
-index a621d3b..a49c66f 100644
+index a621d3b..14b8c4e 100644
 --- a/claude-mods/focus-conductor/scripts/mutants.ts
 +++ b/claude-mods/focus-conductor/scripts/mutants.ts
 @@ -712,7 +712,7 @@ export const MUTANTS: Mutant[] = [
@@ -399,7 +448,7 @@ index a621d3b..a49c66f 100644
    { id: "075-M5j", file: "hooks/lib/state.ts", note: "đọc lại trạng thái làm mất main của prompt lập mục tiêu", old: "    ...(brief.mainBase ? { mainBase: brief.mainBase } : {}),\n", new: "" },
    { id: "075-M6a", file: "hooks/lib/drift/classify.ts", note: "nguồn của mv không tính là đích ghi", old: "      if (name === 'mv') positional.forEach(add)\n", new: "" },
    { id: "075-M6b", file: "hooks/parts/quota.ts", note: "ln được qua khi đích nằm trong danh sách", old: " && e.name !== 'ln'", new: "" },
-@@ -2117,19 +2117,31 @@ export const MUTANTS: Mutant[] = [
+@@ -2117,19 +2117,32 @@ export const MUTANTS: Mutant[] = [
    { id: "084-A1b", file: "hooks/parts/session.ts", note: "tin ngoài lề vẫn cất checklist như mục tiêu mới", old: "      if (!isInterject) L.promptIntent = { relation: 'continue', kind: 'answer' }\n      await update($, coreState, c => S.withRouterFail(null)(S.withAnalyzerUsage(outcome.usages, target.family)(c)))\n      L.lastPrompt = { text, prev, goalId: prev.goalId }\n      record(now, 'route', { prompt: clipText(text), relation: plan.relation, intent: 'aside'", new: "      if (!isInterject) L.promptIntent = { relation: 'continue', kind: 'answer' }\n      await update($, coreState, c => S.adoptGoal({ ...prev, goalId: prev.goalId + 1 })(S.withRouterFail(null)(S.withAnalyzerUsage(outcome.usages, target.family)(c))))\n      L.lastPrompt = { text, prev, goalId: prev.goalId }\n      record(now, 'route', { prompt: clipText(text), relation: plan.relation, intent: 'aside'" },
    { id: "084-A1c", file: "hooks/lib/router.ts", note: "coi tin new có việc là ngoài lề", old: "  if (plan.relation !== 'new' || plan.tasks.length > 0 || plan.isReference || plan.runReference) return false\n", new: "  if (plan.relation !== 'new' || plan.isReference || plan.runReference) return false\n" },
    { id: "084-A1d", file: "hooks/lib/router.ts", note: "coi investigate mọi độ sâu là ngoài lề", old: "  return plan.kind === 'answer' || (plan.kind === 'investigate' && (plan.depth === 'none' || plan.depth === 'light'))\n", new: "  return plan.kind === 'answer' || plan.kind === 'investigate'\n" },
@@ -408,26 +457,27 @@ index a621d3b..a49c66f 100644
    { id: "084-A1f", file: "hooks/parts/session.ts", note: "tin ngoài lề chen ngang không được nhận, vẫn đổi thành tiếp nối và qua followUpOf", old: "    const isAsideMsg = routed !== null && prev !== null && !isHeldAnswer && isAside(", new: "    const isAsideMsg = !isInterject && routed !== null && prev !== null && !isHeldAnswer && isAside(" },
    { id: "084-A1h", file: "hooks/parts/session.ts", note: "tin ngoài lề chen ngang vẫn bị đổi relation thành continue (nhật ký và kế hoạch của nhánh)", old: "    const interjected = isInterject && routed !== null && routed.relation === 'new' && !isAsideMsg ? { ...routed, relation: 'continue' as const } : routed\n", new: "    const interjected = isInterject && routed !== null && routed.relation === 'new' ? { ...routed, relation: 'continue' as const } : routed\n" },
 -  { id: "084-A1g", file: "hooks/parts/session.ts", note: "tin ngoài lề vẫn xóa awaitingAnswer", old: "    const approvalBefore = isAsideMsg ? approvalStored : await clearAwaiting($, approvalStored)\n", new: "    const approvalBefore = await clearAwaiting($, approvalStored)\n" },
-+  { id: "084-A1g", file: "hooks/parts/session.ts", note: "tin ngoài lề vẫn xóa awaitingAnswer", old: "    const isKeptAwaiting = isAsideMsg || intent === 'status' || intent === 'resume'\n", new: "    const isKeptAwaiting = intent === 'status' || intent === 'resume'\n" },
-   { id: "084-A2a", file: "hooks/parts/session.ts", note: "không khôi phục mục tiêu đã cất khi tin bảo chạy tiếp", old: "    if (isBackToArchived && plan !== null && prev !== null && lastArchived !== undefined) {\n", new: "    if (false && isBackToArchived && plan !== null && prev !== null && lastArchived !== undefined) {\n" },
+-  { id: "084-A2a", file: "hooks/parts/session.ts", note: "không khôi phục mục tiêu đã cất khi tin bảo chạy tiếp", old: "    if (isBackToArchived && plan !== null && prev !== null && lastArchived !== undefined) {\n", new: "    if (false && isBackToArchived && plan !== null && prev !== null && lastArchived !== undefined) {\n" },
 -  { id: "084-A2b", file: "hooks/parts/session.ts", note: "khôi phục cả khi checklist hiện tại còn bước mở", old: "    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && openSteps(lastArchived.plan).length > 0 && lastArchived.brief.goalId === prev.goalId - 1\n", new: "    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && lastArchived !== undefined && openSteps(lastArchived.plan).length > 0 && lastArchived.brief.goalId === prev.goalId - 1\n" },
 -  { id: "084-A2c", file: "hooks/parts/session.ts", note: "khôi phục cả với tin hỏi tiến độ", old: "    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && openSteps(lastArchived.plan).length > 0 && lastArchived.brief.goalId === prev.goalId - 1\n", new: "    const isBackToArchived = plan !== null && prev !== null && (intent === 'resume' || intent === 'status') && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && openSteps(lastArchived.plan).length > 0 && lastArchived.brief.goalId === prev.goalId - 1\n" },
 -  { id: "084-A2d", file: "hooks/parts/session.ts", note: "khôi phục mục tiêu đã cất không còn bước mở", old: "    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && openSteps(lastArchived.plan).length > 0 && lastArchived.brief.goalId === prev.goalId - 1\n", new: "    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && lastArchived.brief.goalId === prev.goalId - 1\n" },
 -  { id: "084-A2e", file: "hooks/parts/session.ts", note: "bỏ điều kiện mục tiêu đã cất là mục tiêu bị mục tiêu hiện tại thay", old: "    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && openSteps(lastArchived.plan).length > 0 && lastArchived.brief.goalId === prev.goalId - 1\n", new: "    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && openSteps(lastArchived.plan).length > 0\n" },
-+  { id: "084-A2b", file: "hooks/parts/session.ts", note: "khôi phục cả khi checklist hiện tại còn bước mở", old: "    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && S.archivedPending(lastArchived) && lastArchived.brief.goalId === prev.goalId - 1\n", new: "    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && lastArchived !== undefined && S.archivedPending(lastArchived) && lastArchived.brief.goalId === prev.goalId - 1\n" },
-+  { id: "084-A2c", file: "hooks/parts/session.ts", note: "khôi phục cả với tin hỏi tiến độ", old: "    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && S.archivedPending(lastArchived) && lastArchived.brief.goalId === prev.goalId - 1\n", new: "    const isBackToArchived = plan !== null && prev !== null && (intent === 'resume' || intent === 'status') && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && S.archivedPending(lastArchived) && lastArchived.brief.goalId === prev.goalId - 1\n" },
-+  { id: "084-A2d", file: "hooks/parts/session.ts", note: "khôi phục mục tiêu đã cất không còn bước mở", old: "    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && S.archivedPending(lastArchived) && lastArchived.brief.goalId === prev.goalId - 1\n", new: "    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && lastArchived.brief.goalId === prev.goalId - 1\n" },
-+  { id: "084-A2e", file: "hooks/parts/session.ts", note: "bỏ điều kiện mục tiêu đã cất là mục tiêu bị mục tiêu hiện tại thay", old: "    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && S.archivedPending(lastArchived) && lastArchived.brief.goalId === prev.goalId - 1\n", new: "    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && S.archivedPending(lastArchived)\n" },
-   { id: "084-Z1a", file: "hooks/parts/session.ts", note: "nhánh A2 khôi phục trên Core đọc từ đầu prompt, ghi đè các lần ghi Core trước đó", old: "      const back = ctx.restoreGoal(S.normalizeCore(await read($, coreState)), 1)\n", new: "      const back = ctx.restoreGoal(before, 1)\n" },
+-  { id: "084-Z1a", file: "hooks/parts/session.ts", note: "nhánh A2 khôi phục trên Core đọc từ đầu prompt, ghi đè các lần ghi Core trước đó", old: "      const back = ctx.restoreGoal(S.normalizeCore(await read($, coreState)), 1)\n", new: "      const back = ctx.restoreGoal(before, 1)\n" },
++  { id: "084-A1g", file: "hooks/parts/session.ts", note: "tin ngoài lề vẫn xóa awaitingAnswer", old: "    const isKeptAwaiting = isAsideMsg || intent === 'status' || intent === 'resume'\n", new: "    const isKeptAwaiting = intent === 'status' || intent === 'resume'\n" },
++  { id: "084-A2a", file: "hooks/parts/session.ts", note: "không khôi phục mục tiêu đã cất khi tin bảo chạy tiếp", old: "    if (backIndex !== null && plan !== null && prev !== null && lastArchived !== undefined) {\n", new: "    if (false && backIndex !== null && plan !== null && prev !== null && lastArchived !== undefined) {\n" },
++  { id: "084-A2b", file: "hooks/lib/state.ts", note: "khôi phục cả khi mục tiêu hiện tại còn dở", old: "  if (pendingOf(n)) return null\n  const index", new: "  const index" },
++  { id: "084-A2c", file: "hooks/parts/session.ts", note: "khôi phục cả với tin hỏi tiến độ", old: "    const isResumeMsg = plan !== null && prev !== null && intent === 'resume' && !isResuming\n", new: "    const isResumeMsg = plan !== null && prev !== null && (intent === 'resume' || intent === 'status') && !isResuming\n" },
++  { id: "084-A2d", file: "hooks/lib/state.ts", note: "khôi phục mục tiêu đã cất không còn dở", old: "  const index = n.archived.findIndex(a => archivedPending(a))\n", new: "  const index = n.archived.length > 0 ? 0 : -1\n" },
++  { id: "084-Z1a", file: "hooks/parts/session.ts", note: "nhánh A2 khôi phục trên Core đọc từ đầu prompt, ghi đè các lần ghi Core trước đó", old: "      const back = ctx.restoreGoal(S.normalizeCore(await read($, coreState)), backIndex)\n", new: "      const back = ctx.restoreGoal(before, backIndex)\n" },
    { id: "084-Z2a", file: "hooks/parts/session.ts", note: "nhánh A2 không cộng chi phí router", old: "        await update($, coreState, () => S.withRouterFail(null)(S.withAnalyzerUsage(outcome.usages, target.family)(back.core)))\n", new: "        await update($, coreState, () => S.withRouterFail(null)(back.core))\n" },
    { id: "084-Z2b", file: "hooks/parts/session.ts", note: "nhánh tin ngoài lề không cộng chi phí router", old: "    if (isAsideMsg && plan !== null && prev !== null) {\n      if (!isInterject) L.promptIntent = { relation: 'continue', kind: 'answer' }\n      await update($, coreState, c => S.withRouterFail(null)(S.withAnalyzerUsage(outcome.usages, target.family)(c)))\n", new: "    if (isAsideMsg && plan !== null && prev !== null) {\n      if (!isInterject) L.promptIntent = { relation: 'continue', kind: 'answer' }\n      await update($, coreState, c => S.withRouterFail(null)(c))\n" },
    { id: "084-Z2c", file: "hooks/parts/session.ts", note: "nhánh A2 coi turn sau khi khôi phục là hỏi đáp", old: "        L.promptIntent = { relation: 'continue', kind: restored.kind }\n", new: "        L.promptIntent = { relation: 'continue', kind: 'answer' }\n" },
    { id: "084-Z2d", file: "hooks/parts/session.ts", note: "nhánh A2 không chèn đoạn dặn điều phối", old: "        const conductNote = wanted?.isConducting === true && core.fable.briefedGoal !== restored.goalId ? [conductorContext()] : []\n", new: "        const conductNote = false && wanted?.isConducting === true && core.fable.briefedGoal !== restored.goalId ? [conductorContext()] : []\n" },
 -  { id: "084-Z2e", file: "hooks/parts/session.ts", note: "bỏ điều kiện tin không chạy tiếp điểm dừng khỏi nhánh A2", old: "    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && openSteps(lastArchived.plan).length > 0 && lastArchived.brief.goalId === prev.goalId - 1\n", new: "    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && openSteps(before.plan).length === 0 && lastArchived !== undefined && openSteps(lastArchived.plan).length > 0 && lastArchived.brief.goalId === prev.goalId - 1\n" },
-+  { id: "084-Z2e", file: "hooks/parts/session.ts", note: "bỏ điều kiện tin không chạy tiếp điểm dừng khỏi nhánh A2", old: "    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && S.archivedPending(lastArchived) && lastArchived.brief.goalId === prev.goalId - 1\n", new: "    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && openSteps(before.plan).length === 0 && lastArchived !== undefined && S.archivedPending(lastArchived) && lastArchived.brief.goalId === prev.goalId - 1\n" },
++  { id: "084-Z2e", file: "hooks/parts/session.ts", note: "bỏ điều kiện tin không chạy tiếp điểm dừng khỏi nhánh A2", old: "    const isResumeMsg = plan !== null && prev !== null && intent === 'resume' && !isResuming\n", new: "    const isResumeMsg = plan !== null && prev !== null && intent === 'resume'\n" },
 +  { id: "085-K2a", file: "hooks/lib/state.ts", note: "archiveOf chỉ cất khi còn bước mở", old: "  if (restorableSteps(n.plan).length === 0 && !pendingOf(n)) return n.archived\n", new: "  if (restorableSteps(n.plan).length === 0) return n.archived\n" },
 +  { id: "085-K2b", file: "hooks/lib/router.ts", note: "isLowNew chỉ xét bước mở", old: "(options.isPending ?? open.length > 0)", new: "open.length > 0" },
-+  { id: "085-K2c", file: "hooks/parts/session.ts", note: "khôi phục bỏ qua mục tiêu đã cất không có checklist", old: "lastArchived !== undefined && S.archivedPending(lastArchived) && lastArchived.brief.goalId === prev.goalId - 1\n", new: "lastArchived !== undefined && openSteps(lastArchived.plan).length > 0 && lastArchived.brief.goalId === prev.goalId - 1\n" },
++  { id: "085-K2c", file: "hooks/lib/state.ts", note: "khôi phục bỏ qua mục tiêu đã cất không có checklist", old: "  const index = n.archived.findIndex(a => archivedPending(a))\n", new: "  const index = n.archived.findIndex(a => openSteps(a.plan).length > 0)\n" },
 +  { id: "085-K2d", file: "hooks/lib/state.ts", note: "cất cả mục tiêu không dở", old: "  if (restorableSteps(n.plan).length === 0 && !pendingOf(n)) return n.archived\n", new: "  if (n.brief === null && restorableSteps(n.plan).length === 0) return n.archived\n" },
 +  { id: "085-K3a", file: "hooks/lib/state.ts", note: "không cất trạng thái duyệt", old: "plan: n.plan, approval: approvalOf(n).status, turns:", new: "plan: n.plan, turns:" },
 +  { id: "085-K3b", file: "hooks/lib/state.ts", note: "khôi phục không đặt lại trạng thái duyệt", old: "    approval: restoredApproval(goalId, restored.approval),\n", new: "" },
@@ -437,6 +487,8 @@ index a621d3b..a49c66f 100644
 +  { id: "085-K1a", file: "hooks/parts/session.ts", note: "tin status xóa cờ chờ câu trả lời", old: "    const isKeptAwaiting = isAsideMsg || intent === 'status' || intent === 'resume'\n", new: "    const isKeptAwaiting = isAsideMsg || intent === 'resume'\n" },
 +  { id: "085-K1b", file: "hooks/parts/session.ts", note: "tin resume xóa cờ chờ câu trả lời", old: "    const isKeptAwaiting = isAsideMsg || intent === 'status' || intent === 'resume'\n", new: "    const isKeptAwaiting = isAsideMsg || intent === 'status'\n" },
 +  { id: "085-K1c", file: "hooks/parts/session.ts", note: "nhánh routerSkip xóa cờ chờ câu trả lời", old: "      // làm rõ: cờ chờ câu trả lời giữ nguyên (0.8.5 K1).\n", new: "      // làm rõ: cờ chờ câu trả lời giữ nguyên (0.8.5 K1).\n      await clearAwaiting($, S.approvalOf(before))\n" },
++  { id: "085-K5a", file: "hooks/lib/state.ts", note: "chỉ xét mục đã cất đầu tiên, không duyệt tiếp khi nó đã xong", old: "  const index = n.archived.findIndex(a => archivedPending(a))\n", new: "  const index = n.archived.length > 0 && archivedPending(n.archived[0]!) ? 0 : -1\n" },
++  { id: "085-K5b", file: "hooks/parts/session.ts", note: "không còn gì vẫn báo chạy tiếp từ bước đang mở", old: "? isResumeMsg && S.isNothingLeft(before) ? nothingLeftContext() : intentResumeContext(core.plan)", new: "? intentResumeContext(core.plan)" },
  ]
 diff --git a/claude-mods/focus-conductor/tests/integration/approval-k3-085.test.ts b/claude-mods/focus-conductor/tests/integration/approval-k3-085.test.ts
 new file mode 100644
@@ -781,6 +833,98 @@ index 0000000..bcc8a88
 +    expect(String((await restore($, 4)).deny ?? '')).toContain('Chỉ có 3 mục tiêu đã lưu')
 +    expect((await restore($, 1)).deny).toBeUndefined()
 +    expect(await show($)).toContain('Mục tiêu: Việc bốn')
++  })
++})
+diff --git a/claude-mods/focus-conductor/tests/integration/resume-a2-084.test.ts b/claude-mods/focus-conductor/tests/integration/resume-a2-084.test.ts
+index fbf333e..e3e612e 100644
+--- a/claude-mods/focus-conductor/tests/integration/resume-a2-084.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/resume-a2-084.test.ts
+@@ -153,13 +153,14 @@ describe('0.8.4 A2: tiếp tục quay lại mục tiêu đã cất', () => {
+     expect(await show($)).toContain('Mục tiêu: Sửa chú thích')
+   })
+ 
++  // 0.8.5 K5: tên giữ như 0.8.4; kỳ vọng đổi thành khôi phục mục tiêu đã cất gần nhất còn dở (mục tiêu ở giữa không dở nên không được cất).
+   test('mục tiêu đã cất gần nhất không phải mục tiêu bị mục tiêu hiện tại thay: không khôi phục', { options: OPTIONS[0][1] }, async ($, on) => {
+     const { seen } = setup(on, [BIG(), NEW('Viết hàm slugify'), NEW('Sửa chú thích'), RESUME])
+     await goalA($, seen)
+     await submit($, 'Viết hàm slugify(text)')
+     await goalB($, true)
+     await submit($, 'tiếp tục')
+-    expect(await show($)).toContain('Mục tiêu: Sửa chú thích')
++    expect(await show($)).toContain(`Mục tiêu: ${A}`)
+   })
+ 
+   test('tin hỏi tiến độ trong cùng tình huống: không khôi phục', { options: OPTIONS[0][1] }, async ($, on) => {
+@@ -302,3 +303,71 @@ describe('0.8.4 Z2: các hành vi của nhánh A2', () => {
+     expect(lines().some(l => l['kind'] === 'restore' && l['cause'] === 'resume')).toBe(false)
+   })
+ })
++
++// 0.8.5 K5: tin bảo chạy tiếp lùi được nhiều tầng (mục tiêu đã cất gần nhất còn dở, duyệt từ mới tới cũ), và báo không còn việc khi checklist
++// hiện tại đã đóng hết mà không còn mục tiêu đã cất nào đang dở.
++const NOTHING_LEFT = 'không còn việc nào đã cất'
++describe('0.8.5 K5: tiếp tục lùi nhiều tầng và báo khi không còn gì', () => {
++  /** A còn bước mở bị B thay; B còn bước mở bị C thay; C đóng hết. */
++  async function threeLevels($: Engine, seen: Seen) {
++    await goalA($, seen)
++    await submit($, 'Sửa chú thích README')
++    await setPlan($, ['Sửa chú thích', 'Thêm ví dụ'])
++    await mark($, 1, 'doing')
++    await submit($, 'Đổi tên biến cấu hình')
++    await setPlan($, ['Đổi tên biến'])
++    await mark($, 1, 'done')
++  }
++
++  test('C xong, tiếp tục quay lại B; B xong, tiếp tục lần hai quay lại A với đúng 2 bước mở', { options: OPTIONS[0][1] }, async ($, on) => {
++    const { seen } = setup(on, [BIG(), NEW('Sửa chú thích'), NEW('Đổi tên biến'), RESUME])
++    await threeLevels($, seen)
++    await submit($, 'tiếp tục')
++    expect(await show($)).toContain('Mục tiêu: Sửa chú thích')
++    await mark($, 1, 'done')
++    await mark($, 2, 'done')
++    await submit($, 'tiếp tục')
++    const shown = await show($)
++    expect(shown).toContain(`Mục tiêu: ${A}`)
++    expect(shown).toContain('[~] 2. Thêm test')
++    expect(shown).toContain('[ ] 3. Cập nhật tài liệu')
++  })
++
++  test('A cũng xong, tiếp tục lần ba: dòng báo không còn việc, không có chạy tiếp từ bước đang mở, không có dòng restore mới', { options: OPTIONS[0][1] }, async ($, on) => {
++    const { seen, lines } = setup(on, [BIG(), NEW('Sửa chú thích'), NEW('Đổi tên biến'), RESUME])
++    await threeLevels($, seen)
++    await submit($, 'tiếp tục')
++    await mark($, 1, 'done')
++    await mark($, 2, 'done')
++    await submit($, 'tiếp tục')
++    expect(await show($)).toContain(`Mục tiêu: ${A}`)
++    await mark($, 2, 'done')
++    await mark($, 3, 'done')
++    const restores = lines().filter(l => l['kind'] === 'restore').length
++    await submit($, 'tiếp tục')
++    expect(lastContext(seen).filter(c => c.includes(NOTHING_LEFT)).length).toBe(1)
++    expect(lastContext(seen).some(c => c.includes('chạy tiếp từ bước đang mở'))).toBe(false)
++    expect(lines().filter(l => l['kind'] === 'restore').length).toBe(restores)
++  })
++
++  test('mục tiêu đã cất gần nhất chỉ còn bước waiting: bỏ qua, quay lại mục đã cất cũ hơn còn bước mở', { options: OPTIONS[0][1] }, async ($, on) => {
++    const { seen } = setup(on, [BIG(), NEW('Chờ CI'), NEW('Đổi tên biến'), RESUME])
++    await goalA($, seen)
++    await submit($, 'Chờ CI chạy xong')
++    await setPlan($, ['Chờ CI'])
++    await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'waiting', note: 'chờ CI chạy xong' } as never)
++    await submit($, 'Đổi tên biến cấu hình')
++    await setPlan($, ['Đổi tên biến'])
++    await mark($, 1, 'done')
++    await submit($, 'tiếp tục')
++    expect(await show($)).toContain(`Mục tiêu: ${A}`)
++  })
++
++  test('checklist trống (việc nhỏ không lập checklist), không có mục tiêu đã cất: giữ dòng chạy tiếp, không có dòng báo không còn việc', { options: OPTIONS[0][1] }, async ($, on) => {
++    const { seen } = setup(on, [plan({ goal: 'Sửa phí', depth: 'light', volume: 'small', kind: 'edit' }), RESUME])
++    await submit($, 'Sửa phí')
++    await submit($, 'tiếp tục')
++    expect(lastContext(seen).some(c => c.includes('chạy tiếp từ bước đang mở'))).toBe(true)
++    expect(lastContext(seen).some(c => c.includes(NOTHING_LEFT))).toBe(false)
 +  })
 +})
 diff --git a/claude-mods/focus-conductor/tests/integration/turns-k8-085.test.ts b/claude-mods/focus-conductor/tests/integration/turns-k8-085.test.ts
