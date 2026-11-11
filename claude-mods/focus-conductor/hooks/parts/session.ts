@@ -351,7 +351,9 @@ export function registerSession(on: On, ctx: Ctx): void {
     const lastArchived = before.archived[0]
     const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && openSteps(lastArchived.plan).length > 0 && lastArchived.brief.goalId === prev.goalId - 1
     if (isBackToArchived && plan !== null && prev !== null && lastArchived !== undefined) {
-      const back = ctx.restoreGoal(before, 1)
+      // Khôi phục trên Core đọc ngay lúc này, không trên before (0.8.4 Z1): các lần ghi Core trước đó của prompt này (lượt Fable đạt
+      // đưa bộ đếm lỗi về 0, giảm số prompt còn tạm ngừng, hết chờ câu trả lời) không bị ghi đè.
+      const back = ctx.restoreGoal(S.normalizeCore(await read($, coreState)), 1)
       if (!('error' in back)) {
         await update($, coreState, () => S.withRouterFail(null)(S.withAnalyzerUsage(outcome.usages, target.family)(back.core)))
         const restored = back.brief
