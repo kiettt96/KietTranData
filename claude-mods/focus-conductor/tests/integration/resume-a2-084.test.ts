@@ -371,3 +371,43 @@ describe('0.8.5 K5: tiếp tục lùi nhiều tầng và báo khi không còn g�
     expect(lastContext(seen).some(c => c.includes(NOTHING_LEFT))).toBe(false)
   })
 })
+
+// 0.8.5 D3: việc chen vào không có checklist chưa chắc đã xong: tin bảo chạy tiếp chỉ quay lại mục tiêu đã cất khi mục tiêu hiện tại đã có
+// ít nhất một turn thực thi kết thúc và turn luồng chính gần nhất không bị ngắt.
+describe('0.8.5 D3: việc chen vào không có checklist', () => {
+  /** B (light, edit) thay A; B không lập checklist; một turn sửa file của B, kết thúc bình thường hay bị ngắt. */
+  async function bTurn($: Engine, seen: Seen, ending: 'answer' | 'aborted') {
+    await $.turn.start({ text: 'sửa', turnId: 't2' })
+    await step($, seen, { turnId: 't2' })
+    await edit($)
+    await $.turn.complete({ turnId: 't2', answer: ending === 'answer' ? 'ok' : '', durationMs: 5, isAborted: ending === 'aborted', reason: ending } as never)
+  }
+
+  test('B chưa có turn nào kết thúc, tiếp tục: không khôi phục, chạy tiếp B', { options: OPTIONS[0][1] }, async ($, on) => {
+    const { seen } = setup(on, [BIG(), NEW('Sửa chú thích'), RESUME])
+    await goalA($, seen)
+    await submit($, 'Sửa chú thích README')
+    await submit($, 'tiếp tục')
+    expect(await show($)).toContain('Mục tiêu: Sửa chú thích')
+    expect(lastContext(seen).some(c => c.includes('chạy tiếp từ bước đang mở'))).toBe(true)
+  })
+
+  test('B có một turn thực thi kết thúc bình thường, tiếp tục: khôi phục A', { options: OPTIONS[0][1] }, async ($, on) => {
+    const { seen } = setup(on, [BIG(), NEW('Sửa chú thích'), RESUME])
+    await goalA($, seen)
+    await submit($, 'Sửa chú thích README')
+    await bTurn($, seen, 'answer')
+    await submit($, 'tiếp tục')
+    expect(await show($)).toContain(`Mục tiêu: ${A}`)
+  })
+
+  test('B có turn gần nhất bị ngắt, tiếp tục: không khôi phục', { options: OPTIONS[0][1] }, async ($, on) => {
+    const { seen } = setup(on, [BIG(), NEW('Sửa chú thích'), RESUME])
+    await goalA($, seen)
+    await submit($, 'Sửa chú thích README')
+    await bTurn($, seen, 'answer')
+    await bTurn($, seen, 'aborted')
+    await submit($, 'tiếp tục')
+    expect(await show($)).toContain('Mục tiêu: Sửa chú thích')
+  })
+})
