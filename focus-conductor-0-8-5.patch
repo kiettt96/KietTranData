@@ -1,3 +1,37 @@
+diff --git a/claude-mods/focus-conductor/README.md b/claude-mods/focus-conductor/README.md
+index 30a8694..aad53be 100644
+--- a/claude-mods/focus-conductor/README.md
++++ b/claude-mods/focus-conductor/README.md
+@@ -100,6 +100,7 @@ Cấu hình qua `/config` (hoặc `pluginConfigs.focus-conductor.options` trong
+ | Trường | Mặc định | Ý nghĩa |
+ |---|---|---|
+ | `routing` | `auto` | `auto` điều phối cả luồng chính và subagent; `subagents` chỉ subagent, giữ nguyên model luồng chính (an toàn nhất cho cache); `suggest` chỉ hiển thị đề xuất (ở `suggest` và `subagents`, luồng chính trong khối context ghi là `(chỉ đề xuất)`); `off` tắt toàn bộ mod |
++| `headlessRouting` | `off` | Từ 0.8.0: `off` thì ở phiên không tương tác (`claude -p`, Agent SDK) mod chạy như routing off trong phiên đó: không gọi router, không đổi model hay effort, không chặn kết thúc, ghi một dòng `headless-off`; không ghi đè mode đã đặt bằng `/conductor mode`. `auto` điều phối như phiên thường |
+ | `router` | `sonnet` | Model Claude đọc prompt và điều phối: alias (`haiku`, `sonnet`, `opus`) hoặc model ID. Thay cho tùy chọn `analyzer` của bản 0.3. Từ 0.8.4, khi `conductor` là `fable`, router là Fable và option này chỉ dùng lúc router Fable tạm ngừng |
+ | `conductor` | `off` | Từ 0.8.4: `fable` thì Fable 5.2 điều phối ở effort medium (đọc và phân việc ở mọi lượt router, lập kế hoạch, điều phối luồng chính của việc lớn); model khác thực thi qua subagent. Tốn hạn mức hơn; xem mục "Fable điều phối" |
+ | `enforceChecklist` | `true` | Chặn kết thúc khi checklist còn bước mở; từ 0.7.8 chặn thêm một lần mỗi mục tiêu khi mục tiêu từ moderate (hoặc có việc đã phân) chưa có checklist của tool `plan`; từ 0.7.9 tắt cả lần chặn khi đã sửa mà chưa chạy lần kiểm nào (xem "Nhật ký lỗi, lệnh miễn và lần kiểm bắt buộc") |
+@@ -110,6 +111,8 @@ Cấu hình qua `/config` (hoặc `pluginConfigs.focus-conductor.options` trong
+ | `cacheWrite` | `2` | Giá ghi cache bằng bao nhiêu lần giá vào [Nguồn: trang giá Anthropic 2026-10-13: 1,25 lần ở bậc 5 phút, 2 lần ở bậc 1 giờ]. Mod kẹp giá trị trong 1,25 đến 2. Mặc định bậc 1 giờ theo một phép đo `claude -p` (xem "Đo bậc cache"), chưa kiểm trên mọi tài khoản |
+ | `checkCommands` | trống | Lệnh kiểm tra riêng của dự án, phân tách bằng dấu phẩy, ví dụ `make ci,./scripts/check.sh,python3 tests/`. Từ 0.7.3, khi token đầu là python thì phần thư mục (`/usr/bin/python3`) và cờ không giá trị (`-B`, `-u`...) được bỏ qua, và token kết thúc bằng `/` là tiền tố thư mục: mọi script dưới thư mục đó được tin mã thoát và không tính là thay đổi, nên chỉ khai thư mục chỉ chứa script kiểm (script in FAIL mà thoát mã 0 vẫn bị tính là đạt). Khớp theo tiền tố token, được tin mã thoát, tính là kiểm tra chạy hành vi, đối chiếu evidence nghiêm ngặt (`./scripts/check.sh --fast` khác `./scripts/check.sh`); kèm cờ tự sửa (`--fix`, `--write`) thì vẫn là ghi file. Khi `verified` bị hạ xuống `done` vì lệnh kiểm tra không nhận ra, mod nhắc option này kèm một ví dụ lấy từ script đã chạy; từ 0.7.3 mod cũng gợi ý tới anh (toast một lần mỗi mục tiêu, dòng trong pane và `/conductor status`) khi đến checkpoint mà có script kiểm chưa được nhận. Từ 0.7.5 lệnh khai chạy qua `| tail` hay `| head`, sau `cd <dir> &&` hay với `set -o pipefail` vẫn được tính (luật ở mục "Turn lỗi và lệnh kiểm riêng"); cách chắc nhất là chạy lệnh kiểm không qua ống hoặc có `set -o pipefail`. Mod chỉ gợi ý script có từ kiểm ở đầu tên (`check_`, `kiem_tra`, `verify_`, `test_`...), không gợi ý tiền tố thư mục. Model không tự khai được |
+ | `checkTools` | trống | Từ 0.7.9: tên tool MCP dùng để kiểm, phân tách bằng dấu phẩy, ví dụ `mcp__ci__run_tests`. Mỗi lời gọi tool trong danh sách là một lần kiểm loại test: lỗi khi tool báo `isError` hay output có dấu hiệu lỗi, rỗng, không chạy gì (output không phải chữ thì chỉ xét `isError`); chỉ lần gọi đạt cùng tool với cùng đầu vào mới phủ lần lỗi. Mod không tự đoán tool kiểm theo tên. Trống: không tool MCP nào là lần kiểm. Mô tả vi và en nằm ở `plugin.json` |
++| `passLines` | trống | Từ 0.8.0: tiền tố nguyên văn của dòng tổng kết đạt, phân tách bằng dấu phẩy, ví dụ `TỔNG: ĐẠT,ALL CHECKS OK`. Chỉ áp cho lệnh khai trong `checkCommands` chạy qua `\| tail` hay `\| head` không pipefail: dòng không rỗng cuối bắt đầu bằng một tiền tố (không phân biệt hoa thường) là dòng đạt, khi output không có dấu hiệu lỗi và có phép kiểm đã chạy. Không dùng biểu thức chính quy; để trống thì chỉ nhận các dạng mod biết sẵn |
++| `softPaths` | trống | Từ 0.8.0: glob phân tách bằng dấu phẩy, ví dụ `ket-qua/**,out/*.json`. File khớp là thay đổi nhẹ: vẫn được đếm nhưng không đủ để cảnh báo chưa chạy bước kiểm tra hay để cổng Stop đòi lệnh kiểm. Đuôi `.md .markdown .txt .csv .tsv .jsonl .log` luôn là nhẹ; `.json`, `.yaml` không tự tính là nhẹ. Glob không bắt đầu bằng `/` khớp từ đầu một thư mục bất kỳ; `**` khớp nhiều cấp |
+ | `modelMap` | rỗng | Ghi đè model ID, ví dụ `opus=claude-opus-5-5,sonnet=claude-sonnet-5-5` (cần khi dùng gateway có ID riêng) |
+ | `routerSkip` | trống | Câu tiếp nối ngắn không cần hỏi router, phân tách bằng dấu phẩy, ví dụ `ok,tiếp,tiếp tục,go` |
+ | `routerFallback` | `session` | Khi router lỗi: `session` chạy theo model của phiên; `reuse` dùng lại lựa chọn luồng chính của prompt trước |
+diff --git a/claude-mods/focus-conductor/docs/DESIGN.md b/claude-mods/focus-conductor/docs/DESIGN.md
+index 9d4dfd1..9015ac1 100644
+--- a/claude-mods/focus-conductor/docs/DESIGN.md
++++ b/claude-mods/focus-conductor/docs/DESIGN.md
+@@ -201,7 +201,7 @@ Không điểm nào nới cổng kiểm. Schema tool `plan` không đổi; hai s
+ ## Ý của tin nhắn, duyệt kế hoạch, thử skill, file đã đổi, sao lưu khi dừng (0.8.2)
+ 
+ - **Ý của tin nhắn (N1).** Router trả `intent` cho mọi prompt; `parseRoute` kẹp ở một chỗ, fail-closed: thiếu hay sai là `task`, `relation: new` luôn là `task`; `clampIntent` đổi `approve` thành `resume` khi không có kế hoạch chờ duyệt. `<context>` gửi router có thêm một dòng khi kế hoạch đang chờ duyệt (`awaiting: approval`) hay đang chờ câu trả lời câu hỏi (`awaiting: answer`). `status` trả sớm trong `prompt.submit`: chỉ cộng chi phí router, không `nextBrief`, không `adoptGoal`, không tiếp tục điểm dừng; tin gửi khi không có turn đang chạy đặt `promptIntent` kind `answer` (turn hỏi đáp, không qua cổng Stop trừ khi có thay đổi thật), tin chen ngang không đổi `promptIntent` của turn đang chạy và không ghi `interject`. `resume` đi đường `continue` với `tasks` và `requirements` rỗng, khối context một câu chạy tiếp từ bước đang mở. Đo router thật: xem VERIFICATION.
+-- **Duyệt kế hoạch (N2).** `Core.approval { goalId, status, rounds, asked }` (từ 0.8.3 thêm `awaitingAnswer`). Mục tiêu thuộc diện duyệt khi `planApproval: auto`, depth substantial hay hard, kind edit hay mixed, không `isReference`, không `isBare`, router không đặt `skipApproval`; lập mục tiêu như vậy thì `planning`. Chặn sửa ở `tool.call` (đăng ký ở `parts/session.ts` với matcher theo tên tool, đứng trước hook Agent để lời gọi bị từ chối không tốn lượt router): luồng chính, khi `planning` hay `presented`, Edit, Write, NotebookEdit, Bash ghi file (trừ `.claude/plans/`, `.focus-conductor/`) và Agent khác Explore, Plan. Câu hỏi làm rõ: mod chỉ chèn lời dặn hỏi bằng AskUserQuestion, không tự gọi `$.ui.ask`; `asked` giữ trong Core, còn cờ "đang chờ câu trả lời" của turn hỏi giữ trong bộ nhớ phiên. Câu trả lời router xếp `new` thì giữ mục tiêu và coi như `amend` (`answer-held`), trừ khi tin cậy từ `NEW_GOAL_CONFIDENCE` và prompt không nhắc từ nào của mục tiêu. Lượt rà ở Stop: `planReviewRequest` (effort medium, 30 giây) trả `missing`, `extra`, `issues`; chi phí vào sổ router; router lỗi thì `presented` kèm cảnh báo, không đoán. Sau khi trình: `approve` thành `approved`, `amend` về `planning` với `rounds` 0, `status` giữ. Chấp nhận qua plan mode: `classic.PostToolUse` của `ExitPlanMode` không lỗi, luồng chính, `permission_mode` là `plan`, `default` hay `acceptEdits` [Nguồn: khai báo kiểu 2.1.296 `index.d.ts:832-840`, `:7497-7499`, `:7873`].
++- **Duyệt kế hoạch (N2).** `Core.approval { goalId, status, rounds, asked }` (từ 0.8.3 thêm `awaitingAnswer`). Mục tiêu thuộc diện duyệt khi `planApproval: auto`, depth substantial hay hard, kind edit hay mixed, không `isReference`, không `isBare`, router không đặt `skipApproval`; lập mục tiêu như vậy thì `planning`. Chặn sửa ở `tool.call` (đăng ký ở `parts/session.ts` với matcher theo tên tool, đứng trước hook Agent để lời gọi bị từ chối không tốn lượt router): luồng chính, khi `planning` hay `presented`, Edit, Write, NotebookEdit, Bash ghi file (trừ `.claude/plans/`, `.focus-conductor/`) và Agent khác Explore, Plan. Câu hỏi làm rõ: mod chỉ chèn lời dặn hỏi bằng AskUserQuestion, không tự gọi `$.ui.ask`; `asked` và cờ "đang chờ câu trả lời" của turn hỏi (`awaitingAnswer`, từ 0.8.3) đều giữ trong Core, nên còn sau khi nạp lại mod. Câu trả lời router xếp `new` thì giữ mục tiêu và coi như `amend` (`answer-held`), trừ khi tin cậy từ `NEW_GOAL_CONFIDENCE` và prompt không nhắc từ nào của mục tiêu. Lượt rà ở Stop: `planReviewRequest` (effort medium, 30 giây) trả `missing`, `extra`, `issues`; chi phí vào sổ router; router lỗi thì `presented` kèm cảnh báo, không đoán. Sau khi trình: `approve` thành `approved`, `amend` về `planning` với `rounds` 0, `status` giữ. Chấp nhận qua plan mode: `classic.PostToolUse` của `ExitPlanMode` không lỗi, luồng chính, `permission_mode` là `plan`, `default` hay `acceptEdits` [Nguồn: khai báo kiểu 2.1.296 `index.d.ts:832-840`, `:7497-7499`, `:7873`].
+ - **Thử skill (N3).** File skill: tên `SKILL.md`, `.md` dưới một đoạn thư mục `skills/`, hay khớp tiền tố `skillPaths`. Không tính là tài liệu nhẹ (`isSoftDocs`), không tính vào `hard`, `lastHard` của evidence, nên Y6 và cảnh báo chưa kiểm không xét file skill. `Core.skill { goalId, seq, lastWrite, trialAt, path }` dùng một bộ đếm thứ tự riêng của mod; lần thử tính khi subagent của lời gọi "Thử skill: " hay "Skill trial: " kết thúc với reason `answer` (kết quả tool lỗi hay bị từ chối đến sau thì trả lại `trialAt` cũ), hay khi lệnh khai trong `checkCommands` đạt. Mod không chấm chất lượng lần thử; cổng chỉ bảo đảm lần thử đã diễn ra sau thay đổi cuối.
+ - **File đã đổi (N5).** `Core.changed { goalId, paths, unknown, overflow }` ghi trong `tool.call` chung (cả subagent), độc lập với `quotaGuard`; đường dẫn tương đối với gốc phiên chốt một lần mỗi mục tiêu (`rootFor`, dùng chung với phạm vi). Trần lưu 200, phần vượt chỉ tăng `overflow` để dòng "và M file nữa" vẫn đúng. Lời nhắc đi ngay sau G2 khi đóng bước mở cuối, một lần mỗi mục tiêu (`Core.changedNoticed`).
+ - **Sao lưu khi dừng (N4).** Nhận biết cloud chỉ bằng `$.env.get('CLAUDE_CODE_REMOTE')` [Nguồn: khai báo kiểu 2.1.296 `index.d.ts:3595-3606`], đọc một lần mỗi phiên, không ghi giá trị; lỗi hay thiếu API thì không phải cloud. Lệnh sao lưu được phân tích bằng bộ tách token riêng: gặp ký tự shell ngoài nháy hay `$`, backtick, `\`, `!` trong nháy kép thì không nhận. Bộ đếm 6 lời gọi nằm ở `QuotaPause`, kết quả `backup` ở `QuotaCheckpoint` (state hạn mức), vì cả hai gắn với từng lần dừng và đi theo điểm dừng vào `$.store`. Chỉ áp khi dừng vì hạn mức, không áp khi người dùng tự `/conductor pause`.
 diff --git a/claude-mods/focus-conductor/hooks/context.ts b/claude-mods/focus-conductor/hooks/context.ts
 index 815f4e6..4e3b300 100644
 --- a/claude-mods/focus-conductor/hooks/context.ts
@@ -680,6 +714,33 @@ index a621d3b..5979529 100644
 +  { id: "085-D2b", file: "hooks/parts/session.ts", note: "bổ sung nhỏ sau khi duyệt cũng về planning", old: " && intent === 'amend' && needsApproval(brief, ctx.planApproval, false) && (plan.depth === 'substantial' || plan.depth === 'hard') && (plan.kind === 'edit' || plan.kind === 'mixed') && added.length > 0\n", new: " && intent === 'amend' && ctx.planApproval === 'auto' && (plan.kind === 'edit' || plan.kind === 'mixed') && added.length > 0\n" },
 +  { id: "085-K10a", file: "hooks/context.ts", note: "cờ prompt tạm ngừng không đọc từ Core", old: "pauseLeft: fable.pauseLeft + (fable.promptPaused ? 1 : 0)", new: "pauseLeft: fable.pauseLeft" },
  ]
+diff --git a/claude-mods/focus-conductor/scripts/version-check.mjs b/claude-mods/focus-conductor/scripts/version-check.mjs
+index 7b5bb56..640044e 100644
+--- a/claude-mods/focus-conductor/scripts/version-check.mjs
++++ b/claude-mods/focus-conductor/scripts/version-check.mjs
+@@ -1,5 +1,6 @@
+-// So MOD_VERSION (hooks/lib/version.ts) với version của .claude-plugin/plugin.json (0.7.9 L1). Kit test của engine không nạp được tệp
+-// JSON hay node:fs, nên phép so này chạy bằng node ở CI và trước mỗi commit đổi phiên bản: node scripts/version-check.mjs
++// So MOD_VERSION (hooks/lib/version.ts) với version của .claude-plugin/plugin.json (0.7.9 L1), và kiểm mọi khóa option của plugin.json có
++// một dòng trong bảng tùy chọn của README (0.8.5 K13). Kit test của engine không nạp được tệp JSON, Markdown hay node:fs, nên các phép kiểm
++// này chạy bằng node ở CI và trước mỗi commit đổi phiên bản: node scripts/version-check.mjs
+ import { readFileSync } from 'node:fs'
+ 
+ const root = new URL('..', import.meta.url)
+@@ -11,3 +12,13 @@ if (constant !== manifest.version) {
+   process.exit(1)
+ }
+ console.log(`MOD_VERSION khớp plugin.json: ${constant}`)
++
++const readme = readFileSync(new URL('README.md', root), 'utf8')
++const rows = new Set([...readme.matchAll(/^\| `([A-Za-z]+)` \|/gm)].map(match => match[1]))
++const keys = Object.keys(manifest.userConfig ?? {})
++const missing = keys.filter(key => !rows.has(key))
++if (missing.length > 0) {
++  console.error(`Bảng tùy chọn của README thiếu ${missing.length} option: ${missing.join(', ')}`)
++  process.exit(1)
++}
++console.log(`Bảng tùy chọn của README có đủ ${keys.length} option`)
 diff --git a/claude-mods/focus-conductor/tests/integration/agent-chip-u4-076.test.ts b/claude-mods/focus-conductor/tests/integration/agent-chip-u4-076.test.ts
 index 28b955a..5a34ea6 100644
 --- a/claude-mods/focus-conductor/tests/integration/agent-chip-u4-076.test.ts
