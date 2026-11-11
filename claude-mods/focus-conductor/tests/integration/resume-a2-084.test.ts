@@ -1,0 +1,165 @@
+// 0.8.4 A2 (vòng 4 PR 37): "tiếp tục" sau một việc chen vào quay lại luồng việc đã cất. Tin bảo chạy tiếp (intent resume sau bước kẹp),
+// checklist của mục tiêu hiện tại không còn bước mở, mục tiêu đã cất gần nhất còn bước mở và chính là mục tiêu bị mục tiêu hiện tại thay
+// (số mục tiêu liền trước): khôi phục bằng cùng đường với plan action restore, một dòng context báo đã quay lại, nhật ký restore. Áp cho mọi
+// giá trị của conductor; mục tiêu khôi phục là mục tiêu lớn thì vai điều phối quay lại theo luật hiện có.
+
+import { describe, expect, test } from 'claude-code/testing'
+import type { Engine } from 'claude-code/testing'
+import type { On } from 'claude-code'
+import type { PlanStep } from '../../types'
+import { restoreResumeContext } from '../../hooks/lib/text'
+import { base, conductor, plan, step, submit } from '../support/engine'
+import type { Json, Seen } from '../support/engine'
+
+const PLAN = 'mcp__focus-conductor__plan'
+const LOG = '/tmp/fc-resume-a2-084.jsonl'
+const MAIN = { model: 'sonnet', effort: 'medium', why: '' }
+const A = 'Sửa luồng thanh toán'
+const BIG = (over: Json = {}) => plan({ goal: A, depth: 'substantial', volume: 'medium', kind: 'edit', main: MAIN, ...over })
+const NEW = (goal: string) => plan({ relation: 'new', confidence: 0.97, goal, depth: 'light', volume: 'small', kind: 'edit', main: { model: 'sonnet', effort: 'low', why: '' } })
+const RESUME = plan({ relation: 'continue', intent: 'resume', goal: '', depth: 'light', volume: 'small', kind: 'edit', main: MAIN })
+const STATUS = plan({ relation: 'continue', intent: 'status', goal: '', depth: 'none', volume: 'small', kind: 'answer', main: MAIN })
+const STEP2: PlanStep = { id: 2, title: 'Thêm test', status: 'doing' }
+const OPTIONS = [
+  ['conductor mặc định', { planApproval: 'off', decisionLog: LOG }],
+  ['conductor fable', { planApproval: 'off', conductor: 'fable', decisionLog: LOG }],
+] as const
+const expectedMain = (opts: { readonly conductor?: string; readonly decisionLog: string }) => (opts.conductor === 'fable' ? 'claude-fable-5-2/medium' : 'claude-sonnet-5-5/medium')
+const pick = (s: { model: string; effort?: unknown } | undefined) => `${s?.model ?? ''}/${String(s?.effort ?? '')}`
+const show = async ($: Engine) => String((await $.tool.call({ tool: PLAN, action: 'show' } as never)).result)
+const statusText = async ($: Engine) => String((await conductor($, 'status')).text ?? '')
+const lastContext = (seen: Seen) => seen.contexts.at(-1) ?? []
+const stop = async ($: Engine) => String(((await $.classic.Stop({ stop_hook_active: false } as never)) as { block?: string }).block ?? '')
+const edit = ($: Engine) => $.tool.call({ tool: 'Edit', file_path: 'src/phi.ts', old_string: 'a', new_string: 'b' } as never) as Promise<{ deny?: string }>
+const setPlan = ($: Engine, titles: string[]) => $.tool.call({ tool: PLAN, action: 'set', steps: titles.map(title => ({ title })) } as never)
+const mark = ($: Engine, id: number, status: string) => $.tool.call({ tool: PLAN, action: 'update', step: id, status } as never)
+
+/** Router giả trả lần lượt các câu trả lời (câu cuối lặp lại); lượt rà kế hoạch trả sạch. */
+function setup(on: On, replies: Json[]) {
+  let n = 0
+  const seen: Seen = base(on, {
+    router: request => (request.startsWith('Requirements:') ? { missing: [], extra: [], issues: [] } : (replies[Math.min(n++, replies.length - 1)] ?? null)),
+  })
+  on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+  on('turn.complete', () => ({ text: '' }))
+  on('classic.Stop', () => ({}))
+  const writes: string[] = []
+  on('fs.write', (_$, e) => {
+    writes.push(e.text)
+    return { value: undefined }
+  })
+  const lines = () => (writes[writes.length - 1] ?? '').trim().split('\n').filter(Boolean).map(line => JSON.parse(line) as Record<string, unknown>)
+  return { seen, lines }
+}
+
+/** Mục tiêu A: checklist 3 bước, bước 1 xong, bước 2 đang làm, bước 3 chưa làm. */
+async function goalA($: Engine, seen: Seen) {
+  await submit($, A)
+  await $.turn.start({ text: 'làm', turnId: 't1' })
+  await step($, seen, { turnId: 't1' })
+  await setPlan($, ['Sửa hàm phí', 'Thêm test', 'Cập nhật tài liệu'])
+  await mark($, 1, 'done')
+  await mark($, 2, 'doing')
+  await $.turn.complete({ turnId: 't1', answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer' } as never)
+}
+
+/** Mục tiêu B thay A (A được cất); checklist của B một bước, đóng khi `isClosed`. */
+async function goalB($: Engine, isClosed: boolean) {
+  await submit($, 'Sửa chú thích README')
+  await setPlan($, ['Sửa chú thích'])
+  if (isClosed) await mark($, 1, 'done')
+}
+
+describe('0.8.4 A2: tiếp tục quay lại mục tiêu đã cất', () => {
+  for (const [name, opts] of OPTIONS) {
+    test(`${name}: B đã xong, tiếp tục: quay lại A còn đúng 2 bước mở, context báo quay lại và bước kế tiếp, nhật ký restore`, { options: opts }, async ($, on) => {
+      const { seen, lines } = setup(on, [BIG(), NEW('Sửa chú thích'), RESUME])
+      await goalA($, seen)
+      await goalB($, true)
+      await submit($, 'tiếp tục')
+      const shown = await show($)
+      expect(shown).toContain(`Mục tiêu: ${A}`)
+      expect(shown).toContain('[~] 2. Thêm test')
+      expect(shown).toContain('[ ] 3. Cập nhật tài liệu')
+      expect(lastContext(seen).filter(c => c === restoreResumeContext(A, STEP2)).length).toBe(1)
+      expect(lastContext(seen).some(c => c.includes('chạy tiếp từ bước đang mở'))).toBe(false)
+      const restore = lines().filter(l => l['kind'] === 'restore').at(-1)
+      expect(restore?.['from']).toBe(1)
+      expect(typeof restore?.['goalId']).toBe('number')
+      await $.turn.start({ text: 'làm', turnId: 't3' })
+      expect(pick(await step($, seen, { turnId: 't3' }))).toBe(expectedMain(opts))
+      if (opts.conductor === 'fable') expect(await statusText($)).toContain('Điều phối: fable/medium, đang điều phối')
+    })
+
+    test(`${name}: B còn bước mở: không khôi phục, chạy tiếp B`, { options: opts }, async ($, on) => {
+      const { seen } = setup(on, [BIG(), NEW('Sửa chú thích'), RESUME])
+      await goalA($, seen)
+      await goalB($, false)
+      await submit($, 'tiếp tục')
+      expect(await show($)).toContain('Mục tiêu: Sửa chú thích')
+      expect(lastContext(seen).some(c => c.includes('chạy tiếp từ bước 1. Sửa chú thích'))).toBe(true)
+    })
+  }
+
+  test('không có mục tiêu đã cất, checklist trống: như trước, chạy tiếp từ bước đang mở', { options: OPTIONS[0][1] }, async ($, on) => {
+    const { seen } = setup(on, [plan({ goal: 'Sửa phí', depth: 'light', volume: 'small', kind: 'edit' }), RESUME])
+    await submit($, 'Sửa phí')
+    await submit($, 'tiếp tục')
+    expect(await show($)).toContain('Mục tiêu: Sửa phí')
+    expect(lastContext(seen).some(c => c.includes('chạy tiếp từ bước đang mở'))).toBe(true)
+  })
+
+  test('mục tiêu đã cất không còn bước mở (chỉ còn bước waiting): không khôi phục', { options: OPTIONS[0][1] }, async ($, on) => {
+    const { seen } = setup(on, [BIG(), NEW('Sửa chú thích'), RESUME])
+    await submit($, A)
+    await step($, seen, { turnId: 't1' })
+    await setPlan($, ['Sửa hàm phí', 'Chờ CI'])
+    await mark($, 1, 'done')
+    await $.tool.call({ tool: PLAN, action: 'update', step: 2, status: 'waiting', note: 'chờ CI chạy xong' } as never)
+    await goalB($, true)
+    await submit($, 'tiếp tục')
+    expect(await show($)).toContain('Mục tiêu: Sửa chú thích')
+  })
+
+  test('mục tiêu đã cất gần nhất không phải mục tiêu bị mục tiêu hiện tại thay: không khôi phục', { options: OPTIONS[0][1] }, async ($, on) => {
+    const { seen } = setup(on, [BIG(), NEW('Viết hàm slugify'), NEW('Sửa chú thích'), RESUME])
+    await goalA($, seen)
+    await submit($, 'Viết hàm slugify(text)')
+    await goalB($, true)
+    await submit($, 'tiếp tục')
+    expect(await show($)).toContain('Mục tiêu: Sửa chú thích')
+  })
+
+  test('tin hỏi tiến độ trong cùng tình huống: không khôi phục', { options: OPTIONS[0][1] }, async ($, on) => {
+    const { seen } = setup(on, [BIG(), NEW('Sửa chú thích'), STATUS])
+    await goalA($, seen)
+    await goalB($, true)
+    await submit($, 'tới đâu rồi')
+    expect(await show($)).toContain('Mục tiêu: Sửa chú thích')
+  })
+
+  test('sau khi khôi phục bằng tiếp tục, plan restore lần nữa: như khi không còn mục tiêu để khôi phục', { options: OPTIONS[0][1] }, async ($, on) => {
+    const { seen } = setup(on, [BIG(), NEW('Sửa chú thích'), RESUME])
+    await goalA($, seen)
+    await goalB($, true)
+    await submit($, 'tiếp tục')
+    const again = await $.tool.call({ tool: PLAN, action: 'restore' } as never)
+    expect(String(again.deny)).toBe('Không có mục tiêu cũ nào đang được lưu để khôi phục.')
+  })
+
+  test('mục tiêu lớn A đã duyệt, bị B thay, tiếp tục khôi phục A: Edit ở luồng chính không bị từ chối vì chưa duyệt', { options: { enforceChecklist: true, decisionLog: LOG } }, async ($, on) => {
+    const approve = plan({ relation: 'continue', intent: 'approve', goal: '', depth: 'light', volume: 'small', kind: 'edit' })
+    const { seen } = setup(on, [BIG({ requirements: ['Sửa hàm phí', 'Thêm test'] }), approve, NEW('Sửa chú thích'), RESUME])
+    await submit($, A)
+    await $.turn.start({ text: 'việc', turnId: 't1' })
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa hàm phí', check: 'bun test' }, { title: 'Thêm test', check: 'bun test' }] } as never)
+    expect(await stop($)).toBe('')
+    await submit($, 'ok duyệt')
+    expect((await edit($)).deny).toBeUndefined()
+    await goalB($, true)
+    await submit($, 'tiếp tục')
+    expect(await show($)).toContain(`Mục tiêu: ${A}`)
+    expect(String((await edit($)).deny ?? '')).not.toContain('chưa được duyệt')
+    expect(lastContext(seen).some(c => c.startsWith('[focus-conductor] Tin bảo chạy tiếp: đã quay lại'))).toBe(true)
+  })
+})
