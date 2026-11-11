@@ -2148,4 +2148,5 @@ export const MUTANTS: Mutant[] = [
   { id: "085-D3a", file: "hooks/lib/state.ts", note: "bỏ điều kiện việc chen vào đã có turn thực thi kết thúc", old: "  if (n.plan.length === 0 && turnsOf(n).done < 1) return null\n", new: "" },
   { id: "085-D3b", file: "hooks/lib/state.ts", note: "bỏ điều kiện turn gần nhất của việc chen vào không bị ngắt", old: "  if (n.plan.length === 0 && turnsOf(n).interrupted) return null\n", new: "" },
   { id: "085-K4a", file: "hooks/parts/session.ts", note: "tin chen ngang khôi phục vẫn chèn đoạn dặn điều phối và ghi briefedGoal", old: "        const conductNote = !isInterject && wanted?.isConducting", new: "        const conductNote = wanted?.isConducting" },
+  { id: "085-K6a", file: "hooks/parts/session.ts", note: "prev là brief trước khi khôi phục", old: "        L.lastPrompt = { text, prev: restored, goalId: restored.goalId }\n", new: "        L.lastPrompt = { text, prev, goalId: restored.goalId }\n" },
 ]

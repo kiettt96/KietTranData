@@ -360,7 +360,8 @@ export function registerSession(on: On, ctx: Ctx): void {
         await update($, coreState, () => S.withRouterFail(null)(S.withAnalyzerUsage(outcome.usages, target.family)(back.core)))
         const restored = back.brief
         L.promptIntent = { relation: 'continue', kind: restored.kind }
-        L.lastPrompt = { text, prev, goalId: restored.goalId }
+        // Brief trước prompt là brief vừa khôi phục (0.8.5 K6): /conductor reroute đọc lại prompt này trên mục tiêu đã khôi phục.
+        L.lastPrompt = { text, prev: restored, goalId: restored.goalId }
         record(now, 'restore', { prompt: clipText(text), goalId: restored.goalId, from: lastArchived.brief.goalId, cause: 'resume' })
         await flushDecisions((path, text) => $.fs.write(path, text))
         await showStatus($, await read($, view), ctx.options)
