@@ -2,6 +2,37 @@
 
 Các bản của focus-conductor, mới nhất trước. Số đo kiểm chứng của HEAD hiện tại nằm ở [docs/VERIFICATION.md](docs/VERIFICATION.md); cách dùng và tùy chọn ở [README](README.md).
 
+## Thay đổi 0.8.5: mục tiêu đang dở, mục tiêu đã cất, vai điều phối
+
+Xử lý các tồn đọng tìm ra khi rà soát tổng thể 0.8.4 [Nguồn: chủ mod, 11/11/2026]. Lời dặn router, schema JSON router trả, schema tool `plan` và golden không đổi. Mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu đột biến `085-*`; số ca đỏ đo trên `87023af` ở VERIFICATION.
+
+- **K2 (P2): mục tiêu đang dở chưa có checklist bị thay thì được cất.** Định nghĩa chung `isPendingGoal` (`hooks/lib/conductor.ts`) dùng cho `isAside`, `archiveOf`, `isLowNew` (option `isPending` của `nextBrief`) và nhánh tiếp tục. Dòng báo `droppedGoalNotice` khi cất, `restoreGoalOnlyContext` khi quay lại; `/conductor goal` đi cùng `adoptGoal`.
+- **K3 (P2): mục tiêu đã cất mang trạng thái duyệt.** `ArchivedGoal.approval`; `restoreArchived` đặt lại trạng thái đó cho số mục tiêu mới.
+- **K8 (P3): theo dõi turn của mục tiêu.** `Core.goalTurns { goalId, done, interrupted }` ghi ở `turn.complete`; vế mục tiêu lớn chưa lập checklist chỉ đúng khi chưa có turn thực thi nào kết thúc. Mục đã cất mang `turns`.
+- **K1 (P2): giữ cờ chờ câu trả lời** với tin hỏi tiến độ, tin bảo chạy tiếp (cả approve bị kẹp) và nhánh `routerSkip`.
+- **Tách `resumeTarget`** (`hooks/lib/state.ts`), không đổi hành vi, trước nhóm K5, D3, K7, K6, K4.
+- **K5 (P3): tiếp tục quay lại mục đã cất gần nhất còn dở**, duyệt từ mới tới cũ; checklist hiện tại có bước, đã đóng hết, không còn gì đã cất đang dở thì `nothingLeftContext`; checklist trống giữ `intentResumeContext`.
+- **D3 (P3): việc chen vào không có checklist** chỉ coi là xong khi đã có turn thực thi kết thúc và turn gần nhất không bị ngắt.
+- **K4 (P3): tin chen ngang khôi phục** không chèn đoạn dặn điều phối và không ghi `briefedGoal`.
+- **K6 (P3): sau khi khôi phục, `L.lastPrompt.prev` là brief vừa khôi phục**, nên `/conductor reroute` áp lên đúng mục tiêu.
+- **K7 (P3): "tiếp tục" trong `routerSkip` quay lại mục tiêu đã cất** theo cùng luật, không gọi router; tin chạy tiếp điểm dừng giữ ưu tiên.
+- **D1 (P3): luồng chính điều phối có mức `strictDelegation` hiệu dụng `block`**, kể cả dòng `isStrict` của lời nhắc.
+- **D2 (P3): bổ sung lớn sau khi duyệt** (amend, substantial hay hard, edit hay mixed, có việc mới) đưa kế hoạch về `planning`.
+- **K9 (P3): không sửa mã.** Trường `model` của Agent chỉ nhận alias ở engine 2.1.296 và 2.1.322; ghi ở DESIGN.
+- **K10 (P3): `Core.fable.promptPaused`** thay biến module `fablePromptPaused`.
+- **K11 (P3): props `AbovePrompt` của 25 tệp test giao diện cũ có `isCollapsed: false`** (27 chỗ). Chưa chạy được `tsc` (VERIFICATION).
+- **K12 (P3): dừng, không đổi bảng giá.** Lý do ở VERIFICATION.
+- **K13 (P3): README đủ 41 option** (thêm `headlessRouting`, `passLines`, `softPaths`); DESIGN sửa câu về cờ chờ câu trả lời; `scripts/version-check.mjs` kiểm mọi khóa option có dòng trong bảng README.
+
+**Test cũ đổi kỳ vọng, giữ tên:**
+
+- `0.8.4 A2 > mục tiêu đã cất gần nhất không phải mục tiêu bị mục tiêu hiện tại thay: không khôi phục`: theo K5, nay khôi phục mục tiêu đã cất gần nhất còn dở.
+- `0.8.4 C1 > Core 0.8.3 không có trường fable: ...`: hình dạng mặc định của `Core.fable` có thêm `promptPaused: false` (K10).
+- `sổ 0.8.4 vẫn rỗng; MOD_VERSION là 0.8.4`: kỳ vọng `MOD_VERSION` là 0.8.5; tên giữ để không đổi tên ca nào.
+- 25 tệp test giao diện cũ: chỉ thêm `isCollapsed: false` vào props (K11), kỳ vọng hành vi không đổi.
+
+**Mẫu cũ viết lại (giữ mã):** `070-D2`, `070-L9`, `075-B12b`, `075-B12c`, `075-B12f`, `075-M5i`, `084-A1e`, `084-A1g`, `084-A2a`, `084-A2b`, `084-A2c`, `084-A2d`, `084-C6c`, `084-W4d`, `084-Z1a`, `084-Z2c`, `084-Z2d`, `084-Z2e`; mẫu mới `085-K2c`, `085-K3a`, `085-K6a`, `085-D2b` viết lại trong cùng bản. **Mẫu bỏ:** `084-A2e`, vì điều kiện số mục tiêu liền trước không còn trong mã sau K5.
+
 ## Thay đổi 0.8.4: Fable điều phối
 
 Yêu cầu mới của chủ mod [Nguồn: chủ mod, 10/11/2026]: lập kế hoạch, điều phối model và effort, điều phối công việc lúc chạy do Fable 5.2 làm ở effort medium; model khác thực thi. Tính năng nằm sau option `conductor` (mặc định `off`, như 0.8.3 từng byte). Mỗi điểm một commit test đỏ rồi một commit sửa, riêng S1, S2 chỉ thêm test; schema tool `plan` và schema JSON router không đổi.
