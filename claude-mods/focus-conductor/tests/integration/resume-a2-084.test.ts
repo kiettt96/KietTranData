@@ -449,3 +449,44 @@ describe('0.8.5 K6: reroute sau khi khôi phục', () => {
     expect(shown).toContain('[ ] 3. Cập nhật tài liệu')
   })
 })
+
+// 0.8.5 K7: "tiếp tục" trong routerSkip quay lại mục tiêu đã cất theo cùng luật với nhánh có router (K5, D3), không gọi router. Tin chạy
+// tiếp một điểm dừng đang mở giữ ưu tiên.
+describe('0.8.5 K7: tiếp tục trong routerSkip quay lại mục tiêu đã cất', () => {
+  const SKIP = { planApproval: 'off', decisionLog: LOG, routerSkip: 'tiếp tục' } as const
+  test('A còn bước mở bị B thay, B đóng hết, tiếp tục đi nhánh skip: mục tiêu là A, có dòng restore, router không được gọi thêm', { options: SKIP }, async ($, on) => {
+    const { seen, lines } = setup(on, [BIG(), NEW('Sửa chú thích')])
+    await goalA($, seen)
+    await goalB($, true)
+    const calls = seen.routerCalls.filter(c => c.kind === 'prompt').length
+    const before = routerLedger(await statusText($))
+    await submit($, 'tiếp tục')
+    expect(await show($)).toContain(`Mục tiêu: ${A}`)
+    expect(lines().some(l => l['kind'] === 'restore' && l['cause'] === 'resume')).toBe(true)
+    expect(lastContext(seen).filter(c => c === restoreResumeContext(A, STEP2)).length).toBe(1)
+    expect(seen.routerCalls.filter(c => c.kind === 'prompt').length).toBe(calls)
+    expect(routerLedger(await statusText($)).calls).toBe(before.calls)
+  })
+
+  test('B còn bước mở: nhánh skip như cũ, chạy tiếp B', { options: SKIP }, async ($, on) => {
+    const { seen, lines } = setup(on, [BIG(), NEW('Sửa chú thích')])
+    await goalA($, seen)
+    await goalB($, false)
+    await submit($, 'tiếp tục')
+    expect(await show($)).toContain('Mục tiêu: Sửa chú thích')
+    expect(lines().some(l => l['kind'] === 'restore')).toBe(false)
+  })
+
+  test('điểm dừng đang mở và vừa gõ /conductor resume: tiếp tục đi nhánh skip chạy tiếp điểm dừng, không khôi phục mục tiêu đã cất', { options: SKIP }, async ($, on) => {
+    const { seen, lines } = setup(on, [BIG(), NEW('Sửa chú thích')])
+    await goalA($, seen)
+    await goalB($, true)
+    await conductor($, 'pause')
+    expect(String((await $.tool.call({ tool: PLAN, action: 'checkpoint', note: 'Tiếp: rà lại chú thích.' } as never)).result ?? '')).toContain('Đã ghi điểm dừng')
+    await conductor($, 'resume')
+    await submit($, 'tiếp tục')
+    expect(lastContext(seen)[0] ?? '').toContain('ĐIỂM DỪNG')
+    expect(await show($)).toContain('Mục tiêu: Sửa chú thích')
+    expect(lines().some(l => l['kind'] === 'restore')).toBe(false)
+  })
+})
