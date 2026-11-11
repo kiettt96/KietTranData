@@ -17,7 +17,7 @@ import type { View } from '../lib/state'
 import { RETRY_ROUNDS, WAIVE_REPORT, briefContext, checkHintLines, droppedItemsText, droppedPlanNotice, quotaStatusLines, renderPlan, resetLabel, routerFailLines, unroutedContext } from '../lib/text'
 import { PANE_ROWS, shouldAutoOpenPane } from '../lib/pane'
 import { PANE, PANE_TITLE } from '../ui/pane'
-import { labels, langOf } from '../ui/labels'
+import { conductorLine, labels, langOf } from '../ui/labels'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -120,7 +120,7 @@ const WAIVE_USAGE = `Cách dùng: /conductor waive <số thứ tự hoặc lện
 
 export function registerCommand(on: On, ctx: Ctx): void {
   const L = ctx.local
-  const { blocked, flushDecisions, delegationItems, expectedMain, failures, noteRouterTime, ranText, record, resetLocal, routerFamily, routerModel, routerTimeLine, trackDelegations, untrackedAgents, wantedPick } = ctx
+  const { blocked, flushDecisions, delegationItems, expectedMain, failures, noteRouterTime, ranText, record, resetLocal, routerTimeLine, trackDelegations, untrackedAgents, wantedPick } = ctx
   const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
   const mode = derive([modeState], modeOf(ctx.options))
 
@@ -211,11 +211,13 @@ export function registerCommand(on: On, ctx: Ctx): void {
       if (arg === '') return { text: 'Cần mô tả mục tiêu: /conductor goal kèm mô tả' }
       const before = S.normalizeCore(await read($, coreState))
       const prev = before.brief
-      const rules = ctx.routePolicy(before, ctx.maxForks >= 2 ? await $.session.root().catch(caught('session.root', null)) : null)
+      const basePolicy = ctx.routePolicy(before, ctx.maxForks >= 2 ? await $.session.root().catch(caught('session.root', null)) : null)
+      const rules = ctx.conductorState(before, await read($, mode)) === null ? { ...basePolicy, conductor: true } : basePolicy
       // Lệnh do người dùng gõ: luôn hỏi router, kể cả khi router đang tạm ngừng sau các lần lỗi.
-      const request = routerRequest({ text: arg, prev, ran: null, policy: rules, model: routerModel, sessionFamily: L.sessionFamily, isForcedNew: true })
+      const target = ctx.routerTarget(before, await read($, mode))
+      const request = routerRequest({ text: arg, prev, ran: null, policy: rules, model: target.model, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily, isForcedNew: true })
       const startedAt = await $.clock.now()
-      const outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), undefined, { retryMissingConfidence: true })
+      const outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), undefined, { retryMissingConfidence: true, ...(target.isFable ? { isFable: true } : {}) })
       ctx.noteRouterFailure('prompt', outcome.failure)
       noteRouterTime((await $.clock.now()) - startedAt)
       const plan = outcome.result
@@ -230,7 +232,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       const core = await update($, coreState, c => {
         const adopted = S.adoptGoal(brief)(c)
         const withRoute = plan === null ? S.withRoute(null)(adopted) : adopted
-        return S.withRouterFail(fail)(S.withAnalyzerUsage(outcome.usages, routerFamily)(withRoute))
+        return S.withRouterFail(fail)(S.withAnalyzerUsage(outcome.usages, target.family)(withRoute))
       })
       L.lastPrompt = null
       L.isGoalNew = true
@@ -240,7 +242,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       record(now, plan !== null ? 'route' : 'router-fail', { command: 'goal', prompt: clipText(arg), reason: outcome.reason, retried: outcome.retried, ...(fail ? failFields(fail) : {}) })
       await flushDecisions((path, text) => $.fs.write(path, text))
       await showStatus($, await read($, view), ctx.options)
-      const wanted = wantedPick(brief, core.lift)
+      const wanted = wantedPick(brief, core.lift, core, await read($, mode))
       const expected = wanted !== null ? expectedMain(core, brief, wanted, now) : null
       trackDelegations(brief.goalId, brief.isReference ? [] : brief.tasks)
       await update($, coreState, S.withDelegations(brief.goalId, delegationItems(brief)))
@@ -272,16 +274,18 @@ export function registerCommand(on: On, ctx: Ctx): void {
       if (last === null || (current?.goalId ?? null) !== last.goalId) {
         return { text: 'Không có prompt nào của mục tiêu hiện tại để router đọc lại. Đặt mục tiêu bằng /conductor goal kèm mô tả.' }
       }
-      const rules = ctx.routePolicy(before, ctx.maxForks >= 2 ? await $.session.root().catch(caught('session.root', null)) : null)
+      const basePolicy = ctx.routePolicy(before, ctx.maxForks >= 2 ? await $.session.root().catch(caught('session.root', null)) : null)
+      const rules = ctx.conductorState(before, await read($, mode)) === null ? { ...basePolicy, conductor: true } : basePolicy
       // Lệnh do người dùng gõ: luôn hỏi router, kể cả khi router đang tạm ngừng.
-      const request = routerRequest({ text: last.text, prev: last.prev, ran: ranText(before), policy: rules, model: routerModel, sessionFamily: L.sessionFamily })
+      const target = ctx.routerTarget(before, await read($, mode))
+      const request = routerRequest({ text: last.text, prev: last.prev, ran: ranText(before), policy: rules, model: target.model, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily })
       const startedAt = await $.clock.now()
-      const outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), undefined, { retryMissingConfidence: true })
+      const outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), undefined, { retryMissingConfidence: true, ...(target.isFable ? { isFable: true } : {}) })
       ctx.noteRouterFailure('prompt', outcome.failure)
       noteRouterTime((await $.clock.now()) - startedAt)
       const now = await $.clock.now()
       const withUsage = (c: Core): Core =>
-        S.withAnalyzerUsage(outcome.usages, routerFamily)(c)
+        S.withAnalyzerUsage(outcome.usages, target.family)(c)
       const plan = outcome.result
       if (plan === null) {
         const fail = routerFailOf(outcome, now, now - startedAt)
@@ -322,7 +326,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       await update($, coreState, S.withDelegations(brief.goalId, delegationItems(brief)))
       const core = S.normalizeCore(await read($, coreState))
       const isApplied = (await read($, mode)) === 'auto'
-      const wanted = wantedPick(brief, core.lift)
+      const wanted = wantedPick(brief, core.lift, core, await read($, mode))
       const expected = wanted !== null ? expectedMain(core, brief, wanted, now) : null
       record(now, 'reroute', { prompt: clipText(last.text), relation: plan.relation, confidence: plan.confidence, retried: outcome.retried, main: brief.main, expected })
       await flushDecisions((path, text) => $.fs.write(path, text))
@@ -454,7 +458,9 @@ export function registerCommand(on: On, ctx: Ctx): void {
           now: await $.clock.now(),
         }),
       )
-      if (core.brief === null) return { text: [`Chế độ ${current}. Chưa có mục tiêu.`, ...routerFailLines(core.routerFail), ...costLines].join('\n') }
+      // Fable điều phối (0.8.4 C8): một dòng trạng thái, chỉ khi option conductor là fable.
+      const conductorLines = ctx.conductorOption === 'fable' ? [conductorLine(core, ctx.routerModel, lang)] : []
+      if (core.brief === null) return { text: [`Chế độ ${current}. Chưa có mục tiêu.`, ...conductorLines, ...routerFailLines(core.routerFail), ...costLines].join('\n') }
       const routeLine = core.route
         ? `${describePick(core.route)} (${core.route.reason})`
         : core.brief.main === null
@@ -482,6 +488,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
           `Chế độ ${current}`,
           judged,
           `Luồng chính: ${routeLine}${blockedLine}`,
+          ...conductorLines,
           ...routerFailLines(core.routerFail),
           ...checkHintLines(core.checkHint, core.brief.goalId),
           ...((core.brief.dropped ?? 0) > 0 ? [droppedItemsText(core.brief.dropped ?? 0)] : []),

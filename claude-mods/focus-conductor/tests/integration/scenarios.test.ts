@@ -292,9 +292,12 @@ describe('0.5.0: các ca biên do kiểm đột biến chỉ ra', () => {
     await submit($, 'Liệt kê các hàm export trong utils.ts')
     await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Bước của mục tiêu C' }] })
     await submit($, 'Fix race condition khi hai worker cùng ghi file cache')
-    // Ba mục tiêu còn bước mở đều còn trong danh sách đã lưu.
+    // 0.8.4 A1: "Liệt kê..." (router xếp new, answer, không việc) gửi khi mục tiêu A còn bước mở là tin ngoài lề, không lập mục tiêu C;
+    // plan set kế tiếp thay checklist của A. Hai mục tiêu còn bước mở (A với checklist mới, B) đều còn trong danh sách đã lưu.
     const third = await $.tool.call({ tool: PLAN, action: 'restore', index: 3 })
-    expect(String(third.result)).toContain('Bước của mục tiêu B')
+    expect(String(third.deny)).toContain('Chỉ có 2 mục tiêu đã lưu')
+    const second = await $.tool.call({ tool: PLAN, action: 'restore', index: 2 })
+    expect(String(second.result)).toContain('Bước của mục tiêu B')
   })
 })
 

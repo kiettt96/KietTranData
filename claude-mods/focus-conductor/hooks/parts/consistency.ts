@@ -20,10 +20,12 @@ import { taskRows } from '../lib/progress'
 import { EMPTY_QUOTA, evaluateQuota, normalizeQuota, quotaSettings, softNotices } from '../lib/quota'
 import { storeKey, withNote } from '../lib/checkpoint'
 import * as S from '../lib/state'
+import { fableStep } from './fable'
+import { isMainConducting } from '../lib/conductor'
 import type { View } from '../lib/state'
 import { shownPlan } from '../lib/mirror'
 import { forkFailures, forkFiles, forkResults, liveForks, mergeDue } from '../lib/forks'
-import { PLAN_TOOL_FULL, RETRY_REPORT, chainedCheckNote, retryAgentNotice, RETRY_ROUNDS, noCheckReason, waiveAskText, blockText, firstErrorLine, clipMiddle, RETRY_COMMAND_CHARS, joinStopReasons, retryDoneNote, retryEditNote, retryFailNotice, retryName, retryStepNote, retryStopReason, skillTrialReason, changedFilesNotice, checkHintText, compactReminderText, criteriaNotice, driftContext, missingTasks, missingTasksNotice, needsChecklist, noChecklistReason, pendingNotice, qualityNotice, renderBulk, renderPlan, requirementsNotice, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice, forkMergedNote } from '../lib/text'
+import { PLAN_TOOL_FULL, RETRY_REPORT, chainedCheckNote, retryAgentNotice, RETRY_ROUNDS, noCheckReason, waiveAskText, blockText, firstErrorLine, clipMiddle, RETRY_COMMAND_CHARS, joinStopReasons, retryDoneNote, retryEditNote, retryFailNotice, retryName, retryStepNote, retryStopReason, skillTrialReason, changedFilesNotice, checkHintText, compactReminderText, conductorKeepText, criteriaNotice, driftContext, missingTasks, missingTasksNotice, needsChecklist, noChecklistReason, pendingNotice, qualityNotice, renderBulk, renderPlan, requirementsNotice, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice, forkMergedNote } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -37,6 +39,19 @@ import { EDIT_TOOLS, ERROR_BURST } from '../context'
 const UNVERIFIED_REJECTED = 3
 
 const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EMPTY_CORE)
+
+/** Áp kết quả một lượt router gửi Fable vào Core (0.8.4 C6): vừa tạm ngừng thì toast và một dòng nhật ký conductor. */
+async function noteFableRouter($: EngineInterface, ctx: Ctx, isOk: boolean): Promise<void> {
+  const at = await $.clock.now()
+  const step = fableStep(S.normalizeCore(await read($, coreState)), isOk, ctx.routerModel, at)
+  if (step === null) return
+  await update($, coreState, step.change)
+  if (step.text !== null) $.ui.toast(step.text)
+  if (step.log !== null) {
+    ctx.record(at, 'conductor', step.log)
+    await ctx.flushDecisions((path, body) => $.fs.write(path, body))
+  }
+}
 const bandHiddenState = atom({ plugin: 'focus-conductor', key: 'isBandHidden' } as const, false)
 const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null)
 const quotaState = atom({ plugin: 'focus-conductor', key: 'quota' } as const, EMPTY_QUOTA)
@@ -326,22 +341,26 @@ async function planReviewGate($: EngineInterface, ctx: Ctx): Promise<{ kind: 'no
   }
   // Lượt cuối đã chặn một lần: lần Stop này cho kết thúc, không rà thêm.
   if (approval.rounds >= ctx.planReviewRounds) return present('rounds')
-  if (ctx.isRouterPaused()) return present('router-paused', 'Router đang tạm ngừng nên chưa rà kế hoạch; kế hoạch được trình như hiện có')
+  // Model của lượt rà (0.8.4 C2): Fable khi sẵn sàng, không thì option router. Tạm ngừng router cũ chỉ áp khi không gọi Fable (C6).
+  const target = ctx.routerTarget(core, S.modeOf(await read($, modeState), ctx.options))
+  if (!target.isFable && ctx.isRouterPaused()) return present('router-paused', 'Router đang tạm ngừng nên chưa rà kế hoạch; kế hoạch được trình như hiện có')
   const request = planReviewRequest({
     goal: brief.goal,
     requirements: brief.requirements ?? [],
     constraints: brief.constraints,
     quality: brief.quality,
     steps: core.plan.map(step => ({ title: step.title, ...(step.check !== undefined ? { check: step.check } : {}) })),
-    model: ctx.routerModel,
+    model: target.model,
+    ...(target.isFable ? { isFable: true } : {}),
   })
   const startedAt = await $.clock.now()
   const outcome = await askRouter(r => $.model.complete(r), request, parsePlanReview)
   ctx.noteRouterFailure('review', outcome.failure)
+  if (target.isFable) await noteFableRouter($, ctx, outcome.result !== null)
   ctx.noteRouterTime((await $.clock.now()) - startedAt)
   const rounds = approval.rounds + 1
   // Chi phí mỗi lượt rà cộng vào sổ nhóm router; lượt rà tăng sau mỗi lần gọi.
-  await update($, coreState, c => S.withApproval({ ...S.approvalOf(c), rounds })(S.withAnalyzerUsage(outcome.usages, ctx.routerFamily)(c)))
+  await update($, coreState, c => S.withApproval({ ...S.approvalOf(c), rounds })(S.withAnalyzerUsage(outcome.usages, target.family)(c)))
   const review = outcome.result
   ctx.record(at, 'plan-review', { goalId: brief.goalId, round: rounds, missing: review?.missing ?? null, extra: review?.extra ?? null, issues: review?.issues.length ?? null, ...(review === null ? { reason: outcome.reason } : {}) })
   // Router lỗi: không đoán, trình kế hoạch như hiện có kèm cảnh báo.
@@ -572,7 +591,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     if (!L.observed.includes(item)) L.observed.push(item)
     if (L.observed.length > 5) L.observed.shift()
   }
-  const { agentFailures, agentTrackers, agents, blockLimit, carryEvidence, flushDecisions, delegationItems, evidenceFor, failedFor, isRouterPaused, moveDelegation, noteRouterTime, pendingFor, record, remindSubagents, routerFamily, routerModel, semanticDrift, driftEveryMs, steppedEarly, strictDelegation, trackDelegations } = ctx
+  const { agentFailures, agentTrackers, agents, blockLimit, flushDecisions, delegationItems, evidenceFor, failedFor, isRouterPaused, moveDelegation, noteRouterTime, pendingFor, record, remindSubagents, semanticDrift, driftEveryMs, steppedEarly, strictDelegation } = ctx
   const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
   const mode = derive([modeState], modeOf(ctx.options))
 
@@ -592,18 +611,11 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     if (input.action === 'restore') {
       // Khôi phục mục tiêu cũ đã lưu khi router xếp một prompt là mục tiêu mới.
       const index = typeof input.index === 'number' ? input.index : 1
-      const stored = S.normalizeCore(await read($, coreState)).archived[index - 1]
-      const outcome = S.restoreArchived(await read($, coreState), index)
+      // Phần dùng chung với tin bảo chạy tiếp (0.8.4 A2): ctx.restoreGoal.
+      const outcome = ctx.restoreGoal(await read($, coreState), index)
       if ('error' in outcome) return { deny: outcome.error }
-      // Mục tiêu khôi phục mang số mới: giữ lịch sử thay đổi và kiểm tra của nó cho việc đối chiếu evidence.
-      if (stored !== undefined) carryEvidence(stored.brief.goalId, outcome.restored.brief.goalId)
       await update($, coreState, () => outcome.core)
-      const restored = outcome.restored.brief
-      // Việc giao còn chờ của mục tiêu khôi phục: các việc ghi giao (Claude biết việc nào đã xong từ checklist).
-      trackDelegations(restored.goalId, restored.isReference ? [] : restored.tasks)
-      await update($, coreState, S.withDelegations(restored.goalId, delegationItems(restored)))
-      L.isGoalNew = true
-      L.pinnedGoalId = null
+      const restored = outcome.brief
       await showStatus($, await read($, view), ctx.options)
       const core = S.normalizeCore(await read($, coreState))
       return { result: `Đã khôi phục mục tiêu: ${restored.goal}\n${renderPlan(core.brief, core.plan)}` }
@@ -872,7 +884,9 @@ export function registerConsistency(on: On, ctx: Ctx): void {
 
     const core = S.normalizeCore(await read($, coreState))
     // Lời nhắc sau nén (0.7.4): gắn một lần vào tool call này, dựng từ mục tiêu và checklist lúc này.
-    const compactNote = L.compaction.pending && core.brief !== null ? compactReminderText(core.brief, shownPlan(core).plan) : null
+    // Luồng chính đang điều phối (0.8.4 V1): lời nhắc sau nén kèm câu nhắc lại vai điều phối.
+    const keepRole = L.compaction.pending && core.brief !== null && isMainConducting(ctx.conductorInputs(core, S.modeOf(await read($, modeState), ctx.options)), core.brief)
+    const compactNote = L.compaction.pending && core.brief !== null ? `${compactReminderText(core.brief, shownPlan(core).plan)}${keepRole ? `\n${conductorKeepText()}` : ''}` : null
     L.compaction.pending = false
     // Ghi cả lệnh lỗi: evidence nhắc tới một lệnh kiểm tra đã lỗi thì không được tính là đã kiểm tra.
     const retryNotes: string[] = []
@@ -1007,25 +1021,29 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     const quota = normalizeQuota(await read($, quotaState))
     const isNearQuota = quota.pause !== null || evaluateQuota(quota.readings, at, quotaSettings(ctx.options)).nearest !== null
     const isDriftDue = L.lastDriftAt === null || at - L.lastDriftAt >= driftEveryMs
-    if (semanticDrift && core.brief !== null && findings.some(f => f.kind === 'checkpoint') && !isRouterPaused() && !isNearQuota && isDriftDue) {
+    const driftTarget = ctx.routerTarget(core, S.modeOf(await read($, modeState), ctx.options))
+    if (semanticDrift && core.brief !== null && findings.some(f => f.kind === 'checkpoint') && (driftTarget.isFable || !isRouterPaused()) && !isNearQuota && isDriftDue) {
       L.lastDriftAt = at
+      const target = driftTarget
       const request = driftRequest({
         goal: core.brief.goal,
         steps: openSteps(core.plan).map(step => step.title),
         commands: L.evidenceLog.commands.map(entry => entry.command),
         paths: L.evidenceLog.paths,
-        model: routerModel,
+        model: target.model,
+        ...(target.isFable ? { isFable: true } : {}),
       })
       const startedAt = await $.clock.now()
       const outcome = await askRouter(r => $.model.complete(r), request, parseDrift)
       ctx.noteRouterFailure('drift', outcome.failure)
+      if (target.isFable) await noteFableRouter($, ctx, outcome.result !== null)
       noteRouterTime((await $.clock.now()) - startedAt)
       const verdict = outcome.result
       const now = await $.clock.now()
       const isOffTrack = verdict !== null && !verdict.onTrack
       if (isOffTrack) noteStuck(core, core.brief.goal)
       await update($, coreState, c => {
-        const used = S.withAnalyzerUsage(outcome.usages, routerFamily)(c)
+        const used = S.withAnalyzerUsage(outcome.usages, target.family)(c)
         // Lệch mục tiêu: cảnh báo, và turn sau nâng độ sâu một bậc (0.7.0).
         return isOffTrack ? S.withLift(1, 0)(S.withWarnings({ at: now, kind: 'drift', text: `Router: có thể lạc đề (${verdict?.why ?? ''})` })(used)) : used
       })

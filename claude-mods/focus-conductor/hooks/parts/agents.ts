@@ -5,7 +5,7 @@ import { noteHookError } from '../lib/errlog'
 import type { AgentProgress, Choice, Core, RetryItem, RouteEvent, Warning } from '../../types'
 import { turnCost } from '../lib/cost'
 import { countSpawn, shapeKey, shapeOutput } from '../lib/ledger'
-import { EFFORTS, agentMemoKey, describePick, familyOf, familyRank, pickRank, ruleConflict, ruleFamily, stepCovers, taskMatch } from '../lib/route'
+import { EFFORTS, agentMemoKey, applySession, describePick, familyOf, familyRank, pickRank, ruleConflict, ruleFamily, stepCovers, taskMatch } from '../lib/route'
 import { clipText } from '../lib/decisions'
 import { agentRouterRequest, askRouter, briefCodes, fitPick, floorRoute, isSettled, parseAgentRoute, ruleRoute, taskRoute } from '../lib/router'
 import { FORK_QUOTA_DENY, RETRY_PREFIX, RETRY_ROUNDS, forkRetryNote, forkReturnNote } from '../lib/text'
@@ -15,7 +15,9 @@ import { shownPlan } from '../lib/mirror'
 import { tierOf } from '../lib/scale'
 import type { AgentRoute } from '../lib/router'
 import * as S from '../lib/state'
-import type { On } from 'claude-code'
+import { fableStep } from './fable'
+import { isFableReady } from '../lib/conductor'
+import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf } from '../atoms'
 import { FANOUT_WARN } from '../context'
@@ -23,6 +25,19 @@ import { FANOUT_WARN } from '../context'
 // Atom của mod, khai báo lại ở mỗi file dùng chúng (engine chỉ nhận tham chiếu state viết trong chính file đó);
 // cùng plugin và key nên là cùng một giá trị trong $.state.
 const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EMPTY_CORE)
+
+/** Áp kết quả một lượt router gửi Fable vào Core (0.8.4 C6): vừa tạm ngừng thì toast và một dòng nhật ký conductor. */
+async function noteFableRouter($: EngineInterface, ctx: Ctx, isOk: boolean): Promise<void> {
+  const at = await $.clock.now()
+  const step = fableStep(S.normalizeCore(await read($, coreState)), isOk, ctx.routerModel, at)
+  if (step === null) return
+  await update($, coreState, step.change)
+  if (step.text !== null) $.ui.toast(step.text)
+  if (step.log !== null) {
+    ctx.record(at, 'conductor', step.log)
+    await ctx.flushDecisions((path, body) => $.fs.write(path, body))
+  }
+}
 const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null)
 
 /**
@@ -49,7 +64,7 @@ function retryFloorOf(core: Core, description: string, subagentType: string | un
 
 export function registerAgents(on: On, ctx: Ctx): void {
   const L = ctx.local
-  const { agentFailures, agentRoutes, agents, flushDecisions, delegationItems, isAgentRouterPaused, moveDelegation, noteAgentRouter, noteRouterTime, offered, pendingAgents, policy, recognized, record, refit, rememberAgentRoute, routerFamily, routerModel, spawnedIds, startedAgents, steppedEarly } = ctx
+  const { agentFailures, agentRoutes, agents, flushDecisions, delegationItems, isAgentRouterPaused, moveDelegation, noteAgentRouter, noteRouterTime, offered, pendingAgents, policy, recognized, record, refit, rememberAgentRoute, spawnedIds, startedAgents, steppedEarly } = ctx
   const mode = derive([modeState], modeOf(ctx.options))
 
   // Agent khởi động mà không đi qua agent.spawn của mod: ghi để /conductor status báo là agent ngoài điều phối.
@@ -176,7 +191,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
       reason = `Claude ghi ${claimed} đúng quy định model của loại việc; không gọi router`
       route = ruleRoute(claimed, requested, rules)
       if (route !== null) reason += `; ${route.why}`
-    } else if (isAgentRouterPaused()) {
+    } else if (!ctx.routerTarget(core, current).isFable && isAgentRouterPaused()) {
       reason = 'router đang tạm ngừng; giữ lựa chọn của Claude'
     } else {
       const failed = agentFailures.filter(f => f.goalId === goalId).map(f => f.description)
@@ -198,7 +213,8 @@ export function registerAgents(on: On, ctx: Ctx): void {
           failed: failed.slice(-5),
           isWorkflow: false,
           policy: rules,
-          model: routerModel,
+          model: ctx.routerTarget(core, current).model,
+          ...(ctx.routerTarget(core, current).isFable ? { isFable: true } : {}),
           tasks: isNested || brief === null || brief.isReference ? [] : brief.tasks,
           constraints: brief === null || brief.isReference ? [] : brief.constraints,
           sessionFamily: L.sessionFamily,
@@ -208,10 +224,11 @@ export function registerAgents(on: On, ctx: Ctx): void {
         ctx.noteRouterFailure('agent', outcome.failure)
         noteRouterTime((await $.clock.now()) - startedAt)
         await update($, coreState, c =>
-          S.withAnalyzerUsage(outcome.usages, routerFamily)(c),
+          S.withAnalyzerUsage(outcome.usages, ctx.routerTarget(core, current).family)(c),
         )
         route = outcome.result
-        const pauseText = noteAgentRouter(route !== null)
+        // Lỗi của router Fable có bộ đếm riêng (0.8.4 C6).
+        const pauseText = ctx.routerTarget(core, current).isFable ? (await noteFableRouter($, ctx, route !== null), null) : noteAgentRouter(route !== null)
         if (route !== null) rememberAgentRoute(key, route)
         reason = route !== null ? `router: ${route.why}` : `router không chấm được (${outcome.reason}); giữ lựa chọn của Claude`
         if (pauseText !== null) {
@@ -305,6 +322,13 @@ export function registerAgents(on: On, ctx: Ctx): void {
       await flushDecisions((path, text) => $.fs.write(path, text))
     }
 
+    // Lập kế hoạch thuộc vai của Fable (0.8.4 C7): Agent Plan chạy fable/medium khi Fable sẵn sàng, sau các bước kẹp (việc đã phân,
+    // kết quả nhớ, kết quả chấm), không kẹp theo allowFable; sessionModel ceiling hay fixed vẫn thắng.
+    if (route !== null && e.subagent_type === 'Plan' && isFableReady(ctx.conductorInputs(core, current))) {
+      const family = applySession('fable', rules.session)
+      route = { ...route, pick: { family, effort: 'medium' }, why: [route.why, 'Plan theo vai điều phối'].filter(Boolean).join('; ') }
+      reason += `; Plan theo vai điều phối: ${family}/medium`
+    }
     const isApplied = route !== null && (current === 'auto' || current === 'subagents')
     // Họ model và effort thật sự gửi đi: lựa chọn của router khi áp dụng, nếu không thì của Claude.
     const sentFamily = isApplied && route !== null ? route.pick.family : claimed
@@ -374,7 +398,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
       if (known !== undefined) {
         workflowRoute = refit(known)
         workflowReason = `router (đã chấm trước): ${known.why}`
-      } else if (isAgentRouterPaused()) {
+      } else if (!ctx.routerTarget(core, current).isFable && isAgentRouterPaused()) {
         workflowReason = 'router đang tạm ngừng'
       } else {
         L.agentCalls += 1
@@ -389,7 +413,8 @@ export function registerAgents(on: On, ctx: Ctx): void {
           failed: agentFailures.filter(f => f.goalId === goalId).map(f => f.description).slice(-5),
           isWorkflow: true,
           policy: rules,
-          model: routerModel,
+          model: ctx.routerTarget(core, current).model,
+          ...(ctx.routerTarget(core, current).isFable ? { isFable: true } : {}),
           tasks: brief === null || brief.isReference ? [] : brief.tasks,
           constraints: brief === null || brief.isReference ? [] : brief.constraints,
           sessionFamily: L.sessionFamily,
@@ -399,10 +424,11 @@ export function registerAgents(on: On, ctx: Ctx): void {
         ctx.noteRouterFailure('agent', outcome.failure)
         noteRouterTime((await $.clock.now()) - startedAt)
         await update($, coreState, c =>
-          S.withAnalyzerUsage(outcome.usages, routerFamily)(c),
+          S.withAnalyzerUsage(outcome.usages, ctx.routerTarget(core, current).family)(c),
         )
         workflowRoute = outcome.result
-        const pauseText = noteAgentRouter(workflowRoute !== null)
+        // Lỗi của router Fable có bộ đếm riêng (0.8.4 C6).
+        const pauseText = ctx.routerTarget(core, current).isFable ? (await noteFableRouter($, ctx, workflowRoute !== null), null) : noteAgentRouter(workflowRoute !== null)
         if (workflowRoute !== null) rememberAgentRoute(key, workflowRoute)
         workflowReason = workflowRoute !== null ? `router: ${workflowRoute.why}` : `router không chấm được (${outcome.reason})`
         if (pauseText !== null) {

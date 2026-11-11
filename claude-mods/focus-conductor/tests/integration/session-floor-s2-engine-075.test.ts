@@ -21,7 +21,9 @@ describe('0.7.5 S2: sàn model phiên qua engine', () => {
     expect(seen.contexts[0]?.join('\n')).toContain('luồng chính opus/')
     await submit($, 'Giá vàng SJC hôm nay bao nhiêu?')
     const second = seen.contexts[1]?.join('\n') ?? ''
-    expect(second).toContain('luồng chính haiku/low')
-    expect(second).not.toContain('luồng chính opus')
+    // 0.8.4 A1: mục tiêu hard chưa lập checklist là mục tiêu đang dở; câu hỏi giá vàng (new, answer, không việc) là tin ngoài lề, được
+    // trả lời mà không thay mục tiêu, nên không có đoạn brief mới chọn haiku/low cho luồng chính.
+    expect(second).toContain('[focus-conductor] Câu hỏi ngoài lề')
+    expect(second).not.toContain('luồng chính haiku/low')
   })
 })

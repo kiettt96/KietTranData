@@ -1,6 +1,6 @@
 {
   "name": "focus-conductor",
-  "version": "0.8.3",
+  "version": "0.8.4",
   "author": { "name": "Kiet Tran" },
   "description": "Một model Claude (router) đọc kỹ prompt trước khi làm và điều phối model/effort/agent cho từng việc; mod kiểm, ép điều phối lúc chạy, giữ nhất quán mục tiêu với checklist và cảnh báo lạc đề.",
   "types": "./types/index.d.ts",
@@ -15,8 +15,15 @@
     "router": {
       "type": "string",
       "title": "Model router",
-      "description": "Model Claude đọc prompt và điều phối việc, agent, model, effort ngay từ đầu: alias haiku, sonnet, opus hoặc model ID. Mặc định sonnet",
+      "description": "Model Claude đọc prompt và điều phối việc, agent, model, effort ngay từ đầu: alias haiku, sonnet, opus hoặc model ID. Mặc định sonnet. Khi conductor là fable, router là Fable và option này chỉ dùng lúc router Fable tạm ngừng.",
       "default": "sonnet"
+    },
+    "conductor": {
+      "type": "string",
+      "title": "Fable điều phối (conductor)",
+      "description": "off (mặc định): như 0.8.3. fable: Fable 5.2 giữ ba vai ở effort medium: đọc và phân việc ở mọi lượt router, lập kế hoạch và điều phối luồng chính của việc lớn (độ sâu substantial hay hard, loại khác answer); việc sửa file, chạy kiểm và đọc khối lượng lớn giao subagent chạy haiku, sonnet hay opus. Fable đắt hơn Opus, nên việc lớn tốn hạn mức hơn. Router Fable lỗi liên tiếp thì tạm dùng option router. Nên dùng Claude Code từ 2.1.322. (en) off (default): as 0.8.3. fable: Fable 5.2 reads and routes every request, plans and coordinates the main thread of large goals at effort medium, while file edits, checks and bulk reading go to subagents on haiku, sonnet or opus. Fable costs more than Opus. Repeated Fable router failures fall back to the router option for a few prompts. Use Claude Code 2.1.322 or later.",
+      "default": "off",
+      "options": ["off", "fable"]
     },
     "enforceChecklist": {
       "type": "boolean",
@@ -27,7 +34,7 @@
     "allowFable": {
       "type": "boolean",
       "title": "Cho phép dùng Fable cho việc rất khó",
-      "description": "Cho router dùng Fable cho việc khó nhất; tắt thì lựa chọn fable bị kẹp về Opus. Chi phí cao hơn khoảng 2,5 lần Opus",
+      "description": "Cho router dùng Fable cho việc khó nhất; tắt thì lựa chọn fable bị kẹp về Opus. Chi phí cao hơn khoảng 2,5 lần Opus. Chỉ quyết Fable có được làm model thực thi không; vai điều phối của Fable bật bằng option conductor.",
       "default": false
     },
     "modelMap": {

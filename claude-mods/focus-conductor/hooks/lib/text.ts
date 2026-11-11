@@ -316,6 +316,25 @@ export function intentStatusContext(isInterject: boolean): string {
     : '[focus-conductor] Tin hỏi tiến độ: trả lời từ checklist hiện có (bước đã xong, đang làm, còn lại). Không làm thêm việc, không đổi checklist.'
 }
 
+/**
+ * Tin ngoài lề (0.8.4 A1): trả lời mà không đổi mục tiêu đang dở. Giữa turn: trả lời ngắn rồi làm tiếp bước đang làm; ngoài turn: chỉ trả
+ * lời, chưa làm tiếp cho tới khi người dùng bảo chạy tiếp. Không thêm việc, không đổi checklist. Một dòng, tối đa 300 ký tự.
+ */
+export function asideContext(isInterject: boolean, next: PlanStep | undefined): string {
+  const at = next !== undefined ? `bước ${next.id}. ${clipItem(next.title, 80)}` : isInterject ? 'phần đang làm' : 'mục tiêu đang làm'
+  return isInterject
+    ? `[focus-conductor] Câu hỏi ngoài lề giữa turn: trả lời ngắn câu hỏi này rồi làm tiếp ${at}. Không thêm việc, không đổi checklist.`
+    : `[focus-conductor] Câu hỏi ngoài lề: trả lời câu hỏi này; mục tiêu đang làm giữ nguyên, chưa làm tiếp ${at} cho tới khi người dùng bảo chạy tiếp. Không thêm việc, không đổi checklist.`
+}
+
+/**
+ * Tin bảo chạy tiếp quay lại mục tiêu đã cất (0.8.4 A2): việc chen vào đã xong, mod khôi phục mục tiêu bị nó thay; chạy tiếp từ bước mở
+ * kế tiếp của mục tiêu đó. Một dòng, tối đa 300 ký tự.
+ */
+export function restoreResumeContext(goal: string, next: PlanStep | undefined): string {
+  return `[focus-conductor] Tin bảo chạy tiếp: đã quay lại mục tiêu đã cất "${clipItem(goal, 120)}"; chạy tiếp từ ${next !== undefined ? `bước ${next.id}. ${clipItem(next.title, 80)}` : 'bước đang mở'}; không thêm việc mới.`
+}
+
 /** Tin bảo chạy tiếp (0.8.2 N1, intent resume; approve khi không có kế hoạch chờ duyệt): chạy tiếp từ bước đang mở. Tối đa 300 ký tự. */
 export function intentResumeContext(plan: readonly PlanStep[]): string {
   const next = openSteps(plan)[0]
@@ -1305,4 +1324,24 @@ export function firstErrorLine(output: string | undefined, isError = false): str
   if (last === undefined) return ''
   const note = ` (không có dòng lỗi${isError ? ', mã thoát khác 0' : ''})`
   return `${clipItem(last, RETRY_ERROR_CHARS - note.length)}${note}`
+}
+
+/** Trần đoạn dặn vai điều phối (0.8.4 C5). */
+export const CONDUCTOR_CHARS = 480
+
+/** Đoạn dặn vai điều phối (0.8.4 C5): chèn một lần mỗi mục tiêu cùng khối brief khi luồng chính điều phối. */
+export function conductorContext(): string {
+  return (
+    '[focus-conductor] Điều phối: luồng chính là vai điều phối, chạy fable/medium. Lập kế hoạch, rồi giao từng việc bằng Agent đúng loại ' +
+    'agent, model, effort đã phân, description mở đầu bằng "Việc N". Mỗi lời giao tự đứng được: mục tiêu, phạm vi file, ràng buộc, tiêu ' +
+    'chí xong và lệnh kiểm. Đọc kết quả, đối chiếu yêu cầu trước khi đóng bước. Chỉ tự sửa file khi chỉnh vài dòng để ráp kết quả.'
+  )
+}
+
+/** Trần câu nhắc lại vai điều phối (0.8.4 V1). */
+export const CONDUCTOR_KEEP_CHARS = 200
+
+/** Câu nhắc lại vai điều phối (0.8.4 V1): nối vào lời nhắc sau nén và ngữ cảnh chạy tiếp khi luồng chính đang điều phối. */
+export function conductorKeepText(): string {
+  return '[focus-conductor] Vẫn là vai điều phối chạy fable/medium: giao việc sửa file bằng Agent theo phân việc, lời giao tự đứng được; đối chiếu kết quả với yêu cầu trước khi đóng bước.'
 }

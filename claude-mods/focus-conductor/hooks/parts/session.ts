@@ -2,18 +2,20 @@
 
 import { atom, derive, read, update } from 'claude-code'
 import { caught, noteBehavior, noteHookError, noteMistyped } from '../lib/errlog'
-import type { ApprovalState, Brief, Core, Depth, QuotaCheckpoint, Warning } from '../../types'
+import type { ApprovalState, Brief, Core, Depth, Mode, QuotaCheckpoint, Warning } from '../../types'
+import { blockerText, isMainConducting } from '../lib/conductor'
+import { fableStep } from './fable'
 import { briefFromCheckpoint, changedFiles, storeKey } from '../lib/checkpoint'
 import { openSteps, restorableSteps } from '../lib/drift'
 import { PLAN_TOOL_SPEC } from '../lib/plan'
 import { describePick, effortRank, familyOf, familyRank } from '../lib/route'
 import { clipText, keptLines } from '../lib/decisions'
-import { CLIPPED_CONTEXT, NEW_GOAL_CONFIDENCE, ROUTER_TASK_LIMIT, answerMentionsGoal, askRouter, bareBrief, clampIntent, clippedWarning, dropSplit, isClippedPrompt, failFields, isSkippable, needsCoverageRecheck, nextBrief, parseRoute, routerFailOf, routerRequest } from '../lib/router'
+import { CLIPPED_CONTEXT, NEW_GOAL_CONFIDENCE, ROUTER_TASK_LIMIT, answerMentionsGoal, askRouter, bareBrief, clampIntent, isAside, clippedWarning, dropSplit, isClippedPrompt, failFields, isSkippable, needsCoverageRecheck, nextBrief, parseRoute, routerFailOf, routerRequest } from '../lib/router'
 import type { RouterOutcome, RouterPlan } from '../lib/router'
 import { EMPTY_QUOTA, blockingHits, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaSettings, reasonsOf, softNotices } from '../lib/quota'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
-import { DISCIPLINE, phaseNotice, briefContext, droppedItemsText, droppedPlanNotice, followUpContext, intentResumeContext, intentStatusContext, interjectContext, interjectMovedNote, quotaPausedContext, resetLabel, resumeCommand, restorableLabel, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
+import { DISCIPLINE, asideContext, conductorContext, conductorKeepText, phaseNotice, briefContext, droppedItemsText, droppedPlanNotice, followUpContext, intentResumeContext, intentStatusContext, interjectContext, interjectMovedNote, quotaPausedContext, resetLabel, resumeCommand, restorableLabel, restoreResumeContext, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -38,6 +40,19 @@ async function autoOpenPane($: EngineInterface, ctx: Ctx, goalId: number, at: nu
 // Atom của mod, khai báo lại ở mỗi file dùng chúng (engine chỉ nhận tham chiếu state viết trong chính file đó);
 // cùng plugin và key nên là cùng một giá trị trong $.state.
 const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EMPTY_CORE)
+
+/** Áp kết quả một lượt router gửi Fable vào Core (0.8.4 C6): vừa tạm ngừng thì toast và một dòng nhật ký conductor. */
+async function noteFableRouter($: EngineInterface, ctx: Ctx, isOk: boolean): Promise<void> {
+  const at = await $.clock.now()
+  const step = fableStep(S.normalizeCore(await read($, coreState)), isOk, ctx.routerModel, at)
+  if (step === null) return
+  await update($, coreState, step.change)
+  if (step.text !== null) $.ui.toast(step.text)
+  if (step.log !== null) {
+    ctx.record(at, 'conductor', step.log)
+    await ctx.flushDecisions((path, body) => $.fs.write(path, body))
+  }
+}
 const bandHiddenState = atom({ plugin: 'focus-conductor', key: 'isBandHidden' } as const, false)
 const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null)
 /** Mod đã tự đặt mode off vì phiên không tương tác (0.8.0 A13): mở lại tương tác thì trả mode về cấu hình. */
@@ -78,6 +93,17 @@ async function showStatus($: EngineInterface, current: View, options: Ctx['optio
   $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
 }
 
+/** Trạng thái Fable điều phối (0.8.4 C1): ghi dòng conductor khi bật, tắt hay đổi nguyên nhân; option off từ đầu thì không ghi gì. */
+async function noteConductor($: EngineInterface, ctx: Ctx, core: Core, current: Mode): Promise<void> {
+  const blocker = ctx.conductorState(core, current, (await read($, headlessState)) === true)
+  const ready = blocker === null
+  const stored = core.fable
+  if (ctx.conductorOption !== 'fable' && stored.ready === null) return
+  if (stored.ready === ready && stored.reason === (blocker ?? '')) return
+  ctx.record(await $.clock.now(), 'conductor', { ready, ...(blocker !== null ? { reason: blockerText(blocker) } : {}) })
+  await update($, coreState, S.withFable(() => ({ ready, reason: blocker ?? '' })))
+}
+
 /** Hết chờ câu trả lời câu hỏi làm rõ (0.8.3 R3): xóa cờ trong Core nếu đang bật; trả trạng thái duyệt đã xóa cờ. */
 async function clearAwaiting($: EngineInterface, approval: ApprovalState): Promise<ApprovalState> {
   if (!approval.awaitingAnswer) return approval
@@ -93,7 +119,7 @@ const GATED_TOOLS = /^(?:Edit|Write|MultiEdit|NotebookEdit|Bash|Agent)$/
 
 export function registerSession(on: On, ctx: Ctx): void {
   const L = ctx.local
-  const { decisionLog, flushDecisions, delegationItems, expectedMain, isRouterPaused, noteRouter, noteRouterTime, ranText, record, resetLocal, routerFallback, routerFamily, routerModel, skipPhrases, trackDelegations, wantedPick } = ctx
+  const { decisionLog, flushDecisions, delegationItems, expectedMain, isRouterPaused, noteRouter, noteRouterTime, ranText, record, resetLocal, routerFallback, skipPhrases, trackDelegations, wantedPick } = ctx
   const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
   const mode = derive([modeState], modeOf(ctx.options))
 
@@ -226,11 +252,20 @@ export function registerSession(on: On, ctx: Ctx): void {
       const cp: QuotaCheckpoint = { ...openCp, status: 'resuming' }
       await update($, quotaState, c => ({ ...normalizeQuota(c), checkpoint: cp, resume: { id: cp.id, turnId: '' } }))
       await $.store.set(storeKey(cp.cwd), cp).catch(caught('store.set', undefined))
-      return [resumeContext(cp, changedFiles(cp.files, stats))]
+      // Luồng chính điều phối mục tiêu được tiếp tục (0.8.4 V1): kèm câu nhắc lại vai điều phối.
+      const now = S.normalizeCore(await read($, coreState))
+      const keepRole = isMainConducting(ctx.conductorInputs(now, current, (await read($, headlessState)) === true), now.brief)
+      return [resumeContext(cp, changedFiles(cp.files, stats)), ...(keepRole ? [conductorKeepText()] : [])]
     }
     const pending = openCp !== null ? [resumePendingContext(openCp, L.noAutoResume && !isArmed)] : []
 
     const before = S.normalizeCore(await read($, coreState))
+    // Một prompt đi qua trong lúc router Fable tạm ngừng (0.8.4 C6); lượt này vẫn đọc theo trạng thái lúc prompt đến (before). Đặt cờ
+    // trước noteConductor để nhật ký không đọc cờ của prompt trước (0.8.4 W4).
+    L.fablePromptPaused = before.fable.pauseLeft > 0
+    // Fable điều phối (0.8.4 C1): ghi một dòng nhật ký mỗi khi trạng thái điều phối đổi (bật, tắt kèm nguyên nhân).
+    await noteConductor($, ctx, before, current)
+    if (before.fable.pauseLeft > 0) await update($, coreState, S.withFable(f => ({ pauseLeft: f.pauseLeft - 1 })))
     const prev = before.brief
     // routerSkip (người dùng tự bật): câu ngắn đúng nguyên văn trong danh sách thì là tiếp nối, không hỏi router.
     if (prev !== null && isSkippable(text, skipPhrases)) {
@@ -253,14 +288,16 @@ export function registerSession(on: On, ctx: Ctx): void {
     // Model của phiên chưa biết (prompt đầu, trước step đầu): hỏi engine, để router và chính sách phiên dùng được ngay.
     if (L.sessionFamily === null) L.sessionFamily = familyOf(await $.session.model().catch(caught('session.model', '')))
     // Số phần tối đa của việc tách (0.7.9 F1) theo option và theo việc engine đã từ chối phiên con hay chưa.
-    const rules = ctx.routePolicy(before, ctx.maxForks >= 2 ? await $.session.root().catch(caught('session.root', null)) : null)
-    const isPaused = isRouterPaused()
+    const basePolicy = ctx.routePolicy(before, ctx.maxForks >= 2 ? await $.session.root().catch(caught('session.root', null)) : null)
+    // Fable điều phối (0.8.4 C4): điều phối khả dụng thì router dùng biến thể điều phối và parseRoute kẹp việc sửa file của việc lớn.
+    const rules = ctx.conductorState(before, current, (await read($, headlessState)) === true) === null ? { ...basePolicy, conductor: true } : basePolicy
+    // Model của lượt router (0.8.4 C2): Fable khi sẵn sàng, không thì option router. Tạm ngừng router cũ chỉ áp khi không gọi Fable (C6).
+    const target = ctx.routerTarget(before, current, (await read($, headlessState)) === true)
+    const isPaused = !target.isFable && isRouterPaused()
     // Duyệt kế hoạch (0.8.2 N2): kế hoạch đã trình thì router biết tin này có thể là lời duyệt; vừa dặn hỏi làm rõ thì tin này là câu trả lời.
     const approvalStored = S.approvalOf(before)
     const isPresented = prev !== null && approvalStored.status === 'presented'
     const isAnswering = prev !== null && approvalStored.awaitingAnswer
-    // Câu trả lời đến rồi: hết chờ câu trả lời (0.8.3 R3: cờ nằm trong Core).
-    const approvalBefore = await clearAwaiting($, approvalStored)
     let outcome: RouterOutcome<RouterPlan> = { result: null, reason: 'router đang tạm ngừng sau các lần lỗi liên tiếp', usages: [], retried: false, failure: 'paused', timeoutMs: null, maxTokens: null, outputTokens: null }
     let waitedMs = 0
     let pauseText: string | null = null
@@ -268,13 +305,15 @@ export function registerSession(on: On, ctx: Ctx): void {
       $.ui.status('router đang đọc prompt...')
       const observed = L.observed.join('; ')
       L.observed = []
-      const request = routerRequest({ text, prev, ran: ranText(before), policy: rules, model: routerModel, sessionFamily: L.sessionFamily, openSteps: openSteps(before.plan).map(s => s.title), ...(observed ? { observed } : {}), ...(isInterject ? { interject: { step: openSteps(before.plan)[0]?.title ?? '' } } : {}), ...(isPresented ? { awaiting: 'approval' as const } : isAnswering ? { awaiting: 'answer' as const } : {}) })
+      const request = routerRequest({ text, prev, ran: ranText(before), policy: rules, model: target.model, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily, openSteps: openSteps(before.plan).map(s => s.title), ...(observed ? { observed } : {}), ...(isInterject ? { interject: { step: openSteps(before.plan)[0]?.title ?? '' } } : {}), ...(isPresented ? { awaiting: 'approval' as const } : isAnswering ? { awaiting: 'answer' as const } : {}) })
       const startedAt = await $.clock.now()
-      outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), needsCoverageRecheck, { retryMissingConfidence: true })
+      outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), needsCoverageRecheck, { retryMissingConfidence: true, ...(target.isFable ? { isFable: true } : {}) })
       ctx.noteRouterFailure('prompt', outcome.failure)
       waitedMs = (await $.clock.now()) - startedAt
       noteRouterTime(waitedMs)
-      pauseText = noteRouter(outcome.result !== null)
+      // Lỗi của router Fable có bộ đếm riêng trong Core (0.8.4 C6), không cộng vào bộ đếm tạm ngừng router cũ.
+      if (target.isFable) await noteFableRouter($, ctx, outcome.result !== null)
+      else pauseText = noteRouter(outcome.result !== null)
     }
     // Tiếp tục điểm dừng khi router xếp tiếp nối, hoặc khi người dùng vừa gõ /conductor resume (khi đó router xếp mục
     // tiêu mới thì vẫn giữ mục tiêu đã khôi phục).
@@ -282,13 +321,19 @@ export function registerSession(on: On, ctx: Ctx): void {
     const isResuming = openCp !== null && (isArmed || (!L.noAutoResume && outcome.result !== null && outcome.result.relation !== 'new' && outcome.result.intent !== 'status'))
     if (isArmed) L.noAutoResume = false
     const routed = outcome.result !== null && isResuming && isArmed && prev !== null && outcome.result.relation === 'new' ? { ...outcome.result, relation: 'continue' as const } : outcome.result
-    // Tin chen ngang router xếp mục tiêu mới: không đổi mục tiêu, việc và ràng buộc vào như prompt tiếp nối (0.7.8 G9).
-    const interjected = isInterject && routed !== null && routed.relation === 'new' ? { ...routed, relation: 'continue' as const } : routed
+    // Tin chen ngang router xếp mục tiêu mới: không đổi mục tiêu, việc và ràng buộc vào như prompt tiếp nối (0.7.8 G9). Bản này chỉ dùng
+    // cho intent và câu trả lời câu hỏi làm rõ (công thức như trước 0.8.4 A1); bản cuối `interjected` để tin ngoài lề đứng ngoài.
+    const interjectedBase = isInterject && routed !== null && routed.relation === 'new' ? { ...routed, relation: 'continue' as const } : routed
     // Ý của tin nhắn (0.8.2 N1): chỉ có nghĩa khi đã có mục tiêu; approve khi không có kế hoạch chờ duyệt là resume.
-    let intent = interjected !== null && prev !== null ? clampIntent(interjected.intent, isPresented) : 'task'
+    let intent = interjectedBase !== null && prev !== null ? clampIntent(interjectedBase.intent, isPresented) : 'task'
     // Câu trả lời câu hỏi làm rõ (0.8.2 N2), chạy sau bước kẹp intent và thắng nó: router xếp mục tiêu mới thì giữ mục tiêu, coi như amend,
     // trừ khi router chắc (confidence từ NEW_GOAL_CONFIDENCE, thiếu là chưa chắc) VÀ prompt không nhắc gì tới mục tiêu (answerMentionsGoal).
-    const isHeldAnswer = isAnswering && prev !== null && interjected !== null && interjected.relation === 'new' && !((interjected.confidence ?? 0) >= NEW_GOAL_CONFIDENCE && !answerMentionsGoal(text, prev))
+    const isHeldAnswer = isAnswering && prev !== null && interjectedBase !== null && interjectedBase.relation === 'new' && !((interjectedBase.confidence ?? 0) >= NEW_GOAL_CONFIDENCE && !answerMentionsGoal(text, prev))
+    // Tin ngoài lề (0.8.4 A1): xét trên kế hoạch router trả, trước khi tin chen ngang bị đổi thành tiếp nối; câu trả lời câu hỏi làm rõ thắng.
+    const isAsideMsg = routed !== null && prev !== null && !isHeldAnswer && isAside(routed, prev, { open: openSteps(before.plan).length, total: before.plan.length, approval: approvalStored.status })
+    const interjected = isInterject && routed !== null && routed.relation === 'new' && !isAsideMsg ? { ...routed, relation: 'continue' as const } : routed
+    // Câu trả lời đến rồi: hết chờ câu trả lời (0.8.3 R3: cờ nằm trong Core). Tin ngoài lề không phải câu trả lời nên không xóa cờ (0.8.4 A1).
+    const approvalBefore = isAsideMsg ? approvalStored : await clearAwaiting($, approvalStored)
     const steered = isHeldAnswer && interjected !== null ? { ...interjected, relation: 'continue' as const, intent: 'amend' as const } : interjected
     if (isHeldAnswer && prev !== null) {
       intent = 'amend'
@@ -300,21 +345,57 @@ export function registerSession(on: On, ctx: Ctx): void {
     const lead = isResuming ? await startResume() : []
     const tail = isResuming ? [] : pending
     const now = await $.clock.now()
+    // Tin bảo chạy tiếp sau một việc chen vào (0.8.4 A2): checklist hiện tại không còn bước mở, mục tiêu đã cất gần nhất còn bước mở và
+    // là mục tiêu bị chính mục tiêu hiện tại thay (mục tiêu mới mang số của mục tiêu trước cộng 1): khôi phục bằng cùng đường với plan
+    // action restore. Tin chạy tiếp điểm dừng giữ ưu tiên.
+    const lastArchived = before.archived[0]
+    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && openSteps(lastArchived.plan).length > 0 && lastArchived.brief.goalId === prev.goalId - 1
+    if (isBackToArchived && plan !== null && prev !== null && lastArchived !== undefined) {
+      // Khôi phục trên Core đọc ngay lúc này, không trên before (0.8.4 Z1): các lần ghi Core trước đó của prompt này (lượt Fable đạt
+      // đưa bộ đếm lỗi về 0, giảm số prompt còn tạm ngừng, hết chờ câu trả lời) không bị ghi đè.
+      const back = ctx.restoreGoal(S.normalizeCore(await read($, coreState)), 1)
+      if (!('error' in back)) {
+        await update($, coreState, () => S.withRouterFail(null)(S.withAnalyzerUsage(outcome.usages, target.family)(back.core)))
+        const restored = back.brief
+        L.promptIntent = { relation: 'continue', kind: restored.kind }
+        L.lastPrompt = { text, prev, goalId: restored.goalId }
+        record(now, 'restore', { prompt: clipText(text), goalId: restored.goalId, from: lastArchived.brief.goalId, cause: 'resume' })
+        await flushDecisions((path, text) => $.fs.write(path, text))
+        await showStatus($, await read($, view), ctx.options)
+        // Mục tiêu khôi phục là mục tiêu lớn: đoạn dặn điều phối theo khóa Core.fable.briefedGoal như mọi mục tiêu (0.8.4 V1).
+        const core = S.normalizeCore(await read($, coreState))
+        const wanted = wantedPick(restored, core.lift, core, current)
+        const conductNote = wanted?.isConducting === true && core.fable.briefedGoal !== restored.goalId ? [conductorContext()] : []
+        if (conductNote.length > 0) await update($, coreState, S.withFable(() => ({ briefedGoal: restored.goalId })))
+        return next({ ...e, context: [...lead, ...(e.context ?? []), restoreResumeContext(restored.goal, openSteps(core.plan)[0]), ...conductNote, ...tail] })
+      }
+    }
     // Tin hỏi tiến độ (0.8.2 N1): không đổi brief, checklist, việc, yêu cầu hay ràng buộc; chỉ cộng chi phí router. Tin gửi khi không có
     // turn đang chạy thì turn đó là hỏi đáp (không qua các cổng Stop); tin chen ngang không đổi trạng thái thực thi của turn đang chạy.
     if (plan !== null && prev !== null && intent === 'status') {
       if (!isInterject) L.promptIntent = { relation: 'continue', kind: 'answer' }
-      await update($, coreState, c => S.withRouterFail(null)(S.withAnalyzerUsage(outcome.usages, routerFamily)(c)))
+      await update($, coreState, c => S.withRouterFail(null)(S.withAnalyzerUsage(outcome.usages, target.family)(c)))
       L.lastPrompt = { text, prev, goalId: prev.goalId }
       record(now, 'route', { prompt: clipText(text), relation: plan.relation, intent, confidence: plan.confidence, retried: outcome.retried, goalId: prev.goalId })
       await flushDecisions((path, text) => $.fs.write(path, text))
       await showStatus($, await read($, view), ctx.options)
       return next({ ...e, context: [...lead, ...(e.context ?? []), intentStatusContext(isInterject), ...tail] })
     }
+    // Tin ngoài lề (0.8.4 A1): như tin hỏi tiến độ, không đổi brief, checklist, việc, yêu cầu, ràng buộc, trạng thái duyệt hay mục tiêu đã
+    // cất; không mở đợt mới. Ngoài turn thì turn đó là hỏi đáp; tin chen ngang không đổi trạng thái thực thi của turn đang chạy.
+    if (isAsideMsg && plan !== null && prev !== null) {
+      if (!isInterject) L.promptIntent = { relation: 'continue', kind: 'answer' }
+      await update($, coreState, c => S.withRouterFail(null)(S.withAnalyzerUsage(outcome.usages, target.family)(c)))
+      L.lastPrompt = { text, prev, goalId: prev.goalId }
+      record(now, 'route', { prompt: clipText(text), relation: plan.relation, intent: 'aside', confidence: plan.confidence, retried: outcome.retried, goalId: prev.goalId })
+      await flushDecisions((path, text) => $.fs.write(path, text))
+      await showStatus($, await read($, view), ctx.options)
+      return next({ ...e, context: [...lead, ...(e.context ?? []), asideContext(isInterject, openSteps(before.plan)[0]), ...tail] })
+    }
     // Router không đọc được thì không biết turn là hỏi đáp hay làm tiếp: Stop chỉ dựa vào hành vi tool.
     L.promptIntent = plan !== null ? { relation: plan.relation, kind: plan.isReference && !plan.runReference ? 'answer' : plan.kind } : null
     const withUsage = (c: Core): Core =>
-      S.withAnalyzerUsage(outcome.usages, routerFamily)(c)
+      S.withAnalyzerUsage(outcome.usages, target.family)(c)
 
     if (plan === null) {
       // Mặc định không đoán: giữ mục tiêu, việc đã phân, phạm vi, ràng buộc và checklist; chỉ bỏ lựa chọn model
@@ -324,8 +405,8 @@ export function registerSession(on: On, ctx: Ctx): void {
       // Prompt tiếp nối (0.7.5): phân việc đã có và trạng thái giao của từng việc vẫn giữ; chỉ bỏ lựa chọn luồng chính.
       if (!isReuse && prev === null) L.delegation = newDelegation()
       const failText = isReuse
-        ? `Router (${routerModel}) không đọc được prompt (${outcome.reason}); dùng lại lựa chọn của prompt trước`
-        : `Router (${routerModel}) không đọc được prompt (${outcome.reason}); turn này chạy theo model của phiên`
+        ? `Router (${target.model}) không đọc được prompt (${outcome.reason}); dùng lại lựa chọn của prompt trước`
+        : `Router (${target.model}) không đọc được prompt (${outcome.reason}); turn này chạy theo model của phiên`
       const warnings: Warning[] = [
         ...(isPaused ? [] : [{ at: now, kind: 'model' as const, text: failText }]),
         ...(pauseText ? [{ at: now, kind: 'model' as const, text: pauseText }] : []),
@@ -420,7 +501,7 @@ export function registerSession(on: On, ctx: Ctx): void {
     // Không dặn tách (0.7.9 F1) khi đã vào vùng báo hạn mức mềm, hay còn lệnh kiểm chưa đạt ở lượt 2 hay 3 (W4 cần model cao hơn mà phiên
     // con luôn chạy model của luồng chính).
     const isSplitHeld = isSoftZone || (core.retry.goalId === brief.goalId && core.retry.items.some(item => !item.exhausted && item.round >= 2 && !S.isWaived(core, item.sig)))
-    const wanted = wantedPick(brief, core.lift)
+    const wanted = wantedPick(brief, core.lift, core, current)
     // Model sẽ thật sự chạy (có thể là model cũ được giữ để bảo toàn cache): việc "làm trực tiếp" so với model này.
     const expected = wanted !== null && isNewGoal ? expectedMain(core, brief, wanted, now) : wanted
     if (isNewGoal) trackDelegations(brief.goalId, brief.isReference ? [] : brief.tasks)
@@ -494,7 +575,12 @@ export function registerSession(on: On, ctx: Ctx): void {
       )
     }
     await showStatus($, await read($, view), ctx.options)
-    return next({ ...e, context: [...lead, ...(e.context ?? []), context, ...approvalNotes, ...(phaseNote !== null ? [phaseNote] : []), ...notice, ...(isClipped ? [CLIPPED_CONTEXT] : []), ...tail] })
+    // Vai điều phối (0.8.4 C5, V1): đoạn dặn đầy đủ một lần mỗi mục tiêu, ở prompt đầu tiên luồng chính điều phối mục tiêu đó (mục tiêu
+    // mới, hay mục tiêu mở lúc Fable chưa sẵn sàng); khóa Core.fable.briefedGoal.
+    const isBriefed = S.normalizeCore(await read($, coreState)).fable.briefedGoal === brief.goalId
+    const conductNote = wanted?.isConducting === true && !isBriefed ? [conductorContext()] : []
+    if (conductNote.length > 0) await update($, coreState, S.withFable(() => ({ briefedGoal: brief.goalId })))
+    return next({ ...e, context: [...lead, ...(e.context ?? []), context, ...conductNote, ...approvalNotes, ...(phaseNote !== null ? [phaseNote] : []), ...notice, ...(isClipped ? [CLIPPED_CONTEXT] : []), ...tail] })
   }).catch(($, e, next) => (noteHookError('prompt.submit', next.error), next(e)))
 
   // Chặn sửa trước khi duyệt kế hoạch (0.8.2 N2): chỉ luồng chính, khi mục tiêu đang planning hay presented. Đăng ký ở đây (trước hook

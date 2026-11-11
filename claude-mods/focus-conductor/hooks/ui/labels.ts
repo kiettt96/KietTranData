@@ -3,6 +3,7 @@
 
 import type { StepStatus, WarningKind } from '../../types'
 import { hasTitleCode } from '../lib/route'
+import { conductorShown } from '../lib/conductor'
 import type { Phase } from './style'
 
 export type Lang = 'vi' | 'en'
@@ -134,6 +135,23 @@ const VI = {
   costCalls: 'lượt',
   groupMain: 'luồng chính',
   groupAgent: 'subagent',
+  /** Fable điều phối (0.8.4 C8): nhãn vai trên chip model của band, và dòng Điều phối ở pane và /conductor status. */
+  conductorRole: 'điều phối',
+  conductorOn: 'Điều phối: fable/medium, đang điều phối',
+  conductorPaused: (fallback: string) => `Điều phối: Fable tạm ngừng, router dùng ${fallback}`,
+  conductorOff: (reason: string) => `Điều phối: tắt (${reason})`,
+  conductorReason: {
+    option: 'option conductor là off',
+    mode: 'chế độ điều phối không phải auto',
+    headless: 'phiên không tương tác',
+    blocked: 'họ fable đang bị chặn vì không phản hồi',
+    paused: 'router Fable tạm ngừng',
+    session: 'sessionModel giữ model của phiên',
+    small: 'mục tiêu hiện tại không phải việc lớn',
+    none: 'chưa đọc prompt nào',
+  } as Record<string, string>,
+  /** Router Fable tạm ngừng (0.8.4 C6): nhãn status line và /conductor status. */
+  fablePaused: 'Fable tạm ngừng',
   groupRouter: 'router',
   total: 'tổng',
   spawned: (n: number) => `${n} subagent đã giao trong mục tiêu này`,
@@ -276,6 +294,21 @@ const EN: typeof VI = {
   costCalls: 'calls',
   groupMain: 'main',
   groupAgent: 'subagent',
+  conductorRole: 'conductor',
+  conductorOn: 'Conductor: fable/medium, conducting',
+  conductorPaused: (fallback: string) => `Conductor: Fable paused, router on ${fallback}`,
+  conductorOff: (reason: string) => `Conductor: off (${reason})`,
+  conductorReason: {
+    option: 'conductor option is off',
+    mode: 'routing mode is not auto',
+    headless: 'non-interactive session',
+    blocked: 'fable family blocked after no response',
+    paused: 'Fable router paused',
+    session: 'sessionModel keeps the session model',
+    small: 'the current goal is not large',
+    none: 'no prompt read yet',
+  } as Record<string, string>,
+  fablePaused: 'Fable paused',
   groupRouter: 'router',
   total: 'total',
   spawned: n => `${n} subagents spawned in this goal`,
@@ -361,4 +394,13 @@ export function taskLabel(l: typeof VI, row: { kind: 'main' | 'direct' | 'agent'
   if (row.index !== undefined && hasTitleCode(row.title)) return row.title
   const head = row.kind === 'main' ? l.taskMain : row.index !== undefined ? l.taskNumber(row.index) : l.taskOwn
   return `${head}: ${row.title}`
+}
+
+/** Dòng Điều phối của pane và /conductor status (0.8.4 C8), theo trạng thái điều phối trong Core. */
+export function conductorLine(core: Parameters<typeof conductorShown>[0], fallback: string, lang: Lang): string {
+  const l = labels(lang)
+  const shown = conductorShown(core)
+  if (shown.state === 'on') return l.conductorOn
+  if (shown.state === 'paused') return l.conductorPaused(fallback)
+  return l.conductorOff(l.conductorReason[shown.reason] ?? shown.reason)
 }

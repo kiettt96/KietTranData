@@ -7,7 +7,8 @@
 
 import type { ModelCompleteRequest, ModelCompleteResult, ModelTextBlock, ModelUsage } from 'claude-code'
 
-import type { Brief, Choice, Depth, Effort, ForkSplit, Intent, Kind, ModelFamily, Relation, RouterFail, RouterFailKind, Task, Tier, Volume } from '../../types'
+import type { ApprovalStatus, Brief, Choice, Depth, Effort, ForkSplit, Intent, Kind, ModelFamily, Relation, RouterFail, RouterFailKind, Task, Tier, Volume } from '../../types'
+import { FABLE_AGENT_TIMEOUT_MS, FABLE_DRIFT_TIMEOUT_MS, FABLE_LONG_TIMEOUT_MS, FABLE_PROMPT_TIMEOUT_MS, FABLE_REVIEW_TIMEOUT_MS, isBigGoal } from './conductor'
 import { PRICE } from './cost'
 import type { Price } from './cost'
 import { EFFORTS, FAMILIES, applySession, avoidBlocked, codesIn, describePick, effortRank, familyOf, familyRank, sessionFloor } from './route'
@@ -26,6 +27,11 @@ export type Policy = {
    * con; vắng hay dưới 2 là tắt (routerSystem giữ nguyên chữ, parseRoute bỏ mọi split).
    */
   forks?: number
+  /**
+   * Fable điều phối (0.8.4 C4): bật khi điều phối khả dụng. routerRequest dùng biến thể điều phối của lời dặn; parseRoute đổi việc main
+   * sửa file có model hợp lệ thành agent và bỏ mọi split, với mục tiêu lớn. Vắng hay false: như 0.8.3.
+   */
+  conductor?: boolean
   /** Thư mục gốc của phiên (vòng 2 V4): đường dẫn tuyệt đối dưới nó đổi thành tương đối khi so hai phần của việc tách; vắng thì so theo đuôi. */
   root?: string | null
 }
@@ -151,6 +157,29 @@ function splitParagraph(max: number): string {
  * routerSystem kèm đoạn dặn tách khi phiên con bật (0.7.9 F1): đoạn nằm ngay sau luật run "agent", trong cùng khối có cache; các nhóm
  * luật khác giữ nguyên chữ. Tắt (max dưới 2) thì trả nguyên chữ.
  */
+/** Câu về fable trong catalog (0.8.4 C4): biến thể điều phối thay câu này, giữ giá. */
+const FABLE_LINE = /^- fable \(([^)\n]*)\): only when <context> lists it as allowed, and only for the hardest piece where opus is likely to fail\.$/m
+/** Mốc chèn khối luật việc lớn: ngay trước các luật giao việc. */
+const DELEGATION_ANCHOR = '\nDelegation:\n'
+const CONDUCTOR_BLOCK = `
+Large requests (the main thread is the conductor):
+- A request with depth "substantial" or "hard" and kind other than "answer" is large. Its main thread is the conductor: it only understands the request, plans, orders the pieces, checks results against the requirements and reports.
+- In a large request every piece that edits files, or runs checks or reads at large volume, is run "agent" on the cheapest model and effort that does it well. A piece that needs an earlier result or edits the same files is still "agent": list pieces in run order; the main thread runs them in turn and passes results on.
+- "main" still names what the main thread would need to do the work itself (used when fable is unavailable).
+- The delegation rules below, and running a task as "agent" only when truly independent, apply to requests that are not large.
+`
+
+/**
+ * Biến thể điều phối của lời dặn router (0.8.4 C4): thay có đích câu về fable của catalog và chèn khối luật việc lớn ngay trước các luật
+ * giao việc; mọi chữ khác giữ nguyên. Không thấy đích thay thì trả nguyên văn (không đoán).
+ */
+export function conductorRule(text: string): string {
+  if (!FABLE_LINE.test(text) || !text.includes(DELEGATION_ANCHOR)) return text
+  return text
+    .replace(FABLE_LINE, (_line, rate: string) => `- fable (${rate}): the conductor model the program sets for the main thread of large requests (see below); never choose fable for any piece unless <context> lists it as allowed.`)
+    .replace(DELEGATION_ANCHOR, `\n${CONDUCTOR_BLOCK.slice(1)}${DELEGATION_ANCHOR}`)
+}
+
 export function splitRule(text: string, max: number): string {
   if (max < 2) return text
   return text.replace(SPLIT_ANCHOR, `${SPLIT_ANCHOR}\n${splitParagraph(max)}`)
@@ -358,6 +387,8 @@ export function routerRequest(args: {
   prices?: Record<ModelFamily, Price>
   /** Model người dùng chạy phiên (0.7.4), biết từ step đầu; vắng thì không có dòng Session model. */
   sessionFamily?: ModelFamily | null
+  /** Lượt này gọi Fable điều phối (0.8.4 C2): thời gian chờ theo hằng FABLE_*_TIMEOUT_MS. */
+  isFable?: boolean
 }): ModelCompleteRequest {
   const isLong = args.text.length > LONG_REQUEST
   const context = [
@@ -372,14 +403,14 @@ export function routerRequest(args: {
     ...(args.interject ? [`The user sent this while the main model was still working on the current goal${args.interject.step ? ` (open step: ${fence(clip(args.interject.step, 100))})` : ''}; read it as an addition to that goal unless it clearly replaces it.`] : []),
     ...(args.observed ? [`Observed in the previous turn (the main model's choice fell short; re-read the work and raise "main" model or effort if it is harder than first judged): ${fence(clip(args.observed, 400))}`] : []),
   ]
-  const system: readonly ModelTextBlock[] = [{ text: routerSystem(args.prices), cache: true }].map(block => ({ text: splitRule(block.text, args.policy.forks ?? 0), cache: true as const }))
+  const system: readonly ModelTextBlock[] = [{ text: routerSystem(args.prices), cache: true }].map(block => ({ text: args.policy.conductor === true ? conductorRule(splitRule(block.text, args.policy.forks ?? 0)) : splitRule(block.text, args.policy.forks ?? 0), cache: true as const }))
   return {
     model: args.model,
     system,
     prompt: `<context>\n${context.join('\n')}\n</context>\n\n<request>\n${fence(capText(args.text, REQUEST_CHARS, REQUEST_HEAD, REQUEST_TAIL))}\n</request>`,
     maxTokens: isLong ? 16_000 : 8_000,
     effort: 'medium',
-    timeoutMs: isLong ? 120_000 : 45_000,
+    timeoutMs: args.isFable === true ? (isLong ? FABLE_LONG_TIMEOUT_MS : FABLE_PROMPT_TIMEOUT_MS) : isLong ? 120_000 : 45_000,
   }
 }
 
@@ -397,6 +428,8 @@ export function agentRouterRequest(args: {
   model: string
   /** Các việc router đã phân cho mục tiêu: router cho biết lời gọi này có phải một trong số đó. */
   tasks?: readonly Task[]
+  /** Lượt này gọi Fable điều phối (0.8.4 C2): thời gian chờ FABLE_AGENT_TIMEOUT_MS. */
+  isFable?: boolean
   /** Ràng buộc của brief (0.7.4), kể cả quy định model theo loại việc. */
   constraints?: readonly string[]
   /** Model người dùng chạy phiên (0.7.4). */
@@ -428,7 +461,7 @@ export function agentRouterRequest(args: {
     prompt: `<context>\n${context.join('\n')}\n</context>\n\n<task>\nDescription: ${fence(args.description)}\n${fence(task)}\n</task>`,
     maxTokens: 2_000,
     effort: 'low',
-    timeoutMs: 20_000,
+    timeoutMs: args.isFable === true ? FABLE_AGENT_TIMEOUT_MS : 20_000,
   }
 }
 
@@ -898,13 +931,20 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
   /** Lựa chọn router ghi cho từng việc làm ở luồng chính, chưa kẹp (0.7.8 G3). */
   const held: Array<{ index: number; pick: Choice }> = []
   const rawTasks = Array.isArray(raw['tasks']) ? raw['tasks'] : []
+  // Fable điều phối (0.8.4 C4): mục tiêu lớn thì việc sửa file giao subagent và không tách phiên con (phiên con chạy model của luồng chính).
+  const isConducting = policy.conductor === true && isBigGoal({ depth, kind, isReference })
   // Tách bằng phiên con (0.7.9 F1) xét sau phân việc: split không đổi run, model hay effort của việc nào.
-  const forks = Math.min(policy.forks ?? 0, MAX_FORKS)
+  const forks = isConducting ? 0 : Math.min(policy.forks ?? 0, MAX_FORKS)
+  const conductNotes: string[] = []
   const splitNotes: string[] = []
   let droppedSplits = 0
   for (const item of rawTasks.slice(0, TASK_LIMIT)) {
-    const parsed = parseTask(item, tasks.length + 1, main.pick, whole, policy)
-    if (!parsed) continue
+    const read = parseTask(item, tasks.length + 1, main.pick, whole, policy)
+    if (!read) continue
+    const isConductedEdit = isConducting && read.run === 'main' && (read.kind === 'edit' || read.kind === 'mixed')
+    const hasPick = rawPick(item) !== null
+    if (isConductedEdit) conductNotes.push(hasPick ? `việc ${read.index}: luồng chính điều phối, giao subagent ${agentTypeOf((item as Raw)['agent'], read.kind, policy)} ${describePick(read.pick)}` : `việc ${read.index}: luồng chính điều phối nhưng router không ghi model hợp lệ, giữ ở luồng chính`)
+    const parsed: Task = isConductedEdit && hasPick ? { ...read, run: 'agent', agentType: agentTypeOf((item as Raw)['agent'], read.kind, policy) } : read
     const cut = splitOf((item as Raw)['split'], parsed, forks, policy.root ?? null)
     if (cut.note !== undefined) splitNotes.push(cut.note)
     if (cut.isOff) droppedSplits += 1
@@ -937,7 +977,7 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
     mainWhy,
     ...(referenceMain ? { referenceMain } : {}),
     tasks,
-    notes: [...lead.notes, ...splitNotes],
+    notes: [...lead.notes, ...splitNotes, ...conductNotes],
     ...(rawTasks.length > TASK_LIMIT ? { droppedTasks: rawTasks.length - TASK_LIMIT } : {}),
     ...(droppedSplits > 0 ? { droppedSplits } : {}),
     ...(raw['skipApproval'] === true ? { skipApproval: true } : {}),
@@ -1094,9 +1134,12 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number, isHeld = 
     index: t.index + offset,
     ...(t.covers !== undefined ? { covers: t.covers.flatMap(n => renumber.get(n) ?? []) } : {}),
   }))
-  const { isBare: _isBare, carriedRules: _carried, ...kept } = prev
+  const { isBare: _isBare, carriedRules: _carried, isBig: _isBig, ...kept } = prev
+  // Mục tiêu lớn bền theo mục tiêu (0.8.4 X1): tin tiếp nối chấm nhẹ không làm mục tiêu lớn mất vai điều phối.
+  const isBig = isBigGoal(prev) || isBigGoal({ depth: plan.depth, kind: plan.kind, isReference: prev.isReference })
   const brief: Brief = {
     ...kept,
+    ...(isBig ? { isBig: true as const } : {}),
     // Quy tắc mang sang mà prompt này nhắc lại không còn tính là mang sang (T3).
     ...(reclaimed.carried > 0 ? { carriedRules: reclaimed.carried } : {}),
     ...(requirements.length > 0 ? { requirements } : {}),
@@ -1213,7 +1256,7 @@ export function retryRequest(
   previous: string,
   problem: 'json' | 'confidence' | 'coverage',
   /** Timeout còn lại của hạn chung và việc câu trả lời trước bị cắt vì hết token (0.7.2). */
-  opts: { timeoutMs?: number; truncated?: boolean } = {},
+  opts: { timeoutMs?: number; truncated?: boolean; isFable?: boolean } = {},
 ): ModelCompleteRequest {
   const note =
     problem === 'json' && opts.truncated === true
@@ -1228,7 +1271,8 @@ export function retryRequest(
     ...request,
     prompt: `${prompt}\n\n<previous_answer>\n${fence(clip(previous, 6000))}\n</previous_answer>\n${note}`,
     // Kiểm lại phủ yêu cầu ở effort medium: đo thật cho thấy effort high hết giờ 45 giây ở 4 trên 5 lượt (0.7.2).
-    effort: problem === 'json' ? 'low' : problem === 'coverage' ? 'medium' : 'high',
+    // Fable điều phối (0.8.4 C2): effort không quá medium, nên lượt đọc lại vì tin cậy thấp chạy medium.
+    effort: problem === 'json' ? 'low' : problem === 'coverage' || opts.isFable === true ? 'medium' : 'high',
     ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
     ...(opts.truncated === true ? { maxTokens: Math.min(MAX_TOKENS_CAP, Math.round((request.maxTokens ?? 8_000) * TRUNCATION_GROWTH)) } : {}),
   }
@@ -1281,7 +1325,7 @@ export async function askRouter<T extends { confidence?: number }>(
   /** Câu trả lời đã đọc được nhưng cần đọc kiểm lại một lần ở effort cao (ví dụ quá nhiều yêu cầu): 0.7.0. */
   recheck?: (result: T) => boolean,
   /** Đồng hồ (mặc định Date.now) và hạn chung cho mọi lượt gọi (mặc định 1,5 lần timeout của request): 0.7.2. */
-  opts: { now?: () => number; budgetMs?: number; retryMissingConfidence?: boolean } = {},
+  opts: { now?: () => number; budgetMs?: number; retryMissingConfidence?: boolean; isFable?: boolean } = {},
 ): Promise<RouterOutcome<T>> {
   const now = opts.now ?? Date.now
   const budget = opts.budgetMs ?? Math.round((request.timeoutMs ?? 45_000) * BUDGET_FACTOR)
@@ -1313,7 +1357,7 @@ export async function askRouter<T extends { confidence?: number }>(
   const isAffordable = problem === 'coverage' ? spent <= budget / 2 : budget - spent >= RETRY_MIN_MS
   if (!isAffordable) return settled(false)
   const isTruncated = firstResult === null && request.maxTokens !== undefined && first.usage.output_tokens >= request.maxTokens * 0.98
-  const second = await ask(retryRequest(request, first.text, problem, { timeoutMs: Math.min(request.timeoutMs ?? budget, budget - spent), truncated: isTruncated })).catch(() => null)
+  const second = await ask(retryRequest(request, first.text, problem, { timeoutMs: Math.min(request.timeoutMs ?? budget, budget - spent), truncated: isTruncated, ...(opts.isFable === true ? { isFable: true } : {}) })).catch(() => null)
   if (second) usages.push(second.usage)
   const secondResult = second?.isAnswered ? parse(second.text) : null
   // Thiếu confidence xếp thấp nhất khi bật retryMissingConfidence: lần hai thắng khi nó có confidence và lần đầu không có hay thấp hơn.
@@ -1480,6 +1524,19 @@ function mentionsGoal(prompt: string, prev: Brief, openSteps: readonly string[])
  * không bị áp sàn main của mục tiêu cũ. Nhận mục tiêu mới thì mang theo quy định model của brief trước (đứng đầu) khi prompt
  * mới không nêu quy định model nào.
  */
+/**
+ * Tin ngoài lề (0.8.4 A1): câu hỏi hay câu nói không thuộc mục tiêu đang dở. Mục tiêu đang dở: có brief, không phải đối chiếu, và checklist
+ * còn bước mở, hay cổng duyệt đang planning hay presented, hay mục tiêu lớn chưa lập checklist. Tin ngoài lề: router xếp new, không việc,
+ * không đối chiếu, và loại answer (mọi độ sâu) hay investigate với độ sâu none hay light. Mức tin cậy không xét.
+ */
+export function isAside(plan: Pick<RouterPlan, 'relation' | 'tasks' | 'isReference' | 'runReference' | 'kind' | 'depth'>, prev: Brief | null, state: { open: number; total: number; approval: ApprovalStatus }): boolean {
+  if (prev === null || prev.isReference) return false
+  const isPending = state.open > 0 || state.approval === 'planning' || state.approval === 'presented' || (isBigGoal(prev) && state.total === 0)
+  if (!isPending) return false
+  if (plan.relation !== 'new' || plan.tasks.length > 0 || plan.isReference || plan.runReference) return false
+  return plan.kind === 'answer' || (plan.kind === 'investigate' && (plan.depth === 'none' || plan.depth === 'light'))
+}
+
 export function nextBrief(
   prev: Brief | null,
   plan: RouterPlan,
@@ -1566,7 +1623,7 @@ Reply with ONE JSON object and nothing else, "why" under 20 words and in the lan
 {"onTrack": boolean, "confidence": number, "why": string}`
 
 /** Request hỏi router xem các thay đổi gần đây còn phục vụ mục tiêu không (ở checkpoint). */
-export function driftRequest(args: { goal: string; steps: readonly string[]; commands: readonly string[]; paths: readonly string[]; model: string }): ModelCompleteRequest {
+export function driftRequest(args: { goal: string; steps: readonly string[]; commands: readonly string[]; paths: readonly string[]; model: string; isFable?: boolean }): ModelCompleteRequest {
   const lines = [
     `Goal: ${fence(args.goal)}`,
     ...(args.steps.length > 0 ? ['Open steps:', ...args.steps.slice(0, 10).map(s => `  - ${fence(s)}`)] : []),
@@ -1574,7 +1631,7 @@ export function driftRequest(args: { goal: string; steps: readonly string[]; com
     ...(args.paths.length > 0 ? ['Files touched:', ...args.paths.slice(-15).map(p => `  ${fence(p)}`)] : []),
   ]
   const system: readonly ModelTextBlock[] = [{ text: DRIFT_SYSTEM, cache: true }]
-  return { model: args.model, system, prompt: `<context>\n${lines.join('\n')}\n</context>`, maxTokens: 1_000, effort: 'low', timeoutMs: 20_000 }
+  return { model: args.model, system, prompt: `<context>\n${lines.join('\n')}\n</context>`, maxTokens: 1_000, effort: 'low', timeoutMs: args.isFable === true ? FABLE_DRIFT_TIMEOUT_MS : 20_000 }
 }
 
 export type DriftVerdict = { onTrack: boolean; why: string; confidence?: number }
@@ -1595,7 +1652,7 @@ Reply with ONE JSON object and nothing else:
 {"missing": number[], "extra": number[], "issues": string[]}`
 
 /** Request rà kế hoạch ở Stop (0.8.2 N2): yêu cầu, ràng buộc, tiêu chí và các bước (tên, check) đánh số từ 1. */
-export function planReviewRequest(args: { goal: string; requirements: readonly string[]; constraints: readonly string[]; quality: readonly string[]; steps: ReadonlyArray<{ title: string; check?: string }>; model: string }): ModelCompleteRequest {
+export function planReviewRequest(args: { goal: string; requirements: readonly string[]; constraints: readonly string[]; quality: readonly string[]; steps: ReadonlyArray<{ title: string; check?: string }>; model: string; isFable?: boolean }): ModelCompleteRequest {
   const numbered = (items: readonly string[]) => items.map((item, i) => `${i + 1}. ${fence(clip(item, 200))}`)
   const lines = [
     'Requirements:',
@@ -1606,7 +1663,7 @@ export function planReviewRequest(args: { goal: string; requirements: readonly s
     ...args.steps.slice(0, 40).map((step, i) => `${i + 1}. ${fence(clip(step.title, 200))}${step.check ? ` (check: ${fence(clip(step.check, 200))})` : ' (no check)'}`),
   ]
   const system: readonly ModelTextBlock[] = [{ text: PLAN_REVIEW_SYSTEM, cache: true }]
-  return { model: args.model, system, prompt: `<context>\nGoal: ${fence(clip(args.goal, 200))}\n</context>\n\n<request>\n${lines.join('\n')}\n</request>`, maxTokens: 1_000, effort: 'medium', timeoutMs: 30_000 }
+  return { model: args.model, system, prompt: `<context>\nGoal: ${fence(clip(args.goal, 200))}\n</context>\n\n<request>\n${lines.join('\n')}\n</request>`, maxTokens: 1_000, effort: 'medium', timeoutMs: args.isFable === true ? FABLE_REVIEW_TIMEOUT_MS : 30_000 }
 }
 
 export type PlanReview = { missing: number[]; extra: number[]; issues: string[]; confidence?: number }

@@ -53,7 +53,7 @@ describe('router đọc prompt', () => {
   test('router kẹp theo allowFable: chưa bật thì fable về opus, bật thì chạy fable', { options: { allowFable: true } }, async ($, on) => {
     const seen = base(on, { router: () => plan({ kind: 'mixed', main: { model: 'fable', effort: 'high' } }) })
     await submit($, 'Thiết kế lại toàn bộ engine giao dịch')
-    expect((await step($, seen))?.model).toBe('claude-fable-5-1')
+    expect((await step($, seen))?.model).toBe('claude-fable-5-2')
   })
 
   test('chưa bật allowFable: lựa chọn fable của router chạy opus, lý do kẹp hiện trong bản đọc', {}, async ($, on) => {

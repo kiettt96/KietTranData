@@ -6,7 +6,7 @@
 
 import type { PluginOptions } from 'claude-code'
 
-import type { AgentProgress, AgentState, ApprovalState, ApprovalStatus, AgentTally, ArchivedGoal, Brief, ChangedState, CheckHint, Core, ForkPart, ForkPartState, ForkState, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, RetryItem, RetryState, Route, Waiver, WaiverState, RouteEvent, RouterFail, SkillState, TurnFault, Warning } from '../../types'
+import type { AgentProgress, AgentState, ApprovalState, ApprovalStatus, AgentTally, ArchivedGoal, Brief, ChangedState, CheckHint, Core, FableState, ForkPart, ForkPartState, ForkState, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, RetryItem, RetryState, Route, Waiver, WaiverState, RouteEvent, RouterFail, SkillState, TurnFault, Warning } from '../../types'
 import { restorableSteps } from './drift'
 import type { Tokens } from './cost'
 import { addUsage, emptyLedger, nextGoal, planSwitch, resetLedger } from './ledger'
@@ -52,6 +52,7 @@ export const EMPTY_CORE: Core = {
   skillNudged: -1,
   changed: { goalId: -1, paths: [], unknown: 0, overflow: 0 },
   changedNoticed: -1,
+  fable: { failures: 0, pauseLeft: 0, ready: null, reason: '', holdKey: '', briefedGoal: -1 },
 }
 
 const LOG_LIMIT = 60
@@ -62,7 +63,8 @@ const WARNING_LIMIT = 30
 const LIFT_LIMIT = 2
 
 /** Ảnh chụp mọi thứ band, pane và status line cần, đọc một lần. */
-export type View = { core: Core; mode: Mode; isBandHidden: boolean; lang: Lang }
+/** `conductor` (0.8.4 C8): chỉ có khi option conductor là fable; `fallback` là model router dùng khi Fable tạm ngừng. */
+export type View = { core: Core; mode: Mode; isBandHidden: boolean; lang: Lang; conductor?: { fallback: string } }
 
 export function isMode(value: unknown): value is Mode {
   return value === 'auto' || value === 'subagents' || value === 'suggest' || value === 'off'
@@ -100,7 +102,9 @@ export function statusText(view: View, quota: QuotaState, now: number, settings:
     : notices.length > 0
       ? withQuotaNoticeStatus(base, notices, view.lang)
       : withQuotaStatus(base, quotaBadge(isPaused, evaluation), view.lang, isPaused ? resumeCommand(quota.pause?.source === 'user') : undefined)
-  return withTurnFaultStatus(withRouterFailStatus(quotaLabelled, view.core.routerFail, view.lang), view.core.turnFault, view.lang)
+  // Router Fable tạm ngừng (0.8.4 C6): nhãn đứng sau các nhãn hạn mức, lỗi router và turn lỗi.
+  const faulted = withTurnFaultStatus(withRouterFailStatus(quotaLabelled, view.core.routerFail, view.lang), view.core.turnFault, view.lang)
+  return view.core.fable.pauseLeft > 0 && faulted !== undefined ? `${faulted} · ${labels(view.lang).fablePaused}` : faulted
 }
 
 /** Ghi (hoặc xóa, khi router đọc được lại) lần router lỗi gần nhất (0.7.2). */
@@ -253,6 +257,7 @@ export function normalizeCore(raw: Partial<Core>): Core {
     skillNudged: typeof raw.skillNudged === 'number' ? raw.skillNudged : -1,
     changed: normalizeChanged(raw.changed),
     changedNoticed: typeof raw.changedNoticed === 'number' ? raw.changedNoticed : -1,
+    fable: normalizeFable(raw.fable),
   }
 }
 
@@ -344,6 +349,21 @@ export const withSkillNudged =
 const APPROVAL_STATUSES: readonly ApprovalStatus[] = ['none', 'planning', 'presented', 'approved', 'skipped']
 
 /** Trạng thái duyệt kế hoạch từ bản đã lưu (0.8.2 N2); Core từ bản trước không có trường này thì none, 0 lượt, chưa hỏi. */
+/** Trạng thái Fable điều phối (0.8.4); vắng hay sai kiểu ở trạng thái từ bản cũ là mặc định. */
+function normalizeFable(raw: Partial<FableState> | undefined): FableState {
+  const count = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0)
+  if (raw === undefined || raw === null || typeof raw !== 'object') return { failures: 0, pauseLeft: 0, ready: null, reason: '', holdKey: '', briefedGoal: -1 }
+  return { failures: count(raw.failures), pauseLeft: count(raw.pauseLeft), ready: typeof raw.ready === 'boolean' ? raw.ready : null, reason: typeof raw.reason === 'string' ? raw.reason : '', holdKey: typeof raw.holdKey === 'string' ? raw.holdKey : '', briefedGoal: typeof raw.briefedGoal === 'number' && Number.isInteger(raw.briefedGoal) ? raw.briefedGoal : -1 }
+}
+
+/** Ghi trạng thái Fable điều phối (0.8.4). */
+export const withFable =
+  (change: (fable: FableState) => Partial<FableState>) =>
+  (c: Core): Core => {
+    const n = normalizeCore(c)
+    return { ...n, fable: normalizeFable({ ...n.fable, ...change(n.fable) }) }
+  }
+
 function normalizeApproval(raw: Partial<ApprovalState> | undefined): ApprovalState {
   if (raw === undefined || raw === null) return { goalId: -1, status: 'none', rounds: 0, asked: false, awaitingAnswer: false }
   const status = APPROVAL_STATUSES.find(item => item === raw.status) ?? 'none'
@@ -471,6 +491,7 @@ function normalizeBrief(raw: Brief): Brief {
     isFollowUp: brief.isFollowUp ?? false,
     isReference: brief.isReference ?? brief.attached !== undefined,
     ...(brief.isBare === true ? { isBare: true } : {}),
+    ...(brief.isBig === true ? { isBig: true as const } : {}),
     scopePaths: brief.scopePaths ?? [],
     prompt: brief.prompt ?? '',
     at: brief.at ?? 0,

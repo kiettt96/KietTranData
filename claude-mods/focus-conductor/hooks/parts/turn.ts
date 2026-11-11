@@ -145,8 +145,10 @@ export function registerTurn(on: On, ctx: Ctx): void {
       L.turnRoute = { turnId: e.turnId, route: decided.route }
       // Lượt mod phục vụ: route đã áp (chế độ auto) hoặc đúng model và effort engine gửi.
       const served = current === 'auto' && decided.route !== null ? { family: decided.route.family, effort: decided.route.effort } : null
-      await update($, coreState, c => S.withLog(...decided.logs)(S.withRoute(decided.stored)(c)))
+      const hold = 'fableHold' in decided ? decided.fableHold : undefined
+      await update($, coreState, c => S.withLog(...decided.logs)(S.withRoute(decided.stored)(hold !== undefined ? S.withFable(() => ({ holdKey: hold }))(c) : c)))
       await markBaseline($, e, served, L.turnContext, isCacheFree)
+      if (hold !== undefined) await ctx.flushDecisions((path, text) => $.fs.write(path, text))
       for (const notice of decided.notices) $.ui.toast(notice)
       await showStatus($, await read($, view), ctx.options)
     }

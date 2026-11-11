@@ -2,6 +2,56 @@
 
 Các bản của focus-conductor, mới nhất trước. Số đo kiểm chứng của HEAD hiện tại nằm ở [docs/VERIFICATION.md](docs/VERIFICATION.md); cách dùng và tùy chọn ở [README](README.md).
 
+## Thay đổi 0.8.4: Fable điều phối
+
+Yêu cầu mới của chủ mod [Nguồn: chủ mod, 10/11/2026]: lập kế hoạch, điều phối model và effort, điều phối công việc lúc chạy do Fable 5.2 làm ở effort medium; model khác thực thi. Tính năng nằm sau option `conductor` (mặc định `off`, như 0.8.3 từng byte). Mỗi điểm một commit test đỏ rồi một commit sửa, riêng S1, S2 chỉ thêm test; schema tool `plan` và schema JSON router không đổi.
+
+- **S1, S2 (P3): ghim hai chỗ của phủ định cách quãng.** `084-S1a` (bỏ pass, passed, ok khỏi từ chen giữa bị cấm) và `084-S2a` (bỏ errors?) sống trên `4a6c04c`; thêm ca bắt được. Hai ca của đặc tả cho S2 không bắt được `084-S2a` (errors đứng riêng không là dấu hiệu lỗi), nên thêm hai ca có dấu hai chấm sau errors.
+- **C1 (P1): option `conductor` và ID Fable 5.2.** `hooks/lib/conductor.ts` chứa mọi định nghĩa; ID mặc định của fable là `claude-fable-5-2`; `Core.fable` có mặc định trong `normalizeCore`; dòng nhật ký `conductor` khi trạng thái đổi; `sessionModel` ceiling hay fixed với phiên không phải Fable thì cảnh báo một lần mỗi phiên.
+- **C2 (P1): mọi lượt router do Fable làm khi Fable sẵn sàng**, effort không quá medium, thời gian chờ `FABLE_*_TIMEOUT_MS`, sổ chi phí theo họ thật đã gọi.
+- **C3 (P1): luồng chính của mục tiêu lớn chạy fable/medium suốt mục tiêu**, bằng chứng lẽ ra nâng thì ghi `conductor-hold` một lần mỗi mức nâng mới.
+- **C4 (P1): router phân việc thực thi cho subagent** (biến thể điều phối của lời dặn, `parseRoute` đổi việc sửa file thành agent, bỏ split); 4 ca golden `c4-*` ghi bằng Fable (`--record --only`, ca cũ giữ nguyên).
+- **C5 (P2): đoạn dặn vai điều phối** một lần mỗi mục tiêu.
+- **C6 (P1): đường lùi khi router Fable lỗi**: tạm ngừng 3 prompt, router dùng option `router`, rồi thử lại; toast, cảnh báo, nhật ký, nhãn "Fable tạm ngừng".
+- **C7 (P2): Agent loại Plan chạy fable/medium** khi Fable sẵn sàng.
+- **C8 (P2): band, pane, `/conductor status` và tài liệu** thể hiện vai điều phối.
+- **Test cũ sửa:** ca ghim `MOD_VERSION` của L1; ca `router-read` ghim ID mặc định của fable (`claude-fable-5-1` sang `claude-fable-5-2`). `tests/support/engine.ts` ghi thêm `routerCalls`.
+- **Mẫu cũ viết lại cùng ý** (dòng `old` đổi vì 0.8.4): `061-U22`, `070-B19`, `072-E11`, `072-R7`, `073-T13`, `073-T14`, `074-B8`, `074-B9`, `074-C2`, `074-C3`, `076-B8`, `078-G8i`, `079-V4c`, `079-V4d`, `079-V4e`.
+- **Mẫu mới:** `084-S1a`, `084-S2a`, `084-C1a` tới `084-C1c`, `084-C2a` tới `084-C2c`, `084-C3a` tới `084-C3c`, `084-C4a` tới `084-C4d`, `084-C5a`, `084-C5b`, `084-C6a` tới `084-C6c`, `084-C7a`, `084-C7b`, `084-C8a`, `084-C8b`. Không viết mẫu chỉ đổi các hằng thời gian chờ (đã ghim bằng test).
+- **Nhánh sao lưu `claude/focus-conductor-0-8-4-wip`** chỉ để phục hồi; không merge, nên xóa sau khi PR 0.8.4 merge.
+
+### Vòng 2 (rà soát PR 37): V1, W1 tới W4
+
+- **V1 (P2): luồng chính được nhắc lại vai điều phối.** Khi luồng chính đang điều phối, câu `conductorKeepText` (177 ký tự, trần `CONDUCTOR_KEEP_CHARS` 200) nối vào lời nhắc sau nén ngữ cảnh và vào context của prompt chạy tiếp từ điểm dừng. Đoạn dặn đầy đủ chèn ở prompt đầu tiên mà luồng chính điều phối mục tiêu (`Core.fable.briefedGoal`, mặc định -1), nên mục tiêu mở lúc Fable chưa sẵn sàng vẫn nhận đúng một lần. Prompt đến lúc router Fable còn tạm ngừng thì cả router, luồng chính và turn của prompt đó coi Fable chưa sẵn sàng (`fablePromptPaused`). Test đỏ 4/6.
+- **W1 tới W3 (P3): chỉ thêm test.** W1: việc main loại mixed thành agent, ca đối chứng giữ model của chính việc. W2: mức nâng mới thêm dòng `conductor-hold` thứ hai. W3: lượt đọc prompt, rà kế hoạch và kiểm lạc đề vẫn gửi Fable khi router cũ đang tạm ngừng.
+- **W4 (P3): ghim ba chỗ, lộ một lỗi.** Ca mới: nguyên nhân đổi khi `ready` vẫn false thì có dòng `conductor` mới; hai lượt kiểm lạc đề gửi Fable lỗi thì router Fable tạm ngừng; phiên họ fable có hậu tố thì request dùng nguyên ID phiên. Ca thứ nhất đỏ (1/3): `noteConductor` chạy trước khi đặt lại `fablePromptPaused`, nên ở prompt đầu tiên hết tạm ngừng nó đọc cờ của prompt trước và ghi dòng nhật ký trễ một prompt. Sửa bằng cách đặt cờ trước `noteConductor`.
+- **Mẫu cũ viết lại cùng ý** (dòng `old` đổi vì V1): `074-F10`, `084-C5a`, `084-C5b`.
+- **Mẫu mới:** `084-V1a` tới `084-V1d`, `084-W1a`, `084-W2a`, `084-W3a` tới `084-W3c`, `084-W4a` tới `084-W4d`.
+
+### Vòng 3 (rà soát PR 37): X1
+
+- **X1 (P1): tin nhắn giữa chừng không làm mục tiêu lớn mất vai điều phối.** `followUpOf` ghi `depth`, `volume`, `kind` của tin tiếp nối vào brief, mà router thật chấm light hay none cho tin bảo chạy tiếp, hỏi tiến độ, bổ sung nhỏ hay duyệt kế hoạch, nên trước đây sau tin đó mục tiêu không còn là mục tiêu lớn: pane báo "Điều phối: tắt", nâng theo bằng chứng áp lại, câu nhắc sau nén mất, luồng chính có thể rời Fable. `Brief.isBig` ghi mục tiêu đã từng là mục tiêu lớn: `followUpOf` đặt cờ khi brief trước là mục tiêu lớn hay kế hoạch của tin tiếp nối tự nó lớn; `isBigGoal` trả true khi có cờ, trừ brief đối chiếu và mục tiêu tối thiểu; `normalizeBrief` giữ cờ, nên cờ còn qua cất và khôi phục mục tiêu. Mục tiêu mới không mang cờ của mục tiêu trước; Core và brief từ bản trước không có cờ thì tính theo công thức cũ. Cách ghi `depth`, `volume`, `kind` và lời gọi trong `parseRoute` không đổi; `conductor` off không đổi hành vi. Test đỏ 13/21.
+- **Mẫu cũ viết lại cùng ý** (dòng `old` đổi vì X1): `072-B8`.
+- **Mẫu mới:** `084-X1a` tới `084-X1d`.
+
+### Vòng 4 (rà soát PR 37): A1, A2
+
+Yêu cầu của chủ mod [Nguồn: chủ mod, 11/11/2026]: tin gửi trong lúc đang làm một luồng việc có bốn loại: bổ sung yêu cầu (intent `amend`), hỏi tiến độ (`status`), bảo chạy tiếp (`resume`), và câu hỏi hay câu nói ngoài lề. Ba loại đầu có từ 0.8.2; vòng này thêm loại thứ tư và việc quay lại luồng việc đã cất. Cả A1 và A2 áp cho mọi giá trị của `conductor`; lời dặn router, schema JSON router, schema tool `plan` và hai số phiên dài không đổi.
+
+- **A1 (P1): câu hỏi ngoài lề không làm mất luồng việc đang dở.** Trước đây câu hỏi kiến thức (router xếp `new`, `answer`, không việc, như bản ghi ca `explain`) thay mục tiêu và cất checklist khi tin cậy cao, mở "Đợt 2" với 0 việc khi tin cậy thấp, và bị gộp vào yêu cầu của mục tiêu khi chen ngang giữa turn. `isAside` nhận tin ngoài lề khi có mục tiêu đang dở (checklist còn bước mở, cổng duyệt `planning` hay `presented`, hay mục tiêu lớn chưa lập checklist; không phải đối chiếu) và tin `new`, không việc, không đối chiếu, loại `answer` hay `investigate` độ sâu `none` hoặc `light`. Nhánh tin ngoài lề làm như tin hỏi tiến độ: không đổi brief, checklist, việc, yêu cầu, trạng thái duyệt hay mục tiêu đã cất, không mở đợt mới, thêm một dòng `asideContext`, ghi dòng `route` có `intent: 'aside'`. Câu trả lời cho câu hỏi làm rõ (`isHeldAnswer`) và tin chạy tiếp điểm dừng giữ ưu tiên; tin ngoài lề không xóa `awaitingAnswer`. Test đỏ 22/50.
+- **A2 (P2): "tiếp tục" sau một việc chen vào quay lại luồng việc đã cất.** Tin bảo chạy tiếp khi checklist hiện tại không còn bước mở, mục tiêu đã cất gần nhất còn bước mở và là mục tiêu bị chính mục tiêu hiện tại thay (số mục tiêu liền trước): khôi phục bằng cùng đường với `plan` action `restore` (phần dùng chung tách thành `ctx.restoreGoal`; hành vi của tool giữ nguyên), một dòng `restoreResumeContext` báo đã quay lại và bước mở kế tiếp, nhật ký `restore`. Mục tiêu khôi phục là mục tiêu lớn thì vai điều phối quay lại theo luật hiện có. Test đỏ 4/10.
+- **Test cũ sửa kỳ vọng, giữ tên** (ghim hành vi cũ của đúng tình huống A1): `scenarios` "khôi phục rồi lập mục tiêu mới nhiều lần: các mục tiêu đã lưu không đè nhau" (tin "Liệt kê..." gửi khi mục tiêu còn bước mở là tin ngoài lề nên không lập mục tiêu C; còn 2 mục tiêu đã lưu, mục tiêu B vẫn khôi phục được ở index 2); `session-floor-s2-engine-075` "mục tiêu có quy tắc: luồng chính opus; prompt mới nhỏ, router chọn haiku/low: luồng chính haiku/low" (câu hỏi giá vàng gửi khi mục tiêu hard chưa lập checklist là tin ngoài lề, nên không có brief mới chọn haiku/low).
+- **Mẫu cũ viết lại cùng ý** (dòng `old` khớp hai chỗ sau A1): `082-N1c`.
+- **Mẫu mới (13):** `084-A1a` tới `084-A1h`, `084-A2a` tới `084-A2e`.
+
+### Vòng 5 (rà soát PR 37): Z1, Z2
+
+Kết quả rà soát độc lập trên `a4d684d` [Nguồn: chủ mod, 11/11/2026]. Lời dặn router, schema JSON router, schema tool `plan` và golden không đổi; không test cũ nào đổi kỳ vọng.
+
+- **Z1 (P2): nhánh A2 không còn ghi đè Core bằng bản đọc từ đầu prompt.** Trước đây nhánh A2 khôi phục trên `before` (Core đọc ở đầu prompt) nên các lần ghi Core trước đó trong cùng prompt bị mất: lượt Fable đạt đưa bộ đếm lỗi về 0, giảm số prompt còn tạm ngừng, hết chờ câu trả lời. Hệ quả quan sát được: sau một lỗi router, tin "tiếp tục" có khôi phục, rồi một lỗi nữa thì Fable tạm ngừng dù chỉ có một lỗi sau lần router trả được; Fable đang tạm ngừng thì tin "tiếp tục" có khôi phục không làm giảm số prompt còn tạm ngừng. Nay nhánh A2 khôi phục trên Core đọc ngay trước khi khôi phục; điều kiện và số mục tiêu cũ vẫn tính trên `before`. Test đỏ 2/3.
+- **Z2 (P3): ghim năm hành vi của vòng 4 chưa có test**, chỉ thêm test, không đổi `hooks/`: chi phí router của tin "tiếp tục" có khôi phục và của tin ngoài lề; turn sau khi khôi phục là turn thực thi; đoạn dặn điều phối khi khôi phục mục tiêu lớn với `conductor: 'fable'`; tin chạy tiếp điểm dừng giữ ưu tiên trước nhánh A2.
+- **Mẫu mới (6):** `084-Z1a`, `084-Z2a` tới `084-Z2e`.
+
 ## Thay đổi 0.8.3: vá cổng duyệt kế hoạch và dòng tổng kết của lệnh khai
 
 Sáu điểm tồn đọng: R1 tới R4 từ lượt rà soát PR 35, D1 và D2 từ 0.8.1; tái hiện bằng probe trên `main` `2408fd4` (commit squash của PR 35) [Đo trực tiếp]. Mỗi điểm một commit test đỏ rồi một commit sửa, riêng R1 chỉ thêm test; schema tool `plan` và `routerSystem` không đổi.
