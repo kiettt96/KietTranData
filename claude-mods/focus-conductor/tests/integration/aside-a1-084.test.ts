@@ -221,6 +221,16 @@ describe('0.8.4 A1: cổng duyệt và câu trả lời câu hỏi làm rõ', ()
     expect(lines().filter(l => l['kind'] === 'route').at(-1)?.['intent']).toBe('amend')
   })
 
+  test('đang awaitingAnswer, tin chen ngang giữa turn, router trả new tin cậy thấp: tin chen ngang thành tiếp nối trước khi xét câu trả lời, không answer-held, intent giữ task, mục tiêu giữ', GATED, async ($, on) => {
+    const { lines } = setup(on, [BIG({ questions: QUESTIONS }), ASIDE({ confidence: 0.5, goal: 'Giữ API cũ, làm tròn lên', kind: 'edit', depth: 'substantial' })])
+    await submit($, 'Sửa luồng thanh toán')
+    await $.turn.start({ text: 'làm', turnId: 't1' })
+    await $.prompt.submit({ text: 'giữ, lên', wait: false, turnId: 't1', origin: { kind: 'composer' } } as never)
+    expect(lines().some(l => l['kind'] === 'answer-held')).toBe(false)
+    expect(lines().filter(l => l['kind'] === 'route').at(-1)?.['intent']).toBe('task')
+    expect(await show($)).toContain('Mục tiêu: Sửa luồng thanh toán')
+  })
+
   test('đang planning và awaitingAnswer: tin ngoài lề tin cậy cao không xóa cờ; trạng thái duyệt và brief giữ; câu trả lời thật kế tiếp vẫn là câu trả lời', GATED, async ($, on) => {
     const { seen, lines } = setup(on, [BIG({ questions: QUESTIONS }), ASIDE(), ASIDE({ confidence: 0.5, goal: 'Giữ API cũ, làm tròn lên', kind: 'edit', depth: 'substantial' })])
     await submit($, 'Sửa luồng thanh toán')
