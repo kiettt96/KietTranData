@@ -8,7 +8,7 @@ import type { On } from 'claude-code'
 import type { Brief, Core } from '../../types'
 import * as S from '../../hooks/lib/state'
 import { planningContext } from '../../hooks/lib/approval'
-import { base, plan, submit } from '../support/engine'
+import { base, plan, submit, task } from '../support/engine'
 import type { Json, Seen } from '../support/engine'
 import { makeBrief } from '../support/commands'
 
@@ -97,4 +97,46 @@ describe('0.8.5 K3: trạng thái Core của 0.8.4', () => {
     expect(S.approvalOf(outcome.core).status).toBe('none')
     expect(S.isPlanGated(outcome.core)).toBe(false)
   })
+})
+
+// 0.8.5 D2: bổ sung lớn sau khi đã duyệt (intent amend, depth substantial hay hard, kind edit hay mixed, có việc mới) đưa kế hoạch về
+// planning để trình lại; bổ sung không đạt các điều kiện đó giữ approved.
+describe('0.8.5 D2: bổ sung lớn sau khi duyệt được trình lại', () => {
+  const AMEND = (over: Json = {}) => plan({ relation: 'continue', intent: 'amend', goal: '', depth: 'substantial', volume: 'medium', kind: 'edit', main: MAIN, tasks: [task('Thêm kênh thanh toán mới', 'main', 'sonnet', 'medium')], ...over })
+  /** A lớn: lập checklist, trình, duyệt; Edit chạy được. */
+  async function approved($: Engine) {
+    await submit($, A)
+    await $.turn.start({ text: 'việc', turnId: 't1' })
+    await setSteps($)
+    expect(await stop($)).toBe('')
+    await submit($, 'ok duyệt')
+    expect((await edit($)).deny).toBeUndefined()
+  }
+
+  test('bổ sung substantial, edit, có việc mới: Edit bị từ chối; lập lại checklist, trình, duyệt thì Edit chạy', OPTS, async ($, on) => {
+    const seen = setup(on, [BIG, APPROVE, AMEND(), APPROVE])
+    await approved($)
+    await submit($, 'thêm cả kênh thanh toán mới')
+    expect(String((await edit($)).deny ?? '')).toContain('chưa được duyệt')
+    expect(lastContext(seen).filter(c => c === planningContext()).length).toBe(1)
+    await $.turn.start({ text: 'lập lại', turnId: 't2' })
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa hàm phí', check: 'bun test' }, { title: 'Thêm test', check: 'bun test' }, { title: 'Thêm kênh thanh toán mới', check: 'bun test' }] } as never)
+    expect(await stop($)).toBe('')
+    await submit($, 'duyệt')
+    expect((await edit($)).deny).toBeUndefined()
+  })
+
+  const KEEPS: Array<[string, Json]> = [
+    ['bổ sung light có việc mới', { depth: 'light', volume: 'small' }],
+    ['bổ sung substantial không có việc mới', { tasks: [] }],
+    ['bổ sung substantial, kind answer', { kind: 'answer', tasks: [task('Giải thích kênh mới', 'main', 'sonnet', 'medium', { kind: 'answer' })] }],
+  ]
+  for (const [name, over] of KEEPS) {
+    test(`${name}: giữ approved, Edit chạy`, OPTS, async ($, on) => {
+      setup(on, [BIG, APPROVE, AMEND(over)])
+      await approved($)
+      await submit($, 'thêm cả kênh thanh toán mới')
+      expect((await edit($)).deny).toBeUndefined()
+    })
+  }
 })
