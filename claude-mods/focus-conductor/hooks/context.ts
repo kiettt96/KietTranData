@@ -121,8 +121,6 @@ export function createContext(options: PluginOptions) {
     sessionNoticed: false,
     /** Đã cảnh báo chính sách model của phiên chặn Fable điều phối (0.8.4 C1), một lần mỗi phiên. */
     conductorSessionNoticed: false,
-    /** Prompt hiện tại đến lúc router Fable còn tạm ngừng (0.8.4 C6, V1): router, luồng chính và turn của prompt này đều coi Fable chưa sẵn sàng. */
-    fablePromptPaused: false,
     pinnedGoalId: null as number | null,
     turnCount: 0,
     /** Turn hiện tại vừa có phát hiện làm tăng nâng cấp (vòng lặp, chuỗi lỗi, vượt ngân sách): chưa giảm ở cuối turn. */
@@ -300,7 +298,9 @@ export function createContext(options: PluginOptions) {
 
   /** Đầu vào của các định nghĩa Fable điều phối (hooks/lib/conductor.ts) ở thời điểm hiện tại. */
   function conductorInputs(core: Core, mode: Mode, headless = false): ConductorInputs {
-    return { option: conductorOption, mode, headless, blocked, pauseLeft: normalizeCore(core).fable.pauseLeft + (local.fablePromptPaused ? 1 : 0), sessionPolicy, sessionFamily: local.sessionFamily }
+    // Prompt hiện tại đến lúc router Fable còn tạm ngừng (0.8.4 C6, V1; 0.8.5 K10: cờ nằm trong Core.fable nên sống qua nạp lại mod).
+    const fable = normalizeCore(core).fable
+    return { option: conductorOption, mode, headless, blocked, pauseLeft: fable.pauseLeft + (fable.promptPaused ? 1 : 0), sessionPolicy, sessionFamily: local.sessionFamily }
   }
 
   /** Nguyên nhân luồng chính không điều phối bằng Fable lúc này; null là điều phối khả dụng. */

@@ -259,13 +259,15 @@ export function registerSession(on: On, ctx: Ctx): void {
     }
     const pending = openCp !== null ? [resumePendingContext(openCp, L.noAutoResume && !isArmed)] : []
 
-    const before = S.normalizeCore(await read($, coreState))
-    // Một prompt đi qua trong lúc router Fable tạm ngừng (0.8.4 C6); lượt này vẫn đọc theo trạng thái lúc prompt đến (before). Đặt cờ
-    // trước noteConductor để nhật ký không đọc cờ của prompt trước (0.8.4 W4).
-    L.fablePromptPaused = before.fable.pauseLeft > 0
+    const arrived = S.normalizeCore(await read($, coreState))
+    // Một prompt đi qua trong lúc router Fable tạm ngừng (0.8.4 C6); lượt này vẫn đọc theo trạng thái lúc prompt đến. Cờ của prompt nằm trong
+    // Core.fable.promptPaused (0.8.5 K10), ghi cùng lượt giảm số prompt còn tạm ngừng; mọi quyết định điều phối phía sau của prompt này đọc
+    // cùng một bản `before` đã mang cờ, kể cả noteConductor (0.8.4 W4: nhật ký không đọc cờ của prompt trước).
+    const isPromptPaused = arrived.fable.pauseLeft > 0
+    await update($, coreState, S.withFable(f => ({ promptPaused: f.pauseLeft > 0, pauseLeft: Math.max(0, f.pauseLeft - 1) })))
+    const before: Core = { ...arrived, fable: { ...arrived.fable, promptPaused: isPromptPaused } }
     // Fable điều phối (0.8.4 C1): ghi một dòng nhật ký mỗi khi trạng thái điều phối đổi (bật, tắt kèm nguyên nhân).
     await noteConductor($, ctx, before, current)
-    if (before.fable.pauseLeft > 0) await update($, coreState, S.withFable(f => ({ pauseLeft: f.pauseLeft - 1 })))
     const prev = before.brief
     // routerSkip (người dùng tự bật): câu ngắn đúng nguyên văn trong danh sách thì là tiếp nối, không hỏi router.
     if (prev !== null && isSkippable(text, skipPhrases)) {

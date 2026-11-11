@@ -445,7 +445,8 @@ export type SkillState = { goalId: number; seq: number; lastWrite: number; trial
  * `holdKey`: mục tiêu và mức nâng đã ghi dòng conductor-hold. `briefedGoal` (0.8.4 V1): mục tiêu đã nhận đoạn dặn vai điều phối đầy
  * đủ, -1 là chưa có.
  */
-export type FableState = { failures: number; pauseLeft: number; ready: boolean | null; reason: string; holdKey: string; briefedGoal: number }
+/** `promptPaused` (0.8.5 K10): prompt hiện tại đến lúc router Fable còn tạm ngừng; router, luồng chính và turn của prompt đó coi Fable chưa sẵn sàng. */
+export type FableState = { failures: number; pauseLeft: number; ready: boolean | null; reason: string; holdKey: string; briefedGoal: number; promptPaused: boolean }
 
 export type ApprovalStatus = 'none' | 'planning' | 'presented' | 'approved' | 'skipped'
 export type ApprovalState = { goalId: number; status: ApprovalStatus; rounds: number; asked: boolean; awaitingAnswer: boolean }
