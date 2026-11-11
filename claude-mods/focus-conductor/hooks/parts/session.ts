@@ -275,8 +275,8 @@ export function registerSession(on: On, ctx: Ctx): void {
       L.promptIntent = { relation: 'continue', kind: prev.isReference ? 'answer' : prev.kind }
       await flushDecisions((path, text) => $.fs.write(path, text))
       const lead = L.noAutoResume && !isArmed ? [] : await startResume()
-      // Kế hoạch đang lập (0.8.2 N2): câu tiếp nối ngắn vẫn kèm đoạn dặn lập kế hoạch. Câu này là câu trả lời: hết chờ (0.8.3 R3).
-      await clearAwaiting($, S.approvalOf(before))
+      // Kế hoạch đang lập (0.8.2 N2): câu tiếp nối ngắn vẫn kèm đoạn dặn lập kế hoạch. Câu tiếp nối ngắn không phải câu trả lời câu hỏi
+      // làm rõ: cờ chờ câu trả lời giữ nguyên (0.8.5 K1).
       const planning = S.approvalOf(before).status === 'planning' ? [planningContext()] : []
       return next({ ...e, context: [...lead, ...(e.context ?? []), skippedContext(prev, before.plan), ...planning, ...(lead.length === 0 ? pending : [])] })
     }
@@ -332,8 +332,10 @@ export function registerSession(on: On, ctx: Ctx): void {
     // Tin ngoài lề (0.8.4 A1): xét trên kế hoạch router trả, trước khi tin chen ngang bị đổi thành tiếp nối; câu trả lời câu hỏi làm rõ thắng.
     const isAsideMsg = routed !== null && prev !== null && !isHeldAnswer && isAside(routed, prev, { open: openSteps(before.plan).length, total: before.plan.length, approval: approvalStored.status, turnsDone: S.turnsOf(before).done })
     const interjected = isInterject && routed !== null && routed.relation === 'new' && !isAsideMsg ? { ...routed, relation: 'continue' as const } : routed
-    // Câu trả lời đến rồi: hết chờ câu trả lời (0.8.3 R3: cờ nằm trong Core). Tin ngoài lề không phải câu trả lời nên không xóa cờ (0.8.4 A1).
-    const approvalBefore = isAsideMsg ? approvalStored : await clearAwaiting($, approvalStored)
+    // Câu trả lời đến rồi: hết chờ câu trả lời (0.8.3 R3: cờ nằm trong Core). Tin ngoài lề (0.8.4 A1), tin hỏi tiến độ và tin bảo chạy tiếp
+    // (0.8.5 K1, intent sau bước kẹp) không phải câu trả lời nên không xóa cờ; router lỗi thì intent là task và cờ được xóa như cũ.
+    const isKeptAwaiting = isAsideMsg || intent === 'status' || intent === 'resume'
+    const approvalBefore = isKeptAwaiting ? approvalStored : await clearAwaiting($, approvalStored)
     const steered = isHeldAnswer && interjected !== null ? { ...interjected, relation: 'continue' as const, intent: 'amend' as const } : interjected
     if (isHeldAnswer && prev !== null) {
       intent = 'amend'
