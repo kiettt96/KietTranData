@@ -7,7 +7,7 @@
 import type { PluginOptions } from 'claude-code'
 
 import type { AgentProgress, AgentState, ApprovalState, ApprovalStatus, AgentTally, ArchivedGoal, Brief, ChangedState, CheckHint, Core, FableState, ForkPart, GoalTurns, ForkPartState, ForkState, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, RetryItem, RetryState, Route, Waiver, WaiverState, RouteEvent, RouterFail, SkillState, TurnFault, Warning } from '../../types'
-import { openSteps, restorableSteps } from './drift'
+import { isFullyClosed, openSteps, restorableSteps } from './drift'
 import { isPendingGoal } from './conductor'
 import type { Tokens } from './cost'
 import { addUsage, emptyLedger, nextGoal, planSwitch, resetLedger } from './ledger'
@@ -578,18 +578,21 @@ export function archivedPending(a: ArchivedGoal): boolean {
 }
 
 /**
- * Mục tiêu đã cất mà tin bảo chạy tiếp quay lại (0.8.4 A2): thứ tự trong danh sách đã cất (1 là gần nhất), null là không quay lại. Checklist
- * hiện tại không còn bước mở; mục tiêu đã cất gần nhất còn dở và là mục tiêu bị mục tiêu hiện tại thay (số mục tiêu liền trước).
+ * Mục tiêu đã cất mà tin bảo chạy tiếp quay lại (0.8.4 A2, 0.8.5 K5): thứ tự trong danh sách đã cất (1 là gần nhất), null là không quay lại.
+ * Mục tiêu hiện tại không còn dở; lấy mục đã cất gần nhất còn dở (duyệt từ mới tới cũ).
  */
 export function resumeTarget(c: Core): number | null {
   const n = normalizeCore(c)
   if (n.brief === null) return null
-  if (openSteps(n.plan).length > 0) return null
-  const last = n.archived[0]
-  if (last === undefined) return null
-  if (!archivedPending(last)) return null
-  if (last.brief.goalId !== n.brief.goalId - 1) return null
-  return 1
+  if (pendingOf(n)) return null
+  const index = n.archived.findIndex(a => archivedPending(a))
+  return index < 0 ? null : index + 1
+}
+
+/** Tin bảo chạy tiếp mà không còn gì (0.8.5 K5): checklist hiện tại có bước và đã đóng hết, không có mục tiêu đã cất nào còn dở. */
+export function isNothingLeft(c: Core): boolean {
+  const n = normalizeCore(c)
+  return isFullyClosed(n.plan) && !n.archived.some(a => archivedPending(a))
 }
 
 /**

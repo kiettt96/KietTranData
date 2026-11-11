@@ -348,6 +348,14 @@ export function restoreGoalOnlyContext(goal: string): string {
   return `[focus-conductor] Tin bảo chạy tiếp: đã quay lại mục tiêu đã cất "${clipItem(goal, 120)}"; mục tiêu này chưa có checklist, làm tiếp mục tiêu đó; không thêm việc mới.`
 }
 
+/**
+ * Tin bảo chạy tiếp mà không còn gì để chạy (0.8.5 K5): checklist hiện tại đã đóng hết và không còn việc nào đã cất đang dở. Một dòng, tối
+ * đa 300 ký tự.
+ */
+export function nothingLeftContext(): string {
+  return '[focus-conductor] Tin bảo chạy tiếp: checklist hiện tại đã đóng hết và không còn việc nào đã cất đang dở; tóm tắt kết quả đã làm rồi hỏi người dùng muốn làm gì tiếp, không tự thêm việc mới.'
+}
+
 /** Tin bảo chạy tiếp (0.8.2 N1, intent resume; approve khi không có kế hoạch chờ duyệt): chạy tiếp từ bước đang mở. Tối đa 300 ký tự. */
 export function intentResumeContext(plan: readonly PlanStep[]): string {
   const next = openSteps(plan)[0]

@@ -350,6 +350,19 @@ describe('0.8.5 K5: tiếp tục lùi nhiều tầng và báo khi không còn g�
     expect(lines().filter(l => l['kind'] === 'restore').length).toBe(restores)
   })
 
+  test('mục tiêu đã cất gần nhất chỉ còn bước waiting: bỏ qua, quay lại mục đã cất cũ hơn còn bước mở', { options: OPTIONS[0][1] }, async ($, on) => {
+    const { seen } = setup(on, [BIG(), NEW('Chờ CI'), NEW('Đổi tên biến'), RESUME])
+    await goalA($, seen)
+    await submit($, 'Chờ CI chạy xong')
+    await setPlan($, ['Chờ CI'])
+    await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'waiting', note: 'chờ CI chạy xong' } as never)
+    await submit($, 'Đổi tên biến cấu hình')
+    await setPlan($, ['Đổi tên biến'])
+    await mark($, 1, 'done')
+    await submit($, 'tiếp tục')
+    expect(await show($)).toContain(`Mục tiêu: ${A}`)
+  })
+
   test('checklist trống (việc nhỏ không lập checklist), không có mục tiêu đã cất: giữ dòng chạy tiếp, không có dòng báo không còn việc', { options: OPTIONS[0][1] }, async ($, on) => {
     const { seen } = setup(on, [plan({ goal: 'Sửa phí', depth: 'light', volume: 'small', kind: 'edit' }), RESUME])
     await submit($, 'Sửa phí')
