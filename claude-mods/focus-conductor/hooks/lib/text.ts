@@ -327,6 +327,14 @@ export function asideContext(isInterject: boolean, next: PlanStep | undefined): 
     : `[focus-conductor] Câu hỏi ngoài lề: trả lời câu hỏi này; mục tiêu đang làm giữ nguyên, chưa làm tiếp ${at} cho tới khi người dùng bảo chạy tiếp. Không thêm việc, không đổi checklist.`
 }
 
+/**
+ * Tin bảo chạy tiếp quay lại mục tiêu đã cất (0.8.4 A2): việc chen vào đã xong, mod khôi phục mục tiêu bị nó thay; chạy tiếp từ bước mở
+ * kế tiếp của mục tiêu đó. Một dòng, tối đa 300 ký tự.
+ */
+export function restoreResumeContext(goal: string, next: PlanStep | undefined): string {
+  return `[focus-conductor] Tin bảo chạy tiếp: đã quay lại mục tiêu đã cất "${clipItem(goal, 120)}"; chạy tiếp từ ${next !== undefined ? `bước ${next.id}. ${clipItem(next.title, 80)}` : 'bước đang mở'}; không thêm việc mới.`
+}
+
 /** Tin bảo chạy tiếp (0.8.2 N1, intent resume; approve khi không có kế hoạch chờ duyệt): chạy tiếp từ bước đang mở. Tối đa 300 ký tự. */
 export function intentResumeContext(plan: readonly PlanStep[]): string {
   const next = openSteps(plan)[0]

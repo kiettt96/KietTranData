@@ -15,7 +15,7 @@ import type { RouterOutcome, RouterPlan } from '../lib/router'
 import { EMPTY_QUOTA, blockingHits, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaSettings, reasonsOf, softNotices } from '../lib/quota'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
-import { DISCIPLINE, asideContext, conductorContext, conductorKeepText, phaseNotice, briefContext, droppedItemsText, droppedPlanNotice, followUpContext, intentResumeContext, intentStatusContext, interjectContext, interjectMovedNote, quotaPausedContext, resetLabel, resumeCommand, restorableLabel, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
+import { DISCIPLINE, asideContext, conductorContext, conductorKeepText, phaseNotice, briefContext, droppedItemsText, droppedPlanNotice, followUpContext, intentResumeContext, intentStatusContext, interjectContext, interjectMovedNote, quotaPausedContext, resetLabel, resumeCommand, restorableLabel, restoreResumeContext, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -345,6 +345,29 @@ export function registerSession(on: On, ctx: Ctx): void {
     const lead = isResuming ? await startResume() : []
     const tail = isResuming ? [] : pending
     const now = await $.clock.now()
+    // Tin bảo chạy tiếp sau một việc chen vào (0.8.4 A2): checklist hiện tại không còn bước mở, mục tiêu đã cất gần nhất còn bước mở và
+    // là mục tiêu bị chính mục tiêu hiện tại thay (mục tiêu mới mang số của mục tiêu trước cộng 1): khôi phục bằng cùng đường với plan
+    // action restore. Tin chạy tiếp điểm dừng giữ ưu tiên.
+    const lastArchived = before.archived[0]
+    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && openSteps(lastArchived.plan).length > 0 && lastArchived.brief.goalId === prev.goalId - 1
+    if (isBackToArchived && plan !== null && prev !== null && lastArchived !== undefined) {
+      const back = ctx.restoreGoal(before, 1)
+      if (!('error' in back)) {
+        await update($, coreState, () => S.withRouterFail(null)(S.withAnalyzerUsage(outcome.usages, target.family)(back.core)))
+        const restored = back.brief
+        L.promptIntent = { relation: 'continue', kind: restored.kind }
+        L.lastPrompt = { text, prev, goalId: restored.goalId }
+        record(now, 'restore', { prompt: clipText(text), goalId: restored.goalId, from: lastArchived.brief.goalId, cause: 'resume' })
+        await flushDecisions((path, text) => $.fs.write(path, text))
+        await showStatus($, await read($, view), ctx.options)
+        // Mục tiêu khôi phục là mục tiêu lớn: đoạn dặn điều phối theo khóa Core.fable.briefedGoal như mọi mục tiêu (0.8.4 V1).
+        const core = S.normalizeCore(await read($, coreState))
+        const wanted = wantedPick(restored, core.lift, core, current)
+        const conductNote = wanted?.isConducting === true && core.fable.briefedGoal !== restored.goalId ? [conductorContext()] : []
+        if (conductNote.length > 0) await update($, coreState, S.withFable(() => ({ briefedGoal: restored.goalId })))
+        return next({ ...e, context: [...lead, ...(e.context ?? []), restoreResumeContext(restored.goal, openSteps(core.plan)[0]), ...conductNote, ...tail] })
+      }
+    }
     // Tin hỏi tiến độ (0.8.2 N1): không đổi brief, checklist, việc, yêu cầu hay ràng buộc; chỉ cộng chi phí router. Tin gửi khi không có
     // turn đang chạy thì turn đó là hỏi đáp (không qua các cổng Stop); tin chen ngang không đổi trạng thái thực thi của turn đang chạy.
     if (plan !== null && prev !== null && intent === 'status') {

@@ -17,7 +17,7 @@ import { MOD_VERSION } from './lib/version'
 import { MAX_FORKS, fitPick, skipKey } from './lib/router'
 import { approvalModeOf, reviewRoundsOf } from './lib/approval'
 import { conductorBlocker, conductorOf, fableModelId, isFableReady, isMainConducting } from './lib/conductor'
-import { normalizeCore } from './lib/state'
+import { normalizeCore, restoreArchived, withDelegations } from './lib/state'
 import type { ConductorBlocker, ConductorInputs } from './lib/conductor'
 import type { AgentRoute, Policy } from './lib/router'
 
@@ -752,6 +752,24 @@ export function createContext(options: PluginOptions) {
     if (local.evidenceLog.goalId === from) local.evidenceLog = moved
   }
 
+  /**
+   * Khôi phục mục tiêu đã lưu thứ `index` (0.8.4 A2: dùng chung cho plan action restore và tin bảo chạy tiếp): restoreArchived, mang dấu vết
+   * thực thi sang số mới, theo dõi việc giao còn chờ. Trả Core mới để tệp gọi tự ghi (engine không cho truyền `$` qua import).
+   */
+  function restoreGoal(c: Core, index: number): { core: Core; brief: Brief } | { error: string } {
+    const stored = normalizeCore(c).archived[index - 1]
+    const outcome = restoreArchived(c, index)
+    if ('error' in outcome) return { error: outcome.error }
+    // Mục tiêu khôi phục mang số mới: giữ lịch sử thay đổi và kiểm tra của nó cho việc đối chiếu evidence.
+    if (stored !== undefined) carryEvidence(stored.brief.goalId, outcome.restored.brief.goalId)
+    const restored = outcome.restored.brief
+    // Việc giao còn chờ của mục tiêu khôi phục: các việc ghi giao (Claude biết việc nào đã xong từ checklist).
+    trackDelegations(restored.goalId, restored.isReference ? [] : restored.tasks)
+    local.isGoalNew = true
+    local.pinnedGoalId = null
+    return { core: withDelegations(restored.goalId, delegationItems(restored))(outcome.core), brief: restored }
+  }
+
   /** Ghi thời gian một lượt router (ms). */
   function noteRouterTime(ms: number): void {
     local.routerTimes.push(Math.max(0, ms))
@@ -937,6 +955,7 @@ export function createContext(options: PluginOptions) {
     steppedEarly,
     strictDelegation,
     trackDelegations,
+    restoreGoal,
     ttl,
     untrackedAgents,
     wantedPick,

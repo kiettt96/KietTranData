@@ -88,7 +88,7 @@ describe('0.8.4 A2: tiếp tục quay lại mục tiêu đã cất', () => {
       expect(typeof restore?.['goalId']).toBe('number')
       await $.turn.start({ text: 'làm', turnId: 't3' })
       expect(pick(await step($, seen, { turnId: 't3' }))).toBe(expectedMain(opts))
-      if (opts.conductor === 'fable') expect(await statusText($)).toContain('Điều phối: fable/medium, đang điều phối')
+      if (expectedMain(opts).includes('fable')) expect(await statusText($)).toContain('Điều phối: fable/medium, đang điều phối')
     })
 
     test(`${name}: B còn bước mở: không khôi phục, chạy tiếp B`, { options: opts }, async ($, on) => {

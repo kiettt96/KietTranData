@@ -591,7 +591,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     if (!L.observed.includes(item)) L.observed.push(item)
     if (L.observed.length > 5) L.observed.shift()
   }
-  const { agentFailures, agentTrackers, agents, blockLimit, carryEvidence, flushDecisions, delegationItems, evidenceFor, failedFor, isRouterPaused, moveDelegation, noteRouterTime, pendingFor, record, remindSubagents, semanticDrift, driftEveryMs, steppedEarly, strictDelegation, trackDelegations } = ctx
+  const { agentFailures, agentTrackers, agents, blockLimit, flushDecisions, delegationItems, evidenceFor, failedFor, isRouterPaused, moveDelegation, noteRouterTime, pendingFor, record, remindSubagents, semanticDrift, driftEveryMs, steppedEarly, strictDelegation } = ctx
   const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
   const mode = derive([modeState], modeOf(ctx.options))
 
@@ -611,18 +611,11 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     if (input.action === 'restore') {
       // Khôi phục mục tiêu cũ đã lưu khi router xếp một prompt là mục tiêu mới.
       const index = typeof input.index === 'number' ? input.index : 1
-      const stored = S.normalizeCore(await read($, coreState)).archived[index - 1]
-      const outcome = S.restoreArchived(await read($, coreState), index)
+      // Phần dùng chung với tin bảo chạy tiếp (0.8.4 A2): ctx.restoreGoal.
+      const outcome = ctx.restoreGoal(await read($, coreState), index)
       if ('error' in outcome) return { deny: outcome.error }
-      // Mục tiêu khôi phục mang số mới: giữ lịch sử thay đổi và kiểm tra của nó cho việc đối chiếu evidence.
-      if (stored !== undefined) carryEvidence(stored.brief.goalId, outcome.restored.brief.goalId)
       await update($, coreState, () => outcome.core)
-      const restored = outcome.restored.brief
-      // Việc giao còn chờ của mục tiêu khôi phục: các việc ghi giao (Claude biết việc nào đã xong từ checklist).
-      trackDelegations(restored.goalId, restored.isReference ? [] : restored.tasks)
-      await update($, coreState, S.withDelegations(restored.goalId, delegationItems(restored)))
-      L.isGoalNew = true
-      L.pinnedGoalId = null
+      const restored = outcome.brief
       await showStatus($, await read($, view), ctx.options)
       const core = S.normalizeCore(await read($, coreState))
       return { result: `Đã khôi phục mục tiêu: ${restored.goal}\n${renderPlan(core.brief, core.plan)}` }
