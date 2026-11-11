@@ -282,10 +282,53 @@ index 2a54b66..de53528 100644
          text:
            plan !== null
 diff --git a/claude-mods/focus-conductor/hooks/parts/consistency.ts b/claude-mods/focus-conductor/hooks/parts/consistency.ts
-index 292b882..c7caeea 100644
+index 292b882..cbf4833 100644
 --- a/claude-mods/focus-conductor/hooks/parts/consistency.ts
 +++ b/claude-mods/focus-conductor/hooks/parts/consistency.ts
-@@ -1241,10 +1241,15 @@ export function registerConsistency(on: On, ctx: Ctx): void {
+@@ -2,7 +2,7 @@
+ 
+ import { atom, derive, read, update } from 'claude-code'
+ import { caught, noteBehavior, noteHookError } from '../lib/errlog'
+-import type { AgentState, Choice, Core, DelegationState, RetryItem, Warning } from '../../types'
++import type { AgentState, Choice, Core, DelegationState, Mode, RetryItem, Warning } from '../../types'
+ import { acceptsVerified, classifyBash, evidenceStrength, filePathOf, freshTestRun, hardChanges, isCheckTool, isExecuting, isFullyClosed, isGoalDone, isMutation, isPlanFile, normalizePath, isSkillTrial, markVerified, newTracker, skillNameOf, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
+ import type { Finding, Focus, ToolObservation, TurnTracker } from '../lib/drift'
+ import { checkCommand, checkSignature, coversFailure, isFailedRun } from '../lib/drift/evidence'
+@@ -594,6 +594,8 @@ export function registerConsistency(on: On, ctx: Ctx): void {
+   const { agentFailures, agentTrackers, agents, blockLimit, flushDecisions, delegationItems, evidenceFor, failedFor, isRouterPaused, moveDelegation, noteRouterTime, pendingFor, record, remindSubagents, semanticDrift, driftEveryMs, steppedEarly, strictDelegation } = ctx
+   const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
+   const mode = derive([modeState], modeOf(ctx.options))
++  /** Luồng chính đang giữ vai điều phối cho mục tiêu hiện tại (0.8.5 D1): mức strictDelegation hiệu dụng là block. */
++  const isConductingNow = (core: Core, current: Mode): boolean => ctx.conductorOption === 'fable' && isMainConducting(ctx.conductorInputs(core, current), core.brief)
+ 
+   // ------------------------------------------ 3. giữ nhất quán
+ 
+@@ -794,9 +796,12 @@ export function registerConsistency(on: On, ctx: Ctx): void {
+     // Gồm lệnh Bash ghi file (sed -i, chuyển hướng ghi, rm...): isMutation đã loại lệnh chỉ đọc và lệnh kiểm tra.
+     const isBashWrite =
+       e.tool === 'Bash' && isMutation({ tool: 'Bash', input: e as unknown as Record<string, unknown>, isError: false, isReadOnly: false })
+-    if (strictDelegation === 'block' && e.agentId === undefined && (EDIT_TOOLS.has(e.tool) || isBashWrite)) {
++    // Luồng chính điều phối (0.8.5 D1): option off hay remind vẫn chặn như block.
++    const isMainWrite = e.agentId === undefined && (EDIT_TOOLS.has(e.tool) || isBashWrite)
++    const blockCore = isMainWrite ? S.normalizeCore(await read($, coreState)) : null
++    if (blockCore !== null && (strictDelegation === 'block' || isConductingNow(blockCore, await read($, mode)))) {
+       const current = await read($, mode)
+-      const now = S.normalizeCore(await read($, coreState))
++      const now = blockCore
+       const waiting = current === 'auto' || current === 'subagents' ? pendingFor(now.brief, shownPlan(now).plan) : []
+       const path = filePathOf({ tool: e.tool, input: e as unknown as Record<string, unknown>, isError: false, isReadOnly: false })
+       if (waiting.length > 0 && !isPlanFile(path) && L.delegation.blocks < blockLimit) {
+@@ -955,7 +960,8 @@ export function registerConsistency(on: On, ctx: Ctx): void {
+     const pending = pendingFor(core.brief, shownPlan(core).plan)
+     const planFile = isPlanFile(filePathOf(observation))
+     // Mặc định nhắc một lần ở lần sửa file đầu tiên; strictDelegation remind/block nhắc ở mọi lần thay đổi (kể cả lệnh ghi file).
+-    const isStrict = strictDelegation !== 'off'
++    // Luồng chính điều phối (0.8.5 D1): nhắc ở mọi lần thay đổi như block, kể cả sau khi hết lượt chặn.
++    const isStrict = strictDelegation !== 'off' || (e.agentId === undefined && isConductingNow(core, await read($, mode)))
+     const isChange = isStrict ? isMutation(observation) : EDIT_TOOLS.has(e.tool)
+     const nudge =
+       isChange && !planFile && !observation.isError && pending.length > 0 && (isStrict || !L.delegation.isNudged)
+@@ -1241,10 +1247,15 @@ export function registerConsistency(on: On, ctx: Ctx): void {
      // Turn không có phát hiện nào làm tăng nâng cấp: nâng cấp của mục tiêu giảm một bậc (0.7.0).
      const hadFinding = L.liftRaised || unresolved.length > 0
      L.liftRaised = false
@@ -440,7 +483,7 @@ index a1aafa3..4ef00d8 100644
        prompt: clipText(text),
        relation: plan.relation,
 diff --git a/claude-mods/focus-conductor/scripts/mutants.ts b/claude-mods/focus-conductor/scripts/mutants.ts
-index a621d3b..e770764 100644
+index a621d3b..a1807b2 100644
 --- a/claude-mods/focus-conductor/scripts/mutants.ts
 +++ b/claude-mods/focus-conductor/scripts/mutants.ts
 @@ -712,7 +712,7 @@ export const MUTANTS: Mutant[] = [
@@ -485,7 +528,7 @@ index a621d3b..e770764 100644
    { id: "075-M5j", file: "hooks/lib/state.ts", note: "đọc lại trạng thái làm mất main của prompt lập mục tiêu", old: "    ...(brief.mainBase ? { mainBase: brief.mainBase } : {}),\n", new: "" },
    { id: "075-M6a", file: "hooks/lib/drift/classify.ts", note: "nguồn của mv không tính là đích ghi", old: "      if (name === 'mv') positional.forEach(add)\n", new: "" },
    { id: "075-M6b", file: "hooks/parts/quota.ts", note: "ln được qua khi đích nằm trong danh sách", old: " && e.name !== 'ln'", new: "" },
-@@ -2117,19 +2117,38 @@ export const MUTANTS: Mutant[] = [
+@@ -2117,19 +2117,41 @@ export const MUTANTS: Mutant[] = [
    { id: "084-A1b", file: "hooks/parts/session.ts", note: "tin ngoài lề vẫn cất checklist như mục tiêu mới", old: "      if (!isInterject) L.promptIntent = { relation: 'continue', kind: 'answer' }\n      await update($, coreState, c => S.withRouterFail(null)(S.withAnalyzerUsage(outcome.usages, target.family)(c)))\n      L.lastPrompt = { text, prev, goalId: prev.goalId }\n      record(now, 'route', { prompt: clipText(text), relation: plan.relation, intent: 'aside'", new: "      if (!isInterject) L.promptIntent = { relation: 'continue', kind: 'answer' }\n      await update($, coreState, c => S.adoptGoal({ ...prev, goalId: prev.goalId + 1 })(S.withRouterFail(null)(S.withAnalyzerUsage(outcome.usages, target.family)(c))))\n      L.lastPrompt = { text, prev, goalId: prev.goalId }\n      record(now, 'route', { prompt: clipText(text), relation: plan.relation, intent: 'aside'" },
    { id: "084-A1c", file: "hooks/lib/router.ts", note: "coi tin new có việc là ngoài lề", old: "  if (plan.relation !== 'new' || plan.tasks.length > 0 || plan.isReference || plan.runReference) return false\n", new: "  if (plan.relation !== 'new' || plan.isReference || plan.runReference) return false\n" },
    { id: "084-A1d", file: "hooks/lib/router.ts", note: "coi investigate mọi độ sâu là ngoài lề", old: "  return plan.kind === 'answer' || (plan.kind === 'investigate' && (plan.depth === 'none' || plan.depth === 'light'))\n", new: "  return plan.kind === 'answer' || plan.kind === 'investigate'\n" },
@@ -534,6 +577,9 @@ index a621d3b..e770764 100644
 +  { id: "085-K6a", file: "hooks/parts/session.ts", note: "prev là brief trước khi khôi phục", old: "        L.lastPrompt = { text, prev: restored, goalId: restored.goalId }\n        record(now, 'restore'", new: "        L.lastPrompt = { text, prev, goalId: restored.goalId }\n        record(now, 'restore'" },
 +  { id: "085-K7a", file: "hooks/parts/session.ts", note: "nhánh skip không khôi phục mục tiêu đã cất", old: "      const skipBack = lead.length === 0 ? S.resumeTarget(skipCore) : null\n", new: "      const skipBack: number | null = null\n" },
 +  { id: "085-K7b", file: "hooks/parts/session.ts", note: "nhánh skip khôi phục cả khi tin chạy tiếp điểm dừng đang mở", old: "      const skipBack = lead.length === 0 ? S.resumeTarget(skipCore) : null\n", new: "      const skipBack = S.resumeTarget(skipCore)\n" },
++  { id: "085-D1a", file: "hooks/parts/consistency.ts", note: "không nâng mức strictDelegation khi điều phối", old: "(strictDelegation === 'block' || isConductingNow(blockCore, await read($, mode)))", new: "(strictDelegation === 'block')" },
++  { id: "085-D1b", file: "hooks/parts/consistency.ts", note: "nâng mức strictDelegation cả khi không điều phối", old: "ctx.conductorOption === 'fable' && isMainConducting(ctx.conductorInputs(core, current), core.brief)", new: "ctx.conductorOption === 'fable'" },
++  { id: "085-D1c", file: "hooks/parts/consistency.ts", note: "lời nhắc sau khi hết lượt chặn không theo mức block khi điều phối", old: "    const isStrict = strictDelegation !== 'off' || (e.agentId === undefined && isConductingNow(core, await read($, mode)))\n", new: "    const isStrict = strictDelegation !== 'off'\n" },
  ]
 diff --git a/claude-mods/focus-conductor/tests/integration/approval-k3-085.test.ts b/claude-mods/focus-conductor/tests/integration/approval-k3-085.test.ts
 new file mode 100644
@@ -739,6 +785,77 @@ index 0000000..061d8f8
 +    expect(lines().filter(l => l['kind'] === 'answer-held').length).toBe(1)
 +    await submit($, 'làm thêm trang giới thiệu')
 +    expect(lines().filter(l => l['kind'] === 'answer-held').length).toBe(1)
++  })
++})
+diff --git a/claude-mods/focus-conductor/tests/integration/conductor-d1-085.test.ts b/claude-mods/focus-conductor/tests/integration/conductor-d1-085.test.ts
+new file mode 100644
+index 0000000..304e96b
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/integration/conductor-d1-085.test.ts
+@@ -0,0 +1,65 @@
++// 0.8.5 D1: khi luồng chính đang giữ vai điều phối cho mục tiêu hiện tại, mức strictDelegation hiệu dụng là block (option off hay remind):
++// sửa file trong khi còn việc ghi giao subagent chưa giao bị từ chối tối đa blockLimit lần mỗi mục tiêu, sau đó mọi lần thay đổi kèm lời
++// nhắc. Không điều phối thì theo option như 0.8.4. File kế hoạch không bị từ chối.
++
++import { describe, expect, test } from 'claude-code/testing'
++import type { Engine } from 'claude-code/testing'
++import type { On } from 'claude-code'
++import { base, plan, submit, task } from '../support/engine'
++import type { Json } from '../support/engine'
++
++const MAIN = { model: 'sonnet', effort: 'medium', why: '' }
++const A = 'Sửa luồng thanh toán'
++/** Mục tiêu lớn có hai việc sửa file; router điều phối chuyển việc sửa của luồng chính thành việc giao subagent. */
++const BIG = plan({ goal: A, depth: 'substantial', volume: 'medium', kind: 'edit', main: MAIN, tasks: [task('Sửa hàm phí', 'main', 'sonnet', 'medium'), task('Sửa hàm thuế', 'main', 'sonnet', 'medium')] })
++const LIGHT = plan({ goal: 'Sửa chú thích', depth: 'light', volume: 'small', kind: 'edit', main: MAIN, tasks: [task('Sửa chú thích', 'agent', 'sonnet', 'low'), task('Sửa ví dụ', 'agent', 'sonnet', 'low')] })
++const FABLE = { options: { planApproval: 'off', conductor: 'fable' } }
++const edit = ($: Engine) => $.tool.call({ tool: 'Edit', file_path: 'src/phi.ts', old_string: 'a', new_string: 'b' } as never) as Promise<{ deny?: string; context?: string[] }>
++const nudged = (r: { context?: string[] }) => (r.context ?? []).join('\n').includes('chưa giao')
++
++function setup(on: On, reply: Json) {
++  base(on, { router: request => (request.startsWith('Requirements:') ? { missing: [], extra: [], issues: [] } : reply) })
++  on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
++  on('tool.call', { tool: 'Write' }, () => ({ result: 'ok' }))
++  on('tool.call', { tool: 'Agent' }, () => ({ result: 'đã giao' }))
++}
++
++describe('0.8.5 D1: luồng chính điều phối không tự sửa file khi còn việc chưa giao', () => {
++  test('blockLimit mặc định: hai lần Edit đầu bị từ chối, lần ba và lần bốn được chạy kèm lời nhắc', FABLE, async ($, on) => {
++    setup(on, BIG)
++    await submit($, A)
++    expect(String((await edit($)).deny ?? '')).toContain('Còn việc ghi giao subagent chưa giao')
++    expect(String((await edit($)).deny ?? '')).toContain('lần chặn cuối')
++    const third = await edit($)
++    expect(third.deny).toBeUndefined()
++    expect(nudged(third)).toBe(true)
++    const fourth = await edit($)
++    expect(fourth.deny).toBeUndefined()
++    expect(nudged(fourth)).toBe(true)
++  })
++
++  test('đã giao hết việc bằng Agent: Edit ở luồng chính không bị từ chối', FABLE, async ($, on) => {
++    setup(on, BIG)
++    await submit($, A)
++    for (const n of [1, 2]) await $.tool.call({ tool: 'Agent', description: `Việc ${n}: làm`, prompt: 'x' } as never)
++    expect((await edit($)).deny).toBeUndefined()
++  })
++
++  test('file kế hoạch không bị từ chối', FABLE, async ($, on) => {
++    setup(on, BIG)
++    await submit($, A)
++    expect((await $.tool.call({ tool: 'Write', file_path: '/repo/.claude/plans/p.md', content: 'x' } as never)).deny).toBeUndefined()
++  })
++
++  test('conductor mặc định, strictDelegation mặc định: Edit không bị từ chối', { options: { planApproval: 'off' } }, async ($, on) => {
++    setup(on, BIG)
++    await submit($, A)
++    expect((await edit($)).deny).toBeUndefined()
++  })
++
++  test('conductor fable, mục tiêu light (không điều phối): theo option, Edit không bị từ chối', FABLE, async ($, on) => {
++    setup(on, LIGHT)
++    await submit($, 'Sửa chú thích README')
++    expect((await edit($)).deny).toBeUndefined()
 +  })
 +})
 diff --git a/claude-mods/focus-conductor/tests/integration/pending-k2-085.test.ts b/claude-mods/focus-conductor/tests/integration/pending-k2-085.test.ts

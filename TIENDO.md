@@ -14,3 +14,4 @@ Nhánh làm việc `claude/focus-conductor-0-8-5`, tách từ `main` `87023af`. 
 - K4: test đỏ (1/1); sửa ở commit kế; mẫu K4a 1 đỏ; viết lại 084-Z2d.
 - K6: test đỏ (1/1); sửa ở commit kế; mẫu K6a 1 đỏ.
 - K7: test đỏ (1/3); sửa ở commit kế; mẫu K7a 1 đỏ, K7b 1.
+- D1: test đỏ (1/5); sửa ở commit kế; mẫu D1a, D1b, D1c mỗi mẫu 1 đỏ. Cả bộ sau K7: 3227 đạt.
