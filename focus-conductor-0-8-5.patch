@@ -1,5 +1,59 @@
+diff --git a/claude-mods/focus-conductor/.claude-plugin/plugin.json b/claude-mods/focus-conductor/.claude-plugin/plugin.json
+index 07a4a98..5d5975f 100644
+--- a/claude-mods/focus-conductor/.claude-plugin/plugin.json
++++ b/claude-mods/focus-conductor/.claude-plugin/plugin.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "focus-conductor",
+-  "version": "0.8.4",
++  "version": "0.8.5",
+   "author": { "name": "Kiet Tran" },
+   "description": "Một model Claude (router) đọc kỹ prompt trước khi làm và điều phối model/effort/agent cho từng việc; mod kiểm, ép điều phối lúc chạy, giữ nhất quán mục tiêu với checklist và cảnh báo lạc đề.",
+   "types": "./types/index.d.ts",
+diff --git a/claude-mods/focus-conductor/CHANGELOG.md b/claude-mods/focus-conductor/CHANGELOG.md
+index 1ba7dac..701c95c 100644
+--- a/claude-mods/focus-conductor/CHANGELOG.md
++++ b/claude-mods/focus-conductor/CHANGELOG.md
+@@ -2,6 +2,37 @@
+ 
+ Các bản của focus-conductor, mới nhất trước. Số đo kiểm chứng của HEAD hiện tại nằm ở [docs/VERIFICATION.md](docs/VERIFICATION.md); cách dùng và tùy chọn ở [README](README.md).
+ 
++## Thay đổi 0.8.5: mục tiêu đang dở, mục tiêu đã cất, vai điều phối
++
++Xử lý các tồn đọng tìm ra khi rà soát tổng thể 0.8.4 [Nguồn: chủ mod, 11/11/2026]. Lời dặn router, schema JSON router trả, schema tool `plan` và golden không đổi. Mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu đột biến `085-*`; số ca đỏ đo trên `87023af` ở VERIFICATION.
++
++- **K2 (P2): mục tiêu đang dở chưa có checklist bị thay thì được cất.** Định nghĩa chung `isPendingGoal` (`hooks/lib/conductor.ts`) dùng cho `isAside`, `archiveOf`, `isLowNew` (option `isPending` của `nextBrief`) và nhánh tiếp tục. Dòng báo `droppedGoalNotice` khi cất, `restoreGoalOnlyContext` khi quay lại; `/conductor goal` đi cùng `adoptGoal`.
++- **K3 (P2): mục tiêu đã cất mang trạng thái duyệt.** `ArchivedGoal.approval`; `restoreArchived` đặt lại trạng thái đó cho số mục tiêu mới.
++- **K8 (P3): theo dõi turn của mục tiêu.** `Core.goalTurns { goalId, done, interrupted }` ghi ở `turn.complete`; vế mục tiêu lớn chưa lập checklist chỉ đúng khi chưa có turn thực thi nào kết thúc. Mục đã cất mang `turns`.
++- **K1 (P2): giữ cờ chờ câu trả lời** với tin hỏi tiến độ, tin bảo chạy tiếp (cả approve bị kẹp) và nhánh `routerSkip`.
++- **Tách `resumeTarget`** (`hooks/lib/state.ts`), không đổi hành vi, trước nhóm K5, D3, K7, K6, K4.
++- **K5 (P3): tiếp tục quay lại mục đã cất gần nhất còn dở**, duyệt từ mới tới cũ; checklist hiện tại có bước, đã đóng hết, không còn gì đã cất đang dở thì `nothingLeftContext`; checklist trống giữ `intentResumeContext`.
++- **D3 (P3): việc chen vào không có checklist** chỉ coi là xong khi đã có turn thực thi kết thúc và turn gần nhất không bị ngắt.
++- **K4 (P3): tin chen ngang khôi phục** không chèn đoạn dặn điều phối và không ghi `briefedGoal`.
++- **K6 (P3): sau khi khôi phục, `L.lastPrompt.prev` là brief vừa khôi phục**, nên `/conductor reroute` áp lên đúng mục tiêu.
++- **K7 (P3): "tiếp tục" trong `routerSkip` quay lại mục tiêu đã cất** theo cùng luật, không gọi router; tin chạy tiếp điểm dừng giữ ưu tiên.
++- **D1 (P3): luồng chính điều phối có mức `strictDelegation` hiệu dụng `block` ở chỗ từ chối** (tối đa `blockLimit` lần mỗi mục tiêu); lời nhắc theo option như 0.8.4. Phần nhắc ở mọi lần thay đổi đã thử rồi rút theo quyết định của chủ mod ngày 11/11/2026.
++- **D2 (P3): bổ sung lớn sau khi duyệt** (amend, substantial hay hard, edit hay mixed, có việc mới) đưa kế hoạch về `planning`.
++- **K9 (P3): không sửa mã.** Trường `model` của Agent chỉ nhận alias ở engine 2.1.296 và 2.1.322; ghi ở DESIGN.
++- **K10 (P3): `Core.fable.promptPaused`** thay biến module `fablePromptPaused`.
++- **K11 (P3): props `AbovePrompt` của 25 tệp test giao diện cũ có `isCollapsed: false`** (27 chỗ). Chưa chạy `tsc`, vì khai báo kiểu của engine không sinh được trong phiên phát triển (VERIFICATION).
++- **K12 (P3): không đổi bảng giá kèm mod.** Bảng còn giá Fable 5.1 (10 / 50, đọc cache 0,25); Fable 5.2 là 8 / 40, đọc cache 0,20 [Nguồn: Anthropic, trang giá, đọc ngày 11/11/2026]; dùng Fable 5.2 thì đặt `prices` là `fable=8/40/0.2`. Bảng nằm trong lời dặn router nên cập nhật để sang bản riêng. Chú thích đầu `hooks/lib/cost.ts` ghi rõ tên bản; thêm test option `prices` cho Fable 5.2.
++- **K13 (P3): README đủ 41 option** (thêm `headlessRouting`, `passLines`, `softPaths`); DESIGN sửa câu về cờ chờ câu trả lời; `scripts/version-check.mjs` kiểm mọi khóa option có dòng trong bảng README.
++
++**Test cũ đổi kỳ vọng, giữ tên:**
++
++- `0.8.4 A2 > mục tiêu đã cất gần nhất không phải mục tiêu bị mục tiêu hiện tại thay: không khôi phục`: theo K5, nay khôi phục mục tiêu đã cất gần nhất còn dở.
++- `0.8.4 C1 > Core 0.8.3 không có trường fable: ...`: hình dạng mặc định của `Core.fable` có thêm `promptPaused: false` (K10).
++- `sổ 0.8.4 vẫn rỗng; MOD_VERSION là 0.8.4`: kỳ vọng `MOD_VERSION` là 0.8.5; tên giữ để không đổi tên ca nào.
++- 25 tệp test giao diện cũ: chỉ thêm `isCollapsed: false` vào props (K11), kỳ vọng hành vi không đổi.
++
++**Mẫu cũ viết lại (giữ mã):** `070-D2`, `070-L9`, `075-B12b`, `075-B12c`, `075-B12f`, `075-M5i`, `084-A1e`, `084-A1g`, `084-A2a`, `084-A2b`, `084-A2c`, `084-A2d`, `084-C6c`, `084-W4d`, `084-Z1a`, `084-Z2c`, `084-Z2d`, `084-Z2e`; mẫu mới `085-K2c`, `085-K3a`, `085-K6a`, `085-D2b` viết lại trong cùng bản. **Mẫu bỏ:** `084-A2e`, vì điều kiện số mục tiêu liền trước không còn trong mã sau K5.
++
+ ## Thay đổi 0.8.4: Fable điều phối
+ 
+ Yêu cầu mới của chủ mod [Nguồn: chủ mod, 10/11/2026]: lập kế hoạch, điều phối model và effort, điều phối công việc lúc chạy do Fable 5.2 làm ở effort medium; model khác thực thi. Tính năng nằm sau option `conductor` (mặc định `off`, như 0.8.3 từng byte). Mỗi điểm một commit test đỏ rồi một commit sửa, riêng S1, S2 chỉ thêm test; schema tool `plan` và schema JSON router không đổi.
 diff --git a/claude-mods/focus-conductor/README.md b/claude-mods/focus-conductor/README.md
-index 30a8694..aad53be 100644
+index 30a8694..c3a7d2c 100644
 --- a/claude-mods/focus-conductor/README.md
 +++ b/claude-mods/focus-conductor/README.md
 @@ -100,6 +100,7 @@ Cấu hình qua `/config` (hoặc `pluginConfigs.focus-conductor.options` trong
@@ -19,8 +73,49 @@ index 30a8694..aad53be 100644
  | `modelMap` | rỗng | Ghi đè model ID, ví dụ `opus=claude-opus-5-5,sonnet=claude-sonnet-5-5` (cần khi dùng gateway có ID riêng) |
  | `routerSkip` | trống | Câu tiếp nối ngắn không cần hỏi router, phân tách bằng dấu phẩy, ví dụ `ok,tiếp,tiếp tục,go` |
  | `routerFallback` | `session` | Khi router lỗi: `session` chạy theo model của phiên; `reuse` dùng lại lựa chọn luồng chính của prompt trước |
+@@ -251,7 +254,9 @@ Cuối turn còn thay đổi chưa kiểm thì mod báo một câu; từ 0.7.7 c
+ 
+ - **Câu hỏi làm rõ.** Với việc lớn mà yêu cầu còn chỗ mơ hồ làm đổi kết quả, Claude hỏi một lần, tối đa 3 câu, mỗi câu có sẵn vài lựa chọn. Anh chọn hay gõ câu trả lời ngắn; mod hiểu đó là câu trả lời, không coi là việc mới.
+ - **Duyệt kế hoạch.** Việc lớn có sửa file: Claude lập checklist, mod nhờ router rà kế hoạch với yêu cầu, rồi Claude trình kế hoạch và chờ. Pane hiện "Chờ duyệt kế hoạch". Trả lời "duyệt", "ok làm đi" hay gõ `/conductor approve` để Claude bắt đầu sửa; nêu chỗ cần sửa thì Claude sửa kế hoạch rồi trình lại; hỏi "tới đâu rồi" thì chỉ được báo tiến độ. Không cần duyệt: ghi rõ trong yêu cầu "cứ làm, không cần duyệt", hoặc đặt `planApproval: off`. Khi chờ duyệt, Claude vẫn tra cứu được bằng `gh pr view`, `gh run list`, `gh api` (không cờ ghi) và ghi tệp nháp dưới `/tmp/`.
+-- **Hỏi tiến độ, bảo chạy tiếp.** "tới đâu rồi", "xong chưa" chỉ nhận báo cáo, checklist không đổi; "tiếp", "chạy tiếp đi" làm tiếp bước đang mở, không thêm việc.
++- **Hỏi tiến độ, bảo chạy tiếp.** "tới đâu rồi", "xong chưa" chỉ nhận báo cáo, checklist không đổi; "tiếp", "chạy tiếp đi" làm tiếp bước đang mở, không thêm việc. Từ 0.8.5: hỏi tiến độ hay bảo chạy tiếp lúc Claude đang chờ câu trả lời câu hỏi làm rõ thì Claude vẫn chờ, câu trả lời gửi sau đó vẫn được hiểu là câu trả lời.
++- **Việc đã cất giữ trạng thái duyệt (0.8.5).** Việc lớn đang lập hay đã trình kế hoạch mà bị cất rồi được lấy lại thì vẫn phải duyệt trước khi sửa file; việc đã duyệt thì giữ đã duyệt.
++- **Bổ sung lớn sau khi duyệt (0.8.5).** Sau khi duyệt, tin bổ sung mà router đọc là việc lớn có sửa file và có việc mới thì Claude lập lại kế hoạch và trình lại; bổ sung nhỏ, không có việc mới hay chỉ hỏi thì giữ đã duyệt.
+ - **Mục "Thử skill" trong báo cáo cuối.** Sau khi sửa skill, Claude thử skill trên hai prompt mẫu (một ca skill phải chạy, một ca dễ nhầm skill không được chạy) và ghi cho từng ca: prompt, kết quả mong đợi, kết quả thực tế, đạt hay chưa. Ca nào chưa đạt thì Claude sửa tiếp chứ không báo xong. Pane hiện "Skill chưa thử" khi skill đã sửa mà chưa thử.
+ - **Mục "Ngoài yêu cầu" trong báo cáo cuối.** Khi xong việc, mod đưa Claude danh sách file đã đổi; file nào không phục vụ bước hay yêu cầu nào được ghi vào mục này kèm lý do, hoặc được hoàn tác. Anh đọc mục này để biết Claude đã sửa chỗ nào mình không nhờ.
+ 
+@@ -262,6 +267,8 @@ Cuối turn còn thay đổi chưa kiểm thì mod báo một câu; từ 0.7.7 c
+ - **Việc lớn và việc nhỏ.** Việc lớn là độ sâu `substantial` hay `hard`, loại khác `answer`: luồng chính chạy fable/medium suốt mục tiêu, giao mọi việc sửa file, chạy kiểm và đọc khối lượng lớn cho subagent chạy haiku, sonnet hay opus, và không tách phiên con. Việc nhỏ: Fable vẫn đọc và phân việc, model rẻ làm thẳng ở luồng chính như trước. Tin nhắn giữa chừng (chạy tiếp, hỏi tiến độ, duyệt, bổ sung nhỏ) không làm mục tiêu lớn mất vai điều phối.
+ - **Chi phí** [Đo trực tiếp, 10/11/2026, engine 2.1.322]: một lượt đọc prompt thường khoảng 0,04 USD (lớn nhất 0,09), prompt dài khoảng 0,56 USD, chấm subagent, kiểm lạc đề, rà kế hoạch khoảng 0,03 USD mỗi lượt. Fable giá 10 và 50 USD mỗi triệu token vào và ra [Nguồn: hooks/lib/cost.ts], cao hơn Opus.
+ - **Phiên dài.** Nên đặt `driftIntervalMinutes` là `30` để bớt lượt kiểm lạc đề. Sau mỗi lần nén ngữ cảnh và khi chạy tiếp từ điểm dừng, mod nhắc lại vai điều phối bằng một câu ngắn (177 ký tự).
++- **Luồng chính không tự sửa file (0.8.5).** Khi Fable đang điều phối việc lớn mà còn việc sửa file ghi giao subagent chưa giao, lần sửa file ở luồng chính bị từ chối tối đa `blockLimit` lần (mặc định 2) như `strictDelegation: block`; lời nhắc giao việc sau đó theo `strictDelegation` như cũ (mặc định nhắc một lần). Không điều phối thì theo `strictDelegation` như cũ.
++- **Subagent Plan.** Lời gọi Agent chỉ nhận alias model (`sonnet`, `opus`, `haiku`, `fable`) [Đo trực tiếp, engine 2.1.296 và 2.1.322], nên subagent Plan theo vai điều phối chạy alias `fable`; `modelMap.fable` không áp cho nó.
+ - **Khi Fable lỗi.** Router Fable lỗi 2 lần liên tiếp thì 3 prompt kế tiếp router dùng option `router`, luồng chính theo lựa chọn của router; status line và pane hiện "Fable tạm ngừng". Pane và `/conductor status` có dòng "Điều phối" nêu trạng thái.
+ - **Giới hạn đã biết.** Số đo Fable lấy trong một khung giờ ngày 10/11/2026 trên engine 2.1.322, 35 lượt [Đo trực tiếp]; giờ khác hay engine khác có thể chậm hơn. Engine 2.1.296 gọi được `claude-fable-5-2` qua CLI (`claude -p`), kèm cảnh báo `unrecognized_model`, và báo sai chi phí của lượt đó; đường `$.model.complete` và `turn.step` với ID này trên engine cũ chưa kiểm trong phiên tương tác. Khi bật `conductor`, nên dùng Claude Code từ 2.1.322. `sessionModel` là `ceiling` hay `fixed` với phiên không phải Fable thì luồng chính không điều phối (cảnh báo một lần mỗi phiên).
+ 
+@@ -269,6 +276,12 @@ Cuối turn còn thay đổi chưa kiểm thì mod báo một câu; từ 0.7.7 c
+ 
+ Tin gửi khi đang làm một luồng việc: bổ sung yêu cầu thì được đưa vào luồng việc; hỏi tiến độ thì chỉ báo cáo; bảo chạy tiếp thì chạy tiếp. Câu hỏi hay câu nói ngoài lề (router xếp là việc mới chỉ cần trả lời, không có việc nào) được trả lời mà không đổi mục tiêu, checklist hay yêu cầu; gửi giữa turn thì trả lời ngắn rồi làm tiếp bước đang làm. Khi một việc chen vào đã xong hết checklist, "tiếp tục" quay lại việc đã cất và chạy tiếp từ bước mở kế tiếp. Áp cho mọi giá trị của `conductor`. Giới hạn: phân loại dựa vào nhận định của router, chưa đo trên phiên thật; turn trả lời câu hỏi ngoài lề dùng model của việc đang dở.
+ 
++Từ 0.8.5:
++
++- **Việc lớn chưa lập checklist cũng được cất.** Việc lớn vừa giao (hay đang lập kế hoạch) bị một việc khác thay thì được lưu như checklist còn bước mở, kèm một dòng báo; "tiếp tục" hay `plan` action `restore` lấy lại. Việc lớn đã có một turn làm xong mà không lập checklist thì không còn tính là đang dở, nên câu hỏi sau đó được trả lời như việc mới.
++- **"tiếp tục" lùi được nhiều tầng.** Quay lại việc đã cất gần nhất còn dở, kể cả khi ở giữa có việc khác; câu `routerSkip` như "tiếp tục" cũng quay lại mà không gọi router. Việc chen vào không có checklist chỉ được coi là xong khi đã có một turn làm việc kết thúc bình thường. Không còn việc nào đang dở thì Claude tóm tắt kết quả và hỏi anh muốn làm gì tiếp.
++- **Quay lại giữa turn.** Gửi "tiếp tục" khi Claude đang chạy thì turn đó giữ model của nó; vai điều phối áp từ prompt kế tiếp. `/conductor reroute` sau khi quay lại đọc lại đúng việc vừa khôi phục.
++
+ ### Giám sát giữa phiên
+ 
+ Mod không chỉ làm việc lúc đầu. Mỗi tool call được theo dõi (vòng lặp, ngân sách tool call, chuỗi lỗi, phạm vi, bằng chứng kiểm tra); ở checkpoint (5, 10, 20, 40 rồi mỗi 40 thay đổi chưa kiểm tra trong một turn, từ 0.7.4) `semanticDrift`, bật mặc định, hỏi router một lượt ngắn xem các thay đổi còn phục vụ mục tiêu không. Từ 0.7.5, ghi của subagent vượt mốc checkpoint cũng được nhắc ở lời gọi kế tiếp của luồng chính, và cảnh báo lệnh ghi không xác định được file đích chỉ ra một lần cho mỗi script trong một mục tiêu. Lạc đề thì nhắc ngay ở kết quả tool đó và nâng độ sâu một bậc cho turn sau. Phát hiện của turn trước (vòng lặp, vượt ngân sách, chuỗi lỗi, lệch mục tiêu) được gửi kèm router ở prompt tiếp nối, đúng một lần, để router chấm lại model luồng chính theo những gì đã xảy ra. Mức nâng model và effort theo bằng chứng sống qua prompt tiếp nối, giảm một bậc mỗi turn không có phát hiện, và chỉ bị xóa khi người dùng báo chưa đạt hay sang mục tiêu mới.
+@@ -434,6 +447,7 @@ node scripts/version-check.mjs            # MOD_VERSION khớp plugin.json
+ 
+ ## Giới hạn đã biết
+ 
++- Giá Fable 5.2 (0.8.5): bảng giá kèm mod còn giá Fable 5.1 (10 / 50 USD mỗi triệu token vào và ra, đọc cache 0,25); Fable 5.2 là 8 / 40, đọc cache 0,20 [Nguồn: Anthropic, trang giá, đọc ngày 11/11/2026]. Người dùng Fable 5.2 đặt option `prices` là `fable=8/40/0.2`. Bảng giá nằm trong lời dặn router (catalog của `routerSystem`), nên cập nhật bảng kèm mod để sang một bản riêng.
+ - Router chỉ đọc chữ của prompt, không đọc tệp hay ảnh đính kèm: `prompt.submit` của engine 2.1.296 chỉ báo loại, kiểu MIME, tên tệp và mã của tệp đính kèm, không có phần chữ (0.7.8). Prompt dài hơn 80.000 ký tự thì router chỉ đọc 60.000 ký tự đầu và 20.000 ký tự cuối; mod báo một cảnh báo và dặn Claude tự đọc kỹ phần giữa.
+ - Yêu cầu chen ngang (0.7.8) dựa vào `turnId` engine gửi kèm `prompt.submit` và dòng attachment `queued_command` (door `delivery`) khi engine chèn tin vào turn đang chạy; tên attachment do engine đặt và có thể đổi giữa các bản. Mới kiểm bằng bộ test của engine, chưa kiểm trên phiên tương tác thật.
+ - Cổng lệnh kiểm chưa đạt (0.7.8, ba lượt nâng mức) giả định lần chặn Stop cho Claude chạy tiếp trong cùng turn; khai báo kiểu của engine 2.1.296 không nói rõ điều này. Mới kiểm bằng bộ test của engine, chưa kiểm với Claude thật. Lệnh kiểm do trình chạy không có parser (script đóng gói như `npm run test`) chỉ được phủ bởi lần chạy đạt của đúng lệnh đó.
 diff --git a/claude-mods/focus-conductor/docs/DESIGN.md b/claude-mods/focus-conductor/docs/DESIGN.md
-index 9d4dfd1..9015ac1 100644
+index 9d4dfd1..131eff2 100644
 --- a/claude-mods/focus-conductor/docs/DESIGN.md
 +++ b/claude-mods/focus-conductor/docs/DESIGN.md
 @@ -201,7 +201,7 @@ Không điểm nào nới cổng kiểm. Schema tool `plan` không đổi; hai s
@@ -32,6 +127,42 @@ index 9d4dfd1..9015ac1 100644
  - **Thử skill (N3).** File skill: tên `SKILL.md`, `.md` dưới một đoạn thư mục `skills/`, hay khớp tiền tố `skillPaths`. Không tính là tài liệu nhẹ (`isSoftDocs`), không tính vào `hard`, `lastHard` của evidence, nên Y6 và cảnh báo chưa kiểm không xét file skill. `Core.skill { goalId, seq, lastWrite, trialAt, path }` dùng một bộ đếm thứ tự riêng của mod; lần thử tính khi subagent của lời gọi "Thử skill: " hay "Skill trial: " kết thúc với reason `answer` (kết quả tool lỗi hay bị từ chối đến sau thì trả lại `trialAt` cũ), hay khi lệnh khai trong `checkCommands` đạt. Mod không chấm chất lượng lần thử; cổng chỉ bảo đảm lần thử đã diễn ra sau thay đổi cuối.
  - **File đã đổi (N5).** `Core.changed { goalId, paths, unknown, overflow }` ghi trong `tool.call` chung (cả subagent), độc lập với `quotaGuard`; đường dẫn tương đối với gốc phiên chốt một lần mỗi mục tiêu (`rootFor`, dùng chung với phạm vi). Trần lưu 200, phần vượt chỉ tăng `overflow` để dòng "và M file nữa" vẫn đúng. Lời nhắc đi ngay sau G2 khi đóng bước mở cuối, một lần mỗi mục tiêu (`Core.changedNoticed`).
  - **Sao lưu khi dừng (N4).** Nhận biết cloud chỉ bằng `$.env.get('CLAUDE_CODE_REMOTE')` [Nguồn: khai báo kiểu 2.1.296 `index.d.ts:3595-3606`], đọc một lần mỗi phiên, không ghi giá trị; lỗi hay thiếu API thì không phải cloud. Lệnh sao lưu được phân tích bằng bộ tách token riêng: gặp ký tự shell ngoài nháy hay `$`, backtick, `\`, `!` trong nháy kép thì không nhận. Bộ đếm 6 lời gọi nằm ở `QuotaPause`, kết quả `backup` ở `QuotaCheckpoint` (state hạn mức), vì cả hai gắn với từng lần dừng và đi theo điểm dừng vào `$.store`. Chỉ áp khi dừng vì hạn mức, không áp khi người dùng tự `/conductor pause`.
+@@ -212,7 +212,7 @@ Không điểm nào nới cổng kiểm. Schema tool `plan` không đổi; hai s
+ 
+ Áp cho mọi giá trị của `conductor`. Mod quyết định bằng các trường router đã trả; lời dặn router không đổi.
+ 
+-- **Mục tiêu đang dở.** Có brief, không phải đối chiếu, và thỏa ít nhất một điều: checklist còn bước mở (`todo` hay `doing`); cổng duyệt `planning` hay `presented`; brief là mục tiêu lớn (`isBigGoal`) mà checklist trống. Checklist đã đóng hết thì không còn dở, kể cả mục tiêu lớn.
++- **Mục tiêu đang dở.** Có brief, không phải đối chiếu, và thỏa ít nhất một điều: checklist còn bước mở (`todo` hay `doing`); cổng duyệt `planning` hay `presented`; brief là mục tiêu lớn (`isBigGoal`) mà checklist trống (0.8.5 K8: và chưa có turn thực thi nào kết thúc). Checklist đã đóng hết thì không còn dở, kể cả mục tiêu lớn.
+ - **Tin ngoài lề** (`isAside`, `hooks/lib/router.ts`). Router trả `relation: new`, `tasks` rỗng, `reference` và `runReference` false, và loại `answer` (mọi độ sâu) hay `investigate` độ sâu `none`, `light`. Mức tin cậy không xét.
+ - **Bốn loại tin khi có mục tiêu đang dở:**
+ 
+@@ -224,8 +224,24 @@ Không điểm nào nới cổng kiểm. Schema tool `plan` không đổi; hai s
+ | Ngoài lề | `new`, không việc, `answer` hay `investigate` nhẹ | không đổi gì, `asideContext`, turn hỏi đáp; chen ngang thì trả lời ngắn rồi làm tiếp |
+ 
+ - **Thứ tự trong `prompt.submit`.** Tin chạy tiếp điểm dừng (`routed`) trước; `isHeldAnswer` tính theo công thức cũ trên bản chen ngang cũ (mọi tin chen ngang `new` thành `continue`); rồi `isAsideMsg` trên `routed`, chỉ khi không phải câu trả lời câu hỏi làm rõ; rồi `interjected` cuối, bỏ qua tin ngoài lề; `clearAwaiting` chỉ chạy khi tin không phải ngoài lề. Nhánh A2 đặt trước nhánh tin hỏi tiến độ (hai nhánh loại trừ nhau theo intent), nhánh tin ngoài lề đặt sau nhánh tin hỏi tiến độ.
+-- **Quay lại mục tiêu đã cất (A2).** Điều kiện: intent `resume` sau bước kẹp, không phải chạy tiếp điểm dừng, checklist hiện tại không còn bước mở, mục tiêu đã cất gần nhất còn bước mở (`todo`, `doing`; mục tiêu chỉ còn bước `waiting` không quay lại), và số của nó bằng số mục tiêu hiện tại trừ 1. Mục tiêu mới luôn mang số của mục tiêu trước cộng 1 (`briefOf`, `promoteReference`, `/conductor goal`), nên điều kiện cuối chọn đúng mục tiêu bị thay. Khôi phục bằng `ctx.restoreGoal` (dùng chung với `plan` action `restore`: `restoreArchived`, mang dấu vết thực thi, theo dõi việc giao); đoạn dặn điều phối theo khóa `briefedGoal`.
+-- **Giới hạn đã biết.** Phân loại tin ngoài lề dựa vào `kind` và `tasks` do router trả, chưa đo trên phiên thật. Turn trả lời tin ngoài lề dùng model và effort của mục tiêu đang dở, không hạ model. Khi đang `awaitingAnswer`, tin ngoài lề có tin cậy dưới `NEW_GOAL_CONFIDENCE` vẫn đi nhánh câu trả lời (`isHeldAnswer`). Mục tiêu `planning` chưa duyệt được khôi phục thì cổng duyệt không còn, vì `restoreArchived` cấp số mục tiêu mới mà trạng thái duyệt gắn với số cũ [Đo trực tiếp, probe]; áp cho cả "tiếp tục" lẫn `plan` action `restore`.
++- **Quay lại mục tiêu đã cất (A2; 0.8.5 thay luật này, xem mục 0.8.5).** Điều kiện của 0.8.4: intent `resume` sau bước kẹp, không phải chạy tiếp điểm dừng, checklist hiện tại không còn bước mở, mục tiêu đã cất gần nhất còn bước mở (`todo`, `doing`; mục tiêu chỉ còn bước `waiting` không quay lại), và số của nó bằng số mục tiêu hiện tại trừ 1. Mục tiêu mới luôn mang số của mục tiêu trước cộng 1 (`briefOf`, `promoteReference`, `/conductor goal`), nên điều kiện cuối chọn đúng mục tiêu bị thay. Khôi phục bằng `ctx.restoreGoal` (dùng chung với `plan` action `restore`: `restoreArchived`, mang dấu vết thực thi, theo dõi việc giao); đoạn dặn điều phối theo khóa `briefedGoal`.
++- **Giới hạn đã biết.** Phân loại tin ngoài lề dựa vào `kind` và `tasks` do router trả, chưa đo trên phiên thật. Turn trả lời tin ngoài lề dùng model và effort của mục tiêu đang dở, không hạ model. Khi đang `awaitingAnswer`, tin ngoài lề có tin cậy dưới `NEW_GOAL_CONFIDENCE` vẫn đi nhánh câu trả lời (`isHeldAnswer`). Giới hạn mục tiêu `planning` mất cổng duyệt khi được khôi phục đã xử lý ở 0.8.5 K3.
++
++## Mục tiêu đang dở, mục tiêu đã cất và vai điều phối (0.8.5)
++
++Thay luật quay lại mục tiêu đã cất của 0.8.4 A2 và vế mục tiêu lớn của định nghĩa mục tiêu đang dở. Lời dặn router, schema JSON router trả và schema tool `plan` không đổi.
++
++- **Mục tiêu đang dở** (`isPendingGoal`, `hooks/lib/conductor.ts`, nơi duy nhất viết điều kiện). Có brief, không phải đối chiếu, và thỏa ít nhất một điều: checklist còn bước mở; cổng duyệt `planning` hay `presented`; mục tiêu lớn (`isBigGoal`), checklist trống và chưa có turn thực thi nào của luồng chính cho mục tiêu này kết thúc. Dùng chung cho tin ngoài lề (`isAside`), cất mục tiêu (`archiveOf` qua `pendingOf`), giữ mục tiêu khi router xếp `new` tin cậy thấp (`isLowNew` qua option `isPending` của `nextBrief`) và quay lại mục tiêu đã cất (`archivedPending`, `resumeTarget`).
++- **Theo dõi turn của mục tiêu** (K8). `Core.goalTurns { goalId, done, interrupted }`, mặc định `{ -1, 0, false }`. Ghi ở hook `turn.complete` của luồng chính (`hooks/parts/consistency.ts`): turn thực thi theo `isExecuting(L.tracker, L.promptIntent)` như cổng Stop; `L.promptIntent` null (router lỗi, nạp lại mod) thì tính là turn thực thi; turn bị ngắt khi `reason` là `aborted` hay `isAborted` đúng [Giả định: tên trường lấy theo cách mã và test của mod đang dùng, vì khai báo kiểu của engine không sinh được trong phiên phát triển 0.8.5]. `turnsOf` trả 0 và false cho mục tiêu khác, nên đổi mục tiêu thì tự về 0.
++- **Mục tiêu đã cất** (K2, K3). `archiveOf` cất mục tiêu hiện tại khi checklist còn bước mở hay đang chờ, hoặc khi mục tiêu đang dở dù chưa có checklist; `ARCHIVE_LIMIT` giữ 3. Mỗi mục đã cất mang `approval` (trạng thái duyệt lúc cất) và `turns` (`done`, `interrupted`); vắng ở trạng thái của bản cũ là `none` và 0, false. `restoreArchived` đặt `Core.approval` theo trạng thái đã cất cho số mục tiêu mới (`rounds` 0, `awaitingAnswer` false; `planning` và `presented` vẫn chặn sửa file) và `Core.goalTurns` theo `turns` đã cất. Mục tiêu chưa có checklist được cất thì có dòng `droppedGoalNotice`, quay lại thì có `restoreGoalOnlyContext`; đang `planning` thì kèm `planningContext()`.
++- **Luật quay lại** (`resumeTarget`, `hooks/lib/state.ts`; K5, D3). Tin bảo chạy tiếp (intent `resume` sau bước kẹp, không chạy tiếp điểm dừng) quay lại khi mục tiêu hiện tại không còn dở; checklist hiện tại trống thì còn cần ít nhất một turn thực thi đã kết thúc và turn luồng chính gần nhất không bị ngắt. Mục được chọn là mục đã cất gần nhất còn dở, duyệt từ mới tới cũ; bỏ điều kiện số mục tiêu liền trước của 0.8.4. Checklist hiện tại có bước, đã đóng hết và không còn mục đã cất nào đang dở thì context là `nothingLeftContext()` thay dòng chạy tiếp; checklist trống vẫn dùng `intentResumeContext`.
++- **Nhánh khôi phục** (K4, K6, K7). Tin chen ngang khôi phục mục tiêu lớn thì không chèn `conductorContext()` và không ghi `Core.fable.briefedGoal`; prompt kế tiếp ngoài turn dặn theo cơ chế chung. Sau khi khôi phục, `L.lastPrompt.prev` là brief vừa khôi phục, nên `/conductor reroute` áp kết quả lên đúng mục tiêu. Nhánh `routerSkip` dùng cùng `resumeTarget` trên Core đọc mới, ghi `restore` với `cause: 'resume'`, không gọi router và không cộng chi phí router; tin chạy tiếp một điểm dừng đang mở giữ ưu tiên.
++- **Cờ chờ câu trả lời** (K1). `awaitingAnswer` chỉ tắt khi tin được xử lý như câu trả lời hay yêu cầu. Giữ khi tin ngoài lề, khi intent sau bước kẹp là `status` hay `resume` (gồm `approve` bị kẹp thành `resume`), và khi tin đi nhánh `routerSkip`. Router lỗi thì intent là `task` và cờ được xóa như 0.8.3.
++- **strictDelegation khi điều phối** (D1). Luồng chính giữ vai điều phối cho mục tiêu hiện tại (`isMainConducting`, option `conductor` là `fable`) thì mức hiệu dụng là `block` dù option là `off` hay `remind`: lần sửa file khi còn việc ghi giao subagent chưa giao bị từ chối tối đa `blockLimit` lần mỗi mục tiêu bằng `blockText` có sẵn. Dòng `isStrict` của lời nhắc theo option `strictDelegation` như 0.8.4 [Nguồn: quyết định của chủ mod, 11/11/2026: nhắc ở mọi lần thay đổi làm phiên dài với `conductor: 'fable'` chèn 24.489 và 65.401 ký tự, đo trực tiếp]. Không điều phối thì theo option như 0.8.4.
++- **Bổ sung lớn sau khi duyệt** (D2). Mục tiêu thuộc diện duyệt, đang `approved`, tin `amend` mà router đọc là `substantial` hay `hard`, `edit` hay `mixed`, có ít nhất một việc mới: trạng thái về `planning`, `rounds` 0, context kèm `planningContext()`. Brief tiếp nối lấy độ sâu và loại của tin đó, nên điều kiện độ sâu trùng với `needsApproval(brief)`. `planApproval: off` thì không áp.
++- **Cờ Fable tạm ngừng của prompt** (K10). `Core.fable.promptPaused` (mặc định false) thay biến của module, ghi cùng lượt giảm `pauseLeft`; `conductorInputs` đọc từ Core nên cờ sống qua nạp lại mod. Mọi quyết định điều phối phía sau trong `prompt.submit` đọc cùng một bản `before` đã mang cờ của prompt. Kit test không nạp lại module được, nên ca tích hợp chỉ ghim hành vi; ca bền dựng ngữ cảnh mới bằng `createContext` trên Core đã qua vòng JSON.
++- **Model của subagent Plan theo vai điều phối** (K9, không sửa mã). Trường `model` của lời gọi Agent là enum alias `["sonnet","opus","haiku","fable"]` ở cả engine 2.1.296 và 2.1.322 [Đo trực tiếp, chuỗi lược đồ đầu vào tool Agent trong binary của hai engine, 11/11/2026], nên mod gửi alias `fable`, không gửi `fableModelId`; `modelMap.fable` không áp cho subagent Plan.
++- **Giới hạn đã biết của 0.8.5.** Khai báo kiểu của engine không sinh được trong phiên phát triển (engine không nạp hooks module của mod ở `claude -p` lẫn phiên tương tác qua pty), nên `tsc` chưa chạy và tên trường `turn.complete` theo cách mod đang dùng. Bảng giá kèm mod còn giá Fable 5.1 (10 / 50 USD mỗi triệu token vào và ra, đọc cache 0,25); Fable 5.2 là 8 / 40, đọc cache 0,20 [Nguồn: Anthropic, trang giá, đọc ngày 11/11/2026]. Người dùng Fable 5.2 đặt option `prices` là `fable=8/40/0.2`. Bảng giá nằm trong lời dặn router (catalog của `routerSystem`), nên cập nhật bảng kèm mod để sang một bản riêng.
+ 
+ ## Vá cổng duyệt kế hoạch và dòng tổng kết (0.8.3)
+ 
 diff --git a/claude-mods/focus-conductor/hooks/context.ts b/claude-mods/focus-conductor/hooks/context.ts
 index 815f4e6..4e3b300 100644
 --- a/claude-mods/focus-conductor/hooks/context.ts
@@ -90,6 +221,22 @@ index 21843ef..40ca02f 100644
  /** Đầu vào của "điều phối khả dụng": như Fable sẵn sàng, cộng chính sách model của phiên và họ model phiên (null khi chưa biết). */
  export type ConductorInputs = FableInputs & { sessionPolicy: SessionPolicy; sessionFamily: ModelFamily | null }
  
+diff --git a/claude-mods/focus-conductor/hooks/lib/cost.ts b/claude-mods/focus-conductor/hooks/lib/cost.ts
+index 627c359..0f2c356 100644
+--- a/claude-mods/focus-conductor/hooks/lib/cost.ts
++++ b/claude-mods/focus-conductor/hooks/lib/cost.ts
+@@ -3,8 +3,9 @@
+ //
+ // Giá Claude API theo bảng giá ngày PRICE_DATE (USD mỗi 1M token) [Nguồn: Anthropic, trang giá 2026-10-13]:
+ //   Haiku 5.5 $0.10 vào / $0.50 ra (prompt tới 100K token; trên 100K là $0.50 / $2.50); Sonnet 5.5 $2 / $10;
+-//   Opus 5.5 $4 / $20; Fable 5.1 $10 / $50.
+-//   Đọc cache (cache hit): Sonnet $0.10 (giảm từ $0.20 ngày 2026-10-07), Opus $0.20, Fable $0.25, Haiku $0.01
++//   Opus 5.5 $4 / $20; Fable 5.1 $10 / $50 (họ fable của bảng này là giá Fable 5.1; Fable 5.2 là $8 / $40, đọc cache $0.20 [Nguồn: Anthropic,
++//   trang giá, đọc ngày 2026-11-11]; dùng Fable 5.2 thì đặt option prices là fable=8/40/0.2).
++//   Đọc cache (cache hit): Sonnet $0.10 (giảm từ $0.20 ngày 2026-10-07), Opus $0.20, Fable 5.1 $0.25, Haiku $0.01
+ //   (prompt trên 100K token: $0.05).
+ //   Ghi cache = 1,25 × giá vào (bậc 5 phút) hoặc 2 × giá vào (bậc 1 giờ): option cacheWrite chọn hệ số, cặp với cacheTtlMinutes.
+ // Cửa sổ ngữ cảnh: cả bốn model 1M token [Nguồn: cùng trang giá]. Option prices và contextWindows ghi đè được.
 diff --git a/claude-mods/focus-conductor/hooks/lib/router.ts b/claude-mods/focus-conductor/hooks/lib/router.ts
 index 2d4ad74..16e9f39 100644
 --- a/claude-mods/focus-conductor/hooks/lib/router.ts
@@ -329,6 +476,15 @@ index 1530304..d4f7c47 100644
  /** Tin bảo chạy tiếp (0.8.2 N1, intent resume; approve khi không có kế hoạch chờ duyệt): chạy tiếp từ bước đang mở. Tối đa 300 ký tự. */
  export function intentResumeContext(plan: readonly PlanStep[]): string {
    const next = openSteps(plan)[0]
+diff --git a/claude-mods/focus-conductor/hooks/lib/version.ts b/claude-mods/focus-conductor/hooks/lib/version.ts
+index 534267d..27d8f16 100644
+--- a/claude-mods/focus-conductor/hooks/lib/version.ts
++++ b/claude-mods/focus-conductor/hooks/lib/version.ts
+@@ -1,3 +1,3 @@
+ // Phiên bản của mod lúc chạy (0.7.9 L1): engine 2.1.296 không có API phiên bản ($.plugin chỉ có name và root), nên dùng hằng này;
+ // test so hằng với .claude-plugin/plugin.json.
+-export const MOD_VERSION = '0.8.4'
++export const MOD_VERSION = '0.8.5'
 diff --git a/claude-mods/focus-conductor/hooks/parts/command.ts b/claude-mods/focus-conductor/hooks/parts/command.ts
 index 2a54b66..de53528 100644
 --- a/claude-mods/focus-conductor/hooks/parts/command.ts
@@ -353,7 +509,7 @@ index 2a54b66..de53528 100644
          text:
            plan !== null
 diff --git a/claude-mods/focus-conductor/hooks/parts/consistency.ts b/claude-mods/focus-conductor/hooks/parts/consistency.ts
-index 292b882..cbf4833 100644
+index 292b882..67b2b7a 100644
 --- a/claude-mods/focus-conductor/hooks/parts/consistency.ts
 +++ b/claude-mods/focus-conductor/hooks/parts/consistency.ts
 @@ -2,7 +2,7 @@
@@ -389,17 +545,7 @@ index 292b882..cbf4833 100644
        const waiting = current === 'auto' || current === 'subagents' ? pendingFor(now.brief, shownPlan(now).plan) : []
        const path = filePathOf({ tool: e.tool, input: e as unknown as Record<string, unknown>, isError: false, isReadOnly: false })
        if (waiting.length > 0 && !isPlanFile(path) && L.delegation.blocks < blockLimit) {
-@@ -955,7 +960,8 @@ export function registerConsistency(on: On, ctx: Ctx): void {
-     const pending = pendingFor(core.brief, shownPlan(core).plan)
-     const planFile = isPlanFile(filePathOf(observation))
-     // Mặc định nhắc một lần ở lần sửa file đầu tiên; strictDelegation remind/block nhắc ở mọi lần thay đổi (kể cả lệnh ghi file).
--    const isStrict = strictDelegation !== 'off'
-+    // Luồng chính điều phối (0.8.5 D1): nhắc ở mọi lần thay đổi như block, kể cả sau khi hết lượt chặn.
-+    const isStrict = strictDelegation !== 'off' || (e.agentId === undefined && isConductingNow(core, await read($, mode)))
-     const isChange = isStrict ? isMutation(observation) : EDIT_TOOLS.has(e.tool)
-     const nudge =
-       isChange && !planFile && !observation.isError && pending.length > 0 && (isStrict || !L.delegation.isNudged)
-@@ -1241,10 +1247,15 @@ export function registerConsistency(on: On, ctx: Ctx): void {
+@@ -1241,10 +1246,15 @@ export function registerConsistency(on: On, ctx: Ctx): void {
      // Turn không có phát hiện nào làm tăng nâng cấp: nâng cấp của mục tiêu giảm một bậc (0.7.0).
      const hadFinding = L.liftRaised || unresolved.length > 0
      L.liftRaised = false
@@ -595,7 +741,7 @@ index a1aafa3..de6aedf 100644
        prompt: clipText(text),
        relation: plan.relation,
 diff --git a/claude-mods/focus-conductor/scripts/mutants.ts b/claude-mods/focus-conductor/scripts/mutants.ts
-index a621d3b..5979529 100644
+index a621d3b..a89532a 100644
 --- a/claude-mods/focus-conductor/scripts/mutants.ts
 +++ b/claude-mods/focus-conductor/scripts/mutants.ts
 @@ -712,7 +712,7 @@ export const MUTANTS: Mutant[] = [
@@ -709,7 +855,7 @@ index a621d3b..5979529 100644
 +  { id: "085-K7b", file: "hooks/parts/session.ts", note: "nhánh skip khôi phục cả khi tin chạy tiếp điểm dừng đang mở", old: "      const skipBack = lead.length === 0 ? S.resumeTarget(skipCore) : null\n", new: "      const skipBack = S.resumeTarget(skipCore)\n" },
 +  { id: "085-D1a", file: "hooks/parts/consistency.ts", note: "không nâng mức strictDelegation khi điều phối", old: "(strictDelegation === 'block' || isConductingNow(blockCore, await read($, mode)))", new: "(strictDelegation === 'block')" },
 +  { id: "085-D1b", file: "hooks/parts/consistency.ts", note: "nâng mức strictDelegation cả khi không điều phối", old: "ctx.conductorOption === 'fable' && isMainConducting(ctx.conductorInputs(core, current), core.brief)", new: "ctx.conductorOption === 'fable'" },
-+  { id: "085-D1c", file: "hooks/parts/consistency.ts", note: "lời nhắc sau khi hết lượt chặn không theo mức block khi điều phối", old: "    const isStrict = strictDelegation !== 'off' || (e.agentId === undefined && isConductingNow(core, await read($, mode)))\n", new: "    const isStrict = strictDelegation !== 'off'\n" },
++  { id: "085-D1c", file: "hooks/parts/consistency.ts", note: "lời nhắc theo mức block khi điều phối, nhắc ở mọi lần thay đổi sau khi hết lượt chặn", old: "    const isStrict = strictDelegation !== 'off'\n", new: "    const isStrict = strictDelegation !== 'off' || (e.agentId === undefined && isConductingNow(core, await read($, mode)))\n" },
 +  { id: "085-D2a", file: "hooks/parts/session.ts", note: "bổ sung lớn sau khi duyệt giữ approved", old: "          : isBigAmend\n            ? { ...approvalBefore, status: 'planning' as const, rounds: 0 }\n", new: "          : false\n            ? { ...approvalBefore, status: 'planning' as const, rounds: 0 }\n" },
 +  { id: "085-D2b", file: "hooks/parts/session.ts", note: "bổ sung nhỏ sau khi duyệt cũng về planning", old: " && intent === 'amend' && needsApproval(brief, ctx.planApproval, false) && (plan.depth === 'substantial' || plan.depth === 'hard') && (plan.kind === 'edit' || plan.kind === 'mixed') && added.length > 0\n", new: " && intent === 'amend' && ctx.planApproval === 'auto' && (plan.kind === 'edit' || plan.kind === 'mixed') && added.length > 0\n" },
 +  { id: "085-K10a", file: "hooks/context.ts", note: "cờ prompt tạm ngừng không đọc từ Core", old: "pauseLeft: fable.pauseLeft + (fable.promptPaused ? 1 : 0)", new: "pauseLeft: fable.pauseLeft" },
@@ -902,6 +1048,27 @@ index 0000000..5c8c007
 +    })
 +  }
 +})
+diff --git a/claude-mods/focus-conductor/tests/integration/aside-a1-084.test.ts b/claude-mods/focus-conductor/tests/integration/aside-a1-084.test.ts
+index 4b7a2c8..f113920 100644
+--- a/claude-mods/focus-conductor/tests/integration/aside-a1-084.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/aside-a1-084.test.ts
+@@ -221,6 +221,16 @@ describe('0.8.4 A1: cổng duyệt và câu trả lời câu hỏi làm rõ', ()
+     expect(lines().filter(l => l['kind'] === 'route').at(-1)?.['intent']).toBe('amend')
+   })
+ 
++  test('đang awaitingAnswer, tin chen ngang giữa turn, router trả new tin cậy thấp: tin chen ngang thành tiếp nối trước khi xét câu trả lời, không answer-held, intent giữ task, mục tiêu giữ', GATED, async ($, on) => {
++    const { lines } = setup(on, [BIG({ questions: QUESTIONS }), ASIDE({ confidence: 0.5, goal: 'Giữ API cũ, làm tròn lên', kind: 'edit', depth: 'substantial' })])
++    await submit($, 'Sửa luồng thanh toán')
++    await $.turn.start({ text: 'làm', turnId: 't1' })
++    await $.prompt.submit({ text: 'giữ, lên', wait: false, turnId: 't1', origin: { kind: 'composer' } } as never)
++    expect(lines().some(l => l['kind'] === 'answer-held')).toBe(false)
++    expect(lines().filter(l => l['kind'] === 'route').at(-1)?.['intent']).toBe('task')
++    expect(await show($)).toContain('Mục tiêu: Sửa luồng thanh toán')
++  })
++
+   test('đang planning và awaitingAnswer: tin ngoài lề tin cậy cao không xóa cờ; trạng thái duyệt và brief giữ; câu trả lời thật kế tiếp vẫn là câu trả lời', GATED, async ($, on) => {
+     const { seen, lines } = setup(on, [BIG({ questions: QUESTIONS }), ASIDE(), ASIDE({ confidence: 0.5, goal: 'Giữ API cũ, làm tròn lên', kind: 'edit', depth: 'substantial' })])
+     await submit($, 'Sửa luồng thanh toán')
 diff --git a/claude-mods/focus-conductor/tests/integration/attention-u2-076.test.ts b/claude-mods/focus-conductor/tests/integration/attention-u2-076.test.ts
 index 6a96a40..99cb33a 100644
 --- a/claude-mods/focus-conductor/tests/integration/attention-u2-076.test.ts
@@ -1094,13 +1261,13 @@ index 1bb7b8a..f43352a 100644
  })
 diff --git a/claude-mods/focus-conductor/tests/integration/conductor-d1-085.test.ts b/claude-mods/focus-conductor/tests/integration/conductor-d1-085.test.ts
 new file mode 100644
-index 0000000..304e96b
+index 0000000..72ec192
 --- /dev/null
 +++ b/claude-mods/focus-conductor/tests/integration/conductor-d1-085.test.ts
 @@ -0,0 +1,65 @@
 +// 0.8.5 D1: khi luồng chính đang giữ vai điều phối cho mục tiêu hiện tại, mức strictDelegation hiệu dụng là block (option off hay remind):
-+// sửa file trong khi còn việc ghi giao subagent chưa giao bị từ chối tối đa blockLimit lần mỗi mục tiêu, sau đó mọi lần thay đổi kèm lời
-+// nhắc. Không điều phối thì theo option như 0.8.4. File kế hoạch không bị từ chối.
++// sửa file trong khi còn việc ghi giao subagent chưa giao bị từ chối tối đa blockLimit lần mỗi mục tiêu; lời nhắc sau đó theo option
++// strictDelegation như 0.8.4 (mặc định nhắc một lần). Không điều phối thì theo option như 0.8.4. File kế hoạch không bị từ chối.
 +
 +import { describe, expect, test } from 'claude-code/testing'
 +import type { Engine } from 'claude-code/testing'
@@ -1125,7 +1292,7 @@ index 0000000..304e96b
 +}
 +
 +describe('0.8.5 D1: luồng chính điều phối không tự sửa file khi còn việc chưa giao', () => {
-+  test('blockLimit mặc định: hai lần Edit đầu bị từ chối, lần ba và lần bốn được chạy kèm lời nhắc', FABLE, async ($, on) => {
++  test('blockLimit mặc định: hai lần Edit đầu bị từ chối, lần ba được chạy kèm lời nhắc, lần bốn không kèm', FABLE, async ($, on) => {
 +    setup(on, BIG)
 +    await submit($, A)
 +    expect(String((await edit($)).deny ?? '')).toContain('Còn việc ghi giao subagent chưa giao')
@@ -1135,7 +1302,7 @@ index 0000000..304e96b
 +    expect(nudged(third)).toBe(true)
 +    const fourth = await edit($)
 +    expect(fourth.deny).toBeUndefined()
-+    expect(nudged(fourth)).toBe(true)
++    expect(nudged(fourth)).toBe(false)
 +  })
 +
 +  test('đã giao hết việc bằng Agent: Edit ở luồng chính không bị từ chối', FABLE, async ($, on) => {
@@ -1246,6 +1413,24 @@ index 6497617..9229d94 100644
    const tree = (await ui.drawn()) as unknown as Node
    await ui.unmount()
    const content = (tree.children ?? []).filter(c => c !== null && typeof c === 'object')[1] as Node
+diff --git a/claude-mods/focus-conductor/tests/integration/error-log-l1-079.test.ts b/claude-mods/focus-conductor/tests/integration/error-log-l1-079.test.ts
+index 8fe952f..3d481af 100644
+--- a/claude-mods/focus-conductor/tests/integration/error-log-l1-079.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/error-log-l1-079.test.ts
+@@ -166,10 +166,11 @@ describe('0.7.9 L1: tự xóa lỗi đã sửa (hàm thuần)', () => {
+     expect(pruneFixed({ dropped: 0, entries: [entry('K', '0.7.7')] }, '0.7.8', fixed).entries.map(e => e.key)).toEqual(['K'])
+   })
+ 
+-  // 0.8.4: sổ vẫn rỗng (chủ mod chưa gửi errors.json nào); MOD_VERSION theo plugin.json.
++  // 0.8.4: sổ vẫn rỗng (chủ mod chưa gửi errors.json nào); MOD_VERSION theo plugin.json. 0.8.5: giữ tên ca (không đổi tên ca nào), kỳ
++  // vọng theo phiên bản mới.
+   test('sổ 0.8.4 vẫn rỗng; MOD_VERSION là 0.8.4', () => {
+     expect(FIXED_ERRORS).toEqual([])
+-    expect(MOD_VERSION).toBe('0.8.4')
++    expect(MOD_VERSION).toBe('0.8.5')
+   })
+ })
+ 
 diff --git a/claude-mods/focus-conductor/tests/integration/fanout-075.test.ts b/claude-mods/focus-conductor/tests/integration/fanout-075.test.ts
 index 12caa21..dd7402f 100644
 --- a/claude-mods/focus-conductor/tests/integration/fanout-075.test.ts
@@ -1895,6 +2080,42 @@ index 50b11b9..fba9fcb 100644
  const PLAN = 'mcp__focus-conductor__plan'
  
  async function textsOf($: Engine, target: typeof BAND | typeof PANE) {
+diff --git a/claude-mods/focus-conductor/tests/prices-k12-085.test.ts b/claude-mods/focus-conductor/tests/prices-k12-085.test.ts
+new file mode 100644
+index 0000000..6943805
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/prices-k12-085.test.ts
+@@ -0,0 +1,30 @@
++// 0.8.5 K12: bảng giá kèm mod giữ giá Fable 5.1 (bảng giá nằm trong lời dặn router, nên cập nhật để sang bản riêng). Người dùng Fable 5.2 đặt
++// option prices là fable=8/40/0.2: priceNote ghi phần ghi đè và chi phí một lượt Fable tính theo giá đó.
++
++import { describe, expect, test } from 'claude-code/testing'
++import * as cost from '../hooks/lib/cost'
++import { createContext } from '../hooks/context'
++
++const tokens = (over: Partial<cost.Tokens>): cost.Tokens => ({ input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, ...over })
++const near = (actual: number, expected: number) => expect(Math.abs(actual - expected) < 1e-9).toBe(true)
++
++describe('0.8.5 K12: option prices cho Fable 5.2', () => {
++  test('prices fable=8/40/0.2: priceNote ghi "ghi đè cho fable"; một lượt Fable tính theo 8 / 40, đọc cache 0,2', () => {
++    try {
++      createContext({ prices: 'fable=8/40/0.2' })
++      expect(cost.priceNote(Date.parse(`${cost.PRICE_DATE}T00:00:00Z`))).toContain('ghi đè cho fable')
++      near(cost.usdOf('fable', tokens({ input_tokens: 1_000_000 })), 8)
++      near(cost.usdOf('fable', tokens({ output_tokens: 1_000_000 })), 40)
++      near(cost.usdOf('fable', tokens({ cache_read_input_tokens: 1_000_000 })), 0.2)
++    } finally {
++      cost.applyPrices({})
++    }
++  })
++
++  test('không đặt option prices: bảng kèm mod giữ giá Fable 5.1, 10 / 50', () => {
++    createContext({})
++    near(cost.usdOf('fable', tokens({ input_tokens: 1_000_000 })), 10)
++    near(cost.usdOf('fable', tokens({ output_tokens: 1_000_000 })), 50)
++    expect(cost.priceNote(Date.parse(`${cost.PRICE_DATE}T00:00:00Z`))).not.toContain('ghi đè')
++  })
++})
 diff --git a/claude-mods/focus-conductor/tests/soft-docs-x6-077.test.ts b/claude-mods/focus-conductor/tests/soft-docs-x6-077.test.ts
 index c4e00b0..52c1e15 100644
 --- a/claude-mods/focus-conductor/tests/soft-docs-x6-077.test.ts
