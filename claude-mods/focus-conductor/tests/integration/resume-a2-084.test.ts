@@ -70,6 +70,38 @@ async function goalB($: Engine, isClosed: boolean) {
   if (isClosed) await mark($, 1, 'done')
 }
 
+const FABLE_ID = 'claude-fable-5-2'
+const PAUSED = 'Fable tạm ngừng'
+const FABLE_OPTS = { planApproval: 'off', conductor: 'fable', decisionLog: LOG } as const
+const promptModels = (seen: Seen) => seen.routerCalls.filter(c => c.kind === 'prompt').map(c => c.model)
+
+/** Router giả theo từng prompt (0.8.4 Z1): `now.reply` là câu trả lời của prompt sắp gửi (null là lỗi); `now.isFableDown` làm mọi lượt
+ *  gửi Fable lỗi. Lượt rà kế hoạch trả sạch. */
+function setupLive(on: On) {
+  const now: { reply: Json | null; isFableDown: boolean } = { reply: null, isFableDown: false }
+  const seen: Seen = base(on, {
+    router: request => (request.startsWith('Requirements:') ? { missing: [], extra: [], issues: [] } : now.isFableDown && seen.routerModels.at(-1) === FABLE_ID ? null : now.reply),
+  })
+  on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+  on('turn.complete', () => ({ text: '' }))
+  on('classic.Stop', () => ({}))
+  return { seen, now }
+}
+
+/** Gửi một prompt với câu trả lời router cho trước (null là router lỗi). */
+async function say($: Engine, now: { reply: Json | null }, text: string, reply: Json | null) {
+  now.reply = reply
+  await submit($, text)
+}
+
+/** A lớn còn bước mở, B thay A rồi đóng hết checklist; router trả được ở cả hai prompt. */
+async function aThenB($: Engine, seen: Seen, now: { reply: Json | null }) {
+  now.reply = BIG()
+  await goalA($, seen)
+  now.reply = NEW('Sửa chú thích')
+  await goalB($, true)
+}
+
 describe('0.8.4 A2: tiếp tục quay lại mục tiêu đã cất', () => {
   for (const [name, opts] of OPTIONS) {
     test(`${name}: B đã xong, tiếp tục: quay lại A còn đúng 2 bước mở, context báo quay lại và bước kế tiếp, nhật ký restore`, { options: opts }, async ($, on) => {
@@ -161,5 +193,48 @@ describe('0.8.4 A2: tiếp tục quay lại mục tiêu đã cất', () => {
     expect(await show($)).toContain(`Mục tiêu: ${A}`)
     expect(String((await edit($)).deny ?? '')).not.toContain('chưa được duyệt')
     expect(lastContext(seen).some(c => c.startsWith('[focus-conductor] Tin bảo chạy tiếp: đã quay lại'))).toBe(true)
+  })
+})
+
+// 0.8.4 Z1 (vòng 5 PR 37): nhánh A2 khôi phục trên Core đọc ngay trước khi khôi phục, nên các lần ghi Core trước đó trong cùng prompt
+// (lượt Fable đạt đưa bộ đếm lỗi về 0, giảm số prompt còn tạm ngừng) không bị mất.
+describe('0.8.4 Z1: khôi phục bằng tiếp tục giữ các lần ghi Core trước đó của cùng prompt', () => {
+  test('một lỗi router, tiếp tục khôi phục A, một lỗi nữa: Fable không tạm ngừng, vẫn điều phối mục tiêu A', { options: FABLE_OPTS }, async ($, on) => {
+    const { seen, now } = setupLive(on)
+    await aThenB($, seen, now)
+    await say($, now, 'xem log build', null)
+    await say($, now, 'tiếp tục', RESUME)
+    expect(await show($)).toContain(`Mục tiêu: ${A}`)
+    await say($, now, 'xem log build lần nữa', null)
+    const status = await statusText($)
+    expect(status).not.toContain(PAUSED)
+    expect(status).toContain('Điều phối: fable/medium, đang điều phối')
+    expect(await show($)).toContain(`Mục tiêu: ${A}`)
+  })
+
+  test('đối chứng: sau khi khôi phục, hai lỗi router liên tiếp thì Fable tạm ngừng như luật cũ', { options: FABLE_OPTS }, async ($, on) => {
+    const { seen, now } = setupLive(on)
+    await aThenB($, seen, now)
+    await say($, now, 'tiếp tục', RESUME)
+    expect(await show($)).toContain(`Mục tiêu: ${A}`)
+    await say($, now, 'xem log build', null)
+    await say($, now, 'xem log build lần nữa', null)
+    expect(await statusText($)).toContain(PAUSED)
+  })
+
+  test('Fable đang tạm ngừng còn 2 prompt, tiếp tục có khôi phục: số prompt còn tạm ngừng giảm đúng 1', { options: FABLE_OPTS }, async ($, on) => {
+    const { seen, now } = setupLive(on)
+    await aThenB($, seen, now)
+    now.isFableDown = true
+    await say($, now, 'xem log build', STATUS)
+    await say($, now, 'xem log build lần nữa', STATUS)
+    now.isFableDown = false
+    await say($, now, 'tới đâu rồi', STATUS)
+    await say($, now, 'tiếp tục', RESUME)
+    expect(await show($)).toContain(`Mục tiêu: ${A}`)
+    const before = promptModels(seen).length
+    await say($, now, 'tới đâu rồi', STATUS)
+    await say($, now, 'tới đâu rồi', STATUS)
+    expect(promptModels(seen).slice(before)).toEqual(['sonnet', FABLE_ID])
   })
 })
