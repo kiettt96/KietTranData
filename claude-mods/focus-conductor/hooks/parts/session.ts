@@ -347,15 +347,15 @@ export function registerSession(on: On, ctx: Ctx): void {
     const lead = isResuming ? await startResume() : []
     const tail = isResuming ? [] : pending
     const now = await $.clock.now()
-    // Tin bảo chạy tiếp sau một việc chen vào (0.8.4 A2): checklist hiện tại không còn bước mở, mục tiêu đã cất gần nhất còn bước mở và
-    // là mục tiêu bị chính mục tiêu hiện tại thay (mục tiêu mới mang số của mục tiêu trước cộng 1): khôi phục bằng cùng đường với plan
-    // action restore. Tin chạy tiếp điểm dừng giữ ưu tiên.
-    const lastArchived = before.archived[0]
-    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && S.archivedPending(lastArchived) && lastArchived.brief.goalId === prev.goalId - 1
-    if (isBackToArchived && plan !== null && prev !== null && lastArchived !== undefined) {
+    // Tin bảo chạy tiếp sau một việc chen vào (0.8.4 A2): mục tiêu đã cất nào được quay lại do S.resumeTarget quyết; khôi phục bằng cùng
+    // đường với plan action restore. Tin chạy tiếp điểm dừng giữ ưu tiên.
+    const isResumeMsg = plan !== null && prev !== null && intent === 'resume' && !isResuming
+    const backIndex = isResumeMsg ? S.resumeTarget(before) : null
+    const lastArchived = backIndex !== null ? before.archived[backIndex - 1] : undefined
+    if (backIndex !== null && plan !== null && prev !== null && lastArchived !== undefined) {
       // Khôi phục trên Core đọc ngay lúc này, không trên before (0.8.4 Z1): các lần ghi Core trước đó của prompt này (lượt Fable đạt
       // đưa bộ đếm lỗi về 0, giảm số prompt còn tạm ngừng, hết chờ câu trả lời) không bị ghi đè.
-      const back = ctx.restoreGoal(S.normalizeCore(await read($, coreState)), 1)
+      const back = ctx.restoreGoal(S.normalizeCore(await read($, coreState)), backIndex)
       if (!('error' in back)) {
         await update($, coreState, () => S.withRouterFail(null)(S.withAnalyzerUsage(outcome.usages, target.family)(back.core)))
         const restored = back.brief

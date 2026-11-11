@@ -578,6 +578,21 @@ export function archivedPending(a: ArchivedGoal): boolean {
 }
 
 /**
+ * Mục tiêu đã cất mà tin bảo chạy tiếp quay lại (0.8.4 A2): thứ tự trong danh sách đã cất (1 là gần nhất), null là không quay lại. Checklist
+ * hiện tại không còn bước mở; mục tiêu đã cất gần nhất còn dở và là mục tiêu bị mục tiêu hiện tại thay (số mục tiêu liền trước).
+ */
+export function resumeTarget(c: Core): number | null {
+  const n = normalizeCore(c)
+  if (n.brief === null) return null
+  if (openSteps(n.plan).length > 0) return null
+  const last = n.archived[0]
+  if (last === undefined) return null
+  if (!archivedPending(last)) return null
+  if (last.brief.goalId !== n.brief.goalId - 1) return null
+  return 1
+}
+
+/**
  * Lưu mục tiêu hiện tại nếu checklist còn bước mở hoặc đang chờ, hay mục tiêu đang dở dù chưa có checklist (0.8.5 K2); chưa có brief thì
  * dùng brief tạm; mới nhất trước.
  */
