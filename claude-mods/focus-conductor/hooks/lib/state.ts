@@ -6,7 +6,7 @@
 
 import type { PluginOptions } from 'claude-code'
 
-import type { AgentProgress, AgentState, ApprovalState, ApprovalStatus, AgentTally, ArchivedGoal, Brief, ChangedState, CheckHint, Core, FableState, ForkPart, ForkPartState, ForkState, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, RetryItem, RetryState, Route, Waiver, WaiverState, RouteEvent, RouterFail, SkillState, TurnFault, Warning } from '../../types'
+import type { AgentProgress, AgentState, ApprovalState, ApprovalStatus, AgentTally, ArchivedGoal, Brief, ChangedState, CheckHint, Core, FableState, ForkPart, GoalTurns, ForkPartState, ForkState, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, RetryItem, RetryState, Route, Waiver, WaiverState, RouteEvent, RouterFail, SkillState, TurnFault, Warning } from '../../types'
 import { openSteps, restorableSteps } from './drift'
 import { isPendingGoal } from './conductor'
 import type { Tokens } from './cost'
@@ -54,6 +54,7 @@ export const EMPTY_CORE: Core = {
   changed: { goalId: -1, paths: [], unknown: 0, overflow: 0 },
   changedNoticed: -1,
   fable: { failures: 0, pauseLeft: 0, ready: null, reason: '', holdKey: '', briefedGoal: -1 },
+  goalTurns: { goalId: -1, done: 0, interrupted: false },
 }
 
 const LOG_LIMIT = 60
@@ -259,8 +260,34 @@ export function normalizeCore(raw: Partial<Core>): Core {
     changed: normalizeChanged(raw.changed),
     changedNoticed: typeof raw.changedNoticed === 'number' ? raw.changedNoticed : -1,
     fable: normalizeFable(raw.fable),
+    goalTurns: normalizeGoalTurns(raw.goalTurns),
   }
 }
+
+/** Turn của mục tiêu từ bản đã lưu (0.8.5 K8); vắng hay sai kiểu ở trạng thái từ bản cũ là chưa có turn nào. */
+function normalizeGoalTurns(raw: Partial<GoalTurns> | undefined): GoalTurns {
+  if (raw === undefined || raw === null || typeof raw !== 'object') return { goalId: -1, done: 0, interrupted: false }
+  const done = typeof raw.done === 'number' && Number.isFinite(raw.done) && raw.done > 0 ? Math.floor(raw.done) : 0
+  return { goalId: typeof raw.goalId === 'number' && Number.isInteger(raw.goalId) ? raw.goalId : -1, done, interrupted: raw.interrupted === true }
+}
+
+/** Turn của mục tiêu đang mở (0.8.5 K8): trạng thái lưu cho mục tiêu khác là chưa có turn nào. */
+export function turnsOf(c: Core): GoalTurns {
+  const n = normalizeCore(c)
+  return n.brief !== null && n.goalTurns.goalId === n.brief.goalId ? n.goalTurns : { goalId: n.brief?.goalId ?? -1, done: 0, interrupted: false }
+}
+
+/**
+ * Một turn luồng chính kết thúc (0.8.5 K8): turn thực thi cộng một vào số turn của mục tiêu goalId; mọi turn ghi lại có bị ngắt không. Mục
+ * tiêu khác thì bắt đầu lại từ 0.
+ */
+export const withTurnEnd =
+  (goalId: number, isExecutingTurn: boolean, isInterrupted: boolean) =>
+  (c: Core): Core => {
+    const n = normalizeCore(c)
+    const prev = n.goalTurns.goalId === goalId ? n.goalTurns : { goalId, done: 0, interrupted: false }
+    return { ...n, goalTurns: { goalId, done: prev.done + (isExecutingTurn ? 1 : 0), interrupted: isInterrupted } }
+  }
 
 /** Trần số đường dẫn lưu mỗi mục tiêu (0.8.2 N5); vượt trần thì chỉ đếm vào overflow. */
 export const CHANGED_LIMIT = 200
@@ -542,12 +569,12 @@ function stubBrief(plan: readonly PlanStep[]): Brief {
 /** Mục tiêu hiện tại đang dở (0.8.5 K2) theo định nghĩa chung isPendingGoal. */
 export function pendingOf(c: Core): boolean {
   const n = normalizeCore(c)
-  return isPendingGoal(n.brief, { open: openSteps(n.plan).length, total: n.plan.length, approval: approvalOf(n).status })
+  return isPendingGoal(n.brief, { open: openSteps(n.plan).length, total: n.plan.length, approval: approvalOf(n).status, turnsDone: turnsOf(n).done })
 }
 
 /** Mục tiêu đã cất còn dở (0.8.5 K2): checklist còn bước mở, hay trạng thái duyệt lúc cất, hay mục tiêu lớn chưa có checklist. */
 export function archivedPending(a: ArchivedGoal): boolean {
-  return isPendingGoal(a.brief, { open: openSteps(a.plan).length, total: a.plan.length, approval: a.approval ?? 'none' })
+  return isPendingGoal(a.brief, { open: openSteps(a.plan).length, total: a.plan.length, approval: a.approval ?? 'none', turnsDone: a.turns?.done ?? 0 })
 }
 
 /**
@@ -558,7 +585,9 @@ function archiveOf(n: Core): ArchivedGoal[] {
   if (restorableSteps(n.plan).length === 0 && !pendingOf(n)) return n.archived
   const brief = n.brief ?? stubBrief(n.plan)
   // Trạng thái duyệt lúc cất (0.8.5 K3): khôi phục đặt lại cho số mục tiêu mới; cờ chờ câu trả lời không mang theo.
-  return [{ brief, plan: n.plan, approval: approvalOf(n).status }, ...n.archived.filter(a => n.brief === null || a.brief.goalId !== n.brief.goalId)].slice(0, ARCHIVE_LIMIT)
+  // Turn của mục tiêu lúc cất (0.8.5 K8) đi theo mục tiêu và được nhận lại khi khôi phục.
+  const turns = turnsOf(n)
+  return [{ brief, plan: n.plan, approval: approvalOf(n).status, turns: { done: turns.done, interrupted: turns.interrupted } }, ...n.archived.filter(a => n.brief === null || a.brief.goalId !== n.brief.goalId)].slice(0, ARCHIVE_LIMIT)
 }
 
 /** Trạng thái duyệt của mục tiêu khôi phục (0.8.5 K3): trạng thái lúc cất, gắn với số mục tiêu mới; vắng (bản cũ) là none. */
@@ -592,6 +621,7 @@ export function restoreArchived(c: Core, index: number): { core: Core; restored:
     mirror: { goalId, steps: [] },
     ...freshProgress(goalId),
     approval: restoredApproval(goalId, restored.approval),
+    goalTurns: { goalId, done: restored.turns?.done ?? 0, interrupted: restored.turns?.interrupted === true },
   }
   return { core, restored: { brief, plan: restored.plan } }
 }

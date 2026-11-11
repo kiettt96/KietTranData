@@ -256,7 +256,8 @@ export type Ledger = {
  * không làm mất tiến độ: Claude khôi phục bằng plan action "restore".
  */
 /** `approval` (0.8.5 K3): trạng thái duyệt kế hoạch của mục tiêu lúc bị cất; vắng ở trạng thái từ bản cũ là none. */
-export type ArchivedGoal = { brief: Brief; plan: PlanStep[]; approval?: ApprovalStatus }
+/** `turns` (0.8.5 K8): số turn thực thi đã kết thúc và turn gần nhất có bị ngắt không, lúc bị cất; vắng là 0 và false. */
+export type ArchivedGoal = { brief: Brief; plan: PlanStep[]; approval?: ApprovalStatus; turns?: { done: number; interrupted: boolean } }
 
 /** Trạng thái một việc router ghi giao subagent: chờ giao, đang chạy, xong, hoặc lỗi. */
 export type DelegationState = 'pending' | 'running' | 'done' | 'failed'
@@ -410,7 +411,14 @@ export type Core = {
   changedNoticed: number
   /** Fable điều phối (0.8.4): bộ đếm lỗi của router Fable, số prompt còn tạm ngừng, trạng thái sẵn sàng đã ghi và khóa conductor-hold. */
   fable: FableState
+  /**
+   * Turn của luồng chính cho mục tiêu goalId (0.8.5 K8): số turn thực thi đã kết thúc và turn gần nhất có bị ngắt không. Mục tiêu khác thì
+   * coi là 0 và false. Vắng ở trạng thái cũ: goalId -1, 0, false.
+   */
+  goalTurns: GoalTurns
 }
+
+export type GoalTurns = { goalId: number; done: number; interrupted: boolean }
 
 /**
  * File đã đổi của mục tiêu goalId (0.8.2 N5): `paths` là đường dẫn tương đối với thư mục gốc phiên (ngoài gốc thì giữ tuyệt đối), không trùng,

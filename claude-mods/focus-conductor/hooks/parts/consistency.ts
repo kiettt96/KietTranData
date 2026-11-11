@@ -1241,10 +1241,15 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     // Turn không có phát hiện nào làm tăng nâng cấp: nâng cấp của mục tiêu giảm một bậc (0.7.0).
     const hadFinding = L.liftRaised || unresolved.length > 0
     L.liftRaised = false
+    // Turn của mục tiêu (0.8.5 K8): turn thực thi theo cùng cách cổng Stop phân biệt; không biết ý của prompt (router lỗi, nạp lại mod) thì
+    // tính là turn thực thi. Turn bị ngắt khi engine báo aborted.
+    const isExecutingTurn = L.promptIntent === null || isExecuting(L.tracker, L.promptIntent)
+    const isInterrupted = e.reason === 'aborted' || (e as { isAborted?: boolean }).isAborted === true
     await update($, coreState, c => {
       // Turn không có cảnh báo chưa kiểm thì chuỗi turn cùng nguyên nhân đứt (0.8.0 A5); turn hoãn vì còn subagent chưa tính là đứt.
       const isStreak = isPaused || held.length > 0 || findings.some(f => f.kind === 'unverified')
-      const marked = S.withTurnMark(at, endContext)(S.withLedger(() => ledger)(S.withWarnings(...warnings)(isStreak ? c : S.withCauseBreak(c))))
+      const counted = core.brief !== null ? S.withTurnEnd(core.brief.goalId, isExecutingTurn, isInterrupted)(c) : c
+      const marked = S.withTurnMark(at, endContext)(S.withLedger(() => ledger)(S.withWarnings(...warnings)(isStreak ? counted : S.withCauseBreak(counted))))
       if (unresolved.length > 0) return S.withLift(0, 1)(marked)
       return hadFinding ? marked : S.withLiftDecay(marked)
     })

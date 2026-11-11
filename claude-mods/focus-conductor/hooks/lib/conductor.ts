@@ -69,7 +69,7 @@ export type PendingState = { open: number; total: number; approval: ApprovalStat
 export function isPendingGoal(brief: Brief | null, state: PendingState): boolean {
   if (brief === null || brief.isReference) return false
   if (state.open > 0 || state.approval === 'planning' || state.approval === 'presented') return true
-  return isBigGoal(brief) && state.total === 0
+  return isBigGoal(brief) && state.total === 0 && (state.turnsDone ?? 0) === 0
 }
 
 /** Đầu vào của "điều phối khả dụng": như Fable sẵn sàng, cộng chính sách model của phiên và họ model phiên (null khi chưa biết). */
