@@ -303,7 +303,7 @@ index 292b882..c7caeea 100644
        return hadFinding ? marked : S.withLiftDecay(marked)
      })
 diff --git a/claude-mods/focus-conductor/hooks/parts/session.ts b/claude-mods/focus-conductor/hooks/parts/session.ts
-index a1aafa3..a75556b 100644
+index a1aafa3..4ef00d8 100644
 --- a/claude-mods/focus-conductor/hooks/parts/session.ts
 +++ b/claude-mods/focus-conductor/hooks/parts/session.ts
 @@ -15,7 +15,7 @@ import type { RouterOutcome, RouterPlan } from '../lib/router'
@@ -315,18 +315,40 @@ index a1aafa3..a75556b 100644
  import type { EngineInterface, On } from 'claude-code'
  import type { Ctx } from '../context'
  import { modeOf, viewOf } from '../atoms'
-@@ -275,8 +275,8 @@ export function registerSession(on: On, ctx: Ctx): void {
+@@ -275,8 +275,30 @@ export function registerSession(on: On, ctx: Ctx): void {
        L.promptIntent = { relation: 'continue', kind: prev.isReference ? 'answer' : prev.kind }
        await flushDecisions((path, text) => $.fs.write(path, text))
        const lead = L.noAutoResume && !isArmed ? [] : await startResume()
 -      // Kế hoạch đang lập (0.8.2 N2): câu tiếp nối ngắn vẫn kèm đoạn dặn lập kế hoạch. Câu này là câu trả lời: hết chờ (0.8.3 R3).
 -      await clearAwaiting($, S.approvalOf(before))
++      // Quay lại mục tiêu đã cất (0.8.5 K7): cùng luật với nhánh có router (S.resumeTarget), trên Core đọc ngay lúc này; không gọi router,
++      // không cộng chi phí router. Tin chạy tiếp điểm dừng đang mở giữ ưu tiên.
++      const skipCore = S.normalizeCore(await read($, coreState))
++      const skipBack = lead.length === 0 ? S.resumeTarget(skipCore) : null
++      const skipFrom = skipBack !== null ? skipCore.archived[skipBack - 1] : undefined
++      const skipped = skipBack !== null ? ctx.restoreGoal(skipCore, skipBack) : null
++      if (skipped !== null && !('error' in skipped) && skipFrom !== undefined) {
++        await update($, coreState, () => skipped.core)
++        const restored = skipped.brief
++        L.promptIntent = { relation: 'continue', kind: restored.kind }
++        L.lastPrompt = { text, prev: restored, goalId: restored.goalId }
++        record(at, 'restore', { prompt: clipText(text), goalId: restored.goalId, from: skipFrom.brief.goalId, cause: 'resume' })
++        await flushDecisions((path, text) => $.fs.write(path, text))
++        await showStatus($, await read($, view), ctx.options)
++        const core = S.normalizeCore(await read($, coreState))
++        const wanted = wantedPick(restored, core.lift, core, current)
++        const conductNote = e.turnId === undefined && wanted?.isConducting === true && core.fable.briefedGoal !== restored.goalId ? [conductorContext()] : []
++        if (conductNote.length > 0) await update($, coreState, S.withFable(() => ({ briefedGoal: restored.goalId })))
++        const backLine = core.plan.length === 0 ? restoreGoalOnlyContext(restored.goal) : restoreResumeContext(restored.goal, openSteps(core.plan)[0])
++        const backPlanning = S.approvalOf(core).status === 'planning' ? [planningContext()] : []
++        return next({ ...e, context: [...(e.context ?? []), backLine, ...conductNote, ...backPlanning, ...pending] })
++      }
 +      // Kế hoạch đang lập (0.8.2 N2): câu tiếp nối ngắn vẫn kèm đoạn dặn lập kế hoạch. Câu tiếp nối ngắn không phải câu trả lời câu hỏi
 +      // làm rõ: cờ chờ câu trả lời giữ nguyên (0.8.5 K1).
        const planning = S.approvalOf(before).status === 'planning' ? [planningContext()] : []
        return next({ ...e, context: [...lead, ...(e.context ?? []), skippedContext(prev, before.plan), ...planning, ...(lead.length === 0 ? pending : [])] })
      }
-@@ -330,10 +330,12 @@ export function registerSession(on: On, ctx: Ctx): void {
+@@ -330,10 +352,12 @@ export function registerSession(on: On, ctx: Ctx): void {
      // trừ khi router chắc (confidence từ NEW_GOAL_CONFIDENCE, thiếu là chưa chắc) VÀ prompt không nhắc gì tới mục tiêu (answerMentionsGoal).
      const isHeldAnswer = isAnswering && prev !== null && interjectedBase !== null && interjectedBase.relation === 'new' && !((interjectedBase.confidence ?? 0) >= NEW_GOAL_CONFIDENCE && !answerMentionsGoal(text, prev))
      // Tin ngoài lề (0.8.4 A1): xét trên kế hoạch router trả, trước khi tin chen ngang bị đổi thành tiếp nối; câu trả lời câu hỏi làm rõ thắng.
@@ -342,7 +364,7 @@ index a1aafa3..a75556b 100644
      const steered = isHeldAnswer && interjected !== null ? { ...interjected, relation: 'continue' as const, intent: 'amend' as const } : interjected
      if (isHeldAnswer && prev !== null) {
        intent = 'amend'
-@@ -345,29 +347,34 @@ export function registerSession(on: On, ctx: Ctx): void {
+@@ -345,29 +369,34 @@ export function registerSession(on: On, ctx: Ctx): void {
      const lead = isResuming ? await startResume() : []
      const tail = isResuming ? [] : pending
      const now = await $.clock.now()
@@ -388,7 +410,7 @@ index a1aafa3..a75556b 100644
        }
      }
      // Tin hỏi tiến độ (0.8.2 N1): không đổi brief, checklist, việc, yêu cầu hay ràng buộc; chỉ cộng chi phí router. Tin gửi khi không có
-@@ -448,7 +455,7 @@ export function registerSession(on: On, ctx: Ctx): void {
+@@ -448,7 +477,7 @@ export function registerSession(on: On, ctx: Ctx): void {
      // Việc đã xong theo checklist hiện tại (0.8.0 A3): có bước riêng và các bước đó đã đóng hết; được cất khi prompt này mở đợt mới. Việc chưa
      // có bước riêng không tính là xong chỉ vì checklist đóng hết (checklist đó có thể là của đợt trước).
      const doneTasks = new Set(taskRows(before, now).filter(row => row.index !== undefined && row.kind !== 'main' && row.state === 'done' && row.bar.kind === 'steps').map(row => row.index as number))
@@ -397,7 +419,7 @@ index a1aafa3..a75556b 100644
      // Router xếp mục tiêu mới với tin cậy thấp khi checklist còn bước mở (0.7.5): giữ mục tiêu, ghi nhật ký quyết định.
      if (held && prev !== null) {
        L.promptIntent = { relation: 'continue', kind: plan.kind }
-@@ -539,7 +546,7 @@ export function registerSession(on: On, ctx: Ctx): void {
+@@ -539,7 +568,7 @@ export function registerSession(on: On, ctx: Ctx): void {
      const context = isApproved
        ? approvedContext(core.plan)
        : intent === 'resume' && !isNewGoal
@@ -406,7 +428,7 @@ index a1aafa3..a75556b 100644
        : isInterject && !isNewGoal
        ? interjectContext(brief, core.plan, shownAdded, newConstraints, { main: running !== null ? describePick(running) : 'model đang chạy', mayReplace: routed?.relation === 'new', isRouted: true })
        : isNewGoal
-@@ -552,7 +559,9 @@ export function registerSession(on: On, ctx: Ctx): void {
+@@ -552,7 +581,9 @@ export function registerSession(on: On, ctx: Ctx): void {
      }
      // Checklist cũ còn bước mở không bị mất: nó được lưu, Claude khôi phục được nếu router xếp nhầm mục tiêu mới.
      const archived = isNewGoal ? restorableSteps(before.plan) : []
@@ -418,7 +440,7 @@ index a1aafa3..a75556b 100644
        prompt: clipText(text),
        relation: plan.relation,
 diff --git a/claude-mods/focus-conductor/scripts/mutants.ts b/claude-mods/focus-conductor/scripts/mutants.ts
-index a621d3b..1dad26a 100644
+index a621d3b..e770764 100644
 --- a/claude-mods/focus-conductor/scripts/mutants.ts
 +++ b/claude-mods/focus-conductor/scripts/mutants.ts
 @@ -712,7 +712,7 @@ export const MUTANTS: Mutant[] = [
@@ -463,7 +485,7 @@ index a621d3b..1dad26a 100644
    { id: "075-M5j", file: "hooks/lib/state.ts", note: "đọc lại trạng thái làm mất main của prompt lập mục tiêu", old: "    ...(brief.mainBase ? { mainBase: brief.mainBase } : {}),\n", new: "" },
    { id: "075-M6a", file: "hooks/lib/drift/classify.ts", note: "nguồn của mv không tính là đích ghi", old: "      if (name === 'mv') positional.forEach(add)\n", new: "" },
    { id: "075-M6b", file: "hooks/parts/quota.ts", note: "ln được qua khi đích nằm trong danh sách", old: " && e.name !== 'ln'", new: "" },
-@@ -2117,19 +2117,36 @@ export const MUTANTS: Mutant[] = [
+@@ -2117,19 +2117,38 @@ export const MUTANTS: Mutant[] = [
    { id: "084-A1b", file: "hooks/parts/session.ts", note: "tin ngoài lề vẫn cất checklist như mục tiêu mới", old: "      if (!isInterject) L.promptIntent = { relation: 'continue', kind: 'answer' }\n      await update($, coreState, c => S.withRouterFail(null)(S.withAnalyzerUsage(outcome.usages, target.family)(c)))\n      L.lastPrompt = { text, prev, goalId: prev.goalId }\n      record(now, 'route', { prompt: clipText(text), relation: plan.relation, intent: 'aside'", new: "      if (!isInterject) L.promptIntent = { relation: 'continue', kind: 'answer' }\n      await update($, coreState, c => S.adoptGoal({ ...prev, goalId: prev.goalId + 1 })(S.withRouterFail(null)(S.withAnalyzerUsage(outcome.usages, target.family)(c))))\n      L.lastPrompt = { text, prev, goalId: prev.goalId }\n      record(now, 'route', { prompt: clipText(text), relation: plan.relation, intent: 'aside'" },
    { id: "084-A1c", file: "hooks/lib/router.ts", note: "coi tin new có việc là ngoài lề", old: "  if (plan.relation !== 'new' || plan.tasks.length > 0 || plan.isReference || plan.runReference) return false\n", new: "  if (plan.relation !== 'new' || plan.isReference || plan.runReference) return false\n" },
    { id: "084-A1d", file: "hooks/lib/router.ts", note: "coi investigate mọi độ sâu là ngoài lề", old: "  return plan.kind === 'answer' || (plan.kind === 'investigate' && (plan.depth === 'none' || plan.depth === 'light'))\n", new: "  return plan.kind === 'answer' || plan.kind === 'investigate'\n" },
@@ -486,9 +508,10 @@ index a621d3b..1dad26a 100644
 +  { id: "084-Z1a", file: "hooks/parts/session.ts", note: "nhánh A2 khôi phục trên Core đọc từ đầu prompt, ghi đè các lần ghi Core trước đó", old: "      const back = ctx.restoreGoal(S.normalizeCore(await read($, coreState)), backIndex)\n", new: "      const back = ctx.restoreGoal(before, backIndex)\n" },
    { id: "084-Z2a", file: "hooks/parts/session.ts", note: "nhánh A2 không cộng chi phí router", old: "        await update($, coreState, () => S.withRouterFail(null)(S.withAnalyzerUsage(outcome.usages, target.family)(back.core)))\n", new: "        await update($, coreState, () => S.withRouterFail(null)(back.core))\n" },
    { id: "084-Z2b", file: "hooks/parts/session.ts", note: "nhánh tin ngoài lề không cộng chi phí router", old: "    if (isAsideMsg && plan !== null && prev !== null) {\n      if (!isInterject) L.promptIntent = { relation: 'continue', kind: 'answer' }\n      await update($, coreState, c => S.withRouterFail(null)(S.withAnalyzerUsage(outcome.usages, target.family)(c)))\n", new: "    if (isAsideMsg && plan !== null && prev !== null) {\n      if (!isInterject) L.promptIntent = { relation: 'continue', kind: 'answer' }\n      await update($, coreState, c => S.withRouterFail(null)(c))\n" },
-   { id: "084-Z2c", file: "hooks/parts/session.ts", note: "nhánh A2 coi turn sau khi khôi phục là hỏi đáp", old: "        L.promptIntent = { relation: 'continue', kind: restored.kind }\n", new: "        L.promptIntent = { relation: 'continue', kind: 'answer' }\n" },
+-  { id: "084-Z2c", file: "hooks/parts/session.ts", note: "nhánh A2 coi turn sau khi khôi phục là hỏi đáp", old: "        L.promptIntent = { relation: 'continue', kind: restored.kind }\n", new: "        L.promptIntent = { relation: 'continue', kind: 'answer' }\n" },
 -  { id: "084-Z2d", file: "hooks/parts/session.ts", note: "nhánh A2 không chèn đoạn dặn điều phối", old: "        const conductNote = wanted?.isConducting === true && core.fable.briefedGoal !== restored.goalId ? [conductorContext()] : []\n", new: "        const conductNote = false && wanted?.isConducting === true && core.fable.briefedGoal !== restored.goalId ? [conductorContext()] : []\n" },
 -  { id: "084-Z2e", file: "hooks/parts/session.ts", note: "bỏ điều kiện tin không chạy tiếp điểm dừng khỏi nhánh A2", old: "    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && openSteps(lastArchived.plan).length > 0 && lastArchived.brief.goalId === prev.goalId - 1\n", new: "    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && openSteps(before.plan).length === 0 && lastArchived !== undefined && openSteps(lastArchived.plan).length > 0 && lastArchived.brief.goalId === prev.goalId - 1\n" },
++  { id: "084-Z2c", file: "hooks/parts/session.ts", note: "nhánh A2 coi turn sau khi khôi phục là hỏi đáp", old: "        L.promptIntent = { relation: 'continue', kind: restored.kind }\n        // Brief trước prompt", new: "        L.promptIntent = { relation: 'continue', kind: 'answer' }\n        // Brief trước prompt" },
 +  { id: "084-Z2d", file: "hooks/parts/session.ts", note: "nhánh A2 không chèn đoạn dặn điều phối", old: "        const conductNote = !isInterject && wanted?.isConducting === true && core.fable.briefedGoal !== restored.goalId ? [conductorContext()] : []\n", new: "        const conductNote = false && !isInterject && wanted?.isConducting === true && core.fable.briefedGoal !== restored.goalId ? [conductorContext()] : []\n" },
 +  { id: "084-Z2e", file: "hooks/parts/session.ts", note: "bỏ điều kiện tin không chạy tiếp điểm dừng khỏi nhánh A2", old: "    const isResumeMsg = plan !== null && prev !== null && intent === 'resume' && !isResuming\n", new: "    const isResumeMsg = plan !== null && prev !== null && intent === 'resume'\n" },
 +  { id: "085-K2a", file: "hooks/lib/state.ts", note: "archiveOf chỉ cất khi còn bước mở", old: "  if (restorableSteps(n.plan).length === 0 && !pendingOf(n)) return n.archived\n", new: "  if (restorableSteps(n.plan).length === 0) return n.archived\n" },
@@ -508,7 +531,9 @@ index a621d3b..1dad26a 100644
 +  { id: "085-D3a", file: "hooks/lib/state.ts", note: "bỏ điều kiện việc chen vào đã có turn thực thi kết thúc", old: "  if (n.plan.length === 0 && turnsOf(n).done < 1) return null\n", new: "" },
 +  { id: "085-D3b", file: "hooks/lib/state.ts", note: "bỏ điều kiện turn gần nhất của việc chen vào không bị ngắt", old: "  if (n.plan.length === 0 && turnsOf(n).interrupted) return null\n", new: "" },
 +  { id: "085-K4a", file: "hooks/parts/session.ts", note: "tin chen ngang khôi phục vẫn chèn đoạn dặn điều phối và ghi briefedGoal", old: "        const conductNote = !isInterject && wanted?.isConducting", new: "        const conductNote = wanted?.isConducting" },
-+  { id: "085-K6a", file: "hooks/parts/session.ts", note: "prev là brief trước khi khôi phục", old: "        L.lastPrompt = { text, prev: restored, goalId: restored.goalId }\n", new: "        L.lastPrompt = { text, prev, goalId: restored.goalId }\n" },
++  { id: "085-K6a", file: "hooks/parts/session.ts", note: "prev là brief trước khi khôi phục", old: "        L.lastPrompt = { text, prev: restored, goalId: restored.goalId }\n        record(now, 'restore'", new: "        L.lastPrompt = { text, prev, goalId: restored.goalId }\n        record(now, 'restore'" },
++  { id: "085-K7a", file: "hooks/parts/session.ts", note: "nhánh skip không khôi phục mục tiêu đã cất", old: "      const skipBack = lead.length === 0 ? S.resumeTarget(skipCore) : null\n", new: "      const skipBack: number | null = null\n" },
++  { id: "085-K7b", file: "hooks/parts/session.ts", note: "nhánh skip khôi phục cả khi tin chạy tiếp điểm dừng đang mở", old: "      const skipBack = lead.length === 0 ? S.resumeTarget(skipCore) : null\n", new: "      const skipBack = S.resumeTarget(skipCore)\n" },
  ]
 diff --git a/claude-mods/focus-conductor/tests/integration/approval-k3-085.test.ts b/claude-mods/focus-conductor/tests/integration/approval-k3-085.test.ts
 new file mode 100644
@@ -856,7 +881,7 @@ index 0000000..bcc8a88
 +  })
 +})
 diff --git a/claude-mods/focus-conductor/tests/integration/resume-a2-084.test.ts b/claude-mods/focus-conductor/tests/integration/resume-a2-084.test.ts
-index fbf333e..cbdfb87 100644
+index fbf333e..6375c97 100644
 --- a/claude-mods/focus-conductor/tests/integration/resume-a2-084.test.ts
 +++ b/claude-mods/focus-conductor/tests/integration/resume-a2-084.test.ts
 @@ -153,13 +153,14 @@ describe('0.8.4 A2: tiếp tục quay lại mục tiêu đã cất', () => {
@@ -875,7 +900,7 @@ index fbf333e..cbdfb87 100644
    })
  
    test('tin hỏi tiến độ trong cùng tình huống: không khôi phục', { options: OPTIONS[0][1] }, async ($, on) => {
-@@ -302,3 +303,149 @@ describe('0.8.4 Z2: các hành vi của nhánh A2', () => {
+@@ -302,3 +303,190 @@ describe('0.8.4 Z2: các hành vi của nhánh A2', () => {
      expect(lines().some(l => l['kind'] === 'restore' && l['cause'] === 'resume')).toBe(false)
    })
  })
@@ -1023,6 +1048,47 @@ index fbf333e..cbdfb87 100644
 +    expect(shown).toContain('[x] 1. Sửa hàm phí')
 +    expect(shown).toContain('[~] 2. Thêm test')
 +    expect(shown).toContain('[ ] 3. Cập nhật tài liệu')
++  })
++})
++
++// 0.8.5 K7: "tiếp tục" trong routerSkip quay lại mục tiêu đã cất theo cùng luật với nhánh có router (K5, D3), không gọi router. Tin chạy
++// tiếp một điểm dừng đang mở giữ ưu tiên.
++describe('0.8.5 K7: tiếp tục trong routerSkip quay lại mục tiêu đã cất', () => {
++  const SKIP = { planApproval: 'off', decisionLog: LOG, routerSkip: 'tiếp tục' } as const
++  test('A còn bước mở bị B thay, B đóng hết, tiếp tục đi nhánh skip: mục tiêu là A, có dòng restore, router không được gọi thêm', { options: SKIP }, async ($, on) => {
++    const { seen, lines } = setup(on, [BIG(), NEW('Sửa chú thích')])
++    await goalA($, seen)
++    await goalB($, true)
++    const calls = seen.routerCalls.filter(c => c.kind === 'prompt').length
++    const before = routerLedger(await statusText($))
++    await submit($, 'tiếp tục')
++    expect(await show($)).toContain(`Mục tiêu: ${A}`)
++    expect(lines().some(l => l['kind'] === 'restore' && l['cause'] === 'resume')).toBe(true)
++    expect(lastContext(seen).filter(c => c === restoreResumeContext(A, STEP2)).length).toBe(1)
++    expect(seen.routerCalls.filter(c => c.kind === 'prompt').length).toBe(calls)
++    expect(routerLedger(await statusText($)).calls).toBe(before.calls)
++  })
++
++  test('B còn bước mở: nhánh skip như cũ, chạy tiếp B', { options: SKIP }, async ($, on) => {
++    const { seen, lines } = setup(on, [BIG(), NEW('Sửa chú thích')])
++    await goalA($, seen)
++    await goalB($, false)
++    await submit($, 'tiếp tục')
++    expect(await show($)).toContain('Mục tiêu: Sửa chú thích')
++    expect(lines().some(l => l['kind'] === 'restore')).toBe(false)
++  })
++
++  test('điểm dừng đang mở và vừa gõ /conductor resume: tiếp tục đi nhánh skip chạy tiếp điểm dừng, không khôi phục mục tiêu đã cất', { options: SKIP }, async ($, on) => {
++    const { seen, lines } = setup(on, [BIG(), NEW('Sửa chú thích')])
++    await goalA($, seen)
++    await goalB($, true)
++    await conductor($, 'pause')
++    expect(String((await $.tool.call({ tool: PLAN, action: 'checkpoint', note: 'Tiếp: rà lại chú thích.' } as never)).result ?? '')).toContain('Đã ghi điểm dừng')
++    await conductor($, 'resume')
++    await submit($, 'tiếp tục')
++    expect(lastContext(seen)[0] ?? '').toContain('ĐIỂM DỪNG')
++    expect(await show($)).toContain('Mục tiêu: Sửa chú thích')
++    expect(lines().some(l => l['kind'] === 'restore')).toBe(false)
 +  })
 +})
 diff --git a/claude-mods/focus-conductor/tests/integration/turns-k8-085.test.ts b/claude-mods/focus-conductor/tests/integration/turns-k8-085.test.ts
