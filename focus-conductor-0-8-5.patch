@@ -1,0 +1,446 @@
+diff --git a/claude-mods/focus-conductor/hooks/lib/conductor.ts b/claude-mods/focus-conductor/hooks/lib/conductor.ts
+index 21843ef..3c6af15 100644
+--- a/claude-mods/focus-conductor/hooks/lib/conductor.ts
++++ b/claude-mods/focus-conductor/hooks/lib/conductor.ts
+@@ -2,7 +2,7 @@
+ // parts/agents.ts và giao diện gọi các hàm này, không viết lại điều kiện ở chỗ khác.
+ 
+ import type { PluginOptions } from 'claude-code'
+-import type { Brief, ModelFamily } from '../../types'
++import type { ApprovalStatus, Brief, ModelFamily } from '../../types'
+ import type { SessionPolicy } from './route'
+ import { familyOf, resolveModelId } from './route'
+ 
+@@ -58,6 +58,20 @@ export function isBigGoal(brief: Pick<Brief, 'depth' | 'kind' | 'isReference' |
+   return brief.isBig === true || ((brief.depth === 'substantial' || brief.depth === 'hard') && brief.kind !== 'answer')
+ }
+ 
++/** Trạng thái của một mục tiêu cần cho định nghĩa "mục tiêu đang dở" (0.8.5): số bước mở, số bước, trạng thái duyệt, số turn thực thi đã kết thúc. */
++export type PendingState = { open: number; total: number; approval: ApprovalStatus; turnsDone?: number }
++
++/**
++ * Mục tiêu đang dở (0.8.4 A1, 0.8.5 K2, K8): có brief, không phải đối chiếu, và checklist còn bước mở, hay cổng duyệt đang planning hay
++ * presented, hay mục tiêu lớn chưa lập checklist mà chưa có turn thực thi nào của luồng chính cho nó kết thúc. Dùng chung cho tin ngoài
++ * lề, cất mục tiêu, giữ mục tiêu khi router xếp new tin cậy thấp và quay lại mục tiêu đã cất.
++ */
++export function isPendingGoal(brief: Brief | null, state: PendingState): boolean {
++  if (brief === null || brief.isReference) return false
++  if (state.open > 0 || state.approval === 'planning' || state.approval === 'presented') return true
++  return isBigGoal(brief) && state.total === 0
++}
++
+ /** Đầu vào của "điều phối khả dụng": như Fable sẵn sàng, cộng chính sách model của phiên và họ model phiên (null khi chưa biết). */
+ export type ConductorInputs = FableInputs & { sessionPolicy: SessionPolicy; sessionFamily: ModelFamily | null }
+ 
+diff --git a/claude-mods/focus-conductor/hooks/lib/router.ts b/claude-mods/focus-conductor/hooks/lib/router.ts
+index 2d4ad74..16e9f39 100644
+--- a/claude-mods/focus-conductor/hooks/lib/router.ts
++++ b/claude-mods/focus-conductor/hooks/lib/router.ts
+@@ -7,8 +7,9 @@
+ 
+ import type { ModelCompleteRequest, ModelCompleteResult, ModelTextBlock, ModelUsage } from 'claude-code'
+ 
+-import type { ApprovalStatus, Brief, Choice, Depth, Effort, ForkSplit, Intent, Kind, ModelFamily, Relation, RouterFail, RouterFailKind, Task, Tier, Volume } from '../../types'
+-import { FABLE_AGENT_TIMEOUT_MS, FABLE_DRIFT_TIMEOUT_MS, FABLE_LONG_TIMEOUT_MS, FABLE_PROMPT_TIMEOUT_MS, FABLE_REVIEW_TIMEOUT_MS, isBigGoal } from './conductor'
++import type { Brief, Choice, Depth, Effort, ForkSplit, Intent, Kind, ModelFamily, Relation, RouterFail, RouterFailKind, Task, Tier, Volume } from '../../types'
++import { FABLE_AGENT_TIMEOUT_MS, FABLE_DRIFT_TIMEOUT_MS, FABLE_LONG_TIMEOUT_MS, FABLE_PROMPT_TIMEOUT_MS, FABLE_REVIEW_TIMEOUT_MS, isBigGoal, isPendingGoal } from './conductor'
++import type { PendingState } from './conductor'
+ import { PRICE } from './cost'
+ import type { Price } from './cost'
+ import { EFFORTS, FAMILIES, applySession, avoidBlocked, codesIn, describePick, effortRank, familyOf, familyRank, sessionFloor } from './route'
+@@ -1529,10 +1530,8 @@ function mentionsGoal(prompt: string, prev: Brief, openSteps: readonly string[])
+  * còn bước mở, hay cổng duyệt đang planning hay presented, hay mục tiêu lớn chưa lập checklist. Tin ngoài lề: router xếp new, không việc,
+  * không đối chiếu, và loại answer (mọi độ sâu) hay investigate với độ sâu none hay light. Mức tin cậy không xét.
+  */
+-export function isAside(plan: Pick<RouterPlan, 'relation' | 'tasks' | 'isReference' | 'runReference' | 'kind' | 'depth'>, prev: Brief | null, state: { open: number; total: number; approval: ApprovalStatus }): boolean {
+-  if (prev === null || prev.isReference) return false
+-  const isPending = state.open > 0 || state.approval === 'planning' || state.approval === 'presented' || (isBigGoal(prev) && state.total === 0)
+-  if (!isPending) return false
++export function isAside(plan: Pick<RouterPlan, 'relation' | 'tasks' | 'isReference' | 'runReference' | 'kind' | 'depth'>, prev: Brief | null, state: PendingState): boolean {
++  if (!isPendingGoal(prev, state)) return false
+   if (plan.relation !== 'new' || plan.tasks.length > 0 || plan.isReference || plan.runReference) return false
+   return plan.kind === 'answer' || (plan.kind === 'investigate' && (plan.depth === 'none' || plan.depth === 'light'))
+ }
+@@ -1542,7 +1541,7 @@ export function nextBrief(
+   plan: RouterPlan,
+   prompt: string,
+   now: number,
+-  options: { openSteps?: readonly string[]; sessionFamily?: ModelFamily | null; doneTasks?: ReadonlySet<number> } = {},
++  options: { openSteps?: readonly string[]; sessionFamily?: ModelFamily | null; doneTasks?: ReadonlySet<number>; isPending?: boolean } = {},
+ ): { brief: Brief; added: Task[]; isNewGoal: boolean; replaced: string[]; held: boolean; dropped: number; phase?: PhaseOpened } {
+   const out = nextBriefRaw(prev, plan, prompt, now, options)
+   return { ...out, brief: withSessionFloor(out.brief, options.sessionFamily ?? null) }
+@@ -1563,15 +1562,16 @@ function nextBriefRaw(
+   plan: RouterPlan,
+   prompt: string,
+   now: number,
+-  options: { openSteps?: readonly string[]; doneTasks?: ReadonlySet<number> },
++  options: { openSteps?: readonly string[]; doneTasks?: ReadonlySet<number>; isPending?: boolean },
+ ): { brief: Brief; added: Task[]; isNewGoal: boolean; replaced: string[]; held: boolean; dropped: number; phase?: PhaseOpened } {
+   if (prev !== null && prev.isReference && plan.runReference) {
+     const brief = promoteReference(prev, plan, prompt, now)
+     return { brief, added: [], isNewGoal: true, replaced: replacedOf(prev, brief), held: false, dropped: 0 }
+   }
+   const open = options.openSteps ?? []
+-  // Mục tiêu mới tin cậy thấp khi checklist còn bước mở (0.8.0 A3): không thay checklist, mở đợt mới (thay cơ chế held của 0.7.5).
+-  const isLowNew = prev !== null && !prev.isReference && plan.relation === 'new' && open.length > 0 && (plan.confidence ?? 1) < NEW_GOAL_CONFIDENCE
++  // Mục tiêu mới tin cậy thấp khi mục tiêu đang dở (0.8.0 A3; 0.8.5 K2: `isPending` theo isPendingGoal, vắng thì checklist còn bước mở): không
++  // thay mục tiêu, mở đợt mới (thay cơ chế held của 0.7.5).
++  const isLowNew = prev !== null && !prev.isReference && plan.relation === 'new' && (options.isPending ?? open.length > 0) && (plan.confidence ?? 1) < NEW_GOAL_CONFIDENCE
+   const held = isLowNew && prev !== null && mentionsGoal(prompt, prev, open)
+   // Prompt tiếp nối có danh sách việc riêng (0.8.0 A3): từ PHASE_MIN mục danh sách và router thêm từ PHASE_MIN việc.
+   const isListed = (plan.relation === 'continue' || plan.relation === 'refine') && plan.tasks.length >= PHASE_MIN && listItems(prompt) >= PHASE_MIN
+diff --git a/claude-mods/focus-conductor/hooks/lib/state.ts b/claude-mods/focus-conductor/hooks/lib/state.ts
+index 6837166..6da0a53 100644
+--- a/claude-mods/focus-conductor/hooks/lib/state.ts
++++ b/claude-mods/focus-conductor/hooks/lib/state.ts
+@@ -7,7 +7,8 @@
+ import type { PluginOptions } from 'claude-code'
+ 
+ import type { AgentProgress, AgentState, ApprovalState, ApprovalStatus, AgentTally, ArchivedGoal, Brief, ChangedState, CheckHint, Core, FableState, ForkPart, ForkPartState, ForkState, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, RetryItem, RetryState, Route, Waiver, WaiverState, RouteEvent, RouterFail, SkillState, TurnFault, Warning } from '../../types'
+-import { restorableSteps } from './drift'
++import { openSteps, restorableSteps } from './drift'
++import { isPendingGoal } from './conductor'
+ import type { Tokens } from './cost'
+ import { addUsage, emptyLedger, nextGoal, planSwitch, resetLedger } from './ledger'
+ import { legacyOf } from './scale'
+@@ -538,9 +539,23 @@ function stubBrief(plan: readonly PlanStep[]): Brief {
+   }
+ }
+ 
+-/** Lưu mục tiêu hiện tại nếu checklist còn bước mở hoặc đang chờ (chưa có brief thì dùng brief tạm); mới nhất trước. */
++/** Mục tiêu hiện tại đang dở (0.8.5 K2) theo định nghĩa chung isPendingGoal. */
++export function pendingOf(c: Core): boolean {
++  const n = normalizeCore(c)
++  return isPendingGoal(n.brief, { open: openSteps(n.plan).length, total: n.plan.length, approval: approvalOf(n).status })
++}
++
++/** Mục tiêu đã cất còn dở (0.8.5 K2): checklist còn bước mở, hay trạng thái duyệt lúc cất, hay mục tiêu lớn chưa có checklist. */
++export function archivedPending(a: ArchivedGoal): boolean {
++  return isPendingGoal(a.brief, { open: openSteps(a.plan).length, total: a.plan.length, approval: 'none' })
++}
++
++/**
++ * Lưu mục tiêu hiện tại nếu checklist còn bước mở hoặc đang chờ, hay mục tiêu đang dở dù chưa có checklist (0.8.5 K2); chưa có brief thì
++ * dùng brief tạm; mới nhất trước.
++ */
+ function archiveOf(n: Core): ArchivedGoal[] {
+-  if (restorableSteps(n.plan).length === 0) return n.archived
++  if (restorableSteps(n.plan).length === 0 && !pendingOf(n)) return n.archived
+   const brief = n.brief ?? stubBrief(n.plan)
+   return [{ brief, plan: n.plan }, ...n.archived.filter(a => n.brief === null || a.brief.goalId !== n.brief.goalId)].slice(0, ARCHIVE_LIMIT)
+ }
+diff --git a/claude-mods/focus-conductor/hooks/lib/text.ts b/claude-mods/focus-conductor/hooks/lib/text.ts
+index 1530304..c4ab7f0 100644
+--- a/claude-mods/focus-conductor/hooks/lib/text.ts
++++ b/claude-mods/focus-conductor/hooks/lib/text.ts
+@@ -155,6 +155,14 @@ export function droppedPlanNotice(open: readonly PlanStep[]): string {
+   )
+ }
+ 
++/**
++ * Mục tiêu cũ đang dở chưa có checklist (0.8.5 K2) đã được lưu vì prompt này được xếp là mục tiêu mới: lấy lại bằng tin bảo chạy tiếp hay
++ * plan action "restore". Một dòng, tối đa 300 ký tự.
++ */
++export function droppedGoalNotice(goal: string): string {
++  return `[focus-conductor] Mục tiêu cũ chưa có checklist "${clipItem(goal, 100)}" đã được lưu vì prompt này được xếp là mục tiêu mới; lấy lại bằng tin bảo chạy tiếp hay ${PLAN_TOOL_FULL} action "restore".`
++}
++
+ /** Dòng nhắc bước waiting hoặc blocked khi làm tiếp mục tiêu: các bước đó không chặn Stop nên phải được đặt lại thì mới được theo dõi. */
+ function pendingLine(plan: readonly PlanStep[]): string {
+   const pending = pendingSteps(plan)
+@@ -335,6 +343,11 @@ export function restoreResumeContext(goal: string, next: PlanStep | undefined):
+   return `[focus-conductor] Tin bảo chạy tiếp: đã quay lại mục tiêu đã cất "${clipItem(goal, 120)}"; chạy tiếp từ ${next !== undefined ? `bước ${next.id}. ${clipItem(next.title, 80)}` : 'bước đang mở'}; không thêm việc mới.`
+ }
+ 
++/** Tin bảo chạy tiếp quay lại mục tiêu đã cất chưa có checklist (0.8.5 K2): làm tiếp mục tiêu đó từ đầu. Một dòng, tối đa 300 ký tự. */
++export function restoreGoalOnlyContext(goal: string): string {
++  return `[focus-conductor] Tin bảo chạy tiếp: đã quay lại mục tiêu đã cất "${clipItem(goal, 120)}"; mục tiêu này chưa có checklist, làm tiếp mục tiêu đó; không thêm việc mới.`
++}
++
+ /** Tin bảo chạy tiếp (0.8.2 N1, intent resume; approve khi không có kế hoạch chờ duyệt): chạy tiếp từ bước đang mở. Tối đa 300 ký tự. */
+ export function intentResumeContext(plan: readonly PlanStep[]): string {
+   const next = openSteps(plan)[0]
+diff --git a/claude-mods/focus-conductor/hooks/parts/command.ts b/claude-mods/focus-conductor/hooks/parts/command.ts
+index 2a54b66..de53528 100644
+--- a/claude-mods/focus-conductor/hooks/parts/command.ts
++++ b/claude-mods/focus-conductor/hooks/parts/command.ts
+@@ -14,7 +14,7 @@ import { askRouter, bareBrief, briefOf, failFields, nextBrief, parseRoute, rerou
+ import { shownPlan } from '../lib/mirror'
+ import * as S from '../lib/state'
+ import type { View } from '../lib/state'
+-import { RETRY_ROUNDS, WAIVE_REPORT, briefContext, checkHintLines, droppedItemsText, droppedPlanNotice, quotaStatusLines, renderPlan, resetLabel, routerFailLines, unroutedContext } from '../lib/text'
++import { RETRY_ROUNDS, WAIVE_REPORT, briefContext, checkHintLines, droppedGoalNotice, droppedItemsText, droppedPlanNotice, quotaStatusLines, renderPlan, resetLabel, routerFailLines, unroutedContext } from '../lib/text'
+ import { PANE_ROWS, shouldAutoOpenPane } from '../lib/pane'
+ import { PANE, PANE_TITLE } from '../ui/pane'
+ import { conductorLine, labels, langOf } from '../ui/labels'
+@@ -248,7 +248,8 @@ export function registerCommand(on: On, ctx: Ctx): void {
+       await update($, coreState, S.withDelegations(brief.goalId, delegationItems(brief)))
+       await autoOpenPane($, ctx, brief.goalId, now, null)
+       const dropped = restorableSteps(before.plan)
+-      const notice = dropped.length > 0 ? [droppedPlanNotice(dropped)] : []
++      // Mục tiêu đang dở chưa có checklist (0.8.5 K2) cũng được lưu qua adoptGoal: một dòng báo riêng.
++      const notice = dropped.length > 0 ? [droppedPlanNotice(dropped)] : prev !== null && S.pendingOf(before) ? [droppedGoalNotice(prev.goal)] : []
+       return {
+         text:
+           plan !== null
+diff --git a/claude-mods/focus-conductor/hooks/parts/session.ts b/claude-mods/focus-conductor/hooks/parts/session.ts
+index a1aafa3..e0ac5c2 100644
+--- a/claude-mods/focus-conductor/hooks/parts/session.ts
++++ b/claude-mods/focus-conductor/hooks/parts/session.ts
+@@ -15,7 +15,7 @@ import type { RouterOutcome, RouterPlan } from '../lib/router'
+ import { EMPTY_QUOTA, blockingHits, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaSettings, reasonsOf, softNotices } from '../lib/quota'
+ import * as S from '../lib/state'
+ import type { View } from '../lib/state'
+-import { DISCIPLINE, asideContext, conductorContext, conductorKeepText, phaseNotice, briefContext, droppedItemsText, droppedPlanNotice, followUpContext, intentResumeContext, intentStatusContext, interjectContext, interjectMovedNote, quotaPausedContext, resetLabel, resumeCommand, restorableLabel, restoreResumeContext, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
++import { DISCIPLINE, asideContext, conductorContext, conductorKeepText, phaseNotice, briefContext, droppedGoalNotice, droppedItemsText, droppedPlanNotice, followUpContext, intentResumeContext, intentStatusContext, interjectContext, interjectMovedNote, quotaPausedContext, resetLabel, resumeCommand, restorableLabel, restoreGoalOnlyContext, restoreResumeContext, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
+ import type { EngineInterface, On } from 'claude-code'
+ import type { Ctx } from '../context'
+ import { modeOf, viewOf } from '../atoms'
+@@ -349,7 +349,7 @@ export function registerSession(on: On, ctx: Ctx): void {
+     // là mục tiêu bị chính mục tiêu hiện tại thay (mục tiêu mới mang số của mục tiêu trước cộng 1): khôi phục bằng cùng đường với plan
+     // action restore. Tin chạy tiếp điểm dừng giữ ưu tiên.
+     const lastArchived = before.archived[0]
+-    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && openSteps(lastArchived.plan).length > 0 && lastArchived.brief.goalId === prev.goalId - 1
++    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && S.archivedPending(lastArchived) && lastArchived.brief.goalId === prev.goalId - 1
+     if (isBackToArchived && plan !== null && prev !== null && lastArchived !== undefined) {
+       // Khôi phục trên Core đọc ngay lúc này, không trên before (0.8.4 Z1): các lần ghi Core trước đó của prompt này (lượt Fable đạt
+       // đưa bộ đếm lỗi về 0, giảm số prompt còn tạm ngừng, hết chờ câu trả lời) không bị ghi đè.
+@@ -367,7 +367,10 @@ export function registerSession(on: On, ctx: Ctx): void {
+         const wanted = wantedPick(restored, core.lift, core, current)
+         const conductNote = wanted?.isConducting === true && core.fable.briefedGoal !== restored.goalId ? [conductorContext()] : []
+         if (conductNote.length > 0) await update($, coreState, S.withFable(() => ({ briefedGoal: restored.goalId })))
+-        return next({ ...e, context: [...lead, ...(e.context ?? []), restoreResumeContext(restored.goal, openSteps(core.plan)[0]), ...conductNote, ...tail] })
++        // Mục tiêu đã cất chưa có checklist (0.8.5 K2): một dòng riêng; đang lập kế hoạch thì kèm đoạn dặn như mọi mục tiêu planning.
++        const backLine = core.plan.length === 0 ? restoreGoalOnlyContext(restored.goal) : restoreResumeContext(restored.goal, openSteps(core.plan)[0])
++        const backPlanning = S.approvalOf(core).status === 'planning' ? [planningContext()] : []
++        return next({ ...e, context: [...lead, ...(e.context ?? []), backLine, ...conductNote, ...backPlanning, ...tail] })
+       }
+     }
+     // Tin hỏi tiến độ (0.8.2 N1): không đổi brief, checklist, việc, yêu cầu hay ràng buộc; chỉ cộng chi phí router. Tin gửi khi không có
+@@ -448,7 +451,7 @@ export function registerSession(on: On, ctx: Ctx): void {
+     // Việc đã xong theo checklist hiện tại (0.8.0 A3): có bước riêng và các bước đó đã đóng hết; được cất khi prompt này mở đợt mới. Việc chưa
+     // có bước riêng không tính là xong chỉ vì checklist đóng hết (checklist đó có thể là của đợt trước).
+     const doneTasks = new Set(taskRows(before, now).filter(row => row.index !== undefined && row.kind !== 'main' && row.state === 'done' && row.bar.kind === 'steps').map(row => row.index as number))
+-    const { brief, added, isNewGoal, replaced, held, dropped, phase } = nextBrief(prev, plan, text, now, { openSteps: openSteps(before.plan).map(s => s.title), sessionFamily: L.sessionFamily, doneTasks })
++    const { brief, added, isNewGoal, replaced, held, dropped, phase } = nextBrief(prev, plan, text, now, { openSteps: openSteps(before.plan).map(s => s.title), sessionFamily: L.sessionFamily, doneTasks, isPending: S.pendingOf(before) })
+     // Router xếp mục tiêu mới với tin cậy thấp khi checklist còn bước mở (0.7.5): giữ mục tiêu, ghi nhật ký quyết định.
+     if (held && prev !== null) {
+       L.promptIntent = { relation: 'continue', kind: plan.kind }
+@@ -552,7 +555,9 @@ export function registerSession(on: On, ctx: Ctx): void {
+     }
+     // Checklist cũ còn bước mở không bị mất: nó được lưu, Claude khôi phục được nếu router xếp nhầm mục tiêu mới.
+     const archived = isNewGoal ? restorableSteps(before.plan) : []
+-    const notice = archived.length > 0 ? [droppedPlanNotice(archived)] : []
++    // Mục tiêu đang dở chưa có checklist (0.8.5 K2) cũng được lưu: một dòng báo riêng.
++    const isGoalSaved = isNewGoal && archived.length === 0 && prev !== null && S.pendingOf(before)
++    const notice = archived.length > 0 ? [droppedPlanNotice(archived)] : isGoalSaved && prev !== null ? [droppedGoalNotice(prev.goal)] : []
+     record(now, 'route', {
+       prompt: clipText(text),
+       relation: plan.relation,
+diff --git a/claude-mods/focus-conductor/scripts/mutants.ts b/claude-mods/focus-conductor/scripts/mutants.ts
+index a621d3b..209f5c6 100644
+--- a/claude-mods/focus-conductor/scripts/mutants.ts
++++ b/claude-mods/focus-conductor/scripts/mutants.ts
+@@ -712,7 +712,7 @@ export const MUTANTS: Mutant[] = [
+   { id: "061-R4", file: "hooks/parts/consistency.ts", note: "refusal không vào danh sách việc lỗi, nên giao lại không được router chấm lại", old: "(e.reason === 'error' || e.reason === 'refusal') && meta !== undefined", new: "e.reason === 'error' && meta !== undefined" },
+   { id: "061-R5", file: "hooks/parts/consistency.ts", note: "aborted hay refusal lúc tạm dừng ghi là lỗi thay vì bị cắt", old: "return { agent: isPaused ? 'cut' : 'failed', delegation: 'failed' }", new: "return { agent: 'failed', delegation: 'failed' }" },
+   { id: "070-D1", file: "hooks/lib/state.ts", note: "checklist chưa có brief lại không được lưu", old: "  const brief = n.brief ?? stubBrief(n.plan)\n", new: "  if (n.brief === null) return n.archived\n  const brief = n.brief\n" },
+-  { id: "070-D2", file: "hooks/lib/state.ts", note: "lưu cả checklist đã đóng hết", old: "  if (restorableSteps(n.plan).length === 0) return n.archived\n  const brief", new: "  const brief" },
++  { id: "070-D2", file: "hooks/lib/state.ts", note: "lưu cả checklist đã đóng hết", old: "  if (restorableSteps(n.plan).length === 0 && !pendingOf(n)) return n.archived\n  const brief", new: "  const brief" },
+   { id: "070-D3", file: "hooks/lib/state.ts", note: "brief tạm không lấy tên mục tiêu từ bước mở đầu tiên", old: "open[0]?.title ?? 'Mục tiêu dở dang'", new: "'Mục tiêu dở dang'" },
+   { id: "070-S1", file: "hooks/lib/drift/scope.ts", note: "đường dẫn ngoài gốc phiên luôn là ngoài phạm vi, kể cả dưới mục phạm vi tuyệt đối", old: "return scopePaths.some(scope => entry(scope).startsWith('/') && isUnder(normalizePath(entry(scope)))) ? 'in' : 'out'", new: "return 'out'" },
+   { id: "070-S2", file: "hooks/lib/drift/scope.ts", note: "mục phạm vi tuyệt đối không được chuẩn hóa trước khi so", old: "isUnder(normalizePath(entry(scope)))", new: "isUnder(entry(scope))" },
+@@ -1140,11 +1140,11 @@ export const MUTANTS: Mutant[] = [
+   { id: "075-B11e", file: "hooks/parts/session.ts", note: "không cảnh báo khi thay", old: "    if (replaced.length > 0) {\n", new: "    if (false) {\n" },
+   { id: "075-B11f", file: "hooks/lib/router.ts", note: "quy định model của phiên không được bảo vệ", old: " || /(?:mo hinh|model) cua phien|session model/.test(folded)", new: "" },
+   { id: "075-B12a", file: "hooks/lib/router.ts", note: "ngưỡng tin cậy khác 0,8", old: "export const NEW_GOAL_CONFIDENCE = 0.8", new: "export const NEW_GOAL_CONFIDENCE = 0.4" },
+-  { id: "075-B12b", file: "hooks/lib/router.ts", note: "không giữ mục tiêu khi tin cậy thấp", old: "const isLowNew = prev !== null && !prev.isReference && plan.relation === 'new' && open.length > 0 && (plan.confidence ?? 1) < NEW_GOAL_CONFIDENCE", new: "const isLowNew = false" },
+-  { id: "075-B12c", file: "hooks/lib/router.ts", note: "giữ mục tiêu dù checklist không còn bước mở", old: "plan.relation === 'new' && open.length > 0 && (plan.confidence", new: "plan.relation === 'new' && (plan.confidence" },
++  { id: "075-B12b", file: "hooks/lib/router.ts", note: "không giữ mục tiêu khi tin cậy thấp", old: "const isLowNew = prev !== null && !prev.isReference && plan.relation === 'new' && (options.isPending ?? open.length > 0) && (plan.confidence ?? 1) < NEW_GOAL_CONFIDENCE", new: "const isLowNew = false" },
++  { id: "075-B12c", file: "hooks/lib/router.ts", note: "giữ mục tiêu dù checklist không còn bước mở", old: "plan.relation === 'new' && (options.isPending ?? open.length > 0) && (plan.confidence", new: "plan.relation === 'new' && (plan.confidence" },
+   { id: "075-B12d", file: "hooks/lib/router.ts", note: "không mang quy định model sang mục tiêu mới", old: "const brief = carried.length > 0 ? { ...fresh, constraints: carriedConstraints, constraintsBase: carriedConstraints.length, carriedRules: carried.length } : fresh", new: "const brief = fresh" },
+   { id: "075-B12e", file: "hooks/lib/router.ts", note: "mang quy định cũ dù prompt mới nêu quy định model", old: "!prev.isReference && !plan.constraints.some(isModelRule) ? prev.constraints", new: "!prev.isReference ? prev.constraints" },
+-  { id: "075-B12f", file: "hooks/parts/session.ts", note: "session không báo checklist còn bước mở", old: "{ openSteps: openSteps(before.plan).map(s => s.title), sessionFamily: L.sessionFamily, doneTasks }", new: "{ openSteps: [], sessionFamily: L.sessionFamily, doneTasks }" },
++  { id: "075-B12f", file: "hooks/parts/session.ts", note: "session không báo checklist còn bước mở", old: "{ openSteps: openSteps(before.plan).map(s => s.title), sessionFamily: L.sessionFamily, doneTasks, isPending: S.pendingOf(before) }", new: "{ openSteps: [], sessionFamily: L.sessionFamily, doneTasks, isPending: S.pendingOf(before) }" },
+   { id: "075-B12g", file: "hooks/parts/session.ts", note: "không ghi nhật ký lần giữ mục tiêu", old: "      record(now, 'new-held', { prompt: clipText(text), confidence: plan.confidence, goalId: prev.goalId })\n", new: "" },
+   { id: "075-B13a", file: "hooks/lib/router.ts", note: "không thử lại khi hết giờ", old: "  if (first !== null && !first.isAnswered && first.reason === 'aborted') {\n", new: "  if (false) {\n" },
+   { id: "075-B13b", file: "hooks/lib/router.ts", note: "thử lại dù hết hạn chung", old: "    if (left < RETRY_MIN_MS) return { result: null,", new: "    if (false) return { result: null," },
+@@ -1251,7 +1251,7 @@ export const MUTANTS: Mutant[] = [
+   { id: "075-M5f", file: "hooks/lib/router.ts", note: "sàn main lấy lựa chọn gần nhất thay vì main của prompt lập mục tiêu", old: "function followUpMain(prev: Brief, plan: RouterPlan, isHeld: boolean): Choice | null {\n  if (plan.main === null || (!isHeld && plan.relation !== 'continue' && plan.relation !== 'refine')) return plan.main\n  const base = prev.mainBase ?? prev.main", new: "function followUpMain(prev: Brief, plan: RouterPlan, isHeld: boolean): Choice | null {\n  if (plan.main === null || (!isHeld && plan.relation !== 'continue' && plan.relation !== 'refine')) return plan.main\n  const base = prev.main" },
+   { id: "075-M5g", file: "hooks/lib/router.ts", note: "báo chưa đạt không nâng sàn main", old: "if (isHeld || plan.relation !== 'dissatisfied' || plan.main === null) return base", new: "return base" },
+   { id: "075-M5h", file: "hooks/lib/router.ts", note: "prompt tiếp nối mất main của prompt lập mục tiêu", old: "...(mainBaseOf(prev, plan, isHeld) !== null ? { mainBase: mainBaseOf(prev, plan, isHeld) as Choice } : {}),", new: "" },
+-  { id: "075-M5i", file: "hooks/parts/session.ts", note: "session không truyền model của phiên cho nextBrief", old: "sessionFamily: L.sessionFamily, doneTasks })", new: "doneTasks })" },
++  { id: "075-M5i", file: "hooks/parts/session.ts", note: "session không truyền model của phiên cho nextBrief", old: "sessionFamily: L.sessionFamily, doneTasks, isPending: S.pendingOf(before) })", new: "doneTasks, isPending: S.pendingOf(before) })" },
+   { id: "075-M5j", file: "hooks/lib/state.ts", note: "đọc lại trạng thái làm mất main của prompt lập mục tiêu", old: "    ...(brief.mainBase ? { mainBase: brief.mainBase } : {}),\n", new: "" },
+   { id: "075-M6a", file: "hooks/lib/drift/classify.ts", note: "nguồn của mv không tính là đích ghi", old: "      if (name === 'mv') positional.forEach(add)\n", new: "" },
+   { id: "075-M6b", file: "hooks/parts/quota.ts", note: "ln được qua khi đích nằm trong danh sách", old: " && e.name !== 'ln'", new: "" },
+@@ -2117,19 +2117,23 @@ export const MUTANTS: Mutant[] = [
+   { id: "084-A1b", file: "hooks/parts/session.ts", note: "tin ngoài lề vẫn cất checklist như mục tiêu mới", old: "      if (!isInterject) L.promptIntent = { relation: 'continue', kind: 'answer' }\n      await update($, coreState, c => S.withRouterFail(null)(S.withAnalyzerUsage(outcome.usages, target.family)(c)))\n      L.lastPrompt = { text, prev, goalId: prev.goalId }\n      record(now, 'route', { prompt: clipText(text), relation: plan.relation, intent: 'aside'", new: "      if (!isInterject) L.promptIntent = { relation: 'continue', kind: 'answer' }\n      await update($, coreState, c => S.adoptGoal({ ...prev, goalId: prev.goalId + 1 })(S.withRouterFail(null)(S.withAnalyzerUsage(outcome.usages, target.family)(c))))\n      L.lastPrompt = { text, prev, goalId: prev.goalId }\n      record(now, 'route', { prompt: clipText(text), relation: plan.relation, intent: 'aside'" },
+   { id: "084-A1c", file: "hooks/lib/router.ts", note: "coi tin new có việc là ngoài lề", old: "  if (plan.relation !== 'new' || plan.tasks.length > 0 || plan.isReference || plan.runReference) return false\n", new: "  if (plan.relation !== 'new' || plan.isReference || plan.runReference) return false\n" },
+   { id: "084-A1d", file: "hooks/lib/router.ts", note: "coi investigate mọi độ sâu là ngoài lề", old: "  return plan.kind === 'answer' || (plan.kind === 'investigate' && (plan.depth === 'none' || plan.depth === 'light'))\n", new: "  return plan.kind === 'answer' || plan.kind === 'investigate'\n" },
+-  { id: "084-A1e", file: "hooks/lib/router.ts", note: "bỏ điều kiện mục tiêu đang dở", old: "  if (!isPending) return false\n", new: "" },
++  { id: "084-A1e", file: "hooks/lib/router.ts", note: "bỏ điều kiện mục tiêu đang dở", old: "  if (!isPendingGoal(prev, state)) return false\n", new: "" },
+   { id: "084-A1f", file: "hooks/parts/session.ts", note: "tin ngoài lề chen ngang không được nhận, vẫn đổi thành tiếp nối và qua followUpOf", old: "    const isAsideMsg = routed !== null && prev !== null && !isHeldAnswer && isAside(", new: "    const isAsideMsg = !isInterject && routed !== null && prev !== null && !isHeldAnswer && isAside(" },
+   { id: "084-A1h", file: "hooks/parts/session.ts", note: "tin ngoài lề chen ngang vẫn bị đổi relation thành continue (nhật ký và kế hoạch của nhánh)", old: "    const interjected = isInterject && routed !== null && routed.relation === 'new' && !isAsideMsg ? { ...routed, relation: 'continue' as const } : routed\n", new: "    const interjected = isInterject && routed !== null && routed.relation === 'new' ? { ...routed, relation: 'continue' as const } : routed\n" },
+   { id: "084-A1g", file: "hooks/parts/session.ts", note: "tin ngoài lề vẫn xóa awaitingAnswer", old: "    const approvalBefore = isAsideMsg ? approvalStored : await clearAwaiting($, approvalStored)\n", new: "    const approvalBefore = await clearAwaiting($, approvalStored)\n" },
+   { id: "084-A2a", file: "hooks/parts/session.ts", note: "không khôi phục mục tiêu đã cất khi tin bảo chạy tiếp", old: "    if (isBackToArchived && plan !== null && prev !== null && lastArchived !== undefined) {\n", new: "    if (false && isBackToArchived && plan !== null && prev !== null && lastArchived !== undefined) {\n" },
+-  { id: "084-A2b", file: "hooks/parts/session.ts", note: "khôi phục cả khi checklist hiện tại còn bước mở", old: "    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && openSteps(lastArchived.plan).length > 0 && lastArchived.brief.goalId === prev.goalId - 1\n", new: "    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && lastArchived !== undefined && openSteps(lastArchived.plan).length > 0 && lastArchived.brief.goalId === prev.goalId - 1\n" },
+-  { id: "084-A2c", file: "hooks/parts/session.ts", note: "khôi phục cả với tin hỏi tiến độ", old: "    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && openSteps(lastArchived.plan).length > 0 && lastArchived.brief.goalId === prev.goalId - 1\n", new: "    const isBackToArchived = plan !== null && prev !== null && (intent === 'resume' || intent === 'status') && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && openSteps(lastArchived.plan).length > 0 && lastArchived.brief.goalId === prev.goalId - 1\n" },
+-  { id: "084-A2d", file: "hooks/parts/session.ts", note: "khôi phục mục tiêu đã cất không còn bước mở", old: "    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && openSteps(lastArchived.plan).length > 0 && lastArchived.brief.goalId === prev.goalId - 1\n", new: "    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && lastArchived.brief.goalId === prev.goalId - 1\n" },
+-  { id: "084-A2e", file: "hooks/parts/session.ts", note: "bỏ điều kiện mục tiêu đã cất là mục tiêu bị mục tiêu hiện tại thay", old: "    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && openSteps(lastArchived.plan).length > 0 && lastArchived.brief.goalId === prev.goalId - 1\n", new: "    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && openSteps(lastArchived.plan).length > 0\n" },
++  { id: "084-A2b", file: "hooks/parts/session.ts", note: "khôi phục cả khi checklist hiện tại còn bước mở", old: "    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && S.archivedPending(lastArchived) && lastArchived.brief.goalId === prev.goalId - 1\n", new: "    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && lastArchived !== undefined && S.archivedPending(lastArchived) && lastArchived.brief.goalId === prev.goalId - 1\n" },
++  { id: "084-A2c", file: "hooks/parts/session.ts", note: "khôi phục cả với tin hỏi tiến độ", old: "    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && S.archivedPending(lastArchived) && lastArchived.brief.goalId === prev.goalId - 1\n", new: "    const isBackToArchived = plan !== null && prev !== null && (intent === 'resume' || intent === 'status') && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && S.archivedPending(lastArchived) && lastArchived.brief.goalId === prev.goalId - 1\n" },
++  { id: "084-A2d", file: "hooks/parts/session.ts", note: "khôi phục mục tiêu đã cất không còn bước mở", old: "    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && S.archivedPending(lastArchived) && lastArchived.brief.goalId === prev.goalId - 1\n", new: "    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && lastArchived.brief.goalId === prev.goalId - 1\n" },
++  { id: "084-A2e", file: "hooks/parts/session.ts", note: "bỏ điều kiện mục tiêu đã cất là mục tiêu bị mục tiêu hiện tại thay", old: "    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && S.archivedPending(lastArchived) && lastArchived.brief.goalId === prev.goalId - 1\n", new: "    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && S.archivedPending(lastArchived)\n" },
+   { id: "084-Z1a", file: "hooks/parts/session.ts", note: "nhánh A2 khôi phục trên Core đọc từ đầu prompt, ghi đè các lần ghi Core trước đó", old: "      const back = ctx.restoreGoal(S.normalizeCore(await read($, coreState)), 1)\n", new: "      const back = ctx.restoreGoal(before, 1)\n" },
+   { id: "084-Z2a", file: "hooks/parts/session.ts", note: "nhánh A2 không cộng chi phí router", old: "        await update($, coreState, () => S.withRouterFail(null)(S.withAnalyzerUsage(outcome.usages, target.family)(back.core)))\n", new: "        await update($, coreState, () => S.withRouterFail(null)(back.core))\n" },
+   { id: "084-Z2b", file: "hooks/parts/session.ts", note: "nhánh tin ngoài lề không cộng chi phí router", old: "    if (isAsideMsg && plan !== null && prev !== null) {\n      if (!isInterject) L.promptIntent = { relation: 'continue', kind: 'answer' }\n      await update($, coreState, c => S.withRouterFail(null)(S.withAnalyzerUsage(outcome.usages, target.family)(c)))\n", new: "    if (isAsideMsg && plan !== null && prev !== null) {\n      if (!isInterject) L.promptIntent = { relation: 'continue', kind: 'answer' }\n      await update($, coreState, c => S.withRouterFail(null)(c))\n" },
+   { id: "084-Z2c", file: "hooks/parts/session.ts", note: "nhánh A2 coi turn sau khi khôi phục là hỏi đáp", old: "        L.promptIntent = { relation: 'continue', kind: restored.kind }\n", new: "        L.promptIntent = { relation: 'continue', kind: 'answer' }\n" },
+   { id: "084-Z2d", file: "hooks/parts/session.ts", note: "nhánh A2 không chèn đoạn dặn điều phối", old: "        const conductNote = wanted?.isConducting === true && core.fable.briefedGoal !== restored.goalId ? [conductorContext()] : []\n", new: "        const conductNote = false && wanted?.isConducting === true && core.fable.briefedGoal !== restored.goalId ? [conductorContext()] : []\n" },
+-  { id: "084-Z2e", file: "hooks/parts/session.ts", note: "bỏ điều kiện tin không chạy tiếp điểm dừng khỏi nhánh A2", old: "    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && openSteps(lastArchived.plan).length > 0 && lastArchived.brief.goalId === prev.goalId - 1\n", new: "    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && openSteps(before.plan).length === 0 && lastArchived !== undefined && openSteps(lastArchived.plan).length > 0 && lastArchived.brief.goalId === prev.goalId - 1\n" },
++  { id: "084-Z2e", file: "hooks/parts/session.ts", note: "bỏ điều kiện tin không chạy tiếp điểm dừng khỏi nhánh A2", old: "    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && S.archivedPending(lastArchived) && lastArchived.brief.goalId === prev.goalId - 1\n", new: "    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && openSteps(before.plan).length === 0 && lastArchived !== undefined && S.archivedPending(lastArchived) && lastArchived.brief.goalId === prev.goalId - 1\n" },
++  { id: "085-K2a", file: "hooks/lib/state.ts", note: "archiveOf chỉ cất khi còn bước mở", old: "  if (restorableSteps(n.plan).length === 0 && !pendingOf(n)) return n.archived\n", new: "  if (restorableSteps(n.plan).length === 0) return n.archived\n" },
++  { id: "085-K2b", file: "hooks/lib/router.ts", note: "isLowNew chỉ xét bước mở", old: "(options.isPending ?? open.length > 0)", new: "open.length > 0" },
++  { id: "085-K2c", file: "hooks/parts/session.ts", note: "khôi phục bỏ qua mục tiêu đã cất không có checklist", old: "lastArchived !== undefined && S.archivedPending(lastArchived) && lastArchived.brief.goalId === prev.goalId - 1\n", new: "lastArchived !== undefined && openSteps(lastArchived.plan).length > 0 && lastArchived.brief.goalId === prev.goalId - 1\n" },
++  { id: "085-K2d", file: "hooks/lib/state.ts", note: "cất cả mục tiêu không dở", old: "  if (restorableSteps(n.plan).length === 0 && !pendingOf(n)) return n.archived\n", new: "  if (n.brief === null && restorableSteps(n.plan).length === 0) return n.archived\n" },
+ ]
+diff --git a/claude-mods/focus-conductor/tests/integration/pending-k2-085.test.ts b/claude-mods/focus-conductor/tests/integration/pending-k2-085.test.ts
+new file mode 100644
+index 0000000..bcc8a88
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/integration/pending-k2-085.test.ts
+@@ -0,0 +1,133 @@
++// 0.8.5 K2: mục tiêu đang dở chưa có checklist (mục tiêu lớn vừa lập, cổng duyệt đang planning) bị một mục tiêu mới thay thì được cất như
++// checklist còn bước mở: một dòng báo đã lưu, tin bảo chạy tiếp hay plan action restore lấy lại được. Router trả new tin cậy thấp khi mục
++// tiêu đang dở thì giữ mục tiêu như luật cũ của checklist còn bước mở. /conductor goal đi cùng đường adoptGoal. Mục tiêu không dở (light
++// chưa có checklist, mục tiêu lớn đã đóng hết) thì như 0.8.4. Áp cho conductor mặc định và conductor fable, planApproval mặc định.
++
++import { describe, expect, test } from 'claude-code/testing'
++import type { Engine } from 'claude-code/testing'
++import type { On } from 'claude-code'
++import { base, conductor, plan, submit } from '../support/engine'
++import type { Json, Seen } from '../support/engine'
++
++const PLAN = 'mcp__focus-conductor__plan'
++const LOG = '/tmp/fc-pending-k2-085.jsonl'
++const MAIN = { model: 'sonnet', effort: 'medium', why: '' }
++const A = 'Sửa luồng thanh toán'
++const RULE = 'Không đổi API công khai'
++const REQ = 'Sửa hàm phí'
++const BIG = (over: Json = {}) => plan({ goal: A, depth: 'substantial', volume: 'medium', kind: 'edit', main: MAIN, requirements: [REQ], constraints: [RULE], ...over })
++const NEW = (goal: string, confidence = 0.97, over: Json = {}) => plan({ relation: 'new', intent: 'task', confidence, goal, depth: 'light', volume: 'small', kind: 'edit', main: { model: 'sonnet', effort: 'low', why: '' }, ...over })
++const RESUME = plan({ relation: 'continue', intent: 'resume', goal: '', depth: 'light', volume: 'small', kind: 'edit', main: MAIN })
++const OPTIONS = [
++  ['conductor mặc định', { decisionLog: LOG }],
++  ['conductor fable', { conductor: 'fable', decisionLog: LOG }],
++] as const
++const show = async ($: Engine) => String((await $.tool.call({ tool: PLAN, action: 'show' } as never)).result)
++const restore = ($: Engine, index?: number) => $.tool.call({ tool: PLAN, action: 'restore', ...(index !== undefined ? { index } : {}) } as never) as Promise<{ deny?: string; result?: string }>
++const lastContext = (seen: Seen) => seen.contexts.at(-1) ?? []
++const setPlan = ($: Engine, titles: string[]) => $.tool.call({ tool: PLAN, action: 'set', steps: titles.map(title => ({ title })) } as never)
++const mark = ($: Engine, id: number, status: string) => $.tool.call({ tool: PLAN, action: 'update', step: id, status } as never) as Promise<{ result?: string }>
++/** Dòng báo đã lưu mục tiêu cũ (checklist còn bước mở hay mục tiêu chưa có checklist). */
++const savedLines = (seen: Seen) => lastContext(seen).filter(c => c.startsWith('[focus-conductor]') && c.includes('đã được lưu'))
++
++/** Router giả trả lần lượt các câu trả lời (câu cuối lặp lại); lượt rà kế hoạch trả sạch. */
++function setup(on: On, replies: Json[]) {
++  let n = 0
++  const seen: Seen = base(on, {
++    router: request => (request.startsWith('Requirements:') ? { missing: [], extra: [], issues: [] } : (replies[Math.min(n++, replies.length - 1)] ?? null)),
++  })
++  on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
++  on('turn.complete', () => ({ text: '' }))
++  on('classic.Stop', () => ({}))
++  const writes: string[] = []
++  on('fs.write', (_$, e) => {
++    writes.push(e.text)
++    return { value: undefined }
++  })
++  const lines = () => (writes[writes.length - 1] ?? '').trim().split('\n').filter(Boolean).map(line => JSON.parse(line) as Record<string, unknown>)
++  return { seen, lines }
++}
++
++describe('0.8.5 K2: mục tiêu đang dở chưa có checklist bị thay thì được cất', () => {
++  for (const [name, opts] of OPTIONS) {
++    test(`${name}: tin cậy 0,97: mục tiêu mới lập, mục tiêu lớn được cất với một dòng báo; B đóng hết, tiếp tục đưa mục tiêu lớn trở lại giữ goal, yêu cầu, ràng buộc`, { options: opts }, async ($, on) => {
++      const { seen } = setup(on, [BIG(), NEW('Sửa chú thích'), RESUME, NEW('Câu hỏi thử', 0.97)])
++      await submit($, A)
++      await submit($, 'Sửa chú thích README')
++      expect(await show($)).toContain('Mục tiêu: Sửa chú thích')
++      expect(savedLines(seen).length).toBe(1)
++      await setPlan($, ['Sửa chú thích'])
++      await mark($, 1, 'done')
++      await submit($, 'tiếp tục')
++      expect(await show($)).toContain(`Mục tiêu: ${A}`)
++      expect(lastContext(seen).some(c => c.startsWith('[focus-conductor] Tin bảo chạy tiếp: đã quay lại'))).toBe(true)
++      // Brief của mục tiêu lớn giữ nguyên: router của prompt kế tiếp đọc lại goal và ràng buộc; lần đóng bước cuối nhắc yêu cầu.
++      await submit($, 'việc sau')
++      const request = seen.routed.at(-1) ?? ''
++      expect(request).toContain(A)
++      expect(request).toContain(RULE)
++    })
++
++    test(`${name}: tiếp tục khôi phục mục tiêu lớn: yêu cầu của nó còn nguyên`, { options: opts }, async ($, on) => {
++      setup(on, [BIG(), NEW('Sửa chú thích'), RESUME])
++      await submit($, A)
++      await submit($, 'Sửa chú thích README')
++      await setPlan($, ['Sửa chú thích'])
++      await mark($, 1, 'done')
++      await submit($, 'tiếp tục')
++      expect(await show($)).toContain(`Mục tiêu: ${A}`)
++      await setPlan($, ['Sửa hàm phí'])
++      expect(String((await mark($, 1, 'done')).result ?? '')).toContain(REQ)
++    })
++
++    test(`${name}: tin cậy 0,5: mục tiêu lớn được giữ, không lập mục tiêu mới`, { options: opts }, async ($, on) => {
++      const { lines } = setup(on, [BIG(), NEW('Sửa chú thích', 0.5)])
++      await submit($, A)
++      await submit($, 'Sửa chú thích README')
++      expect(await show($)).toContain(`Mục tiêu: ${A}`)
++      expect(lines().filter(l => l['kind'] === 'route').at(-1)?.['relation']).toBe('new')
++      expect(String((await restore($)).deny ?? '')).toBe('Không có mục tiêu cũ nào đang được lưu để khôi phục.')
++    })
++
++    test(`${name}: /conductor goal Việc khác: mục tiêu lớn được cất, plan restore lấy lại được`, { options: opts }, async ($, on) => {
++      setup(on, [BIG(), NEW('Việc khác')])
++      await submit($, A)
++      await conductor($, 'goal Việc khác')
++      expect(await show($)).toContain('Mục tiêu: Việc khác')
++      const back = await restore($)
++      expect(back.deny).toBeUndefined()
++      expect(await show($)).toContain(`Mục tiêu: ${A}`)
++    })
++  }
++
++  test('mục tiêu light chưa có checklist, không thuộc diện duyệt: bị thay thì không cất', { options: OPTIONS[0][1] }, async ($, on) => {
++    const { seen } = setup(on, [plan({ goal: 'Sửa phí', depth: 'light', volume: 'small', kind: 'edit' }), NEW('Sửa chú thích')])
++    await submit($, 'Sửa phí')
++    await submit($, 'Sửa chú thích README')
++    expect(await show($)).toContain('Mục tiêu: Sửa chú thích')
++    expect(savedLines(seen).length).toBe(0)
++    expect(String((await restore($)).deny ?? '')).toBe('Không có mục tiêu cũ nào đang được lưu để khôi phục.')
++  })
++
++  test('mục tiêu lớn đã đóng hết checklist: bị thay thì không cất', { options: { planApproval: 'off', decisionLog: LOG } }, async ($, on) => {
++    const { seen } = setup(on, [BIG(), NEW('Sửa chú thích')])
++    await submit($, A)
++    await setPlan($, ['Sửa hàm phí'])
++    await mark($, 1, 'done')
++    await submit($, 'Sửa chú thích README')
++    expect(await show($)).toContain('Mục tiêu: Sửa chú thích')
++    expect(savedLines(seen).length).toBe(0)
++    expect(String((await restore($)).deny ?? '')).toBe('Không có mục tiêu cũ nào đang được lưu để khôi phục.')
++  })
++
++  test('bốn mục tiêu đang dở lần lượt bị thay: danh sách đã cất giữ 3 mục gần nhất', { options: OPTIONS[0][1] }, async ($, on) => {
++    const goals = ['Việc một', 'Việc hai', 'Việc ba', 'Việc bốn']
++    setup(on, [...goals.map(goal => BIG({ goal })), NEW('Việc năm')])
++    for (const goal of goals) await submit($, goal)
++    await submit($, 'Việc năm')
++    expect(await show($)).toContain('Mục tiêu: Việc năm')
++    expect(String((await restore($, 4)).deny ?? '')).toContain('Chỉ có 3 mục tiêu đã lưu')
++    expect((await restore($, 1)).deny).toBeUndefined()
++    expect(await show($)).toContain('Mục tiêu: Việc bốn')
++  })
++})
