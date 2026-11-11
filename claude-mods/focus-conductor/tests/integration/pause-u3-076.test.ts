@@ -22,7 +22,7 @@ function hooks(on: On) {
 }
 
 async function bandRows($: Engine, columns: number, maxRows: number) {
-  const ui = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows, bodyColumns: columns, scroll: { offset: 0, bodyRows: maxRows }, view: {} } } as never)
+  const ui = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows, bodyColumns: columns, scroll: { offset: 0, bodyRows: maxRows }, view: {} } } as never)
   const tree = (await ui.drawn()) as unknown as Node
   await ui.unmount()
   const content = (tree.children ?? []).filter(c => c !== null && typeof c === 'object')[1] as Node

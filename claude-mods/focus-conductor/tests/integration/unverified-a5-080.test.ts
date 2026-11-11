@@ -11,7 +11,7 @@ import { bash as bashCall, edit as editCall, makeBrief } from '../support/comman
 import { PANE, base, plan, spawnTool, submit } from '../support/engine'
 import type { Json, Seen } from '../support/engine'
 
-const BAND = { plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: true, maxRows: 6, bodyColumns: 160, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as const
+const BAND = { plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: true, maxRows: 6, bodyColumns: 160, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as const
 const PLAN = 'mcp__focus-conductor__plan'
 const GOAL = plan({ goal: 'Sửa hàm tính phí', depth: 'substantial', volume: 'medium', main: { model: 'sonnet', effort: 'medium' } })
 const router = (request: string): Json => (request.startsWith('làm tiếp') ? { ...GOAL, relation: 'continue', kind: 'mixed' } : GOAL)

@@ -5,7 +5,7 @@ import type { Engine } from 'claude-code/testing'
 import { COMPLEX_PROMPT, base, submit } from '../support/engine'
 import { RESUME } from '../support/quota'
 
-const bandProps = { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 120, scroll: { offset: 0, bodyRows: 6 }, view: {} }
+const bandProps = { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: 120, scroll: { offset: 0, bodyRows: 6 }, view: {} }
 
 /** Band ẩn thì mod nhường cho engine; khung test không có band của engine nên mount báo lỗi, coi là không hiện. */
 async function isShown($: Engine, goal: RegExp) {

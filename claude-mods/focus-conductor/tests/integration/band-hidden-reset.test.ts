@@ -6,7 +6,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import { COMPLEX_PROMPT, PANE, base, conductor, plan, submit } from '../support/engine'
 
-const bandProps = { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 120, scroll: { offset: 0, bodyRows: 6 }, view: {} }
+const bandProps = { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: 120, scroll: { offset: 0, bodyRows: 6 }, view: {} }
 const mountBand = ($: Engine) => $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: bandProps })
 
 /** Nút Ẩn trên band: band biến mất (không còn nút Chi tiết). */

@@ -67,7 +67,7 @@ async function runningLine($: Engine, columns: number, heading: RegExp): Promise
   return texts.slice(at + 1).find(t => t.startsWith('BƯỚC 2')) ?? ''
 }
 
-const BAND_PROPS = { hasSurvey: false, isWorking: true, maxRows: 2, bodyColumns: 120, scroll: { offset: 0, bodyRows: 2 }, view: {} }
+const BAND_PROPS = { hasSurvey: false, isCollapsed: false, isWorking: true, maxRows: 2, bodyColumns: 120, scroll: { offset: 0, bodyRows: 2 }, view: {} }
 const mountBand = ($: Engine) => $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS } as never)
 
 /** Thời gian đã chạy của mục tiêu trên dòng 1 của band ("<1 phút", "3 phút"). */

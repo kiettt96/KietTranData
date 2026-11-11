@@ -27,7 +27,7 @@ async function bandTexts($: Engine, surface: (typeof BAND_SURFACES)[number]) {
     plugin: 'focus-conductor',
     surface,
     component: 'AbovePrompt',
-    props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 120, scroll: { offset: 0, bodyRows: 6 }, view: {} },
+    props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: 120, scroll: { offset: 0, bodyRows: 6 }, view: {} },
   })
   expect(await band.drawn()).toMatchObject({ type: 'Box' })
   const texts = (await band.findAll({ type: 'Text' })).map(e => e.text)

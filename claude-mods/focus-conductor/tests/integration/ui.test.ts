@@ -14,7 +14,7 @@ describe('giao diện', () => {
         plugin: 'focus-conductor',
         surface,
         component: 'AbovePrompt',
-        props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 120, scroll: { offset: 0, bodyRows: 6 }, view: {} },
+        props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: 120, scroll: { offset: 0, bodyRows: 6 }, view: {} },
       })
       expect(await ui.find({ type: 'Text', text: /Refactor module thanh toán/ })).toBeDefined()
       expect(await ui.find({ key: 'details' })).toBeDefined()
@@ -42,7 +42,7 @@ describe('giao diện', () => {
       plugin: 'focus-conductor',
       surface: 'terminal',
       component: 'AbovePrompt',
-      props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: columns, scroll: { offset: 0, bodyRows: 6 }, view: {} },
+      props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: columns, scroll: { offset: 0, bodyRows: 6 }, view: {} },
     })
     // Text ngoài chứa các đoạn tô màu nên cũng khớp khi cả thanh chỉ có một đoạn (đầy); lấy đoạn có màu.
     const fill = (await band.findAll({ type: 'Text', text: /^━+$/ })).find(e => e.props.color !== undefined)
@@ -140,7 +140,7 @@ describe('giao diện', () => {
       plugin: 'focus-conductor',
       surface: 'terminal',
       component: 'AbovePrompt',
-      props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 120, scroll: { offset: 0, bodyRows: 6 }, view: {} },
+      props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: 120, scroll: { offset: 0, bodyRows: 6 }, view: {} },
     })
     expect(await band.find({ type: 'Text', text: /^━+$/ })).toBeUndefined()
     expect(await band.find({ type: 'Text', text: /^(○ )*○ ?$/ })).toBeDefined()

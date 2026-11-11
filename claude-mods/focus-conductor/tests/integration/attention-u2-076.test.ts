@@ -10,7 +10,7 @@ import * as S from '../../hooks/lib/state'
 import { makeBrief } from '../support/commands'
 import { PANE, base, plan, submit, task } from '../support/engine'
 
-const BAND = { plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: true, maxRows: 6, bodyColumns: 160, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as const
+const BAND = { plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: true, maxRows: 6, bodyColumns: 160, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as const
 const PLAN = 'mcp__focus-conductor__plan'
 
 async function bandTexts($: Engine) {

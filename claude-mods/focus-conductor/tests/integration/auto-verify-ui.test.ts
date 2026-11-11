@@ -63,7 +63,7 @@ describe('0.7.0 5: band và pane trên engine', () => {
       plugin: 'focus-conductor',
       surface: 'terminal',
       component: 'AbovePrompt',
-      props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 120, scroll: { offset: 0, bodyRows: 6 }, view: {} },
+      props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: 120, scroll: { offset: 0, bodyRows: 6 }, view: {} },
     })
     const texts = (await band.findAll({ type: 'Text' })).map(e => e.text)
     await band.unmount()

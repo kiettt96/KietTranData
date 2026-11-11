@@ -24,7 +24,7 @@ function hooks(on: On) {
   on('tool.call', { tool: 'TaskUpdate' }, (_$, e) => ({ result: { success: true, taskId: (e as unknown as { taskId: string }).taskId, updatedFields: ['status'] } }) as never)
   on('tool.call', { tool: 'TodoWrite' }, (_$, e) => ({ result: { oldTodos: [], newTodos: (e as unknown as { todos: Todo[] }).todos } }) as never)
 }
-const bandProps = { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 120, scroll: { offset: 0, bodyRows: 6 }, view: {} }
+const bandProps = { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: 120, scroll: { offset: 0, bodyRows: 6 }, view: {} }
 const mountBand = ($: Engine) => $.ui.mount({ plugin: 'focus-conductor', surface: 'desktop', component: 'AbovePrompt', props: bandProps })
 const edit = ($: Engine) => $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' } as never)
 const bash = ($: Engine, command: string) => $.tool.call({ tool: 'Bash', command } as never)
