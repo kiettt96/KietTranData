@@ -960,8 +960,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     const pending = pendingFor(core.brief, shownPlan(core).plan)
     const planFile = isPlanFile(filePathOf(observation))
     // Mặc định nhắc một lần ở lần sửa file đầu tiên; strictDelegation remind/block nhắc ở mọi lần thay đổi (kể cả lệnh ghi file).
-    // Luồng chính điều phối (0.8.5 D1): nhắc ở mọi lần thay đổi như block, kể cả sau khi hết lượt chặn.
-    const isStrict = strictDelegation !== 'off' || (e.agentId === undefined && isConductingNow(core, await read($, mode)))
+    const isStrict = strictDelegation !== 'off'
     const isChange = isStrict ? isMutation(observation) : EDIT_TOOLS.has(e.tool)
     const nudge =
       isChange && !planFile && !observation.isError && pending.length > 0 && (isStrict || !L.delegation.isNudged)

@@ -1,6 +1,6 @@
 // 0.8.5 D1: khi luồng chính đang giữ vai điều phối cho mục tiêu hiện tại, mức strictDelegation hiệu dụng là block (option off hay remind):
-// sửa file trong khi còn việc ghi giao subagent chưa giao bị từ chối tối đa blockLimit lần mỗi mục tiêu, sau đó mọi lần thay đổi kèm lời
-// nhắc. Không điều phối thì theo option như 0.8.4. File kế hoạch không bị từ chối.
+// sửa file trong khi còn việc ghi giao subagent chưa giao bị từ chối tối đa blockLimit lần mỗi mục tiêu; lời nhắc sau đó theo option
+// strictDelegation như 0.8.4 (mặc định nhắc một lần). Không điều phối thì theo option như 0.8.4. File kế hoạch không bị từ chối.
 
 import { describe, expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
@@ -25,7 +25,7 @@ function setup(on: On, reply: Json) {
 }
 
 describe('0.8.5 D1: luồng chính điều phối không tự sửa file khi còn việc chưa giao', () => {
-  test('blockLimit mặc định: hai lần Edit đầu bị từ chối, lần ba và lần bốn được chạy kèm lời nhắc', FABLE, async ($, on) => {
+  test('blockLimit mặc định: hai lần Edit đầu bị từ chối, lần ba được chạy kèm lời nhắc, lần bốn không kèm', FABLE, async ($, on) => {
     setup(on, BIG)
     await submit($, A)
     expect(String((await edit($)).deny ?? '')).toContain('Còn việc ghi giao subagent chưa giao')
@@ -35,7 +35,7 @@ describe('0.8.5 D1: luồng chính điều phối không tự sửa file khi cò
     expect(nudged(third)).toBe(true)
     const fourth = await edit($)
     expect(fourth.deny).toBeUndefined()
-    expect(nudged(fourth)).toBe(true)
+    expect(nudged(fourth)).toBe(false)
   })
 
   test('đã giao hết việc bằng Agent: Edit ở luồng chính không bị từ chối', FABLE, async ($, on) => {
