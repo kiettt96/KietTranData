@@ -7,7 +7,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import type { PlanStep } from '../../types'
-import { restoreResumeContext } from '../../hooks/lib/text'
+import { conductorContext, restoreResumeContext } from '../../hooks/lib/text'
 import { base, conductor, plan, step, submit } from '../support/engine'
 import type { Json, Seen } from '../support/engine'
 
@@ -236,5 +236,69 @@ describe('0.8.4 Z1: khôi phục bằng tiếp tục giữ các lần ghi Core t
     await say($, now, 'tới đâu rồi', STATUS)
     await say($, now, 'tới đâu rồi', STATUS)
     expect(promptModels(seen).slice(before)).toEqual(['sonnet', FABLE_ID])
+  })
+})
+
+// 0.8.4 Z2 (vòng 5 PR 37): ghim bốn hành vi của nhánh A2 chưa có test: chi phí router, turn sau khi khôi phục là turn thực thi, đoạn dặn
+// điều phối của mục tiêu lớn được khôi phục, tin chạy tiếp điểm dừng giữ ưu tiên.
+/** Dòng sổ của /conductor status: tiền và số lượt router của phiên. */
+function routerLedger(status: string) {
+  const match = /router <?\$([0-9,]+) trong ([0-9]+) lượt/.exec(status)
+  return { usd: Number((match?.[1] ?? '').replace(',', '.')), calls: Number(match?.[2] ?? Number.NaN) }
+}
+
+describe('0.8.4 Z2: các hành vi của nhánh A2', () => {
+  for (const [name, opts] of OPTIONS) {
+    test(`${name}: tiếp tục có khôi phục: số lượt router tăng đúng 1 và tiền router tăng`, { options: opts }, async ($, on) => {
+      const { seen } = setup(on, [BIG(), NEW('Sửa chú thích'), RESUME])
+      await goalA($, seen)
+      await goalB($, true)
+      const before = routerLedger(await statusText($))
+      await submit($, 'tiếp tục')
+      expect(await show($)).toContain(`Mục tiêu: ${A}`)
+      const after = routerLedger(await statusText($))
+      expect(after.calls).toBe(before.calls + 1)
+      // Status làm tròn tới cent: một lượt router sonnet giả không đổi số hiện, một lượt Fable thì có.
+      if (expectedMain(opts).includes('fable')) expect(after.usd).toBeGreaterThan(before.usd)
+      else expect(after.usd).toBeGreaterThanOrEqual(before.usd)
+    })
+
+    test(`${name}: turn sau khi khôi phục là turn thực thi: Stop chặn vì checklist của A còn bước mở`, { options: { ...opts, enforceChecklist: true } }, async ($, on) => {
+      const { seen } = setup(on, [BIG(), NEW('Sửa chú thích'), RESUME])
+      // Một tool call chỉ đọc: turn thực thi theo ý của prompt (turn hỏi đáp thì không bị checklist chặn).
+      on('tool.call', { tool: 'Read' }, () => ({ result: 'nội dung' }))
+      await goalA($, seen)
+      await goalB($, true)
+      await submit($, 'tiếp tục')
+      expect(await show($)).toContain(`Mục tiêu: ${A}`)
+      await $.turn.start({ text: 'tiếp tục', turnId: 't4' })
+      await $.tool.call({ tool: 'Read', file_path: 'src/phi.ts' } as never)
+      expect(await stop($)).toContain('Thêm test')
+    })
+
+    test(`${name}: đoạn dặn điều phối khi khôi phục mục tiêu lớn: fable có đúng một lần, tin tiếp tục kế tiếp không lặp; mặc định không có`, { options: opts }, async ($, on) => {
+      const { seen } = setup(on, [BIG(), NEW('Sửa chú thích'), RESUME])
+      await goalA($, seen)
+      await goalB($, true)
+      await submit($, 'tiếp tục')
+      expect(await show($)).toContain(`Mục tiêu: ${A}`)
+      expect(lastContext(seen).filter(c => c === conductorContext()).length).toBe(expectedMain(opts).includes('fable') ? 1 : 0)
+      await submit($, 'tiếp tục')
+      expect(await show($)).toContain(`Mục tiêu: ${A}`)
+      expect(lastContext(seen).filter(c => c === conductorContext()).length).toBe(0)
+    })
+  }
+
+  test('điểm dừng đang mở và vừa gõ /conductor resume: tin kế tiếp chạy tiếp điểm dừng, không khôi phục mục tiêu đã cất', { options: OPTIONS[0][1] }, async ($, on) => {
+    const { seen, lines } = setup(on, [BIG(), NEW('Sửa chú thích'), RESUME])
+    await goalA($, seen)
+    await goalB($, true)
+    await conductor($, 'pause')
+    expect(String((await $.tool.call({ tool: PLAN, action: 'checkpoint', note: 'Tiếp: rà lại chú thích.' } as never)).result ?? '')).toContain('Đã ghi điểm dừng')
+    await conductor($, 'resume')
+    await submit($, 'tiếp tục')
+    expect((lastContext(seen)[0] ?? '')).toContain('ĐIỂM DỪNG')
+    expect(await show($)).toContain('Mục tiêu: Sửa chú thích')
+    expect(lines().some(l => l['kind'] === 'restore' && l['cause'] === 'resume')).toBe(false)
   })
 })

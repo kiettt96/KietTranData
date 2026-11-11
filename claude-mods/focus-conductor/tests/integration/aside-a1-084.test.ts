@@ -282,3 +282,27 @@ describe('0.8.4 A1: isAside thuần', () => {
     expect(asideContext(true, STEP1)).not.toBe(asideContext(false, STEP1))
   })
 })
+
+// 0.8.4 Z2 (vòng 5 PR 37): ghim chi phí router của tin ngoài lề.
+/** Dòng sổ của /conductor status: tiền và số lượt router của phiên. */
+function routerLedger(status: string) {
+  const match = /router <?\$([0-9,]+) trong ([0-9]+) lượt/.exec(status)
+  return { usd: Number((match?.[1] ?? '').replace(',', '.')), calls: Number(match?.[2] ?? Number.NaN) }
+}
+
+describe('0.8.4 Z2: tin ngoài lề vẫn cộng chi phí router', () => {
+  for (const [name, opts] of OPTIONS) {
+    test(`${name}: sau một tin ngoài lề, số lượt router tăng đúng 1 và tiền router tăng`, { options: opts }, async ($, on) => {
+      const { seen } = setup(on, [BIG(), ASIDE()])
+      await firstTurn($, seen)
+      const before = routerLedger(await statusText($))
+      await submit($, 'git rebase là gì vậy')
+      expect(await show($)).toContain('Mục tiêu: Sửa luồng thanh toán')
+      const after = routerLedger(await statusText($))
+      expect(after.calls).toBe(before.calls + 1)
+      // Status làm tròn tới cent: một lượt router sonnet giả không đổi số hiện, một lượt Fable thì có.
+      if (isFable(opts)) expect(after.usd).toBeGreaterThan(before.usd)
+      else expect(after.usd).toBeGreaterThanOrEqual(before.usd)
+    })
+  }
+})
