@@ -411,3 +411,23 @@ describe('0.8.5 D3: việc chen vào không có checklist', () => {
     expect(await show($)).toContain('Mục tiêu: Sửa chú thích')
   })
 })
+
+// 0.8.5 K4: tin bảo chạy tiếp chen ngang giữa turn khôi phục mục tiêu lớn: turn đang chạy giữ model của nó, nên không chèn đoạn dặn điều
+// phối và không ghi briefedGoal; prompt kế tiếp ngoài turn chèn đoạn dặn theo cơ chế hiện có.
+describe('0.8.5 K4: khôi phục giữa turn không chèn đoạn dặn điều phối', () => {
+  test('tin tiếp tục chen ngang khôi phục A: không có đoạn dặn; prompt tiếp tục kế tiếp ngoài turn có đúng một đoạn dặn; turn mới chạy fable/medium', { options: FABLE_OPTS }, async ($, on) => {
+    const { seen } = setup(on, [BIG(), NEW('Sửa chú thích'), RESUME])
+    await goalA($, seen)
+    await goalB($, true)
+    await $.turn.start({ text: 'sửa', turnId: 't2' })
+    expect(pick(await step($, seen, { turnId: 't2' }))).toBe('claude-sonnet-5-5/low')
+    await $.prompt.submit({ text: 'tiếp tục', wait: false, turnId: 't2', origin: { kind: 'composer' } } as never)
+    expect(await show($)).toContain(`Mục tiêu: ${A}`)
+    expect(lastContext(seen).filter(c => c === conductorContext()).length).toBe(0)
+    await $.turn.complete({ turnId: 't2', answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer' } as never)
+    await submit($, 'tiếp tục')
+    expect(lastContext(seen).filter(c => c === conductorContext()).length).toBe(1)
+    await $.turn.start({ text: 'làm', turnId: 't3' })
+    expect(pick(await step($, seen, { turnId: 't3' }))).toBe('claude-fable-5-2/medium')
+  })
+})
