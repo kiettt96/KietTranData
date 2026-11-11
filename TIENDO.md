@@ -16,3 +16,5 @@ Nhánh làm việc `claude/focus-conductor-0-8-5`, tách từ `main` `87023af`. 
 - K7: test đỏ (1/3); sửa ở commit kế; mẫu K7a 1 đỏ, K7b 1.
 - D1: test đỏ (1/5); sửa ở commit kế; mẫu D1a, D1b, D1c mỗi mẫu 1 đỏ. Cả bộ sau K7: 3227 đạt.
 - D2: test đỏ (1/4); sửa ở commit kế; mẫu D2a 1 đỏ, D2b 1 (D2b bỏ cả needsApproval và vế độ sâu, vì brief tiếp nối lấy độ sâu của router).
+- K9: không sửa mã; trường model của Agent là enum alias ở cả 2.1.296 và 2.1.322 (chuỗi trong binary).
+- K10: test đỏ (2/3); sửa ở commit kế; mẫu K10a 3 đỏ; viết lại 084-C6c (6), 084-W4d (5); ca C1 đổi kỳ vọng.

@@ -1,3 +1,27 @@
+diff --git a/claude-mods/focus-conductor/hooks/context.ts b/claude-mods/focus-conductor/hooks/context.ts
+index 815f4e6..4e3b300 100644
+--- a/claude-mods/focus-conductor/hooks/context.ts
++++ b/claude-mods/focus-conductor/hooks/context.ts
+@@ -121,8 +121,6 @@ export function createContext(options: PluginOptions) {
+     sessionNoticed: false,
+     /** Đã cảnh báo chính sách model của phiên chặn Fable điều phối (0.8.4 C1), một lần mỗi phiên. */
+     conductorSessionNoticed: false,
+-    /** Prompt hiện tại đến lúc router Fable còn tạm ngừng (0.8.4 C6, V1): router, luồng chính và turn của prompt này đều coi Fable chưa sẵn sàng. */
+-    fablePromptPaused: false,
+     pinnedGoalId: null as number | null,
+     turnCount: 0,
+     /** Turn hiện tại vừa có phát hiện làm tăng nâng cấp (vòng lặp, chuỗi lỗi, vượt ngân sách): chưa giảm ở cuối turn. */
+@@ -300,7 +298,9 @@ export function createContext(options: PluginOptions) {
+ 
+   /** Đầu vào của các định nghĩa Fable điều phối (hooks/lib/conductor.ts) ở thời điểm hiện tại. */
+   function conductorInputs(core: Core, mode: Mode, headless = false): ConductorInputs {
+-    return { option: conductorOption, mode, headless, blocked, pauseLeft: normalizeCore(core).fable.pauseLeft + (local.fablePromptPaused ? 1 : 0), sessionPolicy, sessionFamily: local.sessionFamily }
++    // Prompt hiện tại đến lúc router Fable còn tạm ngừng (0.8.4 C6, V1; 0.8.5 K10: cờ nằm trong Core.fable nên sống qua nạp lại mod).
++    const fable = normalizeCore(core).fable
++    return { option: conductorOption, mode, headless, blocked, pauseLeft: fable.pauseLeft + (fable.promptPaused ? 1 : 0), sessionPolicy, sessionFamily: local.sessionFamily }
+   }
+ 
+   /** Nguyên nhân luồng chính không điều phối bằng Fable lúc này; null là điều phối khả dụng. */
 diff --git a/claude-mods/focus-conductor/hooks/lib/conductor.ts b/claude-mods/focus-conductor/hooks/lib/conductor.ts
 index 21843ef..40ca02f 100644
 --- a/claude-mods/focus-conductor/hooks/lib/conductor.ts
@@ -91,7 +115,7 @@ index 2d4ad74..16e9f39 100644
    // Prompt tiếp nối có danh sách việc riêng (0.8.0 A3): từ PHASE_MIN mục danh sách và router thêm từ PHASE_MIN việc.
    const isListed = (plan.relation === 'continue' || plan.relation === 'refine') && plan.tasks.length >= PHASE_MIN && listItems(prompt) >= PHASE_MIN
 diff --git a/claude-mods/focus-conductor/hooks/lib/state.ts b/claude-mods/focus-conductor/hooks/lib/state.ts
-index 6837166..aa1f762 100644
+index 6837166..8eeb9c6 100644
 --- a/claude-mods/focus-conductor/hooks/lib/state.ts
 +++ b/claude-mods/focus-conductor/hooks/lib/state.ts
 @@ -6,8 +6,9 @@
@@ -106,10 +130,12 @@ index 6837166..aa1f762 100644
  import type { Tokens } from './cost'
  import { addUsage, emptyLedger, nextGoal, planSwitch, resetLedger } from './ledger'
  import { legacyOf } from './scale'
-@@ -53,6 +54,7 @@ export const EMPTY_CORE: Core = {
+@@ -52,7 +53,8 @@ export const EMPTY_CORE: Core = {
+   skillNudged: -1,
    changed: { goalId: -1, paths: [], unknown: 0, overflow: 0 },
    changedNoticed: -1,
-   fable: { failures: 0, pauseLeft: 0, ready: null, reason: '', holdKey: '', briefedGoal: -1 },
+-  fable: { failures: 0, pauseLeft: 0, ready: null, reason: '', holdKey: '', briefedGoal: -1 },
++  fable: { failures: 0, pauseLeft: 0, ready: null, reason: '', holdKey: '', briefedGoal: -1, promptPaused: false },
 +  goalTurns: { goalId: -1, done: 0, interrupted: false },
  }
  
@@ -150,6 +176,17 @@ index 6837166..aa1f762 100644
  /** Trần số đường dẫn lưu mỗi mục tiêu (0.8.2 N5); vượt trần thì chỉ đếm vào overflow. */
  export const CHANGED_LIMIT = 200
  
+@@ -352,8 +380,8 @@ const APPROVAL_STATUSES: readonly ApprovalStatus[] = ['none', 'planning', 'prese
+ /** Trạng thái Fable điều phối (0.8.4); vắng hay sai kiểu ở trạng thái từ bản cũ là mặc định. */
+ function normalizeFable(raw: Partial<FableState> | undefined): FableState {
+   const count = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0)
+-  if (raw === undefined || raw === null || typeof raw !== 'object') return { failures: 0, pauseLeft: 0, ready: null, reason: '', holdKey: '', briefedGoal: -1 }
+-  return { failures: count(raw.failures), pauseLeft: count(raw.pauseLeft), ready: typeof raw.ready === 'boolean' ? raw.ready : null, reason: typeof raw.reason === 'string' ? raw.reason : '', holdKey: typeof raw.holdKey === 'string' ? raw.holdKey : '', briefedGoal: typeof raw.briefedGoal === 'number' && Number.isInteger(raw.briefedGoal) ? raw.briefedGoal : -1 }
++  if (raw === undefined || raw === null || typeof raw !== 'object') return { failures: 0, pauseLeft: 0, ready: null, reason: '', holdKey: '', briefedGoal: -1, promptPaused: false }
++  return { failures: count(raw.failures), pauseLeft: count(raw.pauseLeft), ready: typeof raw.ready === 'boolean' ? raw.ready : null, reason: typeof raw.reason === 'string' ? raw.reason : '', holdKey: typeof raw.holdKey === 'string' ? raw.holdKey : '', briefedGoal: typeof raw.briefedGoal === 'number' && Number.isInteger(raw.briefedGoal) ? raw.briefedGoal : -1, promptPaused: raw.promptPaused === true }
+ }
+ 
+ /** Ghi trạng thái Fable điều phối (0.8.4). */
 @@ -538,11 +566,56 @@ function stubBrief(plan: readonly PlanStep[]): Brief {
    }
  }
@@ -346,7 +383,7 @@ index 292b882..cbf4833 100644
        return hadFinding ? marked : S.withLiftDecay(marked)
      })
 diff --git a/claude-mods/focus-conductor/hooks/parts/session.ts b/claude-mods/focus-conductor/hooks/parts/session.ts
-index a1aafa3..38e418f 100644
+index a1aafa3..de6aedf 100644
 --- a/claude-mods/focus-conductor/hooks/parts/session.ts
 +++ b/claude-mods/focus-conductor/hooks/parts/session.ts
 @@ -15,7 +15,7 @@ import type { RouterOutcome, RouterPlan } from '../lib/router'
@@ -358,7 +395,28 @@ index a1aafa3..38e418f 100644
  import type { EngineInterface, On } from 'claude-code'
  import type { Ctx } from '../context'
  import { modeOf, viewOf } from '../atoms'
-@@ -275,8 +275,30 @@ export function registerSession(on: On, ctx: Ctx): void {
+@@ -259,13 +259,15 @@ export function registerSession(on: On, ctx: Ctx): void {
+     }
+     const pending = openCp !== null ? [resumePendingContext(openCp, L.noAutoResume && !isArmed)] : []
+ 
+-    const before = S.normalizeCore(await read($, coreState))
+-    // Một prompt đi qua trong lúc router Fable tạm ngừng (0.8.4 C6); lượt này vẫn đọc theo trạng thái lúc prompt đến (before). Đặt cờ
+-    // trước noteConductor để nhật ký không đọc cờ của prompt trước (0.8.4 W4).
+-    L.fablePromptPaused = before.fable.pauseLeft > 0
++    const arrived = S.normalizeCore(await read($, coreState))
++    // Một prompt đi qua trong lúc router Fable tạm ngừng (0.8.4 C6); lượt này vẫn đọc theo trạng thái lúc prompt đến. Cờ của prompt nằm trong
++    // Core.fable.promptPaused (0.8.5 K10), ghi cùng lượt giảm số prompt còn tạm ngừng; mọi quyết định điều phối phía sau của prompt này đọc
++    // cùng một bản `before` đã mang cờ, kể cả noteConductor (0.8.4 W4: nhật ký không đọc cờ của prompt trước).
++    const isPromptPaused = arrived.fable.pauseLeft > 0
++    await update($, coreState, S.withFable(f => ({ promptPaused: f.pauseLeft > 0, pauseLeft: Math.max(0, f.pauseLeft - 1) })))
++    const before: Core = { ...arrived, fable: { ...arrived.fable, promptPaused: isPromptPaused } }
+     // Fable điều phối (0.8.4 C1): ghi một dòng nhật ký mỗi khi trạng thái điều phối đổi (bật, tắt kèm nguyên nhân).
+     await noteConductor($, ctx, before, current)
+-    if (before.fable.pauseLeft > 0) await update($, coreState, S.withFable(f => ({ pauseLeft: f.pauseLeft - 1 })))
+     const prev = before.brief
+     // routerSkip (người dùng tự bật): câu ngắn đúng nguyên văn trong danh sách thì là tiếp nối, không hỏi router.
+     if (prev !== null && isSkippable(text, skipPhrases)) {
+@@ -275,8 +277,30 @@ export function registerSession(on: On, ctx: Ctx): void {
        L.promptIntent = { relation: 'continue', kind: prev.isReference ? 'answer' : prev.kind }
        await flushDecisions((path, text) => $.fs.write(path, text))
        const lead = L.noAutoResume && !isArmed ? [] : await startResume()
@@ -391,7 +449,7 @@ index a1aafa3..38e418f 100644
        const planning = S.approvalOf(before).status === 'planning' ? [planningContext()] : []
        return next({ ...e, context: [...lead, ...(e.context ?? []), skippedContext(prev, before.plan), ...planning, ...(lead.length === 0 ? pending : [])] })
      }
-@@ -330,10 +352,12 @@ export function registerSession(on: On, ctx: Ctx): void {
+@@ -330,10 +354,12 @@ export function registerSession(on: On, ctx: Ctx): void {
      // trừ khi router chắc (confidence từ NEW_GOAL_CONFIDENCE, thiếu là chưa chắc) VÀ prompt không nhắc gì tới mục tiêu (answerMentionsGoal).
      const isHeldAnswer = isAnswering && prev !== null && interjectedBase !== null && interjectedBase.relation === 'new' && !((interjectedBase.confidence ?? 0) >= NEW_GOAL_CONFIDENCE && !answerMentionsGoal(text, prev))
      // Tin ngoài lề (0.8.4 A1): xét trên kế hoạch router trả, trước khi tin chen ngang bị đổi thành tiếp nối; câu trả lời câu hỏi làm rõ thắng.
@@ -407,7 +465,7 @@ index a1aafa3..38e418f 100644
      const steered = isHeldAnswer && interjected !== null ? { ...interjected, relation: 'continue' as const, intent: 'amend' as const } : interjected
      if (isHeldAnswer && prev !== null) {
        intent = 'amend'
-@@ -345,29 +369,34 @@ export function registerSession(on: On, ctx: Ctx): void {
+@@ -345,29 +371,34 @@ export function registerSession(on: On, ctx: Ctx): void {
      const lead = isResuming ? await startResume() : []
      const tail = isResuming ? [] : pending
      const now = await $.clock.now()
@@ -453,7 +511,7 @@ index a1aafa3..38e418f 100644
        }
      }
      // Tin hỏi tiến độ (0.8.2 N1): không đổi brief, checklist, việc, yêu cầu hay ràng buộc; chỉ cộng chi phí router. Tin gửi khi không có
-@@ -448,7 +477,7 @@ export function registerSession(on: On, ctx: Ctx): void {
+@@ -448,7 +479,7 @@ export function registerSession(on: On, ctx: Ctx): void {
      // Việc đã xong theo checklist hiện tại (0.8.0 A3): có bước riêng và các bước đó đã đóng hết; được cất khi prompt này mở đợt mới. Việc chưa
      // có bước riêng không tính là xong chỉ vì checklist đóng hết (checklist đó có thể là của đợt trước).
      const doneTasks = new Set(taskRows(before, now).filter(row => row.index !== undefined && row.kind !== 'main' && row.state === 'done' && row.bar.kind === 'steps').map(row => row.index as number))
@@ -462,7 +520,7 @@ index a1aafa3..38e418f 100644
      // Router xếp mục tiêu mới với tin cậy thấp khi checklist còn bước mở (0.7.5): giữ mục tiêu, ghi nhật ký quyết định.
      if (held && prev !== null) {
        L.promptIntent = { relation: 'continue', kind: plan.kind }
-@@ -520,13 +549,18 @@ export function registerSession(on: On, ctx: Ctx): void {
+@@ -520,13 +551,18 @@ export function registerSession(on: On, ctx: Ctx): void {
      const shownBrief: Brief = isSplitHeld ? { ...brief, tasks: brief.tasks.map(dropSplit) } : brief
      // Duyệt kế hoạch (0.8.2 N2). Mục tiêu mới: thuộc diện duyệt thì planning, skipApproval thì skipped, còn lại none. Cùng mục tiêu: đã
      // trình mà duyệt thì approved, sửa thì về planning (lượt rà về 0); còn lại giữ nguyên. Hỏi làm rõ một lần mỗi mục tiêu khi planning.
@@ -482,7 +540,7 @@ index a1aafa3..38e418f 100644
      const isAsking = stage.status === 'planning' && !stage.asked && (plan.questions?.length ?? 0) > 0
      // Dặn hỏi làm rõ: chờ câu trả lời ở prompt kế tiếp (0.8.3 R3, ghi vào Core cùng lượt ghi trạng thái duyệt).
      const approval = isAsking ? { ...stage, asked: true, awaitingAnswer: true } : stage
-@@ -539,7 +573,7 @@ export function registerSession(on: On, ctx: Ctx): void {
+@@ -539,7 +575,7 @@ export function registerSession(on: On, ctx: Ctx): void {
      const context = isApproved
        ? approvedContext(core.plan)
        : intent === 'resume' && !isNewGoal
@@ -491,7 +549,7 @@ index a1aafa3..38e418f 100644
        : isInterject && !isNewGoal
        ? interjectContext(brief, core.plan, shownAdded, newConstraints, { main: running !== null ? describePick(running) : 'model đang chạy', mayReplace: routed?.relation === 'new', isRouted: true })
        : isNewGoal
-@@ -552,7 +586,9 @@ export function registerSession(on: On, ctx: Ctx): void {
+@@ -552,7 +588,9 @@ export function registerSession(on: On, ctx: Ctx): void {
      }
      // Checklist cũ còn bước mở không bị mất: nó được lưu, Claude khôi phục được nếu router xếp nhầm mục tiêu mới.
      const archived = isNewGoal ? restorableSteps(before.plan) : []
@@ -503,7 +561,7 @@ index a1aafa3..38e418f 100644
        prompt: clipText(text),
        relation: plan.relation,
 diff --git a/claude-mods/focus-conductor/scripts/mutants.ts b/claude-mods/focus-conductor/scripts/mutants.ts
-index a621d3b..63686a2 100644
+index a621d3b..5979529 100644
 --- a/claude-mods/focus-conductor/scripts/mutants.ts
 +++ b/claude-mods/focus-conductor/scripts/mutants.ts
 @@ -712,7 +712,7 @@ export const MUTANTS: Mutant[] = [
@@ -548,7 +606,25 @@ index a621d3b..63686a2 100644
    { id: "075-M5j", file: "hooks/lib/state.ts", note: "đọc lại trạng thái làm mất main của prompt lập mục tiêu", old: "    ...(brief.mainBase ? { mainBase: brief.mainBase } : {}),\n", new: "" },
    { id: "075-M6a", file: "hooks/lib/drift/classify.ts", note: "nguồn của mv không tính là đích ghi", old: "      if (name === 'mv') positional.forEach(add)\n", new: "" },
    { id: "075-M6b", file: "hooks/parts/quota.ts", note: "ln được qua khi đích nằm trong danh sách", old: " && e.name !== 'ln'", new: "" },
-@@ -2117,19 +2117,43 @@ export const MUTANTS: Mutant[] = [
+@@ -2091,7 +2091,7 @@ export const MUTANTS: Mutant[] = [
+   { id: "084-C5b", file: "hooks/parts/session.ts", note: "chèn lại đoạn dặn điều phối ở prompt tiếp nối", old: "    const isBriefed = S.normalizeCore(await read($, coreState)).fable.briefedGoal === brief.goalId\n", new: "    const isBriefed = false\n" },
+   { id: "084-C6a", file: "hooks/lib/conductor.ts", note: "router Fable tạm ngừng mà vẫn coi Fable sẵn sàng (vẫn gửi Fable)", old: "  if (input.pauseLeft > 0) return 'paused'\n", new: "" },
+   { id: "084-C6b", file: "hooks/lib/conductor.ts", note: "bộ đếm lỗi của router Fable không về 0 khi một lượt đạt", old: "  if (isOk) return { failures: 0, pauseLeft: state.pauseLeft, isPausedNow: false }\n", new: "  if (isOk) return { failures: state.failures, pauseLeft: state.pauseLeft, isPausedNow: false }\n" },
+-  { id: "084-C6c", file: "hooks/parts/session.ts", note: "không giảm số prompt tạm ngừng nên không thử lại Fable", old: "    if (before.fable.pauseLeft > 0) await update($, coreState, S.withFable(f => ({ pauseLeft: f.pauseLeft - 1 })))\n", new: "" },
++  { id: "084-C6c", file: "hooks/parts/session.ts", note: "không giảm số prompt tạm ngừng nên không thử lại Fable", old: "    await update($, coreState, S.withFable(f => ({ promptPaused: f.pauseLeft > 0, pauseLeft: Math.max(0, f.pauseLeft - 1) })))\n", new: "    await update($, coreState, S.withFable(f => ({ promptPaused: f.pauseLeft > 0 })))\n" },
+   { id: "084-C7a", file: "hooks/parts/agents.ts", note: "Agent Explore cũng chạy fable/medium khi Fable sẵn sàng", old: "if (route !== null && e.subagent_type === 'Plan' && isFableReady(", new: "if (route !== null && (e.subagent_type === 'Plan' || e.subagent_type === 'Explore') && isFableReady(" },
+   { id: "084-C7b", file: "hooks/parts/agents.ts", note: "Agent Plan chạy fable bỏ qua sessionModel ceiling", old: "      const family = applySession('fable', rules.session)\n", new: "      const family = 'fable' as const\n" },
+   { id: "084-C8a", file: "hooks/ui/band.tsx", note: "hiện nhãn vai điều phối trên chip model cả khi không điều phối", old: "view.conductor !== undefined && columns >= ROLE_COLUMNS && route?.family === 'fable' && conductorShown(view.core).state === 'on' ? l.conductorRole : ''", new: "columns >= ROLE_COLUMNS && route !== null ? l.conductorRole : ''" },
+@@ -2108,7 +2108,7 @@ export const MUTANTS: Mutant[] = [
+   { id: "084-W4a", file: "hooks/parts/session.ts", note: "nhật ký conductor chỉ so ready, không so nguyên nhân", old: "if (stored.ready === ready && stored.reason === (blocker ?? '')) return", new: "if (stored.ready === ready) return" },
+   { id: "084-W4b", file: "hooks/parts/consistency.ts", note: "lượt kiểm lạc đề không ghi kết quả vào bộ đếm lỗi của router Fable", old: "      ctx.noteRouterFailure('drift', outcome.failure)\n      if (target.isFable) await noteFableRouter($, ctx, outcome.result !== null)\n", new: "      ctx.noteRouterFailure('drift', outcome.failure)\n" },
+   { id: "084-W4c", file: "hooks/context.ts", note: "routerTarget không truyền ID phiên cho fableModelId", old: "fableModelId(modelMap, local.lastSession?.model ?? null)", new: "fableModelId(modelMap, null)" },
+-  { id: "084-W4d", file: "hooks/parts/session.ts", note: "đặt cờ prompt tạm ngừng sau noteConductor: nhật ký đọc cờ của prompt trước", old: "    L.fablePromptPaused = before.fable.pauseLeft > 0\n    // Fable điều phối (0.8.4 C1): ghi một dòng nhật ký mỗi khi trạng thái điều phối đổi (bật, tắt kèm nguyên nhân).\n    await noteConductor($, ctx, before, current)\n", new: "    // Fable điều phối (0.8.4 C1): ghi một dòng nhật ký mỗi khi trạng thái điều phối đổi (bật, tắt kèm nguyên nhân).\n    await noteConductor($, ctx, before, current)\n    L.fablePromptPaused = before.fable.pauseLeft > 0\n" },
++  { id: "084-W4d", file: "hooks/parts/session.ts", note: "bản before của prompt mang cờ của prompt trước: nhật ký đọc cờ của prompt trước", old: "    const before: Core = { ...arrived, fable: { ...arrived.fable, promptPaused: isPromptPaused } }\n", new: "    const before: Core = arrived\n" },
+   { id: "084-X1a", file: "hooks/lib/router.ts", note: "followUpOf không giữ cờ mục tiêu lớn của brief trước, chỉ xét kế hoạch mới", old: "  const isBig = isBigGoal(prev) || isBigGoal({ depth: plan.depth, kind: plan.kind, isReference: prev.isReference })\n", new: "  const isBig = isBigGoal({ depth: plan.depth, kind: plan.kind, isReference: prev.isReference })\n" },
+   { id: "084-X1b", file: "hooks/lib/conductor.ts", note: "isBigGoal bỏ qua cờ isBig", old: "  return brief.isBig === true || ((brief.depth === 'substantial' || brief.depth === 'hard') && brief.kind !== 'answer')", new: "  return (brief.depth === 'substantial' || brief.depth === 'hard') && brief.kind !== 'answer'" },
+   { id: "084-X1c", file: "hooks/lib/conductor.ts", note: "cờ isBig thắng cả brief đối chiếu và mục tiêu tối thiểu", old: "  if (brief === null || brief.isReference || brief.isBare === true) return false\n", new: "  if (brief === null) return false\n  if (brief.isBig === true) return true\n  if (brief.isReference || brief.isBare === true) return false\n" },
+@@ -2117,19 +2117,44 @@ export const MUTANTS: Mutant[] = [
    { id: "084-A1b", file: "hooks/parts/session.ts", note: "tin ngoài lề vẫn cất checklist như mục tiêu mới", old: "      if (!isInterject) L.promptIntent = { relation: 'continue', kind: 'answer' }\n      await update($, coreState, c => S.withRouterFail(null)(S.withAnalyzerUsage(outcome.usages, target.family)(c)))\n      L.lastPrompt = { text, prev, goalId: prev.goalId }\n      record(now, 'route', { prompt: clipText(text), relation: plan.relation, intent: 'aside'", new: "      if (!isInterject) L.promptIntent = { relation: 'continue', kind: 'answer' }\n      await update($, coreState, c => S.adoptGoal({ ...prev, goalId: prev.goalId + 1 })(S.withRouterFail(null)(S.withAnalyzerUsage(outcome.usages, target.family)(c))))\n      L.lastPrompt = { text, prev, goalId: prev.goalId }\n      record(now, 'route', { prompt: clipText(text), relation: plan.relation, intent: 'aside'" },
    { id: "084-A1c", file: "hooks/lib/router.ts", note: "coi tin new có việc là ngoài lề", old: "  if (plan.relation !== 'new' || plan.tasks.length > 0 || plan.isReference || plan.runReference) return false\n", new: "  if (plan.relation !== 'new' || plan.isReference || plan.runReference) return false\n" },
    { id: "084-A1d", file: "hooks/lib/router.ts", note: "coi investigate mọi độ sâu là ngoài lề", old: "  return plan.kind === 'answer' || (plan.kind === 'investigate' && (plan.depth === 'none' || plan.depth === 'light'))\n", new: "  return plan.kind === 'answer' || plan.kind === 'investigate'\n" },
@@ -602,6 +678,7 @@ index a621d3b..63686a2 100644
 +  { id: "085-D1c", file: "hooks/parts/consistency.ts", note: "lời nhắc sau khi hết lượt chặn không theo mức block khi điều phối", old: "    const isStrict = strictDelegation !== 'off' || (e.agentId === undefined && isConductingNow(core, await read($, mode)))\n", new: "    const isStrict = strictDelegation !== 'off'\n" },
 +  { id: "085-D2a", file: "hooks/parts/session.ts", note: "bổ sung lớn sau khi duyệt giữ approved", old: "          : isBigAmend\n            ? { ...approvalBefore, status: 'planning' as const, rounds: 0 }\n", new: "          : false\n            ? { ...approvalBefore, status: 'planning' as const, rounds: 0 }\n" },
 +  { id: "085-D2b", file: "hooks/parts/session.ts", note: "bổ sung nhỏ sau khi duyệt cũng về planning", old: " && intent === 'amend' && needsApproval(brief, ctx.planApproval, false) && (plan.depth === 'substantial' || plan.depth === 'hard') && (plan.kind === 'edit' || plan.kind === 'mixed') && added.length > 0\n", new: " && intent === 'amend' && ctx.planApproval === 'auto' && (plan.kind === 'edit' || plan.kind === 'mixed') && added.length > 0\n" },
++  { id: "085-K10a", file: "hooks/context.ts", note: "cờ prompt tạm ngừng không đọc từ Core", old: "pauseLeft: fable.pauseLeft + (fable.promptPaused ? 1 : 0)", new: "pauseLeft: fable.pauseLeft" },
  ]
 diff --git a/claude-mods/focus-conductor/tests/integration/approval-k3-085.test.ts b/claude-mods/focus-conductor/tests/integration/approval-k3-085.test.ts
 new file mode 100644
@@ -851,6 +928,18 @@ index 0000000..061d8f8
 +    expect(lines().filter(l => l['kind'] === 'answer-held').length).toBe(1)
 +  })
 +})
+diff --git a/claude-mods/focus-conductor/tests/integration/conductor-c1-084.test.ts b/claude-mods/focus-conductor/tests/integration/conductor-c1-084.test.ts
+index 1bb7b8a..f43352a 100644
+--- a/claude-mods/focus-conductor/tests/integration/conductor-c1-084.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/conductor-c1-084.test.ts
+@@ -83,6 +83,6 @@ describe('0.8.4 C1: chính sách model của phiên thắng', () => {
+ describe('0.8.4 C1: trạng thái từ bản cũ', () => {
+   test('Core 0.8.3 không có trường fable: nạp được, mặc định không tạm ngừng, chưa ghi trạng thái', () => {
+     const core = S.normalizeCore(JSON.parse(JSON.stringify({ ...S.EMPTY_CORE, fable: undefined })) as Partial<Core>)
+-    expect(core.fable).toEqual({ failures: 0, pauseLeft: 0, ready: null, reason: '', holdKey: '', briefedGoal: -1 })
++    expect(core.fable).toEqual({ failures: 0, pauseLeft: 0, ready: null, reason: '', holdKey: '', briefedGoal: -1, promptPaused: false })
+   })
+ })
 diff --git a/claude-mods/focus-conductor/tests/integration/conductor-d1-085.test.ts b/claude-mods/focus-conductor/tests/integration/conductor-d1-085.test.ts
 new file mode 100644
 index 0000000..304e96b
@@ -920,6 +1009,63 @@ index 0000000..304e96b
 +    setup(on, LIGHT)
 +    await submit($, 'Sửa chú thích README')
 +    expect((await edit($)).deny).toBeUndefined()
++  })
++})
+diff --git a/claude-mods/focus-conductor/tests/integration/conductor-k10-085.test.ts b/claude-mods/focus-conductor/tests/integration/conductor-k10-085.test.ts
+new file mode 100644
+index 0000000..6737bb7
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/integration/conductor-k10-085.test.ts
+@@ -0,0 +1,51 @@
++// 0.8.5 K10: cờ "prompt này đi qua trong lúc Fable tạm ngừng" nằm trong Core.fable (promptPaused), nên nạp lại mod giữa prompt cuối của đợt
++// tạm ngừng và turn của nó vẫn coi Fable chưa sẵn sàng cho turn đó. Core của 0.8.4 không có trường này thì false.
++
++import { describe, expect, test } from 'claude-code/testing'
++import type { Core } from '../../types'
++import * as S from '../../hooks/lib/state'
++import { createContext } from '../../hooks/context'
++import { base, plan, step, submit } from '../support/engine'
++import type { Json, Seen } from '../support/engine'
++
++const FABLE = { options: { planApproval: 'off', conductor: 'fable' } }
++const ID = 'claude-fable-5-2'
++const BIG = plan({ goal: 'Sửa luồng thanh toán', depth: 'substantial', volume: 'medium', kind: 'edit', main: { model: 'sonnet', effort: 'medium', why: '' } })
++const FOLLOW = plan({ relation: 'continue', goal: '', depth: 'substantial', volume: 'medium', kind: 'edit', main: { model: 'sonnet', effort: 'medium', why: '' } })
++const prompts = (seen: Seen) => seen.routerCalls.filter(c => c.kind === 'prompt')
++
++function setup(on: Parameters<typeof base>[0], fable: (n: number) => Json | null) {
++  let n = 0
++  const seen: Seen = base(on, { router: () => (seen.routerModels.at(-1) === ID ? fable(n++) : FOLLOW) })
++  on('turn.complete', () => ({ text: '' }))
++  on('tool.register', () => ({ value: { tool: 'mcp__focus-conductor__plan' } }) as never)
++  on('command.register', () => ({ value: { command: 'conductor' } }) as never)
++  on('session.start', (_$, e) => ({ cwd: e.cwd }))
++  return seen
++}
++
++describe('0.8.5 K10: cờ Fable tạm ngừng của prompt sống qua nạp lại mod', () => {
++  test('prompt cuối của đợt tạm ngừng đến, nạp lại mod: turn của prompt đó vẫn chạy theo main của router, không phải Fable', FABLE, async ($, on) => {
++    const seen = setup(on, n => (n === 0 ? BIG : null))
++    for (let i = 1; i <= 6; i++) await submit($, i === 1 ? 'Sửa luồng thanh toán' : `làm tiếp bước ${i}`)
++    expect(prompts(seen).map(c => c.model).slice(-3)).toEqual(['sonnet', 'sonnet', 'sonnet'])
++    await $.session.start({ cwd: '/repo', surface: null, isInteractive: true } as never)
++    const ran = await step($, seen, { turnId: 't6' })
++    expect(`${ran?.model}/${String(ran?.effort)}`).toBe('claude-sonnet-5-5/medium')
++  })
++
++  // Bộ kit test không nạp lại module được (session.start giữ biến của module), nên ca trên chỉ ghim hành vi; ca này dựng ngữ cảnh mới bằng
++  // createContext như khi engine nạp lại mod, và đọc Core đã qua vòng JSON.
++  test('ngữ cảnh mới (như sau nạp lại) đọc Core có promptPaused, pauseLeft 0: Fable chưa sẵn sàng; không có cờ thì sẵn sàng', () => {
++    const fresh = createContext({ conductor: 'fable', planApproval: 'off' } as never)
++    const paused = S.normalizeCore(JSON.parse(JSON.stringify(S.withFable(() => ({ pauseLeft: 0, promptPaused: true }) as never)(S.EMPTY_CORE))) as Partial<Core>)
++    expect(fresh.conductorState(paused, 'auto')).not.toBeNull()
++    const ready = S.withFable(() => ({ pauseLeft: 0, promptPaused: false }) as never)(S.EMPTY_CORE)
++    expect(fresh.conductorState(ready, 'auto')).toBeNull()
++  })
++
++  test('Core của 0.8.4 không có trường promptPaused: false', () => {
++    const old = { ...S.EMPTY_CORE, fable: { failures: 0, pauseLeft: 1, ready: true, reason: '', holdKey: '', briefedGoal: -1 } } as unknown as Core
++    expect((S.normalizeCore(old).fable as { promptPaused?: unknown }).promptPaused).toBe(false)
 +  })
 +})
 diff --git a/claude-mods/focus-conductor/tests/integration/pending-k2-085.test.ts b/claude-mods/focus-conductor/tests/integration/pending-k2-085.test.ts
@@ -1359,7 +1505,7 @@ index 0000000..e67fdd6
 +  })
 +})
 diff --git a/claude-mods/focus-conductor/types/index.d.ts b/claude-mods/focus-conductor/types/index.d.ts
-index 488c9d9..bef7779 100644
+index 488c9d9..ad9e07d 100644
 --- a/claude-mods/focus-conductor/types/index.d.ts
 +++ b/claude-mods/focus-conductor/types/index.d.ts
 @@ -255,7 +255,9 @@ export type Ledger = {
@@ -1389,3 +1535,13 @@ index 488c9d9..bef7779 100644
  /**
   * File đã đổi của mục tiêu goalId (0.8.2 N5): `paths` là đường dẫn tương đối với thư mục gốc phiên (ngoài gốc thì giữ tuyệt đối), không trùng,
   * tối đa 200; vượt trần thì chỉ tăng `overflow`. `unknown` đếm lệnh ghi không đọc được đích.
+@@ -436,7 +445,8 @@ export type SkillState = { goalId: number; seq: number; lastWrite: number; trial
+  * `holdKey`: mục tiêu và mức nâng đã ghi dòng conductor-hold. `briefedGoal` (0.8.4 V1): mục tiêu đã nhận đoạn dặn vai điều phối đầy
+  * đủ, -1 là chưa có.
+  */
+-export type FableState = { failures: number; pauseLeft: number; ready: boolean | null; reason: string; holdKey: string; briefedGoal: number }
++/** `promptPaused` (0.8.5 K10): prompt hiện tại đến lúc router Fable còn tạm ngừng; router, luồng chính và turn của prompt đó coi Fable chưa sẵn sàng. */
++export type FableState = { failures: number; pauseLeft: number; ready: boolean | null; reason: string; holdKey: string; briefedGoal: number; promptPaused: boolean }
+ 
+ export type ApprovalStatus = 'none' | 'planning' | 'presented' | 'approved' | 'skipped'
+ export type ApprovalState = { goalId: number; status: ApprovalStatus; rounds: number; asked: boolean; awaitingAnswer: boolean }
