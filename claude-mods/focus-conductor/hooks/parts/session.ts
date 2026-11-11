@@ -275,6 +275,28 @@ export function registerSession(on: On, ctx: Ctx): void {
       L.promptIntent = { relation: 'continue', kind: prev.isReference ? 'answer' : prev.kind }
       await flushDecisions((path, text) => $.fs.write(path, text))
       const lead = L.noAutoResume && !isArmed ? [] : await startResume()
+      // Quay lại mục tiêu đã cất (0.8.5 K7): cùng luật với nhánh có router (S.resumeTarget), trên Core đọc ngay lúc này; không gọi router,
+      // không cộng chi phí router. Tin chạy tiếp điểm dừng đang mở giữ ưu tiên.
+      const skipCore = S.normalizeCore(await read($, coreState))
+      const skipBack = lead.length === 0 ? S.resumeTarget(skipCore) : null
+      const skipFrom = skipBack !== null ? skipCore.archived[skipBack - 1] : undefined
+      const skipped = skipBack !== null ? ctx.restoreGoal(skipCore, skipBack) : null
+      if (skipped !== null && !('error' in skipped) && skipFrom !== undefined) {
+        await update($, coreState, () => skipped.core)
+        const restored = skipped.brief
+        L.promptIntent = { relation: 'continue', kind: restored.kind }
+        L.lastPrompt = { text, prev: restored, goalId: restored.goalId }
+        record(at, 'restore', { prompt: clipText(text), goalId: restored.goalId, from: skipFrom.brief.goalId, cause: 'resume' })
+        await flushDecisions((path, text) => $.fs.write(path, text))
+        await showStatus($, await read($, view), ctx.options)
+        const core = S.normalizeCore(await read($, coreState))
+        const wanted = wantedPick(restored, core.lift, core, current)
+        const conductNote = e.turnId === undefined && wanted?.isConducting === true && core.fable.briefedGoal !== restored.goalId ? [conductorContext()] : []
+        if (conductNote.length > 0) await update($, coreState, S.withFable(() => ({ briefedGoal: restored.goalId })))
+        const backLine = core.plan.length === 0 ? restoreGoalOnlyContext(restored.goal) : restoreResumeContext(restored.goal, openSteps(core.plan)[0])
+        const backPlanning = S.approvalOf(core).status === 'planning' ? [planningContext()] : []
+        return next({ ...e, context: [...(e.context ?? []), backLine, ...conductNote, ...backPlanning, ...pending] })
+      }
       // Kế hoạch đang lập (0.8.2 N2): câu tiếp nối ngắn vẫn kèm đoạn dặn lập kế hoạch. Câu tiếp nối ngắn không phải câu trả lời câu hỏi
       // làm rõ: cờ chờ câu trả lời giữ nguyên (0.8.5 K1).
       const planning = S.approvalOf(before).status === 'planning' ? [planningContext()] : []
