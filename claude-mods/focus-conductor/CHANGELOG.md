@@ -31,6 +31,8 @@ Xử lý các tồn đọng tìm ra khi rà soát tổng thể 0.8.4 [Nguồn: c
 - `sổ 0.8.4 vẫn rỗng; MOD_VERSION là 0.8.4`: kỳ vọng `MOD_VERSION` là 0.8.5; tên giữ để không đổi tên ca nào.
 - 25 tệp test giao diện cũ: chỉ thêm `isCollapsed: false` vào props (K11), kỳ vọng hành vi không đổi.
 
+**Ca mới ngoài các điểm:** `0.8.4 A1 > đang awaitingAnswer, tin chen ngang giữa turn, ...` bắt mẫu `078-G9c`, mẫu sống ở lượt đột biến của 0.8.5 và cả trên `87023af` (chỉ đổi `tests/`).
+
 **Mẫu cũ viết lại (giữ mã):** `070-D2`, `070-L9`, `075-B12b`, `075-B12c`, `075-B12f`, `075-M5i`, `084-A1e`, `084-A1g`, `084-A2a`, `084-A2b`, `084-A2c`, `084-A2d`, `084-C6c`, `084-W4d`, `084-Z1a`, `084-Z2c`, `084-Z2d`, `084-Z2e`; mẫu mới `085-K2c`, `085-K3a`, `085-K6a`, `085-D2b` viết lại trong cùng bản. **Mẫu bỏ:** `084-A2e`, vì điều kiện số mục tiêu liền trước không còn trong mã sau K5.
 
 ## Thay đổi 0.8.4: Fable điều phối
