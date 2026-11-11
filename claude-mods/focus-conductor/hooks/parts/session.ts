@@ -549,13 +549,18 @@ export function registerSession(on: On, ctx: Ctx): void {
     const shownBrief: Brief = isSplitHeld ? { ...brief, tasks: brief.tasks.map(dropSplit) } : brief
     // Duyệt kế hoạch (0.8.2 N2). Mục tiêu mới: thuộc diện duyệt thì planning, skipApproval thì skipped, còn lại none. Cùng mục tiêu: đã
     // trình mà duyệt thì approved, sửa thì về planning (lượt rà về 0); còn lại giữ nguyên. Hỏi làm rõ một lần mỗi mục tiêu khi planning.
+    // Bổ sung lớn sau khi đã duyệt (0.8.5 D2): mục tiêu thuộc diện duyệt, tin amend mà router đọc là substantial hay hard, edit hay mixed, có
+    // việc mới: kế hoạch về planning để trình lại.
+    const isBigAmend = !isNewGoal && approvalBefore.status === 'approved' && intent === 'amend' && needsApproval(brief, ctx.planApproval, false) && (plan.depth === 'substantial' || plan.depth === 'hard') && (plan.kind === 'edit' || plan.kind === 'mixed') && added.length > 0
     const stage = isNewGoal
       ? { goalId: brief.goalId, status: needsApproval(brief, ctx.planApproval, plan.skipApproval === true) ? ('planning' as const) : plan.skipApproval === true ? ('skipped' as const) : ('none' as const), rounds: 0, asked: false, awaitingAnswer: false }
       : isPresented && intent === 'approve'
         ? { ...approvalBefore, status: 'approved' as const }
         : isPresented && intent === 'amend'
           ? { ...approvalBefore, status: 'planning' as const, rounds: 0 }
-          : approvalBefore
+          : isBigAmend
+            ? { ...approvalBefore, status: 'planning' as const, rounds: 0 }
+            : approvalBefore
     const isAsking = stage.status === 'planning' && !stage.asked && (plan.questions?.length ?? 0) > 0
     // Dặn hỏi làm rõ: chờ câu trả lời ở prompt kế tiếp (0.8.3 R3, ghi vào Core cùng lượt ghi trạng thái duyệt).
     const approval = isAsking ? { ...stage, asked: true, awaitingAnswer: true } : stage
