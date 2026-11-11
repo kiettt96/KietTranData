@@ -11,3 +11,4 @@ Nhánh làm việc `claude/focus-conductor-0-8-5`, tách từ `main` `87023af`. 
 - Tách resumeTarget `f4ee986` (không đổi hành vi, A1 và A2 xanh).
 - K5: test đỏ (3 đỏ trên tệp A2); sửa ở commit kế (thêm ca waiting, đỏ trên `87023af`); mẫu K5a 1 đỏ, K5b 1; bỏ 084-A2e.
 - D3: test đỏ (2/3 đỏ); sửa ở commit kế; mẫu D3a, D3b.
+- K4: test đỏ (1/1); sửa ở commit kế; mẫu K4a 1 đỏ; viết lại 084-Z2d.
