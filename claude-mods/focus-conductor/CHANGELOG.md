@@ -44,6 +44,14 @@ Yêu cầu của chủ mod [Nguồn: chủ mod, 11/11/2026]: tin gửi trong lú
 - **Mẫu cũ viết lại cùng ý** (dòng `old` khớp hai chỗ sau A1): `082-N1c`.
 - **Mẫu mới (13):** `084-A1a` tới `084-A1h`, `084-A2a` tới `084-A2e`.
 
+### Vòng 5 (rà soát PR 37): Z1, Z2
+
+Kết quả rà soát độc lập trên `a4d684d` [Nguồn: chủ mod, 11/11/2026]. Lời dặn router, schema JSON router, schema tool `plan` và golden không đổi; không test cũ nào đổi kỳ vọng.
+
+- **Z1 (P2): nhánh A2 không còn ghi đè Core bằng bản đọc từ đầu prompt.** Trước đây nhánh A2 khôi phục trên `before` (Core đọc ở đầu prompt) nên các lần ghi Core trước đó trong cùng prompt bị mất: lượt Fable đạt đưa bộ đếm lỗi về 0, giảm số prompt còn tạm ngừng, hết chờ câu trả lời. Hệ quả quan sát được: sau một lỗi router, tin "tiếp tục" có khôi phục, rồi một lỗi nữa thì Fable tạm ngừng dù chỉ có một lỗi sau lần router trả được; Fable đang tạm ngừng thì tin "tiếp tục" có khôi phục không làm giảm số prompt còn tạm ngừng. Nay nhánh A2 khôi phục trên Core đọc ngay trước khi khôi phục; điều kiện và số mục tiêu cũ vẫn tính trên `before`. Test đỏ 2/3.
+- **Z2 (P3): ghim năm hành vi của vòng 4 chưa có test**, chỉ thêm test, không đổi `hooks/`: chi phí router của tin "tiếp tục" có khôi phục và của tin ngoài lề; turn sau khi khôi phục là turn thực thi; đoạn dặn điều phối khi khôi phục mục tiêu lớn với `conductor: 'fable'`; tin chạy tiếp điểm dừng giữ ưu tiên trước nhánh A2.
+- **Mẫu mới (6):** `084-Z1a`, `084-Z2a` tới `084-Z2e`.
+
 ## Thay đổi 0.8.3: vá cổng duyệt kế hoạch và dòng tổng kết của lệnh khai
 
 Sáu điểm tồn đọng: R1 tới R4 từ lượt rà soát PR 35, D1 và D2 từ 0.8.1; tái hiện bằng probe trên `main` `2408fd4` (commit squash của PR 35) [Đo trực tiếp]. Mỗi điểm một commit test đỏ rồi một commit sửa, riêng R1 chỉ thêm test; schema tool `plan` và `routerSystem` không đổi.
