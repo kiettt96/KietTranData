@@ -2,7 +2,7 @@
 
 import { atom, derive, read, update } from 'claude-code'
 import { caught, noteBehavior, noteHookError } from '../lib/errlog'
-import type { AgentState, Choice, Core, DelegationState, RetryItem, Warning } from '../../types'
+import type { AgentState, Choice, Core, DelegationState, Mode, RetryItem, Warning } from '../../types'
 import { acceptsVerified, classifyBash, evidenceStrength, filePathOf, freshTestRun, hardChanges, isCheckTool, isExecuting, isFullyClosed, isGoalDone, isMutation, isPlanFile, normalizePath, isSkillTrial, markVerified, newTracker, skillNameOf, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
 import type { Finding, Focus, ToolObservation, TurnTracker } from '../lib/drift'
 import { checkCommand, checkSignature, coversFailure, isFailedRun } from '../lib/drift/evidence'
@@ -594,6 +594,8 @@ export function registerConsistency(on: On, ctx: Ctx): void {
   const { agentFailures, agentTrackers, agents, blockLimit, flushDecisions, delegationItems, evidenceFor, failedFor, isRouterPaused, moveDelegation, noteRouterTime, pendingFor, record, remindSubagents, semanticDrift, driftEveryMs, steppedEarly, strictDelegation } = ctx
   const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
   const mode = derive([modeState], modeOf(ctx.options))
+  /** Luồng chính đang giữ vai điều phối cho mục tiêu hiện tại (0.8.5 D1): mức strictDelegation hiệu dụng là block. */
+  const isConductingNow = (core: Core, current: Mode): boolean => ctx.conductorOption === 'fable' && isMainConducting(ctx.conductorInputs(core, current), core.brief)
 
   // ------------------------------------------ 3. giữ nhất quán
 
@@ -794,9 +796,12 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     // Gồm lệnh Bash ghi file (sed -i, chuyển hướng ghi, rm...): isMutation đã loại lệnh chỉ đọc và lệnh kiểm tra.
     const isBashWrite =
       e.tool === 'Bash' && isMutation({ tool: 'Bash', input: e as unknown as Record<string, unknown>, isError: false, isReadOnly: false })
-    if (strictDelegation === 'block' && e.agentId === undefined && (EDIT_TOOLS.has(e.tool) || isBashWrite)) {
+    // Luồng chính điều phối (0.8.5 D1): option off hay remind vẫn chặn như block.
+    const isMainWrite = e.agentId === undefined && (EDIT_TOOLS.has(e.tool) || isBashWrite)
+    const blockCore = isMainWrite ? S.normalizeCore(await read($, coreState)) : null
+    if (blockCore !== null && (strictDelegation === 'block' || isConductingNow(blockCore, await read($, mode)))) {
       const current = await read($, mode)
-      const now = S.normalizeCore(await read($, coreState))
+      const now = blockCore
       const waiting = current === 'auto' || current === 'subagents' ? pendingFor(now.brief, shownPlan(now).plan) : []
       const path = filePathOf({ tool: e.tool, input: e as unknown as Record<string, unknown>, isError: false, isReadOnly: false })
       if (waiting.length > 0 && !isPlanFile(path) && L.delegation.blocks < blockLimit) {
@@ -955,7 +960,8 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     const pending = pendingFor(core.brief, shownPlan(core).plan)
     const planFile = isPlanFile(filePathOf(observation))
     // Mặc định nhắc một lần ở lần sửa file đầu tiên; strictDelegation remind/block nhắc ở mọi lần thay đổi (kể cả lệnh ghi file).
-    const isStrict = strictDelegation !== 'off'
+    // Luồng chính điều phối (0.8.5 D1): nhắc ở mọi lần thay đổi như block, kể cả sau khi hết lượt chặn.
+    const isStrict = strictDelegation !== 'off' || (e.agentId === undefined && isConductingNow(core, await read($, mode)))
     const isChange = isStrict ? isMutation(observation) : EDIT_TOOLS.has(e.tool)
     const nudge =
       isChange && !planFile && !observation.isError && pending.length > 0 && (isStrict || !L.delegation.isNudged)
