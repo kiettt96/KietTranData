@@ -16,12 +16,12 @@ Xử lý các tồn đọng tìm ra khi rà soát tổng thể 0.8.4 [Nguồn: c
 - **K4 (P3): tin chen ngang khôi phục** không chèn đoạn dặn điều phối và không ghi `briefedGoal`.
 - **K6 (P3): sau khi khôi phục, `L.lastPrompt.prev` là brief vừa khôi phục**, nên `/conductor reroute` áp lên đúng mục tiêu.
 - **K7 (P3): "tiếp tục" trong `routerSkip` quay lại mục tiêu đã cất** theo cùng luật, không gọi router; tin chạy tiếp điểm dừng giữ ưu tiên.
-- **D1 (P3): luồng chính điều phối có mức `strictDelegation` hiệu dụng `block`**, kể cả dòng `isStrict` của lời nhắc.
+- **D1 (P3): luồng chính điều phối có mức `strictDelegation` hiệu dụng `block` ở chỗ từ chối** (tối đa `blockLimit` lần mỗi mục tiêu); lời nhắc theo option như 0.8.4. Phần nhắc ở mọi lần thay đổi đã thử rồi rút theo quyết định của chủ mod ngày 11/11/2026.
 - **D2 (P3): bổ sung lớn sau khi duyệt** (amend, substantial hay hard, edit hay mixed, có việc mới) đưa kế hoạch về `planning`.
 - **K9 (P3): không sửa mã.** Trường `model` của Agent chỉ nhận alias ở engine 2.1.296 và 2.1.322; ghi ở DESIGN.
 - **K10 (P3): `Core.fable.promptPaused`** thay biến module `fablePromptPaused`.
-- **K11 (P3): props `AbovePrompt` của 25 tệp test giao diện cũ có `isCollapsed: false`** (27 chỗ). Chưa chạy được `tsc` (VERIFICATION).
-- **K12 (P3): dừng, không đổi bảng giá.** Lý do ở VERIFICATION.
+- **K11 (P3): props `AbovePrompt` của 25 tệp test giao diện cũ có `isCollapsed: false`** (27 chỗ). Chưa chạy `tsc`, vì khai báo kiểu của engine không sinh được trong phiên phát triển (VERIFICATION).
+- **K12 (P3): không đổi bảng giá kèm mod.** Bảng còn giá Fable 5.1 (10 / 50, đọc cache 0,25); Fable 5.2 là 8 / 40, đọc cache 0,20 [Nguồn: Anthropic, trang giá, đọc ngày 11/11/2026]; dùng Fable 5.2 thì đặt `prices` là `fable=8/40/0.2`. Bảng nằm trong lời dặn router nên cập nhật để sang bản riêng. Chú thích đầu `hooks/lib/cost.ts` ghi rõ tên bản; thêm test option `prices` cho Fable 5.2.
 - **K13 (P3): README đủ 41 option** (thêm `headlessRouting`, `passLines`, `softPaths`); DESIGN sửa câu về cờ chờ câu trả lời; `scripts/version-check.mjs` kiểm mọi khóa option có dòng trong bảng README.
 
 **Test cũ đổi kỳ vọng, giữ tên:**
