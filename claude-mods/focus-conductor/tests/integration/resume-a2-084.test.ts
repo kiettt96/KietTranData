@@ -431,3 +431,21 @@ describe('0.8.5 K4: khôi phục giữa turn không chèn đoạn dặn điều 
     expect(pick(await step($, seen, { turnId: 't3' }))).toBe('claude-fable-5-2/medium')
   })
 })
+
+// 0.8.5 K6: sau khi tin bảo chạy tiếp khôi phục A, /conductor reroute đọc lại prompt đó trên brief vừa khôi phục, nên mục tiêu vẫn là A và
+// checklist của A giữ nguyên.
+describe('0.8.5 K6: reroute sau khi khôi phục', () => {
+  test('tiếp tục khôi phục A rồi /conductor reroute (router continue, resume): mục tiêu vẫn là A, checklist của A giữ đủ 3 bước', { options: OPTIONS[0][1] }, async ($, on) => {
+    const { seen } = setup(on, [BIG(), NEW('Sửa chú thích'), RESUME])
+    await goalA($, seen)
+    await goalB($, true)
+    await submit($, 'tiếp tục')
+    expect(await show($)).toContain(`Mục tiêu: ${A}`)
+    await conductor($, 'reroute')
+    const shown = await show($)
+    expect(shown).toContain(`Mục tiêu: ${A}`)
+    expect(shown).toContain('[x] 1. Sửa hàm phí')
+    expect(shown).toContain('[~] 2. Thêm test')
+    expect(shown).toContain('[ ] 3. Cập nhật tài liệu')
+  })
+})
