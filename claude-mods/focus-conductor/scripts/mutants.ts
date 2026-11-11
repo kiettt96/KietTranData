@@ -2145,4 +2145,6 @@ export const MUTANTS: Mutant[] = [
   { id: "085-K1c", file: "hooks/parts/session.ts", note: "nhánh routerSkip xóa cờ chờ câu trả lời", old: "      // làm rõ: cờ chờ câu trả lời giữ nguyên (0.8.5 K1).\n", new: "      // làm rõ: cờ chờ câu trả lời giữ nguyên (0.8.5 K1).\n      await clearAwaiting($, S.approvalOf(before))\n" },
   { id: "085-K5a", file: "hooks/lib/state.ts", note: "chỉ xét mục đã cất đầu tiên, không duyệt tiếp khi nó đã xong", old: "  const index = n.archived.findIndex(a => archivedPending(a))\n", new: "  const index = n.archived.length > 0 && archivedPending(n.archived[0]!) ? 0 : -1\n" },
   { id: "085-K5b", file: "hooks/parts/session.ts", note: "không còn gì vẫn báo chạy tiếp từ bước đang mở", old: "? isResumeMsg && S.isNothingLeft(before) ? nothingLeftContext() : intentResumeContext(core.plan)", new: "? intentResumeContext(core.plan)" },
+  { id: "085-D3a", file: "hooks/lib/state.ts", note: "bỏ điều kiện việc chen vào đã có turn thực thi kết thúc", old: "  if (n.plan.length === 0 && turnsOf(n).done < 1) return null\n", new: "" },
+  { id: "085-D3b", file: "hooks/lib/state.ts", note: "bỏ điều kiện turn gần nhất của việc chen vào không bị ngắt", old: "  if (n.plan.length === 0 && turnsOf(n).interrupted) return null\n", new: "" },
 ]

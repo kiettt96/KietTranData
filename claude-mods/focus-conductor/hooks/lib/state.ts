@@ -579,12 +579,16 @@ export function archivedPending(a: ArchivedGoal): boolean {
 
 /**
  * Mục tiêu đã cất mà tin bảo chạy tiếp quay lại (0.8.4 A2, 0.8.5 K5): thứ tự trong danh sách đã cất (1 là gần nhất), null là không quay lại.
- * Mục tiêu hiện tại không còn dở; lấy mục đã cất gần nhất còn dở (duyệt từ mới tới cũ).
+ * Mục tiêu hiện tại không còn dở (checklist trống thì đã có turn thực thi kết thúc, turn gần nhất không bị ngắt); lấy mục đã cất gần nhất còn
+ * dở (duyệt từ mới tới cũ).
  */
 export function resumeTarget(c: Core): number | null {
   const n = normalizeCore(c)
   if (n.brief === null) return null
   if (pendingOf(n)) return null
+  // Việc chen vào không có checklist (0.8.5 D3) chỉ coi là xong khi đã có turn thực thi kết thúc và turn gần nhất không bị ngắt.
+  if (n.plan.length === 0 && turnsOf(n).done < 1) return null
+  if (n.plan.length === 0 && turnsOf(n).interrupted) return null
   const index = n.archived.findIndex(a => archivedPending(a))
   return index < 0 ? null : index + 1
 }
