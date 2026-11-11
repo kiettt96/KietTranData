@@ -316,6 +316,17 @@ export function intentStatusContext(isInterject: boolean): string {
     : '[focus-conductor] Tin hỏi tiến độ: trả lời từ checklist hiện có (bước đã xong, đang làm, còn lại). Không làm thêm việc, không đổi checklist.'
 }
 
+/**
+ * Tin ngoài lề (0.8.4 A1): trả lời mà không đổi mục tiêu đang dở. Giữa turn: trả lời ngắn rồi làm tiếp bước đang làm; ngoài turn: chỉ trả
+ * lời, chưa làm tiếp cho tới khi người dùng bảo chạy tiếp. Không thêm việc, không đổi checklist. Một dòng, tối đa 300 ký tự.
+ */
+export function asideContext(isInterject: boolean, next: PlanStep | undefined): string {
+  const at = next !== undefined ? `bước ${next.id}. ${clipItem(next.title, 80)}` : isInterject ? 'phần đang làm' : 'mục tiêu đang làm'
+  return isInterject
+    ? `[focus-conductor] Câu hỏi ngoài lề giữa turn: trả lời ngắn câu hỏi này rồi làm tiếp ${at}. Không thêm việc, không đổi checklist.`
+    : `[focus-conductor] Câu hỏi ngoài lề: trả lời câu hỏi này; mục tiêu đang làm giữ nguyên, chưa làm tiếp ${at} cho tới khi người dùng bảo chạy tiếp. Không thêm việc, không đổi checklist.`
+}
+
 /** Tin bảo chạy tiếp (0.8.2 N1, intent resume; approve khi không có kế hoạch chờ duyệt): chạy tiếp từ bước đang mở. Tối đa 300 ký tự. */
 export function intentResumeContext(plan: readonly PlanStep[]): string {
   const next = openSteps(plan)[0]

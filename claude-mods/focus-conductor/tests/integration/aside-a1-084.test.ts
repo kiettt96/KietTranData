@@ -25,12 +25,12 @@ const ASIDE = (over: Json = {}) =>
 const RESUME = plan({ relation: 'continue', intent: 'resume', goal: '', depth: 'light', volume: 'small', kind: 'edit', main: MAIN })
 const QUESTIONS = ['Giữ API cũ hay đổi chữ ký hàm (giữ, đổi)?', 'Phí làm tròn lên hay xuống (lên, xuống, ngân hàng)?']
 const STEP1: PlanStep = { id: 1, title: 'Sửa hàm phí', status: 'doing' }
-const OPTIONS: Array<[string, Json]> = [
+const OPTIONS = [
   ['conductor mặc định', { planApproval: 'off', decisionLog: LOG }],
   ['conductor fable', { planApproval: 'off', conductor: 'fable', decisionLog: LOG }],
-]
-const isFable = (opts: Json) => opts['conductor'] === 'fable'
-const expectedMain = (opts: Json) => (isFable(opts) ? 'claude-fable-5-2/medium' : 'claude-sonnet-5-5/medium')
+] as const
+const isFable = (opts: { readonly conductor?: string; readonly decisionLog: string }) => opts.conductor === 'fable'
+const expectedMain = (opts: { readonly conductor?: string; readonly decisionLog: string }) => (isFable(opts) ? 'claude-fable-5-2/medium' : 'claude-sonnet-5-5/medium')
 const pick = (s: { model: string; effort?: unknown } | undefined) => `${s?.model ?? ''}/${String(s?.effort ?? '')}`
 const show = async ($: Engine) => String((await $.tool.call({ tool: PLAN, action: 'show' } as never)).result)
 const statusText = async ($: Engine) => String((await conductor($, 'status')).text ?? '')
@@ -131,12 +131,14 @@ describe('0.8.4 A1: câu hỏi ngoài lề khi mục tiêu đang dở', () => {
     })
 
     test(`${name}: tin ngoài lề chen ngang giữa turn: yêu cầu và việc không đổi; asideContext dạng giữa turn`, { options: opts }, async ($, on) => {
-      const { seen } = setup(on, [BIG(), ASIDE()])
+      const { seen, lines } = setup(on, [BIG(), ASIDE()])
       await firstTurn($, seen)
       await $.turn.start({ text: 'làm', turnId: 't2' })
       await $.prompt.submit({ text: 'git rebase là gì?', wait: false, turnId: 't2', origin: { kind: 'composer' } } as never)
       expect(lastContext(seen).filter(c => c === asideContext(true, STEP1)).length).toBe(1)
       expect(lastContext(seen).some(c => c.includes('Yêu cầu chen ngang'))).toBe(false)
+      const route = lines().filter(l => l['kind'] === 'route').at(-1)
+      expect([route?.['intent'], route?.['relation']]).toEqual(['aside', 'new'])
       expect(await show($)).toContain('[~] 1. Sửa hàm phí')
       expect(await closeAll($, [1, 2])).not.toContain('Giải thích git rebase')
     })

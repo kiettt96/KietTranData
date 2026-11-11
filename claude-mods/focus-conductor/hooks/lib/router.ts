@@ -7,7 +7,7 @@
 
 import type { ModelCompleteRequest, ModelCompleteResult, ModelTextBlock, ModelUsage } from 'claude-code'
 
-import type { Brief, Choice, Depth, Effort, ForkSplit, Intent, Kind, ModelFamily, Relation, RouterFail, RouterFailKind, Task, Tier, Volume } from '../../types'
+import type { ApprovalStatus, Brief, Choice, Depth, Effort, ForkSplit, Intent, Kind, ModelFamily, Relation, RouterFail, RouterFailKind, Task, Tier, Volume } from '../../types'
 import { FABLE_AGENT_TIMEOUT_MS, FABLE_DRIFT_TIMEOUT_MS, FABLE_LONG_TIMEOUT_MS, FABLE_PROMPT_TIMEOUT_MS, FABLE_REVIEW_TIMEOUT_MS, isBigGoal } from './conductor'
 import { PRICE } from './cost'
 import type { Price } from './cost'
@@ -1524,6 +1524,19 @@ function mentionsGoal(prompt: string, prev: Brief, openSteps: readonly string[])
  * không bị áp sàn main của mục tiêu cũ. Nhận mục tiêu mới thì mang theo quy định model của brief trước (đứng đầu) khi prompt
  * mới không nêu quy định model nào.
  */
+/**
+ * Tin ngoài lề (0.8.4 A1): câu hỏi hay câu nói không thuộc mục tiêu đang dở. Mục tiêu đang dở: có brief, không phải đối chiếu, và checklist
+ * còn bước mở, hay cổng duyệt đang planning hay presented, hay mục tiêu lớn chưa lập checklist. Tin ngoài lề: router xếp new, không việc,
+ * không đối chiếu, và loại answer (mọi độ sâu) hay investigate với độ sâu none hay light. Mức tin cậy không xét.
+ */
+export function isAside(plan: Pick<RouterPlan, 'relation' | 'tasks' | 'isReference' | 'runReference' | 'kind' | 'depth'>, prev: Brief | null, state: { open: number; total: number; approval: ApprovalStatus }): boolean {
+  if (prev === null || prev.isReference) return false
+  const isPending = state.open > 0 || state.approval === 'planning' || state.approval === 'presented' || (isBigGoal(prev) && state.total === 0)
+  if (!isPending) return false
+  if (plan.relation !== 'new' || plan.tasks.length > 0 || plan.isReference || plan.runReference) return false
+  return plan.kind === 'answer' || (plan.kind === 'investigate' && (plan.depth === 'none' || plan.depth === 'light'))
+}
+
 export function nextBrief(
   prev: Brief | null,
   plan: RouterPlan,
