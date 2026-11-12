@@ -21,3 +21,13 @@ Nhánh làm việc `claude/focus-conductor-0-8-5`, tách từ `main` `87023af`. 
 - Cả bộ sau K10: 3239 đạt. K11: thêm isCollapsed vào 27 chỗ ở 25 tệp; 283 ca đạt trên 2.1.296; tsc chưa chạy được (không có khai báo kiểu).
 - K12: dừng; trang giá chính thức ghi Fable 5.2 8/40, đọc cache 0,20 (10/50/0,25 là Fable 5.1); giá đi vào catalogOf của lời dặn router nên đổi giá làm đổi sha256.
 - K13: phép kiểm đỏ ở version-check.mjs (kit test không đọc được JSON, Markdown); README thêm 3 dòng; DESIGN sửa câu.
+
+## Vòng 2 (rà soát PR 38), 12/11/2026
+- Đầu nhánh trước vòng: d2d97fb (đã kiểm).
+- b75ad01 W1 test đỏ (1/2 trên d2d97fb); 3eb4ed8 W1 sửa, mẫu 085-W1a, viết lại 085-D3a.
+- 35914ab W2 test và 8 mẫu 085-W2a..h, không đổi hooks/.
+- ed152a3 tài liệu vòng 2.
+- Bộ test 3253 ca, 0 lỗi, thêm 11 ca so với d2d97fb, không mất ca nào.
+- Đột biến: 9 mẫu mới đều bị bắt; vùng diff 12/12 bị bắt.
+- Phiên dài 10.339 / 19.587 và 10.696 / 19.943.
+- Còn: cập nhật mô tả PR, chờ CI, báo cáo cuối.
