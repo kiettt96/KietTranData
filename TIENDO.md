@@ -8,3 +8,4 @@ Tiếp: đo Fable cho L1.
 - Đo Fable (6/6 đạt): 240k 227-235 s, token ra 32.558-33.433; 400k 333-369 s, token ra 47.892-53.618. Chốt 400.000 / 555.000 ms / maxTokens 80.000 / hỏi lại 120.000.
 - Giới hạn hook: không có trần ở gói engine (model.complete kẹp 2147483647); probe thật không chạy vì hook module không nạp trong claude -p.
 - L1 sửa: 6f76947 (18 ca, 8/18 đỏ trên 45b5161 có hằng giả; 11 mẫu 087-L1a..k bắt hết); 7 mẫu cũ viết lại ở commit kế. Cả bộ sau L1: 3344 đạt.
+- H1: test đỏ 9b9fa6a (3/8 đỏ trên 45b5161); sửa 7d2b1d3, 4 mẫu 087-H1a..d bắt hết.

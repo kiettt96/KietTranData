@@ -141,6 +141,81 @@ index ff688b0..539892d 100644
  }
  
  /** Dòng context kèm prompt bị lược (0.7.8 G8), tối đa 200 ký tự. */
+diff --git a/claude-mods/focus-conductor/hooks/lib/text.ts b/claude-mods/focus-conductor/hooks/lib/text.ts
+index 6a5e395..dab99ae 100644
+--- a/claude-mods/focus-conductor/hooks/lib/text.ts
++++ b/claude-mods/focus-conductor/hooks/lib/text.ts
+@@ -1391,3 +1391,12 @@ export const CONDUCTOR_KEEP_CHARS = 200
+ export function conductorKeepText(): string {
+   return '[focus-conductor] Vẫn là vai điều phối chạy fable/medium: không tự sửa file, không tự chạy kiểm; giao bằng Agent theo phân việc, lời giao tự đứng được; đối chiếu kết quả trước khi đóng bước.'
+ }
++
++/**
++ * Lý do mode off khi phiên không tương tác và headlessRouting là off (0.8.7 H1): gắn ngay sau "Chế độ off" của /conductor status và câu
++ * trả lời của /conductor reroute, tối đa 160 ký tự. Mode off do người dùng tự đặt không có phần này.
++ */
++export const HEADLESS_OFF_CHARS = 160
++export function headlessOffNote(): string {
++  return ' (phiên không tương tác; bật: đặt option headlessRouting là auto rồi mở phiên mới, hoặc gõ /conductor mode auto cho phiên này)'
++}
+diff --git a/claude-mods/focus-conductor/hooks/parts/command.ts b/claude-mods/focus-conductor/hooks/parts/command.ts
+index e2feb0e..e12bcd0 100644
+--- a/claude-mods/focus-conductor/hooks/parts/command.ts
++++ b/claude-mods/focus-conductor/hooks/parts/command.ts
+@@ -14,7 +14,7 @@ import { askRouter, bareBrief, briefOf, failFields, nextBrief, parseRoute, rerou
+ import { shownPlan } from '../lib/mirror'
+ import * as S from '../lib/state'
+ import type { View } from '../lib/state'
+-import { RETRY_ROUNDS, WAIVE_REPORT, briefContext, checkHintLines, droppedGoalNotice, droppedItemsText, droppedPlanNotice, quotaStatusLines, renderPlan, resetLabel, routerFailLines, unroutedContext } from '../lib/text'
++import { RETRY_ROUNDS, WAIVE_REPORT, briefContext, checkHintLines, droppedGoalNotice, headlessOffNote, droppedItemsText, droppedPlanNotice, quotaStatusLines, renderPlan, resetLabel, routerFailLines, unroutedContext } from '../lib/text'
+ import { PANE_ROWS, shouldAutoOpenPane } from '../lib/pane'
+ import { PANE, PANE_TITLE } from '../ui/pane'
+ import { conductStatusSuffix, conductorLine, labels, langOf } from '../ui/labels'
+@@ -30,6 +30,8 @@ const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EM
+ const bandHiddenState = atom({ plugin: 'focus-conductor', key: 'isBandHidden' } as const, false)
+ const resetArmedState = atom({ plugin: 'focus-conductor', key: 'resetArmedUntil' } as const, 0)
+ const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null)
++// Cờ phiên không tương tác đặt mode off (0.8.0 A13), cùng khóa với parts/session.ts; chỉ đọc để /conductor nêu lý do (0.8.7 H1).
++const headlessState = atom({ plugin: 'focus-conductor', key: 'headlessOff' } as const, false)
+ const quotaState = atom({ plugin: 'focus-conductor', key: 'quota' } as const, EMPTY_QUOTA)
+ // Mục tiêu mà người dùng đã tự đóng pane chi tiết (-1 là chưa); ghi ở hook ui.close của parts/ui.tsx.
+ const paneClosedState = atom({ plugin: 'focus-conductor', key: 'paneClosedGoal' } as const, -1)
+@@ -287,7 +289,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
+     }
+ 
+     if (sub === 'reroute') {
+-      if ((await read($, mode)) === 'off') return { text: 'Focus Conductor đang tắt (mode off); bật lại bằng /conductor mode auto.' }
++      if ((await read($, mode)) === 'off') return { text: `Focus Conductor đang tắt (mode off${(await read($, headlessState)) === true ? headlessOffNote() : ''}); bật lại bằng /conductor mode auto.` }
+       const before = S.normalizeCore(await read($, coreState))
+       const current = before.brief
+       // Router đọc được prompt gần nhất (0.7.5): đọc lại prompt đã lập mục tiêu hiện tại, không phải prompt tiếp nối ngắn gần nhất.
+@@ -456,6 +458,8 @@ export function registerCommand(on: On, ctx: Ctx): void {
+ 
+     if (sub === 'status') {
+       const { core, mode: current, lang } = await read($, view)
++      // Mode off do phiên không tương tác (0.8.7 H1): dòng đầu nêu lý do và cách bật.
++      const modeText = `Chế độ ${current}${current === 'off' && (await read($, headlessState)) === true ? headlessOffNote() : ''}`
+       const usage = await $.session.usage().catch(caught('session.usage', null))
+       const costLines = ledgerLines(core.ledger, lang)
+       if (core.sysTokens > 0) costLines.push(`Phần cố định của ngữ cảnh (system prompt, tools): ${Math.round(core.sysTokens / 1000)}k token, đo ở đầu phiên`)
+@@ -485,7 +489,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
+       // Vai điều phối của mục tiêu (0.8.6): trạng thái miễn và số đo, chỉ khi luồng chính đang điều phối.
+       const conductSuffix = ctx.isConducting(core, current) ? conductStatusSuffix(S.conductOf(core), lang) : ''
+       const conductorLines = ctx.conductorOption === 'fable' ? [conductorLine(core, ctx.routerModel, lang) + conductSuffix] : []
+-      if (core.brief === null) return { text: [`Chế độ ${current}. Chưa có mục tiêu.`, ...conductorLines, ...routerFailLines(core.routerFail), ...costLines].join('\n') }
++      if (core.brief === null) return { text: [`${modeText}. Chưa có mục tiêu.`, ...conductorLines, ...routerFailLines(core.routerFail), ...costLines].join('\n') }
+       const routeLine = core.route
+         ? `${describePick(core.route)} (${core.route.reason})`
+         : core.brief.main === null
+@@ -510,7 +514,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
+       const agentBlock = delegationBlock + (agentLines.length > 0 ? `\nSubagent gần nhất:\n${agentLines.join('\n')}` : '') + untrackedLine
+       return {
+         text: [
+-          `Chế độ ${current}`,
++          modeText,
+           judged,
+           `Luồng chính: ${routeLine}${blockedLine}`,
+           ...conductorLines,
 diff --git a/claude-mods/focus-conductor/hooks/parts/session.ts b/claude-mods/focus-conductor/hooks/parts/session.ts
 index c50b0e9..90e667d 100644
 --- a/claude-mods/focus-conductor/hooks/parts/session.ts
@@ -197,7 +272,7 @@ index c50b0e9..90e667d 100644
        L.goalPrompt = { text, prev, goalId: brief.goalId }
        L.isGoalNew = true
 diff --git a/claude-mods/focus-conductor/scripts/mutants.ts b/claude-mods/focus-conductor/scripts/mutants.ts
-index 40078d3..999a3e7 100644
+index 40078d3..97e2997 100644
 --- a/claude-mods/focus-conductor/scripts/mutants.ts
 +++ b/claude-mods/focus-conductor/scripts/mutants.ts
 @@ -300,7 +300,7 @@ export const MUTANTS: Mutant[] = [
@@ -242,7 +317,7 @@ index 40078d3..999a3e7 100644
    { id: "078-G8k", file: "hooks/parts/session.ts", note: "không thêm dòng context prompt bị lược", old: "...(isClipped ? [CLIPPED_CONTEXT] : []), ", new: "" },
    { id: "078-G9a", file: "hooks/parts/session.ts", note: "không nhận ra tin chen ngang", old: "    const isInterject = e.turnId !== undefined && prev !== null\n", new: "    const isInterject = false as boolean\n" },
    { id: "078-G9b", file: "hooks/parts/session.ts", note: "tin gửi khi phiên rảnh cũng là chen ngang", old: "    const isInterject = e.turnId !== undefined && prev !== null\n", new: "    const isInterject = prev !== null\n" },
-@@ -2198,4 +2198,15 @@ export const MUTANTS: Mutant[] = [
+@@ -2198,4 +2198,19 @@ export const MUTANTS: Mutant[] = [
    { id: "086-V1g", file: "hooks/lib/router.ts", note: "chuyển cả tin đối chiếu", old: "(!isReference && relation !== 'new' && policy.goalIsBig === true)", new: "(relation !== 'new' && policy.goalIsBig === true)" },
    { id: "086-V1h", file: "hooks/parts/command.ts", note: "status hiện số đo cả khi không điều phối", old: "const conductSuffix = ctx.isConducting(core, current) ? conductStatusSuffix(S.conductOf(core), lang) : ''", new: "const conductSuffix = conductStatusSuffix(S.conductOf(core), lang)" },
    { id: "086-V1i", file: "hooks/parts/consistency.ts", note: "đếm cả lần đọc bị từ chối", old: "if (e.agentId !== undefined || ctx.conductorReads === 0 || result.deny !== undefined) return result", new: "if (e.agentId !== undefined || ctx.conductorReads === 0) return result" },
@@ -257,7 +332,104 @@ index 40078d3..999a3e7 100644
 +  { id: "087-L1i", file: "hooks/lib/router.ts", note: "cảnh báo của Fable ghi phần đầu theo trần thường", old: "grouped(isFable ? FABLE_REQUEST_HEAD : REQUEST_HEAD)", new: "grouped(REQUEST_HEAD)" },
 +  { id: "087-L1j", file: "hooks/lib/router.ts", note: "lượt đọc trọn giữ maxTokens 16.000", old: "maxTokens: isFull ? FABLE_FULL_MAX_TOKENS : isLong", new: "maxTokens: isLong" },
 +  { id: "087-L1k", file: "hooks/parts/session.ts", note: "kết quả của request dự phòng vẫn coi là Fable đọc trọn", old: "target.isFable && outcome.fellBack !== true", new: "target.isFable" },
++  { id: "087-H1a", file: "hooks/parts/command.ts", note: "status không bao giờ ghi lý do", old: "`Chế độ ${current}${current === 'off' && (await read($, headlessState)) === true ? headlessOffNote() : ''}`", new: "`Chế độ ${current}`" },
++  { id: "087-H1b", file: "hooks/parts/command.ts", note: "ghi lý do cả khi người dùng tự đặt mode off", old: "current === 'off' && (await read($, headlessState)) === true ? headlessOffNote()", new: "current === 'off' ? headlessOffNote()" },
++  { id: "087-H1c", file: "hooks/parts/command.ts", note: "ghi lý do cả khi mode đã là auto", old: "${current === 'off' && (await read($, headlessState)) === true ? headlessOffNote()", new: "${(await read($, headlessState)) === true ? headlessOffNote()" },
++  { id: "087-H1d", file: "hooks/parts/command.ts", note: "reroute không ghi lý do", old: "mode off${(await read($, headlessState)) === true ? headlessOffNote() : ''})", new: "mode off)" },
  ]
+diff --git a/claude-mods/focus-conductor/tests/integration/headless-status-h1-087.test.ts b/claude-mods/focus-conductor/tests/integration/headless-status-h1-087.test.ts
+new file mode 100644
+index 0000000..022f022
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/integration/headless-status-h1-087.test.ts
+@@ -0,0 +1,87 @@
++// 0.8.7 H1: phiên không tương tác với headlessRouting mặc định (off) làm mod chạy như mode off (0.8.0 A13). /conductor status và câu trả
++// lời của /conductor reroute nêu lý do và cách bật (option headlessRouting là auto rồi mở phiên mới, hoặc /conductor mode auto) ngay sau
++// chữ "Chế độ off", tối đa 160 ký tự. Mode off do người dùng tự đặt không có phần này. Không thêm dòng context nào.
++
++import { describe, expect, test } from 'claude-code/testing'
++import type { Engine } from 'claude-code/testing'
++import type { On } from 'claude-code'
++import { base, plan, submit } from '../support/engine'
++import type { Seen } from '../support/engine'
++
++const GOAL = plan({ goal: 'Sửa hàm tính phí', depth: 'substantial', volume: 'medium' })
++const PRESENTATION = { isFullscreen: false, columns: 80 }
++const run = async ($: Engine, args: string) => String(((await $.command.run({ command: 'conductor', args, origin: { kind: 'composer' }, presentation: PRESENTATION } as never)) as { text?: string }).text ?? '')
++const firstLine = async ($: Engine) => (await run($, 'status')).split('\n')[0] ?? ''
++
++function setup(on: On): Seen {
++  const seen = base(on, { router: () => GOAL })
++  on('session.start', (_$, e) => ({ cwd: e.cwd }))
++  on('turn.complete', () => ({ text: '' }))
++  return seen
++}
++const start = ($: Engine, isInteractive: boolean) => $.session.start({ cwd: '/repo', surface: isInteractive ? 'terminal' : null, isInteractive } as never)
++
++describe('0.8.7 H1: status nêu lý do mode off ở phiên không tương tác', () => {
++  test('phiên không tương tác, option mặc định: có "Chế độ off", headlessRouting và /conductor mode auto; phần thêm không quá 160 ký tự', {}, async ($, on) => {
++    setup(on)
++    await start($, false)
++    const line = await firstLine($)
++    expect(line.startsWith('Chế độ off')).toBe(true)
++    expect(line).toContain('headlessRouting')
++    expect(line).toContain('/conductor mode auto')
++    expect(line.replace('Chế độ off', '').replace('. Chưa có mục tiêu.', '').length).toBeLessThanOrEqual(160)
++  })
++
++  test('đã có mục tiêu (dòng đầu của nhánh có mục tiêu) cũng nêu lý do', {}, async ($, on) => {
++    setup(on)
++    await start($, false)
++    await submit($, 'Sửa hàm tính phí')
++    await run($, 'goal Sửa hàm tính phí')
++    const text = await run($, 'status')
++    expect(text.split('\n')[0] ?? '').toContain('headlessRouting')
++  })
++
++  test('rồi /conductor mode auto: "Chế độ auto", không có headlessRouting', {}, async ($, on) => {
++    setup(on)
++    await start($, false)
++    await run($, 'mode auto')
++    const line = await firstLine($)
++    expect(line.startsWith('Chế độ auto')).toBe(true)
++    expect(await run($, 'status')).not.toContain('headlessRouting')
++  })
++
++  test('phiên không tương tác với headlessRouting auto: "Chế độ auto", không có phần lý do', { options: { headlessRouting: 'auto' } }, async ($, on) => {
++    setup(on)
++    await start($, false)
++    expect((await firstLine($)).startsWith('Chế độ auto')).toBe(true)
++    expect(await run($, 'status')).not.toContain('headlessRouting')
++  })
++
++  test('phiên tương tác, /conductor mode off: "Chế độ off", không có headlessRouting', {}, async ($, on) => {
++    setup(on)
++    await start($, true)
++    await run($, 'mode off')
++    expect((await firstLine($)).startsWith('Chế độ off')).toBe(true)
++    expect(await run($, 'status')).not.toContain('headlessRouting')
++  })
++
++  test('phiên tương tác, option routing off: "Chế độ off", không có headlessRouting', { options: { routing: 'off' } }, async ($, on) => {
++    setup(on)
++    await start($, true)
++    expect((await firstLine($)).startsWith('Chế độ off')).toBe(true)
++    expect(await run($, 'status')).not.toContain('headlessRouting')
++  })
++
++  test('phiên không tương tác, mặc định: /conductor reroute nêu headlessRouting', {}, async ($, on) => {
++    setup(on)
++    await start($, false)
++    expect(await run($, 'reroute')).toContain('headlessRouting')
++  })
++
++  test('phiên không tương tác, mặc định: prompt gửi đi không thêm dòng context nào', {}, async ($, on) => {
++    const seen = setup(on)
++    await start($, false)
++    await submit($, 'Sửa hàm tính phí')
++    expect(seen.contexts.at(-1) ?? []).toEqual([])
++  })
++})
 diff --git a/claude-mods/focus-conductor/tests/integration/router-full-l1-087.test.ts b/claude-mods/focus-conductor/tests/integration/router-full-l1-087.test.ts
 new file mode 100644
 index 0000000..189cd29
