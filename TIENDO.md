@@ -17,3 +17,4 @@ Probe tái hiện trên `473bc75` [Đo trực tiếp]:
 | R1 | e300504, 9 đỏ / 7 đạt trên 473bc75 (R1 và D1) | xem log | 085-D1a viết lại; 4 ca cũ đổi cách dựng (solo) |
 | R2 | bc207dd, 6 đỏ / 13 đạt (cả 473bc75 và R1) | xem log | 071-M8, 071-M9, 075-D1h, 085-D1a viết lại; cả bộ 3297 đạt |
 | R3 | e9a9b92, 5 đỏ / 2 đạt (cả 473bc75 và R2) | xem log | cả bộ 3304 đạt |
+| R4 | 2275c99, 2 đỏ / 5 đạt (cả 473bc75 và R3) | xem log | 079-V4d, 079-V4e viết lại; cả bộ 3311 đạt; băm request tin bổ sung e98a37c2... trùng |
