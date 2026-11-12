@@ -17,7 +17,7 @@ import type { View } from '../lib/state'
 import { RETRY_ROUNDS, WAIVE_REPORT, briefContext, checkHintLines, droppedGoalNotice, droppedItemsText, droppedPlanNotice, quotaStatusLines, renderPlan, resetLabel, routerFailLines, unroutedContext } from '../lib/text'
 import { PANE_ROWS, shouldAutoOpenPane } from '../lib/pane'
 import { PANE, PANE_TITLE } from '../ui/pane'
-import { conductorLine, labels, langOf } from '../ui/labels'
+import { conductStatusSuffix, conductorLine, labels, langOf } from '../ui/labels'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -190,6 +190,23 @@ export function registerCommand(on: On, ctx: Ctx): void {
       await flushDecisions((path, text) => $.fs.write(path, text))
       await showStatus($, await read($, view), ctx.options)
       return { text: 'Đã duyệt kế hoạch; Claude được sửa file theo checklist.' }
+    }
+
+    if (sub === 'solo') {
+      // Lối thoát của vai điều phối (0.8.6 R6): chỉ người gõ, cùng luật origin như /conductor waive; Claude và plugin không tự miễn được.
+      if (!WAIVE_ORIGINS.has(e.origin.kind)) return { text: 'Chỉ nhận /conductor solo do người gõ; lệnh từ plugin, SDK hay lịch không miễn được vai điều phối.' }
+      if (arg !== '' && arg !== 'off') return { text: 'Dùng /conductor solo để luồng chính tự sửa file và tự chạy kiểm trong mục tiêu này, /conductor solo off để bỏ.' }
+      const core = S.normalizeCore(await read($, coreState))
+      if (core.brief === null || !ctx.isConducting(core, await read($, mode))) return { text: 'Luồng chính không đang giữ vai điều phối nên không có gì để miễn.' }
+      const isOn = arg !== 'off'
+      const goalId = core.brief.goalId
+      if (S.conductOf(core).solo !== isOn) await update($, coreState, S.withConduct(goalId, () => ({ solo: isOn })))
+      await showStatus($, await read($, view), ctx.options)
+      return {
+        text: isOn
+          ? 'Đã miễn vai điều phối cho mục tiêu này: luồng chính được tự sửa file và tự chạy kiểm; /conductor solo off để bỏ.'
+          : 'Đã bỏ miễn: luồng chính lại giao việc sửa file và chạy kiểm cho subagent.',
+      }
     }
 
     if (sub === 'mode') {
@@ -460,7 +477,9 @@ export function registerCommand(on: On, ctx: Ctx): void {
         }),
       )
       // Fable điều phối (0.8.4 C8): một dòng trạng thái, chỉ khi option conductor là fable.
-      const conductorLines = ctx.conductorOption === 'fable' ? [conductorLine(core, ctx.routerModel, lang)] : []
+      // Vai điều phối của mục tiêu (0.8.6): trạng thái miễn và số đo, chỉ khi luồng chính đang điều phối.
+      const conductSuffix = ctx.isConducting(core, current) ? conductStatusSuffix(S.conductOf(core), lang) : ''
+      const conductorLines = ctx.conductorOption === 'fable' ? [conductorLine(core, ctx.routerModel, lang) + conductSuffix] : []
       if (core.brief === null) return { text: [`Chế độ ${current}. Chưa có mục tiêu.`, ...conductorLines, ...routerFailLines(core.routerFail), ...costLines].join('\n') }
       const routeLine = core.route
         ? `${describePick(core.route)} (${core.route.reason})`

@@ -6,7 +6,7 @@
 
 import type { PluginOptions } from 'claude-code'
 
-import type { AgentProgress, AgentState, ApprovalState, ApprovalStatus, AgentTally, ArchivedGoal, Brief, ChangedState, CheckHint, Core, FableState, ForkPart, GoalTurns, ForkPartState, ForkState, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, RetryItem, RetryState, Route, Waiver, WaiverState, RouteEvent, RouterFail, SkillState, TurnFault, Warning } from '../../types'
+import type { AgentProgress, AgentState, ApprovalState, ApprovalStatus, AgentTally, ArchivedGoal, Brief, ChangedState, CheckHint, ConductState, Core, FableState, ForkPart, GoalTurns, ForkPartState, ForkState, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, RetryItem, RetryState, Route, Waiver, WaiverState, RouteEvent, RouterFail, SkillState, TurnFault, Warning } from '../../types'
 import { isFullyClosed, openSteps, restorableSteps } from './drift'
 import { isPendingGoal } from './conductor'
 import type { Tokens } from './cost'
@@ -55,6 +55,12 @@ export const EMPTY_CORE: Core = {
   changedNoticed: -1,
   fable: { failures: 0, pauseLeft: 0, ready: null, reason: '', holdKey: '', briefedGoal: -1, promptPaused: false },
   goalTurns: { goalId: -1, done: 0, interrupted: false },
+  conduct: emptyConduct(-1),
+}
+
+/** Trạng thái vai điều phối mặc định của mục tiêu goalId (0.8.6). */
+export function emptyConduct(goalId: number): ConductState {
+  return { goalId, solo: false, agentDenied: false, deniedWrites: 0, deniedChecks: 0, selfWrites: 0, selfChecks: 0, reads: 0, readNoted: 0 }
 }
 
 const LOG_LIMIT = 60
@@ -261,8 +267,43 @@ export function normalizeCore(raw: Partial<Core>): Core {
     changedNoticed: typeof raw.changedNoticed === 'number' ? raw.changedNoticed : -1,
     fable: normalizeFable(raw.fable),
     goalTurns: normalizeGoalTurns(raw.goalTurns),
+    conduct: normalizeConduct(raw.conduct),
   }
 }
+
+/** Vai điều phối từ bản đã lưu (0.8.6); vắng hay sai kiểu ở trạng thái từ bản cũ là mặc định. */
+function normalizeConduct(raw: Partial<ConductState> | undefined): ConductState {
+  if (raw === undefined || raw === null || typeof raw !== 'object') return emptyConduct(-1)
+  const count = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0)
+  return {
+    goalId: typeof raw.goalId === 'number' && Number.isInteger(raw.goalId) ? raw.goalId : -1,
+    solo: raw.solo === true,
+    agentDenied: raw.agentDenied === true,
+    deniedWrites: count(raw.deniedWrites),
+    deniedChecks: count(raw.deniedChecks),
+    selfWrites: count(raw.selfWrites),
+    selfChecks: count(raw.selfChecks),
+    reads: count(raw.reads),
+    readNoted: count(raw.readNoted),
+  }
+}
+
+/** Vai điều phối của mục tiêu đang mở (0.8.6): trạng thái lưu cho mục tiêu khác là mặc định. */
+export function conductOf(c: Core): ConductState {
+  const n = normalizeCore(c)
+  const goalId = n.brief?.goalId ?? -1
+  return n.brief !== null && n.conduct.goalId === goalId ? n.conduct : emptyConduct(goalId)
+}
+
+/** Đổi vai điều phối của mục tiêu goalId (0.8.6); mục tiêu đang mở là mục tiêu khác thì không đổi gì. */
+export const withConduct =
+  (goalId: number, change: (state: ConductState) => Partial<ConductState>) =>
+  (c: Core): Core => {
+    const n = normalizeCore(c)
+    if (n.brief === null || n.brief.goalId !== goalId) return n
+    const prev = conductOf(n)
+    return { ...n, conduct: normalizeConduct({ ...prev, ...change(prev), goalId }) }
+  }
 
 /** Turn của mục tiêu từ bản đã lưu (0.8.5 K8); vắng hay sai kiểu ở trạng thái từ bản cũ là chưa có turn nào. */
 function normalizeGoalTurns(raw: Partial<GoalTurns> | undefined): GoalTurns {
@@ -610,7 +651,9 @@ function archiveOf(n: Core): ArchivedGoal[] {
   // Trạng thái duyệt lúc cất (0.8.5 K3): khôi phục đặt lại cho số mục tiêu mới; cờ chờ câu trả lời không mang theo.
   // Turn của mục tiêu lúc cất (0.8.5 K8) đi theo mục tiêu và được nhận lại khi khôi phục.
   const turns = turnsOf(n)
-  return [{ brief, plan: n.plan, approval: approvalOf(n).status, turns: { done: turns.done, interrupted: turns.interrupted } }, ...n.archived.filter(a => n.brief === null || a.brief.goalId !== n.brief.goalId)].slice(0, ARCHIVE_LIMIT)
+  // Vai điều phối lúc cất (0.8.6) đi theo mục tiêu và được nhận lại khi khôi phục.
+  const { goalId: _conductGoal, ...conduct } = conductOf(n)
+  return [{ brief, plan: n.plan, approval: approvalOf(n).status, turns: { done: turns.done, interrupted: turns.interrupted }, conduct }, ...n.archived.filter(a => n.brief === null || a.brief.goalId !== n.brief.goalId)].slice(0, ARCHIVE_LIMIT)
 }
 
 /** Trạng thái duyệt của mục tiêu khôi phục (0.8.5 K3): trạng thái lúc cất, gắn với số mục tiêu mới; vắng (bản cũ) là none. */
@@ -645,6 +688,7 @@ export function restoreArchived(c: Core, index: number): { core: Core; restored:
     ...freshProgress(goalId),
     approval: restoredApproval(goalId, restored.approval),
     goalTurns: { goalId, done: restored.turns?.done ?? 0, interrupted: restored.turns?.interrupted === true },
+    conduct: normalizeConduct({ ...restored.conduct, goalId }),
   }
   return { core, restored: { brief, plan: restored.plan } }
 }

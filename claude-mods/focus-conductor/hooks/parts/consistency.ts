@@ -595,7 +595,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
   const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
   const mode = derive([modeState], modeOf(ctx.options))
   /** Luồng chính đang giữ vai điều phối cho mục tiêu hiện tại (0.8.5 D1): mức strictDelegation hiệu dụng là block. */
-  const isConductingNow = (core: Core, current: Mode): boolean => ctx.conductorOption === 'fable' && isMainConducting(ctx.conductorInputs(core, current), core.brief)
+  const isConductingNow = (core: Core, current: Mode): boolean => ctx.isConducting(core, current)
 
   // ------------------------------------------ 3. giữ nhất quán
 

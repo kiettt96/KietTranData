@@ -79,6 +79,7 @@ export const COMMAND_HELP = [
   '/conductor reroute     router đọc lại prompt gần nhất (kể cả khi router đang tạm ngừng)',
   '/conductor reset       xóa mục tiêu, checklist, cảnh báo và danh sách model bị chặn',
   '/conductor approve     duyệt kế hoạch đang chờ (chỉ người gõ)',
+  '/conductor solo        luồng chính đang điều phối được tự sửa file và tự chạy kiểm (chỉ người gõ); solo off để bỏ',
   '/conductor waive N lý do   miễn lệnh kiểm chưa đạt số N (hoặc ghi lệnh) cho mục tiêu này; waive undo N bỏ lệnh miễn',
   '/conductor errors      nhật ký lỗi của mod; errors clear xóa nhật ký',
 ].join('\n')
@@ -271,6 +272,8 @@ export function createContext(options: PluginOptions) {
   // danh sách đầu mà không có trong danh sách sau là agent ngoài điều phối (untracked): mod không chấm, không ép, không đo.
   const startedAgents = new Map<string, string>()
   const spawnedIds = new Set<string>()
+  // Lời gọi Agent đã sinh subagent (0.8.6 R6), theo tool_use_id: lời gọi bị từ chối hay lỗi mà không có trong đây mới bật cờ miễn.
+  const spawnedCalls = new Set<string>()
   const rawRouter = options['router']
   const routerModel = typeof rawRouter === 'string' && rawRouter.trim() !== '' ? rawRouter.trim() : 'sonnet'
   const routerFamily: ModelFamily = familyOf(routerModel) ?? 'sonnet'
@@ -301,6 +304,11 @@ export function createContext(options: PluginOptions) {
     // Prompt hiện tại đến lúc router Fable còn tạm ngừng (0.8.4 C6, V1; 0.8.5 K10: cờ nằm trong Core.fable nên sống qua nạp lại mod).
     const fable = normalizeCore(core).fable
     return { option: conductorOption, mode, headless, blocked, pauseLeft: fable.pauseLeft + (fable.promptPaused ? 1 : 0), sessionPolicy, sessionFamily: local.sessionFamily }
+  }
+
+  /** Luồng chính đang giữ vai điều phối cho mục tiêu hiện tại (0.8.5 D1, 0.8.6): option conductor là fable và isMainConducting. */
+  function isConducting(core: Core, mode: Mode): boolean {
+    return conductorOption === 'fable' && isMainConducting(conductorInputs(core, mode), normalizeCore(core).brief)
   }
 
   /** Nguyên nhân luồng chính không điều phối bằng Fable lúc này; null là điều phối khả dụng. */
@@ -551,6 +559,7 @@ export function createContext(options: PluginOptions) {
     local.lastSwitch = null
     startedAgents.clear()
     spawnedIds.clear()
+    spawnedCalls.clear()
     local.liveAgents.clear()
     local.deferred = []
   }
@@ -942,6 +951,7 @@ export function createContext(options: PluginOptions) {
     conductorOption,
     conductorInputs,
     conductorState,
+    isConducting,
     routerTarget,
     routerTimeLine,
     semanticDrift,
@@ -951,6 +961,7 @@ export function createContext(options: PluginOptions) {
     sessionPolicy,
     skipPhrases,
     spawnedIds,
+    spawnedCalls,
     startedAgents,
     steppedEarly,
     strictDelegation,

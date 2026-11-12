@@ -64,7 +64,7 @@ function retryFloorOf(core: Core, description: string, subagentType: string | un
 
 export function registerAgents(on: On, ctx: Ctx): void {
   const L = ctx.local
-  const { agentFailures, agentRoutes, agents, flushDecisions, delegationItems, isAgentRouterPaused, moveDelegation, noteAgentRouter, noteRouterTime, offered, pendingAgents, policy, recognized, record, refit, rememberAgentRoute, spawnedIds, startedAgents, steppedEarly } = ctx
+  const { agentFailures, agentRoutes, agents, flushDecisions, delegationItems, isAgentRouterPaused, moveDelegation, noteAgentRouter, noteRouterTime, offered, pendingAgents, policy, recognized, record, refit, rememberAgentRoute, spawnedCalls, spawnedIds, startedAgents, steppedEarly } = ctx
   const mode = derive([modeState], modeOf(ctx.options))
 
   // Agent khởi động mà không đi qua agent.spawn của mod: ghi để /conductor status báo là agent ngoài điều phối.
@@ -370,6 +370,16 @@ export function registerAgents(on: On, ctx: Ctx): void {
       moveDelegation(brief.goalId, assigned.index, 'pending')
       await update($, coreState, S.withDelegations(brief.goalId, delegationItems(brief)))
     }
+    // Vai điều phối (0.8.6 R6): lời gọi Agent của luồng chính bị từ chối hay lỗi mà không sinh subagent nào (engine, quyền, plugin khác;
+    // lời từ chối của chính mod đến từ hook đăng ký trước nên không tới đây) bật cờ miễn; lời gọi đã sinh subagent thì tắt cờ.
+    const isSpawned = spawnedCalls.delete(e.tool_use_id)
+    if (!isNested && brief !== null) {
+      const isRefused = !isSpawned && (result.deny !== undefined || result.isError === true)
+      const now = S.normalizeCore(await read($, coreState))
+      if (ctx.isConducting(now, current) && S.conductOf(now).agentDenied !== isRefused) {
+        await update($, coreState, S.withConduct(brief.goalId, () => ({ agentDenied: isRefused })))
+      }
+    }
     return result
   }).catch(($, e, next) => (noteHookError('tool.call', next.error), next(e)))
 
@@ -501,6 +511,8 @@ export function registerAgents(on: On, ctx: Ctx): void {
     if (agentId !== undefined) {
       steppedEarly.delete(agentId)
       if (spawnedIds.size < 1000) spawnedIds.add(agentId)
+      // Lời gọi Agent đã sinh subagent (0.8.6 R6): lỗi về sau là lỗi của subagent, không bật cờ miễn của vai điều phối.
+      if (e.tool_use_id !== undefined && spawnedCalls.size < 1000) spawnedCalls.add(e.tool_use_id)
     }
     if (workflowTask !== undefined && core.brief !== null) await update($, coreState, S.withDelegations(core.brief.goalId, delegationItems(core.brief)))
     if (forkPart !== null && agentId !== undefined) await update($, coreState, S.withForkCall(e.tool_use_id, p => ({ ...p, agentId })))
