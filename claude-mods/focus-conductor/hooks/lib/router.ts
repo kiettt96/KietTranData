@@ -33,6 +33,11 @@ export type Policy = {
    * sửa file có model hợp lệ thành agent và bỏ mọi split, với mục tiêu lớn. Vắng hay false: như 0.8.3.
    */
   conductor?: boolean
+  /**
+   * Mục tiêu hiện tại (trước tin này) là mục tiêu lớn (0.8.6 R4): khi conductor bật, tin tiếp nối (relation khác new) cũng đổi việc main
+   * sửa file thành việc giao subagent. Chỉ parseRoute đọc; request gửi router không đổi.
+   */
+  goalIsBig?: boolean
   /** Thư mục gốc của phiên (vòng 2 V4): đường dẫn tuyệt đối dưới nó đổi thành tương đối khi so hai phần của việc tách; vắng thì so theo đuôi. */
   root?: string | null
 }
@@ -933,7 +938,8 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
   const held: Array<{ index: number; pick: Choice }> = []
   const rawTasks = Array.isArray(raw['tasks']) ? raw['tasks'] : []
   // Fable điều phối (0.8.4 C4): mục tiêu lớn thì việc sửa file giao subagent và không tách phiên con (phiên con chạy model của luồng chính).
-  const isConducting = policy.conductor === true && isBigGoal({ depth, kind, isReference })
+  // Tin tiếp nối của mục tiêu đang là mục tiêu lớn (0.8.6 R4) cũng được điều phối, kể cả khi kế hoạch của chính tin đó nhẹ.
+  const isConducting = policy.conductor === true && (isBigGoal({ depth, kind, isReference }) || (!isReference && relation !== 'new' && policy.goalIsBig === true))
   // Tách bằng phiên con (0.7.9 F1) xét sau phân việc: split không đổi run, model hay effort của việc nào.
   const forks = isConducting ? 0 : Math.min(policy.forks ?? 0, MAX_FORKS)
   const conductNotes: string[] = []

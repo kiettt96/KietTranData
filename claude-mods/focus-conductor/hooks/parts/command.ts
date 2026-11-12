@@ -22,6 +22,7 @@ import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
 import { COMMAND_HELP } from '../context'
+import { isBigGoal } from '../lib/conductor'
 
 // Atom của mod, khai báo lại ở mỗi file dùng chúng (engine chỉ nhận tham chiếu state viết trong chính file đó);
 // cùng plugin và key nên là cùng một giá trị trong $.state.
@@ -229,7 +230,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       const before = S.normalizeCore(await read($, coreState))
       const prev = before.brief
       const basePolicy = ctx.routePolicy(before, ctx.maxForks >= 2 ? await $.session.root().catch(caught('session.root', null)) : null)
-      const rules = ctx.conductorState(before, await read($, mode)) === null ? { ...basePolicy, conductor: true } : basePolicy
+      const rules = ctx.conductorState(before, await read($, mode)) === null ? { ...basePolicy, conductor: true, goalIsBig: isBigGoal(before.brief) } : basePolicy
       // Lệnh do người dùng gõ: luôn hỏi router, kể cả khi router đang tạm ngừng sau các lần lỗi.
       const target = ctx.routerTarget(before, await read($, mode))
       const request = routerRequest({ text: arg, prev, ran: null, policy: rules, model: target.model, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily, isForcedNew: true })
@@ -293,7 +294,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
         return { text: 'Không có prompt nào của mục tiêu hiện tại để router đọc lại. Đặt mục tiêu bằng /conductor goal kèm mô tả.' }
       }
       const basePolicy = ctx.routePolicy(before, ctx.maxForks >= 2 ? await $.session.root().catch(caught('session.root', null)) : null)
-      const rules = ctx.conductorState(before, await read($, mode)) === null ? { ...basePolicy, conductor: true } : basePolicy
+      const rules = ctx.conductorState(before, await read($, mode)) === null ? { ...basePolicy, conductor: true, goalIsBig: isBigGoal(before.brief) } : basePolicy
       // Lệnh do người dùng gõ: luôn hỏi router, kể cả khi router đang tạm ngừng.
       const target = ctx.routerTarget(before, await read($, mode))
       const request = routerRequest({ text: last.text, prev: last.prev, ran: ranText(before), policy: rules, model: target.model, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily })
