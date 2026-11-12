@@ -146,20 +146,31 @@ index 81c7feb..99ccb9e 100644
    return { core, restored: { brief, plan: restored.plan } }
  }
 diff --git a/claude-mods/focus-conductor/hooks/lib/text.ts b/claude-mods/focus-conductor/hooks/lib/text.ts
-index d4f7c47..2c2eb19 100644
+index d4f7c47..b7eafe5 100644
 --- a/claude-mods/focus-conductor/hooks/lib/text.ts
 +++ b/claude-mods/focus-conductor/hooks/lib/text.ts
-@@ -1355,7 +1355,8 @@ export function conductorContext(): string {
+@@ -1355,7 +1355,19 @@ export function conductorContext(): string {
    return (
      '[focus-conductor] Điều phối: luồng chính là vai điều phối, chạy fable/medium. Lập kế hoạch, rồi giao từng việc bằng Agent đúng loại ' +
      'agent, model, effort đã phân, description mở đầu bằng "Việc N". Mỗi lời giao tự đứng được: mục tiêu, phạm vi file, ràng buộc, tiêu ' +
 -    'chí xong và lệnh kiểm. Đọc kết quả, đối chiếu yêu cầu trước khi đóng bước. Chỉ tự sửa file khi chỉnh vài dòng để ráp kết quả.'
 +    'chí xong và lệnh kiểm. Không tự sửa file, không tự chạy lệnh kiểm: chỉnh nhỏ gom vào một lời giao, lệnh kiểm giao một subagent chạy ' +
 +    'và báo tóm tắt. Đọc kết quả, đối chiếu yêu cầu trước khi đóng bước.'
++  )
++}
++
++/** Trần lời từ chối và dòng nhắc của vai điều phối (0.8.6). */
++export const CONDUCT_DENY_CHARS = 300
++
++/** Lời từ chối khi luồng chính đang điều phối tự sửa file (0.8.6 R1). */
++export function conductWriteDenyText(): string {
++  return (
++    '[focus-conductor] Luồng chính đang giữ vai điều phối: vai điều phối không tự sửa file. Giao việc này bằng Agent theo phân việc, gom ' +
++    'các chỉnh nhỏ vào một lời giao. Không giao được thì người dùng gõ /conductor solo.'
    )
  }
  
-@@ -1364,5 +1365,5 @@ export const CONDUCTOR_KEEP_CHARS = 200
+@@ -1364,5 +1376,5 @@ export const CONDUCTOR_KEEP_CHARS = 200
  
  /** Câu nhắc lại vai điều phối (0.8.4 V1): nối vào lời nhắc sau nén và ngữ cảnh chạy tiếp khi luồng chính đang điều phối. */
  export function conductorKeepText(): string {
@@ -254,10 +265,38 @@ index de53528..d3d5300 100644
        const routeLine = core.route
          ? `${describePick(core.route)} (${core.route.reason})`
 diff --git a/claude-mods/focus-conductor/hooks/parts/consistency.ts b/claude-mods/focus-conductor/hooks/parts/consistency.ts
-index 67b2b7a..c2fd06b 100644
+index 67b2b7a..02a1701 100644
 --- a/claude-mods/focus-conductor/hooks/parts/consistency.ts
 +++ b/claude-mods/focus-conductor/hooks/parts/consistency.ts
-@@ -595,7 +595,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
+@@ -25,7 +25,7 @@ import { isMainConducting } from '../lib/conductor'
+ import type { View } from '../lib/state'
+ import { shownPlan } from '../lib/mirror'
+ import { forkFailures, forkFiles, forkResults, liveForks, mergeDue } from '../lib/forks'
+-import { PLAN_TOOL_FULL, RETRY_REPORT, chainedCheckNote, retryAgentNotice, RETRY_ROUNDS, noCheckReason, waiveAskText, blockText, firstErrorLine, clipMiddle, RETRY_COMMAND_CHARS, joinStopReasons, retryDoneNote, retryEditNote, retryFailNotice, retryName, retryStepNote, retryStopReason, skillTrialReason, changedFilesNotice, checkHintText, compactReminderText, conductorKeepText, criteriaNotice, driftContext, missingTasks, missingTasksNotice, needsChecklist, noChecklistReason, pendingNotice, qualityNotice, renderBulk, renderPlan, requirementsNotice, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice, forkMergedNote } from '../lib/text'
++import { PLAN_TOOL_FULL, RETRY_REPORT, chainedCheckNote, retryAgentNotice, RETRY_ROUNDS, noCheckReason, waiveAskText, blockText, firstErrorLine, clipMiddle, RETRY_COMMAND_CHARS, joinStopReasons, retryDoneNote, retryEditNote, retryFailNotice, retryName, retryStepNote, retryStopReason, skillTrialReason, changedFilesNotice, checkHintText, compactReminderText, conductWriteDenyText, conductorKeepText, criteriaNotice, driftContext, missingTasks, missingTasksNotice, needsChecklist, noChecklistReason, pendingNotice, qualityNotice, renderBulk, renderPlan, requirementsNotice, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice, forkMergedNote } from '../lib/text'
+ import type { EngineInterface, On } from 'claude-code'
+ import type { Ctx } from '../context'
+ import { modeOf, viewOf } from '../atoms'
+@@ -41,6 +41,18 @@ const UNVERIFIED_REJECTED = 3
+ const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EMPTY_CORE)
+ 
+ /** Áp kết quả một lượt router gửi Fable vào Core (0.8.4 C6): vừa tạm ngừng thì toast và một dòng nhật ký conductor. */
++/**
++ * Vai điều phối của một lời gọi của luồng chính (0.8.6 R1, R2): null khi không điều phối hay khi đích là file kế hoạch; ngược lại số mục
++ * tiêu và có được miễn không (/conductor solo, hay lời gọi Agent gần nhất bị từ chối mà không sinh subagent).
++ */
++async function conductRole($: EngineInterface, ctx: Ctx, current: Mode, e: { tool: string } & Record<string, unknown>): Promise<{ goalId: number; isExempt: boolean } | null> {
++  const core = S.normalizeCore(await read($, coreState))
++  if (core.brief === null || !ctx.isConducting(core, current)) return null
++  if (isPlanFile(filePathOf({ tool: e.tool, input: e, isError: false, isReadOnly: false }))) return null
++  const state = S.conductOf(core)
++  return { goalId: core.brief.goalId, isExempt: state.solo || state.agentDenied }
++}
++
+ async function noteFableRouter($: EngineInterface, ctx: Ctx, isOk: boolean): Promise<void> {
+   const at = await $.clock.now()
+   const step = fableStep(S.normalizeCore(await read($, coreState)), isOk, ctx.routerModel, at)
+@@ -595,7 +607,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
    const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
    const mode = derive([modeState], modeOf(ctx.options))
    /** Luồng chính đang giữ vai điều phối cho mục tiêu hiện tại (0.8.5 D1): mức strictDelegation hiệu dụng là block. */
@@ -265,6 +304,35 @@ index 67b2b7a..c2fd06b 100644
 +  const isConductingNow = (core: Core, current: Mode): boolean => ctx.isConducting(core, current)
  
    // ------------------------------------------ 3. giữ nhất quán
+ 
+@@ -796,10 +808,16 @@ export function registerConsistency(on: On, ctx: Ctx): void {
+     // Gồm lệnh Bash ghi file (sed -i, chuyển hướng ghi, rm...): isMutation đã loại lệnh chỉ đọc và lệnh kiểm tra.
+     const isBashWrite =
+       e.tool === 'Bash' && isMutation({ tool: 'Bash', input: e as unknown as Record<string, unknown>, isError: false, isReadOnly: false })
+-    // Luồng chính điều phối (0.8.5 D1): option off hay remind vẫn chặn như block.
+     const isMainWrite = e.agentId === undefined && (EDIT_TOOLS.has(e.tool) || isBashWrite)
+-    const blockCore = isMainWrite ? S.normalizeCore(await read($, coreState)) : null
+-    if (blockCore !== null && (strictDelegation === 'block' || isConductingNow(blockCore, await read($, mode)))) {
++    // Vai điều phối (0.8.6 R1): luồng chính đang điều phối bị từ chối mọi lần sửa file trừ file kế hoạch, không xét việc còn chờ giao hay
++    // blockLimit; được miễn thì cho chạy và đếm sau khi lời gọi thật sự chạy. Không điều phối thì strictDelegation như 0.8.5.
++    const role = isMainWrite ? await conductRole($, ctx, await read($, mode), e as unknown as { tool: string } & Record<string, unknown>) : null
++    if (role !== null && !role.isExempt) {
++      await update($, coreState, S.withConduct(role.goalId, c => ({ deniedWrites: c.deniedWrites + 1 })))
++      return { deny: conductWriteDenyText() }
++    }
++    const blockCore = isMainWrite && role === null ? S.normalizeCore(await read($, coreState)) : null
++    if (blockCore !== null && strictDelegation === 'block') {
+       const current = await read($, mode)
+       const now = blockCore
+       const waiting = current === 'auto' || current === 'subagents' ? pendingFor(now.brief, shownPlan(now).plan) : []
+@@ -810,6 +828,8 @@ export function registerConsistency(on: On, ctx: Ctx): void {
+       }
+     }
+     const result = await next(e)
++    // Lời gọi được miễn chỉ tính là tự làm khi thật sự chạy (cổng khác không từ chối).
++    if (role !== null && result.deny === undefined) await update($, coreState, S.withConduct(role.goalId, c => ({ selfWrites: c.selfWrites + 1 })))
+     if (result.deny !== undefined || e.tool === PLAN_TOOL_FULL) return result
+     if ((await read($, mode)) === 'off') return result
  
 diff --git a/claude-mods/focus-conductor/hooks/ui/labels.ts b/claude-mods/focus-conductor/hooks/ui/labels.ts
 index 620e413..8280321 100644
@@ -304,7 +372,7 @@ index 620e413..8280321 100644
  export function conductorLine(core: Parameters<typeof conductorShown>[0], fallback: string, lang: Lang): string {
    const l = labels(lang)
 diff --git a/claude-mods/focus-conductor/scripts/mutants.ts b/claude-mods/focus-conductor/scripts/mutants.ts
-index 2ac2944..66a59c8 100644
+index 2ac2944..2dc58d6 100644
 --- a/claude-mods/focus-conductor/scripts/mutants.ts
 +++ b/claude-mods/focus-conductor/scripts/mutants.ts
 @@ -1975,7 +1975,7 @@ export const MUTANTS: Mutant[] = [
@@ -316,16 +384,18 @@ index 2ac2944..66a59c8 100644
    { id: "079-Y5b", file: "hooks/parts/command.ts", note: "bỏ yêu cầu lý do", old: "      if (reason.length < WAIVE_REASON_MIN) return", new: "      if (false) return" },
    { id: "079-Y5c", file: "hooks/lib/state.ts", note: "lệnh miễn áp cả sang mục tiêu mới", old: "core.waivers.goalId === core.brief.goalId && core.waivers.items.some(w => w.sig === sig)", new: "core.waivers.items.some(w => w.sig === sig)" },
    { id: "079-Y5d", file: "hooks/parts/consistency.ts", note: "bỏ lần chặn đòi mục Lệnh kiểm được miễn", old: "    const waiveReason = await askWaived($)\n", new: "    const waiveReason: string | null = null\n" },
-@@ -2152,7 +2152,7 @@ export const MUTANTS: Mutant[] = [
+@@ -2151,8 +2151,8 @@ export const MUTANTS: Mutant[] = [
+   { id: "085-K6a", file: "hooks/parts/session.ts", note: "prev là brief trước khi khôi phục", old: "        L.lastPrompt = { text, prev: restored, goalId: restored.goalId }\n        record(now, 'restore'", new: "        L.lastPrompt = { text, prev, goalId: restored.goalId }\n        record(now, 'restore'" },
    { id: "085-K7a", file: "hooks/parts/session.ts", note: "nhánh skip không khôi phục mục tiêu đã cất", old: "      const skipBack = lead.length === 0 ? S.resumeTarget(skipCore) : null\n", new: "      const skipBack: number | null = null\n" },
    { id: "085-K7b", file: "hooks/parts/session.ts", note: "nhánh skip khôi phục cả khi tin chạy tiếp điểm dừng đang mở", old: "      const skipBack = lead.length === 0 ? S.resumeTarget(skipCore) : null\n", new: "      const skipBack = S.resumeTarget(skipCore)\n" },
-   { id: "085-D1a", file: "hooks/parts/consistency.ts", note: "không nâng mức strictDelegation khi điều phối", old: "(strictDelegation === 'block' || isConductingNow(blockCore, await read($, mode)))", new: "(strictDelegation === 'block')" },
+-  { id: "085-D1a", file: "hooks/parts/consistency.ts", note: "không nâng mức strictDelegation khi điều phối", old: "(strictDelegation === 'block' || isConductingNow(blockCore, await read($, mode)))", new: "(strictDelegation === 'block')" },
 -  { id: "085-D1b", file: "hooks/parts/consistency.ts", note: "nâng mức strictDelegation cả khi không điều phối", old: "ctx.conductorOption === 'fable' && isMainConducting(ctx.conductorInputs(core, current), core.brief)", new: "ctx.conductorOption === 'fable'" },
++  { id: "085-D1a", file: "hooks/parts/consistency.ts", note: "không từ chối sửa file khi điều phối (0.8.6: luật từ chối của vai điều phối thay mức block)", old: "    const role = isMainWrite ? await conductRole(", new: "    const role = false ? await conductRole(" },
 +  { id: "085-D1b", file: "hooks/context.ts", note: "nâng mức strictDelegation cả khi không điều phối", old: "return conductorOption === 'fable' && isMainConducting(conductorInputs(core, mode), normalizeCore(core).brief)", new: "return conductorOption === 'fable'" },
    { id: "085-D1c", file: "hooks/parts/consistency.ts", note: "lời nhắc theo mức block khi điều phối, nhắc ở mọi lần thay đổi sau khi hết lượt chặn", old: "    const isStrict = strictDelegation !== 'off'\n", new: "    const isStrict = strictDelegation !== 'off' || (e.agentId === undefined && isConductingNow(core, await read($, mode)))\n" },
    { id: "085-D2a", file: "hooks/parts/session.ts", note: "bổ sung lớn sau khi duyệt giữ approved", old: "          : isBigAmend\n            ? { ...approvalBefore, status: 'planning' as const, rounds: 0 }\n", new: "          : false\n            ? { ...approvalBefore, status: 'planning' as const, rounds: 0 }\n" },
    { id: "085-D2b", file: "hooks/parts/session.ts", note: "bổ sung nhỏ sau khi duyệt cũng về planning", old: " && intent === 'amend' && needsApproval(brief, ctx.planApproval, false) && (plan.depth === 'substantial' || plan.depth === 'hard') && (plan.kind === 'edit' || plan.kind === 'mixed') && added.length > 0\n", new: " && intent === 'amend' && ctx.planApproval === 'auto' && (plan.kind === 'edit' || plan.kind === 'mixed') && added.length > 0\n" },
-@@ -2161,9 +2161,13 @@ export const MUTANTS: Mutant[] = [
+@@ -2161,9 +2161,18 @@ export const MUTANTS: Mutant[] = [
    { id: "085-W2a", file: "hooks/lib/state.ts", note: "mục đã cất xét như không có trạng thái duyệt", old: "approval: a.approval ?? 'none', turnsDone", new: "approval: 'none', turnsDone" },
    { id: "085-W2b", file: "hooks/lib/state.ts", note: "mục tiêu khôi phục coi như chưa được dặn hỏi làm rõ", old: "asked: kept !== 'none', awaitingAnswer: false", new: "asked: false, awaitingAnswer: false" },
    { id: "085-W2c", file: "hooks/lib/state.ts", note: "khôi phục đặt số turn về 0", old: "goalTurns: { goalId, done: restored.turns?.done ?? 0, interrupted: restored.turns?.interrupted === true },", new: "goalTurns: { goalId, done: 0, interrupted: false }," },
@@ -339,10 +409,151 @@ index 2ac2944..66a59c8 100644
 +  { id: "086-R6b", file: "hooks/parts/agents.ts", note: "lời gọi Agent chạy được không bỏ cờ Agent bị từ chối", old: "S.conductOf(now).agentDenied !== isRefused", new: "isRefused && !S.conductOf(now).agentDenied" },
 +  { id: "086-R6c", file: "hooks/lib/state.ts", note: "đổi mục tiêu giữ cờ miễn", old: "return n.brief !== null && n.conduct.goalId === goalId ? n.conduct : emptyConduct(goalId)", new: "return n.brief !== null ? { ...n.conduct, goalId } : emptyConduct(goalId)" },
 +  { id: "086-R6d", file: "hooks/parts/agents.ts", note: "bật cờ Agent bị từ chối cả khi subagent đã chạy", old: "const isRefused = !isSpawned && (", new: "const isRefused = (" },
++  { id: "086-R1a", file: "hooks/parts/consistency.ts", note: "chỉ từ chối khi còn việc chưa giao", old: "if (role !== null && !role.isExempt) {", new: "if (role !== null && !role.isExempt && pendingFor(S.normalizeCore(await read($, coreState)).brief, shownPlan(S.normalizeCore(await read($, coreState))).plan).length > 0) {" },
++  { id: "086-R1b", file: "hooks/parts/consistency.ts", note: "giữ trần blockLimit khi điều phối", old: "if (role !== null && !role.isExempt) {", new: "if (role !== null && !role.isExempt && L.delegation.blocks++ < blockLimit) {" },
++  { id: "086-R1c", file: "hooks/parts/consistency.ts", note: "từ chối cả khi được miễn", old: "return { goalId: core.brief.goalId, isExempt: state.solo || state.agentDenied }", new: "return { goalId: core.brief.goalId, isExempt: false }" },
++  { id: "086-R1d", file: "hooks/parts/consistency.ts", note: "từ chối cả file kế hoạch", old: "  if (isPlanFile(filePathOf({ tool: e.tool, input: e, isError: false, isReadOnly: false }))) return null\n", new: "" },
++  { id: "086-R1e", file: "hooks/parts/consistency.ts", note: "từ chối cả khi không điều phối", old: "if (core.brief === null || !ctx.isConducting(core, current)) return null", new: "if (core.brief === null) return null" },
  ]
+diff --git a/claude-mods/focus-conductor/tests/integration/conduct-r1-086.test.ts b/claude-mods/focus-conductor/tests/integration/conduct-r1-086.test.ts
+new file mode 100644
+index 0000000..7b23594
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/integration/conduct-r1-086.test.ts
+@@ -0,0 +1,130 @@
++// 0.8.6 R1: luồng chính đang điều phối bị từ chối mọi lần sửa file (Edit, Write, NotebookEdit, lệnh Bash ghi file), trừ file kế hoạch, không
++// xét việc còn chờ giao và không xét blockLimit. Được miễn (/conductor solo, hay lời gọi Agent gần nhất bị từ chối mà không sinh subagent)
++// thì cho chạy. Không điều phối thì strictDelegation như 0.8.5. Cổng duyệt kế hoạch từ chối trước như 0.8.5.
++
++import { describe, expect, test } from 'claude-code/testing'
++import type { Engine } from 'claude-code/testing'
++import type { On } from 'claude-code'
++import { base, plan, submit, task } from '../support/engine'
++import type { Json } from '../support/engine'
++
++const MAIN = { model: 'sonnet', effort: 'medium', why: '' }
++const A = 'Sửa luồng thanh toán'
++const BIG = plan({ goal: A, depth: 'substantial', volume: 'medium', kind: 'edit', main: MAIN, tasks: [task('Sửa hàm phí', 'main', 'sonnet', 'medium'), task('Sửa hàm thuế', 'main', 'sonnet', 'medium')] })
++const EMPTY = plan({ goal: A, depth: 'substantial', volume: 'medium', kind: 'edit', main: MAIN, tasks: [] })
++const LIGHT = plan({ goal: 'Sửa chú thích', depth: 'light', volume: 'small', kind: 'edit', main: MAIN, tasks: [task('Sửa chú thích', 'agent', 'sonnet', 'low'), task('Sửa ví dụ', 'agent', 'sonnet', 'low')] })
++const DELEGATED = plan({ goal: A, depth: 'substantial', volume: 'medium', kind: 'edit', main: MAIN, tasks: [task('Sửa hàm phí', 'agent', 'sonnet', 'medium'), task('Sửa hàm thuế', 'agent', 'sonnet', 'medium')] })
++const FABLE = { options: { planApproval: 'off', conductor: 'fable' } }
++const PRESENTATION = { isFullscreen: false, columns: 80 }
++type Out = { deny?: string; context?: string[] }
++const run = ($: Engine, args: string) => $.command.run({ command: 'conductor', args, origin: { kind: 'composer' }, presentation: PRESENTATION } as never)
++const edit = ($: Engine, file = 'src/phi.ts', agentId?: string) => $.tool.call({ tool: 'Edit', file_path: file, old_string: 'a', new_string: 'b', ...(agentId !== undefined ? { agentId } : {}) } as never) as Promise<Out>
++const bash = ($: Engine, command: string) => $.tool.call({ tool: 'Bash', command } as never) as Promise<Out>
++const isConductDeny = (r: Out) => (r.deny ?? '').includes('vai điều phối không tự sửa file')
++
++function setup(on: On, $: Engine, reply: (request: string) => Json) {
++  base(on, { router: request => (request.startsWith('Requirements:') ? { missing: [], extra: [], issues: [] } : reply(request)) })
++  const agent = { how: 'run' as 'run' | 'deny' }
++  const writes: string[] = []
++  for (const tool of ['Edit', 'Write', 'Bash']) on('tool.call', { tool }, () => ({ result: 'ok' }))
++  on('tool.call', { tool: 'Agent' }, () => (agent.how === 'deny' ? { deny: 'quyền: người dùng từ chối' } : { result: 'đã giao' }))
++  on('fs.write', (_x, e) => {
++    writes.push(e.path)
++    return { value: undefined }
++  })
++  return { agent, writes }
++}
++
++describe('0.8.6 R1: luồng chính đang điều phối không tự sửa file', () => {
++  test('đã giao hết việc bằng Agent: cả bốn lần Edit bị từ chối, lời từ chối không quá 300 ký tự', FABLE, async ($, on) => {
++    setup(on, $, () => BIG)
++    await submit($, A)
++    for (const n of [1, 2]) await $.tool.call({ tool: 'Agent', description: `Việc ${n}: làm`, prompt: 'x' } as never)
++    for (const file of ['src/a.ts', 'src/b.ts', 'src/c.ts', 'src/d.ts']) {
++      const r = await edit($, file)
++      expect(isConductDeny(r)).toBe(true)
++      expect((r.deny ?? '').length).toBeLessThanOrEqual(300)
++      expect(r.deny ?? '').toContain('/conductor solo')
++    }
++  })
++
++  test('router trả tasks rỗng: ba lần Edit đều bị từ chối', FABLE, async ($, on) => {
++    setup(on, $, () => EMPTY)
++    await submit($, A)
++    for (const _ of [1, 2, 3]) expect(isConductDeny(await edit($))).toBe(true)
++  })
++
++  test('còn việc chưa giao: mọi lần Edit bị từ chối, kể cả lần thứ năm', FABLE, async ($, on) => {
++    setup(on, $, () => BIG)
++    await submit($, A)
++    for (const _ of [1, 2, 3, 4, 5]) expect(isConductDeny(await edit($))).toBe(true)
++  })
++
++  test('lệnh Bash ghi file bị từ chối; Write vào file kế hoạch và git commit được chạy', FABLE, async ($, on) => {
++    setup(on, $, () => BIG)
++    await submit($, A)
++    expect(isConductDeny(await bash($, "sed -i 's/a/b/' src/phi.ts"))).toBe(true)
++    expect(isConductDeny(await bash($, 'echo x > src/ghi.txt'))).toBe(true)
++    expect((await $.tool.call({ tool: 'Write', file_path: '/repo/.claude/plans/p.md', content: 'x' } as never)).deny).toBeUndefined()
++    expect((await bash($, 'git commit -m "x"')).deny).toBeUndefined()
++  })
++
++  test('Edit do subagent gọi được chạy', FABLE, async ($, on) => {
++    setup(on, $, () => BIG)
++    await submit($, A)
++    expect((await edit($, 'src/phi.ts', 'a-1')).deny).toBeUndefined()
++  })
++
++  test('sau /conductor solo: Edit được chạy; sau /conductor solo off: bị từ chối lại', FABLE, async ($, on) => {
++    setup(on, $, () => BIG)
++    await submit($, A)
++    await run($, 'solo')
++    expect((await edit($)).deny).toBeUndefined()
++    await run($, 'solo off')
++    expect(isConductDeny(await edit($))).toBe(true)
++  })
++
++  test('lời gọi Agent bị từ chối trước khi chạy: Edit kế tiếp được chạy; sau một lời gọi Agent chạy được: bị từ chối lại', FABLE, async ($, on) => {
++    const { agent } = setup(on, $, () => BIG)
++    await submit($, A)
++    agent.how = 'deny'
++    await $.tool.call({ tool: 'Agent', tool_use_id: 'u1', description: 'Việc 1: làm', prompt: 'x' } as never)
++    expect((await edit($)).deny).toBeUndefined()
++    agent.how = 'run'
++    await $.tool.call({ tool: 'Agent', tool_use_id: 'u2', description: 'Việc 1: làm', prompt: 'x' } as never)
++    expect(isConductDeny(await edit($))).toBe(true)
++  })
++
++  test('năm lần bị từ chối liên tiếp: không cảnh báo lặp lỗi, không ghi sổ lỗi', FABLE, async ($, on) => {
++    const { writes } = setup(on, $, () => BIG)
++    await submit($, A)
++    for (const _ of [1, 2, 3, 4, 5]) expect(isConductDeny(await edit($))).toBe(true)
++    expect(writes.some(path => path.endsWith('errors.json'))).toBe(false)
++    const status = String(((await run($, 'status')) as { text?: string }).text ?? '')
++    expect(status).not.toContain('tool call lỗi')
++  })
++})
++
++describe('0.8.6 R1: không điều phối hay cổng khác giữ như 0.8.5', () => {
++  test('conductor fable, mục tiêu light: theo option, Edit không bị từ chối', FABLE, async ($, on) => {
++    setup(on, $, () => LIGHT)
++    await submit($, 'Sửa chú thích README')
++    expect((await edit($)).deny).toBeUndefined()
++  })
++
++  test('conductor mặc định, strictDelegation block: hai lần từ chối rồi cho chạy', { options: { planApproval: 'off', strictDelegation: 'block' } }, async ($, on) => {
++    setup(on, $, () => DELEGATED)
++    await submit($, A)
++    expect((await edit($)).deny ?? '').toContain('Còn việc ghi giao subagent chưa giao')
++    expect((await edit($)).deny ?? '').toContain('lần chặn cuối')
++    expect((await edit($)).deny).toBeUndefined()
++  })
++
++  test('cổng duyệt đang planning khi đang điều phối: lời từ chối là của cổng duyệt', { options: { planApproval: 'auto', conductor: 'fable' } }, async ($, on) => {
++    setup(on, $, () => BIG)
++    await submit($, A)
++    const r = await edit($)
++    expect(r.deny ?? '').toContain('Kế hoạch chưa được duyệt')
++    expect(isConductDeny(r)).toBe(false)
++  })
++})
 diff --git a/claude-mods/focus-conductor/tests/integration/conduct-r6-086.test.ts b/claude-mods/focus-conductor/tests/integration/conduct-r6-086.test.ts
 new file mode 100644
-index 0000000..722384d
+index 0000000..97b132c
 --- /dev/null
 +++ b/claude-mods/focus-conductor/tests/integration/conduct-r6-086.test.ts
 @@ -0,0 +1,173 @@
@@ -451,7 +662,7 @@ index 0000000..722384d
 +    await callAgent($, 'u1')
 +    expect(await conductLine($)).not.toContain('đang miễn')
 +    const edit = (await $.tool.call({ tool: 'Edit', file_path: 'src/phi.ts', old_string: 'a', new_string: 'b' } as never)) as { deny?: string }
-+    expect(edit.deny).toBeDefined()
++    expect(edit.deny ?? '').toContain('vai điều phối không tự sửa file')
 +  })
 +
 +  test('Agent bị chính mod từ chối (cổng duyệt đang planning): cờ không bật', { options: { planApproval: 'auto', conductor: 'fable' } }, async ($, on) => {
@@ -519,6 +730,114 @@ index 0000000..722384d
 +    expect(text.length).toBeLessThanOrEqual(CONDUCTOR_KEEP_CHARS)
 +  })
 +})
+diff --git a/claude-mods/focus-conductor/tests/integration/conductor-c2-084.test.ts b/claude-mods/focus-conductor/tests/integration/conductor-c2-084.test.ts
+index a58c10b..7118fd6 100644
+--- a/claude-mods/focus-conductor/tests/integration/conductor-c2-084.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/conductor-c2-084.test.ts
+@@ -5,7 +5,7 @@
+ import { describe, expect, test } from 'claude-code/testing'
+ import type { Engine } from 'claude-code/testing'
+ import * as C from '../../hooks/lib/conductor'
+-import { COMPLEX_PROMPT, PANE, base, plan, submit } from '../support/engine'
++import { COMPLEX_PROMPT, PANE, base, conductor, plan, submit } from '../support/engine'
+ import type { Json } from '../support/engine'
+ 
+ const FABLE = { options: { planApproval: 'off', conductor: 'fable' } }
+@@ -56,6 +56,8 @@ describe('0.8.4 C2: chấm subagent, kiểm lạc đề, rà kế hoạch', () =
+     const seen = base(on)
+     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+     await submit($, COMPLEX_PROMPT)
++    // 0.8.6 R1: luồng chính đang điều phối không tự sửa file; solo để các lần Edit dựng tình huống được chạy.
++    await conductor($, 'solo')
+     for (const f of ['a', 'b', 'c', 'd', 'e']) await edit($, f)
+     const drift = seen.routerCalls.filter(c => c.kind === 'drift')
+     expect(drift.length).toBe(1)
+diff --git a/claude-mods/focus-conductor/tests/integration/conductor-c6-084.test.ts b/claude-mods/focus-conductor/tests/integration/conductor-c6-084.test.ts
+index acc3eda..38b4496 100644
+--- a/claude-mods/focus-conductor/tests/integration/conductor-c6-084.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/conductor-c6-084.test.ts
+@@ -107,6 +107,8 @@ describe('0.8.4 W3: vẫn gọi Fable khi router cũ còn tạm ngừng', () =>
+ 
+   test('lượt kiểm lạc đề gửi Fable dù router cũ còn tạm ngừng', { options: { planApproval: 'off', conductor: 'fable' } }, async ($, on) => {
+     const seen = await bothPaused($, on)
++    // 0.8.6 R1: luồng chính đang điều phối không tự sửa file; solo để các lần Edit dựng tình huống được chạy.
++    await conductor($, 'solo')
+     for (const f of ['a', 'b', 'c', 'd', 'e']) await $.tool.call({ tool: 'Edit', file_path: `src/${f}.ts`, old_string: 'x', new_string: 'y' } as never)
+     expect(seen.routerCalls.filter(c => c.kind === 'drift').map(c => c.model)).toEqual([ID])
+   })
+@@ -135,6 +137,8 @@ describe('0.8.4 W4: nhật ký nguyên nhân, lượt kiểm lạc đề và ID
+     on('turn.complete', () => ({ text: '' }))
+     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+     await submit($, 'Sửa luồng thanh toán')
++    // 0.8.6 R1: luồng chính đang điều phối không tự sửa file; solo để các lần Edit dựng tình huống được chạy.
++    await conductor($, 'solo')
+     for (let i = 0; i < 10; i++) {
+       if (i === 5) await seen.clock.advance(600_000)
+       await $.tool.call({ tool: 'Edit', file_path: `src/f${i}.ts`, old_string: 'x', new_string: 'y' } as never)
+diff --git a/claude-mods/focus-conductor/tests/integration/conductor-d1-085.test.ts b/claude-mods/focus-conductor/tests/integration/conductor-d1-085.test.ts
+index 72ec192..35f0e1f 100644
+--- a/claude-mods/focus-conductor/tests/integration/conductor-d1-085.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/conductor-d1-085.test.ts
+@@ -1,6 +1,7 @@
+ // 0.8.5 D1: khi luồng chính đang giữ vai điều phối cho mục tiêu hiện tại, mức strictDelegation hiệu dụng là block (option off hay remind):
+ // sửa file trong khi còn việc ghi giao subagent chưa giao bị từ chối tối đa blockLimit lần mỗi mục tiêu; lời nhắc sau đó theo option
+ // strictDelegation như 0.8.4 (mặc định nhắc một lần). Không điều phối thì theo option như 0.8.4. File kế hoạch không bị từ chối.
++// 0.8.6 R1: hai ca đầu đổi kỳ vọng (giữ tên): luồng chính đang điều phối bị từ chối mọi lần sửa file, kể cả khi đã giao hết việc.
+ 
+ import { describe, expect, test } from 'claude-code/testing'
+ import type { Engine } from 'claude-code/testing'
+@@ -28,21 +29,20 @@ describe('0.8.5 D1: luồng chính điều phối không tự sửa file khi cò
+   test('blockLimit mặc định: hai lần Edit đầu bị từ chối, lần ba được chạy kèm lời nhắc, lần bốn không kèm', FABLE, async ($, on) => {
+     setup(on, BIG)
+     await submit($, A)
+-    expect(String((await edit($)).deny ?? '')).toContain('Còn việc ghi giao subagent chưa giao')
+-    expect(String((await edit($)).deny ?? '')).toContain('lần chặn cuối')
+-    const third = await edit($)
+-    expect(third.deny).toBeUndefined()
+-    expect(nudged(third)).toBe(true)
+-    const fourth = await edit($)
+-    expect(fourth.deny).toBeUndefined()
+-    expect(nudged(fourth)).toBe(false)
++    // 0.8.6 R1: luồng chính đang điều phối bị từ chối mọi lần sửa file, không còn trần blockLimit và không còn lời nhắc sau lần chặn cuối.
++    for (const _ of [1, 2, 3, 4]) {
++      const r = await edit($)
++      expect(String(r.deny ?? '')).toContain('vai điều phối không tự sửa file')
++      expect(nudged(r)).toBe(false)
++    }
+   })
+ 
+   test('đã giao hết việc bằng Agent: Edit ở luồng chính không bị từ chối', FABLE, async ($, on) => {
+     setup(on, BIG)
+     await submit($, A)
+     for (const n of [1, 2]) await $.tool.call({ tool: 'Agent', description: `Việc ${n}: làm`, prompt: 'x' } as never)
+-    expect((await edit($)).deny).toBeUndefined()
++    // 0.8.6 R1: giao hết việc rồi vẫn bị từ chối khi luồng chính đang điều phối.
++    expect(String((await edit($)).deny ?? '')).toContain('vai điều phối không tự sửa file')
+   })
+ 
+   test('file kế hoạch không bị từ chối', FABLE, async ($, on) => {
+diff --git a/claude-mods/focus-conductor/tests/integration/turns-k8-085.test.ts b/claude-mods/focus-conductor/tests/integration/turns-k8-085.test.ts
+index 7cb1cc3..cd73641 100644
+--- a/claude-mods/focus-conductor/tests/integration/turns-k8-085.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/turns-k8-085.test.ts
+@@ -7,7 +7,7 @@ import type { Engine } from 'claude-code/testing'
+ import type { On } from 'claude-code'
+ import type { Core, PlanStep } from '../../types'
+ import * as S from '../../hooks/lib/state'
+-import { base, plan, step, submit } from '../support/engine'
++import { base, conductor, plan, step, submit } from '../support/engine'
+ import type { Json, Seen } from '../support/engine'
+ import { makeBrief } from '../support/commands'
+ 
+@@ -50,6 +50,8 @@ describe('0.8.5 K8: mục tiêu lớn không checklist hết là mục tiêu đa
+       await submit($, A)
+       await $.turn.start({ text: 'làm', turnId: 't1' })
+       await step($, seen, { turnId: 't1' })
++      // 0.8.6 R1: luồng chính đang điều phối không tự sửa file; solo để lần Edit dựng turn thực thi được chạy.
++      await conductor($, 'solo')
+       await $.tool.call({ tool: 'Edit', file_path: 'src/phi.ts', old_string: 'a', new_string: 'b' } as never)
+       await complete($, 't1')
+       await submit($, 'git rebase là gì?')
 diff --git a/claude-mods/focus-conductor/types/index.d.ts b/claude-mods/focus-conductor/types/index.d.ts
 index ad9e07d..09ed393 100644
 --- a/claude-mods/focus-conductor/types/index.d.ts
