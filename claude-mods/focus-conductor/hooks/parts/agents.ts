@@ -333,7 +333,10 @@ export function registerAgents(on: On, ctx: Ctx): void {
     // Họ model và effort thật sự gửi đi: lựa chọn của router khi áp dụng, nếu không thì của Claude.
     const sentFamily = isApplied && route !== null ? route.pick.family : claimed
     const sentEffort = isApplied && route !== null ? route.pick.effort : requested
-    pendingAgents.set(e.tool_use_id, { route, reason, isApplied, description: e.description, sentFamily, sentEffort, ...(assigned !== undefined ? { taskIndex: assigned.index } : attachedTask !== undefined ? { taskIndex: attachedTask } : {}) })
+    // Trường isolation của tool Agent (0.8.6 R2; lược đồ engine 2.1.296 và 2.1.322: "worktree" hay "remote"): có giá trị là subagent không chạy chung thư mục.
+    const isolation = (e as unknown as Record<string, unknown>)['isolation']
+    const isolated = typeof isolation === 'string' && isolation !== ''
+    pendingAgents.set(e.tool_use_id, { route, reason, isApplied, description: e.description, sentFamily, sentEffort, isolated, ...(assigned !== undefined ? { taskIndex: assigned.index } : attachedTask !== undefined ? { taskIndex: attachedTask } : {}) })
     // Đổi loại agent chỉ khi Claude để general-purpose và engine đã mời loại router chọn.
     const isGeneral = e.subagent_type === undefined || e.subagent_type === 'general-purpose'
     const swap = isApplied && route !== null && isGeneral && route.agentType !== 'general-purpose' && offered.has(route.agentType)
@@ -486,6 +489,8 @@ export function registerAgents(on: On, ctx: Ctx): void {
         warned: false,
         fallback: false,
         ...(info?.taskIndex !== undefined ? { taskIndex: info.taskIndex } : workflowTask !== undefined ? { taskIndex: workflowTask } : {}),
+        // Chung thư mục với luồng chính (0.8.6 R2): chỉ biết được với agent của tool Agent.
+        ...(info !== undefined ? { sharesDir: info.isolated !== true } : {}),
       })
     } else if (agentId !== undefined && forkPart !== null) {
       // Phiên con của một phần: lệnh và thay đổi của nó vào dấu vết như subagent, kiểm phạm vi theo files của phần; không ép model.

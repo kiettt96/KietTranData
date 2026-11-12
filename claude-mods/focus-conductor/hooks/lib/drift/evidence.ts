@@ -31,6 +31,11 @@ export type EvidenceEntry = {
   mcp?: true
   /** Lệnh kiểm nối && với lệnh khác, cả lệnh trả mã khác 0 (0.8.0 A11): kết quả chưa rõ, không lỗi cũng không đạt. */
   chained?: true
+  /**
+   * Lần kiểm của subagent chạy chung thư mục với luồng chính khi luồng chính đang điều phối (0.8.6 R2): luồng chính không tự chạy kiểm nữa,
+   * nên lần kiểm này phủ mọi thay đổi trước nó như lần kiểm của luồng chính.
+   */
+  shared?: true
 }
 
 /**
@@ -70,7 +75,9 @@ export function newEvidenceLog(goalId: number): EvidenceLog {
  * Ghi một tool call vào dấu vết của mục tiêu theo đúng thứ tự hiệu ứng: lệnh kiểm tra kèm kết quả thật, các lần ghi
  * (kể cả trong lệnh Bash lỗi), và đường dẫn file. `author` là "main" hoặc id subagent.
  */
-export function noteEvidence(log: EvidenceLog, observation: ToolObservation, author = 'main'): void {
+export function noteEvidence(log: EvidenceLog, observation: ToolObservation, author = 'main', isShared = false): void {
+  // Cờ dùng chung thư mục (0.8.6 R2) chỉ cho lần kiểm của subagent.
+  const shared = isShared && author !== 'main' ? { shared: true as const } : {}
   const onWrite = (isHard: boolean) => {
     log.seq += 1
     log.lastMutation = log.seq
@@ -105,6 +112,7 @@ export function noteEvidence(log: EvidenceLog, observation: ToolObservation, aut
         seq: log.seq,
         author,
         ...(effect.exit === 'chained' && observation.isError ? { chained: true as const } : {}),
+        ...shared,
       })
     }
     if (!hasCheck) {
@@ -114,7 +122,7 @@ export function noteEvidence(log: EvidenceLog, observation: ToolObservation, aut
     trimCommands(log)
   } else if (isCheckTool(observation.tool)) {
     log.seq += 1
-    log.commands.push({ command: checkToolCommand(observation.tool, observation.input), ok: checkToolPassed(observation), check: 'test', seq: log.seq, author, mcp: true })
+    log.commands.push({ command: checkToolCommand(observation.tool, observation.input), ok: checkToolPassed(observation), check: 'test', seq: log.seq, author, mcp: true, ...shared })
     trimCommands(log)
   } else if (FILE_TOOLS.has(observation.tool) && !observation.isError && !isPlanFile(filePathOf(observation))) {
     // File skill (0.8.2 N3) không vào số thay đổi chắc chắn của cổng Y6.
@@ -152,13 +160,14 @@ export function freshTestRun(log: EvidenceLog): EvidenceEntry | undefined {
 }
 
 /**
- * Lần kiểm tra này có phủ mọi thay đổi trước nó không: kiểm tra của luồng chính phủ tất cả; kiểm tra của subagent chỉ
- * phủ khi mọi thay đổi kể từ lần kiểm tra đạt gần nhất của luồng chính đều do chính subagent đó làm.
+ * Lần kiểm tra này có phủ mọi thay đổi trước nó không: kiểm tra của luồng chính, và kiểm tra mang cờ shared (0.8.6 R2), phủ tất cả;
+ * kiểm tra khác của subagent chỉ phủ khi mọi thay đổi kể từ lần kiểm tra đạt gần nhất của luồng chính (hay mang cờ shared) đều do chính
+ * subagent đó làm.
  */
 export function covers(entry: EvidenceEntry, log: EvidenceLog): boolean {
-  if (entry.author === 'main') return true
+  if (entry.author === 'main' || entry.shared === true) return true
   const lastMain = log.commands
-    .filter(c => c.author === 'main' && c.check !== null && c.ok && c.seq < entry.seq)
+    .filter(c => (c.author === 'main' || c.shared === true) && c.check !== null && c.ok && c.seq < entry.seq)
     .reduce((max, c) => Math.max(max, c.seq), -1)
   return log.writes.every(w => w.seq <= lastMain || w.seq > entry.seq || w.author === entry.author)
 }

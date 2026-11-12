@@ -278,10 +278,11 @@ function signature(observation: ToolObservation): string {
 /**
  * Áp các hiệu ứng của một tool call lên trạng thái kiểm tra của tracker, theo đúng thứ tự trong lệnh. `author` là
  * tác giả của tool call ("main" hoặc id subagent). Ghi được tính cả khi lệnh Bash lỗi (có thể đã ghi một phần); kiểm
- * tra chỉ đạt khi được tin, lệnh không lỗi, output không báo lỗi, và (khi bị nối ống) output có dấu hiệu đạt rõ.
+ * tra chỉ đạt khi được tin, lệnh không lỗi, output không báo lỗi, và (khi bị nối ống) output có dấu hiệu đạt rõ. `isShared`
+ * (0.8.6 R2): lần kiểm đạt của subagent chung thư mục khi luồng chính đang điều phối xóa mọi thay đổi chờ kiểm như lần của luồng chính.
  * Trả số lần ghi đã đếm.
  */
-export function trackVerification(tracker: TurnTracker, observation: ToolObservation, author = 'main', cwd: string | null = null): number {
+export function trackVerification(tracker: TurnTracker, observation: ToolObservation, author = 'main', cwd: string | null = null, isShared = false): number {
   let writes = 0
   tracker.seq += 1
   const seq = tracker.seq
@@ -318,7 +319,8 @@ export function trackVerification(tracker: TurnTracker, observation: ToolObserva
   const onPass = () => {
     tracker.checks += 1
     tracker.lastCheck = 'passed'
-    if (author === 'main') {
+    // Lần kiểm đạt của subagent chung thư mục khi luồng chính đang điều phối (0.8.6 R2) là mốc như lần kiểm đạt của luồng chính.
+    if (author === 'main' || isShared) {
       tracker.pending.clear()
       tracker.hard.clear()
       tracker.docWrites.clear()

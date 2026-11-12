@@ -3,7 +3,7 @@
 import { atom, derive, read, update } from 'claude-code'
 import { caught, noteBehavior, noteHookError } from '../lib/errlog'
 import type { AgentState, Choice, Core, DelegationState, Mode, RetryItem, Warning } from '../../types'
-import { acceptsVerified, classifyBash, evidenceStrength, filePathOf, freshTestRun, hardChanges, isCheckTool, isExecuting, isFullyClosed, isGoalDone, isMutation, isPlanFile, normalizePath, isSkillTrial, markVerified, newTracker, skillNameOf, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
+import { acceptsVerified, checkKindOf, classifyBash, evidenceStrength, filePathOf, freshTestRun, hardChanges, isCheckTool, isExecuting, isFullyClosed, isGoalDone, isMutation, isPlanFile, normalizePath, isSkillTrial, markVerified, newTracker, skillNameOf, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
 import type { Finding, Focus, ToolObservation, TurnTracker } from '../lib/drift'
 import { checkCommand, checkSignature, coversFailure, isFailedRun } from '../lib/drift/evidence'
 import { isCustomCheck } from '../lib/drift/verify'
@@ -25,7 +25,7 @@ import { isMainConducting } from '../lib/conductor'
 import type { View } from '../lib/state'
 import { shownPlan } from '../lib/mirror'
 import { forkFailures, forkFiles, forkResults, liveForks, mergeDue } from '../lib/forks'
-import { PLAN_TOOL_FULL, RETRY_REPORT, chainedCheckNote, retryAgentNotice, RETRY_ROUNDS, noCheckReason, waiveAskText, blockText, firstErrorLine, clipMiddle, RETRY_COMMAND_CHARS, joinStopReasons, retryDoneNote, retryEditNote, retryFailNotice, retryName, retryStepNote, retryStopReason, skillTrialReason, changedFilesNotice, checkHintText, compactReminderText, conductWriteDenyText, conductorKeepText, criteriaNotice, driftContext, missingTasks, missingTasksNotice, needsChecklist, noChecklistReason, pendingNotice, qualityNotice, renderBulk, renderPlan, requirementsNotice, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice, forkMergedNote } from '../lib/text'
+import { PLAN_TOOL_FULL, RETRY_REPORT, chainedCheckNote, retryAgentNotice, RETRY_ROUNDS, noCheckReason, waiveAskText, blockText, firstErrorLine, clipMiddle, RETRY_COMMAND_CHARS, joinStopReasons, retryDoneNote, retryEditNote, retryFailNotice, retryName, retryStepNote, retryStopReason, skillTrialReason, changedFilesNotice, checkHintText, compactReminderText, conductCheckDenyText, conductWriteDenyText, conductorKeepText, criteriaNotice, driftContext, missingTasks, missingTasksNotice, needsChecklist, noChecklistReason, pendingNotice, qualityNotice, renderBulk, renderPlan, requirementsNotice, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice, forkMergedNote } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -51,6 +51,22 @@ async function conductRole($: EngineInterface, ctx: Ctx, current: Mode, e: { too
   if (isPlanFile(filePathOf({ tool: e.tool, input: e, isError: false, isReadOnly: false }))) return null
   const state = S.conductOf(core)
   return { goalId: core.brief.goalId, isExempt: state.solo || state.agentDenied }
+}
+
+/**
+ * Lần test mang cờ dùng chung thư mục của subagent vừa đạt (0.8.6 R2): như lần test đạt của luồng chính (0.7.0), lần đó là lần chạy cuối
+ * của dấu vết, chạy sau thay đổi cuối và phủ mọi thay đổi thì các bước done thành verified. Trả true khi đã nâng.
+ */
+async function autoVerify($: EngineInterface, ctx: Ctx, goalId: number): Promise<boolean> {
+  const core = S.normalizeCore(await read($, coreState))
+  if (core.brief === null || core.brief.goalId !== goalId) return false
+  const log = ctx.evidenceFor(goalId)
+  const fresh = freshTestRun(log)
+  if (fresh === undefined || fresh !== log.commands.at(-1) || !(core.plan.some(s => s.status === 'done') || S.liveMirror(core).some(s => s.status === 'done'))) return false
+  await update($, coreState, S.withAutoVerified(fresh.command, undefined, true))
+  ctx.record(await $.clock.now(), 'verify-auto', { command: clipText(fresh.command), at: core.plan.length === 0 ? 'mirror' : 'test' })
+  await ctx.flushDecisions((path, text) => $.fs.write(path, text))
+  return true
 }
 
 async function noteFableRouter($: EngineInterface, ctx: Ctx, isOk: boolean): Promise<void> {
@@ -809,12 +825,15 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     const isBashWrite =
       e.tool === 'Bash' && isMutation({ tool: 'Bash', input: e as unknown as Record<string, unknown>, isError: false, isReadOnly: false })
     const isMainWrite = e.agentId === undefined && (EDIT_TOOLS.has(e.tool) || isBashWrite)
-    // Vai điều phối (0.8.6 R1): luồng chính đang điều phối bị từ chối mọi lần sửa file trừ file kế hoạch, không xét việc còn chờ giao hay
-    // blockLimit; được miễn thì cho chạy và đếm sau khi lời gọi thật sự chạy. Không điều phối thì strictDelegation như 0.8.5.
-    const role = isMainWrite ? await conductRole($, ctx, await read($, mode), e as unknown as { tool: string } & Record<string, unknown>) : null
+    // Lệnh kiểm của luồng chính (0.8.6 R2): Bash theo cùng phân loại khi ghi bằng chứng (checkKindOf, gồm checkCommands), và tool MCP trong checkTools.
+    const isMainCheck = e.agentId === undefined && !isMainWrite && ((e.tool === 'Bash' && checkKindOf(String((e as unknown as Record<string, unknown>)['command'] ?? '')) !== null) || isCheckTool(e.tool))
+    // Vai điều phối (0.8.6 R1, R2): luồng chính đang điều phối bị từ chối mọi lần sửa file trừ file kế hoạch (không xét việc còn chờ giao hay
+    // blockLimit) và mọi lệnh kiểm; được miễn thì cho chạy và đếm sau khi lời gọi thật sự chạy. Không điều phối thì strictDelegation như 0.8.5.
+    const roleKind: 'write' | 'check' | null = isMainWrite ? 'write' : isMainCheck ? 'check' : null
+    const role = roleKind !== null ? await conductRole($, ctx, await read($, mode), e as unknown as { tool: string } & Record<string, unknown>) : null
     if (role !== null && !role.isExempt) {
-      await update($, coreState, S.withConduct(role.goalId, c => ({ deniedWrites: c.deniedWrites + 1 })))
-      return { deny: conductWriteDenyText() }
+      await update($, coreState, S.withConduct(role.goalId, c => (roleKind === 'write' ? { deniedWrites: c.deniedWrites + 1 } : { deniedChecks: c.deniedChecks + 1 })))
+      return { deny: roleKind === 'write' ? conductWriteDenyText() : conductCheckDenyText() }
     }
     const blockCore = isMainWrite && role === null ? S.normalizeCore(await read($, coreState)) : null
     if (blockCore !== null && strictDelegation === 'block') {
@@ -829,7 +848,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     }
     const result = await next(e)
     // Lời gọi được miễn chỉ tính là tự làm khi thật sự chạy (cổng khác không từ chối).
-    if (role !== null && result.deny === undefined) await update($, coreState, S.withConduct(role.goalId, c => ({ selfWrites: c.selfWrites + 1 })))
+    if (role !== null && result.deny === undefined) await update($, coreState, S.withConduct(role.goalId, c => (roleKind === 'write' ? { selfWrites: c.selfWrites + 1 } : { selfChecks: c.selfChecks + 1 })))
     if (result.deny !== undefined || e.tool === PLAN_TOOL_FULL) return result
     if ((await read($, mode)) === 'off') return result
 
@@ -877,10 +896,12 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       if (agentBrief !== null && meta.goalId === agentBrief.goalId) {
         const agentLog = evidenceFor(agentBrief.goalId)
         const agentSince = agentLog.seq
-        noteEvidence(agentLog, observation, e.agentId)
+        // Lần kiểm dùng chung thư mục (0.8.6 R2): subagent không chạy trong worktree riêng, luồng chính đang điều phối.
+        const isShared = meta.sharesDir === true && isConductingNow(S.normalizeCore(await read($, coreState)), await read($, mode))
+        noteEvidence(agentLog, observation, e.agentId, isShared)
         if (isCheckCall(observation.tool)) L.agentRetryNotes.push(...(await noteChecks($, retryDeps, S.normalizeCore(await read($, coreState)), agentBrief.goalId, newChecks(agentLog, agentSince), observation, meta.pick, false, meta.description)))
         const skillBefore = L.tracker.skillWrites
-        trackVerification(L.tracker, observation, e.agentId, (await frameOf($, L.roots, agentBrief.goalId, agentBrief.scopePaths)).cwd)
+        trackVerification(L.tracker, observation, e.agentId, (await frameOf($, L.roots, agentBrief.goalId, agentBrief.scopePaths)).cwd, isShared)
         // File skill subagent ghi và lệnh khai đạt của subagent (0.8.2 N3): như của luồng chính, ghi trước, thử sau.
         if (L.tracker.skillWrites > skillBefore) await update($, coreState, S.withSkillWrite(agentBrief.goalId, L.tracker.skillPath))
         if (isCheckCall(observation.tool) && passedDeclared(newChecks(agentLog, agentSince))) await update($, coreState, S.withSkillTrial(agentBrief.goalId))
@@ -889,6 +910,8 @@ export function registerConsistency(on: On, ctx: Ctx): void {
           await update($, coreState, S.withAutoDemoted)
           await showStatus($, await read($, view), ctx.options)
         }
+        // Lần test mang cờ dùng chung thư mục vừa đạt sau thay đổi cuối (0.8.6 R2): bước done thành verified như lần test của luồng chính.
+        if (isShared && isCheckCall(observation.tool) && !observation.isError && (await autoVerify($, ctx, agentBrief.goalId))) await showStatus($, await read($, view), ctx.options)
       }
       // Phiên con của một phần (0.7.9 F1): phạm vi là files của phần đó, theo cơ chế cảnh báo ngoài phạm vi sẵn có.
       const forkScope = forkFiles(S.normalizeCore(await read($, coreState)), e.agentId)

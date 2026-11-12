@@ -208,6 +208,8 @@ export function createContext(options: PluginOptions) {
     sentEffort: Effort | null
     /** Số việc đã phân mà lời gọi này nhận (nếu khớp). */
     taskIndex?: number
+    /** Lời gọi có trường isolation của tool Agent (0.8.6 R2): subagent chạy ngoài thư mục làm việc của luồng chính. */
+    isolated?: boolean
   }
   const pendingAgents = new Map<string, PendingAgent>()
   // Subagent đã khởi động. `pick` là model và effort mod đã điều phối; `sentEffort` là effort thật
@@ -229,6 +231,11 @@ export function createContext(options: PluginOptions) {
     fallback: boolean
     /** Số việc đã phân mà agent này làm (nếu khớp), để ghi xong hay lỗi. */
     taskIndex?: number
+    /**
+     * Chạy chung thư mục làm việc với luồng chính (0.8.6 R2): true khi lời gọi Agent không có trường isolation; vắng khi không biết
+     * (agent workflow, phiên con), khi đó lần kiểm của nó không là lần kiểm dùng chung.
+     */
+    sharesDir?: boolean
   }
   const agents = new Map<string, AgentMeta>()
   const agentTrackers = new Map<string, TurnTracker>()
