@@ -1,0 +1,205 @@
+diff --git a/claude-mods/focus-conductor/tests/integration/router-full-l1-087.test.ts b/claude-mods/focus-conductor/tests/integration/router-full-l1-087.test.ts
+new file mode 100644
+index 0000000..d3e02d6
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/integration/router-full-l1-087.test.ts
+@@ -0,0 +1,71 @@
++// 0.8.7 L1: prompt dài hơn 80.000 ký tự khi router của lượt là Fable (conductor fable, Fable sẵn sàng): request router chứa trọn prompt,
++// không có cảnh báo "router chỉ đọc", context không có CLIPPED_CONTEXT. Fable tạm ngừng (router là option router) và conductor mặc định giữ
++// như 0.8.6. Lượt đọc trọn hết giờ thì lượt dự phòng đọc request đã cắt theo trần 80.000; khi lượt đó được dùng thì có cảnh báo và CLIPPED_CONTEXT.
++
++import { describe, expect, test } from 'claude-code/testing'
++import type { Engine } from 'claude-code/testing'
++import type { On } from 'claude-code'
++import { PANE, ROUTER_TIMEOUT, base, plan, submit } from '../support/engine'
++import type { Json, Seen } from '../support/engine'
++
++const ID = 'claude-fable-5-2'
++const MARK = 'DAU_CHO_GIUA_XQ'
++const LONG = `Sửa luồng thanh toán. ${'a'.repeat(70_000)}${MARK}${'b'.repeat(30_000 - 22 - MARK.length)}`
++const CLIPPED = 'router chưa đọc phần giữa'
++const ONLY = 'router chỉ đọc'
++const BIG = plan({ goal: 'Sửa luồng thanh toán', depth: 'substantial', volume: 'medium', kind: 'edit' })
++const FALLBACK = plan({ goal: 'Mục tiêu theo lượt dự phòng', depth: 'substantial', volume: 'medium', kind: 'edit' })
++const FABLE = { options: { planApproval: 'off', conductor: 'fable' } }
++const PRESENTATION = { isFullscreen: false, columns: 80 }
++
++const paneTexts = async ($: Engine) => (await (await $.ui.mount(PANE)).findAll({ type: 'Text' })).map(e => e.text).join('\n')
++const status = async ($: Engine) => String(((await $.command.run({ command: 'conductor', args: 'status', origin: { kind: 'composer' }, presentation: PRESENTATION } as never)) as { text?: string }).text ?? '')
++const lastContext = (seen: Seen) => (seen.contexts.at(-1) ?? []).join('\n')
++
++function setup(on: On, reply: (model: string, n: number) => Json | string | null): Seen {
++  let n = 0
++  const seen: Seen = base(on, { router: () => reply(seen.routerModels.at(-1) ?? '', n++) })
++  on('turn.complete', () => ({ text: '' }))
++  return seen
++}
++
++describe('0.8.7 L1: Fable đọc trọn prompt dài', () => {
++  test('conductor fable, prompt 100.000 ký tự có dấu ở giữa: request router chứa dấu; không cảnh báo "router chỉ đọc"; không có CLIPPED_CONTEXT', FABLE, async ($, on) => {
++    const seen = setup(on, () => BIG)
++    await submit($, LONG)
++    expect(seen.routerModels[0]).toBe(ID)
++    expect(seen.routed[0] ?? '').toContain(MARK)
++    expect(await paneTexts($)).not.toContain(ONLY)
++    expect(lastContext(seen)).not.toContain(CLIPPED)
++  })
++
++  test('router Fable lỗi hai lần rồi prompt 100.000 ký tự (router là option router): không chứa dấu; cảnh báo 60.000 và 20.000; có CLIPPED_CONTEXT', FABLE, async ($, on) => {
++    const seen = setup(on, model => (model === ID ? null : BIG))
++    await submit($, 'Sửa luồng thanh toán')
++    await submit($, 'làm tiếp bước 1')
++    await submit($, LONG)
++    expect(seen.routerModels.at(-1)).not.toBe(ID)
++    expect(seen.routed.at(-1) ?? '').not.toContain(MARK)
++    expect(await paneTexts($)).toContain('router chỉ đọc 60.000 ký tự đầu và 20.000 ký tự cuối')
++    expect(lastContext(seen)).toContain(CLIPPED)
++  })
++
++  test('conductor mặc định, prompt 100.000 ký tự: như 0.8.6', { options: { planApproval: 'off' } }, async ($, on) => {
++    const seen = setup(on, () => BIG)
++    await submit($, LONG)
++    expect(seen.routed[0] ?? '').not.toContain(MARK)
++    expect(await paneTexts($)).toContain('router chỉ đọc 60.000 ký tự đầu và 20.000 ký tự cuối')
++    expect(lastContext(seen)).toContain(CLIPPED)
++  })
++
++  test('lượt đọc trọn hết giờ, lượt dự phòng nhận request đã cắt theo trần 80.000 và trả kết quả: mục tiêu theo lượt dự phòng; có cảnh báo và CLIPPED_CONTEXT', FABLE, async ($, on) => {
++    const seen = setup(on, (_model, n) => (n === 0 ? ROUTER_TIMEOUT : FALLBACK))
++    await submit($, LONG)
++    expect(seen.routed[0] ?? '').toContain(MARK)
++    expect(seen.routed[1] ?? '').not.toContain(MARK)
++    expect(seen.routed[1] ?? '').toContain('lược')
++    expect(await status($)).toContain('Mục tiêu theo lượt dự phòng')
++    expect(await paneTexts($)).toContain('router chỉ đọc 60.000 ký tự đầu và 20.000 ký tự cuối')
++    expect(lastContext(seen)).toContain(CLIPPED)
++  })
++})
+diff --git a/claude-mods/focus-conductor/tests/router-full-l1-087.test.ts b/claude-mods/focus-conductor/tests/router-full-l1-087.test.ts
+new file mode 100644
+index 0000000..f749d2d
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/router-full-l1-087.test.ts
+@@ -0,0 +1,122 @@
++// 0.8.7 L1: khi router của lượt là Fable (isFable), routerRequest đọc trọn prompt tới trần FABLE_REQUEST_CHARS (phần đầu 75%, phần cuối
++// 25% khi vượt); prompt dài hơn REQUEST_CHARS (80.000) thì maxTokens 24.000 và thời gian chờ FABLE_FULL_TIMEOUT_MS. isClippedPrompt và
++// clippedWarning dùng đúng trần của lượt đó. Router thường và prompt không quá 80.000 ký tự giữ request 0.8.6 từng byte. Lượt đọc trọn hết
++// giờ thì askRouter gửi request dự phòng (đã cắt theo trần 80.000) với trọn thời gian chờ của nó, và báo fellBack.
++
++import { describe, expect, test } from 'claude-code/testing'
++import { FABLE_REQUEST_CHARS, askRouter, clippedWarning, isClippedPrompt, parseRoute, routerRequest } from '../hooks/lib/router'
++import type { Policy } from '../hooks/lib/router'
++import { FABLE_FULL_TIMEOUT_MS, FABLE_LONG_TIMEOUT_MS } from '../hooks/lib/conductor'
++import type { ModelCompleteRequest } from 'claude-code'
++import { plan } from './support/engine'
++
++const OPEN: Policy = { allowFable: false, blocked: new Set(), session: null }
++const COND: Policy = { ...OPEN, conductor: true }
++const MARK = 'DAU_CHO_GIUA_XQ'
++const LONG = 'a'.repeat(120_000) + MARK + 'b'.repeat(238_489 - 120_000 - MARK.length)
++const SHORT = 'Sửa luồng thanh toán. ' + 'c'.repeat(5_000 - 22)
++const fable = (text: string) => routerRequest({ text, prev: null, ran: null, policy: COND, model: 'claude-fable-5-2', isFable: true })
++const promptOf = (r: ModelCompleteRequest) => String(r.prompt)
++const grouped = (n: number) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.')
++
++const hex = (bytes: ArrayBuffer): string => [...new Uint8Array(bytes)].map(byte => byte.toString(16).padStart(2, '0')).join('')
++const sha = async (text: string) => hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))
++/** SHA-256 của JSON request, đo trên 45b5161 (0.8.6) bằng engine 2.1.296. */
++const LONG_PLAIN_SHA = 'a6c1b875ed5670668f5713a2080da888a622b958216cab2300288266fbb04b05'
++const SHORT_FABLE_SHA = 'ee1a2caa66e741d838de2072d9b453b1f0f1fd88aa9f47745200220d540c0279'
++
++describe('0.8.7 L1: routerRequest khi router là Fable', () => {
++  test('prompt 238.489 ký tự có dấu ở ký tự 120.000: request chứa dấu, không lược; maxTokens 24.000; thời gian chờ FABLE_FULL_TIMEOUT_MS', () => {
++    const r = fable(LONG)
++    expect(promptOf(r)).toContain(MARK)
++    expect(promptOf(r)).not.toContain('lược')
++    expect(r.maxTokens).toBe(24_000)
++    expect(r.timeoutMs).toBe(FABLE_FULL_TIMEOUT_MS)
++    expect(isClippedPrompt(LONG, true)).toBe(false)
++  })
++
++  test('prompt dài hơn trần Fable 1 ký tự: request lược đúng số ký tự theo trần Fable; cảnh báo ghi hai con số của trần Fable', () => {
++    const text = 'd'.repeat(FABLE_REQUEST_CHARS + 1)
++    const head = Math.round(FABLE_REQUEST_CHARS * 0.75)
++    const tail = FABLE_REQUEST_CHARS - head
++    expect(promptOf(fable(text))).toContain(`[... lược ${text.length - head - tail} ký tự ở giữa ...]`)
++    expect(isClippedPrompt(text, true)).toBe(true)
++    expect(clippedWarning(text.length, true)).toBe(`Prompt dài ${grouped(text.length)} ký tự; router chỉ đọc ${grouped(head)} ký tự đầu và ${grouped(tail)} ký tự cuối`)
++  })
++
++  test('prompt 80.000 và 80.001 ký tự: bản 80.000 giữ 16.000 và FABLE_LONG_TIMEOUT_MS, bản 80.001 dùng 24.000 và FABLE_FULL_TIMEOUT_MS; cả hai trọn prompt', () => {
++    const at = fable('e'.repeat(80_000))
++    const over = fable('e'.repeat(80_001))
++    expect([at.maxTokens, at.timeoutMs]).toEqual([16_000, FABLE_LONG_TIMEOUT_MS])
++    expect([over.maxTokens, over.timeoutMs]).toEqual([24_000, FABLE_FULL_TIMEOUT_MS])
++    expect(promptOf(at)).toContain('e'.repeat(80_000))
++    expect(promptOf(over)).toContain('e'.repeat(80_001))
++    expect(isClippedPrompt('e'.repeat(80_001), true)).toBe(false)
++  })
++
++  test('prompt 5.000 ký tự: request trùng 0.8.6 từng byte', async () => {
++    expect(await sha(JSON.stringify(fable(SHORT)))).toBe(SHORT_FABLE_SHA)
++  })
++})
++
++describe('0.8.7 L1: router thường giữ như 0.8.6', () => {
++  test('isFable vắng, prompt 238.489 ký tự: không chứa dấu, request trùng 0.8.6; maxTokens 16.000; thời gian chờ 120.000; cảnh báo 60.000 và 20.000', async () => {
++    const r = routerRequest({ text: LONG, prev: null, ran: null, policy: OPEN, model: 'sonnet' })
++    expect(promptOf(r)).not.toContain(MARK)
++    expect(await sha(JSON.stringify(r))).toBe(LONG_PLAIN_SHA)
++    expect([r.maxTokens, r.timeoutMs]).toEqual([16_000, 120_000])
++    expect(isClippedPrompt(LONG)).toBe(true)
++    expect(isClippedPrompt(LONG, false)).toBe(true)
++    expect(clippedWarning(LONG.length)).toBe('Prompt dài 238.489 ký tự; router chỉ đọc 60.000 ký tự đầu và 20.000 ký tự cuối')
++  })
++
++  test('isFable false: như vắng', () => {
++    const r = routerRequest({ text: LONG, prev: null, ran: null, policy: COND, model: 'sonnet', isFable: false })
++    expect(promptOf(r)).not.toContain(MARK)
++    expect([r.maxTokens, r.timeoutMs]).toEqual([16_000, 120_000])
++  })
++})
++
++describe('0.8.7 L1: lượt dự phòng khi lượt đọc trọn hết giờ', () => {
++  const reply = JSON.stringify(plan({ goal: 'Sửa luồng thanh toán' }))
++  const USAGE = { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
++
++  test('lượt đầu hết giờ (FABLE_FULL_TIMEOUT_MS ở mức sàn 120.000): lượt dự phòng nhận đúng request dự phòng, thời gian chờ đúng 120.000; kết quả báo fellBack', async () => {
++    let t = 0
++    const sent: ModelCompleteRequest[] = []
++    const ask = async (r: ModelCompleteRequest) => {
++      sent.push(r)
++      if (sent.length === 1) {
++        t += r.timeoutMs ?? 0
++        return { isAnswered: false as const, reason: 'aborted' as const, usage: USAGE }
++      }
++      return { isAnswered: true as const, text: reply, usage: USAGE }
++    }
++    const full = { ...fable(LONG), timeoutMs: 120_000 }
++    const fallback = { ...routerRequest({ text: LONG, prev: null, ran: null, policy: COND, model: 'claude-fable-5-2' }), timeoutMs: FABLE_LONG_TIMEOUT_MS }
++    const outcome = await askRouter(ask, full, text => parseRoute(text, COND), undefined, { now: () => t, isFable: true, fallback })
++    expect(sent.length).toBe(2)
++    expect(promptOf(sent[1] as ModelCompleteRequest)).toBe(promptOf(fallback))
++    expect(promptOf(sent[1] as ModelCompleteRequest)).not.toContain(MARK)
++    expect(sent[1]?.timeoutMs).toBe(120_000)
++    expect(outcome.result).not.toBeNull()
++    expect(outcome.fellBack).toBe(true)
++  })
++
++  test('không có request dự phòng: thử lại cùng request như 0.8.6, không báo fellBack', async () => {
++    let t = 0
++    const sent: ModelCompleteRequest[] = []
++    const ask = async (r: ModelCompleteRequest) => {
++      sent.push(r)
++      if (sent.length === 1) {
++        t += 100_000
++        return { isAnswered: false as const, reason: 'aborted' as const, usage: USAGE }
++      }
++      return { isAnswered: true as const, text: reply, usage: USAGE }
++    }
++    const full = fable(LONG)
++    const outcome = await askRouter(ask, full, text => parseRoute(text, COND), undefined, { now: () => t, isFable: true })
++    expect(promptOf(sent[1] as ModelCompleteRequest)).toBe(promptOf(full))
++    expect(outcome.fellBack).toBeUndefined()
++  })
++})
