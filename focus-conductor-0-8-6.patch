@@ -1,0 +1,566 @@
+diff --git a/claude-mods/focus-conductor/hooks/context.ts b/claude-mods/focus-conductor/hooks/context.ts
+index 4e3b300..2f33df7 100644
+--- a/claude-mods/focus-conductor/hooks/context.ts
++++ b/claude-mods/focus-conductor/hooks/context.ts
+@@ -79,6 +79,7 @@ export const COMMAND_HELP = [
+   '/conductor reroute     router đọc lại prompt gần nhất (kể cả khi router đang tạm ngừng)',
+   '/conductor reset       xóa mục tiêu, checklist, cảnh báo và danh sách model bị chặn',
+   '/conductor approve     duyệt kế hoạch đang chờ (chỉ người gõ)',
++  '/conductor solo        luồng chính đang điều phối được tự sửa file và tự chạy kiểm (chỉ người gõ); solo off để bỏ',
+   '/conductor waive N lý do   miễn lệnh kiểm chưa đạt số N (hoặc ghi lệnh) cho mục tiêu này; waive undo N bỏ lệnh miễn',
+   '/conductor errors      nhật ký lỗi của mod; errors clear xóa nhật ký',
+ ].join('\n')
+@@ -271,6 +272,8 @@ export function createContext(options: PluginOptions) {
+   // danh sách đầu mà không có trong danh sách sau là agent ngoài điều phối (untracked): mod không chấm, không ép, không đo.
+   const startedAgents = new Map<string, string>()
+   const spawnedIds = new Set<string>()
++  // Lời gọi Agent đã sinh subagent (0.8.6 R6), theo tool_use_id: lời gọi bị từ chối hay lỗi mà không có trong đây mới bật cờ miễn.
++  const spawnedCalls = new Set<string>()
+   const rawRouter = options['router']
+   const routerModel = typeof rawRouter === 'string' && rawRouter.trim() !== '' ? rawRouter.trim() : 'sonnet'
+   const routerFamily: ModelFamily = familyOf(routerModel) ?? 'sonnet'
+@@ -303,6 +306,11 @@ export function createContext(options: PluginOptions) {
+     return { option: conductorOption, mode, headless, blocked, pauseLeft: fable.pauseLeft + (fable.promptPaused ? 1 : 0), sessionPolicy, sessionFamily: local.sessionFamily }
+   }
+ 
++  /** Luồng chính đang giữ vai điều phối cho mục tiêu hiện tại (0.8.5 D1, 0.8.6): option conductor là fable và isMainConducting. */
++  function isConducting(core: Core, mode: Mode): boolean {
++    return conductorOption === 'fable' && isMainConducting(conductorInputs(core, mode), normalizeCore(core).brief)
++  }
++
+   /** Nguyên nhân luồng chính không điều phối bằng Fable lúc này; null là điều phối khả dụng. */
+   function conductorState(core: Core, mode: Mode, headless = false): ConductorBlocker | null {
+     return conductorBlocker(conductorInputs(core, mode, headless))
+@@ -551,6 +559,7 @@ export function createContext(options: PluginOptions) {
+     local.lastSwitch = null
+     startedAgents.clear()
+     spawnedIds.clear()
++    spawnedCalls.clear()
+     local.liveAgents.clear()
+     local.deferred = []
+   }
+@@ -942,6 +951,7 @@ export function createContext(options: PluginOptions) {
+     conductorOption,
+     conductorInputs,
+     conductorState,
++    isConducting,
+     routerTarget,
+     routerTimeLine,
+     semanticDrift,
+@@ -951,6 +961,7 @@ export function createContext(options: PluginOptions) {
+     sessionPolicy,
+     skipPhrases,
+     spawnedIds,
++    spawnedCalls,
+     startedAgents,
+     steppedEarly,
+     strictDelegation,
+diff --git a/claude-mods/focus-conductor/hooks/lib/state.ts b/claude-mods/focus-conductor/hooks/lib/state.ts
+index 81c7feb..99ccb9e 100644
+--- a/claude-mods/focus-conductor/hooks/lib/state.ts
++++ b/claude-mods/focus-conductor/hooks/lib/state.ts
+@@ -6,7 +6,7 @@
+ 
+ import type { PluginOptions } from 'claude-code'
+ 
+-import type { AgentProgress, AgentState, ApprovalState, ApprovalStatus, AgentTally, ArchivedGoal, Brief, ChangedState, CheckHint, Core, FableState, ForkPart, GoalTurns, ForkPartState, ForkState, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, RetryItem, RetryState, Route, Waiver, WaiverState, RouteEvent, RouterFail, SkillState, TurnFault, Warning } from '../../types'
++import type { AgentProgress, AgentState, ApprovalState, ApprovalStatus, AgentTally, ArchivedGoal, Brief, ChangedState, CheckHint, ConductState, Core, FableState, ForkPart, GoalTurns, ForkPartState, ForkState, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, RetryItem, RetryState, Route, Waiver, WaiverState, RouteEvent, RouterFail, SkillState, TurnFault, Warning } from '../../types'
+ import { isFullyClosed, openSteps, restorableSteps } from './drift'
+ import { isPendingGoal } from './conductor'
+ import type { Tokens } from './cost'
+@@ -55,6 +55,12 @@ export const EMPTY_CORE: Core = {
+   changedNoticed: -1,
+   fable: { failures: 0, pauseLeft: 0, ready: null, reason: '', holdKey: '', briefedGoal: -1, promptPaused: false },
+   goalTurns: { goalId: -1, done: 0, interrupted: false },
++  conduct: emptyConduct(-1),
++}
++
++/** Trạng thái vai điều phối mặc định của mục tiêu goalId (0.8.6). */
++export function emptyConduct(goalId: number): ConductState {
++  return { goalId, solo: false, agentDenied: false, deniedWrites: 0, deniedChecks: 0, selfWrites: 0, selfChecks: 0, reads: 0, readNoted: 0 }
+ }
+ 
+ const LOG_LIMIT = 60
+@@ -261,9 +267,44 @@ export function normalizeCore(raw: Partial<Core>): Core {
+     changedNoticed: typeof raw.changedNoticed === 'number' ? raw.changedNoticed : -1,
+     fable: normalizeFable(raw.fable),
+     goalTurns: normalizeGoalTurns(raw.goalTurns),
++    conduct: normalizeConduct(raw.conduct),
++  }
++}
++
++/** Vai điều phối từ bản đã lưu (0.8.6); vắng hay sai kiểu ở trạng thái từ bản cũ là mặc định. */
++function normalizeConduct(raw: Partial<ConductState> | undefined): ConductState {
++  if (raw === undefined || raw === null || typeof raw !== 'object') return emptyConduct(-1)
++  const count = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0)
++  return {
++    goalId: typeof raw.goalId === 'number' && Number.isInteger(raw.goalId) ? raw.goalId : -1,
++    solo: raw.solo === true,
++    agentDenied: raw.agentDenied === true,
++    deniedWrites: count(raw.deniedWrites),
++    deniedChecks: count(raw.deniedChecks),
++    selfWrites: count(raw.selfWrites),
++    selfChecks: count(raw.selfChecks),
++    reads: count(raw.reads),
++    readNoted: count(raw.readNoted),
+   }
+ }
+ 
++/** Vai điều phối của mục tiêu đang mở (0.8.6): trạng thái lưu cho mục tiêu khác là mặc định. */
++export function conductOf(c: Core): ConductState {
++  const n = normalizeCore(c)
++  const goalId = n.brief?.goalId ?? -1
++  return n.brief !== null && n.conduct.goalId === goalId ? n.conduct : emptyConduct(goalId)
++}
++
++/** Đổi vai điều phối của mục tiêu goalId (0.8.6); mục tiêu đang mở là mục tiêu khác thì không đổi gì. */
++export const withConduct =
++  (goalId: number, change: (state: ConductState) => Partial<ConductState>) =>
++  (c: Core): Core => {
++    const n = normalizeCore(c)
++    if (n.brief === null || n.brief.goalId !== goalId) return n
++    const prev = conductOf(n)
++    return { ...n, conduct: normalizeConduct({ ...prev, ...change(prev), goalId }) }
++  }
++
+ /** Turn của mục tiêu từ bản đã lưu (0.8.5 K8); vắng hay sai kiểu ở trạng thái từ bản cũ là chưa có turn nào. */
+ function normalizeGoalTurns(raw: Partial<GoalTurns> | undefined): GoalTurns {
+   if (raw === undefined || raw === null || typeof raw !== 'object') return { goalId: -1, done: 0, interrupted: false }
+@@ -610,7 +651,9 @@ function archiveOf(n: Core): ArchivedGoal[] {
+   // Trạng thái duyệt lúc cất (0.8.5 K3): khôi phục đặt lại cho số mục tiêu mới; cờ chờ câu trả lời không mang theo.
+   // Turn của mục tiêu lúc cất (0.8.5 K8) đi theo mục tiêu và được nhận lại khi khôi phục.
+   const turns = turnsOf(n)
+-  return [{ brief, plan: n.plan, approval: approvalOf(n).status, turns: { done: turns.done, interrupted: turns.interrupted } }, ...n.archived.filter(a => n.brief === null || a.brief.goalId !== n.brief.goalId)].slice(0, ARCHIVE_LIMIT)
++  // Vai điều phối lúc cất (0.8.6) đi theo mục tiêu và được nhận lại khi khôi phục.
++  const { goalId: _conductGoal, ...conduct } = conductOf(n)
++  return [{ brief, plan: n.plan, approval: approvalOf(n).status, turns: { done: turns.done, interrupted: turns.interrupted }, conduct }, ...n.archived.filter(a => n.brief === null || a.brief.goalId !== n.brief.goalId)].slice(0, ARCHIVE_LIMIT)
+ }
+ 
+ /** Trạng thái duyệt của mục tiêu khôi phục (0.8.5 K3): trạng thái lúc cất, gắn với số mục tiêu mới; vắng (bản cũ) là none. */
+@@ -645,6 +688,7 @@ export function restoreArchived(c: Core, index: number): { core: Core; restored:
+     ...freshProgress(goalId),
+     approval: restoredApproval(goalId, restored.approval),
+     goalTurns: { goalId, done: restored.turns?.done ?? 0, interrupted: restored.turns?.interrupted === true },
++    conduct: normalizeConduct({ ...restored.conduct, goalId }),
+   }
+   return { core, restored: { brief, plan: restored.plan } }
+ }
+diff --git a/claude-mods/focus-conductor/hooks/lib/text.ts b/claude-mods/focus-conductor/hooks/lib/text.ts
+index d4f7c47..2c2eb19 100644
+--- a/claude-mods/focus-conductor/hooks/lib/text.ts
++++ b/claude-mods/focus-conductor/hooks/lib/text.ts
+@@ -1355,7 +1355,8 @@ export function conductorContext(): string {
+   return (
+     '[focus-conductor] Điều phối: luồng chính là vai điều phối, chạy fable/medium. Lập kế hoạch, rồi giao từng việc bằng Agent đúng loại ' +
+     'agent, model, effort đã phân, description mở đầu bằng "Việc N". Mỗi lời giao tự đứng được: mục tiêu, phạm vi file, ràng buộc, tiêu ' +
+-    'chí xong và lệnh kiểm. Đọc kết quả, đối chiếu yêu cầu trước khi đóng bước. Chỉ tự sửa file khi chỉnh vài dòng để ráp kết quả.'
++    'chí xong và lệnh kiểm. Không tự sửa file, không tự chạy lệnh kiểm: chỉnh nhỏ gom vào một lời giao, lệnh kiểm giao một subagent chạy ' +
++    'và báo tóm tắt. Đọc kết quả, đối chiếu yêu cầu trước khi đóng bước.'
+   )
+ }
+ 
+@@ -1364,5 +1365,5 @@ export const CONDUCTOR_KEEP_CHARS = 200
+ 
+ /** Câu nhắc lại vai điều phối (0.8.4 V1): nối vào lời nhắc sau nén và ngữ cảnh chạy tiếp khi luồng chính đang điều phối. */
+ export function conductorKeepText(): string {
+-  return '[focus-conductor] Vẫn là vai điều phối chạy fable/medium: giao việc sửa file bằng Agent theo phân việc, lời giao tự đứng được; đối chiếu kết quả với yêu cầu trước khi đóng bước.'
++  return '[focus-conductor] Vẫn là vai điều phối chạy fable/medium: không tự sửa file, không tự chạy kiểm; giao bằng Agent theo phân việc, lời giao tự đứng được; đối chiếu kết quả trước khi đóng bước.'
+ }
+diff --git a/claude-mods/focus-conductor/hooks/parts/agents.ts b/claude-mods/focus-conductor/hooks/parts/agents.ts
+index 939b17c..8e23daa 100644
+--- a/claude-mods/focus-conductor/hooks/parts/agents.ts
++++ b/claude-mods/focus-conductor/hooks/parts/agents.ts
+@@ -64,7 +64,7 @@ function retryFloorOf(core: Core, description: string, subagentType: string | un
+ 
+ export function registerAgents(on: On, ctx: Ctx): void {
+   const L = ctx.local
+-  const { agentFailures, agentRoutes, agents, flushDecisions, delegationItems, isAgentRouterPaused, moveDelegation, noteAgentRouter, noteRouterTime, offered, pendingAgents, policy, recognized, record, refit, rememberAgentRoute, spawnedIds, startedAgents, steppedEarly } = ctx
++  const { agentFailures, agentRoutes, agents, flushDecisions, delegationItems, isAgentRouterPaused, moveDelegation, noteAgentRouter, noteRouterTime, offered, pendingAgents, policy, recognized, record, refit, rememberAgentRoute, spawnedCalls, spawnedIds, startedAgents, steppedEarly } = ctx
+   const mode = derive([modeState], modeOf(ctx.options))
+ 
+   // Agent khởi động mà không đi qua agent.spawn của mod: ghi để /conductor status báo là agent ngoài điều phối.
+@@ -370,6 +370,16 @@ export function registerAgents(on: On, ctx: Ctx): void {
+       moveDelegation(brief.goalId, assigned.index, 'pending')
+       await update($, coreState, S.withDelegations(brief.goalId, delegationItems(brief)))
+     }
++    // Vai điều phối (0.8.6 R6): lời gọi Agent của luồng chính bị từ chối hay lỗi mà không sinh subagent nào (engine, quyền, plugin khác;
++    // lời từ chối của chính mod đến từ hook đăng ký trước nên không tới đây) bật cờ miễn; lời gọi đã sinh subagent thì tắt cờ.
++    const isSpawned = spawnedCalls.delete(e.tool_use_id)
++    if (!isNested && brief !== null) {
++      const isRefused = !isSpawned && (result.deny !== undefined || result.isError === true)
++      const now = S.normalizeCore(await read($, coreState))
++      if (ctx.isConducting(now, current) && S.conductOf(now).agentDenied !== isRefused) {
++        await update($, coreState, S.withConduct(brief.goalId, () => ({ agentDenied: isRefused })))
++      }
++    }
+     return result
+   }).catch(($, e, next) => (noteHookError('tool.call', next.error), next(e)))
+ 
+@@ -501,6 +511,8 @@ export function registerAgents(on: On, ctx: Ctx): void {
+     if (agentId !== undefined) {
+       steppedEarly.delete(agentId)
+       if (spawnedIds.size < 1000) spawnedIds.add(agentId)
++      // Lời gọi Agent đã sinh subagent (0.8.6 R6): lỗi về sau là lỗi của subagent, không bật cờ miễn của vai điều phối.
++      if (e.tool_use_id !== undefined && spawnedCalls.size < 1000) spawnedCalls.add(e.tool_use_id)
+     }
+     if (workflowTask !== undefined && core.brief !== null) await update($, coreState, S.withDelegations(core.brief.goalId, delegationItems(core.brief)))
+     if (forkPart !== null && agentId !== undefined) await update($, coreState, S.withForkCall(e.tool_use_id, p => ({ ...p, agentId })))
+diff --git a/claude-mods/focus-conductor/hooks/parts/command.ts b/claude-mods/focus-conductor/hooks/parts/command.ts
+index de53528..d3d5300 100644
+--- a/claude-mods/focus-conductor/hooks/parts/command.ts
++++ b/claude-mods/focus-conductor/hooks/parts/command.ts
+@@ -17,7 +17,7 @@ import type { View } from '../lib/state'
+ import { RETRY_ROUNDS, WAIVE_REPORT, briefContext, checkHintLines, droppedGoalNotice, droppedItemsText, droppedPlanNotice, quotaStatusLines, renderPlan, resetLabel, routerFailLines, unroutedContext } from '../lib/text'
+ import { PANE_ROWS, shouldAutoOpenPane } from '../lib/pane'
+ import { PANE, PANE_TITLE } from '../ui/pane'
+-import { conductorLine, labels, langOf } from '../ui/labels'
++import { conductStatusSuffix, conductorLine, labels, langOf } from '../ui/labels'
+ import type { EngineInterface, On } from 'claude-code'
+ import type { Ctx } from '../context'
+ import { modeOf, viewOf } from '../atoms'
+@@ -192,6 +192,23 @@ export function registerCommand(on: On, ctx: Ctx): void {
+       return { text: 'Đã duyệt kế hoạch; Claude được sửa file theo checklist.' }
+     }
+ 
++    if (sub === 'solo') {
++      // Lối thoát của vai điều phối (0.8.6 R6): chỉ người gõ, cùng luật origin như /conductor waive; Claude và plugin không tự miễn được.
++      if (!WAIVE_ORIGINS.has(e.origin.kind)) return { text: 'Chỉ nhận /conductor solo do người gõ; lệnh từ plugin, SDK hay lịch không miễn được vai điều phối.' }
++      if (arg !== '' && arg !== 'off') return { text: 'Dùng /conductor solo để luồng chính tự sửa file và tự chạy kiểm trong mục tiêu này, /conductor solo off để bỏ.' }
++      const core = S.normalizeCore(await read($, coreState))
++      if (core.brief === null || !ctx.isConducting(core, await read($, mode))) return { text: 'Luồng chính không đang giữ vai điều phối nên không có gì để miễn.' }
++      const isOn = arg !== 'off'
++      const goalId = core.brief.goalId
++      if (S.conductOf(core).solo !== isOn) await update($, coreState, S.withConduct(goalId, () => ({ solo: isOn })))
++      await showStatus($, await read($, view), ctx.options)
++      return {
++        text: isOn
++          ? 'Đã miễn vai điều phối cho mục tiêu này: luồng chính được tự sửa file và tự chạy kiểm; /conductor solo off để bỏ.'
++          : 'Đã bỏ miễn: luồng chính lại giao việc sửa file và chạy kiểm cho subagent.',
++      }
++    }
++
+     if (sub === 'mode') {
+       if (!S.isMode(arg)) return { text: `Chế độ phải là auto, subagents, suggest hoặc off.\n${COMMAND_HELP}` }
+       await update($, modeState, () => arg)
+@@ -460,7 +477,9 @@ export function registerCommand(on: On, ctx: Ctx): void {
+         }),
+       )
+       // Fable điều phối (0.8.4 C8): một dòng trạng thái, chỉ khi option conductor là fable.
+-      const conductorLines = ctx.conductorOption === 'fable' ? [conductorLine(core, ctx.routerModel, lang)] : []
++      // Vai điều phối của mục tiêu (0.8.6): trạng thái miễn và số đo, chỉ khi luồng chính đang điều phối.
++      const conductSuffix = ctx.isConducting(core, current) ? conductStatusSuffix(S.conductOf(core), lang) : ''
++      const conductorLines = ctx.conductorOption === 'fable' ? [conductorLine(core, ctx.routerModel, lang) + conductSuffix] : []
+       if (core.brief === null) return { text: [`Chế độ ${current}. Chưa có mục tiêu.`, ...conductorLines, ...routerFailLines(core.routerFail), ...costLines].join('\n') }
+       const routeLine = core.route
+         ? `${describePick(core.route)} (${core.route.reason})`
+diff --git a/claude-mods/focus-conductor/hooks/parts/consistency.ts b/claude-mods/focus-conductor/hooks/parts/consistency.ts
+index 67b2b7a..c2fd06b 100644
+--- a/claude-mods/focus-conductor/hooks/parts/consistency.ts
++++ b/claude-mods/focus-conductor/hooks/parts/consistency.ts
+@@ -595,7 +595,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
+   const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
+   const mode = derive([modeState], modeOf(ctx.options))
+   /** Luồng chính đang giữ vai điều phối cho mục tiêu hiện tại (0.8.5 D1): mức strictDelegation hiệu dụng là block. */
+-  const isConductingNow = (core: Core, current: Mode): boolean => ctx.conductorOption === 'fable' && isMainConducting(ctx.conductorInputs(core, current), core.brief)
++  const isConductingNow = (core: Core, current: Mode): boolean => ctx.isConducting(core, current)
+ 
+   // ------------------------------------------ 3. giữ nhất quán
+ 
+diff --git a/claude-mods/focus-conductor/hooks/ui/labels.ts b/claude-mods/focus-conductor/hooks/ui/labels.ts
+index 620e413..8280321 100644
+--- a/claude-mods/focus-conductor/hooks/ui/labels.ts
++++ b/claude-mods/focus-conductor/hooks/ui/labels.ts
+@@ -140,6 +140,7 @@ const VI = {
+   conductorOn: 'Điều phối: fable/medium, đang điều phối',
+   conductorPaused: (fallback: string) => `Điều phối: Fable tạm ngừng, router dùng ${fallback}`,
+   conductorOff: (reason: string) => `Điều phối: tắt (${reason})`,
++  conductExempt: (reason: 'solo' | 'agent') => `đang miễn (${reason === 'solo' ? 'lệnh solo' : 'Agent bị từ chối'})`,
+   conductorReason: {
+     option: 'option conductor là off',
+     mode: 'chế độ điều phối không phải auto',
+@@ -298,6 +299,7 @@ const EN: typeof VI = {
+   conductorOn: 'Conductor: fable/medium, conducting',
+   conductorPaused: (fallback: string) => `Conductor: Fable paused, router on ${fallback}`,
+   conductorOff: (reason: string) => `Conductor: off (${reason})`,
++  conductExempt: (reason: 'solo' | 'agent') => `exempt (${reason === 'solo' ? 'solo command' : 'Agent call refused'})`,
+   conductorReason: {
+     option: 'conductor option is off',
+     mode: 'routing mode is not auto',
+@@ -396,6 +398,16 @@ export function taskLabel(l: typeof VI, row: { kind: 'main' | 'direct' | 'agent'
+   return `${head}: ${row.title}`
+ }
+ 
++/**
++ * Phần nối sau dòng Điều phối của /conductor status khi luồng chính đang điều phối (0.8.6): trạng thái miễn kèm lý do. Pane và band không
++ * dùng phần này.
++ */
++export function conductStatusSuffix(state: { solo: boolean; agentDenied: boolean }, lang: Lang): string {
++  const l = labels(lang)
++  const parts = [state.solo ? l.conductExempt('solo') : state.agentDenied ? l.conductExempt('agent') : ''].filter(Boolean)
++  return parts.length > 0 ? `; ${parts.join(', ')}` : ''
++}
++
+ /** Dòng Điều phối của pane và /conductor status (0.8.4 C8), theo trạng thái điều phối trong Core. */
+ export function conductorLine(core: Parameters<typeof conductorShown>[0], fallback: string, lang: Lang): string {
+   const l = labels(lang)
+diff --git a/claude-mods/focus-conductor/scripts/mutants.ts b/claude-mods/focus-conductor/scripts/mutants.ts
+index 2ac2944..66a59c8 100644
+--- a/claude-mods/focus-conductor/scripts/mutants.ts
++++ b/claude-mods/focus-conductor/scripts/mutants.ts
+@@ -1975,7 +1975,7 @@ export const MUTANTS: Mutant[] = [
+   { id: "079-Y4a", file: "hooks/parts/consistency.ts", note: "bỏ nhánh checkTools", old: "  return tool === 'Bash' || isCheckTool(tool)", new: "  return tool === 'Bash'" },
+   { id: "079-Y4b", file: "hooks/lib/drift/evidence.ts", note: "tool cùng tên, đầu vào khác vẫn phủ", old: "return pass.check === fail.check && pass.command === fail.command", new: "return pass.check === fail.check" },
+   { id: "079-Y4c", file: "hooks/lib/drift/verify.ts", note: "tool ngoài danh sách cũng được ghi", old: "  return checkTools.has(name)", new: "  return name.startsWith('mcp__')" },
+-  { id: "079-Y5a", file: "hooks/parts/command.ts", note: "bỏ kiểm origin người gõ", old: "      if (!WAIVE_ORIGINS.has(e.origin.kind)) return", new: "      if (false) return" },
++  { id: "079-Y5a", file: "hooks/parts/command.ts", note: "bỏ kiểm origin người gõ", old: "      if (!WAIVE_ORIGINS.has(e.origin.kind)) return { text: 'Chỉ nhận /conductor waive", new: "      if (false) return { text: 'Chỉ nhận /conductor waive" },
+   { id: "079-Y5b", file: "hooks/parts/command.ts", note: "bỏ yêu cầu lý do", old: "      if (reason.length < WAIVE_REASON_MIN) return", new: "      if (false) return" },
+   { id: "079-Y5c", file: "hooks/lib/state.ts", note: "lệnh miễn áp cả sang mục tiêu mới", old: "core.waivers.goalId === core.brief.goalId && core.waivers.items.some(w => w.sig === sig)", new: "core.waivers.items.some(w => w.sig === sig)" },
+   { id: "079-Y5d", file: "hooks/parts/consistency.ts", note: "bỏ lần chặn đòi mục Lệnh kiểm được miễn", old: "    const waiveReason = await askWaived($)\n", new: "    const waiveReason: string | null = null\n" },
+@@ -2152,7 +2152,7 @@ export const MUTANTS: Mutant[] = [
+   { id: "085-K7a", file: "hooks/parts/session.ts", note: "nhánh skip không khôi phục mục tiêu đã cất", old: "      const skipBack = lead.length === 0 ? S.resumeTarget(skipCore) : null\n", new: "      const skipBack: number | null = null\n" },
+   { id: "085-K7b", file: "hooks/parts/session.ts", note: "nhánh skip khôi phục cả khi tin chạy tiếp điểm dừng đang mở", old: "      const skipBack = lead.length === 0 ? S.resumeTarget(skipCore) : null\n", new: "      const skipBack = S.resumeTarget(skipCore)\n" },
+   { id: "085-D1a", file: "hooks/parts/consistency.ts", note: "không nâng mức strictDelegation khi điều phối", old: "(strictDelegation === 'block' || isConductingNow(blockCore, await read($, mode)))", new: "(strictDelegation === 'block')" },
+-  { id: "085-D1b", file: "hooks/parts/consistency.ts", note: "nâng mức strictDelegation cả khi không điều phối", old: "ctx.conductorOption === 'fable' && isMainConducting(ctx.conductorInputs(core, current), core.brief)", new: "ctx.conductorOption === 'fable'" },
++  { id: "085-D1b", file: "hooks/context.ts", note: "nâng mức strictDelegation cả khi không điều phối", old: "return conductorOption === 'fable' && isMainConducting(conductorInputs(core, mode), normalizeCore(core).brief)", new: "return conductorOption === 'fable'" },
+   { id: "085-D1c", file: "hooks/parts/consistency.ts", note: "lời nhắc theo mức block khi điều phối, nhắc ở mọi lần thay đổi sau khi hết lượt chặn", old: "    const isStrict = strictDelegation !== 'off'\n", new: "    const isStrict = strictDelegation !== 'off' || (e.agentId === undefined && isConductingNow(core, await read($, mode)))\n" },
+   { id: "085-D2a", file: "hooks/parts/session.ts", note: "bổ sung lớn sau khi duyệt giữ approved", old: "          : isBigAmend\n            ? { ...approvalBefore, status: 'planning' as const, rounds: 0 }\n", new: "          : false\n            ? { ...approvalBefore, status: 'planning' as const, rounds: 0 }\n" },
+   { id: "085-D2b", file: "hooks/parts/session.ts", note: "bổ sung nhỏ sau khi duyệt cũng về planning", old: " && intent === 'amend' && needsApproval(brief, ctx.planApproval, false) && (plan.depth === 'substantial' || plan.depth === 'hard') && (plan.kind === 'edit' || plan.kind === 'mixed') && added.length > 0\n", new: " && intent === 'amend' && ctx.planApproval === 'auto' && (plan.kind === 'edit' || plan.kind === 'mixed') && added.length > 0\n" },
+@@ -2161,9 +2161,13 @@ export const MUTANTS: Mutant[] = [
+   { id: "085-W2a", file: "hooks/lib/state.ts", note: "mục đã cất xét như không có trạng thái duyệt", old: "approval: a.approval ?? 'none', turnsDone", new: "approval: 'none', turnsDone" },
+   { id: "085-W2b", file: "hooks/lib/state.ts", note: "mục tiêu khôi phục coi như chưa được dặn hỏi làm rõ", old: "asked: kept !== 'none', awaitingAnswer: false", new: "asked: false, awaitingAnswer: false" },
+   { id: "085-W2c", file: "hooks/lib/state.ts", note: "khôi phục đặt số turn về 0", old: "goalTurns: { goalId, done: restored.turns?.done ?? 0, interrupted: restored.turns?.interrupted === true },", new: "goalTurns: { goalId, done: 0, interrupted: false }," },
+-  { id: "085-W2d", file: "hooks/lib/state.ts", note: "cất không mang số turn", old: "turns: { done: turns.done, interrupted: turns.interrupted } }", new: "turns: { done: 0, interrupted: false } }" },
++  { id: "085-W2d", file: "hooks/lib/state.ts", note: "cất không mang số turn", old: "turns: { done: turns.done, interrupted: turns.interrupted }, conduct }", new: "turns: { done: 0, interrupted: false }, conduct }" },
+   { id: "085-W2e", file: "hooks/parts/session.ts", note: "nhánh skip chèn đoạn dặn điều phối cả khi chen ngang", old: "const conductNote = e.turnId === undefined && wanted?.isConducting", new: "const conductNote = wanted?.isConducting" },
+   { id: "085-W2f", file: "hooks/parts/consistency.ts", note: "turn của prompt router lỗi không được đếm", old: "L.promptIntent === null || isExecuting(L.tracker, L.promptIntent)", new: "isExecuting(L.tracker, L.promptIntent)" },
+   { id: "085-W2g", file: "hooks/parts/command.ts", note: "/conductor goal không báo đã lưu mục tiêu cũ chưa có checklist", old: ": prev !== null && S.pendingOf(before) ? [droppedGoalNotice(prev.goal)] : []", new: ": []" },
+   { id: "085-W2h", file: "hooks/parts/session.ts", note: "nhánh skip khôi phục không dặn planning", old: "? [planningContext()] : []\n        return next({ ...e, context: [...(e.context ?? []), backLine", new: "? [] : []\n        return next({ ...e, context: [...(e.context ?? []), backLine" },
++  { id: "086-R6a", file: "hooks/parts/command.ts", note: "/conductor solo từ nguồn khác vẫn đặt cờ miễn", old: "if (!WAIVE_ORIGINS.has(e.origin.kind)) return { text: 'Chỉ nhận /conductor solo", new: "if (false) return { text: 'Chỉ nhận /conductor solo" },
++  { id: "086-R6b", file: "hooks/parts/agents.ts", note: "lời gọi Agent chạy được không bỏ cờ Agent bị từ chối", old: "S.conductOf(now).agentDenied !== isRefused", new: "isRefused && !S.conductOf(now).agentDenied" },
++  { id: "086-R6c", file: "hooks/lib/state.ts", note: "đổi mục tiêu giữ cờ miễn", old: "return n.brief !== null && n.conduct.goalId === goalId ? n.conduct : emptyConduct(goalId)", new: "return n.brief !== null ? { ...n.conduct, goalId } : emptyConduct(goalId)" },
++  { id: "086-R6d", file: "hooks/parts/agents.ts", note: "bật cờ Agent bị từ chối cả khi subagent đã chạy", old: "const isRefused = !isSpawned && (", new: "const isRefused = (" },
+ ]
+diff --git a/claude-mods/focus-conductor/tests/integration/conduct-r6-086.test.ts b/claude-mods/focus-conductor/tests/integration/conduct-r6-086.test.ts
+new file mode 100644
+index 0000000..722384d
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/integration/conduct-r6-086.test.ts
+@@ -0,0 +1,173 @@
++// 0.8.6 R6: trạng thái vai điều phối của mục tiêu (Core.conduct), lối thoát /conductor solo, cờ "lời gọi Agent gần nhất bị từ chối" và
++// đoạn dặn điều phối mới. Cờ miễn hiện trên dòng Điều phối của /conductor status ("đang miễn (lệnh solo)" hay "đang miễn (Agent bị từ
++// chối)"). Cờ Agent chỉ bật khi lời gọi bị từ chối hay lỗi mà không có agent.spawn nào cho tool_use_id đó.
++
++import { describe, expect, test } from 'claude-code/testing'
++import type { Engine } from 'claude-code/testing'
++import type { On } from 'claude-code'
++import type { Core } from '../../types'
++import * as S from '../../hooks/lib/state'
++import { CONDUCTOR_CHARS, CONDUCTOR_KEEP_CHARS, conductorContext, conductorKeepText } from '../../hooks/lib/text'
++import { base, plan, submit, task } from '../support/engine'
++import type { Json } from '../support/engine'
++import { makeBrief } from '../support/commands'
++
++const MAIN = { model: 'sonnet', effort: 'medium', why: '' }
++const A = 'Sửa luồng thanh toán'
++const BIG = plan({ goal: A, depth: 'substantial', volume: 'medium', kind: 'edit', main: MAIN, tasks: [task('Sửa hàm phí', 'main', 'sonnet', 'medium'), task('Sửa hàm thuế', 'main', 'sonnet', 'medium')] })
++const LIGHT = plan({ goal: 'Sửa chú thích', depth: 'light', volume: 'small', kind: 'edit', main: MAIN, tasks: [] })
++const NEW_GOAL = plan({ goal: 'Viết trang giới thiệu', relation: 'new', confidence: 0.95, depth: 'substantial', volume: 'medium', kind: 'edit', main: MAIN, tasks: [] })
++const FABLE = { options: { planApproval: 'off', conductor: 'fable' } }
++const PRESENTATION = { isFullscreen: false, columns: 80 }
++const run = ($: Engine, args: string, origin: Json = { kind: 'composer' }) => $.command.run({ command: 'conductor', args, origin, presentation: PRESENTATION } as never) as Promise<{ text?: string }>
++const conductLine = async ($: Engine) => String((await run($, 'status')).text ?? '').split('\n').find(line => line.startsWith('Điều phối')) ?? ''
++
++/** Engine giả: Agent theo `agent.how` (run: chạy không spawn, spawn-fail: sinh subagent rồi lỗi, refuse: lỗi trước khi chạy, deny: từ chối). */
++function setup(on: On, $: Engine, reply: (request: string) => Json) {
++  base(on, { router: request => (request.startsWith('Requirements:') ? { missing: [], extra: [], issues: [] } : reply(request)) })
++  const agent = { how: 'run' as 'run' | 'spawn-fail' | 'refuse' | 'deny' }
++  on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
++  on('tool.call', { tool: 'Agent' }, async (_x, e) => {
++    if (agent.how === 'deny') return { deny: 'quyền: người dùng từ chối' }
++    if (agent.how === 'refuse') return { result: 'không khởi động được agent', isError: true }
++    if (agent.how === 'spawn-fail') {
++      await $.agent.spawn({ prompt: e.prompt, description: e.description, tool_use_id: String(e.tool_use_id) } as never)
++      return { result: 'subagent dừng vì lỗi', isError: true }
++    }
++    return { result: 'đã giao' }
++  })
++  on('agent.spawn', (_x, e) => ({ model: 'claude-sonnet-5-5', agentId: `a-${String(e.tool_use_id)}` }))
++  return agent
++}
++const callAgent = ($: Engine, id: string, n = 1) => $.tool.call({ tool: 'Agent', tool_use_id: id, description: `Việc ${n}: làm`, prompt: 'x' } as never) as Promise<{ deny?: string }>
++
++describe('0.8.6 R6: /conductor solo', () => {
++  test('người gõ khi đang điều phối: bật cờ miễn, kết quả một dòng; solo off tắt cờ', FABLE, async ($, on) => {
++    setup(on, $, () => BIG)
++    await submit($, A)
++    const on1 = String((await run($, 'solo')).text)
++    expect(on1).not.toContain('\n')
++    expect(on1).toContain('Đã miễn')
++    expect(await conductLine($)).toContain('đang miễn (lệnh solo)')
++    const off = String((await run($, 'solo off')).text)
++    expect(off).not.toContain('\n')
++    expect(await conductLine($)).not.toContain('đang miễn')
++  })
++
++  test('nguồn không phải người gõ: không đổi trạng thái, kết quả giải thích', FABLE, async ($, on) => {
++    setup(on, $, () => BIG)
++    await submit($, A)
++    expect(String((await run($, 'solo', { kind: 'plugin', name: 'khác' })).text)).toContain('Chỉ nhận /conductor solo do người gõ')
++    expect(await conductLine($)).not.toContain('đang miễn')
++  })
++
++  test('mục tiêu light: không đổi trạng thái', FABLE, async ($, on) => {
++    setup(on, $, () => LIGHT)
++    await submit($, 'Sửa chú thích README')
++    expect(String((await run($, 'solo')).text)).toContain('không đang giữ vai điều phối')
++    expect(await conductLine($)).not.toContain('đang miễn')
++  })
++
++  test('conductor tắt: không đổi trạng thái, status không có dòng Điều phối', { options: { planApproval: 'off' } }, async ($, on) => {
++    setup(on, $, () => BIG)
++    await submit($, A)
++    expect(String((await run($, 'solo')).text)).toContain('không đang giữ vai điều phối')
++    expect(await conductLine($)).toBe('')
++  })
++})
++
++describe('0.8.6 R6: cờ lời gọi Agent bị từ chối', () => {
++  test('Agent bị từ chối trước khi chạy: cờ bật; lời gọi Agent kế tiếp chạy được: cờ tắt', FABLE, async ($, on) => {
++    const agent = setup(on, $, () => BIG)
++    await submit($, A)
++    agent.how = 'deny'
++    await callAgent($, 'u1')
++    expect(await conductLine($)).toContain('đang miễn (Agent bị từ chối)')
++    agent.how = 'run'
++    await callAgent($, 'u2')
++    expect(await conductLine($)).not.toContain('đang miễn')
++  })
++
++  test('Agent lỗi mà không sinh subagent: cờ bật', FABLE, async ($, on) => {
++    const agent = setup(on, $, () => BIG)
++    await submit($, A)
++    agent.how = 'refuse'
++    await callAgent($, 'u1')
++    expect(await conductLine($)).toContain('đang miễn (Agent bị từ chối)')
++  })
++
++  test('subagent đã spawn rồi kết quả isError: cờ không bật, Edit của luồng chính vẫn bị từ chối', FABLE, async ($, on) => {
++    const agent = setup(on, $, () => BIG)
++    await submit($, A)
++    agent.how = 'spawn-fail'
++    await callAgent($, 'u1')
++    expect(await conductLine($)).not.toContain('đang miễn')
++    const edit = (await $.tool.call({ tool: 'Edit', file_path: 'src/phi.ts', old_string: 'a', new_string: 'b' } as never)) as { deny?: string }
++    expect(edit.deny).toBeDefined()
++  })
++
++  test('Agent bị chính mod từ chối (cổng duyệt đang planning): cờ không bật', { options: { planApproval: 'auto', conductor: 'fable' } }, async ($, on) => {
++    setup(on, $, () => BIG)
++    await submit($, A)
++    expect(String((await callAgent($, 'u1')).deny ?? '')).not.toBe('')
++    expect(await conductLine($)).not.toContain('đang miễn')
++  })
++})
++
++describe('0.8.6 R6: trạng thái theo mục tiêu', () => {
++  test('đổi mục tiêu: trạng thái vai điều phối về mặc định', FABLE, async ($, on) => {
++    let n = 0
++    setup(on, $, () => (n++ === 0 ? BIG : NEW_GOAL))
++    await submit($, A)
++    await run($, 'solo')
++    expect(await conductLine($)).toContain('đang miễn (lệnh solo)')
++    await submit($, 'Viết trang giới thiệu cho sản phẩm mới')
++    expect(await conductLine($)).not.toContain('đang miễn')
++  })
++
++  test('mục tiêu bị cất rồi khôi phục: trạng thái giữ', () => {
++    const a = makeBrief({ goalId: 1, goal: A, depth: 'substantial', kind: 'edit' })
++    const open = [{ id: 1, title: 'Sửa hàm phí', status: 'todo' as const }]
++    const withA: Core = { ...S.EMPTY_CORE, brief: a, plan: open }
++    const marked = S.withConduct(1, () => ({ solo: true, deniedWrites: 2, reads: 7 }))(withA)
++    const replaced = S.adoptGoal(makeBrief({ goalId: 2, goal: 'Sửa chú thích', depth: 'light', kind: 'edit' }))(marked)
++    expect(S.conductOf(replaced).solo).toBe(false)
++    const outcome = S.restoreArchived(replaced, 1)
++    if ('error' in outcome) throw new Error(outcome.error)
++    const back = S.conductOf(outcome.core)
++    expect(back.goalId).toBe(outcome.core.brief?.goalId ?? -1)
++    expect([back.solo, back.deniedWrites, back.reads]).toEqual([true, 2, 7])
++  })
++
++  test('nạp trạng thái 0.8.5 không có trường conduct: trạng thái là mặc định', () => {
++    const { conduct: _drop, ...old } = S.EMPTY_CORE as Core & { conduct?: unknown }
++    const brief = makeBrief({ goalId: 3, goal: A, depth: 'substantial', kind: 'edit' })
++    const n = S.normalizeCore({ ...old, brief } as Partial<Core>)
++    expect(n.conduct).toEqual(S.emptyConduct(-1))
++    expect(S.conductOf(n)).toEqual(S.emptyConduct(3))
++  })
++
++  test('withConduct cho mục tiêu khác mục tiêu đang mở: không đổi gì', () => {
++    const brief = makeBrief({ goalId: 4, goal: A, depth: 'substantial', kind: 'edit' })
++    const core: Core = { ...S.EMPTY_CORE, brief }
++    expect(S.conductOf(S.withConduct(3, () => ({ solo: true }))(core)).solo).toBe(false)
++  })
++})
++
++describe('0.8.6 R6: đoạn dặn điều phối', () => {
++  test('conductorContext không còn "Chỉ tự sửa file", nói không tự sửa file và không tự chạy lệnh kiểm, trong trần 480', () => {
++    const text = conductorContext()
++    expect(text).not.toContain('Chỉ tự sửa file')
++    expect(text).toContain('Không tự sửa file')
++    expect(text).toContain('không tự chạy lệnh kiểm')
++    expect(text).toContain('lệnh kiểm giao một subagent chạy')
++    expect(text.length).toBeLessThanOrEqual(CONDUCTOR_CHARS)
++  })
++
++  test('conductorKeepText nói không tự sửa file, không tự chạy kiểm, trong trần 200', () => {
++    const text = conductorKeepText()
++    expect(text).toContain('không tự sửa file')
++    expect(text).toContain('không tự chạy kiểm')
++    expect(text.length).toBeLessThanOrEqual(CONDUCTOR_KEEP_CHARS)
++  })
++})
+diff --git a/claude-mods/focus-conductor/types/index.d.ts b/claude-mods/focus-conductor/types/index.d.ts
+index ad9e07d..09ed393 100644
+--- a/claude-mods/focus-conductor/types/index.d.ts
++++ b/claude-mods/focus-conductor/types/index.d.ts
+@@ -257,7 +257,7 @@ export type Ledger = {
+  */
+ /** `approval` (0.8.5 K3): trạng thái duyệt kế hoạch của mục tiêu lúc bị cất; vắng ở trạng thái từ bản cũ là none. */
+ /** `turns` (0.8.5 K8): số turn thực thi đã kết thúc và turn gần nhất có bị ngắt không, lúc bị cất; vắng là 0 và false. */
+-export type ArchivedGoal = { brief: Brief; plan: PlanStep[]; approval?: ApprovalStatus; turns?: { done: number; interrupted: boolean } }
++export type ArchivedGoal = { brief: Brief; plan: PlanStep[]; approval?: ApprovalStatus; turns?: { done: number; interrupted: boolean }; conduct?: Omit<ConductState, 'goalId'> }
+ 
+ /** Trạng thái một việc router ghi giao subagent: chờ giao, đang chạy, xong, hoặc lỗi. */
+ export type DelegationState = 'pending' | 'running' | 'done' | 'failed'
+@@ -416,10 +416,31 @@ export type Core = {
+    * coi là 0 và false. Vắng ở trạng thái cũ: goalId -1, 0, false.
+    */
+   goalTurns: GoalTurns
++  /**
++   * Vai điều phối của luồng chính cho mục tiêu goalId (0.8.6): cờ miễn, số lần bị từ chối, số lần tự làm khi được miễn, số lần đọc. Mục tiêu
++   * khác thì coi là mặc định. Vắng ở trạng thái cũ: goalId -1, mọi cờ tắt, mọi số 0.
++   */
++  conduct: ConductState
+ }
+ 
+ export type GoalTurns = { goalId: number; done: number; interrupted: boolean }
+ 
++/**
++ * Trạng thái vai điều phối của một mục tiêu (0.8.6): `solo` do người gõ /conductor solo; `agentDenied` khi lời gọi Agent gần nhất của luồng
++ * chính bị từ chối hay lỗi mà không sinh subagent nào; `readNoted` là số lần đọc ở lần nhắc gần nhất.
++ */
++export type ConductState = {
++  goalId: number
++  solo: boolean
++  agentDenied: boolean
++  deniedWrites: number
++  deniedChecks: number
++  selfWrites: number
++  selfChecks: number
++  reads: number
++  readNoted: number
++}
++
+ /**
+  * File đã đổi của mục tiêu goalId (0.8.2 N5): `paths` là đường dẫn tương đối với thư mục gốc phiên (ngoài gốc thì giữ tuyệt đối), không trùng,
+  * tối đa 200; vượt trần thì chỉ tăng `overflow`. `unknown` đếm lệnh ghi không đọc được đích.
