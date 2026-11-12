@@ -65,7 +65,7 @@ function fixedRows(tree: El): number[] {
   })
 }
 
-const bandProps = (columns: number, maxRows: number) => ({ hasSurvey: false, isWorking: false, maxRows, bodyColumns: columns, scroll: { offset: 0, bodyRows: 6 }, view: {} })
+const bandProps = (columns: number, maxRows: number) => ({ hasSurvey: false, isCollapsed: false, isWorking: false, maxRows, bodyColumns: columns, scroll: { offset: 0, bodyRows: 6 }, view: {} })
 
 describe('0.6.1 3.1: status line giữ nhãn hạn mức', () => {
   for (const lang of ['vi', 'en'] as const) {

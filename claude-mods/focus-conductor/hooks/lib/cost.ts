@@ -3,8 +3,9 @@
 //
 // Giá Claude API theo bảng giá ngày PRICE_DATE (USD mỗi 1M token) [Nguồn: Anthropic, trang giá 2026-10-13]:
 //   Haiku 5.5 $0.10 vào / $0.50 ra (prompt tới 100K token; trên 100K là $0.50 / $2.50); Sonnet 5.5 $2 / $10;
-//   Opus 5.5 $4 / $20; Fable 5.1 $10 / $50.
-//   Đọc cache (cache hit): Sonnet $0.10 (giảm từ $0.20 ngày 2026-10-07), Opus $0.20, Fable $0.25, Haiku $0.01
+//   Opus 5.5 $4 / $20; Fable 5.1 $10 / $50 (họ fable của bảng này là giá Fable 5.1; Fable 5.2 là $8 / $40, đọc cache $0.20 [Nguồn: Anthropic,
+//   trang giá, đọc ngày 2026-11-11]; dùng Fable 5.2 thì đặt option prices là fable=8/40/0.2).
+//   Đọc cache (cache hit): Sonnet $0.10 (giảm từ $0.20 ngày 2026-10-07), Opus $0.20, Fable 5.1 $0.25, Haiku $0.01
 //   (prompt trên 100K token: $0.05).
 //   Ghi cache = 1,25 × giá vào (bậc 5 phút) hoặc 2 × giá vào (bậc 1 giờ): option cacheWrite chọn hệ số, cặp với cacheTtlMinutes.
 // Cửa sổ ngữ cảnh: cả bốn model 1M token [Nguồn: cùng trang giá]. Option prices và contextWindows ghi đè được.

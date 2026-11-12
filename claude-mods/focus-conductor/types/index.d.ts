@@ -255,7 +255,9 @@ export type Ledger = {
  * Mục tiêu cũ còn bước mở, lưu lại khi chuyển sang mục tiêu mới, để router xếp nhầm "mục tiêu mới"
  * không làm mất tiến độ: Claude khôi phục bằng plan action "restore".
  */
-export type ArchivedGoal = { brief: Brief; plan: PlanStep[] }
+/** `approval` (0.8.5 K3): trạng thái duyệt kế hoạch của mục tiêu lúc bị cất; vắng ở trạng thái từ bản cũ là none. */
+/** `turns` (0.8.5 K8): số turn thực thi đã kết thúc và turn gần nhất có bị ngắt không, lúc bị cất; vắng là 0 và false. */
+export type ArchivedGoal = { brief: Brief; plan: PlanStep[]; approval?: ApprovalStatus; turns?: { done: number; interrupted: boolean } }
 
 /** Trạng thái một việc router ghi giao subagent: chờ giao, đang chạy, xong, hoặc lỗi. */
 export type DelegationState = 'pending' | 'running' | 'done' | 'failed'
@@ -409,7 +411,14 @@ export type Core = {
   changedNoticed: number
   /** Fable điều phối (0.8.4): bộ đếm lỗi của router Fable, số prompt còn tạm ngừng, trạng thái sẵn sàng đã ghi và khóa conductor-hold. */
   fable: FableState
+  /**
+   * Turn của luồng chính cho mục tiêu goalId (0.8.5 K8): số turn thực thi đã kết thúc và turn gần nhất có bị ngắt không. Mục tiêu khác thì
+   * coi là 0 và false. Vắng ở trạng thái cũ: goalId -1, 0, false.
+   */
+  goalTurns: GoalTurns
 }
+
+export type GoalTurns = { goalId: number; done: number; interrupted: boolean }
 
 /**
  * File đã đổi của mục tiêu goalId (0.8.2 N5): `paths` là đường dẫn tương đối với thư mục gốc phiên (ngoài gốc thì giữ tuyệt đối), không trùng,
@@ -436,7 +445,8 @@ export type SkillState = { goalId: number; seq: number; lastWrite: number; trial
  * `holdKey`: mục tiêu và mức nâng đã ghi dòng conductor-hold. `briefedGoal` (0.8.4 V1): mục tiêu đã nhận đoạn dặn vai điều phối đầy
  * đủ, -1 là chưa có.
  */
-export type FableState = { failures: number; pauseLeft: number; ready: boolean | null; reason: string; holdKey: string; briefedGoal: number }
+/** `promptPaused` (0.8.5 K10): prompt hiện tại đến lúc router Fable còn tạm ngừng; router, luồng chính và turn của prompt đó coi Fable chưa sẵn sàng. */
+export type FableState = { failures: number; pauseLeft: number; ready: boolean | null; reason: string; holdKey: string; briefedGoal: number; promptPaused: boolean }
 
 export type ApprovalStatus = 'none' | 'planning' | 'presented' | 'approved' | 'skipped'
 export type ApprovalState = { goalId: number; status: ApprovalStatus; rounds: number; asked: boolean; awaitingAnswer: boolean }

@@ -2,7 +2,48 @@
 
 Số đo của HEAD hiện tại và của các bản trước. Mọi số do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển] trừ khi nêu khác; hợp đồng đối chiếu evidence ở [DESIGN.md](DESIGN.md), lịch sử thay đổi ở [CHANGELOG.md](../CHANGELOG.md), cách dùng ở [README](../README.md).
 
-## Kiểm chứng của 0.8.4 (Fable điều phối)
+## Kiểm chứng của 0.8.5 (mục tiêu đang dở, mục tiêu đã cất, vai điều phối)
+
+Nhánh tách từ `main` `87023af` (0.8.4, plugin.json 0.8.4, đã kiểm trước khi bắt đầu). Mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `085-*`; K11, K12 mỗi điểm một commit; không amend, không force-push, không merge [Đo trực tiếp]. Engine của mọi lượt đo dưới đây là 2.1.296, cài riêng ngoài repo; engine của phiên phát triển là 2.1.322.
+
+- **Khai báo kiểu không sinh được** [Đo trực tiếp, 11/11/2026]: module hooks không nạp khi chạy `claude -p --plugin-dir .` hay trong phiên pty trên cả 2.1.296 lẫn 2.1.322, nên `.claude-plugin/types/` không được ghi. Vì vậy K11 không chạy được `tsc` (xem dưới). K9 được kiểm thẳng trên gói engine thay cho khai báo kiểu.
+- **K9, không sửa mã** [Đo trực tiếp]: trong cả hai gói engine 2.1.296 và 2.1.322, trường `model` của tool Agent là enum alias `sonnet`, `opus`, `haiku`, `fable`; ID đầy đủ như `claude-fable-5-2` không hợp lệ. Agent loại Plan theo vai điều phối giữ alias `fable` như 0.8.4; ghi ở DESIGN.
+- **Test đỏ, đo trên `87023af`** [Đo trực tiếp]: K2 9/11 (`ac1f59f`), K3 3/4 (`4e7605f`), K8 3/5 (`8544718`), K1 5/6 (`ca7e937`), K5 3 ca đỏ trong `resume-a2-084` (`d05e88e`, gồm ca mục đã cất gần nhất chỉ còn bước waiting), D3 2/3 (`10fa05b`), K4 1/1 (`040dc4e`), K6 1/1 (`b431c91`), K7 1/3 (`478083c`), D1 1/5 (`6a1140e`), D2 1/4 (`faac81b`), K10 2/3 (`2640c08`), K13 `scripts/version-check.mjs` thoát mã 1 vì README thiếu 3 option (`8a544d7`). Ca xanh trên mã cũ là các ca giữ hành vi (đối chứng conductor mặc định, mục tiêu light, đã giao hết việc, file kế hoạch, bổ sung không đủ điều kiện D2). Commit `f4ee986` tách `resumeTarget`, không đổi hành vi: hai tệp A1, A2 giữ xanh.
+- **K10 nạp lại mod**: kit test không nạp lại module trong một test (`$.session.start` giữ biến module), nên ca K10 dựng context mới bằng `createContext(options)` trên Core đã lưu, theo tiền lệ của `approval-r-083`.
+- **K11, chưa chạy `tsc`** [Đo trực tiếp]: 25 tệp test giao diện cũ có thêm `isCollapsed: false` (27 chỗ, `9a2ab1d`), theo mẫu `conductor-c8-084.test.ts`. Không có khai báo kiểu của engine (xem trên) nên `tsc` không chạy được; 26 lỗi `isCollapsed` của 0.8.4 chưa được xác nhận là hết. Bộ test vẫn xanh sau thay đổi này.
+- **K12, không đổi bảng giá kèm mod** [Nguồn: Anthropic, trang giá platform.claude.com/docs/en/about-claude/pricing, đọc ngày 11/11/2026]: Fable 5.2 là 8 USD vào, 40 USD ra mỗi triệu token, đọc cache 0,20; Fable 5.1 là 10, 50, đọc cache 0,25; Haiku 5.5, Sonnet 5.5, Opus 5.5 khớp bảng kèm mod. `BASE_PRICE` và `PRICE_DATE` giữ nguyên vì bảng giá nằm trong lời dặn router (`catalogOf`, `hooks/lib/router.ts`): đổi giá làm đổi sha256 của lời dặn. Test mới (`8e486f9`): với `prices` là `fable=8/40/0.2`, `priceNote` ghi "ghi đè cho fable" và chi phí một lượt Fable tính theo 8 / 40.
+- **D1 sau quyết định 11/11/2026** (`92151c9`): mức `block` hiệu dụng khi điều phối chỉ áp ở chỗ từ chối; `isStrict` theo option như 0.8.4. Ca D1: hai lần Edit đầu bị từ chối, lần ba chạy kèm lời nhắc, lần bốn không kèm.
+- **Bộ test** trên `3113283`, chạy riêng, không song song với lượt đột biến [Đo trực tiếp]: `claude plugin test .` 3242 test trên 281 tệp, 0 lỗi, 299,96 giây. So tên ca đạt với `87023af` (3189 ca): thêm 53 ca, không ca nào mất hay đổi tên. Test cũ đổi kỳ vọng, giữ tên: ghi ở CHANGELOG.
+- **Kiểm tĩnh** trên `3113283` [Đo trực tiếp]: `claude plugin validate` đạt ở thư mục mod và ở gốc repo; `version-check` khớp 0.8.5 và bảng README có đủ 41 option; `mutate --check` khớp 2122/2122 mẫu; sha256 `hooks/` `2f01a14a31577bb7d9e25c3b0c20b19f27809df8dfdc5cf3970074d4fa1334af`, `tests/` `d0c0b19d337477cbeb3d2c15c7c370edc34966ffd971fe00d8aca39837cbe617`.
+- **Request router không đổi** [Đo trực tiếp]: ca ghim sha256 `546aea945e97d93529e56d04bc1357ad7c3d872f2a70eb0a98b5f19b1fc6ca43` của `splitRule(routerSystem(), 0)` xanh; `git diff 87023af -- tests/golden` rỗng; schema router và schema `plan` không đổi.
+- **Mẫu mới (31), chạy riêng từng mẫu trên tệp test của điểm** [Đo trực tiếp]: `085-K2a` 7 đỏ, `085-K2b` 2, `085-K2c` 4, `085-K2d` 2; `085-K3a` 3, `085-K3b` 3, `085-K3c` 4; `085-K8a` 2, `085-K8b` 2; `085-K1a` 2, `085-K1b` 2, `085-K1c` 1; `085-K5a` 1, `085-K5b` 1; `085-D3a`, `085-D3b`, `085-K4a`, `085-K6a`, `085-K7a`, `085-K7b`, `085-D1a`, `085-D1b`, `085-D1c`, `085-D2a`, `085-D2b` mỗi mẫu 1; `085-K10a` 3. `085-K5a` sống ở lần đầu, nên thêm ca mục đã cất gần nhất chỉ còn bước waiting. `085-D2b` ở bản đầu là mẫu tương đương, viết lại thành bỏ cả `needsApproval` lẫn điều kiện độ sâu. Mọi mẫu được xác nhận dòng `old` khớp đúng một chỗ.
+- **Đột biến cho vùng đã đổi** [Đo trực tiếp]: 146 mẫu có dòng `old` nằm trong vùng diff so với `87023af` (cộng trừ 20 dòng), gồm các mẫu mới và mẫu viết lại; `075-D1h` đã đánh dấu tương đương từ trước. Bộ chạy hai pha ngoài repo: pha 1 chạy 35 tệp test liên quan, mẫu còn sống chạy cả bộ test ở pha 2 bằng `scripts/mutate.ts --jobs 2`. Pha 1: 85 bị bắt. Pha 2: 59 mẫu, 58 bị bắt, 1 sống là `078-G9c`. Mẫu này sống cả trên `87023af` (1 mẫu, 0 đỏ trên cả bộ), tức lỗ hổng có từ trước: chưa ca nào cho tin chen ngang giữa turn khi đang chờ câu trả lời. Ca mới ở `3113283` (chỉ đổi `tests/`) bắt mẫu này, 1 đỏ. Bốn mẫu `075-B14c`, `075-D1h`, `075-S5G`, `078-G9n` không có kết quả trong sổ của lượt trước nên chạy lại trên cả bộ cùng `078-G9c`: `075-B14c` 8 đỏ, `075-S5G` 3, `078-G9n` 5, `078-G9c` 1; `075-D1h` 0 đỏ, harness báo EQUIVALENT như đã đánh dấu. Tổng của vùng: 145 bị bắt, 1 tương đương có lý do từ trước, 0 sống sót cuối. Lượt pha 1 đầu dừng ở 84/100 vì giới hạn thời gian chạy nền; 16 mẫu còn lại chạy ở lượt sau trên cùng mã. Một lỗi đọc mẫu của bộ chạy ngoài repo ghi nhầm `060-K9` là bị bắt; sửa bộ chạy rồi chạy lại: 8 đỏ.
+- **Hai số phiên dài** trên `92151c9`, cùng `hooks/` với `3113283` [Đo trực tiếp]: 10.339 và 19.587 với `conductor` mặc định, như 0.8.4. Với `conductor: 'fable'`: 10.696 và 19.943; số đầu hơn 0.8.4 1 ký tự, vì một lần từ chối của D1 đẩy cảnh báo phạm vi đầu tiên từ lô 1 sang lô 21. Mọi dòng context mới không quá 300 ký tự.
+- **CI** [Đo trực tiếp]: run 43003239532 xanh trên `3f23cbb`; run 43091422849 xanh trên `d2d97fb`.
+
+### Vòng 2 (rà soát PR 38): W1, W2
+
+- **Probe W1 trên `d2d97fb`** [Đo trực tiếp, test trong `resume-a2-084`, `planApproval: 'off'`]: A substantial, edit, còn 2 bước mở, bị B (new, edit, light, 0,97) thay; B lập 1 bước và đóng. Câu hỏi kiến thức theo dạng bản ghi `explain` thành mục tiêu C, vì không còn mục tiêu đang dở. Turn của C bắt đầu, có `turn.step`, kết thúc với `reason: 'answer'`, `isAborted: false`. Tin "tiếp tục" (router trả `continue`, `resume`, `light`): mục tiêu vẫn là C, checklist trống, không có dòng `restore`. Lý do: `resumeTarget` đòi `done >= 1` khi checklist trống, mà turn trả lời không phải turn thực thi.
+- **Test đỏ** [Đo trực tiếp]: W1 1/2 trên `d2d97fb` (`b75ad01`). Ca xanh trên mã cũ là ca turn của C bị ngắt, giữ hành vi. Sửa ở `3eb4ed8`. Ba ca D3 có sẵn giữ kết quả. W2 (`35914ab`) chỉ thêm test và mẫu, không đổi `hooks/`.
+- **Mẫu mới (9), chạy riêng từng mẫu trên tệp test của nó** [Đo trực tiếp]:
+  - W1: `085-W1a` 1 đỏ.
+  - W2: `085-W2a` 1, `085-W2b` 1, `085-W2c` 1, `085-W2d` 2, `085-W2e` 1, `085-W2f` 1, `085-W2g` 2, `085-W2h` 1.
+  - Mẫu cũ viết lại cùng mã: `085-D3a`, vì dòng `old` mất chỗ khớp; 1 đỏ.
+
+  Không mẫu nào phải ghi là tương đương. Mọi mẫu được xác nhận dòng `old` khớp đúng một chỗ.
+- **Ghi chú test W2** [Đo trực tiếp]:
+  - W2c, W2d: số turn đã cất không đổi hành vi hook nào. Nó chỉ có tác dụng khi checklist trống, mà mục tiêu lớn chưa có checklist chỉ được cất khi chưa có turn thực thi. Vì vậy hai mẫu này được ghim bằng ca đơn vị trên `adoptGoal`, `restoreArchived` và `turnsOf`.
+  - W2b: bản đầu của ca không bắt được mẫu. Tin của B có chung chữ với mục tiêu A đang chờ câu trả lời, nên bị giữ thành câu trả lời (`answer-held`) và A không bị cất. Đổi chữ của tin B và thêm kiểm mục tiêu đã đổi thì ca bắt được mẫu.
+- **Bộ test** trên `35914ab`, chạy riêng, không song song với lượt đột biến [Đo trực tiếp]: 3253 test trên 281 tệp, 0 lỗi, 258,83 giây. So tên ca đạt với `d2d97fb` (3242 ca): thêm 11 ca, không ca nào mất hay đổi tên, không test cũ nào đổi kỳ vọng.
+- **Kiểm tĩnh** trên `35914ab` [Đo trực tiếp]:
+  - `claude plugin validate` đạt ở thư mục mod và ở gốc repo.
+  - `version-check` khớp 0.8.5, README đủ 41 option.
+  - `mutate --check` khớp 2131/2131.
+  - sha256 `hooks/` `43432338260cf46a850df6de4270929439a9385d43a3c9f1cbc3ec8d99796c6b`, `tests/` `b98536586e809a4b5a68025144e198bdce6662829e4feb057c7d8393fa95a4eb`.
+- **Request router không đổi** [Đo trực tiếp]: ca ghim sha256 `546aea94…` xanh; `git diff d2d97fb -- tests/golden` rỗng.
+- **Chạy lại vùng diff của vòng 2** [Đo trực tiếp]: vùng diff so với `d2d97fb` chỉ ở `hooks/lib/state.ts`, dòng 582 tới 592. Có 12 mẫu có dòng `old` trong khoảng cộng trừ 20 dòng của vùng đó, gồm `085-W1a`, `085-W2a` và `085-D3a` đã viết lại. Bộ chạy hai pha, engine 2.1.296. Kết quả: 12 bị bắt, 11 ở pha 1 và `070-D1` ở pha 2 với 1 đỏ; 0 sống, 0 lỗi. Không chạy lại 146 mẫu của vòng 1.
+- **Hai số phiên dài** trên `35914ab` [Đo trực tiếp]: 10.339 và 19.587 với `conductor` mặc định; 10.696 và 19.943 với `conductor: 'fable'`, không đổi so với `d2d97fb`.
+- **CI** [Đo trực tiếp]: run của commit cuối ghi ở mô tả PR.
 
 Nhánh tách từ `main` `4a6c04c` (0.8.3). Thứ tự S1, S2, C1 tới C8; mỗi điểm một commit test đỏ rồi một commit sửa, riêng S1, S2 chỉ thêm test; không amend, không force-push, không merge [Đo trực tiếp].
 

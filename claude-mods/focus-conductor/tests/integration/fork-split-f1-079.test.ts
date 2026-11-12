@@ -25,7 +25,7 @@ const D = { a: 'Việc 3a: đổi tên ở module thanh toán', b: 'Việc 3b: �
 const PROMPT = 'Đổi tên hàm tính phí trong ba module thanh toán, kho và báo cáo'
 /** Chuỗi lỗi giả của engine khi không mở được phiên con: mod không dựa vào chữ này, chỉ dựa vào việc không có agent.spawn. */
 const REFUSAL = 'Loại agent fork không dùng được trong phiên này'
-const BAND = { plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: true, maxRows: 6, bodyColumns: 160, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as const
+const BAND = { plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: true, maxRows: 6, bodyColumns: 160, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as const
 
 const OPEN: Policy = { allowFable: false, blocked: new Set(), session: null }
 const withForks = (n: number) => ({ ...OPEN, forks: n }) as Policy

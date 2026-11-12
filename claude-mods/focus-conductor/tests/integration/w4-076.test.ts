@@ -13,7 +13,7 @@ import { makeBrief } from '../support/commands'
 
 const PLAN = 'mcp__focus-conductor__plan'
 const GOAL = 'Cập nhật sổ giá theo các bước'
-const BAND = { plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: true, maxRows: 6, bodyColumns: 160, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as const
+const BAND = { plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: true, maxRows: 6, bodyColumns: 160, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as const
 
 type Node = { type?: string; props?: Record<string, unknown>; children?: unknown[] }
 const textOf = (n: unknown): string => (typeof n === 'string' ? n : ((n as Node).children ?? []).map(textOf).join(''))

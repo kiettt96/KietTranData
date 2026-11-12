@@ -14,7 +14,7 @@ import { askRouter, bareBrief, briefOf, failFields, nextBrief, parseRoute, rerou
 import { shownPlan } from '../lib/mirror'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
-import { RETRY_ROUNDS, WAIVE_REPORT, briefContext, checkHintLines, droppedItemsText, droppedPlanNotice, quotaStatusLines, renderPlan, resetLabel, routerFailLines, unroutedContext } from '../lib/text'
+import { RETRY_ROUNDS, WAIVE_REPORT, briefContext, checkHintLines, droppedGoalNotice, droppedItemsText, droppedPlanNotice, quotaStatusLines, renderPlan, resetLabel, routerFailLines, unroutedContext } from '../lib/text'
 import { PANE_ROWS, shouldAutoOpenPane } from '../lib/pane'
 import { PANE, PANE_TITLE } from '../ui/pane'
 import { conductorLine, labels, langOf } from '../ui/labels'
@@ -248,7 +248,8 @@ export function registerCommand(on: On, ctx: Ctx): void {
       await update($, coreState, S.withDelegations(brief.goalId, delegationItems(brief)))
       await autoOpenPane($, ctx, brief.goalId, now, null)
       const dropped = restorableSteps(before.plan)
-      const notice = dropped.length > 0 ? [droppedPlanNotice(dropped)] : []
+      // Mục tiêu đang dở chưa có checklist (0.8.5 K2) cũng được lưu qua adoptGoal: một dòng báo riêng.
+      const notice = dropped.length > 0 ? [droppedPlanNotice(dropped)] : prev !== null && S.pendingOf(before) ? [droppedGoalNotice(prev.goal)] : []
       return {
         text:
           plan !== null

@@ -8,7 +8,7 @@ import { COMPLEX_PROMPT, FOUR, PANE, base, submit } from '../support/engine'
 
 const FANOUT = 'subagent; mỗi agent có chi phí riêng'
 const agent = ($: Engine, description: string, over: Record<string, unknown> = {}) => $.tool.call({ tool: 'Agent', description, prompt: `${description} trong codebase`, ...over } as never)
-const BAND = (maxRows = 3) => ({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows, bodyColumns: 120, scroll: { offset: 0, bodyRows: maxRows }, view: {} } }) as const
+const BAND = (maxRows = 3) => ({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows, bodyColumns: 120, scroll: { offset: 0, bodyRows: maxRows }, view: {} } }) as const
 
 describe('0.7.5 C3: chỉ đếm lời gọi thật sự chạy ở luồng chính', () => {
   test('8 lời gọi bị từ chối: không cảnh báo', { options: { planApproval: 'off' } }, async ($, on) => {

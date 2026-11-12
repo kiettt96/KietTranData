@@ -205,7 +205,7 @@ describe('0.5.0: phần còn lại của đánh giá', () => {
       plugin: 'focus-conductor',
       surface: 'terminal',
       component: 'AbovePrompt',
-      props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 120, scroll: { offset: 0, bodyRows: 6 }, view: {} },
+      props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 6, bodyColumns: 120, scroll: { offset: 0, bodyRows: 6 }, view: {} },
     })
     expect(await band.find({ type: 'Text', text: /Refactor module thanh toán/ })).toBeDefined()
     expect((await band.find({ key: 'details' }))?.text).toBe('Details')

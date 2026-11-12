@@ -165,7 +165,7 @@ describe('0.6.1 2.4: mục Tiến độ từng việc trong pane', () => {
 
 describe('0.6.1 2.4: band với nhiều việc', () => {
   const bandAt = async ($: Engine, maxRows: number) => {
-    const band = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows, bodyColumns: 120, scroll: { offset: 0, bodyRows: maxRows }, view: {} } })
+    const band = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows, bodyColumns: 120, scroll: { offset: 0, bodyRows: maxRows }, view: {} } })
     const tree = (await band.drawn()) as unknown as { children: Array<{ children?: unknown[] }> }
     const rows = (tree.children[1]?.children ?? []).length
     const texts = (await band.findAll({ type: 'Text' })).map(e => e.text)

@@ -92,7 +92,7 @@ describe('0.7.7 X6: tích hợp', () => {
     for (const f of ['a', 'b', 'c']) await $.tool.call({ tool: 'Read', file_path: `docs/${f}.md` } as never)
     await $.turn.complete({ turnId: 't1', answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer' } as never)
     expect(seen.toasts.some(t => t.includes('thay đổi'))).toBe(false)
-    const band = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 3, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} } })
+    const band = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 3, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} } })
     expect(await band.find({ type: 'Text', text: /thay đổi tài liệu/ })).toBeUndefined()
     await band.unmount()
     const pane = await $.ui.mount(PANE)

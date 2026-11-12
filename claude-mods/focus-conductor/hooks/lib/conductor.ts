@@ -2,7 +2,7 @@
 // parts/agents.ts và giao diện gọi các hàm này, không viết lại điều kiện ở chỗ khác.
 
 import type { PluginOptions } from 'claude-code'
-import type { Brief, ModelFamily } from '../../types'
+import type { ApprovalStatus, Brief, ModelFamily } from '../../types'
 import type { SessionPolicy } from './route'
 import { familyOf, resolveModelId } from './route'
 
@@ -56,6 +56,20 @@ export function isFableReady(input: FableInputs): boolean {
 export function isBigGoal(brief: Pick<Brief, 'depth' | 'kind' | 'isReference' | 'isBare' | 'isBig'> | null): boolean {
   if (brief === null || brief.isReference || brief.isBare === true) return false
   return brief.isBig === true || ((brief.depth === 'substantial' || brief.depth === 'hard') && brief.kind !== 'answer')
+}
+
+/** Trạng thái của một mục tiêu cần cho định nghĩa "mục tiêu đang dở" (0.8.5): số bước mở, số bước, trạng thái duyệt, số turn thực thi đã kết thúc. */
+export type PendingState = { open: number; total: number; approval: ApprovalStatus; turnsDone?: number }
+
+/**
+ * Mục tiêu đang dở (0.8.4 A1, 0.8.5 K2, K8): có brief, không phải đối chiếu, và checklist còn bước mở, hay cổng duyệt đang planning hay
+ * presented, hay mục tiêu lớn chưa lập checklist mà chưa có turn thực thi nào của luồng chính cho nó kết thúc. Dùng chung cho tin ngoài
+ * lề, cất mục tiêu, giữ mục tiêu khi router xếp new tin cậy thấp và quay lại mục tiêu đã cất.
+ */
+export function isPendingGoal(brief: Brief | null, state: PendingState): boolean {
+  if (brief === null || brief.isReference) return false
+  if (state.open > 0 || state.approval === 'planning' || state.approval === 'presented') return true
+  return isBigGoal(brief) && state.total === 0 && (state.turnsDone ?? 0) === 0
 }
 
 /** Đầu vào của "điều phối khả dụng": như Fable sẵn sàng, cộng chính sách model của phiên và họ model phiên (null khi chưa biết). */

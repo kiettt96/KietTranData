@@ -8,6 +8,7 @@ import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import type { PlanStep } from '../../types'
 import { conductorContext, restoreResumeContext } from '../../hooks/lib/text'
+import { planningContext } from '../../hooks/lib/approval'
 import { base, conductor, plan, step, submit } from '../support/engine'
 import type { Json, Seen } from '../support/engine'
 
@@ -153,13 +154,14 @@ describe('0.8.4 A2: tiếp tục quay lại mục tiêu đã cất', () => {
     expect(await show($)).toContain('Mục tiêu: Sửa chú thích')
   })
 
+  // 0.8.5 K5: tên giữ như 0.8.4; kỳ vọng đổi thành khôi phục mục tiêu đã cất gần nhất còn dở (mục tiêu ở giữa không dở nên không được cất).
   test('mục tiêu đã cất gần nhất không phải mục tiêu bị mục tiêu hiện tại thay: không khôi phục', { options: OPTIONS[0][1] }, async ($, on) => {
     const { seen } = setup(on, [BIG(), NEW('Viết hàm slugify'), NEW('Sửa chú thích'), RESUME])
     await goalA($, seen)
     await submit($, 'Viết hàm slugify(text)')
     await goalB($, true)
     await submit($, 'tiếp tục')
-    expect(await show($)).toContain('Mục tiêu: Sửa chú thích')
+    expect(await show($)).toContain(`Mục tiêu: ${A}`)
   })
 
   test('tin hỏi tiến độ trong cùng tình huống: không khôi phục', { options: OPTIONS[0][1] }, async ($, on) => {
@@ -300,5 +302,260 @@ describe('0.8.4 Z2: các hành vi của nhánh A2', () => {
     expect((lastContext(seen)[0] ?? '')).toContain('ĐIỂM DỪNG')
     expect(await show($)).toContain('Mục tiêu: Sửa chú thích')
     expect(lines().some(l => l['kind'] === 'restore' && l['cause'] === 'resume')).toBe(false)
+  })
+})
+
+// 0.8.5 K5: tin bảo chạy tiếp lùi được nhiều tầng (mục tiêu đã cất gần nhất còn dở, duyệt từ mới tới cũ), và báo không còn việc khi checklist
+// hiện tại đã đóng hết mà không còn mục tiêu đã cất nào đang dở.
+const NOTHING_LEFT = 'không còn việc nào đã cất'
+describe('0.8.5 K5: tiếp tục lùi nhiều tầng và báo khi không còn gì', () => {
+  /** A còn bước mở bị B thay; B còn bước mở bị C thay; C đóng hết. */
+  async function threeLevels($: Engine, seen: Seen) {
+    await goalA($, seen)
+    await submit($, 'Sửa chú thích README')
+    await setPlan($, ['Sửa chú thích', 'Thêm ví dụ'])
+    await mark($, 1, 'doing')
+    await submit($, 'Đổi tên biến cấu hình')
+    await setPlan($, ['Đổi tên biến'])
+    await mark($, 1, 'done')
+  }
+
+  test('C xong, tiếp tục quay lại B; B xong, tiếp tục lần hai quay lại A với đúng 2 bước mở', { options: OPTIONS[0][1] }, async ($, on) => {
+    const { seen } = setup(on, [BIG(), NEW('Sửa chú thích'), NEW('Đổi tên biến'), RESUME])
+    await threeLevels($, seen)
+    await submit($, 'tiếp tục')
+    expect(await show($)).toContain('Mục tiêu: Sửa chú thích')
+    await mark($, 1, 'done')
+    await mark($, 2, 'done')
+    await submit($, 'tiếp tục')
+    const shown = await show($)
+    expect(shown).toContain(`Mục tiêu: ${A}`)
+    expect(shown).toContain('[~] 2. Thêm test')
+    expect(shown).toContain('[ ] 3. Cập nhật tài liệu')
+  })
+
+  test('A cũng xong, tiếp tục lần ba: dòng báo không còn việc, không có chạy tiếp từ bước đang mở, không có dòng restore mới', { options: OPTIONS[0][1] }, async ($, on) => {
+    const { seen, lines } = setup(on, [BIG(), NEW('Sửa chú thích'), NEW('Đổi tên biến'), RESUME])
+    await threeLevels($, seen)
+    await submit($, 'tiếp tục')
+    await mark($, 1, 'done')
+    await mark($, 2, 'done')
+    await submit($, 'tiếp tục')
+    expect(await show($)).toContain(`Mục tiêu: ${A}`)
+    await mark($, 2, 'done')
+    await mark($, 3, 'done')
+    const restores = lines().filter(l => l['kind'] === 'restore').length
+    await submit($, 'tiếp tục')
+    expect(lastContext(seen).filter(c => c.includes(NOTHING_LEFT)).length).toBe(1)
+    expect(lastContext(seen).some(c => c.includes('chạy tiếp từ bước đang mở'))).toBe(false)
+    expect(lines().filter(l => l['kind'] === 'restore').length).toBe(restores)
+  })
+
+  test('mục tiêu đã cất gần nhất chỉ còn bước waiting: bỏ qua, quay lại mục đã cất cũ hơn còn bước mở', { options: OPTIONS[0][1] }, async ($, on) => {
+    const { seen } = setup(on, [BIG(), NEW('Chờ CI'), NEW('Đổi tên biến'), RESUME])
+    await goalA($, seen)
+    await submit($, 'Chờ CI chạy xong')
+    await setPlan($, ['Chờ CI'])
+    await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'waiting', note: 'chờ CI chạy xong' } as never)
+    await submit($, 'Đổi tên biến cấu hình')
+    await setPlan($, ['Đổi tên biến'])
+    await mark($, 1, 'done')
+    await submit($, 'tiếp tục')
+    expect(await show($)).toContain(`Mục tiêu: ${A}`)
+  })
+
+  test('checklist trống (việc nhỏ không lập checklist), không có mục tiêu đã cất: giữ dòng chạy tiếp, không có dòng báo không còn việc', { options: OPTIONS[0][1] }, async ($, on) => {
+    const { seen } = setup(on, [plan({ goal: 'Sửa phí', depth: 'light', volume: 'small', kind: 'edit' }), RESUME])
+    await submit($, 'Sửa phí')
+    await submit($, 'tiếp tục')
+    expect(lastContext(seen).some(c => c.includes('chạy tiếp từ bước đang mở'))).toBe(true)
+    expect(lastContext(seen).some(c => c.includes(NOTHING_LEFT))).toBe(false)
+  })
+})
+
+// 0.8.5 D3: việc chen vào không có checklist chưa chắc đã xong: tin bảo chạy tiếp chỉ quay lại mục tiêu đã cất khi mục tiêu hiện tại đã có
+// ít nhất một turn thực thi kết thúc và turn luồng chính gần nhất không bị ngắt.
+describe('0.8.5 D3: việc chen vào không có checklist', () => {
+  /** B (light, edit) thay A; B không lập checklist; một turn sửa file của B, kết thúc bình thường hay bị ngắt. */
+  async function bTurn($: Engine, seen: Seen, ending: 'answer' | 'aborted') {
+    await $.turn.start({ text: 'sửa', turnId: 't2' })
+    await step($, seen, { turnId: 't2' })
+    await edit($)
+    await $.turn.complete({ turnId: 't2', answer: ending === 'answer' ? 'ok' : '', durationMs: 5, isAborted: ending === 'aborted', reason: ending } as never)
+  }
+
+  test('B chưa có turn nào kết thúc, tiếp tục: không khôi phục, chạy tiếp B', { options: OPTIONS[0][1] }, async ($, on) => {
+    const { seen } = setup(on, [BIG(), NEW('Sửa chú thích'), RESUME])
+    await goalA($, seen)
+    await submit($, 'Sửa chú thích README')
+    await submit($, 'tiếp tục')
+    expect(await show($)).toContain('Mục tiêu: Sửa chú thích')
+    expect(lastContext(seen).some(c => c.includes('chạy tiếp từ bước đang mở'))).toBe(true)
+  })
+
+  test('B có một turn thực thi kết thúc bình thường, tiếp tục: khôi phục A', { options: OPTIONS[0][1] }, async ($, on) => {
+    const { seen } = setup(on, [BIG(), NEW('Sửa chú thích'), RESUME])
+    await goalA($, seen)
+    await submit($, 'Sửa chú thích README')
+    await bTurn($, seen, 'answer')
+    await submit($, 'tiếp tục')
+    expect(await show($)).toContain(`Mục tiêu: ${A}`)
+  })
+
+  test('B có turn gần nhất bị ngắt, tiếp tục: không khôi phục', { options: OPTIONS[0][1] }, async ($, on) => {
+    const { seen } = setup(on, [BIG(), NEW('Sửa chú thích'), RESUME])
+    await goalA($, seen)
+    await submit($, 'Sửa chú thích README')
+    await bTurn($, seen, 'answer')
+    await bTurn($, seen, 'aborted')
+    await submit($, 'tiếp tục')
+    expect(await show($)).toContain('Mục tiêu: Sửa chú thích')
+  })
+})
+
+// 0.8.5 K4: tin bảo chạy tiếp chen ngang giữa turn khôi phục mục tiêu lớn: turn đang chạy giữ model của nó, nên không chèn đoạn dặn điều
+// phối và không ghi briefedGoal; prompt kế tiếp ngoài turn chèn đoạn dặn theo cơ chế hiện có.
+describe('0.8.5 K4: khôi phục giữa turn không chèn đoạn dặn điều phối', () => {
+  test('tin tiếp tục chen ngang khôi phục A: không có đoạn dặn; prompt tiếp tục kế tiếp ngoài turn có đúng một đoạn dặn; turn mới chạy fable/medium', { options: FABLE_OPTS }, async ($, on) => {
+    const { seen } = setup(on, [BIG(), NEW('Sửa chú thích'), RESUME])
+    await goalA($, seen)
+    await goalB($, true)
+    await $.turn.start({ text: 'sửa', turnId: 't2' })
+    expect(pick(await step($, seen, { turnId: 't2' }))).toBe('claude-sonnet-5-5/low')
+    await $.prompt.submit({ text: 'tiếp tục', wait: false, turnId: 't2', origin: { kind: 'composer' } } as never)
+    expect(await show($)).toContain(`Mục tiêu: ${A}`)
+    expect(lastContext(seen).filter(c => c === conductorContext()).length).toBe(0)
+    await $.turn.complete({ turnId: 't2', answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer' } as never)
+    await submit($, 'tiếp tục')
+    expect(lastContext(seen).filter(c => c === conductorContext()).length).toBe(1)
+    await $.turn.start({ text: 'làm', turnId: 't3' })
+    expect(pick(await step($, seen, { turnId: 't3' }))).toBe('claude-fable-5-2/medium')
+  })
+})
+
+// 0.8.5 K6: sau khi tin bảo chạy tiếp khôi phục A, /conductor reroute đọc lại prompt đó trên brief vừa khôi phục, nên mục tiêu vẫn là A và
+// checklist của A giữ nguyên.
+describe('0.8.5 K6: reroute sau khi khôi phục', () => {
+  test('tiếp tục khôi phục A rồi /conductor reroute (router continue, resume): mục tiêu vẫn là A, checklist của A giữ đủ 3 bước', { options: OPTIONS[0][1] }, async ($, on) => {
+    const { seen } = setup(on, [BIG(), NEW('Sửa chú thích'), RESUME])
+    await goalA($, seen)
+    await goalB($, true)
+    await submit($, 'tiếp tục')
+    expect(await show($)).toContain(`Mục tiêu: ${A}`)
+    await conductor($, 'reroute')
+    const shown = await show($)
+    expect(shown).toContain(`Mục tiêu: ${A}`)
+    expect(shown).toContain('[x] 1. Sửa hàm phí')
+    expect(shown).toContain('[~] 2. Thêm test')
+    expect(shown).toContain('[ ] 3. Cập nhật tài liệu')
+  })
+})
+
+// 0.8.5 K7: "tiếp tục" trong routerSkip quay lại mục tiêu đã cất theo cùng luật với nhánh có router (K5, D3), không gọi router. Tin chạy
+// tiếp một điểm dừng đang mở giữ ưu tiên.
+describe('0.8.5 K7: tiếp tục trong routerSkip quay lại mục tiêu đã cất', () => {
+  const SKIP = { planApproval: 'off', decisionLog: LOG, routerSkip: 'tiếp tục' } as const
+  test('A còn bước mở bị B thay, B đóng hết, tiếp tục đi nhánh skip: mục tiêu là A, có dòng restore, router không được gọi thêm', { options: SKIP }, async ($, on) => {
+    const { seen, lines } = setup(on, [BIG(), NEW('Sửa chú thích')])
+    await goalA($, seen)
+    await goalB($, true)
+    const calls = seen.routerCalls.filter(c => c.kind === 'prompt').length
+    const before = routerLedger(await statusText($))
+    await submit($, 'tiếp tục')
+    expect(await show($)).toContain(`Mục tiêu: ${A}`)
+    expect(lines().some(l => l['kind'] === 'restore' && l['cause'] === 'resume')).toBe(true)
+    expect(lastContext(seen).filter(c => c === restoreResumeContext(A, STEP2)).length).toBe(1)
+    expect(seen.routerCalls.filter(c => c.kind === 'prompt').length).toBe(calls)
+    expect(routerLedger(await statusText($)).calls).toBe(before.calls)
+  })
+
+  test('B còn bước mở: nhánh skip như cũ, chạy tiếp B', { options: SKIP }, async ($, on) => {
+    const { seen, lines } = setup(on, [BIG(), NEW('Sửa chú thích')])
+    await goalA($, seen)
+    await goalB($, false)
+    await submit($, 'tiếp tục')
+    expect(await show($)).toContain('Mục tiêu: Sửa chú thích')
+    expect(lines().some(l => l['kind'] === 'restore')).toBe(false)
+  })
+
+  test('điểm dừng đang mở và vừa gõ /conductor resume: tiếp tục đi nhánh skip chạy tiếp điểm dừng, không khôi phục mục tiêu đã cất', { options: SKIP }, async ($, on) => {
+    const { seen, lines } = setup(on, [BIG(), NEW('Sửa chú thích')])
+    await goalA($, seen)
+    await goalB($, true)
+    await conductor($, 'pause')
+    expect(String((await $.tool.call({ tool: PLAN, action: 'checkpoint', note: 'Tiếp: rà lại chú thích.' } as never)).result ?? '')).toContain('Đã ghi điểm dừng')
+    await conductor($, 'resume')
+    await submit($, 'tiếp tục')
+    expect(lastContext(seen)[0] ?? '').toContain('ĐIỂM DỪNG')
+    expect(await show($)).toContain('Mục tiêu: Sửa chú thích')
+    expect(lines().some(l => l['kind'] === 'restore')).toBe(false)
+  })
+})
+
+// 0.8.5 W1 (vòng 2 PR 38): việc chen vào đã xong, một câu hỏi kiến thức thành mục tiêu hỏi đáp C (không có mục tiêu đang dở nên không phải
+// tin ngoài lề); turn trả lời của C không phải turn thực thi. Mục tiêu hỏi đáp không đòi turn thực thi trước khi quay lại; turn gần nhất
+// bị ngắt thì vẫn không quay lại.
+describe('0.8.5 W1: tiếp tục sau một câu hỏi kiến thức', () => {
+  /** Dạng bản ghi explain của tests/golden/replies.ts: new, task, answer, none, không việc. */
+  const EXPLAIN = plan({ why: 'Câu hỏi giải thích khái niệm, không cần sửa file.', confidence: 0.97, relation: 'new', intent: 'task', goal: 'Giải thích git rebase', requirements: ['Giải thích git rebase'], depth: 'none', volume: 'small', kind: 'answer', main: { model: 'haiku', effort: 'low', why: '' }, tasks: [] })
+  /** A còn 2 bước mở bị B thay, B đóng hết; câu hỏi thành C; một turn trả lời của C kết thúc bình thường hay bị ngắt. */
+  async function aBThenQuestion($: Engine, seen: Seen, isAborted: boolean) {
+    await goalA($, seen)
+    await goalB($, true)
+    await submit($, 'git rebase là gì?')
+    expect(await show($)).toContain('Mục tiêu: Giải thích git rebase')
+    await $.turn.start({ text: 'trả lời', turnId: 't3' })
+    await step($, seen, { turnId: 't3' })
+    await $.turn.complete({ turnId: 't3', answer: isAborted ? '' : 'rebase là...', durationMs: 5, isAborted, reason: isAborted ? 'aborted' : 'answer' } as never)
+  }
+
+  test('turn trả lời của C kết thúc bình thường, tiếp tục: quay lại A còn đúng 2 bước mở, nhật ký restore, context báo quay lại', { options: OPTIONS[0][1] }, async ($, on) => {
+    const { seen, lines } = setup(on, [BIG(), NEW('Sửa chú thích'), EXPLAIN, RESUME])
+    await aBThenQuestion($, seen, false)
+    await submit($, 'tiếp tục')
+    const shown = await show($)
+    expect(shown).toContain(`Mục tiêu: ${A}`)
+    expect(shown).toContain('[~] 2. Thêm test')
+    expect(shown).toContain('[ ] 3. Cập nhật tài liệu')
+    expect(lines().some(l => l['kind'] === 'restore' && l['cause'] === 'resume')).toBe(true)
+    expect(lastContext(seen).filter(c => c === restoreResumeContext(A, STEP2)).length).toBe(1)
+  })
+
+  test('turn trả lời của C bị ngắt, tiếp tục: không khôi phục, mục tiêu vẫn là C', { options: OPTIONS[0][1] }, async ($, on) => {
+    const { seen, lines } = setup(on, [BIG(), NEW('Sửa chú thích'), EXPLAIN, RESUME])
+    await aBThenQuestion($, seen, true)
+    await submit($, 'tiếp tục')
+    expect(await show($)).toContain('Mục tiêu: Giải thích git rebase')
+    expect(lines().some(l => l['kind'] === 'restore')).toBe(false)
+  })
+})
+
+// 0.8.5 W2 (vòng 2 PR 38): nhánh routerSkip khôi phục theo cùng luật với nhánh có router: tin chen ngang không chèn đoạn dặn điều phối và
+// không ghi briefedGoal (K4); mục tiêu khôi phục đang lập kế hoạch thì kèm đoạn dặn planning (K2).
+describe('0.8.5 W2: nhánh routerSkip khôi phục', () => {
+  test('conductor fable: tin tiếp tục chen ngang đi nhánh skip khôi phục A: không có đoạn dặn; prompt kế tiếp ngoài turn có đúng một đoạn dặn', { options: { ...FABLE_OPTS, routerSkip: 'tiếp tục' } }, async ($, on) => {
+    const { seen, lines } = setup(on, [BIG(), NEW('Sửa chú thích'), RESUME])
+    await goalA($, seen)
+    await goalB($, true)
+    await $.turn.start({ text: 'sửa', turnId: 't2' })
+    await step($, seen, { turnId: 't2' })
+    await $.prompt.submit({ text: 'tiếp tục', wait: false, turnId: 't2', origin: { kind: 'composer' } } as never)
+    expect(await show($)).toContain(`Mục tiêu: ${A}`)
+    expect(lines().some(l => l['kind'] === 'restore' && l['cause'] === 'resume')).toBe(true)
+    expect(lastContext(seen).filter(c => c === conductorContext()).length).toBe(0)
+    await $.turn.complete({ turnId: 't2', answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer' } as never)
+    await submit($, 'làm bước 2 đi')
+    expect(lastContext(seen).filter(c => c === conductorContext()).length).toBe(1)
+  })
+
+  test('A planning chưa có checklist bị B thay, B đóng hết, tiếp tục đi nhánh skip: quay lại A, context có đoạn dặn planning', { options: { decisionLog: LOG, routerSkip: 'tiếp tục' } }, async ($, on) => {
+    const { seen } = setup(on, [BIG(), NEW('Sửa chú thích')])
+    await submit($, A)
+    expect(lastContext(seen).filter(c => c === planningContext()).length).toBe(1)
+    await goalB($, true)
+    expect(await show($)).toContain('Mục tiêu: Sửa chú thích')
+    await submit($, 'tiếp tục')
+    expect(await show($)).toContain(`Mục tiêu: ${A}`)
+    expect(lastContext(seen).filter(c => c === planningContext()).length).toBe(1)
   })
 })

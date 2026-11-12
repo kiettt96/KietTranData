@@ -15,7 +15,7 @@ import type { RouterOutcome, RouterPlan } from '../lib/router'
 import { EMPTY_QUOTA, blockingHits, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaSettings, reasonsOf, softNotices } from '../lib/quota'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
-import { DISCIPLINE, asideContext, conductorContext, conductorKeepText, phaseNotice, briefContext, droppedItemsText, droppedPlanNotice, followUpContext, intentResumeContext, intentStatusContext, interjectContext, interjectMovedNote, quotaPausedContext, resetLabel, resumeCommand, restorableLabel, restoreResumeContext, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
+import { DISCIPLINE, asideContext, conductorContext, conductorKeepText, phaseNotice, briefContext, droppedGoalNotice, droppedItemsText, droppedPlanNotice, followUpContext, intentResumeContext, intentStatusContext, interjectContext, interjectMovedNote, quotaPausedContext, resetLabel, resumeCommand, nothingLeftContext, restorableLabel, restoreGoalOnlyContext, restoreResumeContext, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -259,13 +259,15 @@ export function registerSession(on: On, ctx: Ctx): void {
     }
     const pending = openCp !== null ? [resumePendingContext(openCp, L.noAutoResume && !isArmed)] : []
 
-    const before = S.normalizeCore(await read($, coreState))
-    // Một prompt đi qua trong lúc router Fable tạm ngừng (0.8.4 C6); lượt này vẫn đọc theo trạng thái lúc prompt đến (before). Đặt cờ
-    // trước noteConductor để nhật ký không đọc cờ của prompt trước (0.8.4 W4).
-    L.fablePromptPaused = before.fable.pauseLeft > 0
+    const arrived = S.normalizeCore(await read($, coreState))
+    // Một prompt đi qua trong lúc router Fable tạm ngừng (0.8.4 C6); lượt này vẫn đọc theo trạng thái lúc prompt đến. Cờ của prompt nằm trong
+    // Core.fable.promptPaused (0.8.5 K10), ghi cùng lượt giảm số prompt còn tạm ngừng; mọi quyết định điều phối phía sau của prompt này đọc
+    // cùng một bản `before` đã mang cờ, kể cả noteConductor (0.8.4 W4: nhật ký không đọc cờ của prompt trước).
+    const isPromptPaused = arrived.fable.pauseLeft > 0
+    await update($, coreState, S.withFable(f => ({ promptPaused: f.pauseLeft > 0, pauseLeft: Math.max(0, f.pauseLeft - 1) })))
+    const before: Core = { ...arrived, fable: { ...arrived.fable, promptPaused: isPromptPaused } }
     // Fable điều phối (0.8.4 C1): ghi một dòng nhật ký mỗi khi trạng thái điều phối đổi (bật, tắt kèm nguyên nhân).
     await noteConductor($, ctx, before, current)
-    if (before.fable.pauseLeft > 0) await update($, coreState, S.withFable(f => ({ pauseLeft: f.pauseLeft - 1 })))
     const prev = before.brief
     // routerSkip (người dùng tự bật): câu ngắn đúng nguyên văn trong danh sách thì là tiếp nối, không hỏi router.
     if (prev !== null && isSkippable(text, skipPhrases)) {
@@ -275,8 +277,30 @@ export function registerSession(on: On, ctx: Ctx): void {
       L.promptIntent = { relation: 'continue', kind: prev.isReference ? 'answer' : prev.kind }
       await flushDecisions((path, text) => $.fs.write(path, text))
       const lead = L.noAutoResume && !isArmed ? [] : await startResume()
-      // Kế hoạch đang lập (0.8.2 N2): câu tiếp nối ngắn vẫn kèm đoạn dặn lập kế hoạch. Câu này là câu trả lời: hết chờ (0.8.3 R3).
-      await clearAwaiting($, S.approvalOf(before))
+      // Quay lại mục tiêu đã cất (0.8.5 K7): cùng luật với nhánh có router (S.resumeTarget), trên Core đọc ngay lúc này; không gọi router,
+      // không cộng chi phí router. Tin chạy tiếp điểm dừng đang mở giữ ưu tiên.
+      const skipCore = S.normalizeCore(await read($, coreState))
+      const skipBack = lead.length === 0 ? S.resumeTarget(skipCore) : null
+      const skipFrom = skipBack !== null ? skipCore.archived[skipBack - 1] : undefined
+      const skipped = skipBack !== null ? ctx.restoreGoal(skipCore, skipBack) : null
+      if (skipped !== null && !('error' in skipped) && skipFrom !== undefined) {
+        await update($, coreState, () => skipped.core)
+        const restored = skipped.brief
+        L.promptIntent = { relation: 'continue', kind: restored.kind }
+        L.lastPrompt = { text, prev: restored, goalId: restored.goalId }
+        record(at, 'restore', { prompt: clipText(text), goalId: restored.goalId, from: skipFrom.brief.goalId, cause: 'resume' })
+        await flushDecisions((path, text) => $.fs.write(path, text))
+        await showStatus($, await read($, view), ctx.options)
+        const core = S.normalizeCore(await read($, coreState))
+        const wanted = wantedPick(restored, core.lift, core, current)
+        const conductNote = e.turnId === undefined && wanted?.isConducting === true && core.fable.briefedGoal !== restored.goalId ? [conductorContext()] : []
+        if (conductNote.length > 0) await update($, coreState, S.withFable(() => ({ briefedGoal: restored.goalId })))
+        const backLine = core.plan.length === 0 ? restoreGoalOnlyContext(restored.goal) : restoreResumeContext(restored.goal, openSteps(core.plan)[0])
+        const backPlanning = S.approvalOf(core).status === 'planning' ? [planningContext()] : []
+        return next({ ...e, context: [...(e.context ?? []), backLine, ...conductNote, ...backPlanning, ...pending] })
+      }
+      // Kế hoạch đang lập (0.8.2 N2): câu tiếp nối ngắn vẫn kèm đoạn dặn lập kế hoạch. Câu tiếp nối ngắn không phải câu trả lời câu hỏi
+      // làm rõ: cờ chờ câu trả lời giữ nguyên (0.8.5 K1).
       const planning = S.approvalOf(before).status === 'planning' ? [planningContext()] : []
       return next({ ...e, context: [...lead, ...(e.context ?? []), skippedContext(prev, before.plan), ...planning, ...(lead.length === 0 ? pending : [])] })
     }
@@ -330,10 +354,12 @@ export function registerSession(on: On, ctx: Ctx): void {
     // trừ khi router chắc (confidence từ NEW_GOAL_CONFIDENCE, thiếu là chưa chắc) VÀ prompt không nhắc gì tới mục tiêu (answerMentionsGoal).
     const isHeldAnswer = isAnswering && prev !== null && interjectedBase !== null && interjectedBase.relation === 'new' && !((interjectedBase.confidence ?? 0) >= NEW_GOAL_CONFIDENCE && !answerMentionsGoal(text, prev))
     // Tin ngoài lề (0.8.4 A1): xét trên kế hoạch router trả, trước khi tin chen ngang bị đổi thành tiếp nối; câu trả lời câu hỏi làm rõ thắng.
-    const isAsideMsg = routed !== null && prev !== null && !isHeldAnswer && isAside(routed, prev, { open: openSteps(before.plan).length, total: before.plan.length, approval: approvalStored.status })
+    const isAsideMsg = routed !== null && prev !== null && !isHeldAnswer && isAside(routed, prev, { open: openSteps(before.plan).length, total: before.plan.length, approval: approvalStored.status, turnsDone: S.turnsOf(before).done })
     const interjected = isInterject && routed !== null && routed.relation === 'new' && !isAsideMsg ? { ...routed, relation: 'continue' as const } : routed
-    // Câu trả lời đến rồi: hết chờ câu trả lời (0.8.3 R3: cờ nằm trong Core). Tin ngoài lề không phải câu trả lời nên không xóa cờ (0.8.4 A1).
-    const approvalBefore = isAsideMsg ? approvalStored : await clearAwaiting($, approvalStored)
+    // Câu trả lời đến rồi: hết chờ câu trả lời (0.8.3 R3: cờ nằm trong Core). Tin ngoài lề (0.8.4 A1), tin hỏi tiến độ và tin bảo chạy tiếp
+    // (0.8.5 K1, intent sau bước kẹp) không phải câu trả lời nên không xóa cờ; router lỗi thì intent là task và cờ được xóa như cũ.
+    const isKeptAwaiting = isAsideMsg || intent === 'status' || intent === 'resume'
+    const approvalBefore = isKeptAwaiting ? approvalStored : await clearAwaiting($, approvalStored)
     const steered = isHeldAnswer && interjected !== null ? { ...interjected, relation: 'continue' as const, intent: 'amend' as const } : interjected
     if (isHeldAnswer && prev !== null) {
       intent = 'amend'
@@ -345,29 +371,34 @@ export function registerSession(on: On, ctx: Ctx): void {
     const lead = isResuming ? await startResume() : []
     const tail = isResuming ? [] : pending
     const now = await $.clock.now()
-    // Tin bảo chạy tiếp sau một việc chen vào (0.8.4 A2): checklist hiện tại không còn bước mở, mục tiêu đã cất gần nhất còn bước mở và
-    // là mục tiêu bị chính mục tiêu hiện tại thay (mục tiêu mới mang số của mục tiêu trước cộng 1): khôi phục bằng cùng đường với plan
-    // action restore. Tin chạy tiếp điểm dừng giữ ưu tiên.
-    const lastArchived = before.archived[0]
-    const isBackToArchived = plan !== null && prev !== null && intent === 'resume' && !isResuming && openSteps(before.plan).length === 0 && lastArchived !== undefined && openSteps(lastArchived.plan).length > 0 && lastArchived.brief.goalId === prev.goalId - 1
-    if (isBackToArchived && plan !== null && prev !== null && lastArchived !== undefined) {
+    // Tin bảo chạy tiếp sau một việc chen vào (0.8.4 A2): mục tiêu đã cất nào được quay lại do S.resumeTarget quyết; khôi phục bằng cùng
+    // đường với plan action restore. Tin chạy tiếp điểm dừng giữ ưu tiên.
+    const isResumeMsg = plan !== null && prev !== null && intent === 'resume' && !isResuming
+    const backIndex = isResumeMsg ? S.resumeTarget(before) : null
+    const lastArchived = backIndex !== null ? before.archived[backIndex - 1] : undefined
+    if (backIndex !== null && plan !== null && prev !== null && lastArchived !== undefined) {
       // Khôi phục trên Core đọc ngay lúc này, không trên before (0.8.4 Z1): các lần ghi Core trước đó của prompt này (lượt Fable đạt
       // đưa bộ đếm lỗi về 0, giảm số prompt còn tạm ngừng, hết chờ câu trả lời) không bị ghi đè.
-      const back = ctx.restoreGoal(S.normalizeCore(await read($, coreState)), 1)
+      const back = ctx.restoreGoal(S.normalizeCore(await read($, coreState)), backIndex)
       if (!('error' in back)) {
         await update($, coreState, () => S.withRouterFail(null)(S.withAnalyzerUsage(outcome.usages, target.family)(back.core)))
         const restored = back.brief
         L.promptIntent = { relation: 'continue', kind: restored.kind }
-        L.lastPrompt = { text, prev, goalId: restored.goalId }
+        // Brief trước prompt là brief vừa khôi phục (0.8.5 K6): /conductor reroute đọc lại prompt này trên mục tiêu đã khôi phục.
+        L.lastPrompt = { text, prev: restored, goalId: restored.goalId }
         record(now, 'restore', { prompt: clipText(text), goalId: restored.goalId, from: lastArchived.brief.goalId, cause: 'resume' })
         await flushDecisions((path, text) => $.fs.write(path, text))
         await showStatus($, await read($, view), ctx.options)
-        // Mục tiêu khôi phục là mục tiêu lớn: đoạn dặn điều phối theo khóa Core.fable.briefedGoal như mọi mục tiêu (0.8.4 V1).
+        // Mục tiêu khôi phục là mục tiêu lớn: đoạn dặn điều phối theo khóa Core.fable.briefedGoal như mọi mục tiêu (0.8.4 V1). Tin chen ngang
+        // (0.8.5 K4): turn đang chạy giữ model của nó, nên không dặn và không ghi khóa; prompt kế tiếp ngoài turn dặn theo cơ chế chung.
         const core = S.normalizeCore(await read($, coreState))
         const wanted = wantedPick(restored, core.lift, core, current)
-        const conductNote = wanted?.isConducting === true && core.fable.briefedGoal !== restored.goalId ? [conductorContext()] : []
+        const conductNote = !isInterject && wanted?.isConducting === true && core.fable.briefedGoal !== restored.goalId ? [conductorContext()] : []
         if (conductNote.length > 0) await update($, coreState, S.withFable(() => ({ briefedGoal: restored.goalId })))
-        return next({ ...e, context: [...lead, ...(e.context ?? []), restoreResumeContext(restored.goal, openSteps(core.plan)[0]), ...conductNote, ...tail] })
+        // Mục tiêu đã cất chưa có checklist (0.8.5 K2): một dòng riêng; đang lập kế hoạch thì kèm đoạn dặn như mọi mục tiêu planning.
+        const backLine = core.plan.length === 0 ? restoreGoalOnlyContext(restored.goal) : restoreResumeContext(restored.goal, openSteps(core.plan)[0])
+        const backPlanning = S.approvalOf(core).status === 'planning' ? [planningContext()] : []
+        return next({ ...e, context: [...lead, ...(e.context ?? []), backLine, ...conductNote, ...backPlanning, ...tail] })
       }
     }
     // Tin hỏi tiến độ (0.8.2 N1): không đổi brief, checklist, việc, yêu cầu hay ràng buộc; chỉ cộng chi phí router. Tin gửi khi không có
@@ -448,7 +479,7 @@ export function registerSession(on: On, ctx: Ctx): void {
     // Việc đã xong theo checklist hiện tại (0.8.0 A3): có bước riêng và các bước đó đã đóng hết; được cất khi prompt này mở đợt mới. Việc chưa
     // có bước riêng không tính là xong chỉ vì checklist đóng hết (checklist đó có thể là của đợt trước).
     const doneTasks = new Set(taskRows(before, now).filter(row => row.index !== undefined && row.kind !== 'main' && row.state === 'done' && row.bar.kind === 'steps').map(row => row.index as number))
-    const { brief, added, isNewGoal, replaced, held, dropped, phase } = nextBrief(prev, plan, text, now, { openSteps: openSteps(before.plan).map(s => s.title), sessionFamily: L.sessionFamily, doneTasks })
+    const { brief, added, isNewGoal, replaced, held, dropped, phase } = nextBrief(prev, plan, text, now, { openSteps: openSteps(before.plan).map(s => s.title), sessionFamily: L.sessionFamily, doneTasks, isPending: S.pendingOf(before) })
     // Router xếp mục tiêu mới với tin cậy thấp khi checklist còn bước mở (0.7.5): giữ mục tiêu, ghi nhật ký quyết định.
     if (held && prev !== null) {
       L.promptIntent = { relation: 'continue', kind: plan.kind }
@@ -520,13 +551,18 @@ export function registerSession(on: On, ctx: Ctx): void {
     const shownBrief: Brief = isSplitHeld ? { ...brief, tasks: brief.tasks.map(dropSplit) } : brief
     // Duyệt kế hoạch (0.8.2 N2). Mục tiêu mới: thuộc diện duyệt thì planning, skipApproval thì skipped, còn lại none. Cùng mục tiêu: đã
     // trình mà duyệt thì approved, sửa thì về planning (lượt rà về 0); còn lại giữ nguyên. Hỏi làm rõ một lần mỗi mục tiêu khi planning.
+    // Bổ sung lớn sau khi đã duyệt (0.8.5 D2): mục tiêu thuộc diện duyệt, tin amend mà router đọc là substantial hay hard, edit hay mixed, có
+    // việc mới: kế hoạch về planning để trình lại.
+    const isBigAmend = !isNewGoal && approvalBefore.status === 'approved' && intent === 'amend' && needsApproval(brief, ctx.planApproval, false) && (plan.depth === 'substantial' || plan.depth === 'hard') && (plan.kind === 'edit' || plan.kind === 'mixed') && added.length > 0
     const stage = isNewGoal
       ? { goalId: brief.goalId, status: needsApproval(brief, ctx.planApproval, plan.skipApproval === true) ? ('planning' as const) : plan.skipApproval === true ? ('skipped' as const) : ('none' as const), rounds: 0, asked: false, awaitingAnswer: false }
       : isPresented && intent === 'approve'
         ? { ...approvalBefore, status: 'approved' as const }
         : isPresented && intent === 'amend'
           ? { ...approvalBefore, status: 'planning' as const, rounds: 0 }
-          : approvalBefore
+          : isBigAmend
+            ? { ...approvalBefore, status: 'planning' as const, rounds: 0 }
+            : approvalBefore
     const isAsking = stage.status === 'planning' && !stage.asked && (plan.questions?.length ?? 0) > 0
     // Dặn hỏi làm rõ: chờ câu trả lời ở prompt kế tiếp (0.8.3 R3, ghi vào Core cùng lượt ghi trạng thái duyệt).
     const approval = isAsking ? { ...stage, asked: true, awaitingAnswer: true } : stage
@@ -539,7 +575,7 @@ export function registerSession(on: On, ctx: Ctx): void {
     const context = isApproved
       ? approvedContext(core.plan)
       : intent === 'resume' && !isNewGoal
-      ? intentResumeContext(core.plan)
+      ? isResumeMsg && S.isNothingLeft(before) ? nothingLeftContext() : intentResumeContext(core.plan)
       : isInterject && !isNewGoal
       ? interjectContext(brief, core.plan, shownAdded, newConstraints, { main: running !== null ? describePick(running) : 'model đang chạy', mayReplace: routed?.relation === 'new', isRouted: true })
       : isNewGoal
@@ -552,7 +588,9 @@ export function registerSession(on: On, ctx: Ctx): void {
     }
     // Checklist cũ còn bước mở không bị mất: nó được lưu, Claude khôi phục được nếu router xếp nhầm mục tiêu mới.
     const archived = isNewGoal ? restorableSteps(before.plan) : []
-    const notice = archived.length > 0 ? [droppedPlanNotice(archived)] : []
+    // Mục tiêu đang dở chưa có checklist (0.8.5 K2) cũng được lưu: một dòng báo riêng.
+    const isGoalSaved = isNewGoal && archived.length === 0 && prev !== null && S.pendingOf(before)
+    const notice = archived.length > 0 ? [droppedPlanNotice(archived)] : isGoalSaved && prev !== null ? [droppedGoalNotice(prev.goal)] : []
     record(now, 'route', {
       prompt: clipText(text),
       relation: plan.relation,

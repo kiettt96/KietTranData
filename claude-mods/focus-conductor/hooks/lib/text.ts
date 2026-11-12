@@ -155,6 +155,14 @@ export function droppedPlanNotice(open: readonly PlanStep[]): string {
   )
 }
 
+/**
+ * Mục tiêu cũ đang dở chưa có checklist (0.8.5 K2) đã được lưu vì prompt này được xếp là mục tiêu mới: lấy lại bằng tin bảo chạy tiếp hay
+ * plan action "restore". Một dòng, tối đa 300 ký tự.
+ */
+export function droppedGoalNotice(goal: string): string {
+  return `[focus-conductor] Mục tiêu cũ chưa có checklist "${clipItem(goal, 100)}" đã được lưu vì prompt này được xếp là mục tiêu mới; lấy lại bằng tin bảo chạy tiếp hay ${PLAN_TOOL_FULL} action "restore".`
+}
+
 /** Dòng nhắc bước waiting hoặc blocked khi làm tiếp mục tiêu: các bước đó không chặn Stop nên phải được đặt lại thì mới được theo dõi. */
 function pendingLine(plan: readonly PlanStep[]): string {
   const pending = pendingSteps(plan)
@@ -333,6 +341,19 @@ export function asideContext(isInterject: boolean, next: PlanStep | undefined): 
  */
 export function restoreResumeContext(goal: string, next: PlanStep | undefined): string {
   return `[focus-conductor] Tin bảo chạy tiếp: đã quay lại mục tiêu đã cất "${clipItem(goal, 120)}"; chạy tiếp từ ${next !== undefined ? `bước ${next.id}. ${clipItem(next.title, 80)}` : 'bước đang mở'}; không thêm việc mới.`
+}
+
+/** Tin bảo chạy tiếp quay lại mục tiêu đã cất chưa có checklist (0.8.5 K2): làm tiếp mục tiêu đó từ đầu. Một dòng, tối đa 300 ký tự. */
+export function restoreGoalOnlyContext(goal: string): string {
+  return `[focus-conductor] Tin bảo chạy tiếp: đã quay lại mục tiêu đã cất "${clipItem(goal, 120)}"; mục tiêu này chưa có checklist, làm tiếp mục tiêu đó; không thêm việc mới.`
+}
+
+/**
+ * Tin bảo chạy tiếp mà không còn gì để chạy (0.8.5 K5): checklist hiện tại đã đóng hết và không còn việc nào đã cất đang dở. Một dòng, tối
+ * đa 300 ký tự.
+ */
+export function nothingLeftContext(): string {
+  return '[focus-conductor] Tin bảo chạy tiếp: checklist hiện tại đã đóng hết và không còn việc nào đã cất đang dở; tóm tắt kết quả đã làm rồi hỏi người dùng muốn làm gì tiếp, không tự thêm việc mới.'
 }
 
 /** Tin bảo chạy tiếp (0.8.2 N1, intent resume; approve khi không có kế hoạch chờ duyệt): chạy tiếp từ bước đang mở. Tối đa 300 ký tự. */
