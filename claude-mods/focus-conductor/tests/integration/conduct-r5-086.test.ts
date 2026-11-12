@@ -85,6 +85,21 @@ describe('0.8.6 R5: số đo vai điều phối', () => {
     expect(lines().some(l => l['kind'] === 'conduct-self')).toBe(false)
   })
 
+  test('được miễn nhưng tầng dưới từ chối (quyền của engine): số tự sửa giữ 0, không có conduct-self', opts(), async ($, on) => {
+    base(on, { router: request => (request.startsWith('Requirements:') ? { missing: [], extra: [], issues: [] } : BIG) })
+    const writes: string[] = []
+    on('tool.call', { tool: 'Edit' }, () => ({ deny: 'quyền: người dùng từ chối' }))
+    on('fs.write', (_x, e) => {
+      if (e.path === LOG) writes.push(e.text)
+      return { value: undefined }
+    })
+    await submit($, A)
+    await run($, 'solo')
+    expect((await edit($)).deny ?? '').toContain('quyền')
+    expect(await conductLine($)).not.toContain('tự sửa file')
+    expect((writes.at(-1) ?? '').includes('conduct-self')).toBe(false)
+  })
+
   test('Agent bị từ chối bật rồi lời gọi chạy được tắt cờ: nhật ký có hai dòng conduct-exempt lý do agent', opts(), async ($, on) => {
     const { lines } = setup(on)
     const agent = { deny: true }

@@ -201,7 +201,11 @@ export function registerCommand(on: On, ctx: Ctx): void {
       if (core.brief === null || !ctx.isConducting(core, await read($, mode))) return { text: 'Luồng chính không đang giữ vai điều phối nên không có gì để miễn.' }
       const isOn = arg !== 'off'
       const goalId = core.brief.goalId
-      if (S.conductOf(core).solo !== isOn) await update($, coreState, S.withConduct(goalId, () => ({ solo: isOn })))
+      if (S.conductOf(core).solo !== isOn) {
+        await update($, coreState, S.withConduct(goalId, () => ({ solo: isOn })))
+        record(await $.clock.now(), 'conduct-exempt', { state: isOn ? 'on' : 'off', reason: 'solo' })
+        await flushDecisions((path, text) => $.fs.write(path, text))
+      }
       await showStatus($, await read($, view), ctx.options)
       return {
         text: isOn

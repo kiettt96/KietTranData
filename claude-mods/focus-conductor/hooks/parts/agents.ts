@@ -381,6 +381,8 @@ export function registerAgents(on: On, ctx: Ctx): void {
       const now = S.normalizeCore(await read($, coreState))
       if (ctx.isConducting(now, current) && S.conductOf(now).agentDenied !== isRefused) {
         await update($, coreState, S.withConduct(brief.goalId, () => ({ agentDenied: isRefused })))
+        record(await $.clock.now(), 'conduct-exempt', { state: isRefused ? 'on' : 'off', reason: 'agent' })
+        await flushDecisions((path, text) => $.fs.write(path, text))
       }
     }
     return result

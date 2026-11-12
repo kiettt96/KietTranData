@@ -2186,4 +2186,7 @@ export const MUTANTS: Mutant[] = [
   { id: "086-R3c", file: "hooks/parts/consistency.ts", note: "đếm cả khi không điều phối", old: "if (core.brief === null || !ctx.isConducting(core, current) || isConductQuietRead(input)) return null", new: "if (core.brief === null || isConductQuietRead(input)) return null" },
   { id: "086-R4a", file: "hooks/lib/router.ts", note: "không xét mục tiêu hiện tại", old: " || (!isReference && relation !== 'new' && policy.goalIsBig === true))", new: ")" },
   { id: "086-R4b", file: "hooks/lib/router.ts", note: "chuyển cả tin new", old: "relation !== 'new' && policy.goalIsBig === true", new: "policy.goalIsBig === true" },
+  { id: "086-R5a", file: "hooks/parts/consistency.ts", note: "không ghi conduct-deny", old: "record(await $.clock.now(), 'conduct-deny', ", new: "void ('conduct-deny', " },
+  { id: "086-R5b", file: "hooks/ui/labels.ts", note: "status không hiện số lần tự sửa", old: "const keys = ['deniedWrites', 'deniedChecks', 'selfWrites', 'selfChecks', 'reads'] as const", new: "const keys = ['deniedWrites', 'deniedChecks', 'selfChecks', 'reads'] as const" },
+  { id: "086-R5c", file: "hooks/parts/consistency.ts", note: "cộng số tự làm cả khi cổng khác từ chối", old: "if (role !== null && result.deny === undefined) {", new: "if (role !== null) {" },
 ]

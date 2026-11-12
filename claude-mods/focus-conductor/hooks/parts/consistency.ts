@@ -862,7 +862,9 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     const roleKind: 'write' | 'check' | null = isMainWrite ? 'write' : isMainCheck ? 'check' : null
     const role = roleKind !== null ? await conductRole($, ctx, await read($, mode), e as unknown as { tool: string } & Record<string, unknown>) : null
     if (role !== null && !role.isExempt) {
-      await update($, coreState, S.withConduct(role.goalId, c => (roleKind === 'write' ? { deniedWrites: c.deniedWrites + 1 } : { deniedChecks: c.deniedChecks + 1 })))
+      const denied = S.conductOf(await update($, coreState, S.withConduct(role.goalId, c => (roleKind === 'write' ? { deniedWrites: c.deniedWrites + 1 } : { deniedChecks: c.deniedChecks + 1 }))))
+      record(await $.clock.now(), 'conduct-deny', { type: roleKind, n: roleKind === 'write' ? denied.deniedWrites : denied.deniedChecks })
+      await flushDecisions((path, text) => $.fs.write(path, text))
       return { deny: roleKind === 'write' ? conductWriteDenyText() : conductCheckDenyText() }
     }
     const blockCore = isMainWrite && role === null ? S.normalizeCore(await read($, coreState)) : null
@@ -878,7 +880,11 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     }
     const result = await next(e)
     // Lời gọi được miễn chỉ tính là tự làm khi thật sự chạy (cổng khác không từ chối).
-    if (role !== null && result.deny === undefined) await update($, coreState, S.withConduct(role.goalId, c => (roleKind === 'write' ? { selfWrites: c.selfWrites + 1 } : { selfChecks: c.selfChecks + 1 })))
+    if (role !== null && result.deny === undefined) {
+      const own = S.conductOf(await update($, coreState, S.withConduct(role.goalId, c => (roleKind === 'write' ? { selfWrites: c.selfWrites + 1 } : { selfChecks: c.selfChecks + 1 }))))
+      record(await $.clock.now(), 'conduct-self', { type: roleKind, n: roleKind === 'write' ? own.selfWrites : own.selfChecks })
+      await flushDecisions((path, text) => $.fs.write(path, text))
+    }
     if (result.deny !== undefined || e.tool === PLAN_TOOL_FULL) return result
     if ((await read($, mode)) === 'off') return result
 
