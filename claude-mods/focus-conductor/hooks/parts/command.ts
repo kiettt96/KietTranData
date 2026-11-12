@@ -17,11 +17,12 @@ import type { View } from '../lib/state'
 import { RETRY_ROUNDS, WAIVE_REPORT, briefContext, checkHintLines, droppedGoalNotice, droppedItemsText, droppedPlanNotice, quotaStatusLines, renderPlan, resetLabel, routerFailLines, unroutedContext } from '../lib/text'
 import { PANE_ROWS, shouldAutoOpenPane } from '../lib/pane'
 import { PANE, PANE_TITLE } from '../ui/pane'
-import { conductorLine, labels, langOf } from '../ui/labels'
+import { conductStatusSuffix, conductorLine, labels, langOf } from '../ui/labels'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
 import { COMMAND_HELP } from '../context'
+import { isBigGoal } from '../lib/conductor'
 
 // Atom của mod, khai báo lại ở mỗi file dùng chúng (engine chỉ nhận tham chiếu state viết trong chính file đó);
 // cùng plugin và key nên là cùng một giá trị trong $.state.
@@ -192,6 +193,27 @@ export function registerCommand(on: On, ctx: Ctx): void {
       return { text: 'Đã duyệt kế hoạch; Claude được sửa file theo checklist.' }
     }
 
+    if (sub === 'solo') {
+      // Lối thoát của vai điều phối (0.8.6 R6): chỉ người gõ, cùng luật origin như /conductor waive; Claude và plugin không tự miễn được.
+      if (!WAIVE_ORIGINS.has(e.origin.kind)) return { text: 'Chỉ nhận /conductor solo do người gõ; lệnh từ plugin, SDK hay lịch không miễn được vai điều phối.' }
+      if (arg !== '' && arg !== 'off') return { text: 'Dùng /conductor solo để luồng chính tự sửa file và tự chạy kiểm trong mục tiêu này, /conductor solo off để bỏ.' }
+      const core = S.normalizeCore(await read($, coreState))
+      if (core.brief === null || !ctx.isConducting(core, await read($, mode))) return { text: 'Luồng chính không đang giữ vai điều phối nên không có gì để miễn.' }
+      const isOn = arg !== 'off'
+      const goalId = core.brief.goalId
+      if (S.conductOf(core).solo !== isOn) {
+        await update($, coreState, S.withConduct(goalId, () => ({ solo: isOn })))
+        record(await $.clock.now(), 'conduct-exempt', { state: isOn ? 'on' : 'off', reason: 'solo' })
+        await flushDecisions((path, text) => $.fs.write(path, text))
+      }
+      await showStatus($, await read($, view), ctx.options)
+      return {
+        text: isOn
+          ? 'Đã miễn vai điều phối cho mục tiêu này: luồng chính được tự sửa file và tự chạy kiểm; /conductor solo off để bỏ.'
+          : 'Đã bỏ miễn: luồng chính lại giao việc sửa file và chạy kiểm cho subagent.',
+      }
+    }
+
     if (sub === 'mode') {
       if (!S.isMode(arg)) return { text: `Chế độ phải là auto, subagents, suggest hoặc off.\n${COMMAND_HELP}` }
       await update($, modeState, () => arg)
@@ -212,7 +234,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       const before = S.normalizeCore(await read($, coreState))
       const prev = before.brief
       const basePolicy = ctx.routePolicy(before, ctx.maxForks >= 2 ? await $.session.root().catch(caught('session.root', null)) : null)
-      const rules = ctx.conductorState(before, await read($, mode)) === null ? { ...basePolicy, conductor: true } : basePolicy
+      const rules = ctx.conductorState(before, await read($, mode)) === null ? { ...basePolicy, conductor: true, goalIsBig: isBigGoal(before.brief) } : basePolicy
       // Lệnh do người dùng gõ: luôn hỏi router, kể cả khi router đang tạm ngừng sau các lần lỗi.
       const target = ctx.routerTarget(before, await read($, mode))
       const request = routerRequest({ text: arg, prev, ran: null, policy: rules, model: target.model, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily, isForcedNew: true })
@@ -276,7 +298,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
         return { text: 'Không có prompt nào của mục tiêu hiện tại để router đọc lại. Đặt mục tiêu bằng /conductor goal kèm mô tả.' }
       }
       const basePolicy = ctx.routePolicy(before, ctx.maxForks >= 2 ? await $.session.root().catch(caught('session.root', null)) : null)
-      const rules = ctx.conductorState(before, await read($, mode)) === null ? { ...basePolicy, conductor: true } : basePolicy
+      const rules = ctx.conductorState(before, await read($, mode)) === null ? { ...basePolicy, conductor: true, goalIsBig: isBigGoal(before.brief) } : basePolicy
       // Lệnh do người dùng gõ: luôn hỏi router, kể cả khi router đang tạm ngừng.
       const target = ctx.routerTarget(before, await read($, mode))
       const request = routerRequest({ text: last.text, prev: last.prev, ran: ranText(before), policy: rules, model: target.model, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily })
@@ -460,7 +482,9 @@ export function registerCommand(on: On, ctx: Ctx): void {
         }),
       )
       // Fable điều phối (0.8.4 C8): một dòng trạng thái, chỉ khi option conductor là fable.
-      const conductorLines = ctx.conductorOption === 'fable' ? [conductorLine(core, ctx.routerModel, lang)] : []
+      // Vai điều phối của mục tiêu (0.8.6): trạng thái miễn và số đo, chỉ khi luồng chính đang điều phối.
+      const conductSuffix = ctx.isConducting(core, current) ? conductStatusSuffix(S.conductOf(core), lang) : ''
+      const conductorLines = ctx.conductorOption === 'fable' ? [conductorLine(core, ctx.routerModel, lang) + conductSuffix] : []
       if (core.brief === null) return { text: [`Chế độ ${current}. Chưa có mục tiêu.`, ...conductorLines, ...routerFailLines(core.routerFail), ...costLines].join('\n') }
       const routeLine = core.route
         ? `${describePick(core.route)} (${core.route.reason})`

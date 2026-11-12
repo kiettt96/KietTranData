@@ -257,7 +257,7 @@ export type Ledger = {
  */
 /** `approval` (0.8.5 K3): trạng thái duyệt kế hoạch của mục tiêu lúc bị cất; vắng ở trạng thái từ bản cũ là none. */
 /** `turns` (0.8.5 K8): số turn thực thi đã kết thúc và turn gần nhất có bị ngắt không, lúc bị cất; vắng là 0 và false. */
-export type ArchivedGoal = { brief: Brief; plan: PlanStep[]; approval?: ApprovalStatus; turns?: { done: number; interrupted: boolean } }
+export type ArchivedGoal = { brief: Brief; plan: PlanStep[]; approval?: ApprovalStatus; turns?: { done: number; interrupted: boolean }; conduct?: Omit<ConductState, 'goalId'> }
 
 /** Trạng thái một việc router ghi giao subagent: chờ giao, đang chạy, xong, hoặc lỗi. */
 export type DelegationState = 'pending' | 'running' | 'done' | 'failed'
@@ -416,9 +416,30 @@ export type Core = {
    * coi là 0 và false. Vắng ở trạng thái cũ: goalId -1, 0, false.
    */
   goalTurns: GoalTurns
+  /**
+   * Vai điều phối của luồng chính cho mục tiêu goalId (0.8.6): cờ miễn, số lần bị từ chối, số lần tự làm khi được miễn, số lần đọc. Mục tiêu
+   * khác thì coi là mặc định. Vắng ở trạng thái cũ: goalId -1, mọi cờ tắt, mọi số 0.
+   */
+  conduct: ConductState
 }
 
 export type GoalTurns = { goalId: number; done: number; interrupted: boolean }
+
+/**
+ * Trạng thái vai điều phối của một mục tiêu (0.8.6): `solo` do người gõ /conductor solo; `agentDenied` khi lời gọi Agent gần nhất của luồng
+ * chính bị từ chối hay lỗi mà không sinh subagent nào; `readNoted` là số lần đọc ở lần nhắc gần nhất.
+ */
+export type ConductState = {
+  goalId: number
+  solo: boolean
+  agentDenied: boolean
+  deniedWrites: number
+  deniedChecks: number
+  selfWrites: number
+  selfChecks: number
+  reads: number
+  readNoted: number
+}
 
 /**
  * File đã đổi của mục tiêu goalId (0.8.2 N5): `paths` là đường dẫn tương đối với thư mục gốc phiên (ngoài gốc thì giữ tuyệt đối), không trùng,

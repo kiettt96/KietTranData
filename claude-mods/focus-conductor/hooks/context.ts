@@ -43,6 +43,9 @@ export const ROUTER_PAUSE = 3
 export const AGENT_ROUTE_LIMIT = 50
 /** Tool sửa file của luồng chính (dùng để nhắc giao việc đã phân). */
 export const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
+/** Ngưỡng nhắc đọc mặc định của vai điều phối (0.8.6 R3, option conductorReads). */
+export const CONDUCTOR_READS = 20
+
 /** strictDelegation "block": số lần mặc định từ chối luồng chính sửa file trong một mục tiêu (option blockLimit đổi được, 1 đến 10). */
 export const BLOCK_EDITS = 2
 export const BLOCK_LIMIT_MAX = 10
@@ -79,6 +82,7 @@ export const COMMAND_HELP = [
   '/conductor reroute     router đọc lại prompt gần nhất (kể cả khi router đang tạm ngừng)',
   '/conductor reset       xóa mục tiêu, checklist, cảnh báo và danh sách model bị chặn',
   '/conductor approve     duyệt kế hoạch đang chờ (chỉ người gõ)',
+  '/conductor solo        luồng chính đang điều phối được tự sửa file và tự chạy kiểm (chỉ người gõ); solo off để bỏ',
   '/conductor waive N lý do   miễn lệnh kiểm chưa đạt số N (hoặc ghi lệnh) cho mục tiêu này; waive undo N bỏ lệnh miễn',
   '/conductor errors      nhật ký lỗi của mod; errors clear xóa nhật ký',
 ].join('\n')
@@ -207,6 +211,8 @@ export function createContext(options: PluginOptions) {
     sentEffort: Effort | null
     /** Số việc đã phân mà lời gọi này nhận (nếu khớp). */
     taskIndex?: number
+    /** Lời gọi có trường isolation của tool Agent (0.8.6 R2): subagent chạy ngoài thư mục làm việc của luồng chính. */
+    isolated?: boolean
   }
   const pendingAgents = new Map<string, PendingAgent>()
   // Subagent đã khởi động. `pick` là model và effort mod đã điều phối; `sentEffort` là effort thật
@@ -228,6 +234,11 @@ export function createContext(options: PluginOptions) {
     fallback: boolean
     /** Số việc đã phân mà agent này làm (nếu khớp), để ghi xong hay lỗi. */
     taskIndex?: number
+    /**
+     * Chạy chung thư mục làm việc với luồng chính (0.8.6 R2): true khi lời gọi Agent không có trường isolation; vắng khi không biết
+     * (agent workflow, phiên con), khi đó lần kiểm của nó không là lần kiểm dùng chung.
+     */
+    sharesDir?: boolean
   }
   const agents = new Map<string, AgentMeta>()
   const agentTrackers = new Map<string, TurnTracker>()
@@ -261,6 +272,9 @@ export function createContext(options: PluginOptions) {
     errorBuffer.push({ event, at: localIso(Date.now()) })
     if (errorBuffer.length > ERROR_BUFFER_MAX) errorBuffer.shift()
   })
+  // Ngưỡng nhắc đọc của vai điều phối (0.8.6 R3): số nguyên không âm, mặc định 20; 0 là tắt.
+  const rawConductorReads = Number(options['conductorReads'] ?? CONDUCTOR_READS)
+  const conductorReads = Number.isInteger(rawConductorReads) && rawConductorReads >= 0 ? rawConductorReads : CONDUCTOR_READS
   const rawBlockLimit = Number(options['blockLimit'])
   const blockLimit = Number.isInteger(rawBlockLimit) && rawBlockLimit >= 1 ? Math.min(BLOCK_LIMIT_MAX, rawBlockLimit) : BLOCK_EDITS
   const extraAgents = String(options['agentTypes'] ?? '')
@@ -271,6 +285,8 @@ export function createContext(options: PluginOptions) {
   // danh sách đầu mà không có trong danh sách sau là agent ngoài điều phối (untracked): mod không chấm, không ép, không đo.
   const startedAgents = new Map<string, string>()
   const spawnedIds = new Set<string>()
+  // Lời gọi Agent đã sinh subagent (0.8.6 R6), theo tool_use_id: lời gọi bị từ chối hay lỗi mà không có trong đây mới bật cờ miễn.
+  const spawnedCalls = new Set<string>()
   const rawRouter = options['router']
   const routerModel = typeof rawRouter === 'string' && rawRouter.trim() !== '' ? rawRouter.trim() : 'sonnet'
   const routerFamily: ModelFamily = familyOf(routerModel) ?? 'sonnet'
@@ -301,6 +317,11 @@ export function createContext(options: PluginOptions) {
     // Prompt hiện tại đến lúc router Fable còn tạm ngừng (0.8.4 C6, V1; 0.8.5 K10: cờ nằm trong Core.fable nên sống qua nạp lại mod).
     const fable = normalizeCore(core).fable
     return { option: conductorOption, mode, headless, blocked, pauseLeft: fable.pauseLeft + (fable.promptPaused ? 1 : 0), sessionPolicy, sessionFamily: local.sessionFamily }
+  }
+
+  /** Luồng chính đang giữ vai điều phối cho mục tiêu hiện tại (0.8.5 D1, 0.8.6): option conductor là fable và isMainConducting. */
+  function isConducting(core: Core, mode: Mode): boolean {
+    return conductorOption === 'fable' && isMainConducting(conductorInputs(core, mode), normalizeCore(core).brief)
   }
 
   /** Nguyên nhân luồng chính không điều phối bằng Fable lúc này; null là điều phối khả dụng. */
@@ -551,6 +572,7 @@ export function createContext(options: PluginOptions) {
     local.lastSwitch = null
     startedAgents.clear()
     spawnedIds.clear()
+    spawnedCalls.clear()
     local.liveAgents.clear()
     local.deferred = []
   }
@@ -885,6 +907,7 @@ export function createContext(options: PluginOptions) {
     agentTrackers,
     agents,
     blockLimit,
+    conductorReads,
     blocked,
     blockedUntil,
     cacheTtlMs,
@@ -942,6 +965,7 @@ export function createContext(options: PluginOptions) {
     conductorOption,
     conductorInputs,
     conductorState,
+    isConducting,
     routerTarget,
     routerTimeLine,
     semanticDrift,
@@ -951,6 +975,7 @@ export function createContext(options: PluginOptions) {
     sessionPolicy,
     skipPhrases,
     spawnedIds,
+    spawnedCalls,
     startedAgents,
     steppedEarly,
     strictDelegation,

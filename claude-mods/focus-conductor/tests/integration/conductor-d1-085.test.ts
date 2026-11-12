@@ -1,6 +1,7 @@
 // 0.8.5 D1: khi luồng chính đang giữ vai điều phối cho mục tiêu hiện tại, mức strictDelegation hiệu dụng là block (option off hay remind):
 // sửa file trong khi còn việc ghi giao subagent chưa giao bị từ chối tối đa blockLimit lần mỗi mục tiêu; lời nhắc sau đó theo option
 // strictDelegation như 0.8.4 (mặc định nhắc một lần). Không điều phối thì theo option như 0.8.4. File kế hoạch không bị từ chối.
+// 0.8.6 R1: hai ca đầu đổi kỳ vọng (giữ tên): luồng chính đang điều phối bị từ chối mọi lần sửa file, kể cả khi đã giao hết việc.
 
 import { describe, expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
@@ -28,21 +29,20 @@ describe('0.8.5 D1: luồng chính điều phối không tự sửa file khi cò
   test('blockLimit mặc định: hai lần Edit đầu bị từ chối, lần ba được chạy kèm lời nhắc, lần bốn không kèm', FABLE, async ($, on) => {
     setup(on, BIG)
     await submit($, A)
-    expect(String((await edit($)).deny ?? '')).toContain('Còn việc ghi giao subagent chưa giao')
-    expect(String((await edit($)).deny ?? '')).toContain('lần chặn cuối')
-    const third = await edit($)
-    expect(third.deny).toBeUndefined()
-    expect(nudged(third)).toBe(true)
-    const fourth = await edit($)
-    expect(fourth.deny).toBeUndefined()
-    expect(nudged(fourth)).toBe(false)
+    // 0.8.6 R1: luồng chính đang điều phối bị từ chối mọi lần sửa file, không còn trần blockLimit và không còn lời nhắc sau lần chặn cuối.
+    for (const _ of [1, 2, 3, 4]) {
+      const r = await edit($)
+      expect(String(r.deny ?? '')).toContain('vai điều phối không tự sửa file')
+      expect(nudged(r)).toBe(false)
+    }
   })
 
   test('đã giao hết việc bằng Agent: Edit ở luồng chính không bị từ chối', FABLE, async ($, on) => {
     setup(on, BIG)
     await submit($, A)
     for (const n of [1, 2]) await $.tool.call({ tool: 'Agent', description: `Việc ${n}: làm`, prompt: 'x' } as never)
-    expect((await edit($)).deny).toBeUndefined()
+    // 0.8.6 R1: giao hết việc rồi vẫn bị từ chối khi luồng chính đang điều phối.
+    expect(String((await edit($)).deny ?? '')).toContain('vai điều phối không tự sửa file')
   })
 
   test('file kế hoạch không bị từ chối', FABLE, async ($, on) => {

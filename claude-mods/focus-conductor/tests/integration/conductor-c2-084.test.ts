@@ -5,7 +5,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import * as C from '../../hooks/lib/conductor'
-import { COMPLEX_PROMPT, PANE, base, plan, submit } from '../support/engine'
+import { COMPLEX_PROMPT, PANE, base, conductor, plan, submit } from '../support/engine'
 import type { Json } from '../support/engine'
 
 const FABLE = { options: { planApproval: 'off', conductor: 'fable' } }
@@ -56,6 +56,8 @@ describe('0.8.4 C2: chấm subagent, kiểm lạc đề, rà kế hoạch', () =
     const seen = base(on)
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, COMPLEX_PROMPT)
+    // 0.8.6 R1: luồng chính đang điều phối không tự sửa file; solo để các lần Edit dựng tình huống được chạy.
+    await conductor($, 'solo')
     for (const f of ['a', 'b', 'c', 'd', 'e']) await edit($, f)
     const drift = seen.routerCalls.filter(c => c.kind === 'drift')
     expect(drift.length).toBe(1)

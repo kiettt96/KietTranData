@@ -2,6 +2,38 @@
 
 Các bản của focus-conductor, mới nhất trước. Số đo kiểm chứng của HEAD hiện tại nằm ở [docs/VERIFICATION.md](docs/VERIFICATION.md); cách dùng và tùy chọn ở [README](README.md).
 
+## Thay đổi 0.8.6: siết vai điều phối của Fable
+
+Khi option `conductor` là `fable` và luồng chính đang điều phối việc lớn, luồng chính chỉ lập kế hoạch, giao việc, đọc kết quả và quyết định bước tiếp theo; không tự sửa file, không tự chạy lệnh kiểm [Nguồn: chủ mod, 12/11/2026, phương án (a) cho Q1, Q2, Q3 và ba bổ sung khi duyệt kế hoạch]. Khi `conductor` tắt, hay khi luồng chính không đang điều phối, mọi hành vi như 0.8.5. Lời dặn router (cả hai biến thể), schema JSON router trả, schema tool `plan` và golden không đổi. Mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `086-*`; số ca đỏ đo trên `473bc75` ở VERIFICATION.
+
+- **R6 (P2): trạng thái vai điều phối, lối thoát, đoạn dặn.** `Core.conduct` gắn theo số mục tiêu (`conductOf`, `withConduct`, `emptyConduct` trong `hooks/lib/state.ts`): cờ miễn do người gõ, cờ lời gọi Agent gần nhất bị từ chối, số lần bị từ chối sửa file và chạy kiểm, số lần tự sửa và tự chạy kiểm khi được miễn, số lần đọc, mốc đã nhắc đọc. Trạng thái 0.8.5 nạp về mặc định; mục tiêu đã cất mang theo và nhận lại khi khôi phục. Lệnh `/conductor solo` và `/conductor solo off` chỉ nhận do người gõ, chỉ khi luồng chính đang điều phối. Cờ Agent bật khi lời gọi Agent của luồng chính bị từ chối hay lỗi mà không có `agent.spawn` nào cho `tool_use_id` đó; lời gọi đã sinh subagent (kể cả subagent chạy rồi lỗi) tắt cờ. `conductorContext` bỏ câu cho tự sửa file và nói rõ không tự sửa file, không tự chạy lệnh kiểm (462 ký tự, trần 480); `conductorKeepText` khớp (190, trần 200). `ctx.isConducting` dùng chung cho mọi nơi xét vai điều phối. Phần "đang miễn" của dòng Điều phối làm ở R6 để test quan sát được cờ; số đo làm ở R5.
+- **R1 (P2): luồng chính đang điều phối không tự sửa file.** Hàm `conductRole` (`hooks/parts/consistency.ts`): không được miễn thì mọi Edit, Write, NotebookEdit và lệnh Bash ghi file (theo `isMutation`) của luồng chính bị từ chối, trừ file kế hoạch, không xét việc còn chờ giao, không xét `blockLimit`. Được miễn thì cho chạy. Không điều phối thì `strictDelegation` như 0.8.5. Cổng duyệt kế hoạch và tạm dừng hạn mức vẫn từ chối trước. Lệnh git chỉ đổi lịch sử không bị từ chối. Lời từ chối `conductWriteDenyText` dưới 300 ký tự, không vào sổ lỗi.
+- **R2 (P2): luồng chính đang điều phối không tự chạy kiểm; bằng chứng dùng chung thư mục.** Từ chối Bash có `checkKindOf` (gồm `checkCommands`) và tool trong `checkTools`; lệnh chỉ đọc khác chạy bình thường. `EvidenceEntry.shared` đặt khi tác giả là subagent, luồng chính đang điều phối và lời gọi Agent sinh ra subagent đó không có trường `isolation`; `covers` nhận lần kiểm mang cờ là phủ mọi thay đổi trước nó và là mốc như lần kiểm đạt của luồng chính; `freshTestRun` và `claims.ts` giữ điều kiện chạy sau thay đổi cuối. `trackVerification` nhận `isShared`. Lần test đạt mang cờ của subagent nâng bước done thành verified như lần test của luồng chính (hàm `autoVerify`).
+- **R3 (P3): ngưỡng nhắc đọc.** Option `conductorReads` (mặc định 20, 0 là tắt). Read, Grep, Glob của luồng chính đang điều phối cộng số lần đọc (trừ file kế hoạch và `.focus-conductor/`); chạm bội số thì kết quả kèm dòng nhắc giao subagent tra cứu (dưới 200 ký tự). Không từ chối lời gọi đọc nào.
+- **R4 (P3): việc mới của tin tiếp nối trong mục tiêu lớn giao subagent.** `Policy.goalIsBig` đặt ở ba nơi dựng policy; `parseRoute` coi là điều phối khi kế hoạch của tin là mục tiêu lớn, hoặc tin không phải đối chiếu, relation khác `new` và mục tiêu hiện tại lớn. Request gửi router không đổi một byte.
+- **R5 (P3): số đo.** Dòng Điều phối của `/conductor status` khi đang điều phối có thêm số khác 0 của mục tiêu (từ chối sửa file, từ chối chạy kiểm, tự sửa file, tự chạy kiểm, đọc), nhãn vi và en. Nhật ký: `conduct-deny` (type, n), `conduct-exempt` (state, reason `solo` hay `agent`), `conduct-self` (type, n). Số tự làm và `conduct-self` chỉ ghi khi lời gọi được miễn thật sự chạy (kết quả từ tầng dưới không có `deny`). Band và pane không đổi.
+
+**Test cũ đổi kỳ vọng vì ghim hành vi cũ (giữ tên):**
+
+- `tests/integration/conductor-d1-085.test.ts`, `0.8.5 D1 > blockLimit mặc định: hai lần Edit đầu bị từ chối, lần ba được chạy kèm lời nhắc, lần bốn không kèm`: nay cả bốn lần bị từ chối bằng lời từ chối của vai điều phối, không lời nhắc (R1).
+- `tests/integration/conductor-d1-085.test.ts`, `0.8.5 D1 > đã giao hết việc bằng Agent: Edit ở luồng chính không bị từ chối`: nay bị từ chối (R1).
+- `tests/integration/error-log-l1-079.test.ts`, `sổ 0.8.4 vẫn rỗng; MOD_VERSION là 0.8.4`: kỳ vọng `MOD_VERSION` là 0.8.6.
+
+**Test cũ chỉ đổi cách dựng tình huống (gõ `/conductor solo` trước các lần Edit của luồng chính, điều đang kiểm giữ nguyên):**
+
+- `tests/integration/conductor-c2-084.test.ts`, `0.8.4 C2 > lượt kiểm lạc đề: model là ID Fable`.
+- `tests/integration/conductor-c6-084.test.ts`, `0.8.4 W3 > lượt kiểm lạc đề gửi Fable dù router cũ còn tạm ngừng`.
+- `tests/integration/conductor-c6-084.test.ts`, `0.8.4 W4 > hai lượt kiểm lạc đề gửi Fable đều lỗi: router Fable tạm ngừng, prompt kế gửi router cũ`.
+- `tests/integration/turns-k8-085.test.ts`, `0.8.5 K8 > conductor fable: turn 1 sửa file không lập checklist rồi kết thúc: câu hỏi kiến thức lập mục tiêu mới, luồng chính theo router`.
+
+**Mẫu mới:** `086-R6a` tới `086-R6d`, `086-R1a` tới `086-R1e`, `086-R2a` tới `086-R2f`, `086-R3a` tới `086-R3c`, `086-R4a`, `086-R4b`, `086-R5a` tới `086-R5c`. `086-R5c` (cộng số tự làm cả khi cổng khác từ chối) sống với bộ test của đặc tả, vì cổng duyệt đăng ký trước hook của vai điều phối nên lời gọi bị nó từ chối không tới hook này; thêm ca tầng dưới (quyền của engine) từ chối để bắt.
+
+**Mẫu cũ viết lại (giữ mã):** `079-Y5a` (khớp hai lần sau khi thêm lệnh solo), `085-W2d` (mục đã cất có thêm `conduct`), `085-D1b` (định nghĩa đang điều phối chuyển sang `ctx.isConducting`), `085-D1a` (mức block khi điều phối được thay bằng luật từ chối mới; mẫu nay bỏ luật từ chối sửa file của vai điều phối), `071-M8`, `071-M9`, `075-D1h` (khớp hai lần do `autoVerify`; thêm ngữ cảnh riêng của nhánh luồng chính), `079-V4d`, `079-V4e` (dòng policy có `goalIsBig`). Không bỏ mẫu nào.
+
+**Vòng 2 (rà soát PR 39):**
+
+- **V1 (P3): ghim 9 chỗ logic mới của vai điều phối bằng test**, không đổi `hooks/`: Agent lồng do subagent gọi không đổi cờ miễn (`086-V1a`); Agent bị từ chối khi Fable tạm ngừng không bật cờ (`086-V1b`); đang miễn thì nhánh `strictDelegation: 'block'` không từ chối (`086-V1c`); subagent có `isolation: 'remote'` không dùng chung thư mục (`086-V1d`); lần kiểm mang cờ `shared` là mốc của luồng chính trong `covers` (`086-V1e`, đã có ca bắt trong `tests/evidence/covers-r2-086.test.ts`, không thêm ca); `autoVerify` chỉ nâng khi lần test đạt là lệnh cuối (`086-V1f`, ghi tương đương, lý do ở `scripts/mutants.ts` và VERIFICATION); tin tiếp nối là prompt đối chiếu không chuyển việc sang subagent (`086-V1g`); số đo trên dòng Điều phối chỉ hiện khi đang điều phối (`086-V1h`); lần đọc bị tầng dưới từ chối không được đếm (`086-V1i`). 8 ca mới trong `conduct-r1-086` tới `conduct-r6-086`; không test cũ nào đổi kỳ vọng hay đổi tên.
+
 ## Thay đổi 0.8.5: mục tiêu đang dở, mục tiêu đã cất, vai điều phối
 
 Xử lý các tồn đọng tìm ra khi rà soát tổng thể 0.8.4 [Nguồn: chủ mod, 11/11/2026]. Lời dặn router, schema JSON router trả, schema tool `plan` và golden không đổi. Mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu đột biến `085-*`; số ca đỏ đo trên `87023af` ở VERIFICATION.

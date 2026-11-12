@@ -3,7 +3,7 @@
 import { atom, derive, read, update } from 'claude-code'
 import { caught, noteBehavior, noteHookError, noteMistyped } from '../lib/errlog'
 import type { ApprovalState, Brief, Core, Depth, Mode, QuotaCheckpoint, Warning } from '../../types'
-import { blockerText, isMainConducting } from '../lib/conductor'
+import { blockerText, isBigGoal, isMainConducting } from '../lib/conductor'
 import { fableStep } from './fable'
 import { briefFromCheckpoint, changedFiles, storeKey } from '../lib/checkpoint'
 import { openSteps, restorableSteps } from '../lib/drift'
@@ -314,7 +314,7 @@ export function registerSession(on: On, ctx: Ctx): void {
     // Số phần tối đa của việc tách (0.7.9 F1) theo option và theo việc engine đã từ chối phiên con hay chưa.
     const basePolicy = ctx.routePolicy(before, ctx.maxForks >= 2 ? await $.session.root().catch(caught('session.root', null)) : null)
     // Fable điều phối (0.8.4 C4): điều phối khả dụng thì router dùng biến thể điều phối và parseRoute kẹp việc sửa file của việc lớn.
-    const rules = ctx.conductorState(before, current, (await read($, headlessState)) === true) === null ? { ...basePolicy, conductor: true } : basePolicy
+    const rules = ctx.conductorState(before, current, (await read($, headlessState)) === true) === null ? { ...basePolicy, conductor: true, goalIsBig: isBigGoal(before.brief) } : basePolicy
     // Model của lượt router (0.8.4 C2): Fable khi sẵn sàng, không thì option router. Tạm ngừng router cũ chỉ áp khi không gọi Fable (C6).
     const target = ctx.routerTarget(before, current, (await read($, headlessState)) === true)
     const isPaused = !target.isFable && isRouterPaused()

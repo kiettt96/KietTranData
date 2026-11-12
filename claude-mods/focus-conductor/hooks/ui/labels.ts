@@ -140,6 +140,8 @@ const VI = {
   conductorOn: 'Điều phối: fable/medium, đang điều phối',
   conductorPaused: (fallback: string) => `Điều phối: Fable tạm ngừng, router dùng ${fallback}`,
   conductorOff: (reason: string) => `Điều phối: tắt (${reason})`,
+  conductExempt: (reason: 'solo' | 'agent') => `đang miễn (${reason === 'solo' ? 'lệnh solo' : 'Agent bị từ chối'})`,
+  conductCounts: { deniedWrites: 'từ chối sửa file', deniedChecks: 'từ chối chạy kiểm', selfWrites: 'tự sửa file', selfChecks: 'tự chạy kiểm', reads: 'đọc' },
   conductorReason: {
     option: 'option conductor là off',
     mode: 'chế độ điều phối không phải auto',
@@ -298,6 +300,8 @@ const EN: typeof VI = {
   conductorOn: 'Conductor: fable/medium, conducting',
   conductorPaused: (fallback: string) => `Conductor: Fable paused, router on ${fallback}`,
   conductorOff: (reason: string) => `Conductor: off (${reason})`,
+  conductExempt: (reason: 'solo' | 'agent') => `exempt (${reason === 'solo' ? 'solo command' : 'Agent call refused'})`,
+  conductCounts: { deniedWrites: 'edits refused', deniedChecks: 'checks refused', selfWrites: 'own edits', selfChecks: 'own checks', reads: 'reads' },
   conductorReason: {
     option: 'conductor option is off',
     mode: 'routing mode is not auto',
@@ -394,6 +398,19 @@ export function taskLabel(l: typeof VI, row: { kind: 'main' | 'direct' | 'agent'
   if (row.index !== undefined && hasTitleCode(row.title)) return row.title
   const head = row.kind === 'main' ? l.taskMain : row.index !== undefined ? l.taskNumber(row.index) : l.taskOwn
   return `${head}: ${row.title}`
+}
+
+/**
+ * Phần nối sau dòng Điều phối của /conductor status khi luồng chính đang điều phối (0.8.6): trạng thái miễn kèm lý do, rồi số đo của mục
+ * tiêu (số bằng 0 bỏ khỏi dòng). Pane và band không dùng phần này.
+ */
+export function conductStatusSuffix(state: { solo: boolean; agentDenied: boolean; deniedWrites: number; deniedChecks: number; selfWrites: number; selfChecks: number; reads: number }, lang: Lang): string {
+  const l = labels(lang)
+  const exempt = state.solo ? l.conductExempt('solo') : state.agentDenied ? l.conductExempt('agent') : ''
+  const keys = ['deniedWrites', 'deniedChecks', 'selfWrites', 'selfChecks', 'reads'] as const
+  const counts = keys.filter(key => state[key] > 0).map(key => `${l.conductCounts[key]} ${state[key]}`)
+  const parts = [exempt, ...counts].filter(Boolean)
+  return parts.length > 0 ? `; ${parts.join(', ')}` : ''
 }
 
 /** Dòng Điều phối của pane và /conductor status (0.8.4 C8), theo trạng thái điều phối trong Core. */

@@ -107,6 +107,8 @@ describe('0.8.4 W3: vẫn gọi Fable khi router cũ còn tạm ngừng', () => 
 
   test('lượt kiểm lạc đề gửi Fable dù router cũ còn tạm ngừng', { options: { planApproval: 'off', conductor: 'fable' } }, async ($, on) => {
     const seen = await bothPaused($, on)
+    // 0.8.6 R1: luồng chính đang điều phối không tự sửa file; solo để các lần Edit dựng tình huống được chạy.
+    await conductor($, 'solo')
     for (const f of ['a', 'b', 'c', 'd', 'e']) await $.tool.call({ tool: 'Edit', file_path: `src/${f}.ts`, old_string: 'x', new_string: 'y' } as never)
     expect(seen.routerCalls.filter(c => c.kind === 'drift').map(c => c.model)).toEqual([ID])
   })
@@ -135,6 +137,8 @@ describe('0.8.4 W4: nhật ký nguyên nhân, lượt kiểm lạc đề và ID 
     on('turn.complete', () => ({ text: '' }))
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
     await submit($, 'Sửa luồng thanh toán')
+    // 0.8.6 R1: luồng chính đang điều phối không tự sửa file; solo để các lần Edit dựng tình huống được chạy.
+    await conductor($, 'solo')
     for (let i = 0; i < 10; i++) {
       if (i === 5) await seen.clock.advance(600_000)
       await $.tool.call({ tool: 'Edit', file_path: `src/f${i}.ts`, old_string: 'x', new_string: 'y' } as never)

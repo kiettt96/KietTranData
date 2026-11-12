@@ -1355,7 +1355,32 @@ export function conductorContext(): string {
   return (
     '[focus-conductor] Điều phối: luồng chính là vai điều phối, chạy fable/medium. Lập kế hoạch, rồi giao từng việc bằng Agent đúng loại ' +
     'agent, model, effort đã phân, description mở đầu bằng "Việc N". Mỗi lời giao tự đứng được: mục tiêu, phạm vi file, ràng buộc, tiêu ' +
-    'chí xong và lệnh kiểm. Đọc kết quả, đối chiếu yêu cầu trước khi đóng bước. Chỉ tự sửa file khi chỉnh vài dòng để ráp kết quả.'
+    'chí xong và lệnh kiểm. Không tự sửa file, không tự chạy lệnh kiểm: chỉnh nhỏ gom vào một lời giao, lệnh kiểm giao một subagent chạy ' +
+    'và báo tóm tắt. Đọc kết quả, đối chiếu yêu cầu trước khi đóng bước.'
+  )
+}
+
+/** Trần lời từ chối và dòng nhắc của vai điều phối (0.8.6). */
+export const CONDUCT_DENY_CHARS = 300
+
+/** Dòng nhắc đọc của vai điều phối (0.8.6 R3): kèm kết quả lời gọi đọc khi số lần đọc của mục tiêu chạm bội số của conductorReads. */
+export function conductReadText(reads: number): string {
+  return `[focus-conductor] Vai điều phối đã đọc ${reads} lần trong mục tiêu này; việc tra cứu khối lượng lớn nên giao subagent Explore và nhận tóm tắt.`
+}
+
+/** Lời từ chối khi luồng chính đang điều phối tự chạy lệnh kiểm (0.8.6 R2). */
+export function conductCheckDenyText(): string {
+  return (
+    '[focus-conductor] Luồng chính đang giữ vai điều phối: vai điều phối không tự chạy lệnh kiểm. Giao một subagent chạy lệnh này và báo ' +
+    'tóm tắt đạt hay lỗi, kèm dòng lỗi. Không giao được thì người dùng gõ /conductor solo.'
+  )
+}
+
+/** Lời từ chối khi luồng chính đang điều phối tự sửa file (0.8.6 R1). */
+export function conductWriteDenyText(): string {
+  return (
+    '[focus-conductor] Luồng chính đang giữ vai điều phối: vai điều phối không tự sửa file. Giao việc này bằng Agent theo phân việc, gom ' +
+    'các chỉnh nhỏ vào một lời giao. Không giao được thì người dùng gõ /conductor solo.'
   )
 }
 
@@ -1364,5 +1389,5 @@ export const CONDUCTOR_KEEP_CHARS = 200
 
 /** Câu nhắc lại vai điều phối (0.8.4 V1): nối vào lời nhắc sau nén và ngữ cảnh chạy tiếp khi luồng chính đang điều phối. */
 export function conductorKeepText(): string {
-  return '[focus-conductor] Vẫn là vai điều phối chạy fable/medium: giao việc sửa file bằng Agent theo phân việc, lời giao tự đứng được; đối chiếu kết quả với yêu cầu trước khi đóng bước.'
+  return '[focus-conductor] Vẫn là vai điều phối chạy fable/medium: không tự sửa file, không tự chạy kiểm; giao bằng Agent theo phân việc, lời giao tự đứng được; đối chiếu kết quả trước khi đóng bước.'
 }

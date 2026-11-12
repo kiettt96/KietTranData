@@ -7,7 +7,7 @@ import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import type { Core, PlanStep } from '../../types'
 import * as S from '../../hooks/lib/state'
-import { base, plan, step, submit } from '../support/engine'
+import { base, conductor, plan, step, submit } from '../support/engine'
 import type { Json, Seen } from '../support/engine'
 import { makeBrief } from '../support/commands'
 
@@ -50,6 +50,8 @@ describe('0.8.5 K8: mục tiêu lớn không checklist hết là mục tiêu đa
       await submit($, A)
       await $.turn.start({ text: 'làm', turnId: 't1' })
       await step($, seen, { turnId: 't1' })
+      // 0.8.6 R1: luồng chính đang điều phối không tự sửa file; solo để lần Edit dựng turn thực thi được chạy.
+      await conductor($, 'solo')
       await $.tool.call({ tool: 'Edit', file_path: 'src/phi.ts', old_string: 'a', new_string: 'b' } as never)
       await complete($, 't1')
       await submit($, 'git rebase là gì?')
