@@ -11,10 +11,10 @@ index 07a4a98..5d5975f 100644
    "description": "Một model Claude (router) đọc kỹ prompt trước khi làm và điều phối model/effort/agent cho từng việc; mod kiểm, ép điều phối lúc chạy, giữ nhất quán mục tiêu với checklist và cảnh báo lạc đề.",
    "types": "./types/index.d.ts",
 diff --git a/claude-mods/focus-conductor/CHANGELOG.md b/claude-mods/focus-conductor/CHANGELOG.md
-index 1ba7dac..0b63faf 100644
+index 1ba7dac..4be273a 100644
 --- a/claude-mods/focus-conductor/CHANGELOG.md
 +++ b/claude-mods/focus-conductor/CHANGELOG.md
-@@ -2,6 +2,39 @@
+@@ -2,6 +2,44 @@
  
  Các bản của focus-conductor, mới nhất trước. Số đo kiểm chứng của HEAD hiện tại nằm ở [docs/VERIFICATION.md](docs/VERIFICATION.md); cách dùng và tùy chọn ở [README](README.md).
  
@@ -48,6 +48,11 @@ index 1ba7dac..0b63faf 100644
 +- 25 tệp test giao diện cũ: chỉ thêm `isCollapsed: false` vào props (K11), kỳ vọng hành vi không đổi.
 +
 +**Ca mới ngoài các điểm:** `0.8.4 A1 > đang awaitingAnswer, tin chen ngang giữa turn, ...` bắt mẫu `078-G9c`, mẫu sống ở lượt đột biến của 0.8.5 và cả trên `87023af` (chỉ đổi `tests/`).
++
++**Vòng 2 (rà soát PR 38):**
++
++- **W1 (P3): tiếp tục sau một câu hỏi kiến thức quay lại việc cũ.** Việc chen vào đã xong, câu hỏi kiến thức thành mục tiêu hỏi đáp; turn trả lời không phải turn thực thi nên `resumeTarget` không quay lại. Nay mục tiêu hiện tại `kind` là `answer` thì không đòi turn thực thi; điều kiện turn gần nhất không bị ngắt giữ nguyên, các `kind` khác giữ luật D3. Mẫu `085-W1a`; viết lại `085-D3a` cùng mã vì dòng `old` mất chỗ khớp.
++- **W2 (P3): ghim 8 hành vi bằng test**, không đổi `hooks/`: trạng thái duyệt của mục đã cất khi checklist đã đóng hết, cờ đã dặn hỏi làm rõ sau khi khôi phục, số turn khi cất và khi khôi phục (ca đơn vị trên state), đoạn dặn điều phối và đoạn dặn planning ở nhánh `routerSkip` khôi phục, turn của prompt router lỗi được đếm, dòng báo đã lưu mục tiêu của `/conductor goal`. Mẫu `085-W2a` tới `085-W2h`.
 +
 +**Mẫu cũ viết lại (giữ mã):** `070-D2`, `070-L9`, `075-B12b`, `075-B12c`, `075-B12f`, `075-M5i`, `084-A1e`, `084-A1g`, `084-A2a`, `084-A2b`, `084-A2c`, `084-A2d`, `084-C6c`, `084-W4d`, `084-Z1a`, `084-Z2c`, `084-Z2d`, `084-Z2e`; mẫu mới `085-K2c`, `085-K3a`, `085-K6a`, `085-D2b` viết lại trong cùng bản. **Mẫu bỏ:** `084-A2e`, vì điều kiện số mục tiêu liền trước không còn trong mã sau K5.
 +
@@ -117,7 +122,7 @@ index 30a8694..c3a7d2c 100644
  - Yêu cầu chen ngang (0.7.8) dựa vào `turnId` engine gửi kèm `prompt.submit` và dòng attachment `queued_command` (door `delivery`) khi engine chèn tin vào turn đang chạy; tên attachment do engine đặt và có thể đổi giữa các bản. Mới kiểm bằng bộ test của engine, chưa kiểm trên phiên tương tác thật.
  - Cổng lệnh kiểm chưa đạt (0.7.8, ba lượt nâng mức) giả định lần chặn Stop cho Claude chạy tiếp trong cùng turn; khai báo kiểu của engine 2.1.296 không nói rõ điều này. Mới kiểm bằng bộ test của engine, chưa kiểm với Claude thật. Lệnh kiểm do trình chạy không có parser (script đóng gói như `npm run test`) chỉ được phủ bởi lần chạy đạt của đúng lệnh đó.
 diff --git a/claude-mods/focus-conductor/docs/DESIGN.md b/claude-mods/focus-conductor/docs/DESIGN.md
-index 9d4dfd1..131eff2 100644
+index 9d4dfd1..2208f9c 100644
 --- a/claude-mods/focus-conductor/docs/DESIGN.md
 +++ b/claude-mods/focus-conductor/docs/DESIGN.md
 @@ -201,7 +201,7 @@ Không điểm nào nới cổng kiểm. Schema tool `plan` không đổi; hai s
@@ -154,7 +159,7 @@ index 9d4dfd1..131eff2 100644
 +- **Mục tiêu đang dở** (`isPendingGoal`, `hooks/lib/conductor.ts`, nơi duy nhất viết điều kiện). Có brief, không phải đối chiếu, và thỏa ít nhất một điều: checklist còn bước mở; cổng duyệt `planning` hay `presented`; mục tiêu lớn (`isBigGoal`), checklist trống và chưa có turn thực thi nào của luồng chính cho mục tiêu này kết thúc. Dùng chung cho tin ngoài lề (`isAside`), cất mục tiêu (`archiveOf` qua `pendingOf`), giữ mục tiêu khi router xếp `new` tin cậy thấp (`isLowNew` qua option `isPending` của `nextBrief`) và quay lại mục tiêu đã cất (`archivedPending`, `resumeTarget`).
 +- **Theo dõi turn của mục tiêu** (K8). `Core.goalTurns { goalId, done, interrupted }`, mặc định `{ -1, 0, false }`. Ghi ở hook `turn.complete` của luồng chính (`hooks/parts/consistency.ts`): turn thực thi theo `isExecuting(L.tracker, L.promptIntent)` như cổng Stop; `L.promptIntent` null (router lỗi, nạp lại mod) thì tính là turn thực thi; turn bị ngắt khi `reason` là `aborted` hay `isAborted` đúng [Giả định: tên trường lấy theo cách mã và test của mod đang dùng, vì khai báo kiểu của engine không sinh được trong phiên phát triển 0.8.5]. `turnsOf` trả 0 và false cho mục tiêu khác, nên đổi mục tiêu thì tự về 0.
 +- **Mục tiêu đã cất** (K2, K3). `archiveOf` cất mục tiêu hiện tại khi checklist còn bước mở hay đang chờ, hoặc khi mục tiêu đang dở dù chưa có checklist; `ARCHIVE_LIMIT` giữ 3. Mỗi mục đã cất mang `approval` (trạng thái duyệt lúc cất) và `turns` (`done`, `interrupted`); vắng ở trạng thái của bản cũ là `none` và 0, false. `restoreArchived` đặt `Core.approval` theo trạng thái đã cất cho số mục tiêu mới (`rounds` 0, `awaitingAnswer` false; `planning` và `presented` vẫn chặn sửa file) và `Core.goalTurns` theo `turns` đã cất. Mục tiêu chưa có checklist được cất thì có dòng `droppedGoalNotice`, quay lại thì có `restoreGoalOnlyContext`; đang `planning` thì kèm `planningContext()`.
-+- **Luật quay lại** (`resumeTarget`, `hooks/lib/state.ts`; K5, D3). Tin bảo chạy tiếp (intent `resume` sau bước kẹp, không chạy tiếp điểm dừng) quay lại khi mục tiêu hiện tại không còn dở; checklist hiện tại trống thì còn cần ít nhất một turn thực thi đã kết thúc và turn luồng chính gần nhất không bị ngắt. Mục được chọn là mục đã cất gần nhất còn dở, duyệt từ mới tới cũ; bỏ điều kiện số mục tiêu liền trước của 0.8.4. Checklist hiện tại có bước, đã đóng hết và không còn mục đã cất nào đang dở thì context là `nothingLeftContext()` thay dòng chạy tiếp; checklist trống vẫn dùng `intentResumeContext`.
++- **Luật quay lại** (`resumeTarget`, `hooks/lib/state.ts`; K5, D3). Tin bảo chạy tiếp (intent `resume` sau bước kẹp, không chạy tiếp điểm dừng) quay lại khi mục tiêu hiện tại không còn dở; checklist hiện tại trống thì còn cần ít nhất một turn thực thi đã kết thúc và turn luồng chính gần nhất không bị ngắt. Mục tiêu hỏi đáp (`kind` là `answer`, vòng 2 PR 38 W1) không có turn thực thi nên không đòi vế turn thực thi; vế turn gần nhất không bị ngắt vẫn áp. Mục được chọn là mục đã cất gần nhất còn dở, duyệt từ mới tới cũ; bỏ điều kiện số mục tiêu liền trước của 0.8.4. Checklist hiện tại có bước, đã đóng hết và không còn mục đã cất nào đang dở thì context là `nothingLeftContext()` thay dòng chạy tiếp; checklist trống vẫn dùng `intentResumeContext`.
 +- **Nhánh khôi phục** (K4, K6, K7). Tin chen ngang khôi phục mục tiêu lớn thì không chèn `conductorContext()` và không ghi `Core.fable.briefedGoal`; prompt kế tiếp ngoài turn dặn theo cơ chế chung. Sau khi khôi phục, `L.lastPrompt.prev` là brief vừa khôi phục, nên `/conductor reroute` áp kết quả lên đúng mục tiêu. Nhánh `routerSkip` dùng cùng `resumeTarget` trên Core đọc mới, ghi `restore` với `cause: 'resume'`, không gọi router và không cộng chi phí router; tin chạy tiếp một điểm dừng đang mở giữ ưu tiên.
 +- **Cờ chờ câu trả lời** (K1). `awaitingAnswer` chỉ tắt khi tin được xử lý như câu trả lời hay yêu cầu. Giữ khi tin ngoài lề, khi intent sau bước kẹp là `status` hay `resume` (gồm `approve` bị kẹp thành `resume`), và khi tin đi nhánh `routerSkip`. Router lỗi thì intent là `task` và cờ được xóa như 0.8.3.
 +- **strictDelegation khi điều phối** (D1). Luồng chính giữ vai điều phối cho mục tiêu hiện tại (`isMainConducting`, option `conductor` là `fable`) thì mức hiệu dụng là `block` dù option là `off` hay `remind`: lần sửa file khi còn việc ghi giao subagent chưa giao bị từ chối tối đa `blockLimit` lần mỗi mục tiêu bằng `blockText` có sẵn. Dòng `isStrict` của lời nhắc theo option `strictDelegation` như 0.8.4 [Nguồn: quyết định của chủ mod, 11/11/2026: nhắc ở mọi lần thay đổi làm phiên dài với `conductor: 'fable'` chèn 24.489 và 65.401 ký tự, đo trực tiếp]. Không điều phối thì theo option như 0.8.4.
@@ -166,10 +171,10 @@ index 9d4dfd1..131eff2 100644
  ## Vá cổng duyệt kế hoạch và dòng tổng kết (0.8.3)
  
 diff --git a/claude-mods/focus-conductor/docs/VERIFICATION.md b/claude-mods/focus-conductor/docs/VERIFICATION.md
-index 4729fc0..8bb8a54 100644
+index 4729fc0..8bdff3c 100644
 --- a/claude-mods/focus-conductor/docs/VERIFICATION.md
 +++ b/claude-mods/focus-conductor/docs/VERIFICATION.md
-@@ -2,7 +2,24 @@
+@@ -2,7 +2,48 @@
  
  Số đo của HEAD hiện tại và của các bản trước. Mọi số do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển] trừ khi nêu khác; hợp đồng đối chiếu evidence ở [DESIGN.md](DESIGN.md), lịch sử thay đổi ở [CHANGELOG.md](../CHANGELOG.md), cách dùng ở [README](../README.md).
  
@@ -191,7 +196,31 @@ index 4729fc0..8bb8a54 100644
 +- **Mẫu mới (31), chạy riêng từng mẫu trên tệp test của điểm** [Đo trực tiếp]: `085-K2a` 7 đỏ, `085-K2b` 2, `085-K2c` 4, `085-K2d` 2; `085-K3a` 3, `085-K3b` 3, `085-K3c` 4; `085-K8a` 2, `085-K8b` 2; `085-K1a` 2, `085-K1b` 2, `085-K1c` 1; `085-K5a` 1, `085-K5b` 1; `085-D3a`, `085-D3b`, `085-K4a`, `085-K6a`, `085-K7a`, `085-K7b`, `085-D1a`, `085-D1b`, `085-D1c`, `085-D2a`, `085-D2b` mỗi mẫu 1; `085-K10a` 3. `085-K5a` sống ở lần đầu, nên thêm ca mục đã cất gần nhất chỉ còn bước waiting. `085-D2b` ở bản đầu là mẫu tương đương, viết lại thành bỏ cả `needsApproval` lẫn điều kiện độ sâu. Mọi mẫu được xác nhận dòng `old` khớp đúng một chỗ.
 +- **Đột biến cho vùng đã đổi** [Đo trực tiếp]: 146 mẫu có dòng `old` nằm trong vùng diff so với `87023af` (cộng trừ 20 dòng), gồm các mẫu mới và mẫu viết lại; `075-D1h` đã đánh dấu tương đương từ trước. Bộ chạy hai pha ngoài repo: pha 1 chạy 35 tệp test liên quan, mẫu còn sống chạy cả bộ test ở pha 2 bằng `scripts/mutate.ts --jobs 2`. Pha 1: 85 bị bắt. Pha 2: 59 mẫu, 58 bị bắt, 1 sống là `078-G9c`. Mẫu này sống cả trên `87023af` (1 mẫu, 0 đỏ trên cả bộ), tức lỗ hổng có từ trước: chưa ca nào cho tin chen ngang giữa turn khi đang chờ câu trả lời. Ca mới ở `3113283` (chỉ đổi `tests/`) bắt mẫu này, 1 đỏ. Bốn mẫu `075-B14c`, `075-D1h`, `075-S5G`, `078-G9n` không có kết quả trong sổ của lượt trước nên chạy lại trên cả bộ cùng `078-G9c`: `075-B14c` 8 đỏ, `075-S5G` 3, `078-G9n` 5, `078-G9c` 1; `075-D1h` 0 đỏ, harness báo EQUIVALENT như đã đánh dấu. Tổng của vùng: 145 bị bắt, 1 tương đương có lý do từ trước, 0 sống sót cuối. Lượt pha 1 đầu dừng ở 84/100 vì giới hạn thời gian chạy nền; 16 mẫu còn lại chạy ở lượt sau trên cùng mã. Một lỗi đọc mẫu của bộ chạy ngoài repo ghi nhầm `060-K9` là bị bắt; sửa bộ chạy rồi chạy lại: 8 đỏ.
 +- **Hai số phiên dài** trên `92151c9`, cùng `hooks/` với `3113283` [Đo trực tiếp]: 10.339 và 19.587 với `conductor` mặc định, như 0.8.4. Với `conductor: 'fable'`: 10.696 và 19.943; số đầu hơn 0.8.4 1 ký tự, vì một lần từ chối của D1 đẩy cảnh báo phạm vi đầu tiên từ lô 1 sang lô 21. Mọi dòng context mới không quá 300 ký tự.
-+- **CI** [Đo trực tiếp]: run 43003239532 xanh trên `3f23cbb`. Run của commit cuối ghi ở mô tả PR.
++- **CI** [Đo trực tiếp]: run 43003239532 xanh trên `3f23cbb`; run 43091422849 xanh trên `d2d97fb`.
++
++### Vòng 2 (rà soát PR 38): W1, W2
++
++- **Probe W1 trên `d2d97fb`** [Đo trực tiếp, test trong `resume-a2-084`, `planApproval: 'off'`]: A substantial, edit, còn 2 bước mở, bị B (new, edit, light, 0,97) thay; B lập 1 bước và đóng. Câu hỏi kiến thức theo dạng bản ghi `explain` thành mục tiêu C, vì không còn mục tiêu đang dở. Turn của C bắt đầu, có `turn.step`, kết thúc với `reason: 'answer'`, `isAborted: false`. Tin "tiếp tục" (router trả `continue`, `resume`, `light`): mục tiêu vẫn là C, checklist trống, không có dòng `restore`. Lý do: `resumeTarget` đòi `done >= 1` khi checklist trống, mà turn trả lời không phải turn thực thi.
++- **Test đỏ** [Đo trực tiếp]: W1 1/2 trên `d2d97fb` (`b75ad01`). Ca xanh trên mã cũ là ca turn của C bị ngắt, giữ hành vi. Sửa ở `3eb4ed8`. Ba ca D3 có sẵn giữ kết quả. W2 (`35914ab`) chỉ thêm test và mẫu, không đổi `hooks/`.
++- **Mẫu mới (9), chạy riêng từng mẫu trên tệp test của nó** [Đo trực tiếp]:
++  - W1: `085-W1a` 1 đỏ.
++  - W2: `085-W2a` 1, `085-W2b` 1, `085-W2c` 1, `085-W2d` 2, `085-W2e` 1, `085-W2f` 1, `085-W2g` 2, `085-W2h` 1.
++  - Mẫu cũ viết lại cùng mã: `085-D3a`, vì dòng `old` mất chỗ khớp; 1 đỏ.
++
++  Không mẫu nào phải ghi là tương đương. Mọi mẫu được xác nhận dòng `old` khớp đúng một chỗ.
++- **Ghi chú test W2** [Đo trực tiếp]:
++  - W2c, W2d: số turn đã cất không đổi hành vi hook nào. Nó chỉ có tác dụng khi checklist trống, mà mục tiêu lớn chưa có checklist chỉ được cất khi chưa có turn thực thi. Vì vậy hai mẫu này được ghim bằng ca đơn vị trên `adoptGoal`, `restoreArchived` và `turnsOf`.
++  - W2b: bản đầu của ca không bắt được mẫu. Tin của B có chung chữ với mục tiêu A đang chờ câu trả lời, nên bị giữ thành câu trả lời (`answer-held`) và A không bị cất. Đổi chữ của tin B và thêm kiểm mục tiêu đã đổi thì ca bắt được mẫu.
++- **Bộ test** trên `35914ab`, chạy riêng, không song song với lượt đột biến [Đo trực tiếp]: 3253 test trên 281 tệp, 0 lỗi, 258,83 giây. So tên ca đạt với `d2d97fb` (3242 ca): thêm 11 ca, không ca nào mất hay đổi tên, không test cũ nào đổi kỳ vọng.
++- **Kiểm tĩnh** trên `35914ab` [Đo trực tiếp]:
++  - `claude plugin validate` đạt ở thư mục mod và ở gốc repo.
++  - `version-check` khớp 0.8.5, README đủ 41 option.
++  - `mutate --check` khớp 2131/2131.
++  - sha256 `hooks/` `43432338260cf46a850df6de4270929439a9385d43a3c9f1cbc3ec8d99796c6b`, `tests/` `b98536586e809a4b5a68025144e198bdce6662829e4feb057c7d8393fa95a4eb`.
++- **Request router không đổi** [Đo trực tiếp]: ca ghim sha256 `546aea94…` xanh; `git diff d2d97fb -- tests/golden` rỗng.
++- **Chạy lại vùng diff của vòng 2** [Đo trực tiếp]: vùng diff so với `d2d97fb` chỉ ở `hooks/lib/state.ts`, dòng 582 tới 592. Có 12 mẫu có dòng `old` trong khoảng cộng trừ 20 dòng của vùng đó, gồm `085-W1a`, `085-W2a` và `085-D3a` đã viết lại. Bộ chạy hai pha, engine 2.1.296. Kết quả: 12 bị bắt, 11 ở pha 1 và `070-D1` ở pha 2 với 1 đỏ; 0 sống, 0 lỗi. Không chạy lại 146 mẫu của vòng 1.
++- **Hai số phiên dài** trên `35914ab` [Đo trực tiếp]: 10.339 và 19.587 với `conductor` mặc định; 10.696 và 19.943 với `conductor: 'fable'`, không đổi so với `d2d97fb`.
++- **CI** [Đo trực tiếp]: run của commit cuối ghi ở mô tả PR.
  
  Nhánh tách từ `main` `4a6c04c` (0.8.3). Thứ tự S1, S2, C1 tới C8; mỗi điểm một commit test đỏ rồi một commit sửa, riêng S1, S2 chỉ thêm test; không amend, không force-push, không merge [Đo trực tiếp].
  
