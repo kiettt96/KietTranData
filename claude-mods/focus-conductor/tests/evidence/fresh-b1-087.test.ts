@@ -46,8 +46,8 @@ describe('0.8.7 B1: lần test lỗi chạy sau lần đạt', () => {
     edit(log)
     pass(log)
     const passed = log.commands.at(-1)
-    noteEvidence(log, { tool: 'Bash', input: { command: 'bun test && echo xong' }, isError: true, isReadOnly: false, output: JS.bun_pass }, 'main')
-    expect(log.commands.at(-1)?.chained).toBe(true)
+    noteEvidence(log, { tool: 'Bash', input: { command: 'bun test && bun run build' }, isError: true, isReadOnly: false, output: JS.bun_pass }, 'main')
+    expect(log.commands.some(c => c.check === 'test' && c.chained === true && c.seq > (passed?.seq ?? 0))).toBe(true)
     expect(freshTestRun(log)).toBe(passed)
   })
 
