@@ -2,6 +2,42 @@
 
 Số đo của HEAD hiện tại và của các bản trước. Mọi số do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển] trừ khi nêu khác; hợp đồng đối chiếu evidence ở [DESIGN.md](DESIGN.md), lịch sử thay đổi ở [CHANGELOG.md](../CHANGELOG.md), cách dùng ở [README](../README.md).
 
+## Kiểm chứng của 0.8.6 (vai điều phối không tự thực thi)
+
+Nhánh tách từ `main` `473bc75` (0.8.5, plugin.json 0.8.5, đã kiểm trước khi bắt đầu). Thứ tự R6, R1, R2, R3, R4, R5; mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `086-*`; không amend, không force-push, không merge [Đo trực tiếp]. Engine của mọi lượt đo dưới đây là 2.1.296, cài riêng ngoài repo; engine của phiên phát triển là 2.1.322.
+
+- **Tái hiện trên `473bc75`** [Đo trực tiếp, probe ngoài repo, `conductor: 'fable'`, mục tiêu substantial, edit]:
+  - R1: đã giao hết việc rồi Edit bốn file ở luồng chính: cả bốn lần chạy; checklist việc rỗng: ba lần chạy; còn việc ghi chưa giao: từ chối, từ chối, chạy, chạy.
+  - R2: `bun test` của luồng chính chạy, không kèm lời nhắc nào.
+  - R3: 25 lần Read liên tiếp ở luồng chính: không dòng nhắc nào.
+  - R4: tin bổ sung amend light có việc "Thêm log" chạy ở luồng chính: việc không vào danh sách giao, ba lần Edit sau đó đều chạy.
+- **Lược đồ tool Agent** [Đo trực tiếp, chuỗi trong gói engine]: cả 2.1.296 và 2.1.322 có trường `isolation` với giá trị `"worktree"` hay `"remote"`. Lời gọi Agent không có trường này được coi là chạy chung thư mục với luồng chính.
+- **Test đỏ, đo trên `473bc75`** [Đo trực tiếp]: R6 12/14 (`d52542d`), R1 cùng các ca D1 đổi kỳ vọng 9/16 (`e300504`, 10 đỏ trên HEAD của R6), R2 6/19 (`bc207dd`), R3 5/7 (`e9a9b92`), R4 2/7 (`2275c99`), R5 4/6 (`7c33f9d`). Ca xanh trên mã cũ là các ca giữ hành vi (conductor mặc định, mục tiêu light, lời gọi của subagent, Read của subagent, routerRequest không đổi). Sửa ở `d177d50`, `67487c8`, `e402118`, `0480250`, `9069104`, `2a35cf1`. Ca thứ 7 của R5 (tầng dưới từ chối khi đang miễn) thêm cùng commit sửa, vì `086-R5c` sống trên sáu ca đầu: cổng duyệt kế hoạch nằm ngoài hook của mod nên không đi tới chỗ đếm.
+- **Chỗ `author === 'main'` trong `hooks/`** [Đo trực tiếp]: đã xử lý cờ `shared` ở `drift/evidence.ts` `covers` (hai chỗ: trả sớm và bộ lọc `lastMain`) và `drift/tracker.ts` `onPass`. Giữ nguyên `tracker.ts` `onWrite` (`mutationsSinceCheck`, nhịp nhắc checkpoint của luồng chính) và `unverifiedText` (được xóa qua `markVerified` khi lần kiểm mang cờ đạt).
+- **Bộ test** trên `a026a7f`, chạy riêng, không song song với lượt đột biến [Đo trực tiếp]: `claude plugin test .` 3318 test trên 288 tệp, 0 lỗi, 369,25 giây. So tên ca đạt với `473bc75` (3253 ca): thêm 65 ca, không ca nào mất hay đổi tên. Test cũ đổi kỳ vọng hay đổi cách dựng tình huống, giữ tên: ghi ở CHANGELOG, tách hai nhóm.
+- **Kiểm tĩnh** trên `a026a7f` [Đo trực tiếp]:
+  - `claude plugin validate` đạt ở thư mục mod và ở gốc repo.
+  - `version-check` khớp 0.8.6, README đủ 42 option.
+  - `mutate --check` khớp 2154/2154 mẫu.
+  - sha256 `hooks/` `cfbb02668bcb1508e7e0065038630cf2dc79affd9022a80a3e9c46e337601d9e`, `tests/` `76a3f03960a1c5e32799466c5f75d5cb87b87873839d008520f194cc279a752e` (theo `scripts/mutate.ts`).
+  - `tsc` chưa chạy: khai báo kiểu của engine vẫn không sinh được, như 0.8.5.
+- **Request router không đổi** [Đo trực tiếp]: sha256 của `splitRule(routerSystem(), 0)` là `546aea945e97d93529e56d04bc1357ad7c3d872f2a70eb0a98b5f19b1fc6ca43` và của biến thể điều phối là `435ab993183eac396b56193ed36436099941e0ece9804dfbdc3c43e436f33ed0`, trùng `473bc75`; request của tin bổ sung trong chuỗi R4 ghim sha256 `e98a37c2…` đo trên `473bc75`; `git diff 473bc75 -- tests/golden` rỗng, golden không ghi lại; schema router và schema `plan` không đổi.
+- **Mẫu mới (23), chạy riêng từng mẫu trên 22 tệp test liên quan** [Đo trực tiếp]:
+  - R6: `086-R6a` 3 đỏ, `086-R6b` 8, `086-R6c` 8, `086-R6d` 4.
+  - R1: `086-R1a` 13, `086-R1b` 8, `086-R1c` 11, `086-R1d` 6, `086-R1e` 64.
+  - R2: `086-R2a` 10, `086-R2b` 14, `086-R2c` 8, `086-R2d` 4, `086-R2e` 8, `086-R2f` 5.
+  - R3: `086-R3a` 4, `086-R3b` 4, `086-R3c` 5.
+  - R4: `086-R4a` 4, `086-R4b` 3.
+  - R5: `086-R5a` 3, `086-R5b` 2, `086-R5c` 4.
+
+  Mẫu cũ viết lại vì dòng `old` mất chỗ khớp, giữ mã: `079-Y5a`, `085-W2d`, `085-D1a`, `085-D1b`, `071-M8`, `071-M9`, `075-D1h`, `079-V4d`, `079-V4e`. Mọi mẫu được xác nhận dòng `old` khớp đúng một chỗ.
+- **Đột biến cho vùng đã đổi** [Đo trực tiếp]: 154 mẫu có dòng `old` nằm trong vùng diff so với `473bc75` (cộng trừ 20 dòng), gồm 23 mẫu mới và 9 mẫu viết lại. Bộ chạy hai pha ngoài repo, 3 worker: pha 1 chạy 22 tệp test liên quan; lượt đầu dừng ở 117/154 vì giới hạn thời gian chạy nền, 37 mẫu còn lại chạy ở lượt thứ hai trên cùng mã. Pha 1: 118 KILLED, 36 sống. Pha 2 chạy 36 mẫu đó trên cả bộ bằng `scripts/mutate.ts --jobs 2`: 35 KILLED, 1 EQUIVALENT (`075-D1h`, đã đánh dấu tương đương từ trước), 0 SURVIVED, 0 ERROR, 0 TIMEOUT, 0 COUNT. Tổng cộng 153 mẫu bị bắt, không mẫu mới nào phải ghi là tương đương; sha256 `hooks/` và `tests/` trước và sau lượt chạy trùng nhau.
+- **Hai số phiên dài** trên `a026a7f` [Đo trực tiếp]:
+  - `conductor` mặc định: 10.339 và 19.587, như 0.8.5.
+  - `conductor: 'fable'`, không gõ `/conductor solo`: 8.563 và 7.048. Kịch bản phiên dài cho luồng chính tự chạy script và lệnh kiểm, nên ở 0.8.6 các lời gọi đó bị từ chối, lời từ chối không mang context, và 0/11 bước được tự nâng verified. Dòng nhắc đọc góp 5.887 ký tự (43 dòng) và 4.380 ký tự (32 dòng).
+  - `conductor: 'fable'` sau `/conductor solo`: 16.608 và 24.349. Bằng 10.696 và 19.943 của 0.8.5, cộng dòng nhắc đọc (5.887 và 4.380), cộng 26 (câu `conductorKeepText` dài hơn 13 ký tự, hai lần nén ngữ cảnh), trừ 1 ở số đầu (không còn lần từ chối D1 đẩy cảnh báo phạm vi đầu tiên sang lô sau). Mọi dòng context mới không quá 300 ký tự.
+- **CI** [Đo trực tiếp]: run của commit cuối ghi ở mô tả PR.
+
 ## Kiểm chứng của 0.8.5 (mục tiêu đang dở, mục tiêu đã cất, vai điều phối)
 
 Nhánh tách từ `main` `87023af` (0.8.4, plugin.json 0.8.4, đã kiểm trước khi bắt đầu). Mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `085-*`; K11, K12 mỗi điểm một commit; không amend, không force-push, không merge [Đo trực tiếp]. Engine của mọi lượt đo dưới đây là 2.1.296, cài riêng ngoài repo; engine của phiên phát triển là 2.1.322.
