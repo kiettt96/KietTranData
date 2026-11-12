@@ -5,3 +5,6 @@ Nhánh `claude/focus-conductor-0-8-7`, tách từ `main` `45b5161` (0.8.6). Engi
 
 Tiếp: đo Fable cho L1.
 - L1 test đỏ: e825652, 6/12 đỏ trên bản sao 45b5161 có hằng giả (FABLE_REQUEST_CHARS 260.000, FABLE_FULL_TIMEOUT_MS 300.000).
+- Đo Fable (6/6 đạt): 240k 227-235 s, token ra 32.558-33.433; 400k 333-369 s, token ra 47.892-53.618. Chốt 400.000 / 555.000 ms / maxTokens 80.000 / hỏi lại 120.000.
+- Giới hạn hook: không có trần ở gói engine (model.complete kẹp 2147483647); probe thật không chạy vì hook module không nạp trong claude -p.
+- L1 sửa: 6f76947 (18 ca, 8/18 đỏ trên 45b5161 có hằng giả; 11 mẫu 087-L1a..k bắt hết); 7 mẫu cũ viết lại ở commit kế. Cả bộ sau L1: 3344 đạt.
