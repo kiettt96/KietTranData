@@ -120,6 +120,17 @@ describe('0.8.6 R1: không điều phối hay cổng khác giữ như 0.8.5', ()
     expect((await edit($)).deny).toBeUndefined()
   })
 
+  test('vòng 2 V1: conductor fable, strictDelegation block, còn việc chưa giao, đã gõ /conductor solo: Edit được chạy, không có lời từ chối của strictDelegation', { options: { planApproval: 'off', conductor: 'fable', strictDelegation: 'block' } }, async ($, on) => {
+    setup(on, $, () => DELEGATED)
+    await submit($, A)
+    await run($, 'solo')
+    for (const file of ['src/a.ts', 'src/b.ts']) {
+      const r = await edit($, file)
+      expect(r.deny).toBeUndefined()
+      expect((r.context ?? []).join('\n')).not.toContain('Còn việc ghi giao subagent chưa giao')
+    }
+  })
+
   test('cổng duyệt đang planning khi đang điều phối: lời từ chối là của cổng duyệt', { options: { planApproval: 'auto', conductor: 'fable' } }, async ($, on) => {
     setup(on, $, () => BIG)
     await submit($, A)

@@ -112,6 +112,14 @@ describe('0.8.6 R2: lần kiểm của subagent dùng chung thư mục', () => {
     expect(out).toContain('chưa tính là đã kiểm tra')
   })
 
+  test('vòng 2 V1: B chạy với isolation remote: không phủ, không nâng', FABLE, async ($, on) => {
+    setup(on, $)
+    const text = await chain($, 'bun test', 'remote')
+    expect(text).toContain('[x] 1. Sửa')
+    const out = String((await $.tool.call({ tool: PLAN, action: 'update', step: 2, status: 'verified', evidence: 'bun test' })).result)
+    expect(out).toContain('chưa tính là đã kiểm tra')
+  })
+
   test('sau lần kiểm của B còn một thay đổi: không phủ', FABLE, async ($, on) => {
     setup(on, $)
     await chain($, 'bun test', undefined, () => edit($, 'a-uA'))

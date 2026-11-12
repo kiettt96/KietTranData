@@ -66,6 +66,16 @@ describe('0.8.6 R3: dòng nhắc đọc của vai điều phối', () => {
     expect(noted((await $.tool.call({ tool: 'Glob', pattern: 'src/**/*.ts' } as never)) as Out)).toBe(true)
   })
 
+  test('vòng 2 V1: lần Read bị tầng dưới từ chối không được đếm', fable({ conductorReads: 2 }), async ($, on) => {
+    base(on, { router: request => (request.startsWith('Requirements:') ? { missing: [], extra: [], issues: [] } : BIG) })
+    let n = 0
+    on('tool.call', { tool: 'Read' }, () => (n++ === 0 ? { deny: 'quyền: người dùng từ chối' } : { result: 'nội dung', isReadOnly: true }))
+    await submit($, A)
+    expect((await read($, 'src/f1.ts')).deny ?? '').toContain('quyền')
+    expect(noted(await read($, 'src/f2.ts'))).toBe(false)
+    expect(noted(await read($, 'src/f3.ts'))).toBe(true)
+  })
+
   test('Read do subagent gọi không được đếm', fable({ conductorReads: 3 }), async ($, on) => {
     setup(on)
     await submit($, A)

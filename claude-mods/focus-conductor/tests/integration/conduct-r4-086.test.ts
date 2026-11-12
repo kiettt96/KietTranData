@@ -18,6 +18,7 @@ const FOLLOW = 'thêm log cho hàm phí nữa'
 const BIG = plan({ goal: A, depth: 'substantial', volume: 'medium', kind: 'edit', main: MAIN, tasks: [task('Sửa hàm phí', 'main', 'sonnet', 'medium'), task('Sửa hàm thuế', 'main', 'sonnet', 'medium')] })
 const LIGHT = plan({ goal: 'Sửa chú thích', depth: 'light', volume: 'small', kind: 'edit', main: MAIN, tasks: [task('Sửa chú thích', 'main', 'sonnet', 'low')] })
 const AMEND = plan({ goal: '', relation: 'continue', intent: 'amend', depth: 'light', volume: 'small', kind: 'edit', main: MAIN, tasks: [task('Thêm log', 'main', 'sonnet', 'medium')] })
+const REF = plan({ goal: '', relation: 'continue', reference: true, intent: 'amend', depth: 'light', volume: 'small', kind: 'edit', main: MAIN, tasks: [task('Thêm log', 'main', 'sonnet', 'medium')] })
 const NEW_LIGHT = plan({ goal: 'Đổi màu nút', relation: 'new', confidence: 0.95, depth: 'light', volume: 'small', kind: 'edit', main: MAIN, tasks: [task('Đổi màu nút', 'main', 'sonnet', 'low')] })
 const FABLE = { options: { planApproval: 'off', conductor: 'fable' } }
 const PRESENTATION = { isFullscreen: false, columns: 80 }
@@ -47,6 +48,14 @@ describe('0.8.6 R4: việc mới của tin bổ sung trong mục tiêu lớn', (
     await submit($, FOLLOW)
     expect(delegated(await status($))).toContain('Thêm log')
     expect(await sha(seen.routed.at(-1) ?? '')).toBe(FOLLOW_REQUEST_SHA)
+  })
+
+  test('vòng 2 V1: tin tiếp nối là prompt đối chiếu (reference) có việc main sửa file: không chuyển', FABLE, async ($, on) => {
+    setup(on, BIG, REF)
+    await submit($, A)
+    await giveAll($)
+    await submit($, FOLLOW)
+    expect(delegated(await status($))).not.toContain('Thêm log')
   })
 
   test('tin new light khi mục tiêu hiện tại lớn: không chuyển', FABLE, async ($, on) => {
@@ -80,6 +89,10 @@ describe('0.8.6 R4: parseRoute và routerRequest', () => {
     expect(parseRoute(reply, { ...OPEN, goalIsBig: true })?.tasks[0]?.run).toBe('agent')
     expect(parseRoute(reply, { ...OPEN, goalIsBig: false })?.tasks[0]?.run).toBe('main')
     expect(parseRoute(reply, { ...OPEN, conductor: false, goalIsBig: true })?.tasks[0]?.run).toBe('main')
+  })
+
+  test('vòng 2 V1: tin đối chiếu không chuyển dù mục tiêu hiện tại lớn', () => {
+    expect(parseRoute(JSON.stringify(REF), { ...OPEN, goalIsBig: true })?.tasks[0]?.run).toBe('main')
   })
 
   test('tin new không chuyển dù mục tiêu hiện tại lớn', () => {

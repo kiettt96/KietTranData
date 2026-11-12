@@ -111,6 +111,22 @@ describe('0.8.6 R5: số đo vai điều phối', () => {
     expect(lines().filter(l => l['kind'] === 'conduct-exempt').map(l => [l['state'], l['reason']])).toEqual([['on', 'agent'], ['off', 'agent']])
   })
 
+  test('vòng 2 V1: hai lần bị từ chối sửa file rồi Fable tạm ngừng (không điều phối): dòng Điều phối không có số đo', opts(), async ($, on) => {
+    const ID = 'claude-fable-5-2'
+    const FOLLOW = plan({ goal: '', relation: 'continue', depth: 'substantial', volume: 'medium', kind: 'edit', main: MAIN })
+    let fable = 0
+    const seen = base(on, { router: request => (request.startsWith('Requirements:') ? { missing: [], extra: [], issues: [] } : seen.routerModels.at(-1) === ID ? (fable++ === 0 ? BIG : null) : FOLLOW) })
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    await submit($, A)
+    for (const _ of [1, 2]) expect((await edit($)).deny ?? '').toContain('vai điều phối không tự sửa file')
+    expect(await conductLine($)).toContain('từ chối sửa file 2')
+    await submit($, 'làm tiếp bước 1')
+    await submit($, 'làm tiếp bước 2')
+    const line = await conductLine($)
+    expect(line).toContain('Fable tạm ngừng')
+    expect(line).not.toContain('từ chối sửa file')
+  })
+
   test('không điều phối (mục tiêu light): dòng Điều phối như 0.8.5', opts(), async ($, on) => {
     setup(on, LIGHT)
     await submit($, 'Sửa chú thích README')

@@ -114,6 +114,51 @@ describe('0.8.6 R6: cờ lời gọi Agent bị từ chối', () => {
   })
 })
 
+describe('0.8.6 vòng 2 V1: cờ Agent chỉ đổi theo lời gọi của luồng chính đang điều phối', () => {
+  const LOG = '/tmp/fc-conduct-r6-v1.jsonl'
+  const ID = 'claude-fable-5-2'
+  const FOLLOW = plan({ goal: '', relation: 'continue', depth: 'substantial', volume: 'medium', kind: 'edit', main: MAIN })
+  /** Ghi nhật ký quyết định; trả các dòng conduct-exempt. */
+  function exempts(on: On) {
+    const writes: string[] = []
+    on('fs.write', (_x, e) => {
+      if (e.path === LOG) writes.push(e.text)
+      return { value: undefined }
+    })
+    return () => (writes.at(-1) ?? '').trim().split('\n').filter(Boolean).map(line => JSON.parse(line) as Record<string, unknown>).filter(l => l['kind'] === 'conduct-exempt')
+  }
+  const editMain = ($: Engine) => $.tool.call({ tool: 'Edit', file_path: 'src/phi.ts', old_string: 'a', new_string: 'b' } as never) as Promise<{ deny?: string }>
+
+  test('Agent lồng do subagent gọi bị từ chối: cờ không bật, Edit của luồng chính vẫn bị từ chối', { options: { planApproval: 'off', conductor: 'fable', decisionLog: LOG } }, async ($, on) => {
+    const agent = setup(on, $, () => BIG)
+    const lines = exempts(on)
+    await submit($, A)
+    agent.how = 'deny'
+    await $.tool.call({ tool: 'Agent', tool_use_id: 'n1', agentId: 'a-x', description: 'Việc phụ', prompt: 'x' } as never)
+    expect(await conductLine($)).not.toContain('đang miễn')
+    expect(lines()).toEqual([])
+    expect((await editMain($)).deny ?? '').toContain('vai điều phối không tự sửa file')
+  })
+
+  test('Fable tạm ngừng (không điều phối) khi Agent bị từ chối: cờ không bật; Fable điều phối lại thì Edit của luồng chính bị từ chối', { options: { planApproval: 'off', conductor: 'fable', decisionLog: LOG } }, async ($, on) => {
+    let fable = 0
+    const seen = base(on, { router: request => (request.startsWith('Requirements:') ? { missing: [], extra: [], issues: [] } : seen.routerModels.at(-1) === ID ? (fable++ === 0 ? BIG : fable <= 3 ? null : FOLLOW) : FOLLOW) })
+    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+    on('tool.call', { tool: 'Agent' }, () => ({ deny: 'quyền: người dùng từ chối' }))
+    const lines = exempts(on)
+    await submit($, A)
+    await submit($, 'làm tiếp bước 1')
+    await submit($, 'làm tiếp bước 2')
+    expect(await conductLine($)).toContain('Fable tạm ngừng')
+    await callAgent($, 'u1')
+    expect(lines()).toEqual([])
+    for (let i = 3; i <= 6; i++) await submit($, `làm tiếp bước ${i}`)
+    expect(await conductLine($)).toContain('đang điều phối')
+    expect(await conductLine($)).not.toContain('đang miễn')
+    expect((await editMain($)).deny ?? '').toContain('vai điều phối không tự sửa file')
+  })
+})
+
 describe('0.8.6 R6: trạng thái theo mục tiêu', () => {
   test('đổi mục tiêu: trạng thái vai điều phối về mặc định', FABLE, async ($, on) => {
     let n = 0
