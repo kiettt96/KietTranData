@@ -19,7 +19,31 @@ Nhánh tách từ `main` `87023af` (0.8.4, plugin.json 0.8.4, đã kiểm trư�
 - **Mẫu mới (31), chạy riêng từng mẫu trên tệp test của điểm** [Đo trực tiếp]: `085-K2a` 7 đỏ, `085-K2b` 2, `085-K2c` 4, `085-K2d` 2; `085-K3a` 3, `085-K3b` 3, `085-K3c` 4; `085-K8a` 2, `085-K8b` 2; `085-K1a` 2, `085-K1b` 2, `085-K1c` 1; `085-K5a` 1, `085-K5b` 1; `085-D3a`, `085-D3b`, `085-K4a`, `085-K6a`, `085-K7a`, `085-K7b`, `085-D1a`, `085-D1b`, `085-D1c`, `085-D2a`, `085-D2b` mỗi mẫu 1; `085-K10a` 3. `085-K5a` sống ở lần đầu, nên thêm ca mục đã cất gần nhất chỉ còn bước waiting. `085-D2b` ở bản đầu là mẫu tương đương, viết lại thành bỏ cả `needsApproval` lẫn điều kiện độ sâu. Mọi mẫu được xác nhận dòng `old` khớp đúng một chỗ.
 - **Đột biến cho vùng đã đổi** [Đo trực tiếp]: 146 mẫu có dòng `old` nằm trong vùng diff so với `87023af` (cộng trừ 20 dòng), gồm các mẫu mới và mẫu viết lại; `075-D1h` đã đánh dấu tương đương từ trước. Bộ chạy hai pha ngoài repo: pha 1 chạy 35 tệp test liên quan, mẫu còn sống chạy cả bộ test ở pha 2 bằng `scripts/mutate.ts --jobs 2`. Pha 1: 85 bị bắt. Pha 2: 59 mẫu, 58 bị bắt, 1 sống là `078-G9c`. Mẫu này sống cả trên `87023af` (1 mẫu, 0 đỏ trên cả bộ), tức lỗ hổng có từ trước: chưa ca nào cho tin chen ngang giữa turn khi đang chờ câu trả lời. Ca mới ở `3113283` (chỉ đổi `tests/`) bắt mẫu này, 1 đỏ. Bốn mẫu `075-B14c`, `075-D1h`, `075-S5G`, `078-G9n` không có kết quả trong sổ của lượt trước nên chạy lại trên cả bộ cùng `078-G9c`: `075-B14c` 8 đỏ, `075-S5G` 3, `078-G9n` 5, `078-G9c` 1; `075-D1h` 0 đỏ, harness báo EQUIVALENT như đã đánh dấu. Tổng của vùng: 145 bị bắt, 1 tương đương có lý do từ trước, 0 sống sót cuối. Lượt pha 1 đầu dừng ở 84/100 vì giới hạn thời gian chạy nền; 16 mẫu còn lại chạy ở lượt sau trên cùng mã. Một lỗi đọc mẫu của bộ chạy ngoài repo ghi nhầm `060-K9` là bị bắt; sửa bộ chạy rồi chạy lại: 8 đỏ.
 - **Hai số phiên dài** trên `92151c9`, cùng `hooks/` với `3113283` [Đo trực tiếp]: 10.339 và 19.587 với `conductor` mặc định, như 0.8.4. Với `conductor: 'fable'`: 10.696 và 19.943; số đầu hơn 0.8.4 1 ký tự, vì một lần từ chối của D1 đẩy cảnh báo phạm vi đầu tiên từ lô 1 sang lô 21. Mọi dòng context mới không quá 300 ký tự.
-- **CI** [Đo trực tiếp]: run 43003239532 xanh trên `3f23cbb`. Run của commit cuối ghi ở mô tả PR.
+- **CI** [Đo trực tiếp]: run 43003239532 xanh trên `3f23cbb`; run 43091422849 xanh trên `d2d97fb`.
+
+### Vòng 2 (rà soát PR 38): W1, W2
+
+- **Probe W1 trên `d2d97fb`** [Đo trực tiếp, test trong `resume-a2-084`, `planApproval: 'off'`]: A substantial, edit, còn 2 bước mở, bị B (new, edit, light, 0,97) thay; B lập 1 bước và đóng. Câu hỏi kiến thức theo dạng bản ghi `explain` thành mục tiêu C, vì không còn mục tiêu đang dở. Turn của C bắt đầu, có `turn.step`, kết thúc với `reason: 'answer'`, `isAborted: false`. Tin "tiếp tục" (router trả `continue`, `resume`, `light`): mục tiêu vẫn là C, checklist trống, không có dòng `restore`. Lý do: `resumeTarget` đòi `done >= 1` khi checklist trống, mà turn trả lời không phải turn thực thi.
+- **Test đỏ** [Đo trực tiếp]: W1 1/2 trên `d2d97fb` (`b75ad01`). Ca xanh trên mã cũ là ca turn của C bị ngắt, giữ hành vi. Sửa ở `3eb4ed8`. Ba ca D3 có sẵn giữ kết quả. W2 (`35914ab`) chỉ thêm test và mẫu, không đổi `hooks/`.
+- **Mẫu mới (9), chạy riêng từng mẫu trên tệp test của nó** [Đo trực tiếp]:
+  - W1: `085-W1a` 1 đỏ.
+  - W2: `085-W2a` 1, `085-W2b` 1, `085-W2c` 1, `085-W2d` 2, `085-W2e` 1, `085-W2f` 1, `085-W2g` 2, `085-W2h` 1.
+  - Mẫu cũ viết lại cùng mã: `085-D3a`, vì dòng `old` mất chỗ khớp; 1 đỏ.
+
+  Không mẫu nào phải ghi là tương đương. Mọi mẫu được xác nhận dòng `old` khớp đúng một chỗ.
+- **Ghi chú test W2** [Đo trực tiếp]:
+  - W2c, W2d: số turn đã cất không đổi hành vi hook nào. Nó chỉ có tác dụng khi checklist trống, mà mục tiêu lớn chưa có checklist chỉ được cất khi chưa có turn thực thi. Vì vậy hai mẫu này được ghim bằng ca đơn vị trên `adoptGoal`, `restoreArchived` và `turnsOf`.
+  - W2b: bản đầu của ca không bắt được mẫu. Tin của B có chung chữ với mục tiêu A đang chờ câu trả lời, nên bị giữ thành câu trả lời (`answer-held`) và A không bị cất. Đổi chữ của tin B và thêm kiểm mục tiêu đã đổi thì ca bắt được mẫu.
+- **Bộ test** trên `35914ab`, chạy riêng, không song song với lượt đột biến [Đo trực tiếp]: 3253 test trên 281 tệp, 0 lỗi, 258,83 giây. So tên ca đạt với `d2d97fb` (3242 ca): thêm 11 ca, không ca nào mất hay đổi tên, không test cũ nào đổi kỳ vọng.
+- **Kiểm tĩnh** trên `35914ab` [Đo trực tiếp]:
+  - `claude plugin validate` đạt ở thư mục mod và ở gốc repo.
+  - `version-check` khớp 0.8.5, README đủ 41 option.
+  - `mutate --check` khớp 2131/2131.
+  - sha256 `hooks/` `43432338260cf46a850df6de4270929439a9385d43a3c9f1cbc3ec8d99796c6b`, `tests/` `b98536586e809a4b5a68025144e198bdce6662829e4feb057c7d8393fa95a4eb`.
+- **Request router không đổi** [Đo trực tiếp]: ca ghim sha256 `546aea94…` xanh; `git diff d2d97fb -- tests/golden` rỗng.
+- **Chạy lại vùng diff của vòng 2** [Đo trực tiếp]: vùng diff so với `d2d97fb` chỉ ở `hooks/lib/state.ts`, dòng 582 tới 592. Có 12 mẫu có dòng `old` trong khoảng cộng trừ 20 dòng của vùng đó, gồm `085-W1a`, `085-W2a` và `085-D3a` đã viết lại. Bộ chạy hai pha, engine 2.1.296. Kết quả: 12 bị bắt, 11 ở pha 1 và `070-D1` ở pha 2 với 1 đỏ; 0 sống, 0 lỗi. Không chạy lại 146 mẫu của vòng 1.
+- **Hai số phiên dài** trên `35914ab` [Đo trực tiếp]: 10.339 và 19.587 với `conductor` mặc định; 10.696 và 19.943 với `conductor: 'fable'`, không đổi so với `d2d97fb`.
+- **CI** [Đo trực tiếp]: run của commit cuối ghi ở mô tả PR.
 
 Nhánh tách từ `main` `4a6c04c` (0.8.3). Thứ tự S1, S2, C1 tới C8; mỗi điểm một commit test đỏ rồi một commit sửa, riêng S1, S2 chỉ thêm test; không amend, không force-push, không merge [Đo trực tiếp].
 

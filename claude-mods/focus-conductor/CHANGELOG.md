@@ -33,6 +33,11 @@ Xử lý các tồn đọng tìm ra khi rà soát tổng thể 0.8.4 [Nguồn: c
 
 **Ca mới ngoài các điểm:** `0.8.4 A1 > đang awaitingAnswer, tin chen ngang giữa turn, ...` bắt mẫu `078-G9c`, mẫu sống ở lượt đột biến của 0.8.5 và cả trên `87023af` (chỉ đổi `tests/`).
 
+**Vòng 2 (rà soát PR 38):**
+
+- **W1 (P3): tiếp tục sau một câu hỏi kiến thức quay lại việc cũ.** Việc chen vào đã xong, câu hỏi kiến thức thành mục tiêu hỏi đáp; turn trả lời không phải turn thực thi nên `resumeTarget` không quay lại. Nay mục tiêu hiện tại `kind` là `answer` thì không đòi turn thực thi; điều kiện turn gần nhất không bị ngắt giữ nguyên, các `kind` khác giữ luật D3. Mẫu `085-W1a`; viết lại `085-D3a` cùng mã vì dòng `old` mất chỗ khớp.
+- **W2 (P3): ghim 8 hành vi bằng test**, không đổi `hooks/`: trạng thái duyệt của mục đã cất khi checklist đã đóng hết, cờ đã dặn hỏi làm rõ sau khi khôi phục, số turn khi cất và khi khôi phục (ca đơn vị trên state), đoạn dặn điều phối và đoạn dặn planning ở nhánh `routerSkip` khôi phục, turn của prompt router lỗi được đếm, dòng báo đã lưu mục tiêu của `/conductor goal`. Mẫu `085-W2a` tới `085-W2h`.
+
 **Mẫu cũ viết lại (giữ mã):** `070-D2`, `070-L9`, `075-B12b`, `075-B12c`, `075-B12f`, `075-M5i`, `084-A1e`, `084-A1g`, `084-A2a`, `084-A2b`, `084-A2c`, `084-A2d`, `084-C6c`, `084-W4d`, `084-Z1a`, `084-Z2c`, `084-Z2d`, `084-Z2e`; mẫu mới `085-K2c`, `085-K3a`, `085-K6a`, `085-D2b` viết lại trong cùng bản. **Mẫu bỏ:** `084-A2e`, vì điều kiện số mục tiêu liền trước không còn trong mã sau K5.
 
 ## Thay đổi 0.8.4: Fable điều phối
