@@ -20,4 +20,7 @@ Probe tái hiện trên `473bc75` [Đo trực tiếp]:
 | R4 | 2275c99, 2 đỏ / 5 đạt (cả 473bc75 và R3) | xem log | 079-V4d, 079-V4e viết lại; cả bộ 3311 đạt; băm request tin bổ sung e98a37c2... trùng |
 | R5 | 7c33f9d, 4 đỏ / 2 đạt (cả 473bc75 và R4) | xem log | 086-R5c cần thêm ca tầng dưới từ chối; cả bộ 3317 đạt |
 
-Tiếp: phiên bản 0.8.6, đo băm router, hai số phiên dài, đột biến, tài liệu, PR.
+Đã xong [Đo trực tiếp]: 0.8.6 (73d4c56); tài liệu (a026a7f); VERIFICATION (233bb81). Băm router và golden không đổi; phiên dài mặc định 10.339 / 19.587.
+Đột biến vùng diff: 154 mẫu, pha 1 118 KILLED, pha 2 35 KILLED + 075-D1h EQUIVALENT, 0 sống.
+Cả bộ trên a026a7f: 3318 đạt, 0 lỗi, thêm 65 ca, không mất ca nào. mutate --check 2154/2154; validate đạt; version-check 0.8.6.
+Tiếp: mở PR vào main, chờ CI xanh.
