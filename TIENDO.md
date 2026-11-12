@@ -15,3 +15,4 @@ Probe tái hiện trên `473bc75` [Đo trực tiếp]:
 |---|---|---|---|
 | R6 | d52542d, 12 đỏ / 2 đạt | d177d50 | cả bộ 3267 đạt; viết lại 079-Y5a, 085-W2d, 085-D1b |
 | R1 | e300504, 9 đỏ / 7 đạt trên 473bc75 (R1 và D1) | xem log | 085-D1a viết lại; 4 ca cũ đổi cách dựng (solo) |
+| R2 | bc207dd, 6 đỏ / 13 đạt (cả 473bc75 và R1) | xem log | 071-M8, 071-M9, 075-D1h, 085-D1a viết lại; cả bộ 3297 đạt |
