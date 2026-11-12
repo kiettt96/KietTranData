@@ -1391,3 +1391,12 @@ export const CONDUCTOR_KEEP_CHARS = 200
 export function conductorKeepText(): string {
   return '[focus-conductor] Vẫn là vai điều phối chạy fable/medium: không tự sửa file, không tự chạy kiểm; giao bằng Agent theo phân việc, lời giao tự đứng được; đối chiếu kết quả trước khi đóng bước.'
 }
+
+/**
+ * Lý do mode off khi phiên không tương tác và headlessRouting là off (0.8.7 H1): gắn ngay sau "Chế độ off" của /conductor status và câu
+ * trả lời của /conductor reroute, tối đa 160 ký tự. Mode off do người dùng tự đặt không có phần này.
+ */
+export const HEADLESS_OFF_CHARS = 160
+export function headlessOffNote(): string {
+  return ' (phiên không tương tác; bật: đặt option headlessRouting là auto rồi mở phiên mới, hoặc gõ /conductor mode auto cho phiên này)'
+}

@@ -2209,4 +2209,8 @@ export const MUTANTS: Mutant[] = [
   { id: "087-L1i", file: "hooks/lib/router.ts", note: "cảnh báo của Fable ghi phần đầu theo trần thường", old: "grouped(isFable ? FABLE_REQUEST_HEAD : REQUEST_HEAD)", new: "grouped(REQUEST_HEAD)" },
   { id: "087-L1j", file: "hooks/lib/router.ts", note: "lượt đọc trọn giữ maxTokens 16.000", old: "maxTokens: isFull ? FABLE_FULL_MAX_TOKENS : isLong", new: "maxTokens: isLong" },
   { id: "087-L1k", file: "hooks/parts/session.ts", note: "kết quả của request dự phòng vẫn coi là Fable đọc trọn", old: "target.isFable && outcome.fellBack !== true", new: "target.isFable" },
+  { id: "087-H1a", file: "hooks/parts/command.ts", note: "status không bao giờ ghi lý do", old: "`Chế độ ${current}${current === 'off' && (await read($, headlessState)) === true ? headlessOffNote() : ''}`", new: "`Chế độ ${current}`" },
+  { id: "087-H1b", file: "hooks/parts/command.ts", note: "ghi lý do cả khi người dùng tự đặt mode off", old: "current === 'off' && (await read($, headlessState)) === true ? headlessOffNote()", new: "current === 'off' ? headlessOffNote()" },
+  { id: "087-H1c", file: "hooks/parts/command.ts", note: "ghi lý do cả khi mode đã là auto", old: "${current === 'off' && (await read($, headlessState)) === true ? headlessOffNote()", new: "${(await read($, headlessState)) === true ? headlessOffNote()" },
+  { id: "087-H1d", file: "hooks/parts/command.ts", note: "reroute không ghi lý do", old: "mode off${(await read($, headlessState)) === true ? headlessOffNote() : ''})", new: "mode off)" },
 ]
