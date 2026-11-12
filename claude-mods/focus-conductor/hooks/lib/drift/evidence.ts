@@ -153,10 +153,15 @@ function trimCommands(log: EvidenceLog): void {
 /**
  * Lần chạy TEST (hành vi, không phải kiểm tĩnh) đạt sau thay đổi cuối của mục tiêu và phủ mọi thay đổi (0.7.0): cơ sở để mod tự
  * nâng bước done thành verified. Mục tiêu chưa có sửa file (chỉ tra cứu) thì không có: lệnh test khi đó không chứng minh điều gì.
+ * Sau lần đạt đó còn một lần chạy test lỗi của luồng chính hay mang cờ shared (0.8.7 B1) thì cũng không có: lần lỗi mới hơn cho thấy test
+ * chưa đạt. Lần lỗi của subagent chạy thư mục riêng không xét; lần kiểm nối && (chained) là kết quả chưa rõ nên không tính là lỗi.
  */
 export function freshTestRun(log: EvidenceLog): EvidenceEntry | undefined {
   if (log.mutations === 0) return undefined
-  return [...log.commands].reverse().find(c => c.check === 'test' && c.ok && c.seq > log.lastMutation && covers(c, log))
+  const pass = [...log.commands].reverse().find(c => c.check === 'test' && c.ok && c.seq > log.lastMutation && covers(c, log))
+  if (pass === undefined) return undefined
+  const isFailedAfter = log.commands.some(c => c.check === 'test' && !c.ok && c.chained !== true && c.seq > pass.seq && (c.author === 'main' || c.shared === true))
+  return isFailedAfter ? undefined : pass
 }
 
 /**

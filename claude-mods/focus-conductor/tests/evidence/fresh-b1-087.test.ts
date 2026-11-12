@@ -41,6 +41,16 @@ describe('0.8.7 B1: lần test lỗi chạy sau lần đạt', () => {
     expect(freshTestRun(log)).toBe(passed)
   })
 
+  test('lần kiểm nối && sau lần đạt (chained, kết quả chưa rõ): không tính là lỗi, vẫn trả lần đạt', () => {
+    const log = newEvidenceLog(1)
+    edit(log)
+    pass(log)
+    const passed = log.commands.at(-1)
+    noteEvidence(log, { tool: 'Bash', input: { command: 'bun test && echo xong' }, isError: true, isReadOnly: false, output: JS.bun_pass }, 'main')
+    expect(log.commands.at(-1)?.chained).toBe(true)
+    expect(freshTestRun(log)).toBe(passed)
+  })
+
   test('sửa, test lỗi, test đạt: trả lần đạt (như 0.8.6)', () => {
     const log = newEvidenceLog(1)
     edit(log)

@@ -2213,4 +2213,8 @@ export const MUTANTS: Mutant[] = [
   { id: "087-H1b", file: "hooks/parts/command.ts", note: "ghi lý do cả khi người dùng tự đặt mode off", old: "current === 'off' && (await read($, headlessState)) === true ? headlessOffNote()", new: "current === 'off' ? headlessOffNote()" },
   { id: "087-H1c", file: "hooks/parts/command.ts", note: "ghi lý do cả khi mode đã là auto", old: "${current === 'off' && (await read($, headlessState)) === true ? headlessOffNote()", new: "${(await read($, headlessState)) === true ? headlessOffNote()" },
   { id: "087-H1d", file: "hooks/parts/command.ts", note: "reroute không ghi lý do", old: "mode off${(await read($, headlessState)) === true ? headlessOffNote() : ''})", new: "mode off)" },
+  { id: "087-B1a", file: "hooks/lib/drift/evidence.ts", note: "bỏ điều kiện lần lỗi chạy sau", old: "  return isFailedAfter ? undefined : pass\n", new: "  return pass\n" },
+  { id: "087-B1b", file: "hooks/lib/drift/evidence.ts", note: "lần lỗi của subagent không mang cờ cũng làm mất lần đạt", old: "c.seq > pass.seq && (c.author === 'main' || c.shared === true))", new: "c.seq > pass.seq)" },
+  { id: "087-B1c", file: "hooks/lib/drift/evidence.ts", note: "lần lỗi chạy trước lần đạt cũng làm mất lần đạt", old: "c.seq > pass.seq &&", new: "c.seq > log.lastMutation &&" },
+  { id: "087-B1d", file: "hooks/lib/drift/evidence.ts", note: "lần kiểm nối && cũng tính là lỗi", old: "!c.ok && c.chained !== true &&", new: "!c.ok &&" },
 ]
