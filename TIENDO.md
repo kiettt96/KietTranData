@@ -10,3 +10,8 @@ Tiếp: đo Fable cho L1.
 - L1 sửa: 6f76947 (18 ca, 8/18 đỏ trên 45b5161 có hằng giả; 11 mẫu 087-L1a..k bắt hết); 7 mẫu cũ viết lại ở commit kế. Cả bộ sau L1: 3344 đạt.
 - H1: test đỏ 9b9fa6a (3/8 đỏ trên 45b5161); sửa 7d2b1d3, 4 mẫu 087-H1a..d bắt hết.
 - B1: test đỏ 052ed74 (đơn vị 2/4, tích hợp 2/3 trên 45b5161); sửa c8bd562 kèm ca chained; 4 mẫu 087-B1a..d bắt hết. Phát hiện: acceptsVerified nhận verified kèm evidence sau chuỗi đạt rồi lỗi (cả 45b5161 và bản mới), không sửa.
+- Phiên bản 3157f74; sửa ca chained aff7bf5; tài liệu (CHANGELOG, DESIGN, README) ở commit tài liệu.
+- Cả bộ trên aff7bf5: 3360 đạt, 0 lỗi, 352,39 s; thêm 34 ca so với 45b5161, không mất ca nào.
+- Băm split/cond/agent trùng 45b5161; golden diff rỗng; validate đạt; version-check 0.8.7/42; mutate --check 2182/2182.
+- Phiên dài: 10.339/19.587, 8.563/7.048, 16.608/24.349 (không đổi).
+- Đột biến vùng diff: 117 mẫu, pha 1 đang chạy. Tiếp: pha 2, VERIFICATION, PR.
