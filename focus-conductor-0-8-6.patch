@@ -133,6 +133,19 @@ index 4e3b300..f77ca1c 100644
      startedAgents,
      steppedEarly,
      strictDelegation,
+diff --git a/claude-mods/focus-conductor/hooks/lib/decisions.ts b/claude-mods/focus-conductor/hooks/lib/decisions.ts
+index ce39694..ad0a7a5 100644
+--- a/claude-mods/focus-conductor/hooks/lib/decisions.ts
++++ b/claude-mods/focus-conductor/hooks/lib/decisions.ts
+@@ -3,7 +3,7 @@
+ // prompt router. Log có trích 300 ký tự đầu của prompt và của evidence; chỉ bật cho thư mục không chia sẻ.
+ // Thuần: dựng dòng; hook ghi file bằng $.fs.write.
+ 
+-export type DecisionKind = 'route' | 'router-fail' | 'skip' | 'reroute' | 'agent' | 'model-switch' | 'drift' | 'verify-reject' | 'verify-auto' | 'pane' | 'net' | 'agent-floor' | 'new-held' | 'unverified' | 'interject' | 'interject-deliver' | 'retry' | 'retry-exhausted' | 'waive' | 'waive-undo' | 'fork' | 'fork-off' | 'fork-archive' | 'check-chained' | 'retry-cleared' | 'phase' | 'headless-off' | 'rule-conflict' | 'answer-held' | 'approval' | 'plan-review' | 'conductor' | 'conductor-hold' | 'restore'
++export type DecisionKind = 'route' | 'router-fail' | 'skip' | 'reroute' | 'agent' | 'model-switch' | 'drift' | 'verify-reject' | 'verify-auto' | 'pane' | 'net' | 'agent-floor' | 'new-held' | 'unverified' | 'interject' | 'interject-deliver' | 'retry' | 'retry-exhausted' | 'waive' | 'waive-undo' | 'fork' | 'fork-off' | 'fork-archive' | 'check-chained' | 'retry-cleared' | 'phase' | 'headless-off' | 'rule-conflict' | 'answer-held' | 'approval' | 'plan-review' | 'conductor' | 'conductor-hold' | 'restore' | 'conduct-deny' | 'conduct-exempt' | 'conduct-self'
+ 
+ /** Số dòng giữ lại (file được ghi lại toàn bộ mỗi lần; giới hạn để không chạm 4 MiB của $.fs). */
+ export const DECISION_LIMIT = 500
 diff --git a/claude-mods/focus-conductor/hooks/lib/drift/evidence.ts b/claude-mods/focus-conductor/hooks/lib/drift/evidence.ts
 index a74a4b9..04ade98 100644
 --- a/claude-mods/focus-conductor/hooks/lib/drift/evidence.ts
@@ -386,7 +399,7 @@ index d4f7c47..6a5e395 100644
 +  return '[focus-conductor] Vẫn là vai điều phối chạy fable/medium: không tự sửa file, không tự chạy kiểm; giao bằng Agent theo phân việc, lời giao tự đứng được; đối chiếu kết quả trước khi đóng bước.'
  }
 diff --git a/claude-mods/focus-conductor/hooks/parts/agents.ts b/claude-mods/focus-conductor/hooks/parts/agents.ts
-index 939b17c..f9f525d 100644
+index 939b17c..3a5d16e 100644
 --- a/claude-mods/focus-conductor/hooks/parts/agents.ts
 +++ b/claude-mods/focus-conductor/hooks/parts/agents.ts
 @@ -64,7 +64,7 @@ function retryFloorOf(core: Core, description: string, subagentType: string | un
@@ -410,7 +423,7 @@ index 939b17c..f9f525d 100644
      // Đổi loại agent chỉ khi Claude để general-purpose và engine đã mời loại router chọn.
      const isGeneral = e.subagent_type === undefined || e.subagent_type === 'general-purpose'
      const swap = isApplied && route !== null && isGeneral && route.agentType !== 'general-purpose' && offered.has(route.agentType)
-@@ -370,6 +373,16 @@ export function registerAgents(on: On, ctx: Ctx): void {
+@@ -370,6 +373,18 @@ export function registerAgents(on: On, ctx: Ctx): void {
        moveDelegation(brief.goalId, assigned.index, 'pending')
        await update($, coreState, S.withDelegations(brief.goalId, delegationItems(brief)))
      }
@@ -422,12 +435,14 @@ index 939b17c..f9f525d 100644
 +      const now = S.normalizeCore(await read($, coreState))
 +      if (ctx.isConducting(now, current) && S.conductOf(now).agentDenied !== isRefused) {
 +        await update($, coreState, S.withConduct(brief.goalId, () => ({ agentDenied: isRefused })))
++        record(await $.clock.now(), 'conduct-exempt', { state: isRefused ? 'on' : 'off', reason: 'agent' })
++        await flushDecisions((path, text) => $.fs.write(path, text))
 +      }
 +    }
      return result
    }).catch(($, e, next) => (noteHookError('tool.call', next.error), next(e)))
  
-@@ -476,6 +489,8 @@ export function registerAgents(on: On, ctx: Ctx): void {
+@@ -476,6 +491,8 @@ export function registerAgents(on: On, ctx: Ctx): void {
          warned: false,
          fallback: false,
          ...(info?.taskIndex !== undefined ? { taskIndex: info.taskIndex } : workflowTask !== undefined ? { taskIndex: workflowTask } : {}),
@@ -436,7 +451,7 @@ index 939b17c..f9f525d 100644
        })
      } else if (agentId !== undefined && forkPart !== null) {
        // Phiên con của một phần: lệnh và thay đổi của nó vào dấu vết như subagent, kiểm phạm vi theo files của phần; không ép model.
-@@ -501,6 +516,8 @@ export function registerAgents(on: On, ctx: Ctx): void {
+@@ -501,6 +518,8 @@ export function registerAgents(on: On, ctx: Ctx): void {
      if (agentId !== undefined) {
        steppedEarly.delete(agentId)
        if (spawnedIds.size < 1000) spawnedIds.add(agentId)
@@ -446,7 +461,7 @@ index 939b17c..f9f525d 100644
      if (workflowTask !== undefined && core.brief !== null) await update($, coreState, S.withDelegations(core.brief.goalId, delegationItems(core.brief)))
      if (forkPart !== null && agentId !== undefined) await update($, coreState, S.withForkCall(e.tool_use_id, p => ({ ...p, agentId })))
 diff --git a/claude-mods/focus-conductor/hooks/parts/command.ts b/claude-mods/focus-conductor/hooks/parts/command.ts
-index de53528..a1f5e60 100644
+index de53528..e2feb0e 100644
 --- a/claude-mods/focus-conductor/hooks/parts/command.ts
 +++ b/claude-mods/focus-conductor/hooks/parts/command.ts
 @@ -17,11 +17,12 @@ import type { View } from '../lib/state'
@@ -463,7 +478,7 @@ index de53528..a1f5e60 100644
  
  // Atom của mod, khai báo lại ở mỗi file dùng chúng (engine chỉ nhận tham chiếu state viết trong chính file đó);
  // cùng plugin và key nên là cùng một giá trị trong $.state.
-@@ -192,6 +193,23 @@ export function registerCommand(on: On, ctx: Ctx): void {
+@@ -192,6 +193,27 @@ export function registerCommand(on: On, ctx: Ctx): void {
        return { text: 'Đã duyệt kế hoạch; Claude được sửa file theo checklist.' }
      }
  
@@ -475,7 +490,11 @@ index de53528..a1f5e60 100644
 +      if (core.brief === null || !ctx.isConducting(core, await read($, mode))) return { text: 'Luồng chính không đang giữ vai điều phối nên không có gì để miễn.' }
 +      const isOn = arg !== 'off'
 +      const goalId = core.brief.goalId
-+      if (S.conductOf(core).solo !== isOn) await update($, coreState, S.withConduct(goalId, () => ({ solo: isOn })))
++      if (S.conductOf(core).solo !== isOn) {
++        await update($, coreState, S.withConduct(goalId, () => ({ solo: isOn })))
++        record(await $.clock.now(), 'conduct-exempt', { state: isOn ? 'on' : 'off', reason: 'solo' })
++        await flushDecisions((path, text) => $.fs.write(path, text))
++      }
 +      await showStatus($, await read($, view), ctx.options)
 +      return {
 +        text: isOn
@@ -487,7 +506,7 @@ index de53528..a1f5e60 100644
      if (sub === 'mode') {
        if (!S.isMode(arg)) return { text: `Chế độ phải là auto, subagents, suggest hoặc off.\n${COMMAND_HELP}` }
        await update($, modeState, () => arg)
-@@ -212,7 +230,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
+@@ -212,7 +234,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
        const before = S.normalizeCore(await read($, coreState))
        const prev = before.brief
        const basePolicy = ctx.routePolicy(before, ctx.maxForks >= 2 ? await $.session.root().catch(caught('session.root', null)) : null)
@@ -496,7 +515,7 @@ index de53528..a1f5e60 100644
        // Lệnh do người dùng gõ: luôn hỏi router, kể cả khi router đang tạm ngừng sau các lần lỗi.
        const target = ctx.routerTarget(before, await read($, mode))
        const request = routerRequest({ text: arg, prev, ran: null, policy: rules, model: target.model, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily, isForcedNew: true })
-@@ -276,7 +294,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
+@@ -276,7 +298,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
          return { text: 'Không có prompt nào của mục tiêu hiện tại để router đọc lại. Đặt mục tiêu bằng /conductor goal kèm mô tả.' }
        }
        const basePolicy = ctx.routePolicy(before, ctx.maxForks >= 2 ? await $.session.root().catch(caught('session.root', null)) : null)
@@ -505,7 +524,7 @@ index de53528..a1f5e60 100644
        // Lệnh do người dùng gõ: luôn hỏi router, kể cả khi router đang tạm ngừng.
        const target = ctx.routerTarget(before, await read($, mode))
        const request = routerRequest({ text: last.text, prev: last.prev, ran: ranText(before), policy: rules, model: target.model, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily })
-@@ -460,7 +478,9 @@ export function registerCommand(on: On, ctx: Ctx): void {
+@@ -460,7 +482,9 @@ export function registerCommand(on: On, ctx: Ctx): void {
          }),
        )
        // Fable điều phối (0.8.4 C8): một dòng trạng thái, chỉ khi option conductor là fable.
@@ -517,7 +536,7 @@ index de53528..a1f5e60 100644
        const routeLine = core.route
          ? `${describePick(core.route)} (${core.route.reason})`
 diff --git a/claude-mods/focus-conductor/hooks/parts/consistency.ts b/claude-mods/focus-conductor/hooks/parts/consistency.ts
-index 67b2b7a..20daa76 100644
+index 67b2b7a..c718b26 100644
 --- a/claude-mods/focus-conductor/hooks/parts/consistency.ts
 +++ b/claude-mods/focus-conductor/hooks/parts/consistency.ts
 @@ -3,7 +3,7 @@
@@ -619,7 +638,7 @@ index 67b2b7a..20daa76 100644
    // Mọi tool: luồng chính được nhắc (context của kết quả tool) và nâng cấp theo
    // bằng chứng cho turn sau; subagent chỉ được ghi nhật ký, không bị nhắc.
    // Lời nhắc đi kèm kết quả tool, không sửa system prompt, nên không ảnh hưởng cache.
-@@ -796,10 +854,19 @@ export function registerConsistency(on: On, ctx: Ctx): void {
+@@ -796,10 +854,21 @@ export function registerConsistency(on: On, ctx: Ctx): void {
      // Gồm lệnh Bash ghi file (sed -i, chuyển hướng ghi, rm...): isMutation đã loại lệnh chỉ đọc và lệnh kiểm tra.
      const isBashWrite =
        e.tool === 'Bash' && isMutation({ tool: 'Bash', input: e as unknown as Record<string, unknown>, isError: false, isReadOnly: false })
@@ -634,7 +653,9 @@ index 67b2b7a..20daa76 100644
 +    const roleKind: 'write' | 'check' | null = isMainWrite ? 'write' : isMainCheck ? 'check' : null
 +    const role = roleKind !== null ? await conductRole($, ctx, await read($, mode), e as unknown as { tool: string } & Record<string, unknown>) : null
 +    if (role !== null && !role.isExempt) {
-+      await update($, coreState, S.withConduct(role.goalId, c => (roleKind === 'write' ? { deniedWrites: c.deniedWrites + 1 } : { deniedChecks: c.deniedChecks + 1 })))
++      const denied = S.conductOf(await update($, coreState, S.withConduct(role.goalId, c => (roleKind === 'write' ? { deniedWrites: c.deniedWrites + 1 } : { deniedChecks: c.deniedChecks + 1 }))))
++      record(await $.clock.now(), 'conduct-deny', { type: roleKind, n: roleKind === 'write' ? denied.deniedWrites : denied.deniedChecks })
++      await flushDecisions((path, text) => $.fs.write(path, text))
 +      return { deny: roleKind === 'write' ? conductWriteDenyText() : conductCheckDenyText() }
 +    }
 +    const blockCore = isMainWrite && role === null ? S.normalizeCore(await read($, coreState)) : null
@@ -642,16 +663,20 @@ index 67b2b7a..20daa76 100644
        const current = await read($, mode)
        const now = blockCore
        const waiting = current === 'auto' || current === 'subagents' ? pendingFor(now.brief, shownPlan(now).plan) : []
-@@ -810,6 +877,8 @@ export function registerConsistency(on: On, ctx: Ctx): void {
+@@ -810,6 +879,12 @@ export function registerConsistency(on: On, ctx: Ctx): void {
        }
      }
      const result = await next(e)
 +    // Lời gọi được miễn chỉ tính là tự làm khi thật sự chạy (cổng khác không từ chối).
-+    if (role !== null && result.deny === undefined) await update($, coreState, S.withConduct(role.goalId, c => (roleKind === 'write' ? { selfWrites: c.selfWrites + 1 } : { selfChecks: c.selfChecks + 1 })))
++    if (role !== null && result.deny === undefined) {
++      const own = S.conductOf(await update($, coreState, S.withConduct(role.goalId, c => (roleKind === 'write' ? { selfWrites: c.selfWrites + 1 } : { selfChecks: c.selfChecks + 1 }))))
++      record(await $.clock.now(), 'conduct-self', { type: roleKind, n: roleKind === 'write' ? own.selfWrites : own.selfChecks })
++      await flushDecisions((path, text) => $.fs.write(path, text))
++    }
      if (result.deny !== undefined || e.tool === PLAN_TOOL_FULL) return result
      if ((await read($, mode)) === 'off') return result
  
-@@ -857,10 +926,12 @@ export function registerConsistency(on: On, ctx: Ctx): void {
+@@ -857,10 +932,12 @@ export function registerConsistency(on: On, ctx: Ctx): void {
        if (agentBrief !== null && meta.goalId === agentBrief.goalId) {
          const agentLog = evidenceFor(agentBrief.goalId)
          const agentSince = agentLog.seq
@@ -666,7 +691,7 @@ index 67b2b7a..20daa76 100644
          // File skill subagent ghi và lệnh khai đạt của subagent (0.8.2 N3): như của luồng chính, ghi trước, thử sau.
          if (L.tracker.skillWrites > skillBefore) await update($, coreState, S.withSkillWrite(agentBrief.goalId, L.tracker.skillPath))
          if (isCheckCall(observation.tool) && passedDeclared(newChecks(agentLog, agentSince))) await update($, coreState, S.withSkillTrial(agentBrief.goalId))
-@@ -869,6 +940,8 @@ export function registerConsistency(on: On, ctx: Ctx): void {
+@@ -869,6 +946,8 @@ export function registerConsistency(on: On, ctx: Ctx): void {
            await update($, coreState, S.withAutoDemoted)
            await showStatus($, await read($, view), ctx.options)
          }
@@ -698,36 +723,41 @@ index de6aedf..c50b0e9 100644
      const target = ctx.routerTarget(before, current, (await read($, headlessState)) === true)
      const isPaused = !target.isFable && isRouterPaused()
 diff --git a/claude-mods/focus-conductor/hooks/ui/labels.ts b/claude-mods/focus-conductor/hooks/ui/labels.ts
-index 620e413..8280321 100644
+index 620e413..109fab4 100644
 --- a/claude-mods/focus-conductor/hooks/ui/labels.ts
 +++ b/claude-mods/focus-conductor/hooks/ui/labels.ts
-@@ -140,6 +140,7 @@ const VI = {
+@@ -140,6 +140,8 @@ const VI = {
    conductorOn: 'Điều phối: fable/medium, đang điều phối',
    conductorPaused: (fallback: string) => `Điều phối: Fable tạm ngừng, router dùng ${fallback}`,
    conductorOff: (reason: string) => `Điều phối: tắt (${reason})`,
 +  conductExempt: (reason: 'solo' | 'agent') => `đang miễn (${reason === 'solo' ? 'lệnh solo' : 'Agent bị từ chối'})`,
++  conductCounts: { deniedWrites: 'từ chối sửa file', deniedChecks: 'từ chối chạy kiểm', selfWrites: 'tự sửa file', selfChecks: 'tự chạy kiểm', reads: 'đọc' },
    conductorReason: {
      option: 'option conductor là off',
      mode: 'chế độ điều phối không phải auto',
-@@ -298,6 +299,7 @@ const EN: typeof VI = {
+@@ -298,6 +300,8 @@ const EN: typeof VI = {
    conductorOn: 'Conductor: fable/medium, conducting',
    conductorPaused: (fallback: string) => `Conductor: Fable paused, router on ${fallback}`,
    conductorOff: (reason: string) => `Conductor: off (${reason})`,
 +  conductExempt: (reason: 'solo' | 'agent') => `exempt (${reason === 'solo' ? 'solo command' : 'Agent call refused'})`,
++  conductCounts: { deniedWrites: 'edits refused', deniedChecks: 'checks refused', selfWrites: 'own edits', selfChecks: 'own checks', reads: 'reads' },
    conductorReason: {
      option: 'conductor option is off',
      mode: 'routing mode is not auto',
-@@ -396,6 +398,16 @@ export function taskLabel(l: typeof VI, row: { kind: 'main' | 'direct' | 'agent'
+@@ -396,6 +400,19 @@ export function taskLabel(l: typeof VI, row: { kind: 'main' | 'direct' | 'agent'
    return `${head}: ${row.title}`
  }
  
 +/**
-+ * Phần nối sau dòng Điều phối của /conductor status khi luồng chính đang điều phối (0.8.6): trạng thái miễn kèm lý do. Pane và band không
-+ * dùng phần này.
++ * Phần nối sau dòng Điều phối của /conductor status khi luồng chính đang điều phối (0.8.6): trạng thái miễn kèm lý do, rồi số đo của mục
++ * tiêu (số bằng 0 bỏ khỏi dòng). Pane và band không dùng phần này.
 + */
-+export function conductStatusSuffix(state: { solo: boolean; agentDenied: boolean }, lang: Lang): string {
++export function conductStatusSuffix(state: { solo: boolean; agentDenied: boolean; deniedWrites: number; deniedChecks: number; selfWrites: number; selfChecks: number; reads: number }, lang: Lang): string {
 +  const l = labels(lang)
-+  const parts = [state.solo ? l.conductExempt('solo') : state.agentDenied ? l.conductExempt('agent') : ''].filter(Boolean)
++  const exempt = state.solo ? l.conductExempt('solo') : state.agentDenied ? l.conductExempt('agent') : ''
++  const keys = ['deniedWrites', 'deniedChecks', 'selfWrites', 'selfChecks', 'reads'] as const
++  const counts = keys.filter(key => state[key] > 0).map(key => `${l.conductCounts[key]} ${state[key]}`)
++  const parts = [exempt, ...counts].filter(Boolean)
 +  return parts.length > 0 ? `; ${parts.join(', ')}` : ''
 +}
 +
@@ -735,7 +765,7 @@ index 620e413..8280321 100644
  export function conductorLine(core: Parameters<typeof conductorShown>[0], fallback: string, lang: Lang): string {
    const l = labels(lang)
 diff --git a/claude-mods/focus-conductor/scripts/mutants.ts b/claude-mods/focus-conductor/scripts/mutants.ts
-index 2ac2944..3046576 100644
+index 2ac2944..dd24eb1 100644
 --- a/claude-mods/focus-conductor/scripts/mutants.ts
 +++ b/claude-mods/focus-conductor/scripts/mutants.ts
 @@ -789,8 +789,8 @@ export const MUTANTS: Mutant[] = [
@@ -789,7 +819,7 @@ index 2ac2944..3046576 100644
    { id: "085-D1c", file: "hooks/parts/consistency.ts", note: "lời nhắc theo mức block khi điều phối, nhắc ở mọi lần thay đổi sau khi hết lượt chặn", old: "    const isStrict = strictDelegation !== 'off'\n", new: "    const isStrict = strictDelegation !== 'off' || (e.agentId === undefined && isConductingNow(core, await read($, mode)))\n" },
    { id: "085-D2a", file: "hooks/parts/session.ts", note: "bổ sung lớn sau khi duyệt giữ approved", old: "          : isBigAmend\n            ? { ...approvalBefore, status: 'planning' as const, rounds: 0 }\n", new: "          : false\n            ? { ...approvalBefore, status: 'planning' as const, rounds: 0 }\n" },
    { id: "085-D2b", file: "hooks/parts/session.ts", note: "bổ sung nhỏ sau khi duyệt cũng về planning", old: " && intent === 'amend' && needsApproval(brief, ctx.planApproval, false) && (plan.depth === 'substantial' || plan.depth === 'hard') && (plan.kind === 'edit' || plan.kind === 'mixed') && added.length > 0\n", new: " && intent === 'amend' && ctx.planApproval === 'auto' && (plan.kind === 'edit' || plan.kind === 'mixed') && added.length > 0\n" },
-@@ -2161,9 +2161,29 @@ export const MUTANTS: Mutant[] = [
+@@ -2161,9 +2161,32 @@ export const MUTANTS: Mutant[] = [
    { id: "085-W2a", file: "hooks/lib/state.ts", note: "mục đã cất xét như không có trạng thái duyệt", old: "approval: a.approval ?? 'none', turnsDone", new: "approval: 'none', turnsDone" },
    { id: "085-W2b", file: "hooks/lib/state.ts", note: "mục tiêu khôi phục coi như chưa được dặn hỏi làm rõ", old: "asked: kept !== 'none', awaitingAnswer: false", new: "asked: false, awaitingAnswer: false" },
    { id: "085-W2c", file: "hooks/lib/state.ts", note: "khôi phục đặt số turn về 0", old: "goalTurns: { goalId, done: restored.turns?.done ?? 0, interrupted: restored.turns?.interrupted === true },", new: "goalTurns: { goalId, done: 0, interrupted: false }," },
@@ -819,6 +849,9 @@ index 2ac2944..3046576 100644
 +  { id: "086-R3c", file: "hooks/parts/consistency.ts", note: "đếm cả khi không điều phối", old: "if (core.brief === null || !ctx.isConducting(core, current) || isConductQuietRead(input)) return null", new: "if (core.brief === null || isConductQuietRead(input)) return null" },
 +  { id: "086-R4a", file: "hooks/lib/router.ts", note: "không xét mục tiêu hiện tại", old: " || (!isReference && relation !== 'new' && policy.goalIsBig === true))", new: ")" },
 +  { id: "086-R4b", file: "hooks/lib/router.ts", note: "chuyển cả tin new", old: "relation !== 'new' && policy.goalIsBig === true", new: "policy.goalIsBig === true" },
++  { id: "086-R5a", file: "hooks/parts/consistency.ts", note: "không ghi conduct-deny", old: "record(await $.clock.now(), 'conduct-deny', ", new: "void ('conduct-deny', " },
++  { id: "086-R5b", file: "hooks/ui/labels.ts", note: "status không hiện số lần tự sửa", old: "const keys = ['deniedWrites', 'deniedChecks', 'selfWrites', 'selfChecks', 'reads'] as const", new: "const keys = ['deniedWrites', 'deniedChecks', 'selfChecks', 'reads'] as const" },
++  { id: "086-R5c", file: "hooks/parts/consistency.ts", note: "cộng số tự làm cả khi cổng khác từ chối", old: "if (role !== null && result.deny === undefined) {", new: "if (role !== null) {" },
  ]
 diff --git a/claude-mods/focus-conductor/tests/evidence/covers-r2-086.test.ts b/claude-mods/focus-conductor/tests/evidence/covers-r2-086.test.ts
 new file mode 100644
@@ -1409,6 +1442,134 @@ index 0000000..922d2f5
 +    const prev = makeBrief({ goalId: 1, goal: A, depth: 'substantial', kind: 'edit' })
 +    const args = { text: FOLLOW, prev, ran: null, model: 'sonnet', prices: bundledPrices() }
 +    expect(JSON.stringify(routerRequest({ ...args, policy: { ...OPEN, goalIsBig: true } }))).toBe(JSON.stringify(routerRequest({ ...args, policy: OPEN })))
++  })
++})
+diff --git a/claude-mods/focus-conductor/tests/integration/conduct-r5-086.test.ts b/claude-mods/focus-conductor/tests/integration/conduct-r5-086.test.ts
+new file mode 100644
+index 0000000..00c4282
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/integration/conduct-r5-086.test.ts
+@@ -0,0 +1,122 @@
++// 0.8.6 R5: số đo vai điều phối trên dòng Điều phối của /conductor status (số bằng 0 bỏ khỏi dòng) và nhật ký quyết định: conduct-deny mỗi
++// lần từ chối, conduct-exempt mỗi lần đổi cờ miễn, conduct-self mỗi lần luồng chính tự sửa hay tự chạy kiểm khi được miễn. Số tự làm chỉ
++// cộng khi lời gọi thật sự chạy (cổng khác không từ chối). Band và pane không đổi.
++
++import { describe, expect, test } from 'claude-code/testing'
++import type { Engine } from 'claude-code/testing'
++import type { On } from 'claude-code'
++import { JS } from '../fixtures/runner-output'
++import { base, plan, submit, task } from '../support/engine'
++import type { Json } from '../support/engine'
++
++const LOG = '/tmp/fc-conduct-r5.jsonl'
++const MAIN = { model: 'sonnet', effort: 'medium', why: '' }
++const A = 'Sửa luồng thanh toán'
++const BIG = plan({ goal: A, depth: 'substantial', volume: 'medium', kind: 'edit', main: MAIN, tasks: [task('Sửa hàm phí', 'main', 'sonnet', 'medium')] })
++const LIGHT = plan({ goal: 'Sửa chú thích', depth: 'light', volume: 'small', kind: 'edit', main: MAIN, tasks: [] })
++const opts = (extra: Json = {}) => ({ options: { planApproval: 'off', conductor: 'fable', decisionLog: LOG, ...extra } })
++const PRESENTATION = { isFullscreen: false, columns: 80 }
++type Out = { deny?: string }
++const run = ($: Engine, args: string) => $.command.run({ command: 'conductor', args, origin: { kind: 'composer' }, presentation: PRESENTATION } as never) as Promise<{ text?: string }>
++const conductLine = async ($: Engine) => String((await run($, 'status')).text ?? '').split('\n').find(line => line.startsWith('Điều phối')) ?? ''
++const edit = ($: Engine) => $.tool.call({ tool: 'Edit', file_path: 'src/phi.ts', old_string: 'a', new_string: 'b' } as never) as Promise<Out>
++const bash = ($: Engine, command: string) => $.tool.call({ tool: 'Bash', command } as never) as Promise<Out>
++
++function setup(on: On, reply: Json = BIG) {
++  base(on, { router: request => (request.startsWith('Requirements:') ? { missing: [], extra: [], issues: [] } : reply) })
++  const writes: string[] = []
++  on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
++  on('tool.call', { tool: 'Read' }, () => ({ result: 'nội dung', isReadOnly: true }))
++  on('tool.call', { tool: 'Bash' }, () => ({ result: JS.bun_pass, text: JS.bun_pass }))
++  on('fs.write', (_x, e) => {
++    if (e.path === LOG) writes.push(e.text)
++    return { value: undefined }
++  })
++  const lines = () => (writes.at(-1) ?? '').trim().split('\n').filter(Boolean).map(line => JSON.parse(line) as Record<string, unknown>)
++  return { lines }
++}
++
++describe('0.8.6 R5: số đo vai điều phối', () => {
++  test('hai lần bị từ chối sửa file, một lần bị từ chối chạy kiểm: dòng Điều phối có đúng hai số; nhật ký có ba dòng conduct-deny đúng loại', opts(), async ($, on) => {
++    const { lines } = setup(on)
++    await submit($, A)
++    await edit($)
++    await edit($)
++    await bash($, 'bun test')
++    const line = await conductLine($)
++    expect(line).toContain('từ chối sửa file 2')
++    expect(line).toContain('từ chối chạy kiểm 1')
++    expect(line).not.toContain('tự sửa file')
++    expect(line).not.toContain('tự chạy kiểm')
++    expect(line).not.toContain('đọc')
++    const denies = lines().filter(l => l['kind'] === 'conduct-deny')
++    expect(denies.map(l => [l['type'], l['n']])).toEqual([['write', 1], ['write', 2], ['check', 1]])
++  })
++
++  test('sau /conductor solo, một lần Edit và một lần bun test: dòng ghi đang miễn, một lần tự sửa, một lần tự chạy kiểm; nhật ký có conduct-exempt và conduct-self', opts(), async ($, on) => {
++    const { lines } = setup(on)
++    await submit($, A)
++    await run($, 'solo')
++    expect((await edit($)).deny).toBeUndefined()
++    expect((await bash($, 'bun test')).deny).toBeUndefined()
++    const line = await conductLine($)
++    expect(line).toContain('đang miễn (lệnh solo)')
++    expect(line).toContain('tự sửa file 1')
++    expect(line).toContain('tự chạy kiểm 1')
++    expect(lines().filter(l => l['kind'] === 'conduct-exempt').map(l => [l['state'], l['reason']])).toEqual([['on', 'solo']])
++    expect(lines().filter(l => l['kind'] === 'conduct-self').map(l => [l['type'], l['n']])).toEqual([['write', 1], ['check', 1]])
++    await run($, 'solo off')
++    expect(lines().filter(l => l['kind'] === 'conduct-exempt').map(l => [l['state'], l['reason']])).toEqual([['on', 'solo'], ['off', 'solo']])
++  })
++
++  test('số lần đọc hiện trên dòng Điều phối', opts(), async ($, on) => {
++    setup(on)
++    await submit($, A)
++    for (const n of [1, 2, 3]) await $.tool.call({ tool: 'Read', file_path: `src/f${n}.ts` } as never)
++    expect(await conductLine($)).toContain('đọc 3')
++  })
++
++  test('được miễn nhưng cổng duyệt đang planning từ chối: số tự sửa giữ 0, không có conduct-self', opts({ planApproval: 'auto' }), async ($, on) => {
++    const { lines } = setup(on)
++    await submit($, A)
++    await run($, 'solo')
++    expect((await edit($)).deny ?? '').toContain('Kế hoạch chưa được duyệt')
++    expect(await conductLine($)).not.toContain('tự sửa file')
++    expect(lines().some(l => l['kind'] === 'conduct-self')).toBe(false)
++  })
++
++  test('được miễn nhưng tầng dưới từ chối (quyền của engine): số tự sửa giữ 0, không có conduct-self', opts(), async ($, on) => {
++    base(on, { router: request => (request.startsWith('Requirements:') ? { missing: [], extra: [], issues: [] } : BIG) })
++    const writes: string[] = []
++    on('tool.call', { tool: 'Edit' }, () => ({ deny: 'quyền: người dùng từ chối' }))
++    on('fs.write', (_x, e) => {
++      if (e.path === LOG) writes.push(e.text)
++      return { value: undefined }
++    })
++    await submit($, A)
++    await run($, 'solo')
++    expect((await edit($)).deny ?? '').toContain('quyền')
++    expect(await conductLine($)).not.toContain('tự sửa file')
++    expect((writes.at(-1) ?? '').includes('conduct-self')).toBe(false)
++  })
++
++  test('Agent bị từ chối bật rồi lời gọi chạy được tắt cờ: nhật ký có hai dòng conduct-exempt lý do agent', opts(), async ($, on) => {
++    const { lines } = setup(on)
++    const agent = { deny: true }
++    on('tool.call', { tool: 'Agent' }, () => (agent.deny ? { deny: 'quyền: người dùng từ chối' } : { result: 'đã giao' }))
++    await submit($, A)
++    await $.tool.call({ tool: 'Agent', tool_use_id: 'u1', description: 'Việc 1: làm', prompt: 'x' } as never)
++    agent.deny = false
++    await $.tool.call({ tool: 'Agent', tool_use_id: 'u2', description: 'Việc 1: làm', prompt: 'x' } as never)
++    expect(lines().filter(l => l['kind'] === 'conduct-exempt').map(l => [l['state'], l['reason']])).toEqual([['on', 'agent'], ['off', 'agent']])
++  })
++
++  test('không điều phối (mục tiêu light): dòng Điều phối như 0.8.5', opts(), async ($, on) => {
++    setup(on, LIGHT)
++    await submit($, 'Sửa chú thích README')
++    await edit($)
++    const line = await conductLine($)
++    expect(line.startsWith('Điều phối: tắt')).toBe(true)
++    expect(line).not.toContain(';')
 +  })
 +})
 diff --git a/claude-mods/focus-conductor/tests/integration/conduct-r6-086.test.ts b/claude-mods/focus-conductor/tests/integration/conduct-r6-086.test.ts
