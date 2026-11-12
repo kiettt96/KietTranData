@@ -1360,6 +1360,17 @@ export function conductorContext(): string {
   )
 }
 
+/** Trần lời từ chối và dòng nhắc của vai điều phối (0.8.6). */
+export const CONDUCT_DENY_CHARS = 300
+
+/** Lời từ chối khi luồng chính đang điều phối tự sửa file (0.8.6 R1). */
+export function conductWriteDenyText(): string {
+  return (
+    '[focus-conductor] Luồng chính đang giữ vai điều phối: vai điều phối không tự sửa file. Giao việc này bằng Agent theo phân việc, gom ' +
+    'các chỉnh nhỏ vào một lời giao. Không giao được thì người dùng gõ /conductor solo.'
+  )
+}
+
 /** Trần câu nhắc lại vai điều phối (0.8.4 V1). */
 export const CONDUCTOR_KEEP_CHARS = 200
 
