@@ -2181,4 +2181,7 @@ export const MUTANTS: Mutant[] = [
   { id: "086-R2d", file: "hooks/parts/agents.ts", note: "đặt cờ dùng chung cả cho subagent ở worktree riêng", old: "sharesDir: info.isolated !== true", new: "sharesDir: true" },
   { id: "086-R2e", file: "hooks/lib/drift/evidence.ts", note: "covers bỏ qua cờ dùng chung", old: "if (entry.author === 'main' || entry.shared === true) return true", new: "if (entry.author === 'main') return true" },
   { id: "086-R2f", file: "hooks/lib/drift/tracker.ts", note: "tracker không coi lần kiểm mang cờ là mốc", old: "if (author === 'main' || isShared) {", new: "if (author === 'main') {" },
+  { id: "086-R3a", file: "hooks/parts/consistency.ts", note: "nhắc ở mọi lần đọc", old: "const isDue = reads % every === 0", new: "const isDue = true" },
+  { id: "086-R3b", file: "hooks/parts/consistency.ts", note: "đếm cả lần đọc của subagent", old: "if (e.agentId !== undefined || ctx.conductorReads === 0 || result.deny !== undefined) return result", new: "if (ctx.conductorReads === 0 || result.deny !== undefined) return result" },
+  { id: "086-R3c", file: "hooks/parts/consistency.ts", note: "đếm cả khi không điều phối", old: "if (core.brief === null || !ctx.isConducting(core, current) || isConductQuietRead(input)) return null", new: "if (core.brief === null || isConductQuietRead(input)) return null" },
 ]

@@ -1363,6 +1363,11 @@ export function conductorContext(): string {
 /** Trần lời từ chối và dòng nhắc của vai điều phối (0.8.6). */
 export const CONDUCT_DENY_CHARS = 300
 
+/** Dòng nhắc đọc của vai điều phối (0.8.6 R3): kèm kết quả lời gọi đọc khi số lần đọc của mục tiêu chạm bội số của conductorReads. */
+export function conductReadText(reads: number): string {
+  return `[focus-conductor] Vai điều phối đã đọc ${reads} lần trong mục tiêu này; việc tra cứu khối lượng lớn nên giao subagent Explore và nhận tóm tắt.`
+}
+
 /** Lời từ chối khi luồng chính đang điều phối tự chạy lệnh kiểm (0.8.6 R2). */
 export function conductCheckDenyText(): string {
   return (

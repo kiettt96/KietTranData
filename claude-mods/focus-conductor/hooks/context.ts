@@ -43,6 +43,9 @@ export const ROUTER_PAUSE = 3
 export const AGENT_ROUTE_LIMIT = 50
 /** Tool sửa file của luồng chính (dùng để nhắc giao việc đã phân). */
 export const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
+/** Ngưỡng nhắc đọc mặc định của vai điều phối (0.8.6 R3, option conductorReads). */
+export const CONDUCTOR_READS = 20
+
 /** strictDelegation "block": số lần mặc định từ chối luồng chính sửa file trong một mục tiêu (option blockLimit đổi được, 1 đến 10). */
 export const BLOCK_EDITS = 2
 export const BLOCK_LIMIT_MAX = 10
@@ -269,6 +272,9 @@ export function createContext(options: PluginOptions) {
     errorBuffer.push({ event, at: localIso(Date.now()) })
     if (errorBuffer.length > ERROR_BUFFER_MAX) errorBuffer.shift()
   })
+  // Ngưỡng nhắc đọc của vai điều phối (0.8.6 R3): số nguyên không âm, mặc định 20; 0 là tắt.
+  const rawConductorReads = Number(options['conductorReads'] ?? CONDUCTOR_READS)
+  const conductorReads = Number.isInteger(rawConductorReads) && rawConductorReads >= 0 ? rawConductorReads : CONDUCTOR_READS
   const rawBlockLimit = Number(options['blockLimit'])
   const blockLimit = Number.isInteger(rawBlockLimit) && rawBlockLimit >= 1 ? Math.min(BLOCK_LIMIT_MAX, rawBlockLimit) : BLOCK_EDITS
   const extraAgents = String(options['agentTypes'] ?? '')
@@ -901,6 +907,7 @@ export function createContext(options: PluginOptions) {
     agentTrackers,
     agents,
     blockLimit,
+    conductorReads,
     blocked,
     blockedUntil,
     cacheTtlMs,

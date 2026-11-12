@@ -25,6 +25,12 @@
       "default": "off",
       "options": ["off", "fable"]
     },
+    "conductorReads": {
+      "type": "number",
+      "title": "Ngưỡng nhắc đọc của vai điều phối",
+      "description": "Khi Fable đang điều phối việc lớn: cứ mỗi bấy nhiêu lần luồng chính gọi Read, Grep hay Glob (không tính file kế hoạch và thư mục .focus-conductor) thì kết quả kèm một dòng nhắc giao việc tra cứu khối lượng lớn cho subagent. Mặc định 20; 0 là tắt. Không từ chối lời gọi đọc nào. (en) While Fable conducts a large goal: every this many Read, Grep or Glob calls of the main thread (plan files and .focus-conductor excluded) add a reminder to hand bulk lookups to a subagent. Default 20; 0 turns it off. No read is refused.",
+      "default": 20
+    },
     "enforceChecklist": {
       "type": "boolean",
       "title": "Chặn kết thúc khi checklist còn mở",
