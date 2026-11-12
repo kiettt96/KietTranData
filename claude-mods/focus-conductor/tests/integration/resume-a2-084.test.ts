@@ -490,3 +490,41 @@ describe('0.8.5 K7: tiếp tục trong routerSkip quay lại mục tiêu đã c�
     expect(lines().some(l => l['kind'] === 'restore')).toBe(false)
   })
 })
+
+// 0.8.5 W1 (vòng 2 PR 38): việc chen vào đã xong, một câu hỏi kiến thức thành mục tiêu hỏi đáp C (không có mục tiêu đang dở nên không phải
+// tin ngoài lề); turn trả lời của C không phải turn thực thi. Mục tiêu hỏi đáp không đòi turn thực thi trước khi quay lại; turn gần nhất
+// bị ngắt thì vẫn không quay lại.
+describe('0.8.5 W1: tiếp tục sau một câu hỏi kiến thức', () => {
+  /** Dạng bản ghi explain của tests/golden/replies.ts: new, task, answer, none, không việc. */
+  const EXPLAIN = plan({ why: 'Câu hỏi giải thích khái niệm, không cần sửa file.', confidence: 0.97, relation: 'new', intent: 'task', goal: 'Giải thích git rebase', requirements: ['Giải thích git rebase'], depth: 'none', volume: 'small', kind: 'answer', main: { model: 'haiku', effort: 'low', why: '' }, tasks: [] })
+  /** A còn 2 bước mở bị B thay, B đóng hết; câu hỏi thành C; một turn trả lời của C kết thúc bình thường hay bị ngắt. */
+  async function aBThenQuestion($: Engine, seen: Seen, isAborted: boolean) {
+    await goalA($, seen)
+    await goalB($, true)
+    await submit($, 'git rebase là gì?')
+    expect(await show($)).toContain('Mục tiêu: Giải thích git rebase')
+    await $.turn.start({ text: 'trả lời', turnId: 't3' })
+    await step($, seen, { turnId: 't3' })
+    await $.turn.complete({ turnId: 't3', answer: isAborted ? '' : 'rebase là...', durationMs: 5, isAborted, reason: isAborted ? 'aborted' : 'answer' } as never)
+  }
+
+  test('turn trả lời của C kết thúc bình thường, tiếp tục: quay lại A còn đúng 2 bước mở, nhật ký restore, context báo quay lại', { options: OPTIONS[0][1] }, async ($, on) => {
+    const { seen, lines } = setup(on, [BIG(), NEW('Sửa chú thích'), EXPLAIN, RESUME])
+    await aBThenQuestion($, seen, false)
+    await submit($, 'tiếp tục')
+    const shown = await show($)
+    expect(shown).toContain(`Mục tiêu: ${A}`)
+    expect(shown).toContain('[~] 2. Thêm test')
+    expect(shown).toContain('[ ] 3. Cập nhật tài liệu')
+    expect(lines().some(l => l['kind'] === 'restore' && l['cause'] === 'resume')).toBe(true)
+    expect(lastContext(seen).filter(c => c === restoreResumeContext(A, STEP2)).length).toBe(1)
+  })
+
+  test('turn trả lời của C bị ngắt, tiếp tục: không khôi phục, mục tiêu vẫn là C', { options: OPTIONS[0][1] }, async ($, on) => {
+    const { seen, lines } = setup(on, [BIG(), NEW('Sửa chú thích'), EXPLAIN, RESUME])
+    await aBThenQuestion($, seen, true)
+    await submit($, 'tiếp tục')
+    expect(await show($)).toContain('Mục tiêu: Giải thích git rebase')
+    expect(lines().some(l => l['kind'] === 'restore')).toBe(false)
+  })
+})
