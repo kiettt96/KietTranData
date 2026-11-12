@@ -328,7 +328,7 @@ index 2d4ad74..16e9f39 100644
    // Prompt tiếp nối có danh sách việc riêng (0.8.0 A3): từ PHASE_MIN mục danh sách và router thêm từ PHASE_MIN việc.
    const isListed = (plan.relation === 'continue' || plan.relation === 'refine') && plan.tasks.length >= PHASE_MIN && listItems(prompt) >= PHASE_MIN
 diff --git a/claude-mods/focus-conductor/hooks/lib/state.ts b/claude-mods/focus-conductor/hooks/lib/state.ts
-index 6837166..8eeb9c6 100644
+index 6837166..81c7feb 100644
 --- a/claude-mods/focus-conductor/hooks/lib/state.ts
 +++ b/claude-mods/focus-conductor/hooks/lib/state.ts
 @@ -6,8 +6,9 @@
@@ -400,7 +400,7 @@ index 6837166..8eeb9c6 100644
  }
  
  /** Ghi trạng thái Fable điều phối (0.8.4). */
-@@ -538,11 +566,56 @@ function stubBrief(plan: readonly PlanStep[]): Brief {
+@@ -538,11 +566,57 @@ function stubBrief(plan: readonly PlanStep[]): Brief {
    }
  }
  
@@ -418,15 +418,16 @@ index 6837166..8eeb9c6 100644
 +
 +/**
 + * Mục tiêu đã cất mà tin bảo chạy tiếp quay lại (0.8.4 A2, 0.8.5 K5): thứ tự trong danh sách đã cất (1 là gần nhất), null là không quay lại.
-+ * Mục tiêu hiện tại không còn dở (checklist trống thì đã có turn thực thi kết thúc, turn gần nhất không bị ngắt); lấy mục đã cất gần nhất còn
-+ * dở (duyệt từ mới tới cũ).
++ * Mục tiêu hiện tại không còn dở (checklist trống thì đã có turn thực thi kết thúc, trừ mục tiêu hỏi đáp, và turn gần nhất không bị ngắt);
++ * lấy mục đã cất gần nhất còn dở (duyệt từ mới tới cũ).
 + */
 +export function resumeTarget(c: Core): number | null {
 +  const n = normalizeCore(c)
 +  if (n.brief === null) return null
 +  if (pendingOf(n)) return null
-+  // Việc chen vào không có checklist (0.8.5 D3) chỉ coi là xong khi đã có turn thực thi kết thúc và turn gần nhất không bị ngắt.
-+  if (n.plan.length === 0 && turnsOf(n).done < 1) return null
++  // Việc chen vào không có checklist (0.8.5 D3) chỉ coi là xong khi đã có turn thực thi kết thúc và turn gần nhất không bị ngắt. Mục tiêu hỏi
++  // đáp (kind answer, 0.8.5 W1) không có turn thực thi nên không đòi vế đầu.
++  if (n.plan.length === 0 && n.brief.kind !== 'answer' && turnsOf(n).done < 1) return null
 +  if (n.plan.length === 0 && turnsOf(n).interrupted) return null
 +  const index = n.archived.findIndex(a => archivedPending(a))
 +  return index < 0 ? null : index + 1
@@ -460,7 +461,7 @@ index 6837166..8eeb9c6 100644
  }
  
  /**
-@@ -569,6 +642,8 @@ export function restoreArchived(c: Core, index: number): { core: Core; restored:
+@@ -569,6 +643,8 @@ export function restoreArchived(c: Core, index: number): { core: Core; restored:
      archived,
      mirror: { goalId, steps: [] },
      ...freshProgress(goalId),
@@ -773,7 +774,7 @@ index a1aafa3..de6aedf 100644
        prompt: clipText(text),
        relation: plan.relation,
 diff --git a/claude-mods/focus-conductor/scripts/mutants.ts b/claude-mods/focus-conductor/scripts/mutants.ts
-index a621d3b..a89532a 100644
+index a621d3b..5164196 100644
 --- a/claude-mods/focus-conductor/scripts/mutants.ts
 +++ b/claude-mods/focus-conductor/scripts/mutants.ts
 @@ -712,7 +712,7 @@ export const MUTANTS: Mutant[] = [
@@ -836,7 +837,7 @@ index a621d3b..a89532a 100644
    { id: "084-X1a", file: "hooks/lib/router.ts", note: "followUpOf không giữ cờ mục tiêu lớn của brief trước, chỉ xét kế hoạch mới", old: "  const isBig = isBigGoal(prev) || isBigGoal({ depth: plan.depth, kind: plan.kind, isReference: prev.isReference })\n", new: "  const isBig = isBigGoal({ depth: plan.depth, kind: plan.kind, isReference: prev.isReference })\n" },
    { id: "084-X1b", file: "hooks/lib/conductor.ts", note: "isBigGoal bỏ qua cờ isBig", old: "  return brief.isBig === true || ((brief.depth === 'substantial' || brief.depth === 'hard') && brief.kind !== 'answer')", new: "  return (brief.depth === 'substantial' || brief.depth === 'hard') && brief.kind !== 'answer'" },
    { id: "084-X1c", file: "hooks/lib/conductor.ts", note: "cờ isBig thắng cả brief đối chiếu và mục tiêu tối thiểu", old: "  if (brief === null || brief.isReference || brief.isBare === true) return false\n", new: "  if (brief === null) return false\n  if (brief.isBig === true) return true\n  if (brief.isReference || brief.isBare === true) return false\n" },
-@@ -2117,19 +2117,44 @@ export const MUTANTS: Mutant[] = [
+@@ -2117,19 +2117,45 @@ export const MUTANTS: Mutant[] = [
    { id: "084-A1b", file: "hooks/parts/session.ts", note: "tin ngoài lề vẫn cất checklist như mục tiêu mới", old: "      if (!isInterject) L.promptIntent = { relation: 'continue', kind: 'answer' }\n      await update($, coreState, c => S.withRouterFail(null)(S.withAnalyzerUsage(outcome.usages, target.family)(c)))\n      L.lastPrompt = { text, prev, goalId: prev.goalId }\n      record(now, 'route', { prompt: clipText(text), relation: plan.relation, intent: 'aside'", new: "      if (!isInterject) L.promptIntent = { relation: 'continue', kind: 'answer' }\n      await update($, coreState, c => S.adoptGoal({ ...prev, goalId: prev.goalId + 1 })(S.withRouterFail(null)(S.withAnalyzerUsage(outcome.usages, target.family)(c))))\n      L.lastPrompt = { text, prev, goalId: prev.goalId }\n      record(now, 'route', { prompt: clipText(text), relation: plan.relation, intent: 'aside'" },
    { id: "084-A1c", file: "hooks/lib/router.ts", note: "coi tin new có việc là ngoài lề", old: "  if (plan.relation !== 'new' || plan.tasks.length > 0 || plan.isReference || plan.runReference) return false\n", new: "  if (plan.relation !== 'new' || plan.isReference || plan.runReference) return false\n" },
    { id: "084-A1d", file: "hooks/lib/router.ts", note: "coi investigate mọi độ sâu là ngoài lề", old: "  return plan.kind === 'answer' || (plan.kind === 'investigate' && (plan.depth === 'none' || plan.depth === 'light'))\n", new: "  return plan.kind === 'answer' || plan.kind === 'investigate'\n" },
@@ -879,7 +880,7 @@ index a621d3b..a89532a 100644
 +  { id: "085-K1c", file: "hooks/parts/session.ts", note: "nhánh routerSkip xóa cờ chờ câu trả lời", old: "      // làm rõ: cờ chờ câu trả lời giữ nguyên (0.8.5 K1).\n", new: "      // làm rõ: cờ chờ câu trả lời giữ nguyên (0.8.5 K1).\n      await clearAwaiting($, S.approvalOf(before))\n" },
 +  { id: "085-K5a", file: "hooks/lib/state.ts", note: "chỉ xét mục đã cất đầu tiên, không duyệt tiếp khi nó đã xong", old: "  const index = n.archived.findIndex(a => archivedPending(a))\n", new: "  const index = n.archived.length > 0 && archivedPending(n.archived[0]!) ? 0 : -1\n" },
 +  { id: "085-K5b", file: "hooks/parts/session.ts", note: "không còn gì vẫn báo chạy tiếp từ bước đang mở", old: "? isResumeMsg && S.isNothingLeft(before) ? nothingLeftContext() : intentResumeContext(core.plan)", new: "? intentResumeContext(core.plan)" },
-+  { id: "085-D3a", file: "hooks/lib/state.ts", note: "bỏ điều kiện việc chen vào đã có turn thực thi kết thúc", old: "  if (n.plan.length === 0 && turnsOf(n).done < 1) return null\n", new: "" },
++  { id: "085-D3a", file: "hooks/lib/state.ts", note: "bỏ điều kiện việc chen vào đã có turn thực thi kết thúc", old: "  if (n.plan.length === 0 && n.brief.kind !== 'answer' && turnsOf(n).done < 1) return null\n", new: "" },
 +  { id: "085-D3b", file: "hooks/lib/state.ts", note: "bỏ điều kiện turn gần nhất của việc chen vào không bị ngắt", old: "  if (n.plan.length === 0 && turnsOf(n).interrupted) return null\n", new: "" },
 +  { id: "085-K4a", file: "hooks/parts/session.ts", note: "tin chen ngang khôi phục vẫn chèn đoạn dặn điều phối và ghi briefedGoal", old: "        const conductNote = !isInterject && wanted?.isConducting", new: "        const conductNote = wanted?.isConducting" },
 +  { id: "085-K6a", file: "hooks/parts/session.ts", note: "prev là brief trước khi khôi phục", old: "        L.lastPrompt = { text, prev: restored, goalId: restored.goalId }\n        record(now, 'restore'", new: "        L.lastPrompt = { text, prev, goalId: restored.goalId }\n        record(now, 'restore'" },
@@ -891,6 +892,7 @@ index a621d3b..a89532a 100644
 +  { id: "085-D2a", file: "hooks/parts/session.ts", note: "bổ sung lớn sau khi duyệt giữ approved", old: "          : isBigAmend\n            ? { ...approvalBefore, status: 'planning' as const, rounds: 0 }\n", new: "          : false\n            ? { ...approvalBefore, status: 'planning' as const, rounds: 0 }\n" },
 +  { id: "085-D2b", file: "hooks/parts/session.ts", note: "bổ sung nhỏ sau khi duyệt cũng về planning", old: " && intent === 'amend' && needsApproval(brief, ctx.planApproval, false) && (plan.depth === 'substantial' || plan.depth === 'hard') && (plan.kind === 'edit' || plan.kind === 'mixed') && added.length > 0\n", new: " && intent === 'amend' && ctx.planApproval === 'auto' && (plan.kind === 'edit' || plan.kind === 'mixed') && added.length > 0\n" },
 +  { id: "085-K10a", file: "hooks/context.ts", note: "cờ prompt tạm ngừng không đọc từ Core", old: "pauseLeft: fable.pauseLeft + (fable.promptPaused ? 1 : 0)", new: "pauseLeft: fable.pauseLeft" },
++  { id: "085-W1a", file: "hooks/lib/state.ts", note: "mục tiêu hỏi đáp vẫn đòi turn thực thi trước khi quay lại", old: " && n.brief.kind !== 'answer' && turnsOf(n).done < 1", new: " && turnsOf(n).done < 1" },
  ]
 diff --git a/claude-mods/focus-conductor/scripts/version-check.mjs b/claude-mods/focus-conductor/scripts/version-check.mjs
 index 7b5bb56..640044e 100644
