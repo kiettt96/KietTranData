@@ -2,6 +2,43 @@
 
 Các bản của focus-conductor, mới nhất trước. Số đo kiểm chứng của HEAD hiện tại nằm ở [docs/VERIFICATION.md](docs/VERIFICATION.md); cách dùng và tùy chọn ở [README](README.md).
 
+## Thay đổi 0.8.7: router Fable đọc trọn prompt dài
+
+Khi router của lượt là Fable, router đọc trọn prompt tới 400.000 ký tự thay cho 80.000 [Nguồn: chủ mod, 12/11/2026, phương án a cho L1]. Kèm hai sửa nhỏ: `/conductor status` nêu lý do mode off ở phiên không tương tác (H1), và lần test lỗi chạy sau làm mất lần đạt dùng để tự nâng `verified` (B1). Khi `conductor` tắt, và với mọi prompt không quá 80.000 ký tự, request router trùng 0.8.6 từng byte. Lời dặn router, `agentSystem`, schema router, schema tool `plan` và golden không đổi. Mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `087-*`; số ca đỏ đo trên `45b5161` ở VERIFICATION.
+
+- **L1 (P1): router Fable đọc trọn prompt dài.**
+  - Hằng mới: `FABLE_REQUEST_CHARS` 400.000 (vượt trần thì giữ 300.000 đầu và 100.000 cuối), `FABLE_FULL_TIMEOUT_MS` 555.000, `FABLE_FULL_MAX_TOKENS` 80.000, `FABLE_FULL_RETRY_TOKENS` 120.000. Trần và thời gian chờ chốt theo đặc tả từ 6 lượt đo Fable thật; số ở VERIFICATION.
+  - `routerRequest` với `isFable` cắt theo trần Fable. Prompt dài hơn 80.000 ký tự của Fable dùng `maxTokens` 80.000 và thời gian chờ 555.000 ms. `retryRequest` cho lượt hỏi lại vì bị cắt của lượt đó tới 120.000 token.
+  - `isClippedPrompt` và `clippedWarning` theo router của lượt. `prompt.submit` truyền đúng đích đã đọc prompt, nên Fable đọc trọn thì không có cảnh báo và `CLIPPED_CONTEXT`; vượt trần Fable thì cảnh báo ghi 300.000 và 100.000; Fable tạm ngừng thì như 0.8.6.
+  - Lượt đọc trọn hết giờ: `askRouter` gửi request dự phòng cắt theo trần 80.000, với trọn 120.000 ms, và báo `fellBack`; kết quả của lượt đó có cảnh báo và `CLIPPED_CONTEXT`.
+  - Status line ghi "router Fable đang đọc trọn prompt dài, có thể mất vài phút..." khi Fable đọc prompt dài hơn 80.000 ký tự.
+- **H1 (P2): lý do mode off ở phiên không tương tác.** Khi cờ `headlessOff` bật và mode là `off`, dòng đầu của `/conductor status` và câu trả lời của `/conductor reroute` ghi lý do và cách bật (`headlessOffNote`, 126 ký tự, trần 160). Mode off do người dùng tự đặt không có phần này. Không đổi `session.start`, không toast, không context.
+- **B1 (P3): lần test lỗi chạy sau.** `freshTestRun` trả `undefined` khi sau lần đạt còn lần chạy test lỗi của luồng chính hay mang cờ `shared`. Lần lỗi của subagent chạy thư mục riêng không xét. Lần kiểm `chained` (A11) không tính là lỗi, theo quyết định của chủ mod ngày 12/11/2026. Không sửa nơi gọi, không đổi `acceptsVerified`.
+
+**Lệch đặc tả, theo quyết định của chủ mod ngày 12/11/2026:**
+- `maxTokens` của lượt đọc trọn là 80.000, không phải 24.000. Cả 6 lượt đo ra 32.558 tới 53.618 token, nên với 24.000 lượt đọc trọn sẽ bị cắt.
+- Lượt hỏi lại vì bị cắt của lượt đó được tới 120.000 token.
+- Lượt dự phòng dùng trọn 120.000 ms.
+- Chữ chờ ở status line nói rõ là đang đọc trọn prompt dài.
+- Test đơn vị L1 ở commit test đỏ kỳ vọng 24.000; commit sửa đổi thành `FABLE_FULL_MAX_TOKENS`, và thêm các ca cho trần hỏi lại, chữ chờ và hằng đã chốt.
+
+**Test cũ đổi kỳ vọng (giữ tên):**
+- `tests/integration/error-log-l1-079.test.ts`, ca `sổ 0.8.4 vẫn rỗng; MOD_VERSION là 0.8.4`: kỳ vọng `MOD_VERSION` là 0.8.7.
+
+Không test cũ nào khác đổi kỳ vọng hay cách dựng tình huống.
+
+**Mẫu mới (23):** `087-L1a` tới `087-L1k`, `087-H1a` tới `087-H1d`, `087-B1a` tới `087-B1d`.
+
+**Mẫu cũ viết lại (giữ mã), vì dòng `old` mất chỗ khớp:**
+- `054-H10`: `fence` của prompt nay bọc hai nhánh trần.
+- `070-C13`: tham số của `routerRequest` gom vào `args`.
+- `070-B19`, `078-G8i`: lời gọi `askRouter` có thêm `fallback`.
+- `078-G8g`, `078-G8h`: `isClippedPrompt` nhận `isFable`.
+- `078-G8j`: `clippedWarning` nhận `isFableRead`.
+- `070-V1`, `070-V5`: `freshTestRun` gán lần đạt vào `pass`.
+
+Không bỏ mẫu nào.
+
 ## Thay đổi 0.8.6: siết vai điều phối của Fable
 
 Khi option `conductor` là `fable` và luồng chính đang điều phối việc lớn, luồng chính chỉ lập kế hoạch, giao việc, đọc kết quả và quyết định bước tiếp theo; không tự sửa file, không tự chạy lệnh kiểm [Nguồn: chủ mod, 12/11/2026, phương án (a) cho Q1, Q2, Q3 và ba bổ sung khi duyệt kế hoạch]. Khi `conductor` tắt, hay khi luồng chính không đang điều phối, mọi hành vi như 0.8.5. Lời dặn router (cả hai biến thể), schema JSON router trả, schema tool `plan` và golden không đổi. Mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `086-*`; số ca đỏ đo trên `473bc75` ở VERIFICATION.
