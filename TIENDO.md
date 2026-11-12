@@ -9,3 +9,4 @@ Tiếp: đo Fable cho L1.
 - Giới hạn hook: không có trần ở gói engine (model.complete kẹp 2147483647); probe thật không chạy vì hook module không nạp trong claude -p.
 - L1 sửa: 6f76947 (18 ca, 8/18 đỏ trên 45b5161 có hằng giả; 11 mẫu 087-L1a..k bắt hết); 7 mẫu cũ viết lại ở commit kế. Cả bộ sau L1: 3344 đạt.
 - H1: test đỏ 9b9fa6a (3/8 đỏ trên 45b5161); sửa 7d2b1d3, 4 mẫu 087-H1a..d bắt hết.
+- B1: test đỏ 052ed74 (đơn vị 2/4, tích hợp 2/3 trên 45b5161); sửa c8bd562 kèm ca chained; 4 mẫu 087-B1a..d bắt hết. Phát hiện: acceptsVerified nhận verified kèm evidence sau chuỗi đạt rồi lỗi (cả 45b5161 và bản mới), không sửa.
