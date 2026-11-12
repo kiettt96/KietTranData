@@ -8,6 +8,7 @@ import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import type { PlanStep } from '../../types'
 import { conductorContext, restoreResumeContext } from '../../hooks/lib/text'
+import { planningContext } from '../../hooks/lib/approval'
 import { base, conductor, plan, step, submit } from '../support/engine'
 import type { Json, Seen } from '../support/engine'
 
@@ -526,5 +527,35 @@ describe('0.8.5 W1: tiếp tục sau một câu hỏi kiến thức', () => {
     await submit($, 'tiếp tục')
     expect(await show($)).toContain('Mục tiêu: Giải thích git rebase')
     expect(lines().some(l => l['kind'] === 'restore')).toBe(false)
+  })
+})
+
+// 0.8.5 W2 (vòng 2 PR 38): nhánh routerSkip khôi phục theo cùng luật với nhánh có router: tin chen ngang không chèn đoạn dặn điều phối và
+// không ghi briefedGoal (K4); mục tiêu khôi phục đang lập kế hoạch thì kèm đoạn dặn planning (K2).
+describe('0.8.5 W2: nhánh routerSkip khôi phục', () => {
+  test('conductor fable: tin tiếp tục chen ngang đi nhánh skip khôi phục A: không có đoạn dặn; prompt kế tiếp ngoài turn có đúng một đoạn dặn', { options: { ...FABLE_OPTS, routerSkip: 'tiếp tục' } }, async ($, on) => {
+    const { seen, lines } = setup(on, [BIG(), NEW('Sửa chú thích'), RESUME])
+    await goalA($, seen)
+    await goalB($, true)
+    await $.turn.start({ text: 'sửa', turnId: 't2' })
+    await step($, seen, { turnId: 't2' })
+    await $.prompt.submit({ text: 'tiếp tục', wait: false, turnId: 't2', origin: { kind: 'composer' } } as never)
+    expect(await show($)).toContain(`Mục tiêu: ${A}`)
+    expect(lines().some(l => l['kind'] === 'restore' && l['cause'] === 'resume')).toBe(true)
+    expect(lastContext(seen).filter(c => c === conductorContext()).length).toBe(0)
+    await $.turn.complete({ turnId: 't2', answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer' } as never)
+    await submit($, 'làm bước 2 đi')
+    expect(lastContext(seen).filter(c => c === conductorContext()).length).toBe(1)
+  })
+
+  test('A planning chưa có checklist bị B thay, B đóng hết, tiếp tục đi nhánh skip: quay lại A, context có đoạn dặn planning', { options: { decisionLog: LOG, routerSkip: 'tiếp tục' } }, async ($, on) => {
+    const { seen } = setup(on, [BIG(), NEW('Sửa chú thích')])
+    await submit($, A)
+    expect(lastContext(seen).filter(c => c === planningContext()).length).toBe(1)
+    await goalB($, true)
+    expect(await show($)).toContain('Mục tiêu: Sửa chú thích')
+    await submit($, 'tiếp tục')
+    expect(await show($)).toContain(`Mục tiêu: ${A}`)
+    expect(lastContext(seen).filter(c => c === planningContext()).length).toBe(1)
   })
 })

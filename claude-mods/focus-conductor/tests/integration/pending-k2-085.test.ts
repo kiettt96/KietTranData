@@ -8,6 +8,7 @@ import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import { base, conductor, plan, submit } from '../support/engine'
 import type { Json, Seen } from '../support/engine'
+import { droppedGoalNotice } from '../../hooks/lib/text'
 
 const PLAN = 'mcp__focus-conductor__plan'
 const LOG = '/tmp/fc-pending-k2-085.jsonl'
@@ -97,6 +98,14 @@ describe('0.8.5 K2: mục tiêu đang dở chưa có checklist bị thay thì đ
       const back = await restore($)
       expect(back.deny).toBeUndefined()
       expect(await show($)).toContain(`Mục tiêu: ${A}`)
+    })
+
+    // 0.8.5 W2 (vòng 2 PR 38): lệnh /conductor goal báo đúng một dòng đã lưu mục tiêu cũ chưa có checklist.
+    test(`${name}: /conductor goal Việc khác khi mục tiêu lớn chưa có checklist: context lệnh có đúng một dòng báo đã lưu mục tiêu cũ`, { options: opts }, async ($, on) => {
+      setup(on, [BIG(), NEW('Việc khác')])
+      await submit($, A)
+      const out = (await conductor($, 'goal Việc khác')) as { context?: string[] }
+      expect((out.context ?? []).filter(c => c === droppedGoalNotice(A)).length).toBe(1)
     })
   }
 

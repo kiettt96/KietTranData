@@ -7,7 +7,7 @@ import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import type { Brief, Core } from '../../types'
 import * as S from '../../hooks/lib/state'
-import { planningContext } from '../../hooks/lib/approval'
+import { askContext, planningContext } from '../../hooks/lib/approval'
 import { base, plan, submit, task } from '../support/engine'
 import type { Json, Seen } from '../support/engine'
 import { makeBrief } from '../support/commands'
@@ -82,6 +82,44 @@ describe('0.8.5 K3: mục tiêu được khôi phục giữ trạng thái duyệ
     expect(String((await edit($)).deny ?? '')).toContain('chưa được duyệt')
     await submit($, 'ok duyệt')
     expect((await edit($)).deny).toBeUndefined()
+  })
+})
+
+// 0.8.5 W2 (vòng 2 PR 38): mục đã cất còn dở theo trạng thái duyệt lúc cất (presented dù checklist đã đóng hết); mục tiêu khôi phục giữ cờ
+// đã dặn hỏi làm rõ nên không dặn hỏi lại.
+describe('0.8.5 W2: trạng thái duyệt của mục đã cất', () => {
+  const QUESTIONS = ['Giữ API cũ hay đổi chữ ký hàm (giữ, đổi)?']
+  test('A đã trình, đóng hết checklist mà chưa duyệt, bị B thay; B đóng hết; tiếp tục khôi phục A', OPTS, async ($, on) => {
+    setup(on, [BIG, NEW, RESUME])
+    await submit($, A)
+    await $.turn.start({ text: 'việc', turnId: 't1' })
+    await setSteps($)
+    expect(await stop($)).toBe('')
+    for (const id of [1, 2]) await $.tool.call({ tool: PLAN, action: 'update', step: id, status: 'done' } as never)
+    expect(await show($)).toContain('[x] 2. Thêm test')
+    await submit($, 'Sửa chú thích README')
+    expect(await show($)).toContain('Mục tiêu: Sửa chú thích')
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa chú thích' }] } as never)
+    await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'done' } as never)
+    await submit($, 'tiếp tục')
+    expect(await show($)).toContain(`Mục tiêu: ${A}`)
+  })
+
+  test('A planning đã được dặn hỏi làm rõ, bị cất rồi khôi phục: tin bổ sung kèm questions không dặn hỏi lại', OPTS, async ($, on) => {
+    const AMEND = plan({ relation: 'continue', intent: 'amend', goal: '', depth: 'substantial', volume: 'medium', kind: 'edit', main: MAIN, questions: QUESTIONS })
+    const seen = setup(on, [plan({ goal: A, depth: 'substantial', volume: 'medium', kind: 'edit', main: MAIN, requirements: ['Sửa hàm phí'], questions: QUESTIONS }), NEW, RESUME, AMEND])
+    await submit($, A)
+    expect(lastContext(seen).filter(c => c === askContext(QUESTIONS)).length).toBe(1)
+    // Tin của B không nhắc tới mục tiêu A, nên không bị giữ thành câu trả lời câu hỏi làm rõ.
+    await submit($, 'Đổi chú thích README')
+    expect(await show($)).toContain('Mục tiêu: Sửa chú thích')
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa chú thích' }] } as never)
+    await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'done' } as never)
+    await submit($, 'tiếp tục')
+    expect(await show($)).toContain(`Mục tiêu: ${A}`)
+    await submit($, 'thêm ràng buộc giữ API cũ')
+    expect(lastContext(seen).filter(c => c === askContext(QUESTIONS)).length).toBe(0)
+    expect(lastContext(seen).filter(c => c === planningContext()).length).toBe(1)
   })
 })
 

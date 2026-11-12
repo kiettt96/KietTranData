@@ -5,10 +5,11 @@
 import { describe, expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
-import type { Core } from '../../types'
+import type { Core, PlanStep } from '../../types'
 import * as S from '../../hooks/lib/state'
 import { base, plan, step, submit } from '../support/engine'
 import type { Json, Seen } from '../support/engine'
+import { makeBrief } from '../support/commands'
 
 const PLAN = 'mcp__focus-conductor__plan'
 const LOG = '/tmp/fc-turns-k8-085.jsonl'
@@ -76,5 +77,57 @@ describe('0.8.5 K8: mục tiêu lớn không checklist hết là mục tiêu đa
     const { goalTurns: _drop, ...old } = S.EMPTY_CORE as Core & { goalTurns?: unknown }
     const n = S.normalizeCore(old as Partial<Core>) as Core & { goalTurns?: unknown }
     expect(n.goalTurns).toEqual({ goalId: -1, done: 0, interrupted: false })
+  })
+})
+
+// 0.8.5 W2 (vòng 2 PR 38): ghim số turn mang theo khi cất và khôi phục, và turn của prompt router lỗi được đếm là turn thực thi. Số turn đã
+// cất chỉ có tác dụng khi checklist trống, mà mục tiêu lớn chưa có checklist chỉ được cất khi chưa có turn thực thi; nên hai ca đầu đọc giá
+// trị qua các hàm của state, không qua hook.
+describe('0.8.5 W2: số turn khi cất, khôi phục và khi router lỗi', () => {
+  const OPEN: PlanStep[] = [{ id: 1, title: 'Sửa hàm phí', status: 'doing' }, { id: 2, title: 'Thêm test', status: 'todo' }]
+  /** A có checklist còn bước mở và một turn thực thi đã kết thúc; B thay A. */
+  function aReplacedByB() {
+    const a = makeBrief({ goalId: 1, goal: A })
+    const withA: Core = { ...S.EMPTY_CORE, brief: a, plan: OPEN, goalTurns: { goalId: 1, done: 1, interrupted: false } }
+    return S.adoptGoal(makeBrief({ goalId: 2, goal: 'Sửa chú thích', depth: 'light', kind: 'edit' }))(withA)
+  }
+
+  test('ngay sau khi B thay A: mục đã cất đầu tiên mang turns.done 1', () => {
+    expect(aReplacedByB().archived[0]?.turns).toEqual({ done: 1, interrupted: false })
+  })
+
+  test('B đóng hết, khôi phục A: turnsOf của Core trả done 1', () => {
+    const closed: Core = { ...aReplacedByB(), plan: [{ id: 1, title: 'Sửa chú thích', status: 'done' }] }
+    const outcome = S.restoreArchived(closed, 1)
+    expect('error' in outcome).toBe(false)
+    if ('error' in outcome) return
+    expect(outcome.core.brief?.goal).toBe(A)
+    expect(S.turnsOf(outcome.core).done).toBe(1)
+  })
+
+  test('prompt router lỗi rồi turn kết thúc: turn được đếm, mục tiêu lớn chưa có checklist hết là mục tiêu đang dở', { options: OPTIONS[0][1] }, async ($, on) => {
+    const now: { reply: Json | null } = { reply: BIG }
+    const seen: Seen = base(on, { router: request => (request.startsWith('Requirements:') ? { missing: [], extra: [], issues: [] } : now.reply) })
+    on('turn.complete', () => ({ text: '' }))
+    on('classic.Stop', () => ({}))
+    const writes: string[] = []
+    on('fs.write', (_$, e) => {
+      writes.push(e.text)
+      return { value: undefined }
+    })
+    const lines = () => (writes[writes.length - 1] ?? '').trim().split('\n').filter(Boolean).map(line => JSON.parse(line) as Record<string, unknown>)
+    await submit($, A)
+    await $.turn.start({ text: 'làm', turnId: 't1' })
+    await step($, seen, { turnId: 't1' })
+    await complete($, 't1')
+    now.reply = null
+    await submit($, 'làm tiếp đi')
+    await $.turn.start({ text: 'làm', turnId: 't2' })
+    await step($, seen, { turnId: 't2' })
+    await complete($, 't2')
+    now.reply = ASIDE
+    await submit($, 'git rebase là gì?')
+    expect(lines().filter(l => l['kind'] === 'route').at(-1)?.['intent']).not.toBe('aside')
+    expect(await show($)).toContain('Mục tiêu: Giải thích git rebase')
   })
 })
