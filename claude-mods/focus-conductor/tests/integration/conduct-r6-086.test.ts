@@ -103,7 +103,7 @@ describe('0.8.6 R6: cờ lời gọi Agent bị từ chối', () => {
     await callAgent($, 'u1')
     expect(await conductLine($)).not.toContain('đang miễn')
     const edit = (await $.tool.call({ tool: 'Edit', file_path: 'src/phi.ts', old_string: 'a', new_string: 'b' } as never)) as { deny?: string }
-    expect(edit.deny).toBeDefined()
+    expect(edit.deny ?? '').toContain('vai điều phối không tự sửa file')
   })
 
   test('Agent bị chính mod từ chối (cổng duyệt đang planning): cờ không bật', { options: { planApproval: 'auto', conductor: 'fable' } }, async ($, on) => {
