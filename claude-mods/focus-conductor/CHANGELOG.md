@@ -30,6 +30,10 @@ Khi option `conductor` là `fable` và luồng chính đang điều phối việ
 
 **Mẫu cũ viết lại (giữ mã):** `079-Y5a` (khớp hai lần sau khi thêm lệnh solo), `085-W2d` (mục đã cất có thêm `conduct`), `085-D1b` (định nghĩa đang điều phối chuyển sang `ctx.isConducting`), `085-D1a` (mức block khi điều phối được thay bằng luật từ chối mới; mẫu nay bỏ luật từ chối sửa file của vai điều phối), `071-M8`, `071-M9`, `075-D1h` (khớp hai lần do `autoVerify`; thêm ngữ cảnh riêng của nhánh luồng chính), `079-V4d`, `079-V4e` (dòng policy có `goalIsBig`). Không bỏ mẫu nào.
 
+**Vòng 2 (rà soát PR 39):**
+
+- **V1 (P3): ghim 9 chỗ logic mới của vai điều phối bằng test**, không đổi `hooks/`: Agent lồng do subagent gọi không đổi cờ miễn (`086-V1a`); Agent bị từ chối khi Fable tạm ngừng không bật cờ (`086-V1b`); đang miễn thì nhánh `strictDelegation: 'block'` không từ chối (`086-V1c`); subagent có `isolation: 'remote'` không dùng chung thư mục (`086-V1d`); lần kiểm mang cờ `shared` là mốc của luồng chính trong `covers` (`086-V1e`, đã có ca bắt trong `tests/evidence/covers-r2-086.test.ts`, không thêm ca); `autoVerify` chỉ nâng khi lần test đạt là lệnh cuối (`086-V1f`, ghi tương đương, lý do ở `scripts/mutants.ts` và VERIFICATION); tin tiếp nối là prompt đối chiếu không chuyển việc sang subagent (`086-V1g`); số đo trên dòng Điều phối chỉ hiện khi đang điều phối (`086-V1h`); lần đọc bị tầng dưới từ chối không được đếm (`086-V1i`). 8 ca mới trong `conduct-r1-086` tới `conduct-r6-086`; không test cũ nào đổi kỳ vọng hay đổi tên.
+
 ## Thay đổi 0.8.5: mục tiêu đang dở, mục tiêu đã cất, vai điều phối
 
 Xử lý các tồn đọng tìm ra khi rà soát tổng thể 0.8.4 [Nguồn: chủ mod, 11/11/2026]. Lời dặn router, schema JSON router trả, schema tool `plan` và golden không đổi. Mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu đột biến `085-*`; số ca đỏ đo trên `87023af` ở VERIFICATION.

@@ -38,6 +38,19 @@ Nhánh tách từ `main` `473bc75` (0.8.5, plugin.json 0.8.5, đã kiểm trư�
   - `conductor: 'fable'` sau `/conductor solo`: 16.608 và 24.349. Bằng 10.696 và 19.943 của 0.8.5, cộng dòng nhắc đọc (5.887 và 4.380), cộng 26 (câu `conductorKeepText` dài hơn 13 ký tự, hai lần nén ngữ cảnh), trừ 1 ở số đầu (không còn lần từ chối D1 đẩy cảnh báo phạm vi đầu tiên sang lô sau). Mọi dòng context mới không quá 300 ký tự.
 - **CI** [Đo trực tiếp]: run của commit cuối ghi ở mô tả PR.
 
+### Vòng 2 (rà soát PR 39): V1
+
+- **Điều kiện trước** [Đo trực tiếp]: đầu nhánh `233bb81`; cả 9 chuỗi `old` của bảng V1 khớp đúng một chỗ. Vòng này chỉ thêm test và mẫu (`eb9719a`); `git diff 233bb81 -- claude-mods/focus-conductor/hooks claude-mods/focus-conductor/tests/golden` rỗng, nên không chạy lại mẫu vùng diff và không đo lại hai số phiên dài.
+- **Mẫu mới (9), chạy riêng từng mẫu trên tệp test của điểm** [Đo trực tiếp, engine 2.1.296]: `086-V1a` 1 đỏ, `086-V1b` 1 (`conduct-r6-086`); `086-V1c` 1 (`conduct-r1-086`); `086-V1d` 2 (`conduct-r2-086`); `086-V1e` 1 (`tests/evidence/covers-r2-086`, ca có sẵn "lần kiểm mang cờ là mốc của luồng chính", tệp này nằm ngoài 73 ca của lần rà soát); `086-V1g` 2 (`conduct-r4-086`, một ca tích hợp và một ca `parseRoute`); `086-V1h` 1 (`conduct-r5-086`); `086-V1i` 1 (`conduct-r3-086`).
+- **`086-V1f` ghi tương đương**: `autoVerify` chỉ chạy ngay sau một lời gọi kiểm đạt (không `isError`) của subagent chung thư mục, nên lệnh kiểm lỗi trong ca của đặc tả không tới hàm này. Khi lời gọi đạt ấy không phải lần test mới nhất, vẫn không có bước done nào chờ nâng: bước đóng lúc đã có lần test đạt được nâng ngay ở nhánh đóng bước của tool plan và của danh sách phản chiếu; bước done có trước lần test đạt được nâng ở chính lần đó; thay đổi mới hạ bước về done thì cũng làm mất lần test đạt sau thay đổi cuối. Bản thử ca của đặc tả trên mã hiện tại cho thấy bước 2 đã thành verified ngay lúc đóng bằng `update` (nhánh `close`), nên mẫu không có đường quan sát; ca đó không được giữ.
+- **Bộ test** trên `eb9719a`, chạy riêng, không song song với lượt đột biến [Đo trực tiếp]: 3326 test trên 288 tệp, 0 lỗi, 354,67 giây. So tên ca đạt với `233bb81` (3318 ca): thêm 8 ca, không ca nào mất hay đổi tên, không test cũ nào đổi kỳ vọng.
+- **Kiểm tĩnh** trên `eb9719a` [Đo trực tiếp]:
+  - `claude plugin validate` đạt ở thư mục mod và ở gốc repo.
+  - `version-check` khớp 0.8.6, README đủ 42 option.
+  - `mutate --check` khớp 2163/2163.
+  - sha256 `hooks/` `cfbb02668bcb1508e7e0065038630cf2dc79affd9022a80a3e9c46e337601d9e` (không đổi), `tests/` `5cb7d254c2a42d2bdc353ed0b1eaaa76daeea948a84c7e3088fe8e19542a754d` (theo `scripts/mutate.ts`).
+- **CI** [Đo trực tiếp]: run 43222093888 xanh trên `233bb81`. Run của commit cuối ghi ở mô tả PR.
+
 ## Kiểm chứng của 0.8.5 (mục tiêu đang dở, mục tiêu đã cất, vai điều phối)
 
 Nhánh tách từ `main` `87023af` (0.8.4, plugin.json 0.8.4, đã kiểm trước khi bắt đầu). Mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `085-*`; K11, K12 mỗi điểm một commit; không amend, không force-push, không merge [Đo trực tiếp]. Engine của mọi lượt đo dưới đây là 2.1.296, cài riêng ngoài repo; engine của phiên phát triển là 2.1.322.
