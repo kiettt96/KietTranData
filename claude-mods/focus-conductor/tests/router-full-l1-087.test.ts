@@ -1,12 +1,13 @@
 // 0.8.7 L1: khi router của lượt là Fable (isFable), routerRequest đọc trọn prompt tới trần FABLE_REQUEST_CHARS (phần đầu 75%, phần cuối
-// 25% khi vượt); prompt dài hơn REQUEST_CHARS (80.000) thì maxTokens 24.000 và thời gian chờ FABLE_FULL_TIMEOUT_MS. isClippedPrompt và
+// 25% khi vượt); prompt dài hơn REQUEST_CHARS (80.000) thì maxTokens FABLE_FULL_MAX_TOKENS (80.000, chủ mod chốt thay cho 24.000 của
+// đặc tả) và thời gian chờ FABLE_FULL_TIMEOUT_MS; lượt hỏi lại vì bị cắt được tới FABLE_FULL_RETRY_TOKENS. isClippedPrompt và
 // clippedWarning dùng đúng trần của lượt đó. Router thường và prompt không quá 80.000 ký tự giữ request 0.8.6 từng byte. Lượt đọc trọn hết
 // giờ thì askRouter gửi request dự phòng (đã cắt theo trần 80.000) với trọn thời gian chờ của nó, và báo fellBack.
 
 import { describe, expect, test } from 'claude-code/testing'
-import { FABLE_REQUEST_CHARS, askRouter, clippedWarning, isClippedPrompt, parseRoute, routerRequest } from '../hooks/lib/router'
+import { FABLE_REQUEST_CHARS, askRouter, clippedWarning, isClippedPrompt, parseRoute, retryRequest, routerRequest } from '../hooks/lib/router'
 import type { Policy } from '../hooks/lib/router'
-import { FABLE_FULL_TIMEOUT_MS, FABLE_LONG_TIMEOUT_MS } from '../hooks/lib/conductor'
+import { FABLE_FULL_MAX_TOKENS, FABLE_FULL_RETRY_TOKENS, FABLE_FULL_TIMEOUT_MS, FABLE_LONG_TIMEOUT_MS } from '../hooks/lib/conductor'
 import type { ModelCompleteRequest } from 'claude-code'
 import { plan } from './support/engine'
 
@@ -26,11 +27,11 @@ const LONG_PLAIN_SHA = 'a6c1b875ed5670668f5713a2080da888a622b958216cab2300288266
 const SHORT_FABLE_SHA = 'ee1a2caa66e741d838de2072d9b453b1f0f1fd88aa9f47745200220d540c0279'
 
 describe('0.8.7 L1: routerRequest khi router là Fable', () => {
-  test('prompt 238.489 ký tự có dấu ở ký tự 120.000: request chứa dấu, không lược; maxTokens 24.000; thời gian chờ FABLE_FULL_TIMEOUT_MS', () => {
+  test('prompt 238.489 ký tự có dấu ở ký tự 120.000: request chứa dấu, không lược; maxTokens FABLE_FULL_MAX_TOKENS; thời gian chờ FABLE_FULL_TIMEOUT_MS', () => {
     const r = fable(LONG)
-    expect(promptOf(r)).toContain(MARK)
-    expect(promptOf(r)).not.toContain('lược')
-    expect(r.maxTokens).toBe(24_000)
+    expect(promptOf(r).includes(MARK)).toBe(true)
+    expect(promptOf(r).includes('lược')).toBe(false)
+    expect(r.maxTokens).toBe(FABLE_FULL_MAX_TOKENS)
     expect(r.timeoutMs).toBe(FABLE_FULL_TIMEOUT_MS)
     expect(isClippedPrompt(LONG, true)).toBe(false)
   })
@@ -39,18 +40,18 @@ describe('0.8.7 L1: routerRequest khi router là Fable', () => {
     const text = 'd'.repeat(FABLE_REQUEST_CHARS + 1)
     const head = Math.round(FABLE_REQUEST_CHARS * 0.75)
     const tail = FABLE_REQUEST_CHARS - head
-    expect(promptOf(fable(text))).toContain(`[... lược ${text.length - head - tail} ký tự ở giữa ...]`)
+    expect(promptOf(fable(text)).includes(`[... lược ${text.length - head - tail} ký tự ở giữa ...]`)).toBe(true)
     expect(isClippedPrompt(text, true)).toBe(true)
     expect(clippedWarning(text.length, true)).toBe(`Prompt dài ${grouped(text.length)} ký tự; router chỉ đọc ${grouped(head)} ký tự đầu và ${grouped(tail)} ký tự cuối`)
   })
 
-  test('prompt 80.000 và 80.001 ký tự: bản 80.000 giữ 16.000 và FABLE_LONG_TIMEOUT_MS, bản 80.001 dùng 24.000 và FABLE_FULL_TIMEOUT_MS; cả hai trọn prompt', () => {
+  test('prompt 80.000 và 80.001 ký tự: bản 80.000 giữ 16.000 và FABLE_LONG_TIMEOUT_MS, bản 80.001 dùng FABLE_FULL_MAX_TOKENS và FABLE_FULL_TIMEOUT_MS; cả hai trọn prompt', () => {
     const at = fable('e'.repeat(80_000))
     const over = fable('e'.repeat(80_001))
     expect([at.maxTokens, at.timeoutMs]).toEqual([16_000, FABLE_LONG_TIMEOUT_MS])
-    expect([over.maxTokens, over.timeoutMs]).toEqual([24_000, FABLE_FULL_TIMEOUT_MS])
-    expect(promptOf(at)).toContain('e'.repeat(80_000))
-    expect(promptOf(over)).toContain('e'.repeat(80_001))
+    expect([over.maxTokens, over.timeoutMs]).toEqual([FABLE_FULL_MAX_TOKENS, FABLE_FULL_TIMEOUT_MS])
+    expect(promptOf(at).includes('e'.repeat(80_000))).toBe(true)
+    expect(promptOf(over).includes('e'.repeat(80_001))).toBe(true)
     expect(isClippedPrompt('e'.repeat(80_001), true)).toBe(false)
   })
 
@@ -59,10 +60,27 @@ describe('0.8.7 L1: routerRequest khi router là Fable', () => {
   })
 })
 
+describe('0.8.7 L1: hằng đã chốt theo số đo', () => {
+  test('FABLE_REQUEST_CHARS 400.000, FABLE_FULL_TIMEOUT_MS 555.000, FABLE_FULL_MAX_TOKENS 80.000, FABLE_FULL_RETRY_TOKENS 120.000', () => {
+    expect([FABLE_REQUEST_CHARS, FABLE_FULL_TIMEOUT_MS, FABLE_FULL_MAX_TOKENS, FABLE_FULL_RETRY_TOKENS]).toEqual([400_000, 555_000, 80_000, 120_000])
+  })
+})
+
+describe('0.8.7 L1: lượt hỏi lại vì câu trả lời bị cắt', () => {
+  test('lượt đọc trọn (maxTokens 80.000) bị cắt: lượt hỏi lại có maxTokens 120.000', () => {
+    expect(retryRequest(fable(LONG), '{"goal":', 'json', { truncated: true }).maxTokens).toBe(FABLE_FULL_RETRY_TOKENS)
+  })
+
+  test('request 16.000 bị cắt: lượt hỏi lại 24.000 như 0.8.6; request 8.000: 12.000', () => {
+    expect(retryRequest(fable('f'.repeat(20_000)), '{"goal":', 'json', { truncated: true }).maxTokens).toBe(24_000)
+    expect(retryRequest(fable(SHORT), '{"goal":', 'json', { truncated: true }).maxTokens).toBe(12_000)
+  })
+})
+
 describe('0.8.7 L1: router thường giữ như 0.8.6', () => {
   test('isFable vắng, prompt 238.489 ký tự: không chứa dấu, request trùng 0.8.6; maxTokens 16.000; thời gian chờ 120.000; cảnh báo 60.000 và 20.000', async () => {
     const r = routerRequest({ text: LONG, prev: null, ran: null, policy: OPEN, model: 'sonnet' })
-    expect(promptOf(r)).not.toContain(MARK)
+    expect(promptOf(r).includes(MARK)).toBe(false)
     expect(await sha(JSON.stringify(r))).toBe(LONG_PLAIN_SHA)
     expect([r.maxTokens, r.timeoutMs]).toEqual([16_000, 120_000])
     expect(isClippedPrompt(LONG)).toBe(true)
@@ -72,7 +90,7 @@ describe('0.8.7 L1: router thường giữ như 0.8.6', () => {
 
   test('isFable false: như vắng', () => {
     const r = routerRequest({ text: LONG, prev: null, ran: null, policy: COND, model: 'sonnet', isFable: false })
-    expect(promptOf(r)).not.toContain(MARK)
+    expect(promptOf(r).includes(MARK)).toBe(false)
     expect([r.maxTokens, r.timeoutMs]).toEqual([16_000, 120_000])
   })
 })
@@ -96,8 +114,8 @@ describe('0.8.7 L1: lượt dự phòng khi lượt đọc trọn hết giờ', 
     const fallback = { ...routerRequest({ text: LONG, prev: null, ran: null, policy: COND, model: 'claude-fable-5-2' }), timeoutMs: FABLE_LONG_TIMEOUT_MS }
     const outcome = await askRouter(ask, full, text => parseRoute(text, COND), undefined, { now: () => t, isFable: true, fallback })
     expect(sent.length).toBe(2)
-    expect(promptOf(sent[1] as ModelCompleteRequest)).toBe(promptOf(fallback))
-    expect(promptOf(sent[1] as ModelCompleteRequest)).not.toContain(MARK)
+    expect(promptOf(sent[1] as ModelCompleteRequest) === promptOf(fallback)).toBe(true)
+    expect(promptOf(sent[1] as ModelCompleteRequest).includes(MARK)).toBe(false)
     expect(sent[1]?.timeoutMs).toBe(120_000)
     expect(outcome.result).not.toBeNull()
     expect(outcome.fellBack).toBe(true)
@@ -116,7 +134,7 @@ describe('0.8.7 L1: lượt dự phòng khi lượt đọc trọn hết giờ', 
     }
     const full = fable(LONG)
     const outcome = await askRouter(ask, full, text => parseRoute(text, COND), undefined, { now: () => t, isFable: true })
-    expect(promptOf(sent[1] as ModelCompleteRequest)).toBe(promptOf(full))
+    expect(promptOf(sent[1] as ModelCompleteRequest) === promptOf(full)).toBe(true)
     expect(outcome.fellBack).toBeUndefined()
   })
 })

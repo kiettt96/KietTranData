@@ -23,6 +23,15 @@ export const FABLE_LONG_TIMEOUT_MS = 120_000
 export const FABLE_AGENT_TIMEOUT_MS = 20_000
 export const FABLE_DRIFT_TIMEOUT_MS = 20_000
 export const FABLE_REVIEW_TIMEOUT_MS = 30_000
+/**
+ * Lượt Fable đọc trọn prompt dài hơn REQUEST_CHARS (0.8.7 L1). Đo tuần tự trên engine 2.1.322 ngày 12/11/2026 qua claude -p, prompt tự sinh
+ * [Đo trực tiếp]: bản 400.000 ký tự 3 lượt đạt, lâu nhất 368,9 s, token ra lớn nhất 53.618. Thời gian chờ là 1,5 lần 368,9 s làm tròn lên
+ * bội số 5 giây; maxTokens là 1,5 lần 53.618 làm tròn lên bội số 5.000 (chủ mod chốt, thay cho 24.000 của đặc tả), lượt hỏi lại vì bị cắt
+ * được tới FABLE_FULL_RETRY_TOKENS, dưới 128.000 token ra tối đa engine báo cho Fable 5.2.
+ */
+export const FABLE_FULL_TIMEOUT_MS = 555_000
+export const FABLE_FULL_MAX_TOKENS = 80_000
+export const FABLE_FULL_RETRY_TOKENS = 120_000
 
 /** Đầu vào của "Fable sẵn sàng": option, chế độ điều phối, headless-off, họ đang bị chặn, số prompt router Fable còn tạm ngừng. */
 export type FableInputs = {

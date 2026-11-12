@@ -34,7 +34,7 @@ describe('0.8.7 L1: Fable đọc trọn prompt dài', () => {
     const seen = setup(on, () => BIG)
     await submit($, LONG)
     expect(seen.routerModels[0]).toBe(ID)
-    expect(seen.routed[0] ?? '').toContain(MARK)
+    expect((seen.routed[0] ?? '').includes(MARK)).toBe(true)
     expect(await paneTexts($)).not.toContain(ONLY)
     expect(lastContext(seen)).not.toContain(CLIPPED)
   })
@@ -45,7 +45,7 @@ describe('0.8.7 L1: Fable đọc trọn prompt dài', () => {
     await submit($, 'làm tiếp bước 1')
     await submit($, LONG)
     expect(seen.routerModels.at(-1)).not.toBe(ID)
-    expect(seen.routed.at(-1) ?? '').not.toContain(MARK)
+    expect((seen.routed.at(-1) ?? '').includes(MARK)).toBe(false)
     expect(await paneTexts($)).toContain('router chỉ đọc 60.000 ký tự đầu và 20.000 ký tự cuối')
     expect(lastContext(seen)).toContain(CLIPPED)
   })
@@ -53,17 +53,39 @@ describe('0.8.7 L1: Fable đọc trọn prompt dài', () => {
   test('conductor mặc định, prompt 100.000 ký tự: như 0.8.6', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = setup(on, () => BIG)
     await submit($, LONG)
-    expect(seen.routed[0] ?? '').not.toContain(MARK)
+    expect((seen.routed[0] ?? '').includes(MARK)).toBe(false)
     expect(await paneTexts($)).toContain('router chỉ đọc 60.000 ký tự đầu và 20.000 ký tự cuối')
     expect(lastContext(seen)).toContain(CLIPPED)
+  })
+
+  test('Fable đọc trọn prompt dài: chữ chờ ở status line nói đang đọc trọn prompt dài và có thể mất vài phút; context không thêm dòng nào', FABLE, async ($, on) => {
+    const seen = setup(on, () => BIG)
+    await submit($, LONG)
+    expect(seen.statuses).toContain('router Fable đang đọc trọn prompt dài, có thể mất vài phút...')
+    expect(seen.statuses).not.toContain('router đang đọc prompt...')
+    expect(lastContext(seen)).not.toContain('vài phút')
+  })
+
+  test('prompt ngắn khi Fable điều phối: giữ chữ chờ cũ', FABLE, async ($, on) => {
+    const seen = setup(on, () => BIG)
+    await submit($, 'Sửa luồng thanh toán')
+    expect(seen.statuses).toContain('router đang đọc prompt...')
+    expect(seen.statuses.some(s => (s ?? '').includes('vài phút'))).toBe(false)
+  })
+
+  test('conductor mặc định, prompt dài: giữ chữ chờ cũ', { options: { planApproval: 'off' } }, async ($, on) => {
+    const seen = setup(on, () => BIG)
+    await submit($, LONG)
+    expect(seen.statuses).toContain('router đang đọc prompt...')
+    expect(seen.statuses.some(s => (s ?? '').includes('vài phút'))).toBe(false)
   })
 
   test('lượt đọc trọn hết giờ, lượt dự phòng nhận request đã cắt theo trần 80.000 và trả kết quả: mục tiêu theo lượt dự phòng; có cảnh báo và CLIPPED_CONTEXT', FABLE, async ($, on) => {
     const seen = setup(on, (_model, n) => (n === 0 ? ROUTER_TIMEOUT : FALLBACK))
     await submit($, LONG)
-    expect(seen.routed[0] ?? '').toContain(MARK)
-    expect(seen.routed[1] ?? '').not.toContain(MARK)
-    expect(seen.routed[1] ?? '').toContain('lược')
+    expect((seen.routed[0] ?? '').includes(MARK)).toBe(true)
+    expect((seen.routed[1] ?? '').includes(MARK)).toBe(false)
+    expect((seen.routed[1] ?? '').includes('lược')).toBe(true)
     expect(await status($)).toContain('Mục tiêu theo lượt dự phòng')
     expect(await paneTexts($)).toContain('router chỉ đọc 60.000 ký tự đầu và 20.000 ký tự cuối')
     expect(lastContext(seen)).toContain(CLIPPED)
