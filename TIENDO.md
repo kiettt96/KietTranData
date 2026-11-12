@@ -24,3 +24,5 @@ Probe tái hiện trên `473bc75` [Đo trực tiếp]:
 Đột biến vùng diff: 154 mẫu, pha 1 118 KILLED, pha 2 35 KILLED + 075-D1h EQUIVALENT, 0 sống.
 Cả bộ trên a026a7f: 3318 đạt, 0 lỗi, thêm 65 ca, không mất ca nào. mutate --check 2154/2154; validate đạt; version-check 0.8.6.
 Tiếp: mở PR vào main, chờ CI xanh.
+
+Vòng 2 PR 39 (V1): eb9719a test và 9 mẫu 086-V1a tới 086-V1i; 8 bị bắt, 086-V1f tương đương. Tiếp: cả bộ, tài liệu, CI.
