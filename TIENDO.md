@@ -25,4 +25,4 @@ Probe tái hiện trên `473bc75` [Đo trực tiếp]:
 Cả bộ trên a026a7f: 3318 đạt, 0 lỗi, thêm 65 ca, không mất ca nào. mutate --check 2154/2154; validate đạt; version-check 0.8.6.
 Tiếp: mở PR vào main, chờ CI xanh.
 
-Vòng 2 PR 39 (V1): eb9719a test và 9 mẫu 086-V1a tới 086-V1i; 8 bị bắt, 086-V1f tương đương. Tiếp: cả bộ, tài liệu, CI.
+Vòng 2 PR 39 (V1): eb9719a test và 9 mẫu 086-V1a tới 086-V1i; 8 bị bắt, 086-V1f tương đương. Cả bộ trên eb9719a: 3326 đạt, thêm 8 ca, không mất ca nào; mutate --check 2163/2163; validate, version-check đạt; hooks và golden không đổi. Tài liệu ở commit kế. Tiếp: mô tả PR, CI.

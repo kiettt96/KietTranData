@@ -24,10 +24,10 @@ index 5d5975f..f75a3bc 100644
        "type": "boolean",
        "title": "Chặn kết thúc khi checklist còn mở",
 diff --git a/claude-mods/focus-conductor/CHANGELOG.md b/claude-mods/focus-conductor/CHANGELOG.md
-index 4be273a..924c08c 100644
+index 4be273a..f86f098 100644
 --- a/claude-mods/focus-conductor/CHANGELOG.md
 +++ b/claude-mods/focus-conductor/CHANGELOG.md
-@@ -2,6 +2,34 @@
+@@ -2,6 +2,38 @@
  
  Các bản của focus-conductor, mới nhất trước. Số đo kiểm chứng của HEAD hiện tại nằm ở [docs/VERIFICATION.md](docs/VERIFICATION.md); cách dùng và tùy chọn ở [README](README.md).
  
@@ -58,6 +58,10 @@ index 4be273a..924c08c 100644
 +**Mẫu mới:** `086-R6a` tới `086-R6d`, `086-R1a` tới `086-R1e`, `086-R2a` tới `086-R2f`, `086-R3a` tới `086-R3c`, `086-R4a`, `086-R4b`, `086-R5a` tới `086-R5c`. `086-R5c` (cộng số tự làm cả khi cổng khác từ chối) sống với bộ test của đặc tả, vì cổng duyệt đăng ký trước hook của vai điều phối nên lời gọi bị nó từ chối không tới hook này; thêm ca tầng dưới (quyền của engine) từ chối để bắt.
 +
 +**Mẫu cũ viết lại (giữ mã):** `079-Y5a` (khớp hai lần sau khi thêm lệnh solo), `085-W2d` (mục đã cất có thêm `conduct`), `085-D1b` (định nghĩa đang điều phối chuyển sang `ctx.isConducting`), `085-D1a` (mức block khi điều phối được thay bằng luật từ chối mới; mẫu nay bỏ luật từ chối sửa file của vai điều phối), `071-M8`, `071-M9`, `075-D1h` (khớp hai lần do `autoVerify`; thêm ngữ cảnh riêng của nhánh luồng chính), `079-V4d`, `079-V4e` (dòng policy có `goalIsBig`). Không bỏ mẫu nào.
++
++**Vòng 2 (rà soát PR 39):**
++
++- **V1 (P3): ghim 9 chỗ logic mới của vai điều phối bằng test**, không đổi `hooks/`: Agent lồng do subagent gọi không đổi cờ miễn (`086-V1a`); Agent bị từ chối khi Fable tạm ngừng không bật cờ (`086-V1b`); đang miễn thì nhánh `strictDelegation: 'block'` không từ chối (`086-V1c`); subagent có `isolation: 'remote'` không dùng chung thư mục (`086-V1d`); lần kiểm mang cờ `shared` là mốc của luồng chính trong `covers` (`086-V1e`, đã có ca bắt trong `tests/evidence/covers-r2-086.test.ts`, không thêm ca); `autoVerify` chỉ nâng khi lần test đạt là lệnh cuối (`086-V1f`, ghi tương đương, lý do ở `scripts/mutants.ts` và VERIFICATION); tin tiếp nối là prompt đối chiếu không chuyển việc sang subagent (`086-V1g`); số đo trên dòng Điều phối chỉ hiện khi đang điều phối (`086-V1h`); lần đọc bị tầng dưới từ chối không được đếm (`086-V1i`). 8 ca mới trong `conduct-r1-086` tới `conduct-r6-086`; không test cũ nào đổi kỳ vọng hay đổi tên.
 +
  ## Thay đổi 0.8.5: mục tiêu đang dở, mục tiêu đã cất, vai điều phối
  
@@ -167,10 +171,10 @@ index 2208f9c..ac79796 100644
  
  ## Hợp đồng danh tính lệnh kiểm tra
 diff --git a/claude-mods/focus-conductor/docs/VERIFICATION.md b/claude-mods/focus-conductor/docs/VERIFICATION.md
-index 8bdff3c..0f05f26 100644
+index 8bdff3c..c99a563 100644
 --- a/claude-mods/focus-conductor/docs/VERIFICATION.md
 +++ b/claude-mods/focus-conductor/docs/VERIFICATION.md
-@@ -2,6 +2,42 @@
+@@ -2,6 +2,55 @@
  
  Số đo của HEAD hiện tại và của các bản trước. Mọi số do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển] trừ khi nêu khác; hợp đồng đối chiếu evidence ở [DESIGN.md](DESIGN.md), lịch sử thay đổi ở [CHANGELOG.md](../CHANGELOG.md), cách dùng ở [README](../README.md).
  
@@ -209,6 +213,19 @@ index 8bdff3c..0f05f26 100644
 +  - `conductor: 'fable'`, không gõ `/conductor solo`: 8.563 và 7.048. Kịch bản phiên dài cho luồng chính tự chạy script và lệnh kiểm, nên ở 0.8.6 các lời gọi đó bị từ chối, lời từ chối không mang context, và 0/11 bước được tự nâng verified. Dòng nhắc đọc góp 5.887 ký tự (43 dòng) và 4.380 ký tự (32 dòng).
 +  - `conductor: 'fable'` sau `/conductor solo`: 16.608 và 24.349. Bằng 10.696 và 19.943 của 0.8.5, cộng dòng nhắc đọc (5.887 và 4.380), cộng 26 (câu `conductorKeepText` dài hơn 13 ký tự, hai lần nén ngữ cảnh), trừ 1 ở số đầu (không còn lần từ chối D1 đẩy cảnh báo phạm vi đầu tiên sang lô sau). Mọi dòng context mới không quá 300 ký tự.
 +- **CI** [Đo trực tiếp]: run của commit cuối ghi ở mô tả PR.
++
++### Vòng 2 (rà soát PR 39): V1
++
++- **Điều kiện trước** [Đo trực tiếp]: đầu nhánh `233bb81`; cả 9 chuỗi `old` của bảng V1 khớp đúng một chỗ. Vòng này chỉ thêm test và mẫu (`eb9719a`); `git diff 233bb81 -- claude-mods/focus-conductor/hooks claude-mods/focus-conductor/tests/golden` rỗng, nên không chạy lại mẫu vùng diff và không đo lại hai số phiên dài.
++- **Mẫu mới (9), chạy riêng từng mẫu trên tệp test của điểm** [Đo trực tiếp, engine 2.1.296]: `086-V1a` 1 đỏ, `086-V1b` 1 (`conduct-r6-086`); `086-V1c` 1 (`conduct-r1-086`); `086-V1d` 2 (`conduct-r2-086`); `086-V1e` 1 (`tests/evidence/covers-r2-086`, ca có sẵn "lần kiểm mang cờ là mốc của luồng chính", tệp này nằm ngoài 73 ca của lần rà soát); `086-V1g` 2 (`conduct-r4-086`, một ca tích hợp và một ca `parseRoute`); `086-V1h` 1 (`conduct-r5-086`); `086-V1i` 1 (`conduct-r3-086`).
++- **`086-V1f` ghi tương đương**: `autoVerify` chỉ chạy ngay sau một lời gọi kiểm đạt (không `isError`) của subagent chung thư mục, nên lệnh kiểm lỗi trong ca của đặc tả không tới hàm này. Khi lời gọi đạt ấy không phải lần test mới nhất, vẫn không có bước done nào chờ nâng: bước đóng lúc đã có lần test đạt được nâng ngay ở nhánh đóng bước của tool plan và của danh sách phản chiếu; bước done có trước lần test đạt được nâng ở chính lần đó; thay đổi mới hạ bước về done thì cũng làm mất lần test đạt sau thay đổi cuối. Bản thử ca của đặc tả trên mã hiện tại cho thấy bước 2 đã thành verified ngay lúc đóng bằng `update` (nhánh `close`), nên mẫu không có đường quan sát; ca đó không được giữ.
++- **Bộ test** trên `eb9719a`, chạy riêng, không song song với lượt đột biến [Đo trực tiếp]: 3326 test trên 288 tệp, 0 lỗi, 354,67 giây. So tên ca đạt với `233bb81` (3318 ca): thêm 8 ca, không ca nào mất hay đổi tên, không test cũ nào đổi kỳ vọng.
++- **Kiểm tĩnh** trên `eb9719a` [Đo trực tiếp]:
++  - `claude plugin validate` đạt ở thư mục mod và ở gốc repo.
++  - `version-check` khớp 0.8.6, README đủ 42 option.
++  - `mutate --check` khớp 2163/2163.
++  - sha256 `hooks/` `cfbb02668bcb1508e7e0065038630cf2dc79affd9022a80a3e9c46e337601d9e` (không đổi), `tests/` `5cb7d254c2a42d2bdc353ed0b1eaaa76daeea948a84c7e3088fe8e19542a754d` (theo `scripts/mutate.ts`).
++- **CI** [Đo trực tiếp]: run 43222093888 xanh trên `233bb81`. Run của commit cuối ghi ở mô tả PR.
 +
  ## Kiểm chứng của 0.8.5 (mục tiêu đang dở, mục tiêu đã cất, vai điều phối)
  
