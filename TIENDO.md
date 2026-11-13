@@ -44,3 +44,4 @@ Tiếp: đo Fable cho L1.
 - 13/11 chiều: đột biến 458/458 diệt; VERIFICATION 4365287; PR 40 đã mở, chờ CI.
 - CI run 43450370502 xanh trên 4365287; VERIFICATION ghi CI.
 - CI run 43452068222 xanh trên 1aab848; đã gửi báo cáo cuối.
+- PR 40 đã squash merge vào main: e143c64.
