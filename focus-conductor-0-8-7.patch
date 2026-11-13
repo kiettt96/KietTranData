@@ -2433,6 +2433,118 @@ index 0000000..ce9cb40
 +    expect(core.fallback).toEqual({ failures: 0, pauseLeft: 0, promptPaused: false, active: null, briefedFamily: null })
 +  })
 +})
+diff --git a/claude-mods/focus-conductor/tests/conductor-family-g1-087.test.ts b/claude-mods/focus-conductor/tests/conductor-family-g1-087.test.ts
+new file mode 100644
+index 0000000..1d6b2cf
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/conductor-family-g1-087.test.ts
+@@ -0,0 +1,106 @@
++// 0.8.7 G1: vai điều phối không gắn cứng với Fable. Một bảng họ model (hooks/lib/families.ts) là nguồn duy nhất của tên họ, thứ hạng, ID
++// ghim, giá, cửa sổ, thông số đọc và thời gian chờ của vai điều phối. Option conductor nhận off hay tên một họ có cờ điều phối (fable, opus);
++// giá trị khác là off. Họ dự phòng trùng họ chính là không có dự phòng. Chữ 'fable' trong hooks/ chỉ còn ở các vị trí được phép.
++
++import { describe, expect, test } from 'claude-code/testing'
++import { readdirSync, readFileSync, statSync } from 'node:fs'
++import { join } from 'node:path'
++import type { ModelFamily } from '../types'
++import { CONDUCTOR_FAMILIES, DEFAULT_CONDUCTOR, FAMILY_TABLE } from '../hooks/lib/families'
++import { FAMILIES, pinnedId } from '../hooks/lib/route'
++import { DEFAULT_WINDOWS, bundledPrices } from '../hooks/lib/cost'
++import { READ_PARAMS, readParamsOf } from '../hooks/lib/reading'
++import { activeConductor, conductorOf } from '../hooks/lib/conductor'
++import type { ConductorInputs } from '../hooks/lib/conductor'
++import * as S from '../hooks/lib/state'
++
++const HOOKS = join(import.meta.dir, '..', 'hooks')
++
++describe('0.8.7 G1: bảng họ model', () => {
++  test('mỗi họ có đủ mọi trường; FAMILIES theo thứ hạng của bảng; khóa của bảng khớp FAMILIES', () => {
++    const keys = Object.keys(FAMILY_TABLE) as ModelFamily[]
++    expect([...keys].sort((a, b) => FAMILY_TABLE[a].rank - FAMILY_TABLE[b].rank)).toEqual([...FAMILIES])
++    expect([...FAMILIES]).toEqual(['haiku', 'sonnet', 'opus', 'fable'])
++    for (const family of keys) {
++      const row = FAMILY_TABLE[family]
++      expect(typeof row.rank).toBe('number')
++      expect(row.pinnedId.startsWith('claude-')).toBe(true)
++      expect(Object.keys(row.price).sort()).toEqual(['cacheRead', 'input', 'output'])
++      expect(row.window).toBeGreaterThan(0)
++      expect('read' in row && 'conductor' in row).toBe(true)
++    }
++  })
++
++  test('ID ghim, bảng giá, bảng cửa sổ và thông số đọc khớp bảng', () => {
++    const prices = bundledPrices()
++    for (const family of FAMILIES) {
++      expect(pinnedId(family)).toBe(FAMILY_TABLE[family].pinnedId)
++      expect(prices[family]).toEqual(FAMILY_TABLE[family].price)
++      expect(DEFAULT_WINDOWS[family]).toBe(FAMILY_TABLE[family].window)
++      const read = FAMILY_TABLE[family].read
++      if (read !== null) expect(readParamsOf(family)).toEqual(read)
++    }
++    expect(READ_PARAMS.fable).toEqual(FAMILY_TABLE.fable.read)
++    expect(READ_PARAMS.sonnet).toEqual(FAMILY_TABLE.sonnet.read)
++  })
++
++  test('họ làm được vai điều phối: fable và opus; mặc định khuyến nghị fable; thời gian chờ của opus bằng của Fable', () => {
++    expect([...CONDUCTOR_FAMILIES]).toEqual(['opus', 'fable'])
++    expect(DEFAULT_CONDUCTOR).toBe('fable')
++    expect(FAMILY_TABLE.opus.conductor).toEqual(FAMILY_TABLE.fable.conductor)
++  })
++})
++
++describe('0.8.7 G1: option conductor', () => {
++  test('off, fable, opus; họ không có cờ điều phối, chuỗi lạ, rỗng hay viết hoa: off', () => {
++    expect(conductorOf({})).toBe('off')
++    expect(conductorOf({ conductor: 'off' })).toBe('off')
++    expect(conductorOf({ conductor: 'fable' })).toBe('fable')
++    expect(conductorOf({ conductor: 'opus' })).toBe('opus')
++    expect(conductorOf({ conductor: 'haiku' })).toBe('off')
++    expect(conductorOf({ conductor: 'sonnet' })).toBe('off')
++    expect(conductorOf({ conductor: 'gpt' })).toBe('off')
++    expect(conductorOf({ conductor: '' })).toBe('off')
++    expect(conductorOf({ conductor: 'Fable' })).toBe('off')
++  })
++
++  test('họ chính opus: điều phối là opus; dự phòng sonnet nhận vai khi opus tạm ngừng; dự phòng trùng họ chính là không có', () => {
++    const base: ConductorInputs = { option: 'opus', mode: 'auto', headless: false, blocked: new Set(), pauseLeft: 0, sessionPolicy: 'auto', sessionFamily: null, fallback: 'sonnet', fallbackPauseLeft: 0 }
++    expect(activeConductor(base)).toEqual({ family: 'opus', isFallback: false, reason: null })
++    expect(activeConductor({ ...base, pauseLeft: 2 })).toEqual({ family: 'sonnet', isFallback: true, reason: 'paused' })
++    expect(activeConductor({ ...base, pauseLeft: 2, fallback: 'opus' })).toBeNull()
++    expect(activeConductor({ ...base, blocked: new Set<ModelFamily>(['opus']) })).toEqual({ family: 'sonnet', isFallback: true, reason: 'blocked' })
++  })
++})
++
++describe('0.8.7 G1: chữ fable trong hooks/', () => {
++  test("chuỗi 'fable' chỉ còn ở các vị trí được phép", () => {
++    // Vị trí được phép và lý do:
++    // - lib/families.ts: DEFAULT_CONDUCTOR, giá trị mặc định khuyến nghị của option conductor.
++    // - lib/route.ts (2 lần, avoidBlocked): luật allowFable, họ opus bị chặn thì lên fable khi được phép.
++    // - lib/router.ts (3 lần: allowedLine, fitPick, topFamily): quyền thực thi của allowFable và luật kẹp fable về opus.
++    const ALLOWED: Record<string, number> = { 'lib/families.ts': 1, 'lib/route.ts': 3, 'lib/router.ts': 3 }
++    const found: Record<string, number> = {}
++    const walk = (dir: string) => {
++      for (const name of readdirSync(dir)) {
++        const path = join(dir, name)
++        if (statSync(path).isDirectory()) walk(path)
++        else if (/\.tsx?$/.test(name)) {
++          const count = (readFileSync(path, 'utf8').match(/'fable'/g) ?? []).length
++          if (count > 0) found[path.slice(HOOKS.length + 1)] = count
++        }
++      }
++    }
++    walk(HOOKS)
++    expect(found).toEqual(ALLOWED)
++  })
++})
++
++describe('0.8.7 G1: nạp trạng thái 0.8.6', () => {
++  test('Core có trường fable của vai điều phối cũ: đọc được, giữ nguyên', () => {
++    const old = { ...S.EMPTY_CORE, fable: { failures: 1, pauseLeft: 2, ready: true, reason: 'paused', holdKey: '', briefedGoal: 3, promptPaused: false } } as Record<string, unknown>
++    delete old['fallback']
++    const core = S.normalizeCore(old as never)
++    expect(core.fable).toEqual({ failures: 1, pauseLeft: 2, ready: true, reason: 'paused', holdKey: '', briefedGoal: 3, promptPaused: false })
++  })
++})
 diff --git a/claude-mods/focus-conductor/tests/evidence/fresh-b1-087.test.ts b/claude-mods/focus-conductor/tests/evidence/fresh-b1-087.test.ts
 new file mode 100644
 index 0000000..ff5a6a7
@@ -3313,6 +3425,113 @@ index 0000000..f667ec3
 +    expect(briefs.filter(c => c.includes('fable/medium')).length).toBe(1)
 +    expect(briefs.filter(c => c.includes('opus/medium')).length).toBe(1)
 +  })
++})
+diff --git a/claude-mods/focus-conductor/tests/integration/conductor-family-g1-087.test.ts b/claude-mods/focus-conductor/tests/integration/conductor-family-g1-087.test.ts
+new file mode 100644
+index 0000000..434ebcc
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/integration/conductor-family-g1-087.test.ts
+@@ -0,0 +1,101 @@
++// 0.8.7 G1 (tích hợp): option conductor là opus thì opus giữ vai điều phối như Fable ở 0.8.6: router opus với biến thể điều phối, luồng
++// chính opus/medium, không tự sửa file, không tự chạy kiểm, subagent Plan chạy alias opus, status và đoạn dặn ghi opus. Dự phòng theo F1;
++// họ dự phòng trùng họ chính là không có. Giá trị không có trong bảng hay họ không có cờ điều phối là off.
++
++import { describe, expect, test } from 'claude-code/testing'
++import type { Engine } from 'claude-code/testing'
++import type { On } from 'claude-code'
++import { JS } from '../fixtures/runner-output'
++import { base, plan, step, submit, task } from '../support/engine'
++import type { Json, Seen } from '../support/engine'
++
++const A = 'Sửa luồng thanh toán'
++const MAIN = { model: 'sonnet', effort: 'medium', why: '' }
++const BIG = plan({ goal: A, depth: 'substantial', volume: 'medium', kind: 'edit', main: MAIN, tasks: [task('Sửa hàm phí', 'agent', 'sonnet', 'medium'), task('Viết test', 'agent', 'sonnet', 'medium')] })
++const FOLLOW = plan({ relation: 'continue', goal: '', depth: 'substantial', volume: 'medium', kind: 'edit', main: MAIN })
++const CONDUCTOR_BLOCK = 'Large requests (the main thread is the conductor)'
++const PRESENTATION = { isFullscreen: false, columns: 80 }
++type Out = { deny?: string; context?: string[]; result?: unknown }
++const run = async ($: Engine, args: string) => String(((await $.command.run({ command: 'conductor', args, origin: { kind: 'composer' }, presentation: PRESENTATION } as never)) as { text?: string }).text ?? '')
++const edit = ($: Engine) => $.tool.call({ tool: 'Edit', file_path: 'src/phi.ts', old_string: 'a', new_string: 'b' } as never) as Promise<Out>
++const bash = ($: Engine, command: string) => $.tool.call({ tool: 'Bash', command } as never) as Promise<Out>
++const isEditDeny = (r: Out) => (r.deny ?? '').includes('vai điều phối không tự sửa file')
++const isCheckDeny = (r: Out) => (r.deny ?? '').includes('vai điều phối không tự chạy lệnh kiểm')
++const pick = (s: { model: string; effort?: unknown } | undefined) => `${s?.model ?? ''}/${String(s?.effort ?? '')}`
++const prompts = (seen: Seen) => seen.routerCalls.filter(c => c.kind === 'prompt')
++const opts = (over: Record<string, unknown> = {}) => ({ options: { planApproval: 'off', conductor: 'opus', ...over } })
++
++function setup(on: On, reply: (model: string, n: number) => Json | null) {
++  const counts = new Map<string, number>()
++  const seen: Seen = base(on, {
++    router: request => {
++      if (request.startsWith('Requirements:')) return { missing: [], extra: [], issues: [] }
++      const model = seen.routerModels.at(-1) ?? ''
++      const n = counts.get(model) ?? 0
++      counts.set(model, n + 1)
++      return reply(model, n)
++    },
++  })
++  on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
++  on('tool.call', { tool: 'Bash' }, (_x, e) => (String((e as { command?: unknown }).command ?? '').startsWith('bun test') ? { result: JS.bun_pass, text: JS.bun_pass } : { result: 'ok', isReadOnly: true }))
++  on('turn.complete', () => ({ text: '' }))
++  return seen
++}
++
++describe('0.8.7 G1: conductor opus', () => {
++  test('mục tiêu lớn: router opus với biến thể điều phối, effort medium; luồng chính opus/medium; Edit và bun test bị từ chối; đoạn dặn và status ghi opus', opts(), async ($, on) => {
++    const seen = setup(on, () => BIG)
++    await submit($, A)
++    expect(prompts(seen)[0]).toMatchObject({ model: 'opus', effort: 'medium' })
++    expect(seen.routerSystems[0] ?? '').toContain(CONDUCTOR_BLOCK)
++    expect(pick(await step($, seen, { turnId: 't1' }))).toBe('claude-opus-5-5/medium')
++    expect(isEditDeny(await edit($))).toBe(true)
++    expect(isCheckDeny(await bash($, 'bun test'))).toBe(true)
++    const brief = seen.contexts.flat().find(c => c.startsWith('[focus-conductor] Điều phối:')) ?? ''
++    expect(brief).toContain('opus/medium')
++    expect(brief.includes('fable')).toBe(false)
++    const line = (await run($, 'status')).split('\n').find(l => l.startsWith('Điều phối')) ?? ''
++    expect(line).toContain('opus')
++    expect(line.toLowerCase().includes('fable')).toBe(false)
++  })
++
++  test('subagent Plan chạy alias opus', opts(), async ($, on) => {
++    setup(on, () => BIG)
++    const calls: Array<string | undefined> = []
++    on('tool.call', { tool: 'Agent' }, (_$, e) => {
++      calls.push(e.model)
++      return { deny: 'test: đã ghi nhận đầu vào' }
++    })
++    await submit($, A)
++    await $.tool.call({ tool: 'Agent', description: 'Lập kế hoạch', prompt: 'Lập kế hoạch sửa luồng thanh toán', subagent_type: 'Plan' } as never)
++    expect(calls[0]).toBe('opus')
++  })
++
++  test('conductorFallback sonnet, router opus lỗi hai lần: sonnet nhận vai điều phối theo F1', opts({ conductorFallback: 'sonnet' }), async ($, on) => {
++    const seen = setup(on, (model, n) => (model === 'opus' ? (n === 0 ? BIG : null) : FOLLOW))
++    for (let i = 0; i < 4; i++) await submit($, i === 0 ? A : `làm tiếp bước ${i}`)
++    expect(prompts(seen).at(-1)).toMatchObject({ model: 'sonnet', effort: 'medium' })
++    expect(seen.routerSystems.at(-1) ?? '').toContain(CONDUCTOR_BLOCK)
++    expect(isEditDeny(await edit($))).toBe(true)
++  })
++
++  test('conductorFallback opus trùng họ chính: không có dự phòng, như khi conductorFallback là off', opts({ conductorFallback: 'opus' }), async ($, on) => {
++    const seen = setup(on, (model, n) => (model === 'opus' ? (n === 0 ? BIG : null) : FOLLOW))
++    for (let i = 0; i < 4; i++) await submit($, i === 0 ? A : `làm tiếp bước ${i}`)
++    expect(prompts(seen).map(c => c.model)).toEqual(['opus', 'opus', 'opus', 'sonnet'])
++    expect(seen.routerSystems.at(-1) ?? '').not.toContain(CONDUCTOR_BLOCK)
++    expect(isEditDeny(await edit($))).toBe(false)
++  })
++})
++
++describe('0.8.7 G1: giá trị conductor không hợp lệ là off', () => {
++  for (const value of ['haiku', 'gpt-x']) {
++    test(`conductor ${value}: router là option router, không có biến thể điều phối, luồng chính tự sửa file được`, opts({ conductor: value }), async ($, on) => {
++      const seen = setup(on, () => BIG)
++      await submit($, A)
++      expect(prompts(seen)[0]?.model).toBe('sonnet')
++      expect(seen.routerSystems[0] ?? '').not.toContain(CONDUCTOR_BLOCK)
++      expect(isEditDeny(await edit($))).toBe(false)
++    })
++  }
 +})
 diff --git a/claude-mods/focus-conductor/tests/integration/conductor-k10-085.test.ts b/claude-mods/focus-conductor/tests/integration/conductor-k10-085.test.ts
 index 6737bb7..bc229b2 100644
@@ -4725,6 +4944,36 @@ index 35d38ad..0c0094c 100644
      expect(p.tasks[0]?.title.length).toBeLessThanOrEqual(140)
    })
  
+diff --git a/claude-mods/focus-conductor/tests/support/engine.ts b/claude-mods/focus-conductor/tests/support/engine.ts
+index 3237ca9..0157119 100644
+--- a/claude-mods/focus-conductor/tests/support/engine.ts
++++ b/claude-mods/focus-conductor/tests/support/engine.ts
+@@ -113,6 +113,8 @@ export type Seen = {
+   drift: string[]
+   /** Mọi lượt gọi router (0.8.4): loại request, model, effort, thời gian chờ mà engine nhận. */
+   routerCalls: Array<{ kind: 'prompt' | 'agent' | 'drift' | 'review'; model: string; effort?: string; timeoutMs?: number }>
++  /** Trường system của từng lượt router đọc prompt (0.8.7 G1), theo thứ tự gọi. */
++  routerSystems: string[]
+   /** Dòng trạng thái mod đặt qua $.ui.status (undefined là xóa dòng). */
+   statuses: Array<string | undefined>
+   /** Các lần mod gọi $.ui.open (id, tiêu đề, số dòng, focus) và các pane đang mở theo "engine" giả (0.7.2). */
+@@ -143,7 +145,7 @@ export function base(
+   } = {},
+ ): Seen {
+   const clock = mock.clock(on, { now: 1000 })
+-  const seen: Seen = { contexts: [], steps: [], toasts: [], routed: [], agentRouted: [], routerModels: [], drift: [], routerCalls: [], statuses: [], opened: [], panes: [], clock }
++  const seen: Seen = { contexts: [], steps: [], toasts: [], routed: [], agentRouted: [], routerModels: [], drift: [], routerCalls: [], routerSystems: [], statuses: [], opened: [], panes: [], clock }
+   on('prompt.submit', ($, e) => {
+     seen.contexts.push([...(e.context ?? [])])
+     return { text: e.text, context: e.context }
+@@ -152,6 +154,7 @@ export function base(
+     if (engine.isRejected) throw new Error('model bị chặn')
+     const isAgent = (e.system ?? '').includes('about to start a subagent')
+     const kind = (e.system ?? '').includes('still working toward') ? 'drift' : isAgent ? 'agent' : e.prompt.startsWith('Requirements:') || e.prompt.includes('<request>\nRequirements:') ? 'review' : 'prompt'
++    if (kind === 'prompt') seen.routerSystems.push(typeof e.system === 'string' ? e.system : JSON.stringify(e.system ?? ''))
+     seen.routerCalls.push({ kind, model: e.model, ...(e.effort !== undefined ? { effort: String(e.effort) } : {}), ...(e.timeoutMs !== undefined ? { timeoutMs: e.timeoutMs } : {}) })
+     if ((e.system ?? '').includes('still working toward')) {
+       seen.drift.push(e.prompt)
 diff --git a/claude-mods/focus-conductor/types/index.d.ts b/claude-mods/focus-conductor/types/index.d.ts
 index 09ed393..c8d2510 100644
 --- a/claude-mods/focus-conductor/types/index.d.ts
