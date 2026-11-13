@@ -2,42 +2,61 @@
 
 Các bản của focus-conductor, mới nhất trước. Số đo kiểm chứng của HEAD hiện tại nằm ở [docs/VERIFICATION.md](docs/VERIFICATION.md); cách dùng và tùy chọn ở [README](README.md).
 
-## Thay đổi 0.8.7: router Fable đọc trọn prompt dài
+## Thay đổi 0.8.7: router đọc trọn prompt, bỏ trần số lượng
 
-Khi router của lượt là Fable, router đọc trọn prompt tới 400.000 ký tự thay cho 80.000 [Nguồn: chủ mod, 12/11/2026, phương án a cho L1]. Kèm hai sửa nhỏ: `/conductor status` nêu lý do mode off ở phiên không tương tác (H1), và lần test lỗi chạy sau làm mất lần đạt dùng để tự nâng `verified` (B1). Khi `conductor` tắt, và với mọi prompt không quá 80.000 ký tự, request router trùng 0.8.6 từng byte. Lời dặn router, `agentSystem`, schema router, schema tool `plan` và golden không đổi. Mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `087-*`; số ca đỏ đo trên `45b5161` ở VERIFICATION.
+Router dùng model nào cũng đọc trọn prompt dài tới sức chứa của lượt đó, và không còn trần số việc, số yêu cầu, số bước [Nguồn: chủ mod, 12 và 13/11/2026]. Kèm hai sửa nhỏ: `/conductor status` nêu lý do mode off ở phiên không tương tác (H1), và lần test lỗi chạy sau làm mất lần đạt dùng để tự nâng `verified` (B1). Một sửa hiệu năng riêng cho dòng việc ở band và pane (P1). Prompt không quá 80.000 ký tự và mục tiêu không quá 20 việc thì trường `prompt`, `maxTokens`, `timeoutMs` và `effort` của request router trùng 0.8.6; trường `system` đổi theo lời dặn mới của L2. `agentSystem`, schema router và schema tool `plan` không đổi. Mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `087-*`; số ca đỏ đo trên `45b5161` ở VERIFICATION.
 
-- **L1 (P1): router Fable đọc trọn prompt dài.**
-  - Hằng mới: `FABLE_REQUEST_CHARS` 400.000 (vượt trần thì giữ 300.000 đầu và 100.000 cuối), `FABLE_FULL_TIMEOUT_MS` 555.000, `FABLE_FULL_MAX_TOKENS` 80.000, `FABLE_FULL_RETRY_TOKENS` 120.000. Trần và thời gian chờ chốt theo đặc tả từ 6 lượt đo Fable thật; số ở VERIFICATION.
-  - `routerRequest` với `isFable` cắt theo trần Fable. Prompt dài hơn 80.000 ký tự của Fable dùng `maxTokens` 80.000 và thời gian chờ 555.000 ms. `retryRequest` cho lượt hỏi lại vì bị cắt của lượt đó tới 120.000 token.
-  - `isClippedPrompt` và `clippedWarning` theo router của lượt. `prompt.submit` truyền đúng đích đã đọc prompt, nên Fable đọc trọn thì không có cảnh báo và `CLIPPED_CONTEXT`; vượt trần Fable thì cảnh báo ghi 300.000 và 100.000; Fable tạm ngừng thì như 0.8.6.
-  - Lượt đọc trọn hết giờ: `askRouter` gửi request dự phòng cắt theo trần 80.000, với trọn 120.000 ms, và báo `fellBack`; kết quả của lượt đó có cảnh báo và `CLIPPED_CONTEXT`.
-  - Status line ghi "router Fable đang đọc trọn prompt dài, có thể mất vài phút..." khi Fable đọc prompt dài hơn 80.000 ký tự.
-- **H1 (P2): lý do mode off ở phiên không tương tác.** Khi cờ `headlessOff` bật và mode là `off`, dòng đầu của `/conductor status` và câu trả lời của `/conductor reroute` ghi lý do và cách bật (`headlessOffNote`, 126 ký tự, trần 160). Mode off do người dùng tự đặt không có phần này. Không đổi `session.start`, không toast, không context.
-- **B1 (P3): lần test lỗi chạy sau.** `freshTestRun` trả `undefined` khi sau lần đạt còn lần chạy test lỗi của luồng chính hay mang cờ `shared`. Lần lỗi của subagent chạy thư mục riêng không xét. Lần kiểm `chained` (A11) không tính là lỗi, theo quyết định của chủ mod ngày 12/11/2026. Không sửa nơi gọi, không đổi `acceptsVerified`.
+- **L1: phần giữ lại.** Bản đầu của L1 đặt trần riêng cho Fable (`FABLE_REQUEST_CHARS` 400.000, `FABLE_FULL_TIMEOUT_MS` 555.000, `FABLE_FULL_MAX_TOKENS` 80.000, `FABLE_FULL_RETRY_TOKENS` 120.000). L3 thay các hằng này bằng sức chứa tính theo lượt. Giữ lại:
+  - `capText` cắt theo sức chứa, phần đầu và phần cuối truyền vào;
+  - `isClippedPrompt` và `clippedWarning` theo thông số của lượt đó;
+  - `fallback` và `fellBack` trong `askRouter`;
+  - chữ chờ ở status line.
+- **L2: bỏ trần số lượng.**
+  - `parseRoute` giữ mọi việc và mọi yêu cầu. Bỏ `TASK_LIMIT`, `REQUIREMENT_LIMIT`, `droppedTasks`, phần tràn của yêu cầu và cảnh báo việc bị bỏ. `covers` chỉ giữ số từ 1 tới số yêu cầu thật của lượt. `CONSTRAINT_LIMIT` (12) và phần tràn của ràng buộc giữ nguyên.
+  - Tool `plan` bỏ `MAX_STEPS`: `plan set` 45 bước lưu đủ 45 bước. Kết quả `plan update` dài 107 ký tự ở 10, 20 và 60 bước, nên không phải rút gọn.
+  - Request gửi router và lời giao subagent vẫn liệt kê tối đa 20 việc cũ (`TASK_CONTEXT`) và 30 yêu cầu (`REQUIREMENT_CONTEXT`). Quá mức đó thì thêm một dòng ghi tổng số; yêu cầu từ mục 31 trở đi đi ở phần ngữ cảnh tràn (tối đa 20 dòng, kèm số còn lại).
+  - Câu nhắc yêu cầu chưa phủ liệt kê tối đa 20 yêu cầu, kèm "còn N yêu cầu nữa".
+  - `FORK_PART_LIMIT` bỏ. Bộ đếm subagent giữ đủ mục của việc đã phân; mục tự phát của subagent giữ 50 mục cuối như cũ.
+  - Lời dặn router: bỏ "at most 30" của requirements và "at most 8 tasks"; đổi câu về số việc theo đúng câu chủ mod chốt ngày 13/11/2026; thêm câu về thứ tự thực hiện. Băm và độ dài ở VERIFICATION.
+- **L3: mọi model router đọc trọn prompt.**
+  - Tệp mới `hooks/lib/reading.ts`. Sức chứa của lượt là số nhỏ hơn giữa sức chứa theo cửa sổ ngữ cảnh của model (trừ lời dặn, các dòng ngữ cảnh và `maxTokens`) và sức chứa theo thời gian chờ tối đa (`routerMaxWait` chia 1,5 chia số giây trên ký tự). Sức chứa không dưới 80.000. Vượt sức chứa thì giữ 75 phần trăm đầu và 25 phần trăm cuối.
+  - Thông số đọc của Fable và sonnet lấy từ lượt đo thật; họ chưa đo (haiku, opus, model ID riêng) lấy giá trị thận trọng hơn giữa hai họ đó [Giả định].
+  - Lượt đọc trọn: `maxTokens` là 1,5 lần token ra lớn nhất đo được, làm tròn lên bội số 5.000, trong khoảng 16.000 tới mức engine báo. `timeoutMs` là 1,5 lần thời gian đọc ước tính, trong khoảng 120.000 ms tới `routerMaxWait`.
+  - Lượt hỏi lại vì câu trả lời bị cắt có trần 1,5 lần `maxTokens` của lượt đó, không vượt mức engine báo; effort không quá medium.
+  - Lượt đọc trọn hết giờ hay bị API từ chối: lượt dự phòng gửi request cắt theo trần cũ 80.000, với trọn 120.000 ms, áp cho mọi model.
+  - Cảnh báo khi prompt bị cắt ghi họ model, hai con số và giới hạn đã chạm (sức chứa của model, thời gian chờ tối đa kèm tên option, hay lượt dự phòng).
+  - Option mới `routerMaxWait` (giây, mặc định 1.800, kẹp 120 tới 1.800). `/conductor goal` và `/conductor reroute` dùng cùng công thức.
+  - Status line ghi "router đang đọc trọn prompt dài, có thể mất vài phút..." khi lượt là lượt đọc trọn.
+- **H1: lý do mode off ở phiên không tương tác.** Khi cờ `headlessOff` bật và mode là `off`, dòng đầu của `/conductor status` và câu trả lời của `/conductor reroute` ghi lý do và cách bật (`headlessOffNote`, 126 ký tự, trần 160). Mode off do người dùng tự đặt không có phần này.
+- **B1: lần test lỗi chạy sau.** `freshTestRun` trả `undefined` khi sau lần đạt còn lần chạy test lỗi của luồng chính hay mang cờ `shared`. Lần lỗi của subagent chạy thư mục riêng không xét. Lần kiểm `chained` (A11) không tính là lỗi [Nguồn: chủ mod, 12/11/2026].
+- **P1: dòng việc ở band và pane** (`hooks/lib/progress.ts`, mục riêng). Bỏ trần việc làm lộ chỗ `taskRows` duyệt checklist một lần cho mỗi việc. Nay hàm dựng sẵn bảng bước thuộc việc nào, tập việc đang làm và tập việc đã đóng. Band với 100 việc và 100 bước giảm từ 5.792 ms xuống 131 ms [Đo trực tiếp, engine 2.1.296]. Đầu ra trùng `45b5161` từng ký tự (test so băm).
 
-**Lệch đặc tả, theo quyết định của chủ mod ngày 12/11/2026:**
-- `maxTokens` của lượt đọc trọn là 80.000, không phải 24.000. Cả 6 lượt đo ra 32.558 tới 53.618 token, nên với 24.000 lượt đọc trọn sẽ bị cắt.
-- Lượt hỏi lại vì bị cắt của lượt đó được tới 120.000 token.
-- Lượt dự phòng dùng trọn 120.000 ms.
-- Chữ chờ ở status line nói rõ là đang đọc trọn prompt dài.
-- Test đơn vị L1 ở commit test đỏ kỳ vọng 24.000; commit sửa đổi thành `FABLE_FULL_MAX_TOKENS`, và thêm các ca cho trần hỏi lại, chữ chờ và hằng đã chốt.
+**Lệch đặc tả, theo quyết định của chủ mod ngày 13/11/2026:**
+- Mặc định `routerMaxWait` là 1.800 giây, không phải 600. Ở 600 giây, Fable chỉ đọc trọn khoảng 156.000 ký tự, nên prompt 238.489 ký tự của ca test trong đặc tả sẽ bị cắt.
+- Ca `prose-hidden` của golden kỳ vọng tasks rỗng (cận `[0, 0]`).
+- Ca `long-vn` và `long-vn-xl` bỏ cận trên số việc, giữ cận dưới.
+- Ca `six` dao động ngay ở `45b5161` nên không tính vào luật dừng của golden.
 
 **Test cũ đổi kỳ vọng (giữ tên):**
-- `tests/integration/error-log-l1-079.test.ts`, ca `sổ 0.8.4 vẫn rỗng; MOD_VERSION là 0.8.4`: kỳ vọng `MOD_VERSION` là 0.8.7.
+- `tests/caps-s1-075.test.ts`, `tests/integration/caps-r1-075.test.ts` (hai ca), `tests/integration/phase-a3-080.test.ts`: yêu cầu không còn bị cắt ở 30 hay 40.
+- `tests/integration/plan-set-073.test.ts` (hai ca): checklist 21 bước lưu đủ, báo "Đã lưu 21 bước".
+- `tests/integration/router-retry-075.test.ts` (B13c): không còn cắt ở 20 việc, không có cảnh báo.
+- `tests/requirements.test.ts` (hai ca), `tests/router.test.ts` ("tối đa 20 việc"): lời dặn mới, không trần.
+- `tests/conductor-c4-084.test.ts`, `tests/integration/fork-split-f1-079.test.ts`: băm và độ dài lời dặn mới.
+- `tests/golden.test.ts`: ca kiểm bộ chấm dùng bản sao của `prose-hidden` với cận `[0, 8]`.
+- `tests/golden/cases.ts`: `prose-hidden`, `long-vn`, `long-vn-xl` như mục lệch đặc tả; tiêu đề của `long-vn-xl` ghi "đến 0.8.6 router giới hạn 30".
+- `tests/integration/error-log-l1-079.test.ts`: `MOD_VERSION` là 0.8.7.
 
-Không test cũ nào khác đổi kỳ vọng hay cách dựng tình huống.
+**Test cũ chỉ đổi cách dựng tình huống (kỳ vọng giữ nguyên):**
+- `tests/integration/dropped-kind-s8-075.test.ts`, `tests/integration/dropped-rank-078.test.ts`, `tests/integration/error-behavior-a9-080.test.ts`: tạo phần tràn bằng ràng buộc (trần 12 còn giữ), thêm prompt thứ ba "thêm 12 yêu cầu nữa".
+- `tests/integration/router-small-g8-078.test.ts`: dùng option `contextWindows: 'sonnet=1000'` để sức chứa về trần cũ.
+- `tests/router.test.ts`: request dựng với cửa sổ 0 để giữ trần 80.000.
 
-**Mẫu mới (23):** `087-L1a` tới `087-L1k`, `087-H1a` tới `087-H1d`, `087-B1a` tới `087-B1d`.
+**Golden:** `tests/golden/replies.ts` ghi lại cả bộ trên lời dặn mới (50 ca sonnet, 4 ca Fable), vì băm request đổi. Kết quả và bảng khác biệt ở VERIFICATION.
 
-**Mẫu cũ viết lại (giữ mã), vì dòng `old` mất chỗ khớp:**
-- `054-H10`: `fence` của prompt nay bọc hai nhánh trần.
-- `070-C13`: tham số của `routerRequest` gom vào `args`.
-- `070-B19`, `078-G8i`: lời gọi `askRouter` có thêm `fallback`.
-- `078-G8g`, `078-G8h`: `isClippedPrompt` nhận `isFable`.
-- `078-G8j`: `clippedWarning` nhận `isFableRead`.
-- `070-V1`, `070-V5`: `freshTestRun` gán lần đạt vào `pass`.
+**Mẫu mới (46):** `087-L1a` tới `087-L1k` (viết lại cho L3, giữ mã), `087-H1a` tới `087-H1d`, `087-B1a` tới `087-B1d`, `087-L2a` tới `087-L2j`, `087-P1a`, `087-P1b`, `087-L3a` tới `087-L3o`.
 
-Không bỏ mẫu nào.
+**Mẫu cũ viết lại (29, giữ mã), vì dòng `old` mất chỗ khớp:** `054-H10`, `061-P1`, `070-V1`, `070-V5`, `070-C13`, `070-B1`, `070-B3`, `070-B4`, `070-B5`, `070-B9`, `070-B14`, `070-B17`, `070-B19`, `072-R7`, `073-D2`, `073-D7`, `074-C3`, `075-B13e`, `075-B13f`, `075-R1b`, `075-R1c`, `075-R1d`, `075-S1c`, `078-G8g`, `078-G8h`, `078-G8i`, `078-G8j`, `080-A4b`, `084-C2b`. Không bỏ mẫu nào.
 
 ## Thay đổi 0.8.6: siết vai điều phối của Fable
 
