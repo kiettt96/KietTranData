@@ -24,55 +24,74 @@ index f75a3bc..229ee8a 100644
        "type": "string",
        "title": "Fable điều phối (conductor)",
 diff --git a/claude-mods/focus-conductor/CHANGELOG.md b/claude-mods/focus-conductor/CHANGELOG.md
-index f86f098..c4242ef 100644
+index f86f098..059328e 100644
 --- a/claude-mods/focus-conductor/CHANGELOG.md
 +++ b/claude-mods/focus-conductor/CHANGELOG.md
-@@ -2,6 +2,43 @@
+@@ -2,6 +2,62 @@
  
  Các bản của focus-conductor, mới nhất trước. Số đo kiểm chứng của HEAD hiện tại nằm ở [docs/VERIFICATION.md](docs/VERIFICATION.md); cách dùng và tùy chọn ở [README](README.md).
  
-+## Thay đổi 0.8.7: router Fable đọc trọn prompt dài
++## Thay đổi 0.8.7: router đọc trọn prompt, bỏ trần số lượng
 +
-+Khi router của lượt là Fable, router đọc trọn prompt tới 400.000 ký tự thay cho 80.000 [Nguồn: chủ mod, 12/11/2026, phương án a cho L1]. Kèm hai sửa nhỏ: `/conductor status` nêu lý do mode off ở phiên không tương tác (H1), và lần test lỗi chạy sau làm mất lần đạt dùng để tự nâng `verified` (B1). Khi `conductor` tắt, và với mọi prompt không quá 80.000 ký tự, request router trùng 0.8.6 từng byte. Lời dặn router, `agentSystem`, schema router, schema tool `plan` và golden không đổi. Mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `087-*`; số ca đỏ đo trên `45b5161` ở VERIFICATION.
++Router dùng model nào cũng đọc trọn prompt dài tới sức chứa của lượt đó, và không còn trần số việc, số yêu cầu, số bước [Nguồn: chủ mod, 12 và 13/11/2026]. Kèm hai sửa nhỏ: `/conductor status` nêu lý do mode off ở phiên không tương tác (H1), và lần test lỗi chạy sau làm mất lần đạt dùng để tự nâng `verified` (B1). Một sửa hiệu năng riêng cho dòng việc ở band và pane (P1). Prompt không quá 80.000 ký tự và mục tiêu không quá 20 việc thì trường `prompt`, `maxTokens`, `timeoutMs` và `effort` của request router trùng 0.8.6; trường `system` đổi theo lời dặn mới của L2. `agentSystem`, schema router và schema tool `plan` không đổi. Mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `087-*`; số ca đỏ đo trên `45b5161` ở VERIFICATION.
 +
-+- **L1 (P1): router Fable đọc trọn prompt dài.**
-+  - Hằng mới: `FABLE_REQUEST_CHARS` 400.000 (vượt trần thì giữ 300.000 đầu và 100.000 cuối), `FABLE_FULL_TIMEOUT_MS` 555.000, `FABLE_FULL_MAX_TOKENS` 80.000, `FABLE_FULL_RETRY_TOKENS` 120.000. Trần và thời gian chờ chốt theo đặc tả từ 6 lượt đo Fable thật; số ở VERIFICATION.
-+  - `routerRequest` với `isFable` cắt theo trần Fable. Prompt dài hơn 80.000 ký tự của Fable dùng `maxTokens` 80.000 và thời gian chờ 555.000 ms. `retryRequest` cho lượt hỏi lại vì bị cắt của lượt đó tới 120.000 token.
-+  - `isClippedPrompt` và `clippedWarning` theo router của lượt. `prompt.submit` truyền đúng đích đã đọc prompt, nên Fable đọc trọn thì không có cảnh báo và `CLIPPED_CONTEXT`; vượt trần Fable thì cảnh báo ghi 300.000 và 100.000; Fable tạm ngừng thì như 0.8.6.
-+  - Lượt đọc trọn hết giờ: `askRouter` gửi request dự phòng cắt theo trần 80.000, với trọn 120.000 ms, và báo `fellBack`; kết quả của lượt đó có cảnh báo và `CLIPPED_CONTEXT`.
-+  - Status line ghi "router Fable đang đọc trọn prompt dài, có thể mất vài phút..." khi Fable đọc prompt dài hơn 80.000 ký tự.
-+- **H1 (P2): lý do mode off ở phiên không tương tác.** Khi cờ `headlessOff` bật và mode là `off`, dòng đầu của `/conductor status` và câu trả lời của `/conductor reroute` ghi lý do và cách bật (`headlessOffNote`, 126 ký tự, trần 160). Mode off do người dùng tự đặt không có phần này. Không đổi `session.start`, không toast, không context.
-+- **B1 (P3): lần test lỗi chạy sau.** `freshTestRun` trả `undefined` khi sau lần đạt còn lần chạy test lỗi của luồng chính hay mang cờ `shared`. Lần lỗi của subagent chạy thư mục riêng không xét. Lần kiểm `chained` (A11) không tính là lỗi, theo quyết định của chủ mod ngày 12/11/2026. Không sửa nơi gọi, không đổi `acceptsVerified`.
++- **L1: phần giữ lại.** Bản đầu của L1 đặt trần riêng cho Fable (`FABLE_REQUEST_CHARS` 400.000, `FABLE_FULL_TIMEOUT_MS` 555.000, `FABLE_FULL_MAX_TOKENS` 80.000, `FABLE_FULL_RETRY_TOKENS` 120.000). L3 thay các hằng này bằng sức chứa tính theo lượt. Giữ lại:
++  - `capText` cắt theo sức chứa, phần đầu và phần cuối truyền vào;
++  - `isClippedPrompt` và `clippedWarning` theo thông số của lượt đó;
++  - `fallback` và `fellBack` trong `askRouter`;
++  - chữ chờ ở status line.
++- **L2: bỏ trần số lượng.**
++  - `parseRoute` giữ mọi việc và mọi yêu cầu. Bỏ `TASK_LIMIT`, `REQUIREMENT_LIMIT`, `droppedTasks`, phần tràn của yêu cầu và cảnh báo việc bị bỏ. `covers` chỉ giữ số từ 1 tới số yêu cầu thật của lượt. `CONSTRAINT_LIMIT` (12) và phần tràn của ràng buộc giữ nguyên.
++  - Tool `plan` bỏ `MAX_STEPS`: `plan set` 45 bước lưu đủ 45 bước. Kết quả `plan update` dài 107 ký tự ở 10, 20 và 60 bước, nên không phải rút gọn.
++  - Request gửi router và lời giao subagent vẫn liệt kê tối đa 20 việc cũ (`TASK_CONTEXT`) và 30 yêu cầu (`REQUIREMENT_CONTEXT`). Quá mức đó thì thêm một dòng ghi tổng số; yêu cầu từ mục 31 trở đi đi ở phần ngữ cảnh tràn (tối đa 20 dòng, kèm số còn lại).
++  - Câu nhắc yêu cầu chưa phủ liệt kê tối đa 20 yêu cầu, kèm "còn N yêu cầu nữa".
++  - `FORK_PART_LIMIT` bỏ. Bộ đếm subagent giữ đủ mục của việc đã phân; mục tự phát của subagent giữ 50 mục cuối như cũ.
++  - Lời dặn router: bỏ "at most 30" của requirements và "at most 8 tasks"; đổi câu về số việc theo đúng câu chủ mod chốt ngày 13/11/2026; thêm câu về thứ tự thực hiện. Băm và độ dài ở VERIFICATION.
++- **L3: mọi model router đọc trọn prompt.**
++  - Tệp mới `hooks/lib/reading.ts`. Sức chứa của lượt là số nhỏ hơn giữa sức chứa theo cửa sổ ngữ cảnh của model (trừ lời dặn, các dòng ngữ cảnh và `maxTokens`) và sức chứa theo thời gian chờ tối đa (`routerMaxWait` chia 1,5 chia số giây trên ký tự). Sức chứa không dưới 80.000. Vượt sức chứa thì giữ 75 phần trăm đầu và 25 phần trăm cuối.
++  - Thông số đọc của Fable và sonnet lấy từ lượt đo thật; họ chưa đo (haiku, opus, model ID riêng) lấy giá trị thận trọng hơn giữa hai họ đó [Giả định].
++  - Lượt đọc trọn: `maxTokens` là 1,5 lần token ra lớn nhất đo được, làm tròn lên bội số 5.000, trong khoảng 16.000 tới mức engine báo. `timeoutMs` là 1,5 lần thời gian đọc ước tính, trong khoảng 120.000 ms tới `routerMaxWait`.
++  - Lượt hỏi lại vì câu trả lời bị cắt có trần 1,5 lần `maxTokens` của lượt đó, không vượt mức engine báo; effort không quá medium.
++  - Lượt đọc trọn hết giờ hay bị API từ chối: lượt dự phòng gửi request cắt theo trần cũ 80.000, với trọn 120.000 ms, áp cho mọi model.
++  - Cảnh báo khi prompt bị cắt ghi họ model, hai con số và giới hạn đã chạm (sức chứa của model, thời gian chờ tối đa kèm tên option, hay lượt dự phòng).
++  - Option mới `routerMaxWait` (giây, mặc định 1.800, kẹp 120 tới 1.800). `/conductor goal` và `/conductor reroute` dùng cùng công thức.
++  - Status line ghi "router đang đọc trọn prompt dài, có thể mất vài phút..." khi lượt là lượt đọc trọn.
++- **H1: lý do mode off ở phiên không tương tác.** Khi cờ `headlessOff` bật và mode là `off`, dòng đầu của `/conductor status` và câu trả lời của `/conductor reroute` ghi lý do và cách bật (`headlessOffNote`, 126 ký tự, trần 160). Mode off do người dùng tự đặt không có phần này.
++- **B1: lần test lỗi chạy sau.** `freshTestRun` trả `undefined` khi sau lần đạt còn lần chạy test lỗi của luồng chính hay mang cờ `shared`. Lần lỗi của subagent chạy thư mục riêng không xét. Lần kiểm `chained` (A11) không tính là lỗi [Nguồn: chủ mod, 12/11/2026].
++- **P1: dòng việc ở band và pane** (`hooks/lib/progress.ts`, mục riêng). Bỏ trần việc làm lộ chỗ `taskRows` duyệt checklist một lần cho mỗi việc. Nay hàm dựng sẵn bảng bước thuộc việc nào, tập việc đang làm và tập việc đã đóng. Band với 100 việc và 100 bước giảm từ 5.792 ms xuống 131 ms [Đo trực tiếp, engine 2.1.296]. Đầu ra trùng `45b5161` từng ký tự (test so băm).
 +
-+**Lệch đặc tả, theo quyết định của chủ mod ngày 12/11/2026:**
-+- `maxTokens` của lượt đọc trọn là 80.000, không phải 24.000. Cả 6 lượt đo ra 32.558 tới 53.618 token, nên với 24.000 lượt đọc trọn sẽ bị cắt.
-+- Lượt hỏi lại vì bị cắt của lượt đó được tới 120.000 token.
-+- Lượt dự phòng dùng trọn 120.000 ms.
-+- Chữ chờ ở status line nói rõ là đang đọc trọn prompt dài.
-+- Test đơn vị L1 ở commit test đỏ kỳ vọng 24.000; commit sửa đổi thành `FABLE_FULL_MAX_TOKENS`, và thêm các ca cho trần hỏi lại, chữ chờ và hằng đã chốt.
++**Lệch đặc tả, theo quyết định của chủ mod ngày 13/11/2026:**
++- Mặc định `routerMaxWait` là 1.800 giây, không phải 600. Ở 600 giây, Fable chỉ đọc trọn khoảng 156.000 ký tự, nên prompt 238.489 ký tự của ca test trong đặc tả sẽ bị cắt.
++- Ca `prose-hidden` của golden kỳ vọng tasks rỗng (cận `[0, 0]`).
++- Ca `long-vn` và `long-vn-xl` bỏ cận trên số việc, giữ cận dưới.
++- Ca `six` dao động ngay ở `45b5161` nên không tính vào luật dừng của golden.
 +
 +**Test cũ đổi kỳ vọng (giữ tên):**
-+- `tests/integration/error-log-l1-079.test.ts`, ca `sổ 0.8.4 vẫn rỗng; MOD_VERSION là 0.8.4`: kỳ vọng `MOD_VERSION` là 0.8.7.
++- `tests/caps-s1-075.test.ts`, `tests/integration/caps-r1-075.test.ts` (hai ca), `tests/integration/phase-a3-080.test.ts`: yêu cầu không còn bị cắt ở 30 hay 40.
++- `tests/integration/plan-set-073.test.ts` (hai ca): checklist 21 bước lưu đủ, báo "Đã lưu 21 bước".
++- `tests/integration/router-retry-075.test.ts` (B13c): không còn cắt ở 20 việc, không có cảnh báo.
++- `tests/requirements.test.ts` (hai ca), `tests/router.test.ts` ("tối đa 20 việc"): lời dặn mới, không trần.
++- `tests/conductor-c4-084.test.ts`, `tests/integration/fork-split-f1-079.test.ts`: băm và độ dài lời dặn mới.
++- `tests/golden.test.ts`: ca kiểm bộ chấm dùng bản sao của `prose-hidden` với cận `[0, 8]`.
++- `tests/golden/cases.ts`: `prose-hidden`, `long-vn`, `long-vn-xl` như mục lệch đặc tả; tiêu đề của `long-vn-xl` ghi "đến 0.8.6 router giới hạn 30".
++- `tests/integration/error-log-l1-079.test.ts`: `MOD_VERSION` là 0.8.7.
 +
-+Không test cũ nào khác đổi kỳ vọng hay cách dựng tình huống.
++**Test cũ chỉ đổi cách dựng tình huống (kỳ vọng giữ nguyên):**
++- `tests/integration/dropped-kind-s8-075.test.ts`, `tests/integration/dropped-rank-078.test.ts`, `tests/integration/error-behavior-a9-080.test.ts`: tạo phần tràn bằng ràng buộc (trần 12 còn giữ), thêm prompt thứ ba "thêm 12 yêu cầu nữa".
++- `tests/integration/router-small-g8-078.test.ts`: dùng option `contextWindows: 'sonnet=1000'` để sức chứa về trần cũ.
++- `tests/router.test.ts`: request dựng với cửa sổ 0 để giữ trần 80.000.
 +
-+**Mẫu mới (23):** `087-L1a` tới `087-L1k`, `087-H1a` tới `087-H1d`, `087-B1a` tới `087-B1d`.
++**Golden:** `tests/golden/replies.ts` ghi lại cả bộ trên lời dặn mới (50 ca sonnet, 4 ca Fable), vì băm request đổi. Kết quả và bảng khác biệt ở VERIFICATION.
 +
-+**Mẫu cũ viết lại (giữ mã), vì dòng `old` mất chỗ khớp:**
-+- `054-H10`: `fence` của prompt nay bọc hai nhánh trần.
-+- `070-C13`: tham số của `routerRequest` gom vào `args`.
-+- `070-B19`, `078-G8i`: lời gọi `askRouter` có thêm `fallback`.
-+- `078-G8g`, `078-G8h`: `isClippedPrompt` nhận `isFable`.
-+- `078-G8j`: `clippedWarning` nhận `isFableRead`.
-+- `070-V1`, `070-V5`: `freshTestRun` gán lần đạt vào `pass`.
++**Mẫu mới (46):** `087-L1a` tới `087-L1k` (viết lại cho L3, giữ mã), `087-H1a` tới `087-H1d`, `087-B1a` tới `087-B1d`, `087-L2a` tới `087-L2j`, `087-P1a`, `087-P1b`, `087-L3a` tới `087-L3o`.
 +
-+Không bỏ mẫu nào.
++**Mẫu cũ viết lại (29, giữ mã), vì dòng `old` mất chỗ khớp:** `054-H10`, `061-P1`, `070-V1`, `070-V5`, `070-C13`, `070-B1`, `070-B3`, `070-B4`, `070-B5`, `070-B9`, `070-B14`, `070-B17`, `070-B19`, `072-R7`, `073-D2`, `073-D7`, `074-C3`, `075-B13e`, `075-B13f`, `075-R1b`, `075-R1c`, `075-R1d`, `075-S1c`, `078-G8g`, `078-G8h`, `078-G8i`, `078-G8j`, `080-A4b`, `084-C2b`. Không bỏ mẫu nào.
 +
  ## Thay đổi 0.8.6: siết vai điều phối của Fable
  
  Khi option `conductor` là `fable` và luồng chính đang điều phối việc lớn, luồng chính chỉ lập kế hoạch, giao việc, đọc kết quả và quyết định bước tiếp theo; không tự sửa file, không tự chạy lệnh kiểm [Nguồn: chủ mod, 12/11/2026, phương án (a) cho Q1, Q2, Q3 và ba bổ sung khi duyệt kế hoạch]. Khi `conductor` tắt, hay khi luồng chính không đang điều phối, mọi hành vi như 0.8.5. Lời dặn router (cả hai biến thể), schema JSON router trả, schema tool `plan` và golden không đổi. Mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `086-*`; số ca đỏ đo trên `473bc75` ở VERIFICATION.
 diff --git a/claude-mods/focus-conductor/README.md b/claude-mods/focus-conductor/README.md
-index e0e9b60..2930197 100644
+index e0e9b60..41718f1 100644
 --- a/claude-mods/focus-conductor/README.md
 +++ b/claude-mods/focus-conductor/README.md
 @@ -102,9 +102,10 @@ Cấu hình qua `/config` (hoặc `pluginConfigs.focus-conductor.options` trong
@@ -96,32 +115,46 @@ index e0e9b60..2930197 100644
  
  ### Duyệt kế hoạch, thử skill và báo cáo cuối (0.8.2)
  
-@@ -273,6 +274,14 @@ Cuối turn còn thay đổi chưa kiểm thì mod báo một câu; từ 0.7.7 c
+@@ -273,10 +274,28 @@ Cuối turn còn thay đổi chưa kiểm thì mod báo một câu; từ 0.7.7 c
  - **Fable không tự sửa file, không tự chạy kiểm (0.8.6).** Khi Fable đang điều phối việc lớn, luồng chính chỉ lập kế hoạch, giao việc, đọc kết quả và quyết định bước tiếp. Mọi lần sửa file ở luồng chính (Edit, Write, lệnh Bash ghi file) bị từ chối, trừ file kế hoạch; lệnh kiểm (theo cùng phân loại của mod, gồm `checkCommands` và `checkTools`) cũng bị từ chối và Fable được dặn giao một subagent chạy rồi báo tóm tắt. Lệnh chỉ đọc (`git status`, `ls`) và lệnh git chỉ đổi lịch sử vẫn chạy. Lần kiểm của subagent chạy chung thư mục (lời gọi Agent không có `isolation`) được tính cho cổng `verified` như lần kiểm của luồng chính, kể cả với thay đổi của subagent khác. Không điều phối thì `strictDelegation` như 0.8.5.
  - **Lệnh `/conductor solo` (0.8.6).** Khi không giao được (subagent không chạy được, cần chỉnh tay gấp), người dùng gõ `/conductor solo` để luồng chính tự sửa file và tự chạy kiểm trong mục tiêu này; `/conductor solo off` để bỏ. Chỉ nhận do người gõ. Lời gọi Agent bị từ chối hay lỗi trước khi subagent chạy cũng tạm cho luồng chính tự làm, tới lời gọi Agent kế tiếp chạy được.
  - **Đọc nhiều (0.8.6).** Luồng chính vẫn được đọc file lẻ để ra quyết định; cứ mỗi `conductorReads` lần đọc (mặc định 20, `0` là tắt) mod kèm một dòng nhắc giao việc tra cứu khối lượng lớn cho subagent. Việc sửa file mới của tin bổ sung trong việc lớn cũng giao subagent. `/conductor status` có số lần bị từ chối, số lần tự làm khi được miễn và số lần đọc.
-+- **Đọc trọn prompt dài (0.8.7).** Fable đọc trọn prompt tới 400.000 ký tự (router thường vẫn 80.000). Lượt đọc prompt dài hơn 80.000 ký tự chờ tới 555 giây, `maxTokens` 80.000; status line ghi "router Fable đang đọc trọn prompt dài, có thể mất vài phút...". Số đo [Đo trực tiếp, 12/11/2026, engine 2.1.322, `claude -p`, prompt tự sinh, 3 lượt mỗi bản, đều đạt]:
-+
-+  | Prompt | Thời gian mỗi lượt | Token vào | Token ra | Chi phí mỗi lượt |
-+  |---|---|---|---|---|
-+  | 240.000 ký tự | 227 tới 235 s | khoảng 150.000 | 32.558 tới 33.433 | 1,35 tới 3,74 USD |
-+  | 400.000 ký tự | 333 tới 369 s | khoảng 246.000 | 47.892 tới 53.618 | 1,98 tới 6,03 USD |
-+
-+  Lượt đầu của mỗi bản đắt hơn, nhiều khả năng vì phải ghi cache [Giả định]. Prompt tự sinh có nhiều mục lặp nên router gộp còn 6 hay 7 yêu cầu và chạm trần 20 việc; prompt thật nhiều yêu cầu khác nhau có thể bị chạm trần 20 việc.
++- **Đọc trọn prompt dài (0.8.7).** Từ 0.8.7 router dùng model nào cũng đọc trọn prompt dài, xem mục "Router đọc trọn prompt dài (0.8.7)" bên dưới.
  - **Subagent Plan.** Lời gọi Agent chỉ nhận alias model (`sonnet`, `opus`, `haiku`, `fable`) [Đo trực tiếp, engine 2.1.296 và 2.1.322], nên subagent Plan theo vai điều phối chạy alias `fable`; `modelMap.fable` không áp cho nó.
  - **Khi Fable lỗi.** Router Fable lỗi 2 lần liên tiếp thì 3 prompt kế tiếp router dùng option `router`, luồng chính theo lựa chọn của router; status line và pane hiện "Fable tạm ngừng". Pane và `/conductor status` có dòng "Điều phối" nêu trạng thái.
  - **Giới hạn đã biết.** Số đo Fable lấy trong một khung giờ ngày 10/11/2026 trên engine 2.1.322, 35 lượt [Đo trực tiếp]; giờ khác hay engine khác có thể chậm hơn. Engine 2.1.296 gọi được `claude-fable-5-2` qua CLI (`claude -p`), kèm cảnh báo `unrecognized_model`, và báo sai chi phí của lượt đó; đường `$.model.complete` và `turn.step` với ID này trên engine cũ chưa kiểm trong phiên tương tác. Khi bật `conductor`, nên dùng Claude Code từ 2.1.322. `sessionModel` là `ceiling` hay `fixed` với phiên không phải Fable thì luồng chính không điều phối (cảnh báo một lần mỗi phiên).
-@@ -453,7 +462,7 @@ node scripts/version-check.mjs            # MOD_VERSION khớp plugin.json
+ 
++### Router đọc trọn prompt dài (0.8.7)
++
++Router dùng model nào cũng đọc trọn prompt tới sức chứa của lượt đó. Sức chứa là số nhỏ hơn giữa phần cửa sổ ngữ cảnh của model còn lại cho prompt, và số ký tự model đọc được trong thời gian chờ tối đa `routerMaxWait` (mặc định 1.800 giây). Sức chứa không dưới 80.000 ký tự, mức của 0.8.6. Ở mặc định, Fable đọc trọn khoảng 468.000 ký tự; sonnet khoảng 1,56 triệu ký tự với cửa sổ 1.000.000 token. Haiku, opus và model ID riêng chưa đo, nên dùng thông số thận trọng hơn giữa Fable và sonnet [Giả định]. Prompt không quá 80.000 ký tự thì router chạy như 0.8.6.
++
++Khi lượt là lượt đọc trọn, status line ghi "router đang đọc trọn prompt dài, có thể mất vài phút...". Lượt đọc trọn hết giờ hay bị API từ chối thì mod đọc lại bản rút gọn (60.000 ký tự đầu và 20.000 ký tự cuối) trong 120 giây và báo cảnh báo. Số đo trên prompt 240.000 ký tự [Đo trực tiếp, 13/11/2026, engine 2.1.323, `claude -p`, effort medium, chạy một mình]:
++
++| Router, prompt | Lượt | Thời gian mỗi lượt | Token ra | Chi phí mỗi lượt | Việc | Yêu cầu |
++|---|---|---|---|---|---|---|
++| Fable, 270 đề mục lặp mẫu, 1.078 yêu cầu | 3 | 328 tới 616 s | 47.560 tới 91.084 | 1,95 tới 5,23 USD | 270 | 272 tới 1.081 |
++| Fable, 36 đề mục khác nhau, 173 yêu cầu | 1 | 157 s | 20.576 | 3,19 USD | 36 | 173 |
++| sonnet, 270 đề mục lặp mẫu, 1.078 yêu cầu | 4 | 8 tới 14 s | 748 tới 952 | 0,03 tới 0,61 USD | 1 tới 2 | 6 tới 7 |
++| sonnet, 36 đề mục khác nhau, 173 yêu cầu | 3 | 25 tới 36 s | 4.416 tới 6.243 | 0,06 tới 0,64 USD | 36 | 5 tới 40 |
++
++Lượt đầu của mỗi bản đắt hơn, nhiều khả năng vì phải ghi cache [Giả định]. Fable liệt kê từng đề mục và từng yêu cầu nên chậm và tốn token ra; sonnet tách đủ đề mục thành việc trên prompt nhiều đề mục khác nhau nhưng gộp yêu cầu, và gộp cả việc trên prompt lặp mẫu.
++
++Prompt chỉ còn bị cắt ở hai trường hợp: vượt sức chứa của model, hay vượt số ký tự đọc được trong `routerMaxWait`. Khi đó cảnh báo ghi họ model, số ký tự đầu và cuối đã đọc, và giới hạn đã chạm (kèm tên option nếu là thời gian chờ). Muốn router đọc nhanh hơn thì hạ `routerMaxWait`: prompt dài hơn mức đọc được trong thời gian đó bị lược phần giữa. Router không còn trần số việc, số yêu cầu, số bước; checklist cũng không có trần bước.
++
+ ### Tin nhắn giữa phiên (0.8.4)
+ 
+ Tin gửi khi đang làm một luồng việc: bổ sung yêu cầu thì được đưa vào luồng việc; hỏi tiến độ thì chỉ báo cáo; bảo chạy tiếp thì chạy tiếp. Câu hỏi hay câu nói ngoài lề (router xếp là việc mới chỉ cần trả lời, không có việc nào) được trả lời mà không đổi mục tiêu, checklist hay yêu cầu; gửi giữa turn thì trả lời ngắn rồi làm tiếp bước đang làm. Khi một việc chen vào đã xong hết checklist, "tiếp tục" quay lại việc đã cất và chạy tiếp từ bước mở kế tiếp. Áp cho mọi giá trị của `conductor`. Giới hạn: phân loại dựa vào nhận định của router, chưa đo trên phiên thật; turn trả lời câu hỏi ngoài lề dùng model của việc đang dở.
+@@ -453,7 +472,7 @@ node scripts/version-check.mjs            # MOD_VERSION khớp plugin.json
  ## Giới hạn đã biết
  
  - Giá Fable 5.2 (0.8.5): bảng giá kèm mod còn giá Fable 5.1 (10 / 50 USD mỗi triệu token vào và ra, đọc cache 0,25); Fable 5.2 là 8 / 40, đọc cache 0,20 [Nguồn: Anthropic, trang giá, đọc ngày 11/11/2026]. Người dùng Fable 5.2 đặt option `prices` là `fable=8/40/0.2`. Bảng giá nằm trong lời dặn router (catalog của `routerSystem`), nên cập nhật bảng kèm mod để sang một bản riêng.
 -- Router chỉ đọc chữ của prompt, không đọc tệp hay ảnh đính kèm: `prompt.submit` của engine 2.1.296 chỉ báo loại, kiểu MIME, tên tệp và mã của tệp đính kèm, không có phần chữ (0.7.8). Prompt dài hơn 80.000 ký tự thì router chỉ đọc 60.000 ký tự đầu và 20.000 ký tự cuối; mod báo một cảnh báo và dặn Claude tự đọc kỹ phần giữa.
-+- Router chỉ đọc chữ của prompt, không đọc tệp hay ảnh đính kèm: `prompt.submit` của engine 2.1.296 chỉ báo loại, kiểu MIME, tên tệp và mã của tệp đính kèm, không có phần chữ (0.7.8). Router thường đọc tối đa 80.000 ký tự của prompt: dài hơn thì chỉ đọc 60.000 ký tự đầu và 20.000 ký tự cuối. Từ 0.8.7, khi router là Fable (option `conductor` là `fable`, Fable không tạm ngừng) thì đọc trọn tới 400.000 ký tự, dài hơn thì chỉ đọc 300.000 ký tự đầu và 100.000 ký tự cuối; lượt đọc trọn hết giờ thì lượt dự phòng chỉ đọc 60.000 và 20.000. Mỗi khi phần giữa bị lược, mod báo một cảnh báo ghi đúng hai con số đó và dặn Claude tự đọc kỹ phần giữa. Lượt Fable đọc trọn có thể giữ prompt tới khoảng 16 phút (thời gian chờ 555 giây cộng hạn thử lại); chưa đo trên phiên tương tác thật xem engine có ngắt hook lâu như vậy không.
++- Router chỉ đọc chữ của prompt, không đọc tệp hay ảnh đính kèm: `prompt.submit` của engine 2.1.296 chỉ báo loại, kiểu MIME, tên tệp và mã của tệp đính kèm, không có phần chữ (0.7.8). Từ 0.8.7, router dùng model nào cũng đọc trọn prompt tới sức chứa của lượt đó (cửa sổ ngữ cảnh của model và `routerMaxWait`); vượt sức chứa thì chỉ đọc 75 phần trăm đầu và 25 phần trăm cuối của sức chứa, sức chứa 80.000 thì 60.000 và 20.000; lượt đọc trọn lỗi thì lượt dự phòng chỉ đọc 60.000 và 20.000. Mỗi khi phần giữa bị lược, mod báo một cảnh báo ghi hai con số, họ model và giới hạn đã chạm, và dặn Claude tự đọc kỹ phần giữa. Lượt đọc trọn có thể giữ prompt tới 1,5 lần `routerMaxWait` (2.700 giây ở mặc định); chưa đo trên phiên tương tác thật xem engine có ngắt hook lâu như vậy không.
  - Yêu cầu chen ngang (0.7.8) dựa vào `turnId` engine gửi kèm `prompt.submit` và dòng attachment `queued_command` (door `delivery`) khi engine chèn tin vào turn đang chạy; tên attachment do engine đặt và có thể đổi giữa các bản. Mới kiểm bằng bộ test của engine, chưa kiểm trên phiên tương tác thật.
  - Cổng lệnh kiểm chưa đạt (0.7.8, ba lượt nâng mức) giả định lần chặn Stop cho Claude chạy tiếp trong cùng turn; khai báo kiểu của engine 2.1.296 không nói rõ điều này. Mới kiểm bằng bộ test của engine, chưa kiểm với Claude thật. Lệnh kiểm do trình chạy không có parser (script đóng gói như `npm run test`) chỉ được phủ bởi lần chạy đạt của đúng lệnh đó.
  - Nhật ký lỗi (0.7.9) chỉ ghi lỗi của mod; rejection "no implementation for" (op mà bề mặt không cài) và việc đọc file không có không được ghi. File được ghi ở `turn.complete`, `session.start`, `session.end` và khi gõ `/conductor errors`, không ngay lúc lỗi, nên phiên chết đột ngột có thể mất các lỗi của turn đang chạy. Chưa kiểm ghi file trên máy thật ngoài kit test.
 diff --git a/claude-mods/focus-conductor/docs/DESIGN.md b/claude-mods/focus-conductor/docs/DESIGN.md
-index ac79796..89b6392 100644
+index ac79796..73a5cad 100644
 --- a/claude-mods/focus-conductor/docs/DESIGN.md
 +++ b/claude-mods/focus-conductor/docs/DESIGN.md
 @@ -44,7 +44,7 @@ Khi router xếp một prompt là mục tiêu mới mà checklist cũ còn bư
@@ -138,7 +171,7 @@ index ac79796..89b6392 100644
  - **Luồng chính đủ sức (G3, G5).** Trong `parseRoute`, `liftMain` lấy họ và effort cao nhất (xét riêng) giữa main đã kẹp và lựa chọn router ghi cho việc `run: main`; `floorMain` đưa luồng chính haiku lên sonnet khi `depth` là substantial hoặc hard. Cả hai đi qua `fitPick` lần nữa nên chính sách phiên vẫn là bước cuối; pick của từng việc không đổi; `isReference` không áp. Prompt tiếp nối dùng main đã nâng qua `followUpOf`.
  - **Kẹt giữa turn (G6).** Luồng chính không đổi model giữa turn (mất cache), subagent thì được. Finding `loop` và `driftContext` thêm `STUCK_HINT` (163 ký tự); `noteStuck` thêm "luồng chính kẹt: <bước đang mở hoặc lệnh lỗi>" vào `agentFailures` của mục tiêu, nên router chấm subagent thấy phần đã kẹt trong mục failed và chọn cao hơn một bậc theo luật sẵn có của `agentSystem`. Cổng Stop đọc `local.delegation.failed` nên không đổi; ghi nhớ kết quả chấm so nguyên description nên không bị ảnh hưởng.
 -- **Router (G8).** `RouterPlan.confidence` là undefined khi thiếu. `askRouter` có tùy chọn `retryMissingConfidence`, chỉ bật ở ba chỗ đọc prompt (`prompt.submit`, hai lệnh trong `command.ts`): thiếu confidence thì hỏi lại một lần như tin cậy thấp, thiếu xếp thấp nhất khi chọn câu trả lời. Chấm subagent và kiểm lạc đề giữ như 0.7.7 để không tăng thời gian chờ mỗi lần giao việc. Luật giữ mục tiêu tính thiếu như 1. Prompt dài hơn `REQUEST_CHARS` có cảnh báo `model` và dòng `CLIPPED_CONTEXT`.
-+- **Router (G8).** `RouterPlan.confidence` là undefined khi thiếu. `askRouter` có tùy chọn `retryMissingConfidence`, chỉ bật ở ba chỗ đọc prompt (`prompt.submit`, hai lệnh trong `command.ts`): thiếu confidence thì hỏi lại một lần như tin cậy thấp, thiếu xếp thấp nhất khi chọn câu trả lời. Chấm subagent và kiểm lạc đề giữ như 0.7.7 để không tăng thời gian chờ mỗi lần giao việc. Luật giữ mục tiêu tính thiếu như 1. Prompt dài hơn `REQUEST_CHARS` có cảnh báo `model` và dòng `CLIPPED_CONTEXT`. Từ 0.8.7 (L1), khi router của lượt là Fable thì trần của prompt là `FABLE_REQUEST_CHARS`, xem mục 0.8.7.
++- **Router (G8).** `RouterPlan.confidence` là undefined khi thiếu. `askRouter` có tùy chọn `retryMissingConfidence`, chỉ bật ở ba chỗ đọc prompt (`prompt.submit`, hai lệnh trong `command.ts`): thiếu confidence thì hỏi lại một lần như tin cậy thấp, thiếu xếp thấp nhất khi chọn câu trả lời. Chấm subagent và kiểm lạc đề giữ như 0.7.7 để không tăng thời gian chờ mỗi lần giao việc. Luật giữ mục tiêu tính thiếu như 1. Prompt dài hơn sức chứa của lượt có cảnh báo `model` và dòng `CLIPPED_CONTEXT`. Đến 0.8.6 sức chứa là `REQUEST_CHARS` 80.000; từ 0.8.7 (L3) sức chứa tính theo model và `routerMaxWait`, xem mục 0.8.7.
  - **Tin chen ngang (G9).** Engine 2.1.296 gọi `prompt.submit` lúc người dùng bấm Enter giữa turn, kèm `turnId` của turn đang chạy (khai báo kiểu `index.d.ts:4196`, `:9483-9489`); `wait` (`:9491-9498`) chỉ cho biết người dùng có chủ động bảo tin chờ hay không, engine xếp hàng mọi tin gõ giữa turn. Tin của người có `turnId`, khi đã có mục tiêu, là tin chen ngang. Việc nhận diện chỉ dựa vào `turnId` của `prompt.submit` (không có biến cục bộ đối chiếu), nên hot reload giữa turn không làm mất khả năng nhận diện. Router đọc như prompt tiếp nối, `<context>` có một dòng nói tin đến khi luồng chính đang làm; router xếp `new` thì vẫn xử lý như tiếp nối (không `adoptGoal`, không đặt lại theo dõi giao việc). Khối `interjectContext` (không quá 1.500 ký tự) dặn thêm bước bằng `plan add`. Engine báo tin đi đường nào sau đó: chèn vào turn đang chạy thì có dòng attachment `queued_command` của luồng chính (`session.append`); thành turn mới thì có `turn.start` mới. Việc `run: main` cần họ hay effort cao hơn luồng chính đang chạy (`L.turnRoute.route` của turn đó, không có thì model của phiên) nằm trong `L.pendingInterject`; chỉ khi có `queued_command` mới chuyển sang subagent general-purpose (giữ pick, theo dõi giao việc, câu báo ở kết quả tool kế); `turn.start` mới thì bỏ, lựa chọn của router áp ở turn đó. Việc chờ chuyển (`L.pendingInterject`) và câu báo (`L.interjectNote`) là biến cục bộ, `turn.start` của luồng chính xóa cả hai: hot reload giữa lúc gửi tin và lúc engine báo thì không chuyển việc nào, việc giữ ở luồng chính; câu báo không sang turn sau. Hàng `queued_command` tới `session.append` với door `delivery` (mod nhận cả `attachment`).
  
  ## Cổng Stop cho lệnh kiểm chưa đạt (0.7.8 vòng sửa 3, W4)
@@ -151,20 +184,51 @@ index ac79796..89b6392 100644
  - **Kiểm tĩnh.** Khai báo kiểu của 2.1.296 thiếu `agentId` ở `turn.start` mà mã dùng từ 0.7.8 (4 lỗi có sẵn trên main), nên `tsc` của 0.8.0 chạy với khai báo của 2.1.319; test, đo và đột biến chạy trên 2.1.296.
  
  ## Dòng tổng kết của lệnh khai và xung đột vế ngoại lệ (0.8.1)
-@@ -261,6 +261,17 @@ Chủ mod chốt ngày 12/11/2026 [Nguồn: chủ mod]: luồng chính đang đi
+@@ -261,6 +261,48 @@ Chủ mod chốt ngày 12/11/2026 [Nguồn: chủ mod]: luồng chính đang đi
  - **Đoạn dặn.** `conductorContext` (462 ký tự) bỏ câu cho tự sửa file khi ráp kết quả, nói không tự sửa file, không tự chạy lệnh kiểm, chỉnh nhỏ gom vào một lời giao, lệnh kiểm giao một subagent chạy và báo tóm tắt. `conductorKeepText` 190 ký tự. Lời từ chối dưới 300 ký tự, dòng nhắc đọc dưới 200.
  - **Giới hạn đã biết của 0.8.6.** Lối thoát duy nhất ngoài lệnh `solo` là lời gọi Agent bị từ chối trước khi chạy; subagent chạy được mà làm sai thì luồng chính phải giao lại, không tự sửa. Kịch bản phiên dài của test để luồng chính tự chạy script ghi và lệnh kiểm, nên với `conductor: 'fable'` các lời gọi đó bị từ chối (số đo ở VERIFICATION). Khai báo kiểu của engine vẫn không sinh được trong phiên phát triển, nên `tsc` chưa chạy.
  
-+## Router Fable đọc trọn prompt dài, lý do mode off, lần test lỗi chạy sau (0.8.7)
++## Router đọc trọn prompt, bỏ trần số lượng, lý do mode off, lần test lỗi chạy sau (0.8.7)
 +
-+- **Trần riêng khi Fable đọc prompt** (L1, `hooks/lib/router.ts`, `hooks/lib/conductor.ts`). Fable là model lập kế hoạch và điều phối nên phải đọc trọn đề bài [Nguồn: chủ mod, 12/11/2026]. Khi router của lượt là Fable (`routerRequest` nhận `isFable`), prompt được giữ trọn tới `FABLE_REQUEST_CHARS` 400.000 ký tự; vượt trần thì giữ 300.000 ký tự đầu và 100.000 ký tự cuối. Prompt dài hơn `REQUEST_CHARS` 80.000 ký tự thì `maxTokens` là `FABLE_FULL_MAX_TOKENS` 80.000 và thời gian chờ là `FABLE_FULL_TIMEOUT_MS` 555.000 ms; lượt hỏi lại vì câu trả lời bị cắt được tới `FABLE_FULL_RETRY_TOKENS` 120.000 thay cho `MAX_TOKENS_CAP` 32.000. Router thường, prompt không quá 80.000 ký tự, và các request chấm subagent, kiểm lạc đề, rà kế hoạch giữ như 0.8.6 từng byte.
-+- **Cách chốt số** [Đo trực tiếp, 12/11/2026, engine 2.1.322, `claude -p`, prompt tự sinh qua stdin, effort medium, 6 lượt tuần tự]: bản 240.000 ký tự đạt 3/3, lâu nhất 234,8 s, token ra lớn nhất 33.433; bản 400.000 ký tự đạt 3/3, lâu nhất 368,9 s, token ra lớn nhất 53.618. Theo đặc tả: trần 400.000 vì cả 3 lượt của bản 400.000 đạt; thời gian chờ là 1,5 lần 368,9 s làm tròn lên bội số 5 giây. Mọi lượt ra hơn 24.000 token, nên chủ mod chốt `maxTokens` là 1,5 lần 53.618 làm tròn lên bội số 5.000, và trần hỏi lại dưới 128.000 token ra tối đa engine báo cho Fable 5.2.
-+- **Cảnh báo và dòng context.** `isClippedPrompt` và `clippedWarning` nhận router của lượt có phải Fable không. `prompt.submit` truyền `target.isFable` của đúng đích đã đọc prompt, trừ khi kết quả là của request dự phòng. Fable đọc trọn thì không có cảnh báo "router chỉ đọc" và không có `CLIPPED_CONTEXT`; vượt trần Fable thì cảnh báo ghi 300.000 và 100.000. Router Fable tạm ngừng (router là option `router`) thì như 0.8.6.
-+- **Khi lượt đọc trọn hết giờ.** `askRouter` nhận `fallback`: lượt đầu báo `aborted` thì lượt thử lại gửi request dự phòng, dựng bằng `routerRequest` không có `isFable` (cắt theo trần 80.000), với trọn `FABLE_LONG_TIMEOUT_MS` 120.000 ms, không lấy phần còn lại của hạn chung; kết quả báo `fellBack`, và khi được dùng thì có cảnh báo và `CLIPPED_CONTEXT` như prompt bị cắt. Hai lệnh `/conductor goal` và `/conductor reroute` dùng trần mới qua `routerRequest` nhưng không có nhánh dự phòng.
-+- **Chữ chờ.** Khi Fable đọc trọn prompt dài hơn 80.000 ký tự, status line ghi "router Fable đang đọc trọn prompt dài, có thể mất vài phút..." thay cho "router đang đọc prompt..."; nhãn này chỉ có tiếng Việt như nhãn cũ; band không có chữ chờ riêng nên không đổi; không chèn gì vào context.
-+- **Thời gian giữ hook.** Tệ nhất, `prompt.submit` giữ hook trong hạn chung của `askRouter` (1,5 lần 555.000 ms, tức 832.500 ms) cộng lượt dự phòng 120.000 ms, khoảng 16 phút. Trong gói engine 2.1.296 và 2.1.322, `$.model.complete` kẹp `timeoutMs` bằng `Math.min(timeoutMs, 2147483647)`, và không có giới hạn thời gian nào cho hook `prompt.submit` của mod; các chuỗi "timed out" chỉ thuộc command hook, SDK callback hook và prompt hook [Đo trực tiếp, chuỗi trong gói engine]. Probe thật bằng một mod chờ trong `prompt.submit` dưới `claude -p --plugin-dir` không chạy được vì hook module không nạp trong `claude -p` ở container phát triển (như 0.8.5), nên chưa đo được trên phiên tương tác thật.
++- **Hai giới hạn còn lại khi đọc prompt** (L3, `hooks/lib/reading.ts`). Router dùng model nào cũng đọc trọn prompt [Nguồn: chủ mod, 13/11/2026]. Prompt chỉ còn bị cắt ở hai trường hợp, và cả hai được báo bằng cảnh báo `model` và dòng `CLIPPED_CONTEXT`. Trường hợp một là vượt sức chứa của model router. Trường hợp hai là vượt số ký tự đọc được trong thời gian chờ tối đa người dùng đặt (`routerMaxWait`).
++- **Công thức sức chứa** (`readPlan`). Với họ model của lượt, cửa sổ ngữ cảnh `window` (option `contextWindows`, vắng thì `DEFAULT_WINDOW`), thời gian chờ tối đa `maxWait` và số ký tự cố định `fixed` (lời dặn cộng các dòng ngữ cảnh của request):
++  - theo cửa sổ: `floor((window - maxTokens) × ký tự trên token) - fixed`;
++  - theo thời gian: `floor(maxWait / 1,5 / giây trên ký tự)`;
++  - sức chứa: số nhỏ hơn trong hai số trên, không dưới 80.000 (trần cũ).
++  Prompt dài hơn 80.000 ký tự mà sức chứa lớn hơn 80.000 là lượt đọc trọn. Vượt sức chứa thì giữ 75 phần trăm đầu và 25 phần trăm cuối; sức chứa đúng 80.000 thì giữ 60.000 và 20.000 như cũ. Prompt không quá 80.000 ký tự thì `prompt`, `maxTokens`, `timeoutMs` và `effort` trùng 0.8.6.
++- **Thông số theo họ model** (`READ_PARAMS`) [Đo trực tiếp, 13/11/2026, engine 2.1.323, `claude -p`, effort medium, chạy một mình; bảng từng lượt ở VERIFICATION]. Ký tự trên token lấy số nhỏ nhất qua các lượt, giây trên ký tự lấy số lớn nhất, token ra lấy số lớn nhất:
++  - Fable: 1,5837 ký tự trên token, 0,0025649 giây trên ký tự, token ra lớn nhất 91.084, mức engine báo 128.000;
++  - sonnet: 1,5863 ký tự trên token, 0,0001491 giây trên ký tự, token ra lớn nhất 6.243, mức engine báo 128.000;
++  - họ chưa đo (haiku, opus, model ID riêng): giá trị thận trọng hơn giữa hai họ trên cho từng thông số [Giả định].
++  Fable chậm vì token ra lớn: trên prompt lặp mẫu, Fable liệt kê từng đề mục thành một việc và gần như toàn bộ token ra là câu trả lời JSON. Ở mặc định 1.800 giây, Fable đọc trọn khoảng 468.000 ký tự; sonnet bị giới hạn bởi cửa sổ (khoảng 1,56 triệu ký tự với cửa sổ 1.000.000 token).
++- **`maxTokens` và `timeoutMs` của lượt đọc trọn.** `maxTokens` là 1,5 lần token ra lớn nhất, làm tròn lên bội số 5.000, trong khoảng 16.000 tới mức engine báo: Fable 128.000, sonnet 16.000. `timeoutMs` là 1,5 lần thời gian đọc ước tính của phần gửi đi, làm tròn lên bội số 5 giây, trong khoảng 120.000 ms tới `maxWait`. Lượt hỏi lại vì câu trả lời bị cắt có trần 1,5 lần `maxTokens` của lượt đó, không vượt mức engine báo; lượt hỏi lại của lượt đọc trọn chạy effort không quá medium. `askRouter` chuyển `full` sang `retryRequest` để hai luật này có hiệu lực.
++- **Lượt dự phòng.** Lượt đọc trọn hết giờ hay bị API từ chối thì `askRouter` gửi request dự phòng, dựng bằng cùng tham số với cửa sổ 0 (cắt theo trần 80.000), với trọn `FALLBACK_TIMEOUT_MS` 120.000 ms. Lượt này không lấy phần còn lại của hạn chung và không kiểm hạn chung. Kết quả báo `fellBack`; khi được dùng thì có cảnh báo (lý do "lượt đọc trọn lỗi nên dùng lượt đọc rút gọn") và `CLIPPED_CONTEXT`. `/conductor goal` và `/conductor reroute` dùng cùng sức chứa, không có nhánh dự phòng.
++- **Thời gian giữ hook.** Hạn chung của `askRouter` là 1,5 lần `timeoutMs` của lượt đầu. Lượt dự phòng và lượt hỏi lại không cùng xảy ra trong một lần đọc (lượt dự phòng trả kết quả ngay), nên mức giữ hook tệ nhất là 1,5 lần `routerMaxWait`: 2.700 giây ở mặc định 1.800. Lượt đầu hết giờ ở 1.800 giây rồi lượt dự phòng 120 giây là 1.920 giây.
++- **Chữ chờ.** Lượt đọc trọn ghi "router đang đọc trọn prompt dài, có thể mất vài phút..." ở status line thay cho "router đang đọc prompt..."; nhãn chỉ có tiếng Việt như nhãn cũ; band không có chữ chờ riêng; không chèn gì vào context.
++- **Bỏ trần số lượng** (L2, `hooks/lib/router.ts`, `hooks/lib/plan.ts`, `hooks/lib/state.ts`). `parseRoute` giữ mọi việc và mọi yêu cầu; `covers` chỉ giữ số từ 1 tới số yêu cầu thật. Checklist không có trần bước. Ràng buộc giữ trần 12 cùng phần tràn. Request gửi router và lời giao subagent vẫn liệt kê tối đa 20 việc cũ và 30 yêu cầu, quá mức đó thì có dòng ghi tổng số, để request của mục tiêu không quá 20 việc trùng 0.8.6.
++- **Các trần đã rà khi bỏ trần số lượng:**
++
++| Trần | Giá trị | Quyết định | Lý do |
++|---|---|---|---|
++| `TASK_LIMIT`, `REQUIREMENT_LIMIT`, `MAX_STEPS` | 20, 30, 20 | bỏ | trần số việc, số yêu cầu, số bước |
++| `FORK_PART_LIMIT` | 30 | bỏ | trần số phần khi router tách một việc |
++| `AGENT_TALLY_LIMIT` | 50 | giữ cho mục tự giao; mục của việc đã phân giữ đủ | bộ đếm của việc đã phân là số liệu tiến độ của việc |
++| `TASK_CONTEXT`, `REQUIREMENT_CONTEXT` | 20, 30 | giữ, thêm dòng tổng số | chỉ là ngữ cảnh gửi router và subagent |
++| `UNCOVERED_SHOWN` | 20 | mới, kèm "còn N" | câu nhắc không dài theo số yêu cầu |
++| `CONSTRAINT_LIMIT` | 12 | giữ cùng phần tràn | ràng buộc, không phải việc hay yêu cầu |
++| `AGENT_PROGRESS_LIMIT` | 20 | giữ | số dòng tiến độ hiện ở pane |
++| `MIRROR_LIMIT` | 50 | giữ | danh sách việc riêng của Claude (TodoWrite), không phải checklist của mod |
++| `AGENT_ROUTE_LIMIT` | 50 | giữ | bộ nhớ đệm kết quả chấm subagent |
++| `OPEN_STEPS_LIMIT`, `OPEN_STEPS_SHOWN` | 10, 5 | giữ | ngữ cảnh gửi router và dòng báo lỗi turn |
++| `MISSING_TASKS_SHOWN` | 8 | giữ | câu nhắc việc chưa giao |
++
++- **Dòng việc ở band và pane** (P1, `taskRows`, `hooks/lib/progress.ts`). Hàm cũ duyệt checklist cho từng việc, nên thời gian tăng theo bình phương số việc; với trần 20 việc thì không thấy. Nay hàm dựng sẵn một lần bảng bước thuộc việc nào (`ownerOf`), tập việc đang làm và tập việc đã có bước đóng. Đầu ra trùng `45b5161` từng ký tự.
 +- **Lý do mode off ở phiên không tương tác** (H1, `hooks/parts/command.ts`, `hooks/lib/text.ts`). Khi cờ `headlessOff` (A13) đang bật và mode có hiệu lực là `off`, dòng đầu của `/conductor status` (cả khi chưa có mục tiêu) và câu trả lời của `/conductor reroute` thêm `headlessOffNote()` (126 ký tự, trần 160): phiên không tương tác, và cách bật bằng option `headlessRouting` hay `/conductor mode auto`. Mode off do người dùng tự đặt không có phần này. Không đổi `session.start`, không toast, không context.
-+- **Lần test lỗi chạy sau** (B1, `freshTestRun`). Chuỗi sửa, test đạt, test lỗi rồi đóng bước từng cho bước `[v]` kèm "tự động: ... chạy đạt sau thay đổi cuối" trong khi mod báo còn lệnh kiểm chưa đạt. Nay lần lỗi mới hơn của luồng chính hay mang cờ `shared` làm mất lần đạt; nơi gọi (`autoVerify`, nhánh đóng bước của tool plan, nhánh kiểm của luồng chính, danh sách phản chiếu) nhận kết quả mới mà không sửa. Bước đã `[v]` trước lần lỗi giữ `[v]` như 0.8.6 (ghi trong VERIFICATION). `acceptsVerified` (evidence khớp chặt) không đổi: `plan update` với `verified` kèm evidence `bun test` vẫn được nhận sau chuỗi đạt rồi lỗi [Đo trực tiếp, probe ngoài repo trên `45b5161` và trên bản này].
++- **Lần test lỗi chạy sau** (B1, `freshTestRun`). Chuỗi sửa, test đạt, test lỗi rồi đóng bước từng cho bước `[v]` kèm "tự động: ... chạy đạt sau thay đổi cuối" trong khi mod báo còn lệnh kiểm chưa đạt. Nay lần lỗi mới hơn của luồng chính hay mang cờ `shared` làm mất lần đạt; lần kiểm `chained` không tính là lỗi. Nơi gọi (`autoVerify`, nhánh đóng bước của tool plan, nhánh kiểm của luồng chính, danh sách phản chiếu) nhận kết quả mới mà không sửa. Bước đã `[v]` trước lần lỗi giữ `[v]` như 0.8.6. `acceptsVerified` (evidence khớp chặt) không đổi: `plan update` với `verified` kèm evidence `bun test` vẫn được nhận sau chuỗi đạt rồi lỗi [Đo trực tiếp, probe ngoài repo trên `45b5161` và trên bản này].
++- **Chưa kiểm được trên phiên thật.**
++  - Engine không ngắt hook `prompt.submit` của mod trong thời gian giữ hook tệ nhất (2.700 giây) [Giả định]. Căn cứ đã đọc: trong gói engine 2.1.296 và 2.1.322, `$.model.complete` kẹp `timeoutMs` bằng `Math.min(timeoutMs, 2147483647)`; các chuỗi "timed out" chỉ thuộc command hook, SDK callback hook và prompt hook. Probe thật bằng một mod chờ trong `prompt.submit` dưới `claude -p --plugin-dir` không chạy được, vì hook module không nạp trong `claude -p` ở container phát triển.
++  - Tốc độ đọc đo trên prompt tự sinh, qua `claude -p`, trong một khung giờ; prompt thật, giờ khác hay engine khác có thể chậm hơn.
++  - Sonnet gộp yêu cầu: trên prompt nhiều đề mục, sonnet tách đủ 36 đề mục thành 36 việc ở cả 3 lượt nhưng chỉ ghi 5 tới 40 yêu cầu trên 173 yêu cầu thật; trên prompt lặp mẫu sonnet gộp cả việc (0 tới 2 việc) [Đo trực tiếp, VERIFICATION].
 +
  ## Vá cổng duyệt kế hoạch và dòng tổng kết (0.8.3)
  
