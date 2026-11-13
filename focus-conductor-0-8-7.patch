@@ -1,5 +1,5 @@
 diff --git a/claude-mods/focus-conductor/.claude-plugin/plugin.json b/claude-mods/focus-conductor/.claude-plugin/plugin.json
-index f75a3bc..bfca34d 100644
+index f75a3bc..5ffb729 100644
 --- a/claude-mods/focus-conductor/.claude-plugin/plugin.json
 +++ b/claude-mods/focus-conductor/.claude-plugin/plugin.json
 @@ -1,6 +1,6 @@
@@ -10,7 +10,7 @@ index f75a3bc..bfca34d 100644
    "author": { "name": "Kiet Tran" },
    "description": "Một model Claude (router) đọc kỹ prompt trước khi làm và điều phối model/effort/agent cho từng việc; mod kiểm, ép điều phối lúc chạy, giữ nhất quán mục tiêu với checklist và cảnh báo lạc đề.",
    "types": "./types/index.d.ts",
-@@ -18,6 +18,12 @@
+@@ -18,12 +18,24 @@
        "description": "Model Claude đọc prompt và điều phối việc, agent, model, effort ngay từ đầu: alias haiku, sonnet, opus hoặc model ID. Mặc định sonnet. Khi conductor là fable, router là Fable và option này chỉ dùng lúc router Fable tạm ngừng.",
        "default": "sonnet"
      },
@@ -22,20 +22,22 @@ index f75a3bc..bfca34d 100644
 +    },
      "conductor": {
        "type": "string",
-       "title": "Fable điều phối (conductor)",
-@@ -25,6 +31,12 @@
+-      "title": "Fable điều phối (conductor)",
+-      "description": "off (mặc định): như 0.8.3. fable: Fable 5.2 giữ ba vai ở effort medium: đọc và phân việc ở mọi lượt router, lập kế hoạch và điều phối luồng chính của việc lớn (độ sâu substantial hay hard, loại khác answer); việc sửa file, chạy kiểm và đọc khối lượng lớn giao subagent chạy haiku, sonnet hay opus. Fable đắt hơn Opus, nên việc lớn tốn hạn mức hơn. Router Fable lỗi liên tiếp thì tạm dùng option router. Nên dùng Claude Code từ 2.1.322. (en) off (default): as 0.8.3. fable: Fable 5.2 reads and routes every request, plans and coordinates the main thread of large goals at effort medium, while file edits, checks and bulk reading go to subagents on haiku, sonnet or opus. Fable costs more than Opus. Repeated Fable router failures fall back to the router option for a few prompts. Use Claude Code 2.1.322 or later.",
++      "title": "Model điều phối (conductor)",
++      "description": "off (mặc định): như 0.8.3. Khuyến nghị fable. Họ được chọn giữ vai điều phối; opus làm vai này như Fable (0.8.7, chưa đo thời gian chờ riêng). fable: Fable 5.2 giữ ba vai ở effort medium: đọc và phân việc ở mọi lượt router, lập kế hoạch và điều phối luồng chính của việc lớn (độ sâu substantial hay hard, loại khác answer); việc sửa file, chạy kiểm và đọc khối lượng lớn giao subagent chạy haiku, sonnet hay opus. Fable đắt hơn Opus, nên việc lớn tốn hạn mức hơn. Router Fable lỗi liên tiếp thì tạm dùng option router. Nên dùng Claude Code từ 2.1.322. (en) off (default): as 0.8.3. Recommended: fable. The chosen family holds the conductor role; opus can hold it like Fable (0.8.7, no separate timeouts measured). fable: Fable 5.2 reads and routes every request, plans and coordinates the main thread of large goals at effort medium, while file edits, checks and bulk reading go to subagents on haiku, sonnet or opus. Fable costs more than Opus. Repeated Fable router failures fall back to the router option for a few prompts. Use Claude Code 2.1.322 or later.",
        "default": "off",
-       "options": ["off", "fable"]
-     },
+-      "options": ["off", "fable"]
++      "options": ["off", "fable", "opus"]
++    },
 +    "conductorFallback": {
 +      "type": "string",
 +      "title": "Model điều phối dự phòng",
 +      "description": "Khi conductor là fable mà Fable không dùng được giữa chừng (router Fable tạm ngừng sau các lần lỗi, hay họ fable bị chặn vì không phản hồi), họ model này nhận vai điều phối: đọc prompt, lập kế hoạch và điều phối luồng chính ở effort medium, cùng kỷ luật không tự sửa file, không tự chạy kiểm. Fable dùng lại được thì quay về Fable. opus (mặc định), sonnet, hoặc off để giữ cách chạy trước 0.8.7 (router là option router, luồng chính theo lựa chọn của router). (en) When conductor is fable and Fable becomes unusable mid-session (Fable router paused after repeated failures, or the fable family blocked for not responding), this family takes over the conductor role: reads prompts, plans and coordinates the main thread at effort medium, with the same no-edit, no-check discipline. Returns to Fable once Fable is usable again. opus (default), sonnet, or off to keep the behaviour before 0.8.7.",
 +      "default": "opus"
-+    },
+     },
      "conductorReads": {
        "type": "number",
-       "title": "Ngưỡng nhắc đọc của vai điều phối",
 diff --git a/claude-mods/focus-conductor/CHANGELOG.md b/claude-mods/focus-conductor/CHANGELOG.md
 index f86f098..059328e 100644
 --- a/claude-mods/focus-conductor/CHANGELOG.md
@@ -247,8 +249,30 @@ index ac79796..73a5cad 100644
  ## Vá cổng duyệt kế hoạch và dòng tổng kết (0.8.3)
  
  - **Dòng tổng kết không dấu (D1).** Sau các luật có dấu, `summaryFailed` xét dòng ở dạng bỏ dấu (`foldLabel`): kết luận `chua dat`, `khong dat`, và số đếm khác 0 trước `loi` cách tối đa một từ. `do` (dạng bỏ dấu của "đỏ") không được đọc vì trùng nhiều từ khác. Phủ định không dấu (`khong co loi`) đã bị bỏ ở bước phủ định cách quãng, `0 loi` là số 0.
+diff --git a/claude-mods/focus-conductor/hooks/atoms.ts b/claude-mods/focus-conductor/hooks/atoms.ts
+index 6b19729..c6d0e4a 100644
+--- a/claude-mods/focus-conductor/hooks/atoms.ts
++++ b/claude-mods/focus-conductor/hooks/atoms.ts
+@@ -7,13 +7,16 @@ import type { Core, Mode } from '../types'
+ import * as S from './lib/state'
+ import type { View } from './lib/state'
+ import { langOf } from './ui/labels'
++import { conductorOf } from './lib/conductor'
+ 
+ /** Một lần đọc cho mọi thứ band, pane và status line cần. */
+ export function viewOf(options: PluginOptions) {
+   const lang = langOf(options['uiLanguage'])
+   // Fable điều phối (0.8.4 C8): option off thì View như 0.8.3, không có trường conductor.
+   const rawRouter = options['router']
+-  const conductor = options['conductor'] === 'fable' ? { fallback: typeof rawRouter === 'string' && rawRouter.trim() !== '' ? rawRouter.trim() : 'sonnet' } : null
++  // 0.8.7 G1: họ điều phối chính là giá trị của option conductor (conductorOf).
++  const primary = conductorOf(options)
++  const conductor = primary !== 'off' ? { fallback: typeof rawRouter === 'string' && rawRouter.trim() !== '' ? rawRouter.trim() : 'sonnet', family: primary } : null
+   return (core: Core, override: Mode | null, isBandHidden: boolean): View => ({
+     core: S.normalizeCore(core),
+     mode: S.modeOf(override, options),
 diff --git a/claude-mods/focus-conductor/hooks/context.ts b/claude-mods/focus-conductor/hooks/context.ts
-index f77ca1c..c3eaf96 100644
+index f77ca1c..0c057d5 100644
 --- a/claude-mods/focus-conductor/hooks/context.ts
 +++ b/claude-mods/focus-conductor/hooks/context.ts
 @@ -6,7 +6,7 @@ import type { Brief, Choice, Core, DelegationItem, DelegationState, Effort, Inte
@@ -260,11 +284,12 @@ index f77ca1c..c3eaf96 100644
  import type { SessionModel, SessionPolicy } from './lib/route'
  import { DECISION_LIMIT, decisionLine } from './lib/decisions'
  import type { DecisionKind } from './lib/decisions'
-@@ -15,10 +15,12 @@ import type { ErrorEntry, ErrorEvent, ErrorFile } from './lib/errlog'
+@@ -15,10 +15,13 @@ import type { ErrorEntry, ErrorEvent, ErrorFile } from './lib/errlog'
  import { FIXED_ERRORS } from './lib/fixed-errors'
  import { MOD_VERSION } from './lib/version'
  import { MAX_FORKS, fitPick, skipKey } from './lib/router'
 +import { routerMaxWaitOf } from './lib/reading'
++import { DEFAULT_CONDUCTOR } from './lib/families'
 +import type { Reading } from './lib/reading'
  import { approvalModeOf, reviewRoundsOf } from './lib/approval'
 -import { conductorBlocker, conductorOf, fableModelId, isFableReady, isMainConducting } from './lib/conductor'
@@ -275,7 +300,7 @@ index f77ca1c..c3eaf96 100644
  import type { AgentRoute, Policy } from './lib/router'
  
  /** Prompt do chính người dùng gửi (hoặc lịch họ đặt), không phải thông báo nội bộ. */
-@@ -123,6 +125,10 @@ export function createContext(options: PluginOptions) {
+@@ -123,6 +126,10 @@ export function createContext(options: PluginOptions) {
      lastSession: null as { model: string; effort: string } | null,
      sessionFamily: null as ModelFamily | null,
      sessionNoticed: false,
@@ -286,7 +311,7 @@ index f77ca1c..c3eaf96 100644
      /** Đã cảnh báo chính sách model của phiên chặn Fable điều phối (0.8.4 C1), một lần mỗi phiên. */
      conductorSessionNoticed: false,
      pinnedGoalId: null as number | null,
-@@ -300,6 +306,8 @@ export function createContext(options: PluginOptions) {
+@@ -300,6 +307,8 @@ export function createContext(options: PluginOptions) {
      Object.entries(DEFAULT_WINDOWS).filter(([family]) => modelMap[family as ModelFamily] === undefined),
    ) as Partial<Record<ModelFamily, number>>
    const contextWindows = { ...defaultWindows, ...parseWindows(options['contextWindows']) }
@@ -295,12 +320,14 @@ index f77ca1c..c3eaf96 100644
    applyPrices(parsePrices(options['prices']))
    applyCacheWrite(parseCacheWrite(options['cacheWrite']))
    applyCheckCommands(parseCheckCommands(options['checkCommands']))
-@@ -311,12 +319,22 @@ export function createContext(options: PluginOptions) {
+@@ -311,17 +320,29 @@ export function createContext(options: PluginOptions) {
  
    /** Option conductor (0.8.4): off như 0.8.3, fable là Fable điều phối. */
    const conductorOption = conductorOf(options)
-+  /** Họ điều phối dự phòng (0.8.7 F1, option conductorFallback): chỉ có khi conductor là fable; null là không có. */
-+  const conductorFallback = conductorOption === 'fable' ? conductorFallbackOf(options) : null
++  /** Họ điều phối chính (0.8.7 G1): giá trị của option conductor; option off thì họ mặc định (chỉ để đặt tên trong câu báo). */
++  const conductorFamily: ModelFamily = conductorOption === 'off' ? DEFAULT_CONDUCTOR : conductorOption
++  /** Họ điều phối dự phòng (0.8.7 F1, option conductorFallback): chỉ có khi conductor khác off (0.8.7 G1); null là không có. */
++  const conductorFallback = conductorOption !== 'off' ? conductorFallbackOf(options) : null
  
    /** Đầu vào của các định nghĩa Fable điều phối (hooks/lib/conductor.ts) ở thời điểm hiện tại. */
    function conductorInputs(core: Core, mode: Mode, headless = false): ConductorInputs {
@@ -320,7 +347,13 @@ index f77ca1c..c3eaf96 100644
    }
  
    /** Luồng chính đang giữ vai điều phối cho mục tiêu hiện tại (0.8.5 D1, 0.8.6): option conductor là fable và isMainConducting. */
-@@ -334,10 +352,31 @@ export function createContext(options: PluginOptions) {
+   function isConducting(core: Core, mode: Mode): boolean {
+-    return conductorOption === 'fable' && isMainConducting(conductorInputs(core, mode), normalizeCore(core).brief)
++    return conductorOption !== 'off' && isMainConducting(conductorInputs(core, mode), normalizeCore(core).brief)
+   }
+ 
+   /** Nguyên nhân luồng chính không điều phối bằng Fable lúc này; null là điều phối khả dụng. */
+@@ -334,10 +355,31 @@ export function createContext(options: PluginOptions) {
     * router. `family` là họ của model đã gọi, cho sổ chi phí; `isFable` đặt thời gian chờ và effort của lượt đọc lại.
     */
    function routerTarget(core: Core, mode: Mode, headless = false): { model: string; family: ModelFamily; isFable: boolean } {
@@ -353,7 +386,7 @@ index f77ca1c..c3eaf96 100644
    /** Chính sách áp lên mọi lựa chọn của router: allowFable, model của phiên, họ đang bị chặn, loại agent dùng được. */
    function policy(): Policy {
      return { allowFable: options['allowFable'] === true, blocked, session: sessionModel(), agents: agentCatalog() }
-@@ -459,7 +498,11 @@ export function createContext(options: PluginOptions) {
+@@ -459,7 +501,11 @@ export function createContext(options: PluginOptions) {
     * "điều phối", không nâng theo bằng chứng, không kẹp theo allowFable; brief.main vẫn giữ lựa chọn của router cho lúc Fable hết sẵn sàng.
     */
    function wantedPick(brief: Brief, lift: Lift, core?: Core, mode?: Mode): (Choice & { notes: string[]; isConducting?: true }) | null {
@@ -366,7 +399,7 @@ index f77ca1c..c3eaf96 100644
      if (brief.main === null) return null
      const lifted = liftPick(brief.main, lift, options['allowFable'] === true)
      const fitted = fitPick(lifted, brief.isReference ? 'answer' : brief.kind, policy())
-@@ -547,6 +590,8 @@ export function createContext(options: PluginOptions) {
+@@ -547,6 +593,8 @@ export function createContext(options: PluginOptions) {
      local.lastSession = null
      local.sessionFamily = null
      local.sessionNoticed = false
@@ -375,7 +408,7 @@ index f77ca1c..c3eaf96 100644
      local.conductorSessionNoticed = false
      local.pinnedGoalId = null
      blocked.clear()
-@@ -578,6 +623,34 @@ export function createContext(options: PluginOptions) {
+@@ -578,6 +626,34 @@ export function createContext(options: PluginOptions) {
    }
  
    /** Hết chặn các họ model đã bị chặn đủ BLOCK_TURNS turn, để thử lại. */
@@ -410,11 +443,21 @@ index f77ca1c..c3eaf96 100644
    function expireBlocks(): void {
      for (const [family, until] of blockedUntil) {
        if (until > local.turnCount) continue
-@@ -965,8 +1038,17 @@ export function createContext(options: PluginOptions) {
+@@ -884,7 +960,7 @@ export function createContext(options: PluginOptions) {
+       notices.push(`Focus Conductor chạy luồng chính bằng ${decision.route.family}, khác model của phiên (${local.sessionFamily}).`)
+     }
+     // Fable điều phối (0.8.4 C1): sessionModel ceiling hay fixed với phiên không phải Fable thì chính sách của người dùng thắng; báo một lần.
+-    if (conductorOption === 'fable' && local.sessionFamily !== null && !local.conductorSessionNoticed && conductorState(core, current) === 'session') {
++    if (conductorOption !== 'off' && local.sessionFamily !== null && !local.conductorSessionNoticed && conductorState(core, current) === 'session') {
+       local.conductorSessionNoticed = true
+       notices.push(`Fable điều phối không áp cho luồng chính: sessionModel ${sessionPolicy} giữ model của phiên (${local.sessionFamily}). Đổi model phiên sang Fable hay đặt sessionModel về auto.`)
+     }
+@@ -965,8 +1041,18 @@ export function createContext(options: PluginOptions) {
      conductorOption,
      conductorInputs,
      conductorState,
 +    activeConductorOf: conductorOf_,
++    conductorFamily,
 +    fallbackUsable,
 +    conductorFallback,
 +    fallbackTarget,
@@ -429,10 +472,62 @@ index f77ca1c..c3eaf96 100644
      semanticDrift,
      driftEveryMs,
 diff --git a/claude-mods/focus-conductor/hooks/lib/conductor.ts b/claude-mods/focus-conductor/hooks/lib/conductor.ts
-index 40ca02f..e42cbbd 100644
+index 40ca02f..b580ade 100644
 --- a/claude-mods/focus-conductor/hooks/lib/conductor.ts
 +++ b/claude-mods/focus-conductor/hooks/lib/conductor.ts
-@@ -33,6 +33,15 @@ export type FableInputs = {
+@@ -1,28 +1,38 @@
+-// Fable điều phối (0.8.4): option conductor và các định nghĩa dùng chung. Thuần: không gọi $; context.ts, parts/session.ts,
+-// parts/agents.ts và giao diện gọi các hàm này, không viết lại điều kiện ở chỗ khác.
++// Vai điều phối (0.8.4 Fable điều phối; 0.8.7 G1: theo họ model): option conductor và các định nghĩa dùng chung. Thuần: không gọi $;
++// context.ts, parts/session.ts, parts/agents.ts và giao diện gọi các hàm này, không viết lại điều kiện ở chỗ khác. Họ điều phối chính là giá
++// trị của option conductor (một họ có cờ điều phối trong bảng họ model, hooks/lib/families.ts). Các tên còn chữ fable (FableInputs,
++// fableBlocker, isFableReady, fableModelId, FABLE_*_TIMEOUT_MS, Core.fable) giữ vì trạng thái đã lưu, test và mẫu đột biến cũ dùng chúng;
++// từ 0.8.7 G1 chúng mang nghĩa "họ điều phối chính".
+ 
+ import type { PluginOptions } from 'claude-code'
+ import type { ApprovalStatus, Brief, ModelFamily } from '../../types'
+ import type { SessionPolicy } from './route'
+ import { familyOf, resolveModelId } from './route'
++import { CONDUCTOR_FAMILIES, DEFAULT_CONDUCTOR, conductorTimeouts, familyLabel } from './families'
+ 
+-export type ConductorOption = 'off' | 'fable'
++/** Option conductor: off hay họ điều phối chính (0.8.7 G1). */
++export type ConductorOption = 'off' | ModelFamily
+ 
+-/** Option conductor: đúng chuỗi fable là fable; mọi giá trị khác (kể cả vắng, rỗng, Fable viết hoa) là off. */
++/**
++ * Option conductor: đúng tên một họ có cờ điều phối trong bảng họ model (fable, opus) là họ đó; mọi giá trị khác (kể cả vắng, rỗng, viết
++ * hoa, họ không có cờ điều phối) là off.
++ */
+ export function conductorOf(options: PluginOptions): ConductorOption {
+-  return options['conductor'] === 'fable' ? 'fable' : 'off'
++  const raw = options['conductor']
++  return CONDUCTOR_FAMILIES.find(f => f === raw) ?? 'off'
+ }
+ 
+ /**
+- * Thời gian chờ của router khi gọi Fable, theo loại request (0.8.4 C2). Đo tuần tự trên engine 2.1.322 ngày 10/11/2026, 35 lượt
+- * [Đo trực tiếp]: 1,5 lần giá trị lớn nhất làm tròn lên bội số 5 giây (đọc prompt thường lớn nhất 17,3 s, prompt dài 76,6 s, chấm
+- * subagent 8,4 s, kiểm lạc đề 8,7 s, rà kế hoạch 9,3 s) đều không vượt giá trị hiện có, nên giữ đúng giá trị hiện có.
++ * Thời gian chờ của router khi gọi họ điều phối mặc định, theo loại request (0.8.4 C2). Đo tuần tự trên engine 2.1.322 ngày 10/11/2026,
++ * 35 lượt [Đo trực tiếp]: 1,5 lần giá trị lớn nhất làm tròn lên bội số 5 giây (đọc prompt thường lớn nhất 17,3 s, prompt dài 76,6 s, chấm
++ * subagent 8,4 s, kiểm lạc đề 8,7 s, rà kế hoạch 9,3 s) đều không vượt giá trị hiện có, nên giữ đúng giá trị hiện có. Từ 0.8.7 G1 các số
++ * nằm trong bảng họ model; mỗi lượt router dùng thời gian chờ của chính họ đã gọi (conductorTimeouts).
+  */
+-export const FABLE_PROMPT_TIMEOUT_MS = 45_000
+-export const FABLE_LONG_TIMEOUT_MS = 120_000
+-export const FABLE_AGENT_TIMEOUT_MS = 20_000
+-export const FABLE_DRIFT_TIMEOUT_MS = 20_000
+-export const FABLE_REVIEW_TIMEOUT_MS = 30_000
++export const FABLE_PROMPT_TIMEOUT_MS = conductorTimeouts(DEFAULT_CONDUCTOR).prompt
++export const FABLE_LONG_TIMEOUT_MS = conductorTimeouts(DEFAULT_CONDUCTOR).long
++export const FABLE_AGENT_TIMEOUT_MS = conductorTimeouts(DEFAULT_CONDUCTOR).agent
++export const FABLE_DRIFT_TIMEOUT_MS = conductorTimeouts(DEFAULT_CONDUCTOR).drift
++export const FABLE_REVIEW_TIMEOUT_MS = conductorTimeouts(DEFAULT_CONDUCTOR).review
+ 
+ /** Đầu vào của "Fable sẵn sàng": option, chế độ điều phối, headless-off, họ đang bị chặn, số prompt router Fable còn tạm ngừng. */
+ export type FableInputs = {
+@@ -33,14 +43,24 @@ export type FableInputs = {
    pauseLeft: number
  }
  
@@ -448,7 +543,18 @@ index 40ca02f..e42cbbd 100644
  /** Nguyên nhân Fable không sẵn sàng; null là sẵn sàng. */
  export type FableBlocker = 'option' | 'mode' | 'headless' | 'blocked' | 'paused'
  
-@@ -72,14 +81,38 @@ export function isPendingGoal(brief: Brief | null, state: PendingState): boolean
++/** Nguyên nhân họ điều phối chính không sẵn sàng (0.8.7 G1: họ là giá trị của option conductor); null là sẵn sàng. */
+ export function fableBlocker(input: FableInputs): FableBlocker | null {
+-  if (input.option !== 'fable') return 'option'
++  if (input.option === 'off') return 'option'
+   if (input.headless) return 'headless'
+   if (input.mode === 'off') return 'mode'
+-  if (input.blocked.has('fable')) return 'blocked'
++  if (input.blocked.has(input.option)) return 'blocked'
+   if (input.pauseLeft > 0) return 'paused'
+   return null
+ }
+@@ -72,17 +92,44 @@ export function isPendingGoal(brief: Brief | null, state: PendingState): boolean
    return isBigGoal(brief) && state.total === 0 && (state.turnsDone ?? 0) === 0
  }
  
@@ -470,12 +576,15 @@ index 40ca02f..e42cbbd 100644
 + */
 +export function activeConductor(input: ConductorInputs): ActiveConductor | null {
 +  const blocker = fableBlocker(input)
-+  if (blocker === null) return { family: 'fable', isFallback: false, reason: null }
++  if (input.option === 'off') return null
++  const primary = input.option
++  if (blocker === null) return { family: primary, isFallback: false, reason: null }
 +  if (blocker !== 'blocked' && blocker !== 'paused') return null
 +  const fallback = input.fallback ?? null
-+  if (fallback === null || fallback === 'fable' || input.blocked.has(fallback) || (input.fallbackPauseLeft ?? 0) > 0) return null
++  // Họ dự phòng trùng họ chính (0.8.7 G1) là không có dự phòng.
++  if (fallback === null || fallback === primary || input.blocked.has(fallback) || (input.fallbackPauseLeft ?? 0) > 0) return null
 +  if (input.mode !== 'auto') return null
-+  if (input.sessionPolicy !== 'auto' && input.sessionFamily !== 'fable') return null
++  if (input.sessionPolicy !== 'auto' && input.sessionFamily !== primary) return null
 +  return { family: fallback, isFallback: true, reason: blocker }
 +}
  
@@ -488,8 +597,12 @@ index 40ca02f..e42cbbd 100644
 +  if (fable !== null && activeConductor(input) !== null) return null
    if (fable !== null) return fable
    if (input.mode !== 'auto') return 'mode'
-   if (input.sessionPolicy !== 'auto' && input.sessionFamily !== 'fable') return 'session'
-@@ -95,12 +128,15 @@ export function isMainConducting(input: ConductorInputs, brief: Pick<Brief, 'dep
+-  if (input.sessionPolicy !== 'auto' && input.sessionFamily !== 'fable') return 'session'
++  if (input.sessionPolicy !== 'auto' && input.sessionFamily !== input.option) return 'session'
+   return null
+ }
+ 
+@@ -95,16 +142,19 @@ export function isMainConducting(input: ConductorInputs, brief: Pick<Brief, 'dep
    return isConductorAvailable(input) && isBigGoal(brief)
  }
  
@@ -500,7 +613,7 @@ index 40ca02f..e42cbbd 100644
 + * Model của router Fable: modelMap.fable, rồi ID phiên khi phiên thuộc họ fable (giữ hậu tố), rồi (0.8.7 M1) alias fable để engine chọn
 + * phiên bản hiện hành ($.model.complete nhận alias ở mọi engine đã kiểm); ID phiên có tiền tố nhà cung cấp thì tiền tố cộng ID ghim.
 + */
-+export function fableModelId(map: Partial<Record<ModelFamily, string>>, sessionModelId: string | null, family: ModelFamily = 'fable'): string {
++export function fableModelId(map: Partial<Record<ModelFamily, string>>, sessionModelId: string | null, family: ModelFamily = DEFAULT_CONDUCTOR): string {
 +  const override = map[family]
    if (override) return override
 -  if (sessionModelId !== null && familyOf(sessionModelId) === 'fable') return sessionModelId
@@ -509,8 +622,38 @@ index 40ca02f..e42cbbd 100644
 +  return resolveModelId(family, sessionModelId ?? '', {}, true)
  }
  
- /** Câu nêu nguyên nhân (nhật ký conductor, pane, status). */
-@@ -136,13 +172,16 @@ export function fableAfterCall(state: { failures: number; pauseLeft: number }, i
+-/** Câu nêu nguyên nhân (nhật ký conductor, pane, status). */
+-export function blockerText(reason: ConductorBlocker): string {
++/** Câu nêu nguyên nhân (nhật ký conductor, pane, status); `family` là họ điều phối chính (0.8.7 G1). */
++export function blockerText(reason: ConductorBlocker, family: ModelFamily = DEFAULT_CONDUCTOR): string {
+   switch (reason) {
+     case 'option':
+       return 'option conductor là off'
+@@ -113,16 +163,19 @@ export function blockerText(reason: ConductorBlocker): string {
+     case 'headless':
+       return 'phiên không tương tác (headless)'
+     case 'blocked':
+-      return 'họ fable đang bị chặn vì không phản hồi'
++      return `họ ${family} đang bị chặn vì không phản hồi`
+     case 'paused':
+-      return 'router Fable tạm ngừng sau các lần lỗi'
++      return `router ${familyLabel(family)} tạm ngừng sau các lần lỗi`
+     case 'session':
+       return 'sessionModel giữ model của phiên'
+   }
+ }
+ 
+-/** Mở đầu câu báo router Fable tạm ngừng (0.8.4 C6): toast, cảnh báo model và test dùng chung. */
+-export const FABLE_PAUSE_TEXT = 'Fable điều phối tạm ngừng'
++/** Mở đầu câu báo router của họ điều phối chính tạm ngừng (0.8.4 C6; 0.8.7 G1 theo họ): toast, cảnh báo model và test dùng chung. */
++export function pauseText(family: ModelFamily = DEFAULT_CONDUCTOR): string {
++  return `${familyLabel(family)} điều phối tạm ngừng`
++}
++export const FABLE_PAUSE_TEXT = pauseText()
+ 
+ /**
+  * Bộ đếm lỗi của router Fable sau một lượt gọi (0.8.4 C6): đạt thì về 0; lỗi thì cộng một, đủ `limit` lần liên tiếp thì tạm ngừng
+@@ -136,13 +189,17 @@ export function fableAfterCall(state: { failures: number; pauseLeft: number }, i
  }
  
  /** Trạng thái điều phối để hiện (0.8.4 C8): đang điều phối, tạm ngừng, hay tắt kèm nguyên nhân. */
@@ -522,13 +665,55 @@ index 40ca02f..e42cbbd 100644
   * nguyên nhân đã ghi ở lần đọc prompt gần nhất (small: mục tiêu không lớn; none: chưa đọc prompt nào).
   */
 -export function conductorShown(core: { fable: { pauseLeft: number; ready: boolean | null; reason: string }; brief: Pick<Brief, 'depth' | 'kind' | 'isReference' | 'isBare'> | null }): ConductorShown {
-+export function conductorShown(core: { fable: { pauseLeft: number; ready: boolean | null; reason: string; promptPaused?: boolean }; fallback?: { active: ModelFamily | null }; brief: Pick<Brief, 'depth' | 'kind' | 'isReference' | 'isBare'> | null }): ConductorShown {
-+  // Họ dự phòng đang điều phối (0.8.7 F1, Core.fallback.active ghi ở lần đọc prompt gần nhất): lý do là router Fable tạm ngừng hay họ fable bị chặn.
++export function conductorShown(core: { fable: { pauseLeft: number; ready: boolean | null; reason: string; promptPaused?: boolean }; fallback?: { active: ModelFamily | null }; brief: Pick<Brief, 'depth' | 'kind' | 'isReference' | 'isBare'> | null }, primary: ModelFamily = DEFAULT_CONDUCTOR): ConductorShown {
++  // Họ dự phòng đang điều phối (0.8.7 F1, Core.fallback.active ghi ở lần đọc prompt gần nhất): lý do là router của họ chính tạm ngừng hay
++  // họ chính bị chặn.
 +  const backup = core.fallback?.active ?? null
-+  if (backup !== null && backup !== 'fable') return { state: 'fallback', family: backup, reason: core.fable.pauseLeft > 0 || core.fable.promptPaused === true ? 'paused' : 'blocked', isBig: isBigGoal(core.brief) }
++  if (backup !== null && backup !== primary) return { state: 'fallback', family: backup, reason: core.fable.pauseLeft > 0 || core.fable.promptPaused === true ? 'paused' : 'blocked', isBig: isBigGoal(core.brief) }
    if (core.fable.pauseLeft > 0) return { state: 'paused' }
    if (core.fable.ready === true) return isBigGoal(core.brief) ? { state: 'on' } : { state: 'off', reason: 'small' }
    const known: readonly string[] = ['option', 'mode', 'headless', 'blocked', 'paused', 'session']
+diff --git a/claude-mods/focus-conductor/hooks/lib/cost.ts b/claude-mods/focus-conductor/hooks/lib/cost.ts
+index 0f2c356..8e5ad2f 100644
+--- a/claude-mods/focus-conductor/hooks/lib/cost.ts
++++ b/claude-mods/focus-conductor/hooks/lib/cost.ts
+@@ -11,6 +11,7 @@
+ // Cửa sổ ngữ cảnh: cả bốn model 1M token [Nguồn: cùng trang giá]. Option prices và contextWindows ghi đè được.
+ 
+ import type { Effort, ModelFamily, Volume } from '../../types'
++import { FAMILY_NAMES, FAMILY_TABLE } from './families'
+ 
+ export type Price = { input: number; output: number; cacheRead: number }
+ 
+@@ -18,12 +19,8 @@ export type Price = { input: number; output: number; cacheRead: number }
+ export const PRICE_DATE = '2026-10-13'
+ export const PRICE_STALE_DAYS = 30
+ 
+-const BASE_PRICE: Record<ModelFamily, Price> = {
+-  haiku: { input: 0.1, output: 0.5, cacheRead: 0.01 },
+-  sonnet: { input: 2, output: 10, cacheRead: 0.1 },
+-  opus: { input: 4, output: 20, cacheRead: 0.2 },
+-  fable: { input: 10, output: 50, cacheRead: 0.25 },
+-}
++/** Bảng giá kèm mod theo họ (0.8.7 G1: đọc từ bảng họ model, hooks/lib/families.ts). */
++const BASE_PRICE: Record<ModelFamily, Price> = Object.fromEntries(FAMILY_NAMES.map(f => [f, { ...FAMILY_TABLE[f].price }])) as Record<ModelFamily, Price>
+ 
+ /** Haiku 5.5 với prompt trên LONG_PROMPT token [Nguồn: trang giá 2026-10-13]. */
+ const LONG_PROMPT = 100_000
+@@ -34,11 +31,11 @@ export const PRICE: Record<ModelFamily, Price> = { ...BASE_PRICE }
+ let overridden: ModelFamily[] = []
+ 
+ /** Cửa sổ ngữ cảnh mặc định theo họ, cho model ID mặc định của mod [Nguồn: trang giá 2026-10-13]. */
+-export const DEFAULT_WINDOWS: Record<ModelFamily, number> = { haiku: 1_000_000, sonnet: 1_000_000, opus: 1_000_000, fable: 1_000_000 }
++export const DEFAULT_WINDOWS: Record<ModelFamily, number> = Object.fromEntries(FAMILY_NAMES.map(f => [f, FAMILY_TABLE[f].window])) as Record<ModelFamily, number>
+ 
+ /** Bảng giá kèm mod (chưa chịu option prices), để dựng catalog cho golden-set và đối chiếu. */
+ export function bundledPrices(): Record<ModelFamily, Price> {
+-  return { haiku: { ...BASE_PRICE.haiku }, sonnet: { ...BASE_PRICE.sonnet }, opus: { ...BASE_PRICE.opus }, fable: { ...BASE_PRICE.fable } }
++  return Object.fromEntries(FAMILY_NAMES.map(f => [f, { ...BASE_PRICE[f] }])) as Record<ModelFamily, Price>
+ }
+ 
+ /**
 diff --git a/claude-mods/focus-conductor/hooks/lib/drift/evidence.ts b/claude-mods/focus-conductor/hooks/lib/drift/evidence.ts
 index 04ade98..57eb3c2 100644
 --- a/claude-mods/focus-conductor/hooks/lib/drift/evidence.ts
@@ -550,6 +735,119 @@ index 04ade98..57eb3c2 100644
  }
  
  /**
+diff --git a/claude-mods/focus-conductor/hooks/lib/families.ts b/claude-mods/focus-conductor/hooks/lib/families.ts
+new file mode 100644
+index 0000000..23149ca
+--- /dev/null
++++ b/claude-mods/focus-conductor/hooks/lib/families.ts
+@@ -0,0 +1,86 @@
++// Bảng họ model (0.8.7 G1): nguồn duy nhất của thông tin theo họ model. Tên họ cũng là alias gửi engine. route.ts (FAMILIES, ID ghim),
++// cost.ts (giá, cửa sổ), reading.ts (thông số đọc) và conductor.ts (họ làm được vai điều phối, thời gian chờ của vai đó) đọc từ đây.
++// Thêm một dòng vào bảng là đủ để mọi nơi trong mã biết tới họ đó; các việc khác khi nạp một họ mới ghi ở DESIGN (mục 0.8.7 G1).
++// Thuần: không gọi $, không import tệp nào khác của mod.
++
++import type { ModelFamily } from '../../types'
++
++export type FamilyPrice = { input: number; output: number; cacheRead: number }
++
++/** Thông số đọc của một họ (0.8.7 L3): ký tự trên token, giây trên ký tự, token ra lớn nhất đo được, mức token ra tối đa engine báo. */
++export type FamilyRead = { charsPerToken: number; secPerChar: number; maxOut: number; engineMaxOut: number }
++
++/** Thời gian chờ của năm loại request router khi họ này làm vai điều phối (ms). */
++export type ConductorTimeouts = { prompt: number; long: number; agent: number; drift: number; review: number }
++
++export type FamilyInfo = {
++  /** Thứ hạng, thấp tới cao: quyết định thứ tự nâng, hạ và so model. */
++  rank: number
++  /** ID ghim: bảng giá và cửa sổ kèm mod lập cho ID này; dùng khi engine không nhận alias hay phiên có tiền tố nhà cung cấp (0.8.7 M1). */
++  pinnedId: string
++  /** USD mỗi 1M token [Nguồn: trang giá 2026-10-13]. */
++  price: FamilyPrice
++  /** Cửa sổ ngữ cảnh của ID ghim (token) [Nguồn: trang giá 2026-10-13]. */
++  window: number
++  /** Thông số đọc đã đo; null là chưa đo (readParamsOf lấy giá trị thận trọng của các họ đã đo). */
++  read: FamilyRead | null
++  /** Thời gian chờ khi làm vai điều phối; null là họ không làm được vai điều phối (option conductor không nhận họ này). */
++  conductor: ConductorTimeouts | null
++}
++
++/**
++ * Thời gian chờ của Fable khi làm vai điều phối (0.8.4 C2): đo tuần tự trên engine 2.1.322 ngày 10/11/2026, 35 lượt [Đo trực tiếp];
++ * 1,5 lần giá trị lớn nhất làm tròn lên bội số 5 giây đều không vượt giá trị này.
++ */
++const CONDUCTOR_TIMEOUTS: ConductorTimeouts = { prompt: 45_000, long: 120_000, agent: 20_000, drift: 20_000, review: 30_000 }
++
++export const FAMILY_TABLE: Readonly<Record<ModelFamily, FamilyInfo>> = {
++  haiku: { rank: 0, pinnedId: 'claude-haiku-5-5', price: { input: 0.1, output: 0.5, cacheRead: 0.01 }, window: 1_000_000, read: null, conductor: null },
++  sonnet: {
++    rank: 1,
++    pinnedId: 'claude-sonnet-5-5',
++    price: { input: 2, output: 10, cacheRead: 0.1 },
++    window: 1_000_000,
++    // [Đo trực tiếp, 13/11/2026, engine 2.1.323, 11 lượt; VERIFICATION mục 0.8.7]
++    read: { charsPerToken: 1.5863, secPerChar: 0.0001491, maxOut: 6_243, engineMaxOut: 128_000 },
++    conductor: null,
++  },
++  opus: {
++    rank: 2,
++    pinnedId: 'claude-opus-5-5',
++    price: { input: 4, output: 20, cacheRead: 0.2 },
++    window: 1_000_000,
++    read: null,
++    // Opus làm được vai điều phối (0.8.7 G1); thời gian chờ lấy bằng của Fable [Giả định: chưa đo opus ở vai này].
++    conductor: CONDUCTOR_TIMEOUTS,
++  },
++  fable: {
++    rank: 3,
++    // Fable 5.2 (0.8.4): ID kiểm trên engine 2.1.322, có trong gói engine và gọi được qua claude -p [Đo trực tiếp, 10/11/2026].
++    pinnedId: 'claude-fable-5-2',
++    price: { input: 10, output: 50, cacheRead: 0.25 },
++    window: 1_000_000,
++    // [Đo trực tiếp, 13/11/2026, engine 2.1.323, 7 lượt; VERIFICATION mục 0.8.7]
++    read: { charsPerToken: 1.5837, secPerChar: 0.0025649, maxOut: 91_084, engineMaxOut: 128_000 },
++    conductor: CONDUCTOR_TIMEOUTS,
++  },
++}
++
++/** Tên họ theo thứ hạng của bảng. */
++export const FAMILY_NAMES: readonly ModelFamily[] = (Object.keys(FAMILY_TABLE) as ModelFamily[]).sort((a, b) => FAMILY_TABLE[a].rank - FAMILY_TABLE[b].rank)
++
++/** Họ làm được vai điều phối, theo thứ hạng: các giá trị hợp lệ của option conductor ngoài off. */
++export const CONDUCTOR_FAMILIES: readonly ModelFamily[] = FAMILY_NAMES.filter(f => FAMILY_TABLE[f].conductor !== null)
++
++/** Họ điều phối mặc định khuyến nghị (option conductor vẫn mặc định off). */
++export const DEFAULT_CONDUCTOR: ModelFamily = 'fable'
++
++/** Tên họ để hiện ở đầu câu (Fable, Opus). */
++export function familyLabel(family: ModelFamily): string {
++  return family.charAt(0).toUpperCase() + family.slice(1)
++}
++
++/** Thời gian chờ vai điều phối của một họ; họ không làm được vai đó (hay chưa biết) thì của họ mặc định. */
++export function conductorTimeouts(family: ModelFamily | null): ConductorTimeouts {
++  return (family !== null ? FAMILY_TABLE[family].conductor : null) ?? (FAMILY_TABLE[DEFAULT_CONDUCTOR].conductor as ConductorTimeouts)
++}
+diff --git a/claude-mods/focus-conductor/hooks/lib/ledger.ts b/claude-mods/focus-conductor/hooks/lib/ledger.ts
+index f983ffc..5274daf 100644
+--- a/claude-mods/focus-conductor/hooks/lib/ledger.ts
++++ b/claude-mods/focus-conductor/hooks/lib/ledger.ts
+@@ -4,6 +4,7 @@
+ 
+ import type { Bucket, Depth, Effort, Group, Kind, Ledger, ModelFamily, RouteEvent, Volume } from '../../types'
+ import { EFFORT_FACTOR, SIZE, SYSTEM_TOKENS, type Tokens, usdOf } from './cost'
++import { FAMILY_NAMES } from './families'
+ 
+ export const GROUPS: readonly Group[] = ['main', 'agent', 'analyzer']
+ const CALIB_MIN = 0.5
+@@ -234,7 +235,7 @@ export function ledgerLines(ledger: Ledger, lang: 'vi' | 'en' = 'vi'): string[]
+   const net = netLine(ledger, lang)
+   if (net !== null) lines.push(net)
+   if (ledger.samples > 0) {
+-    const calib = (['haiku', 'sonnet', 'opus', 'fable'] as const).map(f => `${f} ×${ledger.calib[f].toFixed(2)}`)
++    const calib = FAMILY_NAMES.map(f => `${f} ×${ledger.calib[f].toFixed(2)}`)
+     lines.push(lang === 'en' ? `Estimate calibration from ${ledger.samples} measurements: ${calib.join(', ')}` : `Hiệu chỉnh ước lượng theo ${ledger.samples} lần đo: ${calib.join(', ')}`)
+   }
+   const shapes = Object.entries(ledger.shapes ?? {})
 diff --git a/claude-mods/focus-conductor/hooks/lib/plan.ts b/claude-mods/focus-conductor/hooks/lib/plan.ts
 index fd5fb61..a41aeb3 100644
 --- a/claude-mods/focus-conductor/hooks/lib/plan.ts
@@ -621,16 +919,17 @@ index bf6d9f9..b3ac8c5 100644
        rows.push({
 diff --git a/claude-mods/focus-conductor/hooks/lib/reading.ts b/claude-mods/focus-conductor/hooks/lib/reading.ts
 new file mode 100644
-index 0000000..48b0057
+index 0000000..6909686
 --- /dev/null
 +++ b/claude-mods/focus-conductor/hooks/lib/reading.ts
-@@ -0,0 +1,95 @@
+@@ -0,0 +1,104 @@
 +// Router đọc trọn prompt (0.8.7 L3): mọi model router đọc trọn prompt tới sức chứa của nó. Sức chứa là số nhỏ hơn giữa sức chứa theo cửa
 +// sổ ngữ cảnh của model (trừ lời dặn, các dòng ngữ cảnh và maxTokens của lượt đó) và sức chứa theo thời gian chờ tối đa (option
 +// routerMaxWait); không thấp hơn trần cũ 80.000 ký tự. Chỉ hai trường hợp còn cắt prompt: vượt sức chứa của model, hay vượt số ký tự đọc
 +// được trong thời gian chờ tối đa. Thông số theo họ model lấy từ lượt đo thật (VERIFICATION, mục 0.8.7).
 +
 +import type { ModelFamily } from '../../types'
++import { FAMILY_NAMES, FAMILY_TABLE } from './families'
 +
 +/** Trần cũ (0.7.8 G8): prompt không quá bấy nhiêu ký tự thì request trùng 0.8.6; sức chứa tính ra thấp hơn thì dùng trần này. */
 +export const BASE_CHARS = 80_000
@@ -658,18 +957,26 @@ index 0000000..48b0057
 + * 0.8.7]. Ký tự trên token: nhỏ nhất qua các lượt, làm tròn xuống 4 chữ số. Giây trên ký tự: lớn nhất qua các lượt, làm tròn lên. Fable:
 + * 7 lượt, chậm nhất 615,6 s cho 240.000 ký tự (prompt lặp mẫu), token ra lớn nhất 91.084. Sonnet: 11 lượt, chậm nhất 35,8 s cho 240.000
 + * ký tự (prompt nhiều đề mục), token ra lớn nhất 6.243. Mức token ra tối đa engine báo (`modelUsage.maxOutputTokens`) là 128.000 cho cả hai.
++ * Từ 0.8.7 G1 các số này nằm trong bảng họ model (hooks/lib/families.ts); READ_PARAMS là các họ đã đo.
 + */
-+export const READ_PARAMS: Record<'fable' | 'sonnet', ReadParams> = {
-+  fable: { charsPerToken: 1.5837, secPerChar: 0.0025649, maxOut: 91_084, engineMaxOut: 128_000 },
-+  sonnet: { charsPerToken: 1.5863, secPerChar: 0.0001491, maxOut: 6_243, engineMaxOut: 128_000 },
-+}
++export const READ_PARAMS: Readonly<Record<ModelFamily, ReadParams>> = Object.fromEntries(
++  FAMILY_NAMES.flatMap(f => (FAMILY_TABLE[f].read !== null ? [[f, FAMILY_TABLE[f].read]] : [])),
++) as Record<ModelFamily, ReadParams>
 +
-+/** Họ chưa đo (haiku, opus, model ID riêng): giá trị thận trọng hơn giữa fable và sonnet cho từng thông số [Giả định]. */
++/** Họ đã đo (0.8.7 G1: những họ có thông số đọc trong bảng họ model). */
++const MEASURED: readonly ModelFamily[] = FAMILY_NAMES.filter(f => FAMILY_TABLE[f].read !== null)
++
++/** Họ chưa đo (haiku, opus, model ID riêng): giá trị thận trọng nhất giữa các họ đã đo cho từng thông số [Giả định]. */
 +export function readParamsOf(family: ModelFamily): ReadParams {
-+  if (family === 'fable' || family === 'sonnet') return READ_PARAMS[family]
-+  const a = READ_PARAMS.fable
-+  const b = READ_PARAMS.sonnet
-+  return { charsPerToken: Math.min(a.charsPerToken, b.charsPerToken), secPerChar: Math.max(a.secPerChar, b.secPerChar), maxOut: Math.max(a.maxOut, b.maxOut), engineMaxOut: Math.min(a.engineMaxOut, b.engineMaxOut) }
++  const own = FAMILY_TABLE[family].read
++  if (own !== null) return own
++  const all = MEASURED.map(f => READ_PARAMS[f])
++  return {
++    charsPerToken: Math.min(...all.map(p => p.charsPerToken)),
++    secPerChar: Math.max(...all.map(p => p.secPerChar)),
++    maxOut: Math.max(...all.map(p => p.maxOut)),
++    engineMaxOut: Math.min(...all.map(p => p.engineMaxOut)),
++  }
 +}
 +
 +/** Option routerMaxWait (giây) thành mili giây, kẹp về biên; thiếu hay sai thì mặc định. */
@@ -721,10 +1028,40 @@ index 0000000..48b0057
 +  return { capacity, head, tail: capacity - head, limit, isFull, maxTokens, timeoutMs }
 +}
 diff --git a/claude-mods/focus-conductor/hooks/lib/route.ts b/claude-mods/focus-conductor/hooks/lib/route.ts
-index 0329b84..a1c11a8 100644
+index 0329b84..a4bdcb2 100644
 --- a/claude-mods/focus-conductor/hooks/lib/route.ts
 +++ b/claude-mods/focus-conductor/hooks/lib/route.ts
-@@ -80,22 +80,48 @@ export function parseWindows(raw: unknown): Partial<Record<ModelFamily, number>>
+@@ -11,10 +11,12 @@
+ import type { Choice, Effort, Kind, Lift, ModelFamily, Route, Task, Tier, Volume } from '../../types'
+ import { SAFETY, shouldDowngrade, switchCost, turnCost } from './cost'
+ import { formatCost } from './ledger'
++import { FAMILY_NAMES, FAMILY_TABLE } from './families'
+ 
+ export type { Choice }
+ 
+-export const FAMILIES: readonly ModelFamily[] = ['haiku', 'sonnet', 'opus', 'fable']
++/** Họ model theo thứ hạng (0.8.7 G1: đọc từ bảng họ model, hooks/lib/families.ts). */
++export const FAMILIES: readonly ModelFamily[] = FAMILY_NAMES
+ export const EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max']
+ 
+ /** Ngân sách tool call theo tier (tier suy ra từ depth và volume). */
+@@ -25,13 +27,8 @@ export type SessionPolicy = 'auto' | 'ceiling' | 'fixed'
+ 
+ export type SessionModel = { family: ModelFamily; policy: SessionPolicy }
+ 
+-const DEFAULT_IDS: Record<ModelFamily, string> = {
+-  haiku: 'claude-haiku-5-5',
+-  sonnet: 'claude-sonnet-5-5',
+-  opus: 'claude-opus-5-5',
+-  // Fable 5.2 (0.8.4): ID kiểm trên engine 2.1.322, có trong gói engine và gọi được qua claude -p [Đo trực tiếp, 10/11/2026].
+-  fable: 'claude-fable-5-2',
+-}
++/** ID ghim theo họ (0.8.7 G1: đọc từ bảng họ model). */
++const DEFAULT_IDS: Record<ModelFamily, string> = Object.fromEntries(FAMILY_NAMES.map(f => [f, FAMILY_TABLE[f].pinnedId])) as Record<ModelFamily, string>
+ 
+ export function familyRank(family: ModelFamily): number {
+   return FAMILIES.indexOf(family)
+@@ -80,22 +77,48 @@ export function parseWindows(raw: unknown): Partial<Record<ModelFamily, number>>
    return out
  }
  
@@ -778,12 +1115,16 @@ index 0329b84..a1c11a8 100644
  }
  
 diff --git a/claude-mods/focus-conductor/hooks/lib/router.ts b/claude-mods/focus-conductor/hooks/lib/router.ts
-index ff688b0..941a843 100644
+index ff688b0..fc059c5 100644
 --- a/claude-mods/focus-conductor/hooks/lib/router.ts
 +++ b/claude-mods/focus-conductor/hooks/lib/router.ts
-@@ -10,8 +10,10 @@ import type { ModelCompleteRequest, ModelCompleteResult, ModelTextBlock, ModelUs
+@@ -8,10 +8,13 @@
+ import type { ModelCompleteRequest, ModelCompleteResult, ModelTextBlock, ModelUsage } from 'claude-code'
+ 
  import type { Brief, Choice, Depth, Effort, ForkSplit, Intent, Kind, ModelFamily, Relation, RouterFail, RouterFailKind, Task, Tier, Volume } from '../../types'
- import { FABLE_AGENT_TIMEOUT_MS, FABLE_DRIFT_TIMEOUT_MS, FABLE_LONG_TIMEOUT_MS, FABLE_PROMPT_TIMEOUT_MS, FABLE_REVIEW_TIMEOUT_MS, isBigGoal, isPendingGoal } from './conductor'
+-import { FABLE_AGENT_TIMEOUT_MS, FABLE_DRIFT_TIMEOUT_MS, FABLE_LONG_TIMEOUT_MS, FABLE_PROMPT_TIMEOUT_MS, FABLE_REVIEW_TIMEOUT_MS, isBigGoal, isPendingGoal } from './conductor'
++import { isBigGoal, isPendingGoal } from './conductor'
++import { DEFAULT_CONDUCTOR, FAMILY_NAMES, conductorTimeouts } from './families'
  import type { PendingState } from './conductor'
 -import { PRICE } from './cost'
 +import { DEFAULT_WINDOWS, PRICE } from './cost'
@@ -793,7 +1134,7 @@ index ff688b0..941a843 100644
  import { EFFORTS, FAMILIES, applySession, avoidBlocked, codesIn, describePick, effortRank, familyOf, familyRank, sessionFloor } from './route'
  import type { SessionModel } from './route'
  import { DEPTHS, INTENTS, KINDS, RELATIONS, VOLUMES, maxTier, tierOf } from './scale'
-@@ -49,10 +51,17 @@ const READ_ONLY_AGENTS = new Set(['Explore', 'Plan'])
+@@ -49,10 +52,17 @@ const READ_ONLY_AGENTS = new Set(['Explore', 'Plan'])
  /** Dưới mức tin cậy này router được hỏi lại một lần. */
  export const LOW_CONFIDENCE = 0.4
  
@@ -815,7 +1156,7 @@ index ff688b0..941a843 100644
  /** Trần ràng buộc của brief (0.7.4). */
  const CONSTRAINT_LIMIT = 12
  /**
-@@ -72,9 +81,6 @@ const MAX_TOKENS_CAP = 32_000
+@@ -72,9 +82,6 @@ const MAX_TOKENS_CAP = 32_000
  /** Số bước đang mở của checklist hiện tại gửi kèm request router. */
  const OPEN_STEPS_LIMIT = 10
  const TEXT_LIMIT = 140
@@ -825,7 +1166,7 @@ index ff688b0..941a843 100644
  /** Yêu cầu dài hơn ngưỡng này được thêm token và thời gian để router trả JSON trọn vẹn. */
  const LONG_REQUEST = 12_000
  const AGENT_PROMPT_CHARS = 8_000
-@@ -120,8 +126,8 @@ Delegation:
+@@ -120,8 +127,8 @@ Delegation:
  
  Reading the request:
  - goal: the end result the user wants, one sentence.
@@ -836,7 +1177,22 @@ index ff688b0..941a843 100644
  - Run a task as "agent" only when it is truly independent: it needs no result of another task, does not edit the files another task edits, and is worth a fresh subagent prompt. Otherwise keep it on the main thread.
  - Items under "xong khi", "done when", "tiêu chí", "acceptance" or similar are quality criteria, never tasks. Background, context, definitions and notes are neither tasks nor constraints.
  - constraints: at most 6 hard rules (must, must not, only, format, scope), the most important first, each shortened to under 100 characters. A rule that sets a model for a kind of work (including "the session's model") is always the first constraint, kept with its model, and never dropped. quality: at most 5 acceptance criteria, same length.
-@@ -281,8 +287,8 @@ function reclaimCarried(items: readonly string[], carried: number, incoming: rea
+@@ -228,10 +235,13 @@ function unique(items: readonly string[], max: number): string[] {
+   return [...new Set(items)].slice(0, max)
+ }
+ 
++/** Tên họ model trong prompt của người dùng (0.8.7 G1: dựng từ bảng họ model; với bốn họ hiện có trùng biểu thức cũ haiku|sonnet|opus|fable). */
++const MODEL_NAMES = new RegExp(`\\b(?:${FAMILY_NAMES.join('|')})\\b`)
++
+ /** Ràng buộc nêu model cho một loại việc (họ model, hay "model/mô hình của phiên"): không bị thay khi đầy trần (0.7.5). */
+ export function isModelRule(text: string): boolean {
+   const folded = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase()
+-  return /\b(?:haiku|sonnet|opus|fable)\b/.test(folded) || /(?:mo hinh|model) cua phien|session model/.test(folded)
++  return MODEL_NAMES.test(folded) || /(?:mo hinh|model) cua phien|session model/.test(folded)
+ }
+ 
+ /** Khóa so khớp của một mục (S1): bỏ dấu cách thừa và dấu câu cuối, không phân biệt hoa thường; hai mục cùng khóa là cùng một mục. */
+@@ -281,8 +291,8 @@ function reclaimCarried(items: readonly string[], carried: number, incoming: rea
  }
  
  /**
@@ -847,7 +1203,7 @@ index ff688b0..941a843 100644
   * `renumber` đổi số thứ tự trong lượt router sang số thứ tự trong danh sách đã gộp.
   */
  function mergeRequirements(prev: readonly string[], incoming: readonly string[]): { items: string[]; renumber: Map<number, number>; dropped: number } {
-@@ -292,10 +298,10 @@ function mergeRequirements(prev: readonly string[], incoming: readonly string[])
+@@ -292,10 +302,10 @@ function mergeRequirements(prev: readonly string[], incoming: readonly string[])
    incoming.forEach((item, i) => {
      let at = indexOfKey(items, item)
      if (at >= 0) items[at] = item
@@ -860,7 +1216,7 @@ index ff688b0..941a843 100644
      if (at >= 0) renumber.set(i + 1, at + 1)
    })
    return { items, renumber, dropped }
-@@ -352,27 +358,34 @@ function rulesLines(constraints: readonly string[] | undefined): string[] {
+@@ -352,27 +362,34 @@ function rulesLines(constraints: readonly string[] | undefined): string[] {
    return items.length > 0 ? ['User rules of this goal (a rule that names a model for this kind of work must be followed, never a lower model):', ...items] : []
  }
  
@@ -902,7 +1258,7 @@ index ff688b0..941a843 100644
    text: string
    prev: Brief | null
    /** Model và effort luồng chính đã thật sự chạy ở lượt trước (để nâng khi chưa đạt). */
-@@ -395,8 +408,19 @@ export function routerRequest(args: {
+@@ -395,8 +412,20 @@ export function routerRequest(args: {
    sessionFamily?: ModelFamily | null
    /** Lượt này gọi Fable điều phối (0.8.4 C2): thời gian chờ theo hằng FABLE_*_TIMEOUT_MS. */
    isFable?: boolean
@@ -915,7 +1271,8 @@ index ff688b0..941a843 100644
 +/** Lượt đọc của request: họ model theo isFable hay tên model, cửa sổ mặc định của họ, thời gian chờ tối đa mặc định. */
 +function readingOf(args: RouterRequestArgs): Reading {
 +  if (args.reading !== undefined) return args.reading
-+  const family: ModelFamily = args.isFable === true ? 'fable' : (familyOf(args.model) ?? 'sonnet')
++  // Lượt của họ điều phối (0.8.7 G1): họ theo tên model của lượt, không đọc được thì họ điều phối mặc định.
++  const family: ModelFamily = args.isFable === true ? (familyOf(args.model) ?? DEFAULT_CONDUCTOR) : (familyOf(args.model) ?? 'sonnet')
 +  return { family, window: DEFAULT_WINDOWS[family], maxWaitMs: ROUTER_MAX_WAIT_MS }
 +}
 +
@@ -924,7 +1281,7 @@ index ff688b0..941a843 100644
    const context = [
      ...previousLines(args.prev, args.ran),
      allowedLine(args.policy),
-@@ -410,13 +434,29 @@ export function routerRequest(args: {
+@@ -410,13 +439,29 @@ export function routerRequest(args: {
      ...(args.observed ? [`Observed in the previous turn (the main model's choice fell short; re-read the work and raise "main" model or effort if it is harder than first judged): ${fence(clip(args.observed, 400))}`] : []),
    ]
    const system: readonly ModelTextBlock[] = [{ text: routerSystem(args.prices), cache: true }].map(block => ({ text: args.policy.conductor === true ? conductorRule(splitRule(block.text, args.policy.forks ?? 0)) : splitRule(block.text, args.policy.forks ?? 0), cache: true as const }))
@@ -953,11 +1310,11 @@ index ff688b0..941a843 100644
 +    maxTokens: plan.isFull ? plan.maxTokens : isLong ? 16_000 : 8_000,
      effort: 'medium',
 -    timeoutMs: args.isFable === true ? (isLong ? FABLE_LONG_TIMEOUT_MS : FABLE_PROMPT_TIMEOUT_MS) : isLong ? 120_000 : 45_000,
-+    timeoutMs: plan.isFull ? plan.timeoutMs : args.isFable === true ? (isLong ? FABLE_LONG_TIMEOUT_MS : FABLE_PROMPT_TIMEOUT_MS) : isLong ? 120_000 : 45_000,
++    timeoutMs: plan.isFull ? plan.timeoutMs : args.isFable === true ? (isLong ? conductorTimeouts(familyOf(args.model)).long : conductorTimeouts(familyOf(args.model)).prompt) : isLong ? 120_000 : 45_000,
    }
  }
  
-@@ -441,7 +481,7 @@ export function agentRouterRequest(args: {
+@@ -441,7 +486,7 @@ export function agentRouterRequest(args: {
    /** Model người dùng chạy phiên (0.7.4). */
    sessionFamily?: ModelFamily | null
  }): ModelCompleteRequest {
@@ -966,7 +1323,7 @@ index ff688b0..941a843 100644
    const asked = [
      args.subagentType ? `agent type ${fence(args.subagentType)}` : '',
      args.requested.model ? `model ${fence(args.requested.model)}` : '',
-@@ -453,7 +493,7 @@ export function agentRouterRequest(args: {
+@@ -453,7 +498,7 @@ export function agentRouterRequest(args: {
      ...(args.isWorkflow ? ['Started by a workflow script.'] : []),
      `The main thread asked for: ${asked.length > 0 ? asked.join(', ') : 'nothing specific'}.`,
      ...(args.failed.length > 0 ? ['Failed pieces in this goal:', ...args.failed.map(f => `  - ${fence(f)}`)] : []),
@@ -975,7 +1332,16 @@ index ff688b0..941a843 100644
      ...rulesLines(args.constraints),
      allowedLine(args.policy),
      ...sessionLine(args.sessionFamily),
-@@ -500,19 +540,16 @@ function strings(value: unknown, max: number): string[] {
+@@ -467,7 +512,7 @@ export function agentRouterRequest(args: {
+     prompt: `<context>\n${context.join('\n')}\n</context>\n\n<task>\nDescription: ${fence(args.description)}\n${fence(task)}\n</task>`,
+     maxTokens: 2_000,
+     effort: 'low',
+-    timeoutMs: args.isFable === true ? FABLE_AGENT_TIMEOUT_MS : 20_000,
++    timeoutMs: args.isFable === true ? conductorTimeouts(familyOf(args.model)).agent : 20_000,
+   }
+ }
+ 
+@@ -500,19 +545,16 @@ function strings(value: unknown, max: number): string[] {
    )
  }
  
@@ -999,7 +1365,7 @@ index ff688b0..941a843 100644
  }
  
  /**
-@@ -712,8 +749,6 @@ export type RouterPlan = {
+@@ -712,8 +754,6 @@ export type RouterPlan = {
    tasks: Task[]
    /** Lý do các lần kẹp, để ghi nhật ký. */
    notes: string[]
@@ -1008,7 +1374,7 @@ index ff688b0..941a843 100644
    /** Số split bị bỏ vì phiên con đang tắt (0.7.9 F1, option forks hay engine từ chối); vắng khi không có. */
    droppedSplits?: number
    /** Người dùng nói rõ không cần duyệt kế hoạch (0.8.2 N2); vắng là false. Chỉ có nghĩa ở mục tiêu mới. */
-@@ -945,7 +980,7 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
+@@ -945,7 +985,7 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
    const conductNotes: string[] = []
    const splitNotes: string[] = []
    let droppedSplits = 0
@@ -1017,7 +1383,7 @@ index ff688b0..941a843 100644
      const read = parseTask(item, tasks.length + 1, main.pick, whole, policy)
      if (!read) continue
      const isConductedEdit = isConducting && read.run === 'main' && (read.kind === 'edit' || read.kind === 'mixed')
-@@ -960,6 +995,10 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
+@@ -960,6 +1000,10 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
      if (task.run === 'main') held.push({ index: task.index, pick: rawPick(item) ?? own })
    }
    const lead = isReference ? main : floorMain(liftMain(main, held, kind, policy), depth, kind, policy)
@@ -1028,7 +1394,7 @@ index ff688b0..941a843 100644
    const mainWhy = typeof raw['main'] === 'object' && raw['main'] !== null ? text((raw['main'] as Raw)['why']) : ''
    // Câu hỏi làm rõ (0.8.2 N2): chuỗi không rỗng, không trùng, tối đa QUESTION_LIMIT câu, mỗi câu cắt ở QUESTION_CHARS ký tự.
    const questions = Array.isArray(raw['questions'])
-@@ -973,7 +1012,7 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
+@@ -973,7 +1017,7 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
      isReference,
      runReference,
      goal,
@@ -1037,7 +1403,7 @@ index ff688b0..941a843 100644
      constraints: strings(raw['constraints'], 10),
      quality: strings(raw['quality'], 8),
      scope: strings(raw['scope'], 10).filter(isPathLike),
-@@ -985,7 +1024,6 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
+@@ -985,7 +1029,6 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
      ...(referenceMain ? { referenceMain } : {}),
      tasks,
      notes: [...lead.notes, ...splitNotes, ...conductNotes],
@@ -1045,7 +1411,7 @@ index ff688b0..941a843 100644
      ...(droppedSplits > 0 ? { droppedSplits } : {}),
      ...(raw['skipApproval'] === true ? { skipApproval: true } : {}),
      ...(questions.length > 0 ? { questions } : {}),
-@@ -1000,9 +1038,6 @@ export function clampIntent(intent: Intent, isPresented: boolean): Intent {
+@@ -1000,9 +1043,6 @@ export function clampIntent(intent: Intent, isPresented: boolean): Intent {
    return intent === 'approve' && !isPresented ? 'resume' : intent
  }
  
@@ -1055,7 +1421,7 @@ index ff688b0..941a843 100644
  /** Kết quả router chấm cho một subagent. */
  export type AgentRoute = {
    /** Mức tin cậy router tự báo, 0 đến 1; thiếu thì coi là 1. */
-@@ -1126,7 +1161,7 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number, isHeld =
+@@ -1126,7 +1166,7 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number, isHeld =
    // yêu cầu mới thay yêu cầu cũ (0.7.5): việc cũ không còn phủ chỗ bị thay. Đợt mới (0.8.0 A3): đầy thì mục mới thay mục cũ ở cuối.
    const reqBase = prev.requirementsBase ?? (prev.requirements ?? []).length
    const merged = isPhase
@@ -1064,7 +1430,7 @@ index ff688b0..941a843 100644
      : { ...mergeRequirements(prev.requirements ?? [], plan.requirements), replaced: [] as string[], lost: new Set<number>() }
    const { items: requirements, renumber, dropped: lostRequirements } = merged
    const reclaimed = reclaimCarried(prev.constraints, prev.carriedRules ?? 0, plan.constraints)
-@@ -1186,7 +1221,7 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number, isHeld =
+@@ -1186,7 +1226,7 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number, isHeld =
  export function promoteReference(prev: Brief, plan: RouterPlan, prompt: string, now: number): Brief {
    // Ràng buộc, tiêu chí và phạm vi của prompt đính kèm được giữ từ lượt đối chiếu: lượt chạy thật phải có đủ. Cả hai lượt là prompt
    // lập mục tiêu nên mọi mục đều thuộc phần không bao giờ bị thay.
@@ -1073,7 +1439,7 @@ index ff688b0..941a843 100644
    const mergedConstraints = mergeCapped(prev.constraints, plan.constraints, CONSTRAINT_LIMIT).items
    return {
      ...briefOf(plan, prompt, prev.goalId + 1, now),
-@@ -1262,8 +1297,8 @@ export function retryRequest(
+@@ -1262,8 +1302,8 @@ export function retryRequest(
    request: ModelCompleteRequest,
    previous: string,
    problem: 'json' | 'confidence' | 'coverage',
@@ -1084,7 +1450,7 @@ index ff688b0..941a843 100644
  ): ModelCompleteRequest {
    const note =
      problem === 'json' && opts.truncated === true
-@@ -1279,9 +1314,11 @@ export function retryRequest(
+@@ -1279,9 +1319,11 @@ export function retryRequest(
      prompt: `${prompt}\n\n<previous_answer>\n${fence(clip(previous, 6000))}\n</previous_answer>\n${note}`,
      // Kiểm lại phủ yêu cầu ở effort medium: đo thật cho thấy effort high hết giờ 45 giây ở 4 trên 5 lượt (0.7.2).
      // Fable điều phối (0.8.4 C2): effort không quá medium, nên lượt đọc lại vì tin cậy thấp chạy medium.
@@ -1098,7 +1464,7 @@ index ff688b0..941a843 100644
    }
  }
  
-@@ -1292,6 +1329,10 @@ export type RouterOutcome<T> = {
+@@ -1292,6 +1334,10 @@ export type RouterOutcome<T> = {
    /** Usage của mọi lượt gọi (lượt đầu và lượt hỏi lại). */
    usages: ModelUsage[]
    retried: boolean
@@ -1109,7 +1475,7 @@ index ff688b0..941a843 100644
    /** Loại lỗi khi không có kết quả (0.7.2); null khi có kết quả. */
    failure: RouterFailKind | null
    /** Giới hạn của request đã gửi và số token đầu ra của lượt gọi cuối, để biết lỗi do hết giờ hay bị cắt (0.7.2). */
-@@ -1332,7 +1373,7 @@ export async function askRouter<T extends { confidence?: number }>(
+@@ -1332,7 +1378,7 @@ export async function askRouter<T extends { confidence?: number }>(
    /** Câu trả lời đã đọc được nhưng cần đọc kiểm lại một lần ở effort cao (ví dụ quá nhiều yêu cầu): 0.7.0. */
    recheck?: (result: T) => boolean,
    /** Đồng hồ (mặc định Date.now) và hạn chung cho mọi lượt gọi (mặc định 1,5 lần timeout của request): 0.7.2. */
@@ -1118,7 +1484,7 @@ index ff688b0..941a843 100644
  ): Promise<RouterOutcome<T>> {
    const now = opts.now ?? Date.now
    const budget = opts.budgetMs ?? Math.round((request.timeoutMs ?? 45_000) * BUDGET_FACTOR)
-@@ -1340,6 +1381,24 @@ export async function askRouter<T extends { confidence?: number }>(
+@@ -1340,6 +1386,24 @@ export async function askRouter<T extends { confidence?: number }>(
    const first = await ask(request).catch(() => null)
    const usages = first ? [first.usage] : []
    const limits = (last: ModelCompleteResult | null) => ({ timeoutMs: request.timeoutMs ?? null, maxTokens: request.maxTokens ?? null, outputTokens: last ? last.usage.output_tokens : null })
@@ -1143,7 +1509,7 @@ index ff688b0..941a843 100644
    // Hết giờ chờ (0.7.5): thử lại đúng một lần cùng request nếu hạn chung còn ít nhất RETRY_MIN_MS, với thời gian chờ là phần còn lại.
    if (first !== null && !first.isAnswered && first.reason === 'aborted') {
      const left = budget - (now() - startedAt)
-@@ -1364,7 +1423,7 @@ export async function askRouter<T extends { confidence?: number }>(
+@@ -1364,7 +1428,7 @@ export async function askRouter<T extends { confidence?: number }>(
    const isAffordable = problem === 'coverage' ? spent <= budget / 2 : budget - spent >= RETRY_MIN_MS
    if (!isAffordable) return settled(false)
    const isTruncated = firstResult === null && request.maxTokens !== undefined && first.usage.output_tokens >= request.maxTokens * 0.98
@@ -1152,7 +1518,7 @@ index ff688b0..941a843 100644
    if (second) usages.push(second.usage)
    const secondResult = second?.isAnswered ? parse(second.text) : null
    // Thiếu confidence xếp thấp nhất khi bật retryMissingConfidence: lần hai thắng khi nó có confidence và lần đầu không có hay thấp hơn.
-@@ -1376,18 +1435,29 @@ export async function askRouter<T extends { confidence?: number }>(
+@@ -1376,18 +1440,29 @@ export async function askRouter<T extends { confidence?: number }>(
    return { result: pick, reason: pick === null ? failureReason(second) : '', usages, retried: true, failure: pick === null ? failureKind(second) : null, ...limits(second ?? first) }
  }
  
@@ -1188,11 +1554,29 @@ index ff688b0..941a843 100644
  }
  
  /** Dòng context kèm prompt bị lược (0.7.8 G8), tối đa 200 ký tự. */
+@@ -1637,7 +1712,7 @@ export function driftRequest(args: { goal: string; steps: readonly string[]; com
+     ...(args.paths.length > 0 ? ['Files touched:', ...args.paths.slice(-15).map(p => `  ${fence(p)}`)] : []),
+   ]
+   const system: readonly ModelTextBlock[] = [{ text: DRIFT_SYSTEM, cache: true }]
+-  return { model: args.model, system, prompt: `<context>\n${lines.join('\n')}\n</context>`, maxTokens: 1_000, effort: 'low', timeoutMs: args.isFable === true ? FABLE_DRIFT_TIMEOUT_MS : 20_000 }
++  return { model: args.model, system, prompt: `<context>\n${lines.join('\n')}\n</context>`, maxTokens: 1_000, effort: 'low', timeoutMs: args.isFable === true ? conductorTimeouts(familyOf(args.model)).drift : 20_000 }
+ }
+ 
+ export type DriftVerdict = { onTrack: boolean; why: string; confidence?: number }
+@@ -1669,7 +1744,7 @@ export function planReviewRequest(args: { goal: string; requirements: readonly s
+     ...args.steps.slice(0, 40).map((step, i) => `${i + 1}. ${fence(clip(step.title, 200))}${step.check ? ` (check: ${fence(clip(step.check, 200))})` : ' (no check)'}`),
+   ]
+   const system: readonly ModelTextBlock[] = [{ text: PLAN_REVIEW_SYSTEM, cache: true }]
+-  return { model: args.model, system, prompt: `<context>\nGoal: ${fence(clip(args.goal, 200))}\n</context>\n\n<request>\n${lines.join('\n')}\n</request>`, maxTokens: 1_000, effort: 'medium', timeoutMs: args.isFable === true ? FABLE_REVIEW_TIMEOUT_MS : 30_000 }
++  return { model: args.model, system, prompt: `<context>\nGoal: ${fence(clip(args.goal, 200))}\n</context>\n\n<request>\n${lines.join('\n')}\n</request>`, maxTokens: 1_000, effort: 'medium', timeoutMs: args.isFable === true ? conductorTimeouts(familyOf(args.model)).review : 30_000 }
+ }
+ 
+ export type PlanReview = { missing: number[]; extra: number[]; issues: string[]; confidence?: number }
 diff --git a/claude-mods/focus-conductor/hooks/lib/state.ts b/claude-mods/focus-conductor/hooks/lib/state.ts
-index 99ccb9e..b2f8049 100644
+index 99ccb9e..b3172aa 100644
 --- a/claude-mods/focus-conductor/hooks/lib/state.ts
 +++ b/claude-mods/focus-conductor/hooks/lib/state.ts
-@@ -6,7 +6,7 @@
+@@ -6,10 +6,11 @@
  
  import type { PluginOptions } from 'claude-code'
  
@@ -1201,7 +1585,11 @@ index 99ccb9e..b2f8049 100644
  import { isFullyClosed, openSteps, restorableSteps } from './drift'
  import { isPendingGoal } from './conductor'
  import type { Tokens } from './cost'
-@@ -54,6 +54,7 @@ export const EMPTY_CORE: Core = {
++import { FAMILY_NAMES } from './families'
+ import { addUsage, emptyLedger, nextGoal, planSwitch, resetLedger } from './ledger'
+ import { legacyOf } from './scale'
+ import { resumeCommand, statusLine, withQuotaNoticeStatus, withQuotaStatus, withRouterFailStatus, withTurnFaultStatus } from './text'
+@@ -54,6 +55,7 @@ export const EMPTY_CORE: Core = {
    changed: { goalId: -1, paths: [], unknown: 0, overflow: 0 },
    changedNoticed: -1,
    fable: { failures: 0, pauseLeft: 0, ready: null, reason: '', holdKey: '', briefedGoal: -1, promptPaused: false },
@@ -1209,7 +1597,16 @@ index 99ccb9e..b2f8049 100644
    goalTurns: { goalId: -1, done: 0, interrupted: false },
    conduct: emptyConduct(-1),
  }
-@@ -266,6 +267,7 @@ export function normalizeCore(raw: Partial<Core>): Core {
+@@ -72,7 +74,7 @@ const LIFT_LIMIT = 2
+ 
+ /** Ảnh chụp mọi thứ band, pane và status line cần, đọc một lần. */
+ /** `conductor` (0.8.4 C8): chỉ có khi option conductor là fable; `fallback` là model router dùng khi Fable tạm ngừng. */
+-export type View = { core: Core; mode: Mode; isBandHidden: boolean; lang: Lang; conductor?: { fallback: string } }
++export type View = { core: Core; mode: Mode; isBandHidden: boolean; lang: Lang; conductor?: { fallback: string; family: ModelFamily } }
+ 
+ export function isMode(value: unknown): value is Mode {
+   return value === 'auto' || value === 'subagents' || value === 'suggest' || value === 'off'
+@@ -266,6 +268,7 @@ export function normalizeCore(raw: Partial<Core>): Core {
      changed: normalizeChanged(raw.changed),
      changedNoticed: typeof raw.changedNoticed === 'number' ? raw.changedNoticed : -1,
      fable: normalizeFable(raw.fable),
@@ -1217,12 +1614,12 @@ index 99ccb9e..b2f8049 100644
      goalTurns: normalizeGoalTurns(raw.goalTurns),
      conduct: normalizeConduct(raw.conduct),
    }
-@@ -425,6 +427,23 @@ function normalizeFable(raw: Partial<FableState> | undefined): FableState {
+@@ -425,6 +428,23 @@ function normalizeFable(raw: Partial<FableState> | undefined): FableState {
    return { failures: count(raw.failures), pauseLeft: count(raw.pauseLeft), ready: typeof raw.ready === 'boolean' ? raw.ready : null, reason: typeof raw.reason === 'string' ? raw.reason : '', holdKey: typeof raw.holdKey === 'string' ? raw.holdKey : '', briefedGoal: typeof raw.briefedGoal === 'number' && Number.isInteger(raw.briefedGoal) ? raw.briefedGoal : -1, promptPaused: raw.promptPaused === true }
  }
  
 +/** Trạng thái vai điều phối dự phòng (0.8.7 F1); vắng hay sai kiểu ở trạng thái từ bản cũ là mặc định. */
-+const FALLBACK_FAMILIES: readonly ModelFamily[] = ['haiku', 'sonnet', 'opus', 'fable']
++const FALLBACK_FAMILIES: readonly ModelFamily[] = FAMILY_NAMES
 +function normalizeFallback(raw: Partial<FallbackState> | undefined): FallbackState {
 +  const count = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0)
 +  const family = (value: unknown): ModelFamily | null => FALLBACK_FAMILIES.find(f => f === value) ?? null
@@ -1241,7 +1638,7 @@ index 99ccb9e..b2f8049 100644
  /** Ghi trạng thái Fable điều phối (0.8.4). */
  export const withFable =
    (change: (fable: FableState) => Partial<FableState>) =>
-@@ -456,9 +475,6 @@ export const withApproval =
+@@ -456,9 +476,6 @@ export const withApproval =
    (approval: ApprovalState) =>
    (c: Core): Core => ({ ...normalizeCore(c), approval: normalizeApproval(approval) })
  
@@ -1251,7 +1648,7 @@ index 99ccb9e..b2f8049 100644
  /** Phiên con từ trạng thái đã lưu (0.7.9 F1); Core từ bản trước không có trường này thì rỗng, off là none. */
  function normalizeForks(raw: Partial<ForkState> | undefined): ForkState {
    if (raw === undefined || raw === null) return { goalId: -1, parts: [], merged: [], off: 'none' }
-@@ -475,7 +491,8 @@ export function withForkStart(goalId: number, part: ForkPart): (core: Core) => C
+@@ -475,7 +492,8 @@ export function withForkStart(goalId: number, part: ForkPart): (core: Core) => C
      const n = normalizeCore(core)
      const same = n.forks.goalId === goalId
      const parts = same ? n.forks.parts.filter(p => !(p.task === part.task && p.part === part.part)) : []
@@ -1261,7 +1658,7 @@ index 99ccb9e..b2f8049 100644
    }
  }
  
-@@ -955,7 +972,7 @@ function freshProgress(goalId: number): Pick<Core, 'agentProgress' | 'activity'>
+@@ -955,7 +973,7 @@ function freshProgress(goalId: number): Pick<Core, 'agentProgress' | 'activity'>
    return { agentProgress: { goalId, items: [] }, activity: { goalId, changes: 0 } }
  }
  
@@ -1270,7 +1667,7 @@ index 99ccb9e..b2f8049 100644
  const AGENT_TALLY_LIMIT = 50
  
  /**
-@@ -996,7 +1013,8 @@ export function withAgentStart(goalId: number, item: AgentProgress): (core: Core
+@@ -996,7 +1014,8 @@ export function withAgentStart(goalId: number, item: AgentProgress): (core: Core
          delete open[agentId]
        }
      }
@@ -1281,10 +1678,10 @@ index 99ccb9e..b2f8049 100644
  }
  
 diff --git a/claude-mods/focus-conductor/hooks/lib/text.ts b/claude-mods/focus-conductor/hooks/lib/text.ts
-index 6a5e395..567d45a 100644
+index 6a5e395..dd196c4 100644
 --- a/claude-mods/focus-conductor/hooks/lib/text.ts
 +++ b/claude-mods/focus-conductor/hooks/lib/text.ts
-@@ -1,7 +1,7 @@
+@@ -1,9 +1,10 @@
  // Văn bản mod gửi cho model và hiển thị cho người dùng. Gom về một chỗ để
  // giữ giọng văn nhất quán và dễ chỉnh.
  
@@ -1292,8 +1689,11 @@ index 6a5e395..567d45a 100644
 +import type { Brief, CheckHint, CheckpointBackup, Choice, ModelFamily, PlanStep, QuotaCheckpoint, QuotaReason, Route, RouterFail, StepStatus, Task, TurnFault } from '../../types'
  import { STUCK_HINT, openSteps, pendingSteps } from './drift'
  import { BACKUP_CALLS_MAX, evaluateQuota, isStale, reasonsOf } from './quota'
++import { DEFAULT_CONDUCTOR } from './families'
  import type { QuotaBadge, QuotaNoticeHit, QuotaThresholds } from './quota'
-@@ -89,6 +89,12 @@ function taskBlock(tasks: readonly Task[], main: string, isReference: boolean):
+ import { clockOf, labels } from '../ui/labels'
+ import { currentStep, taskBarRuns } from '../ui/style'
+@@ -89,6 +90,12 @@ function taskBlock(tasks: readonly Task[], main: string, isReference: boolean):
   * Khối context đi kèm prompt khi bắt đầu một mục tiêu mới. `main` là model luồng chính sẽ
   * thật sự chạy (có thể là model cũ được giữ để bảo toàn cache); null khi chưa chọn.
   */
@@ -1306,7 +1706,7 @@ index 6a5e395..567d45a 100644
  export function briefContext(brief: Brief, main: Choice | null, isApplied = true): string {
    const mainText = mainLabel(main, isApplied)
    const reference = brief.referenceMain ? describePick(brief.referenceMain) : 'chưa rõ'
-@@ -114,7 +120,7 @@ export function briefContext(brief: Brief, main: Choice | null, isApplied = true
+@@ -114,7 +121,7 @@ export function briefContext(brief: Brief, main: Choice | null, isApplied = true
    const rules = brief.isReference ? '' : `${bullets('Ràng buộc:', brief.constraints)}${bullets('Tiêu chí chất lượng:', brief.quality)}`
    // Yêu cầu router đã liệt kê mà không việc nào phủ (0.7.0): nhắc để không bị bỏ sót khi lập checklist.
    const uncovered = brief.isReference ? [] : uncoveredRequirements(brief)
@@ -1315,7 +1715,7 @@ index 6a5e395..567d45a 100644
    return [
      '[focus-conductor] Bản đọc prompt của router (đối chiếu lại với prompt gốc trước khi làm)',
      `Mục tiêu cuối: ${brief.goal}${tasks}${splits}${gaps}${rules}`,
-@@ -194,7 +200,7 @@ export function followUpContext(
+@@ -194,7 +201,7 @@ export function followUpContext(
        ? `Việc mới (router đã chấm; khi giao, description của Agent mở đầu "Việc N: "):\n${added.map(task => taskLine(task, mainText)).join('\n')}${splitLines(added)}`
        : '',
      open.length > 0 ? `Bước còn mở: ${open.map(s => `${s.id}. ${s.title}`).join('; ')}` : '',
@@ -1324,7 +1724,7 @@ index 6a5e395..567d45a 100644
      pendingLine(plan),
      newConstraints.length > 0 ? `Ràng buộc mới: ${newConstraints.join('; ')}` : '',
      'Giữ nhất quán với phần đã làm; nếu yêu cầu này đổi mục tiêu, cập nhật lại checklist.',
-@@ -1350,10 +1356,13 @@ export function firstErrorLine(output: string | undefined, isError = false): str
+@@ -1350,10 +1357,13 @@ export function firstErrorLine(output: string | undefined, isError = false): str
  /** Trần đoạn dặn vai điều phối (0.8.4 C5). */
  export const CONDUCTOR_CHARS = 480
  
@@ -1334,20 +1734,20 @@ index 6a5e395..567d45a 100644
 + * Đoạn dặn vai điều phối (0.8.4 C5): chèn một lần mỗi mục tiêu cùng khối brief khi luồng chính điều phối. Từ 0.8.7 F1 ghi họ đang điều phối
 + * (mặc định fable, trùng 0.8.6 từng byte).
 + */
-+export function conductorContext(family: ModelFamily = 'fable'): string {
++export function conductorContext(family: ModelFamily = DEFAULT_CONDUCTOR): string {
    return (
 -    '[focus-conductor] Điều phối: luồng chính là vai điều phối, chạy fable/medium. Lập kế hoạch, rồi giao từng việc bằng Agent đúng loại ' +
 +    `[focus-conductor] Điều phối: luồng chính là vai điều phối, chạy ${family}/medium. Lập kế hoạch, rồi giao từng việc bằng Agent đúng loại ` +
      'agent, model, effort đã phân, description mở đầu bằng "Việc N". Mỗi lời giao tự đứng được: mục tiêu, phạm vi file, ràng buộc, tiêu ' +
      'chí xong và lệnh kiểm. Không tự sửa file, không tự chạy lệnh kiểm: chỉnh nhỏ gom vào một lời giao, lệnh kiểm giao một subagent chạy ' +
      'và báo tóm tắt. Đọc kết quả, đối chiếu yêu cầu trước khi đóng bước.'
-@@ -1388,6 +1397,15 @@ export function conductWriteDenyText(): string {
+@@ -1388,6 +1398,15 @@ export function conductWriteDenyText(): string {
  export const CONDUCTOR_KEEP_CHARS = 200
  
  /** Câu nhắc lại vai điều phối (0.8.4 V1): nối vào lời nhắc sau nén và ngữ cảnh chạy tiếp khi luồng chính đang điều phối. */
 -export function conductorKeepText(): string {
 -  return '[focus-conductor] Vẫn là vai điều phối chạy fable/medium: không tự sửa file, không tự chạy kiểm; giao bằng Agent theo phân việc, lời giao tự đứng được; đối chiếu kết quả trước khi đóng bước.'
-+export function conductorKeepText(family: ModelFamily = 'fable'): string {
++export function conductorKeepText(family: ModelFamily = DEFAULT_CONDUCTOR): string {
 +  return `[focus-conductor] Vẫn là vai điều phối chạy ${family}/medium: không tự sửa file, không tự chạy kiểm; giao bằng Agent theo phân việc, lời giao tự đứng được; đối chiếu kết quả trước khi đóng bước.`
 +}
 +
@@ -1369,7 +1769,7 @@ index c099f50..6cdf944 100644
 -export const MOD_VERSION = '0.8.6'
 +export const MOD_VERSION = '0.8.7'
 diff --git a/claude-mods/focus-conductor/hooks/parts/agents.ts b/claude-mods/focus-conductor/hooks/parts/agents.ts
-index 3a5d16e..514cf72 100644
+index 3a5d16e..261d9f9 100644
 --- a/claude-mods/focus-conductor/hooks/parts/agents.ts
 +++ b/claude-mods/focus-conductor/hooks/parts/agents.ts
 @@ -2,7 +2,7 @@
@@ -1389,21 +1789,22 @@ index 3a5d16e..514cf72 100644
  import type { EngineInterface, On } from 'claude-code'
  import type { Ctx } from '../context'
  import { modeOf } from '../atoms'
-@@ -27,9 +26,11 @@ import { FANOUT_WARN } from '../context'
+@@ -27,9 +26,12 @@ import { FANOUT_WARN } from '../context'
  const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EMPTY_CORE)
  
  /** Áp kết quả một lượt router gửi Fable vào Core (0.8.4 C6): vừa tạm ngừng thì toast và một dòng nhật ký conductor. */
 -async function noteFableRouter($: EngineInterface, ctx: Ctx, isOk: boolean): Promise<void> {
-+async function noteFableRouter($: EngineInterface, ctx: Ctx, isOk: boolean, family: ModelFamily = 'fable'): Promise<void> {
++async function noteFableRouter($: EngineInterface, ctx: Ctx, isOk: boolean, family?: ModelFamily): Promise<void> {
    const at = await $.clock.now()
 -  const step = fableStep(S.normalizeCore(await read($, coreState)), isOk, ctx.routerModel, at)
 +  const core = S.normalizeCore(await read($, coreState))
 +  // Họ dự phòng (0.8.7 F1): lỗi của nó đếm riêng; router Fable vừa tạm ngừng thì câu báo nêu họ dự phòng nhận vai nếu dùng được.
-+  const step = fableStep(core, isOk, ctx.routerModel, at, family, family === 'fable' ? ctx.fallbackUsable(core) : null)
++  const primary = ctx.conductorFamily
++  const step = fableStep(core, isOk, ctx.routerModel, at, family, (family ?? primary) === primary ? ctx.fallbackUsable(core) : null, primary)
    if (step === null) return
    await update($, coreState, step.change)
    if (step.text !== null) $.ui.toast(step.text)
-@@ -228,7 +229,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
+@@ -228,7 +230,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
          )
          route = outcome.result
          // Lỗi của router Fable có bộ đếm riêng (0.8.4 C6).
@@ -1412,7 +1813,7 @@ index 3a5d16e..514cf72 100644
          if (route !== null) rememberAgentRoute(key, route)
          reason = route !== null ? `router: ${route.why}` : `router không chấm được (${outcome.reason}); giữ lựa chọn của Claude`
          if (pauseText !== null) {
-@@ -324,8 +325,10 @@ export function registerAgents(on: On, ctx: Ctx): void {
+@@ -324,8 +326,10 @@ export function registerAgents(on: On, ctx: Ctx): void {
  
      // Lập kế hoạch thuộc vai của Fable (0.8.4 C7): Agent Plan chạy fable/medium khi Fable sẵn sàng, sau các bước kẹp (việc đã phân,
      // kết quả nhớ, kết quả chấm), không kẹp theo allowFable; sessionModel ceiling hay fixed vẫn thắng.
@@ -1425,7 +1826,7 @@ index 3a5d16e..514cf72 100644
        route = { ...route, pick: { family, effort: 'medium' }, why: [route.why, 'Plan theo vai điều phối'].filter(Boolean).join('; ') }
        reason += `; Plan theo vai điều phối: ${family}/medium`
      }
-@@ -443,7 +446,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
+@@ -443,7 +447,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
          )
          workflowRoute = outcome.result
          // Lỗi của router Fable có bộ đếm riêng (0.8.4 C6).
@@ -1435,7 +1836,7 @@ index 3a5d16e..514cf72 100644
          workflowReason = workflowRoute !== null ? `router: ${workflowRoute.why}` : `router không chấm được (${outcome.reason})`
          if (pauseText !== null) {
 diff --git a/claude-mods/focus-conductor/hooks/parts/command.ts b/claude-mods/focus-conductor/hooks/parts/command.ts
-index e2feb0e..7d81863 100644
+index e2feb0e..c8d94b4 100644
 --- a/claude-mods/focus-conductor/hooks/parts/command.ts
 +++ b/claude-mods/focus-conductor/hooks/parts/command.ts
 @@ -14,7 +14,7 @@ import { askRouter, bareBrief, briefOf, failFields, nextBrief, parseRoute, rerou
@@ -1501,11 +1902,13 @@ index e2feb0e..7d81863 100644
        costLines.push(priceNote(await $.clock.now()))
        costLines.push(cacheNote(ctx.cacheTtlMs / 60_000))
        const latency = routerTimeLine()
-@@ -485,7 +492,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
+@@ -484,8 +491,8 @@ export function registerCommand(on: On, ctx: Ctx): void {
+       // Fable điều phối (0.8.4 C8): một dòng trạng thái, chỉ khi option conductor là fable.
        // Vai điều phối của mục tiêu (0.8.6): trạng thái miễn và số đo, chỉ khi luồng chính đang điều phối.
        const conductSuffix = ctx.isConducting(core, current) ? conductStatusSuffix(S.conductOf(core), lang) : ''
-       const conductorLines = ctx.conductorOption === 'fable' ? [conductorLine(core, ctx.routerModel, lang) + conductSuffix] : []
+-      const conductorLines = ctx.conductorOption === 'fable' ? [conductorLine(core, ctx.routerModel, lang) + conductSuffix] : []
 -      if (core.brief === null) return { text: [`Chế độ ${current}. Chưa có mục tiêu.`, ...conductorLines, ...routerFailLines(core.routerFail), ...costLines].join('\n') }
++      const conductorLines = ctx.conductorOption !== 'off' ? [conductorLine(core, ctx.routerModel, lang, ctx.conductorOption) + conductSuffix] : []
 +      if (core.brief === null) return { text: [`${modeText}. Chưa có mục tiêu.`, ...conductorLines, ...routerFailLines(core.routerFail), ...costLines].join('\n') }
        const routeLine = core.route
          ? `${describePick(core.route)} (${core.route.reason})`
@@ -1520,7 +1923,7 @@ index e2feb0e..7d81863 100644
            `Luồng chính: ${routeLine}${blockedLine}`,
            ...conductorLines,
 diff --git a/claude-mods/focus-conductor/hooks/parts/consistency.ts b/claude-mods/focus-conductor/hooks/parts/consistency.ts
-index c718b26..54b69fe 100644
+index c718b26..2d2e638 100644
 --- a/claude-mods/focus-conductor/hooks/parts/consistency.ts
 +++ b/claude-mods/focus-conductor/hooks/parts/consistency.ts
 @@ -2,7 +2,7 @@
@@ -1532,21 +1935,22 @@ index c718b26..54b69fe 100644
  import { acceptsVerified, checkKindOf, classifyBash, evidenceStrength, filePathOf, freshTestRun, hardChanges, isCheckTool, isExecuting, isFullyClosed, isGoalDone, isMutation, isPlanFile, normalizePath, isSkillTrial, markVerified, newTracker, skillNameOf, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
  import type { Finding, Focus, ToolObservation, TurnTracker } from '../lib/drift'
  import { checkCommand, checkSignature, coversFailure, isFailedRun } from '../lib/drift/evidence'
-@@ -90,9 +90,11 @@ async function noteConductRead($: EngineInterface, ctx: Ctx, current: Mode, inpu
+@@ -90,9 +90,12 @@ async function noteConductRead($: EngineInterface, ctx: Ctx, current: Mode, inpu
    return isDue ? conductReadText(reads) : null
  }
  
 -async function noteFableRouter($: EngineInterface, ctx: Ctx, isOk: boolean): Promise<void> {
-+async function noteFableRouter($: EngineInterface, ctx: Ctx, isOk: boolean, family: ModelFamily = 'fable'): Promise<void> {
++async function noteFableRouter($: EngineInterface, ctx: Ctx, isOk: boolean, family?: ModelFamily): Promise<void> {
    const at = await $.clock.now()
 -  const step = fableStep(S.normalizeCore(await read($, coreState)), isOk, ctx.routerModel, at)
 +  const core = S.normalizeCore(await read($, coreState))
 +  // Họ dự phòng (0.8.7 F1): lỗi của nó đếm riêng; router Fable vừa tạm ngừng thì câu báo nêu họ dự phòng nhận vai nếu dùng được.
-+  const step = fableStep(core, isOk, ctx.routerModel, at, family, family === 'fable' ? ctx.fallbackUsable(core) : null)
++  const primary = ctx.conductorFamily
++  const step = fableStep(core, isOk, ctx.routerModel, at, family, (family ?? primary) === primary ? ctx.fallbackUsable(core) : null, primary)
    if (step === null) return
    await update($, coreState, step.change)
    if (step.text !== null) $.ui.toast(step.text)
-@@ -405,7 +407,7 @@ async function planReviewGate($: EngineInterface, ctx: Ctx): Promise<{ kind: 'no
+@@ -405,7 +408,7 @@ async function planReviewGate($: EngineInterface, ctx: Ctx): Promise<{ kind: 'no
    const startedAt = await $.clock.now()
    const outcome = await askRouter(r => $.model.complete(r), request, parsePlanReview)
    ctx.noteRouterFailure('review', outcome.failure)
@@ -1555,7 +1959,7 @@ index c718b26..54b69fe 100644
    ctx.noteRouterTime((await $.clock.now()) - startedAt)
    const rounds = approval.rounds + 1
    // Chi phí mỗi lượt rà cộng vào sổ nhóm router; lượt rà tăng sau mỗi lần gọi.
-@@ -970,7 +972,8 @@ export function registerConsistency(on: On, ctx: Ctx): void {
+@@ -970,7 +973,8 @@ export function registerConsistency(on: On, ctx: Ctx): void {
      // Lời nhắc sau nén (0.7.4): gắn một lần vào tool call này, dựng từ mục tiêu và checklist lúc này.
      // Luồng chính đang điều phối (0.8.4 V1): lời nhắc sau nén kèm câu nhắc lại vai điều phối.
      const keepRole = L.compaction.pending && core.brief !== null && isMainConducting(ctx.conductorInputs(core, S.modeOf(await read($, modeState), ctx.options)), core.brief)
@@ -1565,7 +1969,7 @@ index c718b26..54b69fe 100644
      L.compaction.pending = false
      // Ghi cả lệnh lỗi: evidence nhắc tới một lệnh kiểm tra đã lỗi thì không được tính là đã kiểm tra.
      const retryNotes: string[] = []
-@@ -1120,7 +1123,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
+@@ -1120,7 +1124,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
        const startedAt = await $.clock.now()
        const outcome = await askRouter(r => $.model.complete(r), request, parseDrift)
        ctx.noteRouterFailure('drift', outcome.failure)
@@ -1574,7 +1978,7 @@ index c718b26..54b69fe 100644
        noteRouterTime((await $.clock.now()) - startedAt)
        const verdict = outcome.result
        const now = await $.clock.now()
-@@ -1211,6 +1214,9 @@ export function registerConsistency(on: On, ctx: Ctx): void {
+@@ -1211,6 +1215,9 @@ export function registerConsistency(on: On, ctx: Ctx): void {
      await ctx.flushErrors({ read: path => $.fs.read(path), write: (path, text) => $.fs.write(path, text), root: () => $.session.root() })
      if ((await read($, mode)) === 'off') return result
      const at = await $.clock.now()
@@ -1585,19 +1989,21 @@ index c718b26..54b69fe 100644
      if (e.agentId !== undefined) {
        const agentId = e.agentId
 diff --git a/claude-mods/focus-conductor/hooks/parts/fable.ts b/claude-mods/focus-conductor/hooks/parts/fable.ts
-index 2231cbd..92edd23 100644
+index 2231cbd..27027cc 100644
 --- a/claude-mods/focus-conductor/hooks/parts/fable.ts
 +++ b/claude-mods/focus-conductor/hooks/parts/fable.ts
-@@ -3,7 +3,7 @@
+@@ -3,23 +3,45 @@
  // model và câu báo cho toast, dòng nhật ký conductor. Lỗi của Fable không cộng vào bộ đếm tạm ngừng router cũ. Mỗi tệp gọi router áp
  // kết quả bằng hàm cục bộ (engine không cho truyền $ qua import).
  
 -import type { Core } from '../../types'
 +import type { Core, ModelFamily } from '../../types'
  import * as S from '../lib/state'
- import { FABLE_PAUSE_TEXT, blockerText, fableAfterCall } from '../lib/conductor'
+-import { FABLE_PAUSE_TEXT, blockerText, fableAfterCall } from '../lib/conductor'
++import { blockerText, fableAfterCall, pauseText } from '../lib/conductor'
++import { DEFAULT_CONDUCTOR, familyLabel } from '../lib/families'
  import { ROUTER_FAIL_LIMIT, ROUTER_PAUSE } from '../context'
-@@ -11,12 +11,32 @@ import { ROUTER_FAIL_LIMIT, ROUTER_PAUSE } from '../context'
+ 
  /** Thay đổi của một lượt router Fable: reducer cho Core, câu báo khi vừa tạm ngừng (null là không báo) và dữ liệu dòng nhật ký. */
  export type FableStep = { change: (c: Core) => Core; text: string | null; log: Record<string, unknown> | null }
  
@@ -1607,9 +2013,10 @@ index 2231cbd..92edd23 100644
 + * Kết quả một lượt router của họ điều phối. `family` là họ đã gọi: fable dùng Core.fable như 0.8.4; họ dự phòng (0.8.7 F1) dùng
 + * Core.fallback cùng luật đếm. `takeover` là họ dự phòng sẽ nhận vai khi router Fable vừa tạm ngừng (null là không có, câu báo như 0.8.6).
 + */
-+export function fableStep(core: Core, isOk: boolean, fallback: string, at: number, family: ModelFamily = 'fable', takeover: ModelFamily | null = null): FableStep | null {
++export function fableStep(core: Core, isOk: boolean, fallback: string, at: number, family?: ModelFamily, takeover: ModelFamily | null = null, primary: ModelFamily = DEFAULT_CONDUCTOR): FableStep | null {
 +  const n = S.normalizeCore(core)
-+  if (family !== 'fable') {
++  // Họ chính (0.8.7 G1: giá trị của option conductor) dùng Core.fable; họ khác là họ dự phòng, dùng Core.fallback.
++  if ((family ?? primary) !== primary) {
 +    const stored = n.fallback
 +    const next = fableAfterCall(stored, isOk, ROUTER_FAIL_LIMIT, ROUTER_PAUSE)
 +    if (next.failures === stored.failures && next.pauseLeft === stored.pauseLeft) return null
@@ -1628,17 +2035,23 @@ index 2231cbd..92edd23 100644
 -  const text = `${FABLE_PAUSE_TEXT}: router Fable lỗi ${ROUTER_FAIL_LIMIT} lần liên tiếp; ${ROUTER_PAUSE} prompt tới router dùng ${fallback}, luồng chính theo lựa chọn của router`
 +  const text =
 +    takeover === null
-+      ? `${FABLE_PAUSE_TEXT}: router Fable lỗi ${ROUTER_FAIL_LIMIT} lần liên tiếp; ${ROUTER_PAUSE} prompt tới router dùng ${fallback}, luồng chính theo lựa chọn của router`
-+      : `${FABLE_PAUSE_TEXT}: router Fable lỗi ${ROUTER_FAIL_LIMIT} lần liên tiếp; ${ROUTER_PAUSE} prompt tới ${takeover} nhận vai điều phối (dự phòng)`
++      ? `${pauseText(primary)}: router ${familyLabel(primary)} lỗi ${ROUTER_FAIL_LIMIT} lần liên tiếp; ${ROUTER_PAUSE} prompt tới router dùng ${fallback}, luồng chính theo lựa chọn của router`
++      : `${pauseText(primary)}: router ${familyLabel(primary)} lỗi ${ROUTER_FAIL_LIMIT} lần liên tiếp; ${ROUTER_PAUSE} prompt tới ${takeover} nhận vai điều phối (dự phòng)`
    return {
      change: c => S.withFable(() => ({ failures: next.failures, pauseLeft: next.pauseLeft, ready: false, reason: 'paused' }))(S.withWarnings({ at, kind: 'model', text })(c)),
      text,
+-    log: { ready: false, reason: blockerText('paused') },
++    log: { ready: false, reason: blockerText('paused', primary) },
+   }
+ }
 diff --git a/claude-mods/focus-conductor/hooks/parts/session.ts b/claude-mods/focus-conductor/hooks/parts/session.ts
-index c50b0e9..dff036d 100644
+index c50b0e9..6cc27a9 100644
 --- a/claude-mods/focus-conductor/hooks/parts/session.ts
 +++ b/claude-mods/focus-conductor/hooks/parts/session.ts
-@@ -2,15 +2,17 @@
+@@ -1,16 +1,19 @@
+ // Phiên và đọc prompt: session.start/end, mục system prompt cố định, prompt.submit (router đọc prompt).
  
++import { DEFAULT_CONDUCTOR, familyLabel } from '../lib/families'
  import { atom, derive, read, update } from 'claude-code'
  import { caught, noteBehavior, noteHookError, noteMistyped } from '../lib/errlog'
 -import type { ApprovalState, Brief, Core, Depth, Mode, QuotaCheckpoint, Warning } from '../../types'
@@ -1657,35 +2070,37 @@ index c50b0e9..dff036d 100644
  import type { RouterOutcome, RouterPlan } from '../lib/router'
  import { EMPTY_QUOTA, blockingHits, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaSettings, reasonsOf, softNotices } from '../lib/quota'
  import * as S from '../lib/state'
-@@ -42,9 +44,11 @@ async function autoOpenPane($: EngineInterface, ctx: Ctx, goalId: number, at: nu
+@@ -42,9 +45,12 @@ async function autoOpenPane($: EngineInterface, ctx: Ctx, goalId: number, at: nu
  const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EMPTY_CORE)
  
  /** Áp kết quả một lượt router gửi Fable vào Core (0.8.4 C6): vừa tạm ngừng thì toast và một dòng nhật ký conductor. */
 -async function noteFableRouter($: EngineInterface, ctx: Ctx, isOk: boolean): Promise<void> {
-+async function noteFableRouter($: EngineInterface, ctx: Ctx, isOk: boolean, family: ModelFamily = 'fable'): Promise<void> {
++async function noteFableRouter($: EngineInterface, ctx: Ctx, isOk: boolean, family?: ModelFamily): Promise<void> {
    const at = await $.clock.now()
 -  const step = fableStep(S.normalizeCore(await read($, coreState)), isOk, ctx.routerModel, at)
 +  const core = S.normalizeCore(await read($, coreState))
 +  // Họ dự phòng (0.8.7 F1): lỗi của nó đếm riêng; router Fable vừa tạm ngừng thì câu báo nêu họ dự phòng nhận vai nếu dùng được.
-+  const step = fableStep(core, isOk, ctx.routerModel, at, family, family === 'fable' ? ctx.fallbackUsable(core) : null)
++  const primary = ctx.conductorFamily
++  const step = fableStep(core, isOk, ctx.routerModel, at, family, (family ?? primary) === primary ? ctx.fallbackUsable(core) : null, primary)
    if (step === null) return
    await update($, coreState, step.change)
    if (step.text !== null) $.ui.toast(step.text)
-@@ -95,6 +99,24 @@ async function showStatus($: EngineInterface, current: View, options: Ctx['optio
+@@ -95,15 +101,47 @@ async function showStatus($: EngineInterface, current: View, options: Ctx['optio
  
  /** Trạng thái Fable điều phối (0.8.4 C1): ghi dòng conductor khi bật, tắt hay đổi nguyên nhân; option off từ đầu thì không ghi gì. */
  async function noteConductor($: EngineInterface, ctx: Ctx, core: Core, current: Mode): Promise<void> {
 +  // Đổi họ điều phối có họ dự phòng tham gia (0.8.7 F1): một toast, một cảnh báo model, một dòng nhật ký conductor nêu từ họ nào sang họ nào
 +  // và lý do. Fable bật hay tắt mà không có họ dự phòng thì như 0.8.6 (chỉ dòng nhật ký bên dưới).
-+  if (ctx.conductorOption === 'fable') {
++  if (ctx.conductorOption !== 'off') {
++    const primary = ctx.conductorFamily
 +    const active = ctx.activeConductorOf(core, current, (await read($, headlessState)) === true)
 +    const from = S.normalizeCore(core).fallback.active
 +    const to = active?.family ?? null
 +    if (from !== to) {
 +      await update($, coreState, S.withFallback(() => ({ active: to })))
-+      if ((from !== null && from !== 'fable') || (to !== null && to !== 'fable')) {
++      if ((from !== null && from !== primary) || (to !== null && to !== primary)) {
 +        const at = await $.clock.now()
-+        const reason = active?.isFallback === true ? (active.reason === 'paused' ? 'router Fable tạm ngừng' : 'họ fable bị chặn vì không phản hồi') : to === 'fable' ? 'Fable dùng lại được' : `${from ?? ''} không dùng được`
++        const reason = active?.isFallback === true ? (active.reason === 'paused' ? `router ${familyLabel(primary)} tạm ngừng` : `họ ${primary} bị chặn vì không phản hồi`) : to === primary ? `${familyLabel(primary)} dùng lại được` : `${from ?? ''} không dùng được`
 +        const text = to === null ? `Model điều phối ${from ?? ''} không dùng được (${reason}); luồng chính theo lựa chọn của router` : `Model điều phối đổi từ ${from ?? 'không có'} sang ${to}${active?.isFallback === true ? ' (dự phòng)' : ''}: ${reason}`
 +        $.ui.toast(text)
 +        await update($, coreState, S.withWarnings({ at, kind: 'model', text }))
@@ -1696,7 +2111,10 @@ index c50b0e9..dff036d 100644
    const blocker = ctx.conductorState(core, current, (await read($, headlessState)) === true)
    const ready = blocker === null
    const stored = core.fable
-@@ -104,6 +126,19 @@ async function noteConductor($: EngineInterface, ctx: Ctx, core: Core, current:
+-  if (ctx.conductorOption !== 'fable' && stored.ready === null) return
++  if (ctx.conductorOption === 'off' && stored.ready === null) return
+   if (stored.ready === ready && stored.reason === (blocker ?? '')) return
+   ctx.record(await $.clock.now(), 'conductor', { ready, ...(blocker !== null ? { reason: blockerText(blocker) } : {}) })
    await update($, coreState, S.withFable(() => ({ ready, reason: blocker ?? '' })))
  }
  
@@ -1706,7 +2124,7 @@ index c50b0e9..dff036d 100644
 + */
 +function isBriefedFor(core: Core, goalId: number, family: ModelFamily): boolean {
 +  const n = S.normalizeCore(core)
-+  return n.fable.briefedGoal === goalId && (n.fallback.briefedFamily ?? 'fable') === family
++  return n.fable.briefedGoal === goalId && (n.fallback.briefedFamily ?? DEFAULT_CONDUCTOR) === family
 +}
 +
 +function markBriefed(goalId: number, family: ModelFamily): (c: Core) => Core {
@@ -1716,7 +2134,7 @@ index c50b0e9..dff036d 100644
  /** Hết chờ câu trả lời câu hỏi làm rõ (0.8.3 R3): xóa cờ trong Core nếu đang bật; trả trạng thái duyệt đã xóa cờ. */
  async function clearAwaiting($: EngineInterface, approval: ApprovalState): Promise<ApprovalState> {
    if (!approval.awaitingAnswer) return approval
-@@ -255,7 +290,7 @@ export function registerSession(on: On, ctx: Ctx): void {
+@@ -255,7 +293,7 @@ export function registerSession(on: On, ctx: Ctx): void {
        // Luồng chính điều phối mục tiêu được tiếp tục (0.8.4 V1): kèm câu nhắc lại vai điều phối.
        const now = S.normalizeCore(await read($, coreState))
        const keepRole = isMainConducting(ctx.conductorInputs(now, current, (await read($, headlessState)) === true), now.brief)
@@ -1725,7 +2143,7 @@ index c50b0e9..dff036d 100644
      }
      const pending = openCp !== null ? [resumePendingContext(openCp, L.noAutoResume && !isArmed)] : []
  
-@@ -265,7 +300,10 @@ export function registerSession(on: On, ctx: Ctx): void {
+@@ -265,7 +303,10 @@ export function registerSession(on: On, ctx: Ctx): void {
      // cùng một bản `before` đã mang cờ, kể cả noteConductor (0.8.4 W4: nhật ký không đọc cờ của prompt trước).
      const isPromptPaused = arrived.fable.pauseLeft > 0
      await update($, coreState, S.withFable(f => ({ promptPaused: f.pauseLeft > 0, pauseLeft: Math.max(0, f.pauseLeft - 1) })))
@@ -1737,7 +2155,7 @@ index c50b0e9..dff036d 100644
      // Fable điều phối (0.8.4 C1): ghi một dòng nhật ký mỗi khi trạng thái điều phối đổi (bật, tắt kèm nguyên nhân).
      await noteConductor($, ctx, before, current)
      const prev = before.brief
-@@ -293,8 +331,8 @@ export function registerSession(on: On, ctx: Ctx): void {
+@@ -293,8 +334,8 @@ export function registerSession(on: On, ctx: Ctx): void {
          await showStatus($, await read($, view), ctx.options)
          const core = S.normalizeCore(await read($, coreState))
          const wanted = wantedPick(restored, core.lift, core, current)
@@ -1748,7 +2166,7 @@ index c50b0e9..dff036d 100644
          const backLine = core.plan.length === 0 ? restoreGoalOnlyContext(restored.goal) : restoreResumeContext(restored.goal, openSteps(core.plan)[0])
          const backPlanning = S.approvalOf(core).status === 'planning' ? [planningContext()] : []
          return next({ ...e, context: [...(e.context ?? []), backLine, ...conductNote, ...backPlanning, ...pending] })
-@@ -325,20 +363,40 @@ export function registerSession(on: On, ctx: Ctx): void {
+@@ -325,20 +366,40 @@ export function registerSession(on: On, ctx: Ctx): void {
      let outcome: RouterOutcome<RouterPlan> = { result: null, reason: 'router đang tạm ngừng sau các lần lỗi liên tiếp', usages: [], retried: false, failure: 'paused', timeoutMs: null, maxTokens: null, outputTokens: null }
      let waitedMs = 0
      let pauseText: string | null = null
@@ -1770,7 +2188,7 @@ index c50b0e9..dff036d 100644
 +      const fallback = promptRead.isFull ? { ...routerRequest({ ...args, reading: { ...reading, window: 0 } }), timeoutMs: FALLBACK_TIMEOUT_MS } : undefined
 +      const full = promptRead.isFull ? { tokenCap: fullRetryTokens(promptRead.maxTokens, readParamsOf(reading.family)) } : undefined
 +      // Lượt đọc của Fable bị API từ chối (0.8.7 F1): cùng request trọn gửi họ dự phòng, với thời gian chờ và maxTokens theo thông số của họ đó.
-+      const backup = target.family === 'fable' ? ctx.fallbackTarget(before, current, (await read($, headlessState)) === true) : null
++      const backup = target.family === ctx.conductorFamily ? ctx.fallbackTarget(before, current, (await read($, headlessState)) === true) : null
 +      apiFamily = backup?.family ?? null
 +      const apiFallback = backup !== null ? routerRequest({ ...args, model: backup.model, reading: ctx.routerReading(backup) }) : undefined
        const startedAt = await $.clock.now()
@@ -1793,7 +2211,7 @@ index c50b0e9..dff036d 100644
      // Tiếp tục điểm dừng khi router xếp tiếp nối, hoặc khi người dùng vừa gõ /conductor resume (khi đó router xếp mục
      // tiêu mới thì vẫn giữ mục tiêu đã khôi phục).
      // Tin hỏi tiến độ (0.8.2 N1) không tiếp tục điểm dừng: chỉ báo cáo.
-@@ -381,7 +439,7 @@ export function registerSession(on: On, ctx: Ctx): void {
+@@ -381,7 +442,7 @@ export function registerSession(on: On, ctx: Ctx): void {
        // đưa bộ đếm lỗi về 0, giảm số prompt còn tạm ngừng, hết chờ câu trả lời) không bị ghi đè.
        const back = ctx.restoreGoal(S.normalizeCore(await read($, coreState)), backIndex)
        if (!('error' in back)) {
@@ -1802,7 +2220,7 @@ index c50b0e9..dff036d 100644
          const restored = back.brief
          L.promptIntent = { relation: 'continue', kind: restored.kind }
          // Brief trước prompt là brief vừa khôi phục (0.8.5 K6): /conductor reroute đọc lại prompt này trên mục tiêu đã khôi phục.
-@@ -393,8 +451,8 @@ export function registerSession(on: On, ctx: Ctx): void {
+@@ -393,8 +454,8 @@ export function registerSession(on: On, ctx: Ctx): void {
          // (0.8.5 K4): turn đang chạy giữ model của nó, nên không dặn và không ghi khóa; prompt kế tiếp ngoài turn dặn theo cơ chế chung.
          const core = S.normalizeCore(await read($, coreState))
          const wanted = wantedPick(restored, core.lift, core, current)
@@ -1813,7 +2231,7 @@ index c50b0e9..dff036d 100644
          // Mục tiêu đã cất chưa có checklist (0.8.5 K2): một dòng riêng; đang lập kế hoạch thì kèm đoạn dặn như mọi mục tiêu planning.
          const backLine = core.plan.length === 0 ? restoreGoalOnlyContext(restored.goal) : restoreResumeContext(restored.goal, openSteps(core.plan)[0])
          const backPlanning = S.approvalOf(core).status === 'planning' ? [planningContext()] : []
-@@ -405,7 +463,7 @@ export function registerSession(on: On, ctx: Ctx): void {
+@@ -405,7 +466,7 @@ export function registerSession(on: On, ctx: Ctx): void {
      // turn đang chạy thì turn đó là hỏi đáp (không qua các cổng Stop); tin chen ngang không đổi trạng thái thực thi của turn đang chạy.
      if (plan !== null && prev !== null && intent === 'status') {
        if (!isInterject) L.promptIntent = { relation: 'continue', kind: 'answer' }
@@ -1822,7 +2240,7 @@ index c50b0e9..dff036d 100644
        L.lastPrompt = { text, prev, goalId: prev.goalId }
        record(now, 'route', { prompt: clipText(text), relation: plan.relation, intent, confidence: plan.confidence, retried: outcome.retried, goalId: prev.goalId })
        await flushDecisions((path, text) => $.fs.write(path, text))
-@@ -416,7 +474,7 @@ export function registerSession(on: On, ctx: Ctx): void {
+@@ -416,7 +477,7 @@ export function registerSession(on: On, ctx: Ctx): void {
      // cất; không mở đợt mới. Ngoài turn thì turn đó là hỏi đáp; tin chen ngang không đổi trạng thái thực thi của turn đang chạy.
      if (isAsideMsg && plan !== null && prev !== null) {
        if (!isInterject) L.promptIntent = { relation: 'continue', kind: 'answer' }
@@ -1831,7 +2249,7 @@ index c50b0e9..dff036d 100644
        L.lastPrompt = { text, prev, goalId: prev.goalId }
        record(now, 'route', { prompt: clipText(text), relation: plan.relation, intent: 'aside', confidence: plan.confidence, retried: outcome.retried, goalId: prev.goalId })
        await flushDecisions((path, text) => $.fs.write(path, text))
-@@ -426,7 +484,7 @@ export function registerSession(on: On, ctx: Ctx): void {
+@@ -426,7 +487,7 @@ export function registerSession(on: On, ctx: Ctx): void {
      // Router không đọc được thì không biết turn là hỏi đáp hay làm tiếp: Stop chỉ dựa vào hành vi tool.
      L.promptIntent = plan !== null ? { relation: plan.relation, kind: plan.isReference && !plan.runReference ? 'answer' : plan.kind } : null
      const withUsage = (c: Core): Core =>
@@ -1840,7 +2258,7 @@ index c50b0e9..dff036d 100644
  
      if (plan === null) {
        // Mặc định không đoán: giữ mục tiêu, việc đã phân, phạm vi, ràng buộc và checklist; chỉ bỏ lựa chọn model
-@@ -494,11 +552,6 @@ export function registerSession(on: On, ctx: Ctx): void {
+@@ -494,11 +555,6 @@ export function registerSession(on: On, ctx: Ctx): void {
      // adoptGoal lưu checklist cũ còn bước mở (khôi phục được bằng plan restore); chi phí router cộng sau, thuộc mục tiêu mới.
      const core = await update($, coreState, c => S.withRouterFail(null)(withUsage(isNewGoal ? S.adoptGoal(brief)(c) : S.withDecision(brief)(c))))
      L.lastPrompt = { text, prev, goalId: brief.goalId }
@@ -1852,7 +2270,7 @@ index c50b0e9..dff036d 100644
      // Ràng buộc hay yêu cầu đã đầy trần (0.7.5): mục mới thay mục ở cuối danh sách (ít quan trọng nhất) không phải quy định model, không
      // bao giờ thay mục của prompt lập mục tiêu (vòng sửa 2, M3); báo một cảnh báo.
      if (replaced.length > 0) {
-@@ -513,8 +566,11 @@ export function registerSession(on: On, ctx: Ctx): void {
+@@ -513,8 +569,11 @@ export function registerSession(on: On, ctx: Ctx): void {
        noteBehavior('dropped', `${dropped} mục của prompt tiếp nối không giữ được vì ràng buộc và yêu cầu đã đầy`)
      }
      // Prompt dài hơn trần của router (0.7.8 G8): phần giữa bị lược, báo một cảnh báo và một dòng context cho prompt đó.
@@ -1866,7 +2284,7 @@ index c50b0e9..dff036d 100644
      if (isNewGoal) {
        L.goalPrompt = { text, prev, goalId: brief.goalId }
        L.isGoalNew = true
-@@ -615,9 +671,9 @@ export function registerSession(on: On, ctx: Ctx): void {
+@@ -615,9 +674,9 @@ export function registerSession(on: On, ctx: Ctx): void {
      await showStatus($, await read($, view), ctx.options)
      // Vai điều phối (0.8.4 C5, V1): đoạn dặn đầy đủ một lần mỗi mục tiêu, ở prompt đầu tiên luồng chính điều phối mục tiêu đó (mục tiêu
      // mới, hay mục tiêu mở lúc Fable chưa sẵn sàng); khóa Core.fable.briefedGoal.
@@ -1880,7 +2298,7 @@ index c50b0e9..dff036d 100644
    }).catch(($, e, next) => (noteHookError('prompt.submit', next.error), next(e)))
  
 diff --git a/claude-mods/focus-conductor/hooks/parts/turn.ts b/claude-mods/focus-conductor/hooks/parts/turn.ts
-index 137edc2..6ca9726 100644
+index 137edc2..fed6f87 100644
 --- a/claude-mods/focus-conductor/hooks/parts/turn.ts
 +++ b/claude-mods/focus-conductor/hooks/parts/turn.ts
 @@ -5,7 +5,7 @@ import { caught } from '../lib/errlog'
@@ -1934,7 +2352,7 @@ index 137edc2..6ca9726 100644
      // chặn họ model khi lỗi ở hai turn liên tiếp.
 +    // Fable không phản hồi ở turn của mục tiêu đang được điều phối (0.8.7 F1): phần còn lại của turn chạy họ dự phòng ở effort medium.
 +    const coreNow = S.normalizeCore(await read($, coreState))
-+    const takeover = route.family === 'fable' && ctx.isConducting(coreNow, current) ? ctx.fallbackUsable(coreNow) : null
++    const takeover = route.family === ctx.conductorOption && ctx.isConducting(coreNow, current) ? ctx.fallbackUsable(coreNow) : null
      const previous = failures.get(route.family)
      const count = previous && L.turnCount - previous.lastTurn <= 1 ? previous.count + 1 : 1
      failures.set(route.family, { count, lastTurn: L.turnCount })
@@ -1955,7 +2373,7 @@ index 137edc2..6ca9726 100644
      const text = isBlocked
        ? `${input.model} không phản hồi ${count} turn liên tiếp; quay về ${e.model} và tạm ngừng dùng ${route.family} trong ${BLOCK_TURNS} turn`
 diff --git a/claude-mods/focus-conductor/hooks/ui/band.tsx b/claude-mods/focus-conductor/hooks/ui/band.tsx
-index bfac68c..7e83a7b 100644
+index bfac68c..ae2722f 100644
 --- a/claude-mods/focus-conductor/hooks/ui/band.tsx
 +++ b/claude-mods/focus-conductor/hooks/ui/band.tsx
 @@ -8,6 +8,7 @@
@@ -1971,8 +2389,8 @@ index bfac68c..7e83a7b 100644
  import { FAMILY_HUE, SPINE, barRuns, cellsOf, columnsOf, currentStep, goalUsd, pendingUsd, plannedRuns, severityGlyph } from './style'
  
 +/** Lượt của luồng chính chạy đúng họ đang điều phối (0.8.4 C8; 0.8.7 F1: kể cả họ dự phòng): band thêm nhãn vai trên chip model. */
-+function isConductedRoute(family: string | undefined, shown: ConductorShown): boolean {
-+  if (shown.state === 'on') return family === 'fable'
++function isConductedRoute(family: string | undefined, shown: ConductorShown, primary: string | undefined): boolean {
++  if (shown.state === 'on') return family === primary
 +  return shown.state === 'fallback' && shown.isBig && family === shown.family
 +}
 +
@@ -1984,15 +2402,27 @@ index bfac68c..7e83a7b 100644
    const fit = { agents: true, effort: true, elapsed: true, route: true, role: true }
    // Vai điều phối (0.8.4 C8): nhãn trên chip model của luồng chính điều phối, chỉ khi band rộng từ ROLE_COLUMNS ô.
 -  const roleText = view.conductor !== undefined && columns >= ROLE_COLUMNS && route?.family === 'fable' && conductorShown(view.core).state === 'on' ? l.conductorRole : ''
-+  const roleText = view.conductor !== undefined && columns >= ROLE_COLUMNS && isConductedRoute(route?.family, conductorShown(view.core)) ? l.conductorRole : ''
++  const roleText = view.conductor !== undefined && columns >= ROLE_COLUMNS && isConductedRoute(route?.family, conductorShown(view.core, view.conductor?.family), view.conductor?.family) ? l.conductorRole : ''
    const progressCells = () =>
      bar.length > 0 ? runCells(bar) + 1 + cellsOf(countText) + (mirrorText ? 1 + cellsOf(mirrorText) : 0) : beads.length > 0 ? runCells(beads) + 1 + cellsOf(l.plannedSteps(planned)) : 0
    const chipCells = () => {
 diff --git a/claude-mods/focus-conductor/hooks/ui/labels.ts b/claude-mods/focus-conductor/hooks/ui/labels.ts
-index 109fab4..808fac0 100644
+index 109fab4..3fae424 100644
 --- a/claude-mods/focus-conductor/hooks/ui/labels.ts
 +++ b/claude-mods/focus-conductor/hooks/ui/labels.ts
-@@ -139,6 +139,7 @@ const VI = {
+@@ -1,9 +1,10 @@
+ // Nhãn cố định của band và pane theo option uiLanguage (vi mặc định, en). Nội dung động (mục tiêu, lý do của
+ // router, cảnh báo, nhật ký, sổ chi phí) giữ nguyên ngôn ngữ của nó: router trả lời theo ngôn ngữ của prompt.
+ 
+-import type { StepStatus, WarningKind } from '../../types'
++import type { ModelFamily, StepStatus, WarningKind } from '../../types'
+ import { hasTitleCode } from '../lib/route'
+ import { conductorShown } from '../lib/conductor'
++import { DEFAULT_CONDUCTOR, familyLabel } from '../lib/families'
+ import type { Phase } from './style'
+ 
+ export type Lang = 'vi' | 'en'
+@@ -139,6 +140,7 @@ const VI = {
    conductorRole: 'điều phối',
    conductorOn: 'Điều phối: fable/medium, đang điều phối',
    conductorPaused: (fallback: string) => `Điều phối: Fable tạm ngừng, router dùng ${fallback}`,
@@ -2000,7 +2430,7 @@ index 109fab4..808fac0 100644
    conductorOff: (reason: string) => `Điều phối: tắt (${reason})`,
    conductExempt: (reason: 'solo' | 'agent') => `đang miễn (${reason === 'solo' ? 'lệnh solo' : 'Agent bị từ chối'})`,
    conductCounts: { deniedWrites: 'từ chối sửa file', deniedChecks: 'từ chối chạy kiểm', selfWrites: 'tự sửa file', selfChecks: 'tự chạy kiểm', reads: 'đọc' },
-@@ -299,6 +300,7 @@ const EN: typeof VI = {
+@@ -299,6 +301,7 @@ const EN: typeof VI = {
    conductorRole: 'conductor',
    conductorOn: 'Conductor: fable/medium, conducting',
    conductorPaused: (fallback: string) => `Conductor: Fable paused, router on ${fallback}`,
@@ -2008,17 +2438,51 @@ index 109fab4..808fac0 100644
    conductorOff: (reason: string) => `Conductor: off (${reason})`,
    conductExempt: (reason: 'solo' | 'agent') => `exempt (${reason === 'solo' ? 'solo command' : 'Agent call refused'})`,
    conductCounts: { deniedWrites: 'edits refused', deniedChecks: 'checks refused', selfWrites: 'own edits', selfChecks: 'own checks', reads: 'reads' },
-@@ -419,5 +421,6 @@ export function conductorLine(core: Parameters<typeof conductorShown>[0], fallba
-   const shown = conductorShown(core)
-   if (shown.state === 'on') return l.conductorOn
-   if (shown.state === 'paused') return l.conductorPaused(fallback)
-+  if (shown.state === 'fallback') return l.conductorFallback(shown.family, shown.reason)
-   return l.conductorOff(l.conductorReason[shown.reason] ?? shown.reason)
+@@ -414,10 +417,13 @@ export function conductStatusSuffix(state: { solo: boolean; agentDenied: boolean
  }
+ 
+ /** Dòng Điều phối của pane và /conductor status (0.8.4 C8), theo trạng thái điều phối trong Core. */
+-export function conductorLine(core: Parameters<typeof conductorShown>[0], fallback: string, lang: Lang): string {
++export function conductorLine(core: Parameters<typeof conductorShown>[0], fallback: string, lang: Lang, primary: ModelFamily = DEFAULT_CONDUCTOR): string {
+   const l = labels(lang)
+-  const shown = conductorShown(core)
+-  if (shown.state === 'on') return l.conductorOn
+-  if (shown.state === 'paused') return l.conductorPaused(fallback)
+-  return l.conductorOff(l.conductorReason[shown.reason] ?? shown.reason)
++  const shown = conductorShown(core, primary)
++  // Nhãn viết cho họ điều phối mặc định; họ chính khác (0.8.7 G1) thì thay tên họ trong nhãn.
++  const named = (text: string) => (primary === DEFAULT_CONDUCTOR ? text : text.replaceAll(DEFAULT_CONDUCTOR, primary).replaceAll(familyLabel(DEFAULT_CONDUCTOR), familyLabel(primary)))
++  if (shown.state === 'on') return named(l.conductorOn)
++  if (shown.state === 'paused') return named(l.conductorPaused(fallback))
++  if (shown.state === 'fallback') return named(l.conductorFallback(shown.family, shown.reason))
++  return l.conductorOff(named(l.conductorReason[shown.reason] ?? shown.reason))
+ }
+diff --git a/claude-mods/focus-conductor/hooks/ui/pane.tsx b/claude-mods/focus-conductor/hooks/ui/pane.tsx
+index 4f8d657..b2bd891 100644
+--- a/claude-mods/focus-conductor/hooks/ui/pane.tsx
++++ b/claude-mods/focus-conductor/hooks/ui/pane.tsx
+@@ -630,7 +630,7 @@ export function renderPane(
+ 
+   // ----------------------------------------------------------- điều phối
+   // Fable điều phối (0.8.4 C8): một dòng trạng thái, chỉ khi option conductor là fable.
+-  const conductorText = view.conductor !== undefined ? conductorLine(view.core, view.conductor.fallback, view.lang) : null
++  const conductorText = view.conductor !== undefined ? conductorLine(view.core, view.conductor.fallback, view.lang, view.conductor.family) : null
+   const routeNode = route ? (
+     <Box flexDirection="column">
+       <Text wrap="wrap">
 diff --git a/claude-mods/focus-conductor/scripts/mutants.ts b/claude-mods/focus-conductor/scripts/mutants.ts
-index 40078d3..237108b 100644
+index 40078d3..a6047d7 100644
 --- a/claude-mods/focus-conductor/scripts/mutants.ts
 +++ b/claude-mods/focus-conductor/scripts/mutants.ts
+@@ -208,7 +208,7 @@ export const MUTANTS: Mutant[] = [
+   { id: "K41", file: "hooks/lib/drift/claims.ts", note: "bỏ tiền tố poetry", old: "'poetry',", new: "" },
+   { id: "K42", file: "hooks/lib/drift/claims.ts", note: "bỏ tiền tố pipx", old: "'pipx',", new: "" },
+   // 0.5.4: bảng giá và hệ số ghi cache (A), ngưỡng (B), nhận diện lệnh (C), nút Đặt lại (D), lợi ích ròng (E), fence (H)
+-  { id: "054-A1", file: "hooks/lib/cost.ts", note: "giá đọc cache Sonnet cũ", old: "sonnet: { input: 2, output: 10, cacheRead: 0.1 }", new: "sonnet: { input: 2, output: 10, cacheRead: 0.2 }" },
++  { id: "054-A1", file: "hooks/lib/families.ts", note: "giá đọc cache Sonnet cũ", old: "price: { input: 2, output: 10, cacheRead: 0.1 }", new: "price: { input: 2, output: 10, cacheRead: 0.2 }" },
+   { id: "054-A2", file: "hooks/lib/cost.ts", note: "cảnh báo giá cũ sau 180 ngày", old: "export const PRICE_STALE_DAYS = 30", new: "export const PRICE_STALE_DAYS = 180" },
+   { id: "054-A3", file: "hooks/lib/cost.ts", note: "ghi cache mặc định 1.25", old: "export const CACHE_WRITE_DEFAULT = 2", new: "export const CACHE_WRITE_DEFAULT = 1.25" },
+   { id: "054-A4", file: "hooks/lib/cost.ts", note: "sàn hệ số ghi cache là 1", old: "const CACHE_WRITE_MIN = 1.25", new: "const CACHE_WRITE_MIN = 1" },
 @@ -300,7 +300,7 @@ export const MUTANTS: Mutant[] = [
    { id: "054-H7", file: "hooks/lib/router.ts", note: "loại agent của việc trước không qua fence", old: "${fence(t.agentType ?? 'general-purpose')}", new: "${t.agentType ?? 'general-purpose'}" },
    { id: "054-H8", file: "hooks/lib/router.ts", note: "mô tả loại agent không qua fence", old: "${fence(name)} (${fence(clip(about, 100))})", new: "${name} (${clip(about, 100)})" },
@@ -2178,7 +2642,12 @@ index 40078d3..237108b 100644
    { id: "080-A5a", file: "hooks/lib/drift/soft.ts", note: "lệnh Bash có thể ghi (script lạ) tính là thay đổi chắc chắn", old: "effect.level !== 'definite' || ", new: "" },
    { id: "080-A5b", file: "hooks/lib/drift/soft.ts", note: "bỏ đuôi dữ liệu và báo cáo (csv tsv jsonl log) khỏi thay đổi nhẹ", old: "md|markdown|txt|csv|tsv|jsonl|log", new: "md|markdown|txt" },
    { id: "080-A5c", file: "hooks/lib/state.ts", note: "không gộp cảnh báo cùng nguyên nhân ở turn liên tiếp", old: "prev.cause === entry.cause && prev.at", new: "prev.cause === entry.cause && false && prev.at" },
-@@ -2078,25 +2078,25 @@ export const MUTANTS: Mutant[] = [
+@@ -2074,29 +2074,29 @@ export const MUTANTS: Mutant[] = [
+   { id: "083-R3b", file: "hooks/parts/session.ts", note: "không xóa awaitingAnswer sau câu trả lời", old: "  if (!approval.awaitingAnswer) return approval\n", new: "  return approval\n" },
+   { id: "084-S1a", file: "hooks/lib/drift/output.ts", note: "bỏ pass, passed, ok khỏi danh sách từ chen giữa bị cấm của phủ định cách quãng", old: "(?:dat|pass|passed|ok|thanh\\s+cong)", new: "(?:dat|thanh\\s+cong)" },
+   { id: "084-S2a", file: "hooks/lib/drift/output.ts", note: "bỏ error, errors khỏi từ lỗi của phủ định cách quãng", old: "(?:lỗi|loi|fail(?:ed|ures)?|errors?)", new: "(?:lỗi|loi|fail(?:ed|ures)?)" },
+-  { id: "084-C1a", file: "hooks/lib/conductor.ts", note: "coi mọi giá trị option conductor khác rỗng là fable", old: "  return options['conductor'] === 'fable' ? 'fable' : 'off'\n", new: "  return typeof options['conductor'] === 'string' && options['conductor'] !== '' ? 'fable' : 'off'\n" },
++  { id: "084-C1a", file: "hooks/lib/conductor.ts", note: "coi mọi giá trị option conductor khác rỗng là fable", old: "  return CONDUCTOR_FAMILIES.find(f => f === raw) ?? 'off'\n", new: "  return typeof raw === 'string' && raw !== '' ? (CONDUCTOR_FAMILIES.find(f => f === raw) ?? DEFAULT_CONDUCTOR) : 'off'\n" },
    { id: "084-C1b", file: "hooks/lib/conductor.ts", note: "bỏ investigate khỏi mục tiêu lớn", old: "(brief.depth === 'substantial' || brief.depth === 'hard') && brief.kind !== 'answer'", new: "(brief.depth === 'substantial' || brief.depth === 'hard') && (brief.kind === 'edit' || brief.kind === 'mixed')" },
    { id: "084-C1c", file: "hooks/lib/conductor.ts", note: "bỏ ưu tiên modelMap.fable khi chọn ID Fable", old: "  if (override) return override\n  if (sessionModelId !== null", new: "  if (sessionModelId !== null" },
    { id: "084-C2a", file: "hooks/parts/agents.ts", note: "request chấm subagent vẫn dùng option router khi Fable sẵn sàng", old: "          isWorkflow: false,\n          policy: rules,\n          model: ctx.routerTarget(core, current).model,\n          ...(ctx.routerTarget(core, current).isFable ? { isFable: true } : {}),\n", new: "          isWorkflow: false,\n          policy: rules,\n          model: ctx.routerModel,\n" },
@@ -2207,7 +2676,7 @@ index 40078d3..237108b 100644
 -  { id: "084-C8a", file: "hooks/ui/band.tsx", note: "hiện nhãn vai điều phối trên chip model cả khi không điều phối", old: "view.conductor !== undefined && columns >= ROLE_COLUMNS && route?.family === 'fable' && conductorShown(view.core).state === 'on' ? l.conductorRole : ''", new: "columns >= ROLE_COLUMNS && route !== null ? l.conductorRole : ''" },
 +  { id: "084-C7a", file: "hooks/parts/agents.ts", note: "Agent Explore cũng chạy fable/medium khi Fable sẵn sàng", old: "    const planConductor = e.subagent_type === 'Plan' ? ctx.activeConductorOf(core, current) : null\n", new: "    const planConductor = e.subagent_type === 'Plan' || e.subagent_type === 'Explore' ? ctx.activeConductorOf(core, current) : null\n" },
 +  { id: "084-C7b", file: "hooks/parts/agents.ts", note: "Agent Plan chạy fable bỏ qua sessionModel ceiling", old: "      const family = applySession(planConductor.family, rules.session)\n", new: "      const family = planConductor.family\n" },
-+  { id: "084-C8a", file: "hooks/ui/band.tsx", note: "hiện nhãn vai điều phối trên chip model cả khi không điều phối", old: "view.conductor !== undefined && columns >= ROLE_COLUMNS && isConductedRoute(route?.family, conductorShown(view.core)) ? l.conductorRole : ''", new: "columns >= ROLE_COLUMNS && route !== null ? l.conductorRole : ''" },
++  { id: "084-C8a", file: "hooks/ui/band.tsx", note: "hiện nhãn vai điều phối trên chip model cả khi không điều phối", old: "view.conductor !== undefined && columns >= ROLE_COLUMNS && isConductedRoute(route?.family, conductorShown(view.core, view.conductor?.family), view.conductor?.family) ? l.conductorRole : ''", new: "columns >= ROLE_COLUMNS && route !== null ? l.conductorRole : ''" },
    { id: "084-C8b", file: "hooks/ui/band.tsx", note: "hiện nhãn vai điều phối ở band dưới 72 ô", old: "const ROLE_COLUMNS = 72\n", new: "const ROLE_COLUMNS = 0\n" },
 -  { id: "084-V1a", file: "hooks/parts/consistency.ts", note: "lời nhắc sau nén không nối câu vai điều phối", old: "${keepRole ? `\\n${conductorKeepText()}` : ''}", new: "" },
 +  { id: "084-V1a", file: "hooks/parts/consistency.ts", note: "lời nhắc sau nén không nối câu vai điều phối", old: "${keepRole ? `\\n${conductorKeepText(keepFamily)}` : ''}", new: "" },
@@ -2248,11 +2717,20 @@ index 40078d3..237108b 100644
    { id: "084-Z2e", file: "hooks/parts/session.ts", note: "bỏ điều kiện tin không chạy tiếp điểm dừng khỏi nhánh A2", old: "    const isResumeMsg = plan !== null && prev !== null && intent === 'resume' && !isResuming\n", new: "    const isResumeMsg = plan !== null && prev !== null && intent === 'resume'\n" },
    { id: "085-K2a", file: "hooks/lib/state.ts", note: "archiveOf chỉ cất khi còn bước mở", old: "  if (restorableSteps(n.plan).length === 0 && !pendingOf(n)) return n.archived\n", new: "  if (restorableSteps(n.plan).length === 0) return n.archived\n" },
    { id: "085-K2b", file: "hooks/lib/router.ts", note: "isLowNew chỉ xét bước mở", old: "(options.isPending ?? open.length > 0)", new: "open.length > 0" },
-@@ -2198,4 +2198,65 @@ export const MUTANTS: Mutant[] = [
+@@ -2152,7 +2152,7 @@ export const MUTANTS: Mutant[] = [
+   { id: "085-K7a", file: "hooks/parts/session.ts", note: "nhánh skip không khôi phục mục tiêu đã cất", old: "      const skipBack = lead.length === 0 ? S.resumeTarget(skipCore) : null\n", new: "      const skipBack: number | null = null\n" },
+   { id: "085-K7b", file: "hooks/parts/session.ts", note: "nhánh skip khôi phục cả khi tin chạy tiếp điểm dừng đang mở", old: "      const skipBack = lead.length === 0 ? S.resumeTarget(skipCore) : null\n", new: "      const skipBack = S.resumeTarget(skipCore)\n" },
+   { id: "085-D1a", file: "hooks/parts/consistency.ts", note: "không từ chối sửa file khi điều phối (0.8.6: luật từ chối của vai điều phối thay mức block)", old: "const roleKind: 'write' | 'check' | null = isMainWrite ? 'write' : isMainCheck ? 'check' : null", new: "const roleKind: 'write' | 'check' | null = isMainCheck ? 'check' : null" },
+-  { id: "085-D1b", file: "hooks/context.ts", note: "nâng mức strictDelegation cả khi không điều phối", old: "return conductorOption === 'fable' && isMainConducting(conductorInputs(core, mode), normalizeCore(core).brief)", new: "return conductorOption === 'fable'" },
++  { id: "085-D1b", file: "hooks/context.ts", note: "nâng mức strictDelegation cả khi không điều phối", old: "return conductorOption !== 'off' && isMainConducting(conductorInputs(core, mode), normalizeCore(core).brief)", new: "return conductorOption !== 'off'" },
+   { id: "085-D1c", file: "hooks/parts/consistency.ts", note: "lời nhắc theo mức block khi điều phối, nhắc ở mọi lần thay đổi sau khi hết lượt chặn", old: "    const isStrict = strictDelegation !== 'off'\n", new: "    const isStrict = strictDelegation !== 'off' || (e.agentId === undefined && isConductingNow(core, await read($, mode)))\n" },
+   { id: "085-D2a", file: "hooks/parts/session.ts", note: "bổ sung lớn sau khi duyệt giữ approved", old: "          : isBigAmend\n            ? { ...approvalBefore, status: 'planning' as const, rounds: 0 }\n", new: "          : false\n            ? { ...approvalBefore, status: 'planning' as const, rounds: 0 }\n" },
+   { id: "085-D2b", file: "hooks/parts/session.ts", note: "bổ sung nhỏ sau khi duyệt cũng về planning", old: " && intent === 'amend' && needsApproval(brief, ctx.planApproval, false) && (plan.depth === 'substantial' || plan.depth === 'hard') && (plan.kind === 'edit' || plan.kind === 'mixed') && added.length > 0\n", new: " && intent === 'amend' && ctx.planApproval === 'auto' && (plan.kind === 'edit' || plan.kind === 'mixed') && added.length > 0\n" },
+@@ -2198,4 +2198,70 @@ export const MUTANTS: Mutant[] = [
    { id: "086-V1g", file: "hooks/lib/router.ts", note: "chuyển cả tin đối chiếu", old: "(!isReference && relation !== 'new' && policy.goalIsBig === true)", new: "(relation !== 'new' && policy.goalIsBig === true)" },
    { id: "086-V1h", file: "hooks/parts/command.ts", note: "status hiện số đo cả khi không điều phối", old: "const conductSuffix = ctx.isConducting(core, current) ? conductStatusSuffix(S.conductOf(core), lang) : ''", new: "const conductSuffix = conductStatusSuffix(S.conductOf(core), lang)" },
    { id: "086-V1i", file: "hooks/parts/consistency.ts", note: "đếm cả lần đọc bị từ chối", old: "if (e.agentId !== undefined || ctx.conductorReads === 0 || result.deny !== undefined) return result", new: "if (e.agentId !== undefined || ctx.conductorReads === 0) return result" },
-+  { id: "087-L1a", file: "hooks/lib/router.ts", note: "Fable đọc theo thông số sonnet", old: "args.isFable === true ? 'fable' :", new: "args.isFable === true ? 'sonnet' :" },
++  { id: "087-L1a", file: "hooks/lib/router.ts", note: "Fable đọc theo thông số sonnet", old: "args.isFable === true ? (familyOf(args.model) ?? DEFAULT_CONDUCTOR) :", new: "args.isFable === true ? 'sonnet' :" },
 +  { id: "087-L1b", file: "hooks/lib/router.ts", note: "router thường đọc theo thông số Fable", old: "(familyOf(args.model) ?? 'sonnet')", new: "'fable'" },
 +  { id: "087-L1c", file: "hooks/parts/session.ts", note: "cảnh báo luôn tính theo trần 80.000", old: "isClippedPrompt(text, promptRead.capacity)", new: "isClippedPrompt(text)" },
 +  { id: "087-L1d", file: "hooks/lib/router.ts", note: "lượt đọc trọn giữ thời gian chờ cũ", old: "timeoutMs: plan.isFull ? plan.timeoutMs : args", new: "timeoutMs: args" },
@@ -2295,7 +2773,7 @@ index 40078d3..237108b 100644
 +  { id: "087-L3j", file: "hooks/parts/session.ts", note: "chữ chờ mới hiện cả với prompt ngắn", old: "$.ui.status(promptRead.isFull ? 'router đang đọc trọn prompt dài, có thể mất vài phút...' : 'router đang đọc prompt...')", new: "$.ui.status('router đang đọc trọn prompt dài, có thể mất vài phút...')" },
 +  { id: "087-L3k", file: "hooks/lib/router.ts", note: "lượt đọc trọn bị API từ chối thì không dùng lượt dự phòng", old: "(first.reason === 'aborted' || first.reason === 'api-error')", new: "first.reason === 'aborted'" },
 +  { id: "087-L3l", file: "hooks/lib/reading.ts", note: "routerMaxWait không kẹp biên dưới", old: "Math.max(ROUTER_MAX_WAIT_MIN_MS, Math.round(seconds * 1000))", new: "Math.max(0, Math.round(seconds * 1000))" },
-+  { id: "087-L3m", file: "hooks/lib/reading.ts", note: "họ chưa đo lấy thông số của fable", old: "if (family === 'fable' || family === 'sonnet') return READ_PARAMS[family]", new: "return READ_PARAMS.fable" },
++  { id: "087-L3m", file: "hooks/lib/reading.ts", note: "họ chưa đo lấy thông số của fable", old: "  const own = FAMILY_TABLE[family].read\n  if (own !== null) return own\n", new: "  return READ_PARAMS[MEASURED[MEASURED.length - 1] as ModelFamily]\n" },
 +  { id: "087-L3n", file: "hooks/lib/router.ts", note: "askRouter không chuyển full sang lượt hỏi lại", old: ", ...(opts.full !== undefined ? { full: opts.full } : {}) })).catch(() => null)", new: " })).catch(() => null)" },
 +  { id: "087-L3o", file: "hooks/lib/reading.ts", note: "mặc định routerMaxWait về 600 giây", old: "export const ROUTER_MAX_WAIT_MS = 1_800_000", new: "export const ROUTER_MAX_WAIT_MS = 600_000" },
 +  { id: "087-M1a", file: "hooks/lib/route.ts", note: "luôn trả ID ghim", old: "  if (useAlias && prefix === '') return family\n", new: "  if (false) return family\n" },
@@ -2311,9 +2789,55 @@ index 40078d3..237108b 100644
 +  { id: "087-F1e", file: "hooks/lib/router.ts", note: "API từ chối vẫn gửi request cắt cho Fable", old: "  if (apiFallback !== undefined && first !== null && !first.isAnswered && first.reason === 'api-error') {\n", new: "  if (false) {\n" },
 +  { id: "087-F1f", file: "hooks/context.ts", note: "không quay về Fable khi Fable dùng lại được", old: "pauseLeft: fable.pauseLeft + (fable.promptPaused ? 1 : 0), sessionPolicy, sessionFamily: local.sessionFamily, fallback: conductorFallback, fallbackPauseLeft }", new: "pauseLeft: fable.pauseLeft + (fable.promptPaused ? 1 : 0) + (n.fallback.active !== null && n.fallback.active !== 'fable' ? 1 : 0), sessionPolicy, sessionFamily: local.sessionFamily, fallback: conductorFallback, fallbackPauseLeft }" },
 +  { id: "087-F1g", file: "hooks/lib/conductor.ts", note: "conductorFallback off vẫn kích hoạt dự phòng", old: "  if (raw === 'off') return null\n", new: "" },
-+  { id: "087-F1h", file: "hooks/lib/conductor.ts", note: "cả hai không dùng được vẫn giữ vai điều phối", old: "  if (fallback === null || fallback === 'fable' || input.blocked.has(fallback) || (input.fallbackPauseLeft ?? 0) > 0) return null\n", new: "  if (fallback === null || fallback === 'fable') return null\n" },
++  { id: "087-F1h", file: "hooks/lib/conductor.ts", note: "cả hai không dùng được vẫn giữ vai điều phối", old: "  if (fallback === null || fallback === primary || input.blocked.has(fallback) || (input.fallbackPauseLeft ?? 0) > 0) return null\n", new: "  if (fallback === null || fallback === primary) return null\n" },
 +  { id: "087-F1i", file: "hooks/lib/text.ts", note: "đoạn dặn vẫn ghi fable khi opus điều phối", old: "ch\u1ea1y ${family}/medium. L\u1eadp k\u1ebf ho\u1ea1ch", new: "ch\u1ea1y fable/medium. L\u1eadp k\u1ebf ho\u1ea1ch" },
++  { id: "087-G1a", file: "hooks/lib/conductor.ts", note: "router vẫn gọi fable khi conductor là opus", old: "  if (blocker === null) return { family: primary, isFallback: false, reason: null }\n", new: "  if (blocker === null) return { family: DEFAULT_CONDUCTOR, isFallback: false, reason: null }\n" },
++  { id: "087-G1b", file: "hooks/context.ts", note: "luồng chính vẫn lấy fable làm họ điều phối", old: "      if (active !== null) return { family: active.family, effort: 'medium', notes:", new: "      if (active !== null) return { family: active.isFallback ? active.family : DEFAULT_CONDUCTOR, effort: 'medium', notes:" },
++  { id: "087-G1c", file: "hooks/parts/session.ts", note: "đoạn dặn ghi cứng fable", old: "    const conductNote = wanted?.isConducting === true && !isBriefed ? [conductorContext(wanted.family)] : []\n", new: "    const conductNote = wanted?.isConducting === true && !isBriefed ? [conductorContext()] : []\n" },
++  { id: "087-G1d", file: "hooks/lib/conductor.ts", note: "họ không có cờ điều phối vẫn được nhận", old: "  return CONDUCTOR_FAMILIES.find(f => f === raw) ?? 'off'\n", new: "  return (CONDUCTOR_FAMILIES.find(f => f === raw) ?? (raw === 'haiku' || raw === 'sonnet' ? raw : 'off')) as ConductorOption\n" },
++  { id: "087-G1e", file: "hooks/lib/conductor.ts", note: "họ dự phòng trùng họ chính vẫn kích hoạt dự phòng", old: "  if (fallback === null || fallback === primary || input.blocked.has(fallback) || (input.fallbackPauseLeft ?? 0) > 0) return null\n", new: "  if (fallback === null || (fallback === primary && false) || input.blocked.has(fallback) || (input.fallbackPauseLeft ?? 0) > 0) return null\n" },
  ]
+diff --git a/claude-mods/focus-conductor/scripts/version-check.mjs b/claude-mods/focus-conductor/scripts/version-check.mjs
+index 640044e..32a45cc 100644
+--- a/claude-mods/focus-conductor/scripts/version-check.mjs
++++ b/claude-mods/focus-conductor/scripts/version-check.mjs
+@@ -22,3 +22,36 @@ if (missing.length > 0) {
+   process.exit(1)
+ }
+ console.log(`Bảng tùy chọn của README có đủ ${keys.length} option`)
++
++// Chữ 'fable' trong hooks/ (0.8.7 G1): đếm theo tệp, so với tests/fixtures/fable-sites.ts. Test conductor-family-g1-087 so tệp đó với danh
++// sách vị trí được phép (kèm lý do); kit test không đọc được tệp nguồn, nên phép đếm chạy ở đây. Ghi lại tệp sau khi sửa mã:
++// node scripts/version-check.mjs --write-fable-sites
++import { readdirSync, statSync, writeFileSync } from 'node:fs'
++import { fileURLToPath } from 'node:url'
++const hooksDir = fileURLToPath(new URL('hooks/', root))
++const sites = {}
++const walk = dir => {
++  for (const name of readdirSync(dir).sort()) {
++    const path = dir + name
++    if (statSync(path).isDirectory()) walk(path + '/')
++    else if (/\.tsx?$/.test(name)) {
++      const count = (readFileSync(path, 'utf8').match(/'fable'/g) ?? []).length
++      if (count > 0) sites[path.slice(hooksDir.length)] = count
++    }
++  }
++}
++walk(hooksDir)
++const fixturePath = new URL('tests/fixtures/fable-sites.ts', root)
++const fixtureText = `// Sinh bởi node scripts/version-check.mjs --write-fable-sites (0.8.7 G1): số lần chuỗi 'fable' xuất hiện trong từng tệp của hooks/.\nexport const FABLE_SITES: Record<string, number> = ${JSON.stringify(sites).replaceAll('"', "'").replaceAll(',', ', ').replaceAll(':', ': ')}\n`
++if (process.argv.includes('--write-fable-sites')) writeFileSync(fixturePath, fixtureText)
++let stored = ''
++try {
++  stored = readFileSync(fixturePath, 'utf8')
++} catch {
++  stored = ''
++}
++if (stored !== fixtureText) {
++  console.error(`tests/fixtures/fable-sites.ts không khớp mã hiện tại (${JSON.stringify(sites)}); chạy node scripts/version-check.mjs --write-fable-sites`)
++  process.exit(1)
++}
++console.log(`Chuỗi 'fable' trong hooks/: ${Object.entries(sites).map(([file, n]) => `${file} ${n}`).join(', ')}`)
 diff --git a/claude-mods/focus-conductor/tests/caps-s1-075.test.ts b/claude-mods/focus-conductor/tests/caps-s1-075.test.ts
 index 185cd20..26233ea 100644
 --- a/claude-mods/focus-conductor/tests/caps-s1-075.test.ts
@@ -2435,17 +2959,15 @@ index 0000000..ce9cb40
 +})
 diff --git a/claude-mods/focus-conductor/tests/conductor-family-g1-087.test.ts b/claude-mods/focus-conductor/tests/conductor-family-g1-087.test.ts
 new file mode 100644
-index 0000000..1d6b2cf
+index 0000000..a1ae7be
 --- /dev/null
 +++ b/claude-mods/focus-conductor/tests/conductor-family-g1-087.test.ts
-@@ -0,0 +1,106 @@
+@@ -0,0 +1,94 @@
 +// 0.8.7 G1: vai điều phối không gắn cứng với Fable. Một bảng họ model (hooks/lib/families.ts) là nguồn duy nhất của tên họ, thứ hạng, ID
 +// ghim, giá, cửa sổ, thông số đọc và thời gian chờ của vai điều phối. Option conductor nhận off hay tên một họ có cờ điều phối (fable, opus);
 +// giá trị khác là off. Họ dự phòng trùng họ chính là không có dự phòng. Chữ 'fable' trong hooks/ chỉ còn ở các vị trí được phép.
 +
 +import { describe, expect, test } from 'claude-code/testing'
-+import { readdirSync, readFileSync, statSync } from 'node:fs'
-+import { join } from 'node:path'
 +import type { ModelFamily } from '../types'
 +import { CONDUCTOR_FAMILIES, DEFAULT_CONDUCTOR, FAMILY_TABLE } from '../hooks/lib/families'
 +import { FAMILIES, pinnedId } from '../hooks/lib/route'
@@ -2454,8 +2976,7 @@ index 0000000..1d6b2cf
 +import { activeConductor, conductorOf } from '../hooks/lib/conductor'
 +import type { ConductorInputs } from '../hooks/lib/conductor'
 +import * as S from '../hooks/lib/state'
-+
-+const HOOKS = join(import.meta.dir, '..', 'hooks')
++import { FABLE_SITES } from './fixtures/fable-sites'
 +
 +describe('0.8.7 G1: bảng họ model', () => {
 +  test('mỗi họ có đủ mọi trường; FAMILIES theo thứ hạng của bảng; khóa của bảng khớp FAMILIES', () => {
@@ -2519,21 +3040,12 @@ index 0000000..1d6b2cf
 +    // Vị trí được phép và lý do:
 +    // - lib/families.ts: DEFAULT_CONDUCTOR, giá trị mặc định khuyến nghị của option conductor.
 +    // - lib/route.ts (2 lần, avoidBlocked): luật allowFable, họ opus bị chặn thì lên fable khi được phép.
-+    // - lib/router.ts (3 lần: allowedLine, fitPick, topFamily): quyền thực thi của allowFable và luật kẹp fable về opus.
-+    const ALLOWED: Record<string, number> = { 'lib/families.ts': 1, 'lib/route.ts': 3, 'lib/router.ts': 3 }
-+    const found: Record<string, number> = {}
-+    const walk = (dir: string) => {
-+      for (const name of readdirSync(dir)) {
-+        const path = join(dir, name)
-+        if (statSync(path).isDirectory()) walk(path)
-+        else if (/\.tsx?$/.test(name)) {
-+          const count = (readFileSync(path, 'utf8').match(/'fable'/g) ?? []).length
-+          if (count > 0) found[path.slice(HOOKS.length + 1)] = count
-+        }
-+      }
-+    }
-+    walk(HOOKS)
-+    expect(found).toEqual(ALLOWED)
++    // - lib/router.ts (4 lần): allowedLine, fitPick, topFamily (quyền thực thi của allowFable, luật kẹp fable về opus) và giá của fable
++    //   trong danh mục model của lời dặn router (không đổi một byte, golden không ghi lại).
++    const ALLOWED: Record<string, number> = { 'lib/families.ts': 1, 'lib/route.ts': 3, 'lib/router.ts': 4 }
++    // Kit test không đọc được tệp nguồn: phép đếm chạy ở node scripts/version-check.mjs (CI), ghi vào tests/fixtures/fable-sites.ts; script
++    // báo lỗi khi tệp đó không khớp mã hiện tại.
++    expect(FABLE_SITES).toEqual(ALLOWED)
 +  })
 +})
 +
@@ -2612,6 +3124,14 @@ index 0000000..ff5a6a7
 +    expect(freshTestRun(log)).toBe(log.commands.at(-1))
 +  })
 +})
+diff --git a/claude-mods/focus-conductor/tests/fixtures/fable-sites.ts b/claude-mods/focus-conductor/tests/fixtures/fable-sites.ts
+new file mode 100644
+index 0000000..1bea18b
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/fixtures/fable-sites.ts
+@@ -0,0 +1,2 @@
++// Sinh bởi node scripts/version-check.mjs --write-fable-sites (0.8.7 G1): số lần chuỗi 'fable' xuất hiện trong từng tệp của hooks/.
++export const FABLE_SITES: Record<string, number> = {'lib/families.ts': 1, 'lib/route.ts': 3, 'lib/router.ts': 4}
 diff --git a/claude-mods/focus-conductor/tests/golden.test.ts b/claude-mods/focus-conductor/tests/golden.test.ts
 index a21365b..df50fad 100644
 --- a/claude-mods/focus-conductor/tests/golden.test.ts
@@ -3073,9 +3593,18 @@ index 85cd39b..89477f2 100644
      const seen = base(on, { router: request => (request.startsWith('Requirements:') ? { missing: [], extra: [], issues: [] } : seen.routerModels.at(-1) === ID ? (fable++ === 0 ? BIG : fable <= 3 ? null : FOLLOW) : FOLLOW) })
      on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
 diff --git a/claude-mods/focus-conductor/tests/integration/conductor-c1-084.test.ts b/claude-mods/focus-conductor/tests/integration/conductor-c1-084.test.ts
-index f43352a..2542310 100644
+index f43352a..09034ff 100644
 --- a/claude-mods/focus-conductor/tests/integration/conductor-c1-084.test.ts
 +++ b/claude-mods/focus-conductor/tests/integration/conductor-c1-084.test.ts
+@@ -13,7 +13,7 @@ const brief = (over: Partial<Brief>) => ({ goalId: 1, depth: 'substantial', kind
+ const READY = { option: 'fable' as const, mode: 'auto', headless: false, blocked: new Set<never>(), pauseLeft: 0 }
+ 
+ describe('0.8.4 C1: option conductor', () => {
+-  for (const raw of [undefined, '', 'off', 'Fable', 'opus']) {
++  for (const raw of [undefined, '', 'off', 'Fable', 'haiku']) {
+     test(`conductorOf(${JSON.stringify(raw)}) là off`, () => expect(C.conductorOf(raw === undefined ? {} : { conductor: raw })).toBe('off'))
+   }
+   test('conductorOf(fable) là fable', () => expect(C.conductorOf({ conductor: 'fable' })).toBe('fable'))
 @@ -62,8 +62,8 @@ describe('0.8.4 C1: ID của Fable', () => {
    test('modelMap có fable thì dùng ID đó', () => expect(C.fableModelId({ fable: 'x-fable' }, 'claude-opus-5-5')).toBe('x-fable'))
    test('phiên họ fable có hậu tố: dùng nguyên ID của phiên', () => expect(C.fableModelId({}, 'claude-fable-5-2[1m]')).toBe('claude-fable-5-2[1m]'))
