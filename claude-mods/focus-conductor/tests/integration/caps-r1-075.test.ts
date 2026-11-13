@@ -50,8 +50,9 @@ describe('0.7.5 R1: mục của prompt tiếp nối khi đã đầy bằng mục
     const full = [...REQUIREMENTS, ...Array.from({ length: 10 }, (_, i) => `Tràn ${i + 1}`)]
     const prev = makeBrief({ requirements: full, requirementsBase: 40 })
     const out = nextBrief(prev, routed({ relation: 'refine', goal: '', requirements: [EXCEL] }), EXCEL, 2) as ReturnType<typeof nextBrief> & { dropped?: number }
-    expect(out.brief.requirements).toEqual(full)
-    expect(out.dropped).toBe(1)
+    // 0.8.7 L2: yêu cầu không còn trần cộng phần tràn: mục mới được giữ, không mục nào bị bỏ.
+    expect(out.brief.requirements).toEqual([...full, EXCEL])
+    expect(out.dropped).toBe(0)
   })
 })
 
@@ -97,11 +98,13 @@ describe('0.7.5 R1: phiên với prompt 32.000 ký tự', () => {
     base(on, { router: request => (request.includes('thêm 12 yêu cầu') ? many : FIRST) })
     await submit($, PROMPT_32K)
     await submit($, 'thêm 12 yêu cầu')
+    // 0.8.7 L2: yêu cầu không còn trần cộng phần tràn: 12 yêu cầu tinh chỉnh đều được giữ, không có cảnh báo mục bị bỏ (cảnh báo này
+    // vẫn có cho ràng buộc, xem dropped-kind-s8-075 và dropped-rank-078).
     const status = String((await conductor($, 'status')).text)
-    expect(status).toContain('2 mục của prompt tiếp nối không giữ được')
+    expect(status).not.toContain('không giữ được')
     const pane = await $.ui.mount(PANE)
     const texts = (await pane.findAll({ type: 'Text' })).map(e => e.text)
     await pane.unmount()
-    expect(texts.some(t => typeof t === 'string' && t.includes('2 mục của prompt tiếp nối không giữ được'))).toBe(true)
+    expect(texts.some(t => typeof t === 'string' && t.includes('không giữ được'))).toBe(false)
   })
 })

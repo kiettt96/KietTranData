@@ -115,6 +115,14 @@ describe('0.8.7 L2: danh sách việc cũ gửi router', () => {
     expect(prompt).toContain('100 tasks in total')
   })
 
+  test('mục tiêu 60 yêu cầu: request tiếp nối nêu yêu cầu 31 tới 50 và một dòng số yêu cầu còn lại', () => {
+    const prompt = String(routerRequest({ text: 'làm tiếp', prev: makeBrief({ requirements: reqs(60) }), ran: null, policy: OPEN, model: 'sonnet' }).prompt)
+    expect(prompt).toContain('Yêu cầu giả số 31')
+    expect(prompt).toContain('Yêu cầu giả số 50')
+    expect(prompt).not.toContain('Yêu cầu giả số 51')
+    expect(prompt).toContain('(10 more requirements)')
+  })
+
   test('mục tiêu 12 việc: trường prompt trùng 0.8.6', async () => {
     const prompt = String(routerRequest({ text: 'làm tiếp', prev: brief(12), ran: null, policy: OPEN, model: 'sonnet' }).prompt)
     expect(await sha(prompt)).toBe(FOLLOW12_PROMPT_SHA)

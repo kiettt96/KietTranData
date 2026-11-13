@@ -456,9 +456,6 @@ export const withApproval =
   (approval: ApprovalState) =>
   (c: Core): Core => ({ ...normalizeCore(c), approval: normalizeApproval(approval) })
 
-/** Số lần giao phiên con giữ lại cho một mục tiêu (0.7.9 F1) [Giả định: 6 phần mỗi việc, vài việc tách mỗi mục tiêu]. */
-const FORK_PART_LIMIT = 30
-
 /** Phiên con từ trạng thái đã lưu (0.7.9 F1); Core từ bản trước không có trường này thì rỗng, off là none. */
 function normalizeForks(raw: Partial<ForkState> | undefined): ForkState {
   if (raw === undefined || raw === null) return { goalId: -1, parts: [], merged: [], off: 'none' }
@@ -475,7 +472,8 @@ export function withForkStart(goalId: number, part: ForkPart): (core: Core) => C
     const n = normalizeCore(core)
     const same = n.forks.goalId === goalId
     const parts = same ? n.forks.parts.filter(p => !(p.task === part.task && p.part === part.part)) : []
-    return { ...n, forks: { ...n.forks, goalId, parts: [...parts, part].slice(-FORK_PART_LIMIT), merged: same ? n.forks.merged : [] } }
+    // Không còn trần số phần (0.8.7 L2): mục tiêu có thể có hàng trăm việc tách; mỗi phần của một việc chỉ có một mục.
+    return { ...n, forks: { ...n.forks, goalId, parts: [...parts, part], merged: same ? n.forks.merged : [] } }
   }
 }
 
@@ -955,7 +953,7 @@ function freshProgress(goalId: number): Pick<Core, 'agentProgress' | 'activity'>
   return { agentProgress: { goalId, items: [] }, activity: { goalId, changes: 0 } }
 }
 
-/** Số bộ đếm theo việc giữ lại cho một mục tiêu (0.7.5). */
+/** Số bộ đếm của việc Claude tự giao giữ lại cho một mục tiêu (0.7.5); bộ đếm của việc đã phân giữ đủ (0.8.7 L2). */
 const AGENT_TALLY_LIMIT = 50
 
 /**
@@ -996,7 +994,8 @@ export function withAgentStart(goalId: number, item: AgentProgress): (core: Core
         delete open[agentId]
       }
     }
-    return { ...n, agentProgress: { goalId, items: [...items, item].slice(-AGENT_PROGRESS_LIMIT), tally: tally.slice(-AGENT_TALLY_LIMIT), open } }
+    const ownKept = new Set(tally.filter(t => t.taskIndex === undefined).slice(-AGENT_TALLY_LIMIT).map(t => t.key))
+    return { ...n, agentProgress: { goalId, items: [...items, item].slice(-AGENT_PROGRESS_LIMIT), tally: tally.filter(t => t.taskIndex !== undefined || ownKept.has(t.key)), open } }
   }
 }
 

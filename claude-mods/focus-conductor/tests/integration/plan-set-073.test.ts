@@ -124,9 +124,10 @@ describe('0.7.3 điểm 8: plan set in đầy đủ kèm một dòng nói đã c
     base(on)
     await submit($, COMPLEX_PROMPT)
     const out = await set($, { steps: titles(21) })
+    // 0.8.7 L2: không còn trần số bước: lưu đủ 21 bước, không có dòng bỏ bước vượt giới hạn.
     expect(out).toContain('[ ] 20. Bước số 20')
-    expect(out).not.toContain('Bước số 21')
-    expect(out).toContain('Đã chỉnh: bỏ 1 bước vượt giới hạn 20')
+    expect(out).toContain('[ ] 21. Bước số 21')
+    expect(out).not.toContain('vượt giới hạn')
   })
 
   test('tiêu đề quá 160 ký tự bị cắt', { options: { planApproval: 'off' } }, async ($, on) => {
@@ -152,7 +153,8 @@ describe('0.7.3 điểm 8: plan set in đầy đủ kèm một dòng nói đã c
     const out = await set($, { steps: [{ title: '' }, { title: 'a'.repeat(161), check: 'c'.repeat(201) }, ...titles(20)] })
     const line = out.split('\n').find(l => l.startsWith('Đã chỉnh')) ?? ''
     expect(line).toContain('bỏ 1 bước không có tiêu đề')
-    expect(line).toContain('bỏ 1 bước vượt giới hạn 20')
+    // 0.8.7 L2: không còn trần số bước nên dòng này không còn phần bỏ bước vượt giới hạn.
+    expect(line).not.toContain('vượt giới hạn')
     expect(line).toContain('cắt 1 tiêu đề quá 160 ký tự')
     expect(line).toContain('cắt 1 tiêu chí quá 200 ký tự')
   })

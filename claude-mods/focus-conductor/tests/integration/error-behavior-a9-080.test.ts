@@ -2,6 +2,8 @@
 // lần hai cho cùng bước, mục prompt bị bỏ hay bị thay, router lỗi theo loại lỗi. Cùng cơ chế gộp theo khóa, trần và pruneFixed của L1;
 // /conductor errors hiện nhóm này sau nhóm lỗi mã; không chèn gì vào context.
 
+// 0.8.7 L2: yêu cầu không còn trần, nên phần tràn được dựng bằng ràng buộc (trần 12, tràn thêm 10): 10 ràng buộc của prompt đầu, rồi
+// hai lượt tinh chỉnh mỗi lượt 10 ràng buộc mới; lượt thứ hai còn 2 chỗ nên 8 mục bị bỏ.
 import { describe, expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
@@ -125,12 +127,14 @@ describe('0.8.0 A9: nối vào mod', () => {
   })
 
   test('mục prompt tiếp nối bị bỏ: một mục dropped; mô tả không chứa nội dung prompt', { options: { planApproval: 'off' } }, async ($, on) => {
-    const first = plan({ goal: 'Cập nhật sổ giá theo 11 bước', depth: 'hard', volume: 'large', requirements: Array.from({ length: 30 }, (_, i) => `Yêu cầu gốc ${i + 1}`) })
-    const many = plan({ relation: 'refine', goal: '', requirements: Array.from({ length: 12 }, (_, i) => `Tinh chỉnh ${i + 1}`) })
-    base(on, { router: request => (request.includes('thêm 12 yêu cầu') ? many : first) })
+    const first = plan({ goal: 'Cập nhật sổ giá theo 11 bước', depth: 'hard', volume: 'large', requirements: Array.from({ length: 30 }, (_, i) => `Yêu cầu gốc ${i + 1}`), constraints: Array.from({ length: 10 }, (_, i) => `Ràng buộc gốc ${i + 1}`) })
+    const many = plan({ relation: 'refine', goal: '', constraints: Array.from({ length: 10 }, (_, i) => `Tinh chỉnh ${i + 1}`) })
+    const many2 = plan({ relation: 'refine', goal: '', constraints: Array.from({ length: 10 }, (_, i) => `Tinh chỉnh thêm ${i + 1}`) })
+    base(on, { router: request => (request.includes('thêm 12 yêu cầu nữa') ? many2 : request.includes('thêm 12 yêu cầu') ? many : first) })
     const fs = disk(on)
     await submit($, LONG_CODED_PROMPT)
     await submit($, 'thêm 12 yêu cầu')
+    await submit($, 'thêm 12 yêu cầu nữa')
     await conductor($, 'errors')
     const dropped = fs.behavior().filter(e => e.where === 'dropped')
     expect(dropped.length).toBe(1)

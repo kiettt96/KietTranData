@@ -22,9 +22,9 @@ const grouped = (n: number) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.')
 
 const hex = (bytes: ArrayBuffer): string => [...new Uint8Array(bytes)].map(byte => byte.toString(16).padStart(2, '0')).join('')
 const sha = async (text: string) => hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))
-/** SHA-256 của JSON request, đo trên 45b5161 (0.8.6) bằng engine 2.1.296. */
-const LONG_PLAIN_SHA = 'a6c1b875ed5670668f5713a2080da888a622b958216cab2300288266fbb04b05'
-const SHORT_FABLE_SHA = 'ee1a2caa66e741d838de2072d9b453b1f0f1fd88aa9f47745200220d540c0279'
+/** SHA-256 của trường prompt của request, đo trên 45b5161 (0.8.6) bằng engine 2.1.296; trường system đổi theo 0.8.7 L2 nên không băm. */
+const LONG_PLAIN_SHA = 'badf8954a7f6c9f4dece771c7745cb94e8eb4013877845db655c3661e6c876af'
+const SHORT_FABLE_SHA = 'f4812dc8d3193532f8135b92d509a55ffe0d97d3d2ae85726029d636f5038345'
 
 describe('0.8.7 L1: routerRequest khi router là Fable', () => {
   test('prompt 238.489 ký tự có dấu ở ký tự 120.000: request chứa dấu, không lược; maxTokens FABLE_FULL_MAX_TOKENS; thời gian chờ FABLE_FULL_TIMEOUT_MS', () => {
@@ -56,7 +56,9 @@ describe('0.8.7 L1: routerRequest khi router là Fable', () => {
   })
 
   test('prompt 5.000 ký tự: request trùng 0.8.6 từng byte', async () => {
-    expect(await sha(JSON.stringify(fable(SHORT)))).toBe(SHORT_FABLE_SHA)
+    const r = fable(SHORT)
+    expect(await sha(promptOf(r))).toBe(SHORT_FABLE_SHA)
+    expect([r.maxTokens, r.timeoutMs, r.effort]).toEqual([8_000, 45_000, 'medium'])
   })
 })
 
@@ -81,7 +83,7 @@ describe('0.8.7 L1: router thường giữ như 0.8.6', () => {
   test('isFable vắng, prompt 238.489 ký tự: không chứa dấu, request trùng 0.8.6; maxTokens 16.000; thời gian chờ 120.000; cảnh báo 60.000 và 20.000', async () => {
     const r = routerRequest({ text: LONG, prev: null, ran: null, policy: OPEN, model: 'sonnet' })
     expect(promptOf(r).includes(MARK)).toBe(false)
-    expect(await sha(JSON.stringify(r))).toBe(LONG_PLAIN_SHA)
+    expect(await sha(promptOf(r))).toBe(LONG_PLAIN_SHA)
     expect([r.maxTokens, r.timeoutMs]).toEqual([16_000, 120_000])
     expect(isClippedPrompt(LONG)).toBe(true)
     expect(isClippedPrompt(LONG, false)).toBe(true)

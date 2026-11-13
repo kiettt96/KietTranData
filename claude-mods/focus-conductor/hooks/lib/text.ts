@@ -89,6 +89,12 @@ function taskBlock(tasks: readonly Task[], main: string, isReference: boolean): 
  * Khối context đi kèm prompt khi bắt đầu một mục tiêu mới. `main` là model luồng chính sẽ
  * thật sự chạy (có thể là model cũ được giữ để bảo toàn cache); null khi chưa chọn.
  */
+/** Câu nhắc yêu cầu chưa được phủ (0.8.7 L2): tối đa UNCOVERED_SHOWN yêu cầu, kèm số mục còn lại. */
+export const UNCOVERED_SHOWN = 20
+function uncoveredList(items: readonly string[]): string {
+  return `${items.slice(0, UNCOVERED_SHOWN).join('; ')}${items.length > UNCOVERED_SHOWN ? `; còn ${items.length - UNCOVERED_SHOWN} yêu cầu nữa` : ''}`
+}
+
 export function briefContext(brief: Brief, main: Choice | null, isApplied = true): string {
   const mainText = mainLabel(main, isApplied)
   const reference = brief.referenceMain ? describePick(brief.referenceMain) : 'chưa rõ'
@@ -114,7 +120,7 @@ export function briefContext(brief: Brief, main: Choice | null, isApplied = true
   const rules = brief.isReference ? '' : `${bullets('Ràng buộc:', brief.constraints)}${bullets('Tiêu chí chất lượng:', brief.quality)}`
   // Yêu cầu router đã liệt kê mà không việc nào phủ (0.7.0): nhắc để không bị bỏ sót khi lập checklist.
   const uncovered = brief.isReference ? [] : uncoveredRequirements(brief)
-  const gaps = uncovered.length > 0 ? `\nYêu cầu chưa có việc nào phủ (đừng bỏ sót khi lập checklist): ${uncovered.join('; ')}` : ''
+  const gaps = uncovered.length > 0 ? `\nYêu cầu chưa có việc nào phủ (đừng bỏ sót khi lập checklist): ${uncoveredList(uncovered)}` : ''
   return [
     '[focus-conductor] Bản đọc prompt của router (đối chiếu lại với prompt gốc trước khi làm)',
     `Mục tiêu cuối: ${brief.goal}${tasks}${splits}${gaps}${rules}`,
@@ -194,7 +200,7 @@ export function followUpContext(
       ? `Việc mới (router đã chấm; khi giao, description của Agent mở đầu "Việc N: "):\n${added.map(task => taskLine(task, mainText)).join('\n')}${splitLines(added)}`
       : '',
     open.length > 0 ? `Bước còn mở: ${open.map(s => `${s.id}. ${s.title}`).join('; ')}` : '',
-    uncoveredRequirements(brief).length > 0 ? `Yêu cầu chưa có việc nào phủ (đừng bỏ sót): ${uncoveredRequirements(brief).join('; ')}` : '',
+    uncoveredRequirements(brief).length > 0 ? `Yêu cầu chưa có việc nào phủ (đừng bỏ sót): ${uncoveredList(uncoveredRequirements(brief))}` : '',
     pendingLine(plan),
     newConstraints.length > 0 ? `Ràng buộc mới: ${newConstraints.join('; ')}` : '',
     'Giữ nhất quán với phần đã làm; nếu yêu cầu này đổi mục tiêu, cập nhật lại checklist.',

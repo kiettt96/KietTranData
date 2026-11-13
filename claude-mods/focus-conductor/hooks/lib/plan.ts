@@ -89,19 +89,17 @@ function text(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
 }
 
-const MAX_STEPS = 20
 const MAX_TITLE = 160
 const MAX_CHECK = 200
 
 /**
  * Đọc steps Claude gửi. `adjusted` ghi các chỗ mod chỉnh so với bản gửi (0.7.3): bước không có tiêu đề bị bỏ, bước vượt giới
- * hạn bị bỏ, tiêu đề và tiêu chí bị cắt. Các bước lưu không đổi so với trước 0.7.3.
+ * hạn bị bỏ (đến 0.8.6; từ 0.8.7 L2 không còn trần số bước), tiêu đề và tiêu chí bị cắt. Các bước lưu không đổi so với trước 0.7.3.
  */
 function parseStepsDetailed(value: unknown, startId: number): { steps: PlanStep[]; adjusted: string[] } {
   if (!Array.isArray(value)) return { steps: [], adjusted: [] }
   const out: PlanStep[] = []
   let untitled = 0
-  let overLimit = 0
   let cutTitles = 0
   let cutChecks = 0
   for (const raw of value) {
@@ -109,10 +107,6 @@ function parseStepsDetailed(value: unknown, startId: number): { steps: PlanStep[
     const title = typeof raw === 'string' ? raw.trim() : text(item['title'])
     if (!title) {
       untitled += 1
-      continue
-    }
-    if (out.length >= MAX_STEPS) {
-      overLimit += 1
       continue
     }
     const tier = TIERS.find(t => t === item['tier']) as Tier | undefined
@@ -124,7 +118,6 @@ function parseStepsDetailed(value: unknown, startId: number): { steps: PlanStep[
   }
   const adjusted = [
     untitled > 0 ? `bỏ ${untitled} bước không có tiêu đề` : '',
-    overLimit > 0 ? `bỏ ${overLimit} bước vượt giới hạn ${MAX_STEPS}` : '',
     cutTitles > 0 ? `cắt ${cutTitles} tiêu đề quá ${MAX_TITLE} ký tự` : '',
     cutChecks > 0 ? `cắt ${cutChecks} tiêu chí quá ${MAX_CHECK} ký tự` : '',
   ].filter(Boolean)

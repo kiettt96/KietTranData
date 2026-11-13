@@ -49,10 +49,17 @@ const READ_ONLY_AGENTS = new Set(['Explore', 'Plan'])
 /** Dưới mức tin cậy này router được hỏi lại một lần. */
 export const LOW_CONFIDENCE = 0.4
 
-/** Giới hạn đọc và trả về. */
-const TASK_LIMIT = 20
-/** Yêu cầu router liệt kê (0.7.0): tối đa bấy nhiêu mục, mỗi mục bấy nhiêu ký tự; quá REQUIREMENTS_RECHECK thì đọc kiểm lại một lần ở effort cao. */
-const REQUIREMENT_LIMIT = 30
+/**
+ * Việc cũ gửi kèm request router và request chấm subagent (0.8.7 L2): chỉ là ngữ cảnh, giữ bấy nhiêu việc đầu như 0.8.6, quá thì thêm một
+ * dòng tổng số. Mục tiêu không còn trần số việc, số yêu cầu, số bước.
+ */
+const TASK_CONTEXT = 20
+/**
+ * Yêu cầu của mục tiêu trước gửi kèm request tiếp nối (0.7.5, 0.8.7 L2): như 0.8.6, chỉ các yêu cầu từ mục thứ bấy nhiêu trở đi, tối đa
+ * TASK_CONTEXT dòng kèm dòng số mục còn lại.
+ */
+const REQUIREMENT_CONTEXT = 30
+/** Mỗi yêu cầu bấy nhiêu ký tự; quá REQUIREMENTS_RECHECK yêu cầu thì đọc kiểm lại một lần ở effort cao. */
 /** Trần ràng buộc của brief (0.7.4). */
 const CONSTRAINT_LIMIT = 12
 /**
@@ -127,8 +134,8 @@ Delegation:
 
 Reading the request:
 - goal: the end result the user wants, one sentence.
-- requirements: first list everything the request asks for, requires or forbids, one short item each in the user's words (under 100 characters, at most 30): every deliverable, rule, format, quality bar and constraint, including those hidden in paragraphs, tables or background text. Merge exact repeats and omit nothing: this is the checklist the work is checked against.
-- tasks: first, every heading with a code (K4.1, Bước 2, Task 3) is its own task, in the request's order, with the code at the start of its title: never merge coded headings with each other or with other pieces, even when they look alike, and the limit below does not apply to them. For work the request has not split by codes, split it the way that gets it done best, which need not follow how the request is laid out: merge pieces that are really one piece of work, and split a large piece into independent parts only when they can run separately. Each title is a short quote or summary (under 80 characters). Each task has "covers": the numbers (from 1) of the requirements it fulfils, and every requirement must be covered by at least one task. Apart from coded headings, at most 8 tasks. A request that is one piece of work has tasks [].
+- requirements: first list everything the request asks for, requires or forbids, one short item each in the user's words (under 100 characters; list every one, with no limit on how many): every deliverable, rule, format, quality bar and constraint, including those hidden in paragraphs, tables or background text. Merge exact repeats and omit nothing: this is the checklist the work is checked against.
+- tasks: first, every heading with a code (K4.1, Bước 2, Task 3) is its own task, in the request's order, with the code at the start of its title: never merge coded headings with each other or with other pieces, even when they look alike. For work the request has not split by codes, split it the way that gets it done best, which need not follow how the request is laid out: merge pieces that are really one piece of work, and split a large piece into independent parts only when they can run separately. Each title is a short quote or summary (under 80 characters). Each task has "covers": the numbers (from 1) of the requirements it fulfils, and every requirement must be covered by at least one task. Use as many tasks as the work needs for every requirement to be covered: never merge tasks only to have fewer, and never split a task that does not need it. Order tasks in the order they are done: a task that another task needs comes first, and tasks of the same group stay next to each other. A request that is one piece of work has tasks [].
 - Run a task as "agent" only when it is truly independent: it needs no result of another task, does not edit the files another task edits, and is worth a fresh subagent prompt. Otherwise keep it on the main thread.
 - Items under "xong khi", "done when", "tiêu chí", "acceptance" or similar are quality criteria, never tasks. Background, context, definitions and notes are neither tasks nor constraints.
 - constraints: at most 6 hard rules (must, must not, only, format, scope), the most important first, each shortened to under 100 characters. A rule that sets a model for a kind of work (including "the session's model") is always the first constraint, kept with its model, and never dropped. quality: at most 5 acceptance criteria, same length.
@@ -288,8 +295,8 @@ function reclaimCarried(items: readonly string[], carried: number, incoming: rea
 }
 
 /**
- * Gộp yêu cầu mới vào danh sách có trần REQUIREMENT_LIMIT (0.7.5, S1): như mergeCapped, yêu cầu cùng khóa thay tại chỗ (số thứ tự
- * giữ nguyên nên `covers` của việc cũ vẫn đúng), yêu cầu khác được thêm khi còn chỗ trong trần cộng phần tràn, không thì bị bỏ và đếm.
+ * Gộp yêu cầu mới vào danh sách (0.7.5, S1): yêu cầu cùng khóa thay tại chỗ (số thứ tự giữ nguyên nên `covers` của việc cũ vẫn đúng),
+ * yêu cầu khác được thêm vào cuối; không còn trần số mục (0.8.7 L2), nên `dropped` luôn là 0.
  * `renumber` đổi số thứ tự trong lượt router sang số thứ tự trong danh sách đã gộp.
  */
 function mergeRequirements(prev: readonly string[], incoming: readonly string[]): { items: string[]; renumber: Map<number, number>; dropped: number } {
@@ -299,10 +306,10 @@ function mergeRequirements(prev: readonly string[], incoming: readonly string[])
   incoming.forEach((item, i) => {
     let at = indexOfKey(items, item)
     if (at >= 0) items[at] = item
-    else if (items.length < REQUIREMENT_LIMIT + CAP_OVERFLOW) {
+    else {
       items.push(item)
       at = items.length - 1
-    } else dropped += 1
+    }
     if (at >= 0) renumber.set(i + 1, at + 1)
   })
   return { items, renumber, dropped }
@@ -359,20 +366,27 @@ function rulesLines(constraints: readonly string[] | undefined): string[] {
   return items.length > 0 ? ['User rules of this goal (a rule that names a model for this kind of work must be followed, never a lower model):', ...items] : []
 }
 
+/** Dòng tổng số việc khi danh sách việc gửi router bị rút còn TASK_CONTEXT việc đầu (0.8.7 L2). */
+function totalLine(count: number): string[] {
+  return count > TASK_CONTEXT ? [`  (${count} tasks in total; the first ${TASK_CONTEXT} are listed)`] : []
+}
+
 function previousLines(prev: Brief | null, ran: string | null): string[] {
   if (prev === null) return ['Previous goal: none.']
-  const tasks = prev.tasks
-    .slice(0, TASK_LIMIT)
-    .map(t => `  ${t.index}. ${fence(t.title)} (${t.run === 'agent' ? `${fence(t.agentType ?? 'general-purpose')} ` : 'main '}${describePick(t.pick)})`)
+  const tasks = [
+    ...prev.tasks.slice(0, TASK_CONTEXT).map(t => `  ${t.index}. ${fence(t.title)} (${t.run === 'agent' ? `${fence(t.agentType ?? 'general-purpose')} ` : 'main '}${describePick(t.pick)})`),
+    ...totalLine(prev.tasks.length),
+  ]
   // Ràng buộc của mục tiêu trước (0.7.5), cắt gọn như khi chấm subagent: prompt tiếp nối ngắn không nhắc lại quy định model.
   const rules = ruleItems(prev.constraints)
   // Phần tràn (vòng rà soát 3): mục của prompt tiếp nối giữ ngoài trần luôn có trong request, kể cả khi ruleItems đã cắt.
-  const over = [...prev.constraints.slice(CONSTRAINT_LIMIT), ...(prev.requirements ?? []).slice(REQUIREMENT_LIMIT)]
+  const overRequirements = (prev.requirements ?? []).slice(REQUIREMENT_CONTEXT)
+  const over = [...prev.constraints.slice(CONSTRAINT_LIMIT), ...overRequirements.slice(0, TASK_CONTEXT)]
   return [
     `Previous goal${prev.isReference ? ' (a reference-only review: its tasks were routed for comparison, not run)' : ''}: ${fence(prev.goal)}`,
     ...(tasks.length > 0 ? ['Previous tasks:', ...tasks] : []),
     ...(rules.length > 0 ? ['Previous constraints (still hold on a follow-up; a rule that names a model for this kind of work must be followed):', ...rules] : []),
-    ...(over.length > 0 ? ['Previous follow-up items kept over the limit (still hold):', ...over.map(item => `  - ${fence(clip(item, 120))}`)] : []),
+    ...(over.length > 0 ? ['Previous follow-up items kept over the limit (still hold):', ...over.map(item => `  - ${fence(clip(item, 120))}`), ...(overRequirements.length > TASK_CONTEXT ? [`  (${overRequirements.length - TASK_CONTEXT} more requirements)`] : [])] : []),
     ...(prev.referenceMain ? [`Main thread the referenced prompt would need: ${describePick(prev.referenceMain)}`] : []),
     `Main thread ran: ${ran ?? 'unknown'}`,
   ]
@@ -450,7 +464,7 @@ export function agentRouterRequest(args: {
   /** Model người dùng chạy phiên (0.7.4). */
   sessionFamily?: ModelFamily | null
 }): ModelCompleteRequest {
-  const tasks = (args.tasks ?? []).slice(0, TASK_LIMIT)
+  const tasks = (args.tasks ?? []).slice(0, TASK_CONTEXT)
   const asked = [
     args.subagentType ? `agent type ${fence(args.subagentType)}` : '',
     args.requested.model ? `model ${fence(args.requested.model)}` : '',
@@ -462,7 +476,7 @@ export function agentRouterRequest(args: {
     ...(args.isWorkflow ? ['Started by a workflow script.'] : []),
     `The main thread asked for: ${asked.length > 0 ? asked.join(', ') : 'nothing specific'}.`,
     ...(args.failed.length > 0 ? ['Failed pieces in this goal:', ...args.failed.map(f => `  - ${fence(f)}`)] : []),
-    ...(tasks.length > 0 ? ['Tasks of the goal:', ...tasks.map(t => `  ${t.index}. ${fence(t.title)}`)] : []),
+    ...(tasks.length > 0 ? ['Tasks of the goal:', ...tasks.map(t => `  ${t.index}. ${fence(t.title)}`), ...totalLine((args.tasks ?? []).length)] : []),
     ...rulesLines(args.constraints),
     allowedLine(args.policy),
     ...sessionLine(args.sessionFamily),
@@ -509,19 +523,16 @@ function strings(value: unknown, max: number): string[] {
   )
 }
 
-/** Yêu cầu của prompt do router liệt kê: chuỗi không rỗng, cắt ngắn, không trùng, tối đa REQUIREMENT_LIMIT mục. */
+/** Yêu cầu của prompt do router liệt kê: chuỗi không rỗng, cắt ngắn, không trùng; không có trần số mục (0.8.7 L2). */
 function requirementsOf(value: unknown): string[] {
   if (!Array.isArray(value)) return []
-  return unique(
-    value.filter((s): s is string => typeof s === 'string' && s.trim() !== '').map(s => clip(s.trim(), REQUIREMENT_CHARS)),
-    REQUIREMENT_LIMIT,
-  )
+  return [...new Set(value.filter((s): s is string => typeof s === 'string' && s.trim() !== '').map(s => clip(s.trim(), REQUIREMENT_CHARS)))]
 }
 
-/** Số thứ tự yêu cầu một việc phủ: số nguyên từ 1 tới REQUIREMENT_LIMIT, không trùng; undefined khi router không ghi mảng. */
+/** Số thứ tự yêu cầu một việc phủ: số nguyên từ 1, không trùng; undefined khi router không ghi mảng. parseRoute lọc theo số yêu cầu thật. */
 function coversOf(value: unknown): number[] | undefined {
   if (!Array.isArray(value)) return undefined
-  return [...new Set(value.filter((n): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= REQUIREMENT_LIMIT))]
+  return [...new Set(value.filter((n): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 1))]
 }
 
 /**
@@ -721,8 +732,6 @@ export type RouterPlan = {
   tasks: Task[]
   /** Lý do các lần kẹp, để ghi nhật ký. */
   notes: string[]
-  /** Số việc router chia vượt TASK_LIMIT bị bỏ (0.7.5); vắng khi không cắt. */
-  droppedTasks?: number
   /** Số split bị bỏ vì phiên con đang tắt (0.7.9 F1, option forks hay engine từ chối); vắng khi không có. */
   droppedSplits?: number
   /** Người dùng nói rõ không cần duyệt kế hoạch (0.8.2 N2); vắng là false. Chỉ có nghĩa ở mục tiêu mới. */
@@ -954,7 +963,7 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
   const conductNotes: string[] = []
   const splitNotes: string[] = []
   let droppedSplits = 0
-  for (const item of rawTasks.slice(0, TASK_LIMIT)) {
+  for (const item of rawTasks) {
     const read = parseTask(item, tasks.length + 1, main.pick, whole, policy)
     if (!read) continue
     const isConductedEdit = isConducting && read.run === 'main' && (read.kind === 'edit' || read.kind === 'mixed')
@@ -969,6 +978,10 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
     if (task.run === 'main') held.push({ index: task.index, pick: rawPick(item) ?? own })
   }
   const lead = isReference ? main : floorMain(liftMain(main, held, kind, policy), depth, kind, policy)
+  // covers chỉ nhận số thứ tự của yêu cầu có thật trong lượt này (0.8.7 L2: không còn trần 30).
+  const requirements = requirementsOf(raw['requirements'])
+  const inRange = tasks.map(t => (t.covers !== undefined ? { ...t, covers: t.covers.filter(n => n <= requirements.length) } : t))
+  tasks.splice(0, tasks.length, ...inRange)
   const mainWhy = typeof raw['main'] === 'object' && raw['main'] !== null ? text((raw['main'] as Raw)['why']) : ''
   // Câu hỏi làm rõ (0.8.2 N2): chuỗi không rỗng, không trùng, tối đa QUESTION_LIMIT câu, mỗi câu cắt ở QUESTION_CHARS ký tự.
   const questions = Array.isArray(raw['questions'])
@@ -982,7 +995,7 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
     isReference,
     runReference,
     goal,
-    requirements: requirementsOf(raw['requirements']),
+    requirements,
     constraints: strings(raw['constraints'], 10),
     quality: strings(raw['quality'], 8),
     scope: strings(raw['scope'], 10).filter(isPathLike),
@@ -994,7 +1007,6 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
     ...(referenceMain ? { referenceMain } : {}),
     tasks,
     notes: [...lead.notes, ...splitNotes, ...conductNotes],
-    ...(rawTasks.length > TASK_LIMIT ? { droppedTasks: rawTasks.length - TASK_LIMIT } : {}),
     ...(droppedSplits > 0 ? { droppedSplits } : {}),
     ...(raw['skipApproval'] === true ? { skipApproval: true } : {}),
     ...(questions.length > 0 ? { questions } : {}),
@@ -1008,9 +1020,6 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
 export function clampIntent(intent: Intent, isPresented: boolean): Intent {
   return intent === 'approve' && !isPresented ? 'resume' : intent
 }
-
-/** Số việc tối đa router phân cho một prompt. */
-export const ROUTER_TASK_LIMIT = TASK_LIMIT
 
 /** Kết quả router chấm cho một subagent. */
 export type AgentRoute = {
@@ -1135,7 +1144,7 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number, isHeld = 
   // yêu cầu mới thay yêu cầu cũ (0.7.5): việc cũ không còn phủ chỗ bị thay. Đợt mới (0.8.0 A3): đầy thì mục mới thay mục cũ ở cuối.
   const reqBase = prev.requirementsBase ?? (prev.requirements ?? []).length
   const merged = isPhase
-    ? mergeReplacing(prev.requirements ?? [], plan.requirements, REQUIREMENT_LIMIT, (_item, at) => at < reqBase)
+    ? mergeReplacing(prev.requirements ?? [], plan.requirements, Number.POSITIVE_INFINITY, (_item, at) => at < reqBase)
     : { ...mergeRequirements(prev.requirements ?? [], plan.requirements), replaced: [] as string[], lost: new Set<number>() }
   const { items: requirements, renumber, dropped: lostRequirements } = merged
   const reclaimed = reclaimCarried(prev.constraints, prev.carriedRules ?? 0, plan.constraints)
@@ -1195,7 +1204,7 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number, isHeld = 
 export function promoteReference(prev: Brief, plan: RouterPlan, prompt: string, now: number): Brief {
   // Ràng buộc, tiêu chí và phạm vi của prompt đính kèm được giữ từ lượt đối chiếu: lượt chạy thật phải có đủ. Cả hai lượt là prompt
   // lập mục tiêu nên mọi mục đều thuộc phần không bao giờ bị thay.
-  const mergedRequirements = mergeCapped(prev.requirements ?? [], plan.requirements, REQUIREMENT_LIMIT).items
+  const mergedRequirements = mergeCapped(prev.requirements ?? [], plan.requirements, Number.POSITIVE_INFINITY).items
   const mergedConstraints = mergeCapped(prev.constraints, plan.constraints, CONSTRAINT_LIMIT).items
   return {
     ...briefOf(plan, prompt, prev.goalId + 1, now),

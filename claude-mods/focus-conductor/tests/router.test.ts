@@ -190,7 +190,8 @@ describe('đọc JSON của router', () => {
   test('tối đa 20 việc; chuỗi dài bị cắt', () => {
     const tasks = Array.from({ length: 25 }, (_, i) => ({ title: `Việc ${i + 1} ${'x'.repeat(200)}`, run: 'main', model: 'sonnet', effort: 'low' }))
     const p = plan({ tasks })
-    expect(p.tasks.length).toBe(20)
+    // 0.8.7 L2: không còn trần số việc: giữ đủ 25 việc.
+    expect(p.tasks.length).toBe(25)
     expect(p.tasks[0]?.title.length).toBeLessThanOrEqual(140)
   })
 
