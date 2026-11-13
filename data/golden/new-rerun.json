@@ -1,0 +1,937 @@
+{
+  "version": "2.1.323 (Claude Code)",
+  "startedAt": "2026-11-13T01:24:22.250Z",
+  "model": "sonnet",
+  "runs": 3,
+  "results": [
+    {
+      "id": "k4-ref",
+      "n": 0,
+      "ok": true,
+      "fails": [],
+      "ms": 14893,
+      "outTokens": 1718,
+      "usd": 0.0226781,
+      "stats": {
+        "tasks": 12,
+        "reqs": 0,
+        "agents": 3,
+        "main": "sonnet/medium",
+        "picks": [
+          "main:sonnet/medium",
+          "agent:haiku/medium",
+          "main:sonnet/medium",
+          "agent:opus/high",
+          "main:opus/high",
+          "main:opus/high",
+          "main:opus/high",
+          "main:opus/high",
+          "agent:opus/high",
+          "main:opus/high",
+          "main:sonnet/medium",
+          "main:sonnet/medium"
+        ],
+        "relation": "new",
+        "depth": "substantial",
+        "volume": "large",
+        "covered": 0,
+        "firstConstraint": "",
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": "k4-ref",
+      "n": 1,
+      "ok": true,
+      "fails": [],
+      "ms": 14632,
+      "outTokens": 1746,
+      "usd": 0.0229541,
+      "stats": {
+        "tasks": 12,
+        "reqs": 2,
+        "agents": 3,
+        "main": "sonnet/medium",
+        "picks": [
+          "main:sonnet/medium",
+          "agent:haiku/medium",
+          "main:sonnet/medium",
+          "agent:opus/high",
+          "main:opus/xhigh",
+          "main:opus/high",
+          "main:opus/high",
+          "main:opus/high",
+          "agent:opus/high",
+          "main:sonnet/high",
+          "main:sonnet/medium",
+          "main:sonnet/medium"
+        ],
+        "relation": "new",
+        "depth": "none",
+        "volume": "small",
+        "covered": 1,
+        "firstConstraint": "",
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": "k4-ref",
+      "n": 2,
+      "ok": true,
+      "fails": [],
+      "ms": 14463,
+      "outTokens": 1668,
+      "usd": 0.022170099999999998,
+      "stats": {
+        "tasks": 12,
+        "reqs": 2,
+        "agents": 6,
+        "main": "sonnet/medium",
+        "picks": [
+          "agent:sonnet/medium",
+          "agent:haiku/medium",
+          "agent:sonnet/medium",
+          "agent:opus/high",
+          "main:opus/high",
+          "main:opus/high",
+          "main:opus/high",
+          "main:opus/high",
+          "agent:opus/high",
+          "agent:sonnet/high",
+          "main:opus/high",
+          "main:opus/medium"
+        ],
+        "relation": "new",
+        "depth": "substantial",
+        "volume": "medium",
+        "covered": 2,
+        "firstConstraint": "",
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": "again",
+      "n": 0,
+      "ok": true,
+      "fails": [],
+      "ms": 7041,
+      "outTokens": 351,
+      "usd": 0.007172100000000001,
+      "stats": {
+        "tasks": 0,
+        "reqs": 2,
+        "agents": 0,
+        "main": "sonnet/high",
+        "picks": [],
+        "relation": "dissatisfied",
+        "depth": "substantial",
+        "volume": "small",
+        "covered": 0,
+        "firstConstraint": "",
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": "again",
+      "n": 1,
+      "ok": true,
+      "fails": [],
+      "ms": 7226,
+      "outTokens": 344,
+      "usd": 0.0071101,
+      "stats": {
+        "tasks": 0,
+        "reqs": 2,
+        "agents": 0,
+        "main": "sonnet/high",
+        "picks": [],
+        "relation": "dissatisfied",
+        "depth": "light",
+        "volume": "small",
+        "covered": 0,
+        "firstConstraint": "",
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": "again",
+      "n": 2,
+      "ok": true,
+      "fails": [],
+      "ms": 6832,
+      "outTokens": 332,
+      "usd": 0.0069901,
+      "stats": {
+        "tasks": 0,
+        "reqs": 2,
+        "agents": 0,
+        "main": "sonnet/high",
+        "picks": [],
+        "relation": "dissatisfied",
+        "depth": "light",
+        "volume": "small",
+        "covered": 0,
+        "firstConstraint": "",
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": "six",
+      "n": 0,
+      "ok": false,
+      "fails": [
+        "luồng chính sonnet/medium, cần opus"
+      ],
+      "ms": 10948,
+      "outTokens": 1293,
+      "usd": 0.016604,
+      "stats": {
+        "tasks": 6,
+        "reqs": 9,
+        "agents": 6,
+        "main": "sonnet/medium",
+        "picks": [
+          "agent:haiku/low",
+          "agent:sonnet/medium",
+          "agent:opus/high",
+          "agent:sonnet/medium",
+          "agent:opus/high",
+          "agent:sonnet/low"
+        ],
+        "relation": "new",
+        "depth": "hard",
+        "volume": "large",
+        "covered": 9,
+        "firstConstraint": "Đổi userId thành accountId chỉ trong 12 file controller",
+        "confidence": 0.85
+      }
+    },
+    {
+      "id": "six",
+      "n": 1,
+      "ok": true,
+      "fails": [],
+      "ms": 11580,
+      "outTokens": 1243,
+      "usd": 0.0161,
+      "stats": {
+        "tasks": 6,
+        "reqs": 9,
+        "agents": 5,
+        "main": "opus/high",
+        "picks": [
+          "agent:haiku/low",
+          "agent:sonnet/medium",
+          "main:opus/high",
+          "agent:sonnet/medium",
+          "agent:opus/high",
+          "agent:sonnet/low"
+        ],
+        "relation": "new",
+        "depth": "hard",
+        "volume": "medium",
+        "covered": 9,
+        "firstConstraint": "Tìm kiếm charge chỉ trong src/",
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": "six",
+      "n": 2,
+      "ok": true,
+      "fails": [],
+      "ms": 9531,
+      "outTokens": 1198,
+      "usd": 0.015658000000000002,
+      "stats": {
+        "tasks": 6,
+        "reqs": 9,
+        "agents": 5,
+        "main": "opus/high",
+        "picks": [
+          "agent:haiku/low",
+          "agent:sonnet/medium",
+          "main:opus/high",
+          "agent:sonnet/medium",
+          "agent:opus/high",
+          "agent:sonnet/low"
+        ],
+        "relation": "new",
+        "depth": "hard",
+        "volume": "large",
+        "covered": 9,
+        "firstConstraint": "",
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": "answer-only",
+      "n": 0,
+      "ok": true,
+      "fails": [],
+      "ms": 6200,
+      "outTokens": 390,
+      "usd": 0.0075769,
+      "stats": {
+        "tasks": 0,
+        "reqs": 3,
+        "agents": 0,
+        "main": "opus/medium",
+        "picks": [],
+        "relation": "new",
+        "depth": "substantial",
+        "volume": "small",
+        "covered": 0,
+        "firstConstraint": "Không được sửa bất kỳ file nào",
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": "answer-only",
+      "n": 1,
+      "ok": true,
+      "fails": [],
+      "ms": 6509,
+      "outTokens": 373,
+      "usd": 0.0074029000000000005,
+      "stats": {
+        "tasks": 0,
+        "reqs": 2,
+        "agents": 0,
+        "main": "sonnet/medium",
+        "picks": [],
+        "relation": "new",
+        "depth": "substantial",
+        "volume": "small",
+        "covered": 0,
+        "firstConstraint": "Không sửa file, chỉ trả lời",
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": "answer-only",
+      "n": 2,
+      "ok": true,
+      "fails": [],
+      "ms": 6680,
+      "outTokens": 386,
+      "usd": 0.0075329,
+      "stats": {
+        "tasks": 0,
+        "reqs": 2,
+        "agents": 0,
+        "main": "opus/medium",
+        "picks": [],
+        "relation": "new",
+        "depth": "substantial",
+        "volume": "small",
+        "covered": 0,
+        "firstConstraint": "Không được sửa file, chỉ trả lời",
+        "confidence": 0.7
+      }
+    },
+    {
+      "id": "vague",
+      "n": 0,
+      "ok": true,
+      "fails": [],
+      "ms": 10521,
+      "outTokens": 775,
+      "usd": 0.0114113,
+      "stats": {
+        "tasks": 3,
+        "reqs": 3,
+        "agents": 0,
+        "main": "sonnet/medium",
+        "picks": [
+          "main:sonnet/medium",
+          "main:sonnet/medium",
+          "main:sonnet/medium"
+        ],
+        "relation": "new",
+        "depth": "substantial",
+        "volume": "medium",
+        "covered": 3,
+        "firstConstraint": "",
+        "confidence": 0.6
+      }
+    },
+    {
+      "id": "vague",
+      "n": 1,
+      "ok": true,
+      "fails": [],
+      "ms": 11185,
+      "outTokens": 774,
+      "usd": 0.0114093,
+      "stats": {
+        "tasks": 3,
+        "reqs": 3,
+        "agents": 0,
+        "main": "sonnet/medium",
+        "picks": [
+          "main:sonnet/medium",
+          "main:sonnet/medium",
+          "main:sonnet/medium"
+        ],
+        "relation": "new",
+        "depth": "substantial",
+        "volume": "medium",
+        "covered": 3,
+        "firstConstraint": "",
+        "confidence": 0.6
+      }
+    },
+    {
+      "id": "vague",
+      "n": 2,
+      "ok": true,
+      "fails": [],
+      "ms": 11716,
+      "outTokens": 813,
+      "usd": 0.011807300000000001,
+      "stats": {
+        "tasks": 3,
+        "reqs": 3,
+        "agents": 0,
+        "main": "sonnet/medium",
+        "picks": [
+          "main:sonnet/medium",
+          "main:sonnet/medium",
+          "main:sonnet/medium"
+        ],
+        "relation": "new",
+        "depth": "substantial",
+        "volume": "medium",
+        "covered": 3,
+        "firstConstraint": "",
+        "confidence": 0.6
+      }
+    },
+    {
+      "id": "perf-root",
+      "n": 0,
+      "ok": true,
+      "fails": [],
+      "ms": 6886,
+      "outTokens": 418,
+      "usd": 0.0078574,
+      "stats": {
+        "tasks": 0,
+        "reqs": 4,
+        "agents": 0,
+        "main": "opus/medium",
+        "picks": [],
+        "relation": "new",
+        "depth": "substantial",
+        "volume": "medium",
+        "covered": 0,
+        "firstConstraint": "Không sửa file nào, chỉ điều tra và báo cáo",
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": "perf-root",
+      "n": 1,
+      "ok": true,
+      "fails": [],
+      "ms": 7198,
+      "outTokens": 415,
+      "usd": 0.0077994,
+      "stats": {
+        "tasks": 0,
+        "reqs": 4,
+        "agents": 0,
+        "main": "opus/medium",
+        "picks": [],
+        "relation": "new",
+        "depth": "substantial",
+        "volume": "medium",
+        "covered": 0,
+        "firstConstraint": "Không sửa file/code, chỉ điều tra và báo cáo",
+        "confidence": 0.85
+      }
+    },
+    {
+      "id": "perf-root",
+      "n": 2,
+      "ok": true,
+      "fails": [],
+      "ms": 6541,
+      "outTokens": 410,
+      "usd": 0.007769399999999999,
+      "stats": {
+        "tasks": 0,
+        "reqs": 4,
+        "agents": 0,
+        "main": "opus/medium",
+        "picks": [],
+        "relation": "new",
+        "depth": "substantial",
+        "volume": "medium",
+        "covered": 0,
+        "firstConstraint": "Không sửa file nào, chỉ điều tra và báo cáo",
+        "confidence": 0.85
+      }
+    },
+    {
+      "id": "security-audit",
+      "n": 0,
+      "ok": true,
+      "fails": [],
+      "ms": 7288,
+      "outTokens": 446,
+      "usd": 0.0081343,
+      "stats": {
+        "tasks": 0,
+        "reqs": 6,
+        "agents": 0,
+        "main": "opus/high",
+        "picks": [],
+        "relation": "new",
+        "depth": "hard",
+        "volume": "medium",
+        "covered": 0,
+        "firstConstraint": "Không sửa code, chỉ báo cáo",
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": "security-audit",
+      "n": 1,
+      "ok": true,
+      "fails": [],
+      "ms": 6409,
+      "outTokens": 436,
+      "usd": 0.0080223,
+      "stats": {
+        "tasks": 0,
+        "reqs": 6,
+        "agents": 0,
+        "main": "opus/medium",
+        "picks": [],
+        "relation": "new",
+        "depth": "substantial",
+        "volume": "medium",
+        "covered": 0,
+        "firstConstraint": "Không sửa code, chỉ báo cáo và đề xuất cách sửa",
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": "security-audit",
+      "n": 2,
+      "ok": true,
+      "fails": [],
+      "ms": 6868,
+      "outTokens": 427,
+      "usd": 0.0079363,
+      "stats": {
+        "tasks": 0,
+        "reqs": 6,
+        "agents": 0,
+        "main": "opus/high",
+        "picks": [],
+        "relation": "new",
+        "depth": "hard",
+        "volume": "medium",
+        "covered": 0,
+        "firstConstraint": "Không sửa code, chỉ báo cáo phát hiện và cách sửa",
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": "prose-hidden",
+      "n": 0,
+      "ok": true,
+      "fails": [],
+      "ms": 11502,
+      "outTokens": 1021,
+      "usd": 0.013900000000000001,
+      "stats": {
+        "tasks": 4,
+        "reqs": 8,
+        "agents": 0,
+        "main": "sonnet/medium",
+        "picks": [
+          "main:sonnet/medium",
+          "main:sonnet/medium",
+          "main:sonnet/medium",
+          "main:sonnet/low"
+        ],
+        "relation": "new",
+        "depth": "substantial",
+        "volume": "medium",
+        "covered": 8,
+        "firstConstraint": "Không đổi chữ ký hàm công khai (ba service khác gọi)",
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": "prose-hidden",
+      "n": 1,
+      "ok": true,
+      "fails": [],
+      "ms": 10536,
+      "outTokens": 1081,
+      "usd": 0.014492000000000001,
+      "stats": {
+        "tasks": 4,
+        "reqs": 8,
+        "agents": 0,
+        "main": "sonnet/medium",
+        "picks": [
+          "main:sonnet/medium",
+          "main:sonnet/medium",
+          "main:sonnet/medium",
+          "main:sonnet/low"
+        ],
+        "relation": "new",
+        "depth": "substantial",
+        "volume": "medium",
+        "covered": 8,
+        "firstConstraint": "Không đổi chữ ký hàm công khai",
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": "prose-hidden",
+      "n": 2,
+      "ok": false,
+      "fails": [
+        "yêu cầu 8 không việc nào phủ"
+      ],
+      "ms": 11411,
+      "outTokens": 1096,
+      "usd": 0.014642,
+      "stats": {
+        "tasks": 4,
+        "reqs": 8,
+        "agents": 0,
+        "main": "sonnet/medium",
+        "picks": [
+          "main:sonnet/medium",
+          "main:sonnet/medium",
+          "main:sonnet/medium",
+          "main:sonnet/low"
+        ],
+        "relation": "new",
+        "depth": "substantial",
+        "volume": "medium",
+        "covered": 7,
+        "firstConstraint": "Không đổi chữ ký hàm công khai",
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": "long-vn",
+      "n": 0,
+      "ok": false,
+      "fails": [
+        "15 việc, cần 0 tới 10"
+      ],
+      "ms": 22899,
+      "outTokens": 3594,
+      "usd": 0.039936799999999995,
+      "stats": {
+        "tasks": 15,
+        "reqs": 29,
+        "agents": 5,
+        "main": "opus/high",
+        "picks": [
+          "agent:haiku/low",
+          "main:opus/high",
+          "main:opus/medium",
+          "main:opus/high",
+          "main:opus/high",
+          "main:opus/high",
+          "main:opus/high",
+          "main:opus/medium",
+          "agent:sonnet/medium",
+          "agent:sonnet/medium",
+          "agent:sonnet/medium",
+          "agent:sonnet/medium",
+          "main:opus/medium",
+          "main:opus/medium",
+          "main:opus/medium"
+        ],
+        "relation": "new",
+        "depth": "hard",
+        "volume": "large",
+        "covered": 29,
+        "firstConstraint": "Không động vào thư mục src/ke-toan",
+        "confidence": 0.7
+      }
+    },
+    {
+      "id": "long-vn",
+      "n": 1,
+      "ok": false,
+      "fails": [
+        "11 việc, cần 0 tới 10",
+        "33 yêu cầu, cần 12 tới 30"
+      ],
+      "ms": 22132,
+      "outTokens": 3388,
+      "usd": 0.0378648,
+      "stats": {
+        "tasks": 11,
+        "reqs": 33,
+        "agents": 7,
+        "main": "opus/high",
+        "picks": [
+          "agent:haiku/low",
+          "agent:sonnet/medium",
+          "agent:sonnet/medium",
+          "main:opus/high",
+          "main:opus/high",
+          "main:opus/high",
+          "agent:opus/high",
+          "agent:opus/medium",
+          "agent:sonnet/medium",
+          "agent:sonnet/medium",
+          "main:opus/medium"
+        ],
+        "relation": "new",
+        "depth": "hard",
+        "volume": "large",
+        "covered": 33,
+        "firstConstraint": "Không đổi Node, không thêm thư viện nặng (nêu lý do trước nếu cần)",
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": "long-vn",
+      "n": 2,
+      "ok": false,
+      "fails": [
+        "12 việc, cần 0 tới 10",
+        "32 yêu cầu, cần 12 tới 30",
+        "yêu cầu 32 không việc nào phủ"
+      ],
+      "ms": 22580,
+      "outTokens": 3528,
+      "usd": 0.0392808,
+      "stats": {
+        "tasks": 12,
+        "reqs": 32,
+        "agents": 9,
+        "main": "opus/high",
+        "picks": [
+          "agent:haiku/low",
+          "main:opus/high",
+          "agent:sonnet/medium",
+          "main:opus/high",
+          "agent:opus/high",
+          "agent:opus/high",
+          "agent:opus/high",
+          "agent:opus/medium",
+          "agent:sonnet/medium",
+          "agent:sonnet/medium",
+          "agent:sonnet/medium",
+          "main:opus/high"
+        ],
+        "relation": "new",
+        "depth": "hard",
+        "volume": "large",
+        "covered": 31,
+        "firstConstraint": "Không động vào thư mục src/ke-toan",
+        "confidence": 0.7
+      }
+    },
+    {
+      "id": "long-vn-xl",
+      "n": 0,
+      "ok": false,
+      "fails": [
+        "18 việc, cần 0 tới 10"
+      ],
+      "ms": 44760,
+      "outTokens": 6921,
+      "usd": 0.0733656,
+      "stats": {
+        "tasks": 18,
+        "reqs": 30,
+        "agents": 14,
+        "main": "opus/high",
+        "picks": [
+          "agent:haiku/low",
+          "main:opus/medium",
+          "agent:sonnet/high",
+          "agent:sonnet/high",
+          "agent:opus/high",
+          "agent:opus/high",
+          "agent:sonnet/medium",
+          "agent:opus/high",
+          "agent:sonnet/medium",
+          "agent:sonnet/medium",
+          "agent:sonnet/medium",
+          "agent:sonnet/high",
+          "agent:sonnet/high",
+          "agent:opus/high",
+          "agent:sonnet/medium",
+          "main:opus/medium",
+          "main:sonnet/medium",
+          "main:opus/medium"
+        ],
+        "relation": "new",
+        "depth": "hard",
+        "volume": "large",
+        "covered": 30,
+        "firstConstraint": "Không động vào thư mục src/ke-toan",
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": "long-vn-xl",
+      "n": 1,
+      "ok": false,
+      "fails": [
+        "16 việc, cần 0 tới 10",
+        "50 yêu cầu, cần 12 tới 30"
+      ],
+      "ms": 50790,
+      "outTokens": 8107,
+      "usd": 0.08521760000000002,
+      "stats": {
+        "tasks": 16,
+        "reqs": 50,
+        "agents": 13,
+        "main": "sonnet/high",
+        "picks": [
+          "agent:haiku/medium",
+          "agent:sonnet/high",
+          "agent:sonnet/high",
+          "agent:opus/high",
+          "agent:opus/high",
+          "agent:opus/high",
+          "agent:sonnet/medium",
+          "agent:sonnet/medium",
+          "agent:sonnet/medium",
+          "agent:sonnet/high",
+          "agent:sonnet/high",
+          "agent:opus/high",
+          "agent:sonnet/medium",
+          "main:sonnet/high",
+          "main:sonnet/high",
+          "main:sonnet/high"
+        ],
+        "relation": "new",
+        "depth": "hard",
+        "volume": "large",
+        "covered": 50,
+        "firstConstraint": "Không động vào thư mục src/ke-toan",
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": "long-vn-xl",
+      "n": 2,
+      "ok": false,
+      "fails": [
+        "17 việc, cần 0 tới 10",
+        "34 yêu cầu, cần 12 tới 30"
+      ],
+      "ms": 44568,
+      "outTokens": 6962,
+      "usd": 0.07375960000000001,
+      "stats": {
+        "tasks": 17,
+        "reqs": 34,
+        "agents": 15,
+        "main": "sonnet/high",
+        "picks": [
+          "agent:haiku/low",
+          "agent:sonnet/medium",
+          "agent:sonnet/medium",
+          "agent:sonnet/high",
+          "agent:opus/high",
+          "agent:opus/high",
+          "agent:sonnet/medium",
+          "agent:opus/high",
+          "agent:sonnet/medium",
+          "agent:sonnet/medium",
+          "agent:sonnet/medium",
+          "agent:sonnet/high",
+          "agent:sonnet/high",
+          "agent:opus/high",
+          "agent:sonnet/medium",
+          "main:sonnet/medium",
+          "main:sonnet/medium"
+        ],
+        "relation": "new",
+        "depth": "hard",
+        "volume": "large",
+        "covered": 34,
+        "firstConstraint": "Không động vào src/ke-toan",
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": "n1-amend-1",
+      "n": 0,
+      "ok": true,
+      "fails": [],
+      "ms": 6000,
+      "outTokens": 271,
+      "usd": 0.006374899999999999,
+      "stats": {
+        "tasks": 0,
+        "reqs": 1,
+        "agents": 0,
+        "main": "sonnet/low",
+        "picks": [],
+        "relation": "refine",
+        "depth": "light",
+        "volume": "small",
+        "covered": 0,
+        "firstConstraint": "",
+        "confidence": 0.85
+      }
+    },
+    {
+      "id": "n1-amend-1",
+      "n": 1,
+      "ok": true,
+      "fails": [],
+      "ms": 6623,
+      "outTokens": 270,
+      "usd": 0.0063809,
+      "stats": {
+        "tasks": 0,
+        "reqs": 1,
+        "agents": 0,
+        "main": "sonnet/low",
+        "picks": [],
+        "relation": "refine",
+        "depth": "light",
+        "volume": "small",
+        "covered": 0,
+        "firstConstraint": "",
+        "confidence": 0.9
+      }
+    },
+    {
+      "id": "n1-amend-1",
+      "n": 2,
+      "ok": true,
+      "fails": [],
+      "ms": 6355,
+      "outTokens": 298,
+      "usd": 0.0066449000000000005,
+      "stats": {
+        "tasks": 0,
+        "reqs": 1,
+        "agents": 0,
+        "main": "sonnet/medium",
+        "picks": [],
+        "relation": "refine",
+        "depth": "light",
+        "volume": "small",
+        "covered": 0,
+        "firstConstraint": "",
+        "confidence": 0.85
+      }
+    }
+  ]
+}

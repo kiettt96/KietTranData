@@ -1,0 +1,58 @@
+Claude Code 2.1.323 (Claude Code), router sonnet, 3 lần mỗi ca, 2026-11-13T01:24:22.250Z
+ĐẠT  k4-ref         3/3  14.7s $0.0678 served=claude-sonnet-5-5
+ĐẠT  again          3/3   7.0s $0.0213 served=claude-sonnet-5-5
+CHẬP six            2/3  10.7s $0.0484 served=claude-sonnet-5-5
+     luồng chính sonnet/medium, cần opus
+ĐẠT  answer-only    3/3   6.5s $0.0225 served=claude-sonnet-5-5
+ĐẠT  vague          3/3  11.1s $0.0346 served=claude-sonnet-5-5
+ĐẠT  perf-root      3/3   6.9s $0.0234 served=claude-sonnet-5-5
+ĐẠT  security-audit 3/3   6.9s $0.0241 served=claude-sonnet-5-5
+CHẬP prose-hidden   2/3  11.1s $0.0430 served=claude-sonnet-5-5
+     yêu cầu 8 không việc nào phủ
+LỆCH long-vn        0/3  22.5s $0.1171 served=claude-sonnet-5-5
+     15 việc, cần 0 tới 10
+     11 việc, cần 0 tới 10
+     33 yêu cầu, cần 12 tới 30
+     12 việc, cần 0 tới 10
+     32 yêu cầu, cần 12 tới 30
+     yêu cầu 32 không việc nào phủ
+LỆCH long-vn-xl     0/3  46.7s $0.2323 served=claude-sonnet-5-5
+     18 việc, cần 0 tới 10
+     16 việc, cần 0 tới 10
+     50 yêu cầu, cần 12 tới 30
+     17 việc, cần 0 tới 10
+     34 yêu cầu, cần 12 tới 30
+ĐẠT  n1-amend-1     3/3   6.3s $0.0194 served=claude-sonnet-5-5
+
+Thống kê câu trả lời (việc tách ra / giao subagent, luồng chính):
+  k4-ref         việc 12/12/12 (giao 3/3/6); yêu cầu 0/2/2; main sonnet/medium 3
+  again          việc 0/0/0 (giao 0/0/0); yêu cầu 2/2/2; main sonnet/high 3
+  six            việc 6/6/6 (giao 6/5/5); yêu cầu 9/9/9; main opus/high 2, sonnet/medium 1
+  answer-only    việc 0/0/0 (giao 0/0/0); yêu cầu 3/2/2; main opus/medium 2, sonnet/medium 1
+  vague          việc 3/3/3 (giao 0/0/0); yêu cầu 3/3/3; main sonnet/medium 3
+  perf-root      việc 0/0/0 (giao 0/0/0); yêu cầu 4/4/4; main opus/medium 3
+  security-audit việc 0/0/0 (giao 0/0/0); yêu cầu 6/6/6; main opus/high 2, opus/medium 1
+  prose-hidden   việc 4/4/4 (giao 0/0/0); yêu cầu 8/8/8; main sonnet/medium 3
+  long-vn        việc 15/11/12 (giao 5/7/9); yêu cầu 29/33/32; main opus/high 3
+  long-vn-xl     việc 18/16/17 (giao 14/13/15); yêu cầu 30/50/34; main sonnet/high 2, opus/high 1
+  n1-amend-1     việc 0/0/0 (giao 0/0/0); yêu cầu 1/1/1; main sonnet/low 2, sonnet/medium 1
+  Tổng: việc tách ra TB 4.97, giao subagent TB 2.76, yêu cầu TB 9.64 (33/33 lượt đọc được)
+  Luồng chính: sonnet/medium 12, opus/high 8, opus/medium 6, sonnet/high 5, sonnet/low 2
+  Việc: agent:sonnet/medium 36, main:sonnet/medium 29, agent:opus/high 26, main:opus/high 26, agent:sonnet/high 12, main:opus/medium 10, agent:haiku/low 8, agent:haiku/medium 4, main:sonnet/high 4, agent:sonnet/low 3, main:sonnet/low 3, agent:opus/medium 2, main:opus/xhigh 1
+  Tin cậy: 0.8 26, 0.7 3, 0.6 3, 0.9 1; dưới 0,8: 6/33 lượt
+
+Thời gian (giây) và token đầu ra theo ca: trung vị / p95 / lớn nhất
+  k4-ref         14.6 / 14.9 / 14.9 s; token 1718 / 1746 / 1746
+  again          7.0 / 7.2 / 7.2 s; token 344 / 351 / 351
+  six            10.9 / 11.6 / 11.6 s; token 1243 / 1293 / 1293
+  answer-only    6.5 / 6.7 / 6.7 s; token 386 / 390 / 390
+  vague          11.2 / 11.7 / 11.7 s; token 775 / 813 / 813
+  perf-root      6.9 / 7.2 / 7.2 s; token 415 / 418 / 418
+  security-audit 6.9 / 7.3 / 7.3 s; token 436 / 446 / 446
+  prose-hidden   11.4 / 11.5 / 11.5 s; token 1081 / 1096 / 1096
+  long-vn        22.6 / 22.9 / 22.9 s; token 3528 / 3594 / 3594
+  long-vn-xl     44.8 / 50.8 / 50.8 s; token 6962 / 8107 / 8107
+  n1-amend-1     6.4 / 6.6 / 6.6 s; token 271 / 298 / 298
+  Thời gian TB 13.7 s; chi phí 0.654 USD cho 33 lượt (TB 0.0198 USD)
+
+7/11 ca đạt mọi lần; 25/33 lượt đạt (router sonnet, tổng $0.6540)

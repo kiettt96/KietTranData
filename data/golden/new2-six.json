@@ -1,0 +1,99 @@
+{
+  "version": "2.1.323 (Claude Code)",
+  "startedAt": "2026-11-13T04:40:48.404Z",
+  "model": "sonnet",
+  "runs": 3,
+  "results": [
+    {
+      "id": "six",
+      "n": 0,
+      "ok": false,
+      "fails": [
+        "luồng chính sonnet/medium, cần opus"
+      ],
+      "ms": 12972,
+      "outTokens": 1277,
+      "usd": 0.0164489,
+      "stats": {
+        "tasks": 6,
+        "reqs": 9,
+        "agents": 6,
+        "main": "sonnet/medium",
+        "picks": [
+          "agent:haiku/low",
+          "agent:sonnet/medium",
+          "agent:opus/high",
+          "agent:sonnet/medium",
+          "agent:opus/high",
+          "agent:sonnet/low"
+        ],
+        "relation": "new",
+        "depth": "hard",
+        "volume": "large",
+        "covered": 9,
+        "firstConstraint": "Tìm kiếm chỉ trong src/",
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": "six",
+      "n": 1,
+      "ok": false,
+      "fails": [
+        "luồng chính sonnet/medium, cần opus"
+      ],
+      "ms": 11963,
+      "outTokens": 1285,
+      "usd": 0.0165529,
+      "stats": {
+        "tasks": 6,
+        "reqs": 9,
+        "agents": 6,
+        "main": "sonnet/medium",
+        "picks": [
+          "agent:haiku/low",
+          "agent:sonnet/medium",
+          "agent:opus/high",
+          "agent:sonnet/medium",
+          "agent:opus/high",
+          "agent:sonnet/low"
+        ],
+        "relation": "new",
+        "depth": "hard",
+        "volume": "large",
+        "covered": 9,
+        "firstConstraint": "Đổi tên userId thành accountId chỉ trong 12 file controller",
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": "six",
+      "n": 2,
+      "ok": true,
+      "fails": [],
+      "ms": 12779,
+      "outTokens": 1235,
+      "usd": 0.0160409,
+      "stats": {
+        "tasks": 6,
+        "reqs": 10,
+        "agents": 5,
+        "main": "opus/high",
+        "picks": [
+          "agent:haiku/low",
+          "agent:sonnet/medium",
+          "main:opus/high",
+          "agent:sonnet/medium",
+          "agent:opus/high",
+          "agent:sonnet/low"
+        ],
+        "relation": "new",
+        "depth": "hard",
+        "volume": "large",
+        "covered": 10,
+        "firstConstraint": "",
+        "confidence": 0.8
+      }
+    }
+  ]
+}

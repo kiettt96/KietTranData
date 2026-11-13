@@ -1,0 +1,24 @@
+Claude Code 2.1.323 (Claude Code), router claude-fable-5-2, 3 lần mỗi ca, 2026-11-13T04:32:14.710Z
+ĐẠT  c4-big-coded   3/3  17.0s $0.4379 served=claude-fable-5-2
+ĐẠT  c4-big-skill   3/3  16.7s $0.2945 served=claude-fable-5-2
+ĐẠT  c4-small       3/3   7.6s $0.1105 served=claude-fable-5-2
+ĐẠT  c4-status      3/3   8.3s $0.1146 served=claude-fable-5-2
+
+Thống kê câu trả lời (việc tách ra / giao subagent, luồng chính):
+  c4-big-coded   việc 4/4/4 (giao 4/4/4); yêu cầu 7/6/5; main sonnet/medium 3
+  c4-big-skill   việc 3/3/3 (giao 3/3/3); yêu cầu 10/10/11; main sonnet/high 2, sonnet/medium 1
+  c4-small       việc 0/0/0 (giao 0/0/0); yêu cầu 1/1/2; main sonnet/low 3
+  c4-status      việc 0/0/0 (giao 0/0/0); yêu cầu 0/0/0; main haiku/low 3
+  Tổng: việc tách ra TB 1.75, giao subagent TB 1.75, yêu cầu TB 4.42 (12/12 lượt đọc được)
+  Luồng chính: sonnet/medium 4, sonnet/low 3, haiku/low 3, sonnet/high 2
+  Việc: agent:sonnet/medium 16, agent:sonnet/low 3, agent:sonnet/high 2
+  Tin cậy: 0.9 6, 0.8 5, 0.7 1; dưới 0,8: 1/12 lượt
+
+Thời gian (giây) và token đầu ra theo ca: trung vị / p95 / lớn nhất
+  c4-big-coded   17.2 / 17.3 / 17.3 s; token 1440 / 1567 / 1567
+  c4-big-skill   14.0 / 22.2 / 22.2 s; token 1135 / 1918 / 1918
+  c4-small       7.4 / 8.2 / 8.2 s; token 289 / 296 / 296
+  c4-status      8.4 / 8.6 / 8.6 s; token 224 / 226 / 226
+  Thời gian TB 12.4 s; chi phí 0.957 USD cho 12 lượt (TB 0.0798 USD)
+
+4/4 ca đạt mọi lần; 12/12 lượt đạt (router claude-fable-5-2, tổng $0.9574)

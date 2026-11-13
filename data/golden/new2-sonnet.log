@@ -1,0 +1,165 @@
+Claude Code 2.1.323 (Claude Code), router sonnet, 3 lần mỗi ca, 2026-11-13T04:32:05.205Z
+CHẬP k4-ref         2/3  17.0s $0.3466 served=claude-sonnet-5-5
+     15 việc, cần 8 tới 14
+ĐẠT  k4             3/3  19.9s $0.1914 served=claude-sonnet-5-5
+ĐẠT  three          3/3   7.7s $0.0393 served=claude-sonnet-5-5
+ĐẠT  refactor       3/3  11.2s $0.0525 served=claude-sonnet-5-5
+ĐẠT  list           3/3   5.6s $0.0246 served=claude-sonnet-5-5
+ĐẠT  race           3/3   6.3s $0.0242 served=claude-sonnet-5-5
+ĐẠT  rename         3/3   7.0s $0.0238 served=claude-sonnet-5-5
+ĐẠT  again          3/3   6.8s $0.0291 served=claude-sonnet-5-5
+ĐẠT  explain        3/3   6.8s $0.0253 served=claude-sonnet-5-5
+CHẬP six            1/3  10.7s $0.0530 served=claude-sonnet-5-5
+     luồng chính sonnet/medium, cần opus
+ĐẠT  continue       3/3   6.5s $0.0228 served=claude-sonnet-5-5
+ĐẠT  flaky          3/3   8.5s $0.0444 served=claude-sonnet-5-5
+ĐẠT  mixed-lang     3/3   6.0s $0.0283 served=claude-sonnet-5-5
+ĐẠT  big-code       3/3   6.0s $0.0468 served=claude-sonnet-5-5
+ĐẠT  answer-only    3/3   6.3s $0.0270 served=claude-sonnet-5-5
+ĐẠT  vague          3/3  10.0s $0.0434 served=claude-sonnet-5-5
+ĐẠT  scope-bash     3/3   7.8s $0.0297 served=claude-sonnet-5-5
+ĐẠT  two-goals      3/3   7.4s $0.0326 served=claude-sonnet-5-5
+ĐẠT  policy         3/3   6.7s $0.0271 served=claude-sonnet-5-5
+ĐẠT  redo           3/3   6.2s $0.0272 served=claude-sonnet-5-5
+ĐẠT  aside          3/3   7.8s $0.0263 served=claude-sonnet-5-5
+ĐẠT  migration      3/3   9.3s $0.0318 served=claude-sonnet-5-5
+ĐẠT  docs-only      3/3   6.1s $0.0248 served=claude-sonnet-5-5
+ĐẠT  en-prompt      3/3   7.4s $0.0273 served=claude-sonnet-5-5
+ĐẠT  perf-root      3/3   7.3s $0.0313 served=claude-sonnet-5-5
+ĐẠT  security-audit 3/3   6.6s $0.0271 served=claude-sonnet-5-5
+ĐẠT  format-only    3/3   5.5s $0.0247 served=claude-sonnet-5-5
+ĐẠT  compare-libs   3/3   6.4s $0.0290 served=claude-sonnet-5-5
+ĐẠT  polite-small   3/3   6.2s $0.0283 served=claude-sonnet-5-5
+ĐẠT  new-after      3/3   7.1s $0.0255 served=claude-sonnet-5-5
+ĐẠT  prose-hidden   3/3   8.7s $0.0349 served=claude-sonnet-5-5
+ĐẠT  single-block   3/3   6.0s $0.0310 served=claude-sonnet-5-5
+ĐẠT  long-vn        3/3  23.5s $0.1666 served=claude-sonnet-5-5
+ĐẠT  long-vn-xl     3/3  40.1s $0.2281 served=claude-sonnet-5-5
+ĐẠT  long-coded     3/3  23.2s $0.2542 served=claude-sonnet-5-5
+ĐẠT  n1-status-1    3/3   5.8s $0.0252 served=claude-sonnet-5-5
+ĐẠT  n1-status-2    3/3   6.8s $0.0251 served=claude-sonnet-5-5
+ĐẠT  n1-status-3    3/3   6.7s $0.0203 served=claude-sonnet-5-5
+ĐẠT  n1-resume-1    3/3   5.3s $0.0233 served=claude-sonnet-5-5
+ĐẠT  n1-resume-2    3/3   5.9s $0.0258 served=claude-sonnet-5-5
+ĐẠT  n1-resume-3    3/3   5.5s $0.0257 served=claude-sonnet-5-5
+ĐẠT  n1-approve-1   3/3   5.3s $0.0211 served=claude-sonnet-5-5
+ĐẠT  n1-approve-2   3/3   5.6s $0.0238 served=claude-sonnet-5-5
+ĐẠT  n1-approve-3   3/3   5.3s $0.0263 served=claude-sonnet-5-5
+ĐẠT  n1-amend-1     3/3   5.9s $0.0267 served=claude-sonnet-5-5
+ĐẠT  n1-amend-2     3/3   6.2s $0.0217 served=claude-sonnet-5-5
+ĐẠT  n1-amend-3     3/3   6.0s $0.0243 served=claude-sonnet-5-5
+ĐẠT  n1-task-1      3/3   6.9s $0.0305 served=claude-sonnet-5-5
+ĐẠT  n1-task-2      3/3   6.3s $0.0289 served=claude-sonnet-5-5
+ĐẠT  n1-task-3      3/3   6.5s $0.0236 served=claude-sonnet-5-5
+
+Thống kê câu trả lời (việc tách ra / giao subagent, luồng chính):
+  k4-ref         việc 12/12/15 (giao 4/7/11); yêu cầu 0/3/20; main sonnet/medium 2, sonnet/low 1
+  k4             việc 12/12/12 (giao 4/3/3); yêu cầu 19/21/28; main opus/high 3
+  three          việc 3/3/3 (giao 2/2/2); yêu cầu 3/3/3; main sonnet/medium 3
+  refactor       việc 4/4/4 (giao 2/2/0); yêu cầu 7/7/7; main opus/high 3
+  list           việc 0/0/0 (giao 0/0/0); yêu cầu 1/1/1; main haiku/low 3
+  race           việc 0/0/0 (giao 0/0/0); yêu cầu 4/2/4; main opus/high 3
+  rename         việc 0/0/0 (giao 0/0/0); yêu cầu 2/2/2; main sonnet/medium 3
+  again          việc 0/0/0 (giao 0/0/0); yêu cầu 2/2/2; main sonnet/high 3
+  explain        việc 0/0/0 (giao 0/0/0); yêu cầu 1/1/1; main haiku/low 3
+  six            việc 6/6/6 (giao 5/6/6); yêu cầu 9/9/9; main sonnet/medium 2, opus/high 1
+  continue       việc 0/0/0 (giao 0/0/0); yêu cầu 0/0/0; main sonnet/medium 3
+  flaky          việc 0/0/0 (giao 0/0/0); yêu cầu 2/2/2; main opus/medium 3
+  mixed-lang     việc 0/0/0 (giao 0/0/0); yêu cầu 3/3/3; main sonnet/low 3
+  big-code       việc 0/0/0 (giao 0/0/0); yêu cầu 1/1/2; main haiku/low 2, sonnet/low 1
+  answer-only    việc 0/0/0 (giao 0/0/0); yêu cầu 2/2/2; main sonnet/medium 2, opus/medium 1
+  vague          việc 4/3/3 (giao 1/0/0); yêu cầu 3/3/3; main sonnet/medium 2, sonnet/high 1
+  scope-bash     việc 0/0/0 (giao 0/0/0); yêu cầu 4/4/4; main sonnet/low 3
+  two-goals      việc 2/2/2 (giao 1/1/1); yêu cầu 2/2/2; main sonnet/medium 3
+  policy         việc 0/0/0 (giao 0/0/0); yêu cầu 3/3/3; main sonnet/medium 2, sonnet/high 1
+  redo           việc 0/0/0 (giao 0/0/0); yêu cầu 2/2/2; main sonnet/high 3
+  aside          việc 0/0/0 (giao 0/0/0); yêu cầu 1/1/1; main haiku/low 3
+  migration      việc 0/0/0 (giao 0/0/0); yêu cầu 4/5/5; main opus/high 3
+  docs-only      việc 0/0/0 (giao 0/0/0); yêu cầu 2/2/2; main sonnet/low 3
+  en-prompt      việc 0/0/0 (giao 0/0/0); yêu cầu 4/4/4; main sonnet/medium 3
+  perf-root      việc 0/0/0 (giao 0/0/0); yêu cầu 4/4/4; main opus/medium 3
+  security-audit việc 0/0/0 (giao 0/0/0); yêu cầu 6/6/6; main opus/medium 2, opus/high 1
+  format-only    việc 0/0/0 (giao 0/0/0); yêu cầu 2/2/2; main sonnet/low 3
+  compare-libs   việc 0/0/0 (giao 0/0/0); yêu cầu 4/4/4; main sonnet/low 3
+  polite-small   việc 0/0/0 (giao 0/0/0); yêu cầu 2/2/2; main sonnet/low 3
+  new-after      việc 0/0/0 (giao 0/0/0); yêu cầu 3/3/3; main sonnet/medium 3
+  prose-hidden   việc 0/0/0 (giao 0/0/0); yêu cầu 9/8/9; main sonnet/medium 2, opus/medium 1
+  single-block   việc 0/0/0 (giao 0/0/0); yêu cầu 3/3/3; main sonnet/low 3
+  long-vn        việc 12/12/14 (giao 6/6/9); yêu cầu 31/37/36; main opus/high 3
+  long-vn-xl     việc 18/19/18 (giao 17/18/15); yêu cầu 38/46/40; main opus/high 2, sonnet/high 1
+  long-coded     việc 11/11/11 (giao 3/2/2); yêu cầu 21/19/22; main sonnet/medium 2, sonnet/high 1
+  n1-status-1    việc 0/0/0 (giao 0/0/0); yêu cầu 0/0/0; main haiku/low 3
+  n1-status-2    việc 0/0/0 (giao 0/0/0); yêu cầu 0/0/0; main haiku/low 3
+  n1-status-3    việc 0/0/0 (giao 0/0/0); yêu cầu 0/0/0; main haiku/low 3
+  n1-resume-1    việc 0/0/0 (giao 0/0/0); yêu cầu 0/0/0; main sonnet/medium 3
+  n1-resume-2    việc 0/0/0 (giao 0/0/0); yêu cầu 0/0/0; main sonnet/medium 3
+  n1-resume-3    việc 0/0/0 (giao 0/0/0); yêu cầu 0/0/0; main sonnet/medium 3
+  n1-approve-1   việc 0/0/0 (giao 0/0/0); yêu cầu 0/0/0; main sonnet/medium 3
+  n1-approve-2   việc 0/0/0 (giao 0/0/0); yêu cầu 0/0/0; main sonnet/medium 3
+  n1-approve-3   việc 0/0/0 (giao 0/0/0); yêu cầu 0/0/0; main sonnet/medium 3
+  n1-amend-1     việc 0/0/0 (giao 0/0/0); yêu cầu 1/1/1; main sonnet/medium 3
+  n1-amend-2     việc 0/0/0 (giao 0/0/0); yêu cầu 1/1/1; main sonnet/medium 3
+  n1-amend-3     việc 0/0/0 (giao 0/0/0); yêu cầu 1/1/1; main sonnet/medium 3
+  n1-task-1      việc 0/0/0 (giao 0/0/0); yêu cầu 2/2/2; main sonnet/medium 3
+  n1-task-2      việc 0/0/0 (giao 0/0/0); yêu cầu 2/3/2; main sonnet/medium 3
+  n1-task-3      việc 0/0/0 (giao 0/0/0); yêu cầu 1/1/1; main sonnet/medium 3
+  Tổng: việc tách ra TB 1.71, giao subagent TB 0.94, yêu cầu TB 4.61 (150/150 lượt đọc được)
+  Luồng chính: sonnet/medium 68, sonnet/low 23, haiku/low 20, opus/high 19, sonnet/high 10, opus/medium 10
+  Việc: agent:sonnet/medium 51, main:sonnet/medium 50, agent:opus/high 42, main:opus/high 42, agent:sonnet/high 14, main:opus/medium 13, agent:sonnet/low 13, agent:haiku/low 13, main:sonnet/low 7, agent:opus/medium 7, main:sonnet/high 3, agent:haiku/medium 1
+  Tin cậy: 0.9 74, 0.8 62, 0.7 11, 0.6 3; dưới 0,8: 14/150 lượt
+
+Thời gian (giây) và token đầu ra theo ca: trung vị / p95 / lớn nhất
+  k4-ref         12.2 / 27.0 / 27.0 s; token 1628 / 3716 / 3716
+  k4             19.8 / 20.2 / 20.2 s; token 2951 / 2966 / 2966
+  three          7.5 / 8.5 / 8.5 s; token 783 / 806 / 806
+  refactor       11.0 / 12.0 / 12.0 s; token 1124 / 1130 / 1130
+  list           5.8 / 5.9 / 5.9 s; token 226 / 257 / 257
+  race           6.4 / 6.4 / 6.4 s; token 363 / 378 / 378
+  rename         7.2 / 7.4 / 7.4 s; token 388 / 416 / 416
+  again          6.8 / 7.0 / 7.0 s; token 368 / 372 / 372
+  explain        6.9 / 7.0 / 7.0 s; token 257 / 260 / 260
+  six            10.4 / 11.7 / 11.7 s; token 1290 / 1316 / 1316
+  continue       5.6 / 8.5 / 8.5 s; token 240 / 240 / 240
+  flaky          8.5 / 8.7 / 8.7 s; token 347 / 373 / 373
+  mixed-lang     5.9 / 6.2 / 6.2 s; token 342 / 354 / 354
+  big-code       6.1 / 6.2 / 6.2 s; token 331 / 342 / 342
+  answer-only    6.3 / 6.5 / 6.5 s; token 374 / 389 / 389
+  vague          10.0 / 10.7 / 10.7 s; token 849 / 911 / 911
+  scope-bash     7.9 / 7.9 / 7.9 s; token 389 / 391 / 391
+  two-goals      7.1 / 8.4 / 8.4 s; token 646 / 648 / 648
+  policy         6.7 / 7.1 / 7.1 s; token 394 / 394 / 394
+  redo           6.4 / 6.8 / 6.8 s; token 312 / 318 / 318
+  aside          7.9 / 8.0 / 8.0 s; token 261 / 291 / 291
+  migration      9.5 / 10.0 / 10.0 s; token 619 / 623 / 623
+  docs-only      6.0 / 6.8 / 6.8 s; token 318 / 328 / 328
+  en-prompt      7.5 / 7.6 / 7.6 s; token 315 / 324 / 324
+  perf-root      7.3 / 7.6 / 7.6 s; token 443 / 456 / 456
+  security-audit 6.6 / 6.6 / 6.6 s; token 458 / 460 / 460
+  format-only    5.6 / 5.8 / 5.8 s; token 308 / 315 / 315
+  compare-libs   6.3 / 6.7 / 6.7 s; token 354 / 390 / 390
+  polite-small   6.1 / 6.5 / 6.5 s; token 351 / 352 / 352
+  new-after      7.3 / 7.5 / 7.5 s; token 395 / 455 / 455
+  prose-hidden   8.9 / 9.6 / 9.6 s; token 608 / 610 / 610
+  single-block   6.0 / 6.1 / 6.1 s; token 425 / 425 / 425
+  long-vn        23.8 / 24.5 / 24.5 s; token 3715 / 3783 / 3783
+  long-vn-xl     43.3 / 47.0 / 47.0 s; token 7014 / 7620 / 7620
+  long-coded     22.6 / 28.6 / 28.6 s; token 3551 / 4186 / 4186
+  n1-status-1    5.9 / 6.4 / 6.4 s; token 229 / 230 / 230
+  n1-status-2    6.7 / 7.4 / 7.4 s; token 223 / 227 / 227
+  n1-status-3    6.5 / 7.3 / 7.3 s; token 227 / 233 / 233
+  n1-resume-1    5.3 / 5.8 / 5.8 s; token 244 / 247 / 247
+  n1-resume-2    6.2 / 6.2 / 6.2 s; token 246 / 251 / 251
+  n1-resume-3    5.4 / 5.8 / 5.8 s; token 247 / 248 / 248
+  n1-approve-1   5.3 / 5.4 / 5.4 s; token 250 / 251 / 251
+  n1-approve-2   5.7 / 5.8 / 5.8 s; token 247 / 250 / 250
+  n1-approve-3   5.6 / 5.6 / 5.6 s; token 252 / 268 / 268
+  n1-amend-1     6.1 / 6.1 / 6.1 s; token 275 / 285 / 285
+  n1-amend-2     6.0 / 6.8 / 6.8 s; token 271 / 277 / 277
+  n1-amend-3     5.8 / 6.5 / 6.5 s; token 277 / 284 / 284
+  n1-task-1      6.9 / 7.1 / 7.1 s; token 394 / 405 / 405
+  n1-task-2      6.1 / 6.7 / 6.7 s; token 343 / 358 / 358
+  n1-task-3      6.6 / 7.2 / 7.2 s; token 332 / 408 / 408
+  Thời gian TB 8.6 s; chi phí 2.502 USD cho 150 lượt (TB 0.0167 USD)
+
+48/50 ca đạt mọi lần; 147/150 lượt đạt (router sonnet, tổng $2.5024)
+Đã ghi 50/50 ca vào claude-mods/focus-conductor/tests/golden/replies.ts

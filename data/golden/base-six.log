@@ -1,0 +1,16 @@
+Claude Code 2.1.323 (Claude Code), router sonnet, 3 lần mỗi ca, 2026-11-13T04:40:48.401Z
+CHẬP six            2/3  11.3s $0.1016 served=claude-sonnet-5-5
+     luồng chính sonnet/medium, cần opus
+
+Thống kê câu trả lời (việc tách ra / giao subagent, luồng chính):
+  six            việc 6/6/6 (giao 5/6/5); yêu cầu 9/9/9; main opus/high 2, sonnet/medium 1
+  Tổng: việc tách ra TB 6.00, giao subagent TB 5.33, yêu cầu TB 9.00 (3/3 lượt đọc được)
+  Luồng chính: opus/high 2, sonnet/medium 1
+  Việc: agent:sonnet/medium 6, agent:opus/high 4, agent:haiku/low 3, agent:sonnet/low 3, main:opus/high 2
+  Tin cậy: 0.8 3; dưới 0,8: 0/3 lượt
+
+Thời gian (giây) và token đầu ra theo ca: trung vị / p95 / lớn nhất
+  six            11.2 / 11.9 / 11.9 s; token 1266 / 1269 / 1269
+  Thời gian TB 11.3 s; chi phí 0.102 USD cho 3 lượt (TB 0.0339 USD)
+
+0/1 ca đạt mọi lần; 2/3 lượt đạt (router sonnet, tổng $0.1016)

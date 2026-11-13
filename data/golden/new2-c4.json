@@ -1,0 +1,299 @@
+{
+  "version": "2.1.323 (Claude Code)",
+  "startedAt": "2026-11-13T04:39:31.324Z",
+  "model": "claude-fable-5-2",
+  "runs": 3,
+  "results": [
+    {
+      "id": "c4-big-coded",
+      "n": 0,
+      "ok": true,
+      "fails": [],
+      "ms": 17900,
+      "outTokens": 1577,
+      "usd": 0.147224,
+      "stats": {
+        "tasks": 4,
+        "reqs": 6,
+        "agents": 4,
+        "main": "sonnet/medium",
+        "picks": [
+          "agent:sonnet/medium",
+          "agent:sonnet/medium",
+          "agent:sonnet/medium",
+          "agent:sonnet/low"
+        ],
+        "relation": "new",
+        "depth": "substantial",
+        "volume": "medium",
+        "covered": 6,
+        "firstConstraint": "Chạy bun test sau mỗi bước",
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": "c4-big-coded",
+      "n": 1,
+      "ok": true,
+      "fails": [],
+      "ms": 16287,
+      "outTokens": 1420,
+      "usd": 0.14096,
+      "stats": {
+        "tasks": 4,
+        "reqs": 6,
+        "agents": 4,
+        "main": "sonnet/medium",
+        "picks": [
+          "agent:sonnet/medium",
+          "agent:sonnet/medium",
+          "agent:sonnet/medium",
+          "agent:sonnet/low"
+        ],
+        "relation": "new",
+        "depth": "substantial",
+        "volume": "medium",
+        "covered": 6,
+        "firstConstraint": "Chạy bun test sau mỗi bước",
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": "c4-big-coded",
+      "n": 2,
+      "ok": true,
+      "fails": [],
+      "ms": 16178,
+      "outTokens": 1542,
+      "usd": 0.145824,
+      "stats": {
+        "tasks": 4,
+        "reqs": 7,
+        "agents": 4,
+        "main": "sonnet/medium",
+        "picks": [
+          "agent:sonnet/medium",
+          "agent:sonnet/medium",
+          "agent:sonnet/medium",
+          "agent:sonnet/low"
+        ],
+        "relation": "new",
+        "depth": "substantial",
+        "volume": "medium",
+        "covered": 7,
+        "firstConstraint": "Chạy bun test sau mỗi bước",
+        "confidence": 0.82
+      }
+    },
+    {
+      "id": "c4-big-skill",
+      "n": 0,
+      "ok": true,
+      "fails": [],
+      "ms": 14334,
+      "outTokens": 1186,
+      "usd": 0.132832,
+      "stats": {
+        "tasks": 3,
+        "reqs": 10,
+        "agents": 3,
+        "main": "sonnet/high",
+        "picks": [
+          "agent:sonnet/high",
+          "agent:sonnet/medium",
+          "agent:sonnet/medium"
+        ],
+        "relation": "new",
+        "depth": "substantial",
+        "volume": "medium",
+        "covered": 10,
+        "firstConstraint": "Giữ nguyên giọng văn hiện có",
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": "c4-big-skill",
+      "n": 1,
+      "ok": true,
+      "fails": [],
+      "ms": 19335,
+      "outTokens": 1791,
+      "usd": 0.08555240000000001,
+      "stats": {
+        "tasks": 3,
+        "reqs": 10,
+        "agents": 3,
+        "main": "sonnet/high",
+        "picks": [
+          "agent:sonnet/medium",
+          "agent:sonnet/medium",
+          "agent:sonnet/medium"
+        ],
+        "relation": "new",
+        "depth": "substantial",
+        "volume": "medium",
+        "covered": 10,
+        "firstConstraint": "Giữ nguyên giọng văn hiện có",
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": "c4-big-skill",
+      "n": 2,
+      "ok": true,
+      "fails": [],
+      "ms": 21017,
+      "outTokens": 1899,
+      "usd": 0.0898084,
+      "stats": {
+        "tasks": 3,
+        "reqs": 11,
+        "agents": 3,
+        "main": "sonnet/high",
+        "picks": [
+          "agent:sonnet/high",
+          "agent:sonnet/medium",
+          "agent:sonnet/medium"
+        ],
+        "relation": "new",
+        "depth": "substantial",
+        "volume": "medium",
+        "covered": 11,
+        "firstConstraint": "Giữ nguyên giọng văn hiện có",
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": "c4-small",
+      "n": 0,
+      "ok": true,
+      "fails": [],
+      "ms": 7203,
+      "outTokens": 282,
+      "usd": 0.034144600000000004,
+      "stats": {
+        "tasks": 0,
+        "reqs": 1,
+        "agents": 0,
+        "main": "sonnet/low",
+        "picks": [],
+        "relation": "new",
+        "depth": "light",
+        "volume": "small",
+        "covered": 0,
+        "firstConstraint": "Chỉ sửa trong src/net/client.ts",
+        "confidence": 0.93
+      }
+    },
+    {
+      "id": "c4-small",
+      "n": 1,
+      "ok": true,
+      "fails": [],
+      "ms": 8117,
+      "outTokens": 311,
+      "usd": 0.0352726,
+      "stats": {
+        "tasks": 0,
+        "reqs": 1,
+        "agents": 0,
+        "main": "sonnet/low",
+        "picks": [],
+        "relation": "new",
+        "depth": "light",
+        "volume": "small",
+        "covered": 0,
+        "firstConstraint": "Chỉ sửa trong src/net/client.ts",
+        "confidence": 0.93
+      }
+    },
+    {
+      "id": "c4-small",
+      "n": 2,
+      "ok": true,
+      "fails": [],
+      "ms": 7688,
+      "outTokens": 286,
+      "usd": 0.025298800000000003,
+      "stats": {
+        "tasks": 0,
+        "reqs": 1,
+        "agents": 0,
+        "main": "sonnet/low",
+        "picks": [],
+        "relation": "new",
+        "depth": "light",
+        "volume": "small",
+        "covered": 0,
+        "firstConstraint": "Chỉ sửa trong src/net/client.ts",
+        "confidence": 0.93
+      }
+    },
+    {
+      "id": "c4-status",
+      "n": 0,
+      "ok": true,
+      "fails": [],
+      "ms": 7534,
+      "outTokens": 224,
+      "usd": 0.0328166,
+      "stats": {
+        "tasks": 0,
+        "reqs": 0,
+        "agents": 0,
+        "main": "haiku/low",
+        "picks": [],
+        "relation": "continue",
+        "depth": "none",
+        "volume": "small",
+        "covered": 0,
+        "firstConstraint": "",
+        "confidence": 0.95
+      }
+    },
+    {
+      "id": "c4-status",
+      "n": 1,
+      "ok": true,
+      "fails": [],
+      "ms": 7783,
+      "outTokens": 228,
+      "usd": 0.0329286,
+      "stats": {
+        "tasks": 0,
+        "reqs": 0,
+        "agents": 0,
+        "main": "haiku/low",
+        "picks": [],
+        "relation": "continue",
+        "depth": "none",
+        "volume": "small",
+        "covered": 0,
+        "firstConstraint": "",
+        "confidence": 0.95
+      }
+    },
+    {
+      "id": "c4-status",
+      "n": 2,
+      "ok": true,
+      "fails": [],
+      "ms": 7419,
+      "outTokens": 226,
+      "usd": 0.032880599999999996,
+      "stats": {
+        "tasks": 0,
+        "reqs": 0,
+        "agents": 0,
+        "main": "haiku/low",
+        "picks": [],
+        "relation": "continue",
+        "depth": "none",
+        "volume": "small",
+        "covered": 0,
+        "firstConstraint": "",
+        "confidence": 0.95
+      }
+    }
+  ]
+}

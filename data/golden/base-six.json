@@ -1,0 +1,97 @@
+{
+  "version": "2.1.323 (Claude Code)",
+  "startedAt": "2026-11-13T04:40:48.401Z",
+  "model": "sonnet",
+  "runs": 3,
+  "results": [
+    {
+      "id": "six",
+      "n": 0,
+      "ok": true,
+      "fails": [],
+      "ms": 10810,
+      "outTokens": 1204,
+      "usd": 0.033444,
+      "stats": {
+        "tasks": 6,
+        "reqs": 9,
+        "agents": 5,
+        "main": "opus/high",
+        "picks": [
+          "agent:haiku/low",
+          "agent:sonnet/medium",
+          "main:opus/high",
+          "agent:sonnet/medium",
+          "agent:opus/high",
+          "agent:sonnet/low"
+        ],
+        "relation": "new",
+        "depth": "hard",
+        "volume": "large",
+        "covered": 9,
+        "firstConstraint": "",
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": "six",
+      "n": 1,
+      "ok": false,
+      "fails": [
+        "luồng chính sonnet/medium, cần opus"
+      ],
+      "ms": 11883,
+      "outTokens": 1266,
+      "usd": 0.034068,
+      "stats": {
+        "tasks": 6,
+        "reqs": 9,
+        "agents": 6,
+        "main": "sonnet/medium",
+        "picks": [
+          "agent:haiku/low",
+          "agent:sonnet/medium",
+          "agent:opus/high",
+          "agent:sonnet/medium",
+          "agent:opus/high",
+          "agent:sonnet/low"
+        ],
+        "relation": "new",
+        "depth": "hard",
+        "volume": "medium",
+        "covered": 9,
+        "firstConstraint": "Chỉ đổi userId thành accountId trong 12 file controller",
+        "confidence": 0.8
+      }
+    },
+    {
+      "id": "six",
+      "n": 2,
+      "ok": true,
+      "fails": [],
+      "ms": 11168,
+      "outTokens": 1269,
+      "usd": 0.034098,
+      "stats": {
+        "tasks": 6,
+        "reqs": 9,
+        "agents": 5,
+        "main": "opus/high",
+        "picks": [
+          "agent:haiku/low",
+          "agent:sonnet/medium",
+          "main:opus/high",
+          "agent:sonnet/medium",
+          "agent:opus/high",
+          "agent:sonnet/low"
+        ],
+        "relation": "new",
+        "depth": "hard",
+        "volume": "medium",
+        "covered": 9,
+        "firstConstraint": "Đổi tên userId thành accountId chỉ trong 12 file controller",
+        "confidence": 0.8
+      }
+    }
+  ]
+}
