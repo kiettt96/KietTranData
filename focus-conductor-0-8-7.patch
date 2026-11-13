@@ -1,5 +1,5 @@
 diff --git a/claude-mods/focus-conductor/.claude-plugin/plugin.json b/claude-mods/focus-conductor/.claude-plugin/plugin.json
-index f75a3bc..4ad8321 100644
+index f75a3bc..229ee8a 100644
 --- a/claude-mods/focus-conductor/.claude-plugin/plugin.json
 +++ b/claude-mods/focus-conductor/.claude-plugin/plugin.json
 @@ -1,6 +1,6 @@
@@ -17,8 +17,8 @@ index f75a3bc..4ad8321 100644
 +    "routerMaxWait": {
 +      "type": "number",
 +      "title": "Thời gian chờ tối đa khi router đọc trọn prompt dài (giây)",
-+      "description": "Router dùng model nào cũng đọc trọn prompt dài tới sức chứa của model; lượt đọc prompt dài hơn 80.000 ký tự chờ tối đa bấy nhiêu giây, nên prompt nào cần lâu hơn thì phần giữa bị lược và mod báo một cảnh báo nêu option này. Mặc định 600; nhỏ nhất 120, lớn nhất 1800 (ngoài khoảng thì kẹp về biên). (en) Every router model reads a long prompt whole up to its capacity; a read of a prompt longer than 80,000 characters waits at most this many seconds, so a prompt that would need longer has its middle left out and a warning names this option. Default 600; minimum 120, maximum 1800 (values outside are clamped).",
-+      "default": 600
++      "description": "Router dùng model nào cũng đọc trọn prompt dài tới sức chứa của model; lượt đọc prompt dài hơn 80.000 ký tự chờ tối đa bấy nhiêu giây, nên prompt nào cần lâu hơn thì phần giữa bị lược và mod báo một cảnh báo nêu option này. Mặc định 1800; nhỏ nhất 120, lớn nhất 1800 (ngoài khoảng thì kẹp về biên). (en) Every router model reads a long prompt whole up to its capacity; a read of a prompt longer than 80,000 characters waits at most this many seconds, so a prompt that would need longer has its middle left out and a warning names this option. Default 1800; minimum 120, maximum 1800 (values outside are clamped).",
++      "default": 1800
 +    },
      "conductor": {
        "type": "string",
@@ -72,7 +72,7 @@ index f86f098..c4242ef 100644
  
  Khi option `conductor` là `fable` và luồng chính đang điều phối việc lớn, luồng chính chỉ lập kế hoạch, giao việc, đọc kết quả và quyết định bước tiếp theo; không tự sửa file, không tự chạy lệnh kiểm [Nguồn: chủ mod, 12/11/2026, phương án (a) cho Q1, Q2, Q3 và ba bổ sung khi duyệt kế hoạch]. Khi `conductor` tắt, hay khi luồng chính không đang điều phối, mọi hành vi như 0.8.5. Lời dặn router (cả hai biến thể), schema JSON router trả, schema tool `plan` và golden không đổi. Mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `086-*`; số ca đỏ đo trên `473bc75` ở VERIFICATION.
 diff --git a/claude-mods/focus-conductor/README.md b/claude-mods/focus-conductor/README.md
-index e0e9b60..d8c5877 100644
+index e0e9b60..2930197 100644
 --- a/claude-mods/focus-conductor/README.md
 +++ b/claude-mods/focus-conductor/README.md
 @@ -102,9 +102,10 @@ Cấu hình qua `/config` (hoặc `pluginConfigs.focus-conductor.options` trong
@@ -83,7 +83,7 @@ index e0e9b60..d8c5877 100644
 +| `headlessRouting` | `off` | Từ 0.8.0: `off` thì ở phiên không tương tác (`claude -p`, Agent SDK) mod chạy như routing off trong phiên đó: không gọi router, không đổi model hay effort, không chặn kết thúc, ghi một dòng `headless-off`; không ghi đè mode đã đặt bằng `/conductor mode`. `auto` điều phối như phiên thường. Từ 0.8.7, `/conductor status` nêu lý do khi mode off vì lý do này |
  | `router` | `sonnet` | Model Claude đọc prompt và điều phối: alias (`haiku`, `sonnet`, `opus`) hoặc model ID. Thay cho tùy chọn `analyzer` của bản 0.3. Từ 0.8.4, khi `conductor` là `fable`, router là Fable và option này chỉ dùng lúc router Fable tạm ngừng |
  | `conductor` | `off` | Từ 0.8.4: `fable` thì Fable 5.2 điều phối ở effort medium (đọc và phân việc ở mọi lượt router, lập kế hoạch, điều phối luồng chính của việc lớn); model khác thực thi qua subagent. Tốn hạn mức hơn; xem mục "Fable điều phối" |
-+| `routerMaxWait` | `600` | Từ 0.8.7: router dùng model nào cũng đọc trọn prompt dài tới sức chứa của model; lượt đọc prompt dài hơn 80.000 ký tự chờ tối đa bấy nhiêu giây (nhỏ nhất 120, lớn nhất 1800, ngoài khoảng thì kẹp về biên). Prompt cần lâu hơn thì phần giữa bị lược, kèm cảnh báo nêu option này |
++| `routerMaxWait` | `1800` | Từ 0.8.7: router dùng model nào cũng đọc trọn prompt dài tới sức chứa của model; lượt đọc prompt dài hơn 80.000 ký tự chờ tối đa bấy nhiêu giây (nhỏ nhất 120, lớn nhất 1800, ngoài khoảng thì kẹp về biên). Prompt cần lâu hơn thì phần giữa bị lược, kèm cảnh báo nêu option này |
  | `conductorReads` | `20` | Từ 0.8.6: khi Fable đang điều phối việc lớn, cứ mỗi bấy nhiêu lần luồng chính gọi Read, Grep hay Glob thì kết quả kèm một dòng nhắc giao việc tra cứu cho subagent; `0` là tắt, không từ chối lời gọi đọc nào |
  | `enforceChecklist` | `true` | Chặn kết thúc khi checklist còn bước mở; từ 0.7.8 chặn thêm một lần mỗi mục tiêu khi mục tiêu từ moderate (hoặc có việc đã phân) chưa có checklist của tool `plan`; từ 0.7.9 tắt cả lần chặn khi đã sửa mà chưa chạy lần kiểm nào (xem "Nhật ký lỗi, lệnh miễn và lần kiểm bắt buộc") |
  | `allowFable` | `false` | Cho router dùng Fable cho việc khó nhất; tắt thì lựa chọn fable bị kẹp về opus. Chỉ quyết Fable có được làm model thực thi không; vai điều phối của Fable bật bằng `conductor` |
@@ -170,7 +170,7 @@ index ac79796..89b6392 100644
  
  - **Dòng tổng kết không dấu (D1).** Sau các luật có dấu, `summaryFailed` xét dòng ở dạng bỏ dấu (`foldLabel`): kết luận `chua dat`, `khong dat`, và số đếm khác 0 trước `loi` cách tối đa một từ. `do` (dạng bỏ dấu của "đỏ") không được đọc vì trùng nhiều từ khác. Phủ định không dấu (`khong co loi`) đã bị bỏ ở bước phủ định cách quãng, `0 loi` là số 0.
 diff --git a/claude-mods/focus-conductor/hooks/context.ts b/claude-mods/focus-conductor/hooks/context.ts
-index f77ca1c..9c75edb 100644
+index f77ca1c..7f51404 100644
 --- a/claude-mods/focus-conductor/hooks/context.ts
 +++ b/claude-mods/focus-conductor/hooks/context.ts
 @@ -15,6 +15,8 @@ import type { ErrorEntry, ErrorEvent, ErrorFile } from './lib/errlog'
@@ -186,7 +186,7 @@ index f77ca1c..9c75edb 100644
      Object.entries(DEFAULT_WINDOWS).filter(([family]) => modelMap[family as ModelFamily] === undefined),
    ) as Partial<Record<ModelFamily, number>>
    const contextWindows = { ...defaultWindows, ...parseWindows(options['contextWindows']) }
-+  // Thời gian chờ tối đa của lượt đọc trọn (0.8.7 L3, option routerMaxWait, giây): mặc định 600, kẹp 120 tới 1.800.
++  // Thời gian chờ tối đa của lượt đọc trọn (0.8.7 L3, option routerMaxWait, giây): mặc định 1.800, kẹp 120 tới 1.800.
 +  const routerMaxWaitMs = routerMaxWaitOf(options['routerMaxWait'])
    applyPrices(parsePrices(options['prices']))
    applyCacheWrite(parseCacheWrite(options['cacheWrite']))
@@ -304,10 +304,10 @@ index bf6d9f9..b3ac8c5 100644
        rows.push({
 diff --git a/claude-mods/focus-conductor/hooks/lib/reading.ts b/claude-mods/focus-conductor/hooks/lib/reading.ts
 new file mode 100644
-index 0000000..8712838
+index 0000000..48b0057
 --- /dev/null
 +++ b/claude-mods/focus-conductor/hooks/lib/reading.ts
-@@ -0,0 +1,89 @@
+@@ -0,0 +1,95 @@
 +// Router đọc trọn prompt (0.8.7 L3): mọi model router đọc trọn prompt tới sức chứa của nó. Sức chứa là số nhỏ hơn giữa sức chứa theo cửa
 +// sổ ngữ cảnh của model (trừ lời dặn, các dòng ngữ cảnh và maxTokens của lượt đó) và sức chứa theo thời gian chờ tối đa (option
 +// routerMaxWait); không thấp hơn trần cũ 80.000 ký tự. Chỉ hai trường hợp còn cắt prompt: vượt sức chứa của model, hay vượt số ký tự đọc
@@ -320,8 +320,9 @@ index 0000000..8712838
 +export const BASE_HEAD = 60_000
 +export const BASE_TAIL = 20_000
 +
-+/** Thời gian chờ tối đa của lượt đọc trọn, option routerMaxWait tính bằng giây: mặc định 600, kẹp trong 120 tới 1.800. */
-+export const ROUTER_MAX_WAIT_MS = 600_000
++/** Thời gian chờ tối đa của lượt đọc trọn, option routerMaxWait tính bằng giây: mặc định 1.800 (bằng biên trên, để Fable đọc trọn khoảng 468.000 ký tự),
++ * kẹp trong 120 tới 1.800. Mức giữ hook tệ nhất là 1,5 lần mức này (hạn chung của askRouter), tức 2.700 giây. */
++export const ROUTER_MAX_WAIT_MS = 1_800_000
 +export const ROUTER_MAX_WAIT_MIN_MS = 120_000
 +export const ROUTER_MAX_WAIT_MAX_MS = 1_800_000
 +/** Lượt dự phòng (request cắt theo trần cũ) dùng trọn bấy nhiêu, không lấy phần còn lại của hạn chung. */
@@ -335,10 +336,15 @@ index 0000000..8712838
 + */
 +export type ReadParams = { charsPerToken: number; secPerChar: number; maxOut: number; engineMaxOut: number }
 +
-+/** Số đo của fable và sonnet; các số ở đây được thay bằng số đo thật trong commit sửa của L3. */
++/**
++ * Số đo thật [Đo trực tiếp, 13/11/2026, engine 2.1.323, `claude -p`, effort medium, chạy một mình; bảng từng lượt ở VERIFICATION, mục
++ * 0.8.7]. Ký tự trên token: nhỏ nhất qua các lượt, làm tròn xuống 4 chữ số. Giây trên ký tự: lớn nhất qua các lượt, làm tròn lên. Fable:
++ * 7 lượt, chậm nhất 615,6 s cho 240.000 ký tự (prompt lặp mẫu), token ra lớn nhất 91.084. Sonnet: 11 lượt, chậm nhất 35,8 s cho 240.000
++ * ký tự (prompt nhiều đề mục), token ra lớn nhất 6.243. Mức token ra tối đa engine báo (`modelUsage.maxOutputTokens`) là 128.000 cho cả hai.
++ */
 +export const READ_PARAMS: Record<'fable' | 'sonnet', ReadParams> = {
-+  fable: { charsPerToken: 1.6, secPerChar: 0.001, maxOut: 53_618, engineMaxOut: 128_000 },
-+  sonnet: { charsPerToken: 1.6, secPerChar: 0.001, maxOut: 53_618, engineMaxOut: 64_000 },
++  fable: { charsPerToken: 1.5837, secPerChar: 0.0025649, maxOut: 91_084, engineMaxOut: 128_000 },
++  sonnet: { charsPerToken: 1.5863, secPerChar: 0.0001491, maxOut: 6_243, engineMaxOut: 128_000 },
 +}
 +
 +/** Họ chưa đo (haiku, opus, model ID riêng): giá trị thận trọng hơn giữa fable và sonnet cho từng thông số [Giả định]. */
@@ -398,7 +404,7 @@ index 0000000..8712838
 +  return { capacity, head, tail: capacity - head, limit, isFull, maxTokens, timeoutMs }
 +}
 diff --git a/claude-mods/focus-conductor/hooks/lib/router.ts b/claude-mods/focus-conductor/hooks/lib/router.ts
-index ff688b0..4366158 100644
+index ff688b0..f93c48c 100644
 --- a/claude-mods/focus-conductor/hooks/lib/router.ts
 +++ b/claude-mods/focus-conductor/hooks/lib/router.ts
 @@ -10,8 +10,10 @@ import type { ModelCompleteRequest, ModelCompleteResult, ModelTextBlock, ModelUs
@@ -528,7 +534,7 @@ index ff688b0..4366158 100644
    isFable?: boolean
 -}): ModelCompleteRequest {
 -  const isLong = args.text.length > LONG_REQUEST
-+  /** Họ model, cửa sổ ngữ cảnh và thời gian chờ tối đa của lượt đọc (0.8.7 L3); vắng thì theo model, cửa sổ mặc định, 600 giây. */
++  /** Họ model, cửa sổ ngữ cảnh và thời gian chờ tối đa của lượt đọc (0.8.7 L3); vắng thì theo model, cửa sổ mặc định, 1.800 giây. */
 +  reading?: Reading
 +}
 +
@@ -1047,7 +1053,7 @@ index c50b0e9..dab8940 100644
        L.goalPrompt = { text, prev, goalId: brief.goalId }
        L.isGoalNew = true
 diff --git a/claude-mods/focus-conductor/scripts/mutants.ts b/claude-mods/focus-conductor/scripts/mutants.ts
-index 40078d3..bc1eac5 100644
+index 40078d3..32e0736 100644
 --- a/claude-mods/focus-conductor/scripts/mutants.ts
 +++ b/claude-mods/focus-conductor/scripts/mutants.ts
 @@ -300,7 +300,7 @@ export const MUTANTS: Mutant[] = [
@@ -1218,7 +1224,7 @@ index 40078d3..bc1eac5 100644
    { id: "084-C2c", file: "hooks/parts/session.ts", note: "sổ chi phí của lượt đọc prompt vẫn theo họ của option router", old: "    const withUsage = (c: Core): Core =>\n      S.withAnalyzerUsage(outcome.usages, target.family)(c)", new: "    const withUsage = (c: Core): Core =>\n      S.withAnalyzerUsage(outcome.usages, ctx.routerFamily)(c)" },
    { id: "084-C3a", file: "hooks/context.ts", note: "luồng chính điều phối vẫn nâng theo bằng chứng (liftPick)", old: "isMainConducting(conductorInputs(core, mode), brief)) return { family: 'fable', effort: 'medium', notes: ['điều phối'], isConducting: true }", new: "isMainConducting(conductorInputs(core, mode), brief)) return { ...liftPick({ family: 'fable', effort: 'medium' }, lift, true), notes: ['điều phối'], isConducting: true }" },
    { id: "084-C3b", file: "hooks/context.ts", note: "điều phối áp cả cho mục tiêu không lớn", old: "isMainConducting(conductorInputs(core, mode), brief)) return { family: 'fable', effort: 'medium', notes: ['điều phối'], isConducting: true }", new: "conductorBlocker(conductorInputs(core, mode)) === null) return { family: 'fable', effort: 'medium', notes: ['điều phối'], isConducting: true }" },
-@@ -2198,4 +2198,49 @@ export const MUTANTS: Mutant[] = [
+@@ -2198,4 +2198,50 @@ export const MUTANTS: Mutant[] = [
    { id: "086-V1g", file: "hooks/lib/router.ts", note: "chuyển cả tin đối chiếu", old: "(!isReference && relation !== 'new' && policy.goalIsBig === true)", new: "(relation !== 'new' && policy.goalIsBig === true)" },
    { id: "086-V1h", file: "hooks/parts/command.ts", note: "status hiện số đo cả khi không điều phối", old: "const conductSuffix = ctx.isConducting(core, current) ? conductStatusSuffix(S.conductOf(core), lang) : ''", new: "const conductSuffix = conductStatusSuffix(S.conductOf(core), lang)" },
    { id: "086-V1i", file: "hooks/parts/consistency.ts", note: "đếm cả lần đọc bị từ chối", old: "if (e.agentId !== undefined || ctx.conductorReads === 0 || result.deny !== undefined) return result", new: "if (e.agentId !== undefined || ctx.conductorReads === 0) return result" },
@@ -1267,6 +1273,7 @@ index 40078d3..bc1eac5 100644
 +  { id: "087-L3l", file: "hooks/lib/reading.ts", note: "routerMaxWait không kẹp biên dưới", old: "Math.max(ROUTER_MAX_WAIT_MIN_MS, Math.round(seconds * 1000))", new: "Math.max(0, Math.round(seconds * 1000))" },
 +  { id: "087-L3m", file: "hooks/lib/reading.ts", note: "họ chưa đo lấy thông số của fable", old: "if (family === 'fable' || family === 'sonnet') return READ_PARAMS[family]", new: "return READ_PARAMS.fable" },
 +  { id: "087-L3n", file: "hooks/lib/router.ts", note: "askRouter không chuyển full sang lượt hỏi lại", old: ", ...(opts.full !== undefined ? { full: opts.full } : {}) })).catch(() => null)", new: " })).catch(() => null)" },
++  { id: "087-L3o", file: "hooks/lib/reading.ts", note: "mặc định routerMaxWait về 600 giây", old: "export const ROUTER_MAX_WAIT_MS = 1_800_000", new: "export const ROUTER_MAX_WAIT_MS = 600_000" },
  ]
 diff --git a/claude-mods/focus-conductor/tests/caps-s1-075.test.ts b/claude-mods/focus-conductor/tests/caps-s1-075.test.ts
 index 185cd20..26233ea 100644
@@ -2308,7 +2315,7 @@ index 1f644c8..9a3e635 100644
    })
 diff --git a/claude-mods/focus-conductor/tests/integration/router-full-l1-087.test.ts b/claude-mods/focus-conductor/tests/integration/router-full-l1-087.test.ts
 new file mode 100644
-index 0000000..6d0f841
+index 0000000..547e050
 --- /dev/null
 +++ b/claude-mods/focus-conductor/tests/integration/router-full-l1-087.test.ts
 @@ -0,0 +1,98 @@
@@ -2371,7 +2378,7 @@ index 0000000..6d0f841
 +    expect(lastContext(seen)).not.toContain(CLIPPED)
 +  })
 +
-+  test('routerMaxWait 120 giây, prompt 238.489 ký tự: bị cắt; cảnh báo nêu thời gian chờ tối đa và option routerMaxWait; có CLIPPED_CONTEXT', { options: { planApproval: 'off', routerMaxWait: 120 } }, async ($, on) => {
++  test('conductor fable, routerMaxWait 120 giây, prompt 238.489 ký tự: bị cắt; cảnh báo nêu thời gian chờ tối đa và option routerMaxWait; có CLIPPED_CONTEXT', { options: { planApproval: 'off', conductor: 'fable', routerMaxWait: 120 } }, async ($, on) => {
 +    const seen = setup(on, () => BIG)
 +    await submit($, HUGE)
 +    expect((seen.routed[0] ?? '').includes(MARK)).toBe(false)
@@ -2679,10 +2686,10 @@ index 701535c..7afc7c8 100644
    })
 diff --git a/claude-mods/focus-conductor/tests/router-full-l1-087.test.ts b/claude-mods/focus-conductor/tests/router-full-l1-087.test.ts
 new file mode 100644
-index 0000000..3b963e3
+index 0000000..95202dd
 --- /dev/null
 +++ b/claude-mods/focus-conductor/tests/router-full-l1-087.test.ts
-@@ -0,0 +1,208 @@
+@@ -0,0 +1,223 @@
 +// 0.8.7 L3 (thay phần trần cố định của L1): mọi model router đọc trọn prompt tới sức chứa của lượt đó (readPlan, hooks/lib/reading.ts):
 +// số nhỏ hơn giữa sức chứa theo cửa sổ ngữ cảnh và sức chứa theo thời gian chờ tối đa (routerMaxWait), không thấp hơn 80.000. Prompt dài hơn
 +// 80.000 ký tự mà vừa sức chứa: gửi trọn, maxTokens và timeoutMs theo thông số của họ model. Vượt sức chứa: cắt phần giữa (75 và 25 phần
@@ -2731,6 +2738,18 @@ index 0000000..3b963e3
 +    expect(r.timeoutMs).toBe(readPlan(FABLE, LONG.length, 0).timeoutMs)
 +  })
 +
++  test('request không truyền reading: Fable theo thông số fable, router sonnet theo thông số sonnet (maxTokens 128.000 và 16.000)', () => {
++    const f = routerRequest({ text: LONG, prev: null, ran: null, policy: COND, model: 'claude-fable-5-2', isFable: true })
++    const s = routerRequest({ text: LONG, prev: null, ran: null, policy: OPEN, model: 'sonnet' })
++    expect([f.maxTokens, s.maxTokens]).toEqual([fullMaxTokens(READ_PARAMS.fable), fullMaxTokens(READ_PARAMS.sonnet)])
++    expect([f.maxTokens, s.maxTokens]).toEqual([128_000, 16_000])
++    expect(f.timeoutMs).toBe(readPlan({ family: 'fable', window: 1_000_000, maxWaitMs: ROUTER_MAX_WAIT_MS }, LONG.length, 0).timeoutMs)
++  })
++
++  test('trần lượt hỏi lại của Fable đọc trọn: 1,5 lần 128.000 kẹp về mức engine báo 128.000', () => {
++    expect(fullRetryTokens(fullMaxTokens(READ_PARAMS.fable), READ_PARAMS.fable)).toBe(128_000)
++  })
++
 +  test('router haiku và opus (chưa đo), prompt 100.000 ký tự: gửi trọn; thông số thận trọng hơn giữa Fable và sonnet', () => {
 +    const text = 'h'.repeat(50_000) + MARK + 'h'.repeat(50_000 - MARK.length)
 +    for (const family of ['haiku', 'opus'] as const) {
@@ -2768,6 +2787,7 @@ index 0000000..3b963e3
 +    const p = requestPlan({ text: LONG, prev: null, ran: null, policy: OPEN, model: 'sonnet', reading })
 +    expect(p.capacity).toBeGreaterThan(BASE_CHARS)
 +    expect(p.capacity).toBeLessThan(LONG.length)
++    expect(p.capacity).toBeLessThanOrEqual(150_000)
 +    expect(p.limit).toBe('window')
 +    expect(promptOf(plain(LONG, reading)).includes(`[... lược ${LONG.length - p.head - p.tail} ký tự ở giữa ...]`)).toBe(true)
 +    expect(isClippedPrompt(LONG, p.capacity)).toBe(true)
@@ -2811,8 +2831,8 @@ index 0000000..3b963e3
 +    expect(r.timeoutMs ?? 0).toBeLessThanOrEqual(1_800_000)
 +  })
 +
-+  test('routerMaxWait 50 và 5.000: kẹp về 120 và 1.800 giây; vắng là 600', () => {
-+    expect([routerMaxWaitOf(50), routerMaxWaitOf(5_000), routerMaxWaitOf(undefined), routerMaxWaitOf(300)]).toEqual([120_000, 1_800_000, 600_000, 300_000])
++  test('routerMaxWait 50 và 5.000: kẹp về 120 và 1.800 giây; vắng là 1.800', () => {
++    expect([routerMaxWaitOf(50), routerMaxWaitOf(5_000), routerMaxWaitOf(undefined), routerMaxWaitOf(300)]).toEqual([120_000, 1_800_000, 1_800_000, 300_000])
 +  })
 +
 +  test('prompt đúng bằng sức chứa: gửi trọn; dài hơn 1 ký tự: bị cắt', () => {
@@ -2855,24 +2875,26 @@ index 0000000..3b963e3
 +  }
 +
 +  test('askRouter chuyển full sang lượt hỏi lại: câu trả lời lượt đọc trọn bị cắt thì lượt hỏi lại có maxTokens bằng tokenCap; tin cậy thấp thì effort medium', async () => {
-+    const request = plain(LONG)
-+    const tokenCap = fullRetryTokens(request.maxTokens ?? 0, READ_PARAMS.sonnet)
++    const request = fable(LONG)
++    const tokenCap = fullRetryTokens(request.maxTokens ?? 0, READ_PARAMS.fable)
 +    const cut = { input_tokens: 100, output_tokens: request.maxTokens ?? 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
 +    const sent: ModelCompleteRequest[] = []
 +    const truncatedAsk = async (r: ModelCompleteRequest) => {
 +      sent.push(r)
 +      return sent.length === 1 ? { isAnswered: true as const, text: '{"goal":', usage: cut } : { isAnswered: true as const, text: reply, usage: USAGE }
 +    }
-+    await askRouter(truncatedAsk as never, request, text => parseRoute(text, OPEN), undefined, { now: () => 0, full: { tokenCap } })
++    await askRouter(truncatedAsk as never, request, text => parseRoute(text, COND), undefined, { now: () => 0, isFable: true, full: { tokenCap } })
 +    expect(sent.length).toBe(2)
 +    expect(sent[1]?.maxTokens).toBe(tokenCap)
++    expect(tokenCap).toBe(128_000)
 +    const low = JSON.stringify({ ...plan({ goal: 'Sửa luồng thanh toán' }), confidence: 0.2 })
 +    const lowSent: ModelCompleteRequest[] = []
 +    const lowAsk = async (r: ModelCompleteRequest) => {
 +      lowSent.push(r)
 +      return { isAnswered: true as const, text: low, usage: USAGE }
 +    }
-+    await askRouter(lowAsk as never, request, text => parseRoute(text, OPEN), undefined, { now: () => 0, retryMissingConfidence: true, full: { tokenCap } })
++    const plainRequest = plain(LONG)
++    await askRouter(lowAsk as never, plainRequest, text => parseRoute(text, OPEN), undefined, { now: () => 0, retryMissingConfidence: true, full: { tokenCap: fullRetryTokens(plainRequest.maxTokens ?? 0, READ_PARAMS.sonnet) } })
 +    expect(lowSent.length).toBe(2)
 +    expect(lowSent[1]?.effort).toBe('medium')
 +  })
