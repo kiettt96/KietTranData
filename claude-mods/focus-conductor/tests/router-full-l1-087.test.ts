@@ -160,6 +160,29 @@ describe('0.8.7 L3: lượt dự phòng và lượt hỏi lại', () => {
     }
   }
 
+  test('askRouter chuyển full sang lượt hỏi lại: câu trả lời lượt đọc trọn bị cắt thì lượt hỏi lại có maxTokens bằng tokenCap; tin cậy thấp thì effort medium', async () => {
+    const request = plain(LONG)
+    const tokenCap = fullRetryTokens(request.maxTokens ?? 0, READ_PARAMS.sonnet)
+    const cut = { input_tokens: 100, output_tokens: request.maxTokens ?? 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
+    const sent: ModelCompleteRequest[] = []
+    const truncatedAsk = async (r: ModelCompleteRequest) => {
+      sent.push(r)
+      return sent.length === 1 ? { isAnswered: true as const, text: '{"goal":', usage: cut } : { isAnswered: true as const, text: reply, usage: USAGE }
+    }
+    await askRouter(truncatedAsk as never, request, text => parseRoute(text, OPEN), undefined, { now: () => 0, full: { tokenCap } })
+    expect(sent.length).toBe(2)
+    expect(sent[1]?.maxTokens).toBe(tokenCap)
+    const low = JSON.stringify({ ...plan({ goal: 'Sửa luồng thanh toán' }), confidence: 0.2 })
+    const lowSent: ModelCompleteRequest[] = []
+    const lowAsk = async (r: ModelCompleteRequest) => {
+      lowSent.push(r)
+      return { isAnswered: true as const, text: low, usage: USAGE }
+    }
+    await askRouter(lowAsk as never, request, text => parseRoute(text, OPEN), undefined, { now: () => 0, retryMissingConfidence: true, full: { tokenCap } })
+    expect(lowSent.length).toBe(2)
+    expect(lowSent[1]?.effort).toBe('medium')
+  })
+
   test('lượt đọc trọn bị cắt câu trả lời: lượt hỏi lại có maxTokens 1,5 lần, không vượt mức engine báo; request thường bị cắt: trần 32.000', () => {
     const full = plain(LONG)
     const tokenCap = fullRetryTokens(full.maxTokens ?? 0, READ_PARAMS.sonnet)
