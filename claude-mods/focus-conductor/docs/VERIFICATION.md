@@ -189,6 +189,10 @@ Fable `c4-*`: luồng chính và số việc như nhau ở hai bên (`c4-big-cod
 - **`087-L2e`** chạy riêng trên `tests/limits-l2-087.test.ts`: bị diệt, 2 ca đỏ. Mẫu này nằm ngoài vùng diff vì dòng nó đổi (`tasks: [...keptTasks, ...added]`) giữ nguyên so với `45b5161`.
 - Tổng: 66/66 mẫu mới và 392/392 mẫu cũ trong vùng diff bị diệt.
 
+### CI
+
+- Run 43450370502 xanh trên `4365287` [Nguồn: GitHub Actions, 13/11/2026].
+
 ## Kiểm chứng của 0.8.6 (vai điều phối không tự thực thi)
 
 Nhánh tách từ `main` `473bc75` (0.8.5, plugin.json 0.8.5, đã kiểm trước khi bắt đầu). Thứ tự R6, R1, R2, R3, R4, R5; mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `086-*`; không amend, không force-push, không merge [Đo trực tiếp]. Engine của mọi lượt đo dưới đây là 2.1.296, cài riêng ngoài repo; engine của phiên phát triển là 2.1.322.
