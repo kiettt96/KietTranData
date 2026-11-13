@@ -282,13 +282,15 @@ export const CASES: readonly GoldenCase[] = [
     id: 'long-vn',
     text: LONG_VN_PROMPT,
     note: 'prompt dài tiếng Việt khoảng 6.000 ký tự, hơn 20 yêu cầu trong đoạn văn: đọc đủ, phủ hết, trong giới hạn router',
-    expect: { reference: false, kind: ['edit', 'mixed'], main: ['sonnet', 'opus'], tasks: [0, 10], requirements: [12, 30], covered: true },
+    // 0.8.7 L2: router không còn trần số yêu cầu và số việc, nên bỏ cận trên, giữ cận dưới.
+    expect: { reference: false, kind: ['edit', 'mixed'], main: ['sonnet', 'opus'], tasks: [0, Number.POSITIVE_INFINITY], requirements: [12, Number.POSITIVE_INFINITY], covered: true },
   },
   {
     id: 'long-vn-xl',
     text: `${LONG_VN_PROMPT}\n\n${LONG_VN_EXTRA}`,
-    note: 'prompt dài tiếng Việt khoảng 8.800 ký tự: hai nhóm việc, hơn 40 yêu cầu (router giới hạn 30)',
-    expect: { reference: false, kind: ['edit', 'mixed'], main: ['sonnet', 'opus'], tasks: [0, 10], requirements: [12, 30] },
+    note: 'prompt dài tiếng Việt khoảng 8.800 ký tự: hai nhóm việc, hơn 40 yêu cầu (đến 0.8.6 router giới hạn 30)',
+    // 0.8.7 L2: router không còn trần số yêu cầu và số việc, nên bỏ cận trên, giữ cận dưới.
+    expect: { reference: false, kind: ['edit', 'mixed'], main: ['sonnet', 'opus'], tasks: [0, Number.POSITIVE_INFINITY], requirements: [12, Number.POSITIVE_INFINITY] },
   },
   {
     id: 'long-coded',
