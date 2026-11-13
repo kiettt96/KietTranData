@@ -340,10 +340,10 @@ index ac79796..7233e73 100644
  
  - **Dòng tổng kết không dấu (D1).** Sau các luật có dấu, `summaryFailed` xét dòng ở dạng bỏ dấu (`foldLabel`): kết luận `chua dat`, `khong dat`, và số đếm khác 0 trước `loi` cách tối đa một từ. `do` (dạng bỏ dấu của "đỏ") không được đọc vì trùng nhiều từ khác. Phủ định không dấu (`khong co loi`) đã bị bỏ ở bước phủ định cách quãng, `0 loi` là số 0.
 diff --git a/claude-mods/focus-conductor/docs/VERIFICATION.md b/claude-mods/focus-conductor/docs/VERIFICATION.md
-index c99a563..10f6e9e 100644
+index c99a563..c9d0768 100644
 --- a/claude-mods/focus-conductor/docs/VERIFICATION.md
 +++ b/claude-mods/focus-conductor/docs/VERIFICATION.md
-@@ -2,6 +2,193 @@
+@@ -2,6 +2,197 @@
  
  Số đo của HEAD hiện tại và của các bản trước. Mọi số do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển] trừ khi nêu khác; hợp đồng đối chiếu evidence ở [DESIGN.md](DESIGN.md), lịch sử thay đổi ở [CHANGELOG.md](../CHANGELOG.md), cách dùng ở [README](../README.md).
  
@@ -533,6 +533,10 @@ index c99a563..10f6e9e 100644
 +  - Pha 2 (`scripts/mutate.ts` chạy cả bộ cho mẫu còn sống sau pha 1) không phải chạy, vì không mẫu nào sống.
 +- **`087-L2e`** chạy riêng trên `tests/limits-l2-087.test.ts`: bị diệt, 2 ca đỏ. Mẫu này nằm ngoài vùng diff vì dòng nó đổi (`tasks: [...keptTasks, ...added]`) giữ nguyên so với `45b5161`.
 +- Tổng: 66/66 mẫu mới và 392/392 mẫu cũ trong vùng diff bị diệt.
++
++### CI
++
++- Run 43450370502 xanh trên `4365287` [Nguồn: GitHub Actions, 13/11/2026].
 +
  ## Kiểm chứng của 0.8.6 (vai điều phối không tự thực thi)
  
