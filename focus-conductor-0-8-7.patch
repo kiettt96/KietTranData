@@ -264,7 +264,7 @@ index bf6d9f9..b3ac8c5 100644
        const state: TaskState = own.length > 0 ? stepsState(own) : plan.length > 0 && isFullyClosed(plan) ? 'done' : isUnassigned ? 'pending' : !closedAny && changes === 0 ? 'idle' : 'running'
        rows.push({
 diff --git a/claude-mods/focus-conductor/hooks/lib/router.ts b/claude-mods/focus-conductor/hooks/lib/router.ts
-index ff688b0..1647175 100644
+index ff688b0..bfd9068 100644
 --- a/claude-mods/focus-conductor/hooks/lib/router.ts
 +++ b/claude-mods/focus-conductor/hooks/lib/router.ts
 @@ -8,7 +8,7 @@
@@ -319,7 +319,7 @@ index ff688b0..1647175 100644
 -- requirements: first list everything the request asks for, requires or forbids, one short item each in the user's words (under 100 characters, at most 30): every deliverable, rule, format, quality bar and constraint, including those hidden in paragraphs, tables or background text. Merge exact repeats and omit nothing: this is the checklist the work is checked against.
 -- tasks: first, every heading with a code (K4.1, Bước 2, Task 3) is its own task, in the request's order, with the code at the start of its title: never merge coded headings with each other or with other pieces, even when they look alike, and the limit below does not apply to them. For work the request has not split by codes, split it the way that gets it done best, which need not follow how the request is laid out: merge pieces that are really one piece of work, and split a large piece into independent parts only when they can run separately. Each title is a short quote or summary (under 80 characters). Each task has "covers": the numbers (from 1) of the requirements it fulfils, and every requirement must be covered by at least one task. Apart from coded headings, at most 8 tasks. A request that is one piece of work has tasks [].
 +- requirements: first list everything the request asks for, requires or forbids, one short item each in the user's words (under 100 characters; list every one, with no limit on how many): every deliverable, rule, format, quality bar and constraint, including those hidden in paragraphs, tables or background text. Merge exact repeats and omit nothing: this is the checklist the work is checked against.
-+- tasks: first, every heading with a code (K4.1, Bước 2, Task 3) is its own task, in the request's order, with the code at the start of its title: never merge coded headings with each other or with other pieces, even when they look alike. For work the request has not split by codes, split it the way that gets it done best, which need not follow how the request is laid out: merge pieces that are really one piece of work, and split a large piece into independent parts only when they can run separately. Each title is a short quote or summary (under 80 characters). Each task has "covers": the numbers (from 1) of the requirements it fulfils, and every requirement must be covered by at least one task. Use as many tasks as the work needs for every requirement to be covered: never merge tasks only to have fewer, and never split a task that does not need it. Order tasks in the order they are done: a task that another task needs comes first, and tasks of the same group stay next to each other. A request that is one piece of work has tasks [].
++- tasks: first, every heading with a code (K4.1, Bước 2, Task 3) is its own task, in the request's order, with the code at the start of its title: never merge coded headings with each other or with other pieces, even when they look alike. For work the request has not split by codes, split it the way that gets it done best, which need not follow how the request is laid out: merge pieces that are really one piece of work, and split a large piece into independent parts only when they can run separately. Each title is a short quote or summary (under 80 characters). Each task has "covers": the numbers (from 1) of the requirements it fulfils, and every requirement must be covered by at least one task. There is no fixed limit on the number of tasks: list every separate piece of work the request has, and never merge separate pieces just to keep the list short. Steps of one piece of work (find the cause, fix it, test it, update its docs) are not tasks: they stay inside that piece and belong to the checklist. Order tasks in the order they are done: a task that another task needs comes first, and tasks of the same group stay next to each other. A request that is one piece of work has tasks [].
  - Run a task as "agent" only when it is truly independent: it needs no result of another task, does not edit the files another task edits, and is worth a fresh subagent prompt. Otherwise keep it on the main thread.
  - Items under "xong khi", "done when", "tiêu chí", "acceptance" or similar are quality criteria, never tasks. Background, context, definitions and notes are neither tasks nor constraints.
  - constraints: at most 6 hard rules (must, must not, only, format, scope), the most important first, each shortened to under 100 characters. A rule that sets a model for a kind of work (including "the session's model") is always the first constraint, kept with its model, and never dropped. quality: at most 5 acceptance criteria, same length.
@@ -818,7 +818,7 @@ index c50b0e9..589759d 100644
        L.goalPrompt = { text, prev, goalId: brief.goalId }
        L.isGoalNew = true
 diff --git a/claude-mods/focus-conductor/scripts/mutants.ts b/claude-mods/focus-conductor/scripts/mutants.ts
-index 40078d3..4cc3053 100644
+index 40078d3..c62b4ab 100644
 --- a/claude-mods/focus-conductor/scripts/mutants.ts
 +++ b/claude-mods/focus-conductor/scripts/mutants.ts
 @@ -300,7 +300,7 @@ export const MUTANTS: Mutant[] = [
@@ -879,7 +879,7 @@ index 40078d3..4cc3053 100644
    { id: "070-B12", file: "hooks/lib/router.ts", note: "request router không giới hạn số bước đang mở", old: ".slice(0, OPEN_STEPS_LIMIT)", new: "" },
    { id: "070-B13", file: "hooks/lib/router.ts", note: "request router có dòng bước đang mở cả khi rỗng", old: "(args.openSteps?.length ?? 0) > 0 ?", new: "true ?" },
 -  { id: "070-B14", file: "hooks/lib/router.ts", note: "lời dặn không còn giới hạn 8 việc", old: "Apart from coded headings, at most 8 tasks.", new: "Apart from coded headings, as many tasks as needed." },
-+  { id: "070-B14", file: "hooks/lib/router.ts", note: "lời dặn không đòi chia đủ việc để phủ mọi yêu cầu", old: "Use as many tasks as the work needs for every requirement to be covered: never merge tasks only to have fewer, and never split a task that does not need it. ", new: "" },
++  { id: "070-B14", file: "hooks/lib/router.ts", note: "lời dặn không nói bước của một việc không phải việc riêng", old: "Steps of one piece of work (find the cause, fix it, test it, update its docs) are not tasks: they stay inside that piece and belong to the checklist. ", new: "" },
    { id: "070-B15", file: "hooks/lib/text.ts", note: "context không nhắc yêu cầu chưa được phủ", old: "const gaps = uncovered.length > 0 ?", new: "const gaps = false ?" },
    { id: "070-B16", file: "hooks/lib/text.ts", note: "lượt đối chiếu cũng nhắc yêu cầu chưa được phủ", old: "const uncovered = brief.isReference ? [] : uncoveredRequirements(brief)", new: "const uncovered = uncoveredRequirements(brief)" },
 -  { id: "070-B17", file: "hooks/lib/text.ts", note: "context tiếp nối không nhắc yêu cầu chưa được phủ", old: "    uncoveredRequirements(brief).length > 0 ? `Yêu cầu chưa có việc nào phủ (đừng bỏ sót): ${uncoveredRequirements(brief).join('; ')}` : '',\n", new: "" },
@@ -990,7 +990,7 @@ index 40078d3..4cc3053 100644
 +  { id: "087-L2c", file: "hooks/lib/router.ts", note: "covers còn chặn ở 30", old: "Number.isInteger(n) && n >= 1))]\n", new: "Number.isInteger(n) && n >= 1 && n <= 30))]\n" },
 +  { id: "087-L2d", file: "hooks/lib/plan.ts", note: "checklist còn chặn ở 20", old: "    const tier = TIERS.find(t => t === item['tier'])", new: "    if (out.length >= 20) continue\n    const tier = TIERS.find(t => t === item['tier'])" },
 +  { id: "087-L2e", file: "hooks/lib/router.ts", note: "lượt đọc sau cắt danh sách việc đã có", old: "    tasks: [...keptTasks, ...added],", new: "    tasks: [...keptTasks, ...added].slice(0, 20)," },
-+  { id: "087-L2f", file: "hooks/lib/router.ts", note: "lời dặn còn at most 8 tasks", old: "Use as many tasks as the work needs for every requirement to be covered", new: "Apart from coded headings, at most 8 tasks. Use as many tasks as the work needs for every requirement to be covered" },
++  { id: "087-L2f", file: "hooks/lib/router.ts", note: "lời dặn còn at most 8 tasks", old: "There is no fixed limit on the number of tasks: list every separate piece of work the request has, and never merge separate pieces just to keep the list short. ", new: "Apart from coded headings, at most 8 tasks. There is no fixed limit on the number of tasks: list every separate piece of work the request has, and never merge separate pieces just to keep the list short. " },
 +  { id: "087-L2g", file: "hooks/lib/text.ts", note: "câu nhắc yêu cầu chưa phủ liệt kê không giới hạn", old: "items.slice(0, UNCOVERED_SHOWN).join('; ')", new: "items.join('; ')" },
 +  { id: "087-L2h", file: "hooks/lib/router.ts", note: "bỏ việc lọc covers ngoài khoảng", old: "covers: t.covers.filter(n => n <= requirements.length)", new: "covers: t.covers" },
 +  { id: "087-L2i", file: "hooks/lib/router.ts", note: "không có dòng tổng số việc", old: "  return count > TASK_CONTEXT ? [`  (${count} tasks in total; the first ${TASK_CONTEXT} are listed)`] : []", new: "  return []" },
@@ -1015,7 +1015,7 @@ index 185cd20..26233ea 100644
  
    test(`ràng buộc: phần tràn đầy (${CAP_OVERFLOW} mục) thì ràng buộc mới bị bỏ và đếm ở dropped`, () => {
 diff --git a/claude-mods/focus-conductor/tests/conductor-c4-084.test.ts b/claude-mods/focus-conductor/tests/conductor-c4-084.test.ts
-index 2fc3343..cb4c649 100644
+index 2fc3343..2c7a9a0 100644
 --- a/claude-mods/focus-conductor/tests/conductor-c4-084.test.ts
 +++ b/claude-mods/focus-conductor/tests/conductor-c4-084.test.ts
 @@ -10,7 +10,9 @@ import { OPEN } from './golden/cases'
@@ -1025,7 +1025,7 @@ index 2fc3343..cb4c649 100644
 -const SHA_083 = '546aea945e97d93529e56d04bc1357ad7c3d872f2a70eb0a98b5f19b1fc6ca43'
 +// 0.8.7 L2 đổi các câu về trần số yêu cầu, số việc và thêm câu về thứ tự thực hiện; số ghim đổi theo, ý của ca giữ nguyên: cờ tắt thì
 +// request dùng đúng lời dặn gốc. Băm của 0.8.3 tới 0.8.6 là 546aea94….
-+const SHA_083 = 'a9da24a2d3e81a8a653fbc605ff39f7fbfbd77da5a480fe9d01d1e680ba680d0'
++const SHA_083 = '71ff7d30fe0b2b7e9550ece20ac08ae224386cbf880c0facb0fda4efc7658210'
  const ON: Policy = { ...OPEN, conductor: true }
  const sha = async (text: string) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))].map(b => b.toString(16).padStart(2, '0')).join('')
  const systemOf = (policy: Policy) => (routerRequest({ text: 'Sửa luồng thanh toán', prev: null, ran: null, policy, model: 'm' }).system as Array<{ text: string }>).map(b => b.text).join('')
@@ -1097,10 +1097,20 @@ index 0000000..ff5a6a7
 +  })
 +})
 diff --git a/claude-mods/focus-conductor/tests/golden/cases.ts b/claude-mods/focus-conductor/tests/golden/cases.ts
-index 420262b..7e8802b 100644
+index 420262b..7c69e91 100644
 --- a/claude-mods/focus-conductor/tests/golden/cases.ts
 +++ b/claude-mods/focus-conductor/tests/golden/cases.ts
-@@ -282,13 +282,15 @@ export const CASES: readonly GoldenCase[] = [
+@@ -270,7 +270,8 @@ export const CASES: readonly GoldenCase[] = [
+     id: 'prose-hidden',
+     text: 'Module báo cáo thuế của shop-api đang tính VAT sai cho hóa đơn xuất khẩu, nên xử lý luôn trong lượt này: trước hết tìm xem hàm tính thuế nằm ở đâu và vì sao ra sai, sau đó sửa cho đúng nhưng đừng đổi chữ ký hàm công khai vì ba service khác đang gọi nó, thêm unit test cho cả hóa đơn trong nước lẫn xuất khẩu, rồi cập nhật phần mô tả trong README cho khớp, và nếu có file cấu hình thuế suất thì chỉ đọc chứ không sửa.',
+     note: 'một đoạn văn, không đề mục: các yêu cầu nằm trong câu, router phải liệt kê đủ và phủ hết',
+-    expect: { kind: ['edit', 'mixed'], main: ['sonnet', 'opus'], tasks: [0, 8], requirements: [5, 9], covered: true },
++    // 0.8.7 L2: một đoạn văn là một việc (tìm nguyên nhân, sửa, test, tài liệu là bước của việc đó), nên tasks phải rỗng.
++    expect: { kind: ['edit', 'mixed'], main: ['sonnet', 'opus'], tasks: [0, 0], requirements: [5, 9], covered: true },
+   },
+   {
+     id: 'single-block',
+@@ -282,13 +283,15 @@ export const CASES: readonly GoldenCase[] = [
      id: 'long-vn',
      text: LONG_VN_PROMPT,
      note: 'prompt dài tiếng Việt khoảng 6.000 ký tự, hơn 20 yêu cầu trong đoạn văn: đọc đủ, phủ hết, trong giới hạn router',
@@ -1267,21 +1277,21 @@ index b86f088..16df99e 100644
  })
  
 diff --git a/claude-mods/focus-conductor/tests/integration/fork-split-f1-079.test.ts b/claude-mods/focus-conductor/tests/integration/fork-split-f1-079.test.ts
-index 79d77fa..d698aae 100644
+index 79d77fa..cb07e0a 100644
 --- a/claude-mods/focus-conductor/tests/integration/fork-split-f1-079.test.ts
 +++ b/claude-mods/focus-conductor/tests/integration/fork-split-f1-079.test.ts
 @@ -244,11 +244,12 @@ describe('F1: router đề xuất tách, mod kẹp trong parseRoute', () => {
    })
  
    // 0.8.2 N1 thêm trường intent (8826 lên 9535 ký tự), N2 thêm skipApproval và questions (9535 lên 9892); số ghim đổi theo, ý của ca giữ nguyên: forks tắt thì không có đoạn tách.
-+  // 0.8.7 L2 bỏ trần số yêu cầu, số việc và thêm câu về thứ tự thực hiện (9892 lên 10129); số ghim đổi theo.
++  // 0.8.7 L2 bỏ trần số yêu cầu, số việc và thêm câu về thứ tự thực hiện và câu bước của một việc không phải việc riêng (9892 lên 10282); số ghim đổi theo.
    test('chủ mod 1. forks tắt: routerSystem không có đoạn tách (ghim số ký tự và mã băm)', async () => {
      const hex = (bytes: ArrayBuffer) => [...new Uint8Array(bytes)].map(b => b.toString(16).padStart(2, '0')).join('')
      const text = routerSystem()
 -    expect(text.length).toBe(9892)
 -    expect(hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))).toBe('546aea945e97d93529e56d04bc1357ad7c3d872f2a70eb0a98b5f19b1fc6ca43')
-+    expect(text.length).toBe(10129)
-+    expect(hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))).toBe('a9da24a2d3e81a8a653fbc605ff39f7fbfbd77da5a480fe9d01d1e680ba680d0')
++    expect(text.length).toBe(10282)
++    expect(hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))).toBe('71ff7d30fe0b2b7e9550ece20ac08ae224386cbf880c0facb0fda4efc7658210')
      for (const policy of [OPEN, withForks(0)]) {
        expect(((routerRequest({ text: 'x', prev: null, ran: null, policy, model: 'sonnet' }).system ?? []) as readonly ModelTextBlock[])[0]?.text).toBe(text)
      }
@@ -1843,10 +1853,10 @@ index 0000000..f17b5e8
 +})
 diff --git a/claude-mods/focus-conductor/tests/limits-l2-087.test.ts b/claude-mods/focus-conductor/tests/limits-l2-087.test.ts
 new file mode 100644
-index 0000000..d3aebc4
+index 0000000..ad62e47
 --- /dev/null
 +++ b/claude-mods/focus-conductor/tests/limits-l2-087.test.ts
-@@ -0,0 +1,144 @@
+@@ -0,0 +1,147 @@
 +// 0.8.7 L2: router không còn trần số việc, số yêu cầu; covers nhận mọi số từ 1 tới số yêu cầu thật của lượt; lượt đọc sau không cắt danh
 +// sách đã có. Lời dặn router không còn "at most 30" yêu cầu và "at most 8 tasks", có câu về thứ tự thực hiện; agentSystem giữ từng byte.
 +// Danh sách việc cũ gửi kèm request router và request chấm subagent giữ 20 việc như 0.8.6, quá 20 thì thêm một dòng tổng số.
@@ -1923,6 +1933,9 @@ index 0000000..d3aebc4
 +      expect(rule).toContain('at most 5 acceptance criteria')
 +      expect(rule).toContain('A request that is one piece of work has tasks [].')
 +      expect(rule).toContain('Order tasks in the order they are done')
++      expect(rule).toContain('There is no fixed limit on the number of tasks')
++      expect(rule).toContain('Steps of one piece of work (find the cause, fix it, test it, update its docs) are not tasks')
++      expect(rule).toContain('every requirement must be covered by at least one task')
 +    })
 +  }
 +
@@ -1992,7 +2005,7 @@ index 0000000..d3aebc4
 +  })
 +})
 diff --git a/claude-mods/focus-conductor/tests/requirements.test.ts b/claude-mods/focus-conductor/tests/requirements.test.ts
-index 701535c..da0e82a 100644
+index 701535c..7afc7c8 100644
 --- a/claude-mods/focus-conductor/tests/requirements.test.ts
 +++ b/claude-mods/focus-conductor/tests/requirements.test.ts
 @@ -43,7 +43,8 @@ describe('0.7.0 7: đọc requirements và covers', () => {
@@ -2005,14 +2018,15 @@ index 701535c..da0e82a 100644
      expect(result.requirements.every(r => r.length <= 160)).toBe(true)
      expect(result.tasks[0]?.covers).toEqual([1, 2])
    })
-@@ -166,7 +167,9 @@ describe('0.7.0 7: request của router', () => {
+@@ -166,7 +167,10 @@ describe('0.7.0 7: request của router', () => {
      const system = routerSystem()
      expect(system).toContain('requirements')
      expect(system).toContain('covers')
 -    expect(system).toContain('at most 8 tasks')
 +    // 0.8.7 L2: không còn trần 8 việc; lời dặn chia đủ việc để phủ mọi yêu cầu.
 +    expect(system).not.toContain('at most 8 tasks')
-+    expect(system).toContain('Use as many tasks as the work needs')
++    expect(system).toContain('There is no fixed limit on the number of tasks')
++    expect(system).toContain('Steps of one piece of work')
      expect(system).toContain('truly independent')
      expect(system).not.toContain('Never invent your own sub-steps')
    })
