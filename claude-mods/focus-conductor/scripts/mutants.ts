@@ -2227,4 +2227,6 @@ export const MUTANTS: Mutant[] = [
   { id: "087-L2h", file: "hooks/lib/router.ts", note: "bỏ việc lọc covers ngoài khoảng", old: "covers: t.covers.filter(n => n <= requirements.length)", new: "covers: t.covers" },
   { id: "087-L2i", file: "hooks/lib/router.ts", note: "không có dòng tổng số việc", old: "  return count > TASK_CONTEXT ? [`  (${count} tasks in total; the first ${TASK_CONTEXT} are listed)`] : []", new: "  return []" },
   { id: "087-L2j", file: "hooks/lib/state.ts", note: "bộ đếm của việc đã phân còn cắt ở 50", old: "tally: tally.filter(t => t.taskIndex !== undefined || ownKept.has(t.key))", new: "tally: tally.slice(-AGENT_TALLY_LIMIT)" },
+  { id: "087-P1a", file: "hooks/lib/progress.ts", note: "việc của bước tra lệch một bước", old: "const own = plan.filter(step => ownerOf.get(step.id) === task.index)", new: "const own = plan.filter(step => ownerOf.get(step.id + 1) === task.index)" },
+  { id: "087-P1b", file: "hooks/lib/progress.ts", note: "việc của bước doing tính từ bước todo", old: "const doingTasks = new Set(plan.filter(s => s.status === 'doing')", new: "const doingTasks = new Set(plan.filter(s => s.status === 'todo')" },
 ]
