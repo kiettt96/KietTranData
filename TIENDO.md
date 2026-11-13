@@ -43,3 +43,4 @@ Tiếp: đo Fable cho L1.
 - SỬA GHI CHÉP: backup.sh in mã commit của nhánh wip. Mã đúng trên nhánh chính: M1 sửa 2de39fa, F1 test đỏ 7788ea5, F1 sửa bade375, G1 sửa 7db29cb, tài liệu M1 F1 G1 64d5f26; các mã 832d495, fa608ae, 690b4d0, e136de9, 73b2d3a, f36f22b, ad00748 ở trên là mã của nhánh wip.
 - 13/11 chiều: đột biến 458/458 diệt; VERIFICATION 4365287; PR 40 đã mở, chờ CI.
 - CI run 43450370502 xanh trên 4365287; VERIFICATION ghi CI.
+- CI run 43452068222 xanh trên 1aab848; đã gửi báo cáo cuối.
