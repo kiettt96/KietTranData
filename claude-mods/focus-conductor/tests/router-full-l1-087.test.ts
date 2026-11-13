@@ -46,6 +46,18 @@ describe('0.8.7 L3: mọi model router đọc trọn prompt vừa sức chứa',
     expect(r.timeoutMs).toBe(readPlan(FABLE, LONG.length, 0).timeoutMs)
   })
 
+  test('request không truyền reading: Fable theo thông số fable, router sonnet theo thông số sonnet (maxTokens 128.000 và 16.000)', () => {
+    const f = routerRequest({ text: LONG, prev: null, ran: null, policy: COND, model: 'claude-fable-5-2', isFable: true })
+    const s = routerRequest({ text: LONG, prev: null, ran: null, policy: OPEN, model: 'sonnet' })
+    expect([f.maxTokens, s.maxTokens]).toEqual([fullMaxTokens(READ_PARAMS.fable), fullMaxTokens(READ_PARAMS.sonnet)])
+    expect([f.maxTokens, s.maxTokens]).toEqual([128_000, 16_000])
+    expect(f.timeoutMs).toBe(readPlan({ family: 'fable', window: 1_000_000, maxWaitMs: ROUTER_MAX_WAIT_MS }, LONG.length, 0).timeoutMs)
+  })
+
+  test('trần lượt hỏi lại của Fable đọc trọn: 1,5 lần 128.000 kẹp về mức engine báo 128.000', () => {
+    expect(fullRetryTokens(fullMaxTokens(READ_PARAMS.fable), READ_PARAMS.fable)).toBe(128_000)
+  })
+
   test('router haiku và opus (chưa đo), prompt 100.000 ký tự: gửi trọn; thông số thận trọng hơn giữa Fable và sonnet', () => {
     const text = 'h'.repeat(50_000) + MARK + 'h'.repeat(50_000 - MARK.length)
     for (const family of ['haiku', 'opus'] as const) {
@@ -83,6 +95,7 @@ describe('0.8.7 L3: hai trường hợp còn cắt', () => {
     const p = requestPlan({ text: LONG, prev: null, ran: null, policy: OPEN, model: 'sonnet', reading })
     expect(p.capacity).toBeGreaterThan(BASE_CHARS)
     expect(p.capacity).toBeLessThan(LONG.length)
+    expect(p.capacity).toBeLessThanOrEqual(150_000)
     expect(p.limit).toBe('window')
     expect(promptOf(plain(LONG, reading)).includes(`[... lược ${LONG.length - p.head - p.tail} ký tự ở giữa ...]`)).toBe(true)
     expect(isClippedPrompt(LONG, p.capacity)).toBe(true)
@@ -126,8 +139,8 @@ describe('0.8.7 L3: hai trường hợp còn cắt', () => {
     expect(r.timeoutMs ?? 0).toBeLessThanOrEqual(1_800_000)
   })
 
-  test('routerMaxWait 50 và 5.000: kẹp về 120 và 1.800 giây; vắng là 600', () => {
-    expect([routerMaxWaitOf(50), routerMaxWaitOf(5_000), routerMaxWaitOf(undefined), routerMaxWaitOf(300)]).toEqual([120_000, 1_800_000, 600_000, 300_000])
+  test('routerMaxWait 50 và 5.000: kẹp về 120 và 1.800 giây; vắng là 1.800', () => {
+    expect([routerMaxWaitOf(50), routerMaxWaitOf(5_000), routerMaxWaitOf(undefined), routerMaxWaitOf(300)]).toEqual([120_000, 1_800_000, 1_800_000, 300_000])
   })
 
   test('prompt đúng bằng sức chứa: gửi trọn; dài hơn 1 ký tự: bị cắt', () => {
@@ -170,24 +183,26 @@ describe('0.8.7 L3: lượt dự phòng và lượt hỏi lại', () => {
   }
 
   test('askRouter chuyển full sang lượt hỏi lại: câu trả lời lượt đọc trọn bị cắt thì lượt hỏi lại có maxTokens bằng tokenCap; tin cậy thấp thì effort medium', async () => {
-    const request = plain(LONG)
-    const tokenCap = fullRetryTokens(request.maxTokens ?? 0, READ_PARAMS.sonnet)
+    const request = fable(LONG)
+    const tokenCap = fullRetryTokens(request.maxTokens ?? 0, READ_PARAMS.fable)
     const cut = { input_tokens: 100, output_tokens: request.maxTokens ?? 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
     const sent: ModelCompleteRequest[] = []
     const truncatedAsk = async (r: ModelCompleteRequest) => {
       sent.push(r)
       return sent.length === 1 ? { isAnswered: true as const, text: '{"goal":', usage: cut } : { isAnswered: true as const, text: reply, usage: USAGE }
     }
-    await askRouter(truncatedAsk as never, request, text => parseRoute(text, OPEN), undefined, { now: () => 0, full: { tokenCap } })
+    await askRouter(truncatedAsk as never, request, text => parseRoute(text, COND), undefined, { now: () => 0, isFable: true, full: { tokenCap } })
     expect(sent.length).toBe(2)
     expect(sent[1]?.maxTokens).toBe(tokenCap)
+    expect(tokenCap).toBe(128_000)
     const low = JSON.stringify({ ...plan({ goal: 'Sửa luồng thanh toán' }), confidence: 0.2 })
     const lowSent: ModelCompleteRequest[] = []
     const lowAsk = async (r: ModelCompleteRequest) => {
       lowSent.push(r)
       return { isAnswered: true as const, text: low, usage: USAGE }
     }
-    await askRouter(lowAsk as never, request, text => parseRoute(text, OPEN), undefined, { now: () => 0, retryMissingConfidence: true, full: { tokenCap } })
+    const plainRequest = plain(LONG)
+    await askRouter(lowAsk as never, plainRequest, text => parseRoute(text, OPEN), undefined, { now: () => 0, retryMissingConfidence: true, full: { tokenCap: fullRetryTokens(plainRequest.maxTokens ?? 0, READ_PARAMS.sonnet) } })
     expect(lowSent.length).toBe(2)
     expect(lowSent[1]?.effort).toBe('medium')
   })

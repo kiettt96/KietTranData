@@ -57,7 +57,7 @@ describe('0.8.7 L3: mọi router đọc trọn prompt dài', () => {
     expect(lastContext(seen)).not.toContain(CLIPPED)
   })
 
-  test('routerMaxWait 120 giây, prompt 238.489 ký tự: bị cắt; cảnh báo nêu thời gian chờ tối đa và option routerMaxWait; có CLIPPED_CONTEXT', { options: { planApproval: 'off', routerMaxWait: 120 } }, async ($, on) => {
+  test('conductor fable, routerMaxWait 120 giây, prompt 238.489 ký tự: bị cắt; cảnh báo nêu thời gian chờ tối đa và option routerMaxWait; có CLIPPED_CONTEXT', { options: { planApproval: 'off', conductor: 'fable', routerMaxWait: 120 } }, async ($, on) => {
     const seen = setup(on, () => BIG)
     await submit($, HUGE)
     expect((seen.routed[0] ?? '').includes(MARK)).toBe(false)

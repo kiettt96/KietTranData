@@ -408,7 +408,7 @@ export type RouterRequestArgs = {
   sessionFamily?: ModelFamily | null
   /** Lượt này gọi Fable điều phối (0.8.4 C2): thời gian chờ theo hằng FABLE_*_TIMEOUT_MS. */
   isFable?: boolean
-  /** Họ model, cửa sổ ngữ cảnh và thời gian chờ tối đa của lượt đọc (0.8.7 L3); vắng thì theo model, cửa sổ mặc định, 600 giây. */
+  /** Họ model, cửa sổ ngữ cảnh và thời gian chờ tối đa của lượt đọc (0.8.7 L3); vắng thì theo model, cửa sổ mặc định, 1.800 giây. */
   reading?: Reading
 }
 

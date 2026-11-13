@@ -10,8 +10,9 @@ export const BASE_CHARS = 80_000
 export const BASE_HEAD = 60_000
 export const BASE_TAIL = 20_000
 
-/** Thời gian chờ tối đa của lượt đọc trọn, option routerMaxWait tính bằng giây: mặc định 600, kẹp trong 120 tới 1.800. */
-export const ROUTER_MAX_WAIT_MS = 600_000
+/** Thời gian chờ tối đa của lượt đọc trọn, option routerMaxWait tính bằng giây: mặc định 1.800 (bằng biên trên, để Fable đọc trọn khoảng 468.000 ký tự),
+ * kẹp trong 120 tới 1.800. Mức giữ hook tệ nhất là 1,5 lần mức này (hạn chung của askRouter), tức 2.700 giây. */
+export const ROUTER_MAX_WAIT_MS = 1_800_000
 export const ROUTER_MAX_WAIT_MIN_MS = 120_000
 export const ROUTER_MAX_WAIT_MAX_MS = 1_800_000
 /** Lượt dự phòng (request cắt theo trần cũ) dùng trọn bấy nhiêu, không lấy phần còn lại của hạn chung. */
@@ -25,10 +26,15 @@ export const FULL_MIN_TOKENS = 16_000
  */
 export type ReadParams = { charsPerToken: number; secPerChar: number; maxOut: number; engineMaxOut: number }
 
-/** Số đo của fable và sonnet; các số ở đây được thay bằng số đo thật trong commit sửa của L3. */
+/**
+ * Số đo thật [Đo trực tiếp, 13/11/2026, engine 2.1.323, `claude -p`, effort medium, chạy một mình; bảng từng lượt ở VERIFICATION, mục
+ * 0.8.7]. Ký tự trên token: nhỏ nhất qua các lượt, làm tròn xuống 4 chữ số. Giây trên ký tự: lớn nhất qua các lượt, làm tròn lên. Fable:
+ * 7 lượt, chậm nhất 615,6 s cho 240.000 ký tự (prompt lặp mẫu), token ra lớn nhất 91.084. Sonnet: 11 lượt, chậm nhất 35,8 s cho 240.000
+ * ký tự (prompt nhiều đề mục), token ra lớn nhất 6.243. Mức token ra tối đa engine báo (`modelUsage.maxOutputTokens`) là 128.000 cho cả hai.
+ */
 export const READ_PARAMS: Record<'fable' | 'sonnet', ReadParams> = {
-  fable: { charsPerToken: 1.6, secPerChar: 0.001, maxOut: 53_618, engineMaxOut: 128_000 },
-  sonnet: { charsPerToken: 1.6, secPerChar: 0.001, maxOut: 53_618, engineMaxOut: 64_000 },
+  fable: { charsPerToken: 1.5837, secPerChar: 0.0025649, maxOut: 91_084, engineMaxOut: 128_000 },
+  sonnet: { charsPerToken: 1.5863, secPerChar: 0.0001491, maxOut: 6_243, engineMaxOut: 128_000 },
 }
 
 /** Họ chưa đo (haiku, opus, model ID riêng): giá trị thận trọng hơn giữa fable và sonnet cho từng thông số [Giả định]. */

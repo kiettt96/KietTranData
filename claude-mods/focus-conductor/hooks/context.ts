@@ -302,7 +302,7 @@ export function createContext(options: PluginOptions) {
     Object.entries(DEFAULT_WINDOWS).filter(([family]) => modelMap[family as ModelFamily] === undefined),
   ) as Partial<Record<ModelFamily, number>>
   const contextWindows = { ...defaultWindows, ...parseWindows(options['contextWindows']) }
-  // Thời gian chờ tối đa của lượt đọc trọn (0.8.7 L3, option routerMaxWait, giây): mặc định 600, kẹp 120 tới 1.800.
+  // Thời gian chờ tối đa của lượt đọc trọn (0.8.7 L3, option routerMaxWait, giây): mặc định 1.800, kẹp 120 tới 1.800.
   const routerMaxWaitMs = routerMaxWaitOf(options['routerMaxWait'])
   applyPrices(parsePrices(options['prices']))
   applyCacheWrite(parseCacheWrite(options['cacheWrite']))

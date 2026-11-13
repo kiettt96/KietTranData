@@ -21,8 +21,8 @@
     "routerMaxWait": {
       "type": "number",
       "title": "Thời gian chờ tối đa khi router đọc trọn prompt dài (giây)",
-      "description": "Router dùng model nào cũng đọc trọn prompt dài tới sức chứa của model; lượt đọc prompt dài hơn 80.000 ký tự chờ tối đa bấy nhiêu giây, nên prompt nào cần lâu hơn thì phần giữa bị lược và mod báo một cảnh báo nêu option này. Mặc định 600; nhỏ nhất 120, lớn nhất 1800 (ngoài khoảng thì kẹp về biên). (en) Every router model reads a long prompt whole up to its capacity; a read of a prompt longer than 80,000 characters waits at most this many seconds, so a prompt that would need longer has its middle left out and a warning names this option. Default 600; minimum 120, maximum 1800 (values outside are clamped).",
-      "default": 600
+      "description": "Router dùng model nào cũng đọc trọn prompt dài tới sức chứa của model; lượt đọc prompt dài hơn 80.000 ký tự chờ tối đa bấy nhiêu giây, nên prompt nào cần lâu hơn thì phần giữa bị lược và mod báo một cảnh báo nêu option này. Mặc định 1800; nhỏ nhất 120, lớn nhất 1800 (ngoài khoảng thì kẹp về biên). (en) Every router model reads a long prompt whole up to its capacity; a read of a prompt longer than 80,000 characters waits at most this many seconds, so a prompt that would need longer has its middle left out and a warning names this option. Default 1800; minimum 120, maximum 1800 (values outside are clamped).",
+      "default": 1800
     },
     "conductor": {
       "type": "string",
