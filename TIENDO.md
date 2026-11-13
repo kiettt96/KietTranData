@@ -26,3 +26,6 @@ Tiếp: đo Fable cho L1.
 - b CHẠM: six đạt 2/3 ở 45b5161, chạy lại 2/3; bản mới 1/3, chạy lại 1/3 (luồng chính sonnet/medium, cần opus). DỪNG L2, chờ chủ mod. Bản ghi golden cất ở v7/golden/replies-new2.ts, chưa commit. Đo L3 chưa chạy.
 - L2 qua theo quyết định chủ mod (six không ổn định ở 45b5161: 2/3, 0/3, 2/3). Golden ghi lại ở commit golden; cả bộ 3389, chỉ ca plan set 21 bước đỏ do kỳ vọng sai, đã sửa cùng commit.
 - Tiếp: L3 (probe, test đỏ, đo một mình).
+- L3 test đỏ cafab42 (21/25 đỏ trên bản sao 45b5161 có hàm giả); sửa 7c48073 (thông số tạm). Cả bộ 3396 đạt.
+- Đo L3 (2.1.323, một mình, không lượt gọi model khác; bộ test và kiểm đột biến chạy cùng lúc): fable 240k 328/499/616 s, ra 47.560/72.272/91.084 token, 270 việc, 272 tới 1.081 yêu cầu; fable 400k lượt 1 bị bộ đo ngắt ở 900 s, lượt 2, 3 509/516 s, ra 72.709/75.264, 448 việc; sonnet 240k, 400k 8 tới 14 s, ra tối đa 1.025, 0 tới 2 việc, 6 hay 7 yêu cầu. Chi phí: fable 16,91 USD, sonnet 1,71 USD.
+- Fable: 91.084 > 0,6 × 128.000. Theo công thức, sức chứa thời gian của Fable ở 600 s là 155.955 ký tự: prompt 238.489 bị cắt, trái ca test của đặc tả. DỪNG chờ chủ mod.
