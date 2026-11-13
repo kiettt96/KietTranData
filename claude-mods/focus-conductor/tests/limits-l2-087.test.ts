@@ -74,6 +74,9 @@ describe('0.8.7 L2: lời dặn router', () => {
       expect(rule).toContain('at most 5 acceptance criteria')
       expect(rule).toContain('A request that is one piece of work has tasks [].')
       expect(rule).toContain('Order tasks in the order they are done')
+      expect(rule).toContain('There is no fixed limit on the number of tasks')
+      expect(rule).toContain('Steps of one piece of work (find the cause, fix it, test it, update its docs) are not tasks')
+      expect(rule).toContain('every requirement must be covered by at least one task')
     })
   }
 

@@ -270,7 +270,8 @@ export const CASES: readonly GoldenCase[] = [
     id: 'prose-hidden',
     text: 'Module báo cáo thuế của shop-api đang tính VAT sai cho hóa đơn xuất khẩu, nên xử lý luôn trong lượt này: trước hết tìm xem hàm tính thuế nằm ở đâu và vì sao ra sai, sau đó sửa cho đúng nhưng đừng đổi chữ ký hàm công khai vì ba service khác đang gọi nó, thêm unit test cho cả hóa đơn trong nước lẫn xuất khẩu, rồi cập nhật phần mô tả trong README cho khớp, và nếu có file cấu hình thuế suất thì chỉ đọc chứ không sửa.',
     note: 'một đoạn văn, không đề mục: các yêu cầu nằm trong câu, router phải liệt kê đủ và phủ hết',
-    expect: { kind: ['edit', 'mixed'], main: ['sonnet', 'opus'], tasks: [0, 8], requirements: [5, 9], covered: true },
+    // 0.8.7 L2: một đoạn văn là một việc (tìm nguyên nhân, sửa, test, tài liệu là bước của việc đó), nên tasks phải rỗng.
+    expect: { kind: ['edit', 'mixed'], main: ['sonnet', 'opus'], tasks: [0, 0], requirements: [5, 9], covered: true },
   },
   {
     id: 'single-block',

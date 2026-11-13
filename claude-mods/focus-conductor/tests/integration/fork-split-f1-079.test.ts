@@ -244,12 +244,12 @@ describe('F1: router đề xuất tách, mod kẹp trong parseRoute', () => {
   })
 
   // 0.8.2 N1 thêm trường intent (8826 lên 9535 ký tự), N2 thêm skipApproval và questions (9535 lên 9892); số ghim đổi theo, ý của ca giữ nguyên: forks tắt thì không có đoạn tách.
-  // 0.8.7 L2 bỏ trần số yêu cầu, số việc và thêm câu về thứ tự thực hiện (9892 lên 10129); số ghim đổi theo.
+  // 0.8.7 L2 bỏ trần số yêu cầu, số việc và thêm câu về thứ tự thực hiện và câu bước của một việc không phải việc riêng (9892 lên 10282); số ghim đổi theo.
   test('chủ mod 1. forks tắt: routerSystem không có đoạn tách (ghim số ký tự và mã băm)', async () => {
     const hex = (bytes: ArrayBuffer) => [...new Uint8Array(bytes)].map(b => b.toString(16).padStart(2, '0')).join('')
     const text = routerSystem()
-    expect(text.length).toBe(10129)
-    expect(hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))).toBe('a9da24a2d3e81a8a653fbc605ff39f7fbfbd77da5a480fe9d01d1e680ba680d0')
+    expect(text.length).toBe(10282)
+    expect(hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))).toBe('71ff7d30fe0b2b7e9550ece20ac08ae224386cbf880c0facb0fda4efc7658210')
     for (const policy of [OPEN, withForks(0)]) {
       expect(((routerRequest({ text: 'x', prev: null, ran: null, policy, model: 'sonnet' }).system ?? []) as readonly ModelTextBlock[])[0]?.text).toBe(text)
     }

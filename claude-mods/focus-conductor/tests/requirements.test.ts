@@ -169,7 +169,8 @@ describe('0.7.0 7: request của router', () => {
     expect(system).toContain('covers')
     // 0.8.7 L2: không còn trần 8 việc; lời dặn chia đủ việc để phủ mọi yêu cầu.
     expect(system).not.toContain('at most 8 tasks')
-    expect(system).toContain('Use as many tasks as the work needs')
+    expect(system).toContain('There is no fixed limit on the number of tasks')
+    expect(system).toContain('Steps of one piece of work')
     expect(system).toContain('truly independent')
     expect(system).not.toContain('Never invent your own sub-steps')
   })
