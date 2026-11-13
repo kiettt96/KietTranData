@@ -39,16 +39,16 @@ index f75a3bc..5ffb729 100644
      "conductorReads": {
        "type": "number",
 diff --git a/claude-mods/focus-conductor/CHANGELOG.md b/claude-mods/focus-conductor/CHANGELOG.md
-index f86f098..059328e 100644
+index f86f098..56a5735 100644
 --- a/claude-mods/focus-conductor/CHANGELOG.md
 +++ b/claude-mods/focus-conductor/CHANGELOG.md
-@@ -2,6 +2,62 @@
+@@ -2,6 +2,92 @@
  
  Các bản của focus-conductor, mới nhất trước. Số đo kiểm chứng của HEAD hiện tại nằm ở [docs/VERIFICATION.md](docs/VERIFICATION.md); cách dùng và tùy chọn ở [README](README.md).
  
-+## Thay đổi 0.8.7: router đọc trọn prompt, bỏ trần số lượng
++## Thay đổi 0.8.7: router đọc trọn prompt, bỏ trần số lượng, model mới nhất, vai điều phối dự phòng và theo họ
 +
-+Router dùng model nào cũng đọc trọn prompt dài tới sức chứa của lượt đó, và không còn trần số việc, số yêu cầu, số bước [Nguồn: chủ mod, 12 và 13/11/2026]. Kèm hai sửa nhỏ: `/conductor status` nêu lý do mode off ở phiên không tương tác (H1), và lần test lỗi chạy sau làm mất lần đạt dùng để tự nâng `verified` (B1). Một sửa hiệu năng riêng cho dòng việc ở band và pane (P1). Prompt không quá 80.000 ký tự và mục tiêu không quá 20 việc thì trường `prompt`, `maxTokens`, `timeoutMs` và `effort` của request router trùng 0.8.6; trường `system` đổi theo lời dặn mới của L2. `agentSystem`, schema router và schema tool `plan` không đổi. Mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `087-*`; số ca đỏ đo trên `45b5161` ở VERIFICATION.
++Router dùng model nào cũng đọc trọn prompt dài tới sức chứa của lượt đó, và không còn trần số việc, số yêu cầu, số bước [Nguồn: chủ mod, 12 và 13/11/2026]. Kèm hai sửa nhỏ: `/conductor status` nêu lý do mode off ở phiên không tương tác (H1), và lần test lỗi chạy sau làm mất lần đạt dùng để tự nâng `verified` (B1). Một sửa hiệu năng riêng cho dòng việc ở band và pane (P1). Bản bổ sung 2 thêm ba điểm: mod dùng phiên bản model mới nhất qua alias (M1), họ dự phòng nhận vai điều phối khi Fable không dùng được (F1), và vai điều phối theo họ model đọc từ một bảng (G1). Prompt không quá 80.000 ký tự và mục tiêu không quá 20 việc thì trường `prompt`, `maxTokens`, `timeoutMs` và `effort` của request router trùng 0.8.6; trường `system` đổi theo lời dặn mới của L2. `agentSystem`, schema router và schema tool `plan` không đổi. Mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `087-*`; số ca đỏ đo trên `45b5161` ở VERIFICATION.
 +
 +- **L1: phần giữ lại.** Bản đầu của L1 đặt trần riêng cho Fable (`FABLE_REQUEST_CHARS` 400.000, `FABLE_FULL_TIMEOUT_MS` 555.000, `FABLE_FULL_MAX_TOKENS` 80.000, `FABLE_FULL_RETRY_TOKENS` 120.000). L3 thay các hằng này bằng sức chứa tính theo lượt. Giữ lại:
 +  - `capText` cắt theo sức chứa, phần đầu và phần cuối truyền vào;
@@ -75,11 +75,34 @@ index f86f098..059328e 100644
 +- **B1: lần test lỗi chạy sau.** `freshTestRun` trả `undefined` khi sau lần đạt còn lần chạy test lỗi của luồng chính hay mang cờ `shared`. Lần lỗi của subagent chạy thư mục riêng không xét. Lần kiểm `chained` (A11) không tính là lỗi [Nguồn: chủ mod, 12/11/2026].
 +- **P1: dòng việc ở band và pane** (`hooks/lib/progress.ts`, mục riêng). Bỏ trần việc làm lộ chỗ `taskRows` duyệt checklist một lần cho mỗi việc. Nay hàm dựng sẵn bảng bước thuộc việc nào, tập việc đang làm và tập việc đã đóng. Band với 100 việc và 100 bước giảm từ 5.792 ms xuống 131 ms [Đo trực tiếp, engine 2.1.296]. Đầu ra trùng `45b5161` từng ký tự (test so băm).
 +
++- **M1: dùng phiên bản model mới nhất** [Nguồn: chủ mod, 13/11/2026].
++  - Router (`$.model.complete`) và lời gọi Agent gửi alias của họ model (`haiku`, `sonnet`, `opus`, `fable`), để engine chọn phiên bản hiện hành. Hai nơi này nhận alias ở mọi engine đã kiểm.
++  - Luồng chính và subagent bị ép model (`turn.step`) dùng alias khi `$.session.version()` từ 2.1.323 trở lên. Engine cũ hơn hay không đọc được phiên bản giữ ID ghim như 0.8.6, vì engine 2.1.296 gửi nguyên chuỗi alias cho API. So phiên bản theo từng phần số.
++  - Thứ tự ưu tiên giữ như mã 0.8.6 của từng hàm: ghi đè trong `modelMap`, ID của phiên cùng họ, rồi alias. ID phiên có tiền tố nhà cung cấp giữ tiền tố cộng ID ghim.
++  - Lần đầu trong phiên engine phục vụ một ID khác ID ghim của họ (đọc từ `usage.model` của turn): một cảnh báo model cho họ đó. `/conductor status` có dòng "Model đang dùng". Engine không báo ID thật của lượt router, nên dòng này chỉ có các họ đã chạy ở turn.
++- **F1: vai điều phối dự phòng.**
++  - Option mới `conductorFallback` (`opus` mặc định, `sonnet`, `off`) [Giả định].
++  - Khi họ điều phối chính không dùng được giữa chừng (router tạm ngừng sau các lần lỗi, hay họ bị chặn vì không phản hồi), họ dự phòng nhận vai điều phối với cùng kỷ luật: router dùng biến thể điều phối, luồng chính chạy `<họ>/medium`, không tự sửa file, không tự chạy kiểm.
++  - Họ dự phòng cũng không dùng được thì như 0.8.6 khi Fable không sẵn sàng [Giả định]. Họ chính dùng lại được thì quay về họ chính.
++  - Fable không phản hồi ở turn của mục tiêu đang được điều phối: phần còn lại của turn chạy họ dự phòng ở effort medium, qua cùng cổng phiên bản của M1.
++  - Lượt đọc prompt của Fable bị API từ chối: cùng request trọn gửi họ dự phòng. Hết giờ thì vẫn dùng lượt dự phòng cắt 80.000 ký tự của L3.
++  - Mỗi lần đổi họ điều phối có một toast, một cảnh báo model và một dòng nhật ký `conductor`. Đoạn dặn ghi đúng họ đang điều phối và được chèn lại một lần khi họ đổi giữa mục tiêu. Dòng "Điều phối" ghi họ, chữ "dự phòng" và lý do.
++  - Trạng thái mới `Core.fallback`, có giá trị mặc định khi nạp trạng thái 0.8.6.
++  - Engine không báo cho mod lỗi hạn mức theo model hay giờ mở lại, nên không có phần giờ mở lại; mod thử lại họ chính sau mỗi quãng tạm ngừng.
++- **G1: vai điều phối không gắn cứng với Fable.**
++  - Tệp mới `hooks/lib/families.ts`: bảng họ model, nguồn duy nhất của tên họ, thứ hạng, ID ghim, giá, cửa sổ, thông số đọc và thời gian chờ của vai điều phối. `FAMILIES`, ID ghim, bảng giá, bảng cửa sổ và `READ_PARAMS` đọc từ bảng.
++  - Option `conductor` (nhãn "Model điều phối") nhận `off`, `fable` hay `opus`; giá trị khác là off; mặc định vẫn off, khuyến nghị fable. Opus dùng thời gian chờ của Fable [Giả định: chưa đo opus ở vai này].
++  - Mọi quyết định của vai điều phối lấy từ họ đang điều phối. Chuỗi `'fable'` trong `hooks/` chỉ còn ở bảng (mặc định khuyến nghị), luật `allowFable` (`route.ts`, `router.ts`) và danh mục model của lời dặn router. `scripts/version-check.mjs` đếm và so với `tests/fixtures/fable-sites.ts`.
++  - Các tên còn chữ fable (`Core.fable`, `fableBlocker`, `fableModelId`, `isFable`, `FABLE_*_TIMEOUT_MS`) giữ, vì trạng thái đã lưu, test và mẫu đột biến cũ dùng chúng; nay mang nghĩa "họ điều phối chính".
++  - Băm lời dặn hai biến thể, `agentSystem()`, golden, ba số phiên dài và kịch bản 60 việc trùng với trước G1.
++
 +**Lệch đặc tả, theo quyết định của chủ mod ngày 13/11/2026:**
 +- Mặc định `routerMaxWait` là 1.800 giây, không phải 600. Ở 600 giây, Fable chỉ đọc trọn khoảng 156.000 ký tự, nên prompt 238.489 ký tự của ca test trong đặc tả sẽ bị cắt.
 +- Ca `prose-hidden` của golden kỳ vọng tasks rỗng (cận `[0, 0]`).
 +- Ca `long-vn` và `long-vn-xl` bỏ cận trên số việc, giữ cận dưới.
 +- Ca `six` dao động ngay ở `45b5161` nên không tính vào luật dừng của golden.
++- M1: luồng chính chỉ dùng alias từ engine 2.1.323 (trường hợp c của đặc tả ở engine cũ).
++- F1: bỏ phần giờ mở lại, vì engine không cung cấp thông tin này cho mod.
 +
 +**Test cũ đổi kỳ vọng (giữ tên):**
 +- `tests/caps-s1-075.test.ts`, `tests/integration/caps-r1-075.test.ts` (hai ca), `tests/integration/phase-a3-080.test.ts`: yêu cầu không còn bị cắt ở 30 hay 40.
@@ -90,23 +113,30 @@ index f86f098..059328e 100644
 +- `tests/golden.test.ts`: ca kiểm bộ chấm dùng bản sao của `prose-hidden` với cận `[0, 8]`.
 +- `tests/golden/cases.ts`: `prose-hidden`, `long-vn`, `long-vn-xl` như mục lệch đặc tả; tiêu đề của `long-vn-xl` ghi "đến 0.8.6 router giới hạn 30".
 +- `tests/integration/error-log-l1-079.test.ts`: `MOD_VERSION` là 0.8.7.
++- M1, router gửi alias `fable` thay cho ID ghim: hằng model router trong `tests/integration/conductor-c2-084.test.ts`, `conductor-c6-084.test.ts`, `conductor-v1-084.test.ts`, `resume-a2-084.test.ts`, `router-full-l1-087.test.ts` (kỳ vọng `model`), và hai kỳ vọng `fableModelId` trong `conductor-c1-084.test.ts`.
++- G1, ca cũ duy nhất đổi vì G1: `tests/integration/conductor-c1-084.test.ts`, vòng lặp các giá trị là off bỏ `'opus'`, thêm `'haiku'`, vì G1 cho option `conductor` nhận opus. Tên ca mất: `conductorOf("opus") là off`; tên ca mới: `conductorOf("haiku") là off`.
 +
 +**Test cũ chỉ đổi cách dựng tình huống (kỳ vọng giữ nguyên):**
 +- `tests/integration/dropped-kind-s8-075.test.ts`, `tests/integration/dropped-rank-078.test.ts`, `tests/integration/error-behavior-a9-080.test.ts`: tạo phần tràn bằng ràng buộc (trần 12 còn giữ), thêm prompt thứ ba "thêm 12 yêu cầu nữa".
 +- `tests/integration/router-small-g8-078.test.ts`: dùng option `contextWindows: 'sonnet=1000'` để sức chứa về trần cũ.
 +- `tests/router.test.ts`: request dựng với cửa sổ 0 để giữ trần 80.000.
++- M1: hằng model router dùng để router giả nhận ra Fable đổi sang alias `fable` trong `conductor-c8-084`, `conductor-k10-085`, `limits-l2-087`, `conduct-r5-086`, `conduct-r6-086`.
++- F1: 13 ca mô tả cách chạy khi Fable không dùng được mà không có họ dự phòng đặt `conductorFallback: 'off'`, trong `conduct-r5-086` (1), `conduct-r6-086` (1), `conductor-c3-084` (1), `conductor-c6-084` (5), `conductor-c8-084` (1), `conductor-k10-085` (2), `conductor-v1-084` (1), `resume-a2-084` (1).
++- G1: `tests/support/engine.ts` ghi thêm trường `system` của từng lượt router đọc prompt (`routerSystems`); không ca cũ nào đổi vì thế.
++
++**Ca mới của M1 kiểm pane:** hai ca trong `tests/integration/model-latest-m1-087.test.ts` ("claude-opus-9-9 cho họ opus..." và "ID trùng ID ghim...") đếm câu cảnh báo theo đầu câu vì pane xuống dòng; là ca mới, không phải ca cũ đổi. Mẫu `087-M1e` (cảnh báo lặp lại mỗi lần gọi) đỏ ở ca đầu.
 +
 +**Golden:** `tests/golden/replies.ts` ghi lại cả bộ trên lời dặn mới (50 ca sonnet, 4 ca Fable), vì băm request đổi. Kết quả và bảng khác biệt ở VERIFICATION.
 +
-+**Mẫu mới (46):** `087-L1a` tới `087-L1k` (viết lại cho L3, giữ mã), `087-H1a` tới `087-H1d`, `087-B1a` tới `087-B1d`, `087-L2a` tới `087-L2j`, `087-P1a`, `087-P1b`, `087-L3a` tới `087-L3o`.
++**Mẫu mới (66):** `087-L1a` tới `087-L1k` (viết lại cho L3, giữ mã), `087-H1a` tới `087-H1d`, `087-B1a` tới `087-B1d`, `087-L2a` tới `087-L2j`, `087-P1a`, `087-P1b`, `087-L3a` tới `087-L3o`, `087-M1a` tới `087-M1f`, `087-F1a` tới `087-F1i`, `087-G1a` tới `087-G1e`. `087-M1f` bản đầu là mẫu tương đương (`have > want - 1` với `have !== want`), đã viết lại. `087-L1a`, `087-L3m`, `087-F1h` viết lại ở G1, giữ mã.
 +
-+**Mẫu cũ viết lại (29, giữ mã), vì dòng `old` mất chỗ khớp:** `054-H10`, `061-P1`, `070-V1`, `070-V5`, `070-C13`, `070-B1`, `070-B3`, `070-B4`, `070-B5`, `070-B9`, `070-B14`, `070-B17`, `070-B19`, `072-R7`, `073-D2`, `073-D7`, `074-C3`, `075-B13e`, `075-B13f`, `075-R1b`, `075-R1c`, `075-R1d`, `075-S1c`, `078-G8g`, `078-G8h`, `078-G8i`, `078-G8j`, `080-A4b`, `084-C2b`. Không bỏ mẫu nào.
++**Mẫu cũ viết lại (giữ mã), vì dòng `old` mất chỗ khớp:** `054-H10`, `061-P1`, `070-V1`, `070-V5`, `070-C13`, `070-B1`, `070-B3`, `070-B4`, `070-B5`, `070-B9`, `070-B14`, `070-B17`, `070-B19`, `072-R7`, `073-D2`, `073-D7`, `074-C3`, `075-B13e`, `075-B13f`, `075-R1b`, `075-R1c`, `075-R1d`, `075-S1c`, `078-G8g`, `078-G8h`, `078-G8i`, `078-G8j`, `080-A4b`, `084-C2b`; ở F1: `084-C2c`, `084-C3a`, `084-C3b`, `084-C3c`, `084-C5b`, `084-C7a`, `084-C7b`, `084-C8a`, `084-V1a`, `084-W4b`, `084-W4c`, `084-W4d`, `084-A1b`, `084-Z2a`, `084-Z2b`, `084-Z2d`; ở G1: `054-A1`, `084-C1a`, `085-D1b`, và `084-C8a` lần nữa. Tổng 48 mẫu cũ viết lại. Không bỏ mẫu nào.
 +
  ## Thay đổi 0.8.6: siết vai điều phối của Fable
  
  Khi option `conductor` là `fable` và luồng chính đang điều phối việc lớn, luồng chính chỉ lập kế hoạch, giao việc, đọc kết quả và quyết định bước tiếp theo; không tự sửa file, không tự chạy lệnh kiểm [Nguồn: chủ mod, 12/11/2026, phương án (a) cho Q1, Q2, Q3 và ba bổ sung khi duyệt kế hoạch]. Khi `conductor` tắt, hay khi luồng chính không đang điều phối, mọi hành vi như 0.8.5. Lời dặn router (cả hai biến thể), schema JSON router trả, schema tool `plan` và golden không đổi. Mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `086-*`; số ca đỏ đo trên `473bc75` ở VERIFICATION.
 diff --git a/claude-mods/focus-conductor/README.md b/claude-mods/focus-conductor/README.md
-index e0e9b60..ab10b5e 100644
+index e0e9b60..d36b489 100644
 --- a/claude-mods/focus-conductor/README.md
 +++ b/claude-mods/focus-conductor/README.md
 @@ -102,9 +102,11 @@ Cấu hình qua `/config` (hoặc `pluginConfigs.focus-conductor.options` trong
@@ -116,12 +146,22 @@ index e0e9b60..ab10b5e 100644
 -| `headlessRouting` | `off` | Từ 0.8.0: `off` thì ở phiên không tương tác (`claude -p`, Agent SDK) mod chạy như routing off trong phiên đó: không gọi router, không đổi model hay effort, không chặn kết thúc, ghi một dòng `headless-off`; không ghi đè mode đã đặt bằng `/conductor mode`. `auto` điều phối như phiên thường |
 +| `headlessRouting` | `off` | Từ 0.8.0: `off` thì ở phiên không tương tác (`claude -p`, Agent SDK) mod chạy như routing off trong phiên đó: không gọi router, không đổi model hay effort, không chặn kết thúc, ghi một dòng `headless-off`; không ghi đè mode đã đặt bằng `/conductor mode`. `auto` điều phối như phiên thường. Từ 0.8.7, `/conductor status` nêu lý do khi mode off vì lý do này |
  | `router` | `sonnet` | Model Claude đọc prompt và điều phối: alias (`haiku`, `sonnet`, `opus`) hoặc model ID. Thay cho tùy chọn `analyzer` của bản 0.3. Từ 0.8.4, khi `conductor` là `fable`, router là Fable và option này chỉ dùng lúc router Fable tạm ngừng |
- | `conductor` | `off` | Từ 0.8.4: `fable` thì Fable 5.2 điều phối ở effort medium (đọc và phân việc ở mọi lượt router, lập kế hoạch, điều phối luồng chính của việc lớn); model khác thực thi qua subagent. Tốn hạn mức hơn; xem mục "Fable điều phối" |
+-| `conductor` | `off` | Từ 0.8.4: `fable` thì Fable 5.2 điều phối ở effort medium (đọc và phân việc ở mọi lượt router, lập kế hoạch, điều phối luồng chính của việc lớn); model khác thực thi qua subagent. Tốn hạn mức hơn; xem mục "Fable điều phối" |
++| `conductor` | `off` | Model điều phối. Từ 0.8.4: `fable` thì Fable 5.2 điều phối ở effort medium (đọc và phân việc ở mọi lượt router, lập kế hoạch, điều phối luồng chính của việc lớn); model khác thực thi qua subagent. Từ 0.8.7 nhận thêm `opus` (cùng vai, cùng kỷ luật). Khuyến nghị `fable`. Tốn hạn mức hơn; xem mục "Fable điều phối" |
 +| `routerMaxWait` | `1800` | Từ 0.8.7: router dùng model nào cũng đọc trọn prompt dài tới sức chứa của model; lượt đọc prompt dài hơn 80.000 ký tự chờ tối đa bấy nhiêu giây (nhỏ nhất 120, lớn nhất 1800, ngoài khoảng thì kẹp về biên). Prompt cần lâu hơn thì phần giữa bị lược, kèm cảnh báo nêu option này |
 +| `conductorFallback` | `opus` | Từ 0.8.7: khi `conductor` là `fable` mà Fable không dùng được giữa chừng (router Fable tạm ngừng sau các lần lỗi, hay họ fable bị chặn vì không phản hồi), họ model này nhận vai điều phối với cùng kỷ luật: router dùng họ này với biến thể điều phối, luồng chính chạy `<họ>/medium`, không tự sửa file, không tự chạy kiểm. Fable dùng lại được thì quay về Fable. `opus`, `sonnet`, hoặc `off` để giữ cách chạy trước 0.8.7 |
  | `conductorReads` | `20` | Từ 0.8.6: khi Fable đang điều phối việc lớn, cứ mỗi bấy nhiêu lần luồng chính gọi Read, Grep hay Glob thì kết quả kèm một dòng nhắc giao việc tra cứu cho subagent; `0` là tắt, không từ chối lời gọi đọc nào |
  | `enforceChecklist` | `true` | Chặn kết thúc khi checklist còn bước mở; từ 0.7.8 chặn thêm một lần mỗi mục tiêu khi mục tiêu từ moderate (hoặc có việc đã phân) chưa có checklist của tool `plan`; từ 0.7.9 tắt cả lần chặn khi đã sửa mà chưa chạy lần kiểm nào (xem "Nhật ký lỗi, lệnh miễn và lần kiểm bắt buộc") |
  | `allowFable` | `false` | Cho router dùng Fable cho việc khó nhất; tắt thì lựa chọn fable bị kẹp về opus. Chỉ quyết Fable có được làm model thực thi không; vai điều phối của Fable bật bằng `conductor` |
+@@ -116,7 +118,7 @@ Cấu hình qua `/config` (hoặc `pluginConfigs.focus-conductor.options` trong
+ | `checkTools` | trống | Từ 0.7.9: tên tool MCP dùng để kiểm, phân tách bằng dấu phẩy, ví dụ `mcp__ci__run_tests`. Mỗi lời gọi tool trong danh sách là một lần kiểm loại test: lỗi khi tool báo `isError` hay output có dấu hiệu lỗi, rỗng, không chạy gì (output không phải chữ thì chỉ xét `isError`); chỉ lần gọi đạt cùng tool với cùng đầu vào mới phủ lần lỗi. Mod không tự đoán tool kiểm theo tên. Trống: không tool MCP nào là lần kiểm. Mô tả vi và en nằm ở `plugin.json` |
+ | `passLines` | trống | Từ 0.8.0: tiền tố nguyên văn của dòng tổng kết đạt, phân tách bằng dấu phẩy, ví dụ `TỔNG: ĐẠT,ALL CHECKS OK`. Chỉ áp cho lệnh khai trong `checkCommands` chạy qua `\| tail` hay `\| head` không pipefail: dòng không rỗng cuối bắt đầu bằng một tiền tố (không phân biệt hoa thường) là dòng đạt, khi output không có dấu hiệu lỗi và có phép kiểm đã chạy. Không dùng biểu thức chính quy; để trống thì chỉ nhận các dạng mod biết sẵn |
+ | `softPaths` | trống | Từ 0.8.0: glob phân tách bằng dấu phẩy, ví dụ `ket-qua/**,out/*.json`. File khớp là thay đổi nhẹ: vẫn được đếm nhưng không đủ để cảnh báo chưa chạy bước kiểm tra hay để cổng Stop đòi lệnh kiểm. Đuôi `.md .markdown .txt .csv .tsv .jsonl .log` luôn là nhẹ; `.json`, `.yaml` không tự tính là nhẹ. Glob không bắt đầu bằng `/` khớp từ đầu một thư mục bất kỳ; `**` khớp nhiều cấp |
+-| `modelMap` | rỗng | Ghi đè model ID, ví dụ `opus=claude-opus-5-5,sonnet=claude-sonnet-5-5` (cần khi dùng gateway có ID riêng) |
++| `modelMap` | rỗng | Ghi đè model ID, ví dụ `opus=claude-opus-5-5,sonnet=claude-sonnet-5-5` (cần khi dùng gateway có ID riêng). Từ 0.8.7 mod mặc định gửi alias để engine chọn phiên bản mới nhất; `modelMap` là cách ghim một phiên bản |
+ | `routerSkip` | trống | Câu tiếp nối ngắn không cần hỏi router, phân tách bằng dấu phẩy, ví dụ `ok,tiếp,tiếp tục,go` |
+ | `routerFallback` | `session` | Khi router lỗi: `session` chạy theo model của phiên; `reuse` dùng lại lựa chọn luồng chính của prompt trước |
+ | `strictDelegation` | `off` | `off` nhắc một lần; `remind` nhắc ở mọi lần thay đổi; `block` từ chối luồng chính sửa file khi còn việc chưa giao (tối đa `blockLimit` lần mỗi mục tiêu) |
 @@ -251,7 +253,7 @@ Cuối turn còn thay đổi chưa kiểm thì mod báo một câu; từ 0.7.7 c
  - **Lệnh kiểm nối `&&`.** `lệnh-kiểm && lệnh-khác` mà cả lệnh lỗi thì mod không biết đoạn nào lỗi, nên không tính đạt cũng không tính lỗi, và đề nghị chạy riêng lệnh kiểm. Nối sau bằng `echo`, `cd` thì vẫn đọc mã thoát như cũ.
  - **Thư mục làm việc và biến của lệnh kiểm.** `cd /a/tools` ở lần trước rồi `python3 -B check_a.py` vẫn là lệnh khai `/usr/bin/python3 -B /a/tools/check_a.py`; tên trần chỉ khớp khi đúng một lệnh khai có script đó. Biến gán ngay trong lệnh (`T=/a/tools; python3 $T/check_a.py`) được giải; biến của lần chạy trước thì không, vì shell của Claude Code không giữ biến giữa các lần gọi. `timeout 10m`, `timeout -k 5 600` đứng trước cũng được bỏ.
@@ -131,11 +171,29 @@ index e0e9b60..ab10b5e 100644
  
  ### Duyệt kế hoạch, thử skill và báo cáo cuối (0.8.2)
  
-@@ -273,10 +275,28 @@ Cuối turn còn thay đổi chưa kiểm thì mod báo một câu; từ 0.7.7 c
+@@ -263,6 +265,15 @@ Cuối turn còn thay đổi chưa kiểm thì mod báo một câu; từ 0.7.7 c
+ - **Mục "Thử skill" trong báo cáo cuối.** Sau khi sửa skill, Claude thử skill trên hai prompt mẫu (một ca skill phải chạy, một ca dễ nhầm skill không được chạy) và ghi cho từng ca: prompt, kết quả mong đợi, kết quả thực tế, đạt hay chưa. Ca nào chưa đạt thì Claude sửa tiếp chứ không báo xong. Pane hiện "Skill chưa thử" khi skill đã sửa mà chưa thử.
+ - **Mục "Ngoài yêu cầu" trong báo cáo cuối.** Khi xong việc, mod đưa Claude danh sách file đã đổi; file nào không phục vụ bước hay yêu cầu nào được ghi vào mục này kèm lý do, hoặc được hoàn tác. Anh đọc mục này để biết Claude đã sửa chỗ nào mình không nhờ.
+ 
++### Phiên bản model (0.8.7)
++
++Mod mặc định dùng phiên bản mới nhất engine biết cho mỗi họ model: router và lời gọi Agent gửi alias (`haiku`, `sonnet`, `opus`, `fable`), luồng chính và subagent bị ép model dùng alias khi Claude Code từ 2.1.323. Cập nhật Claude Code là có phiên bản mới; engine còn tải danh mục model lúc chạy, nên đích của alias có thể đổi mà không cần cập nhật. Còn ghim ID ở hai trường hợp:
++
++- Claude Code cũ hơn 2.1.323 (hay không đọc được phiên bản): luồng chính và subagent bị ép model dùng ID ghim của mod (`claude-*-5-5`, `claude-fable-5-2`), vì engine 2.1.296 gửi nguyên chuỗi alias cho API [Đo trực tiếp, mã nhúng của engine].
++- ID của phiên có tiền tố nhà cung cấp (ví dụ `us.anthropic.`): giữ tiền tố cộng ID ghim, vì chưa kiểm alias trên các cổng đó. Muốn dùng phiên bản khác thì khai `modelMap`.
++
++Bảng giá, cửa sổ và thông số đọc kèm mod lập cho ID ghim. Lần đầu trong phiên engine phục vụ một ID khác ID ghim của một họ, mod báo một cảnh báo; chỉnh bằng option `prices` và `contextWindows`. `/conductor status` có dòng "Model đang dùng" với ID thật của các họ đã chạy ở turn (engine không báo ID thật của lượt router).
++
+ ### Fable điều phối (0.8.4)
+ 
+ - **Cách bật.** Đặt option `conductor` là `fable` trong cấu hình plugin (mục userConfig của focus-conductor), rồi mở phiên mới hay nạp lại plugin. Tài khoản phải gọi được Fable 5.2 (`claude-fable-5-2`); ID khác thì khai trong `modelMap` (ví dụ `fable=<ID>`).
+@@ -273,10 +284,30 @@ Cuối turn còn thay đổi chưa kiểm thì mod báo một câu; từ 0.7.7 c
  - **Fable không tự sửa file, không tự chạy kiểm (0.8.6).** Khi Fable đang điều phối việc lớn, luồng chính chỉ lập kế hoạch, giao việc, đọc kết quả và quyết định bước tiếp. Mọi lần sửa file ở luồng chính (Edit, Write, lệnh Bash ghi file) bị từ chối, trừ file kế hoạch; lệnh kiểm (theo cùng phân loại của mod, gồm `checkCommands` và `checkTools`) cũng bị từ chối và Fable được dặn giao một subagent chạy rồi báo tóm tắt. Lệnh chỉ đọc (`git status`, `ls`) và lệnh git chỉ đổi lịch sử vẫn chạy. Lần kiểm của subagent chạy chung thư mục (lời gọi Agent không có `isolation`) được tính cho cổng `verified` như lần kiểm của luồng chính, kể cả với thay đổi của subagent khác. Không điều phối thì `strictDelegation` như 0.8.5.
  - **Lệnh `/conductor solo` (0.8.6).** Khi không giao được (subagent không chạy được, cần chỉnh tay gấp), người dùng gõ `/conductor solo` để luồng chính tự sửa file và tự chạy kiểm trong mục tiêu này; `/conductor solo off` để bỏ. Chỉ nhận do người gõ. Lời gọi Agent bị từ chối hay lỗi trước khi subagent chạy cũng tạm cho luồng chính tự làm, tới lời gọi Agent kế tiếp chạy được.
  - **Đọc nhiều (0.8.6).** Luồng chính vẫn được đọc file lẻ để ra quyết định; cứ mỗi `conductorReads` lần đọc (mặc định 20, `0` là tắt) mod kèm một dòng nhắc giao việc tra cứu khối lượng lớn cho subagent. Việc sửa file mới của tin bổ sung trong việc lớn cũng giao subagent. `/conductor status` có số lần bị từ chối, số lần tự làm khi được miễn và số lần đọc.
 +- **Đọc trọn prompt dài (0.8.7).** Từ 0.8.7 router dùng model nào cũng đọc trọn prompt dài, xem mục "Router đọc trọn prompt dài (0.8.7)" bên dưới.
++- **Model dự phòng (0.8.7).** Khi Fable không dùng được giữa chừng (router Fable tạm ngừng sau các lần lỗi, hay họ fable bị chặn vì không phản hồi), họ ở option `conductorFallback` (mặc định `opus`) nhận vai điều phối với cùng kỷ luật: router dùng họ đó, luồng chính chạy `opus/medium`, vẫn không tự sửa file, không tự chạy kiểm. Fable không phản hồi giữa một turn thì phần còn lại của turn chạy họ dự phòng. Lượt đọc prompt của Fable bị API từ chối thì họ dự phòng đọc lại trọn prompt. Mỗi lần đổi có một toast và một cảnh báo; dòng "Điều phối" ghi họ, chữ "dự phòng" và lý do. Fable dùng lại được thì quay về Fable. Họ dự phòng cũng lỗi, hay `conductorFallback` là `off`: như trước 0.8.7 (router là option `router`, luồng chính theo lựa chọn của router).
++- **Model điều phối khác Fable (0.8.7).** Option `conductor` nhận `opus`: opus giữ vai điều phối như Fable, `conductorFallback` vẫn áp (họ dự phòng trùng họ chính là không có dự phòng). Lời dặn router của biến thể điều phối vẫn gọi model điều phối là fable (lời dặn không đổi trong bản này); mod tự đặt model của luồng chính nên không ảnh hưởng tới việc chọn model điều phối [Giả định].
  - **Subagent Plan.** Lời gọi Agent chỉ nhận alias model (`sonnet`, `opus`, `haiku`, `fable`) [Đo trực tiếp, engine 2.1.296 và 2.1.322], nên subagent Plan theo vai điều phối chạy alias `fable`; `modelMap.fable` không áp cho nó.
  - **Khi Fable lỗi.** Router Fable lỗi 2 lần liên tiếp thì 3 prompt kế tiếp router dùng option `router`, luồng chính theo lựa chọn của router; status line và pane hiện "Fable tạm ngừng". Pane và `/conductor status` có dòng "Điều phối" nêu trạng thái.
  - **Giới hạn đã biết.** Số đo Fable lấy trong một khung giờ ngày 10/11/2026 trên engine 2.1.322, 35 lượt [Đo trực tiếp]; giờ khác hay engine khác có thể chậm hơn. Engine 2.1.296 gọi được `claude-fable-5-2` qua CLI (`claude -p`), kèm cảnh báo `unrecognized_model`, và báo sai chi phí của lượt đó; đường `$.model.complete` và `turn.step` với ID này trên engine cũ chưa kiểm trong phiên tương tác. Khi bật `conductor`, nên dùng Claude Code từ 2.1.322. `sessionModel` là `ceiling` hay `fixed` với phiên không phải Fable thì luồng chính không điều phối (cảnh báo một lần mỗi phiên).
@@ -160,17 +218,19 @@ index e0e9b60..ab10b5e 100644
  ### Tin nhắn giữa phiên (0.8.4)
  
  Tin gửi khi đang làm một luồng việc: bổ sung yêu cầu thì được đưa vào luồng việc; hỏi tiến độ thì chỉ báo cáo; bảo chạy tiếp thì chạy tiếp. Câu hỏi hay câu nói ngoài lề (router xếp là việc mới chỉ cần trả lời, không có việc nào) được trả lời mà không đổi mục tiêu, checklist hay yêu cầu; gửi giữa turn thì trả lời ngắn rồi làm tiếp bước đang làm. Khi một việc chen vào đã xong hết checklist, "tiếp tục" quay lại việc đã cất và chạy tiếp từ bước mở kế tiếp. Áp cho mọi giá trị của `conductor`. Giới hạn: phân loại dựa vào nhận định của router, chưa đo trên phiên thật; turn trả lời câu hỏi ngoài lề dùng model của việc đang dở.
-@@ -453,7 +473,7 @@ node scripts/version-check.mjs            # MOD_VERSION khớp plugin.json
+@@ -453,7 +484,9 @@ node scripts/version-check.mjs            # MOD_VERSION khớp plugin.json
  ## Giới hạn đã biết
  
  - Giá Fable 5.2 (0.8.5): bảng giá kèm mod còn giá Fable 5.1 (10 / 50 USD mỗi triệu token vào và ra, đọc cache 0,25); Fable 5.2 là 8 / 40, đọc cache 0,20 [Nguồn: Anthropic, trang giá, đọc ngày 11/11/2026]. Người dùng Fable 5.2 đặt option `prices` là `fable=8/40/0.2`. Bảng giá nằm trong lời dặn router (catalog của `routerSystem`), nên cập nhật bảng kèm mod để sang một bản riêng.
 -- Router chỉ đọc chữ của prompt, không đọc tệp hay ảnh đính kèm: `prompt.submit` của engine 2.1.296 chỉ báo loại, kiểu MIME, tên tệp và mã của tệp đính kèm, không có phần chữ (0.7.8). Prompt dài hơn 80.000 ký tự thì router chỉ đọc 60.000 ký tự đầu và 20.000 ký tự cuối; mod báo một cảnh báo và dặn Claude tự đọc kỹ phần giữa.
 +- Router chỉ đọc chữ của prompt, không đọc tệp hay ảnh đính kèm: `prompt.submit` của engine 2.1.296 chỉ báo loại, kiểu MIME, tên tệp và mã của tệp đính kèm, không có phần chữ (0.7.8). Từ 0.8.7, router dùng model nào cũng đọc trọn prompt tới sức chứa của lượt đó (cửa sổ ngữ cảnh của model và `routerMaxWait`); vượt sức chứa thì chỉ đọc 75 phần trăm đầu và 25 phần trăm cuối của sức chứa, sức chứa 80.000 thì 60.000 và 20.000; lượt đọc trọn lỗi thì lượt dự phòng chỉ đọc 60.000 và 20.000. Mỗi khi phần giữa bị lược, mod báo một cảnh báo ghi hai con số, họ model và giới hạn đã chạm, và dặn Claude tự đọc kỹ phần giữa. Lượt đọc trọn có thể giữ prompt tới 1,5 lần `routerMaxWait` (2.700 giây ở mặc định); chưa đo trên phiên tương tác thật xem engine có ngắt hook lâu như vậy không.
++- Engine không báo cho mod biết model nào hết hạn mức hay chỉ lỗi tạm thời, cũng không báo giờ mở lại (0.8.7, đã đọc khai báo kiểu và mã của engine 2.1.296 và 2.1.323): mod thử lại Fable sau mỗi quãng tạm ngừng, kể cả khi Fable đã hết hạn mức tuần.
++- Phiên bản model (0.8.7): Claude Code cũ hơn 2.1.323 và phiên có tiền tố nhà cung cấp vẫn dùng ID ghim cho luồng chính; engine không báo ID thật của lượt router, nên cảnh báo phiên bản chỉ có cho các họ chạy ở turn.
  - Yêu cầu chen ngang (0.7.8) dựa vào `turnId` engine gửi kèm `prompt.submit` và dòng attachment `queued_command` (door `delivery`) khi engine chèn tin vào turn đang chạy; tên attachment do engine đặt và có thể đổi giữa các bản. Mới kiểm bằng bộ test của engine, chưa kiểm trên phiên tương tác thật.
  - Cổng lệnh kiểm chưa đạt (0.7.8, ba lượt nâng mức) giả định lần chặn Stop cho Claude chạy tiếp trong cùng turn; khai báo kiểu của engine 2.1.296 không nói rõ điều này. Mới kiểm bằng bộ test của engine, chưa kiểm với Claude thật. Lệnh kiểm do trình chạy không có parser (script đóng gói như `npm run test`) chỉ được phủ bởi lần chạy đạt của đúng lệnh đó.
  - Nhật ký lỗi (0.7.9) chỉ ghi lỗi của mod; rejection "no implementation for" (op mà bề mặt không cài) và việc đọc file không có không được ghi. File được ghi ở `turn.complete`, `session.start`, `session.end` và khi gõ `/conductor errors`, không ngay lúc lỗi, nên phiên chết đột ngột có thể mất các lỗi của turn đang chạy. Chưa kiểm ghi file trên máy thật ngoài kit test.
 diff --git a/claude-mods/focus-conductor/docs/DESIGN.md b/claude-mods/focus-conductor/docs/DESIGN.md
-index ac79796..73a5cad 100644
+index ac79796..7233e73 100644
 --- a/claude-mods/focus-conductor/docs/DESIGN.md
 +++ b/claude-mods/focus-conductor/docs/DESIGN.md
 @@ -44,7 +44,7 @@ Khi router xếp một prompt là mục tiêu mới mà checklist cũ còn bư
@@ -200,11 +260,11 @@ index ac79796..73a5cad 100644
  - **Kiểm tĩnh.** Khai báo kiểu của 2.1.296 thiếu `agentId` ở `turn.start` mà mã dùng từ 0.7.8 (4 lỗi có sẵn trên main), nên `tsc` của 0.8.0 chạy với khai báo của 2.1.319; test, đo và đột biến chạy trên 2.1.296.
  
  ## Dòng tổng kết của lệnh khai và xung đột vế ngoại lệ (0.8.1)
-@@ -261,6 +261,48 @@ Chủ mod chốt ngày 12/11/2026 [Nguồn: chủ mod]: luồng chính đang đi
+@@ -261,6 +261,78 @@ Chủ mod chốt ngày 12/11/2026 [Nguồn: chủ mod]: luồng chính đang đi
  - **Đoạn dặn.** `conductorContext` (462 ký tự) bỏ câu cho tự sửa file khi ráp kết quả, nói không tự sửa file, không tự chạy lệnh kiểm, chỉnh nhỏ gom vào một lời giao, lệnh kiểm giao một subagent chạy và báo tóm tắt. `conductorKeepText` 190 ký tự. Lời từ chối dưới 300 ký tự, dòng nhắc đọc dưới 200.
  - **Giới hạn đã biết của 0.8.6.** Lối thoát duy nhất ngoài lệnh `solo` là lời gọi Agent bị từ chối trước khi chạy; subagent chạy được mà làm sai thì luồng chính phải giao lại, không tự sửa. Kịch bản phiên dài của test để luồng chính tự chạy script ghi và lệnh kiểm, nên với `conductor: 'fable'` các lời gọi đó bị từ chối (số đo ở VERIFICATION). Khai báo kiểu của engine vẫn không sinh được trong phiên phát triển, nên `tsc` chưa chạy.
  
-+## Router đọc trọn prompt, bỏ trần số lượng, lý do mode off, lần test lỗi chạy sau (0.8.7)
++## Router đọc trọn prompt, bỏ trần số lượng, model mới nhất, vai điều phối dự phòng và theo họ, lý do mode off, lần test lỗi chạy sau (0.8.7)
 +
 +- **Hai giới hạn còn lại khi đọc prompt** (L3, `hooks/lib/reading.ts`). Router dùng model nào cũng đọc trọn prompt [Nguồn: chủ mod, 13/11/2026]. Prompt chỉ còn bị cắt ở hai trường hợp, và cả hai được báo bằng cảnh báo `model` và dòng `CLIPPED_CONTEXT`. Trường hợp một là vượt sức chứa của model router. Trường hợp hai là vượt số ký tự đọc được trong thời gian chờ tối đa người dùng đặt (`routerMaxWait`).
 +- **Công thức sức chứa** (`readPlan`). Với họ model của lượt, cửa sổ ngữ cảnh `window` (option `contextWindows`, vắng thì `DEFAULT_WINDOW`), thời gian chờ tối đa `maxWait` và số ký tự cố định `fixed` (lời dặn cộng các dòng ngữ cảnh của request):
@@ -241,9 +301,39 @@ index ac79796..73a5cad 100644
 +- **Dòng việc ở band và pane** (P1, `taskRows`, `hooks/lib/progress.ts`). Hàm cũ duyệt checklist cho từng việc, nên thời gian tăng theo bình phương số việc; với trần 20 việc thì không thấy. Nay hàm dựng sẵn một lần bảng bước thuộc việc nào (`ownerOf`), tập việc đang làm và tập việc đã có bước đóng. Đầu ra trùng `45b5161` từng ký tự.
 +- **Lý do mode off ở phiên không tương tác** (H1, `hooks/parts/command.ts`, `hooks/lib/text.ts`). Khi cờ `headlessOff` (A13) đang bật và mode có hiệu lực là `off`, dòng đầu của `/conductor status` (cả khi chưa có mục tiêu) và câu trả lời của `/conductor reroute` thêm `headlessOffNote()` (126 ký tự, trần 160): phiên không tương tác, và cách bật bằng option `headlessRouting` hay `/conductor mode auto`. Mode off do người dùng tự đặt không có phần này. Không đổi `session.start`, không toast, không context.
 +- **Lần test lỗi chạy sau** (B1, `freshTestRun`). Chuỗi sửa, test đạt, test lỗi rồi đóng bước từng cho bước `[v]` kèm "tự động: ... chạy đạt sau thay đổi cuối" trong khi mod báo còn lệnh kiểm chưa đạt. Nay lần lỗi mới hơn của luồng chính hay mang cờ `shared` làm mất lần đạt; lần kiểm `chained` không tính là lỗi. Nơi gọi (`autoVerify`, nhánh đóng bước của tool plan, nhánh kiểm của luồng chính, danh sách phản chiếu) nhận kết quả mới mà không sửa. Bước đã `[v]` trước lần lỗi giữ `[v]` như 0.8.6. `acceptsVerified` (evidence khớp chặt) không đổi: `plan update` với `verified` kèm evidence `bun test` vẫn được nhận sau chuỗi đạt rồi lỗi [Đo trực tiếp, probe ngoài repo trên `45b5161` và trên bản này].
++- **Phiên bản model** (M1, `resolveModelId`, `fableModelId`, `ctx.stepModelId`). Kiểm engine [Đo trực tiếp, khai báo kiểu `claude-code.d.ts` và mã nhúng trong gói engine 2.1.296 và 2.1.323]:
++  - `$.model.complete` nhận alias ở cả hai bản ("An alias (`haiku`) or a full model id; resolved and allowlist-checked like a `--model` value").
++  - Trường `model` của lời gọi Agent là enum `sonnet`, `opus`, `haiku`, `fable`.
++  - `turn.step`: 2.1.323 đổi alias thành ID trước khi gọi API ("names another, by an alias (`haiku`) or a full id"); 2.1.296 giữ nguyên chuỗi tới trường `model` của request API.
++  - Engine không cho mod danh sách model hay ID hiện hành của alias. `$.session.version()` báo phiên bản engine; `$.model.complete` không báo ID đã phục vụ; turn báo qua `usage.model`.
++  - Bảng alias của engine: `fable` là `claude-fable-5-1` ở 2.1.296, `claude-fable-5-2` ở 2.1.323; ba họ còn lại là `claude-*-5-5`. Engine còn tải danh mục model ký số lúc chạy.
++
++  Vì vậy router và Agent gửi alias; `turn.step` gửi alias khi `engineTakesAlias(version)` (từ 2.1.323, so từng phần số, chuỗi không đọc được là engine cũ), còn lại ID ghim. Mọi nơi đặt model cho turn đi qua `ctx.stepModelId`: turn thường, subagent bị ép model, phần còn lại của turn khi chuyển sang họ dự phòng. Phiên bản "mới nhất" là phiên bản engine đang cài biết; cập nhật Claude Code thì có phiên bản mới. `noteServed` ghi ID thật theo họ từ `usage.model` của `turn.complete`, báo một cảnh báo khi khác ID ghim (một lần mỗi họ mỗi phiên), không chèn context.
++- **Vai điều phối dự phòng** (F1, `activeConductor`, `Core.fallback`). Họ điều phối chính không dùng được khi `fableBlocker` trả `blocked` hay `paused`; nguyên nhân là cấu hình (`option`, `mode`, `headless`, `session`) thì không kích hoạt dự phòng. Họ dự phòng nhận vai khi có (`conductorFallback` khác off, khác họ chính), không bị chặn, router của nó không tạm ngừng, chế độ là auto và chính sách của phiên không giữ model khác.
++  - `conductorBlocker` trả null khi họ dự phòng đang nhận vai, nên kỷ luật vai điều phối của 0.8.6 áp nguyên.
++  - `routerTarget`, `wantedPick` và subagent Plan dùng họ đang điều phối. Lỗi router của họ dự phòng đếm trong `Core.fallback` theo cùng luật (`fableStep` với `family`).
++  - Giữa một turn: Fable không phản hồi ở turn của mục tiêu đang được điều phối thì phần còn lại của turn gọi `next` với họ dự phòng, effort medium; `L.turnRoute` giữ họ đó cho các step còn lại của turn. Luật đếm và chặn họ fable giữ nguyên.
++  - Lượt đọc prompt: `askRouter` có `apiFallback`, chỉ cho nhánh `api-error` của lượt đầu: gửi cùng request trọn cho họ dự phòng với thông số đọc của họ đó (usage tách theo họ, `viaFallback`). Hết giờ vẫn là lượt dự phòng cắt 80.000 của L3.
++  - Đổi họ điều phối được phát hiện ở `noteConductor` (đầu mỗi lượt đọc prompt), so với `Core.fallback.active`: một toast, một cảnh báo model, một dòng nhật ký `conductor` (`from`, `to`, `reason`). Đoạn dặn có khóa `Core.fable.briefedGoal` cộng `Core.fallback.briefedFamily` (vắng là fable), nên được chèn lại một lần khi họ đổi giữa mục tiêu.
++  - Hạn mức: lỗi API của `$.model.complete` có `status` và `error` (`rate_limit`, `overloaded`, `billing_error`...), nhưng không có loại riêng cho hết hạn mức và không có giờ mở lại; turn không phản hồi chỉ thấy `stopReason: null, usage: null`; `rateLimits` cho mod chỉ có `five_hour`, `seven_day`, `spend_limit` [Đo trực tiếp, hai bản engine]. Engine giữ hạn mức riêng theo model kèm giờ mở lại nhưng không đưa qua API của mod. Vì vậy mod không phân biệt hết hạn mức với lỗi tạm thời và thử lại họ chính sau mỗi quãng tạm ngừng.
++- **Bảng họ model và vai điều phối theo họ** (G1, `hooks/lib/families.ts`). Mỗi họ có thứ hạng, ID ghim, giá, cửa sổ, thông số đọc (null là chưa đo), và thời gian chờ của vai điều phối (null là họ không làm được vai này). `FAMILIES`, `DEFAULT_IDS`, `BASE_PRICE`, `DEFAULT_WINDOWS`, `READ_PARAMS`, danh sách hiệu chỉnh của sổ chi phí và mẫu nhận biết tên model trong prompt (`MODEL_NAMES`, trùng biểu thức cũ với bốn họ) đọc từ bảng.
++  - Option `conductor` là họ điều phối chính: `conductorOf` nhận đúng tên một họ có cờ điều phối. `fableBlocker`, `activeConductor`, `conductorBlocker`, `conductorShown`, nhãn, đoạn dặn và câu báo dùng họ chính thay cho chữ fable.
++  - `ModelFamily` giữ khai báo tường minh trong `types/index.d.ts`, vì `tsc` chưa chạy được; test so khóa của bảng với `FAMILIES`.
++  - Chuỗi `'fable'` trong `hooks/` chỉ còn ở: `families.ts` (`DEFAULT_CONDUCTOR`); `route.ts` `avoidBlocked` (luật `allowFable`); `router.ts` `allowedLine`, `fitPick`, `topFamily` (quyền thực thi của `allowFable`, kẹp fable về opus) và giá của fable trong danh mục model của lời dặn. Kit test không đọc được tệp nguồn, nên `scripts/version-check.mjs` đếm và so với `tests/fixtures/fable-sites.ts`; test so tệp đó với danh sách được phép.
++- **Nạp một họ model mới vào vai điều phối.** Việc bắt buộc:
++  1. thêm một dòng vào `FAMILY_TABLE` với `conductor` khác null, và tên họ vào kiểu `ModelFamily`;
++  2. thêm tên họ vào `options` của option `conductor` trong `plugin.json`, và vào README;
++  3. đo thông số đọc theo cách của L3 (VERIFICATION, mục 0.8.7), ghi vào `read`; đo thời gian chờ của năm loại request như 0.8.4 C2, ghi vào `conductor`;
++  4. cập nhật giá và cửa sổ của ID ghim;
++  5. sửa câu về model điều phối trong biến thể điều phối của lời dặn router (`conductorRule`: câu `- fable (...)` của catalog và câu "(used when fable is unavailable)"), rồi ghi lại golden các ca điều phối;
++  6. kiểm `MODEL_NAMES`: tên họ mới có thể trùng chữ thường trong prompt.
++
++  Việc chỉ cần khi router được chọn họ đó làm model thực thi cho việc: thêm họ vào danh mục model của lời dặn router (`routerSystem`), luật `allowedLine` và `fitPick`, rồi ghi lại golden cả bộ.
 +- **Chưa kiểm được trên phiên thật.**
 +  - Engine không ngắt hook `prompt.submit` của mod trong thời gian giữ hook tệ nhất (2.700 giây) [Giả định]. Căn cứ đã đọc: trong gói engine 2.1.296 và 2.1.322, `$.model.complete` kẹp `timeoutMs` bằng `Math.min(timeoutMs, 2147483647)`; các chuỗi "timed out" chỉ thuộc command hook, SDK callback hook và prompt hook. Probe thật bằng một mod chờ trong `prompt.submit` dưới `claude -p --plugin-dir` không chạy được, vì hook module không nạp trong `claude -p` ở container phát triển.
 +  - Tốc độ đọc đo trên prompt tự sinh, qua `claude -p`, trong một khung giờ; prompt thật, giờ khác hay engine khác có thể chậm hơn.
++  - M1, F1, G1 kiểm bằng engine giả của bộ test: chưa kiểm trên phiên thật việc engine 2.1.323 đổi alias của `turn.step`, việc đổi model giữa turn sang họ dự phòng, và opus giữ vai điều phối trọn một mục tiêu lớn.
++  - Lời dặn của biến thể điều phối vẫn gọi model điều phối là fable khi opus điều phối (lời dặn không đổi); mod tự đặt model luồng chính nên không ảnh hưởng tới việc chọn model điều phối [Giả định].
 +  - Sonnet gộp yêu cầu: trên prompt nhiều đề mục, sonnet tách đủ 36 đề mục thành 36 việc ở cả 3 lượt nhưng chỉ ghi 5 tới 40 yêu cầu trên 173 yêu cầu thật; trên prompt lặp mẫu sonnet gộp cả việc (0 tới 2 việc) [Đo trực tiếp, VERIFICATION].
 +
  ## Vá cổng duyệt kế hoạch và dòng tổng kết (0.8.3)
