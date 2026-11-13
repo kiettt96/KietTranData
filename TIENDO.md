@@ -15,3 +15,8 @@ Tiếp: đo Fable cho L1.
 - Băm split/cond/agent trùng 45b5161; golden diff rỗng; validate đạt; version-check 0.8.7/42; mutate --check 2182/2182.
 - Phiên dài: 10.339/19.587, 8.563/7.048, 16.608/24.349 (không đổi).
 - Đột biến vùng diff: 117 mẫu, pha 1 đang chạy. Tiếp: pha 2, VERIFICATION, PR.
+
+## Bản bổ sung v3 (13/11/2026): L2, L3
+- L2 test đỏ 310b4c1 (23/27 đỏ trên 45b5161); sửa fca9281 (bỏ trần việc, yêu cầu, bước; lời dặn mới; taskRows hết bậc ba; FORK_PART_LIMIT bỏ; tally việc đã phân giữ đủ). Golden đang ghi lại (sonnet 50 ca × 3, cả 45b5161).
+- Đo L3 đang chạy (fable, sonnet × 240k, 400k × 3), log m3.jsonl.
+- Plan update 60 bước: 107 ký tự, không tăng theo số bước.

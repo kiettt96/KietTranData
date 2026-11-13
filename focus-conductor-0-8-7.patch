@@ -194,8 +194,77 @@ index 04ade98..57eb3c2 100644
  }
  
  /**
+diff --git a/claude-mods/focus-conductor/hooks/lib/plan.ts b/claude-mods/focus-conductor/hooks/lib/plan.ts
+index fd5fb61..a41aeb3 100644
+--- a/claude-mods/focus-conductor/hooks/lib/plan.ts
++++ b/claude-mods/focus-conductor/hooks/lib/plan.ts
+@@ -89,19 +89,17 @@ function text(value: unknown): string {
+   return typeof value === 'string' ? value.trim() : ''
+ }
+ 
+-const MAX_STEPS = 20
+ const MAX_TITLE = 160
+ const MAX_CHECK = 200
+ 
+ /**
+  * Đọc steps Claude gửi. `adjusted` ghi các chỗ mod chỉnh so với bản gửi (0.7.3): bước không có tiêu đề bị bỏ, bước vượt giới
+- * hạn bị bỏ, tiêu đề và tiêu chí bị cắt. Các bước lưu không đổi so với trước 0.7.3.
++ * hạn bị bỏ (đến 0.8.6; từ 0.8.7 L2 không còn trần số bước), tiêu đề và tiêu chí bị cắt. Các bước lưu không đổi so với trước 0.7.3.
+  */
+ function parseStepsDetailed(value: unknown, startId: number): { steps: PlanStep[]; adjusted: string[] } {
+   if (!Array.isArray(value)) return { steps: [], adjusted: [] }
+   const out: PlanStep[] = []
+   let untitled = 0
+-  let overLimit = 0
+   let cutTitles = 0
+   let cutChecks = 0
+   for (const raw of value) {
+@@ -111,10 +109,6 @@ function parseStepsDetailed(value: unknown, startId: number): { steps: PlanStep[
+       untitled += 1
+       continue
+     }
+-    if (out.length >= MAX_STEPS) {
+-      overLimit += 1
+-      continue
+-    }
+     const tier = TIERS.find(t => t === item['tier']) as Tier | undefined
+     const fullCheck = text(item['check'])
+     const check = fullCheck.slice(0, MAX_CHECK)
+@@ -124,7 +118,6 @@ function parseStepsDetailed(value: unknown, startId: number): { steps: PlanStep[
+   }
+   const adjusted = [
+     untitled > 0 ? `bỏ ${untitled} bước không có tiêu đề` : '',
+-    overLimit > 0 ? `bỏ ${overLimit} bước vượt giới hạn ${MAX_STEPS}` : '',
+     cutTitles > 0 ? `cắt ${cutTitles} tiêu đề quá ${MAX_TITLE} ký tự` : '',
+     cutChecks > 0 ? `cắt ${cutChecks} tiêu chí quá ${MAX_CHECK} ký tự` : '',
+   ].filter(Boolean)
+diff --git a/claude-mods/focus-conductor/hooks/lib/progress.ts b/claude-mods/focus-conductor/hooks/lib/progress.ts
+index bf6d9f9..b3ac8c5 100644
+--- a/claude-mods/focus-conductor/hooks/lib/progress.ts
++++ b/claude-mods/focus-conductor/hooks/lib/progress.ts
+@@ -135,13 +135,17 @@ export function taskRows(core: Core, now: number): TaskRow[] {
+   }
+ 
+   const mainCount = tasks.filter(t => t.run === 'main').length
++  // Việc của từng bước và việc của các bước doing, tính một lần cho mọi việc (0.8.7 L2: mục tiêu có thể có hàng trăm việc và bước;
++  // tính lại cho từng việc làm band chậm theo bậc ba của số việc).
++  const ownerOf = new Map(plan.map(step => [step.id, matchTask(tasks, step.title)?.index]))
++  const doingTasks = new Set(plan.filter(s => s.status === 'doing').map(s => stepCovers(tasks, s.title)?.index))
++  const closedAny = progress(plan).closed > 0
+   for (const task of tasks) {
+     if (task.run === 'main') {
+       // Bước của checklist mở đầu "Việc N" (hay cùng mã mục) là bước của việc N, theo cùng quy tắc cấu trúc với Agent.
+-      const own = plan.filter(step => matchTask(tasks, step.title)?.index === task.index)
+-      const closedAny = progress(plan).closed > 0
++      const own = plan.filter(step => ownerOf.get(step.id) === task.index)
+       // Không có bước riêng (0.8.0 A4): chỉ đang làm khi là việc của bước doing (stepCovers) hay là việc main duy nhất; còn lại chưa gắn bước.
+-      const isDoing = plan.some(s => s.status === 'doing' && stepCovers(tasks, s.title)?.index === task.index) || mainCount === 1
++      const isDoing = doingTasks.has(task.index) || mainCount === 1
+       const isUnassigned = own.length === 0 && plan.length > 0 && !isFullyClosed(plan) && !isDoing
+       const state: TaskState = own.length > 0 ? stepsState(own) : plan.length > 0 && isFullyClosed(plan) ? 'done' : isUnassigned ? 'pending' : !closedAny && changes === 0 ? 'idle' : 'running'
+       rows.push({
 diff --git a/claude-mods/focus-conductor/hooks/lib/router.ts b/claude-mods/focus-conductor/hooks/lib/router.ts
-index ff688b0..539892d 100644
+index ff688b0..1647175 100644
 --- a/claude-mods/focus-conductor/hooks/lib/router.ts
 +++ b/claude-mods/focus-conductor/hooks/lib/router.ts
 @@ -8,7 +8,7 @@
@@ -207,7 +276,29 @@ index ff688b0..539892d 100644
  import type { PendingState } from './conductor'
  import { PRICE } from './cost'
  import type { Price } from './cost'
-@@ -75,6 +75,13 @@ const TEXT_LIMIT = 140
+@@ -49,10 +49,17 @@ const READ_ONLY_AGENTS = new Set(['Explore', 'Plan'])
+ /** Dưới mức tin cậy này router được hỏi lại một lần. */
+ export const LOW_CONFIDENCE = 0.4
+ 
+-/** Giới hạn đọc và trả về. */
+-const TASK_LIMIT = 20
+-/** Yêu cầu router liệt kê (0.7.0): tối đa bấy nhiêu mục, mỗi mục bấy nhiêu ký tự; quá REQUIREMENTS_RECHECK thì đọc kiểm lại một lần ở effort cao. */
+-const REQUIREMENT_LIMIT = 30
++/**
++ * Việc cũ gửi kèm request router và request chấm subagent (0.8.7 L2): chỉ là ngữ cảnh, giữ bấy nhiêu việc đầu như 0.8.6, quá thì thêm một
++ * dòng tổng số. Mục tiêu không còn trần số việc, số yêu cầu, số bước.
++ */
++const TASK_CONTEXT = 20
++/**
++ * Yêu cầu của mục tiêu trước gửi kèm request tiếp nối (0.7.5, 0.8.7 L2): như 0.8.6, chỉ các yêu cầu từ mục thứ bấy nhiêu trở đi, tối đa
++ * TASK_CONTEXT dòng kèm dòng số mục còn lại.
++ */
++const REQUIREMENT_CONTEXT = 30
++/** Mỗi yêu cầu bấy nhiêu ký tự; quá REQUIREMENTS_RECHECK yêu cầu thì đọc kiểm lại một lần ở effort cao. */
+ /** Trần ràng buộc của brief (0.7.4). */
+ const CONSTRAINT_LIMIT = 12
+ /**
+@@ -75,6 +82,13 @@ const TEXT_LIMIT = 140
  const REQUEST_CHARS = 80_000
  const REQUEST_HEAD = 60_000
  const REQUEST_TAIL = 20_000
@@ -221,7 +312,75 @@ index ff688b0..539892d 100644
  /** Yêu cầu dài hơn ngưỡng này được thêm token và thời gian để router trả JSON trọn vẹn. */
  const LONG_REQUEST = 12_000
  const AGENT_PROMPT_CHARS = 8_000
-@@ -397,6 +404,8 @@ export function routerRequest(args: {
+@@ -120,8 +134,8 @@ Delegation:
+ 
+ Reading the request:
+ - goal: the end result the user wants, one sentence.
+-- requirements: first list everything the request asks for, requires or forbids, one short item each in the user's words (under 100 characters, at most 30): every deliverable, rule, format, quality bar and constraint, including those hidden in paragraphs, tables or background text. Merge exact repeats and omit nothing: this is the checklist the work is checked against.
+-- tasks: first, every heading with a code (K4.1, Bước 2, Task 3) is its own task, in the request's order, with the code at the start of its title: never merge coded headings with each other or with other pieces, even when they look alike, and the limit below does not apply to them. For work the request has not split by codes, split it the way that gets it done best, which need not follow how the request is laid out: merge pieces that are really one piece of work, and split a large piece into independent parts only when they can run separately. Each title is a short quote or summary (under 80 characters). Each task has "covers": the numbers (from 1) of the requirements it fulfils, and every requirement must be covered by at least one task. Apart from coded headings, at most 8 tasks. A request that is one piece of work has tasks [].
++- requirements: first list everything the request asks for, requires or forbids, one short item each in the user's words (under 100 characters; list every one, with no limit on how many): every deliverable, rule, format, quality bar and constraint, including those hidden in paragraphs, tables or background text. Merge exact repeats and omit nothing: this is the checklist the work is checked against.
++- tasks: first, every heading with a code (K4.1, Bước 2, Task 3) is its own task, in the request's order, with the code at the start of its title: never merge coded headings with each other or with other pieces, even when they look alike. For work the request has not split by codes, split it the way that gets it done best, which need not follow how the request is laid out: merge pieces that are really one piece of work, and split a large piece into independent parts only when they can run separately. Each title is a short quote or summary (under 80 characters). Each task has "covers": the numbers (from 1) of the requirements it fulfils, and every requirement must be covered by at least one task. Use as many tasks as the work needs for every requirement to be covered: never merge tasks only to have fewer, and never split a task that does not need it. Order tasks in the order they are done: a task that another task needs comes first, and tasks of the same group stay next to each other. A request that is one piece of work has tasks [].
+ - Run a task as "agent" only when it is truly independent: it needs no result of another task, does not edit the files another task edits, and is worth a fresh subagent prompt. Otherwise keep it on the main thread.
+ - Items under "xong khi", "done when", "tiêu chí", "acceptance" or similar are quality criteria, never tasks. Background, context, definitions and notes are neither tasks nor constraints.
+ - constraints: at most 6 hard rules (must, must not, only, format, scope), the most important first, each shortened to under 100 characters. A rule that sets a model for a kind of work (including "the session's model") is always the first constraint, kept with its model, and never dropped. quality: at most 5 acceptance criteria, same length.
+@@ -281,8 +295,8 @@ function reclaimCarried(items: readonly string[], carried: number, incoming: rea
+ }
+ 
+ /**
+- * Gộp yêu cầu mới vào danh sách có trần REQUIREMENT_LIMIT (0.7.5, S1): như mergeCapped, yêu cầu cùng khóa thay tại chỗ (số thứ tự
+- * giữ nguyên nên `covers` của việc cũ vẫn đúng), yêu cầu khác được thêm khi còn chỗ trong trần cộng phần tràn, không thì bị bỏ và đếm.
++ * Gộp yêu cầu mới vào danh sách (0.7.5, S1): yêu cầu cùng khóa thay tại chỗ (số thứ tự giữ nguyên nên `covers` của việc cũ vẫn đúng),
++ * yêu cầu khác được thêm vào cuối; không còn trần số mục (0.8.7 L2), nên `dropped` luôn là 0.
+  * `renumber` đổi số thứ tự trong lượt router sang số thứ tự trong danh sách đã gộp.
+  */
+ function mergeRequirements(prev: readonly string[], incoming: readonly string[]): { items: string[]; renumber: Map<number, number>; dropped: number } {
+@@ -292,10 +306,10 @@ function mergeRequirements(prev: readonly string[], incoming: readonly string[])
+   incoming.forEach((item, i) => {
+     let at = indexOfKey(items, item)
+     if (at >= 0) items[at] = item
+-    else if (items.length < REQUIREMENT_LIMIT + CAP_OVERFLOW) {
++    else {
+       items.push(item)
+       at = items.length - 1
+-    } else dropped += 1
++    }
+     if (at >= 0) renumber.set(i + 1, at + 1)
+   })
+   return { items, renumber, dropped }
+@@ -352,20 +366,27 @@ function rulesLines(constraints: readonly string[] | undefined): string[] {
+   return items.length > 0 ? ['User rules of this goal (a rule that names a model for this kind of work must be followed, never a lower model):', ...items] : []
+ }
+ 
++/** Dòng tổng số việc khi danh sách việc gửi router bị rút còn TASK_CONTEXT việc đầu (0.8.7 L2). */
++function totalLine(count: number): string[] {
++  return count > TASK_CONTEXT ? [`  (${count} tasks in total; the first ${TASK_CONTEXT} are listed)`] : []
++}
++
+ function previousLines(prev: Brief | null, ran: string | null): string[] {
+   if (prev === null) return ['Previous goal: none.']
+-  const tasks = prev.tasks
+-    .slice(0, TASK_LIMIT)
+-    .map(t => `  ${t.index}. ${fence(t.title)} (${t.run === 'agent' ? `${fence(t.agentType ?? 'general-purpose')} ` : 'main '}${describePick(t.pick)})`)
++  const tasks = [
++    ...prev.tasks.slice(0, TASK_CONTEXT).map(t => `  ${t.index}. ${fence(t.title)} (${t.run === 'agent' ? `${fence(t.agentType ?? 'general-purpose')} ` : 'main '}${describePick(t.pick)})`),
++    ...totalLine(prev.tasks.length),
++  ]
+   // Ràng buộc của mục tiêu trước (0.7.5), cắt gọn như khi chấm subagent: prompt tiếp nối ngắn không nhắc lại quy định model.
+   const rules = ruleItems(prev.constraints)
+   // Phần tràn (vòng rà soát 3): mục của prompt tiếp nối giữ ngoài trần luôn có trong request, kể cả khi ruleItems đã cắt.
+-  const over = [...prev.constraints.slice(CONSTRAINT_LIMIT), ...(prev.requirements ?? []).slice(REQUIREMENT_LIMIT)]
++  const overRequirements = (prev.requirements ?? []).slice(REQUIREMENT_CONTEXT)
++  const over = [...prev.constraints.slice(CONSTRAINT_LIMIT), ...overRequirements.slice(0, TASK_CONTEXT)]
+   return [
+     `Previous goal${prev.isReference ? ' (a reference-only review: its tasks were routed for comparison, not run)' : ''}: ${fence(prev.goal)}`,
+     ...(tasks.length > 0 ? ['Previous tasks:', ...tasks] : []),
+     ...(rules.length > 0 ? ['Previous constraints (still hold on a follow-up; a rule that names a model for this kind of work must be followed):', ...rules] : []),
+-    ...(over.length > 0 ? ['Previous follow-up items kept over the limit (still hold):', ...over.map(item => `  - ${fence(clip(item, 120))}`)] : []),
++    ...(over.length > 0 ? ['Previous follow-up items kept over the limit (still hold):', ...over.map(item => `  - ${fence(clip(item, 120))}`), ...(overRequirements.length > TASK_CONTEXT ? [`  (${overRequirements.length - TASK_CONTEXT} more requirements)`] : [])] : []),
+     ...(prev.referenceMain ? [`Main thread the referenced prompt would need: ${describePick(prev.referenceMain)}`] : []),
+     `Main thread ran: ${ran ?? 'unknown'}`,
+   ]
+@@ -397,6 +418,8 @@ export function routerRequest(args: {
    isFable?: boolean
  }): ModelCompleteRequest {
    const isLong = args.text.length > LONG_REQUEST
@@ -230,7 +389,7 @@ index ff688b0..539892d 100644
    const context = [
      ...previousLines(args.prev, args.ran),
      allowedLine(args.policy),
-@@ -413,10 +422,10 @@ export function routerRequest(args: {
+@@ -413,10 +436,10 @@ export function routerRequest(args: {
    return {
      model: args.model,
      system,
@@ -244,7 +403,123 @@ index ff688b0..539892d 100644
    }
  }
  
-@@ -1281,7 +1290,8 @@ export function retryRequest(
+@@ -441,7 +464,7 @@ export function agentRouterRequest(args: {
+   /** Model người dùng chạy phiên (0.7.4). */
+   sessionFamily?: ModelFamily | null
+ }): ModelCompleteRequest {
+-  const tasks = (args.tasks ?? []).slice(0, TASK_LIMIT)
++  const tasks = (args.tasks ?? []).slice(0, TASK_CONTEXT)
+   const asked = [
+     args.subagentType ? `agent type ${fence(args.subagentType)}` : '',
+     args.requested.model ? `model ${fence(args.requested.model)}` : '',
+@@ -453,7 +476,7 @@ export function agentRouterRequest(args: {
+     ...(args.isWorkflow ? ['Started by a workflow script.'] : []),
+     `The main thread asked for: ${asked.length > 0 ? asked.join(', ') : 'nothing specific'}.`,
+     ...(args.failed.length > 0 ? ['Failed pieces in this goal:', ...args.failed.map(f => `  - ${fence(f)}`)] : []),
+-    ...(tasks.length > 0 ? ['Tasks of the goal:', ...tasks.map(t => `  ${t.index}. ${fence(t.title)}`)] : []),
++    ...(tasks.length > 0 ? ['Tasks of the goal:', ...tasks.map(t => `  ${t.index}. ${fence(t.title)}`), ...totalLine((args.tasks ?? []).length)] : []),
+     ...rulesLines(args.constraints),
+     allowedLine(args.policy),
+     ...sessionLine(args.sessionFamily),
+@@ -500,19 +523,16 @@ function strings(value: unknown, max: number): string[] {
+   )
+ }
+ 
+-/** Yêu cầu của prompt do router liệt kê: chuỗi không rỗng, cắt ngắn, không trùng, tối đa REQUIREMENT_LIMIT mục. */
++/** Yêu cầu của prompt do router liệt kê: chuỗi không rỗng, cắt ngắn, không trùng; không có trần số mục (0.8.7 L2). */
+ function requirementsOf(value: unknown): string[] {
+   if (!Array.isArray(value)) return []
+-  return unique(
+-    value.filter((s): s is string => typeof s === 'string' && s.trim() !== '').map(s => clip(s.trim(), REQUIREMENT_CHARS)),
+-    REQUIREMENT_LIMIT,
+-  )
++  return [...new Set(value.filter((s): s is string => typeof s === 'string' && s.trim() !== '').map(s => clip(s.trim(), REQUIREMENT_CHARS)))]
+ }
+ 
+-/** Số thứ tự yêu cầu một việc phủ: số nguyên từ 1 tới REQUIREMENT_LIMIT, không trùng; undefined khi router không ghi mảng. */
++/** Số thứ tự yêu cầu một việc phủ: số nguyên từ 1, không trùng; undefined khi router không ghi mảng. parseRoute lọc theo số yêu cầu thật. */
+ function coversOf(value: unknown): number[] | undefined {
+   if (!Array.isArray(value)) return undefined
+-  return [...new Set(value.filter((n): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= REQUIREMENT_LIMIT))]
++  return [...new Set(value.filter((n): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 1))]
+ }
+ 
+ /**
+@@ -712,8 +732,6 @@ export type RouterPlan = {
+   tasks: Task[]
+   /** Lý do các lần kẹp, để ghi nhật ký. */
+   notes: string[]
+-  /** Số việc router chia vượt TASK_LIMIT bị bỏ (0.7.5); vắng khi không cắt. */
+-  droppedTasks?: number
+   /** Số split bị bỏ vì phiên con đang tắt (0.7.9 F1, option forks hay engine từ chối); vắng khi không có. */
+   droppedSplits?: number
+   /** Người dùng nói rõ không cần duyệt kế hoạch (0.8.2 N2); vắng là false. Chỉ có nghĩa ở mục tiêu mới. */
+@@ -945,7 +963,7 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
+   const conductNotes: string[] = []
+   const splitNotes: string[] = []
+   let droppedSplits = 0
+-  for (const item of rawTasks.slice(0, TASK_LIMIT)) {
++  for (const item of rawTasks) {
+     const read = parseTask(item, tasks.length + 1, main.pick, whole, policy)
+     if (!read) continue
+     const isConductedEdit = isConducting && read.run === 'main' && (read.kind === 'edit' || read.kind === 'mixed')
+@@ -960,6 +978,10 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
+     if (task.run === 'main') held.push({ index: task.index, pick: rawPick(item) ?? own })
+   }
+   const lead = isReference ? main : floorMain(liftMain(main, held, kind, policy), depth, kind, policy)
++  // covers chỉ nhận số thứ tự của yêu cầu có thật trong lượt này (0.8.7 L2: không còn trần 30).
++  const requirements = requirementsOf(raw['requirements'])
++  const inRange = tasks.map(t => (t.covers !== undefined ? { ...t, covers: t.covers.filter(n => n <= requirements.length) } : t))
++  tasks.splice(0, tasks.length, ...inRange)
+   const mainWhy = typeof raw['main'] === 'object' && raw['main'] !== null ? text((raw['main'] as Raw)['why']) : ''
+   // Câu hỏi làm rõ (0.8.2 N2): chuỗi không rỗng, không trùng, tối đa QUESTION_LIMIT câu, mỗi câu cắt ở QUESTION_CHARS ký tự.
+   const questions = Array.isArray(raw['questions'])
+@@ -973,7 +995,7 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
+     isReference,
+     runReference,
+     goal,
+-    requirements: requirementsOf(raw['requirements']),
++    requirements,
+     constraints: strings(raw['constraints'], 10),
+     quality: strings(raw['quality'], 8),
+     scope: strings(raw['scope'], 10).filter(isPathLike),
+@@ -985,7 +1007,6 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
+     ...(referenceMain ? { referenceMain } : {}),
+     tasks,
+     notes: [...lead.notes, ...splitNotes, ...conductNotes],
+-    ...(rawTasks.length > TASK_LIMIT ? { droppedTasks: rawTasks.length - TASK_LIMIT } : {}),
+     ...(droppedSplits > 0 ? { droppedSplits } : {}),
+     ...(raw['skipApproval'] === true ? { skipApproval: true } : {}),
+     ...(questions.length > 0 ? { questions } : {}),
+@@ -1000,9 +1021,6 @@ export function clampIntent(intent: Intent, isPresented: boolean): Intent {
+   return intent === 'approve' && !isPresented ? 'resume' : intent
+ }
+ 
+-/** Số việc tối đa router phân cho một prompt. */
+-export const ROUTER_TASK_LIMIT = TASK_LIMIT
+-
+ /** Kết quả router chấm cho một subagent. */
+ export type AgentRoute = {
+   /** Mức tin cậy router tự báo, 0 đến 1; thiếu thì coi là 1. */
+@@ -1126,7 +1144,7 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number, isHeld =
+   // yêu cầu mới thay yêu cầu cũ (0.7.5): việc cũ không còn phủ chỗ bị thay. Đợt mới (0.8.0 A3): đầy thì mục mới thay mục cũ ở cuối.
+   const reqBase = prev.requirementsBase ?? (prev.requirements ?? []).length
+   const merged = isPhase
+-    ? mergeReplacing(prev.requirements ?? [], plan.requirements, REQUIREMENT_LIMIT, (_item, at) => at < reqBase)
++    ? mergeReplacing(prev.requirements ?? [], plan.requirements, Number.POSITIVE_INFINITY, (_item, at) => at < reqBase)
+     : { ...mergeRequirements(prev.requirements ?? [], plan.requirements), replaced: [] as string[], lost: new Set<number>() }
+   const { items: requirements, renumber, dropped: lostRequirements } = merged
+   const reclaimed = reclaimCarried(prev.constraints, prev.carriedRules ?? 0, plan.constraints)
+@@ -1186,7 +1204,7 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number, isHeld =
+ export function promoteReference(prev: Brief, plan: RouterPlan, prompt: string, now: number): Brief {
+   // Ràng buộc, tiêu chí và phạm vi của prompt đính kèm được giữ từ lượt đối chiếu: lượt chạy thật phải có đủ. Cả hai lượt là prompt
+   // lập mục tiêu nên mọi mục đều thuộc phần không bao giờ bị thay.
+-  const mergedRequirements = mergeCapped(prev.requirements ?? [], plan.requirements, REQUIREMENT_LIMIT).items
++  const mergedRequirements = mergeCapped(prev.requirements ?? [], plan.requirements, Number.POSITIVE_INFINITY).items
+   const mergedConstraints = mergeCapped(prev.constraints, plan.constraints, CONSTRAINT_LIMIT).items
+   return {
+     ...briefOf(plan, prompt, prev.goalId + 1, now),
+@@ -1281,7 +1299,8 @@ export function retryRequest(
      // Fable điều phối (0.8.4 C2): effort không quá medium, nên lượt đọc lại vì tin cậy thấp chạy medium.
      effort: problem === 'json' ? 'low' : problem === 'coverage' || opts.isFable === true ? 'medium' : 'high',
      ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
@@ -254,7 +529,7 @@ index ff688b0..539892d 100644
    }
  }
  
-@@ -1292,6 +1302,8 @@ export type RouterOutcome<T> = {
+@@ -1292,6 +1311,8 @@ export type RouterOutcome<T> = {
    /** Usage của mọi lượt gọi (lượt đầu và lượt hỏi lại). */
    usages: ModelUsage[]
    retried: boolean
@@ -263,7 +538,7 @@ index ff688b0..539892d 100644
    /** Loại lỗi khi không có kết quả (0.7.2); null khi có kết quả. */
    failure: RouterFailKind | null
    /** Giới hạn của request đã gửi và số token đầu ra của lượt gọi cuối, để biết lỗi do hết giờ hay bị cắt (0.7.2). */
-@@ -1332,7 +1344,7 @@ export async function askRouter<T extends { confidence?: number }>(
+@@ -1332,7 +1353,7 @@ export async function askRouter<T extends { confidence?: number }>(
    /** Câu trả lời đã đọc được nhưng cần đọc kiểm lại một lần ở effort cao (ví dụ quá nhiều yêu cầu): 0.7.0. */
    recheck?: (result: T) => boolean,
    /** Đồng hồ (mặc định Date.now) và hạn chung cho mọi lượt gọi (mặc định 1,5 lần timeout của request): 0.7.2. */
@@ -272,7 +547,7 @@ index ff688b0..539892d 100644
  ): Promise<RouterOutcome<T>> {
    const now = opts.now ?? Date.now
    const budget = opts.budgetMs ?? Math.round((request.timeoutMs ?? 45_000) * BUDGET_FACTOR)
-@@ -1344,10 +1356,12 @@ export async function askRouter<T extends { confidence?: number }>(
+@@ -1344,10 +1365,12 @@ export async function askRouter<T extends { confidence?: number }>(
    if (first !== null && !first.isAnswered && first.reason === 'aborted') {
      const left = budget - (now() - startedAt)
      if (left < RETRY_MIN_MS) return { result: null, reason: failureReason(first), usages, retried: false, failure: failureKind(first), ...limits(first) }
@@ -287,7 +562,7 @@ index ff688b0..539892d 100644
    }
    const firstResult = first?.isAnswered ? parse(first.text) : null
    // Thiếu confidence (0.7.8 G8): chỉ khi bật retryMissingConfidence (ba chỗ đọc prompt) thì coi như dưới LOW_CONFIDENCE và hỏi lại;
-@@ -1376,18 +1390,23 @@ export async function askRouter<T extends { confidence?: number }>(
+@@ -1376,18 +1399,23 @@ export async function askRouter<T extends { confidence?: number }>(
    return { result: pick, reason: pick === null ? failureReason(second) : '', usages, retried: true, failure: pick === null ? failureKind(second) : null, ...limits(second ?? first) }
  }
  
@@ -317,11 +592,85 @@ index ff688b0..539892d 100644
  }
  
  /** Dòng context kèm prompt bị lược (0.7.8 G8), tối đa 200 ký tự. */
+diff --git a/claude-mods/focus-conductor/hooks/lib/state.ts b/claude-mods/focus-conductor/hooks/lib/state.ts
+index 99ccb9e..c465bce 100644
+--- a/claude-mods/focus-conductor/hooks/lib/state.ts
++++ b/claude-mods/focus-conductor/hooks/lib/state.ts
+@@ -456,9 +456,6 @@ export const withApproval =
+   (approval: ApprovalState) =>
+   (c: Core): Core => ({ ...normalizeCore(c), approval: normalizeApproval(approval) })
+ 
+-/** Số lần giao phiên con giữ lại cho một mục tiêu (0.7.9 F1) [Giả định: 6 phần mỗi việc, vài việc tách mỗi mục tiêu]. */
+-const FORK_PART_LIMIT = 30
+-
+ /** Phiên con từ trạng thái đã lưu (0.7.9 F1); Core từ bản trước không có trường này thì rỗng, off là none. */
+ function normalizeForks(raw: Partial<ForkState> | undefined): ForkState {
+   if (raw === undefined || raw === null) return { goalId: -1, parts: [], merged: [], off: 'none' }
+@@ -475,7 +472,8 @@ export function withForkStart(goalId: number, part: ForkPart): (core: Core) => C
+     const n = normalizeCore(core)
+     const same = n.forks.goalId === goalId
+     const parts = same ? n.forks.parts.filter(p => !(p.task === part.task && p.part === part.part)) : []
+-    return { ...n, forks: { ...n.forks, goalId, parts: [...parts, part].slice(-FORK_PART_LIMIT), merged: same ? n.forks.merged : [] } }
++    // Không còn trần số phần (0.8.7 L2): mục tiêu có thể có hàng trăm việc tách; mỗi phần của một việc chỉ có một mục.
++    return { ...n, forks: { ...n.forks, goalId, parts: [...parts, part], merged: same ? n.forks.merged : [] } }
+   }
+ }
+ 
+@@ -955,7 +953,7 @@ function freshProgress(goalId: number): Pick<Core, 'agentProgress' | 'activity'>
+   return { agentProgress: { goalId, items: [] }, activity: { goalId, changes: 0 } }
+ }
+ 
+-/** Số bộ đếm theo việc giữ lại cho một mục tiêu (0.7.5). */
++/** Số bộ đếm của việc Claude tự giao giữ lại cho một mục tiêu (0.7.5); bộ đếm của việc đã phân giữ đủ (0.8.7 L2). */
+ const AGENT_TALLY_LIMIT = 50
+ 
+ /**
+@@ -996,7 +994,8 @@ export function withAgentStart(goalId: number, item: AgentProgress): (core: Core
+         delete open[agentId]
+       }
+     }
+-    return { ...n, agentProgress: { goalId, items: [...items, item].slice(-AGENT_PROGRESS_LIMIT), tally: tally.slice(-AGENT_TALLY_LIMIT), open } }
++    const ownKept = new Set(tally.filter(t => t.taskIndex === undefined).slice(-AGENT_TALLY_LIMIT).map(t => t.key))
++    return { ...n, agentProgress: { goalId, items: [...items, item].slice(-AGENT_PROGRESS_LIMIT), tally: tally.filter(t => t.taskIndex !== undefined || ownKept.has(t.key)), open } }
+   }
+ }
+ 
 diff --git a/claude-mods/focus-conductor/hooks/lib/text.ts b/claude-mods/focus-conductor/hooks/lib/text.ts
-index 6a5e395..dab99ae 100644
+index 6a5e395..e196af2 100644
 --- a/claude-mods/focus-conductor/hooks/lib/text.ts
 +++ b/claude-mods/focus-conductor/hooks/lib/text.ts
-@@ -1391,3 +1391,12 @@ export const CONDUCTOR_KEEP_CHARS = 200
+@@ -89,6 +89,12 @@ function taskBlock(tasks: readonly Task[], main: string, isReference: boolean):
+  * Khối context đi kèm prompt khi bắt đầu một mục tiêu mới. `main` là model luồng chính sẽ
+  * thật sự chạy (có thể là model cũ được giữ để bảo toàn cache); null khi chưa chọn.
+  */
++/** Câu nhắc yêu cầu chưa được phủ (0.8.7 L2): tối đa UNCOVERED_SHOWN yêu cầu, kèm số mục còn lại. */
++export const UNCOVERED_SHOWN = 20
++function uncoveredList(items: readonly string[]): string {
++  return `${items.slice(0, UNCOVERED_SHOWN).join('; ')}${items.length > UNCOVERED_SHOWN ? `; còn ${items.length - UNCOVERED_SHOWN} yêu cầu nữa` : ''}`
++}
++
+ export function briefContext(brief: Brief, main: Choice | null, isApplied = true): string {
+   const mainText = mainLabel(main, isApplied)
+   const reference = brief.referenceMain ? describePick(brief.referenceMain) : 'chưa rõ'
+@@ -114,7 +120,7 @@ export function briefContext(brief: Brief, main: Choice | null, isApplied = true
+   const rules = brief.isReference ? '' : `${bullets('Ràng buộc:', brief.constraints)}${bullets('Tiêu chí chất lượng:', brief.quality)}`
+   // Yêu cầu router đã liệt kê mà không việc nào phủ (0.7.0): nhắc để không bị bỏ sót khi lập checklist.
+   const uncovered = brief.isReference ? [] : uncoveredRequirements(brief)
+-  const gaps = uncovered.length > 0 ? `\nYêu cầu chưa có việc nào phủ (đừng bỏ sót khi lập checklist): ${uncovered.join('; ')}` : ''
++  const gaps = uncovered.length > 0 ? `\nYêu cầu chưa có việc nào phủ (đừng bỏ sót khi lập checklist): ${uncoveredList(uncovered)}` : ''
+   return [
+     '[focus-conductor] Bản đọc prompt của router (đối chiếu lại với prompt gốc trước khi làm)',
+     `Mục tiêu cuối: ${brief.goal}${tasks}${splits}${gaps}${rules}`,
+@@ -194,7 +200,7 @@ export function followUpContext(
+       ? `Việc mới (router đã chấm; khi giao, description của Agent mở đầu "Việc N: "):\n${added.map(task => taskLine(task, mainText)).join('\n')}${splitLines(added)}`
+       : '',
+     open.length > 0 ? `Bước còn mở: ${open.map(s => `${s.id}. ${s.title}`).join('; ')}` : '',
+-    uncoveredRequirements(brief).length > 0 ? `Yêu cầu chưa có việc nào phủ (đừng bỏ sót): ${uncoveredRequirements(brief).join('; ')}` : '',
++    uncoveredRequirements(brief).length > 0 ? `Yêu cầu chưa có việc nào phủ (đừng bỏ sót): ${uncoveredList(uncoveredRequirements(brief))}` : '',
+     pendingLine(plan),
+     newConstraints.length > 0 ? `Ràng buộc mới: ${newConstraints.join('; ')}` : '',
+     'Giữ nhất quán với phần đã làm; nếu yêu cầu này đổi mục tiêu, cập nhật lại checklist.',
+@@ -1391,3 +1397,12 @@ export const CONDUCTOR_KEEP_CHARS = 200
  export function conductorKeepText(): string {
    return '[focus-conductor] Vẫn là vai điều phối chạy fable/medium: không tự sửa file, không tự chạy kiểm; giao bằng Agent theo phân việc, lời giao tự đứng được; đối chiếu kết quả trước khi đóng bước.'
  }
@@ -402,7 +751,7 @@ index e2feb0e..e12bcd0 100644
            `Luồng chính: ${routeLine}${blockedLine}`,
            ...conductorLines,
 diff --git a/claude-mods/focus-conductor/hooks/parts/session.ts b/claude-mods/focus-conductor/hooks/parts/session.ts
-index c50b0e9..90e667d 100644
+index c50b0e9..589759d 100644
 --- a/claude-mods/focus-conductor/hooks/parts/session.ts
 +++ b/claude-mods/focus-conductor/hooks/parts/session.ts
 @@ -3,14 +3,14 @@
@@ -418,7 +767,7 @@ index c50b0e9..90e667d 100644
  import { describePick, effortRank, familyOf, familyRank } from '../lib/route'
  import { clipText, keptLines } from '../lib/decisions'
 -import { CLIPPED_CONTEXT, NEW_GOAL_CONFIDENCE, ROUTER_TASK_LIMIT, answerMentionsGoal, askRouter, bareBrief, clampIntent, isAside, clippedWarning, dropSplit, isClippedPrompt, failFields, isSkippable, needsCoverageRecheck, nextBrief, parseRoute, routerFailOf, routerRequest } from '../lib/router'
-+import { CLIPPED_CONTEXT, NEW_GOAL_CONFIDENCE, ROUTER_TASK_LIMIT, answerMentionsGoal, askRouter, bareBrief, clampIntent, isAside, clippedWarning, dropSplit, isClippedPrompt, isFullRead, failFields, isSkippable, needsCoverageRecheck, nextBrief, parseRoute, routerFailOf, routerRequest } from '../lib/router'
++import { CLIPPED_CONTEXT, NEW_GOAL_CONFIDENCE, answerMentionsGoal, askRouter, bareBrief, clampIntent, isAside, clippedWarning, dropSplit, isClippedPrompt, isFullRead, failFields, isSkippable, needsCoverageRecheck, nextBrief, parseRoute, routerFailOf, routerRequest } from '../lib/router'
  import type { RouterOutcome, RouterPlan } from '../lib/router'
  import { EMPTY_QUOTA, blockingHits, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaSettings, reasonsOf, softNotices } from '../lib/quota'
  import * as S from '../lib/state'
@@ -443,7 +792,19 @@ index c50b0e9..90e667d 100644
        ctx.noteRouterFailure('prompt', outcome.failure)
        waitedMs = (await $.clock.now()) - startedAt
        noteRouterTime(waitedMs)
-@@ -513,8 +518,10 @@ export function registerSession(on: On, ctx: Ctx): void {
+@@ -494,11 +499,6 @@ export function registerSession(on: On, ctx: Ctx): void {
+     // adoptGoal lưu checklist cũ còn bước mở (khôi phục được bằng plan restore); chi phí router cộng sau, thuộc mục tiêu mới.
+     const core = await update($, coreState, c => S.withRouterFail(null)(withUsage(isNewGoal ? S.adoptGoal(brief)(c) : S.withDecision(brief)(c))))
+     L.lastPrompt = { text, prev, goalId: brief.goalId }
+-    // Router chia quá ROUTER_TASK_LIMIT việc (0.7.5): phần sau bị bỏ khỏi Phân việc, báo một cảnh báo.
+-    if (plan.droppedTasks !== undefined) {
+-      const total = plan.droppedTasks + ROUTER_TASK_LIMIT
+-      await update($, coreState, S.withWarnings({ at: now, kind: 'model', text: `Router chia ${total} việc; giữ ${ROUTER_TASK_LIMIT} việc đầu trong Phân việc, các việc sau làm theo prompt gốc` }))
+-    }
+     // Ràng buộc hay yêu cầu đã đầy trần (0.7.5): mục mới thay mục ở cuối danh sách (ít quan trọng nhất) không phải quy định model, không
+     // bao giờ thay mục của prompt lập mục tiêu (vòng sửa 2, M3); báo một cảnh báo.
+     if (replaced.length > 0) {
+@@ -513,8 +513,10 @@ export function registerSession(on: On, ctx: Ctx): void {
        noteBehavior('dropped', `${dropped} mục của prompt tiếp nối không giữ được vì ràng buộc và yêu cầu đã đầy`)
      }
      // Prompt dài hơn trần của router (0.7.8 G8): phần giữa bị lược, báo một cảnh báo và một dòng context cho prompt đó.
@@ -457,7 +818,7 @@ index c50b0e9..90e667d 100644
        L.goalPrompt = { text, prev, goalId: brief.goalId }
        L.isGoalNew = true
 diff --git a/claude-mods/focus-conductor/scripts/mutants.ts b/claude-mods/focus-conductor/scripts/mutants.ts
-index 40078d3..f711385 100644
+index 40078d3..6fb7c1f 100644
 --- a/claude-mods/focus-conductor/scripts/mutants.ts
 +++ b/claude-mods/focus-conductor/scripts/mutants.ts
 @@ -300,7 +300,7 @@ export const MUTANTS: Mutant[] = [
@@ -469,6 +830,15 @@ index 40078d3..f711385 100644
    { id: "054-H11", file: "hooks/lib/router.ts", note: "subagentType không qua fence", old: "agent type ${fence(args.subagentType)}", new: "agent type ${args.subagentType}" },
    { id: "054-H12", file: "hooks/lib/router.ts", note: "model gợi ý không qua fence", old: "model ${fence(args.requested.model)}", new: "model ${args.requested.model}" },
    { id: "054-H13", file: "hooks/lib/router.ts", note: "effort gợi ý không qua fence", old: "effort ${fence(args.requested.effort)}", new: "effort ${args.requested.effort}" },
+@@ -680,7 +680,7 @@ export const MUTANTS: Mutant[] = [
+   { id: "061-H2", file: "hooks/parts/session.ts", note: "prompt nào cũng hiện lại band đã ẩn", old: "      await update($, bandHiddenState, () => false)\n      await autoOpenPane($, ctx, brief.goalId, now, brief.depth)\n    }\n", new: "      await autoOpenPane($, ctx, brief.goalId, now, brief.depth)\n    }\n    await update($, bandHiddenState, () => false)\n" },
+   { id: "061-S1", file: "hooks/lib/text.ts", note: "status line bỏ thanh chữ", old: "${bar ? `${bar} ` : ''}", new: "" },
+   { id: "061-S2", file: "hooks/lib/text.ts", note: "thanh chữ trên status line rộng 6 ô", old: "export const STATUS_BAR = 8", new: "export const STATUS_BAR = 6" },
+-  { id: "061-P1", file: "hooks/lib/progress.ts", note: "việc làm trực tiếp không nhận bước \"Việc N\"", old: "const own = plan.filter(step => matchTask(tasks, step.title)?.index === task.index)", new: "const own: PlanStep[] = []" },
++  { id: "061-P1", file: "hooks/lib/progress.ts", note: "việc làm trực tiếp không nhận bước \"Việc N\"", old: "const own = plan.filter(step => ownerOf.get(step.id) === task.index)", new: "const own: PlanStep[] = []" },
+   { id: "061-P2", file: "hooks/lib/progress.ts", note: "việc làm trực tiếp chưa có thay đổi vẫn là đang làm", old: "!closedAny && changes === 0 ? 'idle' : 'running'", new: "'running'" },
+   { id: "061-P3", file: "hooks/lib/progress.ts", note: "việc làm trực tiếp không xong khi mục tiêu đóng hẳn", old: "plan.length > 0 && isFullyClosed(plan) ? 'done' : ", new: "" },
+   { id: "061-P4", file: "hooks/lib/progress.ts", note: "subagent có danh sách riêng vẫn vẽ thanh trạng thái", old: "const hasSteps = steps.length > 0 && state !== 'failed' && state !== 'cut'", new: "const hasSteps = false" },
 @@ -728,11 +728,11 @@ export const MUTANTS: Mutant[] = [
    { id: "070-L7", file: "hooks/parts/consistency.ts", note: "mức nâng không bao giờ giảm", old: "return hadFinding ? marked : S.withLiftDecay(marked)", new: "return marked" },
    { id: "070-L8", file: "hooks/parts/consistency.ts", note: "cờ phát hiện không được đặt khi nâng cấp tăng", old: "    if (lifts) L.liftRaised = true\n", new: "" },
@@ -483,24 +853,91 @@ index 40078d3..f711385 100644
    { id: "070-V6", file: "hooks/lib/state.ts", note: "bước tự nâng không được đánh dấu auto nên không hạ lại được", old: "status: 'verified' as const, auto: true, note }", new: "status: 'verified' as const, note }" },
    { id: "070-V7", file: "hooks/lib/state.ts", note: "bước tự nâng không bao giờ hạ về done", old: "  if (!hasAutoVerified(n)) return n\n", new: "  return n\n" },
    { id: "070-V8", file: "hooks/lib/state.ts", note: "hạ cả bước verified do Claude ghi", old: "if (s.auto !== true || s.status !== 'verified') return s", new: "if (s.status !== 'verified') return s" },
-@@ -757,7 +757,7 @@ export const MUTANTS: Mutant[] = [
+@@ -757,27 +757,27 @@ export const MUTANTS: Mutant[] = [
    { id: "070-C10", file: "hooks/parts/consistency.ts", note: "chuỗi lỗi không gửi kèm router", old: "      noteObserved(`${ERROR_BURST} tool call lỗi trong turn này`)\n", new: "" },
    { id: "070-C11", file: "hooks/parts/consistency.ts", note: "vòng lặp và vượt ngân sách không gửi kèm router", old: "if (finding.kind === 'loop' || finding.kind === 'budget') noteObserved(finding.text)", new: "if (finding.kind === 'never') noteObserved(finding.text)" },
    { id: "070-C12", file: "hooks/lib/router.ts", note: "nội dung quan sát không vào request của router", old: "${fence(clip(args.observed, 400))}", new: "${fence('')}" },
 -  { id: "070-C13", file: "hooks/parts/session.ts", note: "quan sát không được xóa sau khi gửi, nên gửi lặp", old: "      L.observed = []\n      const request = routerRequest(", new: "      const request = routerRequest(" },
 +  { id: "070-C13", file: "hooks/parts/session.ts", note: "quan sát không được xóa sau khi gửi, nên gửi lặp", old: "      L.observed = []\n      const args = {", new: "      const args = {" },
    { id: "070-C14", file: "hooks/parts/session.ts", note: "quan sát không được truyền vào request của router", old: ", ...(observed ? { observed } : {}), ...(isInterject", new: ", ...(isInterject" },
-   { id: "070-B1", file: "hooks/lib/router.ts", note: "yêu cầu không giới hạn số mục", old: "clip(s.trim(), REQUIREMENT_CHARS)),\n    REQUIREMENT_LIMIT,", new: "clip(s.trim(), REQUIREMENT_CHARS)),\n    1000," },
+-  { id: "070-B1", file: "hooks/lib/router.ts", note: "yêu cầu không giới hạn số mục", old: "clip(s.trim(), REQUIREMENT_CHARS)),\n    REQUIREMENT_LIMIT,", new: "clip(s.trim(), REQUIREMENT_CHARS)),\n    1000," },
++  { id: "070-B1", file: "hooks/lib/router.ts", note: "yêu cầu trùng không được gộp", old: "  return [...new Set(value.filter((s): s is string => typeof s === 'string' && s.trim() !== '').map(s => clip(s.trim(), REQUIREMENT_CHARS)))]", new: "  return value.filter((s): s is string => typeof s === 'string' && s.trim() !== '').map(s => clip(s.trim(), REQUIREMENT_CHARS))" },
    { id: "070-B2", file: "hooks/lib/router.ts", note: "yêu cầu không cắt ngắn", old: "clip(s.trim(), REQUIREMENT_CHARS)", new: "s.trim()" },
-@@ -777,7 +777,7 @@ export const MUTANTS: Mutant[] = [
+-  { id: "070-B3", file: "hooks/lib/router.ts", note: "covers nhận số 0", old: "Number.isInteger(n) && n >= 1 && n <= REQUIREMENT_LIMIT", new: "Number.isInteger(n) && n >= 0 && n <= REQUIREMENT_LIMIT" },
+-  { id: "070-B4", file: "hooks/lib/router.ts", note: "covers nhận số không nguyên", old: "Number.isInteger(n) && n >= 1 && n <= REQUIREMENT_LIMIT", new: "n >= 1 && n <= REQUIREMENT_LIMIT" },
+-  { id: "070-B5", file: "hooks/lib/router.ts", note: "covers không chặn số vượt số yêu cầu tối đa", old: "Number.isInteger(n) && n >= 1 && n <= REQUIREMENT_LIMIT", new: "Number.isInteger(n) && n >= 1" },
++  { id: "070-B3", file: "hooks/lib/router.ts", note: "covers nhận số 0", old: "function coversOf(value: unknown): number[] | undefined {\n  if (!Array.isArray(value)) return undefined\n  return [...new Set(value.filter((n): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 1))]", new: "function coversOf(value: unknown): number[] | undefined {\n  if (!Array.isArray(value)) return undefined\n  return [...new Set(value.filter((n): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 0))]" },
++  { id: "070-B4", file: "hooks/lib/router.ts", note: "covers nhận số không nguyên", old: "function coversOf(value: unknown): number[] | undefined {\n  if (!Array.isArray(value)) return undefined\n  return [...new Set(value.filter((n): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 1))]", new: "function coversOf(value: unknown): number[] | undefined {\n  if (!Array.isArray(value)) return undefined\n  return [...new Set(value.filter((n): n is number => typeof n === 'number' && n >= 1))]" },
++  { id: "070-B5", file: "hooks/lib/router.ts", note: "covers nhận số vượt số yêu cầu một đơn vị", old: "covers: t.covers.filter(n => n <= requirements.length)", new: "covers: t.covers.filter(n => n <= requirements.length + 1)" },
+   { id: "070-B6", file: "hooks/lib/router.ts", note: "router không ghi covers vẫn bị coi là bỏ sót mọi yêu cầu", old: " || !brief.tasks.some(t => (t.covers?.length ?? 0) > 0)", new: "" },
+   { id: "070-B7", file: "hooks/lib/router.ts", note: "yêu cầu bỏ sót tính lệch một vị trí", old: "requirements.filter((_, i) => !covered.has(i + 1))", new: "requirements.filter((_, i) => !covered.has(i))" },
+   { id: "070-B8", file: "hooks/lib/router.ts", note: "covers của việc mới không đổi số theo danh sách đã gộp", old: "    ...(t.covers !== undefined ? { covers: t.covers.flatMap(n => renumber.get(n) ?? []) } : {}),", new: "    ...(t.covers !== undefined ? { covers: t.covers } : {})," },
+-  { id: "070-B9", file: "hooks/lib/router.ts", note: "yêu cầu tiếp nối trùng không được bỏ", old: "    let at = indexOfKey(items, item)\n    if (at >= 0) items[at] = item\n    else if (items.length < REQUIREMENT_LIMIT + CAP_OVERFLOW) {", new: "    let at = -1\n    if (at >= 0) items[at] = item\n    else if (items.length < REQUIREMENT_LIMIT + CAP_OVERFLOW) {" },
++  { id: "070-B9", file: "hooks/lib/router.ts", note: "yêu cầu tiếp nối trùng không được bỏ", old: "    let at = indexOfKey(items, item)\n    if (at >= 0) items[at] = item\n    else {\n      items.push(item)", new: "    let at = -1\n    if (at >= 0) items[at] = item\n    else {\n      items.push(item)" },
+   { id: "070-B10", file: "hooks/lib/router.ts", note: "không bao giờ kiểm lại khi nhiều yêu cầu", old: "const needsCoverage = isConfident && recheck !== undefined && recheck(firstResult)", new: "const needsCoverage = false" },
+   { id: "070-B11", file: "hooks/lib/router.ts", note: "kiểm lại dùng ghi chú tin cậy thấp", old: "firstResult === null ? 'json' : needsCoverage ? 'coverage' : 'confidence'", new: "firstResult === null ? 'json' : 'confidence'" },
+   { id: "070-B12", file: "hooks/lib/router.ts", note: "request router không giới hạn số bước đang mở", old: ".slice(0, OPEN_STEPS_LIMIT)", new: "" },
+   { id: "070-B13", file: "hooks/lib/router.ts", note: "request router có dòng bước đang mở cả khi rỗng", old: "(args.openSteps?.length ?? 0) > 0 ?", new: "true ?" },
+-  { id: "070-B14", file: "hooks/lib/router.ts", note: "lời dặn không còn giới hạn 8 việc", old: "Apart from coded headings, at most 8 tasks.", new: "Apart from coded headings, as many tasks as needed." },
++  { id: "070-B14", file: "hooks/lib/router.ts", note: "lời dặn không đòi chia đủ việc để phủ mọi yêu cầu", old: "Use as many tasks as the work needs for every requirement to be covered: never merge tasks only to have fewer, and never split a task that does not need it. ", new: "" },
+   { id: "070-B15", file: "hooks/lib/text.ts", note: "context không nhắc yêu cầu chưa được phủ", old: "const gaps = uncovered.length > 0 ?", new: "const gaps = false ?" },
    { id: "070-B16", file: "hooks/lib/text.ts", note: "lượt đối chiếu cũng nhắc yêu cầu chưa được phủ", old: "const uncovered = brief.isReference ? [] : uncoveredRequirements(brief)", new: "const uncovered = uncoveredRequirements(brief)" },
-   { id: "070-B17", file: "hooks/lib/text.ts", note: "context tiếp nối không nhắc yêu cầu chưa được phủ", old: "    uncoveredRequirements(brief).length > 0 ? `Yêu cầu chưa có việc nào phủ (đừng bỏ sót): ${uncoveredRequirements(brief).join('; ')}` : '',\n", new: "" },
+-  { id: "070-B17", file: "hooks/lib/text.ts", note: "context tiếp nối không nhắc yêu cầu chưa được phủ", old: "    uncoveredRequirements(brief).length > 0 ? `Yêu cầu chưa có việc nào phủ (đừng bỏ sót): ${uncoveredRequirements(brief).join('; ')}` : '',\n", new: "" },
++  { id: "070-B17", file: "hooks/lib/text.ts", note: "context tiếp nối không nhắc yêu cầu chưa được phủ", old: "    uncoveredRequirements(brief).length > 0 ? `Yêu cầu chưa có việc nào phủ (đừng bỏ sót): ${uncoveredList(uncoveredRequirements(brief))}` : '',\n", new: "" },
    { id: "070-B18", file: "hooks/parts/session.ts", note: "bước đang mở không đi kèm request router", old: "sessionFamily: L.sessionFamily, openSteps: openSteps(before.plan).map(s => s.title), ", new: "sessionFamily: L.sessionFamily, " },
 -  { id: "070-B19", file: "hooks/parts/session.ts", note: "không kiểm lại khi quá nhiều yêu cầu ở prompt", old: ", needsCoverageRecheck, { retryMissingConfidence: true, ...(target.isFable ? { isFable: true } : {}) })", new: ", undefined, { retryMissingConfidence: true, ...(target.isFable ? { isFable: true } : {}) })" },
 +  { id: "070-B19", file: "hooks/parts/session.ts", note: "không kiểm lại khi quá nhiều yêu cầu ở prompt", old: ", needsCoverageRecheck, { retryMissingConfidence: true, ...(target.isFable ? { isFable: true } : {}), ...(fallback", new: ", undefined, { retryMissingConfidence: true, ...(target.isFable ? { isFable: true } : {}), ...(fallback" },
    { id: "070-B20", file: "hooks/lib/router.ts", note: "ngưỡng kiểm lại lệch một", old: "plan.requirements.length <= REQUIREMENTS_RECHECK ||", new: "plan.requirements.length <= REQUIREMENTS_RECHECK + 1 ||" },
    { id: "070-B21", file: "hooks/lib/state.ts", note: "normalizeBrief làm rơi requirements", old: "    ...(brief.requirements !== undefined ? { requirements: brief.requirements } : {}),\n", new: "" },
    { id: "070-V18", file: "hooks/parts/consistency.ts", note: "verified nhận theo evidence lỏng không bị hạ khi sửa tiếp", old: "const isLoose = isAccepted && !isStrict", new: "const isLoose = false" },
+@@ -879,12 +879,12 @@ export const MUTANTS: Mutant[] = [
+   { id: "073-S20", file: "hooks/lib/state.ts", note: "gợi ý không giữ được qua normalizeCore", old: "checkHint: raw.checkHint ?? null,", new: "checkHint: null," },
+   { id: "073-S21", file: "hooks/parts/consistency.ts", note: "gợi ý trùng vẫn ghi lại (tương đương: kết quả như nhau)", old: "  if (current !== null && current.commands.join('\\n') === commands.join('\\n')) return\n", new: "", equivalent: "chỉ bỏ qua một lần ghi trạng thái trùng; trạng thái và toast cuối cùng như nhau (toast chặn bởi isToasted)" },
+   { id: "073-D1", file: "hooks/lib/plan.ts", note: "bước không có tiêu đề không được đếm là đã chỉnh", old: "    if (!title) {\n      untitled += 1\n      continue", new: "    if (!title) {\n      continue" },
+-  { id: "073-D2", file: "hooks/lib/plan.ts", note: "bước vượt giới hạn không được đếm", old: "      overLimit += 1\n", new: "" },
++  { id: "073-D2", file: "hooks/lib/plan.ts", note: "dòng đã chỉnh không nêu bước không có tiêu đề", old: "    untitled > 0 ? `bỏ ${untitled} bước không có tiêu đề` : '',\n", new: "" },
+   { id: "073-D3", file: "hooks/lib/plan.ts", note: "tiêu đề bị cắt không được đếm", old: "if (title.length > MAX_TITLE) cutTitles += 1", new: "" },
+   { id: "073-D4", file: "hooks/lib/plan.ts", note: "tiêu chí bị cắt không được đếm", old: "if (fullCheck.length > MAX_CHECK) cutChecks += 1", new: "" },
+   { id: "073-D5", file: "hooks/lib/plan.ts", note: "đúng 160 ký tự tiêu đề bị coi là bị cắt", old: "if (title.length > MAX_TITLE) cutTitles += 1", new: "if (title.length >= MAX_TITLE) cutTitles += 1" },
+   { id: "073-D6", file: "hooks/lib/plan.ts", note: "đúng 200 ký tự tiêu chí bị coi là bị cắt", old: "if (fullCheck.length > MAX_CHECK) cutChecks += 1", new: "if (fullCheck.length >= MAX_CHECK) cutChecks += 1" },
+-  { id: "073-D7", file: "hooks/lib/plan.ts", note: "giới hạn số bước đổi", old: "const MAX_STEPS = 20", new: "const MAX_STEPS = 19" },
++  { id: "073-D7", file: "hooks/lib/plan.ts", note: "trần tiêu đề bước đổi", old: "const MAX_TITLE = 160", new: "const MAX_TITLE = 159" },
+   { id: "073-D8", file: "hooks/lib/plan.ts", note: "phạm vi lưu khác phạm vi gửi không được nêu", old: "scope !== undefined && scope !== null && scope.length !== sentScope ? { scopeSaved: scope } : {}", new: "false ? { scopeSaved: scope } : {}" },
+   { id: "073-D9", file: "hooks/lib/plan.ts", note: "so phạm vi theo số mục lớn hơn thay vì khác", old: "scope.length !== sentScope ? { scopeSaved: scope }", new: "scope.length > sentScope ? { scopeSaved: scope }" },
+   { id: "073-D10", file: "hooks/lib/text.ts", note: "set luôn in đầy đủ", old: "if (report.hasSteps && plan.length > 0 && report.adjusted.length === 0) {", new: "if (false) {" },
+@@ -1150,8 +1150,8 @@ export const MUTANTS: Mutant[] = [
+   { id: "075-B13b", file: "hooks/lib/router.ts", note: "thử lại dù hết hạn chung", old: "    if (left < RETRY_MIN_MS) return { result: null,", new: "    if (false) return { result: null," },
+   { id: "075-B13c", file: "hooks/parts/command.ts", note: "reroute đọc prompt gần nhất", old: "const last = isGoalRead ? L.goalPrompt : L.lastPrompt", new: "const last = L.lastPrompt" },
+   { id: "075-B13d", file: "hooks/parts/command.ts", note: "reroute đọc prompt gốc cả khi lần đọc gần nhất lỗi", old: "const isGoalRead = before.routerFail === null && L.goalPrompt", new: "const isGoalRead = L.goalPrompt" },
+-  { id: "075-B13e", file: "hooks/parts/session.ts", note: "không cảnh báo khi cắt việc", old: "    if (plan.droppedTasks !== undefined) {\n", new: "    if (false) {\n" },
+-  { id: "075-B13f", file: "hooks/lib/router.ts", note: "không ghi số việc bị cắt", old: "    ...(rawTasks.length > TASK_LIMIT ? { droppedTasks: rawTasks.length - TASK_LIMIT } : {}),\n", new: "" },
++  { id: "075-B13e", file: "hooks/lib/router.ts", note: "request chấm subagent không có dòng tổng số việc", old: ", ...totalLine((args.tasks ?? []).length)] : []),", new: "] : [])," },
++  { id: "075-B13f", file: "hooks/lib/router.ts", note: "request tiếp nối không có dòng tổng số việc", old: "    ...totalLine(prev.tasks.length),\n", new: "" },
+   { id: "075-B13g", file: "hooks/parts/session.ts", note: "không giữ prompt lập mục tiêu", old: "      L.goalPrompt = { text, prev, goalId: brief.goalId }\n", new: "" },
+   { id: "075-B14a", file: "hooks/context.ts", note: "việc chờ giao không xét checklist", old: "if (own.length > 0) return own.some(step => step.status === 'doing' || step === next)", new: "if (own.length > 0) return true" },
+   { id: "075-B14b", file: "hooks/context.ts", note: "việc không có bước nào bị coi là không chờ", old: "return !(task !== undefined && hasTitleCode(task.title) && !isCoded)", new: "return false" },
+@@ -1321,9 +1321,9 @@ export const MUTANTS: Mutant[] = [
+   { id: "075-L8b", file: "hooks/lib/state.ts", note: "bước đổi vị trí không giữ mốc cũ (cần cả khóa lẫn nội dung)", old: "steps, (a, b) => a.title === b.title, n.closing.seq)", new: "steps, (a, b) => a.key === b.key && a.title === b.title, n.closing.seq)" },
+   { id: "075-L8c", file: "hooks/lib/state.ts", note: "mọi bước cũ được coi là cùng bước", old: "steps, (a, b) => a.title === b.title, n.closing.seq)", new: "steps, (a, b) => true, n.closing.seq)" },
+   { id: "075-R1a", file: "hooks/lib/router.ts", note: "ràng buộc của prompt tiếp nối không vào phần tràn (bị bỏ)", old: "    else if (items.length < max + CAP_OVERFLOW) items.push(item)\n", new: "    else if (items.length < max) items.push(item)\n" },
+-  { id: "075-R1b", file: "hooks/lib/router.ts", note: "yêu cầu của prompt tiếp nối không vào phần tràn", old: "    else if (items.length < REQUIREMENT_LIMIT + CAP_OVERFLOW) {", new: "    else if (items.length < REQUIREMENT_LIMIT) {" },
+-  { id: "075-R1c", file: "hooks/lib/router.ts", note: "phần tràn không có trần", old: "    else if (items.length < REQUIREMENT_LIMIT + CAP_OVERFLOW) {", new: "    else if (true) {" },
+-  { id: "075-R1d", file: "hooks/lib/router.ts", note: "mục bị bỏ không được đếm", old: "    } else dropped += 1\n", new: "    }\n" },
++  { id: "075-R1b", file: "hooks/lib/router.ts", note: "request tiếp nối không nêu yêu cầu từ mục 31", old: "...overRequirements.slice(0, TASK_CONTEXT)]", new: "]" },
++  { id: "075-R1c", file: "hooks/lib/router.ts", note: "request tiếp nối không ghi số yêu cầu còn lại", old: ", ...(overRequirements.length > TASK_CONTEXT ? [`  (${overRequirements.length - TASK_CONTEXT} more requirements)`] : [])", new: "" },
++  { id: "075-R1d", file: "hooks/lib/router.ts", note: "mục bị bỏ không được đếm", old: "    else if (items.length < max + CAP_OVERFLOW) items.push(item)\n    else dropped += 1\n", new: "    else if (items.length < max + CAP_OVERFLOW) items.push(item)\n" },
+   { id: "075-R1e", file: "hooks/lib/router.ts", note: "danh sách cũ bị cắt về trần, mất phần tràn ở lần gộp sau", old: "  const items = unique(prev, max + CAP_OVERFLOW)", new: "  const items = unique(prev, max)" },
+   { id: "075-R1f", file: "hooks/lib/router.ts", note: "request tiếp nối không nêu phần tràn", old: "    ...(over.length > 0 ? [", new: "    ...(false ? [" },
+   { id: "075-R1g", file: "hooks/lib/router.ts", note: "brief không ghi số mục bị bỏ", old: "    ...((prev.dropped ?? 0) + dropped > 0 ? { dropped: (prev.dropped ?? 0) + dropped } : {}),\n", new: "" },
+@@ -1422,7 +1422,7 @@ export const MUTANTS: Mutant[] = [
+   { id: "075-R11i", file: "hooks/lib/router.ts", note: "mentionsGoal không tính các bước đang mở", old: "const known = briefCodes([...prev.steps, ...prev.tasks.map(t => t.title), ...openSteps])", new: "const known = briefCodes([...prev.steps, ...prev.tasks.map(t => t.title)])" },
+   { id: "075-S1a", file: "hooks/lib/router.ts", note: "mục cùng khóa không được nhận ra (so nguyên chữ)", old: "  return items.findIndex(existing => itemKey(existing) === key)", new: "  return items.indexOf(item)" },
+   { id: "075-S1b", file: "hooks/lib/router.ts", note: "ràng buộc cùng khóa không thay mục cũ", old: "    if (at >= 0) items[at] = item\n    else if (items.length < max + CAP_OVERFLOW) items.push(item)", new: "    if (at >= 0) {}\n    else if (items.length < max + CAP_OVERFLOW) items.push(item)" },
+-  { id: "075-S1c", file: "hooks/lib/router.ts", note: "yêu cầu cùng khóa không thay yêu cầu cũ", old: "    if (at >= 0) items[at] = item\n    else if (items.length < REQUIREMENT_LIMIT + CAP_OVERFLOW)", new: "    if (at >= 0) {}\n    else if (items.length < REQUIREMENT_LIMIT + CAP_OVERFLOW)" },
++  { id: "075-S1c", file: "hooks/lib/router.ts", note: "yêu cầu cùng khóa không thay yêu cầu cũ", old: "    if (at >= 0) items[at] = item\n    else {\n      items.push(item)", new: "    if (at >= 0) {}\n    else {\n      items.push(item)" },
+   { id: "075-S1d", file: "hooks/lib/router.ts", note: "khóa giữ dấu câu cuối", old: ".replace(/[.;,:!?…]+$/u, '')", new: "" },
+   { id: "075-S1e", file: "hooks/lib/router.ts", note: "khóa giữ khoảng trắng thừa", old: ".replace(/\\s+/g, ' ')", new: "" },
+   { id: "075-S1f", file: "hooks/lib/router.ts", note: "khóa phân biệt hoa thường", old: "text.normalize('NFC').toLowerCase()", new: "text.normalize('NFC')" },
 @@ -1882,10 +1882,10 @@ export const MUTANTS: Mutant[] = [
    { id: "078-G8d", file: "hooks/lib/router.ts", note: "lần hai thiếu confidence vẫn thắng", old: "(secondResult.confidence !== undefined && (isMissing || secondResult.confidence >= firstConfidence))", new: "(isMissing || (secondResult.confidence ?? 1) >= firstConfidence)" },
    { id: "078-G8e", file: "hooks/lib/router.ts", note: "lần đầu thiếu confidence thắng lần hai có confidence", old: "(secondResult.confidence !== undefined && (isMissing || secondResult.confidence >= firstConfidence))", new: "(secondResult.confidence !== undefined && secondResult.confidence >= firstConfidence)" },
@@ -516,7 +953,16 @@ index 40078d3..f711385 100644
    { id: "078-G8k", file: "hooks/parts/session.ts", note: "không thêm dòng context prompt bị lược", old: "...(isClipped ? [CLIPPED_CONTEXT] : []), ", new: "" },
    { id: "078-G9a", file: "hooks/parts/session.ts", note: "không nhận ra tin chen ngang", old: "    const isInterject = e.turnId !== undefined && prev !== null\n", new: "    const isInterject = false as boolean\n" },
    { id: "078-G9b", file: "hooks/parts/session.ts", note: "tin gửi khi phiên rảnh cũng là chen ngang", old: "    const isInterject = e.turnId !== undefined && prev !== null\n", new: "    const isInterject = prev !== null\n" },
-@@ -2198,4 +2198,23 @@ export const MUTANTS: Mutant[] = [
+@@ -2017,7 +2017,7 @@ export const MUTANTS: Mutant[] = [
+   { id: "080-A3c", file: "hooks/lib/router.ts", note: "router xếp new tin cậy thấp vẫn thay checklist đang mở", old: "  if (prev !== null && !prev.isReference && (isLowNew || isListed)) {", new: "  if (prev !== null && !prev.isReference && isListed && !isLowNew) {" },
+   { id: "080-A3d", file: "hooks/parts/consistency.ts", note: "plan set giữa mục tiêu không cất việc đã xong", old: "    const opened = doneTasks.length > 0 && before.brief !== null ? openPhase(before.brief, new Set(doneTasks)) : null\n", new: "    const opened = null as ReturnType<typeof openPhase> | null\n" },
+   { id: "080-A4a", file: "hooks/lib/progress.ts", note: "việc main không có bước riêng lại running khi có thay đổi hay bước đã đóng", old: "      const isUnassigned = own.length === 0 && plan.length > 0 && !isFullyClosed(plan) && !isDoing\n", new: "      const isUnassigned = false\n" },
+-  { id: "080-A4b", file: "hooks/lib/progress.ts", note: "bỏ điều kiện việc của bước doing", old: "      const isDoing = plan.some(s => s.status === 'doing' && stepCovers(tasks, s.title)?.index === task.index) || mainCount === 1\n", new: "      const isDoing = mainCount === 1\n" },
++  { id: "080-A4b", file: "hooks/lib/progress.ts", note: "bỏ điều kiện việc của bước doing", old: "      const isDoing = doingTasks.has(task.index) || mainCount === 1\n", new: "      const isDoing = mainCount === 1\n" },
+   { id: "080-A5a", file: "hooks/lib/drift/soft.ts", note: "lệnh Bash có thể ghi (script lạ) tính là thay đổi chắc chắn", old: "effect.level !== 'definite' || ", new: "" },
+   { id: "080-A5b", file: "hooks/lib/drift/soft.ts", note: "bỏ đuôi dữ liệu và báo cáo (csv tsv jsonl log) khỏi thay đổi nhẹ", old: "md|markdown|txt|csv|tsv|jsonl|log", new: "md|markdown|txt" },
+   { id: "080-A5c", file: "hooks/lib/state.ts", note: "không gộp cảnh báo cùng nguyên nhân ở turn liên tiếp", old: "prev.cause === entry.cause && prev.at", new: "prev.cause === entry.cause && false && prev.at" },
+@@ -2198,4 +2198,33 @@ export const MUTANTS: Mutant[] = [
    { id: "086-V1g", file: "hooks/lib/router.ts", note: "chuyển cả tin đối chiếu", old: "(!isReference && relation !== 'new' && policy.goalIsBig === true)", new: "(relation !== 'new' && policy.goalIsBig === true)" },
    { id: "086-V1h", file: "hooks/parts/command.ts", note: "status hiện số đo cả khi không điều phối", old: "const conductSuffix = ctx.isConducting(core, current) ? conductStatusSuffix(S.conductOf(core), lang) : ''", new: "const conductSuffix = conductStatusSuffix(S.conductOf(core), lang)" },
    { id: "086-V1i", file: "hooks/parts/consistency.ts", note: "đếm cả lần đọc bị từ chối", old: "if (e.agentId !== undefined || ctx.conductorReads === 0 || result.deny !== undefined) return result", new: "if (e.agentId !== undefined || ctx.conductorReads === 0) return result" },
@@ -539,7 +985,48 @@ index 40078d3..f711385 100644
 +  { id: "087-B1b", file: "hooks/lib/drift/evidence.ts", note: "lần lỗi của subagent không mang cờ cũng làm mất lần đạt", old: "c.seq > pass.seq && (c.author === 'main' || c.shared === true))", new: "c.seq > pass.seq)" },
 +  { id: "087-B1c", file: "hooks/lib/drift/evidence.ts", note: "lần lỗi chạy trước lần đạt cũng làm mất lần đạt", old: "c.seq > pass.seq &&", new: "c.seq > log.lastMutation &&" },
 +  { id: "087-B1d", file: "hooks/lib/drift/evidence.ts", note: "lần kiểm nối && cũng tính là lỗi", old: "!c.ok && c.chained !== true &&", new: "!c.ok &&" },
++  { id: "087-L2a", file: "hooks/lib/router.ts", note: "còn cắt việc ở 20", old: "  for (const item of rawTasks) {", new: "  for (const item of rawTasks.slice(0, 20)) {" },
++  { id: "087-L2b", file: "hooks/lib/router.ts", note: "còn cắt yêu cầu ở 30", old: "map(s => clip(s.trim(), REQUIREMENT_CHARS)))]", new: "map(s => clip(s.trim(), REQUIREMENT_CHARS)))].slice(0, 30)" },
++  { id: "087-L2c", file: "hooks/lib/router.ts", note: "covers còn chặn ở 30", old: "Number.isInteger(n) && n >= 1))]\n", new: "Number.isInteger(n) && n >= 1 && n <= 30))]\n" },
++  { id: "087-L2d", file: "hooks/lib/plan.ts", note: "checklist còn chặn ở 20", old: "    const tier = TIERS.find(t => t === item['tier'])", new: "    if (out.length >= 20) continue\n    const tier = TIERS.find(t => t === item['tier'])" },
++  { id: "087-L2e", file: "hooks/lib/router.ts", note: "lượt đọc sau cắt danh sách việc đã có", old: "    tasks: [...keptTasks, ...added],", new: "    tasks: [...keptTasks, ...added].slice(0, 20)," },
++  { id: "087-L2f", file: "hooks/lib/router.ts", note: "lời dặn còn at most 8 tasks", old: "Use as many tasks as the work needs for every requirement to be covered", new: "Apart from coded headings, at most 8 tasks. Use as many tasks as the work needs for every requirement to be covered" },
++  { id: "087-L2g", file: "hooks/lib/text.ts", note: "câu nhắc yêu cầu chưa phủ liệt kê không giới hạn", old: "items.slice(0, UNCOVERED_SHOWN).join('; ')", new: "items.join('; ')" },
++  { id: "087-L2h", file: "hooks/lib/router.ts", note: "bỏ việc lọc covers ngoài khoảng", old: "covers: t.covers.filter(n => n <= requirements.length)", new: "covers: t.covers" },
++  { id: "087-L2i", file: "hooks/lib/router.ts", note: "không có dòng tổng số việc", old: "  return count > TASK_CONTEXT ? [`  (${count} tasks in total; the first ${TASK_CONTEXT} are listed)`] : []", new: "  return []" },
++  { id: "087-L2j", file: "hooks/lib/state.ts", note: "bộ đếm của việc đã phân còn cắt ở 50", old: "tally: tally.filter(t => t.taskIndex !== undefined || ownKept.has(t.key))", new: "tally: tally.slice(-AGENT_TALLY_LIMIT)" },
  ]
+diff --git a/claude-mods/focus-conductor/tests/caps-s1-075.test.ts b/claude-mods/focus-conductor/tests/caps-s1-075.test.ts
+index 185cd20..26233ea 100644
+--- a/claude-mods/focus-conductor/tests/caps-s1-075.test.ts
++++ b/claude-mods/focus-conductor/tests/caps-s1-075.test.ts
+@@ -65,8 +65,9 @@ describe('0.7.5 S1: mục trùng khóa và phần tràn đầy', () => {
+   test(`phần tràn đầy (${CAP_OVERFLOW} mục): mục mới bị bỏ và đếm ở dropped`, () => {
+     const full = [...REQUIREMENTS, ...Array.from({ length: CAP_OVERFLOW }, (_, i) => `Tràn ${i + 1}`)]
+     const out = nextBrief(makeBrief({ requirements: full, requirementsBase: 30 }), routed({ relation: 'refine', goal: '', requirements: ['Mục thứ 41'] }), 'x', 2)
+-    expect(out.brief.requirements).toEqual(full)
+-    expect(out.dropped).toBe(1)
++    // 0.8.7 L2: yêu cầu không còn trần cộng phần tràn: mục thứ 41 được giữ, không mục nào bị bỏ (ràng buộc vẫn có phần tràn, ca dưới).
++    expect(out.brief.requirements).toEqual([...full, 'Mục thứ 41'])
++    expect(out.dropped).toBe(0)
+   })
+ 
+   test(`ràng buộc: phần tràn đầy (${CAP_OVERFLOW} mục) thì ràng buộc mới bị bỏ và đếm ở dropped`, () => {
+diff --git a/claude-mods/focus-conductor/tests/conductor-c4-084.test.ts b/claude-mods/focus-conductor/tests/conductor-c4-084.test.ts
+index 2fc3343..cb4c649 100644
+--- a/claude-mods/focus-conductor/tests/conductor-c4-084.test.ts
++++ b/claude-mods/focus-conductor/tests/conductor-c4-084.test.ts
+@@ -10,7 +10,9 @@ import { OPEN } from './golden/cases'
+ import { plan, task } from './support/engine'
+ import type { Json } from './support/engine'
+ 
+-const SHA_083 = '546aea945e97d93529e56d04bc1357ad7c3d872f2a70eb0a98b5f19b1fc6ca43'
++// 0.8.7 L2 đổi các câu về trần số yêu cầu, số việc và thêm câu về thứ tự thực hiện; số ghim đổi theo, ý của ca giữ nguyên: cờ tắt thì
++// request dùng đúng lời dặn gốc. Băm của 0.8.3 tới 0.8.6 là 546aea94….
++const SHA_083 = 'a9da24a2d3e81a8a653fbc605ff39f7fbfbd77da5a480fe9d01d1e680ba680d0'
+ const ON: Policy = { ...OPEN, conductor: true }
+ const sha = async (text: string) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))].map(b => b.toString(16).padStart(2, '0')).join('')
+ const systemOf = (policy: Policy) => (routerRequest({ text: 'Sửa luồng thanh toán', prev: null, ran: null, policy, model: 'm' }).system as Array<{ text: string }>).map(b => b.text).join('')
 diff --git a/claude-mods/focus-conductor/tests/evidence/fresh-b1-087.test.ts b/claude-mods/focus-conductor/tests/evidence/fresh-b1-087.test.ts
 new file mode 100644
 index 0000000..ff5a6a7
@@ -607,6 +1094,136 @@ index 0000000..ff5a6a7
 +    expect(freshTestRun(log)).toBe(log.commands.at(-1))
 +  })
 +})
+diff --git a/claude-mods/focus-conductor/tests/integration/caps-r1-075.test.ts b/claude-mods/focus-conductor/tests/integration/caps-r1-075.test.ts
+index 9d3a1bc..12567c0 100644
+--- a/claude-mods/focus-conductor/tests/integration/caps-r1-075.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/caps-r1-075.test.ts
+@@ -50,8 +50,9 @@ describe('0.7.5 R1: mục của prompt tiếp nối khi đã đầy bằng mục
+     const full = [...REQUIREMENTS, ...Array.from({ length: 10 }, (_, i) => `Tràn ${i + 1}`)]
+     const prev = makeBrief({ requirements: full, requirementsBase: 40 })
+     const out = nextBrief(prev, routed({ relation: 'refine', goal: '', requirements: [EXCEL] }), EXCEL, 2) as ReturnType<typeof nextBrief> & { dropped?: number }
+-    expect(out.brief.requirements).toEqual(full)
+-    expect(out.dropped).toBe(1)
++    // 0.8.7 L2: yêu cầu không còn trần cộng phần tràn: mục mới được giữ, không mục nào bị bỏ.
++    expect(out.brief.requirements).toEqual([...full, EXCEL])
++    expect(out.dropped).toBe(0)
+   })
+ })
+ 
+@@ -97,11 +98,13 @@ describe('0.7.5 R1: phiên với prompt 32.000 ký tự', () => {
+     base(on, { router: request => (request.includes('thêm 12 yêu cầu') ? many : FIRST) })
+     await submit($, PROMPT_32K)
+     await submit($, 'thêm 12 yêu cầu')
++    // 0.8.7 L2: yêu cầu không còn trần cộng phần tràn: 12 yêu cầu tinh chỉnh đều được giữ, không có cảnh báo mục bị bỏ (cảnh báo này
++    // vẫn có cho ràng buộc, xem dropped-kind-s8-075 và dropped-rank-078).
+     const status = String((await conductor($, 'status')).text)
+-    expect(status).toContain('2 mục của prompt tiếp nối không giữ được')
++    expect(status).not.toContain('không giữ được')
+     const pane = await $.ui.mount(PANE)
+     const texts = (await pane.findAll({ type: 'Text' })).map(e => e.text)
+     await pane.unmount()
+-    expect(texts.some(t => typeof t === 'string' && t.includes('2 mục của prompt tiếp nối không giữ được'))).toBe(true)
++    expect(texts.some(t => typeof t === 'string' && t.includes('không giữ được'))).toBe(false)
+   })
+ })
+diff --git a/claude-mods/focus-conductor/tests/integration/dropped-kind-s8-075.test.ts b/claude-mods/focus-conductor/tests/integration/dropped-kind-s8-075.test.ts
+index 44625e7..4fc7b1d 100644
+--- a/claude-mods/focus-conductor/tests/integration/dropped-kind-s8-075.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/dropped-kind-s8-075.test.ts
+@@ -1,6 +1,8 @@
+ // 0.7.5 S8 (vòng rà soát 4): cảnh báo mục của prompt tiếp nối không giữ được (R1) có kind riêng "dropped" với nhãn chip vi/en, không dùng
+ // kind "model" (chip trong pane từng hiện "model").
+ 
++// 0.8.7 L2: yêu cầu không còn trần, nên phần tràn được dựng bằng ràng buộc (trần 12, tràn thêm 10): 10 ràng buộc của prompt đầu, rồi
++// hai lượt tinh chỉnh mỗi lượt 10 ràng buộc mới; lượt thứ hai còn 2 chỗ nên 8 mục bị bỏ.
+ import { describe, expect, test } from 'claude-code/testing'
+ import { labels } from '../../hooks/ui/labels'
+ import { severityOf } from '../../hooks/ui/style'
+@@ -8,15 +10,17 @@ import { LONG_CODED_PROMPT } from '../fixtures/prompt-long-coded'
+ import { PANE, base, plan, submit } from '../support/engine'
+ 
+ const REQUIREMENTS = Array.from({ length: 30 }, (_, i) => `Yêu cầu gốc ${i + 1}`)
+-const FIRST = plan({ goal: 'Cập nhật sổ giá theo 11 bước', depth: 'hard', volume: 'large', requirements: REQUIREMENTS })
+-const MANY = plan({ relation: 'refine', goal: '', requirements: Array.from({ length: 12 }, (_, i) => `Tinh chỉnh ${i + 1}`) })
++const FIRST = plan({ goal: 'Cập nhật sổ giá theo 11 bước', depth: 'hard', volume: 'large', requirements: REQUIREMENTS, constraints: Array.from({ length: 10 }, (_, i) => `Ràng buộc gốc ${i + 1}`) })
++const MANY = plan({ relation: 'refine', goal: '', constraints: Array.from({ length: 10 }, (_, i) => `Tinh chỉnh ${i + 1}`) })
++const MANY2 = plan({ relation: 'refine', goal: '', constraints: Array.from({ length: 10 }, (_, i) => `Tinh chỉnh thêm ${i + 1}`) })
+ 
+ describe('0.7.5 S8: kind riêng cho cảnh báo mục bị bỏ', () => {
+   // 0.7.6 W1: cảnh báo đã hiện ở "Cần chú ý" thì không lặp ở "Cảnh báo khác" (nơi có chip loại), nên câu nằm dưới "Cần chú ý", một lần.
+   test('pane hiện câu cảnh báo mục bị bỏ ở Cần chú ý, một lần, không có chip "model"', { options: { planApproval: 'off' } }, async ($, on) => {
+-    base(on, { router: request => (request.includes('thêm 12 yêu cầu') ? MANY : FIRST) })
++    base(on, { router: request => (request.includes('thêm 12 yêu cầu nữa') ? MANY2 : request.includes('thêm 12 yêu cầu') ? MANY : FIRST) })
+     await submit($, LONG_CODED_PROMPT)
+     await submit($, 'thêm 12 yêu cầu')
++    await submit($, 'thêm 12 yêu cầu nữa')
+     const pane = await $.ui.mount(PANE)
+     const texts = (await pane.findAll({ type: 'Text' })).map(e => e.text).filter((t): t is string => typeof t === 'string')
+     await pane.unmount()
+diff --git a/claude-mods/focus-conductor/tests/integration/dropped-rank-078.test.ts b/claude-mods/focus-conductor/tests/integration/dropped-rank-078.test.ts
+index 2750010..ce8426b 100644
+--- a/claude-mods/focus-conductor/tests/integration/dropped-rank-078.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/dropped-rank-078.test.ts
+@@ -1,21 +1,25 @@
+ // Bắt mẫu 075-S8a (sống sót từ trước 0.7.8, lộ ra ở lượt đột biến của 0.7.8): cảnh báo mục của prompt tiếp nối không giữ được mang kind
+ // "dropped" nên đứng hạng 4 trong "Cần chú ý", trên cảnh báo chưa kiểm (hạng 5); kind "model" sẽ đứng hạng 7, dưới cảnh báo chưa kiểm.
+ 
++// 0.8.7 L2: yêu cầu không còn trần, nên phần tràn được dựng bằng ràng buộc (trần 12, tràn thêm 10): 10 ràng buộc của prompt đầu, rồi
++// hai lượt tinh chỉnh mỗi lượt 10 ràng buộc mới; lượt thứ hai còn 2 chỗ nên 8 mục bị bỏ.
+ import { describe, expect, test } from 'claude-code/testing'
+ import { LONG_CODED_PROMPT } from '../fixtures/prompt-long-coded'
+ import { PANE, base, plan, submit } from '../support/engine'
+ 
+ const REQUIREMENTS = Array.from({ length: 30 }, (_, i) => `Yêu cầu gốc ${i + 1}`)
+-const FIRST = plan({ goal: 'Cập nhật sổ giá theo 11 bước', depth: 'hard', volume: 'large', requirements: REQUIREMENTS })
+-const MANY = plan({ relation: 'refine', goal: '', requirements: Array.from({ length: 12 }, (_, i) => `Tinh chỉnh ${i + 1}`) })
++const FIRST = plan({ goal: 'Cập nhật sổ giá theo 11 bước', depth: 'hard', volume: 'large', requirements: REQUIREMENTS, constraints: Array.from({ length: 10 }, (_, i) => `Ràng buộc gốc ${i + 1}`) })
++const MANY = plan({ relation: 'refine', goal: '', constraints: Array.from({ length: 10 }, (_, i) => `Tinh chỉnh ${i + 1}`) })
++const MANY2 = plan({ relation: 'refine', goal: '', constraints: Array.from({ length: 10 }, (_, i) => `Tinh chỉnh thêm ${i + 1}`) })
+ 
+ describe('kind dropped xếp trên cảnh báo chưa kiểm trong Cần chú ý', () => {
+   test('mục bị bỏ (hạng 4) đứng trước cảnh báo chưa kiểm (hạng 5) dù đến trước', { options: { planApproval: 'off' } }, async ($, on) => {
+-    base(on, { router: request => (request.includes('thêm 12 yêu cầu') ? MANY : FIRST) })
++    base(on, { router: request => (request.includes('thêm 12 yêu cầu nữa') ? MANY2 : request.includes('thêm 12 yêu cầu') ? MANY : FIRST) })
+     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+     on('turn.complete', () => ({ text: '' }))
+     await submit($, LONG_CODED_PROMPT)
+     await submit($, 'thêm 12 yêu cầu')
++    await submit($, 'thêm 12 yêu cầu nữa')
+     await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' } as never)
+     await $.turn.complete({ turnId: 't1', answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer' } as never)
+     const pane = await $.ui.mount(PANE)
+diff --git a/claude-mods/focus-conductor/tests/integration/error-behavior-a9-080.test.ts b/claude-mods/focus-conductor/tests/integration/error-behavior-a9-080.test.ts
+index 15d222b..4e9a6fa 100644
+--- a/claude-mods/focus-conductor/tests/integration/error-behavior-a9-080.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/error-behavior-a9-080.test.ts
+@@ -2,6 +2,8 @@
+ // lần hai cho cùng bước, mục prompt bị bỏ hay bị thay, router lỗi theo loại lỗi. Cùng cơ chế gộp theo khóa, trần và pruneFixed của L1;
+ // /conductor errors hiện nhóm này sau nhóm lỗi mã; không chèn gì vào context.
+ 
++// 0.8.7 L2: yêu cầu không còn trần, nên phần tràn được dựng bằng ràng buộc (trần 12, tràn thêm 10): 10 ràng buộc của prompt đầu, rồi
++// hai lượt tinh chỉnh mỗi lượt 10 ràng buộc mới; lượt thứ hai còn 2 chỗ nên 8 mục bị bỏ.
+ import { describe, expect, test } from 'claude-code/testing'
+ import type { Engine } from 'claude-code/testing'
+ import type { On } from 'claude-code'
+@@ -125,12 +127,14 @@ describe('0.8.0 A9: nối vào mod', () => {
+   })
+ 
+   test('mục prompt tiếp nối bị bỏ: một mục dropped; mô tả không chứa nội dung prompt', { options: { planApproval: 'off' } }, async ($, on) => {
+-    const first = plan({ goal: 'Cập nhật sổ giá theo 11 bước', depth: 'hard', volume: 'large', requirements: Array.from({ length: 30 }, (_, i) => `Yêu cầu gốc ${i + 1}`) })
+-    const many = plan({ relation: 'refine', goal: '', requirements: Array.from({ length: 12 }, (_, i) => `Tinh chỉnh ${i + 1}`) })
+-    base(on, { router: request => (request.includes('thêm 12 yêu cầu') ? many : first) })
++    const first = plan({ goal: 'Cập nhật sổ giá theo 11 bước', depth: 'hard', volume: 'large', requirements: Array.from({ length: 30 }, (_, i) => `Yêu cầu gốc ${i + 1}`), constraints: Array.from({ length: 10 }, (_, i) => `Ràng buộc gốc ${i + 1}`) })
++    const many = plan({ relation: 'refine', goal: '', constraints: Array.from({ length: 10 }, (_, i) => `Tinh chỉnh ${i + 1}`) })
++    const many2 = plan({ relation: 'refine', goal: '', constraints: Array.from({ length: 10 }, (_, i) => `Tinh chỉnh thêm ${i + 1}`) })
++    base(on, { router: request => (request.includes('thêm 12 yêu cầu nữa') ? many2 : request.includes('thêm 12 yêu cầu') ? many : first) })
+     const fs = disk(on)
+     await submit($, LONG_CODED_PROMPT)
+     await submit($, 'thêm 12 yêu cầu')
++    await submit($, 'thêm 12 yêu cầu nữa')
+     await conductor($, 'errors')
+     const dropped = fs.behavior().filter(e => e.where === 'dropped')
+     expect(dropped.length).toBe(1)
 diff --git a/claude-mods/focus-conductor/tests/integration/error-log-l1-079.test.ts b/claude-mods/focus-conductor/tests/integration/error-log-l1-079.test.ts
 index b86f088..16df99e 100644
 --- a/claude-mods/focus-conductor/tests/integration/error-log-l1-079.test.ts
@@ -624,6 +1241,25 @@ index b86f088..16df99e 100644
    })
  })
  
+diff --git a/claude-mods/focus-conductor/tests/integration/fork-split-f1-079.test.ts b/claude-mods/focus-conductor/tests/integration/fork-split-f1-079.test.ts
+index 79d77fa..d698aae 100644
+--- a/claude-mods/focus-conductor/tests/integration/fork-split-f1-079.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/fork-split-f1-079.test.ts
+@@ -244,11 +244,12 @@ describe('F1: router đề xuất tách, mod kẹp trong parseRoute', () => {
+   })
+ 
+   // 0.8.2 N1 thêm trường intent (8826 lên 9535 ký tự), N2 thêm skipApproval và questions (9535 lên 9892); số ghim đổi theo, ý của ca giữ nguyên: forks tắt thì không có đoạn tách.
++  // 0.8.7 L2 bỏ trần số yêu cầu, số việc và thêm câu về thứ tự thực hiện (9892 lên 10129); số ghim đổi theo.
+   test('chủ mod 1. forks tắt: routerSystem không có đoạn tách (ghim số ký tự và mã băm)', async () => {
+     const hex = (bytes: ArrayBuffer) => [...new Uint8Array(bytes)].map(b => b.toString(16).padStart(2, '0')).join('')
+     const text = routerSystem()
+-    expect(text.length).toBe(9892)
+-    expect(hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))).toBe('546aea945e97d93529e56d04bc1357ad7c3d872f2a70eb0a98b5f19b1fc6ca43')
++    expect(text.length).toBe(10129)
++    expect(hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))).toBe('a9da24a2d3e81a8a653fbc605ff39f7fbfbd77da5a480fe9d01d1e680ba680d0')
+     for (const policy of [OPEN, withForks(0)]) {
+       expect(((routerRequest({ text: 'x', prev: null, ran: null, policy, model: 'sonnet' }).system ?? []) as readonly ModelTextBlock[])[0]?.text).toBe(text)
+     }
 diff --git a/claude-mods/focus-conductor/tests/integration/fresh-b1-087.test.ts b/claude-mods/focus-conductor/tests/integration/fresh-b1-087.test.ts
 new file mode 100644
 index 0000000..8b08244
@@ -807,6 +1443,206 @@ index 0000000..022f022
 +    expect(seen.contexts.at(-1) ?? []).toEqual([])
 +  })
 +})
+diff --git a/claude-mods/focus-conductor/tests/integration/limits-l2-087.test.ts b/claude-mods/focus-conductor/tests/integration/limits-l2-087.test.ts
+new file mode 100644
+index 0000000..538065b
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/integration/limits-l2-087.test.ts
+@@ -0,0 +1,148 @@
++// 0.8.7 L2: không còn trần số việc, số yêu cầu, số bước checklist. Tool plan giữ đủ bước (bước không tiêu đề vẫn bị bỏ và báo); mục tiêu
++// giữ đủ việc router chia, không còn cảnh báo "giữ N việc đầu"; lời giao "Việc 37" khớp đúng việc 37; bước 37 được nâng verified như bước 3.
++// Band và pane với 100 việc, 100 bước không vượt maxRows và có dòng ghi số mục còn lại khi không hiện hết.
++
++import { describe, expect, test } from 'claude-code/testing'
++import type { Engine } from 'claude-code/testing'
++import type { On } from 'claude-code'
++import { JS } from '../fixtures/runner-output'
++import { PANE, base, plan, step, submit, task } from '../support/engine'
++import type { Json, Seen } from '../support/engine'
++
++const PLAN = 'mcp__focus-conductor__plan'
++const ID = 'claude-fable-5-2'
++const GOAL = 'Mục tiêu giả nhiều việc'
++const PRESENTATION = { isFullscreen: false, columns: 80 }
++const reqs = (n: number) => Array.from({ length: n }, (_, i) => `Yêu cầu giả số ${i + 1}`)
++const many = (n: number, nReqs = n, run: (i: number) => 'main' | 'agent' = () => 'main') =>
++  plan({ goal: GOAL, depth: 'substantial', volume: 'large', kind: 'edit', requirements: reqs(nReqs), tasks: Array.from({ length: n }, (_, i) => task(`Việc giả ${i + 1}`, run(i), run(i) === 'agent' ? 'haiku' : 'sonnet', run(i) === 'agent' ? 'low' : 'medium', { covers: [(i % nReqs) + 1] })) })
++const FOLLOW = plan({ goal: '', relation: 'continue', intent: 'amend', depth: 'light', volume: 'small', kind: 'edit', requirements: ['Yêu cầu bổ sung giả'], tasks: [task('Việc bổ sung giả', 'agent', 'haiku', 'low', { covers: [1] })] })
++const AGENTS = () => 'agent' as const
++const MODES: Array<[string, Json]> = [['conductor tắt', { planApproval: 'off' }], ['conductor fable', { planApproval: 'off', conductor: 'fable' }]]
++const status = async ($: Engine) => String(((await $.command.run({ command: 'conductor', args: 'status', origin: { kind: 'composer' }, presentation: PRESENTATION } as never)) as { text?: string }).text ?? '')
++const setSteps = async ($: Engine, steps: unknown[]) => String((await $.tool.call({ tool: PLAN, action: 'set', steps } as never)).result)
++const show = async ($: Engine) => String((await $.tool.call({ tool: PLAN, action: 'show' })).result)
++
++function setup(on: On, reply: (seen: Seen, request: string) => Json | null): Seen {
++  const seen: Seen = base(on, { router: request => (request.startsWith('Requirements:') ? { missing: [], extra: [], issues: [] } : reply(seen, request)) })
++  on('turn.complete', () => ({ text: '' }))
++  return seen
++}
++
++describe('0.8.7 L2: tool plan không còn trần số bước', () => {
++  for (const [name, options] of MODES) {
++    test(`${name}: set 45 bước giữ 45, không có "vượt giới hạn"; set 130 bước giữ 130; bước không tiêu đề vẫn bị bỏ và báo`, { options }, async ($, on) => {
++      setup(on, () => plan({ goal: GOAL, depth: 'substantial', volume: 'large', kind: 'edit' }))
++      await submit($, GOAL)
++      const out45 = await setSteps($, Array.from({ length: 45 }, (_, i) => ({ title: `Bước giả ${i + 1}` })))
++      expect(out45).not.toContain('vượt giới hạn')
++      expect(await show($)).toContain('45. Bước giả 45')
++      const out130 = await setSteps($, [...Array.from({ length: 130 }, (_, i) => ({ title: `Bước dài ${i + 1}` })), { title: '' }])
++      expect(out130).toContain('bỏ 1 bước không có tiêu đề')
++      expect(await show($)).toContain('130. Bước dài 130')
++    })
++  }
++})
++
++describe('0.8.7 L2: mục tiêu giữ đủ việc router chia', () => {
++  for (const [name, options] of MODES) {
++    test(`${name}: router chia 45 việc, 60 yêu cầu: status có việc giao 45, không có cảnh báo giữ việc đầu`, { options }, async ($, on) => {
++      setup(on, () => many(45, 60, AGENTS))
++      await submit($, GOAL)
++      const text = await status($)
++      expect(text).toContain('Việc giả 45')
++      expect(text).not.toContain('việc đầu trong Phân việc')
++      const pane = (await (await $.ui.mount(PANE)).findAll({ type: 'Text' })).map(e => e.text).join('\n')
++      expect(pane).not.toContain('việc đầu trong Phân việc')
++    })
++
++    test(`${name}: mục tiêu 45 việc rồi tin bổ sung thêm 1 việc: status có cả việc 45 và việc bổ sung`, { options }, async ($, on) => {
++      setup(on, (_seen, request) => (request.includes('thêm một việc') ? FOLLOW : many(45, 60, AGENTS)))
++      await submit($, GOAL)
++      await submit($, 'thêm một việc nữa cho mục tiêu này')
++      const text = await status($)
++      expect(text).toContain('Việc giả 45')
++      expect(text).toContain('Việc bổ sung giả')
++    })
++  }
++
++  test('conductor fable, router Fable lỗi hai lần rồi router thường đọc tin bổ sung: status có cả việc 45 và việc bổ sung', { options: { planApproval: 'off', conductor: 'fable' } }, async ($, on) => {
++    let fable = 0
++    setup(on, seen => (seen.routerModels.at(-1) === ID ? (fable++ === 0 ? many(45, 60, AGENTS) : null) : FOLLOW))
++    await submit($, GOAL)
++    await submit($, 'làm tiếp bước 1')
++    await submit($, 'làm tiếp bước 2')
++    await submit($, 'thêm một việc nữa cho mục tiêu này')
++    const text = await status($)
++    expect(text).toContain('Việc giả 45')
++    expect(text).toContain('Việc bổ sung giả')
++  })
++})
++
++describe('0.8.7 L2: việc số lớn', () => {
++  test('lời giao Agent "Việc 37: ..." khớp đúng việc 37 và nhận model, effort đã phân như việc 3, không hỏi lại router', { options: { planApproval: 'off' } }, async ($, on) => {
++    const seen = setup(on, () => many(45, 45, i => (i === 2 || i === 36 ? 'agent' : 'main')))
++    const sent: string[] = []
++    on('tool.call', { tool: 'Agent' }, (_x, e) => {
++      sent.push(`${String((e as { model?: unknown }).model ?? '')}/${String((e as { effort?: unknown }).effort ?? '')}`)
++      return { result: 'đã giao' }
++    })
++    await submit($, GOAL)
++    await $.tool.call({ tool: 'Agent', tool_use_id: 'u3', description: 'Việc 3: làm việc giả 3', prompt: 'x' } as never)
++    await $.tool.call({ tool: 'Agent', tool_use_id: 'u37', description: 'Việc 37: làm việc giả 37', prompt: 'x' } as never)
++    expect(sent.length).toBe(2)
++    expect(sent[1]).toBe(sent[0])
++    expect(sent[1]).toContain('/low')
++    expect(seen.agentRouted.length).toBe(0)
++    expect(await status($)).toMatch(/37\. Việc giả 37: (đang chạy|xong)/)
++  })
++
++  test('checklist 40 bước: đóng bước 37 sau lần test đạt thì được nâng verified như bước 3', { options: { planApproval: 'off' } }, async ($, on) => {
++    setup(on, () => plan({ goal: GOAL, depth: 'substantial', volume: 'large', kind: 'edit' }))
++    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
++    on('tool.call', { tool: 'Bash' }, () => ({ result: JS.bun_pass, text: JS.bun_pass }))
++    await submit($, GOAL)
++    await setSteps($, Array.from({ length: 40 }, (_, i) => ({ title: `Bước giả ${i + 1}` })))
++    await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'x', new_string: 'y' } as never)
++    await $.tool.call({ tool: 'Bash', command: 'bun test' } as never)
++    await $.tool.call({ tool: PLAN, action: 'update', step: 3, status: 'done' })
++    await $.tool.call({ tool: PLAN, action: 'update', step: 37, status: 'done' })
++    const text = await show($)
++    expect(text).toContain('[v] 3. Bước giả 3')
++    expect(text).toContain('[v] 37. Bước giả 37')
++  })
++})
++
++type Node = { type?: string; props?: Record<string, unknown>; children?: unknown[] }
++const textOf = (n: unknown): string => (typeof n === 'string' ? n : n !== null && typeof n === 'object' ? (((n as Node).type === 'Button' ? [String((n as Node).props?.label ?? '')] : []).concat(((n as Node).children ?? []).map(textOf))).join(' ') : '')
++async function bandRows($: Engine, columns: number, maxRows: number): Promise<string[]> {
++  const ui = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: true, maxRows, bodyColumns: columns, scroll: { offset: 0, bodyRows: maxRows }, view: {} } } as never)
++  const tree = (await ui.drawn()) as unknown as Node
++  await ui.unmount()
++  const content = (tree.children ?? []).filter(c => c !== null && typeof c === 'object')[1] as Node
++  return (content.children ?? []).filter(c => c !== null && typeof c === 'object').map(textOf)
++}
++async function paneLines($: Engine, rows: number): Promise<string[]> {
++  const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, scroll: { offset: 0, bodyRows: rows } } } as never)
++  const lines = (await ui.findAll({ type: 'Text' })).map(e => e.text)
++  await ui.unmount()
++  return lines
++}
++
++describe('0.8.7 L2: giao diện với 100 việc và 100 bước', () => {
++  test('band 56, 72, 120 cột không vượt maxRows; pane 16, 24, 40 dòng dựng được và có dòng ghi số bước còn lại (+N bước mở)', { options: { planApproval: 'off' }, timeoutMs: 30_000 }, async ($, on) => {
++    const seen = setup(on, () => many(100, 100))
++    await submit($, GOAL)
++    await setSteps($, Array.from({ length: 100 }, (_, i) => ({ title: `Bước giả ${i + 1}` })))
++    await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'doing' })
++    await step($, seen)
++    for (const columns of [56, 72, 120]) {
++      for (const maxRows of [1, 2, 3]) expect((await bandRows($, columns, maxRows)).length).toBeLessThanOrEqual(maxRows)
++    }
++    for (const rows of [16, 24, 40]) {
++      const lines = await paneLines($, rows)
++      expect(lines.length).toBeGreaterThan(0)
++      expect(lines.join('\n')).toMatch(/\+\d+ bước mở/)
++    }
++  })
++})
+diff --git a/claude-mods/focus-conductor/tests/integration/phase-a3-080.test.ts b/claude-mods/focus-conductor/tests/integration/phase-a3-080.test.ts
+index e3fddb9..bcdc0d3 100644
+--- a/claude-mods/focus-conductor/tests/integration/phase-a3-080.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/phase-a3-080.test.ts
+@@ -50,11 +50,11 @@ describe('0.8.0 A3: mở đợt mới', () => {
+   test('yêu cầu đầy 40 mục đều còn mở: mục mới thay mục cũ ở cuối, có danh sách mục bị thay, không có mục bị bỏ', () => {
+     const prev = makeBrief({ tasks: [...SIX, oldTask(7, MORE_REQ.map((_, i) => 31 + i))], steps: [], requirements: [...BASE_REQ, ...MORE_REQ], requirementsBase: 30 })
+     const out = run(prev, { relation: 'continue', goal: '', tasks: NEW_TASKS, requirements: FRESH_REQ }, NEW_PROMPT, { openSteps: ['Việc 1: phần cũ 1'], doneTasks: new Set() })
++    // 0.8.7 L2: yêu cầu không còn trần, nên mục mới được thêm, không thay mục nào; mọi mục cũ còn.
+     for (const item of FRESH_REQ) expect(out.brief.requirements).toContain(item)
+     expect(out.dropped).toBe(0)
+-    expect(out.replaced.length).toBe(5)
+-    expect(out.replaced).toContain('Yêu cầu thêm 10')
+-    for (const item of BASE_REQ) expect(out.brief.requirements).toContain(item)
++    expect(out.replaced).toEqual([])
++    for (const item of [...BASE_REQ, ...MORE_REQ]) expect(out.brief.requirements).toContain(item)
+   })
+ 
+   test('router xếp new tin cậy 0.7 khi còn 3 bước mở: không lập mục tiêu mới, mở đợt mới', () => {
+diff --git a/claude-mods/focus-conductor/tests/integration/plan-set-073.test.ts b/claude-mods/focus-conductor/tests/integration/plan-set-073.test.ts
+index 1f644c8..4eaf089 100644
+--- a/claude-mods/focus-conductor/tests/integration/plan-set-073.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/plan-set-073.test.ts
+@@ -124,9 +124,10 @@ describe('0.7.3 điểm 8: plan set in đầy đủ kèm một dòng nói đã c
+     base(on)
+     await submit($, COMPLEX_PROMPT)
+     const out = await set($, { steps: titles(21) })
++    // 0.8.7 L2: không còn trần số bước: lưu đủ 21 bước, không có dòng bỏ bước vượt giới hạn.
+     expect(out).toContain('[ ] 20. Bước số 20')
+-    expect(out).not.toContain('Bước số 21')
+-    expect(out).toContain('Đã chỉnh: bỏ 1 bước vượt giới hạn 20')
++    expect(out).toContain('[ ] 21. Bước số 21')
++    expect(out).not.toContain('vượt giới hạn')
+   })
+ 
+   test('tiêu đề quá 160 ký tự bị cắt', { options: { planApproval: 'off' } }, async ($, on) => {
+@@ -152,7 +153,8 @@ describe('0.7.3 điểm 8: plan set in đầy đủ kèm một dòng nói đã c
+     const out = await set($, { steps: [{ title: '' }, { title: 'a'.repeat(161), check: 'c'.repeat(201) }, ...titles(20)] })
+     const line = out.split('\n').find(l => l.startsWith('Đã chỉnh')) ?? ''
+     expect(line).toContain('bỏ 1 bước không có tiêu đề')
+-    expect(line).toContain('bỏ 1 bước vượt giới hạn 20')
++    // 0.8.7 L2: không còn trần số bước nên dòng này không còn phần bỏ bước vượt giới hạn.
++    expect(line).not.toContain('vượt giới hạn')
+     expect(line).toContain('cắt 1 tiêu đề quá 160 ký tự')
+     expect(line).toContain('cắt 1 tiêu chí quá 200 ký tự')
+   })
 diff --git a/claude-mods/focus-conductor/tests/integration/router-full-l1-087.test.ts b/claude-mods/focus-conductor/tests/integration/router-full-l1-087.test.ts
 new file mode 100644
 index 0000000..189cd29
@@ -906,12 +1742,207 @@ index 0000000..189cd29
 +    expect(lastContext(seen)).toContain(CLIPPED)
 +  })
 +})
+diff --git a/claude-mods/focus-conductor/tests/integration/router-retry-075.test.ts b/claude-mods/focus-conductor/tests/integration/router-retry-075.test.ts
+index caca3a3..b79a08b 100644
+--- a/claude-mods/focus-conductor/tests/integration/router-retry-075.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/router-retry-075.test.ts
+@@ -64,9 +64,13 @@ describe('0.7.5 B13b: thử lại khi router hết giờ', () => {
+ 
+ describe('0.7.5 B13c: cắt ở TASK_LIMIT có cảnh báo', () => {
+   test('router chia 25 việc: giữ 20 việc đầu, cảnh báo nêu số việc bị cắt', { options: { planApproval: 'off' } }, async ($, on) => {
+-    base(on, { router: () => plan({ goal: 'Nhiều việc', depth: 'hard', volume: 'large', tasks: Array.from({ length: 25 }, (_, i) => task(`Việc số ${i + 1}`, 'main', 'sonnet', 'medium')) }) })
++    const seen = base(on, { router: () => plan({ goal: 'Nhiều việc', depth: 'hard', volume: 'large', tasks: Array.from({ length: 25 }, (_, i) => task(`Việc số ${i + 1}`, 'main', 'sonnet', 'medium')) }) })
+     await submit($, 'Làm 25 việc theo danh sách')
++    // 0.8.7 L2: không còn trần số việc: giữ đủ 25 việc (việc 25 có trong bản đọc gắn vào prompt), không còn cảnh báo cắt việc.
++    expect((seen.contexts.at(-1) ?? []).join('\n')).toContain('Việc số 25')
+     const pane = await $.ui.mount(PANE)
+-    expect(await pane.find({ type: 'Text', text: /chia 25 việc; giữ 20 việc đầu/ })).toBeDefined()
++    const texts = (await pane.findAll({ type: 'Text' })).map(e => String(e.text))
++    await pane.unmount()
++    expect(texts.some(text => /giữ 20 việc đầu/.test(text))).toBe(false)
+   })
+ })
+diff --git a/claude-mods/focus-conductor/tests/limits-l2-087.test.ts b/claude-mods/focus-conductor/tests/limits-l2-087.test.ts
+new file mode 100644
+index 0000000..d3aebc4
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/limits-l2-087.test.ts
+@@ -0,0 +1,144 @@
++// 0.8.7 L2: router không còn trần số việc, số yêu cầu; covers nhận mọi số từ 1 tới số yêu cầu thật của lượt; lượt đọc sau không cắt danh
++// sách đã có. Lời dặn router không còn "at most 30" yêu cầu và "at most 8 tasks", có câu về thứ tự thực hiện; agentSystem giữ từng byte.
++// Danh sách việc cũ gửi kèm request router và request chấm subagent giữ 20 việc như 0.8.6, quá 20 thì thêm một dòng tổng số.
++
++import { describe, expect, test } from 'claude-code/testing'
++import { agentRouterRequest, agentSystem, conductorRule, followUpOf, parseRoute, routerRequest, routerSystem, splitRule, uncoveredRequirements } from '../hooks/lib/router'
++import type { Policy } from '../hooks/lib/router'
++import type { Brief } from '../types'
++import * as S from '../hooks/lib/state'
++import { briefContext } from '../hooks/lib/text'
++import { makeBrief } from './support/commands'
++import { plan, task } from './support/engine'
++
++const OPEN: Policy = { allowFable: false, blocked: new Set(), session: null }
++const COND: Policy = { ...OPEN, conductor: true }
++const POLICIES: Array<[string, Policy]> = [['conductor tắt', OPEN], ['conductor fable', COND]]
++const reqs = (n: number, from = 1) => Array.from({ length: n }, (_, i) => `Yêu cầu giả số ${from + i}`)
++const tasks = (n: number, covers: (i: number) => number[] = i => [i + 1]) => Array.from({ length: n }, (_, i) => task(`Việc giả ${i + 1}`, 'main', 'sonnet', 'medium', { covers: covers(i) }))
++const big = (nTasks: number, nReqs: number, covers?: (i: number) => number[]) => JSON.stringify(plan({ goal: 'Mục tiêu giả', depth: 'substantial', volume: 'large', kind: 'edit', requirements: reqs(nReqs), tasks: tasks(nTasks, covers) }))
++const hex = (bytes: ArrayBuffer): string => [...new Uint8Array(bytes)].map(byte => byte.toString(16).padStart(2, '0')).join('')
++const sha = async (text: string) => hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))
++
++/** SHA-256 trường prompt của request router cho tin tiếp nối khi mục tiêu có 12 việc, đo trên 45b5161 (0.8.6) bằng engine 2.1.296. */
++const FOLLOW12_PROMPT_SHA = '1254ba2d2eb0d2f73a6b84027e63f8310d01e0b21f8b7d4218f2aa552f037a24'
++
++describe('0.8.7 L2: parseRoute không cắt việc và yêu cầu', () => {
++  for (const [name, policy] of POLICIES) {
++    test(`${name}: 45 việc, 60 yêu cầu, covers trỏ tới yêu cầu 31 tới 60: giữ đủ, không có droppedTasks`, () => {
++      const route = parseRoute(big(45, 60, i => [31 + (i % 30)]), policy)
++      expect(route?.tasks.length).toBe(45)
++      expect(route?.requirements.length).toBe(60)
++      expect(route?.tasks.map(t => t.covers?.[0])).toEqual(Array.from({ length: 45 }, (_, i) => 31 + (i % 30)))
++      expect(route?.droppedTasks).toBeUndefined()
++    })
++
++    test(`${name}: 130 việc, 130 yêu cầu: giữ đủ 130`, () => {
++      const route = parseRoute(big(130, 130), policy)
++      expect([route?.tasks.length, route?.requirements.length]).toEqual([130, 130])
++      expect(route?.tasks.at(-1)?.covers).toEqual([130])
++    })
++
++    test(`${name}: covers có số lớn hơn số yêu cầu, số 0, số âm, số không nguyên: các số đó bị loại`, () => {
++      const route = parseRoute(big(1, 60, () => [0, -1, 1.5, 61, 5, 60]), policy)
++      expect(route?.tasks[0]?.covers).toEqual([5, 60])
++    })
++  }
++})
++
++describe('0.8.7 L2: lượt đọc sau không cắt danh sách đã có', () => {
++  const FOLLOW = JSON.stringify(plan({ goal: '', relation: 'continue', intent: 'amend', depth: 'light', volume: 'small', kind: 'edit', requirements: ['Yêu cầu bổ sung giả'], tasks: [task('Việc bổ sung giả', 'main', 'sonnet', 'medium', { covers: [1] })] }))
++
++  for (const [name, policy] of POLICIES) {
++    test(`${name}: mục tiêu 45 việc, 60 yêu cầu, tin bổ sung thêm 1 việc, 1 yêu cầu: 46 việc, 61 yêu cầu; việc mới phủ yêu cầu 61`, () => {
++      const first = parseRoute(big(45, 60), policy)
++      if (first === null) throw new Error('không đọc được')
++      const prev = makeBrief({ goalId: 1, tasks: first.tasks, steps: first.tasks.map(t => t.title), requirements: first.requirements })
++      const next = parseRoute(FOLLOW, policy)
++      if (next === null) throw new Error('không đọc được')
++      const { brief } = followUpOf(prev, next, 2)
++      expect([brief.tasks.length, brief.requirements?.length]).toEqual([46, 61])
++      expect(brief.tasks.at(-1)?.covers).toEqual([61])
++    })
++  }
++})
++
++describe('0.8.7 L2: lời dặn router', () => {
++  const variants: Array<[string, string]> = [['biến thể thường', splitRule(routerSystem(), 0)], ['biến thể điều phối', conductorRule(splitRule(routerSystem(), 0))]]
++  for (const [name, rule] of variants) {
++    test(`${name}: không còn trần 30 yêu cầu và 8 việc; còn at most 6, at most 5 và câu tasks []; có câu về thứ tự thực hiện`, () => {
++      expect(rule).not.toContain('at most 30')
++      expect(rule).not.toContain('at most 8 tasks')
++      expect(rule).not.toContain('the limit below does not apply')
++      expect(rule).toContain('constraints: at most 6')
++      expect(rule).toContain('at most 5 acceptance criteria')
++      expect(rule).toContain('A request that is one piece of work has tasks [].')
++      expect(rule).toContain('Order tasks in the order they are done')
++    })
++  }
++
++  test('agentSystem trùng 0.8.6 từng byte', async () => {
++    expect(await sha(agentSystem())).toBe('7d8176082b9bcdbb9072e89c9dd48418744166d0088d600f97b332970a991eda')
++  })
++})
++
++describe('0.8.7 L2: yêu cầu chưa được phủ', () => {
++  const withTasks = (n: number, uncovered: readonly number[]): Brief => {
++    const covered = Array.from({ length: n }, (_, i) => i + 1).filter(i => !uncovered.includes(i))
++    return makeBrief({ requirements: reqs(n), tasks: covered.map((c, i) => ({ index: i + 1, title: `Việc ${i + 1}`, run: 'main', pick: { family: 'sonnet', effort: 'medium' }, covers: [c] }) as never) })
++  }
++
++  test('60 yêu cầu, 5 yêu cầu trong nhóm 31 tới 60 không có việc phủ: câu nhắc nêu đủ 5', () => {
++    const brief = withTasks(60, [33, 40, 47, 55, 60])
++    expect(uncoveredRequirements(brief)).toEqual(['Yêu cầu giả số 33', 'Yêu cầu giả số 40', 'Yêu cầu giả số 47', 'Yêu cầu giả số 55', 'Yêu cầu giả số 60'])
++    const text = briefContext(brief, null, true)
++    for (const n of [33, 40, 47, 55, 60]) expect(text).toContain(`Yêu cầu giả số ${n}`)
++    expect(text).not.toContain('còn ')
++  })
++
++  test('30 yêu cầu chưa phủ: câu nhắc nêu 20, kèm còn 10', () => {
++    const brief = withTasks(60, Array.from({ length: 30 }, (_, i) => 31 + i))
++    const text = briefContext(brief, null, true)
++    expect(text).toContain('Yêu cầu giả số 50')
++    expect(text).not.toContain('Yêu cầu giả số 51;')
++    expect(text).toContain('còn 10')
++  })
++})
++
++describe('0.8.7 L2: danh sách việc cũ gửi router', () => {
++  const brief = (n: number) => makeBrief({ tasks: Array.from({ length: n }, (_, i) => ({ index: i + 1, title: `Việc giả ${i + 1}`, run: 'main', pick: { family: 'sonnet', effort: 'medium' } }) as never) })
++
++  test('mục tiêu 100 việc: request tiếp nối gửi 20 việc và một dòng tổng số 100', () => {
++    const prompt = String(routerRequest({ text: 'làm tiếp', prev: brief(100), ran: null, policy: OPEN, model: 'sonnet' }).prompt)
++    expect(prompt).toContain('  20. Việc giả 20')
++    expect(prompt).not.toContain('  21. Việc giả 21')
++    expect(prompt).toContain('100 tasks in total')
++  })
++
++  test('mục tiêu 60 yêu cầu: request tiếp nối nêu yêu cầu 31 tới 50 và một dòng số yêu cầu còn lại', () => {
++    const prompt = String(routerRequest({ text: 'làm tiếp', prev: makeBrief({ requirements: reqs(60) }), ran: null, policy: OPEN, model: 'sonnet' }).prompt)
++    expect(prompt).toContain('Yêu cầu giả số 31')
++    expect(prompt).toContain('Yêu cầu giả số 50')
++    expect(prompt).not.toContain('Yêu cầu giả số 51')
++    expect(prompt).toContain('(10 more requirements)')
++  })
++
++  test('mục tiêu 12 việc: trường prompt trùng 0.8.6', async () => {
++    const prompt = String(routerRequest({ text: 'làm tiếp', prev: brief(12), ran: null, policy: OPEN, model: 'sonnet' }).prompt)
++    expect(await sha(prompt)).toBe(FOLLOW12_PROMPT_SHA)
++  })
++
++  test('chấm subagent khi mục tiêu 100 việc: 20 việc và một dòng tổng số', () => {
++    const prompt = String(agentRouterRequest({ description: 'Việc 37: làm', prompt: 'x', subagentType: undefined, requested: {}, goal: null, parent: null, failed: [], isWorkflow: false, policy: OPEN, model: 'sonnet', tasks: brief(100).tasks } as never).prompt)
++    expect(prompt).toContain('  20. Việc giả 20')
++    expect(prompt).not.toContain('  21. Việc giả 21')
++    expect(prompt).toContain('100 tasks in total')
++  })
++})
++
++describe('0.8.7 L2: trạng thái cũ', () => {
++  test('nạp trạng thái có trường droppedTasks thừa: đọc được, không lỗi', () => {
++    const core = S.normalizeCore({ ...S.EMPTY_CORE, brief: { ...makeBrief(), droppedTasks: 5 } as never } as never)
++    expect(core.brief?.goalId).toBe(1)
++  })
++})
+diff --git a/claude-mods/focus-conductor/tests/requirements.test.ts b/claude-mods/focus-conductor/tests/requirements.test.ts
+index 701535c..da0e82a 100644
+--- a/claude-mods/focus-conductor/tests/requirements.test.ts
++++ b/claude-mods/focus-conductor/tests/requirements.test.ts
+@@ -43,7 +43,8 @@ describe('0.7.0 7: đọc requirements và covers', () => {
+       requirements: [...reqs(40), 'x'.repeat(300)],
+       tasks: [task('Việc', 'main', 'sonnet', 'medium', { covers: [1, 1, 2, 0, -3, 'a', 2.5, 99] })],
+     })
+-    expect(result.requirements.length).toBe(30)
++    // 0.8.7 L2: không còn trần số yêu cầu: giữ đủ 41 mục; covers nhận số tới số yêu cầu thật (99 vượt 41 nên bị loại).
++    expect(result.requirements.length).toBe(41)
+     expect(result.requirements.every(r => r.length <= 160)).toBe(true)
+     expect(result.tasks[0]?.covers).toEqual([1, 2])
+   })
+@@ -166,7 +167,9 @@ describe('0.7.0 7: request của router', () => {
+     const system = routerSystem()
+     expect(system).toContain('requirements')
+     expect(system).toContain('covers')
+-    expect(system).toContain('at most 8 tasks')
++    // 0.8.7 L2: không còn trần 8 việc; lời dặn chia đủ việc để phủ mọi yêu cầu.
++    expect(system).not.toContain('at most 8 tasks')
++    expect(system).toContain('Use as many tasks as the work needs')
+     expect(system).toContain('truly independent')
+     expect(system).not.toContain('Never invent your own sub-steps')
+   })
 diff --git a/claude-mods/focus-conductor/tests/router-full-l1-087.test.ts b/claude-mods/focus-conductor/tests/router-full-l1-087.test.ts
 new file mode 100644
-index 0000000..71c892b
+index 0000000..578ee6b
 --- /dev/null
 +++ b/claude-mods/focus-conductor/tests/router-full-l1-087.test.ts
-@@ -0,0 +1,140 @@
+@@ -0,0 +1,142 @@
 +// 0.8.7 L1: khi router của lượt là Fable (isFable), routerRequest đọc trọn prompt tới trần FABLE_REQUEST_CHARS (phần đầu 75%, phần cuối
 +// 25% khi vượt); prompt dài hơn REQUEST_CHARS (80.000) thì maxTokens FABLE_FULL_MAX_TOKENS (80.000, chủ mod chốt thay cho 24.000 của
 +// đặc tả) và thời gian chờ FABLE_FULL_TIMEOUT_MS; lượt hỏi lại vì bị cắt được tới FABLE_FULL_RETRY_TOKENS. isClippedPrompt và
@@ -936,9 +1967,9 @@ index 0000000..71c892b
 +
 +const hex = (bytes: ArrayBuffer): string => [...new Uint8Array(bytes)].map(byte => byte.toString(16).padStart(2, '0')).join('')
 +const sha = async (text: string) => hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))
-+/** SHA-256 của JSON request, đo trên 45b5161 (0.8.6) bằng engine 2.1.296. */
-+const LONG_PLAIN_SHA = 'a6c1b875ed5670668f5713a2080da888a622b958216cab2300288266fbb04b05'
-+const SHORT_FABLE_SHA = 'ee1a2caa66e741d838de2072d9b453b1f0f1fd88aa9f47745200220d540c0279'
++/** SHA-256 của trường prompt của request, đo trên 45b5161 (0.8.6) bằng engine 2.1.296; trường system đổi theo 0.8.7 L2 nên không băm. */
++const LONG_PLAIN_SHA = 'badf8954a7f6c9f4dece771c7745cb94e8eb4013877845db655c3661e6c876af'
++const SHORT_FABLE_SHA = 'f4812dc8d3193532f8135b92d509a55ffe0d97d3d2ae85726029d636f5038345'
 +
 +describe('0.8.7 L1: routerRequest khi router là Fable', () => {
 +  test('prompt 238.489 ký tự có dấu ở ký tự 120.000: request chứa dấu, không lược; maxTokens FABLE_FULL_MAX_TOKENS; thời gian chờ FABLE_FULL_TIMEOUT_MS', () => {
@@ -970,7 +2001,9 @@ index 0000000..71c892b
 +  })
 +
 +  test('prompt 5.000 ký tự: request trùng 0.8.6 từng byte', async () => {
-+    expect(await sha(JSON.stringify(fable(SHORT)))).toBe(SHORT_FABLE_SHA)
++    const r = fable(SHORT)
++    expect(await sha(promptOf(r))).toBe(SHORT_FABLE_SHA)
++    expect([r.maxTokens, r.timeoutMs, r.effort]).toEqual([8_000, 45_000, 'medium'])
 +  })
 +})
 +
@@ -995,7 +2028,7 @@ index 0000000..71c892b
 +  test('isFable vắng, prompt 238.489 ký tự: không chứa dấu, request trùng 0.8.6; maxTokens 16.000; thời gian chờ 120.000; cảnh báo 60.000 và 20.000', async () => {
 +    const r = routerRequest({ text: LONG, prev: null, ran: null, policy: OPEN, model: 'sonnet' })
 +    expect(promptOf(r).includes(MARK)).toBe(false)
-+    expect(await sha(JSON.stringify(r))).toBe(LONG_PLAIN_SHA)
++    expect(await sha(promptOf(r))).toBe(LONG_PLAIN_SHA)
 +    expect([r.maxTokens, r.timeoutMs]).toEqual([16_000, 120_000])
 +    expect(isClippedPrompt(LONG)).toBe(true)
 +    expect(isClippedPrompt(LONG, false)).toBe(true)
@@ -1052,3 +2085,17 @@ index 0000000..71c892b
 +    expect(outcome.fellBack).toBeUndefined()
 +  })
 +})
+diff --git a/claude-mods/focus-conductor/tests/router.test.ts b/claude-mods/focus-conductor/tests/router.test.ts
+index 35d38ad..a02dbe5 100644
+--- a/claude-mods/focus-conductor/tests/router.test.ts
++++ b/claude-mods/focus-conductor/tests/router.test.ts
+@@ -190,7 +190,8 @@ describe('đọc JSON của router', () => {
+   test('tối đa 20 việc; chuỗi dài bị cắt', () => {
+     const tasks = Array.from({ length: 25 }, (_, i) => ({ title: `Việc ${i + 1} ${'x'.repeat(200)}`, run: 'main', model: 'sonnet', effort: 'low' }))
+     const p = plan({ tasks })
+-    expect(p.tasks.length).toBe(20)
++    // 0.8.7 L2: không còn trần số việc: giữ đủ 25 việc.
++    expect(p.tasks.length).toBe(25)
+     expect(p.tasks[0]?.title.length).toBeLessThanOrEqual(140)
+   })
+ 
