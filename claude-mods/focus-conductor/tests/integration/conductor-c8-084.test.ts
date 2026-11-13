@@ -7,7 +7,7 @@ import type { Engine } from 'claude-code/testing'
 import { PANE, base, conductor, plan, step, submit } from '../support/engine'
 import type { Json, Seen } from '../support/engine'
 
-const ID = 'claude-fable-5-2'
+const ID = 'fable'
 const BIG = plan({ goal: 'Sửa luồng thanh toán', depth: 'substantial', volume: 'medium', kind: 'edit', main: { model: 'sonnet', effort: 'medium', why: '' } })
 const band = (columns: number) => ({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 3, bodyColumns: columns, scroll: { offset: 0, bodyRows: 3 }, view: {} } }) as const
 const texts = async ($: Engine, target: unknown) => {
@@ -51,7 +51,7 @@ describe('0.8.4 C8: pane và /conductor status', () => {
     expect((await texts($, PANE)).join('\n')).toContain('Điều phối: fable/medium, đang điều phối')
     expect(await statusText($)).toContain('Điều phối: fable/medium, đang điều phối')
   })
-  test('tạm ngừng: dòng Điều phối nêu model router thay', { options: { planApproval: 'off', conductor: 'fable' } }, async ($, on) => {
+  test('tạm ngừng: dòng Điều phối nêu model router thay', { options: { planApproval: 'off', conductor: 'fable', conductorFallback: 'off' } }, async ($, on) => {
     const seen: Seen = base(on, { router: () => (seen.routerModels.at(-1) === ID ? null : BIG) })
     for (let i = 0; i < 3; i++) await submit($, i === 0 ? 'Sửa luồng thanh toán' : `làm tiếp bước ${i}`)
     expect((await texts($, PANE)).join('\n')).toContain('Điều phối: Fable tạm ngừng, router dùng sonnet')

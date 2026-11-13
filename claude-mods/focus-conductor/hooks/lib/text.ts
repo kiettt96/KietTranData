@@ -1,9 +1,10 @@
 // Văn bản mod gửi cho model và hiển thị cho người dùng. Gom về một chỗ để
 // giữ giọng văn nhất quán và dễ chỉnh.
 
-import type { Brief, CheckHint, CheckpointBackup, Choice, PlanStep, QuotaCheckpoint, QuotaReason, Route, RouterFail, StepStatus, Task, TurnFault } from '../../types'
+import type { Brief, CheckHint, CheckpointBackup, Choice, ModelFamily, PlanStep, QuotaCheckpoint, QuotaReason, Route, RouterFail, StepStatus, Task, TurnFault } from '../../types'
 import { STUCK_HINT, openSteps, pendingSteps } from './drift'
 import { BACKUP_CALLS_MAX, evaluateQuota, isStale, reasonsOf } from './quota'
+import { DEFAULT_CONDUCTOR } from './families'
 import type { QuotaBadge, QuotaNoticeHit, QuotaThresholds } from './quota'
 import { clockOf, labels } from '../ui/labels'
 import { currentStep, taskBarRuns } from '../ui/style'
@@ -89,6 +90,12 @@ function taskBlock(tasks: readonly Task[], main: string, isReference: boolean): 
  * Khối context đi kèm prompt khi bắt đầu một mục tiêu mới. `main` là model luồng chính sẽ
  * thật sự chạy (có thể là model cũ được giữ để bảo toàn cache); null khi chưa chọn.
  */
+/** Câu nhắc yêu cầu chưa được phủ (0.8.7 L2): tối đa UNCOVERED_SHOWN yêu cầu, kèm số mục còn lại. */
+export const UNCOVERED_SHOWN = 20
+function uncoveredList(items: readonly string[]): string {
+  return `${items.slice(0, UNCOVERED_SHOWN).join('; ')}${items.length > UNCOVERED_SHOWN ? `; còn ${items.length - UNCOVERED_SHOWN} yêu cầu nữa` : ''}`
+}
+
 export function briefContext(brief: Brief, main: Choice | null, isApplied = true): string {
   const mainText = mainLabel(main, isApplied)
   const reference = brief.referenceMain ? describePick(brief.referenceMain) : 'chưa rõ'
@@ -114,7 +121,7 @@ export function briefContext(brief: Brief, main: Choice | null, isApplied = true
   const rules = brief.isReference ? '' : `${bullets('Ràng buộc:', brief.constraints)}${bullets('Tiêu chí chất lượng:', brief.quality)}`
   // Yêu cầu router đã liệt kê mà không việc nào phủ (0.7.0): nhắc để không bị bỏ sót khi lập checklist.
   const uncovered = brief.isReference ? [] : uncoveredRequirements(brief)
-  const gaps = uncovered.length > 0 ? `\nYêu cầu chưa có việc nào phủ (đừng bỏ sót khi lập checklist): ${uncovered.join('; ')}` : ''
+  const gaps = uncovered.length > 0 ? `\nYêu cầu chưa có việc nào phủ (đừng bỏ sót khi lập checklist): ${uncoveredList(uncovered)}` : ''
   return [
     '[focus-conductor] Bản đọc prompt của router (đối chiếu lại với prompt gốc trước khi làm)',
     `Mục tiêu cuối: ${brief.goal}${tasks}${splits}${gaps}${rules}`,
@@ -194,7 +201,7 @@ export function followUpContext(
       ? `Việc mới (router đã chấm; khi giao, description của Agent mở đầu "Việc N: "):\n${added.map(task => taskLine(task, mainText)).join('\n')}${splitLines(added)}`
       : '',
     open.length > 0 ? `Bước còn mở: ${open.map(s => `${s.id}. ${s.title}`).join('; ')}` : '',
-    uncoveredRequirements(brief).length > 0 ? `Yêu cầu chưa có việc nào phủ (đừng bỏ sót): ${uncoveredRequirements(brief).join('; ')}` : '',
+    uncoveredRequirements(brief).length > 0 ? `Yêu cầu chưa có việc nào phủ (đừng bỏ sót): ${uncoveredList(uncoveredRequirements(brief))}` : '',
     pendingLine(plan),
     newConstraints.length > 0 ? `Ràng buộc mới: ${newConstraints.join('; ')}` : '',
     'Giữ nhất quán với phần đã làm; nếu yêu cầu này đổi mục tiêu, cập nhật lại checklist.',
@@ -1350,10 +1357,13 @@ export function firstErrorLine(output: string | undefined, isError = false): str
 /** Trần đoạn dặn vai điều phối (0.8.4 C5). */
 export const CONDUCTOR_CHARS = 480
 
-/** Đoạn dặn vai điều phối (0.8.4 C5): chèn một lần mỗi mục tiêu cùng khối brief khi luồng chính điều phối. */
-export function conductorContext(): string {
+/**
+ * Đoạn dặn vai điều phối (0.8.4 C5): chèn một lần mỗi mục tiêu cùng khối brief khi luồng chính điều phối. Từ 0.8.7 F1 ghi họ đang điều phối
+ * (mặc định fable, trùng 0.8.6 từng byte).
+ */
+export function conductorContext(family: ModelFamily = DEFAULT_CONDUCTOR): string {
   return (
-    '[focus-conductor] Điều phối: luồng chính là vai điều phối, chạy fable/medium. Lập kế hoạch, rồi giao từng việc bằng Agent đúng loại ' +
+    `[focus-conductor] Điều phối: luồng chính là vai điều phối, chạy ${family}/medium. Lập kế hoạch, rồi giao từng việc bằng Agent đúng loại ` +
     'agent, model, effort đã phân, description mở đầu bằng "Việc N". Mỗi lời giao tự đứng được: mục tiêu, phạm vi file, ràng buộc, tiêu ' +
     'chí xong và lệnh kiểm. Không tự sửa file, không tự chạy lệnh kiểm: chỉnh nhỏ gom vào một lời giao, lệnh kiểm giao một subagent chạy ' +
     'và báo tóm tắt. Đọc kết quả, đối chiếu yêu cầu trước khi đóng bước.'
@@ -1388,6 +1398,15 @@ export function conductWriteDenyText(): string {
 export const CONDUCTOR_KEEP_CHARS = 200
 
 /** Câu nhắc lại vai điều phối (0.8.4 V1): nối vào lời nhắc sau nén và ngữ cảnh chạy tiếp khi luồng chính đang điều phối. */
-export function conductorKeepText(): string {
-  return '[focus-conductor] Vẫn là vai điều phối chạy fable/medium: không tự sửa file, không tự chạy kiểm; giao bằng Agent theo phân việc, lời giao tự đứng được; đối chiếu kết quả trước khi đóng bước.'
+export function conductorKeepText(family: ModelFamily = DEFAULT_CONDUCTOR): string {
+  return `[focus-conductor] Vẫn là vai điều phối chạy ${family}/medium: không tự sửa file, không tự chạy kiểm; giao bằng Agent theo phân việc, lời giao tự đứng được; đối chiếu kết quả trước khi đóng bước.`
+}
+
+/**
+ * Lý do mode off khi phiên không tương tác và headlessRouting là off (0.8.7 H1): gắn ngay sau "Chế độ off" của /conductor status và câu
+ * trả lời của /conductor reroute, tối đa 160 ký tự. Mode off do người dùng tự đặt không có phần này.
+ */
+export const HEADLESS_OFF_CHARS = 160
+export function headlessOffNote(): string {
+  return ' (phiên không tương tác; bật: đặt option headlessRouting là auto rồi mở phiên mới, hoặc gõ /conductor mode auto cho phiên này)'
 }

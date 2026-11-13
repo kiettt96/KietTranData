@@ -270,7 +270,8 @@ export const CASES: readonly GoldenCase[] = [
     id: 'prose-hidden',
     text: 'Module báo cáo thuế của shop-api đang tính VAT sai cho hóa đơn xuất khẩu, nên xử lý luôn trong lượt này: trước hết tìm xem hàm tính thuế nằm ở đâu và vì sao ra sai, sau đó sửa cho đúng nhưng đừng đổi chữ ký hàm công khai vì ba service khác đang gọi nó, thêm unit test cho cả hóa đơn trong nước lẫn xuất khẩu, rồi cập nhật phần mô tả trong README cho khớp, và nếu có file cấu hình thuế suất thì chỉ đọc chứ không sửa.',
     note: 'một đoạn văn, không đề mục: các yêu cầu nằm trong câu, router phải liệt kê đủ và phủ hết',
-    expect: { kind: ['edit', 'mixed'], main: ['sonnet', 'opus'], tasks: [0, 8], requirements: [5, 9], covered: true },
+    // 0.8.7 L2: một đoạn văn là một việc (tìm nguyên nhân, sửa, test, tài liệu là bước của việc đó), nên tasks phải rỗng.
+    expect: { kind: ['edit', 'mixed'], main: ['sonnet', 'opus'], tasks: [0, 0], requirements: [5, 9], covered: true },
   },
   {
     id: 'single-block',
@@ -282,13 +283,15 @@ export const CASES: readonly GoldenCase[] = [
     id: 'long-vn',
     text: LONG_VN_PROMPT,
     note: 'prompt dài tiếng Việt khoảng 6.000 ký tự, hơn 20 yêu cầu trong đoạn văn: đọc đủ, phủ hết, trong giới hạn router',
-    expect: { reference: false, kind: ['edit', 'mixed'], main: ['sonnet', 'opus'], tasks: [0, 10], requirements: [12, 30], covered: true },
+    // 0.8.7 L2: router không còn trần số yêu cầu và số việc, nên bỏ cận trên, giữ cận dưới.
+    expect: { reference: false, kind: ['edit', 'mixed'], main: ['sonnet', 'opus'], tasks: [0, Number.POSITIVE_INFINITY], requirements: [12, Number.POSITIVE_INFINITY], covered: true },
   },
   {
     id: 'long-vn-xl',
     text: `${LONG_VN_PROMPT}\n\n${LONG_VN_EXTRA}`,
-    note: 'prompt dài tiếng Việt khoảng 8.800 ký tự: hai nhóm việc, hơn 40 yêu cầu (router giới hạn 30)',
-    expect: { reference: false, kind: ['edit', 'mixed'], main: ['sonnet', 'opus'], tasks: [0, 10], requirements: [12, 30] },
+    note: 'prompt dài tiếng Việt khoảng 8.800 ký tự: hai nhóm việc, hơn 40 yêu cầu (đến 0.8.6 router giới hạn 30)',
+    // 0.8.7 L2: router không còn trần số yêu cầu và số việc, nên bỏ cận trên, giữ cận dưới.
+    expect: { reference: false, kind: ['edit', 'mixed'], main: ['sonnet', 'opus'], tasks: [0, Number.POSITIVE_INFINITY], requirements: [12, Number.POSITIVE_INFINITY] },
   },
   {
     id: 'long-coded',

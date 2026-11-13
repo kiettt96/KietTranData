@@ -2,7 +2,7 @@
 
 import { atom, derive, read, update } from 'claude-code'
 import { noteHookError } from '../lib/errlog'
-import type { AgentProgress, Choice, Core, RetryItem, RouteEvent, Warning } from '../../types'
+import type { AgentProgress, Choice, Core, ModelFamily, RetryItem, RouteEvent, Warning } from '../../types'
 import { turnCost } from '../lib/cost'
 import { countSpawn, shapeKey, shapeOutput } from '../lib/ledger'
 import { EFFORTS, agentMemoKey, applySession, describePick, familyOf, familyRank, pickRank, ruleConflict, ruleFamily, stepCovers, taskMatch } from '../lib/route'
@@ -16,7 +16,6 @@ import { tierOf } from '../lib/scale'
 import type { AgentRoute } from '../lib/router'
 import * as S from '../lib/state'
 import { fableStep } from './fable'
-import { isFableReady } from '../lib/conductor'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf } from '../atoms'
@@ -27,9 +26,12 @@ import { FANOUT_WARN } from '../context'
 const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EMPTY_CORE)
 
 /** Áp kết quả một lượt router gửi Fable vào Core (0.8.4 C6): vừa tạm ngừng thì toast và một dòng nhật ký conductor. */
-async function noteFableRouter($: EngineInterface, ctx: Ctx, isOk: boolean): Promise<void> {
+async function noteFableRouter($: EngineInterface, ctx: Ctx, isOk: boolean, family?: ModelFamily): Promise<void> {
   const at = await $.clock.now()
-  const step = fableStep(S.normalizeCore(await read($, coreState)), isOk, ctx.routerModel, at)
+  const core = S.normalizeCore(await read($, coreState))
+  // Họ dự phòng (0.8.7 F1): lỗi của nó đếm riêng; router Fable vừa tạm ngừng thì câu báo nêu họ dự phòng nhận vai nếu dùng được.
+  const primary = ctx.conductorFamily
+  const step = fableStep(core, isOk, ctx.routerModel, at, family, (family ?? primary) === primary ? ctx.fallbackUsable(core) : null, primary)
   if (step === null) return
   await update($, coreState, step.change)
   if (step.text !== null) $.ui.toast(step.text)
@@ -228,7 +230,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
         )
         route = outcome.result
         // Lỗi của router Fable có bộ đếm riêng (0.8.4 C6).
-        const pauseText = ctx.routerTarget(core, current).isFable ? (await noteFableRouter($, ctx, route !== null), null) : noteAgentRouter(route !== null)
+        const pauseText = ctx.routerTarget(core, current).isFable ? (await noteFableRouter($, ctx, route !== null, ctx.routerTarget(core, current).family), null) : noteAgentRouter(route !== null)
         if (route !== null) rememberAgentRoute(key, route)
         reason = route !== null ? `router: ${route.why}` : `router không chấm được (${outcome.reason}); giữ lựa chọn của Claude`
         if (pauseText !== null) {
@@ -324,8 +326,10 @@ export function registerAgents(on: On, ctx: Ctx): void {
 
     // Lập kế hoạch thuộc vai của Fable (0.8.4 C7): Agent Plan chạy fable/medium khi Fable sẵn sàng, sau các bước kẹp (việc đã phân,
     // kết quả nhớ, kết quả chấm), không kẹp theo allowFable; sessionModel ceiling hay fixed vẫn thắng.
-    if (route !== null && e.subagent_type === 'Plan' && isFableReady(ctx.conductorInputs(core, current))) {
-      const family = applySession('fable', rules.session)
+    // Họ đang điều phối (0.8.7 F1): fable, hay họ dự phòng khi Fable không dùng được.
+    const planConductor = e.subagent_type === 'Plan' ? ctx.activeConductorOf(core, current) : null
+    if (route !== null && planConductor !== null) {
+      const family = applySession(planConductor.family, rules.session)
       route = { ...route, pick: { family, effort: 'medium' }, why: [route.why, 'Plan theo vai điều phối'].filter(Boolean).join('; ') }
       reason += `; Plan theo vai điều phối: ${family}/medium`
     }
@@ -443,7 +447,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
         )
         workflowRoute = outcome.result
         // Lỗi của router Fable có bộ đếm riêng (0.8.4 C6).
-        const pauseText = ctx.routerTarget(core, current).isFable ? (await noteFableRouter($, ctx, workflowRoute !== null), null) : noteAgentRouter(workflowRoute !== null)
+        const pauseText = ctx.routerTarget(core, current).isFable ? (await noteFableRouter($, ctx, workflowRoute !== null, ctx.routerTarget(core, current).family), null) : noteAgentRouter(workflowRoute !== null)
         if (workflowRoute !== null) rememberAgentRoute(key, workflowRoute)
         workflowReason = workflowRoute !== null ? `router: ${workflowRoute.why}` : `router không chấm được (${outcome.reason})`
         if (pauseText !== null) {

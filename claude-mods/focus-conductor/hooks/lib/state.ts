@@ -6,10 +6,11 @@
 
 import type { PluginOptions } from 'claude-code'
 
-import type { AgentProgress, AgentState, ApprovalState, ApprovalStatus, AgentTally, ArchivedGoal, Brief, ChangedState, CheckHint, ConductState, Core, FableState, ForkPart, GoalTurns, ForkPartState, ForkState, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, RetryItem, RetryState, Route, Waiver, WaiverState, RouteEvent, RouterFail, SkillState, TurnFault, Warning } from '../../types'
+import type { AgentProgress, AgentState, ApprovalState, ApprovalStatus, AgentTally, ArchivedGoal, Brief, ChangedState, CheckHint, ConductState, Core, FableState, FallbackState, ForkPart, GoalTurns, ForkPartState, ForkState, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, RetryItem, RetryState, Route, Waiver, WaiverState, RouteEvent, RouterFail, SkillState, TurnFault, Warning } from '../../types'
 import { isFullyClosed, openSteps, restorableSteps } from './drift'
 import { isPendingGoal } from './conductor'
 import type { Tokens } from './cost'
+import { FAMILY_NAMES } from './families'
 import { addUsage, emptyLedger, nextGoal, planSwitch, resetLedger } from './ledger'
 import { legacyOf } from './scale'
 import { resumeCommand, statusLine, withQuotaNoticeStatus, withQuotaStatus, withRouterFailStatus, withTurnFaultStatus } from './text'
@@ -54,6 +55,7 @@ export const EMPTY_CORE: Core = {
   changed: { goalId: -1, paths: [], unknown: 0, overflow: 0 },
   changedNoticed: -1,
   fable: { failures: 0, pauseLeft: 0, ready: null, reason: '', holdKey: '', briefedGoal: -1, promptPaused: false },
+  fallback: { failures: 0, pauseLeft: 0, promptPaused: false, active: null, briefedFamily: null },
   goalTurns: { goalId: -1, done: 0, interrupted: false },
   conduct: emptyConduct(-1),
 }
@@ -72,7 +74,7 @@ const LIFT_LIMIT = 2
 
 /** Ảnh chụp mọi thứ band, pane và status line cần, đọc một lần. */
 /** `conductor` (0.8.4 C8): chỉ có khi option conductor là fable; `fallback` là model router dùng khi Fable tạm ngừng. */
-export type View = { core: Core; mode: Mode; isBandHidden: boolean; lang: Lang; conductor?: { fallback: string } }
+export type View = { core: Core; mode: Mode; isBandHidden: boolean; lang: Lang; conductor?: { fallback: string; family: ModelFamily } }
 
 export function isMode(value: unknown): value is Mode {
   return value === 'auto' || value === 'subagents' || value === 'suggest' || value === 'off'
@@ -266,6 +268,7 @@ export function normalizeCore(raw: Partial<Core>): Core {
     changed: normalizeChanged(raw.changed),
     changedNoticed: typeof raw.changedNoticed === 'number' ? raw.changedNoticed : -1,
     fable: normalizeFable(raw.fable),
+    fallback: normalizeFallback(raw.fallback),
     goalTurns: normalizeGoalTurns(raw.goalTurns),
     conduct: normalizeConduct(raw.conduct),
   }
@@ -425,6 +428,23 @@ function normalizeFable(raw: Partial<FableState> | undefined): FableState {
   return { failures: count(raw.failures), pauseLeft: count(raw.pauseLeft), ready: typeof raw.ready === 'boolean' ? raw.ready : null, reason: typeof raw.reason === 'string' ? raw.reason : '', holdKey: typeof raw.holdKey === 'string' ? raw.holdKey : '', briefedGoal: typeof raw.briefedGoal === 'number' && Number.isInteger(raw.briefedGoal) ? raw.briefedGoal : -1, promptPaused: raw.promptPaused === true }
 }
 
+/** Trạng thái vai điều phối dự phòng (0.8.7 F1); vắng hay sai kiểu ở trạng thái từ bản cũ là mặc định. */
+const FALLBACK_FAMILIES: readonly ModelFamily[] = FAMILY_NAMES
+function normalizeFallback(raw: Partial<FallbackState> | undefined): FallbackState {
+  const count = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0)
+  const family = (value: unknown): ModelFamily | null => FALLBACK_FAMILIES.find(f => f === value) ?? null
+  if (raw === undefined || raw === null || typeof raw !== 'object') return { failures: 0, pauseLeft: 0, promptPaused: false, active: null, briefedFamily: null }
+  return { failures: count(raw.failures), pauseLeft: count(raw.pauseLeft), promptPaused: raw.promptPaused === true, active: family(raw.active), briefedFamily: family(raw.briefedFamily) }
+}
+
+/** Ghi trạng thái vai điều phối dự phòng (0.8.7 F1). */
+export const withFallback =
+  (change: (fallback: FallbackState) => Partial<FallbackState>) =>
+  (c: Core): Core => {
+    const n = normalizeCore(c)
+    return { ...n, fallback: normalizeFallback({ ...n.fallback, ...change(n.fallback) }) }
+  }
+
 /** Ghi trạng thái Fable điều phối (0.8.4). */
 export const withFable =
   (change: (fable: FableState) => Partial<FableState>) =>
@@ -456,9 +476,6 @@ export const withApproval =
   (approval: ApprovalState) =>
   (c: Core): Core => ({ ...normalizeCore(c), approval: normalizeApproval(approval) })
 
-/** Số lần giao phiên con giữ lại cho một mục tiêu (0.7.9 F1) [Giả định: 6 phần mỗi việc, vài việc tách mỗi mục tiêu]. */
-const FORK_PART_LIMIT = 30
-
 /** Phiên con từ trạng thái đã lưu (0.7.9 F1); Core từ bản trước không có trường này thì rỗng, off là none. */
 function normalizeForks(raw: Partial<ForkState> | undefined): ForkState {
   if (raw === undefined || raw === null) return { goalId: -1, parts: [], merged: [], off: 'none' }
@@ -475,7 +492,8 @@ export function withForkStart(goalId: number, part: ForkPart): (core: Core) => C
     const n = normalizeCore(core)
     const same = n.forks.goalId === goalId
     const parts = same ? n.forks.parts.filter(p => !(p.task === part.task && p.part === part.part)) : []
-    return { ...n, forks: { ...n.forks, goalId, parts: [...parts, part].slice(-FORK_PART_LIMIT), merged: same ? n.forks.merged : [] } }
+    // Không còn trần số phần (0.8.7 L2): mục tiêu có thể có hàng trăm việc tách; mỗi phần của một việc chỉ có một mục.
+    return { ...n, forks: { ...n.forks, goalId, parts: [...parts, part], merged: same ? n.forks.merged : [] } }
   }
 }
 
@@ -955,7 +973,7 @@ function freshProgress(goalId: number): Pick<Core, 'agentProgress' | 'activity'>
   return { agentProgress: { goalId, items: [] }, activity: { goalId, changes: 0 } }
 }
 
-/** Số bộ đếm theo việc giữ lại cho một mục tiêu (0.7.5). */
+/** Số bộ đếm của việc Claude tự giao giữ lại cho một mục tiêu (0.7.5); bộ đếm của việc đã phân giữ đủ (0.8.7 L2). */
 const AGENT_TALLY_LIMIT = 50
 
 /**
@@ -996,7 +1014,8 @@ export function withAgentStart(goalId: number, item: AgentProgress): (core: Core
         delete open[agentId]
       }
     }
-    return { ...n, agentProgress: { goalId, items: [...items, item].slice(-AGENT_PROGRESS_LIMIT), tally: tally.slice(-AGENT_TALLY_LIMIT), open } }
+    const ownKept = new Set(tally.filter(t => t.taskIndex === undefined).slice(-AGENT_TALLY_LIMIT).map(t => t.key))
+    return { ...n, agentProgress: { goalId, items: [...items, item].slice(-AGENT_PROGRESS_LIMIT), tally: tally.filter(t => t.taskIndex !== undefined || ownKept.has(t.key)), open } }
   }
 }
 

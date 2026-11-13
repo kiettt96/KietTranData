@@ -1,9 +1,10 @@
 // Nhãn cố định của band và pane theo option uiLanguage (vi mặc định, en). Nội dung động (mục tiêu, lý do của
 // router, cảnh báo, nhật ký, sổ chi phí) giữ nguyên ngôn ngữ của nó: router trả lời theo ngôn ngữ của prompt.
 
-import type { StepStatus, WarningKind } from '../../types'
+import type { ModelFamily, StepStatus, WarningKind } from '../../types'
 import { hasTitleCode } from '../lib/route'
 import { conductorShown } from '../lib/conductor'
+import { DEFAULT_CONDUCTOR, familyLabel } from '../lib/families'
 import type { Phase } from './style'
 
 export type Lang = 'vi' | 'en'
@@ -139,6 +140,7 @@ const VI = {
   conductorRole: 'điều phối',
   conductorOn: 'Điều phối: fable/medium, đang điều phối',
   conductorPaused: (fallback: string) => `Điều phối: Fable tạm ngừng, router dùng ${fallback}`,
+  conductorFallback: (family: string, reason: 'blocked' | 'paused') => `Điều phối: ${family}/medium, dự phòng (${reason === 'paused' ? 'Fable tạm ngừng' : 'Fable bị chặn vì không phản hồi'})`,
   conductorOff: (reason: string) => `Điều phối: tắt (${reason})`,
   conductExempt: (reason: 'solo' | 'agent') => `đang miễn (${reason === 'solo' ? 'lệnh solo' : 'Agent bị từ chối'})`,
   conductCounts: { deniedWrites: 'từ chối sửa file', deniedChecks: 'từ chối chạy kiểm', selfWrites: 'tự sửa file', selfChecks: 'tự chạy kiểm', reads: 'đọc' },
@@ -299,6 +301,7 @@ const EN: typeof VI = {
   conductorRole: 'conductor',
   conductorOn: 'Conductor: fable/medium, conducting',
   conductorPaused: (fallback: string) => `Conductor: Fable paused, router on ${fallback}`,
+  conductorFallback: (family: string, reason: 'blocked' | 'paused') => `Conductor: ${family}/medium, fallback (${reason === 'paused' ? 'Fable paused' : 'Fable blocked, not responding'})`,
   conductorOff: (reason: string) => `Conductor: off (${reason})`,
   conductExempt: (reason: 'solo' | 'agent') => `exempt (${reason === 'solo' ? 'solo command' : 'Agent call refused'})`,
   conductCounts: { deniedWrites: 'edits refused', deniedChecks: 'checks refused', selfWrites: 'own edits', selfChecks: 'own checks', reads: 'reads' },
@@ -414,10 +417,13 @@ export function conductStatusSuffix(state: { solo: boolean; agentDenied: boolean
 }
 
 /** Dòng Điều phối của pane và /conductor status (0.8.4 C8), theo trạng thái điều phối trong Core. */
-export function conductorLine(core: Parameters<typeof conductorShown>[0], fallback: string, lang: Lang): string {
+export function conductorLine(core: Parameters<typeof conductorShown>[0], fallback: string, lang: Lang, primary: ModelFamily = DEFAULT_CONDUCTOR): string {
   const l = labels(lang)
-  const shown = conductorShown(core)
-  if (shown.state === 'on') return l.conductorOn
-  if (shown.state === 'paused') return l.conductorPaused(fallback)
-  return l.conductorOff(l.conductorReason[shown.reason] ?? shown.reason)
+  const shown = conductorShown(core, primary)
+  // Nhãn viết cho họ điều phối mặc định; họ chính khác (0.8.7 G1) thì thay tên họ trong nhãn.
+  const named = (text: string) => (primary === DEFAULT_CONDUCTOR ? text : text.replaceAll(DEFAULT_CONDUCTOR, primary).replaceAll(familyLabel(DEFAULT_CONDUCTOR), familyLabel(primary)))
+  if (shown.state === 'on') return named(l.conductorOn)
+  if (shown.state === 'paused') return named(l.conductorPaused(fallback))
+  if (shown.state === 'fallback') return named(l.conductorFallback(shown.family, shown.reason))
+  return l.conductorOff(named(l.conductorReason[shown.reason] ?? shown.reason))
 }

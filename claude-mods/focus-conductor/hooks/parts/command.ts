@@ -14,7 +14,7 @@ import { askRouter, bareBrief, briefOf, failFields, nextBrief, parseRoute, rerou
 import { shownPlan } from '../lib/mirror'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
-import { RETRY_ROUNDS, WAIVE_REPORT, briefContext, checkHintLines, droppedGoalNotice, droppedItemsText, droppedPlanNotice, quotaStatusLines, renderPlan, resetLabel, routerFailLines, unroutedContext } from '../lib/text'
+import { RETRY_ROUNDS, WAIVE_REPORT, briefContext, checkHintLines, droppedGoalNotice, headlessOffNote, droppedItemsText, droppedPlanNotice, quotaStatusLines, renderPlan, resetLabel, routerFailLines, unroutedContext } from '../lib/text'
 import { PANE_ROWS, shouldAutoOpenPane } from '../lib/pane'
 import { PANE, PANE_TITLE } from '../ui/pane'
 import { conductStatusSuffix, conductorLine, labels, langOf } from '../ui/labels'
@@ -30,6 +30,8 @@ const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EM
 const bandHiddenState = atom({ plugin: 'focus-conductor', key: 'isBandHidden' } as const, false)
 const resetArmedState = atom({ plugin: 'focus-conductor', key: 'resetArmedUntil' } as const, 0)
 const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null)
+// Cờ phiên không tương tác đặt mode off (0.8.0 A13), cùng khóa với parts/session.ts; chỉ đọc để /conductor nêu lý do (0.8.7 H1).
+const headlessState = atom({ plugin: 'focus-conductor', key: 'headlessOff' } as const, false)
 const quotaState = atom({ plugin: 'focus-conductor', key: 'quota' } as const, EMPTY_QUOTA)
 // Mục tiêu mà người dùng đã tự đóng pane chi tiết (-1 là chưa); ghi ở hook ui.close của parts/ui.tsx.
 const paneClosedState = atom({ plugin: 'focus-conductor', key: 'paneClosedGoal' } as const, -1)
@@ -237,7 +239,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       const rules = ctx.conductorState(before, await read($, mode)) === null ? { ...basePolicy, conductor: true, goalIsBig: isBigGoal(before.brief) } : basePolicy
       // Lệnh do người dùng gõ: luôn hỏi router, kể cả khi router đang tạm ngừng sau các lần lỗi.
       const target = ctx.routerTarget(before, await read($, mode))
-      const request = routerRequest({ text: arg, prev, ran: null, policy: rules, model: target.model, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily, isForcedNew: true })
+      const request = routerRequest({ text: arg, prev, ran: null, policy: rules, model: target.model, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily, isForcedNew: true, reading: ctx.routerReading(target) })
       const startedAt = await $.clock.now()
       const outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), undefined, { retryMissingConfidence: true, ...(target.isFable ? { isFable: true } : {}) })
       ctx.noteRouterFailure('prompt', outcome.failure)
@@ -287,7 +289,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
     }
 
     if (sub === 'reroute') {
-      if ((await read($, mode)) === 'off') return { text: 'Focus Conductor đang tắt (mode off); bật lại bằng /conductor mode auto.' }
+      if ((await read($, mode)) === 'off') return { text: `Focus Conductor đang tắt (mode off${(await read($, headlessState)) === true ? headlessOffNote() : ''}); bật lại bằng /conductor mode auto.` }
       const before = S.normalizeCore(await read($, coreState))
       const current = before.brief
       // Router đọc được prompt gần nhất (0.7.5): đọc lại prompt đã lập mục tiêu hiện tại, không phải prompt tiếp nối ngắn gần nhất.
@@ -301,7 +303,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       const rules = ctx.conductorState(before, await read($, mode)) === null ? { ...basePolicy, conductor: true, goalIsBig: isBigGoal(before.brief) } : basePolicy
       // Lệnh do người dùng gõ: luôn hỏi router, kể cả khi router đang tạm ngừng.
       const target = ctx.routerTarget(before, await read($, mode))
-      const request = routerRequest({ text: last.text, prev: last.prev, ran: ranText(before), policy: rules, model: target.model, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily })
+      const request = routerRequest({ text: last.text, prev: last.prev, ran: ranText(before), policy: rules, model: target.model, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily, reading: ctx.routerReading(target) })
       const startedAt = await $.clock.now()
       const outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), undefined, { retryMissingConfidence: true, ...(target.isFable ? { isFable: true } : {}) })
       ctx.noteRouterFailure('prompt', outcome.failure)
@@ -456,12 +458,17 @@ export function registerCommand(on: On, ctx: Ctx): void {
 
     if (sub === 'status') {
       const { core, mode: current, lang } = await read($, view)
+      // Mode off do phiên không tương tác (0.8.7 H1): dòng đầu nêu lý do và cách bật.
+      const modeText = `Chế độ ${current}${current === 'off' && (await read($, headlessState)) === true ? headlessOffNote() : ''}`
       const usage = await $.session.usage().catch(caught('session.usage', null))
       const costLines = ledgerLines(core.ledger, lang)
       if (core.sysTokens > 0) costLines.push(`Phần cố định của ngữ cảnh (system prompt, tools): ${Math.round(core.sysTokens / 1000)}k token, đo ở đầu phiên`)
       if (usage?.cost) costLines.push(`Chi phí cả phiên theo Claude Code (gồm cả phần trước khi mod bắt đầu ghi sổ): ${formatCost(usage.cost.usd, lang)}`)
       const estimate = estimateLine(core.log, lang)
       if (estimate) costLines.push(estimate)
+      // Họ model đã được phục vụ trong phiên kèm ID thật (0.8.7 M1).
+      const served = ctx.servedLine(lang)
+      if (served !== null) costLines.push(served)
       costLines.push(priceNote(await $.clock.now()))
       costLines.push(cacheNote(ctx.cacheTtlMs / 60_000))
       const latency = routerTimeLine()
@@ -484,8 +491,8 @@ export function registerCommand(on: On, ctx: Ctx): void {
       // Fable điều phối (0.8.4 C8): một dòng trạng thái, chỉ khi option conductor là fable.
       // Vai điều phối của mục tiêu (0.8.6): trạng thái miễn và số đo, chỉ khi luồng chính đang điều phối.
       const conductSuffix = ctx.isConducting(core, current) ? conductStatusSuffix(S.conductOf(core), lang) : ''
-      const conductorLines = ctx.conductorOption === 'fable' ? [conductorLine(core, ctx.routerModel, lang) + conductSuffix] : []
-      if (core.brief === null) return { text: [`Chế độ ${current}. Chưa có mục tiêu.`, ...conductorLines, ...routerFailLines(core.routerFail), ...costLines].join('\n') }
+      const conductorLines = ctx.conductorOption !== 'off' ? [conductorLine(core, ctx.routerModel, lang, ctx.conductorOption) + conductSuffix] : []
+      if (core.brief === null) return { text: [`${modeText}. Chưa có mục tiêu.`, ...conductorLines, ...routerFailLines(core.routerFail), ...costLines].join('\n') }
       const routeLine = core.route
         ? `${describePick(core.route)} (${core.route.reason})`
         : core.brief.main === null
@@ -510,7 +517,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       const agentBlock = delegationBlock + (agentLines.length > 0 ? `\nSubagent gần nhất:\n${agentLines.join('\n')}` : '') + untrackedLine
       return {
         text: [
-          `Chế độ ${current}`,
+          modeText,
           judged,
           `Luồng chính: ${routeLine}${blockedLine}`,
           ...conductorLines,

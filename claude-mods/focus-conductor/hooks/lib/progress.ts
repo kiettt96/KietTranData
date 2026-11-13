@@ -135,13 +135,17 @@ export function taskRows(core: Core, now: number): TaskRow[] {
   }
 
   const mainCount = tasks.filter(t => t.run === 'main').length
+  // Việc của từng bước và việc của các bước doing, tính một lần cho mọi việc (0.8.7 L2: mục tiêu có thể có hàng trăm việc và bước;
+  // tính lại cho từng việc làm band chậm theo bậc ba của số việc).
+  const ownerOf = new Map(plan.map(step => [step.id, matchTask(tasks, step.title)?.index]))
+  const doingTasks = new Set(plan.filter(s => s.status === 'doing').map(s => stepCovers(tasks, s.title)?.index))
+  const closedAny = progress(plan).closed > 0
   for (const task of tasks) {
     if (task.run === 'main') {
       // Bước của checklist mở đầu "Việc N" (hay cùng mã mục) là bước của việc N, theo cùng quy tắc cấu trúc với Agent.
-      const own = plan.filter(step => matchTask(tasks, step.title)?.index === task.index)
-      const closedAny = progress(plan).closed > 0
+      const own = plan.filter(step => ownerOf.get(step.id) === task.index)
       // Không có bước riêng (0.8.0 A4): chỉ đang làm khi là việc của bước doing (stepCovers) hay là việc main duy nhất; còn lại chưa gắn bước.
-      const isDoing = plan.some(s => s.status === 'doing' && stepCovers(tasks, s.title)?.index === task.index) || mainCount === 1
+      const isDoing = doingTasks.has(task.index) || mainCount === 1
       const isUnassigned = own.length === 0 && plan.length > 0 && !isFullyClosed(plan) && !isDoing
       const state: TaskState = own.length > 0 ? stepsState(own) : plan.length > 0 && isFullyClosed(plan) ? 'done' : isUnassigned ? 'pending' : !closedAny && changes === 0 ? 'idle' : 'running'
       rows.push({

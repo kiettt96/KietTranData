@@ -6,7 +6,7 @@ import type { Brief, Choice, Core, DelegationItem, DelegationState, Effort, Inte
 import { applyCheckCommands, applyCheckTools, applyPassLines, applySkillPaths, applySoftPaths, newEvidenceLog, newTracker, parseCheckCommands, parseCheckTools, parsePassLines, parseSkillPaths, parseSoftPaths } from './lib/drift'
 import type { EvidenceLog, PromptIntent, TurnTracker } from './lib/drift'
 import { DEFAULT_CACHE_TTL_MINUTES, DEFAULT_CONTEXT, DEFAULT_WINDOWS, applyCacheWrite, applyPrices, parseCacheWrite, parsePrices } from './lib/cost'
-import { EFFORTS, decideMain, describePick, familyOf, hasTitleCode, liftPick, matchTask, parseModelMap, parseWindows } from './lib/route'
+import { EFFORTS, FAMILIES as FAMILIES_ORDER, decideMain, describePick, familyOf, hasTitleCode, liftPick, matchTask, parseModelMap, parseWindows, pinnedId, resolveModelId } from './lib/route'
 import type { SessionModel, SessionPolicy } from './lib/route'
 import { DECISION_LIMIT, decisionLine } from './lib/decisions'
 import type { DecisionKind } from './lib/decisions'
@@ -15,10 +15,13 @@ import type { ErrorEntry, ErrorEvent, ErrorFile } from './lib/errlog'
 import { FIXED_ERRORS } from './lib/fixed-errors'
 import { MOD_VERSION } from './lib/version'
 import { MAX_FORKS, fitPick, skipKey } from './lib/router'
+import { routerMaxWaitOf } from './lib/reading'
+import { DEFAULT_CONDUCTOR } from './lib/families'
+import type { Reading } from './lib/reading'
 import { approvalModeOf, reviewRoundsOf } from './lib/approval'
-import { conductorBlocker, conductorOf, fableModelId, isFableReady, isMainConducting } from './lib/conductor'
+import { activeConductor, conductorBlocker, conductorFallbackOf, conductorOf, fableModelId, isMainConducting } from './lib/conductor'
 import { normalizeCore, restoreArchived, withDelegations } from './lib/state'
-import type { ConductorBlocker, ConductorInputs } from './lib/conductor'
+import type { ActiveConductor, ConductorBlocker, ConductorInputs } from './lib/conductor'
 import type { AgentRoute, Policy } from './lib/router'
 
 /** Prompt do chính người dùng gửi (hoặc lịch họ đặt), không phải thông báo nội bộ. */
@@ -123,6 +126,10 @@ export function createContext(options: PluginOptions) {
     lastSession: null as { model: string; effort: string } | null,
     sessionFamily: null as ModelFamily | null,
     sessionNoticed: false,
+    /** Engine nhận alias họ model ở turn.step (0.8.7 M1): đọc một lần mỗi phiên từ $.session.version(); null là chưa đọc. */
+    aliasEngine: null as boolean | null,
+    /** ID engine đã phục vụ theo họ (0.8.7 M1, usage.model của turn), cho dòng "Model đang dùng" và cảnh báo phiên bản một lần mỗi họ. */
+    served: new Map<ModelFamily, string>(),
     /** Đã cảnh báo chính sách model của phiên chặn Fable điều phối (0.8.4 C1), một lần mỗi phiên. */
     conductorSessionNoticed: false,
     pinnedGoalId: null as number | null,
@@ -300,6 +307,8 @@ export function createContext(options: PluginOptions) {
     Object.entries(DEFAULT_WINDOWS).filter(([family]) => modelMap[family as ModelFamily] === undefined),
   ) as Partial<Record<ModelFamily, number>>
   const contextWindows = { ...defaultWindows, ...parseWindows(options['contextWindows']) }
+  // Thời gian chờ tối đa của lượt đọc trọn (0.8.7 L3, option routerMaxWait, giây): mặc định 1.800, kẹp 120 tới 1.800.
+  const routerMaxWaitMs = routerMaxWaitOf(options['routerMaxWait'])
   applyPrices(parsePrices(options['prices']))
   applyCacheWrite(parseCacheWrite(options['cacheWrite']))
   applyCheckCommands(parseCheckCommands(options['checkCommands']))
@@ -311,17 +320,29 @@ export function createContext(options: PluginOptions) {
 
   /** Option conductor (0.8.4): off như 0.8.3, fable là Fable điều phối. */
   const conductorOption = conductorOf(options)
+  /** Họ điều phối chính (0.8.7 G1): giá trị của option conductor; option off thì họ mặc định (chỉ để đặt tên trong câu báo). */
+  const conductorFamily: ModelFamily = conductorOption === 'off' ? DEFAULT_CONDUCTOR : conductorOption
+  /** Họ điều phối dự phòng (0.8.7 F1, option conductorFallback): chỉ có khi conductor khác off (0.8.7 G1); null là không có. */
+  const conductorFallback = conductorOption !== 'off' ? conductorFallbackOf(options) : null
 
   /** Đầu vào của các định nghĩa Fable điều phối (hooks/lib/conductor.ts) ở thời điểm hiện tại. */
   function conductorInputs(core: Core, mode: Mode, headless = false): ConductorInputs {
     // Prompt hiện tại đến lúc router Fable còn tạm ngừng (0.8.4 C6, V1; 0.8.5 K10: cờ nằm trong Core.fable nên sống qua nạp lại mod).
-    const fable = normalizeCore(core).fable
-    return { option: conductorOption, mode, headless, blocked, pauseLeft: fable.pauseLeft + (fable.promptPaused ? 1 : 0), sessionPolicy, sessionFamily: local.sessionFamily }
+    const n = normalizeCore(core)
+    const fable = n.fable
+    // Họ dự phòng (0.8.7 F1): số prompt router của nó còn tạm ngừng tính như của Fable, kể cả prompt hiện tại.
+    const fallbackPauseLeft = n.fallback.pauseLeft + (n.fallback.promptPaused ? 1 : 0)
+    return { option: conductorOption, mode, headless, blocked, pauseLeft: fable.pauseLeft + (fable.promptPaused ? 1 : 0), sessionPolicy, sessionFamily: local.sessionFamily, fallback: conductorFallback, fallbackPauseLeft }
+  }
+
+  /** Họ đang điều phối lúc này (0.8.7 F1): fable, họ dự phòng, hay null. */
+  function conductorOf_(core: Core, mode: Mode, headless = false): ActiveConductor | null {
+    return activeConductor(conductorInputs(core, mode, headless))
   }
 
   /** Luồng chính đang giữ vai điều phối cho mục tiêu hiện tại (0.8.5 D1, 0.8.6): option conductor là fable và isMainConducting. */
   function isConducting(core: Core, mode: Mode): boolean {
-    return conductorOption === 'fable' && isMainConducting(conductorInputs(core, mode), normalizeCore(core).brief)
+    return conductorOption !== 'off' && isMainConducting(conductorInputs(core, mode), normalizeCore(core).brief)
   }
 
   /** Nguyên nhân luồng chính không điều phối bằng Fable lúc này; null là điều phối khả dụng. */
@@ -334,8 +355,29 @@ export function createContext(options: PluginOptions) {
    * router. `family` là họ của model đã gọi, cho sổ chi phí; `isFable` đặt thời gian chờ và effort của lượt đọc lại.
    */
   function routerTarget(core: Core, mode: Mode, headless = false): { model: string; family: ModelFamily; isFable: boolean } {
-    if (isFableReady(conductorInputs(core, mode, headless))) return { model: fableModelId(modelMap, local.lastSession?.model ?? null), family: 'fable', isFable: true }
+    // Họ dự phòng (0.8.7 F1) làm router như Fable: biến thể điều phối, effort và thời gian chờ của vai điều phối, thông số đọc của họ đó.
+    const active = conductorOf_(core, mode, headless)
+    if (active !== null) return { model: fableModelId(modelMap, local.lastSession?.model ?? null, active.family), family: active.family, isFable: true }
     return { model: routerModel, family: routerFamily, isFable: false }
+  }
+
+  /** Họ dự phòng dùng được lúc này (0.8.7 F1): có, không bị chặn, router của nó không tạm ngừng; null là không có. */
+  function fallbackUsable(core: Core): ModelFamily | null {
+    if (conductorFallback === null || blocked.has(conductorFallback)) return null
+    return normalizeCore(core).fallback.pauseLeft > 0 ? null : conductorFallback
+  }
+
+  /** Đích router của họ dự phòng (0.8.7 F1), cho lượt đọc của Fable bị API từ chối; null khi họ dự phòng không dùng được. */
+  function fallbackTarget(core: Core, mode: Mode, headless = false): { model: string; family: ModelFamily; isFable: boolean } | null {
+    const active = conductorOf_(core, mode, headless)
+    if (active === null || active.isFallback || conductorFallback === null || blocked.has(conductorFallback)) return null
+    if (activeConductor({ ...conductorInputs(core, mode, headless), pauseLeft: 1 }) === null) return null
+    return { model: fableModelId(modelMap, local.lastSession?.model ?? null, conductorFallback), family: conductorFallback, isFable: true }
+  }
+
+  /** Lượt đọc prompt của đích router (0.8.7 L3): họ model, cửa sổ ngữ cảnh của họ đó (option contextWindows), thời gian chờ tối đa. */
+  function routerReading(target: { family: ModelFamily }): Reading {
+    return { family: target.family, window: contextWindows[target.family] ?? DEFAULT_WINDOW, maxWaitMs: routerMaxWaitMs }
   }
 
   /** Chính sách áp lên mọi lựa chọn của router: allowFable, model của phiên, họ đang bị chặn, loại agent dùng được. */
@@ -459,7 +501,11 @@ export function createContext(options: PluginOptions) {
    * "điều phối", không nâng theo bằng chứng, không kẹp theo allowFable; brief.main vẫn giữ lựa chọn của router cho lúc Fable hết sẵn sàng.
    */
   function wantedPick(brief: Brief, lift: Lift, core?: Core, mode?: Mode): (Choice & { notes: string[]; isConducting?: true }) | null {
-    if (core !== undefined && mode !== undefined && isMainConducting(conductorInputs(core, mode), brief)) return { family: 'fable', effort: 'medium', notes: ['điều phối'], isConducting: true }
+    // Luồng chính điều phối bằng họ đang điều phối (0.8.7 F1): fable, hay họ dự phòng kèm ghi chú "dự phòng".
+    if (core !== undefined && mode !== undefined && isMainConducting(conductorInputs(core, mode), brief)) {
+      const active = conductorOf_(core, mode)
+      if (active !== null) return { family: active.family, effort: 'medium', notes: active.isFallback ? ['điều phối', 'dự phòng'] : ['điều phối'], isConducting: true }
+    }
     if (brief.main === null) return null
     const lifted = liftPick(brief.main, lift, options['allowFable'] === true)
     const fitted = fitPick(lifted, brief.isReference ? 'answer' : brief.kind, policy())
@@ -547,6 +593,8 @@ export function createContext(options: PluginOptions) {
     local.lastSession = null
     local.sessionFamily = null
     local.sessionNoticed = false
+    local.aliasEngine = null
+    local.served.clear()
     local.conductorSessionNoticed = false
     local.pinnedGoalId = null
     blocked.clear()
@@ -578,6 +626,34 @@ export function createContext(options: PluginOptions) {
   }
 
   /** Hết chặn các họ model đã bị chặn đủ BLOCK_TURNS turn, để thử lại. */
+  /**
+   * Model ID gửi cho một step (0.8.7 M1): mọi nơi đặt model cho turn.step (luồng chính, subagent ép model, phần còn lại của turn sau khi
+   * model không phản hồi) gọi hàm này. Alias chỉ khi engine nhận alias ở turn.step (cổng phiên bản engine, local.aliasEngine).
+   */
+  function stepModelId(family: ModelFamily, engineModel: string): string {
+    return resolveModelId(family, engineModel, modelMap, local.aliasEngine === true)
+  }
+
+  /**
+   * Ghi ID engine đã phục vụ cho họ của nó (0.8.7 M1, usage.model của turn). Lần đầu trong phiên một họ được phục vụ bằng ID khác ID ghim
+   * thì trả câu cảnh báo (một lần mỗi họ mỗi phiên); còn lại null. Không chèn gì vào context.
+   */
+  function noteServed(id: string): string | null {
+    const family = familyOf(id)
+    if (family === null) return null
+    const isFirst = !local.served.has(family)
+    local.served.set(family, id)
+    if (!isFirst || id === pinnedId(family)) return null
+    return `Engine đang phục vụ ${id} cho họ ${family}; bảng giá và cửa sổ ngữ cảnh kèm mod lập cho ${pinnedId(family)}, chỉnh được bằng option prices và contextWindows`
+  }
+
+  /** Dòng "Model đang dùng" của /conductor status (0.8.7 M1): các họ đã được phục vụ trong phiên kèm ID thật; null khi chưa có họ nào. */
+  function servedLine(lang: 'vi' | 'en'): string | null {
+    const items = FAMILIES_ORDER.filter(f => local.served.has(f)).map(f => `${f} ${local.served.get(f)}`)
+    if (items.length === 0) return null
+    return `${lang === 'en' ? 'Models in use' : 'Model đang dùng'}: ${items.join(', ')}`
+  }
+
   function expireBlocks(): void {
     for (const [family, until] of blockedUntil) {
       if (until > local.turnCount) continue
@@ -884,7 +960,7 @@ export function createContext(options: PluginOptions) {
       notices.push(`Focus Conductor chạy luồng chính bằng ${decision.route.family}, khác model của phiên (${local.sessionFamily}).`)
     }
     // Fable điều phối (0.8.4 C1): sessionModel ceiling hay fixed với phiên không phải Fable thì chính sách của người dùng thắng; báo một lần.
-    if (conductorOption === 'fable' && local.sessionFamily !== null && !local.conductorSessionNoticed && conductorState(core, current) === 'session') {
+    if (conductorOption !== 'off' && local.sessionFamily !== null && !local.conductorSessionNoticed && conductorState(core, current) === 'session') {
       local.conductorSessionNoticed = true
       notices.push(`Fable điều phối không áp cho luồng chính: sessionModel ${sessionPolicy} giữ model của phiên (${local.sessionFamily}). Đổi model phiên sang Fable hay đặt sessionModel về auto.`)
     }
@@ -965,8 +1041,18 @@ export function createContext(options: PluginOptions) {
     conductorOption,
     conductorInputs,
     conductorState,
+    activeConductorOf: conductorOf_,
+    conductorFamily,
+    fallbackUsable,
+    conductorFallback,
+    fallbackTarget,
     isConducting,
     routerTarget,
+    routerReading,
+    routerMaxWaitMs,
+    stepModelId,
+    noteServed,
+    servedLine,
     routerTimeLine,
     semanticDrift,
     driftEveryMs,

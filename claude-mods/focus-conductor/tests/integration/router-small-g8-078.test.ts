@@ -105,7 +105,8 @@ describe('0.7.8 G8 (1): confidence thiếu', () => {
 })
 
 describe('0.7.8 G8 (2): prompt dài bị lược phần giữa', () => {
-  test('prompt 100.000 ký tự: cảnh báo và dòng context (không quá 200 ký tự)', {}, async ($, on) => {
+  // 0.8.7 L3: router đọc trọn tới sức chứa của model; cửa sổ ngữ cảnh rất nhỏ (option contextWindows) đưa sức chứa về trần cũ 80.000.
+  test('prompt 100.000 ký tự: cảnh báo và dòng context (không quá 200 ký tự)', { options: { contextWindows: 'sonnet=1000' } }, async ($, on) => {
     const seen = base(on)
     await submit($, `Sửa module đăng nhập. ${'x'.repeat(100_000)}`)
     const line = (seen.contexts[0] ?? []).join('\n').split('\n').find(l => l.includes(CLIPPED)) ?? ''

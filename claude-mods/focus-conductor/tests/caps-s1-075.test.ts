@@ -65,8 +65,9 @@ describe('0.7.5 S1: mục trùng khóa và phần tràn đầy', () => {
   test(`phần tràn đầy (${CAP_OVERFLOW} mục): mục mới bị bỏ và đếm ở dropped`, () => {
     const full = [...REQUIREMENTS, ...Array.from({ length: CAP_OVERFLOW }, (_, i) => `Tràn ${i + 1}`)]
     const out = nextBrief(makeBrief({ requirements: full, requirementsBase: 30 }), routed({ relation: 'refine', goal: '', requirements: ['Mục thứ 41'] }), 'x', 2)
-    expect(out.brief.requirements).toEqual(full)
-    expect(out.dropped).toBe(1)
+    // 0.8.7 L2: yêu cầu không còn trần cộng phần tràn: mục thứ 41 được giữ, không mục nào bị bỏ (ràng buộc vẫn có phần tràn, ca dưới).
+    expect(out.brief.requirements).toEqual([...full, 'Mục thứ 41'])
+    expect(out.dropped).toBe(0)
   })
 
   test(`ràng buộc: phần tràn đầy (${CAP_OVERFLOW} mục) thì ràng buộc mới bị bỏ và đếm ở dropped`, () => {

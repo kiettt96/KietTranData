@@ -50,11 +50,11 @@ describe('0.8.0 A3: mở đợt mới', () => {
   test('yêu cầu đầy 40 mục đều còn mở: mục mới thay mục cũ ở cuối, có danh sách mục bị thay, không có mục bị bỏ', () => {
     const prev = makeBrief({ tasks: [...SIX, oldTask(7, MORE_REQ.map((_, i) => 31 + i))], steps: [], requirements: [...BASE_REQ, ...MORE_REQ], requirementsBase: 30 })
     const out = run(prev, { relation: 'continue', goal: '', tasks: NEW_TASKS, requirements: FRESH_REQ }, NEW_PROMPT, { openSteps: ['Việc 1: phần cũ 1'], doneTasks: new Set() })
+    // 0.8.7 L2: yêu cầu không còn trần, nên mục mới được thêm, không thay mục nào; mọi mục cũ còn.
     for (const item of FRESH_REQ) expect(out.brief.requirements).toContain(item)
     expect(out.dropped).toBe(0)
-    expect(out.replaced.length).toBe(5)
-    expect(out.replaced).toContain('Yêu cầu thêm 10')
-    for (const item of BASE_REQ) expect(out.brief.requirements).toContain(item)
+    expect(out.replaced).toEqual([])
+    for (const item of [...BASE_REQ, ...MORE_REQ]) expect(out.brief.requirements).toContain(item)
   })
 
   test('router xếp new tin cậy 0.7 khi còn 3 bước mở: không lập mục tiêu mới, mở đợt mới', () => {

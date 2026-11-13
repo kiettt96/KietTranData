@@ -8,10 +8,13 @@
 import type { ModelCompleteRequest, ModelCompleteResult, ModelTextBlock, ModelUsage } from 'claude-code'
 
 import type { Brief, Choice, Depth, Effort, ForkSplit, Intent, Kind, ModelFamily, Relation, RouterFail, RouterFailKind, Task, Tier, Volume } from '../../types'
-import { FABLE_AGENT_TIMEOUT_MS, FABLE_DRIFT_TIMEOUT_MS, FABLE_LONG_TIMEOUT_MS, FABLE_PROMPT_TIMEOUT_MS, FABLE_REVIEW_TIMEOUT_MS, isBigGoal, isPendingGoal } from './conductor'
+import { isBigGoal, isPendingGoal } from './conductor'
+import { DEFAULT_CONDUCTOR, FAMILY_NAMES, conductorTimeouts } from './families'
 import type { PendingState } from './conductor'
-import { PRICE } from './cost'
+import { DEFAULT_WINDOWS, PRICE } from './cost'
 import type { Price } from './cost'
+import { BASE_CHARS, BASE_HEAD, BASE_TAIL, ROUTER_MAX_WAIT_MS, readPlan } from './reading'
+import type { ReadPlan, Reading } from './reading'
 import { EFFORTS, FAMILIES, applySession, avoidBlocked, codesIn, describePick, effortRank, familyOf, familyRank, sessionFloor } from './route'
 import type { SessionModel } from './route'
 import { DEPTHS, INTENTS, KINDS, RELATIONS, VOLUMES, maxTier, tierOf } from './scale'
@@ -49,10 +52,17 @@ const READ_ONLY_AGENTS = new Set(['Explore', 'Plan'])
 /** Dưới mức tin cậy này router được hỏi lại một lần. */
 export const LOW_CONFIDENCE = 0.4
 
-/** Giới hạn đọc và trả về. */
-const TASK_LIMIT = 20
-/** Yêu cầu router liệt kê (0.7.0): tối đa bấy nhiêu mục, mỗi mục bấy nhiêu ký tự; quá REQUIREMENTS_RECHECK thì đọc kiểm lại một lần ở effort cao. */
-const REQUIREMENT_LIMIT = 30
+/**
+ * Việc cũ gửi kèm request router và request chấm subagent (0.8.7 L2): chỉ là ngữ cảnh, giữ bấy nhiêu việc đầu như 0.8.6, quá thì thêm một
+ * dòng tổng số. Mục tiêu không còn trần số việc, số yêu cầu, số bước.
+ */
+const TASK_CONTEXT = 20
+/**
+ * Yêu cầu của mục tiêu trước gửi kèm request tiếp nối (0.7.5, 0.8.7 L2): như 0.8.6, chỉ các yêu cầu từ mục thứ bấy nhiêu trở đi, tối đa
+ * TASK_CONTEXT dòng kèm dòng số mục còn lại.
+ */
+const REQUIREMENT_CONTEXT = 30
+/** Mỗi yêu cầu bấy nhiêu ký tự; quá REQUIREMENTS_RECHECK yêu cầu thì đọc kiểm lại một lần ở effort cao. */
 /** Trần ràng buộc của brief (0.7.4). */
 const CONSTRAINT_LIMIT = 12
 /**
@@ -72,9 +82,6 @@ const MAX_TOKENS_CAP = 32_000
 /** Số bước đang mở của checklist hiện tại gửi kèm request router. */
 const OPEN_STEPS_LIMIT = 10
 const TEXT_LIMIT = 140
-const REQUEST_CHARS = 80_000
-const REQUEST_HEAD = 60_000
-const REQUEST_TAIL = 20_000
 /** Yêu cầu dài hơn ngưỡng này được thêm token và thời gian để router trả JSON trọn vẹn. */
 const LONG_REQUEST = 12_000
 const AGENT_PROMPT_CHARS = 8_000
@@ -120,8 +127,8 @@ Delegation:
 
 Reading the request:
 - goal: the end result the user wants, one sentence.
-- requirements: first list everything the request asks for, requires or forbids, one short item each in the user's words (under 100 characters, at most 30): every deliverable, rule, format, quality bar and constraint, including those hidden in paragraphs, tables or background text. Merge exact repeats and omit nothing: this is the checklist the work is checked against.
-- tasks: first, every heading with a code (K4.1, Bước 2, Task 3) is its own task, in the request's order, with the code at the start of its title: never merge coded headings with each other or with other pieces, even when they look alike, and the limit below does not apply to them. For work the request has not split by codes, split it the way that gets it done best, which need not follow how the request is laid out: merge pieces that are really one piece of work, and split a large piece into independent parts only when they can run separately. Each title is a short quote or summary (under 80 characters). Each task has "covers": the numbers (from 1) of the requirements it fulfils, and every requirement must be covered by at least one task. Apart from coded headings, at most 8 tasks. A request that is one piece of work has tasks [].
+- requirements: first list everything the request asks for, requires or forbids, one short item each in the user's words (under 100 characters; list every one, with no limit on how many): every deliverable, rule, format, quality bar and constraint, including those hidden in paragraphs, tables or background text. Merge exact repeats and omit nothing: this is the checklist the work is checked against.
+- tasks: first, every heading with a code (K4.1, Bước 2, Task 3) is its own task, in the request's order, with the code at the start of its title: never merge coded headings with each other or with other pieces, even when they look alike. For work the request has not split by codes, split it the way that gets it done best, which need not follow how the request is laid out: merge pieces that are really one piece of work, and split a large piece into independent parts only when they can run separately. Each title is a short quote or summary (under 80 characters). Each task has "covers": the numbers (from 1) of the requirements it fulfils, and every requirement must be covered by at least one task. There is no fixed limit on the number of tasks: list every separate piece of work the request has, and never merge separate pieces just to keep the list short. Steps of one piece of work (find the cause, fix it, test it, update its docs) are not tasks: they stay inside that piece and belong to the checklist. Order tasks in the order they are done: a task that another task needs comes first, and tasks of the same group stay next to each other. A request that is one piece of work has tasks [].
 - Run a task as "agent" only when it is truly independent: it needs no result of another task, does not edit the files another task edits, and is worth a fresh subagent prompt. Otherwise keep it on the main thread.
 - Items under "xong khi", "done when", "tiêu chí", "acceptance" or similar are quality criteria, never tasks. Background, context, definitions and notes are neither tasks nor constraints.
 - constraints: at most 6 hard rules (must, must not, only, format, scope), the most important first, each shortened to under 100 characters. A rule that sets a model for a kind of work (including "the session's model") is always the first constraint, kept with its model, and never dropped. quality: at most 5 acceptance criteria, same length.
@@ -228,10 +235,13 @@ function unique(items: readonly string[], max: number): string[] {
   return [...new Set(items)].slice(0, max)
 }
 
+/** Tên họ model trong prompt của người dùng (0.8.7 G1: dựng từ bảng họ model; với bốn họ hiện có trùng biểu thức cũ haiku|sonnet|opus|fable). */
+const MODEL_NAMES = new RegExp(`\\b(?:${FAMILY_NAMES.join('|')})\\b`)
+
 /** Ràng buộc nêu model cho một loại việc (họ model, hay "model/mô hình của phiên"): không bị thay khi đầy trần (0.7.5). */
 export function isModelRule(text: string): boolean {
   const folded = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase()
-  return /\b(?:haiku|sonnet|opus|fable)\b/.test(folded) || /(?:mo hinh|model) cua phien|session model/.test(folded)
+  return MODEL_NAMES.test(folded) || /(?:mo hinh|model) cua phien|session model/.test(folded)
 }
 
 /** Khóa so khớp của một mục (S1): bỏ dấu cách thừa và dấu câu cuối, không phân biệt hoa thường; hai mục cùng khóa là cùng một mục. */
@@ -281,8 +291,8 @@ function reclaimCarried(items: readonly string[], carried: number, incoming: rea
 }
 
 /**
- * Gộp yêu cầu mới vào danh sách có trần REQUIREMENT_LIMIT (0.7.5, S1): như mergeCapped, yêu cầu cùng khóa thay tại chỗ (số thứ tự
- * giữ nguyên nên `covers` của việc cũ vẫn đúng), yêu cầu khác được thêm khi còn chỗ trong trần cộng phần tràn, không thì bị bỏ và đếm.
+ * Gộp yêu cầu mới vào danh sách (0.7.5, S1): yêu cầu cùng khóa thay tại chỗ (số thứ tự giữ nguyên nên `covers` của việc cũ vẫn đúng),
+ * yêu cầu khác được thêm vào cuối; không còn trần số mục (0.8.7 L2), nên `dropped` luôn là 0.
  * `renumber` đổi số thứ tự trong lượt router sang số thứ tự trong danh sách đã gộp.
  */
 function mergeRequirements(prev: readonly string[], incoming: readonly string[]): { items: string[]; renumber: Map<number, number>; dropped: number } {
@@ -292,10 +302,10 @@ function mergeRequirements(prev: readonly string[], incoming: readonly string[])
   incoming.forEach((item, i) => {
     let at = indexOfKey(items, item)
     if (at >= 0) items[at] = item
-    else if (items.length < REQUIREMENT_LIMIT + CAP_OVERFLOW) {
+    else {
       items.push(item)
       at = items.length - 1
-    } else dropped += 1
+    }
     if (at >= 0) renumber.set(i + 1, at + 1)
   })
   return { items, renumber, dropped }
@@ -352,27 +362,34 @@ function rulesLines(constraints: readonly string[] | undefined): string[] {
   return items.length > 0 ? ['User rules of this goal (a rule that names a model for this kind of work must be followed, never a lower model):', ...items] : []
 }
 
+/** Dòng tổng số việc khi danh sách việc gửi router bị rút còn TASK_CONTEXT việc đầu (0.8.7 L2). */
+function totalLine(count: number): string[] {
+  return count > TASK_CONTEXT ? [`  (${count} tasks in total; the first ${TASK_CONTEXT} are listed)`] : []
+}
+
 function previousLines(prev: Brief | null, ran: string | null): string[] {
   if (prev === null) return ['Previous goal: none.']
-  const tasks = prev.tasks
-    .slice(0, TASK_LIMIT)
-    .map(t => `  ${t.index}. ${fence(t.title)} (${t.run === 'agent' ? `${fence(t.agentType ?? 'general-purpose')} ` : 'main '}${describePick(t.pick)})`)
+  const tasks = [
+    ...prev.tasks.slice(0, TASK_CONTEXT).map(t => `  ${t.index}. ${fence(t.title)} (${t.run === 'agent' ? `${fence(t.agentType ?? 'general-purpose')} ` : 'main '}${describePick(t.pick)})`),
+    ...totalLine(prev.tasks.length),
+  ]
   // Ràng buộc của mục tiêu trước (0.7.5), cắt gọn như khi chấm subagent: prompt tiếp nối ngắn không nhắc lại quy định model.
   const rules = ruleItems(prev.constraints)
   // Phần tràn (vòng rà soát 3): mục của prompt tiếp nối giữ ngoài trần luôn có trong request, kể cả khi ruleItems đã cắt.
-  const over = [...prev.constraints.slice(CONSTRAINT_LIMIT), ...(prev.requirements ?? []).slice(REQUIREMENT_LIMIT)]
+  const overRequirements = (prev.requirements ?? []).slice(REQUIREMENT_CONTEXT)
+  const over = [...prev.constraints.slice(CONSTRAINT_LIMIT), ...overRequirements.slice(0, TASK_CONTEXT)]
   return [
     `Previous goal${prev.isReference ? ' (a reference-only review: its tasks were routed for comparison, not run)' : ''}: ${fence(prev.goal)}`,
     ...(tasks.length > 0 ? ['Previous tasks:', ...tasks] : []),
     ...(rules.length > 0 ? ['Previous constraints (still hold on a follow-up; a rule that names a model for this kind of work must be followed):', ...rules] : []),
-    ...(over.length > 0 ? ['Previous follow-up items kept over the limit (still hold):', ...over.map(item => `  - ${fence(clip(item, 120))}`)] : []),
+    ...(over.length > 0 ? ['Previous follow-up items kept over the limit (still hold):', ...over.map(item => `  - ${fence(clip(item, 120))}`), ...(overRequirements.length > TASK_CONTEXT ? [`  (${overRequirements.length - TASK_CONTEXT} more requirements)`] : [])] : []),
     ...(prev.referenceMain ? [`Main thread the referenced prompt would need: ${describePick(prev.referenceMain)}`] : []),
     `Main thread ran: ${ran ?? 'unknown'}`,
   ]
 }
 
-/** Request đọc prompt và điều phối. System prompt được đánh dấu cache. */
-export function routerRequest(args: {
+/** Tham số của request đọc prompt (routerRequest, requestPlan). */
+export type RouterRequestArgs = {
   text: string
   prev: Brief | null
   /** Model và effort luồng chính đã thật sự chạy ở lượt trước (để nâng khi chưa đạt). */
@@ -395,8 +412,20 @@ export function routerRequest(args: {
   sessionFamily?: ModelFamily | null
   /** Lượt này gọi Fable điều phối (0.8.4 C2): thời gian chờ theo hằng FABLE_*_TIMEOUT_MS. */
   isFable?: boolean
-}): ModelCompleteRequest {
-  const isLong = args.text.length > LONG_REQUEST
+  /** Họ model, cửa sổ ngữ cảnh và thời gian chờ tối đa của lượt đọc (0.8.7 L3); vắng thì theo model, cửa sổ mặc định, 1.800 giây. */
+  reading?: Reading
+}
+
+/** Lượt đọc của request: họ model theo isFable hay tên model, cửa sổ mặc định của họ, thời gian chờ tối đa mặc định. */
+function readingOf(args: RouterRequestArgs): Reading {
+  if (args.reading !== undefined) return args.reading
+  // Lượt của họ điều phối (0.8.7 G1): họ theo tên model của lượt, không đọc được thì họ điều phối mặc định.
+  const family: ModelFamily = args.isFable === true ? (familyOf(args.model) ?? DEFAULT_CONDUCTOR) : (familyOf(args.model) ?? 'sonnet')
+  return { family, window: DEFAULT_WINDOWS[family], maxWaitMs: ROUTER_MAX_WAIT_MS }
+}
+
+/** Phần cố định của request (lời dặn và các dòng ngữ cảnh) và kế hoạch đọc prompt của lượt đó (0.8.7 L3). */
+function requestParts(args: RouterRequestArgs): { system: readonly ModelTextBlock[]; context: string[]; plan: ReadPlan } {
   const context = [
     ...previousLines(args.prev, args.ran),
     allowedLine(args.policy),
@@ -410,13 +439,29 @@ export function routerRequest(args: {
     ...(args.observed ? [`Observed in the previous turn (the main model's choice fell short; re-read the work and raise "main" model or effort if it is harder than first judged): ${fence(clip(args.observed, 400))}`] : []),
   ]
   const system: readonly ModelTextBlock[] = [{ text: routerSystem(args.prices), cache: true }].map(block => ({ text: args.policy.conductor === true ? conductorRule(splitRule(block.text, args.policy.forks ?? 0)) : splitRule(block.text, args.policy.forks ?? 0), cache: true as const }))
+  const fixedChars = system.reduce((sum, block) => sum + block.text.length, 0) + context.join('\n').length
+  return { system, context, plan: readPlan(readingOf(args), args.text.length, fixedChars) }
+}
+
+/** Kế hoạch đọc prompt của request (0.8.7 L3): sức chứa, phần đầu và cuối khi cắt, giới hạn đã chạm, thông số của lượt đọc trọn. */
+export function requestPlan(args: RouterRequestArgs): ReadPlan {
+  return requestParts(args).plan
+}
+
+/**
+ * Request đọc prompt và điều phối. System prompt được đánh dấu cache. Mọi model router đọc trọn prompt tới sức chứa của lượt đó (0.8.7
+ * L3); prompt không quá 80.000 ký tự thì request như 0.8.6.
+ */
+export function routerRequest(args: RouterRequestArgs): ModelCompleteRequest {
+  const isLong = args.text.length > LONG_REQUEST
+  const { system, context, plan } = requestParts(args)
   return {
     model: args.model,
     system,
-    prompt: `<context>\n${context.join('\n')}\n</context>\n\n<request>\n${fence(capText(args.text, REQUEST_CHARS, REQUEST_HEAD, REQUEST_TAIL))}\n</request>`,
-    maxTokens: isLong ? 16_000 : 8_000,
+    prompt: `<context>\n${context.join('\n')}\n</context>\n\n<request>\n${fence(capText(args.text, plan.capacity, plan.head, plan.tail))}\n</request>`,
+    maxTokens: plan.isFull ? plan.maxTokens : isLong ? 16_000 : 8_000,
     effort: 'medium',
-    timeoutMs: args.isFable === true ? (isLong ? FABLE_LONG_TIMEOUT_MS : FABLE_PROMPT_TIMEOUT_MS) : isLong ? 120_000 : 45_000,
+    timeoutMs: plan.isFull ? plan.timeoutMs : args.isFable === true ? (isLong ? conductorTimeouts(familyOf(args.model)).long : conductorTimeouts(familyOf(args.model)).prompt) : isLong ? 120_000 : 45_000,
   }
 }
 
@@ -441,7 +486,7 @@ export function agentRouterRequest(args: {
   /** Model người dùng chạy phiên (0.7.4). */
   sessionFamily?: ModelFamily | null
 }): ModelCompleteRequest {
-  const tasks = (args.tasks ?? []).slice(0, TASK_LIMIT)
+  const tasks = (args.tasks ?? []).slice(0, TASK_CONTEXT)
   const asked = [
     args.subagentType ? `agent type ${fence(args.subagentType)}` : '',
     args.requested.model ? `model ${fence(args.requested.model)}` : '',
@@ -453,7 +498,7 @@ export function agentRouterRequest(args: {
     ...(args.isWorkflow ? ['Started by a workflow script.'] : []),
     `The main thread asked for: ${asked.length > 0 ? asked.join(', ') : 'nothing specific'}.`,
     ...(args.failed.length > 0 ? ['Failed pieces in this goal:', ...args.failed.map(f => `  - ${fence(f)}`)] : []),
-    ...(tasks.length > 0 ? ['Tasks of the goal:', ...tasks.map(t => `  ${t.index}. ${fence(t.title)}`)] : []),
+    ...(tasks.length > 0 ? ['Tasks of the goal:', ...tasks.map(t => `  ${t.index}. ${fence(t.title)}`), ...totalLine((args.tasks ?? []).length)] : []),
     ...rulesLines(args.constraints),
     allowedLine(args.policy),
     ...sessionLine(args.sessionFamily),
@@ -467,7 +512,7 @@ export function agentRouterRequest(args: {
     prompt: `<context>\n${context.join('\n')}\n</context>\n\n<task>\nDescription: ${fence(args.description)}\n${fence(task)}\n</task>`,
     maxTokens: 2_000,
     effort: 'low',
-    timeoutMs: args.isFable === true ? FABLE_AGENT_TIMEOUT_MS : 20_000,
+    timeoutMs: args.isFable === true ? conductorTimeouts(familyOf(args.model)).agent : 20_000,
   }
 }
 
@@ -500,19 +545,16 @@ function strings(value: unknown, max: number): string[] {
   )
 }
 
-/** Yêu cầu của prompt do router liệt kê: chuỗi không rỗng, cắt ngắn, không trùng, tối đa REQUIREMENT_LIMIT mục. */
+/** Yêu cầu của prompt do router liệt kê: chuỗi không rỗng, cắt ngắn, không trùng; không có trần số mục (0.8.7 L2). */
 function requirementsOf(value: unknown): string[] {
   if (!Array.isArray(value)) return []
-  return unique(
-    value.filter((s): s is string => typeof s === 'string' && s.trim() !== '').map(s => clip(s.trim(), REQUIREMENT_CHARS)),
-    REQUIREMENT_LIMIT,
-  )
+  return [...new Set(value.filter((s): s is string => typeof s === 'string' && s.trim() !== '').map(s => clip(s.trim(), REQUIREMENT_CHARS)))]
 }
 
-/** Số thứ tự yêu cầu một việc phủ: số nguyên từ 1 tới REQUIREMENT_LIMIT, không trùng; undefined khi router không ghi mảng. */
+/** Số thứ tự yêu cầu một việc phủ: số nguyên từ 1, không trùng; undefined khi router không ghi mảng. parseRoute lọc theo số yêu cầu thật. */
 function coversOf(value: unknown): number[] | undefined {
   if (!Array.isArray(value)) return undefined
-  return [...new Set(value.filter((n): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= REQUIREMENT_LIMIT))]
+  return [...new Set(value.filter((n): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 1))]
 }
 
 /**
@@ -712,8 +754,6 @@ export type RouterPlan = {
   tasks: Task[]
   /** Lý do các lần kẹp, để ghi nhật ký. */
   notes: string[]
-  /** Số việc router chia vượt TASK_LIMIT bị bỏ (0.7.5); vắng khi không cắt. */
-  droppedTasks?: number
   /** Số split bị bỏ vì phiên con đang tắt (0.7.9 F1, option forks hay engine từ chối); vắng khi không có. */
   droppedSplits?: number
   /** Người dùng nói rõ không cần duyệt kế hoạch (0.8.2 N2); vắng là false. Chỉ có nghĩa ở mục tiêu mới. */
@@ -945,7 +985,7 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
   const conductNotes: string[] = []
   const splitNotes: string[] = []
   let droppedSplits = 0
-  for (const item of rawTasks.slice(0, TASK_LIMIT)) {
+  for (const item of rawTasks) {
     const read = parseTask(item, tasks.length + 1, main.pick, whole, policy)
     if (!read) continue
     const isConductedEdit = isConducting && read.run === 'main' && (read.kind === 'edit' || read.kind === 'mixed')
@@ -960,6 +1000,10 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
     if (task.run === 'main') held.push({ index: task.index, pick: rawPick(item) ?? own })
   }
   const lead = isReference ? main : floorMain(liftMain(main, held, kind, policy), depth, kind, policy)
+  // covers chỉ nhận số thứ tự của yêu cầu có thật trong lượt này (0.8.7 L2: không còn trần 30).
+  const requirements = requirementsOf(raw['requirements'])
+  const inRange = tasks.map(t => (t.covers !== undefined ? { ...t, covers: t.covers.filter(n => n <= requirements.length) } : t))
+  tasks.splice(0, tasks.length, ...inRange)
   const mainWhy = typeof raw['main'] === 'object' && raw['main'] !== null ? text((raw['main'] as Raw)['why']) : ''
   // Câu hỏi làm rõ (0.8.2 N2): chuỗi không rỗng, không trùng, tối đa QUESTION_LIMIT câu, mỗi câu cắt ở QUESTION_CHARS ký tự.
   const questions = Array.isArray(raw['questions'])
@@ -973,7 +1017,7 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
     isReference,
     runReference,
     goal,
-    requirements: requirementsOf(raw['requirements']),
+    requirements,
     constraints: strings(raw['constraints'], 10),
     quality: strings(raw['quality'], 8),
     scope: strings(raw['scope'], 10).filter(isPathLike),
@@ -985,7 +1029,6 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
     ...(referenceMain ? { referenceMain } : {}),
     tasks,
     notes: [...lead.notes, ...splitNotes, ...conductNotes],
-    ...(rawTasks.length > TASK_LIMIT ? { droppedTasks: rawTasks.length - TASK_LIMIT } : {}),
     ...(droppedSplits > 0 ? { droppedSplits } : {}),
     ...(raw['skipApproval'] === true ? { skipApproval: true } : {}),
     ...(questions.length > 0 ? { questions } : {}),
@@ -999,9 +1042,6 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
 export function clampIntent(intent: Intent, isPresented: boolean): Intent {
   return intent === 'approve' && !isPresented ? 'resume' : intent
 }
-
-/** Số việc tối đa router phân cho một prompt. */
-export const ROUTER_TASK_LIMIT = TASK_LIMIT
 
 /** Kết quả router chấm cho một subagent. */
 export type AgentRoute = {
@@ -1126,7 +1166,7 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number, isHeld = 
   // yêu cầu mới thay yêu cầu cũ (0.7.5): việc cũ không còn phủ chỗ bị thay. Đợt mới (0.8.0 A3): đầy thì mục mới thay mục cũ ở cuối.
   const reqBase = prev.requirementsBase ?? (prev.requirements ?? []).length
   const merged = isPhase
-    ? mergeReplacing(prev.requirements ?? [], plan.requirements, REQUIREMENT_LIMIT, (_item, at) => at < reqBase)
+    ? mergeReplacing(prev.requirements ?? [], plan.requirements, Number.POSITIVE_INFINITY, (_item, at) => at < reqBase)
     : { ...mergeRequirements(prev.requirements ?? [], plan.requirements), replaced: [] as string[], lost: new Set<number>() }
   const { items: requirements, renumber, dropped: lostRequirements } = merged
   const reclaimed = reclaimCarried(prev.constraints, prev.carriedRules ?? 0, plan.constraints)
@@ -1186,7 +1226,7 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number, isHeld = 
 export function promoteReference(prev: Brief, plan: RouterPlan, prompt: string, now: number): Brief {
   // Ràng buộc, tiêu chí và phạm vi của prompt đính kèm được giữ từ lượt đối chiếu: lượt chạy thật phải có đủ. Cả hai lượt là prompt
   // lập mục tiêu nên mọi mục đều thuộc phần không bao giờ bị thay.
-  const mergedRequirements = mergeCapped(prev.requirements ?? [], plan.requirements, REQUIREMENT_LIMIT).items
+  const mergedRequirements = mergeCapped(prev.requirements ?? [], plan.requirements, Number.POSITIVE_INFINITY).items
   const mergedConstraints = mergeCapped(prev.constraints, plan.constraints, CONSTRAINT_LIMIT).items
   return {
     ...briefOf(plan, prompt, prev.goalId + 1, now),
@@ -1262,8 +1302,8 @@ export function retryRequest(
   request: ModelCompleteRequest,
   previous: string,
   problem: 'json' | 'confidence' | 'coverage',
-  /** Timeout còn lại của hạn chung và việc câu trả lời trước bị cắt vì hết token (0.7.2). */
-  opts: { timeoutMs?: number; truncated?: boolean; isFable?: boolean } = {},
+  /** Timeout còn lại của hạn chung và việc câu trả lời trước bị cắt vì hết token (0.7.2). `full`: request là lượt đọc trọn (0.8.7 L3). */
+  opts: { timeoutMs?: number; truncated?: boolean; isFable?: boolean; full?: { tokenCap: number } } = {},
 ): ModelCompleteRequest {
   const note =
     problem === 'json' && opts.truncated === true
@@ -1279,9 +1319,11 @@ export function retryRequest(
     prompt: `${prompt}\n\n<previous_answer>\n${fence(clip(previous, 6000))}\n</previous_answer>\n${note}`,
     // Kiểm lại phủ yêu cầu ở effort medium: đo thật cho thấy effort high hết giờ 45 giây ở 4 trên 5 lượt (0.7.2).
     // Fable điều phối (0.8.4 C2): effort không quá medium, nên lượt đọc lại vì tin cậy thấp chạy medium.
-    effort: problem === 'json' ? 'low' : problem === 'coverage' || opts.isFable === true ? 'medium' : 'high',
+    // Lượt đọc trọn (0.8.7 L3) hỏi lại ở effort không quá medium với mọi model.
+    effort: problem === 'json' ? 'low' : problem === 'coverage' || opts.isFable === true || opts.full !== undefined ? 'medium' : 'high',
     ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
-    ...(opts.truncated === true ? { maxTokens: Math.min(MAX_TOKENS_CAP, Math.round((request.maxTokens ?? 8_000) * TRUNCATION_GROWTH)) } : {}),
+    // Lượt đọc trọn (0.8.7 L3): trần của lượt hỏi lại là 1,5 lần maxTokens của lượt đó, không cao hơn mức engine báo (full.tokenCap).
+    ...(opts.truncated === true ? { maxTokens: opts.full !== undefined ? opts.full.tokenCap : Math.min(MAX_TOKENS_CAP, Math.round((request.maxTokens ?? 8_000) * TRUNCATION_GROWTH)) } : {}),
   }
 }
 
@@ -1292,6 +1334,10 @@ export type RouterOutcome<T> = {
   /** Usage của mọi lượt gọi (lượt đầu và lượt hỏi lại). */
   usages: ModelUsage[]
   retried: boolean
+  /** Lượt đọc trọn hết giờ và lượt thử lại đã gửi request dự phòng (0.8.7 L1): kết quả, nếu có, là của request đã cắt theo trần thường. */
+  fellBack?: true
+  /** Lượt đầu của Fable bị API từ chối và lượt sau đã gửi họ dự phòng (0.8.7 F1): usage đầu là của Fable, các usage sau của họ dự phòng. */
+  viaFallback?: true
   /** Loại lỗi khi không có kết quả (0.7.2); null khi có kết quả. */
   failure: RouterFailKind | null
   /** Giới hạn của request đã gửi và số token đầu ra của lượt gọi cuối, để biết lỗi do hết giờ hay bị cắt (0.7.2). */
@@ -1332,7 +1378,7 @@ export async function askRouter<T extends { confidence?: number }>(
   /** Câu trả lời đã đọc được nhưng cần đọc kiểm lại một lần ở effort cao (ví dụ quá nhiều yêu cầu): 0.7.0. */
   recheck?: (result: T) => boolean,
   /** Đồng hồ (mặc định Date.now) và hạn chung cho mọi lượt gọi (mặc định 1,5 lần timeout của request): 0.7.2. */
-  opts: { now?: () => number; budgetMs?: number; retryMissingConfidence?: boolean; isFable?: boolean } = {},
+  opts: { now?: () => number; budgetMs?: number; retryMissingConfidence?: boolean; isFable?: boolean; fallback?: ModelCompleteRequest; full?: { tokenCap: number }; apiFallback?: ModelCompleteRequest } = {},
 ): Promise<RouterOutcome<T>> {
   const now = opts.now ?? Date.now
   const budget = opts.budgetMs ?? Math.round((request.timeoutMs ?? 45_000) * BUDGET_FACTOR)
@@ -1340,6 +1386,24 @@ export async function askRouter<T extends { confidence?: number }>(
   const first = await ask(request).catch(() => null)
   const usages = first ? [first.usage] : []
   const limits = (last: ModelCompleteResult | null) => ({ timeoutMs: request.timeoutMs ?? null, maxTokens: request.maxTokens ?? null, outputTokens: last ? last.usage.output_tokens : null })
+  // Lượt đọc của Fable bị API từ chối (0.8.7 F1): gửi cùng request trọn cho họ điều phối dự phòng, với thời gian chờ và maxTokens của họ đó;
+  // không kiểm hạn chung. Hết giờ thì vẫn theo nhánh dự phòng của L3 bên dưới.
+  const apiFallback = opts.apiFallback
+  if (apiFallback !== undefined && first !== null && !first.isAnswered && first.reason === 'api-error') {
+    const again = await ask(apiFallback).catch(() => null)
+    if (again) usages.push(again.usage)
+    const result = again?.isAnswered ? parse(again.text) : null
+    return { result, reason: result === null ? failureReason(again) : '', usages, retried: true, viaFallback: true, failure: result === null ? failureKind(again) : null, ...limits(again ?? first) }
+  }
+  // Lượt đọc trọn hết giờ hay bị API từ chối (0.8.7 L3): thử lại một lần bằng request dự phòng (cắt theo trần cũ) với trọn thời gian chờ
+  // của nó, không lấy phần còn lại của hạn chung.
+  const fallback = opts.fallback
+  if (fallback !== undefined && first !== null && !first.isAnswered && (first.reason === 'aborted' || first.reason === 'api-error')) {
+    const again = await ask(fallback).catch(() => null)
+    if (again) usages.push(again.usage)
+    const result = again?.isAnswered ? parse(again.text) : null
+    return { result, reason: result === null ? failureReason(again) : '', usages, retried: true, fellBack: true, failure: result === null ? failureKind(again) : null, ...limits(again ?? first) }
+  }
   // Hết giờ chờ (0.7.5): thử lại đúng một lần cùng request nếu hạn chung còn ít nhất RETRY_MIN_MS, với thời gian chờ là phần còn lại.
   if (first !== null && !first.isAnswered && first.reason === 'aborted') {
     const left = budget - (now() - startedAt)
@@ -1364,7 +1428,7 @@ export async function askRouter<T extends { confidence?: number }>(
   const isAffordable = problem === 'coverage' ? spent <= budget / 2 : budget - spent >= RETRY_MIN_MS
   if (!isAffordable) return settled(false)
   const isTruncated = firstResult === null && request.maxTokens !== undefined && first.usage.output_tokens >= request.maxTokens * 0.98
-  const second = await ask(retryRequest(request, first.text, problem, { timeoutMs: Math.min(request.timeoutMs ?? budget, budget - spent), truncated: isTruncated, ...(opts.isFable === true ? { isFable: true } : {}) })).catch(() => null)
+  const second = await ask(retryRequest(request, first.text, problem, { timeoutMs: Math.min(request.timeoutMs ?? budget, budget - spent), truncated: isTruncated, ...(opts.isFable === true ? { isFable: true } : {}), ...(opts.full !== undefined ? { full: opts.full } : {}) })).catch(() => null)
   if (second) usages.push(second.usage)
   const secondResult = second?.isAnswered ? parse(second.text) : null
   // Thiếu confidence xếp thấp nhất khi bật retryMissingConfidence: lần hai thắng khi nó có confidence và lần đầu không có hay thấp hơn.
@@ -1376,18 +1440,29 @@ export async function askRouter<T extends { confidence?: number }>(
   return { result: pick, reason: pick === null ? failureReason(second) : '', usages, retried: true, failure: pick === null ? failureKind(second) : null, ...limits(second ?? first) }
 }
 
-/** Prompt dài hơn REQUEST_CHARS bị router lược phần giữa (0.7.8 G8). */
-export function isClippedPrompt(text: string): boolean {
-  return text.length > REQUEST_CHARS
+/** Prompt dài hơn sức chứa của lượt router đó bị lược phần giữa (0.7.8 G8; 0.8.7 L3: sức chứa theo requestPlan, mặc định trần cũ). */
+export function isClippedPrompt(text: string, capacity = BASE_CHARS): boolean {
+  return text.length > capacity
 }
 
 function grouped(n: number): string {
   return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.')
 }
 
-/** Cảnh báo model khi router lược phần giữa của prompt (0.7.8 G8). */
-export function clippedWarning(length: number): string {
-  return `Prompt dài ${grouped(length)} ký tự; router chỉ đọc ${grouped(REQUEST_HEAD)} ký tự đầu và ${grouped(REQUEST_TAIL)} ký tự cuối`
+/** Lý do prompt bị lược (0.8.7 L3): chạm sức chứa của model, chạm thời gian chờ tối đa, hay kết quả là của lượt dự phòng. */
+const CLIP_REASONS = {
+  window: 'chạm sức chứa của model',
+  time: 'chạm thời gian chờ tối đa, option routerMaxWait',
+  fallback: 'lượt đọc trọn lỗi nên dùng lượt đọc rút gọn',
+} as const
+
+/**
+ * Cảnh báo model khi router lược phần giữa của prompt (0.7.8 G8). Từ 0.8.7 L3 ghi phần đầu và phần cuối của lượt đó, họ model và giới
+ * hạn đã chạm; không có `info` thì như 0.8.6 (60.000 và 20.000).
+ */
+export function clippedWarning(length: number, info?: { family: ModelFamily; head: number; tail: number; limit: keyof typeof CLIP_REASONS }): string {
+  const base = `Prompt dài ${grouped(length)} ký tự; router chỉ đọc ${grouped(info?.head ?? BASE_HEAD)} ký tự đầu và ${grouped(info?.tail ?? BASE_TAIL)} ký tự cuối`
+  return info === undefined ? base : `${base} (model ${info.family}, ${CLIP_REASONS[info.limit]})`
 }
 
 /** Dòng context kèm prompt bị lược (0.7.8 G8), tối đa 200 ký tự. */
@@ -1637,7 +1712,7 @@ export function driftRequest(args: { goal: string; steps: readonly string[]; com
     ...(args.paths.length > 0 ? ['Files touched:', ...args.paths.slice(-15).map(p => `  ${fence(p)}`)] : []),
   ]
   const system: readonly ModelTextBlock[] = [{ text: DRIFT_SYSTEM, cache: true }]
-  return { model: args.model, system, prompt: `<context>\n${lines.join('\n')}\n</context>`, maxTokens: 1_000, effort: 'low', timeoutMs: args.isFable === true ? FABLE_DRIFT_TIMEOUT_MS : 20_000 }
+  return { model: args.model, system, prompt: `<context>\n${lines.join('\n')}\n</context>`, maxTokens: 1_000, effort: 'low', timeoutMs: args.isFable === true ? conductorTimeouts(familyOf(args.model)).drift : 20_000 }
 }
 
 export type DriftVerdict = { onTrack: boolean; why: string; confidence?: number }
@@ -1669,7 +1744,7 @@ export function planReviewRequest(args: { goal: string; requirements: readonly s
     ...args.steps.slice(0, 40).map((step, i) => `${i + 1}. ${fence(clip(step.title, 200))}${step.check ? ` (check: ${fence(clip(step.check, 200))})` : ' (no check)'}`),
   ]
   const system: readonly ModelTextBlock[] = [{ text: PLAN_REVIEW_SYSTEM, cache: true }]
-  return { model: args.model, system, prompt: `<context>\nGoal: ${fence(clip(args.goal, 200))}\n</context>\n\n<request>\n${lines.join('\n')}\n</request>`, maxTokens: 1_000, effort: 'medium', timeoutMs: args.isFable === true ? FABLE_REVIEW_TIMEOUT_MS : 30_000 }
+  return { model: args.model, system, prompt: `<context>\nGoal: ${fence(clip(args.goal, 200))}\n</context>\n\n<request>\n${lines.join('\n')}\n</request>`, maxTokens: 1_000, effort: 'medium', timeoutMs: args.isFable === true ? conductorTimeouts(familyOf(args.model)).review : 30_000 }
 }
 
 export type PlanReview = { missing: number[]; extra: number[]; issues: string[]; confidence?: number }

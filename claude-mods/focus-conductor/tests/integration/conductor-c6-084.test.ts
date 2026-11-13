@@ -10,7 +10,9 @@ import type { Json, Seen } from '../support/engine'
 
 const LOG = '/tmp/fc-conductor-c6-084.jsonl'
 const FABLE = { options: { planApproval: 'off', conductor: 'fable', decisionLog: LOG } }
-const ID = 'claude-fable-5-2'
+/** 0.8.7 F1: các ca mô tả cách chạy khi Fable không dùng được mà không có họ dự phòng. */
+const NO_FALLBACK = { options: { ...FABLE.options, conductorFallback: 'off' } }
+const ID = 'fable'
 const BIG = (over: Json = {}) => plan({ goal: 'Sửa luồng thanh toán', depth: 'substantial', volume: 'medium', kind: 'edit', main: { model: 'sonnet', effort: 'medium', why: '' }, ...over })
 const FOLLOW = plan({ relation: 'continue', goal: '', depth: 'substantial', volume: 'medium', kind: 'edit', main: { model: 'sonnet', effort: 'medium', why: '' } })
 const PAUSE_TEXT = 'Fable điều phối tạm ngừng'
@@ -33,7 +35,7 @@ function setup(on: Parameters<typeof base>[0], fable: (n: number) => Json | stri
 const paneTexts = async ($: Engine) => (await (await $.ui.mount(PANE)).findAll({ type: 'Text' })).map(e => e.text).join('\n')
 
 describe('0.8.4 C6: router Fable tạm ngừng rồi thử lại', () => {
-  test('lỗi API hai prompt liên tiếp: prompt 3 tới 5 gửi sonnet với 45 giây, đúng một cảnh báo và nhãn; prompt 6 gửi lại Fable', FABLE, async ($, on) => {
+  test('lỗi API hai prompt liên tiếp: prompt 3 tới 5 gửi sonnet với 45 giây, đúng một cảnh báo và nhãn; prompt 6 gửi lại Fable', NO_FALLBACK, async ($, on) => {
     const { seen, lines } = setup(on, () => null)
     for (let i = 0; i < 6; i++) await submit($, i === 0 ? 'Sửa luồng thanh toán' : `làm tiếp bước ${i}`)
     expect(prompts(seen).map(c => c.model)).toEqual([ID, ID, 'sonnet', 'sonnet', 'sonnet', ID])
@@ -42,7 +44,7 @@ describe('0.8.4 C6: router Fable tạm ngừng rồi thử lại', () => {
     expect(lines().filter(l => l['kind'] === 'conductor' && String(l['reason'] ?? '').includes('tạm ngừng')).length).toBe(1)
   })
 
-  test('trong lúc tạm ngừng: status và pane có nhãn Fable tạm ngừng, cảnh báo model nêu model thay', FABLE, async ($, on) => {
+  test('trong lúc tạm ngừng: status và pane có nhãn Fable tạm ngừng, cảnh báo model nêu model thay', NO_FALLBACK, async ($, on) => {
     const { seen } = setup(on, () => null)
     for (let i = 0; i < 3; i++) await submit($, i === 0 ? 'Sửa luồng thanh toán' : `làm tiếp bước ${i}`)
     expect(seen.statuses.at(-1) ?? '').toContain('Fable tạm ngừng')
@@ -51,7 +53,7 @@ describe('0.8.4 C6: router Fable tạm ngừng rồi thử lại', () => {
     expect(pane).toContain('sonnet')
   })
 
-  test('hot reload giữa lúc tạm ngừng: vẫn tạm ngừng, số prompt còn lại giữ nguyên', FABLE, async ($, on) => {
+  test('hot reload giữa lúc tạm ngừng: vẫn tạm ngừng, số prompt còn lại giữ nguyên', NO_FALLBACK, async ($, on) => {
     const { seen } = setup(on, () => null)
     on('tool.register', () => ({ value: { tool: 'mcp__focus-conductor__plan' } }) as never)
     on('command.register', () => ({ value: { command: 'conductor' } }) as never)
@@ -76,7 +78,7 @@ describe('0.8.4 C6: router Fable tạm ngừng rồi thử lại', () => {
     expect(seen.toasts.some(t => t.includes(PAUSE_TEXT))).toBe(false)
   })
 
-  test('trong lúc tạm ngừng, mục tiêu lớn: luồng chính theo main của router, không gửi Fable', FABLE, async ($, on) => {
+  test('trong lúc tạm ngừng, mục tiêu lớn: luồng chính theo main của router, không gửi Fable', NO_FALLBACK, async ($, on) => {
     const { seen } = setup(on, n => (n === 0 ? BIG() : null))
     for (let i = 0; i < 3; i++) await submit($, i === 0 ? 'Sửa luồng thanh toán' : `làm tiếp bước ${i}`)
     const ran = await step($, seen, { turnId: 't3' })
@@ -132,7 +134,7 @@ describe('0.8.4 W4: nhật ký nguyên nhân, lượt kiểm lạc đề và ID 
     expect(reasons).toEqual(['chế độ điều phối không phải auto', 'router Fable tạm ngừng sau các lần lỗi', 'chế độ điều phối không phải auto'])
   })
 
-  test('hai lượt kiểm lạc đề gửi Fable đều lỗi: router Fable tạm ngừng, prompt kế gửi router cũ', FABLE, async ($, on) => {
+  test('hai lượt kiểm lạc đề gửi Fable đều lỗi: router Fable tạm ngừng, prompt kế gửi router cũ', NO_FALLBACK, async ($, on) => {
     const seen = base(on, { router: () => (seen.routerModels.at(-1) === ID ? BIG() : FOLLOW), drift: () => null })
     on('turn.complete', () => ({ text: '' }))
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))

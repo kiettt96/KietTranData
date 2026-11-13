@@ -5,7 +5,7 @@ import { caught } from '../lib/errlog'
 import type { ModelFamily, Warning } from '../../types'
 import { newTracker } from '../lib/drift'
 import { DEFAULT_CONTEXT, fixedContextTokens } from '../lib/cost'
-import { EFFORTS, familyOf, resolveModelId } from '../lib/route'
+import { EFFORTS, engineTakesAlias, familyOf } from '../lib/route'
 import { EMPTY_QUOTA, normalizeQuota, quotaSettings } from '../lib/quota'
 import * as S from '../lib/state'
 import type { View } from '../lib/state'
@@ -45,7 +45,7 @@ async function showStatus($: EngineInterface, current: View, options: Ctx['optio
 
 export function registerTurn(on: On, ctx: Ctx): void {
   const L = ctx.local
-  const { agents, blocked, blockedUntil, decideTurn, expireBlocks, failures, isCacheFree, modelMap, noteContext, steppedEarly } = ctx
+  const { agents, blocked, blockedUntil, decideTurn, expireBlocks, failures, isCacheFree, noteContext, steppedEarly } = ctx
   const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
   const mode = derive([modeState], modeOf(ctx.options))
 
@@ -65,6 +65,8 @@ export function registerTurn(on: On, ctx: Ctx): void {
 
   on('turn.step', async function* ($, e, next) {
     const current = await read($, mode)
+    // Engine có nhận alias ở turn.step không (0.8.7 M1): đọc một lần mỗi phiên; engine không trả phiên bản thì coi là engine cũ.
+    if (L.aliasEngine === null) L.aliasEngine = engineTakesAlias((await $.session.version().catch(() => null))?.version ?? '')
     // Subagent: ép effort (và model, với agent workflow không do script chọn) theo điều phối đã ghi.
     if (e.agentId !== undefined) {
       const agent = agents.get(e.agentId)
@@ -79,7 +81,7 @@ export function registerTurn(on: On, ctx: Ctx): void {
         return yield* next(e)
       }
       const effort = agent.pick.effort
-      const model = agent.enforceModel ? resolveModelId(agent.pick.family, e.model, modelMap) : e.model
+      const model = agent.enforceModel ? ctx.stepModelId(agent.pick.family, e.model) : e.model
       const sent = EFFORTS.find(x => x === effort)
       if (sent !== undefined) agent.sentEffort = sent
       if (model === e.model && effort === e.effort) return yield* next(e)
@@ -156,7 +158,7 @@ export function registerTurn(on: On, ctx: Ctx): void {
     if (route === null || current === 'suggest') return yield* next(e)
 
     // Chốt model + effort cho mọi step của turn: đổi giữa chừng sẽ mất cache.
-    const input = { ...e, model: resolveModelId(route.family, e.model, modelMap), effort: route.effort }
+    const input = { ...e, model: ctx.stepModelId(route.family, e.model), effort: route.effort }
     const isOverridden = input.model !== e.model
     const stream = next(input)
     let chunks = 0
@@ -176,6 +178,9 @@ export function registerTurn(on: On, ctx: Ctx): void {
     // Model được chọn không phản hồi (không có quyền, bị chặn, sai ID, hoặc
     // lỗi tạm thời): quay về model của engine cho phần còn lại của turn. Chỉ
     // chặn họ model khi lỗi ở hai turn liên tiếp.
+    // Fable không phản hồi ở turn của mục tiêu đang được điều phối (0.8.7 F1): phần còn lại của turn chạy họ dự phòng ở effort medium.
+    const coreNow = S.normalizeCore(await read($, coreState))
+    const takeover = route.family === ctx.conductorOption && ctx.isConducting(coreNow, current) ? ctx.fallbackUsable(coreNow) : null
     const previous = failures.get(route.family)
     const count = previous && L.turnCount - previous.lastTurn <= 1 ? previous.count + 1 : 1
     failures.set(route.family, { count, lastTurn: L.turnCount })
@@ -183,6 +188,15 @@ export function registerTurn(on: On, ctx: Ctx): void {
     if (isBlocked) {
       blocked.add(route.family)
       blockedUntil.set(route.family, L.turnCount + BLOCK_TURNS)
+    }
+    if (takeover !== null) {
+      const handed = { ...route, family: takeover, effort: 'medium' as const }
+      L.turnRoute = { turnId: e.turnId, route: handed }
+      const handAt = await $.clock.now()
+      const handText = `${input.model} không phản hồi${isBlocked ? ` ${count} turn liên tiếp, tạm ngừng dùng ${route.family} trong ${BLOCK_TURNS} turn` : ''}; phần còn lại của turn chạy ${takeover}/medium (dự phòng)`
+      await update($, coreState, c => S.withWarnings({ at: handAt, kind: 'model', text: handText })(S.withRoute(handed)(c)))
+      $.ui.toast(handText)
+      return yield* next({ ...e, model: ctx.stepModelId(takeover, e.model), effort: 'medium' })
     }
     L.turnRoute = { turnId: e.turnId, route: null }
     const text = isBlocked

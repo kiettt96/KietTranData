@@ -2,6 +2,197 @@
 
 Số đo của HEAD hiện tại và của các bản trước. Mọi số do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển] trừ khi nêu khác; hợp đồng đối chiếu evidence ở [DESIGN.md](DESIGN.md), lịch sử thay đổi ở [CHANGELOG.md](../CHANGELOG.md), cách dùng ở [README](../README.md).
 
+## Kiểm chứng của 0.8.7 (router đọc trọn prompt, bỏ trần số lượng, model mới nhất, vai điều phối dự phòng và theo họ model)
+
+Nhánh tách từ `main` `45b5161` (0.8.6). Thứ tự L1 (phần dùng lại), L2, L3, H1, B1; mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `087-*`; không amend, không force-push, không merge [Đo trực tiếp]. Bộ test, kiểm tĩnh và đột biến chạy trên engine 2.1.296 cài riêng ngoài repo. Lượt gọi model thật (golden, đo tốc độ đọc) chạy trên engine của phiên phát triển, ghi ở từng mục.
+
+- **Tái hiện trên `45b5161`** [Đo trực tiếp, probe ngoài repo]:
+  - L2: router trả 45 việc, 60 yêu cầu thì chỉ còn 20 việc và 30 yêu cầu kèm cảnh báo; `plan set` 45 bước báo bỏ 25 bước vượt giới hạn 20. Như nhau ở `conductor` tắt và `fable`.
+  - L3: `conductor` tắt, prompt 238.489 ký tự có dấu ở ký tự 120.000: request không chứa dấu; có cảnh báo "router chỉ đọc" và `CLIPPED_CONTEXT`.
+  - H1: phiên `headlessOff` có mode off; `/conductor status` không nêu lý do.
+  - B1: chuỗi sửa, test đạt, test lỗi rồi đóng bước cho bước `[v]` kèm "tự động".
+- **Test đỏ, đo trên `45b5161`** [Đo trực tiếp]:
+  - L1 (bản đầu): 6/12 (`e825652`), rồi 8/18 trên bản sao có hằng giả;
+  - L2: 23/27 (`310b4c1`);
+  - L3: 21/25 (`cafab42`, trên bản sao `45b5161` có `reading.ts` và `requestPlan` giả, vì hai thứ này chưa có);
+  - lượt hỏi lại của lượt đọc trọn: 1/18 (`c47908d`, đo trên HEAD trước khi sửa, vì `full` của `askRouter` chưa có ở `45b5161`);
+  - H1: 3/8 (`9b9fa6a`);
+  - B1: đơn vị 2/4, tích hợp 2/3 (`052ed74`).
+  Ca xanh trên mã cũ là các ca giữ hành vi (prompt ngắn, mode off do người dùng đặt, lần lỗi của subagent chạy thư mục riêng).
+- **Kiểm engine về thời gian giữ hook** [Đo trực tiếp, chuỗi trong gói engine 2.1.296 và 2.1.322]: `$.model.complete` kẹp `timeoutMs` bằng `Math.min(timeoutMs, 2147483647)`; không thấy giới hạn thời gian cho hook `prompt.submit` của mod. Probe thật không chạy được vì hook module không nạp trong `claude -p`. Kết luận "engine không ngắt hook" mang nhãn `[Giả định]` ở DESIGN. Theo mã, mức giữ hook tệ nhất là 1,5 lần `routerMaxWait`, tức 2.700 giây ở mặc định 1.800.
+
+### Tốc độ đọc của router
+
+Đo qua `claude -p`, prompt qua stdin, lời dặn router sau L2 qua `--system-prompt-file`, effort medium, `CLAUDE_CONFIG_DIR` riêng, engine 2.1.323, chạy một mình: không có lượt gọi model nào khác chạy cùng lúc; bộ test và đột biến (không gọi model) có lúc chạy song song [Đo trực tiếp, 13/11/2026]. Model ID thật engine phục vụ ở mọi lượt là `claude-fable-5-2` và `claude-sonnet-5-5`; cả hai báo cửa sổ 1.000.000 token và token ra tối đa 128.000 (`modelUsage`).
+
+Prompt tự sinh:
+- Prompt lặp mẫu: đề mục "Phần N" giống nhau, mỗi đề mục 4 yêu cầu. Bản 240.000 ký tự có 270 đề mục, 1.078 yêu cầu; bản 400.000 ký tự có 448 đề mục, 1.791 yêu cầu, yêu cầu cuối bị cắt giữa chừng.
+- Prompt nhiều đề mục, 240.000 ký tự: 36 đề mục mang mã `MA-01` tới `MA-36`, sáu loại việc (tra cứu, sửa mã, viết test, viết tài liệu, rà soát, thiết kế) xen nhau. Mỗi đề mục 3 tới 6 yêu cầu, tổng 169 yêu cầu; cộng 4 yêu cầu chung ở đầu và cuối, tổng 173. Mỗi yêu cầu ghép một vế mở theo loại việc và một vế sau, không cặp nào lặp lại; vế mở lặp lại giữa các đề mục cùng loại việc, với tên mô-đun khác. Phần còn lại là tài liệu tham chiếu chen giữa (đoạn mô tả, bảng số liệu giả, log giả), không chứa yêu cầu.
+
+| Model, prompt | Lượt | Giây | Token vào | Token ra | USD | Yêu cầu | Việc | Ký tự JSON |
+|---|---|---|---|---|---|---|---|---|
+| fable, lặp mẫu 240.000 | 1 | 499,5 | 150.084 | 72.272 | 5,23 | 1.081 | 270 | không lưu |
+| fable, lặp mẫu 240.000 | 2 | 615,6 | 150.085 | 91.084 | 3,69 | 1.081 | 270 | không lưu |
+| fable, lặp mẫu 240.000 | 3 | 327,7 | 150.079 | 47.560 | 1,95 | 272 | 270 | không lưu |
+| fable, lặp mẫu 400.000 | 1 | 900,6 | lỗi: bộ đo tự ngắt ở 900 s, không phải lỗi model | | | | | |
+| fable, lặp mẫu 400.000 | 2 | 509,0 | 246.299 | 72.709 | 2,97 | 450 | 448 | không lưu |
+| fable, lặp mẫu 400.000 | 3 | 516,0 | 246.303 | 75.264 | 3,07 | 450 | 448 | không lưu |
+| fable, lặp mẫu 400.000 | đo bù | 539,5 | 246.303 | 78.802 | 7,09 | 449 | 448 | 137.890 |
+| fable, nhiều đề mục 240.000 | 1 | 157,4 | 151.537 | 20.576 | 3,19 | 173 | 36 | 21.395 |
+| sonnet, lặp mẫu 240.000 | 1 | 11,3 | 149.829 | 748 | 0,61 | 7 | 1 | không lưu |
+| sonnet, lặp mẫu 240.000 | 2 | 7,9 | 149.830 | 755 | 0,03 | 6 | 1 | không lưu |
+| sonnet, lặp mẫu 240.000 | 3 | 9,4 | 149.833 | 848 | 0,03 | 7 | 2 | không lưu |
+| sonnet, lặp mẫu 240.000 | lưu bản gốc | 13,6 | 149.831 | 952 | 0,61 | 7 | 2 | 1.742 |
+| sonnet, lặp mẫu 400.000 | 1 | 14,0 | 246.048 | 1.025 | 0,98 | 7 | 2 | không lưu |
+| sonnet, lặp mẫu 400.000 | 2 | 9,2 | 246.046 | 688 | 0,03 | 7 | 0 | không lưu |
+| sonnet, lặp mẫu 400.000 | 3 | 13,0 | 246.045 | 949 | 0,04 | 7 | 1 | không lưu |
+| sonnet, lặp mẫu 400.000 | lưu bản gốc | 12,4 | 246.048 | 747 | 0,98 | 6 | 0 | 1.340 |
+| sonnet, nhiều đề mục 240.000 | 1 | 28,6 | 151.286 | 4.419 | 0,64 | 5 | 36 | 8.824 |
+| sonnet, nhiều đề mục 240.000 | 2 | 35,8 | 151.282 | 6.243 | 0,08 | 40 | 36 | 10.108 |
+| sonnet, nhiều đề mục 240.000 | 3 | 24,9 | 151.288 | 4.416 | 0,06 | 6 | 36 | 8.905 |
+
+Effort của mọi lượt là medium: các lượt đầu không lưu trường này nhưng dùng cùng mã đo với các lượt sau. Lượt đầu của mỗi bản đắt hơn, nhiều khả năng vì phải ghi cache [Giả định]. Chi phí cả đợt đo: Fable 27,19 USD, sonnet 4,08 USD.
+
+Nhận xét theo từng model:
+- **Fable.** Trên prompt lặp mẫu, Fable đọc tới đề mục cuối ở cả hai bản: mỗi đề mục một việc, tới "Phần 448". Yêu cầu có lúc tách từng ý (1.081), có lúc gộp theo đề mục (272, 449, 450). Ở lượt đo bù, JSON dài 137.890 ký tự; quy đổi theo 1,5991 ký tự trên token của token vào được khoảng 86.200 token, nhiều hơn 78.802 token ra thật. Vậy gần như toàn bộ token ra là câu trả lời JSON, phần suy nghĩ rất nhỏ; dữ liệu không đủ để tách chính xác. Trên prompt nhiều đề mục, Fable trả đúng 36 việc và đúng 173 yêu cầu, không sót đề mục nào.
+- **Token ra của Fable vượt 0,6 lần mức engine báo.** Token ra lớn nhất 91.084 vượt 0,6 × 128.000 = 76.800, ở lượt 2 của bản lặp mẫu 240.000. `maxTokens` của lượt đọc trọn của Fable là 128.000, bằng mức engine báo.
+- **Sonnet.** Không lượt nào bị cắt câu trả lời hay sai định dạng: `end_turn`, JSON hợp lệ, `parseRoute` đọc được. Trên prompt lặp mẫu, sonnet đọc tới cuối (ghi "Phần 2 đến 270", hỏi lại "hơn 400 mô-đun") nhưng gộp còn 6 hay 7 yêu cầu chung và 0 tới 2 việc. Trên prompt nhiều đề mục, sonnet tách đủ 36 đề mục thành 36 việc ở cả 3 lượt, không sót đề mục nào, nhưng chỉ ghi 5, 40 và 6 yêu cầu trên 173. Cả bốn yêu cầu chung có trong câu trả lời ở mọi lượt. Sonnet trả từ một nửa số đề mục trở lên thành việc, nên theo quyết định của chủ mod không ghi giới hạn khuyến nghị vào README.
+
+**Thông số theo họ model** (`READ_PARAMS`):
+
+| Họ | Ký tự trên token (nhỏ nhất) | Giây trên ký tự (lớn nhất) | Token ra lớn nhất | Mức engine báo | `maxTokens` lượt đọc trọn | Trần hỏi lại | Sức chứa theo thời gian ở 1.800 s |
+|---|---|---|---|---|---|---|---|
+| fable | 1,5837 | 0,0025649 | 91.084 | 128.000 | 128.000 | 128.000 | 467.854 ký tự |
+| sonnet | 1,5863 | 0,0001491 | 6.243 | 128.000 | 16.000 | 24.000 | 8.048.290 ký tự |
+
+Fable giữ giây trên ký tự đo trên prompt lặp mẫu (lượt 615,6 s), vì lượt trên prompt nhiều đề mục nhanh hơn; ký tự trên token lấy số nhỏ nhất qua mọi lượt (1,5837 ở prompt nhiều đề mục) [Nguồn: chủ mod, 13/11/2026, quyết định 4]. Sonnet lấy giá trị thận trọng nhất qua 11 lượt. Họ chưa đo lấy giá trị thận trọng hơn giữa hai họ [Giả định]. Với cửa sổ 1.000.000 token, sức chứa theo cửa sổ của sonnet khoảng 1,56 triệu ký tự, nên sonnet bị giới hạn bởi cửa sổ.
+
+**`timeoutMs` và `maxTokens` theo độ dài prompt** (router mặc định, `routerMaxWait` 1.800):
+
+| Prompt | sonnet `timeoutMs` | sonnet `maxTokens` | Fable `timeoutMs` | Fable `maxTokens` |
+|---|---|---|---|---|
+| không quá 80.000 ký tự | như 0.8.6 | như 0.8.6 | như 0.8.6 | như 0.8.6 |
+| 100.000 ký tự | 120.000 ms | 16.000 | 385.000 ms | 128.000 |
+| 238.489 ký tự | 120.000 ms | 16.000 | 920.000 ms | 128.000 |
+| 400.000 ký tự | 120.000 ms | 16.000 | 1.540.000 ms | 128.000 |
+| 600.000 ký tự | 135.000 ms | 16.000 | cắt ở 467.854 ký tự, 1.800.000 ms | 128.000 |
+
+### Golden
+
+Router mặc định (sonnet), 50 ca, 3 lượt mỗi ca; Fable, 4 ca `c4-*`, 3 lượt mỗi ca; engine 2.1.323 [Đo trực tiếp, 13/11/2026].
+
+- `45b5161`: sonnet 146/150 (theo kỳ vọng đã sửa của `long-vn` và `long-vn-xl`), Fable 12/12.
+- Lời dặn mới: sonnet 147/150, Fable 12/12. `prose-hidden`: 0 việc ở 3/3 lượt.
+- Bản ghi mới thay toàn bộ `tests/golden/replies.ts` (50 ca sonnet, 4 ca Fable), vì băm request đổi. Tệp golden đã đổi: `tests/golden/cases.ts` (kỳ vọng `prose-hidden`, `long-vn`, `long-vn-xl`, tiêu đề `long-vn-xl`) và `tests/golden/replies.ts`.
+- Lời dặn bản đầu (trước câu chủ mod chốt) cho 144/150; chạy lại 11 ca khác nhau mỗi bên 3 lượt: 29/33 và 30/33. `prose-hidden` bị chia 4 việc ở 3/3 lượt cả hai bên, nên L2 dừng và chủ mod chốt câu mới.
+- Ca chạy lại trên lời dặn mới: chỉ `six` (đạt ở `45b5161`, trượt ở bản mới theo đa số).
+
+**Ca `six`, đủ các đợt chạy** (kỳ vọng luồng chính opus; việc 3 là việc cần opus):
+
+| Bên | Đợt | Đạt | Luồng chính theo lượt | Việc 3 theo lượt |
+|---|---|---|---|---|
+| `45b5161` | bộ 50 ca | 2/3 | sonnet/medium, opus/high, opus/high | subagent opus/high, luồng chính opus/high, luồng chính opus/high |
+| `45b5161` | chạy lại 1 | 0/3 | sonnet/medium ×3 | subagent opus/high ×3 |
+| `45b5161` | chạy lại 2 | 2/3 | opus/high, sonnet/medium, opus/high | luồng chính opus/high, subagent opus/high, luồng chính opus/high |
+| lời dặn mới | bộ 50 ca | 1/3 | opus/high, sonnet/medium, sonnet/medium | luồng chính opus/high, subagent opus/high, subagent opus/high |
+| lời dặn mới | chạy lại | 1/3 | sonnet/medium, sonnet/medium, opus/high | subagent opus/high, subagent opus/high, luồng chính opus/high |
+
+Hai bên cùng một kiểu: khi router đặt việc 3 ở luồng chính thì luồng chính là opus/high và ca đạt; khi đặt việc 3 cho subagent opus thì luồng chính là sonnet/medium và ca trượt. Đây là dao động của router, không phải lời dặn mới đổi hành vi [Giả định]. Chủ mod quyết không tính `six` vào luật dừng và không đổi kỳ vọng [Nguồn: chủ mod, 13/11/2026].
+
+**Ca đổi model, effort hay số việc (theo đa số lượt):**
+
+| Ca | Luồng chính `45b5161` | Luồng chính mới | Việc `45b5161` | Việc mới | Đạt |
+|---|---|---|---|---|---|
+| `answer-only` | opus/medium | sonnet/medium | 0 | 0 | 3/3, 3/3 |
+| `k4-ref` | sonnet/medium | sonnet/medium | 15 | 12 | 1/3, 2/3 |
+| `long-coded` | sonnet/high | sonnet/medium | 11 | 11 | 3/3, 3/3 |
+| `long-vn` | opus/high | opus/high | 8 | 12 | 2/3, 3/3 |
+| `long-vn-xl` | opus/high | opus/high | 8 | 18 | 3/3, 3/3 |
+| `perf-root` | opus/high | opus/medium | 0 | 0 | 3/3, 3/3 |
+| `security-audit` | opus/high | opus/medium | 0 | 0 | 3/3, 3/3 |
+| `six` | opus/high | sonnet/medium | 6 | 6 | 2/3, 1/3 |
+| `vague` | sonnet/medium | sonnet/medium | 0 | 3 | 3/3, 3/3 |
+
+Fable `c4-*`: luồng chính và số việc như nhau ở hai bên (`c4-big-coded` sonnet/medium 4 việc, `c4-big-skill` sonnet/high 3 việc, `c4-small` sonnet/low 0 việc, `c4-status` haiku/low 0 việc). Chi phí golden cả đợt khoảng 10,95 USD.
+
+**Lời dặn router** [Đo trực tiếp]:
+- `splitRule(routerSystem(), 0)`: `546aea94…` (9.892 ký tự) ở `45b5161`, nay `71ff7d30fe0b2b7e9550ece20ac08ae224386cbf880c0facb0fda4efc7658210` (10.282 ký tự).
+- Biến thể điều phối: `435ab993…` (10.790 ký tự), nay `13fb8ec37b189d6cfe83b7f0076719f1009f1e5a7bc360f48a56ce6275cb1669` (11.180 ký tự).
+- `agentSystem()`: `7d8176082b9bcdbb9072e89c9dd48418744166d0088d600f97b332970a991eda`, trùng `45b5161`.
+- Diff lời dặn: requirements đổi "at most 30" thành "list every one, with no limit on how many"; bỏ "the limit below does not apply" và "at most 8 tasks"; câu về số việc thay bằng câu chủ mod chốt ngày 13/11/2026; thêm câu về thứ tự thực hiện. Câu covers và câu "A request that is one piece of work has tasks []" giữ nguyên.
+- Prompt 5.000 ký tự: trường `prompt` có sha256 `f4812dc8…`, trùng `45b5161`, ở router thường và Fable; `maxTokens` 8.000, `timeoutMs` 45.000, effort medium như 0.8.6.
+
+### Các số khác
+
+- **Giao diện với 100 việc và 100 bước** [Đo trực tiếp, test `limits-l2-087`]: band 56, 72, 120 cột không vượt `maxRows`; pane 16, 24, 40 dòng dựng được, có dòng "+N bước mở".
+- **`plan update`** [Đo trực tiếp]: kết quả dài 107 ký tự ở checklist 10, 20 và 60 bước, không tăng theo số bước.
+- **P1** [Đo trực tiếp, engine 2.1.296]: band với 100 việc và 100 bước dựng trong 131 ms, trước sửa 5.792 ms; đầu ra trùng `45b5161` (sha256 `f10de6b9…`).
+- **Hai số phiên dài** [Đo trực tiếp]:
+  - `conductor` mặc định: 10.339 và 19.587; `conductor: 'fable'`: 8.563 và 7.048; `conductor: 'fable'` sau `/conductor solo`: 16.608 và 24.349. Cả ba cặp trùng 0.8.6.
+  - Kịch bản mới 60 việc, 60 yêu cầu, 60 bước (cùng 1.000 tool call, 300 subagent, hai lần nén; mỗi bước 16 lời gọi): `conductor` mặc định 5.978 và 33.204; `conductor: 'fable'` 8.164 và 6.931. Ở `conductor` mặc định, 60/60 bước được tự nâng `verified`. Ở `conductor: 'fable'`, 0/60 bước được tự nâng, như kịch bản 11 bước. Số thứ hai của `conductor` mặc định vượt 20.000 vì mỗi bước có một dòng checkpoint "5 thay đổi liên tiếp chưa được kiểm tra": nhóm dòng ngoài cảnh báo phạm vi và nhắc sau nén có 64 dòng, 28.567 ký tự, trong đó 60 dòng checkpoint. Số dòng tăng theo số bước; mỗi dòng không dài thêm (kịch bản 11 bước: 36 dòng, 15.380 ký tự).
+
+### Bản bổ sung 2: M1, F1, G1
+
+- **Kiểm engine cho M1 và F1** [Đo trực tiếp, khai báo kiểu `claude-code.d.ts` giải nén từ gói engine 2.1.296 (15.989 dòng) và 2.1.323 (18.181 dòng), cùng mã nhúng; chi tiết và trích dẫn ở DESIGN, mục 0.8.7]:
+  - `$.model.complete` nhận alias ở cả hai bản; lời gọi Agent chỉ nhận alias; `turn.step` đổi alias thành ID ở 2.1.323, gửi nguyên chuỗi ở 2.1.296.
+  - Engine không cho danh sách model hay ID hiện hành của alias; `$.session.version()` có ở cả hai bản; ID đã phục vụ chỉ có ở `usage.model` của turn.
+  - Lỗi API của `$.model.complete` không có loại riêng cho hết hạn mức, không có giờ mở lại; `rateLimits` cho mod không tách theo model.
+- **Tái hiện trên HEAD trước mỗi điểm** [Đo trực tiếp, test của đặc tả chạy trên mã trước khi sửa]:
+  - M1: router Fable nhận `claude-fable-5-2`; luồng chính khác họ phiên nhận ID ghim ở mọi engine.
+  - F1: router Fable lỗi hai lần thì router là sonnet và luồng chính tự sửa file được; Fable không phản hồi giữa turn thì phần còn lại của turn chạy model của phiên.
+  - G1: `conductor: 'opus'` là off.
+- **Test đỏ** [Đo trực tiếp]:
+  - M1 (`4c629d0`, trên `b761adb`): đơn vị 9/9 (tệp chưa nạp được vì hàm mới chưa có), tích hợp 6/11.
+  - F1 (`7788ea5`, trên `2de39fa`): đơn vị 8/8 (tệp chưa nạp được), tích hợp 11/18.
+  - G1 (`6f8f7a3`, trên `bade375`): đơn vị 7/7 (tệp chưa nạp được), tích hợp 4/6.
+
+  Ca xanh trên mã cũ là các ca giữ hành vi: router mặc định đã là alias `sonnet`, lời gọi Agent đã là alias, `conductorFallback: 'off'`, giá trị `conductor` không hợp lệ.
+- **Mẫu mới** [Đo trực tiếp, chạy riêng từng mẫu trên tệp test của điểm đó; số ca đỏ]:
+  - M1: `087-M1a` 6, `087-M1b` 3, `087-M1c` 2, `087-M1d` 2, `087-M1e` 1, `087-M1f` 2. `087-M1e` sống ở bản đầu của ca test, vì cảnh báo trùng liền nhau được gộp; ca test nay xen một họ khác giữa các turn opus. `087-M1f` bản đầu là mẫu tương đương, đã viết lại.
+  - F1: `087-F1a` 4, `087-F1b` 1, `087-F1c` 7, `087-F1d` 2, `087-F1e` 4, `087-F1f` 1, `087-F1g` 2, `087-F1h` 3, `087-F1i` 2.
+  - G1: `087-G1a` 5, `087-G1b` 1, `087-G1c` 1, `087-G1d` 1, `087-G1e` 2.
+  - Mẫu viết lại ở F1 (16) và G1 (7, trong đó `087-L1a`, `087-L3m`, `087-F1h` là mẫu của bản này): đều vẫn bị diệt trên các tệp test liên quan.
+- **Mốc trước và sau G1** [Đo trực tiếp]:
+
+| Mốc | Trước G1 (`bade375`) | Sau G1 (`7db29cb`) |
+|---|---|---|
+| `splitRule(routerSystem(), 0)` | `71ff7d30…` | `71ff7d30…` |
+| biến thể điều phối | `13fb8ec3…` | `13fb8ec3…` |
+| `agentSystem()` | `7d817608…` | `7d817608…` |
+| golden (`tests/golden`, test golden) | không đổi, đạt | không đổi, đạt |
+| phiên dài, `conductor` mặc định | 10.339 và 19.587 | 10.339 và 19.587 |
+| phiên dài, `fable` | 8.563 và 7.048 | 8.563 và 7.048 |
+| phiên dài, `fable` sau `/conductor solo` | 16.608 và 24.349 | 16.608 và 24.349 |
+| 60 việc, `conductor` mặc định | 5.978 và 33.204 | 5.978 và 33.204 |
+| 60 việc, `fable` | 8.164 và 6.931 | 8.164 và 6.931 |
+
+  Băm lời dặn hai biến thể và `agentSystem()` cũng trùng băm ngay trước M1. Ca cũ duy nhất đổi vì G1: `tests/integration/conductor-c1-084.test.ts`, vòng lặp các giá trị là off bỏ `'opus'` và thêm `'haiku'`, vì G1 cho option `conductor` nhận opus.
+
+### Bộ test và so tên ca
+
+- **Cả bộ** trên `7db29cb` [Đo trực tiếp, engine 2.1.296, chạy theo 11 nhóm tệp, tuần tự, chạy một mình]: 302 tệp, 3.459 ca, 0 lỗi. Tổng theo nhóm: 348 + 492 + 294 + 237 + 297 + 296 + 382 + 300 + 361 + 403 + 49 = 3.459. Lượt chạy cả bộ một lần trước đó bị ngắt với mã thoát 137 do máy khởi động lại (uptime 3 phút lúc kiểm, log dừng ở 2.068 ca đạt, không có dấu hiệu hết bộ nhớ), nên từ đó chạy theo nhóm.
+- **So tên ca với `45b5161`** (3.326 ca): thêm 135 tên, mất 2 tên, cả hai là đổi tên có chủ đích:
+
+| Tên mất | Tên mới | Lý do |
+|---|---|---|
+| `0.8.4 C1: option conductor > conductorOf("opus") là off` | `0.8.4 C1: option conductor > conductorOf("haiku") là off` | G1 cho option `conductor` nhận opus |
+| `golden-set: câu trả lời router đã ghi > long-vn-xl: ... (router giới hạn 30)` | `... (đến 0.8.6 router giới hạn 30)` | L2 bỏ trần 30 yêu cầu |
+
+  3.459 = 3.326 + 135 − 2.
+- **Kiểm tĩnh** [Đo trực tiếp]: `claude plugin validate` đạt ở thư mục mod và ở gốc repo; `version-check` khớp 0.8.7, README đủ 44 option, chuỗi `'fable'` trong `hooks/` đúng danh sách được phép (`lib/families.ts` 1, `lib/route.ts` 3, `lib/router.ts` 4); `mutate --check` khớp mọi mẫu; sha256 `hooks/` `da08294596bf8d75ee104013a062c9185d828da1ca853bb7d02f917a91e76c63`, `tests/` `9776d7432b35794db0e93fd7e6c29e36d112ecfa5221c8153213404fe2d96f48` (theo `scripts/mutate.ts`). `tsc` chưa chạy: khai báo kiểu của engine vẫn không sinh được, như 0.8.6.
+
+### Đột biến
+
+- **Lượt cuối** trên `7db29cb` [Đo trực tiếp, engine 2.1.296, 13/11/2026, chạy một mình]: 457 mẫu có `old` nằm trong vùng diff so với `45b5161` (cách dòng đổi không quá 20 dòng), trong 2.229 mẫu của `scripts/mutants.ts`: 66 mẫu mới của bản này trừ `087-L2e`, cộng 392 mẫu cũ, kể cả các mẫu đã viết lại. Kết quả: 457/457 bị diệt.
+  - Pha 1 dừng ở tệp test đỏ đầu tiên: trước hết ba tệp test đơn vị import đúng module bị đổi, rồi các tệp đã diệt nhiều mẫu nhất ở các lượt trước, rồi phần còn lại, gom 8 tệp một lần gọi. Mỗi mẫu ghi một dòng log ngay khi xong.
+  - Pha 2 (`scripts/mutate.ts` chạy cả bộ cho mẫu còn sống sau pha 1) không phải chạy, vì không mẫu nào sống.
+- **`087-L2e`** chạy riêng trên `tests/limits-l2-087.test.ts`: bị diệt, 2 ca đỏ. Mẫu này nằm ngoài vùng diff vì dòng nó đổi (`tasks: [...keptTasks, ...added]`) giữ nguyên so với `45b5161`.
+- Tổng: 66/66 mẫu mới và 392/392 mẫu cũ trong vùng diff bị diệt.
+
+### CI
+
+- Run 43450370502 xanh trên `4365287` [Nguồn: GitHub Actions, 13/11/2026].
+
 ## Kiểm chứng của 0.8.6 (vai điều phối không tự thực thi)
 
 Nhánh tách từ `main` `473bc75` (0.8.5, plugin.json 0.8.5, đã kiểm trước khi bắt đầu). Thứ tự R6, R1, R2, R3, R4, R5; mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `086-*`; không amend, không force-push, không merge [Đo trực tiếp]. Engine của mọi lượt đo dưới đây là 2.1.296, cài riêng ngoài repo; engine của phiên phát triển là 2.1.322.

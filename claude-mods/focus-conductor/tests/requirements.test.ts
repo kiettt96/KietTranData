@@ -43,7 +43,8 @@ describe('0.7.0 7: đọc requirements và covers', () => {
       requirements: [...reqs(40), 'x'.repeat(300)],
       tasks: [task('Việc', 'main', 'sonnet', 'medium', { covers: [1, 1, 2, 0, -3, 'a', 2.5, 99] })],
     })
-    expect(result.requirements.length).toBe(30)
+    // 0.8.7 L2: không còn trần số yêu cầu: giữ đủ 41 mục; covers nhận số tới số yêu cầu thật (99 vượt 41 nên bị loại).
+    expect(result.requirements.length).toBe(41)
     expect(result.requirements.every(r => r.length <= 160)).toBe(true)
     expect(result.tasks[0]?.covers).toEqual([1, 2])
   })
@@ -166,7 +167,10 @@ describe('0.7.0 7: request của router', () => {
     const system = routerSystem()
     expect(system).toContain('requirements')
     expect(system).toContain('covers')
-    expect(system).toContain('at most 8 tasks')
+    // 0.8.7 L2: không còn trần 8 việc; lời dặn chia đủ việc để phủ mọi yêu cầu.
+    expect(system).not.toContain('at most 8 tasks')
+    expect(system).toContain('There is no fixed limit on the number of tasks')
+    expect(system).toContain('Steps of one piece of work')
     expect(system).toContain('truly independent')
     expect(system).not.toContain('Never invent your own sub-steps')
   })

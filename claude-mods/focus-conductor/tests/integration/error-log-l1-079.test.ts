@@ -167,10 +167,10 @@ describe('0.7.9 L1: tự xóa lỗi đã sửa (hàm thuần)', () => {
   })
 
   // 0.8.4: sổ vẫn rỗng (chủ mod chưa gửi errors.json nào); MOD_VERSION theo plugin.json. 0.8.5: giữ tên ca (không đổi tên ca nào), kỳ
-  // vọng theo phiên bản mới. 0.8.6: như 0.8.5.
+  // vọng theo phiên bản mới. 0.8.6, 0.8.7: như 0.8.5.
   test('sổ 0.8.4 vẫn rỗng; MOD_VERSION là 0.8.4', () => {
     expect(FIXED_ERRORS).toEqual([])
-    expect(MOD_VERSION).toBe('0.8.6')
+    expect(MOD_VERSION).toBe('0.8.7')
   })
 })
 

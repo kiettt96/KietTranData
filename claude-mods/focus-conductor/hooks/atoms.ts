@@ -7,13 +7,16 @@ import type { Core, Mode } from '../types'
 import * as S from './lib/state'
 import type { View } from './lib/state'
 import { langOf } from './ui/labels'
+import { conductorOf } from './lib/conductor'
 
 /** Một lần đọc cho mọi thứ band, pane và status line cần. */
 export function viewOf(options: PluginOptions) {
   const lang = langOf(options['uiLanguage'])
   // Fable điều phối (0.8.4 C8): option off thì View như 0.8.3, không có trường conductor.
   const rawRouter = options['router']
-  const conductor = options['conductor'] === 'fable' ? { fallback: typeof rawRouter === 'string' && rawRouter.trim() !== '' ? rawRouter.trim() : 'sonnet' } : null
+  // 0.8.7 G1: họ điều phối chính là giá trị của option conductor (conductorOf).
+  const primary = conductorOf(options)
+  const conductor = primary !== 'off' ? { fallback: typeof rawRouter === 'string' && rawRouter.trim() !== '' ? rawRouter.trim() : 'sonnet', family: primary } : null
   return (core: Core, override: Mode | null, isBandHidden: boolean): View => ({
     core: S.normalizeCore(core),
     mode: S.modeOf(override, options),

@@ -111,8 +111,8 @@ describe('0.8.6 R5: số đo vai điều phối', () => {
     expect(lines().filter(l => l['kind'] === 'conduct-exempt').map(l => [l['state'], l['reason']])).toEqual([['on', 'agent'], ['off', 'agent']])
   })
 
-  test('vòng 2 V1: hai lần bị từ chối sửa file rồi Fable tạm ngừng (không điều phối): dòng Điều phối không có số đo', opts(), async ($, on) => {
-    const ID = 'claude-fable-5-2'
+  test('vòng 2 V1: hai lần bị từ chối sửa file rồi Fable tạm ngừng (không điều phối): dòng Điều phối không có số đo', opts({ conductorFallback: 'off' }), async ($, on) => {
+    const ID = 'fable'
     const FOLLOW = plan({ goal: '', relation: 'continue', depth: 'substantial', volume: 'medium', kind: 'edit', main: MAIN })
     let fable = 0
     const seen = base(on, { router: request => (request.startsWith('Requirements:') ? { missing: [], extra: [], issues: [] } : seen.routerModels.at(-1) === ID ? (fable++ === 0 ? BIG : null) : FOLLOW) })

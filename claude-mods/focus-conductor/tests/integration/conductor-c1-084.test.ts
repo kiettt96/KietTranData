@@ -13,7 +13,7 @@ const brief = (over: Partial<Brief>) => ({ goalId: 1, depth: 'substantial', kind
 const READY = { option: 'fable' as const, mode: 'auto', headless: false, blocked: new Set<never>(), pauseLeft: 0 }
 
 describe('0.8.4 C1: option conductor', () => {
-  for (const raw of [undefined, '', 'off', 'Fable', 'opus']) {
+  for (const raw of [undefined, '', 'off', 'Fable', 'haiku']) {
     test(`conductorOf(${JSON.stringify(raw)}) là off`, () => expect(C.conductorOf(raw === undefined ? {} : { conductor: raw })).toBe('off'))
   }
   test('conductorOf(fable) là fable', () => expect(C.conductorOf({ conductor: 'fable' })).toBe('fable'))
@@ -62,8 +62,8 @@ describe('0.8.4 C1: ID của Fable', () => {
   test('modelMap có fable thì dùng ID đó', () => expect(C.fableModelId({ fable: 'x-fable' }, 'claude-opus-5-5')).toBe('x-fable'))
   test('phiên họ fable có hậu tố: dùng nguyên ID của phiên', () => expect(C.fableModelId({}, 'claude-fable-5-2[1m]')).toBe('claude-fable-5-2[1m]'))
   test('còn lại: ID mặc định đã kiểm claude-fable-5-2', () => {
-    expect(C.fableModelId({}, 'claude-opus-5-5')).toBe('claude-fable-5-2')
-    expect(C.fableModelId({}, null)).toBe('claude-fable-5-2')
+    expect(C.fableModelId({}, 'claude-opus-5-5')).toBe('fable')
+    expect(C.fableModelId({}, null)).toBe('fable')
     expect(resolveModelId('fable', 'claude-opus-5-5', {})).toBe('claude-fable-5-2')
   })
 })

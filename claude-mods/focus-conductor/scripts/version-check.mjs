@@ -22,3 +22,36 @@ if (missing.length > 0) {
   process.exit(1)
 }
 console.log(`Bảng tùy chọn của README có đủ ${keys.length} option`)
+
+// Chữ 'fable' trong hooks/ (0.8.7 G1): đếm theo tệp, so với tests/fixtures/fable-sites.ts. Test conductor-family-g1-087 so tệp đó với danh
+// sách vị trí được phép (kèm lý do); kit test không đọc được tệp nguồn, nên phép đếm chạy ở đây. Ghi lại tệp sau khi sửa mã:
+// node scripts/version-check.mjs --write-fable-sites
+import { readdirSync, statSync, writeFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+const hooksDir = fileURLToPath(new URL('hooks/', root))
+const sites = {}
+const walk = dir => {
+  for (const name of readdirSync(dir).sort()) {
+    const path = dir + name
+    if (statSync(path).isDirectory()) walk(path + '/')
+    else if (/\.tsx?$/.test(name)) {
+      const count = (readFileSync(path, 'utf8').match(/'fable'/g) ?? []).length
+      if (count > 0) sites[path.slice(hooksDir.length)] = count
+    }
+  }
+}
+walk(hooksDir)
+const fixturePath = new URL('tests/fixtures/fable-sites.ts', root)
+const fixtureText = `// Sinh bởi node scripts/version-check.mjs --write-fable-sites (0.8.7 G1): số lần chuỗi 'fable' xuất hiện trong từng tệp của hooks/.\nexport const FABLE_SITES: Record<string, number> = ${JSON.stringify(sites).replaceAll('"', "'").replaceAll(',', ', ').replaceAll(':', ': ')}\n`
+if (process.argv.includes('--write-fable-sites')) writeFileSync(fixturePath, fixtureText)
+let stored = ''
+try {
+  stored = readFileSync(fixturePath, 'utf8')
+} catch {
+  stored = ''
+}
+if (stored !== fixtureText) {
+  console.error(`tests/fixtures/fable-sites.ts không khớp mã hiện tại (${JSON.stringify(sites)}); chạy node scripts/version-check.mjs --write-fable-sites`)
+  process.exit(1)
+}
+console.log(`Chuỗi 'fable' trong hooks/: ${Object.entries(sites).map(([file, n]) => `${file} ${n}`).join(', ')}`)

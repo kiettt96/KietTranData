@@ -8,6 +8,7 @@
 import type { Color, Elements, RenderElement, RenderSurface } from 'claude-code'
 
 import { conductorShown } from '../lib/conductor'
+import type { ConductorShown } from '../lib/conductor'
 import { shownPlan } from '../lib/mirror'
 import { runningTitles, taskRows } from '../lib/progress'
 import type { QuotaBadge } from '../lib/quota'
@@ -19,6 +20,12 @@ import { formatCost } from '../lib/ledger'
 import { labels, taskLabel } from './labels'
 import type { Run } from './style'
 import { FAMILY_HUE, SPINE, barRuns, cellsOf, columnsOf, currentStep, goalUsd, pendingUsd, plannedRuns, severityGlyph } from './style'
+
+/** Lượt của luồng chính chạy đúng họ đang điều phối (0.8.4 C8; 0.8.7 F1: kể cả họ dự phòng): band thêm nhãn vai trên chip model. */
+function isConductedRoute(family: string | undefined, shown: ConductorShown, primary: string | undefined): boolean {
+  if (shown.state === 'on') return family === primary
+  return shown.state === 'fallback' && shown.isBig && family === shown.family
+}
 
 /** Ô một nút của engine chiếm [Giả định: khoảng 10 ô cho nhãn ngắn, chưa đo trên surface thật]. */
 export const BUTTON_CELLS = 10
@@ -114,7 +121,7 @@ export function renderBand(
   // đã chạy, rồi cả chip model.
   const fit = { agents: true, effort: true, elapsed: true, route: true, role: true }
   // Vai điều phối (0.8.4 C8): nhãn trên chip model của luồng chính điều phối, chỉ khi band rộng từ ROLE_COLUMNS ô.
-  const roleText = view.conductor !== undefined && columns >= ROLE_COLUMNS && route?.family === 'fable' && conductorShown(view.core).state === 'on' ? l.conductorRole : ''
+  const roleText = view.conductor !== undefined && columns >= ROLE_COLUMNS && isConductedRoute(route?.family, conductorShown(view.core, view.conductor?.family), view.conductor?.family) ? l.conductorRole : ''
   const progressCells = () =>
     bar.length > 0 ? runCells(bar) + 1 + cellsOf(countText) + (mirrorText ? 1 + cellsOf(mirrorText) : 0) : beads.length > 0 ? runCells(beads) + 1 + cellsOf(l.plannedSteps(planned)) : 0
   const chipCells = () => {

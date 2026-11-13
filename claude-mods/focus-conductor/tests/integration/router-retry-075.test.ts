@@ -64,9 +64,13 @@ describe('0.7.5 B13b: thử lại khi router hết giờ', () => {
 
 describe('0.7.5 B13c: cắt ở TASK_LIMIT có cảnh báo', () => {
   test('router chia 25 việc: giữ 20 việc đầu, cảnh báo nêu số việc bị cắt', { options: { planApproval: 'off' } }, async ($, on) => {
-    base(on, { router: () => plan({ goal: 'Nhiều việc', depth: 'hard', volume: 'large', tasks: Array.from({ length: 25 }, (_, i) => task(`Việc số ${i + 1}`, 'main', 'sonnet', 'medium')) }) })
+    const seen = base(on, { router: () => plan({ goal: 'Nhiều việc', depth: 'hard', volume: 'large', tasks: Array.from({ length: 25 }, (_, i) => task(`Việc số ${i + 1}`, 'main', 'sonnet', 'medium')) }) })
     await submit($, 'Làm 25 việc theo danh sách')
+    // 0.8.7 L2: không còn trần số việc: giữ đủ 25 việc (việc 25 có trong bản đọc gắn vào prompt), không còn cảnh báo cắt việc.
+    expect((seen.contexts.at(-1) ?? []).join('\n')).toContain('Việc số 25')
     const pane = await $.ui.mount(PANE)
-    expect(await pane.find({ type: 'Text', text: /chia 25 việc; giữ 20 việc đầu/ })).toBeDefined()
+    const texts = (await pane.findAll({ type: 'Text' })).map(e => String(e.text))
+    await pane.unmount()
+    expect(texts.some(text => /giữ 20 việc đầu/.test(text))).toBe(false)
   })
 })

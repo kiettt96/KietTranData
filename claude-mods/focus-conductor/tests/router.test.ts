@@ -105,7 +105,8 @@ describe('request gửi router', () => {
 
   test('yêu cầu quá 80.000 ký tự giữ đầu và cuối, ghi chú phần lược', () => {
     const text = `ĐẦU${'a'.repeat(100_000)}CUỐI`
-    const prompt = textOf(routerRequest({ text, prev: null, ran: null, policy: OPEN, model: 'sonnet' }).prompt)
+    // 0.8.7 L3: router đọc trọn tới sức chứa của model; cửa sổ ngữ cảnh rất nhỏ đưa sức chứa về trần cũ 80.000 nên vẫn cắt như 0.8.6.
+    const prompt = textOf(routerRequest({ text, prev: null, ran: null, policy: OPEN, model: 'sonnet', reading: { family: 'sonnet', window: 0, maxWaitMs: 600_000 } }).prompt)
     expect(prompt).toContain('ĐẦU')
     expect(prompt).toContain('CUỐI')
     expect(prompt).toContain('[... lược 20007 ký tự ở giữa ...]')
@@ -190,7 +191,8 @@ describe('đọc JSON của router', () => {
   test('tối đa 20 việc; chuỗi dài bị cắt', () => {
     const tasks = Array.from({ length: 25 }, (_, i) => ({ title: `Việc ${i + 1} ${'x'.repeat(200)}`, run: 'main', model: 'sonnet', effort: 'low' }))
     const p = plan({ tasks })
-    expect(p.tasks.length).toBe(20)
+    // 0.8.7 L2: không còn trần số việc: giữ đủ 25 việc.
+    expect(p.tasks.length).toBe(25)
     expect(p.tasks[0]?.title.length).toBeLessThanOrEqual(140)
   })
 

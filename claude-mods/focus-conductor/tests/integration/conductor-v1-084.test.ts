@@ -13,7 +13,7 @@ import type { Json, Seen } from '../support/engine'
 import { memoryStore, quotaMeter, session } from '../support/quota'
 
 const PLAN = 'mcp__focus-conductor__plan'
-const ID = 'claude-fable-5-2'
+const ID = 'fable'
 const COMPACT = '[focus-conductor] Hội thoại vừa được nén.'
 const BRIEFING = '[focus-conductor] Điều phối'
 const MESSAGES = [{ role: 'user' as const, text: 'tóm tắt', toolUses: [] }]
@@ -86,7 +86,7 @@ describe('0.8.4 V1: câu vai điều phối khi chạy tiếp từ điểm dừn
 })
 
 describe('0.8.4 V1: đoạn dặn đầy đủ khi Fable sẵn sàng trở lại giữa mục tiêu', () => {
-  test('mục tiêu lớn mở lúc router Fable tạm ngừng: prompt đầu tiên Fable sẵn sàng có đoạn dặn đúng một lần, prompt sau không có', { options: { planApproval: 'off', conductor: 'fable' } }, async ($, on) => {
+  test('mục tiêu lớn mở lúc router Fable tạm ngừng: prompt đầu tiên Fable sẵn sàng có đoạn dặn đúng một lần, prompt sau không có', { options: { planApproval: 'off', conductor: 'fable', conductorFallback: 'off' } }, async ($, on) => {
     let fable = 0
     let other = 0
     const seen: Seen = base(on, { router: () => (seen.routerModels.at(-1) === ID ? (fable++ < 2 ? null : FOLLOW) : other++ === 0 ? BIG() : FOLLOW) })
