@@ -2679,10 +2679,10 @@ index 701535c..7afc7c8 100644
    })
 diff --git a/claude-mods/focus-conductor/tests/router-full-l1-087.test.ts b/claude-mods/focus-conductor/tests/router-full-l1-087.test.ts
 new file mode 100644
-index 0000000..4455d96
+index 0000000..3b963e3
 --- /dev/null
 +++ b/claude-mods/focus-conductor/tests/router-full-l1-087.test.ts
-@@ -0,0 +1,199 @@
+@@ -0,0 +1,208 @@
 +// 0.8.7 L3 (thay phần trần cố định của L1): mọi model router đọc trọn prompt tới sức chứa của lượt đó (readPlan, hooks/lib/reading.ts):
 +// số nhỏ hơn giữa sức chứa theo cửa sổ ngữ cảnh và sức chứa theo thời gian chờ tối đa (routerMaxWait), không thấp hơn 80.000. Prompt dài hơn
 +// 80.000 ký tự mà vừa sức chứa: gửi trọn, maxTokens và timeoutMs theo thông số của họ model. Vượt sức chứa: cắt phần giữa (75 và 25 phần
@@ -2775,6 +2775,15 @@ index 0000000..4455d96
 +    expect(warning).toContain(`router chỉ đọc ${grouped(p.head)} ký tự đầu và ${grouped(p.tail)} ký tự cuối`)
 +    expect(warning).toContain('sonnet')
 +    expect(warning).toContain('sức chứa của model')
++    expect(p.head).toBe(Math.round(p.capacity * 0.75))
++    expect(promptOf(plain(LONG, reading)).includes(LONG.slice(0, p.head) + '\n[... lược')).toBe(true)
++  })
++
++  test('Fable, routerMaxWait không chia hết cho 5 giây (400.123 ms): timeoutMs không vượt thời gian chờ tối đa', () => {
++    const reading: Reading = { ...FABLE, maxWaitMs: 400_123 }
++    const r = fable(LONG, reading)
++    expect(r.timeoutMs ?? 0).toBeLessThanOrEqual(400_123)
++    expect(readPlan(reading, LONG.length, 0).timeoutMs).toBeLessThanOrEqual(400_123)
 +  })
 +
 +  test('cửa sổ rất nhỏ (sức chứa tính ra dưới 80.000): cắt 60.000 và 20.000', () => {
