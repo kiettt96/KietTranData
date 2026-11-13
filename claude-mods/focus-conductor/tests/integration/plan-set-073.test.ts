@@ -124,9 +124,8 @@ describe('0.7.3 điểm 8: plan set in đầy đủ kèm một dòng nói đã c
     base(on)
     await submit($, COMPLEX_PROMPT)
     const out = await set($, { steps: titles(21) })
-    // 0.8.7 L2: không còn trần số bước: lưu đủ 21 bước, không có dòng bỏ bước vượt giới hạn.
-    expect(out).toContain('[ ] 20. Bước số 20')
-    expect(out).toContain('[ ] 21. Bước số 21')
+    // 0.8.7 L2: không còn trần số bước: lưu đủ 21 bước; không có chỉnh nào nên kết quả là dòng gọn, không có phần bỏ bước vượt giới hạn.
+    expect(out).toContain('Đã lưu 21 bước')
     expect(out).not.toContain('vượt giới hạn')
   })
 

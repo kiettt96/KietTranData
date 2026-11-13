@@ -91,10 +91,12 @@ describe('golden-set: bộ chấm yêu cầu và phần phủ (0.7.0)', () => {
   })
 
   test('yêu cầu không việc nào phủ bị chấm lệch; không tách việc thì không đòi phủ', () => {
+    // 0.8.7 L2: kỳ vọng của prose-hidden nay đòi tasks rỗng; ca này kiểm bộ chấm phần phủ nên dùng bản sao với cận số việc cũ [0, 8].
+    const split = { ...prose, expect: { ...prose.expect, tasks: [0, 8] as [number, number] } }
     const tasks = [piece('Tìm và sửa', [1, 2]), piece('Test', [3, 4, 5])]
-    expect(check(prose, reply({ requirements: names(6), tasks }))).toEqual(['yêu cầu 6 không việc nào phủ'])
-    expect(check(prose, reply({ requirements: names(5), tasks }))).toEqual([])
-    expect(check(prose, reply({ requirements: names(6), tasks: [] }))).toEqual([])
+    expect(check(split, reply({ requirements: names(6), tasks }))).toEqual(['yêu cầu 6 không việc nào phủ'])
+    expect(check(split, reply({ requirements: names(5), tasks }))).toEqual([])
+    expect(check(split, reply({ requirements: names(6), tasks: [] }))).toEqual([])
   })
 
   test('một khối liền mạch mà bị tách việc thì lệch', () => {
