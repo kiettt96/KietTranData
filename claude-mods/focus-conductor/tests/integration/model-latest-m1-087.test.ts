@@ -67,15 +67,17 @@ describe('0.8.7 M1: ID engine phục vụ khác ID ghim', () => {
     base(on, { router: () => OPUS_MAIN })
     on('turn.complete', () => ({ text: '' }))
     await submit($, 'Sửa luồng thanh toán')
-    for (const turnId of ['t1', 't2', 't3']) await $.turn.complete({ turnId, answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer', usage: { ...BIG_USAGE, model: 'claude-opus-9-9' } } as never)
+    // Xen một họ khác giữa các turn opus để cảnh báo lặp (nếu có) không bị gộp với cảnh báo liền trước.
+    for (const [turnId, model] of [['t1', 'claude-opus-9-9'], ['t2', 'claude-sonnet-9-9'], ['t3', 'claude-opus-9-9'], ['t4', 'claude-opus-9-9']] as const) await $.turn.complete({ turnId, answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer', usage: { ...BIG_USAGE, model } } as never)
     const pane = await paneTexts($)
-    expect(pane.filter(t => t.includes('claude-opus-9-9') && t.includes('prices')).length).toBe(1)
+    expect(pane.filter(t => t.includes('Engine đang phục vụ claude-opus-9-9')).length).toBe(1)
+    expect(pane.filter(t => t.includes('Engine đang phục vụ claude-sonnet-9-9')).length).toBe(1)
     const status = String((await conductor($, 'status')).text)
     const line = status.split('\n').find(l => l.startsWith('Model đang dùng')) ?? ''
     expect(line).toContain('opus claude-opus-9-9')
     let ledger = emptyLedger(0)
-    for (let i = 0; i < 3; i++) ledger = addUsage(ledger, 'main', 'opus', BIG_USAGE).ledger
-    expect(status).toContain(`luồng chính ${formatCost(ledger.session.main.usd, 'vi')} trong 3 lượt`)
+    for (const family of ['opus', 'sonnet', 'opus', 'opus'] as const) ledger = addUsage(ledger, 'main', family, BIG_USAGE).ledger
+    expect(status).toContain(`luồng chính ${formatCost(ledger.session.main.usd, 'vi')} trong 4 lượt`)
   })
 
   test('ID trùng ID ghim: không cảnh báo; họ chưa được gọi không có trong dòng Model đang dùng', { options: { planApproval: 'off' } }, async ($, on) => {
@@ -84,7 +86,7 @@ describe('0.8.7 M1: ID engine phục vụ khác ID ghim', () => {
     await submit($, 'Sửa luồng thanh toán')
     await $.turn.complete({ turnId: 't1', answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer', usage: { ...BIG_USAGE, model: 'claude-sonnet-5-5' } } as never)
     const pane = await paneTexts($)
-    expect(pane.some(t => t.includes('prices') && t.includes('claude-sonnet-5-5'))).toBe(false)
+    expect(pane.some(t => t.includes('Engine đang phục vụ'))).toBe(false)
     const status = String((await conductor($, 'status')).text)
     const line = status.split('\n').find(l => l.startsWith('Model đang dùng')) ?? ''
     expect(line).toContain('sonnet claude-sonnet-5-5')

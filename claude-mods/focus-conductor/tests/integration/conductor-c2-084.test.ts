@@ -10,7 +10,7 @@ import type { Json } from '../support/engine'
 
 const FABLE = { options: { planApproval: 'off', conductor: 'fable' } }
 const PLAIN = { options: { planApproval: 'off' } }
-const ID = 'claude-fable-5-2'
+const ID = 'fable'
 const BIG = (over: Json = {}) => plan({ goal: 'Sửa luồng thanh toán', depth: 'substantial', volume: 'medium', kind: 'edit', requirements: ['Sửa hàm tính phí', 'Thêm test cho phí'], ...over })
 const edit = ($: Engine, name: string) => $.tool.call({ tool: 'Edit', file_path: `src/${name}.ts`, old_string: 'x', new_string: 'y' } as never)
 const agent = ($: Engine, description: string) => $.tool.call({ tool: 'Agent', description, prompt: `${description}. Báo lại ngắn.`, subagent_type: 'general-purpose' } as never)

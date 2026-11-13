@@ -9,7 +9,7 @@ import { base, plan, step, submit } from '../support/engine'
 import type { Json, Seen } from '../support/engine'
 
 const FABLE = { options: { planApproval: 'off', conductor: 'fable' } }
-const ID = 'claude-fable-5-2'
+const ID = 'fable'
 const BIG = plan({ goal: 'Sửa luồng thanh toán', depth: 'substantial', volume: 'medium', kind: 'edit', main: { model: 'sonnet', effort: 'medium', why: '' } })
 const FOLLOW = plan({ relation: 'continue', goal: '', depth: 'substantial', volume: 'medium', kind: 'edit', main: { model: 'sonnet', effort: 'medium', why: '' } })
 const prompts = (seen: Seen) => seen.routerCalls.filter(c => c.kind === 'prompt')

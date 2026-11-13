@@ -80,22 +80,48 @@ export function parseWindows(raw: unknown): Partial<Record<ModelFamily, number>>
   return out
 }
 
+/** ID ghim của một họ (bảng giá và cửa sổ kèm mod lập cho ID này). */
+export function pinnedId(family: ModelFamily): string {
+  return DEFAULT_IDS[family]
+}
+
+/** Engine đầu tiên đã kiểm có đổi alias của turn.step thành ID trước khi gọi API (0.8.7 M1) [Đo trực tiếp, mã nhúng của 2.1.323]. */
+const ALIAS_ENGINE = [2, 1, 323] as const
+
 /**
- * Model ID cho một step của luồng chính. Cùng họ với model engine đang dùng
- * thì giữ nguyên ID của engine (giữ cả hậu tố và tiền tố nhà cung cấp); khác
- * họ thì lấy ID ghi đè, hoặc ID mặc định kèm tiền tố nhà cung cấp hiện tại
- * (ví dụ "us.anthropic." trên Bedrock).
+ * Engine có nhận alias họ model ở turn.step không (0.8.7 M1): so phiên bản (`$.session.version().version`) theo từng phần số với
+ * ALIAS_ENGINE; bản phát triển ("2.1.323-dev...") so theo phần phát hành. Chuỗi không đọc được thì coi là engine cũ.
+ */
+export function engineTakesAlias(version: string): boolean {
+  const match = /^(\d+)\.(\d+)\.(\d+)/.exec(version.trim())
+  if (match === null) return false
+  const parts = [Number(match[1]), Number(match[2]), Number(match[3])]
+  for (let i = 0; i < ALIAS_ENGINE.length; i++) {
+    const want = ALIAS_ENGINE[i] ?? 0
+    const have = parts[i] ?? 0
+    if (have !== want) return have > want
+  }
+  return true
+}
+
+/**
+ * Model ID cho một step (luồng chính hay subagent). Cùng họ với model engine đang dùng thì giữ nguyên ID của engine (giữ cả hậu tố và
+ * tiền tố nhà cung cấp); khác họ thì lấy ID ghi đè; không có thì (0.8.7 M1) alias của họ khi `useAlias` (engine nhận alias ở turn.step)
+ * và ID engine không có tiền tố nhà cung cấp, để engine chọn phiên bản hiện hành; còn lại ID ghim kèm tiền tố nhà cung cấp hiện tại
+ * (ví dụ "us.anthropic." trên Bedrock), như 0.8.6.
  */
 export function resolveModelId(
   family: ModelFamily,
   engineModel: string,
   map: Partial<Record<ModelFamily, string>>,
+  useAlias = false,
 ): string {
   if (familyOf(engineModel) === family) return engineModel
   const override = map[family]
   if (override) return override
   const at = engineModel.indexOf('claude-')
   const prefix = at > 0 ? engineModel.slice(0, at) : ''
+  if (useAlias && prefix === '') return family
   return `${prefix}${DEFAULT_IDS[family]}`
 }
 

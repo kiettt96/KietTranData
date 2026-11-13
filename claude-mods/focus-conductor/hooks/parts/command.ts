@@ -466,6 +466,9 @@ export function registerCommand(on: On, ctx: Ctx): void {
       if (usage?.cost) costLines.push(`Chi phí cả phiên theo Claude Code (gồm cả phần trước khi mod bắt đầu ghi sổ): ${formatCost(usage.cost.usd, lang)}`)
       const estimate = estimateLine(core.log, lang)
       if (estimate) costLines.push(estimate)
+      // Họ model đã được phục vụ trong phiên kèm ID thật (0.8.7 M1).
+      const served = ctx.servedLine(lang)
+      if (served !== null) costLines.push(served)
       costLines.push(priceNote(await $.clock.now()))
       costLines.push(cacheNote(ctx.cacheTtlMs / 60_000))
       const latency = routerTimeLine()

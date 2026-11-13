@@ -7,7 +7,7 @@ import type { Engine } from 'claude-code/testing'
 import { PANE, base, conductor, plan, step, submit } from '../support/engine'
 import type { Json, Seen } from '../support/engine'
 
-const ID = 'claude-fable-5-2'
+const ID = 'fable'
 const BIG = plan({ goal: 'Sửa luồng thanh toán', depth: 'substantial', volume: 'medium', kind: 'edit', main: { model: 'sonnet', effort: 'medium', why: '' } })
 const band = (columns: number) => ({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 3, bodyColumns: columns, scroll: { offset: 0, bodyRows: 3 }, view: {} } }) as const
 const texts = async ($: Engine, target: unknown) => {

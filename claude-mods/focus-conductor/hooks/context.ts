@@ -6,7 +6,7 @@ import type { Brief, Choice, Core, DelegationItem, DelegationState, Effort, Inte
 import { applyCheckCommands, applyCheckTools, applyPassLines, applySkillPaths, applySoftPaths, newEvidenceLog, newTracker, parseCheckCommands, parseCheckTools, parsePassLines, parseSkillPaths, parseSoftPaths } from './lib/drift'
 import type { EvidenceLog, PromptIntent, TurnTracker } from './lib/drift'
 import { DEFAULT_CACHE_TTL_MINUTES, DEFAULT_CONTEXT, DEFAULT_WINDOWS, applyCacheWrite, applyPrices, parseCacheWrite, parsePrices } from './lib/cost'
-import { EFFORTS, decideMain, describePick, familyOf, hasTitleCode, liftPick, matchTask, parseModelMap, parseWindows } from './lib/route'
+import { EFFORTS, FAMILIES as FAMILIES_ORDER, decideMain, describePick, familyOf, hasTitleCode, liftPick, matchTask, parseModelMap, parseWindows, pinnedId, resolveModelId } from './lib/route'
 import type { SessionModel, SessionPolicy } from './lib/route'
 import { DECISION_LIMIT, decisionLine } from './lib/decisions'
 import type { DecisionKind } from './lib/decisions'
@@ -125,6 +125,10 @@ export function createContext(options: PluginOptions) {
     lastSession: null as { model: string; effort: string } | null,
     sessionFamily: null as ModelFamily | null,
     sessionNoticed: false,
+    /** Engine nhận alias họ model ở turn.step (0.8.7 M1): đọc một lần mỗi phiên từ $.session.version(); null là chưa đọc. */
+    aliasEngine: null as boolean | null,
+    /** ID engine đã phục vụ theo họ (0.8.7 M1, usage.model của turn), cho dòng "Model đang dùng" và cảnh báo phiên bản một lần mỗi họ. */
+    served: new Map<ModelFamily, string>(),
     /** Đã cảnh báo chính sách model của phiên chặn Fable điều phối (0.8.4 C1), một lần mỗi phiên. */
     conductorSessionNoticed: false,
     pinnedGoalId: null as number | null,
@@ -556,6 +560,8 @@ export function createContext(options: PluginOptions) {
     local.lastSession = null
     local.sessionFamily = null
     local.sessionNoticed = false
+    local.aliasEngine = null
+    local.served.clear()
     local.conductorSessionNoticed = false
     local.pinnedGoalId = null
     blocked.clear()
@@ -587,6 +593,34 @@ export function createContext(options: PluginOptions) {
   }
 
   /** Hết chặn các họ model đã bị chặn đủ BLOCK_TURNS turn, để thử lại. */
+  /**
+   * Model ID gửi cho một step (0.8.7 M1): mọi nơi đặt model cho turn.step (luồng chính, subagent ép model, phần còn lại của turn sau khi
+   * model không phản hồi) gọi hàm này. Alias chỉ khi engine nhận alias ở turn.step (cổng phiên bản engine, local.aliasEngine).
+   */
+  function stepModelId(family: ModelFamily, engineModel: string): string {
+    return resolveModelId(family, engineModel, modelMap, local.aliasEngine === true)
+  }
+
+  /**
+   * Ghi ID engine đã phục vụ cho họ của nó (0.8.7 M1, usage.model của turn). Lần đầu trong phiên một họ được phục vụ bằng ID khác ID ghim
+   * thì trả câu cảnh báo (một lần mỗi họ mỗi phiên); còn lại null. Không chèn gì vào context.
+   */
+  function noteServed(id: string): string | null {
+    const family = familyOf(id)
+    if (family === null) return null
+    const isFirst = !local.served.has(family)
+    local.served.set(family, id)
+    if (!isFirst || id === pinnedId(family)) return null
+    return `Engine đang phục vụ ${id} cho họ ${family}; bảng giá và cửa sổ ngữ cảnh kèm mod lập cho ${pinnedId(family)}, chỉnh được bằng option prices và contextWindows`
+  }
+
+  /** Dòng "Model đang dùng" của /conductor status (0.8.7 M1): các họ đã được phục vụ trong phiên kèm ID thật; null khi chưa có họ nào. */
+  function servedLine(lang: 'vi' | 'en'): string | null {
+    const items = FAMILIES_ORDER.filter(f => local.served.has(f)).map(f => `${f} ${local.served.get(f)}`)
+    if (items.length === 0) return null
+    return `${lang === 'en' ? 'Models in use' : 'Model đang dùng'}: ${items.join(', ')}`
+  }
+
   function expireBlocks(): void {
     for (const [family, until] of blockedUntil) {
       if (until > local.turnCount) continue
@@ -978,6 +1012,9 @@ export function createContext(options: PluginOptions) {
     routerTarget,
     routerReading,
     routerMaxWaitMs,
+    stepModelId,
+    noteServed,
+    servedLine,
     routerTimeLine,
     semanticDrift,
     driftEveryMs,

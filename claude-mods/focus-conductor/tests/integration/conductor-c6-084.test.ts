@@ -10,7 +10,7 @@ import type { Json, Seen } from '../support/engine'
 
 const LOG = '/tmp/fc-conductor-c6-084.jsonl'
 const FABLE = { options: { planApproval: 'off', conductor: 'fable', decisionLog: LOG } }
-const ID = 'claude-fable-5-2'
+const ID = 'fable'
 const BIG = (over: Json = {}) => plan({ goal: 'Sửa luồng thanh toán', depth: 'substantial', volume: 'medium', kind: 'edit', main: { model: 'sonnet', effort: 'medium', why: '' }, ...over })
 const FOLLOW = plan({ relation: 'continue', goal: '', depth: 'substantial', volume: 'medium', kind: 'edit', main: { model: 'sonnet', effort: 'medium', why: '' } })
 const PAUSE_TEXT = 'Fable điều phối tạm ngừng'

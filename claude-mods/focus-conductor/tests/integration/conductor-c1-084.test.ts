@@ -62,8 +62,8 @@ describe('0.8.4 C1: ID của Fable', () => {
   test('modelMap có fable thì dùng ID đó', () => expect(C.fableModelId({ fable: 'x-fable' }, 'claude-opus-5-5')).toBe('x-fable'))
   test('phiên họ fable có hậu tố: dùng nguyên ID của phiên', () => expect(C.fableModelId({}, 'claude-fable-5-2[1m]')).toBe('claude-fable-5-2[1m]'))
   test('còn lại: ID mặc định đã kiểm claude-fable-5-2', () => {
-    expect(C.fableModelId({}, 'claude-opus-5-5')).toBe('claude-fable-5-2')
-    expect(C.fableModelId({}, null)).toBe('claude-fable-5-2')
+    expect(C.fableModelId({}, 'claude-opus-5-5')).toBe('fable')
+    expect(C.fableModelId({}, null)).toBe('fable')
     expect(resolveModelId('fable', 'claude-opus-5-5', {})).toBe('claude-fable-5-2')
   })
 })

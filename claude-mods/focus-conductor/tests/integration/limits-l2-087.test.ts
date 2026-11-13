@@ -10,7 +10,7 @@ import { PANE, base, plan, step, submit, task } from '../support/engine'
 import type { Json, Seen } from '../support/engine'
 
 const PLAN = 'mcp__focus-conductor__plan'
-const ID = 'claude-fable-5-2'
+const ID = 'fable'
 const GOAL = 'Mục tiêu giả nhiều việc'
 const PRESENTATION = { isFullscreen: false, columns: 80 }
 const reqs = (n: number) => Array.from({ length: n }, (_, i) => `Yêu cầu giả số ${i + 1}`)

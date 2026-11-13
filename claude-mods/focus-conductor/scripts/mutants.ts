@@ -2244,4 +2244,10 @@ export const MUTANTS: Mutant[] = [
   { id: "087-L3m", file: "hooks/lib/reading.ts", note: "họ chưa đo lấy thông số của fable", old: "if (family === 'fable' || family === 'sonnet') return READ_PARAMS[family]", new: "return READ_PARAMS.fable" },
   { id: "087-L3n", file: "hooks/lib/router.ts", note: "askRouter không chuyển full sang lượt hỏi lại", old: ", ...(opts.full !== undefined ? { full: opts.full } : {}) })).catch(() => null)", new: " })).catch(() => null)" },
   { id: "087-L3o", file: "hooks/lib/reading.ts", note: "mặc định routerMaxWait về 600 giây", old: "export const ROUTER_MAX_WAIT_MS = 1_800_000", new: "export const ROUTER_MAX_WAIT_MS = 600_000" },
+  { id: "087-M1a", file: "hooks/lib/route.ts", note: "luôn trả ID ghim", old: "  if (useAlias && prefix === '') return family\n", new: "  if (false) return family\n" },
+  { id: "087-M1b", file: "hooks/lib/route.ts", note: "alias thắng cả ghi đè modelMap", old: "  const override = map[family]\n  if (override) return override\n  const at = engineModel.indexOf('claude-')", new: "  if (useAlias) return family\n  const override = map[family]\n  if (override) return override\n  const at = engineModel.indexOf('claude-')" },
+  { id: "087-M1c", file: "hooks/lib/route.ts", note: "alias thắng cả ID của phiên cùng họ", old: "  if (familyOf(engineModel) === family) return engineModel\n  const override = map[family]", new: "  if (useAlias && engineModel.indexOf('claude-') <= 0) return family\n  if (familyOf(engineModel) === family) return engineModel\n  const override = map[family]" },
+  { id: "087-M1d", file: "hooks/lib/route.ts", note: "dùng alias cả khi ID phiên có tiền tố", old: "  if (useAlias && prefix === '') return family\n", new: "  if (useAlias) return family\n" },
+  { id: "087-M1e", file: "hooks/context.ts", note: "cảnh báo phiên bản lặp lại mỗi lần gọi", old: "    if (!isFirst || id === pinnedId(family)) return null\n", new: "    if (id === pinnedId(family)) return null\n" },
+  { id: "087-M1f", file: "hooks/lib/route.ts", note: "cổng phiên bản nhận cả 2.1.322", old: "    if (have !== want) return have > want\n", new: "    if (have !== want) return have >= want - 1\n" },
 ]

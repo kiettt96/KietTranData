@@ -95,12 +95,15 @@ export function isMainConducting(input: ConductorInputs, brief: Pick<Brief, 'dep
   return isConductorAvailable(input) && isBigGoal(brief)
 }
 
-/** ID Fable cho vai điều phối: modelMap.fable, rồi ID phiên khi phiên thuộc họ fable (giữ hậu tố), rồi ID mặc định. */
+/**
+ * Model của router Fable: modelMap.fable, rồi ID phiên khi phiên thuộc họ fable (giữ hậu tố), rồi (0.8.7 M1) alias fable để engine chọn
+ * phiên bản hiện hành ($.model.complete nhận alias ở mọi engine đã kiểm); ID phiên có tiền tố nhà cung cấp thì tiền tố cộng ID ghim.
+ */
 export function fableModelId(map: Partial<Record<ModelFamily, string>>, sessionModelId: string | null): string {
   const override = map.fable
   if (override) return override
   if (sessionModelId !== null && familyOf(sessionModelId) === 'fable') return sessionModelId
-  return resolveModelId('fable', sessionModelId ?? '', {})
+  return resolveModelId('fable', sessionModelId ?? '', {}, true)
 }
 
 /** Câu nêu nguyên nhân (nhật ký conductor, pane, status). */

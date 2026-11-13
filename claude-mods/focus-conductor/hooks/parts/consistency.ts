@@ -1211,6 +1211,9 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     await ctx.flushErrors({ read: path => $.fs.read(path), write: (path, text) => $.fs.write(path, text), root: () => $.session.root() })
     if ((await read($, mode)) === 'off') return result
     const at = await $.clock.now()
+    // ID engine đã phục vụ (0.8.7 M1): lần đầu một họ được phục vụ bằng ID khác ID ghim thì một cảnh báo model, không chèn context.
+    const servedWarning = e.usage ? ctx.noteServed(e.usage.model) : null
+    if (servedWarning !== null) await update($, coreState, S.withWarnings({ at, kind: 'model', text: servedWarning }))
 
     if (e.agentId !== undefined) {
       const agentId = e.agentId

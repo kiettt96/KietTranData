@@ -116,7 +116,7 @@ describe('0.8.6 R6: cờ lời gọi Agent bị từ chối', () => {
 
 describe('0.8.6 vòng 2 V1: cờ Agent chỉ đổi theo lời gọi của luồng chính đang điều phối', () => {
   const LOG = '/tmp/fc-conduct-r6-v1.jsonl'
-  const ID = 'claude-fable-5-2'
+  const ID = 'fable'
   const FOLLOW = plan({ goal: '', relation: 'continue', depth: 'substantial', volume: 'medium', kind: 'edit', main: MAIN })
   /** Ghi nhật ký quyết định; trả các dòng conduct-exempt. */
   function exempts(on: On) {

@@ -13,7 +13,7 @@ import type { Json, Seen } from '../support/engine'
 import { memoryStore, quotaMeter, session } from '../support/quota'
 
 const PLAN = 'mcp__focus-conductor__plan'
-const ID = 'claude-fable-5-2'
+const ID = 'fable'
 const COMPACT = '[focus-conductor] Hội thoại vừa được nén.'
 const BRIEFING = '[focus-conductor] Điều phối'
 const MESSAGES = [{ role: 'user' as const, text: 'tóm tắt', toolUses: [] }]

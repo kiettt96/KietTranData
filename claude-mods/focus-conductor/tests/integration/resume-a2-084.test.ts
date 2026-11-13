@@ -71,7 +71,7 @@ async function goalB($: Engine, isClosed: boolean) {
   if (isClosed) await mark($, 1, 'done')
 }
 
-const FABLE_ID = 'claude-fable-5-2'
+const FABLE_ID = 'fable'
 const PAUSED = 'Fable tạm ngừng'
 const FABLE_OPTS = { planApproval: 'off', conductor: 'fable', decisionLog: LOG } as const
 const promptModels = (seen: Seen) => seen.routerCalls.filter(c => c.kind === 'prompt').map(c => c.model)

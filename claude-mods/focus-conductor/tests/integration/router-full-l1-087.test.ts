@@ -9,7 +9,7 @@ import type { On } from 'claude-code'
 import { PANE, ROUTER_TIMEOUT, base, plan, submit } from '../support/engine'
 import type { Json, Seen } from '../support/engine'
 
-const ID = 'claude-fable-5-2'
+const ID = 'fable'
 const MARK = 'DAU_CHO_GIUA_XQ'
 const HUGE = `Sửa luồng thanh toán. ${'a'.repeat(120_000)}${MARK}${'b'.repeat(238_489 - 120_000 - 22 - MARK.length)}`
 const LONG = `Sửa luồng thanh toán. ${'a'.repeat(70_000)}${MARK}${'b'.repeat(30_000 - 22 - MARK.length)}`
