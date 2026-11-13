@@ -234,9 +234,18 @@ index ac79796..73a5cad 100644
  
  - **Dòng tổng kết không dấu (D1).** Sau các luật có dấu, `summaryFailed` xét dòng ở dạng bỏ dấu (`foldLabel`): kết luận `chua dat`, `khong dat`, và số đếm khác 0 trước `loi` cách tối đa một từ. `do` (dạng bỏ dấu của "đỏ") không được đọc vì trùng nhiều từ khác. Phủ định không dấu (`khong co loi`) đã bị bỏ ở bước phủ định cách quãng, `0 loi` là số 0.
 diff --git a/claude-mods/focus-conductor/hooks/context.ts b/claude-mods/focus-conductor/hooks/context.ts
-index f77ca1c..7f51404 100644
+index f77ca1c..1fdcd5c 100644
 --- a/claude-mods/focus-conductor/hooks/context.ts
 +++ b/claude-mods/focus-conductor/hooks/context.ts
+@@ -6,7 +6,7 @@ import type { Brief, Choice, Core, DelegationItem, DelegationState, Effort, Inte
+ import { applyCheckCommands, applyCheckTools, applyPassLines, applySkillPaths, applySoftPaths, newEvidenceLog, newTracker, parseCheckCommands, parseCheckTools, parsePassLines, parseSkillPaths, parseSoftPaths } from './lib/drift'
+ import type { EvidenceLog, PromptIntent, TurnTracker } from './lib/drift'
+ import { DEFAULT_CACHE_TTL_MINUTES, DEFAULT_CONTEXT, DEFAULT_WINDOWS, applyCacheWrite, applyPrices, parseCacheWrite, parsePrices } from './lib/cost'
+-import { EFFORTS, decideMain, describePick, familyOf, hasTitleCode, liftPick, matchTask, parseModelMap, parseWindows } from './lib/route'
++import { EFFORTS, FAMILIES as FAMILIES_ORDER, decideMain, describePick, familyOf, hasTitleCode, liftPick, matchTask, parseModelMap, parseWindows, pinnedId, resolveModelId } from './lib/route'
+ import type { SessionModel, SessionPolicy } from './lib/route'
+ import { DECISION_LIMIT, decisionLine } from './lib/decisions'
+ import type { DecisionKind } from './lib/decisions'
 @@ -15,6 +15,8 @@ import type { ErrorEntry, ErrorEvent, ErrorFile } from './lib/errlog'
  import { FIXED_ERRORS } from './lib/fixed-errors'
  import { MOD_VERSION } from './lib/version'
@@ -246,7 +255,18 @@ index f77ca1c..7f51404 100644
  import { approvalModeOf, reviewRoundsOf } from './lib/approval'
  import { conductorBlocker, conductorOf, fableModelId, isFableReady, isMainConducting } from './lib/conductor'
  import { normalizeCore, restoreArchived, withDelegations } from './lib/state'
-@@ -300,6 +302,8 @@ export function createContext(options: PluginOptions) {
+@@ -123,6 +125,10 @@ export function createContext(options: PluginOptions) {
+     lastSession: null as { model: string; effort: string } | null,
+     sessionFamily: null as ModelFamily | null,
+     sessionNoticed: false,
++    /** Engine nhận alias họ model ở turn.step (0.8.7 M1): đọc một lần mỗi phiên từ $.session.version(); null là chưa đọc. */
++    aliasEngine: null as boolean | null,
++    /** ID engine đã phục vụ theo họ (0.8.7 M1, usage.model của turn), cho dòng "Model đang dùng" và cảnh báo phiên bản một lần mỗi họ. */
++    served: new Map<ModelFamily, string>(),
+     /** Đã cảnh báo chính sách model của phiên chặn Fable điều phối (0.8.4 C1), một lần mỗi phiên. */
+     conductorSessionNoticed: false,
+     pinnedGoalId: null as number | null,
+@@ -300,6 +306,8 @@ export function createContext(options: PluginOptions) {
      Object.entries(DEFAULT_WINDOWS).filter(([family]) => modelMap[family as ModelFamily] === undefined),
    ) as Partial<Record<ModelFamily, number>>
    const contextWindows = { ...defaultWindows, ...parseWindows(options['contextWindows']) }
@@ -255,7 +275,7 @@ index f77ca1c..7f51404 100644
    applyPrices(parsePrices(options['prices']))
    applyCacheWrite(parseCacheWrite(options['cacheWrite']))
    applyCheckCommands(parseCheckCommands(options['checkCommands']))
-@@ -338,6 +342,11 @@ export function createContext(options: PluginOptions) {
+@@ -338,6 +346,11 @@ export function createContext(options: PluginOptions) {
      return { model: routerModel, family: routerFamily, isFable: false }
    }
  
@@ -267,15 +287,84 @@ index f77ca1c..7f51404 100644
    /** Chính sách áp lên mọi lựa chọn của router: allowFable, model của phiên, họ đang bị chặn, loại agent dùng được. */
    function policy(): Policy {
      return { allowFable: options['allowFable'] === true, blocked, session: sessionModel(), agents: agentCatalog() }
-@@ -967,6 +976,8 @@ export function createContext(options: PluginOptions) {
+@@ -547,6 +560,8 @@ export function createContext(options: PluginOptions) {
+     local.lastSession = null
+     local.sessionFamily = null
+     local.sessionNoticed = false
++    local.aliasEngine = null
++    local.served.clear()
+     local.conductorSessionNoticed = false
+     local.pinnedGoalId = null
+     blocked.clear()
+@@ -578,6 +593,34 @@ export function createContext(options: PluginOptions) {
+   }
+ 
+   /** Hết chặn các họ model đã bị chặn đủ BLOCK_TURNS turn, để thử lại. */
++  /**
++   * Model ID gửi cho một step (0.8.7 M1): mọi nơi đặt model cho turn.step (luồng chính, subagent ép model, phần còn lại của turn sau khi
++   * model không phản hồi) gọi hàm này. Alias chỉ khi engine nhận alias ở turn.step (cổng phiên bản engine, local.aliasEngine).
++   */
++  function stepModelId(family: ModelFamily, engineModel: string): string {
++    return resolveModelId(family, engineModel, modelMap, local.aliasEngine === true)
++  }
++
++  /**
++   * Ghi ID engine đã phục vụ cho họ của nó (0.8.7 M1, usage.model của turn). Lần đầu trong phiên một họ được phục vụ bằng ID khác ID ghim
++   * thì trả câu cảnh báo (một lần mỗi họ mỗi phiên); còn lại null. Không chèn gì vào context.
++   */
++  function noteServed(id: string): string | null {
++    const family = familyOf(id)
++    if (family === null) return null
++    const isFirst = !local.served.has(family)
++    local.served.set(family, id)
++    if (!isFirst || id === pinnedId(family)) return null
++    return `Engine đang phục vụ ${id} cho họ ${family}; bảng giá và cửa sổ ngữ cảnh kèm mod lập cho ${pinnedId(family)}, chỉnh được bằng option prices và contextWindows`
++  }
++
++  /** Dòng "Model đang dùng" của /conductor status (0.8.7 M1): các họ đã được phục vụ trong phiên kèm ID thật; null khi chưa có họ nào. */
++  function servedLine(lang: 'vi' | 'en'): string | null {
++    const items = FAMILIES_ORDER.filter(f => local.served.has(f)).map(f => `${f} ${local.served.get(f)}`)
++    if (items.length === 0) return null
++    return `${lang === 'en' ? 'Models in use' : 'Model đang dùng'}: ${items.join(', ')}`
++  }
++
+   function expireBlocks(): void {
+     for (const [family, until] of blockedUntil) {
+       if (until > local.turnCount) continue
+@@ -967,6 +1010,11 @@ export function createContext(options: PluginOptions) {
      conductorState,
      isConducting,
      routerTarget,
 +    routerReading,
 +    routerMaxWaitMs,
++    stepModelId,
++    noteServed,
++    servedLine,
      routerTimeLine,
      semanticDrift,
      driftEveryMs,
+diff --git a/claude-mods/focus-conductor/hooks/lib/conductor.ts b/claude-mods/focus-conductor/hooks/lib/conductor.ts
+index 40ca02f..cc2bfd7 100644
+--- a/claude-mods/focus-conductor/hooks/lib/conductor.ts
++++ b/claude-mods/focus-conductor/hooks/lib/conductor.ts
+@@ -95,12 +95,15 @@ export function isMainConducting(input: ConductorInputs, brief: Pick<Brief, 'dep
+   return isConductorAvailable(input) && isBigGoal(brief)
+ }
+ 
+-/** ID Fable cho vai điều phối: modelMap.fable, rồi ID phiên khi phiên thuộc họ fable (giữ hậu tố), rồi ID mặc định. */
++/**
++ * Model của router Fable: modelMap.fable, rồi ID phiên khi phiên thuộc họ fable (giữ hậu tố), rồi (0.8.7 M1) alias fable để engine chọn
++ * phiên bản hiện hành ($.model.complete nhận alias ở mọi engine đã kiểm); ID phiên có tiền tố nhà cung cấp thì tiền tố cộng ID ghim.
++ */
+ export function fableModelId(map: Partial<Record<ModelFamily, string>>, sessionModelId: string | null): string {
+   const override = map.fable
+   if (override) return override
+   if (sessionModelId !== null && familyOf(sessionModelId) === 'fable') return sessionModelId
+-  return resolveModelId('fable', sessionModelId ?? '', {})
++  return resolveModelId('fable', sessionModelId ?? '', {}, true)
+ }
+ 
+ /** Câu nêu nguyên nhân (nhật ký conductor, pane, status). */
 diff --git a/claude-mods/focus-conductor/hooks/lib/drift/evidence.ts b/claude-mods/focus-conductor/hooks/lib/drift/evidence.ts
 index 04ade98..57eb3c2 100644
 --- a/claude-mods/focus-conductor/hooks/lib/drift/evidence.ts
@@ -467,6 +556,63 @@ index 0000000..48b0057
 +  const timeoutMs = Math.min(reading.maxWaitMs, Math.max(120_000, roundUp(1.5 * params.secPerChar * sent * 1000, 5_000)))
 +  return { capacity, head, tail: capacity - head, limit, isFull, maxTokens, timeoutMs }
 +}
+diff --git a/claude-mods/focus-conductor/hooks/lib/route.ts b/claude-mods/focus-conductor/hooks/lib/route.ts
+index 0329b84..a1c11a8 100644
+--- a/claude-mods/focus-conductor/hooks/lib/route.ts
++++ b/claude-mods/focus-conductor/hooks/lib/route.ts
+@@ -80,22 +80,48 @@ export function parseWindows(raw: unknown): Partial<Record<ModelFamily, number>>
+   return out
+ }
+ 
++/** ID ghim của một họ (bảng giá và cửa sổ kèm mod lập cho ID này). */
++export function pinnedId(family: ModelFamily): string {
++  return DEFAULT_IDS[family]
++}
++
++/** Engine đầu tiên đã kiểm có đổi alias của turn.step thành ID trước khi gọi API (0.8.7 M1) [Đo trực tiếp, mã nhúng của 2.1.323]. */
++const ALIAS_ENGINE = [2, 1, 323] as const
++
++/**
++ * Engine có nhận alias họ model ở turn.step không (0.8.7 M1): so phiên bản (`$.session.version().version`) theo từng phần số với
++ * ALIAS_ENGINE; bản phát triển ("2.1.323-dev...") so theo phần phát hành. Chuỗi không đọc được thì coi là engine cũ.
++ */
++export function engineTakesAlias(version: string): boolean {
++  const match = /^(\d+)\.(\d+)\.(\d+)/.exec(version.trim())
++  if (match === null) return false
++  const parts = [Number(match[1]), Number(match[2]), Number(match[3])]
++  for (let i = 0; i < ALIAS_ENGINE.length; i++) {
++    const want = ALIAS_ENGINE[i] ?? 0
++    const have = parts[i] ?? 0
++    if (have !== want) return have > want
++  }
++  return true
++}
++
+ /**
+- * Model ID cho một step của luồng chính. Cùng họ với model engine đang dùng
+- * thì giữ nguyên ID của engine (giữ cả hậu tố và tiền tố nhà cung cấp); khác
+- * họ thì lấy ID ghi đè, hoặc ID mặc định kèm tiền tố nhà cung cấp hiện tại
+- * (ví dụ "us.anthropic." trên Bedrock).
++ * Model ID cho một step (luồng chính hay subagent). Cùng họ với model engine đang dùng thì giữ nguyên ID của engine (giữ cả hậu tố và
++ * tiền tố nhà cung cấp); khác họ thì lấy ID ghi đè; không có thì (0.8.7 M1) alias của họ khi `useAlias` (engine nhận alias ở turn.step)
++ * và ID engine không có tiền tố nhà cung cấp, để engine chọn phiên bản hiện hành; còn lại ID ghim kèm tiền tố nhà cung cấp hiện tại
++ * (ví dụ "us.anthropic." trên Bedrock), như 0.8.6.
+  */
+ export function resolveModelId(
+   family: ModelFamily,
+   engineModel: string,
+   map: Partial<Record<ModelFamily, string>>,
++  useAlias = false,
+ ): string {
+   if (familyOf(engineModel) === family) return engineModel
+   const override = map[family]
+   if (override) return override
+   const at = engineModel.indexOf('claude-')
+   const prefix = at > 0 ? engineModel.slice(0, at) : ''
++  if (useAlias && prefix === '') return family
+   return `${prefix}${DEFAULT_IDS[family]}`
+ }
+ 
 diff --git a/claude-mods/focus-conductor/hooks/lib/router.ts b/claude-mods/focus-conductor/hooks/lib/router.ts
 index ff688b0..f93c48c 100644
 --- a/claude-mods/focus-conductor/hooks/lib/router.ts
@@ -968,7 +1114,7 @@ index c099f50..6cdf944 100644
 -export const MOD_VERSION = '0.8.6'
 +export const MOD_VERSION = '0.8.7'
 diff --git a/claude-mods/focus-conductor/hooks/parts/command.ts b/claude-mods/focus-conductor/hooks/parts/command.ts
-index e2feb0e..1da5a06 100644
+index e2feb0e..7d81863 100644
 --- a/claude-mods/focus-conductor/hooks/parts/command.ts
 +++ b/claude-mods/focus-conductor/hooks/parts/command.ts
 @@ -14,7 +14,7 @@ import { askRouter, bareBrief, briefOf, failFields, nextBrief, parseRoute, rerou
@@ -1016,7 +1162,7 @@ index e2feb0e..1da5a06 100644
        const startedAt = await $.clock.now()
        const outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), undefined, { retryMissingConfidence: true, ...(target.isFable ? { isFable: true } : {}) })
        ctx.noteRouterFailure('prompt', outcome.failure)
-@@ -456,6 +458,8 @@ export function registerCommand(on: On, ctx: Ctx): void {
+@@ -456,12 +458,17 @@ export function registerCommand(on: On, ctx: Ctx): void {
  
      if (sub === 'status') {
        const { core, mode: current, lang } = await read($, view)
@@ -1025,7 +1171,16 @@ index e2feb0e..1da5a06 100644
        const usage = await $.session.usage().catch(caught('session.usage', null))
        const costLines = ledgerLines(core.ledger, lang)
        if (core.sysTokens > 0) costLines.push(`Phần cố định của ngữ cảnh (system prompt, tools): ${Math.round(core.sysTokens / 1000)}k token, đo ở đầu phiên`)
-@@ -485,7 +489,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
+       if (usage?.cost) costLines.push(`Chi phí cả phiên theo Claude Code (gồm cả phần trước khi mod bắt đầu ghi sổ): ${formatCost(usage.cost.usd, lang)}`)
+       const estimate = estimateLine(core.log, lang)
+       if (estimate) costLines.push(estimate)
++      // Họ model đã được phục vụ trong phiên kèm ID thật (0.8.7 M1).
++      const served = ctx.servedLine(lang)
++      if (served !== null) costLines.push(served)
+       costLines.push(priceNote(await $.clock.now()))
+       costLines.push(cacheNote(ctx.cacheTtlMs / 60_000))
+       const latency = routerTimeLine()
+@@ -485,7 +492,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
        // Vai điều phối của mục tiêu (0.8.6): trạng thái miễn và số đo, chỉ khi luồng chính đang điều phối.
        const conductSuffix = ctx.isConducting(core, current) ? conductStatusSuffix(S.conductOf(core), lang) : ''
        const conductorLines = ctx.conductorOption === 'fable' ? [conductorLine(core, ctx.routerModel, lang) + conductSuffix] : []
@@ -1034,7 +1189,7 @@ index e2feb0e..1da5a06 100644
        const routeLine = core.route
          ? `${describePick(core.route)} (${core.route.reason})`
          : core.brief.main === null
-@@ -510,7 +514,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
+@@ -510,7 +517,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
        const agentBlock = delegationBlock + (agentLines.length > 0 ? `\nSubagent gần nhất:\n${agentLines.join('\n')}` : '') + untrackedLine
        return {
          text: [
@@ -1043,6 +1198,20 @@ index e2feb0e..1da5a06 100644
            judged,
            `Luồng chính: ${routeLine}${blockedLine}`,
            ...conductorLines,
+diff --git a/claude-mods/focus-conductor/hooks/parts/consistency.ts b/claude-mods/focus-conductor/hooks/parts/consistency.ts
+index c718b26..75bdb2a 100644
+--- a/claude-mods/focus-conductor/hooks/parts/consistency.ts
++++ b/claude-mods/focus-conductor/hooks/parts/consistency.ts
+@@ -1211,6 +1211,9 @@ export function registerConsistency(on: On, ctx: Ctx): void {
+     await ctx.flushErrors({ read: path => $.fs.read(path), write: (path, text) => $.fs.write(path, text), root: () => $.session.root() })
+     if ((await read($, mode)) === 'off') return result
+     const at = await $.clock.now()
++    // ID engine đã phục vụ (0.8.7 M1): lần đầu một họ được phục vụ bằng ID khác ID ghim thì một cảnh báo model, không chèn context.
++    const servedWarning = e.usage ? ctx.noteServed(e.usage.model) : null
++    if (servedWarning !== null) await update($, coreState, S.withWarnings({ at, kind: 'model', text: servedWarning }))
+ 
+     if (e.agentId !== undefined) {
+       const agentId = e.agentId
 diff --git a/claude-mods/focus-conductor/hooks/parts/session.ts b/claude-mods/focus-conductor/hooks/parts/session.ts
 index c50b0e9..dab8940 100644
 --- a/claude-mods/focus-conductor/hooks/parts/session.ts
@@ -1116,8 +1285,57 @@ index c50b0e9..dab8940 100644
      if (isNewGoal) {
        L.goalPrompt = { text, prev, goalId: brief.goalId }
        L.isGoalNew = true
+diff --git a/claude-mods/focus-conductor/hooks/parts/turn.ts b/claude-mods/focus-conductor/hooks/parts/turn.ts
+index 137edc2..9acda30 100644
+--- a/claude-mods/focus-conductor/hooks/parts/turn.ts
++++ b/claude-mods/focus-conductor/hooks/parts/turn.ts
+@@ -5,7 +5,7 @@ import { caught } from '../lib/errlog'
+ import type { ModelFamily, Warning } from '../../types'
+ import { newTracker } from '../lib/drift'
+ import { DEFAULT_CONTEXT, fixedContextTokens } from '../lib/cost'
+-import { EFFORTS, familyOf, resolveModelId } from '../lib/route'
++import { EFFORTS, engineTakesAlias, familyOf } from '../lib/route'
+ import { EMPTY_QUOTA, normalizeQuota, quotaSettings } from '../lib/quota'
+ import * as S from '../lib/state'
+ import type { View } from '../lib/state'
+@@ -45,7 +45,7 @@ async function showStatus($: EngineInterface, current: View, options: Ctx['optio
+ 
+ export function registerTurn(on: On, ctx: Ctx): void {
+   const L = ctx.local
+-  const { agents, blocked, blockedUntil, decideTurn, expireBlocks, failures, isCacheFree, modelMap, noteContext, steppedEarly } = ctx
++  const { agents, blocked, blockedUntil, decideTurn, expireBlocks, failures, isCacheFree, noteContext, steppedEarly } = ctx
+   const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
+   const mode = derive([modeState], modeOf(ctx.options))
+ 
+@@ -65,6 +65,8 @@ export function registerTurn(on: On, ctx: Ctx): void {
+ 
+   on('turn.step', async function* ($, e, next) {
+     const current = await read($, mode)
++    // Engine có nhận alias ở turn.step không (0.8.7 M1): đọc một lần mỗi phiên; engine không trả phiên bản thì coi là engine cũ.
++    if (L.aliasEngine === null) L.aliasEngine = engineTakesAlias((await $.session.version().catch(() => null))?.version ?? '')
+     // Subagent: ép effort (và model, với agent workflow không do script chọn) theo điều phối đã ghi.
+     if (e.agentId !== undefined) {
+       const agent = agents.get(e.agentId)
+@@ -79,7 +81,7 @@ export function registerTurn(on: On, ctx: Ctx): void {
+         return yield* next(e)
+       }
+       const effort = agent.pick.effort
+-      const model = agent.enforceModel ? resolveModelId(agent.pick.family, e.model, modelMap) : e.model
++      const model = agent.enforceModel ? ctx.stepModelId(agent.pick.family, e.model) : e.model
+       const sent = EFFORTS.find(x => x === effort)
+       if (sent !== undefined) agent.sentEffort = sent
+       if (model === e.model && effort === e.effort) return yield* next(e)
+@@ -156,7 +158,7 @@ export function registerTurn(on: On, ctx: Ctx): void {
+     if (route === null || current === 'suggest') return yield* next(e)
+ 
+     // Chốt model + effort cho mọi step của turn: đổi giữa chừng sẽ mất cache.
+-    const input = { ...e, model: resolveModelId(route.family, e.model, modelMap), effort: route.effort }
++    const input = { ...e, model: ctx.stepModelId(route.family, e.model), effort: route.effort }
+     const isOverridden = input.model !== e.model
+     const stream = next(input)
+     let chunks = 0
 diff --git a/claude-mods/focus-conductor/scripts/mutants.ts b/claude-mods/focus-conductor/scripts/mutants.ts
-index 40078d3..32e0736 100644
+index 40078d3..db78922 100644
 --- a/claude-mods/focus-conductor/scripts/mutants.ts
 +++ b/claude-mods/focus-conductor/scripts/mutants.ts
 @@ -300,7 +300,7 @@ export const MUTANTS: Mutant[] = [
@@ -1288,7 +1506,7 @@ index 40078d3..32e0736 100644
    { id: "084-C2c", file: "hooks/parts/session.ts", note: "sổ chi phí của lượt đọc prompt vẫn theo họ của option router", old: "    const withUsage = (c: Core): Core =>\n      S.withAnalyzerUsage(outcome.usages, target.family)(c)", new: "    const withUsage = (c: Core): Core =>\n      S.withAnalyzerUsage(outcome.usages, ctx.routerFamily)(c)" },
    { id: "084-C3a", file: "hooks/context.ts", note: "luồng chính điều phối vẫn nâng theo bằng chứng (liftPick)", old: "isMainConducting(conductorInputs(core, mode), brief)) return { family: 'fable', effort: 'medium', notes: ['điều phối'], isConducting: true }", new: "isMainConducting(conductorInputs(core, mode), brief)) return { ...liftPick({ family: 'fable', effort: 'medium' }, lift, true), notes: ['điều phối'], isConducting: true }" },
    { id: "084-C3b", file: "hooks/context.ts", note: "điều phối áp cả cho mục tiêu không lớn", old: "isMainConducting(conductorInputs(core, mode), brief)) return { family: 'fable', effort: 'medium', notes: ['điều phối'], isConducting: true }", new: "conductorBlocker(conductorInputs(core, mode)) === null) return { family: 'fable', effort: 'medium', notes: ['điều phối'], isConducting: true }" },
-@@ -2198,4 +2198,50 @@ export const MUTANTS: Mutant[] = [
+@@ -2198,4 +2198,56 @@ export const MUTANTS: Mutant[] = [
    { id: "086-V1g", file: "hooks/lib/router.ts", note: "chuyển cả tin đối chiếu", old: "(!isReference && relation !== 'new' && policy.goalIsBig === true)", new: "(relation !== 'new' && policy.goalIsBig === true)" },
    { id: "086-V1h", file: "hooks/parts/command.ts", note: "status hiện số đo cả khi không điều phối", old: "const conductSuffix = ctx.isConducting(core, current) ? conductStatusSuffix(S.conductOf(core), lang) : ''", new: "const conductSuffix = conductStatusSuffix(S.conductOf(core), lang)" },
    { id: "086-V1i", file: "hooks/parts/consistency.ts", note: "đếm cả lần đọc bị từ chối", old: "if (e.agentId !== undefined || ctx.conductorReads === 0 || result.deny !== undefined) return result", new: "if (e.agentId !== undefined || ctx.conductorReads === 0) return result" },
@@ -1338,6 +1556,12 @@ index 40078d3..32e0736 100644
 +  { id: "087-L3m", file: "hooks/lib/reading.ts", note: "họ chưa đo lấy thông số của fable", old: "if (family === 'fable' || family === 'sonnet') return READ_PARAMS[family]", new: "return READ_PARAMS.fable" },
 +  { id: "087-L3n", file: "hooks/lib/router.ts", note: "askRouter không chuyển full sang lượt hỏi lại", old: ", ...(opts.full !== undefined ? { full: opts.full } : {}) })).catch(() => null)", new: " })).catch(() => null)" },
 +  { id: "087-L3o", file: "hooks/lib/reading.ts", note: "mặc định routerMaxWait về 600 giây", old: "export const ROUTER_MAX_WAIT_MS = 1_800_000", new: "export const ROUTER_MAX_WAIT_MS = 600_000" },
++  { id: "087-M1a", file: "hooks/lib/route.ts", note: "luôn trả ID ghim", old: "  if (useAlias && prefix === '') return family\n", new: "  if (false) return family\n" },
++  { id: "087-M1b", file: "hooks/lib/route.ts", note: "alias thắng cả ghi đè modelMap", old: "  const override = map[family]\n  if (override) return override\n  const at = engineModel.indexOf('claude-')", new: "  if (useAlias) return family\n  const override = map[family]\n  if (override) return override\n  const at = engineModel.indexOf('claude-')" },
++  { id: "087-M1c", file: "hooks/lib/route.ts", note: "alias thắng cả ID của phiên cùng họ", old: "  if (familyOf(engineModel) === family) return engineModel\n  const override = map[family]", new: "  if (useAlias && engineModel.indexOf('claude-') <= 0) return family\n  if (familyOf(engineModel) === family) return engineModel\n  const override = map[family]" },
++  { id: "087-M1d", file: "hooks/lib/route.ts", note: "dùng alias cả khi ID phiên có tiền tố", old: "  if (useAlias && prefix === '') return family\n", new: "  if (useAlias) return family\n" },
++  { id: "087-M1e", file: "hooks/context.ts", note: "cảnh báo phiên bản lặp lại mỗi lần gọi", old: "    if (!isFirst || id === pinnedId(family)) return null\n", new: "    if (id === pinnedId(family)) return null\n" },
++  { id: "087-M1f", file: "hooks/lib/route.ts", note: "cổng phiên bản nhận cả 2.1.322", old: "    if (have !== want) return have > want\n", new: "    if (have !== want) return have >= want - 1\n" },
  ]
 diff --git a/claude-mods/focus-conductor/tests/caps-s1-075.test.ts b/claude-mods/focus-conductor/tests/caps-s1-075.test.ts
 index 185cd20..26233ea 100644
@@ -1860,6 +2084,112 @@ index 9d3a1bc..12567c0 100644
 +    expect(texts.some(t => typeof t === 'string' && t.includes('không giữ được'))).toBe(false)
    })
  })
+diff --git a/claude-mods/focus-conductor/tests/integration/conduct-r5-086.test.ts b/claude-mods/focus-conductor/tests/integration/conduct-r5-086.test.ts
+index 73c041e..fe8b040 100644
+--- a/claude-mods/focus-conductor/tests/integration/conduct-r5-086.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/conduct-r5-086.test.ts
+@@ -112,7 +112,7 @@ describe('0.8.6 R5: số đo vai điều phối', () => {
+   })
+ 
+   test('vòng 2 V1: hai lần bị từ chối sửa file rồi Fable tạm ngừng (không điều phối): dòng Điều phối không có số đo', opts(), async ($, on) => {
+-    const ID = 'claude-fable-5-2'
++    const ID = 'fable'
+     const FOLLOW = plan({ goal: '', relation: 'continue', depth: 'substantial', volume: 'medium', kind: 'edit', main: MAIN })
+     let fable = 0
+     const seen = base(on, { router: request => (request.startsWith('Requirements:') ? { missing: [], extra: [], issues: [] } : seen.routerModels.at(-1) === ID ? (fable++ === 0 ? BIG : null) : FOLLOW) })
+diff --git a/claude-mods/focus-conductor/tests/integration/conduct-r6-086.test.ts b/claude-mods/focus-conductor/tests/integration/conduct-r6-086.test.ts
+index 85cd39b..0c72a6c 100644
+--- a/claude-mods/focus-conductor/tests/integration/conduct-r6-086.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/conduct-r6-086.test.ts
+@@ -116,7 +116,7 @@ describe('0.8.6 R6: cờ lời gọi Agent bị từ chối', () => {
+ 
+ describe('0.8.6 vòng 2 V1: cờ Agent chỉ đổi theo lời gọi của luồng chính đang điều phối', () => {
+   const LOG = '/tmp/fc-conduct-r6-v1.jsonl'
+-  const ID = 'claude-fable-5-2'
++  const ID = 'fable'
+   const FOLLOW = plan({ goal: '', relation: 'continue', depth: 'substantial', volume: 'medium', kind: 'edit', main: MAIN })
+   /** Ghi nhật ký quyết định; trả các dòng conduct-exempt. */
+   function exempts(on: On) {
+diff --git a/claude-mods/focus-conductor/tests/integration/conductor-c1-084.test.ts b/claude-mods/focus-conductor/tests/integration/conductor-c1-084.test.ts
+index f43352a..2542310 100644
+--- a/claude-mods/focus-conductor/tests/integration/conductor-c1-084.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/conductor-c1-084.test.ts
+@@ -62,8 +62,8 @@ describe('0.8.4 C1: ID của Fable', () => {
+   test('modelMap có fable thì dùng ID đó', () => expect(C.fableModelId({ fable: 'x-fable' }, 'claude-opus-5-5')).toBe('x-fable'))
+   test('phiên họ fable có hậu tố: dùng nguyên ID của phiên', () => expect(C.fableModelId({}, 'claude-fable-5-2[1m]')).toBe('claude-fable-5-2[1m]'))
+   test('còn lại: ID mặc định đã kiểm claude-fable-5-2', () => {
+-    expect(C.fableModelId({}, 'claude-opus-5-5')).toBe('claude-fable-5-2')
+-    expect(C.fableModelId({}, null)).toBe('claude-fable-5-2')
++    expect(C.fableModelId({}, 'claude-opus-5-5')).toBe('fable')
++    expect(C.fableModelId({}, null)).toBe('fable')
+     expect(resolveModelId('fable', 'claude-opus-5-5', {})).toBe('claude-fable-5-2')
+   })
+ })
+diff --git a/claude-mods/focus-conductor/tests/integration/conductor-c2-084.test.ts b/claude-mods/focus-conductor/tests/integration/conductor-c2-084.test.ts
+index 7118fd6..a90bf9c 100644
+--- a/claude-mods/focus-conductor/tests/integration/conductor-c2-084.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/conductor-c2-084.test.ts
+@@ -10,7 +10,7 @@ import type { Json } from '../support/engine'
+ 
+ const FABLE = { options: { planApproval: 'off', conductor: 'fable' } }
+ const PLAIN = { options: { planApproval: 'off' } }
+-const ID = 'claude-fable-5-2'
++const ID = 'fable'
+ const BIG = (over: Json = {}) => plan({ goal: 'Sửa luồng thanh toán', depth: 'substantial', volume: 'medium', kind: 'edit', requirements: ['Sửa hàm tính phí', 'Thêm test cho phí'], ...over })
+ const edit = ($: Engine, name: string) => $.tool.call({ tool: 'Edit', file_path: `src/${name}.ts`, old_string: 'x', new_string: 'y' } as never)
+ const agent = ($: Engine, description: string) => $.tool.call({ tool: 'Agent', description, prompt: `${description}. Báo lại ngắn.`, subagent_type: 'general-purpose' } as never)
+diff --git a/claude-mods/focus-conductor/tests/integration/conductor-c6-084.test.ts b/claude-mods/focus-conductor/tests/integration/conductor-c6-084.test.ts
+index 38b4496..8732bbf 100644
+--- a/claude-mods/focus-conductor/tests/integration/conductor-c6-084.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/conductor-c6-084.test.ts
+@@ -10,7 +10,7 @@ import type { Json, Seen } from '../support/engine'
+ 
+ const LOG = '/tmp/fc-conductor-c6-084.jsonl'
+ const FABLE = { options: { planApproval: 'off', conductor: 'fable', decisionLog: LOG } }
+-const ID = 'claude-fable-5-2'
++const ID = 'fable'
+ const BIG = (over: Json = {}) => plan({ goal: 'Sửa luồng thanh toán', depth: 'substantial', volume: 'medium', kind: 'edit', main: { model: 'sonnet', effort: 'medium', why: '' }, ...over })
+ const FOLLOW = plan({ relation: 'continue', goal: '', depth: 'substantial', volume: 'medium', kind: 'edit', main: { model: 'sonnet', effort: 'medium', why: '' } })
+ const PAUSE_TEXT = 'Fable điều phối tạm ngừng'
+diff --git a/claude-mods/focus-conductor/tests/integration/conductor-c8-084.test.ts b/claude-mods/focus-conductor/tests/integration/conductor-c8-084.test.ts
+index 58f53c9..97c8483 100644
+--- a/claude-mods/focus-conductor/tests/integration/conductor-c8-084.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/conductor-c8-084.test.ts
+@@ -7,7 +7,7 @@ import type { Engine } from 'claude-code/testing'
+ import { PANE, base, conductor, plan, step, submit } from '../support/engine'
+ import type { Json, Seen } from '../support/engine'
+ 
+-const ID = 'claude-fable-5-2'
++const ID = 'fable'
+ const BIG = plan({ goal: 'Sửa luồng thanh toán', depth: 'substantial', volume: 'medium', kind: 'edit', main: { model: 'sonnet', effort: 'medium', why: '' } })
+ const band = (columns: number) => ({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 3, bodyColumns: columns, scroll: { offset: 0, bodyRows: 3 }, view: {} } }) as const
+ const texts = async ($: Engine, target: unknown) => {
+diff --git a/claude-mods/focus-conductor/tests/integration/conductor-k10-085.test.ts b/claude-mods/focus-conductor/tests/integration/conductor-k10-085.test.ts
+index 6737bb7..136d9f7 100644
+--- a/claude-mods/focus-conductor/tests/integration/conductor-k10-085.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/conductor-k10-085.test.ts
+@@ -9,7 +9,7 @@ import { base, plan, step, submit } from '../support/engine'
+ import type { Json, Seen } from '../support/engine'
+ 
+ const FABLE = { options: { planApproval: 'off', conductor: 'fable' } }
+-const ID = 'claude-fable-5-2'
++const ID = 'fable'
+ const BIG = plan({ goal: 'Sửa luồng thanh toán', depth: 'substantial', volume: 'medium', kind: 'edit', main: { model: 'sonnet', effort: 'medium', why: '' } })
+ const FOLLOW = plan({ relation: 'continue', goal: '', depth: 'substantial', volume: 'medium', kind: 'edit', main: { model: 'sonnet', effort: 'medium', why: '' } })
+ const prompts = (seen: Seen) => seen.routerCalls.filter(c => c.kind === 'prompt')
+diff --git a/claude-mods/focus-conductor/tests/integration/conductor-v1-084.test.ts b/claude-mods/focus-conductor/tests/integration/conductor-v1-084.test.ts
+index b4ee6f7..bce0b4a 100644
+--- a/claude-mods/focus-conductor/tests/integration/conductor-v1-084.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/conductor-v1-084.test.ts
+@@ -13,7 +13,7 @@ import type { Json, Seen } from '../support/engine'
+ import { memoryStore, quotaMeter, session } from '../support/quota'
+ 
+ const PLAN = 'mcp__focus-conductor__plan'
+-const ID = 'claude-fable-5-2'
++const ID = 'fable'
+ const COMPACT = '[focus-conductor] Hội thoại vừa được nén.'
+ const BRIEFING = '[focus-conductor] Điều phối'
+ const MESSAGES = [{ role: 'user' as const, text: 'tóm tắt', toolUses: [] }]
 diff --git a/claude-mods/focus-conductor/tests/integration/dropped-kind-s8-075.test.ts b/claude-mods/focus-conductor/tests/integration/dropped-kind-s8-075.test.ts
 index 44625e7..4fc7b1d 100644
 --- a/claude-mods/focus-conductor/tests/integration/dropped-kind-s8-075.test.ts
@@ -2179,7 +2509,7 @@ index 0000000..022f022
 +})
 diff --git a/claude-mods/focus-conductor/tests/integration/limits-l2-087.test.ts b/claude-mods/focus-conductor/tests/integration/limits-l2-087.test.ts
 new file mode 100644
-index 0000000..538065b
+index 0000000..14ecace
 --- /dev/null
 +++ b/claude-mods/focus-conductor/tests/integration/limits-l2-087.test.ts
 @@ -0,0 +1,148 @@
@@ -2195,7 +2525,7 @@ index 0000000..538065b
 +import type { Json, Seen } from '../support/engine'
 +
 +const PLAN = 'mcp__focus-conductor__plan'
-+const ID = 'claude-fable-5-2'
++const ID = 'fable'
 +const GOAL = 'Mục tiêu giả nhiều việc'
 +const PRESENTATION = { isFullscreen: false, columns: 80 }
 +const reqs = (n: number) => Array.from({ length: n }, (_, i) => `Yêu cầu giả số ${i + 1}`)
@@ -2333,10 +2663,10 @@ index 0000000..538065b
 +})
 diff --git a/claude-mods/focus-conductor/tests/integration/model-latest-m1-087.test.ts b/claude-mods/focus-conductor/tests/integration/model-latest-m1-087.test.ts
 new file mode 100644
-index 0000000..897663d
+index 0000000..658df88
 --- /dev/null
 +++ b/claude-mods/focus-conductor/tests/integration/model-latest-m1-087.test.ts
-@@ -0,0 +1,93 @@
+@@ -0,0 +1,95 @@
 +// 0.8.7 M1 (tích hợp): router nhận alias ở mọi engine; luồng chính nhận alias khi engine từ 2.1.323 ($.session.version), engine cũ hơn
 +// hay không đọc được phiên bản thì nhận ID ghim như 0.8.6; lời gọi Agent giữ alias như 0.8.6. Engine phục vụ ID khác ID ghim của họ:
 +// một cảnh báo model cho mỗi họ trong phiên, dòng "Model đang dùng" ở /conductor status, chi phí vẫn theo giá của họ.
@@ -2406,15 +2736,17 @@ index 0000000..897663d
 +    base(on, { router: () => OPUS_MAIN })
 +    on('turn.complete', () => ({ text: '' }))
 +    await submit($, 'Sửa luồng thanh toán')
-+    for (const turnId of ['t1', 't2', 't3']) await $.turn.complete({ turnId, answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer', usage: { ...BIG_USAGE, model: 'claude-opus-9-9' } } as never)
++    // Xen một họ khác giữa các turn opus để cảnh báo lặp (nếu có) không bị gộp với cảnh báo liền trước.
++    for (const [turnId, model] of [['t1', 'claude-opus-9-9'], ['t2', 'claude-sonnet-9-9'], ['t3', 'claude-opus-9-9'], ['t4', 'claude-opus-9-9']] as const) await $.turn.complete({ turnId, answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer', usage: { ...BIG_USAGE, model } } as never)
 +    const pane = await paneTexts($)
-+    expect(pane.filter(t => t.includes('claude-opus-9-9') && t.includes('prices')).length).toBe(1)
++    expect(pane.filter(t => t.includes('Engine đang phục vụ claude-opus-9-9')).length).toBe(1)
++    expect(pane.filter(t => t.includes('Engine đang phục vụ claude-sonnet-9-9')).length).toBe(1)
 +    const status = String((await conductor($, 'status')).text)
 +    const line = status.split('\n').find(l => l.startsWith('Model đang dùng')) ?? ''
 +    expect(line).toContain('opus claude-opus-9-9')
 +    let ledger = emptyLedger(0)
-+    for (let i = 0; i < 3; i++) ledger = addUsage(ledger, 'main', 'opus', BIG_USAGE).ledger
-+    expect(status).toContain(`luồng chính ${formatCost(ledger.session.main.usd, 'vi')} trong 3 lượt`)
++    for (const family of ['opus', 'sonnet', 'opus', 'opus'] as const) ledger = addUsage(ledger, 'main', family, BIG_USAGE).ledger
++    expect(status).toContain(`luồng chính ${formatCost(ledger.session.main.usd, 'vi')} trong 4 lượt`)
 +  })
 +
 +  test('ID trùng ID ghim: không cảnh báo; họ chưa được gọi không có trong dòng Model đang dùng', { options: { planApproval: 'off' } }, async ($, on) => {
@@ -2423,7 +2755,7 @@ index 0000000..897663d
 +    await submit($, 'Sửa luồng thanh toán')
 +    await $.turn.complete({ turnId: 't1', answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer', usage: { ...BIG_USAGE, model: 'claude-sonnet-5-5' } } as never)
 +    const pane = await paneTexts($)
-+    expect(pane.some(t => t.includes('prices') && t.includes('claude-sonnet-5-5'))).toBe(false)
++    expect(pane.some(t => t.includes('Engine đang phục vụ'))).toBe(false)
 +    const status = String((await conductor($, 'status')).text)
 +    const line = status.split('\n').find(l => l.startsWith('Model đang dùng')) ?? ''
 +    expect(line).toContain('sonnet claude-sonnet-5-5')
@@ -2476,9 +2808,22 @@ index 1f644c8..9a3e635 100644
      expect(line).toContain('cắt 1 tiêu đề quá 160 ký tự')
      expect(line).toContain('cắt 1 tiêu chí quá 200 ký tự')
    })
+diff --git a/claude-mods/focus-conductor/tests/integration/resume-a2-084.test.ts b/claude-mods/focus-conductor/tests/integration/resume-a2-084.test.ts
+index 671730b..8ea1b73 100644
+--- a/claude-mods/focus-conductor/tests/integration/resume-a2-084.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/resume-a2-084.test.ts
+@@ -71,7 +71,7 @@ async function goalB($: Engine, isClosed: boolean) {
+   if (isClosed) await mark($, 1, 'done')
+ }
+ 
+-const FABLE_ID = 'claude-fable-5-2'
++const FABLE_ID = 'fable'
+ const PAUSED = 'Fable tạm ngừng'
+ const FABLE_OPTS = { planApproval: 'off', conductor: 'fable', decisionLog: LOG } as const
+ const promptModels = (seen: Seen) => seen.routerCalls.filter(c => c.kind === 'prompt').map(c => c.model)
 diff --git a/claude-mods/focus-conductor/tests/integration/router-full-l1-087.test.ts b/claude-mods/focus-conductor/tests/integration/router-full-l1-087.test.ts
 new file mode 100644
-index 0000000..547e050
+index 0000000..59c2cef
 --- /dev/null
 +++ b/claude-mods/focus-conductor/tests/integration/router-full-l1-087.test.ts
 @@ -0,0 +1,98 @@
@@ -2493,7 +2838,7 @@ index 0000000..547e050
 +import { PANE, ROUTER_TIMEOUT, base, plan, submit } from '../support/engine'
 +import type { Json, Seen } from '../support/engine'
 +
-+const ID = 'claude-fable-5-2'
++const ID = 'fable'
 +const MARK = 'DAU_CHO_GIUA_XQ'
 +const HUGE = `Sửa luồng thanh toán. ${'a'.repeat(120_000)}${MARK}${'b'.repeat(238_489 - 120_000 - 22 - MARK.length)}`
 +const LONG = `Sửa luồng thanh toán. ${'a'.repeat(70_000)}${MARK}${'b'.repeat(30_000 - 22 - MARK.length)}`

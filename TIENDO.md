@@ -36,3 +36,5 @@ Tiếp: đo Fable cho L1.
 - Đo thứ ba L3 (prompt 36 đề mục): sonnet 36/36 việc, 5/40/6 yêu cầu; Fable 36 việc, 173 yêu cầu, 157 s. READ_PARAMS thật + mặc định 1.800 (636a5eb); cả bộ 3400. Tài liệu b761adb. Nháp VERIFICATION ở v7/ver087.md.
 - Bổ sung 2 (M1, F1, G1) đã duyệt kèm 5 điều chỉnh (xem plan). Dừng đột biến (kết quả cũ ở v7/mutf-preM1.log); chạy lại ở cuối bằng mut4p.py.
 - Kiểm engine: model.complete nhận alias (2 bản); Agent chỉ alias; turn.step: 2.1.323 đổi alias, 2.1.296 không; $.session.version() có; model.complete không báo ID thật, turn usage.model có; không có thông tin hạn mức theo model, không giờ mở lại.
+- M1 sửa (commit này): alias ở router, Agent; turn.step alias từ 2.1.323; noteServed và dòng Model đang dùng; 6 mẫu M1 bắt hết (M1f viết lại vì bản đầu tương đương). Cả bộ theo nhóm: 3420 đạt (3400 + 20 ca M1), 10 nhóm.
+- Mã thoát 137: máy khởi động lại (uptime 3 phút), log dừng ở 2068 ca đạt, không có dấu hiệu hết bộ nhớ; nay chạy theo nhóm bằng v7/groups.py.
