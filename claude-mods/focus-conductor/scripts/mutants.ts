@@ -2242,4 +2242,5 @@ export const MUTANTS: Mutant[] = [
   { id: "087-L3k", file: "hooks/lib/router.ts", note: "lượt đọc trọn bị API từ chối thì không dùng lượt dự phòng", old: "(first.reason === 'aborted' || first.reason === 'api-error')", new: "first.reason === 'aborted'" },
   { id: "087-L3l", file: "hooks/lib/reading.ts", note: "routerMaxWait không kẹp biên dưới", old: "Math.max(ROUTER_MAX_WAIT_MIN_MS, Math.round(seconds * 1000))", new: "Math.max(0, Math.round(seconds * 1000))" },
   { id: "087-L3m", file: "hooks/lib/reading.ts", note: "họ chưa đo lấy thông số của fable", old: "if (family === 'fable' || family === 'sonnet') return READ_PARAMS[family]", new: "return READ_PARAMS.fable" },
+  { id: "087-L3n", file: "hooks/lib/router.ts", note: "askRouter không chuyển full sang lượt hỏi lại", old: ", ...(opts.full !== undefined ? { full: opts.full } : {}) })).catch(() => null)", new: " })).catch(() => null)" },
 ]

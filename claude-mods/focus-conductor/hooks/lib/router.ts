@@ -1412,7 +1412,7 @@ export async function askRouter<T extends { confidence?: number }>(
   const isAffordable = problem === 'coverage' ? spent <= budget / 2 : budget - spent >= RETRY_MIN_MS
   if (!isAffordable) return settled(false)
   const isTruncated = firstResult === null && request.maxTokens !== undefined && first.usage.output_tokens >= request.maxTokens * 0.98
-  const second = await ask(retryRequest(request, first.text, problem, { timeoutMs: Math.min(request.timeoutMs ?? budget, budget - spent), truncated: isTruncated, ...(opts.isFable === true ? { isFable: true } : {}) })).catch(() => null)
+  const second = await ask(retryRequest(request, first.text, problem, { timeoutMs: Math.min(request.timeoutMs ?? budget, budget - spent), truncated: isTruncated, ...(opts.isFable === true ? { isFable: true } : {}), ...(opts.full !== undefined ? { full: opts.full } : {}) })).catch(() => null)
   if (second) usages.push(second.usage)
   const secondResult = second?.isAnswered ? parse(second.text) : null
   // Thiếu confidence xếp thấp nhất khi bật retryMissingConfidence: lần hai thắng khi nó có confidence và lần đầu không có hay thấp hơn.
