@@ -20,3 +20,5 @@ Tiếp: đo Fable cho L1.
 - L2 test đỏ 310b4c1 (23/27 đỏ trên 45b5161); sửa fca9281 (bỏ trần việc, yêu cầu, bước; lời dặn mới; taskRows hết bậc ba; FORK_PART_LIMIT bỏ; tally việc đã phân giữ đủ). Golden đang ghi lại (sonnet 50 ca × 3, cả 45b5161).
 - Đo L3 đang chạy (fable, sonnet × 240k, 400k × 3), log m3.jsonl.
 - Plan update 60 bước: 107 ký tự, không tăng theo số bước.
+- Golden sonnet (2.1.323, 3 lượt): 45b5161 146/150, lời dặn mới 144/150; theo kỳ vọng đã sửa (long-vn, long-vn-xl bỏ cận trên, b7828ab): 146/150 và 149/150. Chạy lại 11 ca khác nhau, mỗi bên 3 lượt: 29/33 và 30/33.
+- DỪNG L2 theo luật dừng: prose-hidden tasks [] -> 4 việc (3/3 cả hai bên); đổi model hay effort luồng chính ở đa số lượt: six, perf-root, long-vn-xl, n1-amend-1, vague. Chờ chủ mod quyết. Bản ghi golden mới cất ở v7/golden/replies-new-sonnet.ts, chưa commit. Đo L3 chưa chạy.

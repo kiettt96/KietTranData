@@ -818,7 +818,7 @@ index c50b0e9..589759d 100644
        L.goalPrompt = { text, prev, goalId: brief.goalId }
        L.isGoalNew = true
 diff --git a/claude-mods/focus-conductor/scripts/mutants.ts b/claude-mods/focus-conductor/scripts/mutants.ts
-index 40078d3..6fb7c1f 100644
+index 40078d3..4cc3053 100644
 --- a/claude-mods/focus-conductor/scripts/mutants.ts
 +++ b/claude-mods/focus-conductor/scripts/mutants.ts
 @@ -300,7 +300,7 @@ export const MUTANTS: Mutant[] = [
@@ -962,7 +962,7 @@ index 40078d3..6fb7c1f 100644
    { id: "080-A5a", file: "hooks/lib/drift/soft.ts", note: "lệnh Bash có thể ghi (script lạ) tính là thay đổi chắc chắn", old: "effect.level !== 'definite' || ", new: "" },
    { id: "080-A5b", file: "hooks/lib/drift/soft.ts", note: "bỏ đuôi dữ liệu và báo cáo (csv tsv jsonl log) khỏi thay đổi nhẹ", old: "md|markdown|txt|csv|tsv|jsonl|log", new: "md|markdown|txt" },
    { id: "080-A5c", file: "hooks/lib/state.ts", note: "không gộp cảnh báo cùng nguyên nhân ở turn liên tiếp", old: "prev.cause === entry.cause && prev.at", new: "prev.cause === entry.cause && false && prev.at" },
-@@ -2198,4 +2198,33 @@ export const MUTANTS: Mutant[] = [
+@@ -2198,4 +2198,35 @@ export const MUTANTS: Mutant[] = [
    { id: "086-V1g", file: "hooks/lib/router.ts", note: "chuyển cả tin đối chiếu", old: "(!isReference && relation !== 'new' && policy.goalIsBig === true)", new: "(relation !== 'new' && policy.goalIsBig === true)" },
    { id: "086-V1h", file: "hooks/parts/command.ts", note: "status hiện số đo cả khi không điều phối", old: "const conductSuffix = ctx.isConducting(core, current) ? conductStatusSuffix(S.conductOf(core), lang) : ''", new: "const conductSuffix = conductStatusSuffix(S.conductOf(core), lang)" },
    { id: "086-V1i", file: "hooks/parts/consistency.ts", note: "đếm cả lần đọc bị từ chối", old: "if (e.agentId !== undefined || ctx.conductorReads === 0 || result.deny !== undefined) return result", new: "if (e.agentId !== undefined || ctx.conductorReads === 0) return result" },
@@ -995,6 +995,8 @@ index 40078d3..6fb7c1f 100644
 +  { id: "087-L2h", file: "hooks/lib/router.ts", note: "bỏ việc lọc covers ngoài khoảng", old: "covers: t.covers.filter(n => n <= requirements.length)", new: "covers: t.covers" },
 +  { id: "087-L2i", file: "hooks/lib/router.ts", note: "không có dòng tổng số việc", old: "  return count > TASK_CONTEXT ? [`  (${count} tasks in total; the first ${TASK_CONTEXT} are listed)`] : []", new: "  return []" },
 +  { id: "087-L2j", file: "hooks/lib/state.ts", note: "bộ đếm của việc đã phân còn cắt ở 50", old: "tally: tally.filter(t => t.taskIndex !== undefined || ownKept.has(t.key))", new: "tally: tally.slice(-AGENT_TALLY_LIMIT)" },
++  { id: "087-P1a", file: "hooks/lib/progress.ts", note: "việc của bước tra lệch một bước", old: "const own = plan.filter(step => ownerOf.get(step.id) === task.index)", new: "const own = plan.filter(step => ownerOf.get(step.id + 1) === task.index)" },
++  { id: "087-P1b", file: "hooks/lib/progress.ts", note: "việc của bước doing tính từ bước todo", old: "const doingTasks = new Set(plan.filter(s => s.status === 'doing')", new: "const doingTasks = new Set(plan.filter(s => s.status === 'todo')" },
  ]
 diff --git a/claude-mods/focus-conductor/tests/caps-s1-075.test.ts b/claude-mods/focus-conductor/tests/caps-s1-075.test.ts
 index 185cd20..26233ea 100644
@@ -1094,6 +1096,29 @@ index 0000000..ff5a6a7
 +    expect(freshTestRun(log)).toBe(log.commands.at(-1))
 +  })
 +})
+diff --git a/claude-mods/focus-conductor/tests/golden/cases.ts b/claude-mods/focus-conductor/tests/golden/cases.ts
+index 420262b..7e8802b 100644
+--- a/claude-mods/focus-conductor/tests/golden/cases.ts
++++ b/claude-mods/focus-conductor/tests/golden/cases.ts
+@@ -282,13 +282,15 @@ export const CASES: readonly GoldenCase[] = [
+     id: 'long-vn',
+     text: LONG_VN_PROMPT,
+     note: 'prompt dài tiếng Việt khoảng 6.000 ký tự, hơn 20 yêu cầu trong đoạn văn: đọc đủ, phủ hết, trong giới hạn router',
+-    expect: { reference: false, kind: ['edit', 'mixed'], main: ['sonnet', 'opus'], tasks: [0, 10], requirements: [12, 30], covered: true },
++    // 0.8.7 L2: router không còn trần số yêu cầu và số việc, nên bỏ cận trên, giữ cận dưới.
++    expect: { reference: false, kind: ['edit', 'mixed'], main: ['sonnet', 'opus'], tasks: [0, Number.POSITIVE_INFINITY], requirements: [12, Number.POSITIVE_INFINITY], covered: true },
+   },
+   {
+     id: 'long-vn-xl',
+     text: `${LONG_VN_PROMPT}\n\n${LONG_VN_EXTRA}`,
+-    note: 'prompt dài tiếng Việt khoảng 8.800 ký tự: hai nhóm việc, hơn 40 yêu cầu (router giới hạn 30)',
+-    expect: { reference: false, kind: ['edit', 'mixed'], main: ['sonnet', 'opus'], tasks: [0, 10], requirements: [12, 30] },
++    note: 'prompt dài tiếng Việt khoảng 8.800 ký tự: hai nhóm việc, hơn 40 yêu cầu (đến 0.8.6 router giới hạn 30)',
++    // 0.8.7 L2: router không còn trần số yêu cầu và số việc, nên bỏ cận trên, giữ cận dưới.
++    expect: { reference: false, kind: ['edit', 'mixed'], main: ['sonnet', 'opus'], tasks: [0, Number.POSITIVE_INFINITY], requirements: [12, Number.POSITIVE_INFINITY] },
+   },
+   {
+     id: 'long-coded',
 diff --git a/claude-mods/focus-conductor/tests/integration/caps-r1-075.test.ts b/claude-mods/focus-conductor/tests/integration/caps-r1-075.test.ts
 index 9d3a1bc..12567c0 100644
 --- a/claude-mods/focus-conductor/tests/integration/caps-r1-075.test.ts
@@ -1762,6 +1787,60 @@ index caca3a3..b79a08b 100644
 +    expect(texts.some(text => /giữ 20 việc đầu/.test(text))).toBe(false)
    })
  })
+diff --git a/claude-mods/focus-conductor/tests/integration/taskrows-perf-087.test.ts b/claude-mods/focus-conductor/tests/integration/taskrows-perf-087.test.ts
+new file mode 100644
+index 0000000..f17b5e8
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/integration/taskrows-perf-087.test.ts
+@@ -0,0 +1,48 @@
++// 0.8.7: taskRows (hooks/lib/progress.ts) tính việc của từng bước và việc của bước doing một lần cho mọi việc, thay vì tính lại cho từng
++// việc (chậm theo bậc ba của số việc). Kết quả dựng band và pane của mục tiêu không quá 20 việc phải trùng 45b5161 (0.8.6): ca này ghim
++// sha256 chữ của band (56, 72, 120 cột) và pane (16, 24, 40 dòng) đo trên 45b5161 bằng engine 2.1.296.
++
++import { describe, expect, test } from 'claude-code/testing'
++import type { Engine } from 'claude-code/testing'
++import { PANE, base, plan, step, submit, task } from '../support/engine'
++
++const PLAN = 'mcp__focus-conductor__plan'
++const GOAL = 'Mục tiêu giả mười hai việc'
++const TASKS = Array.from({ length: 12 }, (_, i) => task(`Việc giả ${i + 1}`, i % 4 === 3 ? 'agent' : 'main', i % 4 === 3 ? 'haiku' : 'sonnet', i % 4 === 3 ? 'low' : 'medium', { kind: i % 4 === 3 ? 'investigate' : 'edit' }))
++const STEPS = ['Việc 1: bước đầu', 'Việc 1: bước sau', 'Việc 2: sửa', 'Việc 3: sửa', 'Việc 5: sửa', 'Kiểm chung', 'Việc 6: sửa', 'Việc 9: sửa']
++
++type Node = { type?: string; props?: Record<string, unknown>; children?: unknown[] }
++const textOf = (n: unknown): string => (typeof n === 'string' ? n : n !== null && typeof n === 'object' ? (((n as Node).type === 'Button' ? [String((n as Node).props?.label ?? '')] : []).concat(((n as Node).children ?? []).map(textOf))).join(' ') : '')
++async function bandText($: Engine, columns: number): Promise<string> {
++  const ui = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: true, maxRows: 2, bodyColumns: columns, scroll: { offset: 0, bodyRows: 2 }, view: {} } } as never)
++  const tree = (await ui.drawn()) as unknown as Node
++  await ui.unmount()
++  return textOf(tree)
++}
++async function paneText($: Engine, rows: number): Promise<string> {
++  const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, scroll: { offset: 0, bodyRows: rows } } } as never)
++  const text = (await ui.findAll({ type: 'Text' })).map(e => String(e.text)).join('\n')
++  await ui.unmount()
++  return text
++}
++const hex = (bytes: ArrayBuffer): string => [...new Uint8Array(bytes)].map(byte => byte.toString(16).padStart(2, '0')).join('')
++const sha = async (text: string) => hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))
++
++/** sha256 của chữ band và pane, đo trên 45b5161. */
++const BASE_SHA = 'f10de6b917dd73cbef9f2ca6cd6efb62e90ca0b4fe2b19572ec363245504511b'
++
++describe('0.8.7: taskRows tính một lần cho mọi việc', () => {
++  test('mục tiêu 12 việc, checklist có bước "Việc N", bước doing và bước đã xong: chữ band và pane trùng 0.8.6', { options: { planApproval: 'off' } }, async ($, on) => {
++    const seen = base(on, { router: () => plan({ goal: GOAL, depth: 'substantial', volume: 'large', kind: 'edit', tasks: TASKS }) })
++    await submit($, GOAL)
++    await $.tool.call({ tool: PLAN, action: 'set', steps: STEPS.map(title => ({ title })) } as never)
++    for (const id of [1, 2, 3]) await $.tool.call({ tool: PLAN, action: 'update', step: id, status: 'done' } as never)
++    await $.tool.call({ tool: PLAN, action: 'update', step: 4, status: 'doing' } as never)
++    await step($, seen)
++    const parts: string[] = []
++    for (const columns of [56, 72, 120]) parts.push(await bandText($, columns))
++    for (const rows of [16, 24, 40]) parts.push(await paneText($, rows))
++    const all = parts.join('\n---\n')
++    expect(await sha(all)).toBe(BASE_SHA)
++  })
++})
 diff --git a/claude-mods/focus-conductor/tests/limits-l2-087.test.ts b/claude-mods/focus-conductor/tests/limits-l2-087.test.ts
 new file mode 100644
 index 0000000..d3aebc4
