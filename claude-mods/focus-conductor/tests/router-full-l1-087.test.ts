@@ -90,6 +90,15 @@ describe('0.8.7 L3: hai trường hợp còn cắt', () => {
     expect(warning).toContain(`router chỉ đọc ${grouped(p.head)} ký tự đầu và ${grouped(p.tail)} ký tự cuối`)
     expect(warning).toContain('sonnet')
     expect(warning).toContain('sức chứa của model')
+    expect(p.head).toBe(Math.round(p.capacity * 0.75))
+    expect(promptOf(plain(LONG, reading)).includes(LONG.slice(0, p.head) + '\n[... lược')).toBe(true)
+  })
+
+  test('Fable, routerMaxWait không chia hết cho 5 giây (400.123 ms): timeoutMs không vượt thời gian chờ tối đa', () => {
+    const reading: Reading = { ...FABLE, maxWaitMs: 400_123 }
+    const r = fable(LONG, reading)
+    expect(r.timeoutMs ?? 0).toBeLessThanOrEqual(400_123)
+    expect(readPlan(reading, LONG.length, 0).timeoutMs).toBeLessThanOrEqual(400_123)
   })
 
   test('cửa sổ rất nhỏ (sức chứa tính ra dưới 80.000): cắt 60.000 và 20.000', () => {
