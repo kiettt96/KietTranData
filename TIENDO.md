@@ -33,3 +33,6 @@ Tiếp: đo Fable cho L1.
 - Đo bù fable 400k r1b: 539,5 s, ra 78.802, JSON 137.890 ký tự, 449 yêu cầu, 448 việc, 7,09 USD. Sonnet cap 240k/400k: 7/6 yêu cầu, 2/0 việc, end_turn, JSON hợp lệ. Tổng chi phí đo L3: fable 24,00 USD, sonnet 3,30 USD.
 - Bước 1b chạm điều kiện 5 (sonnet dưới một nửa số yêu cầu và số việc của Fable). DỪNG trước khi commit READ_PARAMS, chờ chủ mod.
 - Mức giữ hook tệ nhất theo mã: 1,5 × hạn (lượt dự phòng loại trừ với lượt hỏi lại), tức 2.700 s ở 1.800; 900 s ở 600 (số 1.020 trước đây sai).
+- Đo thứ ba L3 (prompt 36 đề mục): sonnet 36/36 việc, 5/40/6 yêu cầu; Fable 36 việc, 173 yêu cầu, 157 s. READ_PARAMS thật + mặc định 1.800 (636a5eb); cả bộ 3400. Tài liệu b761adb. Nháp VERIFICATION ở v7/ver087.md.
+- Bổ sung 2 (M1, F1, G1) đã duyệt kèm 5 điều chỉnh (xem plan). Dừng đột biến (kết quả cũ ở v7/mutf-preM1.log); chạy lại ở cuối bằng mut4p.py.
+- Kiểm engine: model.complete nhận alias (2 bản); Agent chỉ alias; turn.step: 2.1.323 đổi alias, 2.1.296 không; $.session.version() có; model.complete không báo ID thật, turn usage.model có; không có thông tin hạn mức theo model, không giờ mở lại.
