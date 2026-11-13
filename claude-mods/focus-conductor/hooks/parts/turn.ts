@@ -180,7 +180,7 @@ export function registerTurn(on: On, ctx: Ctx): void {
     // chặn họ model khi lỗi ở hai turn liên tiếp.
     // Fable không phản hồi ở turn của mục tiêu đang được điều phối (0.8.7 F1): phần còn lại của turn chạy họ dự phòng ở effort medium.
     const coreNow = S.normalizeCore(await read($, coreState))
-    const takeover = route.family === 'fable' && ctx.isConducting(coreNow, current) ? ctx.fallbackUsable(coreNow) : null
+    const takeover = route.family === ctx.conductorOption && ctx.isConducting(coreNow, current) ? ctx.fallbackUsable(coreNow) : null
     const previous = failures.get(route.family)
     const count = previous && L.turnCount - previous.lastTurn <= 1 ? previous.count + 1 : 1
     failures.set(route.family, { count, lastTurn: L.turnCount })

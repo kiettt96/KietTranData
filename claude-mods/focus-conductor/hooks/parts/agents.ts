@@ -26,11 +26,12 @@ import { FANOUT_WARN } from '../context'
 const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EMPTY_CORE)
 
 /** Áp kết quả một lượt router gửi Fable vào Core (0.8.4 C6): vừa tạm ngừng thì toast và một dòng nhật ký conductor. */
-async function noteFableRouter($: EngineInterface, ctx: Ctx, isOk: boolean, family: ModelFamily = 'fable'): Promise<void> {
+async function noteFableRouter($: EngineInterface, ctx: Ctx, isOk: boolean, family?: ModelFamily): Promise<void> {
   const at = await $.clock.now()
   const core = S.normalizeCore(await read($, coreState))
   // Họ dự phòng (0.8.7 F1): lỗi của nó đếm riêng; router Fable vừa tạm ngừng thì câu báo nêu họ dự phòng nhận vai nếu dùng được.
-  const step = fableStep(core, isOk, ctx.routerModel, at, family, family === 'fable' ? ctx.fallbackUsable(core) : null)
+  const primary = ctx.conductorFamily
+  const step = fableStep(core, isOk, ctx.routerModel, at, family, (family ?? primary) === primary ? ctx.fallbackUsable(core) : null, primary)
   if (step === null) return
   await update($, coreState, step.change)
   if (step.text !== null) $.ui.toast(step.text)

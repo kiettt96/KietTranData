@@ -11,6 +11,7 @@
 // Cửa sổ ngữ cảnh: cả bốn model 1M token [Nguồn: cùng trang giá]. Option prices và contextWindows ghi đè được.
 
 import type { Effort, ModelFamily, Volume } from '../../types'
+import { FAMILY_NAMES, FAMILY_TABLE } from './families'
 
 export type Price = { input: number; output: number; cacheRead: number }
 
@@ -18,12 +19,8 @@ export type Price = { input: number; output: number; cacheRead: number }
 export const PRICE_DATE = '2026-10-13'
 export const PRICE_STALE_DAYS = 30
 
-const BASE_PRICE: Record<ModelFamily, Price> = {
-  haiku: { input: 0.1, output: 0.5, cacheRead: 0.01 },
-  sonnet: { input: 2, output: 10, cacheRead: 0.1 },
-  opus: { input: 4, output: 20, cacheRead: 0.2 },
-  fable: { input: 10, output: 50, cacheRead: 0.25 },
-}
+/** Bảng giá kèm mod theo họ (0.8.7 G1: đọc từ bảng họ model, hooks/lib/families.ts). */
+const BASE_PRICE: Record<ModelFamily, Price> = Object.fromEntries(FAMILY_NAMES.map(f => [f, { ...FAMILY_TABLE[f].price }])) as Record<ModelFamily, Price>
 
 /** Haiku 5.5 với prompt trên LONG_PROMPT token [Nguồn: trang giá 2026-10-13]. */
 const LONG_PROMPT = 100_000
@@ -34,11 +31,11 @@ export const PRICE: Record<ModelFamily, Price> = { ...BASE_PRICE }
 let overridden: ModelFamily[] = []
 
 /** Cửa sổ ngữ cảnh mặc định theo họ, cho model ID mặc định của mod [Nguồn: trang giá 2026-10-13]. */
-export const DEFAULT_WINDOWS: Record<ModelFamily, number> = { haiku: 1_000_000, sonnet: 1_000_000, opus: 1_000_000, fable: 1_000_000 }
+export const DEFAULT_WINDOWS: Record<ModelFamily, number> = Object.fromEntries(FAMILY_NAMES.map(f => [f, FAMILY_TABLE[f].window])) as Record<ModelFamily, number>
 
 /** Bảng giá kèm mod (chưa chịu option prices), để dựng catalog cho golden-set và đối chiếu. */
 export function bundledPrices(): Record<ModelFamily, Price> {
-  return { haiku: { ...BASE_PRICE.haiku }, sonnet: { ...BASE_PRICE.sonnet }, opus: { ...BASE_PRICE.opus }, fable: { ...BASE_PRICE.fable } }
+  return Object.fromEntries(FAMILY_NAMES.map(f => [f, { ...BASE_PRICE[f] }])) as Record<ModelFamily, Price>
 }
 
 /**

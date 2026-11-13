@@ -1,5 +1,6 @@
 // Phiên và đọc prompt: session.start/end, mục system prompt cố định, prompt.submit (router đọc prompt).
 
+import { DEFAULT_CONDUCTOR, familyLabel } from '../lib/families'
 import { atom, derive, read, update } from 'claude-code'
 import { caught, noteBehavior, noteHookError, noteMistyped } from '../lib/errlog'
 import type { ApprovalState, Brief, Core, Depth, Mode, ModelFamily, QuotaCheckpoint, Warning } from '../../types'
@@ -44,11 +45,12 @@ async function autoOpenPane($: EngineInterface, ctx: Ctx, goalId: number, at: nu
 const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EMPTY_CORE)
 
 /** Áp kết quả một lượt router gửi Fable vào Core (0.8.4 C6): vừa tạm ngừng thì toast và một dòng nhật ký conductor. */
-async function noteFableRouter($: EngineInterface, ctx: Ctx, isOk: boolean, family: ModelFamily = 'fable'): Promise<void> {
+async function noteFableRouter($: EngineInterface, ctx: Ctx, isOk: boolean, family?: ModelFamily): Promise<void> {
   const at = await $.clock.now()
   const core = S.normalizeCore(await read($, coreState))
   // Họ dự phòng (0.8.7 F1): lỗi của nó đếm riêng; router Fable vừa tạm ngừng thì câu báo nêu họ dự phòng nhận vai nếu dùng được.
-  const step = fableStep(core, isOk, ctx.routerModel, at, family, family === 'fable' ? ctx.fallbackUsable(core) : null)
+  const primary = ctx.conductorFamily
+  const step = fableStep(core, isOk, ctx.routerModel, at, family, (family ?? primary) === primary ? ctx.fallbackUsable(core) : null, primary)
   if (step === null) return
   await update($, coreState, step.change)
   if (step.text !== null) $.ui.toast(step.text)
@@ -101,15 +103,16 @@ async function showStatus($: EngineInterface, current: View, options: Ctx['optio
 async function noteConductor($: EngineInterface, ctx: Ctx, core: Core, current: Mode): Promise<void> {
   // Đổi họ điều phối có họ dự phòng tham gia (0.8.7 F1): một toast, một cảnh báo model, một dòng nhật ký conductor nêu từ họ nào sang họ nào
   // và lý do. Fable bật hay tắt mà không có họ dự phòng thì như 0.8.6 (chỉ dòng nhật ký bên dưới).
-  if (ctx.conductorOption === 'fable') {
+  if (ctx.conductorOption !== 'off') {
+    const primary = ctx.conductorFamily
     const active = ctx.activeConductorOf(core, current, (await read($, headlessState)) === true)
     const from = S.normalizeCore(core).fallback.active
     const to = active?.family ?? null
     if (from !== to) {
       await update($, coreState, S.withFallback(() => ({ active: to })))
-      if ((from !== null && from !== 'fable') || (to !== null && to !== 'fable')) {
+      if ((from !== null && from !== primary) || (to !== null && to !== primary)) {
         const at = await $.clock.now()
-        const reason = active?.isFallback === true ? (active.reason === 'paused' ? 'router Fable tạm ngừng' : 'họ fable bị chặn vì không phản hồi') : to === 'fable' ? 'Fable dùng lại được' : `${from ?? ''} không dùng được`
+        const reason = active?.isFallback === true ? (active.reason === 'paused' ? `router ${familyLabel(primary)} tạm ngừng` : `họ ${primary} bị chặn vì không phản hồi`) : to === primary ? `${familyLabel(primary)} dùng lại được` : `${from ?? ''} không dùng được`
         const text = to === null ? `Model điều phối ${from ?? ''} không dùng được (${reason}); luồng chính theo lựa chọn của router` : `Model điều phối đổi từ ${from ?? 'không có'} sang ${to}${active?.isFallback === true ? ' (dự phòng)' : ''}: ${reason}`
         $.ui.toast(text)
         await update($, coreState, S.withWarnings({ at, kind: 'model', text }))
@@ -120,7 +123,7 @@ async function noteConductor($: EngineInterface, ctx: Ctx, core: Core, current: 
   const blocker = ctx.conductorState(core, current, (await read($, headlessState)) === true)
   const ready = blocker === null
   const stored = core.fable
-  if (ctx.conductorOption !== 'fable' && stored.ready === null) return
+  if (ctx.conductorOption === 'off' && stored.ready === null) return
   if (stored.ready === ready && stored.reason === (blocker ?? '')) return
   ctx.record(await $.clock.now(), 'conductor', { ready, ...(blocker !== null ? { reason: blockerText(blocker) } : {}) })
   await update($, coreState, S.withFable(() => ({ ready, reason: blocker ?? '' })))
@@ -132,7 +135,7 @@ async function noteConductor($: EngineInterface, ctx: Ctx, core: Core, current: 
  */
 function isBriefedFor(core: Core, goalId: number, family: ModelFamily): boolean {
   const n = S.normalizeCore(core)
-  return n.fable.briefedGoal === goalId && (n.fallback.briefedFamily ?? 'fable') === family
+  return n.fable.briefedGoal === goalId && (n.fallback.briefedFamily ?? DEFAULT_CONDUCTOR) === family
 }
 
 function markBriefed(goalId: number, family: ModelFamily): (c: Core) => Core {
@@ -379,7 +382,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       const fallback = promptRead.isFull ? { ...routerRequest({ ...args, reading: { ...reading, window: 0 } }), timeoutMs: FALLBACK_TIMEOUT_MS } : undefined
       const full = promptRead.isFull ? { tokenCap: fullRetryTokens(promptRead.maxTokens, readParamsOf(reading.family)) } : undefined
       // Lượt đọc của Fable bị API từ chối (0.8.7 F1): cùng request trọn gửi họ dự phòng, với thời gian chờ và maxTokens theo thông số của họ đó.
-      const backup = target.family === 'fable' ? ctx.fallbackTarget(before, current, (await read($, headlessState)) === true) : null
+      const backup = target.family === ctx.conductorFamily ? ctx.fallbackTarget(before, current, (await read($, headlessState)) === true) : null
       apiFamily = backup?.family ?? null
       const apiFallback = backup !== null ? routerRequest({ ...args, model: backup.model, reading: ctx.routerReading(backup) }) : undefined
       const startedAt = await $.clock.now()

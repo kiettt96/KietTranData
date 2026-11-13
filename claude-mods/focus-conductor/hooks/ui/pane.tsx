@@ -630,7 +630,7 @@ export function renderPane(
 
   // ----------------------------------------------------------- điều phối
   // Fable điều phối (0.8.4 C8): một dòng trạng thái, chỉ khi option conductor là fable.
-  const conductorText = view.conductor !== undefined ? conductorLine(view.core, view.conductor.fallback, view.lang) : null
+  const conductorText = view.conductor !== undefined ? conductorLine(view.core, view.conductor.fallback, view.lang, view.conductor.family) : null
   const routeNode = route ? (
     <Box flexDirection="column">
       <Text wrap="wrap">

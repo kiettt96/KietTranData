@@ -16,6 +16,7 @@ import { FIXED_ERRORS } from './lib/fixed-errors'
 import { MOD_VERSION } from './lib/version'
 import { MAX_FORKS, fitPick, skipKey } from './lib/router'
 import { routerMaxWaitOf } from './lib/reading'
+import { DEFAULT_CONDUCTOR } from './lib/families'
 import type { Reading } from './lib/reading'
 import { approvalModeOf, reviewRoundsOf } from './lib/approval'
 import { activeConductor, conductorBlocker, conductorFallbackOf, conductorOf, fableModelId, isMainConducting } from './lib/conductor'
@@ -319,8 +320,10 @@ export function createContext(options: PluginOptions) {
 
   /** Option conductor (0.8.4): off như 0.8.3, fable là Fable điều phối. */
   const conductorOption = conductorOf(options)
-  /** Họ điều phối dự phòng (0.8.7 F1, option conductorFallback): chỉ có khi conductor là fable; null là không có. */
-  const conductorFallback = conductorOption === 'fable' ? conductorFallbackOf(options) : null
+  /** Họ điều phối chính (0.8.7 G1): giá trị của option conductor; option off thì họ mặc định (chỉ để đặt tên trong câu báo). */
+  const conductorFamily: ModelFamily = conductorOption === 'off' ? DEFAULT_CONDUCTOR : conductorOption
+  /** Họ điều phối dự phòng (0.8.7 F1, option conductorFallback): chỉ có khi conductor khác off (0.8.7 G1); null là không có. */
+  const conductorFallback = conductorOption !== 'off' ? conductorFallbackOf(options) : null
 
   /** Đầu vào của các định nghĩa Fable điều phối (hooks/lib/conductor.ts) ở thời điểm hiện tại. */
   function conductorInputs(core: Core, mode: Mode, headless = false): ConductorInputs {
@@ -339,7 +342,7 @@ export function createContext(options: PluginOptions) {
 
   /** Luồng chính đang giữ vai điều phối cho mục tiêu hiện tại (0.8.5 D1, 0.8.6): option conductor là fable và isMainConducting. */
   function isConducting(core: Core, mode: Mode): boolean {
-    return conductorOption === 'fable' && isMainConducting(conductorInputs(core, mode), normalizeCore(core).brief)
+    return conductorOption !== 'off' && isMainConducting(conductorInputs(core, mode), normalizeCore(core).brief)
   }
 
   /** Nguyên nhân luồng chính không điều phối bằng Fable lúc này; null là điều phối khả dụng. */
@@ -957,7 +960,7 @@ export function createContext(options: PluginOptions) {
       notices.push(`Focus Conductor chạy luồng chính bằng ${decision.route.family}, khác model của phiên (${local.sessionFamily}).`)
     }
     // Fable điều phối (0.8.4 C1): sessionModel ceiling hay fixed với phiên không phải Fable thì chính sách của người dùng thắng; báo một lần.
-    if (conductorOption === 'fable' && local.sessionFamily !== null && !local.conductorSessionNoticed && conductorState(core, current) === 'session') {
+    if (conductorOption !== 'off' && local.sessionFamily !== null && !local.conductorSessionNoticed && conductorState(core, current) === 'session') {
       local.conductorSessionNoticed = true
       notices.push(`Fable điều phối không áp cho luồng chính: sessionModel ${sessionPolicy} giữ model của phiên (${local.sessionFamily}). Đổi model phiên sang Fable hay đặt sessionModel về auto.`)
     }
@@ -1039,6 +1042,7 @@ export function createContext(options: PluginOptions) {
     conductorInputs,
     conductorState,
     activeConductorOf: conductorOf_,
+    conductorFamily,
     fallbackUsable,
     conductorFallback,
     fallbackTarget,

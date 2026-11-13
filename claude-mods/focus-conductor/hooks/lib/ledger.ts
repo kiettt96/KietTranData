@@ -4,6 +4,7 @@
 
 import type { Bucket, Depth, Effort, Group, Kind, Ledger, ModelFamily, RouteEvent, Volume } from '../../types'
 import { EFFORT_FACTOR, SIZE, SYSTEM_TOKENS, type Tokens, usdOf } from './cost'
+import { FAMILY_NAMES } from './families'
 
 export const GROUPS: readonly Group[] = ['main', 'agent', 'analyzer']
 const CALIB_MIN = 0.5
@@ -234,7 +235,7 @@ export function ledgerLines(ledger: Ledger, lang: 'vi' | 'en' = 'vi'): string[] 
   const net = netLine(ledger, lang)
   if (net !== null) lines.push(net)
   if (ledger.samples > 0) {
-    const calib = (['haiku', 'sonnet', 'opus', 'fable'] as const).map(f => `${f} ×${ledger.calib[f].toFixed(2)}`)
+    const calib = FAMILY_NAMES.map(f => `${f} ×${ledger.calib[f].toFixed(2)}`)
     lines.push(lang === 'en' ? `Estimate calibration from ${ledger.samples} measurements: ${calib.join(', ')}` : `Hiệu chỉnh ước lượng theo ${ledger.samples} lần đo: ${calib.join(', ')}`)
   }
   const shapes = Object.entries(ledger.shapes ?? {})

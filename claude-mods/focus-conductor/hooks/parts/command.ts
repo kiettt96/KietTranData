@@ -491,7 +491,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       // Fable điều phối (0.8.4 C8): một dòng trạng thái, chỉ khi option conductor là fable.
       // Vai điều phối của mục tiêu (0.8.6): trạng thái miễn và số đo, chỉ khi luồng chính đang điều phối.
       const conductSuffix = ctx.isConducting(core, current) ? conductStatusSuffix(S.conductOf(core), lang) : ''
-      const conductorLines = ctx.conductorOption === 'fable' ? [conductorLine(core, ctx.routerModel, lang) + conductSuffix] : []
+      const conductorLines = ctx.conductorOption !== 'off' ? [conductorLine(core, ctx.routerModel, lang, ctx.conductorOption) + conductSuffix] : []
       if (core.brief === null) return { text: [`${modeText}. Chưa có mục tiêu.`, ...conductorLines, ...routerFailLines(core.routerFail), ...costLines].join('\n') }
       const routeLine = core.route
         ? `${describePick(core.route)} (${core.route.reason})`

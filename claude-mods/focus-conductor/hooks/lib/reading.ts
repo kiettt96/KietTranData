@@ -4,6 +4,7 @@
 // được trong thời gian chờ tối đa. Thông số theo họ model lấy từ lượt đo thật (VERIFICATION, mục 0.8.7).
 
 import type { ModelFamily } from '../../types'
+import { FAMILY_NAMES, FAMILY_TABLE } from './families'
 
 /** Trần cũ (0.7.8 G8): prompt không quá bấy nhiêu ký tự thì request trùng 0.8.6; sức chứa tính ra thấp hơn thì dùng trần này. */
 export const BASE_CHARS = 80_000
@@ -31,18 +32,26 @@ export type ReadParams = { charsPerToken: number; secPerChar: number; maxOut: nu
  * 0.8.7]. Ký tự trên token: nhỏ nhất qua các lượt, làm tròn xuống 4 chữ số. Giây trên ký tự: lớn nhất qua các lượt, làm tròn lên. Fable:
  * 7 lượt, chậm nhất 615,6 s cho 240.000 ký tự (prompt lặp mẫu), token ra lớn nhất 91.084. Sonnet: 11 lượt, chậm nhất 35,8 s cho 240.000
  * ký tự (prompt nhiều đề mục), token ra lớn nhất 6.243. Mức token ra tối đa engine báo (`modelUsage.maxOutputTokens`) là 128.000 cho cả hai.
+ * Từ 0.8.7 G1 các số này nằm trong bảng họ model (hooks/lib/families.ts); READ_PARAMS là các họ đã đo.
  */
-export const READ_PARAMS: Record<'fable' | 'sonnet', ReadParams> = {
-  fable: { charsPerToken: 1.5837, secPerChar: 0.0025649, maxOut: 91_084, engineMaxOut: 128_000 },
-  sonnet: { charsPerToken: 1.5863, secPerChar: 0.0001491, maxOut: 6_243, engineMaxOut: 128_000 },
-}
+export const READ_PARAMS: Readonly<Record<ModelFamily, ReadParams>> = Object.fromEntries(
+  FAMILY_NAMES.flatMap(f => (FAMILY_TABLE[f].read !== null ? [[f, FAMILY_TABLE[f].read]] : [])),
+) as Record<ModelFamily, ReadParams>
 
-/** Họ chưa đo (haiku, opus, model ID riêng): giá trị thận trọng hơn giữa fable và sonnet cho từng thông số [Giả định]. */
+/** Họ đã đo (0.8.7 G1: những họ có thông số đọc trong bảng họ model). */
+const MEASURED: readonly ModelFamily[] = FAMILY_NAMES.filter(f => FAMILY_TABLE[f].read !== null)
+
+/** Họ chưa đo (haiku, opus, model ID riêng): giá trị thận trọng nhất giữa các họ đã đo cho từng thông số [Giả định]. */
 export function readParamsOf(family: ModelFamily): ReadParams {
-  if (family === 'fable' || family === 'sonnet') return READ_PARAMS[family]
-  const a = READ_PARAMS.fable
-  const b = READ_PARAMS.sonnet
-  return { charsPerToken: Math.min(a.charsPerToken, b.charsPerToken), secPerChar: Math.max(a.secPerChar, b.secPerChar), maxOut: Math.max(a.maxOut, b.maxOut), engineMaxOut: Math.min(a.engineMaxOut, b.engineMaxOut) }
+  const own = FAMILY_TABLE[family].read
+  if (own !== null) return own
+  const all = MEASURED.map(f => READ_PARAMS[f])
+  return {
+    charsPerToken: Math.min(...all.map(p => p.charsPerToken)),
+    secPerChar: Math.max(...all.map(p => p.secPerChar)),
+    maxOut: Math.max(...all.map(p => p.maxOut)),
+    engineMaxOut: Math.min(...all.map(p => p.engineMaxOut)),
+  }
 }
 
 /** Option routerMaxWait (giây) thành mili giây, kẹp về biên; thiếu hay sai thì mặc định. */

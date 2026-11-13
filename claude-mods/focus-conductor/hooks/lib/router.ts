@@ -8,7 +8,8 @@
 import type { ModelCompleteRequest, ModelCompleteResult, ModelTextBlock, ModelUsage } from 'claude-code'
 
 import type { Brief, Choice, Depth, Effort, ForkSplit, Intent, Kind, ModelFamily, Relation, RouterFail, RouterFailKind, Task, Tier, Volume } from '../../types'
-import { FABLE_AGENT_TIMEOUT_MS, FABLE_DRIFT_TIMEOUT_MS, FABLE_LONG_TIMEOUT_MS, FABLE_PROMPT_TIMEOUT_MS, FABLE_REVIEW_TIMEOUT_MS, isBigGoal, isPendingGoal } from './conductor'
+import { isBigGoal, isPendingGoal } from './conductor'
+import { DEFAULT_CONDUCTOR, FAMILY_NAMES, conductorTimeouts } from './families'
 import type { PendingState } from './conductor'
 import { DEFAULT_WINDOWS, PRICE } from './cost'
 import type { Price } from './cost'
@@ -234,10 +235,13 @@ function unique(items: readonly string[], max: number): string[] {
   return [...new Set(items)].slice(0, max)
 }
 
+/** Tên họ model trong prompt của người dùng (0.8.7 G1: dựng từ bảng họ model; với bốn họ hiện có trùng biểu thức cũ haiku|sonnet|opus|fable). */
+const MODEL_NAMES = new RegExp(`\\b(?:${FAMILY_NAMES.join('|')})\\b`)
+
 /** Ràng buộc nêu model cho một loại việc (họ model, hay "model/mô hình của phiên"): không bị thay khi đầy trần (0.7.5). */
 export function isModelRule(text: string): boolean {
   const folded = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase()
-  return /\b(?:haiku|sonnet|opus|fable)\b/.test(folded) || /(?:mo hinh|model) cua phien|session model/.test(folded)
+  return MODEL_NAMES.test(folded) || /(?:mo hinh|model) cua phien|session model/.test(folded)
 }
 
 /** Khóa so khớp của một mục (S1): bỏ dấu cách thừa và dấu câu cuối, không phân biệt hoa thường; hai mục cùng khóa là cùng một mục. */
@@ -415,7 +419,8 @@ export type RouterRequestArgs = {
 /** Lượt đọc của request: họ model theo isFable hay tên model, cửa sổ mặc định của họ, thời gian chờ tối đa mặc định. */
 function readingOf(args: RouterRequestArgs): Reading {
   if (args.reading !== undefined) return args.reading
-  const family: ModelFamily = args.isFable === true ? 'fable' : (familyOf(args.model) ?? 'sonnet')
+  // Lượt của họ điều phối (0.8.7 G1): họ theo tên model của lượt, không đọc được thì họ điều phối mặc định.
+  const family: ModelFamily = args.isFable === true ? (familyOf(args.model) ?? DEFAULT_CONDUCTOR) : (familyOf(args.model) ?? 'sonnet')
   return { family, window: DEFAULT_WINDOWS[family], maxWaitMs: ROUTER_MAX_WAIT_MS }
 }
 
@@ -456,7 +461,7 @@ export function routerRequest(args: RouterRequestArgs): ModelCompleteRequest {
     prompt: `<context>\n${context.join('\n')}\n</context>\n\n<request>\n${fence(capText(args.text, plan.capacity, plan.head, plan.tail))}\n</request>`,
     maxTokens: plan.isFull ? plan.maxTokens : isLong ? 16_000 : 8_000,
     effort: 'medium',
-    timeoutMs: plan.isFull ? plan.timeoutMs : args.isFable === true ? (isLong ? FABLE_LONG_TIMEOUT_MS : FABLE_PROMPT_TIMEOUT_MS) : isLong ? 120_000 : 45_000,
+    timeoutMs: plan.isFull ? plan.timeoutMs : args.isFable === true ? (isLong ? conductorTimeouts(familyOf(args.model)).long : conductorTimeouts(familyOf(args.model)).prompt) : isLong ? 120_000 : 45_000,
   }
 }
 
@@ -507,7 +512,7 @@ export function agentRouterRequest(args: {
     prompt: `<context>\n${context.join('\n')}\n</context>\n\n<task>\nDescription: ${fence(args.description)}\n${fence(task)}\n</task>`,
     maxTokens: 2_000,
     effort: 'low',
-    timeoutMs: args.isFable === true ? FABLE_AGENT_TIMEOUT_MS : 20_000,
+    timeoutMs: args.isFable === true ? conductorTimeouts(familyOf(args.model)).agent : 20_000,
   }
 }
 
@@ -1707,7 +1712,7 @@ export function driftRequest(args: { goal: string; steps: readonly string[]; com
     ...(args.paths.length > 0 ? ['Files touched:', ...args.paths.slice(-15).map(p => `  ${fence(p)}`)] : []),
   ]
   const system: readonly ModelTextBlock[] = [{ text: DRIFT_SYSTEM, cache: true }]
-  return { model: args.model, system, prompt: `<context>\n${lines.join('\n')}\n</context>`, maxTokens: 1_000, effort: 'low', timeoutMs: args.isFable === true ? FABLE_DRIFT_TIMEOUT_MS : 20_000 }
+  return { model: args.model, system, prompt: `<context>\n${lines.join('\n')}\n</context>`, maxTokens: 1_000, effort: 'low', timeoutMs: args.isFable === true ? conductorTimeouts(familyOf(args.model)).drift : 20_000 }
 }
 
 export type DriftVerdict = { onTrack: boolean; why: string; confidence?: number }
@@ -1739,7 +1744,7 @@ export function planReviewRequest(args: { goal: string; requirements: readonly s
     ...args.steps.slice(0, 40).map((step, i) => `${i + 1}. ${fence(clip(step.title, 200))}${step.check ? ` (check: ${fence(clip(step.check, 200))})` : ' (no check)'}`),
   ]
   const system: readonly ModelTextBlock[] = [{ text: PLAN_REVIEW_SYSTEM, cache: true }]
-  return { model: args.model, system, prompt: `<context>\nGoal: ${fence(clip(args.goal, 200))}\n</context>\n\n<request>\n${lines.join('\n')}\n</request>`, maxTokens: 1_000, effort: 'medium', timeoutMs: args.isFable === true ? FABLE_REVIEW_TIMEOUT_MS : 30_000 }
+  return { model: args.model, system, prompt: `<context>\nGoal: ${fence(clip(args.goal, 200))}\n</context>\n\n<request>\n${lines.join('\n')}\n</request>`, maxTokens: 1_000, effort: 'medium', timeoutMs: args.isFable === true ? conductorTimeouts(familyOf(args.model)).review : 30_000 }
 }
 
 export type PlanReview = { missing: number[]; extra: number[]; issues: string[]; confidence?: number }

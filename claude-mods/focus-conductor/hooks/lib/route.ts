@@ -11,10 +11,12 @@
 import type { Choice, Effort, Kind, Lift, ModelFamily, Route, Task, Tier, Volume } from '../../types'
 import { SAFETY, shouldDowngrade, switchCost, turnCost } from './cost'
 import { formatCost } from './ledger'
+import { FAMILY_NAMES, FAMILY_TABLE } from './families'
 
 export type { Choice }
 
-export const FAMILIES: readonly ModelFamily[] = ['haiku', 'sonnet', 'opus', 'fable']
+/** Họ model theo thứ hạng (0.8.7 G1: đọc từ bảng họ model, hooks/lib/families.ts). */
+export const FAMILIES: readonly ModelFamily[] = FAMILY_NAMES
 export const EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max']
 
 /** Ngân sách tool call theo tier (tier suy ra từ depth và volume). */
@@ -25,13 +27,8 @@ export type SessionPolicy = 'auto' | 'ceiling' | 'fixed'
 
 export type SessionModel = { family: ModelFamily; policy: SessionPolicy }
 
-const DEFAULT_IDS: Record<ModelFamily, string> = {
-  haiku: 'claude-haiku-5-5',
-  sonnet: 'claude-sonnet-5-5',
-  opus: 'claude-opus-5-5',
-  // Fable 5.2 (0.8.4): ID kiểm trên engine 2.1.322, có trong gói engine và gọi được qua claude -p [Đo trực tiếp, 10/11/2026].
-  fable: 'claude-fable-5-2',
-}
+/** ID ghim theo họ (0.8.7 G1: đọc từ bảng họ model). */
+const DEFAULT_IDS: Record<ModelFamily, string> = Object.fromEntries(FAMILY_NAMES.map(f => [f, FAMILY_TABLE[f].pinnedId])) as Record<ModelFamily, string>
 
 export function familyRank(family: ModelFamily): number {
   return FAMILIES.indexOf(family)

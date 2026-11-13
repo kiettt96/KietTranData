@@ -10,6 +10,7 @@ import type { AgentProgress, AgentState, ApprovalState, ApprovalStatus, AgentTal
 import { isFullyClosed, openSteps, restorableSteps } from './drift'
 import { isPendingGoal } from './conductor'
 import type { Tokens } from './cost'
+import { FAMILY_NAMES } from './families'
 import { addUsage, emptyLedger, nextGoal, planSwitch, resetLedger } from './ledger'
 import { legacyOf } from './scale'
 import { resumeCommand, statusLine, withQuotaNoticeStatus, withQuotaStatus, withRouterFailStatus, withTurnFaultStatus } from './text'
@@ -73,7 +74,7 @@ const LIFT_LIMIT = 2
 
 /** Ảnh chụp mọi thứ band, pane và status line cần, đọc một lần. */
 /** `conductor` (0.8.4 C8): chỉ có khi option conductor là fable; `fallback` là model router dùng khi Fable tạm ngừng. */
-export type View = { core: Core; mode: Mode; isBandHidden: boolean; lang: Lang; conductor?: { fallback: string } }
+export type View = { core: Core; mode: Mode; isBandHidden: boolean; lang: Lang; conductor?: { fallback: string; family: ModelFamily } }
 
 export function isMode(value: unknown): value is Mode {
   return value === 'auto' || value === 'subagents' || value === 'suggest' || value === 'off'
@@ -428,7 +429,7 @@ function normalizeFable(raw: Partial<FableState> | undefined): FableState {
 }
 
 /** Trạng thái vai điều phối dự phòng (0.8.7 F1); vắng hay sai kiểu ở trạng thái từ bản cũ là mặc định. */
-const FALLBACK_FAMILIES: readonly ModelFamily[] = ['haiku', 'sonnet', 'opus', 'fable']
+const FALLBACK_FAMILIES: readonly ModelFamily[] = FAMILY_NAMES
 function normalizeFallback(raw: Partial<FallbackState> | undefined): FallbackState {
   const count = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0)
   const family = (value: unknown): ModelFamily | null => FALLBACK_FAMILIES.find(f => f === value) ?? null

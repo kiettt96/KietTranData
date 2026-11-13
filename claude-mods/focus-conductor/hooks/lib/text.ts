@@ -4,6 +4,7 @@
 import type { Brief, CheckHint, CheckpointBackup, Choice, ModelFamily, PlanStep, QuotaCheckpoint, QuotaReason, Route, RouterFail, StepStatus, Task, TurnFault } from '../../types'
 import { STUCK_HINT, openSteps, pendingSteps } from './drift'
 import { BACKUP_CALLS_MAX, evaluateQuota, isStale, reasonsOf } from './quota'
+import { DEFAULT_CONDUCTOR } from './families'
 import type { QuotaBadge, QuotaNoticeHit, QuotaThresholds } from './quota'
 import { clockOf, labels } from '../ui/labels'
 import { currentStep, taskBarRuns } from '../ui/style'
@@ -1360,7 +1361,7 @@ export const CONDUCTOR_CHARS = 480
  * Đoạn dặn vai điều phối (0.8.4 C5): chèn một lần mỗi mục tiêu cùng khối brief khi luồng chính điều phối. Từ 0.8.7 F1 ghi họ đang điều phối
  * (mặc định fable, trùng 0.8.6 từng byte).
  */
-export function conductorContext(family: ModelFamily = 'fable'): string {
+export function conductorContext(family: ModelFamily = DEFAULT_CONDUCTOR): string {
   return (
     `[focus-conductor] Điều phối: luồng chính là vai điều phối, chạy ${family}/medium. Lập kế hoạch, rồi giao từng việc bằng Agent đúng loại ` +
     'agent, model, effort đã phân, description mở đầu bằng "Việc N". Mỗi lời giao tự đứng được: mục tiêu, phạm vi file, ràng buộc, tiêu ' +
@@ -1397,7 +1398,7 @@ export function conductWriteDenyText(): string {
 export const CONDUCTOR_KEEP_CHARS = 200
 
 /** Câu nhắc lại vai điều phối (0.8.4 V1): nối vào lời nhắc sau nén và ngữ cảnh chạy tiếp khi luồng chính đang điều phối. */
-export function conductorKeepText(family: ModelFamily = 'fable'): string {
+export function conductorKeepText(family: ModelFamily = DEFAULT_CONDUCTOR): string {
   return `[focus-conductor] Vẫn là vai điều phối chạy ${family}/medium: không tự sửa file, không tự chạy kiểm; giao bằng Agent theo phân việc, lời giao tự đứng được; đối chiếu kết quả trước khi đóng bước.`
 }
 
