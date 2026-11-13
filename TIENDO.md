@@ -29,3 +29,7 @@ Tiếp: đo Fable cho L1.
 - L3 test đỏ cafab42 (21/25 đỏ trên bản sao 45b5161 có hàm giả); sửa 7c48073 (thông số tạm). Cả bộ 3396 đạt.
 - Đo L3 (2.1.323, một mình, không lượt gọi model khác; bộ test và kiểm đột biến chạy cùng lúc): fable 240k 328/499/616 s, ra 47.560/72.272/91.084 token, 270 việc, 272 tới 1.081 yêu cầu; fable 400k lượt 1 bị bộ đo ngắt ở 900 s, lượt 2, 3 509/516 s, ra 72.709/75.264, 448 việc; sonnet 240k, 400k 8 tới 14 s, ra tối đa 1.025, 0 tới 2 việc, 6 hay 7 yêu cầu. Chi phí: fable 16,91 USD, sonnet 1,71 USD.
 - Fable: 91.084 > 0,6 × 128.000. Theo công thức, sức chứa thời gian của Fable ở 600 s là 155.955 ký tự: prompt 238.489 bị cắt, trái ca test của đặc tả. DỪNG chờ chủ mod.
+- Sửa askRouter chuyển full (test đỏ c47908d, sửa + mẫu 087-L3n); test L1e, L3h (73b2d3a).
+- Đo bù fable 400k r1b: 539,5 s, ra 78.802, JSON 137.890 ký tự, 449 yêu cầu, 448 việc, 7,09 USD. Sonnet cap 240k/400k: 7/6 yêu cầu, 2/0 việc, end_turn, JSON hợp lệ. Tổng chi phí đo L3: fable 24,00 USD, sonnet 3,30 USD.
+- Bước 1b chạm điều kiện 5 (sonnet dưới một nửa số yêu cầu và số việc của Fable). DỪNG trước khi commit READ_PARAMS, chờ chủ mod.
+- Mức giữ hook tệ nhất theo mã: 1,5 × hạn (lượt dự phòng loại trừ với lượt hỏi lại), tức 2.700 s ở 1.800; 900 s ở 600 (số 1.020 trước đây sai).
