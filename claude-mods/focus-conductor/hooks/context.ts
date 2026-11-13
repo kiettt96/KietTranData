@@ -15,6 +15,8 @@ import type { ErrorEntry, ErrorEvent, ErrorFile } from './lib/errlog'
 import { FIXED_ERRORS } from './lib/fixed-errors'
 import { MOD_VERSION } from './lib/version'
 import { MAX_FORKS, fitPick, skipKey } from './lib/router'
+import { routerMaxWaitOf } from './lib/reading'
+import type { Reading } from './lib/reading'
 import { approvalModeOf, reviewRoundsOf } from './lib/approval'
 import { conductorBlocker, conductorOf, fableModelId, isFableReady, isMainConducting } from './lib/conductor'
 import { normalizeCore, restoreArchived, withDelegations } from './lib/state'
@@ -300,6 +302,8 @@ export function createContext(options: PluginOptions) {
     Object.entries(DEFAULT_WINDOWS).filter(([family]) => modelMap[family as ModelFamily] === undefined),
   ) as Partial<Record<ModelFamily, number>>
   const contextWindows = { ...defaultWindows, ...parseWindows(options['contextWindows']) }
+  // Thời gian chờ tối đa của lượt đọc trọn (0.8.7 L3, option routerMaxWait, giây): mặc định 600, kẹp 120 tới 1.800.
+  const routerMaxWaitMs = routerMaxWaitOf(options['routerMaxWait'])
   applyPrices(parsePrices(options['prices']))
   applyCacheWrite(parseCacheWrite(options['cacheWrite']))
   applyCheckCommands(parseCheckCommands(options['checkCommands']))
@@ -336,6 +340,11 @@ export function createContext(options: PluginOptions) {
   function routerTarget(core: Core, mode: Mode, headless = false): { model: string; family: ModelFamily; isFable: boolean } {
     if (isFableReady(conductorInputs(core, mode, headless))) return { model: fableModelId(modelMap, local.lastSession?.model ?? null), family: 'fable', isFable: true }
     return { model: routerModel, family: routerFamily, isFable: false }
+  }
+
+  /** Lượt đọc prompt của đích router (0.8.7 L3): họ model, cửa sổ ngữ cảnh của họ đó (option contextWindows), thời gian chờ tối đa. */
+  function routerReading(target: { family: ModelFamily }): Reading {
+    return { family: target.family, window: contextWindows[target.family] ?? DEFAULT_WINDOW, maxWaitMs: routerMaxWaitMs }
   }
 
   /** Chính sách áp lên mọi lựa chọn của router: allowFable, model của phiên, họ đang bị chặn, loại agent dùng được. */
@@ -967,6 +976,8 @@ export function createContext(options: PluginOptions) {
     conductorState,
     isConducting,
     routerTarget,
+    routerReading,
+    routerMaxWaitMs,
     routerTimeLine,
     semanticDrift,
     driftEveryMs,

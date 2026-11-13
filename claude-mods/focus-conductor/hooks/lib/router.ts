@@ -8,10 +8,12 @@
 import type { ModelCompleteRequest, ModelCompleteResult, ModelTextBlock, ModelUsage } from 'claude-code'
 
 import type { Brief, Choice, Depth, Effort, ForkSplit, Intent, Kind, ModelFamily, Relation, RouterFail, RouterFailKind, Task, Tier, Volume } from '../../types'
-import { FABLE_AGENT_TIMEOUT_MS, FABLE_DRIFT_TIMEOUT_MS, FABLE_FULL_MAX_TOKENS, FABLE_FULL_RETRY_TOKENS, FABLE_FULL_TIMEOUT_MS, FABLE_LONG_TIMEOUT_MS, FABLE_PROMPT_TIMEOUT_MS, FABLE_REVIEW_TIMEOUT_MS, isBigGoal, isPendingGoal } from './conductor'
+import { FABLE_AGENT_TIMEOUT_MS, FABLE_DRIFT_TIMEOUT_MS, FABLE_LONG_TIMEOUT_MS, FABLE_PROMPT_TIMEOUT_MS, FABLE_REVIEW_TIMEOUT_MS, isBigGoal, isPendingGoal } from './conductor'
 import type { PendingState } from './conductor'
-import { PRICE } from './cost'
+import { DEFAULT_WINDOWS, PRICE } from './cost'
 import type { Price } from './cost'
+import { BASE_CHARS, BASE_HEAD, BASE_TAIL, ROUTER_MAX_WAIT_MS, readPlan } from './reading'
+import type { ReadPlan, Reading } from './reading'
 import { EFFORTS, FAMILIES, applySession, avoidBlocked, codesIn, describePick, effortRank, familyOf, familyRank, sessionFloor } from './route'
 import type { SessionModel } from './route'
 import { DEPTHS, INTENTS, KINDS, RELATIONS, VOLUMES, maxTier, tierOf } from './scale'
@@ -79,16 +81,6 @@ const MAX_TOKENS_CAP = 32_000
 /** Số bước đang mở của checklist hiện tại gửi kèm request router. */
 const OPEN_STEPS_LIMIT = 10
 const TEXT_LIMIT = 140
-const REQUEST_CHARS = 80_000
-const REQUEST_HEAD = 60_000
-const REQUEST_TAIL = 20_000
-/**
- * Trần của prompt khi router là Fable (0.8.7 L1): Fable lập kế hoạch nên đọc trọn đề bài. Bản 400.000 ký tự đạt cả 3 lượt đo thật
- * (xem FABLE_FULL_TIMEOUT_MS); vượt trần thì vẫn giữ đầu và cuối theo tỷ lệ 75 và 25 phần trăm.
- */
-export const FABLE_REQUEST_CHARS = 400_000
-const FABLE_REQUEST_HEAD = 300_000
-const FABLE_REQUEST_TAIL = 100_000
 /** Yêu cầu dài hơn ngưỡng này được thêm token và thời gian để router trả JSON trọn vẹn. */
 const LONG_REQUEST = 12_000
 const AGENT_PROMPT_CHARS = 8_000
@@ -392,8 +384,8 @@ function previousLines(prev: Brief | null, ran: string | null): string[] {
   ]
 }
 
-/** Request đọc prompt và điều phối. System prompt được đánh dấu cache. */
-export function routerRequest(args: {
+/** Tham số của request đọc prompt (routerRequest, requestPlan). */
+export type RouterRequestArgs = {
   text: string
   prev: Brief | null
   /** Model và effort luồng chính đã thật sự chạy ở lượt trước (để nâng khi chưa đạt). */
@@ -416,10 +408,19 @@ export function routerRequest(args: {
   sessionFamily?: ModelFamily | null
   /** Lượt này gọi Fable điều phối (0.8.4 C2): thời gian chờ theo hằng FABLE_*_TIMEOUT_MS. */
   isFable?: boolean
-}): ModelCompleteRequest {
-  const isLong = args.text.length > LONG_REQUEST
-  // Fable đọc trọn prompt dài hơn trần thường (0.8.7 L1): thêm token và thời gian chờ của lượt đọc trọn.
-  const isFull = args.isFable === true && args.text.length > REQUEST_CHARS
+  /** Họ model, cửa sổ ngữ cảnh và thời gian chờ tối đa của lượt đọc (0.8.7 L3); vắng thì theo model, cửa sổ mặc định, 600 giây. */
+  reading?: Reading
+}
+
+/** Lượt đọc của request: họ model theo isFable hay tên model, cửa sổ mặc định của họ, thời gian chờ tối đa mặc định. */
+function readingOf(args: RouterRequestArgs): Reading {
+  if (args.reading !== undefined) return args.reading
+  const family: ModelFamily = args.isFable === true ? 'fable' : (familyOf(args.model) ?? 'sonnet')
+  return { family, window: DEFAULT_WINDOWS[family], maxWaitMs: ROUTER_MAX_WAIT_MS }
+}
+
+/** Phần cố định của request (lời dặn và các dòng ngữ cảnh) và kế hoạch đọc prompt của lượt đó (0.8.7 L3). */
+function requestParts(args: RouterRequestArgs): { system: readonly ModelTextBlock[]; context: string[]; plan: ReadPlan } {
   const context = [
     ...previousLines(args.prev, args.ran),
     allowedLine(args.policy),
@@ -433,13 +434,29 @@ export function routerRequest(args: {
     ...(args.observed ? [`Observed in the previous turn (the main model's choice fell short; re-read the work and raise "main" model or effort if it is harder than first judged): ${fence(clip(args.observed, 400))}`] : []),
   ]
   const system: readonly ModelTextBlock[] = [{ text: routerSystem(args.prices), cache: true }].map(block => ({ text: args.policy.conductor === true ? conductorRule(splitRule(block.text, args.policy.forks ?? 0)) : splitRule(block.text, args.policy.forks ?? 0), cache: true as const }))
+  const fixedChars = system.reduce((sum, block) => sum + block.text.length, 0) + context.join('\n').length
+  return { system, context, plan: readPlan(readingOf(args), args.text.length, fixedChars) }
+}
+
+/** Kế hoạch đọc prompt của request (0.8.7 L3): sức chứa, phần đầu và cuối khi cắt, giới hạn đã chạm, thông số của lượt đọc trọn. */
+export function requestPlan(args: RouterRequestArgs): ReadPlan {
+  return requestParts(args).plan
+}
+
+/**
+ * Request đọc prompt và điều phối. System prompt được đánh dấu cache. Mọi model router đọc trọn prompt tới sức chứa của lượt đó (0.8.7
+ * L3); prompt không quá 80.000 ký tự thì request như 0.8.6.
+ */
+export function routerRequest(args: RouterRequestArgs): ModelCompleteRequest {
+  const isLong = args.text.length > LONG_REQUEST
+  const { system, context, plan } = requestParts(args)
   return {
     model: args.model,
     system,
-    prompt: `<context>\n${context.join('\n')}\n</context>\n\n<request>\n${fence(args.isFable === true ? capText(args.text, FABLE_REQUEST_CHARS, FABLE_REQUEST_HEAD, FABLE_REQUEST_TAIL) : capText(args.text, REQUEST_CHARS, REQUEST_HEAD, REQUEST_TAIL))}\n</request>`,
-    maxTokens: isFull ? FABLE_FULL_MAX_TOKENS : isLong ? 16_000 : 8_000,
+    prompt: `<context>\n${context.join('\n')}\n</context>\n\n<request>\n${fence(capText(args.text, plan.capacity, plan.head, plan.tail))}\n</request>`,
+    maxTokens: plan.isFull ? plan.maxTokens : isLong ? 16_000 : 8_000,
     effort: 'medium',
-    timeoutMs: isFull ? FABLE_FULL_TIMEOUT_MS : args.isFable === true ? (isLong ? FABLE_LONG_TIMEOUT_MS : FABLE_PROMPT_TIMEOUT_MS) : isLong ? 120_000 : 45_000,
+    timeoutMs: plan.isFull ? plan.timeoutMs : args.isFable === true ? (isLong ? FABLE_LONG_TIMEOUT_MS : FABLE_PROMPT_TIMEOUT_MS) : isLong ? 120_000 : 45_000,
   }
 }
 
@@ -1280,8 +1297,8 @@ export function retryRequest(
   request: ModelCompleteRequest,
   previous: string,
   problem: 'json' | 'confidence' | 'coverage',
-  /** Timeout còn lại của hạn chung và việc câu trả lời trước bị cắt vì hết token (0.7.2). */
-  opts: { timeoutMs?: number; truncated?: boolean; isFable?: boolean } = {},
+  /** Timeout còn lại của hạn chung và việc câu trả lời trước bị cắt vì hết token (0.7.2). `full`: request là lượt đọc trọn (0.8.7 L3). */
+  opts: { timeoutMs?: number; truncated?: boolean; isFable?: boolean; full?: { tokenCap: number } } = {},
 ): ModelCompleteRequest {
   const note =
     problem === 'json' && opts.truncated === true
@@ -1297,10 +1314,11 @@ export function retryRequest(
     prompt: `${prompt}\n\n<previous_answer>\n${fence(clip(previous, 6000))}\n</previous_answer>\n${note}`,
     // Kiểm lại phủ yêu cầu ở effort medium: đo thật cho thấy effort high hết giờ 45 giây ở 4 trên 5 lượt (0.7.2).
     // Fable điều phối (0.8.4 C2): effort không quá medium, nên lượt đọc lại vì tin cậy thấp chạy medium.
-    effort: problem === 'json' ? 'low' : problem === 'coverage' || opts.isFable === true ? 'medium' : 'high',
+    // Lượt đọc trọn (0.8.7 L3) hỏi lại ở effort không quá medium với mọi model.
+    effort: problem === 'json' ? 'low' : problem === 'coverage' || opts.isFable === true || opts.full !== undefined ? 'medium' : 'high',
     ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
-    // Lượt đọc trọn của Fable (0.8.7 L1) đã vượt MAX_TOKENS_CAP từ đầu: trần của lượt hỏi lại là FABLE_FULL_RETRY_TOKENS.
-    ...(opts.truncated === true ? { maxTokens: Math.min((request.maxTokens ?? 8_000) > MAX_TOKENS_CAP ? FABLE_FULL_RETRY_TOKENS : MAX_TOKENS_CAP, Math.round((request.maxTokens ?? 8_000) * TRUNCATION_GROWTH)) } : {}),
+    // Lượt đọc trọn (0.8.7 L3): trần của lượt hỏi lại là 1,5 lần maxTokens của lượt đó, không cao hơn mức engine báo (full.tokenCap).
+    ...(opts.truncated === true ? { maxTokens: opts.full !== undefined ? opts.full.tokenCap : Math.min(MAX_TOKENS_CAP, Math.round((request.maxTokens ?? 8_000) * TRUNCATION_GROWTH)) } : {}),
   }
 }
 
@@ -1353,7 +1371,7 @@ export async function askRouter<T extends { confidence?: number }>(
   /** Câu trả lời đã đọc được nhưng cần đọc kiểm lại một lần ở effort cao (ví dụ quá nhiều yêu cầu): 0.7.0. */
   recheck?: (result: T) => boolean,
   /** Đồng hồ (mặc định Date.now) và hạn chung cho mọi lượt gọi (mặc định 1,5 lần timeout của request): 0.7.2. */
-  opts: { now?: () => number; budgetMs?: number; retryMissingConfidence?: boolean; isFable?: boolean; fallback?: ModelCompleteRequest } = {},
+  opts: { now?: () => number; budgetMs?: number; retryMissingConfidence?: boolean; isFable?: boolean; fallback?: ModelCompleteRequest; full?: { tokenCap: number } } = {},
 ): Promise<RouterOutcome<T>> {
   const now = opts.now ?? Date.now
   const budget = opts.budgetMs ?? Math.round((request.timeoutMs ?? 45_000) * BUDGET_FACTOR)
@@ -1361,16 +1379,23 @@ export async function askRouter<T extends { confidence?: number }>(
   const first = await ask(request).catch(() => null)
   const usages = first ? [first.usage] : []
   const limits = (last: ModelCompleteResult | null) => ({ timeoutMs: request.timeoutMs ?? null, maxTokens: request.maxTokens ?? null, outputTokens: last ? last.usage.output_tokens : null })
+  // Lượt đọc trọn hết giờ hay bị API từ chối (0.8.7 L3): thử lại một lần bằng request dự phòng (cắt theo trần cũ) với trọn thời gian chờ
+  // của nó, không lấy phần còn lại của hạn chung.
+  const fallback = opts.fallback
+  if (fallback !== undefined && first !== null && !first.isAnswered && (first.reason === 'aborted' || first.reason === 'api-error')) {
+    const again = await ask(fallback).catch(() => null)
+    if (again) usages.push(again.usage)
+    const result = again?.isAnswered ? parse(again.text) : null
+    return { result, reason: result === null ? failureReason(again) : '', usages, retried: true, fellBack: true, failure: result === null ? failureKind(again) : null, ...limits(again ?? first) }
+  }
   // Hết giờ chờ (0.7.5): thử lại đúng một lần cùng request nếu hạn chung còn ít nhất RETRY_MIN_MS, với thời gian chờ là phần còn lại.
   if (first !== null && !first.isAnswered && first.reason === 'aborted') {
     const left = budget - (now() - startedAt)
     if (left < RETRY_MIN_MS) return { result: null, reason: failureReason(first), usages, retried: false, failure: failureKind(first), ...limits(first) }
-    // Lượt đọc trọn của Fable hết giờ (0.8.7 L1): thử lại bằng request dự phòng (cắt theo trần thường) với trọn thời gian chờ của nó.
-    const fallback = opts.fallback
-    const again = await ask(fallback !== undefined ? fallback : { ...request, timeoutMs: Math.min(request.timeoutMs ?? left, left) }).catch(() => null)
+    const again = await ask({ ...request, timeoutMs: Math.min(request.timeoutMs ?? left, left) }).catch(() => null)
     if (again) usages.push(again.usage)
     const result = again?.isAnswered ? parse(again.text) : null
-    return { result, reason: result === null ? failureReason(again) : '', usages, retried: true, ...(fallback !== undefined ? { fellBack: true as const } : {}), failure: result === null ? failureKind(again) : null, ...limits(again ?? first) }
+    return { result, reason: result === null ? failureReason(again) : '', usages, retried: true, failure: result === null ? failureKind(again) : null, ...limits(again ?? first) }
   }
   const firstResult = first?.isAnswered ? parse(first.text) : null
   // Thiếu confidence (0.7.8 G8): chỉ khi bật retryMissingConfidence (ba chỗ đọc prompt) thì coi như dưới LOW_CONFIDENCE và hỏi lại;
@@ -1399,23 +1424,29 @@ export async function askRouter<T extends { confidence?: number }>(
   return { result: pick, reason: pick === null ? failureReason(second) : '', usages, retried: true, failure: pick === null ? failureKind(second) : null, ...limits(second ?? first) }
 }
 
-/** Prompt dài hơn trần của lượt router đó bị lược phần giữa (0.7.8 G8): REQUEST_CHARS, hay FABLE_REQUEST_CHARS khi router là Fable (0.8.7 L1). */
-export function isClippedPrompt(text: string, isFable = false): boolean {
-  return text.length > (isFable ? FABLE_REQUEST_CHARS : REQUEST_CHARS)
+/** Prompt dài hơn sức chứa của lượt router đó bị lược phần giữa (0.7.8 G8; 0.8.7 L3: sức chứa theo requestPlan, mặc định trần cũ). */
+export function isClippedPrompt(text: string, capacity = BASE_CHARS): boolean {
+  return text.length > capacity
 }
 
 function grouped(n: number): string {
   return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.')
 }
 
-/** Cảnh báo model khi router lược phần giữa của prompt (0.7.8 G8), theo phần đầu và phần cuối của lượt router đó (0.8.7 L1). */
-export function clippedWarning(length: number, isFable = false): string {
-  return `Prompt dài ${grouped(length)} ký tự; router chỉ đọc ${grouped(isFable ? FABLE_REQUEST_HEAD : REQUEST_HEAD)} ký tự đầu và ${grouped(isFable ? FABLE_REQUEST_TAIL : REQUEST_TAIL)} ký tự cuối`
-}
+/** Lý do prompt bị lược (0.8.7 L3): chạm sức chứa của model, chạm thời gian chờ tối đa, hay kết quả là của lượt dự phòng. */
+const CLIP_REASONS = {
+  window: 'chạm sức chứa của model',
+  time: 'chạm thời gian chờ tối đa, option routerMaxWait',
+  fallback: 'lượt đọc trọn lỗi nên dùng lượt đọc rút gọn',
+} as const
 
-/** Prompt mà Fable đọc trọn (0.8.7 L1): dài hơn trần thường, router của lượt là Fable. */
-export function isFullRead(text: string, isFable: boolean): boolean {
-  return isFable && text.length > REQUEST_CHARS
+/**
+ * Cảnh báo model khi router lược phần giữa của prompt (0.7.8 G8). Từ 0.8.7 L3 ghi phần đầu và phần cuối của lượt đó, họ model và giới
+ * hạn đã chạm; không có `info` thì như 0.8.6 (60.000 và 20.000).
+ */
+export function clippedWarning(length: number, info?: { family: ModelFamily; head: number; tail: number; limit: keyof typeof CLIP_REASONS }): string {
+  const base = `Prompt dài ${grouped(length)} ký tự; router chỉ đọc ${grouped(info?.head ?? BASE_HEAD)} ký tự đầu và ${grouped(info?.tail ?? BASE_TAIL)} ký tự cuối`
+  return info === undefined ? base : `${base} (model ${info.family}, ${CLIP_REASONS[info.limit]})`
 }
 
 /** Dòng context kèm prompt bị lược (0.7.8 G8), tối đa 200 ký tự. */

@@ -3,14 +3,16 @@
 import { atom, derive, read, update } from 'claude-code'
 import { caught, noteBehavior, noteHookError, noteMistyped } from '../lib/errlog'
 import type { ApprovalState, Brief, Core, Depth, Mode, QuotaCheckpoint, Warning } from '../../types'
-import { FABLE_LONG_TIMEOUT_MS, blockerText, isBigGoal, isMainConducting } from '../lib/conductor'
+import { blockerText, isBigGoal, isMainConducting } from '../lib/conductor'
+import { FALLBACK_TIMEOUT_MS, fullRetryTokens, readParamsOf } from '../lib/reading'
+import type { ReadPlan } from '../lib/reading'
 import { fableStep } from './fable'
 import { briefFromCheckpoint, changedFiles, storeKey } from '../lib/checkpoint'
 import { openSteps, restorableSteps } from '../lib/drift'
 import { PLAN_TOOL_SPEC } from '../lib/plan'
 import { describePick, effortRank, familyOf, familyRank } from '../lib/route'
 import { clipText, keptLines } from '../lib/decisions'
-import { CLIPPED_CONTEXT, NEW_GOAL_CONFIDENCE, answerMentionsGoal, askRouter, bareBrief, clampIntent, isAside, clippedWarning, dropSplit, isClippedPrompt, isFullRead, failFields, isSkippable, needsCoverageRecheck, nextBrief, parseRoute, routerFailOf, routerRequest } from '../lib/router'
+import { CLIPPED_CONTEXT, NEW_GOAL_CONFIDENCE, answerMentionsGoal, askRouter, requestPlan, bareBrief, clampIntent, isAside, clippedWarning, dropSplit, isClippedPrompt, failFields, isSkippable, needsCoverageRecheck, nextBrief, parseRoute, routerFailOf, routerRequest } from '../lib/router'
 import type { RouterOutcome, RouterPlan } from '../lib/router'
 import { EMPTY_QUOTA, blockingHits, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaSettings, reasonsOf, softNotices } from '../lib/quota'
 import * as S from '../lib/state'
@@ -325,18 +327,22 @@ export function registerSession(on: On, ctx: Ctx): void {
     let outcome: RouterOutcome<RouterPlan> = { result: null, reason: 'router đang tạm ngừng sau các lần lỗi liên tiếp', usages: [], retried: false, failure: 'paused', timeoutMs: null, maxTokens: null, outputTokens: null }
     let waitedMs = 0
     let pauseText: string | null = null
+    // Lượt đọc của đích router (0.8.7 L3): mọi model đọc trọn prompt tới sức chứa của lượt đó.
+    const reading = ctx.routerReading(target)
+    let promptRead: ReadPlan = requestPlan({ text, prev, ran: ranText(before), policy: rules, model: target.model, reading, ...(target.isFable ? { isFable: true } : {}) })
     if (!isPaused) {
-      // Fable đọc trọn prompt dài (0.8.7 L1): lượt này có thể mất vài phút, nên chữ chờ nói rõ.
-      const isFull = isFullRead(text, target.isFable)
-      $.ui.status(isFull ? 'router Fable đang đọc trọn prompt dài, có thể mất vài phút...' : 'router đang đọc prompt...')
       const observed = L.observed.join('; ')
       L.observed = []
-      const args = { text, prev, ran: ranText(before), policy: rules, model: target.model, sessionFamily: L.sessionFamily, openSteps: openSteps(before.plan).map(s => s.title), ...(observed ? { observed } : {}), ...(isInterject ? { interject: { step: openSteps(before.plan)[0]?.title ?? '' } } : {}), ...(isPresented ? { awaiting: 'approval' as const } : isAnswering ? { awaiting: 'answer' as const } : {}) }
-      const request = routerRequest({ ...args, ...(target.isFable ? { isFable: true } : {}) })
-      // Lượt đọc trọn hết giờ thì thử lại bằng request cắt theo trần thường, với trọn thời gian chờ của prompt dài của Fable (0.8.7 L1).
-      const fallback = isFull ? { ...routerRequest(args), timeoutMs: FABLE_LONG_TIMEOUT_MS } : undefined
+      const args = { text, prev, ran: ranText(before), policy: rules, model: target.model, reading, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily, openSteps: openSteps(before.plan).map(s => s.title), ...(observed ? { observed } : {}), ...(isInterject ? { interject: { step: openSteps(before.plan)[0]?.title ?? '' } } : {}), ...(isPresented ? { awaiting: 'approval' as const } : isAnswering ? { awaiting: 'answer' as const } : {}) }
+      promptRead = requestPlan(args)
+      // Lượt đọc trọn prompt dài (0.8.7 L3) có thể mất vài phút, nên chữ chờ nói rõ.
+      $.ui.status(promptRead.isFull ? 'router đang đọc trọn prompt dài, có thể mất vài phút...' : 'router đang đọc prompt...')
+      const request = routerRequest(args)
+      // Lượt đọc trọn hết giờ hay bị API từ chối thì thử lại bằng request cắt theo trần cũ, với trọn FALLBACK_TIMEOUT_MS (0.8.7 L3).
+      const fallback = promptRead.isFull ? { ...routerRequest({ ...args, reading: { ...reading, window: 0 } }), timeoutMs: FALLBACK_TIMEOUT_MS } : undefined
+      const full = promptRead.isFull ? { tokenCap: fullRetryTokens(promptRead.maxTokens, readParamsOf(reading.family)) } : undefined
       const startedAt = await $.clock.now()
-      outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), needsCoverageRecheck, { retryMissingConfidence: true, ...(target.isFable ? { isFable: true } : {}), ...(fallback !== undefined ? { fallback } : {}) })
+      outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), needsCoverageRecheck, { retryMissingConfidence: true, ...(target.isFable ? { isFable: true } : {}), ...(fallback !== undefined ? { fallback } : {}), ...(full !== undefined ? { full } : {}) })
       ctx.noteRouterFailure('prompt', outcome.failure)
       waitedMs = (await $.clock.now()) - startedAt
       noteRouterTime(waitedMs)
@@ -513,10 +519,11 @@ export function registerSession(on: On, ctx: Ctx): void {
       noteBehavior('dropped', `${dropped} mục của prompt tiếp nối không giữ được vì ràng buộc và yêu cầu đã đầy`)
     }
     // Prompt dài hơn trần của router (0.7.8 G8): phần giữa bị lược, báo một cảnh báo và một dòng context cho prompt đó.
-    // Trần theo router đã đọc prompt này (0.8.7 L1): Fable đọc trọn tới FABLE_REQUEST_CHARS, trừ khi kết quả là của request dự phòng.
-    const isFableRead = target.isFable && outcome.fellBack !== true
-    const isClipped = isClippedPrompt(text, isFableRead)
-    if (isClipped) await update($, coreState, S.withWarnings({ at: now, kind: 'model', text: clippedWarning(text.length, isFableRead) }))
+    // Sức chứa của lượt đã đọc prompt này (0.8.7 L3); kết quả của lượt dự phòng là bản cắt theo trần cũ.
+    const isFellBack = outcome.fellBack === true
+    const isClipped = isFellBack ? isClippedPrompt(text) : isClippedPrompt(text, promptRead.capacity)
+    const clipInfo = isFellBack ? { family: reading.family, head: 60_000, tail: 20_000, limit: 'fallback' as const } : { family: reading.family, head: promptRead.head, tail: promptRead.tail, limit: promptRead.limit }
+    if (isClipped) await update($, coreState, S.withWarnings({ at: now, kind: 'model', text: clippedWarning(text.length, clipInfo) }))
     if (isNewGoal) {
       L.goalPrompt = { text, prev, goalId: brief.goalId }
       L.isGoalNew = true
