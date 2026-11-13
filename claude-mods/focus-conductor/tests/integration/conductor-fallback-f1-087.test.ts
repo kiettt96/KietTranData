@@ -57,7 +57,8 @@ describe('0.8.7 F1: router Fable tạm ngừng thì opus nhận vai điều ph�
   test('router Fable lỗi hai lần: prompt kế router opus effort medium; luồng chính opus/medium; Edit và bun test bị từ chối; status ghi opus và dự phòng', opts(), async ($, on) => {
     const { seen } = setup(on, (model, n) => (model === 'fable' ? (n === 0 ? BIG() : null) : FOLLOW))
     for (let i = 0; i < 4; i++) await submit($, i === 0 ? A : `làm tiếp bước ${i}`)
-    expect(prompts(seen).map(c => c.model)).toEqual(['fable', 'fable', 'fable', 'opus'])
+    // Prompt 2 và 3: Fable bị API từ chối, cùng prompt được đọc lại bằng opus (mục 4); từ prompt 4 router là opus.
+    expect(prompts(seen).map(c => c.model)).toEqual(['fable', 'fable', 'opus', 'fable', 'opus', 'opus'])
     expect(prompts(seen).at(-1)).toMatchObject({ model: 'opus', effort: 'medium' })
     expect(pick(await step($, seen, { turnId: 't4' }))).toBe('claude-opus-5-5/medium')
     expect(isEditDeny(await edit($))).toBe(true)
@@ -71,7 +72,7 @@ describe('0.8.7 F1: router Fable tạm ngừng thì opus nhận vai điều ph�
   test('hết thời gian tạm ngừng của router Fable: prompt kế router là Fable, luồng chính fable/medium; có toast và dòng nhật ký quay về', opts(), async ($, on) => {
     const { seen, lines } = setup(on, (model, n) => (model === 'fable' ? (n === 0 ? BIG() : n <= 2 ? null : FOLLOW) : FOLLOW))
     for (let i = 0; i < 6; i++) await submit($, i === 0 ? A : `làm tiếp bước ${i}`)
-    expect(prompts(seen).map(c => c.model)).toEqual(['fable', 'fable', 'fable', 'opus', 'opus', 'opus'])
+    expect(prompts(seen).map(c => c.model)).toEqual(['fable', 'fable', 'opus', 'fable', 'opus', 'opus', 'opus', 'opus'])
     await submit($, 'làm tiếp bước 6')
     expect(prompts(seen).at(-1)?.model).toBe('fable')
     expect(pick(await step($, seen, { turnId: 't7' }))).toBe('claude-fable-5-2/medium')
@@ -160,8 +161,9 @@ describe('0.8.7 F1: như 0.8.6 khi không có dự phòng', () => {
 
   test('router opus cũng lỗi hai lần: như 0.8.6 khi Fable không sẵn sàng (router sonnet, luồng chính tự sửa file được)', opts(), async ($, on) => {
     const { seen } = setup(on, (model, n) => (model === 'fable' ? (n === 0 ? BIG() : null) : model === 'opus' ? null : FOLLOW))
-    for (let i = 0; i < 6; i++) await submit($, i === 0 ? A : `làm tiếp bước ${i}`)
-    expect(prompts(seen).map(c => c.model)).toEqual(['fable', 'fable', 'fable', 'opus', 'opus', 'sonnet'])
+    for (let i = 0; i < 4; i++) await submit($, i === 0 ? A : `làm tiếp bước ${i}`)
+    // Prompt 2 và 3: Fable bị từ chối, opus đọc lại và cũng lỗi; cả hai tạm ngừng, prompt 4 router là option router.
+    expect(prompts(seen).map(c => c.model)).toEqual(['fable', 'fable', 'opus', 'fable', 'opus', 'sonnet'])
     expect(isEditDeny(await edit($))).toBe(false)
   })
 

@@ -412,6 +412,11 @@ export type Core = {
   /** Fable điều phối (0.8.4): bộ đếm lỗi của router Fable, số prompt còn tạm ngừng, trạng thái sẵn sàng đã ghi và khóa conductor-hold. */
   fable: FableState
   /**
+   * Vai điều phối dự phòng (0.8.7 F1): bộ đếm lỗi và số prompt tạm ngừng của router họ dự phòng, cờ prompt đang tạm ngừng, họ đang điều phối
+   * ghi ở lần đọc prompt gần nhất (null là không có), và họ đã nhận đoạn dặn cho mục tiêu Core.fable.briefedGoal. Vắng ở trạng thái cũ: mặc định.
+   */
+  fallback: FallbackState
+  /**
    * Turn của luồng chính cho mục tiêu goalId (0.8.5 K8): số turn thực thi đã kết thúc và turn gần nhất có bị ngắt không. Mục tiêu khác thì
    * coi là 0 và false. Vắng ở trạng thái cũ: goalId -1, 0, false.
    */
@@ -468,6 +473,7 @@ export type SkillState = { goalId: number; seq: number; lastWrite: number; trial
  */
 /** `promptPaused` (0.8.5 K10): prompt hiện tại đến lúc router Fable còn tạm ngừng; router, luồng chính và turn của prompt đó coi Fable chưa sẵn sàng. */
 export type FableState = { failures: number; pauseLeft: number; ready: boolean | null; reason: string; holdKey: string; briefedGoal: number; promptPaused: boolean }
+export type FallbackState = { failures: number; pauseLeft: number; promptPaused: boolean; active: ModelFamily | null; briefedFamily: ModelFamily | null }
 
 export type ApprovalStatus = 'none' | 'planning' | 'presented' | 'approved' | 'skipped'
 export type ApprovalState = { goalId: number; status: ApprovalStatus; rounds: number; asked: boolean; awaitingAnswer: boolean }

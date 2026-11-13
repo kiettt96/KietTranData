@@ -6,7 +6,7 @@
 
 import type { PluginOptions } from 'claude-code'
 
-import type { AgentProgress, AgentState, ApprovalState, ApprovalStatus, AgentTally, ArchivedGoal, Brief, ChangedState, CheckHint, ConductState, Core, FableState, ForkPart, GoalTurns, ForkPartState, ForkState, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, RetryItem, RetryState, Route, Waiver, WaiverState, RouteEvent, RouterFail, SkillState, TurnFault, Warning } from '../../types'
+import type { AgentProgress, AgentState, ApprovalState, ApprovalStatus, AgentTally, ArchivedGoal, Brief, ChangedState, CheckHint, ConductState, Core, FableState, FallbackState, ForkPart, GoalTurns, ForkPartState, ForkState, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, RetryItem, RetryState, Route, Waiver, WaiverState, RouteEvent, RouterFail, SkillState, TurnFault, Warning } from '../../types'
 import { isFullyClosed, openSteps, restorableSteps } from './drift'
 import { isPendingGoal } from './conductor'
 import type { Tokens } from './cost'
@@ -54,6 +54,7 @@ export const EMPTY_CORE: Core = {
   changed: { goalId: -1, paths: [], unknown: 0, overflow: 0 },
   changedNoticed: -1,
   fable: { failures: 0, pauseLeft: 0, ready: null, reason: '', holdKey: '', briefedGoal: -1, promptPaused: false },
+  fallback: { failures: 0, pauseLeft: 0, promptPaused: false, active: null, briefedFamily: null },
   goalTurns: { goalId: -1, done: 0, interrupted: false },
   conduct: emptyConduct(-1),
 }
@@ -266,6 +267,7 @@ export function normalizeCore(raw: Partial<Core>): Core {
     changed: normalizeChanged(raw.changed),
     changedNoticed: typeof raw.changedNoticed === 'number' ? raw.changedNoticed : -1,
     fable: normalizeFable(raw.fable),
+    fallback: normalizeFallback(raw.fallback),
     goalTurns: normalizeGoalTurns(raw.goalTurns),
     conduct: normalizeConduct(raw.conduct),
   }
@@ -424,6 +426,23 @@ function normalizeFable(raw: Partial<FableState> | undefined): FableState {
   if (raw === undefined || raw === null || typeof raw !== 'object') return { failures: 0, pauseLeft: 0, ready: null, reason: '', holdKey: '', briefedGoal: -1, promptPaused: false }
   return { failures: count(raw.failures), pauseLeft: count(raw.pauseLeft), ready: typeof raw.ready === 'boolean' ? raw.ready : null, reason: typeof raw.reason === 'string' ? raw.reason : '', holdKey: typeof raw.holdKey === 'string' ? raw.holdKey : '', briefedGoal: typeof raw.briefedGoal === 'number' && Number.isInteger(raw.briefedGoal) ? raw.briefedGoal : -1, promptPaused: raw.promptPaused === true }
 }
+
+/** Trạng thái vai điều phối dự phòng (0.8.7 F1); vắng hay sai kiểu ở trạng thái từ bản cũ là mặc định. */
+const FALLBACK_FAMILIES: readonly ModelFamily[] = ['haiku', 'sonnet', 'opus', 'fable']
+function normalizeFallback(raw: Partial<FallbackState> | undefined): FallbackState {
+  const count = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0)
+  const family = (value: unknown): ModelFamily | null => FALLBACK_FAMILIES.find(f => f === value) ?? null
+  if (raw === undefined || raw === null || typeof raw !== 'object') return { failures: 0, pauseLeft: 0, promptPaused: false, active: null, briefedFamily: null }
+  return { failures: count(raw.failures), pauseLeft: count(raw.pauseLeft), promptPaused: raw.promptPaused === true, active: family(raw.active), briefedFamily: family(raw.briefedFamily) }
+}
+
+/** Ghi trạng thái vai điều phối dự phòng (0.8.7 F1). */
+export const withFallback =
+  (change: (fallback: FallbackState) => Partial<FallbackState>) =>
+  (c: Core): Core => {
+    const n = normalizeCore(c)
+    return { ...n, fallback: normalizeFallback({ ...n.fallback, ...change(n.fallback) }) }
+  }
 
 /** Ghi trạng thái Fable điều phối (0.8.4). */
 export const withFable =

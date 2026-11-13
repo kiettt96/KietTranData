@@ -33,6 +33,15 @@ export type FableInputs = {
   pauseLeft: number
 }
 
+/** Option conductorFallback (0.8.7 F1): opus (mặc định) hay sonnet; off là không có họ dự phòng; giá trị khác là mặc định [Giả định]. */
+export type FallbackOption = 'opus' | 'sonnet' | null
+
+export function conductorFallbackOf(options: PluginOptions): FallbackOption {
+  const raw = options['conductorFallback']
+  if (raw === 'off') return null
+  return raw === 'sonnet' ? 'sonnet' : 'opus'
+}
+
 /** Nguyên nhân Fable không sẵn sàng; null là sẵn sàng. */
 export type FableBlocker = 'option' | 'mode' | 'headless' | 'blocked' | 'paused'
 
@@ -72,14 +81,38 @@ export function isPendingGoal(brief: Brief | null, state: PendingState): boolean
   return isBigGoal(brief) && state.total === 0 && (state.turnsDone ?? 0) === 0
 }
 
-/** Đầu vào của "điều phối khả dụng": như Fable sẵn sàng, cộng chính sách model của phiên và họ model phiên (null khi chưa biết). */
-export type ConductorInputs = FableInputs & { sessionPolicy: SessionPolicy; sessionFamily: ModelFamily | null }
+/**
+ * Đầu vào của "điều phối khả dụng": như Fable sẵn sàng, cộng chính sách model của phiên và họ model phiên (null khi chưa biết), họ dự
+ * phòng (0.8.7 F1, null là không có) và số prompt router họ dự phòng còn tạm ngừng.
+ */
+export type ConductorInputs = FableInputs & { sessionPolicy: SessionPolicy; sessionFamily: ModelFamily | null; fallback?: ModelFamily | null; fallbackPauseLeft?: number }
+
+/** Họ đang điều phối (0.8.7 F1): fable khi Fable sẵn sàng; họ dự phòng khi Fable không dùng được, kèm lý do; null là không có. */
+export type ActiveConductor = { family: ModelFamily; isFallback: boolean; reason: 'blocked' | 'paused' | null }
+
+/**
+ * Họ đang điều phối (0.8.7 F1). Fable sẵn sàng thì fable. Fable không dùng được (họ fable bị chặn hay router Fable tạm ngừng; nguyên nhân
+ * là cấu hình thì không) thì họ dự phòng, khi có, khác fable, không bị chặn, router của nó không tạm ngừng, chế độ là auto và chính sách
+ * model của phiên không giữ model khác. Còn lại null, như 0.8.6.
+ */
+export function activeConductor(input: ConductorInputs): ActiveConductor | null {
+  const blocker = fableBlocker(input)
+  if (blocker === null) return { family: 'fable', isFallback: false, reason: null }
+  if (blocker !== 'blocked' && blocker !== 'paused') return null
+  const fallback = input.fallback ?? null
+  if (fallback === null || fallback === 'fable' || input.blocked.has(fallback) || (input.fallbackPauseLeft ?? 0) > 0) return null
+  if (input.mode !== 'auto') return null
+  if (input.sessionPolicy !== 'auto' && input.sessionFamily !== 'fable') return null
+  return { family: fallback, isFallback: true, reason: blocker }
+}
 
 /** Nguyên nhân luồng chính không điều phối bằng Fable; null là điều phối khả dụng. `session`: chính sách model của phiên thắng. */
 export type ConductorBlocker = FableBlocker | 'session'
 
 export function conductorBlocker(input: ConductorInputs): ConductorBlocker | null {
   const fable = fableBlocker(input)
+  // Họ dự phòng đang nhận vai (0.8.7 F1): điều phối khả dụng; activeConductor đã xét chế độ và chính sách của phiên.
+  if (fable !== null && activeConductor(input) !== null) return null
   if (fable !== null) return fable
   if (input.mode !== 'auto') return 'mode'
   if (input.sessionPolicy !== 'auto' && input.sessionFamily !== 'fable') return 'session'
@@ -99,11 +132,11 @@ export function isMainConducting(input: ConductorInputs, brief: Pick<Brief, 'dep
  * Model của router Fable: modelMap.fable, rồi ID phiên khi phiên thuộc họ fable (giữ hậu tố), rồi (0.8.7 M1) alias fable để engine chọn
  * phiên bản hiện hành ($.model.complete nhận alias ở mọi engine đã kiểm); ID phiên có tiền tố nhà cung cấp thì tiền tố cộng ID ghim.
  */
-export function fableModelId(map: Partial<Record<ModelFamily, string>>, sessionModelId: string | null): string {
-  const override = map.fable
+export function fableModelId(map: Partial<Record<ModelFamily, string>>, sessionModelId: string | null, family: ModelFamily = 'fable'): string {
+  const override = map[family]
   if (override) return override
-  if (sessionModelId !== null && familyOf(sessionModelId) === 'fable') return sessionModelId
-  return resolveModelId('fable', sessionModelId ?? '', {}, true)
+  if (sessionModelId !== null && familyOf(sessionModelId) === family) return sessionModelId
+  return resolveModelId(family, sessionModelId ?? '', {}, true)
 }
 
 /** Câu nêu nguyên nhân (nhật ký conductor, pane, status). */
@@ -139,13 +172,16 @@ export function fableAfterCall(state: { failures: number; pauseLeft: number }, i
 }
 
 /** Trạng thái điều phối để hiện (0.8.4 C8): đang điều phối, tạm ngừng, hay tắt kèm nguyên nhân. */
-export type ConductorShown = { state: 'on' } | { state: 'paused' } | { state: 'off'; reason: ConductorBlocker | 'small' | 'none' }
+export type ConductorShown = { state: 'on' } | { state: 'paused' } | { state: 'fallback'; family: ModelFamily; reason: 'blocked' | 'paused'; isBig: boolean } | { state: 'off'; reason: ConductorBlocker | 'small' | 'none' }
 
 /**
  * Trạng thái điều phối theo Core (0.8.4 C8): router Fable tạm ngừng; đã ghi sẵn sàng và mục tiêu lớn là đang điều phối; còn lại tắt, với
  * nguyên nhân đã ghi ở lần đọc prompt gần nhất (small: mục tiêu không lớn; none: chưa đọc prompt nào).
  */
-export function conductorShown(core: { fable: { pauseLeft: number; ready: boolean | null; reason: string }; brief: Pick<Brief, 'depth' | 'kind' | 'isReference' | 'isBare'> | null }): ConductorShown {
+export function conductorShown(core: { fable: { pauseLeft: number; ready: boolean | null; reason: string; promptPaused?: boolean }; fallback?: { active: ModelFamily | null }; brief: Pick<Brief, 'depth' | 'kind' | 'isReference' | 'isBare'> | null }): ConductorShown {
+  // Họ dự phòng đang điều phối (0.8.7 F1, Core.fallback.active ghi ở lần đọc prompt gần nhất): lý do là router Fable tạm ngừng hay họ fable bị chặn.
+  const backup = core.fallback?.active ?? null
+  if (backup !== null && backup !== 'fable') return { state: 'fallback', family: backup, reason: core.fable.pauseLeft > 0 || core.fable.promptPaused === true ? 'paused' : 'blocked', isBig: isBigGoal(core.brief) }
   if (core.fable.pauseLeft > 0) return { state: 'paused' }
   if (core.fable.ready === true) return isBigGoal(core.brief) ? { state: 'on' } : { state: 'off', reason: 'small' }
   const known: readonly string[] = ['option', 'mode', 'headless', 'blocked', 'paused', 'session']

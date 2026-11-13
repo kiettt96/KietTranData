@@ -178,6 +178,9 @@ export function registerTurn(on: On, ctx: Ctx): void {
     // Model được chọn không phản hồi (không có quyền, bị chặn, sai ID, hoặc
     // lỗi tạm thời): quay về model của engine cho phần còn lại của turn. Chỉ
     // chặn họ model khi lỗi ở hai turn liên tiếp.
+    // Fable không phản hồi ở turn của mục tiêu đang được điều phối (0.8.7 F1): phần còn lại của turn chạy họ dự phòng ở effort medium.
+    const coreNow = S.normalizeCore(await read($, coreState))
+    const takeover = route.family === 'fable' && ctx.isConducting(coreNow, current) ? ctx.fallbackUsable(coreNow) : null
     const previous = failures.get(route.family)
     const count = previous && L.turnCount - previous.lastTurn <= 1 ? previous.count + 1 : 1
     failures.set(route.family, { count, lastTurn: L.turnCount })
@@ -185,6 +188,15 @@ export function registerTurn(on: On, ctx: Ctx): void {
     if (isBlocked) {
       blocked.add(route.family)
       blockedUntil.set(route.family, L.turnCount + BLOCK_TURNS)
+    }
+    if (takeover !== null) {
+      const handed = { ...route, family: takeover, effort: 'medium' as const }
+      L.turnRoute = { turnId: e.turnId, route: handed }
+      const handAt = await $.clock.now()
+      const handText = `${input.model} không phản hồi${isBlocked ? ` ${count} turn liên tiếp, tạm ngừng dùng ${route.family} trong ${BLOCK_TURNS} turn` : ''}; phần còn lại của turn chạy ${takeover}/medium (dự phòng)`
+      await update($, coreState, c => S.withWarnings({ at: handAt, kind: 'model', text: handText })(S.withRoute(handed)(c)))
+      $.ui.toast(handText)
+      return yield* next({ ...e, model: ctx.stepModelId(takeover, e.model), effort: 'medium' })
     }
     L.turnRoute = { turnId: e.turnId, route: null }
     const text = isBlocked

@@ -18,9 +18,9 @@ import { MAX_FORKS, fitPick, skipKey } from './lib/router'
 import { routerMaxWaitOf } from './lib/reading'
 import type { Reading } from './lib/reading'
 import { approvalModeOf, reviewRoundsOf } from './lib/approval'
-import { conductorBlocker, conductorOf, fableModelId, isFableReady, isMainConducting } from './lib/conductor'
+import { activeConductor, conductorBlocker, conductorFallbackOf, conductorOf, fableModelId, isMainConducting } from './lib/conductor'
 import { normalizeCore, restoreArchived, withDelegations } from './lib/state'
-import type { ConductorBlocker, ConductorInputs } from './lib/conductor'
+import type { ActiveConductor, ConductorBlocker, ConductorInputs } from './lib/conductor'
 import type { AgentRoute, Policy } from './lib/router'
 
 /** Prompt do chính người dùng gửi (hoặc lịch họ đặt), không phải thông báo nội bộ. */
@@ -319,12 +319,22 @@ export function createContext(options: PluginOptions) {
 
   /** Option conductor (0.8.4): off như 0.8.3, fable là Fable điều phối. */
   const conductorOption = conductorOf(options)
+  /** Họ điều phối dự phòng (0.8.7 F1, option conductorFallback): chỉ có khi conductor là fable; null là không có. */
+  const conductorFallback = conductorOption === 'fable' ? conductorFallbackOf(options) : null
 
   /** Đầu vào của các định nghĩa Fable điều phối (hooks/lib/conductor.ts) ở thời điểm hiện tại. */
   function conductorInputs(core: Core, mode: Mode, headless = false): ConductorInputs {
     // Prompt hiện tại đến lúc router Fable còn tạm ngừng (0.8.4 C6, V1; 0.8.5 K10: cờ nằm trong Core.fable nên sống qua nạp lại mod).
-    const fable = normalizeCore(core).fable
-    return { option: conductorOption, mode, headless, blocked, pauseLeft: fable.pauseLeft + (fable.promptPaused ? 1 : 0), sessionPolicy, sessionFamily: local.sessionFamily }
+    const n = normalizeCore(core)
+    const fable = n.fable
+    // Họ dự phòng (0.8.7 F1): số prompt router của nó còn tạm ngừng tính như của Fable, kể cả prompt hiện tại.
+    const fallbackPauseLeft = n.fallback.pauseLeft + (n.fallback.promptPaused ? 1 : 0)
+    return { option: conductorOption, mode, headless, blocked, pauseLeft: fable.pauseLeft + (fable.promptPaused ? 1 : 0), sessionPolicy, sessionFamily: local.sessionFamily, fallback: conductorFallback, fallbackPauseLeft }
+  }
+
+  /** Họ đang điều phối lúc này (0.8.7 F1): fable, họ dự phòng, hay null. */
+  function conductorOf_(core: Core, mode: Mode, headless = false): ActiveConductor | null {
+    return activeConductor(conductorInputs(core, mode, headless))
   }
 
   /** Luồng chính đang giữ vai điều phối cho mục tiêu hiện tại (0.8.5 D1, 0.8.6): option conductor là fable và isMainConducting. */
@@ -342,8 +352,24 @@ export function createContext(options: PluginOptions) {
    * router. `family` là họ của model đã gọi, cho sổ chi phí; `isFable` đặt thời gian chờ và effort của lượt đọc lại.
    */
   function routerTarget(core: Core, mode: Mode, headless = false): { model: string; family: ModelFamily; isFable: boolean } {
-    if (isFableReady(conductorInputs(core, mode, headless))) return { model: fableModelId(modelMap, local.lastSession?.model ?? null), family: 'fable', isFable: true }
+    // Họ dự phòng (0.8.7 F1) làm router như Fable: biến thể điều phối, effort và thời gian chờ của vai điều phối, thông số đọc của họ đó.
+    const active = conductorOf_(core, mode, headless)
+    if (active !== null) return { model: fableModelId(modelMap, local.lastSession?.model ?? null, active.family), family: active.family, isFable: true }
     return { model: routerModel, family: routerFamily, isFable: false }
+  }
+
+  /** Họ dự phòng dùng được lúc này (0.8.7 F1): có, không bị chặn, router của nó không tạm ngừng; null là không có. */
+  function fallbackUsable(core: Core): ModelFamily | null {
+    if (conductorFallback === null || blocked.has(conductorFallback)) return null
+    return normalizeCore(core).fallback.pauseLeft > 0 ? null : conductorFallback
+  }
+
+  /** Đích router của họ dự phòng (0.8.7 F1), cho lượt đọc của Fable bị API từ chối; null khi họ dự phòng không dùng được. */
+  function fallbackTarget(core: Core, mode: Mode, headless = false): { model: string; family: ModelFamily; isFable: boolean } | null {
+    const active = conductorOf_(core, mode, headless)
+    if (active === null || active.isFallback || conductorFallback === null || blocked.has(conductorFallback)) return null
+    if (activeConductor({ ...conductorInputs(core, mode, headless), pauseLeft: 1 }) === null) return null
+    return { model: fableModelId(modelMap, local.lastSession?.model ?? null, conductorFallback), family: conductorFallback, isFable: true }
   }
 
   /** Lượt đọc prompt của đích router (0.8.7 L3): họ model, cửa sổ ngữ cảnh của họ đó (option contextWindows), thời gian chờ tối đa. */
@@ -472,7 +498,11 @@ export function createContext(options: PluginOptions) {
    * "điều phối", không nâng theo bằng chứng, không kẹp theo allowFable; brief.main vẫn giữ lựa chọn của router cho lúc Fable hết sẵn sàng.
    */
   function wantedPick(brief: Brief, lift: Lift, core?: Core, mode?: Mode): (Choice & { notes: string[]; isConducting?: true }) | null {
-    if (core !== undefined && mode !== undefined && isMainConducting(conductorInputs(core, mode), brief)) return { family: 'fable', effort: 'medium', notes: ['điều phối'], isConducting: true }
+    // Luồng chính điều phối bằng họ đang điều phối (0.8.7 F1): fable, hay họ dự phòng kèm ghi chú "dự phòng".
+    if (core !== undefined && mode !== undefined && isMainConducting(conductorInputs(core, mode), brief)) {
+      const active = conductorOf_(core, mode)
+      if (active !== null) return { family: active.family, effort: 'medium', notes: active.isFallback ? ['điều phối', 'dự phòng'] : ['điều phối'], isConducting: true }
+    }
     if (brief.main === null) return null
     const lifted = liftPick(brief.main, lift, options['allowFable'] === true)
     const fitted = fitPick(lifted, brief.isReference ? 'answer' : brief.kind, policy())
@@ -1008,6 +1038,10 @@ export function createContext(options: PluginOptions) {
     conductorOption,
     conductorInputs,
     conductorState,
+    activeConductorOf: conductorOf_,
+    fallbackUsable,
+    conductorFallback,
+    fallbackTarget,
     isConducting,
     routerTarget,
     routerReading,

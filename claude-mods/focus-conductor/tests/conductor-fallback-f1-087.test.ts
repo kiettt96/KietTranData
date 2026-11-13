@@ -39,8 +39,9 @@ describe('0.8.7 F1: họ đang điều phối', () => {
     expect(activeConductor({ ...READY, headless: true, pauseLeft: 2 })).toBeNull()
     expect(activeConductor({ ...READY, mode: 'suggest', pauseLeft: 2 })).toBeNull()
     expect(activeConductor({ ...READY, sessionPolicy: 'fixed', sessionFamily: 'sonnet', pauseLeft: 2 })).toBeNull()
-    expect(conductorBlocker({ ...READY, mode: 'suggest', pauseLeft: 2 })).toBe('mode')
-    expect(conductorBlocker({ ...READY, sessionPolicy: 'fixed', sessionFamily: 'sonnet', pauseLeft: 2 })).toBe('session')
+    // Như 0.8.6: nguyên nhân của Fable nêu trước, không có điều phối.
+    expect(conductorBlocker({ ...READY, mode: 'suggest', pauseLeft: 2 })).toBe('paused')
+    expect(conductorBlocker({ ...READY, sessionPolicy: 'fixed', sessionFamily: 'sonnet', pauseLeft: 2 })).toBe('paused')
   })
 
   test('conductorFallback off, họ dự phòng bị chặn hay tạm ngừng: không có họ điều phối, như 0.8.6', () => {

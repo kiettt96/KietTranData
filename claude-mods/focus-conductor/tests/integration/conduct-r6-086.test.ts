@@ -140,7 +140,7 @@ describe('0.8.6 vòng 2 V1: cờ Agent chỉ đổi theo lời gọi của luồ
     expect((await editMain($)).deny ?? '').toContain('vai điều phối không tự sửa file')
   })
 
-  test('Fable tạm ngừng (không điều phối) khi Agent bị từ chối: cờ không bật; Fable điều phối lại thì Edit của luồng chính bị từ chối', { options: { planApproval: 'off', conductor: 'fable', decisionLog: LOG } }, async ($, on) => {
+  test('Fable tạm ngừng (không điều phối) khi Agent bị từ chối: cờ không bật; Fable điều phối lại thì Edit của luồng chính bị từ chối', { options: { planApproval: 'off', conductor: 'fable', decisionLog: LOG, conductorFallback: 'off' } }, async ($, on) => {
     let fable = 0
     const seen = base(on, { router: request => (request.startsWith('Requirements:') ? { missing: [], extra: [], issues: [] } : seen.routerModels.at(-1) === ID ? (fable++ === 0 ? BIG : fable <= 3 ? null : FOLLOW) : FOLLOW) })
     on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))

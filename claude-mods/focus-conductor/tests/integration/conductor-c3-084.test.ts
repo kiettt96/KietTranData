@@ -10,6 +10,8 @@ import type { Json, Seen } from '../support/engine'
 
 const LOG = '/tmp/fc-conductor-c3-084.jsonl'
 const FABLE = { options: { planApproval: 'off', conductor: 'fable', decisionLog: LOG } }
+/** 0.8.7 F1: các ca mô tả cách chạy khi Fable không dùng được mà không có họ dự phòng. */
+const NO_FALLBACK = { options: { ...FABLE.options, conductorFallback: 'off' } }
 const BIG = (over: Json = {}) => plan({ goal: 'Sửa luồng thanh toán', depth: 'substantial', volume: 'medium', kind: 'edit', main: { model: 'sonnet', effort: 'medium', why: '' }, ...over })
 const pick = (s: { model: string; effort?: unknown } | undefined) => `${s?.model ?? ''}/${String(s?.effort ?? '')}`
 
@@ -101,7 +103,7 @@ describe('0.8.4 C3: các trường hợp không điều phối', () => {
     expect(pick(await step($, seen, { turnId: 't1', model: 'claude-opus-5-5', effort: 'high' }))).toBe('claude-opus-5-5/high')
   })
 
-  test('họ fable bị chặn giữa mục tiêu lớn: turn kế chạy main của router', FABLE, async ($, on) => {
+  test('họ fable bị chặn giữa mục tiêu lớn: turn kế chạy main của router', NO_FALLBACK, async ($, on) => {
     const { seen } = setup(on, BIG(), { failFamily: 'fable' })
     await submit($, 'Sửa luồng thanh toán')
     await step($, seen, { turnId: 't1' })

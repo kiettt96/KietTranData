@@ -1,7 +1,7 @@
 // Văn bản mod gửi cho model và hiển thị cho người dùng. Gom về một chỗ để
 // giữ giọng văn nhất quán và dễ chỉnh.
 
-import type { Brief, CheckHint, CheckpointBackup, Choice, PlanStep, QuotaCheckpoint, QuotaReason, Route, RouterFail, StepStatus, Task, TurnFault } from '../../types'
+import type { Brief, CheckHint, CheckpointBackup, Choice, ModelFamily, PlanStep, QuotaCheckpoint, QuotaReason, Route, RouterFail, StepStatus, Task, TurnFault } from '../../types'
 import { STUCK_HINT, openSteps, pendingSteps } from './drift'
 import { BACKUP_CALLS_MAX, evaluateQuota, isStale, reasonsOf } from './quota'
 import type { QuotaBadge, QuotaNoticeHit, QuotaThresholds } from './quota'
@@ -1356,10 +1356,13 @@ export function firstErrorLine(output: string | undefined, isError = false): str
 /** Trần đoạn dặn vai điều phối (0.8.4 C5). */
 export const CONDUCTOR_CHARS = 480
 
-/** Đoạn dặn vai điều phối (0.8.4 C5): chèn một lần mỗi mục tiêu cùng khối brief khi luồng chính điều phối. */
-export function conductorContext(): string {
+/**
+ * Đoạn dặn vai điều phối (0.8.4 C5): chèn một lần mỗi mục tiêu cùng khối brief khi luồng chính điều phối. Từ 0.8.7 F1 ghi họ đang điều phối
+ * (mặc định fable, trùng 0.8.6 từng byte).
+ */
+export function conductorContext(family: ModelFamily = 'fable'): string {
   return (
-    '[focus-conductor] Điều phối: luồng chính là vai điều phối, chạy fable/medium. Lập kế hoạch, rồi giao từng việc bằng Agent đúng loại ' +
+    `[focus-conductor] Điều phối: luồng chính là vai điều phối, chạy ${family}/medium. Lập kế hoạch, rồi giao từng việc bằng Agent đúng loại ` +
     'agent, model, effort đã phân, description mở đầu bằng "Việc N". Mỗi lời giao tự đứng được: mục tiêu, phạm vi file, ràng buộc, tiêu ' +
     'chí xong và lệnh kiểm. Không tự sửa file, không tự chạy lệnh kiểm: chỉnh nhỏ gom vào một lời giao, lệnh kiểm giao một subagent chạy ' +
     'và báo tóm tắt. Đọc kết quả, đối chiếu yêu cầu trước khi đóng bước.'
@@ -1394,8 +1397,8 @@ export function conductWriteDenyText(): string {
 export const CONDUCTOR_KEEP_CHARS = 200
 
 /** Câu nhắc lại vai điều phối (0.8.4 V1): nối vào lời nhắc sau nén và ngữ cảnh chạy tiếp khi luồng chính đang điều phối. */
-export function conductorKeepText(): string {
-  return '[focus-conductor] Vẫn là vai điều phối chạy fable/medium: không tự sửa file, không tự chạy kiểm; giao bằng Agent theo phân việc, lời giao tự đứng được; đối chiếu kết quả trước khi đóng bước.'
+export function conductorKeepText(family: ModelFamily = 'fable'): string {
+  return `[focus-conductor] Vẫn là vai điều phối chạy ${family}/medium: không tự sửa file, không tự chạy kiểm; giao bằng Agent theo phân việc, lời giao tự đứng được; đối chiếu kết quả trước khi đóng bước.`
 }
 
 /**

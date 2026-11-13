@@ -139,6 +139,7 @@ const VI = {
   conductorRole: 'điều phối',
   conductorOn: 'Điều phối: fable/medium, đang điều phối',
   conductorPaused: (fallback: string) => `Điều phối: Fable tạm ngừng, router dùng ${fallback}`,
+  conductorFallback: (family: string, reason: 'blocked' | 'paused') => `Điều phối: ${family}/medium, dự phòng (${reason === 'paused' ? 'Fable tạm ngừng' : 'Fable bị chặn vì không phản hồi'})`,
   conductorOff: (reason: string) => `Điều phối: tắt (${reason})`,
   conductExempt: (reason: 'solo' | 'agent') => `đang miễn (${reason === 'solo' ? 'lệnh solo' : 'Agent bị từ chối'})`,
   conductCounts: { deniedWrites: 'từ chối sửa file', deniedChecks: 'từ chối chạy kiểm', selfWrites: 'tự sửa file', selfChecks: 'tự chạy kiểm', reads: 'đọc' },
@@ -299,6 +300,7 @@ const EN: typeof VI = {
   conductorRole: 'conductor',
   conductorOn: 'Conductor: fable/medium, conducting',
   conductorPaused: (fallback: string) => `Conductor: Fable paused, router on ${fallback}`,
+  conductorFallback: (family: string, reason: 'blocked' | 'paused') => `Conductor: ${family}/medium, fallback (${reason === 'paused' ? 'Fable paused' : 'Fable blocked, not responding'})`,
   conductorOff: (reason: string) => `Conductor: off (${reason})`,
   conductExempt: (reason: 'solo' | 'agent') => `exempt (${reason === 'solo' ? 'solo command' : 'Agent call refused'})`,
   conductCounts: { deniedWrites: 'edits refused', deniedChecks: 'checks refused', selfWrites: 'own edits', selfChecks: 'own checks', reads: 'reads' },
@@ -419,5 +421,6 @@ export function conductorLine(core: Parameters<typeof conductorShown>[0], fallba
   const shown = conductorShown(core)
   if (shown.state === 'on') return l.conductorOn
   if (shown.state === 'paused') return l.conductorPaused(fallback)
+  if (shown.state === 'fallback') return l.conductorFallback(shown.family, shown.reason)
   return l.conductorOff(l.conductorReason[shown.reason] ?? shown.reason)
 }

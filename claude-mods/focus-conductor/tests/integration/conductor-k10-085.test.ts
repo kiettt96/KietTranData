@@ -9,6 +9,8 @@ import { base, plan, step, submit } from '../support/engine'
 import type { Json, Seen } from '../support/engine'
 
 const FABLE = { options: { planApproval: 'off', conductor: 'fable' } }
+/** 0.8.7 F1: các ca mô tả cách chạy khi Fable không dùng được mà không có họ dự phòng. */
+const NO_FALLBACK = { options: { ...FABLE.options, conductorFallback: 'off' } }
 const ID = 'fable'
 const BIG = plan({ goal: 'Sửa luồng thanh toán', depth: 'substantial', volume: 'medium', kind: 'edit', main: { model: 'sonnet', effort: 'medium', why: '' } })
 const FOLLOW = plan({ relation: 'continue', goal: '', depth: 'substantial', volume: 'medium', kind: 'edit', main: { model: 'sonnet', effort: 'medium', why: '' } })
@@ -25,7 +27,7 @@ function setup(on: Parameters<typeof base>[0], fable: (n: number) => Json | null
 }
 
 describe('0.8.5 K10: cờ Fable tạm ngừng của prompt sống qua nạp lại mod', () => {
-  test('prompt cuối của đợt tạm ngừng đến, nạp lại mod: turn của prompt đó vẫn chạy theo main của router, không phải Fable', FABLE, async ($, on) => {
+  test('prompt cuối của đợt tạm ngừng đến, nạp lại mod: turn của prompt đó vẫn chạy theo main của router, không phải Fable', NO_FALLBACK, async ($, on) => {
     const seen = setup(on, n => (n === 0 ? BIG : null))
     for (let i = 1; i <= 6; i++) await submit($, i === 1 ? 'Sửa luồng thanh toán' : `làm tiếp bước ${i}`)
     expect(prompts(seen).map(c => c.model).slice(-3)).toEqual(['sonnet', 'sonnet', 'sonnet'])
@@ -37,7 +39,7 @@ describe('0.8.5 K10: cờ Fable tạm ngừng của prompt sống qua nạp lạ
   // Bộ kit test không nạp lại module được (session.start giữ biến của module), nên ca trên chỉ ghim hành vi; ca này dựng ngữ cảnh mới bằng
   // createContext như khi engine nạp lại mod, và đọc Core đã qua vòng JSON.
   test('ngữ cảnh mới (như sau nạp lại) đọc Core có promptPaused, pauseLeft 0: Fable chưa sẵn sàng; không có cờ thì sẵn sàng', () => {
-    const fresh = createContext({ conductor: 'fable', planApproval: 'off' } as never)
+    const fresh = createContext({ conductor: 'fable', planApproval: 'off', conductorFallback: 'off' } as never)
     const paused = S.normalizeCore(JSON.parse(JSON.stringify(S.withFable(() => ({ pauseLeft: 0, promptPaused: true }) as never)(S.EMPTY_CORE))) as Partial<Core>)
     expect(fresh.conductorState(paused, 'auto')).not.toBeNull()
     const ready = S.withFable(() => ({ pauseLeft: 0, promptPaused: false }) as never)(S.EMPTY_CORE)

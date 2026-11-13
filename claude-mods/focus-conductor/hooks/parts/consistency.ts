@@ -2,7 +2,7 @@
 
 import { atom, derive, read, update } from 'claude-code'
 import { caught, noteBehavior, noteHookError } from '../lib/errlog'
-import type { AgentState, Choice, Core, DelegationState, Mode, RetryItem, Warning } from '../../types'
+import type { AgentState, Choice, Core, DelegationState, Mode, ModelFamily, RetryItem, Warning } from '../../types'
 import { acceptsVerified, checkKindOf, classifyBash, evidenceStrength, filePathOf, freshTestRun, hardChanges, isCheckTool, isExecuting, isFullyClosed, isGoalDone, isMutation, isPlanFile, normalizePath, isSkillTrial, markVerified, newTracker, skillNameOf, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
 import type { Finding, Focus, ToolObservation, TurnTracker } from '../lib/drift'
 import { checkCommand, checkSignature, coversFailure, isFailedRun } from '../lib/drift/evidence'
@@ -90,9 +90,11 @@ async function noteConductRead($: EngineInterface, ctx: Ctx, current: Mode, inpu
   return isDue ? conductReadText(reads) : null
 }
 
-async function noteFableRouter($: EngineInterface, ctx: Ctx, isOk: boolean): Promise<void> {
+async function noteFableRouter($: EngineInterface, ctx: Ctx, isOk: boolean, family: ModelFamily = 'fable'): Promise<void> {
   const at = await $.clock.now()
-  const step = fableStep(S.normalizeCore(await read($, coreState)), isOk, ctx.routerModel, at)
+  const core = S.normalizeCore(await read($, coreState))
+  // Họ dự phòng (0.8.7 F1): lỗi của nó đếm riêng; router Fable vừa tạm ngừng thì câu báo nêu họ dự phòng nhận vai nếu dùng được.
+  const step = fableStep(core, isOk, ctx.routerModel, at, family, family === 'fable' ? ctx.fallbackUsable(core) : null)
   if (step === null) return
   await update($, coreState, step.change)
   if (step.text !== null) $.ui.toast(step.text)
@@ -405,7 +407,7 @@ async function planReviewGate($: EngineInterface, ctx: Ctx): Promise<{ kind: 'no
   const startedAt = await $.clock.now()
   const outcome = await askRouter(r => $.model.complete(r), request, parsePlanReview)
   ctx.noteRouterFailure('review', outcome.failure)
-  if (target.isFable) await noteFableRouter($, ctx, outcome.result !== null)
+  if (target.isFable) await noteFableRouter($, ctx, outcome.result !== null, target.family)
   ctx.noteRouterTime((await $.clock.now()) - startedAt)
   const rounds = approval.rounds + 1
   // Chi phí mỗi lượt rà cộng vào sổ nhóm router; lượt rà tăng sau mỗi lần gọi.
@@ -970,7 +972,8 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     // Lời nhắc sau nén (0.7.4): gắn một lần vào tool call này, dựng từ mục tiêu và checklist lúc này.
     // Luồng chính đang điều phối (0.8.4 V1): lời nhắc sau nén kèm câu nhắc lại vai điều phối.
     const keepRole = L.compaction.pending && core.brief !== null && isMainConducting(ctx.conductorInputs(core, S.modeOf(await read($, modeState), ctx.options)), core.brief)
-    const compactNote = L.compaction.pending && core.brief !== null ? `${compactReminderText(core.brief, shownPlan(core).plan)}${keepRole ? `\n${conductorKeepText()}` : ''}` : null
+    const keepFamily = keepRole ? ctx.activeConductorOf(core, S.modeOf(await read($, modeState), ctx.options))?.family : undefined
+    const compactNote = L.compaction.pending && core.brief !== null ? `${compactReminderText(core.brief, shownPlan(core).plan)}${keepRole ? `\n${conductorKeepText(keepFamily)}` : ''}` : null
     L.compaction.pending = false
     // Ghi cả lệnh lỗi: evidence nhắc tới một lệnh kiểm tra đã lỗi thì không được tính là đã kiểm tra.
     const retryNotes: string[] = []
@@ -1120,7 +1123,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       const startedAt = await $.clock.now()
       const outcome = await askRouter(r => $.model.complete(r), request, parseDrift)
       ctx.noteRouterFailure('drift', outcome.failure)
-      if (target.isFable) await noteFableRouter($, ctx, outcome.result !== null)
+      if (target.isFable) await noteFableRouter($, ctx, outcome.result !== null, target.family)
       noteRouterTime((await $.clock.now()) - startedAt)
       const verdict = outcome.result
       const now = await $.clock.now()

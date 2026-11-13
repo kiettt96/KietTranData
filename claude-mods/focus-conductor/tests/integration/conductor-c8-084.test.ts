@@ -51,7 +51,7 @@ describe('0.8.4 C8: pane và /conductor status', () => {
     expect((await texts($, PANE)).join('\n')).toContain('Điều phối: fable/medium, đang điều phối')
     expect(await statusText($)).toContain('Điều phối: fable/medium, đang điều phối')
   })
-  test('tạm ngừng: dòng Điều phối nêu model router thay', { options: { planApproval: 'off', conductor: 'fable' } }, async ($, on) => {
+  test('tạm ngừng: dòng Điều phối nêu model router thay', { options: { planApproval: 'off', conductor: 'fable', conductorFallback: 'off' } }, async ($, on) => {
     const seen: Seen = base(on, { router: () => (seen.routerModels.at(-1) === ID ? null : BIG) })
     for (let i = 0; i < 3; i++) await submit($, i === 0 ? 'Sửa luồng thanh toán' : `làm tiếp bước ${i}`)
     expect((await texts($, PANE)).join('\n')).toContain('Điều phối: Fable tạm ngừng, router dùng sonnet')

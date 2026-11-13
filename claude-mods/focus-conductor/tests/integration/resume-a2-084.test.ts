@@ -224,7 +224,7 @@ describe('0.8.4 Z1: khôi phục bằng tiếp tục giữ các lần ghi Core t
     expect(await statusText($)).toContain(PAUSED)
   })
 
-  test('Fable đang tạm ngừng còn 2 prompt, tiếp tục có khôi phục: số prompt còn tạm ngừng giảm đúng 1', { options: FABLE_OPTS }, async ($, on) => {
+  test('Fable đang tạm ngừng còn 2 prompt, tiếp tục có khôi phục: số prompt còn tạm ngừng giảm đúng 1', { options: { ...FABLE_OPTS, conductorFallback: 'off' } }, async ($, on) => {
     const { seen, now } = setupLive(on)
     await aThenB($, seen, now)
     now.isFableDown = true

@@ -31,6 +31,12 @@
       "default": "off",
       "options": ["off", "fable"]
     },
+    "conductorFallback": {
+      "type": "string",
+      "title": "Model điều phối dự phòng",
+      "description": "Khi conductor là fable mà Fable không dùng được giữa chừng (router Fable tạm ngừng sau các lần lỗi, hay họ fable bị chặn vì không phản hồi), họ model này nhận vai điều phối: đọc prompt, lập kế hoạch và điều phối luồng chính ở effort medium, cùng kỷ luật không tự sửa file, không tự chạy kiểm. Fable dùng lại được thì quay về Fable. opus (mặc định), sonnet, hoặc off để giữ cách chạy trước 0.8.7 (router là option router, luồng chính theo lựa chọn của router). (en) When conductor is fable and Fable becomes unusable mid-session (Fable router paused after repeated failures, or the fable family blocked for not responding), this family takes over the conductor role: reads prompts, plans and coordinates the main thread at effort medium, with the same no-edit, no-check discipline. Returns to Fable once Fable is usable again. opus (default), sonnet, or off to keep the behaviour before 0.8.7.",
+      "default": "opus"
+    },
     "conductorReads": {
       "type": "number",
       "title": "Ngưỡng nhắc đọc của vai điều phối",
