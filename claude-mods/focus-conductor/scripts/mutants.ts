@@ -2265,7 +2265,7 @@ export const MUTANTS: Mutant[] = [
   { id: "087-G1d", file: "hooks/lib/conductor.ts", note: "họ không có cờ điều phối vẫn được nhận", old: "  return CONDUCTOR_FAMILIES.find(f => f === raw) ?? 'off'\n", new: "  return (CONDUCTOR_FAMILIES.find(f => f === raw) ?? (raw === 'haiku' || raw === 'sonnet' ? raw : 'off')) as ConductorOption\n" },
   { id: "087-G1e", file: "hooks/lib/conductor.ts", note: "họ dự phòng trùng họ chính vẫn kích hoạt dự phòng", old: "  if (fallback === null || fallback === primary || input.blocked.has(fallback) || (input.fallbackPauseLeft ?? 0) > 0) return null\n", new: "  if (fallback === null || (fallback === primary && false) || input.blocked.has(fallback) || (input.fallbackPauseLeft ?? 0) > 0) return null\n" },
   { id: "088-N1a", file: "hooks/ui/neon.ts", note: "dải màu không nội suy: mọi ô cùng mốc đầu", old: "  return hexOf(mix(rgbOf(stops[i] as string), rgbOf(stops[i + 1] as string), scaled - i))", new: "  return stops[0] as string" },
-  { id: "088-N1b", file: "hooks/ui/neon.ts", note: "frame không dịch dải màu", old: "    const color = colorAt(stops, cell + frame)", new: "    const color = colorAt(stops, cell)" },
+  { id: "088-N1b", file: "hooks/ui/neon.ts", note: "frame không dịch dải màu", old: "    const color = colorAt(stops, cell + shift)", new: "    const color = colorAt(stops, cell)" },
   { id: "088-N1c", file: "hooks/ui/neon.ts", note: "neon off vẫn trả mã màu thô", old: "  const isNeon = style.palette !== 'off'\n  const gradients", new: "  const isNeon = true\n  const gradients" },
   { id: "088-N1d", file: "hooks/ui/neon.ts", note: "giá trị lạ của neon thành off", old: "  return pick(value, ['cyber', 'aurora', 'plasma', 'off'] as const, 'cyber')", new: "  return pick(value, ['cyber', 'aurora', 'plasma', 'off'] as const, 'off')" },
   { id: "088-N1e", file: "hooks/ui/neon.ts", note: "bảng nền sáng dùng màu của nền tối", old: "  const gradients = style.theme === 'light' ? LIGHT_GRADIENTS : DARK_GRADIENTS\n  const solids = style.theme === 'light' ? LIGHT_SOLIDS : DARK_SOLIDS", new: "  const gradients = DARK_GRADIENTS\n  const solids = DARK_SOLIDS" },
@@ -2294,4 +2294,6 @@ export const MUTANTS: Mutant[] = [
   { id: "088-N6d", file: "hooks/ui/band.tsx", note: "không cắt nhãn ô hướng", old: "  const directionBody = ` ${fit.label ? directionText(direction) : direction.glyph} `", new: "  const directionBody = ` ${directionText(direction)} `" },
   { id: "088-N6e", file: "hooks/ui/band.tsx", note: "không bỏ phần bên phải ở band hẹp", old: "  const rightParts = () => (!fit.right || (isPaused", new: "  const rightParts = () => ((isPaused" },
   { id: "088-N6f", file: "hooks/ui/band.tsx", note: "không bỏ nút Chi tiết ở band rất hẹp", old: "    ...(columns <= 16 ? [() => (fit.details = false)] : []),\n", new: "" },
+  { id: "088-N6g", file: "hooks/ui/neon.ts", note: "vị trí không hữu hạn không coi là 0", old: "  const at = Number.isFinite(position) ? position : 0\n", new: "  const at = position\n" },
+  { id: "088-N6h", file: "hooks/ui/neon.ts", note: "frame không hữu hạn không coi là 0", old: "  const shift = Number.isFinite(frame) ? frame : 0\n", new: "  const shift = frame\n" },
 ]

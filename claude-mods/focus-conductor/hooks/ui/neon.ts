@@ -195,7 +195,9 @@ export function colorAt(stops: readonly string[], position: number): string {
   if (stops.length === 0) return ''
   if (stops.length === 1) return stops[0] as string
   const half = CYCLE / 2
-  const t = ((position % CYCLE) + CYCLE) % CYCLE
+  // Vị trí không hữu hạn (NaN, Infinity) coi là 0 (0.8.8 N6d).
+  const at = Number.isFinite(position) ? position : 0
+  const t = ((at % CYCLE) + CYCLE) % CYCLE
   const u = t <= half ? t / half : (CYCLE - t) / half
   const scaled = u * (stops.length - 1)
   const i = Math.min(stops.length - 2, Math.floor(scaled))
@@ -208,9 +210,10 @@ export function colorAt(stops: readonly string[], position: number): string {
  */
 export function gradientRuns(text: string, stops: readonly string[], frame: number, extra: Omit<Run, 'text' | 'color'> = {}): Run[] {
   const runs: Run[] = []
+  const shift = Number.isFinite(frame) ? frame : 0
   let cell = 0
   for (const g of graphemesOf(text.normalize('NFC'))) {
-    const color = colorAt(stops, cell + frame)
+    const color = colorAt(stops, cell + shift)
     const last = runs.at(-1)
     if (last !== undefined && last.color === color) last.text += g
     else runs.push({ text: g, color, ...extra })
