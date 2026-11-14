@@ -564,6 +564,19 @@ export type QuotaPause = {
   backupCalls?: number
 }
 
+/** Trạng thái một việc của brief khi gửi router (0.8.9 D1): tính từ các dòng tiến độ của việc đó. */
+export type TaskStatus = 'not started' | 'running' | 'failed' | 'done'
+
+/** Việc được nhắc trong arrange (0.8.9 D1): số của việc đã có, hay "newK" là việc thứ K trong tasks của câu trả lời đó. */
+export type ArrangeRef = number | string
+
+/** Kế hoạch điều phối lại router trả cho prompt tiếp nối (0.8.9 D1): thứ tự làm, việc bỏ, việc gộp. */
+export type Arrange = {
+  order: ArrangeRef[]
+  drop: Array<{ task: number; why: string }>
+  merge: Array<{ tasks: number[]; into: ArrangeRef }>
+}
+
 /** Phần mục tiêu cần để tiếp tục (cắt từ Brief); goal rỗng khi lúc dừng chưa có mục tiêu. */
 export type CheckpointBrief = {
   goal: string

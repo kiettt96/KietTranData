@@ -2,7 +2,7 @@
 // giao subagent) và việc Claude tự giao. Hàm thuần, chỉ đọc Core (sống qua hot-reload vì nằm trong $.state).
 // Nguyên tắc: thanh chỉ thể hiện phần trăm khi có số bước thật; không có thì chỉ thể hiện trạng thái.
 
-import type { AgentProgress, Choice, Core, PlanStep, Task } from '../../types'
+import type { AgentProgress, Choice, Core, PlanStep, Task, TaskStatus } from '../../types'
 import { isFullyClosed } from './drift'
 import { liveForks } from './forks'
 import { mirrorPlan, shownPlan } from './mirror'
@@ -300,4 +300,28 @@ export function runningTitles(core: Core, rows: readonly TaskRow[], titles: read
   const running = new Set<string>()
   for (const [title, row] of byTitle) if (row.kind === 'agent' && row.state === 'running') running.add(title)
   return running
+}
+
+/**
+ * Trạng thái từng việc của brief để gửi router (0.8.9 D1), gộp theo số việc từ các dòng tiến độ: có dòng đang chạy thì running; không, mà
+ * có dòng lỗi hay bị cắt thì failed; mọi dòng xong thì done; còn lại (chờ giao, chưa bắt đầu, chưa có dòng) là not started.
+ */
+export function taskStatusOf(core: Core, now: number): Record<number, TaskStatus> {
+  const byIndex = new Map<number, TaskState[]>()
+  for (const row of taskRows(core, now)) {
+    if (row.kind === 'main' || row.index === undefined || row.attached === true) continue
+    byIndex.set(row.index, [...(byIndex.get(row.index) ?? []), row.state])
+  }
+  const out: Record<number, TaskStatus> = {}
+  for (const task of core.brief?.tasks ?? []) {
+    const states = byIndex.get(task.index) ?? []
+    out[task.index] = states.includes('running')
+      ? 'running'
+      : states.some(state => state === 'failed' || state === 'cut')
+        ? 'failed'
+        : states.length > 0 && states.every(state => state === 'done')
+          ? 'done'
+          : 'not started'
+  }
+  return out
 }

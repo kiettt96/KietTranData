@@ -25,7 +25,7 @@ import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
 import { PERSON_ORIGINS, SLASH_COMMAND, newDelegation } from '../context'
 import { PANE_ROWS, shouldAutoOpenPane } from '../lib/pane'
-import { taskRows } from '../lib/progress'
+import { taskRows, taskStatusOf } from '../lib/progress'
 import { PANE, PANE_TITLE } from '../ui/pane'
 import { approvalDenial, approvedContext, askContext, needsApproval, planningContext } from '../lib/approval'
 
@@ -373,9 +373,11 @@ export function registerSession(on: On, ctx: Ctx): void {
     const reading = ctx.routerReading(target)
     let promptRead: ReadPlan = requestPlan({ text, prev, ran: ranText(before), policy: rules, model: target.model, reading, ...(target.isFable ? { isFable: true } : {}) })
     if (!isPaused) {
+      // Trạng thái từng việc (0.8.9 D1): router thấy việc nào còn mở để điều phối lại.
+      const taskStates = taskStatusOf(before, await $.clock.now())
       const observed = L.observed.join('; ')
       L.observed = []
-      const args = { text, prev, ran: ranText(before), policy: rules, model: target.model, reading, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily, openSteps: openSteps(before.plan).map(s => s.title), ...(observed ? { observed } : {}), ...(isInterject ? { interject: { step: openSteps(before.plan)[0]?.title ?? '' } } : {}), ...(isPresented ? { awaiting: 'approval' as const } : isAnswering ? { awaiting: 'answer' as const } : {}) }
+      const args = { text, prev, ran: ranText(before), policy: rules, model: target.model, reading, taskStates, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily, openSteps: openSteps(before.plan).map(s => s.title), ...(observed ? { observed } : {}), ...(isInterject ? { interject: { step: openSteps(before.plan)[0]?.title ?? '' } } : {}), ...(isPresented ? { awaiting: 'approval' as const } : isAnswering ? { awaiting: 'answer' as const } : {}) }
       promptRead = requestPlan(args)
       // Lượt đọc trọn prompt dài (0.8.7 L3) có thể mất vài phút, nên chữ chờ nói rõ.
       $.ui.status(promptRead.isFull ? 'router đang đọc trọn prompt dài, có thể mất vài phút...' : 'router đang đọc prompt...')

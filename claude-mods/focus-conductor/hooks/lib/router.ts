@@ -7,7 +7,7 @@
 
 import type { ModelCompleteRequest, ModelCompleteResult, ModelTextBlock, ModelUsage } from 'claude-code'
 
-import type { Brief, Choice, Depth, Effort, ForkSplit, Intent, Kind, ModelFamily, Relation, RouterFail, RouterFailKind, Task, Tier, Volume } from '../../types'
+import type { Arrange, ArrangeRef, Brief, Choice, Depth, Effort, ForkSplit, Intent, Kind, ModelFamily, Relation, RouterFail, RouterFailKind, Task, TaskStatus, Tier, Volume } from '../../types'
 import { isBigGoal, isPendingGoal } from './conductor'
 import { DEFAULT_CONDUCTOR, FAMILY_NAMES, conductorTimeouts } from './families'
 import type { PendingState } from './conductor'
@@ -143,6 +143,7 @@ Give depth, volume and kind for the whole request and for each task.
 Relation to the previous goal (shown in <context>):
 - new: a different goal. continue: keep going on the previous goal. refine: a small change or addition to it. dissatisfied: the previous result is still wrong; choose the main model or effort one step above what the main thread ran.
 - For continue, refine and dissatisfied: goal may repeat the previous goal, and tasks lists only NEW pieces of work added by this request ([] if none).
+- arrange, for continue, refine and dissatisfied: when the request changes the remaining work of the previous goal (drops a part, repeats work an open task already has, or asks for another order), also return "arrange"; omit it when the open tasks stay as they are. "order": every task still to do, in work order; a number is a task in <context>, "newK" is the K-th item of tasks in this reply. "drop": not started or failed tasks no longer needed, "why" under 80 characters. "merge": not started or failed tasks whose work now sits inside another task ("into": a task number or "newK"). Never drop or merge a done or running task.
 - runReference: true only when the previous goal was a reference-only review and the user now asks to actually run that prompt.
 - intent, for a message about the goal in <context>: "status" only asks about progress or state ("tới đâu rồi", "xong chưa", "how is it going"); "resume" says to keep going and adds nothing ("tiếp", "chạy tiếp đi", "continue"); "approve" accepts the plan <context> says awaits approval ("ok duyệt", "kế hoạch ổn, làm đi", "approved"); "amend" adds to or changes what the goal asks ("thêm cả phần README", "nhớ sửa luôn test", "also update the changelog"); "task" for anything else ("viết hàm đổi ngày sang ISO", "tạo trang giới thiệu mới", "write a CSV parser") and always with relation new. For status, resume and approve, tasks and requirements are [].
 - For a new goal only: "skipApproval" true when the user plainly says no plan review or approval is needed ("cứ làm luôn, không cần duyệt"); "questions": at most 3 clarifying questions, only when an ambiguity would change the result, each under 200 characters with 2 to 4 options written in it; otherwise [].
@@ -150,7 +151,7 @@ Relation to the previous goal (shown in <context>):
 Use only the models <context> lists as allowed. Write every string, "why" included, in the language of the request: a Vietnamese request gets Vietnamese strings.
 Keep the reply short, it is read by a program: "why" of the request is one sentence under 25 words; "why" of main and of each task is under 15 words.
 Reply with ONE JSON object and nothing else. Fill "why" first. "confidence" is how sure you are of the routing, from 0 to 1.
-{"why": string, "confidence": number, "relation": "new"|"continue"|"refine"|"dissatisfied", "intent": "status"|"resume"|"approve"|"amend"|"task", "reference": boolean, "runReference": boolean, "goal": string, "requirements": string[], "constraints": string[], "quality": string[], "scope": string[], "depth": "none"|"light"|"substantial"|"hard", "volume": "small"|"medium"|"large", "kind": "answer"|"edit"|"investigate"|"mixed", "main": {"model": "haiku"|"sonnet"|"opus"|"fable", "effort": "low"|"medium"|"high"|"xhigh", "why": string}, "referenceMain": {"model": string, "effort": string}, "skipApproval": boolean, "questions": string[], "tasks": [{"title": string, "covers": number[], "run": "main"|"agent", "agent": string, "model": string, "effort": string, "depth": string, "volume": string, "kind": string, "why": string}]}
+{"why": string, "confidence": number, "relation": "new"|"continue"|"refine"|"dissatisfied", "intent": "status"|"resume"|"approve"|"amend"|"task", "reference": boolean, "runReference": boolean, "goal": string, "requirements": string[], "constraints": string[], "quality": string[], "scope": string[], "depth": "none"|"light"|"substantial"|"hard", "volume": "small"|"medium"|"large", "kind": "answer"|"edit"|"investigate"|"mixed", "main": {"model": "haiku"|"sonnet"|"opus"|"fable", "effort": "low"|"medium"|"high"|"xhigh", "why": string}, "referenceMain": {"model": string, "effort": string}, "skipApproval": boolean, "questions": string[], "tasks": [{"title": string, "covers": number[], "run": "main"|"agent", "agent": string, "model": string, "effort": string, "depth": string, "volume": string, "kind": string, "why": string}], "arrange": {"order": (number|string)[], "drop": [{"task": number, "why": string}], "merge": [{"tasks": number[], "into": number|string}]}}
 
 Examples (abridged):
 - "Liệt kê các hàm export trong utils.ts" -> depth none, kind answer, main haiku/low, tasks [].
@@ -382,11 +383,16 @@ function totalLine(count: number): string[] {
   return count > TASK_CONTEXT ? [`  (${count} tasks in total; the first ${TASK_CONTEXT} are listed)`] : []
 }
 
-function previousLines(prev: Brief | null, ran: string | null): string[] {
+function previousLines(prev: Brief | null, ran: string | null, states: Readonly<Record<number, TaskStatus>> = {}): string[] {
   if (prev === null) return ['Previous goal: none.']
+  // Mọi việc chưa xong, mỗi việc một dòng kèm trạng thái; việc đã xong gộp một dòng chỉ ghi số (0.8.9 D1), để router điều phối lại được.
+  const stateOf = (index: number): TaskStatus => states[index] ?? 'not started'
+  const done = prev.tasks.filter(t => stateOf(t.index) === 'done').map(t => t.index)
   const tasks = [
-    ...prev.tasks.slice(0, TASK_CONTEXT).map(t => `  ${t.index}. ${fence(t.title)} (${t.run === 'agent' ? `${fence(t.agentType ?? 'general-purpose')} ` : 'main '}${describePick(t.pick)})`),
-    ...totalLine(prev.tasks.length),
+    ...prev.tasks
+      .filter(t => stateOf(t.index) !== 'done')
+      .map(t => `  ${t.index}. ${fence(t.title)} (${t.run === 'agent' ? `${fence(t.agentType ?? 'general-purpose')} ` : 'main '}${describePick(t.pick)}) [${stateOf(t.index)}]`),
+    ...(done.length > 0 ? [`  Done tasks: ${done.join(', ')}`] : []),
   ]
   // Ràng buộc của mục tiêu trước (0.7.5), cắt gọn như khi chấm subagent: prompt tiếp nối ngắn không nhắc lại quy định model.
   // 0.8.9 C2: chỉ các ràng buộc được nêu (tối đa CONSTRAINT_SHOWN mục), kèm số mục còn lại.
@@ -438,6 +444,8 @@ export type RouterRequestArgs = {
   isFable?: boolean
   /** Họ model, cửa sổ ngữ cảnh và thời gian chờ tối đa của lượt đọc (0.8.7 L3); vắng thì theo model, cửa sổ mặc định, 1.800 giây. */
   reading?: Reading
+  /** Trạng thái từng việc của mục tiêu trước (0.8.9 D1, taskStatusOf); việc vắng mặt là not started. */
+  taskStates?: Readonly<Record<number, TaskStatus>>
 }
 
 /** Lượt đọc của request: họ model theo isFable hay tên model, cửa sổ mặc định của họ, thời gian chờ tối đa mặc định. */
@@ -451,7 +459,7 @@ function readingOf(args: RouterRequestArgs): Reading {
 /** Phần cố định của request (lời dặn và các dòng ngữ cảnh) và kế hoạch đọc prompt của lượt đó (0.8.7 L3). */
 function requestParts(args: RouterRequestArgs): { system: readonly ModelTextBlock[]; context: string[]; plan: ReadPlan } {
   const context = [
-    ...previousLines(args.prev, args.ran),
+    ...previousLines(args.prev, args.ran, args.taskStates),
     allowedLine(args.policy),
     ...sessionLine(args.sessionFamily),
     agentsLine(args.policy),
@@ -784,6 +792,8 @@ export type RouterPlan = {
   skipApproval?: boolean
   /** Câu hỏi làm rõ (0.8.2 N2): tối đa QUESTION_LIMIT câu, mỗi câu tối đa QUESTION_CHARS ký tự; vắng khi không có. */
   questions?: string[]
+  /** Điều phối lại việc còn mở (0.8.9 D1): chỉ với prompt tiếp nối có intent amend hay task; vắng khi router không trả hay sai dạng. */
+  arrange?: Arrange
 }
 
 /** Số câu hỏi làm rõ tối đa và số ký tự tối đa mỗi câu (0.8.2 N2). */
@@ -1033,11 +1043,14 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
   const questions = Array.isArray(raw['questions'])
     ? unique(raw['questions'].filter((q): q is string => typeof q === 'string' && q.trim() !== '').map(q => clip(q.trim(), QUESTION_CHARS)), QUESTION_LIMIT)
     : []
+  const intent: Intent = relation === 'new' ? 'task' : (INTENTS.find(i => i === raw['intent']) ?? 'task')
+  // Điều phối lại việc còn mở (0.8.9 D1): chỉ với continue, refine, dissatisfied và intent amend hay task; sai dạng thì bỏ cả trường.
+  const arrange = relation !== 'new' && (intent === 'amend' || intent === 'task') ? arrangeOf(raw['arrange']) : null
   return {
     why: text(raw['why'], 200),
     confidence: confidenceOf(raw['confidence']),
     relation,
-    intent: relation === 'new' ? 'task' : (INTENTS.find(i => i === raw['intent']) ?? 'task'),
+    intent,
     isReference,
     runReference,
     goal,
@@ -1056,7 +1069,43 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
     ...(droppedSplits > 0 ? { droppedSplits } : {}),
     ...(raw['skipApproval'] === true ? { skipApproval: true } : {}),
     ...(questions.length > 0 ? { questions } : {}),
+    ...(arrange !== null ? { arrange } : {}),
   }
+}
+
+/** Lý do bỏ một việc trong arrange tối đa bấy nhiêu ký tự (0.8.9 D1). */
+const ARRANGE_WHY_CHARS = 80
+
+/** Một việc được nhắc trong arrange: số nguyên dương của việc đã có, hay "newK" (K từ 1). */
+function isArrangeRef(value: unknown): value is ArrangeRef {
+  return (typeof value === 'number' && Number.isInteger(value) && value > 0) || (typeof value === 'string' && /^new[1-9]\d*$/.test(value))
+}
+
+const isTaskNumber = (value: unknown): value is number => typeof value === 'number' && Number.isInteger(value) && value > 0
+
+/**
+ * Trường arrange của câu trả lời router (0.8.9 D1): cả ba phần order, drop, merge phải là mảng đúng dạng; một phần tử sai thì bỏ cả
+ * trường (trả null), phần còn lại của câu trả lời vẫn dùng.
+ */
+function arrangeOf(value: unknown): Arrange | null {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
+  const raw = value as Record<string, unknown>
+  const { order, drop, merge } = raw
+  if (!Array.isArray(order) || !Array.isArray(drop) || !Array.isArray(merge)) return null
+  if (!order.every(isArrangeRef)) return null
+  const drops: Arrange['drop'] = []
+  for (const item of drop) {
+    const entry = item as Record<string, unknown> | null
+    if (entry === null || typeof entry !== 'object' || !isTaskNumber(entry['task']) || typeof entry['why'] !== 'string') return null
+    drops.push({ task: entry['task'], why: text(entry['why'].split(/\s+/).join(' '), ARRANGE_WHY_CHARS) })
+  }
+  const merges: Arrange['merge'] = []
+  for (const item of merge) {
+    const entry = item as Record<string, unknown> | null
+    if (entry === null || typeof entry !== 'object' || !Array.isArray(entry['tasks']) || entry['tasks'].length === 0 || !entry['tasks'].every(isTaskNumber) || !isArrangeRef(entry['into'])) return null
+    merges.push({ tasks: [...(entry['tasks'] as number[])], into: entry['into'] })
+  }
+  return { order: [...order], drop: drops, merge: merges }
 }
 
 /**

@@ -12,6 +12,7 @@ import { describePick } from '../lib/route'
 import { clipText } from '../lib/decisions'
 import { askRouter, bareBrief, briefOf, failFields, nextBrief, parseRoute, rerouted, routerFailOf, routerRequest } from '../lib/router'
 import { shownPlan } from '../lib/mirror'
+import { taskStatusOf } from '../lib/progress'
 import * as S from '../lib/state'
 import { statusTextOf } from '../ui/direction'
 import type { View } from '../lib/state'
@@ -240,7 +241,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       const rules = ctx.conductorState(before, await read($, mode)) === null ? { ...basePolicy, conductor: true, goalIsBig: isBigGoal(before.brief) } : basePolicy
       // Lệnh do người dùng gõ: luôn hỏi router, kể cả khi router đang tạm ngừng sau các lần lỗi.
       const target = ctx.routerTarget(before, await read($, mode))
-      const request = routerRequest({ text: arg, prev, ran: null, policy: rules, model: target.model, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily, isForcedNew: true, reading: ctx.routerReading(target) })
+      const request = routerRequest({ text: arg, prev, ran: null, policy: rules, model: target.model, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily, isForcedNew: true, reading: ctx.routerReading(target), taskStates: taskStatusOf(before, await $.clock.now()) })
       const startedAt = await $.clock.now()
       const outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), undefined, { retryMissingConfidence: true, ...(target.isFable ? { isFable: true } : {}) })
       ctx.noteRouterFailure('prompt', outcome.failure)
@@ -304,7 +305,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       const rules = ctx.conductorState(before, await read($, mode)) === null ? { ...basePolicy, conductor: true, goalIsBig: isBigGoal(before.brief) } : basePolicy
       // Lệnh do người dùng gõ: luôn hỏi router, kể cả khi router đang tạm ngừng.
       const target = ctx.routerTarget(before, await read($, mode))
-      const request = routerRequest({ text: last.text, prev: last.prev, ran: ranText(before), policy: rules, model: target.model, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily, reading: ctx.routerReading(target) })
+      const request = routerRequest({ text: last.text, prev: last.prev, ran: ranText(before), policy: rules, model: target.model, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily, reading: ctx.routerReading(target), taskStates: taskStatusOf(before, await $.clock.now()) })
       const startedAt = await $.clock.now()
       const outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), undefined, { retryMissingConfidence: true, ...(target.isFable ? { isFable: true } : {}) })
       ctx.noteRouterFailure('prompt', outcome.failure)
