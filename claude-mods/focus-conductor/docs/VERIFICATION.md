@@ -2,6 +2,108 @@
 
 Số đo của HEAD hiện tại và của các bản trước. Mọi số do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển] trừ khi nêu khác; hợp đồng đối chiếu evidence ở [DESIGN.md](DESIGN.md), lịch sử thay đổi ở [CHANGELOG.md](../CHANGELOG.md), cách dùng ở [README](../README.md).
 
+## Kiểm chứng của 0.8.9 vòng 2 (ràng buộc không trần, ba điểm sau rà soát, điều phối lại việc)
+
+Cùng nhánh, tiếp từ `7682ef7`. Thứ tự C1, C2, R1, R2, R3, D1, D2, D3, D4; mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `089-C*`, `089-R*`, `089-D*`; không amend, không force-push, không merge [Đo trực tiếp]. Bộ test, kiểm tĩnh và đột biến chạy trên engine 2.1.296 cài riêng ngoài repo; lượt gọi model thật (D4) chạy trên engine của phiên phát triển (2.1.325). Mỗi lần push đi qua một script quét em dash, emoji, dấu chấm than, chuỗi riêng tư ở dòng thêm và thông điệp commit, và `mutate --check`; script báo lỗi thì không push.
+
+- **Test đỏ** [Đo trực tiếp, trên mã ngay trước commit sửa của điểm đó]:
+  - C1 (`15c041f`): 13 đỏ, gồm 9/10 ca mới (ca trạng thái cũ có `brief.dropped` xanh) và 4 ca cũ đổi kỳ vọng. Kit test không cho test ghi sẵn trạng thái của mod (`$` của kit không có `state`), nên ca `brief.dropped` cũ kiểm ở mức hàm: trường còn sau vòng JSON của Core.
+  - C2 (`4815e93`): 7/10; ba ca xanh ghim đầu ra trùng `7682ef7` với 22 ràng buộc (kỳ vọng ghi từ lượt chạy trên `7682ef7`).
+  - R1 (`6d02deb`): 3/5. R2 (`f1ca2ae`): 6/8. R3 (`c7d89d3`): 4/8.
+  - D1 (`fa42df8`): 5/13; tám ca xanh là các ca `arrange` bị bỏ (mã cũ chưa đọc trường này).
+  - D2 (`d523168`): 22/23. D3 (`6096935`): 8/11, gồm ca ba tin chen ngang của D2 nay kiểm thêm tiêu đề mục tiến độ và context. Test D2 và D3 đổi cách dựng sau commit đỏ (checklist không khớp việc nào, việc giao subagent, neon off); đo lại trên mã trước D3 vẫn 8/11.
+- **Mẫu mới** [Đo trực tiếp, chạy riêng từng mẫu trên tệp test của điểm đó; số ca đỏ]:
+  - C1: `089-C1a` 3, `089-C1b` 2, `089-C1c` 1, `089-C1d` 1, `089-C1e` 3.
+  - C2: `089-C2a` 5, `089-C2b` 6, `089-C2c` 1, `089-C2d` 1, `089-C2e` 1, `089-C2f` 1.
+  - R1: `089-R1a` 3, `089-R1b` 1 (sống ở năm ca đầu vì request đầu đã được kẹp trước khi gửi; ca `apiFallback` mang 128.000 thêm ở `f4efac1`).
+  - R2: `089-R2a` 4, `089-R2b` 3, `089-R2c` 1, `089-R2d` 1, `089-R2e` 1, `089-R2f` 1. R3: `089-R3a` 1, `089-R3b` 1, `089-R3c` 1.
+  - D1: `089-D1a` 1, `089-D1b` 2, `089-D1c` 1, `089-D1d` 4, `089-D1e` 1.
+  - D2: `089-D2a` 4, `089-D2b` 9, `089-D2c` 6, `089-D2d` 1, `089-D2e` 2, `089-D2f` 6, `089-D2g` 1.
+  - D3: `089-D3a` 3, `089-D3b` 1, `089-D3c` 3, `089-D3d` 3, `089-D3e` 2, `089-D3f` 1, `089-D3g` 2, `089-D3h` 1.
+  - Mẫu cũ viết lại vì mất chỗ khớp: `075-R1c` 1, `075-R1f` 2, `072-R9` 3; `070-C13`, `074-C2`, `074-C3`, `075-B13f`, `075-S1e`, `075-B12f`, `075-M5i` (kết quả ở dòng đột biến vùng diff).
+- **Lời dặn router** [Đo trực tiếp]: 10.282 ký tự ở `7682ef7`; 11.053 ở bản D1 đầu; 10.888 sau khi viết gọn đoạn `arrange` (`47a7286`), tức thêm 606 ký tự; biến thể điều phối thêm cùng đoạn đó.
+- **D4, sáu ca điều phối lại** [Đo trực tiếp, 14/11/2026, engine 2.1.325, `scripts/eval-router.ts --runs 3`, lời dặn của `47a7286`, chấm trên câu trả lời gốc của router]:
+  - fable (`claude-fable-5-2`): 6/6 ca, 18/18 lượt. sonnet (`claude-sonnet-5-5`): 5/6 ca, 15/18 lượt; `arr-dup` 0/3 (router thêm việc mới mà không gộp hai việc trùng; giới hạn ghi ở DESIGN).
+  - Việc đã xong hay đang chạy lọt vào drop hay merge: 0/18 lượt ở mỗi model. Ca `arr-resume` không có `arrange` ở mọi lượt của cả hai model.
+  - Đợt đo đầu, trên lời dặn D1 chưa viết gọn: fable 6/6 ca, sonnet 5/6 ca (`arr-dup` 0/3), 0 lượt đụng việc đã xong hay đang chạy.
+
+| Model | Ca | Lượt | Đạt | Token vào | Token ra | Giây | USD |
+|---|---|---|---|---|---|---|---|
+| sonnet | `arr-add2` | 1 | đạt | 5.458 | 498 | 9,7 | 0,0268 |
+| sonnet | `arr-add2` | 2 | đạt | 5.458 | 554 | 9,3 | 0,0274 |
+| sonnet | `arr-add2` | 3 | đạt | 5.459 | 552 | 9,7 | 0,0274 |
+| sonnet | `arr-drop` | 1 | đạt | 5.485 | 442 | 9,3 | 0,0264 |
+| sonnet | `arr-drop` | 2 | đạt | 5.483 | 461 | 7,0 | 0,0085 |
+| sonnet | `arr-drop` | 3 | đạt | 5.483 | 436 | 6,9 | 0,0082 |
+| sonnet | `arr-dup` | 1 | không | 5.540 | 856 | 12,8 | 0,0162 |
+| sonnet | `arr-dup` | 2 | không | 5.543 | 339 | 6,6 | 0,0111 |
+| sonnet | `arr-dup` | 3 | không | 5.539 | 380 | 6,6 | 0,0077 |
+| sonnet | `arr-first` | 1 | đạt | 5.500 | 401 | 6,3 | 0,0115 |
+| sonnet | `arr-first` | 2 | đạt | 5.496 | 403 | 7,0 | 0,0115 |
+| sonnet | `arr-first` | 3 | đạt | 5.498 | 375 | 6,1 | 0,0112 |
+| sonnet | `arr-resume` | 1 | đạt | 5.454 | 213 | 6,2 | 0,0094 |
+| sonnet | `arr-resume` | 2 | đạt | 5.459 | 230 | 5,8 | 0,0096 |
+| sonnet | `arr-resume` | 3 | đạt | 5.455 | 226 | 6,1 | 0,0096 |
+| sonnet | `arr-scope40` | 1 | đạt | 6.411 | 821 | 9,0 | 0,0194 |
+| sonnet | `arr-scope40` | 2 | đạt | 6.407 | 819 | 9,6 | 0,0122 |
+| sonnet | `arr-scope40` | 3 | đạt | 6.405 | 770 | 8,5 | 0,0117 |
+| fable | `arr-add2` | 1 | đạt | 5.450 | 1.024 | 17,0 | 0,1281 |
+| fable | `arr-add2` | 2 | đạt | 5.449 | 568 | 12,1 | 0,1099 |
+| fable | `arr-add2` | 3 | đạt | 5.450 | 781 | 15,4 | 0,1184 |
+| fable | `arr-drop` | 1 | đạt | 5.479 | 447 | 12,1 | 0,1055 |
+| fable | `arr-drop` | 2 | đạt | 5.480 | 450 | 9,3 | 0,0325 |
+| fable | `arr-drop` | 3 | đạt | 5.476 | 444 | 9,1 | 0,0322 |
+| fable | `arr-dup` | 1 | đạt | 5.536 | 1.183 | 15,7 | 0,0772 |
+| fable | `arr-dup` | 2 | đạt | 5.536 | 1.005 | 14,7 | 0,0700 |
+| fable | `arr-dup` | 3 | đạt | 5.535 | 1.167 | 16,8 | 0,0612 |
+| fable | `arr-first` | 1 | đạt | 5.492 | 346 | 8,2 | 0,0430 |
+| fable | `arr-first` | 2 | đạt | 5.493 | 364 | 9,4 | 0,0437 |
+| fable | `arr-first` | 3 | đạt | 5.495 | 368 | 9,1 | 0,0439 |
+| fable | `arr-resume` | 1 | đạt | 5.448 | 238 | 8,6 | 0,0380 |
+| fable | `arr-resume` | 2 | đạt | 5.449 | 234 | 8,7 | 0,0378 |
+| fable | `arr-resume` | 3 | đạt | 5.456 | 243 | 8,4 | 0,0383 |
+| fable | `arr-scope40` | 1 | đạt | 6.402 | 628 | 11,0 | 0,0688 |
+| fable | `arr-scope40` | 2 | đạt | 6.400 | 602 | 11,5 | 0,0387 |
+| fable | `arr-scope40` | 3 | đạt | 6.402 | 803 | 11,6 | 0,0468 |
+
+- **Ca golden cũ `six`** [Đo trực tiếp, cùng đợt đo, sonnet, 6 lượt mỗi lời dặn; kỳ vọng không đổi: luồng chính opus]: lời dặn của `7682ef7` 3/6, lời dặn mới 2/6. Đợt ghi đầu trên lời dặn D1 chưa viết gọn: 0/3, rồi 1/3; lời dặn của `7682ef7` lúc đó 3/3; lần ghi của 0.8.7 là 1/3. Theo luật của chủ mod (lời dặn mới dưới 3/6 và lời dặn cũ cũng từ 3/6 trở xuống), ca này tự dao động, không phải hồi quy; golden ghi câu trả lời đạt của nó ở đợt ghi lại. Lượt chạy trên `7682ef7` dùng `scripts/eval-router.ts` của bản đó, chưa ghi token vào.
+
+| Lời dặn | Lượt | Đạt | Luồng chính | Token vào | Token ra | Giây | USD |
+|---|---|---|---|---|---|---|---|
+| `7682ef7` | 1 | đạt | opus/high | không ghi | 1.301 | 13,8 | 0,0182 |
+| `7682ef7` | 2 | đạt | opus/high | không ghi | 1.304 | 13,7 | 0,0182 |
+| `7682ef7` | 3 | không | sonnet/medium | không ghi | 1.200 | 12,8 | 0,0172 |
+| `7682ef7` | 4 | không | sonnet/medium | không ghi | 1.200 | 13,7 | 0,0172 |
+| `7682ef7` | 5 | đạt | opus/high | không ghi | 1.254 | 10,4 | 0,0177 |
+| `7682ef7` | 6 | không | sonnet/medium | không ghi | 1.197 | 10,3 | 0,0172 |
+| mới | 1 | không | sonnet/medium | 5.377 | 1.285 | 13,5 | 0,0344 |
+| mới | 2 | đạt | opus/high | 5.375 | 1.214 | 13,0 | 0,0336 |
+| mới | 3 | không | sonnet/medium | 5.374 | 1.132 | 13,3 | 0,0328 |
+| mới | 4 | không | sonnet/medium | 5.377 | 1.199 | 14,0 | 0,0335 |
+| mới | 5 | đạt | opus/high | 5.373 | 1.261 | 10,6 | 0,0165 |
+| mới | 6 | không | sonnet/medium | 5.374 | 1.250 | 10,7 | 0,0164 |
+
+- **Ghi lại golden** [Đo trực tiếp, 14/11/2026, engine 2.1.325, 3 lượt mỗi ca]: sonnet cho 55 ca (162/168 lượt đạt, `six` 1/3, `prose-hidden` 2/3, `arr-dup` 0/3), fable cho bốn ca `c4-*` (12/12) và `arr-dup` (3/3). So với bản ghi cũ, 50 ca giữ nguyên relation, intent, họ model luồng chính và số việc; bốn ca khác nhưng vẫn trong khoảng kỳ vọng và đạt 3/3: `big-code` luồng chính haiku thành sonnet, `vague` 4 thành 3 việc, `long-vn` 12 thành 11 việc, `long-vn-xl` opus 18 việc thành sonnet 17 việc. Router không tất định, nên câu trả lời đạt đầu tiên của lần ghi khác lần trước.
+- **Chi phí đợt đo D4**: 9,56 USD theo engine, gồm hai đợt sáu ca (1,38 và 1,40), hai lần ghi golden bằng sonnet (2,61 và 2,59), lần ghi bằng fable (0,96 và 0,19), các lượt đo `six` (0,42) và một lượt thử (0,02).
+- **Đột biến vùng diff** [Đo trực tiếp, engine 2.1.296, trên `989bfd8`]: 252 mẫu cũ nằm trong vùng diff so với `7682ef7`. Pha 1 (các tệp test gần nhất cùng các tệp `089` mới) diệt 105 mẫu; bước lọc theo mã phiên bản và tên tệp nguồn diệt thêm 121; pha 2 chạy cả bộ trên 26 mẫu còn lại, diệt 25, mẫu `087-L3k` là tương đương đã ghi từ vòng 1. Không mẫu nào sống, không mẫu nào lỗi hay quá giờ.
+- **Phiên dài và kịch bản 60 việc** [Đo trực tiếp, cùng kịch bản đo của 0.8.7, engine 2.1.296, trên `989bfd8`]: `conductor` mặc định 10.339 và 19.587; `fable` 8.563 và 7.048; `fable` sau `/conductor solo` 16.608 và 24.349; 60 việc mặc định 5.978 và 33.204; 60 việc `fable` 8.164 và 6.931. Cả mười dòng, kể cả phần chia theo loại, trùng `7682ef7`.
+- **Kịch bản mới, 20 prompt tiếp nối mỗi prompt 3 ràng buộc** [Đo trực tiếp, cùng bộ đo]: số ký tự chèn của prompt 1 tới 20 là 354 ở chín prompt đầu và 357 từ prompt thứ 10 (khi danh sách quá 22 ràng buộc thì có thêm vế số mục còn lại); prompt thứ 20 hơn prompt thứ 5 đúng 3 ký tự.
+- **Bản xem trước dạng chữ của pane** [Đo trực tiếp, kit test, 80 cột, neon off; lưu ngoài repo]: tiêu đề mục tiến độ ở dòng 9 (4 việc) và dòng 12 (42 việc) ở cả trước và sau.
+
+| Trạng thái | Tiêu đề mục ở `7682ef7` | Tiêu đề mục sau D3 |
+|---|---|---|
+| 4 việc, 2 xong | `Tiến độ từng việc 4` | `2/4 xong · 0 đang chạy · 2 chưa làm` |
+| 42 việc chưa điều phối lại | `Tiến độ từng việc 42` | `12/42 xong · 3 đang chạy · 26 chưa làm · 1 lỗi` |
+| 42 việc sau khi bỏ 5 và sắp lại | `Tiến độ từng việc 42` (bản cũ không đọc arrange) | `12/37 xong · 3 đang chạy · 21 chưa làm · 1 lỗi · đã bỏ 5` |
+
+### Bộ test và so tên ca
+
+- **Cả bộ** trên `989bfd8` [Đo trực tiếp, engine 2.1.296, 12 nhóm tệp, tuần tự]: 334 tệp, 3.727 ca, 0 lỗi. Tổng theo nhóm: 341 + 492 + 321 + 250 + 282 + 265 + 277 + 376 + 324 + 332 + 395 + 72 = 3.727.
+- `golden.test` đỏ từ commit sửa D1 (`c78ed19`) tới khi ghi lại golden ở D4 (`989bfd8`), vì đặc tả chỉ cho ghi lại golden ở D4; CI của các commit trong khoảng đó đỏ vì ca này.
+- **So tên ca với `7682ef7`** (3.633 ca): thêm 101 tên (94 ca mới và 7 tên mới của ca cũ đổi tên), mất 7 tên (tên cũ của 7 ca đó, liệt kê ở CHANGELOG). 3.633 + 101 − 7 = 3.727.
+- **Kiểm tĩnh** [Đo trực tiếp, trên `989bfd8`]: `claude plugin validate` đạt ở thư mục mod và ở gốc repo; `version-check` khớp 0.8.9, README đủ 47 option, mã màu thô chỉ nằm trong `hooks/ui/neon.ts`; `mutate --check` khớp 2.327/2.327; sha256 `hooks/` `c18024f5abdc18e55083a15db60ffe869b8aca7e1d5665a57de5653a76c45729`, `tests/` `3574fe22ecfc9c3f3943a1beb5c746b6bd857cd9302d5228511e79e338cb08f5` (theo `scripts/mutate.ts`).
+- **CI** [Nguồn: GitHub Actions]: run 237 trên `989bfd8` và run 238 trên `73c6e94` (commit tài liệu, không đổi `hooks/` hay `tests/`) đều xanh, https://github.com/kiettt96/KietTranData/actions/runs/43618667868. Các run đỏ trước đó là các commit test đỏ và các commit sửa từ D1 tới trước D4 (vì `golden.test`).
+
 ## Kiểm chứng của 0.8.9 (router bị engine từ chối khi đọc prompt dài)
 
 Nhánh tách từ `main` `53bb146` (0.8.8). Thứ tự U1 tới U4; mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `089-*`; không amend, không force-push, không merge [Đo trực tiếp]. Bộ test, kiểm tĩnh và đột biến chạy trên engine 2.1.296 cài riêng ngoài repo; lượt đo và lượt chạy thật chạy thêm trên engine của phiên phát triển (2.1.325).
