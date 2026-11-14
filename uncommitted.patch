@@ -1,0 +1,110 @@
+diff --git a/claude-mods/focus-conductor/tests/arrange-d1-089.test.ts b/claude-mods/focus-conductor/tests/arrange-d1-089.test.ts
+new file mode 100644
+index 0000000..57e27c9
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/arrange-d1-089.test.ts
+@@ -0,0 +1,104 @@
++// 0.8.9 D1: request tiếp nối liệt kê mọi việc chưa xong của mục tiêu trước, mỗi việc một dòng kèm trạng thái (not started, running,
++// failed); việc đã xong gộp một dòng chỉ ghi số. Router được trả thêm trường arrange (order, drop, merge) khi yêu cầu làm thay đổi phần việc
++// còn lại; parseRoute đọc arrange khi đúng dạng, sai dạng thì bỏ cả trường mà phần còn lại vẫn dùng; arrange chỉ có nghĩa với continue,
++// refine, dissatisfied và intent amend hay task. Lời dặn router dài thêm không quá 900 ký tự so với 7682ef7.
++
++import { describe, expect, test } from 'claude-code/testing'
++import * as router from '../hooks/lib/router'
++import { parseRoute, routerRequest } from '../hooks/lib/router'
++import type { Policy } from '../hooks/lib/router'
++import type { Task } from '../types'
++import { OPEN } from './golden/cases'
++import { makeBrief } from './support/commands'
++import { plan, task } from './support/engine'
++import type { Json } from './support/engine'
++
++/** Độ dài lời dặn router ở 7682ef7 [Đo trực tiếp, 14/11/2026]: cờ conductor tắt và bật. */
++const BASE_SYSTEM = { off: 10_282, on: 11_180 }
++type State = 'not started' | 'running' | 'failed' | 'done'
++const POLICY: Policy = { allowFable: false, blocked: new Set(), session: null }
++const taskOf = (index: number, run: 'main' | 'agent' = 'main'): Task => ({ index, title: `Việc số ${index}`, run, ...(run === 'agent' ? { agentType: 'general-purpose' } : {}), pick: { family: 'sonnet', effort: 'medium' }, depth: 'light', volume: 'small', kind: 'edit', why: '' })
++const systemOf = (policy: Policy) => (routerRequest({ text: 'x', prev: null, ran: null, policy, model: 'm' }).system as Array<{ text: string }>).map(b => b.text).join('')
++
++function requestWith(count: number, states: Record<number, State>): string {
++  const prev = makeBrief({ tasks: Array.from({ length: count }, (_, i) => taskOf(i + 1, i % 3 === 0 ? 'agent' : 'main')) })
++  return String(routerRequest({ text: 'thêm phần xuất báo cáo', prev, ran: 'opus/high', policy: POLICY, model: 'claude-sonnet-5-5', taskStates: states } as never).prompt)
++}
++
++describe('0.8.9 D1: request tiếp nối thấy mọi việc chưa xong', () => {
++  test('42 việc (12 xong, 3 đang chạy, 1 lỗi, 26 chưa bắt đầu): 30 dòng việc chưa xong đúng trạng thái, một dòng 12 số việc đã xong', () => {
++    const states: Record<number, State> = {}
++    for (let i = 1; i <= 42; i++) states[i] = i <= 12 ? 'done' : i <= 15 ? 'running' : i === 16 ? 'failed' : 'not started'
++    const prompt = requestWith(42, states)
++    for (let i = 13; i <= 42; i++) {
++      const line = prompt.split('\n').find(l => l.startsWith(`  ${i}. `)) ?? ''
++      expect(line, String(i)).toContain(`Việc số ${i}`)
++      expect(line, String(i)).toContain(`[${states[i]}]`)
++    }
++    for (let i = 1; i <= 12; i++) expect(prompt.split('\n').some(l => l.startsWith(`  ${i}. `)), String(i)).toBe(false)
++    const done = prompt.split('\n').filter(l => l.includes('Done tasks:'))
++    expect(done).toEqual(['  Done tasks: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12'])
++    expect(prompt).not.toContain('tasks in total')
++  })
++
++  test('5 việc, chưa việc nào xong: 5 dòng, không có dòng việc đã xong', () => {
++    const prompt = requestWith(5, { 1: 'running' })
++    expect(prompt.split('\n').filter(l => /^ {2}\d+\. Việc số/.test(l))).toHaveLength(5)
++    expect(prompt).toContain('[running]')
++    expect(prompt).toContain('[not started]')
++    expect(prompt).not.toContain('Done tasks:')
++  })
++})
++
++const ARRANGE = { order: [8, 'new1', 12], drop: [{ task: 15, why: 'không còn cần' }], merge: [{ tasks: [16, 17], into: 'new1' }] }
++const reply = (over: Json) => JSON.stringify(plan({ relation: 'refine', intent: 'amend', goal: '', requirements: ['Xuất báo cáo'], tasks: [task('Xuất báo cáo', 'main', 'sonnet', 'medium')], ...over }))
++const arrangeOf = (text: string) => (parseRoute(text, OPEN) as (ReturnType<typeof parseRoute> & { arrange?: unknown }) | null)?.arrange
++
++describe('0.8.9 D1: parseRoute đọc arrange', () => {
++  test('arrange đúng dạng: đọc đủ order, drop, merge', () => {
++    expect(arrangeOf(reply({ arrange: ARRANGE }))).toEqual(ARRANGE)
++  })
++
++  for (const [name, bad] of [
++    ['thiếu trường merge', { order: [8], drop: [] }],
++    ['order không phải mảng', { ...ARRANGE, order: '8, 12' }],
++    ['task không phải số', { ...ARRANGE, drop: [{ task: '15', why: 'x' }] }],
++    ['into rỗng', { ...ARRANGE, merge: [{ tasks: [16], into: '' }] }],
++  ] as const) {
++    test(`${name}: arrange bị bỏ, tasks và requirements vẫn đọc được`, () => {
++      const parsed = parseRoute(reply({ arrange: bad }), OPEN)
++      expect(parsed).not.toBeNull()
++      expect((parsed as { arrange?: unknown }).arrange).toBeUndefined()
++      expect(parsed?.tasks.map(t => t.title)).toEqual(['Xuất báo cáo'])
++      expect(parsed?.requirements).toEqual(['Xuất báo cáo'])
++    })
++  }
++
++  for (const [name, over] of [
++    ['relation new', { relation: 'new', intent: 'task', goal: 'Mục tiêu khác' }],
++    ['intent status', { relation: 'continue', intent: 'status' }],
++    ['intent resume', { relation: 'continue', intent: 'resume' }],
++    ['intent approve', { relation: 'continue', intent: 'approve' }],
++  ] as const) {
++    test(`${name}: arrange bị bỏ`, () => {
++      expect(arrangeOf(reply({ ...over, arrange: ARRANGE }))).toBeUndefined()
++    })
++  }
++
++  test('relation continue, refine, dissatisfied với intent amend hay task: arrange được đọc', () => {
++    for (const relation of ['continue', 'refine', 'dissatisfied']) for (const intent of ['amend', 'task']) expect(arrangeOf(reply({ relation, intent, arrange: ARRANGE })), `${relation} ${intent}`).toEqual(ARRANGE)
++  })
++})
++
++describe('0.8.9 D1: lời dặn router', () => {
++  test('dài thêm không quá 900 ký tự so với 7682ef7, cả khi cờ conductor tắt và bật; câu về việc mới giữ nguyên; mẫu JSON có arrange', () => {
++    const off = systemOf(OPEN)
++    const on = systemOf({ ...OPEN, conductor: true })
++    expect(off.length - BASE_SYSTEM.off).toBeGreaterThan(0)
++    expect(off.length - BASE_SYSTEM.off).toBeLessThanOrEqual(900)
++    expect(on.length - BASE_SYSTEM.on).toBeLessThanOrEqual(900)
++    expect(off).toContain('tasks lists only NEW pieces of work added by this request ([] if none).')
++    expect(off).toContain('"arrange"')
++    expect(typeof (router as unknown as Record<string, unknown>)['routerSystem']).toBe('function')
++  })
++})

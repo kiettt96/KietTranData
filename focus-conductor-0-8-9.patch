@@ -11,10 +11,10 @@ index 022e64d..2ad14e2 100644
    "description": "Một model Claude (router) đọc kỹ prompt trước khi làm và điều phối model/effort/agent cho từng việc; mod kiểm, ép điều phối lúc chạy, giữ nhất quán mục tiêu với checklist và cảnh báo lạc đề.",
    "types": "./types/index.d.ts",
 diff --git a/claude-mods/focus-conductor/CHANGELOG.md b/claude-mods/focus-conductor/CHANGELOG.md
-index 13db1c8..764ac8b 100644
+index 13db1c8..6916776 100644
 --- a/claude-mods/focus-conductor/CHANGELOG.md
 +++ b/claude-mods/focus-conductor/CHANGELOG.md
-@@ -2,6 +2,41 @@
+@@ -2,6 +2,42 @@
  
  Các bản của focus-conductor, mới nhất trước. Số đo kiểm chứng của HEAD hiện tại nằm ở [docs/VERIFICATION.md](docs/VERIFICATION.md); cách dùng và tùy chọn ở [README](README.md).
  
@@ -50,6 +50,7 @@ index 13db1c8..764ac8b 100644
 +
 +- **R1: giới hạn trong kết quả là của lời gọi cuối cùng đã gửi.** `timeoutMs`, `maxTokens`, `outputTokens` của `RouterOutcome` lấy từ request đã kẹp và câu trả lời của lời gọi gần nhất, ở mọi nhánh của `askRouter`. Không ca cũ nào đổi kỳ vọng.
 +- **R2: ghi rõ câu trả lời bị cắt.** Câu trả lời không đọc được mà token ra từ 98% `maxTokens` của request đã gửi có lý do "câu trả lời bị cắt ở <n> token ra" (loại lỗi vẫn là format). `firstFail` được ghi cả khi lượt hỏi lại cứu được lượt đầu không đọc được. Không ca cũ nào đổi kỳ vọng.
++- **R3: thông điệp của giá trị bị ném.** `undefined`, `null` và đối tượng không có `message` dạng chuỗi cho thông điệp rỗng, nên câu cảnh báo giữ dạng cũ thay cho "undefined" hay "[object Object]"; đối tượng có `message` dạng chuỗi dùng chuỗi đó. Không ca cũ nào đổi kỳ vọng.
 +
 +**Mẫu cũ viết lại, giữ mã (vòng 2):** `075-R1c`, `075-R1f` (khối phần tràn của request tiếp nối viết thành nhiều dòng ở C2); `072-R9` (ngưỡng bị cắt nay là hằng `TRUNCATED_SHARE`, R2).
 +
@@ -273,7 +274,7 @@ index 6909686..35815ef 100644
  
  /** Kế hoạch đọc prompt dài `textLength` ký tự; `fixedChars` là số ký tự của lời dặn và các dòng ngữ cảnh của request. */
 diff --git a/claude-mods/focus-conductor/hooks/lib/router.ts b/claude-mods/focus-conductor/hooks/lib/router.ts
-index fc059c5..1f2d857 100644
+index fc059c5..490cc28 100644
 --- a/claude-mods/focus-conductor/hooks/lib/router.ts
 +++ b/claude-mods/focus-conductor/hooks/lib/router.ts
 @@ -13,7 +13,7 @@ import { DEFAULT_CONDUCTOR, FAMILY_NAMES, conductorTimeouts } from './families'
@@ -366,7 +367,7 @@ index fc059c5..1f2d857 100644
   * `$` ngay trong thân hook, nên logic gọi, thử lại và đọc kết quả nằm ở đây mà không đụng tới `$`.
   */
  export type Ask = (request: ModelCompleteRequest) => Promise<ModelCompleteResult | null>
-@@ -1285,10 +1310,28 @@ export function failureKind(reply: ModelCompleteResult | null): RouterFailKind {
+@@ -1285,10 +1310,42 @@ export function failureKind(reply: ModelCompleteResult | null): RouterFailKind {
    return 'empty'
  }
  
@@ -380,8 +381,22 @@ index fc059c5..1f2d857 100644
 +export const ENGINE_MESSAGE_CHARS = 160
 +
 +/** Thông điệp của lỗi engine ném (0.8.9 U3): gộp về một dòng, bỏ phần đầu tới hết "$.model.complete: " khi có, cắt còn 160 ký tự. */
++/**
++ * Chữ của giá trị bị ném (0.8.9 R3): Error thì message; undefined, null và đối tượng không có message dạng chuỗi thì rỗng (câu cảnh báo
++ * giữ dạng cũ); đối tượng có message dạng chuỗi thì chuỗi đó; giá trị nguyên thủy khác (chuỗi, số) qua String.
++ */
++function thrownText(error: unknown): string {
++  if (error instanceof Error) return error.message
++  if (error === undefined || error === null) return ''
++  if (typeof error === 'object') {
++    const message = (error as { message?: unknown }).message
++    return typeof message === 'string' ? message : ''
++  }
++  return String(error)
++}
++
 +export function engineMessage(error: unknown): string {
-+  const text = (error instanceof Error ? error.message : String(error)).replace(/\s*[\r\n]+\s*/g, ' ').trim()
++  const text = thrownText(error).replace(/\s*[\r\n]+\s*/g, ' ').trim()
 +  const at = text.indexOf(ENGINE_CALL)
 +  return [...(at >= 0 ? text.slice(at + ENGINE_CALL.length) : text)].slice(0, ENGINE_MESSAGE_CHARS).join('')
 +}
@@ -399,7 +414,7 @@ index fc059c5..1f2d857 100644
    if (reply.reason === 'api-error') return `lỗi API ${reply.error}${reply.status !== null ? ` ${reply.status}` : ''}`
    if (reply.reason === 'aborted') return 'hết thời gian chờ'
    return 'câu trả lời rỗng'
-@@ -1333,11 +1376,15 @@ export type RouterOutcome<T> = {
+@@ -1333,11 +1390,15 @@ export type RouterOutcome<T> = {
    reason: string
    /** Usage của mọi lượt gọi (lượt đầu và lượt hỏi lại). */
    usages: ModelUsage[]
@@ -416,7 +431,7 @@ index fc059c5..1f2d857 100644
    /** Loại lỗi khi không có kết quả (0.7.2); null khi có kết quả. */
    failure: RouterFailKind | null
    /** Giới hạn của request đã gửi và số token đầu ra của lượt gọi cuối, để biết lỗi do hết giờ hay bị cắt (0.7.2). */
-@@ -1367,51 +1414,103 @@ export function failFields(fail: RouterFail): Record<string, unknown> {
+@@ -1367,51 +1428,103 @@ export function failFields(fail: RouterFail): Record<string, unknown> {
    return { failure: fail.kind, ms: fail.ms, timeoutMs: fail.timeoutMs, maxTokens: fail.maxTokens, outputTokens: fail.outputTokens }
  }
  
@@ -534,7 +549,7 @@ index fc059c5..1f2d857 100644
    }
    const firstResult = first?.isAnswered ? parse(first.text) : null
    // Thiếu confidence (0.7.8 G8): chỉ khi bật retryMissingConfidence (ba chỗ đọc prompt) thì coi như dưới LOW_CONFIDENCE và hỏi lại;
-@@ -1420,16 +1519,24 @@ export async function askRouter<T extends { confidence?: number }>(
+@@ -1420,16 +1533,24 @@ export async function askRouter<T extends { confidence?: number }>(
    const firstConfidence = firstResult?.confidence ?? 1
    const isConfident = firstResult !== null && !isMissing && firstConfidence >= LOW_CONFIDENCE
    const needsCoverage = isConfident && recheck !== undefined && recheck(firstResult)
@@ -565,7 +580,7 @@ index fc059c5..1f2d857 100644
    const secondResult = second?.isAnswered ? parse(second.text) : null
    // Thiếu confidence xếp thấp nhất khi bật retryMissingConfidence: lần hai thắng khi nó có confidence và lần đầu không có hay thấp hơn.
    const isSecondBetter =
-@@ -1437,7 +1544,10 @@ export async function askRouter<T extends { confidence?: number }>(
+@@ -1437,7 +1558,10 @@ export async function askRouter<T extends { confidence?: number }>(
        ? secondResult !== null && (firstResult === null || (secondResult.confidence !== undefined && (isMissing || secondResult.confidence >= firstConfidence)))
        : secondResult !== null && (firstResult === null || (secondResult.confidence ?? 1) >= firstConfidence)
    const pick = isSecondBetter ? secondResult : firstResult
@@ -577,7 +592,7 @@ index fc059c5..1f2d857 100644
  }
  
  /** Prompt dài hơn sức chứa của lượt router đó bị lược phần giữa (0.7.8 G8; 0.8.7 L3: sức chứa theo requestPlan, mặc định trần cũ). */
-@@ -1468,9 +1578,16 @@ export function clippedWarning(length: number, info?: { family: ModelFamily; hea
+@@ -1468,9 +1592,16 @@ export function clippedWarning(length: number, info?: { family: ModelFamily; hea
  /** Dòng context kèm prompt bị lược (0.7.8 G8), tối đa 200 ký tự. */
  export const CLIPPED_CONTEXT = '[focus-conductor] Prompt quá dài nên router chưa đọc phần giữa; tự đọc kỹ phần đó khi lập checklist.'
  
@@ -596,7 +611,7 @@ index fc059c5..1f2d857 100644
  }
  
  /** Đợt vừa mở (0.8.0 A3): số đợt, số việc và số mục đã cất, số việc mới. */
-@@ -1665,7 +1782,7 @@ function nextBriefRaw(
+@@ -1665,7 +1796,7 @@ function nextBriefRaw(
    if (prev === null || (plan.relation === 'new' && !held)) {
      const fresh = briefOf(plan, prompt, (prev?.goalId ?? 0) + 1, now)
      const carried = prev !== null && !prev.isReference && !plan.constraints.some(isModelRule) ? prev.constraints.filter(isModelRule) : []
@@ -605,7 +620,7 @@ index fc059c5..1f2d857 100644
      // Quy định mang sang đứng đầu danh sách (S2): ghi số mục để sàn model phiên chỉ đọc quy định của chính mục tiêu này.
      const brief = carried.length > 0 ? { ...fresh, constraints: carriedConstraints, constraintsBase: carriedConstraints.length, carriedRules: carried.length } : fresh
      return { brief, added: [], isNewGoal: true, replaced: [], held: false, dropped: 0 }
-@@ -1733,12 +1850,14 @@ Reply with ONE JSON object and nothing else:
+@@ -1733,12 +1864,14 @@ Reply with ONE JSON object and nothing else:
  {"missing": number[], "extra": number[], "issues": string[]}`
  
  /** Request rà kế hoạch ở Stop (0.8.2 N2): yêu cầu, ràng buộc, tiêu chí và các bước (tên, check) đánh số từ 1. */
@@ -805,7 +820,7 @@ index 9c2309b..8b7c681 100644
        <Box flexDirection="column">
          {heading(l.quality)}
 diff --git a/claude-mods/focus-conductor/scripts/mutants.ts b/claude-mods/focus-conductor/scripts/mutants.ts
-index df2949e..b934462 100644
+index df2949e..7a434fd 100644
 --- a/claude-mods/focus-conductor/scripts/mutants.ts
 +++ b/claude-mods/focus-conductor/scripts/mutants.ts
 @@ -828,7 +828,7 @@ export const MUTANTS: Mutant[] = [
@@ -846,7 +861,7 @@ index df2949e..b934462 100644
    { id: "087-L3o", file: "hooks/lib/reading.ts", note: "mặc định routerMaxWait về 600 giây", old: "export const ROUTER_MAX_WAIT_MS = 1_800_000", new: "export const ROUTER_MAX_WAIT_MS = 600_000" },
    { id: "087-M1a", file: "hooks/lib/route.ts", note: "luôn trả ID ghim", old: "  if (useAlias && prefix === '') return family\n", new: "  if (false) return family\n" },
    { id: "087-M1b", file: "hooks/lib/route.ts", note: "alias thắng cả ghi đè modelMap", old: "  const override = map[family]\n  if (override) return override\n  const at = engineModel.indexOf('claude-')", new: "  if (useAlias) return family\n  const override = map[family]\n  if (override) return override\n  const at = engineModel.indexOf('claude-')" },
-@@ -2305,4 +2305,38 @@ export const MUTANTS: Mutant[] = [
+@@ -2305,4 +2305,41 @@ export const MUTANTS: Mutant[] = [
    { id: "088-N6o", file: "hooks/ui/band.tsx", note: "nút Ẩn vẫn hiện khi tạm dừng", old: "const hideButton = hasRoom && !isPaused && fit.hide ?", new: "const hideButton = hasRoom && fit.hide ?" },
    { id: "088-N6p", file: "hooks/ui/direction.ts", note: "tắt quotaGuard vẫn tính tạm dừng", old: "  const isPaused = settings.enabled && isPauseActive(", new: "  const isPaused = isPauseActive(" },
    { id: "088-N6q", file: "hooks/ui/band.tsx", note: "band lại có hộp rỗng ở cột đầu", old: "    <Box flexDirection=\"column\" flexGrow={1} flexShrink={1}>\n      {lines}\n    </Box>", new: "    <Box flexDirection=\"row\">\n      <Box flexDirection=\"column\" flexShrink={0} />\n      <Box flexDirection=\"column\" flexGrow={1} flexShrink={1}>\n        {lines}\n      </Box>\n    </Box>" },
@@ -884,6 +899,9 @@ index df2949e..b934462 100644
 +  { id: "089-R2d", file: "hooks/parts/session.ts", note: "dòng route của tin hỏi tiến độ không ghi firstFail", old: "intent, confidence: plan.confidence, retried: outcome.retried, ...(outcome.firstFail !== undefined ? { firstFail: outcome.firstFail } : {}), goalId: prev.goalId })", new: "intent, confidence: plan.confidence, retried: outcome.retried, goalId: prev.goalId })" },
 +  { id: "089-R2e", file: "hooks/parts/session.ts", note: "dòng route của tin ngoài lề không ghi firstFail", old: "intent: 'aside', confidence: plan.confidence, retried: outcome.retried, ...(outcome.firstFail !== undefined ? { firstFail: outcome.firstFail } : {}), goalId: prev.goalId })", new: "intent: 'aside', confidence: plan.confidence, retried: outcome.retried, goalId: prev.goalId })" },
 +  { id: "089-R2f", file: "hooks/lib/router.ts", note: "kết quả rỗng vẫn mang firstFail", old: "  const saved = (result: T | null) => (result !== null ? { firstFail: firstReason } : {})\n", new: "  const saved = (_result: T | null) => ({ firstFail: firstReason })\n" },
++  { id: "089-R3a", file: "hooks/lib/router.ts", note: "đối tượng không có message vẫn qua String", old: "    return typeof message === 'string' ? message : ''\n", new: "    return typeof message === 'string' ? message : String(error)\n" },
++  { id: "089-R3b", file: "hooks/lib/router.ts", note: "không bỏ tiền tố khi nó đứng đầu thông điệp", old: "  const at = text.indexOf(ENGINE_CALL)\n", new: "  const at = text.indexOf(ENGINE_CALL, 1)\n" },
++  { id: "089-R3c", file: "hooks/lib/router.ts", note: "không xóa thông điệp cũ trước lời gọi sau", old: "    refusal = ''\n    lastSent = sent\n", new: "    lastSent = sent\n" },
  ]
 diff --git a/claude-mods/focus-conductor/tests/caps-075.test.ts b/claude-mods/focus-conductor/tests/caps-075.test.ts
 index 720cd36..233eb16 100644

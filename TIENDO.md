@@ -16,3 +16,4 @@
 - R1: test đỏ 6d02deb (3/5), sửa 12279f2 (không ca cũ đổi), ca diệt 089-R1b fe? (xem log). 089-R1a 3 đỏ, 089-R1b 1 đỏ sau ca mới. Việc tiếp: R2 (test đã viết: 5/7 thuần + 1 tích hợp đỏ), R3 (4/8 đỏ).
 - R2: test đỏ f1ca2ae (6/8), sửa f66ed53, mẫu 089-R2a..f diệt (4,3,1,1,1,1), 072-R9 sửa chuỗi (3 đỏ). Không ca cũ đổi.
 - R3: test đỏ (4/8) đã push; việc tiếp: sửa engineMessage, mẫu 089-R3a..c.
+- R3: sửa đã push; mẫu 089-R3a..c diệt (1,1,1). Cả bộ sau C1 tới R3 (bản sửa R3): 3.675 ca, 330 tệp, 0 lỗi. Việc tiếp: D1 (test đã viết, chưa chạy). Độ dài lời dặn router ở 7682ef7: 10.282 (cờ tắt), 11.180 (cờ bật).
