@@ -1,3 +1,113 @@
+diff --git a/claude-mods/focus-conductor/.claude-plugin/plugin.json b/claude-mods/focus-conductor/.claude-plugin/plugin.json
+index 022e64d..2ad14e2 100644
+--- a/claude-mods/focus-conductor/.claude-plugin/plugin.json
++++ b/claude-mods/focus-conductor/.claude-plugin/plugin.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "focus-conductor",
+-  "version": "0.8.8",
++  "version": "0.8.9",
+   "author": { "name": "Kiet Tran" },
+   "description": "Một model Claude (router) đọc kỹ prompt trước khi làm và điều phối model/effort/agent cho từng việc; mod kiểm, ép điều phối lúc chạy, giữ nhất quán mục tiêu với checklist và cảnh báo lạc đề.",
+   "types": "./types/index.d.ts",
+diff --git a/claude-mods/focus-conductor/CHANGELOG.md b/claude-mods/focus-conductor/CHANGELOG.md
+index 13db1c8..3306549 100644
+--- a/claude-mods/focus-conductor/CHANGELOG.md
++++ b/claude-mods/focus-conductor/CHANGELOG.md
+@@ -2,6 +2,22 @@
+ 
+ Các bản của focus-conductor, mới nhất trước. Số đo kiểm chứng của HEAD hiện tại nằm ở [docs/VERIFICATION.md](docs/VERIFICATION.md); cách dùng và tùy chọn ở [README](README.md).
+ 
++## Thay đổi 0.8.9: router bị engine từ chối khi đọc prompt dài
++
++Router của prompt dài hơn 80.000 ký tự bị engine từ chối khi họ đọc là fable, opus hay haiku: lượt đọc trọn xin `maxTokens` 128.000, cao hơn trần 64.000 của lời gọi model từ hook [Đo trực tiếp, engine 2.1.296 và 2.1.325, 14/11/2026]. Lời dặn router, giao diện, option, schema tool `plan` và golden không đổi. Mỗi điểm một commit test đỏ rồi một commit sửa.
++
++- **U1: trần 64.000.** `HOOK_MAX_TOKENS` ở `hooks/lib/reading.ts`; `fullMaxTokens`, `fullRetryTokens` kẹp theo trần này. `askRouter` kẹp `maxTokens` của mọi request nó gửi ở một chỗ. Engine giả của test tích hợp từ chối như engine thật (`maxTokens`, `timeoutMs` không phải số nguyên dương, `maxTokens` trên 64.000).
++- **U2: đường lùi khi engine từ chối.** Lượt đầu bị từ chối thì gửi `fallback`, không ra kết quả mà có `apiFallback` thì gửi tiếp; không có `fallback` thì gửi `apiFallback`. `RouterOutcome.usageModels` ghi model của từng usage; chi phí router tính theo giá của họ đã nhận lời gọi.
++- **U3: lý do nguyên văn.** Lý do router lỗi là "engine từ chối gửi request tới model router: <thông điệp của engine>" (một dòng, bỏ phần đầu tới hết `$.model.complete: `, 160 ký tự). Dòng `route` của nhật ký quyết định có `firstFail` khi request dự phòng cứu được lượt đầu.
++- **U4: lượt đọc trọn không ra kết quả.** Hỏng định dạng, bị cắt hay rỗng mà các bước đã có không cứu được thì gửi request đã cắt theo trần cũ đúng một lần.
++
++**Test cũ đổi kỳ vọng, giữ tên:**
++- `router-full-l1-087` ba ca ghim 128.000 nay ghim 64.000: "request không truyền reading: Fable theo thông số fable, router sonnet theo thông số sonnet (maxTokens 128.000 và 16.000)", "trần lượt hỏi lại của Fable đọc trọn: 1,5 lần 128.000 kẹp về mức engine báo 128.000", "askRouter chuyển full sang lượt hỏi lại: ...".
++- `router.test.ts` ca "ask ném lỗi (engine từ chối): askRouter tự bắt, coi như engine từ chối; lần hai ném lỗi thì giữ câu trả lời lần một": lý do có thêm thông điệp của lỗi. Ca `ask` trả `null` cùng tệp giữ nguyên.
++- `error-log-l1-079`: MOD_VERSION là 0.8.9.
++
++**Mẫu cũ viết lại, giữ mã:** `087-L3i`, `087-L3n` (chuỗi của `fullRetryTokens` và lời gọi hỏi lại đổi theo U1). Mẫu mới: `089-U1a` tới `089-U1c`, `089-U2a` tới `089-U2e`, `089-U3a` tới `089-U3c`, `089-U4a` tới `089-U4d`.
++
+ ## Thay đổi 0.8.8: giao diện hướng B "Ba ô phát sáng", dải màu neon
+ 
+ Band, pane và status line đổi cách vẽ theo hướng B; logic của mod, lời nhắc, brief, kết quả tool, lời dặn router, golden và schema tool `plan` không đổi, nên số ký tự chèn vào context trùng 0.8.7 [Nguồn: chủ mod, 14/11/2026]. Mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `088-*`; số ca đỏ đo trên mã ngay trước điểm đó ở VERIFICATION.
+diff --git a/claude-mods/focus-conductor/README.md b/claude-mods/focus-conductor/README.md
+index c6bdff0..cc64a7c 100644
+--- a/claude-mods/focus-conductor/README.md
++++ b/claude-mods/focus-conductor/README.md
+@@ -11,7 +11,7 @@ Mod làm ba việc, mỗi việc ứng với một nhóm hook:
+ 2. **Điều phối lúc chạy.** Luồng chính chốt model và effort ở step đầu của mỗi turn; đổi model giữa các turn được tính theo chi phí ghi lại cache; subagent đã phân dùng đúng lựa chọn của router, subagent khác được router chấm khi giao.
+ 3. **Giữ nhất quán.** Checklist qua tool plan, chặn kết thúc khi checklist còn bước mở, theo dõi lặp lệnh lỗi, lạc đề và ghi file ngoài phạm vi, và đối chiếu evidence của bước `verified` với dấu vết thực thi thật.
+ 
+-Router lỗi thì mod không đoán thay: prompt đó chạy theo model của phiên. Code của mod chỉ kiểm, ép theo chính sách và quay về an toàn. Mô tả từng cơ chế: [docs/DESIGN.md](docs/DESIGN.md).
++Router lỗi thì mod không đoán thay: prompt đó chạy theo model của phiên. Từ 0.8.9, khi engine từ chối gửi request tới router, cảnh báo ghi kèm nguyên văn lý do của engine (tối đa 160 ký tự), và router thử request dự phòng trước khi báo lỗi. Code của mod chỉ kiểm, ép theo chính sách và quay về an toàn. Mô tả từng cơ chế: [docs/DESIGN.md](docs/DESIGN.md).
+ 
+ **Tài liệu khác:** [CHANGELOG.md](CHANGELOG.md) (lịch sử thay đổi theo bản), [docs/VERIFICATION.md](docs/VERIFICATION.md) (số đo kiểm chứng của HEAD hiện tại), [docs/DESIGN.md](docs/DESIGN.md) (cách hoạt động chi tiết và hợp đồng đối chiếu evidence của `verified`).
+ 
+diff --git a/claude-mods/focus-conductor/docs/DESIGN.md b/claude-mods/focus-conductor/docs/DESIGN.md
+index 7ee493c..0440310 100644
+--- a/claude-mods/focus-conductor/docs/DESIGN.md
++++ b/claude-mods/focus-conductor/docs/DESIGN.md
+@@ -261,6 +261,41 @@ Chủ mod chốt ngày 12/11/2026 [Nguồn: chủ mod]: luồng chính đang đi
+ - **Đoạn dặn.** `conductorContext` (462 ký tự) bỏ câu cho tự sửa file khi ráp kết quả, nói không tự sửa file, không tự chạy lệnh kiểm, chỉnh nhỏ gom vào một lời giao, lệnh kiểm giao một subagent chạy và báo tóm tắt. `conductorKeepText` 190 ký tự. Lời từ chối dưới 300 ký tự, dòng nhắc đọc dưới 200.
+ - **Giới hạn đã biết của 0.8.6.** Lối thoát duy nhất ngoài lệnh `solo` là lời gọi Agent bị từ chối trước khi chạy; subagent chạy được mà làm sai thì luồng chính phải giao lại, không tự sửa. Kịch bản phiên dài của test để luồng chính tự chạy script ghi và lệnh kiểm, nên với `conductor: 'fable'` các lời gọi đó bị từ chối (số đo ở VERIFICATION). Khai báo kiểu của engine vẫn không sinh được trong phiên phát triển, nên `tsc` chưa chạy.
+ 
++## Router bị engine từ chối khi đọc prompt dài (0.8.9)
++
++Phiên thật, `conductor` là `fable`, prompt dài: mod báo router không đọc được prompt vì engine từ chối gửi request [Nguồn: ảnh chụp phiên thật của chủ mod, 14/11/2026]. Lượt đọc trọn của fable, opus, haiku xin `maxTokens` 128.000, là mức `claude -p` báo cho model, trong khi engine ném lỗi trước khi gửi khi lời gọi từ hook xin quá 64.000.
++
++- **Trần 64.000 (U1).** `HOOK_MAX_TOKENS` ở `hooks/lib/reading.ts`.
++  - Engine 2.1.296 và 2.1.325 nhận `maxTokens` 64.000 ở cả bốn họ model, và ném lỗi ở 64.001 và 128.000 [Đo trực tiếp, 14/11/2026, VERIFICATION mục 0.8.9]. Phần suy nghĩ và câu trả lời chia nhau trần này.
++  - `fullMaxTokens` và `fullRetryTokens` kẹp về số nhỏ hơn giữa `engineMaxOut` và trần này; `engineMaxOut` của bảng họ model giữ 128.000 như số đo của `claude -p`. Lượt đọc trọn của fable, opus, haiku nay xin 64.000; sonnet vẫn 16.000.
++  - `askRouter` kẹp `maxTokens` của mọi request nó gửi ở một chỗ: lượt đầu, lượt hỏi lại, `fallback`, `apiFallback`. `maxTokens` ghi ở dòng `router-fail` là số đã gửi thật.
++  - Sức chứa và `timeoutMs` không đổi: Fable vẫn đọc trọn khoảng 467.854 ký tự ở mặc định 1.800 giây, vì sức chứa của Fable do thời gian quyết định.
++- **Đường lùi khi engine từ chối (U2).** Lượt đầu bị engine từ chối (hàm gọi ném lỗi hay trả `null`):
++
++  | Có `fallback` | Có `apiFallback` | Việc làm |
++  |---|---|---|
++  | Có | Bất kỳ | Gửi `fallback`; có kết quả thì trả kèm `fellBack`. Không có kết quả mà có `apiFallback` thì gửi tiếp `apiFallback`, trả kèm `viaFallback` |
++  | Không | Có | Gửi `apiFallback`, trả kèm `viaFallback` |
++  | Không | Không | Như 0.8.8: lỗi loại `engine`, không hỏi lại |
++
++  - Mỗi request dự phòng gửi nhiều nhất một lần; nhánh này gửi nhiều nhất ba request. Nhánh `api-error` và `aborted` của lượt đầu giữ như 0.8.8.
++  - `RouterOutcome.usageModels` ghi model đã nhận từng lời gọi có usage. Chi phí router tính theo giá của họ đó; lời gọi bị từ chối không có usage.
++  - Bộ đếm lỗi của router điều phối: `viaFallback` tính một lần lỗi cho họ chính và kết quả cho họ dự phòng, như 0.8.7. `fellBack` tính một lần theo kết quả cuối cho họ chính, tức một lần thành công khi `fallback` cứu được. Hai cách đếm không tương đương: `ROUTER_FAIL_LIMIT` là 2, nên đếm thêm một lỗi khi bộ đếm đang ở 1 sẽ tạm ngừng router ngay [Nguồn: chủ mod, 14/11/2026].
++- **Lý do nguyên văn (U3).** `askRouter` giữ thông điệp của lỗi engine ném: gộp về một dòng, bỏ phần đầu tới hết `$.model.complete: `, cắt còn 160 ký tự (`engineMessage`).
++  - Lý do là "engine từ chối gửi request tới model router: <thông điệp>"; không có thông điệp thì giữ câu cũ. Câu này tới cảnh báo, dòng `router-fail`, `unroutedContext` và các câu của `/conductor goal`, `/conductor reroute`. Phần chèn vào context dài thêm tối đa 162 ký tự, chỉ ở ca engine từ chối.
++  - Request dự phòng cứu được lượt đầu (U2, U4, và các nhánh dự phòng của 0.8.7) thì `firstFail` ghi lý do lượt đầu hỏng; các dòng `route` của nhật ký quyết định có trường này.
++- **Lượt đọc trọn không ra kết quả (U4).** Với lượt đọc trọn (có `fallback`): các bước đã có chạy hết mà vẫn không có kết quả đọc được, và chưa gửi `fallback` hay `apiFallback`, thì gửi `fallback` đúng một lần với trọn thời gian chờ của nó, trả kèm `fellBack`.
++  - Áp cho: câu trả lời hỏng hay bị cắt mà không đủ hạn để hỏi lại; đã hỏi lại mà vẫn hỏng; câu trả lời rỗng. Request thường giữ như 0.8.8.
++  - Lý do: token ra lớn nhất của Fable đã đo là 91.084, vượt trần 64.000 [Đo trực tiếp, VERIFICATION mục 0.8.7], nên câu trả lời của lượt đọc trọn có thể bị cắt.
++- **Mức giữ hook tệ nhất** [Giả định: tính theo mã, mặc định `routerMaxWait` 1.800 giây]:
++  - Nhánh U4: lượt đầu và lượt hỏi lại dùng hết hạn chung 2.700 giây, rồi `fallback` 120 giây: 2.820 giây.
++  - Nhánh U2: lời gọi bị từ chối trả ngay, rồi `fallback` 120 giây hay `apiFallback` tối đa 1.800 giây.
++  - Nhánh lỗi API của 0.8.7 F1, không đổi ở 0.8.9: lượt đầu báo lỗi API ngay trước khi hết 1.800 giây, rồi `apiFallback` tối đa 1.800 giây của họ dự phòng, tổng 3.600 giây. Mục 0.8.7 ghi 2.700 giây vì chưa tính nhánh này. Đây là mức tệ nhất theo mã.
++- **Kit test không chuyển lỗi do hook test ném sang mod.** Engine giả của test (`tests/support/engine.ts`, chỗ ném lỗi khi từ chối) ném lỗi theo câu của engine thật, nhưng kit báo "hook was skipped" và mod nhận câu của kit "no implementation for model.complete". Hai ca tích hợp của U3 vì vậy kiểm câu mod nhận từ kit; câu nguyên văn của engine thật được kiểm ở ca thuần (`tests/router-reason-u3-089.test.ts`), dùng câu thu ở lượt đo [Nguồn: chủ mod, 14/11/2026].
++- **Chưa kiểm được trên phiên thật.**
++  - Câu lỗi của engine thật hiện trong cảnh báo của mod. Bản đã sửa không còn bị engine từ chối ở lượt chạy thật, và không tạo được một ca engine từ chối thật mà không sửa mã mod.
++  - Đường lùi của U2 và U4 trên engine thật: lượt chạy thật (VERIFICATION mục 0.8.9) chỉ đi nhánh thường.
++
+ ## Giao diện hướng B và dải màu neon (0.8.8)
+ 
+ Bản này chỉ đổi cách vẽ band, pane và status line. Logic, lời nhắc, brief, kết quả tool, lời dặn router, golden và schema tool `plan` giữ nguyên.
+@@ -294,9 +329,9 @@ Bản này chỉ đổi cách vẽ band, pane và status line. Logic, lời nh
+   - sonnet: 1,5863 ký tự trên token, 0,0001491 giây trên ký tự, token ra lớn nhất 6.243, mức engine báo 128.000;
+   - họ chưa đo (haiku, opus, model ID riêng): giá trị thận trọng hơn giữa hai họ trên cho từng thông số [Giả định].
+   Fable chậm vì token ra lớn: trên prompt lặp mẫu, Fable liệt kê từng đề mục thành một việc và gần như toàn bộ token ra là câu trả lời JSON. Ở mặc định 1.800 giây, Fable đọc trọn khoảng 468.000 ký tự; sonnet bị giới hạn bởi cửa sổ (khoảng 1,56 triệu ký tự với cửa sổ 1.000.000 token).
+-- **`maxTokens` và `timeoutMs` của lượt đọc trọn.** `maxTokens` là 1,5 lần token ra lớn nhất, làm tròn lên bội số 5.000, trong khoảng 16.000 tới mức engine báo: Fable 128.000, sonnet 16.000. `timeoutMs` là 1,5 lần thời gian đọc ước tính của phần gửi đi, làm tròn lên bội số 5 giây, trong khoảng 120.000 ms tới `maxWait`. Lượt hỏi lại vì câu trả lời bị cắt có trần 1,5 lần `maxTokens` của lượt đó, không vượt mức engine báo; lượt hỏi lại của lượt đọc trọn chạy effort không quá medium. `askRouter` chuyển `full` sang `retryRequest` để hai luật này có hiệu lực.
++- **`maxTokens` và `timeoutMs` của lượt đọc trọn.** `maxTokens` là 1,5 lần token ra lớn nhất, làm tròn lên bội số 5.000, trong khoảng 16.000 tới mức engine báo: Fable 128.000, sonnet 16.000 (từ 0.8.9 kẹp thêm ở trần 64.000 của lời gọi từ hook, nên Fable là 64.000; mục 0.8.9). `timeoutMs` là 1,5 lần thời gian đọc ước tính của phần gửi đi, làm tròn lên bội số 5 giây, trong khoảng 120.000 ms tới `maxWait`. Lượt hỏi lại vì câu trả lời bị cắt có trần 1,5 lần `maxTokens` của lượt đó, không vượt mức engine báo; lượt hỏi lại của lượt đọc trọn chạy effort không quá medium. `askRouter` chuyển `full` sang `retryRequest` để hai luật này có hiệu lực.
+ - **Lượt dự phòng.** Lượt đọc trọn hết giờ hay bị API từ chối thì `askRouter` gửi request dự phòng, dựng bằng cùng tham số với cửa sổ 0 (cắt theo trần 80.000), với trọn `FALLBACK_TIMEOUT_MS` 120.000 ms. Lượt này không lấy phần còn lại của hạn chung và không kiểm hạn chung. Kết quả báo `fellBack`; khi được dùng thì có cảnh báo (lý do "lượt đọc trọn lỗi nên dùng lượt đọc rút gọn") và `CLIPPED_CONTEXT`. `/conductor goal` và `/conductor reroute` dùng cùng sức chứa, không có nhánh dự phòng.
+-- **Thời gian giữ hook.** Hạn chung của `askRouter` là 1,5 lần `timeoutMs` của lượt đầu. Lượt dự phòng và lượt hỏi lại không cùng xảy ra trong một lần đọc (lượt dự phòng trả kết quả ngay), nên mức giữ hook tệ nhất là 1,5 lần `routerMaxWait`: 2.700 giây ở mặc định 1.800. Lượt đầu hết giờ ở 1.800 giây rồi lượt dự phòng 120 giây là 1.920 giây.
++- **Thời gian giữ hook.** Hạn chung của `askRouter` là 1,5 lần `timeoutMs` của lượt đầu. Lượt dự phòng và lượt hỏi lại không cùng xảy ra trong một lần đọc (lượt dự phòng trả kết quả ngay), nên mức giữ hook tệ nhất là 1,5 lần `routerMaxWait`: 2.700 giây ở mặc định 1.800 (mục 0.8.9 tính lại: 2.820 giây ở nhánh U4, 3.600 giây ở nhánh lỗi API của F1). Lượt đầu hết giờ ở 1.800 giây rồi lượt dự phòng 120 giây là 1.920 giây.
+ - **Chữ chờ.** Lượt đọc trọn ghi "router đang đọc trọn prompt dài, có thể mất vài phút..." ở status line thay cho "router đang đọc prompt..."; nhãn chỉ có tiếng Việt như nhãn cũ; band không có chữ chờ riêng; không chèn gì vào context.
+ - **Bỏ trần số lượng** (L2, `hooks/lib/router.ts`, `hooks/lib/plan.ts`, `hooks/lib/state.ts`). `parseRoute` giữ mọi việc và mọi yêu cầu; `covers` chỉ giữ số từ 1 tới số yêu cầu thật. Checklist không có trần bước. Ràng buộc giữ trần 12 cùng phần tràn. Request gửi router và lời giao subagent vẫn liệt kê tối đa 20 việc cũ và 30 yêu cầu, quá mức đó thì có dòng ghi tổng số, để request của mục tiêu không quá 20 việc trùng 0.8.6.
+ - **Các trần đã rà khi bỏ trần số lượng:**
 diff --git a/claude-mods/focus-conductor/hooks/lib/families.ts b/claude-mods/focus-conductor/hooks/lib/families.ts
 index 23149ca..19d58ab 100644
 --- a/claude-mods/focus-conductor/hooks/lib/families.ts
@@ -270,6 +380,15 @@ index fc059c5..b02e780 100644
  }
  
  /** Prompt dài hơn sức chứa của lượt router đó bị lược phần giữa (0.7.8 G8; 0.8.7 L3: sức chứa theo requestPlan, mặc định trần cũ). */
+diff --git a/claude-mods/focus-conductor/hooks/lib/version.ts b/claude-mods/focus-conductor/hooks/lib/version.ts
+index c17fcb0..284111e 100644
+--- a/claude-mods/focus-conductor/hooks/lib/version.ts
++++ b/claude-mods/focus-conductor/hooks/lib/version.ts
+@@ -1,3 +1,3 @@
+ // Phiên bản của mod lúc chạy (0.7.9 L1): engine 2.1.296 không có API phiên bản ($.plugin chỉ có name và root), nên dùng hằng này;
+ // test so hằng với .claude-plugin/plugin.json.
+-export const MOD_VERSION = '0.8.8'
++export const MOD_VERSION = '0.8.9'
 diff --git a/claude-mods/focus-conductor/hooks/parts/session.ts b/claude-mods/focus-conductor/hooks/parts/session.ts
 index 33befe5..216a32c 100644
 --- a/claude-mods/focus-conductor/hooks/parts/session.ts
@@ -479,6 +598,23 @@ index 0000000..7db7b32
 +    for (const r of sent) expect(r.maxTokens ?? Infinity).toBeLessThanOrEqual(CAP)
 +  })
 +})
+diff --git a/claude-mods/focus-conductor/tests/integration/error-log-l1-079.test.ts b/claude-mods/focus-conductor/tests/integration/error-log-l1-079.test.ts
+index 62db4ec..7d8c630 100644
+--- a/claude-mods/focus-conductor/tests/integration/error-log-l1-079.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/error-log-l1-079.test.ts
+@@ -167,10 +167,10 @@ describe('0.7.9 L1: tự xóa lỗi đã sửa (hàm thuần)', () => {
+   })
+ 
+   // 0.8.4: sổ vẫn rỗng (chủ mod chưa gửi errors.json nào); MOD_VERSION theo plugin.json. 0.8.5: giữ tên ca (không đổi tên ca nào), kỳ
+-  // vọng theo phiên bản mới. 0.8.6, 0.8.7, 0.8.8: như 0.8.5.
++  // vọng theo phiên bản mới. 0.8.6, 0.8.7, 0.8.8, 0.8.9: như 0.8.5.
+   test('sổ 0.8.4 vẫn rỗng; MOD_VERSION là 0.8.4', () => {
+     expect(FIXED_ERRORS).toEqual([])
+-    expect(MOD_VERSION).toBe('0.8.8')
++    expect(MOD_VERSION).toBe('0.8.9')
+   })
+ })
+ 
 diff --git a/claude-mods/focus-conductor/tests/integration/hook-limit-u1-089.test.ts b/claude-mods/focus-conductor/tests/integration/hook-limit-u1-089.test.ts
 new file mode 100644
 index 0000000..4aa6457
