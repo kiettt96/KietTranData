@@ -45,8 +45,8 @@ describe('0.8.9 D2: việc bị bỏ rời brief và các danh sách theo dõi',
     await submit($, 'điều chỉnh: thôi không đổi tên')
     expect(lastOf(lines(), 'rearrange')?.['dropped']).toEqual([2])
     expect(taskIndexes(lastOf(lines(), 'route'))).toEqual([1, 3, 4])
-    const text = await status($)
-    expect(text).not.toContain('Đổi tên userId')
+    // Khối việc giao subagent của status không còn việc 2 (từ D3, status có thêm mục việc đã gỡ nêu việc 2 kèm lý do).
+    expect(await status($)).not.toContain('2. Đổi tên userId thành accountId trong 12 file controller.: chờ giao')
     expect(await stopBlock($)).not.toContain('Việc 2')
   })
 
@@ -116,16 +116,16 @@ describe('0.8.9 D2: việc bị bỏ rời brief và các danh sách theo dõi',
     expect(lastOf(lines(), 'rearrange')?.['dropped']).toEqual([1, 2])
     const text = await status($)
     expect(text).not.toContain('lỗi, chưa giao lại')
-    expect(text).not.toContain('Đổi tên userId')
+    expect(text).not.toContain('2. Đổi tên userId thành accountId trong 12 file controller.: chờ giao')
   })
 })
 
 describe('0.8.9 D2: ba tin chen ngang liên tiếp khi luồng chính đang chạy', () => {
   test('mục tiêu 12 việc; thêm 2, bỏ 3, gộp 2, đảo thứ tự: sau mỗi tin, việc còn mở, thứ tự, việc đã gỡ, tiêu đề mục tiến độ và context đúng', OPTS, async ($, on) => {
     const lines = logOf(on)
-    const twelve = plan({ goal: 'Nâng cấp mười hai phần', depth: 'hard', volume: 'large', kind: 'edit', tasks: Array.from({ length: 12 }, (_, i) => task(`Phần ${i + 1}`, 'main', 'sonnet', 'medium')) })
+    const twelve = plan({ goal: 'Nâng cấp mười hai phần', depth: 'hard', volume: 'large', kind: 'edit', tasks: Array.from({ length: 12 }, (_, i) => task(`Phần ${i + 1}`, 'agent', 'sonnet', 'medium')) })
     const replies: Record<string, Json> = {
-      'chen một': refine({ order: [], drop: [{ task: 3, why: 'bỏ' }, { task: 7, why: 'bỏ' }, { task: 11, why: 'bỏ' }], merge: [] }, { tasks: [task('Phần thêm A', 'main', 'sonnet', 'medium'), task('Phần thêm B', 'main', 'sonnet', 'medium')] }),
+      'chen một': refine({ order: [], drop: [{ task: 3, why: 'bỏ' }, { task: 7, why: 'bỏ' }, { task: 11, why: 'bỏ' }], merge: [] }, { tasks: [task('Phần thêm A', 'agent', 'sonnet', 'medium'), task('Phần thêm B', 'agent', 'sonnet', 'medium')] }),
       'chen hai': refine({ order: [], drop: [], merge: [{ tasks: [5, 6], into: 13 }] }),
       'chen ba': refine({ order: [14, 12], drop: [], merge: [] }),
     }
@@ -134,6 +134,8 @@ describe('0.8.9 D2: ba tin chen ngang liên tiếp khi luồng chính đang ch�
     await submit($, 'Nâng cấp mười hai phần')
     await $.turn.start({ text: 'làm', turnId: 't1' })
     await step($, seen, { turnId: 't1' })
+    // Checklist hai bước không khớp việc nào: các việc nằm ở mục tiến độ từng việc (như phiên thật).
+    await $.tool.call({ tool: 'mcp__focus-conductor__plan', action: 'set', steps: [{ title: 'Chuẩn bị môi trường' }, { title: 'Tổng kết kết quả' }] } as never)
     const interject = (text: string) => $.prompt.submit({ text, wait: false, origin: { kind: 'composer' } as never, turnId: 't1' })
     // Phần do D3 thêm (quyết định của chủ mod khi duyệt): tiêu đề mục tiến độ của pane và context của tin có kế hoạch sau điều chỉnh.
     const header = async () => {

@@ -113,6 +113,11 @@ const VI = {
   quotaPausedNow: 'Đang tạm dừng',
   mirrorShort: 'danh sách việc',
   taskSection: 'Tiến độ từng việc',
+  /** 0.8.9 D3: tiêu đề mục tiến độ: số việc xong trên tổng, đang chạy, chưa làm, lỗi và đã bỏ (hai số cuối khi có). */
+  taskSummary: (done: number, total: number, running: number, todo: number, failed: number, removed: number) =>
+    `${done}/${total} xong · ${running} đang chạy · ${todo} chưa làm${failed > 0 ? ` · ${failed} lỗi` : ''}${removed > 0 ? ` · đã bỏ ${removed}` : ''}`,
+  /** 0.8.9 D3: một dòng gộp các việc đã xong khi nhiều hơn 5 việc. */
+  doneCollapsed: (n: number, list: string) => `${n} việc đã xong: ${list}`,
   phaseArchived: (n: number) => `${n} việc của đợt trước`,
   taskMain: 'Việc chính',
   taskNumber: (n: number) => `Việc ${n}`,
@@ -290,6 +295,8 @@ const EN: typeof VI = {
   quotaPausedNow: 'Paused',
   mirrorShort: 'task list',
   taskSection: 'Progress by task',
+  taskSummary: (done, total, running, todo, failed, removed) => `${done}/${total} done · ${running} running · ${todo} to do${failed > 0 ? ` · ${failed} failed` : ''}${removed > 0 ? ` · ${removed} dropped` : ''}`,
+  doneCollapsed: (n, list) => `${n} done: ${list}`,
   phaseArchived: n => `${n} ${n === 1 ? 'task' : 'tasks'} from earlier phases`,
   taskMain: 'Main work',
   taskNumber: n => `Task ${n}`,

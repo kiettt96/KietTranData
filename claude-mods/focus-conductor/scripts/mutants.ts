@@ -2354,4 +2354,12 @@ export const MUTANTS: Mutant[] = [
   { id: "089-D2e", file: "hooks/lib/router.ts", note: "gộp không nhập covers", old: "      covers.set(into, [...(covers.get(into) ?? []), ...(owner.covers ?? [])])\n", new: "" },
   { id: "089-D2f", file: "hooks/parts/session.ts", note: "không ghi dòng rearrange", old: "      record(now, 'rearrange', { goalId: brief.goalId, order: arranged.order, dropped: arranged.dropped, merged: arranged.merged, skipped: arranged.skipped })\n", new: "" },
   { id: "089-D2g", file: "hooks/lib/router.ts", note: "order có số trùng làm việc xuất hiện hai lần", old: "      if (index === null || listed.includes(index) || !open.includes(index)) continue\n", new: "      if (index === null || !open.includes(index)) continue\n" },
+  { id: "089-D3a", file: "hooks/lib/text.ts", note: "context không ghi thứ tự làm", old: "      `Kế hoạch sau điều chỉnh, theo thứ tự làm: Việc ${numberList(order, orderChars)}`,\n", new: "" },
+  { id: "089-D3b", file: "hooks/parts/session.ts", note: "context ghi kế hoạch sau điều chỉnh cả khi không có arrange", old: "    const arrangedFor = (max: number) => (isArranged && arranged !== undefined ? arrangedContext(brief, arranged, workOrder, max) : '')", new: "    const arrangedFor = (max: number) => arrangedContext(brief, arranged ?? { order: [], dropped: [], merged: [], skipped: [] }, workOrder, max)" },
+  { id: "089-D3c", file: "hooks/ui/pane.tsx", note: "pane xếp việc chưa làm theo số dù đã có thứ tự làm", old: "(groupOf(a.row) === 1 ? placeOf(a.row) - placeOf(b.row) : 0) || ", new: "" },
+  { id: "089-D3d", file: "hooks/ui/pane.tsx", note: "việc đã xong không gộp dòng", old: "  const isDoneFolded = doneRows.length > DONE_ROWS_SHOWN\n", new: "  const isDoneFolded = false as boolean\n" },
+  { id: "089-D3e", file: "hooks/ui/pane.tsx", note: "tiêu đề không ghi số việc đã bỏ", old: ", countOf('failed'), (brief.removed ?? []).length)", new: ", countOf('failed'), 0)" },
+  { id: "089-D3f", file: "hooks/lib/text.ts", note: "phần thêm vào context không cắt ở 900 ký tự", old: "  while (text.length > max) {\n", new: "  while (text.length > Number.POSITIVE_INFINITY) {\n" },
+  { id: "089-D3g", file: "hooks/lib/text.ts", note: "tin chen ngang không ghi kế hoạch sau điều chỉnh", old: "      options.arranged ?? '',\n", new: "" },
+  { id: "089-D3h", file: "hooks/lib/progress.ts", note: "việc chưa có bước riêng tính là xong khi checklist đóng hết", old: "  return row.kind === 'direct' && row.bar.kind === 'state' && row.state === 'done' ? 'idle' : row.state\n", new: "  return row.state\n" },
 ]

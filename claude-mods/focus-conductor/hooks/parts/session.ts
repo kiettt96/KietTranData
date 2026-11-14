@@ -19,7 +19,7 @@ import { EMPTY_QUOTA, blockingHits, evaluateQuota, isPauseActive, normalizeQuota
 import * as S from '../lib/state'
 import { statusTextOf } from '../ui/direction'
 import type { View } from '../lib/state'
-import { DISCIPLINE, asideContext, conductorContext, conductorKeepText, phaseNotice, briefContext, droppedGoalNotice, droppedItemsText, droppedPlanNotice, followUpContext, intentResumeContext, intentStatusContext, interjectContext, interjectMovedNote, quotaPausedContext, resetLabel, resumeCommand, nothingLeftContext, restorableLabel, restoreGoalOnlyContext, restoreResumeContext, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
+import { ARRANGED_CHARS, ARRANGED_INTERJECT_CHARS, DISCIPLINE, arrangedContext, asideContext, conductorContext, conductorKeepText, phaseNotice, briefContext, droppedGoalNotice, droppedItemsText, droppedPlanNotice, followUpContext, intentResumeContext, intentStatusContext, interjectContext, interjectMovedNote, quotaPausedContext, resetLabel, resumeCommand, nothingLeftContext, restorableLabel, restoreGoalOnlyContext, restoreResumeContext, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -545,7 +545,8 @@ export function registerSession(on: On, ctx: Ctx): void {
     // Việc đã xong theo checklist hiện tại (0.8.0 A3): có bước riêng và các bước đó đã đóng hết; được cất khi prompt này mở đợt mới. Việc chưa
     // có bước riêng không tính là xong chỉ vì checklist đóng hết (checklist đó có thể là của đợt trước).
     const doneTasks = new Set(taskRows(before, now).filter(row => row.index !== undefined && row.kind !== 'main' && row.state === 'done' && row.bar.kind === 'steps').map(row => row.index as number))
-    const { brief, added: routedAdded, isNewGoal, replaced, held, dropped, phase, arranged } = nextBrief(prev, plan, text, now, { openSteps: openSteps(before.plan).map(s => s.title), sessionFamily: L.sessionFamily, doneTasks, isPending: S.pendingOf(before), states: taskStatusOf(before, now), checklist: before.plan })
+    const states = taskStatusOf(before, now)
+    const { brief, added: routedAdded, isNewGoal, replaced, held, dropped, phase, arranged } = nextBrief(prev, plan, text, now, { openSteps: openSteps(before.plan).map(s => s.title), sessionFamily: L.sessionFamily, doneTasks, isPending: S.pendingOf(before), states, checklist: before.plan })
     // Việc mới mà chính lần điều phối lại đã gỡ (0.8.9 D2) không còn là việc mới.
     const added = routedAdded.filter(t => brief.tasks.some(kept => kept.index === t.index))
     // Router xếp mục tiêu mới với tin cậy thấp khi checklist còn bước mở (0.7.5): giữ mục tiêu, ghi nhật ký quyết định.
@@ -642,16 +643,20 @@ export function registerSession(on: On, ctx: Ctx): void {
       if (approval.status !== approvalBefore.status || isNewGoal) record(now, 'approval', { goalId: brief.goalId, status: approval.status, cause: isNewGoal ? 'goal' : intent })
     }
     const approvalNotes = isAsking ? [askContext(plan.questions ?? [])] : approval.status === 'planning' ? [planningContext()] : []
+    // Kế hoạch sau điều chỉnh (0.8.9 D3): chỉ khi prompt có điều phối lại (gỡ việc hay có thứ tự làm mới); thứ tự là của các việc còn mở.
+    const isArranged = arranged !== undefined && (arranged.dropped.length > 0 || arranged.merged.length > 0 || arranged.order.length > 0)
+    const workOrder = arranged !== undefined && arranged.order.length > 0 ? arranged.order : brief.tasks.filter(t => states[t.index] !== 'done').map(t => t.index)
+    const arrangedFor = (max: number) => (isArranged && arranged !== undefined ? arrangedContext(brief, arranged, workOrder, max) : '')
     const isApproved = !isNewGoal && isPresented && approval.status === 'approved'
     const context = isApproved
       ? approvedContext(core.plan)
       : intent === 'resume' && !isNewGoal
       ? isResumeMsg && S.isNothingLeft(before) ? nothingLeftContext() : intentResumeContext(core.plan)
       : isInterject && !isNewGoal
-      ? interjectContext(brief, core.plan, shownAdded, newConstraints, { main: running !== null ? describePick(running) : 'model đang chạy', mayReplace: routed?.relation === 'new', isRouted: true })
+      ? interjectContext(brief, core.plan, shownAdded, newConstraints, { main: running !== null ? describePick(running) : 'model đang chạy', mayReplace: routed?.relation === 'new', isRouted: true, ...(isArranged ? { arranged: arrangedFor(ARRANGED_INTERJECT_CHARS) } : {}) })
       : isNewGoal
         ? briefContext(shownBrief, expected, isApplied)
-        : followUpContext(brief, core.plan, newConstraints, shownAdded, expected, isApplied)
+        : followUpContext(brief, core.plan, newConstraints, shownAdded, expected, isApplied, arrangedFor(ARRANGED_CHARS))
     if (isInterject && !isNewGoal) {
       L.pendingInterject = lift.length > 0 ? { goalId: brief.goalId, lift: lift.map(t => ({ index: t.index, family: t.pick.family, effort: t.pick.effort })) } : null
       record(now, 'interject', { relation: routed?.relation ?? plan.relation, tasks: added.length, constraints: newConstraints.length, toAgent: 0, liftable: lift.length })

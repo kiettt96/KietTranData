@@ -14,12 +14,16 @@ import { drawn, longGoal, rowOf, stepRow } from '../support/pane-long'
 import { followUpContextOf, interjectContextOf } from '../support/rearrange-ui'
 
 const OPTS = { options: { planApproval: 'off' } }
+// Pane đo với neon off: tiêu đề mục là một Text, không bị tách theo ô màu.
+const PANE_OPTS = { options: { planApproval: 'off', neon: 'off' } }
 const ORDER_LEAD = 'Kế hoạch sau điều chỉnh, theo thứ tự làm:'
 const ASK_LEAD = 'Cập nhật checklist bằng tool plan cho khớp'
 const refine = (arrange: Json, over: Json = {}) => plan({ relation: 'refine', intent: 'amend', goal: '', arrange, ...over })
 const mains = (n: number) => Array.from({ length: n }, (_, i) => task(`Phần ${i + 1}`, 'main', 'sonnet', 'medium'))
 const agents = (n: number) => Array.from({ length: n }, (_, i) => task(`Việc giao ${i + 1}`, 'agent', 'sonnet', 'medium'))
 const range = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => from + i)
+/** Checklist hai bước không khớp việc nào, như phiên thật: các việc nằm ở mục tiến độ từng việc, không đi cùng bước. */
+const unrelatedChecklist = ($: Engine) => $.tool.call({ tool: 'mcp__focus-conductor__plan', action: 'set', steps: [{ title: 'Chuẩn bị môi trường' }, { title: 'Tổng kết kết quả' }] } as never)
 
 /** Phần context nêu kế hoạch sau điều chỉnh: từ dòng thứ tự làm tới hết câu dặn. */
 function arrangedBlock(context: string): string {
@@ -100,6 +104,7 @@ async function fortyTwo($: Engine, on: On, adjust: Json = refine({ order: range(
   base(on, { router: request => (request.includes('điều chỉnh') ? adjust : request.includes('Bốn mươi hai') ? plan({ goal: 'Bốn mươi hai việc', depth: 'hard', volume: 'large', kind: 'edit', tasks: agents(42) }) : DEFAULT_ROUTER(request)) })
   agentHooks(on)
   await submit($, 'Bốn mươi hai việc')
+  await unrelatedChecklist($)
   for (const n of range(1, 16)) await spawnTool($, `u${n}`, `Việc ${n}: Việc giao ${n}`, `Làm việc giao ${n}`)
   for (const n of range(1, 12)) await $.turn.complete(ended(`a-u${n}`, 'answer'))
   await $.turn.complete(ended('a-u16', 'error'))
@@ -116,7 +121,7 @@ function taskSection(texts: string[]): string[] {
 
 describe('0.8.9 D3: mục tiến độ từng việc của pane', () => {
   for (const columns of [120, 80, 44]) {
-    test(`42 việc, ${columns} cột: nhóm đang chạy và lỗi đứng đầu, việc chưa làm theo thứ tự làm, một dòng gộp việc đã xong, tiêu đề tổng kết`, OPTS, async ($, on) => {
+    test(`42 việc, ${columns} cột: nhóm đang chạy và lỗi đứng đầu, việc chưa làm theo thứ tự làm, một dòng gộp việc đã xong, tiêu đề tổng kết`, PANE_OPTS, async ($, on) => {
       await fortyTwo($, on)
       const texts = await paneTexts($, columns)
       const section = taskSection(texts)
@@ -133,10 +138,11 @@ describe('0.8.9 D3: mục tiến độ từng việc của pane', () => {
     })
   }
 
-  test('mục tiêu 4 việc, 2 xong: việc đã xong vẫn mỗi việc một dòng', OPTS, async ($, on) => {
+  test('mục tiêu 4 việc, 2 xong: việc đã xong vẫn mỗi việc một dòng', PANE_OPTS, async ($, on) => {
     base(on, { router: request => (request.includes('bốn việc') ? plan({ goal: 'Bốn việc', depth: 'hard', volume: 'medium', kind: 'edit', tasks: agents(4) }) : DEFAULT_ROUTER(request)) })
     agentHooks(on)
     await submit($, 'Làm bốn việc')
+    await unrelatedChecklist($)
     for (const n of [1, 2]) {
       await spawnTool($, `u${n}`, `Việc ${n}: Việc giao ${n}`, `Làm việc giao ${n}`)
       await $.turn.complete(ended(`a-u${n}`, 'answer'))
@@ -144,10 +150,10 @@ describe('0.8.9 D3: mục tiến độ từng việc của pane', () => {
     const section = taskSection(await paneTexts($, 80))
     expect(section.some(t => t.includes('2/4 xong · 0 đang chạy · 2 chưa làm'))).toBe(true)
     expect(section.some(t => /việc đã xong:/.test(t))).toBe(false)
-    expect(section.filter(t => /Việc giao [12]$/.test(t)).length).toBe(2)
+    for (const n of [1, 2]) expect(section.some(t => t.endsWith(`Việc giao ${n}`)), String(n)).toBe(true)
   })
 
-  test('sau khi bỏ 5 việc: tiêu đề có "· đã bỏ 5"; /conductor status liệt kê đủ 5 việc kèm lý do', OPTS, async ($, on) => {
+  test('sau khi bỏ 5 việc: tiêu đề có "· đã bỏ 5"; /conductor status liệt kê đủ 5 việc kèm lý do', PANE_OPTS, async ($, on) => {
     const drop = range(38, 42).map(n => ({ task: n, why: `không cần việc ${n} nữa` }))
     await fortyTwo($, on, refine({ order: [], drop, merge: [] }))
     const section = taskSection(await paneTexts($, 120))

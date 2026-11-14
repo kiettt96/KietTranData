@@ -9,7 +9,8 @@ import { estimateLine, formatCost, ledgerLines, sessionUsd } from '../lib/ledger
 import type { View } from '../lib/state'
 import { shownPlan } from '../lib/mirror'
 import { shownConstraints } from '../lib/router'
-import { runningGroups, runningTitles, stepTaskRows, taskRows } from '../lib/progress'
+import { rowStatusState, runningGroups, runningTitles, stepTaskRows, taskRows, taskStatusOf } from '../lib/progress'
+import type { TaskRow } from '../lib/progress'
 import { liveForks } from '../lib/forks'
 import { countLabel, progress } from '../lib/text'
 import type { BandQuota, QuotaPaneText } from '../lib/text'
@@ -60,6 +61,8 @@ const DEFAULT_ROWS = 16
  */
 const ATTENTION_MAX = 4
 /** Số ô tối thiểu giữ cho tên việc ở dòng Đang chạy khi phải cắt tên để giữ phần sau (UI2) [Giả định: đủ thấy mã bước như "BƯỚC 4"]. */
+/** Số việc đã xong vẽ từng dòng ở mục tiến độ; nhiều hơn thì gộp một dòng (0.8.9 D3). */
+const DONE_ROWS_SHOWN = 5
 const RUNNING_NAME_CELLS = 8
 /** Ký hiệu tạm dừng, như band. */
 const PAUSE_GLYPH = '\u23F8'
@@ -595,8 +598,37 @@ export function renderPane(
   // Thay mục "Việc giao subagent": việc chính, từng việc router phân (làm trực tiếp hay giao), rồi việc Claude tự giao.
   // Chỉ vẽ khi có từ hai việc trở lên; thanh theo bề rộng pane, tối thiểu 6 ô; dưới 48 ô mỗi việc hai dòng.
   const taskCells = Math.max(6, Math.min(16, Math.floor(width * 0.2)))
+  // Tiêu đề mục (0.8.9 D3): tổng kết theo trạng thái từng việc của mục tiêu; pane hẹp dưới 48 cột chỉ ghi số việc xong trên tổng.
+  const statuses = taskStatusOf(view.core, props.now ?? 0)
+  const countOf = (status: string) => brief.tasks.filter(task => statuses[task.index] === status).length
+  const doneCount = countOf('done')
+  const taskHeading = isNarrow
+    ? `${doneCount}/${brief.tasks.length}`
+    : l.taskSummary(doneCount, brief.tasks.length, countOf('running'), countOf('not started'), countOf('failed'), (brief.removed ?? []).length)
+  /** Dòng gộp việc đã xong: số việc kèm danh sách số cắt theo bề rộng, phần còn lại ghi "+N". */
+  const foldedDone = (count: number, numbers: readonly number[]) => {
+    let shown = numbers.length
+    const text = (n: number) => l.doneCollapsed(count, `${numbers.slice(0, n).join(', ')}${n < numbers.length ? ` +${numbers.length - n}` : ''}`)
+    while (shown > 1 && cellsOf(text(shown)) > width) shown -= 1
+    return text(shown)
+  }
   // Chỉ việc không đi cùng bước nào (U1): việc Claude tự giao và việc không khớp bước; việc chính chính là danh sách bước ở trên.
-  const taskNodes = allTaskRows.filter(row => row.kind !== 'main' && !matched.has(row.key)).map(row => {
+  // Ba nhóm (0.8.9 D3): đang chạy và lỗi; chưa làm theo thứ tự làm đã lưu (không có thì theo số); đã xong. Nhiều hơn 5 việc đã xong thì
+  // gộp một dòng.
+  const listedRows = allTaskRows.filter(row => row.kind !== 'main' && !matched.has(row.key))
+  const groupOf = (row: TaskRow) => {
+    const state = rowStatusState(row)
+    return state === 'running' || state === 'failed' || state === 'cut' ? 0 : state === 'done' ? 2 : 1
+  }
+  const orderAt = new Map((brief.order ?? []).map((index, at) => [index, at]))
+  const placeOf = (row: TaskRow) => (row.index === undefined ? Number.MAX_SAFE_INTEGER : (orderAt.get(row.index) ?? orderAt.size + row.index))
+  const sortedRows = listedRows
+    .map((row, at) => ({ row, at }))
+    .sort((a, b) => groupOf(a.row) - groupOf(b.row) || (groupOf(a.row) === 1 ? placeOf(a.row) - placeOf(b.row) : 0) || a.at - b.at)
+    .map(entry => entry.row)
+  const doneRows = sortedRows.filter(row => groupOf(row) === 2)
+  const isDoneFolded = doneRows.length > DONE_ROWS_SHOWN
+  const taskNodes = (isDoneFolded ? sortedRows.filter(row => groupOf(row) !== 2) : sortedRows).map(row => {
     const label = taskLabel(l, row)
     const runs = taskBarRuns(row.bar, taskCells, paint)
     const detail = rowDetail(row, false)
@@ -660,6 +692,15 @@ export function renderPane(
       </Box>
     )
   })
+
+  if (isDoneFolded) {
+    const numbers = [...new Set(doneRows.flatMap(row => (row.index !== undefined ? [row.index] : [])))].sort((a, b) => a - b)
+    taskNodes.push(
+      <Text key="done-folded" dimColor wrap="truncate-end">
+        {foldedDone(doneRows.length, numbers)}
+      </Text>,
+    )
+  }
 
   // Việc của các đợt trước đã cất (0.8.0 A3): một dòng mờ, không tính vào tiến độ.
   const archived = brief.archived ?? 0
@@ -836,7 +877,7 @@ export function renderPane(
       ) : null}
       {taskNodes.length > 0 ? (
         <Box flexDirection="column">
-          {heading(l.taskSection, String(taskNodes.length))}
+          {heading(l.taskSection, taskHeading)}
           {taskNodes}
         </Box>
       ) : null}

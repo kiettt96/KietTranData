@@ -183,6 +183,69 @@ function pendingLine(plan: readonly PlanStep[]): string {
   )
 }
 
+/** Số việc đã gỡ /conductor status nêu tối đa (0.8.9 D3), gần nhất. */
+const REMOVED_SHOWN = 10
+
+/** Dòng việc đã gỡ khi điều phối lại cho /conductor status (0.8.9 D3): số, tiêu đề, lý do hay việc nhận gộp; tối đa 10 dòng kèm số còn lại. */
+export function removedTaskLines(brief: Brief): string[] {
+  const removed = brief.removed ?? []
+  if (removed.length === 0) return []
+  const shown = removed.slice(-REMOVED_SHOWN)
+  return [
+    'Việc đã gỡ khi điều phối lại:',
+    ...shown.map(r => `  ${r.index}. ${r.title}: ${r.into !== undefined ? `gộp vào Việc ${r.into}` : r.why || 'không ghi lý do'}`),
+    ...(removed.length > shown.length ? [`  (và ${removed.length - shown.length} việc khác)`] : []),
+  ]
+}
+
+/** Trần ký tự của phần kế hoạch sau điều chỉnh (0.8.9 D3): ở prompt tiếp nối và ở tin chen ngang. */
+export const ARRANGED_CHARS = 900
+export const ARRANGED_INTERJECT_CHARS = 700
+const ARRANGED_ORDER_CHARS = 300
+const ARRANGED_ITEMS = 5
+const ARRANGED_WHY_CHARS = 60
+
+/** Danh sách số việc cắt cho vừa `max` ký tự, kèm "(và N việc khác)" khi cắt. */
+function numberList(numbers: readonly number[], max: number): string {
+  let shown = numbers.length
+  const text = (n: number) => `${numbers.slice(0, n).join(', ')}${n < numbers.length ? ` (và ${numbers.length - n} việc khác)` : ''}`
+  while (shown > 1 && text(shown).length > max) shown -= 1
+  return text(shown)
+}
+
+/**
+ * Kế hoạch sau điều chỉnh (0.8.9 D3), chỉ khi prompt có điều phối lại: thứ tự làm (chỉ số việc, cắt ở ARRANGED_ORDER_CHARS), việc đã
+ * bỏ (tối đa 5, lý do cắt còn 60 ký tự), việc đã gộp (tối đa 5 mục), và một câu dặn cập nhật checklist. `order` là thứ tự làm của các
+ * việc còn mở. Phần dài hơn `max` thì bớt danh sách thứ tự trước, rồi bớt số việc đã bỏ và đã gộp.
+ */
+export function arrangedContext(brief: Brief, arranged: { order: readonly number[]; dropped: readonly number[]; merged: ReadonlyArray<{ tasks: readonly number[]; into: number }> }, order: readonly number[], max = ARRANGED_CHARS): string {
+  const whyOf = (index: number) => (brief.removed ?? []).filter(r => r.index === index).at(-1)?.why ?? ''
+  const build = (orderChars: number, drops: number, merges: number) => {
+    const dropped = arranged.dropped.slice(0, drops).map(n => (whyOf(n) ? `Việc ${n} (${clipItem(whyOf(n), ARRANGED_WHY_CHARS)})` : `Việc ${n}`))
+    const merged = arranged.merged.slice(0, merges).map(m => `Việc ${m.tasks.join(', ')} vào Việc ${m.into}`)
+    return [
+      `Kế hoạch sau điều chỉnh, theo thứ tự làm: Việc ${numberList(order, orderChars)}`,
+      dropped.length > 0 ? `Đã bỏ: ${dropped.join('; ')}${arranged.dropped.length > drops ? ` (và ${arranged.dropped.length - drops} việc khác)` : ''}` : '',
+      merged.length > 0 ? `Đã gộp: ${merged.join('; ')}${arranged.merged.length > merges ? ` (và ${arranged.merged.length - merges} mục khác)` : ''}` : '',
+      'Cập nhật checklist bằng tool plan cho khớp: bỏ bước của việc đã bỏ hay đã gộp, thêm bước cho việc mới, giữ nguyên bước đã xong.',
+    ]
+      .filter(Boolean)
+      .join('\n')
+  }
+  let orderChars = ARRANGED_ORDER_CHARS
+  let drops = ARRANGED_ITEMS
+  let merges = ARRANGED_ITEMS
+  let text = build(orderChars, drops, merges)
+  while (text.length > max) {
+    if (orderChars > 100) orderChars -= 25
+    else if (drops > 1) drops -= 1
+    else if (merges > 1) merges -= 1
+    else break
+    text = build(orderChars, drops, merges)
+  }
+  return text.slice(0, max)
+}
+
 /**
  * Khối context cho prompt tiếp nối cùng mục tiêu. `main` là lựa chọn luồng chính mới của router
  * (null khi không hỏi router); `added` là các việc mới router tách thêm.
@@ -194,6 +257,8 @@ export function followUpContext(
   added: readonly Task[] = [],
   main: Choice | null = null,
   isApplied = true,
+  /** Kế hoạch sau điều chỉnh (0.8.9 D3, arrangedContext); rỗng khi prompt không điều phối lại. */
+  arranged = '',
 ): string {
   const open = openSteps(plan)
   const mainText = mainLabel(main, isApplied)
@@ -207,6 +272,7 @@ export function followUpContext(
     uncoveredRequirements(brief).length > 0 ? `Yêu cầu chưa có việc nào phủ (đừng bỏ sót): ${uncoveredList(uncoveredRequirements(brief))}` : '',
     pendingLine(plan),
     newConstraints.length > 0 ? `Ràng buộc mới: ${newConstraints.join('; ')}` : '',
+    arranged,
     'Giữ nhất quán với phần đã làm; nếu yêu cầu này đổi mục tiêu, cập nhật lại checklist.',
   ]
   return lines.filter(Boolean).join('\n')
@@ -226,7 +292,7 @@ export function interjectContext(
   plan: readonly PlanStep[],
   added: readonly Task[],
   newConstraints: readonly string[],
-  options: { main: string; mayReplace: boolean; isRouted: boolean },
+  options: { main: string; mayReplace: boolean; isRouted: boolean; arranged?: string },
 ): string {
   const open = openSteps(plan).slice(0, INTERJECT_OPEN_STEPS)
   const all = added.map(t =>
@@ -242,6 +308,8 @@ export function interjectContext(
       `[focus-conductor] Yêu cầu chen ngang khi đang làm: ${clipItem(brief.goal, 160)}`,
       options.isRouted ? '' : 'Router không đọc được tin này; tự đọc kỹ yêu cầu mới.',
       n > 0 ? `Việc mới (khi giao, description của Agent mở đầu "Việc N: "):\n${all.slice(0, n).join('\n')}${all.length > n ? `\nvà ${all.length - n} việc nữa` : ''}` : '',
+      // Kế hoạch sau điều chỉnh (0.8.9 D3): giữ trước, thiếu chỗ thì bớt việc mới.
+      options.arranged ?? '',
       rules,
       steps,
       ask,

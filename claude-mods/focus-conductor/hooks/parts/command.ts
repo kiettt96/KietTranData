@@ -16,7 +16,7 @@ import { taskStatusOf } from '../lib/progress'
 import * as S from '../lib/state'
 import { statusTextOf } from '../ui/direction'
 import type { View } from '../lib/state'
-import { RETRY_ROUNDS, WAIVE_REPORT, briefContext, checkHintLines, droppedGoalNotice, headlessOffNote, droppedItemsText, droppedPlanNotice, quotaStatusLines, renderPlan, resetLabel, routerFailLines, unroutedContext } from '../lib/text'
+import { RETRY_ROUNDS, WAIVE_REPORT, briefContext, checkHintLines, droppedGoalNotice, headlessOffNote, droppedItemsText, droppedPlanNotice, quotaStatusLines, removedTaskLines, renderPlan, resetLabel, routerFailLines, unroutedContext } from '../lib/text'
 import { PANE_ROWS, shouldAutoOpenPane } from '../lib/pane'
 import { PANE, PANE_TITLE } from '../ui/pane'
 import { conductStatusSuffix, conductorLine, labels, langOf } from '../ui/labels'
@@ -531,6 +531,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
           ...routerFailLines(core.routerFail),
           ...checkHintLines(core.checkHint, core.brief.goalId),
           ...((core.brief.dropped ?? 0) > 0 ? [droppedItemsText(core.brief.dropped ?? 0)] : []),
+          ...removedTaskLines(core.brief),
           renderPlan(core.brief, shown.plan) + (shown.source === 'mirror' ? '\n(theo danh sách việc của Claude Code, chỉ để theo dõi)' : ''),
           ...retryLines(core),
           ...waiverLines(core),
