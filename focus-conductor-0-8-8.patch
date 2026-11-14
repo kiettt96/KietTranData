@@ -76,7 +76,7 @@ index 56a5735..9326e2b 100644
  
  Router dùng model nào cũng đọc trọn prompt dài tới sức chứa của lượt đó, và không còn trần số việc, số yêu cầu, số bước [Nguồn: chủ mod, 12 và 13/11/2026]. Kèm hai sửa nhỏ: `/conductor status` nêu lý do mode off ở phiên không tương tác (H1), và lần test lỗi chạy sau làm mất lần đạt dùng để tự nâng `verified` (B1). Một sửa hiệu năng riêng cho dòng việc ở band và pane (P1). Bản bổ sung 2 thêm ba điểm: mod dùng phiên bản model mới nhất qua alias (M1), họ dự phòng nhận vai điều phối khi Fable không dùng được (F1), và vai điều phối theo họ model đọc từ một bảng (G1). Prompt không quá 80.000 ký tự và mục tiêu không quá 20 việc thì trường `prompt`, `maxTokens`, `timeoutMs` và `effort` của request router trùng 0.8.6; trường `system` đổi theo lời dặn mới của L2. `agentSystem`, schema router và schema tool `plan` không đổi. Mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `087-*`; số ca đỏ đo trên `45b5161` ở VERIFICATION.
 diff --git a/claude-mods/focus-conductor/README.md b/claude-mods/focus-conductor/README.md
-index d36b489..46b160d 100644
+index d36b489..c6bdff0 100644
 --- a/claude-mods/focus-conductor/README.md
 +++ b/claude-mods/focus-conductor/README.md
 @@ -135,6 +135,9 @@ Cấu hình qua `/config` (hoặc `pluginConfigs.focus-conductor.options` trong
@@ -89,7 +89,7 @@ index d36b489..46b160d 100644
  | `quotaGuard` | `true` | Bảo vệ hạn mức (xem mục dưới). Tắt thì mod chạy như 0.5.6 |
  | `pauseSessionRemainingPct` | `5` | Dừng khi hạn mức phiên (cửa sổ 5 giờ) còn không quá giá trị này, tính bằng phần trăm còn lại. Kẹp trong 0,5 đến 99 |
  | `pauseWeekRemainingPct` | `2` | Dừng khi hạn mức tuần còn không quá giá trị này, tính bằng phần trăm còn lại. Kẹp trong 0,5 đến 99 |
-@@ -165,20 +168,44 @@ Thử nhanh mà không đốt hạn mức (kịch bản nghiệm thu thủ công
+@@ -165,20 +168,46 @@ Thử nhanh mà không đốt hạn mức (kịch bản nghiệm thu thủ công
  4. Xác nhận khối ĐIỂM DỪNG xuất hiện (thử thêm một prompt về việc khác trước khi "tiếp tục": khối không được chèn), Claude tiếp tục đúng bước đang làm, không làm lại bước đã xong.
  5. Trả `pauseSessionRemainingPct` về `5`.
  
@@ -114,6 +114,8 @@ index d36b489..46b160d 100644
 +- chỉ cho dải màu đứng yên, nhịp 60 giây như 0.8.7: `neonMotion: off`;
 +- bỏ hẳn màu neon, dùng màu theo theme của người dùng như 0.8.7 (bố cục vẫn là ba ô): `neon: off`;
 +- terminal nền sáng: `neonTheme: light` (engine không báo cho mod biết nền sáng hay tối).
++
++Band hẹp bỏ dần nhãn vai điều phối, chip lô, effort, thời gian, ô model, rồi (maxRows 1 hay dưới 56 cột) nút Ẩn, phần bên phải và nhãn của ô hướng (còn ký hiệu). Band từ 16 cột trở xuống không có nút; mở pane bằng `/conductor`.
 +
  ### Thanh tiến độ
  
@@ -140,7 +142,7 @@ index d36b489..46b160d 100644
  ```
  
  Pane là một danh sách bước: bước khớp một việc (theo mã "BƯỚC N", "Việc N" hay tiêu đề của bước dự kiến) mang chip của việc đó ngay trên dòng, nên mỗi bước chỉ xuất hiện một lần; bước đã đóng của checklist dài dồn thành một dòng "N bước đã đóng (k đã kiểm chứng, m bỏ qua)". Ngay dưới thanh tiến độ, pane có mục "Cần chú ý" (cùng thứ tự mức độ với band; tạm dừng cứng kèm lý do, giờ làm mới và lệnh chạy tiếp; tối đa 4 mục rồi "+N mục khác"), còn "Cảnh báo khác" chỉ giữ cảnh báo chưa hiện ở đó. Dưới 48 cột, chip model và số lô xuống dòng riêng dưới tên bước. Mục "Tiến độ từng việc" chỉ còn việc Claude tự giao và việc không khớp bước nào; mục "Đang chạy" ghi mỗi việc có subagent đang chạy một dòng (khoảng lô, số agent, thời gian). Độ sâu, khối lượng, loại việc và lý do router ở mục "Điều phối" cuối pane.
-@@ -188,7 +215,8 @@ Pane là một danh sách bước: bước khớp một việc (theo mã "BƯỚ
+@@ -188,7 +217,8 @@ Pane là một danh sách bước: bước khớp một việc (theo mã "BƯỚ
  ▎ script khai sẵn
    ━━━━━━━◐╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌ 3/11 đang thực hiện
  
@@ -151,10 +153,10 @@ index d36b489..46b160d 100644
  ◐  4 BƯỚC 3: lọc tin lô 1                                  sonnet 98/100 · 2 lỗi
  ○  5 BƯỚC 4: lọc tin lô 2                                  sonnet 99/100 · 1 lỗi
 diff --git a/claude-mods/focus-conductor/docs/DESIGN.md b/claude-mods/focus-conductor/docs/DESIGN.md
-index 7233e73..250d9cc 100644
+index 7233e73..7ee493c 100644
 --- a/claude-mods/focus-conductor/docs/DESIGN.md
 +++ b/claude-mods/focus-conductor/docs/DESIGN.md
-@@ -261,6 +261,25 @@ Chủ mod chốt ngày 12/11/2026 [Nguồn: chủ mod]: luồng chính đang đi
+@@ -261,6 +261,26 @@ Chủ mod chốt ngày 12/11/2026 [Nguồn: chủ mod]: luồng chính đang đi
  - **Đoạn dặn.** `conductorContext` (462 ký tự) bỏ câu cho tự sửa file khi ráp kết quả, nói không tự sửa file, không tự chạy lệnh kiểm, chỉnh nhỏ gom vào một lời giao, lệnh kiểm giao một subagent chạy và báo tóm tắt. `conductorKeepText` 190 ký tự. Lời từ chối dưới 300 ký tự, dòng nhắc đọc dưới 200.
  - **Giới hạn đã biết của 0.8.6.** Lối thoát duy nhất ngoài lệnh `solo` là lời gọi Agent bị từ chối trước khi chạy; subagent chạy được mà làm sai thì luồng chính phải giao lại, không tự sửa. Kịch bản phiên dài của test để luồng chính tự chạy script ghi và lệnh kiểm, nên với `conductor: 'fable'` các lời gọi đó bị từ chối (số đo ở VERIFICATION). Khai báo kiểu của engine vẫn không sinh được trong phiên phát triển, nên `tsc` chưa chạy.
  
@@ -168,6 +170,7 @@ index 7233e73..250d9cc 100644
 +- **Dải màu.** `gradientRuns(text, stops, frame)`: chu kỳ 24 ô; nửa đầu đi từ mốc đầu tới mốc cuối, nửa sau đi ngược lại; nội suy tuyến tính giữa các mốc; ô thứ i lấy màu ở vị trí (i + frame) mod 24. Đếm ô theo cụm ký tự (`hooks/ui/cells.ts`), các ô liền nhau cùng màu gộp thành một Run.
 +- **Ô hướng (`hooks/ui/direction.ts`).** Tạm dừng đứng trước mọi mục (⏸ Tạm dừng, tô đặc dải pause). Có mục cần chú ý thì nhãn theo `kind` của mục đầu: approval Chờ duyệt, failed Lô lỗi, scope Lệch phạm vi, loop Lặp lỗi, notice Gần hạn mức, dropped Mục bị bỏ, unverified và skill Chưa kiểm, budget Vượt ngân sách, loại khác Cần chú ý; mức màu theo `severity` (error là ô tô đặc dải warn, warning là chữ màu cần chú ý). Không có mục nào: xong và mọi bước verified là "✓ Đã kiểm n/n" tô đặc dải done; xong mà còn bước chưa verified là "● Đã kiểm k/n" màu cần chú ý; còn lại "✓ Đúng hướng" màu đạt. Ô bước tô đặc theo dải của giai đoạn đúng khi ô hướng không tô đặc.
 +- **Band.** Co theo bề rộng, bỏ lần lượt: nhãn vai điều phối, chip lô, effort, thời gian đã chạy, cả ô model; ô hướng không bị bỏ. Tên bước trong ô bước cắt bằng `oneLine` theo chỗ còn lại. Chữ co giãn của dòng 2 (câu cần chú ý, lý do tạm dừng, lệnh chạy tiếp, mục tiêu sau thanh) nằm trong hộp co được với `truncate-end`, engine cắt khi vẽ; phần cố định của mỗi dòng không vượt bề rộng.
++- **Thanh hạn mức khi tạm dừng (N6e).** Chỉ cửa sổ có trong lý do dừng (`reasons`) dùng dải pause; cửa sổ còn lại theo mức của nó (almost khi từ ngưỡng báo mềm, bảng màu đang chạy khi còn xa). Người dùng tự dừng (`/conductor pause`): không cửa sổ nào gây dừng, nên tiêu đề mục Hạn mức tô dải pause còn các thanh theo far hay near [Nguồn: chủ mod, 14/11/2026].
 +- **Pane.** Tiêu đề mục: tên là một Text riêng trong ô tô đặc. Dải bước chiếm một dòng ở đầu checklist (khi từ hai bước), được cộng vào phép tính dạng gọn. Thanh hạn mức 12 ô, thanh chi phí 8 ô; pane dưới 48 cột 6 ô; bề rộng engine cấp dưới 32 cột thì bỏ thanh.
 +- **Nhịp vẽ lại.** Turn luồng chính đang chạy, `neon` khác `off` và `neonMotion` là `on`: `$.clock.every(1000)`; còn lại 60.000 ms như 0.7.9. `$.clock.every` nhận chu kỳ từ 1 ms [Nguồn: khai báo kiểu của engine 2.1.296 và 2.1.325: "Calls fn every ms milliseconds (at least 1)"]. `frame` là `Math.floor($.clock.now() / 1000)` lúc vẽ, band và pane dùng chung; ◐ của bước đang làm in đậm ở frame chẵn; dải pause không dịch. Nhịp chỉ gọi `$.ui.invalidate`; số ký tự chèn vào context không đổi.
 +- **Engine không báo nền sáng hay tối, cũng không báo độ sâu màu** [Đo trực tiếp, khai báo kiểu của 2.1.296 và 2.1.325: không có `theme.get` hay prop chế độ màu ở `ui.render`; 2.1.325 chỉ có `$.theme.set` và `clear`]. `neonTheme: auto` vì vậy là `dark`.
@@ -255,7 +258,7 @@ index b3172aa..eb8974a 100644
    const evaluation = evaluateQuota(quota.readings, now, settings)
    const isPaused = isPauseActive(true, evaluation.hits, quota.pause, overrideOf(quota), now)
 diff --git a/claude-mods/focus-conductor/hooks/lib/text.ts b/claude-mods/focus-conductor/hooks/lib/text.ts
-index dd196c4..f76b2cf 100644
+index dd196c4..c07c057 100644
 --- a/claude-mods/focus-conductor/hooks/lib/text.ts
 +++ b/claude-mods/focus-conductor/hooks/lib/text.ts
 @@ -682,9 +682,10 @@ export function stepTag(title: string): string {
@@ -302,7 +305,7 @@ index dd196c4..f76b2cf 100644
    const l = labels(lang)
    const windows = view.windows.map(w => `${l.quotaWindow[w.kind]}: ${l.quotaUsage(percent(w.used), percent(Math.max(0, 100 - w.used)), resetLabel(w.resetsAt), percent(w.threshold))}`)
    const reasonText = (r: QuotaReason) =>
-@@ -1089,7 +1096,16 @@ export function quotaPaneText(view: QuotaOverview, lang: Lang, hasNotice = false
+@@ -1089,7 +1096,17 @@ export function quotaPaneText(view: QuotaOverview, lang: Lang, hasNotice = false
    } else if (isPaused) {
      checkpoint.push(`${l.quotaContinue}: ${resumeCommand(view.state === 'user')}`)
    }
@@ -310,7 +313,8 @@ index dd196c4..f76b2cf 100644
 +  const softOf = (kind: QuotaReason['kind']) => (kind === 'five_hour' ? soft.session : soft.week)
 +  const bars: QuotaPaneBar[] = view.windows.map(w => {
 +    const notice = softOf(w.kind)
-+    const level = isPaused ? 'paused' : notice !== null && w.used >= 100 - notice ? 'near' : 'far'
++    // Chỉ cửa sổ gây ra việc dừng dùng mức paused (0.8.8 N6e); người dùng tự dừng thì không cửa sổ nào là paused.
++    const level = isPaused && view.reasons.some(r => r.kind === w.kind) ? 'paused' : notice !== null && w.used >= 100 - notice ? 'near' : 'far'
 +    return { kind: w.kind, label: l.quotaWindow[w.kind], used: w.used, percent: percent(w.used), level }
 +  })
 +  const causing = isPaused ? view.reasons.map(r => resetLabel(r.resetsAt)).find(text => text !== '') : undefined
@@ -578,7 +582,7 @@ index 4e088cb..af2e64e 100644
        onReset: async () => {
          // Hai bước: lần đầu chỉ chờ xác nhận; lần hai trong hạn mới xóa.
 diff --git a/claude-mods/focus-conductor/hooks/ui/band.tsx b/claude-mods/focus-conductor/hooks/ui/band.tsx
-index ae2722f..b5c911d 100644
+index ae2722f..c5a1e8a 100644
 --- a/claude-mods/focus-conductor/hooks/ui/band.tsx
 +++ b/claude-mods/focus-conductor/hooks/ui/band.tsx
 @@ -1,11 +1,16 @@
@@ -675,7 +679,7 @@ index ae2722f..b5c911d 100644
  
    const { closed, total } = progress(plan)
    const planned = total === 0 ? brief.steps.length : 0
-@@ -92,227 +108,246 @@ export function renderBand(
+@@ -92,227 +108,260 @@ export function renderBand(
    // W4: bước còn todo mà đã có lô đang chạy: đầu thanh là ◐ (có checklist) hay hạt dự kiến là ◐ (chưa có).
    const runningSteps = runningTitles(view.core, rows, plan.length > 0 ? plan.map(step => step.title) : brief.steps)
    const runningBeads = new Set(brief.steps.flatMap((step, i) => (runningSteps.has(step) ? [i] : [])))
@@ -718,8 +722,10 @@ index ae2722f..b5c911d 100644
 -  // đã chạy, rồi cả chip model.
 -  const fit = { agents: true, effort: true, elapsed: true, route: true, role: true }
 -  // Vai điều phối (0.8.4 C8): nhãn trên chip model của luồng chính điều phối, chỉ khi band rộng từ ROLE_COLUMNS ô.
-+  // Band hẹp: bỏ lần lượt nhãn vai điều phối, chip lô, effort, thời gian đã chạy, cả ô model cho tới khi vừa. Ô hướng không bao giờ bị bỏ.
-+  const fit = { role: true, agents: true, effort: true, elapsed: true, route: true }
++  // Band hẹp: bỏ lần lượt nhãn vai điều phối, chip lô, effort, thời gian đã chạy, cả ô model cho tới khi vừa. maxRows 1 hay band dưới 56 cột
++  // (0.8.8 N6b) bỏ thêm nút Ẩn, phần bên phải, rồi cắt nhãn ô hướng còn ký hiệu; từ 16 cột trở xuống bỏ cả nút Chi tiết (bước cuối; mở pane
++  // bằng /conductor). Ô hướng không bao giờ bị bỏ.
++  const fit = { role: true, agents: true, effort: true, elapsed: true, route: true, hide: true, right: true, label: true, details: true }
    const roleText = view.conductor !== undefined && columns >= ROLE_COLUMNS && isConductedRoute(route?.family, conductorShown(view.core, view.conductor?.family), view.conductor?.family) ? l.conductorRole : ''
 -  const progressCells = () =>
 -    bar.length > 0 ? runCells(bar) + 1 + cellsOf(countText) + (mirrorText ? 1 + cellsOf(mirrorText) : 0) : beads.length > 0 ? runCells(beads) + 1 + cellsOf(l.plannedSteps(planned)) : 0
@@ -736,23 +742,34 @@ index ae2722f..b5c911d 100644
 -  // Tên bước được giữ ít nhất FOCUS_CELLS ô trước khi bỏ chip; riêng chip subagent nhường cả tên bước (U4: tên việc ưu tiên hơn chip).
 -  const focusWant = () => (fit.agents && agentChip ? Math.max(FOCUS_CELLS, cellsOf(current?.title ?? brief.goal)) : FOCUS_CELLS)
 -  const fixedCells = () => 2 + progressCells() + 1 + focusWant() + 1 + chipCells() + 1 + buttonCells(l.details) + (hasRoom ? 1 + buttonCells(l.hide) : 0)
+-  for (const drop of [() => (fit.role = false), () => (fit.agents = false), () => (fit.effort = false), () => (fit.elapsed = false), () => (fit.route = false)]) {
+-    if (fixedCells() <= columns) break
 +  const modelWords = () =>
 +    route && fit.route
 +      ? [...(view.mode === 'suggest' ? [l.suggest] : []), route.family, ...(fit.effort ? [route.effort] : []), ...(fit.role && roleText && view.mode !== 'suggest' ? [roleText] : [])]
 +      : []
 +  const modelCells = () => (modelWords().length > 0 ? 2 + cellsOf(modelWords().join(' ')) : 0)
-+  const directionCells = 2 + cellsOf(directionText(direction))
++  const directionCells = () => 2 + cellsOf(fit.label ? directionText(direction) : direction.glyph)
 +  // Tạm dừng (U3): dòng 2 là lý do và giờ làm mới bên trái, điểm dừng và lệnh chạy tiếp bên phải; cả hai co được, engine cắt khi vẽ.
-+  const rightParts = () => (isPaused && pause !== null ? [] : [quotaText, fit.elapsed ? elapsedText : '', costText, fit.agents ? agentChip : '', mirrorText].filter(Boolean))
++  const rightParts = () => (!fit.right || (isPaused && pause !== null) ? [] : [quotaText, fit.elapsed ? elapsedText : '', costText, fit.agents ? agentChip : '', mirrorText].filter(Boolean))
 +  const rightCells = () => rightParts().reduce((sum, part) => sum + cellsOf(part) + 1, 0)
-+  const buttonsCells = () => 1 + buttonCells(l.details) + (hasRoom && !isPaused ? 1 + buttonCells(l.hide) : 0)
++  const buttonsCells = () => (fit.details ? 1 + buttonCells(l.details) : 0) + (hasRoom && !isPaused && fit.hide ? 1 + buttonCells(l.hide) : 0)
 +  // Ô bước giữ ít nhất số bước và FOCUS_CELLS ô của tên.
 +  const stepFloor = 2 + (countText ? cellsOf(countText) + 1 : 0) + FOCUS_CELLS
-+  const line1Cells = () => stepFloor + (modelCells() > 0 ? 1 + modelCells() : 0) + 1 + directionCells + (hasSecondRow ? 0 : rightCells() + buttonsCells())
++  const line1Cells = () => stepFloor + (modelCells() > 0 ? 1 + modelCells() : 0) + 1 + directionCells() + (hasSecondRow ? 0 : rightCells() + buttonsCells())
 +  const leftFloor = 6
 +  const line2Cells = () => (hasSecondRow ? leftFloor + 1 + rightCells() + buttonsCells() : 0)
-   for (const drop of [() => (fit.role = false), () => (fit.agents = false), () => (fit.effort = false), () => (fit.elapsed = false), () => (fit.route = false)]) {
--    if (fixedCells() <= columns) break
++  const isTight = !hasSecondRow || columns < 56
++  const drops = [
++    () => (fit.role = false),
++    () => (fit.agents = false),
++    () => (fit.effort = false),
++    () => (fit.elapsed = false),
++    () => (fit.route = false),
++    ...(isTight ? [() => (fit.hide = false), () => (fit.right = false), () => (fit.label = false)] : []),
++    ...(columns <= 16 ? [() => (fit.details = false)] : []),
++  ]
++  for (const drop of drops) {
 +    if (line1Cells() <= columns && line2Cells() <= columns) break
      drop()
    }
@@ -795,14 +812,14 @@ index ae2722f..b5c911d 100644
 +      const at = offset
 +      offset += cellsOf(part.text)
 +      const runs: Run[] = !isStepFilled
-+        ? [{ text: part.text, color: 'text', ...(paint.solid('cell') !== undefined ? { bg: paint.solid('cell') } : {}) }]
++        ? [{ text: part.text, color: paint.solid('onCell') ?? 'text', ...(paint.solid('cell') !== undefined ? { bg: paint.solid('cell') } : {}) }]
 +        : stepGradient !== null
 +          ? paint.fill(stepGradient, part.text, {}, at)
 +          : [{ text: part.text, color: 'inverseText', bg: 'inactive' }]
 +      return (
-+        <Text key={k} bold={part.bold}>
++        <Text key={k} bold={part.bold} wrap="truncate-end">
 +          {runs.map(run => (
-+            <Text color={isStepFilled ? run.color : undefined} backgroundColor={run.bg}>
++            <Text color={isStepFilled || paint.isNeon ? run.color : undefined} backgroundColor={run.bg} wrap="truncate-end">
 +              {run.text}
 +            </Text>
 +          ))}
@@ -814,21 +831,23 @@ index ae2722f..b5c911d 100644
 -      <Text color="warning" bold={quota.paused}>
 -        {quotaText}
 +    })
-+    return <Text>{nodes}</Text>
++    return <Text wrap="truncate-end">{nodes}</Text>
 +  })()
 +
 +  // ---------------------------------------------------------------- ô model
++  // Chữ mờ trên nền ô (0.8.8 N6a): neon thì màu thô onCellDim (dimColor của theme không đảm bảo tương phản với nền thô), off thì dimColor.
++  const dimOnCell = paint.isNeon ? { color: paint.solid('onCellDim') } : { dimColor: true }
 +  const isModelDim = isPaused || isFinished
 +  const modelCell =
 +    route && fit.route ? (
-+      <Text backgroundColor={paint.solid('cell')}>
++      <Text backgroundColor={paint.solid('cell')} color={paint.solid('onCell')}>
 +        <Text>{' '}</Text>
-+        {view.mode === 'suggest' ? <Text dimColor>{`${l.suggest} `}</Text> : null}
-+        <Text color={paint.solid(route.family)} dimColor={isModelDim} bold>
++        {view.mode === 'suggest' ? <Text {...dimOnCell}>{`${l.suggest} `}</Text> : null}
++        <Text {...(isModelDim ? dimOnCell : { color: paint.solid(route.family) })} bold>
 +          {route.family}
 +        </Text>
-+        {fit.effort ? <Text dimColor>{` ${route.effort}`}</Text> : null}
-+        {fit.role && roleText && view.mode !== 'suggest' ? <Text dimColor>{` ${roleText}`}</Text> : null}
++        {fit.effort ? <Text {...dimOnCell}>{` ${route.effort}`}</Text> : null}
++        {fit.role && roleText && view.mode !== 'suggest' ? <Text {...dimOnCell}>{` ${roleText}`}</Text> : null}
 +        <Text>{' '}</Text>
        </Text>
 -    ) : null,
@@ -861,7 +880,7 @@ index ae2722f..b5c911d 100644
 -      </Box>
 -    ) : null
 +  // ---------------------------------------------------------------- ô hướng
-+  const directionBody = ` ${directionText(direction)} `
++  const directionBody = ` ${fit.label ? directionText(direction) : direction.glyph} `
 +  const directionCell =
 +    directionFill !== undefined ? (
 +      runsNode(paint.fill(directionFill, directionBody, { bold: true }))
@@ -870,9 +889,10 @@ index ae2722f..b5c911d 100644
 +        {directionBody}
 +      </Text>
 +    )
-+
-+  const detailsButton = <Button key="details" label={l.details} onPress={handlers.onDetails} />
-+  const hideButton = hasRoom && !isPaused ? <Button key="hide" plain dimColor label={l.hide} onPress={handlers.onHide} /> : null
+ 
+-  const alertNode = top ? (
++  const detailsButton = fit.details ? <Button key="details" label={l.details} onPress={handlers.onDetails} /> : null
++  const hideButton = hasRoom && !isPaused && fit.hide ? <Button key="hide" plain dimColor label={l.hide} onPress={handlers.onHide} /> : null
 +  const rightNodes = rightParts().map(part => (
 +    <Box flexShrink={0}>
 +      <Text color={isPaused || part === quotaText ? paint.solid('attention') : undefined} dimColor={!isPaused && part !== quotaText} bold={quota?.paused === true && part === quotaText}>
@@ -880,8 +900,7 @@ index ae2722f..b5c911d 100644
 +      </Text>
 +    </Box>
 +  ))
- 
--  const alertNode = top ? (
++
 +  const cells = (
      <Box flexDirection="row" gap={1}>
 -      <Box flexShrink={0}>
@@ -1272,10 +1291,10 @@ index 3fae424..88f801e 100644
  export function labels(lang: Lang): typeof VI {
 diff --git a/claude-mods/focus-conductor/hooks/ui/neon.ts b/claude-mods/focus-conductor/hooks/ui/neon.ts
 new file mode 100644
-index 0000000..000f5e8
+index 0000000..4948f9e
 --- /dev/null
 +++ b/claude-mods/focus-conductor/hooks/ui/neon.ts
-@@ -0,0 +1,274 @@
+@@ -0,0 +1,295 @@
 +// Dải màu neon của band và pane (0.8.8 N1). Tệp duy nhất của hooks/ được chứa mã màu thô: mọi tệp khác lấy màu qua đây
 +// (scripts/version-check.mjs kiểm). Ba option: neon (bảng màu của giai đoạn đang chạy, hay off), neonMotion (dải màu dịch theo nhịp),
 +// neonTheme (bảng nền tối hay nền sáng). neon off thì mọi màu là theme key như 0.8.7.
@@ -1297,8 +1316,8 @@ index 0000000..000f5e8
 +
 +/** Tên các dải màu: ba bảng của giai đoạn đang chạy, và năm dải theo trạng thái. */
 +export type GradientName = 'cyber' | 'aurora' | 'plasma' | 'start' | 'almost' | 'done' | 'warn' | 'pause'
-+/** Màu đơn: bốn họ model, chữ trên ô tô đặc, nền ô thường, đạt, cần chú ý, lỗi. */
-+export type SolidName = ModelFamily | 'onFill' | 'cell' | 'ok' | 'attention' | 'error'
++/** Màu đơn: bốn họ model, chữ trên ô tô đặc, nền ô thường, chữ thường và chữ mờ trên nền ô thường (0.8.8 N6a), đạt, cần chú ý, lỗi. */
++export type SolidName = ModelFamily | 'onFill' | 'cell' | 'onCell' | 'onCellDim' | 'ok' | 'attention' | 'error'
 +
 +/** Bảng nền tối [Nguồn: chủ mod, đặc tả 0.8.8, 14/11/2026]. */
 +export const DARK_GRADIENTS: Readonly<Record<GradientName, readonly string[]>> = {
@@ -1319,6 +1338,9 @@ index 0000000..000f5e8
 +  fable: '#ff9d5c',
 +  onFill: '#07080d',
 +  cell: '#171a28',
++  // Chữ trên nền ô thường (0.8.8 N6a): thường từ 4,5, mờ từ 3 trên 1 với nền ô [Đo trực tiếp: 14,4 và 5,52].
++  onCell: '#e8eaf2',
++  onCellDim: '#8b91a7',
 +  ok: '#5dff8f',
 +  attention: '#ffc233',
 +  error: '#ff4d7d',
@@ -1387,32 +1409,45 @@ index 0000000..000f5e8
 +  return [hue(h + 1 / 3) * 255, hue(h) * 255, hue(h - 1 / 3) * 255]
 +}
 +
-+/** Bản nền sáng của một màu: giảm L của HSL từng 1% cho tới khi tương phản với nền trắng đạt MIN_CONTRAST. */
-+export function lightOf(hex: string): string {
++/** Nền ô thường của bảng nền sáng. */
++export const LIGHT_CELL = '#e6e8f0'
++
++/**
++ * Bản nền sáng của một màu: giảm L của HSL từng 1% cho tới khi tương phản với mọi nền trong `backgrounds` đạt MIN_CONTRAST. Mốc của dải
++ * màu đo với nền trắng; màu đơn dùng trên ô đo với cả nền trắng và nền ô (0.8.8 N6c).
++ */
++export function lightOf(hex: string, backgrounds: readonly string[] = [LIGHT_BACKGROUND]): string {
 +  const [h, s, l] = hslOf(rgbOf(hex))
 +  let out = hex
-+  for (let step = 0; contrast(out, LIGHT_BACKGROUND) < MIN_CONTRAST && step <= 100; step++) out = hexOf(rgbOfHsl([h, s, Math.max(0, l - step / 100)]))
++  const fits = (color: string) => backgrounds.every(bg => contrast(color, bg) >= MIN_CONTRAST)
++  for (let step = 0; !fits(out) && step <= 100; step++) out = hexOf(rgbOfHsl([h, s, Math.max(0, l - step / 100)]))
 +  return out
 +}
 +
++/** Màu đơn dùng trên ô của bảng nền sáng: đạt tương phản với nền trắng và với nền ô. */
++const onLightCell = (hex: string) => lightOf(hex, [LIGHT_BACKGROUND, LIGHT_CELL])
++
 +/** Bảng nền sáng: cùng tên, mỗi mốc là lightOf của mốc nền tối. */
 +export const LIGHT_GRADIENTS: Readonly<Record<GradientName, readonly string[]>> = Object.fromEntries(
-+  Object.entries(DARK_GRADIENTS).map(([name, stops]) => [name, stops.map(lightOf)]),
++  Object.entries(DARK_GRADIENTS).map(([name, stops]) => [name, stops.map(stop => lightOf(stop))]),
 +) as Record<GradientName, readonly string[]>
 +
 +const LIGHT_STOPS = Object.values(LIGHT_GRADIENTS).flat()
 +
 +export const LIGHT_SOLIDS: Readonly<Record<SolidName, string>> = {
-+  haiku: lightOf(DARK_SOLIDS.haiku),
-+  sonnet: lightOf(DARK_SOLIDS.sonnet),
-+  opus: lightOf(DARK_SOLIDS.opus),
-+  fable: lightOf(DARK_SOLIDS.fable),
++  haiku: onLightCell(DARK_SOLIDS.haiku),
++  sonnet: onLightCell(DARK_SOLIDS.sonnet),
++  opus: onLightCell(DARK_SOLIDS.opus),
++  fable: onLightCell(DARK_SOLIDS.fable),
 +  // Chữ trên ô tô đặc của nền sáng: trắng nếu đạt tương phản với mọi mốc của mọi dải, không thì màu chữ của nền tối.
 +  onFill: LIGHT_STOPS.every(stop => contrast(LIGHT_BACKGROUND, stop) >= MIN_CONTRAST) ? LIGHT_BACKGROUND : DARK_SOLIDS.onFill,
-+  cell: '#e6e8f0',
-+  ok: lightOf(DARK_SOLIDS.ok),
-+  attention: lightOf(DARK_SOLIDS.attention),
-+  error: lightOf(DARK_SOLIDS.error),
++  cell: LIGHT_CELL,
++  // [Đo trực tiếp: 16,35 và 5,12 với nền ô của bảng nền sáng].
++  onCell: '#07080d',
++  onCellDim: '#596075',
++  ok: onLightCell(DARK_SOLIDS.ok),
++  attention: onLightCell(DARK_SOLIDS.attention),
++  error: onLightCell(DARK_SOLIDS.error),
 +}
 +
 +export function isHexColor(value: unknown): boolean {
@@ -1457,7 +1492,9 @@ index 0000000..000f5e8
 +  if (stops.length === 0) return ''
 +  if (stops.length === 1) return stops[0] as string
 +  const half = CYCLE / 2
-+  const t = ((position % CYCLE) + CYCLE) % CYCLE
++  // Vị trí không hữu hạn (NaN, Infinity) coi là 0 (0.8.8 N6d).
++  const at = Number.isFinite(position) ? position : 0
++  const t = ((at % CYCLE) + CYCLE) % CYCLE
 +  const u = t <= half ? t / half : (CYCLE - t) / half
 +  const scaled = u * (stops.length - 1)
 +  const i = Math.min(stops.length - 2, Math.floor(scaled))
@@ -1470,9 +1507,10 @@ index 0000000..000f5e8
 + */
 +export function gradientRuns(text: string, stops: readonly string[], frame: number, extra: Omit<Run, 'text' | 'color'> = {}): Run[] {
 +  const runs: Run[] = []
++  const shift = Number.isFinite(frame) ? frame : 0
 +  let cell = 0
 +  for (const g of graphemesOf(text.normalize('NFC'))) {
-+    const color = colorAt(stops, cell + frame)
++    const color = colorAt(stops, cell + shift)
 +    const last = runs.at(-1)
 +    if (last !== undefined && last.color === color) last.text += g
 +    else runs.push({ text: g, color, ...extra })
@@ -1502,6 +1540,8 @@ index 0000000..000f5e8
 +  fable: 'bashBorder',
 +  onFill: 'inverseText',
 +  cell: undefined,
++  onCell: undefined,
++  onCellDim: undefined,
 +  ok: 'success',
 +  attention: 'warning',
 +  error: 'error',
@@ -1906,7 +1946,7 @@ index 0b4ab5f..9d9e548 100644
  /**
   * Một dòng không quá `cells` ô, dòng bị cắt kết bằng "…" (0.7.9, UI1). Chữ thường cắt theo từ bằng wrapText như mọi chữ của pane, nên
 diff --git a/claude-mods/focus-conductor/scripts/mutants.ts b/claude-mods/focus-conductor/scripts/mutants.ts
-index a6047d7..55802a2 100644
+index a6047d7..b251218 100644
 --- a/claude-mods/focus-conductor/scripts/mutants.ts
 +++ b/claude-mods/focus-conductor/scripts/mutants.ts
 @@ -578,8 +578,8 @@ export const MUTANTS: Mutant[] = [
@@ -1947,7 +1987,7 @@ index a6047d7..55802a2 100644
 -  { id: "061-U21", file: "hooks/ui/band.tsx", note: "band vẫn vẽ effort sau khi đã bỏ", old: "          {fit.effort ? <Text dimColor> {route.effort}</Text> : null}\n        </Text>\n      ) : (", new: "          <Text dimColor> {route.effort}</Text>\n        </Text>\n      ) : (" },
 -  { id: "061-U22", file: "hooks/ui/band.tsx", note: "band đếm thiếu chip model khi tính phần cố định", old: "      route && fit.route ? cellsOf(route.family) + 2 + (fit.effort ? 1 + cellsOf(route.effort) : 0) + (fit.role && roleText ? 1 + cellsOf(roleText) : 0) : 0,\n", new: "      0,\n" },
 +  { id: "061-U19", file: "hooks/ui/band.tsx", note: "band không bỏ phần cố định khi thiếu chỗ", old: "    if (line1Cells() <= columns && line2Cells() <= columns) break\n", new: "    break\n" },
-+  { id: "061-U21", file: "hooks/ui/band.tsx", note: "band vẫn vẽ effort sau khi đã bỏ", old: "        {fit.effort ? <Text dimColor>{` ${route.effort}`}</Text> : null}\n", new: "        {<Text dimColor>{` ${route.effort}`}</Text>}\n" },
++  { id: "061-U21", file: "hooks/ui/band.tsx", note: "band vẫn vẽ effort sau khi đã bỏ", old: "        {fit.effort ? <Text {...dimOnCell}>{` ${route.effort}`}</Text> : null}\n", new: "        {<Text {...dimOnCell}>{` ${route.effort}`}</Text>}\n" },
 +  { id: "061-U22", file: "hooks/ui/band.tsx", note: "band đếm thiếu ô model khi tính phần cố định", old: "  const modelCells = () => (modelWords().length > 0 ? 2 + cellsOf(modelWords().join(' ')) : 0)", new: "  const modelCells = () => 0" },
    { id: "061-U23", file: "hooks/lib/text.ts", note: "trạng thái người dùng dừng bị coi là dừng vì hạn mức", old: "    input.pause?.source === 'user'\n      ? 'user'", new: "    false\n      ? 'user'" },
    { id: "061-Q1", file: "hooks/parts/command.ts", note: "/conductor goal bỏ bước waiting khỏi danh sách đã lưu", old: "const dropped = restorableSteps(before.plan)", new: "const dropped = restorableSteps(before.plan).filter(s => s.status !== 'waiting')" },
@@ -2012,10 +2052,11 @@ index a6047d7..55802a2 100644
 -  { id: "076-B5", file: "hooks/ui/band.tsx", note: "dòng 2 không ghi subagent đang chạy", old: "    else if (first !== undefined)", new: "    else if (false)" },
 -  { id: "076-B6", file: "hooks/ui/band.tsx", note: "dòng 2 lặp mục tiêu khi dòng 1 đã ghi", old: "    else if (!isGoalFocus)", new: "    else" },
 -  { id: "076-B7", file: "hooks/ui/band.tsx", note: "dòng 1 không ghi bước hiện tại", old: "    ) : current ? (\n      <Text wrap=\"truncate-end\" bold={props.isWorking}>", new: "    ) : false ? (\n      <Text wrap=\"truncate-end\" bold={props.isWorking}>" },
+-  { id: "076-B8", file: "hooks/ui/band.tsx", note: "thứ tự bỏ: chip model trước effort", old: "[() => (fit.role = false), () => (fit.agents = false), () => (fit.effort = false), () => (fit.elapsed = false), () => (fit.route = false)]", new: "[() => (fit.role = false), () => (fit.agents = false), () => (fit.route = false), () => (fit.elapsed = false), () => (fit.effort = false)]" },
 +  { id: "076-B5", file: "hooks/ui/band.tsx", note: "dòng 2 không ghi subagent đang chạy", old: ": firstAgent !== undefined ? `${l.agentsRunning(runningBatches)}: ${taskLabel(l, firstAgent)}` : brief.goal", new: ": false ? `${l.agentsRunning(runningBatches)}: ${taskLabel(l, firstAgent)}` : brief.goal" },
 +  { id: "076-B6", file: "hooks/ui/band.tsx", note: "dòng 2 lặp mục tiêu khi dòng 1 đã ghi (chưa có checklist)", old: "    ) : (\n      <Text>{' '}</Text>\n    )", new: "    ) : (\n      <Text>{brief.goal}</Text>\n    )" },
 +  { id: "076-B7", file: "hooks/ui/band.tsx", note: "dòng 1 không ghi bước hiện tại", old: "  const focusText = current ? current.title :", new: "  const focusText = current ? brief.goal :" },
-   { id: "076-B8", file: "hooks/ui/band.tsx", note: "thứ tự bỏ: chip model trước effort", old: "[() => (fit.role = false), () => (fit.agents = false), () => (fit.effort = false), () => (fit.elapsed = false), () => (fit.route = false)]", new: "[() => (fit.role = false), () => (fit.agents = false), () => (fit.route = false), () => (fit.elapsed = false), () => (fit.effort = false)]" },
++  { id: "076-B8", file: "hooks/ui/band.tsx", note: "thứ tự bỏ: ô model trước effort", old: "    () => (fit.effort = false),\n    () => (fit.elapsed = false),\n    () => (fit.route = false),\n", new: "    () => (fit.route = false),\n    () => (fit.elapsed = false),\n    () => (fit.effort = false),\n" },
    { id: "076-U3a", file: "hooks/ui/band.tsx", note: "tạm dừng không chiếm dòng 1", old: "  if (isPaused && pause !== null) {", new: "  if (false) {" },
 -  { id: "076-U3b", file: "hooks/ui/band.tsx", note: "dòng 2 khi dừng không có lệnh chạy tiếp", old: "      ...(hasSecondRow\n        ? [", new: "      ...(false\n        ? [" },
 +  { id: "076-U3b", file: "hooks/ui/band.tsx", note: "dòng 2 khi dừng không có lệnh chạy tiếp", old: "              {pause.resume}\n", new: "              {''}\n" },
@@ -2068,12 +2109,12 @@ index a6047d7..55802a2 100644
    { id: "079-UI2d", file: "hooks/parts/ui.tsx", note: "đặt nhịp mới dù đã có nhịp, thành hai nhịp", old: "  if (tick.timer !== null) return\n", new: "" },
    { id: "079-L1a", file: "hooks/lib/errlog.ts", note: "gặp lại thì thêm mục mới thay vì tăng count", old: "  if (index >= 0) {\n    const old = file.entries[index]!", new: "  if (false) {\n    const old = file.entries[index]!" },
    { id: "079-L1b", file: "hooks/lib/errlog.ts", note: "bỏ bước chuẩn hóa số", old: "    .replace(/\\d+(?:\\.\\d+)?/g, '<n>')\n", new: "" },
-@@ -2264,4 +2264,28 @@ export const MUTANTS: Mutant[] = [
+@@ -2264,4 +2264,44 @@ export const MUTANTS: Mutant[] = [
    { id: "087-G1c", file: "hooks/parts/session.ts", note: "đoạn dặn ghi cứng fable", old: "    const conductNote = wanted?.isConducting === true && !isBriefed ? [conductorContext(wanted.family)] : []\n", new: "    const conductNote = wanted?.isConducting === true && !isBriefed ? [conductorContext()] : []\n" },
    { id: "087-G1d", file: "hooks/lib/conductor.ts", note: "họ không có cờ điều phối vẫn được nhận", old: "  return CONDUCTOR_FAMILIES.find(f => f === raw) ?? 'off'\n", new: "  return (CONDUCTOR_FAMILIES.find(f => f === raw) ?? (raw === 'haiku' || raw === 'sonnet' ? raw : 'off')) as ConductorOption\n" },
    { id: "087-G1e", file: "hooks/lib/conductor.ts", note: "họ dự phòng trùng họ chính vẫn kích hoạt dự phòng", old: "  if (fallback === null || fallback === primary || input.blocked.has(fallback) || (input.fallbackPauseLeft ?? 0) > 0) return null\n", new: "  if (fallback === null || (fallback === primary && false) || input.blocked.has(fallback) || (input.fallbackPauseLeft ?? 0) > 0) return null\n" },
 +  { id: "088-N1a", file: "hooks/ui/neon.ts", note: "dải màu không nội suy: mọi ô cùng mốc đầu", old: "  return hexOf(mix(rgbOf(stops[i] as string), rgbOf(stops[i + 1] as string), scaled - i))", new: "  return stops[0] as string" },
-+  { id: "088-N1b", file: "hooks/ui/neon.ts", note: "frame không dịch dải màu", old: "    const color = colorAt(stops, cell + frame)", new: "    const color = colorAt(stops, cell)" },
++  { id: "088-N1b", file: "hooks/ui/neon.ts", note: "frame không dịch dải màu", old: "    const color = colorAt(stops, cell + shift)", new: "    const color = colorAt(stops, cell)" },
 +  { id: "088-N1c", file: "hooks/ui/neon.ts", note: "neon off vẫn trả mã màu thô", old: "  const isNeon = style.palette !== 'off'\n  const gradients", new: "  const isNeon = true\n  const gradients" },
 +  { id: "088-N1d", file: "hooks/ui/neon.ts", note: "giá trị lạ của neon thành off", old: "  return pick(value, ['cyber', 'aurora', 'plasma', 'off'] as const, 'cyber')", new: "  return pick(value, ['cyber', 'aurora', 'plasma', 'off'] as const, 'off')" },
 +  { id: "088-N1e", file: "hooks/ui/neon.ts", note: "bảng nền sáng dùng màu của nền tối", old: "  const gradients = style.theme === 'light' ? LIGHT_GRADIENTS : DARK_GRADIENTS\n  const solids = style.theme === 'light' ? LIGHT_SOLIDS : DARK_SOLIDS", new: "  const gradients = DARK_GRADIENTS\n  const solids = DARK_SOLIDS" },
@@ -2096,6 +2137,22 @@ index a6047d7..55802a2 100644
 +  { id: "088-N5b", file: "hooks/parts/ui.tsx", note: "nhịp ghi $.state", old: "  $.ui.invalidate('ui.render')\n}", new: "  await update($, runningTurnState, id => id)\n  $.ui.invalidate('ui.render')\n}" },
 +  { id: "088-N5c", file: "hooks/parts/ui.tsx", note: "frame luôn 0", old: "{ maxRows, columns: bodyColumns, isWorking, now, frame: Math.floor(now / 1000) }", new: "{ maxRows, columns: bodyColumns, isWorking, now, frame: 0 }" },
 +  { id: "088-N5d", file: "hooks/parts/ui.tsx", note: "hai nhịp cùng lúc sau khi nạp lại", old: "    const result = await next(e)\n    stopTick(tick)\n", new: "    const result = await next(e)\n    tick.timer = null\n" },
++  { id: "088-N6c", file: "hooks/ui/neon.ts", note: "màu đơn của bảng nền sáng chỉ đo với nền trắng", old: "const onLightCell = (hex: string) => lightOf(hex, [LIGHT_BACKGROUND, LIGHT_CELL])", new: "const onLightCell = (hex: string) => lightOf(hex)" },
++  { id: "088-N6a", file: "hooks/ui/band.tsx", note: "chữ ô bước thường quay về theme key", old: "color: paint.solid('onCell') ?? 'text',", new: "color: 'text'," },
++  { id: "088-N6b", file: "hooks/ui/band.tsx", note: "effort trên nền ô quay về dimColor", old: "        {fit.effort ? <Text {...dimOnCell}>{` ${route.effort}`}</Text> : null}", new: "        {fit.effort ? <Text dimColor>{` ${route.effort}`}</Text> : null}" },
++  { id: "088-N6d", file: "hooks/ui/band.tsx", note: "không cắt nhãn ô hướng", old: "  const directionBody = ` ${fit.label ? directionText(direction) : direction.glyph} `", new: "  const directionBody = ` ${directionText(direction)} `" },
++  { id: "088-N6e", file: "hooks/ui/band.tsx", note: "không bỏ phần bên phải ở band hẹp", old: "  const rightParts = () => (!fit.right || (isPaused", new: "  const rightParts = () => ((isPaused" },
++  { id: "088-N6f", file: "hooks/ui/band.tsx", note: "không bỏ nút Chi tiết ở band rất hẹp", old: "    ...(columns <= 16 ? [() => (fit.details = false)] : []),\n", new: "" },
++  { id: "088-N6g", file: "hooks/ui/neon.ts", note: "vị trí không hữu hạn không coi là 0", old: "  const at = Number.isFinite(position) ? position : 0\n", new: "  const at = position\n" },
++  { id: "088-N6h", file: "hooks/ui/neon.ts", note: "frame không hữu hạn không coi là 0", old: "  const shift = Number.isFinite(frame) ? frame : 0\n", new: "  const shift = frame\n" },
++  { id: "088-N6i", file: "hooks/lib/text.ts", note: "mọi cửa sổ dùng pause khi đang dừng", old: "const level = isPaused && view.reasons.some(r => r.kind === w.kind) ? 'paused'", new: "const level = isPaused ? 'paused'" },
++  { id: "088-N6j", file: "hooks/ui/neon.ts", note: "chữ trên ô tô đặc cùng màu với nền", old: "map(run => ({ ...extra, text: run.text, color: solids.onFill, bg: run.color }))", new: "map(run => ({ ...extra, text: run.text, color: run.color, bg: run.color }))" },
++  { id: "088-N6k", file: "hooks/ui/neon.ts", note: "dải pause dịch theo frame", old: "const STILL: ReadonlySet<GradientName> = new Set(['pause'])", new: "const STILL: ReadonlySet<GradientName> = new Set([])" },
++  { id: "088-N6l", file: "hooks/ui/band.tsx", note: "câu mức đỏ ở dòng 2 không tô dải warn", old: "paint.text('warn', sentence, { bold: true })", new: "paint.text('cyber', sentence, { bold: true })" },
++  { id: "088-N6m", file: "hooks/parts/ui.tsx", note: "pane không đổi màu theo frame", old: "rows: e.props.scroll.bodyRows, frame: Math.floor(now / 1000) }", new: "rows: e.props.scroll.bodyRows, frame: 0 }" },
++  { id: "088-N6n", file: "hooks/ui/band.tsx", note: "ô model không mờ khi xong hết", old: "  const isModelDim = isPaused || isFinished", new: "  const isModelDim = isPaused" },
++  { id: "088-N6o", file: "hooks/ui/band.tsx", note: "nút Ẩn vẫn hiện khi tạm dừng", old: "const hideButton = hasRoom && !isPaused && fit.hide ?", new: "const hideButton = hasRoom && fit.hide ?" },
++  { id: "088-N6p", file: "hooks/ui/direction.ts", note: "tắt quotaGuard vẫn tính tạm dừng", old: "  const isPaused = settings.enabled && isPauseActive(", new: "  const isPaused = isPauseActive(" },
  ]
 diff --git a/claude-mods/focus-conductor/scripts/version-check.mjs b/claude-mods/focus-conductor/scripts/version-check.mjs
 index 32a45cc..38460c5 100644
@@ -2175,10 +2232,10 @@ index 8f9a28b..c2ed2eb 100644
    test('đối chứng: chưa có bước verified thì band chỉ ghi "1/2"', { options: { planApproval: 'off' } }, async ($, on) => {
 diff --git a/claude-mods/focus-conductor/tests/integration/band-b-n2-088.test.ts b/claude-mods/focus-conductor/tests/integration/band-b-n2-088.test.ts
 new file mode 100644
-index 0000000..b40bf20
+index 0000000..64f5981
 --- /dev/null
 +++ b/claude-mods/focus-conductor/tests/integration/band-b-n2-088.test.ts
-@@ -0,0 +1,253 @@
+@@ -0,0 +1,254 @@
 +// 0.8.8 N2: band hướng B "Ba ô phát sáng". Dòng 1 là ba ô (bước, model, hướng), mỗi lúc chỉ một ô tô đặc; ô hướng lấy nhãn theo mục cần
 +// chú ý đầu tiên (thứ tự của attention.ts không đổi), tạm dừng đứng trước mọi mục, không có mục nào thì theo checklist. Dòng 2 là câu cần
 +// chú ý kèm +N, hay lý do tạm dừng và lệnh chạy tiếp, hay thanh tiến độ. Không còn gờ bên trái. Band không vượt bề rộng; ô hướng không bị bỏ.
@@ -2213,7 +2270,8 @@ index 0000000..b40bf20
 +const cellsOf = (s: string) => [...segmenter.segment(s.normalize('NFC'))].reduce((sum, g) => sum + (WIDE.test(g.segment) ? 2 : 1), 0)
 +/** Ô tô đặc: có Text mang nền khác nền ô thường (ô thường của neon có nền DARK_SOLIDS.cell). */
 +const hasBg = (n: unknown): boolean => n !== null && typeof n === 'object' && ((((n as Node).type === 'Text' && typeof (n as Node).props?.backgroundColor === 'string' && (n as Node).props?.backgroundColor !== DARK_SOLIDS.cell)) || ((n as Node).children ?? []).some(hasBg))
-+const isDim = (n: unknown): boolean => n !== null && typeof n === 'object' && (((n as Node).type === 'Text' && (n as Node).props?.dimColor === true) || ((n as Node).children ?? []).some(isDim))
++/** Chữ mờ: dimColor của theme, hay (0.8.8 N6a, neon) màu onCellDim trên nền ô. */
++const isDim = (n: unknown): boolean => n !== null && typeof n === 'object' && (((n as Node).type === 'Text' && ((n as Node).props?.dimColor === true || (n as Node).props?.color === DARK_SOLIDS.onCellDim)) || ((n as Node).children ?? []).some(isDim))
 +
 +/**
 + * Phần cố định của một dòng, như test 0.6.1 mục 3.3: Text theo số ô chữ, Button theo nhãn (ít nhất BUTTON_CELLS), hộp hàng cộng con và khoảng
@@ -2432,6 +2490,138 @@ index 0000000..b40bf20
 +    })
 +  }
 +})
+diff --git a/claude-mods/focus-conductor/tests/integration/band-narrow-n6b-088.test.ts b/claude-mods/focus-conductor/tests/integration/band-narrow-n6b-088.test.ts
+new file mode 100644
+index 0000000..190b1f6
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/integration/band-narrow-n6b-088.test.ts
+@@ -0,0 +1,96 @@
++// 0.8.8 N6b: dòng 1 không xuống dòng. Mọi Text của ô bước có wrap="truncate-end". Ở maxRows 1 và ở band dưới 56 cột, phần không co của mỗi
++// dòng không vượt bề rộng: sau các bước bỏ của N2, bỏ thêm lần lượt nút Ẩn, phần bên phải, rồi cắt nhãn ô hướng còn ký hiệu; từ 16 cột trở
++// xuống bỏ cả nút Chi tiết (bước bỏ cuối cùng; mở pane bằng /conductor) [Nguồn: chủ mod, 14/11/2026].
++
++import { describe, expect, test } from 'claude-code/testing'
++import type { On } from 'claude-code'
++import type { Engine } from 'claude-code/testing'
++import { base, plan, step, submit } from '../support/engine'
++import { quotaMeter, session } from '../support/quota'
++
++type Node = { type?: string; props?: Record<string, unknown>; children?: unknown[] }
++const PLAN = 'mcp__focus-conductor__plan'
++const GLYPHS = /[\u2713\u25CF\u25B2\u25B3\u23F8]/
++const kids = (n: Node) => (n.children ?? []).filter(c => c !== null && typeof c === 'object') as Node[]
++const textOf = (n: unknown): string => (typeof n === 'string' ? n : n !== null && typeof n === 'object' ? ((n as Node).children ?? []).map(textOf).join('') : '')
++const cellsOf = (s: string) => [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(s.normalize('NFC'))].length
++
++/** Phần không co của một dòng (như test 0.6.1 mục 3.3): hộp co được không tính; Button ít nhất 10 ô. */
++function fixedOf(n: unknown): number {
++  if (typeof n === 'string') return cellsOf(n)
++  if (n === null || typeof n !== 'object') return 0
++  const node = n as Node
++  if (node.type === 'Text') return cellsOf(textOf(node))
++  if (node.type === 'Button') return Math.max(10, cellsOf(String(node.props?.label ?? '')) + 2)
++  if (node.props?.flexShrink === 1) return 0
++  const c = kids(node)
++  return c.reduce((sum, k) => sum + fixedOf(k), 0) + Number(node.props?.gap ?? 0) * Math.max(0, c.length - 1)
++}
++const all = (n: unknown, type: string): Node[] => (n === null || typeof n !== 'object' ? [] : [...((n as Node).type === type ? [n as Node] : []), ...((n as Node).children ?? []).flatMap(c => all(c, type))])
++
++async function band($: Engine, columns: number, maxRows: number): Promise<Node> {
++  const ui = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: true, maxRows, bodyColumns: columns, scroll: { offset: 0, bodyRows: maxRows }, view: {} } } as never)
++  const tree = (await ui.drawn()) as unknown as Node
++  await ui.unmount()
++  return tree
++}
++/** Các dòng của band (cột chứa các dòng; 0.8.7 có thêm cột gờ đứng trước). */
++const linesOf = (tree: Node): Node[] => {
++  const c = kids(tree)
++  return String(tree.props?.flexDirection) === 'column' ? c : kids(c.at(-1) as Node)
++}
++
++async function running($: Engine, on: On, red: boolean) {
++  const seen = base(on, { router: () => plan({ goal: 'Sửa module thanh toán theo các bước có mã', depth: 'substantial', volume: 'small', scope: ['src/'], main: { model: 'opus', effort: 'high', why: '' } }) })
++  on('tool.call', { tool: 'Write' }, () => ({ result: 'đã ghi' }))
++  await submit($, 'Sửa module thanh toán trong src/')
++  await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'BƯỚC 1: sửa module thanh toán' }, { title: 'BƯỚC 2: kiểm' }] } as never)
++  await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'doing' } as never)
++  await step($, seen)
++  await seen.clock.advance(5 * 60_000)
++  if (red) await $.tool.call({ tool: 'Write', file_path: '/repo/scripts/ngoai.py', content: 'x' } as never)
++}
++
++describe('0.8.8 N6b: band hẹp', () => {
++  for (const red of [false, true])
++    for (const columns of [8, 16, 24, 32, 40, 48])
++      for (const maxRows of [1, 2])
++        test(`${red ? 'mục mức đỏ' : 'đang chạy'}, ${columns} cột, maxRows ${maxRows}: phần không co không vượt bề rộng; ô hướng còn ký hiệu`, { options: { planApproval: 'off', neonMotion: 'off' } }, async ($, on) => {
++          await running($, on, red)
++          const tree = await band($, columns, maxRows)
++          const lines = linesOf(tree)
++          expect(lines.length).toBe(maxRows)
++          for (const line of lines) expect(fixedOf(line), textOf(line)).toBeLessThanOrEqual(columns)
++          expect(GLYPHS.test(textOf(lines[0]))).toBe(true)
++          if (columns <= 16) expect(all(tree, 'Button')).toEqual([])
++        })
++
++  test('nhãn hạn mức (phần bên phải) bị bỏ ở band hẹp maxRows 1, còn ở 120 cột', { options: { planApproval: 'off', neonMotion: 'off' } }, async ($, on) => {
++    const meter = quotaMeter(on, [session(10)])
++    const seen = base(on, { router: () => plan({ goal: 'Sửa module thanh toán', depth: 'substantial', volume: 'small' }) })
++    on('tool.call', { tool: 'Bash' }, () => ({ result: 'ok' }))
++    await submit($, 'Sửa module thanh toán')
++    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa' }, { title: 'Kiểm' }] } as never)
++    meter.set([session(92)])
++    await seen.clock.advance(120_000)
++    await $.tool.call({ tool: 'Bash', command: 'npm test' } as never)
++    expect(textOf(linesOf(await band($, 120, 1))[0])).toMatch(/hạn mức|còn/)
++    const narrow = linesOf(await band($, 24, 1))[0] as Node
++    expect(fixedOf(narrow), textOf(narrow)).toBeLessThanOrEqual(24)
++    expect(textOf(narrow)).not.toMatch(/hạn mức/)
++  })
++
++  test('mọi Text của ô bước có wrap="truncate-end"', { options: { planApproval: 'off', neonMotion: 'off' } }, async ($, on) => {
++    await running($, on, false)
++    const step0 = kids(linesOf(await band($, 40, 2))[0] as Node)[0] as Node
++    const texts = all(step0, 'Text')
++    expect(texts.length).toBeGreaterThan(0)
++    for (const t of texts) expect(t.props?.wrap, textOf(t)).toBe('truncate-end')
++  })
++
++  test('48 cột: còn nút Chi tiết; 120 cột: nhãn ô hướng đầy đủ', { options: { planApproval: 'off', neonMotion: 'off' } }, async ($, on) => {
++    await running($, on, false)
++    expect(all(await band($, 48, 2), 'Button').length).toBeGreaterThan(0)
++    expect(textOf(linesOf(await band($, 120, 2))[0])).toContain('\u2713 Đúng hướng')
++  })
++})
+diff --git a/claude-mods/focus-conductor/tests/integration/band-root-n6g-088.test.ts b/claude-mods/focus-conductor/tests/integration/band-root-n6g-088.test.ts
+new file mode 100644
+index 0000000..9d6ef80
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/integration/band-root-n6g-088.test.ts
+@@ -0,0 +1,24 @@
++// 0.8.8 N6g: band không còn hộp rỗng ở cột đầu (gờ trái đã bỏ ở N2): gốc là một hộp cột, mỗi con là một dòng.
++
++import { describe, expect, test } from 'claude-code/testing'
++import { base, plan, submit } from '../support/engine'
++
++type Node = { type?: string; props?: Record<string, unknown>; children?: unknown[] }
++const PLAN = 'mcp__focus-conductor__plan'
++const kids = (n: Node) => (n.children ?? []).filter(c => c !== null && typeof c === 'object') as Node[]
++
++describe('0.8.8 N6g: cấu trúc band', () => {
++  for (const maxRows of [1, 2])
++    test(`maxRows ${maxRows}: gốc là hộp cột gồm ${maxRows} dòng, không có hộp rỗng`, { options: { planApproval: 'off' } }, async ($, on) => {
++      base(on, { router: () => plan({ goal: 'Sửa module thanh toán', depth: 'substantial', volume: 'small' }) })
++      await submit($, 'Sửa module thanh toán')
++      await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa' }, { title: 'Kiểm' }] } as never)
++      const ui = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: true, maxRows, bodyColumns: 120, scroll: { offset: 0, bodyRows: maxRows }, view: {} } } as never)
++      const tree = (await ui.drawn()) as unknown as Node
++      await ui.unmount()
++      expect(tree.type).toBe('Box')
++      expect(tree.props?.flexDirection).toBe('column')
++      expect(kids(tree).length).toBe(maxRows)
++      for (const line of kids(tree)) expect(kids(line).length).toBeGreaterThan(0)
++    })
++})
 diff --git a/claude-mods/focus-conductor/tests/integration/band-rows-076.test.ts b/claude-mods/focus-conductor/tests/integration/band-rows-076.test.ts
 index 1d1964b..48e4d3d 100644
 --- a/claude-mods/focus-conductor/tests/integration/band-rows-076.test.ts
@@ -2493,7 +2683,7 @@ index 1d1964b..48e4d3d 100644
    })
  })
 diff --git a/claude-mods/focus-conductor/tests/integration/band-since-ui2-079.test.ts b/claude-mods/focus-conductor/tests/integration/band-since-ui2-079.test.ts
-index 0615e0a..0b6b619 100644
+index 0615e0a..e9f328a 100644
 --- a/claude-mods/focus-conductor/tests/integration/band-since-ui2-079.test.ts
 +++ b/claude-mods/focus-conductor/tests/integration/band-since-ui2-079.test.ts
 @@ -88,7 +88,7 @@ describe('0.7.9 UI2: dòng Đang chạy giữ "từ HH:MM"', () => {
@@ -2530,6 +2720,15 @@ index 0615e0a..0b6b619 100644
      const count = counters(on)
      const session = mock.session(on)
      const seen = await goal($, on)
+@@ -144,7 +144,7 @@ describe('0.7.9 UI2: nhịp vẽ lại 60 giây khi có turn đang chạy', () =
+     expect(count.writes - before.writes).toBeGreaterThan(0)
+   })
+ 
+-  test('không có turn đang chạy: không có nhịp nào, kể cả sau khi nạp lại mod; turn kết thúc thì nhịp dừng', { options: { planApproval: 'off' } }, async ($, on) => {
++  test('không có turn đang chạy: không có nhịp nào, kể cả sau khi nạp lại mod; turn kết thúc thì nhịp dừng', { options: { planApproval: 'off', neonMotion: 'off' } }, async ($, on) => {
+     sessionHooks(on)
+     const count = counters(on)
+     const seen = await goal($, on)
 @@ -165,7 +165,7 @@ describe('0.7.9 UI2: nhịp vẽ lại 60 giây khi có turn đang chạy', () =
      expect(count.invalidates.length).toBe(after)
    })
@@ -2548,6 +2747,127 @@ index 0615e0a..0b6b619 100644
      const count = counters(on)
      const seen = await goal($, on)
      await startTurn($)
+diff --git a/claude-mods/focus-conductor/tests/integration/cell-text-n6a-088.test.ts b/claude-mods/focus-conductor/tests/integration/cell-text-n6a-088.test.ts
+new file mode 100644
+index 0000000..7629a58
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/integration/cell-text-n6a-088.test.ts
+@@ -0,0 +1,115 @@
++// 0.8.8 N6a: chữ trên nền thô dùng màu thô. Neon khác off thì mọi chữ nằm trên nền ô thường (paint.solid('cell')) hay nền ô tô đặc có màu
++// là mã màu thô, không theo theme key hay dimColor: chữ thường đạt tương phản từ 4,5 trên 1 với nền thật của chính ô đó, chữ mờ (onCellDim)
++// từ 3 trên 1. Áp cho cả nhãn ô hướng không tô đặc (màu ok và attention), ở cả hai bảng. neon off: cây không có mã màu thô.
++
++import { describe, expect, test } from 'claude-code/testing'
++import type { On } from 'claude-code'
++import type { Engine } from 'claude-code/testing'
++import { DARK_SOLIDS, LIGHT_SOLIDS, contrast } from '../../hooks/ui/neon'
++import { base, conductor, plan, step, submit } from '../support/engine'
++
++type Node = { type?: string; props?: Record<string, unknown>; children?: unknown[] }
++const PLAN = 'mcp__focus-conductor__plan'
++const HEX = /^#[0-9a-f]{6}$/
++type Leaf = { text: string; bg: string; color: unknown; dim: boolean }
++
++/** Mọi đoạn chữ (không chỉ khoảng trắng) nằm trên nền mã màu thô, với nền, màu chữ và cờ mờ thừa hưởng từ các Text bao ngoài. */
++function leavesOnRaw(root: unknown): Leaf[] {
++  const out: Leaf[] = []
++  const walk = (n: unknown, bg: unknown, color: unknown, dim: boolean) => {
++    if (typeof n === 'string') {
++      if (n.trim() !== '' && typeof bg === 'string' && HEX.test(bg)) out.push({ text: n, bg, color, dim })
++      return
++    }
++    if (n === null || typeof n !== 'object') return
++    const node = n as Node
++    const p = node.props ?? {}
++    const isText = node.type === 'Text'
++    const nb = isText && p.backgroundColor !== undefined ? p.backgroundColor : bg
++    const nc = isText && p.color !== undefined ? p.color : color
++    const nd = isText && p.dimColor === true ? true : dim
++    for (const c of node.children ?? []) walk(c, nb, nc, nd)
++  }
++  walk(root, undefined, undefined, false)
++  return out
++}
++
++async function band($: Engine, columns = 120): Promise<Node> {
++  const ui = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: true, maxRows: 2, bodyColumns: columns, scroll: { offset: 0, bodyRows: 2 }, view: {} } } as never)
++  const tree = (await ui.drawn()) as unknown as Node
++  await ui.unmount()
++  return tree
++}
++
++async function running($: Engine, on: On) {
++  const seen = base(on, { router: () => plan({ goal: 'Sửa module thanh toán', depth: 'substantial', volume: 'small', scope: ['src/'], main: { model: 'opus', effort: 'high', why: '' } }) })
++  on('tool.call', { tool: 'Write' }, () => ({ result: 'đã ghi' }))
++  on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
++  on('tool.call', { tool: 'Bash' }, () => ({ result: '12 pass' }))
++  await submit($, 'Sửa module thanh toán trong src/')
++  await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'BƯỚC 1: sửa' }, { title: 'BƯỚC 2: kiểm' }, { title: 'BƯỚC 3: ghi' }] } as never)
++  await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'done' } as never)
++  await $.tool.call({ tool: PLAN, action: 'update', step: 2, status: 'doing' } as never)
++  await step($, seen)
++  return seen
++}
++
++const check = (leaves: Leaf[], solids: typeof DARK_SOLIDS) => {
++  expect(leaves.length).toBeGreaterThan(0)
++  for (const leaf of leaves) {
++    expect(leaf.dim, leaf.text).toBe(false)
++    expect(String(leaf.color), leaf.text).toMatch(HEX)
++    const min = leaf.color === solids.onCellDim ? 3 : 4.5
++    expect(contrast(String(leaf.color), leaf.bg), `${leaf.text} ${String(leaf.color)} trên ${leaf.bg}`).toBeGreaterThanOrEqual(min)
++  }
++}
++
++describe('0.8.8 N6a: màu onCell, onCellDim', () => {
++  test('mỗi bảng có onCell (từ 4,5 với nền ô) và onCellDim (từ 3 với nền ô)', () => {
++    for (const solids of [DARK_SOLIDS, LIGHT_SOLIDS]) {
++      expect(solids.onCell).toMatch(HEX)
++      expect(solids.onCellDim).toMatch(HEX)
++      expect(contrast(solids.onCell, solids.cell)).toBeGreaterThanOrEqual(4.5)
++      expect(contrast(solids.onCellDim, solids.cell)).toBeGreaterThanOrEqual(3)
++    }
++  })
++})
++
++describe('0.8.8 N6a: chữ trên nền thô của band', () => {
++  for (const [theme, solids] of [['dark', DARK_SOLIDS], ['light', LIGHT_SOLIDS]] as const) {
++    test(`${theme}: đang chạy (ô bước tô đặc, ô model và ô hướng thường)`, { options: { planApproval: 'off', neonMotion: 'off', neonTheme: theme } }, async ($, on) => {
++      await running($, on)
++      check(leavesOnRaw(await band($)), solids)
++    })
++
++    test(`${theme}: mục mức đỏ (ô hướng tô đặc, ô bước và ô model thường)`, { options: { planApproval: 'off', neonMotion: 'off', neonTheme: theme } }, async ($, on) => {
++      await running($, on)
++      await $.tool.call({ tool: 'Write', file_path: '/repo/scripts/ngoai.py', content: 'x' } as never)
++      check(leavesOnRaw(await band($)), solids)
++    })
++
++    test(`${theme}: xong mà còn bước done (nhãn ô hướng màu cần chú ý trên nền ô, ô model mờ)`, { options: { planApproval: 'off', neonMotion: 'off', neonTheme: theme } }, async ($, on) => {
++      await running($, on)
++      await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' } as never)
++      await $.tool.call({ tool: 'Bash', command: 'npm test' } as never)
++      await $.tool.call({ tool: PLAN, action: 'update', step: 2, status: 'verified', evidence: 'npm test: 12 pass' } as never)
++      await $.tool.call({ tool: 'Edit', file_path: 'src/b.ts', old_string: 'a', new_string: 'b' } as never)
++      await $.tool.call({ tool: PLAN, action: 'update', step: 3, status: 'done' } as never)
++      check(leavesOnRaw(await band($)), solids)
++    })
++
++    test(`${theme}: chế độ suggest (nhãn gợi ý trên nền ô)`, { options: { planApproval: 'off', neonMotion: 'off', neonTheme: theme } }, async ($, on) => {
++      on('command.register', () => ({ value: { command: 'conductor' } }))
++      await running($, on)
++      await conductor($, 'mode suggest')
++      const tree = await band($)
++      expect(JSON.stringify(tree)).toContain('đề xuất')
++      check(leavesOnRaw(tree), solids)
++    })
++  }
++
++  test('neon off: không có chữ nào trên nền mã màu thô', { options: { planApproval: 'off', neon: 'off' } }, async ($, on) => {
++    await running($, on)
++    expect(leavesOnRaw(await band($))).toEqual([])
++  })
++})
 diff --git a/claude-mods/focus-conductor/tests/integration/done-u10-076.test.ts b/claude-mods/focus-conductor/tests/integration/done-u10-076.test.ts
 index 9229d94..7e46ee4 100644
 --- a/claude-mods/focus-conductor/tests/integration/done-u10-076.test.ts
@@ -2615,6 +2935,132 @@ index 16df99e..62db4ec 100644
    })
  })
  
+diff --git a/claude-mods/focus-conductor/tests/integration/gaps-n6f-088.test.ts b/claude-mods/focus-conductor/tests/integration/gaps-n6f-088.test.ts
+new file mode 100644
+index 0000000..5598eb0
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/integration/gaps-n6f-088.test.ts
+@@ -0,0 +1,120 @@
++// 0.8.8 N6f: các ca còn thiếu của N1 tới N5, mỗi ca kèm một mẫu đột biến: chữ trên ô tô đặc khác màu nền của chính ô đó; dải pause không dịch
++// theo frame; câu mức đỏ ở dòng 2 tô dải warn; pane đổi màu theo frame khi neonMotion on; ô model mờ khi xong hết; không có nút Ẩn khi tạm
++// dừng; tắt quotaGuard thì status line không tính tạm dừng.
++
++import { describe, expect, test } from 'claude-code/testing'
++import type { On } from 'claude-code'
++import type { Engine } from 'claude-code/testing'
++import * as S from '../../hooks/lib/state'
++import { EMPTY_QUOTA, quotaSettings } from '../../hooks/lib/quota'
++import { statusTextOf } from '../../hooks/ui/direction'
++import { DARK_GRADIENTS, DARK_SOLIDS, colorAt } from '../../hooks/ui/neon'
++import { makeBrief } from '../support/commands'
++import { PANE, base, plan, step, submit } from '../support/engine'
++import { RESUME, memoryStore, quotaMeter, session } from '../support/quota'
++
++type Node = { type?: string; props?: Record<string, unknown>; children?: unknown[] }
++const PLAN = 'mcp__focus-conductor__plan'
++const kids = (n: Node) => (n.children ?? []).filter(c => c !== null && typeof c === 'object') as Node[]
++const textOf = (n: unknown): string => (typeof n === 'string' ? n : n !== null && typeof n === 'object' ? ((n as Node).children ?? []).map(textOf).join('') : '')
++const all = (n: unknown, type: string): Node[] => (n === null || typeof n !== 'object' ? [] : [...((n as Node).type === type ? [n as Node] : []), ...((n as Node).children ?? []).flatMap(c => all(c, type))])
++const leaves = (n: unknown) => all(n, 'Text').filter(t => (t.children ?? []).every(c => typeof c === 'string'))
++
++async function band($: Engine, columns = 120): Promise<Node> {
++  const ui = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: true, maxRows: 2, bodyColumns: columns, scroll: { offset: 0, bodyRows: 2 }, view: {} } } as never)
++  const tree = (await ui.drawn()) as unknown as Node
++  await ui.unmount()
++  return tree
++}
++async function pane($: Engine): Promise<Node> {
++  const ui = await $.ui.mount(PANE as never)
++  const tree = (await ui.drawn()) as unknown as Node
++  await ui.unmount()
++  return tree
++}
++const linesOf = (tree: Node): Node[] => (String(tree.props?.flexDirection) === 'column' ? kids(tree) : kids(kids(tree).at(-1) as Node))
++
++async function running($: Engine, on: On, opts: { quota?: boolean } = {}) {
++  const seen = base(on, { ...RESUME, router: () => plan({ goal: 'Sửa module thanh toán', depth: 'substantial', volume: 'small', scope: ['src/'], main: { model: 'opus', effort: 'high', why: '' } }) })
++  on('tool.register', () => ({ value: { tool: PLAN } }))
++  on('command.register', () => ({ value: { command: 'conductor' } }))
++  on('turn.complete', () => ({ text: '' }))
++  on('tool.call', { tool: 'Write' }, () => ({ result: 'đã ghi' }))
++  on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
++  on('tool.call', { tool: 'Bash' }, () => ({ result: '12 pass' }))
++  memoryStore(on)
++  const meter = opts.quota ? quotaMeter(on, [session(10)]) : null
++  await submit($, 'Sửa module thanh toán trong src/')
++  await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'BƯỚC 1: sửa' }, { title: 'BƯỚC 2: kiểm' }] } as never)
++  await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'doing' } as never)
++  await step($, seen)
++  return { seen, meter }
++}
++async function pauseNow($: Engine, ctx: Awaited<ReturnType<typeof running>>) {
++  ctx.meter?.set([session(97)])
++  await ctx.seen.clock.advance(10_000)
++  await $.tool.call({ tool: 'Bash', command: 'npm test' } as never)
++}
++
++describe('0.8.8 N6f: các ca còn thiếu', () => {
++  test('chữ trên ô tô đặc khác màu nền của chính ô đó', { options: { planApproval: 'off', neonMotion: 'off' } }, async ($, on) => {
++    await running($, on)
++    const filled = leaves(await band($)).filter(t => typeof t.props?.backgroundColor === 'string' && t.props?.backgroundColor !== DARK_SOLIDS.cell)
++    expect(filled.length).toBeGreaterThan(0)
++    for (const t of filled) expect(t.props?.color, textOf(t)).not.toBe(t.props?.backgroundColor)
++  })
++
++  test('dải pause không dịch theo frame', { options: { planApproval: 'off' } }, async ($, on) => {
++    const ctx = await running($, on, { quota: true })
++    await $.turn.start({ text: 'làm', turnId: 't1' })
++    await pauseNow($, ctx)
++    const bgs = async () => leaves(linesOf(await band($))[0] as Node).map(t => t.props?.backgroundColor).filter(c => typeof c === 'string' && c !== DARK_SOLIDS.cell)
++    const a = await bgs()
++    await ctx.seen.clock.advance(1_000)
++    expect(a.length).toBeGreaterThan(0)
++    expect(await bgs()).toEqual(a)
++  })
++
++  test('câu mức đỏ ở dòng 2 của band tô dải warn', { options: { planApproval: 'off', neonMotion: 'off' } }, async ($, on) => {
++    await running($, on)
++    await $.tool.call({ tool: 'Write', file_path: '/repo/scripts/ngoai.py', content: 'x' } as never)
++    const first = leaves(linesOf(await band($))[1] as Node).find(t => textOf(t).trim() !== '')
++    expect(first?.props?.color).toBe(colorAt(DARK_GRADIENTS.warn, 0))
++  })
++
++  test('pane đổi màu theo frame khi neonMotion on', { options: { planApproval: 'off' } }, async ($, on) => {
++    const ctx = await running($, on)
++    await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'done' } as never)
++    await $.tool.call({ tool: PLAN, action: 'update', step: 2, status: 'doing' } as never)
++    const firstBar = async () => leaves(await pane($)).find(t => textOf(t).startsWith('\u2501'))?.props?.color
++    const a = await firstBar()
++    await ctx.seen.clock.advance(1_000)
++    expect(a).toMatch(/^#[0-9a-f]{6}$/)
++    expect(await firstBar()).not.toBe(a)
++  })
++
++  test('ô model mờ khi xong hết', { options: { planApproval: 'off', neonMotion: 'off' } }, async ($, on) => {
++    await running($, on)
++    for (const id of [1, 2]) await $.tool.call({ tool: PLAN, action: 'update', step: id, status: 'done' } as never)
++    const family = leaves(linesOf(await band($))[0] as Node).find(t => textOf(t) === 'opus')
++    expect(family?.props?.color).toBe(DARK_SOLIDS.onCellDim)
++  })
++
++  test('không có nút Ẩn khi tạm dừng', { options: { planApproval: 'off', neonMotion: 'off' } }, async ($, on) => {
++    const ctx = await running($, on, { quota: true })
++    expect(all(await band($), 'Button').map(b => b.props?.label)).toContain('Ẩn')
++    await pauseNow($, ctx)
++    const labels = all(await band($), 'Button').map(b => b.props?.label)
++    expect(labels).toContain('Chi tiết')
++    expect(labels).not.toContain('Ẩn')
++  })
++
++  test('tắt quotaGuard: status line không tính tạm dừng', () => {
++    const view = { core: S.normalizeCore({ ...S.EMPTY_CORE, brief: makeBrief({ at: 1 }), route: { family: 'opus', effort: 'high' }, plan: [{ id: 1, title: 'BƯỚC 1: sửa', status: 'doing' }] } as never), mode: 'auto', isBandHidden: false, lang: 'vi' } as never
++    const quota = { ...EMPTY_QUOTA, readings: [{ kind: 'five_hour', percentUsed: 97, resetsAt: '2100-01-01T00:00:00.000Z' }] } as never
++    const off = statusTextOf(view, quota, 1000, quotaSettings({ quotaGuard: false }))
++    expect(off).toContain('\u2713 đúng hướng')
++    expect(off).not.toContain('tạm dừng')
++    expect(statusTextOf(view, quota, 1000, quotaSettings({}))).toContain('tạm dừng')
++  })
++})
 diff --git a/claude-mods/focus-conductor/tests/integration/mirror-verify.test.ts b/claude-mods/focus-conductor/tests/integration/mirror-verify.test.ts
 index 2a66ad7..788b3ee 100644
 --- a/claude-mods/focus-conductor/tests/integration/mirror-verify.test.ts
@@ -3267,6 +3713,81 @@ index 576deff..9403248 100644
        // 0.7.6 U1: luồng chính chính là danh sách bước nên không còn dòng "Việc chính"; việc 3 khớp bước "Việc 3: ..." nên đi cùng
        // dòng bước đó (chip "opus xhigh"), không có dòng riêng.
        expect(has(texts, /^Việc chính: /), `pane ${surface} việc chính`).toBe(false)
+diff --git a/claude-mods/focus-conductor/tests/integration/quota-bars-n6e-088.test.ts b/claude-mods/focus-conductor/tests/integration/quota-bars-n6e-088.test.ts
+new file mode 100644
+index 0000000..f1a634f
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/integration/quota-bars-n6e-088.test.ts
+@@ -0,0 +1,69 @@
++// 0.8.8 N6e: thanh hạn mức khi tạm dừng. Chỉ cửa sổ gây ra việc dừng dùng dải pause; cửa sổ còn lại theo mức far hay near của nó. Người dùng
++// tự dừng (/conductor pause): tiêu đề mục Hạn mức tô dải pause, các thanh theo far hay near [Nguồn: chủ mod, 14/11/2026].
++
++import { describe, expect, test } from 'claude-code/testing'
++import type { On } from 'claude-code'
++import type { Engine } from 'claude-code/testing'
++import { DARK_GRADIENTS, colorAt } from '../../hooks/ui/neon'
++import { PANE, base, conductor, submit } from '../support/engine'
++import { RESUME, memoryStore, quotaMeter, session, week } from '../support/quota'
++
++type Node = { type?: string; props?: Record<string, unknown>; children?: unknown[] }
++const PLAN = 'mcp__focus-conductor__plan'
++const kids = (n: Node) => (n.children ?? []).filter(c => c !== null && typeof c === 'object') as Node[]
++const textOf = (n: unknown): string => (typeof n === 'string' ? n : n !== null && typeof n === 'object' ? ((n as Node).children ?? []).map(textOf).join('') : '')
++const texts = (n: unknown): Node[] => (n === null || typeof n !== 'object' ? [] : [...((n as Node).type === 'Text' ? [n as Node] : []), ...((n as Node).children ?? []).flatMap(texts)])
++
++async function drawPane($: Engine): Promise<Node> {
++  const ui = await $.ui.mount(PANE as never)
++  const tree = (await ui.drawn()) as unknown as Node
++  await ui.unmount()
++  return tree
++}
++/** Màu ô đầu của thanh của một cửa sổ (dòng bắt đầu bằng tên cửa sổ, có phần trăm và thanh). */
++function barColor(tree: Node, label: string): unknown {
++  const line = texts(tree).find(t => textOf(t).startsWith(label) && textOf(t).includes('%') && /[\u2501\u254C]/.test(textOf(t)))
++  return line === undefined ? undefined : texts(line).find(t => textOf(t).startsWith('\u2501') && kids(t).length === 0)?.props?.color
++}
++const titleBg = (tree: Node) => texts(tree).find(t => textOf(t) === 'Hạn mức' && texts(t).some(c => typeof c.props?.backgroundColor === 'string'))
++
++async function setup($: Engine, on: On, limits: ReturnType<typeof session>[]) {
++  const seen = base(on, RESUME)
++  on('tool.register', () => ({ value: { tool: PLAN } }))
++  on('command.register', () => ({ value: { command: 'conductor' } }))
++  on('turn.complete', () => ({ text: '' }))
++  on('tool.call', { tool: 'Bash' }, () => ({ result: 'ok' }))
++  memoryStore(on)
++  const meter = quotaMeter(on, [session(10), week(10)])
++  await submit($, 'Sửa module thanh toán')
++  await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa' }, { title: 'Kiểm' }] } as never)
++  meter.set(limits)
++  await seen.clock.advance(120_000)
++  await $.tool.call({ tool: 'Bash', command: 'npm test' } as never)
++}
++
++describe('0.8.8 N6e: thanh hạn mức khi tạm dừng', () => {
++  test('dừng vì phiên, tuần ở vùng báo mềm: phiên dải pause, tuần dải almost', { options: { planApproval: 'off', neonMotion: 'off', noticeWeekRemainingPct: 20 } }, async ($, on) => {
++    await setup($, on, [session(96), week(85)])
++    const tree = await drawPane($)
++    expect(barColor(tree, 'phiên')).toBe(DARK_GRADIENTS.pause[0])
++    expect(barColor(tree, 'tuần')).toBe(DARK_GRADIENTS.almost[0])
++  })
++
++  test('dừng vì phiên, tuần còn xa: tuần theo bảng màu đang chạy', { options: { planApproval: 'off', neonMotion: 'off' } }, async ($, on) => {
++    await setup($, on, [session(96), week(30)])
++    const tree = await drawPane($)
++    expect(barColor(tree, 'phiên')).toBe(DARK_GRADIENTS.pause[0])
++    expect(barColor(tree, 'tuần')).toBe(DARK_GRADIENTS.cyber[0])
++  })
++
++  test('người dùng tự dừng: tiêu đề mục tô dải pause, các thanh theo far hay near', { options: { planApproval: 'off', neonMotion: 'off' } }, async ($, on) => {
++    await setup($, on, [session(40), week(30)])
++    await conductor($, 'pause')
++    const tree = await drawPane($)
++    const title = titleBg(tree) as Node
++    expect(texts(title).find(t => typeof t.props?.backgroundColor === 'string')?.props?.backgroundColor).toBe(colorAt(DARK_GRADIENTS.pause, 1))
++    expect(barColor(tree, 'phiên')).toBe(DARK_GRADIENTS.cyber[0])
++    expect(barColor(tree, 'tuần')).toBe(DARK_GRADIENTS.cyber[0])
++  })
++})
 diff --git a/claude-mods/focus-conductor/tests/integration/taskrows-perf-087.test.ts b/claude-mods/focus-conductor/tests/integration/taskrows-perf-087.test.ts
 index f17b5e8..1183056 100644
 --- a/claude-mods/focus-conductor/tests/integration/taskrows-perf-087.test.ts
@@ -3432,6 +3953,56 @@ index aee5bd9..ce08829 100644
      base(on)
      await submit($, COMPLEX_PROMPT)
      const PLAN = 'mcp__focus-conductor__plan'
+diff --git a/claude-mods/focus-conductor/tests/light-cell-n6c-088.test.ts b/claude-mods/focus-conductor/tests/light-cell-n6c-088.test.ts
+new file mode 100644
+index 0000000..8cf41f8
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/light-cell-n6c-088.test.ts
+@@ -0,0 +1,14 @@
++// 0.8.8 N6c: bảng nền sáng. Các màu đơn dùng trên ô (bốn họ model, ok, attention, error) đạt tương phản từ 4,5 trên 1 với nền ô của bảng nền
++// sáng (#e6e8f0), không chỉ với nền trắng.
++
++import { describe, expect, test } from 'claude-code/testing'
++import { LIGHT_SOLIDS, contrast } from '../hooks/ui/neon'
++
++describe('0.8.8 N6c: màu đơn của bảng nền sáng trên nền ô', () => {
++  for (const name of ['haiku', 'sonnet', 'opus', 'fable', 'ok', 'attention', 'error'] as const) {
++    test(`${name}: từ 4,5 với nền ô và với nền trắng`, () => {
++      expect(contrast(LIGHT_SOLIDS[name], LIGHT_SOLIDS.cell)).toBeGreaterThanOrEqual(4.5)
++      expect(contrast(LIGHT_SOLIDS[name], '#ffffff')).toBeGreaterThanOrEqual(4.5)
++    })
++  }
++})
+diff --git a/claude-mods/focus-conductor/tests/neon-finite-n6d-088.test.ts b/claude-mods/focus-conductor/tests/neon-finite-n6d-088.test.ts
+new file mode 100644
+index 0000000..6fc9e1a
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/neon-finite-n6d-088.test.ts
+@@ -0,0 +1,24 @@
++// 0.8.8 N6d: colorAt và gradientRuns coi frame hay vị trí không hữu hạn là 0, không văng lỗi; số âm vẫn quay vòng trong chu kỳ.
++
++import { describe, expect, test } from 'claude-code/testing'
++import { DARK_GRADIENTS, colorAt, gradientRuns } from '../hooks/ui/neon'
++
++const STOPS = DARK_GRADIENTS.cyber
++const HEX = /^#[0-9a-f]{6}$/
++
++describe('0.8.8 N6d: giá trị không hữu hạn', () => {
++  for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
++    test(`colorAt(${String(bad)}) là màu ở vị trí 0`, () => {
++      expect(colorAt(STOPS, bad)).toBe(colorAt(STOPS, 0))
++    })
++    test(`gradientRuns với frame ${String(bad)} như frame 0`, () => {
++      expect(gradientRuns('━'.repeat(10), STOPS, bad)).toEqual(gradientRuns('━'.repeat(10), STOPS, 0))
++    })
++  }
++
++  test('số âm: quay vòng trong chu kỳ 24 ô, màu hợp lệ', () => {
++    expect(colorAt(STOPS, -1)).toBe(colorAt(STOPS, 23))
++    expect(colorAt(STOPS, -25)).toBe(colorAt(STOPS, 23))
++    for (const run of gradientRuns('━'.repeat(30), STOPS, -7)) expect(run.color).toMatch(HEX)
++  })
++})
 diff --git a/claude-mods/focus-conductor/tests/neon-n1-088.test.ts b/claude-mods/focus-conductor/tests/neon-n1-088.test.ts
 new file mode 100644
 index 0000000..f7b1d31

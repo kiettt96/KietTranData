@@ -11,3 +11,4 @@
 - N5: test đỏ 7b7032a (3/6); sửa đã áp, 6/6 đạt, mẫu N5a-d và 3 mẫu cũ viết lại đều diệt; đang chạy cả bộ (n5fix).
 - 76c5e8b: sửa N5; cả bộ 3.534 (3 ca nhịp 60 giây chuyển neonMotion off, đạt).
 - Cả bộ cuối 3.534 đạt; so tên +75 -0; phiên dài trùng 0.8.7; xem trước và đếm Text xong; tài liệu c7f3a76; đột biến vùng diff đang chạy.
+- N6a-f xong; N6g: band bỏ hộp rỗng (chưa commit), đang chạy test band để sửa cách đọc dòng.
