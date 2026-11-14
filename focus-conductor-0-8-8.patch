@@ -82,7 +82,7 @@ index c6d0e4a..ae7a7ea 100644
  }
  
 diff --git a/claude-mods/focus-conductor/hooks/lib/state.ts b/claude-mods/focus-conductor/hooks/lib/state.ts
-index b3172aa..863dad8 100644
+index b3172aa..eb8974a 100644
 --- a/claude-mods/focus-conductor/hooks/lib/state.ts
 +++ b/claude-mods/focus-conductor/hooks/lib/state.ts
 @@ -18,6 +18,7 @@ import { shownPlan } from './mirror'
@@ -103,6 +103,54 @@ index b3172aa..863dad8 100644
  
  export function isMode(value: unknown): value is Mode {
    return value === 'auto' || value === 'subagents' || value === 'suggest' || value === 'off'
+@@ -88,9 +90,9 @@ export function modeOf(override: Mode | null, options: PluginOptions): Mode {
+ }
+ 
+ /** Nội dung status line; undefined để xóa khi mod tắt. */
+-export function statusOf(view: View): string | undefined {
++export function statusOf(view: View, direction?: string): string | undefined {
+   if (view.mode === 'off') return undefined
+-  const line = statusLine(view.core.brief, shownPlan(view.core).plan, view.core.route, view.mode)
++  const line = statusLine(view.core.brief, shownPlan(view.core).plan, view.core.route, view.mode, direction)
+   // Kế hoạch đã trình chờ duyệt (0.8.2 N2): nhãn ngắn ngay sau dòng của mod, trước nhãn hạn mức.
+   return approvalOf(view.core).status === 'presented' ? `${line} · ${labels(view.lang).planAwaitingShort}` : line
+ }
+@@ -100,8 +102,8 @@ export function statusOf(view: View): string | undefined {
+  * khi gần ngưỡng). Chưa có mục tiêu thì dòng của mod là tên chế độ, nhãn vẫn đi kèm. statusOf chỉ trả undefined khi
+  * mode off, lúc đó bảo vệ hạn mức không chạy nên không có nhãn. Tắt quotaGuard thì như statusOf.
+  */
+-export function statusText(view: View, quota: QuotaState, now: number, settings: QuotaSettings): string | undefined {
+-  const base = statusOf(view)
++export function statusText(view: View, quota: QuotaState, now: number, settings: QuotaSettings, direction?: string): string | undefined {
++  const base = statusOf(view, direction)
+   // Thứ tự nhãn (0.7.3): hạn mức, lỗi router, turn lỗi.
+   const evaluation = evaluateQuota(quota.readings, now, settings)
+   const isPaused = isPauseActive(true, evaluation.hits, quota.pause, overrideOf(quota), now)
+diff --git a/claude-mods/focus-conductor/hooks/lib/text.ts b/claude-mods/focus-conductor/hooks/lib/text.ts
+index dd196c4..9913cd1 100644
+--- a/claude-mods/focus-conductor/hooks/lib/text.ts
++++ b/claude-mods/focus-conductor/hooks/lib/text.ts
+@@ -682,9 +682,10 @@ export function stepTag(title: string): string {
+ 
+ /**
+  * Status line (0.7.6, U5): thanh chữ (cùng ký hiệu với band, không màu, cho surface không có band), số bước, nhãn ngắn của bước hiện tại
+- * và họ model; không có tier. Chưa có checklist thì chỉ họ model, không có model thì tên chế độ. Chế độ khác auto ghi cuối.
++ * và họ model; không có tier. Chưa có checklist thì chỉ họ model, không có model thì tên chế độ. Chế độ khác auto ghi cuối. Từ 0.8.8 (N3)
++ * `direction` là đoạn hướng (cùng nhãn với ô hướng của band, viết thường), đứng ngay sau họ model; vắng thì như 0.8.7.
+  */
+-export function statusLine(brief: Brief | null, plan: readonly PlanStep[], route: Route | null, mode: string): string {
++export function statusLine(brief: Brief | null, plan: readonly PlanStep[], route: Route | null, mode: string, direction?: string): string {
+   if (brief === null) return mode
+   const { total } = progress(plan)
+   const bar = taskBarRuns({ kind: 'steps', plan: [...plan] }, STATUS_BAR).map(run => run.text).join('')
+@@ -696,6 +697,7 @@ export function statusLine(brief: Brief | null, plan: readonly PlanStep[], route
+   ]
+   // W4: chưa có checklist và chưa có model thì ghi tên ngắn của mục tiêu (kèm mã đầu mục tiêu nếu có), không chỉ tên chế độ.
+   if (parts.length === 0) parts.push(goalTag(brief.goal))
++  if (direction !== undefined && direction !== '') parts.push(direction)
+   return `${parts.join(' · ')}${mode === 'auto' ? '' : ` · ${mode}`}`
+ }
+ 
 diff --git a/claude-mods/focus-conductor/hooks/lib/version.ts b/claude-mods/focus-conductor/hooks/lib/version.ts
 index 6cdf944..c17fcb0 100644
 --- a/claude-mods/focus-conductor/hooks/lib/version.ts
@@ -112,6 +160,174 @@ index 6cdf944..c17fcb0 100644
  // test so hằng với .claude-plugin/plugin.json.
 -export const MOD_VERSION = '0.8.7'
 +export const MOD_VERSION = '0.8.8'
+diff --git a/claude-mods/focus-conductor/hooks/parts/command.ts b/claude-mods/focus-conductor/hooks/parts/command.ts
+index c8d94b4..69796a8 100644
+--- a/claude-mods/focus-conductor/hooks/parts/command.ts
++++ b/claude-mods/focus-conductor/hooks/parts/command.ts
+@@ -13,6 +13,7 @@ import { clipText } from '../lib/decisions'
+ import { askRouter, bareBrief, briefOf, failFields, nextBrief, parseRoute, rerouted, routerFailOf, routerRequest } from '../lib/router'
+ import { shownPlan } from '../lib/mirror'
+ import * as S from '../lib/state'
++import { statusTextOf } from '../ui/direction'
+ import type { View } from '../lib/state'
+ import { RETRY_ROUNDS, WAIVE_REPORT, briefContext, checkHintLines, droppedGoalNotice, headlessOffNote, droppedItemsText, droppedPlanNotice, quotaStatusLines, renderPlan, resetLabel, routerFailLines, unroutedContext } from '../lib/text'
+ import { PANE_ROWS, shouldAutoOpenPane } from '../lib/pane'
+@@ -94,7 +95,7 @@ async function commandLimits($: EngineInterface): Promise<readonly unknown[] | n
+ 
+ /** Status line kèm nhãn hạn mức (0.6.1): mọi chỗ đặt status của file này đi qua đây, nên nhãn không mất giữa các hook. */
+ async function showStatus($: EngineInterface, current: View, options: Ctx['options']): Promise<void> {
+-  $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
++  $.ui.status(statusTextOf(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
+ }
+ 
+ /** Lệnh kiểm chưa đạt của mục tiêu hiện tại cho /conductor status (0.7.8 vòng sửa 3, W4): lượt và mức của từng lượt. */
+diff --git a/claude-mods/focus-conductor/hooks/parts/consistency.ts b/claude-mods/focus-conductor/hooks/parts/consistency.ts
+index 2d2e638..c5df562 100644
+--- a/claude-mods/focus-conductor/hooks/parts/consistency.ts
++++ b/claude-mods/focus-conductor/hooks/parts/consistency.ts
+@@ -20,6 +20,7 @@ import { taskRows } from '../lib/progress'
+ import { EMPTY_QUOTA, evaluateQuota, normalizeQuota, quotaSettings, softNotices } from '../lib/quota'
+ import { storeKey, withNote } from '../lib/checkpoint'
+ import * as S from '../lib/state'
++import { statusTextOf } from '../ui/direction'
+ import { fableStep } from './fable'
+ import { isMainConducting } from '../lib/conductor'
+ import type { View } from '../lib/state'
+@@ -558,7 +559,7 @@ function changedTargets(observation: ToolObservation, root: string | null): { pa
+ 
+ /** Status line kèm nhãn hạn mức (0.6.1): mọi chỗ đặt status của file này đi qua đây, nên nhãn không mất giữa các hook. */
+ async function showStatus($: EngineInterface, current: View, options: Ctx['options']): Promise<void> {
+-  $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
++  $.ui.status(statusTextOf(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
+ }
+ 
+ /**
+diff --git a/claude-mods/focus-conductor/hooks/parts/progress.ts b/claude-mods/focus-conductor/hooks/parts/progress.ts
+index 42453fb..c25a3fe 100644
+--- a/claude-mods/focus-conductor/hooks/parts/progress.ts
++++ b/claude-mods/focus-conductor/hooks/parts/progress.ts
+@@ -10,6 +10,7 @@ import { freshTestRun } from '../lib/drift'
+ import { applyTaskTool } from '../lib/mirror'
+ import { EMPTY_QUOTA, normalizeQuota, quotaSettings } from '../lib/quota'
+ import * as S from '../lib/state'
++import { statusTextOf } from '../ui/direction'
+ import type { View } from '../lib/state'
+ import type { Ctx } from '../context'
+ import { viewOf } from '../atoms'
+@@ -22,7 +23,7 @@ const quotaState = atom({ plugin: 'focus-conductor', key: 'quota' } as const, EM
+ 
+ /** Status line kèm nhãn hạn mức (0.6.1): cùng S.statusText với mọi file khác. */
+ async function showStatus($: EngineInterface, current: View, options: Ctx['options']): Promise<void> {
+-  $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
++  $.ui.status(statusTextOf(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
+ }
+ 
+ export function registerProgress(on: On, ctx: Ctx): void {
+diff --git a/claude-mods/focus-conductor/hooks/parts/quota.ts b/claude-mods/focus-conductor/hooks/parts/quota.ts
+index 238a18e..4e8f0df 100644
+--- a/claude-mods/focus-conductor/hooks/parts/quota.ts
++++ b/claude-mods/focus-conductor/hooks/parts/quota.ts
+@@ -13,6 +13,7 @@ import { FILE_TOOLS } from '../lib/drift/tool'
+ import { BACKUP_CALLS_MAX, EMPTY_QUOTA, QUOTA_CACHE_MS, backupCommand, backupOutcome, deniedInput, isBackupOn, pauseBackupMode, evaluateQuota, blockingHits, isPauseActive, newPause, normalizeQuota, noteDenial, overrideOf, allowScopes, landsInsideAllowed, makesLink, pauseAllowIssues, pauseAllowPaths, quotaSettings, reasonsOf, softNotices } from '../lib/quota'
+ import type { QuotaEval } from '../lib/quota'
+ import * as S from '../lib/state'
++import { statusTextOf } from '../ui/direction'
+ import type { View } from '../lib/state'
+ import { PLAN_TOOL_FULL, quotaDenyText, quotaNoticeText } from '../lib/text'
+ import { viewOf } from '../atoms'
+@@ -180,7 +181,7 @@ async function reopenResuming($: EngineInterface): Promise<void> {
+ 
+ /** Status line kèm nhãn hạn mức (0.6.1): mọi chỗ đặt status của file này đi qua đây, nên nhãn không mất giữa các hook. */
+ async function showStatus($: EngineInterface, current: View, options: Ctx['options']): Promise<void> {
+-  $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
++  $.ui.status(statusTextOf(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
+ }
+ 
+ /** Ngưỡng báo mềm không hợp lệ (0.7.4): cảnh báo một lần mỗi phiên, bằng toast và Core.warnings. */
+diff --git a/claude-mods/focus-conductor/hooks/parts/session.ts b/claude-mods/focus-conductor/hooks/parts/session.ts
+index 6cc27a9..33befe5 100644
+--- a/claude-mods/focus-conductor/hooks/parts/session.ts
++++ b/claude-mods/focus-conductor/hooks/parts/session.ts
+@@ -17,6 +17,7 @@ import { CLIPPED_CONTEXT, NEW_GOAL_CONFIDENCE, answerMentionsGoal, askRouter, re
+ import type { RouterOutcome, RouterPlan } from '../lib/router'
+ import { EMPTY_QUOTA, blockingHits, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaSettings, reasonsOf, softNotices } from '../lib/quota'
+ import * as S from '../lib/state'
++import { statusTextOf } from '../ui/direction'
+ import type { View } from '../lib/state'
+ import { DISCIPLINE, asideContext, conductorContext, conductorKeepText, phaseNotice, briefContext, droppedGoalNotice, droppedItemsText, droppedPlanNotice, followUpContext, intentResumeContext, intentStatusContext, interjectContext, interjectMovedNote, quotaPausedContext, resetLabel, resumeCommand, nothingLeftContext, restorableLabel, restoreGoalOnlyContext, restoreResumeContext, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
+ import type { EngineInterface, On } from 'claude-code'
+@@ -96,7 +97,7 @@ async function currentStats($: EngineInterface, paths: readonly string[]): Promi
+ 
+ /** Status line kèm nhãn hạn mức (0.6.1): mọi chỗ đặt status của file này đi qua đây, nên nhãn không mất giữa các hook. */
+ async function showStatus($: EngineInterface, current: View, options: Ctx['options']): Promise<void> {
+-  $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
++  $.ui.status(statusTextOf(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
+ }
+ 
+ /** Trạng thái Fable điều phối (0.8.4 C1): ghi dòng conductor khi bật, tắt hay đổi nguyên nhân; option off từ đầu thì không ghi gì. */
+diff --git a/claude-mods/focus-conductor/hooks/parts/turn-fault.ts b/claude-mods/focus-conductor/hooks/parts/turn-fault.ts
+index a5b0098..bf5cbb9 100644
+--- a/claude-mods/focus-conductor/hooks/parts/turn-fault.ts
++++ b/claude-mods/focus-conductor/hooks/parts/turn-fault.ts
+@@ -12,6 +12,7 @@ import type { EngineInterface, On } from 'claude-code'
+ import { EMPTY_QUOTA, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaSettings } from '../lib/quota'
+ import { openSteps } from '../lib/drift'
+ import * as S from '../lib/state'
++import { statusTextOf } from '../ui/direction'
+ import { netResumeText } from '../lib/text'
+ import type { View } from '../lib/state'
+ import { viewOf } from '../atoms'
+@@ -79,7 +80,7 @@ async function probeTick($: EngineInterface, ctx: Ctx, watch: Watch): Promise<vo
+ 
+ /** Status line kèm các nhãn của mod (hạn mức, lỗi router, turn lỗi). */
+ async function showStatus($: EngineInterface, current: View, options: Ctx['options']): Promise<void> {
+-  $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
++  $.ui.status(statusTextOf(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
+ }
+ 
+ export function registerTurnFault(on: On, ctx: Ctx): void {
+diff --git a/claude-mods/focus-conductor/hooks/parts/turn.ts b/claude-mods/focus-conductor/hooks/parts/turn.ts
+index fed6f87..1ddb241 100644
+--- a/claude-mods/focus-conductor/hooks/parts/turn.ts
++++ b/claude-mods/focus-conductor/hooks/parts/turn.ts
+@@ -8,6 +8,7 @@ import { DEFAULT_CONTEXT, fixedContextTokens } from '../lib/cost'
+ import { EFFORTS, engineTakesAlias, familyOf } from '../lib/route'
+ import { EMPTY_QUOTA, normalizeQuota, quotaSettings } from '../lib/quota'
+ import * as S from '../lib/state'
++import { statusTextOf } from '../ui/direction'
+ import type { View } from '../lib/state'
+ import type { EngineInterface, On, TurnStepInput } from 'claude-code'
+ import type { Ctx } from '../context'
+@@ -40,7 +41,7 @@ async function markBaseline(
+ 
+ /** Status line kèm nhãn hạn mức (0.6.1): mọi chỗ đặt status của file này đi qua đây, nên nhãn không mất giữa các hook. */
+ async function showStatus($: EngineInterface, current: View, options: Ctx['options']): Promise<void> {
+-  $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
++  $.ui.status(statusTextOf(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
+ }
+ 
+ export function registerTurn(on: On, ctx: Ctx): void {
+diff --git a/claude-mods/focus-conductor/hooks/parts/ui.tsx b/claude-mods/focus-conductor/hooks/parts/ui.tsx
+index 4e088cb..21cba9b 100644
+--- a/claude-mods/focus-conductor/hooks/parts/ui.tsx
++++ b/claude-mods/focus-conductor/hooks/parts/ui.tsx
+@@ -4,6 +4,7 @@ import { atom, derive, read, update } from 'claude-code'
+ import { caught, noteHookError } from '../lib/errlog'
+ import { EMPTY_QUOTA, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaBadge, quotaSettings, softNotices } from '../lib/quota'
+ import * as S from '../lib/state'
++import { statusTextOf } from '../ui/direction'
+ import type { View } from '../lib/state'
+ import { bandQuota, quotaOverview, quotaPaneText } from '../lib/text'
+ import { renderBand } from '../ui/band'
+@@ -61,7 +62,7 @@ function startTick($: EngineInterface, tick: Tick): void {
+ 
+ /** Status line kèm nhãn hạn mức (0.6.1): mọi chỗ đặt status của file này đi qua đây, nên nhãn không mất giữa các hook. */
+ async function showStatus($: EngineInterface, current: View, options: Ctx['options']): Promise<void> {
+-  $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
++  $.ui.status(statusTextOf(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
+ }
+ 
+ export function registerUi(on: On, ctx: Ctx): void {
 diff --git a/claude-mods/focus-conductor/hooks/ui/band.tsx b/claude-mods/focus-conductor/hooks/ui/band.tsx
 index ae2722f..b5c911d 100644
 --- a/claude-mods/focus-conductor/hooks/ui/band.tsx
@@ -647,15 +863,20 @@ index 0000000..c6b5e16
 +export const graphemeCells = (g: string): number => (WIDE_GRAPHEME.test(g) ? 2 : 1)
 diff --git a/claude-mods/focus-conductor/hooks/ui/direction.ts b/claude-mods/focus-conductor/hooks/ui/direction.ts
 new file mode 100644
-index 0000000..2b710d7
+index 0000000..2e452e0
 --- /dev/null
 +++ b/claude-mods/focus-conductor/hooks/ui/direction.ts
-@@ -0,0 +1,70 @@
+@@ -0,0 +1,95 @@
 +// Ô hướng của band và đoạn hướng của status line (0.8.8 N2, N3): một ký hiệu và nhãn ngắn cho biết công việc đang đi đúng hướng hay cần
 +// người dùng nhìn. Lấy theo mục đầu tiên của attentionItems (thứ tự ở attention.ts không đổi); tạm dừng đứng trước mọi mục; không có mục
 +// nào thì theo checklist: xong hết là "đã kiểm k/n", còn lại là "đúng hướng". Hàm thuần: chỉ đọc Core và dữ liệu hạn mức mà hook đã tính.
 +
-+import type { Core, PlanStep } from '../../types'
++import type { Core, PlanStep, QuotaState } from '../../types'
++import { shownPlan } from '../lib/mirror'
++import type { QuotaSettings } from '../lib/quota'
++import { evaluateQuota, isPauseActive, overrideOf, softNotices } from '../lib/quota'
++import * as S from '../lib/state'
++import type { View } from '../lib/state'
 +import type { Attention } from './attention'
 +import { attentionItems } from './attention'
 +import { labels } from './labels'
@@ -720,6 +941,26 @@ index 0000000..2b710d7
 +/** Chữ của ô hướng: ký hiệu và nhãn. */
 +export function directionText(direction: Direction): string {
 +  return `${direction.glyph} ${direction.label}`
++}
++
++/**
++ * Đoạn hướng của status line (0.8.8 N3): cùng nhãn với ô hướng của band, viết thường, không màu. Không có đoạn này khi chưa có mục tiêu,
++ * và khi mục đầu là tạm dừng, chờ duyệt kế hoạch hay báo hạn mức mềm: status line đã có nhãn riêng cho ba việc đó [Nguồn: chủ mod,
++ * 14/11/2026]. Tạm dừng và báo mềm tính như statusText.
++ */
++export function statusDirection(view: View, quota: QuotaState, now: number, settings: QuotaSettings): string | undefined {
++  if (view.core.brief === null) return undefined
++  const evaluation = evaluateQuota(quota.readings, now, settings)
++  const isPaused = settings.enabled && isPauseActive(true, evaluation.hits, quota.pause, overrideOf(quota), now)
++  const notice = settings.enabled && !isPaused && softNotices(quota.readings, now, settings).length > 0 ? 'notice' : null
++  const direction = directionOf(view.core, view.lang, { paused: isPaused, notice }, shownPlan(view.core).plan)
++  if (direction.kind === 'pause' || direction.kind === 'approval' || direction.kind === 'notice') return undefined
++  return `${direction.glyph} ${direction.label.toLocaleLowerCase(view.lang)}`
++}
++
++/** Status line của mọi hook (0.8.8 N3): statusText kèm đoạn hướng. */
++export function statusTextOf(view: View, quota: QuotaState, now: number, settings: QuotaSettings): string | undefined {
++  return S.statusText(view, quota, now, settings, statusDirection(view, quota, now, settings))
 +}
 diff --git a/claude-mods/focus-conductor/hooks/ui/labels.ts b/claude-mods/focus-conductor/hooks/ui/labels.ts
 index 3fae424..149ef51 100644
@@ -1225,7 +1466,7 @@ index 0b4ab5f..74cd900 100644
  /**
   * Một dòng không quá `cells` ô, dòng bị cắt kết bằng "…" (0.7.9, UI1). Chữ thường cắt theo từ bằng wrapText như mọi chữ của pane, nên
 diff --git a/claude-mods/focus-conductor/scripts/mutants.ts b/claude-mods/focus-conductor/scripts/mutants.ts
-index a6047d7..9b0944a 100644
+index a6047d7..ee8b972 100644
 --- a/claude-mods/focus-conductor/scripts/mutants.ts
 +++ b/claude-mods/focus-conductor/scripts/mutants.ts
 @@ -578,8 +578,8 @@ export const MUTANTS: Mutant[] = [
@@ -1239,6 +1480,25 @@ index a6047d7..9b0944a 100644
    { id: "060-O4", file: "hooks/parts/ui.tsx", note: "band không hiện dừng người dùng", old: "overrideOf(q), now) || q.pause !== null\n    const badge", new: "overrideOf(q), now)\n    const badge", equivalent: "từ 0.7.6 (U3) band khi dừng đọc trạng thái dừng từ quotaOverview (q.pause), không từ isPaused: bỏ \"|| q.pause !== null\" chỉ đổi chip hạn mức và câu báo mềm, mà cả hai đều không vẽ khi đang dừng" },
    // 060-P: góp ý kiểm PR 21 (consumed chỉ khi answer, tiếp tục chỉ khi prompt tiếp nối, che bí mật, ép tiếp theo cửa sổ)
    { id: "060-P1", file: "hooks/parts/quota.ts", note: "refusal bị coi là turn tiếp tục đã xong", old: "      e.reason === 'answer'\n        ? { ...cp, status: 'consumed' }", new: "      e.reason !== 'aborted' && e.reason !== 'error'\n        ? { ...cp, status: 'consumed' }" },
+@@ -630,12 +630,12 @@ export const MUTANTS: Mutant[] = [
+   { id: "061-C2", file: "hooks/parts/session.ts", note: "toast lúc prompt luôn nhắc resume force", old: "resumeCommand(isUser)} để chạy tiếp ngay`)", new: "resumeCommand(false)} để chạy tiếp ngay`)" },
+   { id: "061-C3", file: "hooks/lib/text.ts", note: "quotaDenyText không nhắc lệnh chạy tiếp", old: "và nhắc người dùng chạy tiếp bằng ${resumeCommand(isUser)}.", new: "và nhắc người dùng chạy tiếp." },
+   { id: "061-U1", file: "hooks/lib/state.ts", note: "statusText bỏ nhãn hạn mức", old: "      : withQuotaStatus(base, quotaBadge(isPaused, evaluation), view.lang, isPaused ? resumeCommand(quota.pause?.source === 'user') : undefined)\n", new: "      : base\n" },
+-  { id: "061-U2", file: "hooks/parts/consistency.ts", note: "status của consistency không kèm nhãn hạn mức (như 0.6.0)", old: "  $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))", new: "  $.ui.status(S.statusOf(current))" },
+-  { id: "061-U3", file: "hooks/parts/turn.ts", note: "status của turn không kèm nhãn hạn mức (như 0.6.0)", old: "  $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))", new: "  $.ui.status(S.statusOf(current))" },
+-  { id: "061-U4", file: "hooks/parts/session.ts", note: "status của session không kèm nhãn hạn mức (như 0.6.0)", old: "  $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))", new: "  $.ui.status(S.statusOf(current))" },
+-  { id: "061-U5", file: "hooks/parts/command.ts", note: "status của command không kèm nhãn hạn mức (như 0.6.0)", old: "  $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))", new: "  $.ui.status(S.statusOf(current))" },
+-  { id: "061-U6", file: "hooks/parts/ui.tsx", note: "status của ui không kèm nhãn hạn mức (như 0.6.0)", old: "  $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))", new: "  $.ui.status(S.statusOf(current))" },
+-  { id: "061-U7", file: "hooks/parts/quota.ts", note: "status của quota không kèm nhãn hạn mức (như 0.6.0)", old: "  $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))", new: "  $.ui.status(S.statusOf(current))" },
++  { id: "061-U2", file: "hooks/parts/consistency.ts", note: "status của consistency không kèm nhãn hạn mức (như 0.6.0)", old: "  $.ui.status(statusTextOf(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))", new: "  $.ui.status(S.statusOf(current))" },
++  { id: "061-U3", file: "hooks/parts/turn.ts", note: "status của turn không kèm nhãn hạn mức (như 0.6.0)", old: "  $.ui.status(statusTextOf(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))", new: "  $.ui.status(S.statusOf(current))" },
++  { id: "061-U4", file: "hooks/parts/session.ts", note: "status của session không kèm nhãn hạn mức (như 0.6.0)", old: "  $.ui.status(statusTextOf(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))", new: "  $.ui.status(S.statusOf(current))" },
++  { id: "061-U5", file: "hooks/parts/command.ts", note: "status của command không kèm nhãn hạn mức (như 0.6.0)", old: "  $.ui.status(statusTextOf(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))", new: "  $.ui.status(S.statusOf(current))" },
++  { id: "061-U6", file: "hooks/parts/ui.tsx", note: "status của ui không kèm nhãn hạn mức (như 0.6.0)", old: "  $.ui.status(statusTextOf(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))", new: "  $.ui.status(S.statusOf(current))" },
++  { id: "061-U7", file: "hooks/parts/quota.ts", note: "status của quota không kèm nhãn hạn mức (như 0.6.0)", old: "  $.ui.status(statusTextOf(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))", new: "  $.ui.status(S.statusOf(current))" },
+   { id: "061-U8", file: "hooks/parts/quota.ts", note: "prompt.submit không cập nhật số đo đã lưu", old: "zone: evaluation.zone, readings: [...(limits ?? [])] as QuotaState['readings'], measuredAt: now, noticed: [] }))", new: "zone: evaluation.zone, noticed: [] }))" },
+   { id: "061-U9", file: "hooks/parts/quota.ts", note: "prompt.submit không đặt status", old: "    await showStatus($, await read($, view), ctx.options)\n    return next(e)", new: "    return next(e)" },
+   { id: "061-U10", file: "hooks/ui/pane.tsx", note: "pane không vẽ mục Hạn mức", old: "      {quotaNode}\n      {alerts}", new: "      {alerts}" },
 @@ -647,9 +647,9 @@ export const MUTANTS: Mutant[] = [
    { id: "061-U16", file: "hooks/parts/ui.tsx", note: "pane không nhận dữ liệu hạn mức", old: "const overview = settings.enabled\n      ? quotaOverview(", new: "const overview = false\n      ? quotaOverview(" },
    { id: "061-U17", file: "hooks/parts/ui.tsx", note: "pane vẽ mục Hạn mức cả khi quotaGuard false", old: "const overview = settings.enabled\n      ? quotaOverview(", new: "const overview = true\n      ? quotaOverview(" },
@@ -1274,6 +1534,24 @@ index a6047d7..9b0944a 100644
    { id: "070-V16", file: "hooks/lib/text.ts", note: "số bước verified không hiển thị", old: "${verified > 0 ? ` · ${verified}✓` : ''}", new: "" },
    { id: "070-V17", file: "hooks/lib/text.ts", note: "đếm bước done thay vì verified", old: "return plan.filter(s => s.status === 'verified').length", new: "return plan.filter(s => s.status === 'done').length" },
    { id: "070-C1", file: "hooks/context.ts", note: "semanticDrift lại tắt mặc định", old: "options['semanticDrift'] !== false", new: "options['semanticDrift'] === true", equivalent: "engine điền giá trị mặc định của plugin.json (true) trước khi mod đọc option, nên khi chạy test (và trên engine thật) option không bao giờ vắng; `!== false` và `=== true` chỉ khác nhau khi option vắng. Mặc định bật được giữ bởi plugin.json và test không đặt option" },
+@@ -912,7 +912,7 @@ export const MUTANTS: Mutant[] = [
+   { id: "073-T11", file: "hooks/lib/text.ts", note: "nhãn tiếng Anh dùng tiếng Việt", old: "lang === 'en' ? 'turn failed · type to retry'", new: "lang === 'en' ? 'turn lỗi · gõ tiếp để chạy lại'" },
+   { id: "073-T12", file: "hooks/lib/text.ts", note: "nhãn turn lỗi hiện cả khi không có bản ghi", old: "base === undefined || fault === null ? base : `${base} · ${turnFaultLabel(lang)}`", new: "base === undefined ? base : `${base} · ${turnFaultLabel(lang)}`" },
+   { id: "073-T13", file: "hooks/lib/state.ts", note: "nhãn turn lỗi đứng trước lỗi router", old: "  const faulted = withTurnFaultStatus(withRouterFailStatus(quotaLabelled, view.core.routerFail, view.lang), view.core.turnFault, view.lang)", new: "  const faulted = withRouterFailStatus(withTurnFaultStatus(quotaLabelled, view.core.turnFault, view.lang), view.core.routerFail, view.lang)" },
+-  { id: "073-T14", file: "hooks/lib/state.ts", note: "nhãn hạn mức đứng sau lỗi router", old: "  const base = statusOf(view)\n  // Thứ tự nhãn (0.7.3): hạn mức, lỗi router, turn lỗi.\n  const evaluation = evaluateQuota(quota.readings, now, settings)\n  const isPaused = isPauseActive(true, evaluation.hits, quota.pause, overrideOf(quota), now)\n  // Vùng báo mềm (0.7.4) thay nhãn \"hạn mức còn\" khi chưa dừng; đang dừng thì chỉ nhãn dừng như cũ.\n  const notices = isPaused ? [] : softNotices(quota.readings, now, settings)\n  const quotaLabelled = !settings.enabled\n    ? base\n    : notices.length > 0\n      ? withQuotaNoticeStatus(base, notices, view.lang)\n      : withQuotaStatus(base, quotaBadge(isPaused, evaluation), view.lang, isPaused ? resumeCommand(quota.pause?.source === 'user') : undefined)\n  // Router Fable tạm ngừng (0.8.4 C6): nhãn đứng sau các nhãn hạn mức, lỗi router và turn lỗi.\n  const faulted = withTurnFaultStatus(withRouterFailStatus(quotaLabelled, view.core.routerFail, view.lang), view.core.turnFault, view.lang)\n  return view.core.fable.pauseLeft > 0 && faulted !== undefined ? `${faulted} · ${labels(view.lang).fablePaused}` : faulted", new: "  const base = withRouterFailStatus(statusOf(view), view.core.routerFail, view.lang)\n  // Thứ tự nhãn (0.7.3): hạn mức, lỗi router, turn lỗi.\n  const evaluation = evaluateQuota(quota.readings, now, settings)\n  const isPaused = isPauseActive(true, evaluation.hits, quota.pause, overrideOf(quota), now)\n  // Vùng báo mềm (0.7.4) thay nhãn \"hạn mức còn\" khi chưa dừng; đang dừng thì chỉ nhãn dừng như cũ.\n  const notices = isPaused ? [] : softNotices(quota.readings, now, settings)\n  const quotaLabelled = !settings.enabled\n    ? base\n    : notices.length > 0\n      ? withQuotaNoticeStatus(base, notices, view.lang)\n      : withQuotaStatus(base, quotaBadge(isPaused, evaluation), view.lang, isPaused ? resumeCommand(quota.pause?.source === 'user') : undefined)\n  return withTurnFaultStatus(quotaLabelled, view.core.turnFault, view.lang)" },
++  { id: "073-T14", file: "hooks/lib/state.ts", note: "nhãn hạn mức đứng sau lỗi router", old: "  const base = statusOf(view, direction)\n  // Thứ tự nhãn (0.7.3): hạn mức, lỗi router, turn lỗi.\n  const evaluation = evaluateQuota(quota.readings, now, settings)\n  const isPaused = isPauseActive(true, evaluation.hits, quota.pause, overrideOf(quota), now)\n  // Vùng báo mềm (0.7.4) thay nhãn \"hạn mức còn\" khi chưa dừng; đang dừng thì chỉ nhãn dừng như cũ.\n  const notices = isPaused ? [] : softNotices(quota.readings, now, settings)\n  const quotaLabelled = !settings.enabled\n    ? base\n    : notices.length > 0\n      ? withQuotaNoticeStatus(base, notices, view.lang)\n      : withQuotaStatus(base, quotaBadge(isPaused, evaluation), view.lang, isPaused ? resumeCommand(quota.pause?.source === 'user') : undefined)\n  // Router Fable tạm ngừng (0.8.4 C6): nhãn đứng sau các nhãn hạn mức, lỗi router và turn lỗi.\n  const faulted = withTurnFaultStatus(withRouterFailStatus(quotaLabelled, view.core.routerFail, view.lang), view.core.turnFault, view.lang)\n  return view.core.fable.pauseLeft > 0 && faulted !== undefined ? `${faulted} · ${labels(view.lang).fablePaused}` : faulted", new: "  const base = withRouterFailStatus(statusOf(view), view.core.routerFail, view.lang)\n  // Thứ tự nhãn (0.7.3): hạn mức, lỗi router, turn lỗi.\n  const evaluation = evaluateQuota(quota.readings, now, settings)\n  const isPaused = isPauseActive(true, evaluation.hits, quota.pause, overrideOf(quota), now)\n  // Vùng báo mềm (0.7.4) thay nhãn \"hạn mức còn\" khi chưa dừng; đang dừng thì chỉ nhãn dừng như cũ.\n  const notices = isPaused ? [] : softNotices(quota.readings, now, settings)\n  const quotaLabelled = !settings.enabled\n    ? base\n    : notices.length > 0\n      ? withQuotaNoticeStatus(base, notices, view.lang)\n      : withQuotaStatus(base, quotaBadge(isPaused, evaluation), view.lang, isPaused ? resumeCommand(quota.pause?.source === 'user') : undefined)\n  return withTurnFaultStatus(quotaLabelled, view.core.turnFault, view.lang)" },
+   { id: "073-T15", file: "hooks/lib/state.ts", note: "mục tiêu mới không xóa bản ghi turn lỗi", old: "...freshProgress(brief.goalId), turnFault: null }", new: "...freshProgress(brief.goalId) }" },
+   { id: "073-T16", file: "hooks/lib/state.ts", note: "turnFault không giữ được qua normalizeCore", old: "turnFault: raw.turnFault ?? null,", new: "turnFault: null," },
+   { id: "073-T17", file: "hooks/register.tsx", note: "hook turn lỗi không được đăng ký", old: "  registerTurnFault(on, ctx)\n", new: "" },
+@@ -1603,7 +1603,7 @@ export const MUTANTS: Mutant[] = [
+   { id: "075-T10d", file: "hooks/lib/route.ts", note: "\"and\" không nối mã trong danh sách", old: "matchAll(/\\s+(?:và|va|and)\\s+/giu)", new: "matchAll(/\\s+(?:và|va)\\s+/giu)" },
+   { id: "075-T10e", file: "hooks/lib/route.ts", note: "mã của danh sách không áp sang ràng buộc riêng", old: "        overrides.push(words)\n      }\n      segment = segment.slice(", new: "      }\n      segment = segment.slice(" },
+   { id: "075-T10f", file: "hooks/lib/route.ts", note: "mã ngắn (K4) không là mã của danh sách", old: "|([a-z]{1,3}))(\\d+)|", new: "|([^\\s\\S]))(\\d+)|" },
+-  { id: "076-U5a", file: "hooks/lib/text.ts", note: "status line vẫn ghi tier", old: "  if (parts.length === 0) parts.push(goalTag(brief.goal))\n  return `${parts.join(' · ')}", new: "  if (parts.length === 0) parts.push(goalTag(brief.goal))\n  return `${brief.tier} · ${parts.join(' · ')}" },
++  { id: "076-U5a", file: "hooks/lib/text.ts", note: "status line vẫn ghi tier", old: "  if (direction !== undefined && direction !== '') parts.push(direction)\n  return `${parts.join(' · ')}", new: "  if (direction !== undefined && direction !== '') parts.push(direction)\n  return `${brief.tier} · ${parts.join(' · ')}" },
+   { id: "076-U5b", file: "hooks/lib/text.ts", note: "không ghi nhãn của bước hiện tại", old: "    ...(total > 0 && current !== undefined ? [stepTag(current.title)] : []),\n", new: "" },
+   { id: "076-U5c", file: "hooks/lib/text.ts", note: "bước không mã ghi cả tên dài", old: "  return [...text].length > STEP_TAG ? `${[...text].slice(0, STEP_TAG).join('').trimEnd()}…` : text\n}\n\n/**\n * Status line", new: "  return false ? `${[...text].slice(0, STEP_TAG).join('').trimEnd()}…` : text\n}\n\n/**\n * Status line" },
+   { id: "076-U5d", file: "hooks/lib/text.ts", note: "mã bước không được nhận", old: "  if (code !== undefined) return code\n", new: "" },
 @@ -1632,15 +1632,15 @@ export const MUTANTS: Mutant[] = [
    { id: "076-U2h", file: "hooks/ui/band.tsx", note: "+N đếm cả mục đang hiện", old: "  const others = attention.length - 1", new: "  const others = attention.length" },
    { id: "076-U2i", file: "hooks/ui/attention.ts", note: "cảnh báo của mục tiêu trước cũng lên band", old: ".filter(w => w.at >= brief.at && w.kind !== 'cost'", new: ".filter(w => w.kind !== 'cost'" },
@@ -1318,7 +1596,7 @@ index a6047d7..9b0944a 100644
    { id: "076-W4d", file: "hooks/ui/band.tsx", note: "hạt dự kiến của band không là ◐ khi có lô chạy", old: "Math.floor(columns * 0.22))), runningBeads)", new: "Math.floor(columns * 0.22))))" },
    { id: "076-W4e", file: "hooks/ui/style.ts", note: "đầu thanh ◐ cả khi không có lô chạy", old: "(status === 'todo' && hasRunning)", new: "(status === 'todo')" },
    { id: "076-W4f", file: "hooks/ui/style.ts", note: "hạt dự kiến luôn là ○", old: "(running.has(i) ? STEP_MARK.doing.glyph : STEP_MARK.todo.glyph)", new: "STEP_MARK.todo.glyph" },
-@@ -2264,4 +2264,16 @@ export const MUTANTS: Mutant[] = [
+@@ -2264,4 +2264,19 @@ export const MUTANTS: Mutant[] = [
    { id: "087-G1c", file: "hooks/parts/session.ts", note: "đoạn dặn ghi cứng fable", old: "    const conductNote = wanted?.isConducting === true && !isBriefed ? [conductorContext(wanted.family)] : []\n", new: "    const conductNote = wanted?.isConducting === true && !isBriefed ? [conductorContext()] : []\n" },
    { id: "087-G1d", file: "hooks/lib/conductor.ts", note: "họ không có cờ điều phối vẫn được nhận", old: "  return CONDUCTOR_FAMILIES.find(f => f === raw) ?? 'off'\n", new: "  return (CONDUCTOR_FAMILIES.find(f => f === raw) ?? (raw === 'haiku' || raw === 'sonnet' ? raw : 'off')) as ConductorOption\n" },
    { id: "087-G1e", file: "hooks/lib/conductor.ts", note: "họ dự phòng trùng họ chính vẫn kích hoạt dự phòng", old: "  if (fallback === null || fallback === primary || input.blocked.has(fallback) || (input.fallbackPauseLeft ?? 0) > 0) return null\n", new: "  if (fallback === null || (fallback === primary && false) || input.blocked.has(fallback) || (input.fallbackPauseLeft ?? 0) > 0) return null\n" },
@@ -1334,6 +1612,9 @@ index a6047d7..9b0944a 100644
 +  { id: "088-N2e", file: "hooks/ui/direction.ts", note: "xong mà còn bước chưa kiểm vẫn ghi dấu đạt", old: ": { glyph: DOT, label: l.directionVerified(verified, total), tone: 'attention', kind: 'finished' }", new: ": { glyph: CHECK, label: l.directionVerified(verified, total), tone: 'attention', kind: 'finished' }" },
 +  { id: "088-N2f", file: "hooks/ui/band.tsx", note: "dòng 2 hiện thanh thay cho câu cảnh báo", old: "    if (top !== undefined) {\n      const more", new: "    if (top !== undefined && false) {\n      const more" },
 +  { id: "088-N2g", file: "hooks/ui/band.tsx", note: "maxRows 1 vẫn vẽ hai dòng", old: "  const hasSecondRow = props.maxRows >= 2\n", new: "  const hasSecondRow = props.maxRows >= 1\n" },
++  { id: "088-N3a", file: "hooks/ui/direction.ts", note: "status line không có đoạn hướng", old: "  return S.statusText(view, quota, now, settings, statusDirection(view, quota, now, settings))", new: "  return S.statusText(view, quota, now, settings)" },
++  { id: "088-N3b", file: "hooks/lib/text.ts", note: "đoạn hướng đứng trước họ model", old: "    ...(route ? [route.family] : []),\n  ]", new: "    ...(direction ? [direction] : []),\n    ...(route ? [route.family] : []),\n  ]" },
++  { id: "088-N3c", file: "hooks/ui/direction.ts", note: "vẫn thêm đoạn hướng khi tạm dừng", old: "  if (direction.kind === 'pause' || direction.kind === 'approval' || direction.kind === 'notice') return undefined", new: "  if (direction.kind === 'approval' || direction.kind === 'notice') return undefined" },
  ]
 diff --git a/claude-mods/focus-conductor/scripts/version-check.mjs b/claude-mods/focus-conductor/scripts/version-check.mjs
 index 32a45cc..38460c5 100644
@@ -1762,6 +2043,96 @@ index 16df99e..62db4ec 100644
    })
  })
  
+diff --git a/claude-mods/focus-conductor/tests/integration/mirror-verify.test.ts b/claude-mods/focus-conductor/tests/integration/mirror-verify.test.ts
+index 2a66ad7..788b3ee 100644
+--- a/claude-mods/focus-conductor/tests/integration/mirror-verify.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/mirror-verify.test.ts
+@@ -44,6 +44,7 @@ async function twoTasks($: Engine, on: On) {
+ }
+ const last = (seen: { statuses: (string | undefined)[] }) => seen.statuses.at(-1) ?? ''
+ 
++// 0.8.8 N3: status line có đoạn hướng ("✓ đúng hướng"), nên số bước verified kiểm theo mẫu "<số>✓" thay cho mọi dấu ✓.
+ describe('0.7.1: tự nâng verified cho danh sách phản chiếu', () => {
+   test('đóng cả hai việc rồi test đạt: nâng; sửa tiếp: hạ; test lại: nâng lại', { options: { planApproval: 'off' } }, async ($, on) => {
+     const seen = await twoTasks($, on)
+@@ -51,12 +52,12 @@ describe('0.7.1: tự nâng verified cho danh sách phản chiếu', () => {
+     await done($, '1')
+     await done($, '2')
+     expect(last(seen)).toContain('2/2')
+-    expect(last(seen)).not.toContain('✓')
++    expect(last(seen)).not.toMatch(/\d✓/)
+     await bash($, 'npm test')
+     expect(last(seen)).toContain('2/2 · 2✓')
+     await edit($, 'src/b.ts')
+     expect(last(seen)).toContain('2/2')
+-    expect(last(seen)).not.toContain('✓')
++    expect(last(seen)).not.toMatch(/\d✓/)
+     await bash($, 'npm test')
+     expect(last(seen)).toContain('2/2 · 2✓')
+   })
+@@ -78,7 +79,7 @@ describe('0.7.1: tự nâng verified cho danh sách phản chiếu', () => {
+     await edit($, 'src/c.ts')
+     await done($, '1')
+     expect(last(seen)).toContain('1/2')
+-    expect(last(seen)).not.toContain('✓')
++    expect(last(seen)).not.toMatch(/\d✓/)
+     await bash($, 'npm test')
+     expect(last(seen)).toContain('1/2 · 1✓')
+   })
+@@ -102,7 +103,7 @@ describe('0.7.1: tự nâng verified cho danh sách phản chiếu', () => {
+     await write($, [todo('Sửa', 'completed'), todo('Kiểm', 'in_progress')])
+     expect(last(seen)).toContain('1/2 · 1✓')
+     // Không có lần đặt status nào ở giữa hiện bước đã hạ.
+-    expect(seen.statuses.slice(before).every(s => s?.includes('✓'))).toBe(true)
++    expect(seen.statuses.slice(before).every(s => /\d✓/.test(s ?? ''))).toBe(true)
+   })
+ })
+ 
+@@ -112,7 +113,7 @@ describe('0.7.1: điều kiện để tự nâng', () => {
+     await edit($)
+     await done($, '1')
+     await bash($, 'tsc --noEmit')
+-    expect(last(seen)).not.toContain('✓')
++    expect(last(seen)).not.toMatch(/\d✓/)
+   })
+ 
+   test('lệnh test lỗi không nâng', { options: { planApproval: 'off' } }, async ($, on) => {
+@@ -120,7 +121,7 @@ describe('0.7.1: điều kiện để tự nâng', () => {
+     await edit($)
+     await done($, '1')
+     await bash($, 'npm test -- --fail')
+-    expect(last(seen)).not.toContain('✓')
++    expect(last(seen)).not.toMatch(/\d✓/)
+   })
+ 
+   test('mục tiêu chưa có sửa file (chỉ tra cứu): test đạt không nâng', { options: { planApproval: 'off' } }, async ($, on) => {
+@@ -128,7 +129,7 @@ describe('0.7.1: điều kiện để tự nâng', () => {
+     await $.tool.call({ tool: 'Read', file_path: 'src/a.ts' })
+     await done($, '1')
+     await bash($, 'npm test')
+-    expect(last(seen)).not.toContain('✓')
++    expect(last(seen)).not.toMatch(/\d✓/)
+   })
+ 
+   test('subagent sửa file trong mục tiêu cũng hạ bước đã nâng', { options: { planApproval: 'off' } }, async ($, on) => {
+@@ -139,7 +140,7 @@ describe('0.7.1: điều kiện để tự nâng', () => {
+     await bash($, 'npm test')
+     expect(last(seen)).toContain('1/2 · 1✓')
+     await edit($, 'src/x.ts', 'a-u1')
+-    expect(last(seen)).not.toContain('✓')
++    expect(last(seen)).not.toMatch(/\d✓/)
+   })
+ 
+   test('mode off: không theo dõi, không nâng', { options: { planApproval: 'off' } }, async ($, on) => {
+@@ -151,7 +152,7 @@ describe('0.7.1: điều kiện để tự nâng', () => {
+     await edit($)
+     await done($, '1')
+     await bash($, 'npm test')
+-    expect(last(seen)).not.toContain('✓')
++    expect(last(seen)).not.toMatch(/\d✓/)
+   })
+ })
+ 
 diff --git a/claude-mods/focus-conductor/tests/integration/pause-u3-076.test.ts b/claude-mods/focus-conductor/tests/integration/pause-u3-076.test.ts
 index ff1302f..a60cc2f 100644
 --- a/claude-mods/focus-conductor/tests/integration/pause-u3-076.test.ts
@@ -2094,5 +2465,88 @@ index 0000000..f7b1d31
 +    expect(hex.length).toBeGreaterThan(0)
 +    const dark = new Set([...Object.values(DARK_GRADIENTS).flat(), ...Object.values(DARK_SOLIDS)])
 +    for (const color of hex) expect(dark.has(color), color).toBe(false)
++  })
++})
+diff --git a/claude-mods/focus-conductor/tests/status-b-n3-088.test.ts b/claude-mods/focus-conductor/tests/status-b-n3-088.test.ts
+new file mode 100644
+index 0000000..36442d9
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/status-b-n3-088.test.ts
+@@ -0,0 +1,77 @@
++// 0.8.8 N3: status line hướng B. Ngay sau họ model có đoạn hướng, cùng nhãn với ô hướng của band nhưng viết thường và không màu. Không có
++// đoạn này khi mục đầu là tạm dừng, chờ duyệt kế hoạch hay báo hạn mức mềm, vì status line đã có nhãn riêng cho ba việc đó [Nguồn: chủ mod,
++// 14/11/2026]. Các nhãn cũ (hạn mức, lỗi router, turn lỗi) và thứ tự của chúng giữ nguyên. Chưa có mục tiêu thì như 0.8.7.
++
++import { describe, expect, test } from 'claude-code/testing'
++import * as S from '../hooks/lib/state'
++import { EMPTY_QUOTA, quotaSettings } from '../hooks/lib/quota'
++import { statusTextOf } from '../hooks/ui/direction'
++import { makeBrief } from './support/commands'
++
++const BAR_RUN = '\u2501\u2501\u2501\u25D0\u254C\u254C\u254C\u254C 1/3 · BƯỚC 2 · opus'
++const brief = makeBrief({ at: 1 })
++const steps = (...statuses: string[]) => statuses.map((status, i) => ({ id: i + 1, title: `BƯỚC ${i + 1}: việc ${i + 1}`, status }))
++const view = (over: Record<string, unknown>, lang: 'vi' | 'en' = 'vi') =>
++  ({ core: S.normalizeCore({ ...S.EMPTY_CORE, brief, route: { family: 'opus', effort: 'high' }, ...over } as never), mode: 'auto', isBandHidden: false, lang }) as never
++const settings = quotaSettings({ noticeSessionRemainingPct: 20 })
++const used = (percent: number) => ({ ...EMPTY_QUOTA, readings: [{ kind: 'five_hour', percentUsed: percent, resetsAt: '2100-01-01T00:00:00.000Z' }] }) as never
++const scope = [{ at: 2, kind: 'scope', text: 'sửa ngoài phạm vi' }]
++const unverified = [{ at: 2, kind: 'unverified', text: 'bước chưa kiểm' }]
++const status = (v: never, quota: never = EMPTY_QUOTA as never) => statusTextOf(v, quota, 1000, settings)
++const once = (text: string | undefined, part: string) => expect((text ?? '').split(part).length - 1, part).toBe(1)
++
++describe('0.8.8 N3: đoạn hướng', () => {
++  test('ổn: "đúng hướng" ngay sau họ model', () => {
++    expect(status(view({ plan: steps('done', 'doing', 'todo') }))).toBe(`${BAR_RUN} · \u2713 đúng hướng`)
++    expect(status(view({ plan: steps('done', 'doing', 'todo') }, 'en'))).toBe(`${BAR_RUN} · \u2713 on track`)
++  })
++
++  test('mức đỏ: "lệch phạm vi"', () => {
++    expect(status(view({ plan: steps('done', 'doing', 'todo'), warnings: scope }))).toBe(`${BAR_RUN} · \u25B2 lệch phạm vi`)
++    expect(status(view({ plan: steps('done', 'doing', 'todo'), warnings: scope }, 'en'))).toBe(`${BAR_RUN} · \u25B2 out of scope`)
++  })
++
++  test('cần chú ý: "chưa kiểm"', () => {
++    expect(status(view({ plan: steps('done', 'doing', 'todo'), warnings: unverified }))).toBe(`${BAR_RUN} · \u25B3 chưa kiểm`)
++    expect(status(view({ plan: steps('done', 'doing', 'todo'), warnings: unverified }, 'en'))).toBe(`${BAR_RUN} · \u25B3 unverified`)
++  })
++
++  test('xong: "đã kiểm 3/3"', () => {
++    expect(status(view({ plan: steps('verified', 'verified', 'verified') }))).toBe('\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 3/3 · 3\u2713 · opus · \u2713 đã kiểm 3/3')
++    expect(status(view({ plan: steps('verified', 'verified', 'verified') }, 'en'))).toBe('\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501 3/3 · 3\u2713 · opus · \u2713 verified 3/3')
++  })
++
++  test('nhãn hạn mức, lỗi router, turn lỗi vẫn đứng sau, đúng thứ tự cũ', () => {
++    const text = status(
++      view({ plan: steps('done', 'doing', 'todo'), warnings: scope, routerFail: { at: 5, kind: 'timeout', reason: 'hết giờ', ms: 45000 }, turnFault: { goalId: 1, goal: 'x', openSteps: ['BƯỚC 2'], at: 6 } }),
++      used(85),
++    )
++    expect(text).toBe(`${BAR_RUN} · \u25B2 lệch phạm vi · báo hạn mức: phiên còn 15% · router lỗi: hết giờ · /conductor reroute · turn lỗi · gõ tiếp để chạy lại`)
++  })
++
++  test('chưa có mục tiêu: như 0.8.7; chuỗi không có mã màu', () => {
++    expect(statusTextOf({ core: S.EMPTY_CORE, mode: 'auto', isBandHidden: false, lang: 'vi' } as never, EMPTY_QUOTA as never, 1000, settings)).toBe('auto')
++    for (const v of [view({ plan: steps('done', 'doing', 'todo') }), view({ plan: steps('done', 'doing', 'todo'), warnings: scope })]) expect(status(v)).not.toMatch(/#[0-9a-fA-F]{6}|rgb\(|ansi256\(/)
++  })
++})
++
++describe('0.8.8 N3: không lặp nhãn khi mục đầu là tạm dừng, chờ duyệt hay báo mềm', () => {
++  test('tạm dừng: không có đoạn hướng; nhãn tạm dừng chỉ một lần', () => {
++    const text = status(view({ plan: steps('done', 'doing', 'todo') }), used(97))
++    expect(text).toBe(`${BAR_RUN} · tạm dừng: hạn mức · /conductor resume force`)
++    expect(text).not.toContain('\u23F8')
++    once(text, 'tạm dừng')
++  })
++
++  test('chờ duyệt kế hoạch: không có đoạn hướng; nhãn chờ duyệt chỉ một lần', () => {
++    const text = status(view({ plan: steps('todo', 'todo'), approval: { goalId: 1, status: 'presented', rounds: 1, asked: true, awaitingAnswer: false } }))
++    expect(text).toBe('\u254C\u254C\u254C\u254C\u254C\u254C\u254C\u254C 0/2 · BƯỚC 1 · opus · chờ duyệt kế hoạch')
++    once(text, 'chờ duyệt')
++  })
++
++  test('báo hạn mức mềm: không có đoạn hướng; nhãn báo mềm chỉ một lần', () => {
++    const text = status(view({ plan: steps('done', 'doing', 'todo') }), used(85))
++    expect(text).toBe(`${BAR_RUN} · báo hạn mức: phiên còn 15%`)
++    once(text, 'hạn mức')
 +  })
 +})
