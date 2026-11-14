@@ -5,7 +5,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 import type { On, TurnCompleteInput } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
-import { DEFAULT_ROUTER, FOUR, SEARCH, base, conductor, plan, spawnTool, step, submit, task } from '../support/engine'
+import { DEFAULT_ROUTER, FOUR, PANE, SEARCH, base, conductor, plan, spawnTool, step, submit, task } from '../support/engine'
 import type { Json } from '../support/engine'
 
 const LOG = '/tmp/fc-rearrange-d2-089.jsonl'
@@ -121,7 +121,7 @@ describe('0.8.9 D2: việc bị bỏ rời brief và các danh sách theo dõi',
 })
 
 describe('0.8.9 D2: ba tin chen ngang liên tiếp khi luồng chính đang chạy', () => {
-  test('mục tiêu 12 việc; thêm 2, bỏ 3, gộp 2, đảo thứ tự: sau mỗi tin, việc còn mở, thứ tự và việc đã gỡ đúng', OPTS, async ($, on) => {
+  test('mục tiêu 12 việc; thêm 2, bỏ 3, gộp 2, đảo thứ tự: sau mỗi tin, việc còn mở, thứ tự, việc đã gỡ, tiêu đề mục tiến độ và context đúng', OPTS, async ($, on) => {
     const lines = logOf(on)
     const twelve = plan({ goal: 'Nâng cấp mười hai phần', depth: 'hard', volume: 'large', kind: 'edit', tasks: Array.from({ length: 12 }, (_, i) => task(`Phần ${i + 1}`, 'main', 'sonnet', 'medium')) })
     const replies: Record<string, Json> = {
@@ -135,13 +135,30 @@ describe('0.8.9 D2: ba tin chen ngang liên tiếp khi luồng chính đang ch�
     await $.turn.start({ text: 'làm', turnId: 't1' })
     await step($, seen, { turnId: 't1' })
     const interject = (text: string) => $.prompt.submit({ text, wait: false, origin: { kind: 'composer' } as never, turnId: 't1' })
+    // Phần do D3 thêm (quyết định của chủ mod khi duyệt): tiêu đề mục tiến độ của pane và context của tin có kế hoạch sau điều chỉnh.
+    const header = async () => {
+      const pane = await $.ui.mount(PANE)
+      const texts = (await pane.findAll({ type: 'Text' })).map(e => e.text).filter((t): t is string => typeof t === 'string')
+      await pane.unmount()
+      return texts.find(t => /xong · \d+ đang chạy/.test(t)) ?? ''
+    }
+    const planned = () => (seen.contexts.at(-1) ?? []).join('\n').includes('Kế hoạch sau điều chỉnh, theo thứ tự làm:')
     await interject('chen một: thêm hai phần, bỏ phần 3, 7, 11')
     expect(taskIndexes(lastOf(lines(), 'route'))).toEqual([1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14])
     expect(lastOf(lines(), 'rearrange')?.['dropped']).toEqual([3, 7, 11])
+    expect(await header()).toContain('0/11 xong')
+    expect(await header()).toContain('· đã bỏ 3')
+    expect(planned()).toBe(true)
     await interject('chen hai: gộp phần 5 và 6 vào phần thêm A')
     expect(taskIndexes(lastOf(lines(), 'route'))).toEqual([1, 2, 4, 8, 9, 10, 12, 13, 14])
     expect(lastOf(lines(), 'rearrange')?.['merged']).toEqual([{ tasks: [5, 6], into: 13 }])
+    expect(await header()).toContain('0/9 xong')
+    expect(await header()).toContain('· đã bỏ 5')
+    expect(planned()).toBe(true)
     await interject('chen ba: làm phần thêm B trước, rồi phần 12')
     expect(lastOf(lines(), 'rearrange')?.['order']).toEqual([14, 12, 1, 2, 4, 8, 9, 10, 13])
+    expect(await header()).toContain('0/9 xong')
+    expect(planned()).toBe(true)
+    expect((seen.contexts.at(-1) ?? []).join('\n')).toContain('Việc 14, 12, 1, 2, 4, 8, 9, 10, 13')
   })
 })
