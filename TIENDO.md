@@ -14,3 +14,5 @@
 - C1: test đỏ 15c041f (13 đỏ: 9/10 mới, 4 cũ đổi kỳ vọng), sửa 7ad695e, mẫu 089-C1a..e diệt (3,2,1,1,3). Cả bộ với bản sửa: 3.643 ca, chỉ 5 ca cũ đỏ (đã đổi). Ca brief.dropped cũ kiểm ở mức hàm vì kit không cho ghi state. Việc tiếp: C2.
 - C2: test đỏ 4815e93 (7 đỏ, 3 xanh giữ hành vi cũ), sửa 19e4d79, chuỗi mẫu cũ 075-R1c/R1f 2327a0e. Mẫu 089-C2a..f diệt (5,6,1,1,1,1). Cả bộ với bản sửa: không ca cũ đỏ. Lưu ý: commit sửa 19e4d79 push khi mutate --check báo 2 mẫu lệch; sửa ngay ở 2327a0e. Việc tiếp: R1 (test đã viết, 3/5 đỏ), R2, R3.
 - R1: test đỏ 6d02deb (3/5), sửa 12279f2 (không ca cũ đổi), ca diệt 089-R1b fe? (xem log). 089-R1a 3 đỏ, 089-R1b 1 đỏ sau ca mới. Việc tiếp: R2 (test đã viết: 5/7 thuần + 1 tích hợp đỏ), R3 (4/8 đỏ).
+- R2: test đỏ f1ca2ae (6/8), sửa f66ed53, mẫu 089-R2a..f diệt (4,3,1,1,1,1), 072-R9 sửa chuỗi (3 đỏ). Không ca cũ đổi.
+- R3: test đỏ (4/8) đã push; việc tiếp: sửa engineMessage, mẫu 089-R3a..c.

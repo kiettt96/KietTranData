@@ -11,10 +11,10 @@ index 022e64d..2ad14e2 100644
    "description": "Một model Claude (router) đọc kỹ prompt trước khi làm và điều phối model/effort/agent cho từng việc; mod kiểm, ép điều phối lúc chạy, giữ nhất quán mục tiêu với checklist và cảnh báo lạc đề.",
    "types": "./types/index.d.ts",
 diff --git a/claude-mods/focus-conductor/CHANGELOG.md b/claude-mods/focus-conductor/CHANGELOG.md
-index 13db1c8..a9ceb84 100644
+index 13db1c8..764ac8b 100644
 --- a/claude-mods/focus-conductor/CHANGELOG.md
 +++ b/claude-mods/focus-conductor/CHANGELOG.md
-@@ -2,6 +2,38 @@
+@@ -2,6 +2,41 @@
  
  Các bản của focus-conductor, mới nhất trước. Số đo kiểm chứng của HEAD hiện tại nằm ở [docs/VERIFICATION.md](docs/VERIFICATION.md); cách dùng và tùy chọn ở [README](README.md).
  
@@ -48,7 +48,10 @@ index 13db1c8..a9ceb84 100644
 +- `dropped-rank-078`: giữ tên và kỳ vọng; dựng Core có sẵn cảnh báo mục bị bỏ (trạng thái từ bản cũ) thay cho ba prompt, vì mod không còn tạo cảnh báo này.
 +- **C2: nơi chèn và gửi ràng buộc chỉ nêu tối đa 22 mục** (`shownConstraints`): các mục của prompt lập mục tiêu và các mục mới nhất, kèm một dòng hay một vế nêu số mục còn lại. Áp ở context của mục tiêu, context tiếp tục từ điểm dừng, request tiếp nối, request rà kế hoạch và mục ràng buộc của pane. Không quá 22 ràng buộc thì đầu ra trùng bản trước. Không ca cũ nào đổi kỳ vọng.
 +
-+**Mẫu cũ viết lại, giữ mã (vòng 2):** `075-R1c`, `075-R1f` (khối phần tràn của request tiếp nối viết thành nhiều dòng ở C2).
++- **R1: giới hạn trong kết quả là của lời gọi cuối cùng đã gửi.** `timeoutMs`, `maxTokens`, `outputTokens` của `RouterOutcome` lấy từ request đã kẹp và câu trả lời của lời gọi gần nhất, ở mọi nhánh của `askRouter`. Không ca cũ nào đổi kỳ vọng.
++- **R2: ghi rõ câu trả lời bị cắt.** Câu trả lời không đọc được mà token ra từ 98% `maxTokens` của request đã gửi có lý do "câu trả lời bị cắt ở <n> token ra" (loại lỗi vẫn là format). `firstFail` được ghi cả khi lượt hỏi lại cứu được lượt đầu không đọc được. Không ca cũ nào đổi kỳ vọng.
++
++**Mẫu cũ viết lại, giữ mã (vòng 2):** `075-R1c`, `075-R1f` (khối phần tràn của request tiếp nối viết thành nhiều dòng ở C2); `072-R9` (ngưỡng bị cắt nay là hằng `TRUNCATED_SHARE`, R2).
 +
  ## Thay đổi 0.8.8: giao diện hướng B "Ba ô phát sáng", dải màu neon
  
@@ -270,7 +273,7 @@ index 6909686..35815ef 100644
  
  /** Kế hoạch đọc prompt dài `textLength` ký tự; `fixedChars` là số ký tự của lời dặn và các dòng ngữ cảnh của request. */
 diff --git a/claude-mods/focus-conductor/hooks/lib/router.ts b/claude-mods/focus-conductor/hooks/lib/router.ts
-index fc059c5..e4ea8f7 100644
+index fc059c5..1f2d857 100644
 --- a/claude-mods/focus-conductor/hooks/lib/router.ts
 +++ b/claude-mods/focus-conductor/hooks/lib/router.ts
 @@ -13,7 +13,7 @@ import { DEFAULT_CONDUCTOR, FAMILY_NAMES, conductorTimeouts } from './families'
@@ -363,13 +366,14 @@ index fc059c5..e4ea8f7 100644
   * `$` ngay trong thân hook, nên logic gọi, thử lại và đọc kết quả nằm ở đây mà không đụng tới `$`.
   */
  export type Ask = (request: ModelCompleteRequest) => Promise<ModelCompleteResult | null>
-@@ -1285,9 +1310,21 @@ export function failureKind(reply: ModelCompleteResult | null): RouterFailKind {
+@@ -1285,10 +1310,28 @@ export function failureKind(reply: ModelCompleteResult | null): RouterFailKind {
    return 'empty'
  }
  
 -/** Lý do router không trả được kết quả dùng được. */
 -export function failureReason(reply: ModelCompleteResult | null): string {
 -  if (reply === null) return 'engine từ chối gửi request tới model router'
+-  if (reply.isAnswered) return 'câu trả lời không đúng định dạng'
 +/** Phần đầu câu lỗi của engine tới hết tên hàm (0.8.9 U3): "<plugin>: $.model.complete: <lý do>". */
 +const ENGINE_CALL = '$.model.complete: '
 +/** Số ký tự tối đa của thông điệp engine giữ trong lý do router lỗi (0.8.9 U3). */
@@ -382,13 +386,20 @@ index fc059c5..e4ea8f7 100644
 +  return [...(at >= 0 ? text.slice(at + ENGINE_CALL.length) : text)].slice(0, ENGINE_MESSAGE_CHARS).join('')
 +}
 +
-+/** Lý do router không trả được kết quả dùng được; `message` là thông điệp của engine khi engine từ chối (0.8.9 U3). */
-+export function failureReason(reply: ModelCompleteResult | null, message = ''): string {
++/** Câu trả lời chạm bấy nhiêu phần maxTokens của request đã gửi lời gọi đó thì coi là bị cắt (0.7.2; 0.8.9 R2 ghi rõ trong lý do). */
++export const TRUNCATED_SHARE = 0.98
++
++/**
++ * Lý do router không trả được kết quả dùng được; `message` là thông điệp của engine khi engine từ chối (0.8.9 U3). `maxTokens` là trần
++ * của request đã gửi lời gọi đó: câu trả lời không đọc được mà chạm TRUNCATED_SHARE trần thì lý do nêu số token ra (0.8.9 R2).
++ */
++export function failureReason(reply: ModelCompleteResult | null, message = '', maxTokens?: number): string {
 +  if (reply === null) return message !== '' ? `engine từ chối gửi request tới model router: ${message}` : 'engine từ chối gửi request tới model router'
-   if (reply.isAnswered) return 'câu trả lời không đúng định dạng'
++  if (reply.isAnswered) return maxTokens !== undefined && reply.usage.output_tokens >= maxTokens * TRUNCATED_SHARE ? `câu trả lời bị cắt ở ${grouped(reply.usage.output_tokens)} token ra` : 'câu trả lời không đúng định dạng'
    if (reply.reason === 'api-error') return `lỗi API ${reply.error}${reply.status !== null ? ` ${reply.status}` : ''}`
    if (reply.reason === 'aborted') return 'hết thời gian chờ'
-@@ -1333,11 +1370,15 @@ export type RouterOutcome<T> = {
+   return 'câu trả lời rỗng'
+@@ -1333,11 +1376,15 @@ export type RouterOutcome<T> = {
    reason: string
    /** Usage của mọi lượt gọi (lượt đầu và lượt hỏi lại). */
    usages: ModelUsage[]
@@ -405,7 +416,7 @@ index fc059c5..e4ea8f7 100644
    /** Loại lỗi khi không có kết quả (0.7.2); null khi có kết quả. */
    failure: RouterFailKind | null
    /** Giới hạn của request đã gửi và số token đầu ra của lượt gọi cuối, để biết lỗi do hết giờ hay bị cắt (0.7.2). */
-@@ -1367,51 +1408,99 @@ export function failFields(fail: RouterFail): Record<string, unknown> {
+@@ -1367,51 +1414,103 @@ export function failFields(fail: RouterFail): Record<string, unknown> {
    return { failure: fail.kind, ms: fail.ms, timeoutMs: fail.timeoutMs, maxTokens: fail.maxTokens, outputTokens: fail.outputTokens }
  }
  
@@ -437,6 +448,8 @@ index fc059c5..e4ea8f7 100644
 +  // Lời gọi cuối cùng đã gửi (0.8.9 R1): request đã kẹp và câu trả lời của nó (null khi bị engine từ chối).
 +  let lastSent: ModelCompleteRequest | null = null
 +  let lastReply: ModelCompleteResult | null = null
++  // Request đã gửi của từng câu trả lời (0.8.9 R2): để nhận ra câu trả lời bị cắt theo trần của chính lời gọi đó.
++  const sentOf = new WeakMap<ModelCompleteResult, ModelCompleteRequest>()
 +  const send = async (r: ModelCompleteRequest): Promise<ModelCompleteResult | null> => {
 +    const sent = cappedRequest(r)
 +    refusal = ''
@@ -447,6 +460,7 @@ index fc059c5..e4ea8f7 100644
 +    })
 +    lastReply = reply
 +    if (reply) {
++      sentOf.set(reply, sent)
 +      usages.push(reply.usage)
 +      usageModels.push(sent.model)
 +    }
@@ -461,7 +475,7 @@ index fc059c5..e4ea8f7 100644
 -  const limits = (last: ModelCompleteResult | null) => ({ timeoutMs: request.timeoutMs ?? null, maxTokens: request.maxTokens ?? null, outputTokens: last ? last.usage.output_tokens : null })
 +  const first = await send(request)
 +  // Lý do của lời gọi vừa gửi (kèm thông điệp engine khi bị từ chối), và lý do lượt đầu hỏng để ghi firstFail khi được cứu (0.8.9 U3).
-+  const whyFailed = (reply: ModelCompleteResult | null) => failureReason(reply, reply === null ? refusal : '')
++  const whyFailed = (reply: ModelCompleteResult | null) => failureReason(reply, reply === null ? refusal : '', reply !== null ? sentOf.get(reply)?.maxTokens : undefined)
 +  const firstReason = whyFailed(first)
 +  const saved = (result: T | null) => (result !== null ? { firstFail: firstReason } : {})
 +  // Giới hạn ghi trong kết quả (0.8.9 R1): của lời gọi cuối cùng đã gửi, ở mọi nhánh.
@@ -515,11 +529,12 @@ index fc059c5..e4ea8f7 100644
 +    const again = await send({ ...request, timeoutMs: Math.min(request.timeoutMs ?? left, left) })
      const result = again?.isAnswered ? parse(again.text) : null
 -    return { result, reason: result === null ? failureReason(again) : '', usages, retried: true, failure: result === null ? failureKind(again) : null, ...limits(again ?? first) }
-+    return { result, reason: result === null ? whyFailed(again) : '', usages, usageModels, retried: true, failure: result === null ? failureKind(again) : null, ...limits() }
++    // Lượt hỏi lại cứu được lượt đầu không có kết quả đọc được: ghi lý do lượt đầu (0.8.9 R2).
++    return { result, reason: result === null ? whyFailed(again) : '', usages, usageModels, retried: true, failure: result === null ? failureKind(again) : null, ...saved(result), ...limits() }
    }
    const firstResult = first?.isAnswered ? parse(first.text) : null
    // Thiếu confidence (0.7.8 G8): chỉ khi bật retryMissingConfidence (ba chỗ đọc prompt) thì coi như dưới LOW_CONFIDENCE và hỏi lại;
-@@ -1420,16 +1509,24 @@ export async function askRouter<T extends { confidence?: number }>(
+@@ -1420,16 +1519,24 @@ export async function askRouter<T extends { confidence?: number }>(
    const firstConfidence = firstResult?.confidence ?? 1
    const isConfident = firstResult !== null && !isMissing && firstConfidence >= LOW_CONFIDENCE
    const needsCoverage = isConfident && recheck !== undefined && recheck(firstResult)
@@ -541,24 +556,28 @@ index fc059c5..e4ea8f7 100644
    const problem = firstResult === null ? 'json' : needsCoverage ? 'coverage' : 'confidence'
    const isAffordable = problem === 'coverage' ? spent <= budget / 2 : budget - spent >= RETRY_MIN_MS
 -  if (!isAffordable) return settled(false)
-+  if (!isAffordable) return lastResort(settled(false))
-   const isTruncated = firstResult === null && request.maxTokens !== undefined && first.usage.output_tokens >= request.maxTokens * 0.98
+-  const isTruncated = firstResult === null && request.maxTokens !== undefined && first.usage.output_tokens >= request.maxTokens * 0.98
 -  const second = await ask(retryRequest(request, first.text, problem, { timeoutMs: Math.min(request.timeoutMs ?? budget, budget - spent), truncated: isTruncated, ...(opts.isFable === true ? { isFable: true } : {}), ...(opts.full !== undefined ? { full: opts.full } : {}) })).catch(() => null)
 -  if (second) usages.push(second.usage)
++  if (!isAffordable) return lastResort(settled(false))
++  const isTruncated = firstResult === null && request.maxTokens !== undefined && first.usage.output_tokens >= request.maxTokens * TRUNCATED_SHARE
 +  const second = await send(retryRequest(request, first.text, problem, { timeoutMs: Math.min(request.timeoutMs ?? budget, budget - spent), truncated: isTruncated, ...(opts.isFable === true ? { isFable: true } : {}), ...(opts.full !== undefined ? { full: opts.full } : {}) }))
    const secondResult = second?.isAnswered ? parse(second.text) : null
    // Thiếu confidence xếp thấp nhất khi bật retryMissingConfidence: lần hai thắng khi nó có confidence và lần đầu không có hay thấp hơn.
    const isSecondBetter =
-@@ -1437,7 +1534,7 @@ export async function askRouter<T extends { confidence?: number }>(
+@@ -1437,7 +1544,10 @@ export async function askRouter<T extends { confidence?: number }>(
        ? secondResult !== null && (firstResult === null || (secondResult.confidence !== undefined && (isMissing || secondResult.confidence >= firstConfidence)))
        : secondResult !== null && (firstResult === null || (secondResult.confidence ?? 1) >= firstConfidence)
    const pick = isSecondBetter ? secondResult : firstResult
 -  return { result: pick, reason: pick === null ? failureReason(second) : '', usages, retried: true, failure: pick === null ? failureKind(second) : null, ...limits(second ?? first) }
-+  return lastResort({ result: pick, reason: pick === null ? whyFailed(second) : '', usages, usageModels, retried: true, failure: pick === null ? failureKind(second) : null, ...limits() })
++  // Lượt hỏi lại vì JSON hỏng hay bị cắt cứu được lượt đầu không đọc được: ghi lý do lượt đầu (0.8.9 R2). Hỏi lại vì tin cậy thấp hay kiểm
++  // phủ yêu cầu thì lượt đầu đã đọc được, không ghi.
++  const rescued = firstResult === null && pick !== null ? { firstFail: firstReason } : {}
++  return lastResort({ result: pick, reason: pick === null ? whyFailed(second) : '', usages, usageModels, retried: true, failure: pick === null ? failureKind(second) : null, ...rescued, ...limits() })
  }
  
  /** Prompt dài hơn sức chứa của lượt router đó bị lược phần giữa (0.7.8 G8; 0.8.7 L3: sức chứa theo requestPlan, mặc định trần cũ). */
-@@ -1468,9 +1565,16 @@ export function clippedWarning(length: number, info?: { family: ModelFamily; hea
+@@ -1468,9 +1578,16 @@ export function clippedWarning(length: number, info?: { family: ModelFamily; hea
  /** Dòng context kèm prompt bị lược (0.7.8 G8), tối đa 200 ký tự. */
  export const CLIPPED_CONTEXT = '[focus-conductor] Prompt quá dài nên router chưa đọc phần giữa; tự đọc kỹ phần đó khi lập checklist.'
  
@@ -577,7 +596,7 @@ index fc059c5..e4ea8f7 100644
  }
  
  /** Đợt vừa mở (0.8.0 A3): số đợt, số việc và số mục đã cất, số việc mới. */
-@@ -1665,7 +1769,7 @@ function nextBriefRaw(
+@@ -1665,7 +1782,7 @@ function nextBriefRaw(
    if (prev === null || (plan.relation === 'new' && !held)) {
      const fresh = briefOf(plan, prompt, (prev?.goalId ?? 0) + 1, now)
      const carried = prev !== null && !prev.isReference && !plan.constraints.some(isModelRule) ? prev.constraints.filter(isModelRule) : []
@@ -586,7 +605,7 @@ index fc059c5..e4ea8f7 100644
      // Quy định mang sang đứng đầu danh sách (S2): ghi số mục để sàn model phiên chỉ đọc quy định của chính mục tiêu này.
      const brief = carried.length > 0 ? { ...fresh, constraints: carriedConstraints, constraintsBase: carriedConstraints.length, carriedRules: carried.length } : fresh
      return { brief, added: [], isNewGoal: true, replaced: [], held: false, dropped: 0 }
-@@ -1733,12 +1837,14 @@ Reply with ONE JSON object and nothing else:
+@@ -1733,12 +1850,14 @@ Reply with ONE JSON object and nothing else:
  {"missing": number[], "extra": number[], "issues": string[]}`
  
  /** Request rà kế hoạch ở Stop (0.8.2 N2): yêu cầu, ràng buộc, tiêu chí và các bước (tên, check) đánh số từ 1. */
@@ -786,9 +805,18 @@ index 9c2309b..8b7c681 100644
        <Box flexDirection="column">
          {heading(l.quality)}
 diff --git a/claude-mods/focus-conductor/scripts/mutants.ts b/claude-mods/focus-conductor/scripts/mutants.ts
-index df2949e..801a513 100644
+index df2949e..b934462 100644
 --- a/claude-mods/focus-conductor/scripts/mutants.ts
 +++ b/claude-mods/focus-conductor/scripts/mutants.ts
+@@ -828,7 +828,7 @@ export const MUTANTS: Mutant[] = [
+   { id: "072-R6", file: "hooks/lib/router.ts", note: "kiểm lại phủ yêu cầu dù lượt đầu đã quá nửa hạn", old: "problem === 'coverage' ? spent <= budget / 2 :", new: "problem === 'coverage' ? spent <= budget :" },
+   { id: "072-R7", file: "hooks/lib/router.ts", note: "kiểm lại phủ yêu cầu ở effort high", old: "problem === 'coverage' || opts.isFable === true || opts.full !== undefined ? 'medium' : 'high',", new: "opts.isFable === true || opts.full !== undefined ? 'medium' : 'high'," },
+   { id: "072-R8", file: "hooks/lib/router.ts", note: "timeout của lượt thử lại không bị cắt theo hạn chung", old: "timeoutMs: Math.min(request.timeoutMs ?? budget, budget - spent)", new: "timeoutMs: request.timeoutMs ?? budget" },
+-  { id: "072-R9", file: "hooks/lib/router.ts", note: "câu trả lời bị cắt không được nhận ra", old: "first.usage.output_tokens >= request.maxTokens * 0.98", new: "first.usage.output_tokens >= request.maxTokens * 99" },
++  { id: "072-R9", file: "hooks/lib/router.ts", note: "câu trả lời bị cắt không được nhận ra", old: "first.usage.output_tokens >= request.maxTokens * TRUNCATED_SHARE", new: "first.usage.output_tokens >= request.maxTokens * 99" },
+   { id: "072-R10", file: "hooks/lib/router.ts", note: "thử lại khi bị cắt không tăng maxTokens", old: "const TRUNCATION_GROWTH = 1.5", new: "const TRUNCATION_GROWTH = 1" },
+   { id: "072-R11", file: "hooks/lib/router.ts", note: "maxTokens thử lại không có trần", old: "const MAX_TOKENS_CAP = 32_000", new: "const MAX_TOKENS_CAP = 640_000" },
+   { id: "072-R12", file: "hooks/lib/router.ts", note: "lời dặn viết ngắn khi bị cắt bị bỏ", old: "problem === 'json' && opts.truncated === true", new: "problem === 'json' && opts.truncated === 'never'" },
 @@ -1322,10 +1322,10 @@ export const MUTANTS: Mutant[] = [
    { id: "075-L8c", file: "hooks/lib/state.ts", note: "mọi bước cũ được coi là cùng bước", old: "steps, (a, b) => a.title === b.title, n.closing.seq)", new: "steps, (a, b) => true, n.closing.seq)" },
    { id: "075-R1a", file: "hooks/lib/router.ts", note: "ràng buộc của prompt tiếp nối không vào phần tràn (bị bỏ)", old: "    else if (items.length < max + CAP_OVERFLOW) items.push(item)\n", new: "    else if (items.length < max) items.push(item)\n" },
@@ -818,7 +846,7 @@ index df2949e..801a513 100644
    { id: "087-L3o", file: "hooks/lib/reading.ts", note: "mặc định routerMaxWait về 600 giây", old: "export const ROUTER_MAX_WAIT_MS = 1_800_000", new: "export const ROUTER_MAX_WAIT_MS = 600_000" },
    { id: "087-M1a", file: "hooks/lib/route.ts", note: "luôn trả ID ghim", old: "  if (useAlias && prefix === '') return family\n", new: "  if (false) return family\n" },
    { id: "087-M1b", file: "hooks/lib/route.ts", note: "alias thắng cả ghi đè modelMap", old: "  const override = map[family]\n  if (override) return override\n  const at = engineModel.indexOf('claude-')", new: "  if (useAlias) return family\n  const override = map[family]\n  if (override) return override\n  const at = engineModel.indexOf('claude-')" },
-@@ -2305,4 +2305,32 @@ export const MUTANTS: Mutant[] = [
+@@ -2305,4 +2305,38 @@ export const MUTANTS: Mutant[] = [
    { id: "088-N6o", file: "hooks/ui/band.tsx", note: "nút Ẩn vẫn hiện khi tạm dừng", old: "const hideButton = hasRoom && !isPaused && fit.hide ?", new: "const hideButton = hasRoom && fit.hide ?" },
    { id: "088-N6p", file: "hooks/ui/direction.ts", note: "tắt quotaGuard vẫn tính tạm dừng", old: "  const isPaused = settings.enabled && isPauseActive(", new: "  const isPaused = isPauseActive(" },
    { id: "088-N6q", file: "hooks/ui/band.tsx", note: "band lại có hộp rỗng ở cột đầu", old: "    <Box flexDirection=\"column\" flexGrow={1} flexShrink={1}>\n      {lines}\n    </Box>", new: "    <Box flexDirection=\"row\">\n      <Box flexDirection=\"column\" flexShrink={0} />\n      <Box flexDirection=\"column\" flexGrow={1} flexShrink={1}>\n        {lines}\n      </Box>\n    </Box>" },
@@ -850,6 +878,12 @@ index df2949e..801a513 100644
 +  { id: "089-C2f", file: "hooks/lib/router.ts", note: "request rà kế hoạch gửi toàn bộ ràng buộc", old: "['Constraints:', ...shown.items.map(c =>", new: "['Constraints:', ...args.constraints.map(c =>" },
 +  { id: "089-R1a", file: "hooks/lib/router.ts", note: "giới hạn luôn lấy của request đầu", old: "    return { timeoutMs: sent?.timeoutMs ?? null, maxTokens: sent?.maxTokens ?? null,", new: "    return { timeoutMs: request.timeoutMs ?? null, maxTokens: request.maxTokens ?? null," },
 +  { id: "089-R1b", file: "hooks/lib/router.ts", note: "giới hạn lấy từ request chưa kẹp", old: "    lastSent = sent\n", new: "    lastSent = r\n" },
++  { id: "089-R2a", file: "hooks/lib/router.ts", note: "không ghi lý do bị cắt", old: "maxTokens !== undefined && reply.usage.output_tokens >= maxTokens * TRUNCATED_SHARE ? `câu trả lời bị cắt", new: "false ? `câu trả lời bị cắt" },
++  { id: "089-R2b", file: "hooks/lib/router.ts", note: "lượt hỏi lại cứu được không ghi firstFail", old: "  const rescued = firstResult === null && pick !== null ? { firstFail: firstReason } : {}\n", new: "  const rescued = {}\n" },
++  { id: "089-R2c", file: "hooks/lib/router.ts", note: "ngưỡng bị cắt 98% thành 100%", old: "export const TRUNCATED_SHARE = 0.98\n", new: "export const TRUNCATED_SHARE = 1\n" },
++  { id: "089-R2d", file: "hooks/parts/session.ts", note: "dòng route của tin hỏi tiến độ không ghi firstFail", old: "intent, confidence: plan.confidence, retried: outcome.retried, ...(outcome.firstFail !== undefined ? { firstFail: outcome.firstFail } : {}), goalId: prev.goalId })", new: "intent, confidence: plan.confidence, retried: outcome.retried, goalId: prev.goalId })" },
++  { id: "089-R2e", file: "hooks/parts/session.ts", note: "dòng route của tin ngoài lề không ghi firstFail", old: "intent: 'aside', confidence: plan.confidence, retried: outcome.retried, ...(outcome.firstFail !== undefined ? { firstFail: outcome.firstFail } : {}), goalId: prev.goalId })", new: "intent: 'aside', confidence: plan.confidence, retried: outcome.retried, goalId: prev.goalId })" },
++  { id: "089-R2f", file: "hooks/lib/router.ts", note: "kết quả rỗng vẫn mang firstFail", old: "  const saved = (result: T | null) => (result !== null ? { firstFail: firstReason } : {})\n", new: "  const saved = (_result: T | null) => ({ firstFail: firstReason })\n" },
  ]
 diff --git a/claude-mods/focus-conductor/tests/caps-075.test.ts b/claude-mods/focus-conductor/tests/caps-075.test.ts
 index 720cd36..233eb16 100644
@@ -1624,6 +1658,56 @@ index 0000000..ae15292
 +    expect(prompts(seen).at(-1)?.model).toBe('fable')
 +  })
 +})
+diff --git a/claude-mods/focus-conductor/tests/integration/router-truncated-r2-089.test.ts b/claude-mods/focus-conductor/tests/integration/router-truncated-r2-089.test.ts
+new file mode 100644
+index 0000000..5cb08b8
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/integration/router-truncated-r2-089.test.ts
+@@ -0,0 +1,44 @@
++// 0.8.9 R2 (tích hợp): ba nơi ghi dòng route của nhật ký quyết định (prompt lập mục tiêu hay tiếp nối, tin hỏi tiến độ, tin ngoài lề)
++// đều ghi firstFail khi lượt sau cứu được lượt đầu. Router giả trả JSON hỏng ở lần đầu của mỗi prompt và JSON đúng ở lượt hỏi lại.
++
++import { describe, expect, test } from 'claude-code/testing'
++import { base, plan, step, submit } from '../support/engine'
++
++const PLAN = 'mcp__focus-conductor__plan'
++const LOG = '/tmp/fc-truncated-r2-089.jsonl'
++const MAIN = { model: 'sonnet', effort: 'medium', why: '' }
++const GOAL = plan({ goal: 'Sửa luồng thanh toán', depth: 'substantial', volume: 'medium', kind: 'edit', main: MAIN, requirements: ['Sửa hàm phí'] })
++const STATUS = plan({ relation: 'continue', intent: 'status', goal: '', depth: 'none', volume: 'small', kind: 'answer', main: MAIN })
++const ASIDE = plan({ relation: 'new', intent: 'task', goal: 'Giải thích git rebase', depth: 'none', volume: 'small', kind: 'answer', main: MAIN, tasks: [] })
++const BAD = 'câu trả lời không đúng định dạng'
++
++describe('0.8.9 R2: firstFail ở ba nơi ghi dòng route', () => {
++  test('prompt lập mục tiêu, tin hỏi tiến độ, tin ngoài lề: lượt đầu hỏng JSON, lượt hỏi lại đọc được; ba dòng route có firstFail', { options: { planApproval: 'off', decisionLog: LOG } }, async ($, on) => {
++    const asked = new Map<string, number>()
++    const seen = base(on, {
++      router: request => {
++        const n = (asked.get(request) ?? 0) + 1
++        asked.set(request, n)
++        if (n === 1) return '{"goal": "hỏng'
++        return request.includes('tới đâu rồi') ? STATUS : request.includes('git rebase') ? ASIDE : GOAL
++      },
++    })
++    const writes: string[] = []
++    on('fs.write', (_$, e) => {
++      writes.push(e.text)
++      return { value: undefined }
++    })
++    on('turn.complete', () => ({ text: '' }))
++    await submit($, 'Sửa luồng thanh toán')
++    await $.turn.start({ text: 'làm', turnId: 't1' })
++    await step($, seen, { turnId: 't1' })
++    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa hàm phí' }, { title: 'Thêm test' }] } as never)
++    await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'doing' } as never)
++    await $.turn.complete({ turnId: 't1', answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer' } as never)
++    await submit($, 'tới đâu rồi')
++    await submit($, 'git rebase là gì')
++    const routes = (writes.at(-1) ?? '').trim().split('\n').filter(Boolean).map(line => JSON.parse(line) as Record<string, unknown>).filter(line => line['kind'] === 'route')
++    expect(routes.map(line => line['intent'])).toEqual(['task', 'status', 'aside'])
++    for (const line of routes) expect(line['firstFail'], String(line['intent'])).toBe(BAD)
++  })
++})
 diff --git a/claude-mods/focus-conductor/tests/integration/router-truncated-u4-089.test.ts b/claude-mods/focus-conductor/tests/integration/router-truncated-u4-089.test.ts
 new file mode 100644
 index 0000000..9627325
@@ -1775,10 +1859,10 @@ index 0000000..1b52567
 +})
 diff --git a/claude-mods/focus-conductor/tests/router-reason-u3-089.test.ts b/claude-mods/focus-conductor/tests/router-reason-u3-089.test.ts
 new file mode 100644
-index 0000000..732d720
+index 0000000..3ef06ff
 --- /dev/null
 +++ b/claude-mods/focus-conductor/tests/router-reason-u3-089.test.ts
-@@ -0,0 +1,46 @@
+@@ -0,0 +1,75 @@
 +// 0.8.9 U3: askRouter giữ thông điệp của lỗi engine ném. Thông điệp gộp về một dòng, bỏ tiền tố tới hết "$.model.complete: ", cắt còn 160
 +// ký tự; lý do là "engine từ chối gửi request tới model router: <thông điệp>". Không có thông điệp thì giữ câu cũ. Câu lỗi lấy nguyên văn
 +// từ engine thật [Đo trực tiếp, 2.1.325, VERIFICATION mục 0.8.9], tên plugin của mod thử đổi thành focus-conductor.
@@ -1823,6 +1907,35 @@ index 0000000..732d720
 +  test('thông điệp không có tiền tố "$.model.complete: ": giữ nguyên', async () => {
 +    const outcome = await askRouter(throwing(new Error('model bị chặn')), request, parse)
 +    expect(outcome.reason).toBe(`${LEAD}model bị chặn`)
++  })
++})
++
++// 0.8.9 R3: ba ca biên. undefined, null và đối tượng không có trường message dạng chuỗi cho thông điệp rỗng (câu cảnh báo giữ dạng cũ);
++// đối tượng có message dạng chuỗi dùng chuỗi đó; chuỗi và số giữ như U3. Hai chỗ đã đúng từ U3 nhưng chưa có ca ghim: thông điệp mở đầu
++// ngay bằng tiền tố, và việc xóa thông điệp cũ trước mỗi lời gọi.
++describe('0.8.9 R3: thông điệp của giá trị bị ném', () => {
++  const reasonOf = async (value: unknown) => (await askRouter(throwing(value), request, parse)).reason
++
++  test('undefined: câu cũ', async () => expect(await reasonOf(undefined)).toBe(OLD))
++  test('null: câu cũ', async () => expect(await reasonOf(null)).toBe(OLD))
++  test('đối tượng rỗng: câu cũ', async () => expect(await reasonOf({})).toBe(OLD))
++  test('đối tượng có message dạng chuỗi: dùng chuỗi đó', async () => expect(await reasonOf({ message: 'x' })).toBe(`${LEAD}x`))
++  test('chuỗi: giữ chuỗi', async () => expect(await reasonOf('y')).toBe(`${LEAD}y`))
++  test('số 42: "42"', async () => expect(await reasonOf(42)).toBe(`${LEAD}42`))
++
++  test('thông điệp mở đầu ngay bằng "$.model.complete: ": bỏ tiền tố', async () => {
++    expect(await reasonOf(new Error('$.model.complete: abc'))).toBe(`${LEAD}abc`)
++  })
++
++  test('lượt đầu ném lỗi có thông điệp, fallback trả null mà không ném lỗi: lý do cuối là câu cũ', async () => {
++    const ask = async (r: ModelCompleteRequest) => {
++      if (String(r.prompt) === 'x') throw new Error('focus-conductor: $.model.complete: model "claude-fable-5-2" is not in this organization\'s allowlist')
++      return null
++    }
++    const fallback = { ...request, prompt: 'fallback', maxTokens: 4_000 } as ModelCompleteRequest
++    const outcome = await askRouter(ask, request, parse, undefined, { now: () => 0, fallback })
++    expect(outcome.result).toBeNull()
++    expect(outcome.reason).toBe(OLD)
 +  })
 +})
 diff --git a/claude-mods/focus-conductor/tests/router-refused-u2-089.test.ts b/claude-mods/focus-conductor/tests/router-refused-u2-089.test.ts
@@ -1927,6 +2040,97 @@ index 0000000..6df2c7d
 +    expect(outcome.viaFallback).toBe(true)
 +    expect(outcome.usages.length).toBe(2)
 +    expect(outcome.usageModels).toEqual(['fable', 'opus'])
++  })
++})
+diff --git a/claude-mods/focus-conductor/tests/router-truncated-r2-089.test.ts b/claude-mods/focus-conductor/tests/router-truncated-r2-089.test.ts
+new file mode 100644
+index 0000000..5a27bb7
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/router-truncated-r2-089.test.ts
+@@ -0,0 +1,85 @@
++// 0.8.9 R2: lời gọi có trả lời mà không đọc được, với output_tokens từ 98% maxTokens của request đã gửi lời gọi đó, có lý do "câu trả
++// lời bị cắt ở <n> token ra"; loại lỗi vẫn là format. firstFail được ghi cả khi lượt hỏi lại cứu được một lượt đầu không có kết quả
++// đọc được; lượt hỏi lại vì tin cậy thấp hay vì kiểm phủ yêu cầu thì không ghi, và kết quả rỗng không mang firstFail.
++
++import { describe, expect, test } from 'claude-code/testing'
++import type { ModelCompleteRequest } from 'claude-code'
++import { askRouter, parseRoute } from '../hooks/lib/router'
++import type { Policy } from '../hooks/lib/router'
++import { plan } from './support/engine'
++
++const COND: Policy = { allowFable: false, blocked: new Set(), session: null, conductor: true }
++const REPLY = JSON.stringify(plan({ goal: 'Sửa luồng thanh toán' }))
++const parse = (text: string) => parseRoute(text, COND)
++const usage = (output: number) => ({ input_tokens: 100, output_tokens: output, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 })
++const req = (prompt: string, maxTokens: number, timeoutMs: number, model = 'fable') => ({ model, prompt, maxTokens, timeoutMs }) as ModelCompleteRequest
++const FULL = req('TRỌN', 64_000, 300_000)
++const CUT = req('CẮT', 16_000, 120_000)
++const CUT_AT = 'câu trả lời bị cắt ở 64.000 token ra'
++
++type Reply = { text: string; output: number }
++/** ask trả lần lượt các câu trả lời cho request không phải fallback; request fallback (prompt CẮT) trả kế hoạch đúng. */
++function scripted(replies: Reply[]) {
++  return async (r: ModelCompleteRequest) => {
++    if (String(r.prompt).startsWith('CẮT')) return { isAnswered: true as const, text: REPLY, usage: usage(50) }
++    const reply = replies.shift() ?? { text: '{"goal":', output: 10 }
++    return { isAnswered: true as const, text: reply.text, usage: usage(reply.output) }
++  }
++}
++
++describe('0.8.9 R2: lý do bị cắt và firstFail', () => {
++  test('lượt đọc trọn bị cắt ở 64.000, lượt hỏi lại hỏng, fallback đọc được: firstFail là lý do bị cắt', async () => {
++    const outcome = await askRouter(scripted([{ text: '{"goal": "Sửa', output: 64_000 }, { text: '{"goal":', output: 100 }]), FULL, parse, undefined, { now: () => 0, fallback: CUT, full: { tokenCap: 64_000 } })
++    expect(outcome.result).not.toBeNull()
++    expect(outcome.firstFail).toBe(CUT_AT)
++  })
++
++  test('câu trả lời đầu bị cắt, lượt hỏi lại đọc được: có kết quả, firstFail là lý do bị cắt', async () => {
++    const outcome = await askRouter(scripted([{ text: '{"goal": "Sửa', output: 64_000 }, { text: REPLY, output: 2_000 }]), FULL, parse, undefined, { now: () => 0, fallback: CUT, full: { tokenCap: 64_000 } })
++    expect(outcome.result).not.toBeNull()
++    expect(outcome.fellBack).toBeUndefined()
++    expect(outcome.firstFail).toBe(CUT_AT)
++  })
++
++  test('câu trả lời đầu hỏng JSON với 100 token ra, lượt hỏi lại đọc được: firstFail là câu không đúng định dạng', async () => {
++    const outcome = await askRouter(scripted([{ text: '{"goal":', output: 100 }, { text: REPLY, output: 2_000 }]), FULL, parse, undefined, { now: () => 0, fallback: CUT })
++    expect(outcome.result).not.toBeNull()
++    expect(outcome.firstFail).toBe('câu trả lời không đúng định dạng')
++  })
++
++  test('request thường, cả hai lượt bị cắt: reason nêu token ra của lượt hỏi lại, failure là format', async () => {
++    const sent: ModelCompleteRequest[] = []
++    const ask = async (r: ModelCompleteRequest) => {
++      sent.push(r)
++      return { isAnswered: true as const, text: '{"goal": "Sửa', usage: usage(sent.length === 1 ? 16_000 : (r.maxTokens ?? 0)) }
++    }
++    const outcome = await askRouter(ask, req('THƯỜNG', 16_000, 100_000, 'sonnet'), parse, undefined, { now: () => 0 })
++    expect(sent.length).toBe(2)
++    expect(outcome.result).toBeNull()
++    expect(outcome.failure).toBe('format')
++    expect(outcome.reason).toBe(`câu trả lời bị cắt ở ${String(sent[1]?.maxTokens ?? 0).replace(/\B(?=(\d{3})+(?!\d))/g, '.')} token ra`)
++  })
++
++  test('ngưỡng 98%: 62.720 trên 64.000 token là bị cắt; 62.719 thì không', async () => {
++    const cut = await askRouter(scripted([{ text: '{"goal":', output: 62_720 }, { text: '{"goal":', output: 10 }]), FULL, parse, undefined, { now: () => 0, fallback: CUT })
++    expect(cut.firstFail).toBe('câu trả lời bị cắt ở 62.720 token ra')
++    const plain = await askRouter(scripted([{ text: '{"goal":', output: 62_719 }, { text: '{"goal":', output: 10 }]), FULL, parse, undefined, { now: () => 0, fallback: CUT })
++    expect(plain.firstFail).toBe('câu trả lời không đúng định dạng')
++  })
++
++  test('lượt đầu tin cậy thấp, lượt hỏi lại tin cậy cao: không có firstFail', async () => {
++    const low = JSON.stringify(plan({ goal: 'Sửa luồng thanh toán', confidence: 0.2 }))
++    const high = JSON.stringify(plan({ goal: 'Sửa luồng thanh toán', confidence: 0.9 }))
++    const outcome = await askRouter(scripted([{ text: low, output: 100 }, { text: high, output: 100 }]), FULL, parse, undefined, { now: () => 0, fallback: CUT })
++    expect(outcome.retried).toBe(true)
++    expect(outcome.result?.confidence).toBe(0.9)
++    expect(outcome.firstFail).toBeUndefined()
++  })
++
++  test('mọi lời gọi đều hỏng, kết quả rỗng: không có firstFail', async () => {
++    const ask = async () => ({ isAnswered: true as const, text: '{"goal":', usage: usage(10) })
++    const outcome = await askRouter(ask, FULL, parse, undefined, { now: () => 0, fallback: CUT })
++    expect(outcome.result).toBeNull()
++    expect(outcome.firstFail).toBeUndefined()
 +  })
 +})
 diff --git a/claude-mods/focus-conductor/tests/router-truncated-u4-089.test.ts b/claude-mods/focus-conductor/tests/router-truncated-u4-089.test.ts
