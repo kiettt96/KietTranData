@@ -144,7 +144,7 @@ describe('0.7.9 UI2: nhịp vẽ lại 60 giây khi có turn đang chạy', () =
     expect(count.writes - before.writes).toBeGreaterThan(0)
   })
 
-  test('không có turn đang chạy: không có nhịp nào, kể cả sau khi nạp lại mod; turn kết thúc thì nhịp dừng', { options: { planApproval: 'off' } }, async ($, on) => {
+  test('không có turn đang chạy: không có nhịp nào, kể cả sau khi nạp lại mod; turn kết thúc thì nhịp dừng', { options: { planApproval: 'off', neonMotion: 'off' } }, async ($, on) => {
     sessionHooks(on)
     const count = counters(on)
     const seen = await goal($, on)

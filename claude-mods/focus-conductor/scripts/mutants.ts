@@ -2297,4 +2297,11 @@ export const MUTANTS: Mutant[] = [
   { id: "088-N6g", file: "hooks/ui/neon.ts", note: "vị trí không hữu hạn không coi là 0", old: "  const at = Number.isFinite(position) ? position : 0\n", new: "  const at = position\n" },
   { id: "088-N6h", file: "hooks/ui/neon.ts", note: "frame không hữu hạn không coi là 0", old: "  const shift = Number.isFinite(frame) ? frame : 0\n", new: "  const shift = frame\n" },
   { id: "088-N6i", file: "hooks/lib/text.ts", note: "mọi cửa sổ dùng pause khi đang dừng", old: "const level = isPaused && view.reasons.some(r => r.kind === w.kind) ? 'paused'", new: "const level = isPaused ? 'paused'" },
+  { id: "088-N6j", file: "hooks/ui/neon.ts", note: "chữ trên ô tô đặc cùng màu với nền", old: "map(run => ({ ...extra, text: run.text, color: solids.onFill, bg: run.color }))", new: "map(run => ({ ...extra, text: run.text, color: run.color, bg: run.color }))" },
+  { id: "088-N6k", file: "hooks/ui/neon.ts", note: "dải pause dịch theo frame", old: "const STILL: ReadonlySet<GradientName> = new Set(['pause'])", new: "const STILL: ReadonlySet<GradientName> = new Set([])" },
+  { id: "088-N6l", file: "hooks/ui/band.tsx", note: "câu mức đỏ ở dòng 2 không tô dải warn", old: "paint.text('warn', sentence, { bold: true })", new: "paint.text('cyber', sentence, { bold: true })" },
+  { id: "088-N6m", file: "hooks/parts/ui.tsx", note: "pane không đổi màu theo frame", old: "rows: e.props.scroll.bodyRows, frame: Math.floor(now / 1000) }", new: "rows: e.props.scroll.bodyRows, frame: 0 }" },
+  { id: "088-N6n", file: "hooks/ui/band.tsx", note: "ô model không mờ khi xong hết", old: "  const isModelDim = isPaused || isFinished", new: "  const isModelDim = isPaused" },
+  { id: "088-N6o", file: "hooks/ui/band.tsx", note: "nút Ẩn vẫn hiện khi tạm dừng", old: "const hideButton = hasRoom && !isPaused && fit.hide ?", new: "const hideButton = hasRoom && fit.hide ?" },
+  { id: "088-N6p", file: "hooks/ui/direction.ts", note: "tắt quotaGuard vẫn tính tạm dừng", old: "  const isPaused = settings.enabled && isPauseActive(", new: "  const isPaused = isPauseActive(" },
 ]
