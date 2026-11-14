@@ -8,6 +8,7 @@ import type { Mode, PlanStep, StepStatus } from '../../types'
 import { estimateLine, formatCost, ledgerLines, sessionUsd } from '../lib/ledger'
 import type { View } from '../lib/state'
 import { shownPlan } from '../lib/mirror'
+import { shownConstraints } from '../lib/router'
 import { runningGroups, runningTitles, stepTaskRows, taskRows } from '../lib/progress'
 import { liveForks } from '../lib/forks'
 import { countLabel, progress } from '../lib/text'
@@ -767,6 +768,7 @@ export function renderPane(
 
   // ------------------------------------------------------------- nhật ký
   const recentLog = log.slice(-8).reverse()
+  const constraintsShown = shownConstraints(brief.constraints, brief.constraintsBase)
   const hasEstimate = recentLog.some(entry => entry.usd !== undefined && !entry.measured)
   const logNode = (
     <Box flexDirection="column">
@@ -861,7 +863,9 @@ export function renderPane(
       ) : null}
       <Box flexDirection="column">
         {heading(l.constraints)}
-        {bullets(brief.constraints, l.noConstraints)}
+        {bullets(constraintsShown.items, l.noConstraints)}
+        {/* 0.8.9 C2: tối đa 22 ràng buộc, kèm một dòng mờ nêu số mục còn lại. */}
+        {constraintsShown.hidden > 0 ? <Text dimColor>{l.constraintsMore(constraintsShown.hidden)}</Text> : null}
       </Box>
       <Box flexDirection="column">
         {heading(l.quality)}

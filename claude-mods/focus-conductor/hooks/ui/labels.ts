@@ -51,6 +51,8 @@ const VI = {
   notRead: 'router chưa đọc',
   constraints: 'Ràng buộc',
   noConstraints: 'Không nhận ra ràng buộc rõ ràng.',
+  /** 0.8.9 C2: số ràng buộc không nêu ở mục ràng buộc. */
+  constraintsMore: (n: number) => `(và ${n} ràng buộc khác)`,
   quality: 'Tiêu chí chất lượng',
   noQuality: 'Không nhận ra tiêu chí riêng.',
   plannedTag: '(dự kiến)',
@@ -230,6 +232,7 @@ const EN: typeof VI = {
   notRead: 'not read by the router',
   constraints: 'Constraints',
   noConstraints: 'No explicit constraints found.',
+  constraintsMore: n => `(and ${n} more ${n === 1 ? 'constraint' : 'constraints'})`,
   quality: 'Quality criteria',
   noQuality: 'No specific criteria found.',
   plannedTag: '(planned)',

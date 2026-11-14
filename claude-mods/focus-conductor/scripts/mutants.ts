@@ -2325,4 +2325,10 @@ export const MUTANTS: Mutant[] = [
   { id: "089-C1c", file: "hooks/lib/router.ts", note: "mục tiêu mới mang quy định model vẫn cắt ở 12", old: "unique([...carried, ...fresh.constraints], Number.POSITIVE_INFINITY)", new: "unique([...carried, ...fresh.constraints], CONSTRAINT_LIMIT)" },
   { id: "089-C1d", file: "hooks/lib/router.ts", note: "lượt chạy thật prompt đã đối chiếu vẫn dùng trần 12", old: "mergeCapped(prev.constraints, plan.constraints, Number.POSITIVE_INFINITY).items", new: "mergeCapped(prev.constraints, plan.constraints, CONSTRAINT_LIMIT).items" },
   { id: "089-C1e", file: "hooks/lib/router.ts", note: "mục cùng khóa thay tại chỗ vẫn sinh cảnh báo đã đầy", old: "    const keys = new Set(after.map(itemKey))\n    return before.filter(x => !keys.has(itemKey(x)))\n", new: "    return before.filter(x => !after.includes(x))\n" },
+  { id: "089-C2a", file: "hooks/lib/router.ts", note: "lấy 22 mục đầu, bỏ các mục mới nhất", old: "  const head = base === undefined || base > CONSTRAINT_SHOWN ? CONSTRAINT_SHOWN : Math.max(0, base)\n", new: "  const head = CONSTRAINT_SHOWN\n" },
+  { id: "089-C2b", file: "hooks/lib/router.ts", note: "hidden luôn là 0", old: "hidden: constraints.length - CONSTRAINT_SHOWN }", new: "hidden: 0 }" },
+  { id: "089-C2c", file: "hooks/lib/text.ts", note: "briefContext in toàn bộ ràng buộc", old: "${bullets('Ràng buộc:', shown.items)}", new: "${bullets('Ràng buộc:', brief.constraints)}" },
+  { id: "089-C2d", file: "hooks/lib/router.ts", note: "request tiếp nối in toàn bộ phần tràn", old: "const over = [...shown.items.slice(CONSTRAINT_LIMIT),", new: "const over = [...prev.constraints.slice(CONSTRAINT_LIMIT)," },
+  { id: "089-C2e", file: "hooks/lib/text.ts", note: "resumeContext in toàn bộ ràng buộc", old: "  return shown.items.length > 0 ? `Ràng buộc: ${shown.items.join('; ')}", new: "  return shown.items.length > 0 ? `Ràng buộc: ${constraints.join('; ')}" },
+  { id: "089-C2f", file: "hooks/lib/router.ts", note: "request rà kế hoạch gửi toàn bộ ràng buộc", old: "['Constraints:', ...shown.items.map(c =>", new: "['Constraints:', ...args.constraints.map(c =>" },
 ]

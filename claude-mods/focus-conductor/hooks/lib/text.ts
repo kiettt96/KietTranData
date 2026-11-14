@@ -10,7 +10,7 @@ import { clockOf, labels } from '../ui/labels'
 import { currentStep, taskBarRuns } from '../ui/style'
 import type { Lang } from '../ui/labels'
 import { describePick, stepCovers } from './route'
-import { uncoveredRequirements } from './router'
+import { shownConstraints, uncoveredRequirements } from './router'
 
 export const PLAN_TOOL = 'plan'
 export const PLAN_TOOL_FULL = 'mcp__focus-conductor__plan'
@@ -118,7 +118,10 @@ export function briefContext(brief: Brief, main: Choice | null, isApplied = true
       ? `Điều phối: luồng chính ${mainText}; việc ghi "giao" chạy đúng model đã ghi; subagent ngoài danh sách được router chấm khi giao.`
       : `Điều phối: luồng chính ${mainText}; subagent (nếu cần) được router chấm khi giao.`
   // Lượt đối chiếu không hiển thị ràng buộc và tiêu chí: chúng thuộc prompt đính kèm, không phải việc của lượt này.
-  const rules = brief.isReference ? '' : `${bullets('Ràng buộc:', brief.constraints)}${bullets('Tiêu chí chất lượng:', brief.quality)}`
+  // 0.8.9 C2: tối đa CONSTRAINT_SHOWN ràng buộc, kèm số mục còn lại.
+  const shown = shownConstraints(brief.constraints, brief.constraintsBase)
+  const more = shown.hidden > 0 ? `\n(và ${shown.hidden} ràng buộc khác)` : ''
+  const rules = brief.isReference ? '' : `${bullets('Ràng buộc:', shown.items)}${more}${bullets('Tiêu chí chất lượng:', brief.quality)}`
   // Yêu cầu router đã liệt kê mà không việc nào phủ (0.7.0): nhắc để không bị bỏ sót khi lập checklist.
   const uncovered = brief.isReference ? [] : uncoveredRequirements(brief)
   const gaps = uncovered.length > 0 ? `\nYêu cầu chưa có việc nào phủ (đừng bỏ sót khi lập checklist): ${uncoveredList(uncovered)}` : ''
@@ -806,12 +809,18 @@ const RESUME_RULES =
  * (điểm tiếp tục chính xác), năm tool call cuối, file đổi sau lúc dừng và quy tắc tiếp tục. Tối đa RESUME_MAX ký tự:
  * phần dài bị cắt theo thứ tự tool call cuối, checklist, note; tiêu đề, lệnh bị từ chối, file đổi và quy tắc giữ.
  */
+function constraintsLine(constraints: readonly string[], base: number | undefined): string {
+  const shown = shownConstraints(constraints, base)
+  return shown.items.length > 0 ? `Ràng buộc: ${shown.items.join('; ')}${shown.hidden > 0 ? ` (và ${shown.hidden} ràng buộc khác)` : ''}` : ''
+}
+
 export function resumeContext(cp: QuotaCheckpoint, changed: readonly string[]): string {
   const reasons = cp.reason.length > 0 ? cp.reason.map(quotaReasonText).join('; ') : 'người dùng tạm dừng'
   const head = `[focus-conductor] ĐIỂM DỪNG (${resetLabel(new Date(cp.createdAt).toISOString()) || 'không rõ giờ'}): đã dừng vì ${reasons}.`
   const goal = [
     cp.brief.goal ? `Mục tiêu: ${cp.brief.goal}` : '',
-    cp.brief.constraints.length > 0 ? `Ràng buộc: ${cp.brief.constraints.join('; ')}` : '',
+    // 0.8.9 C2: tối đa CONSTRAINT_SHOWN ràng buộc, kèm số mục còn lại.
+    constraintsLine(cp.brief.constraints, cp.brief.constraintsBase),
     cp.brief.quality.length > 0 ? `Tiêu chí chất lượng: ${cp.brief.quality.join('; ')}` : '',
   ].filter(Boolean)
   const doing = cp.doing.length > 0 ? `Bước đang làm: ${cp.doing.join(', ')}.` : ''

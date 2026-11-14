@@ -568,6 +568,8 @@ export type QuotaPause = {
 export type CheckpointBrief = {
   goal: string
   constraints: string[]
+  /** 0.8.9 C2: số ràng buộc của prompt lập mục tiêu (Brief.constraintsBase); vắng ở điểm dừng từ bản cũ. */
+  constraintsBase?: number
   quality: string[]
   scopePaths: string[]
   tasks: Array<{ index: number; title: string; run: 'main' | 'agent'; agentType?: string; pick: Choice }>

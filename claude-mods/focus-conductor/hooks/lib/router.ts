@@ -357,6 +357,21 @@ function ruleItems(constraints: readonly string[] | undefined): string[] {
   return items
 }
 
+/** Số ràng buộc tối đa được nêu ở mỗi nơi chèn vào context hay gửi router (0.8.9 C2): ràng buộc không còn trần nhưng phần nêu thì có. */
+export const CONSTRAINT_SHOWN = 22
+
+/**
+ * Ràng buộc được nêu (0.8.9 C2): không quá CONSTRAINT_SHOWN mục thì nguyên danh sách; dài hơn thì giữ `base` mục đầu (mục của prompt
+ * lập mục tiêu; thiếu hay lớn hơn CONSTRAINT_SHOWN thì coi là CONSTRAINT_SHOWN) cộng các mục mới nhất ở cuối cho đủ, giữ thứ tự.
+ * `hidden` là số mục còn lại không nêu.
+ */
+export function shownConstraints(constraints: readonly string[], base?: number): { items: string[]; hidden: number } {
+  if (constraints.length <= CONSTRAINT_SHOWN) return { items: [...constraints], hidden: 0 }
+  const head = base === undefined || base > CONSTRAINT_SHOWN ? CONSTRAINT_SHOWN : Math.max(0, base)
+  const tail = CONSTRAINT_SHOWN - head
+  return { items: [...constraints.slice(0, head), ...constraints.slice(constraints.length - tail)], hidden: constraints.length - CONSTRAINT_SHOWN }
+}
+
 function rulesLines(constraints: readonly string[] | undefined): string[] {
   const items = ruleItems(constraints)
   return items.length > 0 ? ['User rules of this goal (a rule that names a model for this kind of work must be followed, never a lower model):', ...items] : []
@@ -374,15 +389,24 @@ function previousLines(prev: Brief | null, ran: string | null): string[] {
     ...totalLine(prev.tasks.length),
   ]
   // Ràng buộc của mục tiêu trước (0.7.5), cắt gọn như khi chấm subagent: prompt tiếp nối ngắn không nhắc lại quy định model.
-  const rules = ruleItems(prev.constraints)
+  // 0.8.9 C2: chỉ các ràng buộc được nêu (tối đa CONSTRAINT_SHOWN mục), kèm số mục còn lại.
+  const shown = shownConstraints(prev.constraints, prev.constraintsBase)
+  const rules = ruleItems(shown.items)
   // Phần tràn (vòng rà soát 3): mục của prompt tiếp nối giữ ngoài trần luôn có trong request, kể cả khi ruleItems đã cắt.
   const overRequirements = (prev.requirements ?? []).slice(REQUIREMENT_CONTEXT)
-  const over = [...prev.constraints.slice(CONSTRAINT_LIMIT), ...overRequirements.slice(0, TASK_CONTEXT)]
+  const over = [...shown.items.slice(CONSTRAINT_LIMIT), ...overRequirements.slice(0, TASK_CONTEXT)]
   return [
     `Previous goal${prev.isReference ? ' (a reference-only review: its tasks were routed for comparison, not run)' : ''}: ${fence(prev.goal)}`,
     ...(tasks.length > 0 ? ['Previous tasks:', ...tasks] : []),
     ...(rules.length > 0 ? ['Previous constraints (still hold on a follow-up; a rule that names a model for this kind of work must be followed):', ...rules] : []),
-    ...(over.length > 0 ? ['Previous follow-up items kept over the limit (still hold):', ...over.map(item => `  - ${fence(clip(item, 120))}`), ...(overRequirements.length > TASK_CONTEXT ? [`  (${overRequirements.length - TASK_CONTEXT} more requirements)`] : [])] : []),
+    ...(over.length > 0
+      ? [
+          'Previous follow-up items kept over the limit (still hold):',
+          ...over.map(item => `  - ${fence(clip(item, 120))}`),
+          ...(overRequirements.length > TASK_CONTEXT ? [`  (${overRequirements.length - TASK_CONTEXT} more requirements)`] : []),
+          ...(shown.hidden > 0 ? [`  (${shown.hidden} more constraints)`] : []),
+        ]
+      : []),
     ...(prev.referenceMain ? [`Main thread the referenced prompt would need: ${describePick(prev.referenceMain)}`] : []),
     `Main thread ran: ${ran ?? 'unknown'}`,
   ]
@@ -1803,12 +1827,14 @@ Reply with ONE JSON object and nothing else:
 {"missing": number[], "extra": number[], "issues": string[]}`
 
 /** Request rà kế hoạch ở Stop (0.8.2 N2): yêu cầu, ràng buộc, tiêu chí và các bước (tên, check) đánh số từ 1. */
-export function planReviewRequest(args: { goal: string; requirements: readonly string[]; constraints: readonly string[]; quality: readonly string[]; steps: ReadonlyArray<{ title: string; check?: string }>; model: string; isFable?: boolean }): ModelCompleteRequest {
+export function planReviewRequest(args: { goal: string; requirements: readonly string[]; constraints: readonly string[]; constraintsBase?: number; quality: readonly string[]; steps: ReadonlyArray<{ title: string; check?: string }>; model: string; isFable?: boolean }): ModelCompleteRequest {
   const numbered = (items: readonly string[]) => items.map((item, i) => `${i + 1}. ${fence(clip(item, 200))}`)
+  // 0.8.9 C2: tối đa CONSTRAINT_SHOWN ràng buộc, kèm số mục còn lại.
+  const shown = shownConstraints(args.constraints, args.constraintsBase)
   const lines = [
     'Requirements:',
     ...(args.requirements.length > 0 ? numbered(args.requirements) : [`1. ${fence(clip(args.goal, 200))}`]),
-    ...(args.constraints.length > 0 ? ['Constraints:', ...args.constraints.map(c => `- ${fence(clip(c, 200))}`)] : []),
+    ...(shown.items.length > 0 ? ['Constraints:', ...shown.items.map(c => `- ${fence(clip(c, 200))}`), ...(shown.hidden > 0 ? [`(${shown.hidden} more constraints)`] : [])] : []),
     ...(args.quality.length > 0 ? ['Quality criteria:', ...args.quality.map(q => `- ${fence(clip(q, 200))}`)] : []),
     'Plan steps:',
     ...args.steps.slice(0, 40).map((step, i) => `${i + 1}. ${fence(clip(step.title, 200))}${step.check ? ` (check: ${fence(clip(step.check, 200))})` : ' (no check)'}`),
