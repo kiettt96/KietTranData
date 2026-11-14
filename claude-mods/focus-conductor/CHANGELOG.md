@@ -49,6 +49,7 @@ Router của prompt dài hơn 80.000 ký tự bị engine từ chối khi họ �
 
 **Test cũ đổi kỳ vọng hay đổi tên vì D3:**
 - `taskrows-perf-087`: "mục tiêu 12 việc, checklist có bước "Việc N", bước doing và bước đã xong: chữ band và pane trùng bản ghi của bố cục 0.8.8" đổi tên thành "... trùng bản ghi của bố cục 0.8.8, trừ tiêu đề mục tiến độ (0.8.9 D3)"; băm ghim đổi, chỉ ba dòng tiêu đề mục khác 7682ef7.
+- **D4: đo bằng model thật, ghi lại golden.** Sáu ca golden tiếp nối mới (`arr-add2`, `arr-drop`, `arr-dup`, `arr-first`, `arr-resume`, `arr-scope40`) với trạng thái việc (`states`) và kỳ vọng `arrange` chấm trên câu trả lời gốc của router (`tests/golden/check.ts`). `scripts/eval-router.ts` ghi thêm token vào, `arrange` và việc đã xong hay đang chạy lọt vào drop hay merge của từng lượt. Golden ghi lại trên lời dặn mới: sonnet cho 55 ca, fable cho bốn ca `c4-*` và ca `arr-dup`.
 
 **Mẫu cũ viết lại, giữ mã (vòng 2):** `075-R1c`, `075-R1f` (khối phần tràn của request tiếp nối viết thành nhiều dòng ở C2); `072-R9` (ngưỡng bị cắt nay là hằng `TRUNCATED_SHARE`, R2); `070-C13`, `074-C2`, `074-C3` (lời gọi router có thêm `taskStates`, D1); `075-B13f` (dòng tổng số việc nay là dòng việc đã xong, D1); `075-S1e` (tách khỏi chỗ trùng trong `arrangeOf`, D1); `075-B12f`, `075-M5i` (nextBrief nhận thêm trạng thái việc và checklist, D2).
 

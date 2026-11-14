@@ -7,6 +7,42 @@ import { nextBrief, parseRoute } from '../../hooks/lib/router'
 import type { GoldenCase } from './cases'
 import { OPEN } from './cases'
 
+type RawArrange = { order?: unknown[]; drop?: Array<{ task?: unknown }>; merge?: Array<{ tasks?: unknown[] }> }
+
+/** Trường arrange của câu trả lời gốc (đối tượng JSON đầu tiên trong câu trả lời); undefined khi không có hay không đọc được. */
+export function rawArrange(reply: string): RawArrange | undefined {
+  const from = reply.indexOf('{')
+  const to = reply.lastIndexOf('}')
+  if (from < 0 || to <= from) return undefined
+  try {
+    const value = (JSON.parse(reply.slice(from, to + 1)) as Record<string, unknown>)['arrange']
+    return value !== null && typeof value === 'object' ? (value as RawArrange) : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** Các việc router bỏ hay gộp trong arrange gốc. */
+export function removedOf(arrange: RawArrange | undefined): number[] {
+  if (arrange === undefined) return []
+  return [...(arrange.drop ?? []).map(d => d.task), ...(arrange.merge ?? []).flatMap(m => m.tasks ?? [])].filter((n): n is number => typeof n === 'number')
+}
+
+function arrangeFails(e: NonNullable<GoldenCase['expect']['arrange']>, arrange: RawArrange | undefined): string[] {
+  const fails: string[] = []
+  if (e.present === true && arrange === undefined) fails.push('thiếu arrange')
+  if (e.present === false && arrange !== undefined) fails.push('có arrange khi không cần')
+  const removed = removedOf(arrange)
+  if (e.keep === true && removed.length > 0) fails.push(`bỏ hay gộp việc ${removed.join(', ')} khi không cần`)
+  if (e.removes !== undefined) {
+    const hit = e.removes.filter(n => removed.includes(n)).length
+    const need = e.min ?? e.removes.length
+    if (hit < need) fails.push(`bỏ hay gộp ${hit}/${e.removes.length} việc cần gỡ (cần ${need})`)
+  }
+  if (e.first !== undefined && arrange?.order?.[0] !== e.first) fails.push(`việc đầu của order là ${String(arrange?.order?.[0])}, cần ${e.first}`)
+  return fails
+}
+
 export function check(c: GoldenCase, reply: string): string[] {
   const plan = parseRoute(reply, OPEN)
   if (plan === null) return ['router trả lời không đọc được']
@@ -77,6 +113,8 @@ export function check(c: GoldenCase, reply: string): string[] {
     if (isEdit && task.pick.family === 'haiku') fails.push(`việc ${task.index} sửa file mà chạy haiku`)
     if (isEdit && task.run === 'agent' && (task.agentType === 'Explore' || task.agentType === 'Plan')) fails.push(`việc ${task.index} sửa file mà giao ${task.agentType}`)
   }
+  // Điều phối lại (0.8.9 D4): chấm trường arrange của câu trả lời gốc, trước khi parseRoute lọc theo relation và intent.
+  if (e.arrange !== undefined) fails.push(...arrangeFails(e.arrange, rawArrange(reply)))
   // Tiếp nối không được lập mục tiêu mới; mục tiêu mới phải có câu mục tiêu.
   const next = nextBrief(c.prev ?? null, plan, c.text, 1)
   if (c.prev !== undefined && plan.relation !== 'new' && next.isNewGoal && !plan.runReference) fails.push('tiếp nối mà lập mục tiêu mới')
