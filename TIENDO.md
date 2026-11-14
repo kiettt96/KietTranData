@@ -6,4 +6,5 @@
 - U1: test đỏ 7b503b9 (20/3.610), sửa 0d70116. Mẫu 089-U1a 15, U1b 4, U1c 3 ca đỏ; 087-L3i 3, 087-L3n 1.
 - U2: test đỏ 17ed0f2 (8/9), sửa 1ec3557. Mẫu U2a 5, U2b 2, U2c 4, U2d 1, U2e 2 ca đỏ. Commit sửa chỉnh một ca của tệp U2 (toBeCloseTo không có trong kit).
 - U3: test đỏ b4bd337 (7), sửa 341f667. Kit không chuyển lỗi do hook test ném sang mod (tests/support/engine.ts:188, hooks/lib/router.ts:1413): mod nhận 'no implementation for model.complete'. Chủ mod chọn phương án 1: hai ca tích hợp kiểm câu mod nhận. Mẫu U3a 6, U3b 1, U3c 1 ca đỏ.
-- Tiếp: U4 test đỏ.
+- U4: test đỏ 47772be (4/6), sửa a757267. Mẫu U4a 2, U4b 1, U4c 3, U4d 1 ca đỏ.
+- Tiếp: hoàn tất (cả bộ, đột biến vùng diff, phiên dài, lượt chạy thật, tài liệu).
