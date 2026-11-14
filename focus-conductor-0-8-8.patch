@@ -39,10 +39,10 @@ index 5ffb729..022e64d 100644
    }
  }
 diff --git a/claude-mods/focus-conductor/CHANGELOG.md b/claude-mods/focus-conductor/CHANGELOG.md
-index 56a5735..9326e2b 100644
+index 56a5735..13db1c8 100644
 --- a/claude-mods/focus-conductor/CHANGELOG.md
 +++ b/claude-mods/focus-conductor/CHANGELOG.md
-@@ -2,6 +2,32 @@
+@@ -2,6 +2,42 @@
  
  Các bản của focus-conductor, mới nhất trước. Số đo kiểm chứng của HEAD hiện tại nằm ở [docs/VERIFICATION.md](docs/VERIFICATION.md); cách dùng và tùy chọn ở [README](README.md).
  
@@ -69,6 +69,16 @@ index 56a5735..9326e2b 100644
 +- Hình dạng tiêu đề mục mới (N4: " <tên> " tô đặc, đường kẻ, số đếm bên phải): regex trong `auto-verify-ui`, `pane-header-u6-076`, `pane-order-075`, `ui.test.ts`, `pane-running-u8-076`, `pane-height-s6-075`, `band-since-ui2-079`, `empty-u11-076`, `progress-surface`, `ui-061`; `rowOf` (`tests/support/pane-long.ts`, `pane-order-075`) bỏ khoảng trắng đầu khi so.
 +- `taskrows-perf-087`: băm chữ band và pane đo lại trên bố cục mới.
 +- `error-log-l1-079`: MOD_VERSION là 0.8.8.
++
++- **N6 (bổ sung trước khi mở PR) [Nguồn: chủ mod, 14/11/2026].**
++  - N6a: chữ trên nền ô thường dùng màu thô `onCell`, `onCellDim` khi neon khác off (ô bước thường, ô model, nhãn gợi ý), không dùng theme key hay `dimColor`; mọi chữ trên nền thô đạt tương phản (chữ mờ từ 3, còn lại từ 4,5) ở cả hai bảng, kể cả nhãn ô hướng không tô đặc.
++  - N6b: mọi Text của ô bước có `wrap="truncate-end"`; maxRows 1 hay dưới 56 cột bỏ thêm nút Ẩn, phần bên phải, rồi cắt nhãn ô hướng còn ký hiệu; từ 16 cột trở xuống bỏ cả nút Chi tiết (mở pane bằng `/conductor`).
++  - N6c: màu đơn của bảng nền sáng (bốn họ model, ok, attention, error) đạt tương phản với nền ô `#e6e8f0` và nền trắng.
++  - N6d: `colorAt`, `gradientRuns` coi frame và vị trí không hữu hạn là 0.
++  - N6e: khi tạm dừng, chỉ cửa sổ gây dừng dùng dải pause; người dùng tự dừng thì các thanh theo far hay near.
++  - N6f: bảy ca test còn thiếu, mỗi ca một mẫu. `band-since-ui2-079` ca "không có turn đang chạy, kể cả sau khi nạp lại mod" chạy với `neonMotion: 'off'` (ca đếm chu kỳ 60 giây).
++  - N6g: band không còn hộp rỗng ở cột đầu; các test band đọc dòng ngay từ gốc (`agent-chip-u4-076`, `band-rows-076`, `done-u10-076`, `limits-l2-087`, `pause-u3-076`, `progress-tasks`, `ui-061`, `band-b-n2-088`). Ca `taskrows-perf-087` đổi tên từ "... chữ band và pane trùng 0.8.6" thành "... chữ band và pane trùng bản ghi của bố cục 0.8.8" (đây là tên mất và tên mới duy nhất khi so tên ca với `e143c64`), băm đo lại.
++  - Mẫu `088-N6a` tới `088-N6q` đánh chữ liên tục qua các điểm (không theo chữ của điểm). Mẫu cũ viết lại ở N6: `061-U21`, `076-B8`, `088-N1b`.
 +
 +**Mẫu cũ viết lại, giữ mã, đều bị diệt:** 18 mẫu của band và thanh ở N2 (`060-O1`, `060-O3`, `061-U19`, `061-U21`, `061-U22`, `061-P11`, `061-P12`, `061-P13`, `070-V15`, `076-B2`, `076-B5`, `076-B6`, `076-B7`, `076-U3b`, `076-U4e`, `076-U10a`, `076-U10b`, `076-W4c`), 8 mẫu của status line ở N3 (`061-U2` tới `061-U7`, `073-T14`, `076-U5a`), `076-U1i` ở N4, `075-S6b`, `076-U3i`, `079-UI2c` ở N5.
 +
@@ -582,7 +592,7 @@ index 4e088cb..af2e64e 100644
        onReset: async () => {
          // Hai bước: lần đầu chỉ chờ xác nhận; lần hai trong hạn mới xóa.
 diff --git a/claude-mods/focus-conductor/hooks/ui/band.tsx b/claude-mods/focus-conductor/hooks/ui/band.tsx
-index ae2722f..c5a1e8a 100644
+index ae2722f..5e5d37a 100644
 --- a/claude-mods/focus-conductor/hooks/ui/band.tsx
 +++ b/claude-mods/focus-conductor/hooks/ui/band.tsx
 @@ -1,11 +1,16 @@
@@ -599,8 +609,8 @@ index ae2722f..c5a1e8a 100644
 +//   Dòng 2: bên trái câu cần chú ý đầu tiên kèm +N, hay lý do tạm dừng, hay thanh tiến độ (rồi subagent đang chạy, không có thì mục tiêu,
 +//   khi còn chỗ), hay các ô ○ dự kiến; bên phải hạn mức, thời gian đã chạy, chi phí (từ 96 cột), chip lô, nhãn phản chiếu, nút Chi tiết
 +//   và Ẩn (từ 72 cột). Tạm dừng thì bên phải là lệnh chạy tiếp rồi nút Chi tiết.
-+// maxRows 1 thì chỉ dòng 1: ba ô, phần bên phải và hai nút. Band không còn gờ bên trái; hộp ngoài vẫn có hai cột (cột đầu rỗng) để cấu trúc
-+// cây như 0.8.7. Màu lấy qua bộ màu của neon.ts (neon off: theme key như 0.8.7).
++// maxRows 1 thì chỉ dòng 1: ba ô, phần bên phải và hai nút. Band không còn gờ bên trái; gốc là một hộp cột, mỗi con là một dòng (0.8.8 N6g).
++// Màu lấy qua bộ màu của neon.ts (neon off: theme key như 0.8.7).
  // Hàm vẽ thuần: nhận bảng phần tử của surface, dữ liệu và các handler mà hook đã tạo; không tự gọi $.
  
 -import type { Color, Elements, RenderElement, RenderSurface } from 'claude-code'
@@ -679,7 +689,7 @@ index ae2722f..c5a1e8a 100644
  
    const { closed, total } = progress(plan)
    const planned = total === 0 ? brief.steps.length : 0
-@@ -92,227 +108,260 @@ export function renderBand(
+@@ -92,227 +108,257 @@ export function renderBand(
    // W4: bước còn todo mà đã có lô đang chạy: đầu thanh là ◐ (có checklist) hay hạt dự kiến là ◐ (chưa có).
    const runningSteps = runningTitles(view.core, rows, plan.length > 0 ? plan.map(step => step.title) : brief.steps)
    const runningBeads = new Set(brief.steps.flatMap((step, i) => (runningSteps.has(step) ? [i] : [])))
@@ -1098,16 +1108,17 @@ index ae2722f..c5a1e8a 100644
 -  }
 -
    return (
-     <Box flexDirection="row">
+-    <Box flexDirection="row">
 -      <Box flexDirection="column" flexShrink={0} marginRight={1}>
 -        {lines.map(() => (
 -          <Text color={spine}>{SPINE}</Text>
 -        ))}
 -      </Box>
-+      <Box flexDirection="column" flexShrink={0} />
-       <Box flexDirection="column" flexGrow={1} flexShrink={1}>
-         {lines}
-       </Box>
+-      <Box flexDirection="column" flexGrow={1} flexShrink={1}>
+-        {lines}
+-      </Box>
++    <Box flexDirection="column" flexGrow={1} flexShrink={1}>
++      {lines}
      </Box>
    )
  }
@@ -1946,7 +1957,7 @@ index 0b4ab5f..9d9e548 100644
  /**
   * Một dòng không quá `cells` ô, dòng bị cắt kết bằng "…" (0.7.9, UI1). Chữ thường cắt theo từ bằng wrapText như mọi chữ của pane, nên
 diff --git a/claude-mods/focus-conductor/scripts/mutants.ts b/claude-mods/focus-conductor/scripts/mutants.ts
-index a6047d7..b251218 100644
+index a6047d7..df2949e 100644
 --- a/claude-mods/focus-conductor/scripts/mutants.ts
 +++ b/claude-mods/focus-conductor/scripts/mutants.ts
 @@ -578,8 +578,8 @@ export const MUTANTS: Mutant[] = [
@@ -2109,7 +2120,7 @@ index a6047d7..b251218 100644
    { id: "079-UI2d", file: "hooks/parts/ui.tsx", note: "đặt nhịp mới dù đã có nhịp, thành hai nhịp", old: "  if (tick.timer !== null) return\n", new: "" },
    { id: "079-L1a", file: "hooks/lib/errlog.ts", note: "gặp lại thì thêm mục mới thay vì tăng count", old: "  if (index >= 0) {\n    const old = file.entries[index]!", new: "  if (false) {\n    const old = file.entries[index]!" },
    { id: "079-L1b", file: "hooks/lib/errlog.ts", note: "bỏ bước chuẩn hóa số", old: "    .replace(/\\d+(?:\\.\\d+)?/g, '<n>')\n", new: "" },
-@@ -2264,4 +2264,44 @@ export const MUTANTS: Mutant[] = [
+@@ -2264,4 +2264,45 @@ export const MUTANTS: Mutant[] = [
    { id: "087-G1c", file: "hooks/parts/session.ts", note: "đoạn dặn ghi cứng fable", old: "    const conductNote = wanted?.isConducting === true && !isBriefed ? [conductorContext(wanted.family)] : []\n", new: "    const conductNote = wanted?.isConducting === true && !isBriefed ? [conductorContext()] : []\n" },
    { id: "087-G1d", file: "hooks/lib/conductor.ts", note: "họ không có cờ điều phối vẫn được nhận", old: "  return CONDUCTOR_FAMILIES.find(f => f === raw) ?? 'off'\n", new: "  return (CONDUCTOR_FAMILIES.find(f => f === raw) ?? (raw === 'haiku' || raw === 'sonnet' ? raw : 'off')) as ConductorOption\n" },
    { id: "087-G1e", file: "hooks/lib/conductor.ts", note: "họ dự phòng trùng họ chính vẫn kích hoạt dự phòng", old: "  if (fallback === null || fallback === primary || input.blocked.has(fallback) || (input.fallbackPauseLeft ?? 0) > 0) return null\n", new: "  if (fallback === null || (fallback === primary && false) || input.blocked.has(fallback) || (input.fallbackPauseLeft ?? 0) > 0) return null\n" },
@@ -2153,6 +2164,7 @@ index a6047d7..b251218 100644
 +  { id: "088-N6n", file: "hooks/ui/band.tsx", note: "ô model không mờ khi xong hết", old: "  const isModelDim = isPaused || isFinished", new: "  const isModelDim = isPaused" },
 +  { id: "088-N6o", file: "hooks/ui/band.tsx", note: "nút Ẩn vẫn hiện khi tạm dừng", old: "const hideButton = hasRoom && !isPaused && fit.hide ?", new: "const hideButton = hasRoom && fit.hide ?" },
 +  { id: "088-N6p", file: "hooks/ui/direction.ts", note: "tắt quotaGuard vẫn tính tạm dừng", old: "  const isPaused = settings.enabled && isPauseActive(", new: "  const isPaused = isPauseActive(" },
++  { id: "088-N6q", file: "hooks/ui/band.tsx", note: "band lại có hộp rỗng ở cột đầu", old: "    <Box flexDirection=\"column\" flexGrow={1} flexShrink={1}>\n      {lines}\n    </Box>", new: "    <Box flexDirection=\"row\">\n      <Box flexDirection=\"column\" flexShrink={0} />\n      <Box flexDirection=\"column\" flexGrow={1} flexShrink={1}>\n        {lines}\n      </Box>\n    </Box>" },
  ]
 diff --git a/claude-mods/focus-conductor/scripts/version-check.mjs b/claude-mods/focus-conductor/scripts/version-check.mjs
 index 32a45cc..38460c5 100644
@@ -2185,10 +2197,10 @@ index 32a45cc..38460c5 100644
 +}
 +console.log(`Mã màu thô chỉ nằm trong hooks/${NEON_FILE}`)
 diff --git a/claude-mods/focus-conductor/tests/integration/agent-chip-u4-076.test.ts b/claude-mods/focus-conductor/tests/integration/agent-chip-u4-076.test.ts
-index 5a34ea6..d5b9824 100644
+index 5a34ea6..b44888f 100644
 --- a/claude-mods/focus-conductor/tests/integration/agent-chip-u4-076.test.ts
 +++ b/claude-mods/focus-conductor/tests/integration/agent-chip-u4-076.test.ts
-@@ -10,14 +10,16 @@ type Node = { type?: string; props?: Record<string, unknown>; children?: unknown
+@@ -10,14 +10,17 @@ type Node = { type?: string; props?: Record<string, unknown>; children?: unknown
  const PLAN = 'mcp__focus-conductor__plan'
  const TITLES = ['BƯỚC 0: chuẩn bị', 'BƯỚC 1: lọc tin lô 1', 'BƯỚC 2: lọc tin lô 2', 'BƯỚC 3: lọc tin lô 3', 'BƯỚC 4: tổng hợp']
  const LONG = { timeoutMs: 120_000 }
@@ -2201,13 +2213,15 @@ index 5a34ea6..d5b9824 100644
    const ui = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: true, maxRows: 2, bodyColumns: columns, scroll: { offset: 0, bodyRows: 2 }, view: {} } } as never)
    const tree = (await ui.drawn()) as unknown as Node
    await ui.unmount()
-   const content = (tree.children ?? []).filter(c => c !== null && typeof c === 'object')[1] as Node
+-  const content = (tree.children ?? []).filter(c => c !== null && typeof c === 'object')[1] as Node
 -  return textOf((content.children ?? []).filter(c => c !== null && typeof c === 'object')[0])
++  // 0.8.8 N6g: gốc của band là hộp cột chứa các dòng (0.8.7: dòng nằm trong cột thứ hai, sau cột gờ).
++  const content = tree
 +  return (content.children ?? []).filter(c => c !== null && typeof c === 'object').map(textOf).join('\n')
  }
  
  async function goal($: Engine, on: On) {
-@@ -66,7 +68,8 @@ describe('0.7.6 U4: chip lô subagent', () => {
+@@ -66,7 +69,8 @@ describe('0.7.6 U4: chip lô subagent', () => {
      expect(at60).toContain('3 lỗi')
      const at48 = await firstRow($, 48)
      expect(at48).toContain('BƯỚC 1: lọc tin lô 1')
@@ -2232,10 +2246,10 @@ index 8f9a28b..c2ed2eb 100644
    test('đối chứng: chưa có bước verified thì band chỉ ghi "1/2"', { options: { planApproval: 'off' } }, async ($, on) => {
 diff --git a/claude-mods/focus-conductor/tests/integration/band-b-n2-088.test.ts b/claude-mods/focus-conductor/tests/integration/band-b-n2-088.test.ts
 new file mode 100644
-index 0000000..64f5981
+index 0000000..ab78ca9
 --- /dev/null
 +++ b/claude-mods/focus-conductor/tests/integration/band-b-n2-088.test.ts
-@@ -0,0 +1,254 @@
+@@ -0,0 +1,253 @@
 +// 0.8.8 N2: band hướng B "Ba ô phát sáng". Dòng 1 là ba ô (bước, model, hướng), mỗi lúc chỉ một ô tô đặc; ô hướng lấy nhãn theo mục cần
 +// chú ý đầu tiên (thứ tự của attention.ts không đổi), tạm dừng đứng trước mọi mục, không có mục nào thì theo checklist. Dòng 2 là câu cần
 +// chú ý kèm +N, hay lý do tạm dừng và lệnh chạy tiếp, hay thanh tiến độ. Không còn gờ bên trái. Band không vượt bề rộng; ô hướng không bị bỏ.
@@ -2289,13 +2303,12 @@ index 0000000..64f5981
 +  return children.reduce((sum, c) => sum + widthOf(c), 0) + gap * Math.max(0, children.length - 1)
 +}
 +
-+/** Các dòng của band: hộp ngoài có hai cột, cột đầu rỗng (không còn gờ), cột hai là các dòng. */
++/** Các dòng của band: gốc là hộp cột chứa các dòng (0.8.8 N6g). */
 +async function bandLines($: Engine, columns: number, maxRows = 2): Promise<{ lines: Node[]; tree: Node }> {
 +  const ui = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: true, maxRows, bodyColumns: columns, scroll: { offset: 0, bodyRows: maxRows }, view: {} } } as never)
 +  const tree = (await ui.drawn()) as unknown as Node
 +  await ui.unmount()
-+  const columnsOfTree = kids(tree)
-+  return { lines: kids(columnsOfTree[1] as Node), tree }
++  return { lines: kids(tree), tree }
 +}
 +
 +/** Ba ô của dòng 1, theo thứ tự (khi có ô model); không tính nút (band hẹp đang tạm dừng đưa nút Chi tiết lên dòng 1). */
@@ -2623,10 +2636,10 @@ index 0000000..9d6ef80
 +    })
 +})
 diff --git a/claude-mods/focus-conductor/tests/integration/band-rows-076.test.ts b/claude-mods/focus-conductor/tests/integration/band-rows-076.test.ts
-index 1d1964b..48e4d3d 100644
+index 1d1964b..9ca3aa3 100644
 --- a/claude-mods/focus-conductor/tests/integration/band-rows-076.test.ts
 +++ b/claude-mods/focus-conductor/tests/integration/band-rows-076.test.ts
-@@ -13,7 +13,8 @@ const PLAN = 'mcp__focus-conductor__plan'
+@@ -13,14 +13,16 @@ const PLAN = 'mcp__focus-conductor__plan'
  const TITLES = ['BƯỚC 0: chuẩn bị', 'BƯỚC 1: chuẩn hóa', 'BƯỚC 2: chuyển dữ liệu', 'BƯỚC 3: lọc tin lô 1', 'BƯỚC 4: lọc tin lô 2', 'BƯỚC 5: lọc tin lô 3', 'BƯỚC 6: tổng hợp']
  const GOAL = 'Cập nhật sổ giá tuần theo các bước có mã'
  
@@ -2636,7 +2649,16 @@ index 1d1964b..48e4d3d 100644
  
  /** Chữ của từng dòng band: cột nội dung là con thứ hai của hộp ngoài. */
  async function bandRows($: Engine, columns: number, maxRows: number): Promise<string[]> {
-@@ -43,7 +44,9 @@ describe('0.7.6 band hai dòng', () => {
+   const ui = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: true, maxRows, bodyColumns: columns, scroll: { offset: 0, bodyRows: maxRows }, view: {} } } as never)
+   const tree = (await ui.drawn()) as unknown as Node
+   await ui.unmount()
+-  const content = (tree.children ?? []).filter(c => c !== null && typeof c === 'object')[1] as Node
++  // 0.8.8 N6g: gốc của band là hộp cột chứa các dòng (0.8.7: dòng nằm trong cột thứ hai, sau cột gờ).
++  const content = tree
+   return (content.children ?? []).filter(c => c !== null && typeof c === 'object').map(textOf)
+ }
+ 
+@@ -43,7 +45,9 @@ describe('0.7.6 band hai dòng', () => {
      await midGoal($, on)
      const rows = await bandRows($, 120, 2)
      expect(rows.length).toBe(2)
@@ -2647,7 +2669,7 @@ index 1d1964b..48e4d3d 100644
      expect(rows[0]).not.toContain(GOAL)
      expect(rows.join('\n')).not.toContain('đang thực hiện')
      expect(rows[1]).toContain(GOAL)
-@@ -56,8 +59,9 @@ describe('0.7.6 band hai dòng', () => {
+@@ -56,8 +60,9 @@ describe('0.7.6 band hai dòng', () => {
  
    test('72 cột: không có chi phí; 96 cột trở lên: có', { options: { planApproval: 'off' } }, async ($, on) => {
      await midGoal($, on)
@@ -2659,7 +2681,7 @@ index 1d1964b..48e4d3d 100644
    })
  
    test('không có gì cần chú ý mà có subagent đang chạy: dòng 2 là subagent đang chạy', { options: { planApproval: 'off' } }, async ($, on) => {
-@@ -79,8 +83,9 @@ describe('0.7.6 band hai dòng', () => {
+@@ -79,8 +84,9 @@ describe('0.7.6 band hai dòng', () => {
      await $.tool.call({ tool: 'Write', file_path: '/repo/scripts/ngoai.py', content: 'x' } as never)
      const rows = await bandRows($, 120, 1)
      expect(rows.length).toBe(1)
@@ -2671,7 +2693,7 @@ index 1d1964b..48e4d3d 100644
    })
  })
  
-@@ -89,7 +94,9 @@ describe('0.7.6 band hai dòng: chưa có checklist', () => {
+@@ -89,7 +95,9 @@ describe('0.7.6 band hai dòng: chưa có checklist', () => {
      base(on, { router: () => plan({ goal: GOAL, depth: 'substantial', volume: 'small' }) })
      await submit($, GOAL)
      const rows = await bandRows($, 120, 2)
@@ -2869,10 +2891,10 @@ index 0000000..7629a58
 +  })
 +})
 diff --git a/claude-mods/focus-conductor/tests/integration/done-u10-076.test.ts b/claude-mods/focus-conductor/tests/integration/done-u10-076.test.ts
-index 9229d94..7e46ee4 100644
+index 9229d94..37158a8 100644
 --- a/claude-mods/focus-conductor/tests/integration/done-u10-076.test.ts
 +++ b/claude-mods/focus-conductor/tests/integration/done-u10-076.test.ts
-@@ -10,7 +10,8 @@ type Node = { type?: string; props?: Record<string, unknown>; children?: unknown
+@@ -10,13 +10,15 @@ type Node = { type?: string; props?: Record<string, unknown>; children?: unknown
  const PLAN = 'mcp__focus-conductor__plan'
  const GOAL = 'Cập nhật sổ giá tuần'
  const TITLES = ['BƯỚC 0: chuẩn bị', 'BƯỚC 1: lọc tin', 'BƯỚC 2: tổng hợp']
@@ -2882,7 +2904,15 @@ index 9229d94..7e46ee4 100644
  
  async function bandRows($: Engine, columns: number, maxRows: number): Promise<string[]> {
    const ui = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows, bodyColumns: columns, scroll: { offset: 0, bodyRows: maxRows }, view: {} } } as never)
-@@ -33,9 +34,10 @@ describe('0.7.6 U10: trạng thái hoàn thành', () => {
+   const tree = (await ui.drawn()) as unknown as Node
+   await ui.unmount()
+-  const content = (tree.children ?? []).filter(c => c !== null && typeof c === 'object')[1] as Node
++  // 0.8.8 N6g: gốc của band là hộp cột chứa các dòng (0.8.7: dòng nằm trong cột thứ hai, sau cột gờ).
++  const content = tree
+   return (content.children ?? []).filter(c => c !== null && typeof c === 'object').map(textOf)
+ }
+ 
+@@ -33,9 +35,10 @@ describe('0.7.6 U10: trạng thái hoàn thành', () => {
    test('band một dòng: số bước, "Hoàn thành: <mục tiêu>", thời gian đã chạy, chi phí', { options: { planApproval: 'off' } }, async ($, on) => {
      await finished($, on)
      const rows = await bandRows($, 120, 2)
@@ -3061,6 +3091,20 @@ index 0000000..5598eb0
 +    expect(statusTextOf(view, quota, 1000, quotaSettings({}))).toContain('tạm dừng')
 +  })
 +})
+diff --git a/claude-mods/focus-conductor/tests/integration/limits-l2-087.test.ts b/claude-mods/focus-conductor/tests/integration/limits-l2-087.test.ts
+index 14ecace..04531dc 100644
+--- a/claude-mods/focus-conductor/tests/integration/limits-l2-087.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/limits-l2-087.test.ts
+@@ -119,7 +119,8 @@ async function bandRows($: Engine, columns: number, maxRows: number): Promise<st
+   const ui = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: true, maxRows, bodyColumns: columns, scroll: { offset: 0, bodyRows: maxRows }, view: {} } } as never)
+   const tree = (await ui.drawn()) as unknown as Node
+   await ui.unmount()
+-  const content = (tree.children ?? []).filter(c => c !== null && typeof c === 'object')[1] as Node
++  // 0.8.8 N6g: gốc của band là hộp cột chứa các dòng (0.8.7: dòng nằm trong cột thứ hai, sau cột gờ).
++  const content = tree
+   return (content.children ?? []).filter(c => c !== null && typeof c === 'object').map(textOf)
+ }
+ async function paneLines($: Engine, rows: number): Promise<string[]> {
 diff --git a/claude-mods/focus-conductor/tests/integration/mirror-verify.test.ts b/claude-mods/focus-conductor/tests/integration/mirror-verify.test.ts
 index 2a66ad7..788b3ee 100644
 --- a/claude-mods/focus-conductor/tests/integration/mirror-verify.test.ts
@@ -3641,7 +3685,7 @@ index f140178..818ef7f 100644
    })
  })
 diff --git a/claude-mods/focus-conductor/tests/integration/pause-u3-076.test.ts b/claude-mods/focus-conductor/tests/integration/pause-u3-076.test.ts
-index ff1302f..a60cc2f 100644
+index ff1302f..a10b7c3 100644
 --- a/claude-mods/focus-conductor/tests/integration/pause-u3-076.test.ts
 +++ b/claude-mods/focus-conductor/tests/integration/pause-u3-076.test.ts
 @@ -11,7 +11,8 @@ import { RESUME, memoryStore, quotaMeter, session, week } from '../support/quota
@@ -3654,7 +3698,17 @@ index ff1302f..a60cc2f 100644
  const cells = (s: string) => [...s.normalize('NFC')].length
  
  function hooks(on: On) {
-@@ -47,9 +48,11 @@ describe('0.7.6 U3: tạm dừng cứng trên band', () => {
+@@ -25,7 +26,8 @@ async function bandRows($: Engine, columns: number, maxRows: number) {
+   const ui = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows, bodyColumns: columns, scroll: { offset: 0, bodyRows: maxRows }, view: {} } } as never)
+   const tree = (await ui.drawn()) as unknown as Node
+   await ui.unmount()
+-  const content = (tree.children ?? []).filter(c => c !== null && typeof c === 'object')[1] as Node
++  // 0.8.8 N6g: gốc của band là hộp cột chứa các dòng (0.8.7: dòng nằm trong cột thứ hai, sau cột gờ).
++  const content = tree
+   return (content.children ?? []).filter(c => c !== null && typeof c === 'object') as Node[]
+ }
+ 
+@@ -47,9 +49,11 @@ describe('0.7.6 U3: tạm dừng cứng trên band', () => {
    for (const columns of [56, 72, 120]) {
      test(`${columns} cột: dòng 1 "⏸ Tạm dừng: ..." kèm giờ làm mới, dòng 2 "Điểm dừng đã ghi · chạy tiếp: /conductor resume force"`, { options: { planApproval: 'off' } }, async ($, on) => {
        await hardPause($, on)
@@ -3668,7 +3722,7 @@ index ff1302f..a60cc2f 100644
        expect(rows[1]).toContain('Điểm dừng đã ghi')
        expect(rows[1]).toContain('chạy tiếp: /conductor resume force')
      })
-@@ -70,7 +73,7 @@ describe('0.7.6 U3: tạm dừng cứng trên band', () => {
+@@ -70,7 +74,7 @@ describe('0.7.6 U3: tạm dừng cứng trên band', () => {
      await submit($, COMPLEX_PROMPT)
      await conductor($, 'pause')
      const rows = (await bandRows($, 120, 2)).map(textOf)
@@ -3677,7 +3731,7 @@ index ff1302f..a60cc2f 100644
      expect(rows[1]).toContain('chạy tiếp: /conductor resume')
      expect(rows[1]).not.toContain('force')
    })
-@@ -109,9 +112,11 @@ describe('0.7.6 U3: mục tiêu không bị cắt còn một ký tự', () => {
+@@ -109,9 +113,11 @@ describe('0.7.6 U3: mục tiêu không bị cắt còn một ký tự', () => {
        await submit($, COMPLEX_PROMPT)
        const [first] = await bandRows($, columns, 2)
        const kids = ((first as Node).children ?? []).filter(c => c !== null && typeof c === 'object') as Node[]
@@ -3713,6 +3767,20 @@ index 576deff..9403248 100644
        // 0.7.6 U1: luồng chính chính là danh sách bước nên không còn dòng "Việc chính"; việc 3 khớp bước "Việc 3: ..." nên đi cùng
        // dòng bước đó (chip "opus xhigh"), không có dòng riêng.
        expect(has(texts, /^Việc chính: /), `pane ${surface} việc chính`).toBe(false)
+diff --git a/claude-mods/focus-conductor/tests/integration/progress-tasks.test.ts b/claude-mods/focus-conductor/tests/integration/progress-tasks.test.ts
+index 3f39c45..a2f77f9 100644
+--- a/claude-mods/focus-conductor/tests/integration/progress-tasks.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/progress-tasks.test.ts
+@@ -167,7 +167,8 @@ describe('0.6.1 2.4: band với nhiều việc', () => {
+   const bandAt = async ($: Engine, maxRows: number) => {
+     const band = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows, bodyColumns: 120, scroll: { offset: 0, bodyRows: maxRows }, view: {} } })
+     const tree = (await band.drawn()) as unknown as { children: Array<{ children?: unknown[] }> }
+-    const rows = (tree.children[1]?.children ?? []).length
++    // 0.8.8 N6g: gốc của band là hộp cột chứa các dòng.
++    const rows = (tree.children ?? []).length
+     const texts = (await band.findAll({ type: 'Text' })).map(e => e.text)
+     await band.unmount()
+     return { rows, texts }
 diff --git a/claude-mods/focus-conductor/tests/integration/quota-bars-n6e-088.test.ts b/claude-mods/focus-conductor/tests/integration/quota-bars-n6e-088.test.ts
 new file mode 100644
 index 0000000..f1a634f
@@ -3789,10 +3857,10 @@ index 0000000..f1a634f
 +  })
 +})
 diff --git a/claude-mods/focus-conductor/tests/integration/taskrows-perf-087.test.ts b/claude-mods/focus-conductor/tests/integration/taskrows-perf-087.test.ts
-index f17b5e8..1183056 100644
+index f17b5e8..06eaa3d 100644
 --- a/claude-mods/focus-conductor/tests/integration/taskrows-perf-087.test.ts
 +++ b/claude-mods/focus-conductor/tests/integration/taskrows-perf-087.test.ts
-@@ -28,11 +28,14 @@ async function paneText($: Engine, rows: number): Promise<string> {
+@@ -28,11 +28,15 @@ async function paneText($: Engine, rows: number): Promise<string> {
  const hex = (bytes: ArrayBuffer): string => [...new Uint8Array(bytes)].map(byte => byte.toString(16).padStart(2, '0')).join('')
  const sha = async (text: string) => hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))
  
@@ -3800,21 +3868,34 @@ index f17b5e8..1183056 100644
 -const BASE_SHA = 'f10de6b917dd73cbef9f2ca6cd6efb62e90ca0b4fe2b19572ec363245504511b'
 +/**
 + * sha256 của chữ band và pane. 0.8.7: đo trên 45b5161 (f10de6b9...). 0.8.8 đổi bố cục band (N2, ba ô) và pane (N4, tiêu đề tô đặc, dải bước,
-+ * thanh hạn mức và chi phí) nên đo lại trên mã sau N4, cùng kịch bản, neon off; ca này từ nay ghim kết quả của bố cục mới.
++ * thanh hạn mức và chi phí; N6 đổi cấu trúc gốc của band và chữ trên nền ô) nên đo lại trên mã sau N6g, cùng kịch bản, neon off; ca này từ nay
++ * ghim kết quả của bố cục 0.8.8 (tên ca đổi ở N6g cho đúng nội dung).
 + */
-+const BASE_SHA = '522f07d677658edc26f2aa24270a214bff079e273b0fae38ed2244eb2f4e408a'
++const BASE_SHA = '1cda50c815b4dbf80bcc1ae7db085c165a17cc27467eee705b15c487a3b94eab'
  
  describe('0.8.7: taskRows tính một lần cho mọi việc', () => {
 -  test('mục tiêu 12 việc, checklist có bước "Việc N", bước doing và bước đã xong: chữ band và pane trùng 0.8.6', { options: { planApproval: 'off' } }, async ($, on) => {
-+  test('mục tiêu 12 việc, checklist có bước "Việc N", bước doing và bước đã xong: chữ band và pane trùng 0.8.6', { options: { planApproval: 'off', neon: 'off' } }, async ($, on) => {
++  test('mục tiêu 12 việc, checklist có bước "Việc N", bước doing và bước đã xong: chữ band và pane trùng bản ghi của bố cục 0.8.8', { options: { planApproval: 'off', neon: 'off' } }, async ($, on) => {
      const seen = base(on, { router: () => plan({ goal: GOAL, depth: 'substantial', volume: 'large', kind: 'edit', tasks: TASKS }) })
      await submit($, GOAL)
      await $.tool.call({ tool: PLAN, action: 'set', steps: STEPS.map(title => ({ title })) } as never)
 diff --git a/claude-mods/focus-conductor/tests/integration/ui-061.test.ts b/claude-mods/focus-conductor/tests/integration/ui-061.test.ts
-index 293392e..1a53fdc 100644
+index 293392e..3d4886c 100644
 --- a/claude-mods/focus-conductor/tests/integration/ui-061.test.ts
 +++ b/claude-mods/focus-conductor/tests/integration/ui-061.test.ts
-@@ -173,12 +173,12 @@ describe('0.6.1 3.2: mục Hạn mức trong pane', () => {
+@@ -56,8 +56,9 @@ function widthOf(el: El | string): number {
+ 
+ /** Phần cố định của từng dòng band: gờ trái, mọi con không co (flexShrink 0, nút) và gap; con co được chỉ tính lề. */
+ function fixedRows(tree: El): number[] {
+-  const [spine, body] = (tree.children ?? []) as El[]
+-  const spineCells = widthOf(spine as El)
++  // 0.8.8 N6g: gốc của band là hộp cột chứa các dòng, không còn cột gờ.
++  const body = tree
++  const spineCells = 0
+   return ((body?.children ?? []) as El[]).map(row => {
+     const kids = (row.children ?? []).filter(k => typeof k !== 'string') as El[]
+     const own = kids.reduce((sum, k) => sum + (k.type === 'Box' && k.props?.['flexShrink'] === 1 ? Number(k.props?.['marginLeft'] ?? 0) : widthOf(k)), 0)
+@@ -173,12 +174,12 @@ describe('0.6.1 3.2: mục Hạn mức trong pane', () => {
        await $.session.measure({ context: { tokens: 1, window: 200_000 }, rateLimits: [session(40), week(20)], changed: ['rateLimits'] } as never)
        const pane = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: width } })
        expect(await pane.drawn()).toMatchObject({ type: 'Box' })
@@ -3829,7 +3910,7 @@ index 293392e..1a53fdc 100644
        const warnAt = texts.findIndex(t => /Không có cảnh báo/.test(t))
        expect(quotaAt).toBeGreaterThanOrEqual(0)
        expect(warnAt).toBeGreaterThan(quotaAt)
-@@ -244,11 +244,11 @@ describe('0.6.1 3.2: mục Hạn mức trong pane', () => {
+@@ -244,11 +245,11 @@ describe('0.6.1 3.2: mục Hạn mức trong pane', () => {
      memoryStore(on)
      await goalWithSteps($)
      let pane = await $.ui.mount(PANE)
@@ -3843,7 +3924,7 @@ index 293392e..1a53fdc 100644
      await pane.unmount()
    })
  
-@@ -260,7 +260,7 @@ describe('0.6.1 3.2: mục Hạn mức trong pane', () => {
+@@ -260,7 +261,7 @@ describe('0.6.1 3.2: mục Hạn mức trong pane', () => {
      await goalWithSteps($)
      await measure($, 99)
      const pane = await $.ui.mount(PANE)
@@ -3852,7 +3933,7 @@ index 293392e..1a53fdc 100644
      expect(await pane.find({ type: 'Text', text: /Không có cảnh báo/ })).toBeDefined()
      await pane.unmount()
    })
-@@ -285,7 +285,7 @@ describe('0.6.1 3.2: mục Hạn mức trong pane', () => {
+@@ -285,7 +286,7 @@ describe('0.6.1 3.2: mục Hạn mức trong pane', () => {
      await seen.clock.advance(10_000)
      await measure($, 10)
      let pane = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 48 } })
@@ -3861,7 +3942,7 @@ index 293392e..1a53fdc 100644
      expect(await pane.find({ type: 'Text', text: /session \(5h\): used 10%, left 90%.*threshold 5% left/ })).toBeDefined()
      expect(await pane.find({ type: 'Text', text: /State: normal/ })).toBeDefined()
      await pane.unmount()
-@@ -312,7 +312,7 @@ describe('0.6.1 3.2: mục Hạn mức trong pane', () => {
+@@ -312,7 +313,7 @@ describe('0.6.1 3.2: mục Hạn mức trong pane', () => {
      await goalWithSteps($)
      // 0.7.5 C6: chưa có số đo và chưa dừng thì không có mục Hạn mức.
      let pane = await $.ui.mount(PANE)
@@ -3870,7 +3951,7 @@ index 293392e..1a53fdc 100644
      await pane.unmount()
      await conductor($, 'pause')
      pane = await $.ui.mount(PANE)
-@@ -355,20 +355,22 @@ describe('0.6.1 3.3: band hẹp khi dừng', () => {
+@@ -355,20 +356,22 @@ describe('0.6.1 3.3: band hẹp khi dừng', () => {
        const tree = (await band.drawn()) as unknown as El
        const out = {
          count: (await band.find({ type: 'Text', text: /^0\/2$/ })) !== undefined,
@@ -3899,7 +3980,7 @@ index 293392e..1a53fdc 100644
    })
  
    test('chế độ suggest: thiếu chỗ thì bỏ effort của chip đề xuất, giữ tên model (061-U21)', { options: { planApproval: 'off' } }, async ($, on) => {
-@@ -379,10 +381,11 @@ describe('0.6.1 3.3: band hẹp khi dừng', () => {
+@@ -379,10 +382,11 @@ describe('0.6.1 3.3: band hẹp khi dừng', () => {
      await goalWithSteps($)
      await step($, seen)
      await conductor($, 'mode suggest')
