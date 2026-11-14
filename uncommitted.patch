@@ -1,0 +1,849 @@
+diff --git a/claude-mods/focus-conductor/hooks/lib/families.ts b/claude-mods/focus-conductor/hooks/lib/families.ts
+index 23149ca..19d58ab 100644
+--- a/claude-mods/focus-conductor/hooks/lib/families.ts
++++ b/claude-mods/focus-conductor/hooks/lib/families.ts
+@@ -7,7 +7,11 @@ import type { ModelFamily } from '../../types'
+ 
+ export type FamilyPrice = { input: number; output: number; cacheRead: number }
+ 
+-/** Thông số đọc của một họ (0.8.7 L3): ký tự trên token, giây trên ký tự, token ra lớn nhất đo được, mức token ra tối đa engine báo. */
++/**
++ * Thông số đọc của một họ (0.8.7 L3): ký tự trên token, giây trên ký tự, token ra lớn nhất đo được, và engineMaxOut là mức token ra tối đa
++ * `claude -p` báo cho model (`modelUsage.maxOutputTokens`). engineMaxOut không phải trần của lời gọi từ hook: hook bị kẹp ở HOOK_MAX_TOKENS
++ * (hooks/lib/reading.ts, 0.8.9 U1).
++ */
+ export type FamilyRead = { charsPerToken: number; secPerChar: number; maxOut: number; engineMaxOut: number }
+ 
+ /** Thời gian chờ của năm loại request router khi họ này làm vai điều phối (ms). */
+diff --git a/claude-mods/focus-conductor/hooks/lib/reading.ts b/claude-mods/focus-conductor/hooks/lib/reading.ts
+index 6909686..35815ef 100644
+--- a/claude-mods/focus-conductor/hooks/lib/reading.ts
++++ b/claude-mods/focus-conductor/hooks/lib/reading.ts
+@@ -20,6 +20,12 @@ export const ROUTER_MAX_WAIT_MAX_MS = 1_800_000
+ export const FALLBACK_TIMEOUT_MS = 120_000
+ /** maxTokens của lượt đọc trọn không thấp hơn bấy nhiêu (bằng maxTokens của prompt dài trước 0.8.7). */
+ export const FULL_MIN_TOKENS = 16_000
++/**
++ * Trần token ra của một lời gọi model từ hook (0.8.9 U1): engine ném lỗi trước khi gửi request khi maxTokens vượt số này, ở cả bốn họ model
++ * [Đo trực tiếp, 14/11/2026, engine 2.1.296 và 2.1.325, mod thử gọi $.model.complete với maxTokens 64.000, 64.001 và 128.000; VERIFICATION
++ * mục 0.8.9]. Phần suy nghĩ và câu trả lời chia nhau trần này. Mức engineMaxOut của bảng họ model là mức `claude -p` báo, cao hơn trần này.
++ */
++export const HOOK_MAX_TOKENS = 64_000
+ 
+ /**
+  * Thông số đọc của một họ model: số ký tự trên một token vào (nhỏ nhất qua các lượt đo), số giây trên một ký tự (lớn nhất qua các lượt
+@@ -31,7 +37,8 @@ export type ReadParams = { charsPerToken: number; secPerChar: number; maxOut: nu
+  * Số đo thật [Đo trực tiếp, 13/11/2026, engine 2.1.323, `claude -p`, effort medium, chạy một mình; bảng từng lượt ở VERIFICATION, mục
+  * 0.8.7]. Ký tự trên token: nhỏ nhất qua các lượt, làm tròn xuống 4 chữ số. Giây trên ký tự: lớn nhất qua các lượt, làm tròn lên. Fable:
+  * 7 lượt, chậm nhất 615,6 s cho 240.000 ký tự (prompt lặp mẫu), token ra lớn nhất 91.084. Sonnet: 11 lượt, chậm nhất 35,8 s cho 240.000
+- * ký tự (prompt nhiều đề mục), token ra lớn nhất 6.243. Mức token ra tối đa engine báo (`modelUsage.maxOutputTokens`) là 128.000 cho cả hai.
++ * ký tự (prompt nhiều đề mục), token ra lớn nhất 6.243. Mức token ra tối đa `claude -p` báo (`modelUsage.maxOutputTokens`) là 128.000 cho cả hai;
++ * lời gọi từ hook bị kẹp ở HOOK_MAX_TOKENS (0.8.9 U1).
+  * Từ 0.8.7 G1 các số này nằm trong bảng họ model (hooks/lib/families.ts); READ_PARAMS là các họ đã đo.
+  */
+ export const READ_PARAMS: Readonly<Record<ModelFamily, ReadParams>> = Object.fromEntries(
+@@ -78,14 +85,17 @@ export type ReadPlan = {
+ 
+ const roundUp = (value: number, step: number) => Math.ceil(value / step) * step
+ 
+-/** maxTokens của lượt đọc trọn: 1,5 lần token ra lớn nhất đo được, làm tròn lên bội số 5.000, trong khoảng FULL_MIN_TOKENS tới mức engine báo. */
++/** Trần maxTokens của một họ khi gọi từ hook (0.8.9 U1): số nhỏ hơn giữa mức engine báo và HOOK_MAX_TOKENS. */
++const tokenCeiling = (params: ReadParams) => Math.min(params.engineMaxOut, HOOK_MAX_TOKENS)
++
++/** maxTokens của lượt đọc trọn: 1,5 lần token ra lớn nhất đo được, làm tròn lên bội số 5.000, trong khoảng FULL_MIN_TOKENS tới trần của hook. */
+ export function fullMaxTokens(params: ReadParams): number {
+-  return Math.min(params.engineMaxOut, Math.max(FULL_MIN_TOKENS, roundUp(params.maxOut * 1.5, 5_000)))
++  return Math.min(tokenCeiling(params), Math.max(FULL_MIN_TOKENS, roundUp(params.maxOut * 1.5, 5_000)))
+ }
+ 
+-/** Trần maxTokens của lượt hỏi lại vì câu trả lời của lượt đọc trọn bị cắt: 1,5 lần maxTokens của lượt đó, không cao hơn mức engine báo. */
++/** Trần maxTokens của lượt hỏi lại vì câu trả lời của lượt đọc trọn bị cắt: 1,5 lần maxTokens của lượt đó, không cao hơn trần của hook. */
+ export function fullRetryTokens(maxTokens: number, params: ReadParams): number {
+-  return Math.min(params.engineMaxOut, Math.round(maxTokens * 1.5))
++  return Math.min(tokenCeiling(params), Math.round(maxTokens * 1.5))
+ }
+ 
+ /** Kế hoạch đọc prompt dài `textLength` ký tự; `fixedChars` là số ký tự của lời dặn và các dòng ngữ cảnh của request. */
+diff --git a/claude-mods/focus-conductor/hooks/lib/router.ts b/claude-mods/focus-conductor/hooks/lib/router.ts
+index fc059c5..df9b441 100644
+--- a/claude-mods/focus-conductor/hooks/lib/router.ts
++++ b/claude-mods/focus-conductor/hooks/lib/router.ts
+@@ -13,7 +13,7 @@ import { DEFAULT_CONDUCTOR, FAMILY_NAMES, conductorTimeouts } from './families'
+ import type { PendingState } from './conductor'
+ import { DEFAULT_WINDOWS, PRICE } from './cost'
+ import type { Price } from './cost'
+-import { BASE_CHARS, BASE_HEAD, BASE_TAIL, ROUTER_MAX_WAIT_MS, readPlan } from './reading'
++import { BASE_CHARS, BASE_HEAD, BASE_TAIL, HOOK_MAX_TOKENS, ROUTER_MAX_WAIT_MS, readPlan } from './reading'
+ import type { ReadPlan, Reading } from './reading'
+ import { EFFORTS, FAMILIES, applySession, avoidBlocked, codesIn, describePick, effortRank, familyOf, familyRank, sessionFloor } from './route'
+ import type { SessionModel } from './route'
+@@ -1271,7 +1271,7 @@ export function bareBrief(prompt: string, goalId: number, now: number): Brief {
+ // ------------------------------------------------------------ gọi router (thuần, qua callback)
+ 
+ /**
+- * Lời gọi model của hook. Hook truyền vào `r => $.model.complete(r).catch(() => null)`: engine chỉ cho gọi
++ * Lời gọi model của hook. Hook truyền vào `r => $.model.complete(r)`; askRouter tự bắt lỗi engine ném (0.8.9 U3 giữ thông điệp). Engine chỉ cho gọi
+  * `$` ngay trong thân hook, nên logic gọi, thử lại và đọc kết quả nằm ở đây mà không đụng tới `$`.
+  */
+ export type Ask = (request: ModelCompleteRequest) => Promise<ModelCompleteResult | null>
+@@ -1367,30 +1367,38 @@ export function failFields(fail: RouterFail): Record<string, unknown> {
+   return { failure: fail.kind, ms: fail.ms, timeoutMs: fail.timeoutMs, maxTokens: fail.maxTokens, outputTokens: fail.outputTokens }
+ }
+ 
++/** Request với maxTokens kẹp về trần của lời gọi từ hook (0.8.9 U1); không có maxTokens thì giữ nguyên. */
++export function cappedRequest(request: ModelCompleteRequest): ModelCompleteRequest {
++  return request.maxTokens !== undefined && request.maxTokens > HOOK_MAX_TOKENS ? { ...request, maxTokens: HOOK_MAX_TOKENS } : request
++}
++
+ /**
+  * Gọi router, đọc kết quả, và hỏi lại đúng một lần khi câu trả lời hỏng JSON hoặc tin cậy dưới LOW_CONFIDENCE.
+  * Lỗi API hay hết giờ không hỏi lại (ngắt router lo phần đó). Khi hỏi lại vì tin cậy thấp, giữ câu trả lời tin cậy hơn.
+  */
+ export async function askRouter<T extends { confidence?: number }>(
+   ask: Ask,
+-  request: ModelCompleteRequest,
++  original: ModelCompleteRequest,
+   parse: (text: string) => T | null,
+   /** Câu trả lời đã đọc được nhưng cần đọc kiểm lại một lần ở effort cao (ví dụ quá nhiều yêu cầu): 0.7.0. */
+   recheck?: (result: T) => boolean,
+   /** Đồng hồ (mặc định Date.now) và hạn chung cho mọi lượt gọi (mặc định 1,5 lần timeout của request): 0.7.2. */
+   opts: { now?: () => number; budgetMs?: number; retryMissingConfidence?: boolean; isFable?: boolean; fallback?: ModelCompleteRequest; full?: { tokenCap: number }; apiFallback?: ModelCompleteRequest } = {},
+ ): Promise<RouterOutcome<T>> {
++  // Mọi request đi qua một chỗ (0.8.9 U1): maxTokens kẹp về HOOK_MAX_TOKENS, kể cả lượt hỏi lại và hai request dự phòng.
++  const send = (r: ModelCompleteRequest) => ask(cappedRequest(r)).catch(() => null)
++  const request = cappedRequest(original)
+   const now = opts.now ?? Date.now
+   const budget = opts.budgetMs ?? Math.round((request.timeoutMs ?? 45_000) * BUDGET_FACTOR)
+   const startedAt = now()
+-  const first = await ask(request).catch(() => null)
++  const first = await send(request)
+   const usages = first ? [first.usage] : []
+   const limits = (last: ModelCompleteResult | null) => ({ timeoutMs: request.timeoutMs ?? null, maxTokens: request.maxTokens ?? null, outputTokens: last ? last.usage.output_tokens : null })
+   // Lượt đọc của Fable bị API từ chối (0.8.7 F1): gửi cùng request trọn cho họ điều phối dự phòng, với thời gian chờ và maxTokens của họ đó;
+   // không kiểm hạn chung. Hết giờ thì vẫn theo nhánh dự phòng của L3 bên dưới.
+   const apiFallback = opts.apiFallback
+   if (apiFallback !== undefined && first !== null && !first.isAnswered && first.reason === 'api-error') {
+-    const again = await ask(apiFallback).catch(() => null)
++    const again = await send(apiFallback)
+     if (again) usages.push(again.usage)
+     const result = again?.isAnswered ? parse(again.text) : null
+     return { result, reason: result === null ? failureReason(again) : '', usages, retried: true, viaFallback: true, failure: result === null ? failureKind(again) : null, ...limits(again ?? first) }
+@@ -1399,7 +1407,7 @@ export async function askRouter<T extends { confidence?: number }>(
+   // của nó, không lấy phần còn lại của hạn chung.
+   const fallback = opts.fallback
+   if (fallback !== undefined && first !== null && !first.isAnswered && (first.reason === 'aborted' || first.reason === 'api-error')) {
+-    const again = await ask(fallback).catch(() => null)
++    const again = await send(fallback)
+     if (again) usages.push(again.usage)
+     const result = again?.isAnswered ? parse(again.text) : null
+     return { result, reason: result === null ? failureReason(again) : '', usages, retried: true, fellBack: true, failure: result === null ? failureKind(again) : null, ...limits(again ?? first) }
+@@ -1408,7 +1416,7 @@ export async function askRouter<T extends { confidence?: number }>(
+   if (first !== null && !first.isAnswered && first.reason === 'aborted') {
+     const left = budget - (now() - startedAt)
+     if (left < RETRY_MIN_MS) return { result: null, reason: failureReason(first), usages, retried: false, failure: failureKind(first), ...limits(first) }
+-    const again = await ask({ ...request, timeoutMs: Math.min(request.timeoutMs ?? left, left) }).catch(() => null)
++    const again = await send({ ...request, timeoutMs: Math.min(request.timeoutMs ?? left, left) })
+     if (again) usages.push(again.usage)
+     const result = again?.isAnswered ? parse(again.text) : null
+     return { result, reason: result === null ? failureReason(again) : '', usages, retried: true, failure: result === null ? failureKind(again) : null, ...limits(again ?? first) }
+@@ -1428,7 +1436,7 @@ export async function askRouter<T extends { confidence?: number }>(
+   const isAffordable = problem === 'coverage' ? spent <= budget / 2 : budget - spent >= RETRY_MIN_MS
+   if (!isAffordable) return settled(false)
+   const isTruncated = firstResult === null && request.maxTokens !== undefined && first.usage.output_tokens >= request.maxTokens * 0.98
+-  const second = await ask(retryRequest(request, first.text, problem, { timeoutMs: Math.min(request.timeoutMs ?? budget, budget - spent), truncated: isTruncated, ...(opts.isFable === true ? { isFable: true } : {}), ...(opts.full !== undefined ? { full: opts.full } : {}) })).catch(() => null)
++  const second = await send(retryRequest(request, first.text, problem, { timeoutMs: Math.min(request.timeoutMs ?? budget, budget - spent), truncated: isTruncated, ...(opts.isFable === true ? { isFable: true } : {}), ...(opts.full !== undefined ? { full: opts.full } : {}) }))
+   if (second) usages.push(second.usage)
+   const secondResult = second?.isAnswered ? parse(second.text) : null
+   // Thiếu confidence xếp thấp nhất khi bật retryMissingConfidence: lần hai thắng khi nó có confidence và lần đầu không có hay thấp hơn.
+diff --git a/claude-mods/focus-conductor/scripts/mutants.ts b/claude-mods/focus-conductor/scripts/mutants.ts
+index df2949e..233ed02 100644
+--- a/claude-mods/focus-conductor/scripts/mutants.ts
++++ b/claude-mods/focus-conductor/scripts/mutants.ts
+@@ -2237,12 +2237,12 @@ export const MUTANTS: Mutant[] = [
+   { id: "087-L3f", file: "hooks/parts/session.ts", note: "lượt dự phòng lấy phần còn lại của hạn chung thay cho 120 giây", old: "timeoutMs: FALLBACK_TIMEOUT_MS } : undefined", new: "timeoutMs: Math.round(promptRead.timeoutMs * 0.5) } : undefined" },
+   { id: "087-L3g", file: "hooks/lib/router.ts", note: "cảnh báo luôn ghi phần cuối của trần cũ", old: "grouped(info?.tail ?? BASE_TAIL)", new: "grouped(BASE_TAIL)" },
+   { id: "087-L3h", file: "hooks/lib/reading.ts", note: "timeoutMs vượt routerMaxWait", old: "Math.min(reading.maxWaitMs, Math.max(120_000,", new: "Math.min(Number.POSITIVE_INFINITY, Math.max(120_000," },
+-  { id: "087-L3i", file: "hooks/lib/reading.ts", note: "lượt hỏi lại của lượt đọc trọn giữ trần 32.000", old: "Math.min(params.engineMaxOut, Math.round(maxTokens * 1.5))", new: "Math.min(32_000, Math.round(maxTokens * 1.5))" },
++  { id: "087-L3i", file: "hooks/lib/reading.ts", note: "lượt hỏi lại của lượt đọc trọn giữ trần 32.000", old: "Math.min(tokenCeiling(params), Math.round(maxTokens * 1.5))", new: "Math.min(32_000, Math.round(maxTokens * 1.5))" },
+   { id: "087-L3j", file: "hooks/parts/session.ts", note: "chữ chờ mới hiện cả với prompt ngắn", old: "$.ui.status(promptRead.isFull ? 'router đang đọc trọn prompt dài, có thể mất vài phút...' : 'router đang đọc prompt...')", new: "$.ui.status('router đang đọc trọn prompt dài, có thể mất vài phút...')" },
+   { id: "087-L3k", file: "hooks/lib/router.ts", note: "lượt đọc trọn bị API từ chối thì không dùng lượt dự phòng", old: "(first.reason === 'aborted' || first.reason === 'api-error')", new: "first.reason === 'aborted'" },
+   { id: "087-L3l", file: "hooks/lib/reading.ts", note: "routerMaxWait không kẹp biên dưới", old: "Math.max(ROUTER_MAX_WAIT_MIN_MS, Math.round(seconds * 1000))", new: "Math.max(0, Math.round(seconds * 1000))" },
+   { id: "087-L3m", file: "hooks/lib/reading.ts", note: "họ chưa đo lấy thông số của fable", old: "  const own = FAMILY_TABLE[family].read\n  if (own !== null) return own\n", new: "  return READ_PARAMS[MEASURED[MEASURED.length - 1] as ModelFamily]\n" },
+-  { id: "087-L3n", file: "hooks/lib/router.ts", note: "askRouter không chuyển full sang lượt hỏi lại", old: ", ...(opts.full !== undefined ? { full: opts.full } : {}) })).catch(() => null)", new: " })).catch(() => null)" },
++  { id: "087-L3n", file: "hooks/lib/router.ts", note: "askRouter không chuyển full sang lượt hỏi lại", old: ", ...(opts.full !== undefined ? { full: opts.full } : {}) }))", new: " }))" },
+   { id: "087-L3o", file: "hooks/lib/reading.ts", note: "mặc định routerMaxWait về 600 giây", old: "export const ROUTER_MAX_WAIT_MS = 1_800_000", new: "export const ROUTER_MAX_WAIT_MS = 600_000" },
+   { id: "087-M1a", file: "hooks/lib/route.ts", note: "luôn trả ID ghim", old: "  if (useAlias && prefix === '') return family\n", new: "  if (false) return family\n" },
+   { id: "087-M1b", file: "hooks/lib/route.ts", note: "alias thắng cả ghi đè modelMap", old: "  const override = map[family]\n  if (override) return override\n  const at = engineModel.indexOf('claude-')", new: "  if (useAlias) return family\n  const override = map[family]\n  if (override) return override\n  const at = engineModel.indexOf('claude-')" },
+@@ -2305,4 +2305,7 @@ export const MUTANTS: Mutant[] = [
+   { id: "088-N6o", file: "hooks/ui/band.tsx", note: "nút Ẩn vẫn hiện khi tạm dừng", old: "const hideButton = hasRoom && !isPaused && fit.hide ?", new: "const hideButton = hasRoom && fit.hide ?" },
+   { id: "088-N6p", file: "hooks/ui/direction.ts", note: "tắt quotaGuard vẫn tính tạm dừng", old: "  const isPaused = settings.enabled && isPauseActive(", new: "  const isPaused = isPauseActive(" },
+   { id: "088-N6q", file: "hooks/ui/band.tsx", note: "band lại có hộp rỗng ở cột đầu", old: "    <Box flexDirection=\"column\" flexGrow={1} flexShrink={1}>\n      {lines}\n    </Box>", new: "    <Box flexDirection=\"row\">\n      <Box flexDirection=\"column\" flexShrink={0} />\n      <Box flexDirection=\"column\" flexGrow={1} flexShrink={1}>\n        {lines}\n      </Box>\n    </Box>" },
++  { id: "089-U1a", file: "hooks/lib/reading.ts", note: "trần maxTokens của hook thành 128.000", old: "export const HOOK_MAX_TOKENS = 64_000", new: "export const HOOK_MAX_TOKENS = 128_000" },
++  { id: "089-U1b", file: "hooks/lib/router.ts", note: "askRouter không kẹp maxTokens", old: "  const send = (r: ModelCompleteRequest) => ask(cappedRequest(r)).catch(() => null)\n  const request = cappedRequest(original)\n", new: "  const send = (r: ModelCompleteRequest) => ask(r).catch(() => null)\n  const request = original\n" },
++  { id: "089-U1c", file: "hooks/lib/reading.ts", note: "fullRetryTokens không kẹp theo HOOK_MAX_TOKENS", old: "  return Math.min(tokenCeiling(params), Math.round(maxTokens * 1.5))", new: "  return Math.min(params.engineMaxOut, Math.round(maxTokens * 1.5))" },
+ ]
+diff --git a/claude-mods/focus-conductor/tests/router-full-l1-087.test.ts b/claude-mods/focus-conductor/tests/router-full-l1-087.test.ts
+index 95202dd..c656ed7 100644
+--- a/claude-mods/focus-conductor/tests/router-full-l1-087.test.ts
++++ b/claude-mods/focus-conductor/tests/router-full-l1-087.test.ts
+@@ -50,12 +50,12 @@ describe('0.8.7 L3: mọi model router đọc trọn prompt vừa sức chứa',
+     const f = routerRequest({ text: LONG, prev: null, ran: null, policy: COND, model: 'claude-fable-5-2', isFable: true })
+     const s = routerRequest({ text: LONG, prev: null, ran: null, policy: OPEN, model: 'sonnet' })
+     expect([f.maxTokens, s.maxTokens]).toEqual([fullMaxTokens(READ_PARAMS.fable), fullMaxTokens(READ_PARAMS.sonnet)])
+-    expect([f.maxTokens, s.maxTokens]).toEqual([128_000, 16_000])
++    expect([f.maxTokens, s.maxTokens]).toEqual([64_000, 16_000])
+     expect(f.timeoutMs).toBe(readPlan({ family: 'fable', window: 1_000_000, maxWaitMs: ROUTER_MAX_WAIT_MS }, LONG.length, 0).timeoutMs)
+   })
+ 
+   test('trần lượt hỏi lại của Fable đọc trọn: 1,5 lần 128.000 kẹp về mức engine báo 128.000', () => {
+-    expect(fullRetryTokens(fullMaxTokens(READ_PARAMS.fable), READ_PARAMS.fable)).toBe(128_000)
++    expect(fullRetryTokens(fullMaxTokens(READ_PARAMS.fable), READ_PARAMS.fable)).toBe(64_000)
+   })
+ 
+   test('router haiku và opus (chưa đo), prompt 100.000 ký tự: gửi trọn; thông số thận trọng hơn giữa Fable và sonnet', () => {
+@@ -194,7 +194,7 @@ describe('0.8.7 L3: lượt dự phòng và lượt hỏi lại', () => {
+     await askRouter(truncatedAsk as never, request, text => parseRoute(text, COND), undefined, { now: () => 0, isFable: true, full: { tokenCap } })
+     expect(sent.length).toBe(2)
+     expect(sent[1]?.maxTokens).toBe(tokenCap)
+-    expect(tokenCap).toBe(128_000)
++    expect(tokenCap).toBe(64_000)
+     const low = JSON.stringify({ ...plan({ goal: 'Sửa luồng thanh toán' }), confidence: 0.2 })
+     const lowSent: ModelCompleteRequest[] = []
+     const lowAsk = async (r: ModelCompleteRequest) => {
+diff --git a/claude-mods/focus-conductor/tests/support/engine.ts b/claude-mods/focus-conductor/tests/support/engine.ts
+index 0157119..90b4390 100644
+--- a/claude-mods/focus-conductor/tests/support/engine.ts
++++ b/claude-mods/focus-conductor/tests/support/engine.ts
+@@ -4,6 +4,7 @@
+ import { mock } from 'claude-code/testing'
+ import type { On, TurnStepInput } from 'claude-code'
+ import type { Engine, MockClock } from 'claude-code/testing'
++import { FAMILY_TABLE } from '../../hooks/lib/families'
+ 
+ export const BIG_USAGE = { input_tokens: 100_000, output_tokens: 50_000, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
+ export const ROUTER_USAGE = { input_tokens: 1000, output_tokens: 500, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
+@@ -115,6 +116,10 @@ export type Seen = {
+   routerCalls: Array<{ kind: 'prompt' | 'agent' | 'drift' | 'review'; model: string; effort?: string; timeoutMs?: number }>
+   /** Trường system của từng lượt router đọc prompt (0.8.7 G1), theo thứ tự gọi. */
+   routerSystems: string[]
++  /** Mọi request model.complete mà engine giả nhận, kể cả request bị từ chối (0.8.9 U1): loại, model, maxTokens, timeoutMs. */
++  requests: Array<{ kind: 'prompt' | 'agent' | 'drift' | 'review'; model: string; maxTokens?: number; timeoutMs?: number; prompt: string }>
++  /** Thông điệp của các lần engine giả từ chối gửi request (0.8.9 U1), theo thứ tự. */
++  refusals: string[]
+   /** Dòng trạng thái mod đặt qua $.ui.status (undefined là xóa dòng). */
+   statuses: Array<string | undefined>
+   /** Các lần mod gọi $.ui.open (id, tiêu đề, số dòng, focus) và các pane đang mở theo "engine" giả (0.7.2). */
+@@ -124,6 +129,24 @@ export type Seen = {
+   clock: MockClock
+ }
+ 
++/** Trần token ra của một lời gọi model từ hook [Đo trực tiếp, engine 2.1.296 và 2.1.325, 14/11/2026]: như nhau ở mọi họ model. */
++export const ENGINE_HOOK_MAX_TOKENS = 64_000
++
++/** ID engine dùng trong câu lỗi: alias họ model thành ID ghim, ID khác giữ nguyên. */
++const servedId = (model: string): string => (model in FAMILY_TABLE ? FAMILY_TABLE[model as keyof typeof FAMILY_TABLE].pinnedId : model)
++const isPositiveInteger = (value: unknown): boolean => typeof value === 'number' && Number.isInteger(value) && value > 0
++
++/** Lý do engine thật từ chối request trước khi gửi (0.8.9 U1): maxTokens, timeoutMs sai dạng, hay maxTokens quá trần; null là nhận. */
++export function engineRefusal(e: { model: string; maxTokens?: unknown; timeoutMs?: unknown }): string | null {
++  if (e.maxTokens !== undefined && !isPositiveInteger(e.maxTokens)) return `maxTokens must be a positive integer (got ${String(e.maxTokens)})`
++  if (e.timeoutMs !== undefined && !isPositiveInteger(e.timeoutMs)) return `timeoutMs must be a positive integer of milliseconds (got ${String(e.timeoutMs)})`
++  if (typeof e.maxTokens === 'number' && e.maxTokens > ENGINE_HOOK_MAX_TOKENS) return `maxTokens ${e.maxTokens} is past what ${servedId(e.model)} can produce in one reply (${ENGINE_HOOK_MAX_TOKENS})`
++  return null
++}
++
++/** Câu engine thật từ chối model ngoài danh sách tổ chức cho phép (0.8.9 U2) [Nguồn: mã engine 2.1.323, phiên rà soát 14/11/2026]. */
++export const allowlistRefusal = (model: string): string => `model "${servedId(model)}" is not in this organization's allowlist`
++
+ /**
+  * Hook nền mà mọi test cần (đăng ký trước lần gọi $ đầu tiên): đồng hồ, prompt, step của
+  * model, router, toast, status. Ghi lại thứ "engine" và router nhận được.
+@@ -142,10 +165,12 @@ export function base(
+     paneUnplaced?: string
+     /** $.ui.panes() luôn trả rỗng: mô phỏng pane đã bị đóng trước mỗi prompt (kit không phát được ui.close). */
+     panesClosed?: boolean
++    /** Engine từ chối thêm (0.8.9 U2, U3): trả thông điệp thì request bị ném lỗi với thông điệp đó, như engine thật; null là nhận. */
++    refuse?: (call: { kind: 'prompt' | 'agent' | 'drift' | 'review'; model: string; maxTokens?: number; prompt: string }) => string | null
+   } = {},
+ ): Seen {
+   const clock = mock.clock(on, { now: 1000 })
+-  const seen: Seen = { contexts: [], steps: [], toasts: [], routed: [], agentRouted: [], routerModels: [], drift: [], routerCalls: [], routerSystems: [], statuses: [], opened: [], panes: [], clock }
++  const seen: Seen = { contexts: [], steps: [], toasts: [], routed: [], agentRouted: [], routerModels: [], drift: [], routerCalls: [], routerSystems: [], requests: [], refusals: [], statuses: [], opened: [], panes: [], clock }
+   on('prompt.submit', ($, e) => {
+     seen.contexts.push([...(e.context ?? [])])
+     return { text: e.text, context: e.context }
+@@ -155,6 +180,13 @@ export function base(
+     const isAgent = (e.system ?? '').includes('about to start a subagent')
+     const kind = (e.system ?? '').includes('still working toward') ? 'drift' : isAgent ? 'agent' : e.prompt.startsWith('Requirements:') || e.prompt.includes('<request>\nRequirements:') ? 'review' : 'prompt'
+     if (kind === 'prompt') seen.routerSystems.push(typeof e.system === 'string' ? e.system : JSON.stringify(e.system ?? ''))
++    seen.requests.push({ kind, model: e.model, ...(e.maxTokens !== undefined ? { maxTokens: e.maxTokens } : {}), ...(e.timeoutMs !== undefined ? { timeoutMs: e.timeoutMs } : {}), prompt: e.prompt })
++    // Engine từ chối trước khi gửi request (0.8.9 U1), cùng câu của engine thật [Đo trực tiếp, 2.1.296 và 2.1.325, VERIFICATION mục 0.8.9].
++    const refusal = engineRefusal(e) ?? engine.refuse?.({ kind, model: e.model, ...(e.maxTokens !== undefined ? { maxTokens: e.maxTokens } : {}), prompt: e.prompt }) ?? null
++    if (refusal !== null) {
++      seen.refusals.push(refusal)
++      throw new Error(`focus-conductor: $.model.complete: ${refusal}`)
++    }
+     seen.routerCalls.push({ kind, model: e.model, ...(e.effort !== undefined ? { effort: String(e.effort) } : {}), ...(e.timeoutMs !== undefined ? { timeoutMs: e.timeoutMs } : {}) })
+     if ((e.system ?? '').includes('still working toward')) {
+       seen.drift.push(e.prompt)
+diff --git a/claude-mods/focus-conductor/tests/hook-limit-u1-089.test.ts b/claude-mods/focus-conductor/tests/hook-limit-u1-089.test.ts
+new file mode 100644
+index 0000000..7db7b32
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/hook-limit-u1-089.test.ts
+@@ -0,0 +1,100 @@
++// 0.8.9 U1: mọi lời gọi model từ hook xin không quá 64.000 token ra. Engine 2.1.296 và 2.1.325 ném lỗi trước khi gửi request khi maxTokens
++// vượt 64.000, ở cả bốn họ model [Đo trực tiếp, VERIFICATION mục 0.8.9]. Lượt đọc trọn của fable, opus, haiku trước đây xin 128.000 (mức
++// `claude -p` báo cho model), nên router của prompt dài hơn 80.000 ký tự bị engine từ chối. askRouter kẹp maxTokens của mọi request nó gửi.
++
++import { describe, expect, test } from 'claude-code/testing'
++import type { ModelCompleteRequest } from 'claude-code'
++import { askRouter, parseRoute, requestPlan, routerRequest } from '../hooks/lib/router'
++import type { Policy } from '../hooks/lib/router'
++import { ROUTER_MAX_WAIT_MS, fullMaxTokens, fullRetryTokens, readParamsOf } from '../hooks/lib/reading'
++import type { Reading } from '../hooks/lib/reading'
++import { plan } from './support/engine'
++
++const CAP = 64_000
++const OPEN: Policy = { allowFable: false, blocked: new Set(), session: null }
++const COND: Policy = { ...OPEN, conductor: true }
++const FAMILIES = ['fable', 'opus', 'sonnet', 'haiku'] as const
++const USAGE = { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
++const REPLY = JSON.stringify(plan({ goal: 'Sửa luồng thanh toán' }))
++const parse = (text: string) => parseRoute(text, COND)
++const isPositiveInteger = (value: unknown) => typeof value === 'number' && Number.isInteger(value) && value > 0
++
++const argsOf = (family: (typeof FAMILIES)[number], length: number) => {
++  const reading: Reading = { family, window: 1_000_000, maxWaitMs: ROUTER_MAX_WAIT_MS }
++  return { text: 'x'.repeat(length), prev: null, ran: null, policy: family === 'fable' ? COND : OPEN, model: family, reading, ...(family === 'fable' ? { isFable: true } : {}) }
++}
++
++/** ask ghi lại request đã nhận và trả lần lượt các câu trả lời. */
++function recorder(replies: Array<'aborted' | 'api-error' | { text: string; outputTokens?: number }>) {
++  const sent: ModelCompleteRequest[] = []
++  const ask = async (r: ModelCompleteRequest) => {
++    sent.push(r)
++    const reply = replies.shift() ?? { text: REPLY }
++    if (reply === 'aborted') return { isAnswered: false as const, reason: 'aborted' as const, usage: USAGE }
++    if (reply === 'api-error') return { isAnswered: false as const, reason: 'api-error' as const, status: 529, error: 'overloaded' as const, usage: USAGE }
++    return { isAnswered: true as const, text: reply.text, usage: { ...USAGE, output_tokens: reply.outputTokens ?? 50 } }
++  }
++  return { ask, sent }
++}
++
++const big = (over: Partial<ModelCompleteRequest> = {}): ModelCompleteRequest => ({ ...routerRequest(argsOf('fable', 100_000)), maxTokens: 128_000, ...over })
++
++describe('0.8.9 U1: maxTokens của lượt đọc trọn', () => {
++  test('fullMaxTokens: fable, opus, haiku ra 64.000; sonnet ra 16.000', () => {
++    for (const family of ['fable', 'opus', 'haiku'] as const) expect(fullMaxTokens(readParamsOf(family)), family).toBe(CAP)
++    expect(fullMaxTokens(readParamsOf('sonnet'))).toBe(16_000)
++  })
++
++  test('fullRetryTokens(64.000, fable) ra 64.000; fullRetryTokens(16.000, sonnet) ra 24.000', () => {
++    expect(fullRetryTokens(64_000, readParamsOf('fable'))).toBe(CAP)
++    expect(fullRetryTokens(16_000, readParamsOf('sonnet'))).toBe(24_000)
++  })
++
++  for (const length of [80_001, 238_489, 600_000]) {
++    test(`routerRequest với prompt ${length} ký tự, bốn họ: maxTokens không quá 64.000 và là số nguyên dương; timeoutMs là số nguyên dương`, () => {
++      for (const family of FAMILIES) {
++        const r = routerRequest(argsOf(family, length))
++        expect(isPositiveInteger(r.maxTokens), family).toBe(true)
++        expect(r.maxTokens ?? Infinity, family).toBeLessThanOrEqual(CAP)
++        expect(isPositiveInteger(r.timeoutMs), family).toBe(true)
++      }
++    })
++  }
++
++  test('fable: sức chứa vẫn 467.854 ký tự; timeoutMs vẫn 310.000, 920.000, 1.800.000 như 0.8.8', () => {
++    const timeouts = [80_001, 238_489, 600_000].map(length => {
++      expect(requestPlan(argsOf('fable', length)).capacity).toBe(467_854)
++      return routerRequest(argsOf('fable', length)).timeoutMs
++    })
++    expect(timeouts).toEqual([310_000, 920_000, 1_800_000])
++  })
++})
++
++describe('0.8.9 U1: askRouter kẹp maxTokens của mọi request', () => {
++  test('request mang maxTokens 128.000: ask thấy 64.000', async () => {
++    const { ask, sent } = recorder([{ text: REPLY }])
++    await askRouter(ask, big(), parse)
++    expect(sent.map(r => r.maxTokens)).toEqual([CAP])
++  })
++
++  test('lượt hỏi lại vì câu trả lời bị cắt (trần lượt hỏi lại 128.000): ask thấy không quá 64.000', async () => {
++    const { ask, sent } = recorder([{ text: '{"goal":', outputTokens: CAP }, { text: REPLY }])
++    await askRouter(ask, big(), parse, undefined, { now: () => 0, full: { tokenCap: 128_000 } })
++    expect(sent.length).toBe(2)
++    for (const r of sent) expect(r.maxTokens ?? Infinity).toBeLessThanOrEqual(CAP)
++  })
++
++  test('fallback mang maxTokens 128.000 (lượt đầu hết giờ): ask thấy không quá 64.000', async () => {
++    const { ask, sent } = recorder(['aborted', { text: REPLY }])
++    await askRouter(ask, big(), parse, undefined, { now: () => 0, fallback: big({ timeoutMs: 120_000 }) })
++    expect(sent.length).toBe(2)
++    for (const r of sent) expect(r.maxTokens ?? Infinity).toBeLessThanOrEqual(CAP)
++  })
++
++  test('apiFallback mang maxTokens 128.000 (lượt đầu lỗi API): ask thấy không quá 64.000', async () => {
++    const { ask, sent } = recorder(['api-error', { text: REPLY }])
++    await askRouter(ask, big(), parse, undefined, { now: () => 0, apiFallback: big({ model: 'opus' }) })
++    expect(sent.length).toBe(2)
++    for (const r of sent) expect(r.maxTokens ?? Infinity).toBeLessThanOrEqual(CAP)
++  })
++})
+diff --git a/claude-mods/focus-conductor/tests/integration/hook-limit-u1-089.test.ts b/claude-mods/focus-conductor/tests/integration/hook-limit-u1-089.test.ts
+new file mode 100644
+index 0000000..4aa6457
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/integration/hook-limit-u1-089.test.ts
+@@ -0,0 +1,42 @@
++// 0.8.9 U1: engine giả từ chối như engine thật (maxTokens trên 64.000 bị ném lỗi trước khi gửi). Router đọc trọn prompt 100.000 ký tự với
++// conductor fable, conductor opus và option router haiku: request mang maxTokens không quá 64.000, context có bản đọc prompt, không có
++// cảnh báo router lỗi.
++
++import { describe, expect, test } from 'claude-code/testing'
++import { base, plan, submit } from '../support/engine'
++import type { Seen } from '../support/engine'
++
++const GOAL = 'Mục tiêu router đọc được'
++const LONG = `Sửa luồng thanh toán. ${'a'.repeat(100_000 - 22)}`
++const FAIL = 'không đọc được prompt'
++
++const promptRequests = (seen: Seen) => seen.requests.filter(r => r.kind === 'prompt')
++const lastContext = (seen: Seen) => (seen.contexts.at(-1) ?? []).join('\n')
++
++describe('0.8.9 U1: router đọc prompt dài không bị engine từ chối', () => {
++  test('conductor fable, prompt 100.000 ký tự: request mang maxTokens 64.000; context có bản đọc prompt; không cảnh báo router lỗi', { options: { planApproval: 'off', conductor: 'fable' } }, async ($, on) => {
++    const seen = base(on, { router: () => plan({ goal: GOAL }) })
++    await submit($, LONG)
++    expect(promptRequests(seen)[0]?.model).toBe('fable')
++    expect(promptRequests(seen)[0]?.maxTokens).toBe(64_000)
++    expect(seen.refusals).toEqual([])
++    expect(lastContext(seen)).toContain(GOAL)
++    expect(seen.toasts.some(t => t.includes(FAIL))).toBe(false)
++  })
++
++  for (const [name, options, model] of [
++    ['conductor opus', { planApproval: 'off', conductor: 'opus' }, 'opus'],
++    ['option router haiku', { planApproval: 'off', router: 'haiku' }, 'haiku'],
++  ] as const) {
++    test(`${name}, prompt 100.000 ký tự: đọc được; maxTokens không quá 64.000`, { options }, async ($, on) => {
++      const seen = base(on, { router: () => plan({ goal: GOAL }) })
++      await submit($, LONG)
++      const first = promptRequests(seen)[0]
++      expect(first?.model).toBe(model)
++      expect(first?.maxTokens ?? Infinity).toBeLessThanOrEqual(64_000)
++      expect(seen.refusals).toEqual([])
++      expect(lastContext(seen)).toContain(GOAL)
++      expect(seen.toasts.some(t => t.includes(FAIL))).toBe(false)
++    })
++  }
++})
+diff --git a/claude-mods/focus-conductor/tests/integration/router-reason-u3-089.test.ts b/claude-mods/focus-conductor/tests/integration/router-reason-u3-089.test.ts
+new file mode 100644
+index 0000000..54b7344
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/integration/router-reason-u3-089.test.ts
+@@ -0,0 +1,41 @@
++// 0.8.9 U3 (tích hợp): engine giả từ chối request router với một câu lỗi. Cảnh báo và dòng router-fail của nhật ký quyết định cùng chứa câu
++// đó; dòng router-fail ghi maxTokens đã gửi thật. Lượt đầu bị từ chối mà họ dự phòng cứu được: dòng route có firstFail.
++
++import { describe, expect, test } from 'claude-code/testing'
++import type { On } from 'claude-code'
++import { allowlistRefusal, base, plan, submit } from '../support/engine'
++
++const GOAL = 'Mục tiêu router đọc được'
++type Line = Record<string, unknown>
++
++function logOf(on: On): () => Line[] {
++  const writes: string[] = []
++  on('fs.write', (_$, e) => {
++    writes.push(e.text)
++    return { value: undefined }
++  })
++  return () => (writes.at(-1) ?? '').trim().split('\n').filter(Boolean).map(line => JSON.parse(line) as Line)
++}
++
++describe('0.8.9 U3: lý do engine từ chối tới cảnh báo và nhật ký', () => {
++  test('router mặc định bị engine từ chối: toast và dòng router-fail chứa câu của engine; maxTokens là số đã gửi', { options: { planApproval: 'off', decisionLog: '/tmp/fc-reason-u3-089a.jsonl' } }, async ($, on) => {
++    const lines = logOf(on)
++    const seen = base(on, { router: () => plan({ goal: GOAL }), refuse: call => (call.kind === 'prompt' ? allowlistRefusal(call.model) : null) })
++    await submit($, 'Sửa luồng thanh toán')
++    const message = seen.refusals[0] ?? ''
++    expect(message).toContain('allowlist')
++    expect(seen.toasts.some(t => t.includes(`engine từ chối gửi request tới model router: ${message}`))).toBe(true)
++    const fail = lines().find(line => line['kind'] === 'router-fail')
++    expect(String(fail?.['reason'] ?? '')).toContain(message)
++    expect(fail?.['maxTokens']).toBe(seen.requests[0]?.maxTokens)
++  })
++
++  test('conductor fable, engine từ chối họ fable, opus cứu được: dòng route có firstFail chứa câu của engine', { options: { planApproval: 'off', conductor: 'fable', decisionLog: '/tmp/fc-reason-u3-089b.jsonl' } }, async ($, on) => {
++    const lines = logOf(on)
++    const seen = base(on, { router: () => plan({ goal: GOAL }), refuse: call => (call.model.includes('fable') ? allowlistRefusal(call.model) : null) })
++    await submit($, 'Sửa luồng thanh toán')
++    const route = lines().find(line => line['kind'] === 'route')
++    expect(String(route?.['firstFail'] ?? '')).toContain(seen.refusals[0] ?? 'thiếu')
++    expect(lines().some(line => line['kind'] === 'router-fail')).toBe(false)
++  })
++})
+diff --git a/claude-mods/focus-conductor/tests/integration/router-refused-u2-089.test.ts b/claude-mods/focus-conductor/tests/integration/router-refused-u2-089.test.ts
+new file mode 100644
+index 0000000..cbcff0d
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/integration/router-refused-u2-089.test.ts
+@@ -0,0 +1,73 @@
++// 0.8.9 U2 (tích hợp): engine từ chối request gửi router thì router có đường lùi. Fable bị từ chối: họ dự phòng (opus) đọc prompt, chi phí
++// tính theo giá opus, bộ đếm lỗi của fable tăng một. Engine chỉ từ chối request đọc trọn (maxTokens trên 16.000): request cắt theo trần cũ
++// đọc prompt, có cảnh báo prompt bị lược. Bộ đếm của fable đang ở 1 mà fallback cứu được lượt bị từ chối: không tạm ngừng, bộ đếm về 0.
++
++import { describe, expect, test } from 'claude-code/testing'
++import type { Engine } from 'claude-code/testing'
++import { addUsage, emptyLedger, formatCost } from '../../hooks/lib/ledger'
++import { PANE, ROUTER_USAGE, allowlistRefusal, base, plan, submit } from '../support/engine'
++import type { Seen } from '../support/engine'
++
++const GOAL = 'Mục tiêu router đọc được'
++const LONG = `Sửa luồng thanh toán. ${'a'.repeat(100_000 - 22)}`
++const FAIL = 'không đọc được prompt'
++const FABLE = { options: { planApproval: 'off', conductor: 'fable' } }
++const PRESENTATION = { isFullscreen: false, columns: 80 }
++
++const prompts = (seen: Seen) => seen.requests.filter(r => r.kind === 'prompt')
++const lastContext = (seen: Seen) => (seen.contexts.at(-1) ?? []).join('\n')
++const run = async ($: Engine, args: string) => String(((await $.command.run({ command: 'conductor', args, origin: { kind: 'composer' }, presentation: PRESENTATION } as never)) as { text?: string }).text ?? '')
++const paneTexts = async ($: Engine) => (await (await $.ui.mount(PANE)).findAll({ type: 'Text' })).map(e => e.text).join('\n')
++const isFable = (model: string) => model.includes('fable')
++
++describe('0.8.9 U2: engine từ chối request gửi router', () => {
++  test('conductor fable, engine từ chối mọi request gửi họ fable: opus đọc prompt; context có bản đọc; chi phí theo giá opus; bộ đếm lỗi của fable tăng một', FABLE, async ($, on) => {
++    const seen = base(on, { router: () => plan({ goal: GOAL }), refuse: call => (isFable(call.model) ? allowlistRefusal(call.model) : null) })
++    await submit($, 'Sửa luồng thanh toán')
++    expect(prompts(seen).map(r => r.model)).toEqual(['fable', 'opus'])
++    expect(lastContext(seen)).toContain(GOAL)
++    expect(seen.toasts.some(t => t.includes(FAIL))).toBe(false)
++    const usd = addUsage(emptyLedger(0), 'analyzer', 'opus', ROUTER_USAGE).ledger.session.analyzer.usd
++    expect(usd).toBeCloseTo(0.014, 6)
++    expect(await run($, 'status')).toContain(`router ${formatCost(usd, 'vi')} trong 1 lượt`)
++    // Bộ đếm lỗi của fable đang ở 1: một lần lỗi nữa thì router fable tạm ngừng, prompt kế không gửi fable.
++    await submit($, 'làm tiếp bước 1')
++    const before = prompts(seen).length
++    await submit($, 'làm tiếp bước 2')
++    expect(prompts(seen).slice(before).some(r => isFable(r.model))).toBe(false)
++  })
++
++  test('engine chỉ từ chối request có maxTokens trên 16.000, prompt 100.000 ký tự: request cắt theo trần cũ đọc prompt; có cảnh báo prompt bị lược; mục tiêu không tối thiểu', FABLE, async ($, on) => {
++    const seen = base(on, { router: () => plan({ goal: GOAL }), refuse: call => ((call.maxTokens ?? 0) > 16_000 ? `maxTokens ${call.maxTokens} is past what claude-fable-5-2 can produce in one reply (16000)` : null) })
++    await submit($, LONG)
++    const sent = prompts(seen)
++    expect(sent.length).toBe(2)
++    expect(sent[0]?.maxTokens).toBe(64_000)
++    expect(sent[1]?.maxTokens ?? Infinity).toBeLessThanOrEqual(16_000)
++    expect(sent[1]?.timeoutMs).toBe(120_000)
++    expect(await paneTexts($)).toContain('router chỉ đọc')
++    expect(lastContext(seen)).toContain(GOAL)
++    expect(seen.toasts.some(t => t.includes(FAIL))).toBe(false)
++  })
++
++  test('bộ đếm lỗi của fable đang ở 1, engine từ chối lượt đọc trọn, fallback cứu được: không tạm ngừng; bộ đếm về 0', { options: { planApproval: 'off', conductor: 'fable', conductorFallback: 'off' } }, async ($, on) => {
++    let isDown = true
++    const seen = base(on, {
++      router: () => (isDown && isFable(seen.routerModels.at(-1) ?? '') ? null : plan({ goal: GOAL })),
++      refuse: call => ((call.maxTokens ?? 0) > 16_000 ? `maxTokens ${call.maxTokens} is past what claude-fable-5-2 can produce in one reply (16000)` : null),
++    })
++    // Prompt 1: fable lỗi API một lần, bộ đếm lên 1.
++    await submit($, 'Sửa luồng thanh toán')
++    isDown = false
++    // Prompt 2: lượt đọc trọn bị engine từ chối, fallback (cùng họ fable) đọc được.
++    await submit($, LONG)
++    expect(prompts(seen).slice(-2).map(r => r.model)).toEqual(['fable', 'fable'])
++    expect(lastContext(seen)).toContain(GOAL)
++    // Prompt 3 vẫn gửi fable (không tạm ngừng) và lỗi một lần; prompt 4 vẫn gửi fable (bộ đếm đã về 0 nên một lỗi chưa đủ tạm ngừng).
++    isDown = true
++    await submit($, 'làm tiếp bước 1')
++    expect(prompts(seen).at(-1)?.model).toBe('fable')
++    await submit($, 'làm tiếp bước 2')
++    expect(prompts(seen).at(-1)?.model).toBe('fable')
++  })
++})
+diff --git a/claude-mods/focus-conductor/tests/integration/router-truncated-u4-089.test.ts b/claude-mods/focus-conductor/tests/integration/router-truncated-u4-089.test.ts
+new file mode 100644
+index 0000000..9627325
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/integration/router-truncated-u4-089.test.ts
+@@ -0,0 +1,32 @@
++// 0.8.9 U4 (tích hợp): conductor fable, prompt 100.000 ký tự; engine giả trả JSON bị cắt cho request đọc trọn và JSON đúng cho request đã cắt
++// theo trần cũ. Context có bản đọc prompt, có cảnh báo prompt bị lược, mục tiêu không phải mục tiêu tối thiểu, dòng route có firstFail.
++
++import { describe, expect, test } from 'claude-code/testing'
++import type { Engine } from 'claude-code/testing'
++import { PANE, base, plan, submit } from '../support/engine'
++
++const GOAL = 'Mục tiêu router đọc được'
++const MARK = 'DAU_CHO_GIUA_XQ'
++const LONG = `Sửa luồng thanh toán. ${'a'.repeat(60_000)}${MARK}${'b'.repeat(40_000 - 22 - MARK.length)}`
++const paneTexts = async ($: Engine) => (await (await $.ui.mount(PANE)).findAll({ type: 'Text' })).map(e => e.text).join('\n')
++
++describe('0.8.9 U4: lượt đọc trọn bị cắt câu trả lời', () => {
++  test('conductor fable, prompt 100.000 ký tự, câu trả lời của request đọc trọn bị cắt: request đã cắt đọc được; có cảnh báo; mục tiêu không tối thiểu; route có firstFail', { options: { planApproval: 'off', conductor: 'fable', decisionLog: '/tmp/fc-truncated-u4-089.jsonl' } }, async ($, on) => {
++    const writes: string[] = []
++    on('fs.write', (_$, e) => {
++      writes.push(e.text)
++      return { value: undefined }
++    })
++    const seen = base(on, { router: request => (request.includes(MARK) ? '{"goal": "Mục tiêu bị cắt' : plan({ goal: GOAL })) })
++    await submit($, LONG)
++    const prompts = seen.requests.filter(r => r.kind === 'prompt')
++    expect(prompts.at(-1)?.timeoutMs).toBe(120_000)
++    expect(prompts.at(-1)?.prompt.includes(MARK)).toBe(false)
++    expect((seen.contexts.at(-1) ?? []).join('\n')).toContain(GOAL)
++    expect(await paneTexts($)).toContain('router chỉ đọc')
++    const lines = (writes.at(-1) ?? '').trim().split('\n').filter(Boolean).map(line => JSON.parse(line) as Record<string, unknown>)
++    const route = lines.find(line => line['kind'] === 'route')
++    expect(String(route?.['firstFail'] ?? '')).toContain('câu trả lời không đúng định dạng')
++    expect(lines.some(line => line['kind'] === 'router-fail')).toBe(false)
++  })
++})
+diff --git a/claude-mods/focus-conductor/tests/router-reason-u3-089.test.ts b/claude-mods/focus-conductor/tests/router-reason-u3-089.test.ts
+new file mode 100644
+index 0000000..732d720
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/router-reason-u3-089.test.ts
+@@ -0,0 +1,46 @@
++// 0.8.9 U3: askRouter giữ thông điệp của lỗi engine ném. Thông điệp gộp về một dòng, bỏ tiền tố tới hết "$.model.complete: ", cắt còn 160
++// ký tự; lý do là "engine từ chối gửi request tới model router: <thông điệp>". Không có thông điệp thì giữ câu cũ. Câu lỗi lấy nguyên văn
++// từ engine thật [Đo trực tiếp, 2.1.325, VERIFICATION mục 0.8.9], tên plugin của mod thử đổi thành focus-conductor.
++
++import { describe, expect, test } from 'claude-code/testing'
++import type { ModelCompleteRequest } from 'claude-code'
++import { askRouter, parseRoute } from '../hooks/lib/router'
++import type { Policy } from '../hooks/lib/router'
++
++const OPEN: Policy = { allowFable: false, blocked: new Set(), session: null }
++const parse = (text: string) => parseRoute(text, OPEN)
++const request: ModelCompleteRequest = { model: 'fable', prompt: 'x', maxTokens: 8_000, timeoutMs: 45_000 } as ModelCompleteRequest
++const OLD = 'engine từ chối gửi request tới model router'
++const LEAD = `${OLD}: `
++const throwing = (value: unknown) => async (): Promise<never> => {
++  throw value
++}
++
++describe('0.8.9 U3: lý do engine từ chối', () => {
++  test('thông điệp của engine thật: lý do giữ phần sau "$.model.complete: "', async () => {
++    const outcome = await askRouter(throwing(new Error('focus-conductor: $.model.complete: maxTokens 128000 is past what claude-fable-5-2 can produce in one reply (64000)')), request, parse)
++    expect(outcome.reason).toBe(`${LEAD}maxTokens 128000 is past what claude-fable-5-2 can produce in one reply (64000)`)
++    expect(outcome.failure).toBe('engine')
++  })
++
++  test('thông điệp 400 ký tự có xuống dòng: phần thông điệp dài đúng 160 ký tự, không có ký tự xuống dòng', async () => {
++    const long = ['a'.repeat(100), 'b'.repeat(99), 'c'.repeat(99), 'd'.repeat(99)].join('\n')
++    expect(long.length).toBe(400)
++    const outcome = await askRouter(throwing(new Error(`focus-conductor: $.model.complete: ${long}`)), request, parse)
++    expect(outcome.reason.startsWith(LEAD)).toBe(true)
++    const message = outcome.reason.slice(LEAD.length)
++    expect(message.length).toBe(160)
++    expect(/[\r\n]/.test(outcome.reason)).toBe(false)
++  })
++
++  test('ask trả null hay ném chuỗi rỗng: giữ câu cũ; ném số 42: thông điệp là "42"; không văng lỗi', async () => {
++    expect((await askRouter(async () => null, request, parse)).reason).toBe(OLD)
++    expect((await askRouter(throwing(''), request, parse)).reason).toBe(OLD)
++    expect((await askRouter(throwing(42), request, parse)).reason).toBe(`${LEAD}42`)
++  })
++
++  test('thông điệp không có tiền tố "$.model.complete: ": giữ nguyên', async () => {
++    const outcome = await askRouter(throwing(new Error('model bị chặn')), request, parse)
++    expect(outcome.reason).toBe(`${LEAD}model bị chặn`)
++  })
++})
+diff --git a/claude-mods/focus-conductor/tests/router-refused-u2-089.test.ts b/claude-mods/focus-conductor/tests/router-refused-u2-089.test.ts
+new file mode 100644
+index 0000000..6df2c7d
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/router-refused-u2-089.test.ts
+@@ -0,0 +1,98 @@
++// 0.8.9 U2: lượt đầu bị engine từ chối (ask ném lỗi hay trả null) thì askRouter có đường lùi. Có fallback: gửi fallback; không ra kết quả mà có
++// apiFallback thì gửi tiếp apiFallback. Không có fallback mà có apiFallback: gửi apiFallback. Không có cả hai: như 0.8.8. Mỗi request dự phòng
++// gửi nhiều nhất một lần. Usage của mỗi lời gọi đi kèm model đã nhận lời gọi đó (usageModels); lời gọi bị từ chối không có usage.
++
++import { describe, expect, test } from 'claude-code/testing'
++import type { ModelCompleteRequest } from 'claude-code'
++import { askRouter, parseRoute } from '../hooks/lib/router'
++import type { Policy } from '../hooks/lib/router'
++import { plan } from './support/engine'
++
++const COND: Policy = { allowFable: false, blocked: new Set(), session: null, conductor: true }
++const USAGE = { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
++const REPLY = JSON.stringify(plan({ goal: 'Sửa luồng thanh toán' }))
++const parse = (text: string) => parseRoute(text, COND)
++const REFUSED = 'focus-conductor: $.model.complete: model "claude-fable-5-2" is not in this organization\'s allowlist'
++
++const FULL: ModelCompleteRequest = { model: 'fable', prompt: 'TRỌN', maxTokens: 64_000, timeoutMs: 300_000 } as ModelCompleteRequest
++const CUT: ModelCompleteRequest = { model: 'fable', prompt: 'CẮT', maxTokens: 16_000, timeoutMs: 120_000 } as ModelCompleteRequest
++const API: ModelCompleteRequest = { model: 'opus', prompt: 'TRỌN', maxTokens: 64_000, timeoutMs: 300_000 } as ModelCompleteRequest
++
++type Act = 'refuse' | 'null' | 'answer' | 'api-error'
++/** ask theo nhãn model/prompt của request: refuse ném lỗi như engine, null trả null, answer trả kế hoạch, api-error trả lỗi API. */
++function scripted(acts: Record<string, Act>) {
++  const sent: string[] = []
++  const ask = async (r: ModelCompleteRequest) => {
++    const label = `${r.model}/${String(r.prompt)}`
++    sent.push(label)
++    const act = acts[label] ?? 'answer'
++    if (act === 'refuse') throw new Error(REFUSED)
++    if (act === 'null') return null
++    if (act === 'api-error') return { isAnswered: false as const, reason: 'api-error' as const, status: 529, error: 'overloaded' as const, usage: USAGE }
++    return { isAnswered: true as const, text: REPLY, usage: USAGE }
++  }
++  return { ask, sent }
++}
++
++describe('0.8.9 U2: lượt đầu bị engine từ chối', () => {
++  test('dòng 1, có fallback: gửi fallback; có kết quả thì trả kèm fellBack; một usage của fable', async () => {
++    const { ask, sent } = scripted({ 'fable/TRỌN': 'refuse' })
++    const outcome = await askRouter(ask, FULL, parse, undefined, { now: () => 0, fallback: CUT, apiFallback: API })
++    expect(sent).toEqual(['fable/TRỌN', 'fable/CẮT'])
++    expect(outcome.result).not.toBeNull()
++    expect(outcome.fellBack).toBe(true)
++    expect(outcome.viaFallback).toBeUndefined()
++    expect(outcome.usages.length).toBe(1)
++    expect(outcome.usageModels).toEqual(['fable'])
++  })
++
++  test('dòng 1, fallback cũng bị từ chối và có apiFallback: ba request theo thứ tự; kết quả của apiFallback; viaFallback', async () => {
++    const { ask, sent } = scripted({ 'fable/TRỌN': 'refuse', 'fable/CẮT': 'refuse' })
++    const outcome = await askRouter(ask, FULL, parse, undefined, { now: () => 0, fallback: CUT, apiFallback: API })
++    expect(sent).toEqual(['fable/TRỌN', 'fable/CẮT', 'opus/TRỌN'])
++    expect(outcome.result).not.toBeNull()
++    expect(outcome.viaFallback).toBe(true)
++    expect(outcome.usages.length).toBe(1)
++    expect(outcome.usageModels).toEqual(['opus'])
++  })
++
++  test('dòng 1, fallback và apiFallback đều bị từ chối: kết quả rỗng, failure engine, không có request thứ tư', async () => {
++    const { ask, sent } = scripted({ 'fable/TRỌN': 'refuse', 'fable/CẮT': 'null', 'opus/TRỌN': 'refuse' })
++    const outcome = await askRouter(ask, FULL, parse, undefined, { now: () => 0, fallback: CUT, apiFallback: API })
++    expect(sent).toEqual(['fable/TRỌN', 'fable/CẮT', 'opus/TRỌN'])
++    expect(outcome.result).toBeNull()
++    expect(outcome.failure).toBe('engine')
++    expect(outcome.usages).toEqual([])
++  })
++
++  test('dòng 2, không có fallback, có apiFallback: gửi apiFallback; viaFallback; một usage của opus', async () => {
++    const { ask, sent } = scripted({ 'fable/TRỌN': 'refuse' })
++    const outcome = await askRouter(ask, FULL, parse, undefined, { now: () => 0, apiFallback: API })
++    expect(sent).toEqual(['fable/TRỌN', 'opus/TRỌN'])
++    expect(outcome.result).not.toBeNull()
++    expect(outcome.viaFallback).toBe(true)
++    expect(outcome.fellBack).toBeUndefined()
++    expect(outcome.usages.length).toBe(1)
++    expect(outcome.usageModels).toEqual(['opus'])
++  })
++
++  test('dòng 3, không có fallback, không có apiFallback: như 0.8.8, failure engine, không hỏi lại', async () => {
++    const { ask, sent } = scripted({ 'fable/TRỌN': 'refuse' })
++    const outcome = await askRouter(ask, FULL, parse, undefined, { now: () => 0 })
++    expect(sent).toEqual(['fable/TRỌN'])
++    expect(outcome.result).toBeNull()
++    expect(outcome.failure).toBe('engine')
++    expect(outcome.retried).toBe(false)
++    expect(outcome.usages).toEqual([])
++  })
++
++  test('lượt đầu lỗi API, có apiFallback: như 0.8.8, hai request, viaFallback; usage đầu của fable, usage sau của opus', async () => {
++    const { ask, sent } = scripted({ 'fable/TRỌN': 'api-error' })
++    const outcome = await askRouter(ask, FULL, parse, undefined, { now: () => 0, fallback: CUT, apiFallback: API })
++    expect(sent).toEqual(['fable/TRỌN', 'opus/TRỌN'])
++    expect(outcome.result).not.toBeNull()
++    expect(outcome.viaFallback).toBe(true)
++    expect(outcome.usages.length).toBe(2)
++    expect(outcome.usageModels).toEqual(['fable', 'opus'])
++  })
++})
+diff --git a/claude-mods/focus-conductor/tests/router-truncated-u4-089.test.ts b/claude-mods/focus-conductor/tests/router-truncated-u4-089.test.ts
+new file mode 100644
+index 0000000..868f621
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/router-truncated-u4-089.test.ts
+@@ -0,0 +1,81 @@
++// 0.8.9 U4: lượt đọc trọn (có opts.fallback) chạy hết các bước mà không có kết quả đọc được, fallback và apiFallback chưa gửi: gửi fallback
++// đúng một lần, kết quả kèm fellBack. Áp cho câu trả lời hỏng hay bị cắt mà không đủ hạn để hỏi lại, đã hỏi lại vẫn hỏng, câu trả lời rỗng.
++// Request thường (không có fallback) giữ như 0.8.8.
++
++import { describe, expect, test } from 'claude-code/testing'
++import type { ModelCompleteRequest } from 'claude-code'
++import { askRouter, parseRoute } from '../hooks/lib/router'
++import type { Policy } from '../hooks/lib/router'
++import { plan } from './support/engine'
++
++const COND: Policy = { allowFable: false, blocked: new Set(), session: null, conductor: true }
++const REPLY = JSON.stringify(plan({ goal: 'Sửa luồng thanh toán' }))
++const parse = (text: string) => parseRoute(text, COND)
++const FULL: ModelCompleteRequest = { model: 'fable', prompt: 'TRỌN', maxTokens: 64_000, timeoutMs: 300_000 } as ModelCompleteRequest
++const CUT: ModelCompleteRequest = { model: 'fable', prompt: 'CẮT', maxTokens: 16_000, timeoutMs: 120_000 } as ModelCompleteRequest
++const usage = (output: number) => ({ input_tokens: 100, output_tokens: output, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 })
++
++type Reply = { text: string; output?: number } | 'empty'
++/** ask trả lần lượt các câu trả lời; request fallback (prompt CẮT) luôn trả kế hoạch đúng. */
++function scripted(replies: Reply[]) {
++  const sent: string[] = []
++  const ask = async (r: ModelCompleteRequest) => {
++    const prompt = String(r.prompt)
++    sent.push(prompt.startsWith('CẮT') ? 'CẮT' : prompt.startsWith('TRỌN') && prompt.length > 4 ? 'HỎI LẠI' : 'TRỌN')
++    if (prompt.startsWith('CẮT')) return { isAnswered: true as const, text: REPLY, usage: usage(50) }
++    const reply = replies.shift() ?? { text: '{"goal":' }
++    if (reply === 'empty') return { isAnswered: false as const, reason: 'empty', usage: usage(0) } as never
++    return { isAnswered: true as const, text: reply.text, usage: usage(reply.output ?? 50) }
++  }
++  return { ask, sent }
++}
++
++describe('0.8.9 U4: lượt đọc trọn không ra kết quả thì dùng fallback', () => {
++  test('câu trả lời đầu bị cắt, lượt hỏi lại trả JSON hỏng: request thứ ba là fallback; có kết quả; fellBack và retried; ba usage', async () => {
++    const { ask, sent } = scripted([{ text: '{"goal": "Sửa', output: 64_000 }, { text: '{"goal":' }])
++    const outcome = await askRouter(ask, FULL, parse, undefined, { now: () => 0, fallback: CUT, full: { tokenCap: 64_000 } })
++    expect(sent).toEqual(['TRỌN', 'HỎI LẠI', 'CẮT'])
++    expect(outcome.result).not.toBeNull()
++    expect(outcome.fellBack).toBe(true)
++    expect(outcome.retried).toBe(true)
++    expect(outcome.usages.length).toBe(3)
++  })
++
++  test('câu trả lời đầu bị cắt, lượt hỏi lại đọc được: hai request, không gửi fallback', async () => {
++    const { ask, sent } = scripted([{ text: '{"goal": "Sửa', output: 64_000 }, { text: REPLY }])
++    const outcome = await askRouter(ask, FULL, parse, undefined, { now: () => 0, fallback: CUT, full: { tokenCap: 64_000 } })
++    expect(sent).toEqual(['TRỌN', 'HỎI LẠI'])
++    expect(outcome.result).not.toBeNull()
++    expect(outcome.fellBack).toBeUndefined()
++  })
++
++  test('câu trả lời đầu hỏng và hạn chung đã hết: request thứ hai là fallback', async () => {
++    let clock = 0
++    const { ask, sent } = scripted([{ text: '{"goal":' }])
++    const timed = async (r: ModelCompleteRequest) => {
++      const reply = await ask(r)
++      clock += 1_000_000
++      return reply
++    }
++    const outcome = await askRouter(timed, FULL, parse, undefined, { now: () => clock, fallback: CUT })
++    expect(sent).toEqual(['TRỌN', 'CẮT'])
++    expect(outcome.result).not.toBeNull()
++    expect(outcome.fellBack).toBe(true)
++  })
++
++  test('câu trả lời đầu rỗng: request thứ hai là fallback', async () => {
++    const { ask, sent } = scripted(['empty'])
++    const outcome = await askRouter(ask, FULL, parse, undefined, { now: () => 0, fallback: CUT })
++    expect(sent).toEqual(['TRỌN', 'CẮT'])
++    expect(outcome.result).not.toBeNull()
++    expect(outcome.fellBack).toBe(true)
++  })
++
++  test('request thường trả JSON hỏng hai lần: đúng hai request, kết quả rỗng như 0.8.8', async () => {
++    const { ask, sent } = scripted([{ text: '{"goal":' }, { text: '{"goal":' }])
++    const outcome = await askRouter(ask, FULL, parse, undefined, { now: () => 0 })
++    expect(sent).toEqual(['TRỌN', 'HỎI LẠI'])
++    expect(outcome.result).toBeNull()
++    expect(outcome.failure).toBe('format')
++  })
++})
