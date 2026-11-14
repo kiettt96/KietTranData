@@ -1333,10 +1333,12 @@ export type RouterOutcome<T> = {
   reason: string
   /** Usage của mọi lượt gọi (lượt đầu và lượt hỏi lại). */
   usages: ModelUsage[]
+  /** Model đã nhận từng lời gọi có usage, cùng thứ tự với usages (0.8.9 U2); lời gọi bị engine từ chối không có usage. */
+  usageModels: string[]
   retried: boolean
   /** Lượt đọc trọn hết giờ và lượt thử lại đã gửi request dự phòng (0.8.7 L1): kết quả, nếu có, là của request đã cắt theo trần thường. */
   fellBack?: true
-  /** Lượt đầu của Fable bị API từ chối và lượt sau đã gửi họ dự phòng (0.8.7 F1): usage đầu là của Fable, các usage sau của họ dự phòng. */
+  /** Lượt đầu bị API hay engine từ chối và lượt sau đã gửi họ dự phòng (0.8.7 F1, 0.8.9 U2): model của từng usage ở usageModels. */
   viaFallback?: true
   /** Loại lỗi khi không có kết quả (0.7.2); null khi có kết quả. */
   failure: RouterFailKind | null
@@ -1385,41 +1387,61 @@ export async function askRouter<T extends { confidence?: number }>(
   /** Đồng hồ (mặc định Date.now) và hạn chung cho mọi lượt gọi (mặc định 1,5 lần timeout của request): 0.7.2. */
   opts: { now?: () => number; budgetMs?: number; retryMissingConfidence?: boolean; isFable?: boolean; fallback?: ModelCompleteRequest; full?: { tokenCap: number }; apiFallback?: ModelCompleteRequest } = {},
 ): Promise<RouterOutcome<T>> {
-  // Mọi request đi qua một chỗ (0.8.9 U1): maxTokens kẹp về HOOK_MAX_TOKENS, kể cả lượt hỏi lại và hai request dự phòng.
-  const send = (r: ModelCompleteRequest) => ask(cappedRequest(r)).catch(() => null)
+  const usages: ModelUsage[] = []
+  const usageModels: string[] = []
+  // Mọi request đi qua một chỗ (0.8.9 U1): maxTokens kẹp về HOOK_MAX_TOKENS, kể cả lượt hỏi lại và hai request dự phòng. Usage của mỗi lời
+  // gọi đi kèm model đã nhận lời gọi đó (0.8.9 U2); lời gọi bị engine từ chối không có usage.
+  const send = async (r: ModelCompleteRequest): Promise<ModelCompleteResult | null> => {
+    const sent = cappedRequest(r)
+    const reply = await ask(sent).catch(() => null)
+    if (reply) {
+      usages.push(reply.usage)
+      usageModels.push(sent.model)
+    }
+    return reply
+  }
   const request = cappedRequest(original)
   const now = opts.now ?? Date.now
   const budget = opts.budgetMs ?? Math.round((request.timeoutMs ?? 45_000) * BUDGET_FACTOR)
   const startedAt = now()
   const first = await send(request)
-  const usages = first ? [first.usage] : []
   const limits = (last: ModelCompleteResult | null) => ({ timeoutMs: request.timeoutMs ?? null, maxTokens: request.maxTokens ?? null, outputTokens: last ? last.usage.output_tokens : null })
+  // Lượt đầu bị engine từ chối (0.8.9 U2): có fallback thì gửi fallback; không ra kết quả mà có apiFallback thì gửi tiếp apiFallback. Không có
+  // fallback mà có apiFallback: gửi apiFallback. Không có cả hai: như 0.8.8 (nhánh cuối). Mỗi request dự phòng gửi nhiều nhất một lần.
+  if (first === null && (opts.fallback !== undefined || opts.apiFallback !== undefined)) {
+    const isFallbackSent = opts.fallback !== undefined
+    const rescue = isFallbackSent ? await send(opts.fallback as ModelCompleteRequest) : null
+    const rescued = rescue?.isAnswered ? parse(rescue.text) : null
+    if (isFallbackSent && (rescued !== null || opts.apiFallback === undefined)) {
+      return { result: rescued, reason: rescued === null ? failureReason(rescue) : '', usages, usageModels, retried: true, fellBack: true, failure: rescued === null ? failureKind(rescue) : null, ...limits(rescue) }
+    }
+    const last = await send(opts.apiFallback as ModelCompleteRequest)
+    const result = last?.isAnswered ? parse(last.text) : null
+    return { result, reason: result === null ? failureReason(last) : '', usages, usageModels, retried: true, viaFallback: true, failure: result === null ? failureKind(last) : null, ...limits(last) }
+  }
   // Lượt đọc của Fable bị API từ chối (0.8.7 F1): gửi cùng request trọn cho họ điều phối dự phòng, với thời gian chờ và maxTokens của họ đó;
   // không kiểm hạn chung. Hết giờ thì vẫn theo nhánh dự phòng của L3 bên dưới.
   const apiFallback = opts.apiFallback
   if (apiFallback !== undefined && first !== null && !first.isAnswered && first.reason === 'api-error') {
     const again = await send(apiFallback)
-    if (again) usages.push(again.usage)
     const result = again?.isAnswered ? parse(again.text) : null
-    return { result, reason: result === null ? failureReason(again) : '', usages, retried: true, viaFallback: true, failure: result === null ? failureKind(again) : null, ...limits(again ?? first) }
+    return { result, reason: result === null ? failureReason(again) : '', usages, usageModels, retried: true, viaFallback: true, failure: result === null ? failureKind(again) : null, ...limits(again ?? first) }
   }
   // Lượt đọc trọn hết giờ hay bị API từ chối (0.8.7 L3): thử lại một lần bằng request dự phòng (cắt theo trần cũ) với trọn thời gian chờ
   // của nó, không lấy phần còn lại của hạn chung.
   const fallback = opts.fallback
   if (fallback !== undefined && first !== null && !first.isAnswered && (first.reason === 'aborted' || first.reason === 'api-error')) {
     const again = await send(fallback)
-    if (again) usages.push(again.usage)
     const result = again?.isAnswered ? parse(again.text) : null
-    return { result, reason: result === null ? failureReason(again) : '', usages, retried: true, fellBack: true, failure: result === null ? failureKind(again) : null, ...limits(again ?? first) }
+    return { result, reason: result === null ? failureReason(again) : '', usages, usageModels, retried: true, fellBack: true, failure: result === null ? failureKind(again) : null, ...limits(again ?? first) }
   }
   // Hết giờ chờ (0.7.5): thử lại đúng một lần cùng request nếu hạn chung còn ít nhất RETRY_MIN_MS, với thời gian chờ là phần còn lại.
   if (first !== null && !first.isAnswered && first.reason === 'aborted') {
     const left = budget - (now() - startedAt)
-    if (left < RETRY_MIN_MS) return { result: null, reason: failureReason(first), usages, retried: false, failure: failureKind(first), ...limits(first) }
+    if (left < RETRY_MIN_MS) return { result: null, reason: failureReason(first), usages, usageModels, retried: false, failure: failureKind(first), ...limits(first) }
     const again = await send({ ...request, timeoutMs: Math.min(request.timeoutMs ?? left, left) })
-    if (again) usages.push(again.usage)
     const result = again?.isAnswered ? parse(again.text) : null
-    return { result, reason: result === null ? failureReason(again) : '', usages, retried: true, failure: result === null ? failureKind(again) : null, ...limits(again ?? first) }
+    return { result, reason: result === null ? failureReason(again) : '', usages, usageModels, retried: true, failure: result === null ? failureKind(again) : null, ...limits(again ?? first) }
   }
   const firstResult = first?.isAnswered ? parse(first.text) : null
   // Thiếu confidence (0.7.8 G8): chỉ khi bật retryMissingConfidence (ba chỗ đọc prompt) thì coi như dưới LOW_CONFIDENCE và hỏi lại;
@@ -1428,7 +1450,7 @@ export async function askRouter<T extends { confidence?: number }>(
   const firstConfidence = firstResult?.confidence ?? 1
   const isConfident = firstResult !== null && !isMissing && firstConfidence >= LOW_CONFIDENCE
   const needsCoverage = isConfident && recheck !== undefined && recheck(firstResult)
-  const settled = (retried: boolean) => ({ result: firstResult, reason: failureReason(first), usages, retried, failure: firstResult === null ? failureKind(first) : null, ...limits(first) })
+  const settled = (retried: boolean) => ({ result: firstResult, reason: failureReason(first), usages, usageModels, retried, failure: firstResult === null ? failureKind(first) : null, ...limits(first) })
   if (first === null || !first.isAnswered || (isConfident && !needsCoverage)) return settled(false)
   // Trong hạn chung: kiểm lại phủ yêu cầu chỉ khi lượt đầu chưa quá nửa hạn; thử lại JSON hay tin cậy thấp cần còn ít nhất RETRY_MIN_MS.
   const spent = now() - startedAt
@@ -1437,7 +1459,6 @@ export async function askRouter<T extends { confidence?: number }>(
   if (!isAffordable) return settled(false)
   const isTruncated = firstResult === null && request.maxTokens !== undefined && first.usage.output_tokens >= request.maxTokens * 0.98
   const second = await send(retryRequest(request, first.text, problem, { timeoutMs: Math.min(request.timeoutMs ?? budget, budget - spent), truncated: isTruncated, ...(opts.isFable === true ? { isFable: true } : {}), ...(opts.full !== undefined ? { full: opts.full } : {}) }))
-  if (second) usages.push(second.usage)
   const secondResult = second?.isAnswered ? parse(second.text) : null
   // Thiếu confidence xếp thấp nhất khi bật retryMissingConfidence: lần hai thắng khi nó có confidence và lần đầu không có hay thấp hơn.
   const isSecondBetter =
@@ -1445,7 +1466,7 @@ export async function askRouter<T extends { confidence?: number }>(
       ? secondResult !== null && (firstResult === null || (secondResult.confidence !== undefined && (isMissing || secondResult.confidence >= firstConfidence)))
       : secondResult !== null && (firstResult === null || (secondResult.confidence ?? 1) >= firstConfidence)
   const pick = isSecondBetter ? secondResult : firstResult
-  return { result: pick, reason: pick === null ? failureReason(second) : '', usages, retried: true, failure: pick === null ? failureKind(second) : null, ...limits(second ?? first) }
+  return { result: pick, reason: pick === null ? failureReason(second) : '', usages, usageModels, retried: true, failure: pick === null ? failureKind(second) : null, ...limits(second ?? first) }
 }
 
 /** Prompt dài hơn sức chứa của lượt router đó bị lược phần giữa (0.7.8 G8; 0.8.7 L3: sức chứa theo requestPlan, mặc định trần cũ). */

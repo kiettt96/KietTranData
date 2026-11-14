@@ -364,10 +364,11 @@ export function registerSession(on: On, ctx: Ctx): void {
     const approvalStored = S.approvalOf(before)
     const isPresented = prev !== null && approvalStored.status === 'presented'
     const isAnswering = prev !== null && approvalStored.awaitingAnswer
-    let outcome: RouterOutcome<RouterPlan> = { result: null, reason: 'router đang tạm ngừng sau các lần lỗi liên tiếp', usages: [], retried: false, failure: 'paused', timeoutMs: null, maxTokens: null, outputTokens: null }
+    let outcome: RouterOutcome<RouterPlan> = { result: null, reason: 'router đang tạm ngừng sau các lần lỗi liên tiếp', usages: [], usageModels: [], retried: false, failure: 'paused', timeoutMs: null, maxTokens: null, outputTokens: null }
     let waitedMs = 0
     let pauseText: string | null = null
     let apiFamily: ModelFamily | null = null
+    let apiModel: string | null = null
     // Lượt đọc của đích router (0.8.7 L3): mọi model đọc trọn prompt tới sức chứa của lượt đó.
     const reading = ctx.routerReading(target)
     let promptRead: ReadPlan = requestPlan({ text, prev, ran: ranText(before), policy: rules, model: target.model, reading, ...(target.isFable ? { isFable: true } : {}) })
@@ -385,6 +386,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       // Lượt đọc của Fable bị API từ chối (0.8.7 F1): cùng request trọn gửi họ dự phòng, với thời gian chờ và maxTokens theo thông số của họ đó.
       const backup = target.family === ctx.conductorFamily ? ctx.fallbackTarget(before, current, (await read($, headlessState)) === true) : null
       apiFamily = backup?.family ?? null
+      apiModel = backup?.model ?? null
       const apiFallback = backup !== null ? routerRequest({ ...args, model: backup.model, reading: ctx.routerReading(backup) }) : undefined
       const startedAt = await $.clock.now()
       outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), needsCoverageRecheck, { retryMissingConfidence: true, ...(target.isFable ? { isFable: true } : {}), ...(fallback !== undefined ? { fallback } : {}), ...(full !== undefined ? { full } : {}), ...(apiFallback !== undefined ? { apiFallback } : {}) })
@@ -398,9 +400,9 @@ export function registerSession(on: On, ctx: Ctx): void {
       } else if (target.isFable) await noteFableRouter($, ctx, outcome.result !== null, target.family)
       else pauseText = noteRouter(outcome.result !== null)
     }
-    // Chi phí router (0.8.7 F1): lượt của họ dự phòng tính theo giá của họ đó.
-    const charge = (c: Core): Core =>
-      outcome.viaFallback === true && apiFamily !== null ? S.withAnalyzerUsage(outcome.usages.slice(1), apiFamily)(S.withAnalyzerUsage(outcome.usages.slice(0, 1), target.family)(c)) : S.withAnalyzerUsage(outcome.usages, target.family)(c)
+    // Chi phí router (0.8.7 F1; 0.8.9 U2): mỗi usage tính theo giá của họ model đã nhận lời gọi đó; lời gọi bị engine từ chối không có usage.
+    const familyOfCall = (model: string | undefined): ModelFamily => (apiFamily !== null && model !== undefined && model === apiModel ? apiFamily : target.family)
+    const charge = (c: Core): Core => outcome.usages.reduce((acc, usage, i) => S.withAnalyzerUsage([usage], familyOfCall(outcome.usageModels[i]))(acc), c)
     // Tiếp tục điểm dừng khi router xếp tiếp nối, hoặc khi người dùng vừa gõ /conductor resume (khi đó router xếp mục
     // tiêu mới thì vẫn giữ mục tiêu đã khôi phục).
     // Tin hỏi tiến độ (0.8.2 N1) không tiếp tục điểm dừng: chỉ báo cáo.

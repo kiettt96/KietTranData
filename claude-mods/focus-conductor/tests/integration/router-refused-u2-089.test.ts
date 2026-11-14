@@ -28,7 +28,7 @@ describe('0.8.9 U2: engine từ chối request gửi router', () => {
     expect(lastContext(seen)).toContain(GOAL)
     expect(seen.toasts.some(t => t.includes(FAIL))).toBe(false)
     const usd = addUsage(emptyLedger(0), 'analyzer', 'opus', ROUTER_USAGE).ledger.session.analyzer.usd
-    expect(usd).toBeCloseTo(0.014, 6)
+    expect(Math.abs(usd - 0.014)).toBeLessThan(1e-9)
     expect(await run($, 'status')).toContain(`router ${formatCost(usd, 'vi')} trong 1 lượt`)
     // Bộ đếm lỗi của fable đang ở 1: một lần lỗi nữa thì router fable tạm ngừng, prompt kế không gửi fable.
     await submit($, 'làm tiếp bước 1')
