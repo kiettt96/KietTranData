@@ -2,6 +2,57 @@
 
 Các bản của focus-conductor, mới nhất trước. Số đo kiểm chứng của HEAD hiện tại nằm ở [docs/VERIFICATION.md](docs/VERIFICATION.md); cách dùng và tùy chọn ở [README](README.md).
 
+## Thay đổi 0.8.9: router bị engine từ chối khi đọc prompt dài
+
+Router của prompt dài hơn 80.000 ký tự bị engine từ chối khi họ đọc là fable, opus hay haiku: lượt đọc trọn xin `maxTokens` 128.000, cao hơn trần 64.000 của lời gọi model từ hook [Đo trực tiếp, engine 2.1.296 và 2.1.325, 14/11/2026]. Lời dặn router, giao diện, option, schema tool `plan` và golden không đổi. Mỗi điểm một commit test đỏ rồi một commit sửa.
+
+- **U1: trần 64.000.** `HOOK_MAX_TOKENS` ở `hooks/lib/reading.ts`; `fullMaxTokens`, `fullRetryTokens` kẹp theo trần này. `askRouter` kẹp `maxTokens` của mọi request nó gửi ở một chỗ. Engine giả của test tích hợp từ chối như engine thật (`maxTokens`, `timeoutMs` không phải số nguyên dương, `maxTokens` trên 64.000).
+- **U2: đường lùi khi engine từ chối.** Lượt đầu bị từ chối thì gửi `fallback`, không ra kết quả mà có `apiFallback` thì gửi tiếp; không có `fallback` thì gửi `apiFallback`. `RouterOutcome.usageModels` ghi model của từng usage; chi phí router tính theo giá của họ đã nhận lời gọi.
+- **U3: lý do nguyên văn.** Lý do router lỗi là "engine từ chối gửi request tới model router: <thông điệp của engine>" (một dòng, bỏ phần đầu tới hết `$.model.complete: `, 160 ký tự). Dòng `route` của nhật ký quyết định có `firstFail` khi request dự phòng cứu được lượt đầu.
+- **U4: lượt đọc trọn không ra kết quả.** Hỏng định dạng, bị cắt hay rỗng mà các bước đã có không cứu được thì gửi request đã cắt theo trần cũ đúng một lần.
+
+**Test cũ đổi kỳ vọng, giữ tên:**
+- `router-full-l1-087` ba ca ghim 128.000 nay ghim 64.000: "request không truyền reading: Fable theo thông số fable, router sonnet theo thông số sonnet (maxTokens 128.000 và 16.000)", "trần lượt hỏi lại của Fable đọc trọn: 1,5 lần 128.000 kẹp về mức engine báo 128.000", "askRouter chuyển full sang lượt hỏi lại: ...".
+- `router.test.ts` ca "ask ném lỗi (engine từ chối): askRouter tự bắt, coi như engine từ chối; lần hai ném lỗi thì giữ câu trả lời lần một": lý do có thêm thông điệp của lỗi. Ca `ask` trả `null` cùng tệp giữ nguyên.
+- `error-log-l1-079`: MOD_VERSION là 0.8.9.
+
+**Đột biến:** thêm ca ranh giới prompt bị lược (`clip-boundary-089`) để bắt mẫu cũ `078-G8h`; mẫu `087-L3k` ghi là tương đương từ U4, lý do trong `scripts/mutants.ts`.
+
+**Mẫu cũ viết lại, giữ mã:** `087-L3i`, `087-L3n` (chuỗi của `fullRetryTokens` và lời gọi hỏi lại đổi theo U1). Mẫu mới: `089-U1a` tới `089-U1c`, `089-U2a` tới `089-U2e`, `089-U3a` tới `089-U3c`, `089-U4a` tới `089-U4d`.
+
+### 0.8.9 vòng 2: ràng buộc không trần, ba điểm sau rà soát, điều phối lại việc
+
+- **C1: ràng buộc của mục tiêu không còn trần**, như yêu cầu từ 0.8.7. Prompt tiếp nối, đợt mới, mục tiêu mới mang quy định model và lượt chạy thật prompt đã đối chiếu đều gộp ràng buộc không trần. Mục cùng khóa thay tại chỗ không tính là mục bị thay, nên cảnh báo "đã đầy" và cảnh báo mục bị bỏ không còn xuất hiện với mục tiêu mới. `brief.dropped` đã lưu vẫn được đọc.
+
+**Test cũ đổi kỳ vọng hay đổi tên vì C1:**
+- `caps-075`: "mục mới cùng khóa với ràng buộc cũ thay ràng buộc đó: cảnh báo nêu mục bị thay (S1: chỉ mục cùng khóa mới bị thay)" đổi tên thành "mục mới cùng khóa với ràng buộc cũ thay ràng buộc đó tại chỗ: không có cảnh báo thay (0.8.9 C1)"; kỳ vọng: không có cảnh báo thay, mục mới có trong pane.
+- `caps-s1-075`: "ràng buộc: phần tràn đầy (10 mục) thì ràng buộc mới bị bỏ và đếm ở dropped" đổi tên thành "ràng buộc: đã có trần cũ cộng phần tràn (10 mục) thì ràng buộc mới vẫn được giữ, dropped là 0 (0.8.9 C1)".
+- `dropped-kind-s8-075`: "pane hiện câu cảnh báo mục bị bỏ ở Cần chú ý, một lần, không có chip "model"" đổi tên thành "ràng buộc không còn trần (0.8.9 C1): ba prompt như cũ không còn cảnh báo mục bị bỏ, không có chip "model"".
+- `error-behavior-a9-080`: "mục prompt tiếp nối bị bỏ: một mục dropped; mô tả không chứa nội dung prompt" đổi tên thành "ràng buộc không còn trần (0.8.9 C1): ba prompt như cũ không ghi mục dropped nào".
+- `dropped-rank-078`: giữ tên và kỳ vọng; dựng Core có sẵn cảnh báo mục bị bỏ (trạng thái từ bản cũ) thay cho ba prompt, vì mod không còn tạo cảnh báo này.
+- **C2: nơi chèn và gửi ràng buộc chỉ nêu tối đa 22 mục** (`shownConstraints`): các mục của prompt lập mục tiêu và các mục mới nhất, kèm một dòng hay một vế nêu số mục còn lại. Áp ở context của mục tiêu, context tiếp tục từ điểm dừng, request tiếp nối, request rà kế hoạch và mục ràng buộc của pane. Không quá 22 ràng buộc thì đầu ra trùng bản trước. Không ca cũ nào đổi kỳ vọng.
+
+- **R1: giới hạn trong kết quả là của lời gọi cuối cùng đã gửi.** `timeoutMs`, `maxTokens`, `outputTokens` của `RouterOutcome` lấy từ request đã kẹp và câu trả lời của lời gọi gần nhất, ở mọi nhánh của `askRouter`. Không ca cũ nào đổi kỳ vọng.
+- **R2: ghi rõ câu trả lời bị cắt.** Câu trả lời không đọc được mà token ra từ 98% `maxTokens` của request đã gửi có lý do "câu trả lời bị cắt ở <n> token ra" (loại lỗi vẫn là format). `firstFail` được ghi cả khi lượt hỏi lại cứu được lượt đầu không đọc được. Không ca cũ nào đổi kỳ vọng.
+- **R3: thông điệp của giá trị bị ném.** `undefined`, `null` và đối tượng không có `message` dạng chuỗi cho thông điệp rỗng, nên câu cảnh báo giữ dạng cũ thay cho "undefined" hay "[object Object]"; đối tượng có `message` dạng chuỗi dùng chuỗi đó. Không ca cũ nào đổi kỳ vọng.
+- **D1: router thấy mọi việc còn mở và được điều phối lại.** Request tiếp nối liệt kê mọi việc chưa xong kèm trạng thái (`not started`, `running`, `failed`, tính bằng `taskStatusOf`), việc đã xong gộp một dòng số, bỏ giới hạn 20 việc đầu. Lời dặn router thêm đoạn `arrange` (thứ tự làm, việc bỏ, việc gộp) và trường `arrange` trong mẫu JSON, dài thêm 606 ký tự (đoạn viết gọn sau đợt đo đầu của D4); câu "tasks lists only NEW pieces" giữ nguyên. `parseRoute` đọc `arrange`, sai dạng thì bỏ cả trường; chỉ nhận với continue, refine, dissatisfied và intent amend hay task.
+
+**Test cũ đổi kỳ vọng hay đổi tên vì D1:**
+- `conductor-c4-084` "cờ tắt: splitRule(routerSystem(), 0) giữ sha256 của 0.8.3, request dùng đúng chữ đó": băm ghim đổi theo lời dặn mới (`6c4e545e…`), giữ tên.
+- `fork-split-f1-079` "chủ mod 1. forks tắt: routerSystem không có đoạn tách (ghim số ký tự và mã băm)": số ký tự 10.282 thành 10.888 và băm `6c4e545e…`, giữ tên.
+- `conduct-r4-086` "mục tiêu lớn đang điều phối, đã giao hết; tin bổ sung amend light có việc run main: việc mới là việc giao subagent": băm request ghim `e98a37c2…` thành `f1c8a8cc…` (việc mang trạng thái), giữ tên.
+- `limits-l2-087`: "mục tiêu 100 việc: request tiếp nối gửi 20 việc và một dòng tổng số 100" đổi tên thành "mục tiêu 100 việc chưa xong: request tiếp nối gửi đủ 100 việc kèm trạng thái, không có dòng tổng (0.8.9 D1)".
+- `limits-l2-087`: "mục tiêu 12 việc: trường prompt trùng 0.8.6" đổi tên thành "mục tiêu 12 việc chưa xong: trường prompt trùng 0.8.6 khi bỏ nhãn trạng thái của từng việc (0.8.9 D1)"; băm ghim giữ nguyên, so trên prompt đã bỏ nhãn.
+- `golden.test.ts` "câu trả lời đã ghi khớp request hiện tại của mod": đỏ từ commit sửa D1 tới khi ghi lại golden ở D4, vì đặc tả chỉ cho ghi lại golden ở D4.
+- **D2: mod áp kế hoạch đã điều phối lại.** `applyArrange` chạy trong `nextBriefRaw`, sau `followUpOf`, ở cả đợt mới lẫn tiếp nối thường, nên prompt thường, tin chen ngang và `/conductor reroute` dùng chung. Chỉ việc chưa bắt đầu hay đã lỗi mà chưa giao lại mới bị bỏ hay gộp; không đánh số lại; gộp nhập `covers`; brief lưu thứ tự làm (`order`) và tối đa 50 việc đã gỡ (`removed`), sống qua hot reload. Việc bị gỡ rời danh sách chờ giao và danh sách việc lỗi (`forgetDelegations`), không còn chặn cổng kết thúc. Nhật ký quyết định có dòng `rearrange`. Không ca cũ nào đổi kỳ vọng.
+- **D3: luồng chính và pane thấy kế hoạch sau điều chỉnh.** Prompt tiếp nối có điều phối lại thì context thêm bốn phần (thứ tự làm, việc đã bỏ, việc đã gộp, câu dặn cập nhật checklist), tối đa 900 ký tự; tin chen ngang cũng vậy, tối đa 700 ký tự, trong trần 1.500 của khối chen ngang. Không có arrange thì context trùng bản trước. Mục "Tiến độ từng việc" xếp ba nhóm (đang chạy và lỗi; chưa làm theo thứ tự làm; đã xong, gộp một dòng khi nhiều hơn 5 việc), tiêu đề ghi `a/b xong · c đang chạy · d chưa làm` kèm số việc lỗi và đã bỏ khi có (dưới 48 cột chỉ `a/b`). `/conductor status` có thêm mục việc đã gỡ (tối đa 10 dòng). Việc làm trực tiếp chưa có bước riêng không tính là xong chỉ vì checklist đóng hết (`rowStatusState`), cùng luật với việc đã xong của đợt mới (0.8.0 A3), ở cả trạng thái gửi router lẫn cách xếp nhóm của pane.
+
+**Test cũ đổi kỳ vọng hay đổi tên vì D3:**
+- `taskrows-perf-087`: "mục tiêu 12 việc, checklist có bước "Việc N", bước doing và bước đã xong: chữ band và pane trùng bản ghi của bố cục 0.8.8" đổi tên thành "... trùng bản ghi của bố cục 0.8.8, trừ tiêu đề mục tiến độ (0.8.9 D3)"; băm ghim đổi, chỉ ba dòng tiêu đề mục khác 7682ef7.
+- **D4: đo bằng model thật, ghi lại golden.** Sáu ca golden tiếp nối mới (`arr-add2`, `arr-drop`, `arr-dup`, `arr-first`, `arr-resume`, `arr-scope40`) với trạng thái việc (`states`) và kỳ vọng `arrange` chấm trên câu trả lời gốc của router (`tests/golden/check.ts`). `scripts/eval-router.ts` ghi thêm token vào, `arrange` và việc đã xong hay đang chạy lọt vào drop hay merge của từng lượt. Golden ghi lại trên lời dặn mới: sonnet cho 55 ca, fable cho bốn ca `c4-*` và ca `arr-dup`.
+
+**Mẫu cũ viết lại, giữ mã (vòng 2):** `075-R1c`, `075-R1f` (khối phần tràn của request tiếp nối viết thành nhiều dòng ở C2); `072-R9` (ngưỡng bị cắt nay là hằng `TRUNCATED_SHARE`, R2); `070-C13`, `074-C2`, `074-C3` (lời gọi router có thêm `taskStates`, D1); `075-B13f` (dòng tổng số việc nay là dòng việc đã xong, D1); `075-S1e` (tách khỏi chỗ trùng trong `arrangeOf`, D1); `075-B12f`, `075-M5i` (nextBrief nhận thêm trạng thái việc và checklist, D2).
+
 ## Thay đổi 0.8.8: giao diện hướng B "Ba ô phát sáng", dải màu neon
 
 Band, pane và status line đổi cách vẽ theo hướng B; logic của mod, lời nhắc, brief, kết quả tool, lời dặn router, golden và schema tool `plan` không đổi, nên số ký tự chèn vào context trùng 0.8.7 [Nguồn: chủ mod, 14/11/2026]. Mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `088-*`; số ca đỏ đo trên mã ngay trước điểm đó ở VERIFICATION.

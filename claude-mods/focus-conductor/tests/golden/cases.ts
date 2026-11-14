@@ -3,7 +3,7 @@
 // scripts/eval-router.ts gửi cùng request tới router thật và chấm theo cùng kỳ vọng.
 // Kỳ vọng ghi theo khoảng chấp nhận được (họ model, loại agent, số việc), không theo một câu trả lời duy nhất.
 
-import type { Brief, Intent, Kind, ModelFamily, Relation } from '../../types'
+import type { Brief, Intent, Kind, ModelFamily, Relation, TaskStatus } from '../../types'
 import { briefOf, parseRoute } from '../../hooks/lib/router'
 import type { Policy } from '../../hooks/lib/router'
 import { LONG_VN_EXTRA, LONG_VN_PROMPT } from '../fixtures/prompt-long-vn'
@@ -59,6 +59,12 @@ export type Expect = {
   editAgents?: boolean
   /** Fable điều phối (0.8.4 C4): không việc nào giao subagent (việc nhỏ làm thẳng ở luồng chính). */
   noDelegation?: boolean
+  /**
+   * Điều phối lại (0.8.9 D4), chấm trên câu trả lời của router trước khi mod lọc: `present` có (true) hay không có (false) trường arrange;
+   * `keep` không bỏ hay gộp việc nào; `removes` các việc phải nằm trong drop hay merge, ít nhất `min` việc (vắng là tất cả); `first` việc
+   * phải đứng đầu order.
+   */
+  arrange?: { present?: boolean; keep?: true; removes?: readonly number[]; min?: number; first?: number }
 }
 
 export type GoldenCase = {
@@ -72,9 +78,37 @@ export type GoldenCase = {
   awaiting?: 'approval' | 'answer'
   /** Request dựng với biến thể điều phối của lời dặn router (0.8.4 C4); ca cũ vắng nên giữ nguyên băm. */
   conductor?: true
+  /** Trạng thái từng việc của mục tiêu trước (0.8.9 D4); vắng thì mọi việc là not started. */
+  states?: Readonly<Record<number, TaskStatus>>
   expect: Expect
   note: string
 }
+
+/** Mục tiêu trước có sẵn các việc (0.8.9 D4): dựng qua parseRoute và briefOf như mục tiêu router đã đọc. */
+function goalWith(goal: string, titles: readonly string[]): Brief {
+  const tasks = titles.map(title => ({ title, run: 'main', model: 'sonnet', effort: 'medium', depth: 'light', volume: 'small', kind: 'edit', why: 'x' }))
+  const plan = parseRoute(JSON.stringify({ why: 'x', relation: 'new', goal, depth: 'substantial', volume: 'large', kind: 'edit', main: { model: 'sonnet', effort: 'medium' }, tasks }), OPEN)
+  if (plan === null) throw new Error('golden: mục tiêu nền có việc không đọc được')
+  return briefOf(plan, goal, 1, 1)
+}
+const INVOICE = 'Thêm chức năng xuất hóa đơn cho cửa hàng trực tuyến'
+const INVOICE_TASKS = [
+  'Thiết kế bảng hóa đơn trong cơ sở dữ liệu',
+  'Viết API tạo hóa đơn từ đơn hàng',
+  'Viết API lấy danh sách hóa đơn theo khách',
+  'Viết test đơn vị cho module thanh toán',
+  'Viết test tích hợp cho module thanh toán',
+  'PDF: dựng mẫu hóa đơn dạng PDF',
+  'PDF: sinh tệp PDF từ dữ liệu hóa đơn',
+  'PDF: gửi tệp PDF qua email cho khách',
+  'Cập nhật cấu hình CI cho nhánh hóa đơn',
+]
+const states = (done: readonly number[], running: readonly number[]): Record<number, TaskStatus> =>
+  Object.fromEntries([...done.map(n => [n, 'done'] as const), ...running.map(n => [n, 'running'] as const)])
+const PORTAL = 'Xây cổng thông tin nội bộ cho phòng kinh doanh'
+const PORTAL_TASKS = Array.from({ length: 40 }, (_, i) =>
+  i >= 20 && i < 26 ? `Báo cáo tháng: phần ${i - 19} của báo cáo doanh số tháng` : `Cổng nội bộ: hạng mục ${i + 1}`,
+)
 
 export const CASES: readonly GoldenCase[] = [
   {
@@ -476,5 +510,59 @@ export const CASES: readonly GoldenCase[] = [
     openSteps: ['Viết hàm parseDate', 'Viết test cho parseDate', 'Cập nhật tài liệu'],
     note: '0.8.4 C4: hỏi tiến độ giữa phiên, biến thể điều phối: intent status, không việc',
     expect: { intent: ['status'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 0] },
+  },
+  {
+    id: 'arr-add2',
+    text: 'Thêm hai việc nữa: viết tài liệu hướng dẫn dùng API hóa đơn, và thêm log cho bước gửi email.',
+    prev: goalWith(INVOICE, INVOICE_TASKS.slice(0, 8)),
+    states: states([1, 2], []),
+    ran: 'sonnet/medium',
+    note: '0.8.9 D4: thêm hai việc vào mục tiêu 8 việc; việc cũ giữ nguyên',
+    expect: { relations: ['continue', 'refine'], intent: ['amend', 'task'], main: ['sonnet', 'opus'], tasks: [2, 3], arrange: { keep: true } },
+  },
+  {
+    id: 'arr-drop',
+    text: 'Bỏ hẳn phần xuất PDF, khách không cần hóa đơn PDF nữa.',
+    prev: goalWith(INVOICE, INVOICE_TASKS),
+    states: states([1, 2], [3]),
+    ran: 'sonnet/medium',
+    note: '0.8.9 D4: bỏ hẳn một phần đã phân thành 3 việc chưa bắt đầu (việc 6, 7, 8)',
+    expect: { relations: ['continue', 'refine'], intent: ['amend', 'task'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 1], arrange: { present: true, removes: [6, 7, 8] } },
+  },
+  {
+    id: 'arr-dup',
+    text: 'Thêm việc: viết đầy đủ bộ test cho module thanh toán, gồm cả test đơn vị và test tích hợp, chạy trên CI.',
+    prev: goalWith(INVOICE, INVOICE_TASKS),
+    states: states([1], []),
+    ran: 'sonnet/medium',
+    note: '0.8.9 D4: yêu cầu mới trùng nội dung với 2 việc chưa bắt đầu (việc 4, 5)',
+    expect: { relations: ['continue', 'refine'], intent: ['amend', 'task'], main: ['sonnet', 'opus'], tasks: [0, 2], arrange: { present: true, removes: [4, 5] } },
+  },
+  {
+    id: 'arr-first',
+    text: 'Làm việc cập nhật cấu hình CI trước các việc khác, CI đang đỏ nên mọi nhánh đều bị chặn.',
+    prev: goalWith(INVOICE, INVOICE_TASKS),
+    states: states([1, 2], []),
+    ran: 'sonnet/medium',
+    note: '0.8.9 D4: yêu cầu làm một việc cuối danh sách (việc 9) trước các việc khác',
+    expect: { relations: ['continue', 'refine'], intent: ['amend', 'task'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 1], arrange: { present: true, first: 9, keep: true } },
+  },
+  {
+    id: 'arr-resume',
+    text: 'chạy tiếp đi',
+    prev: goalWith(INVOICE, INVOICE_TASKS),
+    states: states([1, 2], [3]),
+    ran: 'sonnet/medium',
+    note: '0.8.9 D4: tin chỉ bảo chạy tiếp; không điều phối lại',
+    expect: { relation: 'continue', intent: ['resume'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 0], arrange: { present: false } },
+  },
+  {
+    id: 'arr-scope40',
+    text: 'Đổi phạm vi phần báo cáo tháng: không làm báo cáo doanh số tháng riêng nữa, chỉ thêm một ô tóm tắt doanh số tháng vào trang tổng quan đã có.',
+    prev: goalWith(PORTAL, PORTAL_TASKS),
+    states: states([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], [11, 12]),
+    ran: 'sonnet/medium',
+    note: '0.8.9 D4: mục tiêu 40 việc (10 xong, 2 đang chạy) nhận yêu cầu đổi phạm vi của 6 việc (21 tới 26)',
+    expect: { relations: ['continue', 'refine'], intent: ['amend', 'task'], main: ['sonnet', 'opus'], tasks: [0, 2], arrange: { present: true, removes: [21, 22, 23, 24, 25, 26], min: 4 } },
   },
 ]

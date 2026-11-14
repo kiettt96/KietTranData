@@ -12,10 +12,11 @@ import { describePick } from '../lib/route'
 import { clipText } from '../lib/decisions'
 import { askRouter, bareBrief, briefOf, failFields, nextBrief, parseRoute, rerouted, routerFailOf, routerRequest } from '../lib/router'
 import { shownPlan } from '../lib/mirror'
+import { taskStatusOf } from '../lib/progress'
 import * as S from '../lib/state'
 import { statusTextOf } from '../ui/direction'
 import type { View } from '../lib/state'
-import { RETRY_ROUNDS, WAIVE_REPORT, briefContext, checkHintLines, droppedGoalNotice, headlessOffNote, droppedItemsText, droppedPlanNotice, quotaStatusLines, renderPlan, resetLabel, routerFailLines, unroutedContext } from '../lib/text'
+import { RETRY_ROUNDS, WAIVE_REPORT, briefContext, checkHintLines, droppedGoalNotice, headlessOffNote, droppedItemsText, droppedPlanNotice, quotaStatusLines, removedTaskLines, renderPlan, resetLabel, routerFailLines, unroutedContext } from '../lib/text'
 import { PANE_ROWS, shouldAutoOpenPane } from '../lib/pane'
 import { PANE, PANE_TITLE } from '../ui/pane'
 import { conductStatusSuffix, conductorLine, labels, langOf } from '../ui/labels'
@@ -124,7 +125,7 @@ const WAIVE_USAGE = `Cách dùng: /conductor waive <số thứ tự hoặc lện
 
 export function registerCommand(on: On, ctx: Ctx): void {
   const L = ctx.local
-  const { blocked, flushDecisions, delegationItems, expectedMain, failures, noteRouterTime, ranText, record, resetLocal, routerTimeLine, trackDelegations, untrackedAgents, wantedPick } = ctx
+  const { blocked, flushDecisions, delegationItems, expectedMain, failures, forgetDelegations, noteRouterTime, ranText, record, resetLocal, routerTimeLine, trackDelegations, untrackedAgents, wantedPick } = ctx
   const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
   const mode = derive([modeState], modeOf(ctx.options))
 
@@ -240,7 +241,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       const rules = ctx.conductorState(before, await read($, mode)) === null ? { ...basePolicy, conductor: true, goalIsBig: isBigGoal(before.brief) } : basePolicy
       // Lệnh do người dùng gõ: luôn hỏi router, kể cả khi router đang tạm ngừng sau các lần lỗi.
       const target = ctx.routerTarget(before, await read($, mode))
-      const request = routerRequest({ text: arg, prev, ran: null, policy: rules, model: target.model, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily, isForcedNew: true, reading: ctx.routerReading(target) })
+      const request = routerRequest({ text: arg, prev, ran: null, policy: rules, model: target.model, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily, isForcedNew: true, reading: ctx.routerReading(target), taskStates: taskStatusOf(before, await $.clock.now()) })
       const startedAt = await $.clock.now()
       const outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), undefined, { retryMissingConfidence: true, ...(target.isFable ? { isFable: true } : {}) })
       ctx.noteRouterFailure('prompt', outcome.failure)
@@ -304,7 +305,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       const rules = ctx.conductorState(before, await read($, mode)) === null ? { ...basePolicy, conductor: true, goalIsBig: isBigGoal(before.brief) } : basePolicy
       // Lệnh do người dùng gõ: luôn hỏi router, kể cả khi router đang tạm ngừng.
       const target = ctx.routerTarget(before, await read($, mode))
-      const request = routerRequest({ text: last.text, prev: last.prev, ran: ranText(before), policy: rules, model: target.model, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily, reading: ctx.routerReading(target) })
+      const request = routerRequest({ text: last.text, prev: last.prev, ran: ranText(before), policy: rules, model: target.model, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily, reading: ctx.routerReading(target), taskStates: taskStatusOf(before, await $.clock.now()) })
       const startedAt = await $.clock.now()
       const outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), undefined, { retryMissingConfidence: true, ...(target.isFable ? { isFable: true } : {}) })
       ctx.noteRouterFailure('prompt', outcome.failure)
@@ -323,7 +324,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       }
       L.routerTrouble = { failures: 0, pausedUntil: 0 }
       await update($, coreState, S.withRouterFail(null))
-      const fresh = nextBrief(last.prev, plan, last.text, now, { sessionFamily: L.sessionFamily })
+      const fresh = nextBrief(last.prev, plan, last.text, now, { sessionFamily: L.sessionFamily, states: taskStatusOf(before, now), checklist: before.plan })
       // Prompt gần nhất đã lập mục tiêu hiện tại (không phải tiếp nối mục tiêu trước nó).
       const wasNew = current !== null && current.goalId !== (last.prev?.goalId ?? null)
       const archivedPrev = last.prev ? before.archived.findIndex(a => a.brief.goalId === last.prev?.goalId) : -1
@@ -349,6 +350,11 @@ export function registerCommand(on: On, ctx: Ctx): void {
       L.isGoalNew = true
       L.pinnedGoalId = null
       trackDelegations(brief.goalId, brief.isReference ? [] : brief.tasks)
+      // Điều phối lại (0.8.9 D2): như prompt thường, việc đã gỡ rời danh sách chờ giao và việc lỗi; nhật ký có dòng rearrange.
+      if (fresh.arranged !== undefined) {
+        forgetDelegations(brief.goalId, [...fresh.arranged.dropped, ...fresh.arranged.merged.flatMap(m => m.tasks)])
+        record(now, 'rearrange', { goalId: brief.goalId, order: fresh.arranged.order, dropped: fresh.arranged.dropped, merged: fresh.arranged.merged, skipped: fresh.arranged.skipped })
+      }
       await update($, coreState, S.withDelegations(brief.goalId, delegationItems(brief)))
       const core = S.normalizeCore(await read($, coreState))
       const isApplied = (await read($, mode)) === 'auto'
@@ -525,6 +531,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
           ...routerFailLines(core.routerFail),
           ...checkHintLines(core.checkHint, core.brief.goalId),
           ...((core.brief.dropped ?? 0) > 0 ? [droppedItemsText(core.brief.dropped ?? 0)] : []),
+          ...removedTaskLines(core.brief),
           renderPlan(core.brief, shown.plan) + (shown.source === 'mirror' ? '\n(theo danh sách việc của Claude Code, chỉ để theo dõi)' : ''),
           ...retryLines(core),
           ...waiverLines(core),

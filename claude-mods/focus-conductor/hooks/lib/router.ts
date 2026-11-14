@@ -7,15 +7,15 @@
 
 import type { ModelCompleteRequest, ModelCompleteResult, ModelTextBlock, ModelUsage } from 'claude-code'
 
-import type { Brief, Choice, Depth, Effort, ForkSplit, Intent, Kind, ModelFamily, Relation, RouterFail, RouterFailKind, Task, Tier, Volume } from '../../types'
+import type { Arrange, ArrangeRef, Brief, Choice, Depth, Effort, ForkSplit, Intent, Kind, ModelFamily, PlanStep, Relation, RemovedTask, RouterFail, RouterFailKind, Task, TaskStatus, Tier, Volume } from '../../types'
 import { isBigGoal, isPendingGoal } from './conductor'
 import { DEFAULT_CONDUCTOR, FAMILY_NAMES, conductorTimeouts } from './families'
 import type { PendingState } from './conductor'
 import { DEFAULT_WINDOWS, PRICE } from './cost'
 import type { Price } from './cost'
-import { BASE_CHARS, BASE_HEAD, BASE_TAIL, ROUTER_MAX_WAIT_MS, readPlan } from './reading'
+import { BASE_CHARS, BASE_HEAD, BASE_TAIL, HOOK_MAX_TOKENS, ROUTER_MAX_WAIT_MS, readPlan } from './reading'
 import type { ReadPlan, Reading } from './reading'
-import { EFFORTS, FAMILIES, applySession, avoidBlocked, codesIn, describePick, effortRank, familyOf, familyRank, sessionFloor } from './route'
+import { EFFORTS, FAMILIES, applySession, avoidBlocked, codesIn, describePick, effortRank, familyOf, familyRank, matchTask, sessionFloor } from './route'
 import type { SessionModel } from './route'
 import { DEPTHS, INTENTS, KINDS, RELATIONS, VOLUMES, maxTier, tierOf } from './scale'
 
@@ -143,6 +143,7 @@ Give depth, volume and kind for the whole request and for each task.
 Relation to the previous goal (shown in <context>):
 - new: a different goal. continue: keep going on the previous goal. refine: a small change or addition to it. dissatisfied: the previous result is still wrong; choose the main model or effort one step above what the main thread ran.
 - For continue, refine and dissatisfied: goal may repeat the previous goal, and tasks lists only NEW pieces of work added by this request ([] if none).
+- arrange (continue, refine, dissatisfied only): if this request drops, duplicates or reorders open tasks in <context>, return "arrange", else omit it. order: every task still to do, in work order (a task number, or "newK" for the K-th item of tasks). drop: not started or failed tasks no longer needed, "why" under 80 characters. merge: not started or failed tasks now covered by another task ("into": a number or "newK"). Never drop or merge done or running tasks.
 - runReference: true only when the previous goal was a reference-only review and the user now asks to actually run that prompt.
 - intent, for a message about the goal in <context>: "status" only asks about progress or state ("tới đâu rồi", "xong chưa", "how is it going"); "resume" says to keep going and adds nothing ("tiếp", "chạy tiếp đi", "continue"); "approve" accepts the plan <context> says awaits approval ("ok duyệt", "kế hoạch ổn, làm đi", "approved"); "amend" adds to or changes what the goal asks ("thêm cả phần README", "nhớ sửa luôn test", "also update the changelog"); "task" for anything else ("viết hàm đổi ngày sang ISO", "tạo trang giới thiệu mới", "write a CSV parser") and always with relation new. For status, resume and approve, tasks and requirements are [].
 - For a new goal only: "skipApproval" true when the user plainly says no plan review or approval is needed ("cứ làm luôn, không cần duyệt"); "questions": at most 3 clarifying questions, only when an ambiguity would change the result, each under 200 characters with 2 to 4 options written in it; otherwise [].
@@ -150,7 +151,7 @@ Relation to the previous goal (shown in <context>):
 Use only the models <context> lists as allowed. Write every string, "why" included, in the language of the request: a Vietnamese request gets Vietnamese strings.
 Keep the reply short, it is read by a program: "why" of the request is one sentence under 25 words; "why" of main and of each task is under 15 words.
 Reply with ONE JSON object and nothing else. Fill "why" first. "confidence" is how sure you are of the routing, from 0 to 1.
-{"why": string, "confidence": number, "relation": "new"|"continue"|"refine"|"dissatisfied", "intent": "status"|"resume"|"approve"|"amend"|"task", "reference": boolean, "runReference": boolean, "goal": string, "requirements": string[], "constraints": string[], "quality": string[], "scope": string[], "depth": "none"|"light"|"substantial"|"hard", "volume": "small"|"medium"|"large", "kind": "answer"|"edit"|"investigate"|"mixed", "main": {"model": "haiku"|"sonnet"|"opus"|"fable", "effort": "low"|"medium"|"high"|"xhigh", "why": string}, "referenceMain": {"model": string, "effort": string}, "skipApproval": boolean, "questions": string[], "tasks": [{"title": string, "covers": number[], "run": "main"|"agent", "agent": string, "model": string, "effort": string, "depth": string, "volume": string, "kind": string, "why": string}]}
+{"why": string, "confidence": number, "relation": "new"|"continue"|"refine"|"dissatisfied", "intent": "status"|"resume"|"approve"|"amend"|"task", "reference": boolean, "runReference": boolean, "goal": string, "requirements": string[], "constraints": string[], "quality": string[], "scope": string[], "depth": "none"|"light"|"substantial"|"hard", "volume": "small"|"medium"|"large", "kind": "answer"|"edit"|"investigate"|"mixed", "main": {"model": "haiku"|"sonnet"|"opus"|"fable", "effort": "low"|"medium"|"high"|"xhigh", "why": string}, "referenceMain": {"model": string, "effort": string}, "skipApproval": boolean, "questions": string[], "tasks": [{"title": string, "covers": number[], "run": "main"|"agent", "agent": string, "model": string, "effort": string, "depth": string, "volume": string, "kind": string, "why": string}], "arrange": {"order": (number|string)[], "drop": [{"task": number, "why": string}], "merge": [{"tasks": number[], "into": number|string}]}}
 
 Examples (abridged):
 - "Liệt kê các hàm export trong utils.ts" -> depth none, kind answer, main haiku/low, tasks [].
@@ -357,6 +358,21 @@ function ruleItems(constraints: readonly string[] | undefined): string[] {
   return items
 }
 
+/** Số ràng buộc tối đa được nêu ở mỗi nơi chèn vào context hay gửi router (0.8.9 C2): ràng buộc không còn trần nhưng phần nêu thì có. */
+export const CONSTRAINT_SHOWN = 22
+
+/**
+ * Ràng buộc được nêu (0.8.9 C2): không quá CONSTRAINT_SHOWN mục thì nguyên danh sách; dài hơn thì giữ `base` mục đầu (mục của prompt
+ * lập mục tiêu; thiếu hay lớn hơn CONSTRAINT_SHOWN thì coi là CONSTRAINT_SHOWN) cộng các mục mới nhất ở cuối cho đủ, giữ thứ tự.
+ * `hidden` là số mục còn lại không nêu.
+ */
+export function shownConstraints(constraints: readonly string[], base?: number): { items: string[]; hidden: number } {
+  if (constraints.length <= CONSTRAINT_SHOWN) return { items: [...constraints], hidden: 0 }
+  const head = base === undefined || base > CONSTRAINT_SHOWN ? CONSTRAINT_SHOWN : Math.max(0, base)
+  const tail = CONSTRAINT_SHOWN - head
+  return { items: [...constraints.slice(0, head), ...constraints.slice(constraints.length - tail)], hidden: constraints.length - CONSTRAINT_SHOWN }
+}
+
 function rulesLines(constraints: readonly string[] | undefined): string[] {
   const items = ruleItems(constraints)
   return items.length > 0 ? ['User rules of this goal (a rule that names a model for this kind of work must be followed, never a lower model):', ...items] : []
@@ -367,22 +383,36 @@ function totalLine(count: number): string[] {
   return count > TASK_CONTEXT ? [`  (${count} tasks in total; the first ${TASK_CONTEXT} are listed)`] : []
 }
 
-function previousLines(prev: Brief | null, ran: string | null): string[] {
+function previousLines(prev: Brief | null, ran: string | null, states: Readonly<Record<number, TaskStatus>> = {}): string[] {
   if (prev === null) return ['Previous goal: none.']
+  // Mọi việc chưa xong, mỗi việc một dòng kèm trạng thái; việc đã xong gộp một dòng chỉ ghi số (0.8.9 D1), để router điều phối lại được.
+  const stateOf = (index: number): TaskStatus => states[index] ?? 'not started'
+  const done = prev.tasks.filter(t => stateOf(t.index) === 'done').map(t => t.index)
   const tasks = [
-    ...prev.tasks.slice(0, TASK_CONTEXT).map(t => `  ${t.index}. ${fence(t.title)} (${t.run === 'agent' ? `${fence(t.agentType ?? 'general-purpose')} ` : 'main '}${describePick(t.pick)})`),
-    ...totalLine(prev.tasks.length),
+    ...prev.tasks
+      .filter(t => stateOf(t.index) !== 'done')
+      .map(t => `  ${t.index}. ${fence(t.title)} (${t.run === 'agent' ? `${fence(t.agentType ?? 'general-purpose')} ` : 'main '}${describePick(t.pick)}) [${stateOf(t.index)}]`),
+    ...(done.length > 0 ? [`  Done tasks: ${done.join(', ')}`] : []),
   ]
   // Ràng buộc của mục tiêu trước (0.7.5), cắt gọn như khi chấm subagent: prompt tiếp nối ngắn không nhắc lại quy định model.
-  const rules = ruleItems(prev.constraints)
+  // 0.8.9 C2: chỉ các ràng buộc được nêu (tối đa CONSTRAINT_SHOWN mục), kèm số mục còn lại.
+  const shown = shownConstraints(prev.constraints, prev.constraintsBase)
+  const rules = ruleItems(shown.items)
   // Phần tràn (vòng rà soát 3): mục của prompt tiếp nối giữ ngoài trần luôn có trong request, kể cả khi ruleItems đã cắt.
   const overRequirements = (prev.requirements ?? []).slice(REQUIREMENT_CONTEXT)
-  const over = [...prev.constraints.slice(CONSTRAINT_LIMIT), ...overRequirements.slice(0, TASK_CONTEXT)]
+  const over = [...shown.items.slice(CONSTRAINT_LIMIT), ...overRequirements.slice(0, TASK_CONTEXT)]
   return [
     `Previous goal${prev.isReference ? ' (a reference-only review: its tasks were routed for comparison, not run)' : ''}: ${fence(prev.goal)}`,
     ...(tasks.length > 0 ? ['Previous tasks:', ...tasks] : []),
     ...(rules.length > 0 ? ['Previous constraints (still hold on a follow-up; a rule that names a model for this kind of work must be followed):', ...rules] : []),
-    ...(over.length > 0 ? ['Previous follow-up items kept over the limit (still hold):', ...over.map(item => `  - ${fence(clip(item, 120))}`), ...(overRequirements.length > TASK_CONTEXT ? [`  (${overRequirements.length - TASK_CONTEXT} more requirements)`] : [])] : []),
+    ...(over.length > 0
+      ? [
+          'Previous follow-up items kept over the limit (still hold):',
+          ...over.map(item => `  - ${fence(clip(item, 120))}`),
+          ...(overRequirements.length > TASK_CONTEXT ? [`  (${overRequirements.length - TASK_CONTEXT} more requirements)`] : []),
+          ...(shown.hidden > 0 ? [`  (${shown.hidden} more constraints)`] : []),
+        ]
+      : []),
     ...(prev.referenceMain ? [`Main thread the referenced prompt would need: ${describePick(prev.referenceMain)}`] : []),
     `Main thread ran: ${ran ?? 'unknown'}`,
   ]
@@ -414,6 +444,8 @@ export type RouterRequestArgs = {
   isFable?: boolean
   /** Họ model, cửa sổ ngữ cảnh và thời gian chờ tối đa của lượt đọc (0.8.7 L3); vắng thì theo model, cửa sổ mặc định, 1.800 giây. */
   reading?: Reading
+  /** Trạng thái từng việc của mục tiêu trước (0.8.9 D1, taskStatusOf); việc vắng mặt là not started. */
+  taskStates?: Readonly<Record<number, TaskStatus>>
 }
 
 /** Lượt đọc của request: họ model theo isFable hay tên model, cửa sổ mặc định của họ, thời gian chờ tối đa mặc định. */
@@ -427,7 +459,7 @@ function readingOf(args: RouterRequestArgs): Reading {
 /** Phần cố định của request (lời dặn và các dòng ngữ cảnh) và kế hoạch đọc prompt của lượt đó (0.8.7 L3). */
 function requestParts(args: RouterRequestArgs): { system: readonly ModelTextBlock[]; context: string[]; plan: ReadPlan } {
   const context = [
-    ...previousLines(args.prev, args.ran),
+    ...previousLines(args.prev, args.ran, args.taskStates),
     allowedLine(args.policy),
     ...sessionLine(args.sessionFamily),
     agentsLine(args.policy),
@@ -760,6 +792,8 @@ export type RouterPlan = {
   skipApproval?: boolean
   /** Câu hỏi làm rõ (0.8.2 N2): tối đa QUESTION_LIMIT câu, mỗi câu tối đa QUESTION_CHARS ký tự; vắng khi không có. */
   questions?: string[]
+  /** Điều phối lại việc còn mở (0.8.9 D1): chỉ với prompt tiếp nối có intent amend hay task; vắng khi router không trả hay sai dạng. */
+  arrange?: Arrange
 }
 
 /** Số câu hỏi làm rõ tối đa và số ký tự tối đa mỗi câu (0.8.2 N2). */
@@ -1009,11 +1043,14 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
   const questions = Array.isArray(raw['questions'])
     ? unique(raw['questions'].filter((q): q is string => typeof q === 'string' && q.trim() !== '').map(q => clip(q.trim(), QUESTION_CHARS)), QUESTION_LIMIT)
     : []
+  const intent: Intent = relation === 'new' ? 'task' : (INTENTS.find(i => i === raw['intent']) ?? 'task')
+  // Điều phối lại việc còn mở (0.8.9 D1): chỉ với continue, refine, dissatisfied và intent amend hay task; sai dạng thì bỏ cả trường.
+  const arrange = relation !== 'new' && (intent === 'amend' || intent === 'task') ? arrangeOf(raw['arrange']) : null
   return {
     why: text(raw['why'], 200),
     confidence: confidenceOf(raw['confidence']),
     relation,
-    intent: relation === 'new' ? 'task' : (INTENTS.find(i => i === raw['intent']) ?? 'task'),
+    intent,
     isReference,
     runReference,
     goal,
@@ -1032,7 +1069,43 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
     ...(droppedSplits > 0 ? { droppedSplits } : {}),
     ...(raw['skipApproval'] === true ? { skipApproval: true } : {}),
     ...(questions.length > 0 ? { questions } : {}),
+    ...(arrange !== null ? { arrange } : {}),
   }
+}
+
+/** Lý do bỏ một việc trong arrange tối đa bấy nhiêu ký tự (0.8.9 D1). */
+const ARRANGE_WHY_CHARS = 80
+
+/** Một việc được nhắc trong arrange: số nguyên dương của việc đã có, hay "newK" (K từ 1). */
+function isArrangeRef(value: unknown): value is ArrangeRef {
+  return (typeof value === 'number' && Number.isInteger(value) && value > 0) || (typeof value === 'string' && /^new[1-9]\d*$/.test(value))
+}
+
+const isTaskNumber = (value: unknown): value is number => typeof value === 'number' && Number.isInteger(value) && value > 0
+
+/**
+ * Trường arrange của câu trả lời router (0.8.9 D1): cả ba phần order, drop, merge phải là mảng đúng dạng; một phần tử sai thì bỏ cả
+ * trường (trả null), phần còn lại của câu trả lời vẫn dùng.
+ */
+function arrangeOf(value: unknown): Arrange | null {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
+  const raw = value as Record<string, unknown>
+  const { order, drop, merge } = raw
+  if (!Array.isArray(order) || !Array.isArray(drop) || !Array.isArray(merge)) return null
+  if (!order.every(isArrangeRef)) return null
+  const drops: Arrange['drop'] = []
+  for (const item of drop) {
+    const entry = item as Record<string, unknown> | null
+    if (entry === null || typeof entry !== 'object' || !isTaskNumber(entry['task']) || typeof entry['why'] !== 'string') return null
+    drops.push({ task: entry['task'], why: text(entry['why'].split(/\s+/).join(' '), ARRANGE_WHY_CHARS) })
+  }
+  const merges: Arrange['merge'] = []
+  for (const item of merge) {
+    const entry = item as Record<string, unknown> | null
+    if (entry === null || typeof entry !== 'object' || !Array.isArray(entry['tasks']) || entry['tasks'].length === 0 || !entry['tasks'].every(isTaskNumber) || !isArrangeRef(entry['into'])) return null
+    merges.push({ tasks: [...(entry['tasks'] as number[])], into: entry['into'] })
+  }
+  return { order: [...order], drop: drops, merge: merges }
 }
 
 /**
@@ -1171,9 +1244,10 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number, isHeld = 
   const { items: requirements, renumber, dropped: lostRequirements } = merged
   const reclaimed = reclaimCarried(prev.constraints, prev.carriedRules ?? 0, plan.constraints)
   const conBase = prev.constraintsBase ?? prev.constraints.length
+  // Ràng buộc không còn trần (0.8.9 C1), như yêu cầu từ 0.8.7: không mục nào của prompt tiếp nối bị bỏ hay bị mục mới thay vì đầy.
   const constraints = isPhase
-    ? mergeReplacing(reclaimed.items, plan.constraints, CONSTRAINT_LIMIT, (item, at) => at < conBase || isModelRule(item))
-    : { ...mergeCapped(reclaimed.items, plan.constraints, CONSTRAINT_LIMIT), replaced: [] as string[] }
+    ? mergeReplacing(reclaimed.items, plan.constraints, Number.POSITIVE_INFINITY, (item, at) => at < conBase || isModelRule(item))
+    : { ...mergeCapped(reclaimed.items, plan.constraints, Number.POSITIVE_INFINITY), replaced: [] as string[] }
   const dropped = lostRequirements + constraints.dropped
   const keptTasks = merged.lost.size > 0 ? prev.tasks.map(t => (t.covers !== undefined ? { ...t, covers: t.covers.filter(n => !merged.lost.has(n)) } : t)) : prev.tasks
   const added = plan.tasks.map(t => ({
@@ -1227,7 +1301,7 @@ export function promoteReference(prev: Brief, plan: RouterPlan, prompt: string, 
   // Ràng buộc, tiêu chí và phạm vi của prompt đính kèm được giữ từ lượt đối chiếu: lượt chạy thật phải có đủ. Cả hai lượt là prompt
   // lập mục tiêu nên mọi mục đều thuộc phần không bao giờ bị thay.
   const mergedRequirements = mergeCapped(prev.requirements ?? [], plan.requirements, Number.POSITIVE_INFINITY).items
-  const mergedConstraints = mergeCapped(prev.constraints, plan.constraints, CONSTRAINT_LIMIT).items
+  const mergedConstraints = mergeCapped(prev.constraints, plan.constraints, Number.POSITIVE_INFINITY).items
   return {
     ...briefOf(plan, prompt, prev.goalId + 1, now),
     goal: plan.goal || prev.goal,
@@ -1271,7 +1345,7 @@ export function bareBrief(prompt: string, goalId: number, now: number): Brief {
 // ------------------------------------------------------------ gọi router (thuần, qua callback)
 
 /**
- * Lời gọi model của hook. Hook truyền vào `r => $.model.complete(r).catch(() => null)`: engine chỉ cho gọi
+ * Lời gọi model của hook. Hook truyền vào `r => $.model.complete(r)`; askRouter tự bắt lỗi engine ném (0.8.9 U3 giữ thông điệp). Engine chỉ cho gọi
  * `$` ngay trong thân hook, nên logic gọi, thử lại và đọc kết quả nằm ở đây mà không đụng tới `$`.
  */
 export type Ask = (request: ModelCompleteRequest) => Promise<ModelCompleteResult | null>
@@ -1285,10 +1359,42 @@ export function failureKind(reply: ModelCompleteResult | null): RouterFailKind {
   return 'empty'
 }
 
-/** Lý do router không trả được kết quả dùng được. */
-export function failureReason(reply: ModelCompleteResult | null): string {
-  if (reply === null) return 'engine từ chối gửi request tới model router'
-  if (reply.isAnswered) return 'câu trả lời không đúng định dạng'
+/** Phần đầu câu lỗi của engine tới hết tên hàm (0.8.9 U3): "<plugin>: $.model.complete: <lý do>". */
+const ENGINE_CALL = '$.model.complete: '
+/** Số ký tự tối đa của thông điệp engine giữ trong lý do router lỗi (0.8.9 U3). */
+export const ENGINE_MESSAGE_CHARS = 160
+
+/** Thông điệp của lỗi engine ném (0.8.9 U3): gộp về một dòng, bỏ phần đầu tới hết "$.model.complete: " khi có, cắt còn 160 ký tự. */
+/**
+ * Chữ của giá trị bị ném (0.8.9 R3): Error thì message; undefined, null và đối tượng không có message dạng chuỗi thì rỗng (câu cảnh báo
+ * giữ dạng cũ); đối tượng có message dạng chuỗi thì chuỗi đó; giá trị nguyên thủy khác (chuỗi, số) qua String.
+ */
+function thrownText(error: unknown): string {
+  if (error instanceof Error) return error.message
+  if (error === undefined || error === null) return ''
+  if (typeof error === 'object') {
+    const message = (error as { message?: unknown }).message
+    return typeof message === 'string' ? message : ''
+  }
+  return String(error)
+}
+
+export function engineMessage(error: unknown): string {
+  const text = thrownText(error).replace(/\s*[\r\n]+\s*/g, ' ').trim()
+  const at = text.indexOf(ENGINE_CALL)
+  return [...(at >= 0 ? text.slice(at + ENGINE_CALL.length) : text)].slice(0, ENGINE_MESSAGE_CHARS).join('')
+}
+
+/** Câu trả lời chạm bấy nhiêu phần maxTokens của request đã gửi lời gọi đó thì coi là bị cắt (0.7.2; 0.8.9 R2 ghi rõ trong lý do). */
+export const TRUNCATED_SHARE = 0.98
+
+/**
+ * Lý do router không trả được kết quả dùng được; `message` là thông điệp của engine khi engine từ chối (0.8.9 U3). `maxTokens` là trần
+ * của request đã gửi lời gọi đó: câu trả lời không đọc được mà chạm TRUNCATED_SHARE trần thì lý do nêu số token ra (0.8.9 R2).
+ */
+export function failureReason(reply: ModelCompleteResult | null, message = '', maxTokens?: number): string {
+  if (reply === null) return message !== '' ? `engine từ chối gửi request tới model router: ${message}` : 'engine từ chối gửi request tới model router'
+  if (reply.isAnswered) return maxTokens !== undefined && reply.usage.output_tokens >= maxTokens * TRUNCATED_SHARE ? `câu trả lời bị cắt ở ${grouped(reply.usage.output_tokens)} token ra` : 'câu trả lời không đúng định dạng'
   if (reply.reason === 'api-error') return `lỗi API ${reply.error}${reply.status !== null ? ` ${reply.status}` : ''}`
   if (reply.reason === 'aborted') return 'hết thời gian chờ'
   return 'câu trả lời rỗng'
@@ -1333,11 +1439,15 @@ export type RouterOutcome<T> = {
   reason: string
   /** Usage của mọi lượt gọi (lượt đầu và lượt hỏi lại). */
   usages: ModelUsage[]
+  /** Model đã nhận từng lời gọi có usage, cùng thứ tự với usages (0.8.9 U2); lời gọi bị engine từ chối không có usage. */
+  usageModels: string[]
   retried: boolean
   /** Lượt đọc trọn hết giờ và lượt thử lại đã gửi request dự phòng (0.8.7 L1): kết quả, nếu có, là của request đã cắt theo trần thường. */
   fellBack?: true
-  /** Lượt đầu của Fable bị API từ chối và lượt sau đã gửi họ dự phòng (0.8.7 F1): usage đầu là của Fable, các usage sau của họ dự phòng. */
+  /** Lượt đầu bị API hay engine từ chối và lượt sau đã gửi họ dự phòng (0.8.7 F1, 0.8.9 U2): model của từng usage ở usageModels. */
   viaFallback?: true
+  /** Lý do lượt đầu hỏng, khi request dự phòng hay lượt hỏi lại cứu được (0.8.9 U3): ghi vào dòng route của nhật ký quyết định. */
+  firstFail?: string
   /** Loại lỗi khi không có kết quả (0.7.2); null khi có kết quả. */
   failure: RouterFailKind | null
   /** Giới hạn của request đã gửi và số token đầu ra của lượt gọi cuối, để biết lỗi do hết giờ hay bị cắt (0.7.2). */
@@ -1367,51 +1477,103 @@ export function failFields(fail: RouterFail): Record<string, unknown> {
   return { failure: fail.kind, ms: fail.ms, timeoutMs: fail.timeoutMs, maxTokens: fail.maxTokens, outputTokens: fail.outputTokens }
 }
 
+/** Request với maxTokens kẹp về trần của lời gọi từ hook (0.8.9 U1); không có maxTokens thì giữ nguyên. */
+export function cappedRequest(request: ModelCompleteRequest): ModelCompleteRequest {
+  return request.maxTokens !== undefined && request.maxTokens > HOOK_MAX_TOKENS ? { ...request, maxTokens: HOOK_MAX_TOKENS } : request
+}
+
 /**
  * Gọi router, đọc kết quả, và hỏi lại đúng một lần khi câu trả lời hỏng JSON hoặc tin cậy dưới LOW_CONFIDENCE.
  * Lỗi API hay hết giờ không hỏi lại (ngắt router lo phần đó). Khi hỏi lại vì tin cậy thấp, giữ câu trả lời tin cậy hơn.
  */
 export async function askRouter<T extends { confidence?: number }>(
   ask: Ask,
-  request: ModelCompleteRequest,
+  original: ModelCompleteRequest,
   parse: (text: string) => T | null,
   /** Câu trả lời đã đọc được nhưng cần đọc kiểm lại một lần ở effort cao (ví dụ quá nhiều yêu cầu): 0.7.0. */
   recheck?: (result: T) => boolean,
   /** Đồng hồ (mặc định Date.now) và hạn chung cho mọi lượt gọi (mặc định 1,5 lần timeout của request): 0.7.2. */
   opts: { now?: () => number; budgetMs?: number; retryMissingConfidence?: boolean; isFable?: boolean; fallback?: ModelCompleteRequest; full?: { tokenCap: number }; apiFallback?: ModelCompleteRequest } = {},
 ): Promise<RouterOutcome<T>> {
+  const usages: ModelUsage[] = []
+  const usageModels: string[] = []
+  // Mọi request đi qua một chỗ (0.8.9 U1): maxTokens kẹp về HOOK_MAX_TOKENS, kể cả lượt hỏi lại và hai request dự phòng. Usage của mỗi lời
+  // gọi đi kèm model đã nhận lời gọi đó (0.8.9 U2); lời gọi bị engine từ chối không có usage.
+  // Thông điệp của lần engine từ chối gần nhất (0.8.9 U3); lần gọi không ném lỗi thì rỗng.
+  let refusal = ''
+  // Lời gọi cuối cùng đã gửi (0.8.9 R1): request đã kẹp và câu trả lời của nó (null khi bị engine từ chối).
+  let lastSent: ModelCompleteRequest | null = null
+  let lastReply: ModelCompleteResult | null = null
+  // Request đã gửi của từng câu trả lời (0.8.9 R2): để nhận ra câu trả lời bị cắt theo trần của chính lời gọi đó.
+  const sentOf = new WeakMap<ModelCompleteResult, ModelCompleteRequest>()
+  const send = async (r: ModelCompleteRequest): Promise<ModelCompleteResult | null> => {
+    const sent = cappedRequest(r)
+    refusal = ''
+    lastSent = sent
+    const reply = await ask(sent).catch((error: unknown) => {
+      refusal = engineMessage(error)
+      return null
+    })
+    lastReply = reply
+    if (reply) {
+      sentOf.set(reply, sent)
+      usages.push(reply.usage)
+      usageModels.push(sent.model)
+    }
+    return reply
+  }
+  const request = cappedRequest(original)
   const now = opts.now ?? Date.now
   const budget = opts.budgetMs ?? Math.round((request.timeoutMs ?? 45_000) * BUDGET_FACTOR)
   const startedAt = now()
-  const first = await ask(request).catch(() => null)
-  const usages = first ? [first.usage] : []
-  const limits = (last: ModelCompleteResult | null) => ({ timeoutMs: request.timeoutMs ?? null, maxTokens: request.maxTokens ?? null, outputTokens: last ? last.usage.output_tokens : null })
+  const first = await send(request)
+  // Lý do của lời gọi vừa gửi (kèm thông điệp engine khi bị từ chối), và lý do lượt đầu hỏng để ghi firstFail khi được cứu (0.8.9 U3).
+  const whyFailed = (reply: ModelCompleteResult | null) => failureReason(reply, reply === null ? refusal : '', reply !== null ? sentOf.get(reply)?.maxTokens : undefined)
+  const firstReason = whyFailed(first)
+  const saved = (result: T | null) => (result !== null ? { firstFail: firstReason } : {})
+  // Giới hạn ghi trong kết quả (0.8.9 R1): của lời gọi cuối cùng đã gửi, ở mọi nhánh.
+  const limits = () => {
+    const sent = lastSent as ModelCompleteRequest | null
+    const reply = lastReply as ModelCompleteResult | null
+    return { timeoutMs: sent?.timeoutMs ?? null, maxTokens: sent?.maxTokens ?? null, outputTokens: reply ? reply.usage.output_tokens : null }
+  }
+  // Lượt đầu bị engine từ chối (0.8.9 U2): có fallback thì gửi fallback; không ra kết quả mà có apiFallback thì gửi tiếp apiFallback. Không có
+  // fallback mà có apiFallback: gửi apiFallback. Không có cả hai: như 0.8.8 (nhánh cuối). Mỗi request dự phòng gửi nhiều nhất một lần.
+  if (first === null && (opts.fallback !== undefined || opts.apiFallback !== undefined)) {
+    const isFallbackSent = opts.fallback !== undefined
+    const rescue = isFallbackSent ? await send(opts.fallback as ModelCompleteRequest) : null
+    const rescued = rescue?.isAnswered ? parse(rescue.text) : null
+    if (isFallbackSent && (rescued !== null || opts.apiFallback === undefined)) {
+      return { result: rescued, reason: rescued === null ? whyFailed(rescue) : '', usages, usageModels, retried: true, fellBack: true, failure: rescued === null ? failureKind(rescue) : null, ...saved(rescued), ...limits() }
+    }
+    const last = await send(opts.apiFallback as ModelCompleteRequest)
+    const result = last?.isAnswered ? parse(last.text) : null
+    return { result, reason: result === null ? whyFailed(last) : '', usages, usageModels, retried: true, viaFallback: true, failure: result === null ? failureKind(last) : null, ...saved(result), ...limits() }
+  }
   // Lượt đọc của Fable bị API từ chối (0.8.7 F1): gửi cùng request trọn cho họ điều phối dự phòng, với thời gian chờ và maxTokens của họ đó;
   // không kiểm hạn chung. Hết giờ thì vẫn theo nhánh dự phòng của L3 bên dưới.
   const apiFallback = opts.apiFallback
   if (apiFallback !== undefined && first !== null && !first.isAnswered && first.reason === 'api-error') {
-    const again = await ask(apiFallback).catch(() => null)
-    if (again) usages.push(again.usage)
+    const again = await send(apiFallback)
     const result = again?.isAnswered ? parse(again.text) : null
-    return { result, reason: result === null ? failureReason(again) : '', usages, retried: true, viaFallback: true, failure: result === null ? failureKind(again) : null, ...limits(again ?? first) }
+    return { result, reason: result === null ? whyFailed(again) : '', usages, usageModels, retried: true, viaFallback: true, failure: result === null ? failureKind(again) : null, ...saved(result), ...limits() }
   }
   // Lượt đọc trọn hết giờ hay bị API từ chối (0.8.7 L3): thử lại một lần bằng request dự phòng (cắt theo trần cũ) với trọn thời gian chờ
   // của nó, không lấy phần còn lại của hạn chung.
   const fallback = opts.fallback
   if (fallback !== undefined && first !== null && !first.isAnswered && (first.reason === 'aborted' || first.reason === 'api-error')) {
-    const again = await ask(fallback).catch(() => null)
-    if (again) usages.push(again.usage)
+    const again = await send(fallback)
     const result = again?.isAnswered ? parse(again.text) : null
-    return { result, reason: result === null ? failureReason(again) : '', usages, retried: true, fellBack: true, failure: result === null ? failureKind(again) : null, ...limits(again ?? first) }
+    return { result, reason: result === null ? whyFailed(again) : '', usages, usageModels, retried: true, fellBack: true, failure: result === null ? failureKind(again) : null, ...saved(result), ...limits() }
   }
   // Hết giờ chờ (0.7.5): thử lại đúng một lần cùng request nếu hạn chung còn ít nhất RETRY_MIN_MS, với thời gian chờ là phần còn lại.
   if (first !== null && !first.isAnswered && first.reason === 'aborted') {
     const left = budget - (now() - startedAt)
-    if (left < RETRY_MIN_MS) return { result: null, reason: failureReason(first), usages, retried: false, failure: failureKind(first), ...limits(first) }
-    const again = await ask({ ...request, timeoutMs: Math.min(request.timeoutMs ?? left, left) }).catch(() => null)
-    if (again) usages.push(again.usage)
+    if (left < RETRY_MIN_MS) return { result: null, reason: whyFailed(first), usages, usageModels, retried: false, failure: failureKind(first), ...limits() }
+    const again = await send({ ...request, timeoutMs: Math.min(request.timeoutMs ?? left, left) })
     const result = again?.isAnswered ? parse(again.text) : null
-    return { result, reason: result === null ? failureReason(again) : '', usages, retried: true, failure: result === null ? failureKind(again) : null, ...limits(again ?? first) }
+    // Lượt hỏi lại cứu được lượt đầu không có kết quả đọc được: ghi lý do lượt đầu (0.8.9 R2).
+    return { result, reason: result === null ? whyFailed(again) : '', usages, usageModels, retried: true, failure: result === null ? failureKind(again) : null, ...saved(result), ...limits() }
   }
   const firstResult = first?.isAnswered ? parse(first.text) : null
   // Thiếu confidence (0.7.8 G8): chỉ khi bật retryMissingConfidence (ba chỗ đọc prompt) thì coi như dưới LOW_CONFIDENCE và hỏi lại;
@@ -1420,16 +1582,24 @@ export async function askRouter<T extends { confidence?: number }>(
   const firstConfidence = firstResult?.confidence ?? 1
   const isConfident = firstResult !== null && !isMissing && firstConfidence >= LOW_CONFIDENCE
   const needsCoverage = isConfident && recheck !== undefined && recheck(firstResult)
-  const settled = (retried: boolean) => ({ result: firstResult, reason: failureReason(first), usages, retried, failure: firstResult === null ? failureKind(first) : null, ...limits(first) })
-  if (first === null || !first.isAnswered || (isConfident && !needsCoverage)) return settled(false)
+  // Lượt đọc trọn không ra kết quả (0.8.9 U4): các bước đã chạy hết mà không có kết quả, fallback và apiFallback chưa gửi, thì gửi fallback
+  // đúng một lần với trọn thời gian chờ của nó. Request thường (không có fallback) giữ như 0.8.8.
+  const lastResort = async (outcome: RouterOutcome<T>): Promise<RouterOutcome<T>> => {
+    const backup = opts.fallback
+    if (outcome.result !== null || backup === undefined) return outcome
+    const again = await send(backup)
+    const result = again?.isAnswered ? parse(again.text) : null
+    return { result, reason: result === null ? whyFailed(again) : '', usages, usageModels, retried: true, fellBack: true, failure: result === null ? failureKind(again) : null, ...saved(result), ...limits() }
+  }
+  const settled = (retried: boolean): RouterOutcome<T> => ({ result: firstResult, reason: whyFailed(first), usages, usageModels, retried, failure: firstResult === null ? failureKind(first) : null, ...limits() })
+  if (first === null || !first.isAnswered || (isConfident && !needsCoverage)) return lastResort(settled(false))
   // Trong hạn chung: kiểm lại phủ yêu cầu chỉ khi lượt đầu chưa quá nửa hạn; thử lại JSON hay tin cậy thấp cần còn ít nhất RETRY_MIN_MS.
   const spent = now() - startedAt
   const problem = firstResult === null ? 'json' : needsCoverage ? 'coverage' : 'confidence'
   const isAffordable = problem === 'coverage' ? spent <= budget / 2 : budget - spent >= RETRY_MIN_MS
-  if (!isAffordable) return settled(false)
-  const isTruncated = firstResult === null && request.maxTokens !== undefined && first.usage.output_tokens >= request.maxTokens * 0.98
-  const second = await ask(retryRequest(request, first.text, problem, { timeoutMs: Math.min(request.timeoutMs ?? budget, budget - spent), truncated: isTruncated, ...(opts.isFable === true ? { isFable: true } : {}), ...(opts.full !== undefined ? { full: opts.full } : {}) })).catch(() => null)
-  if (second) usages.push(second.usage)
+  if (!isAffordable) return lastResort(settled(false))
+  const isTruncated = firstResult === null && request.maxTokens !== undefined && first.usage.output_tokens >= request.maxTokens * TRUNCATED_SHARE
+  const second = await send(retryRequest(request, first.text, problem, { timeoutMs: Math.min(request.timeoutMs ?? budget, budget - spent), truncated: isTruncated, ...(opts.isFable === true ? { isFable: true } : {}), ...(opts.full !== undefined ? { full: opts.full } : {}) }))
   const secondResult = second?.isAnswered ? parse(second.text) : null
   // Thiếu confidence xếp thấp nhất khi bật retryMissingConfidence: lần hai thắng khi nó có confidence và lần đầu không có hay thấp hơn.
   const isSecondBetter =
@@ -1437,7 +1607,10 @@ export async function askRouter<T extends { confidence?: number }>(
       ? secondResult !== null && (firstResult === null || (secondResult.confidence !== undefined && (isMissing || secondResult.confidence >= firstConfidence)))
       : secondResult !== null && (firstResult === null || (secondResult.confidence ?? 1) >= firstConfidence)
   const pick = isSecondBetter ? secondResult : firstResult
-  return { result: pick, reason: pick === null ? failureReason(second) : '', usages, retried: true, failure: pick === null ? failureKind(second) : null, ...limits(second ?? first) }
+  // Lượt hỏi lại vì JSON hỏng hay bị cắt cứu được lượt đầu không đọc được: ghi lý do lượt đầu (0.8.9 R2). Hỏi lại vì tin cậy thấp hay kiểm
+  // phủ yêu cầu thì lượt đầu đã đọc được, không ghi.
+  const rescued = firstResult === null && pick !== null ? { firstFail: firstReason } : {}
+  return lastResort({ result: pick, reason: pick === null ? whyFailed(second) : '', usages, usageModels, retried: true, failure: pick === null ? failureKind(second) : null, ...rescued, ...limits() })
 }
 
 /** Prompt dài hơn sức chứa của lượt router đó bị lược phần giữa (0.7.8 G8; 0.8.7 L3: sức chứa theo requestPlan, mặc định trần cũ). */
@@ -1468,9 +1641,126 @@ export function clippedWarning(length: number, info?: { family: ModelFamily; hea
 /** Dòng context kèm prompt bị lược (0.7.8 G8), tối đa 200 ký tự. */
 export const CLIPPED_CONTEXT = '[focus-conductor] Prompt quá dài nên router chưa đọc phần giữa; tự đọc kỹ phần đó khi lập checklist.'
 
-/** Ràng buộc và yêu cầu của brief trước bị thay vì đầy trần (0.7.5), để báo một cảnh báo. */
+/**
+ * Ràng buộc và yêu cầu của brief trước bị thay vì đầy trần (0.7.5), để báo một cảnh báo. So theo khóa (0.8.9 C1): mục cùng khóa thay
+ * mục cũ tại chỗ không tính là mục bị thay.
+ */
 function replacedOf(prev: Brief, next: Brief): string[] {
-  return [...prev.constraints.filter(x => !next.constraints.includes(x)), ...(prev.requirements ?? []).filter(x => !(next.requirements ?? []).includes(x))]
+  const gone = (before: readonly string[], after: readonly string[]) => {
+    const keys = new Set(after.map(itemKey))
+    return before.filter(x => !keys.has(itemKey(x)))
+  }
+  return [...gone(prev.constraints, next.constraints), ...gone(prev.requirements ?? [], next.requirements ?? [])]
+}
+
+/** Số việc đã gỡ tối đa brief giữ lại (0.8.9 D2), gần nhất sau cùng. */
+export const REMOVED_LIMIT = 50
+
+/** Trạng thái để kiểm luật 1 của D2: trạng thái từng việc (taskStatusOf) và checklist hiện tại. */
+export type ArrangeGuard = { states?: Readonly<Record<number, TaskStatus>>; checklist?: readonly PlanStep[] }
+
+/** Kết quả điều phối lại để ghi nhật ký và dặn luồng chính (0.8.9 D2): thứ tự làm, việc bỏ, việc gộp, mục bị bỏ qua kèm lý do. */
+export type Arranged = { order: number[]; dropped: number[]; merged: Array<{ tasks: number[]; into: number }>; skipped: Array<{ task: ArrangeRef; why: string }> }
+
+/**
+ * Áp kế hoạch router đã điều phối lại lên brief (0.8.9 D2). Luật:
+ * (1) chỉ việc chưa bắt đầu, và việc đã lỗi mà chưa giao lại, mới bị bỏ hay bị gộp; việc xong, đang chạy, hay có bước doing, done,
+ *     verified trong checklist thì giữ, mục nhắm vào nó bị bỏ qua và được ghi lại;
+ * (2) không đánh số lại; (3) gộp: các việc rời brief, covers của chúng nhập vào việc `into` (không có hay cũng bị bỏ thì bỏ qua mục đó);
+ * (4) order áp cho việc còn mở: số lạ, trùng, việc đã bỏ thì bỏ qua; việc còn mở không có trong order xếp sau theo số; không có order thì
+ *     giữ thứ tự đã lưu (nếu có) bớt việc đã gỡ;
+ * (5) việc bị gỡ rời brief.tasks và brief.steps; brief giữ tối đa REMOVED_LIMIT việc đã gỡ gần nhất.
+ * Không gỡ việc nào và không có order mới: brief giữ nguyên; `arranged` vẫn có khi có mục bị bỏ qua, để ghi nhật ký.
+ */
+export function applyArrange(brief: Brief, arrange: Arrange, added: readonly Task[], guard: ArrangeGuard = {}): { brief: Brief; arranged: Arranged | null } {
+  const states = guard.states ?? {}
+  const byIndex = new Map(brief.tasks.map(t => [t.index, t]))
+  const resolve = (ref: ArrangeRef): number | null => {
+    if (typeof ref === 'number') return byIndex.has(ref) ? ref : null
+    const fresh = added[Number(ref.slice(3)) - 1]
+    return fresh !== undefined && byIndex.has(fresh.index) ? fresh.index : null
+  }
+  const started = new Set(
+    (guard.checklist ?? []).filter(step => step.status === 'doing' || step.status === 'done' || step.status === 'verified').flatMap(step => {
+      const owner = matchTask(brief.tasks, step.title)
+      return owner !== undefined ? [owner.index] : []
+    }),
+  )
+  const stateOf = (index: number): TaskStatus => states[index] ?? 'not started'
+  const guardOf = (index: number): string | null =>
+    stateOf(index) === 'done' ? 'việc đã xong' : stateOf(index) === 'running' ? 'việc đang chạy' : started.has(index) ? 'việc đã có bước đang làm hay đã xong' : null
+  const skipped: Arranged['skipped'] = []
+  const gone = new Map<number, RemovedTask>()
+  /** Việc gỡ được: có trong brief, không bị luật 1 giữ, chưa gỡ; không được thì ghi mục bị bỏ qua. */
+  const removable = (index: number): Task | null => {
+    const owner = byIndex.get(index)
+    if (owner === undefined) {
+      skipped.push({ task: index, why: 'không có việc này' })
+      return null
+    }
+    const why = guardOf(index)
+    if (why !== null) {
+      skipped.push({ task: index, why })
+      return null
+    }
+    return gone.has(index) ? null : owner
+  }
+  const dropped: number[] = []
+  for (const item of arrange.drop) {
+    const owner = removable(item.task)
+    if (owner === null) continue
+    gone.set(owner.index, { index: owner.index, title: owner.title, why: item.why })
+    dropped.push(owner.index)
+  }
+  const merged: Arranged['merged'] = []
+  const covers = new Map<number, number[]>()
+  for (const item of arrange.merge) {
+    const into = resolve(item.into)
+    if (into === null || gone.has(into)) {
+      skipped.push({ task: item.into, why: 'việc nhận gộp không có hay đã bỏ' })
+      continue
+    }
+    const taken: number[] = []
+    for (const index of item.tasks) {
+      if (index === into) continue
+      const owner = removable(index)
+      if (owner === null) continue
+      gone.set(index, { index, title: owner.title, why: '', into })
+      covers.set(into, [...(covers.get(into) ?? []), ...(owner.covers ?? [])])
+      taken.push(index)
+    }
+    if (taken.length > 0) merged.push({ tasks: taken, into })
+  }
+  const open = brief.tasks.filter(t => !gone.has(t.index) && stateOf(t.index) !== 'done').map(t => t.index)
+  let order: number[] | undefined
+  if (arrange.order.length > 0) {
+    const listed: number[] = []
+    for (const ref of arrange.order) {
+      const index = resolve(ref)
+      if (index === null || listed.includes(index) || !open.includes(index)) continue
+      listed.push(index)
+    }
+    order = [...listed, ...open.filter(index => !listed.includes(index)).sort((a, b) => a - b)]
+  } else if (brief.order !== undefined && gone.size > 0) {
+    order = brief.order.filter(index => !gone.has(index))
+  }
+  const isChanged = gone.size > 0 || (arrange.order.length > 0 && order !== undefined)
+  if (!isChanged) return { brief, arranged: skipped.length > 0 ? { order: [], dropped: [], merged: [], skipped } : null }
+  const goneTitles = new Set([...gone.values()].map(r => r.title))
+  const tasks = brief.tasks
+    .filter(t => !gone.has(t.index))
+    .map(t => (covers.has(t.index) ? { ...t, covers: [...new Set([...(t.covers ?? []), ...(covers.get(t.index) ?? [])])] } : t))
+  const removed = [...(brief.removed ?? []), ...gone.values()].slice(-REMOVED_LIMIT)
+  return {
+    brief: {
+      ...brief,
+      tasks,
+      steps: brief.steps.filter(title => !goneTitles.has(title)),
+      ...(order !== undefined ? { order } : {}),
+      ...(removed.length > 0 ? { removed } : {}),
+    },
+    arranged: { order: order ?? [], dropped, merged, skipped },
+  }
 }
 
 /** Đợt vừa mở (0.8.0 A3): số đợt, số việc và số mục đã cất, số việc mới. */
@@ -1622,8 +1912,8 @@ export function nextBrief(
   plan: RouterPlan,
   prompt: string,
   now: number,
-  options: { openSteps?: readonly string[]; sessionFamily?: ModelFamily | null; doneTasks?: ReadonlySet<number>; isPending?: boolean } = {},
-): { brief: Brief; added: Task[]; isNewGoal: boolean; replaced: string[]; held: boolean; dropped: number; phase?: PhaseOpened } {
+  options: ArrangeGuard & { openSteps?: readonly string[]; sessionFamily?: ModelFamily | null; doneTasks?: ReadonlySet<number>; isPending?: boolean } = {},
+): { brief: Brief; added: Task[]; isNewGoal: boolean; replaced: string[]; held: boolean; dropped: number; phase?: PhaseOpened; arranged?: Arranged } {
   const out = nextBriefRaw(prev, plan, prompt, now, options)
   return { ...out, brief: withSessionFloor(out.brief, options.sessionFamily ?? null) }
 }
@@ -1643,8 +1933,14 @@ function nextBriefRaw(
   plan: RouterPlan,
   prompt: string,
   now: number,
-  options: { openSteps?: readonly string[]; doneTasks?: ReadonlySet<number>; isPending?: boolean },
-): { brief: Brief; added: Task[]; isNewGoal: boolean; replaced: string[]; held: boolean; dropped: number; phase?: PhaseOpened } {
+  options: ArrangeGuard & { openSteps?: readonly string[]; doneTasks?: ReadonlySet<number>; isPending?: boolean },
+): { brief: Brief; added: Task[]; isNewGoal: boolean; replaced: string[]; held: boolean; dropped: number; phase?: PhaseOpened; arranged?: Arranged } {
+  // Điều phối lại (0.8.9 D2): áp arrange của router lên brief sau khi followUpOf đã nối việc mới, ở cả đợt mới lẫn tiếp nối thường.
+  const arranged = (brief: Brief, added: readonly Task[]) => {
+    if (plan.arrange === undefined) return { brief }
+    const out = applyArrange(brief, plan.arrange, added, options)
+    return out.arranged !== null ? { brief: out.brief, arranged: out.arranged } : { brief: out.brief }
+  }
   if (prev !== null && prev.isReference && plan.runReference) {
     const brief = promoteReference(prev, plan, prompt, now)
     return { brief, added: [], isNewGoal: true, replaced: replacedOf(prev, brief), held: false, dropped: 0 }
@@ -1660,18 +1956,18 @@ function nextBriefRaw(
     const opened = openPhase(prev, options.doneTasks ?? new Set())
     const next = followUpOf(opened.brief, isLowNew ? { ...plan, relation: 'continue' } : plan, now, isLowNew, true)
     const phase: PhaseOpened = { number: opened.brief.phase ?? 2, tasks: opened.tasks, items: opened.items, added: next.added.length }
-    return { brief: next.brief, added: next.added, dropped: next.dropped, isNewGoal: false, replaced: next.replaced, held, phase }
+    return { ...arranged(next.brief, next.added), added: next.added, dropped: next.dropped, isNewGoal: false, replaced: next.replaced, held, phase }
   }
   if (prev === null || (plan.relation === 'new' && !held)) {
     const fresh = briefOf(plan, prompt, (prev?.goalId ?? 0) + 1, now)
     const carried = prev !== null && !prev.isReference && !plan.constraints.some(isModelRule) ? prev.constraints.filter(isModelRule) : []
-    const carriedConstraints = unique([...carried, ...fresh.constraints], CONSTRAINT_LIMIT)
+    const carriedConstraints = unique([...carried, ...fresh.constraints], Number.POSITIVE_INFINITY)
     // Quy định mang sang đứng đầu danh sách (S2): ghi số mục để sàn model phiên chỉ đọc quy định của chính mục tiêu này.
     const brief = carried.length > 0 ? { ...fresh, constraints: carriedConstraints, constraintsBase: carriedConstraints.length, carriedRules: carried.length } : fresh
     return { brief, added: [], isNewGoal: true, replaced: [], held: false, dropped: 0 }
   }
   const next = followUpOf(prev, held ? { ...plan, relation: 'continue' } : plan, now, held)
-  return { ...next, isNewGoal: false, replaced: replacedOf(prev, next.brief), held }
+  return { ...next, ...arranged(next.brief, next.added), isNewGoal: false, replaced: replacedOf(prev, next.brief), held }
 }
 
 /**
@@ -1733,12 +2029,14 @@ Reply with ONE JSON object and nothing else:
 {"missing": number[], "extra": number[], "issues": string[]}`
 
 /** Request rà kế hoạch ở Stop (0.8.2 N2): yêu cầu, ràng buộc, tiêu chí và các bước (tên, check) đánh số từ 1. */
-export function planReviewRequest(args: { goal: string; requirements: readonly string[]; constraints: readonly string[]; quality: readonly string[]; steps: ReadonlyArray<{ title: string; check?: string }>; model: string; isFable?: boolean }): ModelCompleteRequest {
+export function planReviewRequest(args: { goal: string; requirements: readonly string[]; constraints: readonly string[]; constraintsBase?: number; quality: readonly string[]; steps: ReadonlyArray<{ title: string; check?: string }>; model: string; isFable?: boolean }): ModelCompleteRequest {
   const numbered = (items: readonly string[]) => items.map((item, i) => `${i + 1}. ${fence(clip(item, 200))}`)
+  // 0.8.9 C2: tối đa CONSTRAINT_SHOWN ràng buộc, kèm số mục còn lại.
+  const shown = shownConstraints(args.constraints, args.constraintsBase)
   const lines = [
     'Requirements:',
     ...(args.requirements.length > 0 ? numbered(args.requirements) : [`1. ${fence(clip(args.goal, 200))}`]),
-    ...(args.constraints.length > 0 ? ['Constraints:', ...args.constraints.map(c => `- ${fence(clip(c, 200))}`)] : []),
+    ...(shown.items.length > 0 ? ['Constraints:', ...shown.items.map(c => `- ${fence(clip(c, 200))}`), ...(shown.hidden > 0 ? [`(${shown.hidden} more constraints)`] : [])] : []),
     ...(args.quality.length > 0 ? ['Quality criteria:', ...args.quality.map(q => `- ${fence(clip(q, 200))}`)] : []),
     'Plan steps:',
     ...args.steps.slice(0, 40).map((step, i) => `${i + 1}. ${fence(clip(step.title, 200))}${step.check ? ` (check: ${fence(clip(step.check, 200))})` : ' (no check)'}`),

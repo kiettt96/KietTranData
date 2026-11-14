@@ -74,6 +74,8 @@ function briefOf(brief: Brief | null): CheckpointBrief {
   return {
     goal: brief.goal,
     constraints: [...brief.constraints],
+    // 0.8.9 C2: số mục của prompt lập mục tiêu, để context tiếp tục nêu đúng các ràng buộc như context của mục tiêu.
+    ...(brief.constraintsBase !== undefined ? { constraintsBase: brief.constraintsBase } : {}),
     quality: [...brief.quality],
     scopePaths: [...brief.scopePaths],
     tasks: brief.tasks.map(t => ({ index: t.index, title: t.title, run: t.run, ...(t.agentType ? { agentType: t.agentType } : {}), pick: t.pick })),

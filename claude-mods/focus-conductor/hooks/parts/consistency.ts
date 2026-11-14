@@ -401,6 +401,7 @@ async function planReviewGate($: EngineInterface, ctx: Ctx): Promise<{ kind: 'no
     goal: brief.goal,
     requirements: brief.requirements ?? [],
     constraints: brief.constraints,
+    ...(brief.constraintsBase !== undefined ? { constraintsBase: brief.constraintsBase } : {}),
     quality: brief.quality,
     steps: core.plan.map(step => ({ title: step.title, ...(step.check !== undefined ? { check: step.check } : {}) })),
     model: target.model,
