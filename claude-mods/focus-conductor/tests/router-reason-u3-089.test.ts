@@ -44,3 +44,32 @@ describe('0.8.9 U3: lý do engine từ chối', () => {
     expect(outcome.reason).toBe(`${LEAD}model bị chặn`)
   })
 })
+
+// 0.8.9 R3: ba ca biên. undefined, null và đối tượng không có trường message dạng chuỗi cho thông điệp rỗng (câu cảnh báo giữ dạng cũ);
+// đối tượng có message dạng chuỗi dùng chuỗi đó; chuỗi và số giữ như U3. Hai chỗ đã đúng từ U3 nhưng chưa có ca ghim: thông điệp mở đầu
+// ngay bằng tiền tố, và việc xóa thông điệp cũ trước mỗi lời gọi.
+describe('0.8.9 R3: thông điệp của giá trị bị ném', () => {
+  const reasonOf = async (value: unknown) => (await askRouter(throwing(value), request, parse)).reason
+
+  test('undefined: câu cũ', async () => expect(await reasonOf(undefined)).toBe(OLD))
+  test('null: câu cũ', async () => expect(await reasonOf(null)).toBe(OLD))
+  test('đối tượng rỗng: câu cũ', async () => expect(await reasonOf({})).toBe(OLD))
+  test('đối tượng có message dạng chuỗi: dùng chuỗi đó', async () => expect(await reasonOf({ message: 'x' })).toBe(`${LEAD}x`))
+  test('chuỗi: giữ chuỗi', async () => expect(await reasonOf('y')).toBe(`${LEAD}y`))
+  test('số 42: "42"', async () => expect(await reasonOf(42)).toBe(`${LEAD}42`))
+
+  test('thông điệp mở đầu ngay bằng "$.model.complete: ": bỏ tiền tố', async () => {
+    expect(await reasonOf(new Error('$.model.complete: abc'))).toBe(`${LEAD}abc`)
+  })
+
+  test('lượt đầu ném lỗi có thông điệp, fallback trả null mà không ném lỗi: lý do cuối là câu cũ', async () => {
+    const ask = async (r: ModelCompleteRequest) => {
+      if (String(r.prompt) === 'x') throw new Error('focus-conductor: $.model.complete: model "claude-fable-5-2" is not in this organization\'s allowlist')
+      return null
+    }
+    const fallback = { ...request, prompt: 'fallback', maxTokens: 4_000 } as ModelCompleteRequest
+    const outcome = await askRouter(ask, request, parse, undefined, { now: () => 0, fallback })
+    expect(outcome.result).toBeNull()
+    expect(outcome.reason).toBe(OLD)
+  })
+})
