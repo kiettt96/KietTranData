@@ -55,7 +55,7 @@ Nhánh tách từ `main` `53bb146` (0.8.8). Thứ tự U1 tới U4; mỗi điể
 - **Cả bộ** trên `7816019` [Đo trực tiếp, engine 2.1.296, 11 nhóm tệp, tuần tự]: 322 tệp, 3.631 ca, 0 lỗi. Tổng theo nhóm: 348 + 496 + 322 + 238 + 294 + 281 + 273 + 387 + 348 + 436 + 208 = 3.631. Sau đó `38c7ac3` chỉ đổi tài liệu, `d54a529` thêm một tệp 2 ca (đạt khi chạy riêng), `116ace8` chỉ thêm trường `equivalent` cho một mẫu; cả bộ trên HEAD chạy ở CI (mục dưới), 323 tệp, 3.633 ca.
 - **So tên ca với `39319c6`** (0.8.8, 3.597 ca): thêm 34 tên (U1 13, U2 9, U3 6, U4 6), mất 0. 3.631 = 3.597 + 34. Năm ca cũ đổi kỳ vọng, giữ tên (CHANGELOG).
 - **Kiểm tĩnh** [Đo trực tiếp, trên `116ace8`]: `claude plugin validate` đạt ở thư mục mod và ở gốc repo; `version-check` khớp 0.8.9, README đủ 47 option, mã màu thô chỉ nằm trong `hooks/ui/neon.ts`, chuỗi `'fable'` đúng danh sách của 0.8.7; `mutate --check` khớp 2.285/2.285; sha256 `hooks/` `efb99c50bd42dc106fe49aa8af58b21622235b0c3834ae8e00711f51e870cb9c`, `tests/` `f8819671e261cf679229fa441764dfdcf6974d13aed1dcc23176ba5ebd206340` (theo `scripts/mutate.ts`). `tsc` chưa chạy, như 0.8.8.
-- **CI**: ghi sau khi run của PR xong.
+- **CI** [Đo trực tiếp, GitHub Actions]: run 43596323176, job `plugin`, xanh trên `80b307c` (engine ghim 2.1.296), 14/11/2026: 3.633 ca đạt, 0 lỗi, trên 323 tệp; `version-check` khớp 0.8.9.
 
 ## Kiểm chứng của 0.8.8 (giao diện hướng B "Ba ô phát sáng", dải màu neon)
 
