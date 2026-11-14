@@ -1,0 +1,68 @@
+diff --git a/claude-mods/focus-conductor/.claude-plugin/plugin.json b/claude-mods/focus-conductor/.claude-plugin/plugin.json
+index 5ffb729..ba1908a 100644
+--- a/claude-mods/focus-conductor/.claude-plugin/plugin.json
++++ b/claude-mods/focus-conductor/.claude-plugin/plugin.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "focus-conductor",
+-  "version": "0.8.7",
++  "version": "0.8.8",
+   "author": { "name": "Kiet Tran" },
+   "description": "Một model Claude (router) đọc kỹ prompt trước khi làm và điều phối model/effort/agent cho từng việc; mod kiểm, ép điều phối lúc chạy, giữ nhất quán mục tiêu với checklist và cảnh báo lạc đề.",
+   "types": "./types/index.d.ts",
+diff --git a/claude-mods/focus-conductor/hooks/lib/version.ts b/claude-mods/focus-conductor/hooks/lib/version.ts
+index 6cdf944..c17fcb0 100644
+--- a/claude-mods/focus-conductor/hooks/lib/version.ts
++++ b/claude-mods/focus-conductor/hooks/lib/version.ts
+@@ -1,3 +1,3 @@
+ // Phiên bản của mod lúc chạy (0.7.9 L1): engine 2.1.296 không có API phiên bản ($.plugin chỉ có name và root), nên dùng hằng này;
+ // test so hằng với .claude-plugin/plugin.json.
+-export const MOD_VERSION = '0.8.7'
++export const MOD_VERSION = '0.8.8'
+diff --git a/claude-mods/focus-conductor/scripts/version-check.mjs b/claude-mods/focus-conductor/scripts/version-check.mjs
+index 32a45cc..38460c5 100644
+--- a/claude-mods/focus-conductor/scripts/version-check.mjs
++++ b/claude-mods/focus-conductor/scripts/version-check.mjs
+@@ -55,3 +55,25 @@ if (stored !== fixtureText) {
+   process.exit(1)
+ }
+ console.log(`Chuỗi 'fable' trong hooks/: ${Object.entries(sites).map(([file, n]) => `${file} ${n}`).join(', ')}`)
++
++// Mã màu thô (0.8.8 N1): chỉ hooks/ui/neon.ts được chứa mã hex sáu chữ số, rgb( hay ansi256(; mọi tệp khác lấy màu qua tệp đó.
++const RAW_COLOR = /#[0-9a-fA-F]{6}|rgb\(|ansi256\(/
++const NEON_FILE = 'ui/neon.ts'
++const rawSites = []
++const scan = dir => {
++  for (const name of readdirSync(dir).sort()) {
++    const path = dir + name
++    if (statSync(path).isDirectory()) scan(path + '/')
++    else if (/\.tsx?$/.test(name) && path.slice(hooksDir.length) !== NEON_FILE) {
++      readFileSync(path, 'utf8').split('\n').forEach((line, i) => {
++        if (RAW_COLOR.test(line)) rawSites.push(`${path.slice(hooksDir.length)}:${i + 1}`)
++      })
++    }
++  }
++}
++scan(hooksDir)
++if (rawSites.length > 0) {
++  console.error(`Mã màu thô ngoài hooks/${NEON_FILE}: ${rawSites.join(', ')}`)
++  process.exit(1)
++}
++console.log(`Mã màu thô chỉ nằm trong hooks/${NEON_FILE}`)
+diff --git a/claude-mods/focus-conductor/tests/integration/error-log-l1-079.test.ts b/claude-mods/focus-conductor/tests/integration/error-log-l1-079.test.ts
+index 16df99e..62db4ec 100644
+--- a/claude-mods/focus-conductor/tests/integration/error-log-l1-079.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/error-log-l1-079.test.ts
+@@ -167,10 +167,10 @@ describe('0.7.9 L1: tự xóa lỗi đã sửa (hàm thuần)', () => {
+   })
+ 
+   // 0.8.4: sổ vẫn rỗng (chủ mod chưa gửi errors.json nào); MOD_VERSION theo plugin.json. 0.8.5: giữ tên ca (không đổi tên ca nào), kỳ
+-  // vọng theo phiên bản mới. 0.8.6, 0.8.7: như 0.8.5.
++  // vọng theo phiên bản mới. 0.8.6, 0.8.7, 0.8.8: như 0.8.5.
+   test('sổ 0.8.4 vẫn rỗng; MOD_VERSION là 0.8.4', () => {
+     expect(FIXED_ERRORS).toEqual([])
+-    expect(MOD_VERSION).toBe('0.8.7')
++    expect(MOD_VERSION).toBe('0.8.8')
+   })
+ })
+ 
