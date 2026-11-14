@@ -7,3 +7,4 @@
 - 8c3d35c: sửa N2; cả bộ 3.502 đạt; mẫu N2a-g và 18 mẫu cũ viết lại đều diệt.
 - 4a61806: sửa N3; cả bộ 3.511 (5 ca mirror-verify đổi kỳ vọng sang \d✓); mẫu N3a-c và 8 mẫu cũ viết lại đều diệt.
 - N4 sửa đang chạy cả bộ (n4fix).
+- c698c51: sửa N4; cả bộ 3.528 (15 ca cũ ghim tiêu đề đổi regex, đạt); mẫu N4a-e diệt.
