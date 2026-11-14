@@ -445,6 +445,53 @@ index 0000000..4aa6457
 +    })
 +  }
 +})
+diff --git a/claude-mods/focus-conductor/tests/integration/router-reason-u3-089.test.ts b/claude-mods/focus-conductor/tests/integration/router-reason-u3-089.test.ts
+new file mode 100644
+index 0000000..54b7344
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/integration/router-reason-u3-089.test.ts
+@@ -0,0 +1,41 @@
++// 0.8.9 U3 (tích hợp): engine giả từ chối request router với một câu lỗi. Cảnh báo và dòng router-fail của nhật ký quyết định cùng chứa câu
++// đó; dòng router-fail ghi maxTokens đã gửi thật. Lượt đầu bị từ chối mà họ dự phòng cứu được: dòng route có firstFail.
++
++import { describe, expect, test } from 'claude-code/testing'
++import type { On } from 'claude-code'
++import { allowlistRefusal, base, plan, submit } from '../support/engine'
++
++const GOAL = 'Mục tiêu router đọc được'
++type Line = Record<string, unknown>
++
++function logOf(on: On): () => Line[] {
++  const writes: string[] = []
++  on('fs.write', (_$, e) => {
++    writes.push(e.text)
++    return { value: undefined }
++  })
++  return () => (writes.at(-1) ?? '').trim().split('\n').filter(Boolean).map(line => JSON.parse(line) as Line)
++}
++
++describe('0.8.9 U3: lý do engine từ chối tới cảnh báo và nhật ký', () => {
++  test('router mặc định bị engine từ chối: toast và dòng router-fail chứa câu của engine; maxTokens là số đã gửi', { options: { planApproval: 'off', decisionLog: '/tmp/fc-reason-u3-089a.jsonl' } }, async ($, on) => {
++    const lines = logOf(on)
++    const seen = base(on, { router: () => plan({ goal: GOAL }), refuse: call => (call.kind === 'prompt' ? allowlistRefusal(call.model) : null) })
++    await submit($, 'Sửa luồng thanh toán')
++    const message = seen.refusals[0] ?? ''
++    expect(message).toContain('allowlist')
++    expect(seen.toasts.some(t => t.includes(`engine từ chối gửi request tới model router: ${message}`))).toBe(true)
++    const fail = lines().find(line => line['kind'] === 'router-fail')
++    expect(String(fail?.['reason'] ?? '')).toContain(message)
++    expect(fail?.['maxTokens']).toBe(seen.requests[0]?.maxTokens)
++  })
++
++  test('conductor fable, engine từ chối họ fable, opus cứu được: dòng route có firstFail chứa câu của engine', { options: { planApproval: 'off', conductor: 'fable', decisionLog: '/tmp/fc-reason-u3-089b.jsonl' } }, async ($, on) => {
++    const lines = logOf(on)
++    const seen = base(on, { router: () => plan({ goal: GOAL }), refuse: call => (call.model.includes('fable') ? allowlistRefusal(call.model) : null) })
++    await submit($, 'Sửa luồng thanh toán')
++    const route = lines().find(line => line['kind'] === 'route')
++    expect(String(route?.['firstFail'] ?? '')).toContain(seen.refusals[0] ?? 'thiếu')
++    expect(lines().some(line => line['kind'] === 'router-fail')).toBe(false)
++  })
++})
 diff --git a/claude-mods/focus-conductor/tests/integration/router-refused-u2-089.test.ts b/claude-mods/focus-conductor/tests/integration/router-refused-u2-089.test.ts
 new file mode 100644
 index 0000000..ae15292
@@ -552,6 +599,58 @@ index 95202dd..c656ed7 100644
      const low = JSON.stringify({ ...plan({ goal: 'Sửa luồng thanh toán' }), confidence: 0.2 })
      const lowSent: ModelCompleteRequest[] = []
      const lowAsk = async (r: ModelCompleteRequest) => {
+diff --git a/claude-mods/focus-conductor/tests/router-reason-u3-089.test.ts b/claude-mods/focus-conductor/tests/router-reason-u3-089.test.ts
+new file mode 100644
+index 0000000..732d720
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/router-reason-u3-089.test.ts
+@@ -0,0 +1,46 @@
++// 0.8.9 U3: askRouter giữ thông điệp của lỗi engine ném. Thông điệp gộp về một dòng, bỏ tiền tố tới hết "$.model.complete: ", cắt còn 160
++// ký tự; lý do là "engine từ chối gửi request tới model router: <thông điệp>". Không có thông điệp thì giữ câu cũ. Câu lỗi lấy nguyên văn
++// từ engine thật [Đo trực tiếp, 2.1.325, VERIFICATION mục 0.8.9], tên plugin của mod thử đổi thành focus-conductor.
++
++import { describe, expect, test } from 'claude-code/testing'
++import type { ModelCompleteRequest } from 'claude-code'
++import { askRouter, parseRoute } from '../hooks/lib/router'
++import type { Policy } from '../hooks/lib/router'
++
++const OPEN: Policy = { allowFable: false, blocked: new Set(), session: null }
++const parse = (text: string) => parseRoute(text, OPEN)
++const request: ModelCompleteRequest = { model: 'fable', prompt: 'x', maxTokens: 8_000, timeoutMs: 45_000 } as ModelCompleteRequest
++const OLD = 'engine từ chối gửi request tới model router'
++const LEAD = `${OLD}: `
++const throwing = (value: unknown) => async (): Promise<never> => {
++  throw value
++}
++
++describe('0.8.9 U3: lý do engine từ chối', () => {
++  test('thông điệp của engine thật: lý do giữ phần sau "$.model.complete: "', async () => {
++    const outcome = await askRouter(throwing(new Error('focus-conductor: $.model.complete: maxTokens 128000 is past what claude-fable-5-2 can produce in one reply (64000)')), request, parse)
++    expect(outcome.reason).toBe(`${LEAD}maxTokens 128000 is past what claude-fable-5-2 can produce in one reply (64000)`)
++    expect(outcome.failure).toBe('engine')
++  })
++
++  test('thông điệp 400 ký tự có xuống dòng: phần thông điệp dài đúng 160 ký tự, không có ký tự xuống dòng', async () => {
++    const long = ['a'.repeat(100), 'b'.repeat(99), 'c'.repeat(99), 'd'.repeat(99)].join('\n')
++    expect(long.length).toBe(400)
++    const outcome = await askRouter(throwing(new Error(`focus-conductor: $.model.complete: ${long}`)), request, parse)
++    expect(outcome.reason.startsWith(LEAD)).toBe(true)
++    const message = outcome.reason.slice(LEAD.length)
++    expect(message.length).toBe(160)
++    expect(/[\r\n]/.test(outcome.reason)).toBe(false)
++  })
++
++  test('ask trả null hay ném chuỗi rỗng: giữ câu cũ; ném số 42: thông điệp là "42"; không văng lỗi', async () => {
++    expect((await askRouter(async () => null, request, parse)).reason).toBe(OLD)
++    expect((await askRouter(throwing(''), request, parse)).reason).toBe(OLD)
++    expect((await askRouter(throwing(42), request, parse)).reason).toBe(`${LEAD}42`)
++  })
++
++  test('thông điệp không có tiền tố "$.model.complete: ": giữ nguyên', async () => {
++    const outcome = await askRouter(throwing(new Error('model bị chặn')), request, parse)
++    expect(outcome.reason).toBe(`${LEAD}model bị chặn`)
++  })
++})
 diff --git a/claude-mods/focus-conductor/tests/router-refused-u2-089.test.ts b/claude-mods/focus-conductor/tests/router-refused-u2-089.test.ts
 new file mode 100644
 index 0000000..6df2c7d
@@ -656,6 +755,19 @@ index 0000000..6df2c7d
 +    expect(outcome.usageModels).toEqual(['fable', 'opus'])
 +  })
 +})
+diff --git a/claude-mods/focus-conductor/tests/router.test.ts b/claude-mods/focus-conductor/tests/router.test.ts
+index 0c0094c..a088180 100644
+--- a/claude-mods/focus-conductor/tests/router.test.ts
++++ b/claude-mods/focus-conductor/tests/router.test.ts
+@@ -395,7 +395,7 @@ describe('0.5.0: hỏi lại router một lần', () => {
+     }
+     const refused = await askRouter(rejecting, request, parse)
+     expect(refused.result).toBeNull()
+-    expect(refused.reason).toBe('engine từ chối gửi request tới model router')
++    expect(refused.reason).toBe('engine từ chối gửi request tới model router: engine từ chối')
+     expect(refused.usages).toEqual([])
+     expect(refused.retried).toBe(false)
+     // Lần một tin cậy thấp, lần hai ném lỗi: giữ lần một, đã hỏi lại, chỉ tính usage của lần một.
 diff --git a/claude-mods/focus-conductor/tests/support/engine.ts b/claude-mods/focus-conductor/tests/support/engine.ts
 index 0157119..90b4390 100644
 --- a/claude-mods/focus-conductor/tests/support/engine.ts
