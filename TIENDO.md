@@ -6,3 +6,4 @@
 - N2 sửa đang chạy cả bộ (n2fix2); 161 ca của các tệp band cũ đạt; 18 mẫu cũ chờ viết lại.
 - 8c3d35c: sửa N2; cả bộ 3.502 đạt; mẫu N2a-g và 18 mẫu cũ viết lại đều diệt.
 - 4a61806: sửa N3; cả bộ 3.511 (5 ca mirror-verify đổi kỳ vọng sang \d✓); mẫu N3a-c và 8 mẫu cũ viết lại đều diệt.
+- N4 sửa đang chạy cả bộ (n4fix).
