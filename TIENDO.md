@@ -9,3 +9,4 @@
 - N4 sửa đang chạy cả bộ (n4fix).
 - c698c51: sửa N4; cả bộ 3.528 (15 ca cũ ghim tiêu đề đổi regex, đạt); mẫu N4a-e diệt.
 - N5: test đỏ 7b7032a (3/6); sửa đã áp, 6/6 đạt, mẫu N5a-d và 3 mẫu cũ viết lại đều diệt; đang chạy cả bộ (n5fix).
+- 76c5e8b: sửa N5; cả bộ 3.534 (3 ca nhịp 60 giây chuyển neonMotion off, đạt).
