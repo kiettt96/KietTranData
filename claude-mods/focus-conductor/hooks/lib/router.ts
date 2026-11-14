@@ -1316,8 +1316,22 @@ const ENGINE_CALL = '$.model.complete: '
 export const ENGINE_MESSAGE_CHARS = 160
 
 /** Thông điệp của lỗi engine ném (0.8.9 U3): gộp về một dòng, bỏ phần đầu tới hết "$.model.complete: " khi có, cắt còn 160 ký tự. */
+/**
+ * Chữ của giá trị bị ném (0.8.9 R3): Error thì message; undefined, null và đối tượng không có message dạng chuỗi thì rỗng (câu cảnh báo
+ * giữ dạng cũ); đối tượng có message dạng chuỗi thì chuỗi đó; giá trị nguyên thủy khác (chuỗi, số) qua String.
+ */
+function thrownText(error: unknown): string {
+  if (error instanceof Error) return error.message
+  if (error === undefined || error === null) return ''
+  if (typeof error === 'object') {
+    const message = (error as { message?: unknown }).message
+    return typeof message === 'string' ? message : ''
+  }
+  return String(error)
+}
+
 export function engineMessage(error: unknown): string {
-  const text = (error instanceof Error ? error.message : String(error)).replace(/\s*[\r\n]+\s*/g, ' ').trim()
+  const text = thrownText(error).replace(/\s*[\r\n]+\s*/g, ' ').trim()
   const at = text.indexOf(ENGINE_CALL)
   return [...(at >= 0 ? text.slice(at + ENGINE_CALL.length) : text)].slice(0, ENGINE_MESSAGE_CHARS).join('')
 }

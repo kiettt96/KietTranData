@@ -34,6 +34,7 @@ Router của prompt dài hơn 80.000 ký tự bị engine từ chối khi họ �
 
 - **R1: giới hạn trong kết quả là của lời gọi cuối cùng đã gửi.** `timeoutMs`, `maxTokens`, `outputTokens` của `RouterOutcome` lấy từ request đã kẹp và câu trả lời của lời gọi gần nhất, ở mọi nhánh của `askRouter`. Không ca cũ nào đổi kỳ vọng.
 - **R2: ghi rõ câu trả lời bị cắt.** Câu trả lời không đọc được mà token ra từ 98% `maxTokens` của request đã gửi có lý do "câu trả lời bị cắt ở <n> token ra" (loại lỗi vẫn là format). `firstFail` được ghi cả khi lượt hỏi lại cứu được lượt đầu không đọc được. Không ca cũ nào đổi kỳ vọng.
+- **R3: thông điệp của giá trị bị ném.** `undefined`, `null` và đối tượng không có `message` dạng chuỗi cho thông điệp rỗng, nên câu cảnh báo giữ dạng cũ thay cho "undefined" hay "[object Object]"; đối tượng có `message` dạng chuỗi dùng chuỗi đó. Không ca cũ nào đổi kỳ vọng.
 
 **Mẫu cũ viết lại, giữ mã (vòng 2):** `075-R1c`, `075-R1f` (khối phần tràn của request tiếp nối viết thành nhiều dòng ở C2); `072-R9` (ngưỡng bị cắt nay là hằng `TRUNCATED_SHARE`, R2).
 
