@@ -113,18 +113,62 @@ index 6cdf944..c17fcb0 100644
 -export const MOD_VERSION = '0.8.7'
 +export const MOD_VERSION = '0.8.8'
 diff --git a/claude-mods/focus-conductor/hooks/ui/band.tsx b/claude-mods/focus-conductor/hooks/ui/band.tsx
-index ae2722f..44dcc4c 100644
+index ae2722f..b5c911d 100644
 --- a/claude-mods/focus-conductor/hooks/ui/band.tsx
 +++ b/claude-mods/focus-conductor/hooks/ui/band.tsx
-@@ -19,6 +19,7 @@ import { attentionItems, failedBatches } from './attention'
+@@ -1,11 +1,16 @@
+-// Band phía trên prompt (0.7.6): nhìn một lần là biết đang ở bước nào, tiến độ chung, và có việc gì cần người dùng can thiệp không.
+-//   Dòng 1: thanh tiến độ, số bước, mã và tên bước hiện tại; bên phải chip model, thời gian đã chạy, chi phí (từ 96 cột), nút Chi tiết.
+-//   Dòng 2: một dòng cần chú ý xếp theo mức độ (attention.ts); không có gì cần chú ý thì subagent đang chạy; không có nữa thì mục tiêu (mờ).
+-// maxRows 1 thì chỉ dòng 1, và cảnh báo mức đỏ thế chỗ tên bước. Mục tiêu đầy đủ nằm ở pane. Gờ bên trái đổi màu theo mục cần chú ý
+-// đầu tiên: cam là bình thường, vàng là cần chú ý, đỏ là vi phạm.
++// Band phía trên prompt, hướng B "Ba ô phát sáng" (0.8.8 N2): nhìn một lần là biết đang ở bước nào, model nào đang chạy, và công việc
++// có đi đúng hướng không.
++//   Dòng 1: ba ô cách nhau một ô trống. Ô bước (số bước k/n và tên bước hiện tại; chưa có checklist thì mục tiêu), ô model (họ, effort,
++//   vai điều phối), ô hướng (ký hiệu và nhãn theo mục cần chú ý đầu tiên, direction.ts). Mỗi lúc chỉ một ô tô đặc: ô hướng khi vi phạm,
++//   tạm dừng hay xong và đã kiểm hết; còn lại là ô bước, tô theo dải màu của giai đoạn.
++//   Dòng 2: bên trái câu cần chú ý đầu tiên kèm +N, hay lý do tạm dừng, hay thanh tiến độ (rồi subagent đang chạy, không có thì mục tiêu,
++//   khi còn chỗ), hay các ô ○ dự kiến; bên phải hạn mức, thời gian đã chạy, chi phí (từ 96 cột), chip lô, nhãn phản chiếu, nút Chi tiết
++//   và Ẩn (từ 72 cột). Tạm dừng thì bên phải là lệnh chạy tiếp rồi nút Chi tiết.
++// maxRows 1 thì chỉ dòng 1: ba ô, phần bên phải và hai nút. Band không còn gờ bên trái; hộp ngoài vẫn có hai cột (cột đầu rỗng) để cấu trúc
++// cây như 0.8.7. Màu lấy qua bộ màu của neon.ts (neon off: theme key như 0.8.7).
+ // Hàm vẽ thuần: nhận bảng phần tử của surface, dữ liệu và các handler mà hook đã tạo; không tự gọi $.
+ 
+-import type { Color, Elements, RenderElement, RenderSurface } from 'claude-code'
++import type { Elements, RenderElement, RenderSurface } from 'claude-code'
+ 
+ import { conductorShown } from '../lib/conductor'
+ import type { ConductorShown } from '../lib/conductor'
+@@ -16,10 +21,14 @@ import type { View } from '../lib/state'
+ import { countLabel, progress, quotaPercent } from '../lib/text'
+ import type { BandQuota } from '../lib/text'
+ import { attentionItems, failedBatches } from './attention'
++import { directionOf, directionText } from './direction'
++import type { Direction } from './direction'
  import { formatCost } from '../lib/ledger'
  import { labels, taskLabel } from './labels'
  import type { Run } from './style'
+-import { FAMILY_HUE, SPINE, barRuns, cellsOf, columnsOf, currentStep, goalUsd, pendingUsd, plannedRuns, severityGlyph } from './style'
 +import { DEFAULT_NEON, paintOf } from './neon'
- import { FAMILY_HUE, SPINE, barRuns, cellsOf, columnsOf, currentStep, goalUsd, pendingUsd, plannedRuns, severityGlyph } from './style'
++import type { GradientName } from './neon'
++import { barRuns, cellsOf, columnsOf, currentStep, goalUsd, oneLine, pendingUsd, phaseOf, plannedRuns, severityGlyph } from './style'
  
  /** Lượt của luồng chính chạy đúng họ đang điều phối (0.8.4 C8; 0.8.7 F1: kể cả họ dự phòng): band thêm nhãn vai trên chip model. */
-@@ -52,6 +53,8 @@ export type BandProps = {
+ function isConductedRoute(family: string | undefined, shown: ConductorShown, primary: string | undefined): boolean {
+@@ -30,10 +39,9 @@ function isConductedRoute(family: string | undefined, shown: ConductorShown, pri
+ /** Ô một nút của engine chiếm [Giả định: khoảng 10 ô cho nhãn ngắn, chưa đo trên surface thật]. */
+ export const BUTTON_CELLS = 10
+ const buttonCells = (label: string) => Math.max(BUTTON_CELLS, cellsOf(label) + 2)
+-const runCells = (runs: readonly Run[]) => runs.reduce((sum, r) => sum + cellsOf(r.text), 0)
+-/** Band rộng từ bấy nhiêu ô mới có nhãn vai điều phối trên chip model (0.8.4 C8). */
++/** Band rộng từ bấy nhiêu ô mới có nhãn vai điều phối trên ô model (0.8.4 C8). */
+ const ROLE_COLUMNS = 72
+-/** Số ô tối thiểu giữ cho tên bước ở dòng 1 khi band hẹp phải bỏ chip [Giả định: đủ thấy mã bước như "BƯỚC 4"]. */
++/** Số ô tối thiểu giữ cho tên bước trong ô bước khi band hẹp phải bỏ chip [Giả định: đủ thấy mã bước như "BƯỚC 4"]. */
+ const FOCUS_CELLS = 4
+ /** Ký hiệu tạm dừng (0.7.6, U3): U+23F8. */
+ const PAUSE_GLYPH = '\u23F8'
+@@ -52,8 +60,13 @@ export type BandProps = {
    isWorking: boolean
    /** Thời điểm vẽ (ms), cho thời gian đã chạy của mục tiêu và của subagent. Vắng thì 0. */
    now?: number
@@ -132,33 +176,461 @@ index ae2722f..44dcc4c 100644
 +  frame?: number
  }
  
++/** Dải tô đặc của ô hướng theo cách tô. */
++const DIRECTION_FILL: Partial<Record<Direction['tone'], GradientName>> = { warn: 'warn', pause: 'pause', done: 'done' }
++
  /** Trả cây để vẽ, hoặc null khi band nên nhường chỗ cho engine. */
-@@ -77,6 +80,8 @@ export function renderBand(
+ export function renderBand(
+   t: Elements[RenderSurface],
+@@ -62,7 +75,7 @@ export function renderBand(
+   handlers: BandHandlers,
+   /** Bảo vệ hạn mức (0.6.0): nhãn đang dừng hay phần còn lại khi gần ngưỡng; null hay vắng thì band như cũ. */
+   quota: QuotaBadge | null = null,
+-  /** Hạn mức cho dòng 1, dòng 2 khi dừng và câu báo mềm (0.7.6, U3); null hay vắng thì không có. */
++  /** Hạn mức cho dòng 2 khi dừng và câu báo mềm (0.7.6, U3); null hay vắng thì không có. */
+   pause: BandQuota | null = null,
+ ): RenderElement | null {
+   const { brief, route, ledger, log } = view.core
+@@ -77,13 +90,16 @@ export function renderBand(
    const hasRoom = columns >= 72
    const now = props.now ?? 0
    const hasSecondRow = props.maxRows >= 2
 +  // Bộ màu (0.8.8 N1): dải màu neon theo option, hay theme key khi neon off.
 +  const paint = paintOf(view.neon ?? DEFAULT_NEON, props.frame ?? 0)
  
-   // Dòng cần chú ý (U2): mục quan trọng nhất theo mức độ; "+N" đếm phần còn lại.
+-  // Dòng cần chú ý (U2): mục quan trọng nhất theo mức độ; "+N" đếm phần còn lại.
++  // Mục cần chú ý (U2) và ô hướng: mục quan trọng nhất theo mức độ; "+N" đếm phần còn lại.
    const isPaused = pause?.paused === true
-@@ -93,11 +98,11 @@ export function renderBand(
+   const attention = attentionItems(view.core, view.lang, { paused: false, notice: pause?.notice ?? null })
+   const top = attention[0]
+   const others = attention.length - 1
+-  const spine: Color = isPaused ? 'warning' : (top?.severity ?? 'claude')
++  const direction = directionOf(view.core, view.lang, { paused: isPaused, notice: pause?.notice ?? null }, plan)
++  const directionFill = DIRECTION_FILL[direction.tone]
+ 
+   const { closed, total } = progress(plan)
+   const planned = total === 0 ? brief.steps.length : 0
+@@ -92,227 +108,246 @@ export function renderBand(
+   // W4: bước còn todo mà đã có lô đang chạy: đầu thanh là ◐ (có checklist) hay hạt dự kiến là ◐ (chưa có).
    const runningSteps = runningTitles(view.core, rows, plan.length > 0 ? plan.map(step => step.title) : brief.steps)
    const runningBeads = new Set(brief.steps.flatMap((step, i) => (runningSteps.has(step) ? [i] : [])))
++  const isFinished = total > 0 && closed === total
++  const phase = phaseOf(plan)
    // Thanh dài theo chiều rộng, tối thiểu 6 ô để còn thấy phần đã đóng.
 -  const bar = barRuns(plan, Math.max(6, Math.min(20, Math.floor(columns * 0.16))), current !== undefined && runningSteps.has(current.title))
-+  const bar = barRuns(plan, Math.max(6, Math.min(20, Math.floor(columns * 0.16))), current !== undefined && runningSteps.has(current.title), paint)
++  const barCells = Math.max(6, Math.min(20, Math.floor(columns * 0.16)))
++  const bar = barRuns(plan, barCells, current !== undefined && runningSteps.has(current.title), paint)
    const beads = plannedRuns(planned, Math.max(8, Math.min(24, Math.floor(columns * 0.22))), runningBeads)
  
-   const tint = (r: Run) => (
+-  const tint = (r: Run) => (
 -    <Text color={r.color} dimColor={r.dim} bold={r.bold}>
-+    <Text color={r.color} backgroundColor={r.bg} dimColor={r.dim} bold={r.bold}>
++  const tint = (r: Run, k?: number) => (
++    <Text key={k} color={r.color} backgroundColor={r.bg} dimColor={r.dim} bold={r.bold}>
        {r.text}
      </Text>
    )
++  const runsNode = (runs: readonly Run[]) => <Text>{runs.map(tint)}</Text>
+ 
+-  // Bên phải dòng 1: hạn mức, chip model, thời gian đã chạy của mục tiêu (U8), chi phí (từ 96 cột), chip subagent.
++  // Phần bên phải: hạn mức, thời gian đã chạy của mục tiêu (U8), chi phí (từ 96 cột), chip lô subagent (U4), nhãn phản chiếu.
+   const pending = pendingUsd(log)
+   const spent = goalUsd(ledger) + pending
+   const costText = isWide && spent > 0 ? `${pending > 0 ? '~' : ''}${formatCost(spent, view.lang)}` : ''
+   const elapsedText = now > brief.at ? l.goalElapsed(now - brief.at) : ''
+   const quotaText = quota ? (quota.paused ? (columns >= 56 ? l.quotaPaused : l.quotaPausedShort) : l.quotaLeft(quotaPercent(quota.left ?? 0))) : ''
+-  // Chip lô subagent (U4): chỉ khi có lô đang chạy hay lỗi, không hiện khi mọi bước đã đóng.
+   const runningBatches = rows.filter(row => row.kind === 'agent' && row.state === 'running').reduce((sum, row) => sum + (row.counts?.running ?? 1), 0)
+   const failed = failedBatches(view.core)
+-  const isFinished = total > 0 && closed === total
+   const agentChip = !isFinished && (runningBatches > 0 || failed > 0) ? l.agentBatchChip(runningBatches, failed) : ''
+-  const countText = countLabel(plan)
+-  // Nguồn phản chiếu ghi nhỏ cạnh số bước khi còn chỗ: người dùng biết checklist này không chặn kết thúc.
++  const countText = total > 0 ? countLabel(plan) : ''
++  // Nguồn phản chiếu ghi nhỏ khi còn chỗ: người dùng biết checklist này không chặn kết thúc.
+   const mirrorText = source === 'mirror' && hasRoom ? l.mirrorShort : ''
+ 
+-  // Band hẹp: phần không co (gờ, tiến độ, chip, nút) không được vượt chiều rộng. Thừa thì bỏ lần lượt chip subagent, mức effort, thời gian
+-  // đã chạy, rồi cả chip model.
+-  const fit = { agents: true, effort: true, elapsed: true, route: true, role: true }
+-  // Vai điều phối (0.8.4 C8): nhãn trên chip model của luồng chính điều phối, chỉ khi band rộng từ ROLE_COLUMNS ô.
++  // Band hẹp: bỏ lần lượt nhãn vai điều phối, chip lô, effort, thời gian đã chạy, cả ô model cho tới khi vừa. Ô hướng không bao giờ bị bỏ.
++  const fit = { role: true, agents: true, effort: true, elapsed: true, route: true }
+   const roleText = view.conductor !== undefined && columns >= ROLE_COLUMNS && isConductedRoute(route?.family, conductorShown(view.core, view.conductor?.family), view.conductor?.family) ? l.conductorRole : ''
+-  const progressCells = () =>
+-    bar.length > 0 ? runCells(bar) + 1 + cellsOf(countText) + (mirrorText ? 1 + cellsOf(mirrorText) : 0) : beads.length > 0 ? runCells(beads) + 1 + cellsOf(l.plannedSteps(planned)) : 0
+-  const chipCells = () => {
+-    const parts = [
+-      cellsOf(quotaText),
+-      route && fit.route ? cellsOf(route.family) + 2 + (fit.effort ? 1 + cellsOf(route.effort) : 0) + (fit.role && roleText ? 1 + cellsOf(roleText) : 0) : 0,
+-      fit.elapsed ? cellsOf(elapsedText) : 0,
+-      cellsOf(costText),
+-      fit.agents ? cellsOf(agentChip) : 0,
+-    ].filter(n => n > 0)
+-    return parts.reduce((a, b) => a + b, 0) + Math.max(0, parts.length - 1)
+-  }
+-  // Tên bước được giữ ít nhất FOCUS_CELLS ô trước khi bỏ chip; riêng chip subagent nhường cả tên bước (U4: tên việc ưu tiên hơn chip).
+-  const focusWant = () => (fit.agents && agentChip ? Math.max(FOCUS_CELLS, cellsOf(current?.title ?? brief.goal)) : FOCUS_CELLS)
+-  const fixedCells = () => 2 + progressCells() + 1 + focusWant() + 1 + chipCells() + 1 + buttonCells(l.details) + (hasRoom ? 1 + buttonCells(l.hide) : 0)
++  const modelWords = () =>
++    route && fit.route
++      ? [...(view.mode === 'suggest' ? [l.suggest] : []), route.family, ...(fit.effort ? [route.effort] : []), ...(fit.role && roleText && view.mode !== 'suggest' ? [roleText] : [])]
++      : []
++  const modelCells = () => (modelWords().length > 0 ? 2 + cellsOf(modelWords().join(' ')) : 0)
++  const directionCells = 2 + cellsOf(directionText(direction))
++  // Tạm dừng (U3): dòng 2 là lý do và giờ làm mới bên trái, điểm dừng và lệnh chạy tiếp bên phải; cả hai co được, engine cắt khi vẽ.
++  const rightParts = () => (isPaused && pause !== null ? [] : [quotaText, fit.elapsed ? elapsedText : '', costText, fit.agents ? agentChip : '', mirrorText].filter(Boolean))
++  const rightCells = () => rightParts().reduce((sum, part) => sum + cellsOf(part) + 1, 0)
++  const buttonsCells = () => 1 + buttonCells(l.details) + (hasRoom && !isPaused ? 1 + buttonCells(l.hide) : 0)
++  // Ô bước giữ ít nhất số bước và FOCUS_CELLS ô của tên.
++  const stepFloor = 2 + (countText ? cellsOf(countText) + 1 : 0) + FOCUS_CELLS
++  const line1Cells = () => stepFloor + (modelCells() > 0 ? 1 + modelCells() : 0) + 1 + directionCells + (hasSecondRow ? 0 : rightCells() + buttonsCells())
++  const leftFloor = 6
++  const line2Cells = () => (hasSecondRow ? leftFloor + 1 + rightCells() + buttonsCells() : 0)
+   for (const drop of [() => (fit.role = false), () => (fit.agents = false), () => (fit.effort = false), () => (fit.elapsed = false), () => (fit.route = false)]) {
+-    if (fixedCells() <= columns) break
++    if (line1Cells() <= columns && line2Cells() <= columns) break
+     drop()
+   }
+ 
+-  const routeNode =
+-    route && fit.route ? (
+-      view.mode === 'suggest' ? (
+-        <Text>
+-          <Text dimColor>{l.suggest} </Text>
+-          <Text color={FAMILY_HUE[route.family]} bold>
+-            {route.family}
+-          </Text>
+-          {fit.effort ? <Text dimColor> {route.effort}</Text> : null}
+-        </Text>
+-      ) : (
+-        <Text>
+-          <Text backgroundColor={FAMILY_HUE[route.family]} color="inverseText" bold>
+-            {` ${route.family} `}
+-          </Text>
+-          {fit.effort ? <Text dimColor> {route.effort}</Text> : null}
+-          {fit.role && roleText ? <Text dimColor> {roleText}</Text> : null}
++  // ---------------------------------------------------------------- ô bước
++  // Tên bước hiện tại (mã có trong tên); xong hết thì "Đã xong mọi bước"; chưa có checklist thì mục tiêu. Cắt bằng oneLine theo chỗ còn lại.
++  const focusText = current ? current.title : isFinished ? l.allClosed : brief.goal
++  const stepRoom = Math.max(FOCUS_CELLS, columns - (line1Cells() - stepFloor) - 2 - (countText ? cellsOf(countText) + 1 : 0))
++  const focus = oneLine(focusText, stepRoom)
++  const isStepFilled = directionFill === undefined
++  const stepGradient = paint.phase(phase)
++  // Ô bước dựng từ các đoạn: khoảng đệm, số bước (một Text riêng, như 0.8.7), tên bước (một Text riêng), khoảng đệm. Ô tô đặc thì mỗi đoạn
++  // tô nền theo dải màu của giai đoạn, nối tiếp vị trí trong dải; ô thường thì nền ô thường.
++  const stepParts: { text: string; bold?: boolean }[] = [
++    { text: ' ' },
++    ...(countText ? [{ text: countText, bold: true }, { text: ' ' }] : []),
++    { text: focus, bold: props.isWorking || !countText },
++    { text: ' ' },
++  ]
++  const stepCell = (() => {
++    let offset = 0
++    const nodes = stepParts.map((part, k) => {
++      const at = offset
++      offset += cellsOf(part.text)
++      const runs: Run[] = !isStepFilled
++        ? [{ text: part.text, color: 'text', ...(paint.solid('cell') !== undefined ? { bg: paint.solid('cell') } : {}) }]
++        : stepGradient !== null
++          ? paint.fill(stepGradient, part.text, {}, at)
++          : [{ text: part.text, color: 'inverseText', bg: 'inactive' }]
++      return (
++        <Text key={k} bold={part.bold}>
++          {runs.map(run => (
++            <Text color={isStepFilled ? run.color : undefined} backgroundColor={run.bg}>
++              {run.text}
++            </Text>
++          ))}
+         </Text>
+       )
+-    ) : null
+-  const chipNodes = [
+-    quota ? (
+-      <Text color="warning" bold={quota.paused}>
+-        {quotaText}
++    })
++    return <Text>{nodes}</Text>
++  })()
++
++  // ---------------------------------------------------------------- ô model
++  const isModelDim = isPaused || isFinished
++  const modelCell =
++    route && fit.route ? (
++      <Text backgroundColor={paint.solid('cell')}>
++        <Text>{' '}</Text>
++        {view.mode === 'suggest' ? <Text dimColor>{`${l.suggest} `}</Text> : null}
++        <Text color={paint.solid(route.family)} dimColor={isModelDim} bold>
++          {route.family}
++        </Text>
++        {fit.effort ? <Text dimColor>{` ${route.effort}`}</Text> : null}
++        {fit.role && roleText && view.mode !== 'suggest' ? <Text dimColor>{` ${roleText}`}</Text> : null}
++        <Text>{' '}</Text>
+       </Text>
+-    ) : null,
+-    routeNode,
+-    fit.elapsed && elapsedText ? <Text dimColor>{elapsedText}</Text> : null,
+-    costText ? <Text dimColor>{costText}</Text> : null,
+-    fit.agents && agentChip ? <Text dimColor>{agentChip}</Text> : null,
+-  ].filter(node => node !== null)
+-  const chips =
+-    chipNodes.length > 0 ? (
+-      <Box flexShrink={0} flexDirection="row" gap={1}>
+-        {chipNodes}
+-      </Box>
+     ) : null
+-  const detailsButton = <Button key="details" label={l.details} onPress={handlers.onDetails} />
+-  const hideButton = hasRoom ? <Button key="hide" plain dimColor label={l.hide} onPress={handlers.onHide} /> : null
+ 
+-  // Có checklist: thanh tô màu theo giai đoạn và số bước đã đóng (tên giai đoạn chỉ ở pane, U6). Chưa có: các ô ○ router dự kiến.
+-  const progressNode =
+-    bar.length > 0 ? (
+-      <Box key="progress" flexShrink={0} flexDirection="row" gap={1}>
+-        <Text>{bar.map(tint)}</Text>
+-        <Text bold>{countText}</Text>
+-        {mirrorText ? <Text dimColor>{mirrorText}</Text> : null}
+-      </Box>
+-    ) : beads.length > 0 ? (
+-      <Box key="progress" flexShrink={0} flexDirection="row" gap={1}>
+-        <Text>{beads.map(tint)}</Text>
+-        <Text dimColor>{l.plannedSteps(planned)}</Text>
+-      </Box>
+-    ) : null
++  // ---------------------------------------------------------------- ô hướng
++  const directionBody = ` ${directionText(direction)} `
++  const directionCell =
++    directionFill !== undefined ? (
++      runsNode(paint.fill(directionFill, directionBody, { bold: true }))
++    ) : (
++      <Text backgroundColor={paint.solid('cell')} color={paint.solid(direction.tone === 'ok' ? 'ok' : 'attention')} bold>
++        {directionBody}
++      </Text>
++    )
++
++  const detailsButton = <Button key="details" label={l.details} onPress={handlers.onDetails} />
++  const hideButton = hasRoom && !isPaused ? <Button key="hide" plain dimColor label={l.hide} onPress={handlers.onHide} /> : null
++  const rightNodes = rightParts().map(part => (
++    <Box flexShrink={0}>
++      <Text color={isPaused || part === quotaText ? paint.solid('attention') : undefined} dimColor={!isPaused && part !== quotaText} bold={quota?.paused === true && part === quotaText}>
++        {part}
++      </Text>
++    </Box>
++  ))
+ 
+-  const alertNode = top ? (
++  const cells = (
+     <Box flexDirection="row" gap={1}>
+-      <Box flexShrink={0}>
+-        <Text color={top.severity} bold>
+-          {severityGlyph(top.severity)}
+-        </Text>
+-      </Box>
+-      <Box flexGrow={1} flexShrink={1}>
+-        <Text color={top.severity} wrap="truncate-end">
+-          {top.text}
+-        </Text>
+-      </Box>
+-      {others > 0 ? (
+-        <Box flexShrink={0}>
+-          <Text dimColor>{`+${others}`}</Text>
++      <Box flexShrink={1}>{stepCell}</Box>
++      {modelCell !== null ? <Box flexShrink={0}>{modelCell}</Box> : null}
++      <Box flexShrink={0}>{directionCell}</Box>
++      {hasSecondRow ? null : (
++        <Box flexGrow={1} flexShrink={1} flexDirection="row" justifyContent="flex-end" gap={1}>
++          {/* maxRows 1 khi tạm dừng: dòng tạm dừng (lý do, giờ làm mới) nằm ở phần bên phải, co được. */}
++          {isPaused && pause !== null ? (
++            <Box flexGrow={1} flexShrink={1}>
++              <Text color={paint.solid('attention')} bold wrap="truncate-end">
++                {`${PAUSE_GLYPH} ${pause.line}`}
++              </Text>
++            </Box>
++          ) : null}
++          {rightNodes}
++          {detailsButton}
++          {hideButton}
+         </Box>
+-      ) : null}
++      )}
+     </Box>
+-  ) : null
++  )
+ 
+-  // Tâm điểm của dòng 1: tên bước hiện tại (mã có trong tên); xong hết thì "Đã xong mọi bước"; chưa có checklist thì mục tiêu.
+-  // maxRows 1 mà có mục mức đỏ thì mục đó thế chỗ, vì không còn dòng 2.
+-  const isGoalFocus = current === undefined && !(total > 0 && closed === total)
+-  const focus =
+-    !hasSecondRow && top && top.severity === 'error' ? (
+-      alertNode
+-    ) : current ? (
+-      <Text wrap="truncate-end" bold={props.isWorking}>
+-        {current.title}
+-      </Text>
+-    ) : isFinished ? (
+-      // Hoàn thành (U10): một dòng, mục tiêu đi sau chữ "Hoàn thành".
+-      <Text color="success" wrap="truncate-end">
+-        {l.completedGoal(brief.goal)}
++  // ----------------------------------------------------------------- dòng 2
++  // Bên trái theo thứ tự ưu tiên: câu cần chú ý đầu tiên (mức đỏ tô dải warn, in đậm) kèm +N; tạm dừng: lý do và giờ làm mới; có checklist:
++  // thanh tiến độ, rồi subagent đang chạy (không có thì mục tiêu) khi còn chỗ; chưa có checklist: các ô ○ dự kiến.
++  const firstAgent = rows.find(row => row.kind === 'agent' && row.state === 'running')
++  const left = (() => {
++    if (isPaused && pause !== null) {
++      return (
++        <Box flexDirection="row" gap={1}>
++          <Box flexGrow={1} flexShrink={1}>
++            <Text color={paint.solid('attention')} bold wrap="truncate-end">
++              {`${PAUSE_GLYPH} ${pause.line}`}
++            </Text>
++          </Box>
++          <Box flexShrink={1}>
++            <Text color={paint.solid('attention')} wrap="truncate-end">
++              {pause.resume}
++            </Text>
++          </Box>
++        </Box>
++      )
++    }
++    if (top !== undefined) {
++      const more = others > 0 ? `+${others}` : ''
++      const sentence = `${severityGlyph(top.severity)} ${top.text}`
++      return (
++        <Box flexDirection="row" gap={1}>
++          <Box flexGrow={1} flexShrink={1}>
++            {top.severity === 'error' ? <Text wrap="truncate-end">{paint.text('warn', sentence, { bold: true }).map(tint)}</Text> : <Text color={paint.solid('attention')} bold wrap="truncate-end">{sentence}</Text>}
++          </Box>
++          {more ? (
++            <Box flexShrink={0}>
++              <Text dimColor>{more}</Text>
++            </Box>
++          ) : null}
++        </Box>
++      )
++    }
++    if (bar.length > 0) {
++      // Xong hết: thanh đầy bằng dải done (barRuns tô theo giai đoạn done), rồi "Hoàn thành: <mục tiêu>" (U10). Sau thanh là một Text riêng,
++      // co được (engine cắt khi vẽ).
++      const tail = isFinished ? l.completedGoal(brief.goal) : firstAgent !== undefined ? `${l.agentsRunning(runningBatches)}: ${taskLabel(l, firstAgent)}` : brief.goal
++      return (
++        <Box flexDirection="row" gap={1}>
++          <Box flexShrink={0}>
++            <Text>{bar.map(tint)}</Text>
++          </Box>
++          <Box flexGrow={1} flexShrink={1}>
++            <Text dimColor wrap="truncate-end">
++              {tail}
++            </Text>
++          </Box>
++        </Box>
++      )
++    }
++    if (beads.length > 0) {
++      return (
++        <Text wrap="truncate-end">
++          {beads.map(tint)}
++          <Text dimColor>{` ${l.plannedSteps(planned)}`}</Text>
++        </Text>
++      )
++    }
++    return firstAgent !== undefined ? (
++      <Text dimColor wrap="truncate-end">
++        {`${l.agentsRunning(runningBatches)}: ${taskLabel(l, firstAgent)}`}
+       </Text>
+     ) : (
+-      <Text bold wrap="truncate-end">
+-        {brief.goal}
+-      </Text>
++      <Text>{' '}</Text>
+     )
++  })()
+ 
+-  // Tạm dừng cứng (U3) chiếm dòng 1: lý do và giờ làm mới; dòng 2 là điểm dừng và lệnh chạy tiếp. Không còn gì khác trên band.
+-  if (isPaused && pause !== null) {
+-    const pauseLines: RenderElement[] = [
++  const lines: RenderElement[] = [cells]
++  if (hasSecondRow) {
++    lines.push(
+       <Box flexDirection="row" gap={1}>
+         <Box flexGrow={1} flexShrink={1}>
+-          <Text color="warning" bold wrap="truncate-end">
+-            {`${PAUSE_GLYPH} ${pause.line}`}
+-          </Text>
++          {left}
+         </Box>
++        {rightNodes}
+         {detailsButton}
+         {hideButton}
+       </Box>,
+-      ...(hasSecondRow
+-        ? [
+-            <Text color="warning" wrap="truncate-end">
+-              {pause.resume}
+-            </Text>,
+-          ]
+-        : []),
+-    ]
+-    return (
+-      <Box flexDirection="row">
+-        <Box flexDirection="column" flexShrink={0} marginRight={1}>
+-          {pauseLines.map(() => (
+-            <Text color={spine}>{SPINE}</Text>
+-          ))}
+-        </Box>
+-        <Box flexDirection="column" flexGrow={1} flexShrink={1}>
+-          {pauseLines}
+-        </Box>
+-      </Box>
+     )
+   }
+ 
+-  const lines: RenderElement[] = [
+-    <Box flexDirection="row" gap={1}>
+-      {progressNode}
+-      <Box flexGrow={1} flexShrink={1}>
+-        {focus}
+-      </Box>
+-      {chips}
+-      {detailsButton}
+-      {hideButton}
+-    </Box>,
+-  ]
+-
+-  // Dòng 2: cần chú ý; không có thì subagent đang chạy; không có nữa thì mục tiêu (mờ), trừ khi dòng 1 đã ghi mục tiêu. Hoàn thành thì
+-  // band chỉ một dòng (U10).
+-  if (hasSecondRow && !isFinished) {
+-    const first = rows.find(row => row.kind === 'agent' && row.state === 'running')
+-    if (alertNode) lines.push(alertNode)
+-    else if (first !== undefined)
+-      lines.push(
+-        <Text dimColor wrap="truncate-end">
+-          {`${l.agentsRunning(runningBatches)}: ${taskLabel(l, first)}`}
+-        </Text>,
+-      )
+-    else if (!isGoalFocus)
+-      lines.push(
+-        <Text dimColor wrap="truncate-end">
+-          {brief.goal}
+-        </Text>,
+-      )
+-  }
+-
+   return (
+     <Box flexDirection="row">
+-      <Box flexDirection="column" flexShrink={0} marginRight={1}>
+-        {lines.map(() => (
+-          <Text color={spine}>{SPINE}</Text>
+-        ))}
+-      </Box>
++      <Box flexDirection="column" flexShrink={0} />
+       <Box flexDirection="column" flexGrow={1} flexShrink={1}>
+         {lines}
+       </Box>
+     </Box>
+   )
+ }
++
 diff --git a/claude-mods/focus-conductor/hooks/ui/cells.ts b/claude-mods/focus-conductor/hooks/ui/cells.ts
 new file mode 100644
-index 0000000..e6d1a0d
+index 0000000..c6b5e16
 --- /dev/null
 +++ b/claude-mods/focus-conductor/hooks/ui/cells.ts
 @@ -0,0 +1,11 @@
@@ -170,9 +642,128 @@ index 0000000..e6d1a0d
 +}
 +
 +/** Cụm ký tự rộng hai ô terminal: emoji, cờ, chữ CJK và chữ toàn khổ. */
-+export const WIDE_GRAPHEME = /\p{Extended_Pictographic}|\p{Regional_Indicator}|[ᄀ-ᅟ⺀-〾ぁ-㏿㐀-䶿一-鿿ꥠ-꥿가-힣豈-﫿︰-﹏＀-｠￠-￦]/u
++export const WIDE_GRAPHEME = /\p{Extended_Pictographic}|\p{Regional_Indicator}|[\u1100-\u115F\u2E80-\u303E\u3041-\u33FF\u3400-\u4DBF\u4E00-\u9FFF\uA960-\uA97F\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFF60\uFFE0-\uFFE6]/u
 +
 +export const graphemeCells = (g: string): number => (WIDE_GRAPHEME.test(g) ? 2 : 1)
+diff --git a/claude-mods/focus-conductor/hooks/ui/direction.ts b/claude-mods/focus-conductor/hooks/ui/direction.ts
+new file mode 100644
+index 0000000..2b710d7
+--- /dev/null
++++ b/claude-mods/focus-conductor/hooks/ui/direction.ts
+@@ -0,0 +1,70 @@
++// Ô hướng của band và đoạn hướng của status line (0.8.8 N2, N3): một ký hiệu và nhãn ngắn cho biết công việc đang đi đúng hướng hay cần
++// người dùng nhìn. Lấy theo mục đầu tiên của attentionItems (thứ tự ở attention.ts không đổi); tạm dừng đứng trước mọi mục; không có mục
++// nào thì theo checklist: xong hết là "đã kiểm k/n", còn lại là "đúng hướng". Hàm thuần: chỉ đọc Core và dữ liệu hạn mức mà hook đã tính.
++
++import type { Core, PlanStep } from '../../types'
++import type { Attention } from './attention'
++import { attentionItems } from './attention'
++import { labels } from './labels'
++import type { Lang } from './labels'
++import { severityGlyph } from './style'
++
++/** Cách tô ô hướng: chữ màu đạt hay cần chú ý trên ô thường, hay ô tô đặc dải warn, pause, done. */
++export type DirectionTone = 'ok' | 'attention' | 'warn' | 'pause' | 'done'
++
++export type Direction = { glyph: string; label: string; tone: DirectionTone; kind: 'track' | 'pause' | 'finished' | Attention['kind'] }
++
++const CHECK = '\u2713'
++const DOT = '\u25CF'
++const PAUSE = '\u23F8'
++
++/** Nhãn ô hướng của một mục cần chú ý (bảng ở DESIGN, mục 0.8.8 N2). */
++function itemLabel(item: Attention, lang: Lang): string {
++  const l = labels(lang)
++  switch (item.kind) {
++    case 'approval':
++      return l.directionApproval
++    case 'failed':
++      return l.directionFailed
++    case 'scope':
++      return l.directionScope
++    case 'loop':
++      return l.directionLoop
++    case 'notice':
++      return l.directionNotice
++    case 'dropped':
++      return l.directionDropped
++    case 'unverified':
++    case 'skill':
++      return l.directionUnverified
++    case 'budget':
++      return l.directionBudget
++    default:
++      return l.directionOther
++  }
++}
++
++/**
++ * Hướng của mục tiêu đang mở. `paused`: đang tạm dừng (hạn mức hay người dùng); `notice`: câu báo hạn mức mềm hay null; `plan`: checklist
++ * đang vẽ. Mức màu theo severity của mục đầu: error là ô tô đặc warn, warning là chữ màu cần chú ý.
++ */
++export function directionOf(core: Core, lang: Lang, quota: { paused: boolean; notice: string | null }, plan: readonly PlanStep[]): Direction {
++  const l = labels(lang)
++  if (quota.paused) return { glyph: PAUSE, label: l.directionPaused, tone: 'pause', kind: 'pause' }
++  const top = attentionItems(core, lang, { paused: false, notice: quota.notice })[0]
++  if (top !== undefined) return { glyph: severityGlyph(top.severity), label: itemLabel(top, lang), tone: top.severity === 'error' ? 'warn' : 'attention', kind: top.kind }
++  const total = plan.length
++  const closed = plan.filter(step => step.status === 'done' || step.status === 'verified' || step.status === 'skipped').length
++  if (total > 0 && closed === total) {
++    const verified = plan.filter(step => step.status === 'verified').length
++    return verified === total
++      ? { glyph: CHECK, label: l.directionVerified(verified, total), tone: 'done', kind: 'finished' }
++      : { glyph: DOT, label: l.directionVerified(verified, total), tone: 'attention', kind: 'finished' }
++  }
++  return { glyph: CHECK, label: l.directionOnTrack, tone: 'ok', kind: 'track' }
++}
++
++/** Chữ của ô hướng: ký hiệu và nhãn. */
++export function directionText(direction: Direction): string {
++  return `${direction.glyph} ${direction.label}`
++}
+diff --git a/claude-mods/focus-conductor/hooks/ui/labels.ts b/claude-mods/focus-conductor/hooks/ui/labels.ts
+index 3fae424..149ef51 100644
+--- a/claude-mods/focus-conductor/hooks/ui/labels.ts
++++ b/claude-mods/focus-conductor/hooks/ui/labels.ts
+@@ -191,6 +191,19 @@ const VI = {
+   resetDoneToast: 'Đã đặt lại mục tiêu, checklist, cảnh báo, mục tiêu đã cất, sổ chi phí và danh sách model bị chặn.',
+   showBand: 'Hiện band',
+   hideBand: 'Ẩn band',
++  // Ô hướng của band và đoạn hướng của status line (0.8.8 N2, N3).
++  directionOnTrack: 'Đúng hướng',
++  directionPaused: 'Tạm dừng',
++  directionApproval: 'Chờ duyệt',
++  directionFailed: 'Lô lỗi',
++  directionScope: 'Lệch phạm vi',
++  directionLoop: 'Lặp lỗi',
++  directionNotice: 'Gần hạn mức',
++  directionDropped: 'Mục bị bỏ',
++  directionUnverified: 'Chưa kiểm',
++  directionBudget: 'Vượt ngân sách',
++  directionOther: 'Cần chú ý',
++  directionVerified: (verified: number, total: number) => `Đã kiểm ${verified}/${total}`,
+ }
+ 
+ const EN: typeof VI = {
+@@ -351,6 +364,18 @@ const EN: typeof VI = {
+   resetDoneToast: 'Reset the goal, checklist, warnings, stashed goals, cost ledger and blocked-model list.',
+   showBand: 'Show band',
+   hideBand: 'Hide band',
++  directionOnTrack: 'On track',
++  directionPaused: 'Paused',
++  directionApproval: 'Awaiting approval',
++  directionFailed: 'Failed batch',
++  directionScope: 'Out of scope',
++  directionLoop: 'Loop',
++  directionNotice: 'Near limit',
++  directionDropped: 'Dropped item',
++  directionUnverified: 'Unverified',
++  directionBudget: 'Over budget',
++  directionOther: 'Needs attention',
++  directionVerified: (verified, total) => `Verified ${verified}/${total}`,
+ }
+ 
+ export function labels(lang: Lang): typeof VI {
 diff --git a/claude-mods/focus-conductor/hooks/ui/neon.ts b/claude-mods/focus-conductor/hooks/ui/neon.ts
 new file mode 100644
 index 0000000..000f5e8
@@ -634,10 +1225,100 @@ index 0b4ab5f..74cd900 100644
  /**
   * Một dòng không quá `cells` ô, dòng bị cắt kết bằng "…" (0.7.9, UI1). Chữ thường cắt theo từ bằng wrapText như mọi chữ của pane, nên
 diff --git a/claude-mods/focus-conductor/scripts/mutants.ts b/claude-mods/focus-conductor/scripts/mutants.ts
-index a6047d7..ef44da2 100644
+index a6047d7..9b0944a 100644
 --- a/claude-mods/focus-conductor/scripts/mutants.ts
 +++ b/claude-mods/focus-conductor/scripts/mutants.ts
-@@ -2264,4 +2264,9 @@ export const MUTANTS: Mutant[] = [
+@@ -578,8 +578,8 @@ export const MUTANTS: Mutant[] = [
+   { id: "060-N21", file: "hooks/lib/text.ts", note: "status liệt kê cả điểm dừng consumed", old: "const cp = input.checkpoint !== null && input.checkpoint.status !== 'consumed' ? input.checkpoint : null", new: "const cp = input.checkpoint" },
+   { id: "060-N22", file: "hooks/lib/plan.ts", note: "plan checkpoint nhận note rỗng", old: "if (!note) return { error: 'action", new: "if (false) return { error: 'action" },
+   // 060-O: band và ui
+-  { id: "060-O1", file: "hooks/ui/band.tsx", note: "nhãn hạn mức luôn đậm", old: "<Text color=\"warning\" bold={quota.paused}>", new: "<Text color=\"warning\" bold>" },
+-  { id: "060-O3", file: "hooks/ui/band.tsx", note: "chip hạn mức không đủ để hiện hàng chip", old: "    quota ? (\n      <Text color=\"warning\" bold={quota.paused}>", new: "    false ? (\n      <Text color=\"warning\" bold={quota.paused}>" },
++  { id: "060-O1", file: "hooks/ui/band.tsx", note: "nhãn hạn mức luôn đậm (0.8.8: phần bên phải của band)", old: "bold={quota?.paused === true && part === quotaText}", new: "bold={part === quotaText}" },
++  { id: "060-O3", file: "hooks/ui/band.tsx", note: "nhãn hạn mức không hiện ở band (0.8.8: phần bên phải)", old: "[quotaText, fit.elapsed ? elapsedText : '', costText", new: "[fit.elapsed ? elapsedText : '', costText" },
+   { id: "060-O4", file: "hooks/parts/ui.tsx", note: "band không hiện dừng người dùng", old: "overrideOf(q), now) || q.pause !== null\n    const badge", new: "overrideOf(q), now)\n    const badge", equivalent: "từ 0.7.6 (U3) band khi dừng đọc trạng thái dừng từ quotaOverview (q.pause), không từ isPaused: bỏ \"|| q.pause !== null\" chỉ đổi chip hạn mức và câu báo mềm, mà cả hai đều không vẽ khi đang dừng" },
+   // 060-P: góp ý kiểm PR 21 (consumed chỉ khi answer, tiếp tục chỉ khi prompt tiếp nối, che bí mật, ép tiếp theo cửa sổ)
+   { id: "060-P1", file: "hooks/parts/quota.ts", note: "refusal bị coi là turn tiếp tục đã xong", old: "      e.reason === 'answer'\n        ? { ...cp, status: 'consumed' }", new: "      e.reason !== 'aborted' && e.reason !== 'error'\n        ? { ...cp, status: 'consumed' }" },
+@@ -647,9 +647,9 @@ export const MUTANTS: Mutant[] = [
+   { id: "061-U16", file: "hooks/parts/ui.tsx", note: "pane không nhận dữ liệu hạn mức", old: "const overview = settings.enabled\n      ? quotaOverview(", new: "const overview = false\n      ? quotaOverview(" },
+   { id: "061-U17", file: "hooks/parts/ui.tsx", note: "pane vẽ mục Hạn mức cả khi quotaGuard false", old: "const overview = settings.enabled\n      ? quotaOverview(", new: "const overview = true\n      ? quotaOverview(" },
+   { id: "061-U18", file: "hooks/ui/band.tsx", note: "band hẹp vẫn dùng nhãn dừng đầy đủ", old: "(columns >= 56 ? l.quotaPaused : l.quotaPausedShort)", new: "l.quotaPaused", equivalent: "từ 0.7.6 (U3) tạm dừng cứng vẽ bằng dòng tạm dừng và thoát sớm khi pause.paused; chip nhãn dừng chỉ còn vẽ khi quota.paused mà pause.paused sai, mà hook truyền badge và pause cùng điều kiện (thử: sau resume force ở 48 cột cả hai cùng hết dừng), nên nhánh này không với tới được qua hook thật" },
+-  { id: "061-U19", file: "hooks/ui/band.tsx", note: "band không bỏ phần cố định khi thiếu chỗ", old: "    if (fixedCells() <= columns) break\n", new: "    break\n" },
+-  { id: "061-U21", file: "hooks/ui/band.tsx", note: "band vẫn vẽ effort sau khi đã bỏ", old: "          {fit.effort ? <Text dimColor> {route.effort}</Text> : null}\n        </Text>\n      ) : (", new: "          <Text dimColor> {route.effort}</Text>\n        </Text>\n      ) : (" },
+-  { id: "061-U22", file: "hooks/ui/band.tsx", note: "band đếm thiếu chip model khi tính phần cố định", old: "      route && fit.route ? cellsOf(route.family) + 2 + (fit.effort ? 1 + cellsOf(route.effort) : 0) + (fit.role && roleText ? 1 + cellsOf(roleText) : 0) : 0,\n", new: "      0,\n" },
++  { id: "061-U19", file: "hooks/ui/band.tsx", note: "band không bỏ phần cố định khi thiếu chỗ", old: "    if (line1Cells() <= columns && line2Cells() <= columns) break\n", new: "    break\n" },
++  { id: "061-U21", file: "hooks/ui/band.tsx", note: "band vẫn vẽ effort sau khi đã bỏ", old: "        {fit.effort ? <Text dimColor>{` ${route.effort}`}</Text> : null}\n", new: "        {<Text dimColor>{` ${route.effort}`}</Text>}\n" },
++  { id: "061-U22", file: "hooks/ui/band.tsx", note: "band đếm thiếu ô model khi tính phần cố định", old: "  const modelCells = () => (modelWords().length > 0 ? 2 + cellsOf(modelWords().join(' ')) : 0)", new: "  const modelCells = () => 0" },
+   { id: "061-U23", file: "hooks/lib/text.ts", note: "trạng thái người dùng dừng bị coi là dừng vì hạn mức", old: "    input.pause?.source === 'user'\n      ? 'user'", new: "    false\n      ? 'user'" },
+   { id: "061-Q1", file: "hooks/parts/command.ts", note: "/conductor goal bỏ bước waiting khỏi danh sách đã lưu", old: "const dropped = restorableSteps(before.plan)", new: "const dropped = restorableSteps(before.plan).filter(s => s.status !== 'waiting')" },
+   { id: "061-Q2", file: "hooks/parts/session.ts", note: "toast cất checklist gọi mọi bước là bước mở", old: "checklist cũ còn ${restorableLabel(archived)} đã được lưu", new: "checklist cũ còn ${archived.length} bước mở đã được lưu" },
+@@ -690,9 +690,9 @@ export const MUTANTS: Mutant[] = [
+   { id: "061-P8", file: "hooks/lib/progress.ts", note: "thời gian chạy tính tới lúc vẽ cả khi agent đã kết thúc", old: "(item.endedAt ?? now) - item.startedAt", new: "now - item.startedAt" },
+   { id: "061-P9", file: "hooks/lib/progress.ts", note: "dòng agent của mục tiêu khác vẫn được tính", old: "core.agentProgress.goalId === brief.goalId ? core.agentProgress.items : []", new: "core.agentProgress.items" },
+   { id: "061-P10", file: "hooks/lib/progress.ts", note: "thứ tự ưu tiên: việc xong lên trước việc đang chạy", old: "{ running: 0, failed: 1, cut: 1, pending: 2, idle: 2, done: 3 }", new: "{ running: 3, failed: 1, cut: 1, pending: 2, idle: 2, done: 0 }" },
+-  { id: "061-P11", file: "hooks/ui/style.ts", note: "việc đang chạy không có đầu ◐", old: "      return [{ text: STEP_MARK.doing.glyph, color: 'claude', bold: true }, ...track(cells - 1)]\n", new: "      return track(cells)\n" },
+-  { id: "061-P12", file: "hooks/ui/style.ts", note: "việc lỗi vẽ như bị cắt (màu warning)", old: "      return [{ text: STEP_MARK.blocked.glyph, color: 'error', bold: true }, ...track(cells - 1)]", new: "      return [{ text: STEP_MARK.blocked.glyph, color: 'warning', bold: true }, ...track(cells - 1)]" },
+-  { id: "061-P13", file: "hooks/ui/style.ts", note: "việc xong không có thanh đầy", old: "      return [{ text: '━'.repeat(cells), color: 'success' }]\n    case 'running':", new: "      return track(cells)\n    case 'running':" },
++  { id: "061-P11", file: "hooks/ui/style.ts", note: "việc đang chạy không có đầu ◐", old: "      return [...phaseRuns(paint, 'active', STEP_MARK.doing.glyph, { bold: true }), ...track(cells - 1)]", new: "      return [...track(cells)]" },
++  { id: "061-P12", file: "hooks/ui/style.ts", note: "việc lỗi vẽ như bị cắt (màu warning)", old: "      return [{ text: STEP_MARK.blocked.glyph, color: paint.solid('error') ?? 'error', bold: true }, ...track(cells - 1)]", new: "      return [{ text: STEP_MARK.blocked.glyph, color: paint.solid('attention') ?? 'warning', bold: true }, ...track(cells - 1)]" },
++  { id: "061-P13", file: "hooks/ui/style.ts", note: "việc xong không có thanh đầy", old: "      return phaseRuns(paint, 'done', '━'.repeat(cells))", new: "      return track(cells)" },
+   { id: "061-P18", file: "hooks/ui/band.tsx", note: "band không có chip tóm tắt subagent khi hết chỗ", old: "const agentChip = !isFinished && (runningBatches > 0 || failed > 0) ? l.agentBatchChip(", new: "const agentChip = false ? l.agentBatchChip(" },
+   { id: "061-P19", file: "hooks/ui/pane.tsx", note: "pane không vẽ mục Tiến độ từng việc", old: "      {taskNodes.length > 0 ? (", new: "      {false ? (" },
+   { id: "061-P20", file: "hooks/ui/pane.tsx", note: "pane không ghi số tool call và thời gian chạy", old: "const usage = row.tools !== undefined ? `${l.taskTools(row.tools)} · ${l.taskElapsed(row.elapsedMs ?? 0)}` : ''", new: "const usage = ''" },
+@@ -742,7 +742,7 @@ export const MUTANTS: Mutant[] = [
+   { id: "070-V12", file: "hooks/parts/consistency.ts", note: "thay đổi mới của luồng chính không hạ bước tự nâng", old: "await update($, coreState, c => S.withAutoDemoted(S.withActivity(goalId)(c)))", new: "await update($, coreState, c => S.withActivity(goalId)(c))" },
+   { id: "070-V13", file: "hooks/parts/consistency.ts", note: "lệnh test chạy đạt không nâng các bước done", old: "if (core.brief !== null && isCheckCall(observation.tool) && !observation.isError) {", new: "if (core.brief === undefined) {" },
+   { id: "070-V14", file: "hooks/parts/consistency.ts", note: "subagent sửa file không hạ bước tự nâng", old: "        if (!observation.isError && isMutation(observation) && S.hasAutoVerified(S.normalizeCore(await read($, coreState)))) {\n          await update($, coreState, S.withAutoDemoted)\n          await showStatus($, await read($, view), ctx.options)\n        }\n", new: "" },
+-  { id: "070-V15", file: "hooks/ui/style.ts", note: "phần verified của thanh không tô đậm", old: "{ text: '━'.repeat(bold), color: hue, bold: true }", new: "{ text: '━'.repeat(bold), color: hue }" },
++  { id: "070-V15", file: "hooks/ui/style.ts", note: "phần verified của thanh không tô đậm", old: "...phaseRuns(paint, phase, '━'.repeat(bold), { bold: true })", new: "...phaseRuns(paint, phase, '━'.repeat(bold), {})" },
+   { id: "070-V16", file: "hooks/lib/text.ts", note: "số bước verified không hiển thị", old: "${verified > 0 ? ` · ${verified}✓` : ''}", new: "" },
+   { id: "070-V17", file: "hooks/lib/text.ts", note: "đếm bước done thay vì verified", old: "return plan.filter(s => s.status === 'verified').length", new: "return plan.filter(s => s.status === 'done').length" },
+   { id: "070-C1", file: "hooks/context.ts", note: "semanticDrift lại tắt mặc định", old: "options['semanticDrift'] !== false", new: "options['semanticDrift'] === true", equivalent: "engine điền giá trị mặc định của plugin.json (true) trước khi mod đọc option, nên khi chạy test (và trên engine thật) option không bao giờ vắng; `!== false` và `=== true` chỉ khác nhau khi option vắng. Mặc định bật được giữ bởi plugin.json và test không đặt option" },
+@@ -1632,15 +1632,15 @@ export const MUTANTS: Mutant[] = [
+   { id: "076-U2h", file: "hooks/ui/band.tsx", note: "+N đếm cả mục đang hiện", old: "  const others = attention.length - 1", new: "  const others = attention.length" },
+   { id: "076-U2i", file: "hooks/ui/attention.ts", note: "cảnh báo của mục tiêu trước cũng lên band", old: ".filter(w => w.at >= brief.at && w.kind !== 'cost'", new: ".filter(w => w.kind !== 'cost'" },
+   { id: "076-B1", file: "hooks/ui/band.tsx", note: "dòng 2 chỉ khi maxRows từ 3", old: "  const hasSecondRow = props.maxRows >= 2", new: "  const hasSecondRow = props.maxRows >= 3" },
+-  { id: "076-B2", file: "hooks/ui/band.tsx", note: "maxRows 1: cảnh báo mức đỏ không thế chỗ tên bước", old: "    !hasSecondRow && top && top.severity === 'error' ? (", new: "    false ? (" },
++  { id: "076-B2", file: "hooks/ui/band.tsx", note: "maxRows 1: cảnh báo mức đỏ lại thế chỗ tên bước như 0.8.7 (0.8.8 N2: tên bước giữ, mục đỏ hiện ở ô hướng)", old: "  const focusText = current ? current.title : isFinished ? l.allClosed : brief.goal", new: "  const focusText = !hasSecondRow && top?.severity === 'error' ? top.text : current ? current.title : isFinished ? l.allClosed : brief.goal" },
+   { id: "076-B3", file: "hooks/ui/band.tsx", note: "chi phí hiện từ 72 cột", old: "  const costText = isWide && spent > 0", new: "  const costText = hasRoom && spent > 0" },
+   { id: "076-B4", file: "hooks/ui/band.tsx", note: "không có thời gian đã chạy", old: "  const elapsedText = now > brief.at ? l.goalElapsed(now - brief.at) : ''", new: "  const elapsedText = ''" },
+-  { id: "076-B5", file: "hooks/ui/band.tsx", note: "dòng 2 không ghi subagent đang chạy", old: "    else if (first !== undefined)", new: "    else if (false)" },
+-  { id: "076-B6", file: "hooks/ui/band.tsx", note: "dòng 2 lặp mục tiêu khi dòng 1 đã ghi", old: "    else if (!isGoalFocus)", new: "    else" },
+-  { id: "076-B7", file: "hooks/ui/band.tsx", note: "dòng 1 không ghi bước hiện tại", old: "    ) : current ? (\n      <Text wrap=\"truncate-end\" bold={props.isWorking}>", new: "    ) : false ? (\n      <Text wrap=\"truncate-end\" bold={props.isWorking}>" },
++  { id: "076-B5", file: "hooks/ui/band.tsx", note: "dòng 2 không ghi subagent đang chạy", old: ": firstAgent !== undefined ? `${l.agentsRunning(runningBatches)}: ${taskLabel(l, firstAgent)}` : brief.goal", new: ": false ? `${l.agentsRunning(runningBatches)}: ${taskLabel(l, firstAgent)}` : brief.goal" },
++  { id: "076-B6", file: "hooks/ui/band.tsx", note: "dòng 2 lặp mục tiêu khi dòng 1 đã ghi (chưa có checklist)", old: "    ) : (\n      <Text>{' '}</Text>\n    )", new: "    ) : (\n      <Text>{brief.goal}</Text>\n    )" },
++  { id: "076-B7", file: "hooks/ui/band.tsx", note: "dòng 1 không ghi bước hiện tại", old: "  const focusText = current ? current.title :", new: "  const focusText = current ? brief.goal :" },
+   { id: "076-B8", file: "hooks/ui/band.tsx", note: "thứ tự bỏ: chip model trước effort", old: "[() => (fit.role = false), () => (fit.agents = false), () => (fit.effort = false), () => (fit.elapsed = false), () => (fit.route = false)]", new: "[() => (fit.role = false), () => (fit.agents = false), () => (fit.route = false), () => (fit.elapsed = false), () => (fit.effort = false)]" },
+   { id: "076-U3a", file: "hooks/ui/band.tsx", note: "tạm dừng không chiếm dòng 1", old: "  if (isPaused && pause !== null) {", new: "  if (false) {" },
+-  { id: "076-U3b", file: "hooks/ui/band.tsx", note: "dòng 2 khi dừng không có lệnh chạy tiếp", old: "      ...(hasSecondRow\n        ? [", new: "      ...(false\n        ? [" },
++  { id: "076-U3b", file: "hooks/ui/band.tsx", note: "dòng 2 khi dừng không có lệnh chạy tiếp", old: "              {pause.resume}\n", new: "              {''}\n" },
+   { id: "076-U3c", file: "hooks/lib/text.ts", note: "không nêu điểm dừng đã ghi", old: "resume: `${view.checkpoint !== null ? `${l.pauseCheckpointDone} · ` : ''}", new: "resume: `${false ? `${l.pauseCheckpointDone} · ` : ''}" },
+   { id: "076-U3d", file: "hooks/lib/text.ts", note: "band không có giờ làm mới", old: "  const reset = view.reasons.map(r => resetLabel(r.resetsAt)).find(text => text !== '') ?? ''", new: "  const reset = ''" },
+   { id: "076-U3e", file: "hooks/lib/text.ts", note: "không có câu báo mềm cho band", old: "    notice: !paused && hit !== undefined ?", new: "    notice: false ?" },
+@@ -1652,10 +1652,10 @@ export const MUTANTS: Mutant[] = [
+   { id: "076-U4b", file: "hooks/ui/band.tsx", note: "chip lô không theo số lỗi", old: "(runningBatches > 0 || failed > 0) ? l.agentBatchChip(", new: "(runningBatches > 0) ? l.agentBatchChip(" },
+   { id: "076-U4c", file: "hooks/ui/labels.ts", note: "chip không ghi số lỗi", old: "failed > 0 ? `${failed} lỗi` : ''", new: "''" },
+   { id: "076-U4d", file: "hooks/ui/labels.ts", note: "chip không ghi số đang chạy", old: "running > 0 ? `${running} đang chạy` : ''", new: "''" },
+-  { id: "076-U4e", file: "hooks/ui/band.tsx", note: "tên việc không được ưu tiên hơn chip", old: "  const focusWant = () => (fit.agents && agentChip ? Math.max(FOCUS_CELLS, cellsOf(current?.title ?? brief.goal)) : FOCUS_CELLS)", new: "  const focusWant = () => FOCUS_CELLS" },
++  { id: "076-U4e", file: "hooks/ui/band.tsx", note: "tên bước bị cắt còn FOCUS_CELLS ô dù còn chỗ (0.8.8: chip lô đã sang dòng 2)", old: "  const stepRoom = Math.max(FOCUS_CELLS, ", new: "  const stepRoom = FOCUS_CELLS || Math.max(FOCUS_CELLS, " },
+   { id: "076-U4f", file: "hooks/ui/band.tsx", note: "lô đang chạy đếm theo dòng, không theo số lô của bộ đếm", old: "sum + (row.counts?.running ?? 1), 0)", new: "sum + 1, 0)" },
+-  { id: "076-U10a", file: "hooks/ui/band.tsx", note: "hoàn thành vẫn có dòng 2", old: "  if (hasSecondRow && !isFinished) {", new: "  if (hasSecondRow) {" },
+-  { id: "076-U10b", file: "hooks/ui/band.tsx", note: "hoàn thành không ghi mục tiêu", old: "        {l.completedGoal(brief.goal)}", new: "        {l.allClosed}" },
++  { id: "076-U10a", file: "hooks/ui/band.tsx", note: "hoàn thành: dòng 2 không có thanh đầy (0.8.8 N2: band hoàn thành có hai dòng)", old: "    if (bar.length > 0) {\n", new: "    if (bar.length > 0 && !isFinished) {\n" },
++  { id: "076-U10b", file: "hooks/ui/band.tsx", note: "hoàn thành không ghi mục tiêu", old: "const tail = isFinished ? l.completedGoal(brief.goal) :", new: "const tail = isFinished ? '' :" },
+   { id: "076-U10c", file: "hooks/ui/pane.tsx", note: "pane vẫn ghi việc chưa từng giao khi đã xong", old: ".filter(row => !(isFinished && row.state === 'pending'))", new: "" },
+   { id: "076-U10d", file: "hooks/ui/pane.tsx", note: "pane ẩn việc chưa giao cả khi chưa xong", old: ".filter(row => !(isFinished && row.state === 'pending'))", new: ".filter(row => row.state !== 'pending')" },
+   { id: "076-U1a", file: "hooks/lib/progress.ts", note: "bước dự kiến không khớp việc theo tiêu đề", old: " ?? tasks.find(task => task.title.trim() === title.trim())?.index", new: "" },
+@@ -1752,7 +1752,7 @@ export const MUTANTS: Mutant[] = [
+   { id: "076-W3h", file: "hooks/ui/pane.tsx", note: "dòng chip pane hẹp tính cả khi việc không có chip", old: "return !isNarrow || row === undefined || !meta ? 0 :", new: "return !isNarrow ? 0 :" },
+   { id: "076-W4a", file: "hooks/ui/pane.tsx", note: "dòng bước todo có lô chạy vẫn là ○", old: "const mark = step.status === 'todo' && runningSteps.has(step.title) ? STEP_MARK.doing : STEP_MARK[step.status]", new: "const mark = STEP_MARK[step.status]" },
+   { id: "076-W4b", file: "hooks/ui/pane.tsx", note: "bước dự kiến có lô chạy vẫn là ○", old: "{runningSteps.has(step) ? STEP_MARK.doing.glyph : STEP_MARK.todo.glyph}", new: "{STEP_MARK.todo.glyph}" },
+-  { id: "076-W4c", file: "hooks/ui/band.tsx", note: "đầu thanh band không là ◐ khi bước todo có lô chạy", old: "current !== undefined && runningSteps.has(current.title))", new: "false)" },
++  { id: "076-W4c", file: "hooks/ui/band.tsx", note: "đầu thanh band không là ◐ khi bước todo có lô chạy", old: "current !== undefined && runningSteps.has(current.title), paint)", new: "false, paint)" },
+   { id: "076-W4d", file: "hooks/ui/band.tsx", note: "hạt dự kiến của band không là ◐ khi có lô chạy", old: "Math.floor(columns * 0.22))), runningBeads)", new: "Math.floor(columns * 0.22))))" },
+   { id: "076-W4e", file: "hooks/ui/style.ts", note: "đầu thanh ◐ cả khi không có lô chạy", old: "(status === 'todo' && hasRunning)", new: "(status === 'todo')" },
+   { id: "076-W4f", file: "hooks/ui/style.ts", note: "hạt dự kiến luôn là ○", old: "(running.has(i) ? STEP_MARK.doing.glyph : STEP_MARK.todo.glyph)", new: "STEP_MARK.todo.glyph" },
+@@ -2264,4 +2264,16 @@ export const MUTANTS: Mutant[] = [
    { id: "087-G1c", file: "hooks/parts/session.ts", note: "đoạn dặn ghi cứng fable", old: "    const conductNote = wanted?.isConducting === true && !isBriefed ? [conductorContext(wanted.family)] : []\n", new: "    const conductNote = wanted?.isConducting === true && !isBriefed ? [conductorContext()] : []\n" },
    { id: "087-G1d", file: "hooks/lib/conductor.ts", note: "họ không có cờ điều phối vẫn được nhận", old: "  return CONDUCTOR_FAMILIES.find(f => f === raw) ?? 'off'\n", new: "  return (CONDUCTOR_FAMILIES.find(f => f === raw) ?? (raw === 'haiku' || raw === 'sonnet' ? raw : 'off')) as ConductorOption\n" },
    { id: "087-G1e", file: "hooks/lib/conductor.ts", note: "họ dự phòng trùng họ chính vẫn kích hoạt dự phòng", old: "  if (fallback === null || fallback === primary || input.blocked.has(fallback) || (input.fallbackPauseLeft ?? 0) > 0) return null\n", new: "  if (fallback === null || (fallback === primary && false) || input.blocked.has(fallback) || (input.fallbackPauseLeft ?? 0) > 0) return null\n" },
@@ -646,6 +1327,13 @@ index a6047d7..ef44da2 100644
 +  { id: "088-N1c", file: "hooks/ui/neon.ts", note: "neon off vẫn trả mã màu thô", old: "  const isNeon = style.palette !== 'off'\n  const gradients", new: "  const isNeon = true\n  const gradients" },
 +  { id: "088-N1d", file: "hooks/ui/neon.ts", note: "giá trị lạ của neon thành off", old: "  return pick(value, ['cyber', 'aurora', 'plasma', 'off'] as const, 'cyber')", new: "  return pick(value, ['cyber', 'aurora', 'plasma', 'off'] as const, 'off')" },
 +  { id: "088-N1e", file: "hooks/ui/neon.ts", note: "bảng nền sáng dùng màu của nền tối", old: "  const gradients = style.theme === 'light' ? LIGHT_GRADIENTS : DARK_GRADIENTS\n  const solids = style.theme === 'light' ? LIGHT_SOLIDS : DARK_SOLIDS", new: "  const gradients = DARK_GRADIENTS\n  const solids = DARK_SOLIDS" },
++  { id: "088-N2a", file: "hooks/ui/direction.ts", note: "ô hướng không tô đặc khi mục đầu mức đỏ", old: "tone: top.severity === 'error' ? 'warn' : 'attention'", new: "tone: 'attention'" },
++  { id: "088-N2b", file: "hooks/ui/band.tsx", note: "ô bước vẫn tô đặc khi ô hướng tô đặc", old: "  const isStepFilled = directionFill === undefined\n", new: "  const isStepFilled = true\n" },
++  { id: "088-N2c", file: "hooks/ui/band.tsx", note: "ô hướng bị bỏ ở band hẹp", old: "      <Box flexShrink={0}>{directionCell}</Box>\n", new: "      {columns >= 72 ? <Box flexShrink={0}>{directionCell}</Box> : null}\n" },
++  { id: "088-N2d", file: "hooks/ui/direction.ts", note: "nhãn scope và loop đổi chỗ", old: "    case 'scope':\n      return l.directionScope\n    case 'loop':\n      return l.directionLoop\n", new: "    case 'scope':\n      return l.directionLoop\n    case 'loop':\n      return l.directionScope\n" },
++  { id: "088-N2e", file: "hooks/ui/direction.ts", note: "xong mà còn bước chưa kiểm vẫn ghi dấu đạt", old: ": { glyph: DOT, label: l.directionVerified(verified, total), tone: 'attention', kind: 'finished' }", new: ": { glyph: CHECK, label: l.directionVerified(verified, total), tone: 'attention', kind: 'finished' }" },
++  { id: "088-N2f", file: "hooks/ui/band.tsx", note: "dòng 2 hiện thanh thay cho câu cảnh báo", old: "    if (top !== undefined) {\n      const more", new: "    if (top !== undefined && false) {\n      const more" },
++  { id: "088-N2g", file: "hooks/ui/band.tsx", note: "maxRows 1 vẫn vẽ hai dòng", old: "  const hasSecondRow = props.maxRows >= 2\n", new: "  const hasSecondRow = props.maxRows >= 1\n" },
  ]
 diff --git a/claude-mods/focus-conductor/scripts/version-check.mjs b/claude-mods/focus-conductor/scripts/version-check.mjs
 index 32a45cc..38460c5 100644
@@ -677,12 +1365,45 @@ index 32a45cc..38460c5 100644
 +  process.exit(1)
 +}
 +console.log(`Mã màu thô chỉ nằm trong hooks/${NEON_FILE}`)
+diff --git a/claude-mods/focus-conductor/tests/integration/agent-chip-u4-076.test.ts b/claude-mods/focus-conductor/tests/integration/agent-chip-u4-076.test.ts
+index 5a34ea6..d5b9824 100644
+--- a/claude-mods/focus-conductor/tests/integration/agent-chip-u4-076.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/agent-chip-u4-076.test.ts
+@@ -10,14 +10,16 @@ type Node = { type?: string; props?: Record<string, unknown>; children?: unknown
+ const PLAN = 'mcp__focus-conductor__plan'
+ const TITLES = ['BƯỚC 0: chuẩn bị', 'BƯỚC 1: lọc tin lô 1', 'BƯỚC 2: lọc tin lô 2', 'BƯỚC 3: lọc tin lô 3', 'BƯỚC 4: tổng hợp']
+ const LONG = { timeoutMs: 120_000 }
+-const textOf = (n: unknown): string => (typeof n === 'string' ? n : n !== null && typeof n === 'object' ? (((n as Node).type === 'Button' ? [String((n as Node).props?.label ?? '')] : []).concat(((n as Node).children ?? []).map(textOf))).join(' ') : '')
++// 0.8.8 N2: chữ nối không thêm khoảng trắng (dải màu tách chữ của một ô thành nhiều Text con).
++const textOf = (n: unknown): string => (typeof n === 'string' ? n : n !== null && typeof n === 'object' ? (((n as Node).type === 'Button' ? [` ${String((n as Node).props?.label ?? '')} `] : []).concat(((n as Node).children ?? []).map(textOf))).join('') : '')
+ 
++/** Chữ của cả band (0.8.8 N2: chip lô nằm ở dòng 2, bên phải; 0.8.7 ở dòng 1). Giữ tên hàm cũ để ca test giữ nguyên. */
+ async function firstRow($: Engine, columns: number): Promise<string> {
+   const ui = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: true, maxRows: 2, bodyColumns: columns, scroll: { offset: 0, bodyRows: 2 }, view: {} } } as never)
+   const tree = (await ui.drawn()) as unknown as Node
+   await ui.unmount()
+   const content = (tree.children ?? []).filter(c => c !== null && typeof c === 'object')[1] as Node
+-  return textOf((content.children ?? []).filter(c => c !== null && typeof c === 'object')[0])
++  return (content.children ?? []).filter(c => c !== null && typeof c === 'object').map(textOf).join('\n')
+ }
+ 
+ async function goal($: Engine, on: On) {
+@@ -66,7 +68,8 @@ describe('0.7.6 U4: chip lô subagent', () => {
+     expect(at60).toContain('3 lỗi')
+     const at48 = await firstRow($, 48)
+     expect(at48).toContain('BƯỚC 1: lọc tin lô 1')
+-    expect(at48).not.toContain('3 lỗi')
++    // 0.8.8 N2: chip lô ở dòng 2 nên không còn tranh chỗ với tên việc ở dòng 1; dòng 2 đủ chỗ thì chip vẫn còn.
++    expect(at48.split('\n')[1]).toContain('3 lỗi')
+   })
+ 
+   test('xong mục tiêu: không có chip lô', { ...LONG, options: { ...(LONG as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
 diff --git a/claude-mods/focus-conductor/tests/integration/band-b-n2-088.test.ts b/claude-mods/focus-conductor/tests/integration/band-b-n2-088.test.ts
 new file mode 100644
-index 0000000..2406108
+index 0000000..b40bf20
 --- /dev/null
 +++ b/claude-mods/focus-conductor/tests/integration/band-b-n2-088.test.ts
-@@ -0,0 +1,233 @@
+@@ -0,0 +1,253 @@
 +// 0.8.8 N2: band hướng B "Ba ô phát sáng". Dòng 1 là ba ô (bước, model, hướng), mỗi lúc chỉ một ô tô đặc; ô hướng lấy nhãn theo mục cần
 +// chú ý đầu tiên (thứ tự của attention.ts không đổi), tạm dừng đứng trước mọi mục, không có mục nào thì theo checklist. Dòng 2 là câu cần
 +// chú ý kèm +N, hay lý do tạm dừng và lệnh chạy tiếp, hay thanh tiến độ. Không còn gờ bên trái. Band không vượt bề rộng; ô hướng không bị bỏ.
@@ -693,37 +1414,43 @@ index 0000000..2406108
 +import type { Core, Warning, WarningKind } from '../../types'
 +import * as S from '../../hooks/lib/state'
 +import { directionOf, directionText } from '../../hooks/ui/direction'
++import { DARK_SOLIDS } from '../../hooks/ui/neon'
 +import { makeBrief } from '../support/commands'
 +import { COMPLEX_PROMPT, base, plan, step, submit, task } from '../support/engine'
 +import { RESUME, memoryStore, quotaMeter, session } from '../support/quota'
 +
 +type Node = { type?: string; props?: Record<string, unknown>; children?: unknown[] }
 +const PLAN = 'mcp__focus-conductor__plan'
-+const CHECK = '✓'
-+const DOT = '●'
-+const HALF = '◐'
-+const TODO = '○'
-+const UP = '▲'
-+const UP_HOLLOW = '△'
-+const PAUSE = '⏸'
-+const GUTTER = '▎'
++const CHECK = '\u2713'
++const DOT = '\u25CF'
++const HALF = '\u25D0'
++const TODO = '\u25CB'
++const UP = '\u25B2'
++const UP_HOLLOW = '\u25B3'
++const PAUSE = '\u23F8'
++const GUTTER = '\u258E'
 +const BUTTON_CELLS = 10
 +
 +const kids = (n: Node) => (n.children ?? []).filter(c => c !== null && typeof c === 'object') as Node[]
 +const textOf = (n: unknown): string => (typeof n === 'string' ? n : n !== null && typeof n === 'object' ? (((n as Node).type === 'Button' ? [String((n as Node).props?.label ?? '')] : []).concat(((n as Node).children ?? []).map(textOf))).join('') : '')
 +const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
-+const WIDE = /\p{Extended_Pictographic}|\p{Regional_Indicator}|[ᄀ-ᅟ⺀-〾ぁ-㏿㐀-䶿一-鿿가-힣＀-｠]/u
++const WIDE = /\p{Extended_Pictographic}|\p{Regional_Indicator}|[ᄀ-ᅟ\u2E80-\u303E\u3041-\u33FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7A3\uFF00-\uFF60]/u
 +const cellsOf = (s: string) => [...segmenter.segment(s.normalize('NFC'))].reduce((sum, g) => sum + (WIDE.test(g.segment) ? 2 : 1), 0)
-+const hasBg = (n: unknown): boolean => n !== null && typeof n === 'object' && ((((n as Node).type === 'Text' && typeof (n as Node).props?.backgroundColor === 'string')) || ((n as Node).children ?? []).some(hasBg))
++/** Ô tô đặc: có Text mang nền khác nền ô thường (ô thường của neon có nền DARK_SOLIDS.cell). */
++const hasBg = (n: unknown): boolean => n !== null && typeof n === 'object' && ((((n as Node).type === 'Text' && typeof (n as Node).props?.backgroundColor === 'string' && (n as Node).props?.backgroundColor !== DARK_SOLIDS.cell)) || ((n as Node).children ?? []).some(hasBg))
 +const isDim = (n: unknown): boolean => n !== null && typeof n === 'object' && (((n as Node).type === 'Text' && (n as Node).props?.dimColor === true) || ((n as Node).children ?? []).some(isDim))
 +
-+/** Số ô của một dòng: Text theo số ô chữ, Button theo nhãn (ít nhất BUTTON_CELLS), hộp hàng cộng con và khoảng cách. */
++/**
++ * Phần cố định của một dòng, như test 0.6.1 mục 3.3: Text theo số ô chữ, Button theo nhãn (ít nhất BUTTON_CELLS), hộp hàng cộng con và khoảng
++ * cách; hộp co được (flexShrink 1) không tính, vì engine cắt chữ trong đó khi vẽ (kit test không vẽ ra chữ).
++ */
 +function widthOf(n: unknown): number {
 +  if (typeof n === 'string') return cellsOf(n)
 +  if (n === null || typeof n !== 'object') return 0
 +  const node = n as Node
 +  if (node.type === 'Text') return cellsOf(textOf(node))
 +  if (node.type === 'Button') return Math.max(BUTTON_CELLS, cellsOf(String(node.props?.label ?? '')) + 2)
++  if (node.props?.flexShrink === 1) return 0
 +  const children = kids(node)
 +  const gap = Number(node.props?.gap ?? node.props?.columnGap ?? 0)
 +  return children.reduce((sum, c) => sum + widthOf(c), 0) + gap * Math.max(0, children.length - 1)
@@ -738,12 +1465,14 @@ index 0000000..2406108
 +  return { lines: kids(columnsOfTree[1] as Node), tree }
 +}
 +
-+/** Ba ô của dòng 1, theo thứ tự (khi có ô model). */
-+const cellsOfLine = (line: Node) => kids(line)
++/** Ba ô của dòng 1, theo thứ tự (khi có ô model); không tính nút (band hẹp đang tạm dừng đưa nút Chi tiết lên dòng 1). */
++const cellsOfLine = (line: Node) => kids(line).filter(c => c.type !== 'Button')
 +
 +async function running($: Engine, on: On, steps = ['BƯỚC 1: sửa module', 'BƯỚC 2: kiểm', 'BƯỚC 3: ghi tài liệu']) {
 +  const seen = base(on, { router: () => plan({ goal: 'Sửa module thanh toán', depth: 'substantial', volume: 'small', scope: ['src/'], main: { model: 'opus', effort: 'high', why: '' } }) })
 +  on('tool.call', { tool: 'Write' }, () => ({ result: 'đã ghi' }))
++  on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
++  on('tool.call', { tool: 'Bash' }, () => ({ result: '12 pass' }))
 +  await submit($, 'Sửa module thanh toán trong src/')
 +  await $.tool.call({ tool: PLAN, action: 'set', steps: steps.map(title => ({ title })) } as never)
 +  await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'done' } as never)
@@ -766,7 +1495,7 @@ index 0000000..2406108
 +      expect(hasBg(cells[0])).toBe(true)
 +      expect(textOf(cells[1])).toContain('opus')
 +      expect(textOf(cells[2])).toContain(`${CHECK} Đúng hướng`)
-+      expect(hasBg(cells[2]) && textOf(cells[2]).includes(UP)).toBe(false)
++      expect(hasBg(cells[2])).toBe(false)
 +      expect(textOf(lines[1])).toContain(HALF)
 +      expect(textOf(tree)).not.toContain(GUTTER)
 +      for (const line of lines) expect(widthOf(line), textOf(line)).toBeLessThanOrEqual(columns)
@@ -775,6 +1504,7 @@ index 0000000..2406108
 +    test(`${columns} cột, mục đầu là scope: ô hướng tô đặc "Lệch phạm vi"; ô bước không tô đặc; dòng 2 là câu cảnh báo kèm +N`, { options: { planApproval: 'off' } }, async ($, on) => {
 +      await running($, on)
 +      await $.tool.call({ tool: 'Write', file_path: '/repo/scripts/ngoai.py', content: 'x' } as never)
++      // Mục thứ hai (bước verified không có lần test nào): +1.
 +      await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'npm test: 12 pass' } as never)
 +      const { lines } = await bandLines($, columns)
 +      const cells = cellsOfLine(lines[0] as Node)
@@ -797,20 +1527,26 @@ index 0000000..2406108
 +
 +  test('xong, mọi bước verified: ô hướng "Đã kiểm 3/3" tô đặc; dòng 2 là thanh đầy', { options: { planApproval: 'off' } }, async ($, on) => {
 +    await running($, on)
-+    for (const id of [1, 2, 3]) await $.tool.call({ tool: PLAN, action: 'update', step: id, status: 'verified', evidence: `npm test bước ${id}: 12 pass` } as never)
++    await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' } as never)
++    await $.tool.call({ tool: 'Bash', command: 'npm test' } as never)
++    for (const id of [1, 2, 3]) await $.tool.call({ tool: PLAN, action: 'update', step: id, status: 'verified', evidence: 'npm test: 12 pass' } as never)
 +    const { lines } = await bandLines($, 120)
 +    const cells = cellsOfLine(lines[0] as Node)
 +    expect(textOf(cells.at(-1))).toContain(`${CHECK} Đã kiểm 3/3`)
 +    expect(hasBg(cells.at(-1))).toBe(true)
 +    expect(hasBg(cells[0])).toBe(false)
-+    expect(textOf(lines[1])).toContain('━'.repeat(6))
-+    expect(textOf(lines[1])).not.toContain('╌')
++    expect(textOf(lines[1])).toContain('\u2501'.repeat(6))
++    expect(textOf(lines[1])).not.toContain('\u254C')
 +  })
 +
 +  test('xong mà còn bước done: ô hướng "Đã kiểm 2/3" mức cần chú ý, không tô đặc', { options: { planApproval: 'off' } }, async ($, on) => {
 +    await running($, on)
++    await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' } as never)
++    await $.tool.call({ tool: 'Bash', command: 'npm test' } as never)
 +    await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'verified', evidence: 'npm test: 12 pass' } as never)
-+    await $.tool.call({ tool: PLAN, action: 'update', step: 2, status: 'verified', evidence: 'npm test: 13 pass' } as never)
++    await $.tool.call({ tool: PLAN, action: 'update', step: 2, status: 'verified', evidence: 'npm test: 12 pass' } as never)
++    // Sửa tiếp sau lần test đạt: bước 3 đóng bằng done không được tự nâng.
++    await $.tool.call({ tool: 'Edit', file_path: 'src/b.ts', old_string: 'a', new_string: 'b' } as never)
 +    await $.tool.call({ tool: PLAN, action: 'update', step: 3, status: 'done' } as never)
 +    const cells = cellsOfLine((await bandLines($, 120)).lines[0] as Node)
 +    expect(textOf(cells.at(-1))).toContain(`${DOT} Đã kiểm 2/3`)
@@ -834,10 +1570,12 @@ index 0000000..2406108
 +  })
 +
 +  test('56 cột với tên bước có chữ CJK và emoji: không dòng nào vượt 56 ô; ô hướng còn nguyên; không tách đôi cụm ký tự', { options: { planApproval: 'off' } }, async ($, on) => {
-+    const title = 'BƯỚC 2: 修复支付模块 🚀🚀 kiểm thử phần còn lại của module thanh toán'
++    const title = 'BƯỚC 2: \u4FEE\u590D\u652F\u4ED8\u6A21\u5757 \uD83D\uDE80\uD83D\uDE80 kiểm thử phần còn lại của module thanh toán'
 +    await running($, on, ['BƯỚC 1: sửa', title, 'BƯỚC 3: ghi'])
 +    const { lines } = await bandLines($, 56)
 +    for (const line of lines) expect(widthOf(line), textOf(line)).toBeLessThanOrEqual(56)
++    // Ô bước cắt tên bằng oneLine theo chỗ còn lại: cả dòng 1 (kể cả ô bước) vừa 56 ô.
++    expect(kids(lines[0] as Node).reduce((sum, c) => sum + cellsOf(textOf(c)), 0) + kids(lines[0] as Node).length - 1).toBeLessThanOrEqual(56)
 +    expect(textOf(cellsOfLine(lines[0] as Node).at(-1))).toContain(`${CHECK} Đúng hướng`)
 +    // Không còn nửa cặp thay thế (emoji bị tách đôi).
 +    expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(textOf(lines[0]))).toBe(false)
@@ -871,9 +1609,12 @@ index 0000000..2406108
 +      expect(textOf(cells.at(-1))).toContain(`${PAUSE} Tạm dừng`)
 +      expect(hasBg(cells.at(-1))).toBe(true)
 +      if (cells.length === 3) expect(isDim(cells[1])).toBe(true)
++      // Lý do, giờ làm mới và lệnh chạy tiếp; band hẹp ghi tên cửa sổ ngắn và chỉ lệnh.
 +      const second = textOf(lines[1])
-+      expect(second).toContain('hạn mức phiên (5 giờ)')
++      expect(second).toContain('còn 3%')
++      expect(second).toMatch(/[0-9]{2}:[0-9]{2} [0-9]{2}[/][0-9]{2}/)
 +      expect(second).toContain('/conductor resume')
++      if (columns === 120) expect(second).toContain('hạn mức phiên (5 giờ)')
 +      for (const line of lines) expect(widthOf(line), textOf(line)).toBeLessThanOrEqual(columns)
 +    })
 +  }
@@ -916,6 +1657,94 @@ index 0000000..2406108
 +    })
 +  }
 +})
+diff --git a/claude-mods/focus-conductor/tests/integration/band-rows-076.test.ts b/claude-mods/focus-conductor/tests/integration/band-rows-076.test.ts
+index 1d1964b..48e4d3d 100644
+--- a/claude-mods/focus-conductor/tests/integration/band-rows-076.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/band-rows-076.test.ts
+@@ -13,7 +13,8 @@ const PLAN = 'mcp__focus-conductor__plan'
+ const TITLES = ['BƯỚC 0: chuẩn bị', 'BƯỚC 1: chuẩn hóa', 'BƯỚC 2: chuyển dữ liệu', 'BƯỚC 3: lọc tin lô 1', 'BƯỚC 4: lọc tin lô 2', 'BƯỚC 5: lọc tin lô 3', 'BƯỚC 6: tổng hợp']
+ const GOAL = 'Cập nhật sổ giá tuần theo các bước có mã'
+ 
+-const textOf = (n: unknown): string => (typeof n === 'string' ? n : n !== null && typeof n === 'object' ? (((n as Node).type === 'Button' ? [String((n as Node).props?.label ?? '')] : []).concat(((n as Node).children ?? []).map(textOf))).join(' ') : '')
++// 0.8.8 N2: chữ nối không thêm khoảng trắng, vì dải màu tách chữ của một ô thành nhiều Text con.
++const textOf = (n: unknown): string => (typeof n === 'string' ? n : n !== null && typeof n === 'object' ? (((n as Node).type === 'Button' ? [` ${String((n as Node).props?.label ?? '')} `] : []).concat(((n as Node).children ?? []).map(textOf))).join('') : '')
+ 
+ /** Chữ của từng dòng band: cột nội dung là con thứ hai của hộp ngoài. */
+ async function bandRows($: Engine, columns: number, maxRows: number): Promise<string[]> {
+@@ -43,7 +44,9 @@ describe('0.7.6 band hai dòng', () => {
+     await midGoal($, on)
+     const rows = await bandRows($, 120, 2)
+     expect(rows.length).toBe(2)
+-    for (const part of ['5/7', 'BƯỚC 5: lọc tin lô 3', 'opus', 'high', '12 phút', '$', 'Chi tiết']) expect(rows[0], part).toContain(part)
++    // 0.8.8 N2: dòng 1 là ba ô (số bước và tên bước, model, hướng); thời gian, chi phí và nút Chi tiết ở dòng 2, sau thanh và mục tiêu.
++    for (const part of ['5/7', 'BƯỚC 5: lọc tin lô 3', 'opus', 'high']) expect(rows[0], part).toContain(part)
++    for (const part of ['12 phút', '$', 'Chi tiết']) expect(rows[1], part).toContain(part)
+     expect(rows[0]).not.toContain(GOAL)
+     expect(rows.join('\n')).not.toContain('đang thực hiện')
+     expect(rows[1]).toContain(GOAL)
+@@ -56,8 +59,9 @@ describe('0.7.6 band hai dòng', () => {
+ 
+   test('72 cột: không có chi phí; 96 cột trở lên: có', { options: { planApproval: 'off' } }, async ($, on) => {
+     await midGoal($, on)
+-    expect((await bandRows($, 72, 2))[0]).not.toContain('$')
+-    expect((await bandRows($, 96, 2))[0]).toContain('$')
++    // 0.8.8 N2: chi phí ở dòng 2.
++    expect((await bandRows($, 72, 2))[1]).not.toContain('$')
++    expect((await bandRows($, 96, 2))[1]).toContain('$')
+   })
+ 
+   test('không có gì cần chú ý mà có subagent đang chạy: dòng 2 là subagent đang chạy', { options: { planApproval: 'off' } }, async ($, on) => {
+@@ -79,8 +83,9 @@ describe('0.7.6 band hai dòng', () => {
+     await $.tool.call({ tool: 'Write', file_path: '/repo/scripts/ngoai.py', content: 'x' } as never)
+     const rows = await bandRows($, 120, 1)
+     expect(rows.length).toBe(1)
+-    expect(rows[0]).toContain('ngoài phạm vi')
+-    expect(rows[0]).not.toContain('BƯỚC 0: sửa')
++    // 0.8.8 N2: mục mức đỏ không còn thế chỗ tên bước; ô hướng tô đặc ghi "Lệch phạm vi".
++    expect(rows[0]).toContain('\u25B2 Lệch phạm vi')
++    expect(rows[0]).toContain('BƯỚC 0: sửa')
+   })
+ })
+ 
+@@ -89,7 +94,9 @@ describe('0.7.6 band hai dòng: chưa có checklist', () => {
+     base(on, { router: () => plan({ goal: GOAL, depth: 'substantial', volume: 'small' }) })
+     await submit($, GOAL)
+     const rows = await bandRows($, 120, 2)
+-    expect(rows.length).toBe(1)
++    // 0.8.8 N2: dòng 2 luôn có (nút Chi tiết và Ẩn nằm ở đó); mục tiêu chỉ ở dòng 1.
++    expect(rows.length).toBe(2)
+     expect(rows[0]).toContain(GOAL)
++    expect(rows[1]).not.toContain(GOAL)
+   })
+ })
+diff --git a/claude-mods/focus-conductor/tests/integration/done-u10-076.test.ts b/claude-mods/focus-conductor/tests/integration/done-u10-076.test.ts
+index 9229d94..7e46ee4 100644
+--- a/claude-mods/focus-conductor/tests/integration/done-u10-076.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/done-u10-076.test.ts
+@@ -10,7 +10,8 @@ type Node = { type?: string; props?: Record<string, unknown>; children?: unknown
+ const PLAN = 'mcp__focus-conductor__plan'
+ const GOAL = 'Cập nhật sổ giá tuần'
+ const TITLES = ['BƯỚC 0: chuẩn bị', 'BƯỚC 1: lọc tin', 'BƯỚC 2: tổng hợp']
+-const textOf = (n: unknown): string => (typeof n === 'string' ? n : n !== null && typeof n === 'object' ? (((n as Node).type === 'Button' ? [String((n as Node).props?.label ?? '')] : []).concat(((n as Node).children ?? []).map(textOf))).join(' ') : '')
++// 0.8.8 N2: chữ nối không thêm khoảng trắng (dải màu tách chữ của một ô thành nhiều Text con).
++const textOf = (n: unknown): string => (typeof n === 'string' ? n : n !== null && typeof n === 'object' ? (((n as Node).type === 'Button' ? [` ${String((n as Node).props?.label ?? '')} `] : []).concat(((n as Node).children ?? []).map(textOf))).join('') : '')
+ 
+ async function bandRows($: Engine, columns: number, maxRows: number): Promise<string[]> {
+   const ui = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows, bodyColumns: columns, scroll: { offset: 0, bodyRows: maxRows }, view: {} } } as never)
+@@ -33,9 +34,10 @@ describe('0.7.6 U10: trạng thái hoàn thành', () => {
+   test('band một dòng: số bước, "Hoàn thành: <mục tiêu>", thời gian đã chạy, chi phí', { options: { planApproval: 'off' } }, async ($, on) => {
+     await finished($, on)
+     const rows = await bandRows($, 120, 2)
+-    expect(rows.length).toBe(1)
+-    for (const part of ['3/3', `Hoàn thành: ${GOAL}`, '25 phút', '$']) expect(rows[0], part).toContain(part)
+-    expect(rows[0]).not.toContain('Đã xong mọi bước')
++    // 0.8.8 N2: dòng 1 là ba ô (ô bước ghi "3/3" và "Đã xong mọi bước"); dòng 2 là thanh đầy, "Hoàn thành: <mục tiêu>", thời gian, chi phí.
++    expect(rows.length).toBe(2)
++    for (const part of ['3/3', 'Đã xong mọi bước']) expect(rows[0], part).toContain(part)
++    for (const part of [`Hoàn thành: ${GOAL}`, '25 phút', '$']) expect(rows[1], part).toContain(part)
+   })
+ 
+   test('pane ẩn dòng việc chưa từng giao khi mọi bước đã đóng', { options: { planApproval: 'off' } }, async ($, on) => {
 diff --git a/claude-mods/focus-conductor/tests/integration/error-log-l1-079.test.ts b/claude-mods/focus-conductor/tests/integration/error-log-l1-079.test.ts
 index 16df99e..62db4ec 100644
 --- a/claude-mods/focus-conductor/tests/integration/error-log-l1-079.test.ts
@@ -933,12 +1762,72 @@ index 16df99e..62db4ec 100644
    })
  })
  
+diff --git a/claude-mods/focus-conductor/tests/integration/pause-u3-076.test.ts b/claude-mods/focus-conductor/tests/integration/pause-u3-076.test.ts
+index ff1302f..a60cc2f 100644
+--- a/claude-mods/focus-conductor/tests/integration/pause-u3-076.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/pause-u3-076.test.ts
+@@ -11,7 +11,8 @@ import { RESUME, memoryStore, quotaMeter, session, week } from '../support/quota
+ type Node = { type?: string; props?: Record<string, unknown>; children?: unknown[] }
+ const PLAN = 'mcp__focus-conductor__plan'
+ const PAUSE = '⏸'
+-const textOf = (n: unknown): string => (typeof n === 'string' ? n : n !== null && typeof n === 'object' ? (((n as Node).type === 'Button' ? [String((n as Node).props?.label ?? '')] : []).concat(((n as Node).children ?? []).map(textOf))).join(' ') : '')
++// 0.8.8 N2: chữ nối không thêm khoảng trắng, vì dải màu tách chữ của một ô thành nhiều Text con.
++const textOf = (n: unknown): string => (typeof n === 'string' ? n : n !== null && typeof n === 'object' ? (((n as Node).type === 'Button' ? [` ${String((n as Node).props?.label ?? '')} `] : []).concat(((n as Node).children ?? []).map(textOf))).join('') : '')
+ const cells = (s: string) => [...s.normalize('NFC')].length
+ 
+ function hooks(on: On) {
+@@ -47,9 +48,11 @@ describe('0.7.6 U3: tạm dừng cứng trên band', () => {
+   for (const columns of [56, 72, 120]) {
+     test(`${columns} cột: dòng 1 "⏸ Tạm dừng: ..." kèm giờ làm mới, dòng 2 "Điểm dừng đã ghi · chạy tiếp: /conductor resume force"`, { options: { planApproval: 'off' } }, async ($, on) => {
+       await hardPause($, on)
++      // 0.8.8 N2: dòng 1 là ba ô, ô hướng ghi "Tạm dừng"; lý do, giờ làm mới, điểm dừng và lệnh chạy tiếp ở dòng 2.
+       const rows = (await bandRows($, columns, 2)).map(textOf)
+-      expect(rows[0]).toContain(`${PAUSE} Tạm dừng: hạn mức phiên (5 giờ) còn 3%`)
+-      expect(rows[0]).toContain('làm mới')
++      expect(rows[0]).toContain(`${PAUSE} Tạm dừng`)
++      expect(rows[1]).toContain(`${PAUSE} Tạm dừng: hạn mức phiên (5 giờ) còn 3%`)
++      expect(rows[1]).toContain('làm mới')
+       expect(rows[1]).toContain('Điểm dừng đã ghi')
+       expect(rows[1]).toContain('chạy tiếp: /conductor resume force')
+     })
+@@ -70,7 +73,7 @@ describe('0.7.6 U3: tạm dừng cứng trên band', () => {
+     await submit($, COMPLEX_PROMPT)
+     await conductor($, 'pause')
+     const rows = (await bandRows($, 120, 2)).map(textOf)
+-    expect(rows[0]).toContain(`${PAUSE} Tạm dừng: người dùng yêu cầu tạm dừng`)
++    expect(rows[1]).toContain(`${PAUSE} Tạm dừng: người dùng yêu cầu tạm dừng`)
+     expect(rows[1]).toContain('chạy tiếp: /conductor resume')
+     expect(rows[1]).not.toContain('force')
+   })
+@@ -109,9 +112,11 @@ describe('0.7.6 U3: mục tiêu không bị cắt còn một ký tự', () => {
+       await submit($, COMPLEX_PROMPT)
+       const [first] = await bandRows($, columns, 2)
+       const kids = ((first as Node).children ?? []).filter(c => c !== null && typeof c === 'object') as Node[]
+-      const fixed = kids.filter(k => k.props?.flexGrow === undefined).reduce((sum, k) => sum + (k.type === 'Button' ? Math.max(10, cells(String(k.props?.label ?? '')) + 2) : cells(textOf(k))), 0)
++      // 0.8.8 N2: ô bước (con đầu của dòng 1) ghi mục tiêu đã cắt theo chỗ còn lại; cả dòng 1 vừa bề rộng.
++      expect(cells(textOf(kids[0]).trim())).toBeGreaterThanOrEqual(10)
++      const all = kids.reduce((sum, k) => sum + (k.type === 'Button' ? Math.max(10, cells(String(k.props?.label ?? '')) + 2) : cells(textOf(k))), 0)
+       const gaps = Number((first as Node).props?.gap ?? 0) * Math.max(0, kids.length - 1)
+-      expect(columns - 2 - fixed - gaps).toBeGreaterThanOrEqual(10)
++      expect(all + gaps).toBeLessThanOrEqual(columns)
+     })
+   }
+ })
 diff --git a/claude-mods/focus-conductor/tests/integration/taskrows-perf-087.test.ts b/claude-mods/focus-conductor/tests/integration/taskrows-perf-087.test.ts
-index f17b5e8..4eb2333 100644
+index f17b5e8..e8917b8 100644
 --- a/claude-mods/focus-conductor/tests/integration/taskrows-perf-087.test.ts
 +++ b/claude-mods/focus-conductor/tests/integration/taskrows-perf-087.test.ts
-@@ -32,7 +32,7 @@ const sha = async (text: string) => hex(await crypto.subtle.digest('SHA-256', ne
- const BASE_SHA = 'f10de6b917dd73cbef9f2ca6cd6efb62e90ca0b4fe2b19572ec363245504511b'
+@@ -28,11 +28,14 @@ async function paneText($: Engine, rows: number): Promise<string> {
+ const hex = (bytes: ArrayBuffer): string => [...new Uint8Array(bytes)].map(byte => byte.toString(16).padStart(2, '0')).join('')
+ const sha = async (text: string) => hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))
+ 
+-/** sha256 của chữ band và pane, đo trên 45b5161. */
+-const BASE_SHA = 'f10de6b917dd73cbef9f2ca6cd6efb62e90ca0b4fe2b19572ec363245504511b'
++/**
++ * sha256 của chữ band và pane. 0.8.7: đo trên 45b5161 (f10de6b9...). 0.8.8 N2 đổi bố cục band (ba ô) nên đo lại trên mã sau N2, cùng kịch
++ * bản, neon off; ca này từ nay ghim kết quả của bố cục mới (taskRows vẫn tính một lần, như phần đo thời gian ở dưới).
++ */
++const BASE_SHA = 'df2d52190c60b7bd175849308a3615fb2ae7130eb2b1472f8e55292337a121b2'
  
  describe('0.8.7: taskRows tính một lần cho mọi việc', () => {
 -  test('mục tiêu 12 việc, checklist có bước "Việc N", bước doing và bước đã xong: chữ band và pane trùng 0.8.6', { options: { planApproval: 'off' } }, async ($, on) => {
@@ -946,6 +1835,53 @@ index f17b5e8..4eb2333 100644
      const seen = base(on, { router: () => plan({ goal: GOAL, depth: 'substantial', volume: 'large', kind: 'edit', tasks: TASKS }) })
      await submit($, GOAL)
      await $.tool.call({ tool: PLAN, action: 'set', steps: STEPS.map(title => ({ title })) } as never)
+diff --git a/claude-mods/focus-conductor/tests/integration/ui-061.test.ts b/claude-mods/focus-conductor/tests/integration/ui-061.test.ts
+index 293392e..adddee2 100644
+--- a/claude-mods/focus-conductor/tests/integration/ui-061.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/ui-061.test.ts
+@@ -355,20 +355,22 @@ describe('0.6.1 3.3: band hẹp khi dừng', () => {
+       const tree = (await band.drawn()) as unknown as El
+       const out = {
+         count: (await band.find({ type: 'Text', text: /^0\/2$/ })) !== undefined,
+-        family: (await band.find({ type: 'Text', text: /^ opus $/ })) !== undefined,
++        // 0.8.8 N2: tên họ là một Text riêng trong ô model (0.8.7: chip " opus " có nền).
++        family: (await band.find({ type: 'Text', text: /^opus$/ })) !== undefined,
+         effort: (await band.find({ type: 'Text', text: /xhigh/ })) !== undefined,
+         fixed: Math.max(...fixedRows(tree)),
+       }
+       await band.unmount()
+       return out
+     }
+-    expect(await look(48)).toMatchObject({ count: true, family: true, effort: true })
++    // 0.8.8 N2: dòng 1 thêm ô hướng (không bao giờ bị bỏ), nên các mốc bỏ dời lên: 56 cột còn đủ, 48 cột bỏ effort, 40 cột bỏ cả ô model.
++    expect(await look(56)).toMatchObject({ count: true, family: true, effort: true })
++    const at48 = await look(48)
++    expect(at48).toMatchObject({ count: true, family: true, effort: false })
++    expect(at48.fixed).toBeLessThanOrEqual(48)
+     const at40 = await look(40)
+-    expect(at40).toMatchObject({ count: true, family: true, effort: false })
++    expect(at40).toMatchObject({ count: true, family: false, effort: false })
+     expect(at40.fixed).toBeLessThanOrEqual(40)
+-    const at30 = await look(30)
+-    expect(at30).toMatchObject({ count: true, family: false, effort: false })
+-    expect(at30.fixed).toBeLessThanOrEqual(30)
+   })
+ 
+   test('chế độ suggest: thiếu chỗ thì bỏ effort của chip đề xuất, giữ tên model (061-U21)', { options: { planApproval: 'off' } }, async ($, on) => {
+@@ -379,10 +381,11 @@ describe('0.6.1 3.3: band hẹp khi dừng', () => {
+     await goalWithSteps($)
+     await step($, seen)
+     await conductor($, 'mode suggest')
+-    const band = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: bandProps(40, 1) })
++    // 0.8.8 N2: ô hướng chiếm chỗ trên dòng 1, nên ca này đo ở 56 cột (48 cột trở xuống bỏ cả ô model đề xuất).
++    const band = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: bandProps(56, 1) })
+     expect(await band.find({ type: 'Text', text: /^opus$/ })).toBeDefined()
+     expect(await band.find({ type: 'Text', text: /xhigh/ })).toBeUndefined()
+-    for (const fixed of fixedRows((await band.drawn()) as unknown as El)) expect(fixed).toBeLessThanOrEqual(40)
++    for (const fixed of fixedRows((await band.drawn()) as unknown as El)) expect(fixed).toBeLessThanOrEqual(56)
+     await band.unmount()
+   })
+ 
 diff --git a/claude-mods/focus-conductor/tests/integration/ui.test.ts b/claude-mods/focus-conductor/tests/integration/ui.test.ts
 index aee5bd9..38010a3 100644
 --- a/claude-mods/focus-conductor/tests/integration/ui.test.ts
@@ -979,7 +1915,7 @@ index aee5bd9..38010a3 100644
      const PLAN = 'mcp__focus-conductor__plan'
 diff --git a/claude-mods/focus-conductor/tests/neon-n1-088.test.ts b/claude-mods/focus-conductor/tests/neon-n1-088.test.ts
 new file mode 100644
-index 0000000..336777f
+index 0000000..f7b1d31
 --- /dev/null
 +++ b/claude-mods/focus-conductor/tests/neon-n1-088.test.ts
 @@ -0,0 +1,177 @@
@@ -1041,7 +1977,7 @@ index 0000000..336777f
 +
 +describe('0.8.8 N1: dải màu', () => {
 +  test('13 ô dải cyber: ô 0 là mốc đầu, ô 12 là mốc cuối; mọi màu là hex sáu chữ số thường', () => {
-+    const runs = gradientRuns('━'.repeat(13), DARK_GRADIENTS.cyber, 0)
++    const runs = gradientRuns('\u2501'.repeat(13), DARK_GRADIENTS.cyber, 0)
 +    expect(cellCount(runs)).toBe(13)
 +    const colors = cellColors(runs)
 +    expect(colors[0]).toBe('#00e5ff')
@@ -1053,7 +1989,7 @@ index 0000000..336777f
 +  })
 +
 +  test('frame 1 dịch đúng một ô so với frame 0; frame 24 như frame 0', () => {
-+    const at = (frame: number) => cellColors(gradientRuns('━'.repeat(40), DARK_GRADIENTS.aurora, frame))
++    const at = (frame: number) => cellColors(gradientRuns('\u2501'.repeat(40), DARK_GRADIENTS.aurora, frame))
 +    const zero = at(0)
 +    const one = at(1)
 +    for (let i = 0; i < 39; i++) expect(one[i]).toBe(zero[i + 1])
@@ -1061,7 +1997,7 @@ index 0000000..336777f
 +  })
 +
 +  test('chu kỳ phản chiếu: ô 24 về lại mốc đầu, nửa sau đi ngược nửa đầu', () => {
-+    const colors = cellColors(gradientRuns('━'.repeat(25), DARK_GRADIENTS.plasma, 0))
++    const colors = cellColors(gradientRuns('\u2501'.repeat(25), DARK_GRADIENTS.plasma, 0))
 +    expect(colors[24]).toBe(colors[0])
 +    for (let i = 1; i < 12; i++) expect(colors[12 + i]).toBe(colors[12 - i])
 +  })
@@ -1070,7 +2006,7 @@ index 0000000..336777f
 +    expect(gradientRuns('', DARK_GRADIENTS.cyber, 0)).toEqual([])
 +    const one = gradientRuns('x', DARK_GRADIENTS.cyber, 0)
 +    expect(one).toEqual([{ text: 'x', color: '#00e5ff' }])
-+    const word = 'Việt Nam'
++    const word = 'Viê\u0323t Nam'
 +    const runs = gradientRuns(word, DARK_GRADIENTS.cyber, 0)
 +    expect(runs.map(r => r.text).join('')).toBe(word.normalize('NFC'))
 +    // Mỗi Run kết thúc ở ranh giới cụm ký tự: không Run nào bắt đầu bằng dấu kết hợp.
@@ -1079,8 +2015,8 @@ index 0000000..336777f
 +  })
 +
 +  test('các ô liền nhau cùng màu gộp thành một Run', () => {
-+    const runs = gradientRuns('━'.repeat(6), ['#00e5ff'], 0)
-+    expect(runs).toEqual([{ text: '━'.repeat(6), color: '#00e5ff' }])
++    const runs = gradientRuns('\u2501'.repeat(6), ['#00e5ff'], 0)
++    expect(runs).toEqual([{ text: '\u2501'.repeat(6), color: '#00e5ff' }])
 +  })
 +})
 +
