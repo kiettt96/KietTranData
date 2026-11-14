@@ -2,6 +2,22 @@
 
 Các bản của focus-conductor, mới nhất trước. Số đo kiểm chứng của HEAD hiện tại nằm ở [docs/VERIFICATION.md](docs/VERIFICATION.md); cách dùng và tùy chọn ở [README](README.md).
 
+## Thay đổi 0.8.9: router bị engine từ chối khi đọc prompt dài
+
+Router của prompt dài hơn 80.000 ký tự bị engine từ chối khi họ đọc là fable, opus hay haiku: lượt đọc trọn xin `maxTokens` 128.000, cao hơn trần 64.000 của lời gọi model từ hook [Đo trực tiếp, engine 2.1.296 và 2.1.325, 14/11/2026]. Lời dặn router, giao diện, option, schema tool `plan` và golden không đổi. Mỗi điểm một commit test đỏ rồi một commit sửa.
+
+- **U1: trần 64.000.** `HOOK_MAX_TOKENS` ở `hooks/lib/reading.ts`; `fullMaxTokens`, `fullRetryTokens` kẹp theo trần này. `askRouter` kẹp `maxTokens` của mọi request nó gửi ở một chỗ. Engine giả của test tích hợp từ chối như engine thật (`maxTokens`, `timeoutMs` không phải số nguyên dương, `maxTokens` trên 64.000).
+- **U2: đường lùi khi engine từ chối.** Lượt đầu bị từ chối thì gửi `fallback`, không ra kết quả mà có `apiFallback` thì gửi tiếp; không có `fallback` thì gửi `apiFallback`. `RouterOutcome.usageModels` ghi model của từng usage; chi phí router tính theo giá của họ đã nhận lời gọi.
+- **U3: lý do nguyên văn.** Lý do router lỗi là "engine từ chối gửi request tới model router: <thông điệp của engine>" (một dòng, bỏ phần đầu tới hết `$.model.complete: `, 160 ký tự). Dòng `route` của nhật ký quyết định có `firstFail` khi request dự phòng cứu được lượt đầu.
+- **U4: lượt đọc trọn không ra kết quả.** Hỏng định dạng, bị cắt hay rỗng mà các bước đã có không cứu được thì gửi request đã cắt theo trần cũ đúng một lần.
+
+**Test cũ đổi kỳ vọng, giữ tên:**
+- `router-full-l1-087` ba ca ghim 128.000 nay ghim 64.000: "request không truyền reading: Fable theo thông số fable, router sonnet theo thông số sonnet (maxTokens 128.000 và 16.000)", "trần lượt hỏi lại của Fable đọc trọn: 1,5 lần 128.000 kẹp về mức engine báo 128.000", "askRouter chuyển full sang lượt hỏi lại: ...".
+- `router.test.ts` ca "ask ném lỗi (engine từ chối): askRouter tự bắt, coi như engine từ chối; lần hai ném lỗi thì giữ câu trả lời lần một": lý do có thêm thông điệp của lỗi. Ca `ask` trả `null` cùng tệp giữ nguyên.
+- `error-log-l1-079`: MOD_VERSION là 0.8.9.
+
+**Mẫu cũ viết lại, giữ mã:** `087-L3i`, `087-L3n` (chuỗi của `fullRetryTokens` và lời gọi hỏi lại đổi theo U1). Mẫu mới: `089-U1a` tới `089-U1c`, `089-U2a` tới `089-U2e`, `089-U3a` tới `089-U3c`, `089-U4a` tới `089-U4d`.
+
 ## Thay đổi 0.8.8: giao diện hướng B "Ba ô phát sáng", dải màu neon
 
 Band, pane và status line đổi cách vẽ theo hướng B; logic của mod, lời nhắc, brief, kết quả tool, lời dặn router, golden và schema tool `plan` không đổi, nên số ký tự chèn vào context trùng 0.8.7 [Nguồn: chủ mod, 14/11/2026]. Mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `088-*`; số ca đỏ đo trên mã ngay trước điểm đó ở VERIFICATION.

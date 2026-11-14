@@ -11,7 +11,7 @@ Mod làm ba việc, mỗi việc ứng với một nhóm hook:
 2. **Điều phối lúc chạy.** Luồng chính chốt model và effort ở step đầu của mỗi turn; đổi model giữa các turn được tính theo chi phí ghi lại cache; subagent đã phân dùng đúng lựa chọn của router, subagent khác được router chấm khi giao.
 3. **Giữ nhất quán.** Checklist qua tool plan, chặn kết thúc khi checklist còn bước mở, theo dõi lặp lệnh lỗi, lạc đề và ghi file ngoài phạm vi, và đối chiếu evidence của bước `verified` với dấu vết thực thi thật.
 
-Router lỗi thì mod không đoán thay: prompt đó chạy theo model của phiên. Code của mod chỉ kiểm, ép theo chính sách và quay về an toàn. Mô tả từng cơ chế: [docs/DESIGN.md](docs/DESIGN.md).
+Router lỗi thì mod không đoán thay: prompt đó chạy theo model của phiên. Từ 0.8.9, khi engine từ chối gửi request tới router, cảnh báo ghi kèm nguyên văn lý do của engine (tối đa 160 ký tự), và router thử request dự phòng trước khi báo lỗi. Code của mod chỉ kiểm, ép theo chính sách và quay về an toàn. Mô tả từng cơ chế: [docs/DESIGN.md](docs/DESIGN.md).
 
 **Tài liệu khác:** [CHANGELOG.md](CHANGELOG.md) (lịch sử thay đổi theo bản), [docs/VERIFICATION.md](docs/VERIFICATION.md) (số đo kiểm chứng của HEAD hiện tại), [docs/DESIGN.md](docs/DESIGN.md) (cách hoạt động chi tiết và hợp đồng đối chiếu evidence của `verified`).
 

@@ -261,6 +261,41 @@ Chủ mod chốt ngày 12/11/2026 [Nguồn: chủ mod]: luồng chính đang đi
 - **Đoạn dặn.** `conductorContext` (462 ký tự) bỏ câu cho tự sửa file khi ráp kết quả, nói không tự sửa file, không tự chạy lệnh kiểm, chỉnh nhỏ gom vào một lời giao, lệnh kiểm giao một subagent chạy và báo tóm tắt. `conductorKeepText` 190 ký tự. Lời từ chối dưới 300 ký tự, dòng nhắc đọc dưới 200.
 - **Giới hạn đã biết của 0.8.6.** Lối thoát duy nhất ngoài lệnh `solo` là lời gọi Agent bị từ chối trước khi chạy; subagent chạy được mà làm sai thì luồng chính phải giao lại, không tự sửa. Kịch bản phiên dài của test để luồng chính tự chạy script ghi và lệnh kiểm, nên với `conductor: 'fable'` các lời gọi đó bị từ chối (số đo ở VERIFICATION). Khai báo kiểu của engine vẫn không sinh được trong phiên phát triển, nên `tsc` chưa chạy.
 
+## Router bị engine từ chối khi đọc prompt dài (0.8.9)
+
+Phiên thật, `conductor` là `fable`, prompt dài: mod báo router không đọc được prompt vì engine từ chối gửi request [Nguồn: ảnh chụp phiên thật của chủ mod, 14/11/2026]. Lượt đọc trọn của fable, opus, haiku xin `maxTokens` 128.000, là mức `claude -p` báo cho model, trong khi engine ném lỗi trước khi gửi khi lời gọi từ hook xin quá 64.000.
+
+- **Trần 64.000 (U1).** `HOOK_MAX_TOKENS` ở `hooks/lib/reading.ts`.
+  - Engine 2.1.296 và 2.1.325 nhận `maxTokens` 64.000 ở cả bốn họ model, và ném lỗi ở 64.001 và 128.000 [Đo trực tiếp, 14/11/2026, VERIFICATION mục 0.8.9]. Phần suy nghĩ và câu trả lời chia nhau trần này.
+  - `fullMaxTokens` và `fullRetryTokens` kẹp về số nhỏ hơn giữa `engineMaxOut` và trần này; `engineMaxOut` của bảng họ model giữ 128.000 như số đo của `claude -p`. Lượt đọc trọn của fable, opus, haiku nay xin 64.000; sonnet vẫn 16.000.
+  - `askRouter` kẹp `maxTokens` của mọi request nó gửi ở một chỗ: lượt đầu, lượt hỏi lại, `fallback`, `apiFallback`. `maxTokens` ghi ở dòng `router-fail` là số đã gửi thật.
+  - Sức chứa và `timeoutMs` không đổi: Fable vẫn đọc trọn khoảng 467.854 ký tự ở mặc định 1.800 giây, vì sức chứa của Fable do thời gian quyết định.
+- **Đường lùi khi engine từ chối (U2).** Lượt đầu bị engine từ chối (hàm gọi ném lỗi hay trả `null`):
+
+  | Có `fallback` | Có `apiFallback` | Việc làm |
+  |---|---|---|
+  | Có | Bất kỳ | Gửi `fallback`; có kết quả thì trả kèm `fellBack`. Không có kết quả mà có `apiFallback` thì gửi tiếp `apiFallback`, trả kèm `viaFallback` |
+  | Không | Có | Gửi `apiFallback`, trả kèm `viaFallback` |
+  | Không | Không | Như 0.8.8: lỗi loại `engine`, không hỏi lại |
+
+  - Mỗi request dự phòng gửi nhiều nhất một lần; nhánh này gửi nhiều nhất ba request. Nhánh `api-error` và `aborted` của lượt đầu giữ như 0.8.8.
+  - `RouterOutcome.usageModels` ghi model đã nhận từng lời gọi có usage. Chi phí router tính theo giá của họ đó; lời gọi bị từ chối không có usage.
+  - Bộ đếm lỗi của router điều phối: `viaFallback` tính một lần lỗi cho họ chính và kết quả cho họ dự phòng, như 0.8.7. `fellBack` tính một lần theo kết quả cuối cho họ chính, tức một lần thành công khi `fallback` cứu được. Hai cách đếm không tương đương: `ROUTER_FAIL_LIMIT` là 2, nên đếm thêm một lỗi khi bộ đếm đang ở 1 sẽ tạm ngừng router ngay [Nguồn: chủ mod, 14/11/2026].
+- **Lý do nguyên văn (U3).** `askRouter` giữ thông điệp của lỗi engine ném: gộp về một dòng, bỏ phần đầu tới hết `$.model.complete: `, cắt còn 160 ký tự (`engineMessage`).
+  - Lý do là "engine từ chối gửi request tới model router: <thông điệp>"; không có thông điệp thì giữ câu cũ. Câu này tới cảnh báo, dòng `router-fail`, `unroutedContext` và các câu của `/conductor goal`, `/conductor reroute`. Phần chèn vào context dài thêm tối đa 162 ký tự, chỉ ở ca engine từ chối.
+  - Request dự phòng cứu được lượt đầu (U2, U4, và các nhánh dự phòng của 0.8.7) thì `firstFail` ghi lý do lượt đầu hỏng; các dòng `route` của nhật ký quyết định có trường này.
+- **Lượt đọc trọn không ra kết quả (U4).** Với lượt đọc trọn (có `fallback`): các bước đã có chạy hết mà vẫn không có kết quả đọc được, và chưa gửi `fallback` hay `apiFallback`, thì gửi `fallback` đúng một lần với trọn thời gian chờ của nó, trả kèm `fellBack`.
+  - Áp cho: câu trả lời hỏng hay bị cắt mà không đủ hạn để hỏi lại; đã hỏi lại mà vẫn hỏng; câu trả lời rỗng. Request thường giữ như 0.8.8.
+  - Lý do: token ra lớn nhất của Fable đã đo là 91.084, vượt trần 64.000 [Đo trực tiếp, VERIFICATION mục 0.8.7], nên câu trả lời của lượt đọc trọn có thể bị cắt.
+- **Mức giữ hook tệ nhất** [Giả định: tính theo mã, mặc định `routerMaxWait` 1.800 giây]:
+  - Nhánh U4: lượt đầu và lượt hỏi lại dùng hết hạn chung 2.700 giây, rồi `fallback` 120 giây: 2.820 giây.
+  - Nhánh U2: lời gọi bị từ chối trả ngay, rồi `fallback` 120 giây hay `apiFallback` tối đa 1.800 giây.
+  - Nhánh lỗi API của 0.8.7 F1, không đổi ở 0.8.9: lượt đầu báo lỗi API ngay trước khi hết 1.800 giây, rồi `apiFallback` tối đa 1.800 giây của họ dự phòng, tổng 3.600 giây. Mục 0.8.7 ghi 2.700 giây vì chưa tính nhánh này. Đây là mức tệ nhất theo mã.
+- **Kit test không chuyển lỗi do hook test ném sang mod.** Engine giả của test (`tests/support/engine.ts`, chỗ ném lỗi khi từ chối) ném lỗi theo câu của engine thật, nhưng kit báo "hook was skipped" và mod nhận câu của kit "no implementation for model.complete". Hai ca tích hợp của U3 vì vậy kiểm câu mod nhận từ kit; câu nguyên văn của engine thật được kiểm ở ca thuần (`tests/router-reason-u3-089.test.ts`), dùng câu thu ở lượt đo [Nguồn: chủ mod, 14/11/2026].
+- **Chưa kiểm được trên phiên thật.**
+  - Câu lỗi của engine thật hiện trong cảnh báo của mod. Bản đã sửa không còn bị engine từ chối ở lượt chạy thật, và không tạo được một ca engine từ chối thật mà không sửa mã mod.
+  - Đường lùi của U2 và U4 trên engine thật: lượt chạy thật (VERIFICATION mục 0.8.9) chỉ đi nhánh thường.
+
 ## Giao diện hướng B và dải màu neon (0.8.8)
 
 Bản này chỉ đổi cách vẽ band, pane và status line. Logic, lời nhắc, brief, kết quả tool, lời dặn router, golden và schema tool `plan` giữ nguyên.
@@ -294,9 +329,9 @@ Bản này chỉ đổi cách vẽ band, pane và status line. Logic, lời nh�
   - sonnet: 1,5863 ký tự trên token, 0,0001491 giây trên ký tự, token ra lớn nhất 6.243, mức engine báo 128.000;
   - họ chưa đo (haiku, opus, model ID riêng): giá trị thận trọng hơn giữa hai họ trên cho từng thông số [Giả định].
   Fable chậm vì token ra lớn: trên prompt lặp mẫu, Fable liệt kê từng đề mục thành một việc và gần như toàn bộ token ra là câu trả lời JSON. Ở mặc định 1.800 giây, Fable đọc trọn khoảng 468.000 ký tự; sonnet bị giới hạn bởi cửa sổ (khoảng 1,56 triệu ký tự với cửa sổ 1.000.000 token).
-- **`maxTokens` và `timeoutMs` của lượt đọc trọn.** `maxTokens` là 1,5 lần token ra lớn nhất, làm tròn lên bội số 5.000, trong khoảng 16.000 tới mức engine báo: Fable 128.000, sonnet 16.000. `timeoutMs` là 1,5 lần thời gian đọc ước tính của phần gửi đi, làm tròn lên bội số 5 giây, trong khoảng 120.000 ms tới `maxWait`. Lượt hỏi lại vì câu trả lời bị cắt có trần 1,5 lần `maxTokens` của lượt đó, không vượt mức engine báo; lượt hỏi lại của lượt đọc trọn chạy effort không quá medium. `askRouter` chuyển `full` sang `retryRequest` để hai luật này có hiệu lực.
+- **`maxTokens` và `timeoutMs` của lượt đọc trọn.** `maxTokens` là 1,5 lần token ra lớn nhất, làm tròn lên bội số 5.000, trong khoảng 16.000 tới mức engine báo: Fable 128.000, sonnet 16.000 (từ 0.8.9 kẹp thêm ở trần 64.000 của lời gọi từ hook, nên Fable là 64.000; mục 0.8.9). `timeoutMs` là 1,5 lần thời gian đọc ước tính của phần gửi đi, làm tròn lên bội số 5 giây, trong khoảng 120.000 ms tới `maxWait`. Lượt hỏi lại vì câu trả lời bị cắt có trần 1,5 lần `maxTokens` của lượt đó, không vượt mức engine báo; lượt hỏi lại của lượt đọc trọn chạy effort không quá medium. `askRouter` chuyển `full` sang `retryRequest` để hai luật này có hiệu lực.
 - **Lượt dự phòng.** Lượt đọc trọn hết giờ hay bị API từ chối thì `askRouter` gửi request dự phòng, dựng bằng cùng tham số với cửa sổ 0 (cắt theo trần 80.000), với trọn `FALLBACK_TIMEOUT_MS` 120.000 ms. Lượt này không lấy phần còn lại của hạn chung và không kiểm hạn chung. Kết quả báo `fellBack`; khi được dùng thì có cảnh báo (lý do "lượt đọc trọn lỗi nên dùng lượt đọc rút gọn") và `CLIPPED_CONTEXT`. `/conductor goal` và `/conductor reroute` dùng cùng sức chứa, không có nhánh dự phòng.
-- **Thời gian giữ hook.** Hạn chung của `askRouter` là 1,5 lần `timeoutMs` của lượt đầu. Lượt dự phòng và lượt hỏi lại không cùng xảy ra trong một lần đọc (lượt dự phòng trả kết quả ngay), nên mức giữ hook tệ nhất là 1,5 lần `routerMaxWait`: 2.700 giây ở mặc định 1.800. Lượt đầu hết giờ ở 1.800 giây rồi lượt dự phòng 120 giây là 1.920 giây.
+- **Thời gian giữ hook.** Hạn chung của `askRouter` là 1,5 lần `timeoutMs` của lượt đầu. Lượt dự phòng và lượt hỏi lại không cùng xảy ra trong một lần đọc (lượt dự phòng trả kết quả ngay), nên mức giữ hook tệ nhất là 1,5 lần `routerMaxWait`: 2.700 giây ở mặc định 1.800 (mục 0.8.9 tính lại: 2.820 giây ở nhánh U4, 3.600 giây ở nhánh lỗi API của F1). Lượt đầu hết giờ ở 1.800 giây rồi lượt dự phòng 120 giây là 1.920 giây.
 - **Chữ chờ.** Lượt đọc trọn ghi "router đang đọc trọn prompt dài, có thể mất vài phút..." ở status line thay cho "router đang đọc prompt..."; nhãn chỉ có tiếng Việt như nhãn cũ; band không có chữ chờ riêng; không chèn gì vào context.
 - **Bỏ trần số lượng** (L2, `hooks/lib/router.ts`, `hooks/lib/plan.ts`, `hooks/lib/state.ts`). `parseRoute` giữ mọi việc và mọi yêu cầu; `covers` chỉ giữ số từ 1 tới số yêu cầu thật. Checklist không có trần bước. Ràng buộc giữ trần 12 cùng phần tràn. Request gửi router và lời giao subagent vẫn liệt kê tối đa 20 việc cũ và 30 yêu cầu, quá mức đó thì có dòng ghi tổng số, để request của mục tiêu không quá 20 việc trùng 0.8.6.
 - **Các trần đã rà khi bỏ trần số lượng:**
