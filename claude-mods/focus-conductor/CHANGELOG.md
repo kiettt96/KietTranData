@@ -26,6 +26,16 @@ Band, pane và status line đổi cách vẽ theo hướng B; logic của mod, l
 - `taskrows-perf-087`: băm chữ band và pane đo lại trên bố cục mới.
 - `error-log-l1-079`: MOD_VERSION là 0.8.8.
 
+- **N6 (bổ sung trước khi mở PR) [Nguồn: chủ mod, 14/11/2026].**
+  - N6a: chữ trên nền ô thường dùng màu thô `onCell`, `onCellDim` khi neon khác off (ô bước thường, ô model, nhãn gợi ý), không dùng theme key hay `dimColor`; mọi chữ trên nền thô đạt tương phản (chữ mờ từ 3, còn lại từ 4,5) ở cả hai bảng, kể cả nhãn ô hướng không tô đặc.
+  - N6b: mọi Text của ô bước có `wrap="truncate-end"`; maxRows 1 hay dưới 56 cột bỏ thêm nút Ẩn, phần bên phải, rồi cắt nhãn ô hướng còn ký hiệu; từ 16 cột trở xuống bỏ cả nút Chi tiết (mở pane bằng `/conductor`).
+  - N6c: màu đơn của bảng nền sáng (bốn họ model, ok, attention, error) đạt tương phản với nền ô `#e6e8f0` và nền trắng.
+  - N6d: `colorAt`, `gradientRuns` coi frame và vị trí không hữu hạn là 0.
+  - N6e: khi tạm dừng, chỉ cửa sổ gây dừng dùng dải pause; người dùng tự dừng thì các thanh theo far hay near.
+  - N6f: bảy ca test còn thiếu, mỗi ca một mẫu. `band-since-ui2-079` ca "không có turn đang chạy, kể cả sau khi nạp lại mod" chạy với `neonMotion: 'off'` (ca đếm chu kỳ 60 giây).
+  - N6g: band không còn hộp rỗng ở cột đầu; các test band đọc dòng ngay từ gốc (`agent-chip-u4-076`, `band-rows-076`, `done-u10-076`, `limits-l2-087`, `pause-u3-076`, `progress-tasks`, `ui-061`, `band-b-n2-088`). Ca `taskrows-perf-087` đổi tên từ "... chữ band và pane trùng 0.8.6" thành "... chữ band và pane trùng bản ghi của bố cục 0.8.8" (đây là tên mất và tên mới duy nhất khi so tên ca với `e143c64`), băm đo lại.
+  - Mẫu `088-N6a` tới `088-N6q` đánh chữ liên tục qua các điểm (không theo chữ của điểm). Mẫu cũ viết lại ở N6: `061-U21`, `076-B8`, `088-N1b`.
+
 **Mẫu cũ viết lại, giữ mã, đều bị diệt:** 18 mẫu của band và thanh ở N2 (`060-O1`, `060-O3`, `061-U19`, `061-U21`, `061-U22`, `061-P11`, `061-P12`, `061-P13`, `070-V15`, `076-B2`, `076-B5`, `076-B6`, `076-B7`, `076-U3b`, `076-U4e`, `076-U10a`, `076-U10b`, `076-W4c`), 8 mẫu của status line ở N3 (`061-U2` tới `061-U7`, `073-T14`, `076-U5a`), `076-U1i` ở N4, `075-S6b`, `076-U3i`, `079-UI2c` ở N5.
 
 ## Thay đổi 0.8.7: router đọc trọn prompt, bỏ trần số lượng, model mới nhất, vai điều phối dự phòng và theo họ

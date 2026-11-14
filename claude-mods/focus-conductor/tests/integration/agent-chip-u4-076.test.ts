@@ -18,7 +18,8 @@ async function firstRow($: Engine, columns: number): Promise<string> {
   const ui = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: true, maxRows: 2, bodyColumns: columns, scroll: { offset: 0, bodyRows: 2 }, view: {} } } as never)
   const tree = (await ui.drawn()) as unknown as Node
   await ui.unmount()
-  const content = (tree.children ?? []).filter(c => c !== null && typeof c === 'object')[1] as Node
+  // 0.8.8 N6g: gốc của band là hộp cột chứa các dòng (0.8.7: dòng nằm trong cột thứ hai, sau cột gờ).
+  const content = tree
   return (content.children ?? []).filter(c => c !== null && typeof c === 'object').map(textOf).join('\n')
 }
 

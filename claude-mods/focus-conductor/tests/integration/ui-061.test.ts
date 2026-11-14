@@ -56,8 +56,9 @@ function widthOf(el: El | string): number {
 
 /** Phần cố định của từng dòng band: gờ trái, mọi con không co (flexShrink 0, nút) và gap; con co được chỉ tính lề. */
 function fixedRows(tree: El): number[] {
-  const [spine, body] = (tree.children ?? []) as El[]
-  const spineCells = widthOf(spine as El)
+  // 0.8.8 N6g: gốc của band là hộp cột chứa các dòng, không còn cột gờ.
+  const body = tree
+  const spineCells = 0
   return ((body?.children ?? []) as El[]).map(row => {
     const kids = (row.children ?? []).filter(k => typeof k !== 'string') as El[]
     const own = kids.reduce((sum, k) => sum + (k.type === 'Box' && k.props?.['flexShrink'] === 1 ? Number(k.props?.['marginLeft'] ?? 0) : widthOf(k)), 0)

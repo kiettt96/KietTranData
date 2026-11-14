@@ -51,13 +51,12 @@ function widthOf(n: unknown): number {
   return children.reduce((sum, c) => sum + widthOf(c), 0) + gap * Math.max(0, children.length - 1)
 }
 
-/** Các dòng của band: hộp ngoài có hai cột, cột đầu rỗng (không còn gờ), cột hai là các dòng. */
+/** Các dòng của band: gốc là hộp cột chứa các dòng (0.8.8 N6g). */
 async function bandLines($: Engine, columns: number, maxRows = 2): Promise<{ lines: Node[]; tree: Node }> {
   const ui = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: true, maxRows, bodyColumns: columns, scroll: { offset: 0, bodyRows: maxRows }, view: {} } } as never)
   const tree = (await ui.drawn()) as unknown as Node
   await ui.unmount()
-  const columnsOfTree = kids(tree)
-  return { lines: kids(columnsOfTree[1] as Node), tree }
+  return { lines: kids(tree), tree }
 }
 
 /** Ba ô của dòng 1, theo thứ tự (khi có ô model); không tính nút (band hẹp đang tạm dừng đưa nút Chi tiết lên dòng 1). */
