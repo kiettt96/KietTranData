@@ -102,7 +102,7 @@ Cùng nhánh, tiếp từ `7682ef7`. Thứ tự C1, C2, R1, R2, R3, D1, D2, D3, 
 - `golden.test` đỏ từ commit sửa D1 (`c78ed19`) tới khi ghi lại golden ở D4 (`989bfd8`), vì đặc tả chỉ cho ghi lại golden ở D4; CI của các commit trong khoảng đó đỏ vì ca này.
 - **So tên ca với `7682ef7`** (3.633 ca): thêm 101 tên (94 ca mới và 7 tên mới của ca cũ đổi tên), mất 7 tên (tên cũ của 7 ca đó, liệt kê ở CHANGELOG). 3.633 + 101 − 7 = 3.727.
 - **Kiểm tĩnh** [Đo trực tiếp, trên `989bfd8`]: `claude plugin validate` đạt ở thư mục mod và ở gốc repo; `version-check` khớp 0.8.9, README đủ 47 option, mã màu thô chỉ nằm trong `hooks/ui/neon.ts`; `mutate --check` khớp 2.327/2.327; sha256 `hooks/` `c18024f5abdc18e55083a15db60ffe869b8aca7e1d5665a57de5653a76c45729`, `tests/` `3574fe22ecfc9c3f3943a1beb5c746b6bd857cd9302d5228511e79e338cb08f5` (theo `scripts/mutate.ts`).
-- **CI** [Nguồn: GitHub Actions]: run 237 trên `989bfd8` và run 238 trên `73c6e94` (commit tài liệu, không đổi `hooks/` hay `tests/`) đều xanh, https://github.com/kiettt96/KietTranData/actions/runs/43618667868. Các run đỏ trước đó là các commit test đỏ và các commit sửa từ D1 tới trước D4 (vì `golden.test`).
+- **CI** [Nguồn: GitHub Actions]: run 237 trên `989bfd8` và run 238 trên `73c6e94` (commit tài liệu, không đổi `hooks/` hay `tests/`) đều xanh (mã run 43618667868). Các run đỏ trước đó là các commit test đỏ và các commit sửa từ D1 tới trước D4 (vì `golden.test`).
 
 ## Kiểm chứng của 0.8.9 (router bị engine từ chối khi đọc prompt dài)
 
