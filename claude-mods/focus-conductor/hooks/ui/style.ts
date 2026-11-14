@@ -145,7 +145,8 @@ export function barRuns(plan: readonly PlanStep[], cells: number, hasRunning = f
   // W4: bước hiện tại còn todo mà đã có lô đang chạy thì đầu thanh cũng là ◐.
   const head: Run[] =
     status === 'doing' || (status === 'todo' && hasRunning)
-      ? phaseRuns(paint, phase, STEP_MARK.doing.glyph, { bold: true }, filled)
+      ? // ◐ của bước đang làm (0.8.8 N5): in đậm ở frame chẵn, thường ở frame lẻ (dải đứng yên thì frame là 0, luôn đậm).
+        phaseRuns(paint, phase, STEP_MARK.doing.glyph, { bold: paint.frame % 2 === 0 }, filled)
       : status === 'blocked'
         ? [{ text: STEP_MARK.blocked.glyph, color: paint.solid('attention') ?? STEP_MARK.blocked.color, bold: true }]
         : status === 'waiting'

@@ -499,7 +499,7 @@ export function renderPane(
     stripRows > 0 ? (
       <Text wrap="truncate-end">
         {stripMarks.slice(0, isStripIds ? stripMarks.length : stripShown).map(({ step, mark }, k) => (
-          <Text key={k} color={mark.color} dimColor={mark.dim} bold={step.status === 'doing' || mark.bold}>
+          <Text key={k} color={mark.color} dimColor={mark.dim} bold={step.status === 'doing' ? paint.frame % 2 === 0 : mark.bold}>
             {`${isStripIds && k > 0 ? ' ' : ''}${mark.glyph}${isStripIds ? step.id : ''}`}
           </Text>
         ))}

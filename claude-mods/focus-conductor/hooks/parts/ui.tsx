@@ -14,6 +14,7 @@ import { PANE, PANE_TITLE, renderPane } from '../ui/pane'
 import type { EngineInterface, On, Timer } from 'claude-code'
 import type { Ctx } from '../context'
 import { viewOf } from '../atoms'
+import { isMoving, neonStyleOf } from '../ui/neon'
 
 // Atom của mod, khai báo lại ở mỗi file dùng chúng (engine chỉ nhận tham chiếu state viết trong chính file đó);
 // cùng plugin và key nên là cùng một giá trị trong $.state.
@@ -36,6 +37,11 @@ const runningTurnState = atom({ plugin: 'focus-conductor', key: 'runningTurn' } 
  * lại) hủy nhịp đang giữ rồi đặt lại khi $.state còn ghi turn đang chạy.
  */
 const TICK_MS = 60_000
+/**
+ * Nhịp của màu chạy (0.8.8 N5): neon khác off và neonMotion là on thì có turn đang chạy là vẽ lại mỗi giây, để dải màu dịch một ô mỗi nhịp.
+ * $.clock.every nhận chu kỳ từ 1 ms [Nguồn: khai báo kiểu của engine 2.1.296 và 2.1.325]. Nhịp vẫn chỉ xin vẽ lại.
+ */
+const MOTION_TICK_MS = 1_000
 type Tick = { timer: Timer | null }
 
 function stopTick(tick: Tick): void {
@@ -53,9 +59,9 @@ async function redrawTick($: EngineInterface, tick: Tick): Promise<void> {
 }
 
 /** Đặt nhịp khi chưa có: một nhịp tại một thời điểm, kể cả khi turn mới bắt đầu trước khi nhịp của turn cũ kịp tự hủy. */
-function startTick($: EngineInterface, tick: Tick): void {
+function startTick($: EngineInterface, tick: Tick, ms: number): void {
   if (tick.timer !== null) return
-  tick.timer = $.clock.every(TICK_MS, () => {
+  tick.timer = $.clock.every(ms, () => {
     void redrawTick($, tick).catch(caught('redrawTick', undefined, 'hook'))
   })
 }
@@ -69,6 +75,7 @@ export function registerUi(on: On, ctx: Ctx): void {
   const { resetLocal } = ctx
   const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
   const tick: Tick = { timer: null }
+  const tickMs = isMoving(neonStyleOf(ctx.options)) ? MOTION_TICK_MS : TICK_MS
 
   // ------------------------------------------------ nhịp vẽ lại (UI2)
 
@@ -78,7 +85,7 @@ export function registerUi(on: On, ctx: Ctx): void {
     const result = await next(e)
     if (e.agentId !== undefined) return result
     await update($, runningTurnState, () => e.turnId)
-    startTick($, tick)
+    startTick($, tick, tickMs)
     return result
   }).catch(($, e, next) => (noteHookError('turn.start', next.error), next(e)))
 
@@ -93,7 +100,7 @@ export function registerUi(on: On, ctx: Ctx): void {
   on('session.start', { cwd: /.*/ }, async ($, e, next) => {
     const result = await next(e)
     stopTick(tick)
-    if ((await read($, runningTurnState)) !== '') startTick($, tick)
+    if ((await read($, runningTurnState)) !== '') startTick($, tick, tickMs)
     return result
   }).catch(($, e, next) => (noteHookError('session.start', next.error), next(e)))
 
@@ -120,7 +127,8 @@ export function registerUi(on: On, ctx: Ctx): void {
     const pause = settings.enabled
       ? bandQuota(quotaOverview({ enabled: true, limits: q.readings, thresholds: settings, pause: q.pause, overrideUntil: q.overrideUntil, overrideKinds: q.overrideKinds, checkpoint: q.checkpoint, now }), isPaused ? [] : softNotices(q.readings, now, settings), current.lang)
       : null
-    const tree = renderBand($.ui.resolve(e), current, { maxRows, columns: bodyColumns, isWorking, now }, {
+    // frame (0.8.8 N5): số giây của đồng hồ lúc vẽ; band và pane dùng chung.
+    const tree = renderBand($.ui.resolve(e), current, { maxRows, columns: bodyColumns, isWorking, now, frame: Math.floor(now / 1000) }, {
       onDetails: () => $.ui.open({ id: PANE, title: PANE_TITLE }),
       onHide: () => update($, bandHiddenState, () => true),
     }, badge, pause)
@@ -154,7 +162,7 @@ export function registerUi(on: On, ctx: Ctx): void {
     // Mục Cần chú ý của pane (0.7.6, W1): cùng phép tính tạm dừng và báo mềm với band.
     const isPaused = isPauseActive(true, evaluateQuota(q.readings, now, settings).hits, q.pause, overrideOf(q), now) || q.pause !== null
     const pause = overview !== null ? bandQuota(overview, isPaused ? [] : softNotices(q.readings, now, settings), current.lang) : null
-    return renderPane($.ui.resolve(e), current, { columns: e.props.bodyColumns, placement: e.props.placement, isResetArmed, now, rows: e.props.scroll.bodyRows }, {
+    return renderPane($.ui.resolve(e), current, { columns: e.props.bodyColumns, placement: e.props.placement, isResetArmed, now, rows: e.props.scroll.bodyRows, frame: Math.floor(now / 1000) }, {
       onMode: picked => update($, modeState, () => picked),
       onReset: async () => {
         // Hai bước: lần đầu chỉ chờ xác nhận; lần hai trong hạn mới xóa.

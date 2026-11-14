@@ -112,7 +112,7 @@ describe('0.7.9 UI2: dòng Đang chạy giữ "từ HH:MM"', () => {
 })
 
 describe('0.7.9 UI2: nhịp vẽ lại 60 giây khi có turn đang chạy', () => {
-  test('đồng hồ giả chạy 3 phút trong một turn: thời gian đã chạy ở band và pane tăng 3 lần, 3 lần vẽ lại, không ghi $.state', { options: { planApproval: 'off' } }, async ($, on) => {
+  test('đồng hồ giả chạy 3 phút trong một turn: thời gian đã chạy ở band và pane tăng 3 lần, 3 lần vẽ lại, không ghi $.state', { options: { planApproval: 'off', neonMotion: 'off' } }, async ($, on) => {
     const count = counters(on)
     const session = mock.session(on)
     const seen = await goal($, on)
@@ -165,7 +165,7 @@ describe('0.7.9 UI2: nhịp vẽ lại 60 giây khi có turn đang chạy', () =
     expect(count.invalidates.length).toBe(after)
   })
 
-  test('nạp lại mod giữa turn (session.start lần nữa), rồi đồng hồ chạy 3 phút: vẫn đúng 3 lần vẽ lại', { options: { planApproval: 'off' } }, async ($, on) => {
+  test('nạp lại mod giữa turn (session.start lần nữa), rồi đồng hồ chạy 3 phút: vẫn đúng 3 lần vẽ lại', { options: { planApproval: 'off', neonMotion: 'off' } }, async ($, on) => {
     sessionHooks(on)
     const count = counters(on)
     const seen = await goal($, on)
@@ -181,7 +181,7 @@ describe('0.7.9 UI2: nhịp vẽ lại 60 giây khi có turn đang chạy', () =
     expect(count.invalidates.length).toBe(after)
   })
 
-  test('turn mới bắt đầu ngay sau turn cũ (trước nhịp kế): vẫn một nhịp, 3 phút là 3 lần vẽ lại', { options: { planApproval: 'off' } }, async ($, on) => {
+  test('turn mới bắt đầu ngay sau turn cũ (trước nhịp kế): vẫn một nhịp, 3 phút là 3 lần vẽ lại', { options: { planApproval: 'off', neonMotion: 'off' } }, async ($, on) => {
     const count = counters(on)
     const seen = await goal($, on)
     await startTurn($)
