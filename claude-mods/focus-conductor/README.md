@@ -168,20 +168,44 @@ Thử nhanh mà không đốt hạn mức (kịch bản nghiệm thu thủ công
 4. Xác nhận khối ĐIỂM DỪNG xuất hiện (thử thêm một prompt về việc khác trước khi "tiếp tục": khối không được chèn), Claude tiếp tục đúng bước đang làm, không làm lại bước đã xong.
 5. Trả `pauseSessionRemainingPct` về `5`.
 
+### Giao diện ba ô và dải màu neon (0.8.8)
+
+Band có ba ô trên dòng 1: ô bước (số bước và tên bước hiện tại), ô model (họ, effort, vai điều phối), ô hướng (công việc đang đúng hướng hay cần nhìn). Mỗi lúc chỉ một ô tô đặc: ô hướng khi vi phạm (▲, dải đỏ hồng), tạm dừng (⏸, dải vàng cam) hay xong và đã kiểm hết (✓ Đã kiểm n/n); còn lại là ô bước, tô dải màu theo giai đoạn. Dòng 2 là câu cần chú ý đầu tiên kèm `+N`, hay thanh tiến độ bằng dải màu; bên phải là hạn mức, thời gian, chi phí và hai nút. 72 cột, ba trạng thái:
+
+```
+ 1/4 · 1✓ BƯỚC 2: sửa thanh toán   opus high   ✓ Đúng hướng
+━━━◐╌╌╌╌╌╌╌ Sửa module thanh toán theo bốn bước     6 phút [Chi tiết] [Ẩn]
+
+ 2/4 · 1✓ BƯỚC 3: viết test   opus high   △ Chưa kiểm
+△ Bước 2 ghi đã kiểm chứng nhưng lệnh kiểm tra `npm test` chạy trước…
+
+ 4/4 · 4✓ Đã xong mọi bước   opus high   ✓ Đã kiểm 4/4
+━━━━━━━━━━━ Hoàn thành: Sửa module thanh toán theo bốn bước  [Chi tiết] [Ẩn]
+```
+
+Status line có thêm đoạn hướng ngay sau họ model, viết thường ("✓ đúng hướng", "▲ lệch phạm vi", "✓ đã kiểm 4/4"); không có đoạn này khi đang tạm dừng, chờ duyệt kế hoạch hay báo hạn mức mềm, vì đã có nhãn riêng. Pane: tiêu đề mục là ô tô đặc, đầu checklist có dải bước ("✓1 ◐2 ○3 ○4"), mục Hạn mức và Chi phí có thanh.
+
+Khi có turn đang chạy, dải màu dịch một ô mỗi giây (band và pane vẽ lại mỗi giây; mod chỉ xin vẽ lại, không ghi trạng thái, không chèn gì vào context). Cách tắt:
+- chỉ cho dải màu đứng yên, nhịp 60 giây như 0.8.7: `neonMotion: off`;
+- bỏ hẳn màu neon, dùng màu theo theme của người dùng như 0.8.7 (bố cục vẫn là ba ô): `neon: off`;
+- terminal nền sáng: `neonTheme: light` (engine không báo cho mod biết nền sáng hay tối).
+
 ### Thanh tiến độ
 
-Từ 0.7.6 band và pane trả lời ba câu trước tiên: đang ở bước nào, tiến độ chung ra sao, có gì cần can thiệp. Band (khi có từ hai dòng) gồm dòng 1 là thanh tiến độ, số bước, bước hiện tại và bên phải chip model ("opus high"), thời gian đã chạy của mục tiêu, chi phí (từ 96 cột) và nút Chi tiết; dòng 2 là một việc cần chú ý theo mức độ (tạm dừng, lô lỗi chưa giao lại, ghi ngoài phạm vi, báo hạn mức mềm, mục bị bỏ, bước ghi đã kiểm chứng chưa đủ bằng chứng, vượt ngân sách tool call; "+N" là số việc còn lại), không có thì subagent đang chạy, không nữa thì mục tiêu (mờ). Chip lô chỉ hiện khi có lô đang chạy hay lỗi ("2 đang chạy · 3 lỗi"); lô lỗi ở dòng 2 ghi kèm mã bước ("BƯỚC 4: 3 lô lỗi chưa giao lại") và bước còn todo mà có lô đang chạy hiện ◐. Band một dòng thì dòng 1 thay tên bước bằng dòng đỏ hay dòng tạm dừng khi có. Xong mọi bước thì band một dòng "11/11 · 11✓ Hoàn thành: <mục tiêu> · <thời gian> · <chi phí>".
+Từ 0.7.6 band và pane trả lời ba câu trước tiên: đang ở bước nào, tiến độ chung ra sao, có gì cần can thiệp. Từ 0.8.8 dòng 1 của band là ba ô (bước, model, hướng; mục trên), dòng 2 là một việc cần chú ý theo mức độ (tạm dừng, chờ duyệt kế hoạch, lô lỗi chưa giao lại, ghi ngoài phạm vi, báo hạn mức mềm, mục bị bỏ, bước ghi đã kiểm chứng chưa đủ bằng chứng, vượt ngân sách tool call; "+N" là số việc còn lại), không có thì thanh tiến độ kèm subagent đang chạy hay mục tiêu (mờ); bên phải dòng 2 là nhãn hạn mức, thời gian đã chạy, chi phí (từ 96 cột), chip lô, nút Chi tiết và Ẩn. Chip lô chỉ hiện khi có lô đang chạy hay lỗi ("2 đang chạy · 3 lỗi"); lô lỗi ghi kèm mã bước ("BƯỚC 4: 3 lô lỗi chưa giao lại") và bước còn todo mà có lô đang chạy hiện ◐. Band một dòng chỉ còn dòng 1 (ba ô, phần bên phải, hai nút). Xong mọi bước thì ô bước ghi "Đã xong mọi bước", dòng 2 là thanh đầy và "Hoàn thành: <mục tiêu>".
+
+Từ 0.8.8 band theo hướng B (mục "Giao diện ba ô và dải màu neon" ngay dưới). Band lúc có lô lỗi, 72 cột:
 
 ```
-▎ ━━━◐╌╌╌╌╌╌╌ 3/11 BƯỚC 3: lọc tin lô 1              3 lỗi [Chi tiết] Ẩn
-▎ ▲ 3 lô lỗi chưa giao lại
+ 3/11 BƯỚC 3: lọc tin lô 1   sonnet medium   ▲ Lô lỗi
+▲ BƯỚC 3: 3 lô lỗi chưa giao lại +1                3 lỗi [Chi tiết] [Ẩn]
 ```
 
-Tạm dừng cứng vì hạn mức chiếm band:
+Tạm dừng cứng vì hạn mức: ô hướng ghi "Tạm dừng", dòng 2 là lý do, giờ làm mới và lệnh chạy tiếp:
 
 ```
-▎ ⏸ Tạm dừng: hạn mức tuần còn 1% · làm mới 00:00 01/01    [Chi tiết] Ẩn
-▎ Điểm dừng đã ghi · chạy tiếp: /conductor resume force
+ 1/4 BƯỚC 2: sửa thanh toán   opus high   ⏸ Tạm dừng
+⏸ Tạm dừng: hạn mức phiên (5 giờ) còn 3% · làm mới 00:00 01/01 · chạy tiếp: /conductor resume force
 ```
 
 Pane là một danh sách bước: bước khớp một việc (theo mã "BƯỚC N", "Việc N" hay tiêu đề của bước dự kiến) mang chip của việc đó ngay trên dòng, nên mỗi bước chỉ xuất hiện một lần; bước đã đóng của checklist dài dồn thành một dòng "N bước đã đóng (k đã kiểm chứng, m bỏ qua)". Ngay dưới thanh tiến độ, pane có mục "Cần chú ý" (cùng thứ tự mức độ với band; tạm dừng cứng kèm lý do, giờ làm mới và lệnh chạy tiếp; tối đa 4 mục rồi "+N mục khác"), còn "Cảnh báo khác" chỉ giữ cảnh báo chưa hiện ở đó. Dưới 48 cột, chip model và số lô xuống dòng riêng dưới tên bước. Mục "Tiến độ từng việc" chỉ còn việc Claude tự giao và việc không khớp bước nào; mục "Đang chạy" ghi mỗi việc có subagent đang chạy một dòng (khoảng lô, số agent, thời gian). Độ sâu, khối lượng, loại việc và lý do router ở mục "Điều phối" cuối pane.
@@ -191,7 +215,8 @@ Pane là một danh sách bước: bước khớp một việc (theo mã "BƯỚ
 ▎ script khai sẵn
   ━━━━━━━◐╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌ 3/11 đang thực hiện
 
-Danh sách bước 3/11 ────────────────────────────────────────────────────────────
+ Danh sách bước  ───────────────────────────────────────────────────────── 3/11
+●1 ●2 ●3 ◐4 ○5 ○6 ○7 ○8 ○9 ○10 ○11
 ● 3 bước đã đóng
 ◐  4 BƯỚC 3: lọc tin lô 1                                  sonnet 98/100 · 2 lỗi
 ○  5 BƯỚC 4: lọc tin lô 2                                  sonnet 99/100 · 1 lỗi

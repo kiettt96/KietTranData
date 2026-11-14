@@ -2,6 +2,32 @@
 
 Các bản của focus-conductor, mới nhất trước. Số đo kiểm chứng của HEAD hiện tại nằm ở [docs/VERIFICATION.md](docs/VERIFICATION.md); cách dùng và tùy chọn ở [README](README.md).
 
+## Thay đổi 0.8.8: giao diện hướng B "Ba ô phát sáng", dải màu neon
+
+Band, pane và status line đổi cách vẽ theo hướng B; logic của mod, lời nhắc, brief, kết quả tool, lời dặn router, golden và schema tool `plan` không đổi, nên số ký tự chèn vào context trùng 0.8.7 [Nguồn: chủ mod, 14/11/2026]. Mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `088-*`; số ca đỏ đo trên mã ngay trước điểm đó ở VERIFICATION.
+
+- **N1: bảng màu neon và ba option.**
+  - Tệp mới `hooks/ui/neon.ts` là nơi duy nhất của `hooks/` chứa mã màu thô; `scripts/version-check.mjs` kiểm điều này. Bảng nền tối theo đặc tả; bảng nền sáng giảm L của HSL từng 1% tới khi tương phản với nền trắng đạt 4,5 trên 1.
+  - `gradientRuns`: mỗi ô ký tự một màu, chu kỳ 24 ô phản chiếu, nội suy tuyến tính, dịch một ô mỗi nhịp, các ô liền nhau cùng màu gộp lại. Đếm ô theo cụm ký tự (tách sang `hooks/ui/cells.ts`).
+  - Option mới: `neon` (`cyber` mặc định, `aurora`, `plasma`, `off`), `neonMotion` (`on`, `off`), `neonTheme` (`auto`, `dark`, `light`; engine không báo nền sáng hay tối nên `auto` là `dark`). README có 47 option.
+  - `neon: off`: cùng bố cục, mọi màu là theme key như 0.8.7.
+- **N2: band ba ô.** Bỏ gờ trái. Dòng 1 là ô bước (số bước và tên bước), ô model (họ, effort, vai điều phối), ô hướng (`hooks/ui/direction.ts`, nhãn theo mục đầu của `attentionItems`; thứ tự ở `attention.ts` không đổi). Mỗi lúc chỉ một ô tô đặc. Dòng 2: câu cần chú ý kèm `+N`, hay lý do tạm dừng và lệnh chạy tiếp, hay thanh tiến độ kèm subagent đang chạy (không có thì mục tiêu; xong hết thì "Hoàn thành: <mục tiêu>"), hay các ô dự kiến; bên phải hạn mức, thời gian, chi phí, chip lô, nhãn phản chiếu và hai nút. `maxRows` 1: một dòng có ba ô, phần bên phải (khi tạm dừng là dòng tạm dừng) và hai nút. Mục mức đỏ không còn thế chỗ tên bước.
+- **N3: status line.** Đoạn hướng ngay sau họ model, viết thường, không màu. Không có đoạn này khi mục đầu là tạm dừng, chờ duyệt kế hoạch hay báo hạn mức mềm, vì status line đã có nhãn riêng [Nguồn: chủ mod, 14/11/2026]. Tám chỗ đặt status line đi qua `statusTextOf`.
+- **N4: pane.** Tiêu đề mục là ô tô đặc, số đếm đẩy sang phải (Cần chú ý: dải warn khi có mục mức đỏ, màu cần chú ý khi chỉ có mục mức vàng; Hạn mức: dải pause khi đang dừng). Thanh tiến độ dưới mục tiêu tô dải theo giai đoạn. Đầu checklist có dải bước. Hạn mức có thanh theo phần trăm đã dùng của từng cửa sổ, giờ làm mới ở tiêu đề (đang dừng: của cửa sổ gây dừng; không: của cửa sổ dùng nhiều nhất [Nguồn: chủ mod, 14/11/2026]); dòng chữ cũ giữ nguyên bên dưới. Thanh chi phí tô dải màu. Dưới 48 cột thanh còn 6 ô, dưới 32 cột bỏ thanh.
+- **N5: màu chạy.** Có turn luồng chính đang chạy, `neon` khác `off` và `neonMotion` là `on` thì nhịp vẽ lại là 1 giây (0.8.7: 60 giây). `frame` là số giây của đồng hồ lúc vẽ; ◐ của bước đang làm đậm ở frame chẵn; dải pause đứng yên. Nhịp vẫn chỉ xin vẽ lại.
+
+**Test cũ đổi kỳ vọng hay cách dựng, giữ tên.** Mọi ca dưới đây thuộc giao diện:
+- Chạy với `neon: 'off'` vì ghim màu theme key của thanh: `ui.test.ts` ba ca (bốn giai đoạn, bước bị chặn, terminal hẹp); `taskrows-perf-087`.
+- Chạy với `neonMotion: 'off'` vì kiểm nhịp 60 giây: `band-since-ui2-079` ba ca (3 phút trong một turn, nạp lại mod giữa turn, turn mới ngay sau turn cũ).
+- Bố cục band mới (N2): `band-rows-076` bốn ca (thời gian, chi phí, nút ở dòng 2; maxRows 1 giữ tên bước và ô hướng ghi "Lệch phạm vi"; chưa có checklist có dòng 2); `done-u10-076` (band hoàn thành hai dòng); `pause-u3-076` năm ca (lý do tạm dừng ở dòng 2) và hai ca "mục tiêu còn ít nhất 10 ô" (đo chữ của ô bước); `agent-chip-u4-076` hai ca (chip lô ở dòng 2, không tranh chỗ với tên việc); `ui-061` ca bỏ lần lượt effort rồi ô model (mốc dời lên 56, 48, 40 cột vì có ô hướng) và ca chế độ suggest (đo ở 56 cột).
+- Hàm lấy chữ của test nối các Text con không thêm khoảng trắng (dải màu tách chữ của một ô): `band-rows-076`, `pause-u3-076`, `agent-chip-u4-076`, `done-u10-076`.
+- Đoạn hướng của status line có dấu ✓: `mirror-verify` kiểm số bước verified theo mẫu "<số>✓" (tám chỗ).
+- Hình dạng tiêu đề mục mới (N4: " <tên> " tô đặc, đường kẻ, số đếm bên phải): regex trong `auto-verify-ui`, `pane-header-u6-076`, `pane-order-075`, `ui.test.ts`, `pane-running-u8-076`, `pane-height-s6-075`, `band-since-ui2-079`, `empty-u11-076`, `progress-surface`, `ui-061`; `rowOf` (`tests/support/pane-long.ts`, `pane-order-075`) bỏ khoảng trắng đầu khi so.
+- `taskrows-perf-087`: băm chữ band và pane đo lại trên bố cục mới.
+- `error-log-l1-079`: MOD_VERSION là 0.8.8.
+
+**Mẫu cũ viết lại, giữ mã, đều bị diệt:** 18 mẫu của band và thanh ở N2 (`060-O1`, `060-O3`, `061-U19`, `061-U21`, `061-U22`, `061-P11`, `061-P12`, `061-P13`, `070-V15`, `076-B2`, `076-B5`, `076-B6`, `076-B7`, `076-U3b`, `076-U4e`, `076-U10a`, `076-U10b`, `076-W4c`), 8 mẫu của status line ở N3 (`061-U2` tới `061-U7`, `073-T14`, `076-U5a`), `076-U1i` ở N4, `075-S6b`, `076-U3i`, `079-UI2c` ở N5.
+
 ## Thay đổi 0.8.7: router đọc trọn prompt, bỏ trần số lượng, model mới nhất, vai điều phối dự phòng và theo họ
 
 Router dùng model nào cũng đọc trọn prompt dài tới sức chứa của lượt đó, và không còn trần số việc, số yêu cầu, số bước [Nguồn: chủ mod, 12 và 13/11/2026]. Kèm hai sửa nhỏ: `/conductor status` nêu lý do mode off ở phiên không tương tác (H1), và lần test lỗi chạy sau làm mất lần đạt dùng để tự nâng `verified` (B1). Một sửa hiệu năng riêng cho dòng việc ở band và pane (P1). Bản bổ sung 2 thêm ba điểm: mod dùng phiên bản model mới nhất qua alias (M1), họ dự phòng nhận vai điều phối khi Fable không dùng được (F1), và vai điều phối theo họ model đọc từ một bảng (G1). Prompt không quá 80.000 ký tự và mục tiêu không quá 20 việc thì trường `prompt`, `maxTokens`, `timeoutMs` và `effort` của request router trùng 0.8.6; trường `system` đổi theo lời dặn mới của L2. `agentSystem`, schema router và schema tool `plan` không đổi. Mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `087-*`; số ca đỏ đo trên `45b5161` ở VERIFICATION.
