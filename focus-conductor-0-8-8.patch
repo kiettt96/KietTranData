@@ -38,8 +38,45 @@ index 5ffb729..022e64d 100644
      }
    }
  }
+diff --git a/claude-mods/focus-conductor/CHANGELOG.md b/claude-mods/focus-conductor/CHANGELOG.md
+index 56a5735..9326e2b 100644
+--- a/claude-mods/focus-conductor/CHANGELOG.md
++++ b/claude-mods/focus-conductor/CHANGELOG.md
+@@ -2,6 +2,32 @@
+ 
+ Các bản của focus-conductor, mới nhất trước. Số đo kiểm chứng của HEAD hiện tại nằm ở [docs/VERIFICATION.md](docs/VERIFICATION.md); cách dùng và tùy chọn ở [README](README.md).
+ 
++## Thay đổi 0.8.8: giao diện hướng B "Ba ô phát sáng", dải màu neon
++
++Band, pane và status line đổi cách vẽ theo hướng B; logic của mod, lời nhắc, brief, kết quả tool, lời dặn router, golden và schema tool `plan` không đổi, nên số ký tự chèn vào context trùng 0.8.7 [Nguồn: chủ mod, 14/11/2026]. Mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `088-*`; số ca đỏ đo trên mã ngay trước điểm đó ở VERIFICATION.
++
++- **N1: bảng màu neon và ba option.**
++  - Tệp mới `hooks/ui/neon.ts` là nơi duy nhất của `hooks/` chứa mã màu thô; `scripts/version-check.mjs` kiểm điều này. Bảng nền tối theo đặc tả; bảng nền sáng giảm L của HSL từng 1% tới khi tương phản với nền trắng đạt 4,5 trên 1.
++  - `gradientRuns`: mỗi ô ký tự một màu, chu kỳ 24 ô phản chiếu, nội suy tuyến tính, dịch một ô mỗi nhịp, các ô liền nhau cùng màu gộp lại. Đếm ô theo cụm ký tự (tách sang `hooks/ui/cells.ts`).
++  - Option mới: `neon` (`cyber` mặc định, `aurora`, `plasma`, `off`), `neonMotion` (`on`, `off`), `neonTheme` (`auto`, `dark`, `light`; engine không báo nền sáng hay tối nên `auto` là `dark`). README có 47 option.
++  - `neon: off`: cùng bố cục, mọi màu là theme key như 0.8.7.
++- **N2: band ba ô.** Bỏ gờ trái. Dòng 1 là ô bước (số bước và tên bước), ô model (họ, effort, vai điều phối), ô hướng (`hooks/ui/direction.ts`, nhãn theo mục đầu của `attentionItems`; thứ tự ở `attention.ts` không đổi). Mỗi lúc chỉ một ô tô đặc. Dòng 2: câu cần chú ý kèm `+N`, hay lý do tạm dừng và lệnh chạy tiếp, hay thanh tiến độ kèm subagent đang chạy (không có thì mục tiêu; xong hết thì "Hoàn thành: <mục tiêu>"), hay các ô dự kiến; bên phải hạn mức, thời gian, chi phí, chip lô, nhãn phản chiếu và hai nút. `maxRows` 1: một dòng có ba ô, phần bên phải (khi tạm dừng là dòng tạm dừng) và hai nút. Mục mức đỏ không còn thế chỗ tên bước.
++- **N3: status line.** Đoạn hướng ngay sau họ model, viết thường, không màu. Không có đoạn này khi mục đầu là tạm dừng, chờ duyệt kế hoạch hay báo hạn mức mềm, vì status line đã có nhãn riêng [Nguồn: chủ mod, 14/11/2026]. Tám chỗ đặt status line đi qua `statusTextOf`.
++- **N4: pane.** Tiêu đề mục là ô tô đặc, số đếm đẩy sang phải (Cần chú ý: dải warn khi có mục mức đỏ, màu cần chú ý khi chỉ có mục mức vàng; Hạn mức: dải pause khi đang dừng). Thanh tiến độ dưới mục tiêu tô dải theo giai đoạn. Đầu checklist có dải bước. Hạn mức có thanh theo phần trăm đã dùng của từng cửa sổ, giờ làm mới ở tiêu đề (đang dừng: của cửa sổ gây dừng; không: của cửa sổ dùng nhiều nhất [Nguồn: chủ mod, 14/11/2026]); dòng chữ cũ giữ nguyên bên dưới. Thanh chi phí tô dải màu. Dưới 48 cột thanh còn 6 ô, dưới 32 cột bỏ thanh.
++- **N5: màu chạy.** Có turn luồng chính đang chạy, `neon` khác `off` và `neonMotion` là `on` thì nhịp vẽ lại là 1 giây (0.8.7: 60 giây). `frame` là số giây của đồng hồ lúc vẽ; ◐ của bước đang làm đậm ở frame chẵn; dải pause đứng yên. Nhịp vẫn chỉ xin vẽ lại.
++
++**Test cũ đổi kỳ vọng hay cách dựng, giữ tên.** Mọi ca dưới đây thuộc giao diện:
++- Chạy với `neon: 'off'` vì ghim màu theme key của thanh: `ui.test.ts` ba ca (bốn giai đoạn, bước bị chặn, terminal hẹp); `taskrows-perf-087`.
++- Chạy với `neonMotion: 'off'` vì kiểm nhịp 60 giây: `band-since-ui2-079` ba ca (3 phút trong một turn, nạp lại mod giữa turn, turn mới ngay sau turn cũ).
++- Bố cục band mới (N2): `band-rows-076` bốn ca (thời gian, chi phí, nút ở dòng 2; maxRows 1 giữ tên bước và ô hướng ghi "Lệch phạm vi"; chưa có checklist có dòng 2); `done-u10-076` (band hoàn thành hai dòng); `pause-u3-076` năm ca (lý do tạm dừng ở dòng 2) và hai ca "mục tiêu còn ít nhất 10 ô" (đo chữ của ô bước); `agent-chip-u4-076` hai ca (chip lô ở dòng 2, không tranh chỗ với tên việc); `ui-061` ca bỏ lần lượt effort rồi ô model (mốc dời lên 56, 48, 40 cột vì có ô hướng) và ca chế độ suggest (đo ở 56 cột).
++- Hàm lấy chữ của test nối các Text con không thêm khoảng trắng (dải màu tách chữ của một ô): `band-rows-076`, `pause-u3-076`, `agent-chip-u4-076`, `done-u10-076`.
++- Đoạn hướng của status line có dấu ✓: `mirror-verify` kiểm số bước verified theo mẫu "<số>✓" (tám chỗ).
++- Hình dạng tiêu đề mục mới (N4: " <tên> " tô đặc, đường kẻ, số đếm bên phải): regex trong `auto-verify-ui`, `pane-header-u6-076`, `pane-order-075`, `ui.test.ts`, `pane-running-u8-076`, `pane-height-s6-075`, `band-since-ui2-079`, `empty-u11-076`, `progress-surface`, `ui-061`; `rowOf` (`tests/support/pane-long.ts`, `pane-order-075`) bỏ khoảng trắng đầu khi so.
++- `taskrows-perf-087`: băm chữ band và pane đo lại trên bố cục mới.
++- `error-log-l1-079`: MOD_VERSION là 0.8.8.
++
++**Mẫu cũ viết lại, giữ mã, đều bị diệt:** 18 mẫu của band và thanh ở N2 (`060-O1`, `060-O3`, `061-U19`, `061-U21`, `061-U22`, `061-P11`, `061-P12`, `061-P13`, `070-V15`, `076-B2`, `076-B5`, `076-B6`, `076-B7`, `076-U3b`, `076-U4e`, `076-U10a`, `076-U10b`, `076-W4c`), 8 mẫu của status line ở N3 (`061-U2` tới `061-U7`, `073-T14`, `076-U5a`), `076-U1i` ở N4, `075-S6b`, `076-U3i`, `079-UI2c` ở N5.
++
+ ## Thay đổi 0.8.7: router đọc trọn prompt, bỏ trần số lượng, model mới nhất, vai điều phối dự phòng và theo họ
+ 
+ Router dùng model nào cũng đọc trọn prompt dài tới sức chứa của lượt đó, và không còn trần số việc, số yêu cầu, số bước [Nguồn: chủ mod, 12 và 13/11/2026]. Kèm hai sửa nhỏ: `/conductor status` nêu lý do mode off ở phiên không tương tác (H1), và lần test lỗi chạy sau làm mất lần đạt dùng để tự nâng `verified` (B1). Một sửa hiệu năng riêng cho dòng việc ở band và pane (P1). Bản bổ sung 2 thêm ba điểm: mod dùng phiên bản model mới nhất qua alias (M1), họ dự phòng nhận vai điều phối khi Fable không dùng được (F1), và vai điều phối theo họ model đọc từ một bảng (G1). Prompt không quá 80.000 ký tự và mục tiêu không quá 20 việc thì trường `prompt`, `maxTokens`, `timeoutMs` và `effort` của request router trùng 0.8.6; trường `system` đổi theo lời dặn mới của L2. `agentSystem`, schema router và schema tool `plan` không đổi. Mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `087-*`; số ca đỏ đo trên `45b5161` ở VERIFICATION.
 diff --git a/claude-mods/focus-conductor/README.md b/claude-mods/focus-conductor/README.md
-index d36b489..0aed150 100644
+index d36b489..46b160d 100644
 --- a/claude-mods/focus-conductor/README.md
 +++ b/claude-mods/focus-conductor/README.md
 @@ -135,6 +135,9 @@ Cấu hình qua `/config` (hoặc `pluginConfigs.focus-conductor.options` trong
@@ -52,6 +89,97 @@ index d36b489..0aed150 100644
  | `quotaGuard` | `true` | Bảo vệ hạn mức (xem mục dưới). Tắt thì mod chạy như 0.5.6 |
  | `pauseSessionRemainingPct` | `5` | Dừng khi hạn mức phiên (cửa sổ 5 giờ) còn không quá giá trị này, tính bằng phần trăm còn lại. Kẹp trong 0,5 đến 99 |
  | `pauseWeekRemainingPct` | `2` | Dừng khi hạn mức tuần còn không quá giá trị này, tính bằng phần trăm còn lại. Kẹp trong 0,5 đến 99 |
+@@ -165,20 +168,44 @@ Thử nhanh mà không đốt hạn mức (kịch bản nghiệm thu thủ công
+ 4. Xác nhận khối ĐIỂM DỪNG xuất hiện (thử thêm một prompt về việc khác trước khi "tiếp tục": khối không được chèn), Claude tiếp tục đúng bước đang làm, không làm lại bước đã xong.
+ 5. Trả `pauseSessionRemainingPct` về `5`.
+ 
++### Giao diện ba ô và dải màu neon (0.8.8)
++
++Band có ba ô trên dòng 1: ô bước (số bước và tên bước hiện tại), ô model (họ, effort, vai điều phối), ô hướng (công việc đang đúng hướng hay cần nhìn). Mỗi lúc chỉ một ô tô đặc: ô hướng khi vi phạm (▲, dải đỏ hồng), tạm dừng (⏸, dải vàng cam) hay xong và đã kiểm hết (✓ Đã kiểm n/n); còn lại là ô bước, tô dải màu theo giai đoạn. Dòng 2 là câu cần chú ý đầu tiên kèm `+N`, hay thanh tiến độ bằng dải màu; bên phải là hạn mức, thời gian, chi phí và hai nút. 72 cột, ba trạng thái:
++
++```
++ 1/4 · 1✓ BƯỚC 2: sửa thanh toán   opus high   ✓ Đúng hướng
++━━━◐╌╌╌╌╌╌╌ Sửa module thanh toán theo bốn bước     6 phút [Chi tiết] [Ẩn]
++
++ 2/4 · 1✓ BƯỚC 3: viết test   opus high   △ Chưa kiểm
++△ Bước 2 ghi đã kiểm chứng nhưng lệnh kiểm tra `npm test` chạy trước…
++
++ 4/4 · 4✓ Đã xong mọi bước   opus high   ✓ Đã kiểm 4/4
++━━━━━━━━━━━ Hoàn thành: Sửa module thanh toán theo bốn bước  [Chi tiết] [Ẩn]
++```
++
++Status line có thêm đoạn hướng ngay sau họ model, viết thường ("✓ đúng hướng", "▲ lệch phạm vi", "✓ đã kiểm 4/4"); không có đoạn này khi đang tạm dừng, chờ duyệt kế hoạch hay báo hạn mức mềm, vì đã có nhãn riêng. Pane: tiêu đề mục là ô tô đặc, đầu checklist có dải bước ("✓1 ◐2 ○3 ○4"), mục Hạn mức và Chi phí có thanh.
++
++Khi có turn đang chạy, dải màu dịch một ô mỗi giây (band và pane vẽ lại mỗi giây; mod chỉ xin vẽ lại, không ghi trạng thái, không chèn gì vào context). Cách tắt:
++- chỉ cho dải màu đứng yên, nhịp 60 giây như 0.8.7: `neonMotion: off`;
++- bỏ hẳn màu neon, dùng màu theo theme của người dùng như 0.8.7 (bố cục vẫn là ba ô): `neon: off`;
++- terminal nền sáng: `neonTheme: light` (engine không báo cho mod biết nền sáng hay tối).
++
+ ### Thanh tiến độ
+ 
+-Từ 0.7.6 band và pane trả lời ba câu trước tiên: đang ở bước nào, tiến độ chung ra sao, có gì cần can thiệp. Band (khi có từ hai dòng) gồm dòng 1 là thanh tiến độ, số bước, bước hiện tại và bên phải chip model ("opus high"), thời gian đã chạy của mục tiêu, chi phí (từ 96 cột) và nút Chi tiết; dòng 2 là một việc cần chú ý theo mức độ (tạm dừng, lô lỗi chưa giao lại, ghi ngoài phạm vi, báo hạn mức mềm, mục bị bỏ, bước ghi đã kiểm chứng chưa đủ bằng chứng, vượt ngân sách tool call; "+N" là số việc còn lại), không có thì subagent đang chạy, không nữa thì mục tiêu (mờ). Chip lô chỉ hiện khi có lô đang chạy hay lỗi ("2 đang chạy · 3 lỗi"); lô lỗi ở dòng 2 ghi kèm mã bước ("BƯỚC 4: 3 lô lỗi chưa giao lại") và bước còn todo mà có lô đang chạy hiện ◐. Band một dòng thì dòng 1 thay tên bước bằng dòng đỏ hay dòng tạm dừng khi có. Xong mọi bước thì band một dòng "11/11 · 11✓ Hoàn thành: <mục tiêu> · <thời gian> · <chi phí>".
++Từ 0.7.6 band và pane trả lời ba câu trước tiên: đang ở bước nào, tiến độ chung ra sao, có gì cần can thiệp. Từ 0.8.8 dòng 1 của band là ba ô (bước, model, hướng; mục trên), dòng 2 là một việc cần chú ý theo mức độ (tạm dừng, chờ duyệt kế hoạch, lô lỗi chưa giao lại, ghi ngoài phạm vi, báo hạn mức mềm, mục bị bỏ, bước ghi đã kiểm chứng chưa đủ bằng chứng, vượt ngân sách tool call; "+N" là số việc còn lại), không có thì thanh tiến độ kèm subagent đang chạy hay mục tiêu (mờ); bên phải dòng 2 là nhãn hạn mức, thời gian đã chạy, chi phí (từ 96 cột), chip lô, nút Chi tiết và Ẩn. Chip lô chỉ hiện khi có lô đang chạy hay lỗi ("2 đang chạy · 3 lỗi"); lô lỗi ghi kèm mã bước ("BƯỚC 4: 3 lô lỗi chưa giao lại") và bước còn todo mà có lô đang chạy hiện ◐. Band một dòng chỉ còn dòng 1 (ba ô, phần bên phải, hai nút). Xong mọi bước thì ô bước ghi "Đã xong mọi bước", dòng 2 là thanh đầy và "Hoàn thành: <mục tiêu>".
++
++Từ 0.8.8 band theo hướng B (mục "Giao diện ba ô và dải màu neon" ngay dưới). Band lúc có lô lỗi, 72 cột:
+ 
+ ```
+-▎ ━━━◐╌╌╌╌╌╌╌ 3/11 BƯỚC 3: lọc tin lô 1              3 lỗi [Chi tiết] Ẩn
+-▎ ▲ 3 lô lỗi chưa giao lại
++ 3/11 BƯỚC 3: lọc tin lô 1   sonnet medium   ▲ Lô lỗi
++▲ BƯỚC 3: 3 lô lỗi chưa giao lại +1                3 lỗi [Chi tiết] [Ẩn]
+ ```
+ 
+-Tạm dừng cứng vì hạn mức chiếm band:
++Tạm dừng cứng vì hạn mức: ô hướng ghi "Tạm dừng", dòng 2 là lý do, giờ làm mới và lệnh chạy tiếp:
+ 
+ ```
+-▎ ⏸ Tạm dừng: hạn mức tuần còn 1% · làm mới 00:00 01/01    [Chi tiết] Ẩn
+-▎ Điểm dừng đã ghi · chạy tiếp: /conductor resume force
++ 1/4 BƯỚC 2: sửa thanh toán   opus high   ⏸ Tạm dừng
++⏸ Tạm dừng: hạn mức phiên (5 giờ) còn 3% · làm mới 00:00 01/01 · chạy tiếp: /conductor resume force
+ ```
+ 
+ Pane là một danh sách bước: bước khớp một việc (theo mã "BƯỚC N", "Việc N" hay tiêu đề của bước dự kiến) mang chip của việc đó ngay trên dòng, nên mỗi bước chỉ xuất hiện một lần; bước đã đóng của checklist dài dồn thành một dòng "N bước đã đóng (k đã kiểm chứng, m bỏ qua)". Ngay dưới thanh tiến độ, pane có mục "Cần chú ý" (cùng thứ tự mức độ với band; tạm dừng cứng kèm lý do, giờ làm mới và lệnh chạy tiếp; tối đa 4 mục rồi "+N mục khác"), còn "Cảnh báo khác" chỉ giữ cảnh báo chưa hiện ở đó. Dưới 48 cột, chip model và số lô xuống dòng riêng dưới tên bước. Mục "Tiến độ từng việc" chỉ còn việc Claude tự giao và việc không khớp bước nào; mục "Đang chạy" ghi mỗi việc có subagent đang chạy một dòng (khoảng lô, số agent, thời gian). Độ sâu, khối lượng, loại việc và lý do router ở mục "Điều phối" cuối pane.
+@@ -188,7 +215,8 @@ Pane là một danh sách bước: bước khớp một việc (theo mã "BƯỚ
+ ▎ script khai sẵn
+   ━━━━━━━◐╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌ 3/11 đang thực hiện
+ 
+-Danh sách bước 3/11 ────────────────────────────────────────────────────────────
++ Danh sách bước  ───────────────────────────────────────────────────────── 3/11
++●1 ●2 ●3 ◐4 ○5 ○6 ○7 ○8 ○9 ○10 ○11
+ ● 3 bước đã đóng
+ ◐  4 BƯỚC 3: lọc tin lô 1                                  sonnet 98/100 · 2 lỗi
+ ○  5 BƯỚC 4: lọc tin lô 2                                  sonnet 99/100 · 1 lỗi
+diff --git a/claude-mods/focus-conductor/docs/DESIGN.md b/claude-mods/focus-conductor/docs/DESIGN.md
+index 7233e73..250d9cc 100644
+--- a/claude-mods/focus-conductor/docs/DESIGN.md
++++ b/claude-mods/focus-conductor/docs/DESIGN.md
+@@ -261,6 +261,25 @@ Chủ mod chốt ngày 12/11/2026 [Nguồn: chủ mod]: luồng chính đang đi
+ - **Đoạn dặn.** `conductorContext` (462 ký tự) bỏ câu cho tự sửa file khi ráp kết quả, nói không tự sửa file, không tự chạy lệnh kiểm, chỉnh nhỏ gom vào một lời giao, lệnh kiểm giao một subagent chạy và báo tóm tắt. `conductorKeepText` 190 ký tự. Lời từ chối dưới 300 ký tự, dòng nhắc đọc dưới 200.
+ - **Giới hạn đã biết của 0.8.6.** Lối thoát duy nhất ngoài lệnh `solo` là lời gọi Agent bị từ chối trước khi chạy; subagent chạy được mà làm sai thì luồng chính phải giao lại, không tự sửa. Kịch bản phiên dài của test để luồng chính tự chạy script ghi và lệnh kiểm, nên với `conductor: 'fable'` các lời gọi đó bị từ chối (số đo ở VERIFICATION). Khai báo kiểu của engine vẫn không sinh được trong phiên phát triển, nên `tsc` chưa chạy.
+ 
++## Giao diện hướng B và dải màu neon (0.8.8)
++
++Bản này chỉ đổi cách vẽ band, pane và status line. Logic, lời nhắc, brief, kết quả tool, lời dặn router, golden và schema tool `plan` giữ nguyên.
++
++- **Mã màu.** Mã màu thô chỉ nằm trong `hooks/ui/neon.ts`; `scripts/version-check.mjs` báo lỗi khi tệp khác của `hooks/` có chuỗi khớp `#[0-9a-fA-F]{6}`, `rgb(` hay `ansi256(`. Mọi tệp vẽ lấy màu qua bộ màu `paintOf(style, frame)`: `text` (chữ tô theo dải), `fill` (ô tô đặc: nền theo dải, chữ `onFill`), `solid` (màu đơn), `phase` (dải của giai đoạn). `neon: off` thì bộ màu trả theme key như 0.8.7 (`PHASE_HUE`, `FAMILY_HUE`, `success`, `warning`, `error`, `inverseText`).
++- **Bảng nền tối** [Nguồn: chủ mod, đặc tả 0.8.8]: `cyber` #00e5ff, #7b61ff, #ff2bd6; `aurora` #00ffa3, #00c2ff, #9d6bff; `plasma` #ff3cac, #8a5cff, #2b9bff; `start` #3d7bff, #00e5ff; `almost` #ff2bd6, #ff8a00, #ffd23f; `done` #b6ff3c, #00f5d4; `warn` #ffb300, #ff2d75; `pause` #ffe600, #ff8a00. Màu đơn: haiku #2ef2c5, sonnet #7aa2ff, opus #c77dff, fable #ff9d5c, chữ trên ô tô đặc #07080d, nền ô thường #171a28, đạt #5dff8f, cần chú ý #ffc233, lỗi #ff4d7d.
++- **Bảng nền sáng** (tính lúc nạp: giảm L của HSL từng 1% tới khi tương phản với #ffffff đạt từ 4,5 trên 1) [Đo trực tiếp, `hooks/ui/neon.ts`]: `cyber` #00808f, #7257ff, #d800af; `aurora` #008555, #0080a8, #894cff; `plasma` #e40083, #8352ff, #0075de; `start` #236aff, #00808f; `almost` #d800af, #b36100, #916f00; `done` #528300, #008573; `warn` #996b00, #ea0050; `pause` #807300, #b36100. Màu đơn: haiku #088467, sonnet #2869ff, opus #a836ff, fable #c74f00, chữ trên ô tô đặc #ffffff (đạt tương phản với mọi mốc), nền ô thường #e6e8f0, đạt #008629, cần chú ý #996b00, lỗi #eb003f.
++- **Dải màu.** `gradientRuns(text, stops, frame)`: chu kỳ 24 ô; nửa đầu đi từ mốc đầu tới mốc cuối, nửa sau đi ngược lại; nội suy tuyến tính giữa các mốc; ô thứ i lấy màu ở vị trí (i + frame) mod 24. Đếm ô theo cụm ký tự (`hooks/ui/cells.ts`), các ô liền nhau cùng màu gộp thành một Run.
++- **Ô hướng (`hooks/ui/direction.ts`).** Tạm dừng đứng trước mọi mục (⏸ Tạm dừng, tô đặc dải pause). Có mục cần chú ý thì nhãn theo `kind` của mục đầu: approval Chờ duyệt, failed Lô lỗi, scope Lệch phạm vi, loop Lặp lỗi, notice Gần hạn mức, dropped Mục bị bỏ, unverified và skill Chưa kiểm, budget Vượt ngân sách, loại khác Cần chú ý; mức màu theo `severity` (error là ô tô đặc dải warn, warning là chữ màu cần chú ý). Không có mục nào: xong và mọi bước verified là "✓ Đã kiểm n/n" tô đặc dải done; xong mà còn bước chưa verified là "● Đã kiểm k/n" màu cần chú ý; còn lại "✓ Đúng hướng" màu đạt. Ô bước tô đặc theo dải của giai đoạn đúng khi ô hướng không tô đặc.
++- **Band.** Co theo bề rộng, bỏ lần lượt: nhãn vai điều phối, chip lô, effort, thời gian đã chạy, cả ô model; ô hướng không bị bỏ. Tên bước trong ô bước cắt bằng `oneLine` theo chỗ còn lại. Chữ co giãn của dòng 2 (câu cần chú ý, lý do tạm dừng, lệnh chạy tiếp, mục tiêu sau thanh) nằm trong hộp co được với `truncate-end`, engine cắt khi vẽ; phần cố định của mỗi dòng không vượt bề rộng.
++- **Pane.** Tiêu đề mục: tên là một Text riêng trong ô tô đặc. Dải bước chiếm một dòng ở đầu checklist (khi từ hai bước), được cộng vào phép tính dạng gọn. Thanh hạn mức 12 ô, thanh chi phí 8 ô; pane dưới 48 cột 6 ô; bề rộng engine cấp dưới 32 cột thì bỏ thanh.
++- **Nhịp vẽ lại.** Turn luồng chính đang chạy, `neon` khác `off` và `neonMotion` là `on`: `$.clock.every(1000)`; còn lại 60.000 ms như 0.7.9. `$.clock.every` nhận chu kỳ từ 1 ms [Nguồn: khai báo kiểu của engine 2.1.296 và 2.1.325: "Calls fn every ms milliseconds (at least 1)"]. `frame` là `Math.floor($.clock.now() / 1000)` lúc vẽ, band và pane dùng chung; ◐ của bước đang làm in đậm ở frame chẵn; dải pause không dịch. Nhịp chỉ gọi `$.ui.invalidate`; số ký tự chèn vào context không đổi.
++- **Engine không báo nền sáng hay tối, cũng không báo độ sâu màu** [Đo trực tiếp, khai báo kiểu của 2.1.296 và 2.1.325: không có `theme.get` hay prop chế độ màu ở `ui.render`; 2.1.325 chỉ có `$.theme.set` và `clear`]. `neonTheme: auto` vì vậy là `dark`.
++- **Chưa kiểm được trên phiên thật.** Kit test của engine chỉ kiểm cây phần tử, không vẽ ra màu. Chưa kiểm:
++  - màu thật trên terminal và trên app Claude, và cách surface vẽ mã màu thô (khai báo kiểu ghi "What a surface draws for one it does not know is its own");
++  - terminal không có màu 24 bit;
++  - độ mượt và mức nhấp nháy của nhịp 1 giây, và tải của việc vẽ lại mỗi giây (số phần tử Text của band và pane ở VERIFICATION);
++  - giao diện sáng.
++
+ ## Router đọc trọn prompt, bỏ trần số lượng, model mới nhất, vai điều phối dự phòng và theo họ, lý do mode off, lần test lỗi chạy sau (0.8.7)
+ 
+ - **Hai giới hạn còn lại khi đọc prompt** (L3, `hooks/lib/reading.ts`). Router dùng model nào cũng đọc trọn prompt [Nguồn: chủ mod, 13/11/2026]. Prompt chỉ còn bị cắt ở hai trường hợp, và cả hai được báo bằng cảnh báo `model` và dòng `CLIPPED_CONTEXT`. Trường hợp một là vượt sức chứa của model router. Trường hợp hai là vượt số ký tự đọc được trong thời gian chờ tối đa người dùng đặt (`routerMaxWait`).
 diff --git a/claude-mods/focus-conductor/hooks/atoms.ts b/claude-mods/focus-conductor/hooks/atoms.ts
 index c6d0e4a..ae7a7ea 100644
 --- a/claude-mods/focus-conductor/hooks/atoms.ts
@@ -2728,7 +2856,7 @@ index 0000000..abb11c0
 +})
 diff --git a/claude-mods/focus-conductor/tests/integration/pane-b-n4-088.test.ts b/claude-mods/focus-conductor/tests/integration/pane-b-n4-088.test.ts
 new file mode 100644
-index 0000000..c4784b5
+index 0000000..a4a9158
 --- /dev/null
 +++ b/claude-mods/focus-conductor/tests/integration/pane-b-n4-088.test.ts
 @@ -0,0 +1,220 @@
@@ -2842,7 +2970,7 @@ index 0000000..c4784b5
 +  test('một bước: không có dải bước', { options: STILL }, async ($, on) => {
 +    await goal($, on, ['Chỉ một bước'])
 +    const tree = await drawPane($)
-+    expect(texts(tree).some(t => /^[\u2713\u25CF\u25D0\u25A0\u25C7\u25CB–]1$/.test(textOf(t)))).toBe(false)
++    expect(texts(tree).some(t => /^[\u2713\u25CF\u25D0\u25A0\u25C7\u25CB\u2013]1$/.test(textOf(t)))).toBe(false)
 +  })
 +})
 +
