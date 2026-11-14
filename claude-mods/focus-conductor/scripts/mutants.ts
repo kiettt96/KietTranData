@@ -2296,4 +2296,5 @@ export const MUTANTS: Mutant[] = [
   { id: "088-N6f", file: "hooks/ui/band.tsx", note: "không bỏ nút Chi tiết ở band rất hẹp", old: "    ...(columns <= 16 ? [() => (fit.details = false)] : []),\n", new: "" },
   { id: "088-N6g", file: "hooks/ui/neon.ts", note: "vị trí không hữu hạn không coi là 0", old: "  const at = Number.isFinite(position) ? position : 0\n", new: "  const at = position\n" },
   { id: "088-N6h", file: "hooks/ui/neon.ts", note: "frame không hữu hạn không coi là 0", old: "  const shift = Number.isFinite(frame) ? frame : 0\n", new: "  const shift = frame\n" },
+  { id: "088-N6i", file: "hooks/lib/text.ts", note: "mọi cửa sổ dùng pause khi đang dừng", old: "const level = isPaused && view.reasons.some(r => r.kind === w.kind) ? 'paused'", new: "const level = isPaused ? 'paused'" },
 ]

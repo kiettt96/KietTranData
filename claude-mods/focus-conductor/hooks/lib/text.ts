@@ -1099,7 +1099,8 @@ export function quotaPaneText(view: QuotaOverview, lang: Lang, hasNotice = false
   const softOf = (kind: QuotaReason['kind']) => (kind === 'five_hour' ? soft.session : soft.week)
   const bars: QuotaPaneBar[] = view.windows.map(w => {
     const notice = softOf(w.kind)
-    const level = isPaused ? 'paused' : notice !== null && w.used >= 100 - notice ? 'near' : 'far'
+    // Chỉ cửa sổ gây ra việc dừng dùng mức paused (0.8.8 N6e); người dùng tự dừng thì không cửa sổ nào là paused.
+    const level = isPaused && view.reasons.some(r => r.kind === w.kind) ? 'paused' : notice !== null && w.used >= 100 - notice ? 'near' : 'far'
     return { kind: w.kind, label: l.quotaWindow[w.kind], used: w.used, percent: percent(w.used), level }
   })
   const causing = isPaused ? view.reasons.map(r => resetLabel(r.resetsAt)).find(text => text !== '') : undefined
