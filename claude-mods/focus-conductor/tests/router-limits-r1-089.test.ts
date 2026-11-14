@@ -50,6 +50,18 @@ describe('0.8.9 R1: giới hạn của lời gọi cuối cùng đã gửi', () 
     expect(fields(outcome)).toEqual({ timeoutMs: 600_000, maxTokens: 32_000, outputTokens: 900 })
   })
 
+  test('lượt đầu bị từ chối, apiFallback mang maxTokens 128.000 trả lời: kết quả ghi 64.000 (số đã gửi sau khi kẹp)', async () => {
+    const sent: ModelCompleteRequest[] = []
+    const ask = async (r: ModelCompleteRequest) => {
+      sent.push(r)
+      if (String(r.prompt) === 'TRỌN') throw new Error('focus-conductor: $.model.complete: model "claude-fable-5-2" is not in this organization\'s allowlist')
+      return { isAnswered: true as const, text: REPLY, usage: usage(900) }
+    }
+    const outcome = await askRouter(ask, FULL, parse, undefined, { now: () => 0, apiFallback: req('API', 128_000, 600_000, 'opus') })
+    expect(sent[1]?.maxTokens).toBe(64_000)
+    expect(fields(outcome)).toEqual({ timeoutMs: 600_000, maxTokens: 64_000, outputTokens: 900 })
+  })
+
   test('lượt hỏi lại vì câu trả lời bị cắt: giới hạn và token ra của lượt hỏi lại', async () => {
     const sent: ModelCompleteRequest[] = []
     const ask = async (r: ModelCompleteRequest) => {
