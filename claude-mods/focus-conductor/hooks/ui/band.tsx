@@ -1,11 +1,16 @@
-// Band phía trên prompt (0.7.6): nhìn một lần là biết đang ở bước nào, tiến độ chung, và có việc gì cần người dùng can thiệp không.
-//   Dòng 1: thanh tiến độ, số bước, mã và tên bước hiện tại; bên phải chip model, thời gian đã chạy, chi phí (từ 96 cột), nút Chi tiết.
-//   Dòng 2: một dòng cần chú ý xếp theo mức độ (attention.ts); không có gì cần chú ý thì subagent đang chạy; không có nữa thì mục tiêu (mờ).
-// maxRows 1 thì chỉ dòng 1, và cảnh báo mức đỏ thế chỗ tên bước. Mục tiêu đầy đủ nằm ở pane. Gờ bên trái đổi màu theo mục cần chú ý
-// đầu tiên: cam là bình thường, vàng là cần chú ý, đỏ là vi phạm.
+// Band phía trên prompt, hướng B "Ba ô phát sáng" (0.8.8 N2): nhìn một lần là biết đang ở bước nào, model nào đang chạy, và công việc
+// có đi đúng hướng không.
+//   Dòng 1: ba ô cách nhau một ô trống. Ô bước (số bước k/n và tên bước hiện tại; chưa có checklist thì mục tiêu), ô model (họ, effort,
+//   vai điều phối), ô hướng (ký hiệu và nhãn theo mục cần chú ý đầu tiên, direction.ts). Mỗi lúc chỉ một ô tô đặc: ô hướng khi vi phạm,
+//   tạm dừng hay xong và đã kiểm hết; còn lại là ô bước, tô theo dải màu của giai đoạn.
+//   Dòng 2: bên trái câu cần chú ý đầu tiên kèm +N, hay lý do tạm dừng, hay thanh tiến độ (rồi subagent đang chạy, không có thì mục tiêu,
+//   khi còn chỗ), hay các ô ○ dự kiến; bên phải hạn mức, thời gian đã chạy, chi phí (từ 96 cột), chip lô, nhãn phản chiếu, nút Chi tiết
+//   và Ẩn (từ 72 cột). Tạm dừng thì bên phải là lệnh chạy tiếp rồi nút Chi tiết.
+// maxRows 1 thì chỉ dòng 1: ba ô, phần bên phải và hai nút. Band không còn gờ bên trái; hộp ngoài vẫn có hai cột (cột đầu rỗng) để cấu trúc
+// cây như 0.8.7. Màu lấy qua bộ màu của neon.ts (neon off: theme key như 0.8.7).
 // Hàm vẽ thuần: nhận bảng phần tử của surface, dữ liệu và các handler mà hook đã tạo; không tự gọi $.
 
-import type { Color, Elements, RenderElement, RenderSurface } from 'claude-code'
+import type { Elements, RenderElement, RenderSurface } from 'claude-code'
 
 import { conductorShown } from '../lib/conductor'
 import type { ConductorShown } from '../lib/conductor'
@@ -16,11 +21,14 @@ import type { View } from '../lib/state'
 import { countLabel, progress, quotaPercent } from '../lib/text'
 import type { BandQuota } from '../lib/text'
 import { attentionItems, failedBatches } from './attention'
+import { directionOf, directionText } from './direction'
+import type { Direction } from './direction'
 import { formatCost } from '../lib/ledger'
 import { labels, taskLabel } from './labels'
 import type { Run } from './style'
 import { DEFAULT_NEON, paintOf } from './neon'
-import { FAMILY_HUE, SPINE, barRuns, cellsOf, columnsOf, currentStep, goalUsd, pendingUsd, plannedRuns, severityGlyph } from './style'
+import type { GradientName } from './neon'
+import { barRuns, cellsOf, columnsOf, currentStep, goalUsd, oneLine, pendingUsd, phaseOf, plannedRuns, severityGlyph } from './style'
 
 /** Lượt của luồng chính chạy đúng họ đang điều phối (0.8.4 C8; 0.8.7 F1: kể cả họ dự phòng): band thêm nhãn vai trên chip model. */
 function isConductedRoute(family: string | undefined, shown: ConductorShown, primary: string | undefined): boolean {
@@ -31,10 +39,9 @@ function isConductedRoute(family: string | undefined, shown: ConductorShown, pri
 /** Ô một nút của engine chiếm [Giả định: khoảng 10 ô cho nhãn ngắn, chưa đo trên surface thật]. */
 export const BUTTON_CELLS = 10
 const buttonCells = (label: string) => Math.max(BUTTON_CELLS, cellsOf(label) + 2)
-const runCells = (runs: readonly Run[]) => runs.reduce((sum, r) => sum + cellsOf(r.text), 0)
-/** Band rộng từ bấy nhiêu ô mới có nhãn vai điều phối trên chip model (0.8.4 C8). */
+/** Band rộng từ bấy nhiêu ô mới có nhãn vai điều phối trên ô model (0.8.4 C8). */
 const ROLE_COLUMNS = 72
-/** Số ô tối thiểu giữ cho tên bước ở dòng 1 khi band hẹp phải bỏ chip [Giả định: đủ thấy mã bước như "BƯỚC 4"]. */
+/** Số ô tối thiểu giữ cho tên bước trong ô bước khi band hẹp phải bỏ chip [Giả định: đủ thấy mã bước như "BƯỚC 4"]. */
 const FOCUS_CELLS = 4
 /** Ký hiệu tạm dừng (0.7.6, U3): U+23F8. */
 const PAUSE_GLYPH = '\u23F8'
@@ -57,6 +64,9 @@ export type BandProps = {
   frame?: number
 }
 
+/** Dải tô đặc của ô hướng theo cách tô. */
+const DIRECTION_FILL: Partial<Record<Direction['tone'], GradientName>> = { warn: 'warn', pause: 'pause', done: 'done' }
+
 /** Trả cây để vẽ, hoặc null khi band nên nhường chỗ cho engine. */
 export function renderBand(
   t: Elements[RenderSurface],
@@ -65,7 +75,7 @@ export function renderBand(
   handlers: BandHandlers,
   /** Bảo vệ hạn mức (0.6.0): nhãn đang dừng hay phần còn lại khi gần ngưỡng; null hay vắng thì band như cũ. */
   quota: QuotaBadge | null = null,
-  /** Hạn mức cho dòng 1, dòng 2 khi dừng và câu báo mềm (0.7.6, U3); null hay vắng thì không có. */
+  /** Hạn mức cho dòng 2 khi dừng và câu báo mềm (0.7.6, U3); null hay vắng thì không có. */
   pause: BandQuota | null = null,
 ): RenderElement | null {
   const { brief, route, ledger, log } = view.core
@@ -83,12 +93,13 @@ export function renderBand(
   // Bộ màu (0.8.8 N1): dải màu neon theo option, hay theme key khi neon off.
   const paint = paintOf(view.neon ?? DEFAULT_NEON, props.frame ?? 0)
 
-  // Dòng cần chú ý (U2): mục quan trọng nhất theo mức độ; "+N" đếm phần còn lại.
+  // Mục cần chú ý (U2) và ô hướng: mục quan trọng nhất theo mức độ; "+N" đếm phần còn lại.
   const isPaused = pause?.paused === true
   const attention = attentionItems(view.core, view.lang, { paused: false, notice: pause?.notice ?? null })
   const top = attention[0]
   const others = attention.length - 1
-  const spine: Color = isPaused ? 'warning' : (top?.severity ?? 'claude')
+  const direction = directionOf(view.core, view.lang, { paused: isPaused, notice: pause?.notice ?? null }, plan)
+  const directionFill = DIRECTION_FILL[direction.tone]
 
   const { closed, total } = progress(plan)
   const planned = total === 0 ? brief.steps.length : 0
@@ -97,227 +108,246 @@ export function renderBand(
   // W4: bước còn todo mà đã có lô đang chạy: đầu thanh là ◐ (có checklist) hay hạt dự kiến là ◐ (chưa có).
   const runningSteps = runningTitles(view.core, rows, plan.length > 0 ? plan.map(step => step.title) : brief.steps)
   const runningBeads = new Set(brief.steps.flatMap((step, i) => (runningSteps.has(step) ? [i] : [])))
+  const isFinished = total > 0 && closed === total
+  const phase = phaseOf(plan)
   // Thanh dài theo chiều rộng, tối thiểu 6 ô để còn thấy phần đã đóng.
-  const bar = barRuns(plan, Math.max(6, Math.min(20, Math.floor(columns * 0.16))), current !== undefined && runningSteps.has(current.title), paint)
+  const barCells = Math.max(6, Math.min(20, Math.floor(columns * 0.16)))
+  const bar = barRuns(plan, barCells, current !== undefined && runningSteps.has(current.title), paint)
   const beads = plannedRuns(planned, Math.max(8, Math.min(24, Math.floor(columns * 0.22))), runningBeads)
 
-  const tint = (r: Run) => (
-    <Text color={r.color} backgroundColor={r.bg} dimColor={r.dim} bold={r.bold}>
+  const tint = (r: Run, k?: number) => (
+    <Text key={k} color={r.color} backgroundColor={r.bg} dimColor={r.dim} bold={r.bold}>
       {r.text}
     </Text>
   )
+  const runsNode = (runs: readonly Run[]) => <Text>{runs.map(tint)}</Text>
 
-  // Bên phải dòng 1: hạn mức, chip model, thời gian đã chạy của mục tiêu (U8), chi phí (từ 96 cột), chip subagent.
+  // Phần bên phải: hạn mức, thời gian đã chạy của mục tiêu (U8), chi phí (từ 96 cột), chip lô subagent (U4), nhãn phản chiếu.
   const pending = pendingUsd(log)
   const spent = goalUsd(ledger) + pending
   const costText = isWide && spent > 0 ? `${pending > 0 ? '~' : ''}${formatCost(spent, view.lang)}` : ''
   const elapsedText = now > brief.at ? l.goalElapsed(now - brief.at) : ''
   const quotaText = quota ? (quota.paused ? (columns >= 56 ? l.quotaPaused : l.quotaPausedShort) : l.quotaLeft(quotaPercent(quota.left ?? 0))) : ''
-  // Chip lô subagent (U4): chỉ khi có lô đang chạy hay lỗi, không hiện khi mọi bước đã đóng.
   const runningBatches = rows.filter(row => row.kind === 'agent' && row.state === 'running').reduce((sum, row) => sum + (row.counts?.running ?? 1), 0)
   const failed = failedBatches(view.core)
-  const isFinished = total > 0 && closed === total
   const agentChip = !isFinished && (runningBatches > 0 || failed > 0) ? l.agentBatchChip(runningBatches, failed) : ''
-  const countText = countLabel(plan)
-  // Nguồn phản chiếu ghi nhỏ cạnh số bước khi còn chỗ: người dùng biết checklist này không chặn kết thúc.
+  const countText = total > 0 ? countLabel(plan) : ''
+  // Nguồn phản chiếu ghi nhỏ khi còn chỗ: người dùng biết checklist này không chặn kết thúc.
   const mirrorText = source === 'mirror' && hasRoom ? l.mirrorShort : ''
 
-  // Band hẹp: phần không co (gờ, tiến độ, chip, nút) không được vượt chiều rộng. Thừa thì bỏ lần lượt chip subagent, mức effort, thời gian
-  // đã chạy, rồi cả chip model.
-  const fit = { agents: true, effort: true, elapsed: true, route: true, role: true }
-  // Vai điều phối (0.8.4 C8): nhãn trên chip model của luồng chính điều phối, chỉ khi band rộng từ ROLE_COLUMNS ô.
+  // Band hẹp: bỏ lần lượt nhãn vai điều phối, chip lô, effort, thời gian đã chạy, cả ô model cho tới khi vừa. Ô hướng không bao giờ bị bỏ.
+  const fit = { role: true, agents: true, effort: true, elapsed: true, route: true }
   const roleText = view.conductor !== undefined && columns >= ROLE_COLUMNS && isConductedRoute(route?.family, conductorShown(view.core, view.conductor?.family), view.conductor?.family) ? l.conductorRole : ''
-  const progressCells = () =>
-    bar.length > 0 ? runCells(bar) + 1 + cellsOf(countText) + (mirrorText ? 1 + cellsOf(mirrorText) : 0) : beads.length > 0 ? runCells(beads) + 1 + cellsOf(l.plannedSteps(planned)) : 0
-  const chipCells = () => {
-    const parts = [
-      cellsOf(quotaText),
-      route && fit.route ? cellsOf(route.family) + 2 + (fit.effort ? 1 + cellsOf(route.effort) : 0) + (fit.role && roleText ? 1 + cellsOf(roleText) : 0) : 0,
-      fit.elapsed ? cellsOf(elapsedText) : 0,
-      cellsOf(costText),
-      fit.agents ? cellsOf(agentChip) : 0,
-    ].filter(n => n > 0)
-    return parts.reduce((a, b) => a + b, 0) + Math.max(0, parts.length - 1)
-  }
-  // Tên bước được giữ ít nhất FOCUS_CELLS ô trước khi bỏ chip; riêng chip subagent nhường cả tên bước (U4: tên việc ưu tiên hơn chip).
-  const focusWant = () => (fit.agents && agentChip ? Math.max(FOCUS_CELLS, cellsOf(current?.title ?? brief.goal)) : FOCUS_CELLS)
-  const fixedCells = () => 2 + progressCells() + 1 + focusWant() + 1 + chipCells() + 1 + buttonCells(l.details) + (hasRoom ? 1 + buttonCells(l.hide) : 0)
+  const modelWords = () =>
+    route && fit.route
+      ? [...(view.mode === 'suggest' ? [l.suggest] : []), route.family, ...(fit.effort ? [route.effort] : []), ...(fit.role && roleText && view.mode !== 'suggest' ? [roleText] : [])]
+      : []
+  const modelCells = () => (modelWords().length > 0 ? 2 + cellsOf(modelWords().join(' ')) : 0)
+  const directionCells = 2 + cellsOf(directionText(direction))
+  // Tạm dừng (U3): dòng 2 là lý do và giờ làm mới bên trái, điểm dừng và lệnh chạy tiếp bên phải; cả hai co được, engine cắt khi vẽ.
+  const rightParts = () => (isPaused && pause !== null ? [] : [quotaText, fit.elapsed ? elapsedText : '', costText, fit.agents ? agentChip : '', mirrorText].filter(Boolean))
+  const rightCells = () => rightParts().reduce((sum, part) => sum + cellsOf(part) + 1, 0)
+  const buttonsCells = () => 1 + buttonCells(l.details) + (hasRoom && !isPaused ? 1 + buttonCells(l.hide) : 0)
+  // Ô bước giữ ít nhất số bước và FOCUS_CELLS ô của tên.
+  const stepFloor = 2 + (countText ? cellsOf(countText) + 1 : 0) + FOCUS_CELLS
+  const line1Cells = () => stepFloor + (modelCells() > 0 ? 1 + modelCells() : 0) + 1 + directionCells + (hasSecondRow ? 0 : rightCells() + buttonsCells())
+  const leftFloor = 6
+  const line2Cells = () => (hasSecondRow ? leftFloor + 1 + rightCells() + buttonsCells() : 0)
   for (const drop of [() => (fit.role = false), () => (fit.agents = false), () => (fit.effort = false), () => (fit.elapsed = false), () => (fit.route = false)]) {
-    if (fixedCells() <= columns) break
+    if (line1Cells() <= columns && line2Cells() <= columns) break
     drop()
   }
 
-  const routeNode =
-    route && fit.route ? (
-      view.mode === 'suggest' ? (
-        <Text>
-          <Text dimColor>{l.suggest} </Text>
-          <Text color={FAMILY_HUE[route.family]} bold>
-            {route.family}
-          </Text>
-          {fit.effort ? <Text dimColor> {route.effort}</Text> : null}
-        </Text>
-      ) : (
-        <Text>
-          <Text backgroundColor={FAMILY_HUE[route.family]} color="inverseText" bold>
-            {` ${route.family} `}
-          </Text>
-          {fit.effort ? <Text dimColor> {route.effort}</Text> : null}
-          {fit.role && roleText ? <Text dimColor> {roleText}</Text> : null}
+  // ---------------------------------------------------------------- ô bước
+  // Tên bước hiện tại (mã có trong tên); xong hết thì "Đã xong mọi bước"; chưa có checklist thì mục tiêu. Cắt bằng oneLine theo chỗ còn lại.
+  const focusText = current ? current.title : isFinished ? l.allClosed : brief.goal
+  const stepRoom = Math.max(FOCUS_CELLS, columns - (line1Cells() - stepFloor) - 2 - (countText ? cellsOf(countText) + 1 : 0))
+  const focus = oneLine(focusText, stepRoom)
+  const isStepFilled = directionFill === undefined
+  const stepGradient = paint.phase(phase)
+  // Ô bước dựng từ các đoạn: khoảng đệm, số bước (một Text riêng, như 0.8.7), tên bước (một Text riêng), khoảng đệm. Ô tô đặc thì mỗi đoạn
+  // tô nền theo dải màu của giai đoạn, nối tiếp vị trí trong dải; ô thường thì nền ô thường.
+  const stepParts: { text: string; bold?: boolean }[] = [
+    { text: ' ' },
+    ...(countText ? [{ text: countText, bold: true }, { text: ' ' }] : []),
+    { text: focus, bold: props.isWorking || !countText },
+    { text: ' ' },
+  ]
+  const stepCell = (() => {
+    let offset = 0
+    const nodes = stepParts.map((part, k) => {
+      const at = offset
+      offset += cellsOf(part.text)
+      const runs: Run[] = !isStepFilled
+        ? [{ text: part.text, color: 'text', ...(paint.solid('cell') !== undefined ? { bg: paint.solid('cell') } : {}) }]
+        : stepGradient !== null
+          ? paint.fill(stepGradient, part.text, {}, at)
+          : [{ text: part.text, color: 'inverseText', bg: 'inactive' }]
+      return (
+        <Text key={k} bold={part.bold}>
+          {runs.map(run => (
+            <Text color={isStepFilled ? run.color : undefined} backgroundColor={run.bg}>
+              {run.text}
+            </Text>
+          ))}
         </Text>
       )
-    ) : null
-  const chipNodes = [
-    quota ? (
-      <Text color="warning" bold={quota.paused}>
-        {quotaText}
-      </Text>
-    ) : null,
-    routeNode,
-    fit.elapsed && elapsedText ? <Text dimColor>{elapsedText}</Text> : null,
-    costText ? <Text dimColor>{costText}</Text> : null,
-    fit.agents && agentChip ? <Text dimColor>{agentChip}</Text> : null,
-  ].filter(node => node !== null)
-  const chips =
-    chipNodes.length > 0 ? (
-      <Box flexShrink={0} flexDirection="row" gap={1}>
-        {chipNodes}
-      </Box>
-    ) : null
-  const detailsButton = <Button key="details" label={l.details} onPress={handlers.onDetails} />
-  const hideButton = hasRoom ? <Button key="hide" plain dimColor label={l.hide} onPress={handlers.onHide} /> : null
+    })
+    return <Text>{nodes}</Text>
+  })()
 
-  // Có checklist: thanh tô màu theo giai đoạn và số bước đã đóng (tên giai đoạn chỉ ở pane, U6). Chưa có: các ô ○ router dự kiến.
-  const progressNode =
-    bar.length > 0 ? (
-      <Box key="progress" flexShrink={0} flexDirection="row" gap={1}>
-        <Text>{bar.map(tint)}</Text>
-        <Text bold>{countText}</Text>
-        {mirrorText ? <Text dimColor>{mirrorText}</Text> : null}
-      </Box>
-    ) : beads.length > 0 ? (
-      <Box key="progress" flexShrink={0} flexDirection="row" gap={1}>
-        <Text>{beads.map(tint)}</Text>
-        <Text dimColor>{l.plannedSteps(planned)}</Text>
-      </Box>
-    ) : null
-
-  const alertNode = top ? (
-    <Box flexDirection="row" gap={1}>
-      <Box flexShrink={0}>
-        <Text color={top.severity} bold>
-          {severityGlyph(top.severity)}
+  // ---------------------------------------------------------------- ô model
+  const isModelDim = isPaused || isFinished
+  const modelCell =
+    route && fit.route ? (
+      <Text backgroundColor={paint.solid('cell')}>
+        <Text>{' '}</Text>
+        {view.mode === 'suggest' ? <Text dimColor>{`${l.suggest} `}</Text> : null}
+        <Text color={paint.solid(route.family)} dimColor={isModelDim} bold>
+          {route.family}
         </Text>
-      </Box>
-      <Box flexGrow={1} flexShrink={1}>
-        <Text color={top.severity} wrap="truncate-end">
-          {top.text}
-        </Text>
-      </Box>
-      {others > 0 ? (
-        <Box flexShrink={0}>
-          <Text dimColor>{`+${others}`}</Text>
-        </Box>
-      ) : null}
-    </Box>
-  ) : null
+        {fit.effort ? <Text dimColor>{` ${route.effort}`}</Text> : null}
+        {fit.role && roleText && view.mode !== 'suggest' ? <Text dimColor>{` ${roleText}`}</Text> : null}
+        <Text>{' '}</Text>
+      </Text>
+    ) : null
 
-  // Tâm điểm của dòng 1: tên bước hiện tại (mã có trong tên); xong hết thì "Đã xong mọi bước"; chưa có checklist thì mục tiêu.
-  // maxRows 1 mà có mục mức đỏ thì mục đó thế chỗ, vì không còn dòng 2.
-  const isGoalFocus = current === undefined && !(total > 0 && closed === total)
-  const focus =
-    !hasSecondRow && top && top.severity === 'error' ? (
-      alertNode
-    ) : current ? (
-      <Text wrap="truncate-end" bold={props.isWorking}>
-        {current.title}
-      </Text>
-    ) : isFinished ? (
-      // Hoàn thành (U10): một dòng, mục tiêu đi sau chữ "Hoàn thành".
-      <Text color="success" wrap="truncate-end">
-        {l.completedGoal(brief.goal)}
-      </Text>
+  // ---------------------------------------------------------------- ô hướng
+  const directionBody = ` ${directionText(direction)} `
+  const directionCell =
+    directionFill !== undefined ? (
+      runsNode(paint.fill(directionFill, directionBody, { bold: true }))
     ) : (
-      <Text bold wrap="truncate-end">
-        {brief.goal}
+      <Text backgroundColor={paint.solid('cell')} color={paint.solid(direction.tone === 'ok' ? 'ok' : 'attention')} bold>
+        {directionBody}
       </Text>
     )
 
-  // Tạm dừng cứng (U3) chiếm dòng 1: lý do và giờ làm mới; dòng 2 là điểm dừng và lệnh chạy tiếp. Không còn gì khác trên band.
-  if (isPaused && pause !== null) {
-    const pauseLines: RenderElement[] = [
+  const detailsButton = <Button key="details" label={l.details} onPress={handlers.onDetails} />
+  const hideButton = hasRoom && !isPaused ? <Button key="hide" plain dimColor label={l.hide} onPress={handlers.onHide} /> : null
+  const rightNodes = rightParts().map(part => (
+    <Box flexShrink={0}>
+      <Text color={isPaused || part === quotaText ? paint.solid('attention') : undefined} dimColor={!isPaused && part !== quotaText} bold={quota?.paused === true && part === quotaText}>
+        {part}
+      </Text>
+    </Box>
+  ))
+
+  const cells = (
+    <Box flexDirection="row" gap={1}>
+      <Box flexShrink={1}>{stepCell}</Box>
+      {modelCell !== null ? <Box flexShrink={0}>{modelCell}</Box> : null}
+      <Box flexShrink={0}>{directionCell}</Box>
+      {hasSecondRow ? null : (
+        <Box flexGrow={1} flexShrink={1} flexDirection="row" justifyContent="flex-end" gap={1}>
+          {/* maxRows 1 khi tạm dừng: dòng tạm dừng (lý do, giờ làm mới) nằm ở phần bên phải, co được. */}
+          {isPaused && pause !== null ? (
+            <Box flexGrow={1} flexShrink={1}>
+              <Text color={paint.solid('attention')} bold wrap="truncate-end">
+                {`${PAUSE_GLYPH} ${pause.line}`}
+              </Text>
+            </Box>
+          ) : null}
+          {rightNodes}
+          {detailsButton}
+          {hideButton}
+        </Box>
+      )}
+    </Box>
+  )
+
+  // ----------------------------------------------------------------- dòng 2
+  // Bên trái theo thứ tự ưu tiên: câu cần chú ý đầu tiên (mức đỏ tô dải warn, in đậm) kèm +N; tạm dừng: lý do và giờ làm mới; có checklist:
+  // thanh tiến độ, rồi subagent đang chạy (không có thì mục tiêu) khi còn chỗ; chưa có checklist: các ô ○ dự kiến.
+  const firstAgent = rows.find(row => row.kind === 'agent' && row.state === 'running')
+  const left = (() => {
+    if (isPaused && pause !== null) {
+      return (
+        <Box flexDirection="row" gap={1}>
+          <Box flexGrow={1} flexShrink={1}>
+            <Text color={paint.solid('attention')} bold wrap="truncate-end">
+              {`${PAUSE_GLYPH} ${pause.line}`}
+            </Text>
+          </Box>
+          <Box flexShrink={1}>
+            <Text color={paint.solid('attention')} wrap="truncate-end">
+              {pause.resume}
+            </Text>
+          </Box>
+        </Box>
+      )
+    }
+    if (top !== undefined) {
+      const more = others > 0 ? `+${others}` : ''
+      const sentence = `${severityGlyph(top.severity)} ${top.text}`
+      return (
+        <Box flexDirection="row" gap={1}>
+          <Box flexGrow={1} flexShrink={1}>
+            {top.severity === 'error' ? <Text wrap="truncate-end">{paint.text('warn', sentence, { bold: true }).map(tint)}</Text> : <Text color={paint.solid('attention')} bold wrap="truncate-end">{sentence}</Text>}
+          </Box>
+          {more ? (
+            <Box flexShrink={0}>
+              <Text dimColor>{more}</Text>
+            </Box>
+          ) : null}
+        </Box>
+      )
+    }
+    if (bar.length > 0) {
+      // Xong hết: thanh đầy bằng dải done (barRuns tô theo giai đoạn done), rồi "Hoàn thành: <mục tiêu>" (U10). Sau thanh là một Text riêng,
+      // co được (engine cắt khi vẽ).
+      const tail = isFinished ? l.completedGoal(brief.goal) : firstAgent !== undefined ? `${l.agentsRunning(runningBatches)}: ${taskLabel(l, firstAgent)}` : brief.goal
+      return (
+        <Box flexDirection="row" gap={1}>
+          <Box flexShrink={0}>
+            <Text>{bar.map(tint)}</Text>
+          </Box>
+          <Box flexGrow={1} flexShrink={1}>
+            <Text dimColor wrap="truncate-end">
+              {tail}
+            </Text>
+          </Box>
+        </Box>
+      )
+    }
+    if (beads.length > 0) {
+      return (
+        <Text wrap="truncate-end">
+          {beads.map(tint)}
+          <Text dimColor>{` ${l.plannedSteps(planned)}`}</Text>
+        </Text>
+      )
+    }
+    return firstAgent !== undefined ? (
+      <Text dimColor wrap="truncate-end">
+        {`${l.agentsRunning(runningBatches)}: ${taskLabel(l, firstAgent)}`}
+      </Text>
+    ) : (
+      <Text>{' '}</Text>
+    )
+  })()
+
+  const lines: RenderElement[] = [cells]
+  if (hasSecondRow) {
+    lines.push(
       <Box flexDirection="row" gap={1}>
         <Box flexGrow={1} flexShrink={1}>
-          <Text color="warning" bold wrap="truncate-end">
-            {`${PAUSE_GLYPH} ${pause.line}`}
-          </Text>
+          {left}
         </Box>
+        {rightNodes}
         {detailsButton}
         {hideButton}
       </Box>,
-      ...(hasSecondRow
-        ? [
-            <Text color="warning" wrap="truncate-end">
-              {pause.resume}
-            </Text>,
-          ]
-        : []),
-    ]
-    return (
-      <Box flexDirection="row">
-        <Box flexDirection="column" flexShrink={0} marginRight={1}>
-          {pauseLines.map(() => (
-            <Text color={spine}>{SPINE}</Text>
-          ))}
-        </Box>
-        <Box flexDirection="column" flexGrow={1} flexShrink={1}>
-          {pauseLines}
-        </Box>
-      </Box>
     )
-  }
-
-  const lines: RenderElement[] = [
-    <Box flexDirection="row" gap={1}>
-      {progressNode}
-      <Box flexGrow={1} flexShrink={1}>
-        {focus}
-      </Box>
-      {chips}
-      {detailsButton}
-      {hideButton}
-    </Box>,
-  ]
-
-  // Dòng 2: cần chú ý; không có thì subagent đang chạy; không có nữa thì mục tiêu (mờ), trừ khi dòng 1 đã ghi mục tiêu. Hoàn thành thì
-  // band chỉ một dòng (U10).
-  if (hasSecondRow && !isFinished) {
-    const first = rows.find(row => row.kind === 'agent' && row.state === 'running')
-    if (alertNode) lines.push(alertNode)
-    else if (first !== undefined)
-      lines.push(
-        <Text dimColor wrap="truncate-end">
-          {`${l.agentsRunning(runningBatches)}: ${taskLabel(l, first)}`}
-        </Text>,
-      )
-    else if (!isGoalFocus)
-      lines.push(
-        <Text dimColor wrap="truncate-end">
-          {brief.goal}
-        </Text>,
-      )
   }
 
   return (
     <Box flexDirection="row">
-      <Box flexDirection="column" flexShrink={0} marginRight={1}>
-        {lines.map(() => (
-          <Text color={spine}>{SPINE}</Text>
-        ))}
-      </Box>
+      <Box flexDirection="column" flexShrink={0} />
       <Box flexDirection="column" flexGrow={1} flexShrink={1}>
         {lines}
       </Box>
     </Box>
   )
 }
+

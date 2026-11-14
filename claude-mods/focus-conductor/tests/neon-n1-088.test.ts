@@ -56,7 +56,7 @@ async function drawPane($: Engine): Promise<unknown> {
 
 describe('0.8.8 N1: dải màu', () => {
   test('13 ô dải cyber: ô 0 là mốc đầu, ô 12 là mốc cuối; mọi màu là hex sáu chữ số thường', () => {
-    const runs = gradientRuns('━'.repeat(13), DARK_GRADIENTS.cyber, 0)
+    const runs = gradientRuns('\u2501'.repeat(13), DARK_GRADIENTS.cyber, 0)
     expect(cellCount(runs)).toBe(13)
     const colors = cellColors(runs)
     expect(colors[0]).toBe('#00e5ff')
@@ -68,7 +68,7 @@ describe('0.8.8 N1: dải màu', () => {
   })
 
   test('frame 1 dịch đúng một ô so với frame 0; frame 24 như frame 0', () => {
-    const at = (frame: number) => cellColors(gradientRuns('━'.repeat(40), DARK_GRADIENTS.aurora, frame))
+    const at = (frame: number) => cellColors(gradientRuns('\u2501'.repeat(40), DARK_GRADIENTS.aurora, frame))
     const zero = at(0)
     const one = at(1)
     for (let i = 0; i < 39; i++) expect(one[i]).toBe(zero[i + 1])
@@ -76,7 +76,7 @@ describe('0.8.8 N1: dải màu', () => {
   })
 
   test('chu kỳ phản chiếu: ô 24 về lại mốc đầu, nửa sau đi ngược nửa đầu', () => {
-    const colors = cellColors(gradientRuns('━'.repeat(25), DARK_GRADIENTS.plasma, 0))
+    const colors = cellColors(gradientRuns('\u2501'.repeat(25), DARK_GRADIENTS.plasma, 0))
     expect(colors[24]).toBe(colors[0])
     for (let i = 1; i < 12; i++) expect(colors[12 + i]).toBe(colors[12 - i])
   })
@@ -85,7 +85,7 @@ describe('0.8.8 N1: dải màu', () => {
     expect(gradientRuns('', DARK_GRADIENTS.cyber, 0)).toEqual([])
     const one = gradientRuns('x', DARK_GRADIENTS.cyber, 0)
     expect(one).toEqual([{ text: 'x', color: '#00e5ff' }])
-    const word = 'Việt Nam'
+    const word = 'Viê\u0323t Nam'
     const runs = gradientRuns(word, DARK_GRADIENTS.cyber, 0)
     expect(runs.map(r => r.text).join('')).toBe(word.normalize('NFC'))
     // Mỗi Run kết thúc ở ranh giới cụm ký tự: không Run nào bắt đầu bằng dấu kết hợp.
@@ -94,8 +94,8 @@ describe('0.8.8 N1: dải màu', () => {
   })
 
   test('các ô liền nhau cùng màu gộp thành một Run', () => {
-    const runs = gradientRuns('━'.repeat(6), ['#00e5ff'], 0)
-    expect(runs).toEqual([{ text: '━'.repeat(6), color: '#00e5ff' }])
+    const runs = gradientRuns('\u2501'.repeat(6), ['#00e5ff'], 0)
+    expect(runs).toEqual([{ text: '\u2501'.repeat(6), color: '#00e5ff' }])
   })
 })
 

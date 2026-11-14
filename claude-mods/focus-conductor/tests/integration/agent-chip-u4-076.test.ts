@@ -10,14 +10,16 @@ type Node = { type?: string; props?: Record<string, unknown>; children?: unknown
 const PLAN = 'mcp__focus-conductor__plan'
 const TITLES = ['BƯỚC 0: chuẩn bị', 'BƯỚC 1: lọc tin lô 1', 'BƯỚC 2: lọc tin lô 2', 'BƯỚC 3: lọc tin lô 3', 'BƯỚC 4: tổng hợp']
 const LONG = { timeoutMs: 120_000 }
-const textOf = (n: unknown): string => (typeof n === 'string' ? n : n !== null && typeof n === 'object' ? (((n as Node).type === 'Button' ? [String((n as Node).props?.label ?? '')] : []).concat(((n as Node).children ?? []).map(textOf))).join(' ') : '')
+// 0.8.8 N2: chữ nối không thêm khoảng trắng (dải màu tách chữ của một ô thành nhiều Text con).
+const textOf = (n: unknown): string => (typeof n === 'string' ? n : n !== null && typeof n === 'object' ? (((n as Node).type === 'Button' ? [` ${String((n as Node).props?.label ?? '')} `] : []).concat(((n as Node).children ?? []).map(textOf))).join('') : '')
 
+/** Chữ của cả band (0.8.8 N2: chip lô nằm ở dòng 2, bên phải; 0.8.7 ở dòng 1). Giữ tên hàm cũ để ca test giữ nguyên. */
 async function firstRow($: Engine, columns: number): Promise<string> {
   const ui = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: true, maxRows: 2, bodyColumns: columns, scroll: { offset: 0, bodyRows: 2 }, view: {} } } as never)
   const tree = (await ui.drawn()) as unknown as Node
   await ui.unmount()
   const content = (tree.children ?? []).filter(c => c !== null && typeof c === 'object')[1] as Node
-  return textOf((content.children ?? []).filter(c => c !== null && typeof c === 'object')[0])
+  return (content.children ?? []).filter(c => c !== null && typeof c === 'object').map(textOf).join('\n')
 }
 
 async function goal($: Engine, on: On) {
@@ -66,7 +68,8 @@ describe('0.7.6 U4: chip lô subagent', () => {
     expect(at60).toContain('3 lỗi')
     const at48 = await firstRow($, 48)
     expect(at48).toContain('BƯỚC 1: lọc tin lô 1')
-    expect(at48).not.toContain('3 lỗi')
+    // 0.8.8 N2: chip lô ở dòng 2 nên không còn tranh chỗ với tên việc ở dòng 1; dòng 2 đủ chỗ thì chip vẫn còn.
+    expect(at48.split('\n')[1]).toContain('3 lỗi')
   })
 
   test('xong mục tiêu: không có chip lô', { ...LONG, options: { ...(LONG as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {

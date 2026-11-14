@@ -355,20 +355,22 @@ describe('0.6.1 3.3: band hẹp khi dừng', () => {
       const tree = (await band.drawn()) as unknown as El
       const out = {
         count: (await band.find({ type: 'Text', text: /^0\/2$/ })) !== undefined,
-        family: (await band.find({ type: 'Text', text: /^ opus $/ })) !== undefined,
+        // 0.8.8 N2: tên họ là một Text riêng trong ô model (0.8.7: chip " opus " có nền).
+        family: (await band.find({ type: 'Text', text: /^opus$/ })) !== undefined,
         effort: (await band.find({ type: 'Text', text: /xhigh/ })) !== undefined,
         fixed: Math.max(...fixedRows(tree)),
       }
       await band.unmount()
       return out
     }
-    expect(await look(48)).toMatchObject({ count: true, family: true, effort: true })
+    // 0.8.8 N2: dòng 1 thêm ô hướng (không bao giờ bị bỏ), nên các mốc bỏ dời lên: 56 cột còn đủ, 48 cột bỏ effort, 40 cột bỏ cả ô model.
+    expect(await look(56)).toMatchObject({ count: true, family: true, effort: true })
+    const at48 = await look(48)
+    expect(at48).toMatchObject({ count: true, family: true, effort: false })
+    expect(at48.fixed).toBeLessThanOrEqual(48)
     const at40 = await look(40)
-    expect(at40).toMatchObject({ count: true, family: true, effort: false })
+    expect(at40).toMatchObject({ count: true, family: false, effort: false })
     expect(at40.fixed).toBeLessThanOrEqual(40)
-    const at30 = await look(30)
-    expect(at30).toMatchObject({ count: true, family: false, effort: false })
-    expect(at30.fixed).toBeLessThanOrEqual(30)
   })
 
   test('chế độ suggest: thiếu chỗ thì bỏ effort của chip đề xuất, giữ tên model (061-U21)', { options: { planApproval: 'off' } }, async ($, on) => {
@@ -379,10 +381,11 @@ describe('0.6.1 3.3: band hẹp khi dừng', () => {
     await goalWithSteps($)
     await step($, seen)
     await conductor($, 'mode suggest')
-    const band = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: bandProps(40, 1) })
+    // 0.8.8 N2: ô hướng chiếm chỗ trên dòng 1, nên ca này đo ở 56 cột (48 cột trở xuống bỏ cả ô model đề xuất).
+    const band = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: bandProps(56, 1) })
     expect(await band.find({ type: 'Text', text: /^opus$/ })).toBeDefined()
     expect(await band.find({ type: 'Text', text: /xhigh/ })).toBeUndefined()
-    for (const fixed of fixedRows((await band.drawn()) as unknown as El)) expect(fixed).toBeLessThanOrEqual(40)
+    for (const fixed of fixedRows((await band.drawn()) as unknown as El)) expect(fixed).toBeLessThanOrEqual(56)
     await band.unmount()
   })
 

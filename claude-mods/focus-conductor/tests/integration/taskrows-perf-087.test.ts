@@ -28,8 +28,11 @@ async function paneText($: Engine, rows: number): Promise<string> {
 const hex = (bytes: ArrayBuffer): string => [...new Uint8Array(bytes)].map(byte => byte.toString(16).padStart(2, '0')).join('')
 const sha = async (text: string) => hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))
 
-/** sha256 của chữ band và pane, đo trên 45b5161. */
-const BASE_SHA = 'f10de6b917dd73cbef9f2ca6cd6efb62e90ca0b4fe2b19572ec363245504511b'
+/**
+ * sha256 của chữ band và pane. 0.8.7: đo trên 45b5161 (f10de6b9...). 0.8.8 N2 đổi bố cục band (ba ô) nên đo lại trên mã sau N2, cùng kịch
+ * bản, neon off; ca này từ nay ghim kết quả của bố cục mới (taskRows vẫn tính một lần, như phần đo thời gian ở dưới).
+ */
+const BASE_SHA = 'df2d52190c60b7bd175849308a3615fb2ae7130eb2b1472f8e55292337a121b2'
 
 describe('0.8.7: taskRows tính một lần cho mọi việc', () => {
   test('mục tiêu 12 việc, checklist có bước "Việc N", bước doing và bước đã xong: chữ band và pane trùng 0.8.6', { options: { planApproval: 'off', neon: 'off' } }, async ($, on) => {

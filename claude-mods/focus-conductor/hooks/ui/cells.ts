@@ -6,6 +6,6 @@ export function graphemesOf(text: string): string[] {
 }
 
 /** Cụm ký tự rộng hai ô terminal: emoji, cờ, chữ CJK và chữ toàn khổ. */
-export const WIDE_GRAPHEME = /\p{Extended_Pictographic}|\p{Regional_Indicator}|[ᄀ-ᅟ⺀-〾ぁ-㏿㐀-䶿一-鿿ꥠ-꥿가-힣豈-﫿︰-﹏＀-｠￠-￦]/u
+export const WIDE_GRAPHEME = /\p{Extended_Pictographic}|\p{Regional_Indicator}|[\u1100-\u115F\u2E80-\u303E\u3041-\u33FF\u3400-\u4DBF\u4E00-\u9FFF\uA960-\uA97F\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFF60\uFFE0-\uFFE6]/u
 
 export const graphemeCells = (g: string): number => (WIDE_GRAPHEME.test(g) ? 2 : 1)
