@@ -17,3 +17,4 @@
 - R2: test đỏ f1ca2ae (6/8), sửa f66ed53, mẫu 089-R2a..f diệt (4,3,1,1,1,1), 072-R9 sửa chuỗi (3 đỏ). Không ca cũ đổi.
 - R3: test đỏ (4/8) đã push; việc tiếp: sửa engineMessage, mẫu 089-R3a..c.
 - R3: sửa đã push; mẫu 089-R3a..c diệt (1,1,1). Cả bộ sau C1 tới R3 (bản sửa R3): 3.675 ca, 330 tệp, 0 lỗi. Việc tiếp: D1 (test đã viết, chưa chạy). Độ dài lời dặn router ở 7682ef7: 10.282 (cờ tắt), 11.180 (cờ bật).
+- D1: test đỏ fa42df8 (5/13), sửa c78ed19. Lời dặn router 10.282 -> 11.053 (+771). 5 ca cũ đổi kỳ vọng; golden.test đỏ tới D4 (ghi CHANGELOG). Mẫu 089-D1a..e diệt (1,2,1,4,1). Mẫu cũ sửa chuỗi: 070-C13, 074-C2, 074-C3, 075-B13f, 075-S1e. Việc tiếp: D2 (test thuần đã viết: tests/rearrange-d2-089.test.ts, chưa có bản tích hợp).

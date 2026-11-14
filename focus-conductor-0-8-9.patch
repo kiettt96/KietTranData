@@ -11,10 +11,10 @@ index 022e64d..2ad14e2 100644
    "description": "Một model Claude (router) đọc kỹ prompt trước khi làm và điều phối model/effort/agent cho từng việc; mod kiểm, ép điều phối lúc chạy, giữ nhất quán mục tiêu với checklist và cảnh báo lạc đề.",
    "types": "./types/index.d.ts",
 diff --git a/claude-mods/focus-conductor/CHANGELOG.md b/claude-mods/focus-conductor/CHANGELOG.md
-index 13db1c8..6916776 100644
+index 13db1c8..f0b6e1e 100644
 --- a/claude-mods/focus-conductor/CHANGELOG.md
 +++ b/claude-mods/focus-conductor/CHANGELOG.md
-@@ -2,6 +2,42 @@
+@@ -2,6 +2,51 @@
  
  Các bản của focus-conductor, mới nhất trước. Số đo kiểm chứng của HEAD hiện tại nằm ở [docs/VERIFICATION.md](docs/VERIFICATION.md); cách dùng và tùy chọn ở [README](README.md).
  
@@ -51,8 +51,17 @@ index 13db1c8..6916776 100644
 +- **R1: giới hạn trong kết quả là của lời gọi cuối cùng đã gửi.** `timeoutMs`, `maxTokens`, `outputTokens` của `RouterOutcome` lấy từ request đã kẹp và câu trả lời của lời gọi gần nhất, ở mọi nhánh của `askRouter`. Không ca cũ nào đổi kỳ vọng.
 +- **R2: ghi rõ câu trả lời bị cắt.** Câu trả lời không đọc được mà token ra từ 98% `maxTokens` của request đã gửi có lý do "câu trả lời bị cắt ở <n> token ra" (loại lỗi vẫn là format). `firstFail` được ghi cả khi lượt hỏi lại cứu được lượt đầu không đọc được. Không ca cũ nào đổi kỳ vọng.
 +- **R3: thông điệp của giá trị bị ném.** `undefined`, `null` và đối tượng không có `message` dạng chuỗi cho thông điệp rỗng, nên câu cảnh báo giữ dạng cũ thay cho "undefined" hay "[object Object]"; đối tượng có `message` dạng chuỗi dùng chuỗi đó. Không ca cũ nào đổi kỳ vọng.
++- **D1: router thấy mọi việc còn mở và được điều phối lại.** Request tiếp nối liệt kê mọi việc chưa xong kèm trạng thái (`not started`, `running`, `failed`, tính bằng `taskStatusOf`), việc đã xong gộp một dòng số, bỏ giới hạn 20 việc đầu. Lời dặn router thêm đoạn `arrange` (thứ tự làm, việc bỏ, việc gộp) và trường `arrange` trong mẫu JSON, dài thêm 771 ký tự; câu "tasks lists only NEW pieces" giữ nguyên. `parseRoute` đọc `arrange`, sai dạng thì bỏ cả trường; chỉ nhận với continue, refine, dissatisfied và intent amend hay task.
 +
-+**Mẫu cũ viết lại, giữ mã (vòng 2):** `075-R1c`, `075-R1f` (khối phần tràn của request tiếp nối viết thành nhiều dòng ở C2); `072-R9` (ngưỡng bị cắt nay là hằng `TRUNCATED_SHARE`, R2).
++**Test cũ đổi kỳ vọng hay đổi tên vì D1:**
++- `conductor-c4-084` "cờ tắt: splitRule(routerSystem(), 0) giữ sha256 của 0.8.3, request dùng đúng chữ đó": băm ghim đổi theo lời dặn mới, giữ tên.
++- `fork-split-f1-079` "chủ mod 1. forks tắt: routerSystem không có đoạn tách (ghim số ký tự và mã băm)": số ký tự 10.282 thành 11.053 và băm mới, giữ tên.
++- `conduct-r4-086` "mục tiêu lớn đang điều phối, đã giao hết; tin bổ sung amend light có việc run main: việc mới là việc giao subagent": băm request ghim đổi (việc mang trạng thái), giữ tên.
++- `limits-l2-087`: "mục tiêu 100 việc: request tiếp nối gửi 20 việc và một dòng tổng số 100" đổi tên thành "mục tiêu 100 việc chưa xong: request tiếp nối gửi đủ 100 việc kèm trạng thái, không có dòng tổng (0.8.9 D1)".
++- `limits-l2-087`: "mục tiêu 12 việc: trường prompt trùng 0.8.6" đổi tên thành "mục tiêu 12 việc chưa xong: trường prompt trùng 0.8.6 khi bỏ nhãn trạng thái của từng việc (0.8.9 D1)"; băm ghim giữ nguyên, so trên prompt đã bỏ nhãn.
++- `golden.test.ts` "câu trả lời đã ghi khớp request hiện tại của mod": đỏ từ commit sửa D1 tới khi ghi lại golden ở D4, vì đặc tả chỉ cho ghi lại golden ở D4.
++
++**Mẫu cũ viết lại, giữ mã (vòng 2):** `075-R1c`, `075-R1f` (khối phần tràn của request tiếp nối viết thành nhiều dòng ở C2); `072-R9` (ngưỡng bị cắt nay là hằng `TRUNCATED_SHARE`, R2); `070-C13`, `074-C2`, `074-C3` (lời gọi router có thêm `taskStates`, D1); `075-B13f` (dòng tổng số việc nay là dòng việc đã xong, D1); `075-S1e` (tách khỏi chỗ trùng trong `arrangeOf`, D1).
 +
  ## Thay đổi 0.8.8: giao diện hướng B "Ba ô phát sáng", dải màu neon
  
@@ -224,6 +233,47 @@ index 23149ca..19d58ab 100644
  export type FamilyRead = { charsPerToken: number; secPerChar: number; maxOut: number; engineMaxOut: number }
  
  /** Thời gian chờ của năm loại request router khi họ này làm vai điều phối (ms). */
+diff --git a/claude-mods/focus-conductor/hooks/lib/progress.ts b/claude-mods/focus-conductor/hooks/lib/progress.ts
+index b3ac8c5..6a38052 100644
+--- a/claude-mods/focus-conductor/hooks/lib/progress.ts
++++ b/claude-mods/focus-conductor/hooks/lib/progress.ts
+@@ -2,7 +2,7 @@
+ // giao subagent) và việc Claude tự giao. Hàm thuần, chỉ đọc Core (sống qua hot-reload vì nằm trong $.state).
+ // Nguyên tắc: thanh chỉ thể hiện phần trăm khi có số bước thật; không có thì chỉ thể hiện trạng thái.
+ 
+-import type { AgentProgress, Choice, Core, PlanStep, Task } from '../../types'
++import type { AgentProgress, Choice, Core, PlanStep, Task, TaskStatus } from '../../types'
+ import { isFullyClosed } from './drift'
+ import { liveForks } from './forks'
+ import { mirrorPlan, shownPlan } from './mirror'
+@@ -301,3 +301,27 @@ export function runningTitles(core: Core, rows: readonly TaskRow[], titles: read
+   for (const [title, row] of byTitle) if (row.kind === 'agent' && row.state === 'running') running.add(title)
+   return running
+ }
++
++/**
++ * Trạng thái từng việc của brief để gửi router (0.8.9 D1), gộp theo số việc từ các dòng tiến độ: có dòng đang chạy thì running; không, mà
++ * có dòng lỗi hay bị cắt thì failed; mọi dòng xong thì done; còn lại (chờ giao, chưa bắt đầu, chưa có dòng) là not started.
++ */
++export function taskStatusOf(core: Core, now: number): Record<number, TaskStatus> {
++  const byIndex = new Map<number, TaskState[]>()
++  for (const row of taskRows(core, now)) {
++    if (row.kind === 'main' || row.index === undefined || row.attached === true) continue
++    byIndex.set(row.index, [...(byIndex.get(row.index) ?? []), row.state])
++  }
++  const out: Record<number, TaskStatus> = {}
++  for (const task of core.brief?.tasks ?? []) {
++    const states = byIndex.get(task.index) ?? []
++    out[task.index] = states.includes('running')
++      ? 'running'
++      : states.some(state => state === 'failed' || state === 'cut')
++        ? 'failed'
++        : states.length > 0 && states.every(state => state === 'done')
++          ? 'done'
++          : 'not started'
++  }
++  return out
++}
 diff --git a/claude-mods/focus-conductor/hooks/lib/reading.ts b/claude-mods/focus-conductor/hooks/lib/reading.ts
 index 6909686..35815ef 100644
 --- a/claude-mods/focus-conductor/hooks/lib/reading.ts
@@ -274,10 +324,17 @@ index 6909686..35815ef 100644
  
  /** Kế hoạch đọc prompt dài `textLength` ký tự; `fixedChars` là số ký tự của lời dặn và các dòng ngữ cảnh của request. */
 diff --git a/claude-mods/focus-conductor/hooks/lib/router.ts b/claude-mods/focus-conductor/hooks/lib/router.ts
-index fc059c5..490cc28 100644
+index fc059c5..320e735 100644
 --- a/claude-mods/focus-conductor/hooks/lib/router.ts
 +++ b/claude-mods/focus-conductor/hooks/lib/router.ts
-@@ -13,7 +13,7 @@ import { DEFAULT_CONDUCTOR, FAMILY_NAMES, conductorTimeouts } from './families'
+@@ -7,13 +7,13 @@
+ 
+ import type { ModelCompleteRequest, ModelCompleteResult, ModelTextBlock, ModelUsage } from 'claude-code'
+ 
+-import type { Brief, Choice, Depth, Effort, ForkSplit, Intent, Kind, ModelFamily, Relation, RouterFail, RouterFailKind, Task, Tier, Volume } from '../../types'
++import type { Arrange, ArrangeRef, Brief, Choice, Depth, Effort, ForkSplit, Intent, Kind, ModelFamily, Relation, RouterFail, RouterFailKind, Task, TaskStatus, Tier, Volume } from '../../types'
+ import { isBigGoal, isPendingGoal } from './conductor'
+ import { DEFAULT_CONDUCTOR, FAMILY_NAMES, conductorTimeouts } from './families'
  import type { PendingState } from './conductor'
  import { DEFAULT_WINDOWS, PRICE } from './cost'
  import type { Price } from './cost'
@@ -286,7 +343,24 @@ index fc059c5..490cc28 100644
  import type { ReadPlan, Reading } from './reading'
  import { EFFORTS, FAMILIES, applySession, avoidBlocked, codesIn, describePick, effortRank, familyOf, familyRank, sessionFloor } from './route'
  import type { SessionModel } from './route'
-@@ -357,6 +357,21 @@ function ruleItems(constraints: readonly string[] | undefined): string[] {
+@@ -143,6 +143,7 @@ Give depth, volume and kind for the whole request and for each task.
+ Relation to the previous goal (shown in <context>):
+ - new: a different goal. continue: keep going on the previous goal. refine: a small change or addition to it. dissatisfied: the previous result is still wrong; choose the main model or effort one step above what the main thread ran.
+ - For continue, refine and dissatisfied: goal may repeat the previous goal, and tasks lists only NEW pieces of work added by this request ([] if none).
++- arrange, for continue, refine and dissatisfied: when the request changes the remaining work of the previous goal (drops a part, repeats work an open task already has, or asks for another order), also return "arrange"; omit it when the open tasks stay as they are. "order": every task still to do, in work order; a number is a task in <context>, "newK" is the K-th item of tasks in this reply. "drop": not started or failed tasks no longer needed, "why" under 80 characters. "merge": not started or failed tasks whose work now sits inside another task ("into": a task number or "newK"). Never drop or merge a done or running task.
+ - runReference: true only when the previous goal was a reference-only review and the user now asks to actually run that prompt.
+ - intent, for a message about the goal in <context>: "status" only asks about progress or state ("tới đâu rồi", "xong chưa", "how is it going"); "resume" says to keep going and adds nothing ("tiếp", "chạy tiếp đi", "continue"); "approve" accepts the plan <context> says awaits approval ("ok duyệt", "kế hoạch ổn, làm đi", "approved"); "amend" adds to or changes what the goal asks ("thêm cả phần README", "nhớ sửa luôn test", "also update the changelog"); "task" for anything else ("viết hàm đổi ngày sang ISO", "tạo trang giới thiệu mới", "write a CSV parser") and always with relation new. For status, resume and approve, tasks and requirements are [].
+ - For a new goal only: "skipApproval" true when the user plainly says no plan review or approval is needed ("cứ làm luôn, không cần duyệt"); "questions": at most 3 clarifying questions, only when an ambiguity would change the result, each under 200 characters with 2 to 4 options written in it; otherwise [].
+@@ -150,7 +151,7 @@ Relation to the previous goal (shown in <context>):
+ Use only the models <context> lists as allowed. Write every string, "why" included, in the language of the request: a Vietnamese request gets Vietnamese strings.
+ Keep the reply short, it is read by a program: "why" of the request is one sentence under 25 words; "why" of main and of each task is under 15 words.
+ Reply with ONE JSON object and nothing else. Fill "why" first. "confidence" is how sure you are of the routing, from 0 to 1.
+-{"why": string, "confidence": number, "relation": "new"|"continue"|"refine"|"dissatisfied", "intent": "status"|"resume"|"approve"|"amend"|"task", "reference": boolean, "runReference": boolean, "goal": string, "requirements": string[], "constraints": string[], "quality": string[], "scope": string[], "depth": "none"|"light"|"substantial"|"hard", "volume": "small"|"medium"|"large", "kind": "answer"|"edit"|"investigate"|"mixed", "main": {"model": "haiku"|"sonnet"|"opus"|"fable", "effort": "low"|"medium"|"high"|"xhigh", "why": string}, "referenceMain": {"model": string, "effort": string}, "skipApproval": boolean, "questions": string[], "tasks": [{"title": string, "covers": number[], "run": "main"|"agent", "agent": string, "model": string, "effort": string, "depth": string, "volume": string, "kind": string, "why": string}]}
++{"why": string, "confidence": number, "relation": "new"|"continue"|"refine"|"dissatisfied", "intent": "status"|"resume"|"approve"|"amend"|"task", "reference": boolean, "runReference": boolean, "goal": string, "requirements": string[], "constraints": string[], "quality": string[], "scope": string[], "depth": "none"|"light"|"substantial"|"hard", "volume": "small"|"medium"|"large", "kind": "answer"|"edit"|"investigate"|"mixed", "main": {"model": "haiku"|"sonnet"|"opus"|"fable", "effort": "low"|"medium"|"high"|"xhigh", "why": string}, "referenceMain": {"model": string, "effort": string}, "skipApproval": boolean, "questions": string[], "tasks": [{"title": string, "covers": number[], "run": "main"|"agent", "agent": string, "model": string, "effort": string, "depth": string, "volume": string, "kind": string, "why": string}], "arrange": {"order": (number|string)[], "drop": [{"task": number, "why": string}], "merge": [{"tasks": number[], "into": number|string}]}}
+ 
+ Examples (abridged):
+ - "Liệt kê các hàm export trong utils.ts" -> depth none, kind answer, main haiku/low, tasks [].
+@@ -357,6 +358,21 @@ function ruleItems(constraints: readonly string[] | undefined): string[] {
    return items
  }
  
@@ -308,8 +382,23 @@ index fc059c5..490cc28 100644
  function rulesLines(constraints: readonly string[] | undefined): string[] {
    const items = ruleItems(constraints)
    return items.length > 0 ? ['User rules of this goal (a rule that names a model for this kind of work must be followed, never a lower model):', ...items] : []
-@@ -374,15 +389,24 @@ function previousLines(prev: Brief | null, ran: string | null): string[] {
-     ...totalLine(prev.tasks.length),
+@@ -367,22 +383,36 @@ function totalLine(count: number): string[] {
+   return count > TASK_CONTEXT ? [`  (${count} tasks in total; the first ${TASK_CONTEXT} are listed)`] : []
+ }
+ 
+-function previousLines(prev: Brief | null, ran: string | null): string[] {
++function previousLines(prev: Brief | null, ran: string | null, states: Readonly<Record<number, TaskStatus>> = {}): string[] {
+   if (prev === null) return ['Previous goal: none.']
++  // Mọi việc chưa xong, mỗi việc một dòng kèm trạng thái; việc đã xong gộp một dòng chỉ ghi số (0.8.9 D1), để router điều phối lại được.
++  const stateOf = (index: number): TaskStatus => states[index] ?? 'not started'
++  const done = prev.tasks.filter(t => stateOf(t.index) === 'done').map(t => t.index)
+   const tasks = [
+-    ...prev.tasks.slice(0, TASK_CONTEXT).map(t => `  ${t.index}. ${fence(t.title)} (${t.run === 'agent' ? `${fence(t.agentType ?? 'general-purpose')} ` : 'main '}${describePick(t.pick)})`),
+-    ...totalLine(prev.tasks.length),
++    ...prev.tasks
++      .filter(t => stateOf(t.index) !== 'done')
++      .map(t => `  ${t.index}. ${fence(t.title)} (${t.run === 'agent' ? `${fence(t.agentType ?? 'general-purpose')} ` : 'main '}${describePick(t.pick)}) [${stateOf(t.index)}]`),
++    ...(done.length > 0 ? [`  Done tasks: ${done.join(', ')}`] : []),
    ]
    // Ràng buộc của mục tiêu trước (0.7.5), cắt gọn như khi chấm subagent: prompt tiếp nối ngắn không nhắc lại quy định model.
 -  const rules = ruleItems(prev.constraints)
@@ -336,7 +425,94 @@ index fc059c5..490cc28 100644
      ...(prev.referenceMain ? [`Main thread the referenced prompt would need: ${describePick(prev.referenceMain)}`] : []),
      `Main thread ran: ${ran ?? 'unknown'}`,
    ]
-@@ -1171,9 +1195,10 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number, isHeld =
+@@ -414,6 +444,8 @@ export type RouterRequestArgs = {
+   isFable?: boolean
+   /** Họ model, cửa sổ ngữ cảnh và thời gian chờ tối đa của lượt đọc (0.8.7 L3); vắng thì theo model, cửa sổ mặc định, 1.800 giây. */
+   reading?: Reading
++  /** Trạng thái từng việc của mục tiêu trước (0.8.9 D1, taskStatusOf); việc vắng mặt là not started. */
++  taskStates?: Readonly<Record<number, TaskStatus>>
+ }
+ 
+ /** Lượt đọc của request: họ model theo isFable hay tên model, cửa sổ mặc định của họ, thời gian chờ tối đa mặc định. */
+@@ -427,7 +459,7 @@ function readingOf(args: RouterRequestArgs): Reading {
+ /** Phần cố định của request (lời dặn và các dòng ngữ cảnh) và kế hoạch đọc prompt của lượt đó (0.8.7 L3). */
+ function requestParts(args: RouterRequestArgs): { system: readonly ModelTextBlock[]; context: string[]; plan: ReadPlan } {
+   const context = [
+-    ...previousLines(args.prev, args.ran),
++    ...previousLines(args.prev, args.ran, args.taskStates),
+     allowedLine(args.policy),
+     ...sessionLine(args.sessionFamily),
+     agentsLine(args.policy),
+@@ -760,6 +792,8 @@ export type RouterPlan = {
+   skipApproval?: boolean
+   /** Câu hỏi làm rõ (0.8.2 N2): tối đa QUESTION_LIMIT câu, mỗi câu tối đa QUESTION_CHARS ký tự; vắng khi không có. */
+   questions?: string[]
++  /** Điều phối lại việc còn mở (0.8.9 D1): chỉ với prompt tiếp nối có intent amend hay task; vắng khi router không trả hay sai dạng. */
++  arrange?: Arrange
+ }
+ 
+ /** Số câu hỏi làm rõ tối đa và số ký tự tối đa mỗi câu (0.8.2 N2). */
+@@ -1009,11 +1043,14 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
+   const questions = Array.isArray(raw['questions'])
+     ? unique(raw['questions'].filter((q): q is string => typeof q === 'string' && q.trim() !== '').map(q => clip(q.trim(), QUESTION_CHARS)), QUESTION_LIMIT)
+     : []
++  const intent: Intent = relation === 'new' ? 'task' : (INTENTS.find(i => i === raw['intent']) ?? 'task')
++  // Điều phối lại việc còn mở (0.8.9 D1): chỉ với continue, refine, dissatisfied và intent amend hay task; sai dạng thì bỏ cả trường.
++  const arrange = relation !== 'new' && (intent === 'amend' || intent === 'task') ? arrangeOf(raw['arrange']) : null
+   return {
+     why: text(raw['why'], 200),
+     confidence: confidenceOf(raw['confidence']),
+     relation,
+-    intent: relation === 'new' ? 'task' : (INTENTS.find(i => i === raw['intent']) ?? 'task'),
++    intent,
+     isReference,
+     runReference,
+     goal,
+@@ -1032,7 +1069,43 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
+     ...(droppedSplits > 0 ? { droppedSplits } : {}),
+     ...(raw['skipApproval'] === true ? { skipApproval: true } : {}),
+     ...(questions.length > 0 ? { questions } : {}),
++    ...(arrange !== null ? { arrange } : {}),
++  }
++}
++
++/** Lý do bỏ một việc trong arrange tối đa bấy nhiêu ký tự (0.8.9 D1). */
++const ARRANGE_WHY_CHARS = 80
++
++/** Một việc được nhắc trong arrange: số nguyên dương của việc đã có, hay "newK" (K từ 1). */
++function isArrangeRef(value: unknown): value is ArrangeRef {
++  return (typeof value === 'number' && Number.isInteger(value) && value > 0) || (typeof value === 'string' && /^new[1-9]\d*$/.test(value))
++}
++
++const isTaskNumber = (value: unknown): value is number => typeof value === 'number' && Number.isInteger(value) && value > 0
++
++/**
++ * Trường arrange của câu trả lời router (0.8.9 D1): cả ba phần order, drop, merge phải là mảng đúng dạng; một phần tử sai thì bỏ cả
++ * trường (trả null), phần còn lại của câu trả lời vẫn dùng.
++ */
++function arrangeOf(value: unknown): Arrange | null {
++  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
++  const raw = value as Record<string, unknown>
++  const { order, drop, merge } = raw
++  if (!Array.isArray(order) || !Array.isArray(drop) || !Array.isArray(merge)) return null
++  if (!order.every(isArrangeRef)) return null
++  const drops: Arrange['drop'] = []
++  for (const item of drop) {
++    const entry = item as Record<string, unknown> | null
++    if (entry === null || typeof entry !== 'object' || !isTaskNumber(entry['task']) || typeof entry['why'] !== 'string') return null
++    drops.push({ task: entry['task'], why: text(entry['why'].split(/\s+/).join(' '), ARRANGE_WHY_CHARS) })
++  }
++  const merges: Arrange['merge'] = []
++  for (const item of merge) {
++    const entry = item as Record<string, unknown> | null
++    if (entry === null || typeof entry !== 'object' || !Array.isArray(entry['tasks']) || entry['tasks'].length === 0 || !entry['tasks'].every(isTaskNumber) || !isArrangeRef(entry['into'])) return null
++    merges.push({ tasks: [...(entry['tasks'] as number[])], into: entry['into'] })
+   }
++  return { order: [...order], drop: drops, merge: merges }
+ }
+ 
+ /**
+@@ -1171,9 +1244,10 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number, isHeld =
    const { items: requirements, renumber, dropped: lostRequirements } = merged
    const reclaimed = reclaimCarried(prev.constraints, prev.carriedRules ?? 0, plan.constraints)
    const conBase = prev.constraintsBase ?? prev.constraints.length
@@ -349,7 +525,7 @@ index fc059c5..490cc28 100644
    const dropped = lostRequirements + constraints.dropped
    const keptTasks = merged.lost.size > 0 ? prev.tasks.map(t => (t.covers !== undefined ? { ...t, covers: t.covers.filter(n => !merged.lost.has(n)) } : t)) : prev.tasks
    const added = plan.tasks.map(t => ({
-@@ -1227,7 +1252,7 @@ export function promoteReference(prev: Brief, plan: RouterPlan, prompt: string,
+@@ -1227,7 +1301,7 @@ export function promoteReference(prev: Brief, plan: RouterPlan, prompt: string,
    // Ràng buộc, tiêu chí và phạm vi của prompt đính kèm được giữ từ lượt đối chiếu: lượt chạy thật phải có đủ. Cả hai lượt là prompt
    // lập mục tiêu nên mọi mục đều thuộc phần không bao giờ bị thay.
    const mergedRequirements = mergeCapped(prev.requirements ?? [], plan.requirements, Number.POSITIVE_INFINITY).items
@@ -358,7 +534,7 @@ index fc059c5..490cc28 100644
    return {
      ...briefOf(plan, prompt, prev.goalId + 1, now),
      goal: plan.goal || prev.goal,
-@@ -1271,7 +1296,7 @@ export function bareBrief(prompt: string, goalId: number, now: number): Brief {
+@@ -1271,7 +1345,7 @@ export function bareBrief(prompt: string, goalId: number, now: number): Brief {
  // ------------------------------------------------------------ gọi router (thuần, qua callback)
  
  /**
@@ -367,7 +543,7 @@ index fc059c5..490cc28 100644
   * `$` ngay trong thân hook, nên logic gọi, thử lại và đọc kết quả nằm ở đây mà không đụng tới `$`.
   */
  export type Ask = (request: ModelCompleteRequest) => Promise<ModelCompleteResult | null>
-@@ -1285,10 +1310,42 @@ export function failureKind(reply: ModelCompleteResult | null): RouterFailKind {
+@@ -1285,10 +1359,42 @@ export function failureKind(reply: ModelCompleteResult | null): RouterFailKind {
    return 'empty'
  }
  
@@ -414,7 +590,7 @@ index fc059c5..490cc28 100644
    if (reply.reason === 'api-error') return `lỗi API ${reply.error}${reply.status !== null ? ` ${reply.status}` : ''}`
    if (reply.reason === 'aborted') return 'hết thời gian chờ'
    return 'câu trả lời rỗng'
-@@ -1333,11 +1390,15 @@ export type RouterOutcome<T> = {
+@@ -1333,11 +1439,15 @@ export type RouterOutcome<T> = {
    reason: string
    /** Usage của mọi lượt gọi (lượt đầu và lượt hỏi lại). */
    usages: ModelUsage[]
@@ -431,7 +607,7 @@ index fc059c5..490cc28 100644
    /** Loại lỗi khi không có kết quả (0.7.2); null khi có kết quả. */
    failure: RouterFailKind | null
    /** Giới hạn của request đã gửi và số token đầu ra của lượt gọi cuối, để biết lỗi do hết giờ hay bị cắt (0.7.2). */
-@@ -1367,51 +1428,103 @@ export function failFields(fail: RouterFail): Record<string, unknown> {
+@@ -1367,51 +1477,103 @@ export function failFields(fail: RouterFail): Record<string, unknown> {
    return { failure: fail.kind, ms: fail.ms, timeoutMs: fail.timeoutMs, maxTokens: fail.maxTokens, outputTokens: fail.outputTokens }
  }
  
@@ -549,7 +725,7 @@ index fc059c5..490cc28 100644
    }
    const firstResult = first?.isAnswered ? parse(first.text) : null
    // Thiếu confidence (0.7.8 G8): chỉ khi bật retryMissingConfidence (ba chỗ đọc prompt) thì coi như dưới LOW_CONFIDENCE và hỏi lại;
-@@ -1420,16 +1533,24 @@ export async function askRouter<T extends { confidence?: number }>(
+@@ -1420,16 +1582,24 @@ export async function askRouter<T extends { confidence?: number }>(
    const firstConfidence = firstResult?.confidence ?? 1
    const isConfident = firstResult !== null && !isMissing && firstConfidence >= LOW_CONFIDENCE
    const needsCoverage = isConfident && recheck !== undefined && recheck(firstResult)
@@ -580,7 +756,7 @@ index fc059c5..490cc28 100644
    const secondResult = second?.isAnswered ? parse(second.text) : null
    // Thiếu confidence xếp thấp nhất khi bật retryMissingConfidence: lần hai thắng khi nó có confidence và lần đầu không có hay thấp hơn.
    const isSecondBetter =
-@@ -1437,7 +1558,10 @@ export async function askRouter<T extends { confidence?: number }>(
+@@ -1437,7 +1607,10 @@ export async function askRouter<T extends { confidence?: number }>(
        ? secondResult !== null && (firstResult === null || (secondResult.confidence !== undefined && (isMissing || secondResult.confidence >= firstConfidence)))
        : secondResult !== null && (firstResult === null || (secondResult.confidence ?? 1) >= firstConfidence)
    const pick = isSecondBetter ? secondResult : firstResult
@@ -592,7 +768,7 @@ index fc059c5..490cc28 100644
  }
  
  /** Prompt dài hơn sức chứa của lượt router đó bị lược phần giữa (0.7.8 G8; 0.8.7 L3: sức chứa theo requestPlan, mặc định trần cũ). */
-@@ -1468,9 +1592,16 @@ export function clippedWarning(length: number, info?: { family: ModelFamily; hea
+@@ -1468,9 +1641,16 @@ export function clippedWarning(length: number, info?: { family: ModelFamily; hea
  /** Dòng context kèm prompt bị lược (0.7.8 G8), tối đa 200 ký tự. */
  export const CLIPPED_CONTEXT = '[focus-conductor] Prompt quá dài nên router chưa đọc phần giữa; tự đọc kỹ phần đó khi lập checklist.'
  
@@ -611,7 +787,7 @@ index fc059c5..490cc28 100644
  }
  
  /** Đợt vừa mở (0.8.0 A3): số đợt, số việc và số mục đã cất, số việc mới. */
-@@ -1665,7 +1796,7 @@ function nextBriefRaw(
+@@ -1665,7 +1845,7 @@ function nextBriefRaw(
    if (prev === null || (plan.relation === 'new' && !held)) {
      const fresh = briefOf(plan, prompt, (prev?.goalId ?? 0) + 1, now)
      const carried = prev !== null && !prev.isReference && !plan.constraints.some(isModelRule) ? prev.constraints.filter(isModelRule) : []
@@ -620,7 +796,7 @@ index fc059c5..490cc28 100644
      // Quy định mang sang đứng đầu danh sách (S2): ghi số mục để sàn model phiên chỉ đọc quy định của chính mục tiêu này.
      const brief = carried.length > 0 ? { ...fresh, constraints: carriedConstraints, constraintsBase: carriedConstraints.length, carriedRules: carried.length } : fresh
      return { brief, added: [], isNewGoal: true, replaced: [], held: false, dropped: 0 }
-@@ -1733,12 +1864,14 @@ Reply with ONE JSON object and nothing else:
+@@ -1733,12 +1913,14 @@ Reply with ONE JSON object and nothing else:
  {"missing": number[], "extra": number[], "issues": string[]}`
  
  /** Request rà kế hoạch ở Stop (0.8.2 N2): yêu cầu, ràng buộc, tiêu chí và các bước (tên, check) đánh số từ 1. */
@@ -691,6 +867,36 @@ index c17fcb0..284111e 100644
  // test so hằng với .claude-plugin/plugin.json.
 -export const MOD_VERSION = '0.8.8'
 +export const MOD_VERSION = '0.8.9'
+diff --git a/claude-mods/focus-conductor/hooks/parts/command.ts b/claude-mods/focus-conductor/hooks/parts/command.ts
+index 69796a8..cced7a3 100644
+--- a/claude-mods/focus-conductor/hooks/parts/command.ts
++++ b/claude-mods/focus-conductor/hooks/parts/command.ts
+@@ -12,6 +12,7 @@ import { describePick } from '../lib/route'
+ import { clipText } from '../lib/decisions'
+ import { askRouter, bareBrief, briefOf, failFields, nextBrief, parseRoute, rerouted, routerFailOf, routerRequest } from '../lib/router'
+ import { shownPlan } from '../lib/mirror'
++import { taskStatusOf } from '../lib/progress'
+ import * as S from '../lib/state'
+ import { statusTextOf } from '../ui/direction'
+ import type { View } from '../lib/state'
+@@ -240,7 +241,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
+       const rules = ctx.conductorState(before, await read($, mode)) === null ? { ...basePolicy, conductor: true, goalIsBig: isBigGoal(before.brief) } : basePolicy
+       // Lệnh do người dùng gõ: luôn hỏi router, kể cả khi router đang tạm ngừng sau các lần lỗi.
+       const target = ctx.routerTarget(before, await read($, mode))
+-      const request = routerRequest({ text: arg, prev, ran: null, policy: rules, model: target.model, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily, isForcedNew: true, reading: ctx.routerReading(target) })
++      const request = routerRequest({ text: arg, prev, ran: null, policy: rules, model: target.model, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily, isForcedNew: true, reading: ctx.routerReading(target), taskStates: taskStatusOf(before, await $.clock.now()) })
+       const startedAt = await $.clock.now()
+       const outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), undefined, { retryMissingConfidence: true, ...(target.isFable ? { isFable: true } : {}) })
+       ctx.noteRouterFailure('prompt', outcome.failure)
+@@ -304,7 +305,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
+       const rules = ctx.conductorState(before, await read($, mode)) === null ? { ...basePolicy, conductor: true, goalIsBig: isBigGoal(before.brief) } : basePolicy
+       // Lệnh do người dùng gõ: luôn hỏi router, kể cả khi router đang tạm ngừng.
+       const target = ctx.routerTarget(before, await read($, mode))
+-      const request = routerRequest({ text: last.text, prev: last.prev, ran: ranText(before), policy: rules, model: target.model, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily, reading: ctx.routerReading(target) })
++      const request = routerRequest({ text: last.text, prev: last.prev, ran: ranText(before), policy: rules, model: target.model, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily, reading: ctx.routerReading(target), taskStates: taskStatusOf(before, await $.clock.now()) })
+       const startedAt = await $.clock.now()
+       const outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), undefined, { retryMissingConfidence: true, ...(target.isFable ? { isFable: true } : {}) })
+       ctx.noteRouterFailure('prompt', outcome.failure)
 diff --git a/claude-mods/focus-conductor/hooks/parts/consistency.ts b/claude-mods/focus-conductor/hooks/parts/consistency.ts
 index c5df562..fac35d6 100644
 --- a/claude-mods/focus-conductor/hooks/parts/consistency.ts
@@ -704,10 +910,19 @@ index c5df562..fac35d6 100644
      steps: core.plan.map(step => ({ title: step.title, ...(step.check !== undefined ? { check: step.check } : {}) })),
      model: target.model,
 diff --git a/claude-mods/focus-conductor/hooks/parts/session.ts b/claude-mods/focus-conductor/hooks/parts/session.ts
-index 33befe5..216a32c 100644
+index 33befe5..c6d8d40 100644
 --- a/claude-mods/focus-conductor/hooks/parts/session.ts
 +++ b/claude-mods/focus-conductor/hooks/parts/session.ts
-@@ -364,10 +364,11 @@ export function registerSession(on: On, ctx: Ctx): void {
+@@ -25,7 +25,7 @@ import type { Ctx } from '../context'
+ import { modeOf, viewOf } from '../atoms'
+ import { PERSON_ORIGINS, SLASH_COMMAND, newDelegation } from '../context'
+ import { PANE_ROWS, shouldAutoOpenPane } from '../lib/pane'
+-import { taskRows } from '../lib/progress'
++import { taskRows, taskStatusOf } from '../lib/progress'
+ import { PANE, PANE_TITLE } from '../ui/pane'
+ import { approvalDenial, approvedContext, askContext, needsApproval, planningContext } from '../lib/approval'
+ 
+@@ -364,17 +364,20 @@ export function registerSession(on: On, ctx: Ctx): void {
      const approvalStored = S.approvalOf(before)
      const isPresented = prev !== null && approvalStored.status === 'presented'
      const isAnswering = prev !== null && approvalStored.awaitingAnswer
@@ -720,7 +935,17 @@ index 33befe5..216a32c 100644
      // Lượt đọc của đích router (0.8.7 L3): mọi model đọc trọn prompt tới sức chứa của lượt đó.
      const reading = ctx.routerReading(target)
      let promptRead: ReadPlan = requestPlan({ text, prev, ran: ranText(before), policy: rules, model: target.model, reading, ...(target.isFable ? { isFable: true } : {}) })
-@@ -385,6 +386,7 @@ export function registerSession(on: On, ctx: Ctx): void {
+     if (!isPaused) {
++      // Trạng thái từng việc (0.8.9 D1): router thấy việc nào còn mở để điều phối lại.
++      const taskStates = taskStatusOf(before, await $.clock.now())
+       const observed = L.observed.join('; ')
+       L.observed = []
+-      const args = { text, prev, ran: ranText(before), policy: rules, model: target.model, reading, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily, openSteps: openSteps(before.plan).map(s => s.title), ...(observed ? { observed } : {}), ...(isInterject ? { interject: { step: openSteps(before.plan)[0]?.title ?? '' } } : {}), ...(isPresented ? { awaiting: 'approval' as const } : isAnswering ? { awaiting: 'answer' as const } : {}) }
++      const args = { text, prev, ran: ranText(before), policy: rules, model: target.model, reading, taskStates, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily, openSteps: openSteps(before.plan).map(s => s.title), ...(observed ? { observed } : {}), ...(isInterject ? { interject: { step: openSteps(before.plan)[0]?.title ?? '' } } : {}), ...(isPresented ? { awaiting: 'approval' as const } : isAnswering ? { awaiting: 'answer' as const } : {}) }
+       promptRead = requestPlan(args)
+       // Lượt đọc trọn prompt dài (0.8.7 L3) có thể mất vài phút, nên chữ chờ nói rõ.
+       $.ui.status(promptRead.isFull ? 'router đang đọc trọn prompt dài, có thể mất vài phút...' : 'router đang đọc prompt...')
+@@ -385,6 +388,7 @@ export function registerSession(on: On, ctx: Ctx): void {
        // Lượt đọc của Fable bị API từ chối (0.8.7 F1): cùng request trọn gửi họ dự phòng, với thời gian chờ và maxTokens theo thông số của họ đó.
        const backup = target.family === ctx.conductorFamily ? ctx.fallbackTarget(before, current, (await read($, headlessState)) === true) : null
        apiFamily = backup?.family ?? null
@@ -728,7 +953,7 @@ index 33befe5..216a32c 100644
        const apiFallback = backup !== null ? routerRequest({ ...args, model: backup.model, reading: ctx.routerReading(backup) }) : undefined
        const startedAt = await $.clock.now()
        outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), needsCoverageRecheck, { retryMissingConfidence: true, ...(target.isFable ? { isFable: true } : {}), ...(fallback !== undefined ? { fallback } : {}), ...(full !== undefined ? { full } : {}), ...(apiFallback !== undefined ? { apiFallback } : {}) })
-@@ -398,9 +400,9 @@ export function registerSession(on: On, ctx: Ctx): void {
+@@ -398,9 +402,9 @@ export function registerSession(on: On, ctx: Ctx): void {
        } else if (target.isFable) await noteFableRouter($, ctx, outcome.result !== null, target.family)
        else pauseText = noteRouter(outcome.result !== null)
      }
@@ -741,7 +966,7 @@ index 33befe5..216a32c 100644
      // Tiếp tục điểm dừng khi router xếp tiếp nối, hoặc khi người dùng vừa gõ /conductor resume (khi đó router xếp mục
      // tiêu mới thì vẫn giữ mục tiêu đã khôi phục).
      // Tin hỏi tiến độ (0.8.2 N1) không tiếp tục điểm dừng: chỉ báo cáo.
-@@ -469,7 +471,7 @@ export function registerSession(on: On, ctx: Ctx): void {
+@@ -469,7 +473,7 @@ export function registerSession(on: On, ctx: Ctx): void {
        if (!isInterject) L.promptIntent = { relation: 'continue', kind: 'answer' }
        await update($, coreState, c => S.withRouterFail(null)(charge(c)))
        L.lastPrompt = { text, prev, goalId: prev.goalId }
@@ -750,7 +975,7 @@ index 33befe5..216a32c 100644
        await flushDecisions((path, text) => $.fs.write(path, text))
        await showStatus($, await read($, view), ctx.options)
        return next({ ...e, context: [...lead, ...(e.context ?? []), intentStatusContext(isInterject), ...tail] })
-@@ -480,7 +482,7 @@ export function registerSession(on: On, ctx: Ctx): void {
+@@ -480,7 +484,7 @@ export function registerSession(on: On, ctx: Ctx): void {
        if (!isInterject) L.promptIntent = { relation: 'continue', kind: 'answer' }
        await update($, coreState, c => S.withRouterFail(null)(charge(c)))
        L.lastPrompt = { text, prev, goalId: prev.goalId }
@@ -759,7 +984,7 @@ index 33befe5..216a32c 100644
        await flushDecisions((path, text) => $.fs.write(path, text))
        await showStatus($, await read($, view), ctx.options)
        return next({ ...e, context: [...lead, ...(e.context ?? []), asideContext(isInterject, openSteps(before.plan)[0]), ...tail] })
-@@ -657,6 +659,7 @@ export function registerSession(on: On, ctx: Ctx): void {
+@@ -657,6 +661,7 @@ export function registerSession(on: On, ctx: Ctx): void {
        intent,
        confidence: plan.confidence,
        retried: outcome.retried,
@@ -820,7 +1045,7 @@ index 9c2309b..8b7c681 100644
        <Box flexDirection="column">
          {heading(l.quality)}
 diff --git a/claude-mods/focus-conductor/scripts/mutants.ts b/claude-mods/focus-conductor/scripts/mutants.ts
-index df2949e..7a434fd 100644
+index df2949e..be08954 100644
 --- a/claude-mods/focus-conductor/scripts/mutants.ts
 +++ b/claude-mods/focus-conductor/scripts/mutants.ts
 @@ -828,7 +828,7 @@ export const MUTANTS: Mutant[] = [
@@ -832,6 +1057,24 @@ index df2949e..7a434fd 100644
    { id: "072-R10", file: "hooks/lib/router.ts", note: "thử lại khi bị cắt không tăng maxTokens", old: "const TRUNCATION_GROWTH = 1.5", new: "const TRUNCATION_GROWTH = 1" },
    { id: "072-R11", file: "hooks/lib/router.ts", note: "maxTokens thử lại không có trần", old: "const MAX_TOKENS_CAP = 32_000", new: "const MAX_TOKENS_CAP = 640_000" },
    { id: "072-R12", file: "hooks/lib/router.ts", note: "lời dặn viết ngắn khi bị cắt bị bỏ", old: "problem === 'json' && opts.truncated === true", new: "problem === 'json' && opts.truncated === 'never'" },
+@@ -986,7 +986,7 @@ export const MUTANTS: Mutant[] = [
+   { id: "074-B17", file: "hooks/parts/agents.ts", note: "sàn chạy cả khi không đổi gì (ghi nhật ký thừa)", old: "      if (floored.notes.length > 0) {\n        record", new: "      if (floored.notes.length >= 0) {\n        record" },
+   { id: "074-C1", file: "hooks/parts/session.ts", note: "router đọc prompt không có model của phiên", old: "sessionFamily: L.sessionFamily, openSteps:", new: "openSteps:" },
+   { id: "074-C2", file: "hooks/parts/command.ts", note: "/conductor goal không gửi model của phiên", old: "model: target.model, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily, isForcedNew: true", new: "model: target.model, ...(target.isFable ? { isFable: true } : {}), isForcedNew: true" },
+-  { id: "074-C3", file: "hooks/parts/command.ts", note: "/conductor reroute không gửi model của phiên", old: "policy: rules, model: target.model, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily, reading: ctx.routerReading(target) })", new: "policy: rules, model: target.model, ...(target.isFable ? { isFable: true } : {}), reading: ctx.routerReading(target) })" },
++  { id: "074-C3", file: "hooks/parts/command.ts", note: "/conductor reroute không gửi model của phiên", old: "policy: rules, model: target.model, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily, reading: ctx.routerReading(target), taskStates", new: "policy: rules, model: target.model, ...(target.isFable ? { isFable: true } : {}), reading: ctx.routerReading(target), taskStates" },
+   { id: "074-C4", file: "hooks/lib/text.ts", note: "DISCIPLINE bỏ câu ghi rõ model", old: " Prompt quy định model cho việc giao (kể cả \"model của phiên\") thì ghi rõ model đó ở lời gọi Agent (model của phiên ghi bằng tên họ model đang chạy); model ghi ở lời gọi là mức sàn, mod không chọn thấp hơn.", new: "" },
+   { id: "074-D1", file: "hooks/lib/drift/tracker.ts", note: "mốc thứ ba là 15", old: "const CHECKPOINT_STEPS = [CHECKPOINT_EVERY, 10, 20]", new: "const CHECKPOINT_STEPS = [CHECKPOINT_EVERY, 10, 15]" },
+   { id: "074-D2", file: "hooks/lib/drift/tracker.ts", note: "trần nhịp 30", old: "const CHECKPOINT_CAP = 40", new: "const CHECKPOINT_CAP = 30" },
+@@ -1151,7 +1151,7 @@ export const MUTANTS: Mutant[] = [
+   { id: "075-B13c", file: "hooks/parts/command.ts", note: "reroute đọc prompt gần nhất", old: "const last = isGoalRead ? L.goalPrompt : L.lastPrompt", new: "const last = L.lastPrompt" },
+   { id: "075-B13d", file: "hooks/parts/command.ts", note: "reroute đọc prompt gốc cả khi lần đọc gần nhất lỗi", old: "const isGoalRead = before.routerFail === null && L.goalPrompt", new: "const isGoalRead = L.goalPrompt" },
+   { id: "075-B13e", file: "hooks/lib/router.ts", note: "request chấm subagent không có dòng tổng số việc", old: ", ...totalLine((args.tasks ?? []).length)] : []),", new: "] : [])," },
+-  { id: "075-B13f", file: "hooks/lib/router.ts", note: "request tiếp nối không có dòng tổng số việc", old: "    ...totalLine(prev.tasks.length),\n", new: "" },
++  { id: "075-B13f", file: "hooks/lib/router.ts", note: "request tiếp nối không có dòng tổng số việc", old: "    ...(done.length > 0 ? [`  Done tasks: ${done.join(', ')}`] : []),\n", new: "" },
+   { id: "075-B13g", file: "hooks/parts/session.ts", note: "không giữ prompt lập mục tiêu", old: "      L.goalPrompt = { text, prev, goalId: brief.goalId }\n", new: "" },
+   { id: "075-B14a", file: "hooks/context.ts", note: "việc chờ giao không xét checklist", old: "if (own.length > 0) return own.some(step => step.status === 'doing' || step === next)", new: "if (own.length > 0) return true" },
+   { id: "075-B14b", file: "hooks/context.ts", note: "việc không có bước nào bị coi là không chờ", old: "return !(task !== undefined && hasTitleCode(task.title) && !isCoded)", new: "return false" },
 @@ -1322,10 +1322,10 @@ export const MUTANTS: Mutant[] = [
    { id: "075-L8c", file: "hooks/lib/state.ts", note: "mọi bước cũ được coi là cùng bước", old: "steps, (a, b) => a.title === b.title, n.closing.seq)", new: "steps, (a, b) => true, n.closing.seq)" },
    { id: "075-R1a", file: "hooks/lib/router.ts", note: "ràng buộc của prompt tiếp nối không vào phần tràn (bị bỏ)", old: "    else if (items.length < max + CAP_OVERFLOW) items.push(item)\n", new: "    else if (items.length < max) items.push(item)\n" },
@@ -861,7 +1104,7 @@ index df2949e..7a434fd 100644
    { id: "087-L3o", file: "hooks/lib/reading.ts", note: "mặc định routerMaxWait về 600 giây", old: "export const ROUTER_MAX_WAIT_MS = 1_800_000", new: "export const ROUTER_MAX_WAIT_MS = 600_000" },
    { id: "087-M1a", file: "hooks/lib/route.ts", note: "luôn trả ID ghim", old: "  if (useAlias && prefix === '') return family\n", new: "  if (false) return family\n" },
    { id: "087-M1b", file: "hooks/lib/route.ts", note: "alias thắng cả ghi đè modelMap", old: "  const override = map[family]\n  if (override) return override\n  const at = engineModel.indexOf('claude-')", new: "  if (useAlias) return family\n  const override = map[family]\n  if (override) return override\n  const at = engineModel.indexOf('claude-')" },
-@@ -2305,4 +2305,41 @@ export const MUTANTS: Mutant[] = [
+@@ -2305,4 +2305,46 @@ export const MUTANTS: Mutant[] = [
    { id: "088-N6o", file: "hooks/ui/band.tsx", note: "nút Ẩn vẫn hiện khi tạm dừng", old: "const hideButton = hasRoom && !isPaused && fit.hide ?", new: "const hideButton = hasRoom && fit.hide ?" },
    { id: "088-N6p", file: "hooks/ui/direction.ts", note: "tắt quotaGuard vẫn tính tạm dừng", old: "  const isPaused = settings.enabled && isPauseActive(", new: "  const isPaused = isPauseActive(" },
    { id: "088-N6q", file: "hooks/ui/band.tsx", note: "band lại có hộp rỗng ở cột đầu", old: "    <Box flexDirection=\"column\" flexGrow={1} flexShrink={1}>\n      {lines}\n    </Box>", new: "    <Box flexDirection=\"row\">\n      <Box flexDirection=\"column\" flexShrink={0} />\n      <Box flexDirection=\"column\" flexGrow={1} flexShrink={1}>\n        {lines}\n      </Box>\n    </Box>" },
@@ -902,7 +1145,122 @@ index df2949e..7a434fd 100644
 +  { id: "089-R3a", file: "hooks/lib/router.ts", note: "đối tượng không có message vẫn qua String", old: "    return typeof message === 'string' ? message : ''\n", new: "    return typeof message === 'string' ? message : String(error)\n" },
 +  { id: "089-R3b", file: "hooks/lib/router.ts", note: "không bỏ tiền tố khi nó đứng đầu thông điệp", old: "  const at = text.indexOf(ENGINE_CALL)\n", new: "  const at = text.indexOf(ENGINE_CALL, 1)\n" },
 +  { id: "089-R3c", file: "hooks/lib/router.ts", note: "không xóa thông điệp cũ trước lời gọi sau", old: "    refusal = ''\n    lastSent = sent\n", new: "    lastSent = sent\n" },
++  { id: "089-D1a", file: "hooks/lib/router.ts", note: "chỉ liệt kê 20 việc đầu", old: "    ...prev.tasks\n      .filter(t => stateOf(t.index) !== 'done')\n", new: "    ...prev.tasks\n      .slice(0, TASK_CONTEXT)\n      .filter(t => stateOf(t.index) !== 'done')\n" },
++  { id: "089-D1b", file: "hooks/lib/router.ts", note: "không ghi trạng thái của việc", old: " [${stateOf(t.index)}]`),", new: "`)," },
++  { id: "089-D1c", file: "hooks/lib/router.ts", note: "việc đã xong vẫn liệt kê từng dòng", old: "    ...prev.tasks\n      .filter(t => stateOf(t.index) !== 'done')\n", new: "    ...prev.tasks\n      .filter(t => t.index > 0)\n" },
++  { id: "089-D1d", file: "hooks/lib/router.ts", note: "arrange sai dạng làm hỏng cả câu trả lời", old: "  const arrange = relation !== 'new' && (intent === 'amend' || intent === 'task') ? arrangeOf(raw['arrange']) : null\n", new: "  const arrange = relation !== 'new' && (intent === 'amend' || intent === 'task') ? arrangeOf(raw['arrange']) : null\n  if (raw['arrange'] !== undefined && arrange === null && relation !== 'new' && (intent === 'amend' || intent === 'task')) return null\n" },
++  { id: "089-D1e", file: "hooks/lib/router.ts", note: "nhận arrange khi relation là new", old: "  const arrange = relation !== 'new' && (intent", new: "  const arrange = (intent" },
  ]
+diff --git a/claude-mods/focus-conductor/tests/arrange-d1-089.test.ts b/claude-mods/focus-conductor/tests/arrange-d1-089.test.ts
+new file mode 100644
+index 0000000..57e27c9
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/arrange-d1-089.test.ts
+@@ -0,0 +1,104 @@
++// 0.8.9 D1: request tiếp nối liệt kê mọi việc chưa xong của mục tiêu trước, mỗi việc một dòng kèm trạng thái (not started, running,
++// failed); việc đã xong gộp một dòng chỉ ghi số. Router được trả thêm trường arrange (order, drop, merge) khi yêu cầu làm thay đổi phần việc
++// còn lại; parseRoute đọc arrange khi đúng dạng, sai dạng thì bỏ cả trường mà phần còn lại vẫn dùng; arrange chỉ có nghĩa với continue,
++// refine, dissatisfied và intent amend hay task. Lời dặn router dài thêm không quá 900 ký tự so với 7682ef7.
++
++import { describe, expect, test } from 'claude-code/testing'
++import * as router from '../hooks/lib/router'
++import { parseRoute, routerRequest } from '../hooks/lib/router'
++import type { Policy } from '../hooks/lib/router'
++import type { Task } from '../types'
++import { OPEN } from './golden/cases'
++import { makeBrief } from './support/commands'
++import { plan, task } from './support/engine'
++import type { Json } from './support/engine'
++
++/** Độ dài lời dặn router ở 7682ef7 [Đo trực tiếp, 14/11/2026]: cờ conductor tắt và bật. */
++const BASE_SYSTEM = { off: 10_282, on: 11_180 }
++type State = 'not started' | 'running' | 'failed' | 'done'
++const POLICY: Policy = { allowFable: false, blocked: new Set(), session: null }
++const taskOf = (index: number, run: 'main' | 'agent' = 'main'): Task => ({ index, title: `Việc số ${index}`, run, ...(run === 'agent' ? { agentType: 'general-purpose' } : {}), pick: { family: 'sonnet', effort: 'medium' }, depth: 'light', volume: 'small', kind: 'edit', why: '' })
++const systemOf = (policy: Policy) => (routerRequest({ text: 'x', prev: null, ran: null, policy, model: 'm' }).system as Array<{ text: string }>).map(b => b.text).join('')
++
++function requestWith(count: number, states: Record<number, State>): string {
++  const prev = makeBrief({ tasks: Array.from({ length: count }, (_, i) => taskOf(i + 1, i % 3 === 0 ? 'agent' : 'main')) })
++  return String(routerRequest({ text: 'thêm phần xuất báo cáo', prev, ran: 'opus/high', policy: POLICY, model: 'claude-sonnet-5-5', taskStates: states } as never).prompt)
++}
++
++describe('0.8.9 D1: request tiếp nối thấy mọi việc chưa xong', () => {
++  test('42 việc (12 xong, 3 đang chạy, 1 lỗi, 26 chưa bắt đầu): 30 dòng việc chưa xong đúng trạng thái, một dòng 12 số việc đã xong', () => {
++    const states: Record<number, State> = {}
++    for (let i = 1; i <= 42; i++) states[i] = i <= 12 ? 'done' : i <= 15 ? 'running' : i === 16 ? 'failed' : 'not started'
++    const prompt = requestWith(42, states)
++    for (let i = 13; i <= 42; i++) {
++      const line = prompt.split('\n').find(l => l.startsWith(`  ${i}. `)) ?? ''
++      expect(line, String(i)).toContain(`Việc số ${i}`)
++      expect(line, String(i)).toContain(`[${states[i]}]`)
++    }
++    for (let i = 1; i <= 12; i++) expect(prompt.split('\n').some(l => l.startsWith(`  ${i}. `)), String(i)).toBe(false)
++    const done = prompt.split('\n').filter(l => l.includes('Done tasks:'))
++    expect(done).toEqual(['  Done tasks: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12'])
++    expect(prompt).not.toContain('tasks in total')
++  })
++
++  test('5 việc, chưa việc nào xong: 5 dòng, không có dòng việc đã xong', () => {
++    const prompt = requestWith(5, { 1: 'running' })
++    expect(prompt.split('\n').filter(l => /^ {2}\d+\. Việc số/.test(l))).toHaveLength(5)
++    expect(prompt).toContain('[running]')
++    expect(prompt).toContain('[not started]')
++    expect(prompt).not.toContain('Done tasks:')
++  })
++})
++
++const ARRANGE = { order: [8, 'new1', 12], drop: [{ task: 15, why: 'không còn cần' }], merge: [{ tasks: [16, 17], into: 'new1' }] }
++const reply = (over: Json) => JSON.stringify(plan({ relation: 'refine', intent: 'amend', goal: '', requirements: ['Xuất báo cáo'], tasks: [task('Xuất báo cáo', 'main', 'sonnet', 'medium')], ...over }))
++const arrangeOf = (text: string) => (parseRoute(text, OPEN) as (ReturnType<typeof parseRoute> & { arrange?: unknown }) | null)?.arrange
++
++describe('0.8.9 D1: parseRoute đọc arrange', () => {
++  test('arrange đúng dạng: đọc đủ order, drop, merge', () => {
++    expect(arrangeOf(reply({ arrange: ARRANGE }))).toEqual(ARRANGE)
++  })
++
++  for (const [name, bad] of [
++    ['thiếu trường merge', { order: [8], drop: [] }],
++    ['order không phải mảng', { ...ARRANGE, order: '8, 12' }],
++    ['task không phải số', { ...ARRANGE, drop: [{ task: '15', why: 'x' }] }],
++    ['into rỗng', { ...ARRANGE, merge: [{ tasks: [16], into: '' }] }],
++  ] as const) {
++    test(`${name}: arrange bị bỏ, tasks và requirements vẫn đọc được`, () => {
++      const parsed = parseRoute(reply({ arrange: bad }), OPEN)
++      expect(parsed).not.toBeNull()
++      expect((parsed as { arrange?: unknown }).arrange).toBeUndefined()
++      expect(parsed?.tasks.map(t => t.title)).toEqual(['Xuất báo cáo'])
++      expect(parsed?.requirements).toEqual(['Xuất báo cáo'])
++    })
++  }
++
++  for (const [name, over] of [
++    ['relation new', { relation: 'new', intent: 'task', goal: 'Mục tiêu khác' }],
++    ['intent status', { relation: 'continue', intent: 'status' }],
++    ['intent resume', { relation: 'continue', intent: 'resume' }],
++    ['intent approve', { relation: 'continue', intent: 'approve' }],
++  ] as const) {
++    test(`${name}: arrange bị bỏ`, () => {
++      expect(arrangeOf(reply({ ...over, arrange: ARRANGE }))).toBeUndefined()
++    })
++  }
++
++  test('relation continue, refine, dissatisfied với intent amend hay task: arrange được đọc', () => {
++    for (const relation of ['continue', 'refine', 'dissatisfied']) for (const intent of ['amend', 'task']) expect(arrangeOf(reply({ relation, intent, arrange: ARRANGE })), `${relation} ${intent}`).toEqual(ARRANGE)
++  })
++})
++
++describe('0.8.9 D1: lời dặn router', () => {
++  test('dài thêm không quá 900 ký tự so với 7682ef7, cả khi cờ conductor tắt và bật; câu về việc mới giữ nguyên; mẫu JSON có arrange', () => {
++    const off = systemOf(OPEN)
++    const on = systemOf({ ...OPEN, conductor: true })
++    expect(off.length - BASE_SYSTEM.off).toBeGreaterThan(0)
++    expect(off.length - BASE_SYSTEM.off).toBeLessThanOrEqual(900)
++    expect(on.length - BASE_SYSTEM.on).toBeLessThanOrEqual(900)
++    expect(off).toContain('tasks lists only NEW pieces of work added by this request ([] if none).')
++    expect(off).toContain('"arrange"')
++    expect(typeof (router as unknown as Record<string, unknown>)['routerSystem']).toBe('function')
++  })
++})
 diff --git a/claude-mods/focus-conductor/tests/caps-075.test.ts b/claude-mods/focus-conductor/tests/caps-075.test.ts
 index 720cd36..233eb16 100644
 --- a/claude-mods/focus-conductor/tests/caps-075.test.ts
@@ -975,6 +1333,21 @@ index 0000000..03f23d4
 +    expect(isClippedPrompt('a'.repeat(capacity + 1), capacity)).toBe(true)
 +  })
 +})
+diff --git a/claude-mods/focus-conductor/tests/conductor-c4-084.test.ts b/claude-mods/focus-conductor/tests/conductor-c4-084.test.ts
+index 2c7a9a0..9f29b39 100644
+--- a/claude-mods/focus-conductor/tests/conductor-c4-084.test.ts
++++ b/claude-mods/focus-conductor/tests/conductor-c4-084.test.ts
+@@ -12,7 +12,9 @@ import type { Json } from './support/engine'
+ 
+ // 0.8.7 L2 đổi các câu về trần số yêu cầu, số việc và thêm câu về thứ tự thực hiện; số ghim đổi theo, ý của ca giữ nguyên: cờ tắt thì
+ // request dùng đúng lời dặn gốc. Băm của 0.8.3 tới 0.8.6 là 546aea94….
+-const SHA_083 = '71ff7d30fe0b2b7e9550ece20ac08ae224386cbf880c0facb0fda4efc7658210'
++// 0.8.9 D1 thêm đoạn arrange vào phần quan hệ với mục tiêu trước và vào mẫu JSON; số ghim đổi theo. Băm của 0.8.7 tới 0.8.9 vòng 1 là
++// 71ff7d30….
++const SHA_083 = '11a39cfa02303acfdde6e357a926c67ad715559e54a4630fc5d4f25a7ad34fb9'
+ const ON: Policy = { ...OPEN, conductor: true }
+ const sha = async (text: string) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))].map(b => b.toString(16).padStart(2, '0')).join('')
+ const systemOf = (policy: Policy) => (routerRequest({ text: 'Sửa luồng thanh toán', prev: null, ran: null, policy, model: 'm' }).system as Array<{ text: string }>).map(b => b.text).join('')
 diff --git a/claude-mods/focus-conductor/tests/constraints-c1-089.test.ts b/claude-mods/focus-conductor/tests/constraints-c1-089.test.ts
 new file mode 100644
 index 0000000..c019f84
@@ -1279,6 +1652,24 @@ index 0000000..7db7b32
 +    for (const r of sent) expect(r.maxTokens ?? Infinity).toBeLessThanOrEqual(CAP)
 +  })
 +})
+diff --git a/claude-mods/focus-conductor/tests/integration/conduct-r4-086.test.ts b/claude-mods/focus-conductor/tests/integration/conduct-r4-086.test.ts
+index dd5c35c..f06bbaa 100644
+--- a/claude-mods/focus-conductor/tests/integration/conduct-r4-086.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/conduct-r4-086.test.ts
+@@ -27,8 +27,11 @@ const delegated = (text: string) => text.split('\n').filter(line => /^\s+\d+\. /
+ 
+ const hex = (bytes: ArrayBuffer): string => [...new Uint8Array(bytes)].map(byte => byte.toString(16).padStart(2, '0')).join('')
+ const sha = async (text: string) => hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))
+-/** SHA-256 của request router cho tin bổ sung trong chuỗi hiện tượng, đo trên 473bc75 (0.8.5) bằng engine 2.1.296. */
+-const FOLLOW_REQUEST_SHA = 'e98a37c262d2eae661d82e8c1053275d98d72a172420a6ec119a205e5afba543'
++/**
++ * SHA-256 của request router cho tin bổ sung trong chuỗi hiện tượng, đo trên 473bc75 (0.8.5) bằng engine 2.1.296. 0.8.9 D1: việc của mục tiêu
++ * trước mang trạng thái nên request đổi; băm cũ là e98a37c2….
++ */
++const FOLLOW_REQUEST_SHA = 'f1c8a8cc8974ae8edffe50aa74b4d3d0fa875274d2bacdd40c7f2cf90e945472'
+ 
+ function setup(on: On, first: Json, second: Json): Seen {
+   let n = 0
 diff --git a/claude-mods/focus-conductor/tests/integration/constraints-c1-089.test.ts b/claude-mods/focus-conductor/tests/integration/constraints-c1-089.test.ts
 new file mode 100644
 index 0000000..2fb8a28
@@ -1498,6 +1889,22 @@ index 62db4ec..7d8c630 100644
    })
  })
  
+diff --git a/claude-mods/focus-conductor/tests/integration/fork-split-f1-079.test.ts b/claude-mods/focus-conductor/tests/integration/fork-split-f1-079.test.ts
+index cb07e0a..921cf7a 100644
+--- a/claude-mods/focus-conductor/tests/integration/fork-split-f1-079.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/fork-split-f1-079.test.ts
+@@ -248,8 +248,9 @@ describe('F1: router đề xuất tách, mod kẹp trong parseRoute', () => {
+   test('chủ mod 1. forks tắt: routerSystem không có đoạn tách (ghim số ký tự và mã băm)', async () => {
+     const hex = (bytes: ArrayBuffer) => [...new Uint8Array(bytes)].map(b => b.toString(16).padStart(2, '0')).join('')
+     const text = routerSystem()
+-    expect(text.length).toBe(10282)
+-    expect(hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))).toBe('71ff7d30fe0b2b7e9550ece20ac08ae224386cbf880c0facb0fda4efc7658210')
++    // 0.8.9 D1: lời dặn có thêm đoạn arrange (10.282 thành 11.053 ký tự).
++    expect(text.length).toBe(11053)
++    expect(hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))).toBe('11a39cfa02303acfdde6e357a926c67ad715559e54a4630fc5d4f25a7ad34fb9')
+     for (const policy of [OPEN, withForks(0)]) {
+       expect(((routerRequest({ text: 'x', prev: null, ran: null, policy, model: 'sonnet' }).system ?? []) as readonly ModelTextBlock[])[0]?.text).toBe(text)
+     }
 diff --git a/claude-mods/focus-conductor/tests/integration/hook-limit-u1-089.test.ts b/claude-mods/focus-conductor/tests/integration/hook-limit-u1-089.test.ts
 new file mode 100644
 index 0000000..4aa6457
@@ -1764,6 +2171,38 @@ index 0000000..9627325
 +    expect(lines.some(line => line['kind'] === 'router-fail')).toBe(false)
 +  })
 +})
+diff --git a/claude-mods/focus-conductor/tests/limits-l2-087.test.ts b/claude-mods/focus-conductor/tests/limits-l2-087.test.ts
+index ad62e47..e9958ea 100644
+--- a/claude-mods/focus-conductor/tests/limits-l2-087.test.ts
++++ b/claude-mods/focus-conductor/tests/limits-l2-087.test.ts
+@@ -111,11 +111,11 @@ describe('0.8.7 L2: yêu cầu chưa được phủ', () => {
+ describe('0.8.7 L2: danh sách việc cũ gửi router', () => {
+   const brief = (n: number) => makeBrief({ tasks: Array.from({ length: n }, (_, i) => ({ index: i + 1, title: `Việc giả ${i + 1}`, run: 'main', pick: { family: 'sonnet', effort: 'medium' } }) as never) })
+ 
+-  test('mục tiêu 100 việc: request tiếp nối gửi 20 việc và một dòng tổng số 100', () => {
++  test('mục tiêu 100 việc chưa xong: request tiếp nối gửi đủ 100 việc kèm trạng thái, không có dòng tổng (0.8.9 D1)', () => {
+     const prompt = String(routerRequest({ text: 'làm tiếp', prev: brief(100), ran: null, policy: OPEN, model: 'sonnet' }).prompt)
+     expect(prompt).toContain('  20. Việc giả 20')
+-    expect(prompt).not.toContain('  21. Việc giả 21')
+-    expect(prompt).toContain('100 tasks in total')
++    expect(prompt).toContain('  100. Việc giả 100 (main sonnet/medium) [not started]')
++    expect(prompt).not.toContain('tasks in total')
+   })
+ 
+   test('mục tiêu 60 yêu cầu: request tiếp nối nêu yêu cầu 31 tới 50 và một dòng số yêu cầu còn lại', () => {
+@@ -126,9 +126,10 @@ describe('0.8.7 L2: danh sách việc cũ gửi router', () => {
+     expect(prompt).toContain('(10 more requirements)')
+   })
+ 
+-  test('mục tiêu 12 việc: trường prompt trùng 0.8.6', async () => {
++  test('mục tiêu 12 việc chưa xong: trường prompt trùng 0.8.6 khi bỏ nhãn trạng thái của từng việc (0.8.9 D1)', async () => {
+     const prompt = String(routerRequest({ text: 'làm tiếp', prev: brief(12), ran: null, policy: OPEN, model: 'sonnet' }).prompt)
+-    expect(await sha(prompt)).toBe(FOLLOW12_PROMPT_SHA)
++    expect(prompt.split(' [not started]').length - 1).toBe(12)
++    expect(await sha(prompt.replaceAll(' [not started]', ''))).toBe(FOLLOW12_PROMPT_SHA)
+   })
+ 
+   test('chấm subagent khi mục tiêu 100 việc: 20 việc và một dòng tổng số', () => {
 diff --git a/claude-mods/focus-conductor/tests/router-full-l1-087.test.ts b/claude-mods/focus-conductor/tests/router-full-l1-087.test.ts
 index 95202dd..c656ed7 100644
 --- a/claude-mods/focus-conductor/tests/router-full-l1-087.test.ts
@@ -2400,10 +2839,27 @@ index 0157119..90b4390 100644
      if ((e.system ?? '').includes('still working toward')) {
        seen.drift.push(e.prompt)
 diff --git a/claude-mods/focus-conductor/types/index.d.ts b/claude-mods/focus-conductor/types/index.d.ts
-index c8d2510..0a3f0a1 100644
+index c8d2510..fb22923 100644
 --- a/claude-mods/focus-conductor/types/index.d.ts
 +++ b/claude-mods/focus-conductor/types/index.d.ts
-@@ -568,6 +568,8 @@ export type QuotaPause = {
+@@ -564,10 +564,25 @@ export type QuotaPause = {
+   backupCalls?: number
+ }
+ 
++/** Trạng thái một việc của brief khi gửi router (0.8.9 D1): tính từ các dòng tiến độ của việc đó. */
++export type TaskStatus = 'not started' | 'running' | 'failed' | 'done'
++
++/** Việc được nhắc trong arrange (0.8.9 D1): số của việc đã có, hay "newK" là việc thứ K trong tasks của câu trả lời đó. */
++export type ArrangeRef = number | string
++
++/** Kế hoạch điều phối lại router trả cho prompt tiếp nối (0.8.9 D1): thứ tự làm, việc bỏ, việc gộp. */
++export type Arrange = {
++  order: ArrangeRef[]
++  drop: Array<{ task: number; why: string }>
++  merge: Array<{ tasks: number[]; into: ArrangeRef }>
++}
++
+ /** Phần mục tiêu cần để tiếp tục (cắt từ Brief); goal rỗng khi lúc dừng chưa có mục tiêu. */
  export type CheckpointBrief = {
    goal: string
    constraints: string[]
