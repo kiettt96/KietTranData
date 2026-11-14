@@ -16,6 +16,8 @@ Router của prompt dài hơn 80.000 ký tự bị engine từ chối khi họ �
 - `router.test.ts` ca "ask ném lỗi (engine từ chối): askRouter tự bắt, coi như engine từ chối; lần hai ném lỗi thì giữ câu trả lời lần một": lý do có thêm thông điệp của lỗi. Ca `ask` trả `null` cùng tệp giữ nguyên.
 - `error-log-l1-079`: MOD_VERSION là 0.8.9.
 
+**Đột biến:** thêm ca ranh giới prompt bị lược (`clip-boundary-089`) để bắt mẫu cũ `078-G8h`; mẫu `087-L3k` ghi là tương đương từ U4, lý do trong `scripts/mutants.ts`.
+
 **Mẫu cũ viết lại, giữ mã:** `087-L3i`, `087-L3n` (chuỗi của `fullRetryTokens` và lời gọi hỏi lại đổi theo U1). Mẫu mới: `089-U1a` tới `089-U1c`, `089-U2a` tới `089-U2e`, `089-U3a` tới `089-U3c`, `089-U4a` tới `089-U4d`.
 
 ## Thay đổi 0.8.8: giao diện hướng B "Ba ô phát sáng", dải màu neon
