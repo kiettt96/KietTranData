@@ -2331,4 +2331,6 @@ export const MUTANTS: Mutant[] = [
   { id: "089-C2d", file: "hooks/lib/router.ts", note: "request tiếp nối in toàn bộ phần tràn", old: "const over = [...shown.items.slice(CONSTRAINT_LIMIT),", new: "const over = [...prev.constraints.slice(CONSTRAINT_LIMIT)," },
   { id: "089-C2e", file: "hooks/lib/text.ts", note: "resumeContext in toàn bộ ràng buộc", old: "  return shown.items.length > 0 ? `Ràng buộc: ${shown.items.join('; ')}", new: "  return shown.items.length > 0 ? `Ràng buộc: ${constraints.join('; ')}" },
   { id: "089-C2f", file: "hooks/lib/router.ts", note: "request rà kế hoạch gửi toàn bộ ràng buộc", old: "['Constraints:', ...shown.items.map(c =>", new: "['Constraints:', ...args.constraints.map(c =>" },
+  { id: "089-R1a", file: "hooks/lib/router.ts", note: "giới hạn luôn lấy của request đầu", old: "    return { timeoutMs: sent?.timeoutMs ?? null, maxTokens: sent?.maxTokens ?? null,", new: "    return { timeoutMs: request.timeoutMs ?? null, maxTokens: request.maxTokens ?? null," },
+  { id: "089-R1b", file: "hooks/lib/router.ts", note: "giới hạn lấy từ request chưa kẹp", old: "    lastSent = sent\n", new: "    lastSent = r\n" },
 ]

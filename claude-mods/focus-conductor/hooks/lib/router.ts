@@ -1432,13 +1432,18 @@ export async function askRouter<T extends { confidence?: number }>(
   // gọi đi kèm model đã nhận lời gọi đó (0.8.9 U2); lời gọi bị engine từ chối không có usage.
   // Thông điệp của lần engine từ chối gần nhất (0.8.9 U3); lần gọi không ném lỗi thì rỗng.
   let refusal = ''
+  // Lời gọi cuối cùng đã gửi (0.8.9 R1): request đã kẹp và câu trả lời của nó (null khi bị engine từ chối).
+  let lastSent: ModelCompleteRequest | null = null
+  let lastReply: ModelCompleteResult | null = null
   const send = async (r: ModelCompleteRequest): Promise<ModelCompleteResult | null> => {
     const sent = cappedRequest(r)
     refusal = ''
+    lastSent = sent
     const reply = await ask(sent).catch((error: unknown) => {
       refusal = engineMessage(error)
       return null
     })
+    lastReply = reply
     if (reply) {
       usages.push(reply.usage)
       usageModels.push(sent.model)
@@ -1454,7 +1459,12 @@ export async function askRouter<T extends { confidence?: number }>(
   const whyFailed = (reply: ModelCompleteResult | null) => failureReason(reply, reply === null ? refusal : '')
   const firstReason = whyFailed(first)
   const saved = (result: T | null) => (result !== null ? { firstFail: firstReason } : {})
-  const limits = (last: ModelCompleteResult | null) => ({ timeoutMs: request.timeoutMs ?? null, maxTokens: request.maxTokens ?? null, outputTokens: last ? last.usage.output_tokens : null })
+  // Giới hạn ghi trong kết quả (0.8.9 R1): của lời gọi cuối cùng đã gửi, ở mọi nhánh.
+  const limits = () => {
+    const sent = lastSent as ModelCompleteRequest | null
+    const reply = lastReply as ModelCompleteResult | null
+    return { timeoutMs: sent?.timeoutMs ?? null, maxTokens: sent?.maxTokens ?? null, outputTokens: reply ? reply.usage.output_tokens : null }
+  }
   // Lượt đầu bị engine từ chối (0.8.9 U2): có fallback thì gửi fallback; không ra kết quả mà có apiFallback thì gửi tiếp apiFallback. Không có
   // fallback mà có apiFallback: gửi apiFallback. Không có cả hai: như 0.8.8 (nhánh cuối). Mỗi request dự phòng gửi nhiều nhất một lần.
   if (first === null && (opts.fallback !== undefined || opts.apiFallback !== undefined)) {
@@ -1462,11 +1472,11 @@ export async function askRouter<T extends { confidence?: number }>(
     const rescue = isFallbackSent ? await send(opts.fallback as ModelCompleteRequest) : null
     const rescued = rescue?.isAnswered ? parse(rescue.text) : null
     if (isFallbackSent && (rescued !== null || opts.apiFallback === undefined)) {
-      return { result: rescued, reason: rescued === null ? whyFailed(rescue) : '', usages, usageModels, retried: true, fellBack: true, failure: rescued === null ? failureKind(rescue) : null, ...saved(rescued), ...limits(rescue) }
+      return { result: rescued, reason: rescued === null ? whyFailed(rescue) : '', usages, usageModels, retried: true, fellBack: true, failure: rescued === null ? failureKind(rescue) : null, ...saved(rescued), ...limits() }
     }
     const last = await send(opts.apiFallback as ModelCompleteRequest)
     const result = last?.isAnswered ? parse(last.text) : null
-    return { result, reason: result === null ? whyFailed(last) : '', usages, usageModels, retried: true, viaFallback: true, failure: result === null ? failureKind(last) : null, ...saved(result), ...limits(last) }
+    return { result, reason: result === null ? whyFailed(last) : '', usages, usageModels, retried: true, viaFallback: true, failure: result === null ? failureKind(last) : null, ...saved(result), ...limits() }
   }
   // Lượt đọc của Fable bị API từ chối (0.8.7 F1): gửi cùng request trọn cho họ điều phối dự phòng, với thời gian chờ và maxTokens của họ đó;
   // không kiểm hạn chung. Hết giờ thì vẫn theo nhánh dự phòng của L3 bên dưới.
@@ -1474,7 +1484,7 @@ export async function askRouter<T extends { confidence?: number }>(
   if (apiFallback !== undefined && first !== null && !first.isAnswered && first.reason === 'api-error') {
     const again = await send(apiFallback)
     const result = again?.isAnswered ? parse(again.text) : null
-    return { result, reason: result === null ? whyFailed(again) : '', usages, usageModels, retried: true, viaFallback: true, failure: result === null ? failureKind(again) : null, ...saved(result), ...limits(again ?? first) }
+    return { result, reason: result === null ? whyFailed(again) : '', usages, usageModels, retried: true, viaFallback: true, failure: result === null ? failureKind(again) : null, ...saved(result), ...limits() }
   }
   // Lượt đọc trọn hết giờ hay bị API từ chối (0.8.7 L3): thử lại một lần bằng request dự phòng (cắt theo trần cũ) với trọn thời gian chờ
   // của nó, không lấy phần còn lại của hạn chung.
@@ -1482,15 +1492,15 @@ export async function askRouter<T extends { confidence?: number }>(
   if (fallback !== undefined && first !== null && !first.isAnswered && (first.reason === 'aborted' || first.reason === 'api-error')) {
     const again = await send(fallback)
     const result = again?.isAnswered ? parse(again.text) : null
-    return { result, reason: result === null ? whyFailed(again) : '', usages, usageModels, retried: true, fellBack: true, failure: result === null ? failureKind(again) : null, ...saved(result), ...limits(again ?? first) }
+    return { result, reason: result === null ? whyFailed(again) : '', usages, usageModels, retried: true, fellBack: true, failure: result === null ? failureKind(again) : null, ...saved(result), ...limits() }
   }
   // Hết giờ chờ (0.7.5): thử lại đúng một lần cùng request nếu hạn chung còn ít nhất RETRY_MIN_MS, với thời gian chờ là phần còn lại.
   if (first !== null && !first.isAnswered && first.reason === 'aborted') {
     const left = budget - (now() - startedAt)
-    if (left < RETRY_MIN_MS) return { result: null, reason: whyFailed(first), usages, usageModels, retried: false, failure: failureKind(first), ...limits(first) }
+    if (left < RETRY_MIN_MS) return { result: null, reason: whyFailed(first), usages, usageModels, retried: false, failure: failureKind(first), ...limits() }
     const again = await send({ ...request, timeoutMs: Math.min(request.timeoutMs ?? left, left) })
     const result = again?.isAnswered ? parse(again.text) : null
-    return { result, reason: result === null ? whyFailed(again) : '', usages, usageModels, retried: true, failure: result === null ? failureKind(again) : null, ...limits(again ?? first) }
+    return { result, reason: result === null ? whyFailed(again) : '', usages, usageModels, retried: true, failure: result === null ? failureKind(again) : null, ...limits() }
   }
   const firstResult = first?.isAnswered ? parse(first.text) : null
   // Thiếu confidence (0.7.8 G8): chỉ khi bật retryMissingConfidence (ba chỗ đọc prompt) thì coi như dưới LOW_CONFIDENCE và hỏi lại;
@@ -1506,9 +1516,9 @@ export async function askRouter<T extends { confidence?: number }>(
     if (outcome.result !== null || backup === undefined) return outcome
     const again = await send(backup)
     const result = again?.isAnswered ? parse(again.text) : null
-    return { result, reason: result === null ? whyFailed(again) : '', usages, usageModels, retried: true, fellBack: true, failure: result === null ? failureKind(again) : null, ...saved(result), ...limits(again ?? first) }
+    return { result, reason: result === null ? whyFailed(again) : '', usages, usageModels, retried: true, fellBack: true, failure: result === null ? failureKind(again) : null, ...saved(result), ...limits() }
   }
-  const settled = (retried: boolean): RouterOutcome<T> => ({ result: firstResult, reason: whyFailed(first), usages, usageModels, retried, failure: firstResult === null ? failureKind(first) : null, ...limits(first) })
+  const settled = (retried: boolean): RouterOutcome<T> => ({ result: firstResult, reason: whyFailed(first), usages, usageModels, retried, failure: firstResult === null ? failureKind(first) : null, ...limits() })
   if (first === null || !first.isAnswered || (isConfident && !needsCoverage)) return lastResort(settled(false))
   // Trong hạn chung: kiểm lại phủ yêu cầu chỉ khi lượt đầu chưa quá nửa hạn; thử lại JSON hay tin cậy thấp cần còn ít nhất RETRY_MIN_MS.
   const spent = now() - startedAt
@@ -1524,7 +1534,7 @@ export async function askRouter<T extends { confidence?: number }>(
       ? secondResult !== null && (firstResult === null || (secondResult.confidence !== undefined && (isMissing || secondResult.confidence >= firstConfidence)))
       : secondResult !== null && (firstResult === null || (secondResult.confidence ?? 1) >= firstConfidence)
   const pick = isSecondBetter ? secondResult : firstResult
-  return lastResort({ result: pick, reason: pick === null ? whyFailed(second) : '', usages, usageModels, retried: true, failure: pick === null ? failureKind(second) : null, ...limits(second ?? first) })
+  return lastResort({ result: pick, reason: pick === null ? whyFailed(second) : '', usages, usageModels, retried: true, failure: pick === null ? failureKind(second) : null, ...limits() })
 }
 
 /** Prompt dài hơn sức chứa của lượt router đó bị lược phần giữa (0.7.8 G8; 0.8.7 L3: sức chứa theo requestPlan, mặc định trần cũ). */
