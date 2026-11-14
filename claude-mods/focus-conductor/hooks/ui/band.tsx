@@ -179,14 +179,14 @@ export function renderBand(
       const at = offset
       offset += cellsOf(part.text)
       const runs: Run[] = !isStepFilled
-        ? [{ text: part.text, color: 'text', ...(paint.solid('cell') !== undefined ? { bg: paint.solid('cell') } : {}) }]
+        ? [{ text: part.text, color: paint.solid('onCell') ?? 'text', ...(paint.solid('cell') !== undefined ? { bg: paint.solid('cell') } : {}) }]
         : stepGradient !== null
           ? paint.fill(stepGradient, part.text, {}, at)
           : [{ text: part.text, color: 'inverseText', bg: 'inactive' }]
       return (
         <Text key={k} bold={part.bold}>
           {runs.map(run => (
-            <Text color={isStepFilled ? run.color : undefined} backgroundColor={run.bg}>
+            <Text color={isStepFilled || paint.isNeon ? run.color : undefined} backgroundColor={run.bg}>
               {run.text}
             </Text>
           ))}
@@ -197,17 +197,19 @@ export function renderBand(
   })()
 
   // ---------------------------------------------------------------- ô model
+  // Chữ mờ trên nền ô (0.8.8 N6a): neon thì màu thô onCellDim (dimColor của theme không đảm bảo tương phản với nền thô), off thì dimColor.
+  const dimOnCell = paint.isNeon ? { color: paint.solid('onCellDim') } : { dimColor: true }
   const isModelDim = isPaused || isFinished
   const modelCell =
     route && fit.route ? (
-      <Text backgroundColor={paint.solid('cell')}>
+      <Text backgroundColor={paint.solid('cell')} color={paint.solid('onCell')}>
         <Text>{' '}</Text>
-        {view.mode === 'suggest' ? <Text dimColor>{`${l.suggest} `}</Text> : null}
-        <Text color={paint.solid(route.family)} dimColor={isModelDim} bold>
+        {view.mode === 'suggest' ? <Text {...dimOnCell}>{`${l.suggest} `}</Text> : null}
+        <Text {...(isModelDim ? dimOnCell : { color: paint.solid(route.family) })} bold>
           {route.family}
         </Text>
-        {fit.effort ? <Text dimColor>{` ${route.effort}`}</Text> : null}
-        {fit.role && roleText && view.mode !== 'suggest' ? <Text dimColor>{` ${roleText}`}</Text> : null}
+        {fit.effort ? <Text {...dimOnCell}>{` ${route.effort}`}</Text> : null}
+        {fit.role && roleText && view.mode !== 'suggest' ? <Text {...dimOnCell}>{` ${roleText}`}</Text> : null}
         <Text>{' '}</Text>
       </Text>
     ) : null

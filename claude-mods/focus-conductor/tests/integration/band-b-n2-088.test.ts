@@ -32,7 +32,8 @@ const WIDE = /\p{Extended_Pictographic}|\p{Regional_Indicator}|[ᄀ-ᅟ\u2E80-\u
 const cellsOf = (s: string) => [...segmenter.segment(s.normalize('NFC'))].reduce((sum, g) => sum + (WIDE.test(g.segment) ? 2 : 1), 0)
 /** Ô tô đặc: có Text mang nền khác nền ô thường (ô thường của neon có nền DARK_SOLIDS.cell). */
 const hasBg = (n: unknown): boolean => n !== null && typeof n === 'object' && ((((n as Node).type === 'Text' && typeof (n as Node).props?.backgroundColor === 'string' && (n as Node).props?.backgroundColor !== DARK_SOLIDS.cell)) || ((n as Node).children ?? []).some(hasBg))
-const isDim = (n: unknown): boolean => n !== null && typeof n === 'object' && (((n as Node).type === 'Text' && (n as Node).props?.dimColor === true) || ((n as Node).children ?? []).some(isDim))
+/** Chữ mờ: dimColor của theme, hay (0.8.8 N6a, neon) màu onCellDim trên nền ô. */
+const isDim = (n: unknown): boolean => n !== null && typeof n === 'object' && (((n as Node).type === 'Text' && ((n as Node).props?.dimColor === true || (n as Node).props?.color === DARK_SOLIDS.onCellDim)) || ((n as Node).children ?? []).some(isDim))
 
 /**
  * Phần cố định của một dòng, như test 0.6.1 mục 3.3: Text theo số ô chữ, Button theo nhãn (ít nhất BUTTON_CELLS), hộp hàng cộng con và khoảng

@@ -19,8 +19,8 @@ export const DEFAULT_NEON: NeonStyle = { palette: 'cyber', motion: 'on', theme: 
 
 /** Tên các dải màu: ba bảng của giai đoạn đang chạy, và năm dải theo trạng thái. */
 export type GradientName = 'cyber' | 'aurora' | 'plasma' | 'start' | 'almost' | 'done' | 'warn' | 'pause'
-/** Màu đơn: bốn họ model, chữ trên ô tô đặc, nền ô thường, đạt, cần chú ý, lỗi. */
-export type SolidName = ModelFamily | 'onFill' | 'cell' | 'ok' | 'attention' | 'error'
+/** Màu đơn: bốn họ model, chữ trên ô tô đặc, nền ô thường, chữ thường và chữ mờ trên nền ô thường (0.8.8 N6a), đạt, cần chú ý, lỗi. */
+export type SolidName = ModelFamily | 'onFill' | 'cell' | 'onCell' | 'onCellDim' | 'ok' | 'attention' | 'error'
 
 /** Bảng nền tối [Nguồn: chủ mod, đặc tả 0.8.8, 14/11/2026]. */
 export const DARK_GRADIENTS: Readonly<Record<GradientName, readonly string[]>> = {
@@ -41,6 +41,9 @@ export const DARK_SOLIDS: Readonly<Record<SolidName, string>> = {
   fable: '#ff9d5c',
   onFill: '#07080d',
   cell: '#171a28',
+  // Chữ trên nền ô thường (0.8.8 N6a): thường từ 4,5, mờ từ 3 trên 1 với nền ô [Đo trực tiếp: 14,4 và 5,52].
+  onCell: '#e8eaf2',
+  onCellDim: '#8b91a7',
   ok: '#5dff8f',
   attention: '#ffc233',
   error: '#ff4d7d',
@@ -142,6 +145,9 @@ export const LIGHT_SOLIDS: Readonly<Record<SolidName, string>> = {
   // Chữ trên ô tô đặc của nền sáng: trắng nếu đạt tương phản với mọi mốc của mọi dải, không thì màu chữ của nền tối.
   onFill: LIGHT_STOPS.every(stop => contrast(LIGHT_BACKGROUND, stop) >= MIN_CONTRAST) ? LIGHT_BACKGROUND : DARK_SOLIDS.onFill,
   cell: LIGHT_CELL,
+  // [Đo trực tiếp: 16,35 và 5,12 với nền ô của bảng nền sáng].
+  onCell: '#07080d',
+  onCellDim: '#596075',
   ok: onLightCell(DARK_SOLIDS.ok),
   attention: onLightCell(DARK_SOLIDS.attention),
   error: onLightCell(DARK_SOLIDS.error),
@@ -234,6 +240,8 @@ const OFF_SOLID: Record<SolidName, Color | undefined> = {
   fable: 'bashBorder',
   onFill: 'inverseText',
   cell: undefined,
+  onCell: undefined,
+  onCellDim: undefined,
   ok: 'success',
   attention: 'warning',
   error: 'error',
