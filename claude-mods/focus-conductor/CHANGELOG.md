@@ -20,6 +20,17 @@ Router của prompt dài hơn 80.000 ký tự bị engine từ chối khi họ �
 
 **Mẫu cũ viết lại, giữ mã:** `087-L3i`, `087-L3n` (chuỗi của `fullRetryTokens` và lời gọi hỏi lại đổi theo U1). Mẫu mới: `089-U1a` tới `089-U1c`, `089-U2a` tới `089-U2e`, `089-U3a` tới `089-U3c`, `089-U4a` tới `089-U4d`.
 
+### 0.8.9 vòng 2: ràng buộc không trần, ba điểm sau rà soát, điều phối lại việc
+
+- **C1: ràng buộc của mục tiêu không còn trần**, như yêu cầu từ 0.8.7. Prompt tiếp nối, đợt mới, mục tiêu mới mang quy định model và lượt chạy thật prompt đã đối chiếu đều gộp ràng buộc không trần. Mục cùng khóa thay tại chỗ không tính là mục bị thay, nên cảnh báo "đã đầy" và cảnh báo mục bị bỏ không còn xuất hiện với mục tiêu mới. `brief.dropped` đã lưu vẫn được đọc.
+
+**Test cũ đổi kỳ vọng hay đổi tên vì C1:**
+- `caps-075`: "mục mới cùng khóa với ràng buộc cũ thay ràng buộc đó: cảnh báo nêu mục bị thay (S1: chỉ mục cùng khóa mới bị thay)" đổi tên thành "mục mới cùng khóa với ràng buộc cũ thay ràng buộc đó tại chỗ: không có cảnh báo thay (0.8.9 C1)"; kỳ vọng: không có cảnh báo thay, mục mới có trong pane.
+- `caps-s1-075`: "ràng buộc: phần tràn đầy (10 mục) thì ràng buộc mới bị bỏ và đếm ở dropped" đổi tên thành "ràng buộc: đã có trần cũ cộng phần tràn (10 mục) thì ràng buộc mới vẫn được giữ, dropped là 0 (0.8.9 C1)".
+- `dropped-kind-s8-075`: "pane hiện câu cảnh báo mục bị bỏ ở Cần chú ý, một lần, không có chip "model"" đổi tên thành "ràng buộc không còn trần (0.8.9 C1): ba prompt như cũ không còn cảnh báo mục bị bỏ, không có chip "model"".
+- `error-behavior-a9-080`: "mục prompt tiếp nối bị bỏ: một mục dropped; mô tả không chứa nội dung prompt" đổi tên thành "ràng buộc không còn trần (0.8.9 C1): ba prompt như cũ không ghi mục dropped nào".
+- `dropped-rank-078`: giữ tên và kỳ vọng; dựng Core có sẵn cảnh báo mục bị bỏ (trạng thái từ bản cũ) thay cho ba prompt, vì mod không còn tạo cảnh báo này.
+
 ## Thay đổi 0.8.8: giao diện hướng B "Ba ô phát sáng", dải màu neon
 
 Band, pane và status line đổi cách vẽ theo hướng B; logic của mod, lời nhắc, brief, kết quả tool, lời dặn router, golden và schema tool `plan` không đổi, nên số ký tự chèn vào context trùng 0.8.7 [Nguồn: chủ mod, 14/11/2026]. Mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `088-*`; số ca đỏ đo trên mã ngay trước điểm đó ở VERIFICATION.

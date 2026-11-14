@@ -55,7 +55,7 @@ describe('0.7.5 B11: yêu cầu đầy trần', () => {
 })
 
 describe('0.7.5 B11: một cảnh báo khi thay', () => {
-  test('mục mới cùng khóa với ràng buộc cũ thay ràng buộc đó: cảnh báo nêu mục bị thay (S1: chỉ mục cùng khóa mới bị thay)', {}, async ($, on) => {
+  test('mục mới cùng khóa với ràng buộc cũ thay ràng buộc đó tại chỗ: không có cảnh báo thay (0.8.9 C1)', {}, async ($, on) => {
     // Router đọc prompt chỉ nhận tối đa 10 ràng buộc một lượt: hai lượt tiếp nối mới đầy trần 12 của mục tiêu.
     base(on, {
       router: request =>
@@ -68,7 +68,11 @@ describe('0.7.5 B11: một cảnh báo khi thay', () => {
     await submit($, 'Cập nhật dữ liệu theo các lô')
     await submit($, 'tiếp 1 lô sau')
     await submit($, 'tiếp 2 lô sau nữa')
+    // 0.8.9 C1: ràng buộc không còn trần, và mục cùng khóa thay tại chỗ không tính là mục bị thay, nên không có cảnh báo "đã đầy".
     const pane = await $.ui.mount(PANE)
-    expect(await pane.find({ type: 'Text', text: /mục mới thay 1 mục cũ: Thêm B/ })).toBeDefined()
+    const texts = (await pane.findAll({ type: 'Text' })).map(e => e.text).filter((t): t is string => typeof t === 'string')
+    await pane.unmount()
+    expect(texts.some(t => t.includes('mục mới thay'))).toBe(false)
+    expect(texts.some(t => t.includes('thêm b.'))).toBe(true)
   })
 })

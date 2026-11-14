@@ -126,7 +126,7 @@ describe('0.8.0 A9: nối vào mod', () => {
     expect(out.indexOf('router · ')).toBeLessThan(out.indexOf('Sự cố hành vi'))
   })
 
-  test('mục prompt tiếp nối bị bỏ: một mục dropped; mô tả không chứa nội dung prompt', { options: { planApproval: 'off' } }, async ($, on) => {
+  test('ràng buộc không còn trần (0.8.9 C1): ba prompt như cũ không ghi mục dropped nào', { options: { planApproval: 'off' } }, async ($, on) => {
     const first = plan({ goal: 'Cập nhật sổ giá theo 11 bước', depth: 'hard', volume: 'large', requirements: Array.from({ length: 30 }, (_, i) => `Yêu cầu gốc ${i + 1}`), constraints: Array.from({ length: 10 }, (_, i) => `Ràng buộc gốc ${i + 1}`) })
     const many = plan({ relation: 'refine', goal: '', constraints: Array.from({ length: 10 }, (_, i) => `Tinh chỉnh ${i + 1}`) })
     const many2 = plan({ relation: 'refine', goal: '', constraints: Array.from({ length: 10 }, (_, i) => `Tinh chỉnh thêm ${i + 1}`) })
@@ -136,10 +136,7 @@ describe('0.8.0 A9: nối vào mod', () => {
     await submit($, 'thêm 12 yêu cầu')
     await submit($, 'thêm 12 yêu cầu nữa')
     await conductor($, 'errors')
-    const dropped = fs.behavior().filter(e => e.where === 'dropped')
-    expect(dropped.length).toBe(1)
-    expect(dropped[0]!.message).not.toContain('Tinh chỉnh')
-    expect(dropped[0]!.message).toContain('<n> mục')
+    expect(fs.behavior().filter(e => e.where === 'dropped')).toEqual([])
   })
 
   test('bộ nhớ context không đổi: errors không có trong context của lượt kế', {}, async ($, on) => {
