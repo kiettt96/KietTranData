@@ -1474,13 +1474,22 @@ export async function askRouter<T extends { confidence?: number }>(
   const firstConfidence = firstResult?.confidence ?? 1
   const isConfident = firstResult !== null && !isMissing && firstConfidence >= LOW_CONFIDENCE
   const needsCoverage = isConfident && recheck !== undefined && recheck(firstResult)
-  const settled = (retried: boolean) => ({ result: firstResult, reason: whyFailed(first), usages, usageModels, retried, failure: firstResult === null ? failureKind(first) : null, ...limits(first) })
-  if (first === null || !first.isAnswered || (isConfident && !needsCoverage)) return settled(false)
+  // Lượt đọc trọn không ra kết quả (0.8.9 U4): các bước đã chạy hết mà không có kết quả, fallback và apiFallback chưa gửi, thì gửi fallback
+  // đúng một lần với trọn thời gian chờ của nó. Request thường (không có fallback) giữ như 0.8.8.
+  const lastResort = async (outcome: RouterOutcome<T>): Promise<RouterOutcome<T>> => {
+    const backup = opts.fallback
+    if (outcome.result !== null || backup === undefined) return outcome
+    const again = await send(backup)
+    const result = again?.isAnswered ? parse(again.text) : null
+    return { result, reason: result === null ? whyFailed(again) : '', usages, usageModels, retried: true, fellBack: true, failure: result === null ? failureKind(again) : null, ...saved(result), ...limits(again ?? first) }
+  }
+  const settled = (retried: boolean): RouterOutcome<T> => ({ result: firstResult, reason: whyFailed(first), usages, usageModels, retried, failure: firstResult === null ? failureKind(first) : null, ...limits(first) })
+  if (first === null || !first.isAnswered || (isConfident && !needsCoverage)) return lastResort(settled(false))
   // Trong hạn chung: kiểm lại phủ yêu cầu chỉ khi lượt đầu chưa quá nửa hạn; thử lại JSON hay tin cậy thấp cần còn ít nhất RETRY_MIN_MS.
   const spent = now() - startedAt
   const problem = firstResult === null ? 'json' : needsCoverage ? 'coverage' : 'confidence'
   const isAffordable = problem === 'coverage' ? spent <= budget / 2 : budget - spent >= RETRY_MIN_MS
-  if (!isAffordable) return settled(false)
+  if (!isAffordable) return lastResort(settled(false))
   const isTruncated = firstResult === null && request.maxTokens !== undefined && first.usage.output_tokens >= request.maxTokens * 0.98
   const second = await send(retryRequest(request, first.text, problem, { timeoutMs: Math.min(request.timeoutMs ?? budget, budget - spent), truncated: isTruncated, ...(opts.isFable === true ? { isFable: true } : {}), ...(opts.full !== undefined ? { full: opts.full } : {}) }))
   const secondResult = second?.isAnswered ? parse(second.text) : null
@@ -1490,7 +1499,7 @@ export async function askRouter<T extends { confidence?: number }>(
       ? secondResult !== null && (firstResult === null || (secondResult.confidence !== undefined && (isMissing || secondResult.confidence >= firstConfidence)))
       : secondResult !== null && (firstResult === null || (secondResult.confidence ?? 1) >= firstConfidence)
   const pick = isSecondBetter ? secondResult : firstResult
-  return { result: pick, reason: pick === null ? whyFailed(second) : '', usages, usageModels, retried: true, failure: pick === null ? failureKind(second) : null, ...limits(second ?? first) }
+  return lastResort({ result: pick, reason: pick === null ? whyFailed(second) : '', usages, usageModels, retried: true, failure: pick === null ? failureKind(second) : null, ...limits(second ?? first) })
 }
 
 /** Prompt dài hơn sức chứa của lượt router đó bị lược phần giữa (0.7.8 G8; 0.8.7 L3: sức chứa theo requestPlan, mặc định trần cũ). */

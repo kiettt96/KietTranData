@@ -2316,4 +2316,8 @@ export const MUTANTS: Mutant[] = [
   { id: "089-U3a", file: "hooks/lib/router.ts", note: "bỏ thông điệp của engine", old: "      refusal = engineMessage(error)\n", new: "      refusal = ''\n" },
   { id: "089-U3b", file: "hooks/lib/router.ts", note: "không cắt thông điệp còn 160 ký tự", old: ".slice(0, ENGINE_MESSAGE_CHARS)", new: ".slice(0)" },
   { id: "089-U3c", file: "hooks/lib/router.ts", note: "không ghi firstFail", old: "  const saved = (result: T | null) => (result !== null ? { firstFail: firstReason } : {})", new: "  const saved = (_result: T | null) => ({})" },
+  { id: "089-U4a", file: "hooks/lib/router.ts", note: "không gửi fallback khi lượt hỏi lại hỏng", old: "  return lastResort({ result: pick,", new: "  return ({ result: pick," },
+  { id: "089-U4b", file: "hooks/lib/router.ts", note: "gửi fallback cho cả request thường", old: "    const backup = opts.fallback\n", new: "    const backup = opts.fallback ?? request\n" },
+  { id: "089-U4c", file: "hooks/lib/router.ts", note: "gửi fallback hai lần", old: "    const again = await send(backup)\n", new: "    await send(backup)\n    const again = await send(backup)\n" },
+  { id: "089-U4d", file: "hooks/lib/router.ts", note: "câu trả lời rỗng không gửi fallback", old: "  if (first === null || !first.isAnswered || (isConfident && !needsCoverage)) return lastResort(settled(false))", new: "  if (first === null || !first.isAnswered) return settled(false)\n  if (isConfident && !needsCoverage) return lastResort(settled(false))" },
 ]
