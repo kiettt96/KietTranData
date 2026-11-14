@@ -2,6 +2,61 @@
 
 Số đo của HEAD hiện tại và của các bản trước. Mọi số do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển] trừ khi nêu khác; hợp đồng đối chiếu evidence ở [DESIGN.md](DESIGN.md), lịch sử thay đổi ở [CHANGELOG.md](../CHANGELOG.md), cách dùng ở [README](../README.md).
 
+## Kiểm chứng của 0.8.8 (giao diện hướng B "Ba ô phát sáng", dải màu neon)
+
+Nhánh tách từ `main` `e143c64` (0.8.7). Thứ tự N1 tới N5, rồi phần bổ sung N6a tới N6g; mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `088-*`; không amend, không force-push, không merge [Đo trực tiếp]. Bộ test, kiểm tĩnh và đột biến chạy trên engine 2.1.296 cài riêng ngoài repo; khai báo kiểu được đọc ở cả 2.1.296 và engine của phiên phát triển (2.1.325).
+
+- **Kiểm engine** [Đo trực tiếp, khai báo kiểu `claude-code.d.ts` giải nén từ gói engine 2.1.296 và 2.1.325]:
+  - `export type Color = ThemeKey | (string & {})`, chú thích "a theme key, which follows the person's theme, or any other string, a raw color (a name such as "red", or hex)" và "What a surface draws for one it does not know is its own", ở cả hai bản. `Text` có `color?: Color` và `backgroundColor?: Color`. Engine giả của bộ test nhận mã hex, `rgb(...)`, `ansi256(...)` và tên màu [Đo trực tiếp, trước khi soạn đặc tả]. Mod chỉ phát hex sáu chữ số thường; test N1 ghim dạng này.
+  - `$.clock.every`: "Calls `fn` every `ms` milliseconds (at least 1) until `cancel()`", ở cả hai bản. Chu kỳ 1.000 ms được phép.
+  - Không có cách nào để mod biết giao diện đang sáng hay tối, hay terminal có màu 24 bit không: không có `theme.get`, không có prop chế độ màu ở `ui.render`; 2.1.325 có `$.theme.set` và `$.theme.clear` (nhận `overrideColorScheme`), chỉ để đặt, không để đọc. `neonTheme: auto` vì vậy là `dark`.
+- **Test đỏ** [Đo trực tiếp, trên mã ngay trước commit sửa của điểm đó]:
+  - N1 (`80c0ca2`): 12/12, tệp chưa nạp được vì `hooks/ui/neon.ts` chưa có. Thông điệp commit ghi nhầm 13/13; số đúng là 12 ca. Commit sửa thêm một ca (`neonTheme light`), cho mẫu `088-N1e`.
+  - N2 (`cb79463`): 30/30, tệp chưa nạp được; đặt sẵn `direction.ts` trên band cũ thì 16/16 ca band đỏ (14 ca còn lại là bảng nhãn ô hướng, hàm thuần).
+  - N3 (`b07fe85`): 9/9, tệp chưa nạp được vì `statusTextOf` chưa có.
+  - N4 (`27530f9`): 16/16 ca (13 lời gọi `test`, ba trong vòng lặp cột), tệp chưa nạp được vì `ratioRuns` chưa có. Thông điệp commit ghi 13/13 theo số lời gọi. Commit sửa thêm một ca (chi phí hai nhóm bằng nhau), cho mẫu `088-N4d`.
+  - N5 (`7b7032a`): 3/6; ba ca xanh là `neonMotion off`, `neon off` và không có turn chạy, giữ hành vi 0.8.7.
+  - Commit sửa của N1, N2 chỉnh test của chính điểm đó: ký hiệu viết bằng mã `\u` (công cụ ghi tệp đã đổi mã `\u` thành ký tự); N2: ô tô đặc phân biệt với nền ô thường, ca "xong" dùng lần test thật, đo phần cố định của từng dòng như test 0.6.1 mục 3.3.
+- **Bổ sung N6** [Nguồn: chủ mod, 14/11/2026; Đo trực tiếp]. Test đỏ trên mã ngay trước commit sửa của điểm đó:
+  - N6a (`3d2109e`): 9/10 (ca neon off giữ hành vi). N6c làm trước phần sửa của N6a, vì ca bảng nền sáng của N6a đo tên họ model và nhãn ok, attention trên nền ô.
+  - N6c (`74afdec`): 7/7.
+  - N6b (`aec3aaa`): 9/26. Theo test chủ mod yêu cầu (16 cột không còn nút), nút Chi tiết bị bỏ từ 16 cột trở xuống.
+  - N6d (`9f3bfe9`): 6/7 (ca số âm đã đúng).
+  - N6e (`3302387`): 3/3.
+  - N6f (`b08410b`): bảy ca ghim hành vi đã có, xanh trên mã hiện tại; mỗi mẫu `088-N6j` tới `088-N6p` làm đúng ca của nó đỏ. Ca "không có turn đang chạy, kể cả sau khi nạp lại mod" của `band-since-ui2-079` chạy với `neonMotion: off`: từ N5 chu kỳ mặc định là 1 giây nên ca đếm chu kỳ 60 giây không còn bắt được mẫu `079-UI2c`; nay bắt được.
+  - N6g (`bdd7998`): 2/2.
+  - Màu mới [Đo trực tiếp, `hooks/ui/neon.ts`]: nền tối `onCell` #e8eaf2 (14,39 trên 1 với #171a28), `onCellDim` #8b91a7 (5,52); nền sáng `onCell` #07080d (16,35 với #e6e8f0), `onCellDim` #596075 (5,12); màu đơn trên ô của bảng nền sáng: haiku #07755c, sonnet #0a54ff, opus #9408ff, fable #ae4500, ok #007725, attention #8a6100, error #d20039.
+- **Mẫu mới** [Đo trực tiếp, chạy riêng từng mẫu trên tệp test của điểm đó; số ca đỏ]:
+  - N1: `088-N1a` tới `088-N1e` đều bị diệt.
+  - N2: `088-N2a` 6, `088-N2b` 4, `088-N2c` 4, `088-N2d` 6, `088-N2e` 2, `088-N2f` 3, `088-N2g` 1.
+  - N3: `088-N3a` 5, `088-N3b` 5, `088-N3c` 1.
+  - N4: `088-N4a` 5, `088-N4b` 2, `088-N4c` 1, `088-N4d` 1 (sống ở bản đầu của tệp test; thêm ca chi phí hai nhóm bằng nhau), `088-N4e` 1.
+  - N5: `088-N5a` 5, `088-N5b` 4, `088-N5c` 4, `088-N5d` 4.
+  - Mẫu cũ viết lại vì mất chỗ khớp (30 mẫu, liệt kê ở CHANGELOG): đều bị diệt trên các tệp test giao diện liên quan; `060-O1` bị diệt ở `quota-edges`.
+- **Đột biến vùng diff** [Đo trực tiếp, engine 2.1.296; pha 1 chạy các tệp test có lịch sử diệt mẫu, bước lọc chạy mọi tệp cùng mã phiên bản hay cùng tên tệp nguồn, pha 2 chạy cả bộ bằng `scripts/mutate.ts`]:
+  - Trước N6, vùng diff với `e143c64` cộng trừ 20 dòng: 203 mẫu. Pha 1 diệt 185, bước lọc diệt 13. Pha 2: `075-L6e`, `076-U1f`, `061-U18` bị diệt; `079-UI2c` bị diệt sau khi sửa test ở N6f; `073-S21` hết giờ hai lần, là mẫu tương đương đã ghi (kiểm trùng lời nhắc thừa).
+  - N6, vùng diff với `92feef6` cộng 17 mẫu `088-N6a` tới `088-N6q`: 52 mẫu. Pha 1 diệt 41, bước lọc diệt 9 (cả 9 mẫu `088-N6*` còn lại, vì lịch sử của pha 1 chưa có tệp test N6). Pha 2: `061-M13` bị diệt (2 ca đỏ); `061-U18` sống, khớp lý do tương đương đã ghi trong `scripts/mutants.ts`. Từ N6b, band dưới 56 cột bỏ phần bên phải, nên nhãn dừng rút gọn không còn được vẽ; trước N6 mẫu này bị diệt.
+  - `mutate --check` khớp 2.270/2.270.
+- **Phiên dài và kịch bản 60 việc** [Đo trực tiếp, cùng kịch bản đo của 0.8.7, chạy trên `76c5e8b` và lại trên `39319c6` sau N6]: `conductor` mặc định 10.339 và 19.587; `fable` 8.563 và 7.048; `fable` sau `/conductor solo` 16.608 và 24.349; 60 việc mặc định 5.978 và 33.204; 60 việc `fable` 8.164 và 6.931. Trùng 0.8.7: số ký tự chèn vào context không đổi.
+- **Số phần tử `Text`** [Đo trực tiếp, cùng kịch bản năm trạng thái (đang chạy, cần chú ý mức vàng, vi phạm mức đỏ, tạm dừng, xong), band 120 cột, pane 80 cột 40 dòng]:
+
+| Trạng thái | Band `e143c64` | Band 0.8.8 `cyber` | Band 0.8.8 `off` | Pane `e143c64` | Pane 0.8.8 `cyber` | Pane 0.8.8 `off` |
+|---|---|---|---|---|---|---|
+| đang chạy | 14 | 56 | 24 | 96 | 240 | 148 |
+| mức vàng | 15 | 43 | 20 | 91 | 245 | 148 |
+| mức đỏ | 15 | 86 | 22 | 98 | 255 | 155 |
+| tạm dừng | 4 | 31 | 20 | 103 | 258 | 159 |
+| xong | 10 | 55 | 23 | 88 | 250 | 140 |
+
+  Đo lại sau N6 trên `39319c6`: cả mười số trùng bảng trên. Ở `cyber`, mỗi ô của dải màu là một `Text`, nên band nhiều gấp 4 tới 8 lần và pane khoảng 2,5 lần; `off` khoảng 1,5 lần (các ô và tiêu đề tách đoạn). Tải thật của việc vẽ lại mỗi giây chưa đo trên phiên thật (DESIGN).
+
+### Bộ test và so tên ca
+
+- **Cả bộ** trên `39319c6` [Đo trực tiếp, engine 2.1.296, 11 nhóm tệp, tuần tự]: 314 tệp, 3.597 ca, 0 lỗi. Tổng theo nhóm: 348 + 492 + 327 + 244 + 290 + 272 + 325 + 366 + 363 + 431 + 139 = 3.597. Trước N6, trên `76c5e8b`: 307 tệp, 3.534 ca, 0 lỗi.
+- **So tên ca với `e143c64`** (3.459 ca): thêm 139 tên (N1 13, N2 30, N3 9, N4 17, N5 6, N6a 10, N6b 27, N6c 7, N6d 7, N6e 3, N6f 7, N6g 2, cộng tên mới của ca `taskrows-perf-087`), mất 1 tên (tên cũ của ca đó, đổi thành "... chữ band và pane trùng bản ghi của bố cục 0.8.8"). 3.597 = 3.459 + 139 − 1.
+- **Kiểm tĩnh** [Đo trực tiếp, trên `39319c6`]: `claude plugin validate` đạt ở thư mục mod và ở gốc repo; `version-check` khớp 0.8.8, README đủ 47 option, mã màu thô chỉ nằm trong `hooks/ui/neon.ts`, chuỗi `'fable'` đúng danh sách của 0.8.7; `mutate --check` khớp 2.270/2.270; sha256 `hooks/` `5be0fa616e16a15349dd8307c09f1a60ec9aa506b07cf6a07f3c07eaed8eb635`, `tests/` `8fac633a4c1e9ce1787de49d091b9e17db6ff393c5dbe09ac0f513f72256e1af` (theo `scripts/mutate.ts`). `tsc` chưa chạy, như 0.8.7.
+- **Bản xem trước dạng chữ** (năm trạng thái, band 56, 72, 120 cột, pane 16, 24, 40 dòng, `cyber` và `off`, trước và sau) lưu ngoài repo; bảng rút gọn ở mô tả PR.
+
 ## Kiểm chứng của 0.8.7 (router đọc trọn prompt, bỏ trần số lượng, model mới nhất, vai điều phối dự phòng và theo họ model)
 
 Nhánh tách từ `main` `45b5161` (0.8.6). Thứ tự L1 (phần dùng lại), L2, L3, H1, B1; mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `087-*`; không amend, không force-push, không merge [Đo trực tiếp]. Bộ test, kiểm tĩnh và đột biến chạy trên engine 2.1.296 cài riêng ngoài repo. Lượt gọi model thật (golden, đo tốc độ đọc) chạy trên engine của phiên phát triển, ghi ở từng mục.
