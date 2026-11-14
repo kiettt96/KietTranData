@@ -56,6 +56,7 @@ Nhánh tách từ `main` `e143c64` (0.8.7). Thứ tự N1 tới N5, rồi phần
 - **So tên ca với `e143c64`** (3.459 ca): thêm 139 tên (N1 13, N2 30, N3 9, N4 17, N5 6, N6a 10, N6b 27, N6c 7, N6d 7, N6e 3, N6f 7, N6g 2, cộng tên mới của ca `taskrows-perf-087`), mất 1 tên (tên cũ của ca đó, đổi thành "... chữ band và pane trùng bản ghi của bố cục 0.8.8"). 3.597 = 3.459 + 139 − 1.
 - **Kiểm tĩnh** [Đo trực tiếp, trên `39319c6`]: `claude plugin validate` đạt ở thư mục mod và ở gốc repo; `version-check` khớp 0.8.8, README đủ 47 option, mã màu thô chỉ nằm trong `hooks/ui/neon.ts`, chuỗi `'fable'` đúng danh sách của 0.8.7; `mutate --check` khớp 2.270/2.270; sha256 `hooks/` `5be0fa616e16a15349dd8307c09f1a60ec9aa506b07cf6a07f3c07eaed8eb635`, `tests/` `8fac633a4c1e9ce1787de49d091b9e17db6ff393c5dbe09ac0f513f72256e1af` (theo `scripts/mutate.ts`). `tsc` chưa chạy, như 0.8.7.
 - **Bản xem trước dạng chữ** (năm trạng thái, band 56, 72, 120 cột, pane 16, 24, 40 dòng, `cyber` và `off`, trước và sau) lưu ngoài repo; bảng rút gọn ở mô tả PR.
+- **CI** [Đo trực tiếp, GitHub Actions]: run 43571267018, job `plugin`, xanh trên `3ca73f5` (engine ghim 2.1.296), 14/11/2026.
 
 ## Kiểm chứng của 0.8.7 (router đọc trọn prompt, bỏ trần số lượng, model mới nhất, vai điều phối dự phòng và theo họ model)
 
