@@ -32,7 +32,10 @@ Router của prompt dài hơn 80.000 ký tự bị engine từ chối khi họ �
 - `dropped-rank-078`: giữ tên và kỳ vọng; dựng Core có sẵn cảnh báo mục bị bỏ (trạng thái từ bản cũ) thay cho ba prompt, vì mod không còn tạo cảnh báo này.
 - **C2: nơi chèn và gửi ràng buộc chỉ nêu tối đa 22 mục** (`shownConstraints`): các mục của prompt lập mục tiêu và các mục mới nhất, kèm một dòng hay một vế nêu số mục còn lại. Áp ở context của mục tiêu, context tiếp tục từ điểm dừng, request tiếp nối, request rà kế hoạch và mục ràng buộc của pane. Không quá 22 ràng buộc thì đầu ra trùng bản trước. Không ca cũ nào đổi kỳ vọng.
 
-**Mẫu cũ viết lại, giữ mã (vòng 2):** `075-R1c`, `075-R1f` (khối phần tràn của request tiếp nối viết thành nhiều dòng ở C2).
+- **R1: giới hạn trong kết quả là của lời gọi cuối cùng đã gửi.** `timeoutMs`, `maxTokens`, `outputTokens` của `RouterOutcome` lấy từ request đã kẹp và câu trả lời của lời gọi gần nhất, ở mọi nhánh của `askRouter`. Không ca cũ nào đổi kỳ vọng.
+- **R2: ghi rõ câu trả lời bị cắt.** Câu trả lời không đọc được mà token ra từ 98% `maxTokens` của request đã gửi có lý do "câu trả lời bị cắt ở <n> token ra" (loại lỗi vẫn là format). `firstFail` được ghi cả khi lượt hỏi lại cứu được lượt đầu không đọc được. Không ca cũ nào đổi kỳ vọng.
+
+**Mẫu cũ viết lại, giữ mã (vòng 2):** `075-R1c`, `075-R1f` (khối phần tràn của request tiếp nối viết thành nhiều dòng ở C2); `072-R9` (ngưỡng bị cắt nay là hằng `TRUNCATED_SHARE`, R2).
 
 ## Thay đổi 0.8.8: giao diện hướng B "Ba ô phát sáng", dải màu neon
 

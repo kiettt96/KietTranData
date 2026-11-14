@@ -1322,10 +1322,16 @@ export function engineMessage(error: unknown): string {
   return [...(at >= 0 ? text.slice(at + ENGINE_CALL.length) : text)].slice(0, ENGINE_MESSAGE_CHARS).join('')
 }
 
-/** Lý do router không trả được kết quả dùng được; `message` là thông điệp của engine khi engine từ chối (0.8.9 U3). */
-export function failureReason(reply: ModelCompleteResult | null, message = ''): string {
+/** Câu trả lời chạm bấy nhiêu phần maxTokens của request đã gửi lời gọi đó thì coi là bị cắt (0.7.2; 0.8.9 R2 ghi rõ trong lý do). */
+export const TRUNCATED_SHARE = 0.98
+
+/**
+ * Lý do router không trả được kết quả dùng được; `message` là thông điệp của engine khi engine từ chối (0.8.9 U3). `maxTokens` là trần
+ * của request đã gửi lời gọi đó: câu trả lời không đọc được mà chạm TRUNCATED_SHARE trần thì lý do nêu số token ra (0.8.9 R2).
+ */
+export function failureReason(reply: ModelCompleteResult | null, message = '', maxTokens?: number): string {
   if (reply === null) return message !== '' ? `engine từ chối gửi request tới model router: ${message}` : 'engine từ chối gửi request tới model router'
-  if (reply.isAnswered) return 'câu trả lời không đúng định dạng'
+  if (reply.isAnswered) return maxTokens !== undefined && reply.usage.output_tokens >= maxTokens * TRUNCATED_SHARE ? `câu trả lời bị cắt ở ${grouped(reply.usage.output_tokens)} token ra` : 'câu trả lời không đúng định dạng'
   if (reply.reason === 'api-error') return `lỗi API ${reply.error}${reply.status !== null ? ` ${reply.status}` : ''}`
   if (reply.reason === 'aborted') return 'hết thời gian chờ'
   return 'câu trả lời rỗng'
@@ -1435,6 +1441,8 @@ export async function askRouter<T extends { confidence?: number }>(
   // Lời gọi cuối cùng đã gửi (0.8.9 R1): request đã kẹp và câu trả lời của nó (null khi bị engine từ chối).
   let lastSent: ModelCompleteRequest | null = null
   let lastReply: ModelCompleteResult | null = null
+  // Request đã gửi của từng câu trả lời (0.8.9 R2): để nhận ra câu trả lời bị cắt theo trần của chính lời gọi đó.
+  const sentOf = new WeakMap<ModelCompleteResult, ModelCompleteRequest>()
   const send = async (r: ModelCompleteRequest): Promise<ModelCompleteResult | null> => {
     const sent = cappedRequest(r)
     refusal = ''
@@ -1445,6 +1453,7 @@ export async function askRouter<T extends { confidence?: number }>(
     })
     lastReply = reply
     if (reply) {
+      sentOf.set(reply, sent)
       usages.push(reply.usage)
       usageModels.push(sent.model)
     }
@@ -1456,7 +1465,7 @@ export async function askRouter<T extends { confidence?: number }>(
   const startedAt = now()
   const first = await send(request)
   // Lý do của lời gọi vừa gửi (kèm thông điệp engine khi bị từ chối), và lý do lượt đầu hỏng để ghi firstFail khi được cứu (0.8.9 U3).
-  const whyFailed = (reply: ModelCompleteResult | null) => failureReason(reply, reply === null ? refusal : '')
+  const whyFailed = (reply: ModelCompleteResult | null) => failureReason(reply, reply === null ? refusal : '', reply !== null ? sentOf.get(reply)?.maxTokens : undefined)
   const firstReason = whyFailed(first)
   const saved = (result: T | null) => (result !== null ? { firstFail: firstReason } : {})
   // Giới hạn ghi trong kết quả (0.8.9 R1): của lời gọi cuối cùng đã gửi, ở mọi nhánh.
@@ -1500,7 +1509,8 @@ export async function askRouter<T extends { confidence?: number }>(
     if (left < RETRY_MIN_MS) return { result: null, reason: whyFailed(first), usages, usageModels, retried: false, failure: failureKind(first), ...limits() }
     const again = await send({ ...request, timeoutMs: Math.min(request.timeoutMs ?? left, left) })
     const result = again?.isAnswered ? parse(again.text) : null
-    return { result, reason: result === null ? whyFailed(again) : '', usages, usageModels, retried: true, failure: result === null ? failureKind(again) : null, ...limits() }
+    // Lượt hỏi lại cứu được lượt đầu không có kết quả đọc được: ghi lý do lượt đầu (0.8.9 R2).
+    return { result, reason: result === null ? whyFailed(again) : '', usages, usageModels, retried: true, failure: result === null ? failureKind(again) : null, ...saved(result), ...limits() }
   }
   const firstResult = first?.isAnswered ? parse(first.text) : null
   // Thiếu confidence (0.7.8 G8): chỉ khi bật retryMissingConfidence (ba chỗ đọc prompt) thì coi như dưới LOW_CONFIDENCE và hỏi lại;
@@ -1525,7 +1535,7 @@ export async function askRouter<T extends { confidence?: number }>(
   const problem = firstResult === null ? 'json' : needsCoverage ? 'coverage' : 'confidence'
   const isAffordable = problem === 'coverage' ? spent <= budget / 2 : budget - spent >= RETRY_MIN_MS
   if (!isAffordable) return lastResort(settled(false))
-  const isTruncated = firstResult === null && request.maxTokens !== undefined && first.usage.output_tokens >= request.maxTokens * 0.98
+  const isTruncated = firstResult === null && request.maxTokens !== undefined && first.usage.output_tokens >= request.maxTokens * TRUNCATED_SHARE
   const second = await send(retryRequest(request, first.text, problem, { timeoutMs: Math.min(request.timeoutMs ?? budget, budget - spent), truncated: isTruncated, ...(opts.isFable === true ? { isFable: true } : {}), ...(opts.full !== undefined ? { full: opts.full } : {}) }))
   const secondResult = second?.isAnswered ? parse(second.text) : null
   // Thiếu confidence xếp thấp nhất khi bật retryMissingConfidence: lần hai thắng khi nó có confidence và lần đầu không có hay thấp hơn.
@@ -1534,7 +1544,10 @@ export async function askRouter<T extends { confidence?: number }>(
       ? secondResult !== null && (firstResult === null || (secondResult.confidence !== undefined && (isMissing || secondResult.confidence >= firstConfidence)))
       : secondResult !== null && (firstResult === null || (secondResult.confidence ?? 1) >= firstConfidence)
   const pick = isSecondBetter ? secondResult : firstResult
-  return lastResort({ result: pick, reason: pick === null ? whyFailed(second) : '', usages, usageModels, retried: true, failure: pick === null ? failureKind(second) : null, ...limits() })
+  // Lượt hỏi lại vì JSON hỏng hay bị cắt cứu được lượt đầu không đọc được: ghi lý do lượt đầu (0.8.9 R2). Hỏi lại vì tin cậy thấp hay kiểm
+  // phủ yêu cầu thì lượt đầu đã đọc được, không ghi.
+  const rescued = firstResult === null && pick !== null ? { firstFail: firstReason } : {}
+  return lastResort({ result: pick, reason: pick === null ? whyFailed(second) : '', usages, usageModels, retried: true, failure: pick === null ? failureKind(second) : null, ...rescued, ...limits() })
 }
 
 /** Prompt dài hơn sức chứa của lượt router đó bị lược phần giữa (0.7.8 G8; 0.8.7 L3: sức chứa theo requestPlan, mặc định trần cũ). */
