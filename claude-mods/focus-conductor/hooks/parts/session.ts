@@ -471,7 +471,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       if (!isInterject) L.promptIntent = { relation: 'continue', kind: 'answer' }
       await update($, coreState, c => S.withRouterFail(null)(charge(c)))
       L.lastPrompt = { text, prev, goalId: prev.goalId }
-      record(now, 'route', { prompt: clipText(text), relation: plan.relation, intent, confidence: plan.confidence, retried: outcome.retried, goalId: prev.goalId })
+      record(now, 'route', { prompt: clipText(text), relation: plan.relation, intent, confidence: plan.confidence, retried: outcome.retried, ...(outcome.firstFail !== undefined ? { firstFail: outcome.firstFail } : {}), goalId: prev.goalId })
       await flushDecisions((path, text) => $.fs.write(path, text))
       await showStatus($, await read($, view), ctx.options)
       return next({ ...e, context: [...lead, ...(e.context ?? []), intentStatusContext(isInterject), ...tail] })
@@ -482,7 +482,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       if (!isInterject) L.promptIntent = { relation: 'continue', kind: 'answer' }
       await update($, coreState, c => S.withRouterFail(null)(charge(c)))
       L.lastPrompt = { text, prev, goalId: prev.goalId }
-      record(now, 'route', { prompt: clipText(text), relation: plan.relation, intent: 'aside', confidence: plan.confidence, retried: outcome.retried, goalId: prev.goalId })
+      record(now, 'route', { prompt: clipText(text), relation: plan.relation, intent: 'aside', confidence: plan.confidence, retried: outcome.retried, ...(outcome.firstFail !== undefined ? { firstFail: outcome.firstFail } : {}), goalId: prev.goalId })
       await flushDecisions((path, text) => $.fs.write(path, text))
       await showStatus($, await read($, view), ctx.options)
       return next({ ...e, context: [...lead, ...(e.context ?? []), asideContext(isInterject, openSteps(before.plan)[0]), ...tail] })
@@ -659,6 +659,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       intent,
       confidence: plan.confidence,
       retried: outcome.retried,
+      ...(outcome.firstFail !== undefined ? { firstFail: outcome.firstFail } : {}),
       main: brief.main,
       expected,
       notes: plan.notes,

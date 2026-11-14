@@ -2313,4 +2313,7 @@ export const MUTANTS: Mutant[] = [
   { id: "089-U2c", file: "hooks/lib/router.ts", note: "gửi apiFallback trước fallback", old: "await send(opts.fallback as ModelCompleteRequest)", new: "await send((opts.apiFallback ?? opts.fallback) as ModelCompleteRequest)" },
   { id: "089-U2d", file: "hooks/parts/session.ts", note: "chi phí lượt của họ dự phòng tính theo giá họ chính", old: "model === apiModel ? apiFamily : target.family", new: "false ? apiFamily : target.family" },
   { id: "089-U2e", file: "hooks/lib/router.ts", note: "gửi fallback hai lần", old: "    const last = await send(opts.apiFallback as ModelCompleteRequest)\n", new: "    if (isFallbackSent) await send(opts.fallback as ModelCompleteRequest)\n    const last = await send(opts.apiFallback as ModelCompleteRequest)\n" },
+  { id: "089-U3a", file: "hooks/lib/router.ts", note: "bỏ thông điệp của engine", old: "      refusal = engineMessage(error)\n", new: "      refusal = ''\n" },
+  { id: "089-U3b", file: "hooks/lib/router.ts", note: "không cắt thông điệp còn 160 ký tự", old: ".slice(0, ENGINE_MESSAGE_CHARS)", new: ".slice(0)" },
+  { id: "089-U3c", file: "hooks/lib/router.ts", note: "không ghi firstFail", old: "  const saved = (result: T | null) => (result !== null ? { firstFail: firstReason } : {})", new: "  const saved = (_result: T | null) => ({})" },
 ]
