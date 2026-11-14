@@ -109,32 +109,42 @@ function rgbOfHsl([h, s, l]: [number, number, number]): Rgb {
   return [hue(h + 1 / 3) * 255, hue(h) * 255, hue(h - 1 / 3) * 255]
 }
 
-/** Bản nền sáng của một màu: giảm L của HSL từng 1% cho tới khi tương phản với nền trắng đạt MIN_CONTRAST. */
-export function lightOf(hex: string): string {
+/** Nền ô thường của bảng nền sáng. */
+export const LIGHT_CELL = '#e6e8f0'
+
+/**
+ * Bản nền sáng của một màu: giảm L của HSL từng 1% cho tới khi tương phản với mọi nền trong `backgrounds` đạt MIN_CONTRAST. Mốc của dải
+ * màu đo với nền trắng; màu đơn dùng trên ô đo với cả nền trắng và nền ô (0.8.8 N6c).
+ */
+export function lightOf(hex: string, backgrounds: readonly string[] = [LIGHT_BACKGROUND]): string {
   const [h, s, l] = hslOf(rgbOf(hex))
   let out = hex
-  for (let step = 0; contrast(out, LIGHT_BACKGROUND) < MIN_CONTRAST && step <= 100; step++) out = hexOf(rgbOfHsl([h, s, Math.max(0, l - step / 100)]))
+  const fits = (color: string) => backgrounds.every(bg => contrast(color, bg) >= MIN_CONTRAST)
+  for (let step = 0; !fits(out) && step <= 100; step++) out = hexOf(rgbOfHsl([h, s, Math.max(0, l - step / 100)]))
   return out
 }
 
+/** Màu đơn dùng trên ô của bảng nền sáng: đạt tương phản với nền trắng và với nền ô. */
+const onLightCell = (hex: string) => lightOf(hex, [LIGHT_BACKGROUND, LIGHT_CELL])
+
 /** Bảng nền sáng: cùng tên, mỗi mốc là lightOf của mốc nền tối. */
 export const LIGHT_GRADIENTS: Readonly<Record<GradientName, readonly string[]>> = Object.fromEntries(
-  Object.entries(DARK_GRADIENTS).map(([name, stops]) => [name, stops.map(lightOf)]),
+  Object.entries(DARK_GRADIENTS).map(([name, stops]) => [name, stops.map(stop => lightOf(stop))]),
 ) as Record<GradientName, readonly string[]>
 
 const LIGHT_STOPS = Object.values(LIGHT_GRADIENTS).flat()
 
 export const LIGHT_SOLIDS: Readonly<Record<SolidName, string>> = {
-  haiku: lightOf(DARK_SOLIDS.haiku),
-  sonnet: lightOf(DARK_SOLIDS.sonnet),
-  opus: lightOf(DARK_SOLIDS.opus),
-  fable: lightOf(DARK_SOLIDS.fable),
+  haiku: onLightCell(DARK_SOLIDS.haiku),
+  sonnet: onLightCell(DARK_SOLIDS.sonnet),
+  opus: onLightCell(DARK_SOLIDS.opus),
+  fable: onLightCell(DARK_SOLIDS.fable),
   // Chữ trên ô tô đặc của nền sáng: trắng nếu đạt tương phản với mọi mốc của mọi dải, không thì màu chữ của nền tối.
   onFill: LIGHT_STOPS.every(stop => contrast(LIGHT_BACKGROUND, stop) >= MIN_CONTRAST) ? LIGHT_BACKGROUND : DARK_SOLIDS.onFill,
-  cell: '#e6e8f0',
-  ok: lightOf(DARK_SOLIDS.ok),
-  attention: lightOf(DARK_SOLIDS.attention),
-  error: lightOf(DARK_SOLIDS.error),
+  cell: LIGHT_CELL,
+  ok: onLightCell(DARK_SOLIDS.ok),
+  attention: onLightCell(DARK_SOLIDS.attention),
+  error: onLightCell(DARK_SOLIDS.error),
 }
 
 export function isHexColor(value: unknown): boolean {

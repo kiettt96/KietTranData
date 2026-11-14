@@ -2288,4 +2288,5 @@ export const MUTANTS: Mutant[] = [
   { id: "088-N5b", file: "hooks/parts/ui.tsx", note: "nhịp ghi $.state", old: "  $.ui.invalidate('ui.render')\n}", new: "  await update($, runningTurnState, id => id)\n  $.ui.invalidate('ui.render')\n}" },
   { id: "088-N5c", file: "hooks/parts/ui.tsx", note: "frame luôn 0", old: "{ maxRows, columns: bodyColumns, isWorking, now, frame: Math.floor(now / 1000) }", new: "{ maxRows, columns: bodyColumns, isWorking, now, frame: 0 }" },
   { id: "088-N5d", file: "hooks/parts/ui.tsx", note: "hai nhịp cùng lúc sau khi nạp lại", old: "    const result = await next(e)\n    stopTick(tick)\n", new: "    const result = await next(e)\n    tick.timer = null\n" },
+  { id: "088-N6c", file: "hooks/ui/neon.ts", note: "màu đơn của bảng nền sáng chỉ đo với nền trắng", old: "const onLightCell = (hex: string) => lightOf(hex, [LIGHT_BACKGROUND, LIGHT_CELL])", new: "const onLightCell = (hex: string) => lightOf(hex)" },
 ]
