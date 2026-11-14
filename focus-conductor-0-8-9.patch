@@ -454,7 +454,7 @@ index 33befe5..216a32c 100644
        expected,
        notes: plan.notes,
 diff --git a/claude-mods/focus-conductor/scripts/mutants.ts b/claude-mods/focus-conductor/scripts/mutants.ts
-index df2949e..e9e1447 100644
+index df2949e..001478b 100644
 --- a/claude-mods/focus-conductor/scripts/mutants.ts
 +++ b/claude-mods/focus-conductor/scripts/mutants.ts
 @@ -2237,12 +2237,12 @@ export const MUTANTS: Mutant[] = [
@@ -464,7 +464,8 @@ index df2949e..e9e1447 100644
 -  { id: "087-L3i", file: "hooks/lib/reading.ts", note: "lượt hỏi lại của lượt đọc trọn giữ trần 32.000", old: "Math.min(params.engineMaxOut, Math.round(maxTokens * 1.5))", new: "Math.min(32_000, Math.round(maxTokens * 1.5))" },
 +  { id: "087-L3i", file: "hooks/lib/reading.ts", note: "lượt hỏi lại của lượt đọc trọn giữ trần 32.000", old: "Math.min(tokenCeiling(params), Math.round(maxTokens * 1.5))", new: "Math.min(32_000, Math.round(maxTokens * 1.5))" },
    { id: "087-L3j", file: "hooks/parts/session.ts", note: "chữ chờ mới hiện cả với prompt ngắn", old: "$.ui.status(promptRead.isFull ? 'router đang đọc trọn prompt dài, có thể mất vài phút...' : 'router đang đọc prompt...')", new: "$.ui.status('router đang đọc trọn prompt dài, có thể mất vài phút...')" },
-   { id: "087-L3k", file: "hooks/lib/router.ts", note: "lượt đọc trọn bị API từ chối thì không dùng lượt dự phòng", old: "(first.reason === 'aborted' || first.reason === 'api-error')", new: "first.reason === 'aborted'" },
+-  { id: "087-L3k", file: "hooks/lib/router.ts", note: "lượt đọc trọn bị API từ chối thì không dùng lượt dự phòng", old: "(first.reason === 'aborted' || first.reason === 'api-error')", new: "first.reason === 'aborted'" },
++  { id: "087-L3k", file: "hooks/lib/router.ts", note: "lượt đọc trọn bị API từ chối thì không dùng lượt dự phòng", old: "(first.reason === 'aborted' || first.reason === 'api-error')", new: "first.reason === 'aborted'", equivalent: "từ 0.8.9 U4, lượt đọc trọn lỗi API có fallback mà bỏ qua nhánh L3 thì rơi vào settled(false) rồi lastResort; lastResort gửi đúng request fallback một lần và trả cùng các trường như nhánh L3 (result, reason, usages, usageModels, retried, fellBack, failure, firstFail, limits(again ?? first)), nên hành vi quan sát được không đổi; luật dùng fallback khi lỗi API được kiểm ở tests/conductor-fallback-f1-087 và tests/router-truncated-u4-089" },
    { id: "087-L3l", file: "hooks/lib/reading.ts", note: "routerMaxWait không kẹp biên dưới", old: "Math.max(ROUTER_MAX_WAIT_MIN_MS, Math.round(seconds * 1000))", new: "Math.max(0, Math.round(seconds * 1000))" },
    { id: "087-L3m", file: "hooks/lib/reading.ts", note: "họ chưa đo lấy thông số của fable", old: "  const own = FAMILY_TABLE[family].read\n  if (own !== null) return own\n", new: "  return READ_PARAMS[MEASURED[MEASURED.length - 1] as ModelFamily]\n" },
 -  { id: "087-L3n", file: "hooks/lib/router.ts", note: "askRouter không chuyển full sang lượt hỏi lại", old: ", ...(opts.full !== undefined ? { full: opts.full } : {}) })).catch(() => null)", new: " })).catch(() => null)" },
@@ -492,6 +493,33 @@ index df2949e..e9e1447 100644
 +  { id: "089-U4c", file: "hooks/lib/router.ts", note: "gửi fallback hai lần", old: "    const again = await send(backup)\n", new: "    await send(backup)\n    const again = await send(backup)\n" },
 +  { id: "089-U4d", file: "hooks/lib/router.ts", note: "câu trả lời rỗng không gửi fallback", old: "  if (first === null || !first.isAnswered || (isConfident && !needsCoverage)) return lastResort(settled(false))", new: "  if (first === null || !first.isAnswered) return settled(false)\n  if (isConfident && !needsCoverage) return lastResort(settled(false))" },
  ]
+diff --git a/claude-mods/focus-conductor/tests/clip-boundary-089.test.ts b/claude-mods/focus-conductor/tests/clip-boundary-089.test.ts
+new file mode 100644
+index 0000000..03f23d4
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/clip-boundary-089.test.ts
+@@ -0,0 +1,21 @@
++// 0.8.9 (đột biến): ranh giới của isClippedPrompt. Prompt dài đúng bằng sức chứa, hay ngắn hơn một chút, không bị coi là bị lược;
++// dài hơn sức chứa một ký tự thì bị lược. Áp cho trần cũ (mặc định) và cho sức chứa truyền vào.
++
++import { describe, expect, test } from 'claude-code/testing'
++import { isClippedPrompt } from '../hooks/lib/router'
++import { BASE_CHARS } from '../hooks/lib/reading'
++
++describe('0.8.9: ranh giới prompt bị lược', () => {
++  test('trần cũ: dài bằng trần hay ngắn hơn 1.000 ký tự thì không bị lược; dài hơn một ký tự thì bị lược', () => {
++    expect(isClippedPrompt('a'.repeat(BASE_CHARS - 1_000))).toBe(false)
++    expect(isClippedPrompt('a'.repeat(BASE_CHARS))).toBe(false)
++    expect(isClippedPrompt('a'.repeat(BASE_CHARS + 1))).toBe(true)
++  })
++
++  test('sức chứa truyền vào: dài bằng sức chứa hay ngắn hơn 1.000 ký tự thì không bị lược; dài hơn một ký tự thì bị lược', () => {
++    const capacity = 120_000
++    expect(isClippedPrompt('a'.repeat(capacity - 1_000), capacity)).toBe(false)
++    expect(isClippedPrompt('a'.repeat(capacity), capacity)).toBe(false)
++    expect(isClippedPrompt('a'.repeat(capacity + 1), capacity)).toBe(true)
++  })
++})
 diff --git a/claude-mods/focus-conductor/tests/hook-limit-u1-089.test.ts b/claude-mods/focus-conductor/tests/hook-limit-u1-089.test.ts
 new file mode 100644
 index 0000000..7db7b32
