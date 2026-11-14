@@ -228,6 +228,19 @@ Pane là một danh sách bước: bước khớp một việc (theo mã "BƯỚ
 ◐ đang làm  ○ chờ
 ```
 
+Khi anh gửi yêu cầu điều chỉnh giữa chừng, router đọc lại mọi việc còn mở kèm trạng thái và điều phối lại: thêm việc mới, gộp việc trùng, bỏ việc không còn cần, sắp lại thứ tự làm. Mod chỉ bỏ hay gộp việc chưa bắt đầu hoặc đã lỗi mà chưa giao lại; việc đang chạy và việc đã xong giữ nguyên, số của việc cũ không đổi. Luồng chính nhận kế hoạch sau điều chỉnh (thứ tự làm, việc đã bỏ, việc đã gộp) kèm lời dặn cập nhật checklist; `/conductor status` liệt kê việc đã gỡ kèm lý do. Mục "Tiến độ từng việc" xếp việc đang chạy và việc lỗi lên đầu, rồi việc chưa làm theo thứ tự làm, việc đã xong gộp một dòng khi nhiều hơn năm việc (rút gọn):
+
+```
+ Tiến độ từng việc  ───────────── 12/42 xong · 3 đang chạy · 26 chưa làm · 1 lỗi
+◐╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌ Việc 13: Việc giao 13 sonnet medium 0 tool · <1 phút đang chạy
+■╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌ Việc 16: Việc giao 16 sonnet medium 0 tool · <1 phút lỗi, chưa giao lại
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌ Việc 42: Việc giao 42 sonnet medium chờ giao
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌ Việc 41: Việc giao 41 sonnet medium chờ giao
+12 việc đã xong: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
+```
+
+Ràng buộc của mục tiêu không còn trần (0.8.9), nên cảnh báo "ràng buộc và yêu cầu của mục tiêu đã đầy" không còn xuất hiện với mục tiêu mới; context và pane nêu tối đa 22 ràng buộc (các mục của prompt đầu và các mục mới nhất) kèm số mục còn lại.
+
 Status line dạng "4/11 · BƯỚC 4 · opus" (số bước, mã bước hiện tại hay 24 ký tự đầu của tiêu đề, họ model), kèm nhãn hạn mức và lệnh chạy tiếp khi đang dừng. Chi phí ghi theo dấu thập phân của ngôn ngữ ("$1,81", "<$0,01"); "~" là ước tính. Từ 0.7.5, việc giao thành nhiều lô đếm theo bộ đếm riêng của việc, nên hàng trăm lô vẫn đếm đúng. Lời gọi Agent khớp việc đã phân theo số thứ tự ("Việc N: ...") hoặc, khi prompt đánh mã bước, theo đúng mã đó ("BƯỚC 7: lọc tin lô 3" khớp việc "BƯỚC 7").
 
 Thanh chỉ thể hiện phần trăm khi có số bước thật: checklist của tool `plan`; nếu Claude không dùng tool đó thì danh sách việc Claude Code tự ghi (`TodoWrite`, `TaskCreate`, `TaskUpdate`), được mod phản chiếu và ghi nhỏ nguồn "danh sách việc". Danh sách phản chiếu chỉ để theo dõi: nó không chặn kết thúc, không tính cho bảo vệ hạn mức, và tool `plan` luôn thắng khi có. Từ 0.7.1 mod vẫn tự nâng và hạ `verified` cho danh sách này theo đúng luật ở mục "Đã kiểm chứng". Việc làm trực tiếp lấy các bước có tiêu đề mở đầu "Việc N"; subagent lấy danh sách việc nó tự ghi. Không có số bước thì thanh chỉ thể hiện trạng thái, không phần trăm: nét đứt mờ là chờ giao hay chưa bắt đầu, đầu ◐ là đang chạy (kèm số tool call và thời gian chạy của subagent), thanh đầy màu xanh lá là xong, ■ đỏ là lỗi, ■ vàng là bị cắt vì tạm dừng hạn mức.
