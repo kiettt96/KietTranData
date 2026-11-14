@@ -11,10 +11,10 @@ index 022e64d..2ad14e2 100644
    "description": "Một model Claude (router) đọc kỹ prompt trước khi làm và điều phối model/effort/agent cho từng việc; mod kiểm, ép điều phối lúc chạy, giữ nhất quán mục tiêu với checklist và cảnh báo lạc đề.",
    "types": "./types/index.d.ts",
 diff --git a/claude-mods/focus-conductor/CHANGELOG.md b/claude-mods/focus-conductor/CHANGELOG.md
-index 13db1c8..26082bf 100644
+index 13db1c8..f491e11 100644
 --- a/claude-mods/focus-conductor/CHANGELOG.md
 +++ b/claude-mods/focus-conductor/CHANGELOG.md
-@@ -2,6 +2,52 @@
+@@ -2,6 +2,56 @@
  
  Các bản của focus-conductor, mới nhất trước. Số đo kiểm chứng của HEAD hiện tại nằm ở [docs/VERIFICATION.md](docs/VERIFICATION.md); cách dùng và tùy chọn ở [README](README.md).
  
@@ -61,6 +61,10 @@ index 13db1c8..26082bf 100644
 +- `limits-l2-087`: "mục tiêu 12 việc: trường prompt trùng 0.8.6" đổi tên thành "mục tiêu 12 việc chưa xong: trường prompt trùng 0.8.6 khi bỏ nhãn trạng thái của từng việc (0.8.9 D1)"; băm ghim giữ nguyên, so trên prompt đã bỏ nhãn.
 +- `golden.test.ts` "câu trả lời đã ghi khớp request hiện tại của mod": đỏ từ commit sửa D1 tới khi ghi lại golden ở D4, vì đặc tả chỉ cho ghi lại golden ở D4.
 +- **D2: mod áp kế hoạch đã điều phối lại.** `applyArrange` chạy trong `nextBriefRaw`, sau `followUpOf`, ở cả đợt mới lẫn tiếp nối thường, nên prompt thường, tin chen ngang và `/conductor reroute` dùng chung. Chỉ việc chưa bắt đầu hay đã lỗi mà chưa giao lại mới bị bỏ hay gộp; không đánh số lại; gộp nhập `covers`; brief lưu thứ tự làm (`order`) và tối đa 50 việc đã gỡ (`removed`), sống qua hot reload. Việc bị gỡ rời danh sách chờ giao và danh sách việc lỗi (`forgetDelegations`), không còn chặn cổng kết thúc. Nhật ký quyết định có dòng `rearrange`. Không ca cũ nào đổi kỳ vọng.
++- **D3: luồng chính và pane thấy kế hoạch sau điều chỉnh.** Prompt tiếp nối có điều phối lại thì context thêm bốn phần (thứ tự làm, việc đã bỏ, việc đã gộp, câu dặn cập nhật checklist), tối đa 900 ký tự; tin chen ngang cũng vậy, tối đa 700 ký tự, trong trần 1.500 của khối chen ngang. Không có arrange thì context trùng bản trước. Mục "Tiến độ từng việc" xếp ba nhóm (đang chạy và lỗi; chưa làm theo thứ tự làm; đã xong, gộp một dòng khi nhiều hơn 5 việc), tiêu đề ghi `a/b xong · c đang chạy · d chưa làm` kèm số việc lỗi và đã bỏ khi có (dưới 48 cột chỉ `a/b`). `/conductor status` có thêm mục việc đã gỡ (tối đa 10 dòng). Việc làm trực tiếp chưa có bước riêng không tính là xong chỉ vì checklist đóng hết (`rowStatusState`), cùng luật với việc đã xong của đợt mới (0.8.0 A3), ở cả trạng thái gửi router lẫn cách xếp nhóm của pane.
++
++**Test cũ đổi kỳ vọng hay đổi tên vì D3:**
++- `taskrows-perf-087`: "mục tiêu 12 việc, checklist có bước "Việc N", bước doing và bước đã xong: chữ band và pane trùng bản ghi của bố cục 0.8.8" đổi tên thành "... trùng bản ghi của bố cục 0.8.8, trừ tiêu đề mục tiến độ (0.8.9 D3)"; băm ghim đổi, chỉ ba dòng tiêu đề mục khác 7682ef7.
 +
 +**Mẫu cũ viết lại, giữ mã (vòng 2):** `075-R1c`, `075-R1f` (khối phần tràn của request tiếp nối viết thành nhiều dòng ở C2); `072-R9` (ngưỡng bị cắt nay là hằng `TRUNCATED_SHARE`, R2); `070-C13`, `074-C2`, `074-C3` (lời gọi router có thêm `taskStates`, D1); `075-B13f` (dòng tổng số việc nay là dòng việc đã xong, D1); `075-S1e` (tách khỏi chỗ trùng trong `arrangeOf`, D1); `075-B12f`, `075-M5i` (nextBrief nhận thêm trạng thái việc và checklist, D2).
 +
@@ -281,7 +285,7 @@ index 23149ca..19d58ab 100644
  
  /** Thời gian chờ của năm loại request router khi họ này làm vai điều phối (ms). */
 diff --git a/claude-mods/focus-conductor/hooks/lib/progress.ts b/claude-mods/focus-conductor/hooks/lib/progress.ts
-index b3ac8c5..6a38052 100644
+index b3ac8c5..2a4c86e 100644
 --- a/claude-mods/focus-conductor/hooks/lib/progress.ts
 +++ b/claude-mods/focus-conductor/hooks/lib/progress.ts
 @@ -2,7 +2,7 @@
@@ -293,10 +297,18 @@ index b3ac8c5..6a38052 100644
  import { isFullyClosed } from './drift'
  import { liveForks } from './forks'
  import { mirrorPlan, shownPlan } from './mirror'
-@@ -301,3 +301,27 @@ export function runningTitles(core: Core, rows: readonly TaskRow[], titles: read
+@@ -301,3 +301,35 @@ export function runningTitles(core: Core, rows: readonly TaskRow[], titles: read
    for (const [title, row] of byTitle) if (row.kind === 'agent' && row.state === 'running') running.add(title)
    return running
  }
++
++/**
++ * Trạng thái một dòng việc khi tính trạng thái của việc (0.8.9 D1): việc làm trực tiếp chưa có bước riêng không tính là xong chỉ vì checklist
++ * đóng hết (cùng luật với việc đã xong của đợt mới, 0.8.0 A3), nên là chưa bắt đầu.
++ */
++export function rowStatusState(row: TaskRow): TaskState {
++  return row.kind === 'direct' && row.bar.kind === 'state' && row.state === 'done' ? 'idle' : row.state
++}
 +
 +/**
 + * Trạng thái từng việc của brief để gửi router (0.8.9 D1), gộp theo số việc từ các dòng tiến độ: có dòng đang chạy thì running; không, mà
@@ -306,7 +318,7 @@ index b3ac8c5..6a38052 100644
 +  const byIndex = new Map<number, TaskState[]>()
 +  for (const row of taskRows(core, now)) {
 +    if (row.kind === 'main' || row.index === undefined || row.attached === true) continue
-+    byIndex.set(row.index, [...(byIndex.get(row.index) ?? []), row.state])
++    byIndex.set(row.index, [...(byIndex.get(row.index) ?? []), rowStatusState(row)])
 +  }
 +  const out: Record<number, TaskStatus> = {}
 +  for (const task of core.brief?.tasks ?? []) {
@@ -1029,7 +1041,7 @@ index eb8974a..766bcc1 100644
      depth: brief.depth ?? legacy.depth,
      volume: brief.volume ?? legacy.volume,
 diff --git a/claude-mods/focus-conductor/hooks/lib/text.ts b/claude-mods/focus-conductor/hooks/lib/text.ts
-index c07c057..e69cd9c 100644
+index c07c057..156db7a 100644
 --- a/claude-mods/focus-conductor/hooks/lib/text.ts
 +++ b/claude-mods/focus-conductor/hooks/lib/text.ts
 @@ -10,7 +10,7 @@ import { clockOf, labels } from '../ui/labels'
@@ -1053,7 +1065,112 @@ index c07c057..e69cd9c 100644
    // Yêu cầu router đã liệt kê mà không việc nào phủ (0.7.0): nhắc để không bị bỏ sót khi lập checklist.
    const uncovered = brief.isReference ? [] : uncoveredRequirements(brief)
    const gaps = uncovered.length > 0 ? `\nYêu cầu chưa có việc nào phủ (đừng bỏ sót khi lập checklist): ${uncoveredList(uncovered)}` : ''
-@@ -806,12 +809,18 @@ const RESUME_RULES =
+@@ -180,6 +183,69 @@ function pendingLine(plan: readonly PlanStep[]): string {
+   )
+ }
+ 
++/** Số việc đã gỡ /conductor status nêu tối đa (0.8.9 D3), gần nhất. */
++const REMOVED_SHOWN = 10
++
++/** Dòng việc đã gỡ khi điều phối lại cho /conductor status (0.8.9 D3): số, tiêu đề, lý do hay việc nhận gộp; tối đa 10 dòng kèm số còn lại. */
++export function removedTaskLines(brief: Brief): string[] {
++  const removed = brief.removed ?? []
++  if (removed.length === 0) return []
++  const shown = removed.slice(-REMOVED_SHOWN)
++  return [
++    'Việc đã gỡ khi điều phối lại:',
++    ...shown.map(r => `  ${r.index}. ${r.title}: ${r.into !== undefined ? `gộp vào Việc ${r.into}` : r.why || 'không ghi lý do'}`),
++    ...(removed.length > shown.length ? [`  (và ${removed.length - shown.length} việc khác)`] : []),
++  ]
++}
++
++/** Trần ký tự của phần kế hoạch sau điều chỉnh (0.8.9 D3): ở prompt tiếp nối và ở tin chen ngang. */
++export const ARRANGED_CHARS = 900
++export const ARRANGED_INTERJECT_CHARS = 700
++const ARRANGED_ORDER_CHARS = 300
++const ARRANGED_ITEMS = 5
++const ARRANGED_WHY_CHARS = 60
++
++/** Danh sách số việc cắt cho vừa `max` ký tự, kèm "(và N việc khác)" khi cắt. */
++function numberList(numbers: readonly number[], max: number): string {
++  let shown = numbers.length
++  const text = (n: number) => `${numbers.slice(0, n).join(', ')}${n < numbers.length ? ` (và ${numbers.length - n} việc khác)` : ''}`
++  while (shown > 1 && text(shown).length > max) shown -= 1
++  return text(shown)
++}
++
++/**
++ * Kế hoạch sau điều chỉnh (0.8.9 D3), chỉ khi prompt có điều phối lại: thứ tự làm (chỉ số việc, cắt ở ARRANGED_ORDER_CHARS), việc đã
++ * bỏ (tối đa 5, lý do cắt còn 60 ký tự), việc đã gộp (tối đa 5 mục), và một câu dặn cập nhật checklist. `order` là thứ tự làm của các
++ * việc còn mở. Phần dài hơn `max` thì bớt danh sách thứ tự trước, rồi bớt số việc đã bỏ và đã gộp.
++ */
++export function arrangedContext(brief: Brief, arranged: { order: readonly number[]; dropped: readonly number[]; merged: ReadonlyArray<{ tasks: readonly number[]; into: number }> }, order: readonly number[], max = ARRANGED_CHARS): string {
++  const whyOf = (index: number) => (brief.removed ?? []).filter(r => r.index === index).at(-1)?.why ?? ''
++  const build = (orderChars: number, drops: number, merges: number) => {
++    const dropped = arranged.dropped.slice(0, drops).map(n => (whyOf(n) ? `Việc ${n} (${clipItem(whyOf(n), ARRANGED_WHY_CHARS)})` : `Việc ${n}`))
++    const merged = arranged.merged.slice(0, merges).map(m => `Việc ${m.tasks.join(', ')} vào Việc ${m.into}`)
++    return [
++      `Kế hoạch sau điều chỉnh, theo thứ tự làm: Việc ${numberList(order, orderChars)}`,
++      dropped.length > 0 ? `Đã bỏ: ${dropped.join('; ')}${arranged.dropped.length > drops ? ` (và ${arranged.dropped.length - drops} việc khác)` : ''}` : '',
++      merged.length > 0 ? `Đã gộp: ${merged.join('; ')}${arranged.merged.length > merges ? ` (và ${arranged.merged.length - merges} mục khác)` : ''}` : '',
++      'Cập nhật checklist bằng tool plan cho khớp: bỏ bước của việc đã bỏ hay đã gộp, thêm bước cho việc mới, giữ nguyên bước đã xong.',
++    ]
++      .filter(Boolean)
++      .join('\n')
++  }
++  let orderChars = ARRANGED_ORDER_CHARS
++  let drops = ARRANGED_ITEMS
++  let merges = ARRANGED_ITEMS
++  let text = build(orderChars, drops, merges)
++  while (text.length > max) {
++    if (orderChars > 100) orderChars -= 25
++    else if (drops > 1) drops -= 1
++    else if (merges > 1) merges -= 1
++    else break
++    text = build(orderChars, drops, merges)
++  }
++  return text.slice(0, max)
++}
++
+ /**
+  * Khối context cho prompt tiếp nối cùng mục tiêu. `main` là lựa chọn luồng chính mới của router
+  * (null khi không hỏi router); `added` là các việc mới router tách thêm.
+@@ -191,6 +257,8 @@ export function followUpContext(
+   added: readonly Task[] = [],
+   main: Choice | null = null,
+   isApplied = true,
++  /** Kế hoạch sau điều chỉnh (0.8.9 D3, arrangedContext); rỗng khi prompt không điều phối lại. */
++  arranged = '',
+ ): string {
+   const open = openSteps(plan)
+   const mainText = mainLabel(main, isApplied)
+@@ -204,6 +272,7 @@ export function followUpContext(
+     uncoveredRequirements(brief).length > 0 ? `Yêu cầu chưa có việc nào phủ (đừng bỏ sót): ${uncoveredList(uncoveredRequirements(brief))}` : '',
+     pendingLine(plan),
+     newConstraints.length > 0 ? `Ràng buộc mới: ${newConstraints.join('; ')}` : '',
++    arranged,
+     'Giữ nhất quán với phần đã làm; nếu yêu cầu này đổi mục tiêu, cập nhật lại checklist.',
+   ]
+   return lines.filter(Boolean).join('\n')
+@@ -223,7 +292,7 @@ export function interjectContext(
+   plan: readonly PlanStep[],
+   added: readonly Task[],
+   newConstraints: readonly string[],
+-  options: { main: string; mayReplace: boolean; isRouted: boolean },
++  options: { main: string; mayReplace: boolean; isRouted: boolean; arranged?: string },
+ ): string {
+   const open = openSteps(plan).slice(0, INTERJECT_OPEN_STEPS)
+   const all = added.map(t =>
+@@ -239,6 +308,8 @@ export function interjectContext(
+       `[focus-conductor] Yêu cầu chen ngang khi đang làm: ${clipItem(brief.goal, 160)}`,
+       options.isRouted ? '' : 'Router không đọc được tin này; tự đọc kỹ yêu cầu mới.',
+       n > 0 ? `Việc mới (khi giao, description của Agent mở đầu "Việc N: "):\n${all.slice(0, n).join('\n')}${all.length > n ? `\nvà ${all.length - n} việc nữa` : ''}` : '',
++      // Kế hoạch sau điều chỉnh (0.8.9 D3): giữ trước, thiếu chỗ thì bớt việc mới.
++      options.arranged ?? '',
+       rules,
+       steps,
+       ask,
+@@ -806,12 +877,18 @@ const RESUME_RULES =
   * (điểm tiếp tục chính xác), năm tool call cuối, file đổi sau lúc dừng và quy tắc tiếp tục. Tối đa RESUME_MAX ký tự:
   * phần dài bị cắt theo thứ tự tool call cuối, checklist, note; tiêu đề, lệnh bị từ chối, file đổi và quy tắc giữ.
   */
@@ -1083,10 +1200,10 @@ index c17fcb0..284111e 100644
 -export const MOD_VERSION = '0.8.8'
 +export const MOD_VERSION = '0.8.9'
 diff --git a/claude-mods/focus-conductor/hooks/parts/command.ts b/claude-mods/focus-conductor/hooks/parts/command.ts
-index 69796a8..5b91124 100644
+index 69796a8..c33d2fe 100644
 --- a/claude-mods/focus-conductor/hooks/parts/command.ts
 +++ b/claude-mods/focus-conductor/hooks/parts/command.ts
-@@ -12,6 +12,7 @@ import { describePick } from '../lib/route'
+@@ -12,10 +12,11 @@ import { describePick } from '../lib/route'
  import { clipText } from '../lib/decisions'
  import { askRouter, bareBrief, briefOf, failFields, nextBrief, parseRoute, rerouted, routerFailOf, routerRequest } from '../lib/router'
  import { shownPlan } from '../lib/mirror'
@@ -1094,6 +1211,11 @@ index 69796a8..5b91124 100644
  import * as S from '../lib/state'
  import { statusTextOf } from '../ui/direction'
  import type { View } from '../lib/state'
+-import { RETRY_ROUNDS, WAIVE_REPORT, briefContext, checkHintLines, droppedGoalNotice, headlessOffNote, droppedItemsText, droppedPlanNotice, quotaStatusLines, renderPlan, resetLabel, routerFailLines, unroutedContext } from '../lib/text'
++import { RETRY_ROUNDS, WAIVE_REPORT, briefContext, checkHintLines, droppedGoalNotice, headlessOffNote, droppedItemsText, droppedPlanNotice, quotaStatusLines, removedTaskLines, renderPlan, resetLabel, routerFailLines, unroutedContext } from '../lib/text'
+ import { PANE_ROWS, shouldAutoOpenPane } from '../lib/pane'
+ import { PANE, PANE_TITLE } from '../ui/pane'
+ import { conductStatusSuffix, conductorLine, labels, langOf } from '../ui/labels'
 @@ -124,7 +125,7 @@ const WAIVE_USAGE = `Cách dùng: /conductor waive <số thứ tự hoặc lện
  
  export function registerCommand(on: On, ctx: Ctx): void {
@@ -1142,6 +1264,14 @@ index 69796a8..5b91124 100644
        await update($, coreState, S.withDelegations(brief.goalId, delegationItems(brief)))
        const core = S.normalizeCore(await read($, coreState))
        const isApplied = (await read($, mode)) === 'auto'
+@@ -525,6 +531,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
+           ...routerFailLines(core.routerFail),
+           ...checkHintLines(core.checkHint, core.brief.goalId),
+           ...((core.brief.dropped ?? 0) > 0 ? [droppedItemsText(core.brief.dropped ?? 0)] : []),
++          ...removedTaskLines(core.brief),
+           renderPlan(core.brief, shown.plan) + (shown.source === 'mirror' ? '\n(theo danh sách việc của Claude Code, chỉ để theo dõi)' : ''),
+           ...retryLines(core),
+           ...waiverLines(core),
 diff --git a/claude-mods/focus-conductor/hooks/parts/consistency.ts b/claude-mods/focus-conductor/hooks/parts/consistency.ts
 index c5df562..fac35d6 100644
 --- a/claude-mods/focus-conductor/hooks/parts/consistency.ts
@@ -1155,10 +1285,17 @@ index c5df562..fac35d6 100644
      steps: core.plan.map(step => ({ title: step.title, ...(step.check !== undefined ? { check: step.check } : {}) })),
      model: target.model,
 diff --git a/claude-mods/focus-conductor/hooks/parts/session.ts b/claude-mods/focus-conductor/hooks/parts/session.ts
-index 33befe5..e677cad 100644
+index 33befe5..897c71b 100644
 --- a/claude-mods/focus-conductor/hooks/parts/session.ts
 +++ b/claude-mods/focus-conductor/hooks/parts/session.ts
-@@ -25,7 +25,7 @@ import type { Ctx } from '../context'
+@@ -19,13 +19,13 @@ import { EMPTY_QUOTA, blockingHits, evaluateQuota, isPauseActive, normalizeQuota
+ import * as S from '../lib/state'
+ import { statusTextOf } from '../ui/direction'
+ import type { View } from '../lib/state'
+-import { DISCIPLINE, asideContext, conductorContext, conductorKeepText, phaseNotice, briefContext, droppedGoalNotice, droppedItemsText, droppedPlanNotice, followUpContext, intentResumeContext, intentStatusContext, interjectContext, interjectMovedNote, quotaPausedContext, resetLabel, resumeCommand, nothingLeftContext, restorableLabel, restoreGoalOnlyContext, restoreResumeContext, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
++import { ARRANGED_CHARS, ARRANGED_INTERJECT_CHARS, DISCIPLINE, arrangedContext, asideContext, conductorContext, conductorKeepText, phaseNotice, briefContext, droppedGoalNotice, droppedItemsText, droppedPlanNotice, followUpContext, intentResumeContext, intentStatusContext, interjectContext, interjectMovedNote, quotaPausedContext, resetLabel, resumeCommand, nothingLeftContext, restorableLabel, restoreGoalOnlyContext, restoreResumeContext, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
+ import type { EngineInterface, On } from 'claude-code'
+ import type { Ctx } from '../context'
  import { modeOf, viewOf } from '../atoms'
  import { PERSON_ORIGINS, SLASH_COMMAND, newDelegation } from '../context'
  import { PANE_ROWS, shouldAutoOpenPane } from '../lib/pane'
@@ -1238,18 +1375,19 @@ index 33befe5..e677cad 100644
        await flushDecisions((path, text) => $.fs.write(path, text))
        await showStatus($, await read($, view), ctx.options)
        return next({ ...e, context: [...lead, ...(e.context ?? []), asideContext(isInterject, openSteps(before.plan)[0]), ...tail] })
-@@ -541,7 +545,9 @@ export function registerSession(on: On, ctx: Ctx): void {
+@@ -541,7 +545,10 @@ export function registerSession(on: On, ctx: Ctx): void {
      // Việc đã xong theo checklist hiện tại (0.8.0 A3): có bước riêng và các bước đó đã đóng hết; được cất khi prompt này mở đợt mới. Việc chưa
      // có bước riêng không tính là xong chỉ vì checklist đóng hết (checklist đó có thể là của đợt trước).
      const doneTasks = new Set(taskRows(before, now).filter(row => row.index !== undefined && row.kind !== 'main' && row.state === 'done' && row.bar.kind === 'steps').map(row => row.index as number))
 -    const { brief, added, isNewGoal, replaced, held, dropped, phase } = nextBrief(prev, plan, text, now, { openSteps: openSteps(before.plan).map(s => s.title), sessionFamily: L.sessionFamily, doneTasks, isPending: S.pendingOf(before) })
-+    const { brief, added: routedAdded, isNewGoal, replaced, held, dropped, phase, arranged } = nextBrief(prev, plan, text, now, { openSteps: openSteps(before.plan).map(s => s.title), sessionFamily: L.sessionFamily, doneTasks, isPending: S.pendingOf(before), states: taskStatusOf(before, now), checklist: before.plan })
++    const states = taskStatusOf(before, now)
++    const { brief, added: routedAdded, isNewGoal, replaced, held, dropped, phase, arranged } = nextBrief(prev, plan, text, now, { openSteps: openSteps(before.plan).map(s => s.title), sessionFamily: L.sessionFamily, doneTasks, isPending: S.pendingOf(before), states, checklist: before.plan })
 +    // Việc mới mà chính lần điều phối lại đã gỡ (0.8.9 D2) không còn là việc mới.
 +    const added = routedAdded.filter(t => brief.tasks.some(kept => kept.index === t.index))
      // Router xếp mục tiêu mới với tin cậy thấp khi checklist còn bước mở (0.7.5): giữ mục tiêu, ghi nhật ký quyết định.
      if (held && prev !== null) {
        L.promptIntent = { relation: 'continue', kind: plan.kind }
-@@ -597,6 +603,11 @@ export function registerSession(on: On, ctx: Ctx): void {
+@@ -597,6 +604,11 @@ export function registerSession(on: On, ctx: Ctx): void {
      const expected = wanted !== null && isNewGoal ? expectedMain(core, brief, wanted, now) : wanted
      if (isNewGoal) trackDelegations(brief.goalId, brief.isReference ? [] : brief.tasks)
      else if (!brief.isReference) trackDelegations(brief.goalId, added, true)
@@ -1261,7 +1399,30 @@ index 33befe5..e677cad 100644
      await update($, coreState, S.withDelegations(brief.goalId, delegationItems(brief)))
      const newConstraints = plan.constraints.filter(c => !prev?.constraints.includes(c))
      // Luồng chính đang chạy (0.7.8 G9): route đã chốt ở step đầu của turn đó; turn không có route thì là model của phiên.
-@@ -657,6 +668,7 @@ export function registerSession(on: On, ctx: Ctx): void {
+@@ -631,16 +643,20 @@ export function registerSession(on: On, ctx: Ctx): void {
+       if (approval.status !== approvalBefore.status || isNewGoal) record(now, 'approval', { goalId: brief.goalId, status: approval.status, cause: isNewGoal ? 'goal' : intent })
+     }
+     const approvalNotes = isAsking ? [askContext(plan.questions ?? [])] : approval.status === 'planning' ? [planningContext()] : []
++    // Kế hoạch sau điều chỉnh (0.8.9 D3): chỉ khi prompt có điều phối lại (gỡ việc hay có thứ tự làm mới); thứ tự là của các việc còn mở.
++    const isArranged = arranged !== undefined && (arranged.dropped.length > 0 || arranged.merged.length > 0 || arranged.order.length > 0)
++    const workOrder = arranged !== undefined && arranged.order.length > 0 ? arranged.order : brief.tasks.filter(t => states[t.index] !== 'done').map(t => t.index)
++    const arrangedFor = (max: number) => (isArranged && arranged !== undefined ? arrangedContext(brief, arranged, workOrder, max) : '')
+     const isApproved = !isNewGoal && isPresented && approval.status === 'approved'
+     const context = isApproved
+       ? approvedContext(core.plan)
+       : intent === 'resume' && !isNewGoal
+       ? isResumeMsg && S.isNothingLeft(before) ? nothingLeftContext() : intentResumeContext(core.plan)
+       : isInterject && !isNewGoal
+-      ? interjectContext(brief, core.plan, shownAdded, newConstraints, { main: running !== null ? describePick(running) : 'model đang chạy', mayReplace: routed?.relation === 'new', isRouted: true })
++      ? interjectContext(brief, core.plan, shownAdded, newConstraints, { main: running !== null ? describePick(running) : 'model đang chạy', mayReplace: routed?.relation === 'new', isRouted: true, ...(isArranged ? { arranged: arrangedFor(ARRANGED_INTERJECT_CHARS) } : {}) })
+       : isNewGoal
+         ? briefContext(shownBrief, expected, isApplied)
+-        : followUpContext(brief, core.plan, newConstraints, shownAdded, expected, isApplied)
++        : followUpContext(brief, core.plan, newConstraints, shownAdded, expected, isApplied, arrangedFor(ARRANGED_CHARS))
+     if (isInterject && !isNewGoal) {
+       L.pendingInterject = lift.length > 0 ? { goalId: brief.goalId, lift: lift.map(t => ({ index: t.index, family: t.pick.family, effort: t.pick.effort })) } : null
+       record(now, 'interject', { relation: routed?.relation ?? plan.relation, tasks: added.length, constraints: newConstraints.length, toAgent: 0, liftable: lift.length })
+@@ -657,6 +673,7 @@ export function registerSession(on: On, ctx: Ctx): void {
        intent,
        confidence: plan.confidence,
        retried: outcome.retried,
@@ -1270,7 +1431,7 @@ index 33befe5..e677cad 100644
        expected,
        notes: plan.notes,
 diff --git a/claude-mods/focus-conductor/hooks/ui/labels.ts b/claude-mods/focus-conductor/hooks/ui/labels.ts
-index 88f801e..eeba1f0 100644
+index 88f801e..8f81f8a 100644
 --- a/claude-mods/focus-conductor/hooks/ui/labels.ts
 +++ b/claude-mods/focus-conductor/hooks/ui/labels.ts
 @@ -51,6 +51,8 @@ const VI = {
@@ -1282,7 +1443,19 @@ index 88f801e..eeba1f0 100644
    quality: 'Tiêu chí chất lượng',
    noQuality: 'Không nhận ra tiêu chí riêng.',
    plannedTag: '(dự kiến)',
-@@ -230,6 +232,7 @@ const EN: typeof VI = {
+@@ -111,6 +113,11 @@ const VI = {
+   quotaPausedNow: 'Đang tạm dừng',
+   mirrorShort: 'danh sách việc',
+   taskSection: 'Tiến độ từng việc',
++  /** 0.8.9 D3: tiêu đề mục tiến độ: số việc xong trên tổng, đang chạy, chưa làm, lỗi và đã bỏ (hai số cuối khi có). */
++  taskSummary: (done: number, total: number, running: number, todo: number, failed: number, removed: number) =>
++    `${done}/${total} xong · ${running} đang chạy · ${todo} chưa làm${failed > 0 ? ` · ${failed} lỗi` : ''}${removed > 0 ? ` · đã bỏ ${removed}` : ''}`,
++  /** 0.8.9 D3: một dòng gộp các việc đã xong khi nhiều hơn 5 việc. */
++  doneCollapsed: (n: number, list: string) => `${n} việc đã xong: ${list}`,
+   phaseArchived: (n: number) => `${n} việc của đợt trước`,
+   taskMain: 'Việc chính',
+   taskNumber: (n: number) => `Việc ${n}`,
+@@ -230,6 +237,7 @@ const EN: typeof VI = {
    notRead: 'not read by the router',
    constraints: 'Constraints',
    noConstraints: 'No explicit constraints found.',
@@ -1290,19 +1463,95 @@ index 88f801e..eeba1f0 100644
    quality: 'Quality criteria',
    noQuality: 'No specific criteria found.',
    plannedTag: '(planned)',
+@@ -287,6 +295,8 @@ const EN: typeof VI = {
+   quotaPausedNow: 'Paused',
+   mirrorShort: 'task list',
+   taskSection: 'Progress by task',
++  taskSummary: (done, total, running, todo, failed, removed) => `${done}/${total} done · ${running} running · ${todo} to do${failed > 0 ? ` · ${failed} failed` : ''}${removed > 0 ? ` · ${removed} dropped` : ''}`,
++  doneCollapsed: (n, list) => `${n} done: ${list}`,
+   phaseArchived: n => `${n} ${n === 1 ? 'task' : 'tasks'} from earlier phases`,
+   taskMain: 'Main work',
+   taskNumber: n => `Task ${n}`,
 diff --git a/claude-mods/focus-conductor/hooks/ui/pane.tsx b/claude-mods/focus-conductor/hooks/ui/pane.tsx
-index 9c2309b..8b7c681 100644
+index 9c2309b..80c32d3 100644
 --- a/claude-mods/focus-conductor/hooks/ui/pane.tsx
 +++ b/claude-mods/focus-conductor/hooks/ui/pane.tsx
-@@ -8,6 +8,7 @@ import type { Mode, PlanStep, StepStatus } from '../../types'
+@@ -8,7 +8,9 @@ import type { Mode, PlanStep, StepStatus } from '../../types'
  import { estimateLine, formatCost, ledgerLines, sessionUsd } from '../lib/ledger'
  import type { View } from '../lib/state'
  import { shownPlan } from '../lib/mirror'
+-import { runningGroups, runningTitles, stepTaskRows, taskRows } from '../lib/progress'
 +import { shownConstraints } from '../lib/router'
- import { runningGroups, runningTitles, stepTaskRows, taskRows } from '../lib/progress'
++import { rowStatusState, runningGroups, runningTitles, stepTaskRows, taskRows, taskStatusOf } from '../lib/progress'
++import type { TaskRow } from '../lib/progress'
  import { liveForks } from '../lib/forks'
  import { countLabel, progress } from '../lib/text'
-@@ -767,6 +768,7 @@ export function renderPane(
+ import type { BandQuota, QuotaPaneText } from '../lib/text'
+@@ -59,6 +61,8 @@ const DEFAULT_ROWS = 16
+  */
+ const ATTENTION_MAX = 4
+ /** Số ô tối thiểu giữ cho tên việc ở dòng Đang chạy khi phải cắt tên để giữ phần sau (UI2) [Giả định: đủ thấy mã bước như "BƯỚC 4"]. */
++/** Số việc đã xong vẽ từng dòng ở mục tiến độ; nhiều hơn thì gộp một dòng (0.8.9 D3). */
++const DONE_ROWS_SHOWN = 5
+ const RUNNING_NAME_CELLS = 8
+ /** Ký hiệu tạm dừng, như band. */
+ const PAUSE_GLYPH = '\u23F8'
+@@ -594,8 +598,37 @@ export function renderPane(
+   // Thay mục "Việc giao subagent": việc chính, từng việc router phân (làm trực tiếp hay giao), rồi việc Claude tự giao.
+   // Chỉ vẽ khi có từ hai việc trở lên; thanh theo bề rộng pane, tối thiểu 6 ô; dưới 48 ô mỗi việc hai dòng.
+   const taskCells = Math.max(6, Math.min(16, Math.floor(width * 0.2)))
++  // Tiêu đề mục (0.8.9 D3): tổng kết theo trạng thái từng việc của mục tiêu; pane hẹp dưới 48 cột chỉ ghi số việc xong trên tổng.
++  const statuses = taskStatusOf(view.core, props.now ?? 0)
++  const countOf = (status: string) => brief.tasks.filter(task => statuses[task.index] === status).length
++  const doneCount = countOf('done')
++  const taskHeading = isNarrow
++    ? `${doneCount}/${brief.tasks.length}`
++    : l.taskSummary(doneCount, brief.tasks.length, countOf('running'), countOf('not started'), countOf('failed'), (brief.removed ?? []).length)
++  /** Dòng gộp việc đã xong: số việc kèm danh sách số cắt theo bề rộng, phần còn lại ghi "+N". */
++  const foldedDone = (count: number, numbers: readonly number[]) => {
++    let shown = numbers.length
++    const text = (n: number) => l.doneCollapsed(count, `${numbers.slice(0, n).join(', ')}${n < numbers.length ? ` +${numbers.length - n}` : ''}`)
++    while (shown > 1 && cellsOf(text(shown)) > width) shown -= 1
++    return text(shown)
++  }
+   // Chỉ việc không đi cùng bước nào (U1): việc Claude tự giao và việc không khớp bước; việc chính chính là danh sách bước ở trên.
+-  const taskNodes = allTaskRows.filter(row => row.kind !== 'main' && !matched.has(row.key)).map(row => {
++  // Ba nhóm (0.8.9 D3): đang chạy và lỗi; chưa làm theo thứ tự làm đã lưu (không có thì theo số); đã xong. Nhiều hơn 5 việc đã xong thì
++  // gộp một dòng.
++  const listedRows = allTaskRows.filter(row => row.kind !== 'main' && !matched.has(row.key))
++  const groupOf = (row: TaskRow) => {
++    const state = rowStatusState(row)
++    return state === 'running' || state === 'failed' || state === 'cut' ? 0 : state === 'done' ? 2 : 1
++  }
++  const orderAt = new Map((brief.order ?? []).map((index, at) => [index, at]))
++  const placeOf = (row: TaskRow) => (row.index === undefined ? Number.MAX_SAFE_INTEGER : (orderAt.get(row.index) ?? orderAt.size + row.index))
++  const sortedRows = listedRows
++    .map((row, at) => ({ row, at }))
++    .sort((a, b) => groupOf(a.row) - groupOf(b.row) || (groupOf(a.row) === 1 ? placeOf(a.row) - placeOf(b.row) : 0) || a.at - b.at)
++    .map(entry => entry.row)
++  const doneRows = sortedRows.filter(row => groupOf(row) === 2)
++  const isDoneFolded = doneRows.length > DONE_ROWS_SHOWN
++  const taskNodes = (isDoneFolded ? sortedRows.filter(row => groupOf(row) !== 2) : sortedRows).map(row => {
+     const label = taskLabel(l, row)
+     const runs = taskBarRuns(row.bar, taskCells, paint)
+     const detail = rowDetail(row, false)
+@@ -660,6 +693,15 @@ export function renderPane(
+     )
+   })
+ 
++  if (isDoneFolded) {
++    const numbers = [...new Set(doneRows.flatMap(row => (row.index !== undefined ? [row.index] : [])))].sort((a, b) => a - b)
++    taskNodes.push(
++      <Text key="done-folded" dimColor wrap="truncate-end">
++        {foldedDone(doneRows.length, numbers)}
++      </Text>,
++    )
++  }
++
+   // Việc của các đợt trước đã cất (0.8.0 A3): một dòng mờ, không tính vào tiến độ.
+   const archived = brief.archived ?? 0
+   if (archived > 0) {
+@@ -767,6 +809,7 @@ export function renderPane(
  
    // ------------------------------------------------------------- nhật ký
    const recentLog = log.slice(-8).reverse()
@@ -1310,7 +1559,16 @@ index 9c2309b..8b7c681 100644
    const hasEstimate = recentLog.some(entry => entry.usd !== undefined && !entry.measured)
    const logNode = (
      <Box flexDirection="column">
-@@ -861,7 +863,9 @@ export function renderPane(
+@@ -834,7 +877,7 @@ export function renderPane(
+       ) : null}
+       {taskNodes.length > 0 ? (
+         <Box flexDirection="column">
+-          {heading(l.taskSection, String(taskNodes.length))}
++          {heading(l.taskSection, taskHeading)}
+           {taskNodes}
+         </Box>
+       ) : null}
+@@ -861,7 +904,9 @@ export function renderPane(
        ) : null}
        <Box flexDirection="column">
          {heading(l.constraints)}
@@ -1322,7 +1580,7 @@ index 9c2309b..8b7c681 100644
        <Box flexDirection="column">
          {heading(l.quality)}
 diff --git a/claude-mods/focus-conductor/scripts/mutants.ts b/claude-mods/focus-conductor/scripts/mutants.ts
-index df2949e..dd2f59f 100644
+index df2949e..0f8908a 100644
 --- a/claude-mods/focus-conductor/scripts/mutants.ts
 +++ b/claude-mods/focus-conductor/scripts/mutants.ts
 @@ -828,7 +828,7 @@ export const MUTANTS: Mutant[] = [
@@ -1398,7 +1656,7 @@ index df2949e..dd2f59f 100644
    { id: "087-L3o", file: "hooks/lib/reading.ts", note: "mặc định routerMaxWait về 600 giây", old: "export const ROUTER_MAX_WAIT_MS = 1_800_000", new: "export const ROUTER_MAX_WAIT_MS = 600_000" },
    { id: "087-M1a", file: "hooks/lib/route.ts", note: "luôn trả ID ghim", old: "  if (useAlias && prefix === '') return family\n", new: "  if (false) return family\n" },
    { id: "087-M1b", file: "hooks/lib/route.ts", note: "alias thắng cả ghi đè modelMap", old: "  const override = map[family]\n  if (override) return override\n  const at = engineModel.indexOf('claude-')", new: "  if (useAlias) return family\n  const override = map[family]\n  if (override) return override\n  const at = engineModel.indexOf('claude-')" },
-@@ -2305,4 +2305,53 @@ export const MUTANTS: Mutant[] = [
+@@ -2305,4 +2305,61 @@ export const MUTANTS: Mutant[] = [
    { id: "088-N6o", file: "hooks/ui/band.tsx", note: "nút Ẩn vẫn hiện khi tạm dừng", old: "const hideButton = hasRoom && !isPaused && fit.hide ?", new: "const hideButton = hasRoom && fit.hide ?" },
    { id: "088-N6p", file: "hooks/ui/direction.ts", note: "tắt quotaGuard vẫn tính tạm dừng", old: "  const isPaused = settings.enabled && isPauseActive(", new: "  const isPaused = isPauseActive(" },
    { id: "088-N6q", file: "hooks/ui/band.tsx", note: "band lại có hộp rỗng ở cột đầu", old: "    <Box flexDirection=\"column\" flexGrow={1} flexShrink={1}>\n      {lines}\n    </Box>", new: "    <Box flexDirection=\"row\">\n      <Box flexDirection=\"column\" flexShrink={0} />\n      <Box flexDirection=\"column\" flexGrow={1} flexShrink={1}>\n        {lines}\n      </Box>\n    </Box>" },
@@ -1451,6 +1709,14 @@ index df2949e..dd2f59f 100644
 +  { id: "089-D2e", file: "hooks/lib/router.ts", note: "gộp không nhập covers", old: "      covers.set(into, [...(covers.get(into) ?? []), ...(owner.covers ?? [])])\n", new: "" },
 +  { id: "089-D2f", file: "hooks/parts/session.ts", note: "không ghi dòng rearrange", old: "      record(now, 'rearrange', { goalId: brief.goalId, order: arranged.order, dropped: arranged.dropped, merged: arranged.merged, skipped: arranged.skipped })\n", new: "" },
 +  { id: "089-D2g", file: "hooks/lib/router.ts", note: "order có số trùng làm việc xuất hiện hai lần", old: "      if (index === null || listed.includes(index) || !open.includes(index)) continue\n", new: "      if (index === null || !open.includes(index)) continue\n" },
++  { id: "089-D3a", file: "hooks/lib/text.ts", note: "context không ghi thứ tự làm", old: "      `Kế hoạch sau điều chỉnh, theo thứ tự làm: Việc ${numberList(order, orderChars)}`,\n", new: "" },
++  { id: "089-D3b", file: "hooks/parts/session.ts", note: "context ghi kế hoạch sau điều chỉnh cả khi không có arrange", old: "    const arrangedFor = (max: number) => (isArranged && arranged !== undefined ? arrangedContext(brief, arranged, workOrder, max) : '')", new: "    const arrangedFor = (max: number) => arrangedContext(brief, arranged ?? { order: [], dropped: [], merged: [], skipped: [] }, workOrder, max)" },
++  { id: "089-D3c", file: "hooks/ui/pane.tsx", note: "pane xếp việc chưa làm theo số dù đã có thứ tự làm", old: "(groupOf(a.row) === 1 ? placeOf(a.row) - placeOf(b.row) : 0) || ", new: "" },
++  { id: "089-D3d", file: "hooks/ui/pane.tsx", note: "việc đã xong không gộp dòng", old: "  const isDoneFolded = doneRows.length > DONE_ROWS_SHOWN\n", new: "  const isDoneFolded = false as boolean\n" },
++  { id: "089-D3e", file: "hooks/ui/pane.tsx", note: "tiêu đề không ghi số việc đã bỏ", old: ", countOf('failed'), (brief.removed ?? []).length)", new: ", countOf('failed'), 0)" },
++  { id: "089-D3f", file: "hooks/lib/text.ts", note: "phần thêm vào context không cắt ở 900 ký tự", old: "  while (text.length > max) {\n", new: "  while (text.length > Number.POSITIVE_INFINITY) {\n" },
++  { id: "089-D3g", file: "hooks/lib/text.ts", note: "tin chen ngang không ghi kế hoạch sau điều chỉnh", old: "      options.arranged ?? '',\n", new: "" },
++  { id: "089-D3h", file: "hooks/lib/progress.ts", note: "việc chưa có bước riêng tính là xong khi checklist đóng hết", old: "  return row.kind === 'direct' && row.bar.kind === 'state' && row.state === 'done' ? 'idle' : row.state\n", new: "  return row.state\n" },
  ]
 diff --git a/claude-mods/focus-conductor/tests/arrange-d1-089.test.ts b/claude-mods/focus-conductor/tests/arrange-d1-089.test.ts
 new file mode 100644
@@ -1847,6 +2113,18 @@ index 0000000..12fdb87
 +export const PANE_vi_44: readonly string[] = ["Ràng buộc", "Ràng buộc", " ", " ", " ────────────────────────────────", "•", "Ràng buộc số 001 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 002 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 003 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 004 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 005 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 006 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 007 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 008 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 009 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 010 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 011 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 012 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 013 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 014 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 015 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 016 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 017 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 018 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 019 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 020 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 021 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 022 giữ nguyên định dạng tệp xuất", " Tiêu chí chất lượng  ──────────────────────", " ", " "]
 +export const PANE_en_80: readonly string[] = ["Constraints", "Constraints", " ", " ", " ──────────────────────────────────────────────────────────────────", "•", "Ràng buộc số 001 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 002 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 003 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 004 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 005 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 006 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 007 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 008 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 009 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 010 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 011 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 012 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 013 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 014 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 015 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 016 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 017 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 018 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 019 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 020 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 021 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 022 giữ nguyên định dạng tệp xuất", " Quality criteria  ─────────────────────────────────────────────────────────────", " ", " "]
 +export const PANE_en_44: readonly string[] = ["Constraints", "Constraints", " ", " ", " ──────────────────────────────", "•", "Ràng buộc số 001 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 002 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 003 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 004 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 005 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 006 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 007 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 008 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 009 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 010 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 011 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 012 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 013 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 014 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 015 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 016 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 017 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 018 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 019 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 020 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 021 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 022 giữ nguyên định dạng tệp xuất", " Quality criteria  ─────────────────────────", " ", " "]
+diff --git a/claude-mods/focus-conductor/tests/fixtures/rearrange-d3-089.ts b/claude-mods/focus-conductor/tests/fixtures/rearrange-d3-089.ts
+new file mode 100644
+index 0000000..62955b1
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/fixtures/rearrange-d3-089.ts
+@@ -0,0 +1,6 @@
++// 0.8.9 D3: context của prompt tiếp nối và của tin chen ngang không có arrange (tests/support/rearrange-ui.ts), ghi từ lượt chạy trên
++// 7682ef7 (bản trước D3), engine 2.1.296. Bản sau D3 phải trùng từng ký tự.
++
++export const FOLLOW_UP_7682 = "[focus-conductor] Tiếp nối mục tiêu hiện tại: Nâng cấp module thanh toán\nRouter: refine; luồng chính opus/xhigh (việc vừa)\nViệc mới (router đã chấm; khi giao, description của Agent mở đầu \"Việc N: \"):\n5. Thêm phần kiểm thử hồi quy → làm trực tiếp ở luồng chính (opus/xhigh)\nRàng buộc mới: Giữ API cũ\nGiữ nhất quán với phần đã làm; nếu yêu cầu này đổi mục tiêu, cập nhật lại checklist."
++
++export const INTERJECT_7682 = "[focus-conductor] Yêu cầu chen ngang khi đang làm: Nâng cấp module thanh toán\nViệc mới (khi giao, description của Agent mở đầu \"Việc N: \"):\nViệc 5: Thêm phần kiểm thử hồi quy → làm trực tiếp ở luồng chính (opus/xhigh)\nRàng buộc mới: Giữ API cũ\nHoàn tất hoặc tạm dừng đúng chỗ phần đang làm; thêm bước cho yêu cầu mới bằng plan add (action \"add\") trước khi làm phần mới, giữ nguyên các bước đang có."
 diff --git a/claude-mods/focus-conductor/tests/hook-limit-u1-089.test.ts b/claude-mods/focus-conductor/tests/hook-limit-u1-089.test.ts
 new file mode 100644
 index 0000000..7db7b32
@@ -2256,10 +2534,10 @@ index 0000000..4aa6457
 +})
 diff --git a/claude-mods/focus-conductor/tests/integration/rearrange-d2-089.test.ts b/claude-mods/focus-conductor/tests/integration/rearrange-d2-089.test.ts
 new file mode 100644
-index 0000000..c3a1b8b
+index 0000000..ce487bf
 --- /dev/null
 +++ b/claude-mods/focus-conductor/tests/integration/rearrange-d2-089.test.ts
-@@ -0,0 +1,147 @@
+@@ -0,0 +1,166 @@
 +// 0.8.9 D2 (tích hợp): router trả arrange cho prompt tiếp nối, mod áp lên brief. Việc bị bỏ hay bị gộp rời brief, rời danh sách việc chờ
 +// giao và danh sách việc lỗi, nên không còn là lý do để cổng kết thúc chặn; việc đang chạy hay đã xong thì giữ, mục nhắm vào nó được ghi ở
 +// dòng rearrange của nhật ký quyết định. Áp cho prompt thường, tin chen ngang và lệnh đọc lại prompt (/conductor reroute).
@@ -2267,7 +2545,7 @@ index 0000000..c3a1b8b
 +import { describe, expect, test } from 'claude-code/testing'
 +import type { On, TurnCompleteInput } from 'claude-code'
 +import type { Engine } from 'claude-code/testing'
-+import { DEFAULT_ROUTER, FOUR, SEARCH, base, conductor, plan, spawnTool, step, submit, task } from '../support/engine'
++import { DEFAULT_ROUTER, FOUR, PANE, SEARCH, base, conductor, plan, spawnTool, step, submit, task } from '../support/engine'
 +import type { Json } from '../support/engine'
 +
 +const LOG = '/tmp/fc-rearrange-d2-089.jsonl'
@@ -2307,8 +2585,8 @@ index 0000000..c3a1b8b
 +    await submit($, 'điều chỉnh: thôi không đổi tên')
 +    expect(lastOf(lines(), 'rearrange')?.['dropped']).toEqual([2])
 +    expect(taskIndexes(lastOf(lines(), 'route'))).toEqual([1, 3, 4])
-+    const text = await status($)
-+    expect(text).not.toContain('Đổi tên userId')
++    // Khối việc giao subagent của status không còn việc 2 (từ D3, status có thêm mục việc đã gỡ nêu việc 2 kèm lý do).
++    expect(await status($)).not.toContain('2. Đổi tên userId thành accountId trong 12 file controller.: chờ giao')
 +    expect(await stopBlock($)).not.toContain('Việc 2')
 +  })
 +
@@ -2378,16 +2656,16 @@ index 0000000..c3a1b8b
 +    expect(lastOf(lines(), 'rearrange')?.['dropped']).toEqual([1, 2])
 +    const text = await status($)
 +    expect(text).not.toContain('lỗi, chưa giao lại')
-+    expect(text).not.toContain('Đổi tên userId')
++    expect(text).not.toContain('2. Đổi tên userId thành accountId trong 12 file controller.: chờ giao')
 +  })
 +})
 +
 +describe('0.8.9 D2: ba tin chen ngang liên tiếp khi luồng chính đang chạy', () => {
-+  test('mục tiêu 12 việc; thêm 2, bỏ 3, gộp 2, đảo thứ tự: sau mỗi tin, việc còn mở, thứ tự và việc đã gỡ đúng', OPTS, async ($, on) => {
++  test('mục tiêu 12 việc; thêm 2, bỏ 3, gộp 2, đảo thứ tự: sau mỗi tin, việc còn mở, thứ tự, việc đã gỡ, tiêu đề mục tiến độ và context đúng', OPTS, async ($, on) => {
 +    const lines = logOf(on)
-+    const twelve = plan({ goal: 'Nâng cấp mười hai phần', depth: 'hard', volume: 'large', kind: 'edit', tasks: Array.from({ length: 12 }, (_, i) => task(`Phần ${i + 1}`, 'main', 'sonnet', 'medium')) })
++    const twelve = plan({ goal: 'Nâng cấp mười hai phần', depth: 'hard', volume: 'large', kind: 'edit', tasks: Array.from({ length: 12 }, (_, i) => task(`Phần ${i + 1}`, 'agent', 'sonnet', 'medium')) })
 +    const replies: Record<string, Json> = {
-+      'chen một': refine({ order: [], drop: [{ task: 3, why: 'bỏ' }, { task: 7, why: 'bỏ' }, { task: 11, why: 'bỏ' }], merge: [] }, { tasks: [task('Phần thêm A', 'main', 'sonnet', 'medium'), task('Phần thêm B', 'main', 'sonnet', 'medium')] }),
++      'chen một': refine({ order: [], drop: [{ task: 3, why: 'bỏ' }, { task: 7, why: 'bỏ' }, { task: 11, why: 'bỏ' }], merge: [] }, { tasks: [task('Phần thêm A', 'agent', 'sonnet', 'medium'), task('Phần thêm B', 'agent', 'sonnet', 'medium')] }),
 +      'chen hai': refine({ order: [], drop: [], merge: [{ tasks: [5, 6], into: 13 }] }),
 +      'chen ba': refine({ order: [14, 12], drop: [], merge: [] }),
 +    }
@@ -2396,15 +2674,214 @@ index 0000000..c3a1b8b
 +    await submit($, 'Nâng cấp mười hai phần')
 +    await $.turn.start({ text: 'làm', turnId: 't1' })
 +    await step($, seen, { turnId: 't1' })
++    // Checklist hai bước không khớp việc nào: các việc nằm ở mục tiến độ từng việc (như phiên thật).
++    await $.tool.call({ tool: 'mcp__focus-conductor__plan', action: 'set', steps: [{ title: 'Chuẩn bị môi trường' }, { title: 'Tổng kết kết quả' }] } as never)
 +    const interject = (text: string) => $.prompt.submit({ text, wait: false, origin: { kind: 'composer' } as never, turnId: 't1' })
++    // Phần do D3 thêm (quyết định của chủ mod khi duyệt): tiêu đề mục tiến độ của pane và context của tin có kế hoạch sau điều chỉnh.
++    const header = async () => {
++      const pane = await $.ui.mount(PANE)
++      const texts = (await pane.findAll({ type: 'Text' })).map(e => e.text).filter((t): t is string => typeof t === 'string')
++      await pane.unmount()
++      return texts.find(t => /xong · \d+ đang chạy/.test(t)) ?? ''
++    }
++    const planned = () => (seen.contexts.at(-1) ?? []).join('\n').includes('Kế hoạch sau điều chỉnh, theo thứ tự làm:')
 +    await interject('chen một: thêm hai phần, bỏ phần 3, 7, 11')
 +    expect(taskIndexes(lastOf(lines(), 'route'))).toEqual([1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14])
 +    expect(lastOf(lines(), 'rearrange')?.['dropped']).toEqual([3, 7, 11])
++    expect(await header()).toContain('0/11 xong')
++    expect(await header()).toContain('· đã bỏ 3')
++    expect(planned()).toBe(true)
 +    await interject('chen hai: gộp phần 5 và 6 vào phần thêm A')
 +    expect(taskIndexes(lastOf(lines(), 'route'))).toEqual([1, 2, 4, 8, 9, 10, 12, 13, 14])
 +    expect(lastOf(lines(), 'rearrange')?.['merged']).toEqual([{ tasks: [5, 6], into: 13 }])
++    expect(await header()).toContain('0/9 xong')
++    expect(await header()).toContain('· đã bỏ 5')
++    expect(planned()).toBe(true)
 +    await interject('chen ba: làm phần thêm B trước, rồi phần 12')
 +    expect(lastOf(lines(), 'rearrange')?.['order']).toEqual([14, 12, 1, 2, 4, 8, 9, 10, 13])
++    expect(await header()).toContain('0/9 xong')
++    expect(planned()).toBe(true)
++    expect((seen.contexts.at(-1) ?? []).join('\n')).toContain('Việc 14, 12, 1, 2, 4, 8, 9, 10, 13')
++  })
++})
+diff --git a/claude-mods/focus-conductor/tests/integration/rearrange-ui-d3-089.test.ts b/claude-mods/focus-conductor/tests/integration/rearrange-ui-d3-089.test.ts
+new file mode 100644
+index 0000000..71c2f2d
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/integration/rearrange-ui-d3-089.test.ts
+@@ -0,0 +1,174 @@
++// 0.8.9 D3 (tích hợp): luồng chính và pane thấy kế hoạch sau điều chỉnh. Prompt tiếp nối và tin chen ngang có điều phối lại thì context nêu
++// bốn phần (thứ tự làm, việc đã bỏ, việc đã gộp, câu dặn cập nhật checklist); không có arrange thì context trùng 7682ef7. Mục tiến độ từng
++// việc của pane xếp ba nhóm (đang chạy và lỗi; chưa làm theo thứ tự làm; đã xong, gộp một dòng khi nhiều hơn 5 việc) với tiêu đề tổng kết;
++// /conductor status nêu các việc đã gỡ.
++
++import { describe, expect, test } from 'claude-code/testing'
++import type { On, TurnCompleteInput } from 'claude-code'
++import type { Engine } from 'claude-code/testing'
++import { PANE_ROWS } from '../../hooks/lib/pane'
++import { FOLLOW_UP_7682, INTERJECT_7682 } from '../fixtures/rearrange-d3-089'
++import { DEFAULT_ROUTER, PANE, base, conductor, plan, spawnTool, step, submit, task } from '../support/engine'
++import type { Json } from '../support/engine'
++import { drawn, longGoal, rowOf, stepRow } from '../support/pane-long'
++import { followUpContextOf, interjectContextOf } from '../support/rearrange-ui'
++
++const OPTS = { options: { planApproval: 'off' } }
++// Pane đo với neon off: tiêu đề mục là một Text, không bị tách theo ô màu.
++const PANE_OPTS = { options: { planApproval: 'off', neon: 'off' } }
++const ORDER_LEAD = 'Kế hoạch sau điều chỉnh, theo thứ tự làm:'
++const ASK_LEAD = 'Cập nhật checklist bằng tool plan cho khớp'
++const refine = (arrange: Json, over: Json = {}) => plan({ relation: 'refine', intent: 'amend', goal: '', arrange, ...over })
++const mains = (n: number) => Array.from({ length: n }, (_, i) => task(`Phần ${i + 1}`, 'main', 'sonnet', 'medium'))
++const agents = (n: number) => Array.from({ length: n }, (_, i) => task(`Việc giao ${i + 1}`, 'agent', 'sonnet', 'medium'))
++const range = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => from + i)
++/** Checklist hai bước không khớp việc nào, như phiên thật: các việc nằm ở mục tiến độ từng việc, không đi cùng bước. */
++const unrelatedChecklist = ($: Engine) => $.tool.call({ tool: 'mcp__focus-conductor__plan', action: 'set', steps: [{ title: 'Chuẩn bị môi trường' }, { title: 'Tổng kết kết quả' }] } as never)
++
++/** Phần context nêu kế hoạch sau điều chỉnh: từ dòng thứ tự làm tới hết câu dặn. */
++function arrangedBlock(context: string): string {
++  const from = context.indexOf(ORDER_LEAD)
++  const ask = context.indexOf(ASK_LEAD)
++  if (from < 0 || ask < 0) return ''
++  const end = context.indexOf('\n', ask)
++  return context.slice(from, end < 0 ? undefined : end)
++}
++
++/** Mục tiêu 88 việc ở luồng chính; prompt điều chỉnh bỏ 12 việc, 8 mục gộp hai việc, sắp lại 60 việc còn mở. */
++function bigAdjust(): Json {
++  const drop = range(1, 12).map(n => ({ task: n, why: `phần ${n} không còn cần sau khi đổi phạm vi xuất báo cáo` }))
++  const merge = range(0, 7).map(k => ({ tasks: [13 + 2 * k, 14 + 2 * k], into: 29 + k }))
++  return refine({ order: range(29, 88).reverse(), drop, merge })
++}
++
++describe('0.8.9 D3: context sau điều chỉnh', () => {
++  test('prompt tiếp nối có điều phối lại: bốn phần đúng thứ tự; tổng phần thêm không quá 900 ký tự với 60 việc mở, 12 việc bỏ, 8 mục gộp', OPTS, async ($, on) => {
++    const seen = base(on, { router: request => (request.includes('điều chỉnh') ? bigAdjust() : plan({ goal: 'Nâng cấp tám mươi tám phần', depth: 'hard', volume: 'large', kind: 'edit', tasks: mains(88) })) })
++    await submit($, 'Nâng cấp tám mươi tám phần')
++    await submit($, 'điều chỉnh: đổi phạm vi xuất báo cáo')
++    const context = (seen.contexts.at(-1) ?? []).join('\n')
++    const block = arrangedBlock(context)
++    expect(block.length).toBeGreaterThan(0)
++    expect(block.length).toBeLessThanOrEqual(900)
++    const at = (lead: string) => block.indexOf(lead)
++    expect(at(ORDER_LEAD)).toBe(0)
++    expect(at('Đã bỏ:')).toBeGreaterThan(at(ORDER_LEAD))
++    expect(at('Đã gộp:')).toBeGreaterThan(at('Đã bỏ:'))
++    expect(at(ASK_LEAD)).toBeGreaterThan(at('Đã gộp:'))
++    expect(block).toContain('Việc 88, 87, 86')
++    expect(block).toMatch(/\(và \d+ việc khác\)/)
++  })
++
++  test('prompt tiếp nối không có arrange: context trùng 7682ef7 từng ký tự', OPTS, async ($, on) => {
++    expect(await followUpContextOf($, on)).toBe(FOLLOW_UP_7682)
++  })
++
++  test('tin chen ngang có điều phối lại: bốn phần có trong context, tổng vẫn không quá 1.500 ký tự với 60 việc mở', OPTS, async ($, on) => {
++    const seen = base(on, { router: request => (request.includes('điều chỉnh') ? bigAdjust() : plan({ goal: 'Nâng cấp tám mươi tám phần', depth: 'hard', volume: 'large', kind: 'edit', tasks: mains(88) })) })
++    on('turn.complete', () => ({ text: '' }))
++    await submit($, 'Nâng cấp tám mươi tám phần')
++    await $.turn.start({ text: 'làm', turnId: 't1' })
++    await step($, seen, { turnId: 't1' })
++    await $.prompt.submit({ text: 'điều chỉnh: đổi phạm vi xuất báo cáo', wait: false, origin: { kind: 'composer' } as never, turnId: 't1' })
++    const context = (seen.contexts.at(-1) ?? []).find(part => part.includes('Yêu cầu chen ngang')) ?? ''
++    expect(context.length).toBeLessThanOrEqual(1500)
++    const block = arrangedBlock(context)
++    expect(block.length).toBeGreaterThan(0)
++    expect(block.length).toBeLessThanOrEqual(700)
++    for (const lead of ['Đã bỏ:', 'Đã gộp:', ASK_LEAD]) expect(block, lead).toContain(lead)
++  })
++
++  test('tin chen ngang không có arrange: context trùng 7682ef7 từng ký tự', OPTS, async ($, on) => {
++    expect(await interjectContextOf($, on)).toBe(INTERJECT_7682)
++  })
++})
++
++function agentHooks(on: On) {
++  on('agent.spawn', (_$, e) => ({ model: 'claude-sonnet-5-5', agentId: `a-${e.tool_use_id}` }))
++  on('turn.complete', () => ({ text: '' }))
++  on('tool.call', { tool: 'Agent' }, () => ({ result: 'đã giao' }))
++  on('classic.Stop', () => ({}))
++}
++const ended = (agentId: string, reason: 'answer' | 'error'): TurnCompleteInput => ({ turnId: `t-${agentId}`, agentId, answer: '', durationMs: 1, isAborted: false, reason }) as TurnCompleteInput
++
++async function paneTexts($: Engine, columns: number, lang: 'vi' | 'en' = 'vi'): Promise<string[]> {
++  const pane = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: columns } })
++  const texts = (await pane.findAll({ type: 'Text' })).map(e => e.text).filter((t): t is string => typeof t === 'string')
++  await pane.unmount()
++  void lang
++  return texts
++}
++
++/** Mục tiêu 42 việc giao subagent: 12 xong, 3 đang chạy (13 tới 15), 1 lỗi (16), 26 chưa bắt đầu; prompt điều chỉnh sắp lại 26 việc đó. */
++async function fortyTwo($: Engine, on: On, adjust: Json = refine({ order: range(17, 42).reverse(), drop: [], merge: [] })) {
++  base(on, { router: request => (request.includes('điều chỉnh') ? adjust : request.includes('Bốn mươi hai') ? plan({ goal: 'Bốn mươi hai việc', depth: 'hard', volume: 'large', kind: 'edit', tasks: agents(42) }) : DEFAULT_ROUTER(request)) })
++  agentHooks(on)
++  await submit($, 'Bốn mươi hai việc')
++  await unrelatedChecklist($)
++  for (const n of range(1, 16)) await spawnTool($, `u${n}`, `Việc ${n}: Việc giao ${n}`, `Làm việc giao ${n}`)
++  for (const n of range(1, 12)) await $.turn.complete(ended(`a-u${n}`, 'answer'))
++  await $.turn.complete(ended('a-u16', 'error'))
++  await submit($, 'điều chỉnh: làm các việc cuối trước')
++}
++
++/** Các dòng của mục tiến độ từng việc: từ tiêu đề mục tới trước tiêu đề mục kế. */
++function taskSection(texts: string[]): string[] {
++  const start = texts.findIndex(t => /^(Tiến độ từng việc|Progress by task)/.test(t.trimStart()))
++  if (start < 0) return []
++  const end = texts.findIndex((t, i) => i > start + 1 && /^(Đang chạy|Running|Nhật ký|Log|Ràng buộc|Constraints)\b/.test(t.trimStart()))
++  return texts.slice(start, end < 0 ? undefined : end)
++}
++
++describe('0.8.9 D3: mục tiến độ từng việc của pane', () => {
++  for (const columns of [120, 80, 44]) {
++    test(`42 việc, ${columns} cột: nhóm đang chạy và lỗi đứng đầu, việc chưa làm theo thứ tự làm, một dòng gộp việc đã xong, tiêu đề tổng kết`, PANE_OPTS, async ($, on) => {
++      await fortyTwo($, on)
++      const texts = await paneTexts($, columns)
++      const section = taskSection(texts)
++      const header = columns < 48 ? '12/42' : '12/42 xong · 3 đang chạy · 26 chưa làm · 1 lỗi'
++      expect(section.some(t => t.includes(header)), header).toBe(true)
++      if (columns < 48) expect(section.some(t => t.includes('đang chạy ·'))).toBe(false)
++      const firstOf = (n: number) => section.findIndex(t => t === `Việc ${n}: Việc giao ${n}` || t.startsWith(`Việc ${n}: Việc giao ${n}`) || t === `${n}. Việc giao ${n}` || t.startsWith(`${n}. Việc giao ${n}`))
++      for (const n of [13, 14, 15, 16]) expect(firstOf(n), String(n)).toBeGreaterThanOrEqual(0)
++      expect(Math.max(...[13, 14, 15, 16].map(firstOf))).toBeLessThan(firstOf(42))
++      expect(firstOf(42)).toBeLessThan(firstOf(41))
++      expect(firstOf(18)).toBeLessThan(firstOf(17))
++      expect(section.filter(t => /^12 việc đã xong: 1, 2, 3/.test(t)).length).toBe(1)
++      for (const n of range(1, 12)) expect(firstOf(n), String(n)).toBe(-1)
++    })
++  }
++
++  test('mục tiêu 4 việc, 2 xong: việc đã xong vẫn mỗi việc một dòng', PANE_OPTS, async ($, on) => {
++    base(on, { router: request => (request.includes('bốn việc') ? plan({ goal: 'Bốn việc', depth: 'hard', volume: 'medium', kind: 'edit', tasks: agents(4) }) : DEFAULT_ROUTER(request)) })
++    agentHooks(on)
++    await submit($, 'Làm bốn việc')
++    await unrelatedChecklist($)
++    for (const n of [1, 2]) {
++      await spawnTool($, `u${n}`, `Việc ${n}: Việc giao ${n}`, `Làm việc giao ${n}`)
++      await $.turn.complete(ended(`a-u${n}`, 'answer'))
++    }
++    const section = taskSection(await paneTexts($, 80))
++    expect(section.some(t => t.includes('2/4 xong · 0 đang chạy · 2 chưa làm'))).toBe(true)
++    expect(section.some(t => /việc đã xong:/.test(t))).toBe(false)
++    for (const n of [1, 2]) expect(section.some(t => t.endsWith(`Việc giao ${n}`)), String(n)).toBe(true)
++  })
++
++  test('sau khi bỏ 5 việc: tiêu đề có "· đã bỏ 5"; /conductor status liệt kê đủ 5 việc kèm lý do', PANE_OPTS, async ($, on) => {
++    const drop = range(38, 42).map(n => ({ task: n, why: `không cần việc ${n} nữa` }))
++    await fortyTwo($, on, refine({ order: [], drop, merge: [] }))
++    const section = taskSection(await paneTexts($, 120))
++    expect(section.some(t => t.includes('12/37 xong · 3 đang chạy · 21 chưa làm · 1 lỗi · đã bỏ 5'))).toBe(true)
++    const status = String((await conductor($, 'status')).text)
++    for (const n of range(38, 42)) expect(status, String(n)).toContain(`${n}. Việc giao ${n}: không cần việc ${n} nữa`)
++  })
++
++  test('pane tự mở 16 dòng, checklist 11 bước, với mục tiến độ mới: bước đang làm và mục Cần chú ý vẫn nằm trong 16 dòng đầu', OPTS, async ($, on) => {
++    await longGoal($, on, 8)
++    const { tree } = await drawn($)
++    const row = stepRow(tree, 8)
++    expect(row).toBeGreaterThanOrEqual(0)
++    expect(row).toBeLessThan(PANE_ROWS)
++    const attention = rowOf(tree, /^Cần chú ý/)
++    if (attention >= 0) expect(attention).toBeLessThan(PANE_ROWS)
 +  })
 +})
 diff --git a/claude-mods/focus-conductor/tests/integration/router-reason-u3-089.test.ts b/claude-mods/focus-conductor/tests/integration/router-reason-u3-089.test.ts
@@ -2625,6 +3102,26 @@ index 0000000..9627325
 +    expect(lines.some(line => line['kind'] === 'router-fail')).toBe(false)
 +  })
 +})
+diff --git a/claude-mods/focus-conductor/tests/integration/taskrows-perf-087.test.ts b/claude-mods/focus-conductor/tests/integration/taskrows-perf-087.test.ts
+index 06eaa3d..62694bd 100644
+--- a/claude-mods/focus-conductor/tests/integration/taskrows-perf-087.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/taskrows-perf-087.test.ts
+@@ -32,11 +32,13 @@ const sha = async (text: string) => hex(await crypto.subtle.digest('SHA-256', ne
+  * sha256 của chữ band và pane. 0.8.7: đo trên 45b5161 (f10de6b9...). 0.8.8 đổi bố cục band (N2, ba ô) và pane (N4, tiêu đề tô đặc, dải bước,
+  * thanh hạn mức và chi phí; N6 đổi cấu trúc gốc của band và chữ trên nền ô) nên đo lại trên mã sau N6g, cùng kịch bản, neon off; ca này từ nay
+  * ghim kết quả của bố cục 0.8.8 (tên ca đổi ở N6g cho đúng nội dung).
++ * 0.8.9 D3: tiêu đề mục tiến độ từng việc ghi tổng kết ("2/12 xong · 1 đang chạy · 9 chưa làm") thay cho số dòng; ngoài ba dòng tiêu đề đó,
++ * chữ trùng bố cục 0.8.8 (đối chiếu từng dòng với 7682ef7). Băm của 0.8.8 là 1cda50c8….
+  */
+-const BASE_SHA = '1cda50c815b4dbf80bcc1ae7db085c165a17cc27467eee705b15c487a3b94eab'
++const BASE_SHA = 'ee58f1d9add210a410aa3d505557d312f778fde1dd1ec306e4a63d1fae9533dc'
+ 
+ describe('0.8.7: taskRows tính một lần cho mọi việc', () => {
+-  test('mục tiêu 12 việc, checklist có bước "Việc N", bước doing và bước đã xong: chữ band và pane trùng bản ghi của bố cục 0.8.8', { options: { planApproval: 'off', neon: 'off' } }, async ($, on) => {
++  test('mục tiêu 12 việc, checklist có bước "Việc N", bước doing và bước đã xong: chữ band và pane trùng bản ghi của bố cục 0.8.8, trừ tiêu đề mục tiến độ (0.8.9 D3)', { options: { planApproval: 'off', neon: 'off' } }, async ($, on) => {
+     const seen = base(on, { router: () => plan({ goal: GOAL, depth: 'substantial', volume: 'large', kind: 'edit', tasks: TASKS }) })
+     await submit($, GOAL)
+     await $.tool.call({ tool: PLAN, action: 'set', steps: STEPS.map(title => ({ title })) } as never)
 diff --git a/claude-mods/focus-conductor/tests/limits-l2-087.test.ts b/claude-mods/focus-conductor/tests/limits-l2-087.test.ts
 index ad62e47..e9958ea 100644
 --- a/claude-mods/focus-conductor/tests/limits-l2-087.test.ts
@@ -3465,6 +3962,40 @@ index 0157119..90b4390 100644
      seen.routerCalls.push({ kind, model: e.model, ...(e.effort !== undefined ? { effort: String(e.effort) } : {}), ...(e.timeoutMs !== undefined ? { timeoutMs: e.timeoutMs } : {}) })
      if ((e.system ?? '').includes('still working toward')) {
        seen.drift.push(e.prompt)
+diff --git a/claude-mods/focus-conductor/tests/support/rearrange-ui.ts b/claude-mods/focus-conductor/tests/support/rearrange-ui.ts
+new file mode 100644
+index 0000000..5f25c6c
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/support/rearrange-ui.ts
+@@ -0,0 +1,28 @@
++// 0.8.9 D3: kịch bản dùng chung cho test context và pane sau điều phối lại. Hai kịch bản không có arrange (prompt tiếp nối, tin chen
++// ngang) dùng được cả trên bản trước D3, để ghi kỳ vọng "context trùng 7682ef7".
++
++import type { On } from 'claude-code'
++import type { Engine } from 'claude-code/testing'
++import { DEFAULT_ROUTER, FOUR, base, plan, step, submit, task } from './engine'
++import type { Json } from './engine'
++
++const ADD = plan({ relation: 'refine', intent: 'amend', goal: '', constraints: ['Giữ API cũ'], tasks: [task('Thêm phần kiểm thử hồi quy', 'main', 'sonnet', 'medium')] })
++
++/** Context của prompt tiếp nối không có arrange: mục tiêu FOUR rồi một prompt thêm việc. */
++export async function followUpContextOf($: Engine, on: On, reply: Json = ADD): Promise<string> {
++  const seen = base(on, { router: request => (request.includes('thêm phần kiểm') ? reply : DEFAULT_ROUTER(request)) })
++  await submit($, FOUR)
++  await submit($, 'thêm phần kiểm thử hồi quy')
++  return (seen.contexts.at(-1) ?? []).join('\n')
++}
++
++/** Context của tin chen ngang không có arrange: mục tiêu FOUR, turn t1 đang chạy, tin chen ngang thêm việc. */
++export async function interjectContextOf($: Engine, on: On, reply: Json = ADD): Promise<string> {
++  const seen = base(on, { router: request => (request.includes('thêm phần kiểm') ? reply : DEFAULT_ROUTER(request)) })
++  on('turn.complete', () => ({ text: '' }))
++  await submit($, FOUR)
++  await $.turn.start({ text: 'làm', turnId: 't1' })
++  await step($, seen, { turnId: 't1' })
++  await $.prompt.submit({ text: 'thêm phần kiểm thử hồi quy', wait: false, origin: { kind: 'composer' } as never, turnId: 't1' })
++  return (seen.contexts.at(-1) ?? []).join('\n')
++}
 diff --git a/claude-mods/focus-conductor/types/index.d.ts b/claude-mods/focus-conductor/types/index.d.ts
 index c8d2510..d33b4b6 100644
 --- a/claude-mods/focus-conductor/types/index.d.ts
