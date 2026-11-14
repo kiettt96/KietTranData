@@ -135,6 +135,9 @@ Cấu hình qua `/config` (hoặc `pluginConfigs.focus-conductor.options` trong 
 | `agentTypes` | trống | Loại agent thêm cho router, phân tách bằng dấu phẩy |
 | `prices` | trống | Ghi đè bảng giá, dạng `sonnet=2/10` hoặc `opus=4/20/0.2` (vào/ra/đọc cache, USD mỗi 1M token). Thiếu giá trị thứ ba thì đọc cache theo tỷ lệ của đúng họ đó trong bảng kèm mod (Sonnet và Opus 5%, Fable 2,5%, Haiku 10% giá vào). Catalog giá mà router thấy khi chọn model dựng từ bảng này |
 | `uiLanguage` | `vi` | `vi` hoặc `en` cho nhãn của band và pane |
+| `neon` | `cyber` | Từ 0.8.8: bảng màu của band và pane khi đang chạy bình thường, `cyber`, `aurora` hay `plasma`; giai đoạn mới bắt đầu, sắp xong, hoàn thành, vi phạm và tạm dừng có dải riêng. `off` thì mọi màu theo theme của người dùng như 0.8.7, bố cục vẫn là ba ô. Giá trị khác coi là `cyber` |
+| `neonMotion` | `on` | Từ 0.8.8: `on` thì khi có turn đang chạy, dải màu dịch một ô mỗi giây và band, pane vẽ lại mỗi giây (chỉ xin vẽ lại, không ghi trạng thái, không chèn gì vào context). `off` thì dải màu đứng yên, nhịp vẽ lại 60 giây như 0.8.7 |
+| `neonTheme` | `auto` | Từ 0.8.8: `auto`, `dark` hay `light`. Engine không báo cho mod biết nền sáng hay tối, nên `auto` dùng bảng nền tối; dùng terminal nền sáng thì đặt `light` |
 | `quotaGuard` | `true` | Bảo vệ hạn mức (xem mục dưới). Tắt thì mod chạy như 0.5.6 |
 | `pauseSessionRemainingPct` | `5` | Dừng khi hạn mức phiên (cửa sổ 5 giờ) còn không quá giá trị này, tính bằng phần trăm còn lại. Kẹp trong 0,5 đến 99 |
 | `pauseWeekRemainingPct` | `2` | Dừng khi hạn mức tuần còn không quá giá trị này, tính bằng phần trăm còn lại. Kẹp trong 0,5 đến 99 |

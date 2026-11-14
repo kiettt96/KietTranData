@@ -166,4 +166,12 @@ describe('0.8.8 N1: neon off', () => {
     await setup($, on)
     expect(paints(await drawBand($)).some(color => HEX.test(color))).toBe(true)
   })
+
+  test('neonTheme light: mã màu của band thuộc bảng nền sáng, không thuộc bảng nền tối', { options: { planApproval: 'off', neonTheme: 'light' } }, async ($, on) => {
+    await setup($, on)
+    const hex = paints(await drawBand($)).filter(color => HEX.test(color))
+    expect(hex.length).toBeGreaterThan(0)
+    const dark = new Set([...Object.values(DARK_GRADIENTS).flat(), ...Object.values(DARK_SOLIDS)])
+    for (const color of hex) expect(dark.has(color), color).toBe(false)
+  })
 })

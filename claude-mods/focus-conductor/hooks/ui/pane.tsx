@@ -15,6 +15,7 @@ import type { BandQuota, QuotaPaneText } from '../lib/text'
 import { attentionItems } from './attention'
 import { conductorLine, labels, shownEntry, stepTaskMeta, taskLabel } from './labels'
 import type { Run } from './style'
+import { DEFAULT_NEON, paintOf } from './neon'
 import {
   FAMILY_HUE,
   SPINE,
@@ -80,6 +81,8 @@ export type PaneProps = {
    * việc ra ngoài số dòng này. Vắng thì coi như pane tự mở 16 dòng (PANE_ROWS).
    */
   rows?: number
+  /** Nhịp của dải màu (0.8.8 N5): số giây của đồng hồ lúc vẽ. Vắng thì 0. */
+  frame?: number
 }
 
 export function renderPane(
@@ -100,6 +103,8 @@ export function renderPane(
   // Dòng chữ dài hơn ~100 ô khó đọc: pane inline rộng vẫn giữ nội dung trong 100 ô.
   const width = Math.max(36, Math.min(columnsOf(props.columns, 56), 100))
   const isNarrow = width < 48
+  // Bộ màu (0.8.8 N1): dải màu neon theo option, hay theme key khi neon off.
+  const paint = paintOf(view.neon ?? DEFAULT_NEON, props.frame ?? 0)
 
   const heading = (title: string, extra?: string) => {
     const lead = cellsOf(title) + (extra ? 1 + cellsOf(extra) : 0) + 1
@@ -230,10 +235,10 @@ export function renderPane(
   const phase = phaseOf(plan)
   const phaseWord = l.phase[phase]
   // Dòng tiến độ: thanh, số bước đã đóng, tên giai đoạn. Thanh lấy phần chiều rộng còn lại, từ 8 đến 24 ô.
-  const bar = barRuns(plan, Math.max(8, Math.min(24, width - 2 - 5 - 2 - cellsOf(phaseWord))))
+  const bar = barRuns(plan, Math.max(8, Math.min(24, width - 2 - 5 - 2 - cellsOf(phaseWord))), false, paint)
   const beads = plannedRuns(planned, Math.min(24, width - 12))
   const tint = (r: Run) => (
-    <Text color={r.color} dimColor={r.dim} bold={r.bold}>
+    <Text color={r.color} backgroundColor={r.bg} dimColor={r.dim} bold={r.bold}>
       {r.text}
     </Text>
   )
@@ -540,7 +545,7 @@ export function renderPane(
   // Chỉ việc không đi cùng bước nào (U1): việc Claude tự giao và việc không khớp bước; việc chính chính là danh sách bước ở trên.
   const taskNodes = allTaskRows.filter(row => row.kind !== 'main' && !matched.has(row.key)).map(row => {
     const label = taskLabel(l, row)
-    const runs = taskBarRuns(row.bar, taskCells)
+    const runs = taskBarRuns(row.bar, taskCells, paint)
     const detail = rowDetail(row, false)
     // Chữ trạng thái: thanh không có bước thì luôn ghi; thanh theo bước của agent chỉ ghi khi agent đã kết thúc.
     const word = row.noStep === true

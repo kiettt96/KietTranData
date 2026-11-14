@@ -19,6 +19,7 @@ import { attentionItems, failedBatches } from './attention'
 import { formatCost } from '../lib/ledger'
 import { labels, taskLabel } from './labels'
 import type { Run } from './style'
+import { DEFAULT_NEON, paintOf } from './neon'
 import { FAMILY_HUE, SPINE, barRuns, cellsOf, columnsOf, currentStep, goalUsd, pendingUsd, plannedRuns, severityGlyph } from './style'
 
 /** Lượt của luồng chính chạy đúng họ đang điều phối (0.8.4 C8; 0.8.7 F1: kể cả họ dự phòng): band thêm nhãn vai trên chip model. */
@@ -52,6 +53,8 @@ export type BandProps = {
   isWorking: boolean
   /** Thời điểm vẽ (ms), cho thời gian đã chạy của mục tiêu và của subagent. Vắng thì 0. */
   now?: number
+  /** Nhịp của dải màu (0.8.8 N5): số giây của đồng hồ lúc vẽ. Vắng thì 0. */
+  frame?: number
 }
 
 /** Trả cây để vẽ, hoặc null khi band nên nhường chỗ cho engine. */
@@ -77,6 +80,8 @@ export function renderBand(
   const hasRoom = columns >= 72
   const now = props.now ?? 0
   const hasSecondRow = props.maxRows >= 2
+  // Bộ màu (0.8.8 N1): dải màu neon theo option, hay theme key khi neon off.
+  const paint = paintOf(view.neon ?? DEFAULT_NEON, props.frame ?? 0)
 
   // Dòng cần chú ý (U2): mục quan trọng nhất theo mức độ; "+N" đếm phần còn lại.
   const isPaused = pause?.paused === true
@@ -93,11 +98,11 @@ export function renderBand(
   const runningSteps = runningTitles(view.core, rows, plan.length > 0 ? plan.map(step => step.title) : brief.steps)
   const runningBeads = new Set(brief.steps.flatMap((step, i) => (runningSteps.has(step) ? [i] : [])))
   // Thanh dài theo chiều rộng, tối thiểu 6 ô để còn thấy phần đã đóng.
-  const bar = barRuns(plan, Math.max(6, Math.min(20, Math.floor(columns * 0.16))), current !== undefined && runningSteps.has(current.title))
+  const bar = barRuns(plan, Math.max(6, Math.min(20, Math.floor(columns * 0.16))), current !== undefined && runningSteps.has(current.title), paint)
   const beads = plannedRuns(planned, Math.max(8, Math.min(24, Math.floor(columns * 0.22))), runningBeads)
 
   const tint = (r: Run) => (
-    <Text color={r.color} dimColor={r.dim} bold={r.bold}>
+    <Text color={r.color} backgroundColor={r.bg} dimColor={r.dim} bold={r.bold}>
       {r.text}
     </Text>
   )

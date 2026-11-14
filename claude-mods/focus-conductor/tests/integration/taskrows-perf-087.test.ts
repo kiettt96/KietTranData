@@ -32,7 +32,7 @@ const sha = async (text: string) => hex(await crypto.subtle.digest('SHA-256', ne
 const BASE_SHA = 'f10de6b917dd73cbef9f2ca6cd6efb62e90ca0b4fe2b19572ec363245504511b'
 
 describe('0.8.7: taskRows tính một lần cho mọi việc', () => {
-  test('mục tiêu 12 việc, checklist có bước "Việc N", bước doing và bước đã xong: chữ band và pane trùng 0.8.6', { options: { planApproval: 'off' } }, async ($, on) => {
+  test('mục tiêu 12 việc, checklist có bước "Việc N", bước doing và bước đã xong: chữ band và pane trùng 0.8.6', { options: { planApproval: 'off', neon: 'off' } }, async ($, on) => {
     const seen = base(on, { router: () => plan({ goal: GOAL, depth: 'substantial', volume: 'large', kind: 'edit', tasks: TASKS }) })
     await submit($, GOAL)
     await $.tool.call({ tool: PLAN, action: 'set', steps: STEPS.map(title => ({ title })) } as never)

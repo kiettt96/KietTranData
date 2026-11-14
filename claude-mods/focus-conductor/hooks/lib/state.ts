@@ -18,6 +18,7 @@ import { shownPlan } from './mirror'
 import { evaluateQuota, isPauseActive, overrideOf, quotaBadge, softNotices } from './quota'
 import type { QuotaSettings } from './quota'
 import type { Lang } from '../ui/labels'
+import type { NeonStyle } from '../ui/neon'
 import { labels } from '../ui/labels'
 
 export const EMPTY_LIFT: Lift = { depth: 0, effort: 0 }
@@ -74,7 +75,8 @@ const LIFT_LIMIT = 2
 
 /** Ảnh chụp mọi thứ band, pane và status line cần, đọc một lần. */
 /** `conductor` (0.8.4 C8): chỉ có khi option conductor là fable; `fallback` là model router dùng khi Fable tạm ngừng. */
-export type View = { core: Core; mode: Mode; isBandHidden: boolean; lang: Lang; conductor?: { fallback: string; family: ModelFamily } }
+/** `neon` (0.8.8 N1): kiểu dải màu đọc từ ba option; vắng là mặc định (cyber, on, dark). */
+export type View = { core: Core; mode: Mode; isBandHidden: boolean; lang: Lang; conductor?: { fallback: string; family: ModelFamily }; neon?: NeonStyle }
 
 export function isMode(value: unknown): value is Mode {
   return value === 'auto' || value === 'subagents' || value === 'suggest' || value === 'off'
