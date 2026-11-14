@@ -190,6 +190,8 @@ Khi có turn đang chạy, dải màu dịch một ô mỗi giây (band và pane
 - bỏ hẳn màu neon, dùng màu theo theme của người dùng như 0.8.7 (bố cục vẫn là ba ô): `neon: off`;
 - terminal nền sáng: `neonTheme: light` (engine không báo cho mod biết nền sáng hay tối).
 
+Band hẹp bỏ dần nhãn vai điều phối, chip lô, effort, thời gian, ô model, rồi (maxRows 1 hay dưới 56 cột) nút Ẩn, phần bên phải và nhãn của ô hướng (còn ký hiệu). Band từ 16 cột trở xuống không có nút; mở pane bằng `/conductor`.
+
 ### Thanh tiến độ
 
 Từ 0.7.6 band và pane trả lời ba câu trước tiên: đang ở bước nào, tiến độ chung ra sao, có gì cần can thiệp. Từ 0.8.8 dòng 1 của band là ba ô (bước, model, hướng; mục trên), dòng 2 là một việc cần chú ý theo mức độ (tạm dừng, chờ duyệt kế hoạch, lô lỗi chưa giao lại, ghi ngoài phạm vi, báo hạn mức mềm, mục bị bỏ, bước ghi đã kiểm chứng chưa đủ bằng chứng, vượt ngân sách tool call; "+N" là số việc còn lại), không có thì thanh tiến độ kèm subagent đang chạy hay mục tiêu (mờ); bên phải dòng 2 là nhãn hạn mức, thời gian đã chạy, chi phí (từ 96 cột), chip lô, nút Chi tiết và Ẩn. Chip lô chỉ hiện khi có lô đang chạy hay lỗi ("2 đang chạy · 3 lỗi"); lô lỗi ghi kèm mã bước ("BƯỚC 4: 3 lô lỗi chưa giao lại") và bước còn todo mà có lô đang chạy hiện ◐. Band một dòng chỉ còn dòng 1 (ba ô, phần bên phải, hai nút). Xong mọi bước thì ô bước ghi "Đã xong mọi bước", dòng 2 là thanh đầy và "Hoàn thành: <mục tiêu>".

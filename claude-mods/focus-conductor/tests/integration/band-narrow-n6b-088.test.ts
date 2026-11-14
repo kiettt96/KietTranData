@@ -6,6 +6,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
 import { base, plan, step, submit } from '../support/engine'
+import { quotaMeter, session } from '../support/quota'
 
 type Node = { type?: string; props?: Record<string, unknown>; children?: unknown[] }
 const PLAN = 'mcp__focus-conductor__plan'
@@ -63,6 +64,21 @@ describe('0.8.8 N6b: band hẹp', () => {
           expect(GLYPHS.test(textOf(lines[0]))).toBe(true)
           if (columns <= 16) expect(all(tree, 'Button')).toEqual([])
         })
+
+  test('nhãn hạn mức (phần bên phải) bị bỏ ở band hẹp maxRows 1, còn ở 120 cột', { options: { planApproval: 'off', neonMotion: 'off' } }, async ($, on) => {
+    const meter = quotaMeter(on, [session(10)])
+    const seen = base(on, { router: () => plan({ goal: 'Sửa module thanh toán', depth: 'substantial', volume: 'small' }) })
+    on('tool.call', { tool: 'Bash' }, () => ({ result: 'ok' }))
+    await submit($, 'Sửa module thanh toán')
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa' }, { title: 'Kiểm' }] } as never)
+    meter.set([session(92)])
+    await seen.clock.advance(120_000)
+    await $.tool.call({ tool: 'Bash', command: 'npm test' } as never)
+    expect(textOf(linesOf(await band($, 120, 1))[0])).toMatch(/hạn mức|còn/)
+    const narrow = linesOf(await band($, 24, 1))[0] as Node
+    expect(fixedOf(narrow), textOf(narrow)).toBeLessThanOrEqual(24)
+    expect(textOf(narrow)).not.toMatch(/hạn mức/)
+  })
 
   test('mọi Text của ô bước có wrap="truncate-end"', { options: { planApproval: 'off', neonMotion: 'off' } }, async ($, on) => {
     await running($, on, false)

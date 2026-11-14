@@ -135,25 +135,37 @@ export function renderBand(
   // Nguồn phản chiếu ghi nhỏ khi còn chỗ: người dùng biết checklist này không chặn kết thúc.
   const mirrorText = source === 'mirror' && hasRoom ? l.mirrorShort : ''
 
-  // Band hẹp: bỏ lần lượt nhãn vai điều phối, chip lô, effort, thời gian đã chạy, cả ô model cho tới khi vừa. Ô hướng không bao giờ bị bỏ.
-  const fit = { role: true, agents: true, effort: true, elapsed: true, route: true }
+  // Band hẹp: bỏ lần lượt nhãn vai điều phối, chip lô, effort, thời gian đã chạy, cả ô model cho tới khi vừa. maxRows 1 hay band dưới 56 cột
+  // (0.8.8 N6b) bỏ thêm nút Ẩn, phần bên phải, rồi cắt nhãn ô hướng còn ký hiệu; từ 16 cột trở xuống bỏ cả nút Chi tiết (bước cuối; mở pane
+  // bằng /conductor). Ô hướng không bao giờ bị bỏ.
+  const fit = { role: true, agents: true, effort: true, elapsed: true, route: true, hide: true, right: true, label: true, details: true }
   const roleText = view.conductor !== undefined && columns >= ROLE_COLUMNS && isConductedRoute(route?.family, conductorShown(view.core, view.conductor?.family), view.conductor?.family) ? l.conductorRole : ''
   const modelWords = () =>
     route && fit.route
       ? [...(view.mode === 'suggest' ? [l.suggest] : []), route.family, ...(fit.effort ? [route.effort] : []), ...(fit.role && roleText && view.mode !== 'suggest' ? [roleText] : [])]
       : []
   const modelCells = () => (modelWords().length > 0 ? 2 + cellsOf(modelWords().join(' ')) : 0)
-  const directionCells = 2 + cellsOf(directionText(direction))
+  const directionCells = () => 2 + cellsOf(fit.label ? directionText(direction) : direction.glyph)
   // Tạm dừng (U3): dòng 2 là lý do và giờ làm mới bên trái, điểm dừng và lệnh chạy tiếp bên phải; cả hai co được, engine cắt khi vẽ.
-  const rightParts = () => (isPaused && pause !== null ? [] : [quotaText, fit.elapsed ? elapsedText : '', costText, fit.agents ? agentChip : '', mirrorText].filter(Boolean))
+  const rightParts = () => (!fit.right || (isPaused && pause !== null) ? [] : [quotaText, fit.elapsed ? elapsedText : '', costText, fit.agents ? agentChip : '', mirrorText].filter(Boolean))
   const rightCells = () => rightParts().reduce((sum, part) => sum + cellsOf(part) + 1, 0)
-  const buttonsCells = () => 1 + buttonCells(l.details) + (hasRoom && !isPaused ? 1 + buttonCells(l.hide) : 0)
+  const buttonsCells = () => (fit.details ? 1 + buttonCells(l.details) : 0) + (hasRoom && !isPaused && fit.hide ? 1 + buttonCells(l.hide) : 0)
   // Ô bước giữ ít nhất số bước và FOCUS_CELLS ô của tên.
   const stepFloor = 2 + (countText ? cellsOf(countText) + 1 : 0) + FOCUS_CELLS
-  const line1Cells = () => stepFloor + (modelCells() > 0 ? 1 + modelCells() : 0) + 1 + directionCells + (hasSecondRow ? 0 : rightCells() + buttonsCells())
+  const line1Cells = () => stepFloor + (modelCells() > 0 ? 1 + modelCells() : 0) + 1 + directionCells() + (hasSecondRow ? 0 : rightCells() + buttonsCells())
   const leftFloor = 6
   const line2Cells = () => (hasSecondRow ? leftFloor + 1 + rightCells() + buttonsCells() : 0)
-  for (const drop of [() => (fit.role = false), () => (fit.agents = false), () => (fit.effort = false), () => (fit.elapsed = false), () => (fit.route = false)]) {
+  const isTight = !hasSecondRow || columns < 56
+  const drops = [
+    () => (fit.role = false),
+    () => (fit.agents = false),
+    () => (fit.effort = false),
+    () => (fit.elapsed = false),
+    () => (fit.route = false),
+    ...(isTight ? [() => (fit.hide = false), () => (fit.right = false), () => (fit.label = false)] : []),
+    ...(columns <= 16 ? [() => (fit.details = false)] : []),
+  ]
+  for (const drop of drops) {
     if (line1Cells() <= columns && line2Cells() <= columns) break
     drop()
   }
@@ -184,16 +196,16 @@ export function renderBand(
           ? paint.fill(stepGradient, part.text, {}, at)
           : [{ text: part.text, color: 'inverseText', bg: 'inactive' }]
       return (
-        <Text key={k} bold={part.bold}>
+        <Text key={k} bold={part.bold} wrap="truncate-end">
           {runs.map(run => (
-            <Text color={isStepFilled || paint.isNeon ? run.color : undefined} backgroundColor={run.bg}>
+            <Text color={isStepFilled || paint.isNeon ? run.color : undefined} backgroundColor={run.bg} wrap="truncate-end">
               {run.text}
             </Text>
           ))}
         </Text>
       )
     })
-    return <Text>{nodes}</Text>
+    return <Text wrap="truncate-end">{nodes}</Text>
   })()
 
   // ---------------------------------------------------------------- ô model
@@ -215,7 +227,7 @@ export function renderBand(
     ) : null
 
   // ---------------------------------------------------------------- ô hướng
-  const directionBody = ` ${directionText(direction)} `
+  const directionBody = ` ${fit.label ? directionText(direction) : direction.glyph} `
   const directionCell =
     directionFill !== undefined ? (
       runsNode(paint.fill(directionFill, directionBody, { bold: true }))
@@ -225,8 +237,8 @@ export function renderBand(
       </Text>
     )
 
-  const detailsButton = <Button key="details" label={l.details} onPress={handlers.onDetails} />
-  const hideButton = hasRoom && !isPaused ? <Button key="hide" plain dimColor label={l.hide} onPress={handlers.onHide} /> : null
+  const detailsButton = fit.details ? <Button key="details" label={l.details} onPress={handlers.onDetails} /> : null
+  const hideButton = hasRoom && !isPaused && fit.hide ? <Button key="hide" plain dimColor label={l.hide} onPress={handlers.onHide} /> : null
   const rightNodes = rightParts().map(part => (
     <Box flexShrink={0}>
       <Text color={isPaused || part === quotaText ? paint.solid('attention') : undefined} dimColor={!isPaused && part !== quotaText} bold={quota?.paused === true && part === quotaText}>

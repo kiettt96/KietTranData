@@ -1638,7 +1638,7 @@ export const MUTANTS: Mutant[] = [
   { id: "076-B5", file: "hooks/ui/band.tsx", note: "dòng 2 không ghi subagent đang chạy", old: ": firstAgent !== undefined ? `${l.agentsRunning(runningBatches)}: ${taskLabel(l, firstAgent)}` : brief.goal", new: ": false ? `${l.agentsRunning(runningBatches)}: ${taskLabel(l, firstAgent)}` : brief.goal" },
   { id: "076-B6", file: "hooks/ui/band.tsx", note: "dòng 2 lặp mục tiêu khi dòng 1 đã ghi (chưa có checklist)", old: "    ) : (\n      <Text>{' '}</Text>\n    )", new: "    ) : (\n      <Text>{brief.goal}</Text>\n    )" },
   { id: "076-B7", file: "hooks/ui/band.tsx", note: "dòng 1 không ghi bước hiện tại", old: "  const focusText = current ? current.title :", new: "  const focusText = current ? brief.goal :" },
-  { id: "076-B8", file: "hooks/ui/band.tsx", note: "thứ tự bỏ: chip model trước effort", old: "[() => (fit.role = false), () => (fit.agents = false), () => (fit.effort = false), () => (fit.elapsed = false), () => (fit.route = false)]", new: "[() => (fit.role = false), () => (fit.agents = false), () => (fit.route = false), () => (fit.elapsed = false), () => (fit.effort = false)]" },
+  { id: "076-B8", file: "hooks/ui/band.tsx", note: "thứ tự bỏ: ô model trước effort", old: "    () => (fit.effort = false),\n    () => (fit.elapsed = false),\n    () => (fit.route = false),\n", new: "    () => (fit.route = false),\n    () => (fit.elapsed = false),\n    () => (fit.effort = false),\n" },
   { id: "076-U3a", file: "hooks/ui/band.tsx", note: "tạm dừng không chiếm dòng 1", old: "  if (isPaused && pause !== null) {", new: "  if (false) {" },
   { id: "076-U3b", file: "hooks/ui/band.tsx", note: "dòng 2 khi dừng không có lệnh chạy tiếp", old: "              {pause.resume}\n", new: "              {''}\n" },
   { id: "076-U3c", file: "hooks/lib/text.ts", note: "không nêu điểm dừng đã ghi", old: "resume: `${view.checkpoint !== null ? `${l.pauseCheckpointDone} · ` : ''}", new: "resume: `${false ? `${l.pauseCheckpointDone} · ` : ''}" },
@@ -2291,4 +2291,7 @@ export const MUTANTS: Mutant[] = [
   { id: "088-N6c", file: "hooks/ui/neon.ts", note: "màu đơn của bảng nền sáng chỉ đo với nền trắng", old: "const onLightCell = (hex: string) => lightOf(hex, [LIGHT_BACKGROUND, LIGHT_CELL])", new: "const onLightCell = (hex: string) => lightOf(hex)" },
   { id: "088-N6a", file: "hooks/ui/band.tsx", note: "chữ ô bước thường quay về theme key", old: "color: paint.solid('onCell') ?? 'text',", new: "color: 'text'," },
   { id: "088-N6b", file: "hooks/ui/band.tsx", note: "effort trên nền ô quay về dimColor", old: "        {fit.effort ? <Text {...dimOnCell}>{` ${route.effort}`}</Text> : null}", new: "        {fit.effort ? <Text dimColor>{` ${route.effort}`}</Text> : null}" },
+  { id: "088-N6d", file: "hooks/ui/band.tsx", note: "không cắt nhãn ô hướng", old: "  const directionBody = ` ${fit.label ? directionText(direction) : direction.glyph} `", new: "  const directionBody = ` ${directionText(direction)} `" },
+  { id: "088-N6e", file: "hooks/ui/band.tsx", note: "không bỏ phần bên phải ở band hẹp", old: "  const rightParts = () => (!fit.right || (isPaused", new: "  const rightParts = () => ((isPaused" },
+  { id: "088-N6f", file: "hooks/ui/band.tsx", note: "không bỏ nút Chi tiết ở band rất hẹp", old: "    ...(columns <= 16 ? [() => (fit.details = false)] : []),\n", new: "" },
 ]
