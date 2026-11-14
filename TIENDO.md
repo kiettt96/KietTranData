@@ -9,3 +9,6 @@
 - U4: test đỏ 47772be (4/6), sửa a757267. Mẫu U4a 2, U4b 1, U4c 3, U4d 1 ca đỏ.
 - Tiếp: hoàn tất (cả bộ, đột biến vùng diff, phiên dài, lượt chạy thật, tài liệu).
 - Đột biến vùng diff xong: 85 mẫu cũ, pha 1 diệt 55, lọc diệt 21, pha 2 diệt 7; sống 078-G8h (thêm ca ranh giới, d54a529, 2 đỏ) và 087-L3k (tương đương sau U4, 116ace8). Phiên dài: 10 dòng trùng 0.8.8. Việc tiếp: chạy lại hai mẫu trên cả bộ, mutate --check, validate, version-check, VERIFICATION, PR.
+
+## Vòng 2 (C1, C2, R1, R2, R3, D1 tới D4)
+- C1: test đỏ 15c041f (13 đỏ: 9/10 mới, 4 cũ đổi kỳ vọng), sửa 7ad695e, mẫu 089-C1a..e diệt (3,2,1,1,3). Cả bộ với bản sửa: 3.643 ca, chỉ 5 ca cũ đỏ (đã đổi). Ca brief.dropped cũ kiểm ở mức hàm vì kit không cho ghi state. Việc tiếp: C2.

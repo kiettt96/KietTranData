@@ -11,10 +11,10 @@ index 022e64d..2ad14e2 100644
    "description": "Một model Claude (router) đọc kỹ prompt trước khi làm và điều phối model/effort/agent cho từng việc; mod kiểm, ép điều phối lúc chạy, giữ nhất quán mục tiêu với checklist và cảnh báo lạc đề.",
    "types": "./types/index.d.ts",
 diff --git a/claude-mods/focus-conductor/CHANGELOG.md b/claude-mods/focus-conductor/CHANGELOG.md
-index 13db1c8..ac38197 100644
+index 13db1c8..cf7f53f 100644
 --- a/claude-mods/focus-conductor/CHANGELOG.md
 +++ b/claude-mods/focus-conductor/CHANGELOG.md
-@@ -2,6 +2,24 @@
+@@ -2,6 +2,35 @@
  
  Các bản của focus-conductor, mới nhất trước. Số đo kiểm chứng của HEAD hiện tại nằm ở [docs/VERIFICATION.md](docs/VERIFICATION.md); cách dùng và tùy chọn ở [README](README.md).
  
@@ -35,6 +35,17 @@ index 13db1c8..ac38197 100644
 +**Đột biến:** thêm ca ranh giới prompt bị lược (`clip-boundary-089`) để bắt mẫu cũ `078-G8h`; mẫu `087-L3k` ghi là tương đương từ U4, lý do trong `scripts/mutants.ts`.
 +
 +**Mẫu cũ viết lại, giữ mã:** `087-L3i`, `087-L3n` (chuỗi của `fullRetryTokens` và lời gọi hỏi lại đổi theo U1). Mẫu mới: `089-U1a` tới `089-U1c`, `089-U2a` tới `089-U2e`, `089-U3a` tới `089-U3c`, `089-U4a` tới `089-U4d`.
++
++### 0.8.9 vòng 2: ràng buộc không trần, ba điểm sau rà soát, điều phối lại việc
++
++- **C1: ràng buộc của mục tiêu không còn trần**, như yêu cầu từ 0.8.7. Prompt tiếp nối, đợt mới, mục tiêu mới mang quy định model và lượt chạy thật prompt đã đối chiếu đều gộp ràng buộc không trần. Mục cùng khóa thay tại chỗ không tính là mục bị thay, nên cảnh báo "đã đầy" và cảnh báo mục bị bỏ không còn xuất hiện với mục tiêu mới. `brief.dropped` đã lưu vẫn được đọc.
++
++**Test cũ đổi kỳ vọng hay đổi tên vì C1:**
++- `caps-075`: "mục mới cùng khóa với ràng buộc cũ thay ràng buộc đó: cảnh báo nêu mục bị thay (S1: chỉ mục cùng khóa mới bị thay)" đổi tên thành "mục mới cùng khóa với ràng buộc cũ thay ràng buộc đó tại chỗ: không có cảnh báo thay (0.8.9 C1)"; kỳ vọng: không có cảnh báo thay, mục mới có trong pane.
++- `caps-s1-075`: "ràng buộc: phần tràn đầy (10 mục) thì ràng buộc mới bị bỏ và đếm ở dropped" đổi tên thành "ràng buộc: đã có trần cũ cộng phần tràn (10 mục) thì ràng buộc mới vẫn được giữ, dropped là 0 (0.8.9 C1)".
++- `dropped-kind-s8-075`: "pane hiện câu cảnh báo mục bị bỏ ở Cần chú ý, một lần, không có chip "model"" đổi tên thành "ràng buộc không còn trần (0.8.9 C1): ba prompt như cũ không còn cảnh báo mục bị bỏ, không có chip "model"".
++- `error-behavior-a9-080`: "mục prompt tiếp nối bị bỏ: một mục dropped; mô tả không chứa nội dung prompt" đổi tên thành "ràng buộc không còn trần (0.8.9 C1): ba prompt như cũ không ghi mục dropped nào".
++- `dropped-rank-078`: giữ tên và kỳ vọng; dựng Core có sẵn cảnh báo mục bị bỏ (trạng thái từ bản cũ) thay cho ba prompt, vì mod không còn tạo cảnh báo này.
 +
  ## Thay đổi 0.8.8: giao diện hướng B "Ba ô phát sáng", dải màu neon
  
@@ -243,7 +254,7 @@ index 6909686..35815ef 100644
  
  /** Kế hoạch đọc prompt dài `textLength` ký tự; `fixedChars` là số ký tự của lời dặn và các dòng ngữ cảnh của request. */
 diff --git a/claude-mods/focus-conductor/hooks/lib/router.ts b/claude-mods/focus-conductor/hooks/lib/router.ts
-index fc059c5..b02e780 100644
+index fc059c5..beaf003 100644
 --- a/claude-mods/focus-conductor/hooks/lib/router.ts
 +++ b/claude-mods/focus-conductor/hooks/lib/router.ts
 @@ -13,7 +13,7 @@ import { DEFAULT_CONDUCTOR, FAMILY_NAMES, conductorTimeouts } from './families'
@@ -255,7 +266,29 @@ index fc059c5..b02e780 100644
  import type { ReadPlan, Reading } from './reading'
  import { EFFORTS, FAMILIES, applySession, avoidBlocked, codesIn, describePick, effortRank, familyOf, familyRank, sessionFloor } from './route'
  import type { SessionModel } from './route'
-@@ -1271,7 +1271,7 @@ export function bareBrief(prompt: string, goalId: number, now: number): Brief {
+@@ -1171,9 +1171,10 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number, isHeld =
+   const { items: requirements, renumber, dropped: lostRequirements } = merged
+   const reclaimed = reclaimCarried(prev.constraints, prev.carriedRules ?? 0, plan.constraints)
+   const conBase = prev.constraintsBase ?? prev.constraints.length
++  // Ràng buộc không còn trần (0.8.9 C1), như yêu cầu từ 0.8.7: không mục nào của prompt tiếp nối bị bỏ hay bị mục mới thay vì đầy.
+   const constraints = isPhase
+-    ? mergeReplacing(reclaimed.items, plan.constraints, CONSTRAINT_LIMIT, (item, at) => at < conBase || isModelRule(item))
+-    : { ...mergeCapped(reclaimed.items, plan.constraints, CONSTRAINT_LIMIT), replaced: [] as string[] }
++    ? mergeReplacing(reclaimed.items, plan.constraints, Number.POSITIVE_INFINITY, (item, at) => at < conBase || isModelRule(item))
++    : { ...mergeCapped(reclaimed.items, plan.constraints, Number.POSITIVE_INFINITY), replaced: [] as string[] }
+   const dropped = lostRequirements + constraints.dropped
+   const keptTasks = merged.lost.size > 0 ? prev.tasks.map(t => (t.covers !== undefined ? { ...t, covers: t.covers.filter(n => !merged.lost.has(n)) } : t)) : prev.tasks
+   const added = plan.tasks.map(t => ({
+@@ -1227,7 +1228,7 @@ export function promoteReference(prev: Brief, plan: RouterPlan, prompt: string,
+   // Ràng buộc, tiêu chí và phạm vi của prompt đính kèm được giữ từ lượt đối chiếu: lượt chạy thật phải có đủ. Cả hai lượt là prompt
+   // lập mục tiêu nên mọi mục đều thuộc phần không bao giờ bị thay.
+   const mergedRequirements = mergeCapped(prev.requirements ?? [], plan.requirements, Number.POSITIVE_INFINITY).items
+-  const mergedConstraints = mergeCapped(prev.constraints, plan.constraints, CONSTRAINT_LIMIT).items
++  const mergedConstraints = mergeCapped(prev.constraints, plan.constraints, Number.POSITIVE_INFINITY).items
+   return {
+     ...briefOf(plan, prompt, prev.goalId + 1, now),
+     goal: plan.goal || prev.goal,
+@@ -1271,7 +1272,7 @@ export function bareBrief(prompt: string, goalId: number, now: number): Brief {
  // ------------------------------------------------------------ gọi router (thuần, qua callback)
  
  /**
@@ -264,7 +297,7 @@ index fc059c5..b02e780 100644
   * `$` ngay trong thân hook, nên logic gọi, thử lại và đọc kết quả nằm ở đây mà không đụng tới `$`.
   */
  export type Ask = (request: ModelCompleteRequest) => Promise<ModelCompleteResult | null>
-@@ -1285,9 +1285,21 @@ export function failureKind(reply: ModelCompleteResult | null): RouterFailKind {
+@@ -1285,9 +1286,21 @@ export function failureKind(reply: ModelCompleteResult | null): RouterFailKind {
    return 'empty'
  }
  
@@ -289,7 +322,7 @@ index fc059c5..b02e780 100644
    if (reply.isAnswered) return 'câu trả lời không đúng định dạng'
    if (reply.reason === 'api-error') return `lỗi API ${reply.error}${reply.status !== null ? ` ${reply.status}` : ''}`
    if (reply.reason === 'aborted') return 'hết thời gian chờ'
-@@ -1333,11 +1345,15 @@ export type RouterOutcome<T> = {
+@@ -1333,11 +1346,15 @@ export type RouterOutcome<T> = {
    reason: string
    /** Usage của mọi lượt gọi (lượt đầu và lượt hỏi lại). */
    usages: ModelUsage[]
@@ -306,7 +339,7 @@ index fc059c5..b02e780 100644
    /** Loại lỗi khi không có kết quả (0.7.2); null khi có kết quả. */
    failure: RouterFailKind | null
    /** Giới hạn của request đã gửi và số token đầu ra của lượt gọi cuối, để biết lỗi do hết giờ hay bị cắt (0.7.2). */
-@@ -1367,51 +1383,89 @@ export function failFields(fail: RouterFail): Record<string, unknown> {
+@@ -1367,51 +1384,89 @@ export function failFields(fail: RouterFail): Record<string, unknown> {
    return { failure: fail.kind, ms: fail.ms, timeoutMs: fail.timeoutMs, maxTokens: fail.maxTokens, outputTokens: fail.outputTokens }
  }
  
@@ -409,7 +442,7 @@ index fc059c5..b02e780 100644
    }
    const firstResult = first?.isAnswered ? parse(first.text) : null
    // Thiếu confidence (0.7.8 G8): chỉ khi bật retryMissingConfidence (ba chỗ đọc prompt) thì coi như dưới LOW_CONFIDENCE và hỏi lại;
-@@ -1420,16 +1474,24 @@ export async function askRouter<T extends { confidence?: number }>(
+@@ -1420,16 +1475,24 @@ export async function askRouter<T extends { confidence?: number }>(
    const firstConfidence = firstResult?.confidence ?? 1
    const isConfident = firstResult !== null && !isMissing && firstConfidence >= LOW_CONFIDENCE
    const needsCoverage = isConfident && recheck !== undefined && recheck(firstResult)
@@ -439,7 +472,7 @@ index fc059c5..b02e780 100644
    const secondResult = second?.isAnswered ? parse(second.text) : null
    // Thiếu confidence xếp thấp nhất khi bật retryMissingConfidence: lần hai thắng khi nó có confidence và lần đầu không có hay thấp hơn.
    const isSecondBetter =
-@@ -1437,7 +1499,7 @@ export async function askRouter<T extends { confidence?: number }>(
+@@ -1437,7 +1500,7 @@ export async function askRouter<T extends { confidence?: number }>(
        ? secondResult !== null && (firstResult === null || (secondResult.confidence !== undefined && (isMissing || secondResult.confidence >= firstConfidence)))
        : secondResult !== null && (firstResult === null || (secondResult.confidence ?? 1) >= firstConfidence)
    const pick = isSecondBetter ? secondResult : firstResult
@@ -448,6 +481,34 @@ index fc059c5..b02e780 100644
  }
  
  /** Prompt dài hơn sức chứa của lượt router đó bị lược phần giữa (0.7.8 G8; 0.8.7 L3: sức chứa theo requestPlan, mặc định trần cũ). */
+@@ -1468,9 +1531,16 @@ export function clippedWarning(length: number, info?: { family: ModelFamily; hea
+ /** Dòng context kèm prompt bị lược (0.7.8 G8), tối đa 200 ký tự. */
+ export const CLIPPED_CONTEXT = '[focus-conductor] Prompt quá dài nên router chưa đọc phần giữa; tự đọc kỹ phần đó khi lập checklist.'
+ 
+-/** Ràng buộc và yêu cầu của brief trước bị thay vì đầy trần (0.7.5), để báo một cảnh báo. */
++/**
++ * Ràng buộc và yêu cầu của brief trước bị thay vì đầy trần (0.7.5), để báo một cảnh báo. So theo khóa (0.8.9 C1): mục cùng khóa thay
++ * mục cũ tại chỗ không tính là mục bị thay.
++ */
+ function replacedOf(prev: Brief, next: Brief): string[] {
+-  return [...prev.constraints.filter(x => !next.constraints.includes(x)), ...(prev.requirements ?? []).filter(x => !(next.requirements ?? []).includes(x))]
++  const gone = (before: readonly string[], after: readonly string[]) => {
++    const keys = new Set(after.map(itemKey))
++    return before.filter(x => !keys.has(itemKey(x)))
++  }
++  return [...gone(prev.constraints, next.constraints), ...gone(prev.requirements ?? [], next.requirements ?? [])]
+ }
+ 
+ /** Đợt vừa mở (0.8.0 A3): số đợt, số việc và số mục đã cất, số việc mới. */
+@@ -1665,7 +1735,7 @@ function nextBriefRaw(
+   if (prev === null || (plan.relation === 'new' && !held)) {
+     const fresh = briefOf(plan, prompt, (prev?.goalId ?? 0) + 1, now)
+     const carried = prev !== null && !prev.isReference && !plan.constraints.some(isModelRule) ? prev.constraints.filter(isModelRule) : []
+-    const carriedConstraints = unique([...carried, ...fresh.constraints], CONSTRAINT_LIMIT)
++    const carriedConstraints = unique([...carried, ...fresh.constraints], Number.POSITIVE_INFINITY)
+     // Quy định mang sang đứng đầu danh sách (S2): ghi số mục để sàn model phiên chỉ đọc quy định của chính mục tiêu này.
+     const brief = carried.length > 0 ? { ...fresh, constraints: carriedConstraints, constraintsBase: carriedConstraints.length, carriedRules: carried.length } : fresh
+     return { brief, added: [], isNewGoal: true, replaced: [], held: false, dropped: 0 }
 diff --git a/claude-mods/focus-conductor/hooks/lib/version.ts b/claude-mods/focus-conductor/hooks/lib/version.ts
 index c17fcb0..284111e 100644
 --- a/claude-mods/focus-conductor/hooks/lib/version.ts
@@ -522,7 +583,7 @@ index 33befe5..216a32c 100644
        expected,
        notes: plan.notes,
 diff --git a/claude-mods/focus-conductor/scripts/mutants.ts b/claude-mods/focus-conductor/scripts/mutants.ts
-index df2949e..001478b 100644
+index df2949e..22e35c7 100644
 --- a/claude-mods/focus-conductor/scripts/mutants.ts
 +++ b/claude-mods/focus-conductor/scripts/mutants.ts
 @@ -2237,12 +2237,12 @@ export const MUTANTS: Mutant[] = [
@@ -541,7 +602,7 @@ index df2949e..001478b 100644
    { id: "087-L3o", file: "hooks/lib/reading.ts", note: "mặc định routerMaxWait về 600 giây", old: "export const ROUTER_MAX_WAIT_MS = 1_800_000", new: "export const ROUTER_MAX_WAIT_MS = 600_000" },
    { id: "087-M1a", file: "hooks/lib/route.ts", note: "luôn trả ID ghim", old: "  if (useAlias && prefix === '') return family\n", new: "  if (false) return family\n" },
    { id: "087-M1b", file: "hooks/lib/route.ts", note: "alias thắng cả ghi đè modelMap", old: "  const override = map[family]\n  if (override) return override\n  const at = engineModel.indexOf('claude-')", new: "  if (useAlias) return family\n  const override = map[family]\n  if (override) return override\n  const at = engineModel.indexOf('claude-')" },
-@@ -2305,4 +2305,19 @@ export const MUTANTS: Mutant[] = [
+@@ -2305,4 +2305,24 @@ export const MUTANTS: Mutant[] = [
    { id: "088-N6o", file: "hooks/ui/band.tsx", note: "nút Ẩn vẫn hiện khi tạm dừng", old: "const hideButton = hasRoom && !isPaused && fit.hide ?", new: "const hideButton = hasRoom && fit.hide ?" },
    { id: "088-N6p", file: "hooks/ui/direction.ts", note: "tắt quotaGuard vẫn tính tạm dừng", old: "  const isPaused = settings.enabled && isPauseActive(", new: "  const isPaused = isPauseActive(" },
    { id: "088-N6q", file: "hooks/ui/band.tsx", note: "band lại có hộp rỗng ở cột đầu", old: "    <Box flexDirection=\"column\" flexGrow={1} flexShrink={1}>\n      {lines}\n    </Box>", new: "    <Box flexDirection=\"row\">\n      <Box flexDirection=\"column\" flexShrink={0} />\n      <Box flexDirection=\"column\" flexGrow={1} flexShrink={1}>\n        {lines}\n      </Box>\n    </Box>" },
@@ -560,7 +621,57 @@ index df2949e..001478b 100644
 +  { id: "089-U4b", file: "hooks/lib/router.ts", note: "gửi fallback cho cả request thường", old: "    const backup = opts.fallback\n", new: "    const backup = opts.fallback ?? request\n" },
 +  { id: "089-U4c", file: "hooks/lib/router.ts", note: "gửi fallback hai lần", old: "    const again = await send(backup)\n", new: "    await send(backup)\n    const again = await send(backup)\n" },
 +  { id: "089-U4d", file: "hooks/lib/router.ts", note: "câu trả lời rỗng không gửi fallback", old: "  if (first === null || !first.isAnswered || (isConfident && !needsCoverage)) return lastResort(settled(false))", new: "  if (first === null || !first.isAnswered) return settled(false)\n  if (isConfident && !needsCoverage) return lastResort(settled(false))" },
++  { id: "089-C1a", file: "hooks/lib/router.ts", note: "prompt tiếp nối thường vẫn dùng trần 12", old: "{ ...mergeCapped(reclaimed.items, plan.constraints, Number.POSITIVE_INFINITY), replaced", new: "{ ...mergeCapped(reclaimed.items, plan.constraints, CONSTRAINT_LIMIT), replaced" },
++  { id: "089-C1b", file: "hooks/lib/router.ts", note: "mở đợt mới vẫn dùng trần 12", old: "mergeReplacing(reclaimed.items, plan.constraints, Number.POSITIVE_INFINITY,", new: "mergeReplacing(reclaimed.items, plan.constraints, CONSTRAINT_LIMIT," },
++  { id: "089-C1c", file: "hooks/lib/router.ts", note: "mục tiêu mới mang quy định model vẫn cắt ở 12", old: "unique([...carried, ...fresh.constraints], Number.POSITIVE_INFINITY)", new: "unique([...carried, ...fresh.constraints], CONSTRAINT_LIMIT)" },
++  { id: "089-C1d", file: "hooks/lib/router.ts", note: "lượt chạy thật prompt đã đối chiếu vẫn dùng trần 12", old: "mergeCapped(prev.constraints, plan.constraints, Number.POSITIVE_INFINITY).items", new: "mergeCapped(prev.constraints, plan.constraints, CONSTRAINT_LIMIT).items" },
++  { id: "089-C1e", file: "hooks/lib/router.ts", note: "mục cùng khóa thay tại chỗ vẫn sinh cảnh báo đã đầy", old: "    const keys = new Set(after.map(itemKey))\n    return before.filter(x => !keys.has(itemKey(x)))\n", new: "    return before.filter(x => !after.includes(x))\n" },
  ]
+diff --git a/claude-mods/focus-conductor/tests/caps-075.test.ts b/claude-mods/focus-conductor/tests/caps-075.test.ts
+index 720cd36..233eb16 100644
+--- a/claude-mods/focus-conductor/tests/caps-075.test.ts
++++ b/claude-mods/focus-conductor/tests/caps-075.test.ts
+@@ -55,7 +55,7 @@ describe('0.7.5 B11: yêu cầu đầy trần', () => {
+ })
+ 
+ describe('0.7.5 B11: một cảnh báo khi thay', () => {
+-  test('mục mới cùng khóa với ràng buộc cũ thay ràng buộc đó: cảnh báo nêu mục bị thay (S1: chỉ mục cùng khóa mới bị thay)', {}, async ($, on) => {
++  test('mục mới cùng khóa với ràng buộc cũ thay ràng buộc đó tại chỗ: không có cảnh báo thay (0.8.9 C1)', {}, async ($, on) => {
+     // Router đọc prompt chỉ nhận tối đa 10 ràng buộc một lượt: hai lượt tiếp nối mới đầy trần 12 của mục tiêu.
+     base(on, {
+       router: request =>
+@@ -68,7 +68,11 @@ describe('0.7.5 B11: một cảnh báo khi thay', () => {
+     await submit($, 'Cập nhật dữ liệu theo các lô')
+     await submit($, 'tiếp 1 lô sau')
+     await submit($, 'tiếp 2 lô sau nữa')
++    // 0.8.9 C1: ràng buộc không còn trần, và mục cùng khóa thay tại chỗ không tính là mục bị thay, nên không có cảnh báo "đã đầy".
+     const pane = await $.ui.mount(PANE)
+-    expect(await pane.find({ type: 'Text', text: /mục mới thay 1 mục cũ: Thêm B/ })).toBeDefined()
++    const texts = (await pane.findAll({ type: 'Text' })).map(e => e.text).filter((t): t is string => typeof t === 'string')
++    await pane.unmount()
++    expect(texts.some(t => t.includes('mục mới thay'))).toBe(false)
++    expect(texts.some(t => t.includes('thêm b.'))).toBe(true)
+   })
+ })
+diff --git a/claude-mods/focus-conductor/tests/caps-s1-075.test.ts b/claude-mods/focus-conductor/tests/caps-s1-075.test.ts
+index 26233ea..32d699c 100644
+--- a/claude-mods/focus-conductor/tests/caps-s1-075.test.ts
++++ b/claude-mods/focus-conductor/tests/caps-s1-075.test.ts
+@@ -70,10 +70,11 @@ describe('0.7.5 S1: mục trùng khóa và phần tràn đầy', () => {
+     expect(out.dropped).toBe(0)
+   })
+ 
+-  test(`ràng buộc: phần tràn đầy (${CAP_OVERFLOW} mục) thì ràng buộc mới bị bỏ và đếm ở dropped`, () => {
++  test(`ràng buộc: đã có trần cũ cộng phần tràn (${CAP_OVERFLOW} mục) thì ràng buộc mới vẫn được giữ, dropped là 0 (0.8.9 C1)`, () => {
+     const full = [...CONSTRAINTS, ...Array.from({ length: CAP_OVERFLOW }, (_, i) => `Ràng buộc tràn ${i + 1}`)]
+     const out = nextBrief(makeBrief({ constraints: full, constraintsBase: 12 }), routed({ relation: 'continue', goal: '', constraints: ['Ràng buộc thứ 23'] }), 'x', 2)
+-    expect(out.brief.constraints).toEqual(full)
+-    expect(out.dropped).toBe(1)
++    // 0.8.9 C1: ràng buộc không còn trần, như yêu cầu từ 0.8.7.
++    expect(out.brief.constraints).toEqual([...full, 'Ràng buộc thứ 23'])
++    expect(out.dropped).toBe(0)
+   })
+ })
 diff --git a/claude-mods/focus-conductor/tests/clip-boundary-089.test.ts b/claude-mods/focus-conductor/tests/clip-boundary-089.test.ts
 new file mode 100644
 index 0000000..03f23d4
@@ -586,6 +697,114 @@ index 0000000..03f23d4
 +    expect(isClippedPrompt('a'.repeat(capacity - 1_000), capacity)).toBe(false)
 +    expect(isClippedPrompt('a'.repeat(capacity), capacity)).toBe(false)
 +    expect(isClippedPrompt('a'.repeat(capacity + 1), capacity)).toBe(true)
++  })
++})
+diff --git a/claude-mods/focus-conductor/tests/constraints-c1-089.test.ts b/claude-mods/focus-conductor/tests/constraints-c1-089.test.ts
+new file mode 100644
+index 0000000..c019f84
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/constraints-c1-089.test.ts
+@@ -0,0 +1,102 @@
++// 0.8.9 C1: ràng buộc của mục tiêu không còn trần, như yêu cầu từ 0.8.7. Không ràng buộc nào của prompt tiếp nối bị bỏ hay bị mục
++// mới thay vì đầy; mục cùng khóa vẫn thay mục cũ tại chỗ và không tính là mục bị thay. Thứ tự giữ nguyên: quy định model, mục của prompt
++// lập mục tiêu, rồi mục của các prompt tiếp nối theo thời gian.
++
++import { describe, expect, test } from 'claude-code/testing'
++import { followUpOf, nextBrief, parseRoute, promoteReference } from '../hooks/lib/router'
++import type { Policy, RouterPlan } from '../hooks/lib/router'
++import type { Brief } from '../types'
++import { makeBrief } from './support/commands'
++import { plan } from './support/engine'
++
++const OPEN: Policy = { allowFable: false, blocked: new Set(), session: null }
++const routed = (over: Record<string, unknown>): RouterPlan => parseRoute(JSON.stringify(plan(over)), OPEN)!
++const items = (prefix: string, n: number) => Array.from({ length: n }, (_, i) => `${prefix} ${i + 1}`)
++/** Mục tiêu 22 ràng buộc: 10 mục của prompt lập mục tiêu, 12 mục của các prompt tiếp nối. */
++const TWENTY_TWO = [...items('Ràng buộc gốc', 10), ...items('Ràng buộc tiếp nối', 12)]
++const FIVE = items('Ràng buộc mới', 5)
++
++function forty(isPhase: boolean): { brief: Brief; dropped: number; replaced: number } {
++  let brief = makeBrief({ constraints: items('Ràng buộc gốc', 10), constraintsBase: 10, tasks: [] })
++  let dropped = 0
++  let replaced = 0
++  for (let n = 1; n <= 40; n++) {
++    const out = followUpOf(brief, routed({ relation: 'continue', goal: '', constraints: items(`Ràng buộc lượt ${n}`, 3) }), n + 1, false, isPhase)
++    dropped += out.dropped
++    replaced += out.replaced.length
++    brief = out.brief
++  }
++  return { brief, dropped, replaced }
++}
++
++describe('0.8.9 C1: prompt tiếp nối thường', () => {
++  test('mục tiêu 22 ràng buộc, prompt tiếp nối thêm 5 mục: 27 mục, 5 mục mới đứng cuối đúng thứ tự, không bỏ, không thay', () => {
++    const out = followUpOf(makeBrief({ constraints: TWENTY_TWO, constraintsBase: 10 }), routed({ relation: 'continue', goal: '', constraints: FIVE }), 2)
++    expect(out.brief.constraints).toEqual([...TWENTY_TWO, ...FIVE])
++    expect(out.dropped).toBe(0)
++    expect(out.replaced).toEqual([])
++  })
++
++  test('40 prompt tiếp nối, mỗi prompt 3 ràng buộc, từ mục tiêu 10 ràng buộc: đủ 130 mục, không mục nào bị bỏ', () => {
++    const { brief, dropped, replaced } = forty(false)
++    expect(brief.constraints).toHaveLength(130)
++    expect(brief.constraints.slice(0, 10)).toEqual(items('Ràng buộc gốc', 10))
++    expect(brief.constraints.at(-1)).toBe('Ràng buộc lượt 40 3')
++    expect(dropped).toBe(0)
++    expect(replaced).toBe(0)
++    expect(brief.dropped).toBeUndefined()
++  })
++})
++
++describe('0.8.9 C1: mở đợt mới', () => {
++  test('mục tiêu 22 ràng buộc, đợt mới thêm 5 mục: 27 mục, không mục nào bị thay hay bị bỏ', () => {
++    const out = followUpOf(makeBrief({ constraints: TWENTY_TWO, constraintsBase: 10 }), routed({ relation: 'continue', goal: '', constraints: FIVE }), 2, false, true)
++    expect(out.brief.constraints).toEqual([...TWENTY_TWO, ...FIVE])
++    expect(out.dropped).toBe(0)
++    expect(out.replaced).toEqual([])
++  })
++
++  test('40 đợt mới liên tiếp, mỗi đợt 3 ràng buộc: đủ 130 mục, không thay, không bỏ', () => {
++    const { brief, dropped, replaced } = forty(true)
++    expect(brief.constraints).toHaveLength(130)
++    expect(dropped).toBe(0)
++    expect(replaced).toBe(0)
++  })
++})
++
++describe('0.8.9 C1: mục cùng khóa', () => {
++  test('ràng buộc cùng khóa (khác hoa thường, thừa dấu chấm cuối) thay tại chỗ: số mục không đổi, không có mục bị thay', () => {
++    const prev = makeBrief({ constraints: TWENTY_TWO, constraintsBase: 10 })
++    const out = nextBrief(prev, routed({ relation: 'refine', goal: '', constraints: ['ràng buộc tiếp nối 3.'] }), 'x', 2)
++    expect(out.brief.constraints).toHaveLength(22)
++    expect(out.brief.constraints[12]).toBe('ràng buộc tiếp nối 3.')
++    expect(out.replaced).toEqual([])
++  })
++
++  test('yêu cầu cùng khóa thay tại chỗ: số mục không đổi, không có mục bị thay', () => {
++    const prev = makeBrief({ requirements: items('Yêu cầu', 30), requirementsBase: 30, constraints: TWENTY_TWO, constraintsBase: 10 })
++    const out = nextBrief(prev, routed({ relation: 'refine', goal: '', requirements: ['YÊU CẦU 7.'] }), 'x', 2)
++    expect(out.brief.requirements).toHaveLength(30)
++    expect(out.brief.requirements?.[6]).toBe('YÊU CẦU 7.')
++    expect(out.replaced).toEqual([])
++  })
++})
++
++describe('0.8.9 C1: mục tiêu mới và lượt chạy thật prompt đã đối chiếu', () => {
++  test('mục tiêu mới mang 3 quy định model, prompt mới 10 ràng buộc không nêu model: đủ 13 mục, quy định model đứng đầu', () => {
++    const rules = ['Việc lọc tin chạy sonnet', 'Việc tổng hợp chạy opus', 'Việc đọc log chạy haiku']
++    const prev = makeBrief({ goalId: 1, constraints: [...rules, 'Ràng buộc cũ 1'], constraintsBase: 4 })
++    const fresh = items('Ràng buộc mục tiêu mới', 10)
++    const out = nextBrief(prev, routed({ relation: 'new', goal: 'Mục tiêu khác hẳn', constraints: fresh }), 'mục tiêu mới', 2)
++    expect(out.isNewGoal).toBe(true)
++    expect(out.brief.constraints).toEqual([...rules, ...fresh])
++    expect(out.brief.constraintsBase).toBe(13)
++  })
++
++  test('promoteReference: lượt đối chiếu 15 ràng buộc, lượt chạy 10 ràng buộc khác: đủ 25 mục', () => {
++    const prev = makeBrief({ isReference: true, constraints: items('Ràng buộc đối chiếu', 15), constraintsBase: 15 })
++    const brief = promoteReference(prev, routed({ relation: 'continue', goal: 'Chạy thật', runReference: true, constraints: items('Ràng buộc chạy', 10) }), 'chạy thật đi', 2)
++    expect(brief.constraints).toEqual([...items('Ràng buộc đối chiếu', 15), ...items('Ràng buộc chạy', 10)])
++    expect(brief.constraintsBase).toBe(25)
 +  })
 +})
 diff --git a/claude-mods/focus-conductor/tests/hook-limit-u1-089.test.ts b/claude-mods/focus-conductor/tests/hook-limit-u1-089.test.ts
@@ -694,6 +913,170 @@ index 0000000..7db7b32
 +    for (const r of sent) expect(r.maxTokens ?? Infinity).toBeLessThanOrEqual(CAP)
 +  })
 +})
+diff --git a/claude-mods/focus-conductor/tests/integration/constraints-c1-089.test.ts b/claude-mods/focus-conductor/tests/integration/constraints-c1-089.test.ts
+new file mode 100644
+index 0000000..2fb8a28
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/integration/constraints-c1-089.test.ts
+@@ -0,0 +1,53 @@
++// 0.8.9 C1 (tích hợp): một mục tiêu nhận các prompt tiếp nối cho tới khi có 30 ràng buộc. Không có cảnh báo "đã đầy", không có cảnh báo
++// mục bị bỏ, mục cần chú ý không có mục bị bỏ, /conductor status không nêu mục bị bỏ, và request tiếp nối kế tiếp còn ràng buộc mới nhất.
++// Trạng thái cũ đã lưu brief.dropped: kit test không cho ghi sẵn trạng thái của mod, nên ca này kiểm ở mức hàm rằng brief.dropped còn
++// sau vòng JSON của Core (như sau hot reload); /conductor status đọc đúng trường đó bằng droppedItemsText (hooks/parts/command.ts).
++
++import { describe, expect, test } from 'claude-code/testing'
++import type { Engine } from 'claude-code/testing'
++import * as S from '../../hooks/lib/state'
++import { droppedItemsText } from '../../hooks/lib/text'
++import type { Core } from '../../types'
++import { makeBrief } from '../support/commands'
++import { PANE, base, conductor, plan, submit } from '../support/engine'
++
++const items = (prefix: string, n: number) => Array.from({ length: n }, (_, i) => `${prefix} ${i + 1}`)
++const FIRST = plan({ goal: 'Cập nhật sổ giá theo nhiều bước', depth: 'hard', volume: 'large', constraints: items('Ràng buộc gốc', 6) })
++const FULL = 'đã đầy'
++const DROPPED = 'không giữ được'
++
++async function paneTexts($: Engine): Promise<string[]> {
++  const pane = await $.ui.mount(PANE)
++  const texts = (await pane.findAll({ type: 'Text' })).map(e => e.text).filter((t): t is string => typeof t === 'string')
++  await pane.unmount()
++  return texts
++}
++
++describe('0.8.9 C1: mục tiêu nhận prompt tiếp nối tới 30 ràng buộc', () => {
++  test('không cảnh báo "đã đầy" hay mục bị bỏ ở toast, pane và status; request kế tiếp còn ràng buộc mới nhất', { options: { planApproval: 'off' } }, async ($, on) => {
++    const seen = base(on, {
++      router: request => {
++        const n = /thêm ràng buộc đợt (\d+)/.exec(request)?.[1]
++        if (request.includes('làm tiếp phần còn lại')) return plan({ relation: 'continue', intent: 'resume', goal: '' })
++        return n === undefined ? FIRST : plan({ relation: 'refine', intent: 'amend', goal: '', constraints: items(`Ràng buộc đợt ${n}`, 6) })
++      },
++    })
++    await submit($, 'Cập nhật sổ giá theo nhiều bước')
++    for (let n = 1; n <= 4; n++) await submit($, `thêm ràng buộc đợt ${n}`)
++    expect(seen.toasts.some(t => t.includes(FULL) || t.includes(DROPPED))).toBe(false)
++    const texts = await paneTexts($)
++    expect(texts.some(t => t.includes(FULL) || t.includes(DROPPED) || t.includes('mục bị bỏ'))).toBe(false)
++    expect(String((await conductor($, 'status')).text)).not.toContain(DROPPED)
++    await submit($, 'làm tiếp phần còn lại')
++    const request = seen.routed.at(-1) ?? ''
++    expect(request).toContain('Ràng buộc gốc 1')
++    expect(request).toContain('Ràng buộc đợt 4 6')
++  })
++
++  test('trạng thái cũ có brief.dropped là 5: trường còn sau vòng JSON của Core, và status dùng droppedItemsText(5)', () => {
++    const core = { ...S.EMPTY_CORE, brief: makeBrief({ dropped: 5 }) } as Core
++    const reloaded = S.normalizeCore(JSON.parse(JSON.stringify(core)) as Partial<Core>)
++    expect(reloaded.brief?.dropped).toBe(5)
++    expect(droppedItemsText(5)).toContain('5 mục')
++  })
++})
+diff --git a/claude-mods/focus-conductor/tests/integration/dropped-kind-s8-075.test.ts b/claude-mods/focus-conductor/tests/integration/dropped-kind-s8-075.test.ts
+index 4fc7b1d..29d521c 100644
+--- a/claude-mods/focus-conductor/tests/integration/dropped-kind-s8-075.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/dropped-kind-s8-075.test.ts
+@@ -16,7 +16,7 @@ const MANY2 = plan({ relation: 'refine', goal: '', constraints: Array.from({ len
+ 
+ describe('0.7.5 S8: kind riêng cho cảnh báo mục bị bỏ', () => {
+   // 0.7.6 W1: cảnh báo đã hiện ở "Cần chú ý" thì không lặp ở "Cảnh báo khác" (nơi có chip loại), nên câu nằm dưới "Cần chú ý", một lần.
+-  test('pane hiện câu cảnh báo mục bị bỏ ở Cần chú ý, một lần, không có chip "model"', { options: { planApproval: 'off' } }, async ($, on) => {
++  test('ràng buộc không còn trần (0.8.9 C1): ba prompt như cũ không còn cảnh báo mục bị bỏ, không có chip "model"', { options: { planApproval: 'off' } }, async ($, on) => {
+     base(on, { router: request => (request.includes('thêm 12 yêu cầu nữa') ? MANY2 : request.includes('thêm 12 yêu cầu') ? MANY : FIRST) })
+     await submit($, LONG_CODED_PROMPT)
+     await submit($, 'thêm 12 yêu cầu')
+@@ -24,11 +24,10 @@ describe('0.7.5 S8: kind riêng cho cảnh báo mục bị bỏ', () => {
+     const pane = await $.ui.mount(PANE)
+     const texts = (await pane.findAll({ type: 'Text' })).map(e => e.text).filter((t): t is string => typeof t === 'string')
+     await pane.unmount()
+-    const at = texts.findIndex(t => t.includes('mục của prompt tiếp nối không giữ được'))
+-    expect(at).toBeGreaterThanOrEqual(0)
+-    expect(texts.findIndex(t => /^Cần chú ý/.test(t))).toBeLessThan(at)
++    // 0.8.9 C1: 10 ràng buộc gốc và hai lượt 10 ràng buộc đều được giữ, nên không mục nào bị bỏ. Thứ hạng của kind dropped (cảnh báo đã
++    // lưu từ bản cũ) được kiểm ở dropped-rank-078.
++    expect(texts.some(t => t.includes('mục của prompt tiếp nối không giữ được'))).toBe(false)
+     expect(texts.findIndex(t => /^Cảnh báo khác/.test(t))).toBe(-1)
+-    expect(texts.filter(t => t.includes('mục của prompt tiếp nối không giữ được')).length).toBe(1)
+   })
+ 
+   test('nhãn vi và en, mức cảnh báo (không phải lỗi)', () => {
+diff --git a/claude-mods/focus-conductor/tests/integration/dropped-rank-078.test.ts b/claude-mods/focus-conductor/tests/integration/dropped-rank-078.test.ts
+index ce8426b..0d48bf4 100644
+--- a/claude-mods/focus-conductor/tests/integration/dropped-rank-078.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/dropped-rank-078.test.ts
+@@ -1,30 +1,26 @@
+ // Bắt mẫu 075-S8a (sống sót từ trước 0.7.8, lộ ra ở lượt đột biến của 0.7.8): cảnh báo mục của prompt tiếp nối không giữ được mang kind
+ // "dropped" nên đứng hạng 4 trong "Cần chú ý", trên cảnh báo chưa kiểm (hạng 5); kind "model" sẽ đứng hạng 7, dưới cảnh báo chưa kiểm.
+ 
+-// 0.8.7 L2: yêu cầu không còn trần, nên phần tràn được dựng bằng ràng buộc (trần 12, tràn thêm 10): 10 ràng buộc của prompt đầu, rồi
+-// hai lượt tinh chỉnh mỗi lượt 10 ràng buộc mới; lượt thứ hai còn 2 chỗ nên 8 mục bị bỏ.
++// 0.8.9 C1: ràng buộc không còn trần, nên mod không còn tạo cảnh báo mục bị bỏ cho mục tiêu mới; cảnh báo loại này chỉ còn ở trạng thái
++// đã lưu từ bản cũ. Ca này giữ tên và kỳ vọng, dựng Core có sẵn hai cảnh báo (mục bị bỏ đến trước) và đọc thứ tự của "Cần chú ý".
+ import { describe, expect, test } from 'claude-code/testing'
+-import { LONG_CODED_PROMPT } from '../fixtures/prompt-long-coded'
+-import { PANE, base, plan, submit } from '../support/engine'
+-
+-const REQUIREMENTS = Array.from({ length: 30 }, (_, i) => `Yêu cầu gốc ${i + 1}`)
+-const FIRST = plan({ goal: 'Cập nhật sổ giá theo 11 bước', depth: 'hard', volume: 'large', requirements: REQUIREMENTS, constraints: Array.from({ length: 10 }, (_, i) => `Ràng buộc gốc ${i + 1}`) })
+-const MANY = plan({ relation: 'refine', goal: '', constraints: Array.from({ length: 10 }, (_, i) => `Tinh chỉnh ${i + 1}`) })
+-const MANY2 = plan({ relation: 'refine', goal: '', constraints: Array.from({ length: 10 }, (_, i) => `Tinh chỉnh thêm ${i + 1}`) })
++import { droppedItemsText } from '../../hooks/lib/text'
++import * as S from '../../hooks/lib/state'
++import { attentionItems } from '../../hooks/ui/attention'
++import type { Core } from '../../types'
++import { makeBrief } from '../support/commands'
+ 
+ describe('kind dropped xếp trên cảnh báo chưa kiểm trong Cần chú ý', () => {
+-  test('mục bị bỏ (hạng 4) đứng trước cảnh báo chưa kiểm (hạng 5) dù đến trước', { options: { planApproval: 'off' } }, async ($, on) => {
+-    base(on, { router: request => (request.includes('thêm 12 yêu cầu nữa') ? MANY2 : request.includes('thêm 12 yêu cầu') ? MANY : FIRST) })
+-    on('tool.call', { tool: 'Edit' }, () => ({ result: 'ok' }))
+-    on('turn.complete', () => ({ text: '' }))
+-    await submit($, LONG_CODED_PROMPT)
+-    await submit($, 'thêm 12 yêu cầu')
+-    await submit($, 'thêm 12 yêu cầu nữa')
+-    await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' } as never)
+-    await $.turn.complete({ turnId: 't1', answer: 'ok', durationMs: 5, isAborted: false, reason: 'answer' } as never)
+-    const pane = await $.ui.mount(PANE)
+-    const texts = (await pane.findAll({ type: 'Text' })).map(e => e.text).filter((t): t is string => typeof t === 'string')
+-    await pane.unmount()
++  test('mục bị bỏ (hạng 4) đứng trước cảnh báo chưa kiểm (hạng 5) dù đến trước', () => {
++    const core: Core = {
++      ...S.EMPTY_CORE,
++      brief: makeBrief({ at: 1 }),
++      warnings: [
++        { at: 2, kind: 'dropped', text: droppedItemsText(8) },
++        { at: 3, kind: 'unverified', text: 'Turn có 1 thay đổi nhưng không chạy bước kiểm tra nào' },
++      ],
++    }
++    const texts = attentionItems(core, 'vi').map(item => item.text)
+     const dropped = texts.findIndex(t => t.includes('mục của prompt tiếp nối không giữ được'))
+     const unverified = texts.findIndex(t => t.includes('không chạy bước kiểm tra nào'))
+     expect(dropped).toBeGreaterThanOrEqual(0)
+diff --git a/claude-mods/focus-conductor/tests/integration/error-behavior-a9-080.test.ts b/claude-mods/focus-conductor/tests/integration/error-behavior-a9-080.test.ts
+index 4e9a6fa..4f54f33 100644
+--- a/claude-mods/focus-conductor/tests/integration/error-behavior-a9-080.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/error-behavior-a9-080.test.ts
+@@ -126,7 +126,7 @@ describe('0.8.0 A9: nối vào mod', () => {
+     expect(out.indexOf('router · ')).toBeLessThan(out.indexOf('Sự cố hành vi'))
+   })
+ 
+-  test('mục prompt tiếp nối bị bỏ: một mục dropped; mô tả không chứa nội dung prompt', { options: { planApproval: 'off' } }, async ($, on) => {
++  test('ràng buộc không còn trần (0.8.9 C1): ba prompt như cũ không ghi mục dropped nào', { options: { planApproval: 'off' } }, async ($, on) => {
+     const first = plan({ goal: 'Cập nhật sổ giá theo 11 bước', depth: 'hard', volume: 'large', requirements: Array.from({ length: 30 }, (_, i) => `Yêu cầu gốc ${i + 1}`), constraints: Array.from({ length: 10 }, (_, i) => `Ràng buộc gốc ${i + 1}`) })
+     const many = plan({ relation: 'refine', goal: '', constraints: Array.from({ length: 10 }, (_, i) => `Tinh chỉnh ${i + 1}`) })
+     const many2 = plan({ relation: 'refine', goal: '', constraints: Array.from({ length: 10 }, (_, i) => `Tinh chỉnh thêm ${i + 1}`) })
+@@ -136,10 +136,7 @@ describe('0.8.0 A9: nối vào mod', () => {
+     await submit($, 'thêm 12 yêu cầu')
+     await submit($, 'thêm 12 yêu cầu nữa')
+     await conductor($, 'errors')
+-    const dropped = fs.behavior().filter(e => e.where === 'dropped')
+-    expect(dropped.length).toBe(1)
+-    expect(dropped[0]!.message).not.toContain('Tinh chỉnh')
+-    expect(dropped[0]!.message).toContain('<n> mục')
++    expect(fs.behavior().filter(e => e.where === 'dropped')).toEqual([])
+   })
+ 
+   test('bộ nhớ context không đổi: errors không có trong context của lượt kế', {}, async ($, on) => {
 diff --git a/claude-mods/focus-conductor/tests/integration/error-log-l1-079.test.ts b/claude-mods/focus-conductor/tests/integration/error-log-l1-079.test.ts
 index 62db4ec..7d8c630 100644
 --- a/claude-mods/focus-conductor/tests/integration/error-log-l1-079.test.ts
