@@ -1,0 +1,148 @@
+diff --git a/claude-mods/focus-conductor/hooks/parts/ui.tsx b/claude-mods/focus-conductor/hooks/parts/ui.tsx
+index 74c9fbd..af2e64e 100644
+--- a/claude-mods/focus-conductor/hooks/parts/ui.tsx
++++ b/claude-mods/focus-conductor/hooks/parts/ui.tsx
+@@ -14,6 +14,7 @@ import { PANE, PANE_TITLE, renderPane } from '../ui/pane'
+ import type { EngineInterface, On, Timer } from 'claude-code'
+ import type { Ctx } from '../context'
+ import { viewOf } from '../atoms'
++import { isMoving, neonStyleOf } from '../ui/neon'
+ 
+ // Atom của mod, khai báo lại ở mỗi file dùng chúng (engine chỉ nhận tham chiếu state viết trong chính file đó);
+ // cùng plugin và key nên là cùng một giá trị trong $.state.
+@@ -36,6 +37,11 @@ const runningTurnState = atom({ plugin: 'focus-conductor', key: 'runningTurn' }
+  * lại) hủy nhịp đang giữ rồi đặt lại khi $.state còn ghi turn đang chạy.
+  */
+ const TICK_MS = 60_000
++/**
++ * Nhịp của màu chạy (0.8.8 N5): neon khác off và neonMotion là on thì có turn đang chạy là vẽ lại mỗi giây, để dải màu dịch một ô mỗi nhịp.
++ * $.clock.every nhận chu kỳ từ 1 ms [Nguồn: khai báo kiểu của engine 2.1.296 và 2.1.325]. Nhịp vẫn chỉ xin vẽ lại.
++ */
++const MOTION_TICK_MS = 1_000
+ type Tick = { timer: Timer | null }
+ 
+ function stopTick(tick: Tick): void {
+@@ -53,9 +59,9 @@ async function redrawTick($: EngineInterface, tick: Tick): Promise<void> {
+ }
+ 
+ /** Đặt nhịp khi chưa có: một nhịp tại một thời điểm, kể cả khi turn mới bắt đầu trước khi nhịp của turn cũ kịp tự hủy. */
+-function startTick($: EngineInterface, tick: Tick): void {
++function startTick($: EngineInterface, tick: Tick, ms: number): void {
+   if (tick.timer !== null) return
+-  tick.timer = $.clock.every(TICK_MS, () => {
++  tick.timer = $.clock.every(ms, () => {
+     void redrawTick($, tick).catch(caught('redrawTick', undefined, 'hook'))
+   })
+ }
+@@ -69,6 +75,7 @@ export function registerUi(on: On, ctx: Ctx): void {
+   const { resetLocal } = ctx
+   const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
+   const tick: Tick = { timer: null }
++  const tickMs = isMoving(neonStyleOf(ctx.options)) ? MOTION_TICK_MS : TICK_MS
+ 
+   // ------------------------------------------------ nhịp vẽ lại (UI2)
+ 
+@@ -78,7 +85,7 @@ export function registerUi(on: On, ctx: Ctx): void {
+     const result = await next(e)
+     if (e.agentId !== undefined) return result
+     await update($, runningTurnState, () => e.turnId)
+-    startTick($, tick)
++    startTick($, tick, tickMs)
+     return result
+   }).catch(($, e, next) => (noteHookError('turn.start', next.error), next(e)))
+ 
+@@ -93,7 +100,7 @@ export function registerUi(on: On, ctx: Ctx): void {
+   on('session.start', { cwd: /.*/ }, async ($, e, next) => {
+     const result = await next(e)
+     stopTick(tick)
+-    if ((await read($, runningTurnState)) !== '') startTick($, tick)
++    if ((await read($, runningTurnState)) !== '') startTick($, tick, tickMs)
+     return result
+   }).catch(($, e, next) => (noteHookError('session.start', next.error), next(e)))
+ 
+@@ -120,7 +127,8 @@ export function registerUi(on: On, ctx: Ctx): void {
+     const pause = settings.enabled
+       ? bandQuota(quotaOverview({ enabled: true, limits: q.readings, thresholds: settings, pause: q.pause, overrideUntil: q.overrideUntil, overrideKinds: q.overrideKinds, checkpoint: q.checkpoint, now }), isPaused ? [] : softNotices(q.readings, now, settings), current.lang)
+       : null
+-    const tree = renderBand($.ui.resolve(e), current, { maxRows, columns: bodyColumns, isWorking, now }, {
++    // frame (0.8.8 N5): số giây của đồng hồ lúc vẽ; band và pane dùng chung.
++    const tree = renderBand($.ui.resolve(e), current, { maxRows, columns: bodyColumns, isWorking, now, frame: Math.floor(now / 1000) }, {
+       onDetails: () => $.ui.open({ id: PANE, title: PANE_TITLE }),
+       onHide: () => update($, bandHiddenState, () => true),
+     }, badge, pause)
+@@ -154,7 +162,7 @@ export function registerUi(on: On, ctx: Ctx): void {
+     // Mục Cần chú ý của pane (0.7.6, W1): cùng phép tính tạm dừng và báo mềm với band.
+     const isPaused = isPauseActive(true, evaluateQuota(q.readings, now, settings).hits, q.pause, overrideOf(q), now) || q.pause !== null
+     const pause = overview !== null ? bandQuota(overview, isPaused ? [] : softNotices(q.readings, now, settings), current.lang) : null
+-    return renderPane($.ui.resolve(e), current, { columns: e.props.bodyColumns, placement: e.props.placement, isResetArmed, now, rows: e.props.scroll.bodyRows }, {
++    return renderPane($.ui.resolve(e), current, { columns: e.props.bodyColumns, placement: e.props.placement, isResetArmed, now, rows: e.props.scroll.bodyRows, frame: Math.floor(now / 1000) }, {
+       onMode: picked => update($, modeState, () => picked),
+       onReset: async () => {
+         // Hai bước: lần đầu chỉ chờ xác nhận; lần hai trong hạn mới xóa.
+diff --git a/claude-mods/focus-conductor/hooks/ui/pane.tsx b/claude-mods/focus-conductor/hooks/ui/pane.tsx
+index 7251168..9c2309b 100644
+--- a/claude-mods/focus-conductor/hooks/ui/pane.tsx
++++ b/claude-mods/focus-conductor/hooks/ui/pane.tsx
+@@ -499,7 +499,7 @@ export function renderPane(
+     stripRows > 0 ? (
+       <Text wrap="truncate-end">
+         {stripMarks.slice(0, isStripIds ? stripMarks.length : stripShown).map(({ step, mark }, k) => (
+-          <Text key={k} color={mark.color} dimColor={mark.dim} bold={step.status === 'doing' || mark.bold}>
++          <Text key={k} color={mark.color} dimColor={mark.dim} bold={step.status === 'doing' ? paint.frame % 2 === 0 : mark.bold}>
+             {`${isStripIds && k > 0 ? ' ' : ''}${mark.glyph}${isStripIds ? step.id : ''}`}
+           </Text>
+         ))}
+diff --git a/claude-mods/focus-conductor/hooks/ui/style.ts b/claude-mods/focus-conductor/hooks/ui/style.ts
+index f46f957..9d9e548 100644
+--- a/claude-mods/focus-conductor/hooks/ui/style.ts
++++ b/claude-mods/focus-conductor/hooks/ui/style.ts
+@@ -145,7 +145,8 @@ export function barRuns(plan: readonly PlanStep[], cells: number, hasRunning = f
+   // W4: bước hiện tại còn todo mà đã có lô đang chạy thì đầu thanh cũng là ◐.
+   const head: Run[] =
+     status === 'doing' || (status === 'todo' && hasRunning)
+-      ? phaseRuns(paint, phase, STEP_MARK.doing.glyph, { bold: true }, filled)
++      ? // ◐ của bước đang làm (0.8.8 N5): in đậm ở frame chẵn, thường ở frame lẻ (dải đứng yên thì frame là 0, luôn đậm).
++        phaseRuns(paint, phase, STEP_MARK.doing.glyph, { bold: paint.frame % 2 === 0 }, filled)
+       : status === 'blocked'
+         ? [{ text: STEP_MARK.blocked.glyph, color: paint.solid('attention') ?? STEP_MARK.blocked.color, bold: true }]
+         : status === 'waiting'
+diff --git a/claude-mods/focus-conductor/scripts/mutants.ts b/claude-mods/focus-conductor/scripts/mutants.ts
+index c21a7a5..55802a2 100644
+--- a/claude-mods/focus-conductor/scripts/mutants.ts
++++ b/claude-mods/focus-conductor/scripts/mutants.ts
+@@ -1479,7 +1479,7 @@ export const MUTANTS: Mutant[] = [
+   { id: "075-S9i", file: "hooks/lib/route.ts", note: "write không phải loại việc của luồng chính", old: "writ(?:e|es|ing|ten)", new: "writ(?:es|ing|ten)" },
+   { id: "075-S9j", file: "hooks/lib/route.ts", note: "writing không phải loại việc của luồng chính", old: "writ(?:e|es|ing|ten)", new: "writ(?:e|es|ten)" },
+   { id: "075-S6a", file: "hooks/ui/pane.tsx", note: "số dòng của pane bị bỏ qua", old: "<= (props.rows ?? DEFAULT_ROWS)", new: "<= DEFAULT_ROWS" },
+-  { id: "075-S6b", file: "hooks/parts/ui.tsx", note: "engine không truyền số dòng thân vào pane", old: ", rows: e.props.scroll.bodyRows }", new: " }" },
++  { id: "075-S6b", file: "hooks/parts/ui.tsx", note: "engine không truyền số dòng thân vào pane", old: ", rows: e.props.scroll.bodyRows, frame: Math.floor(now / 1000) }", new: ", frame: Math.floor(now / 1000) }" },
+   { id: "075-S6c", file: "hooks/ui/pane.tsx", note: "chừa ít dòng hơn cho tiêu đề checklist và khoảng cách", old: "+ listRows + 2 <=", new: "+ listRows + 0 <=" },
+   { id: "075-S6d", file: "hooks/ui/pane.tsx", note: "chừa nhiều dòng hơn cần thiết", old: "+ listRows + 2 <=", new: "+ listRows + 9 <=" },
+   { id: "075-S6e", file: "hooks/ui/pane.tsx", note: "phần đầu không tính số dòng của mục tiêu", old: "    goalLines.length +\n", new: "    1 +\n" },
+@@ -1647,7 +1647,7 @@ export const MUTANTS: Mutant[] = [
+   { id: "076-U3f", file: "hooks/lib/text.ts", note: "pane vẫn ghi bình thường khi báo mềm", old: "    ok: hasNotice ? l.quotaStateNotice : l.quotaStateOk,", new: "    ok: l.quotaStateOk," },
+   { id: "076-U3g", file: "hooks/lib/text.ts", note: "status line không kèm lệnh chạy tiếp", old: "${l.quotaPaused}${resume ? ` · ${resume}` : ''}", new: "${l.quotaPaused}" },
+   { id: "076-U3h", file: "hooks/lib/text.ts", note: "lệnh chạy tiếp không theo nguồn dừng", old: "l.pauseResume(resumeCommand(isUser))", new: "l.pauseResume(resumeCommand(false))" },
+-  { id: "076-U3i", file: "hooks/parts/ui.tsx", note: "band không nhận câu báo mềm", old: "isPaused ? [] : softNotices(q.readings, now, settings), current.lang)\n      : null\n    const tree", new: "[], current.lang)\n      : null\n    const tree" },
++  { id: "076-U3i", file: "hooks/parts/ui.tsx", note: "band không nhận câu báo mềm", old: "isPaused ? [] : softNotices(q.readings, now, settings), current.lang)\n      : null\n    // frame (0.8.8 N5): số giây của đồng hồ lúc vẽ; band và pane dùng chung.\n    const tree", new: "[], current.lang)\n      : null\n    // frame (0.8.8 N5): số giây của đồng hồ lúc vẽ; band và pane dùng chung.\n    const tree" },
+   { id: "076-U4a", file: "hooks/ui/band.tsx", note: "chip lô hiện cả khi xong mục tiêu", old: "const agentChip = !isFinished && (runningBatches > 0 || failed > 0)", new: "const agentChip = (runningBatches > 0 || failed > 0)" },
+   { id: "076-U4b", file: "hooks/ui/band.tsx", note: "chip lô không theo số lỗi", old: "(runningBatches > 0 || failed > 0) ? l.agentBatchChip(", new: "(runningBatches > 0) ? l.agentBatchChip(" },
+   { id: "076-U4c", file: "hooks/ui/labels.ts", note: "chip không ghi số lỗi", old: "failed > 0 ? `${failed} lỗi` : ''", new: "''" },
+@@ -1964,7 +1964,7 @@ export const MUTANTS: Mutant[] = [
+   { id: "079-UI1a", file: "hooks/ui/pane.tsx", note: "bỏ giới hạn một dòng của tên bước ở pane hẹp", old: "  const isOneLine = isNarrow\n", new: "  const isOneLine = false\n" },
+   { id: "079-UI2a", file: "hooks/ui/pane.tsx", note: "dòng Đang chạy không cắt tên trước, bỏ ưu tiên giữ từ HH:MM", old: "const name = oneLine(taskLabel(l, group), Math.max(RUNNING_NAME_CELLS, width - cellsOf(tail)))", new: "const name = taskLabel(l, group)" },
+   { id: "079-UI2b", file: "hooks/parts/ui.tsx", note: "nhịp không đọc $.state, vẫn vẽ lại khi hết turn", old: "  if ((await read($, runningTurnState)) === '') {\n    stopTick(tick)", new: "  if (false) {\n    stopTick(tick)" },
+-  { id: "079-UI2c", file: "hooks/parts/ui.tsx", note: "nạp mod đặt nhịp cả khi không có turn đang chạy", old: "    if ((await read($, runningTurnState)) !== '') startTick($, tick)", new: "    startTick($, tick)" },
++  { id: "079-UI2c", file: "hooks/parts/ui.tsx", note: "nạp mod đặt nhịp cả khi không có turn đang chạy", old: "    if ((await read($, runningTurnState)) !== '') startTick($, tick, tickMs)", new: "    startTick($, tick, tickMs)" },
+   { id: "079-UI2d", file: "hooks/parts/ui.tsx", note: "đặt nhịp mới dù đã có nhịp, thành hai nhịp", old: "  if (tick.timer !== null) return\n", new: "" },
+   { id: "079-L1a", file: "hooks/lib/errlog.ts", note: "gặp lại thì thêm mục mới thay vì tăng count", old: "  if (index >= 0) {\n    const old = file.entries[index]!", new: "  if (false) {\n    const old = file.entries[index]!" },
+   { id: "079-L1b", file: "hooks/lib/errlog.ts", note: "bỏ bước chuẩn hóa số", old: "    .replace(/\\d+(?:\\.\\d+)?/g, '<n>')\n", new: "" },
+@@ -2284,4 +2284,8 @@ export const MUTANTS: Mutant[] = [
+   { id: "088-N4c", file: "hooks/ui/pane.tsx", note: "thanh hạn mức luôn đầy", old: "...ratioRuns(bar.used / 100, quotaCells,", new: "...ratioRuns(1, quotaCells," },
+   { id: "088-N4d", file: "hooks/ui/pane.tsx", note: "thanh chi phí tỷ lệ theo tổng thay vì theo nhóm lớn nhất", old: "ratioRuns(maxGoal > 0 ? usd / maxGoal : 0, costCells, paint, palette)", new: "ratioRuns(goalUsd(ledger) > 0 ? usd / goalUsd(ledger) : 0, costCells, paint, palette)" },
+   { id: "088-N4e", file: "hooks/ui/pane.tsx", note: "dải bước không cắt ở pane hẹp", old: "  while (!isStripIds && stripShown > 0 && !stripFits(stripShown)) stripShown -= 1\n", new: "\n" },
++  { id: "088-N5a", file: "hooks/parts/ui.tsx", note: "nhịp 1 giây cả khi neonMotion là off", old: "  const tickMs = isMoving(neonStyleOf(ctx.options)) ? MOTION_TICK_MS : TICK_MS", new: "  const tickMs = MOTION_TICK_MS" },
++  { id: "088-N5b", file: "hooks/parts/ui.tsx", note: "nhịp ghi $.state", old: "  $.ui.invalidate('ui.render')\n}", new: "  await update($, runningTurnState, id => id)\n  $.ui.invalidate('ui.render')\n}" },
++  { id: "088-N5c", file: "hooks/parts/ui.tsx", note: "frame luôn 0", old: "{ maxRows, columns: bodyColumns, isWorking, now, frame: Math.floor(now / 1000) }", new: "{ maxRows, columns: bodyColumns, isWorking, now, frame: 0 }" },
++  { id: "088-N5d", file: "hooks/parts/ui.tsx", note: "hai nhịp cùng lúc sau khi nạp lại", old: "    const result = await next(e)\n    stopTick(tick)\n", new: "    const result = await next(e)\n    tick.timer = null\n" },
+ ]
