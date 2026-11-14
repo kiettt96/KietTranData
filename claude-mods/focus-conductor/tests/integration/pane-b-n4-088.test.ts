@@ -108,7 +108,7 @@ describe('0.8.8 N4: dải bước', () => {
   test('một bước: không có dải bước', { options: STILL }, async ($, on) => {
     await goal($, on, ['Chỉ một bước'])
     const tree = await drawPane($)
-    expect(texts(tree).some(t => /^[\u2713\u25CF\u25D0\u25A0\u25C7\u25CB–]1$/.test(textOf(t)))).toBe(false)
+    expect(texts(tree).some(t => /^[\u2713\u25CF\u25D0\u25A0\u25C7\u25CB\u2013]1$/.test(textOf(t)))).toBe(false)
   })
 })
 
