@@ -566,6 +566,9 @@ function normalizeBrief(raw: Brief): Brief {
     ...(typeof brief.archivedTop === 'number' ? { archivedTop: brief.archivedTop } : {}),
     ...(typeof brief.carriedRules === 'number' && brief.carriedRules > 0 ? { carriedRules: brief.carriedRules } : {}),
     ...(typeof brief.dropped === 'number' && brief.dropped > 0 ? { dropped: brief.dropped } : {}),
+    // Điều phối lại (0.8.9 D2): thứ tự làm và việc đã gỡ; trạng thái từ bản cũ không có hai trường này thì coi như chưa điều phối lại.
+    ...(Array.isArray(brief.order) ? { order: brief.order.filter((n): n is number => typeof n === 'number') } : {}),
+    ...(Array.isArray(brief.removed) ? { removed: brief.removed.filter(r => r !== null && typeof r === 'object' && typeof r.index === 'number' && typeof r.title === 'string') } : {}),
     quality: brief.quality ?? [],
     depth: brief.depth ?? legacy.depth,
     volume: brief.volume ?? legacy.volume,

@@ -101,10 +101,11 @@ describe('0.8.9 D2: việc bị bỏ rời brief và các danh sách theo dõi',
     expect(lastOf(lines(), 'rearrange')?.['order']).toEqual([4, 1, 2, 3])
   })
 
-  test('/conductor reroute có arrange: việc đã bỏ rời brief, rời danh sách chờ giao và việc lỗi; nhật ký có dòng rearrange', OPTS, async ($, on) => {
+  test('/conductor reroute đọc lại prompt điều chỉnh có arrange: việc đã bỏ rời brief, rời danh sách chờ giao và việc lỗi; nhật ký có dòng rearrange', OPTS, async ($, on) => {
     const lines = logOf(on)
     let isReroute = false
-    base(on, { router: request => (isReroute && request.includes('điều chỉnh') ? refine({ order: [], drop: [{ task: 1, why: 'bỏ' }, { task: 2, why: 'bỏ' }], merge: [] }) : request.includes('điều chỉnh') ? refine({ order: [], drop: [], merge: [] }) : DEFAULT_ROUTER(request)) })
+    // Lượt đọc prompt điều chỉnh lỗi (router trả null), nên /conductor reroute đọc lại chính prompt đó (0.7.5), lần này có arrange.
+    base(on, { router: request => (isReroute && request.includes('điều chỉnh') ? refine({ order: [], drop: [{ task: 1, why: 'bỏ' }, { task: 2, why: 'bỏ' }], merge: [] }) : request.includes('điều chỉnh') ? null : DEFAULT_ROUTER(request)) })
     hooks(on)
     await submit($, FOUR)
     await spawnTool($, 'u1', 'Việc 1: tìm chỗ gọi charge', SEARCH)

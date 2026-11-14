@@ -795,6 +795,20 @@ export function createContext(options: PluginOptions) {
       .map(([, label]) => label)
   }
 
+  /**
+   * Bỏ theo dõi các việc đã gỡ khi điều phối lại (0.8.9 D2): rời danh sách chờ giao và danh sách việc lỗi, nên không còn được nhắc giao
+   * và không còn là lý do để cổng kết thúc chặn.
+   */
+  function forgetDelegations(goalId: number, indexes: readonly number[]): void {
+    const d = local.delegation
+    if (d.goalId !== goalId) return
+    for (const index of indexes) {
+      d.pending.delete(index)
+      d.failed.delete(index)
+      d.failWarned.delete(index)
+    }
+  }
+
   /** Việc giao subagent đã lỗi mà chưa giao lại, của mục tiêu này. */
   function failedFor(brief: Brief | null): string[] {
     return brief && local.delegation.goalId === brief.goalId ? [...local.delegation.failed.values()] : []
@@ -1066,6 +1080,7 @@ export function createContext(options: PluginOptions) {
     steppedEarly,
     strictDelegation,
     trackDelegations,
+    forgetDelegations,
     restoreGoal,
     ttl,
     untrackedAgents,

@@ -7,7 +7,7 @@
 
 import type { ModelCompleteRequest, ModelCompleteResult, ModelTextBlock, ModelUsage } from 'claude-code'
 
-import type { Arrange, ArrangeRef, Brief, Choice, Depth, Effort, ForkSplit, Intent, Kind, ModelFamily, Relation, RouterFail, RouterFailKind, Task, TaskStatus, Tier, Volume } from '../../types'
+import type { Arrange, ArrangeRef, Brief, Choice, Depth, Effort, ForkSplit, Intent, Kind, ModelFamily, PlanStep, Relation, RemovedTask, RouterFail, RouterFailKind, Task, TaskStatus, Tier, Volume } from '../../types'
 import { isBigGoal, isPendingGoal } from './conductor'
 import { DEFAULT_CONDUCTOR, FAMILY_NAMES, conductorTimeouts } from './families'
 import type { PendingState } from './conductor'
@@ -15,7 +15,7 @@ import { DEFAULT_WINDOWS, PRICE } from './cost'
 import type { Price } from './cost'
 import { BASE_CHARS, BASE_HEAD, BASE_TAIL, HOOK_MAX_TOKENS, ROUTER_MAX_WAIT_MS, readPlan } from './reading'
 import type { ReadPlan, Reading } from './reading'
-import { EFFORTS, FAMILIES, applySession, avoidBlocked, codesIn, describePick, effortRank, familyOf, familyRank, sessionFloor } from './route'
+import { EFFORTS, FAMILIES, applySession, avoidBlocked, codesIn, describePick, effortRank, familyOf, familyRank, matchTask, sessionFloor } from './route'
 import type { SessionModel } from './route'
 import { DEPTHS, INTENTS, KINDS, RELATIONS, VOLUMES, maxTier, tierOf } from './scale'
 
@@ -1653,6 +1653,116 @@ function replacedOf(prev: Brief, next: Brief): string[] {
   return [...gone(prev.constraints, next.constraints), ...gone(prev.requirements ?? [], next.requirements ?? [])]
 }
 
+/** Số việc đã gỡ tối đa brief giữ lại (0.8.9 D2), gần nhất sau cùng. */
+export const REMOVED_LIMIT = 50
+
+/** Trạng thái để kiểm luật 1 của D2: trạng thái từng việc (taskStatusOf) và checklist hiện tại. */
+export type ArrangeGuard = { states?: Readonly<Record<number, TaskStatus>>; checklist?: readonly PlanStep[] }
+
+/** Kết quả điều phối lại để ghi nhật ký và dặn luồng chính (0.8.9 D2): thứ tự làm, việc bỏ, việc gộp, mục bị bỏ qua kèm lý do. */
+export type Arranged = { order: number[]; dropped: number[]; merged: Array<{ tasks: number[]; into: number }>; skipped: Array<{ task: ArrangeRef; why: string }> }
+
+/**
+ * Áp kế hoạch router đã điều phối lại lên brief (0.8.9 D2). Luật:
+ * (1) chỉ việc chưa bắt đầu, và việc đã lỗi mà chưa giao lại, mới bị bỏ hay bị gộp; việc xong, đang chạy, hay có bước doing, done,
+ *     verified trong checklist thì giữ, mục nhắm vào nó bị bỏ qua và được ghi lại;
+ * (2) không đánh số lại; (3) gộp: các việc rời brief, covers của chúng nhập vào việc `into` (không có hay cũng bị bỏ thì bỏ qua mục đó);
+ * (4) order áp cho việc còn mở: số lạ, trùng, việc đã bỏ thì bỏ qua; việc còn mở không có trong order xếp sau theo số; không có order thì
+ *     giữ thứ tự đã lưu (nếu có) bớt việc đã gỡ;
+ * (5) việc bị gỡ rời brief.tasks và brief.steps; brief giữ tối đa REMOVED_LIMIT việc đã gỡ gần nhất.
+ * Không gỡ việc nào và không có order mới: brief giữ nguyên; `arranged` vẫn có khi có mục bị bỏ qua, để ghi nhật ký.
+ */
+export function applyArrange(brief: Brief, arrange: Arrange, added: readonly Task[], guard: ArrangeGuard = {}): { brief: Brief; arranged: Arranged | null } {
+  const states = guard.states ?? {}
+  const byIndex = new Map(brief.tasks.map(t => [t.index, t]))
+  const resolve = (ref: ArrangeRef): number | null => {
+    if (typeof ref === 'number') return byIndex.has(ref) ? ref : null
+    const fresh = added[Number(ref.slice(3)) - 1]
+    return fresh !== undefined && byIndex.has(fresh.index) ? fresh.index : null
+  }
+  const started = new Set(
+    (guard.checklist ?? []).filter(step => step.status === 'doing' || step.status === 'done' || step.status === 'verified').flatMap(step => {
+      const owner = matchTask(brief.tasks, step.title)
+      return owner !== undefined ? [owner.index] : []
+    }),
+  )
+  const stateOf = (index: number): TaskStatus => states[index] ?? 'not started'
+  const guardOf = (index: number): string | null =>
+    stateOf(index) === 'done' ? 'việc đã xong' : stateOf(index) === 'running' ? 'việc đang chạy' : started.has(index) ? 'việc đã có bước đang làm hay đã xong' : null
+  const skipped: Arranged['skipped'] = []
+  const gone = new Map<number, RemovedTask>()
+  /** Việc gỡ được: có trong brief, không bị luật 1 giữ, chưa gỡ; không được thì ghi mục bị bỏ qua. */
+  const removable = (index: number): Task | null => {
+    const owner = byIndex.get(index)
+    if (owner === undefined) {
+      skipped.push({ task: index, why: 'không có việc này' })
+      return null
+    }
+    const why = guardOf(index)
+    if (why !== null) {
+      skipped.push({ task: index, why })
+      return null
+    }
+    return gone.has(index) ? null : owner
+  }
+  const dropped: number[] = []
+  for (const item of arrange.drop) {
+    const owner = removable(item.task)
+    if (owner === null) continue
+    gone.set(owner.index, { index: owner.index, title: owner.title, why: item.why })
+    dropped.push(owner.index)
+  }
+  const merged: Arranged['merged'] = []
+  const covers = new Map<number, number[]>()
+  for (const item of arrange.merge) {
+    const into = resolve(item.into)
+    if (into === null || gone.has(into)) {
+      skipped.push({ task: item.into, why: 'việc nhận gộp không có hay đã bỏ' })
+      continue
+    }
+    const taken: number[] = []
+    for (const index of item.tasks) {
+      if (index === into) continue
+      const owner = removable(index)
+      if (owner === null) continue
+      gone.set(index, { index, title: owner.title, why: '', into })
+      covers.set(into, [...(covers.get(into) ?? []), ...(owner.covers ?? [])])
+      taken.push(index)
+    }
+    if (taken.length > 0) merged.push({ tasks: taken, into })
+  }
+  const open = brief.tasks.filter(t => !gone.has(t.index) && stateOf(t.index) !== 'done').map(t => t.index)
+  let order: number[] | undefined
+  if (arrange.order.length > 0) {
+    const listed: number[] = []
+    for (const ref of arrange.order) {
+      const index = resolve(ref)
+      if (index === null || listed.includes(index) || !open.includes(index)) continue
+      listed.push(index)
+    }
+    order = [...listed, ...open.filter(index => !listed.includes(index)).sort((a, b) => a - b)]
+  } else if (brief.order !== undefined && gone.size > 0) {
+    order = brief.order.filter(index => !gone.has(index))
+  }
+  const isChanged = gone.size > 0 || (arrange.order.length > 0 && order !== undefined)
+  if (!isChanged) return { brief, arranged: skipped.length > 0 ? { order: [], dropped: [], merged: [], skipped } : null }
+  const goneTitles = new Set([...gone.values()].map(r => r.title))
+  const tasks = brief.tasks
+    .filter(t => !gone.has(t.index))
+    .map(t => (covers.has(t.index) ? { ...t, covers: [...new Set([...(t.covers ?? []), ...(covers.get(t.index) ?? [])])] } : t))
+  const removed = [...(brief.removed ?? []), ...gone.values()].slice(-REMOVED_LIMIT)
+  return {
+    brief: {
+      ...brief,
+      tasks,
+      steps: brief.steps.filter(title => !goneTitles.has(title)),
+      ...(order !== undefined ? { order } : {}),
+      ...(removed.length > 0 ? { removed } : {}),
+    },
+    arranged: { order: order ?? [], dropped, merged, skipped },
+  }
+}
+
 /** Đợt vừa mở (0.8.0 A3): số đợt, số việc và số mục đã cất, số việc mới. */
 export type PhaseOpened = { number: number; tasks: number; items: number; added: number }
 
@@ -1802,8 +1912,8 @@ export function nextBrief(
   plan: RouterPlan,
   prompt: string,
   now: number,
-  options: { openSteps?: readonly string[]; sessionFamily?: ModelFamily | null; doneTasks?: ReadonlySet<number>; isPending?: boolean } = {},
-): { brief: Brief; added: Task[]; isNewGoal: boolean; replaced: string[]; held: boolean; dropped: number; phase?: PhaseOpened } {
+  options: ArrangeGuard & { openSteps?: readonly string[]; sessionFamily?: ModelFamily | null; doneTasks?: ReadonlySet<number>; isPending?: boolean } = {},
+): { brief: Brief; added: Task[]; isNewGoal: boolean; replaced: string[]; held: boolean; dropped: number; phase?: PhaseOpened; arranged?: Arranged } {
   const out = nextBriefRaw(prev, plan, prompt, now, options)
   return { ...out, brief: withSessionFloor(out.brief, options.sessionFamily ?? null) }
 }
@@ -1823,8 +1933,14 @@ function nextBriefRaw(
   plan: RouterPlan,
   prompt: string,
   now: number,
-  options: { openSteps?: readonly string[]; doneTasks?: ReadonlySet<number>; isPending?: boolean },
-): { brief: Brief; added: Task[]; isNewGoal: boolean; replaced: string[]; held: boolean; dropped: number; phase?: PhaseOpened } {
+  options: ArrangeGuard & { openSteps?: readonly string[]; doneTasks?: ReadonlySet<number>; isPending?: boolean },
+): { brief: Brief; added: Task[]; isNewGoal: boolean; replaced: string[]; held: boolean; dropped: number; phase?: PhaseOpened; arranged?: Arranged } {
+  // Điều phối lại (0.8.9 D2): áp arrange của router lên brief sau khi followUpOf đã nối việc mới, ở cả đợt mới lẫn tiếp nối thường.
+  const arranged = (brief: Brief, added: readonly Task[]) => {
+    if (plan.arrange === undefined) return { brief }
+    const out = applyArrange(brief, plan.arrange, added, options)
+    return out.arranged !== null ? { brief: out.brief, arranged: out.arranged } : { brief: out.brief }
+  }
   if (prev !== null && prev.isReference && plan.runReference) {
     const brief = promoteReference(prev, plan, prompt, now)
     return { brief, added: [], isNewGoal: true, replaced: replacedOf(prev, brief), held: false, dropped: 0 }
@@ -1840,7 +1956,7 @@ function nextBriefRaw(
     const opened = openPhase(prev, options.doneTasks ?? new Set())
     const next = followUpOf(opened.brief, isLowNew ? { ...plan, relation: 'continue' } : plan, now, isLowNew, true)
     const phase: PhaseOpened = { number: opened.brief.phase ?? 2, tasks: opened.tasks, items: opened.items, added: next.added.length }
-    return { brief: next.brief, added: next.added, dropped: next.dropped, isNewGoal: false, replaced: next.replaced, held, phase }
+    return { ...arranged(next.brief, next.added), added: next.added, dropped: next.dropped, isNewGoal: false, replaced: next.replaced, held, phase }
   }
   if (prev === null || (plan.relation === 'new' && !held)) {
     const fresh = briefOf(plan, prompt, (prev?.goalId ?? 0) + 1, now)
@@ -1851,7 +1967,7 @@ function nextBriefRaw(
     return { brief, added: [], isNewGoal: true, replaced: [], held: false, dropped: 0 }
   }
   const next = followUpOf(prev, held ? { ...plan, relation: 'continue' } : plan, now, held)
-  return { ...next, isNewGoal: false, replaced: replacedOf(prev, next.brief), held }
+  return { ...next, ...arranged(next.brief, next.added), isNewGoal: false, replaced: replacedOf(prev, next.brief), held }
 }
 
 /**

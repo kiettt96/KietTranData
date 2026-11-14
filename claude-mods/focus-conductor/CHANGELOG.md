@@ -44,8 +44,9 @@ Router của prompt dài hơn 80.000 ký tự bị engine từ chối khi họ �
 - `limits-l2-087`: "mục tiêu 100 việc: request tiếp nối gửi 20 việc và một dòng tổng số 100" đổi tên thành "mục tiêu 100 việc chưa xong: request tiếp nối gửi đủ 100 việc kèm trạng thái, không có dòng tổng (0.8.9 D1)".
 - `limits-l2-087`: "mục tiêu 12 việc: trường prompt trùng 0.8.6" đổi tên thành "mục tiêu 12 việc chưa xong: trường prompt trùng 0.8.6 khi bỏ nhãn trạng thái của từng việc (0.8.9 D1)"; băm ghim giữ nguyên, so trên prompt đã bỏ nhãn.
 - `golden.test.ts` "câu trả lời đã ghi khớp request hiện tại của mod": đỏ từ commit sửa D1 tới khi ghi lại golden ở D4, vì đặc tả chỉ cho ghi lại golden ở D4.
+- **D2: mod áp kế hoạch đã điều phối lại.** `applyArrange` chạy trong `nextBriefRaw`, sau `followUpOf`, ở cả đợt mới lẫn tiếp nối thường, nên prompt thường, tin chen ngang và `/conductor reroute` dùng chung. Chỉ việc chưa bắt đầu hay đã lỗi mà chưa giao lại mới bị bỏ hay gộp; không đánh số lại; gộp nhập `covers`; brief lưu thứ tự làm (`order`) và tối đa 50 việc đã gỡ (`removed`), sống qua hot reload. Việc bị gỡ rời danh sách chờ giao và danh sách việc lỗi (`forgetDelegations`), không còn chặn cổng kết thúc. Nhật ký quyết định có dòng `rearrange`. Không ca cũ nào đổi kỳ vọng.
 
-**Mẫu cũ viết lại, giữ mã (vòng 2):** `075-R1c`, `075-R1f` (khối phần tràn của request tiếp nối viết thành nhiều dòng ở C2); `072-R9` (ngưỡng bị cắt nay là hằng `TRUNCATED_SHARE`, R2); `070-C13`, `074-C2`, `074-C3` (lời gọi router có thêm `taskStates`, D1); `075-B13f` (dòng tổng số việc nay là dòng việc đã xong, D1); `075-S1e` (tách khỏi chỗ trùng trong `arrangeOf`, D1).
+**Mẫu cũ viết lại, giữ mã (vòng 2):** `075-R1c`, `075-R1f` (khối phần tràn của request tiếp nối viết thành nhiều dòng ở C2); `072-R9` (ngưỡng bị cắt nay là hằng `TRUNCATED_SHARE`, R2); `070-C13`, `074-C2`, `074-C3` (lời gọi router có thêm `taskStates`, D1); `075-B13f` (dòng tổng số việc nay là dòng việc đã xong, D1); `075-S1e` (tách khỏi chỗ trùng trong `arrangeOf`, D1); `075-B12f`, `075-M5i` (nextBrief nhận thêm trạng thái việc và checklist, D2).
 
 ## Thay đổi 0.8.8: giao diện hướng B "Ba ô phát sáng", dải màu neon
 

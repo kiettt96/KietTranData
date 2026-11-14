@@ -109,6 +109,10 @@ export type Brief = {
   mainBase?: Choice
   /** Số mục của prompt tiếp nối không giữ được vì ràng buộc và yêu cầu đã đầy, kể cả phần tràn (0.7.5, vòng rà soát 3). */
   dropped?: number
+  /** Thứ tự làm của các việc còn mở sau lần điều phối lại gần nhất (0.8.9 D2); vắng khi chưa điều phối lại. */
+  order?: number[]
+  /** Việc đã gỡ khi điều phối lại (0.8.9 D2), tối đa 50 việc gần nhất; vắng khi chưa gỡ việc nào. */
+  removed?: RemovedTask[]
   /** Luồng chính mà prompt đính kèm cần nếu chạy thật (chỉ khi isReference). */
   referenceMain?: Choice
   /** Lý do router đưa ra. */
@@ -563,6 +567,9 @@ export type QuotaPause = {
   /** 0.8.2 N4: số lời gọi Bash sao lưu (git add, commit, push lên nhánh -wip) đã cho qua trong lần dừng này; vắng là 0. */
   backupCalls?: number
 }
+
+/** Việc đã gỡ khỏi brief khi điều phối lại (0.8.9 D2): bỏ (why là lý do router ghi) hay gộp vào việc `into`. */
+export type RemovedTask = { index: number; title: string; why: string; into?: number }
 
 /** Trạng thái một việc của brief khi gửi router (0.8.9 D1): tính từ các dòng tiến độ của việc đó. */
 export type TaskStatus = 'not started' | 'running' | 'failed' | 'done'

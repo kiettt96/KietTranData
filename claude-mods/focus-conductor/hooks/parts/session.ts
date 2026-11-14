@@ -158,7 +158,7 @@ const GATED_TOOLS = /^(?:Edit|Write|MultiEdit|NotebookEdit|Bash|Agent)$/
 
 export function registerSession(on: On, ctx: Ctx): void {
   const L = ctx.local
-  const { decisionLog, flushDecisions, delegationItems, expectedMain, isRouterPaused, noteRouter, noteRouterTime, ranText, record, resetLocal, routerFallback, skipPhrases, trackDelegations, wantedPick } = ctx
+  const { decisionLog, flushDecisions, delegationItems, expectedMain, forgetDelegations, isRouterPaused, noteRouter, noteRouterTime, ranText, record, resetLocal, routerFallback, skipPhrases, trackDelegations, wantedPick } = ctx
   const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
   const mode = derive([modeState], modeOf(ctx.options))
 
@@ -545,7 +545,9 @@ export function registerSession(on: On, ctx: Ctx): void {
     // Việc đã xong theo checklist hiện tại (0.8.0 A3): có bước riêng và các bước đó đã đóng hết; được cất khi prompt này mở đợt mới. Việc chưa
     // có bước riêng không tính là xong chỉ vì checklist đóng hết (checklist đó có thể là của đợt trước).
     const doneTasks = new Set(taskRows(before, now).filter(row => row.index !== undefined && row.kind !== 'main' && row.state === 'done' && row.bar.kind === 'steps').map(row => row.index as number))
-    const { brief, added, isNewGoal, replaced, held, dropped, phase } = nextBrief(prev, plan, text, now, { openSteps: openSteps(before.plan).map(s => s.title), sessionFamily: L.sessionFamily, doneTasks, isPending: S.pendingOf(before) })
+    const { brief, added: routedAdded, isNewGoal, replaced, held, dropped, phase, arranged } = nextBrief(prev, plan, text, now, { openSteps: openSteps(before.plan).map(s => s.title), sessionFamily: L.sessionFamily, doneTasks, isPending: S.pendingOf(before), states: taskStatusOf(before, now), checklist: before.plan })
+    // Việc mới mà chính lần điều phối lại đã gỡ (0.8.9 D2) không còn là việc mới.
+    const added = routedAdded.filter(t => brief.tasks.some(kept => kept.index === t.index))
     // Router xếp mục tiêu mới với tin cậy thấp khi checklist còn bước mở (0.7.5): giữ mục tiêu, ghi nhật ký quyết định.
     if (held && prev !== null) {
       L.promptIntent = { relation: 'continue', kind: plan.kind }
@@ -601,6 +603,11 @@ export function registerSession(on: On, ctx: Ctx): void {
     const expected = wanted !== null && isNewGoal ? expectedMain(core, brief, wanted, now) : wanted
     if (isNewGoal) trackDelegations(brief.goalId, brief.isReference ? [] : brief.tasks)
     else if (!brief.isReference) trackDelegations(brief.goalId, added, true)
+    // Điều phối lại (0.8.9 D2): việc đã gỡ rời danh sách chờ giao và danh sách việc lỗi; nhật ký ghi thứ tự, việc bỏ, việc gộp, mục bỏ qua.
+    if (arranged !== undefined) {
+      forgetDelegations(brief.goalId, [...arranged.dropped, ...arranged.merged.flatMap(m => m.tasks)])
+      record(now, 'rearrange', { goalId: brief.goalId, order: arranged.order, dropped: arranged.dropped, merged: arranged.merged, skipped: arranged.skipped })
+    }
     await update($, coreState, S.withDelegations(brief.goalId, delegationItems(brief)))
     const newConstraints = plan.constraints.filter(c => !prev?.constraints.includes(c))
     // Luồng chính đang chạy (0.7.8 G9): route đã chốt ở step đầu của turn đó; turn không có route thì là model của phiên.
