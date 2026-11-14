@@ -167,7 +167,8 @@ describe('0.6.1 2.4: band với nhiều việc', () => {
   const bandAt = async ($: Engine, maxRows: number) => {
     const band = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows, bodyColumns: 120, scroll: { offset: 0, bodyRows: maxRows }, view: {} } })
     const tree = (await band.drawn()) as unknown as { children: Array<{ children?: unknown[] }> }
-    const rows = (tree.children[1]?.children ?? []).length
+    // 0.8.8 N6g: gốc của band là hộp cột chứa các dòng.
+    const rows = (tree.children ?? []).length
     const texts = (await band.findAll({ type: 'Text' })).map(e => e.text)
     await band.unmount()
     return { rows, texts }

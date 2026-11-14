@@ -13,14 +13,16 @@ const PLAN = 'mcp__focus-conductor__plan'
 const TITLES = ['BƯỚC 0: chuẩn bị', 'BƯỚC 1: chuẩn hóa', 'BƯỚC 2: chuyển dữ liệu', 'BƯỚC 3: lọc tin lô 1', 'BƯỚC 4: lọc tin lô 2', 'BƯỚC 5: lọc tin lô 3', 'BƯỚC 6: tổng hợp']
 const GOAL = 'Cập nhật sổ giá tuần theo các bước có mã'
 
-const textOf = (n: unknown): string => (typeof n === 'string' ? n : n !== null && typeof n === 'object' ? (((n as Node).type === 'Button' ? [String((n as Node).props?.label ?? '')] : []).concat(((n as Node).children ?? []).map(textOf))).join(' ') : '')
+// 0.8.8 N2: chữ nối không thêm khoảng trắng, vì dải màu tách chữ của một ô thành nhiều Text con.
+const textOf = (n: unknown): string => (typeof n === 'string' ? n : n !== null && typeof n === 'object' ? (((n as Node).type === 'Button' ? [` ${String((n as Node).props?.label ?? '')} `] : []).concat(((n as Node).children ?? []).map(textOf))).join('') : '')
 
 /** Chữ của từng dòng band: cột nội dung là con thứ hai của hộp ngoài. */
 async function bandRows($: Engine, columns: number, maxRows: number): Promise<string[]> {
   const ui = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: true, maxRows, bodyColumns: columns, scroll: { offset: 0, bodyRows: maxRows }, view: {} } } as never)
   const tree = (await ui.drawn()) as unknown as Node
   await ui.unmount()
-  const content = (tree.children ?? []).filter(c => c !== null && typeof c === 'object')[1] as Node
+  // 0.8.8 N6g: gốc của band là hộp cột chứa các dòng (0.8.7: dòng nằm trong cột thứ hai, sau cột gờ).
+  const content = tree
   return (content.children ?? []).filter(c => c !== null && typeof c === 'object').map(textOf)
 }
 
@@ -43,7 +45,9 @@ describe('0.7.6 band hai dòng', () => {
     await midGoal($, on)
     const rows = await bandRows($, 120, 2)
     expect(rows.length).toBe(2)
-    for (const part of ['5/7', 'BƯỚC 5: lọc tin lô 3', 'opus', 'high', '12 phút', '$', 'Chi tiết']) expect(rows[0], part).toContain(part)
+    // 0.8.8 N2: dòng 1 là ba ô (số bước và tên bước, model, hướng); thời gian, chi phí và nút Chi tiết ở dòng 2, sau thanh và mục tiêu.
+    for (const part of ['5/7', 'BƯỚC 5: lọc tin lô 3', 'opus', 'high']) expect(rows[0], part).toContain(part)
+    for (const part of ['12 phút', '$', 'Chi tiết']) expect(rows[1], part).toContain(part)
     expect(rows[0]).not.toContain(GOAL)
     expect(rows.join('\n')).not.toContain('đang thực hiện')
     expect(rows[1]).toContain(GOAL)
@@ -56,8 +60,9 @@ describe('0.7.6 band hai dòng', () => {
 
   test('72 cột: không có chi phí; 96 cột trở lên: có', { options: { planApproval: 'off' } }, async ($, on) => {
     await midGoal($, on)
-    expect((await bandRows($, 72, 2))[0]).not.toContain('$')
-    expect((await bandRows($, 96, 2))[0]).toContain('$')
+    // 0.8.8 N2: chi phí ở dòng 2.
+    expect((await bandRows($, 72, 2))[1]).not.toContain('$')
+    expect((await bandRows($, 96, 2))[1]).toContain('$')
   })
 
   test('không có gì cần chú ý mà có subagent đang chạy: dòng 2 là subagent đang chạy', { options: { planApproval: 'off' } }, async ($, on) => {
@@ -79,8 +84,9 @@ describe('0.7.6 band hai dòng', () => {
     await $.tool.call({ tool: 'Write', file_path: '/repo/scripts/ngoai.py', content: 'x' } as never)
     const rows = await bandRows($, 120, 1)
     expect(rows.length).toBe(1)
-    expect(rows[0]).toContain('ngoài phạm vi')
-    expect(rows[0]).not.toContain('BƯỚC 0: sửa')
+    // 0.8.8 N2: mục mức đỏ không còn thế chỗ tên bước; ô hướng tô đặc ghi "Lệch phạm vi".
+    expect(rows[0]).toContain('\u25B2 Lệch phạm vi')
+    expect(rows[0]).toContain('BƯỚC 0: sửa')
   })
 })
 
@@ -89,7 +95,9 @@ describe('0.7.6 band hai dòng: chưa có checklist', () => {
     base(on, { router: () => plan({ goal: GOAL, depth: 'substantial', volume: 'small' }) })
     await submit($, GOAL)
     const rows = await bandRows($, 120, 2)
-    expect(rows.length).toBe(1)
+    // 0.8.8 N2: dòng 2 luôn có (nút Chi tiết và Ẩn nằm ở đó); mục tiêu chỉ ở dòng 1.
+    expect(rows.length).toBe(2)
     expect(rows[0]).toContain(GOAL)
+    expect(rows[1]).not.toContain(GOAL)
   })
 })

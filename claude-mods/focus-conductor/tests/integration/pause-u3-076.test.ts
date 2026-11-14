@@ -11,7 +11,8 @@ import { RESUME, memoryStore, quotaMeter, session, week } from '../support/quota
 type Node = { type?: string; props?: Record<string, unknown>; children?: unknown[] }
 const PLAN = 'mcp__focus-conductor__plan'
 const PAUSE = '⏸'
-const textOf = (n: unknown): string => (typeof n === 'string' ? n : n !== null && typeof n === 'object' ? (((n as Node).type === 'Button' ? [String((n as Node).props?.label ?? '')] : []).concat(((n as Node).children ?? []).map(textOf))).join(' ') : '')
+// 0.8.8 N2: chữ nối không thêm khoảng trắng, vì dải màu tách chữ của một ô thành nhiều Text con.
+const textOf = (n: unknown): string => (typeof n === 'string' ? n : n !== null && typeof n === 'object' ? (((n as Node).type === 'Button' ? [` ${String((n as Node).props?.label ?? '')} `] : []).concat(((n as Node).children ?? []).map(textOf))).join('') : '')
 const cells = (s: string) => [...s.normalize('NFC')].length
 
 function hooks(on: On) {
@@ -25,7 +26,8 @@ async function bandRows($: Engine, columns: number, maxRows: number) {
   const ui = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows, bodyColumns: columns, scroll: { offset: 0, bodyRows: maxRows }, view: {} } } as never)
   const tree = (await ui.drawn()) as unknown as Node
   await ui.unmount()
-  const content = (tree.children ?? []).filter(c => c !== null && typeof c === 'object')[1] as Node
+  // 0.8.8 N6g: gốc của band là hộp cột chứa các dòng (0.8.7: dòng nằm trong cột thứ hai, sau cột gờ).
+  const content = tree
   return (content.children ?? []).filter(c => c !== null && typeof c === 'object') as Node[]
 }
 
@@ -47,9 +49,11 @@ describe('0.7.6 U3: tạm dừng cứng trên band', () => {
   for (const columns of [56, 72, 120]) {
     test(`${columns} cột: dòng 1 "⏸ Tạm dừng: ..." kèm giờ làm mới, dòng 2 "Điểm dừng đã ghi · chạy tiếp: /conductor resume force"`, { options: { planApproval: 'off' } }, async ($, on) => {
       await hardPause($, on)
+      // 0.8.8 N2: dòng 1 là ba ô, ô hướng ghi "Tạm dừng"; lý do, giờ làm mới, điểm dừng và lệnh chạy tiếp ở dòng 2.
       const rows = (await bandRows($, columns, 2)).map(textOf)
-      expect(rows[0]).toContain(`${PAUSE} Tạm dừng: hạn mức phiên (5 giờ) còn 3%`)
-      expect(rows[0]).toContain('làm mới')
+      expect(rows[0]).toContain(`${PAUSE} Tạm dừng`)
+      expect(rows[1]).toContain(`${PAUSE} Tạm dừng: hạn mức phiên (5 giờ) còn 3%`)
+      expect(rows[1]).toContain('làm mới')
       expect(rows[1]).toContain('Điểm dừng đã ghi')
       expect(rows[1]).toContain('chạy tiếp: /conductor resume force')
     })
@@ -70,7 +74,7 @@ describe('0.7.6 U3: tạm dừng cứng trên band', () => {
     await submit($, COMPLEX_PROMPT)
     await conductor($, 'pause')
     const rows = (await bandRows($, 120, 2)).map(textOf)
-    expect(rows[0]).toContain(`${PAUSE} Tạm dừng: người dùng yêu cầu tạm dừng`)
+    expect(rows[1]).toContain(`${PAUSE} Tạm dừng: người dùng yêu cầu tạm dừng`)
     expect(rows[1]).toContain('chạy tiếp: /conductor resume')
     expect(rows[1]).not.toContain('force')
   })
@@ -109,9 +113,11 @@ describe('0.7.6 U3: mục tiêu không bị cắt còn một ký tự', () => {
       await submit($, COMPLEX_PROMPT)
       const [first] = await bandRows($, columns, 2)
       const kids = ((first as Node).children ?? []).filter(c => c !== null && typeof c === 'object') as Node[]
-      const fixed = kids.filter(k => k.props?.flexGrow === undefined).reduce((sum, k) => sum + (k.type === 'Button' ? Math.max(10, cells(String(k.props?.label ?? '')) + 2) : cells(textOf(k))), 0)
+      // 0.8.8 N2: ô bước (con đầu của dòng 1) ghi mục tiêu đã cắt theo chỗ còn lại; cả dòng 1 vừa bề rộng.
+      expect(cells(textOf(kids[0]).trim())).toBeGreaterThanOrEqual(10)
+      const all = kids.reduce((sum, k) => sum + (k.type === 'Button' ? Math.max(10, cells(String(k.props?.label ?? '')) + 2) : cells(textOf(k))), 0)
       const gaps = Number((first as Node).props?.gap ?? 0) * Math.max(0, kids.length - 1)
-      expect(columns - 2 - fixed - gaps).toBeGreaterThanOrEqual(10)
+      expect(all + gaps).toBeLessThanOrEqual(columns)
     })
   }
 })

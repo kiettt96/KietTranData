@@ -9,13 +9,19 @@ import type { Color } from 'claude-code'
 
 import type { DelegationState, Ledger, ModelFamily, PlanStep, RouteEvent, StepStatus, WarningKind } from '../../types'
 import { GROUPS } from '../lib/ledger'
+import { WIDE_GRAPHEME, graphemeCells, graphemesOf } from './cells'
+import type { GradientName, Paint } from './neon'
+import { OFF_STYLE, paintOf } from './neon'
 import type { TaskBar } from '../lib/progress'
 
 /** Một ký hiệu có màu. Hình dạng khác nhau để đọc được cả khi terminal không có màu. */
 export type Mark = { glyph: string; color: Color; dim?: boolean; bold?: boolean }
 
 /** Một đoạn chữ có màu, để ghép vào Text lồng nhau. */
-export type Run = { text: string; color: Color; dim?: boolean; bold?: boolean }
+/** `bg`: nền của đoạn (0.8.8 N1), cho ô tô đặc. */
+export type Run = { text: string; color: Color; dim?: boolean; bold?: boolean; bg?: Color }
+
+export { graphemeCells, graphemesOf }
 
 export const SPINE = '▎'
 
@@ -106,39 +112,50 @@ export function phaseOf(plan: readonly PlanStep[]): Phase {
   return plan.some(s => s.status !== 'todo') ? 'start' : 'idle'
 }
 
+/** Bộ màu theme key: mặc định của các hàm dựng thanh (status line và nơi gọi không truyền bộ màu), cho màu như 0.8.7. */
+export const THEME_PAINT: Paint = paintOf(OFF_STYLE)
+
+/** Chữ màu của một giai đoạn, bắt đầu ở ô `offset` của dải: neon thì dải màu (0.8.8 N1), off thì PHASE_HUE; idle là inactive. */
+export function phaseRuns(paint: Paint, phase: Phase, text: string, extra: Omit<Run, 'text' | 'color'> = {}, offset = 0): Run[] {
+  const name = paint.phase(phase)
+  return text === '' ? [] : name === null ? [{ text, color: PHASE_HUE.idle, ...extra }] : paint.text(name, text, extra, offset)
+}
+
 /**
  * Thanh tiến độ rộng đúng `cells` ô. Phần đã đóng tô màu giai đoạn, phần còn lại là nét đứt mờ (hình dạng khác nhau nên
  * đọc được cả khi không có màu). Ô đầu tiên sau phần đã đóng là ký hiệu của bước đang là tâm điểm: ◐ cùng màu giai đoạn
- * khi đang làm, ■ vàng khi bị chặn. Xong hết thì thanh đầy, không có đầu thanh.
+ * khi đang làm, ■ vàng khi bị chặn. Xong hết thì thanh đầy, không có đầu thanh. Từ 0.8.8 màu giai đoạn lấy qua bộ màu `paint`
+ * (neon: dải màu theo giai đoạn; mặc định THEME_PAINT cho màu như 0.8.7).
  */
-export function barRuns(plan: readonly PlanStep[], cells: number, hasRunning = false): Run[] {
+export function barRuns(plan: readonly PlanStep[], cells: number, hasRunning = false, paint: Paint = THEME_PAINT): Run[] {
   const total = plan.length
   if (total === 0 || cells < 3) return []
   const closed = plan.filter(isClosed).length
-  const hue = PHASE_HUE[phaseOf(plan)]
+  const phase = phaseOf(plan)
   const verified = plan.filter(s => s.status === 'verified').length
   // Phần đã đóng: phần verified (đã kiểm chứng) tô đậm đứng trước, phần done thường. Không có verified thì một đoạn như 0.6.1.
   const solid = (n: number): Run[] => {
-    if (verified === 0) return [{ text: '━'.repeat(n), color: hue }]
+    if (verified === 0) return phaseRuns(paint, phase, '━'.repeat(n))
     const bold = verified >= closed ? n : Math.max(1, Math.min(n - 1, Math.round((n * verified) / closed)))
-    return [{ text: '━'.repeat(bold), color: hue, bold: true }, ...(n - bold > 0 ? [{ text: '━'.repeat(n - bold), color: hue }] : [])]
+    return [...phaseRuns(paint, phase, '━'.repeat(bold), { bold: true }), ...(n - bold > 0 ? phaseRuns(paint, phase, '━'.repeat(n - bold), {}, bold) : [])]
   }
   if (closed >= total) return solid(cells)
   const filled = closed === 0 ? 0 : Math.min(cells - 1, Math.max(1, Math.round((closed / total) * cells)))
   const status = currentStep(plan)?.status
   // W4: bước hiện tại còn todo mà đã có lô đang chạy thì đầu thanh cũng là ◐.
-  const head: Run | null =
+  const head: Run[] =
     status === 'doing' || (status === 'todo' && hasRunning)
-      ? { text: STEP_MARK.doing.glyph, color: hue, bold: true }
+      ? // ◐ của bước đang làm (0.8.8 N5): in đậm ở frame chẵn, thường ở frame lẻ (dải đứng yên thì frame là 0, luôn đậm).
+        phaseRuns(paint, phase, STEP_MARK.doing.glyph, { bold: paint.frame % 2 === 0 }, filled)
       : status === 'blocked'
-        ? { text: STEP_MARK.blocked.glyph, color: STEP_MARK.blocked.color, bold: true }
+        ? [{ text: STEP_MARK.blocked.glyph, color: paint.solid('attention') ?? STEP_MARK.blocked.color, bold: true }]
         : status === 'waiting'
-          ? { text: STEP_MARK.waiting.glyph, color: STEP_MARK.waiting.color, bold: true }
-          : null
+          ? [{ text: STEP_MARK.waiting.glyph, color: STEP_MARK.waiting.color, bold: true }]
+          : []
   const runs: Run[] = []
   if (filled > 0) runs.push(...solid(filled))
-  if (head) runs.push(head)
-  const track = cells - filled - (head ? 1 : 0)
+  runs.push(...head)
+  const track = cells - filled - head.length
   if (track > 0) runs.push({ text: '╌'.repeat(track), color: 'subtle' })
   return runs
 }
@@ -148,22 +165,33 @@ export function barRuns(plan: readonly PlanStep[], cells: number, hasRunning = f
  * theo bước đã đóng). Không có thì chỉ trạng thái, không phần trăm: chờ giao hay chưa bắt đầu là nét đứt mờ, đang chạy là
  * đầu ◐ trên nét đứt, xong là thanh đầy màu success, lỗi là ■ màu error, bị cắt vì tạm dừng là ■ màu warning.
  */
-export function taskBarRuns(bar: TaskBar, cells: number): Run[] {
-  if (bar.kind === 'steps') return barRuns(bar.plan, cells)
+export function taskBarRuns(bar: TaskBar, cells: number, paint: Paint = THEME_PAINT): Run[] {
+  if (bar.kind === 'steps') return barRuns(bar.plan, cells, false, paint)
   if (cells < 3) return []
   const track = (n: number): Run[] => (n > 0 ? [{ text: '╌'.repeat(n), color: 'subtle' }] : [])
   switch (bar.state) {
     case 'done':
-      return [{ text: '━'.repeat(cells), color: 'success' }]
+      return phaseRuns(paint, 'done', '━'.repeat(cells))
     case 'running':
-      return [{ text: STEP_MARK.doing.glyph, color: 'claude', bold: true }, ...track(cells - 1)]
+      return [...phaseRuns(paint, 'active', STEP_MARK.doing.glyph, { bold: true }), ...track(cells - 1)]
     case 'failed':
-      return [{ text: STEP_MARK.blocked.glyph, color: 'error', bold: true }, ...track(cells - 1)]
+      return [{ text: STEP_MARK.blocked.glyph, color: paint.solid('error') ?? 'error', bold: true }, ...track(cells - 1)]
     case 'cut':
-      return [{ text: STEP_MARK.blocked.glyph, color: 'warning', bold: true }, ...track(cells - 1)]
+      return [{ text: STEP_MARK.blocked.glyph, color: paint.solid('attention') ?? 'warning', bold: true }, ...track(cells - 1)]
     default:
       return [{ text: '╌'.repeat(cells), color: 'subtle', dim: true }]
   }
+}
+
+/**
+ * Thanh tỷ lệ rộng `cells` ô (0.8.8 N4): phần đầy theo `ratio` (0 tới 1, làm tròn; tỷ lệ dương có ít nhất một ô), tô theo dải `name` của bộ
+ * màu; phần còn lại là nét đứt mờ. Dùng cho thanh hạn mức và thanh chi phí của pane.
+ */
+export function ratioRuns(ratio: number, cells: number, paint: Paint, name: GradientName): Run[] {
+  if (cells <= 0) return []
+  const r = Number.isFinite(ratio) ? Math.max(0, Math.min(1, ratio)) : 0
+  const filled = r > 0 ? Math.max(1, Math.round(r * cells)) : 0
+  return [...paint.text(name, '━'.repeat(filled)), ...(cells - filled > 0 ? [{ text: '╌'.repeat(cells - filled), color: 'subtle' as Color }] : [])]
 }
 
 /**
@@ -235,14 +263,6 @@ export function wrapText(text: string, width: number, maxLines: number): string[
   return kept
 }
 
-/** Cụm ký tự (grapheme) của chuỗi; không có Intl.Segmenter thì theo từng code point. */
-function graphemesOf(text: string): string[] {
-  return typeof Intl.Segmenter === 'function' ? [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text)].map(part => part.segment) : [...text]
-}
-
-/** Cụm ký tự rộng hai ô terminal: emoji, cờ, chữ CJK và chữ toàn khổ. */
-const WIDE_GRAPHEME = /\p{Extended_Pictographic}|\p{Regional_Indicator}|[\u1100-\u115F\u2E80-\u303E\u3041-\u33FF\u3400-\u4DBF\u4E00-\u9FFF\uA960-\uA97F\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFF60\uFFE0-\uFFE6]/u
-const graphemeCells = (g: string) => (WIDE_GRAPHEME.test(g) ? 2 : 1)
 
 /**
  * Một dòng không quá `cells` ô, dòng bị cắt kết bằng "…" (0.7.9, UI1). Chữ thường cắt theo từ bằng wrapText như mọi chữ của pane, nên

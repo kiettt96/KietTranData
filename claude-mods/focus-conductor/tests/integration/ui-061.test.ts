@@ -56,8 +56,9 @@ function widthOf(el: El | string): number {
 
 /** Phần cố định của từng dòng band: gờ trái, mọi con không co (flexShrink 0, nút) và gap; con co được chỉ tính lề. */
 function fixedRows(tree: El): number[] {
-  const [spine, body] = (tree.children ?? []) as El[]
-  const spineCells = widthOf(spine as El)
+  // 0.8.8 N6g: gốc của band là hộp cột chứa các dòng, không còn cột gờ.
+  const body = tree
+  const spineCells = 0
   return ((body?.children ?? []) as El[]).map(row => {
     const kids = (row.children ?? []).filter(k => typeof k !== 'string') as El[]
     const own = kids.reduce((sum, k) => sum + (k.type === 'Box' && k.props?.['flexShrink'] === 1 ? Number(k.props?.['marginLeft'] ?? 0) : widthOf(k)), 0)
@@ -173,12 +174,12 @@ describe('0.6.1 3.2: mục Hạn mức trong pane', () => {
       await $.session.measure({ context: { tokens: 1, window: 200_000 }, rateLimits: [session(40), week(20)], changed: ['rateLimits'] } as never)
       const pane = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: width } })
       expect(await pane.drawn()).toMatchObject({ type: 'Box' })
-      expect(await pane.find({ type: 'Text', text: /^Hạn mức ─+/ })).toBeDefined()
+      expect(await pane.find({ type: 'Text', text: /^\s*Hạn mức\s+─+/ })).toBeDefined()
       expect(await pane.find({ type: 'Text', text: /phiên \(5 giờ\): đã dùng 40%, còn 60%.*ngưỡng còn 5%/ })).toBeDefined()
       expect(await pane.find({ type: 'Text', text: /tuần: đã dùng 20%, còn 80%/ })).toBeDefined()
       expect(await pane.find({ type: 'Text', text: /Trạng thái: bình thường/ })).toBeDefined()
       const texts = (await pane.findAll({ type: 'Text' })).map(e => e.text)
-      const quotaAt = texts.findIndex(t => /^Hạn mức ─/.test(t))
+      const quotaAt = texts.findIndex(t => /^\s*Hạn mức\s+─/.test(t))
       const warnAt = texts.findIndex(t => /Không có cảnh báo/.test(t))
       expect(quotaAt).toBeGreaterThanOrEqual(0)
       expect(warnAt).toBeGreaterThan(quotaAt)
@@ -244,11 +245,11 @@ describe('0.6.1 3.2: mục Hạn mức trong pane', () => {
     memoryStore(on)
     await goalWithSteps($)
     let pane = await $.ui.mount(PANE)
-    expect(await pane.find({ type: 'Text', text: /^Hạn mức ─/ })).toBeUndefined()
+    expect(await pane.find({ type: 'Text', text: /^\s*Hạn mức\s+─/ })).toBeUndefined()
     await pane.unmount()
     await conductor($, 'pause')
     pane = await $.ui.mount(PANE)
-    expect(await pane.find({ type: 'Text', text: /^Hạn mức ─/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /^\s*Hạn mức\s+─/ })).toBeDefined()
     await pane.unmount()
   })
 
@@ -260,7 +261,7 @@ describe('0.6.1 3.2: mục Hạn mức trong pane', () => {
     await goalWithSteps($)
     await measure($, 99)
     const pane = await $.ui.mount(PANE)
-    expect(await pane.find({ type: 'Text', text: /^Hạn mức ─/ })).toBeUndefined()
+    expect(await pane.find({ type: 'Text', text: /^\s*Hạn mức\s+─/ })).toBeUndefined()
     expect(await pane.find({ type: 'Text', text: /Không có cảnh báo/ })).toBeDefined()
     await pane.unmount()
   })
@@ -285,7 +286,7 @@ describe('0.6.1 3.2: mục Hạn mức trong pane', () => {
     await seen.clock.advance(10_000)
     await measure($, 10)
     let pane = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 48 } })
-    expect(await pane.find({ type: 'Text', text: /^Quota ─/ })).toBeDefined()
+    expect(await pane.find({ type: 'Text', text: /^\s*Quota\s+─/ })).toBeDefined()
     expect(await pane.find({ type: 'Text', text: /session \(5h\): used 10%, left 90%.*threshold 5% left/ })).toBeDefined()
     expect(await pane.find({ type: 'Text', text: /State: normal/ })).toBeDefined()
     await pane.unmount()
@@ -312,7 +313,7 @@ describe('0.6.1 3.2: mục Hạn mức trong pane', () => {
     await goalWithSteps($)
     // 0.7.5 C6: chưa có số đo và chưa dừng thì không có mục Hạn mức.
     let pane = await $.ui.mount(PANE)
-    expect(await pane.find({ type: 'Text', text: /^Quota ─/ })).toBeUndefined()
+    expect(await pane.find({ type: 'Text', text: /^\s*Quota\s+─/ })).toBeUndefined()
     await pane.unmount()
     await conductor($, 'pause')
     pane = await $.ui.mount(PANE)
@@ -355,20 +356,22 @@ describe('0.6.1 3.3: band hẹp khi dừng', () => {
       const tree = (await band.drawn()) as unknown as El
       const out = {
         count: (await band.find({ type: 'Text', text: /^0\/2$/ })) !== undefined,
-        family: (await band.find({ type: 'Text', text: /^ opus $/ })) !== undefined,
+        // 0.8.8 N2: tên họ là một Text riêng trong ô model (0.8.7: chip " opus " có nền).
+        family: (await band.find({ type: 'Text', text: /^opus$/ })) !== undefined,
         effort: (await band.find({ type: 'Text', text: /xhigh/ })) !== undefined,
         fixed: Math.max(...fixedRows(tree)),
       }
       await band.unmount()
       return out
     }
-    expect(await look(48)).toMatchObject({ count: true, family: true, effort: true })
+    // 0.8.8 N2: dòng 1 thêm ô hướng (không bao giờ bị bỏ), nên các mốc bỏ dời lên: 56 cột còn đủ, 48 cột bỏ effort, 40 cột bỏ cả ô model.
+    expect(await look(56)).toMatchObject({ count: true, family: true, effort: true })
+    const at48 = await look(48)
+    expect(at48).toMatchObject({ count: true, family: true, effort: false })
+    expect(at48.fixed).toBeLessThanOrEqual(48)
     const at40 = await look(40)
-    expect(at40).toMatchObject({ count: true, family: true, effort: false })
+    expect(at40).toMatchObject({ count: true, family: false, effort: false })
     expect(at40.fixed).toBeLessThanOrEqual(40)
-    const at30 = await look(30)
-    expect(at30).toMatchObject({ count: true, family: false, effort: false })
-    expect(at30.fixed).toBeLessThanOrEqual(30)
   })
 
   test('chế độ suggest: thiếu chỗ thì bỏ effort của chip đề xuất, giữ tên model (061-U21)', { options: { planApproval: 'off' } }, async ($, on) => {
@@ -379,10 +382,11 @@ describe('0.6.1 3.3: band hẹp khi dừng', () => {
     await goalWithSteps($)
     await step($, seen)
     await conductor($, 'mode suggest')
-    const band = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: bandProps(40, 1) })
+    // 0.8.8 N2: ô hướng chiếm chỗ trên dòng 1, nên ca này đo ở 56 cột (48 cột trở xuống bỏ cả ô model đề xuất).
+    const band = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: bandProps(56, 1) })
     expect(await band.find({ type: 'Text', text: /^opus$/ })).toBeDefined()
     expect(await band.find({ type: 'Text', text: /xhigh/ })).toBeUndefined()
-    for (const fixed of fixedRows((await band.drawn()) as unknown as El)) expect(fixed).toBeLessThanOrEqual(40)
+    for (const fixed of fixedRows((await band.drawn()) as unknown as El)) expect(fixed).toBeLessThanOrEqual(56)
     await band.unmount()
   })
 

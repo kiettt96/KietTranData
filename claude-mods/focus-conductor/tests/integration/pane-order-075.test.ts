@@ -22,7 +22,7 @@ function rowOf(root: unknown, want: RegExp): number {
     const node = n as Node
     const p = node.props ?? {}
     if (node.type === 'Text') {
-      if (found < 0 && want.test(textOf(node))) found = top
+      if (found < 0 && want.test(textOf(node).trimStart())) found = top
       return 1
     }
     const before = num(p.marginTop ?? p.marginY ?? p.margin) + num(p.paddingTop ?? p.paddingY ?? p.padding)
@@ -96,7 +96,7 @@ describe('0.7.5 C6: mục Hạn mức khi chưa có số đo', () => {
     base(on)
     agents(on)
     await goal($)
-    expect((await texts($)).some(t => /^Hạn mức ─/.test(t))).toBe(false)
+    expect((await texts($)).some(t => /^\s*Hạn mức\s+─/.test(t))).toBe(false)
   })
 
   test('có số đo: mục Hạn mức như cũ', { options: { planApproval: 'off' } }, async ($, on) => {
@@ -104,7 +104,7 @@ describe('0.7.5 C6: mục Hạn mức khi chưa có số đo', () => {
     quotaMeter(on, [session(40)])
     agents(on)
     await goal($)
-    expect((await texts($)).some(t => /^Hạn mức ─/.test(t))).toBe(true)
+    expect((await texts($)).some(t => /^\s*Hạn mức\s+─/.test(t))).toBe(true)
   })
 })
 
@@ -128,7 +128,7 @@ describe('0.7.5 C6: mục Hạn mức khi có điểm dừng mà không có số
     await seen.clock.advance(10_000)
     await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'doing' })
     const all = await texts($)
-    expect(all.some(t => /^Hạn mức ─/.test(t))).toBe(true)
+    expect(all.some(t => /^\s*Hạn mức\s+─/.test(t))).toBe(true)
     expect(all.some(t => /^Trạng thái: không có dữ liệu \(engine không báo hạn mức/.test(t))).toBe(true)
     expect(all.some(t => /^Điểm dừng: đang mở/.test(t))).toBe(true)
   })
@@ -144,6 +144,6 @@ describe('0.7.5 C6: quotaGuard false', () => {
     quotaMeter(on, [session(99)])
     await submit($, COMPLEX_PROMPT)
     await conductor($, 'resume force')
-    expect((await texts($)).some(t => /^Hạn mức ─/.test(t))).toBe(false)
+    expect((await texts($)).some(t => /^\s*Hạn mức\s+─/.test(t))).toBe(false)
   })
 })

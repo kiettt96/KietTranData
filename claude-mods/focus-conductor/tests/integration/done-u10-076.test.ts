@@ -10,13 +10,15 @@ type Node = { type?: string; props?: Record<string, unknown>; children?: unknown
 const PLAN = 'mcp__focus-conductor__plan'
 const GOAL = 'Cập nhật sổ giá tuần'
 const TITLES = ['BƯỚC 0: chuẩn bị', 'BƯỚC 1: lọc tin', 'BƯỚC 2: tổng hợp']
-const textOf = (n: unknown): string => (typeof n === 'string' ? n : n !== null && typeof n === 'object' ? (((n as Node).type === 'Button' ? [String((n as Node).props?.label ?? '')] : []).concat(((n as Node).children ?? []).map(textOf))).join(' ') : '')
+// 0.8.8 N2: chữ nối không thêm khoảng trắng (dải màu tách chữ của một ô thành nhiều Text con).
+const textOf = (n: unknown): string => (typeof n === 'string' ? n : n !== null && typeof n === 'object' ? (((n as Node).type === 'Button' ? [` ${String((n as Node).props?.label ?? '')} `] : []).concat(((n as Node).children ?? []).map(textOf))).join('') : '')
 
 async function bandRows($: Engine, columns: number, maxRows: number): Promise<string[]> {
   const ui = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows, bodyColumns: columns, scroll: { offset: 0, bodyRows: maxRows }, view: {} } } as never)
   const tree = (await ui.drawn()) as unknown as Node
   await ui.unmount()
-  const content = (tree.children ?? []).filter(c => c !== null && typeof c === 'object')[1] as Node
+  // 0.8.8 N6g: gốc của band là hộp cột chứa các dòng (0.8.7: dòng nằm trong cột thứ hai, sau cột gờ).
+  const content = tree
   return (content.children ?? []).filter(c => c !== null && typeof c === 'object').map(textOf)
 }
 
@@ -33,9 +35,10 @@ describe('0.7.6 U10: trạng thái hoàn thành', () => {
   test('band một dòng: số bước, "Hoàn thành: <mục tiêu>", thời gian đã chạy, chi phí', { options: { planApproval: 'off' } }, async ($, on) => {
     await finished($, on)
     const rows = await bandRows($, 120, 2)
-    expect(rows.length).toBe(1)
-    for (const part of ['3/3', `Hoàn thành: ${GOAL}`, '25 phút', '$']) expect(rows[0], part).toContain(part)
-    expect(rows[0]).not.toContain('Đã xong mọi bước')
+    // 0.8.8 N2: dòng 1 là ba ô (ô bước ghi "3/3" và "Đã xong mọi bước"); dòng 2 là thanh đầy, "Hoàn thành: <mục tiêu>", thời gian, chi phí.
+    expect(rows.length).toBe(2)
+    for (const part of ['3/3', 'Đã xong mọi bước']) expect(rows[0], part).toContain(part)
+    for (const part of [`Hoàn thành: ${GOAL}`, '25 phút', '$']) expect(rows[1], part).toContain(part)
   })
 
   test('pane ẩn dòng việc chưa từng giao khi mọi bước đã đóng', { options: { planApproval: 'off' } }, async ($, on) => {

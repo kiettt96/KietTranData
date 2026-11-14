@@ -88,7 +88,7 @@ describe('0.7.9 UI2: dòng Đang chạy giữ "từ HH:MM"', () => {
       await spawnTool($, 'u1', `${LONG} lô 101`, 'lọc')
       await spawnTool($, 'u2', `${LONG} lô 102`, 'lọc')
       await seen.clock.advance(180_000)
-      const line = await runningLine($, columns, /^Đang chạy ─/)
+      const line = await runningLine($, columns, /^\s*Đang chạy\s+─/)
       expect(cells(line), line).toBeLessThanOrEqual(columns)
       expect(line).toMatch(/^BƯỚC 2:.*… · lô 101 đến 102 · 2 agent · 3 phút · từ \d\d:\d\d$/)
     })
@@ -98,7 +98,7 @@ describe('0.7.9 UI2: dòng Đang chạy giữ "từ HH:MM"', () => {
     const seen = await goal($, on, LONG)
     await spawnTool($, 'u1', `${LONG} lô 101`, 'lọc')
     await seen.clock.advance(180_000)
-    const line = await runningLine($, 60, /^Running ─/)
+    const line = await runningLine($, 60, /^\s*Running\s+─/)
     expect(cells(line), line).toBeLessThanOrEqual(60)
     expect(line).toMatch(/^BƯỚC 2:.*… · run 101 · 1 agent · 3 min · since \d\d:\d\d$/)
   })
@@ -106,13 +106,13 @@ describe('0.7.9 UI2: dòng Đang chạy giữ "từ HH:MM"', () => {
   test('tên việc ngắn vừa 72 cột: giữ nguyên tên, không cắt', { options: { planApproval: 'off' } }, async ($, on) => {
     await goal($, on)
     await spawnTool($, 'u1', 'BƯỚC 2: lọc tin lô 7', 'lọc')
-    const line = await runningLine($, 72, /^Đang chạy ─/)
+    const line = await runningLine($, 72, /^\s*Đang chạy\s+─/)
     expect(line).toMatch(/^BƯỚC 2: lọc tin · lô 7 · 1 agent · <1 phút · từ \d\d:\d\d$/)
   })
 })
 
 describe('0.7.9 UI2: nhịp vẽ lại 60 giây khi có turn đang chạy', () => {
-  test('đồng hồ giả chạy 3 phút trong một turn: thời gian đã chạy ở band và pane tăng 3 lần, 3 lần vẽ lại, không ghi $.state', { options: { planApproval: 'off' } }, async ($, on) => {
+  test('đồng hồ giả chạy 3 phút trong một turn: thời gian đã chạy ở band và pane tăng 3 lần, 3 lần vẽ lại, không ghi $.state', { options: { planApproval: 'off', neonMotion: 'off' } }, async ($, on) => {
     const count = counters(on)
     const session = mock.session(on)
     const seen = await goal($, on)
@@ -144,7 +144,7 @@ describe('0.7.9 UI2: nhịp vẽ lại 60 giây khi có turn đang chạy', () =
     expect(count.writes - before.writes).toBeGreaterThan(0)
   })
 
-  test('không có turn đang chạy: không có nhịp nào, kể cả sau khi nạp lại mod; turn kết thúc thì nhịp dừng', { options: { planApproval: 'off' } }, async ($, on) => {
+  test('không có turn đang chạy: không có nhịp nào, kể cả sau khi nạp lại mod; turn kết thúc thì nhịp dừng', { options: { planApproval: 'off', neonMotion: 'off' } }, async ($, on) => {
     sessionHooks(on)
     const count = counters(on)
     const seen = await goal($, on)
@@ -165,7 +165,7 @@ describe('0.7.9 UI2: nhịp vẽ lại 60 giây khi có turn đang chạy', () =
     expect(count.invalidates.length).toBe(after)
   })
 
-  test('nạp lại mod giữa turn (session.start lần nữa), rồi đồng hồ chạy 3 phút: vẫn đúng 3 lần vẽ lại', { options: { planApproval: 'off' } }, async ($, on) => {
+  test('nạp lại mod giữa turn (session.start lần nữa), rồi đồng hồ chạy 3 phút: vẫn đúng 3 lần vẽ lại', { options: { planApproval: 'off', neonMotion: 'off' } }, async ($, on) => {
     sessionHooks(on)
     const count = counters(on)
     const seen = await goal($, on)
@@ -181,7 +181,7 @@ describe('0.7.9 UI2: nhịp vẽ lại 60 giây khi có turn đang chạy', () =
     expect(count.invalidates.length).toBe(after)
   })
 
-  test('turn mới bắt đầu ngay sau turn cũ (trước nhịp kế): vẫn một nhịp, 3 phút là 3 lần vẽ lại', { options: { planApproval: 'off' } }, async ($, on) => {
+  test('turn mới bắt đầu ngay sau turn cũ (trước nhịp kế): vẫn một nhịp, 3 phút là 3 lần vẽ lại', { options: { planApproval: 'off', neonMotion: 'off' } }, async ($, on) => {
     const count = counters(on)
     const seen = await goal($, on)
     await startTurn($)

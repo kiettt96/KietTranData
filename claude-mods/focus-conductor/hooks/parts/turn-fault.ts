@@ -12,6 +12,7 @@ import type { EngineInterface, On } from 'claude-code'
 import { EMPTY_QUOTA, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaSettings } from '../lib/quota'
 import { openSteps } from '../lib/drift'
 import * as S from '../lib/state'
+import { statusTextOf } from '../ui/direction'
 import { netResumeText } from '../lib/text'
 import type { View } from '../lib/state'
 import { viewOf } from '../atoms'
@@ -79,7 +80,7 @@ async function probeTick($: EngineInterface, ctx: Ctx, watch: Watch): Promise<vo
 
 /** Status line kèm các nhãn của mod (hạn mức, lỗi router, turn lỗi). */
 async function showStatus($: EngineInterface, current: View, options: Ctx['options']): Promise<void> {
-  $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
+  $.ui.status(statusTextOf(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
 }
 
 export function registerTurnFault(on: On, ctx: Ctx): void {

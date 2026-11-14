@@ -13,6 +13,7 @@ import { clipText } from '../lib/decisions'
 import { askRouter, bareBrief, briefOf, failFields, nextBrief, parseRoute, rerouted, routerFailOf, routerRequest } from '../lib/router'
 import { shownPlan } from '../lib/mirror'
 import * as S from '../lib/state'
+import { statusTextOf } from '../ui/direction'
 import type { View } from '../lib/state'
 import { RETRY_ROUNDS, WAIVE_REPORT, briefContext, checkHintLines, droppedGoalNotice, headlessOffNote, droppedItemsText, droppedPlanNotice, quotaStatusLines, renderPlan, resetLabel, routerFailLines, unroutedContext } from '../lib/text'
 import { PANE_ROWS, shouldAutoOpenPane } from '../lib/pane'
@@ -94,7 +95,7 @@ async function commandLimits($: EngineInterface): Promise<readonly unknown[] | n
 
 /** Status line kèm nhãn hạn mức (0.6.1): mọi chỗ đặt status của file này đi qua đây, nên nhãn không mất giữa các hook. */
 async function showStatus($: EngineInterface, current: View, options: Ctx['options']): Promise<void> {
-  $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
+  $.ui.status(statusTextOf(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
 }
 
 /** Lệnh kiểm chưa đạt của mục tiêu hiện tại cho /conductor status (0.7.8 vòng sửa 3, W4): lượt và mức của từng lượt. */

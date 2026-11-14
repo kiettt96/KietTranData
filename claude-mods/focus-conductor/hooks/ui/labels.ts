@@ -85,6 +85,7 @@ const VI = {
   pauseLine: (cause: string, reset: string) => `Tạm dừng: ${cause}${reset ? ` · làm mới ${reset}` : ''}`,
   pauseCheckpointDone: 'Điểm dừng đã ghi',
   pauseResume: (command: string) => `chạy tiếp: ${command}`,
+  quotaResetHeading: (reset: string) => `làm mới ${reset}`,
   quotaStateQuota: 'tạm dừng (hạn mức)',
   quotaStateUser: 'tạm dừng (người dùng)',
   quotaStateForced: (names: string, until: string) => `ép tiếp ${names} tới ${until}`,
@@ -191,6 +192,19 @@ const VI = {
   resetDoneToast: 'Đã đặt lại mục tiêu, checklist, cảnh báo, mục tiêu đã cất, sổ chi phí và danh sách model bị chặn.',
   showBand: 'Hiện band',
   hideBand: 'Ẩn band',
+  // Ô hướng của band và đoạn hướng của status line (0.8.8 N2, N3).
+  directionOnTrack: 'Đúng hướng',
+  directionPaused: 'Tạm dừng',
+  directionApproval: 'Chờ duyệt',
+  directionFailed: 'Lô lỗi',
+  directionScope: 'Lệch phạm vi',
+  directionLoop: 'Lặp lỗi',
+  directionNotice: 'Gần hạn mức',
+  directionDropped: 'Mục bị bỏ',
+  directionUnverified: 'Chưa kiểm',
+  directionBudget: 'Vượt ngân sách',
+  directionOther: 'Cần chú ý',
+  directionVerified: (verified: number, total: number) => `Đã kiểm ${verified}/${total}`,
 }
 
 const EN: typeof VI = {
@@ -248,6 +262,7 @@ const EN: typeof VI = {
   pauseLine: (cause, reset) => `Paused: ${cause}${reset ? ` · resets ${reset}` : ''}`,
   pauseCheckpointDone: 'Checkpoint saved',
   pauseResume: command => `continue with: ${command}`,
+  quotaResetHeading: reset => `resets ${reset}`,
   quotaStateQuota: 'paused (quota)',
   quotaStateUser: 'paused (by you)',
   quotaStateForced: (names, until) => `forced past ${names} until ${until}`,
@@ -351,6 +366,18 @@ const EN: typeof VI = {
   resetDoneToast: 'Reset the goal, checklist, warnings, stashed goals, cost ledger and blocked-model list.',
   showBand: 'Show band',
   hideBand: 'Hide band',
+  directionOnTrack: 'On track',
+  directionPaused: 'Paused',
+  directionApproval: 'Awaiting approval',
+  directionFailed: 'Failed batch',
+  directionScope: 'Out of scope',
+  directionLoop: 'Loop',
+  directionNotice: 'Near limit',
+  directionDropped: 'Dropped item',
+  directionUnverified: 'Unverified',
+  directionBudget: 'Over budget',
+  directionOther: 'Needs attention',
+  directionVerified: (verified, total) => `Verified ${verified}/${total}`,
 }
 
 export function labels(lang: Lang): typeof VI {

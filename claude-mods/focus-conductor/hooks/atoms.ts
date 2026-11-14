@@ -8,6 +8,7 @@ import * as S from './lib/state'
 import type { View } from './lib/state'
 import { langOf } from './ui/labels'
 import { conductorOf } from './lib/conductor'
+import { DEFAULT_NEON, neonStyleOf } from './ui/neon'
 
 /** Một lần đọc cho mọi thứ band, pane và status line cần. */
 export function viewOf(options: PluginOptions) {
@@ -17,12 +18,16 @@ export function viewOf(options: PluginOptions) {
   // 0.8.7 G1: họ điều phối chính là giá trị của option conductor (conductorOf).
   const primary = conductorOf(options)
   const conductor = primary !== 'off' ? { fallback: typeof rawRouter === 'string' && rawRouter.trim() !== '' ? rawRouter.trim() : 'sonnet', family: primary } : null
+  // Dải màu neon (0.8.8 N1): kiểu mặc định thì View như 0.8.7, không có trường neon.
+  const neon = neonStyleOf(options)
+  const isDefaultNeon = neon.palette === DEFAULT_NEON.palette && neon.motion === DEFAULT_NEON.motion && neon.theme === DEFAULT_NEON.theme
   return (core: Core, override: Mode | null, isBandHidden: boolean): View => ({
     core: S.normalizeCore(core),
     mode: S.modeOf(override, options),
     isBandHidden,
     lang,
     ...(conductor !== null ? { conductor } : {}),
+    ...(isDefaultNeon ? {} : { neon }),
   })
 }
 

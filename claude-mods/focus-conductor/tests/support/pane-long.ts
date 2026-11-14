@@ -22,7 +22,8 @@ export function rowOf(root: unknown, want: RegExp): number {
     const node = n as Node
     const p = node.props ?? {}
     if (node.type === 'Text') {
-      if (found < 0 && want.test(textOf(node))) found = top
+      // 0.8.8 N4: tiêu đề mục mở bằng một ô trống của ô tô đặc.
+      if (found < 0 && want.test(textOf(node).trimStart())) found = top
       return 1
     }
     const before = num(p.marginTop ?? p.marginY ?? p.margin) + num(p.paddingTop ?? p.paddingY ?? p.padding)

@@ -73,7 +73,7 @@ describe('0.7.5 S6: bước dự kiến của router trước khi có checklist'
     const { tree, texts } = await drawn($, 14)
     expect(stepRow(tree, 0)).toBeLessThan(14)
     // 0.7.6 U11: bước dự kiến nằm dưới tiêu đề "Danh sách bước (dự kiến)".
-    const at = texts.findIndex(t => /^Danh sách bước \(dự kiến\)/.test(t))
+    const at = texts.findIndex(t => /^\s*Danh sách bước\s+─+\s+\(dự kiến\)/.test(t))
     expect(at).toBeGreaterThanOrEqual(0)
     const planned = texts.slice(at + 1)
     expect(planned).toContain(openMore('vi', 7))

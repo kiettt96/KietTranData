@@ -32,7 +32,7 @@ describe('giao diện', () => {
     expect(await ui.find({ type: 'Text', text: /^việc vừa$/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /Phân tích luồng/ })).toBeDefined()
     await ui.press({ key: 'mode-suggest' })
-    expect(await ui.find({ type: 'Text', text: /Danh sách bước 0\/1/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /Danh sách bước\s+─+\s+0\/1/ })).toBeDefined()
     await ui.unmount()
   })
 
@@ -69,7 +69,7 @@ describe('giao diện', () => {
     }
   }
 
-  test('thanh tiến độ đổi màu theo bốn giai đoạn ở cả band và pane: xanh dương, cam, vàng, xanh lá', { options: { planApproval: 'off' } }, async ($, on) => {
+  test('thanh tiến độ đổi màu theo bốn giai đoạn ở cả band và pane: xanh dương, cam, vàng, xanh lá', { options: { planApproval: 'off', neon: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     const PLAN = 'mcp__focus-conductor__plan'
@@ -108,7 +108,7 @@ describe('giao diện', () => {
     expect(done.cells).toBeGreaterThanOrEqual(6)
   })
 
-  test('bước bị chặn: đầu thanh là ■ vàng, phần đã đóng vẫn theo giai đoạn', { options: { planApproval: 'off' } }, async ($, on) => {
+  test('bước bị chặn: đầu thanh là ■ vàng, phần đã đóng vẫn theo giai đoạn', { options: { planApproval: 'off', neon: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     const PLAN = 'mcp__focus-conductor__plan'
@@ -118,7 +118,7 @@ describe('giao diện', () => {
     expect(await progressOf($)).toMatchObject({ fill: 'claude', head: '■', headColor: 'warning', count: '1/4', word: undefined })
   })
 
-  test('terminal hẹp: vẫn tô màu theo giai đoạn, chỉ bỏ tên giai đoạn trên band', { options: { planApproval: 'off' } }, async ($, on) => {
+  test('terminal hẹp: vẫn tô màu theo giai đoạn, chỉ bỏ tên giai đoạn trên band', { options: { planApproval: 'off', neon: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     const PLAN = 'mcp__focus-conductor__plan'

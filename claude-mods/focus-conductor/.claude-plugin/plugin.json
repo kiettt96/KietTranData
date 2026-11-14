@@ -1,6 +1,6 @@
 {
   "name": "focus-conductor",
-  "version": "0.8.7",
+  "version": "0.8.8",
   "author": { "name": "Kiet Tran" },
   "description": "Một model Claude (router) đọc kỹ prompt trước khi làm và điều phối model/effort/agent cho từng việc; mod kiểm, ép điều phối lúc chạy, giữ nhất quán mục tiêu với checklist và cảnh báo lạc đề.",
   "types": "./types/index.d.ts",
@@ -277,6 +277,27 @@
       "description": "vi hoặc en cho nhãn của band và pane; nội dung của router, cảnh báo và khối gửi Claude giữ nguyên ngôn ngữ của chúng",
       "default": "vi",
       "options": ["vi", "en"]
+    },
+    "neon": {
+      "type": "string",
+      "title": "Dải màu neon",
+      "description": "Bảng màu của band và pane khi đang chạy bình thường: cyber (mặc định), aurora, plasma; off thì mọi màu theo theme của người dùng như 0.8.7. Giá trị khác coi là cyber. (en) Colour band of the band and pane while work runs normally: cyber (default), aurora, plasma; off keeps every colour on the user's theme as in 0.8.7. Any other value is cyber.",
+      "default": "cyber",
+      "options": ["cyber", "aurora", "plasma", "off"]
+    },
+    "neonMotion": {
+      "type": "string",
+      "title": "Màu chạy",
+      "description": "on (mặc định): khi có turn đang chạy, dải màu dịch một ô mỗi giây và band, pane vẽ lại mỗi giây; off: dải màu đứng yên, nhịp vẽ lại 60 giây như 0.8.7. (en) on (default): while a turn runs, the colour bands move one cell per second and the band and pane redraw every second; off: bands stand still and redraw every 60 seconds as in 0.8.7.",
+      "default": "on",
+      "options": ["on", "off"]
+    },
+    "neonTheme": {
+      "type": "string",
+      "title": "Nền của dải màu",
+      "description": "auto (mặc định), dark, light. Engine không báo cho mod biết nền sáng hay tối, nên auto dùng bảng nền tối; terminal nền sáng thì đặt light. (en) auto (default), dark, light. The engine does not tell the mod whether the background is light or dark, so auto uses the dark palette; set light on a light terminal.",
+      "default": "auto",
+      "options": ["auto", "dark", "light"]
     }
   }
 }

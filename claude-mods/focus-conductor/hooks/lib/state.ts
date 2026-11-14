@@ -18,6 +18,7 @@ import { shownPlan } from './mirror'
 import { evaluateQuota, isPauseActive, overrideOf, quotaBadge, softNotices } from './quota'
 import type { QuotaSettings } from './quota'
 import type { Lang } from '../ui/labels'
+import type { NeonStyle } from '../ui/neon'
 import { labels } from '../ui/labels'
 
 export const EMPTY_LIFT: Lift = { depth: 0, effort: 0 }
@@ -74,7 +75,8 @@ const LIFT_LIMIT = 2
 
 /** Ảnh chụp mọi thứ band, pane và status line cần, đọc một lần. */
 /** `conductor` (0.8.4 C8): chỉ có khi option conductor là fable; `fallback` là model router dùng khi Fable tạm ngừng. */
-export type View = { core: Core; mode: Mode; isBandHidden: boolean; lang: Lang; conductor?: { fallback: string; family: ModelFamily } }
+/** `neon` (0.8.8 N1): kiểu dải màu đọc từ ba option; vắng là mặc định (cyber, on, dark). */
+export type View = { core: Core; mode: Mode; isBandHidden: boolean; lang: Lang; conductor?: { fallback: string; family: ModelFamily }; neon?: NeonStyle }
 
 export function isMode(value: unknown): value is Mode {
   return value === 'auto' || value === 'subagents' || value === 'suggest' || value === 'off'
@@ -88,9 +90,9 @@ export function modeOf(override: Mode | null, options: PluginOptions): Mode {
 }
 
 /** Nội dung status line; undefined để xóa khi mod tắt. */
-export function statusOf(view: View): string | undefined {
+export function statusOf(view: View, direction?: string): string | undefined {
   if (view.mode === 'off') return undefined
-  const line = statusLine(view.core.brief, shownPlan(view.core).plan, view.core.route, view.mode)
+  const line = statusLine(view.core.brief, shownPlan(view.core).plan, view.core.route, view.mode, direction)
   // Kế hoạch đã trình chờ duyệt (0.8.2 N2): nhãn ngắn ngay sau dòng của mod, trước nhãn hạn mức.
   return approvalOf(view.core).status === 'presented' ? `${line} · ${labels(view.lang).planAwaitingShort}` : line
 }
@@ -100,8 +102,8 @@ export function statusOf(view: View): string | undefined {
  * khi gần ngưỡng). Chưa có mục tiêu thì dòng của mod là tên chế độ, nhãn vẫn đi kèm. statusOf chỉ trả undefined khi
  * mode off, lúc đó bảo vệ hạn mức không chạy nên không có nhãn. Tắt quotaGuard thì như statusOf.
  */
-export function statusText(view: View, quota: QuotaState, now: number, settings: QuotaSettings): string | undefined {
-  const base = statusOf(view)
+export function statusText(view: View, quota: QuotaState, now: number, settings: QuotaSettings, direction?: string): string | undefined {
+  const base = statusOf(view, direction)
   // Thứ tự nhãn (0.7.3): hạn mức, lỗi router, turn lỗi.
   const evaluation = evaluateQuota(quota.readings, now, settings)
   const isPaused = isPauseActive(true, evaluation.hits, quota.pause, overrideOf(quota), now)

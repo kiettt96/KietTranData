@@ -682,9 +682,10 @@ export function stepTag(title: string): string {
 
 /**
  * Status line (0.7.6, U5): thanh chữ (cùng ký hiệu với band, không màu, cho surface không có band), số bước, nhãn ngắn của bước hiện tại
- * và họ model; không có tier. Chưa có checklist thì chỉ họ model, không có model thì tên chế độ. Chế độ khác auto ghi cuối.
+ * và họ model; không có tier. Chưa có checklist thì chỉ họ model, không có model thì tên chế độ. Chế độ khác auto ghi cuối. Từ 0.8.8 (N3)
+ * `direction` là đoạn hướng (cùng nhãn với ô hướng của band, viết thường), đứng ngay sau họ model; vắng thì như 0.8.7.
  */
-export function statusLine(brief: Brief | null, plan: readonly PlanStep[], route: Route | null, mode: string): string {
+export function statusLine(brief: Brief | null, plan: readonly PlanStep[], route: Route | null, mode: string, direction?: string): string {
   if (brief === null) return mode
   const { total } = progress(plan)
   const bar = taskBarRuns({ kind: 'steps', plan: [...plan] }, STATUS_BAR).map(run => run.text).join('')
@@ -696,6 +697,7 @@ export function statusLine(brief: Brief | null, plan: readonly PlanStep[], route
   ]
   // W4: chưa có checklist và chưa có model thì ghi tên ngắn của mục tiêu (kèm mã đầu mục tiêu nếu có), không chỉ tên chế độ.
   if (parts.length === 0) parts.push(goalTag(brief.goal))
+  if (direction !== undefined && direction !== '') parts.push(direction)
   return `${parts.join(' · ')}${mode === 'auto' ? '' : ` · ${mode}`}`
 }
 
@@ -1037,7 +1039,12 @@ export function backupLine(backup: CheckpointBackup, lang: Lang): string {
 export const PANE_NOTE_MAX = 160
 
 /** Các dòng chữ của mục Hạn mức trong pane theo ngôn ngữ giao diện. `cause` là câu thay "Không có cảnh báo." khi đang dừng. */
-export type QuotaPaneText = { windows: string[]; state: string; isPaused: boolean; cause: string; checkpoint: string[] }
+/**
+ * `bars` (0.8.8 N4): mỗi cửa sổ một thanh, theo phần trăm đã dùng; `level` là far (còn xa ngưỡng báo mềm), near (từ ngưỡng báo mềm) hay
+ * paused (đang dừng). `reset`: giờ làm mới ghi ở tiêu đề mục: đang dừng thì của cửa sổ gây ra việc dừng, không thì của cửa sổ đã dùng nhiều nhất.
+ */
+export type QuotaPaneBar = { kind: QuotaReason['kind']; label: string; used: number; percent: string; level: 'far' | 'near' | 'paused' }
+export type QuotaPaneText = { windows: string[]; state: string; isPaused: boolean; cause: string; checkpoint: string[]; bars?: QuotaPaneBar[]; reset?: string }
 
 /**
  * Hạn mức trên band (0.7.6, U3): đang dừng thì dòng 1 là "Tạm dừng: <lý do> · làm mới <giờ>" và dòng 2 là "Điểm dừng đã ghi · chạy tiếp:
@@ -1061,7 +1068,7 @@ export function bandQuota(view: QuotaOverview, notices: readonly QuotaNoticeHit[
   }
 }
 
-export function quotaPaneText(view: QuotaOverview, lang: Lang, hasNotice = false): QuotaPaneText {
+export function quotaPaneText(view: QuotaOverview, lang: Lang, hasNotice = false, soft: { session: number | null; week: number | null } = { session: null, week: null }): QuotaPaneText {
   const l = labels(lang)
   const windows = view.windows.map(w => `${l.quotaWindow[w.kind]}: ${l.quotaUsage(percent(w.used), percent(Math.max(0, 100 - w.used)), resetLabel(w.resetsAt), percent(w.threshold))}`)
   const reasonText = (r: QuotaReason) =>
@@ -1089,7 +1096,17 @@ export function quotaPaneText(view: QuotaOverview, lang: Lang, hasNotice = false
   } else if (isPaused) {
     checkpoint.push(`${l.quotaContinue}: ${resumeCommand(view.state === 'user')}`)
   }
-  return { windows, state: `${l.quotaState}: ${state}`, isPaused, cause, checkpoint }
+  const softOf = (kind: QuotaReason['kind']) => (kind === 'five_hour' ? soft.session : soft.week)
+  const bars: QuotaPaneBar[] = view.windows.map(w => {
+    const notice = softOf(w.kind)
+    // Chỉ cửa sổ gây ra việc dừng dùng mức paused (0.8.8 N6e); người dùng tự dừng thì không cửa sổ nào là paused.
+    const level = isPaused && view.reasons.some(r => r.kind === w.kind) ? 'paused' : notice !== null && w.used >= 100 - notice ? 'near' : 'far'
+    return { kind: w.kind, label: l.quotaWindow[w.kind], used: w.used, percent: percent(w.used), level }
+  })
+  const causing = isPaused ? view.reasons.map(r => resetLabel(r.resetsAt)).find(text => text !== '') : undefined
+  const highest = [...view.windows].sort((a, b) => b.used - a.used)[0]
+  const reset = causing ?? (highest !== undefined ? resetLabel(highest.resetsAt) : '')
+  return { windows, state: `${l.quotaState}: ${state}`, isPaused, cause, checkpoint, bars, reset }
 }
 
 // ------------------------------------------------------------ giữ mục tiêu qua lần nén (0.7.4)

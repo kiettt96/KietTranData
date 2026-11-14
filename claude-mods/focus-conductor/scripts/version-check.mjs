@@ -55,3 +55,25 @@ if (stored !== fixtureText) {
   process.exit(1)
 }
 console.log(`Chuỗi 'fable' trong hooks/: ${Object.entries(sites).map(([file, n]) => `${file} ${n}`).join(', ')}`)
+
+// Mã màu thô (0.8.8 N1): chỉ hooks/ui/neon.ts được chứa mã hex sáu chữ số, rgb( hay ansi256(; mọi tệp khác lấy màu qua tệp đó.
+const RAW_COLOR = /#[0-9a-fA-F]{6}|rgb\(|ansi256\(/
+const NEON_FILE = 'ui/neon.ts'
+const rawSites = []
+const scan = dir => {
+  for (const name of readdirSync(dir).sort()) {
+    const path = dir + name
+    if (statSync(path).isDirectory()) scan(path + '/')
+    else if (/\.tsx?$/.test(name) && path.slice(hooksDir.length) !== NEON_FILE) {
+      readFileSync(path, 'utf8').split('\n').forEach((line, i) => {
+        if (RAW_COLOR.test(line)) rawSites.push(`${path.slice(hooksDir.length)}:${i + 1}`)
+      })
+    }
+  }
+}
+scan(hooksDir)
+if (rawSites.length > 0) {
+  console.error(`Mã màu thô ngoài hooks/${NEON_FILE}: ${rawSites.join(', ')}`)
+  process.exit(1)
+}
+console.log(`Mã màu thô chỉ nằm trong hooks/${NEON_FILE}`)

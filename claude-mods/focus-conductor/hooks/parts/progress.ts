@@ -10,6 +10,7 @@ import { freshTestRun } from '../lib/drift'
 import { applyTaskTool } from '../lib/mirror'
 import { EMPTY_QUOTA, normalizeQuota, quotaSettings } from '../lib/quota'
 import * as S from '../lib/state'
+import { statusTextOf } from '../ui/direction'
 import type { View } from '../lib/state'
 import type { Ctx } from '../context'
 import { viewOf } from '../atoms'
@@ -22,7 +23,7 @@ const quotaState = atom({ plugin: 'focus-conductor', key: 'quota' } as const, EM
 
 /** Status line kèm nhãn hạn mức (0.6.1): cùng S.statusText với mọi file khác. */
 async function showStatus($: EngineInterface, current: View, options: Ctx['options']): Promise<void> {
-  $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
+  $.ui.status(statusTextOf(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
 }
 
 export function registerProgress(on: On, ctx: Ctx): void {
