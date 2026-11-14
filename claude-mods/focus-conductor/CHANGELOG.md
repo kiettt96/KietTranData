@@ -30,6 +30,9 @@ Router của prompt dài hơn 80.000 ký tự bị engine từ chối khi họ �
 - `dropped-kind-s8-075`: "pane hiện câu cảnh báo mục bị bỏ ở Cần chú ý, một lần, không có chip "model"" đổi tên thành "ràng buộc không còn trần (0.8.9 C1): ba prompt như cũ không còn cảnh báo mục bị bỏ, không có chip "model"".
 - `error-behavior-a9-080`: "mục prompt tiếp nối bị bỏ: một mục dropped; mô tả không chứa nội dung prompt" đổi tên thành "ràng buộc không còn trần (0.8.9 C1): ba prompt như cũ không ghi mục dropped nào".
 - `dropped-rank-078`: giữ tên và kỳ vọng; dựng Core có sẵn cảnh báo mục bị bỏ (trạng thái từ bản cũ) thay cho ba prompt, vì mod không còn tạo cảnh báo này.
+- **C2: nơi chèn và gửi ràng buộc chỉ nêu tối đa 22 mục** (`shownConstraints`): các mục của prompt lập mục tiêu và các mục mới nhất, kèm một dòng hay một vế nêu số mục còn lại. Áp ở context của mục tiêu, context tiếp tục từ điểm dừng, request tiếp nối, request rà kế hoạch và mục ràng buộc của pane. Không quá 22 ràng buộc thì đầu ra trùng bản trước. Không ca cũ nào đổi kỳ vọng.
+
+**Mẫu cũ viết lại, giữ mã (vòng 2):** `075-R1c`, `075-R1f` (khối phần tràn của request tiếp nối viết thành nhiều dòng ở C2).
 
 ## Thay đổi 0.8.8: giao diện hướng B "Ba ô phát sáng", dải màu neon
 
