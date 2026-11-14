@@ -2,7 +2,12 @@
 // người dùng nhìn. Lấy theo mục đầu tiên của attentionItems (thứ tự ở attention.ts không đổi); tạm dừng đứng trước mọi mục; không có mục
 // nào thì theo checklist: xong hết là "đã kiểm k/n", còn lại là "đúng hướng". Hàm thuần: chỉ đọc Core và dữ liệu hạn mức mà hook đã tính.
 
-import type { Core, PlanStep } from '../../types'
+import type { Core, PlanStep, QuotaState } from '../../types'
+import { shownPlan } from '../lib/mirror'
+import type { QuotaSettings } from '../lib/quota'
+import { evaluateQuota, isPauseActive, overrideOf, softNotices } from '../lib/quota'
+import * as S from '../lib/state'
+import type { View } from '../lib/state'
 import type { Attention } from './attention'
 import { attentionItems } from './attention'
 import { labels } from './labels'
@@ -67,4 +72,24 @@ export function directionOf(core: Core, lang: Lang, quota: { paused: boolean; no
 /** Chữ của ô hướng: ký hiệu và nhãn. */
 export function directionText(direction: Direction): string {
   return `${direction.glyph} ${direction.label}`
+}
+
+/**
+ * Đoạn hướng của status line (0.8.8 N3): cùng nhãn với ô hướng của band, viết thường, không màu. Không có đoạn này khi chưa có mục tiêu,
+ * và khi mục đầu là tạm dừng, chờ duyệt kế hoạch hay báo hạn mức mềm: status line đã có nhãn riêng cho ba việc đó [Nguồn: chủ mod,
+ * 14/11/2026]. Tạm dừng và báo mềm tính như statusText.
+ */
+export function statusDirection(view: View, quota: QuotaState, now: number, settings: QuotaSettings): string | undefined {
+  if (view.core.brief === null) return undefined
+  const evaluation = evaluateQuota(quota.readings, now, settings)
+  const isPaused = settings.enabled && isPauseActive(true, evaluation.hits, quota.pause, overrideOf(quota), now)
+  const notice = settings.enabled && !isPaused && softNotices(quota.readings, now, settings).length > 0 ? 'notice' : null
+  const direction = directionOf(view.core, view.lang, { paused: isPaused, notice }, shownPlan(view.core).plan)
+  if (direction.kind === 'pause' || direction.kind === 'approval' || direction.kind === 'notice') return undefined
+  return `${direction.glyph} ${direction.label.toLocaleLowerCase(view.lang)}`
+}
+
+/** Status line của mọi hook (0.8.8 N3): statusText kèm đoạn hướng. */
+export function statusTextOf(view: View, quota: QuotaState, now: number, settings: QuotaSettings): string | undefined {
+  return S.statusText(view, quota, now, settings, statusDirection(view, quota, now, settings))
 }

@@ -44,6 +44,7 @@ async function twoTasks($: Engine, on: On) {
 }
 const last = (seen: { statuses: (string | undefined)[] }) => seen.statuses.at(-1) ?? ''
 
+// 0.8.8 N3: status line có đoạn hướng ("✓ đúng hướng"), nên số bước verified kiểm theo mẫu "<số>✓" thay cho mọi dấu ✓.
 describe('0.7.1: tự nâng verified cho danh sách phản chiếu', () => {
   test('đóng cả hai việc rồi test đạt: nâng; sửa tiếp: hạ; test lại: nâng lại', { options: { planApproval: 'off' } }, async ($, on) => {
     const seen = await twoTasks($, on)
@@ -51,12 +52,12 @@ describe('0.7.1: tự nâng verified cho danh sách phản chiếu', () => {
     await done($, '1')
     await done($, '2')
     expect(last(seen)).toContain('2/2')
-    expect(last(seen)).not.toContain('✓')
+    expect(last(seen)).not.toMatch(/\d✓/)
     await bash($, 'npm test')
     expect(last(seen)).toContain('2/2 · 2✓')
     await edit($, 'src/b.ts')
     expect(last(seen)).toContain('2/2')
-    expect(last(seen)).not.toContain('✓')
+    expect(last(seen)).not.toMatch(/\d✓/)
     await bash($, 'npm test')
     expect(last(seen)).toContain('2/2 · 2✓')
   })
@@ -78,7 +79,7 @@ describe('0.7.1: tự nâng verified cho danh sách phản chiếu', () => {
     await edit($, 'src/c.ts')
     await done($, '1')
     expect(last(seen)).toContain('1/2')
-    expect(last(seen)).not.toContain('✓')
+    expect(last(seen)).not.toMatch(/\d✓/)
     await bash($, 'npm test')
     expect(last(seen)).toContain('1/2 · 1✓')
   })
@@ -102,7 +103,7 @@ describe('0.7.1: tự nâng verified cho danh sách phản chiếu', () => {
     await write($, [todo('Sửa', 'completed'), todo('Kiểm', 'in_progress')])
     expect(last(seen)).toContain('1/2 · 1✓')
     // Không có lần đặt status nào ở giữa hiện bước đã hạ.
-    expect(seen.statuses.slice(before).every(s => s?.includes('✓'))).toBe(true)
+    expect(seen.statuses.slice(before).every(s => /\d✓/.test(s ?? ''))).toBe(true)
   })
 })
 
@@ -112,7 +113,7 @@ describe('0.7.1: điều kiện để tự nâng', () => {
     await edit($)
     await done($, '1')
     await bash($, 'tsc --noEmit')
-    expect(last(seen)).not.toContain('✓')
+    expect(last(seen)).not.toMatch(/\d✓/)
   })
 
   test('lệnh test lỗi không nâng', { options: { planApproval: 'off' } }, async ($, on) => {
@@ -120,7 +121,7 @@ describe('0.7.1: điều kiện để tự nâng', () => {
     await edit($)
     await done($, '1')
     await bash($, 'npm test -- --fail')
-    expect(last(seen)).not.toContain('✓')
+    expect(last(seen)).not.toMatch(/\d✓/)
   })
 
   test('mục tiêu chưa có sửa file (chỉ tra cứu): test đạt không nâng', { options: { planApproval: 'off' } }, async ($, on) => {
@@ -128,7 +129,7 @@ describe('0.7.1: điều kiện để tự nâng', () => {
     await $.tool.call({ tool: 'Read', file_path: 'src/a.ts' })
     await done($, '1')
     await bash($, 'npm test')
-    expect(last(seen)).not.toContain('✓')
+    expect(last(seen)).not.toMatch(/\d✓/)
   })
 
   test('subagent sửa file trong mục tiêu cũng hạ bước đã nâng', { options: { planApproval: 'off' } }, async ($, on) => {
@@ -139,7 +140,7 @@ describe('0.7.1: điều kiện để tự nâng', () => {
     await bash($, 'npm test')
     expect(last(seen)).toContain('1/2 · 1✓')
     await edit($, 'src/x.ts', 'a-u1')
-    expect(last(seen)).not.toContain('✓')
+    expect(last(seen)).not.toMatch(/\d✓/)
   })
 
   test('mode off: không theo dõi, không nâng', { options: { planApproval: 'off' } }, async ($, on) => {
@@ -151,7 +152,7 @@ describe('0.7.1: điều kiện để tự nâng', () => {
     await edit($)
     await done($, '1')
     await bash($, 'npm test')
-    expect(last(seen)).not.toContain('✓')
+    expect(last(seen)).not.toMatch(/\d✓/)
   })
 })
 

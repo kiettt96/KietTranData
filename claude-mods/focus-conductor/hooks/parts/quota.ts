@@ -13,6 +13,7 @@ import { FILE_TOOLS } from '../lib/drift/tool'
 import { BACKUP_CALLS_MAX, EMPTY_QUOTA, QUOTA_CACHE_MS, backupCommand, backupOutcome, deniedInput, isBackupOn, pauseBackupMode, evaluateQuota, blockingHits, isPauseActive, newPause, normalizeQuota, noteDenial, overrideOf, allowScopes, landsInsideAllowed, makesLink, pauseAllowIssues, pauseAllowPaths, quotaSettings, reasonsOf, softNotices } from '../lib/quota'
 import type { QuotaEval } from '../lib/quota'
 import * as S from '../lib/state'
+import { statusTextOf } from '../ui/direction'
 import type { View } from '../lib/state'
 import { PLAN_TOOL_FULL, quotaDenyText, quotaNoticeText } from '../lib/text'
 import { viewOf } from '../atoms'
@@ -180,7 +181,7 @@ async function reopenResuming($: EngineInterface): Promise<void> {
 
 /** Status line kèm nhãn hạn mức (0.6.1): mọi chỗ đặt status của file này đi qua đây, nên nhãn không mất giữa các hook. */
 async function showStatus($: EngineInterface, current: View, options: Ctx['options']): Promise<void> {
-  $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
+  $.ui.status(statusTextOf(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
 }
 
 /** Ngưỡng báo mềm không hợp lệ (0.7.4): cảnh báo một lần mỗi phiên, bằng toast và Core.warnings. */

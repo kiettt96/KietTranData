@@ -4,6 +4,7 @@ import { atom, derive, read, update } from 'claude-code'
 import { caught, noteHookError } from '../lib/errlog'
 import { EMPTY_QUOTA, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaBadge, quotaSettings, softNotices } from '../lib/quota'
 import * as S from '../lib/state'
+import { statusTextOf } from '../ui/direction'
 import type { View } from '../lib/state'
 import { bandQuota, quotaOverview, quotaPaneText } from '../lib/text'
 import { renderBand } from '../ui/band'
@@ -61,7 +62,7 @@ function startTick($: EngineInterface, tick: Tick): void {
 
 /** Status line kèm nhãn hạn mức (0.6.1): mọi chỗ đặt status của file này đi qua đây, nên nhãn không mất giữa các hook. */
 async function showStatus($: EngineInterface, current: View, options: Ctx['options']): Promise<void> {
-  $.ui.status(S.statusText(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
+  $.ui.status(statusTextOf(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
 }
 
 export function registerUi(on: On, ctx: Ctx): void {

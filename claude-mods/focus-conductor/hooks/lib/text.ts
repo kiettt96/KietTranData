@@ -682,9 +682,10 @@ export function stepTag(title: string): string {
 
 /**
  * Status line (0.7.6, U5): thanh chữ (cùng ký hiệu với band, không màu, cho surface không có band), số bước, nhãn ngắn của bước hiện tại
- * và họ model; không có tier. Chưa có checklist thì chỉ họ model, không có model thì tên chế độ. Chế độ khác auto ghi cuối.
+ * và họ model; không có tier. Chưa có checklist thì chỉ họ model, không có model thì tên chế độ. Chế độ khác auto ghi cuối. Từ 0.8.8 (N3)
+ * `direction` là đoạn hướng (cùng nhãn với ô hướng của band, viết thường), đứng ngay sau họ model; vắng thì như 0.8.7.
  */
-export function statusLine(brief: Brief | null, plan: readonly PlanStep[], route: Route | null, mode: string): string {
+export function statusLine(brief: Brief | null, plan: readonly PlanStep[], route: Route | null, mode: string, direction?: string): string {
   if (brief === null) return mode
   const { total } = progress(plan)
   const bar = taskBarRuns({ kind: 'steps', plan: [...plan] }, STATUS_BAR).map(run => run.text).join('')
@@ -696,6 +697,7 @@ export function statusLine(brief: Brief | null, plan: readonly PlanStep[], route
   ]
   // W4: chưa có checklist và chưa có model thì ghi tên ngắn của mục tiêu (kèm mã đầu mục tiêu nếu có), không chỉ tên chế độ.
   if (parts.length === 0) parts.push(goalTag(brief.goal))
+  if (direction !== undefined && direction !== '') parts.push(direction)
   return `${parts.join(' · ')}${mode === 'auto' ? '' : ` · ${mode}`}`
 }
 
