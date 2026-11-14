@@ -1,5 +1,5 @@
 diff --git a/claude-mods/focus-conductor/.claude-plugin/plugin.json b/claude-mods/focus-conductor/.claude-plugin/plugin.json
-index 5ffb729..ba1908a 100644
+index 5ffb729..022e64d 100644
 --- a/claude-mods/focus-conductor/.claude-plugin/plugin.json
 +++ b/claude-mods/focus-conductor/.claude-plugin/plugin.json
 @@ -1,6 +1,6 @@
@@ -10,6 +10,99 @@ index 5ffb729..ba1908a 100644
    "author": { "name": "Kiet Tran" },
    "description": "Một model Claude (router) đọc kỹ prompt trước khi làm và điều phối model/effort/agent cho từng việc; mod kiểm, ép điều phối lúc chạy, giữ nhất quán mục tiêu với checklist và cảnh báo lạc đề.",
    "types": "./types/index.d.ts",
+@@ -277,6 +277,27 @@
+       "description": "vi hoặc en cho nhãn của band và pane; nội dung của router, cảnh báo và khối gửi Claude giữ nguyên ngôn ngữ của chúng",
+       "default": "vi",
+       "options": ["vi", "en"]
++    },
++    "neon": {
++      "type": "string",
++      "title": "Dải màu neon",
++      "description": "Bảng màu của band và pane khi đang chạy bình thường: cyber (mặc định), aurora, plasma; off thì mọi màu theo theme của người dùng như 0.8.7. Giá trị khác coi là cyber. (en) Colour band of the band and pane while work runs normally: cyber (default), aurora, plasma; off keeps every colour on the user's theme as in 0.8.7. Any other value is cyber.",
++      "default": "cyber",
++      "options": ["cyber", "aurora", "plasma", "off"]
++    },
++    "neonMotion": {
++      "type": "string",
++      "title": "Màu chạy",
++      "description": "on (mặc định): khi có turn đang chạy, dải màu dịch một ô mỗi giây và band, pane vẽ lại mỗi giây; off: dải màu đứng yên, nhịp vẽ lại 60 giây như 0.8.7. (en) on (default): while a turn runs, the colour bands move one cell per second and the band and pane redraw every second; off: bands stand still and redraw every 60 seconds as in 0.8.7.",
++      "default": "on",
++      "options": ["on", "off"]
++    },
++    "neonTheme": {
++      "type": "string",
++      "title": "Nền của dải màu",
++      "description": "auto (mặc định), dark, light. Engine không báo cho mod biết nền sáng hay tối, nên auto dùng bảng nền tối; terminal nền sáng thì đặt light. (en) auto (default), dark, light. The engine does not tell the mod whether the background is light or dark, so auto uses the dark palette; set light on a light terminal.",
++      "default": "auto",
++      "options": ["auto", "dark", "light"]
+     }
+   }
+ }
+diff --git a/claude-mods/focus-conductor/README.md b/claude-mods/focus-conductor/README.md
+index d36b489..0aed150 100644
+--- a/claude-mods/focus-conductor/README.md
++++ b/claude-mods/focus-conductor/README.md
+@@ -135,6 +135,9 @@ Cấu hình qua `/config` (hoặc `pluginConfigs.focus-conductor.options` trong
+ | `agentTypes` | trống | Loại agent thêm cho router, phân tách bằng dấu phẩy |
+ | `prices` | trống | Ghi đè bảng giá, dạng `sonnet=2/10` hoặc `opus=4/20/0.2` (vào/ra/đọc cache, USD mỗi 1M token). Thiếu giá trị thứ ba thì đọc cache theo tỷ lệ của đúng họ đó trong bảng kèm mod (Sonnet và Opus 5%, Fable 2,5%, Haiku 10% giá vào). Catalog giá mà router thấy khi chọn model dựng từ bảng này |
+ | `uiLanguage` | `vi` | `vi` hoặc `en` cho nhãn của band và pane |
++| `neon` | `cyber` | Từ 0.8.8: bảng màu của band và pane khi đang chạy bình thường, `cyber`, `aurora` hay `plasma`; giai đoạn mới bắt đầu, sắp xong, hoàn thành, vi phạm và tạm dừng có dải riêng. `off` thì mọi màu theo theme của người dùng như 0.8.7, bố cục vẫn là ba ô. Giá trị khác coi là `cyber` |
++| `neonMotion` | `on` | Từ 0.8.8: `on` thì khi có turn đang chạy, dải màu dịch một ô mỗi giây và band, pane vẽ lại mỗi giây (chỉ xin vẽ lại, không ghi trạng thái, không chèn gì vào context). `off` thì dải màu đứng yên, nhịp vẽ lại 60 giây như 0.8.7 |
++| `neonTheme` | `auto` | Từ 0.8.8: `auto`, `dark` hay `light`. Engine không báo cho mod biết nền sáng hay tối, nên `auto` dùng bảng nền tối; dùng terminal nền sáng thì đặt `light` |
+ | `quotaGuard` | `true` | Bảo vệ hạn mức (xem mục dưới). Tắt thì mod chạy như 0.5.6 |
+ | `pauseSessionRemainingPct` | `5` | Dừng khi hạn mức phiên (cửa sổ 5 giờ) còn không quá giá trị này, tính bằng phần trăm còn lại. Kẹp trong 0,5 đến 99 |
+ | `pauseWeekRemainingPct` | `2` | Dừng khi hạn mức tuần còn không quá giá trị này, tính bằng phần trăm còn lại. Kẹp trong 0,5 đến 99 |
+diff --git a/claude-mods/focus-conductor/hooks/atoms.ts b/claude-mods/focus-conductor/hooks/atoms.ts
+index c6d0e4a..ae7a7ea 100644
+--- a/claude-mods/focus-conductor/hooks/atoms.ts
++++ b/claude-mods/focus-conductor/hooks/atoms.ts
+@@ -8,6 +8,7 @@ import * as S from './lib/state'
+ import type { View } from './lib/state'
+ import { langOf } from './ui/labels'
+ import { conductorOf } from './lib/conductor'
++import { DEFAULT_NEON, neonStyleOf } from './ui/neon'
+ 
+ /** Một lần đọc cho mọi thứ band, pane và status line cần. */
+ export function viewOf(options: PluginOptions) {
+@@ -17,12 +18,16 @@ export function viewOf(options: PluginOptions) {
+   // 0.8.7 G1: họ điều phối chính là giá trị của option conductor (conductorOf).
+   const primary = conductorOf(options)
+   const conductor = primary !== 'off' ? { fallback: typeof rawRouter === 'string' && rawRouter.trim() !== '' ? rawRouter.trim() : 'sonnet', family: primary } : null
++  // Dải màu neon (0.8.8 N1): kiểu mặc định thì View như 0.8.7, không có trường neon.
++  const neon = neonStyleOf(options)
++  const isDefaultNeon = neon.palette === DEFAULT_NEON.palette && neon.motion === DEFAULT_NEON.motion && neon.theme === DEFAULT_NEON.theme
+   return (core: Core, override: Mode | null, isBandHidden: boolean): View => ({
+     core: S.normalizeCore(core),
+     mode: S.modeOf(override, options),
+     isBandHidden,
+     lang,
+     ...(conductor !== null ? { conductor } : {}),
++    ...(isDefaultNeon ? {} : { neon }),
+   })
+ }
+ 
+diff --git a/claude-mods/focus-conductor/hooks/lib/state.ts b/claude-mods/focus-conductor/hooks/lib/state.ts
+index b3172aa..863dad8 100644
+--- a/claude-mods/focus-conductor/hooks/lib/state.ts
++++ b/claude-mods/focus-conductor/hooks/lib/state.ts
+@@ -18,6 +18,7 @@ import { shownPlan } from './mirror'
+ import { evaluateQuota, isPauseActive, overrideOf, quotaBadge, softNotices } from './quota'
+ import type { QuotaSettings } from './quota'
+ import type { Lang } from '../ui/labels'
++import type { NeonStyle } from '../ui/neon'
+ import { labels } from '../ui/labels'
+ 
+ export const EMPTY_LIFT: Lift = { depth: 0, effort: 0 }
+@@ -74,7 +75,8 @@ const LIFT_LIMIT = 2
+ 
+ /** Ảnh chụp mọi thứ band, pane và status line cần, đọc một lần. */
+ /** `conductor` (0.8.4 C8): chỉ có khi option conductor là fable; `fallback` là model router dùng khi Fable tạm ngừng. */
+-export type View = { core: Core; mode: Mode; isBandHidden: boolean; lang: Lang; conductor?: { fallback: string; family: ModelFamily } }
++/** `neon` (0.8.8 N1): kiểu dải màu đọc từ ba option; vắng là mặc định (cyber, on, dark). */
++export type View = { core: Core; mode: Mode; isBandHidden: boolean; lang: Lang; conductor?: { fallback: string; family: ModelFamily }; neon?: NeonStyle }
+ 
+ export function isMode(value: unknown): value is Mode {
+   return value === 'auto' || value === 'subagents' || value === 'suggest' || value === 'off'
 diff --git a/claude-mods/focus-conductor/hooks/lib/version.ts b/claude-mods/focus-conductor/hooks/lib/version.ts
 index 6cdf944..c17fcb0 100644
 --- a/claude-mods/focus-conductor/hooks/lib/version.ts
@@ -19,6 +112,541 @@ index 6cdf944..c17fcb0 100644
  // test so hằng với .claude-plugin/plugin.json.
 -export const MOD_VERSION = '0.8.7'
 +export const MOD_VERSION = '0.8.8'
+diff --git a/claude-mods/focus-conductor/hooks/ui/band.tsx b/claude-mods/focus-conductor/hooks/ui/band.tsx
+index ae2722f..44dcc4c 100644
+--- a/claude-mods/focus-conductor/hooks/ui/band.tsx
++++ b/claude-mods/focus-conductor/hooks/ui/band.tsx
+@@ -19,6 +19,7 @@ import { attentionItems, failedBatches } from './attention'
+ import { formatCost } from '../lib/ledger'
+ import { labels, taskLabel } from './labels'
+ import type { Run } from './style'
++import { DEFAULT_NEON, paintOf } from './neon'
+ import { FAMILY_HUE, SPINE, barRuns, cellsOf, columnsOf, currentStep, goalUsd, pendingUsd, plannedRuns, severityGlyph } from './style'
+ 
+ /** Lượt của luồng chính chạy đúng họ đang điều phối (0.8.4 C8; 0.8.7 F1: kể cả họ dự phòng): band thêm nhãn vai trên chip model. */
+@@ -52,6 +53,8 @@ export type BandProps = {
+   isWorking: boolean
+   /** Thời điểm vẽ (ms), cho thời gian đã chạy của mục tiêu và của subagent. Vắng thì 0. */
+   now?: number
++  /** Nhịp của dải màu (0.8.8 N5): số giây của đồng hồ lúc vẽ. Vắng thì 0. */
++  frame?: number
+ }
+ 
+ /** Trả cây để vẽ, hoặc null khi band nên nhường chỗ cho engine. */
+@@ -77,6 +80,8 @@ export function renderBand(
+   const hasRoom = columns >= 72
+   const now = props.now ?? 0
+   const hasSecondRow = props.maxRows >= 2
++  // Bộ màu (0.8.8 N1): dải màu neon theo option, hay theme key khi neon off.
++  const paint = paintOf(view.neon ?? DEFAULT_NEON, props.frame ?? 0)
+ 
+   // Dòng cần chú ý (U2): mục quan trọng nhất theo mức độ; "+N" đếm phần còn lại.
+   const isPaused = pause?.paused === true
+@@ -93,11 +98,11 @@ export function renderBand(
+   const runningSteps = runningTitles(view.core, rows, plan.length > 0 ? plan.map(step => step.title) : brief.steps)
+   const runningBeads = new Set(brief.steps.flatMap((step, i) => (runningSteps.has(step) ? [i] : [])))
+   // Thanh dài theo chiều rộng, tối thiểu 6 ô để còn thấy phần đã đóng.
+-  const bar = barRuns(plan, Math.max(6, Math.min(20, Math.floor(columns * 0.16))), current !== undefined && runningSteps.has(current.title))
++  const bar = barRuns(plan, Math.max(6, Math.min(20, Math.floor(columns * 0.16))), current !== undefined && runningSteps.has(current.title), paint)
+   const beads = plannedRuns(planned, Math.max(8, Math.min(24, Math.floor(columns * 0.22))), runningBeads)
+ 
+   const tint = (r: Run) => (
+-    <Text color={r.color} dimColor={r.dim} bold={r.bold}>
++    <Text color={r.color} backgroundColor={r.bg} dimColor={r.dim} bold={r.bold}>
+       {r.text}
+     </Text>
+   )
+diff --git a/claude-mods/focus-conductor/hooks/ui/cells.ts b/claude-mods/focus-conductor/hooks/ui/cells.ts
+new file mode 100644
+index 0000000..e6d1a0d
+--- /dev/null
++++ b/claude-mods/focus-conductor/hooks/ui/cells.ts
+@@ -0,0 +1,11 @@
++// Đếm ô terminal theo cụm ký tự (0.7.9 UI1; tách khỏi style.ts ở 0.8.8 để neon.ts dùng chung mà không import vòng). Hàm thuần.
++
++/** Cụm ký tự (grapheme) của chuỗi; không có Intl.Segmenter thì theo từng code point. */
++export function graphemesOf(text: string): string[] {
++  return typeof Intl.Segmenter === 'function' ? [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text)].map(part => part.segment) : [...text]
++}
++
++/** Cụm ký tự rộng hai ô terminal: emoji, cờ, chữ CJK và chữ toàn khổ. */
++export const WIDE_GRAPHEME = /\p{Extended_Pictographic}|\p{Regional_Indicator}|[ᄀ-ᅟ⺀-〾ぁ-㏿㐀-䶿一-鿿ꥠ-꥿가-힣豈-﫿︰-﹏＀-｠￠-￦]/u
++
++export const graphemeCells = (g: string): number => (WIDE_GRAPHEME.test(g) ? 2 : 1)
+diff --git a/claude-mods/focus-conductor/hooks/ui/neon.ts b/claude-mods/focus-conductor/hooks/ui/neon.ts
+new file mode 100644
+index 0000000..000f5e8
+--- /dev/null
++++ b/claude-mods/focus-conductor/hooks/ui/neon.ts
+@@ -0,0 +1,274 @@
++// Dải màu neon của band và pane (0.8.8 N1). Tệp duy nhất của hooks/ được chứa mã màu thô: mọi tệp khác lấy màu qua đây
++// (scripts/version-check.mjs kiểm). Ba option: neon (bảng màu của giai đoạn đang chạy, hay off), neonMotion (dải màu dịch theo nhịp),
++// neonTheme (bảng nền tối hay nền sáng). neon off thì mọi màu là theme key như 0.8.7.
++// Hàm thuần: không gọi $ và không dựng phần tử.
++
++import type { Color } from 'claude-code'
++
++import type { ModelFamily } from '../../types'
++import type { Phase, Run } from './style'
++import { graphemeCells, graphemesOf } from './cells'
++
++export type NeonPalette = 'cyber' | 'aurora' | 'plasma' | 'off'
++export type NeonMotion = 'on' | 'off'
++export type NeonTheme = 'dark' | 'light'
++/** Kiểu đã đọc từ ba option. `theme` là kết quả sau khi giải auto (engine không báo nền sáng hay tối nên auto là dark). */
++export type NeonStyle = { palette: NeonPalette; motion: NeonMotion; theme: NeonTheme }
++
++export const DEFAULT_NEON: NeonStyle = { palette: 'cyber', motion: 'on', theme: 'dark' }
++
++/** Tên các dải màu: ba bảng của giai đoạn đang chạy, và năm dải theo trạng thái. */
++export type GradientName = 'cyber' | 'aurora' | 'plasma' | 'start' | 'almost' | 'done' | 'warn' | 'pause'
++/** Màu đơn: bốn họ model, chữ trên ô tô đặc, nền ô thường, đạt, cần chú ý, lỗi. */
++export type SolidName = ModelFamily | 'onFill' | 'cell' | 'ok' | 'attention' | 'error'
++
++/** Bảng nền tối [Nguồn: chủ mod, đặc tả 0.8.8, 14/11/2026]. */
++export const DARK_GRADIENTS: Readonly<Record<GradientName, readonly string[]>> = {
++  cyber: ['#00e5ff', '#7b61ff', '#ff2bd6'],
++  aurora: ['#00ffa3', '#00c2ff', '#9d6bff'],
++  plasma: ['#ff3cac', '#8a5cff', '#2b9bff'],
++  start: ['#3d7bff', '#00e5ff'],
++  almost: ['#ff2bd6', '#ff8a00', '#ffd23f'],
++  done: ['#b6ff3c', '#00f5d4'],
++  warn: ['#ffb300', '#ff2d75'],
++  pause: ['#ffe600', '#ff8a00'],
++}
++
++export const DARK_SOLIDS: Readonly<Record<SolidName, string>> = {
++  haiku: '#2ef2c5',
++  sonnet: '#7aa2ff',
++  opus: '#c77dff',
++  fable: '#ff9d5c',
++  onFill: '#07080d',
++  cell: '#171a28',
++  ok: '#5dff8f',
++  attention: '#ffc233',
++  error: '#ff4d7d',
++}
++
++/** Nền dùng để kiểm tương phản của bảng nền tối và bảng nền sáng. */
++export const DARK_BACKGROUND = '#0a0b13'
++export const LIGHT_BACKGROUND = '#ffffff'
++/** Tương phản tối thiểu (WCAG 2, chữ thường) [Nguồn: WCAG 2.1, tiêu chí 1.4.3]. */
++export const MIN_CONTRAST = 4.5
++/** Chu kỳ của dải màu (ô): nửa đầu đi từ mốc đầu tới mốc cuối, nửa sau đi ngược lại, nên không có đường nối. */
++export const CYCLE = 24
++
++// ------------------------------------------------------------- màu thô
++
++type Rgb = [number, number, number]
++
++const HEX = /^#[0-9a-f]{6}$/
++
++function rgbOf(hex: string): Rgb {
++  return [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16)) as Rgb
++}
++
++function hexOf(rgb: Rgb): string {
++  return `#${rgb.map(v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('')}`
++}
++
++/** Độ chói tương đối (WCAG 2). */
++export function luminance(hex: string): number {
++  const [r, g, b] = rgbOf(hex).map(v => {
++    const c = v / 255
++    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
++  }) as Rgb
++  return 0.2126 * r + 0.7152 * g + 0.0722 * b
++}
++
++/** Tỷ lệ tương phản của hai màu (WCAG 2), từ 1 tới 21. */
++export function contrast(a: string, b: string): number {
++  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x) as [number, number]
++  return (hi + 0.05) / (lo + 0.05)
++}
++
++function hslOf([r, g, b]: Rgb): [number, number, number] {
++  const [rr, gg, bb] = [r / 255, g / 255, b / 255]
++  const max = Math.max(rr, gg, bb)
++  const min = Math.min(rr, gg, bb)
++  const l = (max + min) / 2
++  if (max === min) return [0, 0, l]
++  const d = max - min
++  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
++  const h = max === rr ? (gg - bb) / d + (gg < bb ? 6 : 0) : max === gg ? (bb - rr) / d + 2 : (rr - gg) / d + 4
++  return [h / 6, s, l]
++}
++
++function rgbOfHsl([h, s, l]: [number, number, number]): Rgb {
++  if (s === 0) return [l * 255, l * 255, l * 255]
++  const q = l < 0.5 ? l * (1 + s) : l + s - l * s
++  const p = 2 * l - q
++  const hue = (t: number) => {
++    const u = t < 0 ? t + 1 : t > 1 ? t - 1 : t
++    if (u < 1 / 6) return p + (q - p) * 6 * u
++    if (u < 1 / 2) return q
++    if (u < 2 / 3) return p + (q - p) * (2 / 3 - u) * 6
++    return p
++  }
++  return [hue(h + 1 / 3) * 255, hue(h) * 255, hue(h - 1 / 3) * 255]
++}
++
++/** Bản nền sáng của một màu: giảm L của HSL từng 1% cho tới khi tương phản với nền trắng đạt MIN_CONTRAST. */
++export function lightOf(hex: string): string {
++  const [h, s, l] = hslOf(rgbOf(hex))
++  let out = hex
++  for (let step = 0; contrast(out, LIGHT_BACKGROUND) < MIN_CONTRAST && step <= 100; step++) out = hexOf(rgbOfHsl([h, s, Math.max(0, l - step / 100)]))
++  return out
++}
++
++/** Bảng nền sáng: cùng tên, mỗi mốc là lightOf của mốc nền tối. */
++export const LIGHT_GRADIENTS: Readonly<Record<GradientName, readonly string[]>> = Object.fromEntries(
++  Object.entries(DARK_GRADIENTS).map(([name, stops]) => [name, stops.map(lightOf)]),
++) as Record<GradientName, readonly string[]>
++
++const LIGHT_STOPS = Object.values(LIGHT_GRADIENTS).flat()
++
++export const LIGHT_SOLIDS: Readonly<Record<SolidName, string>> = {
++  haiku: lightOf(DARK_SOLIDS.haiku),
++  sonnet: lightOf(DARK_SOLIDS.sonnet),
++  opus: lightOf(DARK_SOLIDS.opus),
++  fable: lightOf(DARK_SOLIDS.fable),
++  // Chữ trên ô tô đặc của nền sáng: trắng nếu đạt tương phản với mọi mốc của mọi dải, không thì màu chữ của nền tối.
++  onFill: LIGHT_STOPS.every(stop => contrast(LIGHT_BACKGROUND, stop) >= MIN_CONTRAST) ? LIGHT_BACKGROUND : DARK_SOLIDS.onFill,
++  cell: '#e6e8f0',
++  ok: lightOf(DARK_SOLIDS.ok),
++  attention: lightOf(DARK_SOLIDS.attention),
++  error: lightOf(DARK_SOLIDS.error),
++}
++
++export function isHexColor(value: unknown): boolean {
++  return typeof value === 'string' && HEX.test(value)
++}
++
++// ---------------------------------------------------------------- option
++
++const pick = <T extends string>(value: unknown, allowed: readonly T[], fallback: T): T =>
++  typeof value === 'string' && (allowed as readonly string[]).includes(value) ? (value as T) : fallback
++
++export function neonPaletteOf(value: unknown): NeonPalette {
++  return pick(value, ['cyber', 'aurora', 'plasma', 'off'] as const, 'cyber')
++}
++
++export function neonMotionOf(value: unknown): NeonMotion {
++  return pick(value, ['on', 'off'] as const, 'on')
++}
++
++/** auto (mặc định) theo giao diện engine báo; engine không báo (2.1.296 tới 2.1.325) nên auto là dark. */
++export function neonThemeOf(value: unknown): NeonTheme {
++  return pick(value, ['dark', 'light'] as const, 'dark')
++}
++
++export function neonStyleOf(options: Readonly<Record<string, unknown>>): NeonStyle {
++  return { palette: neonPaletteOf(options['neon']), motion: neonMotionOf(options['neonMotion']), theme: neonThemeOf(options['neonTheme']) }
++}
++
++/** Màu chạy: dải màu dịch theo nhịp khi neon khác off và neonMotion là on. */
++export function isMoving(style: NeonStyle): boolean {
++  return style.palette !== 'off' && style.motion === 'on'
++}
++
++// ---------------------------------------------------------------- dải màu
++
++function mix(a: Rgb, b: Rgb, t: number): Rgb {
++  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]
++}
++
++/** Màu ở vị trí `position` của chu kỳ: phản chiếu quanh nửa chu kỳ, nội suy tuyến tính giữa các mốc. */
++export function colorAt(stops: readonly string[], position: number): string {
++  if (stops.length === 0) return ''
++  if (stops.length === 1) return stops[0] as string
++  const half = CYCLE / 2
++  const t = ((position % CYCLE) + CYCLE) % CYCLE
++  const u = t <= half ? t / half : (CYCLE - t) / half
++  const scaled = u * (stops.length - 1)
++  const i = Math.min(stops.length - 2, Math.floor(scaled))
++  return hexOf(mix(rgbOf(stops[i] as string), rgbOf(stops[i + 1] as string), scaled - i))
++}
++
++/**
++ * Mỗi ô ký tự một màu theo dải `stops`: ô thứ i lấy màu ở vị trí (i + frame) mod 24, nên mỗi nhịp dải dịch sang trái một ô. Đếm ô theo
++ * cụm ký tự (chữ có dấu, emoji không bị tách đôi; chữ rộng hai ô chiếm hai vị trí). Các ô liền nhau cùng màu gộp thành một Run.
++ */
++export function gradientRuns(text: string, stops: readonly string[], frame: number, extra: Omit<Run, 'text' | 'color'> = {}): Run[] {
++  const runs: Run[] = []
++  let cell = 0
++  for (const g of graphemesOf(text.normalize('NFC'))) {
++    const color = colorAt(stops, cell + frame)
++    const last = runs.at(-1)
++    if (last !== undefined && last.color === color) last.text += g
++    else runs.push({ text: g, color, ...extra })
++    cell += graphemeCells(g)
++  }
++  return runs
++}
++
++// ---------------------------------------------------------------- bộ màu
++
++/** Màu theme key thay cho từng dải khi neon là off (như 0.8.7). */
++const OFF_GRADIENT: Record<GradientName, Color> = {
++  cyber: 'claude',
++  aurora: 'claude',
++  plasma: 'claude',
++  start: 'ide',
++  almost: 'warning',
++  done: 'success',
++  warn: 'error',
++  pause: 'warning',
++}
++
++const OFF_SOLID: Record<SolidName, Color | undefined> = {
++  haiku: 'planMode',
++  sonnet: 'suggestion',
++  opus: 'merged',
++  fable: 'bashBorder',
++  onFill: 'inverseText',
++  cell: undefined,
++  ok: 'success',
++  attention: 'warning',
++  error: 'error',
++}
++
++/** Dải đứng yên khi tạm dừng (0.8.8 N5). */
++const STILL: ReadonlySet<GradientName> = new Set(['pause'])
++
++/** Bộ màu đã giải theo kiểu neon: mọi tệp vẽ lấy màu qua đây. */
++export type Paint = {
++  style: NeonStyle
++  frame: number
++  /** Có mã màu thô hay không (neon khác off). */
++  isNeon: boolean
++  /** Chữ tô theo dải, bắt đầu ở ô `offset` của dải; neon off thì một Run màu theme key. */
++  text: (name: GradientName, text: string, extra?: Omit<Run, 'text' | 'color'>, offset?: number) => Run[]
++  /** Ô tô đặc: nền theo dải, chữ màu onFill. */
++  fill: (name: GradientName, text: string, extra?: Omit<Run, 'text' | 'color'>, offset?: number) => Run[]
++  solid: (name: SolidName) => Color | undefined
++  /** Dải màu của một giai đoạn: start, bảng của option neon, almost, done; idle là null (dùng inactive). */
++  phase: (phase: Phase) => GradientName | null
++}
++
++/** Bộ màu theme key (neon off), mặc định của các hàm dựng thanh khi nơi gọi không truyền bộ màu. */
++export const OFF_STYLE: NeonStyle = { palette: 'off', motion: 'off', theme: 'dark' }
++
++export function paintOf(style: NeonStyle = DEFAULT_NEON, frame = 0): Paint {
++  const isNeon = style.palette !== 'off'
++  const gradients = style.theme === 'light' ? LIGHT_GRADIENTS : DARK_GRADIENTS
++  const solids = style.theme === 'light' ? LIGHT_SOLIDS : DARK_SOLIDS
++  const shift = isMoving(style) ? frame : 0
++  const at = (name: GradientName) => (STILL.has(name) ? 0 : shift)
++  const solid = (name: SolidName): Color | undefined => (isNeon ? solids[name] : OFF_SOLID[name])
++  return {
++    style,
++    frame: shift,
++    isNeon,
++    text: (name, text, extra = {}, offset = 0) => (text === '' ? [] : isNeon ? gradientRuns(text, gradients[name], at(name) + offset, extra) : [{ text, color: OFF_GRADIENT[name], ...extra }]),
++    fill: (name, text, extra = {}, offset = 0) =>
++      text === ''
++        ? []
++        : isNeon
++          ? gradientRuns(text, gradients[name], at(name) + offset).map(run => ({ ...extra, text: run.text, color: solids.onFill, bg: run.color }))
++          : [{ ...extra, text, color: OFF_SOLID.onFill as Color, bg: OFF_GRADIENT[name] }],
++    solid,
++    phase: phase => (phase === 'idle' ? null : phase === 'active' ? (isNeon ? (style.palette as GradientName) : 'cyber') : phase),
++  }
++}
+diff --git a/claude-mods/focus-conductor/hooks/ui/pane.tsx b/claude-mods/focus-conductor/hooks/ui/pane.tsx
+index b2bd891..ae995be 100644
+--- a/claude-mods/focus-conductor/hooks/ui/pane.tsx
++++ b/claude-mods/focus-conductor/hooks/ui/pane.tsx
+@@ -15,6 +15,7 @@ import type { BandQuota, QuotaPaneText } from '../lib/text'
+ import { attentionItems } from './attention'
+ import { conductorLine, labels, shownEntry, stepTaskMeta, taskLabel } from './labels'
+ import type { Run } from './style'
++import { DEFAULT_NEON, paintOf } from './neon'
+ import {
+   FAMILY_HUE,
+   SPINE,
+@@ -80,6 +81,8 @@ export type PaneProps = {
+    * việc ra ngoài số dòng này. Vắng thì coi như pane tự mở 16 dòng (PANE_ROWS).
+    */
+   rows?: number
++  /** Nhịp của dải màu (0.8.8 N5): số giây của đồng hồ lúc vẽ. Vắng thì 0. */
++  frame?: number
+ }
+ 
+ export function renderPane(
+@@ -100,6 +103,8 @@ export function renderPane(
+   // Dòng chữ dài hơn ~100 ô khó đọc: pane inline rộng vẫn giữ nội dung trong 100 ô.
+   const width = Math.max(36, Math.min(columnsOf(props.columns, 56), 100))
+   const isNarrow = width < 48
++  // Bộ màu (0.8.8 N1): dải màu neon theo option, hay theme key khi neon off.
++  const paint = paintOf(view.neon ?? DEFAULT_NEON, props.frame ?? 0)
+ 
+   const heading = (title: string, extra?: string) => {
+     const lead = cellsOf(title) + (extra ? 1 + cellsOf(extra) : 0) + 1
+@@ -230,10 +235,10 @@ export function renderPane(
+   const phase = phaseOf(plan)
+   const phaseWord = l.phase[phase]
+   // Dòng tiến độ: thanh, số bước đã đóng, tên giai đoạn. Thanh lấy phần chiều rộng còn lại, từ 8 đến 24 ô.
+-  const bar = barRuns(plan, Math.max(8, Math.min(24, width - 2 - 5 - 2 - cellsOf(phaseWord))))
++  const bar = barRuns(plan, Math.max(8, Math.min(24, width - 2 - 5 - 2 - cellsOf(phaseWord))), false, paint)
+   const beads = plannedRuns(planned, Math.min(24, width - 12))
+   const tint = (r: Run) => (
+-    <Text color={r.color} dimColor={r.dim} bold={r.bold}>
++    <Text color={r.color} backgroundColor={r.bg} dimColor={r.dim} bold={r.bold}>
+       {r.text}
+     </Text>
+   )
+@@ -540,7 +545,7 @@ export function renderPane(
+   // Chỉ việc không đi cùng bước nào (U1): việc Claude tự giao và việc không khớp bước; việc chính chính là danh sách bước ở trên.
+   const taskNodes = allTaskRows.filter(row => row.kind !== 'main' && !matched.has(row.key)).map(row => {
+     const label = taskLabel(l, row)
+-    const runs = taskBarRuns(row.bar, taskCells)
++    const runs = taskBarRuns(row.bar, taskCells, paint)
+     const detail = rowDetail(row, false)
+     // Chữ trạng thái: thanh không có bước thì luôn ghi; thanh theo bước của agent chỉ ghi khi agent đã kết thúc.
+     const word = row.noStep === true
+diff --git a/claude-mods/focus-conductor/hooks/ui/style.ts b/claude-mods/focus-conductor/hooks/ui/style.ts
+index 0b4ab5f..74cd900 100644
+--- a/claude-mods/focus-conductor/hooks/ui/style.ts
++++ b/claude-mods/focus-conductor/hooks/ui/style.ts
+@@ -9,13 +9,19 @@ import type { Color } from 'claude-code'
+ 
+ import type { DelegationState, Ledger, ModelFamily, PlanStep, RouteEvent, StepStatus, WarningKind } from '../../types'
+ import { GROUPS } from '../lib/ledger'
++import { WIDE_GRAPHEME, graphemeCells, graphemesOf } from './cells'
++import type { Paint } from './neon'
++import { OFF_STYLE, paintOf } from './neon'
+ import type { TaskBar } from '../lib/progress'
+ 
+ /** Một ký hiệu có màu. Hình dạng khác nhau để đọc được cả khi terminal không có màu. */
+ export type Mark = { glyph: string; color: Color; dim?: boolean; bold?: boolean }
+ 
+ /** Một đoạn chữ có màu, để ghép vào Text lồng nhau. */
+-export type Run = { text: string; color: Color; dim?: boolean; bold?: boolean }
++/** `bg`: nền của đoạn (0.8.8 N1), cho ô tô đặc. */
++export type Run = { text: string; color: Color; dim?: boolean; bold?: boolean; bg?: Color }
++
++export { graphemeCells, graphemesOf }
+ 
+ export const SPINE = '▎'
+ 
+@@ -106,39 +112,49 @@ export function phaseOf(plan: readonly PlanStep[]): Phase {
+   return plan.some(s => s.status !== 'todo') ? 'start' : 'idle'
+ }
+ 
++/** Bộ màu theme key: mặc định của các hàm dựng thanh (status line và nơi gọi không truyền bộ màu), cho màu như 0.8.7. */
++export const THEME_PAINT: Paint = paintOf(OFF_STYLE)
++
++/** Chữ màu của một giai đoạn, bắt đầu ở ô `offset` của dải: neon thì dải màu (0.8.8 N1), off thì PHASE_HUE; idle là inactive. */
++export function phaseRuns(paint: Paint, phase: Phase, text: string, extra: Omit<Run, 'text' | 'color'> = {}, offset = 0): Run[] {
++  const name = paint.phase(phase)
++  return text === '' ? [] : name === null ? [{ text, color: PHASE_HUE.idle, ...extra }] : paint.text(name, text, extra, offset)
++}
++
+ /**
+  * Thanh tiến độ rộng đúng `cells` ô. Phần đã đóng tô màu giai đoạn, phần còn lại là nét đứt mờ (hình dạng khác nhau nên
+  * đọc được cả khi không có màu). Ô đầu tiên sau phần đã đóng là ký hiệu của bước đang là tâm điểm: ◐ cùng màu giai đoạn
+- * khi đang làm, ■ vàng khi bị chặn. Xong hết thì thanh đầy, không có đầu thanh.
++ * khi đang làm, ■ vàng khi bị chặn. Xong hết thì thanh đầy, không có đầu thanh. Từ 0.8.8 màu giai đoạn lấy qua bộ màu `paint`
++ * (neon: dải màu theo giai đoạn; mặc định THEME_PAINT cho màu như 0.8.7).
+  */
+-export function barRuns(plan: readonly PlanStep[], cells: number, hasRunning = false): Run[] {
++export function barRuns(plan: readonly PlanStep[], cells: number, hasRunning = false, paint: Paint = THEME_PAINT): Run[] {
+   const total = plan.length
+   if (total === 0 || cells < 3) return []
+   const closed = plan.filter(isClosed).length
+-  const hue = PHASE_HUE[phaseOf(plan)]
++  const phase = phaseOf(plan)
+   const verified = plan.filter(s => s.status === 'verified').length
+   // Phần đã đóng: phần verified (đã kiểm chứng) tô đậm đứng trước, phần done thường. Không có verified thì một đoạn như 0.6.1.
+   const solid = (n: number): Run[] => {
+-    if (verified === 0) return [{ text: '━'.repeat(n), color: hue }]
++    if (verified === 0) return phaseRuns(paint, phase, '━'.repeat(n))
+     const bold = verified >= closed ? n : Math.max(1, Math.min(n - 1, Math.round((n * verified) / closed)))
+-    return [{ text: '━'.repeat(bold), color: hue, bold: true }, ...(n - bold > 0 ? [{ text: '━'.repeat(n - bold), color: hue }] : [])]
++    return [...phaseRuns(paint, phase, '━'.repeat(bold), { bold: true }), ...(n - bold > 0 ? phaseRuns(paint, phase, '━'.repeat(n - bold), {}, bold) : [])]
+   }
+   if (closed >= total) return solid(cells)
+   const filled = closed === 0 ? 0 : Math.min(cells - 1, Math.max(1, Math.round((closed / total) * cells)))
+   const status = currentStep(plan)?.status
+   // W4: bước hiện tại còn todo mà đã có lô đang chạy thì đầu thanh cũng là ◐.
+-  const head: Run | null =
++  const head: Run[] =
+     status === 'doing' || (status === 'todo' && hasRunning)
+-      ? { text: STEP_MARK.doing.glyph, color: hue, bold: true }
++      ? phaseRuns(paint, phase, STEP_MARK.doing.glyph, { bold: true }, filled)
+       : status === 'blocked'
+-        ? { text: STEP_MARK.blocked.glyph, color: STEP_MARK.blocked.color, bold: true }
++        ? [{ text: STEP_MARK.blocked.glyph, color: paint.solid('attention') ?? STEP_MARK.blocked.color, bold: true }]
+         : status === 'waiting'
+-          ? { text: STEP_MARK.waiting.glyph, color: STEP_MARK.waiting.color, bold: true }
+-          : null
++          ? [{ text: STEP_MARK.waiting.glyph, color: STEP_MARK.waiting.color, bold: true }]
++          : []
+   const runs: Run[] = []
+   if (filled > 0) runs.push(...solid(filled))
+-  if (head) runs.push(head)
+-  const track = cells - filled - (head ? 1 : 0)
++  runs.push(...head)
++  const track = cells - filled - head.length
+   if (track > 0) runs.push({ text: '╌'.repeat(track), color: 'subtle' })
+   return runs
+ }
+@@ -148,19 +164,19 @@ export function barRuns(plan: readonly PlanStep[], cells: number, hasRunning = f
+  * theo bước đã đóng). Không có thì chỉ trạng thái, không phần trăm: chờ giao hay chưa bắt đầu là nét đứt mờ, đang chạy là
+  * đầu ◐ trên nét đứt, xong là thanh đầy màu success, lỗi là ■ màu error, bị cắt vì tạm dừng là ■ màu warning.
+  */
+-export function taskBarRuns(bar: TaskBar, cells: number): Run[] {
+-  if (bar.kind === 'steps') return barRuns(bar.plan, cells)
++export function taskBarRuns(bar: TaskBar, cells: number, paint: Paint = THEME_PAINT): Run[] {
++  if (bar.kind === 'steps') return barRuns(bar.plan, cells, false, paint)
+   if (cells < 3) return []
+   const track = (n: number): Run[] => (n > 0 ? [{ text: '╌'.repeat(n), color: 'subtle' }] : [])
+   switch (bar.state) {
+     case 'done':
+-      return [{ text: '━'.repeat(cells), color: 'success' }]
++      return phaseRuns(paint, 'done', '━'.repeat(cells))
+     case 'running':
+-      return [{ text: STEP_MARK.doing.glyph, color: 'claude', bold: true }, ...track(cells - 1)]
++      return [...phaseRuns(paint, 'active', STEP_MARK.doing.glyph, { bold: true }), ...track(cells - 1)]
+     case 'failed':
+-      return [{ text: STEP_MARK.blocked.glyph, color: 'error', bold: true }, ...track(cells - 1)]
++      return [{ text: STEP_MARK.blocked.glyph, color: paint.solid('error') ?? 'error', bold: true }, ...track(cells - 1)]
+     case 'cut':
+-      return [{ text: STEP_MARK.blocked.glyph, color: 'warning', bold: true }, ...track(cells - 1)]
++      return [{ text: STEP_MARK.blocked.glyph, color: paint.solid('attention') ?? 'warning', bold: true }, ...track(cells - 1)]
+     default:
+       return [{ text: '╌'.repeat(cells), color: 'subtle', dim: true }]
+   }
+@@ -235,14 +251,6 @@ export function wrapText(text: string, width: number, maxLines: number): string[
+   return kept
+ }
+ 
+-/** Cụm ký tự (grapheme) của chuỗi; không có Intl.Segmenter thì theo từng code point. */
+-function graphemesOf(text: string): string[] {
+-  return typeof Intl.Segmenter === 'function' ? [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text)].map(part => part.segment) : [...text]
+-}
+-
+-/** Cụm ký tự rộng hai ô terminal: emoji, cờ, chữ CJK và chữ toàn khổ. */
+-const WIDE_GRAPHEME = /\p{Extended_Pictographic}|\p{Regional_Indicator}|[\u1100-\u115F\u2E80-\u303E\u3041-\u33FF\u3400-\u4DBF\u4E00-\u9FFF\uA960-\uA97F\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFF60\uFFE0-\uFFE6]/u
+-const graphemeCells = (g: string) => (WIDE_GRAPHEME.test(g) ? 2 : 1)
+ 
+ /**
+  * Một dòng không quá `cells` ô, dòng bị cắt kết bằng "…" (0.7.9, UI1). Chữ thường cắt theo từ bằng wrapText như mọi chữ của pane, nên
+diff --git a/claude-mods/focus-conductor/scripts/mutants.ts b/claude-mods/focus-conductor/scripts/mutants.ts
+index a6047d7..ef44da2 100644
+--- a/claude-mods/focus-conductor/scripts/mutants.ts
++++ b/claude-mods/focus-conductor/scripts/mutants.ts
+@@ -2264,4 +2264,9 @@ export const MUTANTS: Mutant[] = [
+   { id: "087-G1c", file: "hooks/parts/session.ts", note: "đoạn dặn ghi cứng fable", old: "    const conductNote = wanted?.isConducting === true && !isBriefed ? [conductorContext(wanted.family)] : []\n", new: "    const conductNote = wanted?.isConducting === true && !isBriefed ? [conductorContext()] : []\n" },
+   { id: "087-G1d", file: "hooks/lib/conductor.ts", note: "họ không có cờ điều phối vẫn được nhận", old: "  return CONDUCTOR_FAMILIES.find(f => f === raw) ?? 'off'\n", new: "  return (CONDUCTOR_FAMILIES.find(f => f === raw) ?? (raw === 'haiku' || raw === 'sonnet' ? raw : 'off')) as ConductorOption\n" },
+   { id: "087-G1e", file: "hooks/lib/conductor.ts", note: "họ dự phòng trùng họ chính vẫn kích hoạt dự phòng", old: "  if (fallback === null || fallback === primary || input.blocked.has(fallback) || (input.fallbackPauseLeft ?? 0) > 0) return null\n", new: "  if (fallback === null || (fallback === primary && false) || input.blocked.has(fallback) || (input.fallbackPauseLeft ?? 0) > 0) return null\n" },
++  { id: "088-N1a", file: "hooks/ui/neon.ts", note: "dải màu không nội suy: mọi ô cùng mốc đầu", old: "  return hexOf(mix(rgbOf(stops[i] as string), rgbOf(stops[i + 1] as string), scaled - i))", new: "  return stops[0] as string" },
++  { id: "088-N1b", file: "hooks/ui/neon.ts", note: "frame không dịch dải màu", old: "    const color = colorAt(stops, cell + frame)", new: "    const color = colorAt(stops, cell)" },
++  { id: "088-N1c", file: "hooks/ui/neon.ts", note: "neon off vẫn trả mã màu thô", old: "  const isNeon = style.palette !== 'off'\n  const gradients", new: "  const isNeon = true\n  const gradients" },
++  { id: "088-N1d", file: "hooks/ui/neon.ts", note: "giá trị lạ của neon thành off", old: "  return pick(value, ['cyber', 'aurora', 'plasma', 'off'] as const, 'cyber')", new: "  return pick(value, ['cyber', 'aurora', 'plasma', 'off'] as const, 'off')" },
++  { id: "088-N1e", file: "hooks/ui/neon.ts", note: "bảng nền sáng dùng màu của nền tối", old: "  const gradients = style.theme === 'light' ? LIGHT_GRADIENTS : DARK_GRADIENTS\n  const solids = style.theme === 'light' ? LIGHT_SOLIDS : DARK_SOLIDS", new: "  const gradients = DARK_GRADIENTS\n  const solids = DARK_SOLIDS" },
+ ]
 diff --git a/claude-mods/focus-conductor/scripts/version-check.mjs b/claude-mods/focus-conductor/scripts/version-check.mjs
 index 32a45cc..38460c5 100644
 --- a/claude-mods/focus-conductor/scripts/version-check.mjs
@@ -66,3 +694,230 @@ index 16df99e..62db4ec 100644
    })
  })
  
+diff --git a/claude-mods/focus-conductor/tests/integration/taskrows-perf-087.test.ts b/claude-mods/focus-conductor/tests/integration/taskrows-perf-087.test.ts
+index f17b5e8..4eb2333 100644
+--- a/claude-mods/focus-conductor/tests/integration/taskrows-perf-087.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/taskrows-perf-087.test.ts
+@@ -32,7 +32,7 @@ const sha = async (text: string) => hex(await crypto.subtle.digest('SHA-256', ne
+ const BASE_SHA = 'f10de6b917dd73cbef9f2ca6cd6efb62e90ca0b4fe2b19572ec363245504511b'
+ 
+ describe('0.8.7: taskRows tính một lần cho mọi việc', () => {
+-  test('mục tiêu 12 việc, checklist có bước "Việc N", bước doing và bước đã xong: chữ band và pane trùng 0.8.6', { options: { planApproval: 'off' } }, async ($, on) => {
++  test('mục tiêu 12 việc, checklist có bước "Việc N", bước doing và bước đã xong: chữ band và pane trùng 0.8.6', { options: { planApproval: 'off', neon: 'off' } }, async ($, on) => {
+     const seen = base(on, { router: () => plan({ goal: GOAL, depth: 'substantial', volume: 'large', kind: 'edit', tasks: TASKS }) })
+     await submit($, GOAL)
+     await $.tool.call({ tool: PLAN, action: 'set', steps: STEPS.map(title => ({ title })) } as never)
+diff --git a/claude-mods/focus-conductor/tests/integration/ui.test.ts b/claude-mods/focus-conductor/tests/integration/ui.test.ts
+index aee5bd9..38010a3 100644
+--- a/claude-mods/focus-conductor/tests/integration/ui.test.ts
++++ b/claude-mods/focus-conductor/tests/integration/ui.test.ts
+@@ -69,7 +69,7 @@ describe('giao diện', () => {
+     }
+   }
+ 
+-  test('thanh tiến độ đổi màu theo bốn giai đoạn ở cả band và pane: xanh dương, cam, vàng, xanh lá', { options: { planApproval: 'off' } }, async ($, on) => {
++  test('thanh tiến độ đổi màu theo bốn giai đoạn ở cả band và pane: xanh dương, cam, vàng, xanh lá', { options: { planApproval: 'off', neon: 'off' } }, async ($, on) => {
+     base(on)
+     await submit($, COMPLEX_PROMPT)
+     const PLAN = 'mcp__focus-conductor__plan'
+@@ -108,7 +108,7 @@ describe('giao diện', () => {
+     expect(done.cells).toBeGreaterThanOrEqual(6)
+   })
+ 
+-  test('bước bị chặn: đầu thanh là ■ vàng, phần đã đóng vẫn theo giai đoạn', { options: { planApproval: 'off' } }, async ($, on) => {
++  test('bước bị chặn: đầu thanh là ■ vàng, phần đã đóng vẫn theo giai đoạn', { options: { planApproval: 'off', neon: 'off' } }, async ($, on) => {
+     base(on)
+     await submit($, COMPLEX_PROMPT)
+     const PLAN = 'mcp__focus-conductor__plan'
+@@ -118,7 +118,7 @@ describe('giao diện', () => {
+     expect(await progressOf($)).toMatchObject({ fill: 'claude', head: '■', headColor: 'warning', count: '1/4', word: undefined })
+   })
+ 
+-  test('terminal hẹp: vẫn tô màu theo giai đoạn, chỉ bỏ tên giai đoạn trên band', { options: { planApproval: 'off' } }, async ($, on) => {
++  test('terminal hẹp: vẫn tô màu theo giai đoạn, chỉ bỏ tên giai đoạn trên band', { options: { planApproval: 'off', neon: 'off' } }, async ($, on) => {
+     base(on)
+     await submit($, COMPLEX_PROMPT)
+     const PLAN = 'mcp__focus-conductor__plan'
+diff --git a/claude-mods/focus-conductor/tests/neon-n1-088.test.ts b/claude-mods/focus-conductor/tests/neon-n1-088.test.ts
+new file mode 100644
+index 0000000..336777f
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/neon-n1-088.test.ts
+@@ -0,0 +1,177 @@
++// 0.8.8 N1: bảng màu neon và ba option. hooks/ui/neon.ts chứa mọi mã màu: dải màu lặp theo chu kỳ 24 ô, phản chiếu, nội suy tuyến tính,
++// dịch một ô mỗi nhịp; bảng nền sáng giảm L của HSL tới khi đạt tương phản 4,5 trên 1 với nền trắng. neon off thì band và pane dùng theme
++// key như 0.8.7, cây vẽ không có mã màu thô.
++
++import { describe, expect, test } from 'claude-code/testing'
++import type { Engine } from 'claude-code/testing'
++import {
++  DARK_BACKGROUND,
++  DARK_GRADIENTS,
++  DARK_SOLIDS,
++  LIGHT_GRADIENTS,
++  LIGHT_SOLIDS,
++  contrast,
++  gradientRuns,
++  neonMotionOf,
++  neonPaletteOf,
++  neonThemeOf,
++} from '../hooks/ui/neon'
++import { PANE, base, plan, submit } from './support/engine'
++
++type Node = { type?: string; props?: Record<string, unknown>; children?: unknown[] }
++const PLAN = 'mcp__focus-conductor__plan'
++const HEX = /^#[0-9a-f]{6}$/
++const RAW = /#|rgb\(|ansi256\(/
++
++/** Màu của từng ô theo thứ tự: một phần tử mỗi cụm ký tự (đủ cho chuỗi một ô mỗi ký tự). */
++const cellColors = (runs: { text: string; color: unknown }[]) => runs.flatMap(r => [...r.text].map(() => String(r.color)))
++const cellCount = (runs: { text: string }[]) => runs.reduce((sum, r) => sum + [...r.text].length, 0)
++
++/** Mọi giá trị color và backgroundColor của các Text trong cây. */
++function paints(root: unknown): string[] {
++  const out: string[] = []
++  const walk = (n: unknown) => {
++    if (n === null || typeof n !== 'object') return
++    const node = n as Node
++    if (node.type === 'Text') for (const key of ['color', 'backgroundColor']) if (typeof node.props?.[key] === 'string') out.push(node.props[key] as string)
++    for (const c of node.children ?? []) walk(c)
++  }
++  walk(root)
++  return out
++}
++
++async function drawBand($: Engine): Promise<unknown> {
++  const ui = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: true, maxRows: 2, bodyColumns: 120, scroll: { offset: 0, bodyRows: 2 }, view: {} } } as never)
++  const tree = await ui.drawn()
++  await ui.unmount()
++  return tree
++}
++
++async function drawPane($: Engine): Promise<unknown> {
++  const ui = await $.ui.mount(PANE as never)
++  const tree = await ui.drawn()
++  await ui.unmount()
++  return tree
++}
++
++describe('0.8.8 N1: dải màu', () => {
++  test('13 ô dải cyber: ô 0 là mốc đầu, ô 12 là mốc cuối; mọi màu là hex sáu chữ số thường', () => {
++    const runs = gradientRuns('━'.repeat(13), DARK_GRADIENTS.cyber, 0)
++    expect(cellCount(runs)).toBe(13)
++    const colors = cellColors(runs)
++    expect(colors[0]).toBe('#00e5ff')
++    expect(colors[12]).toBe('#ff2bd6')
++    for (const color of colors) expect(color).toMatch(HEX)
++    // Có nội suy: ô giữa khác hai mốc đầu và cuối.
++    expect(colors[3]).not.toBe('#00e5ff')
++    expect(colors[9]).not.toBe('#ff2bd6')
++  })
++
++  test('frame 1 dịch đúng một ô so với frame 0; frame 24 như frame 0', () => {
++    const at = (frame: number) => cellColors(gradientRuns('━'.repeat(40), DARK_GRADIENTS.aurora, frame))
++    const zero = at(0)
++    const one = at(1)
++    for (let i = 0; i < 39; i++) expect(one[i]).toBe(zero[i + 1])
++    expect(at(24)).toEqual(zero)
++  })
++
++  test('chu kỳ phản chiếu: ô 24 về lại mốc đầu, nửa sau đi ngược nửa đầu', () => {
++    const colors = cellColors(gradientRuns('━'.repeat(25), DARK_GRADIENTS.plasma, 0))
++    expect(colors[24]).toBe(colors[0])
++    for (let i = 1; i < 12; i++) expect(colors[12 + i]).toBe(colors[12 - i])
++  })
++
++  test('chuỗi rỗng là mảng rỗng; chuỗi một ô là một Run; chữ tiếng Việt có dấu không bị tách đôi', () => {
++    expect(gradientRuns('', DARK_GRADIENTS.cyber, 0)).toEqual([])
++    const one = gradientRuns('x', DARK_GRADIENTS.cyber, 0)
++    expect(one).toEqual([{ text: 'x', color: '#00e5ff' }])
++    const word = 'Việt Nam'
++    const runs = gradientRuns(word, DARK_GRADIENTS.cyber, 0)
++    expect(runs.map(r => r.text).join('')).toBe(word.normalize('NFC'))
++    // Mỗi Run kết thúc ở ranh giới cụm ký tự: không Run nào bắt đầu bằng dấu kết hợp.
++    for (const run of runs) expect(/^\p{M}/u.test(run.text)).toBe(false)
++    expect(cellCount(runs)).toBe([...word.normalize('NFC')].length)
++  })
++
++  test('các ô liền nhau cùng màu gộp thành một Run', () => {
++    const runs = gradientRuns('━'.repeat(6), ['#00e5ff'], 0)
++    expect(runs).toEqual([{ text: '━'.repeat(6), color: '#00e5ff' }])
++  })
++})
++
++describe('0.8.8 N1: tương phản', () => {
++  test('bảng nền tối: mọi mốc và màu đơn (trừ nền ô và chữ trên ô) tương phản với #0a0b13 từ 4,5', () => {
++    for (const stops of Object.values(DARK_GRADIENTS)) for (const c of stops) expect(contrast(c, DARK_BACKGROUND), c).toBeGreaterThanOrEqual(4.5)
++    for (const [name, c] of Object.entries(DARK_SOLIDS)) if (name !== 'cell' && name !== 'onFill') expect(contrast(c, DARK_BACKGROUND), name).toBeGreaterThanOrEqual(4.5)
++  })
++
++  test('bảng nền sáng: mọi mốc và màu đơn tương phản với #ffffff từ 4,5; cùng tên với bảng nền tối', () => {
++    expect(Object.keys(LIGHT_GRADIENTS).sort()).toEqual(Object.keys(DARK_GRADIENTS).sort())
++    for (const stops of Object.values(LIGHT_GRADIENTS)) for (const c of stops) expect(contrast(c, '#ffffff'), c).toBeGreaterThanOrEqual(4.5)
++    for (const [name, c] of Object.entries(LIGHT_SOLIDS)) if (name !== 'cell' && name !== 'onFill') expect(contrast(c, '#ffffff'), name).toBeGreaterThanOrEqual(4.5)
++    expect(LIGHT_SOLIDS.cell).toBe('#e6e8f0')
++    // Bảng nền sáng là bảng riêng: mốc đầu của cyber đã đậm hơn.
++    expect(LIGHT_GRADIENTS.cyber[0]).not.toBe(DARK_GRADIENTS.cyber[0])
++  })
++
++  test('chữ trên ô tô đặc tương phản với mọi mốc của mọi dải từ 4,5, ở cả hai bảng', () => {
++    for (const stops of Object.values(DARK_GRADIENTS)) for (const c of stops) expect(contrast(DARK_SOLIDS.onFill, c), c).toBeGreaterThanOrEqual(4.5)
++    for (const stops of Object.values(LIGHT_GRADIENTS)) for (const c of stops) expect(contrast(LIGHT_SOLIDS.onFill, c), c).toBeGreaterThanOrEqual(4.5)
++    expect(DARK_SOLIDS.onFill).toBe('#07080d')
++  })
++})
++
++describe('0.8.8 N1: ba option', () => {
++  test('neon nhận cyber, aurora, plasma, off; giá trị lạ, rỗng, sai kiểu là cyber', () => {
++    for (const value of ['cyber', 'aurora', 'plasma', 'off']) expect(neonPaletteOf(value)).toBe(value)
++    for (const value of ['', 'neon', 'Off', 'CYBER', 1, null, undefined, true]) expect(neonPaletteOf(value)).toBe('cyber')
++  })
++
++  test('neonMotion nhận on, off (mặc định on); neonTheme nhận dark, light, auto là dark (mặc định auto)', () => {
++    expect(neonMotionOf('off')).toBe('off')
++    for (const value of ['on', '', 'x', 0, undefined]) expect(neonMotionOf(value)).toBe('on')
++    expect(neonThemeOf('light')).toBe('light')
++    for (const value of ['dark', 'auto', '', 'Light', 2, undefined]) expect(neonThemeOf(value)).toBe('dark')
++  })
++})
++
++describe('0.8.8 N1: neon off', () => {
++  const goal = 'Sửa module thanh toán theo ba bước'
++  const setup = async ($: Engine, on: Parameters<typeof base>[0]) => {
++    base(on, { router: () => plan({ goal, depth: 'substantial', volume: 'small', scope: ['src/'] }) })
++    on('tool.call', { tool: 'Write' }, () => ({ result: 'đã ghi' }))
++    await submit($, goal)
++    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'BƯỚC 1: sửa' }, { title: 'BƯỚC 2: kiểm' }, { title: 'BƯỚC 3: ghi' }] } as never)
++    await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'doing' } as never)
++  }
++  const noRaw = (tree: unknown) => {
++    const colors = paints(tree)
++    expect(colors.length).toBeGreaterThan(0)
++    for (const color of colors) expect(RAW.test(color), color).toBe(false)
++  }
++
++  test('đang chạy, vi phạm, xong: band và pane không có mã màu thô', { options: { planApproval: 'off', neon: 'off' } }, async ($, on) => {
++    await setup($, on)
++    noRaw(await drawBand($))
++    noRaw(await drawPane($))
++    await $.tool.call({ tool: 'Write', file_path: '/repo/scripts/ngoai.py', content: 'x' } as never)
++    noRaw(await drawBand($))
++    noRaw(await drawPane($))
++    for (let id = 1; id <= 3; id++) await $.tool.call({ tool: PLAN, action: 'update', step: id, status: 'done' } as never)
++    noRaw(await drawBand($))
++    noRaw(await drawPane($))
++  })
++
++  test('mặc định (cyber): band đang chạy có mã màu hex', { options: { planApproval: 'off' } }, async ($, on) => {
++    await setup($, on)
++    expect(paints(await drawBand($)).some(color => HEX.test(color))).toBe(true)
++  })
++
++  test('neonTheme light: mã màu của band thuộc bảng nền sáng, không thuộc bảng nền tối', { options: { planApproval: 'off', neonTheme: 'light' } }, async ($, on) => {
++    await setup($, on)
++    const hex = paints(await drawBand($)).filter(color => HEX.test(color))
++    expect(hex.length).toBeGreaterThan(0)
++    const dark = new Set([...Object.values(DARK_GRADIENTS).flat(), ...Object.values(DARK_SOLIDS)])
++    for (const color of hex) expect(dark.has(color), color).toBe(false)
++  })
++})
