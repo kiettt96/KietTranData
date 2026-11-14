@@ -1171,9 +1171,10 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number, isHeld = 
   const { items: requirements, renumber, dropped: lostRequirements } = merged
   const reclaimed = reclaimCarried(prev.constraints, prev.carriedRules ?? 0, plan.constraints)
   const conBase = prev.constraintsBase ?? prev.constraints.length
+  // Ràng buộc không còn trần (0.8.9 C1), như yêu cầu từ 0.8.7: không mục nào của prompt tiếp nối bị bỏ hay bị mục mới thay vì đầy.
   const constraints = isPhase
-    ? mergeReplacing(reclaimed.items, plan.constraints, CONSTRAINT_LIMIT, (item, at) => at < conBase || isModelRule(item))
-    : { ...mergeCapped(reclaimed.items, plan.constraints, CONSTRAINT_LIMIT), replaced: [] as string[] }
+    ? mergeReplacing(reclaimed.items, plan.constraints, Number.POSITIVE_INFINITY, (item, at) => at < conBase || isModelRule(item))
+    : { ...mergeCapped(reclaimed.items, plan.constraints, Number.POSITIVE_INFINITY), replaced: [] as string[] }
   const dropped = lostRequirements + constraints.dropped
   const keptTasks = merged.lost.size > 0 ? prev.tasks.map(t => (t.covers !== undefined ? { ...t, covers: t.covers.filter(n => !merged.lost.has(n)) } : t)) : prev.tasks
   const added = plan.tasks.map(t => ({
@@ -1227,7 +1228,7 @@ export function promoteReference(prev: Brief, plan: RouterPlan, prompt: string, 
   // Ràng buộc, tiêu chí và phạm vi của prompt đính kèm được giữ từ lượt đối chiếu: lượt chạy thật phải có đủ. Cả hai lượt là prompt
   // lập mục tiêu nên mọi mục đều thuộc phần không bao giờ bị thay.
   const mergedRequirements = mergeCapped(prev.requirements ?? [], plan.requirements, Number.POSITIVE_INFINITY).items
-  const mergedConstraints = mergeCapped(prev.constraints, plan.constraints, CONSTRAINT_LIMIT).items
+  const mergedConstraints = mergeCapped(prev.constraints, plan.constraints, Number.POSITIVE_INFINITY).items
   return {
     ...briefOf(plan, prompt, prev.goalId + 1, now),
     goal: plan.goal || prev.goal,
@@ -1530,9 +1531,16 @@ export function clippedWarning(length: number, info?: { family: ModelFamily; hea
 /** Dòng context kèm prompt bị lược (0.7.8 G8), tối đa 200 ký tự. */
 export const CLIPPED_CONTEXT = '[focus-conductor] Prompt quá dài nên router chưa đọc phần giữa; tự đọc kỹ phần đó khi lập checklist.'
 
-/** Ràng buộc và yêu cầu của brief trước bị thay vì đầy trần (0.7.5), để báo một cảnh báo. */
+/**
+ * Ràng buộc và yêu cầu của brief trước bị thay vì đầy trần (0.7.5), để báo một cảnh báo. So theo khóa (0.8.9 C1): mục cùng khóa thay
+ * mục cũ tại chỗ không tính là mục bị thay.
+ */
 function replacedOf(prev: Brief, next: Brief): string[] {
-  return [...prev.constraints.filter(x => !next.constraints.includes(x)), ...(prev.requirements ?? []).filter(x => !(next.requirements ?? []).includes(x))]
+  const gone = (before: readonly string[], after: readonly string[]) => {
+    const keys = new Set(after.map(itemKey))
+    return before.filter(x => !keys.has(itemKey(x)))
+  }
+  return [...gone(prev.constraints, next.constraints), ...gone(prev.requirements ?? [], next.requirements ?? [])]
 }
 
 /** Đợt vừa mở (0.8.0 A3): số đợt, số việc và số mục đã cất, số việc mới. */
@@ -1727,7 +1735,7 @@ function nextBriefRaw(
   if (prev === null || (plan.relation === 'new' && !held)) {
     const fresh = briefOf(plan, prompt, (prev?.goalId ?? 0) + 1, now)
     const carried = prev !== null && !prev.isReference && !plan.constraints.some(isModelRule) ? prev.constraints.filter(isModelRule) : []
-    const carriedConstraints = unique([...carried, ...fresh.constraints], CONSTRAINT_LIMIT)
+    const carriedConstraints = unique([...carried, ...fresh.constraints], Number.POSITIVE_INFINITY)
     // Quy định mang sang đứng đầu danh sách (S2): ghi số mục để sàn model phiên chỉ đọc quy định của chính mục tiêu này.
     const brief = carried.length > 0 ? { ...fresh, constraints: carriedConstraints, constraintsBase: carriedConstraints.length, carriedRules: carried.length } : fresh
     return { brief, added: [], isNewGoal: true, replaced: [], held: false, dropped: 0 }
