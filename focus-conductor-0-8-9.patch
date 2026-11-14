@@ -11,10 +11,10 @@ index 022e64d..2ad14e2 100644
    "description": "Một model Claude (router) đọc kỹ prompt trước khi làm và điều phối model/effort/agent cho từng việc; mod kiểm, ép điều phối lúc chạy, giữ nhất quán mục tiêu với checklist và cảnh báo lạc đề.",
    "types": "./types/index.d.ts",
 diff --git a/claude-mods/focus-conductor/CHANGELOG.md b/claude-mods/focus-conductor/CHANGELOG.md
-index 13db1c8..cf7f53f 100644
+index 13db1c8..a9ceb84 100644
 --- a/claude-mods/focus-conductor/CHANGELOG.md
 +++ b/claude-mods/focus-conductor/CHANGELOG.md
-@@ -2,6 +2,35 @@
+@@ -2,6 +2,38 @@
  
  Các bản của focus-conductor, mới nhất trước. Số đo kiểm chứng của HEAD hiện tại nằm ở [docs/VERIFICATION.md](docs/VERIFICATION.md); cách dùng và tùy chọn ở [README](README.md).
  
@@ -46,6 +46,9 @@ index 13db1c8..cf7f53f 100644
 +- `dropped-kind-s8-075`: "pane hiện câu cảnh báo mục bị bỏ ở Cần chú ý, một lần, không có chip "model"" đổi tên thành "ràng buộc không còn trần (0.8.9 C1): ba prompt như cũ không còn cảnh báo mục bị bỏ, không có chip "model"".
 +- `error-behavior-a9-080`: "mục prompt tiếp nối bị bỏ: một mục dropped; mô tả không chứa nội dung prompt" đổi tên thành "ràng buộc không còn trần (0.8.9 C1): ba prompt như cũ không ghi mục dropped nào".
 +- `dropped-rank-078`: giữ tên và kỳ vọng; dựng Core có sẵn cảnh báo mục bị bỏ (trạng thái từ bản cũ) thay cho ba prompt, vì mod không còn tạo cảnh báo này.
++- **C2: nơi chèn và gửi ràng buộc chỉ nêu tối đa 22 mục** (`shownConstraints`): các mục của prompt lập mục tiêu và các mục mới nhất, kèm một dòng hay một vế nêu số mục còn lại. Áp ở context của mục tiêu, context tiếp tục từ điểm dừng, request tiếp nối, request rà kế hoạch và mục ràng buộc của pane. Không quá 22 ràng buộc thì đầu ra trùng bản trước. Không ca cũ nào đổi kỳ vọng.
++
++**Mẫu cũ viết lại, giữ mã (vòng 2):** `075-R1c`, `075-R1f` (khối phần tràn của request tiếp nối viết thành nhiều dòng ở C2).
 +
  ## Thay đổi 0.8.8: giao diện hướng B "Ba ô phát sáng", dải màu neon
  
@@ -187,6 +190,19 @@ index 1914b05..47b6aaa 100644
  ## Kiểm chứng của 0.8.8 (giao diện hướng B "Ba ô phát sáng", dải màu neon)
  
  Nhánh tách từ `main` `e143c64` (0.8.7). Thứ tự N1 tới N5, rồi phần bổ sung N6a tới N6g; mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `088-*`; không amend, không force-push, không merge [Đo trực tiếp]. Bộ test, kiểm tĩnh và đột biến chạy trên engine 2.1.296 cài riêng ngoài repo; khai báo kiểu được đọc ở cả 2.1.296 và engine của phiên phát triển (2.1.325).
+diff --git a/claude-mods/focus-conductor/hooks/lib/checkpoint.ts b/claude-mods/focus-conductor/hooks/lib/checkpoint.ts
+index 83c3980..1603c4f 100644
+--- a/claude-mods/focus-conductor/hooks/lib/checkpoint.ts
++++ b/claude-mods/focus-conductor/hooks/lib/checkpoint.ts
+@@ -74,6 +74,8 @@ function briefOf(brief: Brief | null): CheckpointBrief {
+   return {
+     goal: brief.goal,
+     constraints: [...brief.constraints],
++    // 0.8.9 C2: số mục của prompt lập mục tiêu, để context tiếp tục nêu đúng các ràng buộc như context của mục tiêu.
++    ...(brief.constraintsBase !== undefined ? { constraintsBase: brief.constraintsBase } : {}),
+     quality: [...brief.quality],
+     scopePaths: [...brief.scopePaths],
+     tasks: brief.tasks.map(t => ({ index: t.index, title: t.title, run: t.run, ...(t.agentType ? { agentType: t.agentType } : {}), pick: t.pick })),
 diff --git a/claude-mods/focus-conductor/hooks/lib/families.ts b/claude-mods/focus-conductor/hooks/lib/families.ts
 index 23149ca..19d58ab 100644
 --- a/claude-mods/focus-conductor/hooks/lib/families.ts
@@ -254,7 +270,7 @@ index 6909686..35815ef 100644
  
  /** Kế hoạch đọc prompt dài `textLength` ký tự; `fixedChars` là số ký tự của lời dặn và các dòng ngữ cảnh của request. */
 diff --git a/claude-mods/focus-conductor/hooks/lib/router.ts b/claude-mods/focus-conductor/hooks/lib/router.ts
-index fc059c5..beaf003 100644
+index fc059c5..1593f47 100644
 --- a/claude-mods/focus-conductor/hooks/lib/router.ts
 +++ b/claude-mods/focus-conductor/hooks/lib/router.ts
 @@ -13,7 +13,7 @@ import { DEFAULT_CONDUCTOR, FAMILY_NAMES, conductorTimeouts } from './families'
@@ -266,7 +282,57 @@ index fc059c5..beaf003 100644
  import type { ReadPlan, Reading } from './reading'
  import { EFFORTS, FAMILIES, applySession, avoidBlocked, codesIn, describePick, effortRank, familyOf, familyRank, sessionFloor } from './route'
  import type { SessionModel } from './route'
-@@ -1171,9 +1171,10 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number, isHeld =
+@@ -357,6 +357,21 @@ function ruleItems(constraints: readonly string[] | undefined): string[] {
+   return items
+ }
+ 
++/** Số ràng buộc tối đa được nêu ở mỗi nơi chèn vào context hay gửi router (0.8.9 C2): ràng buộc không còn trần nhưng phần nêu thì có. */
++export const CONSTRAINT_SHOWN = 22
++
++/**
++ * Ràng buộc được nêu (0.8.9 C2): không quá CONSTRAINT_SHOWN mục thì nguyên danh sách; dài hơn thì giữ `base` mục đầu (mục của prompt
++ * lập mục tiêu; thiếu hay lớn hơn CONSTRAINT_SHOWN thì coi là CONSTRAINT_SHOWN) cộng các mục mới nhất ở cuối cho đủ, giữ thứ tự.
++ * `hidden` là số mục còn lại không nêu.
++ */
++export function shownConstraints(constraints: readonly string[], base?: number): { items: string[]; hidden: number } {
++  if (constraints.length <= CONSTRAINT_SHOWN) return { items: [...constraints], hidden: 0 }
++  const head = base === undefined || base > CONSTRAINT_SHOWN ? CONSTRAINT_SHOWN : Math.max(0, base)
++  const tail = CONSTRAINT_SHOWN - head
++  return { items: [...constraints.slice(0, head), ...constraints.slice(constraints.length - tail)], hidden: constraints.length - CONSTRAINT_SHOWN }
++}
++
+ function rulesLines(constraints: readonly string[] | undefined): string[] {
+   const items = ruleItems(constraints)
+   return items.length > 0 ? ['User rules of this goal (a rule that names a model for this kind of work must be followed, never a lower model):', ...items] : []
+@@ -374,15 +389,24 @@ function previousLines(prev: Brief | null, ran: string | null): string[] {
+     ...totalLine(prev.tasks.length),
+   ]
+   // Ràng buộc của mục tiêu trước (0.7.5), cắt gọn như khi chấm subagent: prompt tiếp nối ngắn không nhắc lại quy định model.
+-  const rules = ruleItems(prev.constraints)
++  // 0.8.9 C2: chỉ các ràng buộc được nêu (tối đa CONSTRAINT_SHOWN mục), kèm số mục còn lại.
++  const shown = shownConstraints(prev.constraints, prev.constraintsBase)
++  const rules = ruleItems(shown.items)
+   // Phần tràn (vòng rà soát 3): mục của prompt tiếp nối giữ ngoài trần luôn có trong request, kể cả khi ruleItems đã cắt.
+   const overRequirements = (prev.requirements ?? []).slice(REQUIREMENT_CONTEXT)
+-  const over = [...prev.constraints.slice(CONSTRAINT_LIMIT), ...overRequirements.slice(0, TASK_CONTEXT)]
++  const over = [...shown.items.slice(CONSTRAINT_LIMIT), ...overRequirements.slice(0, TASK_CONTEXT)]
+   return [
+     `Previous goal${prev.isReference ? ' (a reference-only review: its tasks were routed for comparison, not run)' : ''}: ${fence(prev.goal)}`,
+     ...(tasks.length > 0 ? ['Previous tasks:', ...tasks] : []),
+     ...(rules.length > 0 ? ['Previous constraints (still hold on a follow-up; a rule that names a model for this kind of work must be followed):', ...rules] : []),
+-    ...(over.length > 0 ? ['Previous follow-up items kept over the limit (still hold):', ...over.map(item => `  - ${fence(clip(item, 120))}`), ...(overRequirements.length > TASK_CONTEXT ? [`  (${overRequirements.length - TASK_CONTEXT} more requirements)`] : [])] : []),
++    ...(over.length > 0
++      ? [
++          'Previous follow-up items kept over the limit (still hold):',
++          ...over.map(item => `  - ${fence(clip(item, 120))}`),
++          ...(overRequirements.length > TASK_CONTEXT ? [`  (${overRequirements.length - TASK_CONTEXT} more requirements)`] : []),
++          ...(shown.hidden > 0 ? [`  (${shown.hidden} more constraints)`] : []),
++        ]
++      : []),
+     ...(prev.referenceMain ? [`Main thread the referenced prompt would need: ${describePick(prev.referenceMain)}`] : []),
+     `Main thread ran: ${ran ?? 'unknown'}`,
+   ]
+@@ -1171,9 +1195,10 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number, isHeld =
    const { items: requirements, renumber, dropped: lostRequirements } = merged
    const reclaimed = reclaimCarried(prev.constraints, prev.carriedRules ?? 0, plan.constraints)
    const conBase = prev.constraintsBase ?? prev.constraints.length
@@ -279,7 +345,7 @@ index fc059c5..beaf003 100644
    const dropped = lostRequirements + constraints.dropped
    const keptTasks = merged.lost.size > 0 ? prev.tasks.map(t => (t.covers !== undefined ? { ...t, covers: t.covers.filter(n => !merged.lost.has(n)) } : t)) : prev.tasks
    const added = plan.tasks.map(t => ({
-@@ -1227,7 +1228,7 @@ export function promoteReference(prev: Brief, plan: RouterPlan, prompt: string,
+@@ -1227,7 +1252,7 @@ export function promoteReference(prev: Brief, plan: RouterPlan, prompt: string,
    // Ràng buộc, tiêu chí và phạm vi của prompt đính kèm được giữ từ lượt đối chiếu: lượt chạy thật phải có đủ. Cả hai lượt là prompt
    // lập mục tiêu nên mọi mục đều thuộc phần không bao giờ bị thay.
    const mergedRequirements = mergeCapped(prev.requirements ?? [], plan.requirements, Number.POSITIVE_INFINITY).items
@@ -288,7 +354,7 @@ index fc059c5..beaf003 100644
    return {
      ...briefOf(plan, prompt, prev.goalId + 1, now),
      goal: plan.goal || prev.goal,
-@@ -1271,7 +1272,7 @@ export function bareBrief(prompt: string, goalId: number, now: number): Brief {
+@@ -1271,7 +1296,7 @@ export function bareBrief(prompt: string, goalId: number, now: number): Brief {
  // ------------------------------------------------------------ gọi router (thuần, qua callback)
  
  /**
@@ -297,7 +363,7 @@ index fc059c5..beaf003 100644
   * `$` ngay trong thân hook, nên logic gọi, thử lại và đọc kết quả nằm ở đây mà không đụng tới `$`.
   */
  export type Ask = (request: ModelCompleteRequest) => Promise<ModelCompleteResult | null>
-@@ -1285,9 +1286,21 @@ export function failureKind(reply: ModelCompleteResult | null): RouterFailKind {
+@@ -1285,9 +1310,21 @@ export function failureKind(reply: ModelCompleteResult | null): RouterFailKind {
    return 'empty'
  }
  
@@ -322,7 +388,7 @@ index fc059c5..beaf003 100644
    if (reply.isAnswered) return 'câu trả lời không đúng định dạng'
    if (reply.reason === 'api-error') return `lỗi API ${reply.error}${reply.status !== null ? ` ${reply.status}` : ''}`
    if (reply.reason === 'aborted') return 'hết thời gian chờ'
-@@ -1333,11 +1346,15 @@ export type RouterOutcome<T> = {
+@@ -1333,11 +1370,15 @@ export type RouterOutcome<T> = {
    reason: string
    /** Usage của mọi lượt gọi (lượt đầu và lượt hỏi lại). */
    usages: ModelUsage[]
@@ -339,7 +405,7 @@ index fc059c5..beaf003 100644
    /** Loại lỗi khi không có kết quả (0.7.2); null khi có kết quả. */
    failure: RouterFailKind | null
    /** Giới hạn của request đã gửi và số token đầu ra của lượt gọi cuối, để biết lỗi do hết giờ hay bị cắt (0.7.2). */
-@@ -1367,51 +1384,89 @@ export function failFields(fail: RouterFail): Record<string, unknown> {
+@@ -1367,51 +1408,89 @@ export function failFields(fail: RouterFail): Record<string, unknown> {
    return { failure: fail.kind, ms: fail.ms, timeoutMs: fail.timeoutMs, maxTokens: fail.maxTokens, outputTokens: fail.outputTokens }
  }
  
@@ -442,7 +508,7 @@ index fc059c5..beaf003 100644
    }
    const firstResult = first?.isAnswered ? parse(first.text) : null
    // Thiếu confidence (0.7.8 G8): chỉ khi bật retryMissingConfidence (ba chỗ đọc prompt) thì coi như dưới LOW_CONFIDENCE và hỏi lại;
-@@ -1420,16 +1475,24 @@ export async function askRouter<T extends { confidence?: number }>(
+@@ -1420,16 +1499,24 @@ export async function askRouter<T extends { confidence?: number }>(
    const firstConfidence = firstResult?.confidence ?? 1
    const isConfident = firstResult !== null && !isMissing && firstConfidence >= LOW_CONFIDENCE
    const needsCoverage = isConfident && recheck !== undefined && recheck(firstResult)
@@ -472,7 +538,7 @@ index fc059c5..beaf003 100644
    const secondResult = second?.isAnswered ? parse(second.text) : null
    // Thiếu confidence xếp thấp nhất khi bật retryMissingConfidence: lần hai thắng khi nó có confidence và lần đầu không có hay thấp hơn.
    const isSecondBetter =
-@@ -1437,7 +1500,7 @@ export async function askRouter<T extends { confidence?: number }>(
+@@ -1437,7 +1524,7 @@ export async function askRouter<T extends { confidence?: number }>(
        ? secondResult !== null && (firstResult === null || (secondResult.confidence !== undefined && (isMissing || secondResult.confidence >= firstConfidence)))
        : secondResult !== null && (firstResult === null || (secondResult.confidence ?? 1) >= firstConfidence)
    const pick = isSecondBetter ? secondResult : firstResult
@@ -481,7 +547,7 @@ index fc059c5..beaf003 100644
  }
  
  /** Prompt dài hơn sức chứa của lượt router đó bị lược phần giữa (0.7.8 G8; 0.8.7 L3: sức chứa theo requestPlan, mặc định trần cũ). */
-@@ -1468,9 +1531,16 @@ export function clippedWarning(length: number, info?: { family: ModelFamily; hea
+@@ -1468,9 +1555,16 @@ export function clippedWarning(length: number, info?: { family: ModelFamily; hea
  /** Dòng context kèm prompt bị lược (0.7.8 G8), tối đa 200 ký tự. */
  export const CLIPPED_CONTEXT = '[focus-conductor] Prompt quá dài nên router chưa đọc phần giữa; tự đọc kỹ phần đó khi lập checklist.'
  
@@ -500,7 +566,7 @@ index fc059c5..beaf003 100644
  }
  
  /** Đợt vừa mở (0.8.0 A3): số đợt, số việc và số mục đã cất, số việc mới. */
-@@ -1665,7 +1735,7 @@ function nextBriefRaw(
+@@ -1665,7 +1759,7 @@ function nextBriefRaw(
    if (prev === null || (plan.relation === 'new' && !held)) {
      const fresh = briefOf(plan, prompt, (prev?.goalId ?? 0) + 1, now)
      const carried = prev !== null && !prev.isReference && !plan.constraints.some(isModelRule) ? prev.constraints.filter(isModelRule) : []
@@ -509,6 +575,68 @@ index fc059c5..beaf003 100644
      // Quy định mang sang đứng đầu danh sách (S2): ghi số mục để sàn model phiên chỉ đọc quy định của chính mục tiêu này.
      const brief = carried.length > 0 ? { ...fresh, constraints: carriedConstraints, constraintsBase: carriedConstraints.length, carriedRules: carried.length } : fresh
      return { brief, added: [], isNewGoal: true, replaced: [], held: false, dropped: 0 }
+@@ -1733,12 +1827,14 @@ Reply with ONE JSON object and nothing else:
+ {"missing": number[], "extra": number[], "issues": string[]}`
+ 
+ /** Request rà kế hoạch ở Stop (0.8.2 N2): yêu cầu, ràng buộc, tiêu chí và các bước (tên, check) đánh số từ 1. */
+-export function planReviewRequest(args: { goal: string; requirements: readonly string[]; constraints: readonly string[]; quality: readonly string[]; steps: ReadonlyArray<{ title: string; check?: string }>; model: string; isFable?: boolean }): ModelCompleteRequest {
++export function planReviewRequest(args: { goal: string; requirements: readonly string[]; constraints: readonly string[]; constraintsBase?: number; quality: readonly string[]; steps: ReadonlyArray<{ title: string; check?: string }>; model: string; isFable?: boolean }): ModelCompleteRequest {
+   const numbered = (items: readonly string[]) => items.map((item, i) => `${i + 1}. ${fence(clip(item, 200))}`)
++  // 0.8.9 C2: tối đa CONSTRAINT_SHOWN ràng buộc, kèm số mục còn lại.
++  const shown = shownConstraints(args.constraints, args.constraintsBase)
+   const lines = [
+     'Requirements:',
+     ...(args.requirements.length > 0 ? numbered(args.requirements) : [`1. ${fence(clip(args.goal, 200))}`]),
+-    ...(args.constraints.length > 0 ? ['Constraints:', ...args.constraints.map(c => `- ${fence(clip(c, 200))}`)] : []),
++    ...(shown.items.length > 0 ? ['Constraints:', ...shown.items.map(c => `- ${fence(clip(c, 200))}`), ...(shown.hidden > 0 ? [`(${shown.hidden} more constraints)`] : [])] : []),
+     ...(args.quality.length > 0 ? ['Quality criteria:', ...args.quality.map(q => `- ${fence(clip(q, 200))}`)] : []),
+     'Plan steps:',
+     ...args.steps.slice(0, 40).map((step, i) => `${i + 1}. ${fence(clip(step.title, 200))}${step.check ? ` (check: ${fence(clip(step.check, 200))})` : ' (no check)'}`),
+diff --git a/claude-mods/focus-conductor/hooks/lib/text.ts b/claude-mods/focus-conductor/hooks/lib/text.ts
+index c07c057..e69cd9c 100644
+--- a/claude-mods/focus-conductor/hooks/lib/text.ts
++++ b/claude-mods/focus-conductor/hooks/lib/text.ts
+@@ -10,7 +10,7 @@ import { clockOf, labels } from '../ui/labels'
+ import { currentStep, taskBarRuns } from '../ui/style'
+ import type { Lang } from '../ui/labels'
+ import { describePick, stepCovers } from './route'
+-import { uncoveredRequirements } from './router'
++import { shownConstraints, uncoveredRequirements } from './router'
+ 
+ export const PLAN_TOOL = 'plan'
+ export const PLAN_TOOL_FULL = 'mcp__focus-conductor__plan'
+@@ -118,7 +118,10 @@ export function briefContext(brief: Brief, main: Choice | null, isApplied = true
+       ? `Điều phối: luồng chính ${mainText}; việc ghi "giao" chạy đúng model đã ghi; subagent ngoài danh sách được router chấm khi giao.`
+       : `Điều phối: luồng chính ${mainText}; subagent (nếu cần) được router chấm khi giao.`
+   // Lượt đối chiếu không hiển thị ràng buộc và tiêu chí: chúng thuộc prompt đính kèm, không phải việc của lượt này.
+-  const rules = brief.isReference ? '' : `${bullets('Ràng buộc:', brief.constraints)}${bullets('Tiêu chí chất lượng:', brief.quality)}`
++  // 0.8.9 C2: tối đa CONSTRAINT_SHOWN ràng buộc, kèm số mục còn lại.
++  const shown = shownConstraints(brief.constraints, brief.constraintsBase)
++  const more = shown.hidden > 0 ? `\n(và ${shown.hidden} ràng buộc khác)` : ''
++  const rules = brief.isReference ? '' : `${bullets('Ràng buộc:', shown.items)}${more}${bullets('Tiêu chí chất lượng:', brief.quality)}`
+   // Yêu cầu router đã liệt kê mà không việc nào phủ (0.7.0): nhắc để không bị bỏ sót khi lập checklist.
+   const uncovered = brief.isReference ? [] : uncoveredRequirements(brief)
+   const gaps = uncovered.length > 0 ? `\nYêu cầu chưa có việc nào phủ (đừng bỏ sót khi lập checklist): ${uncoveredList(uncovered)}` : ''
+@@ -806,12 +809,18 @@ const RESUME_RULES =
+  * (điểm tiếp tục chính xác), năm tool call cuối, file đổi sau lúc dừng và quy tắc tiếp tục. Tối đa RESUME_MAX ký tự:
+  * phần dài bị cắt theo thứ tự tool call cuối, checklist, note; tiêu đề, lệnh bị từ chối, file đổi và quy tắc giữ.
+  */
++function constraintsLine(constraints: readonly string[], base: number | undefined): string {
++  const shown = shownConstraints(constraints, base)
++  return shown.items.length > 0 ? `Ràng buộc: ${shown.items.join('; ')}${shown.hidden > 0 ? ` (và ${shown.hidden} ràng buộc khác)` : ''}` : ''
++}
++
+ export function resumeContext(cp: QuotaCheckpoint, changed: readonly string[]): string {
+   const reasons = cp.reason.length > 0 ? cp.reason.map(quotaReasonText).join('; ') : 'người dùng tạm dừng'
+   const head = `[focus-conductor] ĐIỂM DỪNG (${resetLabel(new Date(cp.createdAt).toISOString()) || 'không rõ giờ'}): đã dừng vì ${reasons}.`
+   const goal = [
+     cp.brief.goal ? `Mục tiêu: ${cp.brief.goal}` : '',
+-    cp.brief.constraints.length > 0 ? `Ràng buộc: ${cp.brief.constraints.join('; ')}` : '',
++    // 0.8.9 C2: tối đa CONSTRAINT_SHOWN ràng buộc, kèm số mục còn lại.
++    constraintsLine(cp.brief.constraints, cp.brief.constraintsBase),
+     cp.brief.quality.length > 0 ? `Tiêu chí chất lượng: ${cp.brief.quality.join('; ')}` : '',
+   ].filter(Boolean)
+   const doing = cp.doing.length > 0 ? `Bước đang làm: ${cp.doing.join(', ')}.` : ''
 diff --git a/claude-mods/focus-conductor/hooks/lib/version.ts b/claude-mods/focus-conductor/hooks/lib/version.ts
 index c17fcb0..284111e 100644
 --- a/claude-mods/focus-conductor/hooks/lib/version.ts
@@ -518,6 +646,18 @@ index c17fcb0..284111e 100644
  // test so hằng với .claude-plugin/plugin.json.
 -export const MOD_VERSION = '0.8.8'
 +export const MOD_VERSION = '0.8.9'
+diff --git a/claude-mods/focus-conductor/hooks/parts/consistency.ts b/claude-mods/focus-conductor/hooks/parts/consistency.ts
+index c5df562..fac35d6 100644
+--- a/claude-mods/focus-conductor/hooks/parts/consistency.ts
++++ b/claude-mods/focus-conductor/hooks/parts/consistency.ts
+@@ -401,6 +401,7 @@ async function planReviewGate($: EngineInterface, ctx: Ctx): Promise<{ kind: 'no
+     goal: brief.goal,
+     requirements: brief.requirements ?? [],
+     constraints: brief.constraints,
++    ...(brief.constraintsBase !== undefined ? { constraintsBase: brief.constraintsBase } : {}),
+     quality: brief.quality,
+     steps: core.plan.map(step => ({ title: step.title, ...(step.check !== undefined ? { check: step.check } : {}) })),
+     model: target.model,
 diff --git a/claude-mods/focus-conductor/hooks/parts/session.ts b/claude-mods/focus-conductor/hooks/parts/session.ts
 index 33befe5..216a32c 100644
 --- a/claude-mods/focus-conductor/hooks/parts/session.ts
@@ -582,10 +722,75 @@ index 33befe5..216a32c 100644
        main: brief.main,
        expected,
        notes: plan.notes,
+diff --git a/claude-mods/focus-conductor/hooks/ui/labels.ts b/claude-mods/focus-conductor/hooks/ui/labels.ts
+index 88f801e..eeba1f0 100644
+--- a/claude-mods/focus-conductor/hooks/ui/labels.ts
++++ b/claude-mods/focus-conductor/hooks/ui/labels.ts
+@@ -51,6 +51,8 @@ const VI = {
+   notRead: 'router chưa đọc',
+   constraints: 'Ràng buộc',
+   noConstraints: 'Không nhận ra ràng buộc rõ ràng.',
++  /** 0.8.9 C2: số ràng buộc không nêu ở mục ràng buộc. */
++  constraintsMore: (n: number) => `(và ${n} ràng buộc khác)`,
+   quality: 'Tiêu chí chất lượng',
+   noQuality: 'Không nhận ra tiêu chí riêng.',
+   plannedTag: '(dự kiến)',
+@@ -230,6 +232,7 @@ const EN: typeof VI = {
+   notRead: 'not read by the router',
+   constraints: 'Constraints',
+   noConstraints: 'No explicit constraints found.',
++  constraintsMore: n => `(and ${n} more ${n === 1 ? 'constraint' : 'constraints'})`,
+   quality: 'Quality criteria',
+   noQuality: 'No specific criteria found.',
+   plannedTag: '(planned)',
+diff --git a/claude-mods/focus-conductor/hooks/ui/pane.tsx b/claude-mods/focus-conductor/hooks/ui/pane.tsx
+index 9c2309b..8b7c681 100644
+--- a/claude-mods/focus-conductor/hooks/ui/pane.tsx
++++ b/claude-mods/focus-conductor/hooks/ui/pane.tsx
+@@ -8,6 +8,7 @@ import type { Mode, PlanStep, StepStatus } from '../../types'
+ import { estimateLine, formatCost, ledgerLines, sessionUsd } from '../lib/ledger'
+ import type { View } from '../lib/state'
+ import { shownPlan } from '../lib/mirror'
++import { shownConstraints } from '../lib/router'
+ import { runningGroups, runningTitles, stepTaskRows, taskRows } from '../lib/progress'
+ import { liveForks } from '../lib/forks'
+ import { countLabel, progress } from '../lib/text'
+@@ -767,6 +768,7 @@ export function renderPane(
+ 
+   // ------------------------------------------------------------- nhật ký
+   const recentLog = log.slice(-8).reverse()
++  const constraintsShown = shownConstraints(brief.constraints, brief.constraintsBase)
+   const hasEstimate = recentLog.some(entry => entry.usd !== undefined && !entry.measured)
+   const logNode = (
+     <Box flexDirection="column">
+@@ -861,7 +863,9 @@ export function renderPane(
+       ) : null}
+       <Box flexDirection="column">
+         {heading(l.constraints)}
+-        {bullets(brief.constraints, l.noConstraints)}
++        {bullets(constraintsShown.items, l.noConstraints)}
++        {/* 0.8.9 C2: tối đa 22 ràng buộc, kèm một dòng mờ nêu số mục còn lại. */}
++        {constraintsShown.hidden > 0 ? <Text dimColor>{l.constraintsMore(constraintsShown.hidden)}</Text> : null}
+       </Box>
+       <Box flexDirection="column">
+         {heading(l.quality)}
 diff --git a/claude-mods/focus-conductor/scripts/mutants.ts b/claude-mods/focus-conductor/scripts/mutants.ts
-index df2949e..22e35c7 100644
+index df2949e..0b285c4 100644
 --- a/claude-mods/focus-conductor/scripts/mutants.ts
 +++ b/claude-mods/focus-conductor/scripts/mutants.ts
+@@ -1322,10 +1322,10 @@ export const MUTANTS: Mutant[] = [
+   { id: "075-L8c", file: "hooks/lib/state.ts", note: "mọi bước cũ được coi là cùng bước", old: "steps, (a, b) => a.title === b.title, n.closing.seq)", new: "steps, (a, b) => true, n.closing.seq)" },
+   { id: "075-R1a", file: "hooks/lib/router.ts", note: "ràng buộc của prompt tiếp nối không vào phần tràn (bị bỏ)", old: "    else if (items.length < max + CAP_OVERFLOW) items.push(item)\n", new: "    else if (items.length < max) items.push(item)\n" },
+   { id: "075-R1b", file: "hooks/lib/router.ts", note: "request tiếp nối không nêu yêu cầu từ mục 31", old: "...overRequirements.slice(0, TASK_CONTEXT)]", new: "]" },
+-  { id: "075-R1c", file: "hooks/lib/router.ts", note: "request tiếp nối không ghi số yêu cầu còn lại", old: ", ...(overRequirements.length > TASK_CONTEXT ? [`  (${overRequirements.length - TASK_CONTEXT} more requirements)`] : [])", new: "" },
++  { id: "075-R1c", file: "hooks/lib/router.ts", note: "request tiếp nối không ghi số yêu cầu còn lại", old: "          ...(overRequirements.length > TASK_CONTEXT ? [`  (${overRequirements.length - TASK_CONTEXT} more requirements)`] : []),\n", new: "" },
+   { id: "075-R1d", file: "hooks/lib/router.ts", note: "mục bị bỏ không được đếm", old: "    else if (items.length < max + CAP_OVERFLOW) items.push(item)\n    else dropped += 1\n", new: "    else if (items.length < max + CAP_OVERFLOW) items.push(item)\n" },
+   { id: "075-R1e", file: "hooks/lib/router.ts", note: "danh sách cũ bị cắt về trần, mất phần tràn ở lần gộp sau", old: "  const items = unique(prev, max + CAP_OVERFLOW)", new: "  const items = unique(prev, max)" },
+-  { id: "075-R1f", file: "hooks/lib/router.ts", note: "request tiếp nối không nêu phần tràn", old: "    ...(over.length > 0 ? [", new: "    ...(false ? [" },
++  { id: "075-R1f", file: "hooks/lib/router.ts", note: "request tiếp nối không nêu phần tràn", old: "    ...(over.length > 0\n      ? [", new: "    ...(false\n      ? [" },
+   { id: "075-R1g", file: "hooks/lib/router.ts", note: "brief không ghi số mục bị bỏ", old: "    ...((prev.dropped ?? 0) + dropped > 0 ? { dropped: (prev.dropped ?? 0) + dropped } : {}),\n", new: "" },
+   { id: "075-R1h", file: "hooks/parts/session.ts", note: "không cảnh báo khi mục bị bỏ", old: "      await update($, coreState, S.withWarnings({ at: now, kind: 'dropped', text: droppedItemsText(dropped) }))\n", new: "" },
+   { id: "075-R1i", file: "hooks/parts/command.ts", note: "/conductor status không nêu số mục bị bỏ", old: "          ...((core.brief.dropped ?? 0) > 0 ? [droppedItemsText(core.brief.dropped ?? 0)] : []),\n", new: "" },
 @@ -2237,12 +2237,12 @@ export const MUTANTS: Mutant[] = [
    { id: "087-L3f", file: "hooks/parts/session.ts", note: "lượt dự phòng lấy phần còn lại của hạn chung thay cho 120 giây", old: "timeoutMs: FALLBACK_TIMEOUT_MS } : undefined", new: "timeoutMs: Math.round(promptRead.timeoutMs * 0.5) } : undefined" },
    { id: "087-L3g", file: "hooks/lib/router.ts", note: "cảnh báo luôn ghi phần cuối của trần cũ", old: "grouped(info?.tail ?? BASE_TAIL)", new: "grouped(BASE_TAIL)" },
@@ -602,7 +807,7 @@ index df2949e..22e35c7 100644
    { id: "087-L3o", file: "hooks/lib/reading.ts", note: "mặc định routerMaxWait về 600 giây", old: "export const ROUTER_MAX_WAIT_MS = 1_800_000", new: "export const ROUTER_MAX_WAIT_MS = 600_000" },
    { id: "087-M1a", file: "hooks/lib/route.ts", note: "luôn trả ID ghim", old: "  if (useAlias && prefix === '') return family\n", new: "  if (false) return family\n" },
    { id: "087-M1b", file: "hooks/lib/route.ts", note: "alias thắng cả ghi đè modelMap", old: "  const override = map[family]\n  if (override) return override\n  const at = engineModel.indexOf('claude-')", new: "  if (useAlias) return family\n  const override = map[family]\n  if (override) return override\n  const at = engineModel.indexOf('claude-')" },
-@@ -2305,4 +2305,24 @@ export const MUTANTS: Mutant[] = [
+@@ -2305,4 +2305,30 @@ export const MUTANTS: Mutant[] = [
    { id: "088-N6o", file: "hooks/ui/band.tsx", note: "nút Ẩn vẫn hiện khi tạm dừng", old: "const hideButton = hasRoom && !isPaused && fit.hide ?", new: "const hideButton = hasRoom && fit.hide ?" },
    { id: "088-N6p", file: "hooks/ui/direction.ts", note: "tắt quotaGuard vẫn tính tạm dừng", old: "  const isPaused = settings.enabled && isPauseActive(", new: "  const isPaused = isPauseActive(" },
    { id: "088-N6q", file: "hooks/ui/band.tsx", note: "band lại có hộp rỗng ở cột đầu", old: "    <Box flexDirection=\"column\" flexGrow={1} flexShrink={1}>\n      {lines}\n    </Box>", new: "    <Box flexDirection=\"row\">\n      <Box flexDirection=\"column\" flexShrink={0} />\n      <Box flexDirection=\"column\" flexGrow={1} flexShrink={1}>\n        {lines}\n      </Box>\n    </Box>" },
@@ -626,6 +831,12 @@ index df2949e..22e35c7 100644
 +  { id: "089-C1c", file: "hooks/lib/router.ts", note: "mục tiêu mới mang quy định model vẫn cắt ở 12", old: "unique([...carried, ...fresh.constraints], Number.POSITIVE_INFINITY)", new: "unique([...carried, ...fresh.constraints], CONSTRAINT_LIMIT)" },
 +  { id: "089-C1d", file: "hooks/lib/router.ts", note: "lượt chạy thật prompt đã đối chiếu vẫn dùng trần 12", old: "mergeCapped(prev.constraints, plan.constraints, Number.POSITIVE_INFINITY).items", new: "mergeCapped(prev.constraints, plan.constraints, CONSTRAINT_LIMIT).items" },
 +  { id: "089-C1e", file: "hooks/lib/router.ts", note: "mục cùng khóa thay tại chỗ vẫn sinh cảnh báo đã đầy", old: "    const keys = new Set(after.map(itemKey))\n    return before.filter(x => !keys.has(itemKey(x)))\n", new: "    return before.filter(x => !after.includes(x))\n" },
++  { id: "089-C2a", file: "hooks/lib/router.ts", note: "lấy 22 mục đầu, bỏ các mục mới nhất", old: "  const head = base === undefined || base > CONSTRAINT_SHOWN ? CONSTRAINT_SHOWN : Math.max(0, base)\n", new: "  const head = CONSTRAINT_SHOWN\n" },
++  { id: "089-C2b", file: "hooks/lib/router.ts", note: "hidden luôn là 0", old: "hidden: constraints.length - CONSTRAINT_SHOWN }", new: "hidden: 0 }" },
++  { id: "089-C2c", file: "hooks/lib/text.ts", note: "briefContext in toàn bộ ràng buộc", old: "${bullets('Ràng buộc:', shown.items)}", new: "${bullets('Ràng buộc:', brief.constraints)}" },
++  { id: "089-C2d", file: "hooks/lib/router.ts", note: "request tiếp nối in toàn bộ phần tràn", old: "const over = [...shown.items.slice(CONSTRAINT_LIMIT),", new: "const over = [...prev.constraints.slice(CONSTRAINT_LIMIT)," },
++  { id: "089-C2e", file: "hooks/lib/text.ts", note: "resumeContext in toàn bộ ràng buộc", old: "  return shown.items.length > 0 ? `Ràng buộc: ${shown.items.join('; ')}", new: "  return shown.items.length > 0 ? `Ràng buộc: ${constraints.join('; ')}" },
++  { id: "089-C2f", file: "hooks/lib/router.ts", note: "request rà kế hoạch gửi toàn bộ ràng buộc", old: "['Constraints:', ...shown.items.map(c =>", new: "['Constraints:', ...args.constraints.map(c =>" },
  ]
 diff --git a/claude-mods/focus-conductor/tests/caps-075.test.ts b/claude-mods/focus-conductor/tests/caps-075.test.ts
 index 720cd36..233eb16 100644
@@ -807,6 +1018,96 @@ index 0000000..c019f84
 +    expect(brief.constraintsBase).toBe(25)
 +  })
 +})
+diff --git a/claude-mods/focus-conductor/tests/constraints-shown-c2-089.test.ts b/claude-mods/focus-conductor/tests/constraints-shown-c2-089.test.ts
+new file mode 100644
+index 0000000..1483922
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/constraints-shown-c2-089.test.ts
+@@ -0,0 +1,64 @@
++// 0.8.9 C2: ràng buộc không còn trần (C1), nên nơi chèn vào context và gửi router chỉ nêu tối đa 22 mục kèm số mục còn lại.
++// shownConstraints giữ `base` mục đầu (mục của prompt lập mục tiêu) và các mục mới nhất cho đủ 22. Với không quá 22 ràng buộc, bốn đầu ra
++// dạng chuỗi trùng 7682ef7 từng ký tự (tests/fixtures/constraints-c2-089.ts). Request tiếp nối giữ trần ký tự của ruleItems như cũ.
++
++import { describe, expect, test } from 'claude-code/testing'
++import * as router from '../hooks/lib/router'
++import { STRINGS_22 } from './fixtures/constraints-c2-089'
++import { constraintAt, constraintList, printedOutputs } from './support/constraints-shown'
++
++// Hàm mới của C2 lấy qua namespace, để test đỏ đếm từng ca khi mã chưa có hàm.
++type Shown = { items: string[]; hidden: number }
++const shownConstraints = (constraints: readonly string[], base?: number): Shown =>
++  ((router as unknown as Record<string, unknown>)['shownConstraints'] as (c: readonly string[], b?: number) => Shown)(constraints, base)
++const range = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => constraintAt(from + i))
++
++describe('0.8.9 C2: shownConstraints', () => {
++  test('rỗng, 1 mục, 22 mục: nguyên danh sách, hidden 0', () => {
++    expect(shownConstraints([], 10)).toEqual({ items: [], hidden: 0 })
++    expect(shownConstraints(constraintList(1), 10)).toEqual({ items: constraintList(1), hidden: 0 })
++    expect(shownConstraints(constraintList(22), 10)).toEqual({ items: constraintList(22), hidden: 0 })
++  })
++
++  test('30 mục, base 10: 10 mục đầu rồi 12 mục cuối, đúng thứ tự, hidden 8', () => {
++    expect(shownConstraints(constraintList(30), 10)).toEqual({ items: [...range(1, 10), ...range(19, 30)], hidden: 8 })
++  })
++
++  test('base thiếu: 22 mục đầu; base 25: 22 mục đầu, hidden là số mục trừ 22', () => {
++    expect(shownConstraints(constraintList(30))).toEqual({ items: range(1, 22), hidden: 8 })
++    expect(shownConstraints(constraintList(30), 25)).toEqual({ items: range(1, 22), hidden: 8 })
++  })
++})
++
++describe('0.8.9 C2: bốn đầu ra dạng chuỗi', () => {
++  test('22 ràng buộc: context mục tiêu, context tiếp tục, request tiếp nối, request rà kế hoạch trùng 7682ef7', () => {
++    const out = printedOutputs(22)
++    expect(out.brief).toBe(STRINGS_22.brief)
++    expect(out.resume).toBe(STRINGS_22.resume)
++    expect(out.followUp).toBe(STRINGS_22.followUp)
++    expect(out.review).toBe(STRINGS_22.review)
++  })
++
++  test('60 ràng buộc, base 10: context mục tiêu, context tiếp tục, request rà kế hoạch nêu đúng 10 mục đầu và 12 mục mới nhất, kèm một dòng 38 mục', () => {
++    const out = printedOutputs(60)
++    const shown = [...range(1, 10), ...range(49, 60)]
++    for (const [name, text, more] of [
++      ['brief', out.brief, '(và 38 ràng buộc khác)'],
++      ['resume', out.resume, '(và 38 ràng buộc khác)'],
++      ['review', out.review, '(38 more constraints)'],
++    ] as const) {
++      for (const item of shown) expect(text.includes(item), `${name}: ${item}`).toBe(true)
++      for (const item of range(11, 48)) expect(text.includes(item), `${name}: ${item}`).toBe(false)
++      expect(text.split(more).length - 1, name).toBe(1)
++    }
++  })
++
++  test('60 ràng buộc: request tiếp nối có mục đầu và mục mới nhất, không có mục bị ẩn, một vế 38 mục, không dài hơn bản 22 quá 40 ký tự', () => {
++    const out = printedOutputs(60)
++    expect(out.followUp).toContain(constraintAt(1))
++    expect(out.followUp).toContain(constraintAt(60))
++    for (const item of range(11, 48)) expect(out.followUp.includes(item), item).toBe(false)
++    expect(out.followUp.split('(38 more constraints)').length - 1).toBe(1)
++    expect(out.followUp.length - printedOutputs(22).followUp.length).toBeLessThanOrEqual(40)
++  })
++})
+diff --git a/claude-mods/focus-conductor/tests/fixtures/constraints-c2-089.ts b/claude-mods/focus-conductor/tests/fixtures/constraints-c2-089.ts
+new file mode 100644
+index 0000000..12fdb87
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/fixtures/constraints-c2-089.ts
+@@ -0,0 +1,14 @@
++// 0.8.9 C2: đầu ra của năm nơi in ràng buộc với 22 ràng buộc tự soạn (tests/support/constraints-shown.ts), ghi từ lượt chạy trên
++// 7682ef7 (bản trước C2), engine 2.1.296. Với không quá 22 ràng buộc, bản sau C2 phải trùng từng ký tự.
++
++export const STRINGS_22 = {
++  "brief": "[focus-conductor] Bản đọc prompt của router (đối chiếu lại với prompt gốc trước khi làm)\nMục tiêu cuối: Cập nhật sổ giá\nRàng buộc:\n- Ràng buộc số 001 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 002 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 003 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 004 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 005 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 006 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 007 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 008 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 009 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 010 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 011 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 012 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 013 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 014 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 015 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 016 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 017 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 018 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 019 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 020 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 021 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 022 giữ nguyên định dạng tệp xuất\nTiêu chí chất lượng:\n- Test xanh\nĐánh giá: độ sâu substantial, khối lượng medium, bản chất edit\nĐiều phối: luồng chính model của phiên; subagent (nếu cần) được router chấm khi giao.\nTrước khi thực thi: xác nhận mục tiêu, rồi gọi mcp__focus-conductor__plan action \"set\" với checklist chuẩn hóa.",
++  "resume": "[focus-conductor] ĐIỂM DỪNG (00:00 01/01): đã dừng vì hạn mức phiên (5 giờ) chỉ còn 4% (ngưỡng 5%), làm mới lúc 00:00 01/01.\nMục tiêu: Cập nhật sổ giá\nRàng buộc: Ràng buộc số 001 giữ nguyên định dạng tệp xuất; Ràng buộc số 002 giữ nguyên định dạng tệp xuất; Ràng buộc số 003 giữ nguyên định dạng tệp xuất; Ràng buộc số 004 giữ nguyên định dạng tệp xuất; Ràng buộc số 005 giữ nguyên định dạng tệp xuất; Ràng buộc số 006 giữ nguyên định dạng tệp xuất; Ràng buộc số 007 giữ nguyên định dạng tệp xuất; Ràng buộc số 008 giữ nguyên định dạng tệp xuất; Ràng buộc số 009 giữ nguyên định dạng tệp xuất; Ràng buộc số 010 giữ nguyên định dạng tệp xuất; Ràng buộc số 011 giữ nguyên định dạng tệp xuất; Ràng buộc số 012 giữ nguyên định dạng tệp xuất; Ràng buộc số 013 giữ nguyên định dạng tệp xuất; Ràng buộc số 014 giữ nguyên định dạng tệp xuất; Ràng buộc số 015 giữ nguyên định dạng tệp xuất; Ràng buộc số 016 giữ nguyên định dạng tệp xuất; Ràng buộc số 017 giữ nguyên định dạng tệp xuất; Ràng buộc số 018 giữ nguyên định dạng tệp xuất; Ràng buộc số 019 giữ nguyên định dạng tệp xuất; Ràng buộc số 020 giữ nguyên định dạng tệp xuất; Ràng buộc số 021 giữ nguyên định dạng tệp xuất; Ràng buộc số 022 giữ nguyên định dạng tệp xuất\nTiêu chí chất lượng: Test xanh\nChecklist:\n[~] 1. Đọc\nBước đang làm: 1.\nClaude chưa kịp ghi note lúc dừng.\nQuy tắc tiếp tục: (1) kiểm trạng thái thật (git status, diff, file liên quan) trước khi chạy lại bất kỳ lệnh nào; (2) không chạy lại thao tác đã hoàn tất, nhất là lệnh ghi hay lệnh không idempotent; (3) bước doing được tiếp tục, không bắt đầu lại; (4) việc giao subagent pending hoặc failed được giao lại đúng như đã phân; (5) sau đó cập nhật checklist như bình thường.",
++  "followUp": "Previous goal: Cập nhật sổ giá\nPrevious constraints (still hold on a follow-up; a rule that names a model for this kind of work must be followed):\n  - Ràng buộc số 001 giữ nguyên định dạng tệp xuất\n  - Ràng buộc số 002 giữ nguyên định dạng tệp xuất\n  - Ràng buộc số 003 giữ nguyên định dạng tệp xuất\n  - Ràng buộc số 004 giữ nguyên định dạng tệp xuất\n  - Ràng buộc số 005 giữ nguyên định dạng tệp xuất\n  - Ràng buộc số 006 giữ nguyên định dạng tệp xuất\n  - Ràng buộc số 007 giữ nguyên định dạng tệp xuất\n  - Ràng buộc số 008 giữ nguyên định dạng tệp xuất\n  - Ràng buộc số 009 giữ nguyên định dạng tệp xuất\n  - Ràng buộc số 010 giữ nguyên định dạng tệp xuất\n  - Ràng buộc số 011 giữ nguyên định dạng tệp xuất\nPrevious follow-up items kept over the limit (still hold):\n  - Ràng buộc số 013 giữ nguyên định dạng tệp xuất\n  - Ràng buộc số 014 giữ nguyên định dạng tệp xuất\n  - Ràng buộc số 015 giữ nguyên định dạng tệp xuất\n  - Ràng buộc số 016 giữ nguyên định dạng tệp xuất\n  - Ràng buộc số 017 giữ nguyên định dạng tệp xuất\n  - Ràng buộc số 018 giữ nguyên định dạng tệp xuất\n  - Ràng buộc số 019 giữ nguyên định dạng tệp xuất\n  - Ràng buộc số 020 giữ nguyên định dạng tệp xuất\n  - Ràng buộc số 021 giữ nguyên định dạng tệp xuất\n  - Ràng buộc số 022 giữ nguyên định dạng tệp xuất\n",
++  "review": "<context>\nGoal: Cập nhật sổ giá\n</context>\n\n<request>\nRequirements:\n1. Cập nhật sổ giá\nConstraints:\n- Ràng buộc số 001 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 002 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 003 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 004 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 005 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 006 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 007 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 008 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 009 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 010 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 011 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 012 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 013 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 014 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 015 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 016 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 017 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 018 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 019 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 020 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 021 giữ nguyên định dạng tệp xuất\n- Ràng buộc số 022 giữ nguyên định dạng tệp xuất\nQuality criteria:\n- Test xanh\nPlan steps:\n1. Đọc (no check)\n</request>"
++} as const
++
++export const PANE_vi_80: readonly string[] = ["Ràng buộc", "Ràng buộc", " ", " ", " ────────────────────────────────────────────────────────────────────", "•", "Ràng buộc số 001 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 002 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 003 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 004 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 005 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 006 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 007 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 008 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 009 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 010 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 011 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 012 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 013 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 014 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 015 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 016 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 017 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 018 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 019 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 020 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 021 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 022 giữ nguyên định dạng tệp xuất", " Tiêu chí chất lượng  ──────────────────────────────────────────────────────────", " ", " "]
++export const PANE_vi_44: readonly string[] = ["Ràng buộc", "Ràng buộc", " ", " ", " ────────────────────────────────", "•", "Ràng buộc số 001 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 002 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 003 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 004 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 005 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 006 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 007 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 008 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 009 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 010 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 011 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 012 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 013 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 014 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 015 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 016 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 017 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 018 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 019 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 020 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 021 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 022 giữ nguyên định dạng tệp xuất", " Tiêu chí chất lượng  ──────────────────────", " ", " "]
++export const PANE_en_80: readonly string[] = ["Constraints", "Constraints", " ", " ", " ──────────────────────────────────────────────────────────────────", "•", "Ràng buộc số 001 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 002 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 003 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 004 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 005 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 006 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 007 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 008 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 009 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 010 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 011 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 012 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 013 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 014 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 015 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 016 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 017 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 018 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 019 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 020 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 021 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 022 giữ nguyên định dạng tệp xuất", " Quality criteria  ─────────────────────────────────────────────────────────────", " ", " "]
++export const PANE_en_44: readonly string[] = ["Constraints", "Constraints", " ", " ", " ──────────────────────────────", "•", "Ràng buộc số 001 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 002 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 003 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 004 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 005 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 006 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 007 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 008 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 009 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 010 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 011 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 012 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 013 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 014 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 015 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 016 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 017 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 018 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 019 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 020 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 021 giữ nguyên định dạng tệp xuất", "•", "Ràng buộc số 022 giữ nguyên định dạng tệp xuất", " Quality criteria  ─────────────────────────", " ", " "]
 diff --git a/claude-mods/focus-conductor/tests/hook-limit-u1-089.test.ts b/claude-mods/focus-conductor/tests/hook-limit-u1-089.test.ts
 new file mode 100644
 index 0000000..7db7b32
@@ -971,6 +1272,44 @@ index 0000000..2fb8a28
 +    expect(reloaded.brief?.dropped).toBe(5)
 +    expect(droppedItemsText(5)).toContain('5 mục')
 +  })
++})
+diff --git a/claude-mods/focus-conductor/tests/integration/constraints-shown-c2-089.test.ts b/claude-mods/focus-conductor/tests/integration/constraints-shown-c2-089.test.ts
+new file mode 100644
+index 0000000..f63c7f3
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/integration/constraints-shown-c2-089.test.ts
+@@ -0,0 +1,32 @@
++// 0.8.9 C2 (tích hợp): mục ràng buộc của pane nêu tối đa 22 mục. Với 22 ràng buộc, cây chữ trùng 7682ef7 (vi và en, 80 và 44 cột).
++// Với 60 ràng buộc (10 mục của prompt lập mục tiêu): đúng 22 mục (10 mục đầu, 12 mục mới nhất) và một dòng mờ nêu 38 mục còn lại.
++
++import { describe, expect, test } from 'claude-code/testing'
++import { PANE_en_44, PANE_en_80, PANE_vi_44, PANE_vi_80 } from '../fixtures/constraints-c2-089'
++import { constraintAt, constraintSession, paneConstraints, submitConstraints } from '../support/constraints-shown'
++
++const range = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => constraintAt(from + i))
++const FIXTURE = { vi: { 80: PANE_vi_80, 44: PANE_vi_44 }, en: { 80: PANE_en_80, 44: PANE_en_44 } } as const
++const MORE = { vi: '(và 38 ràng buộc khác)', en: '(and 38 more constraints)' } as const
++
++describe('0.8.9 C2: mục ràng buộc của pane', () => {
++  for (const lang of ['vi', 'en'] as const) {
++    test(`${lang}, 22 ràng buộc: cây chữ trùng 7682ef7 ở 80 và 44 cột`, { options: { planApproval: 'off', neon: 'off', uiLanguage: lang } }, async ($, on) => {
++      constraintSession(on, 22)
++      await submitConstraints($, 22)
++      expect(await paneConstraints($, 80)).toEqual([...FIXTURE[lang][80]])
++      expect(await paneConstraints($, 44)).toEqual([...FIXTURE[lang][44]])
++    })
++
++    test(`${lang}, 60 ràng buộc: đúng 22 mục, 10 mục đầu và 12 mục mới nhất, một dòng nêu 38 mục còn lại, ở 80 và 44 cột`, { options: { planApproval: 'off', neon: 'off', uiLanguage: lang } }, async ($, on) => {
++      constraintSession(on, 60)
++      await submitConstraints($, 60)
++      for (const columns of [80, 44]) {
++        const texts = await paneConstraints($, columns)
++        const shown = texts.filter(t => /^Ràng buộc số \d{3}/.test(t))
++        expect(shown, String(columns)).toEqual([...range(1, 10), ...range(49, 60)])
++        expect(texts.filter(t => t === MORE[lang]).length, String(columns)).toBe(1)
++      }
++    })
++  }
 +})
 diff --git a/claude-mods/focus-conductor/tests/integration/dropped-kind-s8-075.test.ts b/claude-mods/focus-conductor/tests/integration/dropped-kind-s8-075.test.ts
 index 4fc7b1d..29d521c 100644
@@ -1594,6 +1933,78 @@ index 0c0094c..a088180 100644
      expect(refused.usages).toEqual([])
      expect(refused.retried).toBe(false)
      // Lần một tin cậy thấp, lần hai ném lỗi: giữ lần một, đã hỏi lại, chỉ tính usage của lần một.
+diff --git a/claude-mods/focus-conductor/tests/support/constraints-shown.ts b/claude-mods/focus-conductor/tests/support/constraints-shown.ts
+new file mode 100644
+index 0000000..e3c384b
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/support/constraints-shown.ts
+@@ -0,0 +1,66 @@
++// 0.8.9 C2: dựng đầu ra của năm nơi in ràng buộc (context của mục tiêu, context tiếp tục từ điểm dừng, request tiếp nối, request rà
++// kế hoạch, mục ràng buộc của pane) cho một danh sách ràng buộc tự soạn. Dùng chung cho test và cho lượt ghi kỳ vọng trên bản cũ.
++
++import type { Engine, On } from 'claude-code/testing'
++import { buildCheckpoint } from '../../hooks/lib/checkpoint'
++import { planReviewRequest, routerRequest } from '../../hooks/lib/router'
++import type { Policy } from '../../hooks/lib/router'
++import { briefContext, resumeContext } from '../../hooks/lib/text'
++import { makeBrief } from './commands'
++import { PANE, base, plan, submit } from './engine'
++
++const OPEN: Policy = { allowFable: false, blocked: new Set(), session: null }
++
++/** Ràng buộc tự soạn thứ i (đếm từ 1), dài bằng nhau. */
++export const constraintAt = (i: number): string => `Ràng buộc số ${String(i).padStart(3, '0')} giữ nguyên định dạng tệp xuất`
++export const constraintList = (n: number): string[] => Array.from({ length: n }, (_, i) => constraintAt(i + 1))
++
++/** Bốn đầu ra dạng chuỗi với `n` ràng buộc, `base` mục đầu là của prompt lập mục tiêu. */
++export function printedOutputs(n: number, base = 10): { brief: string; resume: string; followUp: string; review: string } {
++  const constraints = constraintList(n)
++  const brief = makeBrief({ goal: 'Cập nhật sổ giá', constraints, constraintsBase: base, quality: ['Test xanh'] })
++  const cp = buildCheckpoint({
++    id: 'c2',
++    now: 5_000,
++    cwd: '/repo/a',
++    reason: [{ kind: 'five_hour', percentUsed: 96, resetsAt: '2100-01-01T00:00:00.000Z', thresholdRemainingPct: 5 }],
++    brief,
++    plan: [{ id: 1, title: 'Đọc', status: 'doing' }],
++    delegations: [],
++    recent: [],
++    files: [],
++    denied: null,
++  })
++  const request = String(routerRequest({ text: 'làm tiếp', prev: brief, ran: 'opus/high', policy: OPEN, model: 'claude-sonnet-5-5' }).prompt)
++  const from = request.indexOf('Previous goal')
++  const to = request.indexOf('Main thread ran')
++  const review = String(planReviewRequest({ goal: brief.goal, requirements: [], constraints, constraintsBase: base, quality: brief.quality, steps: [{ title: 'Đọc' }], model: 'claude-sonnet-5-5' } as never).prompt)
++  return { brief: briefContext(brief, null), resume: resumeContext(cp, []), followUp: request.slice(from, to), review }
++}
++
++/** Router giả: prompt đầu 10 ràng buộc, mỗi prompt "thêm ràng buộc k" thêm 10 ràng buộc kế tiếp (parseRoute nhận tối đa 10). */
++export function constraintSession(on: On, n: number) {
++  return base(on, {
++    router: request => {
++      const k = Number(/thêm ràng buộc (\d+)/.exec(request)?.[1] ?? '0')
++      const from = 10 * k
++      const items = constraintList(n).slice(from, Math.min(n, from + 10))
++      return k === 0 ? plan({ goal: 'Cập nhật sổ giá', constraints: items }) : plan({ relation: 'refine', intent: 'amend', goal: '', constraints: items })
++    },
++  })
++}
++
++export async function submitConstraints($: Engine, n: number): Promise<void> {
++  await submit($, 'Cập nhật sổ giá')
++  for (let k = 1; k * 10 < n; k++) await submit($, `thêm ràng buộc ${k}`)
++}
++
++/** Chữ của mục ràng buộc trong pane: từ tiêu đề mục tới trước tiêu đề mục kế (tiêu chí chất lượng). */
++export async function paneConstraints($: Engine, columns: number): Promise<string[]> {
++  const pane = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: columns } })
++  const texts = (await pane.findAll({ type: 'Text' })).map(e => e.text).filter((t): t is string => typeof t === 'string')
++  await pane.unmount()
++  const start = texts.findIndex(t => /^(Ràng buộc|Constraints)\b/.test(t))
++  const end = texts.findIndex((t, i) => i > start && /^(Tiêu chí chất lượng|Quality criteria)\b/.test(t))
++  return start < 0 ? [] : texts.slice(start, end < 0 ? undefined : end)
++}
 diff --git a/claude-mods/focus-conductor/tests/support/engine.ts b/claude-mods/focus-conductor/tests/support/engine.ts
 index 0157119..90b4390 100644
 --- a/claude-mods/focus-conductor/tests/support/engine.ts
@@ -1670,3 +2081,16 @@ index 0157119..90b4390 100644
      seen.routerCalls.push({ kind, model: e.model, ...(e.effort !== undefined ? { effort: String(e.effort) } : {}), ...(e.timeoutMs !== undefined ? { timeoutMs: e.timeoutMs } : {}) })
      if ((e.system ?? '').includes('still working toward')) {
        seen.drift.push(e.prompt)
+diff --git a/claude-mods/focus-conductor/types/index.d.ts b/claude-mods/focus-conductor/types/index.d.ts
+index c8d2510..0a3f0a1 100644
+--- a/claude-mods/focus-conductor/types/index.d.ts
++++ b/claude-mods/focus-conductor/types/index.d.ts
+@@ -568,6 +568,8 @@ export type QuotaPause = {
+ export type CheckpointBrief = {
+   goal: string
+   constraints: string[]
++  /** 0.8.9 C2: số ràng buộc của prompt lập mục tiêu (Brief.constraintsBase); vắng ở điểm dừng từ bản cũ. */
++  constraintsBase?: number
+   quality: string[]
+   scopePaths: string[]
+   tasks: Array<{ index: number; title: string; run: 'main' | 'agent'; agentType?: string; pick: Choice }>
