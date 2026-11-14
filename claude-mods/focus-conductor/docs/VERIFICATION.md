@@ -2,6 +2,61 @@
 
 Số đo của HEAD hiện tại và của các bản trước. Mọi số do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển] trừ khi nêu khác; hợp đồng đối chiếu evidence ở [DESIGN.md](DESIGN.md), lịch sử thay đổi ở [CHANGELOG.md](../CHANGELOG.md), cách dùng ở [README](../README.md).
 
+## Kiểm chứng của 0.8.9 (router bị engine từ chối khi đọc prompt dài)
+
+Nhánh tách từ `main` `53bb146` (0.8.8). Thứ tự U1 tới U4; mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `089-*`; không amend, không force-push, không merge [Đo trực tiếp]. Bộ test, kiểm tĩnh và đột biến chạy trên engine 2.1.296 cài riêng ngoài repo; lượt đo và lượt chạy thật chạy thêm trên engine của phiên phát triển (2.1.325).
+
+- **Trần token ra của lời gọi từ hook** [Đo trực tiếp, 14/11/2026, mod thử đặt ngoài repo, `claude -p --plugin-dir`, hook `prompt.submit` gọi `$.model.complete` với prompt một từ]:
+
+| Engine | Alias | `maxTokens` 64.000 | 64.001 | 128.000 |
+|---|---|---|---|---|
+| 2.1.296 | fable, opus, sonnet, haiku | trả lời | ném lỗi | ném lỗi |
+| 2.1.325 | fable, opus, sonnet, haiku | trả lời | ném lỗi | ném lỗi |
+
+  - Câu lỗi, tên plugin của mod thử đổi thành `<plugin>`: "<plugin>: $.model.complete: maxTokens 128000 is past what claude-fable-5-2 can produce in one reply (64000)". Lời gọi bị từ chối trả lỗi sau 0 tới 2 ms, tức trước khi gửi request.
+  - 2.1.296 phân giải alias fable thành `claude-fable-5-1`, 2.1.325 thành `claude-fable-5-2`; opus, sonnet, haiku ra `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-5-5` ở cả hai bản.
+  - Câu lỗi khác đo trên 2.1.325: "maxTokens must be a positive integer (got 0)", "timeoutMs must be a positive integer of milliseconds (got 0)", "effort must be one of low, medium, high, xhigh, max (got x)". Model ID lạ không bị ném lỗi lúc gọi. Engine giả của test tích hợp dùng các câu này.
+- **Test đỏ** [Đo trực tiếp, trên mã ngay trước commit sửa của điểm đó]:
+  - U1 (`7b503b9`): 20/3.610 trên cả bộ. Gồm 12/13 ca mới (ca thời gian chờ của fable đã đúng), 3 ca của `router-full-l1-087` đổi kỳ vọng sang 64.000, và 5 ca đọc trọn cũ (`conductor-fallback-f1-087` hai ca, `router-full-l1-087` tích hợp ba ca) đỏ vì engine giả nay từ chối 128.000 như engine thật. Commit sửa đưa cả 20 ca về xanh.
+  - U2 (`17ed0f2`): 8/9. Ca lượt đầu lỗi API đỏ vì `usageModels` chưa có; phần còn lại của ca đó trùng 0.8.8. Commit sửa đổi một phép so trong tệp U2 (`toBeCloseTo` không có trong kit).
+  - U3 (`b4bd337`): 7 đỏ, gồm 6/6 ca mới và 1 ca cũ của `router.test.ts` đổi kỳ vọng.
+  - U4 (`47772be`): 4/6. Hai ca xanh giữ hành vi 0.8.8 (lượt hỏi lại đọc được; request thường hỏng hai lần).
+- **Kit test không chuyển lỗi do hook test ném sang mod** [Đo trực tiếp, engine 2.1.296]. Engine giả ném lỗi theo câu của engine thật (`tests/support/engine.ts:188`). Kit báo "test's model.complete hook was skipped: ..." và mod bắt được (`hooks/lib/router.ts:1413`) câu của kit "no implementation for model.complete", không phải câu đã ném. Theo quyết định của chủ mod, hai ca tích hợp của U3 kiểm câu mod nhận từ kit; câu nguyên văn của engine thật được kiểm ở ca thuần `tests/router-reason-u3-089.test.ts` [Nguồn: chủ mod, 14/11/2026].
+- **Mẫu mới** [Đo trực tiếp, chạy riêng từng mẫu trên tệp test của điểm đó; số ca đỏ]:
+  - U1: `089-U1a` 15, `089-U1b` 3, `089-U1c` 3.
+  - U2: `089-U2a` 5, `089-U2b` 2, `089-U2c` 4, `089-U2d` 1, `089-U2e` 2.
+  - U3: `089-U3a` 6, `089-U3b` 1, `089-U3c` 1.
+  - U4: `089-U4a` 2, `089-U4b` 1, `089-U4c` 3, `089-U4d` 1.
+  - Mẫu cũ viết lại vì mất chỗ khớp: `087-L3i` (3 ca đỏ), `087-L3n` (1 ca đỏ).
+- **Thông số theo họ model sau U1** (`READ_PARAMS`, `routerMaxWait` 1.800):
+
+| Họ | Mức `claude -p` báo | `maxTokens` lượt đọc trọn | Trần hỏi lại | Sức chứa |
+|---|---|---|---|---|
+| fable | 128.000 | 64.000 (0.8.8: 128.000) | 64.000 (0.8.8: 128.000) | 467.854 ký tự, theo thời gian |
+| opus, haiku (chưa đo) | 128.000 | 64.000 (0.8.8: 128.000) | 64.000 | 467.854 ký tự, theo thời gian |
+| sonnet | 128.000 | 16.000 | 24.000 | khoảng 1,55 triệu ký tự, theo cửa sổ |
+
+  `timeoutMs` của lượt đọc trọn không đổi: fable 310.000, 920.000 và 1.800.000 ms cho prompt 80.001, 238.489 và 600.000 ký tự.
+- **Lượt chạy thật** [Đo trực tiếp, 14/11/2026, engine 2.1.325, `claude -p --plugin-dir` với mod ở `7816019` (0.8.9), option `conductor: fable`, `planApproval: off`, `headlessRouting: auto`; một mod quan sát nằm dưới focus-conductor ghi từng request `model.complete`; prompt tự soạn 100.000 ký tự, đề mục mang mã, không có nội dung thật]:
+  - Router đọc được: 1 request gửi `fable`, `maxTokens` 64.000, `timeoutMs` 385.000, effort medium, trường prompt 100.313 ký tự. Lời gọi trả lời sau 97,8 giây, 60.638 token vào (không tính cache), 13.131 token ra.
+  - Dòng `route`: 33 việc, luồng chính opus/high, không hỏi lại, không có `firstFail`; không có dòng `router-fail`. Cả lượt `claude -p` mất 123 giây, chi phí 2,27 USD theo engine.
+  - Lượt này không có ca engine từ chối, nên không kiểm được việc câu của engine thật hiện trong cảnh báo của mod (DESIGN, mục 0.8.9).
+- **Đột biến vùng diff** [Đo trực tiếp, engine 2.1.296; pha 1 chạy các tệp test có lịch sử diệt mẫu cộng các tệp `089`, bước lọc chạy mọi tệp cùng mã phiên bản hay cùng tên tệp nguồn, pha 2 chạy cả bộ bằng `scripts/mutate.ts --jobs 2`]:
+  - Vùng diff với `53bb146` cộng trừ 20 dòng: 100 mẫu, gồm 15 mẫu `089-*` (mục trên) và 85 mẫu cũ. Với 85 mẫu cũ: pha 1 diệt 55, bước lọc diệt 21, pha 2 diệt 7 trên 9 mẫu.
+  - Hai mẫu sống qua cả bộ:
+    - `078-G8h` (nhận nhầm prompt gần bằng sức chứa là bị lược): 0 đỏ. Đoạn mã của mẫu này 0.8.9 không sửa và 0.8.9 không bỏ ca nào, nên lỗ hổng có từ trước: chưa ca nào cho prompt dài gần bằng sức chứa. Ca thuần mới `tests/clip-boundary-089.test.ts` ở `d54a529` (chỉ đổi `tests/`) bắt mẫu này, 2 đỏ.
+    - `087-L3k` (lượt đọc trọn lỗi API không dùng fallback): 0 đỏ. Từ U4, lượt đọc trọn lỗi API mà bỏ qua nhánh L3 thì rơi vào `lastResort`, gửi cùng request fallback một lần và trả cùng các trường, nên hành vi quan sát được không đổi. `116ace8` ghi lý do tương đương vào mẫu, giữ mã và ý.
+  - Chạy lại hai mẫu này trên cả bộ trên `116ace8`: `078-G8h` bị diệt (2 đỏ), `087-L3k` 0 đỏ, harness báo EQUIVALENT như đã ghi. Tổng của vùng: 99 bị bắt, 1 tương đương có lý do, 0 sống sót cuối.
+  - `mutate --check` khớp 2.285/2.285.
+- **Phiên dài và kịch bản 60 việc** [Đo trực tiếp, cùng kịch bản đo của 0.8.7, engine 2.1.296, chạy trên `38c7ac3`]: `conductor` mặc định 10.339 và 19.587; `fable` 8.563 và 7.048; `fable` sau `/conductor solo` 16.608 và 24.349; 60 việc mặc định 5.978 và 33.204; 60 việc `fable` 8.164 và 6.931. Cả mười dòng, kể cả phần chia theo loại, trùng 0.8.8: số ký tự chèn vào context không đổi. Các kịch bản này không có lượt router hỏng, nên phần tăng được phép của U3 (dòng lý do router hỏng) không xuất hiện.
+
+### Bộ test và so tên ca
+
+- **Cả bộ** trên `7816019` [Đo trực tiếp, engine 2.1.296, 11 nhóm tệp, tuần tự]: 322 tệp, 3.631 ca, 0 lỗi. Tổng theo nhóm: 348 + 496 + 322 + 238 + 294 + 281 + 273 + 387 + 348 + 436 + 208 = 3.631. Sau đó `38c7ac3` chỉ đổi tài liệu, `d54a529` thêm một tệp 2 ca (đạt khi chạy riêng), `116ace8` chỉ thêm trường `equivalent` cho một mẫu; cả bộ trên HEAD chạy ở CI (mục dưới), 323 tệp, 3.633 ca.
+- **So tên ca với `39319c6`** (0.8.8, 3.597 ca): thêm 34 tên (U1 13, U2 9, U3 6, U4 6), mất 0. 3.631 = 3.597 + 34. Năm ca cũ đổi kỳ vọng, giữ tên (CHANGELOG).
+- **Kiểm tĩnh** [Đo trực tiếp, trên `116ace8`]: `claude plugin validate` đạt ở thư mục mod và ở gốc repo; `version-check` khớp 0.8.9, README đủ 47 option, mã màu thô chỉ nằm trong `hooks/ui/neon.ts`, chuỗi `'fable'` đúng danh sách của 0.8.7; `mutate --check` khớp 2.285/2.285; sha256 `hooks/` `efb99c50bd42dc106fe49aa8af58b21622235b0c3834ae8e00711f51e870cb9c`, `tests/` `f8819671e261cf679229fa441764dfdcf6974d13aed1dcc23176ba5ebd206340` (theo `scripts/mutate.ts`). `tsc` chưa chạy, như 0.8.8.
+- **CI**: ghi sau khi run của PR xong.
+
 ## Kiểm chứng của 0.8.8 (giao diện hướng B "Ba ô phát sáng", dải màu neon)
 
 Nhánh tách từ `main` `e143c64` (0.8.7). Thứ tự N1 tới N5, rồi phần bổ sung N6a tới N6g; mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `088-*`; không amend, không force-push, không merge [Đo trực tiếp]. Bộ test, kiểm tĩnh và đột biến chạy trên engine 2.1.296 cài riêng ngoài repo; khai báo kiểu được đọc ở cả 2.1.296 và engine của phiên phát triển (2.1.325).
