@@ -13,7 +13,7 @@ import { DEFAULT_CONDUCTOR, FAMILY_NAMES, conductorTimeouts } from './families'
 import type { PendingState } from './conductor'
 import { DEFAULT_WINDOWS, PRICE } from './cost'
 import type { Price } from './cost'
-import { BASE_CHARS, BASE_HEAD, BASE_TAIL, ROUTER_MAX_WAIT_MS, readPlan } from './reading'
+import { BASE_CHARS, BASE_HEAD, BASE_TAIL, HOOK_MAX_TOKENS, ROUTER_MAX_WAIT_MS, readPlan } from './reading'
 import type { ReadPlan, Reading } from './reading'
 import { EFFORTS, FAMILIES, applySession, avoidBlocked, codesIn, describePick, effortRank, familyOf, familyRank, sessionFloor } from './route'
 import type { SessionModel } from './route'
@@ -1271,7 +1271,7 @@ export function bareBrief(prompt: string, goalId: number, now: number): Brief {
 // ------------------------------------------------------------ gọi router (thuần, qua callback)
 
 /**
- * Lời gọi model của hook. Hook truyền vào `r => $.model.complete(r).catch(() => null)`: engine chỉ cho gọi
+ * Lời gọi model của hook. Hook truyền vào `r => $.model.complete(r)`; askRouter tự bắt lỗi engine ném (0.8.9 U3 giữ thông điệp). Engine chỉ cho gọi
  * `$` ngay trong thân hook, nên logic gọi, thử lại và đọc kết quả nằm ở đây mà không đụng tới `$`.
  */
 export type Ask = (request: ModelCompleteRequest) => Promise<ModelCompleteResult | null>
@@ -1367,30 +1367,38 @@ export function failFields(fail: RouterFail): Record<string, unknown> {
   return { failure: fail.kind, ms: fail.ms, timeoutMs: fail.timeoutMs, maxTokens: fail.maxTokens, outputTokens: fail.outputTokens }
 }
 
+/** Request với maxTokens kẹp về trần của lời gọi từ hook (0.8.9 U1); không có maxTokens thì giữ nguyên. */
+export function cappedRequest(request: ModelCompleteRequest): ModelCompleteRequest {
+  return request.maxTokens !== undefined && request.maxTokens > HOOK_MAX_TOKENS ? { ...request, maxTokens: HOOK_MAX_TOKENS } : request
+}
+
 /**
  * Gọi router, đọc kết quả, và hỏi lại đúng một lần khi câu trả lời hỏng JSON hoặc tin cậy dưới LOW_CONFIDENCE.
  * Lỗi API hay hết giờ không hỏi lại (ngắt router lo phần đó). Khi hỏi lại vì tin cậy thấp, giữ câu trả lời tin cậy hơn.
  */
 export async function askRouter<T extends { confidence?: number }>(
   ask: Ask,
-  request: ModelCompleteRequest,
+  original: ModelCompleteRequest,
   parse: (text: string) => T | null,
   /** Câu trả lời đã đọc được nhưng cần đọc kiểm lại một lần ở effort cao (ví dụ quá nhiều yêu cầu): 0.7.0. */
   recheck?: (result: T) => boolean,
   /** Đồng hồ (mặc định Date.now) và hạn chung cho mọi lượt gọi (mặc định 1,5 lần timeout của request): 0.7.2. */
   opts: { now?: () => number; budgetMs?: number; retryMissingConfidence?: boolean; isFable?: boolean; fallback?: ModelCompleteRequest; full?: { tokenCap: number }; apiFallback?: ModelCompleteRequest } = {},
 ): Promise<RouterOutcome<T>> {
+  // Mọi request đi qua một chỗ (0.8.9 U1): maxTokens kẹp về HOOK_MAX_TOKENS, kể cả lượt hỏi lại và hai request dự phòng.
+  const send = (r: ModelCompleteRequest) => ask(cappedRequest(r)).catch(() => null)
+  const request = cappedRequest(original)
   const now = opts.now ?? Date.now
   const budget = opts.budgetMs ?? Math.round((request.timeoutMs ?? 45_000) * BUDGET_FACTOR)
   const startedAt = now()
-  const first = await ask(request).catch(() => null)
+  const first = await send(request)
   const usages = first ? [first.usage] : []
   const limits = (last: ModelCompleteResult | null) => ({ timeoutMs: request.timeoutMs ?? null, maxTokens: request.maxTokens ?? null, outputTokens: last ? last.usage.output_tokens : null })
   // Lượt đọc của Fable bị API từ chối (0.8.7 F1): gửi cùng request trọn cho họ điều phối dự phòng, với thời gian chờ và maxTokens của họ đó;
   // không kiểm hạn chung. Hết giờ thì vẫn theo nhánh dự phòng của L3 bên dưới.
   const apiFallback = opts.apiFallback
   if (apiFallback !== undefined && first !== null && !first.isAnswered && first.reason === 'api-error') {
-    const again = await ask(apiFallback).catch(() => null)
+    const again = await send(apiFallback)
     if (again) usages.push(again.usage)
     const result = again?.isAnswered ? parse(again.text) : null
     return { result, reason: result === null ? failureReason(again) : '', usages, retried: true, viaFallback: true, failure: result === null ? failureKind(again) : null, ...limits(again ?? first) }
@@ -1399,7 +1407,7 @@ export async function askRouter<T extends { confidence?: number }>(
   // của nó, không lấy phần còn lại của hạn chung.
   const fallback = opts.fallback
   if (fallback !== undefined && first !== null && !first.isAnswered && (first.reason === 'aborted' || first.reason === 'api-error')) {
-    const again = await ask(fallback).catch(() => null)
+    const again = await send(fallback)
     if (again) usages.push(again.usage)
     const result = again?.isAnswered ? parse(again.text) : null
     return { result, reason: result === null ? failureReason(again) : '', usages, retried: true, fellBack: true, failure: result === null ? failureKind(again) : null, ...limits(again ?? first) }
@@ -1408,7 +1416,7 @@ export async function askRouter<T extends { confidence?: number }>(
   if (first !== null && !first.isAnswered && first.reason === 'aborted') {
     const left = budget - (now() - startedAt)
     if (left < RETRY_MIN_MS) return { result: null, reason: failureReason(first), usages, retried: false, failure: failureKind(first), ...limits(first) }
-    const again = await ask({ ...request, timeoutMs: Math.min(request.timeoutMs ?? left, left) }).catch(() => null)
+    const again = await send({ ...request, timeoutMs: Math.min(request.timeoutMs ?? left, left) })
     if (again) usages.push(again.usage)
     const result = again?.isAnswered ? parse(again.text) : null
     return { result, reason: result === null ? failureReason(again) : '', usages, retried: true, failure: result === null ? failureKind(again) : null, ...limits(again ?? first) }
@@ -1428,7 +1436,7 @@ export async function askRouter<T extends { confidence?: number }>(
   const isAffordable = problem === 'coverage' ? spent <= budget / 2 : budget - spent >= RETRY_MIN_MS
   if (!isAffordable) return settled(false)
   const isTruncated = firstResult === null && request.maxTokens !== undefined && first.usage.output_tokens >= request.maxTokens * 0.98
-  const second = await ask(retryRequest(request, first.text, problem, { timeoutMs: Math.min(request.timeoutMs ?? budget, budget - spent), truncated: isTruncated, ...(opts.isFable === true ? { isFable: true } : {}), ...(opts.full !== undefined ? { full: opts.full } : {}) })).catch(() => null)
+  const second = await send(retryRequest(request, first.text, problem, { timeoutMs: Math.min(request.timeoutMs ?? budget, budget - spent), truncated: isTruncated, ...(opts.isFable === true ? { isFable: true } : {}), ...(opts.full !== undefined ? { full: opts.full } : {}) }))
   if (second) usages.push(second.usage)
   const secondResult = second?.isAnswered ? parse(second.text) : null
   // Thiếu confidence xếp thấp nhất khi bật retryMissingConfidence: lần hai thắng khi nó có confidence và lần đầu không có hay thấp hơn.
