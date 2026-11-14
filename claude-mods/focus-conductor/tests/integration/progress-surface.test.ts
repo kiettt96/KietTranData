@@ -70,7 +70,7 @@ describe('0.6.1 2.5: band và pane trên các surface', () => {
     }
     for (const surface of PANE_SURFACES) {
       const texts = await paneTexts($, surface)
-      expect(has(texts, /^Danh sách bước 0\/2/), `pane ${surface} có tiêu đề checklist`).toBe(true)
+      expect(has(texts, /^\s*Danh sách bước\s+─+\s+0\/2/), `pane ${surface} có tiêu đề checklist`).toBe(true)
       expect(has(texts, /danh sách việc của Claude Code/), `pane ${surface} không ghi nguồn`).toBe(false)
     }
   })
@@ -85,7 +85,7 @@ describe('0.6.1 2.5: band và pane trên các surface', () => {
     await $.turn.complete({ turnId: 't1', agentId: 'a-u1', answer: '', durationMs: 1, isAborted: false, reason: 'answer' } as never)
     for (const surface of PANE_SURFACES) {
       const texts = await paneTexts($, surface)
-      expect(has(texts, /^Tiến độ từng việc \d+ ─/), `pane ${surface} tiêu đề`).toBe(true)
+      expect(has(texts, /^\s*Tiến độ từng việc\s+─+\s+\d+/), `pane ${surface} tiêu đề`).toBe(true)
       // 0.7.6 U1: luồng chính chính là danh sách bước nên không còn dòng "Việc chính"; việc 3 khớp bước "Việc 3: ..." nên đi cùng
       // dòng bước đó (chip "opus xhigh"), không có dòng riêng.
       expect(has(texts, /^Việc chính: /), `pane ${surface} việc chính`).toBe(false)

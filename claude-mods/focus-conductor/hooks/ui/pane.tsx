@@ -16,6 +16,7 @@ import { attentionItems } from './attention'
 import { conductorLine, labels, shownEntry, stepTaskMeta, taskLabel } from './labels'
 import type { Run } from './style'
 import { DEFAULT_NEON, paintOf } from './neon'
+import type { GradientName } from './neon'
 import {
   FAMILY_HUE,
   SPINE,
@@ -30,6 +31,7 @@ import {
   padStart,
   phaseOf,
   plannedRuns,
+  ratioRuns,
   severityGlyph,
   taskBarRuns,
   severityOf,
@@ -106,16 +108,38 @@ export function renderPane(
   // Bộ màu (0.8.8 N1): dải màu neon theo option, hay theme key khi neon off.
   const paint = paintOf(view.neon ?? DEFAULT_NEON, props.frame ?? 0)
 
-  const heading = (title: string, extra?: string) => {
-    const lead = cellsOf(title) + (extra ? 1 + cellsOf(extra) : 0) + 1
+  // Đoạn chữ có màu (và nền) của bộ màu; dùng ở mọi chỗ vẽ Run của pane.
+  const tint = (r: Run, k?: number) => (
+    <Text key={k} color={r.color} backgroundColor={r.bg} dimColor={r.dim} bold={r.bold}>
+      {r.text}
+    </Text>
+  )
+  // Dải của bảng màu đang chạy (neon off: theme key claude).
+  const palette: GradientName = paint.phase('active') ?? 'cyber'
+  /** Cách tô tiêu đề mục: một dải màu, hay ô tô đặc màu cần chú ý (mục Cần chú ý chỉ có mục mức vàng). */
+  type HeadingTone = GradientName | 'attention'
+  const fillRuns = (tone: HeadingTone, text: string, offset = 0): Run[] =>
+    tone === 'attention'
+      ? [{ text, color: paint.solid('onFill') ?? 'inverseText', bg: paint.solid('attention') ?? 'warning', bold: true }]
+      : paint.fill(tone, text, { bold: true }, offset)
+  // Tiêu đề mục (0.8.8 N4): tên mục là một ô tô đặc (một ô trống hai bên; tên là một Text riêng), rồi đường kẻ; số đếm hay ghi chú đẩy
+  // sang phải.
+  const heading = (title: string, extra?: string, tone: HeadingTone = palette) => {
+    const label = ` ${title} `
+    const tail = extra ? ` ${extra}` : ''
     return (
       <Text wrap="truncate-end">
-        <Text bold>{title}</Text>
-        {extra ? <Text dimColor>{` ${extra}`}</Text> : ''}
-        <Text color="subtle">{` ${'─'.repeat(Math.max(2, width - lead))}`}</Text>
+        <Text>{fillRuns(tone, ' ').map(tint)}</Text>
+        <Text>{fillRuns(tone, title, 1).map(tint)}</Text>
+        <Text>{fillRuns(tone, ' ', 1 + cellsOf(title)).map(tint)}</Text>
+        <Text color="subtle">{` ${'─'.repeat(Math.max(2, width - cellsOf(label) - 1 - cellsOf(tail)))}`}</Text>
+        {extra ? <Text dimColor>{tail}</Text> : ''}
       </Text>
     )
   }
+  // Thanh hạn mức và chi phí (0.8.8 N4): pane dưới 48 cột thì 6 ô, dưới 32 cột (bề rộng engine cấp) thì bỏ thanh, giữ số.
+  const rawColumns = columnsOf(props.columns, 56)
+  const meterCells = (normal: number) => (rawColumns < 32 ? 0 : isNarrow ? 6 : normal)
 
   const bullets = (items: readonly string[], empty: string) =>
     items.length === 0 ? (
@@ -156,9 +180,19 @@ export function renderPane(
   )
 
   // Hạn mức (0.6.1): từng cửa sổ, trạng thái, điểm dừng chưa dùng xong và lệnh chạy tiếp. Đang dừng thì tô màu cảnh báo.
+  const quotaCells = meterCells(12)
+  const quotaLabelWidth = Math.max(0, ...(quota?.bars ?? []).map(bar => cellsOf(bar.label)))
+  const quotaBar = (bar: NonNullable<QuotaPaneText['bars']>[number]) => (
+    <Text wrap="truncate-end">
+      <Text dimColor>{padEnd(bar.label, quotaLabelWidth)}</Text>
+      {quotaCells > 0 ? <Text>{[{ text: ' ', color: 'subtle' as const }, ...ratioRuns(bar.used / 100, quotaCells, paint, bar.level === 'paused' ? 'pause' : bar.level === 'near' ? 'almost' : palette)].map(tint)}</Text> : ''}
+      <Text bold={bar.level !== 'far'}>{` ${bar.percent}`}</Text>
+    </Text>
+  )
   const quotaNode = quota ? (
     <Box flexDirection="column">
-      {heading(l.quota)}
+      {heading(l.quota, quota.reset ? l.quotaResetHeading(quota.reset) : undefined, quota.isPaused ? 'pause' : palette)}
+      {(quota.bars ?? []).map(quotaBar)}
       {quota.windows.map(line => (
         <Text dimColor wrap="wrap">
           {line}
@@ -203,7 +237,7 @@ export function renderPane(
   const attentionNode =
     attentionTotal === 0 ? null : (
       <Box flexDirection="column">
-        {heading(l.attention, String(attentionTotal))}
+        {heading(l.attention, String(attentionTotal), attentionShown.some(item => item.severity === 'error') || attentionAll.some(item => item.severity === 'error') ? 'warn' : 'attention')}
         {pauseLines.map((lines, k) => (
           <Box key={`pause-${k}`} flexDirection="column">
             {lines.map(line => (
@@ -237,11 +271,6 @@ export function renderPane(
   // Dòng tiến độ: thanh, số bước đã đóng, tên giai đoạn. Thanh lấy phần chiều rộng còn lại, từ 8 đến 24 ô.
   const bar = barRuns(plan, Math.max(8, Math.min(24, width - 2 - 5 - 2 - cellsOf(phaseWord))), false, paint)
   const beads = plannedRuns(planned, Math.min(24, width - 12))
-  const tint = (r: Run) => (
-    <Text color={r.color} backgroundColor={r.bg} dimColor={r.dim} bold={r.bold}>
-      {r.text}
-    </Text>
-  )
   const goalLines = wrapText(brief.goal, width - 2, 5)
   const header = (
     <Box flexDirection="column">
@@ -437,9 +466,12 @@ export function renderPane(
     (brief.source === 'router' ? 0 : rowsOf(l.notRead, width - 2)) +
     (attentionRows > 0 ? attentionRows + 1 : 0)
   const mirrorRows = source === 'mirror' ? rowsOf(l.mirrorSource, width) : 0
+  // Dải bước (0.8.8 N4): một dòng ký hiệu và số thứ tự của từng bước ở đầu checklist; checklist một bước thì không có.
+  const stripRows = plan.length > 1 ? 1 : 0
+
   // Checklist và tiến độ từng việc là một danh sách (U1): dạng đầy đủ vừa khi phần đầu, khoảng cách, tiêu đề checklist và cả danh sách
   // nằm trong số dòng của pane.
-  const fits = (listRows: number) => headerRows + mirrorRows + listRows + 2 <= (props.rows ?? DEFAULT_ROWS)
+  const fits = (listRows: number) => headerRows + mirrorRows + stripRows + listRows + 2 <= (props.rows ?? DEFAULT_ROWS)
   // Checklist dài (vòng sửa 2 của 0.7.5): các bước đã đóng dồn thành một dòng tóm tắt; checklist ngắn giữ nguyên từng bước. Không dạng gọn
   // mà checklist trên 6 bước thì vẫn có dòng tóm tắt bước đã đóng.
   const isLong = plan.length > COLLAPSE_FROM
@@ -455,9 +487,29 @@ export function renderPane(
   const plannedFull = brief.steps.reduce((sum, step) => sum + titleRows(step) + metaRows(step), 0)
   const plannedCompact = plan.length === 0 && brief.steps.length > COLLAPSE_FROM && !fits(plannedFull)
   const plannedShown = plannedCompact ? brief.steps.slice(0, SHOWN_OPEN) : brief.steps
+  // Dải bước: ký hiệu kèm số; không vừa một dòng thì chỉ ký hiệu; vẫn không vừa thì cắt và ghi +N. Bước đang làm in đậm.
+  const stripMarks = plan.map(step => ({ step, mark: step.status === 'todo' && runningSteps.has(step.title) ? STEP_MARK.doing : STEP_MARK[step.status] }))
+  const withIds = stripMarks.map(({ step, mark }) => `${mark.glyph}${step.id}`)
+  const stripText = withIds.join(' ')
+  const isStripIds = cellsOf(stripText) <= width
+  const stripFits = (n: number) => n + (n < stripMarks.length ? 1 + cellsOf(`+${stripMarks.length - n}`) : 0) <= width
+  let stripShown = stripMarks.length
+  while (!isStripIds && stripShown > 0 && !stripFits(stripShown)) stripShown -= 1
+  const stripNode =
+    stripRows > 0 ? (
+      <Text wrap="truncate-end">
+        {stripMarks.slice(0, isStripIds ? stripMarks.length : stripShown).map(({ step, mark }, k) => (
+          <Text key={k} color={mark.color} dimColor={mark.dim} bold={step.status === 'doing' || mark.bold}>
+            {`${isStripIds && k > 0 ? ' ' : ''}${mark.glyph}${isStripIds ? step.id : ''}`}
+          </Text>
+        ))}
+        {!isStripIds && stripShown < stripMarks.length ? <Text dimColor>{` +${stripMarks.length - stripShown}`}</Text> : null}
+      </Text>
+    ) : null
   const checklist =
     plan.length > 0 ? (
       <Box flexDirection="column">
+        {stripNode}
         {isCollapsed ? (
           <Box flexDirection="row" gap={1}>
             <Text color={STEP_MARK.done.color} dimColor>
@@ -671,21 +723,14 @@ export function renderPane(
     { label: l.groupAgent, key: 'agent' },
     { label: l.groupRouter, key: 'analyzer' },
   ] as const
-  const hasBars = width >= 50
+  const costCells = meterCells(BAR)
+  const hasBars = costCells > 0
   const labelWidth = Math.max(...groups.map(g => cellsOf(g.label)), cellsOf(l.total))
   const moneyWidth = Math.max(cellsOf(l.costGoal), cellsOf(l.costSession), 7)
   const callWidth = Math.max(cellsOf(l.costCalls), 3)
   const maxGoal = Math.max(...groups.map(g => ledger.goal.buckets[g.key].usd))
-  const barOf = (usd: number) => {
-    const filled = maxGoal > 0 && usd > 0 ? Math.max(1, Math.round((usd / maxGoal) * BAR)) : 0
-    return (
-      <Text>
-        <Text color="claude">{'━'.repeat(filled)}</Text>
-        <Text color="subtle">{'╌'.repeat(BAR - filled)}</Text>
-      </Text>
-    )
-  }
-  const costHead = `${padEnd('', labelWidth)}${hasBars ? ' '.repeat(BAR + 1) : ''} ${padStart(l.costGoal, moneyWidth)} ${padStart(l.costSession, moneyWidth)} ${padStart(l.costCalls, callWidth)}`
+  const barOf = (usd: number) => <Text>{ratioRuns(maxGoal > 0 ? usd / maxGoal : 0, costCells, paint, palette).map(tint)}</Text>
+  const costHead = `${padEnd('', labelWidth)}${hasBars ? ' '.repeat(costCells + 1) : ''} ${padStart(l.costGoal, moneyWidth)} ${padStart(l.costSession, moneyWidth)} ${padStart(l.costCalls, callWidth)}`
   const totalCalls = groups.reduce((sum, g) => sum + ledger.session[g.key].calls, 0)
   // Phiên con (0.7.9 F1) tính vào nhóm subagent, không thêm nhóm: một dòng ghi số phiên con của mục tiêu.
   const forkCount = liveForks(view.core).length
@@ -705,7 +750,7 @@ export function renderPane(
         </Text>
       ))}
       <Text bold wrap="truncate-end">
-        {`${padEnd(l.total, labelWidth)}${hasBars ? ' '.repeat(BAR + 1) : ''} ${padStart(formatCost(goalUsd(ledger), view.lang), moneyWidth)} ${padStart(formatCost(sessionUsd(ledger), view.lang), moneyWidth)} ${padStart(String(totalCalls), callWidth)}`}
+        {`${padEnd(l.total, labelWidth)}${hasBars ? ' '.repeat(costCells + 1) : ''} ${padStart(formatCost(goalUsd(ledger), view.lang), moneyWidth)} ${padStart(formatCost(sessionUsd(ledger), view.lang), moneyWidth)} ${padStart(String(totalCalls), callWidth)}`}
       </Text>
       {ledger.goal.spawned > 0 ? (
         <Text dimColor wrap="wrap">

@@ -1666,7 +1666,7 @@ export const MUTANTS: Mutant[] = [
   { id: "076-U1f", file: "hooks/ui/pane.tsx", note: "dòng bước dự kiến không mang chip việc", old: "            {isNarrow ? null : metaNode(step)}\n", new: "" },
   { id: "076-U1g", file: "hooks/ui/labels.ts", note: "chip việc nhiều lô thiếu số lô đang chạy, lỗi", old: "l.agentBatchChip(row.counts.running, row.failed ?? 0)", new: "''" },
   { id: "076-U1h", file: "hooks/lib/progress.ts", note: "không ghi số lô lỗi của việc", old: ", ...(t.failed > 0 ? { failed: t.failed } : {})", new: "" },
-  { id: "076-U1i", file: "hooks/ui/pane.tsx", note: "dạng đầy đủ còn chừa chỗ cho mục tiến độ riêng", old: "headerRows + mirrorRows + listRows + 2 <=", new: "headerRows + mirrorRows + listRows + 5 <=" },
+  { id: "076-U1i", file: "hooks/ui/pane.tsx", note: "dạng đầy đủ còn chừa chỗ cho mục tiến độ riêng", old: "headerRows + mirrorRows + stripRows + listRows + 2 <=", new: "headerRows + mirrorRows + stripRows + listRows + 5 <=" },
   { id: "076-U1j", file: "hooks/ui/pane.tsx", note: "dòng bước không có chi tiết số tool call, thời gian", old: "    const detail = rowDetail(row, true)", new: "    const detail = ''" },
   { id: "076-U1k", file: "hooks/ui/pane.tsx", note: "main vẫn có dòng riêng", old: "row.kind !== 'main' && !matched.has(row.key)", new: "!matched.has(row.key)" },
   { id: "076-U6a", file: "hooks/ui/pane.tsx", note: "mục Điều phối thiếu dòng độ sâu, khối lượng, loại", old: "          {l.routeShape(brief.depth, brief.volume, brief.kind)}", new: "          {''}" },
@@ -2279,4 +2279,9 @@ export const MUTANTS: Mutant[] = [
   { id: "088-N3a", file: "hooks/ui/direction.ts", note: "status line không có đoạn hướng", old: "  return S.statusText(view, quota, now, settings, statusDirection(view, quota, now, settings))", new: "  return S.statusText(view, quota, now, settings)" },
   { id: "088-N3b", file: "hooks/lib/text.ts", note: "đoạn hướng đứng trước họ model", old: "    ...(route ? [route.family] : []),\n  ]", new: "    ...(direction ? [direction] : []),\n    ...(route ? [route.family] : []),\n  ]" },
   { id: "088-N3c", file: "hooks/ui/direction.ts", note: "vẫn thêm đoạn hướng khi tạm dừng", old: "  if (direction.kind === 'pause' || direction.kind === 'approval' || direction.kind === 'notice') return undefined", new: "  if (direction.kind === 'approval' || direction.kind === 'notice') return undefined" },
+  { id: "088-N4a", file: "hooks/ui/pane.tsx", note: "tiêu đề mục không tô đặc", old: "      : paint.fill(tone, text, { bold: true }, offset)", new: "      : [{ text, color: 'text', bold: true }]" },
+  { id: "088-N4b", file: "hooks/ui/pane.tsx", note: "dải bước lấy ký hiệu todo cho mọi bước", old: "  const stripMarks = plan.map(step => ({ step, mark: step.status === 'todo' && runningSteps.has(step.title) ? STEP_MARK.doing : STEP_MARK[step.status] }))", new: "  const stripMarks = plan.map(step => ({ step, mark: STEP_MARK.todo }))" },
+  { id: "088-N4c", file: "hooks/ui/pane.tsx", note: "thanh hạn mức luôn đầy", old: "...ratioRuns(bar.used / 100, quotaCells,", new: "...ratioRuns(1, quotaCells," },
+  { id: "088-N4d", file: "hooks/ui/pane.tsx", note: "thanh chi phí tỷ lệ theo tổng thay vì theo nhóm lớn nhất", old: "ratioRuns(maxGoal > 0 ? usd / maxGoal : 0, costCells, paint, palette)", new: "ratioRuns(goalUsd(ledger) > 0 ? usd / goalUsd(ledger) : 0, costCells, paint, palette)" },
+  { id: "088-N4e", file: "hooks/ui/pane.tsx", note: "dải bước không cắt ở pane hẹp", old: "  while (!isStripIds && stripShown > 0 && !stripFits(stripShown)) stripShown -= 1\n", new: "\n" },
 ]

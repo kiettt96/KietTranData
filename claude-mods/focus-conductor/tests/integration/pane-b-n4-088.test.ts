@@ -10,7 +10,7 @@ import type { Engine } from 'claude-code/testing'
 import { DARK_GRADIENTS, DARK_SOLIDS, colorAt, paintOf } from '../../hooks/ui/neon'
 import { ratioRuns } from '../../hooks/ui/style'
 import { resetLabel } from '../../hooks/lib/text'
-import { PANE, base, plan, submit } from '../support/engine'
+import { BIG_USAGE, PANE, base, plan, spawnTool, submit } from '../support/engine'
 import { RESUME, memoryStore, quotaMeter, session, week } from '../support/quota'
 import { longGoal, rowOf } from '../support/pane-long'
 
@@ -175,6 +175,22 @@ describe('0.8.8 N4: thanh chi phí', () => {
     expect(filled(0.12)).toBe(1)
     expect(filled(0)).toBe(0)
     expect(ratioRuns(0.5, 8, paint, 'cyber').reduce((sum, r) => sum + [...r.text].length, 0)).toBe(8)
+  })
+
+  test('luồng chính và subagent cùng chi phí, router ít hơn: hai thanh đều đầy (tỷ lệ theo nhóm lớn nhất, không theo tổng)', { options: STILL }, async ($, on) => {
+    on('tool.call', { tool: 'Agent' }, () => ({ result: 'đã giao' }))
+    on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a-cost' }))
+    on('turn.complete', () => ({ text: '' }))
+    await goal($, on, ['Sửa', 'Kiểm'])
+    await spawnTool($, 'tu-cost', 'Rà soát', 'Rà soát module')
+    const usage = { ...BIG_USAGE, model: 'claude-sonnet-5-5' }
+    await $.turn.complete({ turnId: 'm-cost', answer: '', durationMs: 1, isAborted: false, reason: 'answer', usage } as never)
+    await $.turn.complete({ turnId: 'a-cost', agentId: 'a-cost', answer: '', durationMs: 1, isAborted: false, reason: 'answer', usage } as never)
+    const tree = await drawPane($)
+    const filledOf = (label: RegExp) => [...textOf(texts(tree).find(t => label.test(textOf(t))) as Node)].filter(c => c === '\u2501').length
+    expect(filledOf(/^luồng chính/)).toBe(8)
+    expect(filledOf(/^subagent/)).toBe(8)
+    expect(filledOf(/^router/)).toBeLessThan(8)
   })
 
   for (const [columns, cells] of [[80, 8], [44, 6]] as const) {

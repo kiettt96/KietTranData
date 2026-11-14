@@ -29,10 +29,10 @@ const hex = (bytes: ArrayBuffer): string => [...new Uint8Array(bytes)].map(byte 
 const sha = async (text: string) => hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))
 
 /**
- * sha256 của chữ band và pane. 0.8.7: đo trên 45b5161 (f10de6b9...). 0.8.8 N2 đổi bố cục band (ba ô) nên đo lại trên mã sau N2, cùng kịch
- * bản, neon off; ca này từ nay ghim kết quả của bố cục mới (taskRows vẫn tính một lần, như phần đo thời gian ở dưới).
+ * sha256 của chữ band và pane. 0.8.7: đo trên 45b5161 (f10de6b9...). 0.8.8 đổi bố cục band (N2, ba ô) và pane (N4, tiêu đề tô đặc, dải bước,
+ * thanh hạn mức và chi phí) nên đo lại trên mã sau N4, cùng kịch bản, neon off; ca này từ nay ghim kết quả của bố cục mới.
  */
-const BASE_SHA = 'df2d52190c60b7bd175849308a3615fb2ae7130eb2b1472f8e55292337a121b2'
+const BASE_SHA = '522f07d677658edc26f2aa24270a214bff079e273b0fae38ed2244eb2f4e408a'
 
 describe('0.8.7: taskRows tính một lần cho mọi việc', () => {
   test('mục tiêu 12 việc, checklist có bước "Việc N", bước doing và bước đã xong: chữ band và pane trùng 0.8.6', { options: { planApproval: 'off', neon: 'off' } }, async ($, on) => {

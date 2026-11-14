@@ -36,7 +36,7 @@ describe('0.7.6 U8: mục Đang chạy của pane', () => {
     await spawnTool($, 'u2', 'BƯỚC 2: lọc tin lô 102', 'lọc')
     await seen.clock.advance(150_000)
     const texts = await paneTexts($)
-    const at = texts.findIndex(t => /^Đang chạy ─/.test(t))
+    const at = texts.findIndex(t => /^\s*Đang chạy\s+─/.test(t))
     expect(at).toBeGreaterThanOrEqual(0)
     // 0.7.6 W4: dòng ghi thêm "từ <giờ bắt đầu>" (giờ máy của agent đầu tiên).
     expect(texts.slice(at).some(t => /^BƯỚC 2: lọc tin · lô 101 đến 102 · 2 agent · 3 phút · từ \d\d:\d\d$/.test(t))).toBe(true)
@@ -64,7 +64,7 @@ describe('0.7.6 U8: mục Đang chạy của pane', () => {
     await spawnTool($, 'u1', 'BƯỚC 2: lọc tin lô 1', 'lọc')
     await $.turn.complete({ turnId: 't-u1', agentId: 'a-u1', answer: '', durationMs: 1, isAborted: false, reason: 'answer' } as never)
     const texts = await paneTexts($)
-    expect(texts.some(t => /^Đang chạy ─/.test(t))).toBe(false)
+    expect(texts.some(t => /^\s*Đang chạy\s+─/.test(t))).toBe(false)
   })
 
   test('uiLanguage en: "Running", "runs 101 to 102 · 2 agents · 3 min"', { options: { planApproval: 'off', uiLanguage: 'en' } }, async ($, on) => {
@@ -73,7 +73,7 @@ describe('0.7.6 U8: mục Đang chạy của pane', () => {
     await spawnTool($, 'u2', 'BƯỚC 2: lọc tin lô 102', 'lọc')
     await seen.clock.advance(180_000)
     const texts = await paneTexts($)
-    expect(texts.some(t => /^Running ─/.test(t))).toBe(true)
+    expect(texts.some(t => /^\s*Running\s+─/.test(t))).toBe(true)
     expect(texts.some(t => /^BƯỚC 2: lọc tin · runs 101 to 102 · 2 agents · 3 min · since \d\d:\d\d$/.test(t))).toBe(true)
   })
 })

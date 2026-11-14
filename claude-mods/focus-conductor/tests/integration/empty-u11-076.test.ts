@@ -38,7 +38,7 @@ describe('0.7.6 U11: pane khi chưa có checklist', () => {
     await submit($, 'Sửa module thanh toán')
     const texts = await paneTexts($)
     expect(texts.some(t => /^Việc dự kiến/.test(t))).toBe(false)
-    expect(texts.some(t => /^Danh sách bước \(dự kiến\) ─/.test(t))).toBe(true)
+    expect(texts.some(t => /^\s*Danh sách bước\s+─+\s+\(dự kiến\)/.test(t))).toBe(true)
     expect(texts).toContain('Đọc mã')
   })
 
@@ -47,7 +47,7 @@ describe('0.7.6 U11: pane khi chưa có checklist', () => {
     await submit($, 'Fix the payment module')
     const texts = await paneTexts($)
     expect(texts.some(t => /^Planned work/.test(t))).toBe(false)
-    expect(texts.some(t => /^Checklist \(planned\) ─/.test(t))).toBe(true)
+    expect(texts.some(t => /^\s*Checklist\s+─+\s+\(planned\)/.test(t))).toBe(true)
   })
 
   test('không có bước nào: không có mục checklist, không có "Claude chưa chốt checklist."', { options: { planApproval: 'off' } }, async ($, on) => {

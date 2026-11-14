@@ -10,7 +10,7 @@ import type { Color } from 'claude-code'
 import type { DelegationState, Ledger, ModelFamily, PlanStep, RouteEvent, StepStatus, WarningKind } from '../../types'
 import { GROUPS } from '../lib/ledger'
 import { WIDE_GRAPHEME, graphemeCells, graphemesOf } from './cells'
-import type { Paint } from './neon'
+import type { GradientName, Paint } from './neon'
 import { OFF_STYLE, paintOf } from './neon'
 import type { TaskBar } from '../lib/progress'
 
@@ -180,6 +180,17 @@ export function taskBarRuns(bar: TaskBar, cells: number, paint: Paint = THEME_PA
     default:
       return [{ text: '╌'.repeat(cells), color: 'subtle', dim: true }]
   }
+}
+
+/**
+ * Thanh tỷ lệ rộng `cells` ô (0.8.8 N4): phần đầy theo `ratio` (0 tới 1, làm tròn; tỷ lệ dương có ít nhất một ô), tô theo dải `name` của bộ
+ * màu; phần còn lại là nét đứt mờ. Dùng cho thanh hạn mức và thanh chi phí của pane.
+ */
+export function ratioRuns(ratio: number, cells: number, paint: Paint, name: GradientName): Run[] {
+  if (cells <= 0) return []
+  const r = Number.isFinite(ratio) ? Math.max(0, Math.min(1, ratio)) : 0
+  const filled = r > 0 ? Math.max(1, Math.round(r * cells)) : 0
+  return [...paint.text(name, '━'.repeat(filled)), ...(cells - filled > 0 ? [{ text: '╌'.repeat(cells - filled), color: 'subtle' as Color }] : [])]
 }
 
 /**

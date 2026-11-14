@@ -32,7 +32,7 @@ describe('giao diện', () => {
     expect(await ui.find({ type: 'Text', text: /^việc vừa$/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /Phân tích luồng/ })).toBeDefined()
     await ui.press({ key: 'mode-suggest' })
-    expect(await ui.find({ type: 'Text', text: /Danh sách bước 0\/1/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /Danh sách bước\s+─+\s+0\/1/ })).toBeDefined()
     await ui.unmount()
   })
 
