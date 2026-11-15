@@ -2,6 +2,31 @@
 
 Số đo của HEAD hiện tại và của các bản trước. Mọi số do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển] trừ khi nêu khác; hợp đồng đối chiếu evidence ở [DESIGN.md](DESIGN.md), lịch sử thay đổi ở [CHANGELOG.md](../CHANGELOG.md), cách dùng ở [README](../README.md).
 
+## Kiểm chứng của 0.8.9 vòng 3 (yêu cầu của việc đã bỏ, chuỗi gộp, bốn hành vi của D2)
+
+Cùng nhánh, tiếp từ `47690d5`. Thứ tự E1, E2, E3; E1 và E2 mỗi điểm một commit test đỏ rồi một commit sửa; E3 chỉ thêm test và mẫu nên một commit. Không amend, không force-push, không merge. Bộ test, kiểm tĩnh và đột biến chạy trên engine 2.1.296 cài riêng ngoài repo [Đo trực tiếp, 15/11/2026].
+
+- **Test đỏ** [Đo trực tiếp, trên mã ngay trước commit sửa]:
+  - E1 (`c6c27a0`): 9/10. Ca tin chen ngang xanh sẵn vì context của tin chen ngang vốn không in dòng yêu cầu chưa phủ.
+  - E2 (`6e4470f`): 2/3. Ca gộp vòng xanh sẵn vì mục thứ hai đã bị bỏ qua từ D2.
+  - E3 (`f37779f`): bốn ca đều xanh sẵn vì hành vi có từ D2, đúng như đặc tả; mỗi mẫu E3 làm đỏ đúng một ca.
+- **Mẫu mới** [Đo trực tiếp, chạy riêng từng mẫu trên tệp test của điểm đó; số ca đỏ]:
+  - E1: `089-E1a` 7, `089-E1b` 1, `089-E1c` 1, `089-E1d` 2, `089-E1e` 1, `089-E1f` 1. Bản đầu của `089-E1b` (việc bị gộp đi qua cùng bộ lọc "còn việc khác phủ") không đổi hành vi, vì việc bị gộp luôn có việc nhận gộp phủ thay; mẫu được viết lại cho đúng nghĩa "việc bị gộp cũng sinh retired".
+  - E2: `089-E2a` 2, `089-E2b` 2. E3: `089-E3a`, `089-E3b`, `089-E3c`, `089-E3d` mỗi mẫu 1.
+  - `089-D3h`: trước vòng này chỉ bị ca gập dòng đợt mới của `tests/integration/phase-a3-080.test.ts` diệt ("prompt continue có 8 việc mới: pane gập 6 việc đã xong thành một dòng..."), ca đó không nói rõ hành vi này; ca thuần mới cho `rowStatusState` ở `tests/rearrange-e3-089.test.ts` diệt mẫu trực tiếp (1 đỏ).
+  - Mẫu cũ viết lại chuỗi, giữ mã và nghĩa: `070-B7`, `089-D2e`.
+- **Đột biến vùng diff** [Đo trực tiếp, trên `f37779f`]: 34 mẫu cũ có chỗ khớp trong vùng diff so với `47690d5`.
+  - Pha 1 (các tệp gần nhất theo lô) ghi 29 mẫu bị diệt; pha 2 (cả bộ, `--jobs 1`, sau khi cả bộ test đã chạy xong) diệt 5 mẫu còn lại.
+  - Pha 1 chạy cùng lúc với cả bộ test và phiên dài, và không lưu chi tiết ca đỏ, nên theo luật của chủ mod (chỉ tính ca đỏ do sai kết quả, không do hết giờ) cả 34 mẫu được chạy lại khi máy không có lượt nền nào khác, mỗi lần một mẫu, có tên ca và thời gian. Ca đỏ tính là sai kết quả khi dừng dưới 4,5 giây và không có dấu hiệu hết giờ.
+  - Kết quả chạy lại: 33 mẫu bị diệt bằng ca đỏ do sai kết quả, không ca nào hết giờ. Mẫu `070-B1` (bỏ bước gộp yêu cầu trùng ở `requirementsOf`) không làm đỏ ca nào trên cả 338 tệp; kết quả "bị diệt" của nó ở pha 1 là do lô chạy khi máy quá tải. Ca mới ở `55be1e5` (yêu cầu trùng chỉ giữ một mục) diệt mẫu này (1 đỏ).
+  - Hai lượt chạy lại đầu không dựng đúng lô gốc của pha 1 (lượt đầu chỉ chạy tệp đầu của lô, lượt hai dựng lại lô khác lô gốc), nên 12 mẫu được chạy lần ba theo thứ tự ưu tiên của pha 1, lô 8 tệp, dừng ở lô đầu tiên có ca đỏ do sai kết quả.
+- **Phiên dài** [Đo trực tiếp, cùng bộ đo của vòng 2, trên mã của `f37779f`]: mười dòng số, kể cả phần chia theo loại, và kịch bản 20 prompt tiếp nối (354 ở chín prompt đầu, 357 từ prompt thứ 10) trùng `47690d5`. Số ký tự chèn chỉ giảm ở prompt có việc bị bỏ mà yêu cầu của việc đó rời kế hoạch (bỏ dòng yêu cầu chưa phủ).
+- **Cả bộ** [Đo trực tiếp, trên `f37779f`, 12 nhóm tệp, tuần tự, máy không có lượt nền]: 338 tệp, 3.746 ca, 0 lỗi; 341 + 492 + 321 + 250 + 282 + 265 + 267 + 376 + 290 + 373 + 401 + 88 = 3.746. `55be1e5` thêm một ca vào `tests/requirements.test.ts` (tệp đạt 19/19 trên HEAD), tổng 3.747.
+  - Lượt chạy cả bộ đầu tiên chạy cùng lúc với đột biến và phiên dài có 10 ca đỏ ở 9 tệp, ca nào cũng dừng ở khoảng 5 giây; chạy riêng 9 tệp đó khi máy rảnh: 125 ca đạt, 0 lỗi. Lượt chạy cả bộ ở trên là lượt chạy lại một mình.
+- **So tên ca với `47690d5`** (3.727 ca): thêm 20 tên (19 ca của E1 tới E3 cùng `rowStatusState`, 1 ca của `55be1e5`), không tên nào mất. 3.727 + 20 = 3.747.
+- **Kiểm tĩnh** [Đo trực tiếp, trên `55be1e5`]: `claude plugin validate` đạt ở thư mục mod và ở gốc repo; `version-check` khớp 0.8.9, README đủ 47 option; `mutate --check` khớp 2.339/2.339; sha256 `hooks/` `86fc2370c19a434f63787804b04a617534c589492bce77edf08bc5837e701bcf`, `tests/` `b3c10de9495584eeda53a4ac8a99a02bff14866c98968b99d483984d99288f04` (theo `scripts/mutate.ts`).
+- **CI** [Nguồn: GitHub Actions]: run 246 trên `55be1e5`, commit mã và test cuối của vòng 3, xanh (mã run 43670926391); các commit sau đó chỉ đổi tài liệu.
+
 ## Kiểm chứng của 0.8.9 vòng 2 (ràng buộc không trần, ba điểm sau rà soát, điều phối lại việc)
 
 Cùng nhánh, tiếp từ `7682ef7`. Thứ tự C1, C2, R1, R2, R3, D1, D2, D3, D4; mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `089-C*`, `089-R*`, `089-D*`; không amend, không force-push, không merge [Đo trực tiếp]. Bộ test, kiểm tĩnh và đột biến chạy trên engine 2.1.296 cài riêng ngoài repo; lượt gọi model thật (D4) chạy trên engine của phiên phát triển (2.1.325). Mỗi lần push đi qua một script quét em dash, emoji, dấu chấm than, chuỗi riêng tư ở dòng thêm và thông điệp commit, và `mutate --check`; script báo lỗi thì không push.

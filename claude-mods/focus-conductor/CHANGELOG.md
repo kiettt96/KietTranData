@@ -59,6 +59,8 @@ Router của prompt dài hơn 80.000 ký tự bị engine từ chối khi họ �
 - **E2: chuỗi gộp không làm mất phần phủ yêu cầu.** Việc nhận gộp về sau cũng bị gộp tiếp thì `covers` đi theo sang việc nhận cuối cùng, `into` của các bản ghi đã gỡ trỏ tới việc nhận cuối cùng, các mục gộp cùng việc nhận cuối cùng thành một mục ("Việc 2, 3 vào Việc 4"). Không ca cũ nào đổi kỳ vọng.
 - **E3: ghim bốn hành vi của D2** (tiêu đề việc bị gỡ rời `brief.steps`; bỏ việc không kèm `order` thì thứ tự cũ giữ, bớt việc đã gỡ; việc chờ giao bị bỏ rời danh sách chờ giao; mục gộp một việc vào chính nó bị bỏ qua), và thêm ca thuần cho `rowStatusState`. Chỉ thêm test và mẫu, không đổi mã.
 
+- **Ca test diệt mẫu `070-B1`:** yêu cầu trùng (kể cả khác khoảng trắng hai đầu) chỉ giữ một mục ở `parseRoute`. Mẫu này không bị ca nào diệt khi kiểm lại đột biến lúc máy rảnh. Không đổi mã.
+
 **Mẫu cũ viết lại, giữ mã (vòng 3):** `070-B7` (`uncoveredRequirements` có thêm vế `retired`, E1); `089-D2e` (dòng nhập `covers` có thêm phần đi theo chuỗi gộp, E2).
 
 ## Thay đổi 0.8.8: giao diện hướng B "Ba ô phát sáng", dải màu neon
