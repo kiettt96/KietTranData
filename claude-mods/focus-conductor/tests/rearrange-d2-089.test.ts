@@ -8,6 +8,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import * as router from '../hooks/lib/router'
 import { nextBrief, parseRoute } from '../hooks/lib/router'
 import * as S from '../hooks/lib/state'
+import { arrangedContext } from '../hooks/lib/text'
 import type { Arrange, Brief, Core, PlanStep, Task, TaskStatus } from '../types'
 import { OPEN } from './golden/cases'
 import { makeBrief } from './support/commands'
@@ -163,5 +164,40 @@ describe('0.8.9 D2: ba prompt điều chỉnh liên tiếp trên mục tiêu 12 
     expect(out.phase).toBeDefined()
     expect(indexes(out.brief)).toEqual([3, 4, 5, 7, 8, 9, 10, 11])
     expect((out.brief as Applied['brief']).removed?.map(r => r.index)).toEqual([6])
+  })
+})
+
+// 0.8.9 vòng 3 E2: chuỗi gộp. Việc nhận gộp về sau cũng bị gộp tiếp thì covers nó đã nhận đi theo sang việc nhận cuối cùng, bản ghi đã gỡ
+// trỏ into tới việc nhận cuối cùng, và các mục gộp cùng việc nhận cuối cùng thành một mục (dòng "Đã gộp" của context ghi đúng như vậy).
+describe('0.8.9 vòng 3 E2: chuỗi gộp không làm mất phần phủ yêu cầu', () => {
+  const sorted = (xs: readonly number[] | undefined) => [...(xs ?? [])].sort((a, b) => a - b)
+  const intoOf = (b: Applied['brief']) => (b.removed ?? []).map(r => [r.index, r.into ?? null])
+
+  test('chuỗi 2 vào 3, 3 vào 4: việc 4 phủ đủ yêu cầu 2, 3, 4; hai bản ghi trỏ into 4; một mục gộp "Việc 2, 3 vào Việc 4"', () => {
+    const out = applyArrange(goal(5), { ...none, merge: [{ tasks: [2], into: 3 }, { tasks: [3], into: 4 }] }, [])
+    expect(indexes(out.brief)).toEqual([1, 4, 5])
+    expect(sorted(out.brief.tasks.find(t => t.index === 4)?.covers)).toEqual([2, 3, 4])
+    expect(intoOf(out.brief)).toEqual([[2, 4], [3, 4]])
+    expect(out.arranged?.merged).toEqual([{ tasks: [2, 3], into: 4 }])
+    const context = arrangedContext(out.brief, out.arranged!, out.brief.order ?? indexes(out.brief))
+    expect(context).toContain('Đã gộp: Việc 2, 3 vào Việc 4')
+    expect(context).not.toContain('vào Việc 3')
+  })
+
+  test('chuỗi ba bậc 2 vào 3, 3 vào 4, 4 vào 5: việc 5 phủ đủ 2 tới 5, mọi bản ghi trỏ into 5, một mục gộp', () => {
+    const out = applyArrange(goal(5), { ...none, merge: [{ tasks: [2], into: 3 }, { tasks: [3], into: 4 }, { tasks: [4], into: 5 }] }, [])
+    expect(indexes(out.brief)).toEqual([1, 5])
+    expect(sorted(out.brief.tasks.find(t => t.index === 5)?.covers)).toEqual([2, 3, 4, 5])
+    expect(intoOf(out.brief)).toEqual([[2, 5], [3, 5], [4, 5]])
+    expect(out.arranged?.merged).toEqual([{ tasks: [2, 3, 4], into: 5 }])
+  })
+
+  test('hai mục gộp vòng 2 vào 3, 3 vào 2: mục thứ hai bị bỏ qua, không việc nào mất phần phủ', () => {
+    const out = applyArrange(goal(4), { ...none, merge: [{ tasks: [2], into: 3 }, { tasks: [3], into: 2 }] }, [])
+    expect(indexes(out.brief)).toEqual([1, 3, 4])
+    expect(sorted(out.brief.tasks.find(t => t.index === 3)?.covers)).toEqual([2, 3])
+    expect(intoOf(out.brief)).toEqual([[2, 3]])
+    expect(out.arranged?.merged).toEqual([{ tasks: [2], into: 3 }])
+    expect(router.uncoveredRequirements(out.brief)).toEqual([])
   })
 })
