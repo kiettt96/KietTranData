@@ -302,6 +302,26 @@ Nguyên nhân [Đo trực tiếp trên `7682ef7`]:
 - Một chuỗi điều chỉnh thật từ đầu tới cuối: router thật trả `arrange`, luồng chính thật cập nhật checklist theo câu dặn. Golden chỉ đo câu trả lời của router; test tích hợp dùng router giả.
 - Chữ của mục tiến độ trên terminal thật ở các bề rộng khác 120, 80 và 44 cột.
 
+## Yêu cầu của việc đã bỏ và chuỗi gộp (0.8.9 vòng 3)
+
+Hiện tượng [Đo trực tiếp trên `47690d5`, rà soát độc lập]: bỏ việc 2 và 3 của mục tiêu bốn yêu cầu thì context cùng lúc có dòng "Đã bỏ" và dòng nhắc đừng bỏ sót yêu cầu 2 và 3; gộp nối tiếp (2 vào 3, 3 vào 4) làm mất phần phủ yêu cầu của việc 2.
+
+**Trường `retired` (E1).**
+- Brief có thêm trường tùy chọn `retired`: số (từ 1) của các yêu cầu đã rời kế hoạch, chép trong `normalizeBrief`; trạng thái cũ không có trường này thì coi là rỗng.
+- `applyArrange`: yêu cầu trong `covers` của việc bị bỏ (`drop`) mà sau khi áp không còn việc nào phủ thì vào `retired`. Việc bị gộp không sinh `retired`, vì `covers` của nó đã chuyển sang việc nhận gộp.
+- `uncoveredRequirements` bỏ qua `retired`, nên context của mục tiêu, context tiếp nối và khối nén không nhắc các yêu cầu ấy là chưa phủ.
+- Cuối `nextBriefRaw` (mọi đường lập brief tiếp nối, kể cả `/conductor reroute`), yêu cầu trong `retired` đã có việc phủ lại thì ra khỏi `retired`.
+- Danh sách `brief.requirements` và số thứ tự giữ nguyên. Riêng `openPhase` vốn đánh số lại yêu cầu khi mở đợt mới (bỏ yêu cầu chỉ do việc đã xong phủ); số trong `retired` đổi theo đúng bảng đánh số lại đó.
+
+**Luật chuỗi gộp (E2).**
+- Việc nhận gộp về sau cũng bị gộp tiếp thì `covers` nó đã nhận đi theo sang việc nhận mới, bản ghi đã gỡ trỏ `into` tới việc nhận cuối cùng, và các mục gộp cùng việc nhận cuối cùng thành một mục: chuỗi 2 vào 3, 3 vào 4 cho một mục "Việc 2, 3 vào Việc 4", dòng "Đã gộp" của context ghi đúng như vậy.
+- Gộp vào việc đã bỏ không xảy ra: `drop` xử lý trước, mục gộp vào việc đã bỏ bị bỏ qua. Gộp vòng (2 vào 3, 3 vào 2): mục thứ hai bị bỏ qua vì việc nhận đã bị gỡ.
+- Ca không có chuỗi gộp giữ nguyên kết quả của vòng 2.
+
+**Giới hạn còn lại.**
+- Danh sách yêu cầu vẫn hiện yêu cầu đã rời kế hoạch: `brief.requirements` không xóa mục nào, chỉ `uncoveredRequirements` bỏ qua chúng.
+- Context của tin chen ngang vốn không in dòng yêu cầu chưa phủ, nên E1 không đổi context của tin chen ngang.
+
 ## Router bị engine từ chối khi đọc prompt dài (0.8.9)
 
 Phiên thật, `conductor` là `fable`, prompt dài: mod báo router không đọc được prompt vì engine từ chối gửi request [Nguồn: ảnh chụp phiên thật của chủ mod, 14/11/2026]. Lượt đọc trọn của fable, opus, haiku xin `maxTokens` 128.000, là mức `claude -p` báo cho model, trong khi engine ném lỗi trước khi gửi khi lời gọi từ hook xin quá 64.000.

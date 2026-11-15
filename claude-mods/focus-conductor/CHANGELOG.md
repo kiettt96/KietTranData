@@ -53,6 +53,14 @@ Router của prompt dài hơn 80.000 ký tự bị engine từ chối khi họ �
 
 **Mẫu cũ viết lại, giữ mã (vòng 2):** `075-R1c`, `075-R1f` (khối phần tràn của request tiếp nối viết thành nhiều dòng ở C2); `072-R9` (ngưỡng bị cắt nay là hằng `TRUNCATED_SHARE`, R2); `070-C13`, `074-C2`, `074-C3` (lời gọi router có thêm `taskStates`, D1); `075-B13f` (dòng tổng số việc nay là dòng việc đã xong, D1); `075-S1e` (tách khỏi chỗ trùng trong `arrangeOf`, D1); `075-B12f`, `075-M5i` (nextBrief nhận thêm trạng thái việc và checklist, D2).
 
+### 0.8.9 vòng 3: yêu cầu của việc đã bỏ và ba chỗ còn hở của phần điều phối lại
+
+- **E1: yêu cầu của việc đã bỏ không còn bị nhắc "đừng bỏ sót".** Brief thêm trường tùy chọn `retired` (số của yêu cầu đã rời kế hoạch theo việc bị bỏ), chép trong `normalizeBrief`. `uncoveredRequirements` bỏ qua `retired`; yêu cầu được việc mới phủ lại thì ra khỏi `retired`; `openPhase` đổi số trong `retired` theo bảng đánh số lại của yêu cầu. Danh sách yêu cầu giữ nguyên. Không ca cũ nào đổi kỳ vọng.
+- **E2: chuỗi gộp không làm mất phần phủ yêu cầu.** Việc nhận gộp về sau cũng bị gộp tiếp thì `covers` đi theo sang việc nhận cuối cùng, `into` của các bản ghi đã gỡ trỏ tới việc nhận cuối cùng, các mục gộp cùng việc nhận cuối cùng thành một mục ("Việc 2, 3 vào Việc 4"). Không ca cũ nào đổi kỳ vọng.
+- **E3: ghim bốn hành vi của D2** (tiêu đề việc bị gỡ rời `brief.steps`; bỏ việc không kèm `order` thì thứ tự cũ giữ, bớt việc đã gỡ; việc chờ giao bị bỏ rời danh sách chờ giao; mục gộp một việc vào chính nó bị bỏ qua), và thêm ca thuần cho `rowStatusState`. Chỉ thêm test và mẫu, không đổi mã.
+
+**Mẫu cũ viết lại, giữ mã (vòng 3):** `070-B7` (`uncoveredRequirements` có thêm vế `retired`, E1); `089-D2e` (dòng nhập `covers` có thêm phần đi theo chuỗi gộp, E2).
+
 ## Thay đổi 0.8.8: giao diện hướng B "Ba ô phát sáng", dải màu neon
 
 Band, pane và status line đổi cách vẽ theo hướng B; logic của mod, lời nhắc, brief, kết quả tool, lời dặn router, golden và schema tool `plan` không đổi, nên số ký tự chèn vào context trùng 0.8.7 [Nguồn: chủ mod, 14/11/2026]. Mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `088-*`; số ca đỏ đo trên mã ngay trước điểm đó ở VERIFICATION.
