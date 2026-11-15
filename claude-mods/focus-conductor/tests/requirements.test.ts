@@ -49,6 +49,10 @@ describe('0.7.0 7: đọc requirements và covers', () => {
     expect(result.tasks[0]?.covers).toEqual([1, 2])
   })
 
+  test('yêu cầu trùng nhau (kể cả khác khoảng trắng hai đầu) chỉ giữ một mục, theo thứ tự xuất hiện đầu tiên (0.8.9 vòng 3)', () => {
+    expect(parsed({ requirements: ['Yêu cầu A', ' Yêu cầu A ', 'Yêu cầu B', 'Yêu cầu A'] }).requirements).toEqual(['Yêu cầu A', 'Yêu cầu B'])
+  })
+
   test('mỗi yêu cầu cắt về 160 ký tự (kiểm riêng, không lẫn với giới hạn số mục)', () => {
     const [only] = parsed({ requirements: ['y'.repeat(300)] }).requirements
     expect(only?.length).toBeLessThanOrEqual(160)
