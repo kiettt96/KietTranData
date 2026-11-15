@@ -11,10 +11,10 @@ index 022e64d..2ad14e2 100644
    "description": "Một model Claude (router) đọc kỹ prompt trước khi làm và điều phối model/effort/agent cho từng việc; mod kiểm, ép điều phối lúc chạy, giữ nhất quán mục tiêu với checklist và cảnh báo lạc đề.",
    "types": "./types/index.d.ts",
 diff --git a/claude-mods/focus-conductor/CHANGELOG.md b/claude-mods/focus-conductor/CHANGELOG.md
-index 13db1c8..94aa010 100644
+index 13db1c8..dc403eb 100644
 --- a/claude-mods/focus-conductor/CHANGELOG.md
 +++ b/claude-mods/focus-conductor/CHANGELOG.md
-@@ -2,6 +2,57 @@
+@@ -2,6 +2,67 @@
  
  Các bản của focus-conductor, mới nhất trước. Số đo kiểm chứng của HEAD hiện tại nằm ở [docs/VERIFICATION.md](docs/VERIFICATION.md); cách dùng và tùy chọn ở [README](README.md).
  
@@ -69,6 +69,16 @@ index 13db1c8..94aa010 100644
 +
 +**Mẫu cũ viết lại, giữ mã (vòng 2):** `075-R1c`, `075-R1f` (khối phần tràn của request tiếp nối viết thành nhiều dòng ở C2); `072-R9` (ngưỡng bị cắt nay là hằng `TRUNCATED_SHARE`, R2); `070-C13`, `074-C2`, `074-C3` (lời gọi router có thêm `taskStates`, D1); `075-B13f` (dòng tổng số việc nay là dòng việc đã xong, D1); `075-S1e` (tách khỏi chỗ trùng trong `arrangeOf`, D1); `075-B12f`, `075-M5i` (nextBrief nhận thêm trạng thái việc và checklist, D2).
 +
++### 0.8.9 vòng 3: yêu cầu của việc đã bỏ và ba chỗ còn hở của phần điều phối lại
++
++- **E1: yêu cầu của việc đã bỏ không còn bị nhắc "đừng bỏ sót".** Brief thêm trường tùy chọn `retired` (số của yêu cầu đã rời kế hoạch theo việc bị bỏ), chép trong `normalizeBrief`. `uncoveredRequirements` bỏ qua `retired`; yêu cầu được việc mới phủ lại thì ra khỏi `retired`; `openPhase` đổi số trong `retired` theo bảng đánh số lại của yêu cầu. Danh sách yêu cầu giữ nguyên. Không ca cũ nào đổi kỳ vọng.
++- **E2: chuỗi gộp không làm mất phần phủ yêu cầu.** Việc nhận gộp về sau cũng bị gộp tiếp thì `covers` đi theo sang việc nhận cuối cùng, `into` của các bản ghi đã gỡ trỏ tới việc nhận cuối cùng, các mục gộp cùng việc nhận cuối cùng thành một mục ("Việc 2, 3 vào Việc 4"). Không ca cũ nào đổi kỳ vọng.
++- **E3: ghim bốn hành vi của D2** (tiêu đề việc bị gỡ rời `brief.steps`; bỏ việc không kèm `order` thì thứ tự cũ giữ, bớt việc đã gỡ; việc chờ giao bị bỏ rời danh sách chờ giao; mục gộp một việc vào chính nó bị bỏ qua), và thêm ca thuần cho `rowStatusState`. Chỉ thêm test và mẫu, không đổi mã.
++
++- **Ca test diệt mẫu `070-B1`:** yêu cầu trùng (kể cả khác khoảng trắng hai đầu) chỉ giữ một mục ở `parseRoute`. Mẫu này không bị ca nào diệt khi kiểm lại đột biến lúc máy rảnh. Không đổi mã.
++
++**Mẫu cũ viết lại, giữ mã (vòng 3):** `070-B7` (`uncoveredRequirements` có thêm vế `retired`, E1); `089-D2e` (dòng nhập `covers` có thêm phần đi theo chuỗi gộp, E2).
++
  ## Thay đổi 0.8.8: giao diện hướng B "Ba ô phát sáng", dải màu neon
  
  Band, pane và status line đổi cách vẽ theo hướng B; logic của mod, lời nhắc, brief, kết quả tool, lời dặn router, golden và schema tool `plan` không đổi, nên số ký tự chèn vào context trùng 0.8.7 [Nguồn: chủ mod, 14/11/2026]. Mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `088-*`; số ca đỏ đo trên mã ngay trước điểm đó ở VERIFICATION.
@@ -106,10 +116,10 @@ index c6bdff0..9d8727a 100644
  
  Thanh chỉ thể hiện phần trăm khi có số bước thật: checklist của tool `plan`; nếu Claude không dùng tool đó thì danh sách việc Claude Code tự ghi (`TodoWrite`, `TaskCreate`, `TaskUpdate`), được mod phản chiếu và ghi nhỏ nguồn "danh sách việc". Danh sách phản chiếu chỉ để theo dõi: nó không chặn kết thúc, không tính cho bảo vệ hạn mức, và tool `plan` luôn thắng khi có. Từ 0.7.1 mod vẫn tự nâng và hạ `verified` cho danh sách này theo đúng luật ở mục "Đã kiểm chứng". Việc làm trực tiếp lấy các bước có tiêu đề mở đầu "Việc N"; subagent lấy danh sách việc nó tự ghi. Không có số bước thì thanh chỉ thể hiện trạng thái, không phần trăm: nét đứt mờ là chờ giao hay chưa bắt đầu, đầu ◐ là đang chạy (kèm số tool call và thời gian chạy của subagent), thanh đầy màu xanh lá là xong, ■ đỏ là lỗi, ■ vàng là bị cắt vì tạm dừng hạn mức.
 diff --git a/claude-mods/focus-conductor/docs/DESIGN.md b/claude-mods/focus-conductor/docs/DESIGN.md
-index 7ee493c..abe1b9b 100644
+index 7ee493c..fc9cb9d 100644
 --- a/claude-mods/focus-conductor/docs/DESIGN.md
 +++ b/claude-mods/focus-conductor/docs/DESIGN.md
-@@ -261,6 +261,82 @@ Chủ mod chốt ngày 12/11/2026 [Nguồn: chủ mod]: luồng chính đang đi
+@@ -261,6 +261,102 @@ Chủ mod chốt ngày 12/11/2026 [Nguồn: chủ mod]: luồng chính đang đi
  - **Đoạn dặn.** `conductorContext` (462 ký tự) bỏ câu cho tự sửa file khi ráp kết quả, nói không tự sửa file, không tự chạy lệnh kiểm, chỉnh nhỏ gom vào một lời giao, lệnh kiểm giao một subagent chạy và báo tóm tắt. `conductorKeepText` 190 ký tự. Lời từ chối dưới 300 ký tự, dòng nhắc đọc dưới 200.
  - **Giới hạn đã biết của 0.8.6.** Lối thoát duy nhất ngoài lệnh `solo` là lời gọi Agent bị từ chối trước khi chạy; subagent chạy được mà làm sai thì luồng chính phải giao lại, không tự sửa. Kịch bản phiên dài của test để luồng chính tự chạy script ghi và lệnh kiểm, nên với `conductor: 'fable'` các lời gọi đó bị từ chối (số đo ở VERIFICATION). Khai báo kiểu của engine vẫn không sinh được trong phiên phát triển, nên `tsc` chưa chạy.
  
@@ -154,6 +164,26 @@ index 7ee493c..abe1b9b 100644
 +- Một chuỗi điều chỉnh thật từ đầu tới cuối: router thật trả `arrange`, luồng chính thật cập nhật checklist theo câu dặn. Golden chỉ đo câu trả lời của router; test tích hợp dùng router giả.
 +- Chữ của mục tiến độ trên terminal thật ở các bề rộng khác 120, 80 và 44 cột.
 +
++## Yêu cầu của việc đã bỏ và chuỗi gộp (0.8.9 vòng 3)
++
++Hiện tượng [Đo trực tiếp trên `47690d5`, rà soát độc lập]: bỏ việc 2 và 3 của mục tiêu bốn yêu cầu thì context cùng lúc có dòng "Đã bỏ" và dòng nhắc đừng bỏ sót yêu cầu 2 và 3; gộp nối tiếp (2 vào 3, 3 vào 4) làm mất phần phủ yêu cầu của việc 2.
++
++**Trường `retired` (E1).**
++- Brief có thêm trường tùy chọn `retired`: số (từ 1) của các yêu cầu đã rời kế hoạch, chép trong `normalizeBrief`; trạng thái cũ không có trường này thì coi là rỗng.
++- `applyArrange`: yêu cầu trong `covers` của việc bị bỏ (`drop`) mà sau khi áp không còn việc nào phủ thì vào `retired`. Việc bị gộp không sinh `retired`, vì `covers` của nó đã chuyển sang việc nhận gộp.
++- `uncoveredRequirements` bỏ qua `retired`, nên context của mục tiêu, context tiếp nối và khối nén không nhắc các yêu cầu ấy là chưa phủ.
++- Cuối `nextBriefRaw` (mọi đường lập brief tiếp nối, kể cả `/conductor reroute`), yêu cầu trong `retired` đã có việc phủ lại thì ra khỏi `retired`.
++- Danh sách `brief.requirements` và số thứ tự giữ nguyên. Riêng `openPhase` vốn đánh số lại yêu cầu khi mở đợt mới (bỏ yêu cầu chỉ do việc đã xong phủ); số trong `retired` đổi theo đúng bảng đánh số lại đó.
++
++**Luật chuỗi gộp (E2).**
++- Việc nhận gộp về sau cũng bị gộp tiếp thì `covers` nó đã nhận đi theo sang việc nhận mới, bản ghi đã gỡ trỏ `into` tới việc nhận cuối cùng, và các mục gộp cùng việc nhận cuối cùng thành một mục: chuỗi 2 vào 3, 3 vào 4 cho một mục "Việc 2, 3 vào Việc 4", dòng "Đã gộp" của context ghi đúng như vậy.
++- Gộp vào việc đã bỏ không xảy ra: `drop` xử lý trước, mục gộp vào việc đã bỏ bị bỏ qua. Gộp vòng (2 vào 3, 3 vào 2): mục thứ hai bị bỏ qua vì việc nhận đã bị gỡ.
++- Ca không có chuỗi gộp giữ nguyên kết quả của vòng 2.
++
++**Giới hạn còn lại.**
++- Danh sách yêu cầu vẫn hiện yêu cầu đã rời kế hoạch: `brief.requirements` không xóa mục nào, chỉ `uncoveredRequirements` bỏ qua chúng.
++- Context của tin chen ngang vốn không in dòng yêu cầu chưa phủ, nên E1 không đổi context của tin chen ngang.
++
 +## Router bị engine từ chối khi đọc prompt dài (0.8.9)
 +
 +Phiên thật, `conductor` là `fable`, prompt dài: mod báo router không đọc được prompt vì engine từ chối gửi request [Nguồn: ảnh chụp phiên thật của chủ mod, 14/11/2026]. Lượt đọc trọn của fable, opus, haiku xin `maxTokens` 128.000, là mức `claude -p` báo cho model, trong khi engine ném lỗi trước khi gửi khi lời gọi từ hook xin quá 64.000.
@@ -192,7 +222,7 @@ index 7ee493c..abe1b9b 100644
  ## Giao diện hướng B và dải màu neon (0.8.8)
  
  Bản này chỉ đổi cách vẽ band, pane và status line. Logic, lời nhắc, brief, kết quả tool, lời dặn router, golden và schema tool `plan` giữ nguyên.
-@@ -294,9 +370,9 @@ Bản này chỉ đổi cách vẽ band, pane và status line. Logic, lời nh
+@@ -294,9 +390,9 @@ Bản này chỉ đổi cách vẽ band, pane và status line. Logic, lời nh
    - sonnet: 1,5863 ký tự trên token, 0,0001491 giây trên ký tự, token ra lớn nhất 6.243, mức engine báo 128.000;
    - họ chưa đo (haiku, opus, model ID riêng): giá trị thận trọng hơn giữa hai họ trên cho từng thông số [Giả định].
    Fable chậm vì token ra lớn: trên prompt lặp mẫu, Fable liệt kê từng đề mục thành một việc và gần như toàn bộ token ra là câu trả lời JSON. Ở mặc định 1.800 giây, Fable đọc trọn khoảng 468.000 ký tự; sonnet bị giới hạn bởi cửa sổ (khoảng 1,56 triệu ký tự với cửa sổ 1.000.000 token).
@@ -205,13 +235,38 @@ index 7ee493c..abe1b9b 100644
  - **Bỏ trần số lượng** (L2, `hooks/lib/router.ts`, `hooks/lib/plan.ts`, `hooks/lib/state.ts`). `parseRoute` giữ mọi việc và mọi yêu cầu; `covers` chỉ giữ số từ 1 tới số yêu cầu thật. Checklist không có trần bước. Ràng buộc giữ trần 12 cùng phần tràn. Request gửi router và lời giao subagent vẫn liệt kê tối đa 20 việc cũ và 30 yêu cầu, quá mức đó thì có dòng ghi tổng số, để request của mục tiêu không quá 20 việc trùng 0.8.6.
  - **Các trần đã rà khi bỏ trần số lượng:**
 diff --git a/claude-mods/focus-conductor/docs/VERIFICATION.md b/claude-mods/focus-conductor/docs/VERIFICATION.md
-index 1914b05..c8b8428 100644
+index 1914b05..d2ce54e 100644
 --- a/claude-mods/focus-conductor/docs/VERIFICATION.md
 +++ b/claude-mods/focus-conductor/docs/VERIFICATION.md
-@@ -2,6 +2,163 @@
+@@ -2,6 +2,188 @@
  
  Số đo của HEAD hiện tại và của các bản trước. Mọi số do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển] trừ khi nêu khác; hợp đồng đối chiếu evidence ở [DESIGN.md](DESIGN.md), lịch sử thay đổi ở [CHANGELOG.md](../CHANGELOG.md), cách dùng ở [README](../README.md).
  
++## Kiểm chứng của 0.8.9 vòng 3 (yêu cầu của việc đã bỏ, chuỗi gộp, bốn hành vi của D2)
++
++Cùng nhánh, tiếp từ `47690d5`. Thứ tự E1, E2, E3; E1 và E2 mỗi điểm một commit test đỏ rồi một commit sửa; E3 chỉ thêm test và mẫu nên một commit. Không amend, không force-push, không merge. Bộ test, kiểm tĩnh và đột biến chạy trên engine 2.1.296 cài riêng ngoài repo [Đo trực tiếp, 15/11/2026].
++
++- **Test đỏ** [Đo trực tiếp, trên mã ngay trước commit sửa]:
++  - E1 (`c6c27a0`): 9/10. Ca tin chen ngang xanh sẵn vì context của tin chen ngang vốn không in dòng yêu cầu chưa phủ.
++  - E2 (`6e4470f`): 2/3. Ca gộp vòng xanh sẵn vì mục thứ hai đã bị bỏ qua từ D2.
++  - E3 (`f37779f`): bốn ca đều xanh sẵn vì hành vi có từ D2, đúng như đặc tả; mỗi mẫu E3 làm đỏ đúng một ca.
++- **Mẫu mới** [Đo trực tiếp, chạy riêng từng mẫu trên tệp test của điểm đó; số ca đỏ]:
++  - E1: `089-E1a` 7, `089-E1b` 1, `089-E1c` 1, `089-E1d` 2, `089-E1e` 1, `089-E1f` 1. Bản đầu của `089-E1b` (việc bị gộp đi qua cùng bộ lọc "còn việc khác phủ") không đổi hành vi, vì việc bị gộp luôn có việc nhận gộp phủ thay; mẫu được viết lại cho đúng nghĩa "việc bị gộp cũng sinh retired".
++  - E2: `089-E2a` 2, `089-E2b` 2. E3: `089-E3a`, `089-E3b`, `089-E3c`, `089-E3d` mỗi mẫu 1.
++  - `089-D3h`: trước vòng này chỉ bị ca gập dòng đợt mới của `tests/integration/phase-a3-080.test.ts` diệt ("prompt continue có 8 việc mới: pane gập 6 việc đã xong thành một dòng..."), ca đó không nói rõ hành vi này; ca thuần mới cho `rowStatusState` ở `tests/rearrange-e3-089.test.ts` diệt mẫu trực tiếp (1 đỏ).
++  - Mẫu cũ viết lại chuỗi, giữ mã và nghĩa: `070-B7`, `089-D2e`.
++- **Đột biến vùng diff** [Đo trực tiếp, trên `f37779f`]: 34 mẫu cũ có chỗ khớp trong vùng diff so với `47690d5`.
++  - Pha 1 (các tệp gần nhất theo lô) ghi 29 mẫu bị diệt; pha 2 (cả bộ, `--jobs 1`, sau khi cả bộ test đã chạy xong) diệt 5 mẫu còn lại.
++  - Pha 1 chạy cùng lúc với cả bộ test và phiên dài, và không lưu chi tiết ca đỏ, nên theo luật của chủ mod (chỉ tính ca đỏ do sai kết quả, không do hết giờ) cả 34 mẫu được chạy lại khi máy không có lượt nền nào khác, mỗi lần một mẫu, có tên ca và thời gian. Ca đỏ tính là sai kết quả khi dừng dưới 4,5 giây và không có dấu hiệu hết giờ.
++  - Kết quả chạy lại: 33 mẫu bị diệt bằng ca đỏ do sai kết quả, không ca nào hết giờ. Mẫu `070-B1` (bỏ bước gộp yêu cầu trùng ở `requirementsOf`) không làm đỏ ca nào trên cả 338 tệp; kết quả "bị diệt" của nó ở pha 1 là do lô chạy khi máy quá tải. Ca mới ở `55be1e5` (yêu cầu trùng chỉ giữ một mục) diệt mẫu này (1 đỏ).
++  - Hai lượt chạy lại đầu không dựng đúng lô gốc của pha 1 (lượt đầu chỉ chạy tệp đầu của lô, lượt hai dựng lại lô khác lô gốc), nên 12 mẫu được chạy lần ba theo thứ tự ưu tiên của pha 1, lô 8 tệp, dừng ở lô đầu tiên có ca đỏ do sai kết quả.
++- **Phiên dài** [Đo trực tiếp, cùng bộ đo của vòng 2, trên mã của `f37779f`]: mười dòng số, kể cả phần chia theo loại, và kịch bản 20 prompt tiếp nối (354 ở chín prompt đầu, 357 từ prompt thứ 10) trùng `47690d5`. Số ký tự chèn chỉ giảm ở prompt có việc bị bỏ mà yêu cầu của việc đó rời kế hoạch (bỏ dòng yêu cầu chưa phủ).
++- **Cả bộ** [Đo trực tiếp, trên `f37779f`, 12 nhóm tệp, tuần tự, máy không có lượt nền]: 338 tệp, 3.746 ca, 0 lỗi; 341 + 492 + 321 + 250 + 282 + 265 + 267 + 376 + 290 + 373 + 401 + 88 = 3.746. `55be1e5` thêm một ca vào `tests/requirements.test.ts` (tệp đạt 19/19 trên HEAD), tổng 3.747.
++  - Lượt chạy cả bộ đầu tiên chạy cùng lúc với đột biến và phiên dài có 10 ca đỏ ở 9 tệp, ca nào cũng dừng ở khoảng 5 giây; chạy riêng 9 tệp đó khi máy rảnh: 125 ca đạt, 0 lỗi. Lượt chạy cả bộ ở trên là lượt chạy lại một mình.
++- **So tên ca với `47690d5`** (3.727 ca): thêm 20 tên (19 ca của E1 tới E3 cùng `rowStatusState`, 1 ca của `55be1e5`), không tên nào mất. 3.727 + 20 = 3.747.
++- **Kiểm tĩnh** [Đo trực tiếp, trên `55be1e5`]: `claude plugin validate` đạt ở thư mục mod và ở gốc repo; `version-check` khớp 0.8.9, README đủ 47 option; `mutate --check` khớp 2.339/2.339; sha256 `hooks/` `86fc2370c19a434f63787804b04a617534c589492bce77edf08bc5837e701bcf`, `tests/` `b3c10de9495584eeda53a4ac8a99a02bff14866c98968b99d483984d99288f04` (theo `scripts/mutate.ts`).
++- **CI** [Nguồn: GitHub Actions]: run 246 trên `55be1e5`, commit mã và test cuối của vòng 3, xanh (mã run 43670926391); các commit sau đó chỉ đổi tài liệu.
++
 +## Kiểm chứng của 0.8.9 vòng 2 (ràng buộc không trần, ba điểm sau rà soát, điều phối lại việc)
 +
 +Cùng nhánh, tiếp từ `7682ef7`. Thứ tự C1, C2, R1, R2, R3, D1, D2, D3, D4; mỗi điểm một commit test đỏ rồi một commit sửa kèm mẫu `089-C*`, `089-R*`, `089-D*`; không amend, không force-push, không merge [Đo trực tiếp]. Bộ test, kiểm tĩnh và đột biến chạy trên engine 2.1.296 cài riêng ngoài repo; lượt gọi model thật (D4) chạy trên engine của phiên phát triển (2.1.325). Mỗi lần push đi qua một script quét em dash, emoji, dấu chấm than, chuỗi riêng tư ở dòng thêm và thông điệp commit, và `mutate --check`; script báo lỗi thì không push.
@@ -4270,6 +4325,21 @@ index 0000000..4e3147d
 +    expect(rowStatusState(row({ bar: { kind: 'state', state: 'running' }, state: 'running' }))).toBe('running')
 +  })
 +})
+diff --git a/claude-mods/focus-conductor/tests/requirements.test.ts b/claude-mods/focus-conductor/tests/requirements.test.ts
+index 7afc7c8..7d544a3 100644
+--- a/claude-mods/focus-conductor/tests/requirements.test.ts
++++ b/claude-mods/focus-conductor/tests/requirements.test.ts
+@@ -49,6 +49,10 @@ describe('0.7.0 7: đọc requirements và covers', () => {
+     expect(result.tasks[0]?.covers).toEqual([1, 2])
+   })
+ 
++  test('yêu cầu trùng nhau (kể cả khác khoảng trắng hai đầu) chỉ giữ một mục, theo thứ tự xuất hiện đầu tiên (0.8.9 vòng 3)', () => {
++    expect(parsed({ requirements: ['Yêu cầu A', ' Yêu cầu A ', 'Yêu cầu B', 'Yêu cầu A'] }).requirements).toEqual(['Yêu cầu A', 'Yêu cầu B'])
++  })
++
+   test('mỗi yêu cầu cắt về 160 ký tự (kiểm riêng, không lẫn với giới hạn số mục)', () => {
+     const [only] = parsed({ requirements: ['y'.repeat(300)] }).requirements
+     expect(only?.length).toBeLessThanOrEqual(160)
 diff --git a/claude-mods/focus-conductor/tests/retired-e1-089.test.ts b/claude-mods/focus-conductor/tests/retired-e1-089.test.ts
 new file mode 100644
 index 0000000..33fb288
