@@ -547,7 +547,7 @@ index 6909686..35815ef 100644
  
  /** Kế hoạch đọc prompt dài `textLength` ký tự; `fixedChars` là số ký tự của lời dặn và các dòng ngữ cảnh của request. */
 diff --git a/claude-mods/focus-conductor/hooks/lib/router.ts b/claude-mods/focus-conductor/hooks/lib/router.ts
-index fc059c5..a3d6895 100644
+index fc059c5..68d3b5b 100644
 --- a/claude-mods/focus-conductor/hooks/lib/router.ts
 +++ b/claude-mods/focus-conductor/hooks/lib/router.ts
 @@ -7,15 +7,15 @@
@@ -669,7 +669,28 @@ index fc059c5..a3d6895 100644
      allowedLine(args.policy),
      ...sessionLine(args.sessionFamily),
      agentsLine(args.policy),
-@@ -760,6 +792,8 @@ export type RouterPlan = {
+@@ -565,7 +597,19 @@ export function uncoveredRequirements(brief: Brief): string[] {
+   const requirements = brief.requirements ?? []
+   if (requirements.length === 0 || !brief.tasks.some(t => (t.covers?.length ?? 0) > 0)) return []
+   const covered = new Set(brief.tasks.flatMap(t => t.covers ?? []))
+-  return requirements.filter((_, i) => !covered.has(i + 1))
++  // 0.8.9 vòng 3 E1: yêu cầu đã rời kế hoạch theo việc bị bỏ không còn là yêu cầu chưa phủ.
++  const retired = new Set(brief.retired ?? [])
++  return requirements.filter((_, i) => !covered.has(i + 1) && !retired.has(i + 1))
++}
++
++/** Bỏ khỏi retired các yêu cầu đã có việc phủ lại (0.8.9 vòng 3 E1); retired rỗng thì brief không còn trường này. */
++export function withRetiredPruned(brief: Brief): Brief {
++  if (brief.retired === undefined) return brief
++  const covered = new Set(brief.tasks.flatMap(t => t.covers ?? []))
++  const retired = brief.retired.filter(n => !covered.has(n))
++  if (retired.length === brief.retired.length) return brief
++  const { retired: _gone, ...rest } = brief
++  return retired.length > 0 ? { ...rest, retired } : rest
+ }
+ 
+ /** Mục phạm vi phải có dạng đường dẫn (có / hoặc phần mở rộng, không khoảng trắng), kẻo kiểm tra phạm vi báo sai. */
+@@ -760,6 +804,8 @@ export type RouterPlan = {
    skipApproval?: boolean
    /** Câu hỏi làm rõ (0.8.2 N2): tối đa QUESTION_LIMIT câu, mỗi câu tối đa QUESTION_CHARS ký tự; vắng khi không có. */
    questions?: string[]
@@ -678,7 +699,7 @@ index fc059c5..a3d6895 100644
  }
  
  /** Số câu hỏi làm rõ tối đa và số ký tự tối đa mỗi câu (0.8.2 N2). */
-@@ -1009,11 +1043,14 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
+@@ -1009,11 +1055,14 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
    const questions = Array.isArray(raw['questions'])
      ? unique(raw['questions'].filter((q): q is string => typeof q === 'string' && q.trim() !== '').map(q => clip(q.trim(), QUESTION_CHARS)), QUESTION_LIMIT)
      : []
@@ -694,7 +715,7 @@ index fc059c5..a3d6895 100644
      isReference,
      runReference,
      goal,
-@@ -1032,7 +1069,43 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
+@@ -1032,7 +1081,43 @@ export function parseRoute(reply: string, policy: Policy): RouterPlan | null {
      ...(droppedSplits > 0 ? { droppedSplits } : {}),
      ...(raw['skipApproval'] === true ? { skipApproval: true } : {}),
      ...(questions.length > 0 ? { questions } : {}),
@@ -738,7 +759,7 @@ index fc059c5..a3d6895 100644
  }
  
  /**
-@@ -1171,9 +1244,10 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number, isHeld =
+@@ -1171,9 +1256,10 @@ export function followUpOf(prev: Brief, plan: RouterPlan, now: number, isHeld =
    const { items: requirements, renumber, dropped: lostRequirements } = merged
    const reclaimed = reclaimCarried(prev.constraints, prev.carriedRules ?? 0, plan.constraints)
    const conBase = prev.constraintsBase ?? prev.constraints.length
@@ -751,7 +772,7 @@ index fc059c5..a3d6895 100644
    const dropped = lostRequirements + constraints.dropped
    const keptTasks = merged.lost.size > 0 ? prev.tasks.map(t => (t.covers !== undefined ? { ...t, covers: t.covers.filter(n => !merged.lost.has(n)) } : t)) : prev.tasks
    const added = plan.tasks.map(t => ({
-@@ -1227,7 +1301,7 @@ export function promoteReference(prev: Brief, plan: RouterPlan, prompt: string,
+@@ -1227,7 +1313,7 @@ export function promoteReference(prev: Brief, plan: RouterPlan, prompt: string,
    // Ràng buộc, tiêu chí và phạm vi của prompt đính kèm được giữ từ lượt đối chiếu: lượt chạy thật phải có đủ. Cả hai lượt là prompt
    // lập mục tiêu nên mọi mục đều thuộc phần không bao giờ bị thay.
    const mergedRequirements = mergeCapped(prev.requirements ?? [], plan.requirements, Number.POSITIVE_INFINITY).items
@@ -760,7 +781,7 @@ index fc059c5..a3d6895 100644
    return {
      ...briefOf(plan, prompt, prev.goalId + 1, now),
      goal: plan.goal || prev.goal,
-@@ -1271,7 +1345,7 @@ export function bareBrief(prompt: string, goalId: number, now: number): Brief {
+@@ -1271,7 +1357,7 @@ export function bareBrief(prompt: string, goalId: number, now: number): Brief {
  // ------------------------------------------------------------ gọi router (thuần, qua callback)
  
  /**
@@ -769,7 +790,7 @@ index fc059c5..a3d6895 100644
   * `$` ngay trong thân hook, nên logic gọi, thử lại và đọc kết quả nằm ở đây mà không đụng tới `$`.
   */
  export type Ask = (request: ModelCompleteRequest) => Promise<ModelCompleteResult | null>
-@@ -1285,10 +1359,42 @@ export function failureKind(reply: ModelCompleteResult | null): RouterFailKind {
+@@ -1285,10 +1371,42 @@ export function failureKind(reply: ModelCompleteResult | null): RouterFailKind {
    return 'empty'
  }
  
@@ -816,7 +837,7 @@ index fc059c5..a3d6895 100644
    if (reply.reason === 'api-error') return `lỗi API ${reply.error}${reply.status !== null ? ` ${reply.status}` : ''}`
    if (reply.reason === 'aborted') return 'hết thời gian chờ'
    return 'câu trả lời rỗng'
-@@ -1333,11 +1439,15 @@ export type RouterOutcome<T> = {
+@@ -1333,11 +1451,15 @@ export type RouterOutcome<T> = {
    reason: string
    /** Usage của mọi lượt gọi (lượt đầu và lượt hỏi lại). */
    usages: ModelUsage[]
@@ -833,7 +854,7 @@ index fc059c5..a3d6895 100644
    /** Loại lỗi khi không có kết quả (0.7.2); null khi có kết quả. */
    failure: RouterFailKind | null
    /** Giới hạn của request đã gửi và số token đầu ra của lượt gọi cuối, để biết lỗi do hết giờ hay bị cắt (0.7.2). */
-@@ -1367,51 +1477,103 @@ export function failFields(fail: RouterFail): Record<string, unknown> {
+@@ -1367,51 +1489,103 @@ export function failFields(fail: RouterFail): Record<string, unknown> {
    return { failure: fail.kind, ms: fail.ms, timeoutMs: fail.timeoutMs, maxTokens: fail.maxTokens, outputTokens: fail.outputTokens }
  }
  
@@ -951,7 +972,7 @@ index fc059c5..a3d6895 100644
    }
    const firstResult = first?.isAnswered ? parse(first.text) : null
    // Thiếu confidence (0.7.8 G8): chỉ khi bật retryMissingConfidence (ba chỗ đọc prompt) thì coi như dưới LOW_CONFIDENCE và hỏi lại;
-@@ -1420,16 +1582,24 @@ export async function askRouter<T extends { confidence?: number }>(
+@@ -1420,16 +1594,24 @@ export async function askRouter<T extends { confidence?: number }>(
    const firstConfidence = firstResult?.confidence ?? 1
    const isConfident = firstResult !== null && !isMissing && firstConfidence >= LOW_CONFIDENCE
    const needsCoverage = isConfident && recheck !== undefined && recheck(firstResult)
@@ -982,7 +1003,7 @@ index fc059c5..a3d6895 100644
    const secondResult = second?.isAnswered ? parse(second.text) : null
    // Thiếu confidence xếp thấp nhất khi bật retryMissingConfidence: lần hai thắng khi nó có confidence và lần đầu không có hay thấp hơn.
    const isSecondBetter =
-@@ -1437,7 +1607,10 @@ export async function askRouter<T extends { confidence?: number }>(
+@@ -1437,7 +1619,10 @@ export async function askRouter<T extends { confidence?: number }>(
        ? secondResult !== null && (firstResult === null || (secondResult.confidence !== undefined && (isMissing || secondResult.confidence >= firstConfidence)))
        : secondResult !== null && (firstResult === null || (secondResult.confidence ?? 1) >= firstConfidence)
    const pick = isSecondBetter ? secondResult : firstResult
@@ -994,7 +1015,7 @@ index fc059c5..a3d6895 100644
  }
  
  /** Prompt dài hơn sức chứa của lượt router đó bị lược phần giữa (0.7.8 G8; 0.8.7 L3: sức chứa theo requestPlan, mặc định trần cũ). */
-@@ -1468,9 +1641,126 @@ export function clippedWarning(length: number, info?: { family: ModelFamily; hea
+@@ -1468,9 +1653,130 @@ export function clippedWarning(length: number, info?: { family: ModelFamily; hea
  /** Dòng context kèm prompt bị lược (0.7.8 G8), tối đa 200 ký tự. */
  export const CLIPPED_CONTEXT = '[focus-conductor] Prompt quá dài nên router chưa đọc phần giữa; tự đọc kỹ phần đó khi lập checklist.'
  
@@ -1110,6 +1131,9 @@ index fc059c5..a3d6895 100644
 +    .filter(t => !gone.has(t.index))
 +    .map(t => (covers.has(t.index) ? { ...t, covers: [...new Set([...(t.covers ?? []), ...(covers.get(t.index) ?? [])])] } : t))
 +  const removed = [...(brief.removed ?? []), ...gone.values()].slice(-REMOVED_LIMIT)
++  // 0.8.9 vòng 3 E1: yêu cầu của việc bị bỏ mà sau khi áp không còn việc nào phủ thì rời kế hoạch. Việc bị gộp không sinh retired.
++  const stillCovered = new Set(tasks.flatMap(t => t.covers ?? []))
++  const retired = [...new Set([...(brief.retired ?? []), ...dropped.flatMap(index => (byIndex.get(index)?.covers ?? []).filter(n => !stillCovered.has(n)))])]
 +  return {
 +    brief: {
 +      ...brief,
@@ -1117,13 +1141,31 @@ index fc059c5..a3d6895 100644
 +      steps: brief.steps.filter(title => !goneTitles.has(title)),
 +      ...(order !== undefined ? { order } : {}),
 +      ...(removed.length > 0 ? { removed } : {}),
++      ...(retired.length > 0 ? { retired } : {}),
 +    },
 +    arranged: { order: order ?? [], dropped, merged, skipped },
 +  }
  }
  
  /** Đợt vừa mở (0.8.0 A3): số đợt, số việc và số mục đã cất, số việc mới. */
-@@ -1622,8 +1912,8 @@ export function nextBrief(
+@@ -1509,11 +1815,15 @@ export function openPhase(prev: Brief, done: ReadonlySet<number>): { brief: Brie
+   const constraints = prev.constraints.filter((item, i) => i < base || isModelRule(item) || kept.length > 0)
+   const constraintsBase = prev.constraints.slice(0, base).length
+   const goneTitles = new Set(gone.map(t => t.title))
++  const retired = (prev.retired ?? []).flatMap(n => renumber.get(n) ?? [])
++  const { retired: _retired, ...rest } = prev
+   const brief: Brief = {
+-    ...prev,
++    ...rest,
+     tasks: kept.map(t => (t.covers !== undefined ? { ...t, covers: t.covers.flatMap(n => renumber.get(n) ?? []) } : t)),
+     steps: prev.steps.filter(title => !goneTitles.has(title)),
+     ...(requirements.length > 0 ? { requirements: keptRequirements, requirementsBase } : {}),
++    // 0.8.9 vòng 3 E1: số trong retired đổi theo cùng bảng đánh số lại của yêu cầu.
++    ...(retired.length > 0 ? { retired } : {}),
+     constraints,
+     constraintsBase: Math.min(constraintsBase, constraints.length),
+     phase: (prev.phase ?? 1) + 1,
+@@ -1622,8 +1932,8 @@ export function nextBrief(
    plan: RouterPlan,
    prompt: string,
    now: number,
@@ -1134,7 +1176,7 @@ index fc059c5..a3d6895 100644
    const out = nextBriefRaw(prev, plan, prompt, now, options)
    return { ...out, brief: withSessionFloor(out.brief, options.sessionFamily ?? null) }
  }
-@@ -1643,8 +1933,14 @@ function nextBriefRaw(
+@@ -1643,8 +1953,14 @@ function nextBriefRaw(
    plan: RouterPlan,
    prompt: string,
    now: number,
@@ -1151,12 +1193,13 @@ index fc059c5..a3d6895 100644
    if (prev !== null && prev.isReference && plan.runReference) {
      const brief = promoteReference(prev, plan, prompt, now)
      return { brief, added: [], isNewGoal: true, replaced: replacedOf(prev, brief), held: false, dropped: 0 }
-@@ -1660,18 +1956,18 @@ function nextBriefRaw(
+@@ -1660,18 +1976,21 @@ function nextBriefRaw(
      const opened = openPhase(prev, options.doneTasks ?? new Set())
      const next = followUpOf(opened.brief, isLowNew ? { ...plan, relation: 'continue' } : plan, now, isLowNew, true)
      const phase: PhaseOpened = { number: opened.brief.phase ?? 2, tasks: opened.tasks, items: opened.items, added: next.added.length }
 -    return { brief: next.brief, added: next.added, dropped: next.dropped, isNewGoal: false, replaced: next.replaced, held, phase }
-+    return { ...arranged(next.brief, next.added), added: next.added, dropped: next.dropped, isNewGoal: false, replaced: next.replaced, held, phase }
++    const out = arranged(next.brief, next.added)
++    return { ...out, brief: withRetiredPruned(out.brief), added: next.added, dropped: next.dropped, isNewGoal: false, replaced: next.replaced, held, phase }
    }
    if (prev === null || (plan.relation === 'new' && !held)) {
      const fresh = briefOf(plan, prompt, (prev?.goalId ?? 0) + 1, now)
@@ -1169,11 +1212,13 @@ index fc059c5..a3d6895 100644
    }
    const next = followUpOf(prev, held ? { ...plan, relation: 'continue' } : plan, now, held)
 -  return { ...next, isNewGoal: false, replaced: replacedOf(prev, next.brief), held }
-+  return { ...next, ...arranged(next.brief, next.added), isNewGoal: false, replaced: replacedOf(prev, next.brief), held }
++  // 0.8.9 vòng 3 E1: việc mới phủ lại yêu cầu đã rời kế hoạch thì yêu cầu đó ra khỏi retired.
++  const out = arranged(next.brief, next.added)
++  return { ...next, ...out, brief: withRetiredPruned(out.brief), isNewGoal: false, replaced: replacedOf(prev, next.brief), held }
  }
  
  /**
-@@ -1733,12 +2029,14 @@ Reply with ONE JSON object and nothing else:
+@@ -1733,12 +2052,14 @@ Reply with ONE JSON object and nothing else:
  {"missing": number[], "extra": number[], "issues": string[]}`
  
  /** Request rà kế hoạch ở Stop (0.8.2 N2): yêu cầu, ràng buộc, tiêu chí và các bước (tên, check) đánh số từ 1. */
@@ -1191,16 +1236,18 @@ index fc059c5..a3d6895 100644
      'Plan steps:',
      ...args.steps.slice(0, 40).map((step, i) => `${i + 1}. ${fence(clip(step.title, 200))}${step.check ? ` (check: ${fence(clip(step.check, 200))})` : ' (no check)'}`),
 diff --git a/claude-mods/focus-conductor/hooks/lib/state.ts b/claude-mods/focus-conductor/hooks/lib/state.ts
-index eb8974a..766bcc1 100644
+index eb8974a..c339732 100644
 --- a/claude-mods/focus-conductor/hooks/lib/state.ts
 +++ b/claude-mods/focus-conductor/hooks/lib/state.ts
-@@ -566,6 +566,9 @@ function normalizeBrief(raw: Brief): Brief {
+@@ -566,6 +566,11 @@ function normalizeBrief(raw: Brief): Brief {
      ...(typeof brief.archivedTop === 'number' ? { archivedTop: brief.archivedTop } : {}),
      ...(typeof brief.carriedRules === 'number' && brief.carriedRules > 0 ? { carriedRules: brief.carriedRules } : {}),
      ...(typeof brief.dropped === 'number' && brief.dropped > 0 ? { dropped: brief.dropped } : {}),
 +    // Điều phối lại (0.8.9 D2): thứ tự làm và việc đã gỡ; trạng thái từ bản cũ không có hai trường này thì coi như chưa điều phối lại.
 +    ...(Array.isArray(brief.order) ? { order: brief.order.filter((n): n is number => typeof n === 'number') } : {}),
 +    ...(Array.isArray(brief.removed) ? { removed: brief.removed.filter(r => r !== null && typeof r === 'object' && typeof r.index === 'number' && typeof r.title === 'string') } : {}),
++    // 0.8.9 vòng 3 E1: yêu cầu đã rời kế hoạch theo việc bị bỏ; bản cũ không có trường này thì coi là rỗng.
++    ...(Array.isArray(brief.retired) ? { retired: brief.retired.filter((n): n is number => typeof n === 'number') } : {}),
      quality: brief.quality ?? [],
      depth: brief.depth ?? legacy.depth,
      volume: brief.volume ?? legacy.volume,
@@ -1794,9 +1841,18 @@ index 33a353a..2c392a5 100644
  const total = summary.reduce((sum, s) => sum + s.passed, 0)
  const attempts = summary.reduce((sum, s) => sum + s.runs.length, 0)
 diff --git a/claude-mods/focus-conductor/scripts/mutants.ts b/claude-mods/focus-conductor/scripts/mutants.ts
-index df2949e..0f8908a 100644
+index df2949e..1d7329a 100644
 --- a/claude-mods/focus-conductor/scripts/mutants.ts
 +++ b/claude-mods/focus-conductor/scripts/mutants.ts
+@@ -765,7 +765,7 @@ export const MUTANTS: Mutant[] = [
+   { id: "070-B4", file: "hooks/lib/router.ts", note: "covers nhận số không nguyên", old: "function coversOf(value: unknown): number[] | undefined {\n  if (!Array.isArray(value)) return undefined\n  return [...new Set(value.filter((n): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 1))]", new: "function coversOf(value: unknown): number[] | undefined {\n  if (!Array.isArray(value)) return undefined\n  return [...new Set(value.filter((n): n is number => typeof n === 'number' && n >= 1))]" },
+   { id: "070-B5", file: "hooks/lib/router.ts", note: "covers nhận số vượt số yêu cầu một đơn vị", old: "covers: t.covers.filter(n => n <= requirements.length)", new: "covers: t.covers.filter(n => n <= requirements.length + 1)" },
+   { id: "070-B6", file: "hooks/lib/router.ts", note: "router không ghi covers vẫn bị coi là bỏ sót mọi yêu cầu", old: " || !brief.tasks.some(t => (t.covers?.length ?? 0) > 0)", new: "" },
+-  { id: "070-B7", file: "hooks/lib/router.ts", note: "yêu cầu bỏ sót tính lệch một vị trí", old: "requirements.filter((_, i) => !covered.has(i + 1))", new: "requirements.filter((_, i) => !covered.has(i))" },
++  { id: "070-B7", file: "hooks/lib/router.ts", note: "yêu cầu bỏ sót tính lệch một vị trí", old: "requirements.filter((_, i) => !covered.has(i + 1) && !retired.has(i + 1))", new: "requirements.filter((_, i) => !covered.has(i) && !retired.has(i + 1))" },
+   { id: "070-B8", file: "hooks/lib/router.ts", note: "covers của việc mới không đổi số theo danh sách đã gộp", old: "    ...(t.covers !== undefined ? { covers: t.covers.flatMap(n => renumber.get(n) ?? []) } : {}),", new: "    ...(t.covers !== undefined ? { covers: t.covers } : {})," },
+   { id: "070-B9", file: "hooks/lib/router.ts", note: "yêu cầu tiếp nối trùng không được bỏ", old: "    let at = indexOfKey(items, item)\n    if (at >= 0) items[at] = item\n    else {\n      items.push(item)", new: "    let at = -1\n    if (at >= 0) items[at] = item\n    else {\n      items.push(item)" },
+   { id: "070-B10", file: "hooks/lib/router.ts", note: "không bao giờ kiểm lại khi nhiều yêu cầu", old: "const needsCoverage = isConfident && recheck !== undefined && recheck(firstResult)", new: "const needsCoverage = false" },
 @@ -828,7 +828,7 @@ export const MUTANTS: Mutant[] = [
    { id: "072-R6", file: "hooks/lib/router.ts", note: "kiểm lại phủ yêu cầu dù lượt đầu đã quá nửa hạn", old: "problem === 'coverage' ? spent <= budget / 2 :", new: "problem === 'coverage' ? spent <= budget :" },
    { id: "072-R7", file: "hooks/lib/router.ts", note: "kiểm lại phủ yêu cầu ở effort high", old: "problem === 'coverage' || opts.isFable === true || opts.full !== undefined ? 'medium' : 'high',", new: "opts.isFable === true || opts.full !== undefined ? 'medium' : 'high'," },
@@ -1870,7 +1926,7 @@ index df2949e..0f8908a 100644
    { id: "087-L3o", file: "hooks/lib/reading.ts", note: "mặc định routerMaxWait về 600 giây", old: "export const ROUTER_MAX_WAIT_MS = 1_800_000", new: "export const ROUTER_MAX_WAIT_MS = 600_000" },
    { id: "087-M1a", file: "hooks/lib/route.ts", note: "luôn trả ID ghim", old: "  if (useAlias && prefix === '') return family\n", new: "  if (false) return family\n" },
    { id: "087-M1b", file: "hooks/lib/route.ts", note: "alias thắng cả ghi đè modelMap", old: "  const override = map[family]\n  if (override) return override\n  const at = engineModel.indexOf('claude-')", new: "  if (useAlias) return family\n  const override = map[family]\n  if (override) return override\n  const at = engineModel.indexOf('claude-')" },
-@@ -2305,4 +2305,61 @@ export const MUTANTS: Mutant[] = [
+@@ -2305,4 +2305,67 @@ export const MUTANTS: Mutant[] = [
    { id: "088-N6o", file: "hooks/ui/band.tsx", note: "nút Ẩn vẫn hiện khi tạm dừng", old: "const hideButton = hasRoom && !isPaused && fit.hide ?", new: "const hideButton = hasRoom && fit.hide ?" },
    { id: "088-N6p", file: "hooks/ui/direction.ts", note: "tắt quotaGuard vẫn tính tạm dừng", old: "  const isPaused = settings.enabled && isPauseActive(", new: "  const isPaused = isPauseActive(" },
    { id: "088-N6q", file: "hooks/ui/band.tsx", note: "band lại có hộp rỗng ở cột đầu", old: "    <Box flexDirection=\"column\" flexGrow={1} flexShrink={1}>\n      {lines}\n    </Box>", new: "    <Box flexDirection=\"row\">\n      <Box flexDirection=\"column\" flexShrink={0} />\n      <Box flexDirection=\"column\" flexGrow={1} flexShrink={1}>\n        {lines}\n      </Box>\n    </Box>" },
@@ -1931,6 +1987,12 @@ index df2949e..0f8908a 100644
 +  { id: "089-D3f", file: "hooks/lib/text.ts", note: "phần thêm vào context không cắt ở 900 ký tự", old: "  while (text.length > max) {\n", new: "  while (text.length > Number.POSITIVE_INFINITY) {\n" },
 +  { id: "089-D3g", file: "hooks/lib/text.ts", note: "tin chen ngang không ghi kế hoạch sau điều chỉnh", old: "      options.arranged ?? '',\n", new: "" },
 +  { id: "089-D3h", file: "hooks/lib/progress.ts", note: "việc chưa có bước riêng tính là xong khi checklist đóng hết", old: "  return row.kind === 'direct' && row.bar.kind === 'state' && row.state === 'done' ? 'idle' : row.state\n", new: "  return row.state\n" },
++  { id: "089-E1a", file: "hooks/lib/router.ts", note: "uncoveredRequirements không bỏ qua retired", old: "  return requirements.filter((_, i) => !covered.has(i + 1) && !retired.has(i + 1))", new: "  return requirements.filter((_, i) => !covered.has(i + 1))" },
++  { id: "089-E1b", file: "hooks/lib/router.ts", note: "việc bị gộp cũng sinh retired", old: "...dropped.flatMap(index =>", new: "...merged.flatMap(m => m.tasks).flatMap(index => byIndex.get(index)?.covers ?? []), ...dropped.flatMap(index =>" },
++  { id: "089-E1c", file: "hooks/lib/router.ts", note: "yêu cầu còn việc khác phủ vẫn vào retired", old: "(byIndex.get(index)?.covers ?? []).filter(n => !stillCovered.has(n))", new: "(byIndex.get(index)?.covers ?? [])" },
++  { id: "089-E1d", file: "hooks/lib/state.ts", note: "normalizeBrief không chép retired", old: "    ...(Array.isArray(brief.retired) ? { retired: brief.retired.filter((n): n is number => typeof n === 'number') } : {}),\n", new: "" },
++  { id: "089-E1e", file: "hooks/lib/router.ts", note: "yêu cầu được việc mới phủ lại vẫn nằm trong retired", old: "  const retired = brief.retired.filter(n => !covered.has(n))\n", new: "  const retired = brief.retired.filter(n => n > 0 || !covered.has(n))\n" },
++  { id: "089-E1f", file: "hooks/lib/router.ts", note: "openPhase không đổi số trong retired", old: "  const retired = (prev.retired ?? []).flatMap(n => renumber.get(n) ?? [])\n", new: "  const retired = [...(prev.retired ?? [])]\n" },
  ]
 diff --git a/claude-mods/focus-conductor/tests/arrange-d1-089.test.ts b/claude-mods/focus-conductor/tests/arrange-d1-089.test.ts
 new file mode 100644
@@ -3564,6 +3626,63 @@ index 0000000..71c2f2d
 +    if (attention >= 0) expect(attention).toBeLessThan(PANE_ROWS)
 +  })
 +})
+diff --git a/claude-mods/focus-conductor/tests/integration/retired-e1-089.test.ts b/claude-mods/focus-conductor/tests/integration/retired-e1-089.test.ts
+new file mode 100644
+index 0000000..2a80a8d
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/integration/retired-e1-089.test.ts
+@@ -0,0 +1,51 @@
++// 0.8.9 vòng 3 E1 (tích hợp): bỏ việc thì yêu cầu chỉ việc đó phủ rời kế hoạch. Context của chính prompt đó có dòng "Đã bỏ" mà không có
++// dòng "chưa có việc nào phủ" cho các yêu cầu ấy; tin chen ngang và tin kế tiếp cũng vậy.
++
++import { describe, expect, test } from 'claude-code/testing'
++import { base, plan, step, submit, task } from '../support/engine'
++import type { Json } from '../support/engine'
++
++const OPTS = { options: { planApproval: 'off' } }
++const GAP = 'chưa có việc nào phủ'
++const REQS = ['Xuất báo cáo tháng', 'Gửi thư tổng kết', 'Lưu bản sao lên kho', 'Ghi nhật ký thay đổi']
++const FIRST = plan({
++  goal: 'Hoàn thiện quy trình cuối tháng',
++  depth: 'hard',
++  volume: 'medium',
++  kind: 'edit',
++  requirements: REQS,
++  tasks: REQS.map((r, i) => task(`Phần ${i + 1}: ${r}`, 'main', 'sonnet', 'medium', { covers: [i + 1] })),
++})
++const DROP = plan({ relation: 'refine', intent: 'amend', goal: '', arrange: { order: [], drop: [{ task: 2, why: 'không gửi thư nữa' }, { task: 3, why: 'không lưu bản sao nữa' }], merge: [] } })
++const MORE = plan({ relation: 'refine', intent: 'amend', goal: '', constraints: ['Giữ định dạng cũ của báo cáo'] })
++const router = (request: string): Json => (request.includes('thôi phần') ? DROP : request.includes('giữ định dạng') ? MORE : FIRST)
++
++describe('0.8.9 vòng 3 E1: yêu cầu của việc đã bỏ không còn bị nhắc là chưa phủ', () => {
++  test('prompt bỏ việc 2 và 3: context có dòng Đã bỏ, không có dòng chưa có việc nào phủ', OPTS, async ($, on) => {
++    const seen = base(on, { router })
++    await submit($, 'Hoàn thiện quy trình cuối tháng')
++    await submit($, 'thôi phần gửi thư và phần lưu bản sao')
++    const context = (seen.contexts.at(-1) ?? []).join('\n')
++    expect(context).toContain('Đã bỏ:')
++    expect(context).not.toContain(GAP)
++    await submit($, 'giữ định dạng cũ của báo cáo')
++    expect((seen.contexts.at(-1) ?? []).join('\n')).not.toContain(GAP)
++  })
++
++  test('tin chen ngang bỏ hai việc khi luồng chính đang chạy: context của tin đó và tin kế tiếp không nhắc hai yêu cầu là chưa phủ', OPTS, async ($, on) => {
++    const seen = base(on, { router })
++    on('turn.complete', () => ({ text: '' }))
++    await submit($, 'Hoàn thiện quy trình cuối tháng')
++    await $.turn.start({ text: 'làm', turnId: 't1' })
++    await step($, seen, { turnId: 't1' })
++    await $.prompt.submit({ text: 'thôi phần gửi thư và phần lưu bản sao', wait: false, origin: { kind: 'composer' } as never, turnId: 't1' })
++    const first = (seen.contexts.at(-1) ?? []).join('\n')
++    expect(first).toContain('Yêu cầu chen ngang')
++    expect(first).toContain('Đã bỏ:')
++    expect(first).not.toContain(GAP)
++    await $.prompt.submit({ text: 'giữ định dạng cũ của báo cáo', wait: false, origin: { kind: 'composer' } as never, turnId: 't1' })
++    const next = (seen.contexts.at(-1) ?? []).join('\n')
++    expect(next).toContain('Yêu cầu chen ngang')
++    expect(next).not.toContain(GAP)
++  })
++})
 diff --git a/claude-mods/focus-conductor/tests/integration/router-reason-u3-089.test.ts b/claude-mods/focus-conductor/tests/integration/router-reason-u3-089.test.ts
 new file mode 100644
 index 0000000..2c30c32
@@ -4005,6 +4124,96 @@ index 0000000..e5a74ff
 +    expect(out.phase).toBeDefined()
 +    expect(indexes(out.brief)).toEqual([3, 4, 5, 7, 8, 9, 10, 11])
 +    expect((out.brief as Applied['brief']).removed?.map(r => r.index)).toEqual([6])
++  })
++})
+diff --git a/claude-mods/focus-conductor/tests/retired-e1-089.test.ts b/claude-mods/focus-conductor/tests/retired-e1-089.test.ts
+new file mode 100644
+index 0000000..33fb288
+--- /dev/null
++++ b/claude-mods/focus-conductor/tests/retired-e1-089.test.ts
+@@ -0,0 +1,84 @@
++// 0.8.9 vòng 3 E1: yêu cầu của việc đã bỏ rời kế hoạch (brief.retired), không còn bị nhắc là chưa có việc nào phủ. Chỉ việc bị bỏ (drop)
++// mới sinh retired; việc bị gộp chuyển covers sang việc nhận gộp. Yêu cầu được một việc mới phủ lại thì ra khỏi retired. Danh sách yêu cầu
++// và số thứ tự giữ nguyên; khi mở đợt mới, số trong retired đổi theo bảng đánh số lại của openPhase.
++
++import { describe, expect, test } from 'claude-code/testing'
++import { applyArrange, nextBrief, openPhase, parseRoute, uncoveredRequirements } from '../hooks/lib/router'
++import * as S from '../hooks/lib/state'
++import { briefContext, compactKeepText, compactReminderText } from '../hooks/lib/text'
++import type { Arrange, Brief, Core, PlanStep, Task } from '../types'
++import { OPEN } from './golden/cases'
++import { makeBrief } from './support/commands'
++import { plan, task } from './support/engine'
++import type { Json } from './support/engine'
++
++type Retired = Brief & { retired?: number[] }
++const retiredOf = (brief: Brief) => (brief as Retired).retired ?? []
++
++const taskOf = (index: number, covers: number[]): Task => ({ index, title: `Việc số ${index}`, run: 'main', pick: { family: 'sonnet', effort: 'medium' }, depth: 'light', volume: 'small', kind: 'edit', why: '', covers })
++const reqs = (n: number) => Array.from({ length: n }, (_, i) => `Yêu cầu ${i + 1}`)
++const goal = (tasks: Task[], requirements: string[], over: Partial<Retired> = {}) => makeBrief({ tasks, requirements, ...over }) as Retired
++const four = () => goal([taskOf(1, [1]), taskOf(2, [2]), taskOf(3, [3]), taskOf(4, [4])], reqs(4))
++const none: Arrange = { order: [], drop: [], merge: [] }
++const drop = (...tasks: number[]): Arrange => ({ ...none, drop: tasks.map(t => ({ task: t, why: 'không cần nữa' })) })
++const step = (over: Json) => parseRoute(JSON.stringify(plan({ relation: 'refine', intent: 'amend', goal: '', ...over })), OPEN)!
++const GAP = 'chưa có việc nào phủ'
++
++describe('0.8.9 vòng 3 E1: yêu cầu của việc đã bỏ vào retired', () => {
++  test('bỏ việc 2 và 3: retired là 2 và 3, không còn yêu cầu nào chưa phủ; danh sách yêu cầu giữ nguyên', () => {
++    const out = applyArrange(four(), drop(2, 3), [])
++    expect(retiredOf(out.brief)).toEqual([2, 3])
++    expect(uncoveredRequirements(out.brief)).toEqual([])
++    expect(out.brief.requirements).toEqual(reqs(4))
++  })
++
++  test('yêu cầu 2 do cả việc 2 lẫn việc 5 phủ: bỏ việc 2 và 3 thì chỉ 3 vào retired', () => {
++    const brief = goal([taskOf(1, [1]), taskOf(2, [2]), taskOf(3, [3]), taskOf(4, [4]), taskOf(5, [2])], reqs(4))
++    const out = applyArrange(brief, drop(2, 3), [])
++    expect(retiredOf(out.brief)).toEqual([3])
++  })
++
++  test('gộp việc 2 vào việc 4 và bỏ việc 3: chỉ 3 vào retired, yêu cầu 2 do việc 4 phủ', () => {
++    const out = applyArrange(four(), { ...none, drop: [{ task: 3, why: 'x' }], merge: [{ tasks: [2], into: 4 }] }, [])
++    expect(retiredOf(out.brief)).toEqual([3])
++    expect(out.brief.tasks.find(t => t.index === 4)?.covers).toEqual([4, 2])
++    expect(uncoveredRequirements(out.brief)).toEqual([])
++  })
++
++  test('yêu cầu vốn chưa có việc nào phủ từ trước vẫn được nêu sau khi bỏ việc', () => {
++    const brief = goal([taskOf(1, [1]), taskOf(2, [2]), taskOf(3, [3]), taskOf(4, [4])], reqs(5))
++    const out = applyArrange(brief, drop(2), [])
++    expect(uncoveredRequirements(out.brief)).toEqual(['Yêu cầu 5'])
++  })
++
++  test('prompt sau thêm việc mới phủ yêu cầu 2: 2 ra khỏi retired, 3 còn lại', () => {
++    const prev = applyArrange(four(), drop(2, 3), []).brief
++    const next = nextBrief(prev, step({ requirements: ['Yêu cầu 2'], tasks: [task('Làm lại phần hai', 'main', 'sonnet', 'medium', { covers: [1] })] }), 'làm lại phần hai', 3).brief
++    expect(next.tasks.at(-1)?.covers).toEqual([2])
++    expect(retiredOf(next)).toEqual([3])
++    expect(uncoveredRequirements(next)).toEqual([])
++  })
++
++  test('briefContext và khối nén của brief có retired không nêu yêu cầu đã rời kế hoạch là chưa phủ', () => {
++    const brief = applyArrange(four(), drop(2, 3), []).brief
++    const plan: PlanStep[] = [{ id: 1, title: 'Việc 1: Việc số 1', status: 'doing' }]
++    for (const text of [briefContext(brief, null), compactKeepText(brief, plan), compactReminderText(brief, plan)]) expect(text).not.toContain(GAP)
++  })
++
++  test('retired còn sau vòng JSON của Core (như sau hot reload); Core cũ không có trường này', () => {
++    const brief = applyArrange(four(), drop(2, 3), []).brief
++    const reloaded = S.normalizeCore(JSON.parse(JSON.stringify({ ...S.EMPTY_CORE, brief })) as Partial<Core>)
++    expect(retiredOf(reloaded.brief!)).toEqual([2, 3])
++    const old = S.normalizeCore(JSON.parse(JSON.stringify({ ...S.EMPTY_CORE, brief: four() })) as Partial<Core>)
++    expect((old.brief as Retired).retired).toBeUndefined()
++  })
++
++  test('mở đợt mới khi brief có retired: số trong retired đổi theo bảng đánh số lại của openPhase', () => {
++    // Việc 1 xong và là việc duy nhất phủ yêu cầu 1: openPhase bỏ yêu cầu 1, các yêu cầu sau lùi một số. Yêu cầu 3 đã rời kế hoạch.
++    const brief = goal([taskOf(1, [1]), taskOf(2, [2]), taskOf(4, [4]), taskOf(5, [5])], reqs(5), { retired: [3] })
++    const opened = openPhase(brief, new Set([1])).brief
++    expect(opened.requirements).toEqual(['Yêu cầu 2', 'Yêu cầu 3', 'Yêu cầu 4', 'Yêu cầu 5'])
++    expect(retiredOf(opened)).toEqual([2])
++    expect(uncoveredRequirements(opened)).toEqual([])
 +  })
 +})
 diff --git a/claude-mods/focus-conductor/tests/router-full-l1-087.test.ts b/claude-mods/focus-conductor/tests/router-full-l1-087.test.ts
@@ -4677,10 +4886,10 @@ index 0000000..5f25c6c
 +  return (seen.contexts.at(-1) ?? []).join('\n')
 +}
 diff --git a/claude-mods/focus-conductor/types/index.d.ts b/claude-mods/focus-conductor/types/index.d.ts
-index c8d2510..d33b4b6 100644
+index c8d2510..b5264f7 100644
 --- a/claude-mods/focus-conductor/types/index.d.ts
 +++ b/claude-mods/focus-conductor/types/index.d.ts
-@@ -109,6 +109,10 @@ export type Brief = {
+@@ -109,6 +109,12 @@ export type Brief = {
    mainBase?: Choice
    /** Số mục của prompt tiếp nối không giữ được vì ràng buộc và yêu cầu đã đầy, kể cả phần tràn (0.7.5, vòng rà soát 3). */
    dropped?: number
@@ -4688,10 +4897,12 @@ index c8d2510..d33b4b6 100644
 +  order?: number[]
 +  /** Việc đã gỡ khi điều phối lại (0.8.9 D2), tối đa 50 việc gần nhất; vắng khi chưa gỡ việc nào. */
 +  removed?: RemovedTask[]
++  /** Số (từ 1) của các yêu cầu đã rời kế hoạch vì việc phủ chúng bị bỏ (0.8.9 vòng 3 E1); không còn bị nhắc là chưa phủ. Vắng là rỗng. */
++  retired?: number[]
    /** Luồng chính mà prompt đính kèm cần nếu chạy thật (chỉ khi isReference). */
    referenceMain?: Choice
    /** Lý do router đưa ra. */
-@@ -564,10 +568,28 @@ export type QuotaPause = {
+@@ -564,10 +570,28 @@ export type QuotaPause = {
    backupCalls?: number
  }
  

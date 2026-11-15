@@ -23,3 +23,6 @@
 - D4 (DỪNG theo mục 6): sáu ca arr-* đạt ngưỡng (fable 6/6 ca 18/18 lượt; sonnet 5/6 ca 15/18, arr-dup 0/3; 0 lượt bỏ hay gộp việc đã xong hay đang chạy ở cả hai model). Ghi lại golden bằng sonnet: 54/56 ca; không lần nào đạt: six (ca cũ, main sonnet/medium thay vì opus) và arr-dup. Đo thêm six: lời dặn 7682ef7 3/3, lời dặn mới 1/3 (tổng mới 1/6). Chi phí D4 tới đây khoảng 4,16 USD. Chưa ghi c4-* bằng fable. Phần D4 chưa commit (cases.ts, check.ts, hash.ts, eval-router.ts, replies.ts 54 ca, DESIGN, README) nằm trong bản sao lưu wip. Chờ chủ mod quyết.
 - D4 tiếp theo quyết định chủ mod: viết gọn arrange (47a7286, +606 ký tự). Đo cùng đợt: six mới 2/6, cũ 3/6 (luật 2: dao động); arr fable 6/6, sonnet 5/6 (arr-dup 0/3), 0 lượt đụng việc đã xong hay đang chạy. Ghi golden 989bfd8: sonnet 55 ca, fable c4-* và arr-dup. golden.test xanh. Phiên dài: 10 dòng trùng, constraints20 p5 354, p20 357 (+3). Việc tiếp: cả bộ, đột biến vòng 2 (252 mẫu cũ trong vùng), tài liệu VERIFICATION, PR.
 - VERIFICATION vòng 2 đã commit và push
+
+## Vòng 3 (15/11/2026)
+- E1 test đỏ c6c27a0 (9/10), sửa đã commit
