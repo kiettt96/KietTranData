@@ -113,6 +113,8 @@ export type Brief = {
   order?: number[]
   /** Việc đã gỡ khi điều phối lại (0.8.9 D2), tối đa 50 việc gần nhất; vắng khi chưa gỡ việc nào. */
   removed?: RemovedTask[]
+  /** Số (từ 1) của các yêu cầu đã rời kế hoạch vì việc phủ chúng bị bỏ (0.8.9 vòng 3 E1); không còn bị nhắc là chưa phủ. Vắng là rỗng. */
+  retired?: number[]
   /** Luồng chính mà prompt đính kèm cần nếu chạy thật (chỉ khi isReference). */
   referenceMain?: Choice
   /** Lý do router đưa ra. */

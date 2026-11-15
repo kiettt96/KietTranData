@@ -569,6 +569,8 @@ function normalizeBrief(raw: Brief): Brief {
     // Điều phối lại (0.8.9 D2): thứ tự làm và việc đã gỡ; trạng thái từ bản cũ không có hai trường này thì coi như chưa điều phối lại.
     ...(Array.isArray(brief.order) ? { order: brief.order.filter((n): n is number => typeof n === 'number') } : {}),
     ...(Array.isArray(brief.removed) ? { removed: brief.removed.filter(r => r !== null && typeof r === 'object' && typeof r.index === 'number' && typeof r.title === 'string') } : {}),
+    // 0.8.9 vòng 3 E1: yêu cầu đã rời kế hoạch theo việc bị bỏ; bản cũ không có trường này thì coi là rỗng.
+    ...(Array.isArray(brief.retired) ? { retired: brief.retired.filter((n): n is number => typeof n === 'number') } : {}),
     quality: brief.quality ?? [],
     depth: brief.depth ?? legacy.depth,
     volume: brief.volume ?? legacy.volume,

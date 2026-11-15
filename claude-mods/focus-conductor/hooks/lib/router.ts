@@ -597,7 +597,19 @@ export function uncoveredRequirements(brief: Brief): string[] {
   const requirements = brief.requirements ?? []
   if (requirements.length === 0 || !brief.tasks.some(t => (t.covers?.length ?? 0) > 0)) return []
   const covered = new Set(brief.tasks.flatMap(t => t.covers ?? []))
-  return requirements.filter((_, i) => !covered.has(i + 1))
+  // 0.8.9 vòng 3 E1: yêu cầu đã rời kế hoạch theo việc bị bỏ không còn là yêu cầu chưa phủ.
+  const retired = new Set(brief.retired ?? [])
+  return requirements.filter((_, i) => !covered.has(i + 1) && !retired.has(i + 1))
+}
+
+/** Bỏ khỏi retired các yêu cầu đã có việc phủ lại (0.8.9 vòng 3 E1); retired rỗng thì brief không còn trường này. */
+export function withRetiredPruned(brief: Brief): Brief {
+  if (brief.retired === undefined) return brief
+  const covered = new Set(brief.tasks.flatMap(t => t.covers ?? []))
+  const retired = brief.retired.filter(n => !covered.has(n))
+  if (retired.length === brief.retired.length) return brief
+  const { retired: _gone, ...rest } = brief
+  return retired.length > 0 ? { ...rest, retired } : rest
 }
 
 /** Mục phạm vi phải có dạng đường dẫn (có / hoặc phần mở rộng, không khoảng trắng), kẻo kiểm tra phạm vi báo sai. */
@@ -1751,6 +1763,9 @@ export function applyArrange(brief: Brief, arrange: Arrange, added: readonly Tas
     .filter(t => !gone.has(t.index))
     .map(t => (covers.has(t.index) ? { ...t, covers: [...new Set([...(t.covers ?? []), ...(covers.get(t.index) ?? [])])] } : t))
   const removed = [...(brief.removed ?? []), ...gone.values()].slice(-REMOVED_LIMIT)
+  // 0.8.9 vòng 3 E1: yêu cầu của việc bị bỏ mà sau khi áp không còn việc nào phủ thì rời kế hoạch. Việc bị gộp không sinh retired.
+  const stillCovered = new Set(tasks.flatMap(t => t.covers ?? []))
+  const retired = [...new Set([...(brief.retired ?? []), ...dropped.flatMap(index => (byIndex.get(index)?.covers ?? []).filter(n => !stillCovered.has(n)))])]
   return {
     brief: {
       ...brief,
@@ -1758,6 +1773,7 @@ export function applyArrange(brief: Brief, arrange: Arrange, added: readonly Tas
       steps: brief.steps.filter(title => !goneTitles.has(title)),
       ...(order !== undefined ? { order } : {}),
       ...(removed.length > 0 ? { removed } : {}),
+      ...(retired.length > 0 ? { retired } : {}),
     },
     arranged: { order: order ?? [], dropped, merged, skipped },
   }
@@ -1799,11 +1815,15 @@ export function openPhase(prev: Brief, done: ReadonlySet<number>): { brief: Brie
   const constraints = prev.constraints.filter((item, i) => i < base || isModelRule(item) || kept.length > 0)
   const constraintsBase = prev.constraints.slice(0, base).length
   const goneTitles = new Set(gone.map(t => t.title))
+  const retired = (prev.retired ?? []).flatMap(n => renumber.get(n) ?? [])
+  const { retired: _retired, ...rest } = prev
   const brief: Brief = {
-    ...prev,
+    ...rest,
     tasks: kept.map(t => (t.covers !== undefined ? { ...t, covers: t.covers.flatMap(n => renumber.get(n) ?? []) } : t)),
     steps: prev.steps.filter(title => !goneTitles.has(title)),
     ...(requirements.length > 0 ? { requirements: keptRequirements, requirementsBase } : {}),
+    // 0.8.9 vòng 3 E1: số trong retired đổi theo cùng bảng đánh số lại của yêu cầu.
+    ...(retired.length > 0 ? { retired } : {}),
     constraints,
     constraintsBase: Math.min(constraintsBase, constraints.length),
     phase: (prev.phase ?? 1) + 1,
@@ -1956,7 +1976,8 @@ function nextBriefRaw(
     const opened = openPhase(prev, options.doneTasks ?? new Set())
     const next = followUpOf(opened.brief, isLowNew ? { ...plan, relation: 'continue' } : plan, now, isLowNew, true)
     const phase: PhaseOpened = { number: opened.brief.phase ?? 2, tasks: opened.tasks, items: opened.items, added: next.added.length }
-    return { ...arranged(next.brief, next.added), added: next.added, dropped: next.dropped, isNewGoal: false, replaced: next.replaced, held, phase }
+    const out = arranged(next.brief, next.added)
+    return { ...out, brief: withRetiredPruned(out.brief), added: next.added, dropped: next.dropped, isNewGoal: false, replaced: next.replaced, held, phase }
   }
   if (prev === null || (plan.relation === 'new' && !held)) {
     const fresh = briefOf(plan, prompt, (prev?.goalId ?? 0) + 1, now)
@@ -1967,7 +1988,9 @@ function nextBriefRaw(
     return { brief, added: [], isNewGoal: true, replaced: [], held: false, dropped: 0 }
   }
   const next = followUpOf(prev, held ? { ...plan, relation: 'continue' } : plan, now, held)
-  return { ...next, ...arranged(next.brief, next.added), isNewGoal: false, replaced: replacedOf(prev, next.brief), held }
+  // 0.8.9 vòng 3 E1: việc mới phủ lại yêu cầu đã rời kế hoạch thì yêu cầu đó ra khỏi retired.
+  const out = arranged(next.brief, next.added)
+  return { ...next, ...out, brief: withRetiredPruned(out.brief), isNewGoal: false, replaced: replacedOf(prev, next.brief), held }
 }
 
 /**
