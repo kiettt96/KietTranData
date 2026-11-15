@@ -2370,4 +2370,8 @@ export const MUTANTS: Mutant[] = [
   { id: "089-E1f", file: "hooks/lib/router.ts", note: "openPhase không đổi số trong retired", old: "  const retired = (prev.retired ?? []).flatMap(n => renumber.get(n) ?? [])\n", new: "  const retired = [...(prev.retired ?? [])]\n" },
   { id: "089-E2a", file: "hooks/lib/router.ts", note: "covers không đi theo chuỗi gộp", old: "...(owner.covers ?? []), ...carried])", new: "...(owner.covers ?? [])])" },
   { id: "089-E2b", file: "hooks/lib/router.ts", note: "into không trỏ tới việc nhận cuối cùng", old: "      for (const [key, record] of gone) if (record.into === index) gone.set(key, { ...record, into })\n", new: "" },
+  { id: "089-E3a", file: "hooks/lib/router.ts", note: "tiêu đề việc bị gỡ vẫn nằm trong brief.steps", old: "      steps: brief.steps.filter(title => !goneTitles.has(title)),\n", new: "      steps: brief.steps,\n" },
+  { id: "089-E3b", file: "hooks/lib/router.ts", note: "thứ tự cũ còn số của việc đã gỡ", old: "    order = brief.order.filter(index => !gone.has(index))\n", new: "    order = [...brief.order]\n" },
+  { id: "089-E3c", file: "hooks/context.ts", note: "forgetDelegations không xóa khỏi danh sách chờ", old: "      d.pending.delete(index)\n", new: "" },
+  { id: "089-E3d", file: "hooks/lib/router.ts", note: "việc nhận gộp tự gỡ chính nó", old: "      if (index === into) continue\n", new: "" },
 ]
