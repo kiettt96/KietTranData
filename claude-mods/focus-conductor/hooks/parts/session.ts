@@ -19,13 +19,13 @@ import { EMPTY_QUOTA, blockingHits, evaluateQuota, isPauseActive, normalizeQuota
 import * as S from '../lib/state'
 import { statusTextOf } from '../ui/direction'
 import type { View } from '../lib/state'
-import { DISCIPLINE, asideContext, conductorContext, conductorKeepText, phaseNotice, briefContext, droppedGoalNotice, droppedItemsText, droppedPlanNotice, followUpContext, intentResumeContext, intentStatusContext, interjectContext, interjectMovedNote, quotaPausedContext, resetLabel, resumeCommand, nothingLeftContext, restorableLabel, restoreGoalOnlyContext, restoreResumeContext, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
+import { ARRANGED_CHARS, ARRANGED_INTERJECT_CHARS, DISCIPLINE, arrangedContext, asideContext, conductorContext, conductorKeepText, phaseNotice, briefContext, droppedGoalNotice, droppedItemsText, droppedPlanNotice, followUpContext, intentResumeContext, intentStatusContext, interjectContext, interjectMovedNote, quotaPausedContext, resetLabel, resumeCommand, nothingLeftContext, restorableLabel, restoreGoalOnlyContext, restoreResumeContext, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
 import { PERSON_ORIGINS, SLASH_COMMAND, newDelegation } from '../context'
 import { PANE_ROWS, shouldAutoOpenPane } from '../lib/pane'
-import { taskRows } from '../lib/progress'
+import { taskRows, taskStatusOf } from '../lib/progress'
 import { PANE, PANE_TITLE } from '../ui/pane'
 import { approvalDenial, approvedContext, askContext, needsApproval, planningContext } from '../lib/approval'
 
@@ -158,7 +158,7 @@ const GATED_TOOLS = /^(?:Edit|Write|MultiEdit|NotebookEdit|Bash|Agent)$/
 
 export function registerSession(on: On, ctx: Ctx): void {
   const L = ctx.local
-  const { decisionLog, flushDecisions, delegationItems, expectedMain, isRouterPaused, noteRouter, noteRouterTime, ranText, record, resetLocal, routerFallback, skipPhrases, trackDelegations, wantedPick } = ctx
+  const { decisionLog, flushDecisions, delegationItems, expectedMain, forgetDelegations, isRouterPaused, noteRouter, noteRouterTime, ranText, record, resetLocal, routerFallback, skipPhrases, trackDelegations, wantedPick } = ctx
   const view = derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))
   const mode = derive([modeState], modeOf(ctx.options))
 
@@ -364,17 +364,20 @@ export function registerSession(on: On, ctx: Ctx): void {
     const approvalStored = S.approvalOf(before)
     const isPresented = prev !== null && approvalStored.status === 'presented'
     const isAnswering = prev !== null && approvalStored.awaitingAnswer
-    let outcome: RouterOutcome<RouterPlan> = { result: null, reason: 'router đang tạm ngừng sau các lần lỗi liên tiếp', usages: [], retried: false, failure: 'paused', timeoutMs: null, maxTokens: null, outputTokens: null }
+    let outcome: RouterOutcome<RouterPlan> = { result: null, reason: 'router đang tạm ngừng sau các lần lỗi liên tiếp', usages: [], usageModels: [], retried: false, failure: 'paused', timeoutMs: null, maxTokens: null, outputTokens: null }
     let waitedMs = 0
     let pauseText: string | null = null
     let apiFamily: ModelFamily | null = null
+    let apiModel: string | null = null
     // Lượt đọc của đích router (0.8.7 L3): mọi model đọc trọn prompt tới sức chứa của lượt đó.
     const reading = ctx.routerReading(target)
     let promptRead: ReadPlan = requestPlan({ text, prev, ran: ranText(before), policy: rules, model: target.model, reading, ...(target.isFable ? { isFable: true } : {}) })
     if (!isPaused) {
+      // Trạng thái từng việc (0.8.9 D1): router thấy việc nào còn mở để điều phối lại.
+      const taskStates = taskStatusOf(before, await $.clock.now())
       const observed = L.observed.join('; ')
       L.observed = []
-      const args = { text, prev, ran: ranText(before), policy: rules, model: target.model, reading, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily, openSteps: openSteps(before.plan).map(s => s.title), ...(observed ? { observed } : {}), ...(isInterject ? { interject: { step: openSteps(before.plan)[0]?.title ?? '' } } : {}), ...(isPresented ? { awaiting: 'approval' as const } : isAnswering ? { awaiting: 'answer' as const } : {}) }
+      const args = { text, prev, ran: ranText(before), policy: rules, model: target.model, reading, taskStates, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily, openSteps: openSteps(before.plan).map(s => s.title), ...(observed ? { observed } : {}), ...(isInterject ? { interject: { step: openSteps(before.plan)[0]?.title ?? '' } } : {}), ...(isPresented ? { awaiting: 'approval' as const } : isAnswering ? { awaiting: 'answer' as const } : {}) }
       promptRead = requestPlan(args)
       // Lượt đọc trọn prompt dài (0.8.7 L3) có thể mất vài phút, nên chữ chờ nói rõ.
       $.ui.status(promptRead.isFull ? 'router đang đọc trọn prompt dài, có thể mất vài phút...' : 'router đang đọc prompt...')
@@ -385,6 +388,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       // Lượt đọc của Fable bị API từ chối (0.8.7 F1): cùng request trọn gửi họ dự phòng, với thời gian chờ và maxTokens theo thông số của họ đó.
       const backup = target.family === ctx.conductorFamily ? ctx.fallbackTarget(before, current, (await read($, headlessState)) === true) : null
       apiFamily = backup?.family ?? null
+      apiModel = backup?.model ?? null
       const apiFallback = backup !== null ? routerRequest({ ...args, model: backup.model, reading: ctx.routerReading(backup) }) : undefined
       const startedAt = await $.clock.now()
       outcome = await askRouter(r => $.model.complete(r), request, reply => parseRoute(reply, rules), needsCoverageRecheck, { retryMissingConfidence: true, ...(target.isFable ? { isFable: true } : {}), ...(fallback !== undefined ? { fallback } : {}), ...(full !== undefined ? { full } : {}), ...(apiFallback !== undefined ? { apiFallback } : {}) })
@@ -398,9 +402,9 @@ export function registerSession(on: On, ctx: Ctx): void {
       } else if (target.isFable) await noteFableRouter($, ctx, outcome.result !== null, target.family)
       else pauseText = noteRouter(outcome.result !== null)
     }
-    // Chi phí router (0.8.7 F1): lượt của họ dự phòng tính theo giá của họ đó.
-    const charge = (c: Core): Core =>
-      outcome.viaFallback === true && apiFamily !== null ? S.withAnalyzerUsage(outcome.usages.slice(1), apiFamily)(S.withAnalyzerUsage(outcome.usages.slice(0, 1), target.family)(c)) : S.withAnalyzerUsage(outcome.usages, target.family)(c)
+    // Chi phí router (0.8.7 F1; 0.8.9 U2): mỗi usage tính theo giá của họ model đã nhận lời gọi đó; lời gọi bị engine từ chối không có usage.
+    const familyOfCall = (model: string | undefined): ModelFamily => (apiFamily !== null && model !== undefined && model === apiModel ? apiFamily : target.family)
+    const charge = (c: Core): Core => outcome.usages.reduce((acc, usage, i) => S.withAnalyzerUsage([usage], familyOfCall(outcome.usageModels[i]))(acc), c)
     // Tiếp tục điểm dừng khi router xếp tiếp nối, hoặc khi người dùng vừa gõ /conductor resume (khi đó router xếp mục
     // tiêu mới thì vẫn giữ mục tiêu đã khôi phục).
     // Tin hỏi tiến độ (0.8.2 N1) không tiếp tục điểm dừng: chỉ báo cáo.
@@ -469,7 +473,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       if (!isInterject) L.promptIntent = { relation: 'continue', kind: 'answer' }
       await update($, coreState, c => S.withRouterFail(null)(charge(c)))
       L.lastPrompt = { text, prev, goalId: prev.goalId }
-      record(now, 'route', { prompt: clipText(text), relation: plan.relation, intent, confidence: plan.confidence, retried: outcome.retried, goalId: prev.goalId })
+      record(now, 'route', { prompt: clipText(text), relation: plan.relation, intent, confidence: plan.confidence, retried: outcome.retried, ...(outcome.firstFail !== undefined ? { firstFail: outcome.firstFail } : {}), goalId: prev.goalId })
       await flushDecisions((path, text) => $.fs.write(path, text))
       await showStatus($, await read($, view), ctx.options)
       return next({ ...e, context: [...lead, ...(e.context ?? []), intentStatusContext(isInterject), ...tail] })
@@ -480,7 +484,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       if (!isInterject) L.promptIntent = { relation: 'continue', kind: 'answer' }
       await update($, coreState, c => S.withRouterFail(null)(charge(c)))
       L.lastPrompt = { text, prev, goalId: prev.goalId }
-      record(now, 'route', { prompt: clipText(text), relation: plan.relation, intent: 'aside', confidence: plan.confidence, retried: outcome.retried, goalId: prev.goalId })
+      record(now, 'route', { prompt: clipText(text), relation: plan.relation, intent: 'aside', confidence: plan.confidence, retried: outcome.retried, ...(outcome.firstFail !== undefined ? { firstFail: outcome.firstFail } : {}), goalId: prev.goalId })
       await flushDecisions((path, text) => $.fs.write(path, text))
       await showStatus($, await read($, view), ctx.options)
       return next({ ...e, context: [...lead, ...(e.context ?? []), asideContext(isInterject, openSteps(before.plan)[0]), ...tail] })
@@ -541,7 +545,10 @@ export function registerSession(on: On, ctx: Ctx): void {
     // Việc đã xong theo checklist hiện tại (0.8.0 A3): có bước riêng và các bước đó đã đóng hết; được cất khi prompt này mở đợt mới. Việc chưa
     // có bước riêng không tính là xong chỉ vì checklist đóng hết (checklist đó có thể là của đợt trước).
     const doneTasks = new Set(taskRows(before, now).filter(row => row.index !== undefined && row.kind !== 'main' && row.state === 'done' && row.bar.kind === 'steps').map(row => row.index as number))
-    const { brief, added, isNewGoal, replaced, held, dropped, phase } = nextBrief(prev, plan, text, now, { openSteps: openSteps(before.plan).map(s => s.title), sessionFamily: L.sessionFamily, doneTasks, isPending: S.pendingOf(before) })
+    const states = taskStatusOf(before, now)
+    const { brief, added: routedAdded, isNewGoal, replaced, held, dropped, phase, arranged } = nextBrief(prev, plan, text, now, { openSteps: openSteps(before.plan).map(s => s.title), sessionFamily: L.sessionFamily, doneTasks, isPending: S.pendingOf(before), states, checklist: before.plan })
+    // Việc mới mà chính lần điều phối lại đã gỡ (0.8.9 D2) không còn là việc mới.
+    const added = routedAdded.filter(t => brief.tasks.some(kept => kept.index === t.index))
     // Router xếp mục tiêu mới với tin cậy thấp khi checklist còn bước mở (0.7.5): giữ mục tiêu, ghi nhật ký quyết định.
     if (held && prev !== null) {
       L.promptIntent = { relation: 'continue', kind: plan.kind }
@@ -597,6 +604,11 @@ export function registerSession(on: On, ctx: Ctx): void {
     const expected = wanted !== null && isNewGoal ? expectedMain(core, brief, wanted, now) : wanted
     if (isNewGoal) trackDelegations(brief.goalId, brief.isReference ? [] : brief.tasks)
     else if (!brief.isReference) trackDelegations(brief.goalId, added, true)
+    // Điều phối lại (0.8.9 D2): việc đã gỡ rời danh sách chờ giao và danh sách việc lỗi; nhật ký ghi thứ tự, việc bỏ, việc gộp, mục bỏ qua.
+    if (arranged !== undefined) {
+      forgetDelegations(brief.goalId, [...arranged.dropped, ...arranged.merged.flatMap(m => m.tasks)])
+      record(now, 'rearrange', { goalId: brief.goalId, order: arranged.order, dropped: arranged.dropped, merged: arranged.merged, skipped: arranged.skipped })
+    }
     await update($, coreState, S.withDelegations(brief.goalId, delegationItems(brief)))
     const newConstraints = plan.constraints.filter(c => !prev?.constraints.includes(c))
     // Luồng chính đang chạy (0.7.8 G9): route đã chốt ở step đầu của turn đó; turn không có route thì là model của phiên.
@@ -631,16 +643,20 @@ export function registerSession(on: On, ctx: Ctx): void {
       if (approval.status !== approvalBefore.status || isNewGoal) record(now, 'approval', { goalId: brief.goalId, status: approval.status, cause: isNewGoal ? 'goal' : intent })
     }
     const approvalNotes = isAsking ? [askContext(plan.questions ?? [])] : approval.status === 'planning' ? [planningContext()] : []
+    // Kế hoạch sau điều chỉnh (0.8.9 D3): chỉ khi prompt có điều phối lại (gỡ việc hay có thứ tự làm mới); thứ tự là của các việc còn mở.
+    const isArranged = arranged !== undefined && (arranged.dropped.length > 0 || arranged.merged.length > 0 || arranged.order.length > 0)
+    const workOrder = arranged !== undefined && arranged.order.length > 0 ? arranged.order : brief.tasks.filter(t => states[t.index] !== 'done').map(t => t.index)
+    const arrangedFor = (max: number) => (isArranged && arranged !== undefined ? arrangedContext(brief, arranged, workOrder, max) : '')
     const isApproved = !isNewGoal && isPresented && approval.status === 'approved'
     const context = isApproved
       ? approvedContext(core.plan)
       : intent === 'resume' && !isNewGoal
       ? isResumeMsg && S.isNothingLeft(before) ? nothingLeftContext() : intentResumeContext(core.plan)
       : isInterject && !isNewGoal
-      ? interjectContext(brief, core.plan, shownAdded, newConstraints, { main: running !== null ? describePick(running) : 'model đang chạy', mayReplace: routed?.relation === 'new', isRouted: true })
+      ? interjectContext(brief, core.plan, shownAdded, newConstraints, { main: running !== null ? describePick(running) : 'model đang chạy', mayReplace: routed?.relation === 'new', isRouted: true, ...(isArranged ? { arranged: arrangedFor(ARRANGED_INTERJECT_CHARS) } : {}) })
       : isNewGoal
         ? briefContext(shownBrief, expected, isApplied)
-        : followUpContext(brief, core.plan, newConstraints, shownAdded, expected, isApplied)
+        : followUpContext(brief, core.plan, newConstraints, shownAdded, expected, isApplied, arrangedFor(ARRANGED_CHARS))
     if (isInterject && !isNewGoal) {
       L.pendingInterject = lift.length > 0 ? { goalId: brief.goalId, lift: lift.map(t => ({ index: t.index, family: t.pick.family, effort: t.pick.effort })) } : null
       record(now, 'interject', { relation: routed?.relation ?? plan.relation, tasks: added.length, constraints: newConstraints.length, toAgent: 0, liftable: lift.length })
@@ -657,6 +673,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       intent,
       confidence: plan.confidence,
       retried: outcome.retried,
+      ...(outcome.firstFail !== undefined ? { firstFail: outcome.firstFail } : {}),
       main: brief.main,
       expected,
       notes: plan.notes,

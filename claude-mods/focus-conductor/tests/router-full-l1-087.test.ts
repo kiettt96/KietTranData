@@ -50,12 +50,12 @@ describe('0.8.7 L3: mọi model router đọc trọn prompt vừa sức chứa',
     const f = routerRequest({ text: LONG, prev: null, ran: null, policy: COND, model: 'claude-fable-5-2', isFable: true })
     const s = routerRequest({ text: LONG, prev: null, ran: null, policy: OPEN, model: 'sonnet' })
     expect([f.maxTokens, s.maxTokens]).toEqual([fullMaxTokens(READ_PARAMS.fable), fullMaxTokens(READ_PARAMS.sonnet)])
-    expect([f.maxTokens, s.maxTokens]).toEqual([128_000, 16_000])
+    expect([f.maxTokens, s.maxTokens]).toEqual([64_000, 16_000])
     expect(f.timeoutMs).toBe(readPlan({ family: 'fable', window: 1_000_000, maxWaitMs: ROUTER_MAX_WAIT_MS }, LONG.length, 0).timeoutMs)
   })
 
   test('trần lượt hỏi lại của Fable đọc trọn: 1,5 lần 128.000 kẹp về mức engine báo 128.000', () => {
-    expect(fullRetryTokens(fullMaxTokens(READ_PARAMS.fable), READ_PARAMS.fable)).toBe(128_000)
+    expect(fullRetryTokens(fullMaxTokens(READ_PARAMS.fable), READ_PARAMS.fable)).toBe(64_000)
   })
 
   test('router haiku và opus (chưa đo), prompt 100.000 ký tự: gửi trọn; thông số thận trọng hơn giữa Fable và sonnet', () => {
@@ -194,7 +194,7 @@ describe('0.8.7 L3: lượt dự phòng và lượt hỏi lại', () => {
     await askRouter(truncatedAsk as never, request, text => parseRoute(text, COND), undefined, { now: () => 0, isFable: true, full: { tokenCap } })
     expect(sent.length).toBe(2)
     expect(sent[1]?.maxTokens).toBe(tokenCap)
-    expect(tokenCap).toBe(128_000)
+    expect(tokenCap).toBe(64_000)
     const low = JSON.stringify({ ...plan({ goal: 'Sửa luồng thanh toán' }), confidence: 0.2 })
     const lowSent: ModelCompleteRequest[] = []
     const lowAsk = async (r: ModelCompleteRequest) => {

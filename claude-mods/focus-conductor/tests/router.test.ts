@@ -395,7 +395,7 @@ describe('0.5.0: hỏi lại router một lần', () => {
     }
     const refused = await askRouter(rejecting, request, parse)
     expect(refused.result).toBeNull()
-    expect(refused.reason).toBe('engine từ chối gửi request tới model router')
+    expect(refused.reason).toBe('engine từ chối gửi request tới model router: engine từ chối')
     expect(refused.usages).toEqual([])
     expect(refused.retried).toBe(false)
     // Lần một tin cậy thấp, lần hai ném lỗi: giữ lần một, đã hỏi lại, chỉ tính usage của lần một.

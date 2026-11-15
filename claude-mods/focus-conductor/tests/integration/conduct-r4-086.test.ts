@@ -27,8 +27,11 @@ const delegated = (text: string) => text.split('\n').filter(line => /^\s+\d+\. /
 
 const hex = (bytes: ArrayBuffer): string => [...new Uint8Array(bytes)].map(byte => byte.toString(16).padStart(2, '0')).join('')
 const sha = async (text: string) => hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))
-/** SHA-256 của request router cho tin bổ sung trong chuỗi hiện tượng, đo trên 473bc75 (0.8.5) bằng engine 2.1.296. */
-const FOLLOW_REQUEST_SHA = 'e98a37c262d2eae661d82e8c1053275d98d72a172420a6ec119a205e5afba543'
+/**
+ * SHA-256 của request router cho tin bổ sung trong chuỗi hiện tượng, đo trên 473bc75 (0.8.5) bằng engine 2.1.296. 0.8.9 D1: việc của mục tiêu
+ * trước mang trạng thái nên request đổi; băm cũ là e98a37c2….
+ */
+const FOLLOW_REQUEST_SHA = 'f1c8a8cc8974ae8edffe50aa74b4d3d0fa875274d2bacdd40c7f2cf90e945472'
 
 function setup(on: On, first: Json, second: Json): Seen {
   let n = 0

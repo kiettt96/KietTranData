@@ -4,6 +4,7 @@
 import { mock } from 'claude-code/testing'
 import type { On, TurnStepInput } from 'claude-code'
 import type { Engine, MockClock } from 'claude-code/testing'
+import { FAMILY_TABLE } from '../../hooks/lib/families'
 
 export const BIG_USAGE = { input_tokens: 100_000, output_tokens: 50_000, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
 export const ROUTER_USAGE = { input_tokens: 1000, output_tokens: 500, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
@@ -115,6 +116,10 @@ export type Seen = {
   routerCalls: Array<{ kind: 'prompt' | 'agent' | 'drift' | 'review'; model: string; effort?: string; timeoutMs?: number }>
   /** Trường system của từng lượt router đọc prompt (0.8.7 G1), theo thứ tự gọi. */
   routerSystems: string[]
+  /** Mọi request model.complete mà engine giả nhận, kể cả request bị từ chối (0.8.9 U1): loại, model, maxTokens, timeoutMs. */
+  requests: Array<{ kind: 'prompt' | 'agent' | 'drift' | 'review'; model: string; maxTokens?: number; timeoutMs?: number; prompt: string }>
+  /** Thông điệp của các lần engine giả từ chối gửi request (0.8.9 U1), theo thứ tự. */
+  refusals: string[]
   /** Dòng trạng thái mod đặt qua $.ui.status (undefined là xóa dòng). */
   statuses: Array<string | undefined>
   /** Các lần mod gọi $.ui.open (id, tiêu đề, số dòng, focus) và các pane đang mở theo "engine" giả (0.7.2). */
@@ -123,6 +128,24 @@ export type Seen = {
   /** Đồng hồ giả: chỉ chạy khi test gọi advance hay set. */
   clock: MockClock
 }
+
+/** Trần token ra của một lời gọi model từ hook [Đo trực tiếp, engine 2.1.296 và 2.1.325, 14/11/2026]: như nhau ở mọi họ model. */
+export const ENGINE_HOOK_MAX_TOKENS = 64_000
+
+/** ID engine dùng trong câu lỗi: alias họ model thành ID ghim, ID khác giữ nguyên. */
+const servedId = (model: string): string => (model in FAMILY_TABLE ? FAMILY_TABLE[model as keyof typeof FAMILY_TABLE].pinnedId : model)
+const isPositiveInteger = (value: unknown): boolean => typeof value === 'number' && Number.isInteger(value) && value > 0
+
+/** Lý do engine thật từ chối request trước khi gửi (0.8.9 U1): maxTokens, timeoutMs sai dạng, hay maxTokens quá trần; null là nhận. */
+export function engineRefusal(e: { model: string; maxTokens?: unknown; timeoutMs?: unknown }): string | null {
+  if (e.maxTokens !== undefined && !isPositiveInteger(e.maxTokens)) return `maxTokens must be a positive integer (got ${String(e.maxTokens)})`
+  if (e.timeoutMs !== undefined && !isPositiveInteger(e.timeoutMs)) return `timeoutMs must be a positive integer of milliseconds (got ${String(e.timeoutMs)})`
+  if (typeof e.maxTokens === 'number' && e.maxTokens > ENGINE_HOOK_MAX_TOKENS) return `maxTokens ${e.maxTokens} is past what ${servedId(e.model)} can produce in one reply (${ENGINE_HOOK_MAX_TOKENS})`
+  return null
+}
+
+/** Câu engine thật từ chối model ngoài danh sách tổ chức cho phép (0.8.9 U2) [Nguồn: mã engine 2.1.323, phiên rà soát 14/11/2026]. */
+export const allowlistRefusal = (model: string): string => `model "${servedId(model)}" is not in this organization's allowlist`
 
 /**
  * Hook nền mà mọi test cần (đăng ký trước lần gọi $ đầu tiên): đồng hồ, prompt, step của
@@ -142,10 +165,12 @@ export function base(
     paneUnplaced?: string
     /** $.ui.panes() luôn trả rỗng: mô phỏng pane đã bị đóng trước mỗi prompt (kit không phát được ui.close). */
     panesClosed?: boolean
+    /** Engine từ chối thêm (0.8.9 U2, U3): trả thông điệp thì request bị ném lỗi với thông điệp đó, như engine thật; null là nhận. */
+    refuse?: (call: { kind: 'prompt' | 'agent' | 'drift' | 'review'; model: string; maxTokens?: number; prompt: string }) => string | null
   } = {},
 ): Seen {
   const clock = mock.clock(on, { now: 1000 })
-  const seen: Seen = { contexts: [], steps: [], toasts: [], routed: [], agentRouted: [], routerModels: [], drift: [], routerCalls: [], routerSystems: [], statuses: [], opened: [], panes: [], clock }
+  const seen: Seen = { contexts: [], steps: [], toasts: [], routed: [], agentRouted: [], routerModels: [], drift: [], routerCalls: [], routerSystems: [], requests: [], refusals: [], statuses: [], opened: [], panes: [], clock }
   on('prompt.submit', ($, e) => {
     seen.contexts.push([...(e.context ?? [])])
     return { text: e.text, context: e.context }
@@ -155,6 +180,13 @@ export function base(
     const isAgent = (e.system ?? '').includes('about to start a subagent')
     const kind = (e.system ?? '').includes('still working toward') ? 'drift' : isAgent ? 'agent' : e.prompt.startsWith('Requirements:') || e.prompt.includes('<request>\nRequirements:') ? 'review' : 'prompt'
     if (kind === 'prompt') seen.routerSystems.push(typeof e.system === 'string' ? e.system : JSON.stringify(e.system ?? ''))
+    seen.requests.push({ kind, model: e.model, ...(e.maxTokens !== undefined ? { maxTokens: e.maxTokens } : {}), ...(e.timeoutMs !== undefined ? { timeoutMs: e.timeoutMs } : {}), prompt: e.prompt })
+    // Engine từ chối trước khi gửi request (0.8.9 U1), cùng câu của engine thật [Đo trực tiếp, 2.1.296 và 2.1.325, VERIFICATION mục 0.8.9].
+    const refusal = engineRefusal(e) ?? engine.refuse?.({ kind, model: e.model, ...(e.maxTokens !== undefined ? { maxTokens: e.maxTokens } : {}), prompt: e.prompt }) ?? null
+    if (refusal !== null) {
+      seen.refusals.push(refusal)
+      throw new Error(`focus-conductor: $.model.complete: ${refusal}`)
+    }
     seen.routerCalls.push({ kind, model: e.model, ...(e.effort !== undefined ? { effort: String(e.effort) } : {}), ...(e.timeoutMs !== undefined ? { timeoutMs: e.timeoutMs } : {}) })
     if ((e.system ?? '').includes('still working toward')) {
       seen.drift.push(e.prompt)

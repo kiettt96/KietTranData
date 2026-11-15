@@ -111,11 +111,11 @@ describe('0.8.7 L2: yêu cầu chưa được phủ', () => {
 describe('0.8.7 L2: danh sách việc cũ gửi router', () => {
   const brief = (n: number) => makeBrief({ tasks: Array.from({ length: n }, (_, i) => ({ index: i + 1, title: `Việc giả ${i + 1}`, run: 'main', pick: { family: 'sonnet', effort: 'medium' } }) as never) })
 
-  test('mục tiêu 100 việc: request tiếp nối gửi 20 việc và một dòng tổng số 100', () => {
+  test('mục tiêu 100 việc chưa xong: request tiếp nối gửi đủ 100 việc kèm trạng thái, không có dòng tổng (0.8.9 D1)', () => {
     const prompt = String(routerRequest({ text: 'làm tiếp', prev: brief(100), ran: null, policy: OPEN, model: 'sonnet' }).prompt)
     expect(prompt).toContain('  20. Việc giả 20')
-    expect(prompt).not.toContain('  21. Việc giả 21')
-    expect(prompt).toContain('100 tasks in total')
+    expect(prompt).toContain('  100. Việc giả 100 (main sonnet/medium) [not started]')
+    expect(prompt).not.toContain('tasks in total')
   })
 
   test('mục tiêu 60 yêu cầu: request tiếp nối nêu yêu cầu 31 tới 50 và một dòng số yêu cầu còn lại', () => {
@@ -126,9 +126,10 @@ describe('0.8.7 L2: danh sách việc cũ gửi router', () => {
     expect(prompt).toContain('(10 more requirements)')
   })
 
-  test('mục tiêu 12 việc: trường prompt trùng 0.8.6', async () => {
+  test('mục tiêu 12 việc chưa xong: trường prompt trùng 0.8.6 khi bỏ nhãn trạng thái của từng việc (0.8.9 D1)', async () => {
     const prompt = String(routerRequest({ text: 'làm tiếp', prev: brief(12), ran: null, policy: OPEN, model: 'sonnet' }).prompt)
-    expect(await sha(prompt)).toBe(FOLLOW12_PROMPT_SHA)
+    expect(prompt.split(' [not started]').length - 1).toBe(12)
+    expect(await sha(prompt.replaceAll(' [not started]', ''))).toBe(FOLLOW12_PROMPT_SHA)
   })
 
   test('chấm subagent khi mục tiêu 100 việc: 20 việc và một dòng tổng số', () => {

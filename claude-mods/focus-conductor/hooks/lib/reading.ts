@@ -20,6 +20,12 @@ export const ROUTER_MAX_WAIT_MAX_MS = 1_800_000
 export const FALLBACK_TIMEOUT_MS = 120_000
 /** maxTokens của lượt đọc trọn không thấp hơn bấy nhiêu (bằng maxTokens của prompt dài trước 0.8.7). */
 export const FULL_MIN_TOKENS = 16_000
+/**
+ * Trần token ra của một lời gọi model từ hook (0.8.9 U1): engine ném lỗi trước khi gửi request khi maxTokens vượt số này, ở cả bốn họ model
+ * [Đo trực tiếp, 14/11/2026, engine 2.1.296 và 2.1.325, mod thử gọi $.model.complete với maxTokens 64.000, 64.001 và 128.000; VERIFICATION
+ * mục 0.8.9]. Phần suy nghĩ và câu trả lời chia nhau trần này. Mức engineMaxOut của bảng họ model là mức `claude -p` báo, cao hơn trần này.
+ */
+export const HOOK_MAX_TOKENS = 64_000
 
 /**
  * Thông số đọc của một họ model: số ký tự trên một token vào (nhỏ nhất qua các lượt đo), số giây trên một ký tự (lớn nhất qua các lượt
@@ -31,7 +37,8 @@ export type ReadParams = { charsPerToken: number; secPerChar: number; maxOut: nu
  * Số đo thật [Đo trực tiếp, 13/11/2026, engine 2.1.323, `claude -p`, effort medium, chạy một mình; bảng từng lượt ở VERIFICATION, mục
  * 0.8.7]. Ký tự trên token: nhỏ nhất qua các lượt, làm tròn xuống 4 chữ số. Giây trên ký tự: lớn nhất qua các lượt, làm tròn lên. Fable:
  * 7 lượt, chậm nhất 615,6 s cho 240.000 ký tự (prompt lặp mẫu), token ra lớn nhất 91.084. Sonnet: 11 lượt, chậm nhất 35,8 s cho 240.000
- * ký tự (prompt nhiều đề mục), token ra lớn nhất 6.243. Mức token ra tối đa engine báo (`modelUsage.maxOutputTokens`) là 128.000 cho cả hai.
+ * ký tự (prompt nhiều đề mục), token ra lớn nhất 6.243. Mức token ra tối đa `claude -p` báo (`modelUsage.maxOutputTokens`) là 128.000 cho cả hai;
+ * lời gọi từ hook bị kẹp ở HOOK_MAX_TOKENS (0.8.9 U1).
  * Từ 0.8.7 G1 các số này nằm trong bảng họ model (hooks/lib/families.ts); READ_PARAMS là các họ đã đo.
  */
 export const READ_PARAMS: Readonly<Record<ModelFamily, ReadParams>> = Object.fromEntries(
@@ -78,14 +85,17 @@ export type ReadPlan = {
 
 const roundUp = (value: number, step: number) => Math.ceil(value / step) * step
 
-/** maxTokens của lượt đọc trọn: 1,5 lần token ra lớn nhất đo được, làm tròn lên bội số 5.000, trong khoảng FULL_MIN_TOKENS tới mức engine báo. */
+/** Trần maxTokens của một họ khi gọi từ hook (0.8.9 U1): số nhỏ hơn giữa mức engine báo và HOOK_MAX_TOKENS. */
+const tokenCeiling = (params: ReadParams) => Math.min(params.engineMaxOut, HOOK_MAX_TOKENS)
+
+/** maxTokens của lượt đọc trọn: 1,5 lần token ra lớn nhất đo được, làm tròn lên bội số 5.000, trong khoảng FULL_MIN_TOKENS tới trần của hook. */
 export function fullMaxTokens(params: ReadParams): number {
-  return Math.min(params.engineMaxOut, Math.max(FULL_MIN_TOKENS, roundUp(params.maxOut * 1.5, 5_000)))
+  return Math.min(tokenCeiling(params), Math.max(FULL_MIN_TOKENS, roundUp(params.maxOut * 1.5, 5_000)))
 }
 
-/** Trần maxTokens của lượt hỏi lại vì câu trả lời của lượt đọc trọn bị cắt: 1,5 lần maxTokens của lượt đó, không cao hơn mức engine báo. */
+/** Trần maxTokens của lượt hỏi lại vì câu trả lời của lượt đọc trọn bị cắt: 1,5 lần maxTokens của lượt đó, không cao hơn trần của hook. */
 export function fullRetryTokens(maxTokens: number, params: ReadParams): number {
-  return Math.min(params.engineMaxOut, Math.round(maxTokens * 1.5))
+  return Math.min(tokenCeiling(params), Math.round(maxTokens * 1.5))
 }
 
 /** Kế hoạch đọc prompt dài `textLength` ký tự; `fixedChars` là số ký tự của lời dặn và các dòng ngữ cảnh của request. */

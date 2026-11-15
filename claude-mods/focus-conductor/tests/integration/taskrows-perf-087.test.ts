@@ -32,11 +32,13 @@ const sha = async (text: string) => hex(await crypto.subtle.digest('SHA-256', ne
  * sha256 của chữ band và pane. 0.8.7: đo trên 45b5161 (f10de6b9...). 0.8.8 đổi bố cục band (N2, ba ô) và pane (N4, tiêu đề tô đặc, dải bước,
  * thanh hạn mức và chi phí; N6 đổi cấu trúc gốc của band và chữ trên nền ô) nên đo lại trên mã sau N6g, cùng kịch bản, neon off; ca này từ nay
  * ghim kết quả của bố cục 0.8.8 (tên ca đổi ở N6g cho đúng nội dung).
+ * 0.8.9 D3: tiêu đề mục tiến độ từng việc ghi tổng kết ("2/12 xong · 1 đang chạy · 9 chưa làm") thay cho số dòng; ngoài ba dòng tiêu đề đó,
+ * chữ trùng bố cục 0.8.8 (đối chiếu từng dòng với 7682ef7). Băm của 0.8.8 là 1cda50c8….
  */
-const BASE_SHA = '1cda50c815b4dbf80bcc1ae7db085c165a17cc27467eee705b15c487a3b94eab'
+const BASE_SHA = 'ee58f1d9add210a410aa3d505557d312f778fde1dd1ec306e4a63d1fae9533dc'
 
 describe('0.8.7: taskRows tính một lần cho mọi việc', () => {
-  test('mục tiêu 12 việc, checklist có bước "Việc N", bước doing và bước đã xong: chữ band và pane trùng bản ghi của bố cục 0.8.8', { options: { planApproval: 'off', neon: 'off' } }, async ($, on) => {
+  test('mục tiêu 12 việc, checklist có bước "Việc N", bước doing và bước đã xong: chữ band và pane trùng bản ghi của bố cục 0.8.8, trừ tiêu đề mục tiến độ (0.8.9 D3)', { options: { planApproval: 'off', neon: 'off' } }, async ($, on) => {
     const seen = base(on, { router: () => plan({ goal: GOAL, depth: 'substantial', volume: 'large', kind: 'edit', tasks: TASKS }) })
     await submit($, GOAL)
     await $.tool.call({ tool: PLAN, action: 'set', steps: STEPS.map(title => ({ title })) } as never)

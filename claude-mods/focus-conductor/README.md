@@ -11,7 +11,7 @@ Mod làm ba việc, mỗi việc ứng với một nhóm hook:
 2. **Điều phối lúc chạy.** Luồng chính chốt model và effort ở step đầu của mỗi turn; đổi model giữa các turn được tính theo chi phí ghi lại cache; subagent đã phân dùng đúng lựa chọn của router, subagent khác được router chấm khi giao.
 3. **Giữ nhất quán.** Checklist qua tool plan, chặn kết thúc khi checklist còn bước mở, theo dõi lặp lệnh lỗi, lạc đề và ghi file ngoài phạm vi, và đối chiếu evidence của bước `verified` với dấu vết thực thi thật.
 
-Router lỗi thì mod không đoán thay: prompt đó chạy theo model của phiên. Code của mod chỉ kiểm, ép theo chính sách và quay về an toàn. Mô tả từng cơ chế: [docs/DESIGN.md](docs/DESIGN.md).
+Router lỗi thì mod không đoán thay: prompt đó chạy theo model của phiên. Từ 0.8.9, khi engine từ chối gửi request tới router, cảnh báo ghi kèm nguyên văn lý do của engine (tối đa 160 ký tự), và router thử request dự phòng trước khi báo lỗi. Code của mod chỉ kiểm, ép theo chính sách và quay về an toàn. Mô tả từng cơ chế: [docs/DESIGN.md](docs/DESIGN.md).
 
 **Tài liệu khác:** [CHANGELOG.md](CHANGELOG.md) (lịch sử thay đổi theo bản), [docs/VERIFICATION.md](docs/VERIFICATION.md) (số đo kiểm chứng của HEAD hiện tại), [docs/DESIGN.md](docs/DESIGN.md) (cách hoạt động chi tiết và hợp đồng đối chiếu evidence của `verified`).
 
@@ -227,6 +227,19 @@ Pane là một danh sách bước: bước khớp một việc (theo mã "BƯỚ
 
 ◐ đang làm  ○ chờ
 ```
+
+Khi anh gửi yêu cầu điều chỉnh giữa chừng, router đọc lại mọi việc còn mở kèm trạng thái và điều phối lại: thêm việc mới, gộp việc trùng, bỏ việc không còn cần, sắp lại thứ tự làm. Mod chỉ bỏ hay gộp việc chưa bắt đầu hoặc đã lỗi mà chưa giao lại; việc đang chạy và việc đã xong giữ nguyên, số của việc cũ không đổi. Luồng chính nhận kế hoạch sau điều chỉnh (thứ tự làm, việc đã bỏ, việc đã gộp) kèm lời dặn cập nhật checklist; `/conductor status` liệt kê việc đã gỡ kèm lý do. Mục "Tiến độ từng việc" xếp việc đang chạy và việc lỗi lên đầu, rồi việc chưa làm theo thứ tự làm, việc đã xong gộp một dòng khi nhiều hơn năm việc (rút gọn):
+
+```
+ Tiến độ từng việc  ───────────── 12/42 xong · 3 đang chạy · 26 chưa làm · 1 lỗi
+◐╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌ Việc 13: Việc giao 13 sonnet medium 0 tool · <1 phút đang chạy
+■╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌ Việc 16: Việc giao 16 sonnet medium 0 tool · <1 phút lỗi, chưa giao lại
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌ Việc 42: Việc giao 42 sonnet medium chờ giao
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌ Việc 41: Việc giao 41 sonnet medium chờ giao
+12 việc đã xong: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
+```
+
+Ràng buộc của mục tiêu không còn trần (0.8.9), nên cảnh báo "ràng buộc và yêu cầu của mục tiêu đã đầy" không còn xuất hiện với mục tiêu mới; context và pane nêu tối đa 22 ràng buộc (các mục của prompt đầu và các mục mới nhất) kèm số mục còn lại.
 
 Status line dạng "4/11 · BƯỚC 4 · opus" (số bước, mã bước hiện tại hay 24 ký tự đầu của tiêu đề, họ model), kèm nhãn hạn mức và lệnh chạy tiếp khi đang dừng. Chi phí ghi theo dấu thập phân của ngôn ngữ ("$1,81", "<$0,01"); "~" là ước tính. Từ 0.7.5, việc giao thành nhiều lô đếm theo bộ đếm riêng của việc, nên hàng trăm lô vẫn đếm đúng. Lời gọi Agent khớp việc đã phân theo số thứ tự ("Việc N: ...") hoặc, khi prompt đánh mã bước, theo đúng mã đó ("BƯỚC 7: lọc tin lô 3" khớp việc "BƯỚC 7").
 

@@ -7,7 +7,11 @@ import type { ModelFamily } from '../../types'
 
 export type FamilyPrice = { input: number; output: number; cacheRead: number }
 
-/** Thông số đọc của một họ (0.8.7 L3): ký tự trên token, giây trên ký tự, token ra lớn nhất đo được, mức token ra tối đa engine báo. */
+/**
+ * Thông số đọc của một họ (0.8.7 L3): ký tự trên token, giây trên ký tự, token ra lớn nhất đo được, và engineMaxOut là mức token ra tối đa
+ * `claude -p` báo cho model (`modelUsage.maxOutputTokens`). engineMaxOut không phải trần của lời gọi từ hook: hook bị kẹp ở HOOK_MAX_TOKENS
+ * (hooks/lib/reading.ts, 0.8.9 U1).
+ */
 export type FamilyRead = { charsPerToken: number; secPerChar: number; maxOut: number; engineMaxOut: number }
 
 /** Thời gian chờ của năm loại request router khi họ này làm vai điều phối (ms). */
