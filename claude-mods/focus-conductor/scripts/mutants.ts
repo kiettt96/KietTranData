@@ -2351,7 +2351,7 @@ export const MUTANTS: Mutant[] = [
   { id: "089-D2b", file: "hooks/lib/router.ts", note: "đánh số lại việc", old: "    .filter(t => !gone.has(t.index))\n    .map(t => (covers.has", new: "    .filter(t => !gone.has(t.index))\n    .map((t, i) => ({ ...t, index: i + 1 }))\n    .map(t => (covers.has" },
   { id: "089-D2c", file: "hooks/lib/router.ts", note: "việc không có trong order bị gỡ khỏi thứ tự làm", old: "    order = [...listed, ...open.filter(index => !listed.includes(index)).sort((a, b) => a - b)]\n", new: "    order = [...listed]\n" },
   { id: "089-D2d", file: "hooks/parts/session.ts", note: "việc đã bỏ vẫn nằm trong danh sách chờ giao và danh sách lỗi", old: "      forgetDelegations(brief.goalId, [...arranged.dropped, ...arranged.merged.flatMap(m => m.tasks)])\n", new: "" },
-  { id: "089-D2e", file: "hooks/lib/router.ts", note: "gộp không nhập covers", old: "      covers.set(into, [...(covers.get(into) ?? []), ...(owner.covers ?? [])])\n", new: "" },
+  { id: "089-D2e", file: "hooks/lib/router.ts", note: "gộp không nhập covers", old: "      covers.set(into, [...(covers.get(into) ?? []), ...(owner.covers ?? []), ...carried])\n", new: "" },
   { id: "089-D2f", file: "hooks/parts/session.ts", note: "không ghi dòng rearrange", old: "      record(now, 'rearrange', { goalId: brief.goalId, order: arranged.order, dropped: arranged.dropped, merged: arranged.merged, skipped: arranged.skipped })\n", new: "" },
   { id: "089-D2g", file: "hooks/lib/router.ts", note: "order có số trùng làm việc xuất hiện hai lần", old: "      if (index === null || listed.includes(index) || !open.includes(index)) continue\n", new: "      if (index === null || !open.includes(index)) continue\n" },
   { id: "089-D3a", file: "hooks/lib/text.ts", note: "context không ghi thứ tự làm", old: "      `Kế hoạch sau điều chỉnh, theo thứ tự làm: Việc ${numberList(order, orderChars)}`,\n", new: "" },
@@ -2368,4 +2368,6 @@ export const MUTANTS: Mutant[] = [
   { id: "089-E1d", file: "hooks/lib/state.ts", note: "normalizeBrief không chép retired", old: "    ...(Array.isArray(brief.retired) ? { retired: brief.retired.filter((n): n is number => typeof n === 'number') } : {}),\n", new: "" },
   { id: "089-E1e", file: "hooks/lib/router.ts", note: "yêu cầu được việc mới phủ lại vẫn nằm trong retired", old: "  const retired = brief.retired.filter(n => !covered.has(n))\n", new: "  const retired = brief.retired.filter(n => n > 0 || !covered.has(n))\n" },
   { id: "089-E1f", file: "hooks/lib/router.ts", note: "openPhase không đổi số trong retired", old: "  const retired = (prev.retired ?? []).flatMap(n => renumber.get(n) ?? [])\n", new: "  const retired = [...(prev.retired ?? [])]\n" },
+  { id: "089-E2a", file: "hooks/lib/router.ts", note: "covers không đi theo chuỗi gộp", old: "...(owner.covers ?? []), ...carried])", new: "...(owner.covers ?? [])])" },
+  { id: "089-E2b", file: "hooks/lib/router.ts", note: "into không trỏ tới việc nhận cuối cùng", old: "      for (const [key, record] of gone) if (record.into === index) gone.set(key, { ...record, into })\n", new: "" },
 ]

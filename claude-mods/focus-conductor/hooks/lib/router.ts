@@ -1733,15 +1733,27 @@ export function applyArrange(brief: Brief, arrange: Arrange, added: readonly Tas
       continue
     }
     const taken: number[] = []
+    const chained: number[] = []
     for (const index of item.tasks) {
       if (index === into) continue
       const owner = removable(index)
       if (owner === null) continue
       gone.set(index, { index, title: owner.title, why: '', into })
-      covers.set(into, [...(covers.get(into) ?? []), ...(owner.covers ?? [])])
+      // 0.8.9 vòng 3 E2: việc nhận gộp từ trước nay cũng bị gộp tiếp thì phần covers nó đã nhận đi theo sang việc nhận mới, các bản ghi
+      // đã gỡ trỏ tới nó chuyển into sang việc nhận mới, và các mục gộp vào nó nhập vào mục của việc nhận mới.
+      const carried = covers.get(index) ?? []
+      covers.delete(index)
+      covers.set(into, [...(covers.get(into) ?? []), ...(owner.covers ?? []), ...carried])
+      for (const [key, record] of gone) if (record.into === index) gone.set(key, { ...record, into })
+      for (let i = merged.length - 1; i >= 0; i--) {
+        const entry = merged[i]
+        if (entry === undefined || entry.into !== index) continue
+        chained.unshift(...entry.tasks)
+        merged.splice(i, 1)
+      }
       taken.push(index)
     }
-    if (taken.length > 0) merged.push({ tasks: taken, into })
+    if (taken.length > 0) merged.push({ tasks: [...chained, ...taken], into })
   }
   const open = brief.tasks.filter(t => !gone.has(t.index) && stateOf(t.index) !== 'done').map(t => t.index)
   let order: number[] | undefined
