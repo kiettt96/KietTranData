@@ -26,3 +26,4 @@
 
 ## Vòng 3 (15/11/2026)
 - E1 test đỏ c6c27a0 (9/10), sửa đã commit
+- E2 test đỏ 6e4470f (2/3), sửa đã commit
