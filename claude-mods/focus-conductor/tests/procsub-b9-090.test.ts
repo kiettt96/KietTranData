@@ -21,12 +21,15 @@ describe('0.9.0 B9: thay thế tiến trình', () => {
     expect(found.some(w => w.level === 'possible')).toBe(true)
     expect(isReadOnlyCommand('grep -c x <(bash s.sh)')).toBe(false)
   })
-  test('cat <(rm -rf x): là ghi', () => {
-    expect(writes('cat <(rm -rf x)').some(w => w.level === 'definite' && w.paths.includes('x'))).toBe(true)
+  test('cat <(rm -rf x): là ghi, đích không chắc (isUnknown) như 0.7.5 R3', () => {
+    expect(writes('cat <(rm -rf x)').some(w => w.level === 'definite' && w.paths.includes('x') && w.isUnknown)).toBe(true)
+    expect(classifyBash('cat <(rm -rf x)').isUnknown).toBe(true)
+    expect(classifyBash('diff <(sort a) <(sort b)').isUnknown).toBe(false)
   })
   test('ngoài là lệnh ghi: vẫn là ghi; >( ) giữ possible như 0.8.9', () => {
     expect(writes('sort -o out.txt <(cat a)').length).toBeGreaterThan(0)
     expect(writes('tee >(cat) < a').some(w => w.level === 'possible')).toBe(true)
+    expect(isReadOnlyCommand('diff <(sort a) >(cat)')).toBe(false)
   })
   test('lồng hay có thay thế lệnh bên trong: possible', () => {
     expect(writes('cat <(cat <(ls))').some(w => w.level === 'possible')).toBe(true)
