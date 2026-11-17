@@ -2484,4 +2484,9 @@ export const MUTANTS: Mutant[] = [
   { id: "090-C1e", file: "hooks/ui/labels.ts", note: "chip bước không ghi nhãn vai", old: "  return meta !== '' && row.role !== undefined ? `${meta} [${l.roleNames[row.role]}]` : meta\n", new: "  return meta\n" },
   { id: "090-C1f", file: "hooks/parts/session.ts", note: "nhật ký route không ghi vai", old: "...(t.role !== undefined ? { role: t.role } : {}), pick: t.pick,", new: "pick: t.pick," },
   { id: "090-C1g", file: "hooks/lib/router.ts", note: "roleOf không suy Plan là design", old: "  if (agentType === 'Plan') return 'design'\n", new: "" },
+  { id: "090-C2a", file: "hooks/parts/agents.ts", note: "không từ chối theo vai", old: "    if (reason === null) return next(e)\n    record(await $.clock.now(), 'role-deny'", new: "    if (reason === null || true) return next(e)\n    record(await $.clock.now(), 'role-deny'" },
+  { id: "090-C2b", file: "hooks/parts/agents.ts", note: "vai chỉ đọc được ghi /tmp bằng Write", old: "    if (!isReadOnly && path !== '' && isRoleTemp(path)) return null\n", new: "    if (path !== '' && isRoleTemp(path)) return null\n" },
+  { id: "090-C2c", file: "hooks/parts/agents.ts", note: "lệnh ghi /tmp cũng bị từ chối", old: "effect.paths.some(path => !isRoleTemp(path))))", new: "effect.paths.some(path => path !== ''))))" },
+  { id: "090-C2d", file: "hooks/parts/agents.ts", note: "lời gọi Kiểm độc lập không là vai duyệt", old: "  if (INDEPENDENT_PREFIXES.some(prefix => description.startsWith(prefix))) return 'review'\n", new: "" },
+  { id: "090-C2e", file: "hooks/parts/agents.ts", note: "vai audit ghi /tmp bị từ chối", old: "    if (!isReadOnly && path !== '' && isRoleTemp(path)) return null\n", new: "" },
 ]

@@ -7,10 +7,11 @@ import { turnCost } from '../lib/cost'
 import { countSpawn, shapeKey, shapeOutput } from '../lib/ledger'
 import { EFFORTS, agentMemoKey, applySession, describePick, familyOf, familyRank, pickRank, ruleConflict, ruleFamily, stepCovers, taskMatch } from '../lib/route'
 import { clipText } from '../lib/decisions'
-import { agentRouterRequest, askRouter, briefCodes, fitPick, floorRoute, isSettled, parseAgentRoute, ruleRoute, taskRoute } from '../lib/router'
+import { READ_ONLY_ROLES, agentRouterRequest, askRouter, briefCodes, fitPick, floorRoute, isSettled, parseAgentRoute, ruleRoute, taskRoute } from '../lib/router'
 import { FORK_QUOTA_DENY, RETRY_PREFIX, RETRY_ROUNDS, forkRetryNote, forkReturnNote } from '../lib/text'
 import { liveForks, openParts } from '../lib/forks'
-import { isSkillTrial } from '../lib/drift'
+import { classifyBash, filePathOf, isSkillTrial, normalizePath } from '../lib/drift'
+import { labels, langOf } from '../ui/labels'
 import { shownPlan } from '../lib/mirror'
 import { tierOf } from '../lib/scale'
 import type { AgentRoute } from '../lib/router'
@@ -63,6 +64,31 @@ export function roleOfCall(routeRole: Role | undefined, description: string): Ro
   return routeRole
 }
 
+/** Thư mục tạm: ghi dưới đây không tính là sửa file của việc (0.9.0 C2). */
+const ROLE_TEMP_DIRS = ['/tmp/', '/private/tmp/', '/var/folders/']
+const isRoleTemp = (path: string) => ROLE_TEMP_DIRS.some(dir => normalizePath(path).startsWith(dir))
+
+/**
+ * Lời từ chối theo vai (0.9.0 C2), không quá 200 ký tự; null là được. Vai chỉ đọc (search, review, design): mọi tool sửa file và lệnh Bash
+ * có tác động ghi mức definite ngoài thư mục tạm. Vai audit: tool sửa file và lệnh Bash ghi mức definite, có đích ngoài thư mục tạm.
+ */
+export function roleDenial(role: Role, tool: string, input: Record<string, unknown>, name: string): string | null {
+  if (role === 'build') return null
+  const isReadOnly = READ_ONLY_ROLES.has(role)
+  if (tool !== 'Bash') {
+    const path = filePathOf({ tool, input, isError: false, isReadOnly: false })
+    if (!isReadOnly && path !== '' && isRoleTemp(path)) return null
+  } else {
+    const writes = classifyBash(String(input['command'] ?? '')).effects.filter(effect => effect.kind === 'write' && effect.level === 'definite' && effect.isHistory !== true)
+    const isOutside = writes.some(effect => effect.kind === 'write' && (effect.isUnknown || effect.paths.length === 0 || effect.paths.some(path => !isRoleTemp(path))))
+    if (!isOutside) return null
+  }
+  const text = isReadOnly
+    ? `[focus-conductor] Vai ${name} chỉ đọc: không sửa file. Ghi phần cần sửa vào câu trả lời để luồng chính giao việc làm.`
+    : `[focus-conductor] Vai ${name} chỉ chạy kiểm, không sửa file ngoài thư mục tạm. Báo kết quả và chỗ lỗi cho luồng chính.`
+  return text.slice(0, 200)
+}
+
 function retryFloorOf(core: Core, description: string, subagentType: string | undefined, prompt: string | undefined): { floor: Choice; round: number; sig: string } | null {
   if (core.brief === null || core.retry.goalId !== core.brief.goalId) return null
   const live = core.retry.items.filter(item => !item.exhausted && item.round >= 2 && item.floor !== null && !S.isWaived(core, item.sig))
@@ -77,6 +103,19 @@ export function registerAgents(on: On, ctx: Ctx): void {
   const L = ctx.local
   const { agentFailures, agentRoutes, agents, flushDecisions, delegationItems, isAgentRouterPaused, moveDelegation, noteAgentRouter, noteRouterTime, offered, pendingAgents, policy, recognized, record, refit, rememberAgentRoute, spawnedCalls, spawnedIds, startedAgents, steppedEarly } = ctx
   const mode = derive([modeState], modeOf(ctx.options))
+
+  // Quyền theo vai (0.9.0 C2): subagent vai search, review, design không sửa file và không chạy lệnh ghi chắc chắn ngoài thư mục tạm; vai
+  // audit không sửa file ngoài thư mục tạm, vẫn chạy lệnh kiểm. Subagent không có vai giữ như 0.8.9.
+  on('tool.call', { tool: /^(?:Edit|Write|MultiEdit|NotebookEdit|Bash)$/ }, async ($, e, next) => {
+    if (e.agentId === undefined) return next(e)
+    const role = agents.get(e.agentId)?.role
+    if (role === undefined) return next(e)
+    const reason = roleDenial(role, e.tool, e as unknown as Record<string, unknown>, labels(langOf(ctx.options['uiLanguage'])).roleNames[role])
+    if (reason === null) return next(e)
+    record(await $.clock.now(), 'role-deny', { agentId: e.agentId, role, tool: e.tool })
+    await flushDecisions((path, text) => $.fs.write(path, text))
+    return { deny: reason }
+  }).catch(($, e, next) => (noteHookError('tool.call role', next.error), next(e)))
 
   // Agent khởi động mà không đi qua agent.spawn của mod: ghi để /conductor status báo là agent ngoài điều phối.
   // So khớp lúc đọc (không lúc khởi động), vì engine có thể báo khởi động trước khi agent.spawn của mod kịp ghi.
