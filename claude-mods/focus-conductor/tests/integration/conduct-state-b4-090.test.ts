@@ -30,11 +30,13 @@ function setup(on: Parameters<typeof base>[0], reply: Json, engine: { failFamily
 
 describe('0.9.0 B4: vai điều phối ghi được tệp trạng thái', () => {
   test('họ fable: Write vào ba tệp trạng thái qua; echo >> TIEN-DO.md qua; Write src/a.ts và bun test vẫn bị từ chối', opts, async ($, on) => {
-    const seen = setup(on, BIG({ stateFiles: STATE }))
+    const seen = setup(on, BIG({ stateFiles: STATE, sideWrites: ['/work/backup'] }))
     await submit($, 'Sửa thống kê')
     await step($, seen, { turnId: 't1' })
     for (const path of STATE) expect(isEditDeny(await write($, path)), path).toBe(false)
     expect(isEditDeny(await bash($, `echo "- bước 1 xong" >> ${WORK}/TIEN-DO.md`))).toBe(false)
+    expect(isEditDeny(await bash($, `echo a >> ${WORK}/TIEN-DO.md && echo b > /work/repo/src/a.ts`))).toBe(true)
+    expect(isEditDeny(await write($, '/work/backup/a.md'))).toBe(true)
     expect(isEditDeny(await write($, '/work/repo/src/a.ts'))).toBe(true)
     expect(isEditDeny(await bash($, `echo x > ${WORK}/KHAC.md`))).toBe(true)
     expect(isCheckDeny(await bash($, 'bun test'))).toBe(true)
