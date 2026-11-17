@@ -8,7 +8,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 ## Trạng thái đã xác minh
 - Đường dẫn khởi động chuẩn: khối mục 7 của prompt.
 - Đường dẫn xác minh chuẩn: `claude plugin test .` ở MOD.
-- Mục chưa xong ưu tiên cao nhất: B7.
+- Mục chưa xong ưu tiên cao nhất: B8.
 - Điểm chặn hiện tại: không.
 
 ## Đo nền (17/11/2026, engine 2.1.326)
@@ -38,7 +38,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 | B4 | passing 17/11 | đỏ (2/3 ca đỏ); sửa 4279179; conduct-state-b4-090 3 pass (fable và họ dự phòng); 090-B4a..c KILLED; tập conductor liên quan đạt; toàn luồng kiểm ở D1 |
 | B5 | passing 17/11 | đỏ (2/3 ca đỏ); sửa af4c032; quota-state-b5-090 3 pass (kể cả symlink ra ngoài bị từ chối); 090-B5a,b KILLED; mẫu cũ 075-A6a,b sửa chuỗi; tập 24 tệp hạn mức 272 pass; toàn luồng kiểm ở D1 |
 | B6 | passing 17/11 | đỏ (3/5 ca đỏ); sửa c5600e6; skill-side-b6-090 7 pass; 090-B6a..f KILLED; vế thử skill 107 ký tự; toàn luồng kiểm ở D1 |
-| B7 | not_started | |
+| B7 | passing 17/11 | đỏ (13/26 ca đỏ); sửa 77f8308; readonly-b7-090 26 pass (cả cổng duyệt và vai điều phối); 090-B7a..e KILLED; các tệp dùng classifyBash/isReadOnlyCommand đạt; toàn luồng kiểm ở D1 |
 | B8 | not_started | |
 | B9 | not_started | |
 | B10 | not_started | |
