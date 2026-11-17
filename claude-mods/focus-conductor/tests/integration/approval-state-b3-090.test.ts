@@ -35,10 +35,10 @@ describe('0.9.0 B3: cổng duyệt kế hoạch cho ghi tệp trạng thái', ()
     expect((await bash($, 'cp src/a.ts /work/backup/a.ts')).deny ?? '').toContain(DENY)
   })
 
-  test('router không trả danh sách: như 0.8.9, Write vào KE-HOACH.md bị từ chối', {}, async ($, on) => {
+  test('router không trả danh sách: như 0.8.9, Write vào tệp không phải tệp trạng thái (GHI-CHU.md) bị từ chối', {}, async ($, on) => {
     setup(on, BIG())
     await submit($, 'Sửa thống kê')
-    expect((await write($, `${WORK}/KE-HOACH.md`)).deny ?? '').toContain(DENY)
+    expect((await write($, `${WORK}/GHI-CHU.md`)).deny ?? '').toContain(DENY)
   })
 
   test('câu dặn lập kế hoạch nêu các tệp trạng thái ghi được; thêm không quá 120 ký tự; không có danh sách thì như 0.8.9', {}, async ($, on) => {

@@ -116,6 +116,12 @@
       "description": "Glob phân tách bằng dấu phẩy, ví dụ: ket-qua/**,out/*.json. File khớp là thay đổi nhẹ: vẫn được đếm nhưng không đủ để cảnh báo \"không chạy bước kiểm tra nào\" hay để cổng Stop đòi lệnh kiểm. Đuôi .md .markdown .txt .csv .tsv .jsonl .log luôn là nhẹ; .json và .yaml không tự tính là nhẹ vì thường là cấu hình. Glob không bắt đầu bằng / khớp từ đầu một thư mục bất kỳ; ** khớp nhiều cấp thư mục. Để trống (mặc định): chỉ các đuôi trên. (en) Comma-separated globs, e.g. ket-qua/**,out/*.json. A matching file is a soft change: it is still counted but does not by itself trigger the \"no check ran\" warning or make the Stop gate ask for a check. The extensions .md .markdown .txt .csv .tsv .jsonl .log are always soft; .json and .yaml are not soft on their own because they are often configuration. A glob that does not start with / matches from any directory; ** spans directory levels. Empty (default): only the extensions above.",
       "default": ""
     },
+    "stateFileNames": {
+      "type": "string",
+      "title": "Tên tệp trạng thái mặc định",
+      "description": "Từ 0.9.0: tên tệp phân tách bằng dấu phẩy. Tệp có tên trùng, đuôi tài liệu nhẹ (.md, .markdown, .txt), ở bất kỳ thư mục nào, được coi là tệp trạng thái như danh sách router đọc từ prompt: không cảnh báo ngoài phạm vi, ghi được khi chưa duyệt kế hoạch, khi đang điều phối và khi dừng vì hạn mức, không làm cũ lần kiểm. Để trống: chỉ còn danh sách router đọc từ prompt. (en) From 0.9.0: comma-separated file names. A file with a matching name and a light document extension (.md, .markdown, .txt), in any directory, counts as a state file like the list the router reads from the prompt: no out-of-scope warning, writable before plan approval, while conducting and during a quota pause, and it does not make a check stale. Empty: only the router's list.",
+      "default": "TIEN-DO.md, KE-HOACH.md, DIEM-DUNG.md, PROGRESS.md, PLAN.md, HANDOFF.md"
+    },
     "skillPaths": {
       "type": "string",
       "title": "File skill ngoài SKILL.md (skill paths)",

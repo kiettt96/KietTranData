@@ -92,7 +92,25 @@ function sideKey(item: string, from: string | null): string {
  * tên tệp thì khớp theo tên tệp. `which` 'state' chỉ xét tệp trạng thái. Đường dẫn tương đối neo theo `cwd`, không có thì theo `root`.
  * Danh sách rỗng là không khớp.
  */
+/** Tên tệp trạng thái mặc định (0.9.0 B14 mục 8, option stateFileNames): ở bất kỳ thư mục nào, đuôi tài liệu nhẹ. */
+export const DEFAULT_STATE_FILE_NAMES = ['TIEN-DO.md', 'KE-HOACH.md', 'DIEM-DUNG.md', 'PROGRESS.md', 'PLAN.md', 'HANDOFF.md']
+let stateFileNames = new Set(DEFAULT_STATE_FILE_NAMES.map(name => name.toLowerCase()))
+const STATE_NAME_EXT = /\.(?:md|markdown|txt)$/i
+
+/** Áp option stateFileNames: vắng thì mặc định; chuỗi thì các tên phân tách bằng dấu phẩy; chuỗi rỗng thì không có tên nào. */
+export function applyStateFileNames(value: unknown): void {
+  const names = typeof value === 'string' ? value.split(',').map(name => name.trim()).filter(Boolean) : DEFAULT_STATE_FILE_NAMES
+  stateFileNames = new Set(names.map(name => name.toLowerCase()))
+}
+
+/** Đường dẫn có tên trùng một tên tệp trạng thái của option stateFileNames, đuôi tài liệu nhẹ (0.9.0 B14 mục 8). */
+export function isStateName(path: string): boolean {
+  const name = (path.replace(/\\/g, '/').split('/').pop() ?? '').toLowerCase()
+  return name !== '' && STATE_NAME_EXT.test(name) && stateFileNames.has(name)
+}
+
 export function isSidePath(path: string, lists: SideLists | null | undefined, root?: string | null, cwd?: string | null, which: 'state' | 'all' = 'all'): boolean {
+  if (path.trim() !== '' && isStateName(path)) return true
   if (lists === null || lists === undefined || path.trim() === '') return false
   const entries = which === 'state' ? [...(lists.stateFiles ?? [])] : [...(lists.stateFiles ?? []), ...(lists.sideWrites ?? [])]
   if (entries.length === 0) return false

@@ -53,6 +53,8 @@ export type EvidenceLog = {
   /** Thay đổi chắc chắn vào file không nhẹ (0.8.0 A5), dùng cho cổng Y6: số lượng và thứ tự của lần cuối (-1 khi chưa có). */
   hard: number
   lastHard: number
+  /** Lần sửa definite cuối vào file không nhẹ, ngoài thư mục phụ thuộc và sản phẩm build (0.9.0 B14 mục 7): mốc hết hiệu lực của kết luận. */
+  lastChange: number
   commands: EvidenceEntry[]
   /** Các lần ghi theo thứ tự và tác giả, để biết lần kiểm tra của một subagent phủ thay đổi của ai. */
   /** 0.9.0 B11: đích của lần ghi (tối đa WRITE_PATHS, vắng khi không đọc được) và lần ghi có là thay đổi không nhẹ. */
@@ -73,13 +75,16 @@ const EVIDENCE_WRITES = 300
 const WRITE_PATHS = 8
 
 export function newEvidenceLog(goalId: number): EvidenceLog {
-  return { goalId, seq: 0, lastMutation: -1, mutations: 0, hard: 0, lastHard: -1, commands: [], writes: [], paths: [] }
+  return { goalId, seq: 0, lastMutation: -1, mutations: 0, hard: 0, lastHard: -1, lastChange: -1, commands: [], writes: [], paths: [] }
 }
 
 /**
  * Ghi một tool call vào dấu vết của mục tiêu theo đúng thứ tự hiệu ứng: lệnh kiểm tra kèm kết quả thật, các lần ghi
  * (kể cả trong lệnh Bash lỗi), và đường dẫn file. `author` là "main" hoặc id subagent.
  */
+/** Thư mục phụ thuộc và sản phẩm build (0.9.0 B14 mục 7): sửa ở đây không làm kết luận duyệt hết hiệu lực. */
+const DEP_DIRS = /(?:^|\/)(?:node_modules|dist|build|\.git)(?:\/|$)/
+
 export function noteEvidence(log: EvidenceLog, observation: ToolObservation, author = 'main', isShared = false, sides: SideLists | null = null): void {
   // Tệp trạng thái và nơi ghi phụ của mục tiêu (0.9.0 B6) không là thay đổi chắc chắn.
   const isSide = (path: string) => isSidePath(path, sides, null, observation.cwd ?? null)
@@ -88,13 +93,14 @@ export function noteEvidence(log: EvidenceLog, observation: ToolObservation, aut
   // Cờ dùng chung thư mục (0.8.6 R2) chỉ cho lần kiểm của subagent.
   const shared = isShared && author !== 'main' ? { shared: true as const } : {}
   const isSideOnly = (effect: WriteEffect) => effect.level === 'definite' && !effect.isUnknown && effect.paths.length > 0 && effect.paths.every(isFree)
-  const onWrite = (isHard: boolean, paths: readonly string[] | null = null) => {
+  const onWrite = (isHard: boolean, paths: readonly string[] | null = null, isDefinite = true) => {
     log.seq += 1
     log.lastMutation = log.seq
     log.mutations += 1
     if (isHard) {
       log.hard += 1
       log.lastHard = log.seq
+      if (isDefinite && paths !== null && paths.some(path => !DEP_DIRS.test(path))) log.lastChange = log.seq
     }
     log.writes.push({ seq: log.seq, author, ...(paths !== null && paths.length > 0 ? { paths: paths.slice(0, WRITE_PATHS) } : {}), ...(isHard ? { hard: true } : {}) })
     if (log.writes.length > EVIDENCE_WRITES) log.writes.shift()
@@ -108,7 +114,7 @@ export function noteEvidence(log: EvidenceLog, observation: ToolObservation, aut
       if (effect.kind === 'write') {
         // Ghi chắc vào tệp trạng thái hay nơi ghi phụ (0.9.0 B6, vòng sửa): sổ sách của chính lượt làm, không là thay đổi nên không làm cũ lần kiểm.
         if (counted.has(effect) && isSideOnly(effect)) log.seq += 1
-        else if (counted.has(effect)) onWrite(isHardEffect(effect, isSide), effect.isUnknown ? null : effect.paths)
+        else if (counted.has(effect)) onWrite(isHardEffect(effect, isSide), effect.isUnknown ? null : effect.paths, effect.level === 'definite')
         continue
       }
       hasCheck = true

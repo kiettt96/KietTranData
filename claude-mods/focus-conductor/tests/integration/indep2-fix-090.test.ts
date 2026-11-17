@@ -20,8 +20,8 @@ describe('0.9.0 vòng sửa 1 (2, 3): từ kết luận', () => {
   test('ĐẠT KÈM LỖI LỚN, PASS WITH MAJOR ISSUES, ĐẠT nhưng ...: không là kết luận đạt', () => {
     for (const text of ['ĐẠT KÈM LỖI LỚN', 'PASS WITH MAJOR ISSUES', 'ĐẠT nhưng còn thiếu test']) expect(verdictOf(text)?.verdict, text).not.toBe('pass')
   })
-  test('ĐẠT, ĐẠT., **Đạt**, không lỗi, PASS 3/3, đạt kèm lỗi nhẹ: vẫn là đạt', () => {
-    for (const text of ['ĐẠT', 'ĐẠT.', '**Đạt**, không lỗi', 'PASS 3/3', 'đạt kèm lỗi nhẹ', 'ĐẠT\nKhông lỗi']) expect(verdictOf(text)?.verdict, text).toBe('pass')
+  test('ĐẠT, ĐẠT., **Đạt**, PASS 3/3, đạt kèm lỗi nhẹ: vẫn là đạt', () => {
+    for (const text of ['ĐẠT', 'ĐẠT.', '**Đạt**', 'PASS 3/3', 'đạt kèm lỗi nhẹ', 'ĐẠT\nKhông lỗi']) expect(verdictOf(text)?.verdict, text).toBe('pass')
   })
 })
 
@@ -32,8 +32,8 @@ describe('0.9.0 vòng sửa 1 (5): lệnh ghi lẩn', () => {
     })
   }
   for (const command of ["bash -c 'source src/a.sh; f 1'", 'black --check src', 'nice bun test', "sh -c 'bun test'"]) {
-    test(`vẫn chạy được: ${command}`, () => {
-      expect(roleDenial('review', 'Bash', { command }, 'duyệt')).toBeNull()
+    test(`vẫn chạy được (vai kiểm; đổi đặc tả C2: vai duyệt chỉ chạy lệnh trong danh sách cho phép): ${command}`, () => {
+      expect(roleDenial('audit', 'Bash', { command }, 'kiểm')).toBeNull()
     })
   }
 })

@@ -744,9 +744,8 @@ export function registerSession(on: On, ctx: Ctx): void {
     if (!S.isPlanGated(await read($, coreState))) return next(e)
     // Tệp trạng thái của mục tiêu (0.9.0 B3) ghi được khi chưa duyệt; đường dẫn tương đối neo theo thư mục làm việc rồi thư mục gốc.
     const gatedBrief = S.normalizeCore(await read($, coreState)).brief
-    const frame = gatedBrief?.stateFiles !== undefined && gatedBrief.stateFiles.length > 0
-      ? { lists: gatedBrief, root: await $.session.root().catch(caught('session.root', null)), cwd: await $.session.cwd().catch(caught('session.cwd', null)) }
-      : null
+    // Tệp trạng thái theo danh sách của router hay theo tên mặc định (0.9.0 B14 mục 8): khung luôn được dựng, isSidePath xét cả hai.
+    const frame = { lists: gatedBrief ?? {}, root: await $.session.root().catch(caught('session.root', null)), cwd: await $.session.cwd().catch(caught('session.cwd', null)) }
     const reason = approvalDenial(e.tool, e as unknown as Record<string, unknown>, frame)
     return reason === null ? next(e) : { deny: reason }
   }).catch(($, e, next) => (noteHookError('tool.call approval', next.error), next(e)))

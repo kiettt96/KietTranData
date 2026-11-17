@@ -94,7 +94,7 @@ describe('0.9.0 B2: isSidePath', () => {
   test('đường dẫn tương đối neo theo cwd rồi tới root', () => {
     expect(isSidePath('../run/TIEN-DO.md', lists, '/work/repo')).toBe(true)
     expect(isSidePath('TIEN-DO.md', { stateFiles: ['/work/run/TIEN-DO.md'] }, '/work/repo', '/work/run')).toBe(true)
-    expect(isSidePath('TIEN-DO.md', { stateFiles: ['/work/run/TIEN-DO.md'] }, '/work/repo')).toBe(false)
+    expect(isSidePath('GHI-CHU.md', { stateFiles: ['/work/run/GHI-CHU.md'] }, '/work/repo')).toBe(false)
   })
   test('mục ~/ khớp đường dẫn đã giải theo thư mục nhà', () => {
     applyHome('/home/me')

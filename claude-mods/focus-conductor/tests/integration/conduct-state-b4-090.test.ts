@@ -52,10 +52,10 @@ describe('0.9.0 B4: vai điều phối ghi được tệp trạng thái', () => 
     expect(isEditDeny(await write($, '/work/repo/src/a.ts'))).toBe(true)
   })
 
-  test('router không trả tệp trạng thái: như 0.8.9, Write TIEN-DO.md bị từ chối', opts, async ($, on) => {
+  test('router không trả tệp trạng thái: như 0.8.9, Write tệp không phải tệp trạng thái (GHI-CHU.md) bị từ chối', opts, async ($, on) => {
     const seen = setup(on, BIG())
     await submit($, 'Sửa thống kê')
     await step($, seen, { turnId: 't1' })
-    expect(isEditDeny(await write($, `${WORK}/TIEN-DO.md`))).toBe(true)
+    expect(isEditDeny(await write($, `${WORK}/GHI-CHU.md`))).toBe(true)
   })
 })

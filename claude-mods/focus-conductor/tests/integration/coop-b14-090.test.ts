@@ -74,6 +74,8 @@ describe('0.9.0 B14 (7): việc dọn sau lượt duyệt không làm kết lu�
     await call($, { tool: 'Bash', command: 'bun test' })
     await agent($, 'Rà phí', 'ĐẠT')
     await call($, { tool: 'Bash', command: 'cp /repo/src/phi.ts /repo/dist/phi.js && cp /repo/a.js /repo/node_modules/x/a.js' })
+    // Bằng chứng lệnh kiểm vẫn hết hiệu lực như cũ: chạy lại lệnh kiểm; kết luận duyệt thì còn.
+    await call($, { tool: 'Bash', command: 'bun test' })
     await closeAll($, 1)
     expect(await stop($)).toBe('')
   })
@@ -130,7 +132,7 @@ describe('0.9.0 B14 (10): bước kiểm của cổng đóng tính lần kiểm 
   test('đoạn dặn bước đóng nêu lần kiểm do luồng chính hay subagent chạy', OPTS(), async ($, on) => {
     const seen = setup(on)
     await start($, seen)
-    expect(seen.contexts.flat().find(c => c.includes('Trước khi kết thúc')) ?? '').toContain('luồng chính hay subagent')
+    expect(seen.contexts.flat().find(c => c.includes('Trước khi kết thúc')) ?? '').toContain('luồng chính hay subagent chạy')
   })
 })
 
@@ -154,7 +156,7 @@ describe('0.9.0 B14 (11): dừng cứng vì hạn mức khi có tệp trạng th
 describe('0.9.0 B14 (12): một phiên theo kỷ luật giao việc từ đầu tới cuối', () => {
   for (const conductor of ['off', 'opus'] as const) {
     test(`conductor ${conductor}: không lời gọi nào bị từ chối ngoài lệnh kiểm của luồng chính khi điều phối; không cảnh báo ngoài phạm vi; Stop không chặn; các bước lên verified`, OPTS({ conductor }), async ($, on) => {
-      const seen = setup(on, GOAL({ depth: conductor === 'off' ? 'substantial' : 'hard', main: conductor === 'off' ? { model: 'sonnet', effort: 'medium' } : { model: 'opus', effort: 'high' } }))
+      const seen = setup(on, GOAL({ main: conductor === 'off' ? { model: 'sonnet', effort: 'medium' } : { model: 'opus', effort: 'high' } }))
       const steps = [1, 2, 3].map(k => ({ title: `M${k}: sửa tệp ${k}`, check: '`bun test`' }))
       await start($, seen, steps)
       const denied: string[] = []

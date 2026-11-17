@@ -68,6 +68,8 @@ export type WriteEffect = {
   isUnknown: boolean
   /** Lệnh git chỉ đổi lịch sử hay cấu hình (GIT_NO_FILES), không có thay thế lệnh: không đổi file làm việc, `writeEffects` bỏ qua. */
   isHistory?: true
+  /** Lệnh con git của tác động trên lịch sử (0.9.0 B14): add, commit, tag, push... */
+  gitSub?: string
 }
 export type BashEffect = CheckEffect | WriteEffect
 
@@ -485,8 +487,8 @@ export function classifyBash(input: string, base = ''): BashClass {
       continue
     }
     if (AWK_COMMAND.test(name) || /^[gmn]?awk$/.test(name)) {
-      // Script awk ghi file qua print > "file" hay print | "lệnh": đích không đọc được.
-      if (AWK_WRITE.test(unmask(part))) {
+      // Script awk ghi file qua print > "file" hay print | "lệnh", hay -i inplace (0.9.0): đích không đọc được.
+      if (AWK_WRITE.test(unmask(part)) || args.some((a, i) => unmask(a) === '--inplace' || unmask(a) === '-iinplace' || (unmask(a) === '-i' && unmask(args[i + 1] ?? '') === 'inplace'))) {
         isUnknown = segUnknown = true
         write('possible')
       }
@@ -528,7 +530,7 @@ export function classifyBash(input: string, base = ''): BashClass {
       const sub = positional[0] !== undefined ? unmask(positional[0]) : ''
       write('definite')
       if (GIT_NO_FILES.has(sub)) {
-        if (!isUnsupported) (effects[effects.length - 1] as WriteEffect).isHistory = true
+        if (!isUnsupported) Object.assign(effects[effects.length - 1] as WriteEffect, { isHistory: true as const, gitSub: sub })
         continue
       }
       const dash = args.findIndex(a => unmask(a) === '--')

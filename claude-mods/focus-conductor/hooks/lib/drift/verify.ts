@@ -232,6 +232,12 @@ export function isSelfFixing(tokens: string[], unmask: (token: string) => string
     if (!isOptionValue) words.push(unmask(token))
   })
   if (words.some(word => FIX_FLAGS.has(word) || word.startsWith('--fix='))) return true
+  // Formatter chạy qua python -m, uv run, poetry run, pipx run, và deno fmt, khi không kèm chế độ kiểm (0.9.0, đổi đặc tả C2 mục 6).
+  const isCheckMode = words.some(word => word === '--check' || word === '--diff' || word === '--check-only')
+  const formatter = words.findIndex(word => word === 'black' || word === 'isort' || word === 'autopep8' || word === 'yapf')
+  if (formatter > 0 && !isCheckMode && (words[formatter - 1] === '-m' || words[formatter - 1] === 'run')) return true
+  const deno = words.indexOf('deno')
+  if (deno >= 0 && words[deno + 1] === 'fmt' && !isCheckMode) return true
   if (words.includes('prettier') && words.includes('-w')) return true
   const ruff = words.indexOf('ruff')
   if (ruff >= 0 && words[ruff + 1] === 'format') return !words.includes('--check') && !words.includes('--diff')

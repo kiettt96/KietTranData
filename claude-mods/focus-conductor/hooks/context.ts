@@ -4,6 +4,7 @@
 import type { PluginOptions, PromptOrigin } from 'claude-code'
 import type { Brief, Choice, Core, DelegationItem, DelegationState, Effort, Intent, Lift, Mode, ModelFamily, PlanStep, Role, Route, RouteEvent, Task, Tier, Volume } from '../types'
 import { applyCheckCommands, applyCheckTools, applyPassLines, applySkillPaths, applySoftPaths, newEvidenceLog, newTracker, parseCheckCommands, parseCheckTools, parsePassLines, parseSkillPaths, parseSoftPaths } from './lib/drift'
+import { applyStateFileNames } from './lib/drift/scope'
 import type { EvidenceLog, PromptIntent, TurnTracker } from './lib/drift'
 import { DEFAULT_CACHE_TTL_MINUTES, DEFAULT_CONTEXT, DEFAULT_WINDOWS, applyCacheWrite, applyPrices, parseCacheWrite, parsePrices } from './lib/cost'
 import { EFFORTS, FAMILIES as FAMILIES_ORDER, decideMain, describePick, familyOf, hasTitleCode, liftPick, matchTask, parseModelMap, parseWindows, pinnedId, resolveModelId } from './lib/route'
@@ -149,8 +150,6 @@ export function createContext(options: PluginOptions) {
     closingWaived: -1,
     /** Số vòng CHƯA ĐẠT liên tiếp theo mục (mục tiêu, vai, việc) (0.9.0 C7). */
     verdictRounds: new Map<string, number>(),
-    /** Subagent đã ghi file ngoài thư mục tạm (0.9.0 D1). */
-    agentWrote: new Set<string>(),
     clashWarned: new Set<string>(),
     /** ID engine đã phục vụ theo họ (0.8.7 M1, usage.model của turn), cho dòng "Model đang dùng" và cảnh báo phiên bản một lần mỗi họ. */
     served: new Map<ModelFamily, string>(),
@@ -250,6 +249,8 @@ export function createContext(options: PluginOptions) {
   // lần gần nhất engine nhận; `enforceModel` là mod được phép ép model (không khi model không thuộc họ Claude,
   // hoặc agent workflow do script chọn model).
   type AgentMeta = {
+    /** Đã có lời gọi ngoài tập cho phép của vai chỉ đọc (0.9.0, đổi đặc tả C2): kết luận không mở cổng duyệt hay sẵn sàng. */
+    outside?: true
     description: string
     tier: Tier
     goalId: number
@@ -341,6 +342,7 @@ export function createContext(options: PluginOptions) {
   applyCheckTools(parseCheckTools(options['checkTools']))
   applyPassLines(parsePassLines(options['passLines']))
   applySoftPaths(parseSoftPaths(options['softPaths']))
+  applyStateFileNames(options['stateFileNames'])
   // File skill (0.8.2 N3): tiền tố khai ở option skillPaths.
   applySkillPaths(parseSkillPaths(options['skillPaths']))
 
@@ -629,7 +631,6 @@ export function createContext(options: PluginOptions) {
     local.closingState = { goalId: -1, blocks: 0, key: '' }
     local.closingWaived = -1
     local.verdictRounds.clear()
-    local.agentWrote.clear()
     local.clashWarned.clear()
     local.served.clear()
     local.conductorSessionNoticed = false

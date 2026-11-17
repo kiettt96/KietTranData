@@ -5,13 +5,14 @@ import { caught, noteBehavior, noteHookError } from '../lib/errlog'
 import type { AgentState, ApprovalState, Brief, Choice, Core, DelegationState, Mode, ModelFamily, RetryItem, Role, Warning } from '../../types'
 import { acceptsVerified, checkKindOf, classifyBash, evidenceStrength, filePathOf, freshTestRun, hardChanges, isCheckTool, isExecuting, isFullyClosed, isGoalDone, isMutation, isPlanFile, normalizePath, isSkillTrial, markVerified, newTracker, skillNameOf, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
 import { isRoleTemp, isSidePath } from '../lib/drift/scope'
+import type { WriteEffect } from '../lib/drift/classify'
 import { STEP_RUNS, stepCheckOf, stepEvidence, stepRunOf } from '../lib/drift/stepcheck'
 import { checkScopeOf, inCheckScope, splitCheckScope } from '../lib/drift/verify'
 import { globToRegExp } from '../lib/drift/soft'
 import { coversScope } from '../lib/drift/evidence'
 import { PLAN_SET_CHECK_LINE } from '../lib/approval'
 import { reportTable, verdictOf } from '../lib/verdict'
-import { closingNote, closingSteps, hardFileCount, hasKnownCheck, isBashWrite, isDocsOnly, prefixRole, teamCause } from '../lib/team'
+import { closingNote, closingSteps, hardFileCount, hasKnownCheck, isDocsOnly, prefixRole, teamCause } from '../lib/team'
 import type { ClosingVerdict } from '../lib/team'
 import type { SideLists } from '../lib/drift/scope'
 import type { Finding, Focus, ToolObservation, TurnTracker } from '../lib/drift'
@@ -61,16 +62,21 @@ const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EM
  * có đích đọc được và mọi đích là tệp trạng thái. Mục tiêu không có tệp trạng thái thì false.
  */
 async function writesOnlyStateFiles($: EngineInterface, brief: Brief, e: { tool: string } & Record<string, unknown>): Promise<boolean> {
-  if ((brief.stateFiles ?? []).length === 0) return false
   const root = await $.session.root().catch(caught('session.root', null))
   const cwd = await $.session.cwd().catch(caught('session.cwd', null))
   if (e.tool !== 'Bash') {
     const path = filePathOf({ tool: e.tool, input: e, isError: false, isReadOnly: false })
     return path !== '' && isSidePath(path, brief, root, cwd, 'state')
   }
+  // Vai điều phối tự lưu bản (0.9.0 B14 mục 9): ghi vào tệp trạng thái hay nơi ghi phụ (cp, mkdir -p, shasum >), và git add, commit, tag, push.
   const classified = classifyBash(String(e['command'] ?? ''))
-  if (classified.isUnknown || classified.effects.length === 0) return false
-  return classified.effects.every(effect => effect.kind === 'write' && effect.paths.length > 0 && effect.paths.every(path => isSidePath(path, brief, root, cwd, 'state')))
+  if (classified.effects.length === 0) return false
+  return classified.effects.every(effect => effect.kind === 'write' && (isSaveHistory(effect) || (!effect.isUnknown && effect.paths.length > 0 && effect.paths.every(path => isSidePath(path, brief, root, cwd, 'all')))))
+}
+
+/** Lệnh git lưu bản mà vai điều phối được chạy (0.9.0 B14 mục 9): add, commit, tag, push. */
+function isSaveHistory(effect: WriteEffect): boolean {
+  return effect.isHistory === true && /^(?:add|commit|tag|push)$/.test(effect.gitSub ?? '')
 }
 
 /**
@@ -121,7 +127,7 @@ async function closingGate($: EngineInterface, ctx: Ctx, core: Core, log: Eviden
   // Cùng một cách tính với pane (0.9.0 vòng sửa sau kiểm độc lập): kết luận mới nhất của mỗi bước quyết; bước kiểm chỉ khi có lệnh kiểm.
   const steps = teamSteps(core, brief, log, verdicts)
   const missing = steps.find(s => s.state !== 'pass')?.name ?? null
-  const reviewSeq = verdicts.filter(v => v.isClean && v.isReview && v.verdict === 'pass' && v.seq > lastHard).reduce((max, v) => Math.max(max, v.seq), -1)
+  const reviewSeq = verdicts.filter(v => v.isClean && v.isReview && v.verdict === 'pass' && v.seq > log.lastChange).reduce((max, v) => Math.max(max, v.seq), -1)
   if (missing === null) {
     if (core.closingGap !== undefined) await update($, coreState, S.withClosingGap(null))
     return null
@@ -148,7 +154,7 @@ function teamSteps(core: Core, brief: Brief, log: EvidenceLog, verdicts: readonl
   const lastHard = log.lastHard
   const checked = log.hard === 0 || log.commands.some(c => c.check !== null && c.ok && c.chained !== true && c.seq > lastHard && coversScope(c, log))
   const lastCheck = [...log.commands].reverse().find(c => c.check !== null && c.chained !== true && c.seq > lastHard)
-  return closingSteps({ hasCheck: hasKnownCheck(core.plan, S.changedOf(core).paths, log), isHard: brief.depth === 'hard', checked, checkFailed: lastCheck !== undefined && !lastCheck.ok, lastHard, verdicts })
+  return closingSteps({ hasCheck: hasKnownCheck(core.plan, S.changedOf(core).paths, log), isHard: brief.depth === 'hard', checked, checkFailed: lastCheck !== undefined && !lastCheck.ok, lastHard, lastChange: log.lastChange, verdicts })
 }
 
 /**
@@ -177,13 +183,6 @@ async function refreshTeam($: EngineInterface, ctx: Ctx): Promise<void> {
   L.agentRetryNotes.push(closingNote({ hasCheck, isHard: brief.depth === 'hard', isDocs: isDocsOnly(brief, changed) }))
 }
 
-/** Lần ghi ngoài thư mục tạm (0.9.0 D1): tool file có đường dẫn ngoài thư mục tạm, hay lệnh Bash ghi file (isBashWrite). */
-function wroteOutsideTemp(observation: ToolObservation): boolean {
-  const path = filePathOf(observation)
-  if (path !== '') return !isRoleTemp(path)
-  if (observation.tool !== 'Bash') return false
-  return isBashWrite(String(observation.input['command'] ?? ''), observation.cwd ?? null)
-}
 
 function writtenPaths(observation: ToolObservation): string[] {
   const path = filePathOf(observation)
@@ -1177,10 +1176,6 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       if (S.normalizeCore(await read($, coreState)).agentProgress.items.some(item => item.agentId === agentId)) await update($, coreState, S.withAgentTool(agentId))
       const meta = agents.get(e.agentId)
       if (meta === undefined) return result
-      // Lần ghi của subagent ngoài thư mục tạm (0.9.0 D1): tool file, hay Bash ghi mức definite (đích chưa xác định cũng tính). Chạy script
-      // (ghi mức possible, như bash x.sh, bash -c) không tính: subagent duyệt và kiểm cần chạy lệnh kiểm.
-      // Không lọc qua isMutation: lệnh git trên lịch sử (commit, push) không là thay đổi của cây làm việc nhưng vẫn là ghi (vòng sửa 1).
-      if (!observation.isError && (EDIT_TOOLS.has(observation.tool) || observation.tool === 'Bash') && L.agentWrote.size < 500 && wroteOutsideTemp(observation)) L.agentWrote.add(e.agentId)
       const agentTracker = agentTrackers.get(e.agentId) ?? newTracker('')
       agentTrackers.set(e.agentId, agentTracker)
       // remindSubagents: subagent cũng bị kiểm phạm vi file của mục tiêu và được nhắc (kèm việc được giao);
@@ -1535,13 +1530,14 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       const parsed = e.reason === 'answer' && meta !== undefined ? verdictOf(e.answer ?? '') : null
       if (e.reason === 'answer' && meta !== undefined && (parsed !== null || meta.role !== undefined)) {
         const role: Role = meta.role ?? (parsed?.verdict === 'ready' || parsed?.verdict === 'not-ready' ? 'design' : 'review')
-        const isClean = !L.agentWrote.has(agentId)
+        // Sạch (0.9.0, đổi đặc tả C2 mục 2): mọi lời gọi Bash và công cụ sửa file của subagent nằm trong tập cho phép của vai chỉ đọc.
+        const isClean = meta.outside !== true
         // Kết luận theo vai (0.9.0 C6): lượt có tiền tố Kiểm:, Audit: và từ ĐẠT HẾT, ALL PASS chỉ là của bước kiểm; duyệt và sẵn sàng cần model
         // từ sonnet trở lên.
         // Model đã chạy: theo usage khi có (model lạ thì không biết họ), không thì họ của lời giao.
         const usageModel = e.usage?.model ?? ''
         const ranFamily = usageModel !== '' ? familyOf(usageModel) : meta.family
-        const isStrong = ranFamily === 'sonnet' || ranFamily === 'opus' || ranFamily === 'fable'
+        const isStrong = ranFamily !== null && ranFamily !== 'haiku'
         const isReview = isClean && prefixRole(meta.description) !== 'audit' && parsed?.isCheckOnly !== true && isStrong
         if (L.verdicts.goalId !== meta.goalId) L.verdicts = { goalId: meta.goalId, items: [] }
         L.verdicts.items.push({ agentId, role, verdict: parsed?.verdict ?? null, isClean, isReview, ...(parsed?.count !== undefined ? { count: parsed.count } : {}), seq: ctx.evidenceFor(meta.goalId).seq, family: ranFamily ?? meta.family, ...(meta.taskIndex !== undefined ? { taskIndex: meta.taskIndex } : {}), description: meta.description })
@@ -1565,7 +1561,6 @@ export function registerConsistency(on: On, ctx: Ctx): void {
           await flushDecisions((path, text) => $.fs.write(path, text))
         }
       }
-      L.agentWrote.delete(agentId)
       if (meta !== undefined) await refreshTeam($, ctx)
       // Tiến độ từng việc (0.6.1): chỉ 'answer' là xong; còn lại là lỗi, hoặc bị cắt nếu đang tạm dừng vì hạn mức.
       const end = agentEnd(e.reason, normalizeQuota(await read($, quotaState)).pause !== null)
