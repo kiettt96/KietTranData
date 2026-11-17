@@ -2,7 +2,7 @@
 
 import { atom, derive, read, update } from 'claude-code'
 import { caught, noteBehavior, noteHookError } from '../lib/errlog'
-import type { AgentState, Brief, Choice, Core, DelegationState, Mode, ModelFamily, RetryItem, Warning } from '../../types'
+import type { AgentState, ApprovalState, Brief, Choice, Core, DelegationState, Mode, ModelFamily, RetryItem, Warning } from '../../types'
 import { acceptsVerified, checkKindOf, classifyBash, evidenceStrength, filePathOf, freshTestRun, hardChanges, isCheckTool, isExecuting, isFullyClosed, isGoalDone, isMutation, isPlanFile, normalizePath, isSkillTrial, markVerified, newTracker, skillNameOf, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
 import { isSidePath } from '../lib/drift/scope'
 import { STEP_RUNS, stepCheckOf, stepEvidence, stepRunOf } from '../lib/drift/stepcheck'
@@ -437,6 +437,12 @@ async function askWaived($: EngineInterface): Promise<string | null> {
  * kế hoạch đã trình, lượt rà đạt hay đã hết lượt, router lỗi). `block`: chặn với lý do của lượt rà. `none`: không liên quan (mục tiêu không
  * thuộc diện duyệt, đã duyệt, hay checklist trống thì G1 xử lý như cũ).
  */
+/** Trạng thái duyệt bỏ cờ đã duyệt trước (0.9.0 B12). */
+function withoutEarly(approval: ApprovalState): ApprovalState {
+  const { early: _early, ...rest } = approval
+  return rest
+}
+
 async function planReviewGate($: EngineInterface, ctx: Ctx): Promise<{ kind: 'none' | 'allow' } | { kind: 'block'; reason: string }> {
   const core = S.normalizeCore(await read($, coreState))
   const brief = core.brief
@@ -483,7 +489,15 @@ async function planReviewGate($: EngineInterface, ctx: Ctx): Promise<{ kind: 'no
   ctx.record(at, 'plan-review', { goalId: brief.goalId, round: rounds, missing: review?.missing ?? null, extra: review?.extra ?? null, issues: review?.issues.length ?? null, ...(review === null ? { reason: outcome.reason } : {}) })
   // Router lỗi: không đoán, trình kế hoạch như hiện có kèm cảnh báo.
   if (review === null) return present('router-fail', `Router không rà được kế hoạch (${outcome.reason}); kế hoạch được trình như hiện có`)
+  // Người dùng đã duyệt trước lượt rà (0.9.0 B12): lượt rà sạch thì chuyển approved; còn chỗ sửa thì bỏ cờ, trình lại sau khi sửa.
+  if (!hasFixes(review) && approval.early === true) {
+    await update($, coreState, c => S.withApproval({ ...withoutEarly(S.approvalOf(c)), status: 'approved' })(c))
+    ctx.record(at, 'approval', { goalId: brief.goalId, status: 'approved', cause: 'early' })
+    await ctx.flushDecisions((path, text) => $.fs.write(path, text))
+    return { kind: 'allow' }
+  }
   if (!hasFixes(review)) return present('review')
+  if (approval.early === true) await update($, coreState, c => S.withApproval(withoutEarly(S.approvalOf(c)))(c))
   await ctx.flushDecisions((path, text) => $.fs.write(path, text))
   return { kind: 'block', reason: reviewReason(review, brief.requirements ?? [], core.plan, rounds, ctx.planReviewRounds, rounds >= ctx.planReviewRounds) }
 }

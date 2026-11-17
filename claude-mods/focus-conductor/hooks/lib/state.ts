@@ -458,7 +458,7 @@ export const withFable =
 function normalizeApproval(raw: Partial<ApprovalState> | undefined): ApprovalState {
   if (raw === undefined || raw === null) return { goalId: -1, status: 'none', rounds: 0, asked: false, awaitingAnswer: false }
   const status = APPROVAL_STATUSES.find(item => item === raw.status) ?? 'none'
-  return { goalId: typeof raw.goalId === 'number' ? raw.goalId : -1, status, rounds: typeof raw.rounds === 'number' ? raw.rounds : 0, asked: raw.asked === true, awaitingAnswer: raw.awaitingAnswer === true }
+  return { goalId: typeof raw.goalId === 'number' ? raw.goalId : -1, status, rounds: typeof raw.rounds === 'number' ? raw.rounds : 0, asked: raw.asked === true, awaitingAnswer: raw.awaitingAnswer === true, ...(raw.early === true ? { early: true as const } : {}) }
 }
 
 /** Trạng thái duyệt của mục tiêu đang mở (0.8.2 N2): trạng thái lưu cho mục tiêu khác là none. */

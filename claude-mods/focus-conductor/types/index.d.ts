@@ -488,7 +488,8 @@ export type FableState = { failures: number; pauseLeft: number; ready: boolean |
 export type FallbackState = { failures: number; pauseLeft: number; promptPaused: boolean; active: ModelFamily | null; briefedFamily: ModelFamily | null }
 
 export type ApprovalStatus = 'none' | 'planning' | 'presented' | 'approved' | 'skipped'
-export type ApprovalState = { goalId: number; status: ApprovalStatus; rounds: number; asked: boolean; awaitingAnswer: boolean }
+/** `early` (0.9.0 B12): người dùng đã duyệt lúc kế hoạch còn đang lập, trước lượt rà; lượt rà sạch thì tự chuyển approved. */
+export type ApprovalState = { goalId: number; status: ApprovalStatus; rounds: number; asked: boolean; awaitingAnswer: boolean; early?: true }
 
 /**
  * Một lệnh kiểm chưa đạt (0.7.8 vòng sửa 3, W4): chữ ký là loại kiểm và lệnh đã chuẩn hóa. Lượt 1 là phần làm dẫn tới lần lỗi đầu,
