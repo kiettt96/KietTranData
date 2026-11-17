@@ -4,7 +4,7 @@
 
 import type { PluginOptions } from 'claude-code'
 import type { Brief, PlanStep } from '../../types'
-import { classifyBash, filePathOf, openSteps } from './drift'
+import { classifyBash, filePathOf, isSkillPath, openSteps } from './drift'
 import { isSidePath, normalizePath } from './drift/scope'
 import type { SideLists } from './drift/scope'
 import { backupTokens } from './quota'
@@ -133,13 +133,17 @@ export function planningStateLine(stateFiles: readonly string[] | undefined): st
   return build(n).slice(0, PLANNING_STATE_CHARS)
 }
 
-/** Đoạn dặn lập kế hoạch khi mục tiêu đang planning và không còn câu hỏi chờ; brief có tệp trạng thái thì nêu thêm (0.9.0 B3). */
-export function planningContext(brief: Pick<Brief, 'stateFiles'> | null = null): string {
+/** Vế dặn bước thử skill (0.9.0 B6), không quá PLANNING_SKILL_CHARS ký tự: chỉ khi phạm vi của mục tiêu chạm file skill. */
+export const PLANNING_SKILL_LINE = ' Phạm vi chạm file skill: checklist cần một bước thử skill, giao Agent có description mở đầu "Thử skill: ".'
+
+/** Đoạn dặn lập kế hoạch khi mục tiêu đang planning và không còn câu hỏi chờ; brief có tệp trạng thái (0.9.0 B3) hay phạm vi chạm file skill (B6) thì nêu thêm. */
+export function planningContext(brief: Pick<Brief, 'stateFiles' | 'scopePaths'> | null = null): string {
   return (
     '[focus-conductor] Việc lớn: lập kế hoạch và chờ duyệt trước khi sửa file. Lập checklist bằng tool plan (action set), mỗi bước có check; ' +
     'đối chiếu đủ mọi yêu cầu của mục tiêu và nêu rõ phần nào không làm. Chưa sửa file: Edit, Write và lệnh ghi file bị từ chối tới khi ' +
     'người dùng duyệt (chỉ ghi được dưới .claude/plans/).' +
     planningStateLine(brief?.stateFiles) +
+    ((brief?.scopePaths ?? []).some(isSkillPath) ? PLANNING_SKILL_LINE : '') +
     ' Kết thúc turn bằng bản kế hoạch để người dùng duyệt.'
   )
 }

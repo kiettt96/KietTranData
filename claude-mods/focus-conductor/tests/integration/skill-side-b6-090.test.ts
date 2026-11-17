@@ -52,6 +52,19 @@ describe('0.9.0 B6: tệp trạng thái và nơi sao lưu không là file skill'
   })
 })
 
+describe('0.9.0 B6: nơi sao lưu không vào cảnh báo chưa kiểm', () => {
+  test('cp tệp .ts vào nơi sao lưu: cổng Stop không đòi chạy kiểm; đối chứng cp vào src thì có', { options: { planApproval: 'off', checkCommands: 'bun test' } }, async ($, on) => {
+    const seen = setup(on, goalOf())
+    await run($, seen, () => $.tool.call({ tool: 'Bash', command: 'cp /work/repo/src/a.ts /work/backup/a.ts' } as never))
+    expect(await stop($)).not.toContain('chưa chạy lần kiểm nào')
+  })
+  test('đối chứng: cp tệp .ts vào src thì cổng Stop đòi chạy kiểm', { options: { planApproval: 'off', checkCommands: 'bun test' } }, async ($, on) => {
+    const seen = setup(on, goalOf())
+    await run($, seen, () => $.tool.call({ tool: 'Bash', command: 'cp /work/backup/a.ts /work/repo/src/a.ts' } as never))
+    expect(await stop($)).toContain('chưa chạy lần kiểm nào')
+  })
+})
+
 describe('0.9.0 B6: câu dặn lập kế hoạch khi phạm vi chạm file skill', () => {
   test('phạm vi có SKILL.md: câu dặn nêu bước thử skill với "Thử skill: ", thêm không quá 120 ký tự', {}, async ($, on) => {
     const seen = setup(on, goalOf({ scope: [`${SKILL_DIR}/SKILL.md`], stateFiles: [], sideWrites: [] }))

@@ -963,10 +963,10 @@ export function registerConsistency(on: On, ctx: Ctx): void {
         const agentSince = agentLog.seq
         // Lần kiểm dùng chung thư mục (0.8.6 R2): subagent không chạy trong worktree riêng, luồng chính đang điều phối.
         const isShared = meta.sharesDir === true && isConductingNow(S.normalizeCore(await read($, coreState)), await read($, mode))
-        noteEvidence(agentLog, observation, e.agentId, isShared)
+        noteEvidence(agentLog, observation, e.agentId, isShared, agentBrief)
         if (isCheckCall(observation.tool)) L.agentRetryNotes.push(...(await noteChecks($, retryDeps, S.normalizeCore(await read($, coreState)), agentBrief.goalId, newChecks(agentLog, agentSince), observation, meta.pick, false, meta.description)))
         const skillBefore = L.tracker.skillWrites
-        trackVerification(L.tracker, observation, e.agentId, (await frameOf($, L.roots, agentBrief.goalId, agentBrief.scopePaths)).cwd, isShared)
+        trackVerification(L.tracker, observation, e.agentId, (await frameOf($, L.roots, agentBrief.goalId, agentBrief.scopePaths)).cwd, isShared, agentBrief)
         // File skill subagent ghi và lệnh khai đạt của subagent (0.8.2 N3): như của luồng chính, ghi trước, thử sau.
         if (L.tracker.skillWrites > skillBefore) await update($, coreState, S.withSkillWrite(agentBrief.goalId, L.tracker.skillPath))
         if (isCheckCall(observation.tool) && passedDeclared(newChecks(agentLog, agentSince))) await update($, coreState, S.withSkillTrial(agentBrief.goalId))
@@ -1011,7 +1011,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     if (core.brief !== null) {
       const mainLog = evidenceFor(core.brief.goalId)
       const mainSince = mainLog.seq
-      noteEvidence(mainLog, observation)
+      noteEvidence(mainLog, observation, 'main', false, core.brief)
       const fresh = isCheckCall(observation.tool) ? newChecks(mainLog, mainSince) : []
       isDeclaredPass = passedDeclared(fresh)
       if (isCheckCall(observation.tool)) retryNotes.push(...(await noteChecks($, retryDeps, core, core.brief.goalId, fresh, observation, mainLevel(), true)))

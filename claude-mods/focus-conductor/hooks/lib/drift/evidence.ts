@@ -10,6 +10,8 @@ import type { BashEffect } from './classify'
 import { writeEffects } from './effects'
 import { isHardEffect, isSoftPath } from './soft'
 import { isSkillPath } from './skill'
+import { isSidePath } from './scope'
+import type { SideLists } from './scope'
 import { checkEffectPassed, outputFailed, ranNothing, runnerOf } from './output'
 
 // ------------------------------------------------------------ đối chiếu evidence
@@ -75,7 +77,9 @@ export function newEvidenceLog(goalId: number): EvidenceLog {
  * Ghi một tool call vào dấu vết của mục tiêu theo đúng thứ tự hiệu ứng: lệnh kiểm tra kèm kết quả thật, các lần ghi
  * (kể cả trong lệnh Bash lỗi), và đường dẫn file. `author` là "main" hoặc id subagent.
  */
-export function noteEvidence(log: EvidenceLog, observation: ToolObservation, author = 'main', isShared = false): void {
+export function noteEvidence(log: EvidenceLog, observation: ToolObservation, author = 'main', isShared = false, sides: SideLists | null = null): void {
+  // Tệp trạng thái và nơi ghi phụ của mục tiêu (0.9.0 B6) không là thay đổi chắc chắn.
+  const isSide = (path: string) => isSidePath(path, sides, null, observation.cwd ?? null)
   // Cờ dùng chung thư mục (0.8.6 R2) chỉ cho lần kiểm của subagent.
   const shared = isShared && author !== 'main' ? { shared: true as const } : {}
   const onWrite = (isHard: boolean) => {
@@ -96,7 +100,7 @@ export function noteEvidence(log: EvidenceLog, observation: ToolObservation, aut
     let hasCheck = false
     for (const effect of classified.effects) {
       if (effect.kind === 'write') {
-        if (counted.has(effect)) onWrite(isHardEffect(effect))
+        if (counted.has(effect)) onWrite(isHardEffect(effect, isSide))
         continue
       }
       hasCheck = true
@@ -126,7 +130,7 @@ export function noteEvidence(log: EvidenceLog, observation: ToolObservation, aut
     trimCommands(log)
   } else if (FILE_TOOLS.has(observation.tool) && !observation.isError && !isPlanFile(filePathOf(observation))) {
     // File skill (0.8.2 N3) không vào số thay đổi chắc chắn của cổng Y6.
-    onWrite(!isSoftPath(filePathOf(observation)) && !isSkillPath(filePathOf(observation)))
+    onWrite(!isSoftPath(filePathOf(observation)) && !isSkillPath(filePathOf(observation)) && !isSide(filePathOf(observation)))
   } else {
     log.seq += 1
   }
