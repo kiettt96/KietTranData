@@ -2,7 +2,7 @@
 
 import { atom, derive, read, update } from 'claude-code'
 import { caught, noteBehavior, noteHookError } from '../lib/errlog'
-import type { AgentState, Choice, Core, DelegationState, Mode, ModelFamily, RetryItem, Warning } from '../../types'
+import type { AgentState, Brief, Choice, Core, DelegationState, Mode, ModelFamily, RetryItem, Warning } from '../../types'
 import { acceptsVerified, checkKindOf, classifyBash, evidenceStrength, filePathOf, freshTestRun, hardChanges, isCheckTool, isExecuting, isFullyClosed, isGoalDone, isMutation, isPlanFile, normalizePath, isSkillTrial, markVerified, newTracker, skillNameOf, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
 import { isSidePath } from '../lib/drift/scope'
 import type { SideLists } from '../lib/drift/scope'
@@ -48,10 +48,29 @@ const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EM
  * Vai điều phối của một lời gọi của luồng chính (0.8.6 R1, R2): null khi không điều phối hay khi đích là file kế hoạch; ngược lại số mục
  * tiêu và có được miễn không (/conductor solo, hay lời gọi Agent gần nhất bị từ chối mà không sinh subagent).
  */
+/**
+ * Lời gọi ghi chỉ vào tệp trạng thái của mục tiêu (0.9.0 B4): tool sửa file có đường dẫn là tệp trạng thái, hay Bash mà mọi tác động là ghi
+ * có đích đọc được và mọi đích là tệp trạng thái. Mục tiêu không có tệp trạng thái thì false.
+ */
+async function writesOnlyStateFiles($: EngineInterface, brief: Brief, e: { tool: string } & Record<string, unknown>): Promise<boolean> {
+  if ((brief.stateFiles ?? []).length === 0) return false
+  const root = await $.session.root().catch(caught('session.root', null))
+  const cwd = await $.session.cwd().catch(caught('session.cwd', null))
+  if (e.tool !== 'Bash') {
+    const path = filePathOf({ tool: e.tool, input: e, isError: false, isReadOnly: false })
+    return path !== '' && isSidePath(path, brief, root, cwd, 'state')
+  }
+  const classified = classifyBash(String(e['command'] ?? ''))
+  if (classified.isUnknown || classified.effects.length === 0) return false
+  return classified.effects.every(effect => effect.kind === 'write' && effect.paths.length > 0 && effect.paths.every(path => isSidePath(path, brief, root, cwd, 'state')))
+}
+
 async function conductRole($: EngineInterface, ctx: Ctx, current: Mode, e: { tool: string } & Record<string, unknown>): Promise<{ goalId: number; isExempt: boolean } | null> {
   const core = S.normalizeCore(await read($, coreState))
   if (core.brief === null || !ctx.isConducting(core, current)) return null
   if (isPlanFile(filePathOf({ tool: e.tool, input: e, isError: false, isReadOnly: false }))) return null
+  // Tệp trạng thái của lượt (0.9.0 B4): ghi vào đó không phải sửa file của việc; lệnh kiểm vẫn theo vai.
+  if (await writesOnlyStateFiles($, core.brief, e)) return null
   const state = S.conductOf(core)
   return { goalId: core.brief.goalId, isExempt: state.solo || state.agentDenied }
 }
