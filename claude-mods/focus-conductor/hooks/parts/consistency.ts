@@ -772,7 +772,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     // Đối chiếu từng yêu cầu router đã trích (0.7.8 G2): một lần mỗi mục tiêu, khóa trong Core; brief isReference thì không.
     const asked = core.brief?.requirements ?? []
     if (isClosing && core.brief !== null && !core.brief.isReference && asked.length > 0 && core.reqNoticed !== core.brief.goalId) {
-      notes.push(requirementsNotice(asked))
+      notes.push(requirementsNotice(asked, core.brief.retired ?? []))
       core = await update($, coreState, S.withReqNoticed(core.brief.goalId))
     }
     // File đã đổi của mục tiêu (0.8.2 N5): sau G2, một lần mỗi mục tiêu, khóa trong Core; brief isReference hay chưa đổi file nào thì không.

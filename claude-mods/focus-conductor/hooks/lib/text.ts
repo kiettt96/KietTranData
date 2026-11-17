@@ -492,13 +492,16 @@ const REQUIREMENTS_NOTICE_ITEMS = 30
  * Lời nhắc đối chiếu từng yêu cầu router đã trích khi checklist đóng hẳn (0.7.8 G2): đánh số, mỗi mục cắt 100 ký tự, tối đa 30 mục;
  * quá trần thì dừng ở mục cuối vừa đủ và thêm "và M yêu cầu nữa trong prompt gốc".
  */
-export function requirementsNotice(requirements: readonly string[]): string {
-  const all = requirements.slice(0, REQUIREMENTS_NOTICE_ITEMS).map((r, i) => `(${i + 1}) ${clipItem(r, 100)}`)
+export function requirementsNotice(requirements: readonly string[], retired: readonly number[] = []): string {
+  // Yêu cầu đã rời kế hoạch (0.9.0 A5, brief.retired) không liệt kê; số của các yêu cầu còn lại giữ như prompt gốc.
+  const open = requirements.map((r, i) => ({ r, n: i + 1 })).filter(item => !retired.includes(item.n))
+  const all = open.slice(0, REQUIREMENTS_NOTICE_ITEMS).map(item => `(${item.n}) ${clipItem(item.r, 100)}`)
   const head = '[focus-conductor] Đối chiếu từng yêu cầu của prompt trước khi kết thúc, mỗi yêu cầu một bằng chứng cụ thể (lệnh đã chạy, kết quả, file):'
   const tail = 'Yêu cầu nào chưa đạt thì thêm bước bằng action "add".'
+  const gone = requirements.length - open.length
   const build = (n: number) => {
-    const rest = requirements.length - n
-    return `${head} ${all.slice(0, n).join('; ')}${rest > 0 ? `; và ${rest} yêu cầu nữa trong prompt gốc` : ''}. ${tail}`
+    const rest = open.length - n
+    return `${head} ${all.slice(0, n).join('; ')}${rest > 0 ? `; và ${rest} yêu cầu nữa trong prompt gốc` : ''}${gone > 0 ? `; đã bỏ ${gone} yêu cầu` : ''}. ${tail}`
   }
   let n = all.length
   while (n > 1 && build(n).length > REQUIREMENTS_NOTICE_CHARS) n -= 1
@@ -686,14 +689,16 @@ export function noChecklistReason(brief: Brief, hasMirror: boolean): string {
   const hasTasks = brief.tasks.length > 0
   const all = hasTasks
     ? brief.tasks.map(t => `Việc ${t.index}: ${clipItem(t.title, 60)}`)
-    : (brief.requirements ?? []).map((r, i) => `(${i + 1}) ${clipItem(r, 80)}`)
+    : (brief.requirements ?? []).flatMap((r, i) => ((brief.retired ?? []).includes(i + 1) ? [] : [`(${i + 1}) ${clipItem(r, 80)}`]))
   const limit = hasTasks ? NO_CHECKLIST_TASKS : NO_CHECKLIST_REQUIREMENTS
   const label = hasTasks ? 'Các việc đã phân' : 'Các yêu cầu router đã trích'
   const unit = hasTasks ? 'việc' : 'yêu cầu'
+  // Yêu cầu đã rời kế hoạch (0.9.0 A5): chỉ còn một dòng đếm.
+  const gone = hasTasks ? 0 : (brief.requirements ?? []).length - all.length
   const build = (n: number) => {
     if (n === 0) return `${head} ${tail}`
     const rest = all.length - n
-    return `${head} ${label}: ${all.slice(0, n).join('; ')}${rest > 0 ? `; và ${rest} ${unit} nữa` : ''}. ${tail}`
+    return `${head} ${label}: ${all.slice(0, n).join('; ')}${rest > 0 ? `; và ${rest} ${unit} nữa` : ''}${gone > 0 ? `; đã bỏ ${gone} yêu cầu` : ''}. ${tail}`
   }
   let n = Math.min(all.length, limit)
   while (n > 0 && build(n).length > NO_CHECKLIST_CHARS) n -= 1
