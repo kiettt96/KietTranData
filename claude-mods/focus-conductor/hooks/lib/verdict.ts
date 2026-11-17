@@ -55,13 +55,14 @@ const PATTERNS: ReadonlyArray<readonly [string, Verdict]> = [
  * kết luận đứng riêng (sau nó không phải chữ cái). Số đếm dạng N/M ngay sau kết luận đi kèm. Không khớp thì null (chưa có kết luận).
  */
 export function verdictOf(answer: string): { verdict: Verdict; count?: string; isCheckOnly?: true } | null {
-  const first = answer.normalize('NFC').split('\n').map(line => line.trim()).find(line => line !== '') ?? ''
+  // Bỏ ký tự rộng 0 (U+200B tới U+200D, U+FEFF) để chúng không lách được từ kết luận.
+  const first = answer.normalize('NFC').replace(/[\u200b-\u200d\ufeff]/gu, '').split('\n').map(line => line.trim()).find(line => line !== '') ?? ''
   // Gộp mọi khoảng trắng (kể cả tab, dấu cách không ngắt) về một dấu cách, để "ĐẠT  HẾT" vẫn là ĐẠT HẾT.
   const line = first.replace(/^[#>*_\s`]+/u, '').replace(/[*_`]+/gu, '').replace(/\s+/gu, ' ').trim()
   const head = line.toLowerCase()
   for (const [word, verdict] of PATTERNS) {
     if (!head.startsWith(word) || /^[\p{L}]/u.test(head.slice(word.length))) continue
-    // Chỉ "ĐẠT", "PASS" đứng riêng là đạt: theo sau là chữ ("ĐẠT KÈM LỖI LỚN", "ĐẠT nhưng ...") thì không phải kết luận.
+    // Chỉ "ĐẠT", "PASS", "SẴN SÀNG", "READY" đứng riêng là kết luận: theo sau là chữ ("ĐẠT KÈM LỖI LỚN", "READY WITH BLOCKERS") thì không.
     if (BARE_PASS.has(word) && /^ \p{L}/u.test(head.slice(word.length))) return null
     const count = /^\s*:?\s*(\d+\s*\/\s*\d+)/u.exec(line.slice(word.length))?.[1]?.replace(/\s+/g, '')
     // "ĐẠT HẾT", "ALL PASS" chỉ là kết luận của bước kiểm (0.9.0 C6), không bao giờ là kết luận duyệt.
@@ -71,8 +72,8 @@ export function verdictOf(answer: string): { verdict: Verdict; count?: string; i
   return null
 }
 
-/** Từ đạt phải đứng riêng (0.9.0 C6, vòng sửa 1 sau kiểm độc lập lần hai). */
-const BARE_PASS: ReadonlySet<string> = new Set(['đạt', 'pass'])
+/** Từ đạt và sẵn sàng phải đứng riêng (0.9.0 C6, hai vòng sửa sau kiểm độc lập lần hai). */
+const BARE_PASS: ReadonlySet<string> = new Set(['đạt', 'pass', 'sẵn sàng', 'ready'])
 
 /** Từ kết luận chỉ của bước kiểm (0.9.0 C6). */
 const CHECK_ONLY: ReadonlySet<string> = new Set(['đạt hết', 'all pass'])
