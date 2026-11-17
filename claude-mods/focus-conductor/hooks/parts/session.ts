@@ -353,12 +353,12 @@ export function registerSession(on: On, ctx: Ctx): void {
         const conductNote = e.turnId === undefined && wanted?.isConducting === true && !isBriefedFor(core, restored.goalId, wanted.family) ? [conductorContext(wanted.family)] : []
         if (conductNote.length > 0 && wanted !== null) await update($, coreState, markBriefed(restored.goalId, wanted.family))
         const backLine = core.plan.length === 0 ? restoreGoalOnlyContext(restored.goal) : restoreResumeContext(restored.goal, openSteps(core.plan)[0])
-        const backPlanning = S.approvalOf(core).status === 'planning' ? [planningContext()] : []
+        const backPlanning = S.approvalOf(core).status === 'planning' ? [planningContext(S.normalizeCore(await read($, coreState)).brief)] : []
         return next({ ...e, context: [...(e.context ?? []), backLine, ...conductNote, ...backPlanning, ...pending] })
       }
       // Kế hoạch đang lập (0.8.2 N2): câu tiếp nối ngắn vẫn kèm đoạn dặn lập kế hoạch. Câu tiếp nối ngắn không phải câu trả lời câu hỏi
       // làm rõ: cờ chờ câu trả lời giữ nguyên (0.8.5 K1).
-      const planning = S.approvalOf(before).status === 'planning' ? [planningContext()] : []
+      const planning = S.approvalOf(before).status === 'planning' ? [planningContext(S.normalizeCore(await read($, coreState)).brief)] : []
       return next({ ...e, context: [...lead, ...(e.context ?? []), skippedContext(prev, before.plan), ...planning, ...(lead.length === 0 ? pending : [])] })
     }
 
@@ -478,7 +478,7 @@ export function registerSession(on: On, ctx: Ctx): void {
         if (conductNote.length > 0 && wanted !== null) await update($, coreState, markBriefed(restored.goalId, wanted.family))
         // Mục tiêu đã cất chưa có checklist (0.8.5 K2): một dòng riêng; đang lập kế hoạch thì kèm đoạn dặn như mọi mục tiêu planning.
         const backLine = core.plan.length === 0 ? restoreGoalOnlyContext(restored.goal) : restoreResumeContext(restored.goal, openSteps(core.plan)[0])
-        const backPlanning = S.approvalOf(core).status === 'planning' ? [planningContext()] : []
+        const backPlanning = S.approvalOf(core).status === 'planning' ? [planningContext(S.normalizeCore(await read($, coreState)).brief)] : []
         return next({ ...e, context: [...lead, ...(e.context ?? []), backLine, ...conductNote, ...backPlanning, ...tail] })
       }
     }
@@ -552,7 +552,7 @@ export function registerSession(on: On, ctx: Ctx): void {
         ? interjectContext(prev, before.plan, [], [], { main: 'model đang chạy', mayReplace: true, isRouted: false })
         : unroutedContext(outcome.reason, bare !== null, prev !== null && prev.tasks.length > 0)
       // Router lỗi khi kế hoạch đang lập (0.8.2 N2): trạng thái giữ nguyên, vẫn dặn lập kế hoạch.
-      const planning = prev !== null && approvalBefore.status === 'planning' ? [planningContext()] : []
+      const planning = prev !== null && approvalBefore.status === 'planning' ? [planningContext(S.normalizeCore(await read($, coreState)).brief)] : []
       return next({ ...e, context: [...lead, ...(e.context ?? []), unrouted, ...planning, ...tail] })
     }
 
@@ -657,7 +657,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       await update($, coreState, S.withApproval(approval))
       if (approval.status !== approvalBefore.status || isNewGoal) record(now, 'approval', { goalId: brief.goalId, status: approval.status, cause: isNewGoal ? 'goal' : intent })
     }
-    const approvalNotes = isAsking ? [askContext(plan.questions ?? [])] : approval.status === 'planning' ? [planningContext()] : []
+    const approvalNotes = isAsking ? [askContext(plan.questions ?? [])] : approval.status === 'planning' ? [planningContext(brief)] : []
     // Kế hoạch sau điều chỉnh (0.8.9 D3): chỉ khi prompt có điều phối lại (gỡ việc hay có thứ tự làm mới); thứ tự là của các việc còn mở.
     const isArranged = arranged !== undefined && (arranged.dropped.length > 0 || arranged.merged.length > 0 || arranged.order.length > 0)
     const workOrder = arranged !== undefined && arranged.order.length > 0 ? arranged.order : brief.tasks.filter(t => states[t.index] !== 'done').map(t => t.index)
@@ -719,7 +719,12 @@ export function registerSession(on: On, ctx: Ctx): void {
     if (e.agentId !== undefined) return next(e)
     if ((await read($, mode)) === 'off') return next(e)
     if (!S.isPlanGated(await read($, coreState))) return next(e)
-    const reason = approvalDenial(e.tool, e as unknown as Record<string, unknown>)
+    // Tệp trạng thái của mục tiêu (0.9.0 B3) ghi được khi chưa duyệt; đường dẫn tương đối neo theo thư mục làm việc rồi thư mục gốc.
+    const gatedBrief = S.normalizeCore(await read($, coreState)).brief
+    const frame = gatedBrief?.stateFiles !== undefined && gatedBrief.stateFiles.length > 0
+      ? { lists: gatedBrief, root: await $.session.root().catch(caught('session.root', null)), cwd: await $.session.cwd().catch(caught('session.cwd', null)) }
+      : null
+    const reason = approvalDenial(e.tool, e as unknown as Record<string, unknown>, frame)
     return reason === null ? next(e) : { deny: reason }
   }).catch(($, e, next) => (noteHookError('tool.call approval', next.error), next(e)))
 
