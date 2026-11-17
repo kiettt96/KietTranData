@@ -53,3 +53,58 @@ export function scopeStatus(path: string, scopePaths: readonly string[], root?: 
 export function isInScope(path: string, scopePaths: readonly string[], root?: string | null, cwd?: string | null): boolean {
   return scopeStatus(path, scopePaths, root, cwd) === 'in'
 }
+
+/** Thư mục nhà của phiên (0.9.0 A2), từ biến HOME khi engine cho biết; null là chưa biết. */
+let homeDir: string | null = null
+
+/** Áp thư mục nhà cho lần nạp mod này (0.9.0 A2); null hay chuỗi không phải đường dẫn tuyệt đối là chưa biết. */
+export function applyHome(home: string | null | undefined): void {
+  homeDir = typeof home === 'string' && home.startsWith('/') ? normalizePath(home) : null
+}
+
+/**
+ * Đích mở đầu `~/`, `$HOME/` hay `${HOME}/` (0.9.0 A2), phần sau không có `$`, backtick hay ký tự glob: đường dẫn dưới thư mục nhà. Biết
+ * thư mục nhà thì giải thành đường dẫn tuyệt đối, chưa biết thì giữ dạng `~/...`. Dạng khác (`~user/x`, `$OTHER/x`) trả null.
+ */
+export function homeTarget(token: string): string | null {
+  const match = /^(?:~|\$HOME|\$\{HOME\})\/(.+)$/.exec(token)
+  const rest = match?.[1]
+  if (rest === undefined || /[$`*?]/.test(rest)) return null
+  const tail = normalizePath(rest)
+  if (tail === '' || tail.startsWith('..')) return null
+  return homeDir !== null ? normalizePath(`${homeDir}/${tail}`) : `~/${tail}`
+}
+
+/** Hai danh sách của mục tiêu (0.9.0 B1): tệp trạng thái và nơi ghi phụ prompt cho phép. */
+export type SideLists = { stateFiles?: readonly string[]; sideWrites?: readonly string[] }
+
+/** Một mục hay một đường dẫn thành dạng so được: `~/` giải theo thư mục nhà, tương đối nối vào `from` (khi có). */
+function sideKey(item: string, from: string | null): string {
+  const unified = item.trim().replace(/\\/g, '/').replace(/\/+$/, '')
+  const home = homeTarget(unified)
+  const path = home ?? unified
+  if (path.startsWith('/') || path.startsWith('~') || from === null) return normalizePath(path)
+  return normalizePath(`${from}/${path}`)
+}
+
+/**
+ * Đường dẫn thuộc tệp trạng thái hay nơi ghi phụ của mục tiêu (0.9.0 B1 tới B6): bằng một mục, hay nằm dưới một mục (thư mục); mục chỉ là
+ * tên tệp thì khớp theo tên tệp. `which` 'state' chỉ xét tệp trạng thái. Đường dẫn tương đối neo theo `cwd`, không có thì theo `root`.
+ * Danh sách rỗng là không khớp.
+ */
+export function isSidePath(path: string, lists: SideLists | null | undefined, root?: string | null, cwd?: string | null, which: 'state' | 'all' = 'all'): boolean {
+  if (lists === null || lists === undefined || path.trim() === '') return false
+  const entries = which === 'state' ? [...(lists.stateFiles ?? [])] : [...(lists.stateFiles ?? []), ...(lists.sideWrites ?? [])]
+  if (entries.length === 0) return false
+  const base = root ? normalizePath(root) : null
+  const from = cwd ? sideKey(cwd, base) : base
+  const file = sideKey(path, from)
+  const name = file.split('/').pop() ?? ''
+  return entries.some(entry => {
+    const clean = entry.trim().replace(/\\/g, '/').replace(/\/+$/, '')
+    if (clean === '') return false
+    if (!clean.includes('/')) return name === clean
+    const key = sideKey(clean, base)
+    return file === key || file.startsWith(`${key}/`)
+  })
+}

@@ -3,7 +3,8 @@
 
 import { describe, expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
-import { base, plan, submit } from '../support/engine'
+import { base, plan, spawnTool, submit } from '../support/engine'
+import { applyHome, isSidePath } from '../../hooks/lib/drift/scope'
 
 const BAND = { plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: true, maxRows: 6, bodyColumns: 160, scroll: { offset: 0, bodyRows: 6 }, view: {} } } as const
 const PLAN = 'mcp__focus-conductor__plan'
@@ -57,6 +58,20 @@ describe('0.9.0 B2: tệp trạng thái và nơi ghi phụ không lệch phạm 
     expect(text).not.toContain('/work/backup')
   })
 
+  test('subagent ghi TIEN-DO.md: không cảnh báo ngoài phạm vi', { options: { planApproval: 'off', remindSubagents: true } }, async ($, on) => {
+    base(on, { router: () => GOAL, root: '/work/repo' })
+    on('tool.call', { tool: 'Write' }, () => ({ result: 'đã ghi' }))
+    on('tool.call', { tool: 'Agent' }, () => ({ result: 'đã giao' }))
+    on('agent.spawn', (_$, e) => ({ model: 'claude-sonnet-5-5', agentId: `a-${e.tool_use_id}` }))
+    await submit($, 'Sửa thống kê trong src/thong-ke.sh')
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa' }] } as never)
+    await spawnTool($, 'u1', 'Ghi tiến độ', 'Ghi tiến độ vào tệp')
+    const w = (await $.tool.call({ tool: 'Write', file_path: `${WORK}/TIEN-DO.md`, content: 'x', agentId: 'a-u1' } as never)) as Out
+    expect(ctx(w)).not.toContain('ngoài phạm vi')
+    const other = (await $.tool.call({ tool: 'Write', file_path: `${WORK}/KHAC.md`, content: 'x', agentId: 'a-u1' } as never)) as Out
+    expect(ctx(other)).toContain('ngoài phạm vi')
+  })
+
   test('đối chứng: Write vào đường dẫn khác ngoài phạm vi vẫn cảnh báo', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, { router: () => GOAL, root: '/work/repo' })
     on('tool.call', { tool: 'Write' }, () => ({ result: 'đã ghi' }))
@@ -64,5 +79,36 @@ describe('0.9.0 B2: tệp trạng thái và nơi ghi phụ không lệch phạm 
     await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa' }] } as never)
     const w = (await $.tool.call({ tool: 'Write', file_path: `${WORK}/KHAC.md`, content: 'x' } as never)) as Out
     expect(ctx(w)).toContain('ngoài phạm vi')
+  })
+})
+
+describe('0.9.0 B2: isSidePath', () => {
+  const lists = { stateFiles: ['/work/run/TIEN-DO.md', 'DIEM-DUNG.md'], sideWrites: ['/work/backup', '~/sao-luu'] }
+  test('bằng mục, nằm dưới thư mục, khớp tên tệp khi mục chỉ là tên', () => {
+    expect(isSidePath('/work/run/TIEN-DO.md', lists)).toBe(true)
+    expect(isSidePath('/work/backup/a/b.ts', lists)).toBe(true)
+    expect(isSidePath('/x/DIEM-DUNG.md', lists)).toBe(true)
+    expect(isSidePath('/work/backupx/a.ts', lists)).toBe(false)
+    expect(isSidePath('/work/run/KHAC.md', lists)).toBe(false)
+  })
+  test('đường dẫn tương đối neo theo cwd rồi tới root', () => {
+    expect(isSidePath('../run/TIEN-DO.md', lists, '/work/repo')).toBe(true)
+    expect(isSidePath('TIEN-DO.md', { stateFiles: ['/work/run/TIEN-DO.md'] }, '/work/repo', '/work/run')).toBe(true)
+    expect(isSidePath('TIEN-DO.md', { stateFiles: ['/work/run/TIEN-DO.md'] }, '/work/repo')).toBe(false)
+  })
+  test('mục ~/ khớp đường dẫn đã giải theo thư mục nhà', () => {
+    applyHome('/home/me')
+    try {
+      expect(isSidePath('/home/me/sao-luu/x.md', lists)).toBe(true)
+    } finally {
+      applyHome(null)
+    }
+    expect(isSidePath('~/sao-luu/x.md', lists)).toBe(true)
+  })
+  test('which state chỉ xét tệp trạng thái; danh sách rỗng là không khớp', () => {
+    expect(isSidePath('/work/backup/a.md', lists, null, null, 'state')).toBe(false)
+    expect(isSidePath('/work/run/TIEN-DO.md', lists, null, null, 'state')).toBe(true)
+    expect(isSidePath('/a.md', {})).toBe(false)
+    expect(isSidePath('/a.md', null)).toBe(false)
   })
 })
