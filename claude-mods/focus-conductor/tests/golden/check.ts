@@ -73,8 +73,18 @@ export function check(c: GoldenCase, reply: string): string[] {
   if (e.reference !== undefined && plan.isReference !== e.reference) fails.push(`reference ${plan.isReference}, cần ${e.reference}`)
   if (e.kind !== undefined && !e.kind.includes(plan.kind)) fails.push(`kind ${plan.kind}, cần ${e.kind.join('|')}`)
   if (!e.main.includes(plan.main.family)) fails.push(`luồng chính ${plan.main.family}/${plan.main.effort}, cần ${e.main.join('|')}`)
+  // Số việc (0.9.0 C3): việc vai audit, review, design của đội hình không tính; khối một việc thành một việc build kèm đội hình thì tính như [].
   const [low, high] = e.tasks
-  if (plan.tasks.length < low || plan.tasks.length > high) fails.push(`${plan.tasks.length} việc, cần ${low} tới ${high}`)
+  const TEAM = new Set(['audit', 'review', 'design'])
+  const isTeam = (i: number) => TEAM.has(plan.tasks[i]?.role ?? '')
+  let head = 0
+  while (head < plan.tasks.length && plan.tasks[head]?.role === 'design') head += 1
+  let tail = plan.tasks.length
+  while (tail > head && isTeam(tail - 1)) tail -= 1
+  // Chỉ bỏ việc đội hình thêm vào: design đứng đầu và chuỗi audit, review, design đứng cuối; việc kiểm có mã của chính prompt vẫn tính.
+  const work = tail - head
+  const isOnePiece = low === 0 && work === 1 && work < plan.tasks.length
+  if (!isOnePiece && (work < low || work > high)) fails.push(`${work} việc${work < plan.tasks.length ? ` (không tính ${plan.tasks.length - work} việc kiểm của đội hình)` : ''}, cần ${low} tới ${high}`)
   if (e.requirements !== undefined) {
     const [least, most] = e.requirements
     if (plan.requirements.length < least || plan.requirements.length > most) fails.push(`${plan.requirements.length} yêu cầu, cần ${least} tới ${most}`)

@@ -159,7 +159,7 @@ for (const { c, runs } of summary) {
   console.log(`  ${c.id.padEnd(14)} ${pct(secs, 0.5).toFixed(1)} / ${pct(secs, 0.95).toFixed(1)} / ${Math.max(...secs).toFixed(1)} s; token ${pct(toks, 0.5)} / ${pct(toks, 0.95)} / ${Math.max(...toks)}`)
 }
 console.log(`  Thời gian TB ${(mean(results.map(r => r.ms)) / 1000).toFixed(1)} s; chi phí ${results.reduce((sum, r) => sum + r.usd, 0).toFixed(3)} USD cho ${results.length} lượt (TB ${(results.reduce((sum, r) => sum + r.usd, 0) / Math.max(1, results.length)).toFixed(4)} USD)`)
-if (OUT) writeFileSync(OUT, JSON.stringify({ version, startedAt, model: MODEL, runs: RUNS, results: results.map(r => ({ id: r.c.id, n: r.n, ok: r.fails.length === 0, fails: r.fails, ms: r.ms, inTokens: r.inTokens, outTokens: r.outTokens, usd: r.usd, hasArrange: r.hasArrange, removed: r.removed, guarded: r.guarded, stats: r.stats })) }, null, 2))
+if (OUT) writeFileSync(OUT, JSON.stringify({ version, startedAt, model: MODEL, runs: RUNS, results: results.map(r => ({ id: r.c.id, n: r.n, ok: r.fails.length === 0, fails: r.fails, text: r.text, ms: r.ms, inTokens: r.inTokens, outTokens: r.outTokens, usd: r.usd, hasArrange: r.hasArrange, removed: r.removed, guarded: r.guarded, stats: r.stats })) }, null, 2))
 
 const total = summary.reduce((sum, s) => sum + s.passed, 0)
 const attempts = summary.reduce((sum, s) => sum + s.runs.length, 0)

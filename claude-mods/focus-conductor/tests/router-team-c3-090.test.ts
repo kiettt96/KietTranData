@@ -18,7 +18,8 @@ describe('0.9.0 C3: lời dặn router về đội hình', () => {
       'Team roles:',
       'depth none or light: no added audit, review or design tasks',
       'depth substantial, kind edit or mixed: after the build tasks, one audit task',
-      'one audit task (only when a check command is known from the request or the project) and then one review task, last, in that order',
+      'one audit task (only when a check command is known from the request or the project), then one review task, last',
+      'one piece of work is then one build task, not []',
       'depth hard: also one design task first when the request changes structure widely or touches security or data, and one design readiness task last, after the review',
       'do not add a duplicate',
       'business, permission, data or cost decisions',
@@ -33,6 +34,8 @@ describe('0.9.0 C3: lời dặn router về đội hình', () => {
   })
   test('tổng phần thêm so với 0.8.9 không quá 2.000 ký tự, phần của nhóm C không quá 1.500', () => {
     expect(text.length - 10888).toBeLessThanOrEqual(2000)
-    expect(text.length - 11332).toBeLessThanOrEqual(1500)
+    const team = text.slice(text.indexOf('Team roles:'), text.indexOf('Reading the request:'))
+    const groupC = [team, '; also running checks and reporting pass or fail', ' (including business, permission, data or cost decisions the request leaves open)', ' "role": "design"|"review"|"build"|"search"|"audit",']
+    expect(groupC.reduce((sum, part) => sum + (text.includes(part) ? part.length : 0), 0)).toBeLessThanOrEqual(1500)
   })
 })
