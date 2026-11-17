@@ -22,7 +22,7 @@ import { applyPlan } from '../lib/plan'
 import type { RetryLine } from '../lib/text'
 import type { PlanInput } from '../lib/plan'
 import { describePick, familyOf } from '../lib/route'
-import { askRouter, driftRequest, nextLevel, openPhase, parseDrift, parsePlanReview, planReviewRequest } from '../lib/router'
+import { askRouter, driftRequest, nextLevel, openPhase, parseDrift, parsePlanReview, planReviewRequest, topFamily } from '../lib/router'
 import { hasFixes, reviewReason } from '../lib/approval'
 import { taskRows } from '../lib/progress'
 import { EMPTY_QUOTA, evaluateQuota, normalizeQuota, quotaSettings, softNotices } from '../lib/quota'
@@ -69,6 +69,20 @@ async function writesOnlyStateFiles($: EngineInterface, brief: Brief, e: { tool:
   const classified = classifyBash(String(e['command'] ?? ''))
   if (classified.isUnknown || classified.effects.length === 0) return false
   return classified.effects.every(effect => effect.kind === 'write' && effect.paths.length > 0 && effect.paths.every(path => isSidePath(path, brief, root, cwd, 'state')))
+}
+
+/**
+ * Câu dặn vòng sửa theo kết luận CHƯA ĐẠT (0.9.0 C7), không quá 200 ký tự: vòng 1 chuyển nguyên văn phần lỗi cho đúng việc và agent đã làm;
+ * vòng 2 (trước vòng 3) giao vai thiết kế chẩn đoán bằng model mạnh nhất được phép; hết trần thì ghi blocked và dừng lại hỏi người dùng.
+ */
+export function verdictRetryNote(name: string, round: number, top: ModelFamily): string {
+  const text =
+    round >= RETRY_ROUNDS
+      ? `[focus-conductor] Vai ${name} báo CHƯA ĐẠT sau ${RETRY_ROUNDS} vòng: ghi bước blocked kèm phần lỗi, dừng lại hỏi người dùng.`
+      : round === RETRY_ROUNDS - 1
+        ? `[focus-conductor] Vai ${name} báo CHƯA ĐẠT (vòng ${round}/${RETRY_ROUNDS}): trước vòng ${RETRY_ROUNDS}, giao một việc vai thiết kế (Agent Plan) chẩn đoán bằng ${top}, rồi mới sửa.`
+        : `[focus-conductor] Vai ${name} báo CHƯA ĐẠT (vòng ${round}/${RETRY_ROUNDS}): chuyển nguyên văn phần lỗi cho đúng việc và agent đã làm phần đó, rồi giao kiểm lại.`
+  return text.slice(0, 200)
 }
 
 /** Lần chặn tối đa của cổng đóng mục tiêu cho một mục tiêu (0.9.0 C6), và trần ký tự của lý do. */
@@ -1466,6 +1480,22 @@ export function registerConsistency(on: On, ctx: Ctx): void {
         if (L.verdicts.items.length > 100) L.verdicts.items.shift()
         record(at, 'verdict', { agentId, role: meta.role, verdict: parsed?.verdict ?? null, ...(parsed?.count !== undefined ? { count: parsed.count } : {}) })
         await flushDecisions((path, text) => $.fs.write(path, text))
+        // Vòng sửa theo kết luận (0.9.0 C7): CHƯA ĐẠT của audit hay review tính vòng cho cùng một mục (vai và việc), trần RETRY_ROUNDS.
+        const roundKey = `${meta.goalId}:${meta.role}:${meta.taskIndex ?? meta.description}`
+        if (parsed?.verdict === 'pass') L.verdictRounds.delete(roundKey)
+        if (parsed?.verdict === 'fail' && (meta.role === 'audit' || meta.role === 'review')) {
+          const round = (L.verdictRounds.get(roundKey) ?? 0) + 1
+          if (L.verdictRounds.size < 200) L.verdictRounds.set(roundKey, round)
+          const name = labels(langOf(ctx.options['uiLanguage'])).roleNames[meta.role]
+          L.agentRetryNotes.push(verdictRetryNote(name, round, topFamily(ctx.policy())))
+          if (round >= RETRY_ROUNDS) {
+            const text = `Chưa đạt sau ${RETRY_ROUNDS} vòng: ${clipText(meta.description)}`
+            await update($, coreState, S.withWarnings({ at, kind: 'loop', text }))
+            $.ui.toast(text)
+            record(at, 'retry-exhausted', { role: meta.role, description: clipText(meta.description), round })
+          }
+          await flushDecisions((path, text) => $.fs.write(path, text))
+        }
       }
       // Tiến độ từng việc (0.6.1): chỉ 'answer' là xong; còn lại là lỗi, hoặc bị cắt nếu đang tạm dừng vì hạn mức.
       const end = agentEnd(e.reason, normalizeQuota(await read($, quotaState)).pause !== null)

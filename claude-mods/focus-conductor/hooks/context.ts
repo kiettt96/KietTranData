@@ -147,6 +147,8 @@ export function createContext(options: PluginOptions) {
     /** Cổng đóng mục tiêu (0.9.0 C6): số lần chặn và trạng thái thiếu đã chặn; mục tiêu đã miễn bằng /conductor waive review. */
     closingState: { goalId: -1, blocks: 0, key: '' },
     closingWaived: -1,
+    /** Số vòng CHƯA ĐẠT liên tiếp theo mục (mục tiêu, vai, việc) (0.9.0 C7). */
+    verdictRounds: new Map<string, number>(),
     clashWarned: new Set<string>(),
     /** ID engine đã phục vụ theo họ (0.8.7 M1, usage.model của turn), cho dòng "Model đang dùng" và cảnh báo phiên bản một lần mỗi họ. */
     served: new Map<ModelFamily, string>(),
@@ -624,6 +626,7 @@ export function createContext(options: PluginOptions) {
     local.agentWrites.clear()
     local.closingState = { goalId: -1, blocks: 0, key: '' }
     local.closingWaived = -1
+    local.verdictRounds.clear()
     local.clashWarned.clear()
     local.served.clear()
     local.conductorSessionNoticed = false
