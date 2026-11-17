@@ -2,7 +2,7 @@
 // Chuyển nguyên văn từ hooks/lib/drift.ts (tách theo tầng, không đổi hành vi); hooks/lib/drift.ts là barrel.
 
 import type { CheckKind } from './verify'
-import { customKey, isCheckTool } from './verify'
+import { checkScopeOf, customKey, inCheckScope, isCheckTool } from './verify'
 import { FILE_TOOLS, filePathOf, isPlanFile, str } from './tool'
 import type { ToolObservation } from './tool'
 import { classifyBash } from './classify'
@@ -55,7 +55,8 @@ export type EvidenceLog = {
   lastHard: number
   commands: EvidenceEntry[]
   /** Các lần ghi theo thứ tự và tác giả, để biết lần kiểm tra của một subagent phủ thay đổi của ai. */
-  writes: Array<{ seq: number; author: string }>
+  /** 0.9.0 B11: đích của lần ghi (tối đa WRITE_PATHS, vắng khi không đọc được) và lần ghi có là thay đổi không nhẹ. */
+  writes: Array<{ seq: number; author: string; paths?: string[]; hard?: boolean }>
   paths: string[]
 }
 
@@ -68,6 +69,8 @@ const EVIDENCE_CHECKS = 100
 const EVIDENCE_OTHERS = 100
 const EVIDENCE_PATHS = 200
 const EVIDENCE_WRITES = 300
+/** Số đích giữ cho mỗi lần ghi (0.9.0 B11). */
+const WRITE_PATHS = 8
 
 export function newEvidenceLog(goalId: number): EvidenceLog {
   return { goalId, seq: 0, lastMutation: -1, mutations: 0, hard: 0, lastHard: -1, commands: [], writes: [], paths: [] }
@@ -82,7 +85,7 @@ export function noteEvidence(log: EvidenceLog, observation: ToolObservation, aut
   const isSide = (path: string) => isSidePath(path, sides, null, observation.cwd ?? null)
   // Cờ dùng chung thư mục (0.8.6 R2) chỉ cho lần kiểm của subagent.
   const shared = isShared && author !== 'main' ? { shared: true as const } : {}
-  const onWrite = (isHard: boolean) => {
+  const onWrite = (isHard: boolean, paths: readonly string[] | null = null) => {
     log.seq += 1
     log.lastMutation = log.seq
     log.mutations += 1
@@ -90,7 +93,7 @@ export function noteEvidence(log: EvidenceLog, observation: ToolObservation, aut
       log.hard += 1
       log.lastHard = log.seq
     }
-    log.writes.push({ seq: log.seq, author })
+    log.writes.push({ seq: log.seq, author, ...(paths !== null && paths.length > 0 ? { paths: paths.slice(0, WRITE_PATHS) } : {}), ...(isHard ? { hard: true } : {}) })
     if (log.writes.length > EVIDENCE_WRITES) log.writes.shift()
   }
   const command = str(observation.input['command']).trim()
@@ -100,7 +103,7 @@ export function noteEvidence(log: EvidenceLog, observation: ToolObservation, aut
     let hasCheck = false
     for (const effect of classified.effects) {
       if (effect.kind === 'write') {
-        if (counted.has(effect)) onWrite(isHardEffect(effect, isSide))
+        if (counted.has(effect)) onWrite(isHardEffect(effect, isSide), effect.isUnknown ? null : effect.paths)
         continue
       }
       hasCheck = true
@@ -130,7 +133,7 @@ export function noteEvidence(log: EvidenceLog, observation: ToolObservation, aut
     trimCommands(log)
   } else if (FILE_TOOLS.has(observation.tool) && !observation.isError && !isPlanFile(filePathOf(observation))) {
     // File skill (0.8.2 N3) không vào số thay đổi chắc chắn của cổng Y6.
-    onWrite(!isSoftPath(filePathOf(observation)) && !isSkillPath(filePathOf(observation)) && !isSide(filePathOf(observation)))
+    onWrite(!isSoftPath(filePathOf(observation)) && !isSkillPath(filePathOf(observation)) && !isSide(filePathOf(observation)), [filePathOf(observation)])
   } else {
     log.seq += 1
   }
@@ -160,9 +163,20 @@ function trimCommands(log: EvidenceLog): void {
  * Sau lần đạt đó còn một lần chạy test lỗi của luồng chính hay mang cờ shared (0.8.7 B1) thì cũng không có: lần lỗi mới hơn cho thấy test
  * chưa đạt. Lần lỗi của subagent chạy thư mục riêng không xét; lần kiểm nối && (chained) là kết quả chưa rõ nên không tính là lỗi.
  */
+/**
+ * Lần kiểm có phủ phạm vi của mọi thay đổi không nhẹ từ lần kiểm đạt trước nó (0.9.0 B11): lệnh khai không có phạm vi (hay không phải lệnh
+ * khai) luôn phủ; lệnh có phạm vi chỉ phủ khi mọi thay đổi không nhẹ trong khoảng đó có đích đọc được và khớp phạm vi.
+ */
+export function coversScope(entry: EvidenceEntry, log: EvidenceLog): boolean {
+  const scope = checkScopeOf(entry.raw ?? entry.command) ?? checkScopeOf(entry.command)
+  if (scope === null) return true
+  const lastPass = log.commands.filter(c => c.check !== null && c.ok && c.seq < entry.seq && checkScopeOf(c.raw ?? c.command) === null).reduce((max, c) => Math.max(max, c.seq), -1)
+  return log.writes.filter(w => w.hard === true && w.seq > lastPass && w.seq < entry.seq).every(w => (w.paths ?? []).length > 0 && (w.paths ?? []).every(path => inCheckScope(path, scope)))
+}
+
 export function freshTestRun(log: EvidenceLog): EvidenceEntry | undefined {
   if (log.mutations === 0) return undefined
-  const pass = [...log.commands].reverse().find(c => c.check === 'test' && c.ok && c.seq > log.lastMutation && covers(c, log))
+  const pass = [...log.commands].reverse().find(c => c.check === 'test' && c.ok && c.seq > log.lastMutation && covers(c, log) && coversScope(c, log))
   if (pass === undefined) return undefined
   const isFailedAfter = log.commands.some(c => c.check === 'test' && !c.ok && c.chained !== true && c.seq > pass.seq && (c.author === 'main' || c.shared === true))
   return isFailedAfter ? undefined : pass

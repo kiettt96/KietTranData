@@ -7,6 +7,7 @@
 //
 // Công cụ chạy bằng tên trần. CHỈ tên trong danh sách này mới được bọc (npx, pnpm exec, uv run...): phần bọc không
 // bao giờ tự biến một lệnh thành lệnh kiểm tra, nên `pnpm add x`, `yarn install`, `bunx create-x` vẫn là ghi.
+import { globToRegExp } from './soft'
 const CHECK_TOOLS = 'tsc|pytest|jest|vitest|mocha|eslint|ruff|mypy|flake8|pyright|biome|stylelint|rspec|phpunit|shellcheck|tox'
 const TEST_TOOLS = 'pytest|jest|vitest|mocha|rspec|phpunit|tox'
 // Dạng bọc đã biết, danh tính giữ nguyên tiền tố (`pnpm exec tsc -p x` khác `tsc -p x`).
@@ -88,8 +89,40 @@ export function parseCheckCommands(raw: unknown): string[][] {
 }
 
 /** Áp danh sách lệnh kiểm tra riêng cho lần nạp mod này; danh sách rỗng là bỏ hết. */
+/** Dấu tách phạm vi của một mục checkCommands (0.9.0 B11): `bun test @@ src/**;tests/**`. Không lệnh nào có token đúng bằng `@@`. */
+export const SCOPE_MARK = '@@'
+
+/** Phạm vi đường dẫn của từng lệnh khai, cùng thứ tự với customChecks (0.9.0 B11); null là không có phạm vi. */
+let customScopes: (RegExp[] | null)[] = []
+
+/** Tách một mục checkCommands thành lệnh và glob phạm vi (0.9.0 B11); mục không có `@@` thì phạm vi là null, lệnh giữ nguyên từng token. */
+export function splitCheckScope(tokens: readonly string[]): { command: string[]; scope: string[] | null } {
+  const at = tokens.indexOf(SCOPE_MARK)
+  if (at < 0) return { command: [...tokens], scope: null }
+  const scope = tokens.slice(at + 1).join(' ').split(';').map(item => item.trim()).filter(Boolean)
+  return { command: tokens.slice(0, at), scope: scope.length > 0 ? scope : null }
+}
+
 export function applyCheckCommands(commands: string[][]): void {
-  customChecks = commands.map(tokens => lowerTokens(tokens))
+  const split = commands.map(splitCheckScope)
+  customChecks = split.map(entry => lowerTokens(entry.command))
+  customScopes = split.map(entry => (entry.scope === null ? null : entry.scope.map(globToRegExp)))
+}
+
+/**
+ * Phạm vi của lệnh khai mà `text` khớp (0.9.0 B11): lệnh khai đầu tiên khớp quyết định; không khớp lệnh khai nào, hay lệnh khai đó không có
+ * phạm vi, thì null (lệnh phủ mọi thay đổi như 0.8.9).
+ */
+export function checkScopeOf(text: string): RegExp[] | null {
+  const tokens = lowerTokens(text.trim().split(/\s+/).filter(Boolean))
+  const at = customChecks.findIndex(command => command.length !== 0 && command.every((token, i) => matchesToken(token, tokens[i])))
+  return at < 0 ? null : (customScopes[at] ?? null)
+}
+
+/** Đường dẫn khớp một glob của phạm vi (0.9.0 B11), so trên dạng dấu / sau chuẩn hóa. */
+export function inCheckScope(path: string, scope: readonly RegExp[]): boolean {
+  const unified = path.replace(/\\/g, '/')
+  return scope.some(re => re.test(unified))
 }
 
 /** Tool MCP người dùng khai là tool kiểm (option checkTools, 0.7.9 Y4); mod không tự đoán theo tên. */
