@@ -15,3 +15,27 @@ describe('0.9.0 B10: lệnh của bước đọc từ trường check', () => {
     expect(stepCheckOf(undefined)).toBeNull()
   })
 })
+
+import { applyCheckCommands, parseCheckCommands } from '../hooks/lib/drift'
+import { strength } from './support/commands'
+
+describe('0.9.0 B10 (phiên thật D1): evidence viết theo dạng check `lệnh => kết quả`', () => {
+  test('"bash tests/kiem.sh => TỔNG: ĐẠT" sau lần chạy đạt của lệnh khai: strong, được nhận', () => {
+    applyCheckCommands(parseCheckCommands('bash tests/kiem.sh'))
+    try {
+      const out = strength([['bash tests/kiem.sh', { output: 'K1: ĐẠT\nTỔNG: ĐẠT' }]], 'bash tests/kiem.sh => TỔNG: ĐẠT')
+      expect(out.level).toBe('strong')
+      expect(out.accepted).toBe(true)
+    } finally {
+      applyCheckCommands([])
+    }
+  })
+  test('đối chứng: dạng "lệnh: kết quả" vẫn như cũ', () => {
+    applyCheckCommands(parseCheckCommands('bash tests/kiem.sh'))
+    try {
+      expect(strength([['bash tests/kiem.sh', { output: 'TỔNG: ĐẠT' }]], 'bash tests/kiem.sh: TỔNG: ĐẠT').accepted).toBe(true)
+    } finally {
+      applyCheckCommands([])
+    }
+  })
+})

@@ -139,7 +139,7 @@ describe('0.9.0 B10: bằng chứng theo từng bước', () => {
   test('lần chạy mới nhất của lệnh của bước lỗi: không nâng dù lần trước đạt', OFF, async ($, on) => {
     let n = 0
     setup(on, {})
-    on('tool.call', { tool: 'Bash' }, () => ({ result: n++ === 0 ? '1' : 'FAIL: 2 lỗi', isError: n > 1 }))
+    on('tool.call', { tool: 'Bash' }, () => ({ result: n++ === 0 ? '1' : 'FAIL: 2 lỗi', isError: n > 1 }) as never)
     await start($)
     await edit($)
     await bash($, GREP)

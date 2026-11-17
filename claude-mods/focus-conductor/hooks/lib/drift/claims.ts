@@ -287,7 +287,9 @@ function mentionsScript(words: string[], entry: EvidenceEntry): boolean {
  * Mỗi lệnh được nhắc tính theo lần chạy cuối của chính nó và phải đạt sau thay đổi cuối. Không phân tích câu phủ định:
  * lệnh được nhắc mà chưa chạy thì bị từ chối dù câu nói "chưa chạy"; lệnh đã chạy đạt thì vẫn được tính.
  */
-export function evidenceStrength(evidence: string, log: EvidenceLog): EvidenceStrength {
+export function evidenceStrength(raw: string, log: EvidenceLog): EvidenceStrength {
+  // Dạng check của bước (0.9.0 B10) là `lệnh => kết quả`: " => " tách lệnh với kết quả như dấu ":".
+  const evidence = raw.replace(/\s=>\s/g, ': ')
   const text = evidence.toLowerCase()
   const words = evidenceWords(evidence)
   const spans = log.commands.flatMap(entry =>

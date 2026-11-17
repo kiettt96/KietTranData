@@ -2476,4 +2476,5 @@ export const MUTANTS: Mutant[] = [
   { id: "090-B12g", file: "hooks/parts/session.ts", note: "context duyệt không nêu chỉnh kèm", old: "${approvedAdds.length > 0 ? ` Chỉnh kèm lời duyệt: ${approvedAdds.join('; ')}.` : ''}", new: "" },
   { id: "090-B13a", file: "hooks/lib/router.ts", note: "bỏ câu dòng có mã của bảng mục việc", old: ", and every row of a table or list of work items that starts with a code (M1, A2, B10) is its own task, in the request's order,", new: ", in the request's order," },
   { id: "090-B13b", file: "hooks/lib/router.ts", note: "trả trần 6 cho constraints", old: "- constraints: the hard rules (must, must not, only, format, scope)", new: "- constraints: at most 6 hard rules (must, must not, only, format, scope)" },
+  { id: "090-B10p", file: "hooks/lib/drift/claims.ts", note: "evidence dạng lệnh => kết quả không tách như dấu :", old: "  const evidence = raw.replace(/\\s=>\\s/g, ': ')\n", new: "  const evidence = raw\n" },
 ]
