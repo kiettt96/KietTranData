@@ -149,6 +149,7 @@ export function check(c: GoldenCase, reply: string): string[] {
   for (const path of e.sideWrites ?? []) if (!plan.sideWrites.some(x => x.includes(path))) fails.push(`sideWrites ${JSON.stringify(plan.sideWrites)}, cần có ${path}`)
   if (e.noSides === true && plan.stateFiles.length + plan.sideWrites.length > 0) fails.push(`có stateFiles hay sideWrites khi prompt không nêu: ${JSON.stringify([...plan.stateFiles, ...plan.sideWrites])}`)
   if (e.constraints !== undefined && (plan.constraints.length < e.constraints[0] || plan.constraints.length > e.constraints[1])) fails.push(`${plan.constraints.length} ràng buộc, cần ${e.constraints[0]} tới ${e.constraints[1]}`)
+  if (e.depths !== undefined && !e.depths.includes(plan.depth)) fails.push(`depth ${plan.depth}, cần ${e.depths.join('|')}`)
   const asked = plan.questions?.length ?? 0
   if (e.questions !== undefined && (asked < e.questions[0] || asked > e.questions[1])) fails.push(`${asked} câu hỏi, cần ${e.questions[0]} tới ${e.questions[1]}`)
   // Tiếp nối không được lập mục tiêu mới; mục tiêu mới phải có câu mục tiêu.
