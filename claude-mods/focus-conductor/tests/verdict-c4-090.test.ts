@@ -70,3 +70,25 @@ describe('0.9.0 C4: dòng mẫu báo cáo', () => {
     expect(prompts[1]).toBe('Làm việc này.')
   })
 })
+
+describe('0.9.0 C4: mod ghi kết luận của subagent', () => {
+  test('subagent vai audit trả lời "CHƯA ĐẠT 2/13": dòng verdict ghi fail kèm 2/13; câu trả lời không có kết luận: verdict null', { options: { planApproval: 'off', decisionLog: '/tmp/fc-verdict-c4-090.jsonl' } }, async ($: Engine, on) => {
+    base(on, { router: () => plan({ goal: 'Sửa phí', depth: 'substantial', volume: 'medium', kind: 'edit', tasks: [task('Chạy kiểm', 'agent', 'haiku', 'low', { role: 'audit', kind: 'investigate' })] }) })
+    const writes: string[] = []
+    on('fs.write', (_$, e) => {
+      writes.push(e.text)
+      return { value: undefined }
+    })
+    on('tool.call', { tool: 'Agent' }, () => ({ result: 'ok' }))
+    on('agent.spawn', (_$, e) => ({ model: 'claude-haiku-5-5', agentId: `a-${String((e as { tool_use_id?: unknown }).tool_use_id)}` }) as never)
+    on('turn.complete', () => ({ text: '' }))
+    await submit($, 'Sửa phí')
+    for (const [id, answer] of [['t1', 'CHƯA ĐẠT 2/13\n- K2 lệch'], ['t2', 'Xong rồi.']]) {
+      await $.tool.call({ tool: 'Agent', tool_use_id: id, description: 'Việc 1: Chạy kiểm', prompt: 'Chạy kiểm.' } as never)
+      await $.agent.spawn({ prompt: 'Chạy kiểm.', description: 'Việc 1: Chạy kiểm', tool_use_id: id } as never)
+      await $.turn.complete({ turnId: `x-${id}`, agentId: `a-${id}`, answer, durationMs: 5, isAborted: false, reason: 'answer' } as never)
+    }
+    const lines = (writes.at(-1) ?? '').trim().split('\n').map(l => JSON.parse(l) as Record<string, unknown>).filter(l => l['kind'] === 'verdict')
+    expect(lines.map(l => [l['role'], l['verdict'], l['count'] ?? null])).toEqual([['audit', 'fail', '2/13'], ['audit', null, null]])
+  })
+})

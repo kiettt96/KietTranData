@@ -20,6 +20,9 @@ import { DEFAULT_CONDUCTOR } from './lib/families'
 import type { Reading } from './lib/reading'
 import { approvalModeOf, reviewRoundsOf } from './lib/approval'
 import type { StepRun } from './lib/drift/stepcheck'
+import type { Verdict } from './lib/verdict'
+/** Một kết luận của subagent có vai (0.9.0 C4): vai, kết luận, số đếm, mốc seq, model đã chạy, việc và mô tả. */
+export type VerdictRun = { agentId: string; role: Role; verdict: Verdict | null; count?: string; seq: number; family: ModelFamily; taskIndex?: number; description: string }
 import { activeConductor, conductorBlocker, conductorFallbackOf, conductorOf, fableModelId, isMainConducting } from './lib/conductor'
 import { normalizeCore, restoreArchived, withDelegations } from './lib/state'
 import type { ActiveConductor, ConductorBlocker, ConductorInputs } from './lib/conductor'
@@ -137,6 +140,8 @@ export function createContext(options: PluginOptions) {
     lastWasHard: false,
     /** Mục tiêu đã nhận dòng dạng check ở kết quả plan set (0.9.0 B10). */
     checkHinted: -1,
+    /** Kết luận của subagent có vai (0.9.0 C4, C6, C8), theo mục tiêu; mốc seq của dấu vết evidence lúc trả lời. */
+    verdicts: { goalId: -1, items: [] as VerdictRun[] },
     /** ID engine đã phục vụ theo họ (0.8.7 M1, usage.model của turn), cho dòng "Model đang dùng" và cảnh báo phiên bản một lần mỗi họ. */
     served: new Map<ModelFamily, string>(),
     /** Đã cảnh báo chính sách model của phiên chặn Fable điều phối (0.8.4 C1), một lần mỗi phiên. */
@@ -609,6 +614,7 @@ export function createContext(options: PluginOptions) {
     local.aliasEngine = null
     local.stepRuns = { goalId: -1, runs: [], checkSeq: new Map() }
     local.checkHinted = -1
+    local.verdicts = { goalId: -1, items: [] }
     local.served.clear()
     local.conductorSessionNoticed = false
     local.pinnedGoalId = null

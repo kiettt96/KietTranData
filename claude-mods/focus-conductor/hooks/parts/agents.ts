@@ -12,6 +12,7 @@ import { FORK_QUOTA_DENY, RETRY_PREFIX, RETRY_ROUNDS, forkRetryNote, forkReturnN
 import { liveForks, openParts } from '../lib/forks'
 import { classifyBash, filePathOf, isSkillTrial, normalizePath } from '../lib/drift'
 import { labels, langOf } from '../ui/labels'
+import { reportLine } from '../lib/verdict'
 import { shownPlan } from '../lib/mirror'
 import { tierOf } from '../lib/scale'
 import type { AgentRoute } from '../lib/router'
@@ -513,7 +514,10 @@ export function registerAgents(on: On, ctx: Ctx): void {
       }
     }
 
-    const result = await next(e)
+    // Mẫu báo cáo theo vai (0.9.0 C4): lời giao subagent có vai được nối một dòng nêu mẫu báo cáo và dòng kết luận đứng đầu câu trả lời.
+    const spawnRole = roleOfCall((info?.route ?? workflowRoute)?.role, info?.description ?? e.description)
+    const reportSuffix = spawnRole !== undefined && e.fork !== true ? `\n\n${reportLine(spawnRole, langOf(ctx.options['uiLanguage']))}` : ''
+    const result = await next(reportSuffix !== '' ? { ...e, prompt: `${e.prompt}${reportSuffix}` } : e)
     if (result.deny !== undefined) return result
     // Phiên con (0.7.9 F1): lời gọi Agent đã có spawn, nên lỗi về sau là lỗi của phần đó, không phải engine từ chối.
     const forkCall = e.fork === true ? L.forkCalls.get(e.tool_use_id) : undefined

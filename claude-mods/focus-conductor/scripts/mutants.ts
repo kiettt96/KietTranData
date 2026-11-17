@@ -2496,4 +2496,10 @@ export const MUTANTS: Mutant[] = [
   { id: "090-C3e", file: "hooks/lib/router.ts", note: "catalog không cho haiku chạy kiểm", old: "; also running checks and reporting pass or fail. Never", new: ". Never" },
   { id: "090-C3f", file: "hooks/lib/router.ts", note: "mẫu JSON của việc không có role", old: "\"agent\": string, \"role\": \"design\"|\"review\"|\"build\"|\"search\"|\"audit\", \"model\": string,", new: "\"agent\": string, \"model\": string," },
   { id: "090-C3g", file: "hooks/lib/router.ts", note: "việc nhẹ cũng thêm đội hình", old: "- depth none or light: no added audit, review or design tasks.\n", new: "" },
+  { id: "090-C4a", file: "hooks/parts/agents.ts", note: "không nối dòng mẫu báo cáo", old: "    const result = await next(reportSuffix !== '' ? { ...e, prompt: `${e.prompt}${reportSuffix}` } : e)\n", new: "    const result = await next(e)\n" },
+  { id: "090-C4c", file: "hooks/lib/verdict.ts", note: "không bỏ dấu markdown", old: "  const line = first.replace(/^[#>*_\\s`]+/u, '').replace(/[*_`]+/gu, '').trim()\n", new: "  const line = first\n" },
+  { id: "090-C4d", file: "hooks/lib/verdict.ts", note: "xét mọi dòng thay vì dòng đầu", old: "  const first = answer.normalize('NFC').split('\\n').map(line => line.trim()).find(line => line !== '') ?? ''\n", new: "  const first = answer.normalize('NFC').split('\\n').map(line => line.trim()).filter(line => line !== '').at(-1) ?? ''\n" },
+  { id: "090-C4f", file: "hooks/parts/consistency.ts", note: "không ghi kết luận của subagent", old: "      if (e.reason === 'answer' && meta?.role !== undefined) {\n        const parsed", new: "      if (false as boolean && meta?.role !== undefined) {\n        const parsed" },
+  { id: "090-C4b", file: "hooks/lib/verdict.ts", note: "review không đọc CHƯA ĐẠT", old: "  review: [\n    [/^(?:CHƯA ĐẠT|FAIL)(?![\\p{L}])/u, 'fail'],\n", new: "  review: [\n" },
+  { id: "090-C4e", file: "hooks/lib/verdict.ts", note: "design không đọc CHƯA SẴN SÀNG", old: "    [/^(?:CHƯA SẴN SÀNG|NOT READY)(?![\\p{L}])/u, 'not-ready'],\n", new: "" },
 ]
