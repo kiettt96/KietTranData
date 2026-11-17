@@ -17,14 +17,16 @@ describe('0.9.0 C1: parseRoute đọc vai', () => {
     const out = tasksOf([task('Duyệt thay đổi', 'agent', 'opus', 'high', { role: 'review', kind: 'investigate' }), task('Tra mã', 'agent', 'haiku', 'low', { role: 'search', agent: 'Explore', kind: 'investigate' })])
     expect(out.map(t => t.role)).toEqual(['review', 'search'])
   })
-  test('vai vắng hay sai: Explore là search, Plan là design, general-purpose sửa file là build, general-purpose không sửa là review', () => {
+  test('vai vắng hay sai: việc không mang vai (như 0.8.9); roleOf suy Explore là search, Plan là design, sửa file là build, còn lại review', () => {
     const out = tasksOf([
       task('Tra mã', 'agent', 'haiku', 'low', { agent: 'Explore', kind: 'investigate' }),
       task('Thiết kế', 'agent', 'opus', 'high', { agent: 'Plan', kind: 'answer', role: 'kiến trúc sư' }),
       task('Sửa hàm', 'agent', 'sonnet', 'medium'),
-      task('Đánh giá', 'agent', 'sonnet', 'medium', { kind: 'investigate' }),
+      task('Đánh giá', 'agent', 'haiku', 'low', { kind: 'investigate' }),
     ])
-    expect(out.map(t => t.role)).toEqual(['search', 'design', 'build', 'review'])
+    expect(out.map(t => t.role)).toEqual([undefined, undefined, undefined, undefined])
+    expect(out[3]?.pick.family).toBe('haiku')
+    expect([R.roleOf(undefined, 'Explore', 'investigate'), R.roleOf('kiến trúc sư', 'Plan', 'answer'), R.roleOf(undefined, 'general-purpose', 'edit'), R.roleOf(undefined, 'general-purpose', 'investigate')]).toEqual(['search', 'design', 'build', 'review'])
   })
   test('sàn model theo vai: review và build không dưới sonnet; search và audit giữ haiku; design fable về opus khi chưa bật allowFable', () => {
     const out = tasksOf([
@@ -36,12 +38,12 @@ describe('0.9.0 C1: parseRoute đọc vai', () => {
     ])
     expect(out.map(t => t.pick.family)).toEqual(['sonnet', 'sonnet', 'haiku', 'haiku', 'opus'])
   })
-  test('router chấm subagent: vai đọc được từ câu trả lời; vắng thì suy', () => {
+  test('router chấm subagent: vai đọc được từ câu trả lời; vắng thì không có vai (như 0.8.9)', () => {
     const parse = (R as unknown as { parseAgentRoute?: (reply: string, policy: Policy) => { role?: string } | null }).parseAgentRoute
     expect(typeof parse).toBe('function')
     const reply = (over: Record<string, unknown>) => JSON.stringify({ why: 'w', confidence: 1, task: null, model: 'sonnet', effort: 'medium', agent: 'general-purpose', depth: 'light', volume: 'small', kind: 'investigate', ...over })
     expect(parse?.(reply({ role: 'audit' }), OPEN)?.role).toBe('audit')
-    expect(parse?.(reply({}), OPEN)?.role).toBe('review')
+    expect(parse?.(reply({}), OPEN)?.role).toBeUndefined()
   })
 })
 

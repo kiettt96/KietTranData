@@ -34,6 +34,9 @@ export type Choice = { family: ModelFamily; effort: Effort }
  * Một việc người dùng giao trong prompt, do router tách và điều phối: làm ở luồng chính
  * hay giao subagent, với loại agent, model và effort nào.
  */
+/** Vai của một việc trong đội hình (0.9.0 C1): thiết kế, duyệt, làm, tra cứu, chạy kiểm. */
+export type Role = 'design' | 'review' | 'build' | 'search' | 'audit'
+
 export type Task = {
   /** Thứ tự trong prompt, từ 1; việc thêm ở prompt tiếp nối được đánh số tiếp theo. */
   index: number
@@ -41,6 +44,8 @@ export type Task = {
   run: 'main' | 'agent'
   /** Loại agent khi giao subagent (Explore, Plan, general-purpose). */
   agentType?: string
+  /** Vai trong đội hình (0.9.0 C1): router trả, vắng hay sai thì mod suy từ loại agent và kind. Vắng ở brief từ bản cũ. */
+  role?: Role
   pick: Choice
   depth: Depth
   volume: Volume

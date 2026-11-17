@@ -2,7 +2,7 @@
 // giao subagent) và việc Claude tự giao. Hàm thuần, chỉ đọc Core (sống qua hot-reload vì nằm trong $.state).
 // Nguyên tắc: thanh chỉ thể hiện phần trăm khi có số bước thật; không có thì chỉ thể hiện trạng thái.
 
-import type { AgentProgress, Choice, Core, PlanStep, Task, TaskStatus } from '../../types'
+import type { AgentProgress, Choice, Core, PlanStep, Role, Task, TaskStatus } from '../../types'
 import { isFullyClosed } from './drift'
 import { liveForks } from './forks'
 import { mirrorPlan, shownPlan } from './mirror'
@@ -68,6 +68,8 @@ export type TaskRow = {
   noStep?: true
   /** Dòng subagent Claude tự giao được gắn vào việc main của bước doing (0.8.0 A8): mang `index` của việc nhưng không đi cùng bước của việc. */
   attached?: true
+  /** Vai của việc (0.9.0 C1), để pane ghi nhãn vai. */
+  role?: Role
 }
 
 /** Thứ tự ưu tiên khi band thiếu chỗ: đang chạy, rồi lỗi hay bị cắt, rồi chờ hoặc chưa bắt đầu, rồi xong. */
@@ -184,7 +186,12 @@ export function taskRows(core: Core, now: number): TaskRow[] {
 
   for (const t of tallies) if (t.taskIndex === undefined && t.spawned > 1) rows.push(tallyRow(t, t.title, null))
   for (const item of agents) if (item.taskIndex === undefined && grouped(tallyKey(item)) === undefined) rows.push(agentRow(item))
-  return rows
+  // Vai của việc (0.9.0 C1): dòng mang số việc (không phải dòng phiên con hay dòng gắn kèm) nhận vai của việc đó.
+  const roles = new Map(tasks.map(t => [t.index, t.role]))
+  return rows.map(row => {
+    const role = row.index !== undefined && row.fork === undefined && row.attached !== true ? roles.get(row.index) : undefined
+    return role !== undefined ? { ...row, role } : row
+  })
 }
 
 /**

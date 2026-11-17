@@ -701,7 +701,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       main: brief.main,
       expected,
       notes: plan.notes,
-      tasks: brief.tasks.map(t => ({ index: t.index, run: t.run, agentType: t.agentType, pick: t.pick, ...(t.split !== undefined ? { split: t.split.length } : {}) })),
+      tasks: brief.tasks.map(t => ({ index: t.index, run: t.run, agentType: t.agentType, ...(t.role !== undefined ? { role: t.role } : {}), pick: t.pick, ...(t.split !== undefined ? { split: t.split.length } : {}) })),
     })
     await flushDecisions((path, text) => $.fs.write(path, text))
     if (outcome.retried) $.ui.toast('Router đã đọc lại một lần (câu trả lời đầu hỏng hoặc tin cậy thấp)')
