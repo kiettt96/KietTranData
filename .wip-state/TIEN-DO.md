@@ -8,7 +8,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 ## Trạng thái đã xác minh
 - Đường dẫn khởi động chuẩn: khối mục 7 của prompt.
 - Đường dẫn xác minh chuẩn: `claude plugin test .` ở MOD.
-- Mục chưa xong ưu tiên cao nhất: B13.
+- Mục chưa xong ưu tiên cao nhất: đo sau nhóm B, rồi D1.
 - Điểm chặn hiện tại: không.
 
 ## Đo nền (17/11/2026, engine 2.1.326)
@@ -44,7 +44,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 | B10 | passing 17/11 | đỏ (4 ca đỏ + tệp stepcheck chưa nạp được); sửa 0042c78 (drift/stepcheck.ts, withStepVerified, withAutoDemotedBy, check-changed); step-check-b10-090 15 pass + stepcheck-b10-090 1 pass; 090-B10a..o KILLED; mẫu cũ 061-P25, 070-V12, 070-V14, 071-M11 sửa chuỗi, KILLED; 170 tệp liên quan 1995 pass, không ca ghim 'không nâng verified' nào đổi; ký tự chèn: vế dặn 81 + dòng plan set 79 = 160; toàn luồng kiểm ở D1 |
 | B11 | passing 17/11 | đỏ (4/6 ca đỏ); sửa 98920ef; check-scope-b11-090 7 pass; 090-B11a..f KILLED; mẫu cũ 070-V5, 073-N12 sửa chuỗi, 054-C46 giữ (đã bỏ bộ lọc thừa), đều KILLED; 33+ tệp checkCommands 534 pass; README ghi cú pháp @@ và cách khai theo dự án bằng glob tuyệt đối |
 | B12 | passing 17/11 | đỏ (3 ca đỏ sau khi sửa khung test; vế b, duyệt giữa lượt khi presented, đã duyệt trước còn chỗ sửa, request rà dùng yêu cầu đã gộp xanh trên nền, giữ làm ca ghim); sửa 87a964b; approval-b12-090 8 pass; 090-B12a..g KILLED; 33 tệp duyệt/router 438 pass; lời dặn router +76 ký tự (tổng B1+B12 = 348) |
-| B13 | not_started | |
+| B13 | passing 17/11 | đỏ (2/3 ca đỏ); sửa 8771b48; router-b13-090 3 pass; 090-B13a,b KILLED; lời dặn 10.888 thành 11.332 (+444, trong 500 của B1+B12+B13); 50 tệp lời dặn 630 pass, chỉ golden đỏ (được phép tới D2); phần đo router ở D2 |
 | D1 | not_started | |
 | C1 | not_started | |
 | C2 | not_started | |
