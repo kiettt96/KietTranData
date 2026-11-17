@@ -67,6 +67,16 @@ describe('0.9.0 B14 (7): việc dọn sau lượt duyệt không làm kết lu�
     await closeAll($, 1)
     expect(await stop($)).toBe('')
   })
+  test('ghi sản phẩm build vào dist/ và node_modules/ sau lượt duyệt: cổng cho qua', OPTS(), async ($, on) => {
+    const seen = setup(on)
+    await start($, seen)
+    await call($, { tool: 'Edit', file_path: '/repo/src/phi.ts', old_string: 'a', new_string: 'b' })
+    await call($, { tool: 'Bash', command: 'bun test' })
+    await agent($, 'Rà phí', 'ĐẠT')
+    await call($, { tool: 'Bash', command: 'cp /repo/src/phi.ts /repo/dist/phi.js && cp /repo/a.js /repo/node_modules/x/a.js' })
+    await closeAll($, 1)
+    expect(await stop($)).toBe('')
+  })
   test('sửa src sau lượt duyệt: kết luận hết hiệu lực, cổng chặn', OPTS(), async ($, on) => {
     const seen = setup(on)
     await start($, seen)
