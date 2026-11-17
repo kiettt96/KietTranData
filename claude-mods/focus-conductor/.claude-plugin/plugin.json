@@ -1,6 +1,6 @@
 {
   "name": "focus-conductor",
-  "version": "0.8.9",
+  "version": "0.9.0",
   "author": { "name": "Kiet Tran" },
   "description": "Một model Claude (router) đọc kỹ prompt trước khi làm và điều phối model/effort/agent cho từng việc; mod kiểm, ép điều phối lúc chạy, giữ nhất quán mục tiêu với checklist và cảnh báo lạc đề.",
   "types": "./types/index.d.ts",
@@ -34,7 +34,7 @@
     "closingReview": {
       "type": "string",
       "title": "Duyệt độc lập trước khi đóng mục tiêu",
-      "description": "Từ 0.9.0: mục tiêu substantial hay hard, sửa file, checklist đã đóng hết thì trước khi kết thúc phải có lần kiểm đạt sau thay đổi cuối, một kết luận ĐẠT của subagent duyệt độc lập (description mở đầu \"Kiểm độc lập: \"), và với mục tiêu hard thêm một kết luận SẴN SÀNG. Thiếu thì cổng Stop chặn tối đa 3 lần mỗi mục tiêu; /conductor waive review bỏ qua. auto (mặc định) hay off. (en) From 0.9.0: before a substantial or hard editing goal with a fully closed checklist ends, it needs a passing check after the last change, a PASS verdict from an independent review subagent (description starting \"Independent check: \"), and for hard goals a READY verdict. Missing steps block Stop at most 3 times per goal; /conductor waive review skips. auto (default) or off.",
+      "description": "Từ 0.9.0: đội hình do mod áp. Bật khi mục tiêu sửa file và router chấm substantial hay hard, hoặc đã có từ 3 file không nhẹ khác nhau được sửa. Khi bật, mod dặn một lần các bước đóng (Kiểm: khi có lệnh kiểm, Duyệt:, Sẵn sàng: với việc hard); cổng Stop chặn khi thiếu, tối đa 3 lần mỗi mục tiêu; /conductor waive review bỏ qua. auto (mặc định) hay off. (en) From 0.9.0: the mod applies the team. On when an editing goal is rated substantial or hard, or 3 or more different non-light files have been edited. Once on, the mod gives the closing steps once (Audit: when a check command is known, Review:, Readiness: for hard goals); Stop blocks while one is missing, at most 3 times per goal; /conductor waive review skips. auto (default) or off.",
       "default": "auto"
     },
     "conductorFallback": {

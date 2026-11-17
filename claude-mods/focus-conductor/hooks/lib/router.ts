@@ -787,7 +787,7 @@ export function ruleRoute(claimed: ModelFamily, claimedEffort: Effort | null, po
   }
 }
 
-/** Model mặc định của vai kiểm (0.9.0 B2): review opus, audit haiku, design fable khi allowFable bật, không thì opus. */
+/** Model mặc định của vai kiểm (0.9.0 B2): review opus, audit haiku, design opus (roleRoute nâng lên họ cao nhất chính sách cho phép). */
 export const ROLE_DEFAULTS: Record<'review' | 'audit' | 'design', Choice> = {
   review: { family: 'opus', effort: 'high' },
   audit: { family: 'haiku', effort: 'low' },
@@ -799,7 +799,9 @@ export const ROLE_DEFAULTS: Record<'review' | 'audit' | 'design', Choice> = {
  * (loại việc investigate: không sửa file). Design dùng fable khi chính sách cho phép.
  */
 export function roleRoute(role: 'review' | 'audit' | 'design', agentType: string | undefined, policy: Policy): AgentRoute {
-  const base = role === 'design' && policy.allowFable ? { family: 'fable' as const, effort: 'medium' as const } : ROLE_DEFAULTS[role]
+  // Design: họ cao nhất chính sách cho phép (fable khi allowFable bật, không thì opus), effort medium như vai điều phối khi không phải opus.
+  const top = topFamily(policy)
+  const base = role === 'design' && top !== 'opus' ? { family: top, effort: 'medium' as const } : ROLE_DEFAULTS[role]
   const fitted = fitPick(base, 'investigate', policy)
   return {
     pick: fitted.pick,

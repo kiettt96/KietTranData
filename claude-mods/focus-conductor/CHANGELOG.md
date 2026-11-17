@@ -2,6 +2,70 @@
 
 Các bản của focus-conductor, mới nhất trước. Số đo kiểm chứng của HEAD hiện tại nằm ở [docs/VERIFICATION.md](docs/VERIFICATION.md); cách dùng và tùy chọn ở [README](README.md).
 
+## Thay đổi 0.9.0: lỗi tồn, phối hợp với kỷ luật giao việc, đội hình do mod áp
+
+Ba nhóm việc trong một lượt: sửa lỗi còn tồn (A), chạy trơn với một phiên làm theo kỷ luật giao việc (B), và đội hình theo cỡ việc (C, D). Nguyên tắc của nhóm C, D chốt giữa lượt: router chỉ đọc prompt, luật đội hình do mod áp (xem DESIGN mục "Đội hình theo cỡ việc (0.9.0)"). Mỗi điểm một commit test đỏ rồi một commit sửa. Schema tool `plan` không đổi.
+
+**Nhóm A, lỗi tồn.**
+- **A1:** nhãn đạt có số đếm (`ĐẠT 3/3`, `pass 5`) không còn bị đọc là thất bại ở lệnh kiểm riêng (`hooks/lib/drift/output.ts`).
+- **A2:** đích `~/...` giải theo `HOME` đọc lúc `session.start`; chưa giải được thì phạm vi là không xác định thay vì ngoài phạm vi.
+- **A3:** đường lùi của vai điều phối không dùng khi họ dự phòng đang tạm ngừng ở mức prompt.
+- **A4:** cảnh báo một lần khi `conductorFallback` trùng họ điều phối chính hay không hợp lệ; `routerMaxWait` chỉ nhận số và chuỗi số; mô tả `conductorFallback` ghi "khi `conductor` khác `off`".
+- **A5:** yêu cầu đã bỏ không còn trong lời nhắc đối chiếu khi checklist đóng hẳn và trong lý do cổng Stop khi chưa có checklist; câu nêu số yêu cầu đã bỏ.
+
+**Nhóm B, phối hợp với kỷ luật giao việc.**
+- **B1:** router trả `stateFiles` (tệp kế hoạch, tiến độ, bàn giao prompt nêu) và `sideWrites` (nơi sao lưu, thư mục tạm, tệp đầu ra prompt cho ghi), mỗi danh sách tối đa 8 mục hẹp; brief gộp qua các lượt tiếp nối. Router lỗi hay trả sai dạng thì hai danh sách rỗng, như 0.8.9.
+- **B2:** ghi vào hai danh sách không sinh cảnh báo ngoài phạm vi, không vào mục lệch phạm vi, không tính vào file đã đổi.
+- **B3:** khi chưa duyệt kế hoạch, ghi tệp trạng thái được cho qua; câu dặn lập kế hoạch nêu tệp trạng thái, bước thử skill và dạng check (tổng thêm không quá 400 ký tự).
+- **B4:** luồng chính giữ vai điều phối ghi được tệp trạng thái.
+- **B5:** tạm dừng vì hạn mức vẫn cho ghi tệp trạng thái.
+- **B6:** đường dẫn thuộc hai danh sách không là file skill, không vào cảnh báo chưa kiểm. Vòng sửa: ghi chắc vào hai danh sách không là thay đổi của evidence, nên ghi tiến độ hay sao lưu sau lần kiểm không làm bước `verified` bị hạ (lỗi lộ ra khi dựng kịch bản đo của D2).
+- **B7:** thêm lệnh chỉ đọc: `shasum`, `sha256sum`, `sha1sum`, `md5`, `md5sum`, `cksum`, `cmp`, `comm`, `command -v`, `bash -n`.
+- **B8:** khối `bash <<'SH' ... SH` được phân loại theo thân; có `set -e` thì nối bằng `&&`.
+- **B9:** lệnh trong `<( )` được phân loại; tác động ghi của nó là đích không xác định.
+- **B10:** lệnh ở trường `check` của một bước là lệnh kiểm của riêng bước đó: chạy đạt sau thay đổi không nhẹ cuối thì bước `done` được nâng `verified`, chỉ đúng bước đó. Đổi `check` sau khi duyệt thì ghi `check-changed`.
+- **B11:** một mục của `checkCommands` khai được phạm vi bằng `@@ glob;glob`; mục không có phạm vi giữ hành vi 0.8.9.
+- **B12:** duyệt một lần: tin duyệt gửi khi đang lập kế hoạch được tính; đã duyệt thì giữ qua điểm dừng, chạy tiếp, nén; tin duyệt kèm chỉnh nhỏ áp chỉnh trong cùng lượt.
+- **B13:** lời dặn router coi mỗi dòng mang mã của bảng mục việc là một việc riêng; bỏ cụm "at most 6" ở `constraints`.
+
+**Nhóm C, D, đội hình do mod áp.**
+- **Lời dặn router:** không có luật đội hình, không có trường `role`. So với 0.8.9 chỉ thêm phần của B1, B12, B13 và câu mở rộng `questions` (nghiệp vụ, quyền, dữ liệu, chi phí): +525 ký tự. Lời dặn chấm subagent trùng 0.8.9 từng byte.
+- **Vai do mod suy (thay C1):** Explore là search, Plan là design, general-purpose có sửa file là build. Lời gọi Agent theo tiền tố description (không phân biệt hoa thường, tiền tố dài trước): `Kiểm độc lập: `, `Duyệt: `, `Independent check: `, `Review: ` là review; `Kiểm: `, `Audit: ` là audit; `Sẵn sàng: `, `Readiness: ` là design. Các lời gọi này không qua router; model mặc định của vai: review opus, audit haiku, design fable khi `allowFable` bật, không thì opus.
+- **C2:** quyền theo vai: search, review, design không sửa file, không chạy lệnh ghi ngoài thư mục tạm; audit chỉ ghi được trong thư mục tạm.
+- **Đội hình theo cỡ việc (thay C3):** bật khi `closingReview` là `auto`, mục tiêu edit hay mixed, và router chấm substantial hay hard, hoặc đã có từ 3 file không nhẹ khác nhau được sửa (`TEAM_FILES`, `hooks/lib/team.ts`). Khi bật lần đầu, mod chèn một lần đoạn dặn bước đóng, không quá 300 ký tự. Pane có mục "Bước đóng (mod)". Chưa bật thì không chèn gì.
+- **C4, D:** dòng mẫu báo cáo nối vào lời giao có vai, khi lời gọi có tiền tố vai hay đội hình đã bật. Kết luận nhận theo câu trả lời: subagent không ghi file ngoài thư mục tạm, xong sau thay đổi không nhẹ cuối, dòng đầu là từ kết luận. Xét cụm chưa đạt trước để "không đạt" không bị đọc thành đạt.
+- **C5:** hai subagent chung thư mục cùng ghi một file thì nhắc luồng chính một lần, ghi `file-clash`.
+- **C6:** cổng đóng mục tiêu theo thứ tự kiểm, duyệt, sẵn sàng; option mới `closingReview`; `/conductor waive review`.
+- **C7:** kết luận chưa đạt đi vào vòng sửa (trần 3 vòng).
+- **C8:** bảng báo cáo khi đóng bước cuối; mục 6 khối kỷ luật nêu thêm "ai làm, kết luận duyệt, phần chưa xác minh", giữ 472 ký tự.
+
+**Test cũ đổi kỳ vọng, giữ tên:**
+- `conductor-c4-084` "cờ tắt: splitRule(routerSystem(), 0) giữ sha256 của 0.8.3, request dùng đúng chữ đó" và `fork-split-f1-079` "chủ mod 1. forks tắt: routerSystem không có đoạn tách (ghim số ký tự và mã băm)": băm và số ký tự theo lời dặn mới (11.413 ký tự).
+- `limits-l2-087` hai ca "<biến thể>: không còn trần 30 yêu cầu và 8 việc; ...": kỳ vọng `constraints: at most 6` đổi thành `constraints: the hard rules` (B13).
+- `arrange-d1-089` "dài thêm không quá 900 ký tự so với 7682ef7, ...": trần cộng thêm 600 ký tự của B1, B12, B13 và câu `questions`.
+- Mười ca đặt `closingReview: 'off'` vì cổng đóng hay mục Bước đóng đúng đặc tả, giữ tên và kỳ vọng:
+  - `check-identity-a1-080` "đối chứng cố ý đỏ do subagent chạy, rồi luồng chính chạy lại dạng khác đường dẫn và đạt: mục W4 được xóa, không chặn";
+  - `fork-split-f1-079` "2a. bước "Việc 3: ..." (cả việc) ghi skipped kèm note: ..." và "16. router không trả split nào: khối context giữ nguyên chữ như trước F1";
+  - `real-session-e2e-080` "ba đợt, đối chứng đỏ, lệnh ghép && ls: ...";
+  - `retry-rounds-w4-078` "4. đạt ở lượt 2: ...";
+  - `scenarios` "mục tiêu nhiều việc → giao hai subagent → ...";
+  - `skill-trial-n3-082` ba ca "2. ghi SKILL.md, rồi Agent "Thử skill: a" xong: ...", "2b. "Skill trial: " cũng là lần thử", "4c. thứ tự của engine thật, ...";
+  - `taskrows-perf-087` "mục tiêu 12 việc, checklist có bước "Việc N", ...".
+- `error-log-l1-079`: MOD_VERSION là 0.9.0.
+- `golden.test.ts`: câu trả lời router ghi lại một lần sau khi lời dặn chốt; bộ chấm `tests/golden/check.ts` giữ như 0.8.9 cho ca cũ, thêm kỳ vọng tệp trạng thái, số ràng buộc, câu hỏi và độ sâu cho 16 ca mới.
+
+**Gỡ giữa lượt** (khi đổi C1, C3 sang mod áp; lý do: router chấm độ sâu thấp cho việc vừa và vẫn tụt ca cũ sau ba lần chỉnh lời dặn, số đo ở VERIFICATION):
+- Tệp test `role-c1-090` (sáu ca đọc `role` của router, sàn theo vai router trả, nhãn vai ở pane). Thay bằng `role-mod-090`.
+- Ca của `router-team-c3-090` về khối "Team roles" và catalog cho haiku chạy kiểm. Tệp được viết lại cho lời dặn đã gỡ đội hình.
+- Mẫu đột biến `090-C1a`, `090-C3a`, `090-C3b`, `090-C3c`, `090-C3e`, `090-C3f`, `090-C3g`.
+
+**Đột biến:** mẫu mới mang mã `090-<mã điểm><chữ>`. Mẫu cũ viết lại chuỗi, giữ mã: `078-G1m`, `078-G2e`, `078-G2f`, `082-N2a`, `085-W2h`, `075-A6a`, `075-A6b`, `061-P25`, `070-V12`, `070-V14`, `071-M11`, `070-V5`, `073-N12`, `075-L6a`, `075-L6b`, `075-L6c`. Mẫu `090-B9e` là tương đương, lý do trong `scripts/mutants.ts`.
+
+**Việc tồn** (từ phiên thật D1):
+- Nhật ký quyết định bị ghi đè khi chạy tiếp bằng `claude -p --continue`.
+- Trạng thái mục tiêu không sống qua `--continue` ở chế độ không tương tác.
+- Câu "Việc nhỏ: làm trực tiếp, không cần checklist" của mục tiêu light cãi với prompt đòi checklist.
+
 ## Thay đổi 0.8.9: router bị engine từ chối khi đọc prompt dài
 
 Router của prompt dài hơn 80.000 ký tự bị engine từ chối khi họ đọc là fable, opus hay haiku: lượt đọc trọn xin `maxTokens` 128.000, cao hơn trần 64.000 của lời gọi model từ hook [Đo trực tiếp, engine 2.1.296 và 2.1.325, 14/11/2026]. Lời dặn router, giao diện, option, schema tool `plan` và golden không đổi. Mỗi điểm một commit test đỏ rồi một commit sửa.
