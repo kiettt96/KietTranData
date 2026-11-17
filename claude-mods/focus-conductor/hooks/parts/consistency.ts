@@ -4,6 +4,8 @@ import { atom, derive, read, update } from 'claude-code'
 import { caught, noteBehavior, noteHookError } from '../lib/errlog'
 import type { AgentState, Choice, Core, DelegationState, Mode, ModelFamily, RetryItem, Warning } from '../../types'
 import { acceptsVerified, checkKindOf, classifyBash, evidenceStrength, filePathOf, freshTestRun, hardChanges, isCheckTool, isExecuting, isFullyClosed, isGoalDone, isMutation, isPlanFile, normalizePath, isSkillTrial, markVerified, newTracker, skillNameOf, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
+import { isSidePath } from '../lib/drift/scope'
+import type { SideLists } from '../lib/drift/scope'
 import type { Finding, Focus, ToolObservation, TurnTracker } from '../lib/drift'
 import { checkCommand, checkSignature, coversFailure, isFailedRun } from '../lib/drift/evidence'
 import { isCustomCheck } from '../lib/drift/verify'
@@ -543,14 +545,17 @@ const CHANGED_SKIP = /(?:^|\/)(?:\.claude\/plans\/|\.focus-conductor(?:\/|$))/
  * Đường dẫn tương đối nối với thư mục của Bash rồi đổi về tương đối với thư mục gốc phiên; ngoài gốc thì giữ tuyệt đối. Không phải lần
  * ghi thì null; Bash ghi mà không đọc được đích thì isUnknown.
  */
-function changedTargets(observation: ToolObservation, root: string | null): { paths: string[]; isUnknown: boolean } | null {
+function changedTargets(observation: ToolObservation, root: string | null, lists: SideLists | null = null): { paths: string[]; isUnknown: boolean } | null {
   if (observation.isError || !isMutation(observation)) return null
   const path = filePathOf(observation)
   const command = observation.tool === 'Bash' ? String(observation.input['command'] ?? '') : ''
   const raw = path ? [path] : command ? classifyBash(command).paths : []
   if (raw.length === 0) return { paths: [], isUnknown: observation.tool === 'Bash' }
   const base = observation.cwd ?? root ?? ''
-  const relative = raw.map(item => {
+  // Tệp trạng thái và nơi ghi phụ (0.9.0 B2) không là file đã đổi của mục tiêu.
+  const kept = raw.filter(item => !isSidePath(item, lists, root, observation.cwd ?? null))
+  if (kept.length === 0) return null
+  const relative = kept.map(item => {
     const full = normalizePath(item.startsWith('/') || base === '' ? item : `${base}/${item}`)
     const top = root ? normalizePath(root) : ''
     return top !== '' && top !== '/' && full.startsWith(`${top}/`) ? full.slice(top.length + 1) : full
@@ -917,7 +922,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     // File đã đổi của mục tiêu (0.8.2 N5): cả luồng chính và subagent, độc lập với hạn mức; dùng khi đóng bước mở cuối.
     const changedBrief = S.normalizeCore(await read($, coreState)).brief
     if (changedBrief !== null && !observation.isError && isMutation(observation)) {
-      const targets = changedTargets(observation, await rootFor($, L.roots, changedBrief.goalId))
+      const targets = changedTargets(observation, await rootFor($, L.roots, changedBrief.goalId), changedBrief)
       if (targets !== null && (targets.paths.length > 0 || targets.isUnknown)) await update($, coreState, S.withChanged(changedBrief.goalId, targets.paths, targets.isUnknown))
     }
 
@@ -958,7 +963,9 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       const forkScope = forkFiles(S.normalizeCore(await read($, coreState)), e.agentId)
       const scopePaths = forkScope.length > 0 ? forkScope : remindSubagents ? (agentBrief?.scopePaths ?? []) : []
       const frame = agentBrief !== null ? await frameOf($, L.roots, agentBrief.goalId, scopePaths) : { root: null, cwd: null }
-      const findings = observe(agentTracker, observation, { goal: meta.description, scopePaths, tier: meta.tier, ...frame }, [])
+      // Tệp trạng thái và nơi ghi phụ của mục tiêu (0.9.0 B2) cũng áp cho subagent.
+      const sides = { ...(agentBrief?.stateFiles !== undefined ? { stateFiles: agentBrief.stateFiles } : {}), ...(agentBrief?.sideWrites !== undefined ? { sideWrites: agentBrief.sideWrites } : {}) }
+      const findings = observe(agentTracker, observation, { goal: meta.description, scopePaths, tier: meta.tier, ...sides, ...frame }, [])
       const at = await $.clock.now()
       const warnings: Warning[] = []
       for (const finding of findings) {

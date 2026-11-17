@@ -10,7 +10,7 @@ import type { BashEffect } from './classify'
 import { isMutation, writeEffects } from './effects'
 import { checkEffectPassed, lacksSummary, outputFailed, rejectReason } from './output'
 import type { RejectReason } from './output'
-import { normalizePath, scopeStatus } from './scope'
+import { isSidePath, normalizePath, scopeStatus } from './scope'
 import { isCheckTool, isCustomCheck, normalizePython } from './verify'
 import { checkToolCommand, checkToolPassed } from './evidence'
 import { isHardEffect, isSoftPath } from './soft'
@@ -155,6 +155,9 @@ export function newTracker(turnId: string): TurnTracker {
 export type Focus = {
   goal: string
   scopePaths: string[]
+  /** Tệp trạng thái và nơi ghi phụ của mục tiêu (0.9.0 B1, B2); vắng là không có. */
+  stateFiles?: string[]
+  sideWrites?: string[]
   tier: Tier
   root?: string | null
   cwd?: string | null
@@ -489,6 +492,8 @@ export function observe(
     const scopes = focus.scopePaths.join(', ')
     for (const target of targets) {
       if (isPlanFile(target)) continue
+      // Tệp trạng thái và nơi ghi phụ prompt cho phép (0.9.0 B2) không đối chiếu với phạm vi.
+      if (isSidePath(target, focus, focus.root, isBash ? focus.cwd : null)) continue
       const status = scopeStatus(target, focus.scopePaths, focus.root, isBash ? focus.cwd : null)
       if (status === 'in') continue
       if (status === 'unknown') {

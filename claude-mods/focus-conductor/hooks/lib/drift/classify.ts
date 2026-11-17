@@ -3,7 +3,8 @@
 
 import { TEST_SEGMENT, isCheckText, isCustomCheck, isSelfFixing, suffixCustomCheck } from './verify'
 import type { CheckKind } from './verify'
-import { normalizePath } from './scope'
+import { homeTarget, normalizePath } from './scope'
+export { applyHome, homeTarget } from './scope'
 import { AWK_COMMAND, AWK_WRITE, segmentIsReadOnly } from './readonly'
 import { isReadOnlyInline } from './inline'
 
@@ -276,27 +277,6 @@ function afterEnv(args: string[], unmask: (token: string) => string): string[] {
     else break
   }
   return args.slice(at)
-}
-
-/** Thư mục nhà của phiên (0.9.0 A2), từ biến HOME khi engine cho biết; null là chưa biết. */
-let homeDir: string | null = null
-
-/** Áp thư mục nhà cho lần nạp mod này (0.9.0 A2); null hay chuỗi không phải đường dẫn tuyệt đối là chưa biết. */
-export function applyHome(home: string | null | undefined): void {
-  homeDir = typeof home === 'string' && home.startsWith('/') ? normalizePath(home) : null
-}
-
-/**
- * Đích mở đầu `~/`, `$HOME/` hay `${HOME}/` (0.9.0 A2), phần sau không có `$`, backtick hay ký tự glob: đường dẫn dưới thư mục nhà. Biết
- * thư mục nhà thì giải thành đường dẫn tuyệt đối, chưa biết thì giữ dạng `~/...`. Dạng khác (`~user/x`, `$OTHER/x`) trả null.
- */
-export function homeTarget(token: string): string | null {
-  const match = /^(?:~|\$HOME|\$\{HOME\})\/(.+)$/.exec(token)
-  const rest = match?.[1]
-  if (rest === undefined || /[$`*?]/.test(rest)) return null
-  const tail = normalizePath(rest)
-  if (tail === '' || tail.startsWith('..')) return null
-  return homeDir !== null ? normalizePath(`${homeDir}/${tail}`) : `~/${tail}`
 }
 
 // Cấu trúc chưa phân tích được: thay thế lệnh, process substitution <( và >(, eval, shell con với -c, system() của awk.
