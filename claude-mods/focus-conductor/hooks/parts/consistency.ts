@@ -173,6 +173,14 @@ async function refreshTeam($: EngineInterface, ctx: Ctx): Promise<void> {
   L.agentRetryNotes.push(closingNote({ hasCheck, isHard: brief.depth === 'hard', isDocs: isDocsOnly(brief, changed) }))
 }
 
+/** Lần ghi chắc ngoài thư mục tạm (0.9.0 D1): tool file có đường dẫn ngoài thư mục tạm, hay Bash có tác động ghi definite ngoài thư mục tạm. */
+function wroteOutsideTemp(observation: ToolObservation): boolean {
+  const path = filePathOf(observation)
+  if (path !== '') return !isRoleTemp(path)
+  if (observation.tool !== 'Bash') return false
+  return classifyBash(String(observation.input['command'] ?? ''), observation.cwd).effects.some(effect => effect.kind === 'write' && effect.level === 'definite' && (effect.isUnknown || effect.paths.length === 0 || effect.paths.some(p => !isRoleTemp(p))))
+}
+
 function writtenPaths(observation: ToolObservation): string[] {
   const path = filePathOf(observation)
   if (path !== '') return [normalizePath(path)]
@@ -1165,11 +1173,9 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       if (S.normalizeCore(await read($, coreState)).agentProgress.items.some(item => item.agentId === agentId)) await update($, coreState, S.withAgentTool(agentId))
       const meta = agents.get(e.agentId)
       if (meta === undefined) return result
-      // Lần ghi của subagent ngoài thư mục tạm (0.9.0 D1): đích chưa xác định cũng tính là ghi.
-      if (!observation.isError && isMutation(observation) && L.agentWrote.size < 500) {
-        const written = writtenPaths(observation)
-        if (written.length === 0 || written.some(path => !isRoleTemp(path))) L.agentWrote.add(e.agentId)
-      }
+      // Lần ghi của subagent ngoài thư mục tạm (0.9.0 D1): tool file, hay Bash ghi mức definite (đích chưa xác định cũng tính). Chạy script
+      // (ghi mức possible, như bash x.sh, bash -c) không tính: subagent duyệt và kiểm cần chạy lệnh kiểm.
+      if (!observation.isError && isMutation(observation) && L.agentWrote.size < 500 && wroteOutsideTemp(observation)) L.agentWrote.add(e.agentId)
       const agentTracker = agentTrackers.get(e.agentId) ?? newTracker('')
       agentTrackers.set(e.agentId, agentTracker)
       // remindSubagents: subagent cũng bị kiểm phạm vi file của mục tiêu và được nhắc (kèm việc được giao);
