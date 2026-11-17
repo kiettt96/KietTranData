@@ -8,7 +8,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 ## Trạng thái đã xác minh
 - Đường dẫn khởi động chuẩn: khối mục 7 của prompt.
 - Đường dẫn xác minh chuẩn: `claude plugin test .` ở MOD.
-- Mục chưa xong ưu tiên cao nhất: B11.
+- Mục chưa xong ưu tiên cao nhất: B12.
 - Điểm chặn hiện tại: không.
 
 ## Đo nền (17/11/2026, engine 2.1.326)
@@ -42,7 +42,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 | B8 | passing 17/11 | đỏ (6/8 ca đỏ); sửa b86d3c9; heredoc-b8-090 9 pass (cổng duyệt qua, vai điều phối từ chối bằng câu lệnh kiểm, bun test trong khối nâng verified, rm -rf vẫn là ghi); 090-B8a..e KILLED; 61 tệp liên quan heredoc/classify 847 pass, không ca ghi cũ nào thành chỉ đọc; toàn luồng kiểm ở D1 |
 | B9 | passing 17/11 | đỏ (4/6 ca đỏ); sửa 33e20ed; procsub-b9-090 6 pass; 090-B9a..d KILLED, 090-B9e tương đương có lý do; quota-procsub-r3-075 giữ xanh; 17 tệp liên quan 269 pass; toàn luồng kiểm ở D1 |
 | B10 | passing 17/11 | đỏ (4 ca đỏ + tệp stepcheck chưa nạp được); sửa 0042c78 (drift/stepcheck.ts, withStepVerified, withAutoDemotedBy, check-changed); step-check-b10-090 15 pass + stepcheck-b10-090 1 pass; 090-B10a..o KILLED; mẫu cũ 061-P25, 070-V12, 070-V14, 071-M11 sửa chuỗi, KILLED; 170 tệp liên quan 1995 pass, không ca ghim 'không nâng verified' nào đổi; ký tự chèn: vế dặn 81 + dòng plan set 79 = 160; toàn luồng kiểm ở D1 |
-| B11 | not_started | |
+| B11 | passing 17/11 | đỏ (4/6 ca đỏ); sửa 98920ef; check-scope-b11-090 7 pass; 090-B11a..f KILLED; mẫu cũ 070-V5, 073-N12 sửa chuỗi, 054-C46 giữ (đã bỏ bộ lọc thừa), đều KILLED; 33+ tệp checkCommands 534 pass; README ghi cú pháp @@ và cách khai theo dự án bằng glob tuyệt đối |
 | B12 | not_started | |
 | B13 | not_started | |
 | D1 | not_started | |
@@ -64,6 +64,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 - 17/11/2026: khởi động, đo nền, trình kế hoạch.
 
 ## Nhật ký quyết định
+- B11: cú pháp phạm vi là token `@@` rồi glob nối bằng `;` (`bun test @@ src/**`): không lệnh shell nào có token đúng bằng `@@`, không va với gói npm `@scope/x`. Engine 2.1.326 không có option theo dự án (`claude plugin configure --help`), nên README hướng dẫn glob tuyệt đối. Loại: `[glob] lệnh` (va với `[ -f x ]`), `@glob` (va với `@scope/pkg`).
 - B10: bước nâng nhờ check (byCheck) chỉ hạ khi có thay đổi không nhẹ, vì điều kiện bằng chứng là 'sau thay đổi không nhẹ cuối cùng'; bước nâng theo luật 0.7.0 giữ cách hạ cũ. Dòng dạng check ở plan set đi bằng context để dòng kết quả một dòng của 0.7.3 giữ nguyên. Mốc check và lần chạy giữ trong local cùng vòng đời với dấu vết evidence. Loại: lưu mốc trong Core (lệch seq sau nạp lại mod).
 - B9: tác động ghi của lệnh bên trong <( ) giữ mức và đích nhưng đánh isUnknown, để ca cũ 0.7.5 R3 (thay thế tiến trình là không xác định ở tạm dừng cứng) giữ nguyên. Loại: đích chắc chắn (làm đỏ ca cũ R3).
 - B8: thân có errexit (cờ -e hay set -e) được nối bằng && để dùng đúng luật mã thoát của chuỗi && (A11); không có thì nối bằng ; như xuống dòng. Dòng gán bằng thay thế lệnh chỉ đọc bỏ như phép gán; thay thế lệnh khác, heredoc lồng, eval, if, for, while, case, hàm, nối dòng thì giữ possible. Loại: mô phỏng set -e theo từng dòng.
