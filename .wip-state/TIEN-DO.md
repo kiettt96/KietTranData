@@ -8,7 +8,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 ## Trạng thái đã xác minh
 - Đường dẫn khởi động chuẩn: khối mục 7 của prompt.
 - Đường dẫn xác minh chuẩn: `claude plugin test .` ở MOD.
-- Mục chưa xong ưu tiên cao nhất: C5.
+- Mục chưa xong ưu tiên cao nhất: C6.
 - Điểm chặn hiện tại: không.
 
 ## Đo nền (17/11/2026, engine 2.1.326)
@@ -50,7 +50,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 | C2 | passing 17/11 | đỏ (5/6 ca đỏ); sửa aedfcee; role-perm-c2-090 6 pass; 090-C2a..e KILLED; 36 tệp agent/subagent 391 pass. Khai báo 2.1.296 và 2.1.326: tool.call của subagent trả được {deny} (ToolCallResult), nên dùng từ chối thật, không chuyển thành nhắc |
 | C3 | passing 17/11 | đỏ (3/5 ca đỏ); sửa 064b407; router-team-c3-090 5 pass; 090-C3a..g KILLED; lời dặn 11.332 thành 12.818 (+1.486, trong 1.500 của nhóm C; tổng +1.930 so với 0.8.9, trong 2.000); ca cũ đổi kỳ vọng: limits-l2-087 (băm agentSystem); số lượt router mỗi prompt không đổi (không thêm lời gọi); hiệu quả đo ở C9 |
 | C4 | passing 17/11 | đỏ (tệp chưa nạp được: chưa có hooks/lib/verdict.ts); sửa 1dccb63; verdict-c4-090 15 pass (10 dạng kết luận, dạng thiếu, dòng mẫu vi và en dưới 200 ký tự, nối vào prompt ở agent.spawn, dòng verdict trong nhật ký); 090-C4a..f KILLED. Khai báo 2.1.296: AgentSpawnInput.prompt viết lại được ('A rewrite is the prompt the subagent runs with') nên nối ở agent.spawn, không cần đường lùi |
-| C5 | not_started | |
+| C5 | passing 17/11 | đỏ (1/3 ca đỏ); sửa 0a35e15; file-clash-c5-090 4 pass; 090-C5a..d KILLED; 36 tệp agent 380 pass |
 | C6 | not_started | |
 | C7 | not_started | |
 | C8 | not_started | |
