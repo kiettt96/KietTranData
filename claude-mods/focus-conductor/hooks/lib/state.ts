@@ -587,6 +587,9 @@ function normalizeBrief(raw: Brief): Brief {
     ...(brief.isBare === true ? { isBare: true } : {}),
     ...(brief.isBig === true ? { isBig: true as const } : {}),
     scopePaths: brief.scopePaths ?? [],
+    // Tệp trạng thái và nơi ghi phụ (0.9.0 B1): bản cũ không có thì vắng; phần tử không phải chuỗi bị bỏ.
+    ...(Array.isArray(brief.stateFiles) ? { stateFiles: brief.stateFiles.filter((p): p is string => typeof p === 'string') } : {}),
+    ...(Array.isArray(brief.sideWrites) ? { sideWrites: brief.sideWrites.filter((p): p is string => typeof p === 'string') } : {}),
     prompt: brief.prompt ?? '',
     at: brief.at ?? 0,
   }
