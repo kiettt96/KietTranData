@@ -10,6 +10,7 @@ import { checkScopeOf, inCheckScope, splitCheckScope } from '../lib/drift/verify
 import { globToRegExp } from '../lib/drift/soft'
 import { coversScope } from '../lib/drift/evidence'
 import { PLAN_SET_CHECK_LINE } from '../lib/approval'
+import { verdictOf } from '../lib/verdict'
 import type { SideLists } from '../lib/drift/scope'
 import type { Finding, Focus, ToolObservation, TurnTracker } from '../lib/drift'
 import { checkCommand, checkSignature, coversFailure, isFailedRun } from '../lib/drift/evidence'
@@ -1371,6 +1372,15 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       if ((e.reason === 'error' || e.reason === 'refusal') && meta !== undefined) {
         agentFailures.push({ description: meta.description, goalId: meta.goalId })
         if (agentFailures.length > 10) agentFailures.shift()
+      }
+      // Kết luận của subagent có vai (0.9.0 C4): dòng đầu câu trả lời theo mẫu của vai; không có thì là chưa có kết luận (verdict null).
+      if (e.reason === 'answer' && meta?.role !== undefined) {
+        const parsed = verdictOf(meta.role, e.answer ?? '')
+        if (L.verdicts.goalId !== meta.goalId) L.verdicts = { goalId: meta.goalId, items: [] }
+        L.verdicts.items.push({ agentId, role: meta.role, verdict: parsed?.verdict ?? null, ...(parsed?.count !== undefined ? { count: parsed.count } : {}), seq: ctx.evidenceFor(meta.goalId).seq, family: familyOf(e.usage?.model ?? '') ?? meta.family, ...(meta.taskIndex !== undefined ? { taskIndex: meta.taskIndex } : {}), description: meta.description })
+        if (L.verdicts.items.length > 100) L.verdicts.items.shift()
+        record(at, 'verdict', { agentId, role: meta.role, verdict: parsed?.verdict ?? null, ...(parsed?.count !== undefined ? { count: parsed.count } : {}) })
+        await flushDecisions((path, text) => $.fs.write(path, text))
       }
       // Tiến độ từng việc (0.6.1): chỉ 'answer' là xong; còn lại là lỗi, hoặc bị cắt nếu đang tạm dừng vì hạn mức.
       const end = agentEnd(e.reason, normalizeQuota(await read($, quotaState)).pause !== null)
