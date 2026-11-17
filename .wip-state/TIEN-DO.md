@@ -56,12 +56,30 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 | C7 | passing 17/11 | đỏ (3/3 ca đỏ); sửa 87c99f1; verdict-retry-c7-090 3 pass (vòng 1 nguyên văn, vòng 2 chẩn đoán opus hay fable theo allowFable, vòng 3 dừng hỏi, toast 3 vòng, ĐẠT đặt lại vòng); 090-C7a..e KILLED; câu dặn dưới 200 ký tự; 30 tệp retry/agent 214 pass |
 | B6v | passing 17/11 | lộ ra khi dựng kịch bản đo kỷ luật của D2: Edit tệp tiến độ hay cp vào nơi sao lưu sau lần kiểm làm bước verified bị hạ done (lastMutation tính cả ghi phụ). Đỏ 2/3 ca (state-fresh-b6-090); sửa 5241aae: ghi chắc chỉ vào hai danh sách không là thay đổi của evidence; 090-B6c,g,h KILLED; 40 pass ở 5 tệp B2, B6, B10, B11 |
 | C8 | passing 17/11 | đỏ fb3e1c3 (4/5 ca đỏ, ca không chèn bảng khi sổ rỗng xanh từ đầu); sửa e3e2464; report-c8-090 5 pass (bảng chỉ ở bước cuối, vai, model, kết luận, giữ lần chạy cuối, gộp theo vai dưới 600 ký tự, mục 6 đúng 472 ký tự); 090-C8a..e KILLED; plan-set-073 giữ nguyên (mọi cụm ghim còn) |
-| C9 | blocked 17/11 | dưới ngưỡng sau hai lần chỉnh lời dặn; xem DIEM-DUNG.md |
+| C9 | blocked 17/11 | dưới ngưỡng sau ba lần chỉnh lời dặn (lần ba chủ mod cho phép); xem DIEM-DUNG.md |
 | D2 | in_progress | ca D2: 6/6 đạt ít nhất 2/3 (d2-many-rules 2/3); ca cũ k4, six thấp hơn 14a3a85; ký tự chèn: phiên dài +79 mỗi số, kịch bản kỷ luật 3381 -> 1398 |
 | D4 | not_started | |
 | D3 | not_started | |
 
 ## Nhật ký phiên
+- Đợt 4 sau lần chỉnh 3 (d2/new4-sonnet.json, old-k4six.json, new-k4six.json, diag-old2.json): dưới ngưỡng, dừng theo bước 6 của chủ mod, không chỉnh lần thứ tư.
+  | Ca | 14a3a85 độ sâu (prompt viết lại) | lời dặn mới độ sâu | số việc mới | đạt mới |
+  |---|---|---|---|---|
+  | c9-mid-check | substantial x3 (0 việc) | substantial x3 | 4, 3, 3 | 3/3 |
+  | c9-mid-nocheck | substantial x3 (0 việc) | hard x3 | 6, 5, 5 | 1/3 (thêm audit khi không có lệnh kiểm; một lượt thiếu review cuối) |
+  | c9-doc | substantial x3 (0 việc) | substantial x3 | 3, 2, 2 | 0/3 (không có audit đối chiếu số liệu) |
+  | c9-hard-data | hard x3 (0 việc, prompt lần chỉnh 1) | hard x3 | 6, 5, 6 | 3/3 |
+  c9-cost 0/3 (thêm audit khi không có lệnh kiểm). Tổng 203/228. k4 6 lượt: 14a3a85 6/6, mới 2/6 (K4.9 thành nhiều việc; 15 việc cần 8 tới 14): tụt. six 6 lượt: 14a3a85 2/6, mới 0/6 (luồng chính sonnet, cần opus): tụt, blocked. Token ra TB ca cũ 710 -> 840 (+18,3%, quá ngưỡng 15%). Chi phí đợt 4: 5,08 USD; cộng dồn khoảng 20,9 USD.
+- 17/11, chủ mod duyệt hướng 1 có thu hẹp: lần chỉnh thứ ba, trần chi phí 35 USD (báo ở 30).
+- Chẩn đoán độ sâu (prompt C9 bản lần chỉnh 1, sonnet, 3 lượt; d2/diag-old.json và d2/new3-sonnet.json):
+  | Ca | 14a3a85 | lời dặn mới (lần chỉnh 2) |
+  |---|---|---|
+  | c9-mid-check | light, light, light (0 việc) | light, light, light (0 việc) |
+  | c9-mid-nocheck | light, light, light (0 việc) | substantial, light, substantial (0 việc) |
+  | c9-doc | light, light, light (0 việc) | light, light, light (0 việc) |
+  | c9-hard-data | hard, hard, hard (0 việc) | hard, hard, hard (0, 5, 5 việc) |
+  Ba ca vừa: 14a3a85 cũng chấm light 3/3, nên prompt chưa đủ cỡ vừa: viết lại (đổi hành vi qua nhiều mô-đun, có rủi ro hồi quy), giữ kỳ vọng audit, review, thêm kỳ vọng độ sâu substantial hay hard. Không ca nào 14a3a85 chấm substantial mà lời dặn mới chấm light. c9-hard-data: độ sâu đúng, lỗi là danh sách việc rỗng.
+- Lần chỉnh 3 (984c3bd): 'depth substantial or hard, kind edit or mixed: tasks is never []: the work is build tasks (main or agent), then one audit task (...), then one review task, last.'; câu tasks [] thêm ', except as Team roles say.'. Lời dặn +1994 (nhóm C 1500, B 494). c9-mid-nocheck: bỏ design khỏi vai cấm vì prompt mới chạm quyền truy cập (C3: hard chạm bảo mật có design).
 - Lần chỉnh 2 (d2/new3-sonnet.json): 205/228; c9-mid-check, c9-mid-nocheck, c9-doc 0/3, c9-hard-data 1/3; ca cũ k4 2/3 (14a3a85 3/3), six 1/3 (2/3); token +13,9%. Dừng theo điểm dừng của C9. Chi phí cộng dồn khoảng 15,7 USD.
 - D2, C9 đợt 1 (sonnet, --runs 3, cùng đợt): 14a3a85 170/180 lượt (six 2/3; c4-big-coded, c4-big-skill, arr-dup 0/3); lời dặn mới 194/228. Ca C9 cỡ vừa và khó không có việc (router xếp light hay giữ tasks [] cho một khối việc); ca cũ có số việc ghim tụt vì việc audit, review thêm. Token ra TB trên ca cũ 710 -> 809 (+13,9%).
 - Lần chỉnh 1: lời dặn 'một khối việc thì là một việc build, không []'; bộ chấm golden đếm số việc không tính việc đội hình thêm (design đầu, chuỗi audit/review/design cuối); viết lại năm prompt C9 cho đúng cỡ. Kết quả chấm lại offline: 205/228; ca cũ tụt: six 0/3 (luồng chính sonnet vì design, review chạy opus), long-vn 1/3 (ràng buộc và báo cáo cuối không việc nào phủ); C9 vừa và tài liệu vẫn light.

@@ -1,7 +1,7 @@
 # Điểm dừng focus-conductor 0.9.0 (17/11/2026)
 
 ## Lý do dừng
-C9 dưới ngưỡng sau hai lần chỉnh lời dặn router (điểm dừng của C9 và D2). Chờ chủ mod quyết.
+C9 dưới ngưỡng sau lần chỉnh thứ ba (chủ mod cho phép, bước 6: không chỉnh lần thứ tư). Chờ chủ mod quyết. Số đo đợt 4 trong TIEN-DO.md.
 
 ## Trạng thái
 - Xong (passing): A1-A5, B1-B13, B6 vòng sửa, D1, C1-C8. Nhánh claude/focus-conductor-0-9-0, commit cuối xem git log; nhánh -wip có ba tệp trạng thái.
