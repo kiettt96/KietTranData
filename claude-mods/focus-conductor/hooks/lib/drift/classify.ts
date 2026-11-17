@@ -320,10 +320,43 @@ function shellHeredoc(command: string): { errexit: boolean; body: string } | nul
   return { errexit, body: errexit ? kept.join(' && ') : body }
 }
 
+/** Thay thế tiến trình một tầng (0.9.0 B9): `<(lệnh)` mà lệnh bên trong không có ngoặc, `$` hay backtick. */
+const PROCESS_SUBST = /<\(([^()`$]*)\)/g
+/** Chỗ đứng của `<(...)` sau khi tách: đường dẫn kiểu /dev/fd mà phân loại bỏ qua như /dev/stdout. */
+const SUBST_PLACEHOLDER = '/dev/fd/63'
+
 export function classifyBash(input: string, base = ''): BashClass {
   // Khối shell nhận thân từ heredoc (0.9.0 B8): phân loại thân như chuỗi lệnh của chính lời gọi.
   const heredoc = shellHeredoc(input)
   if (heredoc !== null) return classifyBash(heredoc.body, base)
+  // Thay thế tiến trình (0.9.0 B9): lệnh bên trong được phân loại riêng, chỉ lấy tác động ghi (mã thoát của nó không hiện ra ngoài); lệnh
+  // ngoài phân loại với một đường dẫn giữ chỗ. Còn `<(` (lồng nhau) hay có `>(` thì giữ cách của 0.8.9.
+  if (input.includes('<(')) {
+    const inner: string[] = []
+    const outer = input.replace(PROCESS_SUBST, (_m, body: string) => {
+      inner.push(body)
+      return SUBST_PLACEHOLDER
+    })
+    if (inner.length > 0 && !outer.includes('<(')) {
+      const outside = classifyBash(outer, base)
+      const effects = [...outside.effects]
+      const paths = [...outside.paths]
+      let isUnknown = outside.isUnknown
+      for (const body of inner) {
+        const sub = classifyBash(body, base)
+        // Lệnh bên trong chạy song song, ngoài tầm theo dõi của mã thoát: tác động ghi của nó giữ mức và đích, nhưng là đích không chắc
+        // (isUnknown), như cách 0.7.5 R3 đối xử với thay thế tiến trình ở tạm dừng cứng.
+        for (const effect of sub.effects) {
+          if (effect.kind !== 'write') continue
+          effects.push({ ...effect, isUnknown: true })
+          isUnknown = true
+        }
+        for (const path of sub.paths) if (!paths.includes(path)) paths.push(path)
+        if (sub.isUnknown) isUnknown = true
+      }
+      return { effects, paths, isUnknown, ...(outside.dir !== undefined ? { dir: outside.dir } : {}) }
+    }
+  }
   // base (0.8.0 A1): thư mục làm việc từ các lần Bash trước, chỉ dùng để giải lệnh khai có đường dẫn tương đối.
   const command = expandAssignments(input)
   const { masked, unmask, heredocs } = maskCommand(command)

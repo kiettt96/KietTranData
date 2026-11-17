@@ -67,6 +67,16 @@ export function segmentIsReadOnly(part: string): boolean {
  * 2>&1), không có thay thế lệnh $( ) hay backtick. Chuỗi trong nháy được bỏ trước khi kiểm.
  */
 export function isReadOnlyCommand(command: string): boolean {
+  // Thay thế tiến trình (0.9.0 B9): `<(lệnh)` một tầng chỉ đọc khi lệnh bên trong chỉ đọc; `>(` hay lồng nhau thì không.
+  if (command.includes('<(') || command.includes('>(')) {
+    const inner: string[] = []
+    const outer = command.replace(/<\(([^()`$]*)\)/g, (_m, body: string) => {
+      inner.push(body)
+      return '/dev/fd/63'
+    })
+    if (outer.includes('<(') || outer.includes('>(') || inner.length === 0) return false
+    return inner.every(isReadOnlyCommand) && isReadOnlyCommand(outer)
+  }
   // Thay thế lệnh và system() của awk có thể chạy lệnh khác; kiểm trên lệnh gốc, trước khi bỏ chuỗi trong nháy.
   if (/\$\(|`|\bsystem\s*\(/.test(command)) return false
   // Script sed nằm trong nháy: kiểm trên lệnh gốc. Có thể báo nhầm một pattern chứa "w e"; chấp nhận, vì an toàn hơn.
