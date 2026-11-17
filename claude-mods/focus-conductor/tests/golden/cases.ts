@@ -3,7 +3,7 @@
 // scripts/eval-router.ts gửi cùng request tới router thật và chấm theo cùng kỳ vọng.
 // Kỳ vọng ghi theo khoảng chấp nhận được (họ model, loại agent, số việc), không theo một câu trả lời duy nhất.
 
-import type { Brief, Intent, Kind, ModelFamily, Relation, Role, TaskStatus } from '../../types'
+import type { Brief, Depth, Intent, Kind, ModelFamily, Relation, Role, TaskStatus } from '../../types'
 import { briefOf, parseRoute } from '../../hooks/lib/router'
 import type { Policy } from '../../hooks/lib/router'
 import { LONG_VN_EXTRA, LONG_VN_PROMPT } from '../fixtures/prompt-long-vn'
@@ -76,6 +76,8 @@ export type Expect = {
   noSides?: true
   /** Số ràng buộc, [tối thiểu, tối đa] (0.9.0 B13: không còn trần 6). */
   constraints?: readonly [number, number]
+  /** Độ sâu router chấm phải thuộc danh sách (0.9.0 C9). */
+  depths?: readonly Depth[]
   /** Số câu hỏi làm rõ, [tối thiểu, tối đa] (0.9.0 C9). */
   questions?: readonly [number, number]
 }
@@ -637,15 +639,15 @@ export const CASES: readonly GoldenCase[] = [
   },
   {
     id: 'c9-mid-check',
-    text: 'Thêm phí vận chuyển theo cân nặng cho luồng thanh toán: tính phí ở src/shipping/fee.ts (dưới 1 kg là 20.000 đồng, mỗi kg thêm 5.000 đồng, đơn trên 500.000 đồng miễn phí), cộng phí vào tổng tiền ở src/checkout/total.ts, hiện dòng phí ở src/checkout/summary.tsx, viết test cho ba ngưỡng; chạy `bun test` để kiểm.',
+    text: 'Đổi cách tính phí vận chuyển của cả luồng đặt hàng từ phí cố định sang phí theo cân nặng: src/shipping/fee.ts tính phí (dưới 1 kg là 20.000 đồng, mỗi kg thêm 5.000 đồng, đơn trên 500.000 đồng miễn phí), src/cart/weight.ts cộng cân nặng từng món, src/checkout/total.ts và src/orders/invoice.ts dùng phí mới, đơn đã đặt trước đó giữ phí cũ. Tổng tiền và hóa đơn đang có nhiều test dựa trên phí cố định nên dễ hồi quy; chạy `bun test` để kiểm.',
     note: '0.9.0 C9: việc vừa có lệnh kiểm: làm, rồi audit, rồi review cuối',
-    expect: { main: ['sonnet', 'opus'], tasks: [0, 4], roles: { order: ['build', 'audit', 'review'], last: 'review', none: ['design'] } },
+    expect: { depths: ['substantial', 'hard'], main: ['sonnet', 'opus'], tasks: [0, 4], roles: { order: ['build', 'audit', 'review'], last: 'review', none: ['design'] } },
   },
   {
     id: 'c9-mid-nocheck',
-    text: 'Thêm bộ lọc theo khoảng ngày cho danh sách đơn hàng: API ở src/api/orders.ts nhận from và to (kiểm định dạng ngày, from không sau to), truy vấn ở src/db/orders.ts lọc theo ngày tạo, giao diện src/orders/list.tsx có hai ô từ ngày, đến ngày và giữ bộ lọc trên URL.',
+    text: 'Đổi quyền xem đơn hàng từ theo người tạo sang theo cửa hàng: src/auth/roles.ts thêm vai quản lý cửa hàng, src/api/orders.ts lọc đơn theo cửa hàng của người gọi, src/db/orders.ts thêm truy vấn theo cửa hàng, src/orders/list.tsx ẩn nút sửa với người không có quyền. Nhân viên cũ vẫn phải xem được đơn của chính mình; làm sai thì lộ đơn của cửa hàng khác.',
     note: '0.9.0 C9: việc vừa không có lệnh kiểm: làm rồi review cuối, không audit',
-    expect: { main: ['sonnet', 'opus'], tasks: [0, 4], roles: { order: ['build', 'review'], last: 'review', none: ['audit', 'design'] } },
+    expect: { depths: ['substantial', 'hard'], main: ['sonnet', 'opus'], tasks: [0, 4], roles: { order: ['build', 'review'], last: 'review', none: ['audit'] } },
   },
   {
     id: 'c9-hard-struct',
@@ -661,9 +663,9 @@ export const CASES: readonly GoldenCase[] = [
   },
   {
     id: 'c9-doc',
-    text: 'Soạn báo cáo docs/bao-cao-quy-3.md từ data/doanh-thu.csv và data/chi-phi.csv: doanh thu và chi phí theo tháng và theo kênh bán, biên lợi nhuận từng kênh, bảng so với quý 2 trong docs/bao-cao-quy-2.md, ba nhận xét chính; mọi con số phải khớp tệp csv.',
+    text: 'Soạn lại báo cáo docs/bao-cao-quy-3.md theo cách ghi nhận doanh thu mới (khi giao hàng thay vì khi đặt): tính lại từ data/don-hang.csv, data/giao-hang.csv và data/tra-hang.csv theo tháng và theo kênh bán, sửa bảng so sánh quý 2 trong docs/bao-cao-quy-2.md theo cùng cách tính, nêu rõ chênh lệch với số cũ và ba nhận xét chính; mọi con số phải khớp các tệp csv.',
     note: '0.9.0 C9: việc không phải code: làm, audit soát số liệu, review nội dung',
-    expect: { main: ['sonnet', 'opus'], tasks: [0, 4], roles: { order: ['build', 'audit', 'review'], last: 'review' } },
+    expect: { depths: ['substantial', 'hard'], main: ['sonnet', 'opus'], tasks: [0, 4], roles: { order: ['build', 'audit', 'review'], last: 'review' } },
   },
   {
     id: 'c9-own-check',
