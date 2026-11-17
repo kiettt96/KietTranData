@@ -249,9 +249,10 @@ describe('0.9.0 A3: bốn ca còn hở của vai điều phối dự phòng', ()
     expect(prompts(seen).at(-1)?.model).toBe('fable')
     const status = await run($, 'status')
     expect(status.split('\n').find(l => l.startsWith('Điều phối')) ?? '').not.toContain('dự phòng')
+    const toastsBefore = seen.toasts.length
     await step($, seen, { turnId: 'tx' })
     expect(pick(seen.steps.at(-1))).not.toBe('claude-opus-5-5/medium')
-    expect(seen.toasts.some(t => t.includes('(dự phòng)'))).toBe(false)
+    expect(seen.toasts.slice(toastsBefore).some(t => t.includes('(dự phòng)'))).toBe(false)
   })
 
   test('lượt đọc do họ dự phòng thực hiện tính chi phí theo giá họ dự phòng', opts(), async ($, on) => {

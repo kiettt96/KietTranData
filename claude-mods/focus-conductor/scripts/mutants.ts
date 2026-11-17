@@ -2385,4 +2385,5 @@ export const MUTANTS: Mutant[] = [
   { id: "090-A2c", file: "hooks/lib/drift/classify.ts", note: "biết thư mục nhà vẫn giữ dạng ~/", old: "  return homeDir !== null ? normalizePath(`${homeDir}/${tail}`) : `~/${tail}`\n", new: "  return `~/${tail}`\n" },
   { id: "090-A2d", file: "hooks/lib/drift/scope.ts", note: "đích ~/ chưa giải neo theo gốc phiên", old: "  if (!root || path.startsWith('~')) return 'unknown'\n", new: "  if (!root) return 'unknown'\n" },
   { id: "090-A2e", file: "hooks/lib/drift/classify.ts", note: "~/../ vẫn nhận là dưới thư mục nhà", old: "  if (tail === '' || tail.startsWith('..')) return null\n", new: "  if (tail === '') return null\n" },
+  { id: "090-A3a", file: "hooks/context.ts", note: "router họ dự phòng tạm ngừng ở prompt hiện tại vẫn nhận chuyển giao giữa turn", old: "    return fallback.pauseLeft > 0 || fallback.promptPaused ? null : conductorFallback\n", new: "    return fallback.pauseLeft > 0 ? null : conductorFallback\n" },
 ]
