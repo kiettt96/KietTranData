@@ -9,7 +9,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 - Đường dẫn khởi động chuẩn: khối mục 7 của prompt.
 - Đường dẫn xác minh chuẩn: `claude plugin test .` ở MOD.
 - Mục chưa xong ưu tiên cao nhất: D2 cùng C9.
-- Điểm chặn: không.
+- Điểm chặn: kiểm độc lập lần hai không đạt sau ba vòng; chờ chủ mod quyết.
 
 ## Đo nền (17/11/2026, engine 2.1.326)
 - HEAD 14a3a85; validate marketplace và mod đạt; version-check 0.8.9, đủ 47 option.
@@ -62,6 +62,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 | D3 | not_started | |
 
 ## Nhật ký phiên
+- Chỉ dẫn thứ ba của chủ mod (trần 40 USD): mục 1 kết luận theo vai xong (318b1b0, 52ff5d3). Mục 2 kiểm độc lập lần hai: vòng 1 không đạt (1 nặng, 5 vừa, 1 nhẹ) -> sửa 7eea57e (16 ca đỏ); vòng 2 không đạt (2 nặng, 4 vừa, 2 nhẹ) -> sửa c958d15 (20 ca đỏ, isBashWrite xét theo đoạn); vòng 3 không đạt (2 nặng: vòng lặp, if của shell và heredoc vào trình thông dịch; 3 vừa). Hết trần ba vòng, dừng và báo (DIEM-DUNG.md).
 - Đo F (d2/new5-sonnet.json, old5-sonnet.json, sonnet, 3 lượt, cùng đợt): mới 216/228, 14a3a85 170/180. Mười ca c9 đạt 3/3 (chỉ chấm độ sâu); sáu ca D2 đạt ít nhất 2/3 (d2-many-rules 2/3). Ca cũ lệch: k4 2/3 và six 2/3 (14a3a85 3/3 cả hai) -> đo 6 lượt cùng đợt: k4 mới 5/6, cũ 6/6; six mới 3/6, cũ 4/6: chênh 1, không tính tụt. Token ra TB ca cũ 676 -> 761 (+12,6%). Đạt ngưỡng; không cần F2.
 - Golden: ghi bằng lần đo F (73/76 ca), rồi c4-big-coded, c4-big-skill, c4-small, c4-status, arr-dup bằng router fable --record 3 lượt (15/15), như VERIFICATION mục 0.8.9. golden.test.ts 89 pass.
 - Chi phí: đợt F 6,39; 6 lượt k4, six 0,65; ghi fable 1,43; cộng dồn khoảng 29,4 USD (gần mức báo 30).
