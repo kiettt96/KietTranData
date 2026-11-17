@@ -10,7 +10,7 @@ import { checkScopeOf, inCheckScope, splitCheckScope } from '../lib/drift/verify
 import { globToRegExp } from '../lib/drift/soft'
 import { coversScope } from '../lib/drift/evidence'
 import { PLAN_SET_CHECK_LINE } from '../lib/approval'
-import { verdictOf } from '../lib/verdict'
+import { reportTable, verdictOf } from '../lib/verdict'
 import type { SideLists } from '../lib/drift/scope'
 import type { Finding, Focus, ToolObservation, TurnTracker } from '../lib/drift'
 import { checkCommand, checkSignature, coversFailure, isFailedRun } from '../lib/drift/evidence'
@@ -981,6 +981,11 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       core = await update($, coreState, S.withChangedNoticed(core.brief.goalId))
     }
     if (isUpdate && openSteps(before.plan).length > 0 && openSteps(core.plan).length === 0 && pendingSteps(core.plan).length > 0) notes.push(pendingNotice(core.plan))
+    // Bảng báo cáo từ sổ kết luận của mục tiêu (0.9.0 C8): khi đóng bước cuối; sổ rỗng thì không chèn gì.
+    if (isClosing && core.brief !== null && L.verdicts.goalId === core.brief.goalId) {
+      const table = reportTable(L.verdicts.items)
+      if (table !== '') notes.push(table)
+    }
     // Đóng bước khi còn lệnh kiểm chưa đạt (0.7.8 vòng sửa 3, W4): cho phép, kèm một câu nói cổng kết thúc sẽ chặn; ghi bước vừa đóng để khi
     // hết lượt mod biết bước nào ghi blocked. Luật verified không đổi.
     const unresolved = liveRetry(core)
