@@ -2436,4 +2436,9 @@ export const MUTANTS: Mutant[] = [
   { id: "090-B7c", file: "hooks/lib/drift/readonly.ts", note: "bash script.sh cũng chỉ đọc", old: "return args[0] === '-n' && args.slice(1).every(a => !a.startsWith('-'))", new: "return true" },
   { id: "090-B7d", file: "hooks/lib/drift/readonly.ts", note: "bash -n -c vẫn chỉ đọc", old: "return args[0] === '-n' && args.slice(1).every(a => !a.startsWith('-'))", new: "return args[0] === '-n'" },
   { id: "090-B7e", file: "hooks/lib/drift/readonly.ts", note: "command -v không chỉ đọc", old: "  if (cmd === 'command') return (args[0] === '-v' || args[0] === '-V') && args.length >= 2\n", new: "" },
+  { id: "090-B8a", file: "hooks/lib/drift/classify.ts", note: "không đọc thân heredoc", old: "  if (heredoc !== null) return classifyBash(heredoc.body, base)\n", new: "" },
+  { id: "090-B8b", file: "hooks/lib/drift/classify.ts", note: "thân có cấu trúc chưa tách được vẫn đọc", old: "  if (body === '' || BODY_BLOCKED.test(body)) return null\n", new: "  if (body === '') return null\n" },
+  { id: "090-B8c", file: "hooks/lib/drift/classify.ts", note: "gán bằng thay thế lệnh ghi file vẫn bỏ", old: "      if (!isReadOnlyCommand(sub[1] ?? sub[2] ?? '')) return null\n", new: "" },
+  { id: "090-B8d", file: "hooks/lib/drift/classify.ts", note: "set -e không nối dòng như &&", old: "  return { errexit, body: errexit ? kept.join(' && ') : body }\n", new: "  return { errexit, body }\n" },
+  { id: "090-B8e", file: "hooks/lib/drift/classify.ts", note: "cờ -e của shell không tính errexit", old: "  const errexit = /-[A-Za-z]*e/.test(flags) || ", new: "  const errexit = " },
 ]
