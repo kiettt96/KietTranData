@@ -27,7 +27,8 @@ export type ScopeStatus = 'in' | 'out' | 'unknown'
  */
 export function scopeStatus(path: string, scopePaths: readonly string[], root?: string | null, cwd?: string | null): ScopeStatus {
   if (scopePaths.length === 0 || path === '') return 'in'
-  if (!root) return 'unknown'
+  // Đường dẫn dưới thư mục nhà chưa giải (0.9.0 A2, dạng `~/...`): không neo được theo gốc phiên.
+  if (!root || path.startsWith('~')) return 'unknown'
   const base = normalizePath(root)
   const resolve = (p: string, from: string) => normalizePath(p.replace(/\\/g, '/').startsWith('/') ? p : `${from}/${p}`)
   const file = resolve(path, cwd ? resolve(cwd, base) : base)
