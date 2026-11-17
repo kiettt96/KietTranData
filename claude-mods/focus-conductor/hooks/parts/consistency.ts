@@ -6,6 +6,9 @@ import type { AgentState, Brief, Choice, Core, DelegationState, Mode, ModelFamil
 import { acceptsVerified, checkKindOf, classifyBash, evidenceStrength, filePathOf, freshTestRun, hardChanges, isCheckTool, isExecuting, isFullyClosed, isGoalDone, isMutation, isPlanFile, normalizePath, isSkillTrial, markVerified, newTracker, skillNameOf, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
 import { isSidePath } from '../lib/drift/scope'
 import { STEP_RUNS, stepCheckOf, stepEvidence, stepRunOf } from '../lib/drift/stepcheck'
+import { checkScopeOf, inCheckScope, splitCheckScope } from '../lib/drift/verify'
+import { globToRegExp } from '../lib/drift/soft'
+import { coversScope } from '../lib/drift/evidence'
 import { PLAN_SET_CHECK_LINE } from '../lib/approval'
 import type { SideLists } from '../lib/drift/scope'
 import type { Finding, Focus, ToolObservation, TurnTracker } from '../lib/drift'
@@ -501,11 +504,16 @@ async function scriptCommand($: EngineInterface, root: string, script: string): 
  * tiêu, script kiểm trong package.json ở thư mục gốc phiên (đọc lỗi thì coi như không có). Không có nguồn nào thì null.
  */
 async function projectCheck($: EngineInterface, options: Ctx['options'], log: EvidenceLog): Promise<string | null> {
-  const declared = String(options['checkCommands'] ?? '').split(',').map(item => item.trim()).find(Boolean)
-  if (declared !== undefined) return declared
+  // Lệnh khai có phạm vi (0.9.0 B11): chỉ gợi ý lệnh không có phạm vi, hay có phạm vi phủ ít nhất một file đã sửa không nhẹ; nêu phần lệnh.
+  const changed = log.writes.filter(w => w.hard === true).flatMap(w => w.paths ?? [])
+  const declared = String(options['checkCommands'] ?? '')
+    .split(',')
+    .map(item => splitCheckScope(item.trim().split(/\s+/).filter(Boolean)))
+    .find(entry => entry.command.length > 0 && (entry.scope === null || changed.some(path => inCheckScope(path, entry.scope?.map(globToRegExp) ?? []))))
+  if (declared !== undefined) return declared.command.join(' ')
   const tool = String(options['checkTools'] ?? '').split(',').map(item => item.trim()).find(name => name.startsWith('mcp__'))
   if (tool !== undefined) return tool
-  const passed = [...log.commands].reverse().find(entry => entry.check !== null && entry.ok)
+  const passed = [...log.commands].reverse().find(entry => entry.check !== null && entry.ok && checkScopeOf(entry.raw ?? entry.command) === null)
   if (passed !== undefined) return checkCommand(passed)
   const root = await $.session.root().catch(caught('session.root', null))
   if (!root) return null
@@ -531,7 +539,8 @@ async function noCheckGate($: EngineInterface, options: Ctx['options'], core: Co
   const brief = core.brief
   if (brief === null || core.noCheckNudged === brief.goalId || brief.tier === 'trivial' || isWaiting) return null
   // Lần chạy nối && chưa rõ kết quả (0.8.0 A11) không tính là đã kiểm.
-  if (log.hard === 0 || log.commands.some(entry => entry.check !== null && entry.chained !== true && entry.seq > log.lastHard)) return null
+  // Lần kiểm có phạm vi không phủ các thay đổi (0.9.0 B11) không tính là đã kiểm.
+  if (log.hard === 0 || log.commands.some(entry => entry.check !== null && entry.chained !== true && entry.seq > log.lastHard && coversScope(entry, log))) return null
   const command = await projectCheck($, options, log)
   if (command === null) return null
   await update($, coreState, S.withNoCheckNudged(brief.goalId))

@@ -11,7 +11,7 @@ const SOFT_EXT = /\.(?:md|markdown|txt|csv|tsv|jsonl|log)$/i
 let softGlobs: RegExp[] = []
 
 /** Một glob thành biểu thức: `**` khớp mọi đoạn đường dẫn, `*` khớp trong một đoạn, `?` một ký tự. Glob không bắt đầu bằng "/" khớp từ đầu một thư mục bất kỳ. */
-function globToRegExp(glob: string): RegExp {
+export function globToRegExp(glob: string): RegExp {
   let out = ''
   for (let i = 0; i < glob.length; i++) {
     const ch = glob[i] ?? ''

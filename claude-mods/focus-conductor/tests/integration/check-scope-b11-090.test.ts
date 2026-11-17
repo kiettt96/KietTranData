@@ -77,6 +77,11 @@ describe('0.9.0 B11: toàn luồng', () => {
     expect(reason).toContain('npm run lint:docs')
     expect(reason).not.toContain('`bun test`')
   })
+  test('lần chạy có phạm vi không phủ thay đổi không tính là đã kiểm: cổng Stop gợi ý lệnh phủ docs', TWO, async ($, on) => {
+    const seen = setup(on)
+    await run($, seen, 'docs/x.ts', true)
+    expect(await stop($)).toContain('npm run lint:docs')
+  })
   test('đối chứng: lệnh khai không có phạm vi như 0.8.9', { options: { planApproval: 'off', checkCommands: 'bun test' } }, async ($, on) => {
     const seen = setup(on)
     await run($, seen, 'docs/a.ts', true)
