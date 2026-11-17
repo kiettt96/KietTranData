@@ -2380,4 +2380,9 @@ export const MUTANTS: Mutant[] = [
   { id: "090-A1d", file: "hooks/lib/drift/output.ts", note: "nhãn có kết luận chưa đạt vẫn bị bỏ", old: "      if (SUMMARY_FAIL.test(label) || FOLDED_FAIL.test(foldLabel(label))) return line\n", new: "" },
   { id: "090-A1e", file: "hooks/lib/drift/output.ts", note: "nhãn có vế lệch: N vẫn bị bỏ", old: "      if ([...label.matchAll(FAILURE_CLAUSE)].some(found => nonZero(found[1] ?? ''))) return line\n", new: "" },
   { id: "090-A1f", file: "hooks/lib/drift/output.ts", note: "nhãn chỉ gồm từ chỉ lỗi vẫn bị bỏ", old: "      if (label.replace(LABEL_FAILURE_WORD, ' ').replace(/[^\\p{L}]/gu, '') === '') return line\n", new: "" },
+  { id: "090-A2a", file: "hooks/lib/drift/classify.ts", note: "đích dưới thư mục nhà vẫn không đọc được", old: "    const underHome = homeTarget(token)\n", new: "    const underHome = null as string | null\n" },
+  { id: "090-A2b", file: "hooks/lib/drift/classify.ts", note: "phần sau ~/ có biến vẫn nhận", old: "  if (rest === undefined || /[$`*?]/.test(rest)) return null\n", new: "  if (rest === undefined) return null\n" },
+  { id: "090-A2c", file: "hooks/lib/drift/classify.ts", note: "biết thư mục nhà vẫn giữ dạng ~/", old: "  return homeDir !== null ? normalizePath(`${homeDir}/${tail}`) : `~/${tail}`\n", new: "  return `~/${tail}`\n" },
+  { id: "090-A2d", file: "hooks/lib/drift/scope.ts", note: "đích ~/ chưa giải neo theo gốc phiên", old: "  if (!root || path.startsWith('~')) return 'unknown'\n", new: "  if (!root) return 'unknown'\n" },
+  { id: "090-A2e", file: "hooks/lib/drift/classify.ts", note: "~/../ vẫn nhận là dưới thư mục nhà", old: "  if (tail === '' || tail.startsWith('..')) return null\n", new: "  if (tail === '') return null\n" },
 ]

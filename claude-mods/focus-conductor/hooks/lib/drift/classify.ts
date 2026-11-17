@@ -278,6 +278,27 @@ function afterEnv(args: string[], unmask: (token: string) => string): string[] {
   return args.slice(at)
 }
 
+/** Thư mục nhà của phiên (0.9.0 A2), từ biến HOME khi engine cho biết; null là chưa biết. */
+let homeDir: string | null = null
+
+/** Áp thư mục nhà cho lần nạp mod này (0.9.0 A2); null hay chuỗi không phải đường dẫn tuyệt đối là chưa biết. */
+export function applyHome(home: string | null | undefined): void {
+  homeDir = typeof home === 'string' && home.startsWith('/') ? normalizePath(home) : null
+}
+
+/**
+ * Đích mở đầu `~/`, `$HOME/` hay `${HOME}/` (0.9.0 A2), phần sau không có `$`, backtick hay ký tự glob: đường dẫn dưới thư mục nhà. Biết
+ * thư mục nhà thì giải thành đường dẫn tuyệt đối, chưa biết thì giữ dạng `~/...`. Dạng khác (`~user/x`, `$OTHER/x`) trả null.
+ */
+export function homeTarget(token: string): string | null {
+  const match = /^(?:~|\$HOME|\$\{HOME\})\/(.+)$/.exec(token)
+  const rest = match?.[1]
+  if (rest === undefined || /[$`*?]/.test(rest)) return null
+  const tail = normalizePath(rest)
+  if (tail === '' || tail.startsWith('..')) return null
+  return homeDir !== null ? normalizePath(`${homeDir}/${tail}`) : `~/${tail}`
+}
+
 // Cấu trúc chưa phân tích được: thay thế lệnh, process substitution <( và >(, eval, shell con với -c, system() của awk.
 const UNSUPPORTED = /\$\(|`|[<>]\(|(?:^|[\s;&|(])eval\b|(?:^|[\s;&|(])(?:ba|z|da)?sh\s+-c\b|\bsystem\s*\(/
 
@@ -299,6 +320,12 @@ export function classifyBash(input: string, base = ''): BashClass {
   const add = (raw: string) => {
     const token = unmask(raw)
     if (token === '' || token === '-' || /^\/dev\/(?:null|stdout|stderr|tty|fd\/\d+)$/.test(token)) return false
+    const underHome = homeTarget(token)
+    if (underHome !== null) {
+      if (!paths.includes(underHome)) paths.push(underHome)
+      if (!segPaths.includes(underHome)) segPaths.push(underHome)
+      return true
+    }
     if (/[$`*?]/.test(token) || token.startsWith('~')) {
       isUnknown = segUnknown = true
       return true

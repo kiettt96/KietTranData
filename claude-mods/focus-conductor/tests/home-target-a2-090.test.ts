@@ -8,6 +8,7 @@ import type { On } from 'claude-code'
 import * as C from '../hooks/lib/drift/classify'
 import type { WriteEffect } from '../hooks/lib/drift/classify'
 import { isHardEffect } from '../hooks/lib/drift/soft'
+import { scopeStatus } from '../hooks/lib/drift/scope'
 import { base, plan, step, submit } from './support/engine'
 import type { Seen } from './support/engine'
 
@@ -42,7 +43,7 @@ describe('0.9.0 A2: đích dưới thư mục nhà', () => {
     expect(effect !== undefined && isHardEffect(effect)).toBe(true)
   })
   test('~user/x và $OTHER/x giữ là không đọc được', () => {
-    for (const command of ['cp a.md ~alice/x.md', 'cp a.md $OTHER/x.md', 'cp a.md ~', 'cp a.md $HOME']) {
+    for (const command of ['cp a.md ~alice/x.md', 'cp a.md $OTHER/x.md', 'cp a.md ~', 'cp a.md $HOME', 'cp a.md ~/$X/a.md', 'cp a.md ~/../etc/a.md']) {
       const [effect] = writes(command)
       expect(effect?.isUnknown, command).toBe(true)
     }
@@ -67,6 +68,12 @@ function setup(on: On): Seen {
   on('classic.Stop', () => ({}))
   return seen
 }
+
+describe('0.9.0 A2: phạm vi của đích chưa giải', () => {
+  test('~/x.md với phạm vi src và gốc /repo: không khẳng định (unknown)', () => {
+    expect(scopeStatus('~/x.md', ['src'], '/repo')).toBe('unknown')
+  })
+})
 
 describe('0.9.0 A2: toàn luồng từ prompt.submit tới classic.Stop', () => {
   test('cp tài liệu vào ~/: cổng Stop không đòi chạy kiểm', OPTIONS, async ($, on) => {

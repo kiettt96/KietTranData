@@ -10,6 +10,7 @@ import type { ReadPlan } from '../lib/reading'
 import { fableStep } from './fable'
 import { briefFromCheckpoint, changedFiles, storeKey } from '../lib/checkpoint'
 import { openSteps, restorableSteps } from '../lib/drift'
+import { applyHome } from '../lib/drift/classify'
 import { PLAN_TOOL_SPEC } from '../lib/plan'
 import { describePick, effortRank, familyOf, familyRank } from '../lib/route'
 import { clipText, keptLines } from '../lib/decisions'
@@ -169,6 +170,12 @@ export function registerSession(on: On, ctx: Ctx): void {
     noteMistyped('normalizeCore', await read($, coreState), S.EMPTY_CORE)
     noteMistyped('normalizeQuota', await read($, quotaState), EMPTY_QUOTA)
     await ctx.openErrors({ read: path => $.fs.read(path), write: (path, text) => $.fs.write(path, text), root: () => $.session.root() })
+    // Thư mục nhà (0.9.0 A2): đích `~/` và `$HOME/` của lệnh Bash giải theo biến HOME; engine không cho thì giữ dạng `~/...`.
+    try {
+      applyHome(await $.env.get('HOME'))
+    } catch {
+      applyHome(null)
+    }
     // Log quyết định nối tiếp file cũ (giữ DECISION_LIMIT dòng cuối); file chưa có hoặc đọc lỗi thì bắt đầu mới.
     if (decisionLog) {
       const old = await $.fs.read(decisionLog).catch(caught('fs.read', ''))
