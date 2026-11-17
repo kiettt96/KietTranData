@@ -6,7 +6,9 @@ import { describe, expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import { JS } from '../fixtures/runner-output'
-import { ROUTER_TIMEOUT, base, plan, step, submit, task } from '../support/engine'
+import { ROUTER_TIMEOUT, ROUTER_USAGE, base, plan, step, submit, task } from '../support/engine'
+import { addUsage, emptyLedger, formatCost } from '../../hooks/lib/ledger'
+import type { ModelFamily } from '../../types'
 import type { Json, Seen } from '../support/engine'
 
 const LOG = '/tmp/fc-conductor-fallback-f1-087.jsonl'
@@ -212,5 +214,56 @@ describe('0.8.7 F1: đoạn dặn khi đổi model điều phối', () => {
     const briefs = seen.contexts.flat().filter(c => c.startsWith('[focus-conductor] Điều phối:'))
     expect(briefs.filter(c => c.includes('fable/medium')).length).toBe(1)
     expect(briefs.filter(c => c.includes('opus/medium')).length).toBe(1)
+  })
+})
+
+describe('0.9.0 A3: bốn ca còn hở của vai điều phối dự phòng', () => {
+  test('họ chính không phản hồi ở turn của mục tiêu không được điều phối: không chuyển giao sang họ dự phòng', opts({ allowFable: true }), async ($, on) => {
+    const FABLE_LIGHT = plan({ goal: 'Sửa lỗi chính tả README', depth: 'light', volume: 'small', kind: 'edit', main: { model: 'fable', effort: 'low', why: '' } })
+    const { seen } = setup(on, () => FABLE_LIGHT, { failFamily: 'fable' })
+    await submit($, 'Sửa lỗi chính tả README')
+    await step($, seen, { turnId: 't1' })
+    expect(pick(seen.steps.at(-1))).not.toBe('claude-opus-5-5/medium')
+    expect(seen.toasts.some(t => t.includes('(dự phòng)'))).toBe(false)
+    expect(isEditDeny(await edit($))).toBe(false)
+  })
+
+  test('sau khi chuyển giao giữa turn, step kế của cùng turn chạy họ dự phòng', opts(), async ($, on) => {
+    const { seen } = setup(on, () => BIG(), { failFamily: 'fable' })
+    await submit($, A)
+    await step($, seen, { turnId: 't1' })
+    expect(pick(seen.steps.at(-1))).toBe('claude-opus-5-5/medium')
+    await step($, seen, { turnId: 't1', index: 1 })
+    expect(pick(seen.steps.at(-1))).toBe('claude-opus-5-5/medium')
+  })
+
+  test('router của họ dự phòng đang tạm ngừng: không chuyển giao giữa turn', opts(), async ($, on) => {
+    // Fable lỗi hai lần (prompt 2, 3) thì tạm ngừng; opus (dự phòng) đọc được lần đầu rồi lỗi hai lần (prompt 3, 4) nên tạm ngừng muộn
+    // hơn một prompt: Fable dùng lại được trước, router opus còn tạm ngừng.
+    const { seen } = setup(on, (model, n) => (model === 'fable' ? (n === 0 || n >= 3 ? BIG() : null) : n === 0 ? FOLLOW : null), { failFamily: 'fable' })
+    let i = 0
+    for (; i < 12; i++) {
+      await submit($, i === 0 ? A : `làm tiếp bước ${i}`)
+      if (i > 3 && prompts(seen).at(-1)?.model === 'fable') break
+    }
+    expect(prompts(seen).at(-1)?.model).toBe('fable')
+    const status = await run($, 'status')
+    expect(status.split('\n').find(l => l.startsWith('Điều phối')) ?? '').not.toContain('dự phòng')
+    await step($, seen, { turnId: 'tx' })
+    expect(pick(seen.steps.at(-1))).not.toBe('claude-opus-5-5/medium')
+    expect(seen.toasts.some(t => t.includes('(dự phòng)'))).toBe(false)
+  })
+
+  test('lượt đọc do họ dự phòng thực hiện tính chi phí theo giá họ dự phòng', opts(), async ($, on) => {
+    const { seen } = setup(on, () => BIG(), { failFamily: 'fable' })
+    await submit($, A)
+    await step($, seen, { turnId: 't1' })
+    await step($, seen, { turnId: 't2' })
+    await submit($, 'làm tiếp bước 1')
+    const models = prompts(seen).map(c => c.model)
+    expect(models).toEqual(['fable', 'opus'])
+    let ledger = emptyLedger(0)
+    for (const model of seen.routerModels) ledger = addUsage(ledger, 'analyzer', model as ModelFamily, ROUTER_USAGE).ledger
+    expect(await run($, 'status')).toContain(`router ${formatCost(ledger.session.analyzer.usd, 'vi')} trong ${seen.routerModels.length} lượt`)
   })
 })
