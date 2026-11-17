@@ -7,7 +7,7 @@
 
 import type { ModelCompleteRequest, ModelCompleteResult, ModelTextBlock, ModelUsage } from 'claude-code'
 
-import type { Arrange, ArrangeRef, Brief, Choice, Depth, Effort, ForkSplit, Intent, Kind, ModelFamily, PlanStep, Relation, RemovedTask, RouterFail, RouterFailKind, Task, TaskStatus, Tier, Volume } from '../../types'
+import type { Arrange, ArrangeRef, Brief, Choice, Depth, Effort, ForkSplit, Intent, Kind, ModelFamily, PlanStep, Relation, RemovedTask, Role, RouterFail, RouterFailKind, Task, TaskStatus, Tier, Volume } from '../../types'
 import { isBigGoal, isPendingGoal } from './conductor'
 import { DEFAULT_CONDUCTOR, FAMILY_NAMES, conductorTimeouts } from './families'
 import type { PendingState } from './conductor'
@@ -217,7 +217,7 @@ Rules:
 - Use only the models and agent types <context> lists.
 - If <context> lists the tasks of the goal and this piece is one of them (same work, whatever the wording), set "task" to that task's number; otherwise null.
 Reply with ONE JSON object and nothing else, "why" under 15 words and in the language of the task. "confidence" is how sure you are, from 0 to 1:
-{"why": string, "confidence": number, "task": number|null, "model": "haiku"|"sonnet"|"opus"|"fable", "effort": "low"|"medium"|"high"|"xhigh", "agent": string, "depth": string, "volume": string, "kind": string}`
+{"why": string, "confidence": number, "task": number|null, "model": "haiku"|"sonnet"|"opus"|"fable", "effort": "low"|"medium"|"high"|"xhigh", "agent": string, "role": "design"|"review"|"build"|"search"|"audit", "depth": string, "volume": string, "kind": string}`
 }
 
 /**
@@ -857,6 +857,29 @@ function agentTypeOf(value: unknown, kind: Kind, policy: Policy): string {
   return READ_ONLY_AGENTS.has(type) && (kind === 'edit' || kind === 'mixed') ? 'general-purpose' : type
 }
 
+/** Năm vai của đội hình (0.9.0 C1). */
+export const ROLES: readonly Role[] = ['design', 'review', 'build', 'search', 'audit']
+/** Vai chỉ đọc (0.9.0 C1, C2): không sửa file, không chạy lệnh ghi ngoài thư mục tạm. */
+export const READ_ONLY_ROLES: ReadonlySet<Role> = new Set(['design', 'review', 'search'])
+
+/**
+ * Vai của một việc (0.9.0 C1): giá trị router trả nếu hợp lệ; không thì suy: Explore là search, Plan là design, sửa file (edit, mixed) là
+ * build, còn lại là review.
+ */
+export function roleOf(value: unknown, agentType: string | undefined, kind: Kind): Role {
+  const given = ROLES.find(role => role === value)
+  if (given !== undefined) return given
+  if (agentType === 'Explore') return 'search'
+  if (agentType === 'Plan') return 'design'
+  return kind === 'edit' || kind === 'mixed' ? 'build' : 'review'
+}
+
+/** Sàn model theo vai (0.9.0 C1): review và build không dưới sonnet. Trả lựa chọn đã nâng kèm ghi chú, hay nguyên lựa chọn. */
+export function roleFloor(pick: Choice, role: Role): Fitted {
+  if ((role === 'review' || role === 'build') && pick.family === 'haiku') return { pick: { ...pick, family: 'sonnet' }, notes: [`vai ${role}: sàn sonnet`] }
+  return { pick, notes: [] }
+}
+
 function parseTask(value: unknown, index: number, main: Choice, whole: { depth: Depth; volume: Volume; kind: Kind }, policy: Policy): Task | null {
   if (typeof value !== 'object' || value === null) return null
   const raw = value as Raw
@@ -868,13 +891,20 @@ function parseTask(value: unknown, index: number, main: Choice, whole: { depth: 
   const own = rawPick(raw)
   // Việc giao subagent mà thiếu model hoặc effort hợp lệ thì làm ở luồng chính.
   const run = raw['run'] === 'agent' && own !== null ? 'agent' : 'main'
-  const fitted = fitPick(own ?? main, kind, policy)
+  const agentType = run === 'agent' ? agentTypeOf(raw['agent'], kind, policy) : undefined
+  // Vai router trả (0.9.0 C1); vắng hay sai thì việc không mang vai và được điều phối như 0.8.9 (vai suy ra chỉ đọc qua roleOf).
+  const role = ROLES.find(r => r === raw['role'])
+  // Sàn theo vai trước, rồi kẹp theo chính sách (allowFable, họ bị chặn, model của phiên) như mọi lựa chọn.
+  const floored = role !== undefined ? roleFloor(own ?? main, role) : { pick: own ?? main, notes: [] }
+  const policed = fitPick(floored.pick, kind, policy)
+  const fitted = { pick: policed.pick, notes: [...floored.notes, ...policed.notes] }
   const covers = coversOf(raw['covers'])
   return {
     index,
     title,
     run,
-    ...(run === 'agent' ? { agentType: agentTypeOf(raw['agent'], kind, policy) } : {}),
+    ...(agentType !== undefined ? { agentType } : {}),
+    ...(role !== undefined ? { role } : {}),
     pick: fitted.pick,
     depth,
     volume,
@@ -1176,6 +1206,8 @@ export type AgentRoute = {
   taskIndex?: number
   pick: Choice
   agentType: string
+  /** Vai trong đội hình (0.9.0 C1); vắng ở route dựng từ việc đã phân của bản cũ. */
+  role?: Role
   depth: Depth
   volume: Volume
   kind: Kind
@@ -1192,14 +1224,20 @@ export function parseAgentRoute(reply: string, policy: Policy): AgentRoute | nul
   const depth = depthOf(raw['depth'], 'light')
   const volume = volumeOf(raw['volume'], 'small')
   const kind = kindOf(raw['kind'], 'mixed')
-  const fitted = fitPick(own, kind, policy)
+  const agentType = agentTypeOf(raw['agent'], kind, policy)
+  // Vai router trả cho subagent (0.9.0 C1); vắng hay sai thì suy, nhưng sàn chỉ áp khi router trả vai.
+  const role = ROLES.find(r => r === raw['role'])
+  const floored = role !== undefined ? roleFloor(own, role) : { pick: own, notes: [] }
+  const policed = fitPick(floored.pick, kind, policy)
+  const fitted = { pick: policed.pick, notes: [...floored.notes, ...policed.notes] }
   const confidence = confidenceOf(raw['confidence'])
   const taskIndex = raw['task']
   return {
     ...(confidence !== undefined ? { confidence } : {}),
     ...(typeof taskIndex === 'number' && Number.isInteger(taskIndex) && taskIndex > 0 ? { taskIndex } : {}),
     pick: fitted.pick,
-    agentType: agentTypeOf(raw['agent'], kind, policy),
+    agentType,
+    ...(role !== undefined ? { role } : {}),
     depth,
     volume,
     kind,
@@ -1214,6 +1252,7 @@ export function taskRoute(task: Task, policy: Policy): AgentRoute {
   return {
     pick: fitted.pick,
     agentType: task.agentType ?? 'general-purpose',
+    ...(task.role !== undefined ? { role: task.role } : {}),
     depth: task.depth,
     volume: task.volume,
     kind: task.kind,

@@ -2,7 +2,7 @@
 // mà nhiều nhóm hook cùng dùng. Không gọi $: lệnh gọi $ nằm trong thân hook ở hooks/parts/.
 
 import type { PluginOptions, PromptOrigin } from 'claude-code'
-import type { Brief, Choice, Core, DelegationItem, DelegationState, Effort, Intent, Lift, Mode, ModelFamily, PlanStep, Route, RouteEvent, Task, Tier, Volume } from '../types'
+import type { Brief, Choice, Core, DelegationItem, DelegationState, Effort, Intent, Lift, Mode, ModelFamily, PlanStep, Role, Route, RouteEvent, Task, Tier, Volume } from '../types'
 import { applyCheckCommands, applyCheckTools, applyPassLines, applySkillPaths, applySoftPaths, newEvidenceLog, newTracker, parseCheckCommands, parseCheckTools, parsePassLines, parseSkillPaths, parseSoftPaths } from './lib/drift'
 import type { EvidenceLog, PromptIntent, TurnTracker } from './lib/drift'
 import { DEFAULT_CACHE_TTL_MINUTES, DEFAULT_CONTEXT, DEFAULT_WINDOWS, applyCacheWrite, applyPrices, parseCacheWrite, parsePrices } from './lib/cost'
@@ -255,6 +255,8 @@ export function createContext(options: PluginOptions) {
      * (agent workflow, phiên con), khi đó lần kiểm của nó không là lần kiểm dùng chung.
      */
     sharesDir?: boolean
+    /** Vai trong đội hình (0.9.0 C1, C2): vai router trả cho việc hay lời gọi, hoặc review khi description mở đầu "Kiểm độc lập: ". */
+    role?: Role
   }
   const agents = new Map<string, AgentMeta>()
   const agentTrackers = new Map<string, TurnTracker>()

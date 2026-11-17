@@ -1,6 +1,7 @@
 // Nhãn cố định của band và pane theo option uiLanguage (vi mặc định, en). Nội dung động (mục tiêu, lý do của
 // router, cảnh báo, nhật ký, sổ chi phí) giữ nguyên ngôn ngữ của nó: router trả lời theo ngôn ngữ của prompt.
 
+import type { Role } from '../../types'
 import type { ModelFamily, StepStatus, WarningKind } from '../../types'
 import { hasTitleCode } from '../lib/route'
 import { conductorShown } from '../lib/conductor'
@@ -122,6 +123,8 @@ const VI = {
   taskMain: 'Việc chính',
   taskNumber: (n: number) => `Việc ${n}`,
   taskOwn: 'Claude tự giao',
+  /** Nhãn vai của việc (0.9.0 C1). */
+  roleNames: { design: 'thiết kế', review: 'duyệt', build: 'làm', search: 'tra', audit: 'kiểm' } as Record<Role, string>,
   forksMerged: (n: number) => `${n} phiên con đã gom`,
   forkCost: (n: number) => `Nhóm subagent gồm ${n} phiên con`,
   taskState: { pending: 'chờ giao', idle: 'chưa bắt đầu', running: 'đang chạy', done: 'xong', failed: 'lỗi, chưa giao lại', cut: 'bị cắt vì tạm dừng' } as Record<'pending' | 'idle' | 'running' | 'done' | 'failed' | 'cut', string>,
@@ -301,6 +304,7 @@ const EN: typeof VI = {
   taskMain: 'Main work',
   taskNumber: n => `Task ${n}`,
   taskOwn: 'Delegated by Claude',
+  roleNames: { design: 'design', review: 'review', build: 'build', search: 'search', audit: 'audit' },
   forksMerged: n => `${n} ${n === 1 ? 'fork' : 'forks'} merged`,
   forkCost: n => `Subagent group includes ${n} ${n === 1 ? 'fork' : 'forks'}`,
   taskState: { pending: 'not delegated yet', idle: 'not started', running: 'running', done: 'done', failed: 'failed, not re-delegated', cut: 'cut by pause' },
@@ -421,7 +425,13 @@ export function shownEntry(w: { text: string; turns?: number }, lang: Lang): str
  * Chip của dòng bước khớp một việc (0.7.6, U1): việc nhiều lô thì model và số lô ("sonnet 97/100 · 3 lỗi"); việc một lần gọi thì model
  * và trạng thái ("sonnet đang chạy"); việc làm trực tiếp thì model và effort ("opus high"). Số tool call và thời gian đi ở phần chi tiết.
  */
-export function stepTaskMeta(l: typeof VI, row: { kind: 'main' | 'direct' | 'agent'; pick: { family: string; effort: string } | null; state: 'pending' | 'idle' | 'running' | 'done' | 'failed' | 'cut'; counts?: { done: number; total: number; running: number }; failed?: number }): string {
+export function stepTaskMeta(l: typeof VI, row: { kind: 'main' | 'direct' | 'agent'; pick: { family: string; effort: string } | null; state: 'pending' | 'idle' | 'running' | 'done' | 'failed' | 'cut'; counts?: { done: number; total: number; running: number }; failed?: number; role?: Role }): string {
+  const meta = stepMetaText(l, row)
+  // Nhãn vai (0.9.0 C1) sau chip model của bước gắn với việc có vai.
+  return meta !== '' && row.role !== undefined ? `${meta} [${l.roleNames[row.role]}]` : meta
+}
+
+function stepMetaText(l: typeof VI, row: { kind: 'main' | 'direct' | 'agent'; pick: { family: string; effort: string } | null; state: 'pending' | 'idle' | 'running' | 'done' | 'failed' | 'cut'; counts?: { done: number; total: number; running: number }; failed?: number }): string {
   const family = row.pick?.family ?? ''
   if (row.counts !== undefined) return [`${family} ${row.counts.done}/${row.counts.total}`.trim(), l.agentBatchChip(row.counts.running, row.failed ?? 0)].filter(Boolean).join(' · ')
   if (row.kind === 'agent') return `${family} ${l.taskState[row.state]}`.trim()
@@ -432,12 +442,14 @@ export function stepTaskMeta(l: typeof VI, row: { kind: 'main' | 'direct' | 'age
  * Tên một dòng tiến độ (0.6.1): "Việc chính: ...", "Việc N: ...", hay "Claude tự giao: ...". Dùng chung cho band và pane.
  * Việc có mã (BƯỚC 4, K4.2, Việc 3) hiện chính tiêu đề mang mã đó, không ghép "Việc 5: BƯỚC 4: ..." (vòng sửa 2 của 0.7.5).
  */
-export function taskLabel(l: typeof VI, row: { kind: 'main' | 'direct' | 'agent'; index?: number; title: string; fork?: { task: number; part?: string; merged?: number } }): string {
+export function taskLabel(l: typeof VI, row: { kind: 'main' | 'direct' | 'agent'; index?: number; title: string; fork?: { task: number; part?: string; merged?: number }; role?: Role }): string {
   // Phiên con của việc tách (0.7.9 F1): "Việc 3a: <phần>", hay một dòng "Việc 3: k phiên con đã gom" khi đã gom.
   if (row.fork !== undefined) return row.fork.merged !== undefined ? `${l.taskNumber(row.fork.task)}: ${l.forksMerged(row.fork.merged)}` : `${l.taskNumber(row.fork.task)}${row.fork.part ?? ''}: ${row.title}`
-  if (row.index !== undefined && hasTitleCode(row.title)) return row.title
+  // Nhãn vai (0.9.0 C1) đứng sau tiêu đề của việc có vai.
+  const tag = row.role !== undefined ? ` [${l.roleNames[row.role]}]` : ''
+  if (row.index !== undefined && hasTitleCode(row.title)) return `${row.title}${tag}`
   const head = row.kind === 'main' ? l.taskMain : row.index !== undefined ? l.taskNumber(row.index) : l.taskOwn
-  return `${head}: ${row.title}`
+  return `${head}: ${row.title}${tag}`
 }
 
 /**

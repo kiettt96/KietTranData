@@ -2,7 +2,7 @@
 
 import { atom, derive, read, update } from 'claude-code'
 import { noteHookError } from '../lib/errlog'
-import type { AgentProgress, Choice, Core, ModelFamily, RetryItem, RouteEvent, Warning } from '../../types'
+import type { AgentProgress, Choice, Core, ModelFamily, RetryItem, Role, RouteEvent, Warning } from '../../types'
 import { turnCost } from '../lib/cost'
 import { countSpawn, shapeKey, shapeOutput } from '../lib/ledger'
 import { EFFORTS, agentMemoKey, applySession, describePick, familyOf, familyRank, pickRank, ruleConflict, ruleFamily, stepCovers, taskMatch } from '../lib/route'
@@ -54,6 +54,15 @@ function codesOf(core: ReturnType<typeof S.normalizeCore>): ReadonlySet<string> 
  * Mức sàn cho một lần giao Agent khi còn lệnh kiểm chưa đạt ở lượt 2 trở đi (0.7.8 vòng sửa 3, W4): description mở đầu "Sửa lỗi kiểm: "
  * thì lấy sàn cao nhất của các lệnh; general-purpose có prompt nhắc đúng một lệnh chưa đạt thì lấy sàn của lệnh đó. Còn lại null.
  */
+/** Tiền tố description của lời gọi kiểm độc lập (0.9.0 C4): luôn là vai review. */
+export const INDEPENDENT_PREFIXES = ['Kiểm độc lập: ', 'Independent check: '] as const
+
+/** Vai của một lời gọi Agent (0.9.0 C1, C4): "Kiểm độc lập: " là review; không thì vai của route nếu có. */
+export function roleOfCall(routeRole: Role | undefined, description: string): Role | undefined {
+  if (INDEPENDENT_PREFIXES.some(prefix => description.startsWith(prefix))) return 'review'
+  return routeRole
+}
+
 function retryFloorOf(core: Core, description: string, subagentType: string | undefined, prompt: string | undefined): { floor: Choice; round: number; sig: string } | null {
   if (core.brief === null || core.retry.goalId !== core.brief.goalId) return null
   const live = core.retry.items.filter(item => !item.exhausted && item.round >= 2 && item.floor !== null && !S.isWaived(core, item.sig))
@@ -319,6 +328,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
         description: clipText(e.description),
         ...(matched.miss !== undefined ? { miss: matched.miss } : {}),
         ...(attachedTask !== undefined ? { attached: 'doing-step', task: attachedTask } : {}),
+        ...(route?.role !== undefined ? { role: route.role } : {}),
         routed: route !== null,
       })
       await flushDecisions((path, text) => $.fs.write(path, text))
@@ -497,6 +507,8 @@ export function registerAgents(on: On, ctx: Ctx): void {
         ...(info?.taskIndex !== undefined ? { taskIndex: info.taskIndex } : workflowTask !== undefined ? { taskIndex: workflowTask } : {}),
         // Chung thư mục với luồng chính (0.8.6 R2): chỉ biết được với agent của tool Agent.
         ...(info !== undefined ? { sharesDir: info.isolated !== true } : {}),
+        // Vai (0.9.0 C1): của việc hay của lượt chấm; lời gọi "Kiểm độc lập: " là vai review (C4).
+        ...(roleOfCall(route?.role, info?.description ?? e.description) !== undefined ? { role: roleOfCall(route?.role, info?.description ?? e.description) } : {}),
       })
     } else if (agentId !== undefined && forkPart !== null) {
       // Phiên con của một phần: lệnh và thay đổi của nó vào dấu vết như subagent, kiểm phạm vi theo files của phần; không ép model.
