@@ -31,6 +31,12 @@
       "default": "off",
       "options": ["off", "fable", "opus"]
     },
+    "closingReview": {
+      "type": "string",
+      "title": "Duyệt độc lập trước khi đóng mục tiêu",
+      "description": "Từ 0.9.0: mục tiêu substantial hay hard, sửa file, checklist đã đóng hết thì trước khi kết thúc phải có lần kiểm đạt sau thay đổi cuối, một kết luận ĐẠT của subagent duyệt độc lập (description mở đầu \"Kiểm độc lập: \"), và với mục tiêu hard thêm một kết luận SẴN SÀNG. Thiếu thì cổng Stop chặn tối đa 3 lần mỗi mục tiêu; /conductor waive review bỏ qua. auto (mặc định) hay off. (en) From 0.9.0: before a substantial or hard editing goal with a fully closed checklist ends, it needs a passing check after the last change, a PASS verdict from an independent review subagent (description starting \"Independent check: \"), and for hard goals a READY verdict. Missing steps block Stop at most 3 times per goal; /conductor waive review skips. auto (default) or off.",
+      "default": "auto"
+    },
     "conductorFallback": {
       "type": "string",
       "title": "Model điều phối dự phòng",

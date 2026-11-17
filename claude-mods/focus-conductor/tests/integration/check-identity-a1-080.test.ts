@@ -160,7 +160,7 @@ describe('0.8.0 A1: đầu cuối', () => {
     expect(await stop($)).toBe('')
   })
 
-  test('đối chứng cố ý đỏ do subagent chạy, rồi luồng chính chạy lại dạng khác đường dẫn và đạt: mục W4 được xóa, không chặn', { ...OPTIONS, options: { ...(OPTIONS as { options?: Record<string, unknown> }).options, planApproval: 'off' } }, async ($, on) => {
+  test('đối chứng cố ý đỏ do subagent chạy, rồi luồng chính chạy lại dạng khác đường dẫn và đạt: mục W4 được xóa, không chặn', { ...OPTIONS, options: { ...(OPTIONS as { options?: Record<string, unknown> }).options, planApproval: 'off', closingReview: 'off' } }, async ($, on) => {
     const { seen } = setup(on, new Set([RUN]))
     await start($, seen)
     await spawnTool($, 'u1', 'Chạy đối chứng đỏ', `Chạy ${RUN}`)

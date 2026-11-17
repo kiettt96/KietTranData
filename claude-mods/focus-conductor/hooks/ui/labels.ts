@@ -123,6 +123,9 @@ const VI = {
   taskMain: 'Việc chính',
   taskNumber: (n: number) => `Việc ${n}`,
   taskOwn: 'Claude tự giao',
+  /** Cổng đóng mục tiêu (0.9.0 C6). */
+  closingUnreviewed: 'Chưa duyệt độc lập',
+  closingNoReview: 'Chưa có duyệt độc lập (phiên không giao được subagent)',
   /** Nhãn vai của việc (0.9.0 C1). */
   roleNames: { design: 'thiết kế', review: 'duyệt', build: 'làm', search: 'tra', audit: 'kiểm' } as Record<Role, string>,
   forksMerged: (n: number) => `${n} phiên con đã gom`,
@@ -304,6 +307,8 @@ const EN: typeof VI = {
   taskMain: 'Main work',
   taskNumber: n => `Task ${n}`,
   taskOwn: 'Delegated by Claude',
+  closingUnreviewed: 'No independent review yet',
+  closingNoReview: 'No independent review (no subagents in this session)',
   roleNames: { design: 'design', review: 'review', build: 'build', search: 'search', audit: 'audit' },
   forksMerged: n => `${n} ${n === 1 ? 'fork' : 'forks'} merged`,
   forkCost: n => `Subagent group includes ${n} ${n === 1 ? 'fork' : 'forks'}`,

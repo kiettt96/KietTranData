@@ -218,7 +218,7 @@ describe('0.5.0: phần còn lại của đánh giá', () => {
 })
 
 describe('0.5.0: kịch bản đầu cuối', () => {
-  test('mục tiêu nhiều việc → giao hai subagent → engine tự đổi model → mục tiêu mới giữa chừng → khôi phục → kiểm tra → kết thúc', { options: { planApproval: 'off', strictDelegation: 'remind' } }, async ($, on) => {
+  test('mục tiêu nhiều việc → giao hai subagent → engine tự đổi model → mục tiêu mới giữa chừng → khôi phục → kiểm tra → kết thúc', { options: { planApproval: 'off', closingReview: 'off', strictDelegation: 'remind' } }, async ($, on) => {
     const PLAN = 'mcp__focus-conductor__plan'
     const seen = base(on)
     let n = 0

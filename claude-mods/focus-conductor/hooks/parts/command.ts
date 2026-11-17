@@ -146,6 +146,15 @@ export function registerCommand(on: On, ctx: Ctx): void {
       // Chỉ người gõ (0.7.9 Y5): origin do engine đóng dấu (composer, bridge); Claude và plugin không có đường tự miễn.
       if (!WAIVE_ORIGINS.has(e.origin.kind)) return { text: 'Chỉ nhận /conductor waive do người gõ; lệnh từ plugin, SDK hay lịch không miễn được.' }
       const core = S.normalizeCore(await read($, coreState))
+      // Miễn cổng đóng mục tiêu (0.9.0 C6): /conductor waive review, chỉ người gõ, cho mục tiêu đang mở.
+      if (rest[0] === 'review') {
+        if (core.brief === null) return { text: 'Chưa có mục tiêu nào để miễn duyệt độc lập.' }
+        ctx.local.closingWaived = core.brief.goalId
+        await update($, coreState, S.withClosingGap(null))
+        record(await $.clock.now(), 'waive', { signature: 'closing-review', goalId: core.brief.goalId })
+        await flushDecisions((path, text) => $.fs.write(path, text))
+        return { text: 'Đã miễn duyệt độc lập cho mục tiêu này; cổng đóng mục tiêu không chặn nữa.' }
+      }
       if (core.brief === null || core.retry.goalId !== core.brief.goalId) return { text: `Không có lệnh kiểm chưa đạt nào trong mục tiêu này. ${WAIVE_USAGE}` }
       const goalId = core.brief.goalId
       const waivers = core.waivers.goalId === goalId ? core.waivers.items : []

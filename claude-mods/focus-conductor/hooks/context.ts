@@ -144,6 +144,9 @@ export function createContext(options: PluginOptions) {
     verdicts: { goalId: -1, items: [] as VerdictRun[] },
     /** Đích subagent đang chạy chung thư mục đã ghi (0.9.0 C5), theo agentId; tệp đã nhắc trùng. */
     agentWrites: new Map<string, Set<string>>(),
+    /** Cổng đóng mục tiêu (0.9.0 C6): số lần chặn và trạng thái thiếu đã chặn; mục tiêu đã miễn bằng /conductor waive review. */
+    closingState: { goalId: -1, blocks: 0, key: '' },
+    closingWaived: -1,
     clashWarned: new Set<string>(),
     /** ID engine đã phục vụ theo họ (0.8.7 M1, usage.model của turn), cho dòng "Model đang dùng" và cảnh báo phiên bản một lần mỗi họ. */
     served: new Map<ModelFamily, string>(),
@@ -619,6 +622,8 @@ export function createContext(options: PluginOptions) {
     local.checkHinted = -1
     local.verdicts = { goalId: -1, items: [] }
     local.agentWrites.clear()
+    local.closingState = { goalId: -1, blocks: 0, key: '' }
+    local.closingWaived = -1
     local.clashWarned.clear()
     local.served.clear()
     local.conductorSessionNoticed = false

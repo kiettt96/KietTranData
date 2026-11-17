@@ -97,7 +97,7 @@ describe('0.8.2 N3: cổng thử skill', () => {
     expect(texts.some(t => t.includes('thay đổi tài liệu'))).toBe(false)
   })
 
-  test('2. ghi SKILL.md, rồi Agent "Thử skill: a" xong: không chặn, hết mục Skill chưa thử', OFF, async ($, on) => {
+  test('2. ghi SKILL.md, rồi Agent "Thử skill: a" xong: không chặn, hết mục Skill chưa thử', { options: { ...OFF.options, closingReview: 'off' } }, async ($, on) => {
     const { seen } = setup(on)
     await goal($, seen, async () => {
       await edit($, SKILL)
@@ -107,7 +107,7 @@ describe('0.8.2 N3: cổng thử skill', () => {
     expect((await paneTexts($)).some(t => t.includes('Skill chưa thử'))).toBe(false)
   })
 
-  test('2b. "Skill trial: " cũng là lần thử', OFF, async ($, on) => {
+  test('2b. "Skill trial: " cũng là lần thử', { options: { ...OFF.options, closingReview: 'off' } }, async ($, on) => {
     const { seen } = setup(on)
     await goal($, seen, async () => {
       await edit($, SKILL)
@@ -153,7 +153,7 @@ describe('0.8.2 N3: cổng thử skill', () => {
     expect(await stop($)).toContain(TRIAL)
   })
 
-  test('4c. thứ tự của engine thật, kết quả tool Agent không lỗi: lần thử được tính', OFF, async ($, on) => {
+  test('4c. thứ tự của engine thật, kết quả tool Agent không lỗi: lần thử được tính', { options: { ...OFF.options, closingReview: 'off' } }, async ($, on) => {
     const { seen, during } = setup(on)
     during.set('k3', async () => {
       await $.agent.spawn({ prompt: 'p', description: 'Thử skill: a', tool_use_id: 'k3' } as never)
