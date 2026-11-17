@@ -702,6 +702,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       main: brief.main,
       expected,
       notes: plan.notes,
+      ...(isNewGoal && teamCause(ctx.options['closingReview'], brief, []) !== null ? { team: teamCause(ctx.options['closingReview'], brief, []) } : {}),
       tasks: brief.tasks.map(t => ({ index: t.index, run: t.run, agentType: t.agentType, ...(t.role !== undefined ? { role: t.role } : {}), pick: t.pick, ...(t.split !== undefined ? { split: t.split.length } : {}) })),
     })
     await flushDecisions((path, text) => $.fs.write(path, text))
@@ -727,8 +728,6 @@ export function registerSession(on: On, ctx: Ctx): void {
       const hasCheck = hasKnownCheck([], [], null)
       const isHard = brief.depth === 'hard'
       await update($, coreState, S.withTeam({ goalId: brief.goalId, cause: teamAt, steps: closingSteps({ hasCheck, isHard, checked: false, checkFailed: false, lastHard: -1, verdicts: [] }) }))
-      record(now, 'team', { goalId: brief.goalId, cause: teamAt, files: 0 })
-      await flushDecisions((path, text) => $.fs.write(path, text))
       teamNote.push(closingNote({ hasCheck, isHard, isDocs: isDocsOnly(brief, []) }))
     }
     if (conductNote.length > 0 && wanted !== null) await update($, coreState, markBriefed(brief.goalId, wanted.family))

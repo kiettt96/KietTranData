@@ -7,7 +7,7 @@ import { turnCost } from '../lib/cost'
 import { countSpawn, shapeKey, shapeOutput } from '../lib/ledger'
 import { EFFORTS, agentMemoKey, applySession, describePick, familyOf, familyRank, pickRank, ruleConflict, ruleFamily, stepCovers, taskMatch } from '../lib/route'
 import { clipText } from '../lib/decisions'
-import { READ_ONLY_ROLES, agentRouterRequest, roleRoute, askRouter, briefCodes, fitPick, floorRoute, isSettled, parseAgentRoute, ruleRoute, taskRoute } from '../lib/router'
+import { READ_ONLY_ROLES, agentRouterRequest, roleOf, roleRoute, askRouter, briefCodes, fitPick, floorRoute, isSettled, parseAgentRoute, ruleRoute, taskRoute } from '../lib/router'
 import { FORK_QUOTA_DENY, RETRY_PREFIX, RETRY_ROUNDS, forkRetryNote, forkReturnNote } from '../lib/text'
 import { liveForks, openParts } from '../lib/forks'
 import { classifyBash, filePathOf, isSkillTrial, normalizePath } from '../lib/drift'
@@ -537,7 +537,9 @@ export function registerAgents(on: On, ctx: Ctx): void {
     }
 
     // Mẫu báo cáo theo vai (0.9.0 C4): lời giao subagent có vai được nối một dòng nêu mẫu báo cáo và dòng kết luận đứng đầu câu trả lời.
-    const spawnRole = roleOfCall((info?.route ?? workflowRoute)?.role, info?.description ?? e.description)
+    // Vai do mod suy (0.9.0 B): tiền tố, rồi vai của việc đã phân, rồi loại agent và loại việc của kết quả chấm.
+    const spawnRoute = info?.route ?? workflowRoute
+    const spawnRole = roleOfCall(spawnRoute?.role ?? (spawnRoute !== null && spawnRoute !== undefined ? roleOf(spawnRoute.agentType, spawnRoute.kind) : undefined), info?.description ?? e.description)
     // Dòng mẫu báo cáo (0.9.0 C4): lời gọi có tiền tố vai, hay việc có vai khi đội hình của mục tiêu đã bật (0.9.0 C); còn lại như 0.8.9.
     const spawnCore = S.normalizeCore(await read($, coreState))
     const isTeamOn = spawnCore.team !== undefined && spawnCore.brief !== null && spawnCore.team.goalId === spawnCore.brief.goalId
@@ -576,8 +578,8 @@ export function registerAgents(on: On, ctx: Ctx): void {
         ...(info?.taskIndex !== undefined ? { taskIndex: info.taskIndex } : workflowTask !== undefined ? { taskIndex: workflowTask } : {}),
         // Chung thư mục với luồng chính (0.8.6 R2): chỉ biết được với agent của tool Agent.
         ...(info !== undefined ? { sharesDir: info.isolated !== true } : {}),
-        // Vai (0.9.0 C1): của việc hay của lượt chấm; lời gọi "Kiểm độc lập: " là vai review (C4).
-        ...(roleOfCall(route?.role, info?.description ?? e.description) !== undefined ? { role: roleOfCall(route?.role, info?.description ?? e.description) } : {}),
+        // Vai do mod suy (0.9.0 B): tiền tố, của việc đã phân, hay của loại agent và loại việc (spawnRole).
+        ...(spawnRole !== undefined ? { role: spawnRole } : {}),
       })
     } else if (agentId !== undefined && forkPart !== null) {
       // Phiên con của một phần: lệnh và thay đổi của nó vào dấu vết như subagent, kiểm phạm vi theo files của phần; không ép model.

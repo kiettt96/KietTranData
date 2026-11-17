@@ -59,7 +59,8 @@ describe('0.9.0 C4: dòng mẫu báo cáo', () => {
     expect(M.reportLine?.('design', 'en')).toContain('NOT READY')
   })
   test('lời giao subagent có vai (tiền tố "Kiểm: ") được nối dòng mẫu; không có vai thì giữ nguyên', { options: { planApproval: 'off' } }, async ($: Engine, on) => {
-    base(on, { router: () => plan({ goal: 'Sửa phí', depth: 'substantial', volume: 'medium', kind: 'edit', tasks: [task('Chạy kiểm', 'agent', 'haiku', 'low', { role: 'audit', kind: 'investigate' }), task('Ghi tài liệu', 'agent', 'sonnet', 'medium')] }) })
+    // Mục tiêu light (0.9.0 C): đội hình chưa bật, nên chỉ lời gọi có tiền tố vai được nối dòng mẫu.
+    base(on, { router: () => plan({ goal: 'Sửa phí', depth: 'light', volume: 'small', kind: 'edit', tasks: [task('Chạy kiểm', 'agent', 'haiku', 'low', { kind: 'investigate' }), task('Ghi tài liệu', 'agent', 'sonnet', 'medium')] }) })
     const prompts: string[] = []
     on('tool.call', { tool: 'Agent' }, () => ({ result: 'ok' }))
     on('agent.spawn', (_$, e) => {

@@ -80,4 +80,14 @@ describe('0.9.0 B2: vai theo tiền tố description', () => {
     await $.tool.call({ tool: 'Agent', description: 'Duyệt: race condition', prompt: 'Rà.' } as never)
     expect(seen.requests.filter(r => r.kind === 'agent').length - before).toBe(1)
   })
+  test('lời gọi ngoài danh sách được router chấm là Explore: subagent mang vai search, Edit bị từ chối', { options: { planApproval: 'off' } }, async ($, on) => {
+    base(on, { router: () => GOAL, agent: () => ({ why: 'tra', task: null, model: 'haiku', effort: 'low', agent: 'Explore', depth: 'none', volume: 'small', kind: 'investigate' }) })
+    on('tool.call', { tool: /^(?:Agent|Edit)$/ }, () => ({ result: 'ok' }))
+    on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: 'a-tra' }) as never)
+    await submit($, 'Sửa luồng phí')
+    await $.tool.call({ tool: 'Agent', tool_use_id: 'u-tra', description: 'Tìm chỗ gọi phí', prompt: 'Tìm.' } as never)
+    await $.agent.spawn({ prompt: 'Tìm.', description: 'Tìm chỗ gọi phí', tool_use_id: 'u-tra' } as never)
+    const out = (await $.tool.call({ tool: 'Edit', file_path: '/repo/src/phi.ts', old_string: 'a', new_string: 'b', agentId: 'a-tra' } as never)) as { deny?: string }
+    expect(out.deny ?? '').toContain('tra')
+  })
 })

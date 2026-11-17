@@ -1260,7 +1260,6 @@ export function parseAgentRoute(reply: string, policy: Policy): AgentRoute | nul
     ...(typeof taskIndex === 'number' && Number.isInteger(taskIndex) && taskIndex > 0 ? { taskIndex } : {}),
     pick: fitted.pick,
     agentType,
-    ...(role !== undefined ? { role } : {}),
     depth,
     volume,
     kind,

@@ -2481,7 +2481,7 @@ export const MUTANTS: Mutant[] = [
   { id: "090-B10p", file: "hooks/lib/drift/claims.ts", note: "evidence dạng lệnh => kết quả không tách như dấu :", old: "  const evidence = raw.replace(/\\s=>\\s/g, ': ')\n", new: "  const evidence = raw\n" },
   { id: "090-C1b", file: "hooks/lib/router.ts", note: "không có sàn sonnet theo vai", old: "  if ((role === 'review' || role === 'build') && pick.family === 'haiku') return", new: "  if (false as boolean) return" },
   { id: "090-C1c", file: "hooks/lib/router.ts", note: "roleOf không suy Explore là search", old: "  if (agentType === 'Explore') return 'search'\n", new: "" },
-  { id: "090-C1d", file: "hooks/lib/router.ts", note: "chấm subagent bỏ vai", old: "    agentType,\n    ...(role !== undefined ? { role } : {}),", new: "    agentType," },
+  { id: "090-C1d", file: "hooks/parts/agents.ts", note: "lời giao không suy vai từ loại agent", old: "spawnRoute?.role ?? (spawnRoute !== null && spawnRoute !== undefined ? roleOf(spawnRoute.agentType, spawnRoute.kind) : undefined)", new: "spawnRoute?.role" },
   { id: "090-C1e", file: "hooks/ui/labels.ts", note: "chip bước không ghi nhãn vai", old: "  return meta !== '' && isTeamRole(row.role) ? `${meta} [${l.roleNames[row.role]}]` : meta\n", new: "  return meta\n" },
   { id: "090-C1f", file: "hooks/parts/session.ts", note: "nhật ký route không ghi vai", old: "...(t.role !== undefined ? { role: t.role } : {}), pick: t.pick,", new: "pick: t.pick," },
   { id: "090-C1g", file: "hooks/lib/router.ts", note: "roleOf không suy Plan là design", old: "  if (agentType === 'Plan') return 'design'\n", new: "" },
