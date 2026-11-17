@@ -136,6 +136,13 @@ export function planningStateLine(stateFiles: readonly string[] | undefined): st
 /** Vế dặn bước thử skill (0.9.0 B6), không quá PLANNING_SKILL_CHARS ký tự: chỉ khi phạm vi của mục tiêu chạm file skill. */
 export const PLANNING_SKILL_LINE = ' Phạm vi chạm file skill: checklist cần một bước thử skill, giao Agent có description mở đầu "Thử skill: ".'
 
+/**
+ * Dạng check của bước (0.9.0 B10): vế của đoạn dặn lập kế hoạch và dòng kèm kết quả plan set (một lần mỗi mục tiêu); tổng hai câu không quá
+ * PLANNING_CHECK_CHARS ký tự mỗi mục tiêu.
+ */
+export const PLANNING_CHECK_LINE = ' Check của bước ghi dạng `lệnh` => kết quả mong đợi để mod tự đối chiếu lần chạy.'
+export const PLAN_SET_CHECK_LINE = '[focus-conductor] Check dạng `lệnh` => kết quả được mod đối chiếu với lần chạy.'
+
 /** Đoạn dặn lập kế hoạch khi mục tiêu đang planning và không còn câu hỏi chờ; brief có tệp trạng thái (0.9.0 B3) hay phạm vi chạm file skill (B6) thì nêu thêm. */
 export function planningContext(brief: Pick<Brief, 'stateFiles' | 'scopePaths'> | null = null): string {
   return (
@@ -144,6 +151,7 @@ export function planningContext(brief: Pick<Brief, 'stateFiles' | 'scopePaths'> 
     'người dùng duyệt (chỉ ghi được dưới .claude/plans/).' +
     planningStateLine(brief?.stateFiles) +
     ((brief?.scopePaths ?? []).some(isSkillPath) ? PLANNING_SKILL_LINE : '') +
+    PLANNING_CHECK_LINE +
     ' Kết thúc turn bằng bản kế hoạch để người dùng duyệt.'
   )
 }

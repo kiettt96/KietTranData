@@ -89,6 +89,15 @@ describe('0.9.0 B10: bằng chứng theo từng bước', () => {
     await bash($, GREP)
     expect(await show($)).toContain('[x] 1. Sửa thống kê')
   })
+  test('output rỗng không tính khi bước không có kết quả mong đợi', OFF, async ($, on) => {
+    setup(on, { 'grep -c tong out.json': '' })
+    await submit($, 'Sửa thống kê')
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Đếm', check: '`grep -c tong out.json`' }] } as never)
+    await edit($)
+    await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'done' })
+    await bash($, 'grep -c tong out.json')
+    expect(await show($)).toContain('[x] 1. Đếm')
+  })
   test('lệnh của bước 1 không nâng bước 2', OFF, async ($, on) => {
     setup(on, { [GREP]: '1' })
     await start($)
@@ -114,6 +123,29 @@ describe('0.9.0 B10: bằng chứng theo từng bước', () => {
     await spawnTool($, 'k1', 'Kiểm thống kê', 'Chạy lệnh kiểm')
     await bash($, GREP, 'a-k1')
     expect(await show($)).toContain('[v] 1. Sửa thống kê')
+  })
+  test('sau khi nâng: ghi tệp tài liệu nhẹ giữ verified; sửa src thì hạ về done', OFF, async ($, on) => {
+    setup(on, { [GREP]: '1' })
+    on('tool.call', { tool: 'Write' }, () => ({ result: 'ok' }))
+    await start($)
+    await edit($)
+    await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'done' })
+    await bash($, GREP)
+    await $.tool.call({ tool: 'Write', file_path: '/repo/notes/TIEN-DO.md', content: 'x' } as never)
+    expect(await show($)).toContain('[v] 1. Sửa thống kê')
+    await edit($)
+    expect(await show($)).toContain('[x] 1. Sửa thống kê')
+  })
+  test('lần chạy mới nhất của lệnh của bước lỗi: không nâng dù lần trước đạt', OFF, async ($, on) => {
+    let n = 0
+    setup(on, {})
+    on('tool.call', { tool: 'Bash' }, () => ({ result: n++ === 0 ? '1' : 'FAIL: 2 lỗi', isError: n > 1 }))
+    await start($)
+    await edit($)
+    await bash($, GREP)
+    await bash($, GREP)
+    await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'done' })
+    expect(await show($)).toContain('[x] 1. Sửa thống kê')
   })
   test('check viết bằng lời: như 0.8.9, không tự nâng', OFF, async ($, on) => {
     setup(on, { [GREP]: '1' })
@@ -148,5 +180,19 @@ describe('0.9.0 B10: đổi check sau khi kế hoạch đã duyệt', () => {
     await start($)
     await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa thống kê', check: `\`${OTHER}\`` }, STEPS[1]] } as never)
     expect(lines().some(l => l['kind'] === 'check-changed')).toBe(false)
+  })
+})
+
+describe('0.9.0 B10: câu dặn dạng check', () => {
+  test('kết quả plan set có dòng dạng check một lần mỗi mục tiêu; câu dặn lập kế hoạch có vế dạng check', {}, async ($, on) => {
+    const { seen } = setup(on, {}, GOAL())
+    await submit($, 'Sửa thống kê')
+    const planning = (seen.contexts.at(-1) ?? []).find(c => c.includes('Việc lớn: lập kế hoạch')) ?? ''
+    expect(planning).toContain('`lệnh` => kết quả mong đợi')
+    const first = (await $.tool.call({ tool: PLAN, action: 'set', steps: STEPS } as never)) as Out
+    const second = (await $.tool.call({ tool: PLAN, action: 'set', steps: STEPS } as never)) as Out
+    const text = (out: Out) => [String(out.result ?? ''), ...(out.context ?? [])].join('\n')
+    expect(text(first)).toContain('Check dạng `lệnh` => kết quả')
+    expect(text(second)).not.toContain('Check dạng `lệnh` => kết quả')
   })
 })

@@ -5,6 +5,8 @@ import { caught, noteBehavior, noteHookError } from '../lib/errlog'
 import type { AgentState, Brief, Choice, Core, DelegationState, Mode, ModelFamily, RetryItem, Warning } from '../../types'
 import { acceptsVerified, checkKindOf, classifyBash, evidenceStrength, filePathOf, freshTestRun, hardChanges, isCheckTool, isExecuting, isFullyClosed, isGoalDone, isMutation, isPlanFile, normalizePath, isSkillTrial, markVerified, newTracker, skillNameOf, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
 import { isSidePath } from '../lib/drift/scope'
+import { STEP_RUNS, stepCheckOf, stepEvidence, stepRunOf } from '../lib/drift/stepcheck'
+import { PLAN_SET_CHECK_LINE } from '../lib/approval'
 import type { SideLists } from '../lib/drift/scope'
 import type { Finding, Focus, ToolObservation, TurnTracker } from '../lib/drift'
 import { checkCommand, checkSignature, coversFailure, isFailedRun } from '../lib/drift/evidence'
@@ -63,6 +65,44 @@ async function writesOnlyStateFiles($: EngineInterface, brief: Brief, e: { tool:
   const classified = classifyBash(String(e['command'] ?? ''))
   if (classified.isUnknown || classified.effects.length === 0) return false
   return classified.effects.every(effect => effect.kind === 'write' && effect.paths.length > 0 && effect.paths.every(path => isSidePath(path, brief, root, cwd, 'state')))
+}
+
+/** Lần chạy Bash và mốc check của mục tiêu (0.9.0 B10): đổi mục tiêu thì bắt đầu mới. */
+function stepRunsFor(ctx: Ctx, goalId: number): Ctx['local']['stepRuns'] {
+  if (ctx.local.stepRuns.goalId !== goalId) ctx.local.stepRuns = { goalId, runs: [], checkSeq: new Map() }
+  return ctx.local.stepRuns
+}
+
+/** Ghi một lần chạy Bash của mục tiêu (0.9.0 B10) với mốc seq hiện tại của dấu vết. */
+function noteStepRun(ctx: Ctx, goalId: number, observation: ToolObservation): void {
+  if (observation.tool !== 'Bash') return
+  const command = String(observation.input['command'] ?? '').trim()
+  if (command === '') return
+  const state = stepRunsFor(ctx, goalId)
+  state.runs.push(stepRunOf(command, observation.isError, observation.output, ctx.evidenceFor(goalId).seq))
+  if (state.runs.length > STEP_RUNS) state.runs.shift()
+}
+
+/**
+ * Nâng các bước done có bằng chứng theo trường check của chính bước (0.9.0 B10): chỉ đúng các bước đó, nhãn "tự động: <lệnh> chạy đạt sau
+ * thay đổi cuối", một dòng verify-step trong nhật ký. Trả true khi đã nâng.
+ */
+async function liftStepChecks($: EngineInterface, ctx: Ctx, goalId: number): Promise<boolean> {
+  const core = S.normalizeCore(await read($, coreState))
+  if (core.brief === null || core.brief.goalId !== goalId) return false
+  const state = stepRunsFor(ctx, goalId)
+  const lastHard = ctx.evidenceFor(goalId).lastHard
+  const lifts = core.plan.flatMap(step => {
+    if (step.status !== 'done') return []
+    const run = stepEvidence(step, state.runs, lastHard, state.checkSeq.get(step.id) ?? -1)
+    const check = stepCheckOf(step.check)
+    return run !== null && check !== null ? [{ id: step.id, command: check.command }] : []
+  })
+  if (lifts.length === 0) return false
+  await update($, coreState, S.withStepVerified(lifts))
+  ctx.record(await $.clock.now(), 'verify-step', { steps: lifts.map(l => l.id), command: clipText(lifts[0]?.command ?? '') })
+  await ctx.flushDecisions((path, text) => $.fs.write(path, text))
+  return true
 }
 
 async function conductRole($: EngineInterface, ctx: Ctx, current: Mode, e: { tool: string } & Record<string, unknown>): Promise<{ goalId: number; isExempt: boolean } | null> {
@@ -754,6 +794,29 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       record(await $.clock.now(), 'phase', { phase: opened.brief.phase, tasks: opened.tasks, items: opened.items, cause: 'plan-set' })
       await flushDecisions((path, text) => $.fs.write(path, text))
     }
+    // Trường check của bước (0.9.0 B10): mốc check mới cho bước có check vừa lưu hay vừa đổi, để lần chạy trước đó không còn là bằng chứng.
+    // Đổi check của một bước đã có sau khi kế hoạch được duyệt: một dòng check-changed và một cảnh báo ở mục cần chú ý.
+    if (before.brief !== null && (input.action === 'set' || input.action === 'add')) {
+      const goalId = before.brief.goalId
+      const state = stepRunsFor(ctx, goalId)
+      const seq = evidenceFor(goalId).seq
+      const isApproved = S.approvalOf(before).status === 'approved'
+      const changed: number[] = []
+      for (const step of core.plan) {
+        const old = before.plan.find(p => p.title === step.title)
+        if ((step.check ?? '') === (old?.check ?? '') && old !== undefined) continue
+        if (step.check !== undefined) state.checkSeq.set(step.id, seq)
+        if (old !== undefined && isApproved) changed.push(step.id)
+      }
+      if (changed.length > 0) {
+        const at = await $.clock.now()
+        record(at, 'check-changed', { goalId, steps: changed })
+        await flushDecisions((path, text) => $.fs.write(path, text))
+        core = await update($, coreState, S.withWarnings({ at, kind: 'drift', text: `Bước ${changed.join(', ')} đổi check sau khi kế hoạch đã duyệt; bằng chứng cũ của bước không còn tính` }))
+      }
+    }
+    // Bước vừa đóng có bằng chứng theo trường check của chính bước (0.9.0 B10): nâng ngay.
+    if (before.brief !== null && input.action === 'update' && (await liftStepChecks($, ctx, before.brief.goalId))) core = S.normalizeCore(await read($, coreState))
     // Bước vừa đóng bằng done khi đã có test đạt sau thay đổi cuối: nâng ngay thành verified (0.7.0).
     if (fresh !== undefined && input.action === 'update') {
       const closed = (outcome.changed ?? []).filter(id => outcome.plan.some(s => s.id === id && s.status === 'done'))
@@ -766,6 +829,12 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     L.tracker.planUpdates += 1
     if (isAccepted && (strength?.level === 'strong' || fresh !== undefined)) markVerified(L.tracker)
     const notes: string[] = []
+    // Dạng check của bước (0.9.0 B10): một lần mỗi mục tiêu, ở lần plan set có bước; đi kèm kết quả dưới dạng context, dòng kết quả giữ nguyên.
+    const checkHint: string[] = []
+    if (input.action === 'set' && core.plan.length > 0 && before.brief !== null && L.checkHinted !== before.brief.goalId) {
+      L.checkHinted = before.brief.goalId
+      checkHint.push(PLAN_SET_CHECK_LINE)
+    }
     if (isDowngraded) {
       const reason = strength?.reason ?? 'chưa đối chiếu được evidence với mục tiêu hiện tại'
       const text = `Bước ${String(input.step)} ghi verified nhưng ${reason}: lưu là done`
@@ -834,7 +903,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
         : outcome.set !== undefined
           ? setResultText(core.brief, core.plan, outcome.set, outcome.goal, before.brief?.goal ?? null)
           : renderPlan(core.brief, core.plan, input.action === 'update' || input.action === 'add' ? outcome.changed : undefined)
-    return { result: [shown, ...notes].join('\n') }
+    return { result: [shown, ...notes].join('\n'), ...(checkHint.length > 0 ? { context: checkHint } : {}) }
   }).catch(($, e, next) => (noteHookError('tool.call plan', next.error), { deny: 'focus-conductor: lỗi nội bộ khi cập nhật checklist; tiếp tục làm việc không cần tool này.' }))
 
   /**
@@ -963,7 +1032,10 @@ export function registerConsistency(on: On, ctx: Ctx): void {
         const agentSince = agentLog.seq
         // Lần kiểm dùng chung thư mục (0.8.6 R2): subagent không chạy trong worktree riêng, luồng chính đang điều phối.
         const isShared = meta.sharesDir === true && isConductingNow(S.normalizeCore(await read($, coreState)), await read($, mode))
+        const agentHardBefore = agentLog.lastHard
         noteEvidence(agentLog, observation, e.agentId, isShared, agentBrief)
+        noteStepRun(ctx, agentBrief.goalId, observation)
+        const isAgentHard = agentLog.lastHard > agentHardBefore
         if (isCheckCall(observation.tool)) L.agentRetryNotes.push(...(await noteChecks($, retryDeps, S.normalizeCore(await read($, coreState)), agentBrief.goalId, newChecks(agentLog, agentSince), observation, meta.pick, false, meta.description)))
         const skillBefore = L.tracker.skillWrites
         trackVerification(L.tracker, observation, e.agentId, (await frameOf($, L.roots, agentBrief.goalId, agentBrief.scopePaths)).cwd, isShared, agentBrief)
@@ -972,9 +1044,11 @@ export function registerConsistency(on: On, ctx: Ctx): void {
         if (isCheckCall(observation.tool) && passedDeclared(newChecks(agentLog, agentSince))) await update($, coreState, S.withSkillTrial(agentBrief.goalId))
         // Subagent sửa file: bước tự nâng thành verified về done, như thay đổi của luồng chính (0.7.0).
         if (!observation.isError && isMutation(observation) && S.hasAutoVerified(S.normalizeCore(await read($, coreState)))) {
-          await update($, coreState, S.withAutoDemoted)
+          await update($, coreState, S.withAutoDemotedBy(isAgentHard))
           await showStatus($, await read($, view), ctx.options)
         }
+        // Bằng chứng theo từng bước (0.9.0 B10): lần chạy của subagent cũng tính.
+        if (observation.tool === 'Bash' && (await liftStepChecks($, ctx, agentBrief.goalId))) await showStatus($, await read($, view), ctx.options)
         // Lần test mang cờ dùng chung thư mục vừa đạt sau thay đổi cuối (0.8.6 R2): bước done thành verified như lần test của luồng chính.
         if (isShared && isCheckCall(observation.tool) && !observation.isError && (await autoVerify($, ctx, agentBrief.goalId))) await showStatus($, await read($, view), ctx.options)
       }
@@ -1011,7 +1085,10 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     if (core.brief !== null) {
       const mainLog = evidenceFor(core.brief.goalId)
       const mainSince = mainLog.seq
+      const hardBefore = mainLog.lastHard
       noteEvidence(mainLog, observation, 'main', false, core.brief)
+      noteStepRun(ctx, core.brief.goalId, observation)
+      L.lastWasHard = mainLog.lastHard > hardBefore
       const fresh = isCheckCall(observation.tool) ? newChecks(mainLog, mainSince) : []
       isDeclaredPass = passedDeclared(fresh)
       if (isCheckCall(observation.tool)) retryNotes.push(...(await noteChecks($, retryDeps, core, core.brief.goalId, fresh, observation, mainLevel(), true)))
@@ -1042,9 +1119,12 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     if (core.brief !== null && !observation.isError && isMutation(observation)) {
       const goalId = core.brief.goalId
       const hadVerified = S.hasAutoVerified(core)
-      await update($, coreState, c => S.withAutoDemoted(S.withActivity(goalId)(c)))
+      // Bước nâng nhờ lệnh ở trường check của chính bước (0.9.0 B10) chỉ hạ khi lần ghi này là thay đổi không nhẹ.
+      await update($, coreState, c => S.withAutoDemotedBy(L.lastWasHard)(S.withActivity(goalId)(c)))
       if (hadVerified) await showStatus($, await read($, view), ctx.options)
     }
+    // Bằng chứng theo từng bước (0.9.0 B10): lần chạy Bash khớp lệnh ở trường check của một bước done.
+    if (core.brief !== null && observation.tool === 'Bash' && (await liftStepChecks($, ctx, core.brief.goalId))) await showStatus($, await read($, view), ctx.options)
     // Lệnh test vừa chạy đạt sau thay đổi cuối (phủ mọi thay đổi): các bước done thành verified (0.7.0), chỉ những bước đóng sau lần
     // kiểm đạt trước của mục tiêu (0.7.5); lần này ghi mốc kiểm đạt mới.
     if (core.brief !== null && isCheckCall(observation.tool) && !observation.isError) {

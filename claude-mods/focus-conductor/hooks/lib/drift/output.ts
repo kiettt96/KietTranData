@@ -294,6 +294,11 @@ function dropPassedLabels(text: string): string {
     .join('\n')
 }
 
+/** Dấu hiệu lỗi của lệnh kiểm riêng, cho bằng chứng theo từng bước (0.9.0 B10). */
+export function customFailedOf(output: string): boolean {
+  return customFailed(output)
+}
+
 /** Output của lệnh kiểm riêng có dấu hiệu lỗi (0.7.5): dấu hiệu chung của trình chạy, hay dấu hiệu tiếng Việt và tiếng Anh. */
 function customFailed(output: string): boolean {
   if (COMPLETE_FAIL.some(pattern => pattern.test(output.normalize('NFC')))) return true

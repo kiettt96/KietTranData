@@ -19,6 +19,7 @@ import { routerMaxWaitOf } from './lib/reading'
 import { DEFAULT_CONDUCTOR } from './lib/families'
 import type { Reading } from './lib/reading'
 import { approvalModeOf, reviewRoundsOf } from './lib/approval'
+import type { StepRun } from './lib/drift/stepcheck'
 import { activeConductor, conductorBlocker, conductorFallbackOf, conductorOf, fableModelId, isMainConducting } from './lib/conductor'
 import { normalizeCore, restoreArchived, withDelegations } from './lib/state'
 import type { ActiveConductor, ConductorBlocker, ConductorInputs } from './lib/conductor'
@@ -130,6 +131,12 @@ export function createContext(options: PluginOptions) {
     aliasEngine: null as boolean | null,
     /** Đã báo cảnh báo cấu hình conductorFallback trong lần nạp mod này (0.9.0 A4). */
     fallbackWarned: false,
+    /** Lần chạy Bash và mốc check của từng bước (0.9.0 B10), theo mục tiêu; cùng vòng đời với dấu vết evidence (không sống qua nạp lại mod). */
+    stepRuns: { goalId: -1, runs: [] as StepRun[], checkSeq: new Map<number, number>() },
+    /** Lần ghi vừa rồi của luồng chính là thay đổi không nhẹ (0.9.0 B10). */
+    lastWasHard: false,
+    /** Mục tiêu đã nhận dòng dạng check ở kết quả plan set (0.9.0 B10). */
+    checkHinted: -1,
     /** ID engine đã phục vụ theo họ (0.8.7 M1, usage.model của turn), cho dòng "Model đang dùng" và cảnh báo phiên bản một lần mỗi họ. */
     served: new Map<ModelFamily, string>(),
     /** Đã cảnh báo chính sách model của phiên chặn Fable điều phối (0.8.4 C1), một lần mỗi phiên. */
@@ -598,6 +605,8 @@ export function createContext(options: PluginOptions) {
     local.sessionFamily = null
     local.sessionNoticed = false
     local.aliasEngine = null
+    local.stepRuns = { goalId: -1, runs: [], checkSeq: new Map() }
+    local.checkHinted = -1
     local.served.clear()
     local.conductorSessionNoticed = false
     local.pinnedGoalId = null
