@@ -344,10 +344,10 @@ Một phiên làm theo kỷ luật giao việc ghi tệp kế hoạch, tiến đ
 
 | Vai | Nhận vai khi | Model mặc định | Mod kẹp |
 |---|---|---|---|
-| search | việc giao Explore | haiku (router chấm) | chỉ đọc |
-| design | việc giao Plan; lời gọi `Sẵn sàng: `, `Readiness: ` | fable khi `allowFable` bật, không thì opus | chỉ đọc |
+| search | việc giao Explore | haiku (router chấm) | chỉ đọc (danh sách cho phép) |
+| design | việc giao Plan; lời gọi `Sẵn sàng: `, `Readiness: ` | fable khi `allowFable` bật, không thì opus | chỉ đọc (danh sách cho phép) |
 | build | việc giao general-purpose có sửa file | router chấm | sàn sonnet |
-| review | lời gọi `Kiểm độc lập: `, `Duyệt: `, `Independent check: `, `Review: ` | opus | sàn sonnet; chỉ đọc |
+| review | lời gọi `Kiểm độc lập: `, `Duyệt: `, `Independent check: `, `Review: ` | opus | sàn sonnet; chỉ đọc (danh sách cho phép) |
 | audit | lời gọi `Kiểm: `, `Audit: ` | haiku | chỉ ghi trong thư mục tạm |
 
 - **Tiền tố.** So không phân biệt hoa thường, xét tiền tố dài trước, nên `Kiểm độc lập: ` là review dù cũng bắt đầu bằng `Kiểm`. Lời gọi có tiền tố không qua lượt router chấm khi giao, nên số lượt gọi router mỗi prompt không tăng. Tiền tố chỉ quyết vai và model; kết luận được nhận theo câu trả lời.
@@ -356,12 +356,20 @@ Một phiên làm theo kỷ luật giao việc ghi tệp kế hoạch, tiến đ
   - Bước kiểm chỉ nêu khi có lệnh kiểm biết được: `check` của bước có lệnh, mục `checkCommands` phủ file đã sửa (mục không có phạm vi phủ mọi file), hay một lần chạy trình test mod nhận ra.
   - Mục tiêu chỉ sửa tài liệu: lượt duyệt gồm đối chiếu số liệu, mẫu, chính tả.
   - Điều kiện chưa bật thì không chèn gì, context bằng 0.8.9 từng ký tự.
-- **Kết luận nhận được (D, C6 theo vai).** Dòng không rỗng đầu tiên của câu trả lời mở đầu bằng một từ kết luận, không phân biệt hoa thường; cụm chưa đạt, chưa sẵn sàng xét trước:
+- **Quyền của vai chỉ đọc (đổi đặc tả C2, danh sách cho phép).** Vai review, design, search dùng bộ phân loại lệnh sẵn có (`classifyBash`, `isReadOnlyCommand`), không có luật nhận diện lệnh ghi riêng. Lời gọi Bash được phép (`isReadOnlyAllowed`, `hooks/lib/team.ts`) khi mọi đoạn thuộc một trong năm loại:
+  - (a) không có tác động ghi nào, kể cả mức possible;
+  - (b) lệnh kiểm mod nhận ra và không tự sửa file;
+  - (c) trùng danh tính lệnh ở `check` của một bước trong kế hoạch;
+  - (d) chỉ ghi vào thư mục tạm;
+  - (e) chạy khi thư mục làm việc của đoạn nằm trong thư mục tạm, theo `cd` trong cùng lệnh hay cwd mod đã theo dõi của subagent; cwd không xác định thì không tính. Ở thư mục tạm, đích tuyệt đối ra ngoài thư mục tạm vẫn bị từ chối.
+  - Mã nội tuyến của trình thông dịch (`-c`, `-e`, `-`, heredoc, ống vào trình thông dịch) không chứng minh được nên luôn bị từ chối; git đổi lịch sử bị từ chối. Lời từ chối không quá 200 ký tự, nêu vai chỉ đọc, gợi ý Read, Grep, Glob, probe chép sang thư mục tạm rồi chạy, lệnh khác báo luồng chính giao vai kiểm.
+  - Vai audit giữ như trước (`isBashWrite`), không thêm danh sách lệnh ghi.
+- **Kết luận nhận được (C6 theo vai, đổi đặc tả C2 mục 2 và 4).** Dòng kết luận là dòng đầu tiên mà sau khi bỏ ký hiệu markdown, dấu đầu dòng, nhãn `Kết luận:` hay `Verdict:` và dấu câu ở cuối chỉ còn đúng một từ kết luận (có thể kèm số đếm N/M); không phân biệt hoa thường. Dòng có thêm chữ khác không phải dòng kết luận. Dòng đầu quyết loại (duyệt hay sẵn sàng); có cả dòng đạt lẫn dòng chưa đạt thì là chưa đạt. Không có dòng nào thì chưa có kết luận. Từ kết luận:
   - chưa sẵn sàng: `CHƯA SẴN SÀNG`, `NOT READY`;
   - chưa đạt: `CHƯA ĐẠT`, `KHÔNG ĐẠT`, `FAIL`;
   - sẵn sàng: `SẴN SÀNG`, `READY`;
   - đạt: `đạt kèm lỗi nhẹ`, `ĐẠT HẾT`, `ALL PASS`, `ĐẠT`, `PASS`.
-  - Kết luận duyệt chỉ nhận khi đủ bốn điều kiện: subagent không ghi file ngoài thư mục tạm (tool file, Bash ghi mức definite, git trên lịch sử, lệnh ghi đã biết; đích chưa xác định cũng tính); hoàn tất sau thay đổi không nhẹ cuối; từ kết luận là `ĐẠT`, `PASS` hay `đạt kèm lỗi nhẹ`; model đã chạy từ sonnet trở lên. Kết luận sẵn sàng cùng điều kiện, với `SẴN SÀNG`, `READY`.
+  - Kết luận duyệt chỉ nhận khi đủ bốn điều kiện: mọi lời gọi của subagent nằm trong tập cho phép ở trên (Bash) và không có lời gọi công cụ sửa file ngoài thư mục tạm, xét cho mọi subagent, độc lập với việc từ chối (`AgentMeta.outside`); hoàn tất sau lần sửa cuối làm kết luận hết hiệu lực (B14 mục 7); từ kết luận là `ĐẠT`, `PASS` hay `đạt kèm lỗi nhẹ`; model đã chạy từ sonnet trở lên. Kết luận sẵn sàng cùng điều kiện, với `SẴN SÀNG`, `READY`.
   - `ĐẠT HẾT`, `ALL PASS`, và mọi câu trả lời của lượt có tiền tố `Kiểm: `, `Audit: `, chỉ là kết luận của bước kiểm, không bao giờ là duyệt hay sẵn sàng. Tiền tố không bắt buộc cho lượt duyệt.
 - **Dòng mẫu báo cáo (C4).** Khai báo kiểu của 2.1.326 và 2.1.296 cho hook `agent.spawn` viết lại `prompt` của subagent ("A rewrite is the prompt the subagent runs with"). Mod nối dòng mẫu khi lời gọi có tiền tố vai, hay khi việc có vai mà đội hình đã bật. Từ kết luận vẫn có trong đoạn dặn, cho subagent không tiền tố.
 - **Trạng thái và cổng.** `Core.team` giữ lý do bật và trạng thái từng bước đóng (chờ, đạt, chưa đạt) cho pane. Cổng C6, vòng sửa C7, bảng C8 giữ đặc tả, chỉ đổi điều kiện bật. Cổng không đòi lần kiểm khi không có lệnh kiểm biết được.
@@ -375,6 +383,17 @@ Một phiên làm theo kỷ luật giao việc ghi tệp kế hoạch, tiến đ
     - lần 3: 203/228; `k4` 6 lượt 2/6 so với 6/6 của 14a3a85, `six` 0/6 so với 2/6; token ra +18,3%.
   - Lời dặn chỉ đọc prompt (đo F): 216/228; `k4` 5/6 so với 6/6, `six` 3/6 so với 4/6; token ra +12,6%.
 - **Chưa kiểm được trên phiên thật.** Bật theo số file trong một phiên thật; vòng sửa C7 với subagent thật trả chưa đạt; phiên không giao được subagent khi đội hình đã bật.
+
+## Phối hợp với kỷ luật giao việc (0.9.0 B14)
+
+Một phiên làm theo kỷ luật giao việc (khởi động, đo nền, tệp kế hoạch và tiến độ, sao lưu, kiểm độc lập, commit) chạy qua mod mà không bị từ chối hay chặn ở chỗ không cần.
+
+- **Mục 7, hiệu lực của kết luận.** Kết luận duyệt và sẵn sàng chỉ hết hiệu lực khi có lần sửa mức definite vào file không nhẹ, ngoài tệp trạng thái, nơi ghi phụ, thư mục tạm và `node_modules`, `dist`, `build`, `.git` (`EvidenceLog.lastChange`). Ghi tệp trạng thái, `cp` và `shasum` vào nơi ghi phụ, `git add`, `commit`, `tag`, `push`, chạy lại khối khởi động kể cả cài phụ thuộc, lệnh mức possible không rõ đích: không làm hết hiệu lực. Bằng chứng của lệnh kiểm giữ luật cũ (`lastMutation`, `lastHard`).
+- **Mục 8, tên tệp trạng thái mặc định.** Option `stateFileNames`, mặc định `TIEN-DO.md, KE-HOACH.md, DIEM-DUNG.md, PROGRESS.md, PLAN.md, HANDOFF.md`. Tệp có tên trùng (không phân biệt hoa thường), đuôi `.md`, `.markdown`, `.txt`, ở bất kỳ thư mục nào, được coi như danh sách tệp trạng thái của B1 ở mọi chỗ B2 tới B6 dùng (`isStateName`, `isSidePath`). Chuỗi rỗng thì chỉ còn danh sách router đọc từ prompt. Ở dừng cứng, đích theo tên mặc định vẫn qua kiểm realpath như danh sách B1.
+- **Mục 9, vai điều phối tự lưu bản.** Luồng chính khi giữ vai điều phối được ghi vào nơi ghi phụ (`cp`, `mkdir -p`, `shasum`) và chạy `git add`, `commit`, `tag`, `push` (`writesOnlyStateFiles`, `gitSub`). Sửa file khác và chạy lệnh kiểm vẫn bị từ chối.
+- **Mục 10, bước kiểm của cổng đóng.** Tính mọi lần lệnh kiểm chạy đạt sau thay đổi cuối, do luồng chính hay subagent bất kỳ chạy; không đòi subagent `Kiểm: `. Đoạn dặn nói đúng ý này, vẫn trong 300 ký tự (ca dài nhất 289 ký tự [Đo trực tiếp: mục tiêu hard sửa tài liệu có lệnh kiểm]).
+- **Mục 11, dừng cứng.** Mục tiêu có tệp trạng thái (B1 hay tên mặc định đã ghi) thì câu báo dừng thêm một vế không quá 120 ký tự: ghi phần bàn giao vào tệp trạng thái đã khai rồi dừng.
+- **Kịch bản tích hợp (mục 12).** `tests/integration/coop-b14-090.test.ts` chạy một phiên từ đầu tới cuối với conductor tắt và bật, prompt không khai tệp trạng thái.
 
 ## Router bị engine từ chối khi đọc prompt dài (0.8.9)
 
@@ -563,3 +582,4 @@ Các điểm dưới đây được người rà soát vòng 5 xếp ngoài ph�
 - Y4 (0.7.9): output của tool MCP không phải chữ thì chỉ dựa vào `isError`, nên tool báo lỗi bằng nội dung có cấu trúc mà `isError` false sẽ được tính là đạt. Chữ ký gồm đầu vào cắt 200 ký tự, hai đầu vào chỉ khác nhau sau ký tự thứ 200 là cùng một chữ ký.
 - Y5 và Y6 (0.7.9): `bridge` được tin là người dùng qua Remote Control theo khai báo kiểu của engine; chưa kiểm trên Remote Control thật. Y6 chỉ đọc `package.json` ở thư mục gốc phiên: monorepo có script ở thư mục con không được nhận, và khi đó chỉ có cảnh báo "chưa kiểm".
 - CI1 (0.7.9): CI không chạy `tsc`, vì `.claude-plugin/types` do engine sinh ra chỉ trong phiên đã đăng nhập. Đã tìm cách sinh khai báo kiểu không cần đăng nhập, trên bản lưu sạch với `HOME` rỗng, engine 2.1.296 [Đo trực tiếp]: `claude plugin validate .` (mã thoát 0), `claude plugin details .` (mã thoát 1), `claude plugin test .` (2558 test qua), `claude plugin init probe` và `claude -p "hi" --plugin-dir <mod>`; không lệnh nào tạo `.claude-plugin/types`. Không commit tệp do engine sinh (đã `.gitignore`), nên workflow không đổi cho `tsc`; thay đổi CI duy nhất của 0.7.9 là bước `node scripts/version-check.mjs` của L1. `tsc` vẫn chạy cục bộ sau một phiên `claude --plugin-dir .`.
+- Danh sách cho phép của vai chỉ đọc (0.9.0, đổi đặc tả C2). Mô hình rủi ro: subagent hợp tác, có thể tự ý sửa giúp, không cố tình lừa mod; bất biến là kết luận duyệt hay sẵn sàng chỉ tính khi mọi lời gọi của subagent đó nằm trong tập cho phép. Mod không bảo vệ trước lệnh đã khai (`checkCommands`, `check` của bước) mà chính nó ghi file. Script chạy trong thư mục tạm có thể ghi ra ngoài bằng đường dẫn tuyệt đối viết bên trong script; mod chỉ thấy dòng lệnh. Mod không chứng minh được script của vai audit không ghi file, nên kết luận của audit không mở cổng duyệt hay sẵn sàng.

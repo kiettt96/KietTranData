@@ -27,11 +27,12 @@ Ba nhóm việc trong một lượt: sửa lỗi còn tồn (A), chạy trơn v�
 - **B11:** một mục của `checkCommands` khai được phạm vi bằng `@@ glob;glob`; mục không có phạm vi giữ hành vi 0.8.9.
 - **B12:** duyệt một lần: tin duyệt gửi khi đang lập kế hoạch được tính; đã duyệt thì giữ qua điểm dừng, chạy tiếp, nén; tin duyệt kèm chỉnh nhỏ áp chỉnh trong cùng lượt.
 - **B13:** lời dặn router coi mỗi dòng mang mã của bảng mục việc là một việc riêng; bỏ cụm "at most 6" ở `constraints`.
+- **B14, phối hợp tự động:** kết luận duyệt, sẵn sàng chỉ hết hiệu lực khi sửa definite vào file không nhẹ ngoài tệp trạng thái, nơi ghi phụ, thư mục tạm, `node_modules`, `dist`, `build`, `.git`; option mới `stateFileNames` (mặc định `TIEN-DO.md, KE-HOACH.md, DIEM-DUNG.md, PROGRESS.md, PLAN.md, HANDOFF.md`, 49 option); vai điều phối ghi được nơi ghi phụ và chạy `git add`, `commit`, `tag`, `push`; bước kiểm của cổng đóng tính mọi lần kiểm đạt sau thay đổi cuối, không đòi `Kiểm: `; lời dừng cứng thêm vế ghi phần bàn giao vào tệp trạng thái (không quá 120 ký tự).
 
 **Nhóm C, D, đội hình do mod áp.**
 - **Lời dặn router:** không có luật đội hình, không có trường `role`. So với 0.8.9 chỉ thêm phần của B1, B12, B13 và câu mở rộng `questions` (nghiệp vụ, quyền, dữ liệu, chi phí): +525 ký tự. Lời dặn chấm subagent trùng 0.8.9 từng byte.
 - **Vai do mod suy (thay C1):** Explore là search, Plan là design, general-purpose có sửa file là build. Lời gọi Agent theo tiền tố description (không phân biệt hoa thường, tiền tố dài trước): `Kiểm độc lập: `, `Duyệt: `, `Independent check: `, `Review: ` là review; `Kiểm: `, `Audit: ` là audit; `Sẵn sàng: `, `Readiness: ` là design. Các lời gọi này không qua router; model mặc định của vai: review opus, audit haiku, design fable khi `allowFable` bật, không thì opus.
-- **C2:** quyền theo vai: search, review, design không sửa file, không chạy lệnh ghi ngoài thư mục tạm; audit chỉ ghi được trong thư mục tạm.
+- **C2 (đổi đặc tả sau vòng kiểm 3: danh sách cho phép):** search, review, design chỉ chạy lời gọi Bash mà mọi đoạn thuộc năm loại: không có tác động ghi nào kể cả possible; lệnh kiểm mod nhận ra, không tự sửa; trùng lệnh ở `check` của một bước; chỉ ghi thư mục tạm; chạy khi cwd của đoạn nằm trong thư mục tạm. Mã nội tuyến của trình thông dịch luôn bị từ chối. Lời từ chối không quá 200 ký tự. Kết luận duyệt, sẵn sàng chỉ tính khi subagent không có lời gọi nào ngoài tập, xét cho mọi subagent, độc lập với việc từ chối. Dòng kết luận phải chỉ còn đúng một từ kết luận sau khi bỏ markdown, nhãn `Kết luận:`/`Verdict:` và dấu câu cuối; có cả dòng đạt lẫn chưa đạt thì là chưa đạt. Bớt chặn nhầm: `git grep`, `git stash list`, `find -exec` lệnh chỉ đọc. Lệnh tự sửa thêm formatter qua `python -m`, `uv run`, `poetry run`, `deno fmt` không `--check`; `awk -i inplace` là lệnh ghi. Audit giữ như trước.
 - **Đội hình theo cỡ việc (thay C3):** bật khi `closingReview` là `auto`, mục tiêu edit hay mixed, và router chấm substantial hay hard, hoặc đã có từ 3 file không nhẹ khác nhau được sửa (`TEAM_FILES`, `hooks/lib/team.ts`). Khi bật lần đầu, mod chèn một lần đoạn dặn bước đóng, không quá 300 ký tự. Pane có mục "Bước đóng (mod)". Chưa bật thì không chèn gì.
 - **C4, D:** dòng mẫu báo cáo nối vào lời giao có vai, khi lời gọi có tiền tố vai hay đội hình đã bật. Kết luận đọc từ câu trả lời, xét cụm chưa đạt trước để "không đạt" không bị đọc thành đạt. Kết luận duyệt chỉ nhận khi đủ bốn điều kiện: subagent không ghi file ngoài thư mục tạm; xong sau thay đổi không nhẹ cuối; từ kết luận là `ĐẠT`, `PASS` hay `đạt kèm lỗi nhẹ`; model đã chạy từ sonnet trở lên. Kết luận sẵn sàng cùng điều kiện, với `SẴN SÀNG`, `READY`. `ĐẠT HẾT`, `ALL PASS` và lượt có tiền tố `Kiểm: `, `Audit: ` chỉ là của bước kiểm. Tiền tố không bắt buộc.
 - **C5:** hai subagent chung thư mục cùng ghi một file thì nhắc luồng chính một lần, ghi `file-clash`.
@@ -58,6 +59,7 @@ Ba nhóm việc trong một lượt: sửa lỗi còn tồn (A), chạy trơn v�
   - `skill-trial-n3-082` ba ca "2. ghi SKILL.md, rồi Agent "Thử skill: a" xong: ...", "2b. "Skill trial: " cũng là lần thử", "4c. thứ tự của engine thật, ...";
   - `taskrows-perf-087` "mục tiêu 12 việc, checklist có bước "Việc N", ...".
 - `error-log-l1-079`: MOD_VERSION là 0.9.0.
+- Ca của 0.9.0 đổi theo đặc tả C2 mới và B14 mục 8, 10: `approval-state-b3-090`, `conduct-state-b4-090` dùng `GHI-CHU.md` thay cho tên nay là tệp trạng thái mặc định; `side-scope-b2-090` một kỳ vọng; `indep-fix-090`, `indep2-fix-090`, `indep3-fix-090` xét "vẫn chạy được" với vai audit, "không lỗi" không còn là dòng kết luận; `team-mod-090` đoạn dặn không đòi `Kiểm: `; `verdict-c4-090` ba kỳ vọng đọc dòng kết luận.
 - `golden.test.ts`: câu trả lời router ghi lại một lần sau khi lời dặn chốt; bộ chấm `tests/golden/check.ts` giữ như 0.8.9 cho ca cũ, thêm kỳ vọng tệp trạng thái, số ràng buộc, câu hỏi và độ sâu cho 16 ca mới.
 
 **Gỡ giữa lượt** (khi đổi C1, C3 sang mod áp; lý do: router chấm độ sâu thấp cho việc vừa và vẫn tụt ca cũ sau ba lần chỉnh lời dặn, số đo ở VERIFICATION):
@@ -71,8 +73,8 @@ Ba nhóm việc trong một lượt: sửa lỗi còn tồn (A), chạy trơn v�
 - `set -e` ở bất kỳ dòng nào bật errexit cho cả khối heredoc, kể cả khi có `set +e` sau đó; `set -e; ...` trên một dòng thì không nhận ra (chiều an toàn).
 - Dấu `)` trong nháy bên trong `<( )` làm đích ghi lệch (`/repo/a)`).
 - B10 không coi `--update-snapshots`, `jest -u`, `go fmt` là tự sửa; `make check` in "Nothing to be done" vẫn được nâng.
-- `verdictOf` không đọc `- ĐẠT` (gạch đầu dòng) và `FAILED:` (chiều an toàn: chưa có kết luận).
-- Lệnh ghi qua trình thông dịch ngoài danh sách đã biết (`node script.js` tự ghi file) vẫn lọt quyền theo vai.
+- `verdictOf` không đọc `FAILED:` (chiều an toàn: chưa có kết luận).
+- Vai audit: lệnh ghi qua trình thông dịch ngoài danh sách đã biết (`node script.js` tự ghi file) vẫn chạy được; kết luận của audit không mở cổng duyệt.
 - Nhật ký quyết định bị ghi đè khi chạy tiếp bằng `claude -p --continue`.
 - Trạng thái mục tiêu không sống qua `--continue` ở chế độ không tương tác.
 - Câu "Việc nhỏ: làm trực tiếp, không cần checklist" của mục tiêu light cãi với prompt đòi checklist.
