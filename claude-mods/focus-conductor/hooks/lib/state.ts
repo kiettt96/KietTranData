@@ -823,7 +823,13 @@ export const withAutoVerified =
  * Có thay đổi mới: các bước verified do mod tự nâng về done (bước verified do Claude ghi giữ nguyên). Bước bị hạ nhận mốc đóng mới
  * (0.7.5), để lần kiểm đạt sau nâng lại được.
  */
-export const withAutoDemoted = (c: Core): Core => {
+export const withAutoDemoted = (c: Core): Core => withAutoDemotedBy(true)(c)
+
+/**
+ * Như withAutoDemoted; `isHard` false (thay đổi nhẹ, 0.9.0 B10) thì bước nâng nhờ lệnh ở trường check của chính bước (byCheck) giữ verified,
+ * vì bằng chứng của nó chỉ mất khi có thay đổi không nhẹ mới.
+ */
+export const withAutoDemotedBy = (isHard: boolean) => (c: Core): Core => {
   const n = normalizeCore(c)
   const isMirrored = liveMirror(n).some(s => s.status === 'verified')
   if (!hasAutoVerified(n)) return n
@@ -832,13 +838,30 @@ export const withAutoDemoted = (c: Core): Core => {
     ...n,
     plan: n.plan.map(s => {
       if (s.auto !== true || s.status !== 'verified') return s
-      const { auto: _auto, note: _note, ...rest } = s
+      if (s.byCheck === true && !isHard) return s
+      const { auto: _auto, note: _note, byCheck: _byCheck, ...rest } = s
       return { ...rest, status: 'done' as const, closedSeq: seq }
     }),
     mirror: isMirrored ? { ...n.mirror, steps: n.mirror.steps.map(s => (s.status === 'verified' ? { ...s, status: 'done' as const, closedSeq: seq } : s)) } : n.mirror,
     closing: { ...n.closing, seq },
   }
 }
+
+/** Mod nâng các bước `ids` thành verified nhờ lệnh ở trường check của chính bước (0.9.0 B10): note nêu lệnh, đánh dấu auto và byCheck. */
+export const withStepVerified =
+  (lifts: readonly { id: number; command: string }[]) =>
+  (c: Core): Core => {
+    const n = normalizeCore(c)
+    const byId = new Map(lifts.map(l => [l.id, l.command]))
+    return {
+      ...n,
+      plan: n.plan.map(s => {
+        const command = byId.get(s.id)
+        if (command === undefined || s.status !== 'done') return s
+        return { ...s, status: 'verified' as const, auto: true, byCheck: true as const, note: `tự động: ${command.slice(0, 120)} chạy đạt sau thay đổi cuối` }
+      }),
+    }
+  }
 
 /** Có bước verified do mod tự nâng (của tool plan hay của danh sách phản chiếu) để hạ khi có thay đổi mới. */
 export const hasAutoVerified = (n: Core): boolean =>

@@ -12,6 +12,7 @@ import { checkEffectPassed, lacksSummary, outputFailed, rejectReason } from './o
 import type { RejectReason } from './output'
 import { isSidePath, normalizePath, scopeStatus } from './scope'
 import type { SideLists } from './scope'
+import { matchesStepCheck } from './stepcheck'
 import { isCheckTool, isCustomCheck, normalizePython } from './verify'
 import { checkToolCommand, checkToolPassed } from './evidence'
 import { isHardEffect, isSoftPath } from './soft'
@@ -539,7 +540,8 @@ export function observe(
     // Mỗi script ghi không xác định đích được cảnh báo một lần mỗi mục tiêu (0.7.5): khóa bỏ tham số; mức vàng, không toast.
     const key = unknownWriteKey(command)
     const warned = focus.warnedWrites ?? tracker.unknownWrites
-    if (classified?.isUnknown && !warned.has(key)) {
+    // Lần chạy khớp lệnh ở trường check của một bước (0.9.0 B10) là lần kiểm của bước, không cảnh báo đích không rõ.
+    if (classified?.isUnknown && !warned.has(key) && !matchesStepCheck(command, plan)) {
       warned.add(key)
       findings.push({
         kind: 'scope-unknown',

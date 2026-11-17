@@ -157,6 +157,8 @@ export type PlanStep = {
   auto?: boolean
   /** Mốc đóng (0.7.5, nội bộ, không có trong schema tool plan): giá trị của Core.closing.seq lúc bước thành done hay bị hạ về done. */
   closedSeq?: number
+  /** Bước do mod nâng nhờ lệnh ở trường check của chính bước (0.9.0 B10, nội bộ): chỉ hạ khi có thay đổi không nhẹ mới. */
+  byCheck?: true
 }
 
 /** Lựa chọn model và effort đang áp cho luồng chính. */
