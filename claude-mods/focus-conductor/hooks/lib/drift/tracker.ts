@@ -11,6 +11,7 @@ import { isMutation, writeEffects } from './effects'
 import { checkEffectPassed, lacksSummary, outputFailed, rejectReason } from './output'
 import type { RejectReason } from './output'
 import { isSidePath, normalizePath, scopeStatus } from './scope'
+import type { SideLists } from './scope'
 import { isCheckTool, isCustomCheck, normalizePython } from './verify'
 import { checkToolCommand, checkToolPassed } from './evidence'
 import { isHardEffect, isSoftPath } from './soft'
@@ -285,7 +286,10 @@ function signature(observation: ToolObservation): string {
  * (0.8.6 R2): lần kiểm đạt của subagent chung thư mục khi luồng chính đang điều phối xóa mọi thay đổi chờ kiểm như lần của luồng chính.
  * Trả số lần ghi đã đếm.
  */
-export function trackVerification(tracker: TurnTracker, observation: ToolObservation, author = 'main', cwd: string | null = null, isShared = false): number {
+export function trackVerification(tracker: TurnTracker, observation: ToolObservation, author = 'main', cwd: string | null = null, isShared = false, sides: SideLists | null = null): number {
+  // Tệp trạng thái và nơi ghi phụ của mục tiêu (0.9.0 B6) không bao giờ là file skill.
+  const isSide = (path: string) => isSidePath(path, sides, null, cwd)
+  const isSkillWrite = (path: string) => isSkillPath(path) && !isSide(path)
   let writes = 0
   tracker.seq += 1
   const seq = tracker.seq
@@ -307,8 +311,8 @@ export function trackVerification(tracker: TurnTracker, observation: ToolObserva
     if (!observation.isError && !isPlanFile(filePathOf(observation))) {
       const target = fileTarget(filePathOf(observation))
       // File skill (0.8.2 N3): không là thay đổi chắc chắn, ghi riêng lần ghi để cổng thử skill xét.
-      const isSkill = isSkillPath(target)
-      onWrite(!isSoftPath(target) && !isSkill)
+      const isSkill = isSkillWrite(target)
+      onWrite(!isSoftPath(target) && !isSkill && !isSide(target))
       if (isSkill) noteSkillWrite(tracker, target)
       tracker.docWrites.set(target, seq)
     }
@@ -355,7 +359,7 @@ export function trackVerification(tracker: TurnTracker, observation: ToolObserva
     if (effect.kind === 'write') {
       if (!counted.has(effect)) continue
       if (effect.level === 'possible') tracker.maybe += 1
-      onWrite(isHardEffect(effect))
+      onWrite(isHardEffect(effect, isSide))
       // Đích đọc được của lệnh Bash; đường dẫn tương đối nối với thư mục làm việc như khi kiểm phạm vi, không nối được là đích lạ.
       // mkdir chỉ tạo thư mục, không đổi nội dung nào cần đọc lại (0.7.9 X6a).
       if (effect.name === 'mkdir') continue
@@ -369,7 +373,7 @@ export function trackVerification(tracker: TurnTracker, observation: ToolObserva
       // rm tài liệu và nguồn tài liệu của mv không còn file để đọc lại; đích của mv thì phải đọc lại như file vừa ghi (0.7.9 X6a).
       const removed = effect.name === 'rm' ? targets : effect.name === 'mv' ? targets.slice(0, -1) : []
       for (const path of targets) {
-        if (isSkillPath(path)) noteSkillWrite(tracker, path)
+        if (isSkillWrite(path)) noteSkillWrite(tracker, path)
         if (removed.includes(path) && isSoftPath(path)) {
           tracker.docWrites.delete(path)
           tracker.docRemoved.add(path)
@@ -468,7 +472,7 @@ export function observe(
     }
   }
 
-  const writes = trackVerification(tracker, observation, 'main', focus?.cwd ?? null)
+  const writes = trackVerification(tracker, observation, 'main', focus?.cwd ?? null, false, focus ?? null)
   // Đếm lỗi lặp (0.7.5): chính lệnh đó chạy đạt thì đặt lại đếm của nó; có ghi file sau lần lỗi trước thì đặt lại mọi đếm
   // (đã sửa gì đó trước khi thử lại, không phải lặp nguyên trạng).
   if (!observation.isError) {
