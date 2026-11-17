@@ -3,7 +3,7 @@
 
 import type { Brief, ClosingStep, PlanStep } from '../../types'
 import { isSoftPath } from './drift/soft'
-import { stepCheckOf } from './drift/stepcheck'
+import { runKey, stepCheckOf } from './drift/stepcheck'
 import { hasDeclaredCheckFor, isSelfFixing } from './drift/verify'
 import { classifyBash } from './drift/classify'
 import { isRoleTemp } from './drift/scope'
@@ -241,12 +241,12 @@ export function hasKnownCheck(plan: readonly PlanStep[], changedPaths: readonly 
 /** Đoạn dặn bước đóng (0.9.0 C2), không quá CLOSING_NOTE_CHARS ký tự: thứ tự, tiền tố phải dùng, các từ kết luận. */
 export function closingNote(opts: { hasCheck: boolean; isHard: boolean; isDocs: boolean }): string {
   const steps = [
-    ...(opts.hasCheck ? ['Agent "Kiểm: <lệnh>" chạy lệnh kiểm'] : []),
-    `"Duyệt: <phạm vi>" rà độc lập, không sửa file${opts.isDocs ? ', gồm đối chiếu số liệu, mẫu, chính tả' : ''}`,
-    ...(opts.isHard ? ['"Sẵn sàng: <mục tiêu>" đánh giá sẵn sàng'] : []),
+    ...(opts.hasCheck ? ['lệnh kiểm đạt sau thay đổi cuối (luồng chính hay subagent chạy)'] : []),
+    `"Duyệt: <phạm vi>" rà độc lập, không sửa file${opts.isDocs ? ', đối chiếu số liệu, mẫu, chính tả' : ''}`,
+    ...(opts.isHard ? ['"Sẵn sàng: <mục tiêu>"'] : []),
   ]
   const words = opts.isHard ? 'ĐẠT hay CHƯA ĐẠT; SẴN SÀNG hay CHƯA SẴN SÀNG' : 'ĐẠT hay CHƯA ĐẠT'
-  return `[focus-conductor] Trước khi kết thúc, theo thứ tự: ${steps.join('; rồi ')}. Câu trả lời mở đầu bằng ${words}.`.slice(0, CLOSING_NOTE_CHARS)
+  return `[focus-conductor] Trước khi kết thúc, theo thứ tự: ${steps.join('; rồi ')}. Dòng kết luận: ${words}.`.slice(0, CLOSING_NOTE_CHARS)
 }
 
 /** Một kết luận đã nhận, đủ để tính trạng thái bước đóng. */
@@ -258,8 +258,10 @@ export type ClosingVerdict = { verdict: 'pass' | 'fail' | 'ready' | 'not-ready' 
  * đạt sau thay đổi không nhẹ cuối; duyệt đạt khi có kết luận đạt của subagent không ghi file sau thay đổi đó, chưa đạt khi kết luận gần
  * nhất là chưa đạt; sẵn sàng tương tự, sau lần duyệt đạt.
  */
-export function closingSteps(opts: { hasCheck: boolean; isHard: boolean; checked: boolean; checkFailed: boolean; lastHard: number; verdicts: readonly ClosingVerdict[] }): ClosingStep[] {
-  const fresh = opts.verdicts.filter(v => v.isClean && v.isReview && v.seq > opts.lastHard)
+export function closingSteps(opts: { hasCheck: boolean; isHard: boolean; checked: boolean; checkFailed: boolean; lastHard: number; lastChange?: number; verdicts: readonly ClosingVerdict[] }): ClosingStep[] {
+  // Kết luận hết hiệu lực theo lần sửa definite cuối vào file không nhẹ (0.9.0 B14 mục 7); vắng thì theo thay đổi không nhẹ cuối.
+  const since = opts.lastChange ?? opts.lastHard
+  const fresh = opts.verdicts.filter(v => v.isClean && v.isReview && v.seq > since)
   const reviews = fresh.filter(v => v.verdict === 'pass' || v.verdict === 'fail')
   const lastReview = reviews[reviews.length - 1]
   const reviewSeq = reviews.filter(v => v.verdict === 'pass').reduce((max, v) => Math.max(max, v.seq), -1)
@@ -294,3 +296,69 @@ export function prefixRole(description: string): 'review' | 'audit' | 'design' |
   const head = description.normalize('NFC').trimStart().toLowerCase()
   return ROLE_PREFIXES.find(([prefix]) => head.startsWith(prefix.normalize('NFC').toLowerCase()))?.[1]
 }
+
+/** Trình thông dịch: mã nội tuyến (-c, -e, -, heredoc, ống vào) của chúng không chứng minh được là chỉ đọc (0.9.0, đổi đặc tả C2). */
+const INTERPRETERS = /^(?:python(?:[23](?:\.\d+)?)?|node|deno|bun|ruby|perl|php|sqlite3|Rscript|lua|osascript)$/
+const INLINE_FLAG = /^(?:-[a-zA-Z]*[ce]|-|--eval|--exec|-p|--print)$/
+
+/** Thư mục làm việc sau `cd <đích>`: tuyệt đối thì giữ, tương đối thì nối vào cwd, có biến hay ~ thì không xác định. */
+function cdTarget(arg: string | undefined, cwd: string | null): string | null {
+  if (arg === undefined || arg === '' || /[$~`]/.test(arg)) return null
+  if (arg.startsWith('/')) return arg.replace(/\/+$/, '') || '/'
+  if (cwd === null) return null
+  const parts = [...cwd.split('/'), ...arg.split('/')]
+  const out: string[] = []
+  for (const part of parts) {
+    if (part === '' || part === '.') continue
+    if (part === '..') out.pop()
+    else out.push(part)
+  }
+  return `/${out.join('/')}`
+}
+
+/** Tác động của một đoạn nằm trong tập cho phép (0.9.0, đổi đặc tả C2 mục 1, loại a, b, d, e). */
+function effectsAllowed(text: string, cwd: string | null): boolean {
+  const inTemp = cwd !== null && isRoleTemp(`${cwd}/`)
+  const words = wordsOf(text)
+  for (const effect of classifyBash(text, cwd ?? undefined).effects) {
+    if (effect.kind === 'check') {
+      if (isSelfFixing(words)) return false
+      continue
+    }
+    if (effect.isHistory === true) return false
+    if (inTemp) {
+      if (effect.paths.some(path => path.startsWith('/') && !isRoleTemp(path))) return false
+      continue
+    }
+    if (effect.level !== 'definite' || effect.isUnknown || effect.paths.length === 0 || effect.paths.some(path => !isRoleTemp(path))) return false
+  }
+  return true
+}
+
+/**
+ * Lời gọi Bash nằm trong tập cho phép của vai chỉ đọc (0.9.0, đổi đặc tả C2): mọi đoạn thuộc một trong năm loại: (a) không có tác động ghi
+ * nào theo classifyBash; (b) lệnh kiểm mod nhận ra, không tự sửa file; (c) trùng danh tính lệnh ở check của một bước; (d) chỉ ghi vào thư mục
+ * tạm; (e) chạy khi thư mục làm việc của đoạn (sau cd) nằm trong thư mục tạm, cwd không xác định thì không tính. Mã nội tuyến của trình
+ * thông dịch không chứng minh được. Khối heredoc được xét nguyên khối, với thư mục làm việc ban đầu.
+ */
+export function isReadOnlyAllowed(command: string, opts: { cwd: string | null; stepChecks: readonly string[] }): boolean {
+  const stepKeys = new Set(opts.stepChecks.map(runKey))
+  if (stepKeys.has(runKey(command))) return true
+  const isHeredoc = command.includes('<<')
+  const head = isHeredoc ? (command.split('\n')[0] ?? '') : command
+  let cwd = opts.cwd
+  for (const segment of segmentsOf(head)) {
+    const words = unwrap(wordsOf(segment.text))
+    const name = (words[0] ?? '').split('/').pop() ?? ''
+    if (INTERPRETERS.test(name) && (segment.isPiped || isHeredoc || words.length === 1 || words.slice(1).some(word => INLINE_FLAG.test(word)))) return false
+    if (isHeredoc) continue
+    if (name === 'cd') {
+      cwd = cdTarget(words[1], cwd)
+      continue
+    }
+    if (stepKeys.has(runKey(segment.text))) continue
+    if (!effectsAllowed(segment.text, cwd)) return false
+  }
+  return isHeredoc ? effectsAllowed(command, opts.cwd) : true
+}
+

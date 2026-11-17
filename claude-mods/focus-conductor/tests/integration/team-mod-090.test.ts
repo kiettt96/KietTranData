@@ -73,7 +73,7 @@ describe('0.9.0 C: điều kiện bật đội hình', () => {
     outs.push(await edit($, 'src/c.ts'), await edit($, 'src/d.ts'), await check($))
     const shown = notes(contexts(seen, outs))
     expect(shown.length).toBe(1)
-    expect(shown[0]).toContain('"Kiểm: ')
+    expect(shown[0]).toContain('lệnh kiểm')
     expect(shown[0]).toContain('"Duyệt: ')
     await close($)
     expect(await stop($)).toContain(BLOCK)
@@ -87,12 +87,12 @@ describe('0.9.0 C: điều kiện bật đội hình', () => {
     expect(notes(contexts(seen, outs))).toEqual([])
     expect(await stop($)).not.toContain(BLOCK)
   })
-  test('substantial có lệnh kiểm: đoạn dặn ở context của mục tiêu, có "Kiểm: " rồi "Duyệt: ", không quá 300 ký tự; pane hiện bước đóng', OPTS(), async ($, on) => {
+  test('substantial có lệnh kiểm: đoạn dặn ở context của mục tiêu, có lệnh kiểm rồi "Duyệt: ", không quá 300 ký tự; pane hiện bước đóng', OPTS(), async ($, on) => {
     const seen = setup(on)
     await start($, seen)
     const shown = notes(contexts(seen, []))
     expect(shown.length).toBe(1)
-    expect(shown[0]!.indexOf('"Kiểm: ')).toBeLessThan(shown[0]!.indexOf('"Duyệt: '))
+    expect(shown[0]!.indexOf('lệnh kiểm')).toBeLessThan(shown[0]!.indexOf('"Duyệt: '))
     expect(shown[0]).toContain('ĐẠT hay CHƯA ĐẠT')
     expect(shown[0]!.length).toBeLessThanOrEqual(CLOSING_NOTE_CHARS)
     expect(shown[0]).not.toContain('Sẵn sàng')
@@ -101,10 +101,10 @@ describe('0.9.0 C: điều kiện bật đội hình', () => {
     expect(pane).toContain('Kiểm: ')
     expect(pane).toContain('Duyệt: chờ')
   })
-  test('substantial không có lệnh kiểm: đoạn dặn không có "Kiểm: "; cổng không đòi lần kiểm', OPTS({ checkCommands: '' }), async ($, on) => {
+  test('substantial không có lệnh kiểm: đoạn dặn không có bước kiểm; cổng không đòi lần kiểm', OPTS({ checkCommands: '' }), async ($, on) => {
     const seen = setup(on)
     await start($, seen)
-    expect(notes(contexts(seen, []))[0]).not.toContain('"Kiểm: ')
+    expect(notes(contexts(seen, []))[0]).not.toContain('lệnh kiểm')
     await edit($)
     await answer($, 'Rà thay đổi phí', 'ĐẠT')
     await close($)
@@ -176,7 +176,7 @@ describe('0.9.0 D: nhận lượt duyệt theo kết quả', () => {
     await close($)
     expect(await stop($)).not.toContain(BLOCK)
   })
-  test('subagent chỉ chạy script kiểm (bash -c, bash tests/x.sh) và ghi nháp vào /tmp, trả ĐẠT: kết luận được tính, cổng cho qua', OPTS(), async ($, on) => {
+  test('subagent chạy script kiểm trong thư mục tạm (bash -c, vòng lặp) và ghi nháp vào /tmp, trả ĐẠT: kết luận được tính, cổng cho qua', OPTS(), async ($, on) => {
     const seen = setup(on)
     await start($, seen)
     await edit($)
@@ -184,8 +184,9 @@ describe('0.9.0 D: nhận lượt duyệt theo kết quả', () => {
     const id = `m${(n += 1)}`
     await $.tool.call({ tool: 'Agent', tool_use_id: id, description: 'Rà lại phí', prompt: 'Rà.' } as never)
     await $.agent.spawn({ prompt: 'Rà.', description: 'Rà lại phí', tool_use_id: id } as never)
-    await $.tool.call({ tool: 'Bash', command: "bash -c 'source src/phi.sh; tinh_phi 3'", agentId: `a-${id}` } as never)
-    await $.tool.call({ tool: 'Bash', command: 'for c in a b; do out=$($c 2>&1); echo $out; done', agentId: `a-${id}` } as never)
+    await $.tool.call({ tool: 'Bash', command: "mkdir -p /tmp/ra-soat && cp -r src /tmp/ra-soat/", agentId: `a-${id}` } as never)
+    await $.tool.call({ tool: 'Bash', command: "cd /tmp/ra-soat && bash -c 'source src/phi.sh; tinh_phi 3'", agentId: `a-${id}` } as never)
+    await $.tool.call({ tool: 'Bash', command: 'cd /tmp/ra-soat && for c in a b; do out=$($c 2>&1); echo $out; done', agentId: `a-${id}` } as never)
     await $.tool.call({ tool: 'Write', file_path: '/tmp/thu-phi.sh', content: 'x', agentId: `a-${id}` } as never)
     await $.turn.complete({ turnId: `x-${id}`, agentId: `a-${id}`, answer: 'ĐẠT\nKhông lỗi.', durationMs: 5, isAborted: false, reason: 'answer' } as never)
     await close($)

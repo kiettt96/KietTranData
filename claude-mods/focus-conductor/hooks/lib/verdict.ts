@@ -32,51 +32,59 @@ export function reportLine(role: Role, lang: 'vi' | 'en'): string {
 }
 
 /**
- * Từ kết luận (0.9.0 D2), không phân biệt hoa thường; xét cụm chưa đạt, chưa sẵn sàng trước để "không đạt" không bị đọc thành đạt, và
- * cụm dài trước cụm ngắn.
+ * Từ kết luận (0.9.0 D2, C6), không phân biệt hoa thường. "ĐẠT HẾT", "ALL PASS" chỉ là kết luận của bước kiểm (isCheckOnly).
  */
-const PATTERNS: ReadonlyArray<readonly [string, Verdict]> = [
-  ['chưa sẵn sàng', 'not-ready'],
-  ['not ready', 'not-ready'],
-  ['chưa đạt', 'fail'],
-  ['không đạt', 'fail'],
-  ['fail', 'fail'],
-  ['sẵn sàng', 'ready'],
-  ['ready', 'ready'],
-  ['đạt kèm lỗi nhẹ', 'pass'],
-  ['đạt hết', 'pass'],
-  ['all pass', 'pass'],
-  ['đạt', 'pass'],
-  ['pass', 'pass'],
+const WORDS: ReadonlyArray<readonly [string, Verdict, boolean]> = [
+  ['chưa sẵn sàng', 'not-ready', false],
+  ['not ready', 'not-ready', false],
+  ['chưa đạt', 'fail', false],
+  ['không đạt', 'fail', false],
+  ['fail', 'fail', false],
+  ['sẵn sàng', 'ready', false],
+  ['ready', 'ready', false],
+  ['đạt kèm lỗi nhẹ', 'pass', false],
+  ['đạt hết', 'pass', true],
+  ['all pass', 'pass', true],
+  ['đạt', 'pass', false],
+  ['pass', 'pass', false],
 ]
 
+/** Một dòng kết luận đọc được: từ kết luận, số đếm N/M nếu có, và cờ chỉ-của-bước-kiểm. */
+type VerdictLine = { verdict: Verdict; count?: string; isCheckOnly: boolean }
+
 /**
- * Dòng kết luận của câu trả lời subagent (0.9.0 D2): dòng không rỗng đầu tiên, bỏ dấu markdown (#, *, >, khoảng trắng), mở đầu bằng một từ
- * kết luận đứng riêng (sau nó không phải chữ cái). Số đếm dạng N/M ngay sau kết luận đi kèm. Không khớp thì null (chưa có kết luận).
+ * Đọc một dòng (0.9.0, đổi đặc tả C2 mục 4): bỏ ký hiệu markdown, dấu đầu dòng, nhãn "Kết luận:" hay "Verdict:", dấu câu ở cuối; dòng
+ * chỉ còn đúng một từ kết luận (có thể kèm số đếm N/M) thì là dòng kết luận. Có thêm chữ khác thì không.
  */
-export function verdictOf(answer: string): { verdict: Verdict; count?: string; isCheckOnly?: true } | null {
-  // Bỏ ký tự rộng 0 (U+200B tới U+200D, U+FEFF) để chúng không lách được từ kết luận.
-  const first = answer.normalize('NFC').replace(/[\u200b-\u200d\ufeff]/gu, '').split('\n').map(line => line.trim()).find(line => line !== '') ?? ''
-  // Gộp mọi khoảng trắng (kể cả tab, dấu cách không ngắt) về một dấu cách, để "ĐẠT  HẾT" vẫn là ĐẠT HẾT.
-  const line = first.replace(/^[#>*_\s`]+/u, '').replace(/[*_`]+/gu, '').replace(/\s+/gu, ' ').trim()
-  const head = line.toLowerCase()
-  for (const [word, verdict] of PATTERNS) {
-    if (!head.startsWith(word) || /^[\p{L}]/u.test(head.slice(word.length))) continue
-    // Chỉ "ĐẠT", "PASS", "SẴN SÀNG", "READY" đứng riêng là kết luận: theo sau là chữ ("ĐẠT KÈM LỖI LỚN", "READY WITH BLOCKERS") thì không.
-    if (BARE_PASS.has(word) && /^ \p{L}/u.test(head.slice(word.length))) return null
-    const count = /^\s*:?\s*(\d+\s*\/\s*\d+)/u.exec(line.slice(word.length))?.[1]?.replace(/\s+/g, '')
-    // "ĐẠT HẾT", "ALL PASS" chỉ là kết luận của bước kiểm (0.9.0 C6), không bao giờ là kết luận duyệt.
-    const only = CHECK_ONLY.has(word) ? { isCheckOnly: true as const } : {}
-    return count !== undefined ? { verdict, count, ...only } : { verdict, ...only }
+function lineVerdict(raw: string): VerdictLine | null {
+  let text = raw.normalize('NFC').replace(/[\u200b-\u200d\ufeff]/gu, '').replace(/[*_`]+/gu, '').replace(/\s+/gu, ' ').trim()
+  text = text.replace(/^(?:[#>]+\s*|[-+•]\s+|\d+[.)]\s+)+/u, '').trim()
+  text = text.replace(/^(?:kết luận|verdict)\s*:\s*/iu, '').trim()
+  text = text.replace(/[.!:;,。…\s]+$/u, '').trim().toLowerCase()
+  for (const [word, verdict, isCheckOnly] of WORDS) {
+    if (!text.startsWith(word)) continue
+    const rest = text.slice(word.length)
+    if (rest === '') return { verdict, isCheckOnly }
+    const count = /^\s*(\d+\s*\/\s*\d+)$/u.exec(rest)?.[1]?.replace(/\s+/g, '')
+    if (count !== undefined) return { verdict, count, isCheckOnly }
   }
   return null
 }
 
-/** Từ đạt và sẵn sàng phải đứng riêng (0.9.0 C6, hai vòng sửa sau kiểm độc lập lần hai). */
-const BARE_PASS: ReadonlySet<string> = new Set(['đạt', 'pass', 'sẵn sàng', 'ready'])
-
-/** Từ kết luận chỉ của bước kiểm (0.9.0 C6). */
-const CHECK_ONLY: ReadonlySet<string> = new Set(['đạt hết', 'all pass'])
+/**
+ * Kết luận của câu trả lời subagent (0.9.0 D2, C6, đổi đặc tả C2 mục 4): dòng kết luận đầu tiên quyết loại (duyệt hay sẵn sàng). Có cả dòng
+ * đạt lẫn dòng chưa đạt thì là chưa đạt; có cả sẵn sàng lẫn chưa sẵn sàng thì là chưa sẵn sàng. Không có dòng nào thì null.
+ */
+export function verdictOf(answer: string): { verdict: Verdict; count?: string; isCheckOnly?: true } | null {
+  const lines = answer.split('\n').map(lineVerdict).filter((v): v is VerdictLine => v !== null)
+  const first = lines[0]
+  if (first === undefined) return null
+  const isReadiness = first.verdict === 'ready' || first.verdict === 'not-ready'
+  const sameKind = lines.filter(v => (v.verdict === 'ready' || v.verdict === 'not-ready') === isReadiness)
+  const negative = sameKind.find(v => v.verdict === 'fail' || v.verdict === 'not-ready')
+  const chosen = negative ?? first
+  return { verdict: chosen.verdict, ...(chosen.count !== undefined ? { count: chosen.count } : {}), ...(chosen.isCheckOnly ? { isCheckOnly: true as const } : {}) }
+}
 
 /** Trần ký tự của bảng báo cáo chèn khi đóng bước cuối (0.9.0 C8). */
 export const REPORT_TABLE_CHARS = 600

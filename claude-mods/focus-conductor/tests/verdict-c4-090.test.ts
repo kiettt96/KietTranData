@@ -21,7 +21,7 @@ describe('0.9.0 C4: đọc dòng kết luận', () => {
     ['design', 'SẴN SÀNG\\nPhương án A', 'ready'],
     ['design', '# CHƯA SẴN SÀNG\\nRủi ro', 'not-ready'],
     ['audit', 'ALL PASS 5/5', 'pass'],
-    ['review', 'FAIL: 1 major', 'fail'],
+    ['review', 'FAIL', 'fail'],
     ['design', 'NOT READY', 'not-ready'],
     ['design', 'READY', 'ready'],
     ['review', 'đạt kèm lỗi nhẹ\\n- Nhỏ: tên biến', 'pass'],
@@ -32,12 +32,14 @@ describe('0.9.0 C4: đọc dòng kết luận', () => {
   ]
   for (const [role, answer, verdict] of cases) {
     test(`${role}: ${JSON.stringify(answer)} là ${verdict}`, () => {
-      expect(M.verdictOf?.(answer.replace(/\\\\n/g, '\\n'))?.verdict).toBe(verdict)
+      expect(M.verdictOf?.(answer.replace(/\\n/g, '\n'))?.verdict).toBe(verdict)
     })
   }
   test('không có dòng kết luận: null; dòng kết luận không đứng đầu: null', () => {
     expect(M.verdictOf?.('Đã xem xong, nhìn chung ổn.')).toBeNull()
-    expect(M.verdictOf?.('Kết quả:\nĐẠT HẾT')).toBeNull()
+    // Đổi đặc tả C2 mục 4: dòng kết luận là dòng đầu tiên chỉ có đúng một từ kết luận, không phải dòng đầu tiên của câu trả lời.
+    expect(M.verdictOf?.('Kết quả:\nĐẠT HẾT')?.isCheckOnly).toBe(true)
+    expect(M.verdictOf?.('FAIL: 1 major')).toBeNull()
     expect(M.verdictOf?.('Đạtx')).toBeNull()
   })
   test('số đếm của audit đi kèm', () => {

@@ -45,6 +45,11 @@ export function segmentIsReadOnly(part: string): boolean {
     let i = 0
     while (i < args.length && args[i]?.startsWith('-')) i += ['-C', '-c', '--git-dir', '--work-tree'].includes(args[i] ?? '') ? 2 : 1
     const sub = args[i]
+    const rest = args.slice(i + 1)
+    // git grep (mọi chuỗi tìm), git stash list và show, git branch chỉ in (0.9.0, đổi đặc tả C2 mục 5).
+    if (sub === 'grep') return true
+    if (sub === 'stash') return rest[0] === 'list' || rest[0] === 'show'
+    if (sub === 'branch') return rest.every(a => ['--show-current', '--list', '-l', '-a', '-r', '-v', '-vv', '--all', '--remotes'].includes(a))
     return sub === undefined || READ_ONLY_GIT.has(sub)
   }
   // printenv chỉ in biến môi trường; env cũng vậy khi không kèm lệnh (env FOO=1 make thì chạy make).
@@ -55,7 +60,22 @@ export function segmentIsReadOnly(part: string): boolean {
   // bash -n, sh -n, zsh -n (0.9.0 B7): chỉ đọc cú pháp script, không chạy; mọi cờ phải là -n.
   if (cmd === 'bash' || cmd === 'sh' || cmd === 'zsh') return args[0] === '-n' && args.slice(1).every(a => !a.startsWith('-'))
   if (!READ_ONLY_COMMANDS.has(cmd)) return false
-  if (cmd === 'find') return !args.some(a => FIND_WRITE.test(a))
+  if (cmd === 'find') {
+    // find -exec lệnh chỉ đọc (0.9.0, đổi đặc tả C2 mục 5): mỗi mệnh đề -exec, -execdir (tới ; hay +) phải là lệnh chỉ đọc; cờ ghi khác thì không.
+    let ok = true
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i] ?? ''
+      if (arg === '-exec' || arg === '-execdir') {
+        const end = args.findIndex((a, k) => k > i && (a === ';' || a === '\\;' || a === '+'))
+        const inner = args.slice(i + 1, end < 0 ? args.length : end).filter(a => a !== '{}').join(' ')
+        if (inner === '' || !segmentIsReadOnly(inner)) ok = false
+        i = end < 0 ? args.length : end
+      } else if (FIND_WRITE.test(arg)) ok = false
+    }
+    return ok
+  }
+  // awk -i inplace ghi file tại chỗ (0.9.0, đổi đặc tả C2).
+  if (cmd === 'awk' && args.some((a, i) => a === '--inplace' || a === '-iinplace' || (a === '-i' && args[i + 1] === 'inplace'))) return false
   // sed -i ghi file; lệnh w, flag s///w và lệnh e của sed ghi file hoặc chạy lệnh khác. sort -o ghi file.
   if (cmd === 'sed') return !args.some(a => /^-[A-Za-z]*i/.test(a) || a.startsWith('--in-place') || SED_WRITE.test(a))
   if (cmd === 'sort') return !args.some(a => /^-o/.test(a) || a.startsWith('--output'))

@@ -12,7 +12,8 @@ import { FORK_QUOTA_DENY, RETRY_PREFIX, RETRY_ROUNDS, forkRetryNote, forkReturnN
 import { liveForks, openParts } from '../lib/forks'
 import { classifyBash, filePathOf, isSkillTrial, normalizePath } from '../lib/drift'
 import { isRoleTemp } from '../lib/drift/scope'
-import { isBashWrite, prefixRole } from '../lib/team'
+import { isBashWrite, isReadOnlyAllowed, prefixRole } from '../lib/team'
+import { stepCheckOf } from '../lib/drift/stepcheck'
 import { labels, langOf } from '../ui/labels'
 import { reportLine } from '../lib/verdict'
 import { shownPlan } from '../lib/mirror'
@@ -28,8 +29,20 @@ import { FANOUT_WARN } from '../context'
 // Atom của mod, khai báo lại ở mỗi file dùng chúng (engine chỉ nhận tham chiếu state viết trong chính file đó);
 // cùng plugin và key nên là cùng một giá trị trong $.state.
 const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EMPTY_CORE)
+const bashDirState = atom({ plugin: 'focus-conductor', key: 'bashDirs' } as const, {} as Record<string, string>)
 
 /** Áp kết quả một lượt router gửi Fable vào Core (0.8.4 C6): vừa tạm ngừng thì toast và một dòng nhật ký conductor. */
+/**
+ * Khung xét tập cho phép (0.9.0, đổi đặc tả C2): thư mục làm việc của subagent theo phần theo dõi cd sẵn có (bashDirs), mặc định thư mục gốc
+ * của phiên; lệnh ở check của các bước trong kế hoạch của mục tiêu.
+ */
+async function roleFrame($: EngineInterface, agentId: string): Promise<{ cwd: string | null; stepChecks: string[] }> {
+  const dirs = await read($, bashDirState)
+  const root = dirs[agentId] ?? (await $.session.root().catch(() => null)) ?? null
+  const plan = S.normalizeCore(await read($, coreState)).plan
+  return { cwd: root, stepChecks: plan.flatMap(step => { const check = stepCheckOf(step.check); return check !== null ? [check.command] : [] }) }
+}
+
 async function noteFableRouter($: EngineInterface, ctx: Ctx, isOk: boolean, family?: ModelFamily): Promise<void> {
   const at = await $.clock.now()
   const core = S.normalizeCore(await read($, coreState))
@@ -71,17 +84,18 @@ export function roleOfCall(routeRole: Role | undefined, description: string): Ro
  * ghi file ngoài thư mục tạm (isBashWrite: definite, git trên lịch sử, lệnh ghi đã biết). Vai audit: tool sửa file có đích ngoài thư mục tạm
  * và cùng loại lệnh Bash đó.
  */
-export function roleDenial(role: Role, tool: string, input: Record<string, unknown>, name: string): string | null {
+export function roleDenial(role: Role, tool: string, input: Record<string, unknown>, name: string, frame: { cwd: string | null; stepChecks: readonly string[] } = { cwd: null, stepChecks: [] }): string | null {
   if (role === 'build') return null
   const isReadOnly = READ_ONLY_ROLES.has(role)
   if (tool !== 'Bash') {
     const path = filePathOf({ tool, input, isError: false, isReadOnly: false })
     if (!isReadOnly && path !== '' && isRoleTemp(path)) return null
-  } else {
-    if (!isBashWrite(String(input['command'] ?? ''))) return null
-  }
+  } else if (isReadOnly) {
+    // Vai chỉ đọc (0.9.0, đổi đặc tả C2): danh sách cho phép trên bộ phân loại lệnh sẵn có.
+    if (isReadOnlyAllowed(String(input['command'] ?? ''), frame)) return null
+  } else if (!isBashWrite(String(input['command'] ?? ''))) return null
   const text = isReadOnly
-    ? `[focus-conductor] Vai ${name} chỉ đọc: không sửa file. Ghi phần cần sửa vào câu trả lời để luồng chính giao việc làm.`
+    ? `[focus-conductor] Vai ${name} chỉ đọc. Đọc mã bằng Read, Grep, Glob; probe tự viết thì chép mã sang thư mục tạm rồi chạy ở đó; lệnh khác thì báo luồng chính giao vai kiểm.`
     : `[focus-conductor] Vai ${name} chỉ chạy kiểm, không sửa file ngoài thư mục tạm. Báo kết quả và chỗ lỗi cho luồng chính.`
   return text.slice(0, 200)
 }
@@ -103,11 +117,20 @@ export function registerAgents(on: On, ctx: Ctx): void {
 
   // Quyền theo vai (0.9.0 C2): subagent vai search, review, design không sửa file và không chạy lệnh ghi chắc chắn ngoài thư mục tạm; vai
   // audit không sửa file ngoài thư mục tạm, vẫn chạy lệnh kiểm. Subagent không có vai giữ như 0.8.9.
+
   on('tool.call', { tool: /^(?:Edit|Write|MultiEdit|NotebookEdit|Bash)$/ }, async ($, e, next) => {
     if (e.agentId === undefined) return next(e)
-    const role = agents.get(e.agentId)?.role
+    const meta = agents.get(e.agentId)
+    if (meta === undefined) return next(e)
+    // Lời gọi ngoài tập cho phép của vai chỉ đọc (0.9.0, đổi đặc tả C2 mục 2): ghi lại cho mọi subagent, độc lập với việc từ chối; kết luận
+    // của subagent đã có một lời gọi như vậy không mở cổng duyệt hay sẵn sàng.
+    const input = e as unknown as Record<string, unknown>
+    const frame = await roleFrame($, e.agentId)
+    const isOutside = e.tool === 'Bash' ? !isReadOnlyAllowed(String(input['command'] ?? ''), frame) : !isRoleTemp(filePathOf({ tool: e.tool, input, isError: false, isReadOnly: false }) || '/x')
+    if (isOutside) meta.outside = true
+    const role = meta.role
     if (role === undefined) return next(e)
-    const reason = roleDenial(role, e.tool, e as unknown as Record<string, unknown>, labels(langOf(ctx.options['uiLanguage'])).roleNames[role])
+    const reason = roleDenial(role, e.tool, input, labels(langOf(ctx.options['uiLanguage'])).roleNames[role], frame)
     if (reason === null) return next(e)
     record(await $.clock.now(), 'role-deny', { agentId: e.agentId, role, tool: e.tool })
     await flushDecisions((path, text) => $.fs.write(path, text))

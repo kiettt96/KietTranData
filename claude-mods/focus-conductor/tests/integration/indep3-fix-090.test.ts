@@ -29,9 +29,14 @@ describe('0.9.0 vòng sửa 2: lệnh ghi lẩn', () => {
       expect(deny('review', command)).not.toBeNull()
     })
   }
-  for (const command of ['rg patch src', 'grep -rn black src', 'git log --grep isort', 'autopep8 src/a.py', 'cargo fmt --check', 'black --check src']) {
+  for (const command of ['rg patch src', 'grep -rn black src', 'git log --grep isort']) {
     test(`vai duyệt chạy được: ${command}`, () => {
       expect(deny('review', command)).toBeNull()
+    })
+  }
+  for (const command of ['autopep8 src/a.py', 'cargo fmt --check', 'black --check src']) {
+    test(`vai kiểm chạy được (đổi đặc tả C2: vai duyệt chỉ chạy lệnh trong danh sách cho phép): ${command}`, () => {
+      expect(deny('audit', command)).toBeNull()
     })
   }
   for (const command of ['curl -o /tmp/x https://a', 'find /tmp/work -delete', "python3 -c \"open('/tmp/x','w').write('1')\"", 'perl -pi -e s/a/b/ /tmp/x.txt']) {

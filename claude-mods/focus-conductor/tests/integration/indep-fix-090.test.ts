@@ -25,10 +25,15 @@ describe('0.9.0 vòng sửa (1, 6): quyền theo vai với lệnh ghi mức poss
       expect(roleDenial('review', 'Bash', { command }, 'duyệt')).not.toBeNull()
     })
   }
+  // Đổi đặc tả C2 (danh sách cho phép): script lạ không chứng minh được nên vai duyệt bị từ chối; vai kiểm vẫn chạy được.
   for (const command of ['bash tests/kiem.sh', 'bun test', 'git status', 'git diff --stat', "bash -c 'source src/a.sh; f 1'", 'node scripts/check.js']) {
     test(`vẫn chạy được: ${command}`, () => {
-      expect(roleDenial('review', 'Bash', { command }, 'duyệt')).toBeNull()
       expect(roleDenial('audit', 'Bash', { command }, 'kiểm')).toBeNull()
+    })
+  }
+  for (const command of ['bun test', 'git status', 'git diff --stat']) {
+    test(`vai duyệt vẫn chạy được: ${command}`, () => {
+      expect(roleDenial('review', 'Bash', { command }, 'duyệt')).toBeNull()
     })
   }
 })

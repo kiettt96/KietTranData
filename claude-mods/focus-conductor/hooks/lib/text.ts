@@ -837,7 +837,10 @@ export function withQuotaNoticeStatus(base: string | undefined, hits: readonly Q
 }
 
 /** Lý do từ chối tool khi đang dừng: luồng chính ghi điểm dừng rồi kết thúc; subagent kết thúc ngay. */
-export function quotaDenyText(reasons: readonly QuotaReason[], isUser: boolean, isAgent: boolean, allowPaths: readonly string[] = [], backup = false): string {
+/** Trần ký tự của vế bàn giao vào tệp trạng thái khi dừng cứng (0.9.0 B14 mục 11). */
+export const STATE_HANDOFF_CHARS = 120
+
+export function quotaDenyText(reasons: readonly QuotaReason[], isUser: boolean, isAgent: boolean, allowPaths: readonly string[] = [], backup = false, stateFiles: readonly string[] = []): string {
   const cause = `[focus-conductor] Tạm dừng: ${pauseCause(reasons, isUser)}.`
   if (isAgent) return `${cause} Subagent không gọi tool nào khác; kết thúc ngay và báo ngắn phần đã làm, phần còn dở.`
   // pauseAllowPaths (0.7.5): luồng chính vẫn ghi được file checkpoint theo quy tắc dừng của prompt. Vòng sửa 2: nêu đường dẫn được
@@ -853,8 +856,11 @@ export function quotaDenyText(reasons: readonly QuotaReason[], isUser: boolean, 
       'mỗi lời gọi đúng một lệnh: git add -u (hay git add <đường dẫn trong thư mục gốc phiên>), git commit -m "<thông điệp>", ' +
       'rồi git push origin HEAD:<nhánh hiện tại>-wip (không thêm cờ nào). Không phải git repo, không có remote, hay nhánh hiện tại là main hoặc master thì bỏ qua.'
     : ''
+  // Tệp trạng thái của mục tiêu (0.9.0 B14 mục 11): một vế không quá 120 ký tự, nêu ghi phần bàn giao vào tệp đó rồi dừng.
+  const names = [...new Set(stateFiles.map(path => path.replace(/\\/g, '/').split('/').pop() ?? '').filter(Boolean))]
+  const handoff = names.length > 0 ? ` ${`Ghi phần bàn giao vào tệp trạng thái đã khai (${names.join(', ')}) rồi dừng.`.slice(0, STATE_HANDOFF_CHARS)}` : ''
   return (
-    `${cause}${allowed} ${ban}${saved} Gọi ${PLAN_TOOL_FULL} với action "checkpoint" và note nêu: bước kế tiếp cụ thể, ` +
+    `${cause}${allowed} ${ban}${saved}${handoff} Gọi ${PLAN_TOOL_FULL} với action "checkpoint" và note nêu: bước kế tiếp cụ thể, ` +
     'những gì đã hoàn tất không được làm lại, và điều cần kiểm khi quay lại. Sau đó kết thúc turn bằng một câu báo điểm dừng ' +
     `và nhắc người dùng chạy tiếp bằng ${resumeCommand(isUser)}.`
   )
