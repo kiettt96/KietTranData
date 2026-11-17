@@ -50,6 +50,17 @@ describe('0.9.0 C5: một tệp một agent', () => {
     await edit($, 'a-p2')
     expect((await mainRead($)).join('\n')).not.toContain('cùng sửa')
   })
+  test('subagent đầu đã trả về trước khi subagent sau sửa cùng tệp: không nhắc', { options: { planApproval: 'off' } }, async ($, on) => {
+    setup(on)
+    on('turn.complete', () => ({ text: '' }))
+    await submit($, 'Sửa phí')
+    await spawn($, 'p1')
+    await spawn($, 'p2')
+    await edit($, 'a-p1')
+    await $.turn.complete({ turnId: 'x1', agentId: 'a-p1', answer: 'xong', durationMs: 5, isAborted: false, reason: 'answer' } as never)
+    await edit($, 'a-p2')
+    expect((await mainRead($)).join('\n')).not.toContain('cùng sửa')
+  })
   test('hai subagent sửa hai tệp khác nhau: không nhắc', { options: { planApproval: 'off' } }, async ($, on) => {
     setup(on)
     await submit($, 'Sửa phí')

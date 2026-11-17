@@ -142,6 +142,9 @@ export function createContext(options: PluginOptions) {
     checkHinted: -1,
     /** Kết luận của subagent có vai (0.9.0 C4, C6, C8), theo mục tiêu; mốc seq của dấu vết evidence lúc trả lời. */
     verdicts: { goalId: -1, items: [] as VerdictRun[] },
+    /** Đích subagent đang chạy chung thư mục đã ghi (0.9.0 C5), theo agentId; tệp đã nhắc trùng. */
+    agentWrites: new Map<string, Set<string>>(),
+    clashWarned: new Set<string>(),
     /** ID engine đã phục vụ theo họ (0.8.7 M1, usage.model của turn), cho dòng "Model đang dùng" và cảnh báo phiên bản một lần mỗi họ. */
     served: new Map<ModelFamily, string>(),
     /** Đã cảnh báo chính sách model của phiên chặn Fable điều phối (0.8.4 C1), một lần mỗi phiên. */
@@ -615,6 +618,8 @@ export function createContext(options: PluginOptions) {
     local.stepRuns = { goalId: -1, runs: [], checkSeq: new Map() }
     local.checkHinted = -1
     local.verdicts = { goalId: -1, items: [] }
+    local.agentWrites.clear()
+    local.clashWarned.clear()
     local.served.clear()
     local.conductorSessionNoticed = false
     local.pinnedGoalId = null
