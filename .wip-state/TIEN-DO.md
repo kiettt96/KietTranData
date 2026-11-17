@@ -22,7 +22,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 - Khai báo 2.1.296: cài gói vào eng296/, sinh bằng cùng cách trước nhóm C.
 
 ## Chi phí model thật (trần 25 USD, báo ở 20 USD)
-- Cộng dồn: 0 USD (thử model ở bước khởi động không tính, vài xu).
+- Cộng dồn: khoảng 1,7 USD sau D1 (theo total_cost_usd của claude -p: lần 1 off 0,54; on 0,45; off lần 2 0,59; ba lần thử 0,07; chưa gồm lượt router của mod nếu engine không cộng vào).
 
 ## Bảng mục việc
 | Mã | Trạng thái | Bằng chứng |
@@ -45,7 +45,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 | B11 | passing 17/11 | đỏ (4/6 ca đỏ); sửa 98920ef; check-scope-b11-090 7 pass; 090-B11a..f KILLED; mẫu cũ 070-V5, 073-N12 sửa chuỗi, 054-C46 giữ (đã bỏ bộ lọc thừa), đều KILLED; 33+ tệp checkCommands 534 pass; README ghi cú pháp @@ và cách khai theo dự án bằng glob tuyệt đối |
 | B12 | passing 17/11 | đỏ (3 ca đỏ sau khi sửa khung test; vế b, duyệt giữa lượt khi presented, đã duyệt trước còn chỗ sửa, request rà dùng yêu cầu đã gộp xanh trên nền, giữ làm ca ghim); sửa 87a964b; approval-b12-090 8 pass; 090-B12a..g KILLED; 33 tệp duyệt/router 438 pass; lời dặn router +76 ký tự (tổng B1+B12 = 348) |
 | B13 | passing 17/11 | đỏ (2/3 ca đỏ); sửa 8771b48; router-b13-090 3 pass; 090-B13a,b KILLED; lời dặn 10.888 thành 11.332 (+444, trong 500 của B1+B12+B13); 50 tệp lời dặn 630 pass, chỉ golden đỏ (được phép tới D2); phần đo router ở D2 |
-| D1 | not_started | |
+| D1 | passing 17/11 | phiên thật claude -p --plugin-dir, engine 2.1.326, router và skill thật, dự án và prompt mẫu tự dựng (d1/); hai cấu hình (conductor off và opus), mỗi cấu hình lượt 1 làm việc, lượt 2 `--continue`. Số đo lượt 1 (nhật ký decisions-*-luot1.jsonl, transcript): từ chối ghi tệp trạng thái 0 và 0; cảnh báo ngoài phạm vi cho tệp trạng thái và nơi sao lưu 0 và 0 (một cảnh báo khác cho lệnh rm trên /tmp ở cấu hình off); khối đo nền heredoc chạy, không có câu 'không xác định được file đích'; bước lên verified nhờ lệnh ở check: 0 (on) và 1 (off, bước 3 qua `bash tests/kiem.sh`, dòng verify-step); cổng Stop chặn 1 lần mỗi cấu hình, lý do chưa có checklist (G1), không lần nào do H1 tới H5. Lỗi lộ ra và đã sửa: evidence dạng `lệnh => kết quả` bị đọc là stale (đỏ 6f8…, sửa ở commit evidence). Giới hạn: router chấm prompt là light nên cổng duyệt và vai điều phối không vào cuộc; ghi vào việc tồn |
 | C1 | not_started | |
 | C2 | not_started | |
 | C3 | not_started | |
@@ -60,10 +60,15 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 | D3 | not_started | |
 
 ## Nhật ký phiên
+- Sau nhóm B: cả bộ trên 8771b48: 3896 pass, 1 fail (golden), 3897 ca, 356 tệp.
+- Đo phiên dài (bộ đo measure/, khớp 6 số của 0.8.9 trên 14a3a85): nền 14a3a85 mac-dinh 10339/19587, fable 8563/7048, solo 16608/24349; sau B 10418/19666, 8642/7127, 16687/24428: mỗi số +79 = dòng dạng check ở kết quả plan set (B10, trong hạn 160). Kịch bản 60 việc tự dựng lại (không khớp 5978/33204 của bản đo cũ): nền 21738/45121, fable -/6482 (ca fable-10 nền không nạp được); sau B 21817/45200, 7794/6561: cũng +79.
+- tsc với khai báo 2.1.296 (mod296/): nền 14a3a85 27 lỗi; HEAD bắt hai lỗi mới (DecisionKind thiếu verify-step, check-changed), đã sửa 55047a0. Khai báo 2.1.326: nền 14 lỗi, HEAD 14 lỗi cùng loại.
+- D1 (phiên thật, claude -p --plugin-dir, headlessRouting auto, checkCommands 'bash tests/kiem.sh'; dự án và prompt mẫu ở d1/): xem mục D1 dưới bảng.
 - Cả bộ trên bản chụp 9aab1c4 (sau B1): 3795 pass, 1 fail (golden, được phép tới D2), 3796 ca, 343 tệp; tệp full-9aab1c4.txt.
 - 17/11/2026: khởi động, đo nền, trình kế hoạch.
 
 ## Nhật ký quyết định
+- D1: mỗi cấu hình chạy một prompt mẫu cỡ vừa, rồi một lượt `--continue`. Lượt `--continue` mất nhật ký quyết định của lượt 1 và mất mục tiêu (mod coi tin duyệt là mục tiêu mới), nên số đo lấy từ bản chép nhật ký ngay sau lượt 1 và từ transcript. Ghi vào việc tồn: (1) nhật ký decisionLog bị ghi đè ở phiên resume; (2) trạng thái mục tiêu không sống qua `claude -p --continue`; (3) câu 'Việc nhỏ: làm trực tiếp, không cần checklist' của mục tiêu light cãi với prompt đòi checklist, Claude lập checklist sau khi làm nên B10 không có bằng chứng (lần chạy trước khi check được lưu); (4) router chấm prompt kỷ luật cỡ vừa là light.
 - B11: cú pháp phạm vi là token `@@` rồi glob nối bằng `;` (`bun test @@ src/**`): không lệnh shell nào có token đúng bằng `@@`, không va với gói npm `@scope/x`. Engine 2.1.326 không có option theo dự án (`claude plugin configure --help`), nên README hướng dẫn glob tuyệt đối. Loại: `[glob] lệnh` (va với `[ -f x ]`), `@glob` (va với `@scope/pkg`).
 - B10: bước nâng nhờ check (byCheck) chỉ hạ khi có thay đổi không nhẹ, vì điều kiện bằng chứng là 'sau thay đổi không nhẹ cuối cùng'; bước nâng theo luật 0.7.0 giữ cách hạ cũ. Dòng dạng check ở plan set đi bằng context để dòng kết quả một dòng của 0.7.3 giữ nguyên. Mốc check và lần chạy giữ trong local cùng vòng đời với dấu vết evidence. Loại: lưu mốc trong Core (lệch seq sau nạp lại mod).
 - B9: tác động ghi của lệnh bên trong <( ) giữ mức và đích nhưng đánh isUnknown, để ca cũ 0.7.5 R3 (thay thế tiến trình là không xác định ở tạm dừng cứng) giữ nguyên. Loại: đích chắc chắn (làm đỏ ca cũ R3).
