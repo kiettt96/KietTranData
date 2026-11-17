@@ -131,6 +131,10 @@ export type Brief = {
   isBig?: true
   /** Đường dẫn người dùng giới hạn việc sửa; rỗng là không giới hạn. */
   scopePaths: string[]
+  /** Tệp trạng thái của lượt (0.9.0 B1): tệp kế hoạch, tiến độ, bàn giao prompt nêu đường dẫn; vắng là không có. */
+  stateFiles?: string[]
+  /** Nơi ghi phụ prompt cho phép (0.9.0 B1): nơi sao lưu, thư mục tạm, tệp đầu ra; vắng là không có. */
+  sideWrites?: string[]
   /** Prompt gốc (cắt ngắn) để đối chiếu. */
   prompt: string
   at: number
