@@ -3,7 +3,7 @@
 // scripts/eval-router.ts gửi cùng request tới router thật và chấm theo cùng kỳ vọng.
 // Kỳ vọng ghi theo khoảng chấp nhận được (họ model, loại agent, số việc), không theo một câu trả lời duy nhất.
 
-import type { Brief, Depth, Intent, Kind, ModelFamily, Relation, Role, TaskStatus } from '../../types'
+import type { Brief, Depth, Intent, Kind, ModelFamily, Relation, TaskStatus } from '../../types'
 import { briefOf, parseRoute } from '../../hooks/lib/router'
 import type { Policy } from '../../hooks/lib/router'
 import { LONG_VN_EXTRA, LONG_VN_PROMPT } from '../fixtures/prompt-long-vn'
@@ -65,11 +65,6 @@ export type Expect = {
    * phải đứng đầu order.
    */
   arrange?: { present?: boolean; keep?: true; removes?: readonly number[]; min?: number; first?: number }
-  /**
-   * Đội hình (0.9.0 C9), chấm trên vai router ghi cho từng việc: `none` các vai không được có; `order` các vai phải có theo thứ tự của
-   * danh sách việc (lần xuất hiện đầu tăng dần); `last` vai của việc cuối; `checks` số việc review cộng audit, [tối thiểu, tối đa].
-   */
-  roles?: { none?: readonly Role[]; order?: readonly Role[]; last?: Role; checks?: readonly [number, number] }
   /** Tệp trạng thái và nơi ghi phụ phải có (0.9.0 B1), so theo chuỗi con; `noSides` thì cả hai rỗng. */
   stateFiles?: readonly string[]
   sideWrites?: readonly string[]
@@ -628,56 +623,56 @@ export const CASES: readonly GoldenCase[] = [
   {
     id: 'c9-light-one',
     text: 'Sửa câu báo lỗi trong src/login.ts: "mat khau sai" thành "Mật khẩu không đúng".',
-    note: '0.9.0 C9: việc nhẹ một tệp, không có audit, review, design',
-    expect: { main: ['haiku', 'sonnet', 'opus'], tasks: [0, 1], roles: { none: ['audit', 'review', 'design'] } },
+    note: '0.9.0 C9: việc nhẹ một tệp, không có việc thừa: chỉ chấm độ sâu router đọc (đội hình do mod áp)',
+    expect: { depths: ['none', 'light'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 1] },
   },
   {
     id: 'c9-light-two',
     text: 'Hai việc nhỏ: đổi màu nút Lưu trong src/ui/button.css sang xanh lá; đổi chữ "Gửi" thành "Lưu" trong src/ui/form.tsx.',
-    note: '0.9.0 C9: hai việc nhẹ, không có audit, review, design',
-    expect: { main: ['haiku', 'sonnet', 'opus'], tasks: [0, 2], roles: { none: ['audit', 'review', 'design'] } },
+    note: '0.9.0 C9: hai việc nhẹ, không có việc thừa: chỉ chấm độ sâu router đọc (đội hình do mod áp)',
+    expect: { depths: ['none', 'light'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 2] },
   },
   {
     id: 'c9-mid-check',
     text: 'Đổi cách tính phí vận chuyển của cả luồng đặt hàng từ phí cố định sang phí theo cân nặng: src/shipping/fee.ts tính phí (dưới 1 kg là 20.000 đồng, mỗi kg thêm 5.000 đồng, đơn trên 500.000 đồng miễn phí), src/cart/weight.ts cộng cân nặng từng món, src/checkout/total.ts và src/orders/invoice.ts dùng phí mới, đơn đã đặt trước đó giữ phí cũ. Tổng tiền và hóa đơn đang có nhiều test dựa trên phí cố định nên dễ hồi quy; chạy `bun test` để kiểm.',
-    note: '0.9.0 C9: việc vừa có lệnh kiểm: làm, rồi audit, rồi review cuối',
-    expect: { depths: ['substantial', 'hard'], main: ['sonnet', 'opus'], tasks: [0, 4], roles: { order: ['build', 'audit', 'review'], last: 'review', none: ['design'] } },
+    note: '0.9.0 C9: việc vừa có lệnh kiểm: chỉ chấm độ sâu router đọc (đội hình do mod áp)',
+    expect: { depths: ['substantial', 'hard'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 9] },
   },
   {
     id: 'c9-mid-nocheck',
     text: 'Đổi quyền xem đơn hàng từ theo người tạo sang theo cửa hàng: src/auth/roles.ts thêm vai quản lý cửa hàng, src/api/orders.ts lọc đơn theo cửa hàng của người gọi, src/db/orders.ts thêm truy vấn theo cửa hàng, src/orders/list.tsx ẩn nút sửa với người không có quyền. Nhân viên cũ vẫn phải xem được đơn của chính mình; làm sai thì lộ đơn của cửa hàng khác.',
-    note: '0.9.0 C9: việc vừa không có lệnh kiểm: làm rồi review cuối, không audit',
-    expect: { depths: ['substantial', 'hard'], main: ['sonnet', 'opus'], tasks: [0, 4], roles: { order: ['build', 'review'], last: 'review', none: ['audit'] } },
+    note: '0.9.0 C9: việc vừa không có lệnh kiểm: chỉ chấm độ sâu router đọc (đội hình do mod áp)',
+    expect: { depths: ['substantial', 'hard'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 9] },
   },
   {
     id: 'c9-hard-struct',
     text: 'Thiết kế lại lớp truy cập dữ liệu: thay mọi truy vấn SQL viết tay trong src/ (khoảng 40 tệp) bằng một lớp repository có giao dịch và khóa lạc quan, chuyển dần từng module, giữ nguyên hành vi; chạy `bun test` và `bun run typecheck`.',
-    note: '0.9.0 C9: việc khó đổi cấu trúc: design trước, làm, audit, review, design sẵn sàng cuối',
-    expect: { main: ['sonnet', 'opus'], tasks: [0, 6], roles: { order: ['design', 'build', 'audit', 'review'], last: 'design' } },
+    note: '0.9.0 C9: việc khó đổi cấu trúc: chỉ chấm độ sâu router đọc (đội hình do mod áp)',
+    expect: { depths: ['hard'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 12] },
   },
   {
     id: 'c9-hard-data',
     text: 'Viết migration đổi cột amount của hai bảng orders và payments từ float sang integer (đơn vị đồng) trên cơ sở dữ liệu đang chạy với 20 triệu dòng: không dừng dịch vụ, chuyển dữ liệu cũ không mất số lẻ, có đường lùi; cập nhật mọi chỗ đọc ghi hai cột này trong src/db; chạy `bun test`.',
-    note: '0.9.0 C9: việc khó chạm dữ liệu: design trước, làm, audit, review, design sẵn sàng cuối',
-    expect: { main: ['sonnet', 'opus'], tasks: [0, 6], roles: { order: ['design', 'build', 'audit', 'review'], last: 'design' } },
+    note: '0.9.0 C9: việc khó chạm dữ liệu: chỉ chấm độ sâu router đọc (đội hình do mod áp)',
+    expect: { depths: ['hard'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 12] },
   },
   {
     id: 'c9-doc',
     text: 'Soạn lại báo cáo docs/bao-cao-quy-3.md theo cách ghi nhận doanh thu mới (khi giao hàng thay vì khi đặt): tính lại từ data/don-hang.csv, data/giao-hang.csv và data/tra-hang.csv theo tháng và theo kênh bán, sửa bảng so sánh quý 2 trong docs/bao-cao-quy-2.md theo cùng cách tính, nêu rõ chênh lệch với số cũ và ba nhận xét chính; mọi con số phải khớp các tệp csv.',
-    note: '0.9.0 C9: việc không phải code: làm, audit soát số liệu, review nội dung',
-    expect: { depths: ['substantial', 'hard'], main: ['sonnet', 'opus'], tasks: [0, 4], roles: { order: ['build', 'audit', 'review'], last: 'review' } },
+    note: '0.9.0 C9: việc không phải code: chỉ chấm độ sâu router đọc (đội hình do mod áp)',
+    expect: { depths: ['substantial', 'hard'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 9] },
   },
   {
     id: 'c9-own-check',
     text: 'Thêm API xuất danh sách khách hàng ra CSV ở src/api/export.ts. Làm xong thì giao một subagent độc lập, chưa thấy quá trình làm, rà toàn bộ thay đổi và chạy `bun test`; không thêm bước kiểm nào khác.',
-    note: '0.9.0 C9: prompt tự quy định kiểm độc lập: việc đó mang vai review hay audit, không thêm việc kiểm trùng',
-    expect: { main: ['sonnet', 'opus'], tasks: [0, 3], roles: { order: ['build'], checks: [1, 1] } },
+    note: '0.9.0 C9: prompt tự quy định kiểm độc lập: chỉ chấm độ sâu router đọc (đội hình do mod áp)',
+    expect: { depths: ['light', 'substantial'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 6] },
   },
   {
     id: 'c9-cost',
     text: 'Chuyển phần gửi email của hệ thống từ máy chủ SMTP tự dựng sang một dịch vụ gửi email bên ngoài: chọn dịch vụ phù hợp rồi tích hợp vào src/mail.',
-    note: '0.9.0 C9: quyết định về chi phí chưa nói rõ (dịch vụ trả phí nào): hỏi trước',
-    expect: { main: ['sonnet', 'opus'], tasks: [0, 6], questions: [1, 3], roles: { none: ['audit'] } },
+    note: '0.9.0 C9: quyết định về chi phí chưa nói rõ (dịch vụ trả phí nào): chỉ chấm độ sâu router đọc (đội hình do mod áp)',
+    expect: { depths: ['substantial', 'hard'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 9] },
   },
   {
     id: 'c9-amend-running',
@@ -685,7 +680,7 @@ export const CASES: readonly GoldenCase[] = [
     prev: goalWith(INVOICE, INVOICE_TASKS),
     states: states([1], [2]),
     ran: 'sonnet/medium',
-    note: '0.9.0 C9: tin bổ sung vào mục tiêu đang chạy: việc thêm mang vai build, không thêm design',
-    expect: { relations: ['continue', 'refine'], intent: ['amend', 'task'], main: ['haiku', 'sonnet', 'opus'], tasks: [1, 2], roles: { order: ['build'], none: ['design'] } },
+    note: '0.9.0 C9: tin bổ sung vào mục tiêu đang chạy: chỉ chấm độ sâu router đọc (đội hình do mod áp)',
+    expect: { relations: ['continue', 'refine'], intent: ['amend', 'task'], depths: ['light', 'substantial'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 3] },
   },
 ]

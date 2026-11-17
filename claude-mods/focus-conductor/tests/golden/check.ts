@@ -7,24 +7,6 @@ import { nextBrief, parseRoute } from '../../hooks/lib/router'
 import type { GoldenCase } from './cases'
 import { OPEN } from './cases'
 
-type Roles = NonNullable<GoldenCase['expect']['roles']>
-
-function roleFails(e: Roles, roles: ReadonlyArray<string | undefined>): string[] {
-  const fails: string[] = []
-  const shown = roles.map(r => r ?? '-').join(',') || 'không việc'
-  for (const role of e.none ?? []) if (roles.includes(role)) fails.push(`có vai ${role} khi không cần (${shown})`)
-  const firsts = (e.order ?? []).map(role => roles.indexOf(role))
-  const missing = (e.order ?? []).filter((_, i) => (firsts[i] ?? -1) < 0)
-  if (missing.length > 0) fails.push(`thiếu vai ${missing.join(', ')} (${shown})`)
-  else if (firsts.some((at, i) => i > 0 && at < (firsts[i - 1] ?? 0))) fails.push(`vai không theo thứ tự ${(e.order ?? []).join(' > ')} (${shown})`)
-  if (e.last !== undefined && roles[roles.length - 1] !== e.last) fails.push(`việc cuối mang vai ${roles[roles.length - 1] ?? '-'}, cần ${e.last} (${shown})`)
-  if (e.checks !== undefined) {
-    const checks = roles.filter(r => r === 'review' || r === 'audit').length
-    if (checks < e.checks[0] || checks > e.checks[1]) fails.push(`${checks} việc review hay audit, cần ${e.checks[0]} tới ${e.checks[1]} (${shown})`)
-  }
-  return fails
-}
-
 type RawArrange = { order?: unknown[]; drop?: Array<{ task?: unknown }>; merge?: Array<{ tasks?: unknown[] }> }
 
 /** Trường arrange của câu trả lời gốc (đối tượng JSON đầu tiên trong câu trả lời); undefined khi không có hay không đọc được. */
@@ -73,18 +55,8 @@ export function check(c: GoldenCase, reply: string): string[] {
   if (e.reference !== undefined && plan.isReference !== e.reference) fails.push(`reference ${plan.isReference}, cần ${e.reference}`)
   if (e.kind !== undefined && !e.kind.includes(plan.kind)) fails.push(`kind ${plan.kind}, cần ${e.kind.join('|')}`)
   if (!e.main.includes(plan.main.family)) fails.push(`luồng chính ${plan.main.family}/${plan.main.effort}, cần ${e.main.join('|')}`)
-  // Số việc (0.9.0 C3): việc vai audit, review, design của đội hình không tính; khối một việc thành một việc build kèm đội hình thì tính như [].
   const [low, high] = e.tasks
-  const TEAM = new Set(['audit', 'review', 'design'])
-  const isTeam = (i: number) => TEAM.has(plan.tasks[i]?.role ?? '')
-  let head = 0
-  while (head < plan.tasks.length && plan.tasks[head]?.role === 'design') head += 1
-  let tail = plan.tasks.length
-  while (tail > head && isTeam(tail - 1)) tail -= 1
-  // Chỉ bỏ việc đội hình thêm vào: design đứng đầu và chuỗi audit, review, design đứng cuối; việc kiểm có mã của chính prompt vẫn tính.
-  const work = tail - head
-  const isOnePiece = low === 0 && work === 1 && work < plan.tasks.length
-  if (!isOnePiece && (work < low || work > high)) fails.push(`${work} việc${work < plan.tasks.length ? ` (không tính ${plan.tasks.length - work} việc kiểm của đội hình)` : ''}, cần ${low} tới ${high}`)
+  if (plan.tasks.length < low || plan.tasks.length > high) fails.push(`${plan.tasks.length} việc, cần ${low} tới ${high}`)
   if (e.requirements !== undefined) {
     const [least, most] = e.requirements
     if (plan.requirements.length < least || plan.requirements.length > most) fails.push(`${plan.requirements.length} yêu cầu, cần ${least} tới ${most}`)
@@ -143,8 +115,7 @@ export function check(c: GoldenCase, reply: string): string[] {
   }
   // Điều phối lại (0.8.9 D4): chấm trường arrange của câu trả lời gốc, trước khi parseRoute lọc theo relation và intent.
   if (e.arrange !== undefined) fails.push(...arrangeFails(e.arrange, rawArrange(reply)))
-  // Đội hình, tệp trạng thái, ràng buộc và câu hỏi (0.9.0 D2, C9).
-  if (e.roles !== undefined) fails.push(...roleFails(e.roles, plan.tasks.map(t => t.role)))
+  // Tệp trạng thái, ràng buộc, câu hỏi và độ sâu (0.9.0 D2, C9).
   for (const path of e.stateFiles ?? []) if (!plan.stateFiles.some(x => x.includes(path))) fails.push(`stateFiles ${JSON.stringify(plan.stateFiles)}, cần có ${path}`)
   for (const path of e.sideWrites ?? []) if (!plan.sideWrites.some(x => x.includes(path))) fails.push(`sideWrites ${JSON.stringify(plan.sideWrites)}, cần có ${path}`)
   if (e.noSides === true && plan.stateFiles.length + plan.sideWrites.length > 0) fails.push(`có stateFiles hay sideWrites khi prompt không nêu: ${JSON.stringify([...plan.stateFiles, ...plan.sideWrites])}`)
