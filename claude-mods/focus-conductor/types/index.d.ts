@@ -414,6 +414,11 @@ export type Core = {
   waivers: WaiverState
   /** Mục tiêu đã chặn một lần vì sửa mà chưa chạy lần kiểm nào (0.7.9 Y6); -1 là chưa. */
   noCheckNudged: number
+  /**
+   * Bước còn thiếu của cổng đóng mục tiêu (0.9.0 C6): kiểm, review hay design; `solo` khi phiên không giao được subagent nên cổng không chặn.
+   * Vắng khi không thiếu hay ở trạng thái cũ.
+   */
+  closingGap?: { goalId: number; missing: 'check' | 'review' | 'design'; solo?: true }
   /** Phiên con của các việc tách (0.7.9 F1). Vắng ở trạng thái cũ: chưa có phần nào, off là none. */
   forks: ForkState
   /** Duyệt kế hoạch trước khi sửa file (0.8.2 N2). Vắng ở trạng thái cũ: goalId -1, none, 0 lượt, chưa hỏi. */
