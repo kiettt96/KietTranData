@@ -8,7 +8,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 ## Trạng thái đã xác minh
 - Đường dẫn khởi động chuẩn: khối mục 7 của prompt.
 - Đường dẫn xác minh chuẩn: `claude plugin test .` ở MOD.
-- Mục chưa xong ưu tiên cao nhất: C7.
+- Mục chưa xong ưu tiên cao nhất: C8.
 - Điểm chặn hiện tại: không.
 
 ## Đo nền (17/11/2026, engine 2.1.326)
@@ -52,7 +52,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 | C4 | passing 17/11 | đỏ (tệp chưa nạp được: chưa có hooks/lib/verdict.ts); sửa 1dccb63; verdict-c4-090 15 pass (10 dạng kết luận, dạng thiếu, dòng mẫu vi và en dưới 200 ký tự, nối vào prompt ở agent.spawn, dòng verdict trong nhật ký); 090-C4a..f KILLED. Khai báo 2.1.296: AgentSpawnInput.prompt viết lại được ('A rewrite is the prompt the subagent runs with') nên nối ở agent.spawn, không cần đường lùi |
 | C5 | passing 17/11 | đỏ (1/3 ca đỏ); sửa 0a35e15; file-clash-c5-090 4 pass; 090-C5a..d KILLED; 36 tệp agent 380 pass |
 | C6 | passing 17/11 | đỏ (5/9 ca đỏ); sửa 7a62b10; closing-c6-090 10 pass; 090-C6a..j KILLED; 58 tệp có classic.Stop 795 pass sau khi 8 ca cũ đặt closingReview off (CA-DOI-KY-VONG.md); version-check đủ 48 option; validate đạt |
-| C7 | not_started | |
+| C7 | passing 17/11 | đỏ (3/3 ca đỏ); sửa 87c99f1; verdict-retry-c7-090 3 pass (vòng 1 nguyên văn, vòng 2 chẩn đoán opus hay fable theo allowFable, vòng 3 dừng hỏi, toast 3 vòng, ĐẠT đặt lại vòng); 090-C7a..e KILLED; câu dặn dưới 200 ký tự; 30 tệp retry/agent 214 pass |
 | C8 | not_started | |
 | C9 | not_started | |
 | D2 | not_started | |
