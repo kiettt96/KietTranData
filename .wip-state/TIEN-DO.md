@@ -8,7 +8,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 ## Trạng thái đã xác minh
 - Đường dẫn khởi động chuẩn: khối mục 7 của prompt.
 - Đường dẫn xác minh chuẩn: `claude plugin test .` ở MOD.
-- Mục chưa xong ưu tiên cao nhất: C6.
+- Mục chưa xong ưu tiên cao nhất: C7.
 - Điểm chặn hiện tại: không.
 
 ## Đo nền (17/11/2026, engine 2.1.326)
@@ -51,7 +51,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 | C3 | passing 17/11 | đỏ (3/5 ca đỏ); sửa 064b407; router-team-c3-090 5 pass; 090-C3a..g KILLED; lời dặn 11.332 thành 12.818 (+1.486, trong 1.500 của nhóm C; tổng +1.930 so với 0.8.9, trong 2.000); ca cũ đổi kỳ vọng: limits-l2-087 (băm agentSystem); số lượt router mỗi prompt không đổi (không thêm lời gọi); hiệu quả đo ở C9 |
 | C4 | passing 17/11 | đỏ (tệp chưa nạp được: chưa có hooks/lib/verdict.ts); sửa 1dccb63; verdict-c4-090 15 pass (10 dạng kết luận, dạng thiếu, dòng mẫu vi và en dưới 200 ký tự, nối vào prompt ở agent.spawn, dòng verdict trong nhật ký); 090-C4a..f KILLED. Khai báo 2.1.296: AgentSpawnInput.prompt viết lại được ('A rewrite is the prompt the subagent runs with') nên nối ở agent.spawn, không cần đường lùi |
 | C5 | passing 17/11 | đỏ (1/3 ca đỏ); sửa 0a35e15; file-clash-c5-090 4 pass; 090-C5a..d KILLED; 36 tệp agent 380 pass |
-| C6 | not_started | |
+| C6 | passing 17/11 | đỏ (5/9 ca đỏ); sửa 7a62b10; closing-c6-090 10 pass; 090-C6a..j KILLED; 58 tệp có classic.Stop 795 pass sau khi 8 ca cũ đặt closingReview off (CA-DOI-KY-VONG.md); version-check đủ 48 option; validate đạt |
 | C7 | not_started | |
 | C8 | not_started | |
 | C9 | not_started | |
@@ -68,6 +68,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 - 17/11/2026: khởi động, đo nền, trình kế hoạch.
 
 ## Nhật ký quyết định
+- C6: 'phiên giao được subagent' đọc là engine đã mời ít nhất một loại agent (agent.offer) hay đã có subagent sinh ra, và không solo, không bị từ chối Agent; phiên chưa có cả hai thì cổng không chặn, pane ghi 'Chưa có duyệt độc lập'. Miễn bằng `/conductor waive review` (chỉ người gõ). Loại: luôn coi phiên giao được (làm đỏ 13 ca cũ không có subagent).
 - C1: vai chỉ lưu vào việc khi router trả giá trị hợp lệ; vắng hay sai thì việc không mang vai, không có sàn theo vai, không nhãn (như 0.8.9, theo ràng buộc fail-closed); roleOf suy vai cho nơi cần đọc. Loại: lưu vai suy ra (làm đổi pick và 14 ca ghim giao diện cũ).
 - D1: mỗi cấu hình chạy một prompt mẫu cỡ vừa, rồi một lượt `--continue`. Lượt `--continue` mất nhật ký quyết định của lượt 1 và mất mục tiêu (mod coi tin duyệt là mục tiêu mới), nên số đo lấy từ bản chép nhật ký ngay sau lượt 1 và từ transcript. Ghi vào việc tồn: (1) nhật ký decisionLog bị ghi đè ở phiên resume; (2) trạng thái mục tiêu không sống qua `claude -p --continue`; (3) câu 'Việc nhỏ: làm trực tiếp, không cần checklist' của mục tiêu light cãi với prompt đòi checklist, Claude lập checklist sau khi làm nên B10 không có bằng chứng (lần chạy trước khi check được lưu); (4) router chấm prompt kỷ luật cỡ vừa là light.
 - B11: cú pháp phạm vi là token `@@` rồi glob nối bằng `;` (`bun test @@ src/**`): không lệnh shell nào có token đúng bằng `@@`, không va với gói npm `@scope/x`. Engine 2.1.326 không có option theo dự án (`claude plugin configure --help`), nên README hướng dẫn glob tuyệt đối. Loại: `[glob] lệnh` (va với `[ -f x ]`), `@glob` (va với `@scope/pkg`).
