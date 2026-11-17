@@ -118,3 +118,13 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 - Chạy test theo tập tệp liên quan cho từng mục (tools/run-tests.sh), cả bộ test chạy ở cuối mỗi nhóm; mẫu đột biến kiểm nhanh trên tệp test của mục (tools/mut-subset.ts), lượt đột biến đầy đủ bằng scripts/mutate.ts trên engine 2.1.296 ở cuối lượt. Lý do: cả bộ 5,6 phút một lần. Loại: cả bộ sau mỗi commit.
 - A2: thư mục nhà đọc bằng $.env.get('HOME') lúc session.start; đích ~/ chưa giải thì scopeStatus trả unknown. Loại: chỉ giữ dạng ~/ không giải.
 - Mod focus-conductor không cài trong phiên cloud này (claude plugin list), nên các đường lùi cho H1, H2 ở mục 2 của prompt không cần dùng; tệp kế hoạch ghi trước khi duyệt. Phương án loại: chờ duyệt mới ghi.
+
+## 17/11 chỉ dẫn C2 danh sách cho phép và B14
+- e105dc6: bản cài C2 danh sách cho phép, B14 mục 7 tới 11; 336 ca 0.9.0 qua.
+- ac91323: mẫu 090-C2r tới 090-C2zg, 090-B14a tới 090-B14i; 19 mẫu cũ viết lại chuỗi; DESIGN, CHANGELOG.
+- Kiểm độc lập vòng 1: CHƯA ĐẠT, 4 lỗi nặng (cwd subagent mang qua lời gọi; cwd trong cùng lệnh; bộ phân loại bỏ sót sed w, git --output, tree -o, uniq, awk getline; probe heredoc và Write vào thư mục tạm bị chặn). Vừa, nhẹ ghi việc tồn.
+- 3c1f...: test đỏ 19/30; cff6ede: vòng sửa 1; 363 ca 0.9.0 qua.
+- Đột biến lượt 1 của mẫu mới: 17/25 diệt; mẫu sống có ca thêm ở indep4-fix-090; C2x đánh dấu tương đương.
+- Đang chạy: kiểm độc lập vòng 2; đột biến cho vòng sửa 1 và mẫu sống.
+- Kiểm độc lập vòng 2: CHƯA ĐẠT, 3 lỗi nặng (đã dò lại, đúng): sort -uo gộp cờ lọt (loại 2); sed s#..#..#w lọt (loại 2); ở thư mục tạm, đường dẫn nguồn tuyệt đối trong repo bị từ chối (cp -r /repo/src .), Stop chặn mục 12 biến thể (loại 3). Hết trần hai vòng: DỪNG theo mục 15.
+- Đột biến vòng sửa 1: 17/26 diệt; sống C2s, C2v, C2zj, C2zl, C2zo, C2zp, B14b, B14e, B14f (chưa xử lý).

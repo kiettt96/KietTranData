@@ -1,13 +1,8 @@
-# Điểm dừng focus-conductor 0.9.0 (17/11/2026, lần 2)
-
-## Lý do dừng
-Mục 2 của chỉ dẫn thứ ba: kiểm độc lập lần hai không đạt sau ba vòng (vòng 1 ở 52ff5d3, vòng 2 ở 7eea57e, vòng 3 ở c958d15). Hết trần, chờ chủ mod quyết. Chưa làm: mục 3 (phiên thật D4 lần hai), đột biến cuối, chạy lại cả bộ trên 2.1.296, PR.
-
-## Trạng thái
-- HEAD nhánh claude/focus-conductor-0-9-0: c958d15. Test 0.9.0 (tests/*090*, tests/integration/*090*): 308 pass. Cả bộ chưa chạy lại sau 408b0f1 (lần đó 4020 pass trên 2.1.326; trên 2.1.296 có 19 ca đỏ lúc máy bận chạy đột biến, chưa chạy lại khi máy rảnh).
-- Mục 1 (kết luận theo vai) xong: 318b1b0 đỏ, 52ff5d3 sửa, mẫu 090-C6l..o KILLED.
-- Vòng 3 còn hai lỗi nặng (vòng for, while, if có sed -i hay rm; heredoc vào python3 - hay node), ba lỗi vừa (formatter qua -m, uv run, poetry run, deno fmt; ĐẠT theo sau dấu câu rồi lời rào; lệnh chỉ đọc bị chặn: git grep, find -exec grep, python -c đọc, git stash list), lỗi nhẹ.
-- Chi phí model thật: khoảng 32,3 USD (trần 40). Các vòng kiểm độc lập không gọi model qua claude -p.
-
-## Bước tiếp theo đề xuất
-Chủ mod chọn phương án trong báo cáo ở chat.
+# Điểm dừng 17/11: hết trần hai vòng kiểm độc lập của C2 danh sách cho phép, còn 3 lỗi nặng
+Nhánh claude/focus-conductor-0-9-0, commit cuối c2e9a01. Chưa mở PR. Mục 16 chưa làm.
+Lỗi nặng còn lại (vòng 2, đã dò lại):
+1. readonly.ts sort: /^-o/ không bắt cờ gộp (-uo, -nuo): `sort -uo src/a.ts src/a.ts` ghi tại chỗ, effects rỗng, kết luận vẫn tính.
+2. readonly.ts SED_WRITE: dấu phân cách khác / (`s#a#b#w tệp`) lọt.
+3. team.ts wordsStayInTemp: ở thư mục tạm xét mọi từ, nên `cd /tmp/x && cp -r /repo/src .` bị từ chối và bật outside; biến thể hợp lý của mục 12 bị Stop chặn.
+Lỗi vừa: ln -s /repo/src vào /tmp rồi sửa qua symlink; lời gọi bị từ chối vẫn bật outside; tên lệnh là đường dẫn ngoài tạm không bị xét. Nhẹ: file -C, rg --pre; outside không truyền lên subagent cha.
+Đề xuất sửa: sort `/^-[a-zA-Z]*o/` và `--output`; sed lấy ký tự sau `s` làm dấu phân cách; ở thư mục tạm chỉ xét đích của tác động có đích đọc được, xét mọi từ (kể cả tên lệnh) chỉ với tác động possible; ln có nguồn ngoài tạm thì bỏ loại (e) cho thư mục đó; không bật outside cho lời gọi đã bị từ chối.
