@@ -170,7 +170,7 @@ describe('0.7.9 L1: tự xóa lỗi đã sửa (hàm thuần)', () => {
   // vọng theo phiên bản mới. 0.8.6, 0.8.7, 0.8.8, 0.8.9: như 0.8.5.
   test('sổ 0.8.4 vẫn rỗng; MOD_VERSION là 0.8.4', () => {
     expect(FIXED_ERRORS).toEqual([])
-    expect(MOD_VERSION).toBe('0.8.9')
+    expect(MOD_VERSION).toBe('0.9.0')
   })
 })
 

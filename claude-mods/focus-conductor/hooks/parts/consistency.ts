@@ -11,7 +11,8 @@ import { globToRegExp } from '../lib/drift/soft'
 import { coversScope } from '../lib/drift/evidence'
 import { PLAN_SET_CHECK_LINE } from '../lib/approval'
 import { reportTable, verdictOf } from '../lib/verdict'
-import { closingNote, closingSteps, hardFileCount, hasKnownCheck, isDocsOnly, teamCause } from '../lib/team'
+import { closingNote, closingSteps, hardFileCount, hasKnownCheck, isBashWrite, isDocsOnly, prefixRole, teamCause } from '../lib/team'
+import type { ClosingVerdict } from '../lib/team'
 import type { SideLists } from '../lib/drift/scope'
 import type { Finding, Focus, ToolObservation, TurnTracker } from '../lib/drift'
 import { checkCommand, checkSignature, coversFailure, isFailedRun } from '../lib/drift/evidence'
@@ -117,12 +118,10 @@ async function closingGate($: EngineInterface, ctx: Ctx, core: Core, log: Eviden
   }
   const verdicts = L.verdicts.goalId === brief.goalId ? L.verdicts.items : []
   const lastHard = log.lastHard
-  // Bước kiểm chỉ đòi khi có lệnh kiểm biết được (0.9.0 C2), như đoạn dặn bước đóng.
-  const hasCheck = hasKnownCheck(core.plan, S.changedOf(core).paths, log)
-  const checked = !hasCheck || log.hard === 0 || log.commands.some(c => c.check !== null && c.ok && c.chained !== true && c.seq > lastHard && coversScope(c, log))
-  const reviewSeq = verdicts.filter(v => v.isClean && v.verdict === 'pass' && v.seq > lastHard).reduce((max, v) => Math.max(max, v.seq), -1)
-  const isReady = brief.depth !== 'hard' || verdicts.some(v => v.isClean && v.verdict === 'ready' && v.seq >= reviewSeq && reviewSeq >= 0)
-  const missing = !checked ? 'check' : reviewSeq < 0 ? 'review' : !isReady ? 'design' : null
+  // Cùng một cách tính với pane (0.9.0 vòng sửa sau kiểm độc lập): kết luận mới nhất của mỗi bước quyết; bước kiểm chỉ khi có lệnh kiểm.
+  const steps = teamSteps(core, brief, log, verdicts)
+  const missing = steps.find(s => s.state !== 'pass')?.name ?? null
+  const reviewSeq = verdicts.filter(v => v.isClean && v.isReview && v.verdict === 'pass' && v.seq > lastHard).reduce((max, v) => Math.max(max, v.seq), -1)
   if (missing === null) {
     if (core.closingGap !== undefined) await update($, coreState, S.withClosingGap(null))
     return null
@@ -134,7 +133,8 @@ async function closingGate($: EngineInterface, ctx: Ctx, core: Core, log: Eviden
   await update($, coreState, S.withClosingGap({ goalId: brief.goalId, missing, ...(isSolo ? { solo: true as const } : {}) }))
   if (isSolo) return null
   if (L.closingState.goalId !== brief.goalId) L.closingState = { goalId: brief.goalId, blocks: 0, key: '' }
-  const key = `${missing}:${lastHard}:${reviewSeq}`
+  // Trạng thái của bước còn thiếu (chờ hay chưa đạt) thuộc khóa: duyệt đổi từ chờ sang chưa đạt là trạng thái thiếu mới (vòng sửa 1).
+  const key = `${missing}:${steps.find(s => s.name === missing)?.state ?? ''}:${lastHard}:${reviewSeq}`
   if (L.closingState.key === key || L.closingState.blocks >= CLOSING_BLOCKS) return null
   L.closingState = { goalId: brief.goalId, blocks: L.closingState.blocks + 1, key }
   ctx.record(await $.clock.now(), 'closing-gate', { goalId: brief.goalId, missing, n: L.closingState.blocks })
@@ -143,6 +143,14 @@ async function closingGate($: EngineInterface, ctx: Ctx, core: Core, log: Eviden
 }
 
 /** Đích đọc được của một lần ghi (0.9.0 C5): đường dẫn của tool sửa file, hay đích của tác động ghi mức definite của Bash. */
+/** Trạng thái các bước đóng (0.9.0 C3), dùng chung cho pane (Core.team) và cổng đóng mục tiêu. */
+function teamSteps(core: Core, brief: Brief, log: EvidenceLog, verdicts: readonly ClosingVerdict[]) {
+  const lastHard = log.lastHard
+  const checked = log.hard === 0 || log.commands.some(c => c.check !== null && c.ok && c.chained !== true && c.seq > lastHard && coversScope(c, log))
+  const lastCheck = [...log.commands].reverse().find(c => c.check !== null && c.chained !== true && c.seq > lastHard)
+  return closingSteps({ hasCheck: hasKnownCheck(core.plan, S.changedOf(core).paths, log), isHard: brief.depth === 'hard', checked, checkFailed: lastCheck !== undefined && !lastCheck.ok, lastHard, verdicts })
+}
+
 /**
  * Đội hình do mod áp (0.9.0 C): tính lại lý do bật và trạng thái các bước đóng của mục tiêu, ghi Core.team khi đổi. Vừa bật lần đầu cho
  * mục tiêu thì ghi nhật ký 'team' và xếp đoạn dặn bước đóng vào kết quả tool kế tiếp của luồng chính. Chưa bật thì bỏ Core.team, không chèn gì.
@@ -159,11 +167,7 @@ async function refreshTeam($: EngineInterface, ctx: Ctx): Promise<void> {
   }
   const log = ctx.evidenceFor(brief.goalId)
   const hasCheck = hasKnownCheck(core.plan, changed, log)
-  const lastHard = log.lastHard
-  const checked = log.hard > 0 && log.commands.some(c => c.check !== null && c.ok && c.chained !== true && c.seq > lastHard && coversScope(c, log))
-  const lastCheck = [...log.commands].reverse().find(c => c.check !== null && c.chained !== true && c.seq > lastHard)
-  const verdicts = L.verdicts.goalId === brief.goalId ? L.verdicts.items : []
-  const steps = closingSteps({ hasCheck, isHard: brief.depth === 'hard', checked, checkFailed: lastCheck !== undefined && !lastCheck.ok, lastHard, verdicts })
+  const steps = teamSteps(core, brief, log, L.verdicts.goalId === brief.goalId ? L.verdicts.items : [])
   const isNew = core.team === undefined || core.team.goalId !== brief.goalId
   const team = { goalId: brief.goalId, cause: isNew || core.team === undefined ? cause : core.team.cause, steps }
   if (JSON.stringify(team) !== JSON.stringify(core.team)) await update($, coreState, S.withTeam(team))
@@ -171,6 +175,14 @@ async function refreshTeam($: EngineInterface, ctx: Ctx): Promise<void> {
   ctx.record(await $.clock.now(), 'team', { goalId: brief.goalId, cause, files: hardFileCount(changed) })
   await ctx.flushDecisions((path, text) => $.fs.write(path, text))
   L.agentRetryNotes.push(closingNote({ hasCheck, isHard: brief.depth === 'hard', isDocs: isDocsOnly(brief, changed) }))
+}
+
+/** Lần ghi ngoài thư mục tạm (0.9.0 D1): tool file có đường dẫn ngoài thư mục tạm, hay lệnh Bash ghi file (isBashWrite). */
+function wroteOutsideTemp(observation: ToolObservation): boolean {
+  const path = filePathOf(observation)
+  if (path !== '') return !isRoleTemp(path)
+  if (observation.tool !== 'Bash') return false
+  return isBashWrite(String(observation.input['command'] ?? ''), observation.cwd ?? null)
 }
 
 function writtenPaths(observation: ToolObservation): string[] {
@@ -1165,11 +1177,10 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       if (S.normalizeCore(await read($, coreState)).agentProgress.items.some(item => item.agentId === agentId)) await update($, coreState, S.withAgentTool(agentId))
       const meta = agents.get(e.agentId)
       if (meta === undefined) return result
-      // Lần ghi của subagent ngoài thư mục tạm (0.9.0 D1): đích chưa xác định cũng tính là ghi.
-      if (!observation.isError && isMutation(observation) && L.agentWrote.size < 500) {
-        const written = writtenPaths(observation)
-        if (written.length === 0 || written.some(path => !isRoleTemp(path))) L.agentWrote.add(e.agentId)
-      }
+      // Lần ghi của subagent ngoài thư mục tạm (0.9.0 D1): tool file, hay Bash ghi mức definite (đích chưa xác định cũng tính). Chạy script
+      // (ghi mức possible, như bash x.sh, bash -c) không tính: subagent duyệt và kiểm cần chạy lệnh kiểm.
+      // Không lọc qua isMutation: lệnh git trên lịch sử (commit, push) không là thay đổi của cây làm việc nhưng vẫn là ghi (vòng sửa 1).
+      if (!observation.isError && (EDIT_TOOLS.has(observation.tool) || observation.tool === 'Bash') && L.agentWrote.size < 500 && wroteOutsideTemp(observation)) L.agentWrote.add(e.agentId)
       const agentTracker = agentTrackers.get(e.agentId) ?? newTracker('')
       agentTrackers.set(e.agentId, agentTracker)
       // remindSubagents: subagent cũng bị kiểm phạm vi file của mục tiêu và được nhắc (kèm việc được giao);
@@ -1525,10 +1536,17 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       if (e.reason === 'answer' && meta !== undefined && (parsed !== null || meta.role !== undefined)) {
         const role: Role = meta.role ?? (parsed?.verdict === 'ready' || parsed?.verdict === 'not-ready' ? 'design' : 'review')
         const isClean = !L.agentWrote.has(agentId)
+        // Kết luận theo vai (0.9.0 C6): lượt có tiền tố Kiểm:, Audit: và từ ĐẠT HẾT, ALL PASS chỉ là của bước kiểm; duyệt và sẵn sàng cần model
+        // từ sonnet trở lên.
+        // Model đã chạy: theo usage khi có (model lạ thì không biết họ), không thì họ của lời giao.
+        const usageModel = e.usage?.model ?? ''
+        const ranFamily = usageModel !== '' ? familyOf(usageModel) : meta.family
+        const isStrong = ranFamily === 'sonnet' || ranFamily === 'opus' || ranFamily === 'fable'
+        const isReview = isClean && prefixRole(meta.description) !== 'audit' && parsed?.isCheckOnly !== true && isStrong
         if (L.verdicts.goalId !== meta.goalId) L.verdicts = { goalId: meta.goalId, items: [] }
-        L.verdicts.items.push({ agentId, role, verdict: parsed?.verdict ?? null, isClean, ...(parsed?.count !== undefined ? { count: parsed.count } : {}), seq: ctx.evidenceFor(meta.goalId).seq, family: familyOf(e.usage?.model ?? '') ?? meta.family, ...(meta.taskIndex !== undefined ? { taskIndex: meta.taskIndex } : {}), description: meta.description })
+        L.verdicts.items.push({ agentId, role, verdict: parsed?.verdict ?? null, isClean, isReview, ...(parsed?.count !== undefined ? { count: parsed.count } : {}), seq: ctx.evidenceFor(meta.goalId).seq, family: ranFamily ?? meta.family, ...(meta.taskIndex !== undefined ? { taskIndex: meta.taskIndex } : {}), description: meta.description })
         if (L.verdicts.items.length > 100) L.verdicts.items.shift()
-        record(at, 'verdict', { agentId, role, verdict: parsed?.verdict ?? null, ...(isClean ? {} : { wrote: true }), ...(parsed?.count !== undefined ? { count: parsed.count } : {}) })
+        record(at, 'verdict', { agentId, role, verdict: parsed?.verdict ?? null, ...(isClean ? {} : { wrote: true }), ...(isReview ? { review: true } : {}), ...(parsed?.count !== undefined ? { count: parsed.count } : {}) })
         await flushDecisions((path, text) => $.fs.write(path, text))
         // Vòng sửa theo kết luận (0.9.0 C7): chưa đạt của một subagent không ghi file tính vòng cho cùng một mục, trần RETRY_ROUNDS.
         const roundKey = `${meta.goalId}:${role}:${meta.taskIndex ?? meta.description}`

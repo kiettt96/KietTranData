@@ -322,6 +322,60 @@ Hiện tượng [Đo trực tiếp trên `47690d5`, rà soát độc lập]: b�
 - Danh sách yêu cầu vẫn hiện yêu cầu đã rời kế hoạch: `brief.requirements` không xóa mục nào, chỉ `uncoveredRequirements` bỏ qua chúng.
 - Context của tin chen ngang vốn không in dòng yêu cầu chưa phủ, nên E1 không đổi context của tin chen ngang.
 
+## Tệp trạng thái, nơi ghi phụ và bằng chứng theo từng bước (0.9.0)
+
+Một phiên làm theo kỷ luật giao việc ghi tệp kế hoạch, tiến độ, bàn giao và sao lưu bản gốc trước khi sửa. Bản 0.8.9 coi các lần ghi đó là sửa file ngoài phạm vi: cảnh báo, chặn khi chưa duyệt, đòi chạy lại lệnh kiểm.
+
+- **Hai danh sách của router (B1).** `stateFiles` là tệp kế hoạch, tiến độ, bàn giao prompt nêu; `sideWrites` là nơi ghi khác prompt cho phép (sao lưu, thư mục tạm, tệp đầu ra). Mỗi danh sách tối đa 8 mục (`SIDE_LIST_LIMIT`), chỉ nhận mục hẹp: không phải thư mục gốc, không phải `~` hay `/`; tệp trạng thái phải có đuôi tài liệu. Brief gộp hai danh sách qua các lượt tiếp nối. Router lỗi hay trả sai dạng thì hai danh sách rỗng, mod chạy như 0.8.9.
+- **Chỗ áp.**
+  - Phạm vi (B2): không cảnh báo, không vào mục lệch phạm vi, không vào file đã đổi.
+  - Duyệt kế hoạch (B3): ghi tệp trạng thái được cho qua khi chưa duyệt.
+  - Vai điều phối (B4): luồng chính đang điều phối ghi được tệp trạng thái.
+  - Tạm dừng vì hạn mức (B5): tệp trạng thái thuộc phạm vi được ghi.
+  - File skill (B6): đường dẫn thuộc hai danh sách không bao giờ là file skill.
+- **Bằng chứng (B6 vòng sửa).** Ghi chắc (Edit, Write, hay Bash mà mọi đích đã biết thuộc hai danh sách) không vào sổ thay đổi của evidence, nên không làm cũ lần kiểm đã chạy. Ghi `possible` hay đích không xác định giữ như cũ. Lỗi này lộ ra ở kịch bản đo của D2: bản đầu của B6 chỉ bỏ các lần ghi này khỏi đếm thay đổi chắc chắn, mà mốc độ mới của lần kiểm tính theo mọi thay đổi, nên bước `verified` vẫn bị hạ.
+- **Lệnh của bước (B10).** Lệnh ở trường `check` của một bước là lệnh kiểm của riêng bước đó: chuỗi trong cặp backtick đầu tiên, không có thì phần trước ` => `, không có cả hai thì cả chuỗi; kết quả mong đợi là phần sau ` => `. Lần chạy khớp danh tính lệnh, chạy sau thay đổi không nhẹ cuối, không lỗi, output không rỗng và chứa kết quả mong đợi thì bước `done` được nâng `verified` (`byCheck`), chỉ đúng bước đó. Đổi `check` sau khi duyệt thì ghi `check-changed`, bằng chứng cũ mất hiệu lực.
+- **Phạm vi của lệnh kiểm (B11).** Cú pháp là token `@@` rồi các glob nối bằng `;`. Không lệnh shell nào có token đúng bằng `@@`, và cú pháp không va với gói npm `@scope/x`. Engine 2.1.326 không có option theo dự án, nên README hướng dẫn glob tuyệt đối.
+- **Chưa kiểm được trên phiên thật.** Ca router trả `sideWrites` là thư mục tạm của hệ điều hành; lần chạy tiếp bằng `--continue` (mục tiêu không sống qua lượt đó, xem việc tồn trong CHANGELOG).
+
+## Đội hình theo cỡ việc (0.9.0)
+
+**Nguyên tắc: router chỉ đọc prompt, luật đội hình do mod áp.** Router trả mục tiêu, việc, model, độ sâu. Mod quyết khi nào cần bước kiểm, duyệt, sẵn sàng; vai nào, model nào; khi nào chặn kết thúc.
+
+| Vai | Nhận vai khi | Model mặc định | Mod kẹp |
+|---|---|---|---|
+| search | việc giao Explore | haiku (router chấm) | chỉ đọc |
+| design | việc giao Plan; lời gọi `Sẵn sàng: `, `Readiness: ` | fable khi `allowFable` bật, không thì opus | chỉ đọc |
+| build | việc giao general-purpose có sửa file | router chấm | sàn sonnet |
+| review | lời gọi `Kiểm độc lập: `, `Duyệt: `, `Independent check: `, `Review: ` | opus | sàn sonnet; chỉ đọc |
+| audit | lời gọi `Kiểm: `, `Audit: ` | haiku | chỉ ghi trong thư mục tạm |
+
+- **Tiền tố.** So không phân biệt hoa thường, xét tiền tố dài trước, nên `Kiểm độc lập: ` là review dù cũng bắt đầu bằng `Kiểm`. Lời gọi có tiền tố không qua lượt router chấm khi giao, nên số lượt gọi router mỗi prompt không tăng. Tiền tố chỉ quyết vai và model; kết luận được nhận theo câu trả lời.
+- **Điều kiện bật** (`teamCause`, `hooks/lib/team.ts`): `closingReview` là `auto`, mục tiêu edit hay mixed, không phải prompt đối chiếu; và router chấm substantial hay hard, hoặc sổ thay đổi đã có từ `TEAM_FILES` = 3 file không nhẹ khác nhau. Sổ thay đổi đã bỏ tệp trạng thái và nơi ghi phụ (B2); tài liệu, ghi chú là nhẹ. Mức hard chỉ lấy từ router. Số 3 ứng với "nhiều việc phụ thuộc nhau" của cỡ vừa: một hay hai file thường là một thay đổi gọn [Giả định: chọn theo các ca của golden và D1, chưa đo trên nhiều dự án].
+- **Đoạn dặn bước đóng** (`closingNote`, không quá 300 ký tự), chèn một lần khi điều kiện bật lần đầu: ở context của mục tiêu mới, hay ở kết quả tool của lần ghi làm đủ 3 file. Đoạn dặn nêu thứ tự, tiền tố và từ kết luận.
+  - Bước kiểm chỉ nêu khi có lệnh kiểm biết được: `check` của bước có lệnh, mục `checkCommands` phủ file đã sửa (mục không có phạm vi phủ mọi file), hay một lần chạy trình test mod nhận ra.
+  - Mục tiêu chỉ sửa tài liệu: lượt duyệt gồm đối chiếu số liệu, mẫu, chính tả.
+  - Điều kiện chưa bật thì không chèn gì, context bằng 0.8.9 từng ký tự.
+- **Kết luận nhận được (D, C6 theo vai).** Dòng không rỗng đầu tiên của câu trả lời mở đầu bằng một từ kết luận, không phân biệt hoa thường; cụm chưa đạt, chưa sẵn sàng xét trước:
+  - chưa sẵn sàng: `CHƯA SẴN SÀNG`, `NOT READY`;
+  - chưa đạt: `CHƯA ĐẠT`, `KHÔNG ĐẠT`, `FAIL`;
+  - sẵn sàng: `SẴN SÀNG`, `READY`;
+  - đạt: `đạt kèm lỗi nhẹ`, `ĐẠT HẾT`, `ALL PASS`, `ĐẠT`, `PASS`.
+  - Kết luận duyệt chỉ nhận khi đủ bốn điều kiện: subagent không ghi file ngoài thư mục tạm (tool file, Bash ghi mức definite, git trên lịch sử, lệnh ghi đã biết; đích chưa xác định cũng tính); hoàn tất sau thay đổi không nhẹ cuối; từ kết luận là `ĐẠT`, `PASS` hay `đạt kèm lỗi nhẹ`; model đã chạy từ sonnet trở lên. Kết luận sẵn sàng cùng điều kiện, với `SẴN SÀNG`, `READY`.
+  - `ĐẠT HẾT`, `ALL PASS`, và mọi câu trả lời của lượt có tiền tố `Kiểm: `, `Audit: `, chỉ là kết luận của bước kiểm, không bao giờ là duyệt hay sẵn sàng. Tiền tố không bắt buộc cho lượt duyệt.
+- **Dòng mẫu báo cáo (C4).** Khai báo kiểu của 2.1.326 và 2.1.296 cho hook `agent.spawn` viết lại `prompt` của subagent ("A rewrite is the prompt the subagent runs with"). Mod nối dòng mẫu khi lời gọi có tiền tố vai, hay khi việc có vai mà đội hình đã bật. Từ kết luận vẫn có trong đoạn dặn, cho subagent không tiền tố.
+- **Trạng thái và cổng.** `Core.team` giữ lý do bật và trạng thái từng bước đóng (chờ, đạt, chưa đạt) cho pane. Cổng C6, vòng sửa C7, bảng C8 giữ đặc tả, chỉ đổi điều kiện bật. Cổng không đòi lần kiểm khi không có lệnh kiểm biết được.
+- **Chỗ lệch so với prompt.**
+  - C1: router không trả vai; vai do mod suy từ loại agent và tiền tố.
+  - C3: lời dặn router không có luật đội hình; mod áp theo điều kiện bật trên.
+  - C4: kết luận đọc từ câu trả lời; tiền tố không bắt buộc cho lượt duyệt, nhưng lượt `Kiểm: `, `Audit: ` và từ `ĐẠT HẾT`, `ALL PASS` không bao giờ là kết luận duyệt.
+  - C9: thay bằng phép đo F (lời dặn mới và 14a3a85 cùng đợt; ca cũ lệch đo 6 lượt; mười ca C9 chỉ chấm độ sâu).
+  - Căn cứ: ba lần chỉnh lời dặn để router tự thêm việc audit, review, design đều dưới ngưỡng [Đo trực tiếp, 17/11/2026, router sonnet, 3 lượt mỗi ca, VERIFICATION mục 0.9.0]:
+    - lần 1 và lần 2: 205/228 lượt; ca C9 cỡ vừa 0/3 vì router chấm light hay giữ tasks []; token ra +13,9%;
+    - lần 3: 203/228; `k4` 6 lượt 2/6 so với 6/6 của 14a3a85, `six` 0/6 so với 2/6; token ra +18,3%.
+  - Lời dặn chỉ đọc prompt (đo F): 216/228; `k4` 5/6 so với 6/6, `six` 3/6 so với 4/6; token ra +12,6%.
+- **Chưa kiểm được trên phiên thật.** Bật theo số file trong một phiên thật; vòng sửa C7 với subagent thật trả chưa đạt; phiên không giao được subagent khi đội hình đã bật.
+
 ## Router bị engine từ chối khi đọc prompt dài (0.8.9)
 
 Phiên thật, `conductor` là `fable`, prompt dài: mod báo router không đọc được prompt vì engine từ chối gửi request [Nguồn: ảnh chụp phiên thật của chủ mod, 14/11/2026]. Lượt đọc trọn của fable, opus, haiku xin `maxTokens` 128.000, là mức `claude -p` báo cho model, trong khi engine ném lỗi trước khi gửi khi lời gọi từ hook xin quá 64.000.

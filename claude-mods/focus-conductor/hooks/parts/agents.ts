@@ -12,6 +12,7 @@ import { FORK_QUOTA_DENY, RETRY_PREFIX, RETRY_ROUNDS, forkRetryNote, forkReturnN
 import { liveForks, openParts } from '../lib/forks'
 import { classifyBash, filePathOf, isSkillTrial, normalizePath } from '../lib/drift'
 import { isRoleTemp } from '../lib/drift/scope'
+import { isBashWrite, prefixRole } from '../lib/team'
 import { labels, langOf } from '../ui/labels'
 import { reportLine } from '../lib/verdict'
 import { shownPlan } from '../lib/mirror'
@@ -57,28 +58,7 @@ function codesOf(core: ReturnType<typeof S.normalizeCore>): ReadonlySet<string> 
  * Mức sàn cho một lần giao Agent khi còn lệnh kiểm chưa đạt ở lượt 2 trở đi (0.7.8 vòng sửa 3, W4): description mở đầu "Sửa lỗi kiểm: "
  * thì lấy sàn cao nhất của các lệnh; general-purpose có prompt nhắc đúng một lệnh chưa đạt thì lấy sàn của lệnh đó. Còn lại null.
  */
-/**
- * Tiền tố description theo vai (0.9.0 B2), xét tiền tố dài trước, không phân biệt hoa thường. Tiền tố chỉ quyết vai và model của lời gọi;
- * kết luận của subagent được nhận theo câu trả lời, có tiền tố hay không (0.9.0 D1).
- */
-export const ROLE_PREFIXES: ReadonlyArray<readonly [string, 'review' | 'audit' | 'design']> = (
-  [
-    ['Kiểm độc lập: ', 'review'],
-    ['Independent check: ', 'review'],
-    ['Duyệt: ', 'review'],
-    ['Review: ', 'review'],
-    ['Kiểm: ', 'audit'],
-    ['Audit: ', 'audit'],
-    ['Sẵn sàng: ', 'design'],
-    ['Readiness: ', 'design'],
-  ] as const
-).slice().sort((a, b) => b[0].length - a[0].length)
-
-/** Vai theo tiền tố description (0.9.0 B2), hay undefined. */
-export function prefixRole(description: string): 'review' | 'audit' | 'design' | undefined {
-  const head = description.normalize('NFC').trimStart().toLowerCase()
-  return ROLE_PREFIXES.find(([prefix]) => head.startsWith(prefix.normalize('NFC').toLowerCase()))?.[1]
-}
+export { ROLE_PREFIXES, prefixRole } from '../lib/team'
 
 /** Vai của một lời gọi Agent (0.9.0 B): tiền tố trước, không thì vai mod suy của route. */
 export function roleOfCall(routeRole: Role | undefined, description: string): Role | undefined {
@@ -88,7 +68,8 @@ export function roleOfCall(routeRole: Role | undefined, description: string): Ro
 
 /**
  * Lời từ chối theo vai (0.9.0 C2), không quá 200 ký tự; null là được. Vai chỉ đọc (search, review, design): mọi tool sửa file và lệnh Bash
- * có tác động ghi mức definite ngoài thư mục tạm. Vai audit: tool sửa file và lệnh Bash ghi mức definite, có đích ngoài thư mục tạm.
+ * ghi file ngoài thư mục tạm (isBashWrite: definite, git trên lịch sử, lệnh ghi đã biết). Vai audit: tool sửa file có đích ngoài thư mục tạm
+ * và cùng loại lệnh Bash đó.
  */
 export function roleDenial(role: Role, tool: string, input: Record<string, unknown>, name: string): string | null {
   if (role === 'build') return null
@@ -97,9 +78,7 @@ export function roleDenial(role: Role, tool: string, input: Record<string, unkno
     const path = filePathOf({ tool, input, isError: false, isReadOnly: false })
     if (!isReadOnly && path !== '' && isRoleTemp(path)) return null
   } else {
-    const writes = classifyBash(String(input['command'] ?? '')).effects.filter(effect => effect.kind === 'write' && effect.level === 'definite' && effect.isHistory !== true)
-    const isOutside = writes.some(effect => effect.kind === 'write' && (effect.isUnknown || effect.paths.length === 0 || effect.paths.some(path => !isRoleTemp(path))))
-    if (!isOutside) return null
+    if (!isBashWrite(String(input['command'] ?? ''))) return null
   }
   const text = isReadOnly
     ? `[focus-conductor] Vai ${name} chỉ đọc: không sửa file. Ghi phần cần sửa vào câu trả lời để luồng chính giao việc làm.`

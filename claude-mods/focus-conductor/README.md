@@ -106,7 +106,7 @@ Cấu hình qua `/config` (hoặc `pluginConfigs.focus-conductor.options` trong 
 | `router` | `sonnet` | Model Claude đọc prompt và điều phối: alias (`haiku`, `sonnet`, `opus`) hoặc model ID. Thay cho tùy chọn `analyzer` của bản 0.3. Từ 0.8.4, khi `conductor` là `fable`, router là Fable và option này chỉ dùng lúc router Fable tạm ngừng |
 | `conductor` | `off` | Model điều phối. Từ 0.8.4: `fable` thì Fable 5.2 điều phối ở effort medium (đọc và phân việc ở mọi lượt router, lập kế hoạch, điều phối luồng chính của việc lớn); model khác thực thi qua subagent. Từ 0.8.7 nhận thêm `opus` (cùng vai, cùng kỷ luật). Khuyến nghị `fable`. Tốn hạn mức hơn; xem mục "Fable điều phối" |
 | `routerMaxWait` | `1800` | Từ 0.8.7: router dùng model nào cũng đọc trọn prompt dài tới sức chứa của model; lượt đọc prompt dài hơn 80.000 ký tự chờ tối đa bấy nhiêu giây (nhỏ nhất 120, lớn nhất 1800, ngoài khoảng thì kẹp về biên). Prompt cần lâu hơn thì phần giữa bị lược, kèm cảnh báo nêu option này |
-| `closingReview` | `auto` | Từ 0.9.0: mục tiêu substantial hay hard, sửa file, checklist đã đóng hết thì trước khi kết thúc phải có theo thứ tự: lần kiểm đạt sau thay đổi cuối, một kết luận `ĐẠT` của subagent duyệt độc lập (description mở đầu `Kiểm độc lập: `) sau thay đổi không nhẹ cuối, và với mục tiêu hard một kết luận `SẴN SÀNG` của subagent Plan sau lần duyệt. Thiếu thì cổng Stop chặn, mỗi trạng thái thiếu một lần, tối đa 3 lần mỗi mục tiêu; `/conductor waive review` bỏ qua. Phiên không giao được subagent thì không chặn, pane ghi "Chưa có duyệt độc lập". `auto` hay `off` |
+| `closingReview` | `auto` | Từ 0.9.0: đội hình do mod áp. Bật khi mục tiêu sửa file (edit hay mixed) và router chấm substantial hay hard, hoặc đã có từ 3 file không nhẹ khác nhau được sửa (không tính tài liệu, tệp trạng thái, nơi ghi phụ). Khi bật, mod dặn một lần các bước đóng theo thứ tự: `Kiểm: ` (chỉ khi có lệnh kiểm), `Duyệt: `, và `Sẵn sàng: ` với việc hard; pane có mục "Bước đóng (mod)". Cổng Stop chặn khi thiếu, mỗi trạng thái thiếu một lần, tối đa 3 lần mỗi mục tiêu; `/conductor waive review` bỏ qua. Kết luận nhận theo câu trả lời của subagent không ghi file. Phiên không giao được subagent thì không chặn. `auto` hay `off` |
 | `conductorFallback` | `opus` | Từ 0.8.7: khi `conductor` khác `off` mà model điều phối chính (Fable khi `conductor` là `fable`) không dùng được giữa chừng (router Fable tạm ngừng sau các lần lỗi, hay họ fable bị chặn vì không phản hồi), họ model này nhận vai điều phối với cùng kỷ luật: router dùng họ này với biến thể điều phối, luồng chính chạy `<họ>/medium`, không tự sửa file, không tự chạy kiểm. Fable dùng lại được thì quay về Fable. `opus`, `sonnet`, hoặc `off` để giữ cách chạy trước 0.8.7. Từ 0.9.0: giá trị không hợp lệ (mod dùng `opus`) hay trùng họ điều phối chính thì mod cảnh báo một lần khi nạp |
 | `conductorReads` | `20` | Từ 0.8.6: khi Fable đang điều phối việc lớn, cứ mỗi bấy nhiêu lần luồng chính gọi Read, Grep hay Glob thì kết quả kèm một dòng nhắc giao việc tra cứu cho subagent; `0` là tắt, không từ chối lời gọi đọc nào |
 | `enforceChecklist` | `true` | Chặn kết thúc khi checklist còn bước mở; từ 0.7.8 chặn thêm một lần mỗi mục tiêu khi mục tiêu từ moderate (hoặc có việc đã phân) chưa có checklist của tool `plan`; từ 0.7.9 tắt cả lần chặn khi đã sửa mà chưa chạy lần kiểm nào (xem "Nhật ký lỗi, lệnh miễn và lần kiểm bắt buộc") |
@@ -149,6 +149,30 @@ Cấu hình qua `/config` (hoặc `pluginConfigs.focus-conductor.options` trong 
 | `planReviewRounds` | `2` | Từ 0.8.2: số lượt router rà kế hoạch tối đa trước khi trình duyệt, kẹp từ 1 đến 3 |
 | `skillPaths` | trống | Từ 0.8.2: tiền tố đường dẫn phân tách bằng dấu phẩy, file khớp được coi là file skill (ngoài `SKILL.md` và file `.md` dưới thư mục `skills/`) |
 | `pauseBackup` | `auto` | Từ 0.8.2: khi dừng vì hạn mức, cho Claude commit và push phần đang làm lên nhánh `<nhánh hiện tại>-wip` (tối đa 6 lệnh git). `auto` bật khi phiên chạy trên cloud (nhận qua biến `CLAUDE_CODE_REMOTE`); phiên cloud không đặt biến này thì đặt `on`; `off` tắt |
+
+### Dùng với prompt có danh sách mục việc (0.9.0)
+
+Prompt giao việc theo kỷ luật giao việc thường có tệp kế hoạch, tiến độ, bàn giao, nơi sao lưu, khối đo nền và bảng mục việc mang mã kèm lệnh xác minh. Từ 0.9.0 mod đọc các phần này như sau:
+
+- **Tệp trạng thái và nơi sao lưu** prompt nêu được router chép vào `stateFiles` và `sideWrites`. Ghi vào đó không bị cảnh báo ngoài phạm vi, không bị chặn khi chưa duyệt kế hoạch hay khi đang tạm dừng vì hạn mức, và không làm cũ lần kiểm đã chạy.
+- **Mỗi dòng mang mã của bảng mục việc** (M1, A2, B10) là một việc riêng.
+- **Cột xác minh:** ghi đúng vào trường `check` của bước, dạng `` `lệnh` => kết quả mong đợi ``. Lệnh đó chạy đạt sau thay đổi cuối thì bước được nâng `verified`.
+- **Khối đo nền** viết bằng `bash <<'SH' ... SH` hay có `<( )` được phân loại theo các lệnh bên trong.
+- **Lệnh kiểm chỉ áp cho một phần mã:** khai trong `checkCommands` kèm phạm vi, ví dụ `bun test @@ /repo/src/**`.
+
+**Đội hình theo cỡ việc.** Router chỉ đọc prompt; mod áp các bước đóng khi mục tiêu sửa file được router chấm substantial hay hard, hoặc đã có từ 3 file không nhẹ khác nhau được sửa (option `closingReview`).
+
+| Vai | Cách giao | Model mặc định | Quyền |
+|---|---|---|---|
+| search | Agent Explore | theo router | chỉ đọc |
+| build | Agent general-purpose có sửa file | theo router, sàn sonnet | sửa file |
+| audit | description mở đầu `Kiểm: ` hay `Audit: ` | haiku | chỉ ghi trong thư mục tạm, chạy được lệnh kiểm |
+| review | description mở đầu `Duyệt: `, `Kiểm độc lập: `, `Review: ` hay `Independent check: ` | opus, sàn sonnet | chỉ đọc |
+| design | Agent Plan; description mở đầu `Sẵn sàng: ` hay `Readiness: ` | fable khi `allowFable` bật, không thì opus | chỉ đọc |
+
+Kết luận của lượt duyệt được nhận theo câu trả lời, có tiền tố hay không, khi subagent chạy model từ sonnet trở lên, không ghi file ngoài thư mục tạm, và dòng đầu mở bằng `ĐẠT`, `PASS`, `đạt kèm lỗi nhẹ` (hay `CHƯA ĐẠT`, `KHÔNG ĐẠT`, `FAIL`). Đánh giá sẵn sàng mở bằng `SẴN SÀNG`, `READY`, `CHƯA SẴN SÀNG`, `NOT READY`. `ĐẠT HẾT`, `ALL PASS` và lượt `Kiểm: `, `Audit: ` chỉ là kết luận của bước kiểm.
+
+**Cấu hình gợi ý** cho phiên dài theo kỷ luật giao việc: `conductor` là `opus` cùng `allowFable` bật thì khớp đội hình của hình mẫu (điều phối opus, design fable, review opus, audit haiku); `closingReview` để `auto`; khai `checkCommands` bằng lệnh kiểm của dự án.
 
 ### Bảo vệ hạn mức
 

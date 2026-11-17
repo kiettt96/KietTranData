@@ -2,6 +2,81 @@
 
 Số đo của HEAD hiện tại và của các bản trước. Mọi số do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển] trừ khi nêu khác; hợp đồng đối chiếu evidence ở [DESIGN.md](DESIGN.md), lịch sử thay đổi ở [CHANGELOG.md](../CHANGELOG.md), cách dùng ở [README](../README.md).
 
+## Kiểm chứng của 0.9.0 (lỗi tồn, phối hợp với kỷ luật giao việc, đội hình do mod áp)
+
+Engine 2.1.326 cho test và phiên thật; tsc và lượt đột biến đầy đủ kiểm thêm trên khai báo kiểu và engine 2.1.296 của CI. Nền là `14a3a85` (0.8.9).
+
+### Probe H1 tới H6, trước và sau
+
+Cùng một tệp probe, cùng router giả của `tests/support/engine.ts`, chạy trên `14a3a85` và trên nhánh 0.9.0 [Đo trực tiếp, 17/11/2026, engine 2.1.326].
+
+| Mã | 14a3a85 | 0.9.0 |
+|---|---|---|
+| H1 (đang chờ duyệt: ghi `KE-HOACH.md`, `TIEN-DO.md`, `shasum`, khối heredoc chỉ có `cd` và `bun test`) | 4/4 bị từ chối "Kế hoạch chưa được duyệt" | 4/4 qua |
+| H2 (vai điều phối: ghi ba tệp trạng thái, `shasum`, `cp` sao lưu) | 5/5 bị từ chối "vai điều phối không tự sửa file" | ba tệp trạng thái và `shasum` qua; `cp` vào nơi sao lưu vẫn bị từ chối (B4 chỉ mở cho tệp trạng thái) |
+| H3 (phạm vi một tệp: ghi `TIEN-DO.md`, `cp` sao lưu, `grep -c <(bash x.sh)`, `shasum <(...)`, heredoc) | 5/5 có cảnh báo ngoài phạm vi hay "không xác định được file đích" | còn một câu ở `grep -c ... <(bash x.sh)`: script chạy trong `<( )` vẫn có thể ghi (B9) |
+| H4 (check của bước là `grep -c ... <(...)`; `bun test` trong heredoc) | cả hai bước chỉ `done` | cả hai bước `verified`, nhãn "tự động" |
+| H5 (`cp SKILL.md` vào nơi sao lưu; ghi `TIEN-DO.md` trong thư mục skill) | Stop chặn "Đã sửa skill `TIEN-DO`, chưa thử" | không chặn |
+| H6 (`cp ~/.claude/a.md ~/.claude/sao-luu/a.md`) | `~/.claude/sao-luu/a.md` nằm trong "File đã đổi" | không có file đã đổi |
+
+### D1: phiên thật theo kỷ luật giao việc (sau nhóm B)
+
+`claude -p --plugin-dir`, router và skill thật, dự án và prompt mẫu tự dựng (cỡ vừa, phạm vi một tệp, ba tệp trạng thái, nơi sao lưu, khối đo nền heredoc, ba mục việc có lệnh xác minh), `headlessRouting` `auto`, hai cấu hình `conductor` `off` và `opus` [Đo trực tiếp, 17/11/2026]:
+
+- Từ chối ghi tệp trạng thái: 0 và 0. Cảnh báo ngoài phạm vi cho tệp trạng thái và nơi sao lưu: 0 và 0.
+- Khối đo nền: chạy, không có câu "không xác định được file đích".
+- Bước lên `verified` nhờ lệnh ở `check`: 1 ở cấu hình `off` (bước 3, `bash tests/kiem.sh`), 0 ở cấu hình `opus`.
+- Cổng Stop chặn một lần mỗi cấu hình, lý do chưa có checklist (luật G1); không lần nào do H1 tới H5.
+- Lỗi lộ ra và đã sửa: evidence dạng `lệnh => kết quả` bị đọc là cũ.
+- Giới hạn: router chấm prompt mẫu là light, nên cổng duyệt và vai điều phối không vào cuộc. Ba việc tồn ghi trong CHANGELOG.
+- Chi phí: 1,7 USD.
+
+### D2 và đo router (thay C9)
+
+Router sonnet, 3 lượt mỗi ca, lời dặn mới và `14a3a85` đo cùng đợt [Đo trực tiếp, 17/11/2026, engine 2.1.326]. Ba lần chỉnh lời dặn để router tự thêm việc audit, review, design (C3 bản đầu) đều dưới ngưỡng:
+
+| Đợt | Lượt đạt (76 ca) | Ca C9 cỡ vừa | `k4`, `six` | Token ra TB ca cũ |
+|---|---|---|---|---|
+| C3 bản đầu | 194/228 | 0/3 (router chấm light hay giữ `tasks: []`) | `k4` 2/3, `six` 1/3 | +13,9% |
+| Lần chỉnh 1 | 205/228 (chấm lại bằng bộ chấm đã sửa) | 0/3 | `six` 0/3, `long-vn` 1/3 | +13,9% |
+| Lần chỉnh 2 | 205/228 | 0/3 | `k4` 2/3, `six` 1/3 | +13,9% |
+| Lần chỉnh 3 (chủ mod cho phép) | 203/228 | `c9-mid-nocheck` 1/3, `c9-doc` 0/3 | 6 lượt: `k4` 2/6 so với 6/6, `six` 0/6 so với 2/6 | +18,3% |
+| Router chỉ đọc prompt (đo F) | 216/228 | 3/3 mỗi ca (chỉ chấm độ sâu) | 6 lượt: `k4` 5/6 so với 6/6, `six` 3/6 so với 4/6 | +12,6% (676 thành 761) |
+
+- `14a3a85` cùng đợt với đo F: 170/180 lượt trên 60 ca cũ. `c4-big-coded`, `c4-big-skill`, `arr-dup` 0/3 ở cả hai lời dặn với sonnet. Ba ca này cùng `c4-small`, `c4-status` ghi golden bằng router fable, 15/15 lượt, như mục 0.8.9.
+- Sáu ca D2 đạt ít nhất 2/3: `d2-many-rules` 2/3, năm ca còn lại 3/3.
+- Mười ca C9, chỉ chấm độ sâu: 3/3 mỗi ca; ca nhẹ không có việc thừa.
+- Chẩn đoán độ sâu trước lần chỉnh 3 (prompt cũ của ba ca C9 cỡ vừa): `14a3a85` cũng chấm light 3/3, nên prompt được viết lại cho đúng cỡ vừa. Bản viết lại được cả `14a3a85` lẫn lời dặn mới chấm substantial 3/3.
+- Bộ chấm golden (`tests/golden/check.ts`): lúc đo C3 bản đầu và ba lần chỉnh, số việc không tính các việc audit, review, design đội hình thêm (design đứng đầu, chuỗi audit, review, design đứng cuối), và có kỳ vọng vai cho mười ca C9. Khi đổi sang mod áp đội hình, bộ chấm trở về như 0.8.9 cho mọi ca cũ; mười ca C9 chỉ còn kỳ vọng độ sâu (`depths`).
+- Chi phí cả đợt đo router: khoảng 27,7 USD.
+
+**Ký tự chèn.**
+- Phiên dài và kịch bản 60 việc (bộ đo của mục 0.8.9): mỗi số tăng đúng 79 ký tự so với nền, là dòng dạng check ở kết quả `plan set` của B10, trong hạn mức 160. Ví dụ: mặc định 10.339 thành 10.418 và 19.587 thành 19.666; Fable 8.563 thành 8.642. Đội hình bật ở kịch bản này (độ sâu hard) nhưng đoạn dặn 300 ký tự đi ở context của prompt, phép đo không đếm phần đó.
+- Kịch bản "phiên theo kỷ luật giao việc" (dựng lại H1 tới H5): 3.381 ký tự trên `14a3a85` thành 1.398. Phần giảm gồm bốn cảnh báo ngoài phạm vi (797 ký tự) và hai câu hạ `verified` (1.184 ký tự). Kịch bản này không dựng ở bước đo nền; số nền đo bù trên bản chụp `14a3a85`.
+
+### Kiểm độc lập
+
+Một tác tử chưa thấy quá trình làm viết và chạy 63 probe đối kháng (49 ở mức hàm, 14 toàn luồng), ít nhất năm probe cho mỗi cụm B8, B9, B10, C2, C6, rồi quét chuỗi riêng tư trên diff [Đo trực tiếp, 17/11/2026].
+- Kết luận lần đầu: không đạt. Một lỗi nặng: vai chỉ đọc chạy được lệnh tự sửa file ở mức possible, và kết luận ĐẠT của nó vẫn mở cổng. Sáu lỗi vừa, năm lỗi nhẹ.
+- Đã sửa (test đỏ 19 ca, rồi bản sửa): lỗi nặng; cổng theo kết luận mới nhất; ghi nháp `/tmp` bật đội hình; đoạn lệnh bị che mã thoát và so kết quả mong đợi của B10; `git commit`, `push`, `tag` của vai chỉ đọc; cách tính bước kiểm khác nhau giữa pane và cổng.
+- Chưa sửa, ghi vào việc tồn: kết luận không theo vai (cần chủ mod chốt), bốn lỗi nhẹ còn lại.
+- Quét riêng tư: 0 chỗ cho tên skill có thật, tên phiên, đường dẫn máy, email, em dash, dấu chấm than. Hai ký hiệu chức năng (`✓`, `✗` của trạng thái bước đóng; `✅✓✔` trong regex nhận output) giữ lại.
+
+### D4: phiên thật có đội hình
+
+`conductor` `opus`, `planApproval` `off`, cùng dự án mẫu của D1, một lượt `claude -p` [Đo trực tiếp, 17/11/2026, engine 2.1.326]:
+
+- **Prompt cỡ vừa** (của D1): router không giao việc nào cho subagent; ba việc chạy ở luồng chính. Đội hình không bật: một file sửa, độ sâu thấp (luồng chính sonnet, không điều phối). Cổng đóng không chặn.
+  - Ba lần bước `verified` bị từ chối: Claude gộp sao lưu, ghi `src/thong-ke.sh` bằng heredoc và chạy kiểm vào một lời gọi Bash. Theo B10, lần chạy kèm ghi file không là bằng chứng của bước.
+  - Chi phí 0,50 USD.
+- **Prompt cỡ khó** (đổi cấu trúc thành hai tệp, thêm cờ, bộ kiểm mới): router chấm việc lớn, luồng chính opus điều phối. Đội hình bật theo độ sâu.
+  - Subagent theo thứ tự: build sonnet (Việc 3), audit haiku (`Kiểm: `, ĐẠT 6/6), review opus (`Duyệt: `, ĐẠT), review opus (`Kiểm độc lập: `, ĐẠT), review opus (Việc 7). Audit chạy trước review.
+  - Cổng đóng chặn một lần, lý do thiếu lần kiểm. Đây là chặn nhầm: subagent duyệt ghi nháp vào thư mục tạm, lần ghi đó làm cũ lần kiểm của audit.
+  - Cả ba kết luận ĐẠT bị coi là của subagent đã ghi file, vì chạy script kiểm (`bash -c`, vòng lặp chạy lệnh) bị tính là ghi.
+  - Hai lỗi trên đã sửa: test đỏ, rồi bản sửa. Chỉ tool file và Bash ghi mức definite ngoài thư mục tạm mới tính là đã ghi; ghi chắc vào thư mục tạm không vào sổ thay đổi. Ca tích hợp dựng lại đúng mẫu của phiên này. Chưa chạy lại phiên thật sau bản sửa vì trần chi phí.
+  - Lượt duyệt phải làm lại: một (sau lần chặn).
+  - Chi phí 2,44 USD, so với 0,45 tới 0,56 USD mỗi lượt của D1.
+
 ## Kiểm chứng của 0.8.9 vòng 3 (yêu cầu của việc đã bỏ, chuỗi gộp, bốn hành vi của D2)
 
 Cùng nhánh, tiếp từ `47690d5`. Thứ tự E1, E2, E3; E1 và E2 mỗi điểm một commit test đỏ rồi một commit sửa; E3 chỉ thêm test và mẫu nên một commit. Không amend, không force-push, không merge. Bộ test, kiểm tĩnh và đột biến chạy trên engine 2.1.296 cài riêng ngoài repo [Đo trực tiếp, 15/11/2026].

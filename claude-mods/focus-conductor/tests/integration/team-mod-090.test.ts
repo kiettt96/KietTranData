@@ -41,6 +41,8 @@ async function answer($: Engine, description: string, text: string, writes: read
   await $.tool.call({ tool: 'Agent', tool_use_id: id, description, prompt: 'Rà.' } as never)
   await $.agent.spawn({ prompt: 'Rà.', description, tool_use_id: id } as never)
   for (const path of writes) await $.tool.call({ tool: 'Edit', file_path: path, old_string: 'a', new_string: 'b', agentId: `a-${id}` } as never)
+  // Subagent đã ghi rồi chạy lệnh kiểm: kết luận đứng sau lần ghi của chính nó, chỉ việc theo dõi lần ghi (D1) loại được.
+  if (writes.length > 0) await $.tool.call({ tool: 'Bash', command: 'bun test', agentId: `a-${id}` } as never)
   await $.turn.complete({ turnId: `x-${id}`, agentId: `a-${id}`, answer: text, durationMs: 5, isAborted: false, reason: 'answer' } as never)
 }
 const offer = ($: Engine) => $.agent.offer({ agent: 'general-purpose', description: 'việc chung', source: 'built-in', provider: { plugin: 'engine', tier: 'core' } } as never)
@@ -96,7 +98,7 @@ describe('0.9.0 C: điều kiện bật đội hình', () => {
     expect(shown[0]).not.toContain('Sẵn sàng')
     const pane = (await (await $.ui.mount(PANE)).findAll({ type: 'Text' })).map(e => e.text ?? '').join('\n')
     expect(pane).toContain('Bước đóng (mod)')
-    expect(pane).toContain('Kiểm: chờ')
+    expect(pane).toContain('Kiểm: ')
     expect(pane).toContain('Duyệt: chờ')
   })
   test('substantial không có lệnh kiểm: đoạn dặn không có "Kiểm: "; cổng không đòi lần kiểm', OPTS({ checkCommands: '' }), async ($, on) => {
@@ -173,5 +175,20 @@ describe('0.9.0 D: nhận lượt duyệt theo kết quả', () => {
     await answer($, 'Kiểm độc lập: phí', 'PASS')
     await close($)
     expect(await stop($)).not.toContain(BLOCK)
+  })
+  test('subagent chỉ chạy script kiểm (bash -c, bash tests/x.sh) và ghi nháp vào /tmp, trả ĐẠT: kết luận được tính, cổng cho qua', OPTS(), async ($, on) => {
+    const seen = setup(on)
+    await start($, seen)
+    await edit($)
+    await check($)
+    const id = `m${(n += 1)}`
+    await $.tool.call({ tool: 'Agent', tool_use_id: id, description: 'Rà lại phí', prompt: 'Rà.' } as never)
+    await $.agent.spawn({ prompt: 'Rà.', description: 'Rà lại phí', tool_use_id: id } as never)
+    await $.tool.call({ tool: 'Bash', command: "bash -c 'source src/phi.sh; tinh_phi 3'", agentId: `a-${id}` } as never)
+    await $.tool.call({ tool: 'Bash', command: 'for c in a b; do out=$($c 2>&1); echo $out; done', agentId: `a-${id}` } as never)
+    await $.tool.call({ tool: 'Write', file_path: '/tmp/thu-phi.sh', content: 'x', agentId: `a-${id}` } as never)
+    await $.turn.complete({ turnId: `x-${id}`, agentId: `a-${id}`, answer: 'ĐẠT\nKhông lỗi.', durationMs: 5, isAborted: false, reason: 'answer' } as never)
+    await close($)
+    expect(await stop($)).toBe('')
   })
 })

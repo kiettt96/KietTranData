@@ -702,6 +702,8 @@ export function registerSession(on: On, ctx: Ctx): void {
       main: brief.main,
       expected,
       notes: plan.notes,
+      // Độ sâu router chấm (0.9.0 C): căn cứ của điều kiện bật đội hình; team là lý do bật lúc lập mục tiêu.
+      depth: brief.depth,
       ...(isNewGoal && teamCause(ctx.options['closingReview'], brief, []) !== null ? { team: teamCause(ctx.options['closingReview'], brief, []) } : {}),
       tasks: brief.tasks.map(t => ({ index: t.index, run: t.run, agentType: t.agentType, ...(t.role !== undefined ? { role: t.role } : {}), pick: t.pick, ...(t.split !== undefined ? { split: t.split.length } : {}) })),
     })

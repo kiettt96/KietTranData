@@ -22,7 +22,7 @@ import { approvalModeOf, reviewRoundsOf } from './lib/approval'
 import type { StepRun } from './lib/drift/stepcheck'
 import type { Verdict } from './lib/verdict'
 /** Một kết luận của subagent có vai (0.9.0 C4): vai, kết luận, số đếm, mốc seq, model đã chạy, việc và mô tả. */
-export type VerdictRun = { agentId: string; role: Role; verdict: Verdict | null; /** Subagent không ghi file nào ngoài thư mục tạm (0.9.0 D1): chỉ khi đó kết luận mới tính cho cổng. */ isClean: boolean; count?: string; seq: number; family: ModelFamily; taskIndex?: number; description: string }
+export type VerdictRun = { agentId: string; role: Role; verdict: Verdict | null; /** Subagent không ghi file nào ngoài thư mục tạm (0.9.0 D1): chỉ khi đó kết luận mới tính cho cổng. */ isClean: boolean; /** Kết luận tính cho duyệt và sẵn sàng (0.9.0 C6): không phải lượt Kiểm:, không phải ĐẠT HẾT, ALL PASS, model từ sonnet. */ isReview: boolean; count?: string; seq: number; family: ModelFamily; taskIndex?: number; description: string }
 import { activeConductor, conductorBlocker, conductorFallbackOf, conductorOf, fableModelId, isMainConducting } from './lib/conductor'
 import { normalizeCore, restoreArchived, withDelegations } from './lib/state'
 import type { ActiveConductor, ConductorBlocker, ConductorInputs } from './lib/conductor'
