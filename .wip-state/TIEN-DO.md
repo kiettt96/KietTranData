@@ -8,7 +8,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 ## Trạng thái đã xác minh
 - Đường dẫn khởi động chuẩn: khối mục 7 của prompt.
 - Đường dẫn xác minh chuẩn: `claude plugin test .` ở MOD.
-- Mục chưa xong ưu tiên cao nhất: B8.
+- Mục chưa xong ưu tiên cao nhất: B9.
 - Điểm chặn hiện tại: không.
 
 ## Đo nền (17/11/2026, engine 2.1.326)
@@ -39,7 +39,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 | B5 | passing 17/11 | đỏ (2/3 ca đỏ); sửa af4c032; quota-state-b5-090 3 pass (kể cả symlink ra ngoài bị từ chối); 090-B5a,b KILLED; mẫu cũ 075-A6a,b sửa chuỗi; tập 24 tệp hạn mức 272 pass; toàn luồng kiểm ở D1 |
 | B6 | passing 17/11 | đỏ (3/5 ca đỏ); sửa c5600e6; skill-side-b6-090 7 pass; 090-B6a..f KILLED; vế thử skill 107 ký tự; toàn luồng kiểm ở D1 |
 | B7 | passing 17/11 | đỏ (13/26 ca đỏ); sửa 77f8308; readonly-b7-090 26 pass (cả cổng duyệt và vai điều phối); 090-B7a..e KILLED; các tệp dùng classifyBash/isReadOnlyCommand đạt; toàn luồng kiểm ở D1 |
-| B8 | not_started | |
+| B8 | passing 17/11 | đỏ (6/8 ca đỏ); sửa b86d3c9; heredoc-b8-090 9 pass (cổng duyệt qua, vai điều phối từ chối bằng câu lệnh kiểm, bun test trong khối nâng verified, rm -rf vẫn là ghi); 090-B8a..e KILLED; 61 tệp liên quan heredoc/classify 847 pass, không ca ghi cũ nào thành chỉ đọc; toàn luồng kiểm ở D1 |
 | B9 | not_started | |
 | B10 | not_started | |
 | B11 | not_started | |
@@ -64,6 +64,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 - 17/11/2026: khởi động, đo nền, trình kế hoạch.
 
 ## Nhật ký quyết định
+- B8: thân có errexit (cờ -e hay set -e) được nối bằng && để dùng đúng luật mã thoát của chuỗi && (A11); không có thì nối bằng ; như xuống dòng. Dòng gán bằng thay thế lệnh chỉ đọc bỏ như phép gán; thay thế lệnh khác, heredoc lồng, eval, if, for, while, case, hàm, nối dòng thì giữ possible. Loại: mô phỏng set -e theo từng dòng.
 - B6: tệp trạng thái và nơi ghi phụ cũng không là thay đổi chắc chắn (tracker và evidence), để bản sao lưu .ts không sinh cảnh báo chưa kiểm. Loại: chỉ bỏ khỏi file skill (bản sao lưu .ts vẫn bị đòi chạy kiểm).
 - Cả bộ test chạy trên bản chụp git archive của một commit (tools/full-suite.sh), không trên cây làm việc: lượt chạy sau nhóm A trên cây làm việc bị dừng vì đọc lẫn mã B1 đang sửa. Loại: chạy trên cây làm việc.
 - A5: pane của 0.8.9 không có danh sách yêu cầu (grep hooks/ui), nên chỉ sửa hai chỗ liệt kê yêu cầu trong context: lời nhắc đối chiếu khi checklist đóng hẳn và lý do cổng Stop khi chưa có checklist. Loại: thêm danh sách yêu cầu vào pane (ngoài phạm vi).
