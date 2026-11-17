@@ -2,7 +2,7 @@
 // `claude -p` (không tool, không hook, không MCP), chấm câu trả lời theo tests/golden/check.ts và in bảng.
 // Chỉ đọc và điều phối, không thực thi prompt nào.
 //
-//   bun scripts/eval-router.ts [--model sonnet] [--only id1,id2] [--runs 3] [--record] [--out stats.json]
+//   bun scripts/eval-router.ts [--model sonnet] [--only id1,id2] [--runs 3] [--record] [--out stats.json] [--conductor]
 //
 // --runs N chạy mỗi ca N lần và báo tỷ lệ đạt từng ca (router không tất định, một lần chạy không nói được độ ổn định).
 // --record ghi vào tests/golden/replies.ts (dữ liệu replay của golden.test.ts): câu trả lời đạt đầu tiên của mỗi ca, băm của
@@ -34,6 +34,9 @@ const flag = (name: string) => {
 const MODEL = flag('--model') ?? 'sonnet'
 const ONLY = flag('--only')?.split(',')
 const RECORD = args.includes('--record')
+// 0.9.0 C9: --conductor dựng biến thể điều phối của lời dặn cho mọi ca (như conductor khác off), không dùng cùng --record.
+const CONDUCTOR = args.includes('--conductor')
+if (CONDUCTOR && RECORD) throw new Error('--conductor không dùng cùng --record')
 const OUT = flag('--out')
 const RUNS = Math.max(1, Number(flag('--runs') ?? '1') || 1)
 const REPLIES = join(import.meta.dir, '..', 'tests', 'golden', 'replies.ts')
@@ -53,7 +56,7 @@ function run(input: string, argv: string[]): Promise<{ out: string; ms: number }
 }
 
 async function one(c: GoldenCase, n: number) {
-  const request = goldenRequest(c, MODEL)
+  const request = goldenRequest(c, MODEL, CONDUCTOR)
   const system = (request.system as { text: string }[]).map(b => b.text).join('')
   const file = join(work, `system-${c.id}.txt`)
   writeFileSync(file, system)
@@ -105,7 +108,7 @@ async function one(c: GoldenCase, n: number) {
 // Phiên bản Claude Code chạy eval, ghi kèm kết quả để số liệu gắn với đúng môi trường.
 const version = (await run('', ['--version'])).out.trim()
 const startedAt = new Date().toISOString()
-console.log(`Claude Code ${version || '?'}, router ${MODEL}, ${RUNS} lần mỗi ca, ${startedAt}`)
+console.log(`Claude Code ${version || '?'}, router ${MODEL}${CONDUCTOR ? ' (điều phối)' : ''}, ${RUNS} lần mỗi ca, ${startedAt}`)
 
 const picked = CASES.filter(c => !ONLY || ONLY.includes(c.id))
 const jobs = picked.flatMap(c => Array.from({ length: RUNS }, (_, n) => ({ c, n })))

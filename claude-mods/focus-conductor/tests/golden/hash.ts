@@ -10,9 +10,9 @@ import { OPEN } from './cases'
 
 const hex = (bytes: ArrayBuffer): string => [...new Uint8Array(bytes)].map(byte => byte.toString(16).padStart(2, '0')).join('')
 
-/** Request của mod cho một ca, với model router cố định để băm không phụ thuộc option router. */
-export function goldenRequest(c: GoldenCase, model = 'sonnet') {
-  return routerRequest({ text: c.text, prev: c.prev ?? null, ran: c.ran ?? null, policy: c.conductor === true ? { ...OPEN, conductor: true } : OPEN, model, prices: bundledPrices(), ...(c.openSteps !== undefined ? { openSteps: c.openSteps } : {}), ...(c.awaiting !== undefined ? { awaiting: c.awaiting } : {}), ...(c.states !== undefined ? { taskStates: c.states } : {}) })
+/** Request của mod cho một ca, với model router cố định để băm không phụ thuộc option router; `conductor` dựng biến thể điều phối cho mọi ca (0.9.0 C9). */
+export function goldenRequest(c: GoldenCase, model = 'sonnet', conductor = false) {
+  return routerRequest({ text: c.text, prev: c.prev ?? null, ran: c.ran ?? null, policy: c.conductor === true || conductor ? { ...OPEN, conductor: true } : OPEN, model, prices: bundledPrices(), ...(c.openSteps !== undefined ? { openSteps: c.openSteps } : {}), ...(c.awaiting !== undefined ? { awaiting: c.awaiting } : {}), ...(c.states !== undefined ? { taskStates: c.states } : {}) })
 }
 
 /** SHA-256 (hex) của request, không tính model. */

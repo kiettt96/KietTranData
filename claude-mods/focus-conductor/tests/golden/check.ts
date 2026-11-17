@@ -7,6 +7,24 @@ import { nextBrief, parseRoute } from '../../hooks/lib/router'
 import type { GoldenCase } from './cases'
 import { OPEN } from './cases'
 
+type Roles = NonNullable<GoldenCase['expect']['roles']>
+
+function roleFails(e: Roles, roles: ReadonlyArray<string | undefined>): string[] {
+  const fails: string[] = []
+  const shown = roles.map(r => r ?? '-').join(',') || 'không việc'
+  for (const role of e.none ?? []) if (roles.includes(role)) fails.push(`có vai ${role} khi không cần (${shown})`)
+  const firsts = (e.order ?? []).map(role => roles.indexOf(role))
+  const missing = (e.order ?? []).filter((_, i) => (firsts[i] ?? -1) < 0)
+  if (missing.length > 0) fails.push(`thiếu vai ${missing.join(', ')} (${shown})`)
+  else if (firsts.some((at, i) => i > 0 && at < (firsts[i - 1] ?? 0))) fails.push(`vai không theo thứ tự ${(e.order ?? []).join(' > ')} (${shown})`)
+  if (e.last !== undefined && roles[roles.length - 1] !== e.last) fails.push(`việc cuối mang vai ${roles[roles.length - 1] ?? '-'}, cần ${e.last} (${shown})`)
+  if (e.checks !== undefined) {
+    const checks = roles.filter(r => r === 'review' || r === 'audit').length
+    if (checks < e.checks[0] || checks > e.checks[1]) fails.push(`${checks} việc review hay audit, cần ${e.checks[0]} tới ${e.checks[1]} (${shown})`)
+  }
+  return fails
+}
+
 type RawArrange = { order?: unknown[]; drop?: Array<{ task?: unknown }>; merge?: Array<{ tasks?: unknown[] }> }
 
 /** Trường arrange của câu trả lời gốc (đối tượng JSON đầu tiên trong câu trả lời); undefined khi không có hay không đọc được. */
@@ -115,6 +133,14 @@ export function check(c: GoldenCase, reply: string): string[] {
   }
   // Điều phối lại (0.8.9 D4): chấm trường arrange của câu trả lời gốc, trước khi parseRoute lọc theo relation và intent.
   if (e.arrange !== undefined) fails.push(...arrangeFails(e.arrange, rawArrange(reply)))
+  // Đội hình, tệp trạng thái, ràng buộc và câu hỏi (0.9.0 D2, C9).
+  if (e.roles !== undefined) fails.push(...roleFails(e.roles, plan.tasks.map(t => t.role)))
+  for (const path of e.stateFiles ?? []) if (!plan.stateFiles.some(x => x.includes(path))) fails.push(`stateFiles ${JSON.stringify(plan.stateFiles)}, cần có ${path}`)
+  for (const path of e.sideWrites ?? []) if (!plan.sideWrites.some(x => x.includes(path))) fails.push(`sideWrites ${JSON.stringify(plan.sideWrites)}, cần có ${path}`)
+  if (e.noSides === true && plan.stateFiles.length + plan.sideWrites.length > 0) fails.push(`có stateFiles hay sideWrites khi prompt không nêu: ${JSON.stringify([...plan.stateFiles, ...plan.sideWrites])}`)
+  if (e.constraints !== undefined && (plan.constraints.length < e.constraints[0] || plan.constraints.length > e.constraints[1])) fails.push(`${plan.constraints.length} ràng buộc, cần ${e.constraints[0]} tới ${e.constraints[1]}`)
+  const asked = plan.questions?.length ?? 0
+  if (e.questions !== undefined && (asked < e.questions[0] || asked > e.questions[1])) fails.push(`${asked} câu hỏi, cần ${e.questions[0]} tới ${e.questions[1]}`)
   // Tiếp nối không được lập mục tiêu mới; mục tiêu mới phải có câu mục tiêu.
   const next = nextBrief(c.prev ?? null, plan, c.text, 1)
   if (c.prev !== undefined && plan.relation !== 'new' && next.isNewGoal && !plan.runReference) fails.push('tiếp nối mà lập mục tiêu mới')
