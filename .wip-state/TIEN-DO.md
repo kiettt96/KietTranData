@@ -8,7 +8,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 ## Trạng thái đã xác minh
 - Đường dẫn khởi động chuẩn: khối mục 7 của prompt.
 - Đường dẫn xác minh chuẩn: `claude plugin test .` ở MOD.
-- Mục chưa xong ưu tiên cao nhất: B1.
+- Mục chưa xong ưu tiên cao nhất: B2.
 - Điểm chặn hiện tại: không.
 
 ## Đo nền (17/11/2026, engine 2.1.326)
@@ -32,7 +32,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 | A3 | passing 17/11 | đỏ (1/4 ca mới đỏ: T3, fallbackUsable bỏ qua promptPaused); sửa 7671e15 ở hooks/context.ts; conductor-fallback-f1-087 22 pass; 090-A3a KILLED; tập 42 tệp conductor/fable/router 421 pass |
 | A4 | passing 17/11 | đỏ (4/6 ca đỏ); sửa 3832bef; config-a4-090 6 pass (toàn luồng session.start tới prompt.submit, cảnh báo một lần); 090-A4a..e KILLED; tập 34 tệp 296 pass; version-check đạt |
 | A5 | passing 17/11 | đỏ (3/4 ca đỏ); sửa 7a5fe97; retired-a5-090 4 pass (toàn luồng submit, bỏ việc, plan set, đóng checklist); 090-A5a..e KILLED; mẫu cũ 078-G1m, 078-G2e, 078-G2f sửa chuỗi, vẫn KILLED; tập 26 tệp 366 pass |
-| B1 | not_started | |
+| B1 | passing 17/11 | đỏ 4ee21e5 (12/13 ca đỏ; thông điệp commit ghi nhầm mã cha bcb1d0b, đúng là 7a5fe97); sửa 9aab1c4; state-files-b1-090 13 pass; 090-B1a..j KILLED; lời dặn router +272 ký tự (10.888 thành 11.160); hai ca ghim đổi kỳ vọng (CA-DOI-KY-VONG.md); golden đỏ tới D2; toàn luồng kiểm ở D1 |
 | B2 | not_started | |
 | B3 | not_started | |
 | B4 | not_started | |
@@ -63,6 +63,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 - 17/11/2026: khởi động, đo nền, trình kế hoạch.
 
 ## Nhật ký quyết định
+- Cả bộ test chạy trên bản chụp git archive của một commit (tools/full-suite.sh), không trên cây làm việc: lượt chạy sau nhóm A trên cây làm việc bị dừng vì đọc lẫn mã B1 đang sửa. Loại: chạy trên cây làm việc.
 - A5: pane của 0.8.9 không có danh sách yêu cầu (grep hooks/ui), nên chỉ sửa hai chỗ liệt kê yêu cầu trong context: lời nhắc đối chiếu khi checklist đóng hẳn và lý do cổng Stop khi chưa có checklist. Loại: thêm danh sách yêu cầu vào pane (ngoài phạm vi).
 - A4: cảnh báo cấu hình đặt ở session.start (toast và Core.warnings, cờ trong local, một lần mỗi lần nạp). Loại: cảnh báo ở tool.call như ngưỡng hạn mức (phụ thuộc option hạn mức bật).
 - Chạy test theo tập tệp liên quan cho từng mục (tools/run-tests.sh), cả bộ test chạy ở cuối mỗi nhóm; mẫu đột biến kiểm nhanh trên tệp test của mục (tools/mut-subset.ts), lượt đột biến đầy đủ bằng scripts/mutate.ts trên engine 2.1.296 ở cuối lượt. Lý do: cả bộ 5,6 phút một lần. Loại: cả bộ sau mỗi commit.
