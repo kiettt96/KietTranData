@@ -88,7 +88,7 @@ async function presented($: Engine) {
 // c. Tin duyệt kèm chỉnh nhỏ: duyệt và áp chỉnh trong cùng lượt.
 // d. Request rà kế hoạch gửi danh sách yêu cầu sau khi đã gộp mọi tin bổ sung.
 const APPROVE = follow({ intent: 'approve' })
-const FIX = { missing: ['Thêm test cho phí'], extra: [], issues: [] }
+const FIX = { missing: [2], extra: [], issues: [] }
 
 describe('0.9.0 B12 a: duyệt khi đang lập kế hoạch', () => {
   test('planning, checklist đã lưu, chưa rà: "ok duyệt" ghi đã duyệt trước; lượt rà sạch thì tự approved, Edit qua', OPTIONS, async ($, on) => {
@@ -172,7 +172,7 @@ describe('0.9.0 B12 d: request rà kế hoạch dùng yêu cầu đã gộp', ()
     await turn($, 't1')
     await setPlan($)
     await stop($)
-    const review = seen.routed.find(r => r.startsWith(REVIEW_MARK)) ?? ''
+    const review = seen.routed.find(r => r.includes(REVIEW_MARK)) ?? ''
     expect(review).toContain('Ghi nhật ký phí')
   })
 })
