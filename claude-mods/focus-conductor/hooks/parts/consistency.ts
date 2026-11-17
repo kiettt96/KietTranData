@@ -133,7 +133,8 @@ async function closingGate($: EngineInterface, ctx: Ctx, core: Core, log: Eviden
   await update($, coreState, S.withClosingGap({ goalId: brief.goalId, missing, ...(isSolo ? { solo: true as const } : {}) }))
   if (isSolo) return null
   if (L.closingState.goalId !== brief.goalId) L.closingState = { goalId: brief.goalId, blocks: 0, key: '' }
-  const key = `${missing}:${lastHard}:${reviewSeq}`
+  // Trạng thái của bước còn thiếu (chờ hay chưa đạt) thuộc khóa: duyệt đổi từ chờ sang chưa đạt là trạng thái thiếu mới (vòng sửa 1).
+  const key = `${missing}:${steps.find(s => s.name === missing)?.state ?? ''}:${lastHard}:${reviewSeq}`
   if (L.closingState.key === key || L.closingState.blocks >= CLOSING_BLOCKS) return null
   L.closingState = { goalId: brief.goalId, blocks: L.closingState.blocks + 1, key }
   ctx.record(await $.clock.now(), 'closing-gate', { goalId: brief.goalId, missing, n: L.closingState.blocks })
@@ -1178,7 +1179,8 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       if (meta === undefined) return result
       // Lần ghi của subagent ngoài thư mục tạm (0.9.0 D1): tool file, hay Bash ghi mức definite (đích chưa xác định cũng tính). Chạy script
       // (ghi mức possible, như bash x.sh, bash -c) không tính: subagent duyệt và kiểm cần chạy lệnh kiểm.
-      if (!observation.isError && isMutation(observation) && L.agentWrote.size < 500 && wroteOutsideTemp(observation)) L.agentWrote.add(e.agentId)
+      // Không lọc qua isMutation: lệnh git trên lịch sử (commit, push) không là thay đổi của cây làm việc nhưng vẫn là ghi (vòng sửa 1).
+      if (!observation.isError && (EDIT_TOOLS.has(observation.tool) || observation.tool === 'Bash') && L.agentWrote.size < 500 && wroteOutsideTemp(observation)) L.agentWrote.add(e.agentId)
       const agentTracker = agentTrackers.get(e.agentId) ?? newTracker('')
       agentTrackers.set(e.agentId, agentTracker)
       // remindSubagents: subagent cũng bị kiểm phạm vi file của mục tiêu và được nhắc (kèm việc được giao);
@@ -1536,10 +1538,13 @@ export function registerConsistency(on: On, ctx: Ctx): void {
         const isClean = !L.agentWrote.has(agentId)
         // Kết luận theo vai (0.9.0 C6): lượt có tiền tố Kiểm:, Audit: và từ ĐẠT HẾT, ALL PASS chỉ là của bước kiểm; duyệt và sẵn sàng cần model
         // từ sonnet trở lên.
-        const ranFamily = familyOf(e.usage?.model ?? '') ?? meta.family
-        const isReview = isClean && prefixRole(meta.description) !== 'audit' && parsed?.isCheckOnly !== true && ranFamily !== 'haiku'
+        // Model đã chạy: theo usage khi có (model lạ thì không biết họ), không thì họ của lời giao.
+        const usageModel = e.usage?.model ?? ''
+        const ranFamily = usageModel !== '' ? familyOf(usageModel) : meta.family
+        const isStrong = ranFamily === 'sonnet' || ranFamily === 'opus' || ranFamily === 'fable'
+        const isReview = isClean && prefixRole(meta.description) !== 'audit' && parsed?.isCheckOnly !== true && isStrong
         if (L.verdicts.goalId !== meta.goalId) L.verdicts = { goalId: meta.goalId, items: [] }
-        L.verdicts.items.push({ agentId, role, verdict: parsed?.verdict ?? null, isClean, isReview, ...(parsed?.count !== undefined ? { count: parsed.count } : {}), seq: ctx.evidenceFor(meta.goalId).seq, family: familyOf(e.usage?.model ?? '') ?? meta.family, ...(meta.taskIndex !== undefined ? { taskIndex: meta.taskIndex } : {}), description: meta.description })
+        L.verdicts.items.push({ agentId, role, verdict: parsed?.verdict ?? null, isClean, isReview, ...(parsed?.count !== undefined ? { count: parsed.count } : {}), seq: ctx.evidenceFor(meta.goalId).seq, family: ranFamily ?? meta.family, ...(meta.taskIndex !== undefined ? { taskIndex: meta.taskIndex } : {}), description: meta.description })
         if (L.verdicts.items.length > 100) L.verdicts.items.shift()
         record(at, 'verdict', { agentId, role, verdict: parsed?.verdict ?? null, ...(isClean ? {} : { wrote: true }), ...(isReview ? { review: true } : {}), ...(parsed?.count !== undefined ? { count: parsed.count } : {}) })
         await flushDecisions((path, text) => $.fs.write(path, text))

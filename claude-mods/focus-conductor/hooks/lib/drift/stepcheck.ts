@@ -53,8 +53,8 @@ export function stepRunOf(command: string, isError: boolean, output: string | un
     effect => effect.kind === 'write' && effect.level === 'definite' && (effect.isUnknown || effect.paths.length === 0 || effect.paths.some(path => !TEMP_DIRS.some(dir => normalizePath(path).startsWith(dir)))),
   )
   const failed = outputFailed(text) || summaryFailed(text) || customFailedOf(text) || ranNothing(text)
-  // Đoạn lệnh kiểm bị che mã thoát hay output (cmd; echo, cmd || true, cmd &) không là bằng chứng cho bước (vòng sửa sau kiểm độc lập).
-  const segments = classified.effects.flatMap(effect => (effect.kind === 'check' && effect.exit !== 'hidden' ? [runKey(effect.segment)] : []))
+  // Đoạn lệnh kiểm bị che mã thoát (cmd; echo, cmd || true, cmd &, cmd | tail khi không pipefail) không là bằng chứng cho bước.
+  const segments = classified.effects.flatMap(effect => (effect.kind === 'check' && (effect.exit === 'visible' || effect.exit === 'chained' || (effect.exit === 'filtered' && effect.pipefail === true)) ? [runKey(effect.segment)] : []))
   return {
     keys: [...new Set([runKey(command), ...segments])],
     output: text.slice(0, STEP_OUTPUT_CHARS),

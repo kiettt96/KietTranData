@@ -19,17 +19,27 @@ export function hardFileCount(paths: readonly string[]): number {
   return new Set(paths.filter(path => !isSoftPath(path) && !isRoleTemp(path))).size
 }
 
-/** Lệnh đã biết là ghi file dù bộ phân loại chỉ xếp mức possible (0.9.0 vòng sửa sau kiểm độc lập). */
+/** Lệnh đã biết là ghi file dù bộ phân loại chỉ xếp mức possible (0.9.0, hai vòng sửa sau kiểm độc lập). */
 const KNOWN_WRITERS: readonly RegExp[] = [
   /\b(?:curl|wget)\b[^;&|]*\s(?:-o|-O|--output(?:-document)?)(?:\s|=)/,
   /\bperl\b[^;&|]*\s-[a-zA-Z]*i/,
   /\bfind\b[^;&|]*\s-(?:delete|exec|execdir)\b/,
   /(?:^|[;&|(]\s*|\s)patch\b/,
-  /\b(?:node|deno|bun)\s+(?:-e|--eval|-p|--print)\b/,
-  /\b(?:python3?|python2)\s+-c\b/,
-  /\bruby\s+-e\b/,
+  /\b(?:node|deno)\b(?:\s+--?[\w-]+(?:=\S+)?)*\s+(?:-e|--eval|-p|--print)\b/,
+  /\bbun\s+(?:-e|--eval)\b/,
+  /\bpython(?:[23](?:\.\d+)?)?\b(?:\s+-[a-zA-Z]+)*\s+-[a-zA-Z]*c\b/,
+  /\bruby\b(?:\s+-[a-zA-Z]+)*\s+-[a-zA-Z]*e\b/,
   /(?:^|[;&|(]\s*)(?:dd|truncate)\s/,
+  /\bg?awk\b[^;&|]*-i\s*inplace\b/,
+  /\b(?:gofmt|shfmt)\b[^;&|]*\s-[a-z]*w\b/,
+  /\bclang-format\b[^;&|]*\s-i\b/,
 ]
+/** Formatter sửa tại chỗ, trừ khi chạy chế độ kiểm (--check, --diff). */
+const IN_PLACE_FORMATTERS = /(?:^|[;&|(]\s*|\s)(?:black|isort|rustfmt|autopep8)\b([^;&|]*)/
+/** Lệnh bọc chạy lệnh khác (nice, nohup, ...): bỏ để xét lệnh bên trong. */
+const WRAPPERS = /(^|[;&|(]\s*)(?:nice|nohup|ionice|stdbuf|time)(?:\s+-\S+(?:\s+\d+)?)*\s+/g
+/** Shell lồng: bash -c '...', sh -c "...". */
+const INNER_SHELL = /\b(?:bash|sh|zsh|dash)\s+(?:-[a-zA-Z]+\s+)*-[a-zA-Z]*c\s+(['"])([\s\S]*?)\1/g
 
 /**
  * Lệnh Bash ghi file ngoài thư mục tạm (0.9.0 C2, D1, vòng sửa sau kiểm độc lập): tác động ghi mức definite ngoài thư mục tạm hay đích chưa
@@ -37,11 +47,18 @@ const KNOWN_WRITERS: readonly RegExp[] = [
  * perl -pi, find -delete, patch, node -e, python -c). Chạy script (bash x.sh, bash -c) không tính.
  */
 export function isBashWrite(command: string, cwd: string | null = null): boolean {
+  // Lệnh trong shell lồng và sau lệnh bọc được xét như lệnh đứng riêng (vòng sửa 1 sau kiểm độc lập lần hai).
+  for (const match of command.matchAll(INNER_SHELL)) if (isBashWrite(match[2] ?? '', cwd)) return true
+  const unwrapped = command.replace(WRAPPERS, '$1')
+  if (unwrapped !== command && isBashWrite(unwrapped, cwd)) return true
+  const formatter = IN_PLACE_FORMATTERS.exec(command)
+  if (formatter !== null && !/--check|--diff/.test(formatter[1] ?? '')) return true
   const effects = classifyBash(command, cwd ?? undefined).effects
   const isDefinite = effects.some(effect => effect.kind === 'write' && effect.level === 'definite' && (effect.isHistory === true || effect.isUnknown || effect.paths.length === 0 || effect.paths.some(path => !isRoleTemp(path))))
   if (isDefinite) return true
+  if (KNOWN_WRITERS.some(re => re.test(command))) return true
   if (!effects.some(effect => effect.kind === 'write' && effect.level === 'possible')) return false
-  return isSelfFixing(command.split(/\s+/)) || KNOWN_WRITERS.some(re => re.test(command))
+  return isSelfFixing(command.split(/\s+/))
 }
 
 /**
