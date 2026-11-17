@@ -2521,4 +2521,9 @@ export const MUTANTS: Mutant[] = [
   { id: "090-C7c", file: "hooks/parts/consistency.ts", note: "vòng 2 không dặn chẩn đoán", old: "      : round === RETRY_ROUNDS - 1\n", new: "      : false as boolean\n" },
   { id: "090-C7d", file: "hooks/parts/consistency.ts", note: "chẩn đoán không dùng model mạnh nhất được phép", old: "verdictRetryNote(name, round, topFamily(ctx.policy()))", new: "verdictRetryNote(name, round, 'opus')" },
   { id: "090-C7e", file: "hooks/parts/consistency.ts", note: "hết trần không cảnh báo", old: "            $.ui.toast(text)\n            record(at, 'retry-exhausted', { role: meta.role,", new: "            record(at, 'retry-exhausted', { role: meta.role," },
+  { id: "090-C8a", file: "hooks/parts/consistency.ts", note: "không chèn bảng khi đóng bước cuối", old: "      if (table !== '') notes.push(table)\n", new: "" },
+  { id: "090-C8b", file: "hooks/parts/consistency.ts", note: "chèn bảng cả khi chưa đóng bước cuối", old: "    if (isClosing && core.brief !== null && L.verdicts.goalId === core.brief.goalId) {", new: "    if (core.brief !== null && L.verdicts.goalId === core.brief.goalId) {" },
+  { id: "090-C8c", file: "hooks/lib/verdict.ts", note: "một việc chạy nhiều lần không giữ lần cuối", old: "    const key = run.taskIndex !== undefined ? `#${run.taskIndex}` : run.description\n", new: "    const key = `${run.description}#${last.size}`\n" },
+  { id: "090-C8d", file: "hooks/lib/verdict.ts", note: "quá trần không gộp theo vai", old: "  if (full.length <= REPORT_TABLE_CHARS) return full\n", new: "  return full.slice(0, REPORT_TABLE_CHARS)\n" },
+  { id: "090-C8e", file: "hooks/lib/text.ts", note: "mục 6 bỏ ai làm, kết luận duyệt", old: "; nêu kèm ai làm, kết luận duyệt, phần chưa xác minh.", new: ". Nêu kèm phần việc đã làm, phần chưa làm, phần còn hở." },
 ]
