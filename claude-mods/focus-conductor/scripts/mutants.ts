@@ -2474,4 +2474,6 @@ export const MUTANTS: Mutant[] = [
   { id: "090-B12e", file: "hooks/parts/session.ts", note: "tin duyệt bỏ chỉnh nhỏ đi kèm", old: "    const plan = steered !== null && intent === 'resume' ? { ...steered, tasks: [], requirements: [] } : steered\n", new: "    const plan = steered !== null && (intent === 'resume' || intent === 'approve') ? { ...steered, tasks: [], requirements: [] } : steered\n" },
   { id: "090-B12f", file: "hooks/lib/state.ts", note: "cờ duyệt trước không sống qua normalize", old: ", ...(raw.early === true ? { early: true as const } : {}) }\n", new: " }\n" },
   { id: "090-B12g", file: "hooks/parts/session.ts", note: "context duyệt không nêu chỉnh kèm", old: "${approvedAdds.length > 0 ? ` Chỉnh kèm lời duyệt: ${approvedAdds.join('; ')}.` : ''}", new: "" },
+  { id: "090-B13a", file: "hooks/lib/router.ts", note: "bỏ câu dòng có mã của bảng mục việc", old: ", and every row of a table or list of work items that starts with a code (M1, A2, B10) is its own task, in the request's order,", new: ", in the request's order," },
+  { id: "090-B13b", file: "hooks/lib/router.ts", note: "trả trần 6 cho constraints", old: "- constraints: the hard rules (must, must not, only, format, scope)", new: "- constraints: at most 6 hard rules (must, must not, only, format, scope)" },
 ]
