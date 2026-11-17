@@ -8,7 +8,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 ## Trạng thái đã xác minh
 - Đường dẫn khởi động chuẩn: khối mục 7 của prompt.
 - Đường dẫn xác minh chuẩn: `claude plugin test .` ở MOD.
-- Mục chưa xong ưu tiên cao nhất: A4.
+- Mục chưa xong ưu tiên cao nhất: A5.
 - Điểm chặn hiện tại: không.
 
 ## Đo nền (17/11/2026, engine 2.1.326)
@@ -30,7 +30,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 | A1 | passing 17/11 | đỏ 20cd683 (4/9 ca đỏ); sửa 4172922; `run-tests.sh tests/fail-label-a1-090.test.ts` 14 pass 0 fail (chạy thật, toàn luồng prompt.submit tới classic.Stop trong tệp); 090-A1a..f KILLED trên tệp test |
 | A2 | passing 17/11 | đỏ (5/7 ca đỏ); sửa bb227e5; tệp test 8 pass, toàn luồng prompt.submit tới Stop trong tệp; 090-A2a..e KILLED; tập 30 tệp liên quan 335 pass |
 | A3 | passing 17/11 | đỏ (1/4 ca mới đỏ: T3, fallbackUsable bỏ qua promptPaused); sửa 7671e15 ở hooks/context.ts; conductor-fallback-f1-087 22 pass; 090-A3a KILLED; tập 42 tệp conductor/fable/router 421 pass |
-| A4 | not_started | |
+| A4 | passing 17/11 | đỏ (4/6 ca đỏ); sửa 3832bef; config-a4-090 6 pass (toàn luồng session.start tới prompt.submit, cảnh báo một lần); 090-A4a..e KILLED; tập 34 tệp 296 pass; version-check đạt |
 | A5 | not_started | |
 | B1 | not_started | |
 | B2 | not_started | |
@@ -63,6 +63,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 - 17/11/2026: khởi động, đo nền, trình kế hoạch.
 
 ## Nhật ký quyết định
+- A4: cảnh báo cấu hình đặt ở session.start (toast và Core.warnings, cờ trong local, một lần mỗi lần nạp). Loại: cảnh báo ở tool.call như ngưỡng hạn mức (phụ thuộc option hạn mức bật).
 - Chạy test theo tập tệp liên quan cho từng mục (tools/run-tests.sh), cả bộ test chạy ở cuối mỗi nhóm; mẫu đột biến kiểm nhanh trên tệp test của mục (tools/mut-subset.ts), lượt đột biến đầy đủ bằng scripts/mutate.ts trên engine 2.1.296 ở cuối lượt. Lý do: cả bộ 5,6 phút một lần. Loại: cả bộ sau mỗi commit.
 - A2: thư mục nhà đọc bằng $.env.get('HOME') lúc session.start; đích ~/ chưa giải thì scopeStatus trả unknown. Loại: chỉ giữ dạng ~/ không giải.
 - Mod focus-conductor không cài trong phiên cloud này (claude plugin list), nên các đường lùi cho H1, H2 ở mục 2 của prompt không cần dùng; tệp kế hoạch ghi trước khi duyệt. Phương án loại: chờ duyệt mới ghi.
