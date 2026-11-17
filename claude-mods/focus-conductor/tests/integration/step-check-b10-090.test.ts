@@ -7,7 +7,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
-import { base, conductor, plan, spawnTool, submit } from '../support/engine'
+import { PANE, base, conductor, plan, spawnTool, submit } from '../support/engine'
 import type { Json } from '../support/engine'
 
 const PLAN = 'mcp__focus-conductor__plan'
@@ -127,16 +127,26 @@ describe('0.9.0 B10: bằng chứng theo từng bước', () => {
 })
 
 describe('0.9.0 B10: đổi check sau khi kế hoạch đã duyệt', () => {
-  test('ghi dòng check-changed; pane có dòng cần chú ý; bằng chứng cũ mất hiệu lực', { options: { decisionLog: LOG } }, async ($, on) => {
-    const { lines } = setup(on, { [GREP]: '1', 'bun test': '1' }, GOAL())
+  const OTHER = 'grep -c tong out/thong-ke.json'
+  test('ghi dòng check-changed; pane có dòng cần chú ý; bằng chứng cũ mất hiệu lực, lần chạy sau khi đổi thì tính', { options: { decisionLog: LOG } }, async ($, on) => {
+    const { lines } = setup(on, { [GREP]: '1', [OTHER]: '1' }, GOAL())
     await start($)
     await conductor($, 'approve')
     await edit($)
-    await bash($, 'bun test')
-    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa thống kê', check: '`bun test` => 1' }, STEPS[1]] } as never)
+    await bash($, OTHER)
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa thống kê', check: `\`${OTHER}\` => 1` }, STEPS[1]] } as never)
     expect(lines().some(l => l['kind'] === 'check-changed')).toBe(true)
-    expect(await conductor($, 'status').then(r => String((r as { text?: string }).text ?? ''))).toContain('đổi check')
+    const pane = (await (await $.ui.mount(PANE)).findAll({ type: 'Text' })).map(e => e.text ?? '').join('\n')
+    expect(pane).toContain('đổi check')
     await $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'done' })
     expect(await show($)).toContain('[x] 1. Sửa thống kê')
+    await bash($, OTHER)
+    expect(await show($)).toContain('[v] 1. Sửa thống kê')
+  })
+  test('trước khi duyệt: đổi check không ghi check-changed', { options: { decisionLog: LOG } }, async ($, on) => {
+    const { lines } = setup(on, { [GREP]: '1', [OTHER]: '1' }, GOAL())
+    await start($)
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa thống kê', check: `\`${OTHER}\`` }, STEPS[1]] } as never)
+    expect(lines().some(l => l['kind'] === 'check-changed')).toBe(false)
   })
 })
