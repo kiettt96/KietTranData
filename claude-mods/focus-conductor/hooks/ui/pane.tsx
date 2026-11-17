@@ -875,6 +875,17 @@ export function renderPane(
           {checklist}
         </Box>
       ) : null}
+      {/* 0.9.0 C3: bước đóng do mod sinh khi đội hình bật (kiểm, duyệt, sẵn sàng), mỗi bước một dòng có trạng thái. */}
+      {view.core.team !== undefined && view.core.team.goalId === brief.goalId ? (
+        <Box flexDirection="column">
+          {heading(l.teamHeading)}
+          {view.core.team.steps.map(step => (
+            <Text key={`team-${step.name}`} wrap="truncate-end" {...(step.state === 'wait' ? { dimColor: true } : {})}>
+              {`${step.state === 'pass' ? '✓' : step.state === 'fail' ? '✗' : '·'} ${l.teamSteps[step.name]}: ${l.teamStates[step.state]}`}
+            </Text>
+          ))}
+        </Box>
+      ) : null}
       {taskNodes.length > 0 ? (
         <Box flexDirection="column">
           {heading(l.taskSection, taskHeading)}

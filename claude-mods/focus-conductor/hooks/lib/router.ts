@@ -99,7 +99,7 @@ function money(n: number): string {
 export function catalogOf(price: Record<ModelFamily, Price> = PRICE): string {
   const rate = (family: ModelFamily) => `$${money(price[family].input)}/$${money(price[family].output)}`
   return `Models (USD per 1M tokens, input/output):
-- haiku (${rate('haiku')}): fast and very cheap. Read-only lookups: find, list, read and report, extract facts, short summaries; also running checks and reporting pass or fail. Never for work that changes files.
+- haiku (${rate('haiku')}): fast and very cheap. Read-only lookups: find, list, read and report, extract facts, short summaries. Never for work that changes files.
 - sonnet (${rate('sonnet')}): the default for coding. Well-defined edits, features that follow clear patterns, tests, docs, refactors with a clear plan, debugging with a visible cause, review of a bounded change.
 - opus (${rate('opus')}): deep reasoning. Unclear or intermittent root causes, concurrency, security, data migration, cross-module design and trade-offs, algorithmic correctness, performance root causes, judging a large or subtle change.
 - fable (${rate('fable')}): only when <context> lists it as allowed, and only for the hardest piece where opus is likely to fail.
@@ -109,7 +109,7 @@ Agent types: Explore = read-only search and lookup, cannot edit; Plan = designs 
 Use Explore only for finding, listing, reading and reporting facts. Review, security checks, root-cause work and any judgement use general-purpose, even when they change no file.`
 }
 
-const LABELS = `depth: none = a direct fact, a short list or a plain explanation; light = a small, well-defined change in one or two places, or a lookup; substantial = reasoning across several parts; hard = deep reasoning (the opus kind of work).
+const LABELS = `depth: none = a direct fact, a short list or a plain explanation; light = a small, well-defined change or lookup; substantial = reasoning across several parts; hard = deep reasoning (the opus kind of work).
 volume: small = one or two places; medium = several files or about ten steps; large = many files, about thirty steps, or a large dataset.
 kind: answer = nothing changes; edit = files change; investigate = finds facts without changing files; mixed = both.`
 
@@ -125,17 +125,10 @@ Delegation:
 - With one or two pieces, delegate only a clearly separable read-only lookup that runs on haiku.
 - The main thread's model and effort cover what it does itself: understanding the request, planning, coordinating, the pieces it keeps, and the final answer. When the hardest pieces stay on the main thread, the main thread needs their model.
 
-Team roles: every task has "role": "design" (approach, risks, acceptance; hard diagnosis; readiness; agent Plan; fable when <context> allows it, else opus), "review" (checks correctness, scope and conventions; general-purpose, opus, never below sonnet; no edits), "build" (does the work; general-purpose, sonnet), "search" (finds code, sources, facts; Explore, haiku), "audit" (runs tests, builds, lint, figure, template and spelling checks; general-purpose, haiku; no edits). Another model needs a reason in "why".
-- depth none or light: no added audit, review or design tasks.
-- depth substantial or hard, kind edit or mixed: tasks is never []: the work is build tasks (main or agent), then one audit task (only when a check command is known from the request or the project), then one review task, last.
-- depth hard: also one design task first when the request changes structure widely or touches security or data, and one design readiness task last, after the review.
-- Work that is not code keeps the team: audit checks figures, templates and spelling; review judges the content. Review also covers the request's rules and final report. Team tasks never lower "main".
-- If the request already sets an independent check or its own way of checking, that task takes the review or audit role; do not add a duplicate.
-
 Reading the request:
 - goal: the end result the user wants, one sentence.
 - requirements: first list everything the request asks for, requires or forbids, one short item each in the user's words (under 100 characters; list every one, with no limit on how many): every deliverable, rule, format, quality bar and constraint, including those hidden in paragraphs, tables or background text. Merge exact repeats and omit nothing: this is the checklist the work is checked against.
-- tasks: first, every heading with a code (K4.1, Bước 2, Task 3) is its own task, and every row of a table or list of work items that starts with a code (M1, A2, B10) is its own task, in the request's order, with the code at the start of its title: never merge coded headings with each other or with other pieces, even when they look alike. For work the request has not split by codes, split it the way that gets it done best, which need not follow how the request is laid out: merge pieces that are really one piece of work, and split a large piece into independent parts only when they can run separately. Each title is a short quote or summary (under 80 characters). Each task has "covers": the numbers (from 1) of the requirements it fulfils, and every requirement must be covered by at least one task. There is no fixed limit on the number of tasks: list every separate piece of work the request has, and never merge separate pieces just to keep the list short. Steps of one piece of work (find the cause, fix it, test it, update its docs) are not tasks: they stay inside that piece and belong to the checklist. Order tasks in the order they are done: a task that another task needs comes first, and tasks of the same group stay next to each other. A request that is one piece of work has tasks [], except as Team roles say.
+- tasks: first, every heading with a code (K4.1, Bước 2, Task 3) is its own task, and every row of a table or list of work items that starts with a code (M1, A2, B10) is its own task, in the request's order, with the code at the start of its title: never merge coded headings with each other or with other pieces, even when they look alike. For work the request has not split by codes, split it the way that gets it done best, which need not follow how the request is laid out: merge pieces that are really one piece of work, and split a large piece into independent parts only when they can run separately. Each title is a short quote or summary (under 80 characters). Each task has "covers": the numbers (from 1) of the requirements it fulfils, and every requirement must be covered by at least one task. There is no fixed limit on the number of tasks: list every separate piece of work the request has, and never merge separate pieces just to keep the list short. Steps of one piece of work (find the cause, fix it, test it, update its docs) are not tasks: they stay inside that piece and belong to the checklist. Order tasks in the order they are done: a task that another task needs comes first, and tasks of the same group stay next to each other. A request that is one piece of work has tasks [].
 - Run a task as "agent" only when it is truly independent: it needs no result of another task, does not edit the files another task edits, and is worth a fresh subagent prompt. Otherwise keep it on the main thread.
 - Items under "xong khi", "done when", "tiêu chí", "acceptance" or similar are quality criteria, never tasks. Background, context, definitions and notes are neither tasks nor constraints.
 - constraints: the hard rules (must, must not, only, format, scope), the most important first, each shortened to under 100 characters. A rule that sets a model for a kind of work (including "the session's model") is always the first constraint, kept with its model, and never dropped. quality: at most 5 acceptance criteria, same length.
@@ -159,7 +152,7 @@ Relation to the previous goal (shown in <context>):
 Use only the models <context> lists as allowed. Write every string, "why" included, in the language of the request: a Vietnamese request gets Vietnamese strings.
 Keep the reply short, it is read by a program: "why" of the request is one sentence under 25 words; "why" of main and of each task is under 15 words.
 Reply with ONE JSON object and nothing else. Fill "why" first. "confidence" is how sure you are of the routing, from 0 to 1.
-{"why": string, "confidence": number, "relation": "new"|"continue"|"refine"|"dissatisfied", "intent": "status"|"resume"|"approve"|"amend"|"task", "reference": boolean, "runReference": boolean, "goal": string, "requirements": string[], "constraints": string[], "quality": string[], "scope": string[], "stateFiles": string[], "sideWrites": string[], "depth": "none"|"light"|"substantial"|"hard", "volume": "small"|"medium"|"large", "kind": "answer"|"edit"|"investigate"|"mixed", "main": {"model": "haiku"|"sonnet"|"opus"|"fable", "effort": "low"|"medium"|"high"|"xhigh", "why": string}, "referenceMain": {"model": string, "effort": string}, "skipApproval": boolean, "questions": string[], "tasks": [{"title": string, "covers": number[], "run": "main"|"agent", "agent": string, "role": "design"|"review"|"build"|"search"|"audit", "model": string, "effort": string, "depth": string, "volume": string, "kind": string, "why": string}], "arrange": {"order": (number|string)[], "drop": [{"task": number, "why": string}], "merge": [{"tasks": number[], "into": number|string}]}}
+{"why": string, "confidence": number, "relation": "new"|"continue"|"refine"|"dissatisfied", "intent": "status"|"resume"|"approve"|"amend"|"task", "reference": boolean, "runReference": boolean, "goal": string, "requirements": string[], "constraints": string[], "quality": string[], "scope": string[], "stateFiles": string[], "sideWrites": string[], "depth": "none"|"light"|"substantial"|"hard", "volume": "small"|"medium"|"large", "kind": "answer"|"edit"|"investigate"|"mixed", "main": {"model": "haiku"|"sonnet"|"opus"|"fable", "effort": "low"|"medium"|"high"|"xhigh", "why": string}, "referenceMain": {"model": string, "effort": string}, "skipApproval": boolean, "questions": string[], "tasks": [{"title": string, "covers": number[], "run": "main"|"agent", "agent": string, "model": string, "effort": string, "depth": string, "volume": string, "kind": string, "why": string}], "arrange": {"order": (number|string)[], "drop": [{"task": number, "why": string}], "merge": [{"tasks": number[], "into": number|string}]}}
 
 Examples (abridged):
 - "Liệt kê các hàm export trong utils.ts" -> depth none, kind answer, main haiku/low, tasks [].
@@ -224,7 +217,7 @@ Rules:
 - Use only the models and agent types <context> lists.
 - If <context> lists the tasks of the goal and this piece is one of them (same work, whatever the wording), set "task" to that task's number; otherwise null.
 Reply with ONE JSON object and nothing else, "why" under 15 words and in the language of the task. "confidence" is how sure you are, from 0 to 1:
-{"why": string, "confidence": number, "task": number|null, "model": "haiku"|"sonnet"|"opus"|"fable", "effort": "low"|"medium"|"high"|"xhigh", "agent": string, "role": "design"|"review"|"build"|"search"|"audit", "depth": string, "volume": string, "kind": string}`
+{"why": string, "confidence": number, "task": number|null, "model": "haiku"|"sonnet"|"opus"|"fable", "effort": "low"|"medium"|"high"|"xhigh", "agent": string, "depth": string, "volume": string, "kind": string}`
 }
 
 /**
@@ -794,6 +787,32 @@ export function ruleRoute(claimed: ModelFamily, claimedEffort: Effort | null, po
   }
 }
 
+/** Model mặc định của vai kiểm (0.9.0 B2): review opus, audit haiku, design fable khi allowFable bật, không thì opus. */
+export const ROLE_DEFAULTS: Record<'review' | 'audit' | 'design', Choice> = {
+  review: { family: 'opus', effort: 'high' },
+  audit: { family: 'haiku', effort: 'low' },
+  design: { family: 'opus', effort: 'high' },
+}
+
+/**
+ * Lựa chọn của lời gọi Agent theo tiền tố vai (0.9.0 B2), không qua router: model mặc định của vai, kẹp chính sách như mọi lựa chọn
+ * (loại việc investigate: không sửa file). Design dùng fable khi chính sách cho phép.
+ */
+export function roleRoute(role: 'review' | 'audit' | 'design', agentType: string | undefined, policy: Policy): AgentRoute {
+  const base = role === 'design' && policy.allowFable ? { family: 'fable' as const, effort: 'medium' as const } : ROLE_DEFAULTS[role]
+  const fitted = fitPick(base, 'investigate', policy)
+  return {
+    pick: fitted.pick,
+    agentType: agentType ?? (role === 'design' ? 'Plan' : 'general-purpose'),
+    depth: 'light',
+    volume: 'small',
+    kind: 'investigate',
+    tier: tierOf('light', 'small'),
+    role,
+    why: [`vai ${role} theo tiền tố: model mặc định của vai`, ...fitted.notes].join('; '),
+  }
+}
+
 /** Họ model cao nhất chính sách cho phép: model của phiên khi ceiling hay fixed, nếu không thì fable khi bật allowFable, còn lại opus. */
 export function topFamily(policy: Policy): ModelFamily {
   const session = policy.session
@@ -870,15 +889,13 @@ export const ROLES: readonly Role[] = ['design', 'review', 'build', 'search', 'a
 export const READ_ONLY_ROLES: ReadonlySet<Role> = new Set(['design', 'review', 'search'])
 
 /**
- * Vai của một việc (0.9.0 C1): giá trị router trả nếu hợp lệ; không thì suy: Explore là search, Plan là design, sửa file (edit, mixed) là
- * build, còn lại là review.
+ * Vai của một việc do mod suy (0.9.0 B, thay C1; router không trả vai): Explore là search, Plan là design, general-purpose có sửa file
+ * (edit, mixed) là build. Việc ở luồng chính hay loại khác thì không mang vai.
  */
-export function roleOf(value: unknown, agentType: string | undefined, kind: Kind): Role {
-  const given = ROLES.find(role => role === value)
-  if (given !== undefined) return given
+export function roleOf(agentType: string | undefined, kind: Kind): Role | undefined {
   if (agentType === 'Explore') return 'search'
   if (agentType === 'Plan') return 'design'
-  return kind === 'edit' || kind === 'mixed' ? 'build' : 'review'
+  return agentType === 'general-purpose' && (kind === 'edit' || kind === 'mixed') ? 'build' : undefined
 }
 
 /** Sàn model theo vai (0.9.0 C1): review và build không dưới sonnet. Trả lựa chọn đã nâng kèm ghi chú, hay nguyên lựa chọn. */
@@ -899,12 +916,11 @@ function parseTask(value: unknown, index: number, main: Choice, whole: { depth: 
   // Việc giao subagent mà thiếu model hoặc effort hợp lệ thì làm ở luồng chính.
   const run = raw['run'] === 'agent' && own !== null ? 'agent' : 'main'
   const agentType = run === 'agent' ? agentTypeOf(raw['agent'], kind, policy) : undefined
-  // Vai router trả (0.9.0 C1); vắng hay sai thì việc không mang vai và được điều phối như 0.8.9 (vai suy ra chỉ đọc qua roleOf).
-  const role = ROLES.find(r => r === raw['role'])
-  // Sàn theo vai trước, rồi kẹp theo chính sách (allowFable, họ bị chặn, model của phiên) như mọi lựa chọn.
-  const floored = role !== undefined ? roleFloor(own ?? main, role) : { pick: own ?? main, notes: [] }
-  const policed = fitPick(floored.pick, kind, policy)
-  const fitted = { pick: policed.pick, notes: [...floored.notes, ...policed.notes] }
+  // Vai do mod suy từ loại agent và loại việc (0.9.0 B1); model router chấm giữ nguyên, kẹp chính sách rồi kẹp sàn của vai.
+  const role = roleOf(agentType, kind)
+  const policed = fitPick(own ?? main, kind, policy)
+  const floored = role !== undefined ? roleFloor(policed.pick, role) : { pick: policed.pick, notes: [] }
+  const fitted = { pick: floored.pick, notes: [...policed.notes, ...floored.notes] }
   const covers = coversOf(raw['covers'])
   return {
     index,
@@ -1232,11 +1248,11 @@ export function parseAgentRoute(reply: string, policy: Policy): AgentRoute | nul
   const volume = volumeOf(raw['volume'], 'small')
   const kind = kindOf(raw['kind'], 'mixed')
   const agentType = agentTypeOf(raw['agent'], kind, policy)
-  // Vai router trả cho subagent (0.9.0 C1); vắng hay sai thì suy, nhưng sàn chỉ áp khi router trả vai.
-  const role = ROLES.find(r => r === raw['role'])
-  const floored = role !== undefined ? roleFloor(own, role) : { pick: own, notes: [] }
-  const policed = fitPick(floored.pick, kind, policy)
-  const fitted = { pick: policed.pick, notes: [...floored.notes, ...policed.notes] }
+  // Vai do mod suy (0.9.0 B1), như việc trong danh sách.
+  const role = roleOf(agentType, kind)
+  const policed = fitPick(own, kind, policy)
+  const floored = role !== undefined ? roleFloor(policed.pick, role) : { pick: policed.pick, notes: [] }
+  const fitted = { pick: floored.pick, notes: [...policed.notes, ...floored.notes] }
   const confidence = confidenceOf(raw['confidence'])
   const taskIndex = raw['task']
   return {

@@ -7,10 +7,11 @@ import { turnCost } from '../lib/cost'
 import { countSpawn, shapeKey, shapeOutput } from '../lib/ledger'
 import { EFFORTS, agentMemoKey, applySession, describePick, familyOf, familyRank, pickRank, ruleConflict, ruleFamily, stepCovers, taskMatch } from '../lib/route'
 import { clipText } from '../lib/decisions'
-import { READ_ONLY_ROLES, agentRouterRequest, askRouter, briefCodes, fitPick, floorRoute, isSettled, parseAgentRoute, ruleRoute, taskRoute } from '../lib/router'
+import { READ_ONLY_ROLES, agentRouterRequest, roleRoute, askRouter, briefCodes, fitPick, floorRoute, isSettled, parseAgentRoute, ruleRoute, taskRoute } from '../lib/router'
 import { FORK_QUOTA_DENY, RETRY_PREFIX, RETRY_ROUNDS, forkRetryNote, forkReturnNote } from '../lib/text'
 import { liveForks, openParts } from '../lib/forks'
 import { classifyBash, filePathOf, isSkillTrial, normalizePath } from '../lib/drift'
+import { isRoleTemp } from '../lib/drift/scope'
 import { labels, langOf } from '../ui/labels'
 import { reportLine } from '../lib/verdict'
 import { shownPlan } from '../lib/mirror'
@@ -56,18 +57,34 @@ function codesOf(core: ReturnType<typeof S.normalizeCore>): ReadonlySet<string> 
  * Mức sàn cho một lần giao Agent khi còn lệnh kiểm chưa đạt ở lượt 2 trở đi (0.7.8 vòng sửa 3, W4): description mở đầu "Sửa lỗi kiểm: "
  * thì lấy sàn cao nhất của các lệnh; general-purpose có prompt nhắc đúng một lệnh chưa đạt thì lấy sàn của lệnh đó. Còn lại null.
  */
-/** Tiền tố description của lời gọi kiểm độc lập (0.9.0 C4): luôn là vai review. */
-export const INDEPENDENT_PREFIXES = ['Kiểm độc lập: ', 'Independent check: '] as const
+/**
+ * Tiền tố description theo vai (0.9.0 B2), xét tiền tố dài trước, không phân biệt hoa thường. Tiền tố chỉ quyết vai và model của lời gọi;
+ * kết luận của subagent được nhận theo câu trả lời, có tiền tố hay không (0.9.0 D1).
+ */
+export const ROLE_PREFIXES: ReadonlyArray<readonly [string, 'review' | 'audit' | 'design']> = (
+  [
+    ['Kiểm độc lập: ', 'review'],
+    ['Independent check: ', 'review'],
+    ['Duyệt: ', 'review'],
+    ['Review: ', 'review'],
+    ['Kiểm: ', 'audit'],
+    ['Audit: ', 'audit'],
+    ['Sẵn sàng: ', 'design'],
+    ['Readiness: ', 'design'],
+  ] as const
+).slice().sort((a, b) => b[0].length - a[0].length)
 
-/** Vai của một lời gọi Agent (0.9.0 C1, C4): "Kiểm độc lập: " là review; không thì vai của route nếu có. */
-export function roleOfCall(routeRole: Role | undefined, description: string): Role | undefined {
-  if (INDEPENDENT_PREFIXES.some(prefix => description.startsWith(prefix))) return 'review'
-  return routeRole
+/** Vai theo tiền tố description (0.9.0 B2), hay undefined. */
+export function prefixRole(description: string): 'review' | 'audit' | 'design' | undefined {
+  const head = description.normalize('NFC').trimStart().toLowerCase()
+  return ROLE_PREFIXES.find(([prefix]) => head.startsWith(prefix.normalize('NFC').toLowerCase()))?.[1]
 }
 
-/** Thư mục tạm: ghi dưới đây không tính là sửa file của việc (0.9.0 C2). */
-const ROLE_TEMP_DIRS = ['/tmp/', '/private/tmp/', '/var/folders/']
-const isRoleTemp = (path: string) => ROLE_TEMP_DIRS.some(dir => normalizePath(path).startsWith(dir))
+/** Vai của một lời gọi Agent (0.9.0 B): tiền tố trước, không thì vai mod suy của route. */
+export function roleOfCall(routeRole: Role | undefined, description: string): Role | undefined {
+  return prefixRole(description) ?? routeRole
+}
+
 
 /**
  * Lời từ chối theo vai (0.9.0 C2), không quá 200 ký tự; null là được. Vai chỉ đọc (search, review, design): mọi tool sửa file và lệnh Bash
@@ -227,10 +244,15 @@ export function registerAgents(on: On, ctx: Ctx): void {
     let route: AgentRoute | null = null
     let reason: string
     const requested = EFFORTS.find(x => x === e.effort) ?? null
+    const byPrefix = prefixRole(e.description)
     if (assigned !== undefined) {
       route = taskRoute(assigned, rules)
       reason = `việc ${assigned.index} đã phân trước${route.why ? `: ${route.why}` : ''}`
       if (claimed !== null && familyRank(claimed) < familyRank(route.pick.family)) reason += `; Claude ghi ${e.model}, dùng ${route.pick.family} đã phân`
+    } else if (byPrefix !== undefined) {
+      // Lời gọi theo tiền tố vai (0.9.0 B2): không qua router; model mặc định của vai, model Claude ghi vẫn là mức sàn (floorRoute).
+      route = roleRoute(byPrefix, e.subagent_type, rules)
+      reason = route.why
     } else if (isSettled(claimed, requested, rules)) {
       // Claude đã chốt cả họ (ở mức trần chính sách cho phép) lẫn effort (0.7.4): router không thể chọn khác, không gọi.
       reason = 'Claude đã chốt model và effort ở mức trần cho phép; không gọi router'
@@ -516,7 +538,11 @@ export function registerAgents(on: On, ctx: Ctx): void {
 
     // Mẫu báo cáo theo vai (0.9.0 C4): lời giao subagent có vai được nối một dòng nêu mẫu báo cáo và dòng kết luận đứng đầu câu trả lời.
     const spawnRole = roleOfCall((info?.route ?? workflowRoute)?.role, info?.description ?? e.description)
-    const reportSuffix = spawnRole !== undefined && e.fork !== true ? `\n\n${reportLine(spawnRole, langOf(ctx.options['uiLanguage']))}` : ''
+    // Dòng mẫu báo cáo (0.9.0 C4): lời gọi có tiền tố vai, hay việc có vai khi đội hình của mục tiêu đã bật (0.9.0 C); còn lại như 0.8.9.
+    const spawnCore = S.normalizeCore(await read($, coreState))
+    const isTeamOn = spawnCore.team !== undefined && spawnCore.brief !== null && spawnCore.team.goalId === spawnCore.brief.goalId
+    const isReported = spawnRole !== undefined && e.fork !== true && (prefixRole(info?.description ?? e.description) !== undefined || isTeamOn)
+    const reportSuffix = isReported && spawnRole !== undefined ? `\n\n${reportLine(spawnRole, langOf(ctx.options['uiLanguage']))}` : ''
     const result = await next(reportSuffix !== '' ? { ...e, prompt: `${e.prompt}${reportSuffix}` } : e)
     if (result.deny !== undefined) return result
     // Phiên con (0.7.9 F1): lời gọi Agent đã có spawn, nên lỗi về sau là lỗi của phần đó, không phải engine từ chối.
