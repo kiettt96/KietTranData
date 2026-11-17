@@ -8,7 +8,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 ## Trạng thái đã xác minh
 - Đường dẫn khởi động chuẩn: khối mục 7 của prompt.
 - Đường dẫn xác minh chuẩn: `claude plugin test .` ở MOD.
-- Mục chưa xong ưu tiên cao nhất: đo sau nhóm B, rồi D1.
+- Mục chưa xong ưu tiên cao nhất: C3.
 - Điểm chặn hiện tại: không.
 
 ## Đo nền (17/11/2026, engine 2.1.326)
@@ -46,8 +46,8 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 | B12 | passing 17/11 | đỏ (3 ca đỏ sau khi sửa khung test; vế b, duyệt giữa lượt khi presented, đã duyệt trước còn chỗ sửa, request rà dùng yêu cầu đã gộp xanh trên nền, giữ làm ca ghim); sửa 87a964b; approval-b12-090 8 pass; 090-B12a..g KILLED; 33 tệp duyệt/router 438 pass; lời dặn router +76 ký tự (tổng B1+B12 = 348) |
 | B13 | passing 17/11 | đỏ (2/3 ca đỏ); sửa 8771b48; router-b13-090 3 pass; 090-B13a,b KILLED; lời dặn 10.888 thành 11.332 (+444, trong 500 của B1+B12+B13); 50 tệp lời dặn 630 pass, chỉ golden đỏ (được phép tới D2); phần đo router ở D2 |
 | D1 | passing 17/11 | phiên thật claude -p --plugin-dir, engine 2.1.326, router và skill thật, dự án và prompt mẫu tự dựng (d1/); hai cấu hình (conductor off và opus), mỗi cấu hình lượt 1 làm việc, lượt 2 `--continue`. Số đo lượt 1 (nhật ký decisions-*-luot1.jsonl, transcript): từ chối ghi tệp trạng thái 0 và 0; cảnh báo ngoài phạm vi cho tệp trạng thái và nơi sao lưu 0 và 0 (một cảnh báo khác cho lệnh rm trên /tmp ở cấu hình off); khối đo nền heredoc chạy, không có câu 'không xác định được file đích'; bước lên verified nhờ lệnh ở check: 0 (on) và 1 (off, bước 3 qua `bash tests/kiem.sh`, dòng verify-step); cổng Stop chặn 1 lần mỗi cấu hình, lý do chưa có checklist (G1), không lần nào do H1 tới H5. Lỗi lộ ra và đã sửa: evidence dạng `lệnh => kết quả` bị đọc là stale (đỏ 6f8…, sửa ở commit evidence). Giới hạn: router chấm prompt là light nên cổng duyệt và vai điều phối không vào cuộc; ghi vào việc tồn |
-| C1 | not_started | |
-| C2 | not_started | |
+| C1 | passing 17/11 | đỏ (6/6 ca đỏ); sửa 9a2adc3; role-c1-090 6 pass (parseRoute, sàn, chấm subagent, nhật ký route, pane 80 và 44 cột, vi và en); 090-C1a..g KILLED; mẫu cũ 075-L6a,b,c sửa chuỗi; 76 tệp giao diện/router 980 pass. Quyết định: vai chỉ lưu khi router trả vai hợp lệ (fail-closed) |
+| C2 | passing 17/11 | đỏ (5/6 ca đỏ); sửa aedfcee; role-perm-c2-090 6 pass; 090-C2a..e KILLED; 36 tệp agent/subagent 391 pass. Khai báo 2.1.296 và 2.1.326: tool.call của subagent trả được {deny} (ToolCallResult), nên dùng từ chối thật, không chuyển thành nhắc |
 | C3 | not_started | |
 | C4 | not_started | |
 | C5 | not_started | |
@@ -68,6 +68,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 - 17/11/2026: khởi động, đo nền, trình kế hoạch.
 
 ## Nhật ký quyết định
+- C1: vai chỉ lưu vào việc khi router trả giá trị hợp lệ; vắng hay sai thì việc không mang vai, không có sàn theo vai, không nhãn (như 0.8.9, theo ràng buộc fail-closed); roleOf suy vai cho nơi cần đọc. Loại: lưu vai suy ra (làm đổi pick và 14 ca ghim giao diện cũ).
 - D1: mỗi cấu hình chạy một prompt mẫu cỡ vừa, rồi một lượt `--continue`. Lượt `--continue` mất nhật ký quyết định của lượt 1 và mất mục tiêu (mod coi tin duyệt là mục tiêu mới), nên số đo lấy từ bản chép nhật ký ngay sau lượt 1 và từ transcript. Ghi vào việc tồn: (1) nhật ký decisionLog bị ghi đè ở phiên resume; (2) trạng thái mục tiêu không sống qua `claude -p --continue`; (3) câu 'Việc nhỏ: làm trực tiếp, không cần checklist' của mục tiêu light cãi với prompt đòi checklist, Claude lập checklist sau khi làm nên B10 không có bằng chứng (lần chạy trước khi check được lưu); (4) router chấm prompt kỷ luật cỡ vừa là light.
 - B11: cú pháp phạm vi là token `@@` rồi glob nối bằng `;` (`bun test @@ src/**`): không lệnh shell nào có token đúng bằng `@@`, không va với gói npm `@scope/x`. Engine 2.1.326 không có option theo dự án (`claude plugin configure --help`), nên README hướng dẫn glob tuyệt đối. Loại: `[glob] lệnh` (va với `[ -f x ]`), `@glob` (va với `@scope/pkg`).
 - B10: bước nâng nhờ check (byCheck) chỉ hạ khi có thay đổi không nhẹ, vì điều kiện bằng chứng là 'sau thay đổi không nhẹ cuối cùng'; bước nâng theo luật 0.7.0 giữ cách hạ cũ. Dòng dạng check ở plan set đi bằng context để dòng kết quả một dòng của 0.7.3 giữ nguyên. Mốc check và lần chạy giữ trong local cùng vòng đời với dấu vết evidence. Loại: lưu mốc trong Core (lệch seq sau nạp lại mod).
