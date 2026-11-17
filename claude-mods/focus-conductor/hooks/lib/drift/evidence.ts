@@ -6,7 +6,7 @@ import { checkScopeOf, customKey, inCheckScope, isCheckTool } from './verify'
 import { FILE_TOOLS, filePathOf, isPlanFile, str } from './tool'
 import type { ToolObservation } from './tool'
 import { classifyBash } from './classify'
-import type { BashEffect } from './classify'
+import type { BashEffect, WriteEffect } from './classify'
 import { writeEffects } from './effects'
 import { isHardEffect, isSoftPath } from './soft'
 import { isSkillPath } from './skill'
@@ -85,7 +85,7 @@ export function noteEvidence(log: EvidenceLog, observation: ToolObservation, aut
   const isSide = (path: string) => isSidePath(path, sides, null, observation.cwd ?? null)
   // Cờ dùng chung thư mục (0.8.6 R2) chỉ cho lần kiểm của subagent.
   const shared = isShared && author !== 'main' ? { shared: true as const } : {}
-  const isSideOnly = (effect: BashEffect) => !effect.isUnknown && effect.paths.length > 0 && effect.paths.every(isSide)
+  const isSideOnly = (effect: WriteEffect) => effect.level === 'definite' && !effect.isUnknown && effect.paths.length > 0 && effect.paths.every(isSide)
   const onWrite = (isHard: boolean, paths: readonly string[] | null = null) => {
     log.seq += 1
     log.lastMutation = log.seq

@@ -109,7 +109,7 @@ Agent types: Explore = read-only search and lookup, cannot edit; Plan = designs 
 Use Explore only for finding, listing, reading and reporting facts. Review, security checks, root-cause work and any judgement use general-purpose, even when they change no file.`
 }
 
-const LABELS = `depth: none = a direct fact, a short list or a plain explanation; light = a small, well-defined change or lookup; substantial = reasoning across several parts; hard = deep reasoning (the opus kind of work).
+const LABELS = `depth: none = a direct fact, a short list or a plain explanation; light = a small, well-defined change in one or two places, or a lookup; substantial = reasoning across several parts; hard = deep reasoning (the opus kind of work).
 volume: small = one or two places; medium = several files or about ten steps; large = many files, about thirty steps, or a large dataset.
 kind: answer = nothing changes; edit = files change; investigate = finds facts without changing files; mixed = both.`
 
@@ -125,11 +125,11 @@ Delegation:
 - With one or two pieces, delegate only a clearly separable read-only lookup that runs on haiku.
 - The main thread's model and effort cover what it does itself: understanding the request, planning, coordinating, the pieces it keeps, and the final answer. When the hardest pieces stay on the main thread, the main thread needs their model.
 
-Team roles: every task has "role": "design" (approach, risks, acceptance; hard diagnosis; readiness; agent Plan; fable when <context> allows it, else opus), "review" (independent check of correctness, scope and conventions; general-purpose, opus, never below sonnet; no edits), "build" (does the work; general-purpose, sonnet), "search" (finds code, sources, facts; Explore, haiku), "audit" (runs tests, builds, lint, figure, template and spelling checks and reports; general-purpose, haiku; no edits). Another model needs a reason in "why".
+Team roles: every task has "role": "design" (approach, risks, acceptance; hard diagnosis; readiness; agent Plan; fable when <context> allows it, else opus), "review" (checks correctness, scope and conventions; general-purpose, opus, never below sonnet; no edits), "build" (does the work; general-purpose, sonnet), "search" (finds code, sources, facts; Explore, haiku), "audit" (runs tests, builds, lint, figure, template and spelling checks; general-purpose, haiku; no edits). Another model needs a reason in "why".
 - depth none or light: no added audit, review or design tasks.
-- depth substantial, kind edit or mixed: after the build tasks, one audit task (only when a check command is known from the request or the project) and then one review task, last, in that order.
+- depth substantial, kind edit or mixed: after the build tasks, one audit task (only when a check command is known from the request or the project), then one review task, last; one piece of work is then one build task, not [].
 - depth hard: also one design task first when the request changes structure widely or touches security or data, and one design readiness task last, after the review.
-- Lookups are search, running checks is audit, editing and writing is build. Work that is not code keeps the same team: audit checks figures, templates and spelling; review judges the content.
+- Work that is not code keeps the team: audit checks figures, templates and spelling; review judges the content. Review also covers the request's rules and final report. Team tasks never lower "main".
 - If the request already sets an independent check or its own way of checking, that task takes the review or audit role; do not add a duplicate.
 
 Reading the request:
