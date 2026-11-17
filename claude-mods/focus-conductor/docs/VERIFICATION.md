@@ -54,6 +54,14 @@ Router sonnet, 3 lượt mỗi ca, lời dặn mới và `14a3a85` đo cùng đ�
 - Phiên dài và kịch bản 60 việc (bộ đo của mục 0.8.9): mỗi số tăng đúng 79 ký tự so với nền, là dòng dạng check ở kết quả `plan set` của B10, trong hạn mức 160. Ví dụ: mặc định 10.339 thành 10.418 và 19.587 thành 19.666; Fable 8.563 thành 8.642. Đội hình bật ở kịch bản này (độ sâu hard) nhưng đoạn dặn 300 ký tự đi ở context của prompt, phép đo không đếm phần đó.
 - Kịch bản "phiên theo kỷ luật giao việc" (dựng lại H1 tới H5): 3.381 ký tự trên `14a3a85` thành 1.398. Phần giảm gồm bốn cảnh báo ngoài phạm vi (797 ký tự) và hai câu hạ `verified` (1.184 ký tự). Kịch bản này không dựng ở bước đo nền; số nền đo bù trên bản chụp `14a3a85`.
 
+### Kiểm độc lập
+
+Một tác tử chưa thấy quá trình làm viết và chạy 63 probe đối kháng (49 ở mức hàm, 14 toàn luồng), ít nhất năm probe cho mỗi cụm B8, B9, B10, C2, C6, rồi quét chuỗi riêng tư trên diff [Đo trực tiếp, 17/11/2026].
+- Kết luận lần đầu: không đạt. Một lỗi nặng: vai chỉ đọc chạy được lệnh tự sửa file ở mức possible, và kết luận ĐẠT của nó vẫn mở cổng. Sáu lỗi vừa, năm lỗi nhẹ.
+- Đã sửa (test đỏ 19 ca, rồi bản sửa): lỗi nặng; cổng theo kết luận mới nhất; ghi nháp `/tmp` bật đội hình; đoạn lệnh bị che mã thoát và so kết quả mong đợi của B10; `git commit`, `push`, `tag` của vai chỉ đọc; cách tính bước kiểm khác nhau giữa pane và cổng.
+- Chưa sửa, ghi vào việc tồn: kết luận không theo vai (cần chủ mod chốt), bốn lỗi nhẹ còn lại.
+- Quét riêng tư: 0 chỗ cho tên skill có thật, tên phiên, đường dẫn máy, email, em dash, dấu chấm than. Hai ký hiệu chức năng (`✓`, `✗` của trạng thái bước đóng; `✅✓✔` trong regex nhận output) giữ lại.
+
 ### D4: phiên thật có đội hình
 
 `conductor` `opus`, `planApproval` `off`, cùng dự án mẫu của D1, một lượt `claude -p` [Đo trực tiếp, 17/11/2026, engine 2.1.326]:

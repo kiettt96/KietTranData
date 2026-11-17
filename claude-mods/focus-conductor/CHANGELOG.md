@@ -39,6 +39,12 @@ Ba nhóm việc trong một lượt: sửa lỗi còn tồn (A), chạy trơn v�
 - **C7:** kết luận chưa đạt đi vào vòng sửa (trần 3 vòng).
 - **C8:** bảng báo cáo khi đóng bước cuối; mục 6 khối kỷ luật nêu thêm "ai làm, kết luận duyệt, phần chưa xác minh", giữ 472 ký tự.
 
+**Vòng sửa sau kiểm độc lập** (một tác tử chưa thấy quá trình làm, 63 probe):
+- Vai chỉ đọc và audit bị từ chối cả lệnh ghi mức possible đã biết là sửa file (`--fix`, `--write`, `curl -o`, `perl -pi`, `find -delete`, `patch`, `node -e`, `python -c`) và thao tác git trên lịch sử. Cùng một hàm `isBashWrite` quyết subagent đã ghi file hay chưa khi nhận kết luận.
+- Cổng đóng tính theo kết luận mới nhất của mỗi bước, cùng cách tính với pane.
+- Tệp trong thư mục tạm không tính vào số file bật đội hình.
+- B10: đoạn lệnh của bước bị che mã thoát (`; echo`, `|| true`, `&`) không là bằng chứng; kết quả mong đợi so theo ranh giới từ (`=> 1` không khớp `10`).
+
 **Test cũ đổi kỳ vọng, giữ tên:**
 - `conductor-c4-084` "cờ tắt: splitRule(routerSystem(), 0) giữ sha256 của 0.8.3, request dùng đúng chữ đó" và `fork-split-f1-079` "chủ mod 1. forks tắt: routerSystem không có đoạn tách (ghim số ký tự và mã băm)": băm và số ký tự theo lời dặn mới (11.413 ký tự).
 - `limits-l2-087` hai ca "<biến thể>: không còn trần 30 yêu cầu và 8 việc; ...": kỳ vọng `constraints: at most 6` đổi thành `constraints: the hard rules` (B13).
@@ -61,7 +67,13 @@ Ba nhóm việc trong một lượt: sửa lỗi còn tồn (A), chạy trơn v�
 
 **Đột biến:** mẫu mới mang mã `090-<mã điểm><chữ>`. Mẫu cũ viết lại chuỗi, giữ mã: `078-G1m`, `078-G2e`, `078-G2f`, `082-N2a`, `085-W2h`, `075-A6a`, `075-A6b`, `061-P25`, `070-V12`, `070-V14`, `071-M11`, `070-V5`, `073-N12`, `075-L6a`, `075-L6b`, `075-L6c`. Mẫu `090-B9e` là tương đương, lý do trong `scripts/mutants.ts`.
 
-**Việc tồn** (từ phiên thật D1):
+**Việc tồn** (từ phiên thật D1 và kiểm độc lập):
+- Kết luận nhận theo câu trả lời, không theo vai: một lượt `Kiểm: ` trả `ĐẠT HẾT` đủ thay bước duyệt. Cần chủ mod chốt có giữ cách này không.
+- `set -e` ở bất kỳ dòng nào bật errexit cho cả khối heredoc, kể cả khi có `set +e` sau đó; `set -e; ...` trên một dòng thì không nhận ra (chiều an toàn).
+- Dấu `)` trong nháy bên trong `<( )` làm đích ghi lệch (`/repo/a)`).
+- B10 không coi `--update-snapshots`, `jest -u`, `go fmt` là tự sửa; `make check` in "Nothing to be done" vẫn được nâng.
+- `verdictOf` không đọc `- ĐẠT` (gạch đầu dòng) và `FAILED:` (chiều an toàn: chưa có kết luận).
+- Lệnh ghi qua trình thông dịch ngoài danh sách đã biết (`node script.js` tự ghi file) vẫn lọt quyền theo vai.
 - Nhật ký quyết định bị ghi đè khi chạy tiếp bằng `claude -p --continue`.
 - Trạng thái mục tiêu không sống qua `--continue` ở chế độ không tương tác.
 - Câu "Việc nhỏ: làm trực tiếp, không cần checklist" của mục tiêu light cãi với prompt đòi checklist.
