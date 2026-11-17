@@ -85,6 +85,7 @@ export function noteEvidence(log: EvidenceLog, observation: ToolObservation, aut
   const isSide = (path: string) => isSidePath(path, sides, null, observation.cwd ?? null)
   // Cờ dùng chung thư mục (0.8.6 R2) chỉ cho lần kiểm của subagent.
   const shared = isShared && author !== 'main' ? { shared: true as const } : {}
+  const isSideOnly = (effect: BashEffect) => !effect.isUnknown && effect.paths.length > 0 && effect.paths.every(isSide)
   const onWrite = (isHard: boolean, paths: readonly string[] | null = null) => {
     log.seq += 1
     log.lastMutation = log.seq
@@ -103,7 +104,9 @@ export function noteEvidence(log: EvidenceLog, observation: ToolObservation, aut
     let hasCheck = false
     for (const effect of classified.effects) {
       if (effect.kind === 'write') {
-        if (counted.has(effect)) onWrite(isHardEffect(effect, isSide), effect.isUnknown ? null : effect.paths)
+        // Ghi chắc vào tệp trạng thái hay nơi ghi phụ (0.9.0 B6, vòng sửa): sổ sách của chính lượt làm, không là thay đổi nên không làm cũ lần kiểm.
+        if (counted.has(effect) && isSideOnly(effect)) log.seq += 1
+        else if (counted.has(effect)) onWrite(isHardEffect(effect, isSide), effect.isUnknown ? null : effect.paths)
         continue
       }
       hasCheck = true
@@ -131,9 +134,12 @@ export function noteEvidence(log: EvidenceLog, observation: ToolObservation, aut
     log.seq += 1
     log.commands.push({ command: checkToolCommand(observation.tool, observation.input), ok: checkToolPassed(observation), check: 'test', seq: log.seq, author, mcp: true, ...shared })
     trimCommands(log)
+  } else if (FILE_TOOLS.has(observation.tool) && !observation.isError && isSide(filePathOf(observation))) {
+    // Tệp trạng thái hay nơi ghi phụ (0.9.0 B6, vòng sửa): không là thay đổi, không làm cũ lần kiểm.
+    log.seq += 1
   } else if (FILE_TOOLS.has(observation.tool) && !observation.isError && !isPlanFile(filePathOf(observation))) {
     // File skill (0.8.2 N3) không vào số thay đổi chắc chắn của cổng Y6.
-    onWrite(!isSoftPath(filePathOf(observation)) && !isSkillPath(filePathOf(observation)) && !isSide(filePathOf(observation)), [filePathOf(observation)])
+    onWrite(!isSoftPath(filePathOf(observation)) && !isSkillPath(filePathOf(observation)), [filePathOf(observation)])
   } else {
     log.seq += 1
   }
