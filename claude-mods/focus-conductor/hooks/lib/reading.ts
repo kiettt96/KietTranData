@@ -63,8 +63,10 @@ export function readParamsOf(family: ModelFamily): ReadParams {
 
 /** Option routerMaxWait (giây) thành mili giây, kẹp về biên; thiếu hay sai thì mặc định. */
 export function routerMaxWaitOf(value: unknown): number {
+  // Chỉ nhận số và chuỗi số (0.9.0 A4): true, mảng hay đối tượng là mặc định, không đổi thành số.
+  const isNumeric = typeof value === 'number' || (typeof value === 'string' && /^\s*\d+(?:\.\d+)?\s*$/.test(value))
   const seconds = Number(value)
-  if (value === undefined || value === null || value === '' || !Number.isFinite(seconds)) return ROUTER_MAX_WAIT_MS
+  if (!isNumeric || !Number.isFinite(seconds)) return ROUTER_MAX_WAIT_MS
   return Math.min(ROUTER_MAX_WAIT_MAX_MS, Math.max(ROUTER_MAX_WAIT_MIN_MS, Math.round(seconds * 1000)))
 }
 

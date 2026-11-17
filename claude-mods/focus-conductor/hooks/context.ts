@@ -128,6 +128,8 @@ export function createContext(options: PluginOptions) {
     sessionNoticed: false,
     /** Engine nhận alias họ model ở turn.step (0.8.7 M1): đọc một lần mỗi phiên từ $.session.version(); null là chưa đọc. */
     aliasEngine: null as boolean | null,
+    /** Đã báo cảnh báo cấu hình conductorFallback trong lần nạp mod này (0.9.0 A4). */
+    fallbackWarned: false,
     /** ID engine đã phục vụ theo họ (0.8.7 M1, usage.model của turn), cho dòng "Model đang dùng" và cảnh báo phiên bản một lần mỗi họ. */
     served: new Map<ModelFamily, string>(),
     /** Đã cảnh báo chính sách model của phiên chặn Fable điều phối (0.8.4 C1), một lần mỗi phiên. */

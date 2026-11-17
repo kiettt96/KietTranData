@@ -45,6 +45,7 @@ describe('0.9.0 A4: toàn luồng, cảnh báo một lần khi nạp', () => {
     await $.session.start({ cwd: '/repo', surface: null, isInteractive: true } as never)
     await submit($, 'Sửa lỗi chính tả')
     await submit($, 'Sửa thêm một chỗ')
+    await $.session.start({ cwd: '/repo', surface: null, isInteractive: true } as never)
     expect(seen.toasts.filter(t => t.includes('conductorFallback')).length).toBe(1)
   })
 })
