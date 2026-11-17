@@ -2502,4 +2502,8 @@ export const MUTANTS: Mutant[] = [
   { id: "090-C4f", file: "hooks/parts/consistency.ts", note: "không ghi kết luận của subagent", old: "      if (e.reason === 'answer' && meta?.role !== undefined) {\n        const parsed", new: "      if (false as boolean && meta?.role !== undefined) {\n        const parsed" },
   { id: "090-C4b", file: "hooks/lib/verdict.ts", note: "review không đọc CHƯA ĐẠT", old: "  review: [\n    [/^(?:CHƯA ĐẠT|FAIL)(?![\\p{L}])/u, 'fail'],\n", new: "  review: [\n" },
   { id: "090-C4e", file: "hooks/lib/verdict.ts", note: "design không đọc CHƯA SẴN SÀNG", old: "    [/^(?:CHƯA SẴN SÀNG|NOT READY)(?![\\p{L}])/u, 'not-ready'],\n", new: "" },
+  { id: "090-C5a", file: "hooks/parts/consistency.ts", note: "không nhắc khi hai subagent cùng ghi một tệp", old: "            L.agentRetryNotes.push(fileClashNote(path, 1 + others.length))\n", new: "" },
+  { id: "090-C5b", file: "hooks/parts/consistency.ts", note: "nhắc lặp cho cùng một tệp", old: "            if (others.length === 0 || L.clashWarned.has(path) || L.clashWarned.size >= 200) continue\n", new: "            if (others.length === 0) continue\n" },
+  { id: "090-C5c", file: "hooks/parts/consistency.ts", note: "tính cả subagent có isolation", old: " && L.liveAgents.has(id) && agents.get(id)?.sharesDir === true && paths.has(path))", new: " && paths.has(path))" },
+  { id: "090-C5d", file: "hooks/parts/consistency.ts", note: "không ghi file-clash", old: "            record(await $.clock.now(), 'file-clash', { file: clipText(path), agents: [e.agentId, ...others] })\n", new: "" },
 ]

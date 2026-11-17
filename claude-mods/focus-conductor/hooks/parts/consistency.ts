@@ -71,6 +71,19 @@ async function writesOnlyStateFiles($: EngineInterface, brief: Brief, e: { tool:
   return classified.effects.every(effect => effect.kind === 'write' && effect.paths.length > 0 && effect.paths.every(path => isSidePath(path, brief, root, cwd, 'state')))
 }
 
+/** Đích đọc được của một lần ghi (0.9.0 C5): đường dẫn của tool sửa file, hay đích của tác động ghi mức definite của Bash. */
+function writtenPaths(observation: ToolObservation): string[] {
+  const path = filePathOf(observation)
+  if (path !== '') return [normalizePath(path)]
+  if (observation.tool !== 'Bash') return []
+  return classifyBash(String(observation.input['command'] ?? ''), observation.cwd).effects.flatMap(effect => (effect.kind === 'write' && effect.level === 'definite' ? effect.paths.map(normalizePath) : []))
+}
+
+/** Câu nhắc khi nhiều subagent chung thư mục cùng sửa một tệp (0.9.0 C5), không quá 200 ký tự. */
+function fileClashNote(path: string, count: number): string {
+  return `[focus-conductor] ${count} subagent chạy chung thư mục cùng sửa ${clipText(path).slice(0, 80)}: gom về một agent hay giao isolation riêng, kẻo ghi đè nhau.`.slice(0, 200)
+}
+
 /** Lần chạy Bash và mốc check của mục tiêu (0.9.0 B10): đổi mục tiêu thì bắt đầu mới. */
 function stepRunsFor(ctx: Ctx, goalId: number): Ctx['local']['stepRuns'] {
   if (ctx.local.stepRuns.goalId !== goalId) ctx.local.stepRuns = { goalId, runs: [], checkSeq: new Map() }
@@ -1060,6 +1073,21 @@ export function registerConsistency(on: On, ctx: Ctx): void {
         noteEvidence(agentLog, observation, e.agentId, isShared, agentBrief)
         noteStepRun(ctx, agentBrief.goalId, observation)
         const isAgentHard = agentLog.lastHard > agentHardBefore
+        // Một tệp một agent (0.9.0 C5): hai subagent đang chạy chung thư mục cùng ghi một tệp thì nhắc luồng chính một lần cho mỗi tệp.
+        if (meta.sharesDir === true && !observation.isError && isMutation(observation)) {
+          const written = writtenPaths(observation)
+          const own = L.agentWrites.get(e.agentId) ?? new Set<string>()
+          for (const path of written) own.add(path)
+          if (L.agentWrites.size < 200) L.agentWrites.set(e.agentId, own)
+          for (const path of written) {
+            const others = [...L.agentWrites.entries()].filter(([id, paths]) => id !== e.agentId && L.liveAgents.has(id) && agents.get(id)?.sharesDir === true && paths.has(path)).map(([id]) => id)
+            if (others.length === 0 || L.clashWarned.has(path) || L.clashWarned.size >= 200) continue
+            L.clashWarned.add(path)
+            record(await $.clock.now(), 'file-clash', { file: clipText(path), agents: [e.agentId, ...others] })
+            await flushDecisions((path2, text) => $.fs.write(path2, text))
+            L.agentRetryNotes.push(fileClashNote(path, 1 + others.length))
+          }
+        }
         if (isCheckCall(observation.tool)) L.agentRetryNotes.push(...(await noteChecks($, retryDeps, S.normalizeCore(await read($, coreState)), agentBrief.goalId, newChecks(agentLog, agentSince), observation, meta.pick, false, meta.description)))
         const skillBefore = L.tracker.skillWrites
         trackVerification(L.tracker, observation, e.agentId, (await frameOf($, L.roots, agentBrief.goalId, agentBrief.scopePaths)).cwd, isShared, agentBrief)
