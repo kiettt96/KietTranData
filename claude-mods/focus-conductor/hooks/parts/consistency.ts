@@ -11,7 +11,7 @@ import { globToRegExp } from '../lib/drift/soft'
 import { coversScope } from '../lib/drift/evidence'
 import { PLAN_SET_CHECK_LINE } from '../lib/approval'
 import { reportTable, verdictOf } from '../lib/verdict'
-import { closingNote, closingSteps, hardFileCount, hasKnownCheck, isDocsOnly, teamCause } from '../lib/team'
+import { closingNote, closingSteps, hardFileCount, hasKnownCheck, isBashWrite, isDocsOnly, teamCause } from '../lib/team'
 import type { SideLists } from '../lib/drift/scope'
 import type { Finding, Focus, ToolObservation, TurnTracker } from '../lib/drift'
 import { checkCommand, checkSignature, coversFailure, isFailedRun } from '../lib/drift/evidence'
@@ -117,12 +117,10 @@ async function closingGate($: EngineInterface, ctx: Ctx, core: Core, log: Eviden
   }
   const verdicts = L.verdicts.goalId === brief.goalId ? L.verdicts.items : []
   const lastHard = log.lastHard
-  // Bước kiểm chỉ đòi khi có lệnh kiểm biết được (0.9.0 C2), như đoạn dặn bước đóng.
-  const hasCheck = hasKnownCheck(core.plan, S.changedOf(core).paths, log)
-  const checked = !hasCheck || log.hard === 0 || log.commands.some(c => c.check !== null && c.ok && c.chained !== true && c.seq > lastHard && coversScope(c, log))
+  // Cùng một cách tính với pane (0.9.0 vòng sửa sau kiểm độc lập): kết luận mới nhất của mỗi bước quyết; bước kiểm chỉ khi có lệnh kiểm.
+  const steps = teamSteps(core, brief, log, verdicts)
+  const missing = steps.find(s => s.state !== 'pass')?.name ?? null
   const reviewSeq = verdicts.filter(v => v.isClean && v.verdict === 'pass' && v.seq > lastHard).reduce((max, v) => Math.max(max, v.seq), -1)
-  const isReady = brief.depth !== 'hard' || verdicts.some(v => v.isClean && v.verdict === 'ready' && v.seq >= reviewSeq && reviewSeq >= 0)
-  const missing = !checked ? 'check' : reviewSeq < 0 ? 'review' : !isReady ? 'design' : null
   if (missing === null) {
     if (core.closingGap !== undefined) await update($, coreState, S.withClosingGap(null))
     return null
@@ -143,6 +141,14 @@ async function closingGate($: EngineInterface, ctx: Ctx, core: Core, log: Eviden
 }
 
 /** Đích đọc được của một lần ghi (0.9.0 C5): đường dẫn của tool sửa file, hay đích của tác động ghi mức definite của Bash. */
+/** Trạng thái các bước đóng (0.9.0 C3), dùng chung cho pane (Core.team) và cổng đóng mục tiêu. */
+function teamSteps(core: Core, brief: Brief, log: EvidenceLog, verdicts: readonly { verdict: 'pass' | 'fail' | 'ready' | 'not-ready' | null; isClean: boolean; seq: number }[]) {
+  const lastHard = log.lastHard
+  const checked = log.hard === 0 || log.commands.some(c => c.check !== null && c.ok && c.chained !== true && c.seq > lastHard && coversScope(c, log))
+  const lastCheck = [...log.commands].reverse().find(c => c.check !== null && c.chained !== true && c.seq > lastHard)
+  return closingSteps({ hasCheck: hasKnownCheck(core.plan, S.changedOf(core).paths, log), isHard: brief.depth === 'hard', checked, checkFailed: lastCheck !== undefined && !lastCheck.ok, lastHard, verdicts })
+}
+
 /**
  * Đội hình do mod áp (0.9.0 C): tính lại lý do bật và trạng thái các bước đóng của mục tiêu, ghi Core.team khi đổi. Vừa bật lần đầu cho
  * mục tiêu thì ghi nhật ký 'team' và xếp đoạn dặn bước đóng vào kết quả tool kế tiếp của luồng chính. Chưa bật thì bỏ Core.team, không chèn gì.
@@ -159,11 +165,7 @@ async function refreshTeam($: EngineInterface, ctx: Ctx): Promise<void> {
   }
   const log = ctx.evidenceFor(brief.goalId)
   const hasCheck = hasKnownCheck(core.plan, changed, log)
-  const lastHard = log.lastHard
-  const checked = log.hard > 0 && log.commands.some(c => c.check !== null && c.ok && c.chained !== true && c.seq > lastHard && coversScope(c, log))
-  const lastCheck = [...log.commands].reverse().find(c => c.check !== null && c.chained !== true && c.seq > lastHard)
-  const verdicts = L.verdicts.goalId === brief.goalId ? L.verdicts.items : []
-  const steps = closingSteps({ hasCheck, isHard: brief.depth === 'hard', checked, checkFailed: lastCheck !== undefined && !lastCheck.ok, lastHard, verdicts })
+  const steps = teamSteps(core, brief, log, L.verdicts.goalId === brief.goalId ? L.verdicts.items : [])
   const isNew = core.team === undefined || core.team.goalId !== brief.goalId
   const team = { goalId: brief.goalId, cause: isNew || core.team === undefined ? cause : core.team.cause, steps }
   if (JSON.stringify(team) !== JSON.stringify(core.team)) await update($, coreState, S.withTeam(team))
@@ -173,12 +175,12 @@ async function refreshTeam($: EngineInterface, ctx: Ctx): Promise<void> {
   L.agentRetryNotes.push(closingNote({ hasCheck, isHard: brief.depth === 'hard', isDocs: isDocsOnly(brief, changed) }))
 }
 
-/** Lần ghi chắc ngoài thư mục tạm (0.9.0 D1): tool file có đường dẫn ngoài thư mục tạm, hay Bash có tác động ghi definite ngoài thư mục tạm. */
+/** Lần ghi ngoài thư mục tạm (0.9.0 D1): tool file có đường dẫn ngoài thư mục tạm, hay lệnh Bash ghi file (isBashWrite). */
 function wroteOutsideTemp(observation: ToolObservation): boolean {
   const path = filePathOf(observation)
   if (path !== '') return !isRoleTemp(path)
   if (observation.tool !== 'Bash') return false
-  return classifyBash(String(observation.input['command'] ?? ''), observation.cwd).effects.some(effect => effect.kind === 'write' && effect.level === 'definite' && (effect.isUnknown || effect.paths.length === 0 || effect.paths.some(p => !isRoleTemp(p))))
+  return isBashWrite(String(observation.input['command'] ?? ''), observation.cwd ?? null)
 }
 
 function writtenPaths(observation: ToolObservation): string[] {

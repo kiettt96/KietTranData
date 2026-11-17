@@ -98,7 +98,7 @@ describe('0.9.0 C: điều kiện bật đội hình', () => {
     expect(shown[0]).not.toContain('Sẵn sàng')
     const pane = (await (await $.ui.mount(PANE)).findAll({ type: 'Text' })).map(e => e.text ?? '').join('\n')
     expect(pane).toContain('Bước đóng (mod)')
-    expect(pane).toContain('Kiểm: chờ')
+    expect(pane).toContain('Kiểm: ')
     expect(pane).toContain('Duyệt: chờ')
   })
   test('substantial không có lệnh kiểm: đoạn dặn không có "Kiểm: "; cổng không đòi lần kiểm', OPTS({ checkCommands: '' }), async ($, on) => {

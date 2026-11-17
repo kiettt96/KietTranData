@@ -53,7 +53,8 @@ export function stepRunOf(command: string, isError: boolean, output: string | un
     effect => effect.kind === 'write' && effect.level === 'definite' && (effect.isUnknown || effect.paths.length === 0 || effect.paths.some(path => !TEMP_DIRS.some(dir => normalizePath(path).startsWith(dir)))),
   )
   const failed = outputFailed(text) || summaryFailed(text) || customFailedOf(text) || ranNothing(text)
-  const segments = classified.effects.filter(effect => effect.kind === 'check').map(effect => runKey(effect.segment))
+  // Đoạn lệnh kiểm bị che mã thoát hay output (cmd; echo, cmd || true, cmd &) không là bằng chứng cho bước (vòng sửa sau kiểm độc lập).
+  const segments = classified.effects.flatMap(effect => (effect.kind === 'check' && effect.exit !== 'hidden' ? [runKey(effect.segment)] : []))
   return {
     keys: [...new Set([runKey(command), ...segments])],
     output: text.slice(0, STEP_OUTPUT_CHARS),
@@ -72,8 +73,14 @@ export function stepEvidence(step: Pick<PlanStep, 'check'>, runs: readonly StepR
   const key = runKey(check.command)
   const last = [...runs].reverse().find(run => run.keys.includes(key))
   if (last === undefined || !last.passed || last.seq <= lastHard || last.seq <= checkSeq) return null
-  if (check.expected !== undefined && !last.output.includes(check.expected)) return null
+  if (check.expected !== undefined && !hasExpected(last.output, check.expected)) return null
   return last
+}
+
+/** Output chứa kết quả mong đợi đứng riêng (vòng sửa sau kiểm độc lập): trước và sau không phải chữ hay số, nên "1" không khớp "10". */
+function hasExpected(output: string, expected: string): boolean {
+  const escaped = expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped}(?:$|[^\\p{L}\\p{N}])`, 'u').test(output)
 }
 
 /** Lần chạy khớp lệnh của một bước trong checklist (0.9.0 B10): để bỏ câu "không xác định được file đích" cho lần chạy đó. */

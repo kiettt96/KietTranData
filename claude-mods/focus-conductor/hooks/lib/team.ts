@@ -4,7 +4,9 @@
 import type { Brief, ClosingStep, PlanStep } from '../../types'
 import { isSoftPath } from './drift/soft'
 import { stepCheckOf } from './drift/stepcheck'
-import { hasDeclaredCheckFor } from './drift/verify'
+import { hasDeclaredCheckFor, isSelfFixing } from './drift/verify'
+import { classifyBash } from './drift/classify'
+import { isRoleTemp } from './drift/scope'
 import type { EvidenceLog } from './drift/evidence'
 
 /** Số file không nhẹ khác nhau được sửa thì bật đội hình dù router chấm độ sâu thấp (0.9.0 C1). Đặt một chỗ, ghi trong DESIGN. */
@@ -14,7 +16,32 @@ export const CLOSING_NOTE_CHARS = 300
 
 /** Số file không nhẹ khác nhau trong sổ thay đổi (sổ đã bỏ tệp trạng thái và nơi ghi phụ của B1); tài liệu, ghi chú là nhẹ. */
 export function hardFileCount(paths: readonly string[]): number {
-  return new Set(paths.filter(path => !isSoftPath(path))).size
+  return new Set(paths.filter(path => !isSoftPath(path) && !isRoleTemp(path))).size
+}
+
+/** Lệnh đã biết là ghi file dù bộ phân loại chỉ xếp mức possible (0.9.0 vòng sửa sau kiểm độc lập). */
+const KNOWN_WRITERS: readonly RegExp[] = [
+  /\b(?:curl|wget)\b[^;&|]*\s(?:-o|-O|--output(?:-document)?)(?:\s|=)/,
+  /\bperl\b[^;&|]*\s-[a-zA-Z]*i/,
+  /\bfind\b[^;&|]*\s-(?:delete|exec|execdir)\b/,
+  /(?:^|[;&|(]\s*|\s)patch\b/,
+  /\b(?:node|deno|bun)\s+(?:-e|--eval|-p|--print)\b/,
+  /\b(?:python3?|python2)\s+-c\b/,
+  /\bruby\s+-e\b/,
+  /(?:^|[;&|(]\s*)(?:dd|truncate)\s/,
+]
+
+/**
+ * Lệnh Bash ghi file ngoài thư mục tạm (0.9.0 C2, D1, vòng sửa sau kiểm độc lập): tác động ghi mức definite ngoài thư mục tạm hay đích chưa
+ * xác định, thao tác git trên lịch sử (commit, push, tag...), hay lệnh ghi mức possible mà đã biết là sửa file (--fix, --write, curl -o,
+ * perl -pi, find -delete, patch, node -e, python -c). Chạy script (bash x.sh, bash -c) không tính.
+ */
+export function isBashWrite(command: string, cwd: string | null = null): boolean {
+  const effects = classifyBash(command, cwd ?? undefined).effects
+  const isDefinite = effects.some(effect => effect.kind === 'write' && effect.level === 'definite' && (effect.isHistory === true || effect.isUnknown || effect.paths.length === 0 || effect.paths.some(path => !isRoleTemp(path))))
+  if (isDefinite) return true
+  if (!effects.some(effect => effect.kind === 'write' && effect.level === 'possible')) return false
+  return isSelfFixing(command.split(/\s+/)) || KNOWN_WRITERS.some(re => re.test(command))
 }
 
 /**

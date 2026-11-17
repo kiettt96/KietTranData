@@ -12,6 +12,7 @@ import { FORK_QUOTA_DENY, RETRY_PREFIX, RETRY_ROUNDS, forkRetryNote, forkReturnN
 import { liveForks, openParts } from '../lib/forks'
 import { classifyBash, filePathOf, isSkillTrial, normalizePath } from '../lib/drift'
 import { isRoleTemp } from '../lib/drift/scope'
+import { isBashWrite } from '../lib/team'
 import { labels, langOf } from '../ui/labels'
 import { reportLine } from '../lib/verdict'
 import { shownPlan } from '../lib/mirror'
@@ -88,7 +89,8 @@ export function roleOfCall(routeRole: Role | undefined, description: string): Ro
 
 /**
  * Lời từ chối theo vai (0.9.0 C2), không quá 200 ký tự; null là được. Vai chỉ đọc (search, review, design): mọi tool sửa file và lệnh Bash
- * có tác động ghi mức definite ngoài thư mục tạm. Vai audit: tool sửa file và lệnh Bash ghi mức definite, có đích ngoài thư mục tạm.
+ * ghi file ngoài thư mục tạm (isBashWrite: definite, git trên lịch sử, lệnh ghi đã biết). Vai audit: tool sửa file có đích ngoài thư mục tạm
+ * và cùng loại lệnh Bash đó.
  */
 export function roleDenial(role: Role, tool: string, input: Record<string, unknown>, name: string): string | null {
   if (role === 'build') return null
@@ -97,9 +99,7 @@ export function roleDenial(role: Role, tool: string, input: Record<string, unkno
     const path = filePathOf({ tool, input, isError: false, isReadOnly: false })
     if (!isReadOnly && path !== '' && isRoleTemp(path)) return null
   } else {
-    const writes = classifyBash(String(input['command'] ?? '')).effects.filter(effect => effect.kind === 'write' && effect.level === 'definite' && effect.isHistory !== true)
-    const isOutside = writes.some(effect => effect.kind === 'write' && (effect.isUnknown || effect.paths.length === 0 || effect.paths.some(path => !isRoleTemp(path))))
-    if (!isOutside) return null
+    if (!isBashWrite(String(input['command'] ?? ''))) return null
   }
   const text = isReadOnly
     ? `[focus-conductor] Vai ${name} chỉ đọc: không sửa file. Ghi phần cần sửa vào câu trả lời để luồng chính giao việc làm.`
