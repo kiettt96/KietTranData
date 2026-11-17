@@ -450,8 +450,10 @@ export function registerQuota(on: On, ctx: Ctx): void {
         return result
       }
     }
-    // pauseAllowPaths (0.7.5): luồng chính vẫn ghi được file checkpoint theo quy tắc dừng của prompt.
-    if (!isAgent && allowPaths.length > 0 && (await isAllowedWrite($, e as unknown as Record<string, unknown> & { tool: string }, allowScope))) return next(e)
+    // pauseAllowPaths (0.7.5): luồng chính vẫn ghi được file checkpoint theo quy tắc dừng của prompt. Tệp trạng thái của mục tiêu (0.9.0
+    // B5) tính như một mục của danh sách, cùng phép kiểm đường dẫn đáp thật và symlink.
+    const pauseScope = [...allowScope, ...(S.normalizeCore(await read($, coreState)).brief?.stateFiles ?? [])]
+    if (!isAgent && pauseScope.length > 0 && (await isAllowedWrite($, e as unknown as Record<string, unknown> & { tool: string }, pauseScope))) return next(e)
     let abort = false
     if (!isAgent) {
       const noted = noteDenial(pause, q.mainTurnId, { tool: e.tool, input: deniedInput(e as unknown as Record<string, unknown>) })
