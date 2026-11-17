@@ -24,6 +24,7 @@ function setup(on: On, reply: Json = GOAL()): Seen {
   on('agent.spawn', (_$, e) => ({ model: 'claude-opus-5-5', agentId: `a-${String((e as { tool_use_id?: unknown }).tool_use_id)}` }) as never)
   on('turn.complete', () => ({ text: '' }))
   on('classic.Stop', () => ({}))
+  on('agent.offer', () => ({ isOffered: true }))
   return seen
 }
 const stop = async ($: Engine) => String(((await $.classic.Stop({ stop_hook_active: false } as never)) as { block?: string }).block ?? '')
@@ -36,7 +37,9 @@ async function verdict($: Engine, description: string, answer: string) {
   await $.agent.spawn({ prompt: 'Rà.', description, tool_use_id: id } as never)
   await $.turn.complete({ turnId: `x-${id}`, agentId: `a-${id}`, answer, durationMs: 5, isAborted: false, reason: 'answer' } as never)
 }
+const offer = ($: Engine) => $.agent.offer({ agent: 'general-purpose', description: 'việc chung', source: 'built-in', provider: { plugin: 'engine', tier: 'core' } } as never)
 async function work($: Engine, seen: Seen) {
+  await offer($)
   await submit($, 'Sửa luồng phí')
   await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa phí' }] })
   await $.turn.start({ text: 'Sửa luồng phí', turnId: 't1' })
@@ -114,10 +117,29 @@ describe('0.9.0 C6: cổng đóng mục tiêu', () => {
     await conductor($, 'waive review')
     expect(await stop($)).not.toContain(BLOCK)
   })
-  test('/conductor solo (không giao được subagent): không chặn; pane ghi chưa có duyệt độc lập', OPTS(), async ($, on) => {
+  test('phiên chưa được mời loại agent nào: không chặn; pane ghi chưa có duyệt độc lập', OPTS(), async ($, on) => {
     const seen = setup(on)
-    await work($, seen)
+    await submit($, 'Sửa luồng phí')
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa phí' }] })
+    await $.turn.start({ text: 'Sửa luồng phí', turnId: 't1' })
+    await step($, seen, { turnId: 't1' })
+    await edit($)
+    await check($)
+    await close($)
+    expect(await stop($)).not.toContain(BLOCK)
+    const pane = (await (await $.ui.mount(PANE)).findAll({ type: 'Text' })).map(e => e.text ?? '').join('\n')
+    expect(pane.toLowerCase()).toContain('chưa có duyệt độc lập')
+  })
+  test('/conductor solo (không giao được subagent): không chặn; pane ghi chưa có duyệt độc lập', OPTS({ conductor: 'opus' }), async ($, on) => {
+    const seen = setup(on)
+    await offer($)
+    await submit($, 'Sửa luồng phí')
     await conductor($, 'solo')
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa phí' }] })
+    await $.turn.start({ text: 'Sửa luồng phí', turnId: 't1' })
+    await step($, seen, { turnId: 't1' })
+    await edit($)
+    await check($)
     await close($)
     expect(await stop($)).not.toContain(BLOCK)
     const pane = (await (await $.ui.mount(PANE)).findAll({ type: 'Text' })).map(e => e.text ?? '').join('\n')

@@ -595,7 +595,7 @@ describe('0.7.9 vòng 2 V3: ba nhánh F1 chưa có test', () => {
     expect(reason).not.toContain('phiên con')
   })
 
-  test('2a. bước "Việc 3: ..." (cả việc) ghi skipped kèm note: miễn mọi phần lỗi của Việc 3, Stop qua', { options: ON }, async ($, on) => {
+  test('2a. bước "Việc 3: ..." (cả việc) ghi skipped kèm note: miễn mọi phần lỗi của Việc 3, Stop qua', { options: { ...ON, closingReview: 'off' } }, async ($, on) => {
     const { seen, modes } = setup(on, $)
     await started($, seen, ['Việc 3: đổi tên trong ba module'])
     modes.set('u1', 'fail')

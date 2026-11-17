@@ -71,6 +71,60 @@ async function writesOnlyStateFiles($: EngineInterface, brief: Brief, e: { tool:
   return classified.effects.every(effect => effect.kind === 'write' && effect.paths.length > 0 && effect.paths.every(path => isSidePath(path, brief, root, cwd, 'state')))
 }
 
+/** Lần chặn tối đa của cổng đóng mục tiêu cho một mục tiêu (0.9.0 C6), và trần ký tự của lý do. */
+export const CLOSING_BLOCKS = 3
+export const CLOSING_CHARS = 600
+
+/** Lý do chặn của cổng đóng mục tiêu theo bước còn thiếu đầu tiên (0.9.0 C6), không quá CLOSING_CHARS ký tự. */
+export function closingReasonText(missing: 'check' | 'review' | 'design'): string {
+  const text =
+    missing === 'check'
+      ? '[focus-conductor] Trước khi đóng mục tiêu: chưa có lần kiểm đạt sau thay đổi cuối. Chạy lệnh kiểm (khi đang điều phối thì giao subagent vai audit), rồi giao một lần duyệt độc lập: Agent có description mở đầu "Kiểm độc lập: ".'
+      : missing === 'review'
+        ? '[focus-conductor] Trước khi đóng mục tiêu: chưa có duyệt độc lập sau thay đổi cuối. Giao một subagent general-purpose có description mở đầu "Kiểm độc lập: " để rà độ đúng, phạm vi và quy ước; câu trả lời mở đầu bằng ĐẠT hay CHƯA ĐẠT. Không giao được thì người dùng gõ /conductor waive review.'
+        : '[focus-conductor] Mục tiêu khó: đã có duyệt độc lập ĐẠT nhưng chưa có đánh giá sẵn sàng. Giao một subagent Plan đánh giá sẵn sàng sau lần duyệt; câu trả lời mở đầu bằng SẴN SÀNG hay CHƯA SẴN SÀNG.'
+  return text.slice(0, CLOSING_CHARS)
+}
+
+/**
+ * Cổng đóng mục tiêu (0.9.0 C6): mục tiêu substantial hay hard, edit hay mixed, checklist đóng hết, option closingReview khác off, chưa miễn.
+ * Thứ tự: lần kiểm đạt sau thay đổi không nhẹ cuối; kết luận review ĐẠT sau đó; mục tiêu hard thêm kết luận design SẴN SÀNG sau review.
+ * Thiếu thì ghi Core.closingGap; phiên không giao được subagent (solo, Agent bị từ chối) thì không chặn. Mỗi trạng thái thiếu chặn một lần,
+ * tối đa CLOSING_BLOCKS lần mỗi mục tiêu. Trả lý do chặn hay null.
+ */
+async function closingGate($: EngineInterface, ctx: Ctx, core: Core, log: EvidenceLog): Promise<string | null> {
+  const L = ctx.local
+  const brief = core.brief
+  const isDue = brief !== null && ctx.options['closingReview'] !== 'off' && (brief.depth === 'substantial' || brief.depth === 'hard') && (brief.kind === 'edit' || brief.kind === 'mixed') && !brief.isReference && core.plan.length > 0 && isFullyClosed(core.plan)
+  if (brief === null || !isDue || L.closingWaived === brief.goalId) {
+    if (core.closingGap !== undefined) await update($, coreState, S.withClosingGap(null))
+    return null
+  }
+  const verdicts = L.verdicts.goalId === brief.goalId ? L.verdicts.items : []
+  const lastHard = log.lastHard
+  const checked = log.hard === 0 || log.commands.some(c => c.check !== null && c.ok && c.chained !== true && c.seq > lastHard && coversScope(c, log))
+  const reviewSeq = verdicts.filter(v => v.role === 'review' && v.verdict === 'pass' && v.seq > lastHard).reduce((max, v) => Math.max(max, v.seq), -1)
+  const isReady = brief.depth !== 'hard' || verdicts.some(v => v.role === 'design' && v.verdict === 'ready' && v.seq >= reviewSeq && reviewSeq >= 0)
+  const missing = !checked ? 'check' : reviewSeq < 0 ? 'review' : !isReady ? 'design' : null
+  if (missing === null) {
+    if (core.closingGap !== undefined) await update($, coreState, S.withClosingGap(null))
+    return null
+  }
+  // Phiên giao được subagent (0.9.0 C6): engine đã mời ít nhất một loại agent hay đã có subagent được sinh, và không solo, không bị từ chối.
+  const conduct = S.conductOf(core)
+  const canDelegate = ctx.offered.size > 0 || ctx.spawnedIds.size > 0
+  const isSolo = conduct.solo || conduct.agentDenied || !canDelegate
+  await update($, coreState, S.withClosingGap({ goalId: brief.goalId, missing, ...(isSolo ? { solo: true as const } : {}) }))
+  if (isSolo) return null
+  if (L.closingState.goalId !== brief.goalId) L.closingState = { goalId: brief.goalId, blocks: 0, key: '' }
+  const key = `${missing}:${lastHard}:${reviewSeq}`
+  if (L.closingState.key === key || L.closingState.blocks >= CLOSING_BLOCKS) return null
+  L.closingState = { goalId: brief.goalId, blocks: L.closingState.blocks + 1, key }
+  ctx.record(await $.clock.now(), 'closing-gate', { goalId: brief.goalId, missing, n: L.closingState.blocks })
+  await ctx.flushDecisions((path, text) => $.fs.write(path, text))
+  return closingReasonText(missing)
+}
+
 /** Đích đọc được của một lần ghi (0.9.0 C5): đường dẫn của tool sửa file, hay đích của tác động ghi mức definite của Bash. */
 function writtenPaths(observation: ToolObservation): string[] {
   const path = filePathOf(observation)
@@ -1353,7 +1407,10 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     // Sửa skill mà chưa thử (0.8.2 N3): sau Y6, trước G1; theo stop_hook_active như Y6 và G1.
     const skillReason = isNoticed || core.brief === null ? null : await skillTrialGate($, core, L.liveAgents.size > 0)
     if (skillReason !== null) core = S.normalizeCore(await read($, coreState))
-    const prior = [retryReason, noCheck, skillReason].reduce<string | null>((acc, reason) => (reason === null ? acc : acc === null ? reason : joinStopReasons(acc, reason)), null)
+    // Cổng đóng mục tiêu (0.9.0 C6): sau Y6 và thử skill, trước G1; theo stop_hook_active như hai cổng đó.
+    const closingReason = isNoticed || core.brief === null ? null : await closingGate($, ctx, core, evidenceFor(core.brief.goalId))
+    if (closingReason !== null) core = S.normalizeCore(await read($, coreState))
+    const prior = [retryReason, noCheck, skillReason, closingReason].reduce<string | null>((acc, reason) => (reason === null ? acc : acc === null ? reason : joinStopReasons(acc, reason)), null)
     const plan = isNoticed ? [] : core.plan
     const withRetry = (reason: string) => (prior !== null ? joinStopReasons(prior, reason) : reason)
     // Mục tiêu từ moderate (hoặc có việc đã phân) mà chưa có checklist (0.7.8 G1): chặn một lần mỗi mục tiêu, khóa trong Core nên

@@ -110,7 +110,7 @@ describe('W4: lượt nâng mức khi lệnh kiểm lỗi', () => {
     expect(reason).toContain('đã ở mức cao nhất chính sách cho phép')
   })
 
-  test('4. đạt ở lượt 2: subagent sửa và bun test đạt phủ lần lỗi; Stop cho qua, không còn sàn, không có cảnh báo hết lượt', { options: { planApproval: 'off' } }, async ($, on) => {
+  test('4. đạt ở lượt 2: subagent sửa và bun test đạt phủ lần lỗi; Stop cho qua, không còn sàn, không có cảnh báo hết lượt', { options: { planApproval: 'off', closingReview: 'off' } }, async ($, on) => {
     const { seen, passing, sent } = setup(on)
     await failing($, seen)
     await stop($)

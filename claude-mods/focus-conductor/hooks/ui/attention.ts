@@ -12,7 +12,7 @@ import { stepTag } from '../lib/text'
 import { approvalOf, isSkillUntried } from '../lib/state'
 
 /** Một mục cần chú ý: hạng (nhỏ là quan trọng hơn), mức màu và câu hiển thị; `warning` là cảnh báo đã lưu mà mục này đại diện (pane dùng để không hiện hai lần). */
-export type Attention = { rank: number; severity: Severity; text: string; kind: 'pause' | 'approval' | 'failed' | 'notice' | 'waived' | 'skill' | WarningKind; warning?: Warning }
+export type Attention = { rank: number; severity: Severity; text: string; kind: 'pause' | 'approval' | 'failed' | 'notice' | 'waived' | 'skill' | 'review' | WarningKind; warning?: Warning }
 
 /** Hạng của từng loại cảnh báo đã lưu; loại không có trong bảng xếp sau vượt ngân sách. */
 const WARNING_RANK: Partial<Record<WarningKind, number>> = { scope: 2, dropped: 4, unverified: 5, budget: 6 }
@@ -66,6 +66,9 @@ export function attentionItems(core: Core, lang: Lang, quota: { paused: boolean;
     .forEach((w, i) => items.push({ rank: WARNING_RANK[w.kind] ?? OTHER_RANK, severity: severityOf(w.kind), text: shownEntry(w, lang), kind: w.kind, warning: w, order: -i }))
   // Đã sửa file skill mà chưa thử sau lần sửa cuối (0.8.2 N3): cùng hạng và mức màu với bước chưa kiểm chứng.
   if (isSkillUntried(core)) items.push({ rank: WARNING_RANK.unverified ?? OTHER_RANK, severity: severityOf('unverified'), text: l.skillUntried, kind: 'skill', order: 0 })
+  // Chưa duyệt độc lập (0.9.0 C6): ngay sau bước chưa kiểm chứng trong thứ tự mức độ.
+  const gap = core.closingGap
+  if (gap !== undefined && gap.goalId === brief.goalId && gap.missing !== 'check') items.push({ rank: (WARNING_RANK.unverified ?? OTHER_RANK) + 0.5, severity: severityOf('unverified'), text: gap.solo === true ? l.closingNoReview : l.closingUnreviewed, kind: 'review', order: 0 })
   // Lệnh kiểm chủ mod đã miễn (0.7.9 Y5): xếp sau mọi cảnh báo, mức warning có sẵn.
   if (core.waivers.goalId === brief.goalId) core.waivers.items.forEach((w, i) => items.push({ rank: OTHER_RANK + 1, severity: 'warning', text: l.waived(w.command), kind: 'waived', order: i }))
   return items.sort((a, b) => a.rank - b.rank || a.order - b.order).map(({ order: _order, ...item }) => item)

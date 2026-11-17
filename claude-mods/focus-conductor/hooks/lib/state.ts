@@ -208,6 +208,14 @@ export const withNoCheckNudged =
   (goalId: number) =>
   (c: Core): Core => ({ ...normalizeCore(c), noCheckNudged: goalId })
 
+/** Bước còn thiếu của cổng đóng mục tiêu (0.9.0 C6); null là xóa. */
+export const withClosingGap =
+  (gap: Core['closingGap'] | null) =>
+  (c: Core): Core => {
+    const { closingGap: _old, ...rest } = normalizeCore(c)
+    return gap === null || gap === undefined ? rest : { ...rest, closingGap: gap }
+  }
+
 export const withWaivers =
   (waivers: WaiverState) =>
   (c: Core): Core => ({ ...normalizeCore(c), waivers: normalizeWaivers(waivers) })
@@ -263,6 +271,7 @@ export function normalizeCore(raw: Partial<Core>): Core {
     retry: normalizeRetry(raw.retry),
     waivers: normalizeWaivers(raw.waivers),
     noCheckNudged: typeof raw.noCheckNudged === 'number' ? raw.noCheckNudged : -1,
+    ...(raw.closingGap !== undefined && raw.closingGap !== null && typeof raw.closingGap.goalId === 'number' && ['check', 'review', 'design'].includes(raw.closingGap.missing) ? { closingGap: { goalId: raw.closingGap.goalId, missing: raw.closingGap.missing, ...(raw.closingGap.solo === true ? { solo: true as const } : {}) } } : {}),
     forks: normalizeForks(raw.forks),
     approval: normalizeApproval(raw.approval),
     skill: normalizeSkill(raw.skill),
