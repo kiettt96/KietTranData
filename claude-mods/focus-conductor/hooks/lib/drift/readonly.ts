@@ -33,7 +33,7 @@ const FIND_WRITE = /^-(?:delete|exec|execdir|ok|okdir|fprint|fprint0|fprintf|fls
 const SED_WRITE = /(?:^|[;{}\s\d$/'"])(?:w|W|e)\s+\S|\/[gpIi0-9]*[wW]\s+\S/
 export const AWK_COMMAND = /(?:^|[\s;&|(])[gmn]?awk\b/
 // print/printf của awk kèm chuyển hướng hoặc ống, và system(): ghi file hoặc chạy lệnh khác.
-export const AWK_WRITE = /\bprintf?\b[^;}\n]*?(?:>|\|)|\bsystem\s*\(/
+export const AWK_WRITE = /\bprintf?\b[^;}\n]*?(?:>|\|)|\bsystem\s*\(|\|\s*getline\b/
 
 export function segmentIsReadOnly(part: string): boolean {
   const tokens = part.trim().split(/\s+/).filter(Boolean)
@@ -50,6 +50,8 @@ export function segmentIsReadOnly(part: string): boolean {
     if (sub === 'grep') return true
     if (sub === 'stash') return rest[0] === 'list' || rest[0] === 'show'
     if (sub === 'branch') return rest.every(a => ['--show-current', '--list', '-l', '-a', '-r', '-v', '-vv', '--all', '--remotes'].includes(a))
+    // diff, log, show với --output ghi kết quả ra tệp (0.9.0, kiểm độc lập vòng 3 của C2).
+    if (rest.some(a => a === '--output' || a.startsWith('--output='))) return false
     return sub === undefined || READ_ONLY_GIT.has(sub)
   }
   // printenv chỉ in biến môi trường; env cũng vậy khi không kèm lệnh (env FOO=1 make thì chạy make).
@@ -77,7 +79,11 @@ export function segmentIsReadOnly(part: string): boolean {
   // awk -i inplace ghi file tại chỗ (0.9.0, đổi đặc tả C2).
   if (cmd === 'awk' && args.some((a, i) => a === '--inplace' || a === '-iinplace' || (a === '-i' && args[i + 1] === 'inplace'))) return false
   // sed -i ghi file; lệnh w, flag s///w và lệnh e của sed ghi file hoặc chạy lệnh khác. sort -o ghi file.
-  if (cmd === 'sed') return !args.some(a => /^-[A-Za-z]*i/.test(a) || a.startsWith('--in-place') || SED_WRITE.test(a))
+  // Script sed đã bỏ nháy tách thành nhiều từ (`'w out.txt'`): xét cả chuỗi đối số nối lại (0.9.0, kiểm độc lập vòng 3 của C2).
+  if (cmd === 'sed') return !args.some(a => /^-[A-Za-z]*i/.test(a) || a.startsWith('--in-place') || SED_WRITE.test(a)) && !SED_WRITE.test(` ${args.join(' ')}`)
+  // tree -o ghi tệp; uniq có hai đối số vị trí thì đối số thứ hai là tệp ra (0.9.0, kiểm độc lập vòng 3 của C2).
+  if (cmd === 'tree') return !args.some(a => a === '-o' || a.startsWith('-o'))
+  if (cmd === 'uniq') return args.filter(a => !a.startsWith('-')).length < 2
   if (cmd === 'sort') return !args.some(a => /^-o/.test(a) || a.startsWith('--output'))
   return true
 }

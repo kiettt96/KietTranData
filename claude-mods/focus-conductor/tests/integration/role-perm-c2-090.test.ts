@@ -48,7 +48,9 @@ describe('0.9.0 C2: quyền theo vai', () => {
       expect(denied.deny ?? '').toContain(name)
       expect(denied.deny ?? '').toContain('luồng chính')
       expect((denied.deny ?? '').length).toBeLessThanOrEqual(200)
-      expect((await call($, { tool: 'Write', file_path: '/tmp/x.md', content: 'x', agentId: id })).deny ?? '').toContain(name)
+      // Đổi đặc tả C2 (vòng sửa 1 sau kiểm độc lập của danh sách cho phép): Write vào thư mục tạm được phép, Write vào dự án bị từ chối.
+      expect((await call($, { tool: 'Write', file_path: '/tmp/x.md', content: 'x', agentId: id })).deny).toBeUndefined()
+      expect((await call($, { tool: 'Write', file_path: '/repo/src/x.md', content: 'x', agentId: id })).deny ?? '').toContain(name)
       expect((await call($, { tool: 'NotebookEdit', notebook_path: '/repo/a.ipynb', agentId: id })).deny ?? '').toContain(name)
       expect((await call($, { tool: 'Bash', command: 'rm -f /repo/src/phi.ts', agentId: id })).deny ?? '').toContain(name)
       expect((await call($, { tool: 'Read', file_path: '/repo/src/phi.ts', agentId: id })).deny).toBeUndefined()

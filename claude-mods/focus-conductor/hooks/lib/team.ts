@@ -316,6 +316,25 @@ function cdTarget(arg: string | undefined, cwd: string | null): string | null {
   return `/${out.join('/')}`
 }
 
+/**
+ * Từ của một đoạn chạy trong thư mục tạm không trỏ ra ngoài thư mục tạm (0.9.0, kiểm độc lập vòng 1 của C2): không có biến, `~` hay
+ * backtick; đường dẫn tuyệt đối (kể cả giá trị sau `=`) phải nằm trong thư mục tạm hay là /dev/null; đường dẫn có `..` giải theo cwd
+ * cũng vậy.
+ */
+function wordsStayInTemp(words: readonly string[], cwd: string): boolean {
+  for (const word of words.slice(1)) {
+    for (const part of [word, ...(word.includes('=') ? [word.slice(word.indexOf('=') + 1)] : [])]) {
+      if (/[$`~]/.test(part)) return false
+      if (part.startsWith('/') && part !== '/dev/null' && !isRoleTemp(`${part}/`)) return false
+      if (part.includes('..')) {
+        const resolved = cdTarget(part, cwd)
+        if (resolved === null || !isRoleTemp(`${resolved}/`)) return false
+      }
+    }
+  }
+  return true
+}
+
 /** Tác động của một đoạn nằm trong tập cho phép (0.9.0, đổi đặc tả C2 mục 1, loại a, b, d, e). */
 function effectsAllowed(text: string, cwd: string | null): boolean {
   const inTemp = cwd !== null && isRoleTemp(`${cwd}/`)
@@ -326,8 +345,10 @@ function effectsAllowed(text: string, cwd: string | null): boolean {
       continue
     }
     if (effect.isHistory === true) return false
-    if (inTemp) {
-      if (effect.paths.some(path => path.startsWith('/') && !isRoleTemp(path))) return false
+    if (inTemp && cwd !== null) {
+      // Loại e: mọi đích đọc được phải giải về trong thư mục tạm, và không từ nào trỏ ra ngoài (đích chưa biết như `bash probe.sh`).
+      if (!effect.isUnknown && effect.paths.some(path => { const at = cdTarget(path, cwd); return at === null || !isRoleTemp(`${at}/`) })) return false
+      if (!wordsStayInTemp(unwrap(words), cwd)) return false
       continue
     }
     if (effect.level !== 'definite' || effect.isUnknown || effect.paths.length === 0 || effect.paths.some(path => !isRoleTemp(path))) return false
@@ -335,30 +356,156 @@ function effectsAllowed(text: string, cwd: string | null): boolean {
   return true
 }
 
+/** Một mảnh của lệnh khi xét tập cho phép: đoạn lệnh kèm dấu ngăn ngay sau nó, hay dấu mở, đóng của shell con và thay thế lệnh. */
+type Piece = { kind: 'cmd'; text: string; isPiped: boolean; after: string } | { kind: 'open' } | { kind: 'close' } | { kind: 'tick' }
+
+/** Tách lệnh thành mảnh (0.9.0, kiểm độc lập vòng 1 của C2): giữ dấu ngăn sau mỗi đoạn để chỉ `cd X &&` mới đổi thư mục làm việc. */
+function piecesOf(command: string): Piece[] {
+  const out: Piece[] = []
+  let cur = ''
+  let quote: string | null = null
+  let piped = false
+  const push = (after: string, nextPiped = false) => {
+    if (cur.trim() !== '') out.push({ kind: 'cmd', text: cur.trim(), isPiped: piped, after })
+    cur = ''
+    piped = nextPiped
+  }
+  for (let i = 0; i < command.length; i++) {
+    const ch = command[i] ?? ''
+    const next = command[i + 1] ?? ''
+    if (quote !== null) {
+      if (ch === '\\' && quote === '"') {
+        cur += ch + next
+        i += 1
+      } else {
+        if (ch === quote) quote = null
+        cur += ch
+      }
+      continue
+    }
+    if (ch === '\\') {
+      cur += ch + next
+      i += 1
+    } else if (ch === "'" || ch === '"') {
+      quote = ch
+      cur += ch
+    } else if ((ch === '&' || ch === '|') && next === ch) {
+      push(ch + ch)
+      i += 1
+    } else if (ch === '|') {
+      push('|', true)
+    } else if (ch === ';' || ch === '\n' || (ch === '&' && command[i - 1] !== '>' && next !== '>')) {
+      push(ch)
+    } else if (ch === '(' || ch === ')' || ch === '`') {
+      push(ch)
+      out.push(ch === '(' ? { kind: 'open' } : ch === ')' ? { kind: 'close' } : { kind: 'tick' })
+    } else {
+      cur += ch
+    }
+  }
+  push('')
+  return out
+}
+
+/** Xét các mảnh không có heredoc; trả thư mục làm việc cuối (null là không xác định), hay false khi có đoạn ngoài tập. */
+function piecesAllowed(command: string, cwd: string | null, stepKeys: ReadonlySet<string>): { cwd: string | null } | false {
+  const stack: Array<string | null> = []
+  const start = cwd
+  let isTick = false
+  let depth = 0
+  for (const piece of piecesOf(command)) {
+    if (piece.kind === 'open') {
+      stack.push(cwd)
+      continue
+    }
+    if (piece.kind === 'close' || piece.kind === 'tick') {
+      if (piece.kind === 'tick' && !isTick) stack.push(cwd)
+      if (piece.kind === 'tick') isTick = !isTick
+      cwd = stack.length > 0 ? (stack.pop() ?? null) : null
+      continue
+    }
+    // Từ khóa của shell (for, while, if, do, then, done...): mệnh đề for, case không chạy lệnh; khối lệnh ghép đếm độ sâu để dấu ngăn bên
+    // trong không làm mất cwd đã chắc trước khối.
+    let raw = wordsOf(piece.text)
+    const opener = raw[0] ?? ''
+    if (/^(?:for|select|case)$/.test(opener)) {
+      depth += 1
+      continue
+    }
+    if (/^(?:while|until|if)$/.test(opener)) depth += 1
+    while (/^(?:do|then|else|elif|while|until|if|!|\{|\})$/.test(raw[0] ?? '')) raw = raw.slice(1)
+    if (/^(?:done|fi|esac)$/.test(raw[0] ?? '')) {
+      depth = Math.max(0, depth - 1)
+      if (raw.length === 1) continue
+      raw = raw.slice(1)
+    }
+    if (raw.length === 0) continue
+    const text = raw.join(' ') === piece.text ? piece.text : piece.text.slice(piece.text.indexOf(raw[0] ?? '') >= 0 ? piece.text.indexOf(raw[0] ?? '') : 0)
+    // cd chắc chỉ trong chuỗi `&&`: sau `;`, `||`, `|`, `&` hay xuống dòng ở ngoài khối lệnh ghép, cd có thể đã thất bại (kiểm độc lập vòng 1).
+    const settle = () => {
+      if (piece.after !== '&&' && depth === 0 && cwd !== start) cwd = null
+    }
+    const words = unwrap(raw)
+    const name = (words[0] ?? '').split('/').pop() ?? ''
+    if (INTERPRETERS.test(name) && (piece.isPiped || words.length === 1 || words.slice(1).some(word => INLINE_FLAG.test(word)))) return false
+    if (SHELLS.has(name) && (piece.isPiped || words.length === 1)) return false
+    if (name === 'cd' || name === 'pushd' || name === 'popd') {
+      // Chỉ `cd X &&` đổi chắc thư mục làm việc; cd thất bại sau `;`, `cd -`, pushd, popd thì không xác định (kiểm độc lập vòng 1).
+      const target = name === 'cd' && words[1] !== '-' ? cdTarget(words[1], cwd) : null
+      cwd = piece.after === '&&' ? target : null
+      settle()
+      continue
+    }
+    if (stepKeys.has(runKey(piece.text)) || stepKeys.has(runKey(text))) {
+      settle()
+      continue
+    }
+    if (!effectsAllowed(text, cwd)) return false
+    settle()
+  }
+  return stack.length === 0 && !isTick ? { cwd } : false
+}
+
+/**
+ * Xét lệnh có heredoc (0.9.0, kiểm độc lập vòng 1 của C2): thân heredoc là dữ liệu, bỏ ra trước khi phân loại; thân không có nháy mà có `$`
+ * hay backtick thì không chứng minh được. Lệnh đọc heredoc là trình thông dịch hay shell thì từ chối. Các dòng sau dòng kết thúc xét tiếp.
+ */
+function commandAllowed(command: string, cwd: string | null, stepKeys: ReadonlySet<string>): boolean {
+  const at = command.indexOf('<<')
+  if (at < 0) return piecesAllowed(command, cwd, stepKeys) !== false
+  const headStart = command.lastIndexOf('\n', at) + 1
+  const lineEnd = command.indexOf('\n', at)
+  if (lineEnd < 0) return false
+  const head = command.slice(headStart, lineEnd)
+  const marker = /<<(-?)\s*(?:'([^']+)'|"([^"]+)"|(\\?)([A-Za-z_][\w]*))/.exec(head)
+  if (marker === null || head.indexOf('<<', marker.index + 2) >= 0) return false
+  const delim = marker[2] ?? marker[3] ?? marker[5] ?? ''
+  const isQuoted = marker[2] !== undefined || marker[3] !== undefined || marker[4] === '\\'
+  const lines = command.slice(lineEnd + 1).split('\n')
+  const end = lines.findIndex(line => (marker[1] === '-' ? line.replace(/^\t+/, '') : line) === delim)
+  if (end < 0) return false
+  if (!isQuoted && /[$`]/.test(lines.slice(0, end).join('\n'))) return false
+  const reader = piecesOf(head.slice(0, marker.index)).filter(piece => piece.kind === 'cmd').at(-1)
+  if (reader !== undefined && reader.kind === 'cmd') {
+    const name = (unwrap(wordsOf(reader.text))[0] ?? '').split('/').pop() ?? ''
+    if (INTERPRETERS.test(name) || SHELLS.has(name)) return false
+  }
+  const stripped = command.slice(0, headStart) + head.slice(0, marker.index) + head.slice(marker.index + marker[0].length)
+  const first = piecesAllowed(stripped, cwd, stepKeys)
+  if (first === false) return false
+  const rest = lines.slice(end + 1).join('\n')
+  return rest.trim() === '' || commandAllowed(rest, null, stepKeys)
+}
+
 /**
  * Lời gọi Bash nằm trong tập cho phép của vai chỉ đọc (0.9.0, đổi đặc tả C2): mọi đoạn thuộc một trong năm loại: (a) không có tác động ghi
  * nào theo classifyBash; (b) lệnh kiểm mod nhận ra, không tự sửa file; (c) trùng danh tính lệnh ở check của một bước; (d) chỉ ghi vào thư mục
- * tạm; (e) chạy khi thư mục làm việc của đoạn (sau cd) nằm trong thư mục tạm, cwd không xác định thì không tính. Mã nội tuyến của trình
- * thông dịch không chứng minh được. Khối heredoc được xét nguyên khối, với thư mục làm việc ban đầu.
+ * tạm; (e) chạy khi thư mục làm việc của đoạn (sau `cd X &&` trong cùng lệnh) nằm trong thư mục tạm, cwd không xác định thì không tính, và
+ * mọi đích, mọi đường dẫn trong đoạn đều trong thư mục tạm. Mã nội tuyến của trình thông dịch không chứng minh được.
  */
 export function isReadOnlyAllowed(command: string, opts: { cwd: string | null; stepChecks: readonly string[] }): boolean {
   const stepKeys = new Set(opts.stepChecks.map(runKey))
   if (stepKeys.has(runKey(command))) return true
-  const isHeredoc = command.includes('<<')
-  const head = isHeredoc ? (command.split('\n')[0] ?? '') : command
-  let cwd = opts.cwd
-  for (const segment of segmentsOf(head)) {
-    const words = unwrap(wordsOf(segment.text))
-    const name = (words[0] ?? '').split('/').pop() ?? ''
-    if (INTERPRETERS.test(name) && (segment.isPiped || isHeredoc || words.length === 1 || words.slice(1).some(word => INLINE_FLAG.test(word)))) return false
-    if (isHeredoc) continue
-    if (name === 'cd') {
-      cwd = cdTarget(words[1], cwd)
-      continue
-    }
-    if (stepKeys.has(runKey(segment.text))) continue
-    if (!effectsAllowed(segment.text, cwd)) return false
-  }
-  return isHeredoc ? effectsAllowed(command, opts.cwd) : true
+  return commandAllowed(command, opts.cwd, stepKeys)
 }
 

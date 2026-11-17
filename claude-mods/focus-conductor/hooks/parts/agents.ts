@@ -29,16 +29,15 @@ import { FANOUT_WARN } from '../context'
 // Atom của mod, khai báo lại ở mỗi file dùng chúng (engine chỉ nhận tham chiếu state viết trong chính file đó);
 // cùng plugin và key nên là cùng một giá trị trong $.state.
 const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EMPTY_CORE)
-const bashDirState = atom({ plugin: 'focus-conductor', key: 'bashDirs' } as const, {} as Record<string, string>)
 
 /** Áp kết quả một lượt router gửi Fable vào Core (0.8.4 C6): vừa tạm ngừng thì toast và một dòng nhật ký conductor. */
 /**
- * Khung xét tập cho phép (0.9.0, đổi đặc tả C2): thư mục làm việc của subagent theo phần theo dõi cd sẵn có (bashDirs), mặc định thư mục gốc
- * của phiên; lệnh ở check của các bước trong kế hoạch của mục tiêu.
+ * Khung xét tập cho phép (0.9.0, đổi đặc tả C2): thư mục làm việc của mỗi lời gọi là thư mục gốc của phiên; lệnh ở check của các bước trong
+ * kế hoạch của mục tiêu.
  */
-async function roleFrame($: EngineInterface, agentId: string): Promise<{ cwd: string | null; stepChecks: string[] }> {
-  const dirs = await read($, bashDirState)
-  const root = dirs[agentId] ?? (await $.session.root().catch(() => null)) ?? null
+async function roleFrame($: EngineInterface): Promise<{ cwd: string | null; stepChecks: string[] }> {
+  // Shell của subagent về thư mục gốc sau mỗi lời gọi Bash (DESIGN, F1 và kiểm độc lập vòng 1 của C2): không mang cwd của lời gọi trước.
+  const root = (await $.session.root().catch(() => null)) ?? null
   const plan = S.normalizeCore(await read($, coreState)).plan
   return { cwd: root, stepChecks: plan.flatMap(step => { const check = stepCheckOf(step.check); return check !== null ? [check.command] : [] }) }
 }
@@ -89,7 +88,8 @@ export function roleDenial(role: Role, tool: string, input: Record<string, unkno
   const isReadOnly = READ_ONLY_ROLES.has(role)
   if (tool !== 'Bash') {
     const path = filePathOf({ tool, input, isError: false, isReadOnly: false })
-    if (!isReadOnly && path !== '' && isRoleTemp(path)) return null
+    // Công cụ sửa file vào thư mục tạm được phép cho mọi vai (bất biến của C2; kiểm độc lập vòng 1).
+    if (path !== '' && isRoleTemp(path)) return null
   } else if (isReadOnly) {
     // Vai chỉ đọc (0.9.0, đổi đặc tả C2): danh sách cho phép trên bộ phân loại lệnh sẵn có.
     if (isReadOnlyAllowed(String(input['command'] ?? ''), frame)) return null
@@ -125,7 +125,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
     // Lời gọi ngoài tập cho phép của vai chỉ đọc (0.9.0, đổi đặc tả C2 mục 2): ghi lại cho mọi subagent, độc lập với việc từ chối; kết luận
     // của subagent đã có một lời gọi như vậy không mở cổng duyệt hay sẵn sàng.
     const input = e as unknown as Record<string, unknown>
-    const frame = await roleFrame($, e.agentId)
+    const frame = await roleFrame($)
     const isOutside = e.tool === 'Bash' ? !isReadOnlyAllowed(String(input['command'] ?? ''), frame) : !isRoleTemp(filePathOf({ tool: e.tool, input, isError: false, isReadOnly: false }) || '/x')
     if (isOutside) meta.outside = true
     const role = meta.role
