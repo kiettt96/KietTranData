@@ -82,7 +82,8 @@ describe('0.8.7 L2: lời dặn router', () => {
   }
 
   test('agentSystem trùng 0.8.6 từng byte', async () => {
-    expect(await sha(agentSystem())).toBe('7d8176082b9bcdbb9072e89c9dd48418744166d0088d600f97b332970a991eda')
+    // 0.9.0 C1, C3: mẫu JSON có role và catalog cho haiku chạy kiểm; băm ghim theo lời dặn mới (tên ca giữ như cũ).
+    expect(await sha(agentSystem())).toBe('d18f8ed8579240381e989fdb5afb4b4e2db57d3a026cfbcf44c70053ac607252')
   })
 })
 

@@ -17,6 +17,7 @@ describe('0.9.0 C3: lời dặn router về đội hình', () => {
     for (const phrase of [
       'Team roles:',
       'depth none or light: no added audit, review or design tasks',
+      'depth substantial, kind edit or mixed: after the build tasks, one audit task',
       'one audit task (only when a check command is known from the request or the project) and then one review task, last, in that order',
       'depth hard: also one design task first when the request changes structure widely or touches security or data, and one design readiness task last, after the review',
       'do not add a duplicate',

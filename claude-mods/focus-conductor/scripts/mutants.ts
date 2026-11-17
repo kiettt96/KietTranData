@@ -2489,4 +2489,11 @@ export const MUTANTS: Mutant[] = [
   { id: "090-C2c", file: "hooks/parts/agents.ts", note: "lệnh ghi /tmp cũng bị từ chối", old: "effect.paths.some(path => !isRoleTemp(path))))", new: "effect.paths.some(path => path !== ''))))" },
   { id: "090-C2d", file: "hooks/parts/agents.ts", note: "lời gọi Kiểm độc lập không là vai duyệt", old: "  if (INDEPENDENT_PREFIXES.some(prefix => description.startsWith(prefix))) return 'review'\n", new: "" },
   { id: "090-C2e", file: "hooks/parts/agents.ts", note: "vai audit ghi /tmp bị từ chối", old: "    if (!isReadOnly && path !== '' && isRoleTemp(path)) return null\n", new: "" },
+  { id: "090-C3a", file: "hooks/lib/router.ts", note: "bỏ luật đội hình cho việc substantial", old: "- depth substantial, kind edit or mixed: after the build tasks, one audit task", new: "- depth substantial: one audit task" },
+  { id: "090-C3b", file: "hooks/lib/router.ts", note: "bỏ luật design cho việc hard", old: "- depth hard: also one design task first", new: "- depth hard: one design task first" },
+  { id: "090-C3c", file: "hooks/lib/router.ts", note: "bỏ luật không thêm việc kiểm trùng", old: " that task takes the review or audit role; do not add a duplicate.\n", new: " that task takes the review or audit role.\n" },
+  { id: "090-C3d", file: "hooks/lib/router.ts", note: "câu hỏi làm rõ không gồm quyết định nghiệp vụ", old: " (including business, permission, data or cost decisions the request leaves open)", new: "" },
+  { id: "090-C3e", file: "hooks/lib/router.ts", note: "catalog không cho haiku chạy kiểm", old: "; also running checks and reporting pass or fail. Never", new: ". Never" },
+  { id: "090-C3f", file: "hooks/lib/router.ts", note: "mẫu JSON của việc không có role", old: "\"agent\": string, \"role\": \"design\"|\"review\"|\"build\"|\"search\"|\"audit\", \"model\": string,", new: "\"agent\": string, \"model\": string," },
+  { id: "090-C3g", file: "hooks/lib/router.ts", note: "việc nhẹ cũng thêm đội hình", old: "- depth none or light: no added audit, review or design tasks.\n", new: "" },
 ]
