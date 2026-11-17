@@ -9,7 +9,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 - Đường dẫn khởi động chuẩn: khối mục 7 của prompt.
 - Đường dẫn xác minh chuẩn: `claude plugin test .` ở MOD.
 - Mục chưa xong ưu tiên cao nhất: D2 cùng C9.
-- Điểm chặn: C9 dưới ngưỡng sau hai lần chỉnh lời dặn; chờ chủ mod quyết (DIEM-DUNG.md).
+- Điểm chặn: không.
 
 ## Đo nền (17/11/2026, engine 2.1.326)
 - HEAD 14a3a85; validate marketplace và mod đạt; version-check 0.8.9, đủ 47 option.
@@ -56,12 +56,17 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 | C7 | passing 17/11 | đỏ (3/3 ca đỏ); sửa 87c99f1; verdict-retry-c7-090 3 pass (vòng 1 nguyên văn, vòng 2 chẩn đoán opus hay fable theo allowFable, vòng 3 dừng hỏi, toast 3 vòng, ĐẠT đặt lại vòng); 090-C7a..e KILLED; câu dặn dưới 200 ký tự; 30 tệp retry/agent 214 pass |
 | B6v | passing 17/11 | lộ ra khi dựng kịch bản đo kỷ luật của D2: Edit tệp tiến độ hay cp vào nơi sao lưu sau lần kiểm làm bước verified bị hạ done (lastMutation tính cả ghi phụ). Đỏ 2/3 ca (state-fresh-b6-090); sửa 5241aae: ghi chắc chỉ vào hai danh sách không là thay đổi của evidence; 090-B6c,g,h KILLED; 40 pass ở 5 tệp B2, B6, B10, B11 |
 | C8 | passing 17/11 | đỏ fb3e1c3 (4/5 ca đỏ, ca không chèn bảng khi sổ rỗng xanh từ đầu); sửa e3e2464; report-c8-090 5 pass (bảng chỉ ở bước cuối, vai, model, kết luận, giữ lần chạy cuối, gộp theo vai dưới 600 ký tự, mục 6 đúng 472 ký tự); 090-C8a..e KILLED; plan-set-073 giữ nguyên (mọi cụm ghim còn) |
-| C9 | blocked 17/11 | dưới ngưỡng sau ba lần chỉnh lời dặn (lần ba chủ mod cho phép); xem DIEM-DUNG.md |
-| D2 | in_progress | ca D2: 6/6 đạt ít nhất 2/3 (d2-many-rules 2/3); ca cũ k4, six thấp hơn 14a3a85; ký tự chèn: phiên dài +79 mỗi số, kịch bản kỷ luật 3381 -> 1398 |
+| C9 | passing 17/11 | đo F đạt ngưỡng (xem nhật ký phiên) |
+| D2 | passing 17/11 | ca D2: 6/6 đạt ít nhất 2/3 (d2-many-rules 2/3); ca cũ k4, six thấp hơn 14a3a85; ký tự chèn: phiên dài +79 mỗi số, kịch bản kỷ luật 3381 -> 1398 |
 | D4 | not_started | |
 | D3 | not_started | |
 
 ## Nhật ký phiên
+- Đo F (d2/new5-sonnet.json, old5-sonnet.json, sonnet, 3 lượt, cùng đợt): mới 216/228, 14a3a85 170/180. Mười ca c9 đạt 3/3 (chỉ chấm độ sâu); sáu ca D2 đạt ít nhất 2/3 (d2-many-rules 2/3). Ca cũ lệch: k4 2/3 và six 2/3 (14a3a85 3/3 cả hai) -> đo 6 lượt cùng đợt: k4 mới 5/6, cũ 6/6; six mới 3/6, cũ 4/6: chênh 1, không tính tụt. Token ra TB ca cũ 676 -> 761 (+12,6%). Đạt ngưỡng; không cần F2.
+- Golden: ghi bằng lần đo F (73/76 ca), rồi c4-big-coded, c4-big-skill, c4-small, c4-status, arr-dup bằng router fable --record 3 lượt (15/15), như VERIFICATION mục 0.8.9. golden.test.ts 89 pass.
+- Chi phí: đợt F 6,39; 6 lượt k4, six 0,65; ghi fable 1,43; cộng dồn khoảng 29,4 USD (gần mức báo 30).
+- 17/11, chủ mod duyệt đổi thiết kế C1, C3 (chỉ dẫn A tới G): router chỉ đọc prompt, luật đội hình do mod áp. Đã làm: gỡ khối Team roles, câu tasks never [], role, câu catalog haiku và định nghĩa light đã đổi (lời dặn router +525 so với 0.8.9; agentSystem trùng 14a3a85 từng byte); vai do mod suy (hooks/lib/router.ts roleOf, roleRoute; hooks/parts/agents.ts ROLE_PREFIXES, prefixRole); đội hình do mod áp (hooks/lib/team.ts TEAM_FILES = 3, teamCause, closingNote, closingSteps; Core.team; pane mục Bước đóng); kết luận theo câu trả lời (hooks/lib/verdict.ts verdictOf(answer); Ctx.local.agentWrote; VerdictRun.isClean). Test đỏ 9519b92 (26 ca đỏ cộng hai tệp không nạp được, 24 ca), sửa 28c57f5, bộ chấm golden về như cũ 76a58a0. Mẫu 090-C1b..l, 090-C2d, 090-C3d, h..q, 090-C4a..j, 090-C6f,h,j, 090-C7e: 37 KILLED trên tập test liên quan.
+- D3 (khai báo kiểu): AgentSpawnInput.prompt ghi rõ "A rewrite is the prompt the subagent runs with" ở cả 2.1.326 và 2.1.296: mod nối được dòng mẫu báo cáo; vẫn đưa từ kết luận vào đoạn dặn bước đóng (cho subagent không tiền tố).
 - Đợt 4 sau lần chỉnh 3 (d2/new4-sonnet.json, old-k4six.json, new-k4six.json, diag-old2.json): dưới ngưỡng, dừng theo bước 6 của chủ mod, không chỉnh lần thứ tư.
   | Ca | 14a3a85 độ sâu (prompt viết lại) | lời dặn mới độ sâu | số việc mới | đạt mới |
   |---|---|---|---|---|
