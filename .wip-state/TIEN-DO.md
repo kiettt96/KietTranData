@@ -9,7 +9,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 - Đường dẫn khởi động chuẩn: khối mục 7 của prompt.
 - Đường dẫn xác minh chuẩn: `claude plugin test .` ở MOD.
 - Mục chưa xong ưu tiên cao nhất: D2 cùng C9.
-- Điểm chặn hiện tại: không.
+- Điểm chặn: C9 dưới ngưỡng sau hai lần chỉnh lời dặn; chờ chủ mod quyết (DIEM-DUNG.md).
 
 ## Đo nền (17/11/2026, engine 2.1.326)
 - HEAD 14a3a85; validate marketplace và mod đạt; version-check 0.8.9, đủ 47 option.
@@ -22,6 +22,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 - Khai báo 2.1.296: cài gói vào eng296/, sinh bằng cùng cách trước nhóm C.
 
 ## Chi phí model thật (trần 25 USD, báo ở 20 USD)
+- Sau đợt D2 thứ ba đang chạy: khoảng 15,6 USD (D1 1,7; D2 đợt 1 lời dặn 14a3a85 2,90; lời dặn mới đợt 1 3,60; lần chỉnh 1 3,71; lần chỉnh 2 ước 3,7; thử 0,03).
 - Cộng dồn: khoảng 1,7 USD sau D1 (theo total_cost_usd của claude -p: lần 1 off 0,54; on 0,45; off lần 2 0,59; ba lần thử 0,07; chưa gồm lượt router của mod nếu engine không cộng vào).
 
 ## Bảng mục việc
@@ -53,13 +54,21 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 | C5 | passing 17/11 | đỏ (1/3 ca đỏ); sửa 0a35e15; file-clash-c5-090 4 pass; 090-C5a..d KILLED; 36 tệp agent 380 pass |
 | C6 | passing 17/11 | đỏ (5/9 ca đỏ); sửa 7a62b10; closing-c6-090 10 pass; 090-C6a..j KILLED; 58 tệp có classic.Stop 795 pass sau khi 8 ca cũ đặt closingReview off (CA-DOI-KY-VONG.md); version-check đủ 48 option; validate đạt |
 | C7 | passing 17/11 | đỏ (3/3 ca đỏ); sửa 87c99f1; verdict-retry-c7-090 3 pass (vòng 1 nguyên văn, vòng 2 chẩn đoán opus hay fable theo allowFable, vòng 3 dừng hỏi, toast 3 vòng, ĐẠT đặt lại vòng); 090-C7a..e KILLED; câu dặn dưới 200 ký tự; 30 tệp retry/agent 214 pass |
+| B6v | passing 17/11 | lộ ra khi dựng kịch bản đo kỷ luật của D2: Edit tệp tiến độ hay cp vào nơi sao lưu sau lần kiểm làm bước verified bị hạ done (lastMutation tính cả ghi phụ). Đỏ 2/3 ca (state-fresh-b6-090); sửa 5241aae: ghi chắc chỉ vào hai danh sách không là thay đổi của evidence; 090-B6c,g,h KILLED; 40 pass ở 5 tệp B2, B6, B10, B11 |
 | C8 | passing 17/11 | đỏ fb3e1c3 (4/5 ca đỏ, ca không chèn bảng khi sổ rỗng xanh từ đầu); sửa e3e2464; report-c8-090 5 pass (bảng chỉ ở bước cuối, vai, model, kết luận, giữ lần chạy cuối, gộp theo vai dưới 600 ký tự, mục 6 đúng 472 ký tự); 090-C8a..e KILLED; plan-set-073 giữ nguyên (mọi cụm ghim còn) |
-| C9 | not_started | |
-| D2 | not_started | |
+| C9 | blocked 17/11 | dưới ngưỡng sau hai lần chỉnh lời dặn; xem DIEM-DUNG.md |
+| D2 | in_progress | ca D2: 6/6 đạt ít nhất 2/3 (d2-many-rules 2/3); ca cũ k4, six thấp hơn 14a3a85; ký tự chèn: phiên dài +79 mỗi số, kịch bản kỷ luật 3381 -> 1398 |
 | D4 | not_started | |
 | D3 | not_started | |
 
 ## Nhật ký phiên
+- Lần chỉnh 2 (d2/new3-sonnet.json): 205/228; c9-mid-check, c9-mid-nocheck, c9-doc 0/3, c9-hard-data 1/3; ca cũ k4 2/3 (14a3a85 3/3), six 1/3 (2/3); token +13,9%. Dừng theo điểm dừng của C9. Chi phí cộng dồn khoảng 15,7 USD.
+- D2, C9 đợt 1 (sonnet, --runs 3, cùng đợt): 14a3a85 170/180 lượt (six 2/3; c4-big-coded, c4-big-skill, arr-dup 0/3); lời dặn mới 194/228. Ca C9 cỡ vừa và khó không có việc (router xếp light hay giữ tasks [] cho một khối việc); ca cũ có số việc ghim tụt vì việc audit, review thêm. Token ra TB trên ca cũ 710 -> 809 (+13,9%).
+- Lần chỉnh 1: lời dặn 'một khối việc thì là một việc build, không []'; bộ chấm golden đếm số việc không tính việc đội hình thêm (design đầu, chuỗi audit/review/design cuối); viết lại năm prompt C9 cho đúng cỡ. Kết quả chấm lại offline: 205/228; ca cũ tụt: six 0/3 (luồng chính sonnet vì design, review chạy opus), long-vn 1/3 (ràng buộc và báo cáo cuối không việc nào phủ); C9 vừa và tài liệu vẫn light.
+- Lần chỉnh 2 (lần cuối trước điểm dừng): light hẹp lại 'in one or two places'; 'Review also covers the request's rules and final report. Team tasks never lower "main".'; bỏ câu thừa về tra cứu. Lời dặn +1968 so với 0.8.9 (nhóm C 1500, B 468).
+- Phiên dài sau nhóm C (5241aae): mười số trùng số sau nhóm B (C4, C6, C7, C8 không kích hoạt trong kịch bản không có vai).
+- Cả bộ trên bản chụp e3e2464 (sau C8): 3952 pass, 1 fail (golden, được phép tới D2), 3953 ca, 364 tệp.
+- Kịch bản đo 'phiên theo kỷ luật giao việc' (measure/ky-luat.test.ts, dựng lại H1 tới H5: phạm vi một tệp, ba tệp trạng thái, nơi sao lưu, khối đo nền, hai mục việc có check là lệnh; đếm context của prompt.submit và tool.call, ghi chú của kết quả plan, lý do chặn Stop). Không dựng ở bước đo nền; số nền đo trên bản chụp 14a3a85: 3381 ký tự (bốn cảnh báo ngoài phạm vi 797, hai câu hạ verified 1184). e3e2464: 2582. 5241aae: 1398.
 - Sau nhóm B: cả bộ trên 8771b48: 3896 pass, 1 fail (golden), 3897 ca, 356 tệp.
 - Đo phiên dài (bộ đo measure/, khớp 6 số của 0.8.9 trên 14a3a85): nền 14a3a85 mac-dinh 10339/19587, fable 8563/7048, solo 16608/24349; sau B 10418/19666, 8642/7127, 16687/24428: mỗi số +79 = dòng dạng check ở kết quả plan set (B10, trong hạn 160). Kịch bản 60 việc tự dựng lại (không khớp 5978/33204 của bản đo cũ): nền 21738/45121, fable -/6482 (ca fable-10 nền không nạp được); sau B 21817/45200, 7794/6561: cũng +79.
 - tsc với khai báo 2.1.296 (mod296/): nền 14a3a85 27 lỗi; HEAD bắt hai lỗi mới (DecisionKind thiếu verify-step, check-changed), đã sửa 55047a0. Khai báo 2.1.326: nền 14 lỗi, HEAD 14 lỗi cùng loại.
@@ -68,6 +77,8 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 - 17/11/2026: khởi động, đo nền, trình kế hoạch.
 
 ## Nhật ký quyết định
+- B6 vòng sửa: ghi chắc (Edit, Write, hay Bash mà mọi đích đã biết đều thuộc hai danh sách) vào tệp trạng thái hay nơi ghi phụ không vào sổ thay đổi của evidence (không lastMutation, không writes); ghi possible hay đích không xác định giữ như cũ. Loại: chỉ bỏ khỏi lastHard (vẫn hạ bước vì claims dùng lastMutation).
+- C9: 'họ điều phối đang cấu hình' đọc là opus (cấu hình gợi ý ở D3: conductor opus); đo opus cùng biến thể điều phối (--conductor) trên mười ca C9 và bốn ca c4 có cờ conductor, so với 14a3a85 trên bốn ca c4; ca cũ còn lại đo bằng sonnet. Lý do: trần 25 USD. Loại: đo opus trên cả 70 ca của hai lời dặn (ước 19 USD).
 - C8: bảng lấy từ sổ kết luận của mục tiêu (mọi lần subagent có vai trả lời xong), mỗi việc một dòng theo số việc hay mô tả; sổ rỗng thì không chèn (giữ số ký tự của 0.8.9). Mục 6 bỏ cụm 'subagent theo quy tắc riêng ở dòng cuối' (dòng cuối của khối vẫn nói riêng cho subagent) và rút 'khi chuyển sang việc khác chỉ viết' để giữ đúng 472 ký tự. Khai báo kiểu Core.closingGap của C6 sót khỏi commit C6, commit riêng 09e20a3. Loại: thêm cột bước chưa xác minh vào bảng (ngoài chữ của C8).
 - C6: 'phiên giao được subagent' đọc là engine đã mời ít nhất một loại agent (agent.offer) hay đã có subagent sinh ra, và không solo, không bị từ chối Agent; phiên chưa có cả hai thì cổng không chặn, pane ghi 'Chưa có duyệt độc lập'. Miễn bằng `/conductor waive review` (chỉ người gõ). Loại: luôn coi phiên giao được (làm đỏ 13 ca cũ không có subagent).
 - C1: vai chỉ lưu vào việc khi router trả giá trị hợp lệ; vắng hay sai thì việc không mang vai, không có sàn theo vai, không nhãn (như 0.8.9, theo ràng buộc fail-closed); roleOf suy vai cho nơi cần đọc. Loại: lưu vai suy ra (làm đổi pick và 14 ca ghim giao diện cũ).
