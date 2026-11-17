@@ -8,7 +8,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 ## Trạng thái đã xác minh
 - Đường dẫn khởi động chuẩn: khối mục 7 của prompt.
 - Đường dẫn xác minh chuẩn: `claude plugin test .` ở MOD.
-- Mục chưa xong ưu tiên cao nhất: B3.
+- Mục chưa xong ưu tiên cao nhất: B4.
 - Điểm chặn hiện tại: không.
 
 ## Đo nền (17/11/2026, engine 2.1.326)
@@ -34,7 +34,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 | A5 | passing 17/11 | đỏ (3/4 ca đỏ); sửa 7a5fe97; retired-a5-090 4 pass (toàn luồng submit, bỏ việc, plan set, đóng checklist); 090-A5a..e KILLED; mẫu cũ 078-G1m, 078-G2e, 078-G2f sửa chuỗi, vẫn KILLED; tập 26 tệp 366 pass |
 | B1 | passing 17/11 | đỏ 4ee21e5 (12/13 ca đỏ; thông điệp commit ghi nhầm mã cha bcb1d0b, đúng là 7a5fe97); sửa 9aab1c4; state-files-b1-090 13 pass; 090-B1a..j KILLED; lời dặn router +272 ký tự (10.888 thành 11.160); hai ca ghim đổi kỳ vọng (CA-DOI-KY-VONG.md); golden đỏ tới D2; toàn luồng kiểm ở D1 |
 | B2 | passing 17/11 | đỏ (2/3 ca đỏ); sửa c52ddf3 (isSidePath ở drift/scope.ts, tracker, changedTargets, subagent); side-scope-b2-090 8 pass; 090-B2a..h KILLED; tập 14 tệp phạm vi 107 pass; toàn luồng kiểm ở D1 |
-| B3 | not_started | |
+| B3 | passing 17/11 | đỏ (3/4 ca đỏ); sửa 6444cb5; approval-state-b3-090 5 pass; 090-B3a..f KILLED; mẫu cũ 082-N2a, 085-W2h sửa chuỗi, KILLED; tập 16 tệp duyệt 302 pass; PLANNING_CHARS 600 thành 1000; toàn luồng kiểm ở D1 |
 | B4 | not_started | |
 | B5 | not_started | |
 | B6 | not_started | |
@@ -60,6 +60,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 | D3 | not_started | |
 
 ## Nhật ký phiên
+- Cả bộ trên bản chụp 9aab1c4 (sau B1): 3795 pass, 1 fail (golden, được phép tới D2), 3796 ca, 343 tệp; tệp full-9aab1c4.txt.
 - 17/11/2026: khởi động, đo nền, trình kế hoạch.
 
 ## Nhật ký quyết định
