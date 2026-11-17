@@ -2374,4 +2374,10 @@ export const MUTANTS: Mutant[] = [
   { id: "089-E3b", file: "hooks/lib/router.ts", note: "thứ tự cũ còn số của việc đã gỡ", old: "    order = brief.order.filter(index => !gone.has(index))\n", new: "    order = [...brief.order]\n" },
   { id: "089-E3c", file: "hooks/context.ts", note: "forgetDelegations không xóa khỏi danh sách chờ", old: "      d.pending.delete(index)\n", new: "" },
   { id: "089-E3d", file: "hooks/lib/router.ts", note: "việc nhận gộp tự gỡ chính nó", old: "      if (index === into) continue\n", new: "" },
+  { id: "090-A1a", file: "hooks/lib/drift/output.ts", note: "không bỏ dòng nhãn có từ lỗi kèm kết quả đạt", old: "  const original = dropPassedLabels(output.normalize('NFC'))\n", new: "  const original = output.normalize('NFC')\n" },
+  { id: "090-A1b", file: "hooks/lib/drift/output.ts", note: "nhãn có số đếm lỗi khác 0 vẫn bị bỏ", old: "      if ([...label.matchAll(LABEL_COUNT)].some(found => hasNonZero(found[1] ?? ''))) return line\n", new: "" },
+  { id: "090-A1c", file: "hooks/lib/drift/output.ts", note: "tỷ lệ chưa đủ kèm kết quả đạt vẫn bị bỏ", old: "      if (match[2] !== undefined && match[2] !== match[3]) return line\n", new: "" },
+  { id: "090-A1d", file: "hooks/lib/drift/output.ts", note: "nhãn có kết luận chưa đạt vẫn bị bỏ", old: "      if (SUMMARY_FAIL.test(label) || FOLDED_FAIL.test(foldLabel(label))) return line\n", new: "" },
+  { id: "090-A1e", file: "hooks/lib/drift/output.ts", note: "nhãn có vế lệch: N vẫn bị bỏ", old: "      if ([...label.matchAll(FAILURE_CLAUSE)].some(found => nonZero(found[1] ?? ''))) return line\n", new: "" },
+  { id: "090-A1f", file: "hooks/lib/drift/output.ts", note: "nhãn chỉ gồm từ chỉ lỗi vẫn bị bỏ", old: "      if (label.replace(LABEL_FAILURE_WORD, ' ').replace(/[^\\p{L}]/gu, '') === '') return line\n", new: "" },
 ]

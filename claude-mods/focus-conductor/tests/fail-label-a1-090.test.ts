@@ -34,6 +34,12 @@ const FAILS = [
   'Kiểm dòng thiếu mã hàng ........ CHƯA ĐẠT\nTổng: 13/13 ĐẠT',
   'Phép sai số làm tròn | 3 dòng sai\nKết quả: 13/13 PASS',
   'K2 kiểm lệch tồn kho: lệch 4 dòng\n13/13 đạt',
+  // Nhãn có kết luận lỗi, số đếm lỗi, vế "lệch: N", tỷ lệ chưa đủ, hay chỉ gồm từ chỉ lỗi: giữ là lỗi.
+  'K2 kiểm lệch chưa đạt | OK\n13/13 đạt',
+  '3 dòng lệch | PASS\nKết quả: 13/13 PASS',
+  'K2 lệch: 2, đã xem | OK\n13/13 đạt',
+  'K2 kiểm lệch: ĐẠT (12/13)\n13/13 đạt',
+  'Lỗi: OK\n13/13 đạt',
 ]
 
 describe('0.9.0 A1: nhãn chứa từ báo lỗi kèm kết quả đạt', () => {

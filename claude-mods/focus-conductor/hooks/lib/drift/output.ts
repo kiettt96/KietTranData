@@ -261,10 +261,43 @@ function nonZero(clause: string): boolean {
   return [...clause.matchAll(/\d[\d.,]*/gu)].some(match => hasNonZero(match[0]))
 }
 
+/**
+ * Dòng "nhãn, dấu ngăn, kết quả đạt đứng riêng" (0.9.0 A1): "K2 kiểm lệch tồn kho: ĐẠT", "Kiểm dòng thiếu mã ..... OK", "Phép sai số | PASS".
+ * Dấu ngăn: ":", "|", "->", "=>", "→", dấu chấm dẫn (từ 3 chấm), tab, " - ". Kết quả: OK, PASS, PASSED, ĐẠT, KHỚP, hợp lệ, dấu đạt, có thể
+ * kèm "(N/N)" với hai số bằng nhau.
+ */
+const LABELLED_PASS = /^(.*?[\p{L}\p{N})\]])\s*(?::|\||->|=>|→|\.{3,}|…+|\t| - )\s*(?:ok|pass(?:ed)?|đạt|khớp|hợp\s+lệ|[✅✓✔])(?:\s*\(?\s*(\d+)\s*\/\s*(\d+)\s*\)?)?\s*\.?\s*$/iu
+/** Số đếm khác 0 đứng trước từ chỉ lỗi trong nhãn, cách tối đa một từ ("3 dòng lệch", "2 lỗi"). */
+const LABEL_COUNT = new RegExp(`${EDGE_START}(${NUMBER})\\s+(?:\\p{L}+\\s+)?(?:${FAILURE_WORDS})${EDGE_END}`, 'giu')
+/** Từ chỉ lỗi trong nhãn, để biết nhãn còn chữ nào khác ngoài từ chỉ lỗi. */
+const LABEL_FAILURE_WORD = new RegExp(`${EDGE_START}(?:${FAILURE_WORDS})${EDGE_END}`, 'giu')
+
+/**
+ * Bỏ các dòng có từ chỉ lỗi chỉ nằm trong nhãn mà kết quả của chính dòng là dấu hiệu đạt đứng riêng (0.9.0 A1). Nhãn có kết luận lỗi
+ * (chưa đạt, không đạt, fail), số đếm lỗi khác 0, vế "lỗi: N" với N khác 0, hay chỉ gồm từ chỉ lỗi thì giữ dòng; tỷ lệ kèm kết quả phải
+ * bằng nhau.
+ */
+function dropPassedLabels(text: string): string {
+  return text
+    .split('\n')
+    .map(line => {
+      const match = LABELLED_PASS.exec(line.trim())
+      if (match === null) return line
+      if (match[2] !== undefined && match[2] !== match[3]) return line
+      const label = match[1] ?? ''
+      if (SUMMARY_FAIL.test(label) || FOLDED_FAIL.test(foldLabel(label))) return line
+      if ([...label.matchAll(LABEL_COUNT)].some(found => hasNonZero(found[1] ?? ''))) return line
+      if ([...label.matchAll(FAILURE_CLAUSE)].some(found => nonZero(found[1] ?? ''))) return line
+      if (label.replace(LABEL_FAILURE_WORD, ' ').replace(/[^\p{L}]/gu, '') === '') return line
+      return ' '
+    })
+    .join('\n')
+}
+
 /** Output của lệnh kiểm riêng có dấu hiệu lỗi (0.7.5): dấu hiệu chung của trình chạy, hay dấu hiệu tiếng Việt và tiếng Anh. */
 function customFailed(output: string): boolean {
-  const original = output.normalize('NFC')
-  if (COMPLETE_FAIL.some(pattern => pattern.test(original))) return true
+  if (COMPLETE_FAIL.some(pattern => pattern.test(output.normalize('NFC')))) return true
+  const original = dropPassedLabels(output.normalize('NFC'))
   if (FALSE_RESULT.test(original) || EXPECTED_GOT.test(original)) return true
   const text = original.replace(NEGATED_FAILURE, ' ').replace(ZERO_UNIT_FAILURES, ' ')
   if ([...text.matchAll(FAILURE_CLAUSE)].some(match => nonZero(match[1] ?? ''))) return true
