@@ -8,7 +8,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 ## Trạng thái đã xác minh
 - Đường dẫn khởi động chuẩn: khối mục 7 của prompt.
 - Đường dẫn xác minh chuẩn: `claude plugin test .` ở MOD.
-- Mục chưa xong ưu tiên cao nhất: C8.
+- Mục chưa xong ưu tiên cao nhất: D2 cùng C9.
 - Điểm chặn hiện tại: không.
 
 ## Đo nền (17/11/2026, engine 2.1.326)
@@ -53,7 +53,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 | C5 | passing 17/11 | đỏ (1/3 ca đỏ); sửa 0a35e15; file-clash-c5-090 4 pass; 090-C5a..d KILLED; 36 tệp agent 380 pass |
 | C6 | passing 17/11 | đỏ (5/9 ca đỏ); sửa 7a62b10; closing-c6-090 10 pass; 090-C6a..j KILLED; 58 tệp có classic.Stop 795 pass sau khi 8 ca cũ đặt closingReview off (CA-DOI-KY-VONG.md); version-check đủ 48 option; validate đạt |
 | C7 | passing 17/11 | đỏ (3/3 ca đỏ); sửa 87c99f1; verdict-retry-c7-090 3 pass (vòng 1 nguyên văn, vòng 2 chẩn đoán opus hay fable theo allowFable, vòng 3 dừng hỏi, toast 3 vòng, ĐẠT đặt lại vòng); 090-C7a..e KILLED; câu dặn dưới 200 ký tự; 30 tệp retry/agent 214 pass |
-| C8 | not_started | |
+| C8 | passing 17/11 | đỏ fb3e1c3 (4/5 ca đỏ, ca không chèn bảng khi sổ rỗng xanh từ đầu); sửa e3e2464; report-c8-090 5 pass (bảng chỉ ở bước cuối, vai, model, kết luận, giữ lần chạy cuối, gộp theo vai dưới 600 ký tự, mục 6 đúng 472 ký tự); 090-C8a..e KILLED; plan-set-073 giữ nguyên (mọi cụm ghim còn) |
 | C9 | not_started | |
 | D2 | not_started | |
 | D4 | not_started | |
@@ -68,6 +68,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 - 17/11/2026: khởi động, đo nền, trình kế hoạch.
 
 ## Nhật ký quyết định
+- C8: bảng lấy từ sổ kết luận của mục tiêu (mọi lần subagent có vai trả lời xong), mỗi việc một dòng theo số việc hay mô tả; sổ rỗng thì không chèn (giữ số ký tự của 0.8.9). Mục 6 bỏ cụm 'subagent theo quy tắc riêng ở dòng cuối' (dòng cuối của khối vẫn nói riêng cho subagent) và rút 'khi chuyển sang việc khác chỉ viết' để giữ đúng 472 ký tự. Khai báo kiểu Core.closingGap của C6 sót khỏi commit C6, commit riêng 09e20a3. Loại: thêm cột bước chưa xác minh vào bảng (ngoài chữ của C8).
 - C6: 'phiên giao được subagent' đọc là engine đã mời ít nhất một loại agent (agent.offer) hay đã có subagent sinh ra, và không solo, không bị từ chối Agent; phiên chưa có cả hai thì cổng không chặn, pane ghi 'Chưa có duyệt độc lập'. Miễn bằng `/conductor waive review` (chỉ người gõ). Loại: luôn coi phiên giao được (làm đỏ 13 ca cũ không có subagent).
 - C1: vai chỉ lưu vào việc khi router trả giá trị hợp lệ; vắng hay sai thì việc không mang vai, không có sàn theo vai, không nhãn (như 0.8.9, theo ràng buộc fail-closed); roleOf suy vai cho nơi cần đọc. Loại: lưu vai suy ra (làm đổi pick và 14 ca ghim giao diện cũ).
 - D1: mỗi cấu hình chạy một prompt mẫu cỡ vừa, rồi một lượt `--continue`. Lượt `--continue` mất nhật ký quyết định của lượt 1 và mất mục tiêu (mod coi tin duyệt là mục tiêu mới), nên số đo lấy từ bản chép nhật ký ngay sau lượt 1 và từ transcript. Ghi vào việc tồn: (1) nhật ký decisionLog bị ghi đè ở phiên resume; (2) trạng thái mục tiêu không sống qua `claude -p --continue`; (3) câu 'Việc nhỏ: làm trực tiếp, không cần checklist' của mục tiêu light cãi với prompt đòi checklist, Claude lập checklist sau khi làm nên B10 không có bằng chứng (lần chạy trước khi check được lưu); (4) router chấm prompt kỷ luật cỡ vừa là light.
