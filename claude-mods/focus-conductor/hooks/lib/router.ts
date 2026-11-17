@@ -795,7 +795,7 @@ export function ruleRoute(claimed: ModelFamily, claimedEffort: Effort | null, po
 }
 
 /** Họ model cao nhất chính sách cho phép: model của phiên khi ceiling hay fixed, nếu không thì fable khi bật allowFable, còn lại opus. */
-function topFamily(policy: Policy): ModelFamily {
+export function topFamily(policy: Policy): ModelFamily {
   const session = policy.session
   if (session !== null && session.policy !== 'auto') return session.family
   return policy.allowFable ? 'fable' : 'opus'
