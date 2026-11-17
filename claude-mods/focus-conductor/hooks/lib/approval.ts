@@ -5,7 +5,8 @@
 import type { PluginOptions } from 'claude-code'
 import type { Brief, PlanStep } from '../../types'
 import { classifyBash, filePathOf, openSteps } from './drift'
-import { normalizePath } from './drift/scope'
+import { isSidePath, normalizePath } from './drift/scope'
+import type { SideLists } from './drift/scope'
 import { backupTokens } from './quota'
 import type { PlanReview } from './router'
 
@@ -94,31 +95,52 @@ const DENY_AGENT = '[focus-conductor] Kế hoạch chưa được duyệt: chỉ
  * Bash có ghi file bị từ chối, trừ khi mọi đích đọc được và đều dưới thư mục được miễn; Agent chỉ qua với subagent_type Explore hay Plan.
  * Read, Grep, Glob, tool plan của mod và các tool chỉ đọc khác luôn qua.
  */
-export function approvalDenial(tool: string, input: Record<string, unknown>): string | null {
+/** Tệp trạng thái của mục tiêu (0.9.0 B3) kèm thư mục gốc và thư mục làm việc để neo đường dẫn tương đối. */
+export type StateFrame = { lists: SideLists | null; root?: string | null; cwd?: string | null }
+
+export function approvalDenial(tool: string, input: Record<string, unknown>, frame: StateFrame | null = null): string | null {
+  // Tệp trạng thái của lượt (0.9.0 B3) ghi được khi chưa duyệt, như thư mục được miễn; nơi ghi phụ thì không.
+  const allowed = (path: string) => isExemptPath(path) || (frame !== null && isSidePath(path, frame.lists, frame.root, frame.cwd, 'state'))
   if (EDITORS.has(tool)) {
     const path = filePathOf({ tool, input, isError: false, isReadOnly: false })
-    return path !== '' && isExemptPath(path) ? null : DENY_EDIT
+    return path !== '' && allowed(path) ? null : DENY_EDIT
   }
   if (tool === 'Bash') {
     if (typeof input['command'] === 'string' && isPlanningSafeBash(input['command'])) return null
     const writes = classifyBash(typeof input['command'] === 'string' ? input['command'] : '').effects.filter(effect => effect.kind === 'write' && effect.isHistory !== true)
     if (writes.length === 0) return null
-    const isExempt = writes.every(effect => effect.kind === 'write' && !effect.isUnknown && effect.paths.length > 0 && effect.paths.every(isExemptPath))
+    const isExempt = writes.every(effect => effect.kind === 'write' && !effect.isUnknown && effect.paths.length > 0 && effect.paths.every(allowed))
     return isExempt ? null : DENY_EDIT
   }
   if (tool === 'Agent') return READ_ONLY_AGENTS.has(String(input['subagent_type'] ?? '')) ? null : DENY_AGENT
   return null
 }
 
-/** Trần đoạn dặn lập kế hoạch (0.8.2 N2). */
-export const PLANNING_CHARS = 600
+/** Hạn mức thêm của đoạn dặn lập kế hoạch (0.9.0): B3 nêu tệp trạng thái, B6 nêu bước thử skill, B10 nêu dạng check của bước. */
+export const PLANNING_STATE_CHARS = 120
+export const PLANNING_SKILL_CHARS = 120
+export const PLANNING_CHECK_CHARS = 160
+/** Trần đoạn dặn lập kế hoạch (0.8.2 N2; 0.9.0 cộng ba hạn mức trên). */
+export const PLANNING_CHARS = 600 + PLANNING_STATE_CHARS + PLANNING_SKILL_CHARS + PLANNING_CHECK_CHARS
 
-/** Đoạn dặn lập kế hoạch khi mục tiêu đang planning và không còn câu hỏi chờ. */
-export function planningContext(): string {
+/** Câu nêu tệp trạng thái ghi được khi chưa duyệt (0.9.0 B3): tên tệp, nối dấu phẩy, không quá PLANNING_STATE_CHARS ký tự; rỗng khi không có. */
+export function planningStateLine(stateFiles: readonly string[] | undefined): string {
+  const names = [...new Set((stateFiles ?? []).map(path => path.replace(/\\/g, '/').replace(/\/+$/, '').split('/').pop() ?? '').filter(Boolean))]
+  if (names.length === 0) return ''
+  const build = (n: number) => ` Được ghi tệp trạng thái: ${names.slice(0, n).join(', ')}${n < names.length ? ', ...' : ''}.`
+  let n = names.length
+  while (n > 1 && build(n).length > PLANNING_STATE_CHARS) n -= 1
+  return build(n).slice(0, PLANNING_STATE_CHARS)
+}
+
+/** Đoạn dặn lập kế hoạch khi mục tiêu đang planning và không còn câu hỏi chờ; brief có tệp trạng thái thì nêu thêm (0.9.0 B3). */
+export function planningContext(brief: Pick<Brief, 'stateFiles'> | null = null): string {
   return (
     '[focus-conductor] Việc lớn: lập kế hoạch và chờ duyệt trước khi sửa file. Lập checklist bằng tool plan (action set), mỗi bước có check; ' +
     'đối chiếu đủ mọi yêu cầu của mục tiêu và nêu rõ phần nào không làm. Chưa sửa file: Edit, Write và lệnh ghi file bị từ chối tới khi ' +
-    'người dùng duyệt (chỉ ghi được dưới .claude/plans/). Kết thúc turn bằng bản kế hoạch để người dùng duyệt.'
+    'người dùng duyệt (chỉ ghi được dưới .claude/plans/).' +
+    planningStateLine(brief?.stateFiles) +
+    ' Kết thúc turn bằng bản kế hoạch để người dùng duyệt.'
   )
 }
 

@@ -52,6 +52,13 @@ describe('0.9.0 B3: cổng duyệt kế hoạch cho ghi tệp trạng thái', ()
     expect(planning.length).toBeLessThanOrEqual(A.PLANNING_CHARS)
   })
 
+  test('câu nêu tệp trạng thái nhiều tệp tên dài vẫn không quá 120 ký tự', () => {
+    const many = Array.from({ length: 8 }, (_, i) => `/w/tep-trang-thai-rat-dai-so-${i}.md`)
+    const line = A.planningStateLine(many)
+    expect(line.length).toBeLessThanOrEqual(120)
+    expect(line).toContain('tep-trang-thai-rat-dai-so-0.md')
+  })
+
   test('trần PLANNING_CHARS là 600 + 120 + 120 + 160', () => {
     expect(A.PLANNING_CHARS).toBe(1000)
   })
