@@ -12,7 +12,7 @@ import { FORK_QUOTA_DENY, RETRY_PREFIX, RETRY_ROUNDS, forkRetryNote, forkReturnN
 import { liveForks, openParts } from '../lib/forks'
 import { classifyBash, filePathOf, isSkillTrial, normalizePath } from '../lib/drift'
 import { isRoleTemp } from '../lib/drift/scope'
-import { isBashWrite } from '../lib/team'
+import { isBashWrite, prefixRole } from '../lib/team'
 import { labels, langOf } from '../ui/labels'
 import { reportLine } from '../lib/verdict'
 import { shownPlan } from '../lib/mirror'
@@ -58,28 +58,7 @@ function codesOf(core: ReturnType<typeof S.normalizeCore>): ReadonlySet<string> 
  * Mức sàn cho một lần giao Agent khi còn lệnh kiểm chưa đạt ở lượt 2 trở đi (0.7.8 vòng sửa 3, W4): description mở đầu "Sửa lỗi kiểm: "
  * thì lấy sàn cao nhất của các lệnh; general-purpose có prompt nhắc đúng một lệnh chưa đạt thì lấy sàn của lệnh đó. Còn lại null.
  */
-/**
- * Tiền tố description theo vai (0.9.0 B2), xét tiền tố dài trước, không phân biệt hoa thường. Tiền tố chỉ quyết vai và model của lời gọi;
- * kết luận của subagent được nhận theo câu trả lời, có tiền tố hay không (0.9.0 D1).
- */
-export const ROLE_PREFIXES: ReadonlyArray<readonly [string, 'review' | 'audit' | 'design']> = (
-  [
-    ['Kiểm độc lập: ', 'review'],
-    ['Independent check: ', 'review'],
-    ['Duyệt: ', 'review'],
-    ['Review: ', 'review'],
-    ['Kiểm: ', 'audit'],
-    ['Audit: ', 'audit'],
-    ['Sẵn sàng: ', 'design'],
-    ['Readiness: ', 'design'],
-  ] as const
-).slice().sort((a, b) => b[0].length - a[0].length)
-
-/** Vai theo tiền tố description (0.9.0 B2), hay undefined. */
-export function prefixRole(description: string): 'review' | 'audit' | 'design' | undefined {
-  const head = description.normalize('NFC').trimStart().toLowerCase()
-  return ROLE_PREFIXES.find(([prefix]) => head.startsWith(prefix.normalize('NFC').toLowerCase()))?.[1]
-}
+export { ROLE_PREFIXES, prefixRole } from '../lib/team'
 
 /** Vai của một lời gọi Agent (0.9.0 B): tiền tố trước, không thì vai mod suy của route. */
 export function roleOfCall(routeRole: Role | undefined, description: string): Role | undefined {

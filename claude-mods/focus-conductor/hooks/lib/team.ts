@@ -83,7 +83,8 @@ export function closingNote(opts: { hasCheck: boolean; isHard: boolean; isDocs: 
 }
 
 /** Một kết luận đã nhận, đủ để tính trạng thái bước đóng. */
-export type ClosingVerdict = { verdict: 'pass' | 'fail' | 'ready' | 'not-ready' | null; isClean: boolean; seq: number }
+/** isReview: kết luận được tính cho bước duyệt và sẵn sàng (0.9.0 C6): không phải lượt kiểm, không phải từ của bước kiểm, model từ sonnet. */
+export type ClosingVerdict = { verdict: 'pass' | 'fail' | 'ready' | 'not-ready' | null; isClean: boolean; isReview: boolean; seq: number }
 
 /**
  * Trạng thái các bước đóng (0.9.0 C3): kiểm (khi có lệnh kiểm biết được), duyệt, và sẵn sàng với mục tiêu hard. Kiểm đạt khi có lần kiểm
@@ -91,7 +92,7 @@ export type ClosingVerdict = { verdict: 'pass' | 'fail' | 'ready' | 'not-ready' 
  * nhất là chưa đạt; sẵn sàng tương tự, sau lần duyệt đạt.
  */
 export function closingSteps(opts: { hasCheck: boolean; isHard: boolean; checked: boolean; checkFailed: boolean; lastHard: number; verdicts: readonly ClosingVerdict[] }): ClosingStep[] {
-  const fresh = opts.verdicts.filter(v => v.isClean && v.seq > opts.lastHard)
+  const fresh = opts.verdicts.filter(v => v.isClean && v.isReview && v.seq > opts.lastHard)
   const reviews = fresh.filter(v => v.verdict === 'pass' || v.verdict === 'fail')
   const lastReview = reviews[reviews.length - 1]
   const reviewSeq = reviews.filter(v => v.verdict === 'pass').reduce((max, v) => Math.max(max, v.seq), -1)
@@ -102,4 +103,27 @@ export function closingSteps(opts: { hasCheck: boolean; isHard: boolean; checked
   steps.push({ name: 'review', state: lastReview?.verdict === 'pass' ? 'pass' : lastReview?.verdict === 'fail' ? 'fail' : 'wait' })
   if (opts.isHard) steps.push({ name: 'design', state: reviewSeq < 0 || lastReady === undefined ? 'wait' : lastReady.verdict === 'ready' ? 'pass' : 'fail' })
   return steps
+}
+
+/**
+ * Tiền tố description theo vai (0.9.0 B2), xét tiền tố dài trước, không phân biệt hoa thường. Tiền tố chỉ quyết vai và model của lời gọi;
+ * kết luận của subagent được nhận theo câu trả lời, có tiền tố hay không (0.9.0 D1).
+ */
+export const ROLE_PREFIXES: ReadonlyArray<readonly [string, 'review' | 'audit' | 'design']> = (
+  [
+    ['Kiểm độc lập: ', 'review'],
+    ['Independent check: ', 'review'],
+    ['Duyệt: ', 'review'],
+    ['Review: ', 'review'],
+    ['Kiểm: ', 'audit'],
+    ['Audit: ', 'audit'],
+    ['Sẵn sàng: ', 'design'],
+    ['Readiness: ', 'design'],
+  ] as const
+).slice().sort((a, b) => b[0].length - a[0].length)
+
+/** Vai theo tiền tố description (0.9.0 B2), hay undefined. */
+export function prefixRole(description: string): 'review' | 'audit' | 'design' | undefined {
+  const head = description.normalize('NFC').trimStart().toLowerCase()
+  return ROLE_PREFIXES.find(([prefix]) => head.startsWith(prefix.normalize('NFC').toLowerCase()))?.[1]
 }

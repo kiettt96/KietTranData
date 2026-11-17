@@ -54,17 +54,22 @@ const PATTERNS: ReadonlyArray<readonly [string, Verdict]> = [
  * Dòng kết luận của câu trả lời subagent (0.9.0 D2): dòng không rỗng đầu tiên, bỏ dấu markdown (#, *, >, khoảng trắng), mở đầu bằng một từ
  * kết luận đứng riêng (sau nó không phải chữ cái). Số đếm dạng N/M ngay sau kết luận đi kèm. Không khớp thì null (chưa có kết luận).
  */
-export function verdictOf(answer: string): { verdict: Verdict; count?: string } | null {
+export function verdictOf(answer: string): { verdict: Verdict; count?: string; isCheckOnly?: true } | null {
   const first = answer.normalize('NFC').split('\n').map(line => line.trim()).find(line => line !== '') ?? ''
   const line = first.replace(/^[#>*_\s`]+/u, '').replace(/[*_`]+/gu, '').trim()
   const head = line.toLowerCase()
   for (const [word, verdict] of PATTERNS) {
     if (!head.startsWith(word) || /^[\p{L}]/u.test(head.slice(word.length))) continue
     const count = /^\s*:?\s*(\d+\s*\/\s*\d+)/u.exec(line.slice(word.length))?.[1]?.replace(/\s+/g, '')
-    return count !== undefined ? { verdict, count } : { verdict }
+    // "ĐẠT HẾT", "ALL PASS" chỉ là kết luận của bước kiểm (0.9.0 C6), không bao giờ là kết luận duyệt.
+    const only = CHECK_ONLY.has(word) ? { isCheckOnly: true as const } : {}
+    return count !== undefined ? { verdict, count, ...only } : { verdict, ...only }
   }
   return null
 }
+
+/** Từ kết luận chỉ của bước kiểm (0.9.0 C6). */
+const CHECK_ONLY: ReadonlySet<string> = new Set(['đạt hết', 'all pass'])
 
 /** Trần ký tự của bảng báo cáo chèn khi đóng bước cuối (0.9.0 C8). */
 export const REPORT_TABLE_CHARS = 600

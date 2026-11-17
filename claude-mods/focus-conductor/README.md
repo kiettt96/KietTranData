@@ -170,7 +170,7 @@ Prompt giao việc theo kỷ luật giao việc thường có tệp kế hoạch
 | review | description mở đầu `Duyệt: `, `Kiểm độc lập: `, `Review: ` hay `Independent check: ` | opus, sàn sonnet | chỉ đọc |
 | design | Agent Plan; description mở đầu `Sẵn sàng: ` hay `Readiness: ` | fable khi `allowFable` bật, không thì opus | chỉ đọc |
 
-Kết luận của lượt duyệt được nhận theo câu trả lời, có tiền tố hay không: subagent không ghi file ngoài thư mục tạm, dòng đầu mở bằng `ĐẠT`, `ĐẠT HẾT`, `đạt kèm lỗi nhẹ`, `PASS`, `ALL PASS`, hay `CHƯA ĐẠT`, `KHÔNG ĐẠT`, `FAIL`; đánh giá sẵn sàng mở bằng `SẴN SÀNG`, `READY`, `CHƯA SẴN SÀNG`, `NOT READY`.
+Kết luận của lượt duyệt được nhận theo câu trả lời, có tiền tố hay không, khi subagent chạy model từ sonnet trở lên, không ghi file ngoài thư mục tạm, và dòng đầu mở bằng `ĐẠT`, `PASS`, `đạt kèm lỗi nhẹ` (hay `CHƯA ĐẠT`, `KHÔNG ĐẠT`, `FAIL`). Đánh giá sẵn sàng mở bằng `SẴN SÀNG`, `READY`, `CHƯA SẴN SÀNG`, `NOT READY`. `ĐẠT HẾT`, `ALL PASS` và lượt `Kiểm: `, `Audit: ` chỉ là kết luận của bước kiểm.
 
 **Cấu hình gợi ý** cho phiên dài theo kỷ luật giao việc: `conductor` là `opus` cùng `allowFable` bật thì khớp đội hình của hình mẫu (điều phối opus, design fable, review opus, audit haiku); `closingReview` để `auto`; khai `checkCommands` bằng lệnh kiểm của dự án.
 

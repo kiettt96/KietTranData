@@ -356,17 +356,19 @@ Một phiên làm theo kỷ luật giao việc ghi tệp kế hoạch, tiến đ
   - Bước kiểm chỉ nêu khi có lệnh kiểm biết được: `check` của bước có lệnh, mục `checkCommands` phủ file đã sửa (mục không có phạm vi phủ mọi file), hay một lần chạy trình test mod nhận ra.
   - Mục tiêu chỉ sửa tài liệu: lượt duyệt gồm đối chiếu số liệu, mẫu, chính tả.
   - Điều kiện chưa bật thì không chèn gì, context bằng 0.8.9 từng ký tự.
-- **Kết luận nhận được (D).** Câu trả lời của một subagent được tính khi đủ ba điều kiện: subagent không có lần ghi file nào ngoài thư mục tạm (đích chưa xác định cũng tính là ghi); hoàn tất sau thay đổi không nhẹ cuối; dòng không rỗng đầu tiên mở đầu bằng một từ kết luận. Từ kết luận không phân biệt hoa thường; cụm chưa đạt, chưa sẵn sàng xét trước:
+- **Kết luận nhận được (D, C6 theo vai).** Dòng không rỗng đầu tiên của câu trả lời mở đầu bằng một từ kết luận, không phân biệt hoa thường; cụm chưa đạt, chưa sẵn sàng xét trước:
   - chưa sẵn sàng: `CHƯA SẴN SÀNG`, `NOT READY`;
   - chưa đạt: `CHƯA ĐẠT`, `KHÔNG ĐẠT`, `FAIL`;
   - sẵn sàng: `SẴN SÀNG`, `READY`;
   - đạt: `đạt kèm lỗi nhẹ`, `ĐẠT HẾT`, `ALL PASS`, `ĐẠT`, `PASS`.
+  - Kết luận duyệt chỉ nhận khi đủ bốn điều kiện: subagent không ghi file ngoài thư mục tạm (tool file, Bash ghi mức definite, git trên lịch sử, lệnh ghi đã biết; đích chưa xác định cũng tính); hoàn tất sau thay đổi không nhẹ cuối; từ kết luận là `ĐẠT`, `PASS` hay `đạt kèm lỗi nhẹ`; model đã chạy từ sonnet trở lên. Kết luận sẵn sàng cùng điều kiện, với `SẴN SÀNG`, `READY`.
+  - `ĐẠT HẾT`, `ALL PASS`, và mọi câu trả lời của lượt có tiền tố `Kiểm: `, `Audit: `, chỉ là kết luận của bước kiểm, không bao giờ là duyệt hay sẵn sàng. Tiền tố không bắt buộc cho lượt duyệt.
 - **Dòng mẫu báo cáo (C4).** Khai báo kiểu của 2.1.326 và 2.1.296 cho hook `agent.spawn` viết lại `prompt` của subagent ("A rewrite is the prompt the subagent runs with"). Mod nối dòng mẫu khi lời gọi có tiền tố vai, hay khi việc có vai mà đội hình đã bật. Từ kết luận vẫn có trong đoạn dặn, cho subagent không tiền tố.
 - **Trạng thái và cổng.** `Core.team` giữ lý do bật và trạng thái từng bước đóng (chờ, đạt, chưa đạt) cho pane. Cổng C6, vòng sửa C7, bảng C8 giữ đặc tả, chỉ đổi điều kiện bật. Cổng không đòi lần kiểm khi không có lệnh kiểm biết được.
 - **Chỗ lệch so với prompt.**
   - C1: router không trả vai; vai do mod suy từ loại agent và tiền tố.
   - C3: lời dặn router không có luật đội hình; mod áp theo điều kiện bật trên.
-  - C4: kết luận nhận theo câu trả lời, không theo vai.
+  - C4: kết luận đọc từ câu trả lời; tiền tố không bắt buộc cho lượt duyệt, nhưng lượt `Kiểm: `, `Audit: ` và từ `ĐẠT HẾT`, `ALL PASS` không bao giờ là kết luận duyệt.
   - C9: thay bằng phép đo F (lời dặn mới và 14a3a85 cùng đợt; ca cũ lệch đo 6 lượt; mười ca C9 chỉ chấm độ sâu).
   - Căn cứ: ba lần chỉnh lời dặn để router tự thêm việc audit, review, design đều dưới ngưỡng [Đo trực tiếp, 17/11/2026, router sonnet, 3 lượt mỗi ca, VERIFICATION mục 0.9.0]:
     - lần 1 và lần 2: 205/228 lượt; ca C9 cỡ vừa 0/3 vì router chấm light hay giữ tasks []; token ra +13,9%;

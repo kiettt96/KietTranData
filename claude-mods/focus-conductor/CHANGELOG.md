@@ -33,7 +33,7 @@ Ba nhóm việc trong một lượt: sửa lỗi còn tồn (A), chạy trơn v�
 - **Vai do mod suy (thay C1):** Explore là search, Plan là design, general-purpose có sửa file là build. Lời gọi Agent theo tiền tố description (không phân biệt hoa thường, tiền tố dài trước): `Kiểm độc lập: `, `Duyệt: `, `Independent check: `, `Review: ` là review; `Kiểm: `, `Audit: ` là audit; `Sẵn sàng: `, `Readiness: ` là design. Các lời gọi này không qua router; model mặc định của vai: review opus, audit haiku, design fable khi `allowFable` bật, không thì opus.
 - **C2:** quyền theo vai: search, review, design không sửa file, không chạy lệnh ghi ngoài thư mục tạm; audit chỉ ghi được trong thư mục tạm.
 - **Đội hình theo cỡ việc (thay C3):** bật khi `closingReview` là `auto`, mục tiêu edit hay mixed, và router chấm substantial hay hard, hoặc đã có từ 3 file không nhẹ khác nhau được sửa (`TEAM_FILES`, `hooks/lib/team.ts`). Khi bật lần đầu, mod chèn một lần đoạn dặn bước đóng, không quá 300 ký tự. Pane có mục "Bước đóng (mod)". Chưa bật thì không chèn gì.
-- **C4, D:** dòng mẫu báo cáo nối vào lời giao có vai, khi lời gọi có tiền tố vai hay đội hình đã bật. Kết luận nhận theo câu trả lời: subagent không ghi file ngoài thư mục tạm, xong sau thay đổi không nhẹ cuối, dòng đầu là từ kết luận. Xét cụm chưa đạt trước để "không đạt" không bị đọc thành đạt.
+- **C4, D:** dòng mẫu báo cáo nối vào lời giao có vai, khi lời gọi có tiền tố vai hay đội hình đã bật. Kết luận đọc từ câu trả lời, xét cụm chưa đạt trước để "không đạt" không bị đọc thành đạt. Kết luận duyệt chỉ nhận khi đủ bốn điều kiện: subagent không ghi file ngoài thư mục tạm; xong sau thay đổi không nhẹ cuối; từ kết luận là `ĐẠT`, `PASS` hay `đạt kèm lỗi nhẹ`; model đã chạy từ sonnet trở lên. Kết luận sẵn sàng cùng điều kiện, với `SẴN SÀNG`, `READY`. `ĐẠT HẾT`, `ALL PASS` và lượt có tiền tố `Kiểm: `, `Audit: ` chỉ là của bước kiểm. Tiền tố không bắt buộc.
 - **C5:** hai subagent chung thư mục cùng ghi một file thì nhắc luồng chính một lần, ghi `file-clash`.
 - **C6:** cổng đóng mục tiêu theo thứ tự kiểm, duyệt, sẵn sàng; option mới `closingReview`; `/conductor waive review`.
 - **C7:** kết luận chưa đạt đi vào vòng sửa (trần 3 vòng).
@@ -68,7 +68,6 @@ Ba nhóm việc trong một lượt: sửa lỗi còn tồn (A), chạy trơn v�
 **Đột biến:** mẫu mới mang mã `090-<mã điểm><chữ>`. Mẫu cũ viết lại chuỗi, giữ mã: `078-G1m`, `078-G2e`, `078-G2f`, `082-N2a`, `085-W2h`, `075-A6a`, `075-A6b`, `061-P25`, `070-V12`, `070-V14`, `071-M11`, `070-V5`, `073-N12`, `075-L6a`, `075-L6b`, `075-L6c`. Mẫu `090-B9e` là tương đương, lý do trong `scripts/mutants.ts`.
 
 **Việc tồn** (từ phiên thật D1 và kiểm độc lập):
-- Kết luận nhận theo câu trả lời, không theo vai: một lượt `Kiểm: ` trả `ĐẠT HẾT` đủ thay bước duyệt. Cần chủ mod chốt có giữ cách này không.
 - `set -e` ở bất kỳ dòng nào bật errexit cho cả khối heredoc, kể cả khi có `set +e` sau đó; `set -e; ...` trên một dòng thì không nhận ra (chiều an toàn).
 - Dấu `)` trong nháy bên trong `<( )` làm đích ghi lệch (`/repo/a)`).
 - B10 không coi `--update-snapshots`, `jest -u`, `go fmt` là tự sửa; `make check` in "Nothing to be done" vẫn được nâng.

@@ -11,7 +11,8 @@ import { globToRegExp } from '../lib/drift/soft'
 import { coversScope } from '../lib/drift/evidence'
 import { PLAN_SET_CHECK_LINE } from '../lib/approval'
 import { reportTable, verdictOf } from '../lib/verdict'
-import { closingNote, closingSteps, hardFileCount, hasKnownCheck, isBashWrite, isDocsOnly, teamCause } from '../lib/team'
+import { closingNote, closingSteps, hardFileCount, hasKnownCheck, isBashWrite, isDocsOnly, prefixRole, teamCause } from '../lib/team'
+import type { ClosingVerdict } from '../lib/team'
 import type { SideLists } from '../lib/drift/scope'
 import type { Finding, Focus, ToolObservation, TurnTracker } from '../lib/drift'
 import { checkCommand, checkSignature, coversFailure, isFailedRun } from '../lib/drift/evidence'
@@ -120,7 +121,7 @@ async function closingGate($: EngineInterface, ctx: Ctx, core: Core, log: Eviden
   // Cùng một cách tính với pane (0.9.0 vòng sửa sau kiểm độc lập): kết luận mới nhất của mỗi bước quyết; bước kiểm chỉ khi có lệnh kiểm.
   const steps = teamSteps(core, brief, log, verdicts)
   const missing = steps.find(s => s.state !== 'pass')?.name ?? null
-  const reviewSeq = verdicts.filter(v => v.isClean && v.verdict === 'pass' && v.seq > lastHard).reduce((max, v) => Math.max(max, v.seq), -1)
+  const reviewSeq = verdicts.filter(v => v.isClean && v.isReview && v.verdict === 'pass' && v.seq > lastHard).reduce((max, v) => Math.max(max, v.seq), -1)
   if (missing === null) {
     if (core.closingGap !== undefined) await update($, coreState, S.withClosingGap(null))
     return null
@@ -142,7 +143,7 @@ async function closingGate($: EngineInterface, ctx: Ctx, core: Core, log: Eviden
 
 /** Đích đọc được của một lần ghi (0.9.0 C5): đường dẫn của tool sửa file, hay đích của tác động ghi mức definite của Bash. */
 /** Trạng thái các bước đóng (0.9.0 C3), dùng chung cho pane (Core.team) và cổng đóng mục tiêu. */
-function teamSteps(core: Core, brief: Brief, log: EvidenceLog, verdicts: readonly { verdict: 'pass' | 'fail' | 'ready' | 'not-ready' | null; isClean: boolean; seq: number }[]) {
+function teamSteps(core: Core, brief: Brief, log: EvidenceLog, verdicts: readonly ClosingVerdict[]) {
   const lastHard = log.lastHard
   const checked = log.hard === 0 || log.commands.some(c => c.check !== null && c.ok && c.chained !== true && c.seq > lastHard && coversScope(c, log))
   const lastCheck = [...log.commands].reverse().find(c => c.check !== null && c.chained !== true && c.seq > lastHard)
@@ -1533,10 +1534,14 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       if (e.reason === 'answer' && meta !== undefined && (parsed !== null || meta.role !== undefined)) {
         const role: Role = meta.role ?? (parsed?.verdict === 'ready' || parsed?.verdict === 'not-ready' ? 'design' : 'review')
         const isClean = !L.agentWrote.has(agentId)
+        // Kết luận theo vai (0.9.0 C6): lượt có tiền tố Kiểm:, Audit: và từ ĐẠT HẾT, ALL PASS chỉ là của bước kiểm; duyệt và sẵn sàng cần model
+        // từ sonnet trở lên.
+        const ranFamily = familyOf(e.usage?.model ?? '') ?? meta.family
+        const isReview = isClean && prefixRole(meta.description) !== 'audit' && parsed?.isCheckOnly !== true && ranFamily !== 'haiku'
         if (L.verdicts.goalId !== meta.goalId) L.verdicts = { goalId: meta.goalId, items: [] }
-        L.verdicts.items.push({ agentId, role, verdict: parsed?.verdict ?? null, isClean, ...(parsed?.count !== undefined ? { count: parsed.count } : {}), seq: ctx.evidenceFor(meta.goalId).seq, family: familyOf(e.usage?.model ?? '') ?? meta.family, ...(meta.taskIndex !== undefined ? { taskIndex: meta.taskIndex } : {}), description: meta.description })
+        L.verdicts.items.push({ agentId, role, verdict: parsed?.verdict ?? null, isClean, isReview, ...(parsed?.count !== undefined ? { count: parsed.count } : {}), seq: ctx.evidenceFor(meta.goalId).seq, family: familyOf(e.usage?.model ?? '') ?? meta.family, ...(meta.taskIndex !== undefined ? { taskIndex: meta.taskIndex } : {}), description: meta.description })
         if (L.verdicts.items.length > 100) L.verdicts.items.shift()
-        record(at, 'verdict', { agentId, role, verdict: parsed?.verdict ?? null, ...(isClean ? {} : { wrote: true }), ...(parsed?.count !== undefined ? { count: parsed.count } : {}) })
+        record(at, 'verdict', { agentId, role, verdict: parsed?.verdict ?? null, ...(isClean ? {} : { wrote: true }), ...(isReview ? { review: true } : {}), ...(parsed?.count !== undefined ? { count: parsed.count } : {}) })
         await flushDecisions((path, text) => $.fs.write(path, text))
         // Vòng sửa theo kết luận (0.9.0 C7): chưa đạt của một subagent không ghi file tính vòng cho cùng một mục, trần RETRY_ROUNDS.
         const roundKey = `${meta.goalId}:${role}:${meta.taskIndex ?? meta.description}`
