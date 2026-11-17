@@ -248,9 +248,9 @@ describe('F1: router đề xuất tách, mod kẹp trong parseRoute', () => {
   test('chủ mod 1. forks tắt: routerSystem không có đoạn tách (ghim số ký tự và mã băm)', async () => {
     const hex = (bytes: ArrayBuffer) => [...new Uint8Array(bytes)].map(b => b.toString(16).padStart(2, '0')).join('')
     const text = routerSystem()
-    // 0.8.9 D1: lời dặn có thêm đoạn arrange (10.282 thành 10.888 ký tự). 0.9.0: lời dặn đổi ở B1, B12, B13, C3 (10.888 thành 11.236).
-    expect(text.length).toBe(11236)
-    expect(hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))).toBe('9845f9e3e104695f683f006eb64089c55fb95ac220369fed33ae316d3dde3a8e')
+    // 0.8.9 D1: lời dặn có thêm đoạn arrange (10.282 thành 10.888 ký tự). 0.9.0: lời dặn đổi ở B1, B12, B13, C3 (10.888 thành 11.332).
+    expect(text.length).toBe(11332)
+    expect(hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))).toBe('143485f6fa144f03419c28a04e9c3d2ce0f7c424bbb6eeebc7a87693d38ae689')
     for (const policy of [OPEN, withForks(0)]) {
       expect(((routerRequest({ text: 'x', prev: null, ran: null, policy, model: 'sonnet' }).system ?? []) as readonly ModelTextBlock[])[0]?.text).toBe(text)
     }
