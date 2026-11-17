@@ -21,6 +21,8 @@ const READ_ONLY_COMMANDS = new Set([
   'diff', 'sort', 'uniq', 'cut', 'jq', 'echo', 'printf', 'cd', 'awk', 'sed', 'tr', 'basename', 'dirname',
   'realpath', 'readlink', 'file', 'du', 'df', 'date', 'true', 'false', 'test', '[', 'column', 'nl', 'less',
   'more', 'type', 'uname', 'id', 'whoami', 'sleep',
+  // Lệnh đo (0.9.0 B7): băm và so tệp, không ghi file khi không có chuyển hướng ghi; shasum -c chỉ đọc tệp tổng.
+  'shasum', 'sha256sum', 'sha1sum', 'md5', 'md5sum', 'cksum', 'cmp', 'comm',
 ])
 const READ_ONLY_GIT = new Set([
   'status', 'log', 'diff', 'show', 'ls-files', 'ls-remote', 'rev-parse', 'blame', 'fetch', 'describe',
@@ -48,6 +50,10 @@ export function segmentIsReadOnly(part: string): boolean {
   // printenv chỉ in biến môi trường; env cũng vậy khi không kèm lệnh (env FOO=1 make thì chạy make).
   if (cmd === 'printenv') return true
   if (cmd === 'env') return args.every(a => a.startsWith('-'))
+  // command -v, command -V (0.9.0 B7): chỉ tra tên lệnh; command kèm lệnh khác thì xét lệnh đó ở nơi gọi.
+  if (cmd === 'command') return (args[0] === '-v' || args[0] === '-V') && args.length >= 2
+  // bash -n, sh -n, zsh -n (0.9.0 B7): chỉ đọc cú pháp script, không chạy; mọi cờ phải là -n.
+  if (cmd === 'bash' || cmd === 'sh' || cmd === 'zsh') return args[0] === '-n' && args.slice(1).every(a => !a.startsWith('-'))
   if (!READ_ONLY_COMMANDS.has(cmd)) return false
   if (cmd === 'find') return !args.some(a => FIND_WRITE.test(a))
   // sed -i ghi file; lệnh w, flag s///w và lệnh e của sed ghi file hoặc chạy lệnh khác. sort -o ghi file.
