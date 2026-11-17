@@ -378,6 +378,9 @@ export function registerSession(on: On, ctx: Ctx): void {
     // Duyệt kế hoạch (0.8.2 N2): kế hoạch đã trình thì router biết tin này có thể là lời duyệt; vừa dặn hỏi làm rõ thì tin này là câu trả lời.
     const approvalStored = S.approvalOf(before)
     const isPresented = prev !== null && approvalStored.status === 'presented'
+    // Duyệt một lần (0.9.0 B12): kế hoạch đang lập mà checklist đã lưu cũng nhận lời duyệt.
+    const isDrafted = prev !== null && approvalStored.status === 'planning' && before.plan.length > 0
+    const isApprovable = isPresented || isDrafted
     const isAnswering = prev !== null && approvalStored.awaitingAnswer
     let outcome: RouterOutcome<RouterPlan> = { result: null, reason: 'router đang tạm ngừng sau các lần lỗi liên tiếp', usages: [], usageModels: [], retried: false, failure: 'paused', timeoutMs: null, maxTokens: null, outputTokens: null }
     let waitedMs = 0
@@ -392,7 +395,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       const taskStates = taskStatusOf(before, await $.clock.now())
       const observed = L.observed.join('; ')
       L.observed = []
-      const args = { text, prev, ran: ranText(before), policy: rules, model: target.model, reading, taskStates, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily, openSteps: openSteps(before.plan).map(s => s.title), ...(observed ? { observed } : {}), ...(isInterject ? { interject: { step: openSteps(before.plan)[0]?.title ?? '' } } : {}), ...(isPresented ? { awaiting: 'approval' as const } : isAnswering ? { awaiting: 'answer' as const } : {}) }
+      const args = { text, prev, ran: ranText(before), policy: rules, model: target.model, reading, taskStates, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily, openSteps: openSteps(before.plan).map(s => s.title), ...(observed ? { observed } : {}), ...(isInterject ? { interject: { step: openSteps(before.plan)[0]?.title ?? '' } } : {}), ...(isApprovable ? { awaiting: 'approval' as const } : isAnswering ? { awaiting: 'answer' as const } : {}) }
       promptRead = requestPlan(args)
       // Lượt đọc trọn prompt dài (0.8.7 L3) có thể mất vài phút, nên chữ chờ nói rõ.
       $.ui.status(promptRead.isFull ? 'router đang đọc trọn prompt dài, có thể mất vài phút...' : 'router đang đọc prompt...')
@@ -430,7 +433,7 @@ export function registerSession(on: On, ctx: Ctx): void {
     // cho intent và câu trả lời câu hỏi làm rõ (công thức như trước 0.8.4 A1); bản cuối `interjected` để tin ngoài lề đứng ngoài.
     const interjectedBase = isInterject && routed !== null && routed.relation === 'new' ? { ...routed, relation: 'continue' as const } : routed
     // Ý của tin nhắn (0.8.2 N1): chỉ có nghĩa khi đã có mục tiêu; approve khi không có kế hoạch chờ duyệt là resume.
-    let intent = interjectedBase !== null && prev !== null ? clampIntent(interjectedBase.intent, isPresented) : 'task'
+    let intent = interjectedBase !== null && prev !== null ? clampIntent(interjectedBase.intent, isApprovable) : 'task'
     // Câu trả lời câu hỏi làm rõ (0.8.2 N2), chạy sau bước kẹp intent và thắng nó: router xếp mục tiêu mới thì giữ mục tiêu, coi như amend,
     // trừ khi router chắc (confidence từ NEW_GOAL_CONFIDENCE, thiếu là chưa chắc) VÀ prompt không nhắc gì tới mục tiêu (answerMentionsGoal).
     const isHeldAnswer = isAnswering && prev !== null && interjectedBase !== null && interjectedBase.relation === 'new' && !((interjectedBase.confidence ?? 0) >= NEW_GOAL_CONFIDENCE && !answerMentionsGoal(text, prev))
@@ -447,8 +450,8 @@ export function registerSession(on: On, ctx: Ctx): void {
       record(await $.clock.now(), 'answer-held', { prompt: clipText(text), confidence: interjected?.confidence ?? null, goalId: prev.goalId })
     }
     L.lastIntent = steered !== null ? intent : null
-    // Tin bảo chạy tiếp hay duyệt kế hoạch: không thêm việc, không gộp yêu cầu.
-    const plan = steered !== null && (intent === 'resume' || intent === 'approve') ? { ...steered, tasks: [], requirements: [] } : steered
+    // Tin bảo chạy tiếp: không thêm việc, không gộp yêu cầu. Tin duyệt (0.9.0 B12): chỉnh nhỏ đi kèm được gộp trong cùng lượt.
+    const plan = steered !== null && intent === 'resume' ? { ...steered, tasks: [], requirements: [] } : steered
     const lead = isResuming ? await startResume() : []
     const tail = isResuming ? [] : pending
     const now = await $.clock.now()
@@ -645,6 +648,10 @@ export function registerSession(on: On, ctx: Ctx): void {
       ? { goalId: brief.goalId, status: needsApproval(brief, ctx.planApproval, plan.skipApproval === true) ? ('planning' as const) : plan.skipApproval === true ? ('skipped' as const) : ('none' as const), rounds: 0, asked: false, awaitingAnswer: false }
       : isPresented && intent === 'approve'
         ? { ...approvalBefore, status: 'approved' as const }
+        : isDrafted && intent === 'approve'
+          ? approvalBefore.rounds === 0
+            ? { ...approvalBefore, early: true as const }
+            : { ...approvalBefore, status: 'approved' as const }
         : isPresented && intent === 'amend'
           ? { ...approvalBefore, status: 'planning' as const, rounds: 0 }
           : isBigAmend
@@ -662,9 +669,11 @@ export function registerSession(on: On, ctx: Ctx): void {
     const isArranged = arranged !== undefined && (arranged.dropped.length > 0 || arranged.merged.length > 0 || arranged.order.length > 0)
     const workOrder = arranged !== undefined && arranged.order.length > 0 ? arranged.order : brief.tasks.filter(t => states[t.index] !== 'done').map(t => t.index)
     const arrangedFor = (max: number) => (isArranged && arranged !== undefined ? arrangedContext(brief, arranged, workOrder, max) : '')
-    const isApproved = !isNewGoal && isPresented && approval.status === 'approved'
+    const isApproved = !isNewGoal && isApprovable && approval.status === 'approved'
+    // Chỉnh nhỏ kèm lời duyệt (0.9.0 B12): nêu các yêu cầu vừa gộp ngay sau dòng đã duyệt.
+    const approvedAdds = intent === 'approve' ? plan?.requirements ?? [] : []
     const context = isApproved
-      ? approvedContext(core.plan)
+      ? `${approvedContext(core.plan)}${approvedAdds.length > 0 ? ` Chỉnh kèm lời duyệt: ${approvedAdds.join('; ')}.` : ''}`
       : intent === 'resume' && !isNewGoal
       ? isResumeMsg && S.isNothingLeft(before) ? nothingLeftContext() : intentResumeContext(core.plan)
       : isInterject && !isNewGoal
