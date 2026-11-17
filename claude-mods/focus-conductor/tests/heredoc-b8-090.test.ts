@@ -51,9 +51,18 @@ describe('0.9.0 B8: thân heredoc đưa vào shell', () => {
       "bash <<'SH'\nif true; then bun test; fi\nSH",
       "bash <<'SH'\nfor f in a b; do echo $f; done\nSH",
       "bash <<'SH'\nX=\"$(rm -rf y)\"\nSH",
+      "bash <<'SH'\nX=\"$(rm -rf y)\"\nbun test\nSH",
     ]) {
       expect(writes(command).some(w => w.level === 'possible'), command).toBe(true)
     }
+  })
+  test('có set -e: lệnh kiểm giữa khối không bị che mã thoát; không có set -e thì bị che như ;', () => {
+    const withE = checks("bash <<'SH'\nset -e\nbun test\ngit status\nSH")[0]
+    expect(withE?.exit).not.toBe('hidden')
+    const flagE = checks("bash -eu <<'SH'\nbun test\ngit status\nSH")[0]
+    expect(flagE?.exit).not.toBe('hidden')
+    const without = checks("bash <<'SH'\nbun test\ngit status\nSH")[0]
+    expect(without?.exit).toBe('hidden')
   })
   test('đối chứng: bash script.sh vẫn là possible như 0.8.9', () => {
     expect(writes('bash scripts/x.sh').some(w => w.level === 'possible')).toBe(true)

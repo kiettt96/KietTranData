@@ -5,7 +5,7 @@ import { TEST_SEGMENT, isCheckText, isCustomCheck, isSelfFixing, suffixCustomChe
 import type { CheckKind } from './verify'
 import { homeTarget, normalizePath } from './scope'
 export { applyHome, homeTarget } from './scope'
-import { AWK_COMMAND, AWK_WRITE, segmentIsReadOnly } from './readonly'
+import { AWK_COMMAND, AWK_WRITE, isReadOnlyCommand, segmentIsReadOnly } from './readonly'
 import { isReadOnlyInline } from './inline'
 
 // ------------------------------------------------------------ đích ghi của lệnh Bash
@@ -288,7 +288,42 @@ const UNSUPPORTED = /\$\(|`|[<>]\(|(?:^|[\s;&|(])eval\b|(?:^|[\s;&|(])(?:ba|z|da
  * động ghi đứng trước kiểm tra. Cấu trúc chưa hỗ trợ thì thêm tác động ghi có thể và không tin kiểm tra nào.
  * Đường dẫn tương đối nối với thư mục của `cd` đứng trước. Chỉ để giám sát; không phải phân quyền hệ thống tệp.
  */
+/**
+ * Khối shell nhận thân từ heredoc (0.9.0 B8): `bash <<'TAG'`, `sh <<TAG`, `zsh <<-"TAG"`, có thể kèm cờ (như `-e`, `-eu`), và không có gì
+ * sau dòng kết thúc. Trả cờ errexit (cờ có `e` hay thân có dòng `set -e...`) và thân đã đổi thành chuỗi lệnh tách được; null khi không phải
+ * dạng này hay thân có cấu trúc chưa tách được (heredoc lồng, eval, khối if, for, while, case, hàm, nối dòng bằng `\`, thay thế lệnh không
+ * chỉ đọc). Dòng gán bằng thay thế lệnh chỉ đọc (`X="$(git rev-parse --show-toplevel)"`) là phép gán, bị bỏ.
+ */
+const SHELL_HEREDOC = /^\s*(?:\/(?:usr\/)?bin\/)?(bash|sh|zsh)((?:\s+-[A-Za-z]+)*)\s*<<(-?)\s*(['"]?)(\w+)\4[ \t]*\n([\s\S]*?)\n[ \t]*\5[ \t]*\n?\s*$/
+const BODY_BLOCKED = /<<|(?:^|[\s;&|(])(?:eval|if|then|elif|else|fi|for|while|until|do|done|case|esac|function|select)(?=[\s;&|)]|$)|\\$|[{}]\s*$|^\s*\w+\s*\(\s*\)/m
+const SUBST_ASSIGNMENT = /^\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*=(?:"\$\(([^()`]*)\)"|\$\(([^()`]*)\))\s*$/
+
+function shellHeredoc(command: string): { errexit: boolean; body: string } | null {
+  const match = SHELL_HEREDOC.exec(command)
+  if (match === null) return null
+  const flags = (match[2] ?? '').trim()
+  const lines = (match[6] ?? '').split('\n').map(line => line.trim()).filter(line => line !== '' && !line.startsWith('#'))
+  const kept: string[] = []
+  for (const line of lines) {
+    const sub = SUBST_ASSIGNMENT.exec(line)
+    if (sub !== null) {
+      // Gán bằng thay thế lệnh: chỉ bỏ được khi lệnh bên trong là lệnh chỉ đọc; không thì cả khối là possible.
+      if (!isReadOnlyCommand(sub[1] ?? sub[2] ?? '')) return null
+      continue
+    }
+    kept.push(line)
+  }
+  const body = kept.join('\n')
+  if (body === '' || BODY_BLOCKED.test(body)) return null
+  const errexit = /-[A-Za-z]*e/.test(flags) || kept.some(line => /^set\s+(?:-[A-Za-z]*e[A-Za-z]*|-o\s+errexit)(?:\s|$)/.test(line))
+  // Có errexit: dòng lỗi dừng cả khối, nên các dòng nối như && (mã thoát 0 của khối nghĩa là mọi dòng đạt). Không có: như ;.
+  return { errexit, body: errexit ? kept.join(' && ') : body }
+}
+
 export function classifyBash(input: string, base = ''): BashClass {
+  // Khối shell nhận thân từ heredoc (0.9.0 B8): phân loại thân như chuỗi lệnh của chính lời gọi.
+  const heredoc = shellHeredoc(input)
+  if (heredoc !== null) return classifyBash(heredoc.body, base)
   // base (0.8.0 A1): thư mục làm việc từ các lần Bash trước, chỉ dùng để giải lệnh khai có đường dẫn tương đối.
   const command = expandAssignments(input)
   const { masked, unmask, heredocs } = maskCommand(command)
