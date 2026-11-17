@@ -8,7 +8,7 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 ## Trạng thái đã xác minh
 - Đường dẫn khởi động chuẩn: khối mục 7 của prompt.
 - Đường dẫn xác minh chuẩn: `claude plugin test .` ở MOD.
-- Mục chưa xong ưu tiên cao nhất: C3.
+- Mục chưa xong ưu tiên cao nhất: C5.
 - Điểm chặn hiện tại: không.
 
 ## Đo nền (17/11/2026, engine 2.1.326)
@@ -48,8 +48,8 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 | D1 | passing 17/11 | phiên thật claude -p --plugin-dir, engine 2.1.326, router và skill thật, dự án và prompt mẫu tự dựng (d1/); hai cấu hình (conductor off và opus), mỗi cấu hình lượt 1 làm việc, lượt 2 `--continue`. Số đo lượt 1 (nhật ký decisions-*-luot1.jsonl, transcript): từ chối ghi tệp trạng thái 0 và 0; cảnh báo ngoài phạm vi cho tệp trạng thái và nơi sao lưu 0 và 0 (một cảnh báo khác cho lệnh rm trên /tmp ở cấu hình off); khối đo nền heredoc chạy, không có câu 'không xác định được file đích'; bước lên verified nhờ lệnh ở check: 0 (on) và 1 (off, bước 3 qua `bash tests/kiem.sh`, dòng verify-step); cổng Stop chặn 1 lần mỗi cấu hình, lý do chưa có checklist (G1), không lần nào do H1 tới H5. Lỗi lộ ra và đã sửa: evidence dạng `lệnh => kết quả` bị đọc là stale (đỏ 6f8…, sửa ở commit evidence). Giới hạn: router chấm prompt là light nên cổng duyệt và vai điều phối không vào cuộc; ghi vào việc tồn |
 | C1 | passing 17/11 | đỏ (6/6 ca đỏ); sửa 9a2adc3; role-c1-090 6 pass (parseRoute, sàn, chấm subagent, nhật ký route, pane 80 và 44 cột, vi và en); 090-C1a..g KILLED; mẫu cũ 075-L6a,b,c sửa chuỗi; 76 tệp giao diện/router 980 pass. Quyết định: vai chỉ lưu khi router trả vai hợp lệ (fail-closed) |
 | C2 | passing 17/11 | đỏ (5/6 ca đỏ); sửa aedfcee; role-perm-c2-090 6 pass; 090-C2a..e KILLED; 36 tệp agent/subagent 391 pass. Khai báo 2.1.296 và 2.1.326: tool.call của subagent trả được {deny} (ToolCallResult), nên dùng từ chối thật, không chuyển thành nhắc |
-| C3 | not_started | |
-| C4 | not_started | |
+| C3 | passing 17/11 | đỏ (3/5 ca đỏ); sửa 064b407; router-team-c3-090 5 pass; 090-C3a..g KILLED; lời dặn 11.332 thành 12.818 (+1.486, trong 1.500 của nhóm C; tổng +1.930 so với 0.8.9, trong 2.000); ca cũ đổi kỳ vọng: limits-l2-087 (băm agentSystem); số lượt router mỗi prompt không đổi (không thêm lời gọi); hiệu quả đo ở C9 |
+| C4 | passing 17/11 | đỏ (tệp chưa nạp được: chưa có hooks/lib/verdict.ts); sửa 1dccb63; verdict-c4-090 15 pass (10 dạng kết luận, dạng thiếu, dòng mẫu vi và en dưới 200 ký tự, nối vào prompt ở agent.spawn, dòng verdict trong nhật ký); 090-C4a..f KILLED. Khai báo 2.1.296: AgentSpawnInput.prompt viết lại được ('A rewrite is the prompt the subagent runs with') nên nối ở agent.spawn, không cần đường lùi |
 | C5 | not_started | |
 | C6 | not_started | |
 | C7 | not_started | |
