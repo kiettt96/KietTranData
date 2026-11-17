@@ -364,7 +364,9 @@ export function createContext(options: PluginOptions) {
   /** Họ dự phòng dùng được lúc này (0.8.7 F1): có, không bị chặn, router của nó không tạm ngừng; null là không có. */
   function fallbackUsable(core: Core): ModelFamily | null {
     if (conductorFallback === null || blocked.has(conductorFallback)) return null
-    return normalizeCore(core).fallback.pauseLeft > 0 ? null : conductorFallback
+    // Router họ dự phòng tạm ngừng ở prompt hiện tại (0.9.0 A3) cũng là chưa dùng được, như số prompt còn tạm ngừng của conductorInputs.
+    const fallback = normalizeCore(core).fallback
+    return fallback.pauseLeft > 0 || fallback.promptPaused ? null : conductorFallback
   }
 
   /** Đích router của họ dự phòng (0.8.7 F1), cho lượt đọc của Fable bị API từ chối; null khi họ dự phòng không dùng được. */
