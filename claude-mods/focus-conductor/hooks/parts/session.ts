@@ -4,7 +4,7 @@ import { DEFAULT_CONDUCTOR, familyLabel } from '../lib/families'
 import { atom, derive, read, update } from 'claude-code'
 import { caught, noteBehavior, noteHookError, noteMistyped } from '../lib/errlog'
 import type { ApprovalState, Brief, Core, Depth, Mode, ModelFamily, QuotaCheckpoint, Warning } from '../../types'
-import { blockerText, isBigGoal, isMainConducting } from '../lib/conductor'
+import { blockerText, conductorFallbackIssues, isBigGoal, isMainConducting } from '../lib/conductor'
 import { FALLBACK_TIMEOUT_MS, fullRetryTokens, readParamsOf } from '../lib/reading'
 import type { ReadPlan } from '../lib/reading'
 import { fableStep } from './fable'
@@ -175,6 +175,14 @@ export function registerSession(on: On, ctx: Ctx): void {
       applyHome(await $.env.get('HOME'))
     } catch {
       applyHome(null)
+    }
+    // Cấu hình conductorFallback (0.9.0 A4): trùng họ điều phối chính hay giá trị không hợp lệ thì báo một lần mỗi lần nạp mod.
+    const fallbackIssues = conductorFallbackIssues(ctx.options)
+    if (fallbackIssues.length > 0 && !L.fallbackWarned) {
+      L.fallbackWarned = true
+      const at = await $.clock.now()
+      await update($, coreState, S.withWarnings(...fallbackIssues.map(text => ({ at, kind: 'model' as const, text }))))
+      $.ui.toast(`Focus Conductor: ${fallbackIssues.join('; ')}`)
     }
     // Log quyết định nối tiếp file cũ (giữ DECISION_LIMIT dòng cuối); file chưa có hoặc đọc lỗi thì bắt đầu mới.
     if (decisionLog) {
