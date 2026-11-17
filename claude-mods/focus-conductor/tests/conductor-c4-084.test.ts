@@ -14,8 +14,8 @@ import type { Json } from './support/engine'
 // request dùng đúng lời dặn gốc. Băm của 0.8.3 tới 0.8.6 là 546aea94….
 // 0.8.9 D1 thêm đoạn arrange vào phần quan hệ với mục tiêu trước và vào mẫu JSON; số ghim đổi theo. Băm của 0.8.7 tới 0.8.9 vòng 1 là
 // 71ff7d30….
-// 0.9.0: băm theo lời dặn hiện tại (lời dặn đổi ở B1, B12, B13, C3); tên ca giữ như cũ.
-const SHA_083 = '1f95bd800ec7a1a7b41790ada820fce323eabe5a9dc0f3bb46dae58121fa0af9'
+// 0.9.0: băm theo lời dặn hiện tại (lời dặn đổi ở B1, B12, B13 và câu mở rộng questions); tên ca giữ như cũ.
+const SHA_083 = 'f65f9a21bc6e13c584c71fffcf68e676f438b43e0235f1c285391544faf34e06'
 const ON: Policy = { ...OPEN, conductor: true }
 const sha = async (text: string) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))].map(b => b.toString(16).padStart(2, '0')).join('')
 const systemOf = (policy: Policy) => (routerRequest({ text: 'Sửa luồng thanh toán', prev: null, ran: null, policy, model: 'm' }).system as Array<{ text: string }>).map(b => b.text).join('')

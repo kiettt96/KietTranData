@@ -242,3 +242,15 @@ export function isSelfFixing(tokens: string[], unmask: (token: string) => string
 }
 
 export type CheckKind = 'test' | 'static'
+
+/**
+ * Có lệnh kiểm khai trong checkCommands phủ ít nhất một đường dẫn đã sửa (0.9.0 C2): mục không có phạm vi phủ mọi đường dẫn; mục có phạm
+ * vi phải khớp một đường dẫn. Không khai mục nào thì false.
+ */
+export function hasDeclaredCheckFor(paths: readonly string[]): boolean {
+  return customChecks.some((command, at) => {
+    if (command.length === 0) return false
+    const scope = customScopes[at] ?? null
+    return scope === null || paths.some(path => inCheckScope(path, scope))
+  })
+}

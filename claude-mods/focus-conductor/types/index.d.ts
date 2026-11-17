@@ -347,6 +347,9 @@ export type CheckHint = { goalId: number; commands: string[]; isToasted: boolean
  */
 export type TurnFault = { goalId: number | null; goal: string | null; openSteps: string[]; at: number }
 
+/** Một bước đóng do mod sinh (0.9.0 C3): kiểm, duyệt hay sẵn sàng, và trạng thái chờ, đạt, chưa đạt. */
+export type ClosingStep = { name: 'check' | 'review' | 'design'; state: 'wait' | 'pass' | 'fail' }
+
 export type Core = {
   brief: Brief | null
   plan: PlanStep[]
@@ -419,6 +422,11 @@ export type Core = {
    * Vắng khi không thiếu hay ở trạng thái cũ.
    */
   closingGap?: { goalId: number; missing: 'check' | 'review' | 'design'; solo?: true }
+  /**
+   * Đội hình do mod áp (0.9.0 C): lý do bật (độ sâu router chấm hay số file không nhẹ đã sửa) và trạng thái các bước đóng cho pane. Vắng khi
+   * đội hình chưa bật hay ở trạng thái cũ.
+   */
+  team?: { goalId: number; cause: 'depth' | 'files'; steps: ClosingStep[] }
   /** Phiên con của các việc tách (0.7.9 F1). Vắng ở trạng thái cũ: chưa có phần nào, off là none. */
   forks: ForkState
   /** Duyệt kế hoạch trước khi sửa file (0.8.2 N2). Vắng ở trạng thái cũ: goalId -1, none, 0 lượt, chưa hỏi. */

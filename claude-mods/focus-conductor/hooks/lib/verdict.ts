@@ -31,35 +31,36 @@ export function reportLine(role: Role, lang: 'vi' | 'en'): string {
   return LINES[lang][role].slice(0, REPORT_LINE_CHARS)
 }
 
-/** Dòng kết luận theo vai, xét dạng dài trước (CHƯA ĐẠT trước ĐẠT, NOT READY trước READY). */
-const PATTERNS: Partial<Record<Role, Array<[RegExp, Verdict]>>> = {
-  audit: [
-    [/^(?:CHƯA ĐẠT|FAIL)(?![\p{L}])/u, 'fail'],
-    [/^(?:ĐẠT HẾT|ALL PASS)(?![\p{L}])/u, 'pass'],
-  ],
-  review: [
-    [/^(?:CHƯA ĐẠT|FAIL)(?![\p{L}])/u, 'fail'],
-    [/^(?:ĐẠT|PASS)(?![\p{L}])/u, 'pass'],
-  ],
-  design: [
-    [/^(?:CHƯA SẴN SÀNG|NOT READY)(?![\p{L}])/u, 'not-ready'],
-    [/^(?:SẴN SÀNG|READY)(?![\p{L}])/u, 'ready'],
-  ],
-}
+/**
+ * Từ kết luận (0.9.0 D2), không phân biệt hoa thường; xét cụm chưa đạt, chưa sẵn sàng trước để "không đạt" không bị đọc thành đạt, và
+ * cụm dài trước cụm ngắn.
+ */
+const PATTERNS: ReadonlyArray<readonly [string, Verdict]> = [
+  ['chưa sẵn sàng', 'not-ready'],
+  ['not ready', 'not-ready'],
+  ['chưa đạt', 'fail'],
+  ['không đạt', 'fail'],
+  ['fail', 'fail'],
+  ['sẵn sàng', 'ready'],
+  ['ready', 'ready'],
+  ['đạt kèm lỗi nhẹ', 'pass'],
+  ['đạt hết', 'pass'],
+  ['all pass', 'pass'],
+  ['đạt', 'pass'],
+  ['pass', 'pass'],
+]
 
 /**
- * Dòng kết luận của câu trả lời subagent (0.9.0 C4): dòng không rỗng đầu tiên, bỏ dấu markdown (#, *, >, khoảng trắng), khớp mẫu của vai.
- * Số đếm dạng N/M ngay sau kết luận đi kèm. Vai không có kết luận (build, search) hay không khớp thì null.
+ * Dòng kết luận của câu trả lời subagent (0.9.0 D2): dòng không rỗng đầu tiên, bỏ dấu markdown (#, *, >, khoảng trắng), mở đầu bằng một từ
+ * kết luận đứng riêng (sau nó không phải chữ cái). Số đếm dạng N/M ngay sau kết luận đi kèm. Không khớp thì null (chưa có kết luận).
  */
-export function verdictOf(role: Role, answer: string): { verdict: Verdict; count?: string } | null {
-  const patterns = PATTERNS[role]
-  if (patterns === undefined) return null
+export function verdictOf(answer: string): { verdict: Verdict; count?: string } | null {
   const first = answer.normalize('NFC').split('\n').map(line => line.trim()).find(line => line !== '') ?? ''
   const line = first.replace(/^[#>*_\s`]+/u, '').replace(/[*_`]+/gu, '').trim()
-  for (const [pattern, verdict] of patterns) {
-    const match = pattern.exec(line)
-    if (match === null) continue
-    const count = /^\s*:?\s*(\d+\s*\/\s*\d+)/u.exec(line.slice(match[0].length))?.[1]?.replace(/\s+/g, '')
+  const head = line.toLowerCase()
+  for (const [word, verdict] of PATTERNS) {
+    if (!head.startsWith(word) || /^[\p{L}]/u.test(head.slice(word.length))) continue
+    const count = /^\s*:?\s*(\d+\s*\/\s*\d+)/u.exec(line.slice(word.length))?.[1]?.replace(/\s+/g, '')
     return count !== undefined ? { verdict, count } : { verdict }
   }
   return null
@@ -76,7 +77,7 @@ const VERDICT_TEXT: Record<Verdict, string> = { pass: 'ĐẠT', fail: 'CHƯA Đ�
 const REPORT_HEAD = '[focus-conductor] Bảng việc của mục tiêu (dùng cho báo cáo cuối):'
 
 function verdictText(run: ReportRun): string {
-  if (run.verdict === null) return PATTERNS[run.role] === undefined ? 'không có dòng kết luận' : 'chưa rõ kết luận'
+  if (run.verdict === null) return run.role === 'build' || run.role === 'search' ? 'không có dòng kết luận' : 'chưa rõ kết luận'
   return run.count !== undefined ? `${VERDICT_TEXT[run.verdict]} ${run.count}` : VERDICT_TEXT[run.verdict]
 }
 

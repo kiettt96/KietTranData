@@ -126,6 +126,9 @@ const VI = {
   /** Cổng đóng mục tiêu (0.9.0 C6). */
   closingUnreviewed: 'Chưa duyệt độc lập',
   closingNoReview: 'Chưa có duyệt độc lập (phiên không giao được subagent)',
+  teamHeading: 'Bước đóng (mod)',
+  teamSteps: { check: 'Kiểm', review: 'Duyệt', design: 'Sẵn sàng' } as Record<'check' | 'review' | 'design', string>,
+  teamStates: { wait: 'chờ', pass: 'đạt', fail: 'chưa đạt' } as Record<'wait' | 'pass' | 'fail', string>,
   /** Nhãn vai của việc (0.9.0 C1). */
   roleNames: { design: 'thiết kế', review: 'duyệt', build: 'làm', search: 'tra', audit: 'kiểm' } as Record<Role, string>,
   forksMerged: (n: number) => `${n} phiên con đã gom`,
@@ -309,6 +312,9 @@ const EN: typeof VI = {
   taskOwn: 'Delegated by Claude',
   closingUnreviewed: 'No independent review yet',
   closingNoReview: 'No independent review (no subagents in this session)',
+  teamHeading: 'Closing steps (mod)',
+  teamSteps: { check: 'Check', review: 'Review', design: 'Readiness' },
+  teamStates: { wait: 'waiting', pass: 'passed', fail: 'not passed' },
   roleNames: { design: 'design', review: 'review', build: 'build', search: 'search', audit: 'audit' },
   forksMerged: n => `${n} ${n === 1 ? 'fork' : 'forks'} merged`,
   forkCost: n => `Subagent group includes ${n} ${n === 1 ? 'fork' : 'forks'}`,
@@ -426,14 +432,19 @@ export function shownEntry(w: { text: string; turns?: number }, lang: Lang): str
   return w.turns !== undefined && w.turns > 1 ? `${text} ${labels(lang).turnsSuffix(w.turns)}` : text
 }
 
+/** Vai kiểm của đội hình (0.9.0 B): audit, review, design. */
+function isTeamRole(role: Role | undefined): role is 'audit' | 'review' | 'design' {
+  return role === 'audit' || role === 'review' || role === 'design'
+}
+
 /**
  * Chip của dòng bước khớp một việc (0.7.6, U1): việc nhiều lô thì model và số lô ("sonnet 97/100 · 3 lỗi"); việc một lần gọi thì model
  * và trạng thái ("sonnet đang chạy"); việc làm trực tiếp thì model và effort ("opus high"). Số tool call và thời gian đi ở phần chi tiết.
  */
 export function stepTaskMeta(l: typeof VI, row: { kind: 'main' | 'direct' | 'agent'; pick: { family: string; effort: string } | null; state: 'pending' | 'idle' | 'running' | 'done' | 'failed' | 'cut'; counts?: { done: number; total: number; running: number }; failed?: number; role?: Role }): string {
   const meta = stepMetaText(l, row)
-  // Nhãn vai (0.9.0 C1) sau chip model của bước gắn với việc có vai.
-  return meta !== '' && row.role !== undefined ? `${meta} [${l.roleNames[row.role]}]` : meta
+  // Nhãn vai (0.9.0 B) sau chip model, chỉ với vai kiểm của đội hình (audit, review, design); build và search mod suy giữ dòng như 0.8.9.
+  return meta !== '' && isTeamRole(row.role) ? `${meta} [${l.roleNames[row.role]}]` : meta
 }
 
 function stepMetaText(l: typeof VI, row: { kind: 'main' | 'direct' | 'agent'; pick: { family: string; effort: string } | null; state: 'pending' | 'idle' | 'running' | 'done' | 'failed' | 'cut'; counts?: { done: number; total: number; running: number }; failed?: number }): string {
@@ -450,8 +461,8 @@ function stepMetaText(l: typeof VI, row: { kind: 'main' | 'direct' | 'agent'; pi
 export function taskLabel(l: typeof VI, row: { kind: 'main' | 'direct' | 'agent'; index?: number; title: string; fork?: { task: number; part?: string; merged?: number }; role?: Role }): string {
   // Phiên con của việc tách (0.7.9 F1): "Việc 3a: <phần>", hay một dòng "Việc 3: k phiên con đã gom" khi đã gom.
   if (row.fork !== undefined) return row.fork.merged !== undefined ? `${l.taskNumber(row.fork.task)}: ${l.forksMerged(row.fork.merged)}` : `${l.taskNumber(row.fork.task)}${row.fork.part ?? ''}: ${row.title}`
-  // Nhãn vai (0.9.0 C1) đứng sau tiêu đề của việc có vai.
-  const tag = row.role !== undefined ? ` [${l.roleNames[row.role]}]` : ''
+  // Nhãn vai (0.9.0 B) đứng sau tiêu đề, chỉ với vai kiểm của đội hình.
+  const tag = isTeamRole(row.role) ? ` [${l.roleNames[row.role]}]` : ''
   if (row.index !== undefined && hasTitleCode(row.title)) return `${row.title}${tag}`
   const head = row.kind === 'main' ? l.taskMain : row.index !== undefined ? l.taskNumber(row.index) : l.taskOwn
   return `${head}: ${row.title}${tag}`

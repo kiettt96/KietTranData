@@ -248,9 +248,9 @@ describe('F1: router đề xuất tách, mod kẹp trong parseRoute', () => {
   test('chủ mod 1. forks tắt: routerSystem không có đoạn tách (ghim số ký tự và mã băm)', async () => {
     const hex = (bytes: ArrayBuffer) => [...new Uint8Array(bytes)].map(b => b.toString(16).padStart(2, '0')).join('')
     const text = routerSystem()
-    // 0.8.9 D1: lời dặn có thêm đoạn arrange (10.282 thành 10.888 ký tự). 0.9.0: lời dặn đổi ở B1, B12, B13, C3 (10.888 thành 12.818).
-    expect(text.length).toBe(12818)
-    expect(hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))).toBe('1f95bd800ec7a1a7b41790ada820fce323eabe5a9dc0f3bb46dae58121fa0af9')
+    // 0.8.9 D1: lời dặn có thêm đoạn arrange (10.282 thành 10.888 ký tự). 0.9.0: lời dặn đổi ở B1, B12, B13 và câu mở rộng questions (10.888 thành 11.413).
+    expect(text.length).toBe(11413)
+    expect(hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)))).toBe('f65f9a21bc6e13c584c71fffcf68e676f438b43e0235f1c285391544faf34e06')
     for (const policy of [OPEN, withForks(0)]) {
       expect(((routerRequest({ text: 'x', prev: null, ran: null, policy, model: 'sonnet' }).system ?? []) as readonly ModelTextBlock[])[0]?.text).toBe(text)
     }
@@ -259,7 +259,7 @@ describe('F1: router đề xuất tách, mod kẹp trong parseRoute', () => {
 })
 
 describe('F1: không tách thì không đổi gì', () => {
-  test('16. router không trả split nào: khối context giữ nguyên chữ như trước F1', { options: ON }, async ($, on) => {
+  test('16. router không trả split nào: khối context giữ nguyên chữ như trước F1', { options: { ...ON, closingReview: 'off' } }, async ($, on) => {
     const { seen } = setup(on, $, () => big(null))
     await submit($, PROMPT)
     expect(seen.contexts.at(-1)).toEqual([

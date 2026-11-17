@@ -22,7 +22,7 @@ import { approvalModeOf, reviewRoundsOf } from './lib/approval'
 import type { StepRun } from './lib/drift/stepcheck'
 import type { Verdict } from './lib/verdict'
 /** Một kết luận của subagent có vai (0.9.0 C4): vai, kết luận, số đếm, mốc seq, model đã chạy, việc và mô tả. */
-export type VerdictRun = { agentId: string; role: Role; verdict: Verdict | null; count?: string; seq: number; family: ModelFamily; taskIndex?: number; description: string }
+export type VerdictRun = { agentId: string; role: Role; verdict: Verdict | null; /** Subagent không ghi file nào ngoài thư mục tạm (0.9.0 D1): chỉ khi đó kết luận mới tính cho cổng. */ isClean: boolean; count?: string; seq: number; family: ModelFamily; taskIndex?: number; description: string }
 import { activeConductor, conductorBlocker, conductorFallbackOf, conductorOf, fableModelId, isMainConducting } from './lib/conductor'
 import { normalizeCore, restoreArchived, withDelegations } from './lib/state'
 import type { ActiveConductor, ConductorBlocker, ConductorInputs } from './lib/conductor'
@@ -149,6 +149,8 @@ export function createContext(options: PluginOptions) {
     closingWaived: -1,
     /** Số vòng CHƯA ĐẠT liên tiếp theo mục (mục tiêu, vai, việc) (0.9.0 C7). */
     verdictRounds: new Map<string, number>(),
+    /** Subagent đã ghi file ngoài thư mục tạm (0.9.0 D1). */
+    agentWrote: new Set<string>(),
     clashWarned: new Set<string>(),
     /** ID engine đã phục vụ theo họ (0.8.7 M1, usage.model của turn), cho dòng "Model đang dùng" và cảnh báo phiên bản một lần mỗi họ. */
     served: new Map<ModelFamily, string>(),
@@ -627,6 +629,7 @@ export function createContext(options: PluginOptions) {
     local.closingState = { goalId: -1, blocks: 0, key: '' }
     local.closingWaived = -1
     local.verdictRounds.clear()
+    local.agentWrote.clear()
     local.clashWarned.clear()
     local.served.clear()
     local.conductorSessionNoticed = false

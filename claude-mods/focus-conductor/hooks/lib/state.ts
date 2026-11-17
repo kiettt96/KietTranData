@@ -216,6 +216,25 @@ export const withClosingGap =
     return gap === null || gap === undefined ? rest : { ...rest, closingGap: gap }
   }
 
+const CLOSING_NAMES = ['check', 'review', 'design']
+const CLOSING_STATES = ['wait', 'pass', 'fail']
+/** Đọc Core.team đã lưu (0.9.0 C); sai dạng thì null (coi như đội hình chưa bật). */
+function teamOf(raw: unknown): Core['team'] | null {
+  if (raw === null || typeof raw !== 'object') return null
+  const c = raw as { goalId?: unknown; cause?: unknown; steps?: unknown }
+  if (typeof c.goalId !== 'number' || (c.cause !== 'depth' && c.cause !== 'files') || !Array.isArray(c.steps)) return null
+  const steps = c.steps.filter((x): x is { name: 'check' | 'review' | 'design'; state: 'wait' | 'pass' | 'fail' } => x !== null && typeof x === 'object' && CLOSING_NAMES.includes((x as { name?: unknown }).name as string) && CLOSING_STATES.includes((x as { state?: unknown }).state as string))
+  return { goalId: c.goalId, cause: c.cause, steps: steps.map(x => ({ name: x.name, state: x.state })) }
+}
+
+/** Đội hình do mod áp (0.9.0 C): ghi lý do bật và trạng thái bước đóng; null thì bỏ. */
+export const withTeam =
+  (team: Core['team'] | null) =>
+  (c: Core): Core => {
+    const { team: _old, ...rest } = normalizeCore(c)
+    return team === null || team === undefined ? rest : { ...rest, team }
+  }
+
 export const withWaivers =
   (waivers: WaiverState) =>
   (c: Core): Core => ({ ...normalizeCore(c), waivers: normalizeWaivers(waivers) })
@@ -271,6 +290,7 @@ export function normalizeCore(raw: Partial<Core>): Core {
     retry: normalizeRetry(raw.retry),
     waivers: normalizeWaivers(raw.waivers),
     noCheckNudged: typeof raw.noCheckNudged === 'number' ? raw.noCheckNudged : -1,
+    ...(teamOf(raw.team) !== null ? { team: teamOf(raw.team)! } : {}),
     ...(raw.closingGap !== undefined && raw.closingGap !== null && typeof raw.closingGap.goalId === 'number' && ['check', 'review', 'design'].includes(raw.closingGap.missing) ? { closingGap: { goalId: raw.closingGap.goalId, missing: raw.closingGap.missing, ...(raw.closingGap.solo === true ? { solo: true as const } : {}) } } : {}),
     forks: normalizeForks(raw.forks),
     approval: normalizeApproval(raw.approval),

@@ -1,6 +1,7 @@
 // 0.9.0 C2 (tích hợp): quyền theo vai. Subagent vai search, review, design bị từ chối Edit, Write, NotebookEdit và lệnh Bash có tác động
 // ghi mức definite ngoài thư mục tạm; vai audit bị từ chối sửa file ngoài thư mục tạm, được chạy lệnh kiểm. Lời từ chối không quá 200 ký
-// tự, nêu vai và việc nên làm (báo lại cho luồng chính). Subagent không có vai (router không trả) như 0.8.9.
+// tự, nêu vai và việc nên làm (báo lại cho luồng chính). Vai do mod suy (0.9.0 B): Explore là search, Plan là design; review và audit theo
+// tiền tố description ("Duyệt: ", "Kiểm: "). Subagent không có vai như 0.8.9.
 
 import { describe, expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
@@ -29,8 +30,10 @@ function setup(on: On) {
   on('tool.call', { tool: /^(?:Edit|Write|Read|Bash|Agent|NotebookEdit)$/ }, () => ({ result: 'ok' }))
   on('agent.spawn', (_$, e) => ({ model: 'claude-sonnet-5-5', agentId: `a-${String((e as { tool_use_id?: unknown }).tool_use_id)}` }) as never)
 }
+/** Vai review và audit theo tiền tố (0.9.0 B2); search và design theo loại agent của việc đã phân. */
+const DESCRIPTIONS: Record<number, string> = { 2: 'Duyệt: thay đổi phí', 4: 'Kiểm: bun test' }
 async function agent($: Engine, n: number, title: string): Promise<string> {
-  await spawnTool($, `t${n}`, `Việc ${n}: ${title}`, title)
+  await spawnTool($, `t${n}`, DESCRIPTIONS[n] ?? `Việc ${n}: ${title}`, title)
   return `a-t${n}`
 }
 const edit = (agentId: string) => ({ tool: 'Edit', file_path: '/repo/src/phi.ts', old_string: 'a', new_string: 'b', agentId })

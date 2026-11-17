@@ -23,6 +23,7 @@ import type { View } from '../lib/state'
 import { ARRANGED_CHARS, ARRANGED_INTERJECT_CHARS, DISCIPLINE, arrangedContext, asideContext, conductorContext, conductorKeepText, phaseNotice, briefContext, droppedGoalNotice, droppedItemsText, droppedPlanNotice, followUpContext, intentResumeContext, intentStatusContext, interjectContext, interjectMovedNote, quotaPausedContext, resetLabel, resumeCommand, nothingLeftContext, restorableLabel, restoreGoalOnlyContext, restoreResumeContext, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
+import { closingNote, closingSteps, hasKnownCheck, isDocsOnly, teamCause } from '../lib/team'
 import { modeOf, viewOf } from '../atoms'
 import { PERSON_ORIGINS, SLASH_COMMAND, newDelegation } from '../context'
 import { PANE_ROWS, shouldAutoOpenPane } from '../lib/pane'
@@ -701,6 +702,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       main: brief.main,
       expected,
       notes: plan.notes,
+      ...(isNewGoal && teamCause(ctx.options['closingReview'], brief, []) !== null ? { team: teamCause(ctx.options['closingReview'], brief, []) } : {}),
       tasks: brief.tasks.map(t => ({ index: t.index, run: t.run, agentType: t.agentType, ...(t.role !== undefined ? { role: t.role } : {}), pick: t.pick, ...(t.split !== undefined ? { split: t.split.length } : {}) })),
     })
     await flushDecisions((path, text) => $.fs.write(path, text))
@@ -718,8 +720,18 @@ export function registerSession(on: On, ctx: Ctx): void {
     // mới, hay mục tiêu mở lúc Fable chưa sẵn sàng); khóa Core.fable.briefedGoal.
     const isBriefed = wanted !== null && isBriefedFor(S.normalizeCore(await read($, coreState)), brief.goalId, wanted.family)
     const conductNote = wanted?.isConducting === true && !isBriefed ? [conductorContext(wanted.family)] : []
+    // Đội hình do mod áp (0.9.0 C2): mục tiêu mới router chấm substantial hay hard, loại edit hay mixed, closingReview auto: đoạn dặn bước đóng
+    // một lần, ghi Core.team; chưa bật thì không chèn gì (context như 0.8.9).
+    const teamAt = isNewGoal ? teamCause(ctx.options['closingReview'], brief, []) : null
+    const teamNote: string[] = []
+    if (teamAt !== null) {
+      const hasCheck = hasKnownCheck([], [], null)
+      const isHard = brief.depth === 'hard'
+      await update($, coreState, S.withTeam({ goalId: brief.goalId, cause: teamAt, steps: closingSteps({ hasCheck, isHard, checked: false, checkFailed: false, lastHard: -1, verdicts: [] }) }))
+      teamNote.push(closingNote({ hasCheck, isHard, isDocs: isDocsOnly(brief, []) }))
+    }
     if (conductNote.length > 0 && wanted !== null) await update($, coreState, markBriefed(brief.goalId, wanted.family))
-    return next({ ...e, context: [...lead, ...(e.context ?? []), context, ...conductNote, ...approvalNotes, ...(phaseNote !== null ? [phaseNote] : []), ...notice, ...(isClipped ? [CLIPPED_CONTEXT] : []), ...tail] })
+    return next({ ...e, context: [...lead, ...(e.context ?? []), context, ...conductNote, ...teamNote, ...approvalNotes, ...(phaseNote !== null ? [phaseNote] : []), ...notice, ...(isClipped ? [CLIPPED_CONTEXT] : []), ...tail] })
   }).catch(($, e, next) => (noteHookError('prompt.submit', next.error), next(e)))
 
   // Chặn sửa trước khi duyệt kế hoạch (0.8.2 N2): chỉ luồng chính, khi mục tiêu đang planning hay presented. Đăng ký ở đây (trước hook

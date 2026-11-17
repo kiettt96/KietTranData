@@ -108,3 +108,7 @@ export function isSidePath(path: string, lists: SideLists | null | undefined, ro
     return file === key || file.startsWith(`${key}/`)
   })
 }
+
+/** Thư mục tạm: ghi dưới đây không tính là sửa file của việc (0.9.0 C2, D1). */
+const ROLE_TEMP_DIRS = ['/tmp/', '/private/tmp/', '/var/folders/']
+export const isRoleTemp = (path: string) => ROLE_TEMP_DIRS.some(dir => normalizePath(path).startsWith(dir))

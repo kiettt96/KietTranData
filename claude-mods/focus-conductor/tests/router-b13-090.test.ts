@@ -13,10 +13,9 @@ describe('0.9.0 B13: lời dặn router', () => {
   test('constraints không còn trần 6', () => {
     expect(routerSystem()).not.toContain('at most 6 hard rules')
   })
-  test('B1, B12, B13 thêm không quá 500 ký tự so với 0.8.9 (trừ phần của nhóm C)', () => {
+  test('B1, B12, B13 thêm không quá 500 ký tự so với 0.8.9 (trừ câu mở rộng questions)', () => {
     const text = routerSystem()
-    const team = text.slice(text.indexOf('Team roles:'), text.indexOf('Reading the request:'))
-    const groupC = [team, '; also running checks and reporting pass or fail', ' (including business, permission, data or cost decisions the request leaves open)', ' "role": "design"|"review"|"build"|"search"|"audit",']
+    const groupC = [' (including business, permission, data or cost decisions the request leaves open)']
     const withoutC = groupC.reduce((sum, part) => sum - (text.includes(part) ? part.length : 0), text.length)
     expect(withoutC - 10888).toBeLessThanOrEqual(500)
   })
