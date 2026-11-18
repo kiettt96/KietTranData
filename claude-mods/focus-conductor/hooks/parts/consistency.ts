@@ -182,9 +182,10 @@ async function closingGate($: EngineInterface, ctx: Ctx, core: Core, log: Eviden
   for (const v of verdicts) if (v.seq > log.lastChange || v === lastRun) for (const path of v.changed ?? []) if (!named.includes(path)) named.push(path)
   const counted = (L.verdicts.goalId === brief.goalId ? L.verdicts.items : []).filter(v => v.isClean && v.isReview).reduce((max, v) => Math.max(max, v.seq), -1)
   if (counted >= 0) for (const w of log.writes) if (w.seq > counted && w.definite === true && (w.hard === true || w.skill === true)) for (const path of w.paths ?? []) if (!named.includes(path)) named.push(path)
-  // Dòng kết luận không đứng riêng (bổ sung 18/11 mục 2): lượt gần nhất sau thay đổi cuối chỉ có dòng như vậy.
+  // Kết luận chỉ đạt một phần (luật đọc sau phiên thật D4, đây là trường hợp duy nhất còn chưa có kết luận): lượt gần nhất sau thay đổi
+  // cuối chỉ có dòng như vậy.
   const latest = [...verdicts].reverse().find(v => v.seq > log.lastChange && prefixRole(v.description) !== 'audit')
-  const unclear = missing !== 'check' && latest?.unclear === true ? ' Câu trả lời của lượt duyệt chưa có kết luận: dòng kết luận phải đứng riêng (ĐẠT, CHƯA ĐẠT, hay kèm lỗi nhẹ); hỏi lại chính subagent đó.' : ''
+  const unclear = missing !== 'check' && latest?.unclear === true ? ' Câu trả lời của lượt duyệt chưa có kết luận: kết luận chỉ đạt một phần, cần người duyệt nêu rõ đạt hay chưa đạt; hỏi lại chính subagent đó.' : ''
   const files = missing !== 'check' && named.length > 0 ? ` File đã đổi trong hay sau lượt duyệt: ${printNames(named)}.` : ''
   // Lần chạy gần nhất của lệnh kiểm sau thay đổi cuối đi qua ống (sau phiên thật D4, mục 2b): nêu đúng nguyên nhân và cách chạy lại.
   const pipe = L.pipeNotes.goalId === brief.goalId ? L.pipeNotes.last : null
