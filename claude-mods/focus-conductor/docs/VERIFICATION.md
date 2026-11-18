@@ -2,6 +2,48 @@
 
 Số đo của HEAD hiện tại và của các bản trước. Mọi số do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển] trừ khi nêu khác; hợp đồng đối chiếu evidence ở [DESIGN.md](DESIGN.md), lịch sử thay đổi ở [CHANGELOG.md](../CHANGELOG.md), cách dùng ở [README](../README.md).
 
+## 0.9.0 cổng duyệt: bảng nghiệm thu đóng K1 tới K19 [Đo trực tiếp, `tests/integration/k-table-090.test.ts`, 2.1.327, 18/11/2026]
+
+| Mã | Hành vi | Ca test | Kết quả |
+|---|---|---|---|
+| K1 | Kịch bản kỷ luật giao việc từ đầu tới cuối, conductor off và bật: không lời gọi nào bị từ chối ngoài lệnh kiểm của luồng chính khi conductor bật; cổng Stop không chặn | K1 conductor off: ...; K1 conductor opus: ... | qua |
+| K2 | Người duyệt chép mã sang thư mục tạm và chạy probe, gồm mktemp -d, pushd, git trong thư mục tạm: không bị từ chối, kết luận được tính | K2 mktemp, mktemp -d, pushd, popd, git trong thư mục tạm: ...; K2 đối chứng: sau popd về thư mục dự án, sed -i vào src vẫn bị từ chối | qua |
+| K3 | Mục tiêu light sửa 1 file: không đoạn dặn bước đóng, không chặn | K3 không đoạn dặn bước đóng, không chặn | qua |
+| K4 | Đủ điều kiện bật mà thiếu duyệt: chặn một lần cho trạng thái đó, lý do nêu bước còn thiếu | K4 chặn một lần cho trạng thái đó, lý do nêu bước còn thiếu | qua |
+| K5 | Subagent từ sonnet, không ghi gì, trả ĐẠT hay đạt kèm lỗi nhẹ, có và không có tiền tố: được tính | K5 "Kiểm độc lập: phí" và "Rà lại thay đổi phí", mỗi tên với ĐẠT và đạt kèm lỗi nhẹ (4 ca) | qua |
+| K6 | Tiền tố "Kiểm: " trả ĐẠT HẾT: không tính là duyệt | K6 subagent tiền tố "Kiểm: " trả ĐẠT HẾT: không tính là duyệt | qua |
+| K7 | Subagent chạy haiku trả ĐẠT: không tính | K7 subagent chạy haiku trả ĐẠT: không tính | qua |
+| K8 | Subagent có ghi file dự án trả ĐẠT: không tính | K8 subagent có ghi file dự án (Edit, hay sed -i khi không bị chặn) trả ĐẠT: không tính | qua |
+| K9 | Sửa file sau lượt duyệt: hết hiệu lực, chặn, mọi lần chặn nêu tên file | K9 sửa file sau lượt duyệt: ...; K9 không có fs: ... | qua |
+| K10 | Nội dung một file trong tập đổi giữa lúc sinh và lúc hoàn tất, hay sau lúc hoàn tất, khi fs đo được: hết hiệu lực | K10 đổi giữa lúc sinh và lúc hoàn tất; K10 đổi ngay khi subagent khởi chạy; K10 đổi sau lúc hoàn tất | qua |
+| K11 | File skill cư xử như K9 và K10 | K11 SKILL.md đổi trong lượt duyệt hay sau lượt duyệt: ... | qua |
+| K12 | Việc dọn sau lượt duyệt: còn hiệu lực | K12 tệp tiến độ, sao lưu, git commit, chạy lại khối khởi động: còn hiệu lực | qua |
+| K13 | fs không phản hồi ở mọi mốc: theo sổ; phản hồi ở ít nhất một mốc mà không đo được ở mốc khác: không tính | K13 fs không phản hồi ở mọi mốc: ...; K13 không đo được lúc spawn, complete, gate (3 ca) | qua |
+| K14 | CHƯA ĐẠT đi vào vòng sửa; các dạng dòng kết luận đọc đúng luật đóng | K14 CHƯA ĐẠT đi vào vòng sửa: câu dặn vòng 1; K14 các dạng dòng kết luận đọc đúng luật đóng | qua |
+| K15 | closingReview off, hay phiên không giao được subagent: không chặn | K15 closingReview off: không chặn; K15 phiên không giao được subagent: không chặn | qua |
+| K16 | Lượt của mục tiêu cũ hoàn tất sau khi đổi mục tiêu: không đụng kết luận của mục tiêu mới | K16 lượt của mục tiêu cũ hoàn tất sau khi đổi mục tiêu: ... | qua |
+| K17 | Subagent Explore chạy haiku và mục tiêu chưa sửa file: không gọi fs | K17 subagent Explore chạy haiku: không gọi fs; K17 mục tiêu chưa sửa file: sinh lượt duyệt không gọi fs | qua |
+| K18 | Đọc kết luận theo câu đầu của dòng kết luận; ba dòng đầu của phiên D4 là đạt; lượt có tiền tố không có dòng kết luận thì tính kèm dòng nhắc; lượt không tiền tố không có từ đạt thì không tính | K18 ba dòng đầu của phiên D4 là đạt; ...; K18 lượt có tiền tố duyệt trả câu dòng đầu của phiên D4; K18 lượt có tiền tố không có dòng kết luận nào; K18 lượt không tiền tố không có từ đạt | qua |
+| K19 | Lệnh kiểm qua ống che mã thoát: dòng nhắc ở kết quả, không tính; không ống hay có pipefail thì tính; lý do chặn nêu ống lệnh; nhắc tối đa hai lần | K19 bash tests/kiem.sh \| tail -1: ...; K19 cùng lệnh không kèm ống: tính; K19 set -o pipefail: ...; K19 lệnh ở check của bước qua ống cũng được nhắc | qua |
+
+Xác nhận độc lập (một lượt, tác tử mới chưa thấy quá trình làm, trên bản chép của 9bf3849): chạy 31 ca của k-table-090 và tự viết 29 probe riêng, mỗi dòng ít nhất một probe; 17/17 dòng đạt [Đo trực tiếp, 18/11/2026]. Năm probe hỏng ở lần chạy đầu đều do tác tử dựng sai (thiếu lệnh kiểm, dùng tiền tố duyệt khi cần subagent có ghi, đổi description giữa hai vòng), sửa xong thì đạt.
+
+**Phiên thật D4, prompt khó, sau vòng sửa cuối** [Đo trực tiếp, 18/11/2026, Claude Code 2.1.327, `claude -p`, conductor off, skill kỷ luật giao việc đang cài, mã của `3ff0c6a`; chi phí 1,39 USD, cộng lượt hỏng đầu 0,46 USD vì tệp trạng thái của lượt cũ]:
+- Kết quả việc: tách `src/dem.sh`, thêm `--cot` và `tests/kiem-cot.sh`; `bash tests/kiem.sh` và `bash tests/kiem-cot.sh` đều TỔNG: ĐẠT.
+- Lời gọi bị từ chối: 0 (không có `role-deny`, không có lời từ chối vai điều phối).
+- Cổng Stop chặn 3 lần: 1 lần checklist còn bước mở (cổng có từ trước); 2 lần cổng đóng thiếu bước kiểm (`closing-gate missing check`), vì luồng chính chạy `bash tests/kiem.sh | tail -1; bash tests/kiem-cot.sh | tail -1`, mã thoát bị ống và dấu `;` che (sổ ghi `hidden`, `untrusted`); hợp đồng bằng chứng có từ trước, mod không xác minh được nên chặn đúng thiết kế, nhưng lý do chặn không nói vì sao nên luồng chính chạy lại đúng dạng đó.
+- Kết luận: 3 lượt "Kiểm độc lập" (sonnet, opus, opus), không lượt nào được tính là đạt. Lượt 1 "**Kết luận: đạt kèm lỗi nhẹ.** Tôi tự chạy lại ..." có câu khác trên cùng dòng nên chưa có kết luận; lượt 2 "**ĐẠT, kèm lỗi nhỏ.** Không có lỗi Nghiêm trọng hay Lớn ..." và lượt 3 "**ĐẠT**, chỉ có vài lỗi Nhỏ. Không có lỗi Nghiêm trọng ..." đọc là chưa đạt ("lỗi nhỏ" không phải "lỗi nhẹ"; "lỗi nghiêm trọng" khớp dù nằm trong câu phủ định). Đúng chữ của luật đóng, nhưng đọc lệch ý người duyệt trên phiên thật.
+- Người duyệt dùng `mktemp -d` và `trap` để dọn, không lời gọi nào bị từ chối, không ghi file dự án.
+
+**Phiên thật D4 lần hai, sau bản sửa đọc kết luận và lệnh kiểm qua ống** [Đo trực tiếp, 18/11/2026, Claude Code 2.1.327, `claude -p`, cùng prompt khó và cấu hình, mã của `65c02a5`; chi phí 1,09 USD; chi phí model thật cộng dồn khoảng 35,3 USD trên trần 40]:
+- Kết quả việc: `bash tests/kiem.sh` và `bash tests/kiem-cot.sh` đều TỔNG: ĐẠT. Lời gọi bị từ chối: 0.
+- Cổng Stop chặn 2 lần: 1 lần checklist còn bước mở (cổng có từ trước); 1 lần cổng đóng thiếu bước kiểm vì luồng chính chạy `bash tests/kiem.sh | tail -1; ...`. Dòng nhắc "`bash tests/kiem.sh` đi qua ống, mã thoát bị che nên lần chạy này không tính; chạy lại không kèm ống, hoặc thêm set -o pipefail." hiện ở kết quả lần chạy; lý do chặn nêu cùng nguyên nhân; luồng chính chạy lại kèm `set -o pipefail` và được tính. Không lần chặn nào vì bước duyệt.
+- Kết luận: 2 lượt duyệt (opus), cả hai được tính là đạt. Dòng đầu nguyên văn và cách mod đọc: "**Kết luận: đạt kèm lỗi nhẹ.** Cả 5 tiêu chí đều qua và không thấy lỗi nặng hay vừa nào. Tôi không sửa file nào." đọc là đạt (câu đầu "đạt kèm lỗi nhẹ"); "**ĐẠT kèm lỗi nhỏ.** Cả 5 kiểm tra đều đúng như mong đợi. ... Không có lỗi Nghiêm trọng hay Lớn. Tôi không sửa tệp nào." đọc là đạt (câu đầu "ĐẠT kèm lỗi nhỏ", mức thấp).
+
+**Ký tự chèn sau vòng sửa cuối** [Đo trực tiếp, bộ đo của mục 0.8.9, engine 2.1.296, mã của `3ff0c6a`, 18/11/2026]: phiên dài và kịch bản 60 việc giữ mười số của lần đo trước (mặc định 10.418 và 19.666; Fable 8.642 và 7.127; sau `/conductor solo` 16.687 và 24.428; sau mười việc 21.817, 45.200, Fable 6.561); kịch bản phiên theo kỷ luật giao việc giữ 1.398 ký tự. Cổng duyệt đo dấu file không chèn thêm ký tự nào.
+
+Mức nghiêm trọng của cổng duyệt từ vòng này: lớp nhắc chất lượng; chỉ chặn PR khi văng lỗi, chặn hay từ chối nhầm trong luồng chính, hay trượt một dòng K. Phát hiện khác vào việc tồn.
+
 ## 0.9.0 A6: các trường của usage có thể vắng [Đo trực tiếp, khai báo kiểu, 18/11/2026]
 
 Đọc `.claude-plugin/types/claude-code/index.d.ts` của engine đang chạy (2.1.327) và của 2.1.296:

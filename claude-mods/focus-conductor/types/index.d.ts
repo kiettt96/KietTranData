@@ -700,6 +700,15 @@ declare module 'claude-code' {
       quota: QuotaState
       /** Mục tiêu mà người dùng đã tự đóng pane chi tiết; -1 là chưa (0.7.2). */
       paneClosedGoal: number
+      /** Dấu file của các lượt duyệt (0.9.0 C2 đo dấu file): lúc sinh, lúc hoàn tất, mốc sổ, lượt và file đã hết hiệu lực. */
+      reviewPrints: {
+        goalId: number
+        spawn: Record<string, Record<string, { size: number; mtimeMs: number; hash?: string } | { missing: true }> | null>
+        done: Record<string, Record<string, { size: number; mtimeMs: number; hash?: string } | { missing: true }> | null>
+        stale: string[]
+        spawnSeq: Record<string, number>
+        staleFiles: string[]
+      }
       /** Mã turn luồng chính đang chạy, rỗng khi không có (0.7.9, UI2): nhịp vẽ lại 60 giây đọc giá trị này để biết còn turn hay không. */
       runningTurn: string
     }

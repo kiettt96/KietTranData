@@ -2,6 +2,7 @@
 // đứng đầu câu trả lời của subagent đó. Hook ở parts/agents.ts (nối khi spawn) và parts/consistency.ts (đọc khi subagent trả lời xong).
 
 import type { Role } from '../../types'
+import { dropNegated } from './drift/output'
 
 /** Kết luận đọc được: đạt hay chưa (audit, review), sẵn sàng hay chưa (design). */
 export type Verdict = 'pass' | 'fail' | 'ready' | 'not-ready'
@@ -49,22 +50,25 @@ const WORDS: ReadonlyArray<readonly [string, Verdict, boolean]> = [
   ['pass', 'pass', false],
 ]
 
-/** Một dòng kết luận đọc được: từ kết luận, số đếm N/M nếu có, cờ chỉ-của-bước-kiểm; hay dòng mở đầu bằng từ kết luận mà không đứng riêng. */
-type VerdictLine = { verdict: Verdict; count?: string; isCheckOnly: boolean } | { unclear: true }
+/** Một dòng kết luận đọc được: từ kết luận, số đếm N/M nếu có, cờ chỉ-của-bước-kiểm, dòng chỉ có từ kết luận; hay dòng chưa có kết luận. */
+type VerdictLine = { verdict: Verdict; count?: string; isCheckOnly: boolean; isBare: boolean } | { unclear: true }
 
-/** Phần sau từ kết luận chỉ nói lỗi nhẹ (0.9.0 C2 mục 6): "kèm lỗi nhẹ", "kèm 2 lỗi nhẹ", "with minor issues", "minor". */
-const MINOR_ONLY = /^(?:(?:kèm|với|có|with|has)\s+)?(?:\d+\s+)?(?:lỗi nhẹ|minor(?:\s+(?:issues?|nits?|fixes?|notes?|points?))?|nits?)$/u
 /**
- * Phần sau từ kết luận làm đạt thành chưa đạt (bổ sung 18/11): từ nối "nhưng", "but", "with", "kèm" hay "chặn", "major", "critical",
- * "blocker" ở bất kỳ đâu; mức "nặng", "lớn", "vừa", "nghiêm trọng" chỉ khi đi liền sau "lỗi" hay "vấn đề" (có thể cách một con số).
+ * Từ tương phản (sau phiên thật D4): "nhưng", "tuy nhiên", "but", "however", "with"; thêm "kèm" (tương đương "with") và "còn" ("ĐẠT, còn 2 lỗi
+ * lớn"), để mức lỗi cao đi sau chúng không bị bỏ qua.
  */
-const NEGATING = /(?:^|[^\p{L}])(?:nhưng|but|with|kèm|chặn|major|critical|blockers?|blocked|blocking)(?:[^\p{L}]|$)|(?:^|[^\p{L}])(?:lỗi|vấn đề)\s+(?:\d+\s+)?(?:nặng|lớn|vừa|nghiêm trọng)(?:[^\p{L}]|$)/u
+const CONTRAST = /(?:^|[^\p{L}])(?:nhưng|tuy nhiên|but|however|with|kèm|còn)(?:[^\p{L}]|$)/u
+/** Mức lỗi cao. Mức thấp ("nhẹ", "nhỏ", "vặt", "minor") không bao giờ làm đổi kết luận. */
+const HIGH_WORDS = 'nặng|lớn|vừa|nghiêm\\s+trọng|chặn|major|critical|blockers?|blocked|blocking'
+const HIGH = new RegExp(`(?:^|[^\\p{L}])(?:${HIGH_WORDS})(?:[^\\p{L}]|$)`, 'u')
+/** Đạt từng phần: chưa có kết luận. */
+const PARTIAL = /(?:^|[^\p{L}])(?:phần lớn|một phần|mostly|partially)(?:[^\p{L}]|$)/u
 
 /**
- * Đọc một dòng (0.9.0 C2 mục 6, bổ sung 18/11 mục 2): bỏ ký hiệu markdown, dấu đầu dòng, nhãn "Kết luận:" hay "Verdict:"; dòng mở đầu bằng
- * một từ kết luận (cụm chưa đạt xét trước) là dòng kết luận. Luật đóng cho phần còn lại của dòng: rỗng (có thể kèm số đếm N/M) hay chỉ nói
- * lỗi nhẹ thì giữ; có "nhưng", "but", "with", "kèm" đi với thứ khác lỗi nhẹ, hay nhắc nặng, lớn, vừa, nghiêm trọng, chặn, major, critical,
- * blocker thì đạt thành chưa đạt, sẵn sàng thành chưa sẵn sàng; còn lại là dòng không đứng riêng (unclear). Từ chưa đạt giữ chưa đạt.
+ * Đọc một dòng (sau phiên thật D4, thay luật đóng 18/11): bỏ ký hiệu markdown, dấu đầu dòng, nhãn "Kết luận:" hay "Verdict:"; dòng mở đầu
+ * bằng một từ kết luận (cụm chưa đạt xét trước) là dòng kết luận, và chỉ xét câu đầu của nó (tới dấu chấm, chấm phẩy hay hết dòng); các câu
+ * sau là bình luận. Từ chưa đạt: chưa đạt. Từ đạt: đạt, trừ khi câu có từ tương phản đi với mức lỗi cao không bị phủ định (chưa đạt), hay có
+ * "phần lớn", "một phần", "mostly", "partially" (chưa có kết luận). Phủ định nhận như lỗi trong output lệnh kiểm (`dropNegated`).
  */
 function lineVerdict(raw: string): VerdictLine | null {
   let text = raw.normalize('NFC').replace(/[\u200b-\u200d\ufeff]/gu, '').replace(/[*_`]+/gu, '').replace(/\s+/gu, ' ').trim()
@@ -72,36 +76,47 @@ function lineVerdict(raw: string): VerdictLine | null {
   text = text.replace(/^(?:kết luận|verdict)\s*:\s*/iu, '').trim().toLowerCase()
   for (const [word, verdict, isCheckOnly] of WORDS) {
     if (!text.startsWith(word) || /^\p{L}/u.test(text.slice(word.length))) continue
-    const count = /^\s*(\d+\s*\/\s*\d+)/u.exec(text.slice(word.length))?.[1]
-    const rest = text.slice(word.length).replace(/^\s*\d+\s*\/\s*\d+/u, '').replace(/[()[\]]/gu, ' ').replace(/^[\s,.;:!–—-]+|[\s,.;:!–—-]+$/gu, '').replace(/\s+/gu, ' ')
+    const after = text.slice(word.length)
+    const count = /^\s*(\d+\s*\/\s*\d+)/u.exec(after)?.[1]
+    const sentence = (/^(.*?)(?:[.;](?:\s|$)|;|$)/u.exec(after.replace(/^\s*\d+\s*\/\s*\d+/u, ''))?.[1] ?? '').trim()
+    const isBare = sentence.replace(/[\s,.;:!()–—-]+/gu, '') === ''
     const counted = count !== undefined ? { count: count.replace(/\s+/g, '') } : {}
-    if (verdict === 'fail' || verdict === 'not-ready') return { verdict, ...counted, isCheckOnly }
-    if (rest === '' || MINOR_ONLY.test(rest)) return { verdict, ...counted, isCheckOnly }
-    if (NEGATING.test(rest)) return { verdict: verdict === 'pass' ? 'fail' : 'not-ready', ...counted, isCheckOnly: false }
-    return { unclear: true }
+    if (verdict === 'fail' || verdict === 'not-ready') return { verdict, ...counted, isCheckOnly, isBare }
+    if (PARTIAL.test(sentence)) return { unclear: true }
+    const open = dropNegated(sentence, HIGH_WORDS)
+    if (CONTRAST.test(open) && HIGH.test(open)) return { verdict: verdict === 'pass' ? 'fail' : 'not-ready', ...counted, isCheckOnly: false, isBare }
+    return { verdict, ...counted, isCheckOnly, isBare }
   }
   return null
 }
 
 const isReadiness = (verdict: Verdict) => verdict === 'ready' || verdict === 'not-ready'
+const isNegative = (verdict: Verdict) => verdict === 'fail' || verdict === 'not-ready'
 
 /**
- * Kết luận của câu trả lời subagent (0.9.0 C2 mục 6, bổ sung 18/11 mục 1): dòng kết luận đầu tiên quyết loại (duyệt hay sẵn sàng); có dòng
- * chưa đạt cùng loại ở bất kỳ đâu thì là chưa đạt. Không có dòng kết luận đứng riêng thì null.
+ * Kết luận của câu trả lời subagent (sau phiên thật D4): dòng kết luận đầu tiên quyết; có một dòng chỉ là từ đạt và một dòng chỉ là từ chưa
+ * đạt cùng loại thì là chưa đạt. Không có dòng kết luận nào thì null.
  */
 export function verdictOf(answer: string): { verdict: Verdict; count?: string; isCheckOnly?: true } | null {
-  const lines = answer.split('\n').map(lineVerdict).filter((v): v is { verdict: Verdict; count?: string; isCheckOnly: boolean } => v !== null && !('unclear' in v))
+  const lines = answer.split('\n').map(lineVerdict).filter((v): v is { verdict: Verdict; count?: string; isCheckOnly: boolean; isBare: boolean } => v !== null && !('unclear' in v))
   const first = lines[0]
   if (first === undefined) return null
-  const negative = lines.find(v => isReadiness(v.verdict) === isReadiness(first.verdict) && (v.verdict === 'fail' || v.verdict === 'not-ready'))
-  const chosen = negative ?? first
+  const sameKind = (v: { verdict: Verdict }) => isReadiness(v.verdict) === isReadiness(first.verdict)
+  const bareNegative = lines.find(v => v.isBare && isNegative(v.verdict) && sameKind(v))
+  const barePositive = lines.some(v => v.isBare && !isNegative(v.verdict) && sameKind(v))
+  const chosen = isNegative(first.verdict) ? first : bareNegative !== undefined && barePositive ? bareNegative : first
   return { verdict: chosen.verdict, ...(chosen.count !== undefined ? { count: chosen.count } : {}), ...(chosen.isCheckOnly ? { isCheckOnly: true as const } : {}) }
 }
 
-/** Câu trả lời có dòng mở đầu bằng từ kết luận nhưng không đứng riêng, và không có dòng kết luận nào khác (bổ sung 18/11 mục 2). */
+/** Câu trả lời có dòng mở đầu bằng từ kết luận nhưng chưa có kết luận (đạt từng phần), và không có dòng kết luận nào khác. */
 export function isUnclearVerdict(answer: string): boolean {
   const lines = answer.split('\n').map(lineVerdict).filter(v => v !== null)
   return lines.length > 0 && lines.every(v => v !== null && 'unclear' in v)
+}
+
+/** Câu trả lời không có dòng nào mở đầu bằng từ kết luận (sau phiên thật D4, mục 1f). */
+export function hasNoVerdictLine(answer: string): boolean {
+  return answer.split('\n').every(line => lineVerdict(line) === null)
 }
 
 /** Trần ký tự của bảng báo cáo chèn khi đóng bước cuối (0.9.0 C8). */

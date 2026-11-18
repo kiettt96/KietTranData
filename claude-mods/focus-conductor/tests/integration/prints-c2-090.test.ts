@@ -182,8 +182,9 @@ describe('0.9.0 C2 dấu file: dòng kết luận (mục 6)', () => {
     expect(verdictOf('SẴN SÀNG kèm lỗi nhẹ')?.verdict).toBe('ready')
   })
   test('phần còn lại có "nhưng", "but" hay nhắc lỗi nặng, lớn, vừa, nghiêm trọng, major, critical: chưa đạt', () => {
-    for (const text of ['ĐẠT, nhưng còn 2 lỗi', 'ĐẠT, còn 2 lỗi lớn', 'ĐẠT kèm 1 lỗi nặng', 'ĐẠT kèm lỗi vừa', 'PASS but tests flaky', 'PASS with 1 major issue', 'PASS, 1 critical', 'ĐẠT, lỗi nghiêm trọng ở phí']) expect(verdictOf(text)?.verdict, text).toBe('fail')
-    expect(verdictOf('SẴN SÀNG nhưng thiếu rủi ro')?.verdict).toBe('not-ready')
+    // Luật đọc kết luận sau phiên thật D4: mức lỗi cao chỉ đổi kết luận khi đi cùng từ tương phản (nhưng, but, with, kèm, còn...).
+    for (const text of ['ĐẠT, nhưng còn 2 lỗi lớn', 'ĐẠT, còn 2 lỗi lớn', 'ĐẠT kèm 1 lỗi nặng', 'ĐẠT kèm lỗi vừa', 'PASS but tests blocked', 'PASS with 1 major issue', 'PASS, but 1 critical', 'ĐẠT, nhưng lỗi nghiêm trọng ở phí']) expect(verdictOf(text)?.verdict, text).toBe('fail')
+    expect(verdictOf('SẴN SÀNG nhưng còn rủi ro lớn')?.verdict).toBe('not-ready')
   })
   test('cụm chưa đạt xét trước; dòng đầu tiên mở đầu bằng từ kết luận quyết; không có dòng nào thì chưa có kết luận', () => {
     expect(verdictOf('CHƯA ĐẠT kèm lỗi nhẹ')?.verdict).toBe('fail')
@@ -247,21 +248,22 @@ describe('0.9.0 C2 dấu file, bổ sung 18/11', () => {
   })
   test('(2) luật đóng của phần sau từ kết luận: READY WITH BLOCKERS chưa sẵn sàng; ĐẠT (12/12 mục) chưa có kết luận; ĐẠT KÈM 2 LỖI NHẸ đạt', () => {
     expect(verdictOf('READY WITH BLOCKERS')?.verdict).toBe('not-ready')
-    expect(verdictOf('ĐẠT (12/12 mục)')).toBeNull()
+    // Luật đọc kết luận sau phiên thật D4 (thay luật đóng): ĐẠT (12/12 mục), phần sau không có từ tương phản, là đạt; đạt từng phần là chưa có kết luận.
+    expect(verdictOf('ĐẠT (12/12 mục)')?.verdict).toBe('pass')
     expect(verdictOf('ĐẠT KÈM 2 LỖI NHẸ')?.verdict).toBe('pass')
-    for (const text of ['PASS with tests skipped', 'ĐẠT kèm ghi chú', 'ĐẠT, chặn ở bước 2', 'PASS, 1 blocker']) expect(verdictOf(text)?.verdict, text).toBe('fail')
-    for (const text of ['ĐẠT phần A', 'PASS overall']) expect(verdictOf(text), text).toBeNull()
-    // Bổ sung 18/11 lần hai: nặng, lớn, vừa, nghiêm trọng chỉ làm chưa đạt khi đi liền sau "lỗi" hay "vấn đề"; đứng một mình là chưa có kết luận.
+    for (const text of ['PASS with a blocker', 'ĐẠT kèm lỗi chặn', 'ĐẠT, nhưng chặn ở bước 2', 'PASS, but 1 blocker']) expect(verdictOf(text)?.verdict, text).toBe('fail')
+    for (const text of ['ĐẠT phần A', 'PASS overall', 'PASS with tests skipped', 'ĐẠT kèm ghi chú']) expect(verdictOf(text)?.verdict, text).toBe('pass')
     expect(verdictOf('ĐẠT phần lớn')).toBeNull()
-    expect(verdictOf('ĐẠT, vừa kiểm xong')).toBeNull()
+    expect(verdictOf('ĐẠT, vừa kiểm xong')?.verdict).toBe('pass')
     expect(verdictOf('ĐẠT, còn 2 lỗi lớn')?.verdict).toBe('fail')
-    for (const text of ['ĐẠT, còn vấn đề nghiêm trọng', 'ĐẠT kèm 1 vấn đề lớn', 'ĐẠT, lỗi vừa ở phí']) expect(verdictOf(text)?.verdict, text).toBe('fail')
+    for (const text of ['ĐẠT, còn vấn đề nghiêm trọng', 'ĐẠT kèm 1 vấn đề lớn', 'ĐẠT, nhưng lỗi vừa ở phí']) expect(verdictOf(text)?.verdict, text).toBe('fail')
   })
   test('(2) câu trả lời chỉ có dòng kết luận không đứng riêng: cổng chặn, lý do nêu dòng kết luận phải đứng riêng và hỏi lại chính subagent đó', OPTS(), async ($, on) => {
     const files = fresh()
     const seen = setup(on, files)
     await start($, seen, files)
-    await agent($, 'Kiểm độc lập: phí', 'ĐẠT (12/12 mục)')
+    // Luật sau phiên thật D4: dòng chưa có kết luận là dòng đạt từng phần.
+    await agent($, 'Kiểm độc lập: phí', 'ĐẠT phần lớn')
     await close($)
     const block = await stop($)
     expect(block).toContain('dòng kết luận phải đứng riêng')
@@ -410,7 +412,8 @@ describe('0.9.0 C2 dấu file, vòng sửa 1: trần lượt', () => {
     const seen = setup(on, files)
     await start($, seen, files)
     await agent($, 'Kiểm độc lập: phí', 'ĐẠT')
-    for (let k = 0; k < 41; k++) await agent($, `Kiểm độc lập: phần ${k}`, 'Đã xem phần này.')
+    // Lượt độn mang tiền tố sẵn sàng (được chụp dấu, không thay kết luận duyệt của mục tiêu không phải hard).
+    for (let k = 0; k < 41; k++) await agent($, `Sẵn sàng: phần ${k}`, 'Đã xem phần này.')
     await close($)
     expect(await stop($)).toContain(BLOCK)
   })

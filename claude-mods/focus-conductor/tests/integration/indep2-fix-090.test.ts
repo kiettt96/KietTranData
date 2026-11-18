@@ -18,7 +18,8 @@ describe('0.9.0 vòng sửa 1 (2, 3): từ kết luận', () => {
     for (const text of ['ĐẠT  HẾT', 'ĐẠT\tHẾT', 'ĐẠT HẾT 3/3', 'ALL  PASS']) expect(verdictOf(text)?.isCheckOnly, text).toBe(true)
   })
   test('ĐẠT KÈM LỖI LỚN, PASS WITH MAJOR ISSUES, ĐẠT nhưng ...: không là kết luận đạt', () => {
-    for (const text of ['ĐẠT KÈM LỖI LỚN', 'PASS WITH MAJOR ISSUES', 'ĐẠT nhưng còn thiếu test']) expect(verdictOf(text)?.verdict, text).not.toBe('pass')
+    // Luật đọc kết luận sau phiên thật D4: "ĐẠT nhưng ..." chỉ là chưa đạt khi đi với mức lỗi cao.
+    for (const text of ['ĐẠT KÈM LỖI LỚN', 'PASS WITH MAJOR ISSUES', 'ĐẠT nhưng còn thiếu test chặn phát hành']) expect(verdictOf(text)?.verdict, text).not.toBe('pass')
   })
   test('ĐẠT, ĐẠT., **Đạt**, PASS 3/3, đạt kèm lỗi nhẹ: vẫn là đạt', () => {
     for (const text of ['ĐẠT', 'ĐẠT.', '**Đạt**', 'PASS 3/3', 'đạt kèm lỗi nhẹ', 'ĐẠT\nKhông lỗi']) expect(verdictOf(text)?.verdict, text).toBe('pass')
