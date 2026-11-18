@@ -138,3 +138,8 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 - Bổ sung lần hai 18/11: 24ee60e test đỏ 4 ca (A6 pane khi usage chỉ có token, formatCost, từ chỉ mức lỗi); 76162ae bản sửa; 365 ca 0.9.0 qua.
 - Quyết định: chuẩn hóa usage ở chỗ cộng (safeUsage) thay vì chỉ chặn ở chỗ hiện, để sổ không lưu NaN; sổ cũ đã có null thì formatCost hiện "–".
 - Đột biến 20 mẫu đang chạy trên bản chép đông cứng (scratchpad/frozen) để sửa đổi sau không lẫn vào.
+- Kiểm độc lập dấu file vòng 1: CHƯA ĐẠT, 3 lỗi nặng loại 1 (file vào tập sau lúc sinh; tập rỗng lúc sinh; lượt không chụp mà vẫn tính), 2 lỗi vừa (mã băm lượt khác; trần 40 lượt), 2 nhẹ (việc tồn: mktemp, pushd, git ở thư mục tạm bị rào definite; lý do chặn lần hai mất tên file). Loại 2 không lỗi.
+- 058a948 test đỏ 5 ca; ffef240 vòng sửa 1; 370 ca 0.9.0 qua.
+- Quyết định: lượt vai build không được tính (điểm 4 của chỉ dẫn bổ sung); general-purpose không tiền tố trên mục tiêu sửa mã là build, nên ca dùng người duyệt không tiền tố đổi sang "Kiểm độc lập: " hoặc đổi kỳ vọng. Cần nêu trong báo cáo.
+- Đang chạy: kiểm độc lập vòng 2 (tác tử mới, commit ffef240); đột biến 20 mẫu trên bản chép đông cứng (trước vòng sửa 1).
+- File skill trong tập dấu: ca SKILL.md đổi sau duyệt đỏ trên mã cũ (test đỏ commit trước), đã sửa (prints.ts nhận file skill, evidence.ts đặt lastChange và cờ skill); ca tệp tiến độ đổi xanh ngay trên mã cũ, giữ làm ca ghim. Mẫu 090-C6zs. 395 ca 0.9.0 và skill qua (hai ca hết giờ khi máy tải, chạy riêng qua).
