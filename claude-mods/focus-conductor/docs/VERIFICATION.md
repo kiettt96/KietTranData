@@ -24,6 +24,8 @@ Số đo của HEAD hiện tại và của các bản trước. Mọi số do t�
 | K16 | Lượt của mục tiêu cũ hoàn tất sau khi đổi mục tiêu: không đụng kết luận của mục tiêu mới | K16 lượt của mục tiêu cũ hoàn tất sau khi đổi mục tiêu: ... | qua |
 | K17 | Subagent Explore chạy haiku và mục tiêu chưa sửa file: không gọi fs | K17 subagent Explore chạy haiku: không gọi fs; K17 mục tiêu chưa sửa file: sinh lượt duyệt không gọi fs | qua |
 
+Xác nhận độc lập (một lượt, tác tử mới chưa thấy quá trình làm, trên bản chép của 9bf3849): chạy 31 ca của k-table-090 và tự viết 29 probe riêng, mỗi dòng ít nhất một probe; 17/17 dòng đạt [Đo trực tiếp, 18/11/2026]. Năm probe hỏng ở lần chạy đầu đều do tác tử dựng sai (thiếu lệnh kiểm, dùng tiền tố duyệt khi cần subagent có ghi, đổi description giữa hai vòng), sửa xong thì đạt.
+
 Mức nghiêm trọng của cổng duyệt từ vòng này: lớp nhắc chất lượng; chỉ chặn PR khi văng lỗi, chặn hay từ chối nhầm trong luồng chính, hay trượt một dòng K. Phát hiện khác vào việc tồn.
 
 ## 0.9.0 A6: các trường của usage có thể vắng [Đo trực tiếp, khai báo kiểu, 18/11/2026]

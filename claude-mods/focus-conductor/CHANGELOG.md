@@ -96,6 +96,9 @@ Ba nhóm việc trong một lượt: sửa lỗi còn tồn (A), chạy trơn v�
 - B10 không coi `--update-snapshots`, `jest -u`, `go fmt` là tự sửa; `make check` in "Nothing to be done" vẫn được nâng.
 - `verdictOf` không đọc `FAILED:` (chiều an toàn: chưa có kết luận).
 - Vai audit: lệnh ghi qua trình thông dịch ngoài danh sách đã biết (`node script.js` tự ghi file) vẫn chạy được; kết luận của audit không mở cổng duyệt.
+- Lý do chặn có thể lặp tên file (`phi.ts, phi.ts`) khi cùng một file vào danh sách theo dấu và theo sổ; gặp khá thường khi luồng chính sửa lại đúng file vừa duyệt, chỉ là chuyện hiển thị.
+- Sửa file sau lượt duyệt mà chưa chạy lệnh kiểm: lý do chặn của bước kiểm không nêu tên file (có chủ đích, `missing !== 'check'`); hay gặp khi sửa nhanh rồi kết thúc.
+- Vòng sửa C7 đếm theo description: người duyệt đổi description giữa các vòng thì đếm lại từ vòng 1; khả năng vừa phải.
 - Bộ phân loại lệnh (không thuộc cổng duyệt): `file -C`, `rg --pre`, sửa qua liên kết mềm trỏ ra ngoài thư mục tạm.
 - File mới do vai chỉ đọc tạo bằng lệnh mức possible không vào tập dấu, nên không bị phát hiện.
 - Nhật ký quyết định bị ghi đè khi chạy tiếp bằng `claude -p --continue`.
