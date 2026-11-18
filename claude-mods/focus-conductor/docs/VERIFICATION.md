@@ -49,6 +49,13 @@ Xác nhận độc lập (một lượt, tác tử mới chưa thấy quá trìn
 - Lượt 2 (0,62 USD, 3 turn): như lượt 1, không lập checklist, cổng Stop chặn 0 lần, lời gọi bị từ chối 0. Kết luận được nhận: lượt "Rà độc lập thong-ke/dem", dòng đầu nguyên văn "**Kết luận: đạt kèm lỗi nhẹ.** Không có lỗi nặng. ...", đọc là đạt.
 - Giới hạn: kỳ vọng "không lần chặn nào vì thiếu kiểm khi lệnh của bước đã chạy đạt không qua ống" đạt ở cả hai lượt, nhưng cả hai phiên không có bước nào mang `check`, nên đường tính bằng chứng theo lệnh của bước (F1) chưa được phiên thật đi qua; đường này chỉ có bằng chứng ở `closing-stepcheck-f1-090` và kịch bản dựng lại của lượt rà soát. Chi phí model thật cộng dồn khoảng 36,5 USD trên trần 40.
 
+**Vì sao hai lượt D4 lần ba không lập checklist** [Đo trực tiếp, 18/11/2026, nhật ký quyết định `decisions-*.jsonl` và bản ghi phiên của hai lượt, so với lượt D4 lần hai cùng prompt]:
+- Router chấm: cả hai lượt `depth` là `light`, quan hệ `new`, ý `task`, luồng chính sonnet medium, `tasks` rỗng (độ tin cậy 0,7 và 0,8). Lượt D4 lần hai, cùng prompt, có `depth` `substantial`. Bản chất việc router ghi trong khối context là `edit`, khối lượng `small`.
+- Tool `plan`: không được gọi ở cả hai lượt (0 lời gọi; lượt lần hai có 10 lời gọi).
+- Mod có nhắc lập checklist không: không. Với mục tiêu light, khối context mod chèn ở `prompt.submit` có câu "Việc nhỏ: làm trực tiếp, không cần checklist; vẫn kiểm tra kết quả trước khi trả lời.", trong khi prompt có một câu yêu cầu lập checklist bằng tool `plan`. Không có dòng nhật ký nào của cổng Stop về checklist (cổng G1 chỉ đòi checklist khi mục tiêu có việc đã phân hay ở bậc moderate trở lên, `needsChecklist` ở `hooks/lib/text.ts`).
+- Vì sao phiên không lập checklist: router chấm light nên mod gửi câu "không cần checklist", cãi với câu của prompt (đã có trong việc tồn); luồng chính làm theo câu của mod. Đội hình vẫn bật ở lượt 1 theo số file (3 file không nhẹ), ở lượt 2 không có dòng `team`.
+- Dữ liệu còn thiếu: router không ghi lý do chọn light thay substantial ngoài phần tóm tắt trong khối context, nên không đo được vì sao hai lượt chấm khác lượt lần hai trên cùng prompt.
+
 **Ký tự chèn sau vòng sửa cuối** [Đo trực tiếp, bộ đo của mục 0.8.9, engine 2.1.296, mã của `3ff0c6a`, 18/11/2026]: phiên dài và kịch bản 60 việc giữ mười số của lần đo trước (mặc định 10.418 và 19.666; Fable 8.642 và 7.127; sau `/conductor solo` 16.687 và 24.428; sau mười việc 21.817, 45.200, Fable 6.561); kịch bản phiên theo kỷ luật giao việc giữ 1.398 ký tự. Cổng duyệt đo dấu file không chèn thêm ký tự nào.
 
 **Kiểm cuối trên commit `fa12aa8`** [Đo trực tiếp, 18/11/2026, bản chụp `git archive` của commit đó; sau commit này chỉ đổi tài liệu]:
