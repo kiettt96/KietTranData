@@ -15,7 +15,7 @@ import { isRoleTemp } from '../lib/drift/scope'
 import { isBashWrite, isDefiniteOutsideWrite, prefixRole } from '../lib/team'
 import { labels, langOf } from '../ui/labels'
 import { reportLine } from '../lib/verdict'
-import { EMPTY_REVIEW_PRINTS, PRINT_FILES, normalizeReviewPrints, printTargets, takePrints, withPrint } from '../lib/prints'
+import { EMPTY_REVIEW_PRINTS, PRINT_FILES, latestPrints, normalizeReviewPrints, printTargets, takePrints, withPrint } from '../lib/prints'
 import { shownPlan } from '../lib/mirror'
 import { tierOf } from '../lib/scale'
 import type { AgentRoute } from '../lib/router'
@@ -599,13 +599,16 @@ export function registerAgents(on: On, ctx: Ctx): void {
     }
     if (workflowTask !== undefined && core.brief !== null) await update($, coreState, S.withDelegations(core.brief.goalId, delegationItems(core.brief)))
     if (forkPart !== null && agentId !== undefined) await update($, coreState, S.withForkCall(e.tool_use_id, p => ({ ...p, agentId })))
-    // Dấu file lúc sinh (0.9.0, C2 đo dấu file): subagent không phải vai build, tập là file không nhẹ đã đổi của mục tiêu.
-    if (agentId !== undefined && forkPart === null && e.fork !== true && spawnRole !== 'build' && core.brief !== null) {
+    // Dấu file lúc sinh (0.9.0, C2 đo dấu file): chỉ subagent có thể cho kết luận được tính (bổ sung 18/11 mục 4): model từ sonnet, không
+    // phải vai build, không mang tiền tố của vai audit. Tập là file không nhẹ đã đổi của mục tiêu; tập rỗng thì không gọi fs.
+    const canReview = family !== 'haiku' && spawnRole !== 'build' && prefixRole(info?.description ?? e.description) !== 'audit'
+    if (agentId !== undefined && forkPart === null && e.fork !== true && canReview && core.brief !== null) {
       const targets = printTargets(S.changedOf(core).paths, core.brief)
       if (targets.files.length > 0) {
         if (targets.isCapped) record(await $.clock.now(), 'print-cap', { goalId: core.brief.goalId, files: PRINT_FILES })
-        const prints = await takePrints({ stat: path => $.fs.stat(path), read: path => $.fs.read(path) as Promise<string> }, targets.files, (await $.session.root().catch(() => null)) ?? null).catch(() => null)
         const goal = core.brief.goalId
+        const known = latestPrints(normalizeReviewPrints(await read($, printState)), goal)
+        const prints = await takePrints({ stat: path => $.fs.stat(path), read: path => $.fs.read(path) as Promise<string> }, targets.files, (await $.session.root().catch(() => null)) ?? null, known).catch(() => null)
         await update($, printState, state => withPrint(normalizeReviewPrints(state), goal, 'spawn', agentId, prints))
       }
     }

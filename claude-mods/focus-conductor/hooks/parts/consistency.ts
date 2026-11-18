@@ -11,8 +11,8 @@ import { checkScopeOf, inCheckScope, splitCheckScope } from '../lib/drift/verify
 import { globToRegExp } from '../lib/drift/soft'
 import { coversScope } from '../lib/drift/evidence'
 import { PLAN_SET_CHECK_LINE } from '../lib/approval'
-import { reportTable, verdictOf } from '../lib/verdict'
-import { EMPTY_REVIEW_PRINTS, changedPrints, normalizeReviewPrints, printNames, takePrints, withPrint } from '../lib/prints'
+import { isUnclearVerdict, reportTable, verdictOf } from '../lib/verdict'
+import { EMPTY_REVIEW_PRINTS, changedPrints, normalizeReviewPrints, printNames, takePrints, withPrint, withStale } from '../lib/prints'
 import { closingNote, closingSteps, hardFileCount, hasKnownCheck, isDocsOnly, prefixRole, teamCause } from '../lib/team'
 import type { ClosingVerdict } from '../lib/team'
 import type { SideLists } from '../lib/drift/scope'
@@ -128,7 +128,13 @@ async function closingGate($: EngineInterface, ctx: Ctx, core: Core, log: Eviden
   // Hiệu lực theo dấu file (0.9.0, C2 đo dấu file): kết luận được tính mà dấu của tập lúc cổng xét khác dấu lúc subagent hoàn tất thì hết
   // hiệu lực; fs không đo được thì giữ theo sổ thay đổi.
   const stale = await stalePrints($, brief.goalId, L.verdicts.goalId === brief.goalId ? L.verdicts.items : [])
-  const verdicts = (L.verdicts.goalId === brief.goalId ? L.verdicts.items : []).map(v => (stale.agents.has(v.agentId) ? { ...v, isClean: false } : v))
+  // Ghi lượt hết hiệu lực vào $.state (bổ sung 18/11 mục 3) rồi tính lại Core.team, để pane và band thấy bước duyệt chưa xong ngay sau lần xét.
+  if (stale.agents.size > 0) {
+    await update($, printState, state => withStale(normalizeReviewPrints(state), brief.goalId, stale.agents))
+    await refreshTeam($, ctx)
+  }
+  const staleIds = new Set([...normalizeReviewPrints(await read($, printState)).stale, ...stale.agents])
+  const verdicts = (L.verdicts.goalId === brief.goalId ? L.verdicts.items : []).map(v => (staleIds.has(v.agentId) ? { ...v, isClean: false } : v))
   const lastHard = log.lastHard
   // Cùng một cách tính với pane (0.9.0 vòng sửa sau kiểm độc lập): kết luận mới nhất của mỗi bước quyết; bước kiểm chỉ khi có lệnh kiểm.
   const steps = teamSteps(core, brief, log, verdicts)
@@ -155,7 +161,11 @@ async function closingGate($: EngineInterface, ctx: Ctx, core: Core, log: Eviden
   // Tên file đã đổi (0.9.0, C2 đo dấu file): đổi sau lượt duyệt (cổng xét lại), hay đổi ngay trong lượt duyệt sau thay đổi cuối.
   const named = [...stale.files]
   for (const v of verdicts) if (v.seq > log.lastChange) for (const path of v.changed ?? []) if (!named.includes(path)) named.push(path)
-  return missing !== 'check' && named.length > 0 ? `${reason} File đã đổi trong hay sau lượt duyệt: ${printNames(named)}.`.slice(0, CLOSING_CHARS) : reason
+  // Dòng kết luận không đứng riêng (bổ sung 18/11 mục 2): lượt gần nhất sau thay đổi cuối chỉ có dòng như vậy.
+  const latest = [...verdicts].reverse().find(v => v.seq > log.lastChange && prefixRole(v.description) !== 'audit')
+  const unclear = missing !== 'check' && latest?.unclear === true ? ' Câu trả lời của lượt duyệt chưa có kết luận: dòng kết luận phải đứng riêng (ĐẠT, CHƯA ĐẠT, hay kèm lỗi nhẹ); hỏi lại chính subagent đó.' : ''
+  const files = missing !== 'check' && named.length > 0 ? ` File đã đổi trong hay sau lượt duyệt: ${printNames(named)}.` : ''
+  return `${reason}${unclear}${files}`.slice(0, CLOSING_CHARS)
 }
 
 /**
@@ -169,8 +179,8 @@ async function stalePrints($: EngineInterface, goalId: number, verdicts: readonl
   if (state.goalId !== goalId) return { agents, files }
   for (const v of verdicts) {
     const done = state.done[v.agentId]
-    if (!v.isClean || !v.isReview || done === undefined || done === null) continue
-    const now = await takePrints({ stat: path => $.fs.stat(path), read: path => $.fs.read(path) as Promise<string> }, Object.keys(done), (await $.session.root().catch(() => null)) ?? null).catch(() => null)
+    if (!v.isClean || !v.isReview || done === undefined || done === null || state.stale.includes(v.agentId)) continue
+    const now = await takePrints({ stat: path => $.fs.stat(path), read: path => $.fs.read(path) as Promise<string> }, Object.keys(done), (await $.session.root().catch(() => null)) ?? null, done).catch(() => null)
     if (now === null) continue
     const changed = changedPrints(done, now)
     if (changed.length === 0) continue
@@ -205,7 +215,9 @@ async function refreshTeam($: EngineInterface, ctx: Ctx): Promise<void> {
   }
   const log = ctx.evidenceFor(brief.goalId)
   const hasCheck = hasKnownCheck(core.plan, changed, log)
-  const steps = teamSteps(core, brief, log, L.verdicts.goalId === brief.goalId ? L.verdicts.items : [])
+  const prints = normalizeReviewPrints(await read($, printState))
+  const staleIds = new Set(prints.goalId === brief.goalId ? prints.stale : [])
+  const steps = teamSteps(core, brief, log, (L.verdicts.goalId === brief.goalId ? L.verdicts.items : []).map(v => (staleIds.has(v.agentId) ? { ...v, isClean: false } : v)))
   const isNew = core.team === undefined || core.team.goalId !== brief.goalId
   const team = { goalId: brief.goalId, cause: isNew || core.team === undefined ? cause : core.team.cause, steps }
   if (JSON.stringify(team) !== JSON.stringify(core.team)) await update($, coreState, S.withTeam(team))
@@ -1560,7 +1572,8 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       // Kết luận của subagent (0.9.0 D1, D2): dòng đầu câu trả lời theo các từ kết luận, có tiền tố hay không. Chỉ câu trả lời của subagent
       // không ghi file ngoài thư mục tạm mới tính cho cổng (isClean). Vai: tiền tố hay vai mod suy; không có thì theo loại kết luận.
       const parsed = e.reason === 'answer' && meta !== undefined ? verdictOf(e.answer ?? '') : null
-      if (e.reason === 'answer' && meta !== undefined && (parsed !== null || meta.role !== undefined)) {
+      const isUnclear = e.reason === 'answer' && parsed === null && isUnclearVerdict(e.answer ?? '')
+      if (e.reason === 'answer' && meta !== undefined && (parsed !== null || meta.role !== undefined || isUnclear)) {
         const role: Role = meta.role ?? (parsed?.verdict === 'ready' || parsed?.verdict === 'not-ready' ? 'design' : 'review')
         // Sạch (0.9.0, C2 đo dấu file): dấu của tập file không đổi giữa lúc sinh và lúc hoàn tất, và sổ không ghi lần ghi definite nào của
         // subagent này vào file không nhẹ ngoài thư mục tạm. fs không đo được thì chỉ theo sổ.
@@ -1568,7 +1581,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
         const spawned = prints.goalId === meta.goalId ? prints.spawn[agentId] : undefined
         let printChanged: string[] = []
         if (spawned !== undefined && spawned !== null) {
-          const done = await takePrints({ stat: path => $.fs.stat(path), read: path => $.fs.read(path) as Promise<string> }, Object.keys(spawned), (await $.session.root().catch(() => null)) ?? null).catch(() => null)
+          const done = await takePrints({ stat: path => $.fs.stat(path), read: path => $.fs.read(path) as Promise<string> }, Object.keys(spawned), (await $.session.root().catch(() => null)) ?? null, spawned).catch(() => null)
           if (done !== null) printChanged = changedPrints(spawned, done)
           await update($, printState, state => withPrint(normalizeReviewPrints(state), meta.goalId, 'done', agentId, done))
         }
@@ -1582,7 +1595,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
         const isStrong = ranFamily !== null && ranFamily !== 'haiku'
         const isReview = isClean && prefixRole(meta.description) !== 'audit' && parsed?.isCheckOnly !== true && isStrong
         if (L.verdicts.goalId !== meta.goalId) L.verdicts = { goalId: meta.goalId, items: [] }
-        L.verdicts.items.push({ agentId, role, verdict: parsed?.verdict ?? null, isClean, isReview, ...(parsed?.count !== undefined ? { count: parsed.count } : {}), seq: ctx.evidenceFor(meta.goalId).seq, ...(printChanged.length > 0 ? { changed: printChanged.slice(0, 20) } : {}), family: ranFamily ?? meta.family, ...(meta.taskIndex !== undefined ? { taskIndex: meta.taskIndex } : {}), description: meta.description })
+        L.verdicts.items.push({ agentId, role, verdict: parsed?.verdict ?? null, isClean, isReview, ...(parsed?.count !== undefined ? { count: parsed.count } : {}), seq: ctx.evidenceFor(meta.goalId).seq, ...(printChanged.length > 0 ? { changed: printChanged.slice(0, 20) } : {}), ...(isUnclear ? { unclear: true as const } : {}), family: ranFamily ?? meta.family, ...(meta.taskIndex !== undefined ? { taskIndex: meta.taskIndex } : {}), description: meta.description })
         if (L.verdicts.items.length > 100) L.verdicts.items.shift()
         record(at, 'verdict', { agentId, role, verdict: parsed?.verdict ?? null, ...(isClean ? {} : { wrote: true }), ...(printChanged.length > 0 ? { changed: printChanged.slice(0, 3) } : {}), ...(isReview ? { review: true } : {}), ...(parsed?.count !== undefined ? { count: parsed.count } : {}) })
         await flushDecisions((path, text) => $.fs.write(path, text))

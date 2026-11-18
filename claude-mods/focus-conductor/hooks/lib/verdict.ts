@@ -49,16 +49,19 @@ const WORDS: ReadonlyArray<readonly [string, Verdict, boolean]> = [
   ['pass', 'pass', false],
 ]
 
-/** Một dòng kết luận đọc được: từ kết luận, số đếm N/M nếu có, và cờ chỉ-của-bước-kiểm. */
-type VerdictLine = { verdict: Verdict; count?: string; isCheckOnly: boolean }
+/** Một dòng kết luận đọc được: từ kết luận, số đếm N/M nếu có, cờ chỉ-của-bước-kiểm; hay dòng mở đầu bằng từ kết luận mà không đứng riêng. */
+type VerdictLine = { verdict: Verdict; count?: string; isCheckOnly: boolean } | { unclear: true }
 
-/** Phần sau từ kết luận làm đạt thành chưa đạt (0.9.0, C2 đo dấu file, mục 6): "nhưng", "but", hay nhắc lỗi nặng, lớn, vừa, nghiêm trọng. */
-const NEGATING = /(?:^|[^\p{L}])(?:nhưng|but|major|critical|nghiêm trọng)(?:[^\p{L}]|$)|lỗi\s+(?:nặng|lớn|vừa)(?:[^\p{L}]|$)/u
+/** Phần sau từ kết luận chỉ nói lỗi nhẹ (0.9.0 C2 mục 6): "kèm lỗi nhẹ", "kèm 2 lỗi nhẹ", "with minor issues", "minor". */
+const MINOR_ONLY = /^(?:(?:kèm|với|có|with|has)\s+)?(?:\d+\s+)?(?:lỗi nhẹ|minor(?:\s+(?:issues?|nits?|fixes?|notes?|points?))?|nits?)$/u
+/** Phần sau từ kết luận làm đạt thành chưa đạt (bổ sung 18/11 mục 2): từ nối hay nhắc mức nặng, lớn, vừa, chặn. */
+const NEGATING = /(?:^|[^\p{L}])(?:nhưng|but|with|kèm|nặng|lớn|vừa|nghiêm trọng|chặn|major|critical|blockers?|blocked|blocking)(?:[^\p{L}]|$)/u
 
 /**
- * Đọc một dòng (0.9.0, C2 đo dấu file, mục 6): bỏ ký hiệu markdown, dấu đầu dòng, nhãn "Kết luận:" hay "Verdict:"; dòng mở đầu bằng một từ
- * kết luận (cụm chưa đạt xét trước) là dòng kết luận. Phần còn lại có "nhưng", "but" hay nhắc lỗi nặng, lớn, vừa, nghiêm trọng, major,
- * critical thì đạt thành chưa đạt, sẵn sàng thành chưa sẵn sàng; phần còn lại rỗng hay chỉ nói lỗi nhẹ thì giữ.
+ * Đọc một dòng (0.9.0 C2 mục 6, bổ sung 18/11 mục 2): bỏ ký hiệu markdown, dấu đầu dòng, nhãn "Kết luận:" hay "Verdict:"; dòng mở đầu bằng
+ * một từ kết luận (cụm chưa đạt xét trước) là dòng kết luận. Luật đóng cho phần còn lại của dòng: rỗng (có thể kèm số đếm N/M) hay chỉ nói
+ * lỗi nhẹ thì giữ; có "nhưng", "but", "with", "kèm" đi với thứ khác lỗi nhẹ, hay nhắc nặng, lớn, vừa, nghiêm trọng, chặn, major, critical,
+ * blocker thì đạt thành chưa đạt, sẵn sàng thành chưa sẵn sàng; còn lại là dòng không đứng riêng (unclear). Từ chưa đạt giữ chưa đạt.
  */
 function lineVerdict(raw: string): VerdictLine | null {
   let text = raw.normalize('NFC').replace(/[\u200b-\u200d\ufeff]/gu, '').replace(/[*_`]+/gu, '').replace(/\s+/gu, ' ').trim()
@@ -66,22 +69,36 @@ function lineVerdict(raw: string): VerdictLine | null {
   text = text.replace(/^(?:kết luận|verdict)\s*:\s*/iu, '').trim().toLowerCase()
   for (const [word, verdict, isCheckOnly] of WORDS) {
     if (!text.startsWith(word) || /^\p{L}/u.test(text.slice(word.length))) continue
-    const rest = text.slice(word.length)
-    const count = /^\s*(\d+\s*\/\s*\d+)/u.exec(rest)?.[1]?.replace(/\s+/g, '')
-    const isNegated = NEGATING.test(rest)
-    const final: Verdict = isNegated && verdict === 'pass' ? 'fail' : isNegated && verdict === 'ready' ? 'not-ready' : verdict
-    return { verdict: final, ...(count !== undefined ? { count } : {}), isCheckOnly: isCheckOnly && !isNegated }
+    const count = /^\s*(\d+\s*\/\s*\d+)/u.exec(text.slice(word.length))?.[1]
+    const rest = text.slice(word.length).replace(/^\s*\d+\s*\/\s*\d+/u, '').replace(/[()[\]]/gu, ' ').replace(/^[\s,.;:!–—-]+|[\s,.;:!–—-]+$/gu, '').replace(/\s+/gu, ' ')
+    const counted = count !== undefined ? { count: count.replace(/\s+/g, '') } : {}
+    if (verdict === 'fail' || verdict === 'not-ready') return { verdict, ...counted, isCheckOnly }
+    if (rest === '' || MINOR_ONLY.test(rest)) return { verdict, ...counted, isCheckOnly }
+    if (NEGATING.test(rest)) return { verdict: verdict === 'pass' ? 'fail' : 'not-ready', ...counted, isCheckOnly: false }
+    return { unclear: true }
   }
   return null
 }
 
-/** Kết luận của câu trả lời subagent (0.9.0, C2 đo dấu file, mục 6): dòng kết luận đầu tiên quyết; không có dòng nào thì null. */
+const isReadiness = (verdict: Verdict) => verdict === 'ready' || verdict === 'not-ready'
+
+/**
+ * Kết luận của câu trả lời subagent (0.9.0 C2 mục 6, bổ sung 18/11 mục 1): dòng kết luận đầu tiên quyết loại (duyệt hay sẵn sàng); có dòng
+ * chưa đạt cùng loại ở bất kỳ đâu thì là chưa đạt. Không có dòng kết luận đứng riêng thì null.
+ */
 export function verdictOf(answer: string): { verdict: Verdict; count?: string; isCheckOnly?: true } | null {
-  for (const line of answer.split('\n')) {
-    const found = lineVerdict(line)
-    if (found !== null) return { verdict: found.verdict, ...(found.count !== undefined ? { count: found.count } : {}), ...(found.isCheckOnly ? { isCheckOnly: true as const } : {}) }
-  }
-  return null
+  const lines = answer.split('\n').map(lineVerdict).filter((v): v is { verdict: Verdict; count?: string; isCheckOnly: boolean } => v !== null && !('unclear' in v))
+  const first = lines[0]
+  if (first === undefined) return null
+  const negative = lines.find(v => isReadiness(v.verdict) === isReadiness(first.verdict) && (v.verdict === 'fail' || v.verdict === 'not-ready'))
+  const chosen = negative ?? first
+  return { verdict: chosen.verdict, ...(chosen.count !== undefined ? { count: chosen.count } : {}), ...(chosen.isCheckOnly ? { isCheckOnly: true as const } : {}) }
+}
+
+/** Câu trả lời có dòng mở đầu bằng từ kết luận nhưng không đứng riêng, và không có dòng kết luận nào khác (bổ sung 18/11 mục 2). */
+export function isUnclearVerdict(answer: string): boolean {
+  const lines = answer.split('\n').map(lineVerdict).filter(v => v !== null)
+  return lines.length > 0 && lines.every(v => v !== null && 'unclear' in v)
 }
 
 /** Trần ký tự của bảng báo cáo chèn khi đóng bước cuối (0.9.0 C8). */

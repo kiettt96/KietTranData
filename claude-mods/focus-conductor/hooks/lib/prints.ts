@@ -43,7 +43,7 @@ const isMissingError = (error: unknown) => /\b(?:ENOENT|ENOTDIR)\b/.test(String(
  * Chụp dấu của tập file. Trả null khi fs không đo được (engine không có fs hay lỗi khác ENOENT): khi đó mod chạy theo sổ thay đổi. File không
  * còn hay không phải file thường thì là `missing`.
  */
-export async function takePrints(fs: PrintFs, files: readonly string[], root: string | null = null): Promise<PrintSet | null> {
+export async function takePrints(fs: PrintFs, files: readonly string[], root: string | null = null, previous: PrintSet = {}): Promise<PrintSet | null> {
   const out: PrintSet = {}
   // Sổ thay đổi giữ đường dẫn tương đối theo thư mục gốc: stat theo dạng tuyệt đối khi biết thư mục gốc.
   const at = (path: string) => (root !== null && root !== '' && !path.startsWith('/') ? `${root.replace(/\/+$/, '')}/${path}` : path)
@@ -61,7 +61,10 @@ export async function takePrints(fs: PrintFs, files: readonly string[], root: st
       continue
     }
     let hash: string | undefined
-    if (stat.size <= HASH_BYTES) {
+    // Dùng lại mã băm đã lưu khi kích thước và thời điểm sửa không đổi so với lần chụp trước (bổ sung 18/11 mục 4).
+    const before = previous[path]
+    if (before !== undefined && !('missing' in before) && before.hash !== undefined && before.size === stat.size && before.mtimeMs === stat.mtimeMs) hash = before.hash
+    else if (stat.size <= HASH_BYTES) {
       try {
         const text = await fs.read(at(path))
         hash = `${hashCwd(text)}:${text.length}`
@@ -97,9 +100,12 @@ export function printNames(paths: readonly string[], limit = 3): string {
   return paths.slice(0, limit).map(path => path.split('/').pop() ?? path).join(', ')
 }
 
-/** Dấu đã chụp của các lượt duyệt trong một mục tiêu: lúc sinh và lúc hoàn tất, theo agentId; null là fs không đo được. */
-export type ReviewPrints = { goalId: number; spawn: Record<string, PrintSet | null>; done: Record<string, PrintSet | null> }
-export const EMPTY_REVIEW_PRINTS: ReviewPrints = { goalId: -1, spawn: {}, done: {} }
+/**
+ * Dấu đã chụp của các lượt duyệt trong một mục tiêu: lúc sinh và lúc hoàn tất, theo agentId; null là fs không đo được. `stale`: lượt cổng
+ * đã thấy hết hiệu lực vì dấu đổi (bổ sung 18/11 mục 3), để pane và band tính bước đóng như cổng.
+ */
+export type ReviewPrints = { goalId: number; spawn: Record<string, PrintSet | null>; done: Record<string, PrintSet | null>; stale: string[] }
+export const EMPTY_REVIEW_PRINTS: ReviewPrints = { goalId: -1, spawn: {}, done: {}, stale: [] }
 /** Số lượt giữ dấu mỗi mục tiêu. */
 const PRINT_AGENTS = 40
 
@@ -107,14 +113,30 @@ const PRINT_AGENTS = 40
 export function normalizeReviewPrints(value: unknown): ReviewPrints {
   const raw = (value ?? {}) as Partial<ReviewPrints>
   const map = (v: unknown) => (v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, PrintSet | null>) : {})
-  return { goalId: typeof raw.goalId === 'number' ? raw.goalId : -1, spawn: map(raw.spawn), done: map(raw.done) }
+  return { goalId: typeof raw.goalId === 'number' ? raw.goalId : -1, spawn: map(raw.spawn), done: map(raw.done), stale: Array.isArray(raw.stale) ? raw.stale.filter((id): id is string => typeof id === 'string').slice(-PRINT_AGENTS) : [] }
 }
 
 /** Ghi dấu của một lượt; đổi mục tiêu thì bắt đầu lại; quá PRINT_AGENTS thì bỏ lượt cũ nhất. */
 export function withPrint(state: ReviewPrints, goalId: number, at: 'spawn' | 'done', agentId: string, prints: PrintSet | null): ReviewPrints {
-  const base = state.goalId === goalId ? state : { goalId, spawn: {}, done: {} }
+  const base = state.goalId === goalId ? state : { goalId, spawn: {}, done: {}, stale: [] }
   const next = { ...base[at], [agentId]: prints }
   const keys = Object.keys(next)
   for (const key of keys.slice(0, Math.max(0, keys.length - PRINT_AGENTS))) delete next[key]
   return { ...base, [at]: next }
+}
+
+/** Ghi các lượt đã hết hiệu lực theo dấu (bổ sung 18/11 mục 3). */
+export function withStale(state: ReviewPrints, goalId: number, agentIds: Iterable<string>): ReviewPrints {
+  const base = state.goalId === goalId ? state : { goalId, spawn: {}, done: {}, stale: [] }
+  const stale = [...base.stale]
+  for (const id of agentIds) if (!stale.includes(id)) stale.push(id)
+  return { ...base, stale: stale.slice(-PRINT_AGENTS) }
+}
+
+/** Dấu gần nhất đã biết của mỗi file trong mục tiêu (lúc hoàn tất ưu tiên hơn lúc sinh), để dùng lại mã băm. */
+export function latestPrints(state: ReviewPrints, goalId: number): PrintSet {
+  const out: PrintSet = {}
+  if (state.goalId !== goalId) return out
+  for (const set of [...Object.values(state.spawn), ...Object.values(state.done)]) if (set !== null) Object.assign(out, set)
+  return out
 }
