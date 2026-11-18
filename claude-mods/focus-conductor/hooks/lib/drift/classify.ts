@@ -468,7 +468,13 @@ export function classifyBash(input: string, base = ''): BashClass {
     }
     // Lệnh vừa kiểm vừa sửa file (--fix, --write...) không phải lệnh kiểm tra: rơi xuống nhánh ghi bên dưới.
     if ((isCheckText(text) || isResolvedCustom) && !isSelfFixing(bare.split(/\s+/), unmask)) {
-      const exit = piece.background ? { exit: 'hidden' as const } : exitOf(list, index)
+      const piped = piece.background ? { exit: 'hidden' as const } : exitOf(list, index)
+      // Có pipefail đứng trước và ống đi thẳng vào `tee <tệp>` hay `grep <mẫu>` rồi hết câu lệnh (vòng 2 G3): mã thoát của cả ống mang lỗi
+      // của lệnh kiểm, nên tính theo mã thoát đó như lệnh không che. Không có pipefail thì giữ hidden như trước.
+      const after = list[index + 1]
+      const isLead = list.slice(0, index).every(isNeutral) && list.slice(1, index + 1).every(p => p.op === '&&' || p.op === ';')
+      const isPipefailTeeGrep = pipefail && piped.exit === 'hidden' && isLead && after !== undefined && after.op === '|' && list.length === index + 2 && !/[<>]/.test(part.replace(/(?:^|\s)2>&1(?=\s|$)/g, ' ')) && /^(?:tee\s+[^\s-]\S*|grep\s+[^\s-]\S*)$/.test(after.text.trim())
+      const exit = isPipefailTeeGrep ? { exit: 'visible' as const } : piped
       effects.push({
         kind: 'check',
         check: TEST_SEGMENT.test(text) || isCustomCheck(text) || isResolvedCustom ? 'test' : 'static',
@@ -481,7 +487,7 @@ export function classifyBash(input: string, base = ''): BashClass {
         raw: unmask([...piece.env, part.trim()].join(' ')),
         trusted: !isUnsupported && (piece.op === '' || piece.op === '&&' || piece.op === ';' || piece.op === '&'),
         ...exit,
-        ...(pipefail && exit.exit === 'filtered' ? { pipefail: true as const } : {}),
+        ...(pipefail && (exit.exit === 'filtered' || isPipefailTeeGrep) ? { pipefail: true as const } : {}),
         ...(isResolvedCustom && resolved !== null ? { resolved } : {}),
       })
       continue

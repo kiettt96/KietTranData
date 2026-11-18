@@ -2649,4 +2649,5 @@ export const MUTANTS: Mutant[] = [
   { id: "090-U7a", file: "hooks/ui/pane.tsx", note: "tiêu đề Tiến độ từng việc luôn có phần đếm (vòng 2 U7)", old: "const taskHeading = brief.tasks.length === 0\n", new: "const taskHeading = false\n" },
   { id: "090-G1a", file: "hooks/lib/verdict.ts", note: "bỏ các cụm phủ định của từ đạt (vòng 2 G1)", old: "  ['does not pass', 'fail', false],\n  ['did not pass', 'fail', false],\n  ['not passed', 'fail', false],\n  ['not pass', 'fail', false],\n", new: "" },
   { id: "090-G2a", file: "hooks/lib/drift/classify.ts", note: "git clone không ghi đích nêu rõ (vòng 2 G2)", old: "const isCloneTo = sub === 'clone' && positional.length >= 3 && add(positional[2] ?? '')", new: "const isCloneTo = false" },
+  { id: "090-G3a", file: "hooks/lib/drift/classify.ts", note: "lệnh kiểm sau pipefail qua tee hay grep vẫn là hidden (vòng 2 G3)", old: "const exit = isPipefailTeeGrep ? { exit: 'visible' as const } : piped", new: "const exit = piped" },
 ]
