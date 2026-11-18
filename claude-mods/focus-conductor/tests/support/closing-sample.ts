@@ -74,5 +74,12 @@ export async function bandText($: Engine, columns = 72): Promise<string> {
   await band.unmount()
   return text
 }
+/** Các nút chữ của band ở `columns` cột (mount rồi gỡ), để đọc riêng ô hướng. */
+export async function bandNodes($: Engine, columns = 72): Promise<string[]> {
+  const band = await $.ui.mount({ plugin: 'focus-conductor', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 2, bodyColumns: columns, scroll: { offset: 0, bodyRows: 2 }, view: {} } } as never)
+  const nodes = (await band.findAll({ type: 'Text' })).map(e => (e.text ?? '').trim()).filter(t => t !== '')
+  await band.unmount()
+  return nodes
+}
 /** Giá trị status line cuối mod đặt. */
 export const lastStatus = (sample: Sample) => String(sample.seen.statuses[sample.seen.statuses.length - 1] ?? '')
