@@ -149,8 +149,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       // Miễn cổng đóng mục tiêu (0.9.0 C6): /conductor waive review, chỉ người gõ, cho mục tiêu đang mở.
       if (rest[0] === 'review') {
         if (core.brief === null) return { text: 'Chưa có mục tiêu nào để miễn duyệt độc lập.' }
-        ctx.local.closingWaived = core.brief.goalId
-        await update($, coreState, S.withClosingGap(null))
+        await update($, coreState, c => S.withClosingWaived(core.brief!.goalId)(S.withClosingGap(null)(c)))
         record(await $.clock.now(), 'waive', { signature: 'closing-review', goalId: core.brief.goalId })
         await flushDecisions((path, text) => $.fs.write(path, text))
         return { text: 'Đã miễn duyệt độc lập cho mục tiêu này; cổng đóng mục tiêu không chặn nữa.' }

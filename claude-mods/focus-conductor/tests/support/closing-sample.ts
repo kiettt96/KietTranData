@@ -26,6 +26,10 @@ export function sampleSetup(on: On, reply: Json = sampleGoal()): Sample {
   on('turn.complete', () => ({ text: '' }))
   on('classic.Stop', () => ({}))
   on('agent.offer', () => ({ isOffered: true }))
+  // Tầng dưới của session.start (như engine nạp lại mod): mod đăng ký tool plan và lệnh /conductor ở đó.
+  on('tool.register', () => ({ value: { tool: PLAN_TOOL } }) as never)
+  on('command.register', () => ({ value: undefined }) as never)
+  on('session.start', (_$, e) => ({ cwd: (e as { cwd?: string }).cwd }) as never)
   return sample
 }
 export const offerAgent = ($: Engine) => $.agent.offer({ agent: 'general-purpose', description: 'việc chung', source: 'built-in', provider: { plugin: 'engine', tier: 'core' } } as never)

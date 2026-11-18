@@ -100,6 +100,7 @@ Ba nhóm việc trong một lượt: sửa lỗi còn tồn (A), chạy trơn v�
 
 **Vòng 2, phần giao diện (U1 tới U8).**
 - **U5:** bước Kiểm của các bước đóng chỉ có khi mục tiêu đã có thay đổi không nhẹ; trước đó mục tiêu vừa mở đã hiện "Kiểm: đạt". Đoạn dặn bước đóng giữ nguyên (vẫn tính theo lệnh kiểm biết được). Ca mới `closing-check-u5-090`, mẫu `090-U5a`. Ca đổi kỳ vọng về chữ hiển thị, giữ tên: `team-mod-090` "substantial có lệnh kiểm: đoạn dặn ... pane hiện bước đóng" (pane chưa có "Kiểm: " khi chưa sửa file).
+- **U4:** `/conductor waive review` lưu mã mục tiêu vào `Core.closingWaived` (trạng thái cũ không có trường đọc là chưa miễn) thay biến cục bộ; cổng đóng và pane đọc từ đó. Bước đóng chưa đạt của mục tiêu đã miễn hiện "– <tên bước>: đã miễn" (en: waived). Ca mới `closing-waive-u4-090`; engine giả không xóa biến cục bộ khi `session.start`, nên việc giữ qua nạp lại mod dựa vào ca vòng JSON của `normalizeCore`. Mẫu `090-U4a`, `090-U4b`; mẫu cũ `090-C6g` trôi chuỗi, sửa chuỗi, giữ mã.
 
 **Việc tồn** (từ phiên thật D1 và kiểm độc lập):
 - `set -e` ở bất kỳ dòng nào bật errexit cho cả khối heredoc, kể cả khi có `set +e` sau đó; `set -e; ...` trên một dòng thì không nhận ra (chiều an toàn).

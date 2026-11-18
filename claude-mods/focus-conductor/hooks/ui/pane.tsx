@@ -882,11 +882,18 @@ export function renderPane(
       {view.core.team !== undefined && view.core.team.goalId === brief.goalId ? (
         <Box flexDirection="column">
           {heading(l.teamHeading)}
-          {view.core.team.steps.map(step => (
-            <Text key={`team-${step.name}`} wrap="truncate-end" {...(step.state === 'wait' ? { dimColor: true } : {})}>
-              {`${step.state === 'pass' ? '✓' : step.state === 'fail' ? '■' : '·'} ${l.teamSteps[step.name]}: ${l.teamStates[step.state]}`}
-            </Text>
-          ))}
+          {view.core.team.steps.map(step =>
+            // Mục tiêu đã miễn duyệt (vòng 2 U4): bước chưa đạt ghi "– <tên>: đã miễn", bước đã đạt giữ nguyên.
+            view.core.closingWaived === brief.goalId && step.state !== 'pass' ? (
+              <Text key={`team-${step.name}`} wrap="truncate-end" dimColor>
+                {`– ${l.teamSteps[step.name]}: ${l.teamWaived}`}
+              </Text>
+            ) : (
+              <Text key={`team-${step.name}`} wrap="truncate-end" {...(step.state === 'wait' ? { dimColor: true } : {})}>
+                {`${step.state === 'pass' ? '✓' : step.state === 'fail' ? '■' : '·'} ${l.teamSteps[step.name]}: ${l.teamStates[step.state]}`}
+              </Text>
+            ),
+          )}
         </Box>
       ) : null}
       {taskNodes.length > 0 ? (

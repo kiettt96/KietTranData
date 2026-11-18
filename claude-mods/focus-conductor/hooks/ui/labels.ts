@@ -129,6 +129,8 @@ const VI = {
   teamHeading: 'Bước đóng (mod)',
   teamSteps: { check: 'Kiểm', review: 'Duyệt', design: 'Sẵn sàng' } as Record<'check' | 'review' | 'design', string>,
   teamStates: { wait: 'chờ', pass: 'đạt', fail: 'chưa đạt' } as Record<'wait' | 'pass' | 'fail', string>,
+  /** Bước đóng chưa đạt của mục tiêu đã miễn duyệt (vòng 2 U4). */
+  teamWaived: 'đã miễn',
   /** Nhãn vai của việc (0.9.0 C1). */
   roleNames: { design: 'thiết kế', review: 'duyệt', build: 'làm', search: 'tra', audit: 'kiểm' } as Record<Role, string>,
   forksMerged: (n: number) => `${n} phiên con đã gom`,
@@ -315,6 +317,7 @@ const EN: typeof VI = {
   teamHeading: 'Closing steps (mod)',
   teamSteps: { check: 'Check', review: 'Review', design: 'Readiness' },
   teamStates: { wait: 'waiting', pass: 'passed', fail: 'not passed' },
+  teamWaived: 'waived',
   roleNames: { design: 'design', review: 'review', build: 'build', search: 'search', audit: 'audit' },
   forksMerged: n => `${n} ${n === 1 ? 'fork' : 'forks'} merged`,
   forkCost: n => `Subagent group includes ${n} ${n === 1 ? 'fork' : 'forks'}`,

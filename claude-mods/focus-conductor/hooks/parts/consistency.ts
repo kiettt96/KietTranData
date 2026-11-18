@@ -137,7 +137,7 @@ async function closingGate($: EngineInterface, ctx: Ctx, core: Core, log: Eviden
   const L = ctx.local
   const brief = core.brief
   const isDue = brief !== null && teamCause(ctx.options['closingReview'], brief, S.changedOf(core).paths) !== null && core.plan.length > 0 && isFullyClosed(core.plan)
-  if (brief === null || !isDue || L.closingWaived === brief.goalId) {
+  if (brief === null || !isDue || core.closingWaived === brief.goalId) {
     if (core.closingGap !== undefined) await update($, coreState, S.withClosingGap(null))
     return null
   }
