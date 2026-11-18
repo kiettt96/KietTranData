@@ -128,3 +128,10 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 - Đang chạy: kiểm độc lập vòng 2; đột biến cho vòng sửa 1 và mẫu sống.
 - Kiểm độc lập vòng 2: CHƯA ĐẠT, 3 lỗi nặng (đã dò lại, đúng): sort -uo gộp cờ lọt (loại 2); sed s#..#..#w lọt (loại 2); ở thư mục tạm, đường dẫn nguồn tuyệt đối trong repo bị từ chối (cp -r /repo/src .), Stop chặn mục 12 biến thể (loại 3). Hết trần hai vòng: DỪNG theo mục 15.
 - Đột biến vòng sửa 1: 17/26 diệt; sống C2s, C2v, C2zj, C2zl, C2zo, C2zp, B14b, B14e, B14f (chưa xử lý).
+
+## 18/11 C2 đổi cách làm: đo dấu file
+- 4068422 test đỏ 13/15; 57d0566 bản cài (352 ca 0.9.0 qua); 4ba8575 DESIGN, CHANGELOG.
+- Bổ sung 18/11 (4 điểm): 47cab8e test đỏ 8 ca; 0f4718b bản cài; 361 ca 0.9.0 qua.
+- Đột biến lượt 1 (22 mẫu): 18 diệt; sống C6zg, C6z (đã thêm ca), B11f (tập test thiếu tệp B11), C6zf trôi chuỗi (đã sửa).
+- Quyết định: "ĐẠT phần lớn" là chưa đạt theo đúng chữ mục 2 (chiều an toàn). Pane vỡ khi usage chỉ có token: có từ 0.8.9, ngoài phạm vi, ghi việc tồn.
+- Đang chạy: kiểm độc lập dấu file vòng 1 (tác tử mới); đột biến 16 mẫu trên mọi test 0.9.0.
