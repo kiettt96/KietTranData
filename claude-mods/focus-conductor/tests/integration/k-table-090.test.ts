@@ -220,6 +220,22 @@ describe('K6, K7, K8: lượt không được tính', () => {
     await close($)
     expect(await stop($)).toContain(BLOCK)
   })
+  test('K6 lượt "Kiểm: " trả ĐẠT: không tính là duyệt', OPTS(), async ($, on) => {
+    const fs = new Fs()
+    const seen = setup(on, fs)
+    await start($, seen, fs)
+    await agent($, 'Kiểm: bun test', 'ĐẠT')
+    await close($)
+    expect(await stop($)).toContain(BLOCK)
+  })
+  test('K6 lượt không tiền tố chạy sonnet trả ĐẠT HẾT: không tính là duyệt (diệt mẫu 090-C6l)', OPTS(), async ($, on) => {
+    const fs = new Fs()
+    const seen = setup(on, fs)
+    await start($, seen, fs)
+    await agent($, 'Rà lại thay đổi phí', 'ĐẠT HẾT 12/12')
+    await close($)
+    expect(await stop($)).toContain(BLOCK)
+  })
   test('K7 subagent chạy haiku trả ĐẠT: không tính', OPTS(), async ($, on) => {
     const fs = new Fs()
     const seen = setup(on, fs)
