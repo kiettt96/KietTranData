@@ -158,3 +158,9 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 - 14e3a29 ca diệt mẫu 090-C6zy (trước đó SURVIVED; còn lại của đợt D4 đều KILLED).
 - Cả bộ 14e3a29: 2.1.296 4184 pass 0 fail; 2.1.327 4183 pass 1 fail (rearrange-ui-d3-089 "42 việc, 120 cột" hết giờ 5185 ms khi hai bộ chạy song song; chạy riêng tệp đó 10 pass 0 fail).
 - Đang chạy: 98 mẫu C2, C4, C6 trên mã cuối (mẫu sống chạy lại trên mọi test 0.9.0). Mô tả PR soạn ở pr-body.md.
+
+## 18/11 trước khi mở PR
+- a696081 lý do chặn khi kết luận chỉ đạt một phần (test đỏ trước); dd9b325 kiểu cục bộ của test (tsc thêm một lỗi so với nền, đã gỡ).
+- Đột biến cuối: 090-C2c, 090-C6l diệt bằng ca mới; 090-C6h, 090-C6m ghi tương đương.
+- Kiểm cuối trên fa12aa8: validate mod đạt kèm 14 cảnh báo như nền, gốc repo đạt; tsc 14 và 27 lỗi, cùng tập với nền; mutate --check 2592/2592; cả bộ 2.1.327 4188 pass 0 fail, 2.1.296 4188 pass 0 fail. Ghi VERIFICATION ở 45e8434.
+- PR kiettt96/KietTranData#43 đã mở, đang chờ CI.
