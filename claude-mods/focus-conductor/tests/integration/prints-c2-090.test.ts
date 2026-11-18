@@ -266,7 +266,9 @@ describe('0.9.0 C2 dấu file, bổ sung 18/11', () => {
     await agent($, 'Kiểm độc lập: phí', 'ĐẠT phần lớn')
     await close($)
     const block = await stop($)
-    expect(block).toContain('dòng kết luận phải đứng riêng')
+    // Yêu cầu chốt trước PR: câu của trường hợp đạt từng phần thay câu "dòng kết luận phải đứng riêng".
+    expect(block).toContain('kết luận chỉ đạt một phần, cần người duyệt nêu rõ đạt hay chưa đạt')
+    expect(block).not.toContain('đứng riêng')
     expect(block).toContain('hỏi lại')
     expect(block.length).toBeLessThanOrEqual(600)
   })

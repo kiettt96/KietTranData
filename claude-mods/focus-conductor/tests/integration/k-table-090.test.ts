@@ -541,6 +541,17 @@ describe('K18: đọc kết luận theo câu đầu của dòng kết luận', (
     await close($)
     expect(await stop($)).toBe('')
   })
+  test('K18 đạt từng phần: lý do chặn nêu kết luận chỉ đạt một phần, không dùng câu cũ về dòng kết luận đứng riêng', OPTS(), async ($, on) => {
+    const fs = new Fs()
+    const seen = setup(on, fs)
+    await start($, seen, fs)
+    await agent($, 'Kiểm độc lập: phí', 'ĐẠT phần lớn. Còn phần thuế chưa xem.')
+    await close($)
+    const block = await stop($)
+    expect(block).toContain('kết luận chỉ đạt một phần, cần người duyệt nêu rõ đạt hay chưa đạt')
+    expect(block).not.toContain('đứng riêng')
+    expect(block.length).toBeLessThanOrEqual(600)
+  })
   test('K18 lượt không tiền tố không có từ đạt: không tính', OPTS(), async ($, on) => {
     const fs = new Fs()
     const seen = setup(on, fs)
