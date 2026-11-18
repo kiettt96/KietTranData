@@ -152,6 +152,8 @@ export function registerCommand(on: On, ctx: Ctx): void {
         await update($, coreState, c => S.withClosingWaived(core.brief!.goalId)(S.withClosingGap(null)(c)))
         record(await $.clock.now(), 'waive', { signature: 'closing-review', goalId: core.brief.goalId })
         await flushDecisions((path, text) => $.fs.write(path, text))
+        // Status line khớp trạng thái bước đóng sau lệnh miễn (vòng 2 U2).
+        await showStatus($, await read($, view), ctx.options)
         return { text: 'Đã miễn duyệt độc lập cho mục tiêu này; cổng đóng mục tiêu không chặn nữa.' }
       }
       if (core.brief === null || core.retry.goalId !== core.brief.goalId) return { text: `Không có lệnh kiểm chưa đạt nào trong mục tiêu này. ${WAIVE_USAGE}` }

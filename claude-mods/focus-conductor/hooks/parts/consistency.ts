@@ -280,7 +280,10 @@ async function refreshTeam($: EngineInterface, ctx: Ctx): Promise<void> {
   const changed = S.changedOf(core).paths
   const cause = teamCause(ctx.options['closingReview'], brief, changed)
   if (brief === null || cause === null) {
-    if (core.team !== undefined) await update($, coreState, S.withTeam(null))
+    if (core.team !== undefined) {
+      await update($, coreState, S.withTeam(null))
+      await refreshStatus($, ctx)
+    }
     return
   }
   const log = ctx.evidenceFor(brief.goalId)
@@ -290,7 +293,11 @@ async function refreshTeam($: EngineInterface, ctx: Ctx): Promise<void> {
   const steps = teamSteps(core, brief, log, (L.verdicts.goalId === brief.goalId ? L.verdicts.items : []).map(v => (staleIds.has(v.agentId) ? { ...v, isClean: false } : v)), ctx.local.stepRuns)
   const isNew = core.team === undefined || core.team.goalId !== brief.goalId
   const team = { goalId: brief.goalId, cause: isNew || core.team === undefined ? cause : core.team.cause, steps }
-  if (JSON.stringify(team) !== JSON.stringify(core.team)) await update($, coreState, S.withTeam(team))
+  // Bước đóng đổi thì đặt lại status line (vòng 2 U2), để đoạn hướng khớp mục cần chú ý.
+  if (JSON.stringify(team) !== JSON.stringify(core.team)) {
+    await update($, coreState, S.withTeam(team))
+    await refreshStatus($, ctx)
+  }
   if (!isNew) return
   ctx.record(await $.clock.now(), 'team', { goalId: brief.goalId, cause, files: hardFileCount(changed) })
   await ctx.flushDecisions((path, text) => $.fs.write(path, text))
@@ -884,6 +891,11 @@ function changedTargets(observation: ToolObservation, root: string | null, lists
     return top !== '' && top !== '/' && full.startsWith(`${top}/`) ? full.slice(top.length + 1) : full
   })
   return { paths: relative.filter(item => item !== '' && !CHANGED_SKIP.test(item)), isUnknown: false }
+}
+
+/** Đặt lại status line từ trạng thái đang lưu (vòng 2 U2), cho hàm ở ngoài phần đăng ký hook (không có atom view). */
+async function refreshStatus($: EngineInterface, ctx: Ctx): Promise<void> {
+  await showStatus($, await read($, derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))), ctx.options)
 }
 
 /** Status line kèm nhãn hạn mức (0.6.1): mọi chỗ đặt status của file này đi qua đây, nên nhãn không mất giữa các hook. */
@@ -1605,6 +1617,8 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     if (skillReason !== null) core = S.normalizeCore(await read($, coreState))
     // Cổng đóng mục tiêu (0.9.0 C6): sau Y6 và thử skill, trước G1; theo stop_hook_active như hai cổng đó.
     const closingReason = isNoticed || core.brief === null ? null : await closingGate($, ctx, core, evidenceFor(core.brief.goalId))
+    // Status line khớp sau mỗi lần cổng đóng xét, chặn hay cho qua (vòng 2 U2).
+    if (!isNoticed && core.brief !== null) await showStatus($, await read($, view), ctx.options)
     if (closingReason !== null) core = S.normalizeCore(await read($, coreState))
     const prior = [retryReason, noCheck, skillReason, closingReason].reduce<string | null>((acc, reason) => (reason === null ? acc : acc === null ? reason : joinStopReasons(acc, reason)), null)
     const plan = isNoticed ? [] : core.plan
