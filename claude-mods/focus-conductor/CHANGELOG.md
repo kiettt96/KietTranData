@@ -99,6 +99,8 @@ Ba nhóm việc trong một lượt: sửa lỗi còn tồn (A), chạy trơn v�
 - Lý do chặn có thể lặp tên file (`phi.ts, phi.ts`) khi cùng một file vào danh sách theo dấu và theo sổ; gặp khá thường khi luồng chính sửa lại đúng file vừa duyệt, chỉ là chuyện hiển thị.
 - Sửa file sau lượt duyệt mà chưa chạy lệnh kiểm: lý do chặn của bước kiểm không nêu tên file (có chủ đích, `missing !== 'check'`); hay gặp khi sửa nhanh rồi kết thúc.
 - Vòng sửa C7 đếm theo description: người duyệt đổi description giữa các vòng thì đếm lại từ vòng 1; khả năng vừa phải.
+- Phiên thật D4: người duyệt hay viết "lỗi nhỏ" thay "lỗi nhẹ", câu phủ định "Không có lỗi Nghiêm trọng hay Lớn", và câu khác trên cùng dòng kết luận; luật đóng đọc các dạng đó là chưa đạt hay chưa có kết luận. Khả năng cao: gặp ở cả 3/3 lượt duyệt của phiên thật.
+- Lý do chặn "chưa có lần kiểm đạt sau thay đổi cuối" không nói mã thoát bị ống hay dấu `;` che (`cmd | tail -1; ...`), nên luồng chính chạy lại đúng dạng đó; gặp 2 lần ở phiên thật D4.
 - Bộ phân loại lệnh (không thuộc cổng duyệt): `file -C`, `rg --pre`, sửa qua liên kết mềm trỏ ra ngoài thư mục tạm.
 - File mới do vai chỉ đọc tạo bằng lệnh mức possible không vào tập dấu, nên không bị phát hiện.
 - Nhật ký quyết định bị ghi đè khi chạy tiếp bằng `claude -p --continue`.

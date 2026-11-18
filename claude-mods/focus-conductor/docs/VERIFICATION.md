@@ -26,6 +26,15 @@ Số đo của HEAD hiện tại và của các bản trước. Mọi số do t�
 
 Xác nhận độc lập (một lượt, tác tử mới chưa thấy quá trình làm, trên bản chép của 9bf3849): chạy 31 ca của k-table-090 và tự viết 29 probe riêng, mỗi dòng ít nhất một probe; 17/17 dòng đạt [Đo trực tiếp, 18/11/2026]. Năm probe hỏng ở lần chạy đầu đều do tác tử dựng sai (thiếu lệnh kiểm, dùng tiền tố duyệt khi cần subagent có ghi, đổi description giữa hai vòng), sửa xong thì đạt.
 
+**Phiên thật D4, prompt khó, sau vòng sửa cuối** [Đo trực tiếp, 18/11/2026, Claude Code 2.1.327, `claude -p`, conductor off, skill kỷ luật giao việc đang cài, mã của `3ff0c6a`; chi phí 1,39 USD, cộng lượt hỏng đầu 0,46 USD vì tệp trạng thái của lượt cũ]:
+- Kết quả việc: tách `src/dem.sh`, thêm `--cot` và `tests/kiem-cot.sh`; `bash tests/kiem.sh` và `bash tests/kiem-cot.sh` đều TỔNG: ĐẠT.
+- Lời gọi bị từ chối: 0 (không có `role-deny`, không có lời từ chối vai điều phối).
+- Cổng Stop chặn 3 lần: 1 lần checklist còn bước mở (cổng có từ trước); 2 lần cổng đóng thiếu bước kiểm (`closing-gate missing check`), vì luồng chính chạy `bash tests/kiem.sh | tail -1; bash tests/kiem-cot.sh | tail -1`, mã thoát bị ống và dấu `;` che (sổ ghi `hidden`, `untrusted`); hợp đồng bằng chứng có từ trước, mod không xác minh được nên chặn đúng thiết kế, nhưng lý do chặn không nói vì sao nên luồng chính chạy lại đúng dạng đó.
+- Kết luận: 3 lượt "Kiểm độc lập" (sonnet, opus, opus), không lượt nào được tính là đạt. Lượt 1 "**Kết luận: đạt kèm lỗi nhẹ.** Tôi tự chạy lại ..." có câu khác trên cùng dòng nên chưa có kết luận; lượt 2 "**ĐẠT, kèm lỗi nhỏ.** Không có lỗi Nghiêm trọng hay Lớn ..." và lượt 3 "**ĐẠT**, chỉ có vài lỗi Nhỏ. Không có lỗi Nghiêm trọng ..." đọc là chưa đạt ("lỗi nhỏ" không phải "lỗi nhẹ"; "lỗi nghiêm trọng" khớp dù nằm trong câu phủ định). Đúng chữ của luật đóng, nhưng đọc lệch ý người duyệt trên phiên thật.
+- Người duyệt dùng `mktemp -d` và `trap` để dọn, không lời gọi nào bị từ chối, không ghi file dự án.
+
+**Ký tự chèn sau vòng sửa cuối** [Đo trực tiếp, bộ đo của mục 0.8.9, engine 2.1.296, mã của `3ff0c6a`, 18/11/2026]: phiên dài và kịch bản 60 việc giữ mười số của lần đo trước (mặc định 10.418 và 19.666; Fable 8.642 và 7.127; sau `/conductor solo` 16.687 và 24.428; sau mười việc 21.817, 45.200, Fable 6.561); kịch bản phiên theo kỷ luật giao việc giữ 1.398 ký tự. Cổng duyệt đo dấu file không chèn thêm ký tự nào.
+
 Mức nghiêm trọng của cổng duyệt từ vòng này: lớp nhắc chất lượng; chỉ chặn PR khi văng lỗi, chặn hay từ chối nhầm trong luồng chính, hay trượt một dòng K. Phát hiện khác vào việc tồn.
 
 ## 0.9.0 A6: các trường của usage có thể vắng [Đo trực tiếp, khai báo kiểu, 18/11/2026]
