@@ -135,3 +135,6 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 - Đột biến lượt 1 (22 mẫu): 18 diệt; sống C6zg, C6z (đã thêm ca), B11f (tập test thiếu tệp B11), C6zf trôi chuỗi (đã sửa).
 - Quyết định: "ĐẠT phần lớn" là chưa đạt theo đúng chữ mục 2 (chiều an toàn). Pane vỡ khi usage chỉ có token: có từ 0.8.9, ngoài phạm vi, ghi việc tồn.
 - Đang chạy: kiểm độc lập dấu file vòng 1 (tác tử mới); đột biến 16 mẫu trên mọi test 0.9.0.
+- Bổ sung lần hai 18/11: 24ee60e test đỏ 4 ca (A6 pane khi usage chỉ có token, formatCost, từ chỉ mức lỗi); 76162ae bản sửa; 365 ca 0.9.0 qua.
+- Quyết định: chuẩn hóa usage ở chỗ cộng (safeUsage) thay vì chỉ chặn ở chỗ hiện, để sổ không lưu NaN; sổ cũ đã có null thì formatCost hiện "–".
+- Đột biến 20 mẫu đang chạy trên bản chép đông cứng (scratchpad/frozen) để sửa đổi sau không lẫn vào.
