@@ -1,0 +1,43 @@
+// 0.9.0 vòng 2, U2: status line khớp trạng thái bước đóng sau mỗi lần cổng đóng xét, sau lệnh miễn duyệt, và khi Core.team đổi.
+
+import { describe, expect, test } from 'claude-code/testing'
+import { SAMPLE_OPTS, closeAll, editSample, lastStatus, openSample, reviewSample, runCheck, runCommand, sampleSetup, stopSample } from '../support/closing-sample'
+
+describe('0.9.0 vòng 2 U2: status line sau cổng đóng', () => {
+  test('sau lần chặn thiếu duyệt: status line kết bằng "△ chưa duyệt"', SAMPLE_OPTS(), async ($, on) => {
+    const sample = sampleSetup(on)
+    await openSample($, sample)
+    await editSample($)
+    await runCheck($)
+    await closeAll($)
+    expect(await stopSample($)).toContain('duyệt độc lập')
+    expect(lastStatus(sample).endsWith('△ chưa duyệt')).toBe(true)
+  })
+  test('sửa lại, chạy lại, lượt duyệt ĐẠT rồi dừng (cho qua): kết bằng "● đã kiểm 1/3", không còn "chú ý" hay "chưa duyệt"', SAMPLE_OPTS(), async ($, on) => {
+    const sample = sampleSetup(on)
+    await openSample($, sample)
+    await editSample($)
+    await runCheck($)
+    await closeAll($)
+    await stopSample($)
+    await editSample($)
+    await runCheck($)
+    await reviewSample($, 'ĐẠT')
+    expect(await stopSample($)).toBe('')
+    const status = lastStatus(sample)
+    expect(status.endsWith('● đã kiểm 1/3')).toBe(true)
+    expect(status).not.toContain('chú ý')
+    expect(status).not.toContain('chưa duyệt')
+  })
+  test('sau /conductor waive review: status line không còn "chưa duyệt"', SAMPLE_OPTS(), async ($, on) => {
+    const sample = sampleSetup(on)
+    await openSample($, sample)
+    await editSample($)
+    await runCheck($)
+    await closeAll($)
+    await stopSample($)
+    expect(lastStatus(sample)).toContain('chưa duyệt')
+    await runCommand($, 'waive review')
+    expect(lastStatus(sample)).not.toContain('chưa duyệt')
+  })
+})
