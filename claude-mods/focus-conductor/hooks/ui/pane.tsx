@@ -19,6 +19,9 @@ import { conductorLine, labels, shownEntry, stepTaskMeta, taskLabel } from './la
 import type { Run } from './style'
 import { DEFAULT_NEON, paintOf } from './neon'
 import type { GradientName } from './neon'
+
+/** Số đếm hiện trên pane (0.9.0 A6): không phải số hữu hạn thì "–". */
+const countText = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? String(value) : '–')
 import {
   FAMILY_HUE,
   SPINE,
@@ -788,11 +791,11 @@ export function renderPane(
           {hasBars ? <Text> </Text> : ''}
           {hasBars ? barOf(ledger.goal.buckets[g.key].usd) : ''}
           {` ${padStart(formatCost(ledger.goal.buckets[g.key].usd, view.lang), moneyWidth)}`}
-          <Text dimColor>{` ${padStart(formatCost(ledger.session[g.key].usd, view.lang), moneyWidth)} ${padStart(String(ledger.session[g.key].calls), callWidth)}`}</Text>
+          <Text dimColor>{` ${padStart(formatCost(ledger.session[g.key].usd, view.lang), moneyWidth)} ${padStart(countText(ledger.session[g.key].calls), callWidth)}`}</Text>
         </Text>
       ))}
       <Text bold wrap="truncate-end">
-        {`${padEnd(l.total, labelWidth)}${hasBars ? ' '.repeat(costCells + 1) : ''} ${padStart(formatCost(goalUsd(ledger), view.lang), moneyWidth)} ${padStart(formatCost(sessionUsd(ledger), view.lang), moneyWidth)} ${padStart(String(totalCalls), callWidth)}`}
+        {`${padEnd(l.total, labelWidth)}${hasBars ? ' '.repeat(costCells + 1) : ''} ${padStart(formatCost(goalUsd(ledger), view.lang), moneyWidth)} ${padStart(formatCost(sessionUsd(ledger), view.lang), moneyWidth)} ${padStart(countText(totalCalls), callWidth)}`}
       </Text>
       {ledger.goal.spawned > 0 ? (
         <Text dimColor wrap="wrap">

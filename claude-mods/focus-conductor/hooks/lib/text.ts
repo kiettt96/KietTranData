@@ -791,6 +791,8 @@ export function resetLabel(resetsAt: string | undefined): string {
 }
 
 function percent(value: number): string {
+  // 0.9.0 A6: giá trị không phải số hữu hạn hiện "–".
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '–'
   return `${String(Math.round(value * 10) / 10).replace('.', ',')}%`
 }
 
