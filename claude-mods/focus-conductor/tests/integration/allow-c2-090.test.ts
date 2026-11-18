@@ -35,6 +35,10 @@ describe('0.9.0 C2: dòng kết luận', () => {
   test('"ĐẠT, nhưng còn 2 lỗi lớn" không là dòng kết luận', () => {
     expect(verdictOf('ĐẠT, nhưng còn 2 lỗi lớn')?.verdict).toBe('fail')
   })
+  // Khôi phục theo bổ sung 18/11 (1): dòng đạt và dòng chưa đạt cùng loại thì chưa đạt.
+  test('có cả dòng ĐẠT và dòng CHƯA ĐẠT đứng riêng: chưa đạt', () => {
+    expect(verdictOf('ĐẠT\n- Phần A ổn\nCHƯA ĐẠT\n- Phần B thiếu test')?.verdict).toBe('fail')
+  })
 })
 
 const PLAN = 'mcp__focus-conductor__plan'

@@ -11,7 +11,7 @@ import type { On } from 'claude-code'
 import { verdictOf } from '../../hooks/lib/verdict'
 import { classifyBash } from '../../hooks/lib/drift/classify'
 import { JS } from '../fixtures/runner-output'
-import { base, plan, step, submit } from '../support/engine'
+import { PANE, base, plan, step, submit } from '../support/engine'
 import type { Json, Seen } from '../support/engine'
 
 const PLAN = 'mcp__focus-conductor__plan'
@@ -23,22 +23,28 @@ type Out = { deny?: string; context?: string[] }
 type FakeFile = { text: string; mtimeMs: number }
 
 /** Hệ tệp giả: đọc, stat theo bảng; thiếu thì ENOENT như engine thật. */
+/** Số lần gọi fs.stat, fs.read vào các file dưới /repo/src (tập dấu của ca). */
+const calls = { stat: 0, read: 0 }
 function fakeFs(on: On, files: Map<string, FakeFile>): void {
   on('fs.stat', (_$, e) => {
+    if (e.path.startsWith('/repo/src/')) calls.stat += 1
     const file = files.get(e.path)
     return (file !== undefined ? { value: { kind: 'file', size: file.text.length, mtimeMs: file.mtimeMs, isLink: false, ...(e.resolve ? { realPath: e.path } : {}) } } : { deny: `ENOENT: no such file or directory, stat '${e.path}'` }) as never
   })
   on('fs.read', (_$, e) => {
+    if (String(e.path).startsWith('/repo/src/')) calls.read += 1
     const file = files.get(e.path)
     return (file !== undefined ? { value: file.text } : { deny: `ENOENT: no such file or directory, open '${e.path}'` }) as never
   })
 }
+let spawnModel = 'claude-opus-5-5'
 function setup(on: On, files: Map<string, FakeFile> | null, reply: Json = GOAL()): Seen {
   const seen = base(on, { router: () => reply, root: '/repo' })
   if (files !== null) fakeFs(on, files)
+  spawnModel = 'claude-opus-5-5'
   on('tool.call', { tool: /^(?:Edit|Write|Read|Agent|Skill)$/ }, () => ({ result: 'ok' }))
   on('tool.call', { tool: 'Bash' }, () => ({ result: JS.bun_pass }))
-  on('agent.spawn', (_$, e) => ({ model: 'claude-opus-5-5', agentId: `a-${String((e as { tool_use_id?: unknown }).tool_use_id)}` }) as never)
+  on('agent.spawn', (_$, e) => ({ model: spawnModel, agentId: `a-${String((e as { tool_use_id?: unknown }).tool_use_id)}` }) as never)
   on('turn.complete', () => ({ text: '' }))
   on('classic.Stop', () => ({}))
   on('agent.offer', () => ({ isOffered: true }))
@@ -48,14 +54,14 @@ const call = async ($: Engine, input: Record<string, unknown>) => (await $.tool.
 const stop = async ($: Engine) => String(((await $.classic.Stop({ stop_hook_active: false } as never)) as { block?: string }).block ?? '')
 let n = 0
 /** Một subagent: sinh, các lời gọi, rồi `during` (đổi hệ tệp giả giữa lúc sinh và lúc hoàn tất), rồi hoàn tất. */
-async function agent($: Engine, description: string, text: string, calls: ReadonlyArray<Record<string, unknown>> = [], during: () => void = () => {}) {
+async function agent($: Engine, description: string, text: string, calls: ReadonlyArray<Record<string, unknown>> = [], during: () => void = () => {}, subagentType?: string) {
   const id = `pr${(n += 1)}`
-  await $.tool.call({ tool: 'Agent', tool_use_id: id, description, prompt: 'Rà.' } as never)
+  await $.tool.call({ tool: 'Agent', tool_use_id: id, description, prompt: 'Rà.', ...(subagentType !== undefined ? { subagent_type: subagentType } : {}) } as never)
   await $.agent.spawn({ prompt: 'Rà.', description, tool_use_id: id } as never)
   const outs: Out[] = []
   for (const input of calls) outs.push(await call($, { ...input, agentId: `a-${id}` }))
   during()
-  await $.turn.complete({ turnId: `x-${id}`, agentId: `a-${id}`, answer: text, durationMs: 5, isAborted: false, reason: 'answer', usage: { model: 'claude-opus-5-5', input_tokens: 10, output_tokens: 10 } } as never)
+  await $.turn.complete({ turnId: `x-${id}`, agentId: `a-${id}`, answer: text, durationMs: 5, isAborted: false, reason: 'answer', usage: { model: spawnModel, input_tokens: 10, output_tokens: 10 } } as never)
   return outs
 }
 const SRC = '/repo/src/phi.ts'
@@ -177,7 +183,8 @@ describe('0.9.0 C2 dấu file: dòng kết luận (mục 6)', () => {
   })
   test('cụm chưa đạt xét trước; dòng đầu tiên mở đầu bằng từ kết luận quyết; không có dòng nào thì chưa có kết luận', () => {
     expect(verdictOf('CHƯA ĐẠT kèm lỗi nhẹ')?.verdict).toBe('fail')
-    expect(verdictOf('Đã rà xong phần phí.\nĐẠT\nCHƯA ĐẠT ở phần khác')?.verdict).toBe('pass')
+    // Bổ sung 18/11 (1): dòng kết luận mâu thuẫn cùng loại thì chưa đạt, bất kể dòng nào đứng trước.
+    expect(verdictOf('Đã rà xong phần phí.\nĐẠT\nCHƯA ĐẠT')?.verdict).toBe('fail')
     expect(verdictOf('Đã rà xong, nhìn chung ổn.')).toBeNull()
     expect(verdictOf('ĐẠT HẾT 12/12')?.isCheckOnly).toBe(true)
   })
@@ -224,4 +231,81 @@ describe('0.9.0 C2 dấu file: kịch bản mục 7, biến thể probe trong th
       expect(await stop($)).toBe('')
     })
   }
+})
+
+describe('0.9.0 C2 dấu file, bổ sung 18/11', () => {
+  test('(1) dòng kết luận mâu thuẫn cùng loại: chưa đạt, bất kể thứ tự; khác loại thì không lẫn', () => {
+    expect(verdictOf('CHƯA ĐẠT\n- thiếu test\nĐẠT')?.verdict).toBe('fail')
+    expect(verdictOf('ĐẠT\nCHƯA ĐẠT')?.verdict).toBe('fail')
+    expect(verdictOf('SẴN SÀNG\nCHƯA SẴN SÀNG')?.verdict).toBe('not-ready')
+  })
+  test('(2) luật đóng của phần sau từ kết luận: READY WITH BLOCKERS chưa sẵn sàng; ĐẠT (12/12 mục) chưa có kết luận; ĐẠT KÈM 2 LỖI NHẸ đạt', () => {
+    expect(verdictOf('READY WITH BLOCKERS')?.verdict).toBe('not-ready')
+    expect(verdictOf('ĐẠT (12/12 mục)')).toBeNull()
+    expect(verdictOf('ĐẠT KÈM 2 LỖI NHẸ')?.verdict).toBe('pass')
+    for (const text of ['PASS with tests skipped', 'ĐẠT kèm ghi chú', 'ĐẠT, chặn ở bước 2', 'PASS, 1 blocker']) expect(verdictOf(text)?.verdict, text).toBe('fail')
+    for (const text of ['ĐẠT phần lớn', 'PASS overall']) expect(verdictOf(text), text).toBeNull()
+  })
+  test('(2) câu trả lời chỉ có dòng kết luận không đứng riêng: cổng chặn, lý do nêu dòng kết luận phải đứng riêng và hỏi lại chính subagent đó', OPTS(), async ($, on) => {
+    const files = fresh()
+    const seen = setup(on, files)
+    await start($, seen, files)
+    await agent($, 'Kiểm độc lập: phí', 'ĐẠT (12/12 mục)')
+    await close($)
+    const block = await stop($)
+    expect(block).toContain('dòng kết luận phải đứng riêng')
+    expect(block).toContain('hỏi lại')
+    expect(block.length).toBeLessThanOrEqual(600)
+  })
+  test('(3) sau lần cổng chặn vì dấu đổi, pane không còn hiện bước duyệt đã xong', OPTS(), async ($, on) => {
+    const files = fresh()
+    const seen = setup(on, files)
+    await start($, seen, files)
+    await agent($, 'Kiểm độc lập: phí', 'ĐẠT')
+    await close($)
+    expect(await stop($)).toBe('')
+    const before = (await (await $.ui.mount(PANE)).findAll({ type: 'Text' })).map(e => e.text ?? '').join('\n')
+    expect(before).toContain('Duyệt: đạt')
+    files.set(SRC, { text: 'export const phi = 9\n', mtimeMs: 300 })
+    expect(await stop($)).toContain(BLOCK)
+    const after = (await (await $.ui.mount(PANE)).findAll({ type: 'Text' })).map(e => e.text ?? '').join('\n')
+    expect(after).not.toContain('Duyệt: đạt')
+  })
+  test('(4) subagent Explore chạy haiku: không gọi fs.stat, fs.read lần nào', OPTS(), async ($, on) => {
+    const files = fresh()
+    const seen = setup(on, files)
+    await start($, seen, files)
+    calls.stat = 0
+    calls.read = 0
+    spawnModel = 'claude-haiku-5-5'
+    await agent($, 'Tìm chỗ gọi phí', 'Tìm thấy ở src/phi.ts:3', [], () => {}, 'Explore')
+    expect(calls).toEqual({ stat: 0, read: 0 })
+  })
+  test('(4) chụp lần hai khi không file nào đổi: không gọi fs.read; mục tiêu chưa sửa file không nhẹ nào: không gọi fs', OPTS(), async ($, on) => {
+    const files = fresh()
+    const seen = setup(on, files)
+    await start($, seen, files)
+    calls.stat = 0
+    calls.read = 0
+    const id = 'pr-hai'
+    await $.tool.call({ tool: 'Agent', tool_use_id: id, description: 'Kiểm độc lập: phí', prompt: 'Rà.' } as never)
+    await $.agent.spawn({ prompt: 'Rà.', description: 'Kiểm độc lập: phí', tool_use_id: id } as never)
+    const afterSpawn = calls.read
+    await $.turn.complete({ turnId: 'x-hai', agentId: `a-${id}`, answer: 'ĐẠT', durationMs: 5, isAborted: false, reason: 'answer', usage: { model: spawnModel, input_tokens: 10, output_tokens: 10 } } as never)
+    expect(afterSpawn).toBe(1)
+    expect(calls.read).toBe(1)
+  })
+  test('(4) mục tiêu chưa có file không nhẹ nào được sửa: sinh subagent duyệt không gọi fs', OPTS(), async ($, on) => {
+    const files = fresh()
+    const seen = setup(on, files)
+    await $.agent.offer({ agent: 'general-purpose', description: 'việc chung', source: 'built-in', provider: { plugin: 'engine', tier: 'core' } } as never)
+    await submit($, 'Sửa luồng phí')
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa phí' }] } as never)
+    await $.turn.start({ text: 'Sửa luồng phí', turnId: 't1' })
+    await step($, seen, { turnId: 't1' })
+    calls.stat = 0
+    calls.read = 0
+    await agent($, 'Kiểm độc lập: phí', 'ĐẠT')
+    expect(calls).toEqual({ stat: 0, read: 0 })
+  })
 })
