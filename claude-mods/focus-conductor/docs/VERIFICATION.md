@@ -2,7 +2,7 @@
 
 Số đo của HEAD hiện tại và của các bản trước. Mọi số do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển] trừ khi nêu khác; hợp đồng đối chiếu evidence ở [DESIGN.md](DESIGN.md), lịch sử thay đổi ở [CHANGELOG.md](../CHANGELOG.md), cách dùng ở [README](../README.md).
 
-## 0.9.0 cổng duyệt: bảng nghiệm thu đóng K1 tới K19 [Đo trực tiếp, `tests/integration/k-table-090.test.ts`, 2.1.327, 18/11/2026]
+## 0.9.0 cổng duyệt: bảng nghiệm thu đóng K1 tới K20 [Đo trực tiếp, `tests/integration/k-table-090.test.ts` và, cho K20, `tests/integration/closing-stepcheck-f1-090.test.ts`, 2.1.327, 18/11/2026]
 
 | Mã | Hành vi | Ca test | Kết quả |
 |---|---|---|---|
@@ -25,6 +25,7 @@ Số đo của HEAD hiện tại và của các bản trước. Mọi số do t�
 | K17 | Subagent Explore chạy haiku và mục tiêu chưa sửa file: không gọi fs | K17 subagent Explore chạy haiku: không gọi fs; K17 mục tiêu chưa sửa file: sinh lượt duyệt không gọi fs | qua |
 | K18 | Đọc kết luận theo câu đầu của dòng kết luận; ba dòng đầu của phiên D4 là đạt; lượt có tiền tố không có dòng kết luận thì tính kèm dòng nhắc; lượt không tiền tố không có từ đạt thì không tính | K18 ba dòng đầu của phiên D4 là đạt; ...; K18 lượt có tiền tố duyệt trả câu dòng đầu của phiên D4; K18 lượt có tiền tố không có dòng kết luận nào; K18 lượt không tiền tố không có từ đạt | qua |
 | K19 | Lệnh kiểm qua ống che mã thoát: dòng nhắc ở kết quả, không tính; không ống hay có pipefail thì tính; lý do chặn nêu ống lệnh; nhắc tối đa hai lần | K19 bash tests/kiem.sh \| tail -1: ...; K19 cùng lệnh không kèm ống: tính; K19 set -o pipefail: ...; K19 lệnh ở check của bước qua ống cũng được nhắc | qua |
+| K20 | Bước kiểm tính lần chạy khớp lệnh ở check của bước (vòng 2 F1): không khai checkCommands, hai bước có check, lệnh của bước chạy đạt sau khi sửa thì cổng không chặn vì thiếu kiểm; chạy trước khi sửa hay qua ống thì chặn; lần chạy gần nhất lỗi thì bước kiểm chưa đạt; pane đạt đúng lúc cổng đạt | sáu ca của `closing-stepcheck-f1-090` | qua |
 
 Xác nhận độc lập (một lượt, tác tử mới chưa thấy quá trình làm, trên bản chép của 9bf3849): chạy 31 ca của k-table-090 và tự viết 29 probe riêng, mỗi dòng ít nhất một probe; 17/17 dòng đạt [Đo trực tiếp, 18/11/2026]. Năm probe hỏng ở lần chạy đầu đều do tác tử dựng sai (thiếu lệnh kiểm, dùng tiền tố duyệt khi cần subagent có ghi, đổi description giữa hai vòng), sửa xong thì đạt.
 
@@ -39,6 +40,11 @@ Xác nhận độc lập (một lượt, tác tử mới chưa thấy quá trìn
 - Kết quả việc: `bash tests/kiem.sh` và `bash tests/kiem-cot.sh` đều TỔNG: ĐẠT. Lời gọi bị từ chối: 0.
 - Cổng Stop chặn 2 lần: 1 lần checklist còn bước mở (cổng có từ trước); 1 lần cổng đóng thiếu bước kiểm vì luồng chính chạy `bash tests/kiem.sh | tail -1; ...`. Dòng nhắc "`bash tests/kiem.sh` đi qua ống, mã thoát bị che nên lần chạy này không tính; chạy lại không kèm ống, hoặc thêm set -o pipefail." hiện ở kết quả lần chạy; lý do chặn nêu cùng nguyên nhân; luồng chính chạy lại kèm `set -o pipefail` và được tính. Không lần chặn nào vì bước duyệt.
 - Kết luận: 2 lượt duyệt (opus), cả hai được tính là đạt. Dòng đầu nguyên văn và cách mod đọc: "**Kết luận: đạt kèm lỗi nhẹ.** Cả 5 tiêu chí đều qua và không thấy lỗi nặng hay vừa nào. Tôi không sửa file nào." đọc là đạt (câu đầu "đạt kèm lỗi nhẹ"); "**ĐẠT kèm lỗi nhỏ.** Cả 5 kiểm tra đều đúng như mong đợi. ... Không có lỗi Nghiêm trọng hay Lớn. Tôi không sửa tệp nào." đọc là đạt (câu đầu "ĐẠT kèm lỗi nhỏ", mức thấp).
+
+**Phiên thật D4 lần ba, vòng 2, không khai `checkCommands`** [Đo trực tiếp, 18/11/2026, Claude Code 2.1.327, `claude -p`, cùng prompt khó, `conductor` off, `planApproval` off, mã của `17ec5fe`; chạy hai lượt trên hai bản sao sạch của dự án mẫu]:
+- Lượt 1 (0,62 USD, 2 turn): cổng Stop chặn 0 lần; lời gọi bị từ chối 0; đội hình bật theo số file (3 file không nhẹ). Luồng chính không lập checklist (không gọi tool `plan`), nên cổng đóng mục tiêu không vào cuộc và bước kiểm không được tính nhờ lần chạy nào. Kết luận được nhận: lượt "Rà độc lập tái cấu trúc" (không tiền tố), dòng đầu nguyên văn "**Kết luận: ĐẠT.** Cả 5 mục đều đạt và không có lỗi nặng. Tôi không sửa tệp nào. ...", đọc là đạt.
+- Lượt 2 (0,62 USD, 3 turn): như lượt 1, không lập checklist, cổng Stop chặn 0 lần, lời gọi bị từ chối 0. Kết luận được nhận: lượt "Rà độc lập thong-ke/dem", dòng đầu nguyên văn "**Kết luận: đạt kèm lỗi nhẹ.** Không có lỗi nặng. ...", đọc là đạt.
+- Giới hạn: kỳ vọng "không lần chặn nào vì thiếu kiểm khi lệnh của bước đã chạy đạt không qua ống" đạt ở cả hai lượt, nhưng cả hai phiên không có bước nào mang `check`, nên đường tính bằng chứng theo lệnh của bước (F1) chưa được phiên thật đi qua; đường này chỉ có bằng chứng ở `closing-stepcheck-f1-090` và kịch bản dựng lại của lượt rà soát. Chi phí model thật cộng dồn khoảng 36,5 USD trên trần 40.
 
 **Ký tự chèn sau vòng sửa cuối** [Đo trực tiếp, bộ đo của mục 0.8.9, engine 2.1.296, mã của `3ff0c6a`, 18/11/2026]: phiên dài và kịch bản 60 việc giữ mười số của lần đo trước (mặc định 10.418 và 19.666; Fable 8.642 và 7.127; sau `/conductor solo` 16.687 và 24.428; sau mười việc 21.817, 45.200, Fable 6.561); kịch bản phiên theo kỷ luật giao việc giữ 1.398 ký tự. Cổng duyệt đo dấu file không chèn thêm ký tự nào.
 

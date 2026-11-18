@@ -2,11 +2,12 @@
 
 import { atom, derive, read, update } from 'claude-code'
 import { caught, noteBehavior, noteHookError } from '../lib/errlog'
-import type { AgentState, ApprovalState, Brief, Choice, Core, DelegationState, Mode, ModelFamily, RetryItem, Role, Warning } from '../../types'
+import type { AgentState, ApprovalState, Brief, Choice, Core, DelegationState, Mode, ModelFamily, PlanStep, RetryItem, Role, Warning } from '../../types'
 import { acceptsVerified, checkKindOf, classifyBash, evidenceStrength, filePathOf, freshTestRun, hardChanges, isCheckTool, isExecuting, isFullyClosed, isGoalDone, isMutation, isPlanFile, normalizePath, isSkillTrial, markVerified, newTracker, skillNameOf, noteEvidence, observe, openSteps, pendingSteps, suggestCheckCommands, summarize, trackVerification } from '../lib/drift'
 import { isRoleTemp, isSidePath } from '../lib/drift/scope'
 import type { WriteEffect } from '../lib/drift/classify'
-import { STEP_RUNS, stepCheckOf, stepEvidence, stepRunOf } from '../lib/drift/stepcheck'
+import { STEP_RUNS, runKey, stepCheckOf, stepEvidence, stepRunOf } from '../lib/drift/stepcheck'
+import type { StepRun } from '../lib/drift/stepcheck'
 import { checkScopeOf, inCheckScope, splitCheckScope } from '../lib/drift/verify'
 import { globToRegExp } from '../lib/drift/soft'
 import { coversScope } from '../lib/drift/evidence'
@@ -152,7 +153,7 @@ async function closingGate($: EngineInterface, ctx: Ctx, core: Core, log: Eviden
   const verdicts = (L.verdicts.goalId === brief.goalId ? L.verdicts.items : []).map(v => (staleIds.has(v.agentId) ? { ...v, isClean: false } : v))
   const lastHard = log.lastHard
   // Cùng một cách tính với pane (0.9.0 vòng sửa sau kiểm độc lập): kết luận mới nhất của mỗi bước quyết; bước kiểm chỉ khi có lệnh kiểm.
-  const steps = teamSteps(core, brief, log, verdicts)
+  const steps = teamSteps(core, brief, log, verdicts, ctx.local.stepRuns)
   const missing = steps.find(s => s.state !== 'pass')?.name ?? null
   const reviewSeq = verdicts.filter(v => v.isClean && v.isReview && v.verdict === 'pass' && v.seq > log.lastChange).reduce((max, v) => Math.max(max, v.seq), -1)
   if (missing === null) {
@@ -186,10 +187,16 @@ async function closingGate($: EngineInterface, ctx: Ctx, core: Core, log: Eviden
   // cuối chỉ có dòng như vậy.
   const latest = [...verdicts].reverse().find(v => v.seq > log.lastChange && prefixRole(v.description) !== 'audit')
   const unclear = missing !== 'check' && latest?.unclear === true ? ' Câu trả lời của lượt duyệt chưa có kết luận: kết luận chỉ đạt một phần, cần người duyệt nêu rõ đạt hay chưa đạt; hỏi lại chính subagent đó.' : ''
-  const files = missing !== 'check' && named.length > 0 ? ` File đã đổi trong hay sau lượt duyệt: ${printNames(named)}.` : ''
+  // Mỗi file một lần trong lý do chặn (vòng 2 F2): so theo đường dẫn đã chuẩn hóa, đường dẫn tương đối giải theo thư mục gốc của phiên.
+  const root = await $.session.root().catch(() => null)
+  const keyOf = (path: string) => normalizePath(path.startsWith('/') || root === null ? path : `${root}/${path}`)
+  const unique = named.filter((path, k) => named.findIndex(other => keyOf(other) === keyOf(path)) === k)
+  const files = missing !== 'check' && unique.length > 0 ? ` File đã đổi trong hay sau lượt duyệt: ${printNames(unique)}.` : ''
   // Lần chạy gần nhất của lệnh kiểm sau thay đổi cuối đi qua ống (sau phiên thật D4, mục 2b): nêu đúng nguyên nhân và cách chạy lại.
   const pipe = L.pipeNotes.goalId === brief.goalId ? L.pipeNotes.last : null
-  const piped = missing === 'check' && pipe !== null && pipe.seq > lastHard ? ` Lần chạy \`${clipText(pipe.command, 40)}\` đi qua ống nên mã thoát bị che, không tính; chạy lại không kèm ống, hoặc thêm set -o pipefail.` : ''
+  // Câu về ống lệnh chỉ khi lần chạy gần nhất của lệnh đó là lần qua ống (vòng 2 F3): chính lệnh đó chạy lại sau đó thì bỏ câu.
+  const rerun = pipe !== null && stepRunsFor(ctx, brief.goalId).runs.some(run => run.seq >= pipe.seq && run.keys.includes(runKey(pipe.command)))
+  const piped = missing === 'check' && pipe !== null && pipe.seq > lastHard && !rerun ? ` Lần chạy \`${clipText(pipe.command, 40)}\` đi qua ống nên mã thoát bị che, không tính; chạy lại không kèm ống, hoặc thêm set -o pipefail.` : ''
   return `${reason}${unclear}${files}${piped}`.slice(0, CLOSING_CHARS)
 }
 
@@ -238,11 +245,25 @@ async function stalePrints($: EngineInterface, goalId: number, verdicts: readonl
 
 /** Đích đọc được của một lần ghi (0.9.0 C5): đường dẫn của tool sửa file, hay đích của tác động ghi mức definite của Bash. */
 /** Trạng thái các bước đóng (0.9.0 C3), dùng chung cho pane (Core.team) và cổng đóng mục tiêu. */
-function teamSteps(core: Core, brief: Brief, log: EvidenceLog, verdicts: readonly ClosingVerdict[]) {
+function teamSteps(core: Core, brief: Brief, log: EvidenceLog, verdicts: readonly ClosingVerdict[], runs: Ctx['local']['stepRuns']) {
+  const { checked, checkFailed } = closingCheckState(core.plan, log, runs.goalId === brief.goalId ? runs : { runs: [], checkSeq: new Map() })
+  return closingSteps({ hasCheck: hasKnownCheck(core.plan, S.changedOf(core).paths, log), isHard: brief.depth === 'hard', checked, checkFailed, lastHard: log.lastHard, lastChange: log.lastChange, verdicts })
+}
+
+/**
+ * Bước kiểm của cổng đóng và của pane (0.9.0 vòng 2 F1). Đạt khi sau thay đổi không nhẹ cuối có một lần lệnh kiểm mod nhận ra chạy đạt,
+ * hoặc một lần chạy khớp lệnh ở check của một bước đủ điều kiện bằng chứng của B10 (stepEvidence). Chưa đạt khi lần chạy gần nhất sau thay
+ * đổi đó, thuộc một trong hai loại, bị lỗi.
+ */
+export function closingCheckState(plan: readonly PlanStep[], log: EvidenceLog, steps: { runs: readonly StepRun[]; checkSeq: ReadonlyMap<number, number> }): { checked: boolean; checkFailed: boolean } {
   const lastHard = log.lastHard
-  const checked = log.hard === 0 || log.commands.some(c => c.check !== null && c.ok && c.chained !== true && c.seq > lastHard && coversScope(c, log))
-  const lastCheck = [...log.commands].reverse().find(c => c.check !== null && c.chained !== true && c.seq > lastHard)
-  return closingSteps({ hasCheck: hasKnownCheck(core.plan, S.changedOf(core).paths, log), isHard: brief.depth === 'hard', checked, checkFailed: lastCheck !== undefined && !lastCheck.ok, lastHard, lastChange: log.lastChange, verdicts })
+  const known = log.commands.some(c => c.check !== null && c.ok && c.chained !== true && c.seq > lastHard && coversScope(c, log))
+  const byStep = plan.some(step => stepEvidence(step, steps.runs, lastHard, steps.checkSeq.get(step.id) ?? -1) !== null)
+  const lastKnown = [...log.commands].reverse().find(c => c.check !== null && c.chained !== true && c.seq > lastHard)
+  const keys = plan.flatMap(step => { const check = stepCheckOf(step.check); return check !== null ? [runKey(check.command)] : [] })
+  const lastRun = [...steps.runs].reverse().find(run => run.seq > lastHard && keys.some(key => run.keys.includes(key)))
+  const latest = lastRun !== undefined && (lastKnown === undefined || lastRun.seq >= lastKnown.seq) ? { ok: lastRun.passed } : lastKnown !== undefined ? { ok: lastKnown.ok } : null
+  return { checked: log.hard === 0 || known || byStep, checkFailed: latest !== null && !latest.ok }
 }
 
 /**
@@ -263,7 +284,7 @@ async function refreshTeam($: EngineInterface, ctx: Ctx): Promise<void> {
   const hasCheck = hasKnownCheck(core.plan, changed, log)
   const prints = normalizeReviewPrints(await read($, printState))
   const staleIds = new Set(prints.goalId === brief.goalId ? prints.stale : [])
-  const steps = teamSteps(core, brief, log, (L.verdicts.goalId === brief.goalId ? L.verdicts.items : []).map(v => (staleIds.has(v.agentId) ? { ...v, isClean: false } : v)))
+  const steps = teamSteps(core, brief, log, (L.verdicts.goalId === brief.goalId ? L.verdicts.items : []).map(v => (staleIds.has(v.agentId) ? { ...v, isClean: false } : v)), ctx.local.stepRuns)
   const isNew = core.team === undefined || core.team.goalId !== brief.goalId
   const team = { goalId: brief.goalId, cause: isNew || core.team === undefined ? cause : core.team.cause, steps }
   if (JSON.stringify(team) !== JSON.stringify(core.team)) await update($, coreState, S.withTeam(team))
