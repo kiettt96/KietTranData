@@ -1,8 +1,9 @@
-# Điểm dừng 17/11: hết trần hai vòng kiểm độc lập của C2 danh sách cho phép, còn 3 lỗi nặng
-Nhánh claude/focus-conductor-0-9-0, commit cuối c2e9a01. Chưa mở PR. Mục 16 chưa làm.
-Lỗi nặng còn lại (vòng 2, đã dò lại):
-1. readonly.ts sort: /^-o/ không bắt cờ gộp (-uo, -nuo): `sort -uo src/a.ts src/a.ts` ghi tại chỗ, effects rỗng, kết luận vẫn tính.
-2. readonly.ts SED_WRITE: dấu phân cách khác / (`s#a#b#w tệp`) lọt.
-3. team.ts wordsStayInTemp: ở thư mục tạm xét mọi từ, nên `cd /tmp/x && cp -r /repo/src .` bị từ chối và bật outside; biến thể hợp lý của mục 12 bị Stop chặn.
-Lỗi vừa: ln -s /repo/src vào /tmp rồi sửa qua symlink; lời gọi bị từ chối vẫn bật outside; tên lệnh là đường dẫn ngoài tạm không bị xét. Nhẹ: file -C, rg --pre; outside không truyền lên subagent cha.
-Đề xuất sửa: sort `/^-[a-zA-Z]*o/` và `--output`; sed lấy ký tự sau `s` làm dấu phân cách; ở thư mục tạm chỉ xét đích của tác động có đích đọc được, xét mọi từ (kể cả tên lệnh) chỉ với tác động possible; ln có nguồn ngoài tạm thì bỏ loại (e) cho thư mục đó; không bật outside cho lời gọi đã bị từ chối.
+# Điểm dừng 18/11: hết trần hai vòng kiểm độc lập của C2 đo dấu file, còn 2 lỗi nặng loại 1
+Nhánh claude/focus-conductor-0-9-0. Chưa mở PR. Mục 12 chưa làm.
+Lỗi nặng còn lại (vòng 2, trên ffef240):
+1. fs đo được lúc này, không đo được lúc khác: lúc hoàn tất đo không được (done null) thì printChanged rỗng nên lượt sạch; lúc sinh đo không được mà lúc hoàn tất đo được thì cũng sạch; ở cổng now null thì bỏ qua. Nội dung đổi bằng lệnh possible không vào sổ nên vế theo sổ không thấy. (consistency.ts, nhánh turn.complete và stalePrints.)
+   Đề xuất: đã có một mốc dấu mà mốc sau đo không được thì không tính lượt đó (hay coi là chưa xác nhận ở cổng); chỉ engine không có fs ở mọi mốc mới chạy theo sổ.
+2. Chụp dấu lúc sinh và đọc spawnSeq sau await next() của agent.spawn (subagent đã khởi chạy): thay đổi bằng lệnh possible trong cửa sổ đó lọt vào bản chụp lúc sinh. Cửa sổ ngắn, có thật khi chạy song song.
+   Đề xuất: chụp trước next() cho lượt có thể đủ điều kiện, bỏ bản ghi khi sau next() hóa ra haiku hay fork.
+Vừa: tập lúc sinh đọc từ core trước lần gọi router (chặn thừa khi song song); lượt của mục tiêu cũ hoàn tất sau khi đổi mục tiêu xóa kết luận của mục tiêu mới (chặn thừa). Nhẹ: mktemp bị rào definite; cắt theo Object.keys với agentId toàn chữ số.
+Đột biến: 090-C6zq còn sống (mốc lúc sinh chỉ có tác dụng khi fs không đo được, chưa có ca diệt).
