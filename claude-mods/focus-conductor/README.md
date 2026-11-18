@@ -92,6 +92,7 @@ Mod chỉ nạp cho phiên mở bằng lệnh này và tự nạp lại khi sử
 | `/conductor resume discard` | Bỏ điểm dừng đang mở; gõ lần hai trong 10 giây để xác nhận |
 | `/conductor waive <số thứ tự hoặc lệnh> <lý do>` | Từ 0.7.9: miễn một lệnh kiểm chưa đạt trong mục tiêu hiện tại. Số thứ tự lấy từ danh sách "Lệnh kiểm chưa đạt" mà `/conductor` và `/conductor status` in; lý do từ 10 ký tự trở lên, thiếu thì lệnh trả cách dùng. **Chỉ nhận khi do anh gõ** (terminal hay Remote Control); lệnh từ plugin, SDK hay lịch bị từ chối, và Claude không có đường nào để tự miễn |
 | `/conductor waive undo <số thứ tự>` | Bỏ một lệnh miễn: lệnh quay lại đúng lượt lúc miễn |
+| `/conductor waive review` | Từ 0.9.0: miễn duyệt độc lập của mục tiêu đang mở; cổng đóng mục tiêu không chặn nữa, pane và `/conductor status` ghi bước chưa đạt là đã miễn. Mã mục tiêu đã miễn lưu trong trạng thái của mod nên còn sau khi nạp lại mod. **Chỉ nhận khi do anh gõ** |
 | `/conductor solo` | Từ 0.8.6: khi Fable đang điều phối việc lớn, cho luồng chính tự sửa file và tự chạy kiểm trong mục tiêu hiện tại (dùng khi không giao được việc cho subagent). **Chỉ nhận khi do anh gõ**; không đang điều phối thì lệnh trả một dòng giải thích |
 | `/conductor solo off` | Bỏ miễn: luồng chính lại giao việc sửa file và chạy kiểm cho subagent |
 | `/conductor errors` | Từ 0.7.9: in tối đa 20 loại lỗi của chính mod, mới nhất trước (nhóm, nơi xảy ra, thông điệp, số lần, lần cuối, `regressed`). Chỉ in cho anh, không gửi lên model |

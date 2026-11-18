@@ -20,6 +20,7 @@ import { RETRY_ROUNDS, WAIVE_REPORT, briefContext, checkHintLines, droppedGoalNo
 import { PANE_ROWS, shouldAutoOpenPane } from '../lib/pane'
 import { PANE, PANE_TITLE } from '../ui/pane'
 import { conductStatusSuffix, conductorLine, labels, langOf } from '../ui/labels'
+import type { Lang } from '../ui/labels'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -92,6 +93,19 @@ async function commandLimits($: EngineInterface): Promise<readonly unknown[] | n
     usage = null
   }
   return usage !== null && Array.isArray(usage.rateLimits) ? usage.rateLimits : null
+}
+
+/**
+ * Dòng bước đóng của /conductor status (vòng 2 U6), ngay sau checklist: cùng Core.team với mục Bước đóng của pane; mục tiêu đã miễn thì
+ * bước chưa đạt ghi đã miễn. Đội hình chưa bật thì không có dòng.
+ */
+export function closingStatusLines(core: Core, lang: Lang): string[] {
+  const brief = core.brief
+  if (brief === null || core.team === undefined || core.team.goalId !== brief.goalId || core.team.steps.length === 0) return []
+  const l = labels(lang)
+  const isWaived = core.closingWaived === brief.goalId
+  const parts = core.team.steps.map(step => `${l.teamSteps[step.name]} ${isWaived && step.state !== 'pass' ? l.teamWaived : l.teamStates[step.state]}`)
+  return [`${l.teamHeading}: ${parts.join(' \u00b7 ')}`]
 }
 
 /** Status line kèm nhãn hạn mức (0.6.1): mọi chỗ đặt status của file này đi qua đây, nên nhãn không mất giữa các hook. */
@@ -543,6 +557,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
           ...((core.brief.dropped ?? 0) > 0 ? [droppedItemsText(core.brief.dropped ?? 0)] : []),
           ...removedTaskLines(core.brief),
           renderPlan(core.brief, shown.plan) + (shown.source === 'mirror' ? '\n(theo danh sách việc của Claude Code, chỉ để theo dõi)' : ''),
+          ...closingStatusLines(core, lang),
           ...retryLines(core),
           ...waiverLines(core),
           ...costLines,

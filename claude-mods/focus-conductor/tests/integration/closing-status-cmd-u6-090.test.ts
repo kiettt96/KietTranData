@@ -13,7 +13,9 @@ describe('0.9.0 vòng 2 U6: /conductor status và trợ giúp nêu bước đón
     expect(text).toContain('Bước đóng (mod): Kiểm đạt · Duyệt chờ')
     const lines = text.split('\n')
     const at = lines.findIndex(line => line.startsWith('Bước đóng (mod):'))
-    expect(lines[at - 1]).toContain('Việc 3: báo cáo')
+    // Ngay sau khối checklist: dòng trước là dòng cuối của khối đó ("Bước tiếp theo: ..."), và các bước nằm trước.
+    expect(lines[at - 1]).toContain('Bước tiếp theo')
+    expect(lines.slice(0, at).some(line => line.includes('Việc 3: báo cáo'))).toBe(true)
   })
   test('sau lệnh miễn: bước chưa đạt ghi "đã miễn"', SAMPLE_OPTS(), async ($, on) => {
     const sample = sampleSetup(on)

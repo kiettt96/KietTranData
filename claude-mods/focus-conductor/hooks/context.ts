@@ -92,6 +92,7 @@ export const COMMAND_HELP = [
   '/conductor approve     duyệt kế hoạch đang chờ (chỉ người gõ)',
   '/conductor solo        luồng chính đang điều phối được tự sửa file và tự chạy kiểm (chỉ người gõ); solo off để bỏ',
   '/conductor waive N lý do   miễn lệnh kiểm chưa đạt số N (hoặc ghi lệnh) cho mục tiêu này; waive undo N bỏ lệnh miễn',
+  '/conductor waive review   miễn duyệt độc lập của mục tiêu đang mở (chỉ người gõ)',
   '/conductor errors      nhật ký lỗi của mod; errors clear xóa nhật ký',
 ].join('\n')
 
