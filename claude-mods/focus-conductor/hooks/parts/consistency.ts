@@ -194,7 +194,9 @@ async function closingGate($: EngineInterface, ctx: Ctx, core: Core, log: Eviden
   const files = missing !== 'check' && unique.length > 0 ? ` File đã đổi trong hay sau lượt duyệt: ${printNames(unique)}.` : ''
   // Lần chạy gần nhất của lệnh kiểm sau thay đổi cuối đi qua ống (sau phiên thật D4, mục 2b): nêu đúng nguyên nhân và cách chạy lại.
   const pipe = L.pipeNotes.goalId === brief.goalId ? L.pipeNotes.last : null
-  const piped = missing === 'check' && pipe !== null && pipe.seq > lastHard ? ` Lần chạy \`${clipText(pipe.command, 40)}\` đi qua ống nên mã thoát bị che, không tính; chạy lại không kèm ống, hoặc thêm set -o pipefail.` : ''
+  // Câu về ống lệnh chỉ khi lần chạy gần nhất của lệnh đó là lần qua ống (vòng 2 F3): chính lệnh đó chạy lại sau đó thì bỏ câu.
+  const rerun = pipe !== null && stepRunsFor(ctx, brief.goalId).runs.some(run => run.seq >= pipe.seq && run.keys.includes(runKey(pipe.command)))
+  const piped = missing === 'check' && pipe !== null && pipe.seq > lastHard && !rerun ? ` Lần chạy \`${clipText(pipe.command, 40)}\` đi qua ống nên mã thoát bị che, không tính; chạy lại không kèm ống, hoặc thêm set -o pipefail.` : ''
   return `${reason}${unclear}${files}${piped}`.slice(0, CLOSING_CHARS)
 }
 
