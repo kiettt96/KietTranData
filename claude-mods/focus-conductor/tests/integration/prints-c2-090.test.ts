@@ -413,3 +413,43 @@ describe('0.9.0 C2 dấu file, vòng sửa 1: trần lượt', () => {
     expect(await stop($)).toContain(BLOCK)
   })
 })
+
+describe('0.9.0 C2 dấu file: file skill trong tập dấu', () => {
+  const SKILL = '/repo/skills/ra-soat/SKILL.md'
+  const REF = '/repo/skills/ra-soat/references/mau.md'
+  async function skillGoal($: Engine, seen: Seen, files: Map<string, FakeFile>) {
+    await $.agent.offer({ agent: 'general-purpose', description: 'việc chung', source: 'built-in', provider: { plugin: 'engine', tier: 'core' } } as never)
+    await submit($, 'Sửa skill rà soát')
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa skill' }] } as never)
+    await $.turn.start({ text: 'Sửa skill rà soát', turnId: 't1' })
+    await step($, seen, { turnId: 't1' })
+    for (const path of [SKILL, REF]) {
+      await call($, { tool: 'Edit', file_path: path, old_string: 'a', new_string: 'b' })
+      files.set(path, { text: `# ${path}\n`, mtimeMs: 100 })
+    }
+    await call($, { tool: 'Bash', command: 'bun test' })
+  }
+  test('SKILL.md đổi nội dung sau lượt duyệt ĐẠT: kết luận hết hiệu lực, lý do nêu tên tệp', OPTS(), async ($, on) => {
+    const files = new Map<string, FakeFile>()
+    const seen = setup(on, files, GOAL({ scope: ['/repo/skills'], depth: 'substantial' }))
+    await skillGoal($, seen, files)
+    await agent($, 'Kiểm độc lập: skill', 'ĐẠT')
+    await close($)
+    expect(await stop($)).toBe('')
+    files.set(SKILL, { text: '# đã đổi\n', mtimeMs: 300 })
+    const block = await stop($)
+    expect(block).toContain(BLOCK)
+    expect(block).toContain('SKILL.md')
+  })
+  test('cùng kịch bản, tệp đổi là tệp tiến độ: kết luận còn hiệu lực', OPTS(), async ($, on) => {
+    const files = new Map<string, FakeFile>()
+    const seen = setup(on, files, GOAL({ scope: ['/repo/skills'], depth: 'substantial' }))
+    await skillGoal($, seen, files)
+    await agent($, 'Kiểm độc lập: skill', 'ĐẠT')
+    await close($)
+    expect(await stop($)).toBe('')
+    await call($, { tool: 'Write', file_path: `${W}/TIEN-DO.md`, content: 'x' })
+    files.set(`${W}/TIEN-DO.md`, { text: 'x', mtimeMs: 400 })
+    expect(await stop($)).toBe('')
+  })
+})
