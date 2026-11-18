@@ -143,12 +143,9 @@ describe('0.9.0 D: nhận lượt duyệt theo kết quả', () => {
     await start($, seen)
     await edit($)
     await check($)
-    // Đổi đặc tả (vòng sửa 1 sau kiểm độc lập của dấu file, 18/11): general-purpose không tiền tố trên mục tiêu sửa mã là vai build, không
-    // được chụp dấu lúc sinh nên kết luận không được tính; lượt duyệt mang tiền tố "Kiểm độc lập: " thì được tính.
+    // Khôi phục kỳ vọng cũ (vòng sửa cuối 18/11, A3): điều kiện được tính theo hành vi, tiền tố không bắt buộc.
     await answer($, 'Rà lại thay đổi phí', 'đạt kèm lỗi nhẹ\n- Nhỏ: tên biến')
     await close($)
-    expect(await stop($)).toContain(BLOCK)
-    await answer($, 'Kiểm độc lập: thay đổi phí', 'đạt kèm lỗi nhẹ\n- Nhỏ: tên biến')
     expect(await stop($)).not.toContain(BLOCK)
     const pane = (await (await $.ui.mount(PANE)).findAll({ type: 'Text' })).map(e => e.text ?? '').join('\n')
     expect(pane).toContain('Duyệt: đạt')
