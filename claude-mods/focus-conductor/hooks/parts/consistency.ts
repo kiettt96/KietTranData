@@ -252,8 +252,8 @@ function teamSteps(core: Core, brief: Brief, log: EvidenceLog, verdicts: readonl
 
 /**
  * Bước kiểm của cổng đóng và của pane (0.9.0 vòng 2 F1). Đạt khi sau thay đổi không nhẹ cuối có một lần lệnh kiểm mod nhận ra chạy đạt,
- * hoặc một lần chạy khớp lệnh ở check của một bước đủ điều kiện bằng chứng của B10 (stepEvidence). Chưa đạt khi lần chạy gần nhất sau thay
- * đổi đó, thuộc một trong hai loại, bị lỗi.
+ * hoặc một lần chạy khớp lệnh ở check của một bước đủ điều kiện bằng chứng của B10 (stepEvidence), và lần chạy gần nhất sau thay đổi đó
+ * thuộc một trong hai loại không lỗi. Chưa đạt khi lần chạy gần nhất đó bị lỗi.
  */
 export function closingCheckState(plan: readonly PlanStep[], log: EvidenceLog, steps: { runs: readonly StepRun[]; checkSeq: ReadonlyMap<number, number> }): { checked: boolean; checkFailed: boolean } {
   const lastHard = log.lastHard
@@ -263,7 +263,9 @@ export function closingCheckState(plan: readonly PlanStep[], log: EvidenceLog, s
   const keys = plan.flatMap(step => { const check = stepCheckOf(step.check); return check !== null ? [runKey(check.command)] : [] })
   const lastRun = [...steps.runs].reverse().find(run => run.seq > lastHard && keys.some(key => run.keys.includes(key)))
   const latest = lastRun !== undefined && (lastKnown === undefined || lastRun.seq >= lastKnown.seq) ? { ok: lastRun.passed } : lastKnown !== undefined ? { ok: lastKnown.ok } : null
-  return { checked: log.hard === 0 || known || byStep, checkFailed: latest !== null && !latest.ok }
+  // Lần chạy gần nhất quyết khi nó lỗi (kiểm độc lập vòng 2): lần đạt trước đó không còn tính.
+  const latestFailed = latest !== null && !latest.ok
+  return { checked: log.hard === 0 || ((known || byStep) && !latestFailed), checkFailed: latestFailed }
 }
 
 /**
