@@ -7,6 +7,7 @@ import { stepCheckOf } from './drift/stepcheck'
 import { hasDeclaredCheckFor, isSelfFixing } from './drift/verify'
 import { classifyBash } from './drift/classify'
 import { isRoleTemp } from './drift/scope'
+import { tempRewrite } from './drift/tempdir'
 import type { EvidenceLog } from './drift/evidence'
 
 /** Số file không nhẹ khác nhau được sửa thì bật đội hình dù router chấm độ sâu thấp (0.9.0 C1). Đặt một chỗ, ghi trong DESIGN. */
@@ -297,11 +298,12 @@ export function prefixRole(description: string): 'review' | 'audit' | 'design' |
   return ROLE_PREFIXES.find(([prefix]) => head.startsWith(prefix.normalize('NFC').toLowerCase()))?.[1]
 }
 
+
 /**
  * Rào Bash duy nhất của vai chỉ đọc (0.9.0, C2 đổi cách làm sang đo dấu file): lời gọi có tác động ghi mức definite vào file ngoài thư mục
  * tạm. Đích chưa đọc được, rỗng, hay git trên lịch sử tính là ngoài. Lời gọi mức possible được chạy; hiệu lực của kết luận do dấu file quyết.
  */
 export function isDefiniteOutsideWrite(command: string, cwd?: string): boolean {
-  return classifyBash(command, cwd).effects.some(effect => effect.kind === 'write' && effect.level === 'definite' && (effect.isUnknown || effect.isHistory === true || effect.paths.length === 0 || effect.paths.some(path => !isRoleTemp(path))))
+  return classifyBash(tempRewrite(command, cwd ?? null), cwd).effects.some(effect => effect.kind === 'write' && effect.level === 'definite' && (effect.isUnknown || effect.isHistory === true || effect.paths.length === 0 || effect.paths.some(path => !isRoleTemp(path))))
 }
 

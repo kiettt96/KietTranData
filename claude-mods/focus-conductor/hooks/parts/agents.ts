@@ -534,6 +534,15 @@ export function registerAgents(on: On, ctx: Ctx): void {
     const isTeamOn = spawnCore.team !== undefined && spawnCore.brief !== null && spawnCore.team.goalId === spawnCore.brief.goalId
     const isReported = spawnRole !== undefined && e.fork !== true && (prefixRole(info?.description ?? e.description) !== undefined || isTeamOn)
     const reportSuffix = isReported && spawnRole !== undefined ? `\n\n${reportLine(spawnRole, langOf(ctx.options['uiLanguage']))}` : ''
+    // Dấu file lúc sinh chụp trước next() (vòng sửa cuối 18/11, A2): next() trả về khi subagent đã khởi chạy, nên chụp sau đó có thể đã mang
+    // thay đổi của chính lượt. Chụp cho mọi lượt có thể cho kết luận được tính (không phải phiên con fork, không tiền tố audit, model dự kiến
+    // không phải haiku); sau next() mà hóa ra haiku hay phiên con thì bỏ bản ghi. Tập rỗng thì không gọi fs.
+    const expected = info?.sentFamily ?? spawnRoute?.pick.family ?? null
+    const preGoal = spawnCore.brief?.goalId
+    const isPrinted = e.fork !== true && preGoal !== undefined && prefixRole(info?.description ?? e.description) !== 'audit' && expected !== 'haiku'
+    const preTargets = isPrinted ? printTargets(S.changedOf(spawnCore).paths, spawnCore.brief) : null
+    const prePrints = preTargets === null ? undefined : preTargets.files.length === 0 ? {} : await takePrints({ stat: path => $.fs.stat(path), read: path => $.fs.read(path) as Promise<string> }, preTargets.files, (await $.session.root().catch(() => null)) ?? null).catch(() => null)
+    const preSeq = preGoal !== undefined ? ctx.evidenceFor(preGoal).seq : 0
     const result = await next(reportSuffix !== '' ? { ...e, prompt: `${e.prompt}${reportSuffix}` } : e)
     if (result.deny !== undefined) return result
     // Phiên con (0.7.9 F1): lời gọi Agent đã có spawn, nên lỗi về sau là lỗi của phần đó, không phải engine từ chối.
@@ -599,18 +608,10 @@ export function registerAgents(on: On, ctx: Ctx): void {
     }
     if (workflowTask !== undefined && core.brief !== null) await update($, coreState, S.withDelegations(core.brief.goalId, delegationItems(core.brief)))
     if (forkPart !== null && agentId !== undefined) await update($, coreState, S.withForkCall(e.tool_use_id, p => ({ ...p, agentId })))
-    // Dấu file lúc sinh (0.9.0, C2 đo dấu file): chỉ subagent có thể cho kết luận được tính (bổ sung 18/11 mục 4): model từ sonnet, không
-    // phải vai build, không mang tiền tố của vai audit. Tập là file không nhẹ đã đổi của mục tiêu; tập rỗng thì không gọi fs.
-    const canReview = family !== 'haiku' && spawnRole !== 'build' && prefixRole(info?.description ?? e.description) !== 'audit'
-    if (agentId !== undefined && forkPart === null && e.fork !== true && canReview && core.brief !== null) {
-      const targets = printTargets(S.changedOf(core).paths, core.brief)
-      const goal = core.brief.goalId
-      // Lượt có thể cho kết luận được tính luôn có bản ghi lúc sinh, kể cả khi tập rỗng ({}), cùng mốc của sổ (vòng sửa 1 sau kiểm độc lập).
-      // Mã băm lúc sinh luôn tính mới, không lấy từ lượt khác.
-      if (targets.isCapped) record(await $.clock.now(), 'print-cap', { goalId: goal, files: PRINT_FILES })
-      const prints = targets.files.length === 0 ? {} : await takePrints({ stat: path => $.fs.stat(path), read: path => $.fs.read(path) as Promise<string> }, targets.files, (await $.session.root().catch(() => null)) ?? null).catch(() => null)
-      const spawnSeq = ctx.evidenceFor(goal).seq
-      await update($, printState, state => withSpawnSeq(withPrint(normalizeReviewPrints(state), goal, 'spawn', agentId, prints), goal, agentId, spawnSeq))
+    // Ghi bản chụp lúc sinh (vòng sửa cuối 18/11, A2, A3): điều kiện theo hành vi, không theo vai; model đã chạy từ sonnet, không phải phiên con.
+    if (agentId !== undefined && forkPart === null && prePrints !== undefined && preGoal !== undefined && family !== 'haiku') {
+      if (preTargets?.isCapped === true) record(await $.clock.now(), 'print-cap', { goalId: preGoal, files: PRINT_FILES })
+      await update($, printState, state => withSpawnSeq(withPrint(normalizeReviewPrints(state), preGoal, 'spawn', agentId, prePrints), preGoal, agentId, preSeq))
     }
 
     const sent = info?.sentFamily ?? null

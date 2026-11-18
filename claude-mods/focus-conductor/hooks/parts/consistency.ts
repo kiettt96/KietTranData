@@ -12,7 +12,8 @@ import { globToRegExp } from '../lib/drift/soft'
 import { coversScope } from '../lib/drift/evidence'
 import { PLAN_SET_CHECK_LINE } from '../lib/approval'
 import { isUnclearVerdict, reportTable, verdictOf } from '../lib/verdict'
-import { EMPTY_REVIEW_PRINTS, changedPrints, normalizeReviewPrints, printNames, printTargets, takePrints, withPrint, withStale } from '../lib/prints'
+import { tempRewrite } from '../lib/drift/tempdir'
+import { EMPTY_REVIEW_PRINTS, changedPrints, isMeasured, normalizeReviewPrints, printNames, printTargets, takePrints, withPrint, withStale } from '../lib/prints'
 import { closingNote, closingSteps, hardFileCount, hasKnownCheck, isDocsOnly, prefixRole, teamCause } from '../lib/team'
 import type { ClosingVerdict } from '../lib/team'
 import type { SideLists } from '../lib/drift/scope'
@@ -130,7 +131,7 @@ async function closingGate($: EngineInterface, ctx: Ctx, core: Core, log: Eviden
   const stale = await stalePrints($, brief.goalId, L.verdicts.goalId === brief.goalId ? L.verdicts.items : [])
   // Ghi lượt hết hiệu lực vào $.state (bổ sung 18/11 mục 3) rồi tính lại Core.team, để pane và band thấy bước duyệt chưa xong ngay sau lần xét.
   if (stale.agents.size > 0) {
-    await update($, printState, state => withStale(normalizeReviewPrints(state), brief.goalId, stale.agents))
+    await update($, printState, state => withStale(normalizeReviewPrints(state), brief.goalId, stale.agents, stale.files))
     await refreshTeam($, ctx)
   }
   const staleIds = new Set([...normalizeReviewPrints(await read($, printState)).stale, ...stale.agents])
@@ -159,9 +160,14 @@ async function closingGate($: EngineInterface, ctx: Ctx, core: Core, log: Eviden
   await ctx.flushDecisions((path, text) => $.fs.write(path, text))
   const reason = closingReasonText(missing)
   // Tên file đã đổi (0.9.0, C2 đo dấu file): đổi sau lượt duyệt (cổng xét lại), hay đổi ngay trong lượt duyệt sau thay đổi cuối.
-  const named = [...stale.files]
+  // Mọi lần chặn đều nêu tên file (vòng sửa cuối 18/11, A6): file đổi dấu đã ghi trong $.state, file đổi trong lượt duyệt, và file có lần
+  // sửa definite sau lượt duyệt được tính gần nhất theo sổ.
+  const prints = normalizeReviewPrints(await read($, printState))
+  const named = [...stale.files, ...(prints.goalId === brief.goalId ? prints.staleFiles : []).filter(path => !stale.files.includes(path))]
   const lastRun = verdicts[verdicts.length - 1]
   for (const v of verdicts) if (v.seq > log.lastChange || v === lastRun) for (const path of v.changed ?? []) if (!named.includes(path)) named.push(path)
+  const counted = (L.verdicts.goalId === brief.goalId ? L.verdicts.items : []).filter(v => v.isClean && v.isReview).reduce((max, v) => Math.max(max, v.seq), -1)
+  if (counted >= 0) for (const w of log.writes) if (w.seq > counted && w.definite === true && (w.hard === true || w.skill === true)) for (const path of w.paths ?? []) if (!named.includes(path)) named.push(path)
   // Dòng kết luận không đứng riêng (bổ sung 18/11 mục 2): lượt gần nhất sau thay đổi cuối chỉ có dòng như vậy.
   const latest = [...verdicts].reverse().find(v => v.seq > log.lastChange && prefixRole(v.description) !== 'audit')
   const unclear = missing !== 'check' && latest?.unclear === true ? ' Câu trả lời của lượt duyệt chưa có kết luận: dòng kết luận phải đứng riêng (ĐẠT, CHƯA ĐẠT, hay kèm lỗi nhẹ); hỏi lại chính subagent đó.' : ''
@@ -180,14 +186,30 @@ async function stalePrints($: EngineInterface, goalId: number, verdicts: readonl
   if (state.goalId !== goalId) return { agents, files }
   for (const v of verdicts) {
     const done = state.done[v.agentId]
-    if (!v.isClean || !v.isReview || done === null || state.stale.includes(v.agentId)) continue
+    if (!v.isClean || !v.isReview || state.stale.includes(v.agentId)) continue
     // Dấu lúc hoàn tất đã bị đẩy khỏi trần lượt: không xét lại được thì coi là hết hiệu lực.
     if (done === undefined) {
       agents.add(v.agentId)
       continue
     }
-    const now = await takePrints({ stat: path => $.fs.stat(path), read: path => $.fs.read(path) as Promise<string> }, Object.keys(done), (await $.session.root().catch(() => null)) ?? null, done).catch(() => null)
-    if (now === null) continue
+    const root = (await $.session.root().catch(() => null)) ?? null
+    const fs = { stat: (path: string) => $.fs.stat(path), read: (path: string) => $.fs.read(path) as Promise<string> }
+    // Lượt theo sổ (fs không đo được lúc sinh và lúc hoàn tất): lúc cổng xét mà fs đo được thì là đo lúc được lúc không, hết hiệu lực
+    // (vòng sửa cuối 18/11, A1).
+    if (done === null) {
+      const core = S.normalizeCore(await read($, coreState))
+      const targets = printTargets(S.changedOf(core).paths, core.brief).files
+      const probe = targets.length === 0 ? {} : await takePrints(fs, targets, root).catch(() => null)
+      if (isMeasured(probe)) agents.add(v.agentId)
+      continue
+    }
+    if (Object.keys(done).length === 0) continue
+    const now = await takePrints(fs, Object.keys(done), root, done).catch(() => null)
+    // Đã có dấu mà lúc cổng xét không đo được: chưa xác nhận, không tính (A1).
+    if (now === null) {
+      agents.add(v.agentId)
+      continue
+    }
     const changed = changedPrints(done, now)
     if (changed.length === 0) continue
     agents.add(v.agentId)
@@ -807,7 +829,8 @@ function changedTargets(observation: ToolObservation, root: string | null, lists
   if (observation.isError || !isMutation(observation)) return null
   const path = filePathOf(observation)
   const command = observation.tool === 'Bash' ? String(observation.input['command'] ?? '') : ''
-  const raw = path ? [path] : command ? classifyBash(command).paths : []
+  // Lệnh dùng thư mục mktemp, pushd, popd được viết lại trước khi đọc đích (vòng sửa cuối 18/11, A5), như sổ bằng chứng.
+  const raw = path ? [path] : command ? classifyBash(tempRewrite(command, observation.cwd ?? root ?? null)).paths : []
   if (raw.length === 0) return { paths: [], isUnknown: observation.tool === 'Bash' }
   const base = observation.cwd ?? root ?? ''
   // Tệp trạng thái và nơi ghi phụ (0.9.0 B2) không là file đã đổi của mục tiêu.
@@ -1580,7 +1603,9 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       // không ghi file ngoài thư mục tạm mới tính cho cổng (isClean). Vai: tiền tố hay vai mod suy; không có thì theo loại kết luận.
       const parsed = e.reason === 'answer' && meta !== undefined ? verdictOf(e.answer ?? '') : null
       const isUnclear = e.reason === 'answer' && parsed === null && isUnclearVerdict(e.answer ?? '')
-      if (e.reason === 'answer' && meta !== undefined && (parsed !== null || meta.role !== undefined || isUnclear)) {
+      // Lượt của mục tiêu cũ hoàn tất sau khi đổi mục tiêu không đụng kết luận và dấu của mục tiêu mới (vòng sửa cuối 18/11, A4).
+      const liveGoal = S.normalizeCore(await read($, coreState)).brief?.goalId
+      if (e.reason === 'answer' && meta !== undefined && meta.goalId === liveGoal && (parsed !== null || meta.role !== undefined || isUnclear)) {
         const role: Role = meta.role ?? (parsed?.verdict === 'ready' || parsed?.verdict === 'not-ready' ? 'design' : 'review')
         // Sạch (0.9.0, C2 đo dấu file): dấu của tập file không đổi giữa lúc sinh và lúc hoàn tất, và sổ không ghi lần ghi definite nào của
         // subagent này vào file không nhẹ ngoài thư mục tạm. fs không đo được thì chỉ theo sổ.
@@ -1591,18 +1616,22 @@ export function registerConsistency(on: On, ctx: Ctx): void {
         const spawned = hasSpawn ? prints.spawn[agentId] : undefined
         const spawnSeq = hasSpawn ? prints.spawnSeq[agentId] : undefined
         let printChanged: string[] = []
-        if (spawned !== undefined && spawned !== null) {
+        // Đo lúc được lúc không (vòng sửa cuối 18/11, A1): fs đo được ở một mốc mà không đo được ở mốc khác thì không tính; không đo được ở
+        // mọi mốc thì theo sổ thay đổi.
+        let isMixed = false
+        if (hasSpawn) {
           const nowCore = S.normalizeCore(await read($, coreState))
-          const later = printTargets(S.changedOf(nowCore).paths, nowCore.brief).files.filter(path => !(path in spawned))
-          const done = await takePrints({ stat: path => $.fs.stat(path), read: path => $.fs.read(path) as Promise<string> }, [...Object.keys(spawned), ...later], (await $.session.root().catch(() => null)) ?? null, spawned).catch(() => null)
-          if (done !== null) printChanged = [...changedPrints(spawned, done), ...later]
-          await update($, printState, state => withPrint(normalizeReviewPrints(state), meta.goalId, 'done', agentId, done))
-        } else if (hasSpawn) {
-          // fs không đo được lúc sinh: ghi dấu lúc hoàn tất là null để cổng biết là theo sổ, không nhầm với dấu bị đẩy khỏi trần.
-          await update($, printState, state => withPrint(normalizeReviewPrints(state), meta.goalId, 'done', agentId, null))
+          const before = spawned ?? {}
+          const later = printTargets(S.changedOf(nowCore).paths, nowCore.brief).files.filter(path => !(path in before))
+          const keys = [...Object.keys(before), ...later]
+          const done = keys.length === 0 ? {} : await takePrints({ stat: path => $.fs.stat(path), read: path => $.fs.read(path) as Promise<string> }, keys, (await $.session.root().catch(() => null)) ?? null, before).catch(() => null)
+          const failed = spawned === null || done === null
+          isMixed = failed && (isMeasured(spawned) || isMeasured(done))
+          if (!failed) printChanged = [...changedPrints(before, done ?? {}), ...later]
+          await update($, printState, state => withPrint(normalizeReviewPrints(state), meta.goalId, 'done', agentId, failed ? null : done))
         }
         const wroteHard = ctx.evidenceFor(meta.goalId).writes.some(w => w.author === agentId && (w.hard === true || w.skill === true) && w.definite === true)
-        const isClean = hasSpawn && printChanged.length === 0 && !wroteHard
+        const isClean = hasSpawn && !isMixed && printChanged.length === 0 && !wroteHard
         // Kết luận theo vai (0.9.0 C6): lượt có tiền tố Kiểm:, Audit: và từ ĐẠT HẾT, ALL PASS chỉ là của bước kiểm; duyệt và sẵn sàng cần model
         // từ sonnet trở lên.
         // Model đã chạy: theo usage khi có (model lạ thì không biết họ), không thì họ của lời giao.
