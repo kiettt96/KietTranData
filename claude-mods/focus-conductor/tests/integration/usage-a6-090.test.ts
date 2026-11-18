@@ -5,7 +5,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
-import { formatCost } from '../../hooks/lib/ledger'
+import { addUsage, emptyLedger, formatCost } from '../../hooks/lib/ledger'
 import { JS } from '../fixtures/runner-output'
 import { PANE, base, plan, step, submit } from '../support/engine'
 import type { Seen } from '../support/engine'
@@ -58,6 +58,11 @@ describe('0.9.0 A6: usage vắng, rỗng hay thiếu trường', () => {
       for (const status of seen.statuses) expect(String(status ?? '')).not.toMatch(/NaN|undefined/)
     })
   }
+  test('addUsage nhận usage chỉ có token: chi phí và các ô của sổ là số hữu hạn', () => {
+    const { ledger, usd } = addUsage(emptyLedger(1), 'agent', 'opus', { input_tokens: 10, output_tokens: 10 } as never)
+    expect(Number.isFinite(usd)).toBe(true)
+    for (const value of Object.values(ledger.session.agent)) expect(Number.isFinite(value as number)).toBe(true)
+  })
   test('formatCost: giá trị vắng, null, NaN, Infinity hiện "–"', () => {
     for (const value of [undefined, null, Number.NaN, Number.POSITIVE_INFINITY, '1']) expect(formatCost(value as never, 'vi'), String(value)).toBe('–')
     expect(formatCost(1.5, 'vi')).toBe('$1,50')
