@@ -2,6 +2,30 @@
 
 Số đo của HEAD hiện tại và của các bản trước. Mọi số do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển] trừ khi nêu khác; hợp đồng đối chiếu evidence ở [DESIGN.md](DESIGN.md), lịch sử thay đổi ở [CHANGELOG.md](../CHANGELOG.md), cách dùng ở [README](../README.md).
 
+## 0.9.0 cổng duyệt: bảng nghiệm thu đóng K1 tới K17 [Đo trực tiếp, `tests/integration/k-table-090.test.ts`, 2.1.327, 18/11/2026]
+
+| Mã | Hành vi | Ca test | Kết quả |
+|---|---|---|---|
+| K1 | Kịch bản kỷ luật giao việc từ đầu tới cuối, conductor off và bật: không lời gọi nào bị từ chối ngoài lệnh kiểm của luồng chính khi conductor bật; cổng Stop không chặn | K1 conductor off: ...; K1 conductor opus: ... | qua |
+| K2 | Người duyệt chép mã sang thư mục tạm và chạy probe, gồm mktemp -d, pushd, git trong thư mục tạm: không bị từ chối, kết luận được tính | K2 mktemp, mktemp -d, pushd, popd, git trong thư mục tạm: ...; K2 đối chứng: sau popd về thư mục dự án, sed -i vào src vẫn bị từ chối | qua |
+| K3 | Mục tiêu light sửa 1 file: không đoạn dặn bước đóng, không chặn | K3 không đoạn dặn bước đóng, không chặn | qua |
+| K4 | Đủ điều kiện bật mà thiếu duyệt: chặn một lần cho trạng thái đó, lý do nêu bước còn thiếu | K4 chặn một lần cho trạng thái đó, lý do nêu bước còn thiếu | qua |
+| K5 | Subagent từ sonnet, không ghi gì, trả ĐẠT hay đạt kèm lỗi nhẹ, có và không có tiền tố: được tính | K5 "Kiểm độc lập: phí" và "Rà lại thay đổi phí", mỗi tên với ĐẠT và đạt kèm lỗi nhẹ (4 ca) | qua |
+| K6 | Tiền tố "Kiểm: " trả ĐẠT HẾT: không tính là duyệt | K6 subagent tiền tố "Kiểm: " trả ĐẠT HẾT: không tính là duyệt | qua |
+| K7 | Subagent chạy haiku trả ĐẠT: không tính | K7 subagent chạy haiku trả ĐẠT: không tính | qua |
+| K8 | Subagent có ghi file dự án trả ĐẠT: không tính | K8 subagent có ghi file dự án (Edit, hay sed -i khi không bị chặn) trả ĐẠT: không tính | qua |
+| K9 | Sửa file sau lượt duyệt: hết hiệu lực, chặn, mọi lần chặn nêu tên file | K9 sửa file sau lượt duyệt: ...; K9 không có fs: ... | qua |
+| K10 | Nội dung một file trong tập đổi giữa lúc sinh và lúc hoàn tất, hay sau lúc hoàn tất, khi fs đo được: hết hiệu lực | K10 đổi giữa lúc sinh và lúc hoàn tất; K10 đổi ngay khi subagent khởi chạy; K10 đổi sau lúc hoàn tất | qua |
+| K11 | File skill cư xử như K9 và K10 | K11 SKILL.md đổi trong lượt duyệt hay sau lượt duyệt: ... | qua |
+| K12 | Việc dọn sau lượt duyệt: còn hiệu lực | K12 tệp tiến độ, sao lưu, git commit, chạy lại khối khởi động: còn hiệu lực | qua |
+| K13 | fs không phản hồi ở mọi mốc: theo sổ; phản hồi ở ít nhất một mốc mà không đo được ở mốc khác: không tính | K13 fs không phản hồi ở mọi mốc: ...; K13 không đo được lúc spawn, complete, gate (3 ca) | qua |
+| K14 | CHƯA ĐẠT đi vào vòng sửa; các dạng dòng kết luận đọc đúng luật đóng | K14 CHƯA ĐẠT đi vào vòng sửa: câu dặn vòng 1; K14 các dạng dòng kết luận đọc đúng luật đóng | qua |
+| K15 | closingReview off, hay phiên không giao được subagent: không chặn | K15 closingReview off: không chặn; K15 phiên không giao được subagent: không chặn | qua |
+| K16 | Lượt của mục tiêu cũ hoàn tất sau khi đổi mục tiêu: không đụng kết luận của mục tiêu mới | K16 lượt của mục tiêu cũ hoàn tất sau khi đổi mục tiêu: ... | qua |
+| K17 | Subagent Explore chạy haiku và mục tiêu chưa sửa file: không gọi fs | K17 subagent Explore chạy haiku: không gọi fs; K17 mục tiêu chưa sửa file: sinh lượt duyệt không gọi fs | qua |
+
+Mức nghiêm trọng của cổng duyệt từ vòng này: lớp nhắc chất lượng; chỉ chặn PR khi văng lỗi, chặn hay từ chối nhầm trong luồng chính, hay trượt một dòng K. Phát hiện khác vào việc tồn.
+
 ## 0.9.0 A6: các trường của usage có thể vắng [Đo trực tiếp, khai báo kiểu, 18/11/2026]
 
 Đọc `.claude-plugin/types/claude-code/index.d.ts` của engine đang chạy (2.1.327) và của 2.1.296:
