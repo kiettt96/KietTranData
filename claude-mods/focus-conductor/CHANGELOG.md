@@ -112,6 +112,9 @@ Ba nhóm việc trong một lượt: sửa lỗi còn tồn (A), chạy trơn v�
 - Nhật ký quyết định bị ghi đè khi chạy tiếp bằng `claude -p --continue`.
 - Trạng thái mục tiêu không sống qua `--continue` ở chế độ không tương tác.
 - Câu "Việc nhỏ: làm trực tiếp, không cần checklist" của mục tiêu light cãi với prompt đòi checklist.
+- F4 (rà soát vòng 2, không sửa trong bản này): lần chạy lệnh ở `check` của bước, ví dụ có `<( )`, bị sổ thay đổi đếm là lệnh ghi không rõ đích; gặp khi lệnh kiểm của bước dùng thay thế tiến trình.
+- F7 (rà soát vòng 2, không sửa trong bản này): khi lượt duyệt gần nhất báo chưa đạt, lý do chặn của cổng đóng chưa nêu riêng điều đó; gặp mỗi khi người duyệt trả CHƯA ĐẠT mà luồng chính kết thúc trước vòng sửa.
+- F8 (rà soát vòng 2, không sửa trong bản này): kết luận của các lượt duyệt lưu ở biến cục bộ của phiên nên không sống qua lần nạp lại mod hay chạy tiếp bằng `--continue`; gặp ở phiên không tương tác chạy nhiều lần.
 
 ## Thay đổi 0.8.9: router bị engine từ chối khi đọc prompt dài
 
