@@ -249,8 +249,11 @@ describe('0.9.0 C2 dấu file, bổ sung 18/11', () => {
     expect(verdictOf('ĐẠT KÈM 2 LỖI NHẸ')?.verdict).toBe('pass')
     for (const text of ['PASS with tests skipped', 'ĐẠT kèm ghi chú', 'ĐẠT, chặn ở bước 2', 'PASS, 1 blocker']) expect(verdictOf(text)?.verdict, text).toBe('fail')
     for (const text of ['ĐẠT phần A', 'PASS overall']) expect(verdictOf(text), text).toBeNull()
-    // Theo đúng chữ của mục 2: "lớn" ở bất kỳ đâu sau từ kết luận là chưa đạt (chiều an toàn).
-    expect(verdictOf('ĐẠT phần lớn')?.verdict).toBe('fail')
+    // Bổ sung 18/11 lần hai: nặng, lớn, vừa, nghiêm trọng chỉ làm chưa đạt khi đi liền sau "lỗi" hay "vấn đề"; đứng một mình là chưa có kết luận.
+    expect(verdictOf('ĐẠT phần lớn')).toBeNull()
+    expect(verdictOf('ĐẠT, vừa kiểm xong')).toBeNull()
+    expect(verdictOf('ĐẠT, còn 2 lỗi lớn')?.verdict).toBe('fail')
+    for (const text of ['ĐẠT, còn vấn đề nghiêm trọng', 'ĐẠT kèm 1 vấn đề lớn', 'ĐẠT, lỗi vừa ở phí']) expect(verdictOf(text)?.verdict, text).toBe('fail')
   })
   test('(2) câu trả lời chỉ có dòng kết luận không đứng riêng: cổng chặn, lý do nêu dòng kết luận phải đứng riêng và hỏi lại chính subagent đó', OPTS(), async ($, on) => {
     const files = fresh()
@@ -267,8 +270,8 @@ describe('0.9.0 C2 dấu file, bổ sung 18/11', () => {
     const files = fresh()
     const seen = setup(on, files)
     await start($, seen, files)
-    // Hoàn tất không kèm usage: pane của engine giả vỡ khi usage chỉ có số token (có từ 0.8.9, ghi ở việc tồn).
-    await agent($, 'Kiểm độc lập: phí', 'ĐẠT', [], () => {}, undefined, false)
+    // Hoàn tất kèm usage chỉ có số token (0.9.0 A6: pane không còn vỡ).
+    await agent($, 'Kiểm độc lập: phí', 'ĐẠT')
     await close($)
     expect(await stop($)).toBe('')
     const pane = await $.ui.mount(PANE)
