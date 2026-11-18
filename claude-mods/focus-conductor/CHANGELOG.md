@@ -98,6 +98,9 @@ Ba nhóm việc trong một lượt: sửa lỗi còn tồn (A), chạy trơn v�
 - **F3:** câu về ống lệnh trong lý do chặn chỉ hiện khi lần chạy gần nhất của lệnh đó là lần qua ống; chính lệnh đó chạy lại sau đó (đạt hay lỗi) thì bỏ câu. Ca mới `k-table-090` "F3 lệnh ở check của bước chạy qua ống rồi chạy lại ...", mẫu `090-F3a`. Mẫu cũ trôi chuỗi, sửa chuỗi, giữ mã: `090-C6zb` (F2), `090-C6zzc` (F3).
 - **F5:** bước đóng chưa đạt trên pane dùng ■ của bộ ký hiệu cố định (`hooks/ui/style.ts`) thay cho ✗; dấu chéo trong regex nhận output lỗi của lệnh kiểm giữ nguyên vì là dữ liệu đầu vào. Ca mới `closing-stepcheck-f1-090` "F5 bước đóng chưa đạt dùng ký hiệu bị chặn ..." (ký hiệu viết bằng mã `\u`), mẫu `090-F5a`.
 
+**Vòng 2, phần giao diện (U1 tới U8).**
+- **U5:** bước Kiểm của các bước đóng chỉ có khi mục tiêu đã có thay đổi không nhẹ; trước đó mục tiêu vừa mở đã hiện "Kiểm: đạt". Đoạn dặn bước đóng giữ nguyên (vẫn tính theo lệnh kiểm biết được). Ca mới `closing-check-u5-090`, mẫu `090-U5a`. Ca đổi kỳ vọng về chữ hiển thị, giữ tên: `team-mod-090` "substantial có lệnh kiểm: đoạn dặn ... pane hiện bước đóng" (pane chưa có "Kiểm: " khi chưa sửa file).
+
 **Việc tồn** (từ phiên thật D1 và kiểm độc lập):
 - `set -e` ở bất kỳ dòng nào bật errexit cho cả khối heredoc, kể cả khi có `set +e` sau đó; `set -e; ...` trên một dòng thì không nhận ra (chiều an toàn).
 - Dấu `)` trong nháy bên trong `<( )` làm đích ghi lệch (`/repo/a)`).

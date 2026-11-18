@@ -247,7 +247,8 @@ async function stalePrints($: EngineInterface, goalId: number, verdicts: readonl
 /** Trạng thái các bước đóng (0.9.0 C3), dùng chung cho pane (Core.team) và cổng đóng mục tiêu. */
 function teamSteps(core: Core, brief: Brief, log: EvidenceLog, verdicts: readonly ClosingVerdict[], runs: Ctx['local']['stepRuns']) {
   const { checked, checkFailed } = closingCheckState(core.plan, log, runs.goalId === brief.goalId ? runs : { runs: [], checkSeq: new Map() })
-  return closingSteps({ hasCheck: hasKnownCheck(core.plan, S.changedOf(core).paths, log), isHard: brief.depth === 'hard', checked, checkFailed, lastHard: log.lastHard, lastChange: log.lastChange, verdicts })
+  // Bước Kiểm chỉ khi đã có thay đổi không nhẹ cần kiểm (vòng 2 U5); đoạn dặn bước đóng vẫn tính theo hasKnownCheck như trước.
+  return closingSteps({ hasCheck: log.hard > 0 && hasKnownCheck(core.plan, S.changedOf(core).paths, log), isHard: brief.depth === 'hard', checked, checkFailed, lastHard: log.lastHard, lastChange: log.lastChange, verdicts })
 }
 
 /**
