@@ -57,7 +57,13 @@ async function review($: Engine, text = 'ĐẠT') {
   await $.agent.spawn({ prompt: 'Rà.', description, tool_use_id: id } as never)
   await $.turn.complete({ turnId: `x-${id}`, agentId: `a-${id}`, answer: text, durationMs: 5, isAborted: false, reason: 'answer', usage: { model: 'claude-opus-5-5', input_tokens: 10, output_tokens: 10 } } as never)
 }
-const paneText = async ($: Engine) => (await (await $.ui.mount(PANE)).findAll({ type: 'Text' })).map(e => e.text ?? '').join('\n')
+/** Pane mount một lần mỗi engine, các lần sau đọc lại chữ của cùng bản đã mount. */
+const mounted = new WeakMap<Engine, Awaited<ReturnType<Engine['ui']['mount']>>>()
+async function paneText($: Engine): Promise<string> {
+  const pane = mounted.get($) ?? (await $.ui.mount(PANE))
+  mounted.set($, pane)
+  return (await pane.findAll({ type: 'Text' })).map(e => e.text ?? '').join('\n')
+}
 
 describe('0.9.0 vòng 2 F1: cổng đóng tính bằng chứng theo từng bước', () => {
   test('kịch bản của lượt rà soát, có lượt duyệt ĐẠT: cổng Stop không chặn lần nào', OPTS, async ($, on) => {

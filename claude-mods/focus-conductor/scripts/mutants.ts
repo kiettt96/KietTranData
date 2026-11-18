@@ -2627,4 +2627,7 @@ export const MUTANTS: Mutant[] = [
   { id: "090-C6zza", file: "hooks/parts/consistency.ts", note: "lượt có tiền tố không có dòng kết luận không được tính (sau D4, 1f)", old: "const isAssumed = read0 === null && e.reason === 'answer' &&", new: "const isAssumed = false && read0 === null && e.reason === 'answer' &&" },
   { id: "090-C6zzb", file: "hooks/parts/consistency.ts", note: "không nhắc lệnh kiểm qua ống ở kết quả (sau D4, 2a)", old: "          fromAgents.push(pipedCheckNote(piped))\n", new: "" },
   { id: "090-C6zzc", file: "hooks/parts/consistency.ts", note: "lý do chặn không nêu ống lệnh (sau D4, 2b)", old: "const piped = missing === 'check' && pipe !== null && pipe.seq > lastHard ?", new: "const piped = false ?" },
+  { id: "090-F1a", file: "hooks/parts/consistency.ts", note: "bỏ vế lần chạy của bước ở bước kiểm của cổng đóng (vòng 2 F1)", old: "const byStep = plan.some(step => stepEvidence(step, steps.runs, lastHard, steps.checkSeq.get(step.id) ?? -1) !== null)", new: "const byStep = false" },
+  { id: "090-F1b", file: "hooks/parts/consistency.ts", note: "tính cả lần chạy của bước trước thay đổi cuối (vòng 2 F1)", old: "stepEvidence(step, steps.runs, lastHard, steps.checkSeq", new: "stepEvidence(step, steps.runs, -1, steps.checkSeq" },
+  { id: "090-F1c", file: "hooks/parts/consistency.ts", note: "lần chạy lỗi gần nhất của lệnh của bước vẫn tính là không lỗi (vòng 2 F1)", old: "{ ok: lastRun.passed }", new: "{ ok: true }" },
 ]
