@@ -94,6 +94,7 @@ Ba nhóm việc trong một lượt: sửa lỗi còn tồn (A), chạy trơn v�
 
 **Vòng 2 (rà soát độc lập PR 43, 18/11).**
 - **F1:** bước kiểm của cổng đóng và của pane tính cả lần chạy khớp lệnh ở `check` của một bước, đủ điều kiện bằng chứng của B10 (lần chạy mới nhất khớp lệnh đạt, sau thay đổi không nhẹ cuối và sau lần check được lưu, có kết quả mong đợi khi khai, không bị ống che), không chỉ lệnh kiểm mod nhận ra; chưa đạt khi lần chạy gần nhất của một trong hai loại bị lỗi. Cổng và pane dùng chung `closingCheckState`. Trước bản sửa, mục tiêu không khai `checkCommands` bị chặn "chưa có lần kiểm đạt sau thay đổi cuối" dù cả hai bước đã lên `verified`, và lần dừng sau cho qua mà không đòi bước duyệt. Ca mới `closing-stepcheck-f1-090` (K20), mẫu `090-F1a` tới `090-F1c`.
+- **F2:** lý do chặn nêu mỗi file một lần, so theo đường dẫn đã chuẩn hóa (đường dẫn tương đối giải theo thư mục gốc của phiên); trước đó một file sửa lại sau lượt duyệt hiện hai lần (`f1.ts, f1.ts`). Ca mới `k-table-090` "F2 sửa src/f1.ts hai lần sau lượt duyệt ...", mẫu `090-F2a`. Gỡ việc tồn tương ứng.
 
 **Việc tồn** (từ phiên thật D1 và kiểm độc lập):
 - `set -e` ở bất kỳ dòng nào bật errexit cho cả khối heredoc, kể cả khi có `set +e` sau đó; `set -e; ...` trên một dòng thì không nhận ra (chiều an toàn).
@@ -101,7 +102,6 @@ Ba nhóm việc trong một lượt: sửa lỗi còn tồn (A), chạy trơn v�
 - B10 không coi `--update-snapshots`, `jest -u`, `go fmt` là tự sửa; `make check` in "Nothing to be done" vẫn được nâng.
 - `verdictOf` không đọc `FAILED:` (chiều an toàn: chưa có kết luận).
 - Vai audit: lệnh ghi qua trình thông dịch ngoài danh sách đã biết (`node script.js` tự ghi file) vẫn chạy được; kết luận của audit không mở cổng duyệt.
-- Lý do chặn có thể lặp tên file (`phi.ts, phi.ts`) khi cùng một file vào danh sách theo dấu và theo sổ; gặp khá thường khi luồng chính sửa lại đúng file vừa duyệt, chỉ là chuyện hiển thị.
 - Sửa file sau lượt duyệt mà chưa chạy lệnh kiểm: lý do chặn của bước kiểm không nêu tên file (có chủ đích, `missing !== 'check'`); hay gặp khi sửa nhanh rồi kết thúc.
 - Vòng sửa C7 đếm theo description: người duyệt đổi description giữa các vòng thì đếm lại từ vòng 1; khả năng vừa phải.
 - Mức lỗi cao đứng một mình sau từ đạt, không kèm từ tương phản (ví dụ `PASS, 1 critical`, `ĐẠT, chặn ở bước 2`), vẫn đọc là đạt; khả năng thấp vì người duyệt có lỗi cao thường viết CHƯA ĐẠT hay dùng "nhưng", và ba lượt duyệt thật của D4 không có dạng này.

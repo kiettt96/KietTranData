@@ -187,7 +187,11 @@ async function closingGate($: EngineInterface, ctx: Ctx, core: Core, log: Eviden
   // cuối chỉ có dòng như vậy.
   const latest = [...verdicts].reverse().find(v => v.seq > log.lastChange && prefixRole(v.description) !== 'audit')
   const unclear = missing !== 'check' && latest?.unclear === true ? ' Câu trả lời của lượt duyệt chưa có kết luận: kết luận chỉ đạt một phần, cần người duyệt nêu rõ đạt hay chưa đạt; hỏi lại chính subagent đó.' : ''
-  const files = missing !== 'check' && named.length > 0 ? ` File đã đổi trong hay sau lượt duyệt: ${printNames(named)}.` : ''
+  // Mỗi file một lần trong lý do chặn (vòng 2 F2): so theo đường dẫn đã chuẩn hóa, đường dẫn tương đối giải theo thư mục gốc của phiên.
+  const root = await $.session.root().catch(() => null)
+  const keyOf = (path: string) => normalizePath(path.startsWith('/') || root === null ? path : `${root}/${path}`)
+  const unique = named.filter((path, k) => named.findIndex(other => keyOf(other) === keyOf(path)) === k)
+  const files = missing !== 'check' && unique.length > 0 ? ` File đã đổi trong hay sau lượt duyệt: ${printNames(unique)}.` : ''
   // Lần chạy gần nhất của lệnh kiểm sau thay đổi cuối đi qua ống (sau phiên thật D4, mục 2b): nêu đúng nguyên nhân và cách chạy lại.
   const pipe = L.pipeNotes.goalId === brief.goalId ? L.pipeNotes.last : null
   const piped = missing === 'check' && pipe !== null && pipe.seq > lastHard ? ` Lần chạy \`${clipText(pipe.command, 40)}\` đi qua ống nên mã thoát bị che, không tính; chạy lại không kèm ống, hoặc thêm set -o pipefail.` : ''

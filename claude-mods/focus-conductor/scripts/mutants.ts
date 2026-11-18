@@ -2630,4 +2630,5 @@ export const MUTANTS: Mutant[] = [
   { id: "090-F1a", file: "hooks/parts/consistency.ts", note: "bỏ vế lần chạy của bước ở bước kiểm của cổng đóng (vòng 2 F1)", old: "const byStep = plan.some(step => stepEvidence(step, steps.runs, lastHard, steps.checkSeq.get(step.id) ?? -1) !== null)", new: "const byStep = false" },
   { id: "090-F1b", file: "hooks/parts/consistency.ts", note: "tính cả lần chạy của bước trước thay đổi cuối (vòng 2 F1)", old: "stepEvidence(step, steps.runs, lastHard, steps.checkSeq", new: "stepEvidence(step, steps.runs, -1, steps.checkSeq" },
   { id: "090-F1c", file: "hooks/parts/consistency.ts", note: "lần chạy lỗi gần nhất của lệnh của bước vẫn tính là không lỗi (vòng 2 F1)", old: "{ ok: lastRun.passed }", new: "{ ok: true }" },
+  { id: "090-F2a", file: "hooks/parts/consistency.ts", note: "lý do chặn không gộp tên file trùng (vòng 2 F2)", old: "const unique = named.filter((path, k) => named.findIndex(other => keyOf(other) === keyOf(path)) === k)", new: "const unique = named" },
 ]
