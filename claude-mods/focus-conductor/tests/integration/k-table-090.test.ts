@@ -471,8 +471,11 @@ describe('Ca bổ sung cho đột biến của vòng sửa cuối', () => {
     const seen = setup(on, fs)
     await start($, seen, fs)
     await agent($, 'Rà phí', 'ĐẠT', [{ tool: 'Edit', file_path: '/repo/node_modules/x/a.js', old_string: 'a', new_string: 'b' }])
+    await call($, { tool: 'Bash', command: 'bun test' })
     await close($)
-    expect(await stop($)).toContain(BLOCK)
+    const block = await stop($)
+    expect(block).toContain(BLOCK)
+    expect(block).not.toContain('lần kiểm')
   })
   test('K9 dấu đổi không qua lời gọi rồi sửa thêm file khác: lần chặn sau vẫn nêu file đổi dấu', OPTS(), async ($, on) => {
     const fs = new Fs()
