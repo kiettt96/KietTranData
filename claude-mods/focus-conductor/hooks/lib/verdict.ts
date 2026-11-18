@@ -52,38 +52,36 @@ const WORDS: ReadonlyArray<readonly [string, Verdict, boolean]> = [
 /** Một dòng kết luận đọc được: từ kết luận, số đếm N/M nếu có, và cờ chỉ-của-bước-kiểm. */
 type VerdictLine = { verdict: Verdict; count?: string; isCheckOnly: boolean }
 
+/** Phần sau từ kết luận làm đạt thành chưa đạt (0.9.0, C2 đo dấu file, mục 6): "nhưng", "but", hay nhắc lỗi nặng, lớn, vừa, nghiêm trọng. */
+const NEGATING = /(?:^|[^\p{L}])(?:nhưng|but|major|critical|nghiêm trọng)(?:[^\p{L}]|$)|lỗi\s+(?:nặng|lớn|vừa)(?:[^\p{L}]|$)/u
+
 /**
- * Đọc một dòng (0.9.0, đổi đặc tả C2 mục 4): bỏ ký hiệu markdown, dấu đầu dòng, nhãn "Kết luận:" hay "Verdict:", dấu câu ở cuối; dòng
- * chỉ còn đúng một từ kết luận (có thể kèm số đếm N/M) thì là dòng kết luận. Có thêm chữ khác thì không.
+ * Đọc một dòng (0.9.0, C2 đo dấu file, mục 6): bỏ ký hiệu markdown, dấu đầu dòng, nhãn "Kết luận:" hay "Verdict:"; dòng mở đầu bằng một từ
+ * kết luận (cụm chưa đạt xét trước) là dòng kết luận. Phần còn lại có "nhưng", "but" hay nhắc lỗi nặng, lớn, vừa, nghiêm trọng, major,
+ * critical thì đạt thành chưa đạt, sẵn sàng thành chưa sẵn sàng; phần còn lại rỗng hay chỉ nói lỗi nhẹ thì giữ.
  */
 function lineVerdict(raw: string): VerdictLine | null {
   let text = raw.normalize('NFC').replace(/[\u200b-\u200d\ufeff]/gu, '').replace(/[*_`]+/gu, '').replace(/\s+/gu, ' ').trim()
   text = text.replace(/^(?:[#>]+\s*|[-+•]\s+|\d+[.)]\s+)+/u, '').trim()
-  text = text.replace(/^(?:kết luận|verdict)\s*:\s*/iu, '').trim()
-  text = text.replace(/[.!:;,。…\s]+$/u, '').trim().toLowerCase()
+  text = text.replace(/^(?:kết luận|verdict)\s*:\s*/iu, '').trim().toLowerCase()
   for (const [word, verdict, isCheckOnly] of WORDS) {
-    if (!text.startsWith(word)) continue
+    if (!text.startsWith(word) || /^\p{L}/u.test(text.slice(word.length))) continue
     const rest = text.slice(word.length)
-    if (rest === '') return { verdict, isCheckOnly }
-    const count = /^\s*(\d+\s*\/\s*\d+)$/u.exec(rest)?.[1]?.replace(/\s+/g, '')
-    if (count !== undefined) return { verdict, count, isCheckOnly }
+    const count = /^\s*(\d+\s*\/\s*\d+)/u.exec(rest)?.[1]?.replace(/\s+/g, '')
+    const isNegated = NEGATING.test(rest)
+    const final: Verdict = isNegated && verdict === 'pass' ? 'fail' : isNegated && verdict === 'ready' ? 'not-ready' : verdict
+    return { verdict: final, ...(count !== undefined ? { count } : {}), isCheckOnly: isCheckOnly && !isNegated }
   }
   return null
 }
 
-/**
- * Kết luận của câu trả lời subagent (0.9.0 D2, C6, đổi đặc tả C2 mục 4): dòng kết luận đầu tiên quyết loại (duyệt hay sẵn sàng). Có cả dòng
- * đạt lẫn dòng chưa đạt thì là chưa đạt; có cả sẵn sàng lẫn chưa sẵn sàng thì là chưa sẵn sàng. Không có dòng nào thì null.
- */
+/** Kết luận của câu trả lời subagent (0.9.0, C2 đo dấu file, mục 6): dòng kết luận đầu tiên quyết; không có dòng nào thì null. */
 export function verdictOf(answer: string): { verdict: Verdict; count?: string; isCheckOnly?: true } | null {
-  const lines = answer.split('\n').map(lineVerdict).filter((v): v is VerdictLine => v !== null)
-  const first = lines[0]
-  if (first === undefined) return null
-  const isReadiness = first.verdict === 'ready' || first.verdict === 'not-ready'
-  const sameKind = lines.filter(v => (v.verdict === 'ready' || v.verdict === 'not-ready') === isReadiness)
-  const negative = sameKind.find(v => v.verdict === 'fail' || v.verdict === 'not-ready')
-  const chosen = negative ?? first
-  return { verdict: chosen.verdict, ...(chosen.count !== undefined ? { count: chosen.count } : {}), ...(chosen.isCheckOnly ? { isCheckOnly: true as const } : {}) }
+  for (const line of answer.split('\n')) {
+    const found = lineVerdict(line)
+    if (found !== null) return { verdict: found.verdict, ...(found.count !== undefined ? { count: found.count } : {}), ...(found.isCheckOnly ? { isCheckOnly: true as const } : {}) }
+  }
+  return null
 }
 
 /** Trần ký tự của bảng báo cáo chèn khi đóng bước cuối (0.9.0 C8). */

@@ -39,7 +39,8 @@ describe('0.9.0 C4: đọc dòng kết luận', () => {
     expect(M.verdictOf?.('Đã xem xong, nhìn chung ổn.')).toBeNull()
     // Đổi đặc tả C2 mục 4: dòng kết luận là dòng đầu tiên chỉ có đúng một từ kết luận, không phải dòng đầu tiên của câu trả lời.
     expect(M.verdictOf?.('Kết quả:\nĐẠT HẾT')?.isCheckOnly).toBe(true)
-    expect(M.verdictOf?.('FAIL: 1 major')).toBeNull()
+    // Đổi cách làm C2 (mục 6, 18/11): dòng mở đầu bằng từ kết luận là dòng kết luận.
+    expect(M.verdictOf?.('FAIL: 1 major')?.verdict).toBe('fail')
     expect(M.verdictOf?.('Đạtx')).toBeNull()
   })
   test('số đếm của audit đi kèm', () => {

@@ -15,8 +15,9 @@ import type { Json, Seen } from '../support/engine'
 
 describe('0.9.0 vòng sửa (1, 6): quyền theo vai với lệnh ghi mức possible và git', () => {
   for (const command of ['eslint --fix src', 'prettier --write src', 'curl -o /repo/x http://a', 'perl -pi -e s/a/b/ src/a.ts', 'find src -delete', 'patch -p1 < x.diff', "node -e \"require('fs').writeFileSync('a', '1')\"", "python3 -c \"open('a','w')\""]) {
+    // Đổi cách làm C2 sang đo dấu file (18/11): vai duyệt chạy được lệnh mức possible; chỉ vai audit còn bị từ chối.
     test(`review và audit bị từ chối: ${command}`, () => {
-      expect(roleDenial('review', 'Bash', { command }, 'duyệt')).not.toBeNull()
+      expect(roleDenial('review', 'Bash', { command }, 'duyệt')).toBeNull()
       expect(roleDenial('audit', 'Bash', { command }, 'kiểm')).not.toBeNull()
     })
   }
@@ -89,13 +90,6 @@ async function start($: Engine, seen: Seen) {
 const close = ($: Engine) => $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'done' })
 
 describe('0.9.0 vòng sửa (1, 2, 3): cổng đóng', () => {
-  test('subagent không tiền tố chạy eslint --fix rồi trả ĐẠT: kết luận không tính, cổng chặn', OPTS, async ($, on) => {
-    const seen = setup(on)
-    await start($, seen)
-    await answer($, 'Rà phí', 'ĐẠT', ['eslint --fix src', 'bun test'])
-    await close($)
-    expect(await stop($)).toContain('duyệt độc lập')
-  })
   test('duyệt ĐẠT rồi duyệt lần hai CHƯA ĐẠT, không sửa gì: cổng chặn', OPTS, async ($, on) => {
     const seen = setup(on)
     await start($, seen)

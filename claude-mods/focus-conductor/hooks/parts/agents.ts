@@ -12,10 +12,10 @@ import { FORK_QUOTA_DENY, RETRY_PREFIX, RETRY_ROUNDS, forkRetryNote, forkReturnN
 import { liveForks, openParts } from '../lib/forks'
 import { classifyBash, filePathOf, isSkillTrial, normalizePath } from '../lib/drift'
 import { isRoleTemp } from '../lib/drift/scope'
-import { isBashWrite, isReadOnlyAllowed, prefixRole } from '../lib/team'
-import { stepCheckOf } from '../lib/drift/stepcheck'
+import { isBashWrite, isDefiniteOutsideWrite, prefixRole } from '../lib/team'
 import { labels, langOf } from '../ui/labels'
 import { reportLine } from '../lib/verdict'
+import { EMPTY_REVIEW_PRINTS, PRINT_FILES, normalizeReviewPrints, printTargets, takePrints, withPrint } from '../lib/prints'
 import { shownPlan } from '../lib/mirror'
 import { tierOf } from '../lib/scale'
 import type { AgentRoute } from '../lib/router'
@@ -29,18 +29,10 @@ import { FANOUT_WARN } from '../context'
 // Atom của mod, khai báo lại ở mỗi file dùng chúng (engine chỉ nhận tham chiếu state viết trong chính file đó);
 // cùng plugin và key nên là cùng một giá trị trong $.state.
 const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EMPTY_CORE)
+// Dấu file của các lượt duyệt (0.9.0, C2 đo dấu file); khai lại ở parts/consistency.ts cùng key.
+const printState = atom({ plugin: 'focus-conductor', key: 'reviewPrints' } as const, EMPTY_REVIEW_PRINTS)
 
 /** Áp kết quả một lượt router gửi Fable vào Core (0.8.4 C6): vừa tạm ngừng thì toast và một dòng nhật ký conductor. */
-/**
- * Khung xét tập cho phép (0.9.0, đổi đặc tả C2): thư mục làm việc của mỗi lời gọi là thư mục gốc của phiên; lệnh ở check của các bước trong
- * kế hoạch của mục tiêu.
- */
-async function roleFrame($: EngineInterface): Promise<{ cwd: string | null; stepChecks: string[] }> {
-  // Shell của subagent về thư mục gốc sau mỗi lời gọi Bash (DESIGN, F1 và kiểm độc lập vòng 1 của C2): không mang cwd của lời gọi trước.
-  const root = (await $.session.root().catch(() => null)) ?? null
-  const plan = S.normalizeCore(await read($, coreState)).plan
-  return { cwd: root, stepChecks: plan.flatMap(step => { const check = stepCheckOf(step.check); return check !== null ? [check.command] : [] }) }
-}
 
 async function noteFableRouter($: EngineInterface, ctx: Ctx, isOk: boolean, family?: ModelFamily): Promise<void> {
   const at = await $.clock.now()
@@ -79,11 +71,11 @@ export function roleOfCall(routeRole: Role | undefined, description: string): Ro
 
 
 /**
- * Lời từ chối theo vai (0.9.0 C2), không quá 200 ký tự; null là được. Vai chỉ đọc (search, review, design): mọi tool sửa file và lệnh Bash
- * ghi file ngoài thư mục tạm (isBashWrite: definite, git trên lịch sử, lệnh ghi đã biết). Vai audit: tool sửa file có đích ngoài thư mục tạm
- * và cùng loại lệnh Bash đó.
+ * Lời từ chối theo vai (0.9.0 C2, đổi cách làm sang đo dấu file), không quá 200 ký tự; null là được. Mọi vai không phải build: công cụ sửa
+ * file có đích ngoài thư mục tạm. Vai chỉ đọc (search, review, design): thêm lời gọi Bash có tác động ghi mức definite vào file ngoài thư mục
+ * tạm; mức possible được chạy. Vai audit: lệnh Bash ghi file ngoài thư mục tạm theo isBashWrite.
  */
-export function roleDenial(role: Role, tool: string, input: Record<string, unknown>, name: string, frame: { cwd: string | null; stepChecks: readonly string[] } = { cwd: null, stepChecks: [] }): string | null {
+export function roleDenial(role: Role, tool: string, input: Record<string, unknown>, name: string, cwd?: string): string | null {
   if (role === 'build') return null
   const isReadOnly = READ_ONLY_ROLES.has(role)
   if (tool !== 'Bash') {
@@ -91,11 +83,10 @@ export function roleDenial(role: Role, tool: string, input: Record<string, unkno
     // Công cụ sửa file vào thư mục tạm được phép cho mọi vai (bất biến của C2; kiểm độc lập vòng 1).
     if (path !== '' && isRoleTemp(path)) return null
   } else if (isReadOnly) {
-    // Vai chỉ đọc (0.9.0, đổi đặc tả C2): danh sách cho phép trên bộ phân loại lệnh sẵn có.
-    if (isReadOnlyAllowed(String(input['command'] ?? ''), frame)) return null
+    if (!isDefiniteOutsideWrite(String(input['command'] ?? ''), cwd)) return null
   } else if (!isBashWrite(String(input['command'] ?? ''))) return null
   const text = isReadOnly
-    ? `[focus-conductor] Vai ${name} chỉ đọc. Đọc mã bằng Read, Grep, Glob; probe tự viết thì chép mã sang thư mục tạm rồi chạy ở đó; lệnh khác thì báo luồng chính giao vai kiểm.`
+    ? `[focus-conductor] Vai ${name} chỉ đọc, không sửa file ngoài thư mục tạm. Probe thì chép mã sang thư mục tạm rồi chạy ở đó; chỗ cần sửa thì báo luồng chính.`
     : `[focus-conductor] Vai ${name} chỉ chạy kiểm, không sửa file ngoài thư mục tạm. Báo kết quả và chỗ lỗi cho luồng chính.`
   return text.slice(0, 200)
 }
@@ -115,22 +106,18 @@ export function registerAgents(on: On, ctx: Ctx): void {
   const { agentFailures, agentRoutes, agents, flushDecisions, delegationItems, isAgentRouterPaused, moveDelegation, noteAgentRouter, noteRouterTime, offered, pendingAgents, policy, recognized, record, refit, rememberAgentRoute, spawnedCalls, spawnedIds, startedAgents, steppedEarly } = ctx
   const mode = derive([modeState], modeOf(ctx.options))
 
-  // Quyền theo vai (0.9.0 C2): subagent vai search, review, design không sửa file và không chạy lệnh ghi chắc chắn ngoài thư mục tạm; vai
-  // audit không sửa file ngoài thư mục tạm, vẫn chạy lệnh kiểm. Subagent không có vai giữ như 0.8.9.
+  // Quyền theo vai (0.9.0 C2, đổi cách làm sang đo dấu file): vai search, review, design không sửa file và không chạy lệnh ghi mức definite
+  // ngoài thư mục tạm; vai audit không sửa file ngoài thư mục tạm, vẫn chạy lệnh kiểm. Subagent không có vai giữ như 0.8.9.
 
   on('tool.call', { tool: /^(?:Edit|Write|MultiEdit|NotebookEdit|Bash)$/ }, async ($, e, next) => {
     if (e.agentId === undefined) return next(e)
     const meta = agents.get(e.agentId)
     if (meta === undefined) return next(e)
-    // Lời gọi ngoài tập cho phép của vai chỉ đọc (0.9.0, đổi đặc tả C2 mục 2): ghi lại cho mọi subagent, độc lập với việc từ chối; kết luận
-    // của subagent đã có một lời gọi như vậy không mở cổng duyệt hay sẵn sàng.
     const input = e as unknown as Record<string, unknown>
-    const frame = await roleFrame($)
-    const isOutside = e.tool === 'Bash' ? !isReadOnlyAllowed(String(input['command'] ?? ''), frame) : !isRoleTemp(filePathOf({ tool: e.tool, input, isError: false, isReadOnly: false }) || '/x')
-    if (isOutside) meta.outside = true
     const role = meta.role
     if (role === undefined) return next(e)
-    const reason = roleDenial(role, e.tool, input, labels(langOf(ctx.options['uiLanguage'])).roleNames[role], frame)
+    const root = (await $.session.root().catch(() => null)) ?? undefined
+    const reason = roleDenial(role, e.tool, input, labels(langOf(ctx.options['uiLanguage'])).roleNames[role], root)
     if (reason === null) return next(e)
     record(await $.clock.now(), 'role-deny', { agentId: e.agentId, role, tool: e.tool })
     await flushDecisions((path, text) => $.fs.write(path, text))
@@ -612,6 +599,16 @@ export function registerAgents(on: On, ctx: Ctx): void {
     }
     if (workflowTask !== undefined && core.brief !== null) await update($, coreState, S.withDelegations(core.brief.goalId, delegationItems(core.brief)))
     if (forkPart !== null && agentId !== undefined) await update($, coreState, S.withForkCall(e.tool_use_id, p => ({ ...p, agentId })))
+    // Dấu file lúc sinh (0.9.0, C2 đo dấu file): subagent không phải vai build, tập là file không nhẹ đã đổi của mục tiêu.
+    if (agentId !== undefined && forkPart === null && e.fork !== true && spawnRole !== 'build' && core.brief !== null) {
+      const targets = printTargets(S.changedOf(core).paths, core.brief)
+      if (targets.files.length > 0) {
+        if (targets.isCapped) record(await $.clock.now(), 'print-cap', { goalId: core.brief.goalId, files: PRINT_FILES })
+        const prints = await takePrints({ stat: path => $.fs.stat(path), read: path => $.fs.read(path) as Promise<string> }, targets.files, (await $.session.root().catch(() => null)) ?? null).catch(() => null)
+        const goal = core.brief.goalId
+        await update($, printState, state => withPrint(normalizeReviewPrints(state), goal, 'spawn', agentId, prints))
+      }
+    }
 
     const sent = info?.sentFamily ?? null
     const isMismatch = info !== undefined && sent !== null && engineFamily !== null && engineFamily !== sent

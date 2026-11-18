@@ -31,6 +31,9 @@ const READ_ONLY_GIT = new Set([
 const FIND_WRITE = /^-(?:delete|exec|execdir|ok|okdir|fprint|fprint0|fprintf|fls)$/
 // Lệnh w/W/e của sed (đứng đầu hoặc sau dấu ngăn, chữ số địa chỉ, dấu / hay $) và flag w của s///.
 const SED_WRITE = /(?:^|[;{}\s\d$/'"])(?:w|W|e)\s+\S|\/[gpIi0-9]*[wW]\s+\S/
+// Lệnh s với dấu phân cách bất kỳ (ký tự ngay sau s, 0.9.0 sau kiểm độc lập vòng 2): cờ w, W hay e sau dấu thứ ba là ghi file hay chạy lệnh.
+const SED_S_WRITE = /(?:^|[;{}\s'"])s([^\s\w\\])(?:\\.|(?!\1).)*\1(?:\\.|(?!\1).)*\1[gpIiMm0-9]*[wWe]/
+const sedWrites = (text: string) => SED_WRITE.test(text) || SED_S_WRITE.test(text)
 export const AWK_COMMAND = /(?:^|[\s;&|(])[gmn]?awk\b/
 // print/printf của awk kèm chuyển hướng hoặc ống, và system(): ghi file hoặc chạy lệnh khác.
 export const AWK_WRITE = /\bprintf?\b[^;}\n]*?(?:>|\|)|\bsystem\s*\(|\|\s*getline\b/
@@ -80,11 +83,12 @@ export function segmentIsReadOnly(part: string): boolean {
   if (cmd === 'awk' && args.some((a, i) => a === '--inplace' || a === '-iinplace' || (a === '-i' && args[i + 1] === 'inplace'))) return false
   // sed -i ghi file; lệnh w, flag s///w và lệnh e của sed ghi file hoặc chạy lệnh khác. sort -o ghi file.
   // Script sed đã bỏ nháy tách thành nhiều từ (`'w out.txt'`): xét cả chuỗi đối số nối lại (0.9.0, kiểm độc lập vòng 3 của C2).
-  if (cmd === 'sed') return !args.some(a => /^-[A-Za-z]*i/.test(a) || a.startsWith('--in-place') || SED_WRITE.test(a)) && !SED_WRITE.test(` ${args.join(' ')}`)
+  if (cmd === 'sed') return !args.some(a => /^-[A-Za-z]*i/.test(a) || a.startsWith('--in-place') || sedWrites(a)) && !sedWrites(` ${args.join(' ')}`)
   // tree -o ghi tệp; uniq có hai đối số vị trí thì đối số thứ hai là tệp ra (0.9.0, kiểm độc lập vòng 3 của C2).
   if (cmd === 'tree') return !args.some(a => a === '-o' || a.startsWith('-o'))
   if (cmd === 'uniq') return args.filter(a => !a.startsWith('-')).length < 2
-  if (cmd === 'sort') return !args.some(a => /^-o/.test(a) || a.startsWith('--output'))
+  // sort -o, kể cả cờ ngắn gộp có chữ o (-uo, -nro), và --output ghi file (0.9.0 sau kiểm độc lập vòng 2).
+  if (cmd === 'sort') return !args.some(a => /^-[a-zA-Z]*o/.test(a) || a.startsWith('--output'))
   return true
 }
 
@@ -106,7 +110,7 @@ export function isReadOnlyCommand(command: string): boolean {
   // Thay thế lệnh và system() của awk có thể chạy lệnh khác; kiểm trên lệnh gốc, trước khi bỏ chuỗi trong nháy.
   if (/\$\(|`|\bsystem\s*\(/.test(command)) return false
   // Script sed nằm trong nháy: kiểm trên lệnh gốc. Có thể báo nhầm một pattern chứa "w e"; chấp nhận, vì an toàn hơn.
-  if (/\bsed\b/.test(command) && SED_WRITE.test(command)) return false
+  if (/\bsed\b/.test(command) && sedWrites(command)) return false
   // Script awk nằm trong nháy: print/printf chuyển hướng (>, >>) hay nối ống (|) là ghi file hoặc chạy lệnh khác.
   if (AWK_COMMAND.test(command) && AWK_WRITE.test(command)) return false
   const unquoted = command.replace(/"[^"]*"|'[^']*'/g, '""')
