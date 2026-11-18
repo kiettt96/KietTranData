@@ -5,14 +5,14 @@
 
 import type { Core, Warning, WarningKind } from '../../types'
 import type { Severity } from './style'
-import { severityOf } from './style'
+import { isClosed, severityOf } from './style'
 import { labels, shownEntry } from './labels'
 import type { Lang } from './labels'
 import { stepTag } from '../lib/text'
 import { approvalOf, isSkillUntried } from '../lib/state'
 
 /** Một mục cần chú ý: hạng (nhỏ là quan trọng hơn), mức màu và câu hiển thị; `warning` là cảnh báo đã lưu mà mục này đại diện (pane dùng để không hiện hai lần). */
-export type Attention = { rank: number; severity: Severity; text: string; kind: 'pause' | 'approval' | 'failed' | 'notice' | 'waived' | 'skill' | 'review' | WarningKind; warning?: Warning }
+export type Attention = { rank: number; severity: Severity; text: string; kind: 'pause' | 'approval' | 'failed' | 'notice' | 'waived' | 'skill' | 'closing-check' | 'closing-review' | 'closing-design' | WarningKind; warning?: Warning }
 
 /** Hạng của từng loại cảnh báo đã lưu; loại không có trong bảng xếp sau vượt ngân sách. */
 const WARNING_RANK: Partial<Record<WarningKind, number>> = { scope: 2, dropped: 4, unverified: 5, budget: 6 }
@@ -66,10 +66,26 @@ export function attentionItems(core: Core, lang: Lang, quota: { paused: boolean;
     .forEach((w, i) => items.push({ rank: WARNING_RANK[w.kind] ?? OTHER_RANK, severity: severityOf(w.kind), text: shownEntry(w, lang), kind: w.kind, warning: w, order: -i }))
   // Đã sửa file skill mà chưa thử sau lần sửa cuối (0.8.2 N3): cùng hạng và mức màu với bước chưa kiểm chứng.
   if (isSkillUntried(core)) items.push({ rank: WARNING_RANK.unverified ?? OTHER_RANK, severity: severityOf('unverified'), text: l.skillUntried, kind: 'skill', order: 0 })
-  // Chưa duyệt độc lập (0.9.0 C6): ngay sau bước chưa kiểm chứng trong thứ tự mức độ.
-  const gap = core.closingGap
-  if (gap !== undefined && gap.goalId === brief.goalId && gap.missing !== 'check') items.push({ rank: (WARNING_RANK.unverified ?? OTHER_RANK) + 0.5, severity: severityOf('unverified'), text: gap.solo === true ? l.closingNoReview : l.closingUnreviewed, kind: 'review', order: 0 })
+  // Bước đóng chưa đạt (vòng 2 U1): theo Core.team của mục tiêu đang mở, khi checklist đã đóng hết và mục tiêu chưa được miễn; câu theo bước
+  // chưa đạt đầu tiên. Core.closingGap chỉ còn để biết phiên không giao được subagent. Ngay sau bước chưa kiểm chứng trong thứ tự mức độ.
+  const closing = closingAttention(core, lang)
+  if (closing !== null) items.push({ rank: (WARNING_RANK.unverified ?? OTHER_RANK) + 0.5, severity: severityOf('unverified'), ...closing, order: 0 })
   // Lệnh kiểm chủ mod đã miễn (0.7.9 Y5): xếp sau mọi cảnh báo, mức warning có sẵn.
   if (core.waivers.goalId === brief.goalId) core.waivers.items.forEach((w, i) => items.push({ rank: OTHER_RANK + 1, severity: 'warning', text: l.waived(w.command), kind: 'waived', order: i }))
   return items.sort((a, b) => a.rank - b.rank || a.order - b.order).map(({ order: _order, ...item }) => item)
+}
+
+/** Mục cần chú ý của bước đóng chưa đạt đầu tiên (vòng 2 U1), hay null khi không có. */
+export function closingAttention(core: Core, lang: Lang): { text: string; kind: 'closing-check' | 'closing-review' | 'closing-design' } | null {
+  const brief = core.brief
+  const team = core.team
+  if (brief === null || team === undefined || team.goalId !== brief.goalId) return null
+  if (core.plan.length === 0 || !core.plan.every(isClosed) || core.closingWaived === brief.goalId) return null
+  const step = team.steps.find(s => s.state !== 'pass')
+  if (step === undefined) return null
+  const l = labels(lang)
+  const isSolo = core.closingGap !== undefined && core.closingGap.goalId === brief.goalId && core.closingGap.solo === true
+  if (step.name === 'check') return { text: step.state === 'fail' ? l.closingCheckFailed : l.closingUnchecked, kind: 'closing-check' }
+  if (step.name === 'review') return { text: step.state === 'fail' ? l.closingReviewFailed : isSolo ? l.closingNoReview : l.closingUnreviewed, kind: 'closing-review' }
+  return { text: step.state === 'fail' ? l.closingNotReady : l.closingNoReadiness, kind: 'closing-design' }
 }
