@@ -2,7 +2,7 @@
 
 Số đo của HEAD hiện tại và của các bản trước. Mọi số do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển] trừ khi nêu khác; hợp đồng đối chiếu evidence ở [DESIGN.md](DESIGN.md), lịch sử thay đổi ở [CHANGELOG.md](../CHANGELOG.md), cách dùng ở [README](../README.md).
 
-## 0.9.0 cổng duyệt: bảng nghiệm thu đóng K1 tới K17 [Đo trực tiếp, `tests/integration/k-table-090.test.ts`, 2.1.327, 18/11/2026]
+## 0.9.0 cổng duyệt: bảng nghiệm thu đóng K1 tới K19 [Đo trực tiếp, `tests/integration/k-table-090.test.ts`, 2.1.327, 18/11/2026]
 
 | Mã | Hành vi | Ca test | Kết quả |
 |---|---|---|---|
@@ -23,6 +23,8 @@ Số đo của HEAD hiện tại và của các bản trước. Mọi số do t�
 | K15 | closingReview off, hay phiên không giao được subagent: không chặn | K15 closingReview off: không chặn; K15 phiên không giao được subagent: không chặn | qua |
 | K16 | Lượt của mục tiêu cũ hoàn tất sau khi đổi mục tiêu: không đụng kết luận của mục tiêu mới | K16 lượt của mục tiêu cũ hoàn tất sau khi đổi mục tiêu: ... | qua |
 | K17 | Subagent Explore chạy haiku và mục tiêu chưa sửa file: không gọi fs | K17 subagent Explore chạy haiku: không gọi fs; K17 mục tiêu chưa sửa file: sinh lượt duyệt không gọi fs | qua |
+| K18 | Đọc kết luận theo câu đầu của dòng kết luận; ba dòng đầu của phiên D4 là đạt; lượt có tiền tố không có dòng kết luận thì tính kèm dòng nhắc; lượt không tiền tố không có từ đạt thì không tính | K18 ba dòng đầu của phiên D4 là đạt; ...; K18 lượt có tiền tố duyệt trả câu dòng đầu của phiên D4; K18 lượt có tiền tố không có dòng kết luận nào; K18 lượt không tiền tố không có từ đạt | qua |
+| K19 | Lệnh kiểm qua ống che mã thoát: dòng nhắc ở kết quả, không tính; không ống hay có pipefail thì tính; lý do chặn nêu ống lệnh; nhắc tối đa hai lần | K19 bash tests/kiem.sh \| tail -1: ...; K19 cùng lệnh không kèm ống: tính; K19 set -o pipefail: ...; K19 lệnh ở check của bước qua ống cũng được nhắc | qua |
 
 Xác nhận độc lập (một lượt, tác tử mới chưa thấy quá trình làm, trên bản chép của 9bf3849): chạy 31 ca của k-table-090 và tự viết 29 probe riêng, mỗi dòng ít nhất một probe; 17/17 dòng đạt [Đo trực tiếp, 18/11/2026]. Năm probe hỏng ở lần chạy đầu đều do tác tử dựng sai (thiếu lệnh kiểm, dùng tiền tố duyệt khi cần subagent có ghi, đổi description giữa hai vòng), sửa xong thì đạt.
 
