@@ -143,3 +143,9 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 - Quyết định: lượt vai build không được tính (điểm 4 của chỉ dẫn bổ sung); general-purpose không tiền tố trên mục tiêu sửa mã là build, nên ca dùng người duyệt không tiền tố đổi sang "Kiểm độc lập: " hoặc đổi kỳ vọng. Cần nêu trong báo cáo.
 - Đang chạy: kiểm độc lập vòng 2 (tác tử mới, commit ffef240); đột biến 20 mẫu trên bản chép đông cứng (trước vòng sửa 1).
 - File skill trong tập dấu: ca SKILL.md đổi sau duyệt đỏ trên mã cũ (test đỏ commit trước), đã sửa (prints.ts nhận file skill, evidence.ts đặt lastChange và cờ skill); ca tệp tiến độ đổi xanh ngay trên mã cũ, giữ làm ca ghim. Mẫu 090-C6zs. 395 ca 0.9.0 và skill qua (hai ca hết giờ khi máy tải, chạy riêng qua).
+
+## 18/11 vòng sửa cuối của cổng duyệt và bảng đóng K1 tới K17
+- e97da38 test đỏ: bảng K (10 ca đỏ), khôi phục kỳ vọng hai ca không tiền tố.
+- b805c2d bản sửa A1 tới A6; 405 ca 0.9.0 qua. Quyết định: tempRewrite dùng chung cho rào definite, sổ thay đổi, sổ bằng chứng (vì sổ ghi lệnh gốc có đích chưa biết làm luồng chính bị chặn nhầm); popd ở cuối lệnh viết thành true.
+- 9bf3849 DESIGN, VERIFICATION (bảng K kèm tên ca), CHANGELOG.
+- Đang chạy: xác nhận độc lập bảng K (một lượt); đột biến A trên bản chép đông cứng frozen2.
