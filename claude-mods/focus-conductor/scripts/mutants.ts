@@ -107,7 +107,7 @@ export const MUTANTS: Mutant[] = [
   { id: "F9", file: "hooks/lib/drift/classify.ts", note: "& đơn không đánh dấu nền", old: "      if (part === '&') for (const before of out) before.background = true", new: "      if (false) for (const before of out) before.background = true" },
   { id: "F10", file: "hooks/lib/drift/classify.ts", note: "không tách |&", old: "(\\|\\||&&|\\|&|;|", new: "(\\|\\||&&|;|" },
   { id: "F11", file: "hooks/lib/drift/classify.ts", note: "biến môi trường bỏ khỏi danh tính", old: "          ...piece.env.map(argToken),\n", new: "" },
-  { id: "F12", file: "hooks/lib/drift/classify.ts", note: "nền không hidden", old: "      const exit = piece.background ? { exit: 'hidden' as const } : exitOf(list, index)", new: "      const exit = exitOf(list, index)" },
+  { id: "F12", file: "hooks/lib/drift/classify.ts", note: "nền không hidden", old: "      const piped = piece.background ? { exit: 'hidden' as const } : exitOf(list, index)", new: "      const piped = exitOf(list, index)" },
   { id: "F13", file: "hooks/lib/drift/identity.ts", note: "dùng segments cho lệnh kiểm tra", old: "  if (entry.argv !== undefined) return [identityOf(entry.argv)]", new: "  if (false) return []" },
   { id: "F14", file: "hooks/lib/drift/classify.ts", note: "timeout N không bị bỏ", old: "    text = text.slice(assignments.length).replace(TIMEOUT_PREFIX, '')", new: "    text = text.slice(assignments.length)" },
   { id: "F15", file: "hooks/lib/drift/classify.ts", note: "heredoc so như chữ thường", old: "m[2] === '<<' && m[3] === 'H' ? HEREDOC : argToken(m[3] ?? '')", new: "argToken(m[3] ?? '')" },
