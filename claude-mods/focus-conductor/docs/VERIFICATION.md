@@ -2,7 +2,7 @@
 
 Số đo của HEAD hiện tại và của các bản trước. Mọi số do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển] trừ khi nêu khác; hợp đồng đối chiếu evidence ở [DESIGN.md](DESIGN.md), lịch sử thay đổi ở [CHANGELOG.md](../CHANGELOG.md), cách dùng ở [README](../README.md).
 
-## 0.9.0 cổng duyệt: bảng nghiệm thu đóng K1 tới K20 [Đo trực tiếp, `tests/integration/k-table-090.test.ts` và, cho K20, `tests/integration/closing-stepcheck-f1-090.test.ts`, 2.1.327, 18/11/2026]
+## 0.9.0 cổng duyệt: bảng nghiệm thu đóng K1 tới K23 [Đo trực tiếp, `tests/integration/k-table-090.test.ts` và, cho K20, `tests/integration/closing-stepcheck-f1-090.test.ts`, 2.1.327, 18/11/2026]
 
 | Mã | Hành vi | Ca test | Kết quả |
 |---|---|---|---|
@@ -26,6 +26,7 @@ Số đo của HEAD hiện tại và của các bản trước. Mọi số do t�
 | K18 | Đọc kết luận theo câu đầu của dòng kết luận; ba dòng đầu của phiên D4 là đạt; lượt có tiền tố không có dòng kết luận thì tính kèm dòng nhắc; lượt không tiền tố không có từ đạt thì không tính | K18 ba dòng đầu của phiên D4 là đạt; ...; K18 lượt có tiền tố duyệt trả câu dòng đầu của phiên D4; K18 lượt có tiền tố không có dòng kết luận nào; K18 lượt không tiền tố không có từ đạt | qua |
 | K19 | Lệnh kiểm qua ống che mã thoát: dòng nhắc ở kết quả, không tính; không ống hay có pipefail thì tính; lý do chặn nêu ống lệnh; nhắc tối đa hai lần | K19 bash tests/kiem.sh \| tail -1: ...; K19 cùng lệnh không kèm ống: tính; K19 set -o pipefail: ...; K19 lệnh ở check của bước qua ống cũng được nhắc | qua |
 | K20 | Bước kiểm tính lần chạy khớp lệnh ở check của bước (vòng 2 F1): không khai checkCommands, hai bước có check, lệnh của bước chạy đạt sau khi sửa thì cổng không chặn vì thiếu kiểm; chạy trước khi sửa hay qua ống thì chặn; lần chạy gần nhất lỗi thì bước kiểm chưa đạt; pane đạt đúng lúc cổng đạt | các ca F1 của `closing-stepcheck-f1-090` (sáu ca của lượt rà soát, thêm ca lệnh kiểm mod nhận ra đạt rồi lỗi từ kiểm độc lập vòng 2; tệp còn có ca F5) | qua |
+| K21 | Dòng kết luận mở đầu bằng not pass, not passed, did not pass, does not pass (hoa, thường, có số đếm) đọc là chưa đạt; lượt duyệt trả NOT PASS thì cổng còn đòi duyệt và pane ghi Duyệt: chưa đạt (vòng 2 G1) | `verdict-g1-090` | qua |
 
 Xác nhận độc lập (một lượt, tác tử mới chưa thấy quá trình làm, trên bản chép của 9bf3849): chạy 31 ca của k-table-090 và tự viết 29 probe riêng, mỗi dòng ít nhất một probe; 17/17 dòng đạt [Đo trực tiếp, 18/11/2026]. Năm probe hỏng ở lần chạy đầu đều do tác tử dựng sai (thiếu lệnh kiểm, dùng tiền tố duyệt khi cần subagent có ghi, đổi description giữa hai vòng), sửa xong thì đạt.
 

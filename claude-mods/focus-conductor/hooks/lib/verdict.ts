@@ -38,6 +38,11 @@ export function reportLine(role: Role, lang: 'vi' | 'en'): string {
 const WORDS: ReadonlyArray<readonly [string, Verdict, boolean]> = [
   ['chưa sẵn sàng', 'not-ready', false],
   ['not ready', 'not-ready', false],
+  // Phủ định của từ đạt bằng tiếng Anh (vòng 2 G1): xét trước "pass".
+  ['does not pass', 'fail', false],
+  ['did not pass', 'fail', false],
+  ['not passed', 'fail', false],
+  ['not pass', 'fail', false],
   ['chưa đạt', 'fail', false],
   ['không đạt', 'fail', false],
   ['fail', 'fail', false],
