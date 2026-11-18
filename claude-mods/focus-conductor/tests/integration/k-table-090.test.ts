@@ -491,3 +491,112 @@ describe('Ca bổ sung cho đột biến của vòng sửa cuối', () => {
     expect(await stop($)).toContain('phi.ts')
   })
 })
+
+// Dòng đầu nguyên văn của ba lượt "Kiểm độc lập" trong phiên thật D4 (VERIFICATION, mục 0.9.0, phiên thật D4 sau vòng sửa cuối).
+const D4_LINES = [
+  '**Kết luận: đạt kèm lỗi nhẹ.** Tôi tự chạy lại mọi lệnh và không sửa file nào. Dữ liệu thử nằm trong `mktemp -d` và đã xóa.',
+  '**ĐẠT, kèm lỗi nhỏ.** Không có lỗi Nghiêm trọng hay Lớn. Tôi không sửa file nào. Dữ liệu thử nằm trong một thư mục `mktemp -d` và đã xoá bằng trap. Git status vẫn như lúc đầu: `src/thong-ke.sh` đã sửa, `src/dem.sh` và `tests/kiem-cot.sh` là file mới chưa track, chưa có commit nào ngoài `init`.',
+  '**ĐẠT**, chỉ có vài lỗi Nhỏ. Không có lỗi Nghiêm trọng hay Lớn. Tôi không sửa file nào: `git status` chỉ có `M src/thong-ke.sh`, `?? src/dem.sh` và `?? tests/kiem-cot.sh`, còn `tests/kiem.sh` và `data/` không đổi. Thư mục thử tạo bằng mktemp đã xoá.',
+]
+
+describe('K18: đọc kết luận theo câu đầu của dòng kết luận', () => {
+  test('K18 ba dòng đầu của phiên D4 là đạt; các dạng của luật mới đọc đúng', () => {
+    for (const line of D4_LINES) expect(verdictOf(`${line}\n\nChi tiết ...`)?.verdict, line.slice(0, 40)).toBe('pass')
+    const cases: ReadonlyArray<readonly [string, string | null]> = [
+      ['ĐẠT, nhưng còn 2 lỗi lớn', 'fail'],
+      ['ĐẠT. Không có lỗi nghiêm trọng', 'pass'],
+      ['ĐẠT (12/12 mục)', 'pass'],
+      ['ĐẠT phần lớn', null],
+      ['READY WITH BLOCKERS', 'not-ready'],
+      ['ĐẠT, nhưng không có lỗi nghiêm trọng nào', 'pass'],
+      ['PASS, but 1 major issue remains', 'fail'],
+      ['ĐẠT kèm lỗi vặt', 'pass'],
+      ['PASS with minor issues', 'pass'],
+      ['ĐẠT một phần', null],
+      ['CHƯA ĐẠT, chỉ có lỗi nhỏ', 'fail'],
+      ['ĐẠT\nCHƯA ĐẠT', 'fail'],
+    ]
+    for (const [text, verdict] of cases) expect(verdictOf(text)?.verdict ?? null, text).toBe(verdict)
+  })
+  test('K18 lượt có tiền tố duyệt trả câu dòng đầu của phiên D4: được tính, cổng cho qua', OPTS(), async ($, on) => {
+    const fs = new Fs()
+    const seen = setup(on, fs)
+    await start($, seen, fs)
+    await agent($, 'Kiểm độc lập: phí', `${D4_LINES[1]}\n\nChi tiết lỗi nhỏ: tên biến.`)
+    await close($)
+    expect(await stop($)).toBe('')
+  })
+  test('K18 lượt có tiền tố không có dòng kết luận nào: vẫn tính, kèm dòng nhắc luồng chính đọc kết quả', OPTS(), async ($, on) => {
+    const fs = new Fs()
+    const seen = setup(on, fs)
+    await start($, seen, fs)
+    await agent($, 'Kiểm độc lập: phí', 'Đã rà phí và test.\n- Nhỏ: tên biến chưa rõ.')
+    const out = await call($, { tool: 'Read', file_path: SRC })
+    const note = (out.context ?? []).find(c => c.includes('đọc kết quả')) ?? ''
+    expect(note).not.toBe('')
+    expect(note.length).toBeLessThanOrEqual(160)
+    await close($)
+    expect(await stop($)).toBe('')
+  })
+  test('K18 lượt không tiền tố không có từ đạt: không tính', OPTS(), async ($, on) => {
+    const fs = new Fs()
+    const seen = setup(on, fs)
+    await start($, seen, fs)
+    await agent($, 'Rà lại thay đổi phí', 'Đã rà phí và test, nhìn chung ổn.')
+    await close($)
+    expect(await stop($)).toContain(BLOCK)
+  })
+})
+
+describe('K19: lệnh kiểm qua ống che mã thoát', () => {
+  const CHECK = { options: { planApproval: 'off', checkCommands: 'bash tests/kiem.sh' } }
+  async function begin($: Engine, seen: Seen, fs: Fs) {
+    fs.set(SRC, 'export const phi = 1\n', 50)
+    await open($, seen)
+    await edit($, fs)
+  }
+  test('K19 bash tests/kiem.sh | tail -1: có dòng nhắc ở kết quả, không tính; lý do chặn nêu ống lệnh', CHECK, async ($, on) => {
+    const fs = new Fs()
+    const seen = setup(on, fs)
+    await begin($, seen, fs)
+    const out = await call($, { tool: 'Bash', command: 'bash tests/kiem.sh | tail -1' })
+    const note = (out.context ?? []).find(c => c.includes('ống')) ?? ''
+    expect(note).not.toBe('')
+    expect(note.length).toBeLessThanOrEqual(160)
+    await agent($, 'Kiểm độc lập: phí', 'ĐẠT')
+    await close($)
+    const block = await stop($)
+    expect(block).toContain('chưa có lần kiểm đạt')
+    expect(block).toContain('ống')
+  })
+  test('K19 cùng lệnh không kèm ống: tính', CHECK, async ($, on) => {
+    const fs = new Fs()
+    const seen = setup(on, fs)
+    await begin($, seen, fs)
+    const out = await call($, { tool: 'Bash', command: 'bash tests/kiem.sh' })
+    expect((out.context ?? []).some(c => c.includes('ống'))).toBe(false)
+    await agent($, 'Kiểm độc lập: phí', 'ĐẠT')
+    await close($)
+    expect(await stop($)).toBe('')
+  })
+  test('K19 set -o pipefail; bash tests/kiem.sh | tail -1: tính khi đạt, không nhắc', CHECK, async ($, on) => {
+    const fs = new Fs()
+    const seen = setup(on, fs)
+    await begin($, seen, fs)
+    const out = await call($, { tool: 'Bash', command: 'set -o pipefail; bash tests/kiem.sh | tail -1' })
+    expect((out.context ?? []).some(c => c.includes('ống'))).toBe(false)
+    await agent($, 'Kiểm độc lập: phí', 'ĐẠT')
+    await close($)
+    expect(await stop($)).toBe('')
+  })
+  test('K19 lệnh ở check của bước qua ống cũng được nhắc; mỗi mục tiêu nhắc tối đa hai lần', { options: { planApproval: 'off' } }, async ($, on) => {
+    const fs = new Fs()
+    const seen = setup(on, fs)
+    fs.set(SRC, 'export const phi = 1\n', 50)
+    await open($, seen, [{ title: 'Sửa phí', check: '`bash tests/kiem-cot.sh` => TỔNG: ĐẠT' }])
+    await edit($, fs)
+    const outs = []
+    for (let k = 0; k < 3; k++) outs.push(await call($, { tool: 'Bash', command: 'bash tests/kiem-cot.sh | tail -1' }))
+    expect(outs.map(o => (o.context ?? []).some(c => c.includes('ống')))).toEqual([true, true, false])
+  })
+})
