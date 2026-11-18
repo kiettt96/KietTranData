@@ -143,6 +143,8 @@ export function createContext(options: PluginOptions) {
     checkHinted: -1,
     /** Kết luận của subagent có vai (0.9.0 C4, C6, C8), theo mục tiêu; mốc seq của dấu vết evidence lúc trả lời. */
     verdicts: { goalId: -1, items: [] as VerdictRun[] },
+    /** Lệnh kiểm qua ống che mã thoát (sau phiên thật D4): số lần đã nhắc và lần chạy gần nhất, theo mục tiêu. */
+    pipeNotes: { goalId: -1, n: 0, last: null as null | { seq: number; command: string } },
     /** Đích subagent đang chạy chung thư mục đã ghi (0.9.0 C5), theo agentId; tệp đã nhắc trùng. */
     agentWrites: new Map<string, Set<string>>(),
     /** Cổng đóng mục tiêu (0.9.0 C6): số lần chặn và trạng thái thiếu đã chặn; mục tiêu đã miễn bằng /conductor waive review. */

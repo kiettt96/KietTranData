@@ -11,8 +11,9 @@ import { checkScopeOf, inCheckScope, splitCheckScope } from '../lib/drift/verify
 import { globToRegExp } from '../lib/drift/soft'
 import { coversScope } from '../lib/drift/evidence'
 import { PLAN_SET_CHECK_LINE } from '../lib/approval'
-import { isUnclearVerdict, reportTable, verdictOf } from '../lib/verdict'
+import { hasNoVerdictLine, isUnclearVerdict, reportTable, verdictOf } from '../lib/verdict'
 import { tempRewrite } from '../lib/drift/tempdir'
+import { pipedCheck } from '../lib/drift/pipecheck'
 import { EMPTY_REVIEW_PRINTS, changedPrints, isMeasured, normalizeReviewPrints, printNames, printTargets, takePrints, withPrint, withStale } from '../lib/prints'
 import { closingNote, closingSteps, hardFileCount, hasKnownCheck, isDocsOnly, prefixRole, teamCause } from '../lib/team'
 import type { ClosingVerdict } from '../lib/team'
@@ -101,6 +102,19 @@ export function verdictRetryNote(name: string, round: number, top: ModelFamily):
 export const CLOSING_BLOCKS = 3
 export const CLOSING_CHARS = 600
 
+/** Trần ký tự của dòng nhắc đọc kết quả lượt duyệt không có dòng kết luận, và của dòng nhắc ống lệnh (sau phiên thật D4). */
+export const GATE_NOTE_CHARS = 160
+
+/** Dòng nhắc khi lượt có tiền tố duyệt không có dòng kết luận (sau phiên thật D4, mục 1f). */
+export function assumedVerdictNote(description: string): string {
+  return `[focus-conductor] Lượt "${clipText(description, 40)}" không có dòng kết luận: đọc kết quả và xử lý lỗi lượt đó nêu trước khi đóng.`.slice(0, GATE_NOTE_CHARS)
+}
+
+/** Dòng nhắc khi lệnh kiểm đi qua ống che mã thoát (sau phiên thật D4, mục 2a). */
+export function pipedCheckNote(command: string): string {
+  return `[focus-conductor] \`${clipText(command, 40)}\` đi qua ống, mã thoát bị che nên lần chạy này không tính; chạy lại không kèm ống, hoặc thêm set -o pipefail.`.slice(0, GATE_NOTE_CHARS)
+}
+
 /** Lý do chặn của cổng đóng mục tiêu theo bước còn thiếu đầu tiên (0.9.0 C6), không quá CLOSING_CHARS ký tự. */
 export function closingReasonText(missing: 'check' | 'review' | 'design'): string {
   const text =
@@ -172,7 +186,10 @@ async function closingGate($: EngineInterface, ctx: Ctx, core: Core, log: Eviden
   const latest = [...verdicts].reverse().find(v => v.seq > log.lastChange && prefixRole(v.description) !== 'audit')
   const unclear = missing !== 'check' && latest?.unclear === true ? ' Câu trả lời của lượt duyệt chưa có kết luận: dòng kết luận phải đứng riêng (ĐẠT, CHƯA ĐẠT, hay kèm lỗi nhẹ); hỏi lại chính subagent đó.' : ''
   const files = missing !== 'check' && named.length > 0 ? ` File đã đổi trong hay sau lượt duyệt: ${printNames(named)}.` : ''
-  return `${reason}${unclear}${files}`.slice(0, CLOSING_CHARS)
+  // Lần chạy gần nhất của lệnh kiểm sau thay đổi cuối đi qua ống (sau phiên thật D4, mục 2b): nêu đúng nguyên nhân và cách chạy lại.
+  const pipe = L.pipeNotes.goalId === brief.goalId ? L.pipeNotes.last : null
+  const piped = missing === 'check' && pipe !== null && pipe.seq > lastHard ? ` Lần chạy \`${clipText(pipe.command, 40)}\` đi qua ống nên mã thoát bị che, không tính; chạy lại không kèm ống, hoặc thêm set -o pipefail.` : ''
+  return `${reason}${unclear}${files}${piped}`.slice(0, CLOSING_CHARS)
 }
 
 /**
@@ -1409,6 +1426,20 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     // Đội hình do mod áp (0.9.0 C): tính lại sau lần ghi hay lần kiểm của luồng chính; vừa bật thì đoạn dặn đi kèm kết quả này.
     await refreshTeam($, ctx)
     const fromAgents = L.agentRetryNotes.splice(0)
+    // Lệnh kiểm qua ống che mã thoát (sau phiên thật D4, mục 2a): nhắc ngay ở kết quả, tối đa hai lần mỗi mục tiêu; ghi lần chạy để lý do
+    // chặn của cổng Stop nêu đúng nguyên nhân.
+    if (core.brief !== null && e.tool === 'Bash' && e.agentId === undefined) {
+      const stepChecks = core.plan.flatMap(step => { const check = stepCheckOf(step.check); return check !== null ? [check.command] : [] })
+      const piped = pipedCheck(String(observation.input['command'] ?? ''), observation.cwd, stepChecks)
+      if (L.pipeNotes.goalId !== core.brief.goalId) L.pipeNotes = { goalId: core.brief.goalId, n: 0, last: null }
+      if (piped !== null) {
+        L.pipeNotes.last = { seq: evidenceFor(core.brief.goalId).seq, command: piped }
+        if (L.pipeNotes.n < 2) {
+          L.pipeNotes.n += 1
+          fromAgents.push(pipedCheckNote(piped))
+        }
+      }
+    }
     const notes = [...(nudge ? [nudge] : []), ...(compactNote !== null ? [compactNote] : []), ...(moved !== null ? [moved] : []), ...retryNotes, ...fromAgents]
     // Gom (0.7.9 F1): mọi phần của việc tách đã có kết quả từ phiên con thì kết quả tool này kèm một câu, một lần mỗi việc, và một dòng
     // fork-archive; pane và band thu các phần đó thành một dòng.
@@ -1601,7 +1632,13 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       }
       // Kết luận của subagent (0.9.0 D1, D2): dòng đầu câu trả lời theo các từ kết luận, có tiền tố hay không. Chỉ câu trả lời của subagent
       // không ghi file ngoài thư mục tạm mới tính cho cổng (isClean). Vai: tiền tố hay vai mod suy; không có thì theo loại kết luận.
-      const parsed = e.reason === 'answer' && meta !== undefined ? verdictOf(e.answer ?? '') : null
+      const read0 = e.reason === 'answer' && meta !== undefined ? verdictOf(e.answer ?? '') : null
+      // Lượt có tiền tố của vai review hay sẵn sàng mà không có dòng kết luận nào (sau phiên thật D4, mục 1f): vẫn tính là đã duyệt, kèm một
+      // dòng nhắc luồng chính đọc kết quả. Lượt không tiền tố thì phải có từ đạt ở dòng kết luận.
+      const ownPrefix = meta !== undefined ? prefixRole(meta.description) : undefined
+      const isAssumed = read0 === null && e.reason === 'answer' && (ownPrefix === 'review' || ownPrefix === 'design') && hasNoVerdictLine(e.answer ?? '')
+      const parsed: ReturnType<typeof verdictOf> = isAssumed ? { verdict: ownPrefix === 'design' ? 'ready' : 'pass' } : read0
+      if (isAssumed && meta !== undefined) L.agentRetryNotes.push(assumedVerdictNote(meta.description))
       const isUnclear = e.reason === 'answer' && parsed === null && isUnclearVerdict(e.answer ?? '')
       // Lượt của mục tiêu cũ hoàn tất sau khi đổi mục tiêu không đụng kết luận và dấu của mục tiêu mới (vòng sửa cuối 18/11, A4).
       const liveGoal = S.normalizeCore(await read($, coreState)).brief?.goalId

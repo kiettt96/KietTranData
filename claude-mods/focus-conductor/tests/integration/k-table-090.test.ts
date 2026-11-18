@@ -375,8 +375,9 @@ describe('K14: vòng sửa và dòng kết luận', () => {
   test('K14 các dạng dòng kết luận đọc đúng luật đóng', () => {
     const cases: ReadonlyArray<readonly [string, string | null]> = [
       ['ĐẠT', 'pass'], ['Kết luận: **ĐẠT**', 'pass'], ['đạt kèm lỗi nhẹ', 'pass'], ['ĐẠT KÈM 2 LỖI NHẸ', 'pass'], ['PASS with minor issues', 'pass'],
-      ['ĐẠT, nhưng còn thiếu', 'fail'], ['ĐẠT, còn 2 lỗi lớn', 'fail'], ['READY WITH BLOCKERS', 'not-ready'], ['PASS, 1 critical', 'fail'],
-      ['ĐẠT (12/12 mục)', null], ['ĐẠT phần lớn', null], ['ĐẠT, vừa kiểm xong', null], ['ĐẠT\nCHƯA ĐẠT', 'fail'], ['CHƯA ĐẠT\nĐẠT', 'fail'],
+      // Luật đọc kết luận sau phiên thật D4: chỉ xét câu đầu; mức lỗi cao chỉ đổi kết luận khi đi cùng từ tương phản.
+      ['ĐẠT, nhưng còn 2 lỗi lớn', 'fail'], ['ĐẠT, còn 2 lỗi lớn', 'fail'], ['READY WITH BLOCKERS', 'not-ready'], ['PASS, but 1 critical', 'fail'],
+      ['ĐẠT (12/12 mục)', 'pass'], ['ĐẠT phần lớn', null], ['ĐẠT, vừa kiểm xong', 'pass'], ['ĐẠT\nCHƯA ĐẠT', 'fail'], ['CHƯA ĐẠT\nĐẠT', 'fail'],
       ['Đã rà xong.', null],
     ]
     for (const [text, verdict] of cases) expect(verdictOf(text)?.verdict ?? null, text).toBe(verdict)
@@ -560,7 +561,7 @@ describe('K19: lệnh kiểm qua ống che mã thoát', () => {
     const seen = setup(on, fs)
     await begin($, seen, fs)
     const out = await call($, { tool: 'Bash', command: 'bash tests/kiem.sh | tail -1' })
-    const note = (out.context ?? []).find(c => c.includes('ống')) ?? ''
+    const note = (out.context ?? []).find(c => c.includes('đi qua ống')) ?? ''
     expect(note).not.toBe('')
     expect(note.length).toBeLessThanOrEqual(160)
     await agent($, 'Kiểm độc lập: phí', 'ĐẠT')
@@ -574,7 +575,7 @@ describe('K19: lệnh kiểm qua ống che mã thoát', () => {
     const seen = setup(on, fs)
     await begin($, seen, fs)
     const out = await call($, { tool: 'Bash', command: 'bash tests/kiem.sh' })
-    expect((out.context ?? []).some(c => c.includes('ống'))).toBe(false)
+    expect((out.context ?? []).some(c => c.includes('đi qua ống'))).toBe(false)
     await agent($, 'Kiểm độc lập: phí', 'ĐẠT')
     await close($)
     expect(await stop($)).toBe('')
@@ -584,7 +585,7 @@ describe('K19: lệnh kiểm qua ống che mã thoát', () => {
     const seen = setup(on, fs)
     await begin($, seen, fs)
     const out = await call($, { tool: 'Bash', command: 'set -o pipefail; bash tests/kiem.sh | tail -1' })
-    expect((out.context ?? []).some(c => c.includes('ống'))).toBe(false)
+    expect((out.context ?? []).some(c => c.includes('đi qua ống'))).toBe(false)
     await agent($, 'Kiểm độc lập: phí', 'ĐẠT')
     await close($)
     expect(await stop($)).toBe('')
@@ -597,6 +598,6 @@ describe('K19: lệnh kiểm qua ống che mã thoát', () => {
     await edit($, fs)
     const outs = []
     for (let k = 0; k < 3; k++) outs.push(await call($, { tool: 'Bash', command: 'bash tests/kiem-cot.sh | tail -1' }))
-    expect(outs.map(o => (o.context ?? []).some(c => c.includes('ống')))).toEqual([true, true, false])
+    expect(outs.map(o => (o.context ?? []).some(c => c.includes('đi qua ống')))).toEqual([true, true, false])
   })
 })

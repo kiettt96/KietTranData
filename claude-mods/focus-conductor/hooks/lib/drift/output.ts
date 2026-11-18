@@ -251,6 +251,20 @@ const NEGATED_FAILURE = new RegExp(
   'giu',
 )
 
+/**
+ * Bỏ các cụm phủ định đứng trước một trong `words` (sau phiên thật D4), cùng cách nhận với NEGATED_FAILURE: "không có", "không còn",
+ * "chẳng", "no", "without", "zero", có thể kèm "lỗi", "vấn đề", "issues" và chuỗi "X hay Y", "X, Y", "X or Y" ("Không có lỗi Nghiêm trọng
+ * hay Lớn"). Dùng cho dòng kết luận của lượt duyệt.
+ */
+export function dropNegated(text: string, words: string): string {
+  const word = `(?:(?:lỗi|vấn\\s+đề|issues?|errors?)\\s+)?(?:${words})`
+  const re = new RegExp(
+    `${EDGE_START}(?:không|chẳng|no|without|zero)\\s+(?:có\\s+|còn\\s+|thấy\\s+|phát\\s+hiện\\s+|tìm\\s+thấy\\s+)?(?:(?:any|bất\\s+kỳ|dòng|bản\\s+ghi|kết\\s+quả|mã)\\s+)*(?:nào\\s+)?(?:bị\\s+)?${word}(?:\\s*(?:,|hay|hoặc|or|và|and)\\s*${word})*${EDGE_END}`,
+    'giu',
+  )
+  return text.replace(re, ' ')
+}
+
 /** Số khác 0: có chữ số khác 0 (kể cả "1.200.000" và "0,3"). */
 function hasNonZero(number: string): boolean {
   return /[1-9]/.test(number)
