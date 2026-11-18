@@ -242,6 +242,8 @@ describe('0.9.0 C2 dấu file, bổ sung 18/11', () => {
     expect(verdictOf('CHƯA ĐẠT\n- thiếu test\nĐẠT')?.verdict).toBe('fail')
     expect(verdictOf('ĐẠT\nCHƯA ĐẠT')?.verdict).toBe('fail')
     expect(verdictOf('SẴN SÀNG\nCHƯA SẴN SÀNG')?.verdict).toBe('not-ready')
+    // Dòng kết luận đầu tiên quyết loại: duyệt rồi sẵn sàng thì là kết luận duyệt.
+    expect(verdictOf('ĐẠT\n- ổn\nSẴN SÀNG')?.verdict).toBe('pass')
   })
   test('(2) luật đóng của phần sau từ kết luận: READY WITH BLOCKERS chưa sẵn sàng; ĐẠT (12/12 mục) chưa có kết luận; ĐẠT KÈM 2 LỖI NHẸ đạt', () => {
     expect(verdictOf('READY WITH BLOCKERS')?.verdict).toBe('not-ready')
