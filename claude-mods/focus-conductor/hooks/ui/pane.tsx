@@ -884,7 +884,7 @@ export function renderPane(
           {heading(l.teamHeading)}
           {view.core.team.steps.map(step => (
             <Text key={`team-${step.name}`} wrap="truncate-end" {...(step.state === 'wait' ? { dimColor: true } : {})}>
-              {`${step.state === 'pass' ? '✓' : step.state === 'fail' ? '✗' : '·'} ${l.teamSteps[step.name]}: ${l.teamStates[step.state]}`}
+              {`${step.state === 'pass' ? '✓' : step.state === 'fail' ? '■' : '·'} ${l.teamSteps[step.name]}: ${l.teamStates[step.state]}`}
             </Text>
           ))}
         </Box>

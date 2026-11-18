@@ -2632,4 +2632,5 @@ export const MUTANTS: Mutant[] = [
   { id: "090-F1c", file: "hooks/parts/consistency.ts", note: "lần chạy lỗi gần nhất của lệnh của bước vẫn tính là không lỗi (vòng 2 F1)", old: "{ ok: lastRun.passed }", new: "{ ok: true }" },
   { id: "090-F2a", file: "hooks/parts/consistency.ts", note: "lý do chặn không gộp tên file trùng (vòng 2 F2)", old: "const unique = named.filter((path, k) => named.findIndex(other => keyOf(other) === keyOf(path)) === k)", new: "const unique = named" },
   { id: "090-F3a", file: "hooks/parts/consistency.ts", note: "câu về ống lệnh còn hiện sau khi chính lệnh đó chạy lại không kèm ống (vòng 2 F3)", old: "&& pipe.seq > lastHard && !rerun ?", new: "&& pipe.seq > lastHard ?" },
+  { id: "090-F5a", file: "hooks/ui/pane.tsx", note: "bước đóng chưa đạt dùng lại dấu chéo ngoài bộ cố định (vòng 2 F5)", old: "step.state === 'fail' ? '■' : '·'", new: "step.state === 'fail' ? '✗' : '·'" },
 ]
