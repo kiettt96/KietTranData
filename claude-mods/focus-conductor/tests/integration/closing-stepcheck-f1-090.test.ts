@@ -118,6 +118,16 @@ describe('0.9.0 vòng 2 F1: cổng đóng tính bằng chứng theo từng bư�
     await review($)
     expect(await paneText($)).toContain('Kiểm: chưa đạt')
   })
+  test('F5 bước đóng chưa đạt dùng ký hiệu bị chặn của bộ cố định (\\u25a0), không dùng dấu chéo (\\u2717)', OPTS, async ($, on) => {
+    const seen = setup(on)
+    outputs[CMD2] = { text: 'C1 ĐẠT\nC2 FAIL\nTỔNG: FAIL 1/5', isError: true }
+    await open($, seen, [STEPS[1]!])
+    await edit($)
+    await call($, { tool: 'Bash', command: CMD2 })
+    const text = await paneText($)
+    expect(text).toContain('\u25a0 Kiểm: chưa đạt')
+    expect(text).not.toContain('\u2717')
+  })
   test('pane hiện bước kiểm đạt đúng lúc cổng coi là đạt', OPTS, async ($, on) => {
     const seen = setup(on)
     await open($, seen, [STEPS[1]!])
