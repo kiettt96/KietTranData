@@ -12,6 +12,7 @@ import { globToRegExp } from '../lib/drift/soft'
 import { coversScope } from '../lib/drift/evidence'
 import { PLAN_SET_CHECK_LINE } from '../lib/approval'
 import { reportTable, verdictOf } from '../lib/verdict'
+import { EMPTY_REVIEW_PRINTS, changedPrints, normalizeReviewPrints, printNames, takePrints, withPrint } from '../lib/prints'
 import { closingNote, closingSteps, hardFileCount, hasKnownCheck, isDocsOnly, prefixRole, teamCause } from '../lib/team'
 import type { ClosingVerdict } from '../lib/team'
 import type { SideLists } from '../lib/drift/scope'
@@ -39,7 +40,7 @@ import { shownPlan } from '../lib/mirror'
 import { forkFailures, forkFiles, forkResults, liveForks, mergeDue } from '../lib/forks'
 import { PLAN_TOOL_FULL, RETRY_REPORT, chainedCheckNote, retryAgentNotice, RETRY_ROUNDS, noCheckReason, waiveAskText, blockText, firstErrorLine, clipMiddle, RETRY_COMMAND_CHARS, joinStopReasons, retryDoneNote, retryEditNote, retryFailNotice, retryName, retryStepNote, retryStopReason, skillTrialReason, changedFilesNotice, checkHintText, compactReminderText, conductCheckDenyText, conductReadText, conductWriteDenyText, conductorKeepText, criteriaNotice, driftContext, missingTasks, missingTasksNotice, needsChecklist, noChecklistReason, pendingNotice, qualityNotice, renderBulk, renderPlan, requirementsNotice, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice, forkMergedNote } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
-import type { Ctx } from '../context'
+import type { Ctx, VerdictRun } from '../context'
 import { modeOf, viewOf } from '../atoms'
 import { clockOf, labels, langOf } from '../ui/labels'
 import type { Lang } from '../ui/labels'
@@ -51,6 +52,8 @@ import { EDIT_TOOLS, ERROR_BURST } from '../context'
 const UNVERIFIED_REJECTED = 3
 
 const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EMPTY_CORE)
+// Dấu file của các lượt duyệt (0.9.0, C2 đo dấu file); cùng key với parts/agents.ts.
+const printState = atom({ plugin: 'focus-conductor', key: 'reviewPrints' } as const, EMPTY_REVIEW_PRINTS)
 
 /** Áp kết quả một lượt router gửi Fable vào Core (0.8.4 C6): vừa tạm ngừng thì toast và một dòng nhật ký conductor. */
 /**
@@ -122,7 +125,10 @@ async function closingGate($: EngineInterface, ctx: Ctx, core: Core, log: Eviden
     if (core.closingGap !== undefined) await update($, coreState, S.withClosingGap(null))
     return null
   }
-  const verdicts = L.verdicts.goalId === brief.goalId ? L.verdicts.items : []
+  // Hiệu lực theo dấu file (0.9.0, C2 đo dấu file): kết luận được tính mà dấu của tập lúc cổng xét khác dấu lúc subagent hoàn tất thì hết
+  // hiệu lực; fs không đo được thì giữ theo sổ thay đổi.
+  const stale = await stalePrints($, brief.goalId, L.verdicts.goalId === brief.goalId ? L.verdicts.items : [])
+  const verdicts = (L.verdicts.goalId === brief.goalId ? L.verdicts.items : []).map(v => (stale.agents.has(v.agentId) ? { ...v, isClean: false } : v))
   const lastHard = log.lastHard
   // Cùng một cách tính với pane (0.9.0 vòng sửa sau kiểm độc lập): kết luận mới nhất của mỗi bước quyết; bước kiểm chỉ khi có lệnh kiểm.
   const steps = teamSteps(core, brief, log, verdicts)
@@ -140,12 +146,38 @@ async function closingGate($: EngineInterface, ctx: Ctx, core: Core, log: Eviden
   if (isSolo) return null
   if (L.closingState.goalId !== brief.goalId) L.closingState = { goalId: brief.goalId, blocks: 0, key: '' }
   // Trạng thái của bước còn thiếu (chờ hay chưa đạt) thuộc khóa: duyệt đổi từ chờ sang chưa đạt là trạng thái thiếu mới (vòng sửa 1).
-  const key = `${missing}:${steps.find(s => s.name === missing)?.state ?? ''}:${lastHard}:${reviewSeq}`
+  const key = `${missing}:${steps.find(s => s.name === missing)?.state ?? ''}:${lastHard}:${reviewSeq}:${stale.files.join(',')}:${stale.agents.size}`
   if (L.closingState.key === key || L.closingState.blocks >= CLOSING_BLOCKS) return null
   L.closingState = { goalId: brief.goalId, blocks: L.closingState.blocks + 1, key }
   ctx.record(await $.clock.now(), 'closing-gate', { goalId: brief.goalId, missing, n: L.closingState.blocks })
   await ctx.flushDecisions((path, text) => $.fs.write(path, text))
-  return closingReasonText(missing)
+  const reason = closingReasonText(missing)
+  // Tên file đã đổi (0.9.0, C2 đo dấu file): đổi sau lượt duyệt (cổng xét lại), hay đổi ngay trong lượt duyệt sau thay đổi cuối.
+  const named = [...stale.files]
+  for (const v of verdicts) if (v.seq > log.lastChange) for (const path of v.changed ?? []) if (!named.includes(path)) named.push(path)
+  return missing !== 'check' && named.length > 0 ? `${reason} File đã đổi trong hay sau lượt duyệt: ${printNames(named)}.`.slice(0, CLOSING_CHARS) : reason
+}
+
+/**
+ * Lượt duyệt hết hiệu lực theo dấu file (0.9.0, C2 đo dấu file): với mỗi kết luận được tính có dấu lúc hoàn tất, chụp lại dấu các file đó;
+ * khác thì lượt đó hết hiệu lực. fs không đo được thì không đổi gì.
+ */
+async function stalePrints($: EngineInterface, goalId: number, verdicts: readonly VerdictRun[]): Promise<{ agents: Set<string>; files: string[] }> {
+  const state = normalizeReviewPrints(await read($, printState))
+  const agents = new Set<string>()
+  const files: string[] = []
+  if (state.goalId !== goalId) return { agents, files }
+  for (const v of verdicts) {
+    const done = state.done[v.agentId]
+    if (!v.isClean || !v.isReview || done === undefined || done === null) continue
+    const now = await takePrints({ stat: path => $.fs.stat(path), read: path => $.fs.read(path) as Promise<string> }, Object.keys(done), (await $.session.root().catch(() => null)) ?? null).catch(() => null)
+    if (now === null) continue
+    const changed = changedPrints(done, now)
+    if (changed.length === 0) continue
+    agents.add(v.agentId)
+    for (const path of changed) if (!files.includes(path)) files.push(path)
+  }
+  return { agents, files }
 }
 
 /** Đích đọc được của một lần ghi (0.9.0 C5): đường dẫn của tool sửa file, hay đích của tác động ghi mức definite của Bash. */
@@ -1530,8 +1562,18 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       const parsed = e.reason === 'answer' && meta !== undefined ? verdictOf(e.answer ?? '') : null
       if (e.reason === 'answer' && meta !== undefined && (parsed !== null || meta.role !== undefined)) {
         const role: Role = meta.role ?? (parsed?.verdict === 'ready' || parsed?.verdict === 'not-ready' ? 'design' : 'review')
-        // Sạch (0.9.0, đổi đặc tả C2 mục 2): mọi lời gọi Bash và công cụ sửa file của subagent nằm trong tập cho phép của vai chỉ đọc.
-        const isClean = meta.outside !== true
+        // Sạch (0.9.0, C2 đo dấu file): dấu của tập file không đổi giữa lúc sinh và lúc hoàn tất, và sổ không ghi lần ghi definite nào của
+        // subagent này vào file không nhẹ ngoài thư mục tạm. fs không đo được thì chỉ theo sổ.
+        const prints = normalizeReviewPrints(await read($, printState))
+        const spawned = prints.goalId === meta.goalId ? prints.spawn[agentId] : undefined
+        let printChanged: string[] = []
+        if (spawned !== undefined && spawned !== null) {
+          const done = await takePrints({ stat: path => $.fs.stat(path), read: path => $.fs.read(path) as Promise<string> }, Object.keys(spawned), (await $.session.root().catch(() => null)) ?? null).catch(() => null)
+          if (done !== null) printChanged = changedPrints(spawned, done)
+          await update($, printState, state => withPrint(normalizeReviewPrints(state), meta.goalId, 'done', agentId, done))
+        }
+        const wroteHard = ctx.evidenceFor(meta.goalId).writes.some(w => w.author === agentId && w.hard === true && w.definite === true)
+        const isClean = printChanged.length === 0 && !wroteHard
         // Kết luận theo vai (0.9.0 C6): lượt có tiền tố Kiểm:, Audit: và từ ĐẠT HẾT, ALL PASS chỉ là của bước kiểm; duyệt và sẵn sàng cần model
         // từ sonnet trở lên.
         // Model đã chạy: theo usage khi có (model lạ thì không biết họ), không thì họ của lời giao.
@@ -1540,9 +1582,9 @@ export function registerConsistency(on: On, ctx: Ctx): void {
         const isStrong = ranFamily !== null && ranFamily !== 'haiku'
         const isReview = isClean && prefixRole(meta.description) !== 'audit' && parsed?.isCheckOnly !== true && isStrong
         if (L.verdicts.goalId !== meta.goalId) L.verdicts = { goalId: meta.goalId, items: [] }
-        L.verdicts.items.push({ agentId, role, verdict: parsed?.verdict ?? null, isClean, isReview, ...(parsed?.count !== undefined ? { count: parsed.count } : {}), seq: ctx.evidenceFor(meta.goalId).seq, family: ranFamily ?? meta.family, ...(meta.taskIndex !== undefined ? { taskIndex: meta.taskIndex } : {}), description: meta.description })
+        L.verdicts.items.push({ agentId, role, verdict: parsed?.verdict ?? null, isClean, isReview, ...(parsed?.count !== undefined ? { count: parsed.count } : {}), seq: ctx.evidenceFor(meta.goalId).seq, ...(printChanged.length > 0 ? { changed: printChanged.slice(0, 20) } : {}), family: ranFamily ?? meta.family, ...(meta.taskIndex !== undefined ? { taskIndex: meta.taskIndex } : {}), description: meta.description })
         if (L.verdicts.items.length > 100) L.verdicts.items.shift()
-        record(at, 'verdict', { agentId, role, verdict: parsed?.verdict ?? null, ...(isClean ? {} : { wrote: true }), ...(isReview ? { review: true } : {}), ...(parsed?.count !== undefined ? { count: parsed.count } : {}) })
+        record(at, 'verdict', { agentId, role, verdict: parsed?.verdict ?? null, ...(isClean ? {} : { wrote: true }), ...(printChanged.length > 0 ? { changed: printChanged.slice(0, 3) } : {}), ...(isReview ? { review: true } : {}), ...(parsed?.count !== undefined ? { count: parsed.count } : {}) })
         await flushDecisions((path, text) => $.fs.write(path, text))
         // Vòng sửa theo kết luận (0.9.0 C7): chưa đạt của một subagent không ghi file tính vòng cho cùng một mục, trần RETRY_ROUNDS.
         const roundKey = `${meta.goalId}:${role}:${meta.taskIndex ?? meta.description}`

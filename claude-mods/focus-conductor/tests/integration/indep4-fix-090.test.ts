@@ -7,7 +7,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
-import { isReadOnlyAllowed } from '../../hooks/lib/team'
 import { classifyBash } from '../../hooks/lib/drift/classify'
 import { isReadOnlyCommand } from '../../hooks/lib/drift/readonly'
 import { JS } from '../fixtures/runner-output'
@@ -15,37 +14,12 @@ import { base, plan, step, submit } from '../support/engine'
 import type { Json, Seen } from '../support/engine'
 import { flatFs, quotaMeter, week } from '../support/quota'
 
-const allowed = (command: string, cwd: string | null = '/repo', stepChecks: readonly string[] = []) => isReadOnlyAllowed(command, { cwd, stepChecks })
-
-describe('0.9.0 vòng sửa 1 của C2 (2): thư mục làm việc trong cùng lệnh', () => {
-  for (const command of [
-    "(cd /tmp/r && bash probe.sh); sed -i 's/a/b/' src/f1.ts",
-    'cd /tmp/r && cd - && sed -i s/a/b/ src/f1.ts',
-    'cd /tmp/r && cp src/f1.ts ../../repo/src/f1.ts',
-    'cd /tmp/r && git -C /repo checkout -- src/f1.ts',
-    'cd /tmp/r && npx prettier --write /repo/src/f1.ts',
-    'cd /tmp/x/nope; sed -i s/a/b/ src/a.ts',
-    'cd /tmp/r || true; sed -i s/a/b/ src/a.ts',
-    'cd /tmp/r && bash probe.sh; sed -i s/a/b/ src/a.ts',
-    'cd /tmp/r && cp x "$OLDPWD/src/a.ts"',
-    'cd /tmp/r && cp x /repo/src/a.ts',
-  ]) {
-    test(`bị từ chối: ${command}`, () => {
-      expect(allowed(command)).toBe(false)
-    })
-  }
-  for (const command of ['(cd /tmp/r && bash probe.sh)', 'cd /tmp/r && bash probe.sh && cat out.txt', 'cd /tmp/ra-soat && for c in a b; do out=$($c 2>&1); echo $out; done']) {
-    test(`vẫn được phép: ${command}`, () => {
-      expect(allowed(command)).toBe(true)
-    })
-  }
-})
 
 describe('0.9.0 vòng sửa 1 của C2 (3): lệnh ghi bộ phân loại từng bỏ sót', () => {
   for (const command of ["sed -n 'w out.txt' a.ts", "sed 's/a/b/w out2.txt' a.ts", 'git diff --output=review.patch', 'git log -p --output=x.patch', 'tree -o tree.txt', 'uniq a.txt b.txt', 'awk \'BEGIN{"touch x"|getline}\'']) {
+    // Đổi cách làm C2 sang đo dấu file (18/11): còn là lỗi của bộ phân loại (cổng duyệt kế hoạch, vai điều phối dùng); vai duyệt không xét.
     test(`có tác động ghi và bị từ chối ở vai duyệt: ${command}`, () => {
       expect(classifyBash(command, '/repo').effects.some(e => e.kind === 'write')).toBe(true)
-      expect(allowed(command)).toBe(false)
     })
   }
   test('awk -i inplace không là lệnh chỉ đọc; sed -n 1,5p, uniq một tệp, tree, git diff vẫn chỉ đọc', () => {
@@ -54,24 +28,6 @@ describe('0.9.0 vòng sửa 1 của C2 (3): lệnh ghi bộ phân loại từng 
   })
 })
 
-describe('0.9.0 vòng sửa 1 của C2 (4) và đột biến còn sống: lệnh probe', () => {
-  test('probe ghi bằng heredoc có nháy vào thư mục tạm, kể cả thân có template literal; rồi chạy ở đó: được phép', () => {
-    expect(allowed("cat > /tmp/r/probe.ts <<'EOF'\nconsole.log(`kq ${1}`)\nEOF")).toBe(true)
-    expect(allowed("cat > /tmp/r/probe.sh <<'EOF'\necho ok\nEOF\ncd /tmp/r && bash probe.sh")).toBe(true)
-  })
-  test('heredoc không nháy có $( ), heredoc ghi src, heredoc vào trình thông dịch hay shell: bị từ chối', () => {
-    for (const command of ['cat > /tmp/r/p.sh <<EOF\n$(rm src/a.ts)\nEOF', "cat > src/a.ts <<'EOF'\nx\nEOF", "python3 x.py <<'EOF'\nhi\nEOF", "bash <<'SH'\nrm src/a.ts\nSH"]) expect(allowed(command), command).toBe(false)
-  })
-  test('lệnh ở check của bước có nhiều đoạn: cả lệnh được phép; một đoạn của nó chạy riêng thì xét như lệnh thường', () => {
-    expect(allowed('bash a.sh && bash b.sh', '/repo', ['bash a.sh && bash b.sh'])).toBe(true)
-    expect(allowed('bash a.sh', '/repo', ['bash a.sh && bash b.sh'])).toBe(false)
-  })
-  test('deno fmt, python3 -m black: ở thư mục dự án bị từ chối; chạy trong thư mục tạm (loại e, chỉ sửa tệp ở đó) được phép', () => {
-    expect(allowed('deno fmt')).toBe(false)
-    expect(allowed('python3 -m black .')).toBe(false)
-    expect(allowed('cd /tmp/r && deno fmt')).toBe(true)
-  })
-})
 
 const PLAN = 'mcp__focus-conductor__plan'
 const W = '/w/viec'
@@ -112,13 +68,14 @@ async function start($: Engine, seen: Seen) {
 const close = ($: Engine) => $.tool.call({ tool: PLAN, action: 'update', step: 1, status: 'done' })
 
 describe('0.9.0 vòng sửa 1 của C2 (1, 4): trong phiên', () => {
+  // Đổi cách làm C2 sang đo dấu file (18/11): lời gọi bị từ chối không chạy nên không làm mất kết luận.
   test('lời gọi 1 cd vào thư mục tạm, lời gọi 2 sed -i src: lời gọi 2 bị từ chối; kết luận không tính, cổng chặn', OPTS(), async ($, on) => {
     const seen = setup(on)
     await start($, seen)
     const outs = await agent($, 'Duyệt: phí', 'ĐẠT', [{ tool: 'Bash', command: 'cd /tmp/ra-soat' }, { tool: 'Bash', command: "sed -i 's/a/b/' src/phi.ts" }])
     expect(outs[1]?.deny).toBeDefined()
     await close($)
-    expect(await stop($)).toContain('duyệt độc lập')
+    expect(await stop($)).toBe('')
   })
   test('vai duyệt dùng Write vào thư mục tạm cho probe rồi chạy ở đó, trả ĐẠT: không bị từ chối, kết luận tính, cổng cho qua', OPTS(), async ($, on) => {
     const seen = setup(on)

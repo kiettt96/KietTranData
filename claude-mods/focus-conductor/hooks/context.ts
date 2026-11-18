@@ -23,7 +23,7 @@ import { approvalModeOf, reviewRoundsOf } from './lib/approval'
 import type { StepRun } from './lib/drift/stepcheck'
 import type { Verdict } from './lib/verdict'
 /** Một kết luận của subagent có vai (0.9.0 C4): vai, kết luận, số đếm, mốc seq, model đã chạy, việc và mô tả. */
-export type VerdictRun = { agentId: string; role: Role; verdict: Verdict | null; /** Subagent không ghi file nào ngoài thư mục tạm (0.9.0 D1): chỉ khi đó kết luận mới tính cho cổng. */ isClean: boolean; /** Kết luận tính cho duyệt và sẵn sàng (0.9.0 C6): không phải lượt Kiểm:, không phải ĐẠT HẾT, ALL PASS, model từ sonnet. */ isReview: boolean; count?: string; seq: number; family: ModelFamily; taskIndex?: number; description: string }
+export type VerdictRun = { agentId: string; role: Role; verdict: Verdict | null; /** Dấu của tập file không đổi trong lượt và sổ không có lần ghi definite của subagent vào file không nhẹ ngoài thư mục tạm (0.9.0, C2 đo dấu file); cổng còn xét lại dấu lúc đóng. */ isClean: boolean; /** Kết luận tính cho duyệt và sẵn sàng (0.9.0 C6): không phải lượt Kiểm:, không phải ĐẠT HẾT, ALL PASS, model từ sonnet. */ isReview: boolean; count?: string; seq: number; family: ModelFamily; taskIndex?: number; description: string; /** File của tập đổi dấu trong lượt (0.9.0, C2 đo dấu file), để lý do chặn nêu tên. */ changed?: string[] }
 import { activeConductor, conductorBlocker, conductorFallbackOf, conductorOf, fableModelId, isMainConducting } from './lib/conductor'
 import { normalizeCore, restoreArchived, withDelegations } from './lib/state'
 import type { ActiveConductor, ConductorBlocker, ConductorInputs } from './lib/conductor'
@@ -249,8 +249,6 @@ export function createContext(options: PluginOptions) {
   // lần gần nhất engine nhận; `enforceModel` là mod được phép ép model (không khi model không thuộc họ Claude,
   // hoặc agent workflow do script chọn model).
   type AgentMeta = {
-    /** Đã có lời gọi ngoài tập cho phép của vai chỉ đọc (0.9.0, đổi đặc tả C2): kết luận không mở cổng duyệt hay sẵn sàng. */
-    outside?: true
     description: string
     tier: Tier
     goalId: number

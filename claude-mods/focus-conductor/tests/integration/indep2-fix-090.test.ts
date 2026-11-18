@@ -27,8 +27,9 @@ describe('0.9.0 vòng sửa 1 (2, 3): từ kết luận', () => {
 
 describe('0.9.0 vòng sửa 1 (5): lệnh ghi lẩn', () => {
   for (const command of ["bash -c 'echo x > src/a.ts'", 'sh -c "sed -i s/a/b/ src/a.ts"', 'nice rm src/a.ts', "python3 -I -c \"open('a','w')\"", "node --no-warnings -e \"require('fs').writeFileSync('a','1')\"", 'awk -i inplace \'{print}\' src/a.ts', 'gofmt -w .', 'black src', 'clang-format -i src/a.c']) {
+    // Đổi cách làm C2 sang đo dấu file (18/11): lệnh ghi lẩn mức possible chỉ còn bị từ chối ở vai audit.
     test(`vai duyệt bị từ chối: ${command}`, () => {
-      expect(roleDenial('review', 'Bash', { command }, 'duyệt')).not.toBeNull()
+      expect(roleDenial('audit', 'Bash', { command }, 'kiểm')).not.toBeNull()
     })
   }
   for (const command of ["bash -c 'source src/a.sh; f 1'", 'black --check src', 'nice bun test', "sh -c 'bun test'"]) {
@@ -86,20 +87,6 @@ describe('0.9.0 vòng sửa 1 (1, 4, 7): cổng đóng', () => {
     await close($)
     expect(await stop($)).toContain(BLOCK)
     await answer($, 'Rà phí', 'CHƯA ĐẠT\n- Lớn: thiếu test')
-    expect(await stop($)).toContain(BLOCK)
-  })
-  test('subagent không tiền tố chạy git commit rồi trả ĐẠT: không tính, cổng chặn', OPTS, async ($, on) => {
-    const seen = setup(on)
-    await start($, seen)
-    await answer($, 'Rà phí', 'ĐẠT', ['git commit -am x', 'bun test'])
-    await close($)
-    expect(await stop($)).toContain(BLOCK)
-  })
-  test('subagent không tiền tố chạy bash -c ghi src rồi trả ĐẠT: không tính, cổng chặn', OPTS, async ($, on) => {
-    const seen = setup(on)
-    await start($, seen)
-    await answer($, 'Rà phí', 'ĐẠT', ["bash -c 'echo x > src/phi.ts'", 'bun test'])
-    await close($)
     expect(await stop($)).toContain(BLOCK)
   })
   test('model chạy không đọc được (usage.model lạ): không tính là từ sonnet, cổng chặn', OPTS, async ($, on) => {
