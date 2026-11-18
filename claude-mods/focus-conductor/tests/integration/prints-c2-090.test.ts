@@ -54,14 +54,14 @@ const call = async ($: Engine, input: Record<string, unknown>) => (await $.tool.
 const stop = async ($: Engine) => String(((await $.classic.Stop({ stop_hook_active: false } as never)) as { block?: string }).block ?? '')
 let n = 0
 /** Một subagent: sinh, các lời gọi, rồi `during` (đổi hệ tệp giả giữa lúc sinh và lúc hoàn tất), rồi hoàn tất. */
-async function agent($: Engine, description: string, text: string, calls: ReadonlyArray<Record<string, unknown>> = [], during: () => void = () => {}, subagentType?: string) {
+async function agent($: Engine, description: string, text: string, calls: ReadonlyArray<Record<string, unknown>> = [], during: () => void = () => {}, subagentType?: string, hasUsage = true) {
   const id = `pr${(n += 1)}`
   await $.tool.call({ tool: 'Agent', tool_use_id: id, description, prompt: 'Rà.', ...(subagentType !== undefined ? { subagent_type: subagentType } : {}) } as never)
   await $.agent.spawn({ prompt: 'Rà.', description, tool_use_id: id } as never)
   const outs: Out[] = []
   for (const input of calls) outs.push(await call($, { ...input, agentId: `a-${id}` }))
   during()
-  await $.turn.complete({ turnId: `x-${id}`, agentId: `a-${id}`, answer: text, durationMs: 5, isAborted: false, reason: 'answer', usage: { model: spawnModel, input_tokens: 10, output_tokens: 10 } } as never)
+  await $.turn.complete({ turnId: `x-${id}`, agentId: `a-${id}`, answer: text, durationMs: 5, isAborted: false, reason: 'answer', ...(hasUsage ? { usage: { model: spawnModel, input_tokens: 10, output_tokens: 10 } } : {}) } as never)
   return outs
 }
 const SRC = '/repo/src/phi.ts'
@@ -149,8 +149,12 @@ describe('0.9.0 C2 dấu file: hiệu lực của kết luận', () => {
     await start($, seen, files)
     // Vai không tiền tố (không bị từ chối): lần ghi definite vào src của chính subagent đó vào sổ.
     await agent($, 'Rà phí', 'ĐẠT', [{ tool: 'Bash', command: "sed -i 's/a/b/' /repo/src/phi.ts" }])
+    // Lệnh kiểm chạy lại sau lần ghi để bước kiểm đạt: cổng chỉ còn thiếu duyệt.
+    await call($, { tool: 'Bash', command: 'bun test' })
     await close($)
-    expect(await stop($)).toContain(BLOCK)
+    const block = await stop($)
+    expect(block).toContain(BLOCK)
+    expect(block).not.toContain('chưa có lần kiểm đạt')
   })
 })
 
@@ -244,7 +248,9 @@ describe('0.9.0 C2 dấu file, bổ sung 18/11', () => {
     expect(verdictOf('ĐẠT (12/12 mục)')).toBeNull()
     expect(verdictOf('ĐẠT KÈM 2 LỖI NHẸ')?.verdict).toBe('pass')
     for (const text of ['PASS with tests skipped', 'ĐẠT kèm ghi chú', 'ĐẠT, chặn ở bước 2', 'PASS, 1 blocker']) expect(verdictOf(text)?.verdict, text).toBe('fail')
-    for (const text of ['ĐẠT phần lớn', 'PASS overall']) expect(verdictOf(text), text).toBeNull()
+    for (const text of ['ĐẠT phần A', 'PASS overall']) expect(verdictOf(text), text).toBeNull()
+    // Theo đúng chữ của mục 2: "lớn" ở bất kỳ đâu sau từ kết luận là chưa đạt (chiều an toàn).
+    expect(verdictOf('ĐẠT phần lớn')?.verdict).toBe('fail')
   })
   test('(2) câu trả lời chỉ có dòng kết luận không đứng riêng: cổng chặn, lý do nêu dòng kết luận phải đứng riêng và hỏi lại chính subagent đó', OPTS(), async ($, on) => {
     const files = fresh()
@@ -261,14 +267,16 @@ describe('0.9.0 C2 dấu file, bổ sung 18/11', () => {
     const files = fresh()
     const seen = setup(on, files)
     await start($, seen, files)
-    await agent($, 'Kiểm độc lập: phí', 'ĐẠT')
+    // Hoàn tất không kèm usage: pane của engine giả vỡ khi usage chỉ có số token (có từ 0.8.9, ghi ở việc tồn).
+    await agent($, 'Kiểm độc lập: phí', 'ĐẠT', [], () => {}, undefined, false)
     await close($)
     expect(await stop($)).toBe('')
-    const before = (await (await $.ui.mount(PANE)).findAll({ type: 'Text' })).map(e => e.text ?? '').join('\n')
+    const pane = await $.ui.mount(PANE)
+    const before = (await pane.findAll({ type: 'Text' })).map(e => e.text ?? '').join('\n')
     expect(before).toContain('Duyệt: đạt')
     files.set(SRC, { text: 'export const phi = 9\n', mtimeMs: 300 })
     expect(await stop($)).toContain(BLOCK)
-    const after = (await (await $.ui.mount(PANE)).findAll({ type: 'Text' })).map(e => e.text ?? '').join('\n')
+    const after = (await pane.findAll({ type: 'Text' })).map(e => e.text ?? '').join('\n')
     expect(after).not.toContain('Duyệt: đạt')
   })
   test('(4) subagent Explore chạy haiku: không gọi fs.stat, fs.read lần nào', OPTS(), async ($, on) => {
@@ -307,5 +315,16 @@ describe('0.9.0 C2 dấu file, bổ sung 18/11', () => {
     calls.read = 0
     await agent($, 'Kiểm độc lập: phí', 'ĐẠT')
     expect(calls).toEqual({ stat: 0, read: 0 })
+  })
+})
+
+describe('0.9.0 C2 dấu file: kích thước', () => {
+  test('nội dung đổi kích thước mà thời điểm sửa giữ nguyên trong lượt duyệt: không tính', OPTS(), async ($, on) => {
+    const files = fresh()
+    const seen = setup(on, files)
+    await start($, seen, files)
+    await agent($, 'Kiểm độc lập: phí', 'ĐẠT', [], () => files.set(SRC, { text: 'export const phi = 2 // sửa\n', mtimeMs: 100 }))
+    await close($)
+    expect(await stop($)).toContain(BLOCK)
   })
 })

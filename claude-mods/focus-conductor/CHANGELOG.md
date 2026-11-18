@@ -40,6 +40,8 @@ Ba nhóm việc trong một lượt: sửa lỗi còn tồn (A), chạy trơn v�
   | 1 của danh sách cho phép | năm loại a tới e | CHƯA ĐẠT | cwd của subagent; cwd trong một lệnh; bộ phân loại bỏ sót năm dạng; probe heredoc và Write vào thư mục tạm bị chặn |
   | 2 của danh sách cho phép | năm loại a tới e, sau vòng sửa 1 | CHƯA ĐẠT | `sort -uo`; `sed s#..#..#w`; nguồn tuyệt đối trong repo bị chặn ở thư mục tạm |
 
+  Bổ sung 18/11, cùng vòng sửa: dòng kết luận đạt và chưa đạt cùng loại thì chưa đạt bất kể thứ tự (khôi phục ca `allow-c2-090` "có cả dòng ĐẠT và dòng CHƯA ĐẠT đứng riêng: chưa đạt"); luật đóng cho phần sau từ kết luận (`READY WITH BLOCKERS` chưa sẵn sàng, `ĐẠT (12/12 mục)` chưa có kết luận, lý do chặn nêu dòng kết luận phải đứng riêng và gợi ý hỏi lại subagent đó); lượt hết hiệu lực vì dấu đổi ghi vào `$.state` để pane và band thấy ngay; chỉ chụp dấu cho subagent có thể cho kết luận được tính, dùng lại mã băm khi kích thước và thời điểm sửa không đổi, không gọi fs khi chưa có file không nhẹ nào được sửa.
+
   Gỡ khi đổi cách làm (lý do: danh sách cho phép và phần theo dõi cwd không còn trong mã):
   - Mã: `isReadOnlyAllowed`, `commandAllowed`, `piecesAllowed`, `piecesOf`, `effectsAllowed`, `wordsStayInTemp`, `cdTarget`, `INTERPRETERS`, `INLINE_FLAG` (`hooks/lib/team.ts`); `roleFrame`, cờ `AgentMeta.outside` (`hooks/parts/agents.ts`, `hooks/context.ts`).
   - Ca test: `allow-c2-090` "hai lỗi nặng của vòng kiểm 3 bị từ chối", "mã nội tuyến của trình thông dịch không chứng minh được", "lệnh ở check là script riêng", "probe chạy trong thư mục tạm được phép; cùng lệnh ở thư mục dự án bị từ chối", "chỉ ghi thư mục tạm, lệnh kiểm nhận ra, lệnh chỉ đọc: được phép", "có cả dòng ĐẠT và dòng CHƯA ĐẠT đứng riêng: chưa đạt" (mục 6 lấy dòng đầu), "subagent không vai có một lời gọi ngoài tập"; `indep4-fix-090` hai nhóm "thư mục làm việc trong cùng lệnh" (13 ca) và "lệnh probe" (4 ca); `indep-fix-090` "subagent không tiền tố chạy eslint --fix rồi trả ĐẠT"; `indep2-fix-090` "subagent không tiền tố chạy git commit rồi trả ĐẠT", "... bash -c ghi src rồi trả ĐẠT"; `indep3-fix-090` "subagent không tiền tố chạy black --check src && black src rồi trả ĐẠT", "hard: READY WITH BLOCKERS không là sẵn sàng" (các ca này đo luật lời gọi, nay hiệu lực do dấu file quyết).
@@ -89,7 +91,7 @@ Ba nhóm việc trong một lượt: sửa lỗi còn tồn (A), chạy trơn v�
 - Vai audit: lệnh ghi qua trình thông dịch ngoài danh sách đã biết (`node script.js` tự ghi file) vẫn chạy được; kết luận của audit không mở cổng duyệt.
 - Bộ phân loại lệnh (không thuộc cổng duyệt): `file -C`, `rg --pre`, sửa qua liên kết mềm trỏ ra ngoài thư mục tạm.
 - File mới do vai chỉ đọc tạo bằng lệnh mức possible không vào tập dấu, nên không bị phát hiện.
-- `READY WITH BLOCKERS`, `PASS, blocked` vẫn là sẵn sàng, đạt vì mục 6 không liệt kê `blocker`.
+- Pane của engine giả không vẽ được khi `turn.complete` có `usage` chỉ gồm số token (`formatCost` nhận null); có từ 0.8.9, engine thật có trường chi phí.
 - Nhật ký quyết định bị ghi đè khi chạy tiếp bằng `claude -p --continue`.
 - Trạng thái mục tiêu không sống qua `--continue` ở chế độ không tương tác.
 - Câu "Việc nhỏ: làm trực tiếp, không cần checklist" của mục tiêu light cãi với prompt đòi checklist.
