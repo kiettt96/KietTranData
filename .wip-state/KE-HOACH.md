@@ -29,3 +29,14 @@ Thứ tự: A1-A5, B1-B13, D1, C1-C8, D2 cùng C9, D4, D3.
 
 ## Tiêu chí nghiệm thu
 Theo mục 9 của prompt: mọi mục passing (D1, D4 được blocked đúng lý do); khối đo nền chạy lại đạt với 0.9.0; số ca test >= nền; đột biến các tệp đã đổi không còn mẫu sống ngoài nhóm tương đương; PR mở, CI xanh.
+
+## 18/11 vòng mới C2: đo dấu file (cỡ dài)
+Căn cứ khai báo kiểu: 2.1.327 và 2.1.296 đều có $.fs.stat (size, mtimeMs) và $.fs.read [Đo trực tiếp, index.d.ts]. Engine giả: file thiếu trả lỗi có ENOENT; lỗi khác coi là không đo được, lùi về sổ.
+1. Test đỏ (C2x, C6x): dấu file (8 ca của mục 8), dòng kết luận mục 6, sort -uo, sed s#..#w, biến thể mục 7. Commit đỏ.
+2. Gỡ: isReadOnlyAllowed và phụ trợ ở team.ts, roleFrame, meta.outside; test, mẫu tương ứng; liệt kê vào CHANGELOG.
+3. Cài: lib/prints.ts (tập file, dấu, so sánh, FNV-1a); chụp ở agent.spawn (vai khác build) và turn.complete; atom reviewPrints; cổng xét lại dấu; lý do nêu tối đa 3 tên file; writes có cờ definite.
+4. Vai chỉ đọc: Bash definite ghi ngoài tạm bị từ chối, possible chạy; file tool ngoài tạm bị từ chối.
+5. verdictOf theo mục 6. Bộ phân loại: sort, sed.
+6. Đột biến: gỡ mẫu của mã gỡ; 9 mẫu sống xử lý; mẫu mới C2x, C6x.
+7. DESIGN, CHANGELOG; kiểm độc lập (2 vòng); mục 12.
+Nghiệm thu: mọi ca 0.9.0 qua; mục 8 đủ ca; kiểm độc lập không lỗi nặng; cả bộ test hai engine xanh.
