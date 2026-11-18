@@ -73,6 +73,13 @@ describe('0.9.0 C2: quyền theo vai', () => {
     expect((await call($, { tool: 'Bash', command: 'bun test > /tmp/ket-qua-kiem.txt', agentId: id })).deny).toBeUndefined()
     expect((await call($, { tool: 'Bash', command: 'bun test > /repo/src/ket-qua-kiem.txt', agentId: id })).deny ?? '').toContain('kiểm')
   })
+  test('vai kiểm: lệnh chỉ đọc có từ patch, black ở tham số được chạy (diệt mẫu 090-C2p)', { options: { planApproval: 'off' } }, async ($, on) => {
+    setup(on)
+    await submit($, 'Sửa luồng thanh toán')
+    const id = await agent($, 4, 'Chạy kiểm')
+    expect((await call($, { tool: 'Bash', command: 'git log --oneline --grep patch', agentId: id })).deny).toBeUndefined()
+    expect((await call($, { tool: 'Bash', command: 'grep -rn black src', agentId: id })).deny).toBeUndefined()
+  })
   test('vai làm và việc không có vai: sửa file như 0.8.9', { options: { planApproval: 'off' } }, async ($, on) => {
     setup(on)
     await submit($, 'Sửa luồng thanh toán')

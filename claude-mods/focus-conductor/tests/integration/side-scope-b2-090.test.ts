@@ -72,6 +72,18 @@ describe('0.9.0 B2: tệp trạng thái và nơi ghi phụ không lệch phạm 
     expect(ctx(other)).toContain('ngoài phạm vi')
   })
 
+  test('subagent ghi tệp trạng thái router trả, tên ngoài danh sách mặc định: không cảnh báo ngoài phạm vi (diệt mẫu 090-B2c)', { options: { planApproval: 'off', remindSubagents: true } }, async ($, on) => {
+    base(on, { router: () => plan({ goal: 'Sửa thống kê', depth: 'substantial', volume: 'small', scope: ['src/thong-ke.sh'], stateFiles: [`${WORK}/NHAT-KY-VIEC.md`] }), root: '/work/repo' })
+    on('tool.call', { tool: 'Write' }, () => ({ result: 'đã ghi' }))
+    on('tool.call', { tool: 'Agent' }, () => ({ result: 'đã giao' }))
+    on('agent.spawn', (_$, e) => ({ model: 'claude-sonnet-5-5', agentId: `a-${e.tool_use_id}` }))
+    await submit($, 'Sửa thống kê trong src/thong-ke.sh')
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa' }] } as never)
+    await spawnTool($, 'u2', 'Ghi nhật ký', 'Ghi nhật ký việc')
+    const w = (await $.tool.call({ tool: 'Write', file_path: `${WORK}/NHAT-KY-VIEC.md`, content: 'x', agentId: 'a-u2' } as never)) as Out
+    expect(ctx(w)).not.toContain('ngoài phạm vi')
+  })
+
   test('đối chứng: Write vào đường dẫn khác ngoài phạm vi vẫn cảnh báo', { options: { planApproval: 'off' } }, async ($, on) => {
     base(on, { router: () => GOAL, root: '/work/repo' })
     on('tool.call', { tool: 'Write' }, () => ({ result: 'đã ghi' }))

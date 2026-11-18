@@ -9,6 +9,7 @@ import * as R from '../../hooks/lib/router'
 import type { Policy } from '../../hooks/lib/router'
 import { prefixRole } from '../../hooks/parts/agents'
 import { base, plan, submit, task } from '../support/engine'
+import { labels, stepTaskMeta } from '../../hooks/ui/labels'
 
 const OPEN: Policy = { allowFable: false, blocked: new Set(), session: null }
 type Roled = { role?: string; pick: { family: string } }
@@ -89,5 +90,14 @@ describe('0.9.0 B2: vai theo tiền tố description', () => {
     await $.agent.spawn({ prompt: 'Tìm.', description: 'Tìm chỗ gọi phí', tool_use_id: 'u-tra' } as never)
     const out = (await $.tool.call({ tool: 'Edit', file_path: '/repo/src/phi.ts', old_string: 'a', new_string: 'b', agentId: 'a-tra' } as never)) as { deny?: string }
     expect(out.deny ?? '').toContain('tra')
+  })
+})
+
+describe('0.9.0 B: nhãn vai trên chip của dòng bước', () => {
+  test('việc có vai của đội hình (review, audit, design): chip ghi nhãn vai sau model; build không có nhãn (diệt mẫu 090-C1e)', () => {
+    const l = labels('vi')
+    const base = { kind: 'agent' as const, pick: { family: 'opus', effort: 'high' }, state: 'running' as const }
+    for (const role of ['review', 'audit', 'design'] as const) expect(stepTaskMeta(l, { ...base, role })).toContain(`[${l.roleNames[role]}]`)
+    expect(stepTaskMeta(l, { ...base, role: 'build' })).not.toContain('[')
   })
 })
