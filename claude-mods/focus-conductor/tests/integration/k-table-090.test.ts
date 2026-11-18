@@ -440,3 +440,51 @@ describe('K17: không gọi fs', () => {
     expect(fs.calls).toBe(0)
   })
 })
+
+describe('Ca bổ sung cho đột biến của vòng sửa cuối', () => {
+  test('K13 fs chỉ đo được lúc hoàn tất (không đo được lúc sinh và lúc cổng xét): không tính', OPTS(), async ($, on) => {
+    const fs = new Fs()
+    const seen = setup(on, fs)
+    await start($, seen, fs)
+    fs.broken = true
+    const id = await spawn($, 'Kiểm độc lập: phí')
+    fs.broken = false
+    await complete($, id, 'ĐẠT')
+    fs.broken = true
+    await close($)
+    expect(await stop($)).toContain(BLOCK)
+  })
+  test('K13 fs không phản hồi ở mọi mốc, luồng chính sửa file trong lúc lượt duyệt chạy: không tính', OPTS(), async ($, on) => {
+    const fs = new Fs()
+    fs.broken = true
+    const seen = setup(on, fs)
+    await start($, seen, fs)
+    const id = await spawn($, 'Kiểm độc lập: phí')
+    await edit($, fs, SRC, 'export const phi = 4\n', 150)
+    await call($, { tool: 'Bash', command: 'bun test' })
+    await complete($, id, 'ĐẠT')
+    await close($)
+    expect(await stop($)).toContain(BLOCK)
+  })
+  test('K8 subagent ghi definite vào node_modules của dự án trả ĐẠT: không tính', OPTS(), async ($, on) => {
+    const fs = new Fs()
+    const seen = setup(on, fs)
+    await start($, seen, fs)
+    await agent($, 'Rà phí', 'ĐẠT', [{ tool: 'Edit', file_path: '/repo/node_modules/x/a.js', old_string: 'a', new_string: 'b' }])
+    await close($)
+    expect(await stop($)).toContain(BLOCK)
+  })
+  test('K9 dấu đổi không qua lời gọi rồi sửa thêm file khác: lần chặn sau vẫn nêu file đổi dấu', OPTS(), async ($, on) => {
+    const fs = new Fs()
+    const seen = setup(on, fs)
+    await start($, seen, fs)
+    await agent($, 'Kiểm độc lập: phí', 'ĐẠT')
+    await close($)
+    expect(await stop($)).toBe('')
+    fs.set(SRC, 'export const phi = 9\n', 700)
+    expect(await stop($)).toContain('phi.ts')
+    await edit($, fs, '/repo/src/phu.ts', 'export const phu = 2\n', 710)
+    await call($, { tool: 'Bash', command: 'bun test' })
+    expect(await stop($)).toContain('phi.ts')
+  })
+})
