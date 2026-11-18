@@ -2648,4 +2648,5 @@ export const MUTANTS: Mutant[] = [
   { id: "090-U6a", file: "hooks/parts/command.ts", note: "dòng bước đóng hiện cả khi đội hình chưa bật (vòng 2 U6)", old: "if (brief === null || core.team === undefined || core.team.goalId !== brief.goalId || core.team.steps.length === 0) return []", new: "if (brief === null) return []\n  if (core.team === undefined || core.team.goalId !== brief.goalId) return [`${labels(lang).teamHeading}: `]" },
   { id: "090-U7a", file: "hooks/ui/pane.tsx", note: "tiêu đề Tiến độ từng việc luôn có phần đếm (vòng 2 U7)", old: "const taskHeading = brief.tasks.length === 0\n", new: "const taskHeading = false\n" },
   { id: "090-G1a", file: "hooks/lib/verdict.ts", note: "bỏ các cụm phủ định của từ đạt (vòng 2 G1)", old: "  ['does not pass', 'fail', false],\n  ['did not pass', 'fail', false],\n  ['not passed', 'fail', false],\n  ['not pass', 'fail', false],\n", new: "" },
+  { id: "090-G2a", file: "hooks/lib/drift/classify.ts", note: "git clone không ghi đích nêu rõ (vòng 2 G2)", old: "const isCloneTo = sub === 'clone' && positional.length >= 3 && add(positional[2] ?? '')", new: "const isCloneTo = false" },
 ]

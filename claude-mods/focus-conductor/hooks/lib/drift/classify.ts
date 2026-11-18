@@ -528,7 +528,11 @@ export function classifyBash(input: string, base = ''): BashClass {
       write('definite')
     } else if (name === 'git') {
       const sub = positional[0] !== undefined ? unmask(positional[0]) : ''
+      // git clone <nguồn> <đích> (vòng 2 G2): đích nêu rõ là đường dẫn ghi của đoạn, thêm trước khi chụp tác động ghi; không nêu đích thì vẫn
+      // là đích chưa đọc được như trước.
+      const isCloneTo = sub === 'clone' && positional.length >= 3 && add(positional[2] ?? '')
       write('definite')
+      if (isCloneTo) continue
       if (GIT_NO_FILES.has(sub)) {
         if (!isUnsupported) Object.assign(effects[effects.length - 1] as WriteEffect, { isHistory: true as const, gitSub: sub })
         continue
