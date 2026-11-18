@@ -90,7 +90,7 @@ Ba nhóm việc trong một lượt: sửa lỗi còn tồn (A), chạy trơn v�
 - Ca của `router-team-c3-090` về khối "Team roles" và catalog cho haiku chạy kiểm. Tệp được viết lại cho lời dặn đã gỡ đội hình.
 - Mẫu đột biến `090-C1a`, `090-C3a`, `090-C3b`, `090-C3c`, `090-C3e`, `090-C3f`, `090-C3g`.
 
-**Đột biến:** mẫu mới mang mã `090-<mã điểm><chữ>`. Mẫu cũ viết lại chuỗi, giữ mã: `078-G1m`, `078-G2e`, `078-G2f`, `082-N2a`, `085-W2h`, `075-A6a`, `075-A6b`, `061-P25`, `070-V12`, `070-V14`, `071-M11`, `070-V5`, `073-N12`, `075-L6a`, `075-L6b`, `075-L6c`. Mẫu `090-B9e` là tương đương, lý do trong `scripts/mutants.ts`.
+**Đột biến:** mẫu mới mang mã `090-<mã điểm><chữ>`. Mẫu cũ viết lại chuỗi, giữ mã: `078-G1m`, `078-G2e`, `078-G2f`, `082-N2a`, `085-W2h`, `075-A6a`, `075-A6b`, `061-P25`, `070-V12`, `070-V14`, `071-M11`, `070-V5`, `073-N12`, `075-L6a`, `075-L6b`, `075-L6c`. Mẫu `090-B9e`, `090-C6h`, `090-C6m`, `090-C6zp` là tương đương, lý do trong `scripts/mutants.ts`. Lượt đột biến cuối (mẫu C2, C4, C6 của hai tệp đổi sau bản sửa D4, cộng mọi mẫu sống chạy lại trên mọi test 0.9.0) thêm ba ca diệt mẫu sống: `role-perm-c2-090` "vai kiểm: Bash ghi kết quả vào /tmp qua; ..." (`090-C2c`), `k-table-090` "K6 lượt \"Kiểm: \" trả ĐẠT ..." và "K6 lượt không tiền tố chạy sonnet trả ĐẠT HẾT ..." (`090-C6l`).
 
 **Việc tồn** (từ phiên thật D1 và kiểm độc lập):
 - `set -e` ở bất kỳ dòng nào bật errexit cho cả khối heredoc, kể cả khi có `set +e` sau đó; `set -e; ...` trên một dòng thì không nhận ra (chiều an toàn).
