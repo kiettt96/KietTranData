@@ -86,7 +86,7 @@ describe('0.9.0 vòng sửa 1 (1, 4, 7): cổng đóng', () => {
     await start($, seen)
     await close($)
     expect(await stop($)).toContain(BLOCK)
-    await answer($, 'Rà phí', 'CHƯA ĐẠT\n- Lớn: thiếu test')
+    await answer($, 'Kiểm độc lập: phí', 'CHƯA ĐẠT\n- Lớn: thiếu test')
     expect(await stop($)).toContain(BLOCK)
   })
   test('model chạy không đọc được (usage.model lạ): không tính là từ sonnet, cổng chặn', OPTS, async ($, on) => {

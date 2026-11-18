@@ -91,7 +91,7 @@ describe('0.9.0 B14, đột biến còn sống', () => {
   test('(7) lệnh mức possible có đích là file src sau lượt duyệt: kết luận vẫn còn hiệu lực', OPTS(), async ($, on) => {
     const seen = setup(on)
     await start($, seen)
-    await agent($, 'Rà phí', 'ĐẠT', [])
+    await agent($, 'Kiểm độc lập: phí', 'ĐẠT', [])
     await call($, { tool: 'Bash', command: "awk '{print > \"/repo/src/phi.ts\"}' /repo/src/x.ts" })
     await call($, { tool: 'Bash', command: 'bun test' })
     await close($)

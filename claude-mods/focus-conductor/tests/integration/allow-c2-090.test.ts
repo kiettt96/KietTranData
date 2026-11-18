@@ -91,7 +91,7 @@ describe('0.9.0 C2: lời từ chối và kết luận', () => {
   test('subagent không vai chỉ đọc và chạy probe trong thư mục tạm rồi trả "Kết luận: **ĐẠT**": tính, cổng cho qua', OPTS, async ($, on) => {
     const seen = setup(on)
     await start($, seen)
-    await answer($, 'Rà phí', 'Đã rà.\nKết luận: **ĐẠT**', ['git diff', 'cp -r src /tmp/ra-soat', 'cd /tmp/ra-soat && bash probe.sh'])
+    await answer($, 'Kiểm độc lập: phí', 'Đã rà.\nKết luận: **ĐẠT**', ['git diff', 'cp -r src /tmp/ra-soat', 'cd /tmp/ra-soat && bash probe.sh'])
     await close($)
     expect(await stop($)).toBe('')
   })

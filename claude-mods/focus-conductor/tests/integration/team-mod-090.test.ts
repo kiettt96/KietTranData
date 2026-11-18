@@ -106,7 +106,7 @@ describe('0.9.0 C: điều kiện bật đội hình', () => {
     await start($, seen)
     expect(notes(contexts(seen, []))[0]).not.toContain('lệnh kiểm')
     await edit($)
-    await answer($, 'Rà thay đổi phí', 'ĐẠT')
+    await answer($, 'Kiểm độc lập: thay đổi phí', 'ĐẠT')
     await close($)
     expect(await stop($)).toBe('')
   })
@@ -143,8 +143,12 @@ describe('0.9.0 D: nhận lượt duyệt theo kết quả', () => {
     await start($, seen)
     await edit($)
     await check($)
+    // Đổi đặc tả (vòng sửa 1 sau kiểm độc lập của dấu file, 18/11): general-purpose không tiền tố trên mục tiêu sửa mã là vai build, không
+    // được chụp dấu lúc sinh nên kết luận không được tính; lượt duyệt mang tiền tố "Kiểm độc lập: " thì được tính.
     await answer($, 'Rà lại thay đổi phí', 'đạt kèm lỗi nhẹ\n- Nhỏ: tên biến')
     await close($)
+    expect(await stop($)).toContain(BLOCK)
+    await answer($, 'Kiểm độc lập: thay đổi phí', 'đạt kèm lỗi nhẹ\n- Nhỏ: tên biến')
     expect(await stop($)).not.toContain(BLOCK)
     const pane = (await (await $.ui.mount(PANE)).findAll({ type: 'Text' })).map(e => e.text ?? '').join('\n')
     expect(pane).toContain('Duyệt: đạt')
@@ -163,7 +167,7 @@ describe('0.9.0 D: nhận lượt duyệt theo kết quả', () => {
     const seen = setup(on)
     await start($, seen)
     await edit($)
-    await answer($, 'Rà phí', 'Không đạt\n- Lớn: thiếu test phí âm')
+    await answer($, 'Kiểm độc lập: phí', 'Không đạt\n- Lớn: thiếu test phí âm')
     const out = (await $.tool.call({ tool: 'Read', file_path: 'src/phi.ts' } as never)) as Out
     expect((out.context ?? []).join('\n')).toContain('vòng 1/3')
   })
@@ -182,8 +186,8 @@ describe('0.9.0 D: nhận lượt duyệt theo kết quả', () => {
     await edit($)
     await check($)
     const id = `m${(n += 1)}`
-    await $.tool.call({ tool: 'Agent', tool_use_id: id, description: 'Rà lại phí', prompt: 'Rà.' } as never)
-    await $.agent.spawn({ prompt: 'Rà.', description: 'Rà lại phí', tool_use_id: id } as never)
+    await $.tool.call({ tool: 'Agent', tool_use_id: id, description: 'Kiểm độc lập: phí', prompt: 'Rà.' } as never)
+    await $.agent.spawn({ prompt: 'Rà.', description: 'Kiểm độc lập: phí', tool_use_id: id } as never)
     await $.tool.call({ tool: 'Bash', command: "mkdir -p /tmp/ra-soat && cp -r src /tmp/ra-soat/", agentId: `a-${id}` } as never)
     await $.tool.call({ tool: 'Bash', command: "cd /tmp/ra-soat && bash -c 'source src/phi.sh; tinh_phi 3'", agentId: `a-${id}` } as never)
     await $.tool.call({ tool: 'Bash', command: 'cd /tmp/ra-soat && for c in a b; do out=$($c 2>&1); echo $out; done', agentId: `a-${id}` } as never)

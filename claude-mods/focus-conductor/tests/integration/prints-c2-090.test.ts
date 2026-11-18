@@ -11,7 +11,7 @@ import type { On } from 'claude-code'
 import { verdictOf } from '../../hooks/lib/verdict'
 import { classifyBash } from '../../hooks/lib/drift/classify'
 import { JS } from '../fixtures/runner-output'
-import { PANE, base, plan, step, submit } from '../support/engine'
+import { PANE, base, plan, step, submit, task } from '../support/engine'
 import type { Json, Seen } from '../support/engine'
 
 const PLAN = 'mcp__focus-conductor__plan'
@@ -327,6 +327,88 @@ describe('0.9.0 C2 dấu file: kích thước', () => {
     const seen = setup(on, files)
     await start($, seen, files)
     await agent($, 'Kiểm độc lập: phí', 'ĐẠT', [], () => files.set(SRC, { text: 'export const phi = 2 // sửa\n', mtimeMs: 100 }))
+    await close($)
+    expect(await stop($)).toContain(BLOCK)
+  })
+})
+
+describe('0.9.0 C2 dấu file, vòng sửa 1 sau kiểm độc lập', () => {
+  test('N1: file mới vào tập sau lúc sinh (luồng chính viết trong lúc subagent chạy): không tính, lý do có tên file', OPTS(), async ($, on) => {
+    const files = fresh()
+    const seen = setup(on, files)
+    await start($, seen, files)
+    await agent($, 'Kiểm độc lập: phí', 'ĐẠT', [], () => {})
+    // Mô phỏng thứ tự thật: luồng chính viết file mới sau lúc sinh, trước lúc hoàn tất.
+    const id = 'n1'
+    await $.tool.call({ tool: 'Agent', tool_use_id: id, description: 'Kiểm độc lập: phí lần hai', prompt: 'Rà.' } as never)
+    await $.agent.spawn({ prompt: 'Rà.', description: 'Kiểm độc lập: phí lần hai', tool_use_id: id } as never)
+    await call($, { tool: 'Write', file_path: '/repo/src/moi.ts', content: 'export const moi = 1\n' })
+    files.set('/repo/src/moi.ts', { text: 'export const moi = 1\n', mtimeMs: 400 })
+    await call($, { tool: 'Bash', command: 'bun test' })
+    await $.turn.complete({ turnId: 'x-n1', agentId: `a-${id}`, answer: 'ĐẠT', durationMs: 5, isAborted: false, reason: 'answer', usage: { model: spawnModel, input_tokens: 10, output_tokens: 10 } } as never)
+    await close($)
+    const block = await stop($)
+    expect(block).toContain(BLOCK)
+    expect(block).toContain('moi.ts')
+  })
+  test('N2: sinh lượt duyệt trước mọi lần sửa, luồng chính sửa trong lúc nó chạy: không tính', OPTS(), async ($, on) => {
+    const files = fresh()
+    const seen = setup(on, files)
+    await $.agent.offer({ agent: 'general-purpose', description: 'việc chung', source: 'built-in', provider: { plugin: 'engine', tier: 'core' } } as never)
+    await submit($, 'Sửa luồng phí')
+    await $.tool.call({ tool: PLAN, action: 'set', steps: [{ title: 'Sửa phí' }] } as never)
+    await $.turn.start({ text: 'Sửa luồng phí', turnId: 't1' })
+    await step($, seen, { turnId: 't1' })
+    const id = 'n2'
+    await $.tool.call({ tool: 'Agent', tool_use_id: id, description: 'Kiểm độc lập: phí', prompt: 'Rà.' } as never)
+    await $.agent.spawn({ prompt: 'Rà.', description: 'Kiểm độc lập: phí', tool_use_id: id } as never)
+    await call($, { tool: 'Edit', file_path: SRC, old_string: 'a', new_string: 'b' })
+    files.set(SRC, { text: 'export const phi = 2\n', mtimeMs: 100 })
+    await call($, { tool: 'Bash', command: 'bun test' })
+    await $.turn.complete({ turnId: 'x-n2', agentId: `a-${id}`, answer: 'ĐẠT', durationMs: 5, isAborted: false, reason: 'answer', usage: { model: spawnModel, input_tokens: 10, output_tokens: 10 } } as never)
+    await close($)
+    expect(await stop($)).toContain(BLOCK)
+  })
+  test('N3: lượt vai build (không được chụp lúc sinh) trả ĐẠT trong khi dấu đổi: không tính', OPTS(), async ($, on) => {
+    const files = fresh()
+    const seen = setup(on, files, GOAL({ tasks: [task('sửa phí', 'agent', 'sonnet', 'medium')] }))
+    await start($, seen, files)
+    await agent($, 'Việc 1: sửa phí', 'ĐẠT', [], () => files.set(SRC, { text: 'export const phi = 7\n', mtimeMs: 300 }))
+    await close($)
+    expect(await stop($)).toContain(BLOCK)
+  })
+  test('N3: lượt sinh bằng haiku (không chụp) mà usage lúc hoàn tất là opus: không tính', OPTS(), async ($, on) => {
+    const files = fresh()
+    const seen = setup(on, files)
+    await start($, seen, files)
+    spawnModel = 'claude-haiku-5-5'
+    const id = 'n3h'
+    await $.tool.call({ tool: 'Agent', tool_use_id: id, description: 'Rà phí', prompt: 'Rà.' } as never)
+    await $.agent.spawn({ prompt: 'Rà.', description: 'Rà phí', tool_use_id: id } as never)
+    await $.turn.complete({ turnId: 'x-n3h', agentId: `a-${id}`, answer: 'ĐẠT', durationMs: 5, isAborted: false, reason: 'answer', usage: { model: 'claude-opus-5-5', input_tokens: 10, output_tokens: 10 } } as never)
+    await close($)
+    expect(await stop($)).toContain(BLOCK)
+  })
+  test('V1: mã băm lúc sinh không lấy từ lượt khác: nội dung đổi cùng cỡ, giữ mtime, rồi quay lại trong lượt: không tính', OPTS(), async ($, on) => {
+    const files = fresh()
+    const seen = setup(on, files)
+    await start($, seen, files)
+    // Lượt đầu chụp nội dung "phi = 2" (mtime 100) và trả CHƯA ĐẠT; nội dung đổi cùng cỡ, giữ mtime (cp -p), rồi lượt hai sinh.
+    await agent($, 'Kiểm độc lập: phí', 'CHƯA ĐẠT')
+    files.set(SRC, { text: 'export const phi = 3\n', mtimeMs: 100 })
+    await agent($, 'Kiểm độc lập: phí lần hai', 'ĐẠT', [], () => files.set(SRC, { text: 'export const phi = 2\n', mtimeMs: 200 }))
+    await close($)
+    expect(await stop($)).toContain(BLOCK)
+  })
+})
+
+describe('0.9.0 C2 dấu file, vòng sửa 1: trần lượt', () => {
+  test('V2: dấu lúc hoàn tất của lượt duyệt bị đẩy khỏi trần 40 lượt: cổng coi là hết hiệu lực', OPTS(), async ($, on) => {
+    const files = fresh()
+    const seen = setup(on, files)
+    await start($, seen, files)
+    await agent($, 'Kiểm độc lập: phí', 'ĐẠT')
+    for (let k = 0; k < 41; k++) await agent($, `Kiểm độc lập: phần ${k}`, 'Đã xem phần này.')
     await close($)
     expect(await stop($)).toContain(BLOCK)
   })
