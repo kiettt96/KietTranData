@@ -56,6 +56,13 @@ Xác nhận độc lập (một lượt, tác tử mới chưa thấy quá trìn
 - Vì sao phiên không lập checklist: router chấm light nên mod gửi câu "không cần checklist", cãi với câu của prompt (đã có trong việc tồn); luồng chính làm theo câu của mod. Đội hình vẫn bật ở lượt 1 theo số file (3 file không nhẹ), ở lượt 2 không có dòng `team`.
 - Dữ liệu còn thiếu: router không ghi lý do chọn light thay substantial ngoài phần tóm tắt trong khối context, nên không đo được vì sao hai lượt chấm khác lượt lần hai trên cùng prompt.
 
+**Phiên thật D4 lần bốn (G4b), có câu yêu cầu lập checklist** [Đo trực tiếp, 18/11/2026, Claude Code 2.1.327, `claude -p`, conductor off, không khai `checkCommands`, mã của `956c838`; prompt mẫu ẩn danh có bảng hai mục việc, mỗi mục một lệnh kiểm, M1 dùng `set -o pipefail; bash tests/kiem.sh | tee /tmp/kiem-kho6.log`; chi phí 0,50 USD; chi phí model thật cộng dồn khoảng 37,0 USD trên trần 40]:
+- Router chấm `light`, hai việc chạy ở luồng chính. Phiên có lập checklist hai bước bằng tool `plan`, trường `check` đúng như bảng của prompt.
+- Đội hình không bật (không có dòng `team` trong nhật ký quyết định), nên cổng đóng mục tiêu không vào cuộc: không có dòng `closing-gate`, cổng Stop chặn 0 lần.
+- Luồng chính chạy hai lệnh kiểm trong cùng một lời gọi Bash với các lệnh ghi tệp (heredoc), nối bằng `;`; theo B10 lần chạy đó không là bằng chứng cho bước, nên hai lần đánh dấu `verified` bị hạ (`verify-reject`, "evidence không nhắc lệnh hay file nào đã chạy trong mục tiêu này").
+- Kết luận nhận: không có dòng `verdict` (subagent "Việc 3: Kiểm độc lập: ..." không mang tiền tố ở đầu description). Lời gọi bị từ chối: 0.
+- Giới hạn: đường tính bằng chứng theo lệnh của bước ở cổng đóng (F1) vẫn chưa được phiên thật đi qua; G2, G3 không làm vỡ phiên (lệnh tee kèm pipefail chạy được). Bằng chứng của F1, G2, G3 vẫn chỉ ở test.
+
 **Ký tự chèn sau vòng sửa cuối** [Đo trực tiếp, bộ đo của mục 0.8.9, engine 2.1.296, mã của `3ff0c6a`, 18/11/2026]: phiên dài và kịch bản 60 việc giữ mười số của lần đo trước (mặc định 10.418 và 19.666; Fable 8.642 và 7.127; sau `/conductor solo` 16.687 và 24.428; sau mười việc 21.817, 45.200, Fable 6.561); kịch bản phiên theo kỷ luật giao việc giữ 1.398 ký tự. Cổng duyệt đo dấu file không chèn thêm ký tự nào.
 
 **Kiểm cuối trên commit `fa12aa8`** [Đo trực tiếp, 18/11/2026, bản chụp `git archive` của commit đó; sau commit này chỉ đổi tài liệu]:
