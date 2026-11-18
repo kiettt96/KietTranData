@@ -66,6 +66,13 @@ describe('0.9.0 C2: quyền theo vai', () => {
     expect((await call($, { tool: 'Bash', command: 'bun test', agentId: id })).deny).toBeUndefined()
     expect((await call($, { tool: 'Bash', command: 'rm -f /repo/src/phi.ts', agentId: id })).deny ?? '').toContain('kiểm')
   })
+  test('vai kiểm: Bash ghi kết quả vào /tmp qua; cùng lệnh ghi vào src bị từ chối (diệt mẫu 090-C2c)', { options: { planApproval: 'off' } }, async ($, on) => {
+    setup(on)
+    await submit($, 'Sửa luồng thanh toán')
+    const id = await agent($, 4, 'Chạy kiểm')
+    expect((await call($, { tool: 'Bash', command: 'bun test > /tmp/ket-qua-kiem.txt', agentId: id })).deny).toBeUndefined()
+    expect((await call($, { tool: 'Bash', command: 'bun test > /repo/src/ket-qua-kiem.txt', agentId: id })).deny ?? '').toContain('kiểm')
+  })
   test('vai làm và việc không có vai: sửa file như 0.8.9', { options: { planApproval: 'off' } }, async ($, on) => {
     setup(on)
     await submit($, 'Sửa luồng thanh toán')

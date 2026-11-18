@@ -42,6 +42,13 @@ Xác nhận độc lập (một lượt, tác tử mới chưa thấy quá trìn
 
 **Ký tự chèn sau vòng sửa cuối** [Đo trực tiếp, bộ đo của mục 0.8.9, engine 2.1.296, mã của `3ff0c6a`, 18/11/2026]: phiên dài và kịch bản 60 việc giữ mười số của lần đo trước (mặc định 10.418 và 19.666; Fable 8.642 và 7.127; sau `/conductor solo` 16.687 và 24.428; sau mười việc 21.817, 45.200, Fable 6.561); kịch bản phiên theo kỷ luật giao việc giữ 1.398 ký tự. Cổng duyệt đo dấu file không chèn thêm ký tự nào.
 
+**Kiểm cuối trên commit `fa12aa8`** [Đo trực tiếp, 18/11/2026, bản chụp `git archive` của commit đó; sau commit này chỉ đổi tài liệu]:
+- `claude plugin validate .` ở thư mục mod: đạt kèm 14 cảnh báo kiểu, cùng 14 cảnh báo của nền `14a3a85` (chỉ lệch số dòng ở hai chỗ), không có cảnh báo mới. Ở gốc repo: đạt, không cảnh báo.
+- tsc: 14 lỗi với khai báo kiểu 2.1.326 và 27 lỗi với 2.1.296, cùng tập lỗi với nền `14a3a85` (so sau khi bỏ số dòng); tsc không in cảnh báo. Một lỗi mới ở kiểu cục bộ của `tests/verdict-c4-090.test.ts` lộ ra ở lượt kiểm này đã sửa trong test (`dd9b325`).
+- `bun scripts/mutate.ts --check`: 2592/2592 mẫu khớp. `node scripts/version-check.mjs`: README đủ 49 option.
+- Cả bộ test: 2.1.327 4.188 pass, 0 fail (626 giây); 2.1.296 4.188 pass, 0 fail (455 giây); chạy lần lượt, không song song.
+- Đột biến cuối: 46 mẫu C2, C4, C6 của `hooks/parts/consistency.ts` và `hooks/lib/verdict.ts`, mẫu sống chạy lại trên mọi test 0.9.0, cộng hai mẫu sống của lượt trước (`090-C2c`, `090-C6h`). Còn sống sau khi chạy lại và thêm ca: `090-C6h`, `090-C6m`, `090-C6zp`, đều tương đương (lý do trong `scripts/mutants.ts`). `090-C2c` và `090-C6l` được diệt bằng ca mới.
+
 Mức nghiêm trọng của cổng duyệt từ vòng này: lớp nhắc chất lượng; chỉ chặn PR khi văng lỗi, chặn hay từ chối nhầm trong luồng chính, hay trượt một dòng K. Phát hiện khác vào việc tồn.
 
 ## 0.9.0 A6: các trường của usage có thể vắng [Đo trực tiếp, khai báo kiểu, 18/11/2026]

@@ -9,7 +9,7 @@ import type { Engine } from 'claude-code/testing'
 import * as V from '../hooks/lib/verdict'
 import { base, plan, submit, task } from './support/engine'
 
-type Mod = { reportLine?: (role: string, lang: 'vi' | 'en') => string; verdictOf?: (answer: string) => { verdict: string; count?: string } | null }
+type Mod = { reportLine?: (role: string, lang: 'vi' | 'en') => string; verdictOf?: (answer: string) => { verdict: string; count?: string; isCheckOnly?: true } | null }
 const M = V as unknown as Mod
 
 describe('0.9.0 C4: đọc dòng kết luận', () => {
