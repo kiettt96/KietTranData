@@ -4,6 +4,7 @@
 
 import { hashCwd } from './checkpoint'
 import { isSoftPath } from './drift/soft'
+import { isSkillPath } from './drift/skill'
 import { isRoleTemp, isSidePath } from './drift/scope'
 import type { SideLists } from './drift/scope'
 
@@ -28,7 +29,8 @@ export type PrintFs = { stat: (path: string) => Promise<{ size: number; mtimeMs:
 export function printTargets(changed: readonly string[], lists: SideLists | null | undefined): { files: string[]; isCapped: boolean } {
   const order: string[] = []
   for (const path of changed) {
-    if (path === '' || isSoftPath(path) || isRoleTemp(path) || DEP_DIRS.test(path) || isSidePath(path, lists ?? null)) continue
+    // File skill vào tập dù đuôi .md là tài liệu nhẹ (0.9.0 C2 dấu file), như cổng thử skill coi là file phải kiểm.
+    if (path === '' || (isSoftPath(path) && !isSkillPath(path)) || isRoleTemp(path) || DEP_DIRS.test(path) || isSidePath(path, lists ?? null)) continue
     const at = order.indexOf(path)
     if (at >= 0) order.splice(at, 1)
     order.push(path)

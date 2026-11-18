@@ -1601,7 +1601,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
           // fs không đo được lúc sinh: ghi dấu lúc hoàn tất là null để cổng biết là theo sổ, không nhầm với dấu bị đẩy khỏi trần.
           await update($, printState, state => withPrint(normalizeReviewPrints(state), meta.goalId, 'done', agentId, null))
         }
-        const wroteHard = ctx.evidenceFor(meta.goalId).writes.some(w => w.author === agentId && w.hard === true && w.definite === true)
+        const wroteHard = ctx.evidenceFor(meta.goalId).writes.some(w => w.author === agentId && (w.hard === true || w.skill === true) && w.definite === true)
         const isClean = hasSpawn && printChanged.length === 0 && !wroteHard
         // Kết luận theo vai (0.9.0 C6): lượt có tiền tố Kiểm:, Audit: và từ ĐẠT HẾT, ALL PASS chỉ là của bước kiểm; duyệt và sẵn sàng cần model
         // từ sonnet trở lên.

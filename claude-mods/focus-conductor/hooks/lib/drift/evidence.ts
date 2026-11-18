@@ -58,7 +58,7 @@ export type EvidenceLog = {
   commands: EvidenceEntry[]
   /** Các lần ghi theo thứ tự và tác giả, để biết lần kiểm tra của một subagent phủ thay đổi của ai. */
   /** 0.9.0 B11: đích của lần ghi (tối đa WRITE_PATHS, vắng khi không đọc được) và lần ghi có là thay đổi không nhẹ. */
-  writes: Array<{ seq: number; author: string; paths?: string[]; hard?: boolean; definite?: boolean }>
+  writes: Array<{ seq: number; author: string; paths?: string[]; hard?: boolean; definite?: boolean; skill?: boolean }>
   paths: string[]
 }
 
@@ -102,7 +102,11 @@ export function noteEvidence(log: EvidenceLog, observation: ToolObservation, aut
       log.lastHard = log.seq
       if (isDefinite && paths !== null && paths.some(path => !DEP_DIRS.test(path))) log.lastChange = log.seq
     }
-    log.writes.push({ seq: log.seq, author, ...(paths !== null && paths.length > 0 ? { paths: paths.slice(0, WRITE_PATHS) } : {}), ...(isHard ? { hard: true } : {}), ...(isDefinite ? { definite: true } : {}) })
+    // File skill (SKILL.md, .md dưới thư mục skill) là file phải kiểm như cổng thử skill coi (0.9.0 C2 dấu file): lần ghi definite vào đó
+    // cũng là mốc hết hiệu lực của kết luận và cũng làm lượt duyệt không sạch.
+    const isSkill = paths !== null && paths.some(path => isSkillPath(path) && !isFree(path))
+    if (!isHard && isSkill && isDefinite) log.lastChange = log.seq
+    log.writes.push({ seq: log.seq, author, ...(paths !== null && paths.length > 0 ? { paths: paths.slice(0, WRITE_PATHS) } : {}), ...(isHard ? { hard: true } : {}), ...(isDefinite ? { definite: true } : {}), ...(isSkill ? { skill: true } : {}) })
     if (log.writes.length > EVIDENCE_WRITES) log.writes.shift()
   }
   const command = str(observation.input['command']).trim()
