@@ -149,3 +149,12 @@ Tệp bàn giao: /home/user/focus-conductor-090-work/DIEM-DUNG.md
 - b805c2d bản sửa A1 tới A6; 405 ca 0.9.0 qua. Quyết định: tempRewrite dùng chung cho rào definite, sổ thay đổi, sổ bằng chứng (vì sổ ghi lệnh gốc có đích chưa biết làm luồng chính bị chặn nhầm); popd ở cuối lệnh viết thành true.
 - 9bf3849 DESIGN, VERIFICATION (bảng K kèm tên ca), CHANGELOG.
 - Đang chạy: xác nhận độc lập bảng K (một lượt); đột biến A trên bản chép đông cứng frozen2.
+- Xác nhận độc lập bảng K: 17/17 dòng đạt. Cả bộ 3ff0c6a: 2.1.327 4176 pass; 8731c73: 2.1.296 4176 pass.
+- D4 lần một (3ff0c6a, 1,39 USD): hai chặn nhầm trong luồng chính (đọc kết luận, lệnh kiểm qua ống). Chủ mod chốt là chặn nhầm, cho sửa.
+
+## 18/11 sửa hai chặn nhầm của D4 (K18, K19)
+- Test đỏ rồi bản sửa; 65c02a5. D4 lần hai (1,09 USD): 0 từ chối, không chặn vì bước duyệt, 2/2 lượt duyệt được tính, chặn ống lệnh nêu đúng nguyên nhân. Chi phí cộng dồn khoảng 35,3 USD trên trần 40.
+- c503ace README, mô tả closingReview, việc tồn mức lỗi cao đứng một mình (không đổi mã).
+- 14e3a29 ca diệt mẫu 090-C6zy (trước đó SURVIVED; còn lại của đợt D4 đều KILLED).
+- Cả bộ 14e3a29: 2.1.296 4184 pass 0 fail; 2.1.327 4183 pass 1 fail (rearrange-ui-d3-089 "42 việc, 120 cột" hết giờ 5185 ms khi hai bộ chạy song song; chạy riêng tệp đó 10 pass 0 fail).
+- Đang chạy: 98 mẫu C2, C4, C6 trên mã cuối (mẫu sống chạy lại trên mọi test 0.9.0). Mô tả PR soạn ở pr-body.md.
