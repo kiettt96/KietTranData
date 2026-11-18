@@ -54,8 +54,11 @@ type VerdictLine = { verdict: Verdict; count?: string; isCheckOnly: boolean } | 
 
 /** Phần sau từ kết luận chỉ nói lỗi nhẹ (0.9.0 C2 mục 6): "kèm lỗi nhẹ", "kèm 2 lỗi nhẹ", "with minor issues", "minor". */
 const MINOR_ONLY = /^(?:(?:kèm|với|có|with|has)\s+)?(?:\d+\s+)?(?:lỗi nhẹ|minor(?:\s+(?:issues?|nits?|fixes?|notes?|points?))?|nits?)$/u
-/** Phần sau từ kết luận làm đạt thành chưa đạt (bổ sung 18/11 mục 2): từ nối hay nhắc mức nặng, lớn, vừa, chặn. */
-const NEGATING = /(?:^|[^\p{L}])(?:nhưng|but|with|kèm|nặng|lớn|vừa|nghiêm trọng|chặn|major|critical|blockers?|blocked|blocking)(?:[^\p{L}]|$)/u
+/**
+ * Phần sau từ kết luận làm đạt thành chưa đạt (bổ sung 18/11): từ nối "nhưng", "but", "with", "kèm" hay "chặn", "major", "critical",
+ * "blocker" ở bất kỳ đâu; mức "nặng", "lớn", "vừa", "nghiêm trọng" chỉ khi đi liền sau "lỗi" hay "vấn đề" (có thể cách một con số).
+ */
+const NEGATING = /(?:^|[^\p{L}])(?:nhưng|but|with|kèm|chặn|major|critical|blockers?|blocked|blocking)(?:[^\p{L}]|$)|(?:^|[^\p{L}])(?:lỗi|vấn đề)\s+(?:\d+\s+)?(?:nặng|lớn|vừa|nghiêm trọng)(?:[^\p{L}]|$)/u
 
 /**
  * Đọc một dòng (0.9.0 C2 mục 6, bổ sung 18/11 mục 2): bỏ ký hiệu markdown, dấu đầu dòng, nhãn "Kết luận:" hay "Verdict:"; dòng mở đầu bằng

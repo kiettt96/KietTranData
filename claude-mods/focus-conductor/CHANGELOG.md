@@ -7,6 +7,7 @@ Các bản của focus-conductor, mới nhất trước. Số đo kiểm chứng
 Ba nhóm việc trong một lượt: sửa lỗi còn tồn (A), chạy trơn với một phiên làm theo kỷ luật giao việc (B), và đội hình theo cỡ việc (C, D). Nguyên tắc của nhóm C, D chốt giữa lượt: router chỉ đọc prompt, luật đội hình do mod áp (xem DESIGN mục "Đội hình theo cỡ việc (0.9.0)"). Mỗi điểm một commit test đỏ rồi một commit sửa. Schema tool `plan` không đổi.
 
 **Nhóm A, lỗi tồn.**
+- **A6 (lỗi có từ 0.8.9):** usage của `turn.complete` thiếu trường hay rỗng làm sổ chi phí thành NaN (lưu vào state thành null), pane văng lỗi khi định dạng chi phí. Usage được chuẩn hóa ở mọi chỗ cộng (`safeUsage`); chi phí, thời gian, phần trăm, số lượt trên pane, band, status line hiện "–" khi giá trị không phải số hữu hạn. Khai báo kiểu của hai engine ghi ở VERIFICATION.
 - **A1:** nhãn đạt có số đếm (`ĐẠT 3/3`, `pass 5`) không còn bị đọc là thất bại ở lệnh kiểm riêng (`hooks/lib/drift/output.ts`).
 - **A2:** đích `~/...` giải theo `HOME` đọc lúc `session.start`; chưa giải được thì phạm vi là không xác định thay vì ngoài phạm vi.
 - **A3:** đường lùi của vai điều phối không dùng khi họ dự phòng đang tạm ngừng ở mức prompt.
@@ -40,7 +41,7 @@ Ba nhóm việc trong một lượt: sửa lỗi còn tồn (A), chạy trơn v�
   | 1 của danh sách cho phép | năm loại a tới e | CHƯA ĐẠT | cwd của subagent; cwd trong một lệnh; bộ phân loại bỏ sót năm dạng; probe heredoc và Write vào thư mục tạm bị chặn |
   | 2 của danh sách cho phép | năm loại a tới e, sau vòng sửa 1 | CHƯA ĐẠT | `sort -uo`; `sed s#..#..#w`; nguồn tuyệt đối trong repo bị chặn ở thư mục tạm |
 
-  Bổ sung 18/11, cùng vòng sửa: dòng kết luận đạt và chưa đạt cùng loại thì chưa đạt bất kể thứ tự (khôi phục ca `allow-c2-090` "có cả dòng ĐẠT và dòng CHƯA ĐẠT đứng riêng: chưa đạt"); luật đóng cho phần sau từ kết luận (`READY WITH BLOCKERS` chưa sẵn sàng, `ĐẠT (12/12 mục)` chưa có kết luận, lý do chặn nêu dòng kết luận phải đứng riêng và gợi ý hỏi lại subagent đó); lượt hết hiệu lực vì dấu đổi ghi vào `$.state` để pane và band thấy ngay; chỉ chụp dấu cho subagent có thể cho kết luận được tính, dùng lại mã băm khi kích thước và thời điểm sửa không đổi, không gọi fs khi chưa có file không nhẹ nào được sửa.
+  Bổ sung 18/11, cùng vòng sửa: dòng kết luận đạt và chưa đạt cùng loại thì chưa đạt bất kể thứ tự (khôi phục ca `allow-c2-090` "có cả dòng ĐẠT và dòng CHƯA ĐẠT đứng riêng: chưa đạt"); luật đóng cho phần sau từ kết luận (`READY WITH BLOCKERS` chưa sẵn sàng, `ĐẠT (12/12 mục)` chưa có kết luận, lý do chặn nêu dòng kết luận phải đứng riêng và gợi ý hỏi lại subagent đó; nặng, lớn, vừa, nghiêm trọng chỉ làm chưa đạt khi đi liền sau "lỗi" hay "vấn đề", đứng một mình là chưa có kết luận, nên ca `prints-c2-090` "(2) luật đóng của phần sau từ kết luận ..." đổi kỳ vọng của `ĐẠT phần lớn` từ chưa đạt sang chưa có kết luận, giữ tên ca); lượt hết hiệu lực vì dấu đổi ghi vào `$.state` để pane và band thấy ngay; chỉ chụp dấu cho subagent có thể cho kết luận được tính, dùng lại mã băm khi kích thước và thời điểm sửa không đổi, không gọi fs khi chưa có file không nhẹ nào được sửa.
 
   Gỡ khi đổi cách làm (lý do: danh sách cho phép và phần theo dõi cwd không còn trong mã):
   - Mã: `isReadOnlyAllowed`, `commandAllowed`, `piecesAllowed`, `piecesOf`, `effectsAllowed`, `wordsStayInTemp`, `cdTarget`, `INTERPRETERS`, `INLINE_FLAG` (`hooks/lib/team.ts`); `roleFrame`, cờ `AgentMeta.outside` (`hooks/parts/agents.ts`, `hooks/context.ts`).
@@ -91,7 +92,6 @@ Ba nhóm việc trong một lượt: sửa lỗi còn tồn (A), chạy trơn v�
 - Vai audit: lệnh ghi qua trình thông dịch ngoài danh sách đã biết (`node script.js` tự ghi file) vẫn chạy được; kết luận của audit không mở cổng duyệt.
 - Bộ phân loại lệnh (không thuộc cổng duyệt): `file -C`, `rg --pre`, sửa qua liên kết mềm trỏ ra ngoài thư mục tạm.
 - File mới do vai chỉ đọc tạo bằng lệnh mức possible không vào tập dấu, nên không bị phát hiện.
-- Pane của engine giả không vẽ được khi `turn.complete` có `usage` chỉ gồm số token (`formatCost` nhận null); có từ 0.8.9, engine thật có trường chi phí.
 - Nhật ký quyết định bị ghi đè khi chạy tiếp bằng `claude -p --continue`.
 - Trạng thái mục tiêu không sống qua `--continue` ở chế độ không tương tác.
 - Câu "Việc nhỏ: làm trực tiếp, không cần checklist" của mục tiêu light cãi với prompt đòi checklist.

@@ -2,6 +2,20 @@
 
 Số đo của HEAD hiện tại và của các bản trước. Mọi số do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển] trừ khi nêu khác; hợp đồng đối chiếu evidence ở [DESIGN.md](DESIGN.md), lịch sử thay đổi ở [CHANGELOG.md](../CHANGELOG.md), cách dùng ở [README](../README.md).
 
+## 0.9.0 A6: các trường của usage có thể vắng [Đo trực tiếp, khai báo kiểu, 18/11/2026]
+
+Đọc `.claude-plugin/types/claude-code/index.d.ts` của engine đang chạy (2.1.327) và của 2.1.296:
+
+| Chỗ | 2.1.327 | 2.1.296 |
+|---|---|---|
+| `turn.complete` `usage` | tùy chọn (`usage?: TurnUsage`): vắng khi không có gì được tính (ngắt, lỗi API) | như 2.1.327 |
+| `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens` | bắt buộc (`ModelUsage`) | bắt buộc |
+| `model` | bắt buộc (`TurnUsage`) | bắt buộc |
+| `ephemeral_5m_input_tokens`, `ephemeral_1h_input_tokens` | tùy chọn, có hay không cùng nhau | không có |
+| `usage` của compaction | tùy chọn (`usage?: ModelUsage`) | tùy chọn |
+
+Usage chỉ có số token hay usage rỗng nằm ngoài khai báo kiểu nhưng engine giả nhận được; trước bản sửa, sổ chi phí cộng `undefined` thành NaN, NaN lưu vào state thành null, và `formatCost` văng lỗi khi pane vẽ [Đo trực tiếp, bản sao 0.8.9: `ui.render hook was skipped: TypeError: null is not an object (evaluating 'value.toFixed')`]. Bản sửa: `safeUsage` (`hooks/lib/ledger.ts`) đổi trường vắng thành 0 ở mọi chỗ cộng; các hàm định dạng số của pane, band, status line hiện "–" khi giá trị không phải số hữu hạn.
+
 ## Kiểm chứng của 0.9.0 (lỗi tồn, phối hợp với kỷ luật giao việc, đội hình do mod áp)
 
 Engine 2.1.326 cho test và phiên thật; tsc và lượt đột biến đầy đủ kiểm thêm trên khai báo kiểu và engine 2.1.296 của CI. Nền là `14a3a85` (0.8.9).

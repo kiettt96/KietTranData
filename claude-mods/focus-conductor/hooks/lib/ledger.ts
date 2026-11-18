@@ -30,6 +30,26 @@ export function emptyLedger(goalId = 0): Ledger {
   }
 }
 
+/** Số token hữu hạn, không âm; vắng, rỗng hay không phải số thì 0 (0.9.0 A6). */
+const tokenCount = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0)
+
+/**
+ * Usage của một turn thành dạng cộng được (0.9.0 A6, lỗi có từ 0.8.9): khai báo kiểu của 2.1.327 và 2.1.296 cho usage là tùy chọn (vắng khi
+ * turn bị ngắt hay lỗi API); engine giả hay bản khác có thể gửi usage thiếu trường hay rỗng. Trường vắng là 0; model vắng là chuỗi rỗng.
+ * Không phải object thì undefined.
+ */
+export function safeUsage(usage: unknown): (Tokens & { model: string }) | undefined {
+  if (usage === null || typeof usage !== 'object') return undefined
+  const raw = usage as Record<string, unknown>
+  return {
+    input_tokens: tokenCount(raw['input_tokens']),
+    output_tokens: tokenCount(raw['output_tokens']),
+    cache_read_input_tokens: tokenCount(raw['cache_read_input_tokens']),
+    cache_creation_input_tokens: tokenCount(raw['cache_creation_input_tokens']),
+    model: typeof raw['model'] === 'string' ? raw['model'] : '',
+  }
+}
+
 function addTo(bucket: Bucket, usage: Tokens, usd: number): Bucket {
   return {
     calls: bucket.calls + 1,
@@ -51,7 +71,10 @@ export function addUsage(
   family: ModelFamily,
   usage: Tokens,
 ): { ledger: Ledger; usd: number } {
-  const usd = usdOf(family, usage)
+  // 0.9.0 A6: trường thiếu là 0, để sổ không thành NaN (NaN lưu vào state thành null, pane vỡ khi định dạng).
+  usage = safeUsage(usage) ?? safeUsage({})!
+  const rawUsd = usdOf(family, usage)
+  const usd = Number.isFinite(rawUsd) ? rawUsd : 0
   const session = { ...ledger.session, [group]: addTo(ledger.session[group], usage, usd) }
   const buckets = { ...ledger.goal.buckets, [group]: addTo(ledger.goal.buckets[group], usage, usd) }
   const baseline = accrue(ledger, group, usage, usd)
@@ -212,6 +235,8 @@ export function resetLedger(ledger: Ledger): Ledger {
  * tiếng Việt, dấu chấm khi tiếng Anh; dương mà dưới 0,01 thì "<$0,01".
  */
 export function formatCost(value: number, lang: 'vi' | 'en'): string {
+  // 0.9.0 A6: giá trị vắng, null hay không phải số hữu hạn (sổ cũ đã lưu NaN thành null) hiện "–".
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '–'
   const mark = lang === 'vi' ? ',' : '.'
   if (value > 0 && value < 0.01) return `<$0${mark}01`
   return `$${value.toFixed(2).replace('.', mark)}`

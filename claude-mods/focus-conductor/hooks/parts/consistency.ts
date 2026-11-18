@@ -21,7 +21,7 @@ import { checkCommand, checkSignature, coversFailure, isFailedRun } from '../lib
 import { isCustomCheck } from '../lib/drift/verify'
 import type { CheckRun, EvidenceEntry, EvidenceLog } from '../lib/drift/evidence'
 import { clipText } from '../lib/decisions'
-import { addUsage, calibrate, recordShape, shapeKey } from '../lib/ledger'
+import { addUsage, calibrate, recordShape, safeUsage, shapeKey } from '../lib/ledger'
 import { applyPlan } from '../lib/plan'
 import type { RetryLine } from '../lib/text'
 import type { PlanInput } from '../lib/plan'
@@ -1544,7 +1544,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     if ((await read($, mode)) === 'off') return result
     const at = await $.clock.now()
     // ID engine đã phục vụ (0.8.7 M1): lần đầu một họ được phục vụ bằng ID khác ID ghim thì một cảnh báo model, không chèn context.
-    const servedWarning = e.usage ? ctx.noteServed(e.usage.model) : null
+    const servedWarning = safeUsage(e.usage)?.model ? ctx.noteServed(safeUsage(e.usage)!.model) : null
     if (servedWarning !== null) await update($, coreState, S.withWarnings({ at, kind: 'model', text: servedWarning }))
 
     if (e.agentId !== undefined) {
@@ -1552,15 +1552,16 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       const meta = agents.get(agentId)
       steppedEarly.delete(agentId)
       L.liveAgents.delete(agentId)
-      if (e.usage) {
-        const family = familyOf(e.usage.model) ?? meta?.family ?? 'sonnet'
+      const usage = safeUsage(e.usage)
+      if (usage) {
+        const family = familyOf(usage.model) ?? meta?.family ?? 'sonnet'
         const core = S.normalizeCore(await read($, coreState))
-        const added = addUsage(core.ledger, 'agent', family, e.usage)
+        const added = addUsage(core.ledger, 'agent', family, usage)
         // Chỉ agent router đã chấm mới có khối lượng thật để hiệu chỉnh; agent không có kết quả chấm thì bỏ qua.
         const effort = meta?.sentEffort ?? meta?.pick.effort ?? 'medium'
         const ledger =
           meta !== undefined && meta.shape !== null
-            ? recordShape(calibrate(added.ledger, family, e.usage.output_tokens, meta.volume, effort), meta.shape, e.usage.output_tokens, effort)
+            ? recordShape(calibrate(added.ledger, family, usage.output_tokens, meta.volume, effort), meta.shape, usage.output_tokens, effort)
             : added.ledger
         await update($, coreState, c => S.withAgentUsd(agentId, added.usd)(S.withLedger(() => ledger)(c)))
       }
@@ -1590,7 +1591,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
         // Kết luận theo vai (0.9.0 C6): lượt có tiền tố Kiểm:, Audit: và từ ĐẠT HẾT, ALL PASS chỉ là của bước kiểm; duyệt và sẵn sàng cần model
         // từ sonnet trở lên.
         // Model đã chạy: theo usage khi có (model lạ thì không biết họ), không thì họ của lời giao.
-        const usageModel = e.usage?.model ?? ''
+        const usageModel = safeUsage(e.usage)?.model ?? ''
         const ranFamily = usageModel !== '' ? familyOf(usageModel) : meta.family
         const isStrong = ranFamily !== null && ranFamily !== 'haiku'
         const isReview = isClean && prefixRole(meta.description) !== 'audit' && parsed?.isCheckOnly !== true && isStrong
@@ -1667,9 +1668,10 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       ...(f.isSoft === true ? { isSoft: true as const } : {}),
     }))
     let ledger = core.ledger
-    if (e.usage) {
-      const family = familyOf(e.usage.model) ?? core.route?.family ?? 'sonnet'
-      const added = addUsage(core.ledger, 'main', family, e.usage)
+    const mainUsage = safeUsage(e.usage)
+    if (mainUsage) {
+      const family = familyOf(mainUsage.model) ?? core.route?.family ?? 'sonnet'
+      const added = addUsage(core.ledger, 'main', family, mainUsage)
       // Chỉ hiệu chỉnh khi route của chính turn này đã được áp (chế độ auto, không
       // quay về model của engine); nếu không, effort thực tế không phải effort của route.
       const applied = L.turnRoute.turnId === e.turnId ? L.turnRoute.route : null
@@ -1678,9 +1680,9 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       ledger =
         isApplied && brief
           ? recordShape(
-              calibrate(added.ledger, family, e.usage.output_tokens, brief.volume, applied.effort),
+              calibrate(added.ledger, family, mainUsage.output_tokens, brief.volume, applied.effort),
               shapeKey(brief.depth, brief.volume, brief.kind),
-              e.usage.output_tokens,
+              mainUsage.output_tokens,
               applied.effort,
             )
           : added.ledger
