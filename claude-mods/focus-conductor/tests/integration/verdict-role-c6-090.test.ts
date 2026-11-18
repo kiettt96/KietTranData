@@ -72,8 +72,12 @@ describe('0.9.0 C6: kết luận theo vai', () => {
   test('subagent sonnet không tiền tố, chỉ đọc, trả "đạt kèm lỗi nhẹ": tính, cổng cho qua', OPTS, async ($, on) => {
     const seen = setup(on)
     await start($, seen)
+    // Đổi đặc tả (vòng sửa 1 sau kiểm độc lập của dấu file, 18/11): không tiền tố trên mục tiêu sửa mã là vai build, không được tính;
+    // cùng câu trả lời với tiền tố "Kiểm độc lập: " thì được tính.
     await answer($, 'Rà lại phí', 'đạt kèm lỗi nhẹ\n- Nhỏ: tên biến', 'sonnet')
     await close($)
+    expect(await stop($)).toContain(BLOCK)
+    await answer($, 'Kiểm độc lập: phí', 'đạt kèm lỗi nhẹ\n- Nhỏ: tên biến', 'sonnet')
     expect(await stop($)).toBe('')
   })
   test('subagent sonnet trả "ĐẠT HẾT": không tính là duyệt, cổng chặn', OPTS, async ($, on) => {

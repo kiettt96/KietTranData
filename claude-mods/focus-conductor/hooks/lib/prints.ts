@@ -104,8 +104,8 @@ export function printNames(paths: readonly string[], limit = 3): string {
  * Dấu đã chụp của các lượt duyệt trong một mục tiêu: lúc sinh và lúc hoàn tất, theo agentId; null là fs không đo được. `stale`: lượt cổng
  * đã thấy hết hiệu lực vì dấu đổi (bổ sung 18/11 mục 3), để pane và band tính bước đóng như cổng.
  */
-export type ReviewPrints = { goalId: number; spawn: Record<string, PrintSet | null>; done: Record<string, PrintSet | null>; stale: string[] }
-export const EMPTY_REVIEW_PRINTS: ReviewPrints = { goalId: -1, spawn: {}, done: {}, stale: [] }
+export type ReviewPrints = { goalId: number; spawn: Record<string, PrintSet | null>; done: Record<string, PrintSet | null>; stale: string[]; spawnSeq: Record<string, number> }
+export const EMPTY_REVIEW_PRINTS: ReviewPrints = { goalId: -1, spawn: {}, done: {}, stale: [], spawnSeq: {} }
 /** Số lượt giữ dấu mỗi mục tiêu. */
 const PRINT_AGENTS = 40
 
@@ -113,12 +113,12 @@ const PRINT_AGENTS = 40
 export function normalizeReviewPrints(value: unknown): ReviewPrints {
   const raw = (value ?? {}) as Partial<ReviewPrints>
   const map = (v: unknown) => (v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, PrintSet | null>) : {})
-  return { goalId: typeof raw.goalId === 'number' ? raw.goalId : -1, spawn: map(raw.spawn), done: map(raw.done), stale: Array.isArray(raw.stale) ? raw.stale.filter((id): id is string => typeof id === 'string').slice(-PRINT_AGENTS) : [] }
+  return { goalId: typeof raw.goalId === 'number' ? raw.goalId : -1, spawn: map(raw.spawn), done: map(raw.done), stale: Array.isArray(raw.stale) ? raw.stale.filter((id): id is string => typeof id === 'string').slice(-PRINT_AGENTS) : [], spawnSeq: raw.spawnSeq !== null && typeof raw.spawnSeq === 'object' && !Array.isArray(raw.spawnSeq) ? (raw.spawnSeq as Record<string, number>) : {} }
 }
 
 /** Ghi dấu của một lượt; đổi mục tiêu thì bắt đầu lại; quá PRINT_AGENTS thì bỏ lượt cũ nhất. */
 export function withPrint(state: ReviewPrints, goalId: number, at: 'spawn' | 'done', agentId: string, prints: PrintSet | null): ReviewPrints {
-  const base = state.goalId === goalId ? state : { goalId, spawn: {}, done: {}, stale: [] }
+  const base = state.goalId === goalId ? state : { goalId, spawn: {}, done: {}, stale: [], spawnSeq: {} }
   const next = { ...base[at], [agentId]: prints }
   const keys = Object.keys(next)
   for (const key of keys.slice(0, Math.max(0, keys.length - PRINT_AGENTS))) delete next[key]
@@ -127,7 +127,7 @@ export function withPrint(state: ReviewPrints, goalId: number, at: 'spawn' | 'do
 
 /** Ghi các lượt đã hết hiệu lực theo dấu (bổ sung 18/11 mục 3). */
 export function withStale(state: ReviewPrints, goalId: number, agentIds: Iterable<string>): ReviewPrints {
-  const base = state.goalId === goalId ? state : { goalId, spawn: {}, done: {}, stale: [] }
+  const base = state.goalId === goalId ? state : { goalId, spawn: {}, done: {}, stale: [], spawnSeq: {} }
   const stale = [...base.stale]
   for (const id of agentIds) if (!stale.includes(id)) stale.push(id)
   return { ...base, stale: stale.slice(-PRINT_AGENTS) }
@@ -139,4 +139,13 @@ export function latestPrints(state: ReviewPrints, goalId: number): PrintSet {
   if (state.goalId !== goalId) return out
   for (const set of [...Object.values(state.spawn), ...Object.values(state.done)]) if (set !== null) Object.assign(out, set)
   return out
+}
+
+/** Mốc của sổ lúc sinh một lượt (vòng sửa 1 sau kiểm độc lập): thay đổi sau mốc này làm lượt đó không sạch. */
+export function withSpawnSeq(state: ReviewPrints, goalId: number, agentId: string, seq: number): ReviewPrints {
+  const base = state.goalId === goalId ? state : { goalId, spawn: {}, done: {}, stale: [], spawnSeq: {} }
+  const next = { ...base.spawnSeq, [agentId]: seq }
+  const keys = Object.keys(next)
+  for (const key of keys.slice(0, Math.max(0, keys.length - PRINT_AGENTS))) delete next[key]
+  return { ...base, spawnSeq: next }
 }

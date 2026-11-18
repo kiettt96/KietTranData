@@ -15,7 +15,7 @@ import { isRoleTemp } from '../lib/drift/scope'
 import { isBashWrite, isDefiniteOutsideWrite, prefixRole } from '../lib/team'
 import { labels, langOf } from '../ui/labels'
 import { reportLine } from '../lib/verdict'
-import { EMPTY_REVIEW_PRINTS, PRINT_FILES, latestPrints, normalizeReviewPrints, printTargets, takePrints, withPrint } from '../lib/prints'
+import { EMPTY_REVIEW_PRINTS, PRINT_FILES, normalizeReviewPrints, printTargets, takePrints, withPrint, withSpawnSeq } from '../lib/prints'
 import { shownPlan } from '../lib/mirror'
 import { tierOf } from '../lib/scale'
 import type { AgentRoute } from '../lib/router'
@@ -604,13 +604,13 @@ export function registerAgents(on: On, ctx: Ctx): void {
     const canReview = family !== 'haiku' && spawnRole !== 'build' && prefixRole(info?.description ?? e.description) !== 'audit'
     if (agentId !== undefined && forkPart === null && e.fork !== true && canReview && core.brief !== null) {
       const targets = printTargets(S.changedOf(core).paths, core.brief)
-      if (targets.files.length > 0) {
-        if (targets.isCapped) record(await $.clock.now(), 'print-cap', { goalId: core.brief.goalId, files: PRINT_FILES })
-        const goal = core.brief.goalId
-        const known = latestPrints(normalizeReviewPrints(await read($, printState)), goal)
-        const prints = await takePrints({ stat: path => $.fs.stat(path), read: path => $.fs.read(path) as Promise<string> }, targets.files, (await $.session.root().catch(() => null)) ?? null, known).catch(() => null)
-        await update($, printState, state => withPrint(normalizeReviewPrints(state), goal, 'spawn', agentId, prints))
-      }
+      const goal = core.brief.goalId
+      // Lượt có thể cho kết luận được tính luôn có bản ghi lúc sinh, kể cả khi tập rỗng ({}), cùng mốc của sổ (vòng sửa 1 sau kiểm độc lập).
+      // Mã băm lúc sinh luôn tính mới, không lấy từ lượt khác.
+      if (targets.isCapped) record(await $.clock.now(), 'print-cap', { goalId: goal, files: PRINT_FILES })
+      const prints = targets.files.length === 0 ? {} : await takePrints({ stat: path => $.fs.stat(path), read: path => $.fs.read(path) as Promise<string> }, targets.files, (await $.session.root().catch(() => null)) ?? null).catch(() => null)
+      const spawnSeq = ctx.evidenceFor(goal).seq
+      await update($, printState, state => withSpawnSeq(withPrint(normalizeReviewPrints(state), goal, 'spawn', agentId, prints), goal, agentId, spawnSeq))
     }
 
     const sent = info?.sentFamily ?? null

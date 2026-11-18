@@ -393,9 +393,22 @@ describe('0.9.0 C2 dấu file, vòng sửa 1 sau kiểm độc lập', () => {
     const files = fresh()
     const seen = setup(on, files)
     await start($, seen, files)
-    await agent($, 'Kiểm độc lập: phí', 'ĐẠT')
+    // Lượt đầu chụp nội dung "phi = 2" (mtime 100) và trả CHƯA ĐẠT; nội dung đổi cùng cỡ, giữ mtime (cp -p), rồi lượt hai sinh.
+    await agent($, 'Kiểm độc lập: phí', 'CHƯA ĐẠT')
     files.set(SRC, { text: 'export const phi = 3\n', mtimeMs: 100 })
     await agent($, 'Kiểm độc lập: phí lần hai', 'ĐẠT', [], () => files.set(SRC, { text: 'export const phi = 2\n', mtimeMs: 200 }))
+    await close($)
+    expect(await stop($)).toContain(BLOCK)
+  })
+})
+
+describe('0.9.0 C2 dấu file, vòng sửa 1: trần lượt', () => {
+  test('V2: dấu lúc hoàn tất của lượt duyệt bị đẩy khỏi trần 40 lượt: cổng coi là hết hiệu lực', OPTS(), async ($, on) => {
+    const files = fresh()
+    const seen = setup(on, files)
+    await start($, seen, files)
+    await agent($, 'Kiểm độc lập: phí', 'ĐẠT')
+    for (let k = 0; k < 41; k++) await agent($, `Kiểm độc lập: phần ${k}`, 'Đã xem phần này.')
     await close($)
     expect(await stop($)).toContain(BLOCK)
   })
