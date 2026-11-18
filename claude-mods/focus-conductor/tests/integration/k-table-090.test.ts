@@ -630,3 +630,23 @@ describe('K19: lệnh kiểm qua ống che mã thoát', () => {
     expect(outs.map(o => (o.context ?? []).some(c => c.includes('đi qua ống')))).toEqual([true, true, false])
   })
 })
+
+describe('Vòng 2 (rà soát PR 43): F2, F3', () => {
+  test('F2 sửa src/f1.ts hai lần sau lượt duyệt: lý do chặn nêu f1.ts đúng một lần', OPTS(), async ($, on) => {
+    const fs = new Fs()
+    const seen = setup(on, fs)
+    fs.set('/repo/src/f1.ts', 'export const f1 = 0\n', 40)
+    await open($, seen)
+    await edit($, fs, '/repo/src/f1.ts', 'export const f1 = 1\n', 100)
+    await call($, { tool: 'Bash', command: 'bun test' })
+    await agent($, 'Kiểm độc lập: f1', 'ĐẠT')
+    await close($)
+    expect(await stop($)).toBe('')
+    await edit($, fs, '/repo/src/f1.ts', 'export const f1 = 2\n', 300)
+    await edit($, fs, 'src/f1.ts', 'export const f1 = 3\n', 310)
+    await call($, { tool: 'Bash', command: 'bun test' })
+    const block = await stop($)
+    expect(block).toContain(BLOCK)
+    expect(block.split('f1.ts').length - 1).toBe(1)
+  })
+})
