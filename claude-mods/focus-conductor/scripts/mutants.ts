@@ -2646,4 +2646,5 @@ export const MUTANTS: Mutant[] = [
   { id: "090-U3a", file: "hooks/ui/pane.tsx", note: "bỏ số dòng của mục Bước đóng khỏi phép thử vừa pane (vòng 2 U3)", old: "listRows + 2 + teamRows <= (props.rows ?? DEFAULT_ROWS)", new: "listRows + 2 <= (props.rows ?? DEFAULT_ROWS)" },
   { id: "090-U3b", file: "hooks/ui/pane.tsx", note: "bước đóng chưa đạt dùng ký hiệu của trạng thái chờ (vòng 2 U3)", old: "step.state === 'fail' ? 'blocked' : 'todo'", new: "step.state === 'fail' ? 'todo' : 'todo'" },
   { id: "090-U6a", file: "hooks/parts/command.ts", note: "dòng bước đóng hiện cả khi đội hình chưa bật (vòng 2 U6)", old: "if (brief === null || core.team === undefined || core.team.goalId !== brief.goalId || core.team.steps.length === 0) return []", new: "if (brief === null) return []\n  if (core.team === undefined || core.team.goalId !== brief.goalId) return [`${labels(lang).teamHeading}: `]" },
+  { id: "090-U7a", file: "hooks/ui/pane.tsx", note: "tiêu đề Tiến độ từng việc luôn có phần đếm (vòng 2 U7)", old: "const taskHeading = brief.tasks.length === 0\n", new: "const taskHeading = false\n" },
 ]

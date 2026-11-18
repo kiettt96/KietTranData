@@ -626,7 +626,10 @@ export function renderPane(
   const statuses = taskStatusOf(view.core, props.now ?? 0)
   const countOf = (status: string) => brief.tasks.filter(task => statuses[task.index] === status).length
   const doneCount = countOf('done')
-  const taskHeading = isNarrow
+  // Không có việc đã phân (chỉ có việc Claude tự giao, như lượt duyệt): tiêu đề không có phần đếm (vòng 2 U7).
+  const taskHeading = brief.tasks.length === 0
+    ? undefined
+    : isNarrow
     ? `${doneCount}/${brief.tasks.length}`
     : l.taskSummary(doneCount, brief.tasks.length, countOf('running'), countOf('not started'), countOf('failed'), (brief.removed ?? []).length)
   /** Dòng gộp việc đã xong: số việc kèm danh sách số cắt theo bề rộng, phần còn lại ghi "+N". */
