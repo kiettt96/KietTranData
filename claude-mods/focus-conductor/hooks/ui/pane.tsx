@@ -478,7 +478,28 @@ export function renderPane(
 
   // Checklist và tiến độ từng việc là một danh sách (U1): dạng đầy đủ vừa khi phần đầu, khoảng cách, tiêu đề checklist và cả danh sách
   // nằm trong số dòng của pane.
-  const fits = (listRows: number) => headerRows + mirrorRows + stripRows + listRows + 2 <= (props.rows ?? DEFAULT_ROWS)
+  // Mục Bước đóng (vòng 2 U3): một dòng kiểu chú giải, ký hiệu và màu theo STEP_MARK (đạt verified, chưa đạt blocked, chờ todo, đã miễn
+  // skipped); không vừa bề rộng thì xuống dòng theo mục. Khoảng cách, tiêu đề và các dòng trạng thái tính vào số dòng của pane.
+  const isWaivedGoal = view.core.closingWaived === brief.goalId
+  const teamItems = (view.core.team !== undefined && view.core.team.goalId === brief.goalId ? view.core.team.steps : []).map(step => {
+    const isWaived = isWaivedGoal && step.state !== 'pass'
+    const status: StepStatus = isWaived ? 'skipped' : step.state === 'pass' ? 'verified' : step.state === 'fail' ? 'blocked' : 'todo'
+    return { name: step.name, mark: STEP_MARK[status], isDim: isWaived || step.state === 'wait', text: `${l.teamSteps[step.name]}: ${isWaived ? l.teamWaived : l.teamStates[step.state]}` }
+  })
+  const chipLines = (texts: readonly string[]) => {
+    let lines = 1
+    let used = 0
+    for (const text of texts) {
+      const size = 2 + cellsOf(text)
+      if (used > 0 && used + 2 + size > width) {
+        lines += 1
+        used = size
+      } else used += (used > 0 ? 2 : 0) + size
+    }
+    return lines
+  }
+  const teamRows = teamItems.length === 0 ? 0 : 2 + chipLines(teamItems.map(item => item.text))
+  const fits = (listRows: number) => headerRows + mirrorRows + stripRows + listRows + 2 + teamRows <= (props.rows ?? DEFAULT_ROWS)
   // Checklist dài (vòng sửa 2 của 0.7.5): các bước đã đóng dồn thành một dòng tóm tắt; checklist ngắn giữ nguyên từng bước. Không dạng gọn
   // mà checklist trên 6 bước thì vẫn có dòng tóm tắt bước đã đóng.
   const isLong = plan.length > COLLAPSE_FROM
@@ -878,22 +899,20 @@ export function renderPane(
           {checklist}
         </Box>
       ) : null}
-      {/* 0.9.0 C3: bước đóng do mod sinh khi đội hình bật (kiểm, duyệt, sẵn sàng), mỗi bước một dòng có trạng thái. */}
-      {view.core.team !== undefined && view.core.team.goalId === brief.goalId ? (
+      {/* 0.9.0 C3: bước đóng do mod sinh khi đội hình bật (kiểm, duyệt, sẵn sàng); vòng 2 U3: một dòng kiểu chú giải. */}
+      {teamItems.length > 0 ? (
         <Box flexDirection="column">
           {heading(l.teamHeading)}
-          {view.core.team.steps.map(step =>
-            // Mục tiêu đã miễn duyệt (vòng 2 U4): bước chưa đạt ghi "– <tên>: đã miễn", bước đã đạt giữ nguyên.
-            view.core.closingWaived === brief.goalId && step.state !== 'pass' ? (
-              <Text key={`team-${step.name}`} wrap="truncate-end" dimColor>
-                {`– ${l.teamSteps[step.name]}: ${l.teamWaived}`}
+          <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
+            {teamItems.map(item => (
+              <Text key={`team-${item.name}`}>
+                <Text color={item.mark.color} dimColor={item.mark.dim} bold={item.mark.bold}>
+                  {item.mark.glyph}
+                </Text>
+                <Text dimColor={item.isDim}>{` ${item.text}`}</Text>
               </Text>
-            ) : (
-              <Text key={`team-${step.name}`} wrap="truncate-end" {...(step.state === 'wait' ? { dimColor: true } : {})}>
-                {`${step.state === 'pass' ? '✓' : step.state === 'fail' ? '■' : '·'} ${l.teamSteps[step.name]}: ${l.teamStates[step.state]}`}
-              </Text>
-            ),
-          )}
+            ))}
+          </Box>
         </Box>
       ) : null}
       {taskNodes.length > 0 ? (

@@ -27,7 +27,8 @@ const cells = (text: string) => [...text].length
 
 describe('0.9.0 vòng 2 U3: mục Bước đóng của pane', () => {
   for (const lang of ['vi', 'en'] as const) {
-    for (const closed of [0, 6, 10]) {
+    // 0, 6, 10 theo đặc tả U3; 3 và 5 thêm để diệt mẫu 090-U3a (đó là chỗ phép thử vừa pane quyết dạng gọn của checklist).
+    for (const closed of [0, 3, 5, 6, 10]) {
       test(`longGoal ${closed} bước đóng, ${lang}: dòng bước đóng và dòng bước đang làm nằm trong thân pane 16 và 24 dòng`, { options: { planApproval: 'off', uiLanguage: lang } }, async ($, on) => {
         await longGoal($, on, closed)
         for (const rows of [16, 24]) {
