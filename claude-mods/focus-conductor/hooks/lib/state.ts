@@ -209,6 +209,14 @@ export const withNoCheckNudged =
   (c: Core): Core => ({ ...normalizeCore(c), noCheckNudged: goalId })
 
 /** Bước còn thiếu của cổng đóng mục tiêu (0.9.0 C6); null là xóa. */
+/** Mã mục tiêu đã miễn duyệt độc lập (vòng 2 U4); null bỏ trường. */
+export const withClosingWaived =
+  (goalId: number | null) =>
+  (c: Core): Core => {
+    const { closingWaived: _old, ...rest } = normalizeCore(c)
+    return goalId === null ? rest : { ...rest, closingWaived: goalId }
+  }
+
 export const withClosingGap =
   (gap: Core['closingGap'] | null) =>
   (c: Core): Core => {
@@ -291,6 +299,7 @@ export function normalizeCore(raw: Partial<Core>): Core {
     waivers: normalizeWaivers(raw.waivers),
     noCheckNudged: typeof raw.noCheckNudged === 'number' ? raw.noCheckNudged : -1,
     ...(teamOf(raw.team) !== null ? { team: teamOf(raw.team)! } : {}),
+    ...(typeof raw.closingWaived === 'number' ? { closingWaived: raw.closingWaived } : {}),
     ...(raw.closingGap !== undefined && raw.closingGap !== null && typeof raw.closingGap.goalId === 'number' && ['check', 'review', 'design'].includes(raw.closingGap.missing) ? { closingGap: { goalId: raw.closingGap.goalId, missing: raw.closingGap.missing, ...(raw.closingGap.solo === true ? { solo: true as const } : {}) } } : {}),
     forks: normalizeForks(raw.forks),
     approval: normalizeApproval(raw.approval),

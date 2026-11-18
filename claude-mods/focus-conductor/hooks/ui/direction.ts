@@ -41,7 +41,12 @@ function itemLabel(item: Attention, lang: Lang): string {
       return l.directionDropped
     case 'unverified':
     case 'skill':
+    case 'closing-check':
       return l.directionUnverified
+    case 'closing-review':
+      return l.directionUnreviewed
+    case 'closing-design':
+      return l.directionNotReady
     case 'budget':
       return l.directionBudget
     default:

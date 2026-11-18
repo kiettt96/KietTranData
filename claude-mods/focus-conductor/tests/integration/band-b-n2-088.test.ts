@@ -119,7 +119,8 @@ describe('0.8.8 N2: dòng 1 ba ô', () => {
     expect(textOf(cellsOfLine((await bandLines($, 120)).lines[0] as Node).at(-1))).toContain(`${UP} Out of scope`)
   })
 
-  test('xong, mọi bước verified: ô hướng "Đã kiểm 3/3" tô đặc; dòng 2 là thanh đầy', { options: { planApproval: 'off' } }, async ($, on) => {
+  // Vòng 2 U1: closingReview off, vì mục tiêu của ca bật đội hình và mục bước đóng chưa đạt sẽ đứng ở ô hướng.
+  test('xong, mọi bước verified: ô hướng "Đã kiểm 3/3" tô đặc; dòng 2 là thanh đầy', { options: { planApproval: 'off', closingReview: 'off' } }, async ($, on) => {
     await running($, on)
     await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' } as never)
     await $.tool.call({ tool: 'Bash', command: 'npm test' } as never)
@@ -133,7 +134,7 @@ describe('0.8.8 N2: dòng 1 ba ô', () => {
     expect(textOf(lines[1])).not.toContain('\u254C')
   })
 
-  test('xong mà còn bước done: ô hướng "Đã kiểm 2/3" mức cần chú ý, không tô đặc', { options: { planApproval: 'off' } }, async ($, on) => {
+  test('xong mà còn bước done: ô hướng "Đã kiểm 2/3" mức cần chú ý, không tô đặc', { options: { planApproval: 'off', closingReview: 'off' } }, async ($, on) => {
     await running($, on)
     await $.tool.call({ tool: 'Edit', file_path: 'src/a.ts', old_string: 'a', new_string: 'b' } as never)
     await $.tool.call({ tool: 'Bash', command: 'npm test' } as never)

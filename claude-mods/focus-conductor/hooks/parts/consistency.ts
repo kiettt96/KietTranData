@@ -137,7 +137,7 @@ async function closingGate($: EngineInterface, ctx: Ctx, core: Core, log: Eviden
   const L = ctx.local
   const brief = core.brief
   const isDue = brief !== null && teamCause(ctx.options['closingReview'], brief, S.changedOf(core).paths) !== null && core.plan.length > 0 && isFullyClosed(core.plan)
-  if (brief === null || !isDue || L.closingWaived === brief.goalId) {
+  if (brief === null || !isDue || core.closingWaived === brief.goalId) {
     if (core.closingGap !== undefined) await update($, coreState, S.withClosingGap(null))
     return null
   }
@@ -247,13 +247,14 @@ async function stalePrints($: EngineInterface, goalId: number, verdicts: readonl
 /** Trạng thái các bước đóng (0.9.0 C3), dùng chung cho pane (Core.team) và cổng đóng mục tiêu. */
 function teamSteps(core: Core, brief: Brief, log: EvidenceLog, verdicts: readonly ClosingVerdict[], runs: Ctx['local']['stepRuns']) {
   const { checked, checkFailed } = closingCheckState(core.plan, log, runs.goalId === brief.goalId ? runs : { runs: [], checkSeq: new Map() })
-  return closingSteps({ hasCheck: hasKnownCheck(core.plan, S.changedOf(core).paths, log), isHard: brief.depth === 'hard', checked, checkFailed, lastHard: log.lastHard, lastChange: log.lastChange, verdicts })
+  // Bước Kiểm chỉ khi đã có thay đổi không nhẹ cần kiểm (vòng 2 U5); đoạn dặn bước đóng vẫn tính theo hasKnownCheck như trước.
+  return closingSteps({ hasCheck: log.hard > 0 && hasKnownCheck(core.plan, S.changedOf(core).paths, log), isHard: brief.depth === 'hard', checked, checkFailed, lastHard: log.lastHard, lastChange: log.lastChange, verdicts })
 }
 
 /**
  * Bước kiểm của cổng đóng và của pane (0.9.0 vòng 2 F1). Đạt khi sau thay đổi không nhẹ cuối có một lần lệnh kiểm mod nhận ra chạy đạt,
- * hoặc một lần chạy khớp lệnh ở check của một bước đủ điều kiện bằng chứng của B10 (stepEvidence). Chưa đạt khi lần chạy gần nhất sau thay
- * đổi đó, thuộc một trong hai loại, bị lỗi.
+ * hoặc một lần chạy khớp lệnh ở check của một bước đủ điều kiện bằng chứng của B10 (stepEvidence), và lần chạy gần nhất sau thay đổi đó
+ * thuộc một trong hai loại không lỗi. Chưa đạt khi lần chạy gần nhất đó bị lỗi.
  */
 export function closingCheckState(plan: readonly PlanStep[], log: EvidenceLog, steps: { runs: readonly StepRun[]; checkSeq: ReadonlyMap<number, number> }): { checked: boolean; checkFailed: boolean } {
   const lastHard = log.lastHard
@@ -263,7 +264,9 @@ export function closingCheckState(plan: readonly PlanStep[], log: EvidenceLog, s
   const keys = plan.flatMap(step => { const check = stepCheckOf(step.check); return check !== null ? [runKey(check.command)] : [] })
   const lastRun = [...steps.runs].reverse().find(run => run.seq > lastHard && keys.some(key => run.keys.includes(key)))
   const latest = lastRun !== undefined && (lastKnown === undefined || lastRun.seq >= lastKnown.seq) ? { ok: lastRun.passed } : lastKnown !== undefined ? { ok: lastKnown.ok } : null
-  return { checked: log.hard === 0 || known || byStep, checkFailed: latest !== null && !latest.ok }
+  // Lần chạy gần nhất quyết khi nó lỗi (kiểm độc lập vòng 2): lần đạt trước đó không còn tính.
+  const latestFailed = latest !== null && !latest.ok
+  return { checked: log.hard === 0 || ((known || byStep) && !latestFailed), checkFailed: latestFailed }
 }
 
 /**
@@ -277,7 +280,10 @@ async function refreshTeam($: EngineInterface, ctx: Ctx): Promise<void> {
   const changed = S.changedOf(core).paths
   const cause = teamCause(ctx.options['closingReview'], brief, changed)
   if (brief === null || cause === null) {
-    if (core.team !== undefined) await update($, coreState, S.withTeam(null))
+    if (core.team !== undefined) {
+      await update($, coreState, S.withTeam(null))
+      await refreshStatus($, ctx)
+    }
     return
   }
   const log = ctx.evidenceFor(brief.goalId)
@@ -287,7 +293,11 @@ async function refreshTeam($: EngineInterface, ctx: Ctx): Promise<void> {
   const steps = teamSteps(core, brief, log, (L.verdicts.goalId === brief.goalId ? L.verdicts.items : []).map(v => (staleIds.has(v.agentId) ? { ...v, isClean: false } : v)), ctx.local.stepRuns)
   const isNew = core.team === undefined || core.team.goalId !== brief.goalId
   const team = { goalId: brief.goalId, cause: isNew || core.team === undefined ? cause : core.team.cause, steps }
-  if (JSON.stringify(team) !== JSON.stringify(core.team)) await update($, coreState, S.withTeam(team))
+  // Bước đóng đổi thì đặt lại status line (vòng 2 U2), để đoạn hướng khớp mục cần chú ý.
+  if (JSON.stringify(team) !== JSON.stringify(core.team)) {
+    await update($, coreState, S.withTeam(team))
+    await refreshStatus($, ctx)
+  }
   if (!isNew) return
   ctx.record(await $.clock.now(), 'team', { goalId: brief.goalId, cause, files: hardFileCount(changed) })
   await ctx.flushDecisions((path, text) => $.fs.write(path, text))
@@ -881,6 +891,11 @@ function changedTargets(observation: ToolObservation, root: string | null, lists
     return top !== '' && top !== '/' && full.startsWith(`${top}/`) ? full.slice(top.length + 1) : full
   })
   return { paths: relative.filter(item => item !== '' && !CHANGED_SKIP.test(item)), isUnknown: false }
+}
+
+/** Đặt lại status line từ trạng thái đang lưu (vòng 2 U2), cho hàm ở ngoài phần đăng ký hook (không có atom view). */
+async function refreshStatus($: EngineInterface, ctx: Ctx): Promise<void> {
+  await showStatus($, await read($, derive([coreState, modeState, bandHiddenState], viewOf(ctx.options))), ctx.options)
 }
 
 /** Status line kèm nhãn hạn mức (0.6.1): mọi chỗ đặt status của file này đi qua đây, nên nhãn không mất giữa các hook. */
@@ -1602,6 +1617,8 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     if (skillReason !== null) core = S.normalizeCore(await read($, coreState))
     // Cổng đóng mục tiêu (0.9.0 C6): sau Y6 và thử skill, trước G1; theo stop_hook_active như hai cổng đó.
     const closingReason = isNoticed || core.brief === null ? null : await closingGate($, ctx, core, evidenceFor(core.brief.goalId))
+    // Status line khớp sau mỗi lần cổng đóng xét, chặn hay cho qua (vòng 2 U2).
+    if (!isNoticed && core.brief !== null) await showStatus($, await read($, view), ctx.options)
     if (closingReason !== null) core = S.normalizeCore(await read($, coreState))
     const prior = [retryReason, noCheck, skillReason, closingReason].reduce<string | null>((acc, reason) => (reason === null ? acc : acc === null ? reason : joinStopReasons(acc, reason)), null)
     const plan = isNoticed ? [] : core.plan

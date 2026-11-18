@@ -92,6 +92,7 @@ export const COMMAND_HELP = [
   '/conductor approve     duyệt kế hoạch đang chờ (chỉ người gõ)',
   '/conductor solo        luồng chính đang điều phối được tự sửa file và tự chạy kiểm (chỉ người gõ); solo off để bỏ',
   '/conductor waive N lý do   miễn lệnh kiểm chưa đạt số N (hoặc ghi lệnh) cho mục tiêu này; waive undo N bỏ lệnh miễn',
+  '/conductor waive review   miễn duyệt độc lập của mục tiêu đang mở (chỉ người gõ)',
   '/conductor errors      nhật ký lỗi của mod; errors clear xóa nhật ký',
 ].join('\n')
 
@@ -149,7 +150,6 @@ export function createContext(options: PluginOptions) {
     agentWrites: new Map<string, Set<string>>(),
     /** Cổng đóng mục tiêu (0.9.0 C6): số lần chặn và trạng thái thiếu đã chặn; mục tiêu đã miễn bằng /conductor waive review. */
     closingState: { goalId: -1, blocks: 0, key: '' },
-    closingWaived: -1,
     /** Số vòng CHƯA ĐẠT liên tiếp theo mục (mục tiêu, vai, việc) (0.9.0 C7). */
     verdictRounds: new Map<string, number>(),
     clashWarned: new Set<string>(),
@@ -629,7 +629,6 @@ export function createContext(options: PluginOptions) {
     local.verdicts = { goalId: -1, items: [] }
     local.agentWrites.clear()
     local.closingState = { goalId: -1, blocks: 0, key: '' }
-    local.closingWaived = -1
     local.verdictRounds.clear()
     local.clashWarned.clear()
     local.served.clear()

@@ -118,6 +118,17 @@ describe('0.9.0 vòng 2 F1: cổng đóng tính bằng chứng theo từng bư�
     await review($)
     expect(await paneText($)).toContain('Kiểm: chưa đạt')
   })
+  test('lệnh của bước là lệnh kiểm mod nhận ra, đạt rồi lỗi: bước kiểm chưa đạt theo lần chạy gần nhất (kiểm độc lập vòng 2)', OPTS, async ($, on) => {
+    const seen = setup(on)
+    await open($, seen, [{ title: 'Việc 1: kiểm', check: '`make check`' }])
+    await edit($)
+    outputs['make check'] = { text: 'ok: 5 checks passed' }
+    await call($, { tool: 'Bash', command: 'make check' })
+    expect(await paneText($)).toContain('Kiểm: đạt')
+    outputs['make check'] = { text: 'FAIL: 2 checks failed', isError: true }
+    await call($, { tool: 'Bash', command: 'make check' })
+    expect(await paneText($)).toContain('Kiểm: chưa đạt')
+  })
   test('F5 bước đóng chưa đạt dùng ký hiệu bị chặn của bộ cố định (\\u25a0), không dùng dấu chéo (\\u2717)', OPTS, async ($, on) => {
     const seen = setup(on)
     outputs[CMD2] = { text: 'C1 ĐẠT\nC2 FAIL\nTỔNG: FAIL 1/5', isError: true }

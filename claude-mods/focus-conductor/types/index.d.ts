@@ -422,6 +422,8 @@ export type Core = {
    * Vắng khi không thiếu hay ở trạng thái cũ.
    */
   closingGap?: { goalId: number; missing: 'check' | 'review' | 'design'; solo?: true }
+  /** Mã mục tiêu người gõ đã miễn duyệt độc lập bằng /conductor waive review (vòng 2 U4). Vắng là chưa miễn. */
+  closingWaived?: number
   /**
    * Đội hình do mod áp (0.9.0 C): lý do bật (độ sâu router chấm hay số file không nhẹ đã sửa) và trạng thái các bước đóng cho pane. Vắng khi
    * đội hình chưa bật hay ở trạng thái cũ.

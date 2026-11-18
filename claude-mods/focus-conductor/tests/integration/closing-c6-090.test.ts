@@ -128,7 +128,8 @@ describe('0.9.0 C6: cổng đóng mục tiêu', () => {
     await close($)
     expect(await stop($)).not.toContain(BLOCK)
     const pane = (await (await $.ui.mount(PANE)).findAll({ type: 'Text' })).map(e => e.text ?? '').join('\n')
-    expect(pane.toLowerCase()).toContain('chưa có duyệt độc lập')
+    // Vòng 2 U1: câu theo bảng chữ của mục bước đóng.
+    expect(pane.toLowerCase()).toContain('chưa duyệt độc lập (phiên không có subagent)')
   })
   test('/conductor solo (không giao được subagent): không chặn; pane ghi chưa có duyệt độc lập', OPTS({ conductor: 'opus' }), async ($, on) => {
     const seen = setup(on)
@@ -143,6 +144,7 @@ describe('0.9.0 C6: cổng đóng mục tiêu', () => {
     await close($)
     expect(await stop($)).not.toContain(BLOCK)
     const pane = (await (await $.ui.mount(PANE)).findAll({ type: 'Text' })).map(e => e.text ?? '').join('\n')
-    expect(pane.toLowerCase()).toContain('chưa có duyệt độc lập')
+    // Vòng 2 U1: câu theo bảng chữ của mục bước đóng.
+    expect(pane.toLowerCase()).toContain('chưa duyệt độc lập (phiên không có subagent)')
   })
 })
