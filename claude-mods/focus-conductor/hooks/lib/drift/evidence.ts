@@ -6,6 +6,7 @@ import { checkScopeOf, customKey, inCheckScope, isCheckTool } from './verify'
 import { FILE_TOOLS, filePathOf, isPlanFile, str } from './tool'
 import type { ToolObservation } from './tool'
 import { classifyBash } from './classify'
+import { tempRewrite } from './tempdir'
 import type { BashEffect, WriteEffect } from './classify'
 import { writeEffects } from './effects'
 import { isHardEffect, isSoftPath } from './soft'
@@ -111,7 +112,8 @@ export function noteEvidence(log: EvidenceLog, observation: ToolObservation, aut
   }
   const command = str(observation.input['command']).trim()
   if (observation.tool === 'Bash' && command !== '') {
-    const classified = classifyBash(command, observation.cwd)
+    // Lệnh dùng thư mục mktemp, pushd, popd, git trong thư mục tạm được viết lại trước khi phân loại (vòng sửa cuối 18/11, A5).
+    const classified = classifyBash(tempRewrite(command, observation.cwd ?? null), observation.cwd)
     const counted = new Set<BashEffect>(writeEffects(classified, observation.isReadOnly))
     let hasCheck = false
     for (const effect of classified.effects) {
