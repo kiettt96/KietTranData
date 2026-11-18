@@ -516,6 +516,8 @@ describe('K18: đọc kết luận theo câu đầu của dòng kết luận', (
       ['ĐẠT một phần', null],
       ['CHƯA ĐẠT, chỉ có lỗi nhỏ', 'fail'],
       ['ĐẠT\nCHƯA ĐẠT', 'fail'],
+      // Câu sau của dòng kết luận là bình luận: không đổi kết luận dù có từ tương phản và mức lỗi cao.
+      ['ĐẠT. Phần cũ ngoài phạm vi, nhưng có lỗi lớn đã báo riêng.', 'pass'],
     ]
     for (const [text, verdict] of cases) expect(verdictOf(text)?.verdict ?? null, text).toBe(verdict)
   })
