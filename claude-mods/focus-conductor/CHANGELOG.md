@@ -119,6 +119,7 @@ Ba nhóm việc trong một lượt: sửa lỗi còn tồn (A), chạy trơn v�
   - Ca cũ đổi kỳ vọng, giữ tên: `k-table-090` "K18 lượt có tiền tố không có dòng kết luận nào: vẫn tính, kèm dòng nhắc luồng chính đọc kết quả" (dòng nhắc giữ, cổng nay chặn kèm câu đòi trả lời lại).
 - **M2**: trước khi đọc dòng kết luận, nháy cong đổi thành nháy thẳng, các loại gạch nối thành `-`, khoảng trắng đặc biệt thành khoảng trắng thường; `Doesn’t pass`, `Didn’t pass`, `Can’t pass` và `Not‑pass` (gạch nối không ngắt) đọc là chưa đạt. Ca mới `verdict-normalize-m2-090`, mẫu `090-M2a`; mẫu `090-C4c` trôi chuỗi, sửa chuỗi, giữ mã.
 - **M3**: trong câu đầu của dòng kết luận, sau từ họ đạt hay họ sẵn sàng, mức lỗi cao không bị phủ định là chưa đạt (chưa sẵn sàng), không cần từ tương phản; phủ định gồm các dạng của `dropNegated` và số đếm 0, none, nhãn có giá trị 0 hay không (`0 critical`, `Critical: 0`, `Lớn: không`). Chữ "vừa" (quyết định của chủ mod 19/11/2026) chỉ là mức lỗi khi đứng ngay sau "lỗi" hay "mức", ngay sau một số đếm, hay là nhãn trước dấu hai chấm; `ĐẠT, vừa kiểm xong` vẫn đạt. Ca mới `verdict-severity-m3-090`, mẫu `090-M3a`, `090-M3b`; mẫu `090-C6s`, `090-C6zn`, `090-C6ze` trôi chuỗi, sửa chuỗi, giữ mã. Gỡ việc tồn `PASS, 1 critical` đọc là đạt.
+- **M4**: khóa đếm vòng chưa đạt là mục tiêu cộng vai, thêm số việc khi lượt gắn với một việc đã phân; không dùng description, nên người duyệt đổi description giữa các vòng vẫn cộng dồn; hai việc đã phân khác nhau đếm riêng. Ca mới `rounds-m4-090`, mẫu `090-M4a`. Gỡ việc tồn vòng sửa C7 đếm theo description.
 - **U7:** mục tiêu không có việc đã phân (chỉ có việc Claude tự giao, như lượt duyệt) thì tiêu đề mục "Tiến độ từng việc" không có phần đếm; trước đó ghi "0/0 xong · 0 đang chạy · 0 chưa làm" (có từ 0.8.9, ở 0.9.0 gặp ở mọi mục tiêu bật đội hình). Ca mới `pane-own-tasks-u7-090`, mẫu `090-U7a`.
 
 **Việc tồn** (từ phiên thật D1 và kiểm độc lập):
@@ -127,7 +128,6 @@ Ba nhóm việc trong một lượt: sửa lỗi còn tồn (A), chạy trơn v�
 - B10 không coi `--update-snapshots`, `jest -u`, `go fmt` là tự sửa; `make check` in "Nothing to be done" vẫn được nâng.
 - Vai audit: lệnh ghi qua trình thông dịch ngoài danh sách đã biết (`node script.js` tự ghi file) vẫn chạy được; kết luận của audit không mở cổng duyệt.
 - Sửa file sau lượt duyệt mà chưa chạy lệnh kiểm: lý do chặn của bước kiểm không nêu tên file (có chủ đích, `missing !== 'check'`); hay gặp khi sửa nhanh rồi kết thúc.
-- Vòng sửa C7 đếm theo description: người duyệt đổi description giữa các vòng thì đếm lại từ vòng 1; khả năng vừa phải.
 - Bộ phân loại lệnh (không thuộc cổng duyệt): `file -C`, `rg --pre`, sửa qua liên kết mềm trỏ ra ngoài thư mục tạm.
 - File mới do vai chỉ đọc tạo bằng lệnh mức possible không vào tập dấu, nên không bị phát hiện.
 - Nhật ký quyết định bị ghi đè khi chạy tiếp bằng `claude -p --continue`.

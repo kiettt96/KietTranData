@@ -2660,5 +2660,6 @@ export const MUTANTS: Mutant[] = [
   { id: "090-M2a", file: "hooks/lib/verdict.ts", note: "không chuẩn hóa nháy cong và gạch nối (vòng 2 M2)", old: ".replace(/[\\u2018\\u2019\\u201b\\u2032]/gu, \"'\").replace(/[\\u2010-\\u2015\\u2212]/gu, '-')", new: "" },
   { id: "090-M3a", file: "hooks/lib/verdict.ts", note: "số đếm 0 và none không phủ định mức lỗi cao (vòng 2 M3)", old: "  return text.replace(ZERO_HIGH, ' ')\n", new: "  return text\n" },
   { id: "090-M3b", file: "hooks/lib/verdict.ts", note: "chữ vừa đứng sau lỗi, mức, số đếm hay là nhãn không là mức lỗi (vòng 2 M3)", old: " || HIGH_VUA.test(dropZeroHigh(open))", new: "" },
+  { id: "090-M4a", file: "hooks/parts/consistency.ts", note: "vòng chưa đạt đếm theo description (vòng 2 M4)", old: "${meta.taskIndex ?? ''}`", new: "${meta.taskIndex ?? meta.description}`" },
   { id: "090-G3a", file: "hooks/lib/drift/classify.ts", note: "lệnh kiểm sau pipefail qua tee hay grep vẫn là hidden (vòng 2 G3)", old: "const exit = isPipefailTeeGrep ? { exit: 'visible' as const } : piped", new: "const exit = piped" },
 ]

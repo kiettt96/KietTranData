@@ -1735,8 +1735,9 @@ export function registerConsistency(on: On, ctx: Ctx): void {
         if (L.verdicts.items.length > 100) L.verdicts.items.shift()
         record(at, 'verdict', { agentId, role, verdict: parsed?.verdict ?? null, ...(isClean ? {} : { wrote: true }), ...(printChanged.length > 0 ? { changed: printChanged.slice(0, 3) } : {}), ...(isReview ? { review: true } : {}), ...(parsed?.count !== undefined ? { count: parsed.count } : {}) })
         await flushDecisions((path, text) => $.fs.write(path, text))
-        // Vòng sửa theo kết luận (0.9.0 C7): chưa đạt của một subagent không ghi file tính vòng cho cùng một mục, trần RETRY_ROUNDS.
-        const roundKey = `${meta.goalId}:${role}:${meta.taskIndex ?? meta.description}`
+        // Vòng sửa theo kết luận (0.9.0 C7): chưa đạt của một subagent không ghi file tính vòng cho cùng một mục, trần RETRY_ROUNDS. Khóa là mục
+        // tiêu, vai và việc đã phân nếu có (vòng 2 M4), không theo description, nên người duyệt đổi description giữa các vòng vẫn cộng dồn.
+        const roundKey = `${meta.goalId}:${role}:${meta.taskIndex ?? ''}`
         if (parsed?.verdict === 'pass') L.verdictRounds.delete(roundKey)
         if (parsed?.verdict === 'fail' && isClean) {
           const round = (L.verdictRounds.get(roundKey) ?? 0) + 1
