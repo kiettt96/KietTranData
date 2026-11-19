@@ -2713,6 +2713,7 @@ export const MUTANTS: Mutant[] = [
   { id: "090-J2a", file: "hooks/lib/drift/classify.ts", note: "chỉ xét dấu mở nhóm ở đầu đoạn, bỏ phần đứng trước (kiểm độc lập vòng 2 lỗi 2)", old: "isTop: isBalanced(`${parts.slice(0, i).join('')}${lead}`) })", new: "isTop: !lead.includes('(') })" },
   { id: "090-J2b", file: "hooks/lib/drift/pipecheck.ts", note: "pipefail trong nhóm làm mất dòng nhắc đi qua ống (kiểm độc lập vòng 2 lỗi 2)", old: "  if (!command.includes('|') || PIPEFAIL.test(topLevel(command))) return null", new: "  if (!command.includes('|') || PIPEFAIL.test(command)) return null" },
   { id: "090-J3a", file: "hooks/lib/drift/verify.ts", note: "--updateSnapshot=giá trị không là cờ cập nhật snapshot (kiểm độc lập vòng 2 lỗi 5)", old: "word.startsWith('--updateSnapshot=')", new: "false" },
+  { id: "090-J4a", file: "hooks/parts/ui.tsx", note: "nút đặt lại của pane không xoá tệp trạng thái và bản ghi cổng đóng (kiểm độc lập vòng 2 lỗi 3)", old: "          await clearSavedGoal($, ctx)\n", new: "" },
   { id: "090-M19a", file: "hooks/ui/pane.tsx", note: "tiêu đề mục và dải bước dựng theo bề rộng tối thiểu 36 cột (vòng 2 M19)", old: "  const fitWidth = Math.min(width, Math.max(1, columnsOf(props.columns, 56)))\n", new: "  const fitWidth = width\n" },
   { id: "090-G3a", file: "hooks/lib/drift/classify.ts", note: "lệnh kiểm sau pipefail qua tee hay grep vẫn là hidden (vòng 2 G3)", old: "const exit = isPipefailTeeGrep ? { exit: 'visible' as const } : piped", new: "const exit = piped" },
 ]

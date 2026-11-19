@@ -4,6 +4,8 @@ import { atom, derive, read, update } from 'claude-code'
 import { caught, noteHookError } from '../lib/errlog'
 import { EMPTY_QUOTA, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaBadge, quotaSettings, softNotices } from '../lib/quota'
 import * as S from '../lib/state'
+import { EMPTY_CLOSING, closingSnapshot } from '../lib/closing-state'
+import { goalFilePath } from '../lib/goal-file'
 import { statusTextOf } from '../ui/direction'
 import type { View } from '../lib/state'
 import { bandQuota, quotaOverview, quotaPaneText } from '../lib/text'
@@ -19,6 +21,7 @@ import { isMoving, neonStyleOf } from '../ui/neon'
 // Atom của mod, khai báo lại ở mỗi file dùng chúng (engine chỉ nhận tham chiếu state viết trong chính file đó);
 // cùng plugin và key nên là cùng một giá trị trong $.state.
 const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EMPTY_CORE)
+const closingStore = atom({ plugin: 'focus-conductor', key: 'closing' } as const, EMPTY_CLOSING)
 const bandHiddenState = atom({ plugin: 'focus-conductor', key: 'isBandHidden' } as const, false)
 const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null)
 // Mốc thời gian (ms) tới khi nút Đặt lại chờ bấm lần hai; 0 là không chờ. Là mốc chứ không phải cờ, nên hết hạn đúng cả
@@ -69,6 +72,24 @@ function startTick($: EngineInterface, tick: Tick, ms: number): void {
 /** Status line kèm nhãn hạn mức (0.6.1): mọi chỗ đặt status của file này đi qua đây, nên nhãn không mất giữa các hook. */
 async function showStatus($: EngineInterface, current: View, options: Ctx['options']): Promise<void> {
   $.ui.status(statusTextOf(current, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(options)))
+}
+
+/**
+ * Sau khi đặt lại mục tiêu (kiểm độc lập vòng 1 lỗi 2 và 12): bản ghi cổng đóng trong $.state về rỗng để lần nạp lại mod không đưa kết luận
+ * của mục tiêu cũ (cùng số mục tiêu) trở lại, và tệp trạng thái của dự án bị xoá nội dung để phiên chạy tiếp không nạp lại mục tiêu đã xoá.
+ */
+async function clearSavedGoal($: EngineInterface, ctx: Ctx): Promise<void> {
+  const L = ctx.local
+  await update($, closingStore, () => EMPTY_CLOSING)
+  L.closingLoaded = true
+  L.closingSaved = JSON.stringify(closingSnapshot(L))
+  L.goalFileSaved = ''
+  try {
+    const path = goalFilePath(await $.session.root())
+    if ((await $.fs.read(path).catch(() => '')) !== '') await $.fs.write(path, '')
+  } catch {
+    // Engine không cho đọc hay ghi: bỏ qua, như lần ghi tệp.
+  }
 }
 
 export function registerUi(on: On, ctx: Ctx): void {
@@ -171,6 +192,7 @@ export function registerUi(on: On, ctx: Ctx): void {
           await update($, resetArmedState, () => 0)
           resetLocal()
           await update($, coreState, S.resetCore)
+          await clearSavedGoal($, ctx)
           await showStatus($, await read($, view), ctx.options)
           $.ui.toast(l.resetDoneToast)
           return
