@@ -33,31 +33,31 @@ export function reportLine(role: Role, lang: 'vi' | 'en'): string {
 }
 
 /**
+ * Họ từ kết luận bằng tiếng Anh (vòng 2 G1, G1b, L2), danh sách đóng. Phủ định đứng ngay trước một từ họ đạt, cách bằng khoảng trắng hay
+ * gạch nối, cho kết luận chưa đạt; xét trước họ đạt.
+ */
+const PASS_FORMS = ['passing', 'passes', 'passed', 'pass']
+const FAIL_FORMS = ['failure', 'failing', 'failed', 'fails', 'fail']
+const NEGATIONS = ['does not', 'did not', 'cannot', "can't", "doesn't", "didn't", 'not']
+const NEGATED = NEGATIONS.flatMap(n => PASS_FORMS.flatMap(p => [`${n} ${p}`, `${n}-${p}`]))
+
+/**
  * Từ kết luận (0.9.0 D2, C6), không phân biệt hoa thường. "ĐẠT HẾT", "ALL PASS" chỉ là kết luận của bước kiểm (isCheckOnly).
  */
 const WORDS: ReadonlyArray<readonly [string, Verdict, boolean]> = [
   ['chưa sẵn sàng', 'not-ready', false],
   ['not ready', 'not-ready', false],
-  // Phủ định của từ đạt bằng tiếng Anh (vòng 2 G1, G1b): xét trước "pass"; "failed", "fails" xét trước "fail".
-  ['not passing', 'fail', false],
-  ["doesn't pass", 'fail', false],
-  ["didn't pass", 'fail', false],
-  ['does not pass', 'fail', false],
-  ['did not pass', 'fail', false],
-  ['not passed', 'fail', false],
-  ['not pass', 'fail', false],
+  ...NEGATED.map(word => [word, 'fail', false] as const),
   ['chưa đạt', 'fail', false],
   ['không đạt', 'fail', false],
-  ['failed', 'fail', false],
-  ['fails', 'fail', false],
-  ['fail', 'fail', false],
+  ...FAIL_FORMS.map(word => [word, 'fail', false] as const),
   ['sẵn sàng', 'ready', false],
   ['ready', 'ready', false],
   ['đạt kèm lỗi nhẹ', 'pass', false],
   ['đạt hết', 'pass', true],
   ['all pass', 'pass', true],
   ['đạt', 'pass', false],
-  ['pass', 'pass', false],
+  ...PASS_FORMS.map(word => [word, 'pass', false] as const),
 ]
 
 /** Một dòng kết luận đọc được: từ kết luận, số đếm N/M nếu có, cờ chỉ-của-bước-kiểm, dòng chỉ có từ kết luận; hay dòng chưa có kết luận. */
