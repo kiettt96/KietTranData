@@ -14,7 +14,9 @@ export type ListFs = {
 }
 
 // Thư mục cache do chính lệnh kiểm sinh ra (kiểm độc lập vòng 1 lỗi 8): lượt duyệt chạy pytest, mypy, ruff không làm kết luận mất hiệu lực.
-const SKIP_DIRS = new Set(['node_modules', 'dist', 'build', '.git', '.focus-conductor', '__pycache__', '.pytest_cache', '.mypy_cache', '.ruff_cache', '.tox', '.nyc_output', 'coverage'])
+const SKIP_DIRS = new Set(['node_modules', 'dist', '.git', '.focus-conductor', '__pycache__', '.pytest_cache', '.mypy_cache', '.ruff_cache', '.tox', '.nyc_output'])
+/** Chỉ bỏ qua ở tầng ngay dưới gốc phạm vi (kiểm độc lập vòng 2 lỗi 7): sâu hơn có thể là thư mục mã nguồn thật. */
+const ROOT_SKIP_DIRS = new Set(['build', 'coverage'])
 
 /** Các thư mục gốc của phạm vi: mục phạm vi tuyệt đối, mục tương đối nối với thư mục gốc của phiên; không có thì thư mục gốc. */
 export function scopeRoots(scopePaths: readonly string[] | undefined, root: string | null): string[] {
@@ -52,7 +54,7 @@ export async function listScope(fs: ListFs, roots: readonly string[]): Promise<s
     for (const entry of entries) {
       const path = `${dir === '/' ? '' : dir}/${entry.name}`
       if (entry.kind === 'dir') {
-        if (!SKIP_DIRS.has(entry.name) && queue.length < PRINT_FILES) queue.push(path)
+        if (!SKIP_DIRS.has(entry.name) && !(isRoot.has(dir) && ROOT_SKIP_DIRS.has(entry.name)) && queue.length < PRINT_FILES) queue.push(path)
       } else if (files.length < PRINT_FILES) files.push(`${path}\u0000${entry.size ?? 0}:${entry.mtimeMs ?? 0}`)
     }
   }
