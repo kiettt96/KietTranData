@@ -152,6 +152,9 @@ export function createContext(options: PluginOptions) {
     closingState: { goalId: -1, blocks: 0, key: '' },
     /** Số vòng CHƯA ĐẠT liên tiếp theo mục (mục tiêu, vai, việc) (0.9.0 C7). */
     verdictRounds: new Map<string, number>(),
+    /** Trạng thái cổng đóng đã nạp từ $.state trong lần nạp mod này, và bản đã ghi gần nhất (0.9.0 vòng 2 M6). */
+    closingLoaded: false,
+    closingSaved: '',
     clashWarned: new Set<string>(),
     /** ID engine đã phục vụ theo họ (0.8.7 M1, usage.model của turn), cho dòng "Model đang dùng" và cảnh báo phiên bản một lần mỗi họ. */
     served: new Map<ModelFamily, string>(),

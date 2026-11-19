@@ -713,6 +713,8 @@ declare module 'claude-code' {
       }
       /** Mã turn luồng chính đang chạy, rỗng khi không có (0.7.9, UI2): nhịp vẽ lại 60 giây đọc giá trị này để biết còn turn hay không. */
       runningTurn: string
+      /** Trạng thái cổng đóng (0.9.0 vòng 2 M6): kết luận có vai, lần chạy và mốc check của bước, ghi chú ống lệnh, số lần chặn, số vòng chưa đạt. */
+      closing: import('../hooks/lib/closing-state').ClosingSnapshot
     }
   }
 }

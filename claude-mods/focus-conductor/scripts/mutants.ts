@@ -2663,5 +2663,7 @@ export const MUTANTS: Mutant[] = [
   { id: "090-M4a", file: "hooks/parts/consistency.ts", note: "vòng chưa đạt đếm theo description (vòng 2 M4)", old: "${meta.taskIndex ?? ''}`", new: "${meta.taskIndex ?? meta.description}`" },
   { id: "090-M5a", file: "hooks/parts/consistency.ts", note: "lý do chặn không nêu lượt duyệt chưa đạt (vòng 2 M5)", old: "  return `${reason}${unread}${failedText}", new: "  return `${reason}${unread}" },
   { id: "090-M5b", file: "hooks/parts/consistency.ts", note: "lý do chặn không nêu file sửa sau lần kiểm đạt (vòng 2 M5)", old: "${files}${checkFiles}${piped}", new: "${files}${piped}" },
+  { id: "090-M6a", file: "hooks/parts/consistency.ts", note: "không khôi phục trạng thái cổng đóng từ state (vòng 2 M6)", old: "  restoreClosing(L, snap)\n", new: "" },
+  { id: "090-M6b", file: "hooks/parts/consistency.ts", note: "không ghi trạng thái cổng đóng vào state (vòng 2 M6)", old: "  await update($, closingStore, () => snap)\n", new: "" },
   { id: "090-G3a", file: "hooks/lib/drift/classify.ts", note: "lệnh kiểm sau pipefail qua tee hay grep vẫn là hidden (vòng 2 G3)", old: "const exit = isPipefailTeeGrep ? { exit: 'visible' as const } : piped", new: "const exit = piped" },
 ]

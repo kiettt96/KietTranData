@@ -13,6 +13,7 @@ import { globToRegExp } from '../lib/drift/soft'
 import { coversScope } from '../lib/drift/evidence'
 import { PLAN_SET_CHECK_LINE } from '../lib/approval'
 import { hasNoVerdictLine, isUnclearVerdict, reportTable, verdictOf } from '../lib/verdict'
+import { EMPTY_CLOSING, closingSnapshot, normalizeClosing, restoreClosing } from '../lib/closing-state'
 import { tempRewrite } from '../lib/drift/tempdir'
 import { pipedCheck } from '../lib/drift/pipecheck'
 import { EMPTY_REVIEW_PRINTS, changedPrints, isMeasured, normalizeReviewPrints, printNames, printTargets, takePrints, withPrint, withStale } from '../lib/prints'
@@ -57,6 +58,28 @@ const UNVERIFIED_REJECTED = 3
 const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EMPTY_CORE)
 // Dấu file của các lượt duyệt (0.9.0, C2 đo dấu file); cùng key với parts/agents.ts.
 const printState = atom({ plugin: 'focus-conductor', key: 'reviewPrints' } as const, EMPTY_REVIEW_PRINTS)
+const closingStore = atom({ plugin: 'focus-conductor', key: 'closing' } as const, EMPTY_CLOSING)
+
+/** Nạp trạng thái cổng đóng từ $.state một lần mỗi lần nạp mod (0.9.0 vòng 2 M6), trước lần đọc đầu tiên. */
+async function hydrateClosing($: EngineInterface, ctx: Ctx): Promise<void> {
+  const L = ctx.local
+  if (L.closingLoaded) return
+  L.closingLoaded = true
+  const snap = normalizeClosing(await read($, closingStore))
+  restoreClosing(L, snap)
+  L.closingSaved = JSON.stringify(closingSnapshot(L))
+}
+
+/** Ghi trạng thái cổng đóng vào $.state khi đổi (0.9.0 vòng 2 M6). */
+async function persistClosing($: EngineInterface, ctx: Ctx): Promise<void> {
+  const L = ctx.local
+  if (!L.closingLoaded) return
+  const snap = closingSnapshot(L)
+  const text = JSON.stringify(snap)
+  if (text === L.closingSaved) return
+  L.closingSaved = text
+  await update($, closingStore, () => snap)
+}
 
 /** Áp kết quả một lượt router gửi Fable vào Core (0.8.4 C6): vừa tạm ngừng thì toast và một dòng nhật ký conductor. */
 /**
@@ -141,6 +164,7 @@ export function closingReasonText(missing: 'check' | 'review' | 'design'): strin
  */
 async function closingGate($: EngineInterface, ctx: Ctx, core: Core, log: EvidenceLog): Promise<string | null> {
   const L = ctx.local
+  await hydrateClosing($, ctx)
   const brief = core.brief
   const isDue = brief !== null && teamCause(ctx.options['closingReview'], brief, S.changedOf(core).paths) !== null && core.plan.length > 0 && isFullyClosed(core.plan)
   if (brief === null || !isDue || core.closingWaived === brief.goalId) {
@@ -179,6 +203,7 @@ async function closingGate($: EngineInterface, ctx: Ctx, core: Core, log: Eviden
   const key = `${missing}:${steps.find(s => s.name === missing)?.state ?? ''}:${lastHard}:${reviewSeq}:${stale.files.join(',')}:${stale.agents.size}:${unreadId}`
   if (L.closingState.key === key || L.closingState.blocks >= CLOSING_BLOCKS) return null
   L.closingState = { goalId: brief.goalId, blocks: L.closingState.blocks + 1, key }
+  await persistClosing($, ctx)
   ctx.record(await $.clock.now(), 'closing-gate', { goalId: brief.goalId, missing, n: L.closingState.blocks })
   await ctx.flushDecisions((path, text) => $.fs.write(path, text))
   const reason = closingReasonText(missing)
@@ -298,6 +323,7 @@ export function closingCheckState(plan: readonly PlanStep[], log: EvidenceLog, s
  */
 async function refreshTeam($: EngineInterface, ctx: Ctx): Promise<void> {
   const L = ctx.local
+  await hydrateClosing($, ctx)
   const core = S.normalizeCore(await read($, coreState))
   const brief = core.brief
   const changed = S.changedOf(core).paths
@@ -361,6 +387,7 @@ function noteStepRun(ctx: Ctx, goalId: number, observation: ToolObservation): vo
  * thay đổi cuối", một dòng verify-step trong nhật ký. Trả true khi đã nâng.
  */
 async function liftStepChecks($: EngineInterface, ctx: Ctx, goalId: number): Promise<boolean> {
+  await hydrateClosing($, ctx)
   const core = S.normalizeCore(await read($, coreState))
   if (core.brief === null || core.brief.goalId !== goalId) return false
   const state = stepRunsFor(ctx, goalId)
@@ -1097,6 +1124,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     // Đổi check của một bước đã có sau khi kế hoạch được duyệt: một dòng check-changed và một cảnh báo ở mục cần chú ý.
     if (before.brief !== null && (input.action === 'set' || input.action === 'add')) {
       const goalId = before.brief.goalId
+      await hydrateClosing($, ctx)
       const state = stepRunsFor(ctx, goalId)
       const seq = evidenceFor(goalId).seq
       const isApproved = S.approvalOf(before).status === 'approved'
@@ -1107,6 +1135,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
         if (step.check !== undefined) state.checkSeq.set(step.id, seq)
         if (old !== undefined && isApproved) changed.push(step.id)
       }
+      await persistClosing($, ctx)
       if (changed.length > 0) {
         const at = await $.clock.now()
         record(at, 'check-changed', { goalId, steps: changed })
@@ -1340,7 +1369,9 @@ export function registerConsistency(on: On, ctx: Ctx): void {
         const isShared = meta.sharesDir === true && isConductingNow(S.normalizeCore(await read($, coreState)), await read($, mode))
         const agentHardBefore = agentLog.lastHard
         noteEvidence(agentLog, observation, e.agentId, isShared, agentBrief)
+        await hydrateClosing($, ctx)
         noteStepRun(ctx, agentBrief.goalId, observation)
+        await persistClosing($, ctx)
         const isAgentHard = agentLog.lastHard > agentHardBefore
         // Một tệp một agent (0.9.0 C5): hai subagent đang chạy chung thư mục cùng ghi một tệp thì nhắc luồng chính một lần cho mỗi tệp.
         if (meta.sharesDir === true && !observation.isError && isMutation(observation)) {
@@ -1408,7 +1439,9 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       const mainSince = mainLog.seq
       const hardBefore = mainLog.lastHard
       noteEvidence(mainLog, observation, 'main', false, core.brief)
+      await hydrateClosing($, ctx)
       noteStepRun(ctx, core.brief.goalId, observation)
+      await persistClosing($, ctx)
       L.lastWasHard = mainLog.lastHard > hardBefore
       const fresh = isCheckCall(observation.tool) ? newChecks(mainLog, mainSince) : []
       isDeclaredPass = passedDeclared(fresh)
@@ -1491,6 +1524,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     if (core.brief !== null && e.tool === 'Bash' && e.agentId === undefined) {
       const stepChecks = core.plan.flatMap(step => { const check = stepCheckOf(step.check); return check !== null ? [check.command] : [] })
       const piped = pipedCheck(String(observation.input['command'] ?? ''), observation.cwd, stepChecks)
+      await hydrateClosing($, ctx)
       if (L.pipeNotes.goalId !== core.brief.goalId) L.pipeNotes = { goalId: core.brief.goalId, n: 0, last: null }
       if (piped !== null) {
         L.pipeNotes.last = { seq: evidenceFor(core.brief.goalId).seq, command: piped }
@@ -1499,6 +1533,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
           fromAgents.push(pipedCheckNote(piped))
         }
       }
+      await persistClosing($, ctx)
     }
     const notes = [...(nudge ? [nudge] : []), ...(compactNote !== null ? [compactNote] : []), ...(moved !== null ? [moved] : []), ...retryNotes, ...fromAgents]
     // Gom (0.7.9 F1): mọi phần của việc tách đã có kết quả từ phiên con thì kết quả tool này kèm một câu, một lần mỗi việc, và một dòng
@@ -1738,6 +1773,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
         const ranFamily = usageModel !== '' ? familyOf(usageModel) : meta.family
         const isStrong = ranFamily !== null && ranFamily !== 'haiku'
         const isReview = isClean && prefixRole(meta.description) !== 'audit' && parsed?.isCheckOnly !== true && isStrong
+        await hydrateClosing($, ctx)
         if (L.verdicts.goalId !== meta.goalId) L.verdicts = { goalId: meta.goalId, items: [] }
         L.verdicts.items.push({ agentId, role, verdict: parsed?.verdict ?? null, isClean, isReview, ...(parsed?.count !== undefined ? { count: parsed.count } : {}), seq: spawnSeq !== undefined ? spawnSeq + 0.5 : ctx.evidenceFor(meta.goalId).seq, ...(printChanged.length > 0 ? { changed: printChanged.slice(0, 20) } : {}), ...(isUnclear ? { unclear: true as const } : {}), ...(isUnread ? { unread: true as const } : {}), family: ranFamily ?? meta.family, ...(meta.taskIndex !== undefined ? { taskIndex: meta.taskIndex } : {}), description: meta.description })
         if (L.verdicts.items.length > 100) L.verdicts.items.shift()
@@ -1760,6 +1796,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
           }
           await flushDecisions((path, text) => $.fs.write(path, text))
         }
+        await persistClosing($, ctx)
       }
       if (meta !== undefined) await refreshTeam($, ctx)
       // Tiến độ từng việc (0.6.1): chỉ 'answer' là xong; còn lại là lỗi, hoặc bị cắt nếu đang tạm dừng vì hạn mức.
