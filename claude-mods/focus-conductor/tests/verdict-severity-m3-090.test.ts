@@ -15,6 +15,18 @@ describe('0.9.0 vòng 2 M3: mức lỗi cao sau từ đạt', () => {
       expect(verdictOf(text)?.verdict).toBe('pass')
     })
   }
+  // Chữ "vừa" (quyết định của chủ mod 19/11/2026): chỉ là mức lỗi khi đứng ngay sau "lỗi" hay "mức", ngay sau một số đếm, hay là nhãn trước
+  // dấu hai chấm; đứng trước động từ thì không.
+  for (const text of ['ĐẠT, vừa kiểm xong', 'ĐẠT, vừa chạy lại cả bộ']) {
+    test(`${text}: đạt`, () => {
+      expect(verdictOf(text)?.verdict).toBe('pass')
+    })
+  }
+  for (const text of ['ĐẠT, 1 lỗi vừa', 'ĐẠT, mức vừa: 2', 'ĐẠT, Vừa: 1']) {
+    test(`${text}: chưa đạt`, () => {
+      expect(verdictOf(text)?.verdict).toBe('fail')
+    })
+  }
   test('READY, 1 blocker: chưa sẵn sàng', () => {
     expect(verdictOf('READY, 1 blocker')?.verdict).toBe('not-ready')
   })
