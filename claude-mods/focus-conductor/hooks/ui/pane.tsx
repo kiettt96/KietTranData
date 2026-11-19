@@ -111,6 +111,8 @@ export function renderPane(
   const l = labels(view.lang)
   // Dòng chữ dài hơn ~100 ô khó đọc: pane inline rộng vẫn giữ nội dung trong 100 ô.
   const width = Math.max(36, Math.min(columnsOf(props.columns, 56), 100))
+  // Bề rộng thật của pane cho dòng không tự xuống dòng (vòng 2 M19): pane hẹp hơn 36 cột thì tiêu đề mục và dải bước tính theo số cột thật.
+  const fitWidth = Math.min(width, Math.max(1, columnsOf(props.columns, 56)))
   const isNarrow = width < 48
   // Bộ màu (0.8.8 N1): dải màu neon theo option, hay theme key khi neon off.
   const paint = paintOf(view.neon ?? DEFAULT_NEON, props.frame ?? 0)
@@ -133,14 +135,17 @@ export function renderPane(
   // sang phải.
   const heading = (title: string, extra?: string, tone: HeadingTone = palette) => {
     const label = ` ${title} `
-    const tail = extra ? ` ${extra}` : ''
+    // Không đủ chỗ cho đường kẻ tối thiểu thì bỏ phần đếm trước (vòng 2 M19), rồi rút đường kẻ, để dòng không dài hơn bề rộng thật.
+    const fullTail = extra ? ` ${extra}` : ''
+    const tail = fitWidth - cellsOf(label) - 1 - cellsOf(fullTail) >= 2 ? fullTail : ''
+    const rule = Math.max(0, fitWidth - cellsOf(label) - 1 - cellsOf(tail))
     return (
       <Text wrap="truncate-end">
         <Text>{fillRuns(tone, ' ').map(tint)}</Text>
         <Text>{fillRuns(tone, title, 1).map(tint)}</Text>
         <Text>{fillRuns(tone, ' ', 1 + cellsOf(title)).map(tint)}</Text>
-        <Text color="subtle">{` ${'─'.repeat(Math.max(2, width - cellsOf(label) - 1 - cellsOf(tail)))}`}</Text>
-        {extra ? <Text dimColor>{tail}</Text> : ''}
+        <Text color="subtle">{rule > 0 ? ` ${'─'.repeat(rule)}` : ''}</Text>
+        {tail ? <Text dimColor>{tail}</Text> : ''}
       </Text>
     )
   }
@@ -526,8 +531,8 @@ export function renderPane(
   const stripMarks = plan.map(step => ({ step, mark: step.status === 'todo' && runningSteps.has(step.title) ? STEP_MARK.doing : STEP_MARK[step.status] }))
   const withIds = stripMarks.map(({ step, mark }) => `${mark.glyph}${step.id}`)
   const stripText = withIds.join(' ')
-  const isStripIds = cellsOf(stripText) <= width
-  const stripFits = (n: number) => n + (n < stripMarks.length ? 1 + cellsOf(`+${stripMarks.length - n}`) : 0) <= width
+  const isStripIds = cellsOf(stripText) <= fitWidth
+  const stripFits = (n: number) => n + (n < stripMarks.length ? 1 + cellsOf(`+${stripMarks.length - n}`) : 0) <= fitWidth
   let stripShown = stripMarks.length
   while (!isStripIds && stripShown > 0 && !stripFits(stripShown)) stripShown -= 1
   const stripNode =
