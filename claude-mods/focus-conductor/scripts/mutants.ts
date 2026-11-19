@@ -2655,5 +2655,6 @@ export const MUTANTS: Mutant[] = [
   { id: "090-L1a", file: "hooks/parts/consistency.ts", note: "bước kiểm theo lần chạy gần nhất chung, không theo từng lệnh (vòng 2 L1)", old: "  const stepFailed = latestOf.some(run => !run.passed)\n", new: "  const stepFailed = lastRun !== undefined && !lastRun.passed\n" },
   { id: "090-L2a", file: "hooks/lib/verdict.ts", note: "phủ định cách bằng gạch nối không được nhận (vòng 2 L2)", old: "[`${n} ${p}`, `${n}-${p}`]", new: "[`${n} ${p}`]" },
   { id: "090-L2b", file: "hooks/lib/verdict.ts", note: "họ đạt chỉ còn pass, passing (vòng 2 L2)", old: "const PASS_FORMS = ['passing', 'passes', 'passed', 'pass']", new: "const PASS_FORMS = ['passing', 'pass']" },
+  { id: "090-L3a", file: "hooks/lib/drift/classify.ts", note: "pipefail sau -- vẫn được nhận (vòng 2 L3)", old: "const values = all.includes('--') ? all.slice(0, all.indexOf('--')) : all", new: "const values = all" },
   { id: "090-G3a", file: "hooks/lib/drift/classify.ts", note: "lệnh kiểm sau pipefail qua tee hay grep vẫn là hidden (vòng 2 G3)", old: "const exit = isPipefailTeeGrep ? { exit: 'visible' as const } : piped", new: "const exit = piped" },
 ]

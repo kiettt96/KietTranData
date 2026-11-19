@@ -464,8 +464,9 @@ export function classifyBash(input: string, base = ''): BashClass {
     }
     if (name === 'set') {
       // set chỉ đổi tùy chọn của shell, không ghi file (0.7.5); -o pipefail (cả -euo pipefail) làm mã thoát của ống là của
-      // lệnh kiểm tra khi nó lỗi, +o pipefail tắt lại.
-      const values = args.map(unmask)
+      // lệnh kiểm tra khi nó lỗi, +o pipefail tắt lại. Đối số sau `--` là tham số vị trí, không phải tùy chọn (vòng 2 L3).
+      const all = args.map(unmask)
+      const values = all.includes('--') ? all.slice(0, all.indexOf('--')) : all
       const flag = values[values.indexOf('pipefail') - 1] ?? ''
       if (!piece.background && /^-[a-zA-Z]*o$/.test(flag)) pipefail = true
       else if (/^\+[a-zA-Z]*o$/.test(flag)) pipefail = false
