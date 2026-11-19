@@ -598,7 +598,8 @@ export function registerAgents(on: On, ctx: Ctx): void {
     // Danh sách file của phạm vi trước lượt (vòng 2 M13): lượt có vai chỉ đọc hay vai kiểm, theo tiền tố hay vai của việc.
     const listRole = prefixRole(info?.description ?? e.description) ?? spawnRole
     const isListed = e.fork !== true && preGoal !== undefined && (listRole === 'review' || listRole === 'design' || listRole === 'audit' || listRole === 'search')
-    const preList = isListed ? await listScope({ list: (path?: string) => $.fs.list(path) }, scopeRoots(spawnCore.brief?.scopePaths, (await $.session.root().catch(() => null)) ?? null)) : null
+    const listRoots = isListed ? scopeRoots(spawnCore.brief?.scopePaths, (await $.session.root().catch(() => null)) ?? null) : []
+    const preList = isListed ? await listScope({ list: (path?: string) => $.fs.list(path), stat: (path: string) => $.fs.stat(path) }, listRoots) : null
     const result = await next(reportSuffix !== '' ? { ...e, prompt: `${e.prompt}${reportSuffix}` } : e)
     if (result.deny !== undefined) return result
     // Phiên con (0.7.9 F1): lời gọi Agent đã có spawn, nên lỗi về sau là lỗi của phần đó, không phải engine từ chối.
@@ -606,7 +607,16 @@ export function registerAgents(on: On, ctx: Ctx): void {
     if (forkCall !== undefined) forkCall.spawned = true
     const forkPart = forkCall?.task !== undefined && forkCall.part !== undefined ? { task: forkCall.task, part: forkCall.part } : null
     const agentId = result.agentId
-    if (agentId !== undefined && preList !== null && preGoal !== undefined && L.scopeLists.size < 100) L.scopeLists.set(agentId, { goalId: preGoal, files: preList })
+    // Bản chụp giữ gốc lúc sinh; đủ trần thì bỏ bản cũ nhất (kiểm độc lập vòng 1 lỗi 11), không ngừng chụp lượt mới.
+    if (agentId !== undefined && preList !== null && preGoal !== undefined) {
+      L.scopeLists.delete(agentId)
+      L.scopeLists.set(agentId, { goalId: preGoal, files: preList, roots: listRoots })
+      while (L.scopeLists.size > 100) {
+        const oldest = L.scopeLists.keys().next().value
+        if (oldest === undefined) break
+        L.scopeLists.delete(oldest)
+      }
+    }
     const route = info?.route ?? workflowRoute
     const isMissed = agentId !== undefined && steppedEarly.has(agentId)
     const applied = (info !== undefined ? info.isApplied : workflowRoute !== null && isModeApplied) && !isMissed

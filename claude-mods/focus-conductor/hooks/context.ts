@@ -159,7 +159,7 @@ export function createContext(options: PluginOptions) {
     /** Nội dung tệp trạng thái mục tiêu đã ghi gần nhất, không kèm mốc ghi (0.9.0 vòng 2 M15). */
     goalFileSaved: '',
     /** Danh sách file của phạm vi lúc sinh lượt có vai chỉ đọc hay vai kiểm (0.9.0 vòng 2 M13), theo agentId. */
-    scopeLists: new Map<string, { goalId: number; files: string[] }>(),
+    scopeLists: new Map<string, { goalId: number; files: string[]; roots: string[] }>(),
     closingSaved: '',
     clashWarned: new Set<string>(),
     /** ID engine đã phục vụ theo họ (0.8.7 M1, usage.model của turn), cho dòng "Model đang dùng" và cảnh báo phiên bản một lần mỗi họ. */

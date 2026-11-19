@@ -1804,7 +1804,8 @@ export function registerConsistency(on: On, ctx: Ctx): void {
         const listed = L.scopeLists.get(agentId)
         L.scopeLists.delete(agentId)
         if (listed !== undefined && listed.goalId === meta.goalId) {
-          const nowList = await listScope({ list: (path?: string) => $.fs.list(path) }, scopeRoots(S.normalizeCore(await read($, coreState)).brief?.scopePaths, (await $.session.root().catch(() => null)) ?? null))
+          // Cùng gốc lúc sinh (kiểm độc lập vòng 1 lỗi 11).
+          const nowList = await listScope({ list: (path?: string) => $.fs.list(path), stat: (path: string) => $.fs.stat(path) }, listed.roots)
           const created = nowList === null ? [] : newFiles(listed.files, nowList)
           if (created.length > 0) {
             for (const path of created) if (!printChanged.includes(path)) printChanged.push(path)
