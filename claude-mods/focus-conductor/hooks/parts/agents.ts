@@ -24,7 +24,9 @@ import * as S from '../lib/state'
 import { fableStep } from './fable'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
-import { modeOf } from '../atoms'
+import { modeOf, viewOf } from '../atoms'
+import { statusTextOf } from '../ui/direction'
+import { EMPTY_QUOTA, normalizeQuota, quotaSettings } from '../lib/quota'
 import { FANOUT_WARN } from '../context'
 
 // Atom của mod, khai báo lại ở mỗi file dùng chúng (engine chỉ nhận tham chiếu state viết trong chính file đó);
@@ -50,6 +52,8 @@ async function noteFableRouter($: EngineInterface, ctx: Ctx, isOk: boolean, fami
   }
 }
 const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null)
+const bandHiddenState = atom({ plugin: 'focus-conductor', key: 'isBandHidden' } as const, false)
+const quotaState = atom({ plugin: 'focus-conductor', key: 'quota' } as const, EMPTY_QUOTA)
 
 /**
  * Mã có trong các bước của brief (R11): tiêu đề các việc đã phân, và checklist của tool plan vì plan set/update đồng bộ vào brief.steps.
@@ -704,6 +708,12 @@ export function registerAgents(on: On, ctx: Ctx): void {
       return progressItem !== null ? S.withAgentStart(goalId, progressItem)(logged) : logged
     })
     if (isMismatch) $.ui.toast(mismatchText)
+    // Lượt có tiền tố duyệt hay sẵn sàng vừa sinh (vòng 2 M18, M20): vẽ lại status line để nó nói cùng câu đang duyệt với band và pane.
+    const spawnPrefix = prefixRole(info?.description ?? e.description)
+    if (progressItem !== null && (spawnPrefix === 'review' || spawnPrefix === 'design')) {
+      const view = await read($, derive([coreState, modeState, bandHiddenState], viewOf(ctx.options)))
+      $.ui.status(statusTextOf(view, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(ctx.options)))
+    }
     return result
   }).catch(($, e, next) => (noteHookError('agent.spawn', next.error), next(e)))
 }
