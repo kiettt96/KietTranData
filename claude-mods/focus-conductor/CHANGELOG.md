@@ -139,6 +139,12 @@ Ba nhóm việc trong một lượt: sửa lỗi còn tồn (A), chạy trơn v�
 - F7 (rà soát vòng 2, không sửa trong bản này): khi lượt duyệt gần nhất báo chưa đạt, lý do chặn của cổng đóng chưa nêu riêng điều đó; gặp mỗi khi người duyệt trả CHƯA ĐẠT mà luồng chính kết thúc trước vòng sửa.
 - F8 (rà soát vòng 2, không sửa trong bản này): kết luận của các lượt duyệt lưu ở biến cục bộ của phiên nên không sống qua lần nạp lại mod hay chạy tiếp bằng `--continue`; gặp ở phiên không tương tác chạy nhiều lần.
 - G6: 45 mẫu nhóm A chưa chạy vì chạm trần thời gian 12 giờ (`hooks/parts/consistency.ts` chạy 92/131, `hooks/ui/pane.tsx` 85/91, các tệp hooks khác chạy đủ): `056-C14`, `056-C15`, `056-D5`, `060-L1`, `060-L2`, `060-L5`, `060-L6`, `061-P22`, `070-C11`, `070-C3`, `070-C9`, `070-L8`, `070-V10`, `070-V12`, `070-V18`, `071-M10`, `071-M8`, `071-M9`, `074-F10`, `074-F11`, `075-A6h`, `075-B1d`, `075-L3b`, `075-S5G`, `075-S6e`, `076-U1i`, `076-U1m`, `076-U6b`, `076-W1a`, `076-W1i`, `078-G1a`, `078-G1e`, `078-G2b`, `078-G2c`, `078-G4a`, `078-G6c`, `078-G6e`, `079-Y5d`, `080-A3d`, `082-N2c`, `082-N2d`, `086-R1a`, `086-R1b`, `086-R2c`, `086-R3b`.
+- Vai chỉ đọc: `git -C <thư mục> clone ...` bị từ chối (giữ theo hướng từ chối khi không chắc của G2b). Tái hiện: lượt `Kiểm độc lập: ` chạy `git -C /tmp clone -q /repo r`; `classifyBash` trả đích chưa đọc được.
+- `Not pass-through; PASS` đọc là chưa đạt (phủ định đứng trước `pass` cách bằng gạch nối). Tái hiện: `verdictOf('Not pass-through; PASS')` trả `fail`.
+- Bộ test để lại thư mục `fc-eval-*` trong thư mục tạm của hệ thống sau mỗi lượt `claude plugin test .`. Tái hiện: chạy cả bộ rồi `find /tmp -maxdepth 1 -name 'fc-eval-*'`.
+- Lượt đột biến 119 mẫu `090` của vòng 2 chạy bằng engine 2.1.327, không phải bản ghim 2.1.296; đối chứng 20 mẫu trên bản ghim khớp 20/20 (VERIFICATION, mục G6, điểm 1).
+- Dạng lân cận thấy ở L2, không sửa: dấu nháy cong trong phủ định (`Doesn’t pass`, `Didn’t pass`, `Can’t pass`) không có kết luận, nên được tính như lượt duyệt thiếu dòng kết luận. Tái hiện: `verdictOf('Doesn’t pass')` trả null.
+- Dạng lân cận thấy ở L3, không sửa: `set - -o pipefail` vẫn bật pipefail (một dấu `-` cũng kết thúc phần tùy chọn của set). Tái hiện: lệnh kiểm `set - -o pipefail; bash tests/kiem.sh | tee /tmp/k.log` được tính theo mã thoát của cả ống.
 - G6: cân nhắc đưa cách chạy theo tầng (tầng 1 cùng bản, tầng giữa theo tên module và lịch sử diệt, rồi cả bộ) vào `scripts/mutate.ts` về sau; lượt này chạy bằng bộ chạy ngoài repo.
 
 ## Thay đổi 0.8.9: router bị engine từ chối khi đọc prompt dài
