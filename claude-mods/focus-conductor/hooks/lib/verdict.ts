@@ -63,21 +63,29 @@ const WORDS: ReadonlyArray<readonly [string, Verdict, boolean]> = [
 /** Một dòng kết luận đọc được: từ kết luận, số đếm N/M nếu có, cờ chỉ-của-bước-kiểm, dòng chỉ có từ kết luận; hay dòng chưa có kết luận. */
 type VerdictLine = { verdict: Verdict; count?: string; isCheckOnly: boolean; isBare: boolean } | { unclear: true }
 
-/**
- * Từ tương phản (sau phiên thật D4): "nhưng", "tuy nhiên", "but", "however", "with"; thêm "kèm" (tương đương "with") và "còn" ("ĐẠT, còn 2 lỗi
- * lớn"), để mức lỗi cao đi sau chúng không bị bỏ qua.
- */
-const CONTRAST = /(?:^|[^\p{L}])(?:nhưng|tuy nhiên|but|however|with|kèm|còn)(?:[^\p{L}]|$)/u
 /** Mức lỗi cao. Mức thấp ("nhẹ", "nhỏ", "vặt", "minor") không bao giờ làm đổi kết luận. */
 const HIGH_WORDS = 'nặng|lớn|vừa|nghiêm\\s+trọng|chặn|major|critical|blockers?|blocked|blocking'
-const HIGH = new RegExp(`(?:^|[^\\p{L}])(?:${HIGH_WORDS})(?:[^\\p{L}]|$)`, 'u')
+/**
+ * Mức lỗi cao bị phủ định bằng số đếm 0 hay "none" (vòng 2 M3): "0 critical", "none critical", "Critical: 0", "Lớn: không", "major: none";
+ * các dạng "không", "không có", "không còn", "no" do `dropNegated` bỏ.
+ */
+const ZERO_HIGH = new RegExp(`(?:^|[^\\p{L}\\d])(?:0|none)\\s+(?:${HIGH_WORDS})(?:[^\\p{L}]|$)|(?:^|[^\\p{L}])(?:${HIGH_WORDS})\\s*:\\s*(?:0|không|none|no)(?![\\p{L}\\d])`, 'gu')
+function dropZeroHigh(text: string): string {
+  return text.replace(ZERO_HIGH, ' ')
+}
+/**
+ * Mức lỗi cao trong câu đầu sau từ đạt (vòng 2 M3). Chữ "vừa" (quyết định của chủ mod 19/11/2026) chỉ là mức lỗi khi đứng ngay sau "lỗi"
+ * hay "mức", ngay sau một số đếm ("2 vừa"), hay là nhãn trước dấu hai chấm ("Vừa: 1"); "vừa kiểm xong" không phải mức lỗi.
+ */
+const HIGH = new RegExp(`(?:^|[^\\p{L}])(?:${HIGH_WORDS.replace('vừa|', '')})(?:[^\\p{L}]|$)`, 'u')
+const HIGH_VUA = /(?:(?:^|[^\p{L}])(?:lỗi|mức)\s+vừa|\d\s*vừa|(?:^|[^\p{L}])vừa\s*:)(?:[^\p{L}]|$)/u
 /** Đạt từng phần: chưa có kết luận. */
 const PARTIAL = /(?:^|[^\p{L}])(?:phần lớn|một phần|mostly|partially)(?:[^\p{L}]|$)/u
 
 /**
  * Đọc một dòng (sau phiên thật D4, thay luật đóng 18/11): bỏ ký hiệu markdown, dấu đầu dòng, nhãn "Kết luận:" hay "Verdict:"; dòng mở đầu
  * bằng một từ kết luận (cụm chưa đạt xét trước) là dòng kết luận, và chỉ xét câu đầu của nó (tới dấu chấm, chấm phẩy hay hết dòng); các câu
- * sau là bình luận. Từ chưa đạt: chưa đạt. Từ đạt: đạt, trừ khi câu có từ tương phản đi với mức lỗi cao không bị phủ định (chưa đạt), hay có
+ * sau là bình luận. Từ chưa đạt: chưa đạt. Từ đạt: đạt, trừ khi câu có mức lỗi cao không bị phủ định (chưa đạt; vòng 2 M3 bỏ điều kiện từ tương phản), hay có
  * "phần lớn", "một phần", "mostly", "partially" (chưa có kết luận). Phủ định nhận như lỗi trong output lệnh kiểm (`dropNegated`).
  */
 function lineVerdict(raw: string): VerdictLine | null {
@@ -95,7 +103,7 @@ function lineVerdict(raw: string): VerdictLine | null {
     if (verdict === 'fail' || verdict === 'not-ready') return { verdict, ...counted, isCheckOnly, isBare }
     if (PARTIAL.test(sentence)) return { unclear: true }
     const open = dropNegated(sentence, HIGH_WORDS)
-    if (CONTRAST.test(open) && HIGH.test(open)) return { verdict: verdict === 'pass' ? 'fail' : 'not-ready', ...counted, isCheckOnly: false, isBare }
+    if (HIGH.test(dropZeroHigh(open)) || HIGH_VUA.test(dropZeroHigh(open))) return { verdict: verdict === 'pass' ? 'fail' : 'not-ready', ...counted, isCheckOnly: false, isBare }
     return { verdict, ...counted, isCheckOnly, isBare }
   }
   return null
