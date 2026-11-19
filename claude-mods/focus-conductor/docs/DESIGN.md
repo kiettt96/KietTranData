@@ -405,6 +405,17 @@ Một phiên làm theo kỷ luật giao việc (khởi động, đo nền, tệp
 - **Mục 11, dừng cứng.** Mục tiêu có tệp trạng thái (B1 hay tên mặc định đã ghi) thì câu báo dừng thêm một vế không quá 120 ký tự: ghi phần bàn giao vào tệp trạng thái đã khai rồi dừng.
 - **Kịch bản tích hợp (mục 12).** `tests/integration/coop-b14-090.test.ts` chạy một phiên từ đầu tới cuối với conductor tắt và bật, prompt không khai tệp trạng thái.
 
+## Giới hạn có chủ đích (0.9.0 vòng 2)
+
+Các điểm dưới đây giữ như hiện tại vì sai về hướng an toàn (mod chặn hay không tính, không cho qua sai), hoặc vì chủ mod đã quyết. Mỗi điểm một lý do và cách người dùng tránh.
+
+- **`git -C <thư mục> clone ...` của vai chỉ đọc bị từ chối.** Lý do: đích cuối của clone tính theo thư mục của `-C`, bộ phân loại không giải đường dẫn đó nên coi đích là chưa đọc được và từ chối (G2b). Cách tránh: `git clone <nguồn> /tmp/<đích>`, hoặc `cd /tmp && git clone <nguồn> <đích>`.
+- **`Not pass-through; PASS` đọc là chưa đạt.** Lý do: phủ định đứng trước `pass` cách bằng gạch nối được đọc là phủ định của `pass`; chiều này chỉ đòi duyệt lại, không cho qua sai. Cách tránh: đặt kết luận ở đầu dòng đầu (`PASS`, `ĐẠT`), phần giải thích để dòng sau.
+- **Lệnh kiểm mod nhận ra bị lỗi: lý do chặn là câu chung của cổng lệnh kiểm chưa đạt**, không phải câu của cổng đóng. Lý do: cổng lệnh kiểm chạy trước cổng đóng và đã chặn đúng; đổi câu phải đổi thứ tự cổng đã chốt. Cách tránh: đọc output của lần kiểm lỗi trong lý do chặn, sửa rồi chạy lại lệnh kiểm.
+- **`gofmt -l` không là lệnh kiểm.** Lý do: bộ phân loại xếp `gofmt` là lệnh ghi mức possible (M9 chỉ đổi `gofmt -w` và `go fmt`); lần chạy này không nâng bước nào nên không cho qua sai. Cách tránh: khai lệnh kiểm định dạng trong `checkCommands`, ví dụ `test -z "$(gofmt -l .)"`, hay dùng lệnh kiểm của dự án.
+- **Luật S5 giữ nguyên (quyết định của chủ mod 19/11/2026).** Lệnh kiểm qua `tail`, `head`, `cat` mà dòng cuối của output là dòng tổng kết chặt vẫn được tính dù không có pipefail; các ống khác che mã thoát thì không tính và có dòng nhắc đi qua ống (M10). Cách tránh khi cần mã thoát thật: thêm `set -o pipefail` trước lệnh, hay chạy lệnh kiểm không qua ống.
+- **Vai audit chạy script tự ghi file (`node script.js`) vẫn chạy được.** Lý do: engine không cho biết trước script sẽ ghi gì; mod đo sau bằng danh sách và dấu file của phạm vi (M13), file mới hay file đổi làm kết luận của lượt đó không được tính. Cách tránh: chạy script ghi file ở luồng chính hay vai build, để vai audit chỉ đọc.
+
 ## Router bị engine từ chối khi đọc prompt dài (0.8.9)
 
 Phiên thật, `conductor` là `fable`, prompt dài: mod báo router không đọc được prompt vì engine từ chối gửi request [Nguồn: ảnh chụp phiên thật của chủ mod, 14/11/2026]. Lượt đọc trọn của fable, opus, haiku xin `maxTokens` 128.000, là mức `claude -p` báo cho model, trong khi engine ném lỗi trước khi gửi khi lời gọi từ hook xin quá 64.000.

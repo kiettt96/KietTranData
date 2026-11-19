@@ -2,6 +2,40 @@
 
 Số đo của HEAD hiện tại và của các bản trước. Mọi số do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển] trừ khi nêu khác; hợp đồng đối chiếu evidence ở [DESIGN.md](DESIGN.md), lịch sử thay đổi ở [CHANGELOG.md](../CHANGELOG.md), cách dùng ở [README](../README.md).
 
+## 0.9.0 vòng 2 M24: đối chiếu việc tồn tại 12056bf [Đo trực tiếp, engine 2.1.296, 19/11/2026]
+
+Mỗi dòng việc tồn của CHANGELOG 0.9.0 tại `12056bf` và cách đóng. Sau vòng này mục Việc tồn của 0.9.0 rỗng; các điểm giữ nguyên nằm ở [DESIGN.md](DESIGN.md), mục Giới hạn có chủ đích (0.9.0 vòng 2).
+
+| # | Việc tồn tại 12056bf | Cách đóng |
+| --- | --- | --- |
+| 1 | `set -e` của khối heredoc bật errexit cho cả khối; `set -e; ...` trên một dòng không nhận ra | Đã sửa (M7) |
+| 2 | Dấu `)` trong nháy bên trong `<( )` làm đích ghi lệch | Không còn tái hiện (M8): `diff <(echo "a)b") /repo/a` không sinh đích `/repo/a)`, `cp <(printf "x)y") /repo/a` đích `/repo/a`; ca `procsubst-m8-090` giữ làm hồi quy |
+| 3 | B10 không coi `--update-snapshots`, `jest -u`, `go fmt` là tự sửa; `make check` in "Nothing to be done" vẫn được nâng | Đã sửa (M9); `gofmt -l` vào Giới hạn có chủ đích |
+| 4 | Vai audit chạy script tự ghi file; kết luận của audit | Đã sửa phần kết luận (M13); việc script vẫn chạy được vào Giới hạn có chủ đích |
+| 5 | Sửa file sau lượt duyệt mà chưa chạy lệnh kiểm: lý do chặn không nêu tên file | Đã sửa (M5) |
+| 6 | Vòng sửa C7 đếm theo description | Đã sửa (M4) |
+| 7 | Mức lỗi cao đứng một mình sau từ đạt vẫn đọc là đạt | Đã sửa (M3, chữ "vừa" thu hẹp theo quyết định của chủ mod) |
+| 8 | Bộ phân loại lệnh: `file -C`, `rg --pre`, sửa qua liên kết mềm | Đã sửa (M12) |
+| 9 | File mới do vai chỉ đọc tạo bằng lệnh mức possible không bị phát hiện | Đã sửa (M13), kèm dạng lân cận file đã có bị sửa |
+| 10 | Nhật ký quyết định bị ghi đè khi `claude -p --continue` | Đã sửa (M14) |
+| 11 | Trạng thái mục tiêu không sống qua `--continue` không tương tác | Đã sửa (M15); phiên thật M23 kịch bản 1 |
+| 12 | Câu "Việc nhỏ: làm trực tiếp, không cần checklist" cãi với prompt đòi checklist | Đã sửa (M16) |
+| 13 | Lệnh kiểm qua ống `2>&1 | tail -1` không có dòng nhắc; `tee`, `grep` có tùy chọn sau pipefail chưa được tính | Đã sửa (M10); luật S5 vào Giới hạn có chủ đích theo quyết định của chủ mod |
+| 14 | Bước có `check` kèm kết quả mong đợi được nâng theo đường lệnh kiểm nhận ra mà không so kết quả | Đã sửa (M11) |
+| 15 | Nhãn vai giữa chip model và chi tiết; chưa có câu "đang duyệt" | Đã sửa (M17, M18; bổ sung status line từ M20) |
+| 16 | Pane hẹp 30 và 36 cột vượt bề rộng; lý do chặn chung khi lệnh kiểm nhận ra bị lỗi | Đã sửa phần pane (M19); lý do chặn chung vào Giới hạn có chủ đích |
+| 17 | F4: lệnh ở `check` của bước có `<( )` bị đếm là lệnh ghi không rõ đích | Không còn tái hiện (M8): bước có check `diff <(sort ...)` chạy đúng lệnh, không là ghi không rõ đích |
+| 18 | F7: lượt duyệt gần nhất báo chưa đạt mà lý do chặn không nêu | Đã sửa (M5) |
+| 19 | F8: kết luận của các lượt duyệt không sống qua nạp lại mod hay `--continue` | Đã sửa (M6 cho nạp lại, M15 cho `--continue`) |
+| 20 | G6: 45 mẫu nhóm A chưa chạy | Đã chạy ở M22 (mục M22 bên dưới) |
+| 21 | Vai chỉ đọc: `git -C <thư mục> clone` bị từ chối | Giới hạn có chủ đích (chiều từ chối) |
+| 22 | `Not pass-through; PASS` đọc là chưa đạt | Giới hạn có chủ đích (chiều chưa đạt) |
+| 23 | Bộ test để lại thư mục `fc-eval-*` | Đã sửa (M21a): nguồn là `scripts/eval-router.ts` |
+| 24 | Lượt đột biến 119 mẫu `090` chạy bằng engine 2.1.327 | Đã chạy lại trên bản ghim ở M22 (100 mẫu chưa có phán quyết trên bản ghim) |
+| 25 | Dạng lân cận L2: nháy cong trong phủ định (`Doesn’t pass`) không có kết luận | Đã sửa (M2) |
+| 26 | Dạng lân cận L3: `set - -o pipefail` vẫn bật pipefail | Đã sửa (M7) |
+| 27 | G6: đưa cách chạy theo tầng vào `scripts/mutate.ts` | Đã sửa (M21b): cờ `--tiered` |
+
 ## 0.9.0 cổng duyệt: bảng nghiệm thu đóng K1 tới K25 [Đo trực tiếp, `tests/integration/k-table-090.test.ts` và, cho K20, `tests/integration/closing-stepcheck-f1-090.test.ts`, 2.1.327, 18/11/2026]
 
 | Mã | Hành vi | Ca test | Kết quả |
