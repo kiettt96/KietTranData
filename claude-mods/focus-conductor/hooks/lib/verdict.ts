@@ -67,9 +67,15 @@ type VerdictLine = { verdict: Verdict; count?: string; isCheckOnly: boolean; isB
 const HIGH_WORDS = 'nặng|lớn|vừa|nghiêm\\s+trọng|chặn|major|critical|blockers?|blocked|blocking'
 /**
  * Mức lỗi cao bị phủ định bằng số đếm 0 hay "none" (vòng 2 M3): "0 critical", "none critical", "Critical: 0", "Lớn: không", "major: none";
- * các dạng "không", "không có", "không còn", "no" do `dropNegated` bỏ.
+ * các dạng "không", "không có", "không còn", "no" do `dropNegated` bỏ. Kiểm độc lập vòng 1 lỗi 7 và 10: thêm "0 lỗi lớn", "0 critical
+ * issues", "Critical 0", "critical issues: 0", "critical (0)"; giá trị của nhãn phải đứng cuối mục (sau nó là dấu phẩy, chấm, chấm phẩy, ngoặc
+ * hay hết câu), nên "Critical: không rõ" không phải phủ định.
  */
-const ZERO_HIGH = new RegExp(`(?:^|[^\\p{L}\\d])(?:0|none)\\s+(?:${HIGH_WORDS})(?:[^\\p{L}]|$)|(?:^|[^\\p{L}])(?:${HIGH_WORDS})\\s*:\\s*(?:0|không|none|no)(?![\\p{L}\\d])`, 'gu')
+const ZERO_HIGH = new RegExp(
+  `(?:^|[^\\p{L}\\d])(?:0|none)\\s+(?:(?:lỗi|issues?)\\s+)?(?:${HIGH_WORDS})(?:[^\\p{L}]|$)` +
+    `|(?:^|[^\\p{L}])(?:${HIGH_WORDS})(?:\\s+(?:issues?|findings?|lỗi))?\\s*[:=]?\\s*\\(?\\s*(?:0|không|none|no)\\s*\\)?(?=\\s*(?:[,.;)]|$))`,
+  'gu',
+)
 function dropZeroHigh(text: string): string {
   return text.replace(ZERO_HIGH, ' ')
 }
@@ -102,7 +108,9 @@ function lineVerdict(raw: string): VerdictLine | null {
     const counted = count !== undefined ? { count: count.replace(/\s+/g, '') } : {}
     if (verdict === 'fail' || verdict === 'not-ready') return { verdict, ...counted, isCheckOnly, isBare }
     if (PARTIAL.test(sentence)) return { unclear: true }
-    const open = dropNegated(sentence, HIGH_WORDS)
+    // Mức lỗi xét cả phần sau dấu chấm phẩy của câu đầu (kiểm độc lập vòng 1 lỗi 10): "ĐẠT, Lớn: 0; Nghiêm trọng: 2" là chưa đạt.
+    const scan = (/^(.*?)(?:\.(?:\s|$)|$)/u.exec(after.replace(/^\s*\d+\s*\/\s*\d+/u, ''))?.[1] ?? '').trim()
+    const open = dropNegated(scan, HIGH_WORDS)
     if (HIGH.test(dropZeroHigh(open)) || HIGH_VUA.test(dropZeroHigh(open))) return { verdict: verdict === 'pass' ? 'fail' : 'not-ready', ...counted, isCheckOnly: false, isBare }
     return { verdict, ...counted, isCheckOnly, isBare }
   }
