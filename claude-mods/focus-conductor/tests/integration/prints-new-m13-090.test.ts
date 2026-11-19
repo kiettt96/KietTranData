@@ -9,13 +9,13 @@ import { SAMPLE_OPTS, callTool, closeAll, editSample, openSample, runCheck, samp
 
 /** Thư mục /repo giả: tệp có sẵn, cộng tệp mà lệnh `python3 tao.py` tạo ra. */
 function repoFs(on: On, created: string) {
-  const entries = new Set(['thong-ke.sh', 'README.md'])
+  const entries = new Map([['thong-ke.sh', 1], ['README.md', 1]])
   on('fs.list', (_$, e, next) => {
     const ev = e as { path?: string }
-    if (ev.path === '/repo') return { value: [...entries].map(name => ({ name, kind: 'file', size: 1, mtimeMs: 1, isLink: false })) } as never
+    if (ev.path === '/repo') return { value: [...entries].map(([name, size]) => ({ name, kind: 'file', size, mtimeMs: size, isLink: false })) } as never
     return next(e)
   })
-  return { create: () => entries.add(created) }
+  return { create: () => entries.set(created, 1), touch: (name: string) => entries.set(name, (entries.get(name) ?? 0) + 7) }
 }
 async function reviewRun($: Engine, id: string, onRun: () => void, answer: string) {
   const description = 'Kiểm độc lập: thống kê'
@@ -48,5 +48,18 @@ describe('0.9.0 vòng 2 M13: dấu file phủ file mới', () => {
     await closeAll($)
     await reviewRun($, 'm13b', () => undefined, 'ĐẠT')
     expect(await stopSample($)).toBe('')
+  })
+  // Dạng lân cận ở chiều không an toàn (vòng 2 M13): script của lượt sửa một file đã có trong phạm vi mà file đó chưa vào tập dấu.
+  test('lượt duyệt chạy script sửa README.md (kích thước và mtime đổi) rồi trả ĐẠT: cổng vẫn đòi duyệt, lý do nêu README.md', SAMPLE_OPTS(), async ($, on) => {
+    const fs = repoFs(on, 'khong-dung.txt')
+    const sample = sampleSetup(on)
+    await openSample($, sample)
+    await editSample($)
+    await runCheck($)
+    await closeAll($)
+    await reviewRun($, 'm13c', () => fs.touch('README.md'), 'ĐẠT')
+    const block = await stopSample($)
+    expect(block).toContain('duyệt độc lập')
+    expect(block).toContain('README.md')
   })
 })
