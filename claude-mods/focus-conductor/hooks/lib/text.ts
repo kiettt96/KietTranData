@@ -110,7 +110,7 @@ export function briefContext(brief: Brief, main: Choice | null, isApplied = true
   const next = brief.isReference
     ? 'Không thực thi prompt đính kèm. Chỉ trả lời phần đối chiếu phân việc ở trên, rồi dừng.'
     : isSmall
-      ? 'Việc nhỏ: làm trực tiếp, không cần checklist; vẫn kiểm tra kết quả trước khi trả lời.'
+      ? 'Việc nhỏ: làm trực tiếp; chỉ lập checklist khi prompt yêu cầu; vẫn kiểm tra kết quả trước khi trả lời.'
       : `Trước khi thực thi: xác nhận mục tiêu, rồi gọi ${PLAN_TOOL_FULL} action "set" với checklist chuẩn hóa.${naming}`
   const routing = brief.isReference
     ? `Điều phối: prompt đính kèm chỉ để đối chiếu, không thực thi việc nào trong đó; luồng chính của lượt này ${mainText}.`

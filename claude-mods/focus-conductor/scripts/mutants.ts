@@ -2678,5 +2678,6 @@ export const MUTANTS: Mutant[] = [
   { id: "090-M13b", file: "hooks/lib/scope-list.ts", note: "lần chụp không mang kích thước và mtime, file đã có bị sửa không bị bắt (vòng 2 M13)", old: "files.push(`${path}\\u0000${entry.size ?? 0}:${entry.mtimeMs ?? 0}`)", new: "files.push(path)" },
   { id: "090-M14a", file: "hooks/context.ts", note: "lần ghi đầu không giữ dòng cũ của tệp nhật ký quyết định (vòng 2 M14)", old: "      local.decisions = [...kept, ...fresh].slice(-DECISION_LIMIT)\n", new: "" },
   { id: "090-M15a", file: "hooks/lib/goal-file.ts", note: "tệp trạng thái của phiên khác vẫn được nạp (vòng 2 M15)", old: "f.sessionId !== sessionId || ", new: "" },
+  { id: "090-M16a", file: "hooks/lib/text.ts", note: "câu của mục tiêu nhỏ lại bảo không cần checklist (vòng 2 M16)", old: "Việc nhỏ: làm trực tiếp; chỉ lập checklist khi prompt yêu cầu;", new: "Việc nhỏ: làm trực tiếp, không cần checklist;" },
   { id: "090-G3a", file: "hooks/lib/drift/classify.ts", note: "lệnh kiểm sau pipefail qua tee hay grep vẫn là hidden (vòng 2 G3)", old: "const exit = isPipefailTeeGrep ? { exit: 'visible' as const } : piped", new: "const exit = piped" },
 ]
