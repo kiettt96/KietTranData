@@ -8,6 +8,7 @@ import type { ModelFamily, Role } from '../../types'
 import type { StepRun } from './drift/stepcheck'
 import { STEP_OUTPUT_CHARS, STEP_RUNS } from './drift/stepcheck'
 import type { Verdict } from './verdict'
+import { FAMILY_NAMES } from './families'
 
 /** Một kết luận đã nhận (cùng dạng VerdictRun của hooks/context.ts). */
 export type ClosingVerdictRun = {
@@ -49,7 +50,7 @@ export const EMPTY_CLOSING: ClosingSnapshot = {
 
 const ROLES: readonly string[] = ['design', 'review', 'build', 'search', 'audit']
 const VERDICTS: readonly string[] = ['pass', 'fail', 'ready', 'not-ready']
-const FAMILIES: readonly string[] = ['haiku', 'sonnet', 'opus', 'fable']
+const FAMILIES: readonly string[] = FAMILY_NAMES
 const isObj = (x: unknown): x is Record<string, unknown> => x !== null && typeof x === 'object' && !Array.isArray(x)
 const num = (x: unknown, d: number) => (typeof x === 'number' && Number.isFinite(x) ? x : d)
 
