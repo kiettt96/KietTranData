@@ -7,7 +7,7 @@
 import { PRINT_FILES } from './prints'
 import { isRoleTemp } from './drift/scope'
 
-export type ListFs = { list?: (path?: string) => Promise<ReadonlyArray<{ name: string; kind: 'file' | 'dir' | 'other' }>> }
+export type ListFs = { list?: (path?: string) => Promise<ReadonlyArray<{ name: string; kind: 'file' | 'dir' | 'other'; size?: number; mtimeMs?: number }>> }
 
 const SKIP_DIRS = new Set(['node_modules', 'dist', 'build', '.git', '.focus-conductor'])
 
@@ -30,7 +30,7 @@ export async function listScope(fs: ListFs, roots: readonly string[]): Promise<s
         const path = `${dir === '/' ? '' : dir}/${entry.name}`
         if (entry.kind === 'dir') {
           if (!SKIP_DIRS.has(entry.name) && queue.length < PRINT_FILES) queue.push(path)
-        } else if (files.length < PRINT_FILES) files.push(path)
+        } else if (files.length < PRINT_FILES) files.push(`${path}\u0000${entry.size ?? 0}:${entry.mtimeMs ?? 0}`)
       }
     }
   } catch {
@@ -39,8 +39,11 @@ export async function listScope(fs: ListFs, roots: readonly string[]): Promise<s
   return files
 }
 
-/** File mới ngoài thư mục tạm giữa hai lần chụp. */
+/**
+ * File mới hay file đổi kích thước hoặc mtime ngoài thư mục tạm giữa hai lần chụp (mỗi mục là đường dẫn kèm dấu kích thước và mtime). Sửa
+ * một file đã có trong phạm vi mà file đó chưa vào tập dấu cũng được bắt (dạng lân cận của M13).
+ */
 export function newFiles(before: readonly string[], after: readonly string[]): string[] {
   const had = new Set(before)
-  return after.filter(path => !had.has(path) && !isRoleTemp(path))
+  return after.filter(item => !had.has(item)).map(item => item.split('\u0000')[0] ?? item).filter(path => !isRoleTemp(path))
 }
