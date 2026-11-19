@@ -18,6 +18,23 @@ const WRITE_LAST = new Set(['cp', 'mv', 'install', 'ln', 'rsync'])
 const WRITE_AFTER_FIRST = new Set(['chmod', 'chown', 'chgrp'])
 /** Lệnh con của git không ghi file trong cây làm việc (thao tác trên lịch sử hay remote). */
 const GIT_NO_FILES = new Set(['add', 'commit', 'push', 'tag', 'branch', 'fetch', 'config', 'remote', 'notes', 'gc'])
+// Tùy chọn git clone mà vai chỉ đọc được dùng (vòng 2 G2b); tùy chọn mang giá trị đi kèm giá trị ở đối số kế hoặc sau dấu bằng.
+const CLONE_FLAGS = new Set(['--single-branch', '--no-tags', '--no-checkout', '--quiet', '-q'])
+const CLONE_VALUE = new Set(['--depth', '--branch', '-b'])
+function cloneDest(rest: string[], unmask: (token: string) => string): string | undefined {
+  const positional: string[] = []
+  for (let i = 0; i < rest.length; i++) {
+    const arg = unmask(rest[i] ?? '')
+    if (CLONE_VALUE.has(arg)) {
+      if (i + 1 >= rest.length) return undefined
+      i += 1
+    } else if (/^--(?:depth|branch)=./.test(arg) || CLONE_FLAGS.has(arg)) continue
+    else if (arg.startsWith('-')) return undefined
+    else positional.push(rest[i] ?? '')
+  }
+  const dest = positional[1]
+  return positional.length === 2 && dest !== undefined && /^[/$]/.test(unmask(dest)) ? dest : undefined
+}
 /** Tùy chọn của sed nhận một giá trị đi kèm. */
 const SED_VALUE_OPTIONS = new Set(['-e', '-f', '--expression', '--file', '-l', '--line-length'])
 
@@ -534,9 +551,11 @@ export function classifyBash(input: string, base = ''): BashClass {
       write('definite')
     } else if (name === 'git') {
       const sub = positional[0] !== undefined ? unmask(positional[0]) : ''
-      // git clone <nguồn> <đích> (vòng 2 G2): đích nêu rõ là đường dẫn ghi của đoạn, thêm trước khi chụp tác động ghi; không nêu đích thì vẫn
-      // là đích chưa đọc được như trước.
-      const isCloneTo = sub === 'clone' && positional.length >= 3 && add(positional[2] ?? '')
+      // git clone <nguồn> <đích> (vòng 2 G2, G2b): chỉ nhận khi clone đứng ngay sau git, mọi tùy chọn thuộc CLONE_OPTIONS, đúng hai đối số vị
+      // trí và đích (đối số cuối) là đường dẫn tuyệt đối hay bắt đầu bằng biến; đích đó là đường dẫn ghi của đoạn. Dạng khác là đích chưa đọc
+      // được như trước.
+      const dest = sub === 'clone' && unmask(args[0] ?? '') === 'clone' ? cloneDest(args.slice(1), unmask) : undefined
+      const isCloneTo = dest !== undefined && add(dest)
       write('definite')
       if (isCloneTo) continue
       if (GIT_NO_FILES.has(sub)) {

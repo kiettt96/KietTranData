@@ -48,6 +48,8 @@ describe('0.9.0 vòng 2 G2b: git clone chỉ với tùy chọn cho phép', () =>
     ['git clone --tuy-chon-la v /tmp/src /tmp/x/r', false],
     ['git clone -b main /tmp/src /tmp/x/r', true],
     ['git clone /tmp/src', false],
+    // Ca diệt mẫu 090-G2b: tùy chọn lạ không được đếm là đối số vị trí (nguồn), nếu không /tmp/src bị đọc nhầm là đích.
+    ['git clone --no-hardlinks /tmp/src', false],
   ]
   cases.forEach(([command, allowed], i) => {
     test(`${allowed ? 'được chạy' : 'bị từ chối'}: ${command}`, SAMPLE_OPTS(), async ($, on) => {
