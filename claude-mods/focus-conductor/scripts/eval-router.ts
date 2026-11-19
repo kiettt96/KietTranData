@@ -16,7 +16,7 @@
 // khi đổi lời dặn router.
 
 import { spawn } from 'node:child_process'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -25,6 +25,7 @@ import type { GoldenCase } from '../tests/golden/cases'
 import { parseRoute } from '../hooks/lib/router'
 import { check, rawArrange, removedOf } from '../tests/golden/check'
 import { goldenRequest, requestHash } from '../tests/golden/hash'
+import { cleanOnExit, tmpDirs } from './tmp-dirs'
 
 const args = process.argv.slice(2)
 const flag = (name: string) => {
@@ -40,17 +41,28 @@ if (CONDUCTOR && RECORD) throw new Error('--conductor không dùng cùng --recor
 const OUT = flag('--out')
 const RUNS = Math.max(1, Number(flag('--runs') ?? '1') || 1)
 const REPLIES = join(import.meta.dir, '..', 'tests', 'golden', 'replies.ts')
-const work = mkdtempSync(join(tmpdir(), 'fc-eval-'))
+// 0.9.0 vòng 2 M21a: mọi thư mục tạm fc-eval-* được xoá khi thoát, kể cả khi lỗi hay bị ngắt; tiến trình con còn chạy bị dừng trước.
+const dirs = tmpDirs({ make: prefix => mkdtempSync(join(tmpdir(), prefix)), remove: path => rmSync(path, { recursive: true, force: true }) })
+const children = new Set<ReturnType<typeof spawn>>()
+cleanOnExit(dirs, process, undefined, () => {
+  for (const child of children) child.kill('SIGTERM')
+})
+const work = dirs.make('fc-eval-')
 
 function run(input: string, argv: string[]): Promise<{ out: string; ms: number }> {
   const started = Date.now()
   return new Promise(resolve => {
-    const config = mkdtempSync(join(tmpdir(), 'fc-eval-config-'))
+    const config = dirs.make('fc-eval-config-')
     const child = spawn('claude', argv, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, CLAUDE_CONFIG_DIR: config } })
+    children.add(child)
     let out = ''
     child.stdout.on('data', d => (out += d))
     child.stderr.on('data', d => (out += d))
-    child.on('close', () => resolve({ out, ms: Date.now() - started }))
+    child.on('close', () => {
+      children.delete(child)
+      dirs.drop(config)
+      resolve({ out, ms: Date.now() - started })
+    })
     child.stdin.end(input)
   })
 }
