@@ -70,6 +70,30 @@ function codesOf(core: ReturnType<typeof S.normalizeCore>): ReadonlySet<string> 
 export { ROLE_PREFIXES, prefixRole } from '../lib/team'
 
 /** Vai của một lời gọi Agent (0.9.0 B): tiền tố trước, không thì vai mod suy của route. */
+
+/** `ln` tạo liên kết mềm (`-s`, cờ gộp có `s`, `--symbolic`) ở đầu một đoạn lệnh. */
+const SYMLINK_MAKE = /(?:^|[\s;&|(])ln\s+(?:-[a-zA-Z]*s[a-zA-Z]*|--symbolic)(?:\s|$)/
+
+/**
+ * Đường dẫn thật của `path` (vòng 2 M12): `$.fs.stat` với resolve trả realPath; tệp chưa có thì stat bị từ chối, nên giải thư mục cha gần
+ * nhất còn đọc được rồi nối phần còn lại (kiểm độc lập vòng 1 lỗi 3), như khai báo kiểu của engine chỉ dẫn. Không giải được thì undefined.
+ */
+async function realOf($: EngineInterface, path: string): Promise<string | undefined> {
+  const statReal = async (at: string) => ((await $.fs.stat(at, { resolve: true }).catch(() => undefined)) as { realPath?: string } | undefined)?.realPath
+  const direct = await statReal(path)
+  if (direct !== undefined) return direct
+  const rest: string[] = []
+  let dir = path
+  for (let depth = 0; depth < 40 && dir.lastIndexOf('/') > 0; depth++) {
+    const cut = dir.lastIndexOf('/')
+    rest.unshift(dir.slice(cut + 1))
+    dir = dir.slice(0, cut)
+    const real = await statReal(dir)
+    if (real !== undefined) return `${real.replace(/\/+$/, '')}/${rest.join('/')}`
+  }
+  return undefined
+}
+
 export function roleOfCall(routeRole: Role | undefined, description: string): Role | undefined {
   return prefixRole(description) ?? routeRole
 }
@@ -128,16 +152,19 @@ export function registerAgents(on: On, ctx: Ctx): void {
     // từ chối như sửa ngoài thư mục tạm. Engine không trả realPath (không phải liên kết, hay chưa có tệp) thì giữ kết quả theo đường dẫn.
     if (reason === null && role !== 'build' && e.tool !== 'Bash') {
       const path = filePathOf({ tool: e.tool, input, isError: false, isReadOnly: false })
-      const real = path !== '' ? ((await $.fs.stat(path, { resolve: true }).catch(() => undefined)) as { realPath?: string } | undefined)?.realPath : undefined
+      const real = path !== '' ? await realOf($, path) : undefined
       if (real !== undefined && real !== path && !isRoleTemp(real)) reason = roleDenial(role, e.tool, { ...input, file_path: real }, name, root)
     }
     // Lệnh ghi mức definite của vai chỉ đọc vào đích trong thư mục tạm mà đường dẫn thật ngoài thư mục tạm (vòng 2 M12): từ chối.
     if (reason === null && READ_ONLY_ROLES.has(role) && e.tool === 'Bash') {
       const command = String(input['command'] ?? '')
-      const targets = classifyBash(command, root).effects.flatMap(effect => (effect.kind === 'write' && effect.level === 'definite' ? effect.paths : [])).filter(isRoleTemp)
-      for (const target of targets.slice(0, 20)) {
-        const real = ((await $.fs.stat(target, { resolve: true }).catch(() => undefined)) as { realPath?: string } | undefined)?.realPath
-        if (real !== undefined && real !== target && !isRoleTemp(real)) {
+      const definite = classifyBash(command, root).effects.flatMap(effect => (effect.kind === 'write' && effect.level === 'definite' ? effect.paths : []))
+      const targets = definite.filter(isRoleTemp)
+      // Lệnh vừa tạo liên kết mềm vừa ghi mức definite (kiểm độc lập vòng 1 lỗi 3): liên kết chưa có lúc xét nên không kiểm được đích thật.
+      const makesLink = SYMLINK_MAKE.test(command) && definite.length > 0
+      for (const target of makesLink ? [''] : targets.slice(0, 20)) {
+        const real = makesLink ? '' : await realOf($, target)
+        if (makesLink || (real !== undefined && real !== target && !isRoleTemp(real))) {
           reason = `[focus-conductor] Vai ${name} chỉ đọc, không sửa file ngoài thư mục tạm. Probe thì chép mã sang thư mục tạm rồi chạy ở đó; chỗ cần sửa thì báo luồng chính.`.slice(0, 200)
           break
         }

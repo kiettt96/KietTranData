@@ -2693,6 +2693,9 @@ export const MUTANTS: Mutant[] = [
   { id: "090-I2b", file: "hooks/parts/command.ts", note: "reset không xoá nội dung tệp trạng thái (kiểm độc lập vòng 1 lỗi 2)", old: "    if ((await $.fs.read(path).catch(() => '')) !== '') await $.fs.write(path, '')", new: "    void path" },
   { id: "090-I2c", file: "hooks/parts/command.ts", note: "reset không làm rỗng bản ghi cổng đóng (kiểm độc lập vòng 1 lỗi 12)", old: "  await update($, closingStore, () => EMPTY_CLOSING)\n", new: "" },
   { id: "090-I2d", file: "hooks/parts/session.ts", note: "/clear không xoá tệp trạng thái và bản ghi cổng đóng (kiểm độc lập vòng 1 lỗi 2, 12)", old: "      await clearSavedGoal($, ctx)\n", new: "" },
+  { id: "090-I3a", file: "hooks/parts/agents.ts", note: "tệp chưa có thì không giải thư mục cha (kiểm độc lập vòng 1 lỗi 3)", old: "  if (direct !== undefined) return direct\n", new: "  if (direct !== undefined || true) return direct\n" },
+  { id: "090-I3b", file: "hooks/parts/agents.ts", note: "lệnh tạo liên kết mềm rồi ghi vẫn chạy (kiểm độc lập vòng 1 lỗi 3)", old: "      const makesLink = SYMLINK_MAKE.test(command) && definite.length > 0", new: "      const makesLink = false" },
+  { id: "090-I3c", file: "hooks/lib/drift/scope.ts", note: "/private/var/folders không là thư mục tạm (kiểm độc lập vòng 1 lỗi 3)", old: "'/var/folders/', '/private/var/folders/']", new: "'/var/folders/']" },
   { id: "090-M19a", file: "hooks/ui/pane.tsx", note: "tiêu đề mục và dải bước dựng theo bề rộng tối thiểu 36 cột (vòng 2 M19)", old: "  const fitWidth = Math.min(width, Math.max(1, columnsOf(props.columns, 56)))\n", new: "  const fitWidth = width\n" },
   { id: "090-G3a", file: "hooks/lib/drift/classify.ts", note: "lệnh kiểm sau pipefail qua tee hay grep vẫn là hidden (vòng 2 G3)", old: "const exit = isPipefailTeeGrep ? { exit: 'visible' as const } : piped", new: "const exit = piped" },
 ]

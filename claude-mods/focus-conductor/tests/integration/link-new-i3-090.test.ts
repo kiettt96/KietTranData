@@ -63,4 +63,18 @@ describe('0.9.0 vòng 2 I3: liên kết mềm tới đích chưa có', () => {
     expect((await callTool($, { tool: 'Bash', command: 'echo x > /tmp/ra-soat/ket-qua.txt', agentId: id })).deny).toBeUndefined()
     expect((await callTool($, { tool: 'Write', file_path: '/tmp/ra-soat/ket-qua.txt', content: 'x', agentId: id })).deny).toBeUndefined()
   })
+
+  test('đối chứng macOS: thư mục tạm /var/folders giải ra /private/var/folders: ghi tệp mới được chạy', SAMPLE_OPTS(), async ($, on) => {
+    on('fs.stat', (_$, e, next) => {
+      const ev = e as { path?: string }
+      if (ev.path === '/var/folders/ab/T') return { value: { kind: 'dir', size: 0, mtimeMs: 1, isLink: false, realPath: '/private/var/folders/ab/T' } } as never
+      if (ev.path?.startsWith('/var/folders/ab/T/')) throw new Error('ENOENT: no such file or directory')
+      return next(e)
+    })
+    const sample = sampleSetup(on)
+    await openSample($, sample)
+    await editSample($)
+    const id = await reviewer($, 'i3-5')
+    expect((await callTool($, { tool: 'Write', file_path: '/var/folders/ab/T/ket-qua.txt', content: 'x', agentId: id })).deny).toBeUndefined()
+  })
 })

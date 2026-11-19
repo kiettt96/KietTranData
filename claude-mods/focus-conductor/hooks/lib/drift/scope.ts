@@ -128,5 +128,6 @@ export function isSidePath(path: string, lists: SideLists | null | undefined, ro
 }
 
 /** Thư mục tạm: ghi dưới đây không tính là sửa file của việc (0.9.0 C2, D1). */
-const ROLE_TEMP_DIRS = ['/tmp/', '/private/tmp/', '/var/folders/']
+// /var/folders trên macOS giải ra /private/var/folders (kiểm độc lập vòng 1 lỗi 3: đường dẫn thật của tệp mới đi qua thư mục cha).
+const ROLE_TEMP_DIRS = ['/tmp/', '/private/tmp/', '/var/folders/', '/private/var/folders/']
 export const isRoleTemp = (path: string) => ROLE_TEMP_DIRS.some(dir => normalizePath(path).startsWith(dir))
