@@ -235,13 +235,12 @@ export function isSelfFixing(tokens: string[], unmask: (token: string) => string
   // Cập nhật snapshot (vòng 2 M9): jest, vitest có -u, --updateSnapshot, --update; pytest có --snapshot-update; mọi lệnh có
   // --update-snapshots. Định dạng tự ghi: go fmt, gofmt -w, cargo fmt không kèm --check.
   if (words.includes('--update-snapshots')) return true
-  if (words.some(word => word === 'jest' || word === 'vitest') && words.some(word => word === '-u' || word === '--updateSnapshot' || word === '--update')) return true
+  // Cờ cập nhật snapshot (vòng 2 M9; kiểm độc lập vòng 2 lỗi 5, quyết định của chủ mod 19/11/2026): -u, --update, --updateSnapshot (kể cả dạng
+  // có giá trị `--updateSnapshot=true`) với jest, vitest, hay đi qua npm, pnpm, yarn, bun ở bất kỳ vị trí nào, kể cả sau `--`.
+  const isSnapshotFlag = (word: string) => word === '-u' || word === '--update' || word === '--updateSnapshot' || word.startsWith('--updateSnapshot=')
+  const viaRunner = words.some(word => word === 'jest' || word === 'vitest' || word === 'npm' || word === 'pnpm' || word === 'yarn' || word === 'bun')
+  if (viaRunner && words.some(isSnapshotFlag)) return true
   if (words.includes('pytest') && words.includes('--snapshot-update')) return true
-  // Script test của trình quản lý gói truyền -u, --updateSnapshot, --update cho trình test (kiểm độc lập vòng 1 lỗi 6): npm test -- -u,
-  // yarn test -u, npm run test -- --updateSnapshot, bun test -u.
-  const runner = words.findIndex(word => word === 'npm' || word === 'pnpm' || word === 'yarn' || word === 'bun')
-  const testScript = runner >= 0 ? (words[runner + 1] === 'run' ? words[runner + 2] : words[runner + 1]) : undefined
-  if (testScript !== undefined && /^test(?::|$)/.test(testScript) && words.slice(runner + 2).some(word => word === '-u' || word === '--updateSnapshot' || word === '--update')) return true
   const go = words.indexOf('go')
   if (go >= 0 && words[go + 1] === 'fmt') return true
   if (words.includes('gofmt') && words.includes('-w')) return true
