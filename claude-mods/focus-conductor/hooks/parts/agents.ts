@@ -12,6 +12,7 @@ import { FORK_QUOTA_DENY, RETRY_PREFIX, RETRY_ROUNDS, forkRetryNote, forkReturnN
 import { liveForks, openParts } from '../lib/forks'
 import { classifyBash, filePathOf, isSkillTrial, normalizePath } from '../lib/drift'
 import { isRoleTemp } from '../lib/drift/scope'
+import { listScope, scopeRoots } from '../lib/scope-list'
 import { isBashWrite, isDefiniteOutsideWrite, prefixRole } from '../lib/team'
 import { labels, langOf } from '../ui/labels'
 import { reportLine } from '../lib/verdict'
@@ -563,6 +564,10 @@ export function registerAgents(on: On, ctx: Ctx): void {
     const preTargets = isPrinted ? printTargets(S.changedOf(spawnCore).paths, spawnCore.brief) : null
     const prePrints = preTargets === null ? undefined : preTargets.files.length === 0 ? {} : await takePrints({ stat: path => $.fs.stat(path), read: path => $.fs.read(path) as Promise<string> }, preTargets.files, (await $.session.root().catch(() => null)) ?? null).catch(() => null)
     const preSeq = preGoal !== undefined ? ctx.evidenceFor(preGoal).seq : 0
+    // Danh sách file của phạm vi trước lượt (vòng 2 M13): lượt có vai chỉ đọc hay vai kiểm, theo tiền tố hay vai của việc.
+    const listRole = prefixRole(info?.description ?? e.description) ?? spawnRole
+    const isListed = e.fork !== true && preGoal !== undefined && (listRole === 'review' || listRole === 'design' || listRole === 'audit' || listRole === 'search')
+    const preList = isListed ? await listScope({ list: (path?: string) => $.fs.list(path) }, scopeRoots(spawnCore.brief?.scopePaths, (await $.session.root().catch(() => null)) ?? null)) : null
     const result = await next(reportSuffix !== '' ? { ...e, prompt: `${e.prompt}${reportSuffix}` } : e)
     if (result.deny !== undefined) return result
     // Phiên con (0.7.9 F1): lời gọi Agent đã có spawn, nên lỗi về sau là lỗi của phần đó, không phải engine từ chối.
@@ -570,6 +575,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
     if (forkCall !== undefined) forkCall.spawned = true
     const forkPart = forkCall?.task !== undefined && forkCall.part !== undefined ? { task: forkCall.task, part: forkCall.part } : null
     const agentId = result.agentId
+    if (agentId !== undefined && preList !== null && preGoal !== undefined && L.scopeLists.size < 100) L.scopeLists.set(agentId, { goalId: preGoal, files: preList })
     const route = info?.route ?? workflowRoute
     const isMissed = agentId !== undefined && steppedEarly.has(agentId)
     const applied = (info !== undefined ? info.isApplied : workflowRoute !== null && isModeApplied) && !isMissed

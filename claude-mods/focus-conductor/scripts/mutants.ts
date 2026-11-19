@@ -2674,5 +2674,6 @@ export const MUTANTS: Mutant[] = [
   { id: "090-M11a", file: "hooks/parts/consistency.ts", note: "lệnh kiểm mod nhận ra nâng bước có kết quả mong đợi mà không so (vòng 2 M11)", old: "  if (held.length === 0) return only\n", new: "  if (held.length >= 0) return only\n" },
   { id: "090-M12a", file: "hooks/lib/drift/classify.ts", note: "file -C và rg --pre vẫn là lệnh chỉ đọc (vòng 2 M12)", old: "    if ((name === 'file' && args.some(", new: "    if (false && (name === 'file' && args.some(" },
   { id: "090-M12b", file: "hooks/parts/agents.ts", note: "công cụ sửa file vào liên kết mềm trỏ ra ngoài thư mục tạm được chạy (vòng 2 M12)", old: "      if (real !== undefined && real !== path && !isRoleTemp(real)) reason =", new: "      if (false && real !== undefined && real !== path && !isRoleTemp(real)) reason =" },
+  { id: "090-M13a", file: "hooks/lib/scope-list.ts", note: "file mới ngoài thư mục tạm không làm kết luận hết hiệu lực (vòng 2 M13)", old: "  return after.filter(path => !had.has(path) && !isRoleTemp(path))\n", new: "  return after.filter(path => !had.has(path) && isRoleTemp(path))\n" },
   { id: "090-G3a", file: "hooks/lib/drift/classify.ts", note: "lệnh kiểm sau pipefail qua tee hay grep vẫn là hidden (vòng 2 G3)", old: "const exit = isPipefailTeeGrep ? { exit: 'visible' as const } : piped", new: "const exit = piped" },
 ]

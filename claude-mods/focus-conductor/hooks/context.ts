@@ -154,6 +154,8 @@ export function createContext(options: PluginOptions) {
     verdictRounds: new Map<string, number>(),
     /** Trạng thái cổng đóng đã nạp từ $.state trong lần nạp mod này, và bản đã ghi gần nhất (0.9.0 vòng 2 M6). */
     closingLoaded: false,
+    /** Danh sách file của phạm vi lúc sinh lượt có vai chỉ đọc hay vai kiểm (0.9.0 vòng 2 M13), theo agentId. */
+    scopeLists: new Map<string, { goalId: number; files: string[] }>(),
     closingSaved: '',
     clashWarned: new Set<string>(),
     /** ID engine đã phục vụ theo họ (0.8.7 M1, usage.model của turn), cho dòng "Model đang dùng" và cảnh báo phiên bản một lần mỗi họ. */

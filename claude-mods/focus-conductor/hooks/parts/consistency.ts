@@ -14,6 +14,7 @@ import { coversScope } from '../lib/drift/evidence'
 import { PLAN_SET_CHECK_LINE } from '../lib/approval'
 import { hasNoVerdictLine, isUnclearVerdict, reportTable, verdictOf } from '../lib/verdict'
 import { EMPTY_CLOSING, closingSnapshot, normalizeClosing, restoreClosing } from '../lib/closing-state'
+import { listScope, newFiles, scopeRoots } from '../lib/scope-list'
 import { tempRewrite } from '../lib/drift/tempdir'
 import { pipedCheck } from '../lib/drift/pipecheck'
 import { EMPTY_REVIEW_PRINTS, changedPrints, isMeasured, normalizeReviewPrints, printNames, printTargets, takePrints, withPrint, withStale } from '../lib/prints'
@@ -1775,6 +1776,18 @@ export function registerConsistency(on: On, ctx: Ctx): void {
           isMixed = failed && (isMeasured(spawned) || isMeasured(done))
           if (!failed) printChanged = [...changedPrints(before, done ?? {}), ...later]
           await update($, printState, state => withPrint(normalizeReviewPrints(state), meta.goalId, 'done', agentId, failed ? null : done))
+        }
+        // File mới ngoài thư mục tạm trong phạm vi mục tiêu (vòng 2 M13): lượt có vai chỉ đọc hay vai kiểm tạo ra thì kết luận không được tính,
+        // tên file vào lý do chặn, kèm một cảnh báo.
+        const listed = L.scopeLists.get(agentId)
+        L.scopeLists.delete(agentId)
+        if (listed !== undefined && listed.goalId === meta.goalId) {
+          const nowList = await listScope({ list: (path?: string) => $.fs.list(path) }, scopeRoots(S.normalizeCore(await read($, coreState)).brief?.scopePaths, (await $.session.root().catch(() => null)) ?? null))
+          const created = nowList === null ? [] : newFiles(listed.files, nowList)
+          if (created.length > 0) {
+            for (const path of created) if (!printChanged.includes(path)) printChanged.push(path)
+            await update($, coreState, S.withWarnings({ at, kind: 'scope', text: `Lượt "${clipText(meta.description, 40)}" tạo file mới ngoài thư mục tạm: ${printNames(created)}` }))
+          }
         }
         const wroteHard = ctx.evidenceFor(meta.goalId).writes.some(w => w.author === agentId && (w.hard === true || w.skill === true) && w.definite === true)
         const isClean = hasSpawn && !isMixed && printChanged.length === 0 && !wroteHard
