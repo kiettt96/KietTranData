@@ -46,6 +46,19 @@ describe('0.9.0 vòng 2 M12: lệnh ghi còn sót của vai chỉ đọc', () =>
     const deny = (await callTool($, { tool: 'Write', file_path: '/tmp/ra-soat/lien-ket', content: 'x', agentId: id })).deny
     expect(deny ?? '').toContain('chỉ đọc')
   })
+  test('cp vào /tmp/ra-soat/lien-ket mà đích thật là /repo/thong-ke.sh: bị từ chối', SAMPLE_OPTS(), async ($, on) => {
+    on('fs.stat', (_$, e, next) => {
+      const ev = e as { path?: string }
+      if (ev.path === '/tmp/ra-soat/lien-ket') return { value: { kind: 'file', size: 1, mtimeMs: 1, isLink: true, realPath: '/repo/thong-ke.sh' } } as never
+      return next(e)
+    })
+    const sample = sampleSetup(on)
+    await openSample($, sample)
+    await editSample($)
+    const id = await reviewer($, 'm12-cp')
+    const deny = (await callTool($, { tool: 'Bash', command: 'cp /repo/README.md /tmp/ra-soat/lien-ket', agentId: id })).deny
+    expect(deny ?? '').toContain('chỉ đọc')
+  })
   test('Write vào /tmp/ra-soat/ghi-chu.txt không phải liên kết: được chạy', SAMPLE_OPTS(), async ($, on) => {
     const sample = sampleSetup(on)
     await openSample($, sample)
