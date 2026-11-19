@@ -2672,5 +2672,7 @@ export const MUTANTS: Mutant[] = [
   { id: "090-M10a", file: "hooks/lib/drift/pipecheck.ts", note: "chuyển hướng 2>&1 trước ống làm mất dòng nhắc ống (vòng 2 M10)", old: "/^(?:\\s*\\d*>&\\d+)*\\s*\\|(?!\\|)/", new: "/^\\s*\\|(?!\\|)/" },
   { id: "090-M10b", file: "hooks/lib/drift/classify.ts", note: "tee -a, grep có tùy chọn sau pipefail không được tính (vòng 2 M10)", old: "tee(?:\\s+(?:-a|--append))?\\s+[^\\s-]\\S*|grep(?:\\s+-[cEFi]+)*\\s+", new: "tee\\s+[^\\s-]\\S*|grep\\s+" },
   { id: "090-M11a", file: "hooks/parts/consistency.ts", note: "lệnh kiểm mod nhận ra nâng bước có kết quả mong đợi mà không so (vòng 2 M11)", old: "  if (held.length === 0) return only\n", new: "  if (held.length >= 0) return only\n" },
+  { id: "090-M12a", file: "hooks/lib/drift/classify.ts", note: "file -C và rg --pre vẫn là lệnh chỉ đọc (vòng 2 M12)", old: "    if ((name === 'file' && args.some(", new: "    if (false && (name === 'file' && args.some(" },
+  { id: "090-M12b", file: "hooks/parts/agents.ts", note: "công cụ sửa file vào liên kết mềm trỏ ra ngoài thư mục tạm được chạy (vòng 2 M12)", old: "      if (real !== undefined && real !== path && !isRoleTemp(real)) reason =", new: "      if (false && real !== undefined && real !== path && !isRoleTemp(real)) reason =" },
   { id: "090-G3a", file: "hooks/lib/drift/classify.ts", note: "lệnh kiểm sau pipefail qua tee hay grep vẫn là hidden (vòng 2 G3)", old: "const exit = isPipefailTeeGrep ? { exit: 'visible' as const } : piped", new: "const exit = piped" },
 ]

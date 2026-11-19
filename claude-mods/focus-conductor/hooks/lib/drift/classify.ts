@@ -532,6 +532,12 @@ export function classifyBash(input: string, base = ''): BashClass {
       }
       continue
     }
+    // `file -C` ghi tệp magic đã biên dịch, `rg --pre <lệnh>` chạy lệnh bất kỳ (vòng 2 M12): ghi mức definite, đích chưa đọc được.
+    if ((name === 'file' && args.some(a => /^-[A-Za-z]*C[A-Za-z]*$/.test(unmask(a)) || unmask(a) === '--compile')) || (name === 'rg' && args.some(a => unmask(a) === '--pre' || unmask(a).startsWith('--pre=')))) {
+      isUnknown = segUnknown = true
+      write('definite')
+      continue
+    }
     if (segmentIsReadOnly(plain)) continue
     const positional = args.filter(a => !unmask(a).startsWith('-'))
     if (name === 'tee') {

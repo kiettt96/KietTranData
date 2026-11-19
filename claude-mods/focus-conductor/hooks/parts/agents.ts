@@ -117,7 +117,27 @@ export function registerAgents(on: On, ctx: Ctx): void {
     const role = meta.role
     if (role === undefined) return next(e)
     const root = (await $.session.root().catch(() => null)) ?? undefined
-    const reason = roleDenial(role, e.tool, input, labels(langOf(ctx.options['uiLanguage'])).roleNames[role], root)
+    const name = labels(langOf(ctx.options['uiLanguage'])).roleNames[role]
+    let reason = roleDenial(role, e.tool, input, name, root)
+    // Liên kết mềm (vòng 2 M12): công cụ sửa file của vai không phải build vào đích trong thư mục tạm mà đường dẫn thật ngoài thư mục tạm thì
+    // từ chối như sửa ngoài thư mục tạm. Engine không trả realPath (không phải liên kết, hay chưa có tệp) thì giữ kết quả theo đường dẫn.
+    if (reason === null && role !== 'build' && e.tool !== 'Bash') {
+      const path = filePathOf({ tool: e.tool, input, isError: false, isReadOnly: false })
+      const real = path !== '' ? ((await $.fs.stat(path, { resolve: true }).catch(() => undefined)) as { realPath?: string } | undefined)?.realPath : undefined
+      if (real !== undefined && real !== path && !isRoleTemp(real)) reason = roleDenial(role, e.tool, { ...input, file_path: real }, name, root)
+    }
+    // Lệnh ghi mức definite của vai chỉ đọc vào đích trong thư mục tạm mà đường dẫn thật ngoài thư mục tạm (vòng 2 M12): từ chối.
+    if (reason === null && READ_ONLY_ROLES.has(role) && e.tool === 'Bash') {
+      const command = String(input['command'] ?? '')
+      const targets = classifyBash(command, root).effects.flatMap(effect => (effect.kind === 'write' && effect.level === 'definite' ? effect.paths : [])).filter(isRoleTemp)
+      for (const target of targets.slice(0, 20)) {
+        const real = ((await $.fs.stat(target, { resolve: true }).catch(() => undefined)) as { realPath?: string } | undefined)?.realPath
+        if (real !== undefined && real !== target && !isRoleTemp(real)) {
+          reason = `[focus-conductor] Vai ${name} chỉ đọc, không sửa file ngoài thư mục tạm. Probe thì chép mã sang thư mục tạm rồi chạy ở đó; chỗ cần sửa thì báo luồng chính.`.slice(0, 200)
+          break
+        }
+      }
+    }
     if (reason === null) return next(e)
     record(await $.clock.now(), 'role-deny', { agentId: e.agentId, role, tool: e.tool })
     await flushDecisions((path, text) => $.fs.write(path, text))
