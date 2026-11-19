@@ -2669,5 +2669,7 @@ export const MUTANTS: Mutant[] = [
   { id: "090-M7b", file: "hooks/lib/drift/classify.ts", note: "set - không kết thúc phần tùy chọn (vòng 2 M7)", old: "all.findIndex(v => v === '--' || v === '-')", new: "all.findIndex(v => v === '--')" },
   { id: "090-M9a", file: "hooks/lib/drift/verify.ts", note: "jest, vitest cập nhật snapshot vẫn là lệnh kiểm (vòng 2 M9)", old: "  if (words.some(word => word === 'jest' || word === 'vitest') && words.some(word => word === '-u'", new: "  if (false && words.some(word => word === 'jest' || word === 'vitest') && words.some(word => word === '-u'" },
   { id: "090-M9b", file: "hooks/lib/drift/output.ts", note: "make không làm gì vẫn tính là đạt (vòng 2 M9)", old: "  if (lines.length > 0 && lines.every(line => MAKE_IDLE.test(line))) return true\n", new: "" },
+  { id: "090-M10a", file: "hooks/lib/drift/pipecheck.ts", note: "chuyển hướng 2>&1 trước ống làm mất dòng nhắc ống (vòng 2 M10)", old: "/^(?:\\s*\\d*>&\\d+)*\\s*\\|(?!\\|)/", new: "/^\\s*\\|(?!\\|)/" },
+  { id: "090-M10b", file: "hooks/lib/drift/classify.ts", note: "tee -a, grep có tùy chọn sau pipefail không được tính (vòng 2 M10)", old: "tee(?:\\s+(?:-a|--append))?\\s+[^\\s-]\\S*|grep(?:\\s+-[cEFi]+)*\\s+", new: "tee\\s+[^\\s-]\\S*|grep\\s+" },
   { id: "090-G3a", file: "hooks/lib/drift/classify.ts", note: "lệnh kiểm sau pipefail qua tee hay grep vẫn là hidden (vòng 2 G3)", old: "const exit = isPipefailTeeGrep ? { exit: 'visible' as const } : piped", new: "const exit = piped" },
 ]

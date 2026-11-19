@@ -10,7 +10,8 @@ const PIPEFAIL = /(?:^|[\s;&(])set\s+-[a-zA-Z]*o\s+pipefail\b/
 function isPipedAt(command: string, text: string): boolean {
   let at = command.indexOf(text)
   while (at >= 0) {
-    if (/^\s*\|(?!\|)/.test(command.slice(at + text.length))) return true
+    // Chuyển hướng như `2>&1` đứng giữa lệnh và ống vẫn là ống (vòng 2 M10).
+    if (/^(?:\s*\d*>&\d+)*\s*\|(?!\|)/.test(command.slice(at + text.length))) return true
     at = command.indexOf(text, at + 1)
   }
   return false
