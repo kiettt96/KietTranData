@@ -419,13 +419,25 @@ async function conductRole($: EngineInterface, ctx: Ctx, current: Mode, e: { too
  * Lần test mang cờ dùng chung thư mục của subagent vừa đạt (0.8.6 R2): như lần test đạt của luồng chính (0.7.0), lần đó là lần chạy cuối
  * của dấu vết, chạy sau thay đổi cuối và phủ mọi thay đổi thì các bước done thành verified. Trả true khi đã nâng.
  */
+/**
+ * Bước được mod tự nâng theo lần kiểm đạt (vòng 2 M11): bước có check dạng `lệnh` => kết quả chỉ được nâng khi lần chạy của lệnh đó có kết
+ * quả mong đợi theo luật so của B10 (stepEvidence), kể cả khi lệnh là lệnh kiểm mod nhận ra. Không bước nào bị giữ thì trả `only` như cũ.
+ */
+function autoLiftIds(ctx: Ctx, core: Core, goalId: number, only?: readonly number[]): readonly number[] | undefined {
+  const state = stepRunsFor(ctx, goalId)
+  const lastHard = ctx.evidenceFor(goalId).lastHard
+  const held = core.plan.filter(step => stepCheckOf(step.check)?.expected !== undefined && stepEvidence(step, state.runs, lastHard, state.checkSeq.get(step.id) ?? -1) === null).map(step => step.id)
+  if (held.length === 0) return only
+  return core.plan.map(step => step.id).filter(id => !held.includes(id) && (only === undefined || only.includes(id)))
+}
+
 async function autoVerify($: EngineInterface, ctx: Ctx, goalId: number): Promise<boolean> {
   const core = S.normalizeCore(await read($, coreState))
   if (core.brief === null || core.brief.goalId !== goalId) return false
   const log = ctx.evidenceFor(goalId)
   const fresh = freshTestRun(log)
   if (fresh === undefined || fresh !== log.commands.at(-1) || !(core.plan.some(s => s.status === 'done') || S.liveMirror(core).some(s => s.status === 'done'))) return false
-  await update($, coreState, S.withAutoVerified(fresh.command, undefined, true))
+  await update($, coreState, S.withAutoVerified(fresh.command, autoLiftIds(ctx, core, goalId), true))
   ctx.record(await $.clock.now(), 'verify-auto', { command: clipText(fresh.command), at: core.plan.length === 0 ? 'mirror' : 'test' })
   await ctx.flushDecisions((path, text) => $.fs.write(path, text))
   return true
@@ -1149,7 +1161,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     if (fresh !== undefined && input.action === 'update') {
       const closed = (outcome.changed ?? []).filter(id => outcome.plan.some(s => s.id === id && s.status === 'done'))
       if (closed.length > 0) {
-        core = await update($, coreState, S.withAutoVerified(fresh.command, closed))
+        core = await update($, coreState, S.withAutoVerified(fresh.command, autoLiftIds(ctx, core, before.brief?.goalId ?? -1, closed)))
         record(await $.clock.now(), 'verify-auto', { steps: closed, command: clipText(fresh.command), at: 'close' })
         await flushDecisions((path, text) => $.fs.write(path, text))
       }
@@ -1485,7 +1497,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       const log = evidenceFor(core.brief.goalId)
       const fresh = freshTestRun(log)
       if (fresh !== undefined && fresh === log.commands.at(-1) && (core.plan.some(s => s.status === 'done') || S.liveMirror(core).some(s => s.status === 'done'))) {
-        await update($, coreState, S.withAutoVerified(fresh.command, undefined, true))
+        await update($, coreState, S.withAutoVerified(fresh.command, autoLiftIds(ctx, core, core.brief.goalId), true))
         record(await $.clock.now(), 'verify-auto', { command: clipText(fresh.command), at: core.plan.length === 0 ? 'mirror' : 'test' })
         await flushDecisions((path, text) => $.fs.write(path, text))
         await showStatus($, await read($, view), ctx.options)
