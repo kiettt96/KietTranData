@@ -71,16 +71,24 @@ export { ROLE_PREFIXES, prefixRole } from '../lib/team'
 
 /** Vai của một lời gọi Agent (0.9.0 B): tiền tố trước, không thì vai mod suy của route. */
 
-/** `ln` tạo liên kết mềm (`-s`, cờ gộp có `s`, `--symbolic`) ở đầu một đoạn lệnh. */
-const SYMLINK_MAKE = /(?:^|[\s;&|(])ln\s+(?:-[a-zA-Z]*s[a-zA-Z]*|--symbolic)(?:\s|$)/
+/**
+ * Lệnh tạo liên kết mềm ở đầu một đoạn lệnh: `ln` có `-s` (cờ gộp có `s`, `--symbolic`) và `cp` có `-s` (`--symbolic-link`), cờ đứng ở vị trí
+ * bất kỳ trước, tên lệnh có thể kèm thư mục (kiểm độc lập vòng 2 lỗi 1: `ln -v -s`, `/bin/ln -s`, `cp -s`).
+ */
+const SYMLINK_MAKE = /(?:^|[\s;&|(])(?:\S*\/)?(?:ln(?:\s+-\S+)*?\s+(?:-[a-zA-Z]*s[a-zA-Z]*|--symbolic)|cp(?:\s+-\S+)*?\s+(?:-[a-zA-Z]*s[a-zA-Z]*|--symbolic-link))(?:\s|$)/
 
 /**
  * Đường dẫn thật của `path` (vòng 2 M12): `$.fs.stat` với resolve trả realPath; tệp chưa có thì stat bị từ chối, nên giải thư mục cha gần
  * nhất còn đọc được rồi nối phần còn lại (kiểm độc lập vòng 1 lỗi 3), như khai báo kiểu của engine chỉ dẫn. Không giải được thì undefined.
+ * Liên kết mềm mà engine không trả đích thật (liên kết treo: isLink, không có realPath) thì null: người gọi coi là ngoài thư mục tạm
+ * (kiểm độc lập vòng 2 lỗi 1, quyết định của chủ mod 19/11/2026).
  */
-async function realOf($: EngineInterface, path: string): Promise<string | undefined> {
-  const statReal = async (at: string) => ((await $.fs.stat(at, { resolve: true }).catch(() => undefined)) as { realPath?: string } | undefined)?.realPath
-  const direct = await statReal(path)
+async function realOf($: EngineInterface, path: string): Promise<string | null | undefined> {
+  const statOf = async (at: string) => (await $.fs.stat(at, { resolve: true }).catch(() => undefined)) as { realPath?: string; isLink?: boolean } | undefined
+  const statReal = async (at: string) => (await statOf(at))?.realPath
+  const own = await statOf(path)
+  if (own?.isLink === true && own.realPath === undefined) return null
+  const direct = own?.realPath
   if (direct !== undefined) return direct
   const rest: string[] = []
   let dir = path
@@ -153,7 +161,8 @@ export function registerAgents(on: On, ctx: Ctx): void {
     if (reason === null && role !== 'build' && e.tool !== 'Bash') {
       const path = filePathOf({ tool: e.tool, input, isError: false, isReadOnly: false })
       const real = path !== '' ? await realOf($, path) : undefined
-      if (real !== undefined && real !== path && !isRoleTemp(real)) reason = roleDenial(role, e.tool, { ...input, file_path: real }, name, root)
+      if (real === null) reason = `[focus-conductor] Vai ${name}${READ_ONLY_ROLES.has(role) ? ' chỉ đọc,' : ''} không ghi qua liên kết mềm chưa đọc được đích thật. Ghi vào tệp thường trong thư mục tạm; chỗ cần sửa thì báo luồng chính.`.slice(0, 200)
+      else if (real !== undefined && real !== path && !isRoleTemp(real)) reason = roleDenial(role, e.tool, { ...input, file_path: real }, name, root)
     }
     // Lệnh ghi mức definite của vai chỉ đọc vào đích trong thư mục tạm mà đường dẫn thật ngoài thư mục tạm (vòng 2 M12): từ chối.
     if (reason === null && READ_ONLY_ROLES.has(role) && e.tool === 'Bash') {
@@ -164,7 +173,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
       const makesLink = SYMLINK_MAKE.test(command) && definite.length > 0
       for (const target of makesLink ? [''] : targets.slice(0, 20)) {
         const real = makesLink ? '' : await realOf($, target)
-        if (makesLink || (real !== undefined && real !== target && !isRoleTemp(real))) {
+        if (makesLink || real === null || (real !== undefined && real !== target && !isRoleTemp(real))) {
           reason = `[focus-conductor] Vai ${name} chỉ đọc, không sửa file ngoài thư mục tạm. Probe thì chép mã sang thư mục tạm rồi chạy ở đó; chỗ cần sửa thì báo luồng chính.`.slice(0, 200)
           break
         }
