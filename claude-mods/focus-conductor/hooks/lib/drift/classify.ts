@@ -100,7 +100,8 @@ type Operator = '' | '&&' | '||' | ';' | '|' | '|&' | '&'
  * Một đoạn của câu lệnh: toán tử đứng trước, văn bản đã che, tiền tố biến môi trường, có chạy nền không (kết thúc bằng `&`), và
  * thân heredoc của chính đoạn này (null khi số dấu `<<H` không khớp số thân: không biết thân nào của đoạn nào).
  */
-type Piece = { op: Operator; text: string; env: string[]; background: boolean; heredocs: string[] | null }
+/** `opens`: số dấu `(` mở subshell đã bỏ ở đầu đoạn (kiểm độc lập vòng 1 lỗi 9). */
+type Piece = { op: Operator; text: string; env: string[]; background: boolean; heredocs: string[] | null; opens: number }
 
 /** Đánh dấu token có nháy là một đối số duy nhất (không bao giờ là toán tử); HEREDOC là stdin từ heredoc, nội dung không so được. */
 export const TAG = '\u0001'
@@ -186,13 +187,14 @@ function pieces(masked: string, heredocs: string[]): Piece[] {
       op = part === '\n' ? ';' : (part as Operator)
       continue
     }
-    let text = part.trim().replace(/^[({]+\s*/, '')
+    const lead = /^[({\s]+/.exec(part.trim())?.[0] ?? ''
+    let text = part.trim().slice(lead.length)
     const assignments = /^(?:[A-Za-z_][A-Za-z0-9_]*=\S*(?:\s+|$))+/.exec(text)?.[0] ?? ''
     // Biến môi trường đứng đầu đổi cách lệnh chạy (TEST_FILTER=smoke npm test): giữ lại làm một phần danh tính.
     text = text.slice(assignments.length).replace(TIMEOUT_PREFIX, '')
     if (text !== '') {
       const count = (text.match(/<<H/g) ?? []).length
-      out.push({ op, text, env: assignments.trim().split(/\s+/).filter(Boolean), background: false, heredocs: matched ? heredocs.slice(used, used + count) : null })
+      out.push({ op, text, env: assignments.trim().split(/\s+/).filter(Boolean), background: false, heredocs: matched ? heredocs.slice(used, used + count) : null, opens: (lead.match(/\(/g) ?? []).length })
       used += count
     }
     else if (out.length === 0) op = ''
@@ -413,10 +415,14 @@ export function classifyBash(input: string, base = ''): BashClass {
   const isUnsupported = UNSUPPORTED.test(command)
 
   const list = pieces(masked, heredocs)
+  // Độ sâu subshell trước mỗi đoạn (kiểm độc lập vòng 1 lỗi 9): `set` trong `( ... )` không đổi tùy chọn của shell ngoài.
+  let depth = 0
   for (let index = 0; index < list.length; index++) {
     const piece = list[index]
     if (piece === undefined) continue
     const part = piece.text
+    const isSubshell = depth > 0 || piece.opens > 0
+    depth = Math.max(0, depth + piece.opens + (part.match(/(?<![$<>])\(/g) ?? []).length - (part.match(/\)/g) ?? []).length)
     segPaths = []
     segUnknown = false
     segName = ''
@@ -473,12 +479,14 @@ export function classifyBash(input: string, base = ''): BashClass {
       const end = all.findIndex(v => v === '--' || v === '-')
       const values = end >= 0 ? all.slice(0, end) : all
       const flag = values[values.indexOf('pipefail') - 1] ?? ''
-      if (!piece.background && /^-[a-zA-Z]*o$/.test(flag)) pipefail = true
+      // Chỉ bật khi `set` chắc chạy ở shell ngoài: không chạy nền, không trong subshell, không sau `||` hay `&&` (kiểm độc lập vòng 1 lỗi 9).
+      const runsOuter = !piece.background && !isSubshell && (piece.op === '' || piece.op === ';')
+      if (runsOuter && /^-[a-zA-Z]*o$/.test(flag)) pipefail = true
       else if (/^\+[a-zA-Z]*o$/.test(flag)) pipefail = false
       if (!piece.background) {
         for (let k = 0; k < values.length; k++) {
           const v = values[k] ?? ''
-          if (/^-[a-zA-Z]*e[a-zA-Z]*$/.test(v) || (/^-[a-zA-Z]*o$/.test(v) && values[k + 1] === 'errexit')) errexit = true
+          if (/^-[a-zA-Z]*e[a-zA-Z]*$/.test(v) || (/^-[a-zA-Z]*o$/.test(v) && values[k + 1] === 'errexit')) errexit = errexit || runsOuter
           else if (/^\+[a-zA-Z]*e[a-zA-Z]*$/.test(v) || (/^\+[a-zA-Z]*o$/.test(v) && values[k + 1] === 'errexit')) errexit = false
         }
       }

@@ -504,6 +504,8 @@ export function lacksSummary(output: string): boolean {
  */
 /** Dòng của make khi không có gì để làm (vòng 2 M9). */
 const MAKE_IDLE = /^(?:g?make(?:\[\d+\])?:\s+)?(?:Nothing to be done for\b.*|['`"]?[^'`"]+['`"]? is up to date\.?)$/i
+/** Dòng vào, ra thư mục của make đệ quy hay `make -C` (kiểm độc lập vòng 1 lỗi 5): không mang kết quả. */
+const MAKE_DIR = /^g?make(?:\[\d+\])?:\s+(?:Entering|Leaving) directory\b/i
 const RAN_NOTHING =
   /(?<![\d.,])\d+[ \t]*\/[ \t]*0+(?![\d/.,])|(?<![\p{L}\p{N}])ran[ \t]+0[ \t]+tests?(?![\p{L}\p{N}])|(?<![\d.,])0[ \t]+(?:pass(?:ed|es)?|tests?)(?![\p{L}\p{N}])|(?<![\p{L}\p{N}])no[ \t]+tests?[ \t]+(?:ran|run|were[ \t]+run|collected|found)(?![\p{L}\p{N}])/iu
 /** Dữ liệu rỗng đếm được (T9): "0 dòng", "0 bản ghi", "0 rows", "0 records" theo ranh giới số, sau khi bỏ số lỗi bằng 0 có đơn vị. */
@@ -559,7 +561,8 @@ export function ranNothing(output: string): boolean {
   if (RAN_NOTHING.test(text)) return true
   // make không làm gì (vòng 2 M9): mọi dòng không rỗng chỉ là "Nothing to be done" hay "is up to date".
   const lines = text.split('\n').map(line => line.trim()).filter(line => line !== '')
-  if (lines.length > 0 && lines.every(line => MAKE_IDLE.test(line))) return true
+  const work = lines.filter(line => !MAKE_DIR.test(line))
+  if (work.length > 0 && work.every(line => MAKE_IDLE.test(line))) return true
   if (ZERO_DATA.test(dropZeroRed(text).replace(ZERO_UNIT_FAILURES, ' ').replace(ZERO_EMPTY, ' '))) return true
   if (NO_ROWS.test(text)) return true
   if (text.split('\n').some(isWholeEmpty)) return true

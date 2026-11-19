@@ -237,6 +237,11 @@ export function isSelfFixing(tokens: string[], unmask: (token: string) => string
   if (words.includes('--update-snapshots')) return true
   if (words.some(word => word === 'jest' || word === 'vitest') && words.some(word => word === '-u' || word === '--updateSnapshot' || word === '--update')) return true
   if (words.includes('pytest') && words.includes('--snapshot-update')) return true
+  // Script test của trình quản lý gói truyền -u, --updateSnapshot, --update cho trình test (kiểm độc lập vòng 1 lỗi 6): npm test -- -u,
+  // yarn test -u, npm run test -- --updateSnapshot, bun test -u.
+  const runner = words.findIndex(word => word === 'npm' || word === 'pnpm' || word === 'yarn' || word === 'bun')
+  const testScript = runner >= 0 ? (words[runner + 1] === 'run' ? words[runner + 2] : words[runner + 1]) : undefined
+  if (testScript !== undefined && /^test(?::|$)/.test(testScript) && words.slice(runner + 2).some(word => word === '-u' || word === '--updateSnapshot' || word === '--update')) return true
   const go = words.indexOf('go')
   if (go >= 0 && words[go + 1] === 'fmt') return true
   if (words.includes('gofmt') && words.includes('-w')) return true
