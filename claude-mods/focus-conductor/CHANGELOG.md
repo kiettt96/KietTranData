@@ -132,6 +132,9 @@ Ba nhóm việc trong một lượt: sửa lỗi còn tồn (A), chạy trơn v�
 - F4 (rà soát vòng 2, không sửa trong bản này): lần chạy lệnh ở `check` của bước, ví dụ có `<( )`, bị sổ thay đổi đếm là lệnh ghi không rõ đích; gặp khi lệnh kiểm của bước dùng thay thế tiến trình.
 - F7 (rà soát vòng 2, không sửa trong bản này): khi lượt duyệt gần nhất báo chưa đạt, lý do chặn của cổng đóng chưa nêu riêng điều đó; gặp mỗi khi người duyệt trả CHƯA ĐẠT mà luồng chính kết thúc trước vòng sửa.
 - F8 (rà soát vòng 2, không sửa trong bản này): kết luận của các lượt duyệt lưu ở biến cục bộ của phiên nên không sống qua lần nạp lại mod hay chạy tiếp bằng `--continue`; gặp ở phiên không tương tác chạy nhiều lần.
+- G6 (đột biến theo tầng, vòng 2): hai mẫu cũ sống trên cả bộ test, cũng sống trên `14a3a85` nên có từ trước bản này: `075-R1i` (`/conductor status` không nêu số mục bị bỏ) và `085-D1c` (lời nhắc theo mức block khi điều phối, nhắc ở mọi lần thay đổi sau khi hết lượt chặn); cần ca bắt riêng.
+- G6: 45 mẫu nhóm A chưa chạy vì chạm trần thời gian 12 giờ (`hooks/parts/consistency.ts` chạy 92/131, `hooks/ui/pane.tsx` 85/91, các tệp hooks khác chạy đủ): `056-C14`, `056-C15`, `056-D5`, `060-L1`, `060-L2`, `060-L5`, `060-L6`, `061-P22`, `070-C11`, `070-C3`, `070-C9`, `070-L8`, `070-V10`, `070-V12`, `070-V18`, `071-M10`, `071-M8`, `071-M9`, `074-F10`, `074-F11`, `075-A6h`, `075-B1d`, `075-L3b`, `075-S5G`, `075-S6e`, `076-U1i`, `076-U1m`, `076-U6b`, `076-W1a`, `076-W1i`, `078-G1a`, `078-G1e`, `078-G2b`, `078-G2c`, `078-G4a`, `078-G6c`, `078-G6e`, `079-Y5d`, `080-A3d`, `082-N2c`, `082-N2d`, `086-R1a`, `086-R1b`, `086-R2c`, `086-R3b`.
+- G6: cân nhắc đưa cách chạy theo tầng (tầng 1 cùng bản, tầng giữa theo tên module và lịch sử diệt, rồi cả bộ) vào `scripts/mutate.ts` về sau; lượt này chạy bằng bộ chạy ngoài repo.
 
 ## Thay đổi 0.8.9: router bị engine từ chối khi đọc prompt dài
 

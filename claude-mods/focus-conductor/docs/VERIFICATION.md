@@ -74,6 +74,27 @@ Xác nhận độc lập (một lượt, tác tử mới chưa thấy quá trìn
 
 Mức nghiêm trọng của cổng duyệt từ vòng này: lớp nhắc chất lượng; chỉ chặn PR khi văng lỗi, chặn hay từ chối nhầm trong luồng chính, hay trượt một dòng K. Phát hiện khác vào việc tồn.
 
+## 0.9.0 vòng 2 G6: đột biến theo tầng trên các tệp hooks đã đổi [Đo trực tiếp, engine 2.1.296, mã của `1675a0a`, 18 và 19/11/2026]
+
+Phạm vi là 573 mẫu cũ của các tệp hooks đã đổi so với `14a3a85`. Nhóm A có 404 mẫu: mẫu nằm trong hàm hay câu lệnh cấp cao đã đổi, mọi mẫu của `hooks/ui/pane.tsx`, các mẫu `090` của `hooks/lib/verdict.ts` và `hooks/lib/drift/classify.ts`. Nhóm B có 169 mẫu, nằm ở phần không đổi của cùng các tệp đó. Bộ chạy đặt ngoài repo, một worker, đọc `scripts/mutants.ts`, dòng `old` phải khớp đúng một chỗ, bản sao lấy từ git worktree ở `1675a0a`. Mỗi mẫu chạy qua ba tầng, dừng ở tầng đầu tiên diệt được. Tầng 1 là các tệp test cùng bản. Tầng giữa gộp ba phần: tệp test nêu đường dẫn hay tên tệp của module; tệp test đã diệt một mẫu khác của cùng tệp hooks bằng ca lỗi không do hết giờ (đọc từ nhật ký, cập nhật sau mỗi mẫu); bộ test 0.9.0, chỉ cho `verdict.ts`, `classify.ts` và mẫu `090`. Tầng cuối là cả bộ 387 tệp. KILLED chỉ khi mod không nạp được hay có ít nhất một ca lỗi không do hết giờ. SURVIVED chỉ sau lượt cả bộ một worker.
+
+| Phần | Mẫu | KILLED tầng 1 | KILLED tầng giữa | KILLED cả bộ | SURVIVED | Khác |
+|---|---|---|---|---|---|---|
+| Nhóm A | 359/404 | 259 | 64 | 34 | 2 | 0 |
+| Đối chứng nhóm B (ngẫu nhiên, hạt 1811) | 20/169 | 11 | 8 | 1 | 0 | 0 |
+
+- Hai mẫu SURVIVED là `075-R1i` (`hooks/parts/command.ts`, `/conductor status` không nêu số mục bị bỏ) và `085-D1c` (`hooks/parts/consistency.ts`, lời nhắc theo mức block khi điều phối). Cả hai cũng sống trên mã của `14a3a85` với cả bộ test (3747 pass, 0 fail mỗi mẫu), nên lỗ hổng có từ trước bản này; ghi vào việc tồn, không thêm ca trong bản này.
+- Đối chứng nhóm B không có mẫu sống, nên không chạy phần còn lại của nhóm B.
+- Kiểm lại phán quyết KILLED (H4): 20 mẫu lấy ngẫu nhiên trên 377 mẫu KILLED (hạt 1911), có 7 mẫu diệt ở tầng giữa. Mỗi mẫu chạy lại một worker trên đúng các tệp chứa ca lỗi ghi trong nhật ký của lượt đã diệt nó. Kết quả 20/20 vẫn KILLED.
+- Thời gian máy đo được: 11,62 giờ trên trần 12 giờ. Nhóm A dừng nhận mẫu mới ở 11 giờ.
+
+Giới hạn của lượt đo:
+1. [Đo trực tiếp] Lượt đột biến 119 mẫu `090` trước đó chạy bằng engine 2.1.327, không phải bản ghim 2.1.296. Đối chứng 20 mẫu lấy ngẫu nhiên (hạt 20261118) chạy lại trên bản ghim cho kết quả khớp 20/20: 19 KILLED, `090-U2a` 0 ca lỗi như lượt trước (mẫu tương đương).
+2. [Đo trực tiếp] Tầng giữa phần 1 đọc theo nghĩa hẹp: chỉ tệp test có chuỗi đường dẫn hay tên tệp của module, kể cả qua tệp hỗ trợ mà nó import. Khoảng 225 ca tích hợp chạy hook qua harness của engine mà không nêu tên module, nên không vào phần này. `hooks/parts/consistency.ts` và `hooks/ui/pane.tsx` không có tệp test nào nêu tên, nên tầng giữa của hai tệp này chỉ dựa vào lịch sử diệt.
+3. [Đo trực tiếp] Phép đo tầng giữa trên 8 mẫu đã biết (8/8 KILLED, mỗi mẫu khoảng 60 giây) bị nghiêng: lịch sử diệt khởi tạo lấy từ nhật ký của chính 8 mẫu này.
+4. [Đo trực tiếp] Đồng hồ thiếu phần lượt dở của một mẫu (`072-B2`) khi máy chứa khởi động lại giữa lượt chạy; mẫu đó được chạy lại từ đầu.
+5. [Đo trực tiếp] Nhóm A còn 45 mẫu chưa chạy vì hết thời gian. Tỉ lệ đã chạy theo tệp hooks: `hooks/parts/consistency.ts` 92/131, `hooks/ui/pane.tsx` 85/91; các tệp còn lại chạy đủ (`hooks/parts/command.ts` 43/43, `hooks/lib/drift/classify.ts` 38/38, `hooks/context.ts` 38/38, `hooks/lib/verdict.ts` 20/20, `hooks/lib/state.ts` 18/18, `hooks/ui/attention.ts` 13/13, `hooks/ui/labels.ts` 11/11, `hooks/ui/direction.ts` 1/1). Mẫu chưa chạy: `056-C14`, `056-C15`, `056-D5`, `060-L1`, `060-L2`, `060-L5`, `060-L6`, `061-P22`, `070-C11`, `070-C3`, `070-C9`, `070-L8`, `070-V10`, `070-V12`, `070-V18`, `071-M10`, `071-M8`, `071-M9`, `074-F10`, `074-F11`, `075-A6h`, `075-B1d`, `075-L3b`, `075-S5G`, `075-S6e`, `076-U1i`, `076-U1m`, `076-U6b`, `076-W1a`, `076-W1i`, `078-G1a`, `078-G1e`, `078-G2b`, `078-G2c`, `078-G4a`, `078-G6c`, `078-G6e`, `079-Y5d`, `080-A3d`, `082-N2c`, `082-N2d`, `086-R1a`, `086-R1b`, `086-R2c`, `086-R3b`.
+
 ## 0.9.0 A6: các trường của usage có thể vắng [Đo trực tiếp, khai báo kiểu, 18/11/2026]
 
 Đọc `.claude-plugin/types/claude-code/index.d.ts` của engine đang chạy (2.1.327) và của 2.1.296:
