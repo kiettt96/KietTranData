@@ -2,7 +2,7 @@
 
 Số đo của HEAD hiện tại và của các bản trước. Mọi số do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển] trừ khi nêu khác; hợp đồng đối chiếu evidence ở [DESIGN.md](DESIGN.md), lịch sử thay đổi ở [CHANGELOG.md](../CHANGELOG.md), cách dùng ở [README](../README.md).
 
-## 0.9.0 cổng duyệt: bảng nghiệm thu đóng K1 tới K23 [Đo trực tiếp, `tests/integration/k-table-090.test.ts` và, cho K20, `tests/integration/closing-stepcheck-f1-090.test.ts`, 2.1.327, 18/11/2026]
+## 0.9.0 cổng duyệt: bảng nghiệm thu đóng K1 tới K25 [Đo trực tiếp, `tests/integration/k-table-090.test.ts` và, cho K20, `tests/integration/closing-stepcheck-f1-090.test.ts`, 2.1.327, 18/11/2026]
 
 | Mã | Hành vi | Ca test | Kết quả |
 |---|---|---|---|
@@ -29,6 +29,8 @@ Số đo của HEAD hiện tại và của các bản trước. Mọi số do t�
 | K21 | Dòng kết luận mở đầu bằng not pass, not passed, did not pass, does not pass (hoa, thường, có số đếm) đọc là chưa đạt; lượt duyệt trả NOT PASS thì cổng còn đòi duyệt và pane ghi Duyệt: chưa đạt (vòng 2 G1) | `verdict-g1-090` | qua |
 | K22 | Vai chỉ đọc chạy được git clone có đích tuyệt đối trong thư mục tạm (`git clone -q /repo /tmp/ra-soat/r`, `D=$(mktemp -d) && git clone -q /repo "$D/r"`); đích ngoài thư mục tạm vẫn bị từ chối; không nêu đích giữ kết quả cũ (vòng 2 G2) | `role-clone-g2-090` | qua |
 | K23 | Lệnh kiểm sau `set -o pipefail` (hay `set -euo pipefail`) đi qua `\| tee <tệp>` hay `\| grep <mẫu>` được tính theo mã thoát của cả ống: đạt là lần kiểm đạt, lỗi là lần kiểm lỗi; không có pipefail thì giữ như K19 (vòng 2 G3) | `pipe-pipefail-g3-090` | qua |
+| K24 | Vai chỉ đọc chỉ chạy git clone khi clone đứng ngay sau git, mọi tùy chọn thuộc danh sách cho phép (`--depth <n>`, `--branch <tên>` hay `-b <tên>`, `--single-branch`, `--no-tags`, `--no-checkout`, `--quiet` hay `-q`), đúng hai đối số vị trí và đích là đường dẫn tuyệt đối trong thư mục tạm; dạng khác bị từ chối như trên main (vòng 2 G2b) | các ca G2b của `role-clone-g2-090` | qua |
+| K25 | Dòng kết luận mở đầu bằng failed, fails, not passing, doesn't pass, didn't pass (hoa, thường, có số đếm) đọc là chưa đạt; `FAILED 2/5` giữ số đếm 2/5 (vòng 2 G1b) | các ca G1b của `verdict-g1-090` | qua |
 
 Xác nhận độc lập (một lượt, tác tử mới chưa thấy quá trình làm, trên bản chép của 9bf3849): chạy 31 ca của k-table-090 và tự viết 29 probe riêng, mỗi dòng ít nhất một probe; 17/17 dòng đạt [Đo trực tiếp, 18/11/2026]. Năm probe hỏng ở lần chạy đầu đều do tác tử dựng sai (thiếu lệnh kiểm, dùng tiền tố duyệt khi cần subagent có ghi, đổi description giữa hai vòng), sửa xong thì đạt.
 
