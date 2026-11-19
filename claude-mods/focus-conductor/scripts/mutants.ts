@@ -2689,6 +2689,10 @@ export const MUTANTS: Mutant[] = [
   { id: "090-M21e", file: "scripts/tiers.ts", note: "tầng giữa bỏ lịch sử diệt (vòng 2 M21b)", old: "...(history[mutant.file] ?? [])]", new: "]" },
   { id: "090-I1a", file: "hooks/lib/closing-state.ts", note: "khôi phục không dời mốc sổ bằng chứng (kiểm độc lập vòng 1 lỗi 1)", old: "  rebaseEvidence(local, goalId, restoredTop(snap), snap.evidence)\n", new: "" },
   { id: "090-I1b", file: "hooks/lib/closing-state.ts", note: "dời mốc bằng 0 (kiểm độc lập vòng 1 lỗi 1)", old: "  const off = Math.ceil(top) + 1", new: "  const off = 0" },
+  { id: "090-I2a", file: "hooks/parts/command.ts", note: "reset không xoá tệp trạng thái và bản ghi cổng đóng (kiểm độc lập vòng 1 lỗi 2, 12)", old: "      await clearSavedGoal($, ctx)\n", new: "" },
+  { id: "090-I2b", file: "hooks/parts/command.ts", note: "reset không xoá nội dung tệp trạng thái (kiểm độc lập vòng 1 lỗi 2)", old: "    if ((await $.fs.read(path).catch(() => '')) !== '') await $.fs.write(path, '')", new: "    void path" },
+  { id: "090-I2c", file: "hooks/parts/command.ts", note: "reset không làm rỗng bản ghi cổng đóng (kiểm độc lập vòng 1 lỗi 12)", old: "  await update($, closingStore, () => EMPTY_CLOSING)\n", new: "" },
+  { id: "090-I2d", file: "hooks/parts/session.ts", note: "/clear không xoá tệp trạng thái và bản ghi cổng đóng (kiểm độc lập vòng 1 lỗi 2, 12)", old: "      await clearSavedGoal($, ctx)\n", new: "" },
   { id: "090-M19a", file: "hooks/ui/pane.tsx", note: "tiêu đề mục và dải bước dựng theo bề rộng tối thiểu 36 cột (vòng 2 M19)", old: "  const fitWidth = Math.min(width, Math.max(1, columnsOf(props.columns, 56)))\n", new: "  const fitWidth = width\n" },
   { id: "090-G3a", file: "hooks/lib/drift/classify.ts", note: "lệnh kiểm sau pipefail qua tee hay grep vẫn là hidden (vòng 2 G3)", old: "const exit = isPipefailTeeGrep ? { exit: 'visible' as const } : piped", new: "const exit = piped" },
 ]

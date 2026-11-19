@@ -18,7 +18,7 @@ import { CLIPPED_CONTEXT, NEW_GOAL_CONFIDENCE, answerMentionsGoal, askRouter, re
 import type { RouterOutcome, RouterPlan } from '../lib/router'
 import { EMPTY_QUOTA, blockingHits, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaSettings, reasonsOf, softNotices } from '../lib/quota'
 import * as S from '../lib/state'
-import { EMPTY_CLOSING, normalizeClosing } from '../lib/closing-state'
+import { closingSnapshot, EMPTY_CLOSING, normalizeClosing } from '../lib/closing-state'
 import { goalFilePath, goalFileText, readGoalFile } from '../lib/goal-file'
 import { statusTextOf } from '../ui/direction'
 import type { View } from '../lib/state'
@@ -161,6 +161,25 @@ const PERSON_MODES: ReadonlySet<string> = new Set(['plan', 'default', 'acceptEdi
 /** Tool có thể bị chặn khi kế hoạch chưa duyệt (0.8.2 N2): sửa file, Bash (chỉ lệnh ghi file), Agent (trừ Explore, Plan). */
 const GATED_TOOLS = /^(?:Edit|Write|MultiEdit|NotebookEdit|Bash|Agent)$/
 
+
+/**
+ * Sau khi đặt lại mục tiêu (kiểm độc lập vòng 1 lỗi 2 và 12): bản ghi cổng đóng trong $.state về rỗng để lần nạp lại mod không đưa kết luận
+ * của mục tiêu cũ (cùng số mục tiêu) trở lại, và tệp trạng thái của dự án bị xoá nội dung để phiên chạy tiếp không nạp lại mục tiêu đã xoá.
+ */
+async function clearSavedGoal($: EngineInterface, ctx: Ctx): Promise<void> {
+  const L = ctx.local
+  await update($, closingStore, () => EMPTY_CLOSING)
+  L.closingLoaded = true
+  L.closingSaved = JSON.stringify(closingSnapshot(L))
+  L.goalFileSaved = ''
+  try {
+    const path = goalFilePath(await $.session.root())
+    if ((await $.fs.read(path).catch(() => '')) !== '') await $.fs.write(path, '')
+  } catch {
+    // Engine không cho đọc hay ghi: bỏ qua, như lần ghi tệp.
+  }
+}
+
 export function registerSession(on: On, ctx: Ctx): void {
   const L = ctx.local
   const { decisionLog, flushDecisions, delegationItems, expectedMain, forgetDelegations, isRouterPaused, noteRouter, noteRouterTime, ranText, record, resetLocal, routerFallback, skipPhrases, trackDelegations, wantedPick } = ctx
@@ -269,6 +288,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       const q = normalizeQuota(await read($, quotaState))
       L.noAutoResume = q.checkpoint?.status === 'open'
       await update($, coreState, S.resetCore)
+      await clearSavedGoal($, ctx)
       await showStatus($, await read($, view), ctx.options)
     }
     return next(e)

@@ -51,4 +51,15 @@ describe('0.9.0 vòng 2 I2: đặt lại xoá trạng thái đã lưu', () => {
     const closing = state['closing'] as { verdicts?: { items?: unknown[] } } | undefined
     expect(closing?.verdicts?.items).toEqual([])
   })
+
+  test('nạp từ tệp rồi /clear: tệp trạng thái bị xoá nội dung, bản ghi cổng đóng về rỗng', SAMPLE_OPTS(), async ($, on) => {
+    const writes = engineFs(on, 's-1', saved('s-1', 1000))
+    const state: Record<string, unknown> = {}
+    stateWrites(on, state)
+    sampleSetup(on)
+    await $.session.start({ cwd: '/repo', surface: null, isInteractive: false } as never)
+    await $.session.end({ reason: 'clear' } as never)
+    expect(writes.at(-1)).toBe('')
+    expect((state['closing'] as { verdicts?: { items?: unknown[] } } | undefined)?.verdicts?.items).toEqual([])
+  })
 })
