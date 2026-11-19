@@ -252,7 +252,7 @@ export function closingNote(opts: { hasCheck: boolean; isHard: boolean; isDocs: 
 
 /** Một kết luận đã nhận, đủ để tính trạng thái bước đóng. */
 /** isReview: kết luận được tính cho bước duyệt và sẵn sàng (0.9.0 C6): không phải lượt kiểm, không phải từ của bước kiểm, model từ sonnet. */
-export type ClosingVerdict = { verdict: 'pass' | 'fail' | 'ready' | 'not-ready' | null; isClean: boolean; isReview: boolean; seq: number }
+export type ClosingVerdict = { verdict: 'pass' | 'fail' | 'ready' | 'not-ready' | null; isClean: boolean; isReview: boolean; seq: number; role?: string; unread?: true }
 
 /**
  * Trạng thái các bước đóng (0.9.0 C3): kiểm (khi có lệnh kiểm biết được), duyệt, và sẵn sàng với mục tiêu hard. Kiểm đạt khi có lần kiểm
@@ -270,8 +270,17 @@ export function closingSteps(opts: { hasCheck: boolean; isHard: boolean; checked
   const lastReady = readies[readies.length - 1]
   const steps: ClosingStep[] = []
   if (opts.hasCheck) steps.push({ name: 'check', state: opts.checked ? 'pass' : opts.checkFailed ? 'fail' : 'wait' })
-  steps.push({ name: 'review', state: lastReview?.verdict === 'pass' ? 'pass' : lastReview?.verdict === 'fail' ? 'fail' : 'wait' })
-  if (opts.isHard) steps.push({ name: 'design', state: reviewSeq < 0 || lastReady === undefined ? 'wait' : lastReady.verdict === 'ready' ? 'pass' : 'fail' })
+  // Lượt có vai mà câu trả lời không đọc ra kết luận (vòng 2 M1): không tính là đạt; đứng sau kết luận gần nhất của bước thì bước là chờ,
+  // ghi unread để pane, mục cần chú ý và lý do chặn nêu điều đó.
+  const unreadAfter = (role: string, last: ClosingVerdict | undefined, from: number) => fresh.some(v => v.unread === true && v.role === role && v.seq >= from && (last === undefined || v.seq > last.seq))
+  const reviewState = lastReview?.verdict === 'pass' ? 'pass' : lastReview?.verdict === 'fail' ? 'fail' : 'wait'
+  const reviewUnread = unreadAfter('review', lastReview, -Infinity)
+  steps.push(reviewUnread ? { name: 'review', state: 'wait', unread: true } : { name: 'review', state: reviewState })
+  if (opts.isHard) {
+    const designState = reviewSeq < 0 || lastReady === undefined ? 'wait' : lastReady.verdict === 'ready' ? 'pass' : 'fail'
+    const designUnread = !reviewUnread && reviewState === 'pass' && unreadAfter('design', lastReady, reviewSeq)
+    steps.push(designUnread ? { name: 'design', state: 'wait', unread: true } : { name: 'design', state: designState })
+  }
   return steps
 }
 

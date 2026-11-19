@@ -126,6 +126,8 @@ const VI = {
   /** Cổng đóng mục tiêu (0.9.0 C6). */
   closingUnreviewed: 'Chưa duyệt độc lập',
   closingNoReview: 'Chưa duyệt độc lập (phiên không có subagent)',
+  closingUnread: 'Lượt duyệt chưa có kết luận đọc được',
+  closingUnreadReady: 'Lượt đánh giá sẵn sàng chưa có kết luận đọc được',
   /** Mục cần chú ý của bước đóng (vòng 2 U1). */
   closingUnchecked: 'Chưa có lần kiểm đạt sau thay đổi cuối',
   closingCheckFailed: 'Lần kiểm gần nhất chưa đạt',
@@ -322,6 +324,8 @@ const EN: typeof VI = {
   taskOwn: 'Delegated by Claude',
   closingUnreviewed: 'No independent review yet',
   closingNoReview: 'No independent review (no subagents)',
+  closingUnread: 'Review reply has no readable verdict',
+  closingUnreadReady: 'Readiness reply has no readable verdict',
   closingUnchecked: 'No passing check since the last change',
   closingCheckFailed: 'Latest check did not pass',
   closingReviewFailed: 'Independent review: not passed',

@@ -116,6 +116,12 @@ export function pipedCheckNote(command: string): string {
   return `[focus-conductor] \`${clipText(command, 40)}\` đi qua ống, mã thoát bị che nên lần chạy này không tính; chạy lại không kèm ống, hoặc thêm set -o pipefail.`.slice(0, GATE_NOTE_CHARS)
 }
 
+/** Câu đòi trả lời lại khi lượt gần nhất của vai không đọc ra kết luận (vòng 2 M1), mở đầu bằng đúng từ kết luận của vai. */
+export function unreadAskText(missing: 'review' | 'design', lang: 'vi' | 'en'): string {
+  if (lang === 'en') return missing === 'design' ? ' The latest readiness reply has no readable verdict: ask that subagent to answer again, starting with READY or NOT READY.' : ' The latest review reply has no readable verdict: ask that subagent to answer again, starting with PASS or NOT PASS.'
+  return missing === 'design' ? ' Lượt đánh giá sẵn sàng gần nhất chưa có kết luận đọc được: hỏi chính subagent đó trả lời lại, mở đầu bằng SẴN SÀNG hay CHƯA SẴN SÀNG.' : ' Lượt duyệt gần nhất chưa có kết luận đọc được: hỏi chính subagent đó trả lời lại, mở đầu bằng ĐẠT hay CHƯA ĐẠT.'
+}
+
 /** Lý do chặn của cổng đóng mục tiêu theo bước còn thiếu đầu tiên (0.9.0 C6), không quá CLOSING_CHARS ký tự. */
 export function closingReasonText(missing: 'check' | 'review' | 'design'): string {
   const text =
@@ -168,7 +174,9 @@ async function closingGate($: EngineInterface, ctx: Ctx, core: Core, log: Eviden
   if (isSolo) return null
   if (L.closingState.goalId !== brief.goalId) L.closingState = { goalId: brief.goalId, blocks: 0, key: '' }
   // Trạng thái của bước còn thiếu (chờ hay chưa đạt) thuộc khóa: duyệt đổi từ chờ sang chưa đạt là trạng thái thiếu mới (vòng sửa 1).
-  const key = `${missing}:${steps.find(s => s.name === missing)?.state ?? ''}:${lastHard}:${reviewSeq}:${stale.files.join(',')}:${stale.agents.size}`
+  // Lượt chưa đọc được kết luận (vòng 2 M1) thuộc khóa: mỗi lượt như vậy là trạng thái thiếu mới, chặn thêm một lần trong trần.
+  const unreadId = [...verdicts].reverse().find(v => v.unread === true && v.seq > log.lastChange)?.agentId ?? ''
+  const key = `${missing}:${steps.find(s => s.name === missing)?.state ?? ''}:${lastHard}:${reviewSeq}:${stale.files.join(',')}:${stale.agents.size}:${unreadId}`
   if (L.closingState.key === key || L.closingState.blocks >= CLOSING_BLOCKS) return null
   L.closingState = { goalId: brief.goalId, blocks: L.closingState.blocks + 1, key }
   ctx.record(await $.clock.now(), 'closing-gate', { goalId: brief.goalId, missing, n: L.closingState.blocks })
@@ -187,6 +195,9 @@ async function closingGate($: EngineInterface, ctx: Ctx, core: Core, log: Eviden
   // cuối chỉ có dòng như vậy.
   const latest = [...verdicts].reverse().find(v => v.seq > log.lastChange && prefixRole(v.description) !== 'audit')
   const unclear = missing !== 'check' && latest?.unclear === true ? ' Câu trả lời của lượt duyệt chưa có kết luận: kết luận chỉ đạt một phần, cần người duyệt nêu rõ đạt hay chưa đạt; hỏi lại chính subagent đó.' : ''
+  // Lượt gần nhất của vai không đọc ra kết luận (vòng 2 M1): đòi người duyệt trả lời lại, mở đầu bằng đúng từ kết luận của vai.
+  const unreadStep = steps.find(s => s.name === missing)?.unread === true
+  const unread = missing !== 'check' && unreadStep ? unreadAskText(missing, langOf(ctx.options['uiLanguage'])) : ''
   // Mỗi file một lần trong lý do chặn (vòng 2 F2): so theo đường dẫn đã chuẩn hóa, đường dẫn tương đối giải theo thư mục gốc của phiên.
   const root = await $.session.root().catch(() => null)
   const keyOf = (path: string) => normalizePath(path.startsWith('/') || root === null ? path : `${root}/${path}`)
@@ -197,7 +208,7 @@ async function closingGate($: EngineInterface, ctx: Ctx, core: Core, log: Eviden
   // Câu về ống lệnh chỉ khi lần chạy gần nhất của lệnh đó là lần qua ống (vòng 2 F3): chính lệnh đó chạy lại sau đó thì bỏ câu.
   const rerun = pipe !== null && stepRunsFor(ctx, brief.goalId).runs.some(run => run.seq >= pipe.seq && run.keys.includes(runKey(pipe.command)))
   const piped = missing === 'check' && pipe !== null && pipe.seq > lastHard && !rerun ? ` Lần chạy \`${clipText(pipe.command, 40)}\` đi qua ống nên mã thoát bị che, không tính; chạy lại không kèm ống, hoặc thêm set -o pipefail.` : ''
-  return `${reason}${unclear}${files}${piped}`.slice(0, CLOSING_CHARS)
+  return `${reason}${unread}${unclear}${files}${piped}`.slice(0, CLOSING_CHARS)
 }
 
 /**
@@ -1676,12 +1687,12 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       // Kết luận của subagent (0.9.0 D1, D2): dòng đầu câu trả lời theo các từ kết luận, có tiền tố hay không. Chỉ câu trả lời của subagent
       // không ghi file ngoài thư mục tạm mới tính cho cổng (isClean). Vai: tiền tố hay vai mod suy; không có thì theo loại kết luận.
       const read0 = e.reason === 'answer' && meta !== undefined ? verdictOf(e.answer ?? '') : null
-      // Lượt có tiền tố của vai review hay sẵn sàng mà không có dòng kết luận nào (sau phiên thật D4, mục 1f): vẫn tính là đã duyệt, kèm một
-      // dòng nhắc luồng chính đọc kết quả. Lượt không tiền tố thì phải có từ đạt ở dòng kết luận.
+      // Lượt có tiền tố của vai review hay sẵn sàng mà không có dòng kết luận nào: không tính là đạt (vòng 2 M1, thay luật sau phiên thật D4
+      // mục 1f); bước đóng là chờ và cổng đòi người duyệt trả lời lại. Dòng nhắc luồng chính đọc kết quả giữ như trước.
       const ownPrefix = meta !== undefined ? prefixRole(meta.description) : undefined
-      const isAssumed = read0 === null && e.reason === 'answer' && (ownPrefix === 'review' || ownPrefix === 'design') && hasNoVerdictLine(e.answer ?? '')
-      const parsed: ReturnType<typeof verdictOf> = isAssumed ? { verdict: ownPrefix === 'design' ? 'ready' : 'pass' } : read0
-      if (isAssumed && meta !== undefined) L.agentRetryNotes.push(assumedVerdictNote(meta.description))
+      const isUnread = read0 === null && e.reason === 'answer' && (ownPrefix === 'review' || ownPrefix === 'design') && hasNoVerdictLine(e.answer ?? '')
+      const parsed: ReturnType<typeof verdictOf> = read0
+      if (isUnread && meta !== undefined) L.agentRetryNotes.push(assumedVerdictNote(meta.description))
       const isUnclear = e.reason === 'answer' && parsed === null && isUnclearVerdict(e.answer ?? '')
       // Lượt của mục tiêu cũ hoàn tất sau khi đổi mục tiêu không đụng kết luận và dấu của mục tiêu mới (vòng sửa cuối 18/11, A4).
       const liveGoal = S.normalizeCore(await read($, coreState)).brief?.goalId
@@ -1720,7 +1731,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
         const isStrong = ranFamily !== null && ranFamily !== 'haiku'
         const isReview = isClean && prefixRole(meta.description) !== 'audit' && parsed?.isCheckOnly !== true && isStrong
         if (L.verdicts.goalId !== meta.goalId) L.verdicts = { goalId: meta.goalId, items: [] }
-        L.verdicts.items.push({ agentId, role, verdict: parsed?.verdict ?? null, isClean, isReview, ...(parsed?.count !== undefined ? { count: parsed.count } : {}), seq: spawnSeq !== undefined ? spawnSeq + 0.5 : ctx.evidenceFor(meta.goalId).seq, ...(printChanged.length > 0 ? { changed: printChanged.slice(0, 20) } : {}), ...(isUnclear ? { unclear: true as const } : {}), family: ranFamily ?? meta.family, ...(meta.taskIndex !== undefined ? { taskIndex: meta.taskIndex } : {}), description: meta.description })
+        L.verdicts.items.push({ agentId, role, verdict: parsed?.verdict ?? null, isClean, isReview, ...(parsed?.count !== undefined ? { count: parsed.count } : {}), seq: spawnSeq !== undefined ? spawnSeq + 0.5 : ctx.evidenceFor(meta.goalId).seq, ...(printChanged.length > 0 ? { changed: printChanged.slice(0, 20) } : {}), ...(isUnclear ? { unclear: true as const } : {}), ...(isUnread ? { unread: true as const } : {}), family: ranFamily ?? meta.family, ...(meta.taskIndex !== undefined ? { taskIndex: meta.taskIndex } : {}), description: meta.description })
         if (L.verdicts.items.length > 100) L.verdicts.items.shift()
         record(at, 'verdict', { agentId, role, verdict: parsed?.verdict ?? null, ...(isClean ? {} : { wrote: true }), ...(printChanged.length > 0 ? { changed: printChanged.slice(0, 3) } : {}), ...(isReview ? { review: true } : {}), ...(parsed?.count !== undefined ? { count: parsed.count } : {}) })
         await flushDecisions((path, text) => $.fs.write(path, text))

@@ -232,7 +232,7 @@ function teamOf(raw: unknown): Core['team'] | null {
   const c = raw as { goalId?: unknown; cause?: unknown; steps?: unknown }
   if (typeof c.goalId !== 'number' || (c.cause !== 'depth' && c.cause !== 'files') || !Array.isArray(c.steps)) return null
   const steps = c.steps.filter((x): x is { name: 'check' | 'review' | 'design'; state: 'wait' | 'pass' | 'fail' } => x !== null && typeof x === 'object' && CLOSING_NAMES.includes((x as { name?: unknown }).name as string) && CLOSING_STATES.includes((x as { state?: unknown }).state as string))
-  return { goalId: c.goalId, cause: c.cause, steps: steps.map(x => ({ name: x.name, state: x.state })) }
+  return { goalId: c.goalId, cause: c.cause, steps: steps.map(x => ({ name: x.name, state: x.state, ...((x as { unread?: unknown }).unread === true ? { unread: true as const } : {}) })) }
 }
 
 /** Đội hình do mod áp (0.9.0 C): ghi lý do bật và trạng thái bước đóng; null thì bỏ. */

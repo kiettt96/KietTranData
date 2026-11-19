@@ -555,7 +555,8 @@ describe('K18: đọc kết luận theo câu đầu của dòng kết luận', (
     expect(note).not.toBe('')
     expect(note.length).toBeLessThanOrEqual(160)
     await close($)
-    expect(await stop($)).toBe('')
+    // Vòng 2 M1: lượt không đọc ra kết luận không còn được tính; cổng chặn kèm câu đòi trả lời lại.
+    expect(await stop($)).toContain('trả lời lại')
   })
   test('K18 đạt từng phần: lý do chặn nêu kết luận chỉ đạt một phần, không dùng câu cũ về dòng kết luận đứng riêng', OPTS(), async ($, on) => {
     const fs = new Fs()

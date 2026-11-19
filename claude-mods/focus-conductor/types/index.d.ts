@@ -348,7 +348,7 @@ export type CheckHint = { goalId: number; commands: string[]; isToasted: boolean
 export type TurnFault = { goalId: number | null; goal: string | null; openSteps: string[]; at: number }
 
 /** Một bước đóng do mod sinh (0.9.0 C3): kiểm, duyệt hay sẵn sàng, và trạng thái chờ, đạt, chưa đạt. */
-export type ClosingStep = { name: 'check' | 'review' | 'design'; state: 'wait' | 'pass' | 'fail' }
+export type ClosingStep = { name: 'check' | 'review' | 'design'; state: 'wait' | 'pass' | 'fail'; /** Lượt gần nhất của vai trả câu không đọc ra kết luận (vòng 2 M1). */ unread?: true }
 
 export type Core = {
   brief: Brief | null

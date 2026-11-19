@@ -86,6 +86,6 @@ export function closingAttention(core: Core, lang: Lang): { text: string; kind: 
   const l = labels(lang)
   const isSolo = core.closingGap !== undefined && core.closingGap.goalId === brief.goalId && core.closingGap.solo === true
   if (step.name === 'check') return { text: step.state === 'fail' ? l.closingCheckFailed : l.closingUnchecked, kind: 'closing-check' }
-  if (step.name === 'review') return { text: step.state === 'fail' ? l.closingReviewFailed : isSolo ? l.closingNoReview : l.closingUnreviewed, kind: 'closing-review' }
-  return { text: step.state === 'fail' ? l.closingNotReady : l.closingNoReadiness, kind: 'closing-design' }
+  if (step.name === 'review') return { text: step.state === 'fail' ? l.closingReviewFailed : step.unread === true ? l.closingUnread : isSolo ? l.closingNoReview : l.closingUnreviewed, kind: 'closing-review' }
+  return { text: step.state === 'fail' ? l.closingNotReady : step.unread === true ? l.closingUnreadReady : l.closingNoReadiness, kind: 'closing-design' }
 }
