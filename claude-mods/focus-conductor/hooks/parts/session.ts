@@ -18,6 +18,8 @@ import { CLIPPED_CONTEXT, NEW_GOAL_CONFIDENCE, answerMentionsGoal, askRouter, re
 import type { RouterOutcome, RouterPlan } from '../lib/router'
 import { EMPTY_QUOTA, blockingHits, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaSettings, reasonsOf, softNotices } from '../lib/quota'
 import * as S from '../lib/state'
+import { EMPTY_CLOSING, normalizeClosing } from '../lib/closing-state'
+import { goalFilePath, goalFileText, readGoalFile } from '../lib/goal-file'
 import { statusTextOf } from '../ui/direction'
 import type { View } from '../lib/state'
 import { ARRANGED_CHARS, ARRANGED_INTERJECT_CHARS, DISCIPLINE, arrangedContext, asideContext, conductorContext, conductorKeepText, phaseNotice, briefContext, droppedGoalNotice, droppedItemsText, droppedPlanNotice, followUpContext, intentResumeContext, intentStatusContext, interjectContext, interjectMovedNote, quotaPausedContext, resetLabel, resumeCommand, nothingLeftContext, restorableLabel, restoreGoalOnlyContext, restoreResumeContext, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
@@ -46,6 +48,7 @@ async function autoOpenPane($: EngineInterface, ctx: Ctx, goalId: number, at: nu
 // Atom của mod, khai báo lại ở mỗi file dùng chúng (engine chỉ nhận tham chiếu state viết trong chính file đó);
 // cùng plugin và key nên là cùng một giá trị trong $.state.
 const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EMPTY_CORE)
+const closingStore = atom({ plugin: 'focus-conductor', key: 'closing' } as const, EMPTY_CLOSING)
 
 /** Áp kết quả một lượt router gửi Fable vào Core (0.8.4 C6): vừa tạm ngừng thì toast và một dòng nhật ký conductor. */
 async function noteFableRouter($: EngineInterface, ctx: Ctx, isOk: boolean, family?: ModelFamily): Promise<void> {
@@ -167,6 +170,26 @@ export function registerSession(on: On, ctx: Ctx): void {
   // ---------------------------------------------------------------- phiên
 
   on('session.start', async ($, e, next) => {
+    // Phiên chạy tiếp (vòng 2 M15): engine không giữ $.state giữa hai tiến trình; state chưa có mục tiêu thì nạp tệp trạng thái của dự án khi
+    // cùng mã phiên, tệp không quá 24 giờ và đúng định dạng. Phiên mới có mã khác nên không nạp. Lỗi đọc hay engine không trả mã thì bỏ qua.
+    try {
+      const sessionId = await $.session.id()
+      const current = S.normalizeCore(await read($, coreState))
+      if (typeof sessionId === 'string' && sessionId !== '' && current.brief === null) {
+        const root = await $.session.root()
+        const file = readGoalFile(await $.fs.read(goalFilePath(root)).catch(() => ''), sessionId, await $.clock.now())
+        if (file !== null) {
+          const core = S.normalizeCore(file.core as Partial<Core>)
+          if (core.brief !== null) {
+            await update($, coreState, () => core)
+            await update($, closingStore, () => normalizeClosing(file.closing))
+            L.goalFileSaved = goalFileText(sessionId, 0, core, normalizeClosing(file.closing))
+          }
+        }
+      }
+    } catch {
+      // Không đọc được tệp hay mã phiên: giữ state như engine trả.
+    }
     // Nhật ký lỗi của mod (0.7.9 L1): tự xóa lỗi đã sửa theo sổ, báo trạng thái sai kiểu, gộp lỗi đang chờ ghi.
     noteMistyped('normalizeCore', await read($, coreState), S.EMPTY_CORE)
     noteMistyped('normalizeQuota', await read($, quotaState), EMPTY_QUOTA)

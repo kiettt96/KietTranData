@@ -15,6 +15,7 @@ import { PLAN_SET_CHECK_LINE } from '../lib/approval'
 import { hasNoVerdictLine, isUnclearVerdict, reportTable, verdictOf } from '../lib/verdict'
 import { EMPTY_CLOSING, closingSnapshot, normalizeClosing, restoreClosing } from '../lib/closing-state'
 import { listScope, newFiles, scopeRoots } from '../lib/scope-list'
+import { goalFilePath, goalFileText } from '../lib/goal-file'
 import { tempRewrite } from '../lib/drift/tempdir'
 import { pipedCheck } from '../lib/drift/pipecheck'
 import { EMPTY_REVIEW_PRINTS, changedPrints, isMeasured, normalizeReviewPrints, printNames, printTargets, takePrints, withPrint, withStale } from '../lib/prints'
@@ -60,6 +61,22 @@ const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EM
 // Dấu file của các lượt duyệt (0.9.0, C2 đo dấu file); cùng key với parts/agents.ts.
 const printState = atom({ plugin: 'focus-conductor', key: 'reviewPrints' } as const, EMPTY_REVIEW_PRINTS)
 const closingStore = atom({ plugin: 'focus-conductor', key: 'closing' } as const, EMPTY_CLOSING)
+
+/** Ghi tệp trạng thái mục tiêu của dự án khi Core hay bản ghi cổng đóng đổi (vòng 2 M15); không có mục tiêu hay mã phiên thì không ghi. */
+async function saveGoalFile($: EngineInterface, ctx: Ctx): Promise<void> {
+  try {
+    const sessionId = await $.session.id()
+    const core = S.normalizeCore(await read($, coreState))
+    if (typeof sessionId !== 'string' || sessionId === '' || core.brief === null) return
+    const closing = normalizeClosing(await read($, closingStore))
+    const key = goalFileText(sessionId, 0, core, closing)
+    if (key === ctx.local.goalFileSaved) return
+    ctx.local.goalFileSaved = key
+    await $.fs.write(goalFilePath(await $.session.root()), goalFileText(sessionId, await $.clock.now(), core, closing))
+  } catch {
+    // Engine không cho ghi hay không trả mã phiên: bỏ qua, như trước bản này.
+  }
+}
 
 /** Nạp trạng thái cổng đóng từ $.state một lần mỗi lần nạp mod (0.9.0 vòng 2 M6), trước lần đọc đầu tiên. */
 async function hydrateClosing($: EngineInterface, ctx: Ctx): Promise<void> {
@@ -1649,24 +1666,29 @@ export function registerConsistency(on: On, ctx: Ctx): void {
   // chặn theo lượt, tối đa RETRY_ROUNDS lượt rồi một lần đòi báo cáo. Chỉ chặn turn đang thực thi mục tiêu (có thay đổi, cập nhật
   // checklist, giao subagent, hoặc làm tiếp mục tiêu); turn hỏi đáp thì không.
   on('classic.Stop', async ($, e, next) => {
+    // Mọi đường ra ghi tệp trạng thái mục tiêu sau khi các cổng đã xét (vòng 2 M15).
+    const finish = async <T,>(out: T): Promise<T> => {
+      await saveGoalFile($, ctx)
+      return out
+    }
     const result = await next(e)
     // Stop đầu tiên không còn subagent nào chạy: tính lại cảnh báo chưa kiểm đã hoãn (0.8.0 A5).
     if (await settleDeferred($, ctx)) await showStatus($, await read($, view), ctx.options)
-    if (result.block || result.preventContinuation || !isExecuting(L.tracker, L.promptIntent)) return result
-    if ((await read($, mode)) === 'off') return result
+    if (result.block || result.preventContinuation || !isExecuting(L.tracker, L.promptIntent)) return finish(result)
+    if ((await read($, mode)) === 'off') return finish(result)
     // Đang dừng vì hạn mức (hay người dùng tạm dừng): cho kết thúc, nếu không sẽ vòng lặp chặn khi mọi tool bị từ chối.
     const quota = normalizeQuota(await read($, quotaState))
-    if (quota.pause !== null) return result
+    if (quota.pause !== null) return finish(result)
     const failed = failedFor(S.normalizeCore(await read($, coreState)).brief).concat(forkFailures(S.normalizeCore(await read($, coreState))))
     // Rà kế hoạch trước khi trình duyệt (0.8.2 N2): xét đầu tiên, trước W4, Y6, G1; không theo stop_hook_active (mỗi lần chặn là một lượt rà)
     // và không theo enforceChecklist (option planApproval riêng).
     const review = await planReviewGate($, ctx)
     if (review.kind === 'allow') {
       await showStatus($, await read($, view), ctx.options)
-      return result
+      return finish(result)
     }
-    if (review.kind === 'block') return { ...result, block: review.reason }
-    if (ctx.options['enforceChecklist'] !== true) return result
+    if (review.kind === 'block') return finish({ ...result, block: review.reason })
+    if (ctx.options['enforceChecklist'] !== true) return finish(result)
     // Turn đã nhận câu báo hạn mức mềm (0.7.5): quy tắc dừng theo hạn mức của prompt có thể đang áp, nên checklist còn mở không
     // chặn kết thúc, nhưng chỉ khi cửa sổ vẫn còn trong vùng báo (vòng sửa 2: cửa sổ đã làm mới thì chặn như cũ); việc giao
     // subagent đã lỗi vẫn bị chặn.
@@ -1678,7 +1700,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     const waiveReason = await askWaived($)
     const retryReason = gate.reason !== null && waiveReason !== null ? joinStopReasons(gate.reason, waiveReason) : gate.reason ?? waiveReason
     // stop_hook_active chỉ bỏ qua phần checklist và G1: hai cổng đó nhắc một lần mỗi chuỗi dừng.
-    if (e.stop_hook_active) return retryReason !== null ? { ...result, block: retryReason } : result
+    if (e.stop_hook_active) return finish(retryReason !== null ? { ...result, block: retryReason } : result)
     let core = S.normalizeCore(await read($, coreState))
     // Đã sửa mà chưa chạy lần kiểm nào (0.7.9 Y6): sau W4, trước G1 và checklist; theo stop_hook_active như G1.
     const noCheck = isNoticed || core.brief === null ? null : await noCheckGate($, ctx.options, core, evidenceFor(core.brief.goalId), L.liveAgents.size > 0)
@@ -1700,10 +1722,10 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     if (brief !== null && core.plan.length === 0 && failed.length === 0 && !isNoticed && core.stopNudged !== brief.goalId && needsChecklist(brief)) {
       await update($, coreState, S.withStopNudged(brief.goalId))
       const hasMirror = core.mirror.goalId === brief.goalId && core.mirror.steps.length > 0
-      return { ...result, block: withRetry(noChecklistReason(brief, hasMirror)) }
+      return finish({ ...result, block: withRetry(noChecklistReason(brief, hasMirror)) })
     }
-    if (isGoalDone(plan) && failed.length === 0) return prior !== null ? { ...result, block: prior } : result
-    return { ...result, block: withRetry(stopBlockReason(plan, failed)) }
+    if (isGoalDone(plan) && failed.length === 0) return finish(prior !== null ? { ...result, block: prior } : result)
+    return finish({ ...result, block: withRetry(stopBlockReason(plan, failed)) })
   }).catch(($, e, next) => (noteHookError('classic.Stop', next.error), next(e)))
 
   // Chi phí đo được: luồng chính (không có agentId) vào nhóm luồng chính; subagent

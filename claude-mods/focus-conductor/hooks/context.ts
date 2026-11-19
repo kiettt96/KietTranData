@@ -156,6 +156,8 @@ export function createContext(options: PluginOptions) {
     closingLoaded: false,
     /** Đã gộp các dòng cũ của tệp nhật ký quyết định trong tiến trình này (0.9.0 vòng 2 M14). */
     decisionsMerged: false,
+    /** Nội dung tệp trạng thái mục tiêu đã ghi gần nhất, không kèm mốc ghi (0.9.0 vòng 2 M15). */
+    goalFileSaved: '',
     /** Danh sách file của phạm vi lúc sinh lượt có vai chỉ đọc hay vai kiểm (0.9.0 vòng 2 M13), theo agentId. */
     scopeLists: new Map<string, { goalId: number; files: string[] }>(),
     closingSaved: '',
