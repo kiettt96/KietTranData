@@ -81,7 +81,8 @@ const PARTIAL = /(?:^|[^\p{L}])(?:phần lớn|một phần|mostly|partially)(?:
  * "phần lớn", "một phần", "mostly", "partially" (chưa có kết luận). Phủ định nhận như lỗi trong output lệnh kiểm (`dropNegated`).
  */
 function lineVerdict(raw: string): VerdictLine | null {
-  let text = raw.normalize('NFC').replace(/[\u200b-\u200d\ufeff]/gu, '').replace(/[*_`]+/gu, '').replace(/\s+/gu, ' ').trim()
+  // Chuẩn hóa ký tự (vòng 2 M2): nháy cong thành nháy thẳng, các loại gạch nối thành `-`, khoảng trắng đặc biệt thành khoảng trắng thường.
+  let text = raw.normalize('NFC').replace(/[\u200b-\u200d\ufeff]/gu, '').replace(/[\u2018\u2019\u201b\u2032]/gu, "'").replace(/[\u2010-\u2015\u2212]/gu, '-').replace(/[\u00a0\u2000-\u200a\u202f\u205f\u3000]/gu, ' ').replace(/[*_`]+/gu, '').replace(/\s+/gu, ' ').trim()
   text = text.replace(/^(?:[#>]+\s*|[-+•]\s+|\d+[.)]\s+)+/u, '').trim()
   text = text.replace(/^(?:kết luận|verdict)\s*:\s*/iu, '').trim().toLowerCase()
   for (const [word, verdict, isCheckOnly] of WORDS) {

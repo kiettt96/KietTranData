@@ -2492,7 +2492,7 @@ export const MUTANTS: Mutant[] = [
   { id: "090-C2e", file: "hooks/parts/agents.ts", note: "vai audit ghi /tmp bị từ chối", old: "    if (path !== '' && isRoleTemp(path)) return null\n", new: "" },
   { id: "090-C3d", file: "hooks/lib/router.ts", note: "câu hỏi làm rõ không gồm quyết định nghiệp vụ", old: " (including business, permission, data or cost decisions the request leaves open)", new: "" },
   { id: "090-C4a", file: "hooks/parts/agents.ts", note: "không nối dòng mẫu báo cáo", old: "    const result = await next(reportSuffix !== '' ? { ...e, prompt: `${e.prompt}${reportSuffix}` } : e)\n", new: "    const result = await next(e)\n" },
-  { id: "090-C4c", file: "hooks/lib/verdict.ts", note: "không bỏ dấu markdown", old: "replace(/[\\u200b-\\u200d\\ufeff]/gu, '').replace(/[*_`]+/gu, '')", new: "replace(/[\\u200b-\\u200d\\ufeff]/gu, '')" },
+  { id: "090-C4c", file: "hooks/lib/verdict.ts", note: "không bỏ dấu markdown", old: "'-').replace(/[\\u00a0\\u2000-\\u200a\\u202f\\u205f\\u3000]/gu, ' ').replace(/[*_`]+/gu, '')", new: "'-').replace(/[\\u00a0\\u2000-\\u200a\\u202f\\u205f\\u3000]/gu, ' ')" },
   { id: "090-C4d", file: "hooks/lib/verdict.ts", note: "xét dòng cuối thay vì dòng kết luận đầu tiên", old: "  const first = lines[0]\n", new: "  const first = lines.at(-1)\n" },
   { id: "090-C4f", file: "hooks/parts/consistency.ts", note: "không ghi kết luận của subagent", old: "      if (e.reason === 'answer' && meta !== undefined && meta.goalId === liveGoal && (parsed !== null || meta.role !== undefined || isUnclear)) {", new: "      if (false as boolean) {" },
   { id: "090-C4b", file: "hooks/lib/verdict.ts", note: "không đọc CHƯA ĐẠT", old: "  ['chưa đạt', 'fail', false],\n", new: "" },
@@ -2657,5 +2657,6 @@ export const MUTANTS: Mutant[] = [
   { id: "090-L2b", file: "hooks/lib/verdict.ts", note: "họ đạt chỉ còn pass, passing (vòng 2 L2)", old: "const PASS_FORMS = ['passing', 'passes', 'passed', 'pass']", new: "const PASS_FORMS = ['passing', 'pass']" },
   { id: "090-L3a", file: "hooks/lib/drift/classify.ts", note: "pipefail sau -- vẫn được nhận (vòng 2 L3)", old: "const values = all.includes('--') ? all.slice(0, all.indexOf('--')) : all", new: "const values = all" },
   { id: "090-M1a", file: "hooks/parts/consistency.ts", note: "lượt duyệt không đọc ra kết luận vẫn tính là đạt (vòng 2 M1)", old: "      const parsed: ReturnType<typeof verdictOf> = read0\n", new: "      const parsed: ReturnType<typeof verdictOf> = isUnread ? { verdict: ownPrefix === 'design' ? 'ready' : 'pass' } : read0\n" },
+  { id: "090-M2a", file: "hooks/lib/verdict.ts", note: "không chuẩn hóa nháy cong và gạch nối (vòng 2 M2)", old: ".replace(/[\\u2018\\u2019\\u201b\\u2032]/gu, \"'\").replace(/[\\u2010-\\u2015\\u2212]/gu, '-')", new: "" },
   { id: "090-G3a", file: "hooks/lib/drift/classify.ts", note: "lệnh kiểm sau pipefail qua tee hay grep vẫn là hidden (vòng 2 G3)", old: "const exit = isPipefailTeeGrep ? { exit: 'visible' as const } : piped", new: "const exit = piped" },
 ]
