@@ -324,7 +324,7 @@ export const MUTANTS: Mutant[] = [
   { id: "054-D7", file: "hooks/parts/ui.tsx", note: "hẹn giờ chạy cả khi đã xóa", old: "if (until === 0 || until > (await $.clock.now())) return", new: "if (until > (await $.clock.now())) return" },
   { id: "054-D8", file: "hooks/parts/ui.tsx", note: "hẹn giờ chạy cả khi chưa hết hạn", old: "if (until === 0 || until > (await $.clock.now())) return", new: "if (until === 0) return" },
   { id: "054-D9", file: "hooks/parts/ui.tsx", note: "lần hai không xóa mốc chờ", old: "          await update($, resetArmedState, () => 0)\n          resetLocal()", new: "          resetLocal()" },
-  { id: "054-D10", file: "hooks/parts/ui.tsx", note: "lần hai không xóa trạng thái cục bộ", old: "          resetLocal()\n          await update($, coreState, S.resetCore)\n          await showStatus", new: "          await update($, coreState, S.resetCore)\n          await showStatus" },
+  { id: "054-D10", file: "hooks/parts/ui.tsx", note: "lần hai không xóa trạng thái cục bộ", old: "          resetLocal()\n          await update($, coreState, S.resetCore)\n          await clearSavedGoal", new: "          await update($, coreState, S.resetCore)\n          await clearSavedGoal" },
   { id: "054-D11", file: "hooks/parts/ui.tsx", note: "lần hai không cập nhật dòng trạng thái", old: "          await showStatus($, await read($, view), ctx.options)\n          $.ui.toast(l.resetDoneToast)", new: "          $.ui.toast(l.resetDoneToast)" },
   { id: "054-D12", file: "hooks/parts/ui.tsx", note: "lần hai không báo đã đặt lại", old: "          $.ui.toast(l.resetDoneToast)\n", new: "" },
   { id: "054-D13", file: "hooks/parts/ui.tsx", note: "lần đầu không báo toast", old: "        $.ui.toast(l.resetArmedToast)\n", new: "" },
