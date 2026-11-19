@@ -158,6 +158,13 @@ Ba nhóm việc trong một lượt: sửa lỗi còn tồn (A), chạy trơn v�
 **Việc tồn** (từ phiên thật D1 và kiểm độc lập):
 - G6: 45 mẫu nhóm A chưa chạy vì chạm trần thời gian 12 giờ (`hooks/parts/consistency.ts` chạy 92/131, `hooks/ui/pane.tsx` 85/91, các tệp hooks khác chạy đủ): `056-C14`, `056-C15`, `056-D5`, `060-L1`, `060-L2`, `060-L5`, `060-L6`, `061-P22`, `070-C11`, `070-C3`, `070-C9`, `070-L8`, `070-V10`, `070-V12`, `070-V18`, `071-M10`, `071-M8`, `071-M9`, `074-F10`, `074-F11`, `075-A6h`, `075-B1d`, `075-L3b`, `075-S5G`, `075-S6e`, `076-U1i`, `076-U1m`, `076-U6b`, `076-W1a`, `076-W1i`, `078-G1a`, `078-G1e`, `078-G2b`, `078-G2c`, `078-G4a`, `078-G6c`, `078-G6e`, `079-Y5d`, `080-A3d`, `082-N2c`, `082-N2d`, `086-R1a`, `086-R1b`, `086-R2c`, `086-R3b`.
 - Lượt đột biến 119 mẫu `090` của vòng 2 chạy bằng engine 2.1.327, không phải bản ghim 2.1.296; đối chứng 20 mẫu trên bản ghim khớp 20/20 (VERIFICATION, mục G6, điểm 1).
+- Kiểm độc lập vòng 2, ngoài năm điểm đã sửa (J1 tới J5), theo quyết định của chủ mod 19/11/2026 không sửa trong bản này:
+  - Chiều cho qua sai (có từ M3): `PASS, 1.0 critical` đọc là đạt, vì "0 critical" sau dấu chấm của số thập phân được nhận là số đếm 0. Tái hiện: `verdictOf('PASS, 1.0 critical')` trả `pass`.
+  - Chặn thừa (I1): lượt duyệt sinh trước lần nạp trạng thái cổng đóng đầu tiên sau khi nạp lại mang seq 0,5, thấp hơn lastChange đã lưu, nên ĐẠT không được tính. Tái hiện: nạp lại với bản ghi `evidence { goalId 1, seq 8, lastChange 7 }` rồi giao `Kiểm độc lập: ` làm lời gọi đầu tiên; cổng đòi duyệt lại.
+  - Chặn thừa (I1): `lastWasHard`, `isAgentHard` bật ở lời gọi đầu tiên sau khi nạp lại dù lần ghi là ghi nhẹ, vì `hardBefore` lấy trước khi dời mốc; bước nâng nhờ `check` của bước bị hạ về done. Tái hiện: nạp lại với `evidence.lastHard` 7, lời gọi đầu là Edit tệp tài liệu nhẹ.
+  - Chặn thừa (I7): `decisionLog: "./decisions.jsonl"` hay phiên mở ở thư mục con thì đường dẫn bỏ qua không khớp đường dẫn mà phép đo liệt kê; option `errorLog` đặt ngoài `.focus-conductor/` không được bỏ qua. Tái hiện: `decisionLog` là `./quyet-dinh.jsonl`, lượt duyệt chạy trong lúc mod ghi tệp đó; cổng chặn.
+  - Chặn thừa (I3): mọi `ln -s` của vai chỉ đọc bị từ chối, kể cả liên kết hoàn toàn trong `/tmp`; phép dò chạy trên chuỗi chưa che nháy nên `echo "ln -s a b" > /tmp/n` cũng bị chặn.
+  - Chặn thừa (I5, I6): `(set -o pipefail; pytest -v | grep PASSED)` (pipefail và ống cùng một subshell) không được tính; bộ đọc kết luận xét cả phần sau `;` nên `PASS; blocking bug from round 1 fixed`, `ĐẠT; đã chặn lỗi đăng nhập`, `PASS, see report.md for major notes` là chưa đạt. Tái hiện: `verdictOf('PASS; blocking bug from round 1 fixed')` trả `fail`.
 
 ## Thay đổi 0.8.9: router bị engine từ chối khi đọc prompt dài
 
