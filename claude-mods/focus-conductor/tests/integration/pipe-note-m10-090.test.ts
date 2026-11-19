@@ -1,5 +1,7 @@
-// 0.9.0 vòng 2 M10: lệnh kiểm đi qua ống mà mã thoát bị che (không có pipefail), kể cả `2>&1 | tail -1`: không tính, có dòng nhắc đi qua
-// ống và lý do chặn của cổng nêu ống. Có pipefail: `tee -a <tệp>`, `grep -c <mẫu>`, `grep -E <mẫu>` tính theo mã thoát của cả ống.
+// 0.9.0 vòng 2 M10: lệnh kiểm đi qua ống mà mã thoát bị che (không có pipefail), kể cả `2>&1 | tail -1`, không được tính thì có dòng nhắc
+// đi qua ống và lý do chặn của cổng nêu ống. Luật S5 giữ nguyên (quyết định của chủ mod 19/11/2026): lệnh qua tail, head, cat có dòng cuối là
+// dòng tổng kết chặt vẫn tính, nên output của các ca không pipefail ở đây không có dòng tổng kết. Có pipefail: `tee -a <tệp>`, `grep -c <mẫu>`,
+// `grep -E <mẫu>` tính theo mã thoát của cả ống.
 
 import { describe, expect, test } from 'claude-code/testing'
 import { SAMPLE_OPTS, callTool, closeAll, editSample, openSample, paneText, sampleSetup, stopSample } from '../support/closing-sample'
@@ -13,7 +15,7 @@ describe('0.9.0 vòng 2 M10: ống lệnh che mã thoát', () => {
   for (const command of HIDDEN) {
     test(`${command}: không tính, có dòng nhắc đi qua ống, lý do chặn nêu ống`, OPTS, async ($, on) => {
       const sample = sampleSetup(on)
-      sample.outputs[command] = { text: 'TỔNG: ĐẠT' }
+      sample.outputs[command] = { text: 'Đã chạy 5 ca' }
       await openSample($, sample, STEPS)
       await editSample($)
       const out = await callTool($, { tool: 'Bash', command })
