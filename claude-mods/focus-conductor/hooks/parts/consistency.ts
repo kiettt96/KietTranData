@@ -1806,7 +1806,9 @@ export function registerConsistency(on: On, ctx: Ctx): void {
         if (listed !== undefined && listed.goalId === meta.goalId) {
           // Cùng gốc lúc sinh (kiểm độc lập vòng 1 lỗi 11).
           const nowList = await listScope({ list: (path?: string) => $.fs.list(path), stat: (path: string) => $.fs.stat(path) }, listed.roots)
-          const created = nowList === null ? [] : newFiles(listed.files, nowList)
+          const sessionRoot = (await $.session.root().catch(() => null)) ?? ''
+          const ownLog = ctx.decisionLog === '' ? [] : [ctx.decisionLog.startsWith('/') || sessionRoot === '' ? ctx.decisionLog : `${sessionRoot.replace(/\/+$/, '')}/${ctx.decisionLog}`]
+          const created = nowList === null ? [] : newFiles(listed.files, nowList, ownLog)
           if (created.length > 0) {
             for (const path of created) if (!printChanged.includes(path)) printChanged.push(path)
             await update($, coreState, S.withWarnings({ at, kind: 'scope', text: `Lượt "${clipText(meta.description, 40)}" tạo file mới ngoài thư mục tạm: ${printNames(created)}` }))

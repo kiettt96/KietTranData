@@ -13,7 +13,8 @@ export type ListFs = {
   stat?: (path: string) => Promise<{ size?: number; mtimeMs?: number }>
 }
 
-const SKIP_DIRS = new Set(['node_modules', 'dist', 'build', '.git', '.focus-conductor'])
+// Thư mục cache do chính lệnh kiểm sinh ra (kiểm độc lập vòng 1 lỗi 8): lượt duyệt chạy pytest, mypy, ruff không làm kết luận mất hiệu lực.
+const SKIP_DIRS = new Set(['node_modules', 'dist', 'build', '.git', '.focus-conductor', '__pycache__', '.pytest_cache', '.mypy_cache', '.ruff_cache', '.tox', '.nyc_output', 'coverage'])
 
 /** Các thư mục gốc của phạm vi: mục phạm vi tuyệt đối, mục tương đối nối với thư mục gốc của phiên; không có thì thư mục gốc. */
 export function scopeRoots(scopePaths: readonly string[] | undefined, root: string | null): string[] {
@@ -60,9 +61,10 @@ export async function listScope(fs: ListFs, roots: readonly string[]): Promise<s
 
 /**
  * File mới hay file đổi kích thước hoặc mtime ngoài thư mục tạm giữa hai lần chụp (mỗi mục là đường dẫn kèm dấu kích thước và mtime). Sửa
- * một file đã có trong phạm vi mà file đó chưa vào tập dấu cũng được bắt (dạng lân cận của M13).
+ * một file đã có trong phạm vi mà file đó chưa vào tập dấu cũng được bắt (dạng lân cận của M13). Đường dẫn trong `ignore` là tệp mod tự ghi
+ * (nhật ký quyết định; kiểm độc lập vòng 1 lỗi 8).
  */
-export function newFiles(before: readonly string[], after: readonly string[]): string[] {
+export function newFiles(before: readonly string[], after: readonly string[], ignore: readonly string[] = []): string[] {
   const had = new Set(before)
-  return after.filter(item => !had.has(item)).map(item => item.split('\u0000')[0] ?? item).filter(path => !isRoleTemp(path))
+  return after.filter(item => !had.has(item)).map(item => item.split('\u0000')[0] ?? item).filter(path => !isRoleTemp(path) && !ignore.includes(path))
 }
