@@ -37,3 +37,27 @@ describe('0.9.0 vòng 2 G2: git clone của vai chỉ đọc vào thư mục t�
     expect((await callTool($, { tool: 'Bash', command: 'git clone -q /repo', agentId: id })).deny ?? '').toContain('Vai duyệt chỉ đọc')
   })
 })
+
+// G2b (kiểm độc lập vòng 2 lần 2): chỉ nhận git clone khi mọi tùy chọn thuộc danh sách cho phép, đích là đối số vị trí cuối cùng và là
+// đường dẫn tuyệt đối trong thư mục tạm; mọi dạng khác bị từ chối như trên main.
+describe('0.9.0 vòng 2 G2b: git clone chỉ với tùy chọn cho phép', () => {
+  const cases: [string, boolean][] = [
+    ['git clone --depth 1 /tmp/src /repo/dst', false],
+    ['git clone --depth 1 /repo /tmp/x/r', true],
+    ['git clone --separate-git-dir /repo/g /tmp/src /tmp/x/r', false],
+    ['git clone --tuy-chon-la v /tmp/src /tmp/x/r', false],
+    ['git clone -b main /tmp/src /tmp/x/r', true],
+    ['git clone /tmp/src', false],
+  ]
+  cases.forEach(([command, allowed], i) => {
+    test(`${allowed ? 'được chạy' : 'bị từ chối'}: ${command}`, SAMPLE_OPTS(), async ($, on) => {
+      const sample = sampleSetup(on)
+      await openSample($, sample)
+      await editSample($)
+      const id = await reviewer($, `g2b${i}`)
+      const deny = (await callTool($, { tool: 'Bash', command, agentId: id })).deny
+      if (allowed) expect(deny).toBeUndefined()
+      else expect(deny ?? '').toContain('chỉ đọc')
+    })
+  })
+})
