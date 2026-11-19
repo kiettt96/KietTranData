@@ -56,7 +56,7 @@ export function registerProgress(on: On, ctx: Ctx): void {
     await update($, coreState, c => (isVerifying ? S.withAutoVerified(fresh.command)(S.withMirror(goalId, next_)(c)) : S.withMirror(goalId, next_)(c)))
     if (isVerifying) {
       ctx.record(await $.clock.now(), 'verify-auto', { command: clipText(fresh.command), at: 'mirror' })
-      await ctx.flushDecisions((path, text) => $.fs.write(path, text))
+      await ctx.flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
     }
     await showStatus($, await read($, view), ctx.options)
     return result

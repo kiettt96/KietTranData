@@ -151,7 +151,7 @@ export function registerTurn(on: On, ctx: Ctx): void {
       const hold = 'fableHold' in decided ? decided.fableHold : undefined
       await update($, coreState, c => S.withLog(...decided.logs)(S.withRoute(decided.stored)(hold !== undefined ? S.withFable(() => ({ holdKey: hold }))(c) : c)))
       await markBaseline($, e, served, L.turnContext, isCacheFree)
-      if (hold !== undefined) await ctx.flushDecisions((path, text) => $.fs.write(path, text))
+      if (hold !== undefined) await ctx.flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
       for (const notice of decided.notices) $.ui.toast(notice)
       await showStatus($, await read($, view), ctx.options)
     }

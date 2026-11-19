@@ -206,7 +206,7 @@ async function closingGate($: EngineInterface, ctx: Ctx, core: Core, log: Eviden
   L.closingState = { goalId: brief.goalId, blocks: L.closingState.blocks + 1, key }
   await persistClosing($, ctx)
   ctx.record(await $.clock.now(), 'closing-gate', { goalId: brief.goalId, missing, n: L.closingState.blocks })
-  await ctx.flushDecisions((path, text) => $.fs.write(path, text))
+  await ctx.flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
   const reason = closingReasonText(missing)
   // Tên file đã đổi (0.9.0, C2 đo dấu file): đổi sau lượt duyệt (cổng xét lại), hay đổi ngay trong lượt duyệt sau thay đổi cuối.
   // Mọi lần chặn đều nêu tên file (vòng sửa cuối 18/11, A6): file đổi dấu đã ghi trong $.state, file đổi trong lượt duyệt, và file có lần
@@ -350,7 +350,7 @@ async function refreshTeam($: EngineInterface, ctx: Ctx): Promise<void> {
   }
   if (!isNew) return
   ctx.record(await $.clock.now(), 'team', { goalId: brief.goalId, cause, files: hardFileCount(changed) })
-  await ctx.flushDecisions((path, text) => $.fs.write(path, text))
+  await ctx.flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
   L.agentRetryNotes.push(closingNote({ hasCheck, isHard: brief.depth === 'hard', isDocs: isDocsOnly(brief, changed) }))
 }
 
@@ -402,7 +402,7 @@ async function liftStepChecks($: EngineInterface, ctx: Ctx, goalId: number): Pro
   if (lifts.length === 0) return false
   await update($, coreState, S.withStepVerified(lifts))
   ctx.record(await $.clock.now(), 'verify-step', { steps: lifts.map(l => l.id), command: clipText(lifts[0]?.command ?? '') })
-  await ctx.flushDecisions((path, text) => $.fs.write(path, text))
+  await ctx.flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
   return true
 }
 
@@ -440,7 +440,7 @@ async function autoVerify($: EngineInterface, ctx: Ctx, goalId: number): Promise
   if (fresh === undefined || fresh !== log.commands.at(-1) || !(core.plan.some(s => s.status === 'done') || S.liveMirror(core).some(s => s.status === 'done'))) return false
   await update($, coreState, S.withAutoVerified(fresh.command, autoLiftIds(ctx, core, goalId), true))
   ctx.record(await $.clock.now(), 'verify-auto', { command: clipText(fresh.command), at: core.plan.length === 0 ? 'mirror' : 'test' })
-  await ctx.flushDecisions((path, text) => $.fs.write(path, text))
+  await ctx.flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
   return true
 }
 
@@ -476,7 +476,7 @@ async function noteFableRouter($: EngineInterface, ctx: Ctx, isOk: boolean, fami
   if (step.text !== null) $.ui.toast(step.text)
   if (step.log !== null) {
     ctx.record(at, 'conductor', step.log)
-    await ctx.flushDecisions((path, body) => $.fs.write(path, body))
+    await ctx.flushDecisions((path, body) => $.fs.write(path, body), path => $.fs.read(path))
   }
 }
 const bandHiddenState = atom({ plugin: 'focus-conductor', key: 'isBandHidden' } as const, false)
@@ -647,7 +647,7 @@ async function noteChecks($: EngineInterface, deps: RetryDeps, core: Core, goalI
     const next = S.withRetry({ goalId, items })(plan !== core.plan ? S.withPlan(plan)(c) : c)
     return waived.length !== waivers.length ? S.withWaivers({ goalId, items: waived })(next) : next
   })
-  if (cleared.length > 0) await deps.flushDecisions((path, text) => $.fs.write(path, text))
+  if (cleared.length > 0) await deps.flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
   return notes
 }
 
@@ -721,7 +721,7 @@ async function retryGate($: EngineInterface, deps: RetryDeps, lastMessage: strin
     const next = S.withRetry({ goalId: core.retry.goalId, items })(plan !== core.plan ? S.withPlan(plan)(c) : c)
     return warnings.length > 0 ? S.withWarnings(...warnings)(next) : next
   })
-  await deps.flushDecisions((path, text) => $.fs.write(path, text))
+  await deps.flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
   return { reason: retryStopReason(advanced, exhausted, marked, waiting), isPlanChanged: plan !== core.plan }
 }
 
@@ -769,7 +769,7 @@ async function planReviewGate($: EngineInterface, ctx: Ctx): Promise<{ kind: 'no
       return warning !== undefined ? S.withWarnings({ at, kind: 'model', text: warning })(next) : next
     })
     ctx.record(at, 'approval', { goalId: brief.goalId, status: 'presented', cause })
-    await ctx.flushDecisions((path, text) => $.fs.write(path, text))
+    await ctx.flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
     return { kind: 'allow' as const }
   }
   // Lượt cuối đã chặn một lần: lần Stop này cho kết thúc, không rà thêm.
@@ -803,12 +803,12 @@ async function planReviewGate($: EngineInterface, ctx: Ctx): Promise<{ kind: 'no
   if (!hasFixes(review) && approval.early === true) {
     await update($, coreState, c => S.withApproval({ ...withoutEarly(S.approvalOf(c)), status: 'approved' })(c))
     ctx.record(at, 'approval', { goalId: brief.goalId, status: 'approved', cause: 'early' })
-    await ctx.flushDecisions((path, text) => $.fs.write(path, text))
+    await ctx.flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
     return { kind: 'allow' }
   }
   if (!hasFixes(review)) return present('review')
   if (approval.early === true) await update($, coreState, c => S.withApproval(withoutEarly(S.approvalOf(c)))(c))
-  await ctx.flushDecisions((path, text) => $.fs.write(path, text))
+  await ctx.flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
   return { kind: 'block', reason: reviewReason(review, brief.requirements ?? [], core.plan, rounds, ctx.planReviewRounds, rounds >= ctx.planReviewRounds) }
 }
 
@@ -907,7 +907,7 @@ async function logExhausted($: EngineInterface, deps: RetryDeps, core: Core, ans
     })
   }
   await update($, coreState, S.withRetry({ goalId: core.retry.goalId, items: core.retry.items.map(item => (due.includes(item) ? { ...item, logged: true } : item)) }))
-  await deps.flushDecisions((path, text) => $.fs.write(path, text))
+  await deps.flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
 }
 
 /**
@@ -1006,7 +1006,7 @@ async function announceUnverified($: EngineInterface, ctx: Ctx, finding: Finding
   }
   const rejected = tracker.rejected.slice(-UNVERIFIED_REJECTED).map(r => ({ command: clipText(r.command, 120), reason: r.reason }))
   ctx.record(at, 'unverified', { mutations: tracker.mutations, hard: hardChanges(tracker), maybe: tracker.maybe, checks: tracker.checks, rejected, soft: finding.isSoft === true })
-  await ctx.flushDecisions((path, text) => $.fs.write(path, text))
+  await ctx.flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
   if (finding.isSoft !== true && tracker.checks === 0 && !isPaused && brief !== null) await offerCheckHint($, brief.goalId, suggestCheckCommands(ctx.evidenceFor(brief.goalId)))
 }
 
@@ -1131,7 +1131,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     })
     if (opened !== null) {
       record(await $.clock.now(), 'phase', { phase: opened.brief.phase, tasks: opened.tasks, items: opened.items, cause: 'plan-set' })
-      await flushDecisions((path, text) => $.fs.write(path, text))
+      await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
     }
     // Trường check của bước (0.9.0 B10): mốc check mới cho bước có check vừa lưu hay vừa đổi, để lần chạy trước đó không còn là bằng chứng.
     // Đổi check của một bước đã có sau khi kế hoạch được duyệt: một dòng check-changed và một cảnh báo ở mục cần chú ý.
@@ -1152,7 +1152,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       if (changed.length > 0) {
         const at = await $.clock.now()
         record(at, 'check-changed', { goalId, steps: changed })
-        await flushDecisions((path, text) => $.fs.write(path, text))
+        await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
         core = await update($, coreState, S.withWarnings({ at, kind: 'drift', text: `Bước ${changed.join(', ')} đổi check sau khi kế hoạch đã duyệt; bằng chứng cũ của bước không còn tính` }))
       }
     }
@@ -1164,7 +1164,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       if (closed.length > 0) {
         core = await update($, coreState, S.withAutoVerified(fresh.command, autoLiftIds(ctx, core, before.brief?.goalId ?? -1, closed)))
         record(await $.clock.now(), 'verify-auto', { steps: closed, command: clipText(fresh.command), at: 'close' })
-        await flushDecisions((path, text) => $.fs.write(path, text))
+        await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
       }
     }
     L.tracker.planUpdates += 1
@@ -1187,7 +1187,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       L.verifyRejects.set(rejectKey, rejects)
       if (rejects >= 2) noteBehavior('verify-reject', `bước ${String(input.step)} bị từ chối lần ${rejects}: ${reason}`)
       record(at, 'verify-reject', { step: input.step, level: strength?.level ?? 'none', reason, evidence: clipText(evidence) })
-      await flushDecisions((path, text) => $.fs.write(path, text))
+      await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
       // weak và none: lệnh kiểm tra có thể là script riêng chưa khai checkCommands; stale thì option không liên quan.
       const hasHint = (strength?.level ?? 'none') !== 'stale'
       notes.push(unbackedNotice(reason, hasHint ? (log === null ? [] : suggestCheckCommands(log)) : undefined))
@@ -1310,7 +1310,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     if (role !== null && !role.isExempt) {
       const denied = S.conductOf(await update($, coreState, S.withConduct(role.goalId, c => (roleKind === 'write' ? { deniedWrites: c.deniedWrites + 1 } : { deniedChecks: c.deniedChecks + 1 }))))
       record(await $.clock.now(), 'conduct-deny', { type: roleKind, n: roleKind === 'write' ? denied.deniedWrites : denied.deniedChecks })
-      await flushDecisions((path, text) => $.fs.write(path, text))
+      await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
       return { deny: roleKind === 'write' ? conductWriteDenyText() : conductCheckDenyText() }
     }
     const blockCore = isMainWrite && role === null ? S.normalizeCore(await read($, coreState)) : null
@@ -1329,7 +1329,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     if (role !== null && result.deny === undefined) {
       const own = S.conductOf(await update($, coreState, S.withConduct(role.goalId, c => (roleKind === 'write' ? { selfWrites: c.selfWrites + 1 } : { selfChecks: c.selfChecks + 1 }))))
       record(await $.clock.now(), 'conduct-self', { type: roleKind, n: roleKind === 'write' ? own.selfWrites : own.selfChecks })
-      await flushDecisions((path, text) => $.fs.write(path, text))
+      await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
     }
     if (result.deny !== undefined || e.tool === PLAN_TOOL_FULL) return result
     if ((await read($, mode)) === 'off') return result
@@ -1397,7 +1397,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
             if (others.length === 0 || L.clashWarned.has(path) || L.clashWarned.size >= 200) continue
             L.clashWarned.add(path)
             record(await $.clock.now(), 'file-clash', { file: clipText(path), agents: [e.agentId, ...others] })
-            await flushDecisions((path2, text) => $.fs.write(path2, text))
+            await flushDecisions((path2, text) => $.fs.write(path2, text), path2 => $.fs.read(path2))
             L.agentRetryNotes.push(fileClashNote(path, 1 + others.length))
           }
         }
@@ -1467,7 +1467,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
         L.chainedNoted.add(key)
         retryNotes.push(chainedCheckNote(entry.command))
         record(await $.clock.now(), 'check-chained', { command: clipText(entry.command) })
-        await flushDecisions((path, text) => $.fs.write(path, text))
+        await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
       }
     }
     // Lượt 2 hay 3 của lệnh kiểm chưa đạt mà luồng chính tự sửa file (W4): dặn giao subagent ở mức đã nâng, một lần mỗi lượt, không chặn.
@@ -1500,7 +1500,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       if (fresh !== undefined && fresh === log.commands.at(-1) && (core.plan.some(s => s.status === 'done') || S.liveMirror(core).some(s => s.status === 'done'))) {
         await update($, coreState, S.withAutoVerified(fresh.command, autoLiftIds(ctx, core, core.brief.goalId), true))
         record(await $.clock.now(), 'verify-auto', { command: clipText(fresh.command), at: core.plan.length === 0 ? 'mirror' : 'test' })
-        await flushDecisions((path, text) => $.fs.write(path, text))
+        await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
         await showStatus($, await read($, view), ctx.options)
       }
     }
@@ -1558,7 +1558,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
       const at = await $.clock.now()
       for (const t of merging) record(at, 'fork-archive', { task: t.index, parts: t.split?.length ?? 0, results: forkResults(core, t.index) })
       await update($, coreState, S.withForksMerged(goalId, merging.map(t => t.index)))
-      await flushDecisions((path, text) => $.fs.write(path, text))
+      await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
       notes.push(...merging.map(t => forkMergedNote(t.index)))
     }
     const withNudge = (r: typeof result) => (notes.length > 0 ? { ...r, context: [...(r.context ?? []), ...notes] } : r)
@@ -1633,7 +1633,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
         noteObserved(`Router: có thể lạc đề (${verdict?.why ?? ''})`)
       }
       record(now, 'drift', { onTrack: verdict?.onTrack ?? null, why: verdict?.why ?? outcome.reason, retried: outcome.retried })
-      await flushDecisions((path, text) => $.fs.write(path, text))
+      await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
       if (verdict !== null && !verdict.onTrack) driftNote = driftContext(core.brief.goal, verdict.why)
     }
     const top = findings.filter(f => f.context).sort((a, b) => b.priority - a.priority)[0]
@@ -1803,7 +1803,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
         L.verdicts.items.push({ agentId, role, verdict: parsed?.verdict ?? null, isClean, isReview, ...(parsed?.count !== undefined ? { count: parsed.count } : {}), seq: spawnSeq !== undefined ? spawnSeq + 0.5 : ctx.evidenceFor(meta.goalId).seq, ...(printChanged.length > 0 ? { changed: printChanged.slice(0, 20) } : {}), ...(isUnclear ? { unclear: true as const } : {}), ...(isUnread ? { unread: true as const } : {}), family: ranFamily ?? meta.family, ...(meta.taskIndex !== undefined ? { taskIndex: meta.taskIndex } : {}), description: meta.description })
         if (L.verdicts.items.length > 100) L.verdicts.items.shift()
         record(at, 'verdict', { agentId, role, verdict: parsed?.verdict ?? null, ...(isClean ? {} : { wrote: true }), ...(printChanged.length > 0 ? { changed: printChanged.slice(0, 3) } : {}), ...(isReview ? { review: true } : {}), ...(parsed?.count !== undefined ? { count: parsed.count } : {}) })
-        await flushDecisions((path, text) => $.fs.write(path, text))
+        await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
         // Vòng sửa theo kết luận (0.9.0 C7): chưa đạt của một subagent không ghi file tính vòng cho cùng một mục, trần RETRY_ROUNDS. Khóa là mục
         // tiêu, vai và việc đã phân nếu có (vòng 2 M4), không theo description, nên người duyệt đổi description giữa các vòng vẫn cộng dồn.
         const roundKey = `${meta.goalId}:${role}:${meta.taskIndex ?? ''}`
@@ -1819,7 +1819,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
             $.ui.toast(text)
             record(at, 'retry-exhausted', { role, description: clipText(meta.description), round })
           }
-          await flushDecisions((path, text) => $.fs.write(path, text))
+          await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
         }
         await persistClosing($, ctx)
       }
@@ -1844,7 +1844,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
         const outcome: 'done' | 'failed' = end.agent === 'done' ? 'done' : 'failed'
         await update($, coreState, S.withForkEnd(agentId, outcome))
         record(at, 'fork', { task: forked.task, part: forked.part, result: outcome })
-        await flushDecisions((path, text) => $.fs.write(path, text))
+        await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
       }
       // Việc đã phân mà agent này làm: ghi xong hoặc lỗi (lỗi thì Stop và cảnh báo cuối turn nhắc giao lại).
       if (meta?.taskIndex !== undefined) {

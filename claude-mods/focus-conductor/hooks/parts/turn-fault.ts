@@ -67,14 +67,14 @@ async function probeTick($: EngineInterface, ctx: Ctx, watch: Watch): Promise<vo
     stopWatch(watch)
     watch.resumed.add(fault.goalId)
     ctx.record(at, 'net', { reason: 'auto-resume', goalId: fault.goalId, probes })
-    await ctx.flushDecisions((path, text) => $.fs.write(path, text))
+    await ctx.flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
     await $.prompt.submit({ text: netResumeText(fault) }).catch(caught('prompt.submit', undefined))
     return
   }
   if (probes >= MAX_PROBES) {
     stopWatch(watch)
     ctx.record(at, 'net', { reason: 'probe-gave-up', goalId: fault.goalId, probes })
-    await ctx.flushDecisions((path, text) => $.fs.write(path, text))
+    await ctx.flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
   }
 }
 
@@ -124,7 +124,7 @@ export function registerTurnFault(on: On, ctx: Ctx): void {
     }))
     if (core.turnFault === null) $.ui.toast('Focus Conductor: turn lỗi, turn đã kết thúc vì lỗi. Gõ tiếp để chạy lại; mod không tự chạy lại.')
     ctx.record(at, 'net', { reason: 'turn-error', goalId: core.brief?.goalId ?? null, openSteps: openSteps(core.plan).length })
-    await ctx.flushDecisions((path, text) => $.fs.write(path, text))
+    await ctx.flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
     await showStatus($, await read($, view), ctx.options)
     // netResume bật: dò mạng để tự tiếp tục, tối đa một lần mỗi mục tiêu; đã có bộ đếm thì giữ.
     if (isNetResume && watch.timer === null && !watch.resumed.has(core.brief?.goalId ?? null)) {

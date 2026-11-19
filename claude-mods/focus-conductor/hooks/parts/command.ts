@@ -48,7 +48,7 @@ async function autoOpenPane($: EngineInterface, ctx: Ctx, goalId: number, at: nu
   // Chỉ ghi khi pane chưa được đặt (màn hình hẹp, chưa có surface, engine từ chối): đặt được là trường hợp bình thường, không cần dòng log.
   if (opened?.isPlaced === true) return
   ctx.record(at, 'pane', { goalId, isPlaced: false, reason: opened === null ? 'engine từ chối mở pane' : opened.reason })
-  await ctx.flushDecisions((path, text) => $.fs.write(path, text))
+  await ctx.flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
 }
 
 /** /conductor resume discard phải gõ lần hai trong bấy nhiêu ms (như nút Đặt lại). */
@@ -165,7 +165,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
         if (core.brief === null) return { text: 'Chưa có mục tiêu nào để miễn duyệt độc lập.' }
         await update($, coreState, c => S.withClosingWaived(core.brief!.goalId)(S.withClosingGap(null)(c)))
         record(await $.clock.now(), 'waive', { signature: 'closing-review', goalId: core.brief.goalId })
-        await flushDecisions((path, text) => $.fs.write(path, text))
+        await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
         // Status line khớp trạng thái bước đóng sau lệnh miễn (vòng 2 U2).
         await showStatus($, await read($, view), ctx.options)
         return { text: 'Đã miễn duyệt độc lập cho mục tiêu này; cổng đóng mục tiêu không chặn nữa.' }
@@ -184,7 +184,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
           return old === null ? next : S.withPlan(next.plan.map(s => (s.id === old.id ? { ...s, status: old.status, note: old.note ?? undefined } : s)))(next)
         })
         record(now, 'waive-undo', { signature: waiver.sig, round: waiver.round })
-        await flushDecisions((path, text) => $.fs.write(path, text))
+        await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
         await showStatus($, await read($, view), ctx.options)
         return { text: `Đã bỏ lệnh miễn của \`${waiver.command}\`; lệnh quay lại lượt ${waiver.round}/${RETRY_ROUNDS}.` }
       }
@@ -203,7 +203,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
         return target === undefined ? next : S.withPlan(next.plan.map(s => (s.id === target.id ? { ...s, status: 'skipped' as const, note: `miễn bởi chủ mod: ${reason}` } : s)))(next)
       })
       record(now, 'waive', { signature: item.sig, reason, round: item.round })
-      await flushDecisions((path, text) => $.fs.write(path, text))
+      await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
       await showStatus($, await read($, view), ctx.options)
       return { text: `Đã miễn \`${item.command}\` cho mục tiêu này (lượt ${item.round}/${RETRY_ROUNDS}): không còn chặn kết thúc. Câu trả lời cuối cần mục "${WAIVE_REPORT}".` }
     }
@@ -216,7 +216,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       if (core.brief === null || !S.isPlanGated(core)) return { text: 'Không có kế hoạch nào đang chờ duyệt.' }
       await update($, coreState, S.withApproval({ ...S.approvalOf(core), status: 'approved' }))
       record(await $.clock.now(), 'approval', { goalId: core.brief.goalId, status: 'approved', cause: 'command' })
-      await flushDecisions((path, text) => $.fs.write(path, text))
+      await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
       await showStatus($, await read($, view), ctx.options)
       return { text: 'Đã duyệt kế hoạch; Claude được sửa file theo checklist.' }
     }
@@ -232,7 +232,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       if (S.conductOf(core).solo !== isOn) {
         await update($, coreState, S.withConduct(goalId, () => ({ solo: isOn })))
         record(await $.clock.now(), 'conduct-exempt', { state: isOn ? 'on' : 'off', reason: 'solo' })
-        await flushDecisions((path, text) => $.fs.write(path, text))
+        await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
       }
       await showStatus($, await read($, view), ctx.options)
       return {
@@ -290,7 +290,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       // Mục tiêu mới đặt bằng lệnh thì band đã ẩn hiện lại, như mục tiêu mới do router đọc (0.7.2).
       await update($, bandHiddenState, () => false)
       record(now, plan !== null ? 'route' : 'router-fail', { command: 'goal', prompt: clipText(arg), reason: outcome.reason, retried: outcome.retried, ...(fail ? failFields(fail) : {}) })
-      await flushDecisions((path, text) => $.fs.write(path, text))
+      await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
       await showStatus($, await read($, view), ctx.options)
       const wanted = wantedPick(brief, core.lift, core, await read($, mode))
       const expected = wanted !== null ? expectedMain(core, brief, wanted, now) : null
@@ -342,7 +342,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
         const fail = routerFailOf(outcome, now, now - startedAt)
         await update($, coreState, c => S.withRouterFail(fail)(withUsage(c)))
         record(now, 'router-fail', { command: 'reroute', prompt: clipText(last.text), reason: outcome.reason, retried: outcome.retried, ...failFields(fail) })
-        await flushDecisions((path, text) => $.fs.write(path, text))
+        await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
         await showStatus($, await read($, view), ctx.options)
         return { text: `Router không đọc được (${outcome.reason}); giữ điều phối hiện tại.` }
       }
@@ -385,7 +385,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
       const wanted = wantedPick(brief, core.lift, core, await read($, mode))
       const expected = wanted !== null ? expectedMain(core, brief, wanted, now) : null
       record(now, 'reroute', { prompt: clipText(last.text), relation: plan.relation, confidence: plan.confidence, retried: outcome.retried, main: brief.main, expected })
-      await flushDecisions((path, text) => $.fs.write(path, text))
+      await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
       await showStatus($, await read($, view), ctx.options)
       return {
         text: `Router đã đọc lại prompt gần nhất: ${brief.goal} (${brief.depth}, khối lượng ${brief.volume}, luồng chính ${expected ? describePick(expected) + (isApplied ? '' : ' (chỉ đề xuất)') : 'model của phiên'}).`,

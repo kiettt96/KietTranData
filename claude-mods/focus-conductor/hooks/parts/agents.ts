@@ -46,7 +46,7 @@ async function noteFableRouter($: EngineInterface, ctx: Ctx, isOk: boolean, fami
   if (step.text !== null) $.ui.toast(step.text)
   if (step.log !== null) {
     ctx.record(at, 'conductor', step.log)
-    await ctx.flushDecisions((path, body) => $.fs.write(path, body))
+    await ctx.flushDecisions((path, body) => $.fs.write(path, body), path => $.fs.read(path))
   }
 }
 const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null)
@@ -141,7 +141,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
     }
     if (reason === null) return next(e)
     record(await $.clock.now(), 'role-deny', { agentId: e.agentId, role, tool: e.tool })
-    await flushDecisions((path, text) => $.fs.write(path, text))
+    await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
     return { deny: reason }
   }).catch(($, e, next) => (noteHookError('tool.call role', next.error), next(e)))
 
@@ -159,7 +159,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
     const result = await next(e)
     L.lastSwitch = { source: e.source, toModel: e.to_model }
     record(await $.clock.now(), 'model-switch', { source: e.source, from: e.from_model, to: e.to_model, requested: e.requested_model })
-    await flushDecisions((path, text) => $.fs.write(path, text))
+    await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
     return result
   }).catch(($, e, next) => (noteHookError('classic.PostModelSwitch', next.error), next(e)))
 
@@ -216,13 +216,13 @@ export function registerAgents(on: On, ctx: Ctx): void {
           notes.push(forkReturnNote(owner?.index ?? null, parts))
         }
         if (label !== null) record(at, 'fork', { ...label, result: 'returned' })
-        await flushDecisions((path, text) => $.fs.write(path, text))
+        await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
       } else if (result.isError === true && label !== null) {
         const part = liveForks(S.normalizeCore(await read($, coreState))).find(p => p.toolUseId === e.tool_use_id)
         if (part?.state === 'running') {
           await update($, coreState, S.withForkCall(e.tool_use_id, p => ({ ...p, state: 'failed' })))
           record(at, 'fork', { ...label, result: 'failed' })
-          await flushDecisions((path, text) => $.fs.write(path, text))
+          await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
         }
       }
       if (result.deny !== undefined || notes.length === 0) return result
@@ -246,7 +246,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
       const conflict = ruleConflict(constraints, e.description, L.sessionFamily)
       if (conflict !== null) {
         record(await $.clock.now(), 'rule-conflict', { description: clipText(e.description), families: conflict.families, items: conflict.items })
-        await flushDecisions((path, text) => $.fs.write(path, text))
+        await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
       }
       return ruleFamily(constraints, e.description, L.sessionFamily)
     }
@@ -267,7 +267,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
       // Claude đã chốt cả họ (ở mức trần chính sách cho phép) lẫn effort (0.7.4): router không thể chọn khác, không gọi.
       reason = 'Claude đã chốt model và effort ở mức trần cho phép; không gọi router'
       record(await $.clock.now(), 'agent-floor', { description: clipText(e.description), skip: true, claimed: `${claimed}/${requested}` })
-      await flushDecisions((path, text) => $.fs.write(path, text))
+      await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
     } else if (claimed !== null && claimed !== 'haiku' && brief !== null && !brief.isReference && (await ruled(brief.constraints)) === claimed) {
       // Model Claude ghi đúng quy định model của loại việc trong brief (0.7.5): router không được chọn khác, không gọi. Lựa chọn
       // vẫn qua chính sách (fitPick). Haiku không bỏ qua router: chỉ router biết việc có sửa file (haiku không sửa file) hay không.
@@ -338,7 +338,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
           claimed: e.model,
           ...(requested !== null ? { claimedEffort: requested } : {}),
         })
-        await flushDecisions((path, text) => $.fs.write(path, text))
+        await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
         route = floored.route
         reason += `; ${floored.notes.join('; ')}`
       }
@@ -360,7 +360,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
           to: describePick(lifted.pick),
           retry: retryFloor.sig,
         })
-        await flushDecisions((path, text) => $.fs.write(path, text))
+        await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
         reason += `; sàn của lượt sửa lỗi kiểm ${retryFloor.round}/${RETRY_ROUNDS}: ${describePick(lifted.pick)}`
       }
     }
@@ -403,7 +403,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
         ...(route?.role !== undefined ? { role: route.role } : {}),
         routed: route !== null,
       })
-      await flushDecisions((path, text) => $.fs.write(path, text))
+      await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
     }
 
     // Lập kế hoạch thuộc vai của Fable (0.8.4 C7): Agent Plan chạy fable/medium khi Fable sẵn sàng, sau các bước kẹp (việc đã phân,
@@ -468,7 +468,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
       if (ctx.isConducting(now, current) && S.conductOf(now).agentDenied !== isRefused) {
         await update($, coreState, S.withConduct(brief.goalId, () => ({ agentDenied: isRefused })))
         record(await $.clock.now(), 'conduct-exempt', { state: isRefused ? 'on' : 'off', reason: 'agent' })
-        await flushDecisions((path, text) => $.fs.write(path, text))
+        await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
       }
     }
     return result

@@ -40,7 +40,7 @@ async function autoOpenPane($: EngineInterface, ctx: Ctx, goalId: number, at: nu
   // Chỉ ghi khi pane chưa được đặt (màn hình hẹp, chưa có surface, engine từ chối): đặt được là trường hợp bình thường, không cần dòng log.
   if (opened?.isPlaced === true) return
   ctx.record(at, 'pane', { goalId, isPlaced: false, reason: opened === null ? 'engine từ chối mở pane' : opened.reason })
-  await ctx.flushDecisions((path, text) => $.fs.write(path, text))
+  await ctx.flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
 }
 
 // Atom của mod, khai báo lại ở mỗi file dùng chúng (engine chỉ nhận tham chiếu state viết trong chính file đó);
@@ -59,7 +59,7 @@ async function noteFableRouter($: EngineInterface, ctx: Ctx, isOk: boolean, fami
   if (step.text !== null) $.ui.toast(step.text)
   if (step.log !== null) {
     ctx.record(at, 'conductor', step.log)
-    await ctx.flushDecisions((path, body) => $.fs.write(path, body))
+    await ctx.flushDecisions((path, body) => $.fs.write(path, body), path => $.fs.read(path))
   }
 }
 const bandHiddenState = atom({ plugin: 'focus-conductor', key: 'isBandHidden' } as const, false)
@@ -189,6 +189,7 @@ export function registerSession(on: On, ctx: Ctx): void {
     if (decisionLog) {
       const old = await $.fs.read(decisionLog).catch(caught('fs.read', ''))
       L.decisions = typeof old === 'string' ? keptLines(old) : []
+      L.decisionsMerged = true
     }
     // Phiên không tương tác (0.8.0 A13): claude -p hay SDK, isInteractive false (SessionStartInput). headlessRouting off (mặc định) thì mod chạy
     // như routing off trong phiên đó, không ghi đè mode người dùng đã đặt; ghi một dòng headless-off. Mở lại tương tác thì trả mode về cấu hình.
@@ -197,7 +198,7 @@ export function registerSession(on: On, ctx: Ctx): void {
         await update($, modeState, () => 'off')
         await update($, headlessState, () => true)
         record(await $.clock.now(), 'headless-off', {})
-        await flushDecisions((path, text) => $.fs.write(path, text))
+        await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
       }
     } else if (e.isInteractive !== false && (await read($, headlessState))) {
       await update($, modeState, () => null)
@@ -333,7 +334,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       record(at, 'skip', { prompt: text, goalId: prev.goalId })
       // Câu tiếp nối ngắn: turn này làm tiếp mục tiêu đang mở.
       L.promptIntent = { relation: 'continue', kind: prev.isReference ? 'answer' : prev.kind }
-      await flushDecisions((path, text) => $.fs.write(path, text))
+      await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
       const lead = L.noAutoResume && !isArmed ? [] : await startResume()
       // Quay lại mục tiêu đã cất (0.8.5 K7): cùng luật với nhánh có router (S.resumeTarget), trên Core đọc ngay lúc này; không gọi router,
       // không cộng chi phí router. Tin chạy tiếp điểm dừng đang mở giữ ưu tiên.
@@ -347,7 +348,7 @@ export function registerSession(on: On, ctx: Ctx): void {
         L.promptIntent = { relation: 'continue', kind: restored.kind }
         L.lastPrompt = { text, prev: restored, goalId: restored.goalId }
         record(at, 'restore', { prompt: clipText(text), goalId: restored.goalId, from: skipFrom.brief.goalId, cause: 'resume' })
-        await flushDecisions((path, text) => $.fs.write(path, text))
+        await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
         await showStatus($, await read($, view), ctx.options)
         const core = S.normalizeCore(await read($, coreState))
         const wanted = wantedPick(restored, core.lift, core, current)
@@ -472,7 +473,7 @@ export function registerSession(on: On, ctx: Ctx): void {
         // Brief trước prompt là brief vừa khôi phục (0.8.5 K6): /conductor reroute đọc lại prompt này trên mục tiêu đã khôi phục.
         L.lastPrompt = { text, prev: restored, goalId: restored.goalId }
         record(now, 'restore', { prompt: clipText(text), goalId: restored.goalId, from: lastArchived.brief.goalId, cause: 'resume' })
-        await flushDecisions((path, text) => $.fs.write(path, text))
+        await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
         await showStatus($, await read($, view), ctx.options)
         // Mục tiêu khôi phục là mục tiêu lớn: đoạn dặn điều phối theo khóa Core.fable.briefedGoal như mọi mục tiêu (0.8.4 V1). Tin chen ngang
         // (0.8.5 K4): turn đang chạy giữ model của nó, nên không dặn và không ghi khóa; prompt kế tiếp ngoài turn dặn theo cơ chế chung.
@@ -493,7 +494,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       await update($, coreState, c => S.withRouterFail(null)(charge(c)))
       L.lastPrompt = { text, prev, goalId: prev.goalId }
       record(now, 'route', { prompt: clipText(text), relation: plan.relation, intent, confidence: plan.confidence, retried: outcome.retried, ...(outcome.firstFail !== undefined ? { firstFail: outcome.firstFail } : {}), goalId: prev.goalId })
-      await flushDecisions((path, text) => $.fs.write(path, text))
+      await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
       await showStatus($, await read($, view), ctx.options)
       return next({ ...e, context: [...lead, ...(e.context ?? []), intentStatusContext(isInterject), ...tail] })
     }
@@ -504,7 +505,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       await update($, coreState, c => S.withRouterFail(null)(charge(c)))
       L.lastPrompt = { text, prev, goalId: prev.goalId }
       record(now, 'route', { prompt: clipText(text), relation: plan.relation, intent: 'aside', confidence: plan.confidence, retried: outcome.retried, ...(outcome.firstFail !== undefined ? { firstFail: outcome.firstFail } : {}), goalId: prev.goalId })
-      await flushDecisions((path, text) => $.fs.write(path, text))
+      await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
       await showStatus($, await read($, view), ctx.options)
       return next({ ...e, context: [...lead, ...(e.context ?? []), asideContext(isInterject, openSteps(before.plan)[0]), ...tail] })
     }
@@ -548,7 +549,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       }
       L.lastPrompt = { text, prev, goalId: bare?.goalId ?? kept?.goalId ?? null }
       record(now, 'router-fail', { prompt: clipText(text), reason: outcome.reason, retried: outcome.retried, reuse: isReuse, ...failFields(fail) })
-      await flushDecisions((path, text) => $.fs.write(path, text))
+      await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
       if (!isPaused) $.ui.toast(pauseText ?? failText)
       await showStatus($, await read($, view), ctx.options)
       // Router lỗi khi chen ngang (0.7.8 G9): mục tiêu, phân việc và checklist đã giữ; vẫn dặn thêm bước cho yêu cầu mới.
@@ -707,7 +708,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       ...(isNewGoal && teamCause(ctx.options['closingReview'], brief, []) !== null ? { team: teamCause(ctx.options['closingReview'], brief, []) } : {}),
       tasks: brief.tasks.map(t => ({ index: t.index, run: t.run, agentType: t.agentType, ...(t.role !== undefined ? { role: t.role } : {}), pick: t.pick, ...(t.split !== undefined ? { split: t.split.length } : {}) })),
     })
-    await flushDecisions((path, text) => $.fs.write(path, text))
+    await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
     if (outcome.retried) $.ui.toast('Router đã đọc lại một lần (câu trả lời đầu hỏng hoặc tin cậy thấp)')
     if (isNewGoal) {
       const delegated = brief.isReference ? 0 : brief.tasks.filter(task => task.run === 'agent').length
@@ -761,7 +762,7 @@ export function registerSession(on: On, ctx: Ctx): void {
     if (core.brief === null || !S.isPlanGated(core)) return result
     await update($, coreState, S.withApproval({ ...S.approvalOf(core), status: 'approved' }))
     record(await $.clock.now(), 'approval', { goalId: core.brief.goalId, status: 'approved', cause: 'exit-plan-mode' })
-    await flushDecisions((path, text) => $.fs.write(path, text))
+    await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
     await showStatus($, await read($, view), ctx.options)
     return result
   }).catch(($, e, next) => (noteHookError('classic.PostToolUse', next.error), next(e)))
@@ -790,7 +791,7 @@ export function registerSession(on: On, ctx: Ctx): void {
     await update($, coreState, c => S.withDelegations(brief.goalId, delegationItems(next_))(S.withBrief(next_)(c)))
     L.interjectNote = interjectMovedNote(moved)
     record(await $.clock.now(), 'interject-deliver', { goalId: brief.goalId, toAgent: moved.length, tasks: moved.map(t => t.index) })
-    await flushDecisions((path, text) => $.fs.write(path, text))
+    await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
     return next(e)
   }).catch(($, e, next) => (noteHookError('session.append', next.error), next(e)))
 }

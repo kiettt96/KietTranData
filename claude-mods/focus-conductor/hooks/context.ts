@@ -9,7 +9,7 @@ import type { EvidenceLog, PromptIntent, TurnTracker } from './lib/drift'
 import { DEFAULT_CACHE_TTL_MINUTES, DEFAULT_CONTEXT, DEFAULT_WINDOWS, applyCacheWrite, applyPrices, parseCacheWrite, parsePrices } from './lib/cost'
 import { EFFORTS, FAMILIES as FAMILIES_ORDER, decideMain, describePick, familyOf, hasTitleCode, liftPick, matchTask, parseModelMap, parseWindows, pinnedId, resolveModelId } from './lib/route'
 import type { SessionModel, SessionPolicy } from './lib/route'
-import { DECISION_LIMIT, decisionLine } from './lib/decisions'
+import { DECISION_LIMIT, decisionLine, keptLines } from './lib/decisions'
 import type { DecisionKind } from './lib/decisions'
 import { EMPTY_ERRORS, behaviorEntries, caught, noteBehavior, noteModError, errorFileText, errorLines, localIso, mergeEntry, mergeFiles, parseErrorFile, pruneFixed, setErrorSink } from './lib/errlog'
 import type { ErrorEntry, ErrorEvent, ErrorFile } from './lib/errlog'
@@ -154,6 +154,8 @@ export function createContext(options: PluginOptions) {
     verdictRounds: new Map<string, number>(),
     /** Trạng thái cổng đóng đã nạp từ $.state trong lần nạp mod này, và bản đã ghi gần nhất (0.9.0 vòng 2 M6). */
     closingLoaded: false,
+    /** Đã gộp các dòng cũ của tệp nhật ký quyết định trong tiến trình này (0.9.0 vòng 2 M14). */
+    decisionsMerged: false,
     /** Danh sách file của phạm vi lúc sinh lượt có vai chỉ đọc hay vai kiểm (0.9.0 vòng 2 M13), theo agentId. */
     scopeLists: new Map<string, { goalId: number; files: string[] }>(),
     closingSaved: '',
@@ -454,8 +456,18 @@ export function createContext(options: PluginOptions) {
    * Ghi log quyết định ra file (option decisionLog); không làm gì khi chưa bật, lỗi ghi bị bỏ qua. `write` do hook truyền vào
    * (`(path, text) => $.fs.write(path, text)`) vì engine không cho `$` đi qua một import.
    */
-  async function flushDecisions(write: (path: string, text: string) => Promise<unknown>): Promise<void> {
-    if (decisionLog) await write(decisionLog, decisionText()).catch(caught('fs.write decisionLog', undefined))
+  async function flushDecisions(write: (path: string, text: string) => Promise<unknown>, read?: (path: string) => Promise<unknown>): Promise<void> {
+    if (!decisionLog) return
+    // Lần ghi đầu của tiến trình (vòng 2 M14): đọc tệp hiện có, giữ các dòng cũ đứng trước trong trần DECISION_LIMIT; tệp hỏng hay không đọc
+    // được thì ghi mới. Tiến trình chạy tiếp không phát session.start trước lần ghi đầu thì dòng cũ vẫn còn.
+    if (!local.decisionsMerged && read !== undefined) {
+      local.decisionsMerged = true
+      const old = await read(decisionLog).catch(() => '')
+      const kept = typeof old === 'string' ? keptLines(old) : []
+      const fresh = local.decisions.filter(line => !kept.includes(line))
+      local.decisions = [...kept, ...fresh].slice(-DECISION_LIMIT)
+    }
+    await write(decisionLog, decisionText()).catch(caught('fs.write decisionLog', undefined))
   }
 
   /** Đường dẫn file nhật ký lỗi: tuyệt đối giữ nguyên, tương đối ghép với thư mục gốc của phiên (không có thì để engine nối với cwd). */
