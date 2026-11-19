@@ -5,6 +5,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import { SAMPLE_OPTS, runCommand, sampleSetup } from '../support/closing-sample'
 import { M6_STATE } from '../support/m6-state'
+import { PANE } from '../support/engine'
 
 const FILE = '/repo/.focus-conductor/state.json'
 const saved = (sessionId: string, savedAt: number) => JSON.stringify({ v: 1, sessionId, savedAt, core: M6_STATE['core'], closing: M6_STATE['closing'] })
@@ -59,6 +60,20 @@ describe('0.9.0 vòng 2 I2: đặt lại xoá trạng thái đã lưu', () => {
     sampleSetup(on)
     await $.session.start({ cwd: '/repo', surface: null, isInteractive: false } as never)
     await $.session.end({ reason: 'clear' } as never)
+    expect(writes.at(-1)).toBe('')
+    expect((state['closing'] as { verdicts?: { items?: unknown[] } } | undefined)?.verdicts?.items).toEqual([])
+  })
+
+  test('J4 (kiểm độc lập vòng 2 lỗi 3): nạp từ tệp rồi bấm nút đặt lại của pane hai lần: tệp trạng thái bị xoá nội dung, bản ghi cổng đóng về rỗng', SAMPLE_OPTS(), async ($, on) => {
+    const writes = engineFs(on, 's-1', saved('s-1', 1000))
+    const state: Record<string, unknown> = {}
+    stateWrites(on, state)
+    sampleSetup(on)
+    await $.session.start({ cwd: '/repo', surface: null, isInteractive: false } as never)
+    const ui = await $.ui.mount(PANE)
+    await ui.press({ key: 'reset' })
+    await ui.press({ key: 'reset' })
+    await ui.unmount()
     expect(writes.at(-1)).toBe('')
     expect((state['closing'] as { verdicts?: { items?: unknown[] } } | undefined)?.verdicts?.items).toEqual([])
   })
