@@ -165,6 +165,9 @@ Ba nhóm việc trong một lượt: sửa lỗi còn tồn (A), chạy trơn v�
   - Chặn thừa (I7): `decisionLog: "./decisions.jsonl"` hay phiên mở ở thư mục con thì đường dẫn bỏ qua không khớp đường dẫn mà phép đo liệt kê; option `errorLog` đặt ngoài `.focus-conductor/` không được bỏ qua. Tái hiện: `decisionLog` là `./quyet-dinh.jsonl`, lượt duyệt chạy trong lúc mod ghi tệp đó; cổng chặn.
   - Chặn thừa (I3): mọi `ln -s` của vai chỉ đọc bị từ chối, kể cả liên kết hoàn toàn trong `/tmp`; phép dò chạy trên chuỗi chưa che nháy nên `echo "ln -s a b" > /tmp/n` cũng bị chặn.
   - Chặn thừa (I5, I6): `(set -o pipefail; pytest -v | grep PASSED)` (pipefail và ống cùng một subshell) không được tính; bộ đọc kết luận xét cả phần sau `;` nên `PASS; blocking bug from round 1 fixed`, `ĐẠT; đã chặn lỗi đăng nhập`, `PASS, see report.md for major notes` là chưa đạt. Tái hiện: `verdictOf('PASS; blocking bug from round 1 fixed')` trả `fail`.
+- Kiểm độc lập vòng 3 tình cờ thấy, không sửa theo quyết định của chủ mod 19/11/2026:
+  - Chiều cho qua sai (J5): phạm vi mục tiêu là `src` thì gốc phạm vi là `/repo/src`, nên `src/coverage/` và `src/build/` nằm ngay dưới gốc và vẫn bị bỏ qua khi đo file mới. Tái hiện: `listScope` với gốc `/repo/src` trước và sau khi thêm `/repo/src/coverage/new.ts`, `newFiles` trả rỗng.
+  - Chặn thừa: `npm t`, `pnpm --filter web test`, `npm --prefix web test`, `npm -w web test` được xếp là ghi mức possible, không phải lệnh kiểm. Tái hiện: `classifyBash('npm t', '/repo')` trả một tác động `write` mức possible.
 
 ## Thay đổi 0.8.9: router bị engine từ chối khi đọc prompt dài
 
