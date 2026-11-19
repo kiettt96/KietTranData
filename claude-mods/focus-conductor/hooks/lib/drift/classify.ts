@@ -334,9 +334,10 @@ function shellHeredoc(command: string): { errexit: boolean; body: string } | nul
   }
   const body = kept.join('\n')
   if (body === '' || BODY_BLOCKED.test(body)) return null
-  const errexit = /-[A-Za-z]*e/.test(flags) || kept.some(line => /^set\s+(?:-[A-Za-z]*e[A-Za-z]*|-o\s+errexit)(?:\s|$)/.test(line))
-  // Có errexit: dòng lỗi dừng cả khối, nên các dòng nối như && (mã thoát 0 của khối nghĩa là mọi dòng đạt). Không có: như ;.
-  return { errexit, body: errexit ? kept.join(' && ') : body }
+  const errexit = /-[A-Za-z]*e/.test(flags)
+  // errexit theo thứ tự câu lệnh (vòng 2 M7): cờ -e của shell bật từ đầu khối; các dòng `set -e`, `set +e` trong thân để nguyên, nên bộ phân
+  // loại tính trạng thái ở đúng chỗ của từng lệnh như với một dòng lệnh. Dòng lỗi dưới errexit dừng cả khối.
+  return { errexit, body: errexit ? `set -e\n${body}` : body }
 }
 
 /** Thay thế tiến trình một tầng (0.9.0 B9): `<(lệnh)` mà lệnh bên trong không có ngoặc, `$` hay backtick. */
@@ -384,6 +385,8 @@ export function classifyBash(input: string, base = ''): BashClass {
   let isUnknown = false
   let cwd = ''
   let pipefail = false
+  // errexit đang bật ở chỗ của từng đoạn (vòng 2 M7): `set -e` và dạng gộp cờ bật, `set +e` tắt.
+  let errexit = false
   const add = (raw: string) => {
     const token = unmask(raw)
     if (token === '' || token === '-' || /^\/dev\/(?:null|stdout|stderr|tty|fd\/\d+)$/.test(token)) return false
@@ -466,10 +469,19 @@ export function classifyBash(input: string, base = ''): BashClass {
       // set chỉ đổi tùy chọn của shell, không ghi file (0.7.5); -o pipefail (cả -euo pipefail) làm mã thoát của ống là của
       // lệnh kiểm tra khi nó lỗi, +o pipefail tắt lại. Đối số sau `--` là tham số vị trí, không phải tùy chọn (vòng 2 L3).
       const all = args.map(unmask)
-      const values = all.includes('--') ? all.slice(0, all.indexOf('--')) : all
+      // `set - <đối số>` như `set -- <đối số>` (vòng 2 M7): phần sau là tham số vị trí.
+      const end = all.findIndex(v => v === '--' || v === '-')
+      const values = end >= 0 ? all.slice(0, end) : all
       const flag = values[values.indexOf('pipefail') - 1] ?? ''
       if (!piece.background && /^-[a-zA-Z]*o$/.test(flag)) pipefail = true
       else if (/^\+[a-zA-Z]*o$/.test(flag)) pipefail = false
+      if (!piece.background) {
+        for (let k = 0; k < values.length; k++) {
+          const v = values[k] ?? ''
+          if (/^-[a-zA-Z]*e[a-zA-Z]*$/.test(v) || (/^-[a-zA-Z]*o$/.test(v) && values[k + 1] === 'errexit')) errexit = true
+          else if (/^\+[a-zA-Z]*e[a-zA-Z]*$/.test(v) || (/^\+[a-zA-Z]*o$/.test(v) && values[k + 1] === 'errexit')) errexit = false
+        }
+      }
       continue
     }
     // Lệnh khai (checkCommands) chạy sau cd với đường dẫn tương đối: so dạng đã nối thư mục với lệnh khai (0.7.5).
@@ -486,7 +498,9 @@ export function classifyBash(input: string, base = ''): BashClass {
     }
     // Lệnh vừa kiểm vừa sửa file (--fix, --write...) không phải lệnh kiểm tra: rơi xuống nhánh ghi bên dưới.
     if ((isCheckText(text) || isResolvedCustom) && !isSelfFixing(bare.split(/\s+/), unmask)) {
-      const piped = piece.background ? { exit: 'hidden' as const } : exitOf(list, index)
+      // Dưới errexit (vòng 2 M7), lệnh kiểm lỗi dừng cả dòng, nên `;` sau nó như `&&`.
+      const exitList = errexit ? list.map((p, k) => (k > index && p.op === ';' ? { ...p, op: '&&' as const } : p)) : list
+      const piped = piece.background ? { exit: 'hidden' as const } : exitOf(exitList, index)
       // Có pipefail đứng trước và ống đi thẳng vào `tee <tệp>` hay `grep <mẫu>` rồi hết câu lệnh (vòng 2 G3): mã thoát của cả ống mang lỗi
       // của lệnh kiểm, nên tính theo mã thoát đó như lệnh không che. Không có pipefail thì giữ hidden như trước.
       const after = list[index + 1]

@@ -122,10 +122,10 @@ Ba nhóm việc trong một lượt: sửa lỗi còn tồn (A), chạy trơn v�
 - **M4**: khóa đếm vòng chưa đạt là mục tiêu cộng vai, thêm số việc khi lượt gắn với một việc đã phân; không dùng description, nên người duyệt đổi description giữa các vòng vẫn cộng dồn; hai việc đã phân khác nhau đếm riêng. Ca mới `rounds-m4-090`, mẫu `090-M4a`. Gỡ việc tồn vòng sửa C7 đếm theo description.
 - **M5**: lý do chặn của cổng đóng nêu lượt duyệt (hay đánh giá sẵn sàng) gần nhất báo chưa đạt kèm số đếm nếu có; khi bước còn thiếu là bước kiểm, nêu tối đa ba tên file sửa sau lần kiểm đạt gần nhất. Ca mới `closing-reason-m5-090`, mẫu `090-M5a`, `090-M5b`. Gỡ việc tồn "lý do chặn của bước kiểm không nêu tên file" và F7.
 - **M6**: trạng thái cổng đóng chuyển vào `$.state` (khóa `closing`, `hooks/lib/closing-state.ts`): kết luận của các lượt có vai, lần chạy và mốc check của từng bước, ghi chú ống lệnh, số lần chặn và khóa trạng thái của cổng đóng, số vòng chưa đạt; trần số phần tử như biến cục bộ. Mod nạp từ state một lần mỗi lần nạp, trước lần đọc đầu, và ghi lại khi đổi. Bản ghi của bản cũ không có trường nào thì đọc ra giá trị mặc định. Ca mới `closing-state-m6-090` (trạng thái dựng sẵn ở `tests/support/m6-state.ts`), mẫu `090-M6a`, `090-M6b`. Gỡ việc tồn F8 (kết luận không sống qua lần nạp lại mod).
+- **M7**: errexit và pipefail tính theo thứ tự câu lệnh, trong khối heredoc và trong một dòng lệnh: `set -e` (và dạng gộp cờ như `-eu`, `-o errexit`) bật, `set +e` tắt; lệnh kiểm chỉ được coi là chạy dưới errexit khi trạng thái đang bật ở chỗ nó đứng, khi đó `;` sau nó như `&&`. `set -e; bash tests/kiem.sh; echo xong` được nhận; `set -e` đứng sau lệnh kiểm trong heredoc không còn làm lệnh đó có errexit. `set - <đối số>` xử lý như `set -- <đối số>`. Ca mới `errexit-m7-090`, mẫu `090-M7a`, `090-M7b`; mẫu `F12`, `090-B8d`, `090-B8e`, `090-L3a` trôi chuỗi, sửa chuỗi, giữ mã. Gỡ việc tồn `set -e` của khối heredoc và dạng lân cận `set - -o pipefail`.
 - **U7:** mục tiêu không có việc đã phân (chỉ có việc Claude tự giao, như lượt duyệt) thì tiêu đề mục "Tiến độ từng việc" không có phần đếm; trước đó ghi "0/0 xong · 0 đang chạy · 0 chưa làm" (có từ 0.8.9, ở 0.9.0 gặp ở mọi mục tiêu bật đội hình). Ca mới `pane-own-tasks-u7-090`, mẫu `090-U7a`.
 
 **Việc tồn** (từ phiên thật D1 và kiểm độc lập):
-- `set -e` ở bất kỳ dòng nào bật errexit cho cả khối heredoc, kể cả khi có `set +e` sau đó; `set -e; ...` trên một dòng thì không nhận ra (chiều an toàn).
 - Dấu `)` trong nháy bên trong `<( )` làm đích ghi lệch (`/repo/a)`).
 - B10 không coi `--update-snapshots`, `jest -u`, `go fmt` là tự sửa; `make check` in "Nothing to be done" vẫn được nâng.
 - Vai audit: lệnh ghi qua trình thông dịch ngoài danh sách đã biết (`node script.js` tự ghi file) vẫn chạy được; kết luận của audit không mở cổng duyệt.
@@ -144,7 +144,6 @@ Ba nhóm việc trong một lượt: sửa lỗi còn tồn (A), chạy trơn v�
 - `Not pass-through; PASS` đọc là chưa đạt (phủ định đứng trước `pass` cách bằng gạch nối). Tái hiện: `verdictOf('Not pass-through; PASS')` trả `fail`.
 - Bộ test để lại thư mục `fc-eval-*` trong thư mục tạm của hệ thống sau mỗi lượt `claude plugin test .`. Tái hiện: chạy cả bộ rồi `find /tmp -maxdepth 1 -name 'fc-eval-*'`.
 - Lượt đột biến 119 mẫu `090` của vòng 2 chạy bằng engine 2.1.327, không phải bản ghim 2.1.296; đối chứng 20 mẫu trên bản ghim khớp 20/20 (VERIFICATION, mục G6, điểm 1).
-- Dạng lân cận thấy ở L3, không sửa: `set - -o pipefail` vẫn bật pipefail (một dấu `-` cũng kết thúc phần tùy chọn của set). Tái hiện: lệnh kiểm `set - -o pipefail; bash tests/kiem.sh | tee /tmp/k.log` được tính theo mã thoát của cả ống.
 - G6: cân nhắc đưa cách chạy theo tầng (tầng 1 cùng bản, tầng giữa theo tên module và lịch sử diệt, rồi cả bộ) vào `scripts/mutate.ts` về sau; lượt này chạy bằng bộ chạy ngoài repo.
 
 ## Thay đổi 0.8.9: router bị engine từ chối khi đọc prompt dài
