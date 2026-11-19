@@ -203,12 +203,20 @@ async function closingGate($: EngineInterface, ctx: Ctx, core: Core, log: Eviden
   const keyOf = (path: string) => normalizePath(path.startsWith('/') || root === null ? path : `${root}/${path}`)
   const unique = named.filter((path, k) => named.findIndex(other => keyOf(other) === keyOf(path)) === k)
   const files = missing !== 'check' && unique.length > 0 ? ` File đã đổi trong hay sau lượt duyệt: ${printNames(unique)}.` : ''
+  // Lượt gần nhất của bước còn thiếu báo chưa đạt (vòng 2 M5): nêu điều đó kèm số đếm.
+  const failed = missing !== 'check' && steps.find(s => s.name === missing)?.state === 'fail' ? [...verdicts].reverse().find(v => v.seq > log.lastChange && v.isReview && (v.verdict === 'fail' || v.verdict === 'not-ready')) : undefined
+  const failedText = failed === undefined ? '' : failed.verdict === 'not-ready' ? ` Lượt đánh giá sẵn sàng gần nhất báo chưa sẵn sàng${failed.count !== undefined ? ` ${failed.count}` : ''}: sửa theo phần người đánh giá nêu rồi giao đánh giá lại.` : ` Lượt duyệt gần nhất báo chưa đạt${failed.count !== undefined ? ` ${failed.count}` : ''}: sửa theo phần lỗi người duyệt nêu rồi giao duyệt lại.`
+  // Bước còn thiếu là bước kiểm (vòng 2 M5): file sửa sau lần kiểm đạt gần nhất, tối đa ba tên.
+  const passSeq = Math.max(-1, ...log.commands.filter(c => c.check !== null && c.ok && c.chained !== true).map(c => c.seq), ...stepRunsFor(ctx, brief.goalId).runs.filter(run => run.passed).map(run => run.seq))
+  const afterCheck: string[] = []
+  if (missing === 'check' && passSeq >= 0) for (const w of log.writes) if (w.seq > passSeq && w.definite === true && w.hard === true) for (const path of w.paths ?? []) if (!afterCheck.some(p => keyOf(p) === keyOf(path))) afterCheck.push(path)
+  const checkFiles = afterCheck.length > 0 ? ` File sửa sau lần kiểm đạt gần nhất: ${printNames(afterCheck)}.` : ''
   // Lần chạy gần nhất của lệnh kiểm sau thay đổi cuối đi qua ống (sau phiên thật D4, mục 2b): nêu đúng nguyên nhân và cách chạy lại.
   const pipe = L.pipeNotes.goalId === brief.goalId ? L.pipeNotes.last : null
   // Câu về ống lệnh chỉ khi lần chạy gần nhất của lệnh đó là lần qua ống (vòng 2 F3): chính lệnh đó chạy lại sau đó thì bỏ câu.
   const rerun = pipe !== null && stepRunsFor(ctx, brief.goalId).runs.some(run => run.seq >= pipe.seq && run.keys.includes(runKey(pipe.command)))
   const piped = missing === 'check' && pipe !== null && pipe.seq > lastHard && !rerun ? ` Lần chạy \`${clipText(pipe.command, 40)}\` đi qua ống nên mã thoát bị che, không tính; chạy lại không kèm ống, hoặc thêm set -o pipefail.` : ''
-  return `${reason}${unread}${unclear}${files}${piped}`.slice(0, CLOSING_CHARS)
+  return `${reason}${unread}${failedText}${unclear}${files}${checkFiles}${piped}`.slice(0, CLOSING_CHARS)
 }
 
 /**
