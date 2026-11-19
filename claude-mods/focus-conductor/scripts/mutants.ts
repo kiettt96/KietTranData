@@ -2687,6 +2687,8 @@ export const MUTANTS: Mutant[] = [
   { id: "090-M21c", file: "scripts/tiers.ts", note: "ca lỗi chỉ do hết giờ vẫn nhận KILLED (vòng 2 M21b)", old: "          ? failNames.length > 0 && real.length === 0", new: "          ? false" },
   { id: "090-M21d", file: "scripts/tiers.ts", note: "lần chạy lại TIMEOUT đi tầng sau thay vì giữ (vòng 2 M21b)", old: "  return verdict === 'NOVERDICT' ? 'next' : 'stop'", new: "  return 'next'" },
   { id: "090-M21e", file: "scripts/tiers.ts", note: "tầng giữa bỏ lịch sử diệt (vòng 2 M21b)", old: "...(history[mutant.file] ?? [])]", new: "]" },
+  { id: "090-I1a", file: "hooks/lib/closing-state.ts", note: "khôi phục không dời mốc sổ bằng chứng (kiểm độc lập vòng 1 lỗi 1)", old: "  rebaseEvidence(local, goalId, restoredTop(snap), snap.evidence)\n", new: "" },
+  { id: "090-I1b", file: "hooks/lib/closing-state.ts", note: "dời mốc bằng 0 (kiểm độc lập vòng 1 lỗi 1)", old: "  const off = Math.ceil(top) + 1", new: "  const off = 0" },
   { id: "090-M19a", file: "hooks/ui/pane.tsx", note: "tiêu đề mục và dải bước dựng theo bề rộng tối thiểu 36 cột (vòng 2 M19)", old: "  const fitWidth = Math.min(width, Math.max(1, columnsOf(props.columns, 56)))\n", new: "  const fitWidth = width\n" },
   { id: "090-G3a", file: "hooks/lib/drift/classify.ts", note: "lệnh kiểm sau pipefail qua tee hay grep vẫn là hidden (vòng 2 G3)", old: "const exit = isPipefailTeeGrep ? { exit: 'visible' as const } : piped", new: "const exit = piped" },
 ]

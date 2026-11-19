@@ -720,6 +720,7 @@ declare module 'claude-code' {
         pipeNotes: { goalId: number; n: number; last: null | { seq: number; command: string } }
         closingState: { goalId: number; blocks: number; key: string }
         rounds: Array<[string, number]>
+        evidence: { goalId: number; seq: number; lastMutation: number; lastHard: number; lastChange: number; mutations: number; hard: number }
       }
     }
   }
