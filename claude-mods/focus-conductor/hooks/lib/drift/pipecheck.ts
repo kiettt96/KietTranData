@@ -6,6 +6,20 @@ import { runKey } from './stepcheck'
 /** Có `set -o pipefail` (hay `-o pipefail` trong cờ của set) trước đó trong lệnh. */
 const PIPEFAIL = /(?:^|[\s;&(])set\s+-[a-zA-Z]*o\s+pipefail\b/
 
+/**
+ * Phần tầng shell ngoài cùng của lệnh (kiểm độc lập vòng 2 lỗi 2): bỏ dần các nhóm `( ... )`, `$( ... )`, `{ ... }`, backtick trong cùng;
+ * còn ngoặc lẻ (đọc không trọn) thì chuỗi rỗng, nên `set -o pipefail` trong nhóm không làm mất dòng nhắc đi qua ống.
+ */
+function topLevel(command: string): string {
+  let text = command
+  for (let round = 0; round < 50; round++) {
+    const next = text.replace(/\$?\([^()]*\)/g, ' ').replace(/\{[^{}]*\}/g, ' ').replace(/`[^`]*`/g, ' ')
+    if (next === text) break
+    text = next
+  }
+  return /[()`]/.test(text) ? '' : text
+}
+
 /** Ngay sau `text` trong `command` là một ống (không phải `||`). */
 function isPipedAt(command: string, text: string): boolean {
   let at = command.indexOf(text)
@@ -22,7 +36,7 @@ function isPipedAt(command: string, text: string): boolean {
  * pipefail: trả lệnh đó, không thì null.
  */
 export function pipedCheck(command: string, cwd: string | undefined, stepChecks: readonly string[]): string | null {
-  if (!command.includes('|') || PIPEFAIL.test(command)) return null
+  if (!command.includes('|') || PIPEFAIL.test(topLevel(command))) return null
   for (const effect of classifyBash(command, cwd).effects) {
     if (effect.kind !== 'check' || effect.pipefail === true) continue
     if ((effect.exit === 'filtered' || effect.exit === 'hidden') && isPipedAt(command, effect.segment)) return effect.segment

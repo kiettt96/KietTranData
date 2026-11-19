@@ -100,8 +100,18 @@ type Operator = '' | '&&' | '||' | ';' | '|' | '|&' | '&'
  * Một đoạn của câu lệnh: toán tử đứng trước, văn bản đã che, tiền tố biến môi trường, có chạy nền không (kết thúc bằng `&`), và
  * thân heredoc của chính đoạn này (null khi số dấu `<<H` không khớp số thân: không biết thân nào của đoạn nào).
  */
-/** `opens`: số dấu `(` mở subshell đã bỏ ở đầu đoạn (kiểm độc lập vòng 1 lỗi 9). */
-type Piece = { op: Operator; text: string; env: string[]; background: boolean; heredocs: string[] | null; opens: number }
+/**
+ * `isTop`: phần lệnh đứng trước đoạn (kể cả dấu mở nhóm ở đầu đoạn) cân bằng ngoặc đơn, ngoặc nhọn và dấu backtick, tức đoạn chạy ở tầng shell
+ * ngoài cùng và bộ phân loại đọc trọn được cấu trúc trước nó (kiểm độc lập vòng 2 lỗi 2; đoạn chỉ có phép gán bị bỏ vẫn được tính vào phần
+ * đứng trước).
+ */
+type Piece = { op: Operator; text: string; env: string[]; background: boolean; heredocs: string[] | null; isTop: boolean }
+
+/** Phần lệnh đã che nháy cân bằng ngoặc đơn, ngoặc nhọn và backtick. */
+function isBalanced(text: string): boolean {
+  const count = (re: RegExp) => (text.match(re) ?? []).length
+  return count(/\(/g) === count(/\)/g) && count(/\{/g) === count(/\}/g) && count(/`/g) % 2 === 0
+}
 
 /** Đánh dấu token có nháy là một đối số duy nhất (không bao giờ là toán tử); HEREDOC là stdin từ heredoc, nội dung không so được. */
 export const TAG = '\u0001'
@@ -194,7 +204,7 @@ function pieces(masked: string, heredocs: string[]): Piece[] {
     text = text.slice(assignments.length).replace(TIMEOUT_PREFIX, '')
     if (text !== '') {
       const count = (text.match(/<<H/g) ?? []).length
-      out.push({ op, text, env: assignments.trim().split(/\s+/).filter(Boolean), background: false, heredocs: matched ? heredocs.slice(used, used + count) : null, opens: (lead.match(/\(/g) ?? []).length })
+      out.push({ op, text, env: assignments.trim().split(/\s+/).filter(Boolean), background: false, heredocs: matched ? heredocs.slice(used, used + count) : null, isTop: isBalanced(`${parts.slice(0, i).join('')}${lead}`) })
       used += count
     }
     else if (out.length === 0) op = ''
@@ -415,14 +425,12 @@ export function classifyBash(input: string, base = ''): BashClass {
   const isUnsupported = UNSUPPORTED.test(command)
 
   const list = pieces(masked, heredocs)
-  // Độ sâu subshell trước mỗi đoạn (kiểm độc lập vòng 1 lỗi 9): `set` trong `( ... )` không đổi tùy chọn của shell ngoài.
-  let depth = 0
   for (let index = 0; index < list.length; index++) {
     const piece = list[index]
     if (piece === undefined) continue
     const part = piece.text
-    const isSubshell = depth > 0 || piece.opens > 0
-    depth = Math.max(0, depth + piece.opens + (part.match(/(?<![$<>])\(/g) ?? []).length - (part.match(/\)/g) ?? []).length)
+    // `set` trong `( ... )`, `{ ...; }`, `$( ... )` hay thân hàm không đổi tùy chọn của shell ngoài (kiểm độc lập vòng 1 lỗi 9, vòng 2 lỗi 2).
+    const isSubshell = !piece.isTop
     segPaths = []
     segUnknown = false
     segName = ''
