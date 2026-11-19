@@ -2684,6 +2684,9 @@ export const MUTANTS: Mutant[] = [
   { id: "090-M18b", file: "hooks/parts/agents.ts", note: "status line không vẽ lại khi lượt duyệt vừa sinh (vòng 2 M18, M20)", old: "    if (progressItem !== null && (spawnPrefix === 'review' || spawnPrefix === 'design')) {", new: "    if (false && progressItem !== null && (spawnPrefix === 'review' || spawnPrefix === 'design')) {" },
   { id: "090-M21a", file: "scripts/tmp-dirs.ts", note: "thoát thường không dọn thư mục tạm (vòng 2 M21a)", old: "  proc.on('exit', () => dirs.clean())", new: "  proc.on('exit', () => {})" },
   { id: "090-M21b", file: "scripts/tmp-dirs.ts", note: "bị ngắt không dọn thư mục tạm (vòng 2 M21a)", old: "      beforeExit()\n      dirs.clean()\n      proc.exit(code)", new: "      beforeExit()\n      proc.exit(code)" },
+  { id: "090-M21c", file: "scripts/tiers.ts", note: "ca lỗi chỉ do hết giờ vẫn nhận KILLED (vòng 2 M21b)", old: "          ? failNames.length > 0 && real.length === 0", new: "          ? false" },
+  { id: "090-M21d", file: "scripts/tiers.ts", note: "lần chạy lại TIMEOUT đi tầng sau thay vì giữ (vòng 2 M21b)", old: "  return verdict === 'NOVERDICT' ? 'next' : 'stop'", new: "  return 'next'" },
+  { id: "090-M21e", file: "scripts/tiers.ts", note: "tầng giữa bỏ lịch sử diệt (vòng 2 M21b)", old: "...(history[mutant.file] ?? [])]", new: "]" },
   { id: "090-M19a", file: "hooks/ui/pane.tsx", note: "tiêu đề mục và dải bước dựng theo bề rộng tối thiểu 36 cột (vòng 2 M19)", old: "  const fitWidth = Math.min(width, Math.max(1, columnsOf(props.columns, 56)))\n", new: "  const fitWidth = width\n" },
   { id: "090-G3a", file: "hooks/lib/drift/classify.ts", note: "lệnh kiểm sau pipefail qua tee hay grep vẫn là hidden (vòng 2 G3)", old: "const exit = isPipefailTeeGrep ? { exit: 'visible' as const } : piped", new: "const exit = piped" },
 ]
