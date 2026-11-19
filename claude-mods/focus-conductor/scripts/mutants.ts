@@ -2652,5 +2652,6 @@ export const MUTANTS: Mutant[] = [
   { id: "090-G1c", file: "hooks/lib/verdict.ts", note: "bỏ failed, fails (vòng 2 G1b)", old: "  ['failed', 'fail', false],\n  ['fails', 'fail', false],\n", new: "" },
   { id: "090-G2a", file: "hooks/lib/drift/classify.ts", note: "git clone không ghi đích nêu rõ (vòng 2 G2)", old: "const isCloneTo = dest !== undefined && add(dest)", new: "const isCloneTo = false" },
   { id: "090-G2b", file: "hooks/lib/drift/classify.ts", note: "git clone nhận tùy chọn ngoài danh sách cho phép (vòng 2 G2b)", old: "    else if (arg.startsWith('-')) return undefined\n", new: "" },
+  { id: "090-L1a", file: "hooks/parts/consistency.ts", note: "bước kiểm theo lần chạy gần nhất chung, không theo từng lệnh (vòng 2 L1)", old: "  const stepFailed = latestOf.some(run => !run.passed)\n", new: "  const stepFailed = lastRun !== undefined && !lastRun.passed\n" },
   { id: "090-G3a", file: "hooks/lib/drift/classify.ts", note: "lệnh kiểm sau pipefail qua tee hay grep vẫn là hidden (vòng 2 G3)", old: "const exit = isPipefailTeeGrep ? { exit: 'visible' as const } : piped", new: "const exit = piped" },
 ]

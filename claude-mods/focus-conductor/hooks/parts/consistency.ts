@@ -252,20 +252,24 @@ function teamSteps(core: Core, brief: Brief, log: EvidenceLog, verdicts: readonl
 }
 
 /**
- * Bước kiểm của cổng đóng và của pane (0.9.0 vòng 2 F1). Đạt khi sau thay đổi không nhẹ cuối có một lần lệnh kiểm mod nhận ra chạy đạt,
- * hoặc một lần chạy khớp lệnh ở check của một bước đủ điều kiện bằng chứng của B10 (stepEvidence), và lần chạy gần nhất sau thay đổi đó
- * thuộc một trong hai loại không lỗi. Chưa đạt khi lần chạy gần nhất đó bị lỗi.
+ * Bước kiểm của cổng đóng và của pane (0.9.0 vòng 2 F1, L1). Đạt khi sau thay đổi không nhẹ cuối có một lần lệnh kiểm mod nhận ra chạy đạt,
+ * hoặc một lần chạy khớp lệnh ở check của một bước đủ điều kiện bằng chứng của B10 (stepEvidence), và không có lỗi theo hai luật sau.
+ * Lệnh ở check của bước (L1): mỗi lệnh khác nhau lấy lần chạy gần nhất của chính nó sau thay đổi đó; một lệnh có lần gần nhất lỗi thì
+ * chưa đạt, dù lệnh của bước khác chạy đạt sau đó. Lệnh kiểm mod nhận ra: lỗi khi lần chạy gần nhất của loại này lỗi và đến sau mọi lần
+ * chạy của lệnh ở check.
  */
 export function closingCheckState(plan: readonly PlanStep[], log: EvidenceLog, steps: { runs: readonly StepRun[]; checkSeq: ReadonlyMap<number, number> }): { checked: boolean; checkFailed: boolean } {
   const lastHard = log.lastHard
   const known = log.commands.some(c => c.check !== null && c.ok && c.chained !== true && c.seq > lastHard && coversScope(c, log))
   const byStep = plan.some(step => stepEvidence(step, steps.runs, lastHard, steps.checkSeq.get(step.id) ?? -1) !== null)
   const lastKnown = [...log.commands].reverse().find(c => c.check !== null && c.chained !== true && c.seq > lastHard)
-  const keys = plan.flatMap(step => { const check = stepCheckOf(step.check); return check !== null ? [runKey(check.command)] : [] })
-  const lastRun = [...steps.runs].reverse().find(run => run.seq > lastHard && keys.some(key => run.keys.includes(key)))
-  const latest = lastRun !== undefined && (lastKnown === undefined || lastRun.seq >= lastKnown.seq) ? { ok: lastRun.passed } : lastKnown !== undefined ? { ok: lastKnown.ok } : null
-  // Lần chạy gần nhất quyết khi nó lỗi (kiểm độc lập vòng 2): lần đạt trước đó không còn tính.
-  const latestFailed = latest !== null && !latest.ok
+  const keys = [...new Set(plan.flatMap(step => { const check = stepCheckOf(step.check); return check !== null ? [runKey(check.command)] : [] }))]
+  const after = [...steps.runs].reverse().filter(run => run.seq > lastHard)
+  const latestOf = keys.flatMap(key => { const run = after.find(r => r.keys.includes(key)); return run !== undefined ? [run] : [] })
+  const lastRun = after.find(run => latestOf.includes(run))
+  const stepFailed = latestOf.some(run => !run.passed)
+  const knownFailed = lastKnown !== undefined && !lastKnown.ok && (lastRun === undefined || lastKnown.seq > lastRun.seq)
+  const latestFailed = stepFailed || knownFailed
   return { checked: log.hard === 0 || ((known || byStep) && !latestFailed), checkFailed: latestFailed }
 }
 
