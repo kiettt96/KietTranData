@@ -469,6 +469,16 @@ export function stepTaskMeta(l: typeof VI, row: { kind: 'main' | 'direct' | 'age
   return meta !== '' && isTeamRole(row.role) ? `${meta} [${l.roleNames[row.role]}]` : meta
 }
 
+/** Nhãn vai của dòng bước ở pane (vòng 2 M17), đứng cuối dòng sau phần chi tiết; chỉ với vai kiểm của đội hình, rỗng với vai khác. */
+export function stepRoleTag(l: typeof VI, row: { role?: Role }): string {
+  return isTeamRole(row.role) ? `[${l.roleNames[row.role]}]` : ''
+}
+
+/** Chip của dòng bước không kèm nhãn vai (vòng 2 M17): pane đặt nhãn vai ở cuối dòng. */
+export function stepTaskChip(l: typeof VI, row: Parameters<typeof stepMetaText>[1]): string {
+  return stepMetaText(l, row)
+}
+
 function stepMetaText(l: typeof VI, row: { kind: 'main' | 'direct' | 'agent'; pick: { family: string; effort: string } | null; state: 'pending' | 'idle' | 'running' | 'done' | 'failed' | 'cut'; counts?: { done: number; total: number; running: number }; failed?: number }): string {
   const family = row.pick?.family ?? ''
   if (row.counts !== undefined) return [`${family} ${row.counts.done}/${row.counts.total}`.trim(), l.agentBatchChip(row.counts.running, row.failed ?? 0)].filter(Boolean).join(' · ')

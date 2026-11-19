@@ -15,7 +15,7 @@ import { liveForks } from '../lib/forks'
 import { countLabel, progress } from '../lib/text'
 import type { BandQuota, QuotaPaneText } from '../lib/text'
 import { attentionItems } from './attention'
-import { conductorLine, labels, shownEntry, stepTaskMeta, taskLabel } from './labels'
+import { conductorLine, labels, shownEntry, stepRoleTag, stepTaskChip, taskLabel } from './labels'
 import type { Run } from './style'
 import { DEFAULT_NEON, paintOf } from './neon'
 import type { GradientName } from './neon'
@@ -401,9 +401,11 @@ export function renderPane(
   }
   const metaNode = (title: string) => {
     const row = byTitle.get(title)
-    const meta = row ? stepTaskMeta(l, row) : ''
+    // Nhãn vai đứng cuối dòng, sau phần chi tiết (vòng 2 M17); chip chỉ mang model và trạng thái.
+    const meta = row ? stepTaskChip(l, row) : ''
     if (row === undefined || !meta) return null
     const detail = rowDetail(row, true)
+    const roleTag = stepRoleTag(l, row)
     const tone = row.state === 'failed' || (row.failed ?? 0) > 0 ? 'error' : row.state === 'cut' ? 'warning' : undefined
     return [
       <Box key="chip" flexShrink={0}>
@@ -414,6 +416,11 @@ export function renderPane(
       detail ? (
         <Box key="detail" flexShrink={0}>
           <Text dimColor>{detail}</Text>
+        </Box>
+      ) : null,
+      roleTag ? (
+        <Box key="role" flexShrink={0}>
+          <Text dimColor>{roleTag}</Text>
         </Box>
       ) : null,
     ]
@@ -442,8 +449,8 @@ export function renderPane(
   // W3: pane hẹp đặt chip và chi tiết của việc khớp bước xuống dòng riêng, nên cộng số dòng của chúng.
   const metaRows = (title: string) => {
     const row = byTitle.get(title)
-    const meta = row ? stepTaskMeta(l, row) : ''
-    return !isNarrow || row === undefined || !meta ? 0 : rowsOf([meta, rowDetail(row, true)].filter(Boolean).join(' '), stepCells)
+    const meta = row ? stepTaskChip(l, row) : ''
+    return !isNarrow || row === undefined || !meta ? 0 : rowsOf([meta, rowDetail(row, true), stepRoleTag(l, row)].filter(Boolean).join(' '), stepCells)
   }
   const stepRows = (step: PlanStep) =>
     titleRows(step.title) + (step.check ? rowsOf(`${l.check}: ${step.check}`, stepCells) : 0) + (step.note ? rowsOf(step.note, stepCells) : 0) + metaRows(step.title)
