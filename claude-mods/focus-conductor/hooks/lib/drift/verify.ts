@@ -232,6 +232,16 @@ export function isSelfFixing(tokens: string[], unmask: (token: string) => string
     if (!isOptionValue) words.push(unmask(token))
   })
   if (words.some(word => FIX_FLAGS.has(word) || word.startsWith('--fix='))) return true
+  // Cập nhật snapshot (vòng 2 M9): jest, vitest có -u, --updateSnapshot, --update; pytest có --snapshot-update; mọi lệnh có
+  // --update-snapshots. Định dạng tự ghi: go fmt, gofmt -w, cargo fmt không kèm --check.
+  if (words.includes('--update-snapshots')) return true
+  if (words.some(word => word === 'jest' || word === 'vitest') && words.some(word => word === '-u' || word === '--updateSnapshot' || word === '--update')) return true
+  if (words.includes('pytest') && words.includes('--snapshot-update')) return true
+  const go = words.indexOf('go')
+  if (go >= 0 && words[go + 1] === 'fmt') return true
+  if (words.includes('gofmt') && words.includes('-w')) return true
+  const cargo = words.indexOf('cargo')
+  if (cargo >= 0 && words[cargo + 1] === 'fmt' && !words.includes('--check')) return true
   // Formatter chạy qua python -m, uv run, poetry run, pipx run, và deno fmt, khi không kèm chế độ kiểm (0.9.0, đổi đặc tả C2 mục 6).
   const isCheckMode = words.some(word => word === '--check' || word === '--diff' || word === '--check-only')
   const formatter = words.findIndex(word => word === 'black' || word === 'isort' || word === 'autopep8' || word === 'yapf')

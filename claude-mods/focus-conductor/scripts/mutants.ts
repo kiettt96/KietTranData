@@ -2667,5 +2667,7 @@ export const MUTANTS: Mutant[] = [
   { id: "090-M6b", file: "hooks/parts/consistency.ts", note: "không ghi trạng thái cổng đóng vào state (vòng 2 M6)", old: "  await update($, closingStore, () => snap)\n", new: "" },
   { id: "090-M7a", file: "hooks/lib/drift/classify.ts", note: "dấu ; sau lệnh kiểm dưới errexit vẫn che mã thoát (vòng 2 M7)", old: "const exitList = errexit ? list.map(", new: "const exitList = false ? list.map(" },
   { id: "090-M7b", file: "hooks/lib/drift/classify.ts", note: "set - không kết thúc phần tùy chọn (vòng 2 M7)", old: "all.findIndex(v => v === '--' || v === '-')", new: "all.findIndex(v => v === '--')" },
+  { id: "090-M9a", file: "hooks/lib/drift/verify.ts", note: "jest, vitest cập nhật snapshot vẫn là lệnh kiểm (vòng 2 M9)", old: "  if (words.some(word => word === 'jest' || word === 'vitest') && words.some(word => word === '-u'", new: "  if (false && words.some(word => word === 'jest' || word === 'vitest') && words.some(word => word === '-u'" },
+  { id: "090-M9b", file: "hooks/lib/drift/output.ts", note: "make không làm gì vẫn tính là đạt (vòng 2 M9)", old: "  if (lines.length > 0 && lines.every(line => MAKE_IDLE.test(line))) return true\n", new: "" },
   { id: "090-G3a", file: "hooks/lib/drift/classify.ts", note: "lệnh kiểm sau pipefail qua tee hay grep vẫn là hidden (vòng 2 G3)", old: "const exit = isPipefailTeeGrep ? { exit: 'visible' as const } : piped", new: "const exit = piped" },
 ]
