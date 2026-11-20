@@ -36,6 +36,61 @@ Mỗi dòng việc tồn của CHANGELOG 0.9.0 tại `12056bf` và cách đóng.
 | 26 | Dạng lân cận L3: `set - -o pipefail` vẫn bật pipefail | Đã sửa (M7) |
 | 27 | G6: đưa cách chạy theo tầng vào `scripts/mutate.ts` | Đã sửa (M21b): cờ `--tiered` |
 
+## 0.9.0 vòng 2 M25: nghiệm thu trên commit mã cuối [Đo trực tiếp, engine 2.1.296, mã của `0d91496`, 20/11/2026]
+
+Cả bộ: `claude plugin test .` 4465 test qua, 0 lỗi, 425 tệp, 553 giây, engine ghim 2.1.296. Mã kiểm là mã của `0d91496`; các commit sau đó chỉ đổi tài liệu. Mỗi dòng K và M lấy các ca của đúng tệp test (và nhóm ca ghi trong ngoặc) trong lượt cả bộ này.
+
+| Mã | Tệp test | Ca qua | Engine | Ngày | Kết quả |
+| --- | --- | --- | --- | --- | --- |
+| K1 | `k-table-090` | 2/2 | 2.1.296 | 20/11/2026 | qua |
+| K2 | `k-table-090` | 2/2 | 2.1.296 | 20/11/2026 | qua |
+| K3 | `k-table-090` | 1/1 | 2.1.296 | 20/11/2026 | qua |
+| K4 | `k-table-090` | 1/1 | 2.1.296 | 20/11/2026 | qua |
+| K5 | `k-table-090` | 4/4 | 2.1.296 | 20/11/2026 | qua |
+| K6 | `k-table-090` | 5/5 | 2.1.296 | 20/11/2026 | qua |
+| K7 | `k-table-090` | 1/1 | 2.1.296 | 20/11/2026 | qua |
+| K8 | `k-table-090` | 2/2 | 2.1.296 | 20/11/2026 | qua |
+| K9 | `k-table-090` | 7/7 | 2.1.296 | 20/11/2026 | qua |
+| K10 | `k-table-090` | 3/3 | 2.1.296 | 20/11/2026 | qua |
+| K11 | `k-table-090` | 1/1 | 2.1.296 | 20/11/2026 | qua |
+| K12 | `k-table-090` | 1/1 | 2.1.296 | 20/11/2026 | qua |
+| K13 | `k-table-090` | 6/6 | 2.1.296 | 20/11/2026 | qua |
+| K14 | `k-table-090` | 2/2 | 2.1.296 | 20/11/2026 | qua |
+| K15 | `k-table-090` | 2/2 | 2.1.296 | 20/11/2026 | qua |
+| K16 | `k-table-090` | 1/1 | 2.1.296 | 20/11/2026 | qua |
+| K17 | `k-table-090` | 2/2 | 2.1.296 | 20/11/2026 | qua |
+| K18 | `k-table-090` | 5/5 | 2.1.296 | 20/11/2026 | qua |
+| K19 | `k-table-090` | 4/4 | 2.1.296 | 20/11/2026 | qua |
+| K20 | `closing-stepcheck-f1-090` (F1) | 8/8 | 2.1.296 | 20/11/2026 | qua |
+| K21 | `verdict-g1-090` | 9/9 | 2.1.296 | 20/11/2026 | qua |
+| K22 | `role-clone-g2-090` | 10/10 | 2.1.296 | 20/11/2026 | qua |
+| K23 | `pipe-pipefail-g3-090` | 6/6 | 2.1.296 | 20/11/2026 | qua |
+| K24 | `role-clone-g2-090` (G2b) | 7/7 | 2.1.296 | 20/11/2026 | qua |
+| K25 | `verdict-g1-090` (G1b) | 6/6 | 2.1.296 | 20/11/2026 | qua |
+| M1 | `verdict-unread-m1-090` | 3/3 | 2.1.296 | 20/11/2026 | qua |
+| M2 | `verdict-normalize-m2-090` | 5/5 | 2.1.296 | 20/11/2026 | qua |
+| M3 | `verdict-severity-m3-090` | 16/16 | 2.1.296 | 20/11/2026 | qua |
+| M4 | `rounds-m4-090` | 2/2 | 2.1.296 | 20/11/2026 | qua |
+| M5 | `closing-reason-m5-090` | 2/2 | 2.1.296 | 20/11/2026 | qua |
+| M6 | `closing-state-m6-090` | 3/3 | 2.1.296 | 20/11/2026 | qua |
+| M7 | `errexit-m7-090` | 7/7 | 2.1.296 | 20/11/2026 | qua |
+| M8 | `procsubst-m8-090` | 4/4 | 2.1.296 | 20/11/2026 | qua |
+| M9 | `selffix-m9-090` | 15/15 | 2.1.296 | 20/11/2026 | qua |
+| M10 | `pipe-note-m10-090` | 9/9 | 2.1.296 | 20/11/2026 | qua |
+| M11 | `step-expect-m11-090` | 3/3 | 2.1.296 | 20/11/2026 | qua |
+| M12 | `role-writes-m12-090` | 8/8 | 2.1.296 | 20/11/2026 | qua |
+| M13 | `prints-new-m13-090` | 3/3 | 2.1.296 | 20/11/2026 | qua |
+| M14 | `decisions-append-m14-090` | 2/2 | 2.1.296 | 20/11/2026 | qua |
+| M15 | `state-continue-m15-090` | 4/4 | 2.1.296 | 20/11/2026 | qua |
+| M16 | `light-note-m16-090` | 2/2 | 2.1.296 | 20/11/2026 | qua |
+
+sha256 (mỗi tệp theo `git ls-files`, xếp theo tên, `sha256sum` của danh sách `sha256sum`), tại `18958ed`, cùng nội dung với `0d91496`:
+
+- `hooks/` (73 tệp): `28512f1041970cac9b62b4626d6271a06bf73687adedb7a5c8bd2b624e49bd2a`
+- `tests/` (444 tệp): `59202842e9fdfc89ef9532e8d613827728dbf9194a740f381a3c7157b7f8212c`
+
+CI trên runner sạch: workflow `focus-conductor` qua trên `18958ed` [Nguồn: GitHub Actions run 44811563717, 2026-11-20].
+
 ## 0.9.0 vòng 2 M22: đột biến 790 mẫu theo luật và 20 mẫu đối chứng [Đo trực tiếp, engine 2.1.296, mã của `0d91496`, 20/11/2026]
 
 Phạm vi: 45 mẫu nhóm A chưa chạy ở G6, 100 mẫu `090` chưa có phán quyết trên bản ghim, phần còn lại của các tệp hooks đổi ở vòng 2, cộng 20 mẫu đối chứng; 21 đợt, 810 mẫu (đợt 1 tới 19 mỗi đợt 40, đợt 20 có 30, đợt 21 là 20 mẫu đối chứng).
