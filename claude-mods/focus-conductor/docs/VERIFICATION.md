@@ -4,7 +4,7 @@ Số đo của HEAD hiện tại và của các bản trước. Mọi số do t�
 
 ## 0.9.0 vòng 2 M24: đối chiếu việc tồn tại 12056bf [Đo trực tiếp, engine 2.1.296, 19/11/2026]
 
-Mỗi dòng việc tồn của CHANGELOG 0.9.0 tại `12056bf` và cách đóng. Sau vòng này mục Việc tồn của 0.9.0 rỗng; các điểm giữ nguyên nằm ở [DESIGN.md](DESIGN.md), mục Giới hạn có chủ đích (0.9.0 vòng 2).
+Mỗi dòng việc tồn của CHANGELOG 0.9.0 tại `12056bf` và cách đóng. Sau vòng này mục Việc tồn của 0.9.0 chỉ còn 5 mẫu sống sót của M22 (mục M22 bên dưới) và các điểm chủ mod quyết định không sửa; các điểm giữ nguyên nằm ở [DESIGN.md](DESIGN.md), mục Giới hạn có chủ đích (0.9.0 vòng 2).
 
 | # | Việc tồn tại 12056bf | Cách đóng |
 | --- | --- | --- |
@@ -35,6 +35,20 @@ Mỗi dòng việc tồn của CHANGELOG 0.9.0 tại `12056bf` và cách đóng.
 | 25 | Dạng lân cận L2: nháy cong trong phủ định (`Doesn’t pass`) không có kết luận | Đã sửa (M2) |
 | 26 | Dạng lân cận L3: `set - -o pipefail` vẫn bật pipefail | Đã sửa (M7) |
 | 27 | G6: đưa cách chạy theo tầng vào `scripts/mutate.ts` | Đã sửa (M21b): cờ `--tiered` |
+
+## 0.9.0 vòng 2 M22: đột biến 790 mẫu theo luật và 20 mẫu đối chứng [Đo trực tiếp, engine 2.1.296, mã của `0d91496`, 20/11/2026]
+
+Phạm vi: 45 mẫu nhóm A chưa chạy ở G6, 100 mẫu `090` chưa có phán quyết trên bản ghim, phần còn lại của các tệp hooks đổi ở vòng 2, cộng 20 mẫu đối chứng; 21 đợt, 810 mẫu (đợt 1 tới 19 mỗi đợt 40, đợt 20 có 30, đợt 21 là 20 mẫu đối chứng).
+
+1. Cách chạy. Đợt 1 tới 3 theo cách cũ, một đợt một lúc (`scripts/mutate.ts --tiered`). Từ đợt 4, bộ chạy ngoài repo dùng cùng luật nhận (`scripts/tiers.ts`: parseRun, stepOf, finalOf, hạn của tầng cũ chứa tệp), mỗi đợt một bản sao tạm riêng, hai hoặc ba đợt cùng lúc, dừng engine ở ca lỗi đầu tiên không do hết giờ và ghi tên ca đã diệt. Dưới tải chỉ nhận KILLED; mẫu có nhóm hai lượt liền chưa có phán quyết, mẫu ghi tương đương và mẫu qua hết bộ test mà không bị diệt vào hàng chờ chạy riêng, một mẫu một lúc, không gì chạy cùng; SURVIVED và EQUIVALENT chỉ nhận ở hàng chờ này.
+2. Kết quả theo năm loại: KILLED 784, SURVIVED 5, EQUIVALENT 21, ERROR 0, TIMEOUT 0. Theo nguồn: cách cũ 115 KILLED, 5 EQUIVALENT; dưới tải 644 KILLED; hàng chờ riêng 25 KILLED, 5 SURVIVED, 16 EQUIVALENT. Lượt chạy lại vì hết giờ dưới tải: 71; ở hàng chờ riêng: 0.
+3. Mẫu sống sót (không sửa mã, không thêm test ở M22): `090-C6zy` (`hooks/lib/verdict.ts`, xét cả dòng thay vì câu đầu của dòng kết luận), `090-U2b` (`hooks/parts/consistency.ts`, bỏ lần đặt lại status line khi bước đóng đổi), `075-B11e` (`hooks/parts/session.ts`, không cảnh báo khi thay), `075-R1h` (`hooks/parts/session.ts`, không cảnh báo khi mục bị bỏ), `075-S8a` (`hooks/parts/session.ts`, cảnh báo mục bị bỏ dùng kind model).
+4. Đối chứng cách mới với cách cũ: đợt 2 và 3 chạy lại theo cách mới, 80/80 mẫu cùng phán quyết cuối; 0 mẫu bị diệt chỉ do ca hết giờ (luật nhận loại ca hết giờ).
+5. Đối chứng tải: mã không đột biến chạy trọn bộ trong hai bản sao cùng lúc, mỗi bản 4465 test: bản a 2 fail, bản b 1 fail, cả ba đều `timed out after 5000 ms`; 0 ca lỗi không do hết giờ. Lượt mã không đột biến chạy cùng ba đợt trước đó: 15 ca hết giờ trên 4465, 0 ca lỗi khác.
+6. Đối chứng cuối: 31 mẫu (5% của 606 mẫu bị diệt dưới tải ở đợt 5 tới 21, không dưới 20) lấy ngẫu nhiên với hạt ghi lại, chạy lại một mình trên đúng tệp test đã diệt: 31/31 vẫn bị diệt; không đợt nào phải chạy lại cả đợt.
+7. Mức tải chọn theo thông lượng thực (mẫu có phán quyết cuối chia thời gian lượt cộng hàng chờ riêng): cách cũ 0,374 mẫu một phút (40 mẫu trong 107 phút), ba đợt 0,616, hai đợt 1,716; chọn hai đợt từ đợt 7. Thông lượng từng lượt hai đợt: 07 08 1,733; 09 10 0,630; 11 12 0,422; 13 14 0,371; 15 16 2,529; 17 18 0,838; 19 20 2,411; 21 0,811.
+8. Thời gian mỗi đợt 40 mẫu: cách cũ trung bình 80 phút (đợt 1 56, đợt 2 107, đợt 3 77); cách mới 58 phút (690 mẫu, kể cả 80 mẫu chạy lại của đợt 2 và 3, trong 60036 giây gồm cả hàng chờ riêng, chưa tính hai lượt đối chứng).
+9. Số nhóm test phải chạy tới khi mẫu bị diệt dưới tải (mọi lượt engine của mẫu, kể cả lượt lại và nhóm diệt, bỏ nhóm rỗng): đợt 5 tới 8 trung bình 3,01 nhóm (157 mẫu, 92 cần hơn một nhóm); đợt 9 tới 20 trung bình 3,95 nhóm (430 mẫu, 187 cần hơn một nhóm). Tách theo thứ tự nhóm: đợt 9 tới 12, thứ tự theo lịch sử diệt của tệp hooks, 5,78 nhóm (153 mẫu, 137 cần hơn một nhóm, nhiều nhất 17); đợt 13 tới 20, nhóm đầu là tệp test cùng bản với mẫu (mã điểm trùng trước), kế đó tệp đã diệt mẫu khác cùng bản và cùng tệp hooks, rồi lịch sử diệt, 2,94 nhóm (277 mẫu, 50 cần hơn một nhóm, nhiều nhất 40). Lượt 13 14 riêng: 6,32 nhóm. Các đợt 9 tới 12 chậm vì tệp diệt được mẫu nằm sâu trong danh sách theo lịch sử diệt của cả tệp hooks; các đợt có nhiều mẫu vào hàng chờ riêng (13 14, 17 18) chậm thêm vì mẫu đó chạy trọn bộ hai lần.
 
 ## 0.9.0 cổng duyệt: bảng nghiệm thu đóng K1 tới K25 [Đo trực tiếp, `tests/integration/k-table-090.test.ts` và, cho K20, `tests/integration/closing-stepcheck-f1-090.test.ts`, 2.1.327, 18/11/2026]
 
