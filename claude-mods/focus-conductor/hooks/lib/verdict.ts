@@ -94,11 +94,27 @@ const PARTIAL = /(?:^|[^\p{L}])(?:phần lớn|một phần|mostly|partially)(?:
  * sau là bình luận. Từ chưa đạt: chưa đạt. Từ đạt: đạt, trừ khi câu có mức lỗi cao không bị phủ định (chưa đạt; vòng 2 M3 bỏ điều kiện từ tương phản), hay có
  * "phần lớn", "một phần", "mostly", "partially" (chưa có kết luận). Phủ định nhận như lỗi trong output lệnh kiểm (`dropNegated`).
  */
+/**
+ * Nhãn kết luận (vòng 3 N8): "Kết luận" hay "Verdict", có thể chen tối đa bốn từ trước dấu hai chấm ("Kết luận kiểm độc lập:", "Kết luận
+ * chung:"). Nhãn chen từ năm từ trở lên không là nhãn.
+ */
+const LABEL = /^(?:kết luận|verdict)(?:\s+[^\s:]+){0,4}\s*:\s*/iu
+/** Nhãn kết luận đứng ngay sau một dấu kết câu trong cùng dòng (vòng 3 N8): "Không có lỗi. Kết luận: đạt." */
+const MID_LABEL = /[.!?]\s+((?:kết luận|verdict)(?:\s+[^\s:]+){0,4}\s*:.*)$/iu
+
 function lineVerdict(raw: string): VerdictLine | null {
   // Chuẩn hóa ký tự (vòng 2 M2): nháy cong thành nháy thẳng, các loại gạch nối thành `-`, khoảng trắng đặc biệt thành khoảng trắng thường.
   let text = raw.normalize('NFC').replace(/[\u200b-\u200d\ufeff]/gu, '').replace(/[\u2018\u2019\u201b\u2032]/gu, "'").replace(/[\u2010-\u2015\u2212]/gu, '-').replace(/[\u00a0\u2000-\u200a\u202f\u205f\u3000]/gu, ' ').replace(/[*_`]+/gu, '').replace(/\s+/gu, ' ').trim()
   text = text.replace(/^(?:[#>]+\s*|[-+•]\s+|\d+[.)]\s+)+/u, '').trim()
-  text = text.replace(/^(?:kết luận|verdict)\s*:\s*/iu, '').trim().toLowerCase()
+  const found = wordVerdict(text.replace(LABEL, '').trim().toLowerCase())
+  if (found !== null) return found
+  // Dòng không mở đầu bằng kết luận mà có nhãn kết luận sau một dấu kết câu (vòng 3 N8): đọc phần từ nhãn đó.
+  const mid = MID_LABEL.exec(text)?.[1]
+  return mid !== undefined ? wordVerdict(mid.replace(LABEL, '').trim().toLowerCase()) : null
+}
+
+/** Đọc phần đã bỏ nhãn của một dòng: mở đầu bằng một từ kết luận thì là dòng kết luận, không thì null. */
+function wordVerdict(text: string): VerdictLine | null {
   for (const [word, verdict, isCheckOnly] of WORDS) {
     if (!text.startsWith(word) || /^\p{L}/u.test(text.slice(word.length))) continue
     const after = text.slice(word.length)
