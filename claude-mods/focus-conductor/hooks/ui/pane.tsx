@@ -242,9 +242,10 @@ export function renderPane(
   const attentionHidden = attentionTotal - (isPaused ? 1 : 0) - attentionShown.length
   const attentionWidth = Math.max(8, width - 2)
   // Ký hiệu ở dòng đầu, các dòng sau thụt hai ô cho thẳng chữ.
-  const hanging = (glyph: string, text: string) => wrapText(text, attentionWidth, 99).map((line, i) => `${i === 0 ? glyph : ' '} ${line}`)
+  const hanging = (glyph: string, text: string, wrapAt = attentionWidth) => wrapText(text, wrapAt, 99).map((line, i) => `${i === 0 ? glyph : ' '} ${line}`)
   const pauseLines = pause !== null && isPaused ? [hanging(PAUSE_GLYPH, pause.line), hanging(' ', pause.resume)] : []
-  const itemLines = attentionShown.map(item => ({ item, lines: hanging(severityGlyph(item.severity), item.text) }))
+  // Dòng lệnh đỏ từ nền (vòng 3 N7) xuống dòng theo bề rộng thật, nên pane hẹp hơn 36 cột không có thêm dòng vượt bề rộng.
+  const itemLines = attentionShown.map(item => ({ item, lines: hanging(severityGlyph(item.severity), item.text, item.kind === 'baseline' ? Math.max(8, fitWidth - 2) : attentionWidth) }))
   const attentionRows = attentionTotal === 0 ? 0 : 1 + pauseLines.reduce((sum, lines) => sum + lines.length, 0) + itemLines.reduce((sum, entry) => sum + entry.lines.length, 0) + (attentionHidden > 0 ? 1 : 0)
   const attentionNode =
     attentionTotal === 0 ? null : (

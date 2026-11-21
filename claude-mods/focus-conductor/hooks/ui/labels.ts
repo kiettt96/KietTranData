@@ -39,6 +39,9 @@ const VI = {
   retryCleared: (command: string, step: number) => `Đã gỡ chặn: ${command} chạy lại đạt, bước ${step} về trạng thái cũ`,
   retryPassedAt: (clock: string) => `đã đạt lúc ${clock}`,
   waived: (command: string) => `đã miễn: \`${command}\``,
+  /** Lệnh kiểm đỏ từ nền (vòng 3 N7): dòng của mục cần chú ý và tiêu đề mục của /conductor status. */
+  baselineRed: (command: string) => `đỏ từ nền: \`${command}\``,
+  baselineHeading: 'Lệnh kiểm đỏ từ nền',
   // Kế hoạch đã trình chờ người dùng duyệt (0.8.2 N2): mục cần chú ý và nhãn status line.
   planAwaiting: 'Chờ duyệt kế hoạch',
   planAwaitingShort: 'chờ duyệt kế hoạch',
@@ -250,6 +253,8 @@ const EN: typeof VI = {
   retryCleared: (command, step) => `Unblocked: ${command} passed on a rerun, step ${step} restored`,
   retryPassedAt: clock => `passed at ${clock}`,
   waived: command => `waived: \`${command}\``,
+  baselineRed: command => `red at baseline: \`${command}\``,
+  baselineHeading: 'Checks red at baseline',
   planAwaiting: 'Plan awaiting approval',
   planAwaitingShort: 'plan awaiting approval',
   skillUntried: 'Skill not trialled',

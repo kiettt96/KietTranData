@@ -10,6 +10,7 @@ import { cacheNote, priceNote } from '../lib/cost'
 import { estimateLine, formatCost, ledgerLines } from '../lib/ledger'
 import { describePick } from '../lib/route'
 import { clipText } from '../lib/decisions'
+import { isBaseline } from '../lib/baseline'
 import { askRouter, bareBrief, briefOf, failFields, nextBrief, parseRoute, rerouted, routerFailOf, routerRequest } from '../lib/router'
 import { shownPlan } from '../lib/mirror'
 import { taskStatusOf } from '../lib/progress'
@@ -139,12 +140,20 @@ async function showStatus($: EngineInterface, current: View, options: Ctx['optio
 function retryLines(core: Core): string[] {
   if (core.brief === null || core.retry.goalId !== core.brief.goalId || core.retry.items.length === 0) return []
   // Đánh số để /conductor waive N chọn đúng lệnh (0.7.9 Y5); lệnh đã miễn ghi kèm.
-  const rows = core.retry.items.map((item, i) => {
+  // Lệnh đỏ từ nền (vòng 3 N7) nằm ở mục riêng; số thứ tự giữ theo danh sách đầy đủ để /conductor waive N chọn đúng lệnh.
+  const rows = core.retry.items.flatMap((item, i) => (isBaseline(item) ? [] : [{ item, i }])).map(({ item, i }) => {
     const name = item.more.length > 0 ? `và ${item.more.length} lệnh khác` : item.command
     const state = item.exhausted ? `hết ${RETRY_ROUNDS} lượt, chưa đạt` : `lượt ${item.round}/${RETRY_ROUNDS}`
     return `  ${i + 1}. ${name}: ${state}; mức ${item.levels.join(', ')}${S.isWaived(core, item.sig) ? ' (đã miễn)' : ''}`
   })
-  return [`Lệnh kiểm chưa đạt:\n${rows.join('\n')}`]
+  return rows.length > 0 ? [`Lệnh kiểm chưa đạt:\n${rows.join('\n')}`] : []
+}
+
+/** Lệnh kiểm đỏ từ nền của mục tiêu (vòng 3 N7): tiêu đề theo ngôn ngữ giao diện, mỗi lệnh một dòng kèm lỗi đầu. */
+function baselineLines(core: Core, lang: Lang): string[] {
+  if (core.brief === null || core.retry.goalId !== core.brief.goalId) return []
+  const rows = core.retry.items.filter(isBaseline).map(item => `  - ${item.command}${item.lastError !== '' ? `: ${clipText(item.lastError, 120)}` : ''}`)
+  return rows.length > 0 ? [`${labels(lang).baselineHeading}:\n${rows.join('\n')}`] : []
 }
 
 /** Lệnh kiểm chủ mod đã miễn trong mục tiêu (0.7.9 Y5): số thứ tự, lệnh, lý do, lượt lúc miễn. */
@@ -583,6 +592,7 @@ export function registerCommand(on: On, ctx: Ctx): void {
           ...closingStatusLines(core, lang),
           ...retryLines(core),
           ...waiverLines(core),
+          ...baselineLines(core, lang),
           ...costLines,
         ].join('\n') + agentBlock,
       }
