@@ -6,6 +6,8 @@
 
 import type { PluginOptions } from 'claude-code'
 
+import { BASE_SEEN, keepBase } from './baseline'
+import type { BaseState } from './baseline'
 import type { AgentProgress, AgentState, ApprovalState, ApprovalStatus, AgentTally, ArchivedGoal, Brief, ChangedState, CheckHint, ConductState, Core, FableState, FallbackState, ForkPart, GoalTurns, ForkPartState, ForkState, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, RetryItem, RetryState, Route, Waiver, WaiverState, RouteEvent, RouterFail, SkillState, TurnFault, Warning } from '../../types'
 import { isFullyClosed, openSteps, restorableSteps } from './drift'
 import { isPendingGoal } from './conductor'
@@ -171,7 +173,7 @@ export const withRetry =
 function normalizeRetry(raw: Partial<RetryState> | undefined): RetryState {
   if (raw === undefined || raw === null) return { goalId: -1, items: [] }
   const items = (raw.items ?? []).map(
-    (item: Partial<RetryItem>): RetryItem => ({
+    (item: Partial<RetryItem>): RetryItem => keepBase(item, {
       sig: item.sig ?? '',
       check: item.check ?? 'test',
       command: item.command ?? '',
@@ -196,7 +198,9 @@ function normalizeRetry(raw: Partial<RetryState> | undefined): RetryState {
       ranAt: item.ranAt ?? '',
     }),
   )
-  return { goalId: raw.goalId ?? -1, items }
+  // Chữ ký đã có lần chạy lỗi trong mục tiêu (vòng 3); vắng ở trạng thái lưu từ bản trước.
+  const seen = (raw as BaseState).seen
+  return { goalId: raw.goalId ?? -1, items, ...(Array.isArray(seen) && seen.length > 0 ? { seen: seen.filter(x => typeof x === 'string').slice(-BASE_SEEN) } : {}) }
 }
 
 /** Chữ ký này có lệnh miễn trong mục tiêu đang mở (0.7.9 Y5). */

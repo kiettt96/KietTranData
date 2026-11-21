@@ -26,6 +26,8 @@ import type { Finding, Focus, ToolObservation, TurnTracker } from '../lib/drift'
 import { checkCommand, checkSignature, coversFailure, isFailedRun } from '../lib/drift/evidence'
 import { isCustomCheck } from '../lib/drift/verify'
 import type { CheckRun, EvidenceEntry, EvidenceLog } from '../lib/drift/evidence'
+import { BASE_SEEN, errorCountOf, isBaselineRun, seenOf } from '../lib/baseline'
+import type { BaseItem, BaseState } from '../lib/baseline'
 import { clipText } from '../lib/decisions'
 import { addUsage, calibrate, recordShape, safeUsage, shapeKey } from '../lib/ledger'
 import { applyPlan } from '../lib/plan'
@@ -544,6 +546,8 @@ type RetryDeps = {
   mainLevel: () => Choice
   toolCalls: () => number
   lang: Lang
+  /** Sổ thay đổi của mục tiêu (vòng 3): biết lần chạy lỗi có đứng trước mọi thay đổi không. */
+  evidenceFor: (goalId: number) => EvidenceLog
 }
 
 /**
@@ -567,6 +571,8 @@ async function noteChecks($: EngineInterface, deps: RetryDeps, core: Core, goalI
   let plan = core.plan
   const cleared: Array<{ item: RetryItem; step: number }> = []
   const agentNotes: string[] = []
+  // Chữ ký đã có lần chạy lỗi trong mục tiêu (vòng 3): lần lỗi sau của chúng không còn là lần lỗi đầu tiên.
+  const seen = new Set(seenOf(retry))
   for (const entry of entries) {
     const run: CheckRun = { check: entry.check ?? 'test', command: checkCommand(entry) }
     const sig = checkSignature(run)
@@ -591,6 +597,9 @@ async function noteChecks($: EngineInterface, deps: RetryDeps, core: Core, goalI
       continue
     }
     if (!isFailedRun(entry, observation as never)) continue
+    // Lần lỗi đầu tiên của lệnh trong mục tiêu, trước mọi thay đổi: đỏ từ nền (vòng 3 N1).
+    const isBase = !seen.has(sig) && isBaselineRun(deps.evidenceFor(goalId), entry.seq)
+    seen.add(sig)
     const known = items.find(item => item.sig === sig) ?? items.find(item => item.more.includes(sig))
     if (known !== undefined) {
       if (error !== '') known.lastError = error
@@ -603,7 +612,7 @@ async function noteChecks($: EngineInterface, deps: RetryDeps, core: Core, goalI
       stuck = sig
       continue
     }
-    const fresh: RetryItem = {
+    const fresh: BaseItem = {
       sig,
       check: run.check,
       command: run.command,
@@ -626,6 +635,7 @@ async function noteChecks($: EngineInterface, deps: RetryDeps, core: Core, goalI
       idle: 0,
       runner,
       ranAt,
+      ...(isBase ? { baseline: true as const, baseCount: errorCountOf(observation.output) } : {}),
     }
     // Mục tạo từ lần chạy của subagent (0.8.0 A12): luồng chính được báo một lần, ở kết quả tool kế tiếp.
     if (!isMain && agent !== undefined) agentNotes.push(retryAgentNotice(run.command, agent))
@@ -661,7 +671,7 @@ async function noteChecks($: EngineInterface, deps: RetryDeps, core: Core, goalI
     }
   }
   await update($, coreState, c => {
-    const next = S.withRetry({ goalId, items })(plan !== core.plan ? S.withPlan(plan)(c) : c)
+    const next = S.withRetry({ goalId, items, seen: [...seen].slice(-BASE_SEEN) } as BaseState)(plan !== core.plan ? S.withPlan(plan)(c) : c)
     return waived.length !== waivers.length ? S.withWaivers({ goalId, items: waived })(next) : next
   })
   if (cleared.length > 0) await deps.flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
@@ -1296,6 +1306,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     mainLevel,
     toolCalls: () => L.tracker.toolCalls,
     lang: langOf(ctx.options['uiLanguage']),
+    evidenceFor,
   }
 
 
