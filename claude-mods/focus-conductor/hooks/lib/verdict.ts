@@ -95,19 +95,26 @@ const PARTIAL = /(?:^|[^\p{L}])(?:phần lớn|một phần|mostly|partially)(?:
  * "phần lớn", "một phần", "mostly", "partially" (chưa có kết luận). Phủ định nhận như lỗi trong output lệnh kiểm (`dropNegated`).
  */
 /**
- * Nhãn kết luận (vòng 3 N8): "Kết luận" hay "Verdict", có thể chen tối đa bốn từ trước dấu hai chấm ("Kết luận kiểm độc lập:", "Kết luận
- * chung:"). Nhãn chen từ năm từ trở lên không là nhãn.
+ * Nhãn kết luận (vòng 3 N8, B3): "Kết luận" hay "Verdict" (có thể có "Final", "Overall" đứng trước), chen tối đa bốn từ, rồi có thể một cụm
+ * trong ngoặc đơn (không tính vào bốn từ), trước dấu hai chấm: "Kết luận kiểm độc lập:", "Kết luận kiểm độc lập (lần 2):", "Final verdict:".
+ * Nhãn chen từ năm từ trở lên ngoài ngoặc không là nhãn. Nhóm 1 là các từ chen, nhóm 2 là cụm trong ngoặc.
  */
-const LABEL = /^(?:kết luận|verdict)(?:\s+[^\s:]+){0,4}\s*:\s*/iu
+const LABEL_HEAD = '(?:(?:final|overall)\\s+)?(?:kết luận|verdict)((?:\\s+[^\\s:()]+){0,4})(?:\\s*\\(([^)]*)\\))?\\s*:'
+const LABEL = new RegExp(`^${LABEL_HEAD}\\s*`, 'iu')
 /**
- * Từ chen nói kết luận chưa có hay không phải (kiểm độc lập vòng 3 lỗi 2): "Kết luận chưa có:", "Kết luận không phải:", "Verdict not yet final:",
- * "Verdict cannot be given:" không là nhãn. Chữ "không", "no" đứng riêng ("Kết luận không gian tên:", "Verdict with no issues:") vẫn là nhãn (lần hai).
+ * Từ chen nói kết luận chưa có, không phải, có điều kiện hay của lượt khác (kiểm độc lập vòng 3 lỗi 2, B2): "Kết luận chưa có:", "Kết luận
+ * không phải:", "Kết luận nếu sửa xong:", "Kết luận của lượt trước:", "Verdict if fixed:", "Verdict of previous round:" không là nhãn. Chữ
+ * "không", "no", "khi", "sau" đứng riêng ("Kết luận không gian tên:", "Kết luận sau khi kiểm lại:") vẫn là nhãn.
  */
-const LABEL_NOT = /^(?:kết luận|verdict)\s+(?:[^\s:]+\s+){0,3}?(?:chưa|không (?:phải|thể)|not yet|not final|cannot|can't|pending)(?:[\s:]|$)/iu
-/** Bỏ nhãn kết luận ở đầu chuỗi, trừ nhãn có từ chen phủ định (khi đó trả chuỗi rỗng: dòng không có kết luận). */
-const dropLabel = (text: string) => (LABEL_NOT.test(text) ? '' : text.replace(LABEL, ''))
+const LABEL_NOT = /(?:^|\s)(?:chưa|không phải|không thể|not yet|not final|cannot|can't|pending|nếu|trước|cũ|if|previous|prior|earlier|old)(?=\s|$)/iu
+/** Bỏ nhãn kết luận ở đầu chuỗi; nhãn có từ chen phủ định hay điều kiện (cả trong ngoặc) thì trả chuỗi rỗng: dòng không có kết luận. */
+function dropLabel(text: string): string {
+  const hit = LABEL.exec(text)
+  if (hit === null) return text
+  return LABEL_NOT.test(`${hit[1] ?? ''} ${hit[2] ?? ''}`) ? '' : text.slice(hit[0].length)
+}
 /** Nhãn kết luận đứng ngay sau một dấu kết câu trong cùng dòng (vòng 3 N8): "Không có lỗi. Kết luận: đạt." */
-const MID_LABEL = /[.!?]\s+((?:kết luận|verdict)(?:\s+[^\s:]+){0,4}\s*:.*)$/iu
+const MID_LABEL = new RegExp(`[.!?]\\s+(${LABEL_HEAD}.*)$`, 'iu')
 
 function lineVerdict(raw: string): VerdictLine | null {
   // Chuẩn hóa ký tự (vòng 2 M2): nháy cong thành nháy thẳng, các loại gạch nối thành `-`, khoảng trắng đặc biệt thành khoảng trắng thường.
