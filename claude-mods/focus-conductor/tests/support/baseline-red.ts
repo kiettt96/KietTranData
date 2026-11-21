@@ -21,9 +21,9 @@ export function baseSetup(on: On, reply: Json = sampleGoal()): BaseSample {
   Object.defineProperty(sample.outputs, TSC, { get: () => ({ text: TSC_OUT(sample.count), isError: true }), enumerable: true, configurable: true })
   return sample
 }
-/** Mở mục tiêu mẫu với ba bước của vòng 3. */
-export async function baseOpen($: Engine, sample: Sample, steps: ReadonlyArray<Record<string, unknown>> = BASE_STEPS) {
-  await offerAgent($)
+/** Mở mục tiêu mẫu với ba bước của vòng 3; `offer` false thì không mời agent nào (cổng đóng không áp). */
+export async function baseOpen($: Engine, sample: Sample, steps: ReadonlyArray<Record<string, unknown>> = BASE_STEPS, offer = true) {
+  if (offer) await offerAgent($)
   await submit($, 'Sửa thống kê')
   await $.tool.call({ tool: PLAN_TOOL, action: 'set', steps } as never)
   await $.turn.start({ text: 'Sửa thống kê', turnId: 't1' })

@@ -12,9 +12,9 @@ const GATE = 'Còn lệnh kiểm chưa đạt'
 const stops = async ($: Engine) => [await stopSample($), await stopSample($), await stopActive($)]
 
 describe('0.9.0 vòng 3 N3: cổng Stop không chặn vì lệnh đỏ từ nền', () => {
-  test('A0: chưa sửa gì, tsc đỏ từ nền, đóng hết bước: không chặn lần nào, kể cả khi stop_hook_active', BASE_OPTS(), async ($, on) => {
+  test('A0: chưa sửa gì, tsc đỏ từ nền, đóng hết bước, không mời agent (cổng đóng không áp): không chặn lần nào, kể cả khi stop_hook_active', BASE_OPTS(), async ($, on) => {
     const sample = baseSetup(on)
-    await baseOpen($, sample)
+    await baseOpen($, sample, undefined, false)
     await runTsc($)
     await closeAll($)
     expect(await stops($)).toEqual(['', '', ''])

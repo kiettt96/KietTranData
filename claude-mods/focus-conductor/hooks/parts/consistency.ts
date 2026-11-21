@@ -521,9 +521,9 @@ function isCheckCall(tool: string): boolean {
   return tool === 'Bash' || isCheckTool(tool)
 }
 
-/** Mục chưa hết lượt của mục tiêu hiện tại, trừ mục chủ mod đã miễn (0.7.9 Y5). */
+/** Mục chưa hết lượt của mục tiêu hiện tại, trừ mục chủ mod đã miễn (0.7.9 Y5) và mục đỏ từ nền (vòng 3 N3). */
 function liveRetry(core: Core): RetryItem[] {
-  return core.brief !== null && core.retry.goalId === core.brief.goalId ? core.retry.items.filter(item => !item.exhausted && !S.isWaived(core, item.sig)) : []
+  return core.brief !== null && core.retry.goalId === core.brief.goalId ? core.retry.items.filter(item => !item.exhausted && !S.isWaived(core, item.sig) && !isBaseline(item)) : []
 }
 
 /** Các lần chạy kiểm mới của nhật ký kể từ mốc seq. */
