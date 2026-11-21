@@ -70,7 +70,8 @@ describe('0.8.7 L2: lời dặn router', () => {
       expect(rule).not.toContain('at most 30')
       expect(rule).not.toContain('at most 8 tasks')
       expect(rule).not.toContain('the limit below does not apply')
-      expect(rule).toContain('constraints: at most 6')
+      // 0.9.0 B13: constraints không còn trần 6 (tên ca giữ như cũ).
+      expect(rule).toContain('constraints: the hard rules')
       expect(rule).toContain('at most 5 acceptance criteria')
       expect(rule).toContain('A request that is one piece of work has tasks [].')
       expect(rule).toContain('Order tasks in the order they are done')

@@ -2,13 +2,14 @@
 // mà nhiều nhóm hook cùng dùng. Không gọi $: lệnh gọi $ nằm trong thân hook ở hooks/parts/.
 
 import type { PluginOptions, PromptOrigin } from 'claude-code'
-import type { Brief, Choice, Core, DelegationItem, DelegationState, Effort, Intent, Lift, Mode, ModelFamily, PlanStep, Route, RouteEvent, Task, Tier, Volume } from '../types'
+import type { Brief, Choice, Core, DelegationItem, DelegationState, Effort, Intent, Lift, Mode, ModelFamily, PlanStep, Role, Route, RouteEvent, Task, Tier, Volume } from '../types'
 import { applyCheckCommands, applyCheckTools, applyPassLines, applySkillPaths, applySoftPaths, newEvidenceLog, newTracker, parseCheckCommands, parseCheckTools, parsePassLines, parseSkillPaths, parseSoftPaths } from './lib/drift'
+import { applyStateFileNames } from './lib/drift/scope'
 import type { EvidenceLog, PromptIntent, TurnTracker } from './lib/drift'
 import { DEFAULT_CACHE_TTL_MINUTES, DEFAULT_CONTEXT, DEFAULT_WINDOWS, applyCacheWrite, applyPrices, parseCacheWrite, parsePrices } from './lib/cost'
 import { EFFORTS, FAMILIES as FAMILIES_ORDER, decideMain, describePick, familyOf, hasTitleCode, liftPick, matchTask, parseModelMap, parseWindows, pinnedId, resolveModelId } from './lib/route'
 import type { SessionModel, SessionPolicy } from './lib/route'
-import { DECISION_LIMIT, decisionLine } from './lib/decisions'
+import { DECISION_LIMIT, decisionLine, keptLines } from './lib/decisions'
 import type { DecisionKind } from './lib/decisions'
 import { EMPTY_ERRORS, behaviorEntries, caught, noteBehavior, noteModError, errorFileText, errorLines, localIso, mergeEntry, mergeFiles, parseErrorFile, pruneFixed, setErrorSink } from './lib/errlog'
 import type { ErrorEntry, ErrorEvent, ErrorFile } from './lib/errlog'
@@ -19,6 +20,10 @@ import { routerMaxWaitOf } from './lib/reading'
 import { DEFAULT_CONDUCTOR } from './lib/families'
 import type { Reading } from './lib/reading'
 import { approvalModeOf, reviewRoundsOf } from './lib/approval'
+import type { StepRun } from './lib/drift/stepcheck'
+import type { Verdict } from './lib/verdict'
+/** Một kết luận của subagent có vai (0.9.0 C4): vai, kết luận, số đếm, mốc seq, model đã chạy, việc và mô tả. */
+export type VerdictRun = { agentId: string; role: Role; verdict: Verdict | null; /** Dấu của tập file không đổi trong lượt và sổ không có lần ghi definite của subagent vào file không nhẹ ngoài thư mục tạm (0.9.0, C2 đo dấu file); cổng còn xét lại dấu lúc đóng. */ isClean: boolean; /** Kết luận tính cho duyệt và sẵn sàng (0.9.0 C6): không phải lượt Kiểm:, không phải ĐẠT HẾT, ALL PASS, model từ sonnet. */ isReview: boolean; count?: string; seq: number; family: ModelFamily; taskIndex?: number; description: string; /** File của tập đổi dấu trong lượt (0.9.0, C2 đo dấu file), để lý do chặn nêu tên. */ changed?: string[]; /** Câu trả lời chỉ có dòng kết luận đạt một phần (luật đọc sau phiên thật D4). */ unclear?: true; /** Lượt có vai duyệt hay sẵn sàng trả câu không đọc ra kết luận (vòng 2 M1). */ unread?: true }
 import { activeConductor, conductorBlocker, conductorFallbackOf, conductorOf, fableModelId, isMainConducting } from './lib/conductor'
 import { normalizeCore, restoreArchived, withDelegations } from './lib/state'
 import type { ActiveConductor, ConductorBlocker, ConductorInputs } from './lib/conductor'
@@ -87,6 +92,7 @@ export const COMMAND_HELP = [
   '/conductor approve     duyệt kế hoạch đang chờ (chỉ người gõ)',
   '/conductor solo        luồng chính đang điều phối được tự sửa file và tự chạy kiểm (chỉ người gõ); solo off để bỏ',
   '/conductor waive N lý do   miễn lệnh kiểm chưa đạt số N (hoặc ghi lệnh) cho mục tiêu này; waive undo N bỏ lệnh miễn',
+  '/conductor waive review   miễn duyệt độc lập của mục tiêu đang mở (chỉ người gõ)',
   '/conductor errors      nhật ký lỗi của mod; errors clear xóa nhật ký',
 ].join('\n')
 
@@ -128,6 +134,34 @@ export function createContext(options: PluginOptions) {
     sessionNoticed: false,
     /** Engine nhận alias họ model ở turn.step (0.8.7 M1): đọc một lần mỗi phiên từ $.session.version(); null là chưa đọc. */
     aliasEngine: null as boolean | null,
+    /** Đã báo cảnh báo cấu hình conductorFallback trong lần nạp mod này (0.9.0 A4). */
+    fallbackWarned: false,
+    /** Lần chạy Bash và mốc check của từng bước (0.9.0 B10), theo mục tiêu; cùng vòng đời với dấu vết evidence (không sống qua nạp lại mod). */
+    stepRuns: { goalId: -1, runs: [] as StepRun[], checkSeq: new Map<number, number>() },
+    /** Lần ghi vừa rồi của luồng chính là thay đổi không nhẹ (0.9.0 B10). */
+    lastWasHard: false,
+    /** Mục tiêu đã nhận dòng dạng check ở kết quả plan set (0.9.0 B10). */
+    checkHinted: -1,
+    /** Kết luận của subagent có vai (0.9.0 C4, C6, C8), theo mục tiêu; mốc seq của dấu vết evidence lúc trả lời. */
+    verdicts: { goalId: -1, items: [] as VerdictRun[] },
+    /** Lệnh kiểm qua ống che mã thoát (sau phiên thật D4): số lần đã nhắc và lần chạy gần nhất, theo mục tiêu. */
+    pipeNotes: { goalId: -1, n: 0, last: null as null | { seq: number; command: string } },
+    /** Đích subagent đang chạy chung thư mục đã ghi (0.9.0 C5), theo agentId; tệp đã nhắc trùng. */
+    agentWrites: new Map<string, Set<string>>(),
+    /** Cổng đóng mục tiêu (0.9.0 C6): số lần chặn và trạng thái thiếu đã chặn; mục tiêu đã miễn bằng /conductor waive review. */
+    closingState: { goalId: -1, blocks: 0, key: '' },
+    /** Số vòng CHƯA ĐẠT liên tiếp theo mục (mục tiêu, vai, việc) (0.9.0 C7). */
+    verdictRounds: new Map<string, number>(),
+    /** Trạng thái cổng đóng đã nạp từ $.state trong lần nạp mod này, và bản đã ghi gần nhất (0.9.0 vòng 2 M6). */
+    closingLoaded: false,
+    /** Đã gộp các dòng cũ của tệp nhật ký quyết định trong tiến trình này (0.9.0 vòng 2 M14). */
+    decisionsMerged: false,
+    /** Nội dung tệp trạng thái mục tiêu đã ghi gần nhất, không kèm mốc ghi (0.9.0 vòng 2 M15). */
+    goalFileSaved: '',
+    /** Danh sách file của phạm vi lúc sinh lượt có vai chỉ đọc hay vai kiểm (0.9.0 vòng 2 M13), theo agentId. */
+    scopeLists: new Map<string, { goalId: number; files: string[]; roots: string[] }>(),
+    closingSaved: '',
+    clashWarned: new Set<string>(),
     /** ID engine đã phục vụ theo họ (0.8.7 M1, usage.model của turn), cho dòng "Model đang dùng" và cảnh báo phiên bản một lần mỗi họ. */
     served: new Map<ModelFamily, string>(),
     /** Đã cảnh báo chính sách model của phiên chặn Fable điều phối (0.8.4 C1), một lần mỗi phiên. */
@@ -246,6 +280,8 @@ export function createContext(options: PluginOptions) {
      * (agent workflow, phiên con), khi đó lần kiểm của nó không là lần kiểm dùng chung.
      */
     sharesDir?: boolean
+    /** Vai trong đội hình (0.9.0 C1, C2): vai router trả cho việc hay lời gọi, hoặc review khi description mở đầu "Kiểm độc lập: ". */
+    role?: Role
   }
   const agents = new Map<string, AgentMeta>()
   const agentTrackers = new Map<string, TurnTracker>()
@@ -315,6 +351,7 @@ export function createContext(options: PluginOptions) {
   applyCheckTools(parseCheckTools(options['checkTools']))
   applyPassLines(parsePassLines(options['passLines']))
   applySoftPaths(parseSoftPaths(options['softPaths']))
+  applyStateFileNames(options['stateFileNames'])
   // File skill (0.8.2 N3): tiền tố khai ở option skillPaths.
   applySkillPaths(parseSkillPaths(options['skillPaths']))
 
@@ -364,7 +401,9 @@ export function createContext(options: PluginOptions) {
   /** Họ dự phòng dùng được lúc này (0.8.7 F1): có, không bị chặn, router của nó không tạm ngừng; null là không có. */
   function fallbackUsable(core: Core): ModelFamily | null {
     if (conductorFallback === null || blocked.has(conductorFallback)) return null
-    return normalizeCore(core).fallback.pauseLeft > 0 ? null : conductorFallback
+    // Router họ dự phòng tạm ngừng ở prompt hiện tại (0.9.0 A3) cũng là chưa dùng được, như số prompt còn tạm ngừng của conductorInputs.
+    const fallback = normalizeCore(core).fallback
+    return fallback.pauseLeft > 0 || fallback.promptPaused ? null : conductorFallback
   }
 
   /** Đích router của họ dự phòng (0.8.7 F1), cho lượt đọc của Fable bị API từ chối; null khi họ dự phòng không dùng được. */
@@ -419,8 +458,18 @@ export function createContext(options: PluginOptions) {
    * Ghi log quyết định ra file (option decisionLog); không làm gì khi chưa bật, lỗi ghi bị bỏ qua. `write` do hook truyền vào
    * (`(path, text) => $.fs.write(path, text)`) vì engine không cho `$` đi qua một import.
    */
-  async function flushDecisions(write: (path: string, text: string) => Promise<unknown>): Promise<void> {
-    if (decisionLog) await write(decisionLog, decisionText()).catch(caught('fs.write decisionLog', undefined))
+  async function flushDecisions(write: (path: string, text: string) => Promise<unknown>, read?: (path: string) => Promise<unknown>): Promise<void> {
+    if (!decisionLog) return
+    // Lần ghi đầu của tiến trình (vòng 2 M14): đọc tệp hiện có, giữ các dòng cũ đứng trước trong trần DECISION_LIMIT; tệp hỏng hay không đọc
+    // được thì ghi mới. Tiến trình chạy tiếp không phát session.start trước lần ghi đầu thì dòng cũ vẫn còn.
+    if (!local.decisionsMerged && read !== undefined) {
+      local.decisionsMerged = true
+      const old = await read(decisionLog).catch(() => '')
+      const kept = typeof old === 'string' ? keptLines(old) : []
+      const fresh = local.decisions.filter(line => !kept.includes(line))
+      local.decisions = [...kept, ...fresh].slice(-DECISION_LIMIT)
+    }
+    await write(decisionLog, decisionText()).catch(caught('fs.write decisionLog', undefined))
   }
 
   /** Đường dẫn file nhật ký lỗi: tuyệt đối giữ nguyên, tương đối ghép với thư mục gốc của phiên (không có thì để engine nối với cwd). */
@@ -594,6 +643,13 @@ export function createContext(options: PluginOptions) {
     local.sessionFamily = null
     local.sessionNoticed = false
     local.aliasEngine = null
+    local.stepRuns = { goalId: -1, runs: [], checkSeq: new Map() }
+    local.checkHinted = -1
+    local.verdicts = { goalId: -1, items: [] }
+    local.agentWrites.clear()
+    local.closingState = { goalId: -1, blocks: 0, key: '' }
+    local.verdictRounds.clear()
+    local.clashWarned.clear()
     local.served.clear()
     local.conductorSessionNoticed = false
     local.pinnedGoalId = null

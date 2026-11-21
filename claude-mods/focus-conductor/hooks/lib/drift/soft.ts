@@ -11,7 +11,7 @@ const SOFT_EXT = /\.(?:md|markdown|txt|csv|tsv|jsonl|log)$/i
 let softGlobs: RegExp[] = []
 
 /** Một glob thành biểu thức: `**` khớp mọi đoạn đường dẫn, `*` khớp trong một đoạn, `?` một ký tự. Glob không bắt đầu bằng "/" khớp từ đầu một thư mục bất kỳ. */
-function globToRegExp(glob: string): RegExp {
+export function globToRegExp(glob: string): RegExp {
   let out = ''
   for (let i = 0; i < glob.length; i++) {
     const ch = glob[i] ?? ''
@@ -53,8 +53,9 @@ export function isSoftPath(path: string): boolean {
  * Tác động ghi của Bash là thay đổi chắc chắn vào file không nhẹ: mức definite, không phải mkdir, và có đích không đọc được hoặc có
  * một đích không nhẹ. Mức possible (lệnh lạ, script) không bao giờ là thay đổi chắc chắn.
  */
-export function isHardEffect(effect: WriteEffect): boolean {
+export function isHardEffect(effect: WriteEffect, isSide: (path: string) => boolean = () => false): boolean {
   if (effect.level !== 'definite' || effect.name === 'mkdir') return false
-  // File skill (0.8.2 N3) không là thay đổi chắc chắn: bằng chứng của nó là lần thử skill, không phải lệnh kiểm.
-  return effect.isUnknown || effect.paths.length === 0 || effect.paths.some(path => !isSoftPath(path) && !isSkillPath(path))
+  // File skill (0.8.2 N3) không là thay đổi chắc chắn: bằng chứng của nó là lần thử skill, không phải lệnh kiểm. Tệp trạng thái và nơi ghi
+  // phụ của mục tiêu (0.9.0 B6) cũng không.
+  return effect.isUnknown || effect.paths.length === 0 || effect.paths.some(path => !isSoftPath(path) && !isSkillPath(path) && !isSide(path))
 }

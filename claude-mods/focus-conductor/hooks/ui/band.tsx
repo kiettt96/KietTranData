@@ -297,7 +297,7 @@ export function renderBand(
       return (
         <Box flexDirection="row" gap={1}>
           <Box flexGrow={1} flexShrink={1}>
-            {top.severity === 'error' ? <Text wrap="truncate-end">{paint.text('warn', sentence, { bold: true }).map(tint)}</Text> : <Text color={paint.solid('attention')} bold wrap="truncate-end">{sentence}</Text>}
+            {top.severity === 'error' ? <Text wrap="truncate-end">{paint.text('warn', sentence, { bold: true }).map(tint)}</Text> : top.severity === 'info' ? <Text wrap="truncate-end">{sentence}</Text> : <Text color={paint.solid('attention')} bold wrap="truncate-end">{sentence}</Text>}
           </Box>
           {more ? (
             <Box flexShrink={0}>

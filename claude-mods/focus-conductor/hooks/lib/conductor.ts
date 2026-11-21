@@ -52,6 +52,22 @@ export function conductorFallbackOf(options: PluginOptions): FallbackOption {
   return raw === 'sonnet' ? 'sonnet' : 'opus'
 }
 
+/**
+ * Cảnh báo cấu hình của conductorFallback (0.9.0 A4): giá trị không hợp lệ (mod dùng opus), hay trùng họ điều phối chính khi conductor khác
+ * off (không có họ dự phòng). Mảng rỗng là không có gì để báo.
+ */
+export function conductorFallbackIssues(options: PluginOptions): string[] {
+  const raw = options['conductorFallback']
+  const issues: string[] = []
+  if (raw !== undefined && raw !== 'opus' && raw !== 'sonnet' && raw !== 'off') {
+    issues.push(`conductorFallback "${String(raw).slice(0, 20)}" không hợp lệ, mod dùng opus`)
+  }
+  const primary = conductorOf(options)
+  const fallback = conductorFallbackOf(options)
+  if (primary !== 'off' && fallback === primary) issues.push(`conductorFallback trùng họ điều phối chính ${primary}: không có họ dự phòng`)
+  return issues
+}
+
 /** Nguyên nhân Fable không sẵn sàng; null là sẵn sàng. */
 export type FableBlocker = 'option' | 'mode' | 'headless' | 'blocked' | 'paused'
 

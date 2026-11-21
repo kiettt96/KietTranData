@@ -27,7 +27,8 @@ export type ScopeStatus = 'in' | 'out' | 'unknown'
  */
 export function scopeStatus(path: string, scopePaths: readonly string[], root?: string | null, cwd?: string | null): ScopeStatus {
   if (scopePaths.length === 0 || path === '') return 'in'
-  if (!root) return 'unknown'
+  // Đường dẫn dưới thư mục nhà chưa giải (0.9.0 A2, dạng `~/...`): không neo được theo gốc phiên.
+  if (!root || path.startsWith('~')) return 'unknown'
   const base = normalizePath(root)
   const resolve = (p: string, from: string) => normalizePath(p.replace(/\\/g, '/').startsWith('/') ? p : `${from}/${p}`)
   const file = resolve(path, cwd ? resolve(cwd, base) : base)
@@ -52,3 +53,81 @@ export function scopeStatus(path: string, scopePaths: readonly string[], root?: 
 export function isInScope(path: string, scopePaths: readonly string[], root?: string | null, cwd?: string | null): boolean {
   return scopeStatus(path, scopePaths, root, cwd) === 'in'
 }
+
+/** Thư mục nhà của phiên (0.9.0 A2), từ biến HOME khi engine cho biết; null là chưa biết. */
+let homeDir: string | null = null
+
+/** Áp thư mục nhà cho lần nạp mod này (0.9.0 A2); null hay chuỗi không phải đường dẫn tuyệt đối là chưa biết. */
+export function applyHome(home: string | null | undefined): void {
+  homeDir = typeof home === 'string' && home.startsWith('/') ? normalizePath(home) : null
+}
+
+/**
+ * Đích mở đầu `~/`, `$HOME/` hay `${HOME}/` (0.9.0 A2), phần sau không có `$`, backtick hay ký tự glob: đường dẫn dưới thư mục nhà. Biết
+ * thư mục nhà thì giải thành đường dẫn tuyệt đối, chưa biết thì giữ dạng `~/...`. Dạng khác (`~user/x`, `$OTHER/x`) trả null.
+ */
+export function homeTarget(token: string): string | null {
+  const match = /^(?:~|\$HOME|\$\{HOME\})\/(.+)$/.exec(token)
+  const rest = match?.[1]
+  if (rest === undefined || /[$`*?]/.test(rest)) return null
+  const tail = normalizePath(rest)
+  if (tail === '' || tail.startsWith('..')) return null
+  return homeDir !== null ? normalizePath(`${homeDir}/${tail}`) : `~/${tail}`
+}
+
+/** Hai danh sách của mục tiêu (0.9.0 B1): tệp trạng thái và nơi ghi phụ prompt cho phép. */
+export type SideLists = { stateFiles?: readonly string[]; sideWrites?: readonly string[] }
+
+/** Một mục hay một đường dẫn thành dạng so được: `~/` giải theo thư mục nhà, tương đối nối vào `from` (khi có). */
+function sideKey(item: string, from: string | null): string {
+  const unified = item.trim().replace(/\\/g, '/').replace(/\/+$/, '')
+  const home = homeTarget(unified)
+  const path = home ?? unified
+  if (path.startsWith('/') || path.startsWith('~') || from === null) return normalizePath(path)
+  return normalizePath(`${from}/${path}`)
+}
+
+/**
+ * Đường dẫn thuộc tệp trạng thái hay nơi ghi phụ của mục tiêu (0.9.0 B1 tới B6): bằng một mục, hay nằm dưới một mục (thư mục); mục chỉ là
+ * tên tệp thì khớp theo tên tệp. `which` 'state' chỉ xét tệp trạng thái. Đường dẫn tương đối neo theo `cwd`, không có thì theo `root`.
+ * Danh sách rỗng là không khớp.
+ */
+/** Tên tệp trạng thái mặc định (0.9.0 B14 mục 8, option stateFileNames): ở bất kỳ thư mục nào, đuôi tài liệu nhẹ. */
+export const DEFAULT_STATE_FILE_NAMES = ['TIEN-DO.md', 'KE-HOACH.md', 'DIEM-DUNG.md', 'PROGRESS.md', 'PLAN.md', 'HANDOFF.md']
+let stateFileNames = new Set(DEFAULT_STATE_FILE_NAMES.map(name => name.toLowerCase()))
+const STATE_NAME_EXT = /\.(?:md|markdown|txt)$/i
+
+/** Áp option stateFileNames: vắng thì mặc định; chuỗi thì các tên phân tách bằng dấu phẩy; chuỗi rỗng thì không có tên nào. */
+export function applyStateFileNames(value: unknown): void {
+  const names = typeof value === 'string' ? value.split(',').map(name => name.trim()).filter(Boolean) : DEFAULT_STATE_FILE_NAMES
+  stateFileNames = new Set(names.map(name => name.toLowerCase()))
+}
+
+/** Đường dẫn có tên trùng một tên tệp trạng thái của option stateFileNames, đuôi tài liệu nhẹ (0.9.0 B14 mục 8). */
+export function isStateName(path: string): boolean {
+  const name = (path.replace(/\\/g, '/').split('/').pop() ?? '').toLowerCase()
+  return name !== '' && STATE_NAME_EXT.test(name) && stateFileNames.has(name)
+}
+
+export function isSidePath(path: string, lists: SideLists | null | undefined, root?: string | null, cwd?: string | null, which: 'state' | 'all' = 'all'): boolean {
+  if (path.trim() !== '' && isStateName(path)) return true
+  if (lists === null || lists === undefined || path.trim() === '') return false
+  const entries = which === 'state' ? [...(lists.stateFiles ?? [])] : [...(lists.stateFiles ?? []), ...(lists.sideWrites ?? [])]
+  if (entries.length === 0) return false
+  const base = root ? normalizePath(root) : null
+  const from = cwd ? sideKey(cwd, base) : base
+  const file = sideKey(path, from)
+  const name = file.split('/').pop() ?? ''
+  return entries.some(entry => {
+    const clean = entry.trim().replace(/\\/g, '/').replace(/\/+$/, '')
+    if (clean === '') return false
+    if (!clean.includes('/')) return name === clean
+    const key = sideKey(clean, base)
+    return file === key || file.startsWith(`${key}/`)
+  })
+}
+
+/** Thư mục tạm: ghi dưới đây không tính là sửa file của việc (0.9.0 C2, D1). */
+// /var/folders trên macOS giải ra /private/var/folders (kiểm độc lập vòng 1 lỗi 3: đường dẫn thật của tệp mới đi qua thư mục cha).
+const ROLE_TEMP_DIRS = ['/tmp/', '/private/tmp/', '/var/folders/', '/private/var/folders/']
+export const isRoleTemp = (path: string) => ROLE_TEMP_DIRS.some(dir => normalizePath(path).startsWith(dir))

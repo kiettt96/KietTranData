@@ -10,6 +10,7 @@ import { addTouched, buildCheckpoint, pruneKeys, pushRecent, recentLine, storeKe
 import type { CheckpointInput } from '../lib/checkpoint'
 import { classifyBash, filePathOf, isInScope, isMutation, normalizePath, restorableSteps } from '../lib/drift'
 import { FILE_TOOLS } from '../lib/drift/tool'
+import { isStateName } from '../lib/drift/scope'
 import { BACKUP_CALLS_MAX, EMPTY_QUOTA, QUOTA_CACHE_MS, backupCommand, backupOutcome, deniedInput, isBackupOn, pauseBackupMode, evaluateQuota, blockingHits, isPauseActive, newPause, normalizeQuota, noteDenial, overrideOf, allowScopes, landsInsideAllowed, makesLink, pauseAllowIssues, pauseAllowPaths, quotaSettings, reasonsOf, softNotices } from '../lib/quota'
 import type { QuotaEval } from '../lib/quota'
 import * as S from '../lib/state'
@@ -450,8 +451,12 @@ export function registerQuota(on: On, ctx: Ctx): void {
         return result
       }
     }
-    // pauseAllowPaths (0.7.5): luồng chính vẫn ghi được file checkpoint theo quy tắc dừng của prompt.
-    if (!isAgent && allowPaths.length > 0 && (await isAllowedWrite($, e as unknown as Record<string, unknown> & { tool: string }, allowScope))) return next(e)
+    // pauseAllowPaths (0.7.5): luồng chính vẫn ghi được file checkpoint theo quy tắc dừng của prompt. Tệp trạng thái của mục tiêu (0.9.0
+    // B5) tính như một mục của danh sách, cùng phép kiểm đường dẫn đáp thật và symlink.
+    // Tệp trạng thái theo tên mặc định (0.9.0 B14 mục 8): đích của lần ghi này có tên như vậy thì tính như một mục của danh sách, cùng phép
+    // kiểm đường dẫn đáp thật và symlink.
+    const pauseScope = [...allowScope, ...(S.normalizeCore(await read($, coreState)).brief?.stateFiles ?? []), ...stateNameTargets(e as unknown as Record<string, unknown> & { tool: string })]
+    if (!isAgent && pauseScope.length > 0 && (await isAllowedWrite($, e as unknown as Record<string, unknown> & { tool: string }, pauseScope))) return next(e)
     let abort = false
     if (!isAgent) {
       const noted = noteDenial(pause, q.mainTurnId, { tool: e.tool, input: deniedInput(e as unknown as Record<string, unknown>) })
@@ -470,6 +475,17 @@ export function registerQuota(on: On, ctx: Ctx): void {
     // Dừng cứng dự phòng: model vẫn gọi tool bị từ chối lần thứ ba trong cùng turn. Gọi tại ranh giới tool call,
     // lệnh bị từ chối chưa chạy.
     if (abort) await $.turn.abort({ turnId: q.mainTurnId }).catch(caught('turn.abort', undefined))
-    return { deny: quotaDenyText(saved.reason, saved.source === 'user', isAgent, allowPaths, backup) }
+    const stateCore = S.normalizeCore(await read($, coreState))
+    const stateFiles = [...(stateCore.brief?.stateFiles ?? []), ...S.changedOf(stateCore).paths.filter(isStateName)]
+    return { deny: quotaDenyText(saved.reason, saved.source === 'user', isAgent, allowPaths, backup, stateFiles) }
   }).catch(($, e, next) => (noteHookError('tool.call', next.error), next(e)))
+}
+
+/** Đích của lần ghi có tên tệp trạng thái mặc định (0.9.0 B14 mục 8): tool file, hay các đích đã biết của Bash. */
+function stateNameTargets(e: Record<string, unknown> & { tool: string }): string[] {
+  if (e.tool !== 'Bash') {
+    const path = filePathOf({ tool: e.tool, input: e, isError: false, isReadOnly: false })
+    return path !== '' && isStateName(path) ? [path] : []
+  }
+  return classifyBash(String(e['command'] ?? '')).effects.flatMap(effect => (effect.kind === 'write' && !effect.isUnknown ? effect.paths.filter(isStateName) : []))
 }

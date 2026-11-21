@@ -3,7 +3,7 @@
 // scripts/eval-router.ts gửi cùng request tới router thật và chấm theo cùng kỳ vọng.
 // Kỳ vọng ghi theo khoảng chấp nhận được (họ model, loại agent, số việc), không theo một câu trả lời duy nhất.
 
-import type { Brief, Intent, Kind, ModelFamily, Relation, TaskStatus } from '../../types'
+import type { Brief, Depth, Intent, Kind, ModelFamily, Relation, TaskStatus } from '../../types'
 import { briefOf, parseRoute } from '../../hooks/lib/router'
 import type { Policy } from '../../hooks/lib/router'
 import { LONG_VN_EXTRA, LONG_VN_PROMPT } from '../fixtures/prompt-long-vn'
@@ -65,6 +65,16 @@ export type Expect = {
    * phải đứng đầu order.
    */
   arrange?: { present?: boolean; keep?: true; removes?: readonly number[]; min?: number; first?: number }
+  /** Tệp trạng thái và nơi ghi phụ phải có (0.9.0 B1), so theo chuỗi con; `noSides` thì cả hai rỗng. */
+  stateFiles?: readonly string[]
+  sideWrites?: readonly string[]
+  noSides?: true
+  /** Số ràng buộc, [tối thiểu, tối đa] (0.9.0 B13: không còn trần 6). */
+  constraints?: readonly [number, number]
+  /** Độ sâu router chấm phải thuộc danh sách (0.9.0 C9). */
+  depths?: readonly Depth[]
+  /** Số câu hỏi làm rõ, [tối thiểu, tối đa] (0.9.0 C9). */
+  questions?: readonly [number, number]
 }
 
 export type GoldenCase = {
@@ -564,5 +574,113 @@ export const CASES: readonly GoldenCase[] = [
     ran: 'sonnet/medium',
     note: '0.8.9 D4: mục tiêu 40 việc (10 xong, 2 đang chạy) nhận yêu cầu đổi phạm vi của 6 việc (21 tới 26)',
     expect: { relations: ['continue', 'refine'], intent: ['amend', 'task'], main: ['sonnet', 'opus'], tasks: [0, 2], arrange: { present: true, removes: [21, 22, 23, 24, 25, 26], min: 4 } },
+  },
+  // 0.9.0 D2: bảng mục việc có mã, tệp trạng thái và nơi ghi phụ, nhiều ràng buộc, tin duyệt.
+  {
+    id: 'd2-coded-table',
+    text: 'Làm các mục việc sau cho dịch vụ đặt lịch, theo đúng thứ tự trong bảng.\n\n| Mã | Việc | Xong khi |\n| --- | --- | --- |\n| M1 | Thêm trường ghi chú vào lịch hẹn ở src/booking/model.ts | test model xanh |\n| M2 | API sửa ghi chú ở src/booking/api.ts | test API xanh |\n| M3 | Hiển thị ghi chú ở src/booking/view.tsx | ảnh chụp đúng |\n| M4 | Cập nhật docs/booking.md | tài liệu có mục ghi chú |\n\nChạy `bun test` sau mỗi mục.',
+    note: '0.9.0 D2 (B13): mỗi dòng bảng mang mã là một việc riêng, theo thứ tự',
+    expect: { main: ['sonnet', 'opus'], tasks: [4, 6], codes: ['M1', 'M2', 'M3', 'M4'] },
+  },
+  {
+    id: 'd2-state-files',
+    text: 'Nâng thư viện ghi log từ bản 2 lên bản 3 trong src/, sửa mọi chỗ gọi đổi tên hàm, chạy `npm test`.\n\nTệp trạng thái của lượt: /work/log-upgrade/KE-HOACH.md, /work/log-upgrade/TIEN-DO.md, /work/log-upgrade/BAN-GIAO.md. Trước khi sửa tệp nào thì sao lưu bản gốc vào /work/log-upgrade/backup/.',
+    note: '0.9.0 D2 (B1): prompt nêu ba tệp trạng thái và nơi sao lưu',
+    expect: { main: ['sonnet', 'opus'], tasks: [0, 4], stateFiles: ['KE-HOACH.md', 'TIEN-DO.md', 'BAN-GIAO.md'], sideWrites: ['backup'] },
+  },
+  {
+    id: 'd2-no-state',
+    text: 'Nâng thư viện ghi log từ bản 2 lên bản 3 trong src/, sửa mọi chỗ gọi đổi tên hàm, chạy `npm test`.',
+    note: '0.9.0 D2 (B1): prompt không nêu tệp trạng thái hay nơi ghi phụ',
+    expect: { main: ['sonnet', 'opus'], tasks: [0, 4], noSides: true },
+  },
+  {
+    id: 'd2-many-rules',
+    text: 'Viết script scripts/dong-bo.ts đồng bộ danh mục sản phẩm từ tệp data/san-pham.csv vào bảng products.\n\nRàng buộc:\n1. Chỉ dùng thư viện chuẩn của Bun, không thêm gói.\n2. Không xoá dòng nào trong bảng products.\n3. Dòng csv sai định dạng thì bỏ qua và ghi vào logs/loi.txt.\n4. Giá lưu bằng số nguyên đơn vị đồng.\n5. Chạy lại nhiều lần không sinh bản ghi trùng.\n6. Không đọc biến môi trường ngoài DATABASE_URL.\n7. Mỗi lô ghi tối đa 500 dòng.\n8. Không sửa tệp nào ngoài scripts/ và logs/.',
+    note: '0.9.0 D2 (B13): tám ràng buộc, không còn trần 6',
+    expect: { main: ['sonnet', 'opus'], tasks: [0, 4], constraints: [7, 12] },
+  },
+  {
+    id: 'd2-approve-small',
+    text: 'ok duyệt, nhớ thêm cả test cho chuỗi rỗng',
+    prev: PARSE_PREV,
+    ran: 'sonnet/medium',
+    openSteps: ['Viết hàm parseDate', 'Viết test cho parseDate', 'Cập nhật tài liệu'],
+    awaiting: 'approval',
+    note: '0.9.0 D2 (B12): tin duyệt kèm một chỉnh nhỏ; yêu cầu chỉ giữ phần chỉnh đó',
+    expect: { intent: ['approve'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 1], requirements: [1, 2] },
+  },
+  {
+    id: 'd2-approve-early',
+    text: 'duyệt luôn, cứ làm đi',
+    prev: PARSE_PREV,
+    ran: 'sonnet/medium',
+    awaiting: 'approval',
+    note: '0.9.0 D2 (B12): tin duyệt gửi khi Claude còn đang lập kế hoạch (chưa có bước nào)',
+    expect: { intent: ['approve'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 1] },
+  },
+  // 0.9.0 C9: đội hình theo cỡ việc.
+  {
+    id: 'c9-light-one',
+    text: 'Sửa câu báo lỗi trong src/login.ts: "mat khau sai" thành "Mật khẩu không đúng".',
+    note: '0.9.0 C9: việc nhẹ một tệp, không có việc thừa: chỉ chấm độ sâu router đọc (đội hình do mod áp)',
+    expect: { depths: ['none', 'light'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 1] },
+  },
+  {
+    id: 'c9-light-two',
+    text: 'Hai việc nhỏ: đổi màu nút Lưu trong src/ui/button.css sang xanh lá; đổi chữ "Gửi" thành "Lưu" trong src/ui/form.tsx.',
+    note: '0.9.0 C9: hai việc nhẹ, không có việc thừa: chỉ chấm độ sâu router đọc (đội hình do mod áp)',
+    expect: { depths: ['none', 'light'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 2] },
+  },
+  {
+    id: 'c9-mid-check',
+    text: 'Đổi cách tính phí vận chuyển của cả luồng đặt hàng từ phí cố định sang phí theo cân nặng: src/shipping/fee.ts tính phí (dưới 1 kg là 20.000 đồng, mỗi kg thêm 5.000 đồng, đơn trên 500.000 đồng miễn phí), src/cart/weight.ts cộng cân nặng từng món, src/checkout/total.ts và src/orders/invoice.ts dùng phí mới, đơn đã đặt trước đó giữ phí cũ. Tổng tiền và hóa đơn đang có nhiều test dựa trên phí cố định nên dễ hồi quy; chạy `bun test` để kiểm.',
+    note: '0.9.0 C9: việc vừa có lệnh kiểm: chỉ chấm độ sâu router đọc (đội hình do mod áp)',
+    expect: { depths: ['substantial', 'hard'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 9] },
+  },
+  {
+    id: 'c9-mid-nocheck',
+    text: 'Đổi quyền xem đơn hàng từ theo người tạo sang theo cửa hàng: src/auth/roles.ts thêm vai quản lý cửa hàng, src/api/orders.ts lọc đơn theo cửa hàng của người gọi, src/db/orders.ts thêm truy vấn theo cửa hàng, src/orders/list.tsx ẩn nút sửa với người không có quyền. Nhân viên cũ vẫn phải xem được đơn của chính mình; làm sai thì lộ đơn của cửa hàng khác.',
+    note: '0.9.0 C9: việc vừa không có lệnh kiểm: chỉ chấm độ sâu router đọc (đội hình do mod áp)',
+    expect: { depths: ['substantial', 'hard'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 9] },
+  },
+  {
+    id: 'c9-hard-struct',
+    text: 'Thiết kế lại lớp truy cập dữ liệu: thay mọi truy vấn SQL viết tay trong src/ (khoảng 40 tệp) bằng một lớp repository có giao dịch và khóa lạc quan, chuyển dần từng module, giữ nguyên hành vi; chạy `bun test` và `bun run typecheck`.',
+    note: '0.9.0 C9: việc khó đổi cấu trúc: chỉ chấm độ sâu router đọc (đội hình do mod áp)',
+    expect: { depths: ['hard'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 12] },
+  },
+  {
+    id: 'c9-hard-data',
+    text: 'Viết migration đổi cột amount của hai bảng orders và payments từ float sang integer (đơn vị đồng) trên cơ sở dữ liệu đang chạy với 20 triệu dòng: không dừng dịch vụ, chuyển dữ liệu cũ không mất số lẻ, có đường lùi; cập nhật mọi chỗ đọc ghi hai cột này trong src/db; chạy `bun test`.',
+    note: '0.9.0 C9: việc khó chạm dữ liệu: chỉ chấm độ sâu router đọc (đội hình do mod áp)',
+    expect: { depths: ['hard'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 12] },
+  },
+  {
+    id: 'c9-doc',
+    text: 'Soạn lại báo cáo docs/bao-cao-quy-3.md theo cách ghi nhận doanh thu mới (khi giao hàng thay vì khi đặt): tính lại từ data/don-hang.csv, data/giao-hang.csv và data/tra-hang.csv theo tháng và theo kênh bán, sửa bảng so sánh quý 2 trong docs/bao-cao-quy-2.md theo cùng cách tính, nêu rõ chênh lệch với số cũ và ba nhận xét chính; mọi con số phải khớp các tệp csv.',
+    note: '0.9.0 C9: việc không phải code: chỉ chấm độ sâu router đọc (đội hình do mod áp)',
+    expect: { depths: ['substantial', 'hard'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 9] },
+  },
+  {
+    id: 'c9-own-check',
+    text: 'Thêm API xuất danh sách khách hàng ra CSV ở src/api/export.ts. Làm xong thì giao một subagent độc lập, chưa thấy quá trình làm, rà toàn bộ thay đổi và chạy `bun test`; không thêm bước kiểm nào khác.',
+    note: '0.9.0 C9: prompt tự quy định kiểm độc lập: chỉ chấm độ sâu router đọc (đội hình do mod áp)',
+    expect: { depths: ['light', 'substantial'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 6] },
+  },
+  {
+    id: 'c9-cost',
+    text: 'Chuyển phần gửi email của hệ thống từ máy chủ SMTP tự dựng sang một dịch vụ gửi email bên ngoài: chọn dịch vụ phù hợp rồi tích hợp vào src/mail.',
+    note: '0.9.0 C9: quyết định về chi phí chưa nói rõ (dịch vụ trả phí nào): chỉ chấm độ sâu router đọc (đội hình do mod áp)',
+    expect: { depths: ['substantial', 'hard'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 9] },
+  },
+  {
+    id: 'c9-amend-running',
+    text: 'Thêm cả việc ghi log mỗi lần sinh hóa đơn vào src/invoice/log.ts.',
+    prev: goalWith(INVOICE, INVOICE_TASKS),
+    states: states([1], [2]),
+    ran: 'sonnet/medium',
+    note: '0.9.0 C9: tin bổ sung vào mục tiêu đang chạy: chỉ chấm độ sâu router đọc (đội hình do mod áp)',
+    expect: { relations: ['continue', 'refine'], intent: ['amend', 'task'], depths: ['light', 'substantial'], main: ['haiku', 'sonnet', 'opus'], tasks: [0, 3] },
   },
 ]

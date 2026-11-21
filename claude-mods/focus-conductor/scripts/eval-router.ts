@@ -2,7 +2,7 @@
 // `claude -p` (không tool, không hook, không MCP), chấm câu trả lời theo tests/golden/check.ts và in bảng.
 // Chỉ đọc và điều phối, không thực thi prompt nào.
 //
-//   bun scripts/eval-router.ts [--model sonnet] [--only id1,id2] [--runs 3] [--record] [--out stats.json]
+//   bun scripts/eval-router.ts [--model sonnet] [--only id1,id2] [--runs 3] [--record] [--out stats.json] [--conductor]
 //
 // --runs N chạy mỗi ca N lần và báo tỷ lệ đạt từng ca (router không tất định, một lần chạy không nói được độ ổn định).
 // --record ghi vào tests/golden/replies.ts (dữ liệu replay của golden.test.ts): câu trả lời đạt đầu tiên của mỗi ca, băm của
@@ -16,7 +16,7 @@
 // khi đổi lời dặn router.
 
 import { spawn } from 'node:child_process'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -25,6 +25,7 @@ import type { GoldenCase } from '../tests/golden/cases'
 import { parseRoute } from '../hooks/lib/router'
 import { check, rawArrange, removedOf } from '../tests/golden/check'
 import { goldenRequest, requestHash } from '../tests/golden/hash'
+import { cleanOnExit, tmpDirs } from './tmp-dirs'
 
 const args = process.argv.slice(2)
 const flag = (name: string) => {
@@ -34,26 +35,40 @@ const flag = (name: string) => {
 const MODEL = flag('--model') ?? 'sonnet'
 const ONLY = flag('--only')?.split(',')
 const RECORD = args.includes('--record')
+// 0.9.0 C9: --conductor dựng biến thể điều phối của lời dặn cho mọi ca (như conductor khác off), không dùng cùng --record.
+const CONDUCTOR = args.includes('--conductor')
+if (CONDUCTOR && RECORD) throw new Error('--conductor không dùng cùng --record')
 const OUT = flag('--out')
 const RUNS = Math.max(1, Number(flag('--runs') ?? '1') || 1)
 const REPLIES = join(import.meta.dir, '..', 'tests', 'golden', 'replies.ts')
-const work = mkdtempSync(join(tmpdir(), 'fc-eval-'))
+// 0.9.0 vòng 2 M21a: mọi thư mục tạm fc-eval-* được xoá khi thoát, kể cả khi lỗi hay bị ngắt; tiến trình con còn chạy bị dừng trước.
+const dirs = tmpDirs({ make: prefix => mkdtempSync(join(tmpdir(), prefix)), remove: path => rmSync(path, { recursive: true, force: true }) })
+const children = new Set<ReturnType<typeof spawn>>()
+cleanOnExit(dirs, process, undefined, () => {
+  for (const child of children) child.kill('SIGTERM')
+})
+const work = dirs.make('fc-eval-')
 
 function run(input: string, argv: string[]): Promise<{ out: string; ms: number }> {
   const started = Date.now()
   return new Promise(resolve => {
-    const config = mkdtempSync(join(tmpdir(), 'fc-eval-config-'))
+    const config = dirs.make('fc-eval-config-')
     const child = spawn('claude', argv, { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, CLAUDE_CONFIG_DIR: config } })
+    children.add(child)
     let out = ''
     child.stdout.on('data', d => (out += d))
     child.stderr.on('data', d => (out += d))
-    child.on('close', () => resolve({ out, ms: Date.now() - started }))
+    child.on('close', () => {
+      children.delete(child)
+      dirs.drop(config)
+      resolve({ out, ms: Date.now() - started })
+    })
     child.stdin.end(input)
   })
 }
 
 async function one(c: GoldenCase, n: number) {
-  const request = goldenRequest(c, MODEL)
+  const request = goldenRequest(c, MODEL, CONDUCTOR)
   const system = (request.system as { text: string }[]).map(b => b.text).join('')
   const file = join(work, `system-${c.id}.txt`)
   writeFileSync(file, system)
@@ -105,7 +120,7 @@ async function one(c: GoldenCase, n: number) {
 // Phiên bản Claude Code chạy eval, ghi kèm kết quả để số liệu gắn với đúng môi trường.
 const version = (await run('', ['--version'])).out.trim()
 const startedAt = new Date().toISOString()
-console.log(`Claude Code ${version || '?'}, router ${MODEL}, ${RUNS} lần mỗi ca, ${startedAt}`)
+console.log(`Claude Code ${version || '?'}, router ${MODEL}${CONDUCTOR ? ' (điều phối)' : ''}, ${RUNS} lần mỗi ca, ${startedAt}`)
 
 const picked = CASES.filter(c => !ONLY || ONLY.includes(c.id))
 const jobs = picked.flatMap(c => Array.from({ length: RUNS }, (_, n) => ({ c, n })))
@@ -156,7 +171,7 @@ for (const { c, runs } of summary) {
   console.log(`  ${c.id.padEnd(14)} ${pct(secs, 0.5).toFixed(1)} / ${pct(secs, 0.95).toFixed(1)} / ${Math.max(...secs).toFixed(1)} s; token ${pct(toks, 0.5)} / ${pct(toks, 0.95)} / ${Math.max(...toks)}`)
 }
 console.log(`  Thời gian TB ${(mean(results.map(r => r.ms)) / 1000).toFixed(1)} s; chi phí ${results.reduce((sum, r) => sum + r.usd, 0).toFixed(3)} USD cho ${results.length} lượt (TB ${(results.reduce((sum, r) => sum + r.usd, 0) / Math.max(1, results.length)).toFixed(4)} USD)`)
-if (OUT) writeFileSync(OUT, JSON.stringify({ version, startedAt, model: MODEL, runs: RUNS, results: results.map(r => ({ id: r.c.id, n: r.n, ok: r.fails.length === 0, fails: r.fails, ms: r.ms, inTokens: r.inTokens, outTokens: r.outTokens, usd: r.usd, hasArrange: r.hasArrange, removed: r.removed, guarded: r.guarded, stats: r.stats })) }, null, 2))
+if (OUT) writeFileSync(OUT, JSON.stringify({ version, startedAt, model: MODEL, runs: RUNS, results: results.map(r => ({ id: r.c.id, n: r.n, ok: r.fails.length === 0, fails: r.fails, text: r.text, ms: r.ms, inTokens: r.inTokens, outTokens: r.outTokens, usd: r.usd, hasArrange: r.hasArrange, removed: r.removed, guarded: r.guarded, stats: r.stats })) }, null, 2))
 
 const total = summary.reduce((sum, s) => sum + s.passed, 0)
 const attempts = summary.reduce((sum, s) => sum + s.runs.length, 0)

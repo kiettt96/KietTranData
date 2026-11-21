@@ -60,7 +60,8 @@ export const TASK_COLOR: Record<DelegationState, Color | undefined> = {
   failed: 'error',
 }
 
-export type Severity = 'error' | 'warning'
+/** `info` (vòng 2 M18): mục thông tin, như lượt duyệt đang chạy; không phải cảnh báo. */
+export type Severity = 'error' | 'warning' | 'info'
 
 /** Lặp và vượt phạm vi là vi phạm (đỏ); các loại còn lại là cần chú ý (vàng). */
 export function severityOf(kind: WarningKind): Severity {
@@ -68,7 +69,7 @@ export function severityOf(kind: WarningKind): Severity {
 }
 
 export function severityGlyph(severity: Severity): string {
-  return severity === 'error' ? '▲' : '△'
+  return severity === 'error' ? '▲' : severity === 'info' ? '·' : '△'
 }
 
 export function isClosed(step: PlanStep): boolean {

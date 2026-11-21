@@ -251,6 +251,20 @@ const NEGATED_FAILURE = new RegExp(
   'giu',
 )
 
+/**
+ * Bỏ các cụm phủ định đứng trước một trong `words` (sau phiên thật D4), cùng cách nhận với NEGATED_FAILURE: "không có", "không còn",
+ * "chẳng", "no", "without", "zero", có thể kèm "lỗi", "vấn đề", "issues" và chuỗi "X hay Y", "X, Y", "X or Y" ("Không có lỗi Nghiêm trọng
+ * hay Lớn"). Dùng cho dòng kết luận của lượt duyệt.
+ */
+export function dropNegated(text: string, words: string): string {
+  const word = `(?:(?:lỗi|vấn\\s+đề|issues?|errors?)\\s+)?(?:${words})`
+  const re = new RegExp(
+    `${EDGE_START}(?:không|chẳng|no|without|zero)\\s+(?:có\\s+|còn\\s+|thấy\\s+|phát\\s+hiện\\s+|tìm\\s+thấy\\s+)?(?:(?:any|bất\\s+kỳ|dòng|bản\\s+ghi|kết\\s+quả|mã)\\s+)*(?:nào\\s+)?(?:bị\\s+)?${word}(?:\\s*(?:,|hay|hoặc|or|và|and)\\s*${word})*${EDGE_END}`,
+    'giu',
+  )
+  return text.replace(re, ' ')
+}
+
 /** Số khác 0: có chữ số khác 0 (kể cả "1.200.000" và "0,3"). */
 function hasNonZero(number: string): boolean {
   return /[1-9]/.test(number)
@@ -261,10 +275,48 @@ function nonZero(clause: string): boolean {
   return [...clause.matchAll(/\d[\d.,]*/gu)].some(match => hasNonZero(match[0]))
 }
 
+/**
+ * Dòng "nhãn, dấu ngăn, kết quả đạt đứng riêng" (0.9.0 A1): "K2 kiểm lệch tồn kho: ĐẠT", "Kiểm dòng thiếu mã ..... OK", "Phép sai số | PASS".
+ * Dấu ngăn: ":", "|", "->", "=>", "→", dấu chấm dẫn (từ 3 chấm), tab, " - ". Kết quả: OK, PASS, PASSED, ĐẠT, KHỚP, hợp lệ, dấu đạt, có thể
+ * kèm "(N/N)" với hai số bằng nhau.
+ */
+const LABELLED_PASS = /^(.*?[\p{L}\p{N})\]])\s*(?::|\||->|=>|→|\.{3,}|…+|\t| - )\s*(?:ok|pass(?:ed)?|đạt|khớp|hợp\s+lệ|[✅✓✔])(?:\s*\(?\s*(\d+)\s*\/\s*(\d+)\s*\)?)?\s*\.?\s*$/iu
+/** Số đếm khác 0 đứng trước từ chỉ lỗi trong nhãn, cách tối đa một từ ("3 dòng lệch", "2 lỗi"). */
+const LABEL_COUNT = new RegExp(`${EDGE_START}(${NUMBER})\\s+(?:\\p{L}+\\s+)?(?:${FAILURE_WORDS})${EDGE_END}`, 'giu')
+/** Từ chỉ lỗi trong nhãn, để biết nhãn còn chữ nào khác ngoài từ chỉ lỗi. */
+const LABEL_FAILURE_WORD = new RegExp(`${EDGE_START}(?:${FAILURE_WORDS})${EDGE_END}`, 'giu')
+
+/**
+ * Bỏ các dòng có từ chỉ lỗi chỉ nằm trong nhãn mà kết quả của chính dòng là dấu hiệu đạt đứng riêng (0.9.0 A1). Nhãn có kết luận lỗi
+ * (chưa đạt, không đạt, fail), số đếm lỗi khác 0, vế "lỗi: N" với N khác 0, hay chỉ gồm từ chỉ lỗi thì giữ dòng; tỷ lệ kèm kết quả phải
+ * bằng nhau.
+ */
+function dropPassedLabels(text: string): string {
+  return text
+    .split('\n')
+    .map(line => {
+      const match = LABELLED_PASS.exec(line.trim())
+      if (match === null) return line
+      if (match[2] !== undefined && match[2] !== match[3]) return line
+      const label = match[1] ?? ''
+      if (SUMMARY_FAIL.test(label) || FOLDED_FAIL.test(foldLabel(label))) return line
+      if ([...label.matchAll(LABEL_COUNT)].some(found => hasNonZero(found[1] ?? ''))) return line
+      if ([...label.matchAll(FAILURE_CLAUSE)].some(found => nonZero(found[1] ?? ''))) return line
+      if (label.replace(LABEL_FAILURE_WORD, ' ').replace(/[^\p{L}]/gu, '') === '') return line
+      return ' '
+    })
+    .join('\n')
+}
+
+/** Dấu hiệu lỗi của lệnh kiểm riêng, cho bằng chứng theo từng bước (0.9.0 B10). */
+export function customFailedOf(output: string): boolean {
+  return customFailed(output)
+}
+
 /** Output của lệnh kiểm riêng có dấu hiệu lỗi (0.7.5): dấu hiệu chung của trình chạy, hay dấu hiệu tiếng Việt và tiếng Anh. */
 function customFailed(output: string): boolean {
-  const original = output.normalize('NFC')
-  if (COMPLETE_FAIL.some(pattern => pattern.test(original))) return true
+  if (COMPLETE_FAIL.some(pattern => pattern.test(output.normalize('NFC')))) return true
+  const original = dropPassedLabels(output.normalize('NFC'))
   if (FALSE_RESULT.test(original) || EXPECTED_GOT.test(original)) return true
   const text = original.replace(NEGATED_FAILURE, ' ').replace(ZERO_UNIT_FAILURES, ' ')
   if ([...text.matchAll(FAILURE_CLAUSE)].some(match => nonZero(match[1] ?? ''))) return true
@@ -450,6 +502,10 @@ export function lacksSummary(output: string): boolean {
  * "no tests ran" (hay were run, collected, found). Số 0 khớp theo ranh giới số: không có chữ số hay dấu thập phân đứng trước, nên "10/10",
  * "Ran 10", "100 tests" không khớp; số và từ đếm phải cùng dòng (T9: "Lệch: 0⏎PASS" không phải "0 pass").
  */
+/** Dòng của make khi không có gì để làm (vòng 2 M9). */
+const MAKE_IDLE = /^(?:g?make(?:\[\d+\])?:\s+)?(?:Nothing to be done for\b.*|['`"]?[^'`"]+['`"]? is up to date\.?)$/i
+/** Dòng vào, ra thư mục của make đệ quy hay `make -C` (kiểm độc lập vòng 1 lỗi 5): không mang kết quả. */
+const MAKE_DIR = /^g?make(?:\[\d+\])?:\s+(?:Entering|Leaving) directory\b/i
 const RAN_NOTHING =
   /(?<![\d.,])\d+[ \t]*\/[ \t]*0+(?![\d/.,])|(?<![\p{L}\p{N}])ran[ \t]+0[ \t]+tests?(?![\p{L}\p{N}])|(?<![\d.,])0[ \t]+(?:pass(?:ed|es)?|tests?)(?![\p{L}\p{N}])|(?<![\p{L}\p{N}])no[ \t]+tests?[ \t]+(?:ran|run|were[ \t]+run|collected|found)(?![\p{L}\p{N}])/iu
 /** Dữ liệu rỗng đếm được (T9): "0 dòng", "0 bản ghi", "0 rows", "0 records" theo ranh giới số, sau khi bỏ số lỗi bằng 0 có đơn vị. */
@@ -503,6 +559,10 @@ const SKIPPED_ANY = new RegExp(SKIPPED_COUNT.source, 'iu')
 export function ranNothing(output: string): boolean {
   const text = output.normalize('NFC')
   if (RAN_NOTHING.test(text)) return true
+  // make không làm gì (vòng 2 M9): mọi dòng không rỗng chỉ là "Nothing to be done" hay "is up to date".
+  const lines = text.split('\n').map(line => line.trim()).filter(line => line !== '')
+  const work = lines.filter(line => !MAKE_DIR.test(line))
+  if (work.length > 0 && work.every(line => MAKE_IDLE.test(line))) return true
   if (ZERO_DATA.test(dropZeroRed(text).replace(ZERO_UNIT_FAILURES, ' ').replace(ZERO_EMPTY, ' '))) return true
   if (NO_ROWS.test(text)) return true
   if (text.split('\n').some(isWholeEmpty)) return true

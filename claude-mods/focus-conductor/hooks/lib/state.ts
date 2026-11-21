@@ -6,6 +6,8 @@
 
 import type { PluginOptions } from 'claude-code'
 
+import { BASE_SEEN, keepBase } from './baseline'
+import type { BaseState } from './baseline'
 import type { AgentProgress, AgentState, ApprovalState, ApprovalStatus, AgentTally, ArchivedGoal, Brief, ChangedState, CheckHint, ConductState, Core, FableState, FallbackState, ForkPart, GoalTurns, ForkPartState, ForkState, QuotaState, DelegationItem, MirrorStep, Ledger, Lift, ModelFamily, Mode, PlanStep, RetryItem, RetryState, Route, Waiver, WaiverState, RouteEvent, RouterFail, SkillState, TurnFault, Warning } from '../../types'
 import { isFullyClosed, openSteps, restorableSteps } from './drift'
 import { isPendingGoal } from './conductor'
@@ -171,7 +173,7 @@ export const withRetry =
 function normalizeRetry(raw: Partial<RetryState> | undefined): RetryState {
   if (raw === undefined || raw === null) return { goalId: -1, items: [] }
   const items = (raw.items ?? []).map(
-    (item: Partial<RetryItem>): RetryItem => ({
+    (item: Partial<RetryItem>): RetryItem => keepBase(item, {
       sig: item.sig ?? '',
       check: item.check ?? 'test',
       command: item.command ?? '',
@@ -196,7 +198,9 @@ function normalizeRetry(raw: Partial<RetryState> | undefined): RetryState {
       ranAt: item.ranAt ?? '',
     }),
   )
-  return { goalId: raw.goalId ?? -1, items }
+  // Chữ ký đã có lần chạy lỗi trong mục tiêu (vòng 3); vắng ở trạng thái lưu từ bản trước.
+  const seen = (raw as BaseState).seen
+  return { goalId: raw.goalId ?? -1, items, ...(Array.isArray(seen) && seen.length > 0 ? { seen: seen.filter(x => typeof x === 'string').slice(-BASE_SEEN) } : {}) }
 }
 
 /** Chữ ký này có lệnh miễn trong mục tiêu đang mở (0.7.9 Y5). */
@@ -207,6 +211,41 @@ export function isWaived(core: Core, sig: string): boolean {
 export const withNoCheckNudged =
   (goalId: number) =>
   (c: Core): Core => ({ ...normalizeCore(c), noCheckNudged: goalId })
+
+/** Bước còn thiếu của cổng đóng mục tiêu (0.9.0 C6); null là xóa. */
+/** Mã mục tiêu đã miễn duyệt độc lập (vòng 2 U4); null bỏ trường. */
+export const withClosingWaived =
+  (goalId: number | null) =>
+  (c: Core): Core => {
+    const { closingWaived: _old, ...rest } = normalizeCore(c)
+    return goalId === null ? rest : { ...rest, closingWaived: goalId }
+  }
+
+export const withClosingGap =
+  (gap: Core['closingGap'] | null) =>
+  (c: Core): Core => {
+    const { closingGap: _old, ...rest } = normalizeCore(c)
+    return gap === null || gap === undefined ? rest : { ...rest, closingGap: gap }
+  }
+
+const CLOSING_NAMES = ['check', 'review', 'design']
+const CLOSING_STATES = ['wait', 'pass', 'fail']
+/** Đọc Core.team đã lưu (0.9.0 C); sai dạng thì null (coi như đội hình chưa bật). */
+function teamOf(raw: unknown): Core['team'] | null {
+  if (raw === null || typeof raw !== 'object') return null
+  const c = raw as { goalId?: unknown; cause?: unknown; steps?: unknown }
+  if (typeof c.goalId !== 'number' || (c.cause !== 'depth' && c.cause !== 'files') || !Array.isArray(c.steps)) return null
+  const steps = c.steps.filter((x): x is { name: 'check' | 'review' | 'design'; state: 'wait' | 'pass' | 'fail' } => x !== null && typeof x === 'object' && CLOSING_NAMES.includes((x as { name?: unknown }).name as string) && CLOSING_STATES.includes((x as { state?: unknown }).state as string))
+  return { goalId: c.goalId, cause: c.cause, steps: steps.map(x => ({ name: x.name, state: x.state, ...((x as { unread?: unknown }).unread === true ? { unread: true as const } : {}) })) }
+}
+
+/** Đội hình do mod áp (0.9.0 C): ghi lý do bật và trạng thái bước đóng; null thì bỏ. */
+export const withTeam =
+  (team: Core['team'] | null) =>
+  (c: Core): Core => {
+    const { team: _old, ...rest } = normalizeCore(c)
+    return team === null || team === undefined ? rest : { ...rest, team }
+  }
 
 export const withWaivers =
   (waivers: WaiverState) =>
@@ -263,6 +302,9 @@ export function normalizeCore(raw: Partial<Core>): Core {
     retry: normalizeRetry(raw.retry),
     waivers: normalizeWaivers(raw.waivers),
     noCheckNudged: typeof raw.noCheckNudged === 'number' ? raw.noCheckNudged : -1,
+    ...(teamOf(raw.team) !== null ? { team: teamOf(raw.team)! } : {}),
+    ...(typeof raw.closingWaived === 'number' ? { closingWaived: raw.closingWaived } : {}),
+    ...(raw.closingGap !== undefined && raw.closingGap !== null && typeof raw.closingGap.goalId === 'number' && ['check', 'review', 'design'].includes(raw.closingGap.missing) ? { closingGap: { goalId: raw.closingGap.goalId, missing: raw.closingGap.missing, ...(raw.closingGap.solo === true ? { solo: true as const } : {}) } } : {}),
     forks: normalizeForks(raw.forks),
     approval: normalizeApproval(raw.approval),
     skill: normalizeSkill(raw.skill),
@@ -458,7 +500,7 @@ export const withFable =
 function normalizeApproval(raw: Partial<ApprovalState> | undefined): ApprovalState {
   if (raw === undefined || raw === null) return { goalId: -1, status: 'none', rounds: 0, asked: false, awaitingAnswer: false }
   const status = APPROVAL_STATUSES.find(item => item === raw.status) ?? 'none'
-  return { goalId: typeof raw.goalId === 'number' ? raw.goalId : -1, status, rounds: typeof raw.rounds === 'number' ? raw.rounds : 0, asked: raw.asked === true, awaitingAnswer: raw.awaitingAnswer === true }
+  return { goalId: typeof raw.goalId === 'number' ? raw.goalId : -1, status, rounds: typeof raw.rounds === 'number' ? raw.rounds : 0, asked: raw.asked === true, awaitingAnswer: raw.awaitingAnswer === true, ...(raw.early === true ? { early: true as const } : {}) }
 }
 
 /** Trạng thái duyệt của mục tiêu đang mở (0.8.2 N2): trạng thái lưu cho mục tiêu khác là none. */
@@ -587,6 +629,9 @@ function normalizeBrief(raw: Brief): Brief {
     ...(brief.isBare === true ? { isBare: true } : {}),
     ...(brief.isBig === true ? { isBig: true as const } : {}),
     scopePaths: brief.scopePaths ?? [],
+    // Tệp trạng thái và nơi ghi phụ (0.9.0 B1): bản cũ không có thì vắng; phần tử không phải chuỗi bị bỏ.
+    ...(Array.isArray(brief.stateFiles) ? { stateFiles: brief.stateFiles.filter((p): p is string => typeof p === 'string') } : {}),
+    ...(Array.isArray(brief.sideWrites) ? { sideWrites: brief.sideWrites.filter((p): p is string => typeof p === 'string') } : {}),
     prompt: brief.prompt ?? '',
     at: brief.at ?? 0,
   }
@@ -820,7 +865,13 @@ export const withAutoVerified =
  * Có thay đổi mới: các bước verified do mod tự nâng về done (bước verified do Claude ghi giữ nguyên). Bước bị hạ nhận mốc đóng mới
  * (0.7.5), để lần kiểm đạt sau nâng lại được.
  */
-export const withAutoDemoted = (c: Core): Core => {
+export const withAutoDemoted = (c: Core): Core => withAutoDemotedBy(true)(c)
+
+/**
+ * Như withAutoDemoted; `isHard` false (thay đổi nhẹ, 0.9.0 B10) thì bước nâng nhờ lệnh ở trường check của chính bước (byCheck) giữ verified,
+ * vì bằng chứng của nó chỉ mất khi có thay đổi không nhẹ mới.
+ */
+export const withAutoDemotedBy = (isHard: boolean) => (c: Core): Core => {
   const n = normalizeCore(c)
   const isMirrored = liveMirror(n).some(s => s.status === 'verified')
   if (!hasAutoVerified(n)) return n
@@ -829,13 +880,30 @@ export const withAutoDemoted = (c: Core): Core => {
     ...n,
     plan: n.plan.map(s => {
       if (s.auto !== true || s.status !== 'verified') return s
-      const { auto: _auto, note: _note, ...rest } = s
+      if (s.byCheck === true && !isHard) return s
+      const { auto: _auto, note: _note, byCheck: _byCheck, ...rest } = s
       return { ...rest, status: 'done' as const, closedSeq: seq }
     }),
     mirror: isMirrored ? { ...n.mirror, steps: n.mirror.steps.map(s => (s.status === 'verified' ? { ...s, status: 'done' as const, closedSeq: seq } : s)) } : n.mirror,
     closing: { ...n.closing, seq },
   }
 }
+
+/** Mod nâng các bước `ids` thành verified nhờ lệnh ở trường check của chính bước (0.9.0 B10): note nêu lệnh, đánh dấu auto và byCheck. */
+export const withStepVerified =
+  (lifts: readonly { id: number; command: string }[]) =>
+  (c: Core): Core => {
+    const n = normalizeCore(c)
+    const byId = new Map(lifts.map(l => [l.id, l.command]))
+    return {
+      ...n,
+      plan: n.plan.map(s => {
+        const command = byId.get(s.id)
+        if (command === undefined || s.status !== 'done') return s
+        return { ...s, status: 'verified' as const, auto: true, byCheck: true as const, note: `tự động: ${command.slice(0, 120)} chạy đạt sau thay đổi cuối` }
+      }),
+    }
+  }
 
 /** Có bước verified do mod tự nâng (của tool plan hay của danh sách phản chiếu) để hạ khi có thay đổi mới. */
 export const hasAutoVerified = (n: Core): boolean =>

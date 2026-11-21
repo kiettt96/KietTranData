@@ -9,6 +9,8 @@
 //   bun scripts/mutate.ts --list           in id và ghi chú của từng mẫu
 //   bun scripts/mutate.ts --claude <đường dẫn>   chọn engine tường minh (thứ tự: cờ này, biến FC_CLAUDE, rồi `claude` theo PATH)
 //   bun scripts/mutate.ts --any-engine     bỏ qua kiểm phiên bản engine (mặc định phải là 2.1.296, sai thì thoát mã 2)
+//   bun scripts/mutate.ts --tiered P1 K3   chạy theo tầng (0.9.0 vòng 2 M21b): mỗi mẫu chạy tệp test cùng bản, rồi tệp nhắc
+//                                          module, rồi cả bộ; dừng ở tầng đầu tiên diệt được. Luật nhận ở scripts/tiers.ts.
 //
 // Kết quả mỗi mẫu: KILLED, SURVIVED, EQUIVALENT, ERROR (không đọc được kết quả) hay TIMEOUT (quá 900 giây). Mẫu ERROR hoặc TIMEOUT
 // được chạy lại đúng một lần sau khi hàng đợi xong; lần lại vẫn vậy thì giữ nguyên. Mã thoát khác 0 khi có SURVIVED, COUNT, ERROR
@@ -20,12 +22,14 @@
 
 import { spawn, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, relative, sep } from 'node:path'
+import { dirname, join, relative, sep } from 'node:path'
 
 import { MUTANTS } from './mutants'
 import type { Mutant } from './mutants'
+import { finalOf, parseRun, stepOf, tierPlan } from './tiers'
+import type { TierName } from './tiers'
 import { ENGINE_VERSION, engineMatches, engineOf, verdictOf } from './verdict'
 import type { Verdict } from './verdict'
 
@@ -39,6 +43,7 @@ const CHECK = args.includes('--check')
 const LIST = args.includes('--list')
 const ANY_ENGINE = args.includes('--any-engine')
 const JOBS = Math.max(1, Math.floor(Number(flag('--jobs') ?? '1')) || 1)
+const TIERED = args.includes('--tiered')
 const ENGINE = engineOf(args, process.env)
 // Đối số vị trí là id; giá trị của --jobs và --claude không phải id.
 const ONLY = args.filter((arg, at) => !arg.startsWith('--') && args[at - 1] !== '--jobs' && args[at - 1] !== '--claude')
@@ -102,7 +107,7 @@ const before = { hooks: digest('hooks'), tests: digest('tests') }
 console.log(`hooks sha256 ${before.hooks}`)
 console.log(`tests sha256 ${before.tests}`)
 const selected = MUTANTS.filter(mutant => ONLY.length === 0 || ONLY.includes(mutant.id))
-console.log(`mutants ${selected.length}/${MUTANTS.length}, ${CHECK ? 'chỉ kiểm khớp' : `${JOBS} worker`}`)
+console.log(`mutants ${selected.length}/${MUTANTS.length}, ${CHECK ? 'chỉ kiểm khớp' : `${JOBS} worker${TIERED ? ', theo tầng' : ''}`}`)
 
 const summary = { KILLED: 0, SURVIVED: 0, EQUIVALENT: 0, ERROR: 0, TIMEOUT: 0, COUNT: 0 }
 const survivors: string[] = []
@@ -185,8 +190,99 @@ async function worker(index: number, queue: Mutant[], retries: Mutant[] | undefi
   }
 }
 
+// 0.9.0 vòng 2 M21b: chế độ theo tầng. Mỗi worker giữ một bản sao không có tệp test nào, rồi đặt đúng tập tệp test của tầng
+// trước mỗi lượt (tệp hỗ trợ trong tests/ giữ nguyên). Hạn giờ: 3 lần 1,75 giây mỗi tệp (sàn 180 giây), cả bộ 3 lần 669 giây.
+const posix = (path: string) => path.split(sep).join('/')
+const TEST_TEXTS = new Map(
+  tree(join(ROOT, 'tests'))
+    .filter(file => /\.tsx?$/.test(file))
+    .map(file => [posix(relative(ROOT, file)), readFileSync(file, 'utf8')] as const),
+)
+const ALL_TESTS = [...TEST_TEXTS.keys()].filter(path => /\.test\.tsx?$/.test(path))
+const history: Record<string, string[]> = {}
+
+function runIn(cwd: string, limit: number): Promise<{ out: string; timedOut: boolean; ms: number }> {
+  return new Promise(resolve => {
+    const started = Date.now()
+    const child = spawn(ENGINE, ['plugin', 'test', '.'], { cwd, stdio: ['ignore', 'pipe', 'pipe'] })
+    let out = ''
+    let timedOut = false
+    child.stdout.on('data', chunk => (out += chunk))
+    child.stderr.on('data', chunk => (out += chunk))
+    const timer = setTimeout(() => {
+      timedOut = true
+      child.kill('SIGKILL')
+    }, limit)
+    child.on('close', () => {
+      clearTimeout(timer)
+      resolve({ out, timedOut, ms: Date.now() - started })
+    })
+  })
+}
+
+type Placed = { dir: string; tests: Set<string> }
+function place(at: Placed, tests: string[]): void {
+  const want = new Set(tests)
+  for (const path of at.tests) if (!want.has(path)) rmSync(join(at.dir, path), { force: true })
+  for (const path of tests)
+    if (!at.tests.has(path)) {
+      mkdirSync(dirname(join(at.dir, path)), { recursive: true })
+      cpSync(join(ROOT, path), join(at.dir, path))
+    }
+  at.tests = want
+}
+
+async function tieredJudge(at: Placed, mutant: Mutant): Promise<{ verdict: Verdict; failed: number; path: string }> {
+  const path: string[] = []
+  const ran = new Set<string>()
+  const target = join(at.dir, mutant.file)
+  const source = originals.get(mutant.file) as string
+  for (const [name, tests] of tierPlan(mutant, ALL_TESTS, TEST_TEXTS, history) as [TierName, string[]][]) {
+    if (tests.length === 0) {
+      path.push(`${name}:skip`)
+      continue
+    }
+    if (name !== 'full' && tests.every(test => ran.has(test))) {
+      path.push(`${name}:subset`)
+      continue
+    }
+    place(at, tests)
+    const limit = name === 'full' ? 3 * 669_000 : Math.max(180_000, 3 * 1750 * tests.length)
+    for (let retried = false; ; retried = true) {
+      writeFileSync(target, source.replace(mutant.old, () => mutant.new))
+      const { out, timedOut, ms } = await runIn(at.dir, limit)
+      writeFileSync(target, source)
+      const run = parseRun(out, timedOut)
+      path.push(`${name}:${run.verdict}(${run.failed})`)
+      console.log(`  ${mutant.id} ${name} tệp=${tests.length} ${run.verdict} fail=${run.failed} hết-giờ=${run.timeoutNames.length} ${Math.round(ms / 1000)}s`)
+      if (run.verdict === 'KILLED') history[mutant.file] = [...new Set([...(history[mutant.file] ?? []), ...run.failFiles])].sort()
+      const step = stepOf(run.verdict, retried)
+      if (step === 'killed') return { verdict: 'KILLED', failed: run.failed, path: path.join(' ') }
+      if (step === 'stop') return { verdict: run.verdict as Verdict, failed: run.failed, path: path.join(' ') }
+      if (step === 'next') break
+    }
+    for (const test of tests) ran.add(test)
+  }
+  return { verdict: finalOf(mutant.equivalent !== undefined), failed: 0, path: path.join(' ') }
+}
+
+async function tieredWorker(index: number, queue: Mutant[]): Promise<void> {
+  const dir = mkdtempSync(join(tmpdir(), `fc-mutate-${index}-`))
+  copies.push(dir)
+  cpSync(ROOT, dir, { recursive: true, filter: source => !source.includes(`${sep}.claude-plugin${sep}types`) })
+  for (const path of ALL_TESTS) rmSync(join(dir, path), { force: true })
+  const at: Placed = { dir, tests: new Set() }
+  for (let mutant = queue.shift(); mutant !== undefined; mutant = queue.shift()) {
+    const { verdict, failed, path } = await tieredJudge(at, mutant)
+    record(mutant, verdict, failed, ` [${path}]`)
+  }
+}
+
 try {
-  if (!CHECK) {
+  if (!CHECK && TIERED) {
+    const queue = [...runnable]
+    await Promise.all(Array.from({ length: Math.min(JOBS, Math.max(1, queue.length)) }, (_, index) => tieredWorker(index, queue)))
+  } else if (!CHECK) {
     const queue = [...runnable]
     const retries: Mutant[] = []
     await Promise.all(Array.from({ length: Math.min(JOBS, Math.max(1, queue.length)) }, (_, index) => worker(index, queue, retries)))

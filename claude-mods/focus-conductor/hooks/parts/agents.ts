@@ -2,15 +2,21 @@
 
 import { atom, derive, read, update } from 'claude-code'
 import { noteHookError } from '../lib/errlog'
-import type { AgentProgress, Choice, Core, ModelFamily, RetryItem, RouteEvent, Warning } from '../../types'
+import type { AgentProgress, Choice, Core, ModelFamily, RetryItem, Role, RouteEvent, Warning } from '../../types'
 import { turnCost } from '../lib/cost'
 import { countSpawn, shapeKey, shapeOutput } from '../lib/ledger'
 import { EFFORTS, agentMemoKey, applySession, describePick, familyOf, familyRank, pickRank, ruleConflict, ruleFamily, stepCovers, taskMatch } from '../lib/route'
 import { clipText } from '../lib/decisions'
-import { agentRouterRequest, askRouter, briefCodes, fitPick, floorRoute, isSettled, parseAgentRoute, ruleRoute, taskRoute } from '../lib/router'
+import { READ_ONLY_ROLES, agentRouterRequest, roleOf, roleRoute, askRouter, briefCodes, fitPick, floorRoute, isSettled, parseAgentRoute, ruleRoute, taskRoute } from '../lib/router'
 import { FORK_QUOTA_DENY, RETRY_PREFIX, RETRY_ROUNDS, forkRetryNote, forkReturnNote } from '../lib/text'
 import { liveForks, openParts } from '../lib/forks'
-import { isSkillTrial } from '../lib/drift'
+import { classifyBash, filePathOf, isSkillTrial, normalizePath } from '../lib/drift'
+import { isRoleTemp } from '../lib/drift/scope'
+import { listScope, scopeRoots } from '../lib/scope-list'
+import { isBashWrite, isDefiniteOutsideWrite, prefixRole } from '../lib/team'
+import { labels, langOf } from '../ui/labels'
+import { reportLine } from '../lib/verdict'
+import { EMPTY_REVIEW_PRINTS, PRINT_FILES, normalizeReviewPrints, printTargets, takePrints, withPrint, withSpawnSeq } from '../lib/prints'
 import { shownPlan } from '../lib/mirror'
 import { tierOf } from '../lib/scale'
 import type { AgentRoute } from '../lib/router'
@@ -18,14 +24,19 @@ import * as S from '../lib/state'
 import { fableStep } from './fable'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
-import { modeOf } from '../atoms'
+import { modeOf, viewOf } from '../atoms'
+import { statusTextOf } from '../ui/direction'
+import { EMPTY_QUOTA, normalizeQuota, quotaSettings } from '../lib/quota'
 import { FANOUT_WARN } from '../context'
 
 // Atom của mod, khai báo lại ở mỗi file dùng chúng (engine chỉ nhận tham chiếu state viết trong chính file đó);
 // cùng plugin và key nên là cùng một giá trị trong $.state.
 const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EMPTY_CORE)
+// Dấu file của các lượt duyệt (0.9.0, C2 đo dấu file); khai lại ở parts/consistency.ts cùng key.
+const printState = atom({ plugin: 'focus-conductor', key: 'reviewPrints' } as const, EMPTY_REVIEW_PRINTS)
 
 /** Áp kết quả một lượt router gửi Fable vào Core (0.8.4 C6): vừa tạm ngừng thì toast và một dòng nhật ký conductor. */
+
 async function noteFableRouter($: EngineInterface, ctx: Ctx, isOk: boolean, family?: ModelFamily): Promise<void> {
   const at = await $.clock.now()
   const core = S.normalizeCore(await read($, coreState))
@@ -37,10 +48,12 @@ async function noteFableRouter($: EngineInterface, ctx: Ctx, isOk: boolean, fami
   if (step.text !== null) $.ui.toast(step.text)
   if (step.log !== null) {
     ctx.record(at, 'conductor', step.log)
-    await ctx.flushDecisions((path, body) => $.fs.write(path, body))
+    await ctx.flushDecisions((path, body) => $.fs.write(path, body), path => $.fs.read(path))
   }
 }
 const modeState = atom({ plugin: 'focus-conductor', key: 'mode' } as const, null)
+const bandHiddenState = atom({ plugin: 'focus-conductor', key: 'isBandHidden' } as const, false)
+const quotaState = atom({ plugin: 'focus-conductor', key: 'quota' } as const, EMPTY_QUOTA)
 
 /**
  * Mã có trong các bước của brief (R11): tiêu đề các việc đã phân, và checklist của tool plan vì plan set/update đồng bộ vào brief.steps.
@@ -54,6 +67,67 @@ function codesOf(core: ReturnType<typeof S.normalizeCore>): ReadonlySet<string> 
  * Mức sàn cho một lần giao Agent khi còn lệnh kiểm chưa đạt ở lượt 2 trở đi (0.7.8 vòng sửa 3, W4): description mở đầu "Sửa lỗi kiểm: "
  * thì lấy sàn cao nhất của các lệnh; general-purpose có prompt nhắc đúng một lệnh chưa đạt thì lấy sàn của lệnh đó. Còn lại null.
  */
+export { ROLE_PREFIXES, prefixRole } from '../lib/team'
+
+/** Vai của một lời gọi Agent (0.9.0 B): tiền tố trước, không thì vai mod suy của route. */
+
+/**
+ * Lệnh tạo liên kết mềm ở đầu một đoạn lệnh: `ln` có `-s` (cờ gộp có `s`, `--symbolic`) và `cp` có `-s` (`--symbolic-link`), cờ đứng ở vị trí
+ * bất kỳ trước, tên lệnh có thể kèm thư mục (kiểm độc lập vòng 2 lỗi 1: `ln -v -s`, `/bin/ln -s`, `cp -s`).
+ */
+const SYMLINK_MAKE = /(?:^|[\s;&|(])(?:\S*\/)?(?:ln(?:\s+-\S+)*?\s+(?:-[a-zA-Z]*s[a-zA-Z]*|--symbolic)|cp(?:\s+-\S+)*?\s+(?:-[a-zA-Z]*s[a-zA-Z]*|--symbolic-link))(?:\s|$)/
+
+/**
+ * Đường dẫn thật của `path` (vòng 2 M12): `$.fs.stat` với resolve trả realPath; tệp chưa có thì stat bị từ chối, nên giải thư mục cha gần
+ * nhất còn đọc được rồi nối phần còn lại (kiểm độc lập vòng 1 lỗi 3), như khai báo kiểu của engine chỉ dẫn. Không giải được thì undefined.
+ * Liên kết mềm mà engine không trả đích thật (liên kết treo: isLink, không có realPath) thì null: người gọi coi là ngoài thư mục tạm
+ * (kiểm độc lập vòng 2 lỗi 1, quyết định của chủ mod 19/11/2026).
+ */
+async function realOf($: EngineInterface, path: string): Promise<string | null | undefined> {
+  const statOf = async (at: string) => (await $.fs.stat(at, { resolve: true }).catch(() => undefined)) as { realPath?: string; isLink?: boolean } | undefined
+  const statReal = async (at: string) => (await statOf(at))?.realPath
+  const own = await statOf(path)
+  if (own?.isLink === true && own.realPath === undefined) return null
+  const direct = own?.realPath
+  if (direct !== undefined) return direct
+  const rest: string[] = []
+  let dir = path
+  for (let depth = 0; depth < 40 && dir.lastIndexOf('/') > 0; depth++) {
+    const cut = dir.lastIndexOf('/')
+    rest.unshift(dir.slice(cut + 1))
+    dir = dir.slice(0, cut)
+    const real = await statReal(dir)
+    if (real !== undefined) return `${real.replace(/\/+$/, '')}/${rest.join('/')}`
+  }
+  return undefined
+}
+
+export function roleOfCall(routeRole: Role | undefined, description: string): Role | undefined {
+  return prefixRole(description) ?? routeRole
+}
+
+
+/**
+ * Lời từ chối theo vai (0.9.0 C2, đổi cách làm sang đo dấu file), không quá 200 ký tự; null là được. Mọi vai không phải build: công cụ sửa
+ * file có đích ngoài thư mục tạm. Vai chỉ đọc (search, review, design): thêm lời gọi Bash có tác động ghi mức definite vào file ngoài thư mục
+ * tạm; mức possible được chạy. Vai audit: lệnh Bash ghi file ngoài thư mục tạm theo isBashWrite.
+ */
+export function roleDenial(role: Role, tool: string, input: Record<string, unknown>, name: string, cwd?: string): string | null {
+  if (role === 'build') return null
+  const isReadOnly = READ_ONLY_ROLES.has(role)
+  if (tool !== 'Bash') {
+    const path = filePathOf({ tool, input, isError: false, isReadOnly: false })
+    // Công cụ sửa file vào thư mục tạm được phép cho mọi vai (bất biến của C2; kiểm độc lập vòng 1).
+    if (path !== '' && isRoleTemp(path)) return null
+  } else if (isReadOnly) {
+    if (!isDefiniteOutsideWrite(String(input['command'] ?? ''), cwd)) return null
+  } else if (!isBashWrite(String(input['command'] ?? ''))) return null
+  const text = isReadOnly
+    ? `[focus-conductor] Vai ${name} chỉ đọc, không sửa file ngoài thư mục tạm. Probe thì chép mã sang thư mục tạm rồi chạy ở đó; chỗ cần sửa thì báo luồng chính.`
+    : `[focus-conductor] Vai ${name} chỉ chạy kiểm, không sửa file ngoài thư mục tạm. Báo kết quả và chỗ lỗi cho luồng chính.`
+  return text.slice(0, 200)
+}
+
 function retryFloorOf(core: Core, description: string, subagentType: string | undefined, prompt: string | undefined): { floor: Choice; round: number; sig: string } | null {
   if (core.brief === null || core.retry.goalId !== core.brief.goalId) return null
   const live = core.retry.items.filter(item => !item.exhausted && item.round >= 2 && item.floor !== null && !S.isWaived(core, item.sig))
@@ -69,6 +143,48 @@ export function registerAgents(on: On, ctx: Ctx): void {
   const { agentFailures, agentRoutes, agents, flushDecisions, delegationItems, isAgentRouterPaused, moveDelegation, noteAgentRouter, noteRouterTime, offered, pendingAgents, policy, recognized, record, refit, rememberAgentRoute, spawnedCalls, spawnedIds, startedAgents, steppedEarly } = ctx
   const mode = derive([modeState], modeOf(ctx.options))
 
+  // Quyền theo vai (0.9.0 C2, đổi cách làm sang đo dấu file): vai search, review, design không sửa file và không chạy lệnh ghi mức definite
+  // ngoài thư mục tạm; vai audit không sửa file ngoài thư mục tạm, vẫn chạy lệnh kiểm. Subagent không có vai giữ như 0.8.9.
+
+  on('tool.call', { tool: /^(?:Edit|Write|MultiEdit|NotebookEdit|Bash)$/ }, async ($, e, next) => {
+    if (e.agentId === undefined) return next(e)
+    const meta = agents.get(e.agentId)
+    if (meta === undefined) return next(e)
+    const input = e as unknown as Record<string, unknown>
+    const role = meta.role
+    if (role === undefined) return next(e)
+    const root = (await $.session.root().catch(() => null)) ?? undefined
+    const name = labels(langOf(ctx.options['uiLanguage'])).roleNames[role]
+    let reason = roleDenial(role, e.tool, input, name, root)
+    // Liên kết mềm (vòng 2 M12): công cụ sửa file của vai không phải build vào đích trong thư mục tạm mà đường dẫn thật ngoài thư mục tạm thì
+    // từ chối như sửa ngoài thư mục tạm. Engine không trả realPath (không phải liên kết, hay chưa có tệp) thì giữ kết quả theo đường dẫn.
+    if (reason === null && role !== 'build' && e.tool !== 'Bash') {
+      const path = filePathOf({ tool: e.tool, input, isError: false, isReadOnly: false })
+      const real = path !== '' ? await realOf($, path) : undefined
+      if (real === null) reason = `[focus-conductor] Vai ${name}${READ_ONLY_ROLES.has(role) ? ' chỉ đọc,' : ''} không ghi qua liên kết mềm chưa đọc được đích thật. Ghi vào tệp thường trong thư mục tạm; chỗ cần sửa thì báo luồng chính.`.slice(0, 200)
+      else if (real !== undefined && real !== path && !isRoleTemp(real)) reason = roleDenial(role, e.tool, { ...input, file_path: real }, name, root)
+    }
+    // Lệnh ghi mức definite của vai chỉ đọc vào đích trong thư mục tạm mà đường dẫn thật ngoài thư mục tạm (vòng 2 M12): từ chối.
+    if (reason === null && READ_ONLY_ROLES.has(role) && e.tool === 'Bash') {
+      const command = String(input['command'] ?? '')
+      const definite = classifyBash(command, root).effects.flatMap(effect => (effect.kind === 'write' && effect.level === 'definite' ? effect.paths : []))
+      const targets = definite.filter(isRoleTemp)
+      // Lệnh vừa tạo liên kết mềm vừa ghi mức definite (kiểm độc lập vòng 1 lỗi 3): liên kết chưa có lúc xét nên không kiểm được đích thật.
+      const makesLink = SYMLINK_MAKE.test(command) && definite.length > 0
+      for (const target of makesLink ? [''] : targets.slice(0, 20)) {
+        const real = makesLink ? '' : await realOf($, target)
+        if (makesLink || real === null || (real !== undefined && real !== target && !isRoleTemp(real))) {
+          reason = `[focus-conductor] Vai ${name} chỉ đọc, không sửa file ngoài thư mục tạm. Probe thì chép mã sang thư mục tạm rồi chạy ở đó; chỗ cần sửa thì báo luồng chính.`.slice(0, 200)
+          break
+        }
+      }
+    }
+    if (reason === null) return next(e)
+    record(await $.clock.now(), 'role-deny', { agentId: e.agentId, role, tool: e.tool })
+    await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
+    return { deny: reason }
+  }).catch(($, e, next) => (noteHookError('tool.call role', next.error), next(e)))
+
   // Agent khởi động mà không đi qua agent.spawn của mod: ghi để /conductor status báo là agent ngoài điều phối.
   // So khớp lúc đọc (không lúc khởi động), vì engine có thể báo khởi động trước khi agent.spawn của mod kịp ghi.
   on('classic.SubagentStart', async ($, e, next) => {
@@ -83,7 +199,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
     const result = await next(e)
     L.lastSwitch = { source: e.source, toModel: e.to_model }
     record(await $.clock.now(), 'model-switch', { source: e.source, from: e.from_model, to: e.to_model, requested: e.requested_model })
-    await flushDecisions((path, text) => $.fs.write(path, text))
+    await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
     return result
   }).catch(($, e, next) => (noteHookError('classic.PostModelSwitch', next.error), next(e)))
 
@@ -140,13 +256,13 @@ export function registerAgents(on: On, ctx: Ctx): void {
           notes.push(forkReturnNote(owner?.index ?? null, parts))
         }
         if (label !== null) record(at, 'fork', { ...label, result: 'returned' })
-        await flushDecisions((path, text) => $.fs.write(path, text))
+        await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
       } else if (result.isError === true && label !== null) {
         const part = liveForks(S.normalizeCore(await read($, coreState))).find(p => p.toolUseId === e.tool_use_id)
         if (part?.state === 'running') {
           await update($, coreState, S.withForkCall(e.tool_use_id, p => ({ ...p, state: 'failed' })))
           record(at, 'fork', { ...label, result: 'failed' })
-          await flushDecisions((path, text) => $.fs.write(path, text))
+          await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
         }
       }
       if (result.deny !== undefined || notes.length === 0) return result
@@ -170,7 +286,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
       const conflict = ruleConflict(constraints, e.description, L.sessionFamily)
       if (conflict !== null) {
         record(await $.clock.now(), 'rule-conflict', { description: clipText(e.description), families: conflict.families, items: conflict.items })
-        await flushDecisions((path, text) => $.fs.write(path, text))
+        await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
       }
       return ruleFamily(constraints, e.description, L.sessionFamily)
     }
@@ -178,15 +294,20 @@ export function registerAgents(on: On, ctx: Ctx): void {
     let route: AgentRoute | null = null
     let reason: string
     const requested = EFFORTS.find(x => x === e.effort) ?? null
+    const byPrefix = prefixRole(e.description)
     if (assigned !== undefined) {
       route = taskRoute(assigned, rules)
       reason = `việc ${assigned.index} đã phân trước${route.why ? `: ${route.why}` : ''}`
       if (claimed !== null && familyRank(claimed) < familyRank(route.pick.family)) reason += `; Claude ghi ${e.model}, dùng ${route.pick.family} đã phân`
+    } else if (byPrefix !== undefined) {
+      // Lời gọi theo tiền tố vai (0.9.0 B2): không qua router; model mặc định của vai, model Claude ghi vẫn là mức sàn (floorRoute).
+      route = roleRoute(byPrefix, e.subagent_type, rules)
+      reason = route.why
     } else if (isSettled(claimed, requested, rules)) {
       // Claude đã chốt cả họ (ở mức trần chính sách cho phép) lẫn effort (0.7.4): router không thể chọn khác, không gọi.
       reason = 'Claude đã chốt model và effort ở mức trần cho phép; không gọi router'
       record(await $.clock.now(), 'agent-floor', { description: clipText(e.description), skip: true, claimed: `${claimed}/${requested}` })
-      await flushDecisions((path, text) => $.fs.write(path, text))
+      await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
     } else if (claimed !== null && claimed !== 'haiku' && brief !== null && !brief.isReference && (await ruled(brief.constraints)) === claimed) {
       // Model Claude ghi đúng quy định model của loại việc trong brief (0.7.5): router không được chọn khác, không gọi. Lựa chọn
       // vẫn qua chính sách (fitPick). Haiku không bỏ qua router: chỉ router biết việc có sửa file (haiku không sửa file) hay không.
@@ -257,7 +378,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
           claimed: e.model,
           ...(requested !== null ? { claimedEffort: requested } : {}),
         })
-        await flushDecisions((path, text) => $.fs.write(path, text))
+        await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
         route = floored.route
         reason += `; ${floored.notes.join('; ')}`
       }
@@ -279,7 +400,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
           to: describePick(lifted.pick),
           retry: retryFloor.sig,
         })
-        await flushDecisions((path, text) => $.fs.write(path, text))
+        await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
         reason += `; sàn của lượt sửa lỗi kiểm ${retryFloor.round}/${RETRY_ROUNDS}: ${describePick(lifted.pick)}`
       }
     }
@@ -319,9 +440,10 @@ export function registerAgents(on: On, ctx: Ctx): void {
         description: clipText(e.description),
         ...(matched.miss !== undefined ? { miss: matched.miss } : {}),
         ...(attachedTask !== undefined ? { attached: 'doing-step', task: attachedTask } : {}),
+        ...(route?.role !== undefined ? { role: route.role } : {}),
         routed: route !== null,
       })
-      await flushDecisions((path, text) => $.fs.write(path, text))
+      await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
     }
 
     // Lập kế hoạch thuộc vai của Fable (0.8.4 C7): Agent Plan chạy fable/medium khi Fable sẵn sàng, sau các bước kẹp (việc đã phân,
@@ -386,7 +508,7 @@ export function registerAgents(on: On, ctx: Ctx): void {
       if (ctx.isConducting(now, current) && S.conductOf(now).agentDenied !== isRefused) {
         await update($, coreState, S.withConduct(brief.goalId, () => ({ agentDenied: isRefused })))
         record(await $.clock.now(), 'conduct-exempt', { state: isRefused ? 'on' : 'off', reason: 'agent' })
-        await flushDecisions((path, text) => $.fs.write(path, text))
+        await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
       }
     }
     return result
@@ -464,13 +586,46 @@ export function registerAgents(on: On, ctx: Ctx): void {
       }
     }
 
-    const result = await next(e)
+    // Mẫu báo cáo theo vai (0.9.0 C4): lời giao subagent có vai được nối một dòng nêu mẫu báo cáo và dòng kết luận đứng đầu câu trả lời.
+    // Vai do mod suy (0.9.0 B): tiền tố, rồi vai của việc đã phân, rồi loại agent và loại việc của kết quả chấm.
+    const spawnRoute = info?.route ?? workflowRoute
+    const spawnRole = roleOfCall(spawnRoute?.role ?? (spawnRoute !== null && spawnRoute !== undefined ? roleOf(spawnRoute.agentType, spawnRoute.kind) : undefined), info?.description ?? e.description)
+    // Dòng mẫu báo cáo (0.9.0 C4): lời gọi có tiền tố vai, hay việc có vai khi đội hình của mục tiêu đã bật (0.9.0 C); còn lại như 0.8.9.
+    const spawnCore = S.normalizeCore(await read($, coreState))
+    const isTeamOn = spawnCore.team !== undefined && spawnCore.brief !== null && spawnCore.team.goalId === spawnCore.brief.goalId
+    const isReported = spawnRole !== undefined && e.fork !== true && (prefixRole(info?.description ?? e.description) !== undefined || isTeamOn)
+    const reportSuffix = isReported && spawnRole !== undefined ? `\n\n${reportLine(spawnRole, langOf(ctx.options['uiLanguage']))}` : ''
+    // Dấu file lúc sinh chụp trước next() (vòng sửa cuối 18/11, A2): next() trả về khi subagent đã khởi chạy, nên chụp sau đó có thể đã mang
+    // thay đổi của chính lượt. Chụp cho mọi lượt có thể cho kết luận được tính (không phải phiên con fork, không tiền tố audit, model dự kiến
+    // không phải haiku); sau next() mà hóa ra haiku hay phiên con thì bỏ bản ghi. Tập rỗng thì không gọi fs.
+    const expected = info?.sentFamily ?? spawnRoute?.pick.family ?? null
+    const preGoal = spawnCore.brief?.goalId
+    const isPrinted = e.fork !== true && preGoal !== undefined && prefixRole(info?.description ?? e.description) !== 'audit' && expected !== 'haiku'
+    const preTargets = isPrinted ? printTargets(S.changedOf(spawnCore).paths, spawnCore.brief) : null
+    const prePrints = preTargets === null ? undefined : preTargets.files.length === 0 ? {} : await takePrints({ stat: path => $.fs.stat(path), read: path => $.fs.read(path) as Promise<string> }, preTargets.files, (await $.session.root().catch(() => null)) ?? null).catch(() => null)
+    const preSeq = preGoal !== undefined ? ctx.evidenceFor(preGoal).seq : 0
+    // Danh sách file của phạm vi trước lượt (vòng 2 M13): lượt có vai chỉ đọc hay vai kiểm, theo tiền tố hay vai của việc.
+    const listRole = prefixRole(info?.description ?? e.description) ?? spawnRole
+    const isListed = e.fork !== true && preGoal !== undefined && (listRole === 'review' || listRole === 'design' || listRole === 'audit' || listRole === 'search')
+    const listRoots = isListed ? scopeRoots(spawnCore.brief?.scopePaths, (await $.session.root().catch(() => null)) ?? null) : []
+    const preList = isListed ? await listScope({ list: (path?: string) => $.fs.list(path), stat: (path: string) => $.fs.stat(path) }, listRoots) : null
+    const result = await next(reportSuffix !== '' ? { ...e, prompt: `${e.prompt}${reportSuffix}` } : e)
     if (result.deny !== undefined) return result
     // Phiên con (0.7.9 F1): lời gọi Agent đã có spawn, nên lỗi về sau là lỗi của phần đó, không phải engine từ chối.
     const forkCall = e.fork === true ? L.forkCalls.get(e.tool_use_id) : undefined
     if (forkCall !== undefined) forkCall.spawned = true
     const forkPart = forkCall?.task !== undefined && forkCall.part !== undefined ? { task: forkCall.task, part: forkCall.part } : null
     const agentId = result.agentId
+    // Bản chụp giữ gốc lúc sinh; đủ trần thì bỏ bản cũ nhất (kiểm độc lập vòng 1 lỗi 11), không ngừng chụp lượt mới.
+    if (agentId !== undefined && preList !== null && preGoal !== undefined) {
+      L.scopeLists.delete(agentId)
+      L.scopeLists.set(agentId, { goalId: preGoal, files: preList, roots: listRoots })
+      while (L.scopeLists.size > 100) {
+        const oldest = L.scopeLists.keys().next().value
+        if (oldest === undefined) break
+        L.scopeLists.delete(oldest)
+      }
+    }
     const route = info?.route ?? workflowRoute
     const isMissed = agentId !== undefined && steppedEarly.has(agentId)
     const applied = (info !== undefined ? info.isApplied : workflowRoute !== null && isModeApplied) && !isMissed
@@ -497,6 +652,8 @@ export function registerAgents(on: On, ctx: Ctx): void {
         ...(info?.taskIndex !== undefined ? { taskIndex: info.taskIndex } : workflowTask !== undefined ? { taskIndex: workflowTask } : {}),
         // Chung thư mục với luồng chính (0.8.6 R2): chỉ biết được với agent của tool Agent.
         ...(info !== undefined ? { sharesDir: info.isolated !== true } : {}),
+        // Vai do mod suy (0.9.0 B): tiền tố, của việc đã phân, hay của loại agent và loại việc (spawnRole).
+        ...(spawnRole !== undefined ? { role: spawnRole } : {}),
       })
     } else if (agentId !== undefined && forkPart !== null) {
       // Phiên con của một phần: lệnh và thay đổi của nó vào dấu vết như subagent, kiểm phạm vi theo files của phần; không ép model.
@@ -527,6 +684,11 @@ export function registerAgents(on: On, ctx: Ctx): void {
     }
     if (workflowTask !== undefined && core.brief !== null) await update($, coreState, S.withDelegations(core.brief.goalId, delegationItems(core.brief)))
     if (forkPart !== null && agentId !== undefined) await update($, coreState, S.withForkCall(e.tool_use_id, p => ({ ...p, agentId })))
+    // Ghi bản chụp lúc sinh (vòng sửa cuối 18/11, A2, A3): điều kiện theo hành vi, không theo vai; model đã chạy từ sonnet, không phải phiên con.
+    if (agentId !== undefined && forkPart === null && prePrints !== undefined && preGoal !== undefined && family !== 'haiku') {
+      if (preTargets?.isCapped === true) record(await $.clock.now(), 'print-cap', { goalId: preGoal, files: PRINT_FILES })
+      await update($, printState, state => withSpawnSeq(withPrint(normalizeReviewPrints(state), preGoal, 'spawn', agentId, prePrints), preGoal, agentId, preSeq))
+    }
 
     const sent = info?.sentFamily ?? null
     const isMismatch = info !== undefined && sent !== null && engineFamily !== null && engineFamily !== sent
@@ -592,6 +754,12 @@ export function registerAgents(on: On, ctx: Ctx): void {
       return progressItem !== null ? S.withAgentStart(goalId, progressItem)(logged) : logged
     })
     if (isMismatch) $.ui.toast(mismatchText)
+    // Lượt có tiền tố duyệt hay sẵn sàng vừa sinh (vòng 2 M18, M20): vẽ lại status line để nó nói cùng câu đang duyệt với band và pane.
+    const spawnPrefix = prefixRole(info?.description ?? e.description)
+    if (progressItem !== null && (spawnPrefix === 'review' || spawnPrefix === 'design')) {
+      const view = await read($, derive([coreState, modeState, bandHiddenState], viewOf(ctx.options)))
+      $.ui.status(statusTextOf(view, normalizeQuota(await read($, quotaState)), await $.clock.now(), quotaSettings(ctx.options)))
+    }
     return result
   }).catch(($, e, next) => (noteHookError('agent.spawn', next.error), next(e)))
 }

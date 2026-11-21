@@ -7,6 +7,7 @@
 //
 // Công cụ chạy bằng tên trần. CHỈ tên trong danh sách này mới được bọc (npx, pnpm exec, uv run...): phần bọc không
 // bao giờ tự biến một lệnh thành lệnh kiểm tra, nên `pnpm add x`, `yarn install`, `bunx create-x` vẫn là ghi.
+import { globToRegExp } from './soft'
 const CHECK_TOOLS = 'tsc|pytest|jest|vitest|mocha|eslint|ruff|mypy|flake8|pyright|biome|stylelint|rspec|phpunit|shellcheck|tox'
 const TEST_TOOLS = 'pytest|jest|vitest|mocha|rspec|phpunit|tox'
 // Dạng bọc đã biết, danh tính giữ nguyên tiền tố (`pnpm exec tsc -p x` khác `tsc -p x`).
@@ -88,8 +89,40 @@ export function parseCheckCommands(raw: unknown): string[][] {
 }
 
 /** Áp danh sách lệnh kiểm tra riêng cho lần nạp mod này; danh sách rỗng là bỏ hết. */
+/** Dấu tách phạm vi của một mục checkCommands (0.9.0 B11): `bun test @@ src/**;tests/**`. Không lệnh nào có token đúng bằng `@@`. */
+export const SCOPE_MARK = '@@'
+
+/** Phạm vi đường dẫn của từng lệnh khai, cùng thứ tự với customChecks (0.9.0 B11); null là không có phạm vi. */
+let customScopes: (RegExp[] | null)[] = []
+
+/** Tách một mục checkCommands thành lệnh và glob phạm vi (0.9.0 B11); mục không có `@@` thì phạm vi là null, lệnh giữ nguyên từng token. */
+export function splitCheckScope(tokens: readonly string[]): { command: string[]; scope: string[] | null } {
+  const at = tokens.indexOf(SCOPE_MARK)
+  if (at < 0) return { command: [...tokens], scope: null }
+  const scope = tokens.slice(at + 1).join(' ').split(';').map(item => item.trim()).filter(Boolean)
+  return { command: tokens.slice(0, at), scope: scope.length > 0 ? scope : null }
+}
+
 export function applyCheckCommands(commands: string[][]): void {
-  customChecks = commands.map(tokens => lowerTokens(tokens))
+  const split = commands.map(splitCheckScope)
+  customChecks = split.map(entry => lowerTokens(entry.command))
+  customScopes = split.map(entry => (entry.scope === null ? null : entry.scope.map(globToRegExp)))
+}
+
+/**
+ * Phạm vi của lệnh khai mà `text` khớp (0.9.0 B11): lệnh khai đầu tiên khớp quyết định; không khớp lệnh khai nào, hay lệnh khai đó không có
+ * phạm vi, thì null (lệnh phủ mọi thay đổi như 0.8.9).
+ */
+export function checkScopeOf(text: string): RegExp[] | null {
+  const tokens = lowerTokens(text.trim().split(/\s+/).filter(Boolean))
+  const at = customChecks.findIndex(command => command.length !== 0 && command.every((token, i) => matchesToken(token, tokens[i])))
+  return at < 0 ? null : (customScopes[at] ?? null)
+}
+
+/** Đường dẫn khớp một glob của phạm vi (0.9.0 B11), so trên dạng dấu / sau chuẩn hóa. */
+export function inCheckScope(path: string, scope: readonly RegExp[]): boolean {
+  const unified = path.replace(/\\/g, '/')
+  return scope.some(re => re.test(unified))
 }
 
 /** Tool MCP người dùng khai là tool kiểm (option checkTools, 0.7.9 Y4); mod không tự đoán theo tên. */
@@ -199,6 +232,26 @@ export function isSelfFixing(tokens: string[], unmask: (token: string) => string
     if (!isOptionValue) words.push(unmask(token))
   })
   if (words.some(word => FIX_FLAGS.has(word) || word.startsWith('--fix='))) return true
+  // Cập nhật snapshot (vòng 2 M9): jest, vitest có -u, --updateSnapshot, --update; pytest có --snapshot-update; mọi lệnh có
+  // --update-snapshots. Định dạng tự ghi: go fmt, gofmt -w, cargo fmt không kèm --check.
+  if (words.includes('--update-snapshots')) return true
+  // Cờ cập nhật snapshot (vòng 2 M9; kiểm độc lập vòng 2 lỗi 5, quyết định của chủ mod 19/11/2026): -u, --update, --updateSnapshot (kể cả dạng
+  // có giá trị `--updateSnapshot=true`) với jest, vitest, hay đi qua npm, pnpm, yarn, bun ở bất kỳ vị trí nào, kể cả sau `--`.
+  const isSnapshotFlag = (word: string) => word === '-u' || word === '--update' || word === '--updateSnapshot' || word.startsWith('--updateSnapshot=')
+  const viaRunner = words.some(word => word === 'jest' || word === 'vitest' || word === 'npm' || word === 'pnpm' || word === 'yarn' || word === 'bun')
+  if (viaRunner && words.some(isSnapshotFlag)) return true
+  if (words.includes('pytest') && words.includes('--snapshot-update')) return true
+  const go = words.indexOf('go')
+  if (go >= 0 && words[go + 1] === 'fmt') return true
+  if (words.includes('gofmt') && words.includes('-w')) return true
+  const cargo = words.indexOf('cargo')
+  if (cargo >= 0 && words[cargo + 1] === 'fmt' && !words.includes('--check')) return true
+  // Formatter chạy qua python -m, uv run, poetry run, pipx run, và deno fmt, khi không kèm chế độ kiểm (0.9.0, đổi đặc tả C2 mục 6).
+  const isCheckMode = words.some(word => word === '--check' || word === '--diff' || word === '--check-only')
+  const formatter = words.findIndex(word => word === 'black' || word === 'isort' || word === 'autopep8' || word === 'yapf')
+  if (formatter > 0 && !isCheckMode && (words[formatter - 1] === '-m' || words[formatter - 1] === 'run')) return true
+  const deno = words.indexOf('deno')
+  if (deno >= 0 && words[deno + 1] === 'fmt' && !isCheckMode) return true
   if (words.includes('prettier') && words.includes('-w')) return true
   const ruff = words.indexOf('ruff')
   if (ruff >= 0 && words[ruff + 1] === 'format') return !words.includes('--check') && !words.includes('--diff')
@@ -209,3 +262,15 @@ export function isSelfFixing(tokens: string[], unmask: (token: string) => string
 }
 
 export type CheckKind = 'test' | 'static'
+
+/**
+ * Có lệnh kiểm khai trong checkCommands phủ ít nhất một đường dẫn đã sửa (0.9.0 C2): mục không có phạm vi phủ mọi đường dẫn; mục có phạm
+ * vi phải khớp một đường dẫn. Không khai mục nào thì false.
+ */
+export function hasDeclaredCheckFor(paths: readonly string[]): boolean {
+  return customChecks.some((command, at) => {
+    if (command.length === 0) return false
+    const scope = customScopes[at] ?? null
+    return scope === null || paths.some(path => inCheckScope(path, scope))
+  })
+}

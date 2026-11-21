@@ -1,6 +1,7 @@
 // Nhãn cố định của band và pane theo option uiLanguage (vi mặc định, en). Nội dung động (mục tiêu, lý do của
 // router, cảnh báo, nhật ký, sổ chi phí) giữ nguyên ngôn ngữ của nó: router trả lời theo ngôn ngữ của prompt.
 
+import type { Role } from '../../types'
 import type { ModelFamily, StepStatus, WarningKind } from '../../types'
 import { hasTitleCode } from '../lib/route'
 import { conductorShown } from '../lib/conductor'
@@ -38,6 +39,9 @@ const VI = {
   retryCleared: (command: string, step: number) => `Đã gỡ chặn: ${command} chạy lại đạt, bước ${step} về trạng thái cũ`,
   retryPassedAt: (clock: string) => `đã đạt lúc ${clock}`,
   waived: (command: string) => `đã miễn: \`${command}\``,
+  /** Lệnh kiểm đỏ từ nền (vòng 3 N7): dòng của mục cần chú ý và tiêu đề mục của /conductor status. */
+  baselineRed: (command: string) => `đỏ từ nền: \`${command}\``,
+  baselineHeading: 'Lệnh kiểm đỏ từ nền',
   // Kế hoạch đã trình chờ người dùng duyệt (0.8.2 N2): mục cần chú ý và nhãn status line.
   planAwaiting: 'Chờ duyệt kế hoạch',
   planAwaitingShort: 'chờ duyệt kế hoạch',
@@ -122,6 +126,27 @@ const VI = {
   taskMain: 'Việc chính',
   taskNumber: (n: number) => `Việc ${n}`,
   taskOwn: 'Claude tự giao',
+  /** Cổng đóng mục tiêu (0.9.0 C6). */
+  closingUnreviewed: 'Chưa duyệt độc lập',
+  closingNoReview: 'Chưa duyệt độc lập (phiên không có subagent)',
+  closingUnread: 'Lượt duyệt chưa có kết luận đọc được',
+  closingReviewing: 'Đang duyệt độc lập',
+  closingReadying: 'Đang đánh giá sẵn sàng',
+  directionReviewing: 'Đang duyệt',
+  closingUnreadReady: 'Lượt đánh giá sẵn sàng chưa có kết luận đọc được',
+  /** Mục cần chú ý của bước đóng (vòng 2 U1). */
+  closingUnchecked: 'Chưa có lần kiểm đạt sau thay đổi cuối',
+  closingCheckFailed: 'Lần kiểm gần nhất chưa đạt',
+  closingReviewFailed: 'Duyệt độc lập: chưa đạt',
+  closingNoReadiness: 'Chưa có đánh giá sẵn sàng',
+  closingNotReady: 'Đánh giá sẵn sàng: chưa sẵn sàng',
+  teamHeading: 'Bước đóng (mod)',
+  teamSteps: { check: 'Kiểm', review: 'Duyệt', design: 'Sẵn sàng' } as Record<'check' | 'review' | 'design', string>,
+  teamStates: { wait: 'chờ', pass: 'đạt', fail: 'chưa đạt' } as Record<'wait' | 'pass' | 'fail', string>,
+  /** Bước đóng chưa đạt của mục tiêu đã miễn duyệt (vòng 2 U4). */
+  teamWaived: 'đã miễn',
+  /** Nhãn vai của việc (0.9.0 C1). */
+  roleNames: { design: 'thiết kế', review: 'duyệt', build: 'làm', search: 'tra', audit: 'kiểm' } as Record<Role, string>,
   forksMerged: (n: number) => `${n} phiên con đã gom`,
   forkCost: (n: number) => `Nhóm subagent gồm ${n} phiên con`,
   taskState: { pending: 'chờ giao', idle: 'chưa bắt đầu', running: 'đang chạy', done: 'xong', failed: 'lỗi, chưa giao lại', cut: 'bị cắt vì tạm dừng' } as Record<'pending' | 'idle' | 'running' | 'done' | 'failed' | 'cut', string>,
@@ -129,7 +154,7 @@ const VI = {
   noStep: 'chưa gắn bước',
   taskTools: (n: number) => `${n} tool`,
   taskBatches: (done: number, total: number, running: number) => `${done}/${total} lô xong${running > 0 ? `, ${running} đang chạy` : ''}`,
-  taskElapsed: (ms: number) => (ms < 60_000 ? '<1 phút' : `${roundedMinutes(ms)} phút`),
+  taskElapsed: (ms: number) => (!Number.isFinite(ms) ? '–' : ms < 60_000 ? '<1 phút' : `${roundedMinutes(ms)} phút`),
   taskMore: (k: number) => `+${k} việc`,
   stepsClosed: (n: number, verified = 0, skipped = 0) => `${n} bước đã đóng${closedParts([verified > 0 ? `${verified} đã kiểm chứng` : '', skipped > 0 ? `${skipped} bỏ qua` : ''])}`,
   stepsOpenMore: (n: number) => `+${n} bước mở`,
@@ -138,7 +163,7 @@ const VI = {
   attentionFailed: (n: number) => `${n} lô lỗi chưa giao lại`,
   agentsRunning: (n: number) => `${n} subagent đang chạy`,
   agentBatchChip: (running: number, failed: number) => [running > 0 ? `${running} đang chạy` : '', failed > 0 ? `${failed} lỗi` : ''].filter(Boolean).join(' · '),
-  goalElapsed: (ms: number) => (ms < 60_000 ? '<1 phút' : roundedMinutes(ms) < 60 ? `${roundedMinutes(ms)} phút` : `${Math.floor(roundedMinutes(ms) / 60)} giờ ${roundedMinutes(ms) % 60} phút`),
+  goalElapsed: (ms: number) => (!Number.isFinite(ms) ? '–' : ms < 60_000 ? '<1 phút' : roundedMinutes(ms) < 60 ? `${roundedMinutes(ms)} phút` : `${Math.floor(roundedMinutes(ms) / 60)} giờ ${roundedMinutes(ms) % 60} phút`),
   runningSince: (at: number) => `từ ${clockOf(at)}`,
   mirrorSource: 'Theo danh sách việc của Claude Code (chỉ để theo dõi, không chặn kết thúc)',
   costCalls: 'lượt',
@@ -209,6 +234,8 @@ const VI = {
   directionNotice: 'Gần hạn mức',
   directionDropped: 'Mục bị bỏ',
   directionUnverified: 'Chưa kiểm',
+  directionUnreviewed: 'Chưa duyệt',
+  directionNotReady: 'Chưa sẵn sàng',
   directionBudget: 'Vượt ngân sách',
   directionOther: 'Cần chú ý',
   directionVerified: (verified: number, total: number) => `Đã kiểm ${verified}/${total}`,
@@ -226,6 +253,8 @@ const EN: typeof VI = {
   retryCleared: (command, step) => `Unblocked: ${command} passed on a rerun, step ${step} restored`,
   retryPassedAt: clock => `passed at ${clock}`,
   waived: command => `waived: \`${command}\``,
+  baselineRed: command => `red at baseline: \`${command}\``,
+  baselineHeading: 'Checks red at baseline',
   planAwaiting: 'Plan awaiting approval',
   planAwaitingShort: 'plan awaiting approval',
   skillUntried: 'Skill not trialled',
@@ -301,6 +330,23 @@ const EN: typeof VI = {
   taskMain: 'Main work',
   taskNumber: n => `Task ${n}`,
   taskOwn: 'Delegated by Claude',
+  closingUnreviewed: 'No independent review yet',
+  closingNoReview: 'No independent review (no subagents)',
+  closingUnread: 'Review reply has no readable verdict',
+  closingReviewing: 'Independent review running',
+  closingReadying: 'Readiness check running',
+  directionReviewing: 'Reviewing',
+  closingUnreadReady: 'Readiness reply has no readable verdict',
+  closingUnchecked: 'No passing check since the last change',
+  closingCheckFailed: 'Latest check did not pass',
+  closingReviewFailed: 'Independent review: not passed',
+  closingNoReadiness: 'No readiness assessment yet',
+  closingNotReady: 'Readiness: not ready',
+  teamHeading: 'Closing steps (mod)',
+  teamSteps: { check: 'Check', review: 'Review', design: 'Readiness' },
+  teamStates: { wait: 'waiting', pass: 'passed', fail: 'not passed' },
+  teamWaived: 'waived',
+  roleNames: { design: 'design', review: 'review', build: 'build', search: 'search', audit: 'audit' },
   forksMerged: n => `${n} ${n === 1 ? 'fork' : 'forks'} merged`,
   forkCost: n => `Subagent group includes ${n} ${n === 1 ? 'fork' : 'forks'}`,
   taskState: { pending: 'not delegated yet', idle: 'not started', running: 'running', done: 'done', failed: 'failed, not re-delegated', cut: 'cut by pause' },
@@ -308,7 +354,7 @@ const EN: typeof VI = {
   noStep: 'no step',
   taskTools: n => `${n} ${n === 1 ? 'tool' : 'tools'}`,
   taskBatches: (done, total, running) => `${done}/${total} runs done${running > 0 ? `, ${running} running` : ''}`,
-  taskElapsed: ms => (ms < 60_000 ? '<1 min' : `${roundedMinutes(ms)} min`),
+  taskElapsed: ms => (!Number.isFinite(ms) ? '–' : ms < 60_000 ? '<1 min' : `${roundedMinutes(ms)} min`),
   taskMore: k => `+${k} ${k === 1 ? 'task' : 'tasks'}`,
   stepsClosed: (n, verified = 0, skipped = 0) => `${n} ${n === 1 ? 'step' : 'steps'} closed${closedParts([verified > 0 ? `${verified} verified` : '', skipped > 0 ? `${skipped} skipped` : ''])}`,
   stepsOpenMore: n => `+${n} open ${n === 1 ? 'step' : 'steps'}`,
@@ -317,7 +363,7 @@ const EN: typeof VI = {
   attentionFailed: n => `${n} failed ${n === 1 ? 'run' : 'runs'} not re-delegated`,
   agentsRunning: n => `${n} ${n === 1 ? 'subagent' : 'subagents'} running`,
   agentBatchChip: (running, failed) => [running > 0 ? `${running} running` : '', failed > 0 ? `${failed} failed` : ''].filter(Boolean).join(' · '),
-  goalElapsed: ms => (ms < 60_000 ? '<1 min' : roundedMinutes(ms) < 60 ? `${roundedMinutes(ms)} min` : `${Math.floor(roundedMinutes(ms) / 60)} h ${roundedMinutes(ms) % 60} min`),
+  goalElapsed: ms => (!Number.isFinite(ms) ? '–' : ms < 60_000 ? '<1 min' : roundedMinutes(ms) < 60 ? `${roundedMinutes(ms)} min` : `${Math.floor(roundedMinutes(ms) / 60)} h ${roundedMinutes(ms) % 60} min`),
   runningSince: at => `since ${clockOf(at)}`,
   mirrorSource: "From Claude Code's task list (tracking only, never blocks stopping)",
   costCalls: 'calls',
@@ -385,6 +431,8 @@ const EN: typeof VI = {
   directionNotice: 'Near limit',
   directionDropped: 'Dropped item',
   directionUnverified: 'Unverified',
+  directionUnreviewed: 'Unreviewed',
+  directionNotReady: 'Not ready',
   directionBudget: 'Over budget',
   directionOther: 'Needs attention',
   directionVerified: (verified, total) => `Verified ${verified}/${total}`,
@@ -417,11 +465,32 @@ export function shownEntry(w: { text: string; turns?: number }, lang: Lang): str
   return w.turns !== undefined && w.turns > 1 ? `${text} ${labels(lang).turnsSuffix(w.turns)}` : text
 }
 
+/** Vai kiểm của đội hình (0.9.0 B): audit, review, design. */
+function isTeamRole(role: Role | undefined): role is 'audit' | 'review' | 'design' {
+  return role === 'audit' || role === 'review' || role === 'design'
+}
+
 /**
  * Chip của dòng bước khớp một việc (0.7.6, U1): việc nhiều lô thì model và số lô ("sonnet 97/100 · 3 lỗi"); việc một lần gọi thì model
  * và trạng thái ("sonnet đang chạy"); việc làm trực tiếp thì model và effort ("opus high"). Số tool call và thời gian đi ở phần chi tiết.
  */
-export function stepTaskMeta(l: typeof VI, row: { kind: 'main' | 'direct' | 'agent'; pick: { family: string; effort: string } | null; state: 'pending' | 'idle' | 'running' | 'done' | 'failed' | 'cut'; counts?: { done: number; total: number; running: number }; failed?: number }): string {
+export function stepTaskMeta(l: typeof VI, row: { kind: 'main' | 'direct' | 'agent'; pick: { family: string; effort: string } | null; state: 'pending' | 'idle' | 'running' | 'done' | 'failed' | 'cut'; counts?: { done: number; total: number; running: number }; failed?: number; role?: Role }): string {
+  const meta = stepMetaText(l, row)
+  // Nhãn vai (0.9.0 B) sau chip model, chỉ với vai kiểm của đội hình (audit, review, design); build và search mod suy giữ dòng như 0.8.9.
+  return meta !== '' && isTeamRole(row.role) ? `${meta} [${l.roleNames[row.role]}]` : meta
+}
+
+/** Nhãn vai của dòng bước ở pane (vòng 2 M17), đứng cuối dòng sau phần chi tiết; chỉ với vai kiểm của đội hình, rỗng với vai khác. */
+export function stepRoleTag(l: typeof VI, row: { role?: Role }): string {
+  return isTeamRole(row.role) ? `[${l.roleNames[row.role]}]` : ''
+}
+
+/** Chip của dòng bước không kèm nhãn vai (vòng 2 M17): pane đặt nhãn vai ở cuối dòng. */
+export function stepTaskChip(l: typeof VI, row: Parameters<typeof stepMetaText>[1]): string {
+  return stepMetaText(l, row)
+}
+
+function stepMetaText(l: typeof VI, row: { kind: 'main' | 'direct' | 'agent'; pick: { family: string; effort: string } | null; state: 'pending' | 'idle' | 'running' | 'done' | 'failed' | 'cut'; counts?: { done: number; total: number; running: number }; failed?: number }): string {
   const family = row.pick?.family ?? ''
   if (row.counts !== undefined) return [`${family} ${row.counts.done}/${row.counts.total}`.trim(), l.agentBatchChip(row.counts.running, row.failed ?? 0)].filter(Boolean).join(' · ')
   if (row.kind === 'agent') return `${family} ${l.taskState[row.state]}`.trim()
@@ -432,12 +501,14 @@ export function stepTaskMeta(l: typeof VI, row: { kind: 'main' | 'direct' | 'age
  * Tên một dòng tiến độ (0.6.1): "Việc chính: ...", "Việc N: ...", hay "Claude tự giao: ...". Dùng chung cho band và pane.
  * Việc có mã (BƯỚC 4, K4.2, Việc 3) hiện chính tiêu đề mang mã đó, không ghép "Việc 5: BƯỚC 4: ..." (vòng sửa 2 của 0.7.5).
  */
-export function taskLabel(l: typeof VI, row: { kind: 'main' | 'direct' | 'agent'; index?: number; title: string; fork?: { task: number; part?: string; merged?: number } }): string {
+export function taskLabel(l: typeof VI, row: { kind: 'main' | 'direct' | 'agent'; index?: number; title: string; fork?: { task: number; part?: string; merged?: number }; role?: Role }): string {
   // Phiên con của việc tách (0.7.9 F1): "Việc 3a: <phần>", hay một dòng "Việc 3: k phiên con đã gom" khi đã gom.
   if (row.fork !== undefined) return row.fork.merged !== undefined ? `${l.taskNumber(row.fork.task)}: ${l.forksMerged(row.fork.merged)}` : `${l.taskNumber(row.fork.task)}${row.fork.part ?? ''}: ${row.title}`
-  if (row.index !== undefined && hasTitleCode(row.title)) return row.title
+  // Nhãn vai (0.9.0 B) đứng sau tiêu đề, chỉ với vai kiểm của đội hình.
+  const tag = isTeamRole(row.role) ? ` [${l.roleNames[row.role]}]` : ''
+  if (row.index !== undefined && hasTitleCode(row.title)) return `${row.title}${tag}`
   const head = row.kind === 'main' ? l.taskMain : row.index !== undefined ? l.taskNumber(row.index) : l.taskOwn
-  return `${head}: ${row.title}`
+  return `${head}: ${row.title}${tag}`
 }
 
 /**

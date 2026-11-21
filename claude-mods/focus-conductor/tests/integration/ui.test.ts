@@ -69,7 +69,8 @@ describe('giao diện', () => {
     }
   }
 
-  test('thanh tiến độ đổi màu theo bốn giai đoạn ở cả band và pane: xanh dương, cam, vàng, xanh lá', { options: { planApproval: 'off', neon: 'off' } }, async ($, on) => {
+  // Vòng 2 U1: closingReview off, vì mục bước đóng chưa đạt sẽ thay thanh của giai đoạn xong ở dòng 2 của band.
+  test('thanh tiến độ đổi màu theo bốn giai đoạn ở cả band và pane: xanh dương, cam, vàng, xanh lá', { options: { planApproval: 'off', neon: 'off', closingReview: 'off' } }, async ($, on) => {
     base(on)
     await submit($, COMPLEX_PROMPT)
     const PLAN = 'mcp__focus-conductor__plan'

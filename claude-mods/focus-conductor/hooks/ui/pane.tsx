@@ -15,10 +15,13 @@ import { liveForks } from '../lib/forks'
 import { countLabel, progress } from '../lib/text'
 import type { BandQuota, QuotaPaneText } from '../lib/text'
 import { attentionItems } from './attention'
-import { conductorLine, labels, shownEntry, stepTaskMeta, taskLabel } from './labels'
+import { conductorLine, labels, shownEntry, stepRoleTag, stepTaskChip, taskLabel } from './labels'
 import type { Run } from './style'
 import { DEFAULT_NEON, paintOf } from './neon'
 import type { GradientName } from './neon'
+
+/** Số đếm hiện trên pane (0.9.0 A6): không phải số hữu hạn thì "–". */
+const countText = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? String(value) : '–')
 import {
   FAMILY_HUE,
   SPINE,
@@ -108,6 +111,8 @@ export function renderPane(
   const l = labels(view.lang)
   // Dòng chữ dài hơn ~100 ô khó đọc: pane inline rộng vẫn giữ nội dung trong 100 ô.
   const width = Math.max(36, Math.min(columnsOf(props.columns, 56), 100))
+  // Bề rộng thật của pane cho dòng không tự xuống dòng (vòng 2 M19): pane hẹp hơn 36 cột thì tiêu đề mục và dải bước tính theo số cột thật.
+  const fitWidth = Math.min(width, Math.max(1, columnsOf(props.columns, 56)))
   const isNarrow = width < 48
   // Bộ màu (0.8.8 N1): dải màu neon theo option, hay theme key khi neon off.
   const paint = paintOf(view.neon ?? DEFAULT_NEON, props.frame ?? 0)
@@ -130,14 +135,17 @@ export function renderPane(
   // sang phải.
   const heading = (title: string, extra?: string, tone: HeadingTone = palette) => {
     const label = ` ${title} `
-    const tail = extra ? ` ${extra}` : ''
+    // Không đủ chỗ cho đường kẻ tối thiểu thì bỏ phần đếm trước (vòng 2 M19), rồi rút đường kẻ, để dòng không dài hơn bề rộng thật.
+    const fullTail = extra ? ` ${extra}` : ''
+    const tail = fitWidth - cellsOf(label) - 1 - cellsOf(fullTail) >= 2 ? fullTail : ''
+    const rule = Math.max(0, fitWidth - cellsOf(label) - 1 - cellsOf(tail))
     return (
       <Text wrap="truncate-end">
         <Text>{fillRuns(tone, ' ').map(tint)}</Text>
         <Text>{fillRuns(tone, title, 1).map(tint)}</Text>
         <Text>{fillRuns(tone, ' ', 1 + cellsOf(title)).map(tint)}</Text>
-        <Text color="subtle">{` ${'─'.repeat(Math.max(2, width - cellsOf(label) - 1 - cellsOf(tail)))}`}</Text>
-        {extra ? <Text dimColor>{tail}</Text> : ''}
+        <Text color="subtle">{rule > 0 ? ` ${'─'.repeat(rule)}` : ''}</Text>
+        {tail ? <Text dimColor>{tail}</Text> : ''}
       </Text>
     )
   }
@@ -234,9 +242,10 @@ export function renderPane(
   const attentionHidden = attentionTotal - (isPaused ? 1 : 0) - attentionShown.length
   const attentionWidth = Math.max(8, width - 2)
   // Ký hiệu ở dòng đầu, các dòng sau thụt hai ô cho thẳng chữ.
-  const hanging = (glyph: string, text: string) => wrapText(text, attentionWidth, 99).map((line, i) => `${i === 0 ? glyph : ' '} ${line}`)
+  const hanging = (glyph: string, text: string, wrapAt = attentionWidth) => wrapText(text, wrapAt, 99).map((line, i) => `${i === 0 ? glyph : ' '} ${line}`)
   const pauseLines = pause !== null && isPaused ? [hanging(PAUSE_GLYPH, pause.line), hanging(' ', pause.resume)] : []
-  const itemLines = attentionShown.map(item => ({ item, lines: hanging(severityGlyph(item.severity), item.text) }))
+  // Dòng lệnh đỏ từ nền (vòng 3 N7) xuống dòng theo bề rộng thật, nên pane hẹp hơn 36 cột không có thêm dòng vượt bề rộng.
+  const itemLines = attentionShown.map(item => ({ item, lines: hanging(severityGlyph(item.severity), item.text, item.kind === 'baseline' ? Math.max(8, fitWidth - 2) : attentionWidth) }))
   const attentionRows = attentionTotal === 0 ? 0 : 1 + pauseLines.reduce((sum, lines) => sum + lines.length, 0) + itemLines.reduce((sum, entry) => sum + entry.lines.length, 0) + (attentionHidden > 0 ? 1 : 0)
   const attentionNode =
     attentionTotal === 0 ? null : (
@@ -398,9 +407,11 @@ export function renderPane(
   }
   const metaNode = (title: string) => {
     const row = byTitle.get(title)
-    const meta = row ? stepTaskMeta(l, row) : ''
+    // Nhãn vai đứng cuối dòng, sau phần chi tiết (vòng 2 M17); chip chỉ mang model và trạng thái.
+    const meta = row ? stepTaskChip(l, row) : ''
     if (row === undefined || !meta) return null
     const detail = rowDetail(row, true)
+    const roleTag = stepRoleTag(l, row)
     const tone = row.state === 'failed' || (row.failed ?? 0) > 0 ? 'error' : row.state === 'cut' ? 'warning' : undefined
     return [
       <Box key="chip" flexShrink={0}>
@@ -411,6 +422,11 @@ export function renderPane(
       detail ? (
         <Box key="detail" flexShrink={0}>
           <Text dimColor>{detail}</Text>
+        </Box>
+      ) : null,
+      roleTag ? (
+        <Box key="role" flexShrink={0}>
+          <Text dimColor>{roleTag}</Text>
         </Box>
       ) : null,
     ]
@@ -439,8 +455,8 @@ export function renderPane(
   // W3: pane hẹp đặt chip và chi tiết của việc khớp bước xuống dòng riêng, nên cộng số dòng của chúng.
   const metaRows = (title: string) => {
     const row = byTitle.get(title)
-    const meta = row ? stepTaskMeta(l, row) : ''
-    return !isNarrow || row === undefined || !meta ? 0 : rowsOf([meta, rowDetail(row, true)].filter(Boolean).join(' '), stepCells)
+    const meta = row ? stepTaskChip(l, row) : ''
+    return !isNarrow || row === undefined || !meta ? 0 : rowsOf([meta, rowDetail(row, true), stepRoleTag(l, row)].filter(Boolean).join(' '), stepCells)
   }
   const stepRows = (step: PlanStep) =>
     titleRows(step.title) + (step.check ? rowsOf(`${l.check}: ${step.check}`, stepCells) : 0) + (step.note ? rowsOf(step.note, stepCells) : 0) + metaRows(step.title)
@@ -475,7 +491,28 @@ export function renderPane(
 
   // Checklist và tiến độ từng việc là một danh sách (U1): dạng đầy đủ vừa khi phần đầu, khoảng cách, tiêu đề checklist và cả danh sách
   // nằm trong số dòng của pane.
-  const fits = (listRows: number) => headerRows + mirrorRows + stripRows + listRows + 2 <= (props.rows ?? DEFAULT_ROWS)
+  // Mục Bước đóng (vòng 2 U3): một dòng kiểu chú giải, ký hiệu và màu theo STEP_MARK (đạt verified, chưa đạt blocked, chờ todo, đã miễn
+  // skipped); không vừa bề rộng thì xuống dòng theo mục. Khoảng cách, tiêu đề và các dòng trạng thái tính vào số dòng của pane.
+  const isWaivedGoal = view.core.closingWaived === brief.goalId
+  const teamItems = (view.core.team !== undefined && view.core.team.goalId === brief.goalId ? view.core.team.steps : []).map(step => {
+    const isWaived = isWaivedGoal && step.state !== 'pass'
+    const status: StepStatus = isWaived ? 'skipped' : step.state === 'pass' ? 'verified' : step.state === 'fail' ? 'blocked' : 'todo'
+    return { name: step.name, mark: STEP_MARK[status], isDim: isWaived || step.state === 'wait', text: `${l.teamSteps[step.name]}: ${isWaived ? l.teamWaived : l.teamStates[step.state]}` }
+  })
+  const chipLines = (texts: readonly string[]) => {
+    let lines = 1
+    let used = 0
+    for (const text of texts) {
+      const size = 2 + cellsOf(text)
+      if (used > 0 && used + 2 + size > width) {
+        lines += 1
+        used = size
+      } else used += (used > 0 ? 2 : 0) + size
+    }
+    return lines
+  }
+  const teamRows = teamItems.length === 0 ? 0 : 2 + chipLines(teamItems.map(item => item.text))
+  const fits = (listRows: number) => headerRows + mirrorRows + stripRows + listRows + 2 + teamRows <= (props.rows ?? DEFAULT_ROWS)
   // Checklist dài (vòng sửa 2 của 0.7.5): các bước đã đóng dồn thành một dòng tóm tắt; checklist ngắn giữ nguyên từng bước. Không dạng gọn
   // mà checklist trên 6 bước thì vẫn có dòng tóm tắt bước đã đóng.
   const isLong = plan.length > COLLAPSE_FROM
@@ -495,8 +532,8 @@ export function renderPane(
   const stripMarks = plan.map(step => ({ step, mark: step.status === 'todo' && runningSteps.has(step.title) ? STEP_MARK.doing : STEP_MARK[step.status] }))
   const withIds = stripMarks.map(({ step, mark }) => `${mark.glyph}${step.id}`)
   const stripText = withIds.join(' ')
-  const isStripIds = cellsOf(stripText) <= width
-  const stripFits = (n: number) => n + (n < stripMarks.length ? 1 + cellsOf(`+${stripMarks.length - n}`) : 0) <= width
+  const isStripIds = cellsOf(stripText) <= fitWidth
+  const stripFits = (n: number) => n + (n < stripMarks.length ? 1 + cellsOf(`+${stripMarks.length - n}`) : 0) <= fitWidth
   let stripShown = stripMarks.length
   while (!isStripIds && stripShown > 0 && !stripFits(stripShown)) stripShown -= 1
   const stripNode =
@@ -602,7 +639,10 @@ export function renderPane(
   const statuses = taskStatusOf(view.core, props.now ?? 0)
   const countOf = (status: string) => brief.tasks.filter(task => statuses[task.index] === status).length
   const doneCount = countOf('done')
-  const taskHeading = isNarrow
+  // Không có việc đã phân (chỉ có việc Claude tự giao, như lượt duyệt): tiêu đề không có phần đếm (vòng 2 U7).
+  const taskHeading = brief.tasks.length === 0
+    ? undefined
+    : isNarrow
     ? `${doneCount}/${brief.tasks.length}`
     : l.taskSummary(doneCount, brief.tasks.length, countOf('running'), countOf('not started'), countOf('failed'), (brief.removed ?? []).length)
   /** Dòng gộp việc đã xong: số việc kèm danh sách số cắt theo bề rộng, phần còn lại ghi "+N". */
@@ -788,11 +828,11 @@ export function renderPane(
           {hasBars ? <Text> </Text> : ''}
           {hasBars ? barOf(ledger.goal.buckets[g.key].usd) : ''}
           {` ${padStart(formatCost(ledger.goal.buckets[g.key].usd, view.lang), moneyWidth)}`}
-          <Text dimColor>{` ${padStart(formatCost(ledger.session[g.key].usd, view.lang), moneyWidth)} ${padStart(String(ledger.session[g.key].calls), callWidth)}`}</Text>
+          <Text dimColor>{` ${padStart(formatCost(ledger.session[g.key].usd, view.lang), moneyWidth)} ${padStart(countText(ledger.session[g.key].calls), callWidth)}`}</Text>
         </Text>
       ))}
       <Text bold wrap="truncate-end">
-        {`${padEnd(l.total, labelWidth)}${hasBars ? ' '.repeat(costCells + 1) : ''} ${padStart(formatCost(goalUsd(ledger), view.lang), moneyWidth)} ${padStart(formatCost(sessionUsd(ledger), view.lang), moneyWidth)} ${padStart(String(totalCalls), callWidth)}`}
+        {`${padEnd(l.total, labelWidth)}${hasBars ? ' '.repeat(costCells + 1) : ''} ${padStart(formatCost(goalUsd(ledger), view.lang), moneyWidth)} ${padStart(formatCost(sessionUsd(ledger), view.lang), moneyWidth)} ${padStart(countText(totalCalls), callWidth)}`}
       </Text>
       {ledger.goal.spawned > 0 ? (
         <Text dimColor wrap="wrap">
@@ -873,6 +913,22 @@ export function renderPane(
             </Text>
           ) : null}
           {checklist}
+        </Box>
+      ) : null}
+      {/* 0.9.0 C3: bước đóng do mod sinh khi đội hình bật (kiểm, duyệt, sẵn sàng); vòng 2 U3: một dòng kiểu chú giải. */}
+      {teamItems.length > 0 ? (
+        <Box flexDirection="column">
+          {heading(l.teamHeading)}
+          <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
+            {teamItems.map(item => (
+              <Text key={`team-${item.name}`}>
+                <Text color={item.mark.color} dimColor={item.mark.dim} bold={item.mark.bold}>
+                  {item.mark.glyph}
+                </Text>
+                <Text dimColor={item.isDim}>{` ${item.text}`}</Text>
+              </Text>
+            ))}
+          </Box>
         </Box>
       ) : null}
       {taskNodes.length > 0 ? (

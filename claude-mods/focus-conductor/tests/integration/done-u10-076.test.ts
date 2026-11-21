@@ -32,7 +32,8 @@ async function finished($: Engine, on: On) {
 }
 
 describe('0.7.6 U10: trạng thái hoàn thành', () => {
-  test('band một dòng: số bước, "Hoàn thành: <mục tiêu>", thời gian đã chạy, chi phí', { options: { planApproval: 'off' } }, async ($, on) => {
+  // Vòng 2 U1: closingReview off, vì mục tiêu của ca bật đội hình và mục bước đóng chưa đạt sẽ thay dòng "Hoàn thành".
+  test('band một dòng: số bước, "Hoàn thành: <mục tiêu>", thời gian đã chạy, chi phí', { options: { planApproval: 'off', closingReview: 'off' } }, async ($, on) => {
     await finished($, on)
     const rows = await bandRows($, 120, 2)
     // 0.8.8 N2: dòng 1 là ba ô (ô bước ghi "3/3" và "Đã xong mọi bước"); dòng 2 là thanh đầy, "Hoàn thành: <mục tiêu>", thời gian, chi phí.

@@ -95,8 +95,9 @@ describe('0.8.9 D1: lời dặn router', () => {
     const off = systemOf(OPEN)
     const on = systemOf({ ...OPEN, conductor: true })
     expect(off.length - BASE_SYSTEM.off).toBeGreaterThan(0)
-    expect(off.length - BASE_SYSTEM.off).toBeLessThanOrEqual(900)
-    expect(on.length - BASE_SYSTEM.on).toBeLessThanOrEqual(900)
+    // 0.9.0: lời dặn được thêm tối đa 600 ký tự cho B1, B12, B13 và câu mở rộng questions, tính riêng ngoài 900 ký tự của D1 (tên ca giữ như cũ).
+    expect(off.length - BASE_SYSTEM.off).toBeLessThanOrEqual(900 + 600)
+    expect(on.length - BASE_SYSTEM.on).toBeLessThanOrEqual(900 + 600)
     expect(off).toContain('tasks lists only NEW pieces of work added by this request ([] if none).')
     expect(off).toContain('"arrange"')
     expect(typeof (router as unknown as Record<string, unknown>)['routerSystem']).toBe('function')

@@ -34,6 +34,9 @@ export type Choice = { family: ModelFamily; effort: Effort }
  * Một việc người dùng giao trong prompt, do router tách và điều phối: làm ở luồng chính
  * hay giao subagent, với loại agent, model và effort nào.
  */
+/** Vai của một việc trong đội hình (0.9.0 C1): thiết kế, duyệt, làm, tra cứu, chạy kiểm. */
+export type Role = 'design' | 'review' | 'build' | 'search' | 'audit'
+
 export type Task = {
   /** Thứ tự trong prompt, từ 1; việc thêm ở prompt tiếp nối được đánh số tiếp theo. */
   index: number
@@ -41,6 +44,8 @@ export type Task = {
   run: 'main' | 'agent'
   /** Loại agent khi giao subagent (Explore, Plan, general-purpose). */
   agentType?: string
+  /** Vai trong đội hình (0.9.0 C1): router trả, vắng hay sai thì mod suy từ loại agent và kind. Vắng ở brief từ bản cũ. */
+  role?: Role
   pick: Choice
   depth: Depth
   volume: Volume
@@ -131,6 +136,10 @@ export type Brief = {
   isBig?: true
   /** Đường dẫn người dùng giới hạn việc sửa; rỗng là không giới hạn. */
   scopePaths: string[]
+  /** Tệp trạng thái của lượt (0.9.0 B1): tệp kế hoạch, tiến độ, bàn giao prompt nêu đường dẫn; vắng là không có. */
+  stateFiles?: string[]
+  /** Nơi ghi phụ prompt cho phép (0.9.0 B1): nơi sao lưu, thư mục tạm, tệp đầu ra; vắng là không có. */
+  sideWrites?: string[]
   /** Prompt gốc (cắt ngắn) để đối chiếu. */
   prompt: string
   at: number
@@ -153,6 +162,8 @@ export type PlanStep = {
   auto?: boolean
   /** Mốc đóng (0.7.5, nội bộ, không có trong schema tool plan): giá trị của Core.closing.seq lúc bước thành done hay bị hạ về done. */
   closedSeq?: number
+  /** Bước do mod nâng nhờ lệnh ở trường check của chính bước (0.9.0 B10, nội bộ): chỉ hạ khi có thay đổi không nhẹ mới. */
+  byCheck?: true
 }
 
 /** Lựa chọn model và effort đang áp cho luồng chính. */
@@ -336,6 +347,9 @@ export type CheckHint = { goalId: number; commands: string[]; isToasted: boolean
  */
 export type TurnFault = { goalId: number | null; goal: string | null; openSteps: string[]; at: number }
 
+/** Một bước đóng do mod sinh (0.9.0 C3): kiểm, duyệt hay sẵn sàng, và trạng thái chờ, đạt, chưa đạt. */
+export type ClosingStep = { name: 'check' | 'review' | 'design'; state: 'wait' | 'pass' | 'fail'; /** Lượt gần nhất của vai trả câu không đọc ra kết luận (vòng 2 M1). */ unread?: true }
+
 export type Core = {
   brief: Brief | null
   plan: PlanStep[]
@@ -403,6 +417,18 @@ export type Core = {
   waivers: WaiverState
   /** Mục tiêu đã chặn một lần vì sửa mà chưa chạy lần kiểm nào (0.7.9 Y6); -1 là chưa. */
   noCheckNudged: number
+  /**
+   * Bước còn thiếu của cổng đóng mục tiêu (0.9.0 C6): kiểm, review hay design; `solo` khi phiên không giao được subagent nên cổng không chặn.
+   * Vắng khi không thiếu hay ở trạng thái cũ.
+   */
+  closingGap?: { goalId: number; missing: 'check' | 'review' | 'design'; solo?: true }
+  /** Mã mục tiêu người gõ đã miễn duyệt độc lập bằng /conductor waive review (vòng 2 U4). Vắng là chưa miễn. */
+  closingWaived?: number
+  /**
+   * Đội hình do mod áp (0.9.0 C): lý do bật (độ sâu router chấm hay số file không nhẹ đã sửa) và trạng thái các bước đóng cho pane. Vắng khi
+   * đội hình chưa bật hay ở trạng thái cũ.
+   */
+  team?: { goalId: number; cause: 'depth' | 'files'; steps: ClosingStep[] }
   /** Phiên con của các việc tách (0.7.9 F1). Vắng ở trạng thái cũ: chưa có phần nào, off là none. */
   forks: ForkState
   /** Duyệt kế hoạch trước khi sửa file (0.8.2 N2). Vắng ở trạng thái cũ: goalId -1, none, 0 lượt, chưa hỏi. */
@@ -482,7 +508,8 @@ export type FableState = { failures: number; pauseLeft: number; ready: boolean |
 export type FallbackState = { failures: number; pauseLeft: number; promptPaused: boolean; active: ModelFamily | null; briefedFamily: ModelFamily | null }
 
 export type ApprovalStatus = 'none' | 'planning' | 'presented' | 'approved' | 'skipped'
-export type ApprovalState = { goalId: number; status: ApprovalStatus; rounds: number; asked: boolean; awaitingAnswer: boolean }
+/** `early` (0.9.0 B12): người dùng đã duyệt lúc kế hoạch còn đang lập, trước lượt rà; lượt rà sạch thì tự chuyển approved. */
+export type ApprovalState = { goalId: number; status: ApprovalStatus; rounds: number; asked: boolean; awaitingAnswer: boolean; early?: true }
 
 /**
  * Một lệnh kiểm chưa đạt (0.7.8 vòng sửa 3, W4): chữ ký là loại kiểm và lệnh đã chuẩn hóa. Lượt 1 là phần làm dẫn tới lần lỗi đầu,
@@ -675,8 +702,26 @@ declare module 'claude-code' {
       quota: QuotaState
       /** Mục tiêu mà người dùng đã tự đóng pane chi tiết; -1 là chưa (0.7.2). */
       paneClosedGoal: number
+      /** Dấu file của các lượt duyệt (0.9.0 C2 đo dấu file): lúc sinh, lúc hoàn tất, mốc sổ, lượt và file đã hết hiệu lực. */
+      reviewPrints: {
+        goalId: number
+        spawn: Record<string, Record<string, { size: number; mtimeMs: number; hash?: string } | { missing: true }> | null>
+        done: Record<string, Record<string, { size: number; mtimeMs: number; hash?: string } | { missing: true }> | null>
+        stale: string[]
+        spawnSeq: Record<string, number>
+        staleFiles: string[]
+      }
       /** Mã turn luồng chính đang chạy, rỗng khi không có (0.7.9, UI2): nhịp vẽ lại 60 giây đọc giá trị này để biết còn turn hay không. */
       runningTurn: string
+      /** Trạng thái cổng đóng (0.9.0 vòng 2 M6): kết luận có vai, lần chạy và mốc check của bước, ghi chú ống lệnh, số lần chặn, số vòng chưa đạt. */
+      closing: {
+        verdicts: { goalId: number; items: Array<{ agentId: string; role: Role; verdict: 'pass' | 'fail' | 'ready' | 'not-ready' | null; isClean: boolean; isReview: boolean; count?: string; seq: number; family: ModelFamily; taskIndex?: number; description: string; changed?: string[]; unclear?: true; unread?: true }> }
+        stepRuns: { goalId: number; runs: Array<{ keys: string[]; output: string; passed: boolean; seq: number }>; checkSeq: Array<[number, number]> }
+        pipeNotes: { goalId: number; n: number; last: null | { seq: number; command: string } }
+        closingState: { goalId: number; blocks: number; key: string }
+        rounds: Array<[string, number]>
+        evidence: { goalId: number; seq: number; lastMutation: number; lastHard: number; lastChange: number; mutations: number; hard: number }
+      }
     }
   }
 }

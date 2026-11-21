@@ -27,7 +27,7 @@ Mỗi prompt của người dùng có thể kèm một khối "[focus-conductor]
 3. Nhất quán: mọi bước phải phục vụ mục tiêu cuối; không làm thêm việc ngoài phạm vi, không bỏ sót yêu cầu; giữ văn phong, quy ước đặt tên và định dạng đã dùng từ đầu. Người dùng gửi thêm yêu cầu trong lúc đang làm: giữ mục tiêu và các bước đang có, thêm bước cho yêu cầu mới bằng action "add", hỏi lại nếu yêu cầu mới thay hẳn mục tiêu cũ.
 4. Tự kiểm tra sau mỗi bước quan trọng theo cách người dùng quy định (lệnh kiểm có sẵn của dự án hay của prompt, đọc lại thay đổi) trước khi sang bước sau; không tạo test hay script kiểm mới nếu người dùng không yêu cầu. Lệnh kiểm mod nhận ra (trình chạy test, lệnh khai trong checkCommands) chạy đạt sau thay đổi cuối thì mod tự nâng bước đã xong thành verified, không cần chép lệnh; kiểm tĩnh (type-check, lint) không tính.
 5. Khi giao việc cho subagent: nếu khối có mục "Phân việc", giao đúng các việc ghi "giao", description của Agent mở đầu "Việc N: " (N là số thứ tự của việc, không phải số bước của prompt; việc mang mã riêng như "BƯỚC 7" thì mở đầu bằng chính mã đó) để chạy đúng model và effort đã phân; việc ghi "làm trực tiếp" thì tự làm. Việc ngoài danh sách: để trống model và effort, router của plugin chấm khi giao; chọn Explore cho tra cứu chỉ đọc, Plan cho thiết kế, general-purpose cho thực thi. Prompt quy định model cho việc giao (kể cả "model của phiên") thì ghi rõ model đó ở lời gọi Agent (model của phiên ghi bằng tên họ model đang chạy); model ghi ở lời gọi là mức sàn, mod không chọn thấp hơn. Prompt giao subagent phải tự đứng được: nêu mục tiêu cuối, việc cụ thể, ràng buộc và phạm vi file liên quan, tiêu chí xong và dạng kết quả trả về. Nhận kết quả subagent thì đối chiếu với tiêu chí đó trước khi đóng bước.
-6. Báo cáo gọn (chỉ áp cho luồng chính; subagent theo quy tắc riêng ở dòng cuối): giữa các tool call không tường thuật; khi chuyển sang việc khác chỉ viết một dòng "Đang làm việc N/M: ...", không chép lại checklist, không tóm tắt lại kết quả tool. Vẫn báo ngay khi bị chặn, khi cần người dùng quyết định, hoặc khi phát hiện rủi ro. Báo cáo cuối nêu kết quả, đã kiểm bằng lệnh nào, và chỗ còn hở. Hướng dẫn riêng của người dùng (CLAUDE.md, prompt) được ưu tiên hơn mục này.
+6. Báo cáo gọn (chỉ áp cho luồng chính): giữa các tool call không tường thuật; khi sang việc khác viết một dòng "Đang làm việc N/M: ...", không chép lại checklist, không tóm tắt lại kết quả tool. Vẫn báo ngay khi bị chặn, khi cần người dùng quyết định, hoặc khi phát hiện rủi ro. Báo cáo cuối nêu kết quả, đã kiểm bằng lệnh nào, và chỗ còn hở; nêu kèm ai làm, kết luận duyệt, phần chưa xác minh. Hướng dẫn riêng của người dùng (CLAUDE.md, prompt) được ưu tiên hơn mục này.
 Nếu bạn là subagent: không dùng tool plan của mod; việc từ ba bước trở lên thì ghi danh sách bằng tool danh sách việc có sẵn (nếu có trong phiên của bạn); làm đúng nhiệm vụ được giao và báo cáo ngắn gọn.`
 
 const MARKS: Record<StepStatus, string> = {
@@ -110,7 +110,7 @@ export function briefContext(brief: Brief, main: Choice | null, isApplied = true
   const next = brief.isReference
     ? 'Không thực thi prompt đính kèm. Chỉ trả lời phần đối chiếu phân việc ở trên, rồi dừng.'
     : isSmall
-      ? 'Việc nhỏ: làm trực tiếp, không cần checklist; vẫn kiểm tra kết quả trước khi trả lời.'
+      ? 'Việc nhỏ: làm trực tiếp; chỉ lập checklist khi prompt yêu cầu; vẫn kiểm tra kết quả trước khi trả lời.'
       : `Trước khi thực thi: xác nhận mục tiêu, rồi gọi ${PLAN_TOOL_FULL} action "set" với checklist chuẩn hóa.${naming}`
   const routing = brief.isReference
     ? `Điều phối: prompt đính kèm chỉ để đối chiếu, không thực thi việc nào trong đó; luồng chính của lượt này ${mainText}.`
@@ -492,13 +492,16 @@ const REQUIREMENTS_NOTICE_ITEMS = 30
  * Lời nhắc đối chiếu từng yêu cầu router đã trích khi checklist đóng hẳn (0.7.8 G2): đánh số, mỗi mục cắt 100 ký tự, tối đa 30 mục;
  * quá trần thì dừng ở mục cuối vừa đủ và thêm "và M yêu cầu nữa trong prompt gốc".
  */
-export function requirementsNotice(requirements: readonly string[]): string {
-  const all = requirements.slice(0, REQUIREMENTS_NOTICE_ITEMS).map((r, i) => `(${i + 1}) ${clipItem(r, 100)}`)
+export function requirementsNotice(requirements: readonly string[], retired: readonly number[] = []): string {
+  // Yêu cầu đã rời kế hoạch (0.9.0 A5, brief.retired) không liệt kê; số của các yêu cầu còn lại giữ như prompt gốc.
+  const open = requirements.map((r, i) => ({ r, n: i + 1 })).filter(item => !retired.includes(item.n))
+  const all = open.slice(0, REQUIREMENTS_NOTICE_ITEMS).map(item => `(${item.n}) ${clipItem(item.r, 100)}`)
   const head = '[focus-conductor] Đối chiếu từng yêu cầu của prompt trước khi kết thúc, mỗi yêu cầu một bằng chứng cụ thể (lệnh đã chạy, kết quả, file):'
   const tail = 'Yêu cầu nào chưa đạt thì thêm bước bằng action "add".'
+  const gone = requirements.length - open.length
   const build = (n: number) => {
-    const rest = requirements.length - n
-    return `${head} ${all.slice(0, n).join('; ')}${rest > 0 ? `; và ${rest} yêu cầu nữa trong prompt gốc` : ''}. ${tail}`
+    const rest = open.length - n
+    return `${head} ${all.slice(0, n).join('; ')}${rest > 0 ? `; và ${rest} yêu cầu nữa trong prompt gốc` : ''}${gone > 0 ? `; đã bỏ ${gone} yêu cầu` : ''}. ${tail}`
   }
   let n = all.length
   while (n > 1 && build(n).length > REQUIREMENTS_NOTICE_CHARS) n -= 1
@@ -686,14 +689,16 @@ export function noChecklistReason(brief: Brief, hasMirror: boolean): string {
   const hasTasks = brief.tasks.length > 0
   const all = hasTasks
     ? brief.tasks.map(t => `Việc ${t.index}: ${clipItem(t.title, 60)}`)
-    : (brief.requirements ?? []).map((r, i) => `(${i + 1}) ${clipItem(r, 80)}`)
+    : (brief.requirements ?? []).flatMap((r, i) => ((brief.retired ?? []).includes(i + 1) ? [] : [`(${i + 1}) ${clipItem(r, 80)}`]))
   const limit = hasTasks ? NO_CHECKLIST_TASKS : NO_CHECKLIST_REQUIREMENTS
   const label = hasTasks ? 'Các việc đã phân' : 'Các yêu cầu router đã trích'
   const unit = hasTasks ? 'việc' : 'yêu cầu'
+  // Yêu cầu đã rời kế hoạch (0.9.0 A5): chỉ còn một dòng đếm.
+  const gone = hasTasks ? 0 : (brief.requirements ?? []).length - all.length
   const build = (n: number) => {
     if (n === 0) return `${head} ${tail}`
     const rest = all.length - n
-    return `${head} ${label}: ${all.slice(0, n).join('; ')}${rest > 0 ? `; và ${rest} ${unit} nữa` : ''}. ${tail}`
+    return `${head} ${label}: ${all.slice(0, n).join('; ')}${rest > 0 ? `; và ${rest} ${unit} nữa` : ''}${gone > 0 ? `; đã bỏ ${gone} yêu cầu` : ''}. ${tail}`
   }
   let n = Math.min(all.length, limit)
   while (n > 0 && build(n).length > NO_CHECKLIST_CHARS) n -= 1
@@ -786,6 +791,8 @@ export function resetLabel(resetsAt: string | undefined): string {
 }
 
 function percent(value: number): string {
+  // 0.9.0 A6: giá trị không phải số hữu hạn hiện "–".
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '–'
   return `${String(Math.round(value * 10) / 10).replace('.', ',')}%`
 }
 
@@ -832,7 +839,10 @@ export function withQuotaNoticeStatus(base: string | undefined, hits: readonly Q
 }
 
 /** Lý do từ chối tool khi đang dừng: luồng chính ghi điểm dừng rồi kết thúc; subagent kết thúc ngay. */
-export function quotaDenyText(reasons: readonly QuotaReason[], isUser: boolean, isAgent: boolean, allowPaths: readonly string[] = [], backup = false): string {
+/** Trần ký tự của vế bàn giao vào tệp trạng thái khi dừng cứng (0.9.0 B14 mục 11). */
+export const STATE_HANDOFF_CHARS = 120
+
+export function quotaDenyText(reasons: readonly QuotaReason[], isUser: boolean, isAgent: boolean, allowPaths: readonly string[] = [], backup = false, stateFiles: readonly string[] = []): string {
   const cause = `[focus-conductor] Tạm dừng: ${pauseCause(reasons, isUser)}.`
   if (isAgent) return `${cause} Subagent không gọi tool nào khác; kết thúc ngay và báo ngắn phần đã làm, phần còn dở.`
   // pauseAllowPaths (0.7.5): luồng chính vẫn ghi được file checkpoint theo quy tắc dừng của prompt. Vòng sửa 2: nêu đường dẫn được
@@ -848,8 +858,11 @@ export function quotaDenyText(reasons: readonly QuotaReason[], isUser: boolean, 
       'mỗi lời gọi đúng một lệnh: git add -u (hay git add <đường dẫn trong thư mục gốc phiên>), git commit -m "<thông điệp>", ' +
       'rồi git push origin HEAD:<nhánh hiện tại>-wip (không thêm cờ nào). Không phải git repo, không có remote, hay nhánh hiện tại là main hoặc master thì bỏ qua.'
     : ''
+  // Tệp trạng thái của mục tiêu (0.9.0 B14 mục 11): một vế không quá 120 ký tự, nêu ghi phần bàn giao vào tệp đó rồi dừng.
+  const names = [...new Set(stateFiles.map(path => path.replace(/\\/g, '/').split('/').pop() ?? '').filter(Boolean))]
+  const handoff = names.length > 0 ? ` ${`Ghi phần bàn giao vào tệp trạng thái đã khai (${names.join(', ')}) rồi dừng.`.slice(0, STATE_HANDOFF_CHARS)}` : ''
   return (
-    `${cause}${allowed} ${ban}${saved} Gọi ${PLAN_TOOL_FULL} với action "checkpoint" và note nêu: bước kế tiếp cụ thể, ` +
+    `${cause}${allowed} ${ban}${saved}${handoff} Gọi ${PLAN_TOOL_FULL} với action "checkpoint" và note nêu: bước kế tiếp cụ thể, ` +
     'những gì đã hoàn tất không được làm lại, và điều cần kiểm khi quay lại. Sau đó kết thúc turn bằng một câu báo điểm dừng ' +
     `và nhắc người dùng chạy tiếp bằng ${resumeCommand(isUser)}.`
   )
@@ -1319,6 +1332,22 @@ export function retryFailNotice(item: { command: string; more: readonly string[]
   return text.slice(0, RETRY_NOTICE_CHARS)
 }
 
+/**
+ * Lệnh kiểm đỏ từ nền (vòng 3 N2): lần chạy lỗi đầu tiên của lệnh xảy ra trước mọi thay đổi của mục tiêu. Một câu ở lần chạy đầu, không dài
+ * hơn retryFailNotice của cùng lệnh.
+ */
+export function retryBaselineNotice(item: { command: string; more: readonly string[] }): string {
+  return `[focus-conductor] Lệnh kiểm đỏ từ trước khi có thay đổi: ${retryName(item)}. Lỗi ngoài việc được giao thì không sửa; nêu lệnh và lỗi trong câu trả lời cuối.`.slice(0, RETRY_NOTICE_CHARS)
+}
+
+/** Lệnh đỏ từ nền có số đếm lỗi tăng so với lần nền (vòng 3 N6): thành mục thường lượt 1, câu báo nêu hai số đếm. */
+export function retryGrewNotice(item: { command: string; more: readonly string[]; round: number }, base: number, now: number): string {
+  const text =
+    `[focus-conductor] Lệnh kiểm chưa đạt: ${retryName(item)} (lượt ${item.round}/${RETRY_ROUNDS}), số lỗi tăng từ ${base} lên ${now} so với lúc chưa có thay đổi. ` +
+    'Đọc lỗi, sửa nguyên nhân gốc, rồi chạy lại đúng lệnh đó.'
+  return text.slice(0, RETRY_NOTICE_CHARS)
+}
+
 /** Câu kèm kết quả plan update done khi còn lệnh kiểm chưa đạt. */
 export function retryDoneNote(count: number): string {
   return `[focus-conductor] Còn ${count} lệnh kiểm chưa đạt của mục tiêu này: đóng bước vẫn được, nhưng cổng kết thúc sẽ chặn cho tới khi lệnh đó đạt.`.slice(0, RETRY_DONE_CHARS)
@@ -1415,6 +1444,20 @@ export function waiveAskText(items: readonly { command: string; reason: string }
   const head = '[focus-conductor] Chủ mod đã miễn lệnh kiểm chưa đạt:'
   const tail = `Câu trả lời cuối phải có mục "${WAIVE_REPORT}", mỗi lệnh một dòng: lệnh, lý do miễn.`
   const rows = items.map(item => `- \`${clipItem(item.command, 80)}\`: ${clipItem(item.reason, 120)}`)
+  return [head, ...rows, tail].join('\n').slice(0, WAIVE_ASK_CHARS)
+}
+
+/** Mục câu trả lời cuối cho lệnh kiểm đỏ từ nền (vòng 3 N4). */
+export const BASELINE_REPORT = 'Lệnh kiểm đỏ từ nền'
+
+/**
+ * Lần chặn đòi mục "Lệnh kiểm đỏ từ nền" (vòng 3 N4): mục tiêu đã có thay đổi mà còn lệnh đỏ từ trước khi có thay đổi. Một lần mỗi lệnh,
+ * trong trần WAIVE_ASK_CHARS như lần đòi mục lệnh miễn.
+ */
+export function baselineAskText(items: readonly { command: string; lastError: string }[]): string {
+  const head = '[focus-conductor] Lệnh kiểm đỏ từ trước khi có thay đổi, chưa đạt:'
+  const tail = `Câu trả lời cuối phải có mục "${BASELINE_REPORT}", mỗi lệnh một dòng: lệnh, lỗi còn lại; lỗi ngoài việc được giao thì không sửa.`
+  const rows = items.map(item => `- \`${clipItem(item.command, 80)}\`${item.lastError !== '' ? `: ${clipItem(item.lastError, 120)}` : ''}`)
   return [head, ...rows, tail].join('\n').slice(0, WAIVE_ASK_CHARS)
 }
 

@@ -27,6 +27,8 @@ const PAUSE = '\u23F8'
 function itemLabel(item: Attention, lang: Lang): string {
   const l = labels(lang)
   switch (item.kind) {
+    case 'closing-running':
+      return l.directionReviewing
     case 'approval':
       return l.directionApproval
     case 'failed':
@@ -41,7 +43,12 @@ function itemLabel(item: Attention, lang: Lang): string {
       return l.directionDropped
     case 'unverified':
     case 'skill':
+    case 'closing-check':
       return l.directionUnverified
+    case 'closing-review':
+      return l.directionUnreviewed
+    case 'closing-design':
+      return l.directionNotReady
     case 'budget':
       return l.directionBudget
     default:
@@ -57,7 +64,7 @@ export function directionOf(core: Core, lang: Lang, quota: { paused: boolean; no
   const l = labels(lang)
   if (quota.paused) return { glyph: PAUSE, label: l.directionPaused, tone: 'pause', kind: 'pause' }
   const top = attentionItems(core, lang, { paused: false, notice: quota.notice })[0]
-  if (top !== undefined) return { glyph: severityGlyph(top.severity), label: itemLabel(top, lang), tone: top.severity === 'error' ? 'warn' : 'attention', kind: top.kind }
+  if (top !== undefined) return { glyph: severityGlyph(top.severity), label: itemLabel(top, lang), tone: top.severity === 'error' ? 'warn' : top.severity === 'info' ? 'ok' : 'attention', kind: top.kind }
   const total = plan.length
   const closed = plan.filter(step => step.status === 'done' || step.status === 'verified' || step.status === 'skipped').length
   if (total > 0 && closed === total) {

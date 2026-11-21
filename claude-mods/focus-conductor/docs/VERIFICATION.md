@@ -2,6 +2,320 @@
 
 Số đo của HEAD hiện tại và của các bản trước. Mọi số do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển] trừ khi nêu khác; hợp đồng đối chiếu evidence ở [DESIGN.md](DESIGN.md), lịch sử thay đổi ở [CHANGELOG.md](../CHANGELOG.md), cách dùng ở [README](../README.md).
 
+## 0.9.0 vòng 3: lệnh kiểm đỏ từ nền [Đo trực tiếp, engine 2.1.296, mã của `9d0a74c`, 21/11/2026]
+
+Hiện tượng đo trên `9111be7` và cách đóng (mục Lệnh kiểm đỏ từ nền của DESIGN). Mục tiêu substantial loại edit, `planApproval` off, hai bước có lệnh riêng `bash tests/kiem.sh` (đạt) và `bunx tsc -p tsconfig.json` (lỗi ngay lần chạy đầu).
+
+| Kịch bản | Trên `9111be7` | Sau vòng 3 | Ca test |
+| --- | --- | --- | --- |
+| A0: chưa sửa gì, gọi Stop | chặn "Còn lệnh kiểm chưa đạt", kể cả khi `stop_hook_active` | không chặn | `baseline-red-n3-090` |
+| A1: tsc đỏ ở nền, sửa, lệnh khác đạt, tsc chạy lại vẫn đỏ, duyệt ĐẠT | chặn ở mọi lần Stop | chặn đúng một lần đòi mục "Lệnh kiểm đỏ từ nền", lần sau rỗng | `baseline-red-n3-090`, `baseline-red-n4-090`, `baseline-red-n5-090` |
+| A2: như A1, tsc không chạy lại | chặn | không chặn vì lệnh kiểm chưa đạt | `baseline-red-n3-090` |
+| A4: tsc chạy lại đỏ nhiều lần | lượt tới 3/3, dặn giao "Sửa lỗi kiểm: ", ghi bước `blocked` | lượt giữ 1, không dặn, không bước `blocked` | `baseline-red-n2-090` |
+| A5: mục tiêu light sửa một file | chặn | không chặn vì lệnh kiểm chưa đạt | `baseline-red-n3-090` |
+| D: subagent "Kiểm độc lập: " chạy lại tsc đỏ | lần chạy đó chặn luồng chính | không chặn; bước Kiểm không thành chưa đạt | `baseline-red-n5-090` |
+
+- Số ca: cả bộ `claude plugin test .` 4563 test qua, 0 lỗi, 443 tệp, 593 giây (nền 4465 ca, thêm 98 ca, không ca cũ nào bị xoá). Tệp test mới của vòng 3: 18 tệp: `baseline-red-*` 12 tệp (gồm `baseline-red-mut-090`), `verdict-labels-*` 5 tệp, `verdict-sentence-mut-090`; cùng `tests/support/baseline-red.ts` và `tests/fixtures/tsc-head-090.ts`. Test cũ đổi: 2 tệp (`retry-detail-a6-080` 2 ca, `retry-restore-a12-080` 1 ca), thêm một lần sửa trước lần chạy lỗi của subagent, không xoá ca, không nới phép khẳng định.
+- Toàn luồng (N10): `baseline-red-flow-n10-090` dùng nguyên văn đầu ra thật của `bunx tsc -p tsconfig.json` trên mã của PR này (27 lỗi có sẵn, `tests/fixtures/tsc-head-090.ts`); ca đỏ trên `9111be7`, đạt trên mã mới. Lượt này không có phiên model thật (ràng buộc của prompt).
+- Kiểm độc lập hai lần (tác tử mới, chưa thấy quá trình làm): lần một trên `5d0a9f8` không đạt, 4 lỗi (1 nặng, 1 vừa, 2 nhẹ); lần hai trên `b29ad90` không đạt, 4 lỗi (1 vừa, 3 nhẹ). Đã sửa 7, mỗi lỗi một ca đỏ trước bản sửa; 2 điểm lệch về hướng an toàn ghi ở Giới hạn có chủ đích. Sau đó B1 tới B3 của lượt bổ sung.
+- Đột biến (luật nhận và cách chạy của mục M22, thứ tự nhóm test theo bản): lượt chính trên `b29ad90`, 237 mẫu (34 mẫu `090-N` mới, 203 mẫu cũ trong hàm có dòng đổi): 227 KILLED, 2 EQUIVALENT (`061-U11`, `090-U2a`, lý do có sẵn trong `scripts/mutants.ts`), 8 SURVIVED. Đợt bổ sung trên `a287ef1` sau khi thêm ca bắt: 60 mẫu (8 mẫu sống của lượt chính, mẫu trong hàm đổi sau `b29ad90`, mẫu mới hay sửa chuỗi): 58 KILLED, 1 EQUIVALENT (`090-U2a`), 1 SURVIVED (`090-N5e`); cả 8 mẫu sống của lượt chính bị diệt. `090-N5e` chỉ ra nhánh xét lần chạy kiểm mod nhận ra của `isAlone` không đổi kết quả ở dạng lệnh nào (lần chạy đứng trước bị `;` che mã thoát, lần chạy nối `&&` bị loại), nên nhánh được bỏ và mẫu bỏ theo; 9 mẫu của `closingCheckState` chạy lại trên `9d0a74c`: 9 KILLED. Kết quả cuối của lượt: 0 mẫu sống, 2 tương đương có lý do (`061-U11`, `090-U2a`).
+- `scripts/mutate.ts --check` 2724/2724. `tsc` (TypeScript 6.0.2, khai báo kiểu 2.1.296, worktree tạm): 27 lỗi, tập lỗi chỉ có ở head so với `main` `14a3a85` rỗng.
+- Ký tự chèn (bộ đo của mục 0.8.9): trên `9111be7` và `9d0a74c` giữ đủ mười số, mặc định 10.738 và 19.986; Fable 8.642 và 7.127; sau `/conductor solo` 17.007 và 24.748; sau mười việc 22.137 và 45.520; kịch bản phiên theo kỷ luật giao việc 1.398. Vòng 3 không chèn thêm ký tự nào vào context ở các kịch bản này.
+- Xem trước giao diện trước và sau (band 56, 72, 120 cột; pane 16, 24, 40 dòng, vi và en) lưu ở nơi ghi phụ; dòng mới của pane: `△ đỏ từ nền: \`bunx tsc -p tsconfig.json\``.
+
+sha256 (mỗi tệp theo `git ls-files`, xếp theo tên, `sha256sum` của danh sách `sha256sum`) tại `9d0a74c`: `hooks/` `b38bb0b487ba979bf258862b22a3723d7e6d4627196969d4f85a91845ed63ac0`; `tests/` `b20f5a14dc7f64c0494e4bcb6d62da394fbaeba19a91cdf076ba620681d0f5aa`.
+
+CI trên runner sạch: workflow `focus-conductor` qua trên `9d0a74c` [Nguồn: GitHub Actions run 44890447779, 2026-11-21].
+
+## 0.9.0 vòng 2 M24: đối chiếu việc tồn tại 12056bf [Đo trực tiếp, engine 2.1.296, 19/11/2026]
+
+Mỗi dòng việc tồn của CHANGELOG 0.9.0 tại `12056bf` và cách đóng. Sau vòng này mục Việc tồn của 0.9.0 chỉ còn 5 mẫu sống sót của M22 (mục M22 bên dưới) và các điểm chủ mod quyết định không sửa; các điểm giữ nguyên nằm ở [DESIGN.md](DESIGN.md), mục Giới hạn có chủ đích (0.9.0 vòng 2).
+
+| # | Việc tồn tại 12056bf | Cách đóng |
+| --- | --- | --- |
+| 1 | `set -e` của khối heredoc bật errexit cho cả khối; `set -e; ...` trên một dòng không nhận ra | Đã sửa (M7) |
+| 2 | Dấu `)` trong nháy bên trong `<( )` làm đích ghi lệch | Không còn tái hiện (M8): `diff <(echo "a)b") /repo/a` không sinh đích `/repo/a)`, `cp <(printf "x)y") /repo/a` đích `/repo/a`; ca `procsubst-m8-090` giữ làm hồi quy |
+| 3 | B10 không coi `--update-snapshots`, `jest -u`, `go fmt` là tự sửa; `make check` in "Nothing to be done" vẫn được nâng | Đã sửa (M9); `gofmt -l` vào Giới hạn có chủ đích |
+| 4 | Vai audit chạy script tự ghi file; kết luận của audit | Đã sửa phần kết luận (M13); việc script vẫn chạy được vào Giới hạn có chủ đích |
+| 5 | Sửa file sau lượt duyệt mà chưa chạy lệnh kiểm: lý do chặn không nêu tên file | Đã sửa (M5) |
+| 6 | Vòng sửa C7 đếm theo description | Đã sửa (M4) |
+| 7 | Mức lỗi cao đứng một mình sau từ đạt vẫn đọc là đạt | Đã sửa (M3, chữ "vừa" thu hẹp theo quyết định của chủ mod) |
+| 8 | Bộ phân loại lệnh: `file -C`, `rg --pre`, sửa qua liên kết mềm | Đã sửa (M12) |
+| 9 | File mới do vai chỉ đọc tạo bằng lệnh mức possible không bị phát hiện | Đã sửa (M13), kèm dạng lân cận file đã có bị sửa |
+| 10 | Nhật ký quyết định bị ghi đè khi `claude -p --continue` | Đã sửa (M14) |
+| 11 | Trạng thái mục tiêu không sống qua `--continue` không tương tác | Đã sửa (M15); phiên thật M23 kịch bản 1 |
+| 12 | Câu "Việc nhỏ: làm trực tiếp, không cần checklist" cãi với prompt đòi checklist | Đã sửa (M16) |
+| 13 | Lệnh kiểm qua ống `2>&1 | tail -1` không có dòng nhắc; `tee`, `grep` có tùy chọn sau pipefail chưa được tính | Đã sửa (M10); luật S5 vào Giới hạn có chủ đích theo quyết định của chủ mod |
+| 14 | Bước có `check` kèm kết quả mong đợi được nâng theo đường lệnh kiểm nhận ra mà không so kết quả | Đã sửa (M11) |
+| 15 | Nhãn vai giữa chip model và chi tiết; chưa có câu "đang duyệt" | Đã sửa (M17, M18; bổ sung status line từ M20) |
+| 16 | Pane hẹp 30 và 36 cột vượt bề rộng; lý do chặn chung khi lệnh kiểm nhận ra bị lỗi | Đã sửa phần pane (M19); lý do chặn chung vào Giới hạn có chủ đích |
+| 17 | F4: lệnh ở `check` của bước có `<( )` bị đếm là lệnh ghi không rõ đích | Không còn tái hiện (M8): bước có check `diff <(sort ...)` chạy đúng lệnh, không là ghi không rõ đích |
+| 18 | F7: lượt duyệt gần nhất báo chưa đạt mà lý do chặn không nêu | Đã sửa (M5) |
+| 19 | F8: kết luận của các lượt duyệt không sống qua nạp lại mod hay `--continue` | Đã sửa (M6 cho nạp lại, M15 cho `--continue`) |
+| 20 | G6: 45 mẫu nhóm A chưa chạy | Đã chạy ở M22 (mục M22 bên dưới) |
+| 21 | Vai chỉ đọc: `git -C <thư mục> clone` bị từ chối | Giới hạn có chủ đích (chiều từ chối) |
+| 22 | `Not pass-through; PASS` đọc là chưa đạt | Giới hạn có chủ đích (chiều chưa đạt) |
+| 23 | Bộ test để lại thư mục `fc-eval-*` | Đã sửa (M21a): nguồn là `scripts/eval-router.ts` |
+| 24 | Lượt đột biến 119 mẫu `090` chạy bằng engine 2.1.327 | Đã chạy lại trên bản ghim ở M22 (100 mẫu chưa có phán quyết trên bản ghim) |
+| 25 | Dạng lân cận L2: nháy cong trong phủ định (`Doesn’t pass`) không có kết luận | Đã sửa (M2) |
+| 26 | Dạng lân cận L3: `set - -o pipefail` vẫn bật pipefail | Đã sửa (M7) |
+| 27 | G6: đưa cách chạy theo tầng vào `scripts/mutate.ts` | Đã sửa (M21b): cờ `--tiered` |
+
+## 0.9.0 vòng 2 M25: nghiệm thu trên commit mã cuối [Đo trực tiếp, engine 2.1.296, mã của `0d91496`, 20/11/2026]
+
+Cả bộ: `claude plugin test .` 4465 test qua, 0 lỗi, 425 tệp, 553 giây, engine ghim 2.1.296. Mã kiểm là mã của `0d91496`; các commit sau đó chỉ đổi tài liệu. Mỗi dòng K và M lấy các ca của đúng tệp test (và nhóm ca ghi trong ngoặc) trong lượt cả bộ này.
+
+| Mã | Tệp test | Ca qua | Engine | Ngày | Kết quả |
+| --- | --- | --- | --- | --- | --- |
+| K1 | `k-table-090` | 2/2 | 2.1.296 | 20/11/2026 | qua |
+| K2 | `k-table-090` | 2/2 | 2.1.296 | 20/11/2026 | qua |
+| K3 | `k-table-090` | 1/1 | 2.1.296 | 20/11/2026 | qua |
+| K4 | `k-table-090` | 1/1 | 2.1.296 | 20/11/2026 | qua |
+| K5 | `k-table-090` | 4/4 | 2.1.296 | 20/11/2026 | qua |
+| K6 | `k-table-090` | 5/5 | 2.1.296 | 20/11/2026 | qua |
+| K7 | `k-table-090` | 1/1 | 2.1.296 | 20/11/2026 | qua |
+| K8 | `k-table-090` | 2/2 | 2.1.296 | 20/11/2026 | qua |
+| K9 | `k-table-090` | 7/7 | 2.1.296 | 20/11/2026 | qua |
+| K10 | `k-table-090` | 3/3 | 2.1.296 | 20/11/2026 | qua |
+| K11 | `k-table-090` | 1/1 | 2.1.296 | 20/11/2026 | qua |
+| K12 | `k-table-090` | 1/1 | 2.1.296 | 20/11/2026 | qua |
+| K13 | `k-table-090` | 6/6 | 2.1.296 | 20/11/2026 | qua |
+| K14 | `k-table-090` | 2/2 | 2.1.296 | 20/11/2026 | qua |
+| K15 | `k-table-090` | 2/2 | 2.1.296 | 20/11/2026 | qua |
+| K16 | `k-table-090` | 1/1 | 2.1.296 | 20/11/2026 | qua |
+| K17 | `k-table-090` | 2/2 | 2.1.296 | 20/11/2026 | qua |
+| K18 | `k-table-090` | 5/5 | 2.1.296 | 20/11/2026 | qua |
+| K19 | `k-table-090` | 4/4 | 2.1.296 | 20/11/2026 | qua |
+| K20 | `closing-stepcheck-f1-090` (F1) | 8/8 | 2.1.296 | 20/11/2026 | qua |
+| K21 | `verdict-g1-090` | 9/9 | 2.1.296 | 20/11/2026 | qua |
+| K22 | `role-clone-g2-090` | 10/10 | 2.1.296 | 20/11/2026 | qua |
+| K23 | `pipe-pipefail-g3-090` | 6/6 | 2.1.296 | 20/11/2026 | qua |
+| K24 | `role-clone-g2-090` (G2b) | 7/7 | 2.1.296 | 20/11/2026 | qua |
+| K25 | `verdict-g1-090` (G1b) | 6/6 | 2.1.296 | 20/11/2026 | qua |
+| M1 | `verdict-unread-m1-090` | 3/3 | 2.1.296 | 20/11/2026 | qua |
+| M2 | `verdict-normalize-m2-090` | 5/5 | 2.1.296 | 20/11/2026 | qua |
+| M3 | `verdict-severity-m3-090` | 16/16 | 2.1.296 | 20/11/2026 | qua |
+| M4 | `rounds-m4-090` | 2/2 | 2.1.296 | 20/11/2026 | qua |
+| M5 | `closing-reason-m5-090` | 2/2 | 2.1.296 | 20/11/2026 | qua |
+| M6 | `closing-state-m6-090` | 3/3 | 2.1.296 | 20/11/2026 | qua |
+| M7 | `errexit-m7-090` | 7/7 | 2.1.296 | 20/11/2026 | qua |
+| M8 | `procsubst-m8-090` | 4/4 | 2.1.296 | 20/11/2026 | qua |
+| M9 | `selffix-m9-090` | 15/15 | 2.1.296 | 20/11/2026 | qua |
+| M10 | `pipe-note-m10-090` | 9/9 | 2.1.296 | 20/11/2026 | qua |
+| M11 | `step-expect-m11-090` | 3/3 | 2.1.296 | 20/11/2026 | qua |
+| M12 | `role-writes-m12-090` | 8/8 | 2.1.296 | 20/11/2026 | qua |
+| M13 | `prints-new-m13-090` | 3/3 | 2.1.296 | 20/11/2026 | qua |
+| M14 | `decisions-append-m14-090` | 2/2 | 2.1.296 | 20/11/2026 | qua |
+| M15 | `state-continue-m15-090` | 4/4 | 2.1.296 | 20/11/2026 | qua |
+| M16 | `light-note-m16-090` | 2/2 | 2.1.296 | 20/11/2026 | qua |
+
+sha256 (mỗi tệp theo `git ls-files`, xếp theo tên, `sha256sum` của danh sách `sha256sum`); `hooks/` giữ nguyên từ `0d91496` tới `0ff3624`:
+
+- `hooks/` (73 tệp): `28512f1041970cac9b62b4626d6271a06bf73687adedb7a5c8bd2b624e49bd2a`
+- `tests/` (444 tệp): `d7762a8f8848593947cf9a15a586952988e1460f725b71a0db33781441386f73` tại `0ff3624`; trước đó `59202842e9fdfc89ef9532e8d613827728dbf9194a740f381a3c7157b7f8212c` (`18958ed`), đổi ở commit sửa kiểu dưới đây
+
+CI trên runner sạch: workflow `focus-conductor` qua trên `18958ed` [Nguồn: GitHub Actions run 44811563717, 2026-11-20].
+
+Sửa kiểu (`0ff3624`, 21/11/2026) [Đo trực tiếp]: `bunx tsc -p tsconfig.json` (TypeScript 6.0.2, khai báo kiểu engine 2.1.296) trên `50500c2` báo 31 lỗi, trên `main` `14a3a85` 27; bốn lỗi chỉ có ở head: `scripts/tmp-dirs.ts` TS2584 (`console`), `closing-percheck-l1-090` và `closing-stepcheck-f1-090` TS2345 (kiểu `Mounted`), `closing-reload-i1-090` TS2344 (`TestBody | undefined`). Sau sửa: 27 lỗi, tập lỗi chỉ có ở head (so theo tệp, mã lỗi, thông điệp) rỗng. `tmp-dirs.ts` thêm khai báo kiểu tối thiểu của `console`, đầu ra in giữ nguyên; ba tệp test sửa kiểu, không đổi phép khẳng định. Bốn tệp chạy lại: `closing-percheck-l1-090` 3/3, `closing-stepcheck-f1-090` 8/8, `closing-reload-i1-090` 2/2, `eval-tmp-m21a-090` 8/8. `scripts/mutate.ts --check` 2683/2683. CI qua trên `0ff3624` [Nguồn: GitHub Actions run 44846150458, 2026-11-21].
+
+## 0.9.0 vòng 2 M22: đột biến 790 mẫu theo luật và 20 mẫu đối chứng [Đo trực tiếp, engine 2.1.296, mã của `0d91496`, 20/11/2026]
+
+Phạm vi: 45 mẫu nhóm A chưa chạy ở G6, 100 mẫu `090` chưa có phán quyết trên bản ghim, phần còn lại của các tệp hooks đổi ở vòng 2, cộng 20 mẫu đối chứng; 21 đợt, 810 mẫu (đợt 1 tới 19 mỗi đợt 40, đợt 20 có 30, đợt 21 là 20 mẫu đối chứng).
+
+1. Cách chạy. Đợt 1 tới 3 theo cách cũ, một đợt một lúc (`scripts/mutate.ts --tiered`). Từ đợt 4, bộ chạy ngoài repo dùng cùng luật nhận (`scripts/tiers.ts`: parseRun, stepOf, finalOf, hạn của tầng cũ chứa tệp), mỗi đợt một bản sao tạm riêng, hai hoặc ba đợt cùng lúc, dừng engine ở ca lỗi đầu tiên không do hết giờ và ghi tên ca đã diệt. Dưới tải chỉ nhận KILLED; mẫu có nhóm hai lượt liền chưa có phán quyết, mẫu ghi tương đương và mẫu qua hết bộ test mà không bị diệt vào hàng chờ chạy riêng, một mẫu một lúc, không gì chạy cùng; SURVIVED và EQUIVALENT chỉ nhận ở hàng chờ này.
+2. Kết quả theo năm loại: KILLED 784, SURVIVED 5, EQUIVALENT 21, ERROR 0, TIMEOUT 0. Theo nguồn: cách cũ 115 KILLED, 5 EQUIVALENT; dưới tải 644 KILLED; hàng chờ riêng 25 KILLED, 5 SURVIVED, 16 EQUIVALENT. Lượt chạy lại vì hết giờ dưới tải: 71; ở hàng chờ riêng: 0.
+3. Mẫu sống sót (không sửa mã, không thêm test ở M22): `090-C6zy` (`hooks/lib/verdict.ts`, xét cả dòng thay vì câu đầu của dòng kết luận), `090-U2b` (`hooks/parts/consistency.ts`, bỏ lần đặt lại status line khi bước đóng đổi), `075-B11e` (`hooks/parts/session.ts`, không cảnh báo khi thay), `075-R1h` (`hooks/parts/session.ts`, không cảnh báo khi mục bị bỏ), `075-S8a` (`hooks/parts/session.ts`, cảnh báo mục bị bỏ dùng kind model).
+4. Đối chứng cách mới với cách cũ: đợt 2 và 3 chạy lại theo cách mới, 80/80 mẫu cùng phán quyết cuối; 0 mẫu bị diệt chỉ do ca hết giờ (luật nhận loại ca hết giờ).
+5. Đối chứng tải: mã không đột biến chạy trọn bộ trong hai bản sao cùng lúc, mỗi bản 4465 test: bản a 2 fail, bản b 1 fail, cả ba đều `timed out after 5000 ms`; 0 ca lỗi không do hết giờ. Lượt mã không đột biến chạy cùng ba đợt trước đó: 15 ca hết giờ trên 4465, 0 ca lỗi khác.
+6. Đối chứng cuối: 31 mẫu (5% của 606 mẫu bị diệt dưới tải ở đợt 5 tới 21, không dưới 20) lấy ngẫu nhiên với hạt ghi lại, chạy lại một mình trên đúng tệp test đã diệt: 31/31 vẫn bị diệt; không đợt nào phải chạy lại cả đợt.
+7. Mức tải chọn theo thông lượng thực (mẫu có phán quyết cuối chia thời gian lượt cộng hàng chờ riêng): cách cũ 0,374 mẫu một phút (40 mẫu trong 107 phút), ba đợt 0,616, hai đợt 1,716; chọn hai đợt từ đợt 7. Thông lượng từng lượt hai đợt: 07 08 1,733; 09 10 0,630; 11 12 0,422; 13 14 0,371; 15 16 2,529; 17 18 0,838; 19 20 2,411; 21 0,811.
+8. Thời gian mỗi đợt 40 mẫu: cách cũ trung bình 80 phút (đợt 1 56, đợt 2 107, đợt 3 77); cách mới 58 phút (690 mẫu, kể cả 80 mẫu chạy lại của đợt 2 và 3, trong 60036 giây gồm cả hàng chờ riêng, chưa tính hai lượt đối chứng).
+9. Số nhóm test phải chạy tới khi mẫu bị diệt dưới tải (mọi lượt engine của mẫu, kể cả lượt lại và nhóm diệt, bỏ nhóm rỗng): đợt 5 tới 8 trung bình 3,01 nhóm (157 mẫu, 92 cần hơn một nhóm); đợt 9 tới 20 trung bình 3,95 nhóm (430 mẫu, 187 cần hơn một nhóm). Tách theo thứ tự nhóm: đợt 9 tới 12, thứ tự theo lịch sử diệt của tệp hooks, 5,78 nhóm (153 mẫu, 137 cần hơn một nhóm, nhiều nhất 17); đợt 13 tới 20, nhóm đầu là tệp test cùng bản với mẫu (mã điểm trùng trước), kế đó tệp đã diệt mẫu khác cùng bản và cùng tệp hooks, rồi lịch sử diệt, 2,94 nhóm (277 mẫu, 50 cần hơn một nhóm, nhiều nhất 40). Lượt 13 14 riêng: 6,32 nhóm. Các đợt 9 tới 12 chậm vì tệp diệt được mẫu nằm sâu trong danh sách theo lịch sử diệt của cả tệp hooks; các đợt có nhiều mẫu vào hàng chờ riêng (13 14, 17 18) chậm thêm vì mẫu đó chạy trọn bộ hai lần.
+
+## 0.9.0 cổng duyệt: bảng nghiệm thu đóng K1 tới K25 [Đo trực tiếp, `tests/integration/k-table-090.test.ts` và, cho K20, `tests/integration/closing-stepcheck-f1-090.test.ts`, 2.1.327, 18/11/2026]
+
+| Mã | Hành vi | Ca test | Kết quả |
+|---|---|---|---|
+| K1 | Kịch bản kỷ luật giao việc từ đầu tới cuối, conductor off và bật: không lời gọi nào bị từ chối ngoài lệnh kiểm của luồng chính khi conductor bật; cổng Stop không chặn | K1 conductor off: ...; K1 conductor opus: ... | qua |
+| K2 | Người duyệt chép mã sang thư mục tạm và chạy probe, gồm mktemp -d, pushd, git trong thư mục tạm: không bị từ chối, kết luận được tính | K2 mktemp, mktemp -d, pushd, popd, git trong thư mục tạm: ...; K2 đối chứng: sau popd về thư mục dự án, sed -i vào src vẫn bị từ chối | qua |
+| K3 | Mục tiêu light sửa 1 file: không đoạn dặn bước đóng, không chặn | K3 không đoạn dặn bước đóng, không chặn | qua |
+| K4 | Đủ điều kiện bật mà thiếu duyệt: chặn một lần cho trạng thái đó, lý do nêu bước còn thiếu | K4 chặn một lần cho trạng thái đó, lý do nêu bước còn thiếu | qua |
+| K5 | Subagent từ sonnet, không ghi gì, trả ĐẠT hay đạt kèm lỗi nhẹ, có và không có tiền tố: được tính | K5 "Kiểm độc lập: phí" và "Rà lại thay đổi phí", mỗi tên với ĐẠT và đạt kèm lỗi nhẹ (4 ca) | qua |
+| K6 | Tiền tố "Kiểm: " trả ĐẠT HẾT: không tính là duyệt | K6 subagent tiền tố "Kiểm: " trả ĐẠT HẾT: không tính là duyệt | qua |
+| K7 | Subagent chạy haiku trả ĐẠT: không tính | K7 subagent chạy haiku trả ĐẠT: không tính | qua |
+| K8 | Subagent có ghi file dự án trả ĐẠT: không tính | K8 subagent có ghi file dự án (Edit, hay sed -i khi không bị chặn) trả ĐẠT: không tính | qua |
+| K9 | Sửa file sau lượt duyệt: hết hiệu lực, chặn, mọi lần chặn nêu tên file | K9 sửa file sau lượt duyệt: ...; K9 không có fs: ... | qua |
+| K10 | Nội dung một file trong tập đổi giữa lúc sinh và lúc hoàn tất, hay sau lúc hoàn tất, khi fs đo được: hết hiệu lực | K10 đổi giữa lúc sinh và lúc hoàn tất; K10 đổi ngay khi subagent khởi chạy; K10 đổi sau lúc hoàn tất | qua |
+| K11 | File skill cư xử như K9 và K10 | K11 SKILL.md đổi trong lượt duyệt hay sau lượt duyệt: ... | qua |
+| K12 | Việc dọn sau lượt duyệt: còn hiệu lực | K12 tệp tiến độ, sao lưu, git commit, chạy lại khối khởi động: còn hiệu lực | qua |
+| K13 | fs không phản hồi ở mọi mốc: theo sổ; phản hồi ở ít nhất một mốc mà không đo được ở mốc khác: không tính | K13 fs không phản hồi ở mọi mốc: ...; K13 không đo được lúc spawn, complete, gate (3 ca) | qua |
+| K14 | CHƯA ĐẠT đi vào vòng sửa; các dạng dòng kết luận đọc đúng luật đóng | K14 CHƯA ĐẠT đi vào vòng sửa: câu dặn vòng 1; K14 các dạng dòng kết luận đọc đúng luật đóng | qua |
+| K15 | closingReview off, hay phiên không giao được subagent: không chặn | K15 closingReview off: không chặn; K15 phiên không giao được subagent: không chặn | qua |
+| K16 | Lượt của mục tiêu cũ hoàn tất sau khi đổi mục tiêu: không đụng kết luận của mục tiêu mới | K16 lượt của mục tiêu cũ hoàn tất sau khi đổi mục tiêu: ... | qua |
+| K17 | Subagent Explore chạy haiku và mục tiêu chưa sửa file: không gọi fs | K17 subagent Explore chạy haiku: không gọi fs; K17 mục tiêu chưa sửa file: sinh lượt duyệt không gọi fs | qua |
+| K18 | Đọc kết luận theo câu đầu của dòng kết luận; ba dòng đầu của phiên D4 là đạt; lượt có tiền tố không có dòng kết luận thì không tính, kèm dòng nhắc, và cổng chặn kèm câu đòi trả lời lại (vòng 2 M1, thay luật sau phiên thật D4); lượt không tiền tố không có từ đạt thì không tính | K18 ba dòng đầu của phiên D4 là đạt; ...; K18 lượt có tiền tố duyệt trả câu dòng đầu của phiên D4; K18 lượt có tiền tố không có dòng kết luận nào; K18 lượt không tiền tố không có từ đạt | qua |
+| K19 | Lệnh kiểm qua ống che mã thoát: dòng nhắc ở kết quả, không tính; không ống hay có pipefail thì tính; lý do chặn nêu ống lệnh; nhắc tối đa hai lần | K19 bash tests/kiem.sh \| tail -1: ...; K19 cùng lệnh không kèm ống: tính; K19 set -o pipefail: ...; K19 lệnh ở check của bước qua ống cũng được nhắc | qua |
+| K20 | Bước kiểm tính lần chạy khớp lệnh ở check của bước (vòng 2 F1): không khai checkCommands, hai bước có check, lệnh của bước chạy đạt sau khi sửa thì cổng không chặn vì thiếu kiểm; chạy trước khi sửa hay qua ống thì chặn; lần chạy gần nhất lỗi thì bước kiểm chưa đạt; pane đạt đúng lúc cổng đạt | các ca F1 của `closing-stepcheck-f1-090` (sáu ca của lượt rà soát, thêm ca lệnh kiểm mod nhận ra đạt rồi lỗi từ kiểm độc lập vòng 2; tệp còn có ca F5) | qua |
+| K21 | Dòng kết luận mở đầu bằng not pass, not passed, did not pass, does not pass (hoa, thường, có số đếm) đọc là chưa đạt; lượt duyệt trả NOT PASS thì cổng còn đòi duyệt và pane ghi Duyệt: chưa đạt (vòng 2 G1) | `verdict-g1-090` | qua |
+| K22 | Vai chỉ đọc chạy được git clone có đích tuyệt đối trong thư mục tạm (`git clone -q /repo /tmp/ra-soat/r`, `D=$(mktemp -d) && git clone -q /repo "$D/r"`); đích ngoài thư mục tạm vẫn bị từ chối; không nêu đích giữ kết quả cũ (vòng 2 G2) | `role-clone-g2-090` | qua |
+| K23 | Lệnh kiểm sau `set -o pipefail` (hay `set -euo pipefail`) đi qua `\| tee <tệp>` hay `\| grep <mẫu>` được tính theo mã thoát của cả ống: đạt là lần kiểm đạt, lỗi là lần kiểm lỗi; không có pipefail thì giữ như K19 (vòng 2 G3) | `pipe-pipefail-g3-090` | qua |
+| K24 | Vai chỉ đọc chỉ chạy git clone khi clone đứng ngay sau git, mọi tùy chọn thuộc danh sách cho phép (`--depth <n>`, `--branch <tên>` hay `-b <tên>`, `--single-branch`, `--no-tags`, `--no-checkout`, `--quiet` hay `-q`), đúng hai đối số vị trí và đích là đường dẫn tuyệt đối trong thư mục tạm; dạng khác bị từ chối như trên main (vòng 2 G2b) | các ca G2b của `role-clone-g2-090` | qua |
+| K25 | Dòng kết luận mở đầu bằng failed, fails, not passing, doesn't pass, didn't pass (hoa, thường, có số đếm) đọc là chưa đạt; `FAILED 2/5` giữ số đếm 2/5 (vòng 2 G1b) | các ca G1b của `verdict-g1-090` | qua |
+
+Xác nhận độc lập (một lượt, tác tử mới chưa thấy quá trình làm, trên bản chép của 9bf3849): chạy 31 ca của k-table-090 và tự viết 29 probe riêng, mỗi dòng ít nhất một probe; 17/17 dòng đạt [Đo trực tiếp, 18/11/2026]. Năm probe hỏng ở lần chạy đầu đều do tác tử dựng sai (thiếu lệnh kiểm, dùng tiền tố duyệt khi cần subagent có ghi, đổi description giữa hai vòng), sửa xong thì đạt.
+
+**Phiên thật D4, prompt khó, sau vòng sửa cuối** [Đo trực tiếp, 18/11/2026, Claude Code 2.1.327, `claude -p`, conductor off, skill kỷ luật giao việc đang cài, mã của `3ff0c6a`; chi phí 1,39 USD, cộng lượt hỏng đầu 0,46 USD vì tệp trạng thái của lượt cũ]:
+- Kết quả việc: tách `src/dem.sh`, thêm `--cot` và `tests/kiem-cot.sh`; `bash tests/kiem.sh` và `bash tests/kiem-cot.sh` đều TỔNG: ĐẠT.
+- Lời gọi bị từ chối: 0 (không có `role-deny`, không có lời từ chối vai điều phối).
+- Cổng Stop chặn 3 lần: 1 lần checklist còn bước mở (cổng có từ trước); 2 lần cổng đóng thiếu bước kiểm (`closing-gate missing check`), vì luồng chính chạy `bash tests/kiem.sh | tail -1; bash tests/kiem-cot.sh | tail -1`, mã thoát bị ống và dấu `;` che (sổ ghi `hidden`, `untrusted`); hợp đồng bằng chứng có từ trước, mod không xác minh được nên chặn đúng thiết kế, nhưng lý do chặn không nói vì sao nên luồng chính chạy lại đúng dạng đó.
+- Kết luận: 3 lượt "Kiểm độc lập" (sonnet, opus, opus), không lượt nào được tính là đạt. Lượt 1 "**Kết luận: đạt kèm lỗi nhẹ.** Tôi tự chạy lại ..." có câu khác trên cùng dòng nên chưa có kết luận; lượt 2 "**ĐẠT, kèm lỗi nhỏ.** Không có lỗi Nghiêm trọng hay Lớn ..." và lượt 3 "**ĐẠT**, chỉ có vài lỗi Nhỏ. Không có lỗi Nghiêm trọng ..." đọc là chưa đạt ("lỗi nhỏ" không phải "lỗi nhẹ"; "lỗi nghiêm trọng" khớp dù nằm trong câu phủ định). Đúng chữ của luật đóng, nhưng đọc lệch ý người duyệt trên phiên thật.
+- Người duyệt dùng `mktemp -d` và `trap` để dọn, không lời gọi nào bị từ chối, không ghi file dự án.
+
+**Phiên thật D4 lần hai, sau bản sửa đọc kết luận và lệnh kiểm qua ống** [Đo trực tiếp, 18/11/2026, Claude Code 2.1.327, `claude -p`, cùng prompt khó và cấu hình, mã của `65c02a5`; chi phí 1,09 USD; chi phí model thật cộng dồn khoảng 35,3 USD trên trần 40]:
+- Kết quả việc: `bash tests/kiem.sh` và `bash tests/kiem-cot.sh` đều TỔNG: ĐẠT. Lời gọi bị từ chối: 0.
+- Cổng Stop chặn 2 lần: 1 lần checklist còn bước mở (cổng có từ trước); 1 lần cổng đóng thiếu bước kiểm vì luồng chính chạy `bash tests/kiem.sh | tail -1; ...`. Dòng nhắc "`bash tests/kiem.sh` đi qua ống, mã thoát bị che nên lần chạy này không tính; chạy lại không kèm ống, hoặc thêm set -o pipefail." hiện ở kết quả lần chạy; lý do chặn nêu cùng nguyên nhân; luồng chính chạy lại kèm `set -o pipefail` và được tính. Không lần chặn nào vì bước duyệt.
+- Kết luận: 2 lượt duyệt (opus), cả hai được tính là đạt. Dòng đầu nguyên văn và cách mod đọc: "**Kết luận: đạt kèm lỗi nhẹ.** Cả 5 tiêu chí đều qua và không thấy lỗi nặng hay vừa nào. Tôi không sửa file nào." đọc là đạt (câu đầu "đạt kèm lỗi nhẹ"); "**ĐẠT kèm lỗi nhỏ.** Cả 5 kiểm tra đều đúng như mong đợi. ... Không có lỗi Nghiêm trọng hay Lớn. Tôi không sửa tệp nào." đọc là đạt (câu đầu "ĐẠT kèm lỗi nhỏ", mức thấp).
+
+**Phiên thật D4 lần ba, vòng 2, không khai `checkCommands`** [Đo trực tiếp, 18/11/2026, Claude Code 2.1.327, `claude -p`, cùng prompt khó, `conductor` off, `planApproval` off, mã của `17ec5fe`; chạy hai lượt trên hai bản sao sạch của dự án mẫu]:
+- Lượt 1 (0,62 USD, 2 turn): cổng Stop chặn 0 lần; lời gọi bị từ chối 0; đội hình bật theo số file (3 file không nhẹ). Luồng chính không lập checklist (không gọi tool `plan`), nên cổng đóng mục tiêu không vào cuộc và bước kiểm không được tính nhờ lần chạy nào. Kết luận được nhận: lượt "Rà độc lập tái cấu trúc" (không tiền tố), dòng đầu nguyên văn "**Kết luận: ĐẠT.** Cả 5 mục đều đạt và không có lỗi nặng. Tôi không sửa tệp nào. ...", đọc là đạt.
+- Lượt 2 (0,62 USD, 3 turn): như lượt 1, không lập checklist, cổng Stop chặn 0 lần, lời gọi bị từ chối 0. Kết luận được nhận: lượt "Rà độc lập thong-ke/dem", dòng đầu nguyên văn "**Kết luận: đạt kèm lỗi nhẹ.** Không có lỗi nặng. ...", đọc là đạt.
+- Giới hạn: kỳ vọng "không lần chặn nào vì thiếu kiểm khi lệnh của bước đã chạy đạt không qua ống" đạt ở cả hai lượt, nhưng cả hai phiên không có bước nào mang `check`, nên đường tính bằng chứng theo lệnh của bước (F1) chưa được phiên thật đi qua; đường này chỉ có bằng chứng ở `closing-stepcheck-f1-090` và kịch bản dựng lại của lượt rà soát. Chi phí model thật cộng dồn khoảng 36,5 USD trên trần 40.
+
+**Vì sao hai lượt D4 lần ba không lập checklist** [Đo trực tiếp, 18/11/2026, nhật ký quyết định `decisions-*.jsonl` và bản ghi phiên của hai lượt, so với lượt D4 lần hai cùng prompt]:
+- Router chấm: cả hai lượt `depth` là `light`, quan hệ `new`, ý `task`, luồng chính sonnet medium, `tasks` rỗng (độ tin cậy 0,7 và 0,8). Lượt D4 lần hai, cùng prompt, có `depth` `substantial`. Bản chất việc router ghi trong khối context là `edit`, khối lượng `small`.
+- Tool `plan`: không được gọi ở cả hai lượt (0 lời gọi; lượt lần hai có 10 lời gọi).
+- Mod có nhắc lập checklist không: không. Với mục tiêu light, khối context mod chèn ở `prompt.submit` có câu "Việc nhỏ: làm trực tiếp, không cần checklist; vẫn kiểm tra kết quả trước khi trả lời.", trong khi prompt có một câu yêu cầu lập checklist bằng tool `plan`. Không có dòng nhật ký nào của cổng Stop về checklist (cổng G1 chỉ đòi checklist khi mục tiêu có việc đã phân hay ở bậc moderate trở lên, `needsChecklist` ở `hooks/lib/text.ts`).
+- Vì sao phiên không lập checklist: router chấm light nên mod gửi câu "không cần checklist", cãi với câu của prompt (đã có trong việc tồn); luồng chính làm theo câu của mod. Đội hình vẫn bật ở lượt 1 theo số file (3 file không nhẹ), ở lượt 2 không có dòng `team`.
+- Dữ liệu còn thiếu: router không ghi lý do chọn light thay substantial ngoài phần tóm tắt trong khối context, nên không đo được vì sao hai lượt chấm khác lượt lần hai trên cùng prompt.
+
+**Phiên thật D4 lần bốn (G4b), có câu yêu cầu lập checklist** [Đo trực tiếp, 18/11/2026, Claude Code 2.1.327, `claude -p`, conductor off, không khai `checkCommands`, mã của `956c838`; prompt mẫu ẩn danh có bảng hai mục việc, mỗi mục một lệnh kiểm, M1 dùng `set -o pipefail; bash tests/kiem.sh | tee /tmp/kiem-kho6.log`; chi phí 0,50 USD; chi phí model thật cộng dồn khoảng 37,0 USD trên trần 40]:
+- Router chấm `light`, hai việc chạy ở luồng chính. Phiên có lập checklist hai bước bằng tool `plan`, trường `check` đúng như bảng của prompt.
+- Đội hình không bật (không có dòng `team` trong nhật ký quyết định), nên cổng đóng mục tiêu không vào cuộc: không có dòng `closing-gate`, cổng Stop chặn 0 lần.
+- Luồng chính chạy hai lệnh kiểm trong cùng một lời gọi Bash với các lệnh ghi tệp (heredoc), nối bằng `;`; theo B10 lần chạy đó không là bằng chứng cho bước, nên hai lần đánh dấu `verified` bị hạ (`verify-reject`, "evidence không nhắc lệnh hay file nào đã chạy trong mục tiêu này").
+- Kết luận nhận: không có dòng `verdict` (subagent "Việc 3: Kiểm độc lập: ..." không mang tiền tố ở đầu description). Lời gọi bị từ chối: 0.
+- Giới hạn: đường tính bằng chứng theo lệnh của bước ở cổng đóng (F1) vẫn chưa được phiên thật đi qua; G2, G3 không làm vỡ phiên (lệnh tee kèm pipefail chạy được). Bằng chứng của F1, G2, G3 vẫn chỉ ở test.
+
+**Ký tự chèn sau vòng sửa cuối** [Đo trực tiếp, bộ đo của mục 0.8.9, engine 2.1.296, mã của `3ff0c6a`, 18/11/2026]: phiên dài và kịch bản 60 việc giữ mười số của lần đo trước (mặc định 10.418 và 19.666; Fable 8.642 và 7.127; sau `/conductor solo` 16.687 và 24.428; sau mười việc 21.817, 45.200, Fable 6.561); kịch bản phiên theo kỷ luật giao việc giữ 1.398 ký tự. Cổng duyệt đo dấu file không chèn thêm ký tự nào.
+
+**Kiểm cuối trên commit `fa12aa8`** [Đo trực tiếp, 18/11/2026, bản chụp `git archive` của commit đó; sau commit này chỉ đổi tài liệu]:
+- `claude plugin validate .` ở thư mục mod: đạt kèm 14 cảnh báo kiểu, cùng 14 cảnh báo của nền `14a3a85` (chỉ lệch số dòng ở hai chỗ), không có cảnh báo mới. Ở gốc repo: đạt, không cảnh báo.
+- tsc: 14 lỗi với khai báo kiểu 2.1.326 và 27 lỗi với 2.1.296, cùng tập lỗi với nền `14a3a85` (so sau khi bỏ số dòng); tsc không in cảnh báo. Một lỗi mới ở kiểu cục bộ của `tests/verdict-c4-090.test.ts` lộ ra ở lượt kiểm này đã sửa trong test (`dd9b325`).
+- `bun scripts/mutate.ts --check`: 2592/2592 mẫu khớp. `node scripts/version-check.mjs`: README đủ 49 option.
+- Cả bộ test: 2.1.327 4.188 pass, 0 fail (626 giây); 2.1.296 4.188 pass, 0 fail (455 giây); chạy lần lượt, không song song.
+- Đột biến cuối: 46 mẫu C2, C4, C6 của `hooks/parts/consistency.ts` và `hooks/lib/verdict.ts`, mẫu sống chạy lại trên mọi test 0.9.0, cộng hai mẫu sống của lượt trước (`090-C2c`, `090-C6h`). Còn sống sau khi chạy lại và thêm ca: `090-C6h`, `090-C6m`, `090-C6zp`, đều tương đương (lý do trong `scripts/mutants.ts`). `090-C2c` và `090-C6l` được diệt bằng ca mới.
+
+Mức nghiêm trọng của cổng duyệt từ vòng này: lớp nhắc chất lượng; chỉ chặn PR khi văng lỗi, chặn hay từ chối nhầm trong luồng chính, hay trượt một dòng K. Phát hiện khác vào việc tồn.
+
+## 0.9.0 vòng 2 G6: đột biến theo tầng trên các tệp hooks đã đổi [Đo trực tiếp, engine 2.1.296, mã của `1675a0a`, 18 và 19/11/2026]
+
+Phạm vi là 573 mẫu cũ của các tệp hooks đã đổi so với `14a3a85`. Nhóm A có 404 mẫu: mẫu nằm trong hàm hay câu lệnh cấp cao đã đổi, mọi mẫu của `hooks/ui/pane.tsx`, các mẫu `090` của `hooks/lib/verdict.ts` và `hooks/lib/drift/classify.ts`. Nhóm B có 169 mẫu, nằm ở phần không đổi của cùng các tệp đó. Bộ chạy đặt ngoài repo, một worker, đọc `scripts/mutants.ts`, dòng `old` phải khớp đúng một chỗ, bản sao lấy từ git worktree ở `1675a0a`. Mỗi mẫu chạy qua ba tầng, dừng ở tầng đầu tiên diệt được. Tầng 1 là các tệp test cùng bản. Tầng giữa gộp ba phần: tệp test nêu đường dẫn hay tên tệp của module; tệp test đã diệt một mẫu khác của cùng tệp hooks bằng ca lỗi không do hết giờ (đọc từ nhật ký, cập nhật sau mỗi mẫu); bộ test 0.9.0, chỉ cho `verdict.ts`, `classify.ts` và mẫu `090`. Tầng cuối là cả bộ 387 tệp. KILLED chỉ khi mod không nạp được hay có ít nhất một ca lỗi không do hết giờ. SURVIVED chỉ sau lượt cả bộ một worker.
+
+| Phần | Mẫu | KILLED tầng 1 | KILLED tầng giữa | KILLED cả bộ | SURVIVED | Khác |
+|---|---|---|---|---|---|---|
+| Nhóm A | 359/404 | 259 | 64 | 34 | 2 | 0 |
+| Đối chứng nhóm B (ngẫu nhiên, hạt 1811) | 20/169 | 11 | 8 | 1 | 0 | 0 |
+
+- Hai mẫu SURVIVED là `075-R1i` (`hooks/parts/command.ts`, `/conductor status` không nêu số mục bị bỏ) và `085-D1c` (`hooks/parts/consistency.ts`, lời nhắc theo mức block khi điều phối). Cả hai cũng sống trên mã của `14a3a85` với cả bộ test (3747 pass, 0 fail mỗi mẫu), nên lỗ hổng có từ trước bản này; ghi vào việc tồn, không thêm ca trong bản này.
+- Đối chứng nhóm B không có mẫu sống, nên không chạy phần còn lại của nhóm B.
+- Kiểm lại phán quyết KILLED (H4): 20 mẫu lấy ngẫu nhiên trên 377 mẫu KILLED (hạt 1911), có 7 mẫu diệt ở tầng giữa. Mỗi mẫu chạy lại một worker trên đúng các tệp chứa ca lỗi ghi trong nhật ký của lượt đã diệt nó. Kết quả 20/20 vẫn KILLED.
+- Thời gian máy đo được: 11,62 giờ trên trần 12 giờ. Nhóm A dừng nhận mẫu mới ở 11 giờ.
+
+Giới hạn của lượt đo:
+1. [Đo trực tiếp] Lượt đột biến 119 mẫu `090` trước đó chạy bằng engine 2.1.327, không phải bản ghim 2.1.296. Đối chứng 20 mẫu lấy ngẫu nhiên (hạt 20261118) chạy lại trên bản ghim cho kết quả khớp 20/20: 19 KILLED, `090-U2a` 0 ca lỗi như lượt trước (mẫu tương đương).
+2. [Đo trực tiếp] Tầng giữa phần 1 đọc theo nghĩa hẹp: chỉ tệp test có chuỗi đường dẫn hay tên tệp của module, kể cả qua tệp hỗ trợ mà nó import. Khoảng 225 ca tích hợp chạy hook qua harness của engine mà không nêu tên module, nên không vào phần này. `hooks/parts/consistency.ts` và `hooks/ui/pane.tsx` không có tệp test nào nêu tên, nên tầng giữa của hai tệp này chỉ dựa vào lịch sử diệt.
+3. [Đo trực tiếp] Phép đo tầng giữa trên 8 mẫu đã biết (8/8 KILLED, mỗi mẫu khoảng 60 giây) bị nghiêng: lịch sử diệt khởi tạo lấy từ nhật ký của chính 8 mẫu này.
+4. [Đo trực tiếp] Đồng hồ thiếu phần lượt dở của một mẫu (`072-B2`) khi máy chứa khởi động lại giữa lượt chạy; mẫu đó được chạy lại từ đầu.
+5. [Đo trực tiếp] Nhóm A còn 45 mẫu chưa chạy vì hết thời gian. Tỉ lệ đã chạy theo tệp hooks: `hooks/parts/consistency.ts` 92/131, `hooks/ui/pane.tsx` 85/91; các tệp còn lại chạy đủ (`hooks/parts/command.ts` 43/43, `hooks/lib/drift/classify.ts` 38/38, `hooks/context.ts` 38/38, `hooks/lib/verdict.ts` 20/20, `hooks/lib/state.ts` 18/18, `hooks/ui/attention.ts` 13/13, `hooks/ui/labels.ts` 11/11, `hooks/ui/direction.ts` 1/1). Mẫu chưa chạy: `056-C14`, `056-C15`, `056-D5`, `060-L1`, `060-L2`, `060-L5`, `060-L6`, `061-P22`, `070-C11`, `070-C3`, `070-C9`, `070-L8`, `070-V10`, `070-V12`, `070-V18`, `071-M10`, `071-M8`, `071-M9`, `074-F10`, `074-F11`, `075-A6h`, `075-B1d`, `075-L3b`, `075-S5G`, `075-S6e`, `076-U1i`, `076-U1m`, `076-U6b`, `076-W1a`, `076-W1i`, `078-G1a`, `078-G1e`, `078-G2b`, `078-G2c`, `078-G4a`, `078-G6c`, `078-G6e`, `079-Y5d`, `080-A3d`, `082-N2c`, `082-N2d`, `086-R1a`, `086-R1b`, `086-R2c`, `086-R3b`.
+
+## 0.9.0 A6: các trường của usage có thể vắng [Đo trực tiếp, khai báo kiểu, 18/11/2026]
+
+Đọc `.claude-plugin/types/claude-code/index.d.ts` của engine đang chạy (2.1.327) và của 2.1.296:
+
+| Chỗ | 2.1.327 | 2.1.296 |
+|---|---|---|
+| `turn.complete` `usage` | tùy chọn (`usage?: TurnUsage`): vắng khi không có gì được tính (ngắt, lỗi API) | như 2.1.327 |
+| `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens` | bắt buộc (`ModelUsage`) | bắt buộc |
+| `model` | bắt buộc (`TurnUsage`) | bắt buộc |
+| `ephemeral_5m_input_tokens`, `ephemeral_1h_input_tokens` | tùy chọn, có hay không cùng nhau | không có |
+| `usage` của compaction | tùy chọn (`usage?: ModelUsage`) | tùy chọn |
+
+Usage chỉ có số token hay usage rỗng nằm ngoài khai báo kiểu nhưng engine giả nhận được; trước bản sửa, sổ chi phí cộng `undefined` thành NaN, NaN lưu vào state thành null, và `formatCost` văng lỗi khi pane vẽ [Đo trực tiếp, bản sao 0.8.9: `ui.render hook was skipped: TypeError: null is not an object (evaluating 'value.toFixed')`]. Bản sửa: `safeUsage` (`hooks/lib/ledger.ts`) đổi trường vắng thành 0 ở mọi chỗ cộng; các hàm định dạng số của pane, band, status line hiện "–" khi giá trị không phải số hữu hạn.
+
+## Kiểm chứng của 0.9.0 (lỗi tồn, phối hợp với kỷ luật giao việc, đội hình do mod áp)
+
+Engine 2.1.326 cho test và phiên thật; tsc và lượt đột biến đầy đủ kiểm thêm trên khai báo kiểu và engine 2.1.296 của CI. Nền là `14a3a85` (0.8.9).
+
+### Probe H1 tới H6, trước và sau
+
+Cùng một tệp probe, cùng router giả của `tests/support/engine.ts`, chạy trên `14a3a85` và trên nhánh 0.9.0 [Đo trực tiếp, 17/11/2026, engine 2.1.326].
+
+| Mã | 14a3a85 | 0.9.0 |
+|---|---|---|
+| H1 (đang chờ duyệt: ghi `KE-HOACH.md`, `TIEN-DO.md`, `shasum`, khối heredoc chỉ có `cd` và `bun test`) | 4/4 bị từ chối "Kế hoạch chưa được duyệt" | 4/4 qua |
+| H2 (vai điều phối: ghi ba tệp trạng thái, `shasum`, `cp` sao lưu) | 5/5 bị từ chối "vai điều phối không tự sửa file" | ba tệp trạng thái và `shasum` qua; `cp` vào nơi sao lưu vẫn bị từ chối (B4 chỉ mở cho tệp trạng thái) |
+| H3 (phạm vi một tệp: ghi `TIEN-DO.md`, `cp` sao lưu, `grep -c <(bash x.sh)`, `shasum <(...)`, heredoc) | 5/5 có cảnh báo ngoài phạm vi hay "không xác định được file đích" | còn một câu ở `grep -c ... <(bash x.sh)`: script chạy trong `<( )` vẫn có thể ghi (B9) |
+| H4 (check của bước là `grep -c ... <(...)`; `bun test` trong heredoc) | cả hai bước chỉ `done` | cả hai bước `verified`, nhãn "tự động" |
+| H5 (`cp SKILL.md` vào nơi sao lưu; ghi `TIEN-DO.md` trong thư mục skill) | Stop chặn "Đã sửa skill `TIEN-DO`, chưa thử" | không chặn |
+| H6 (`cp ~/.claude/a.md ~/.claude/sao-luu/a.md`) | `~/.claude/sao-luu/a.md` nằm trong "File đã đổi" | không có file đã đổi |
+
+### D1: phiên thật theo kỷ luật giao việc (sau nhóm B)
+
+`claude -p --plugin-dir`, router và skill thật, dự án và prompt mẫu tự dựng (cỡ vừa, phạm vi một tệp, ba tệp trạng thái, nơi sao lưu, khối đo nền heredoc, ba mục việc có lệnh xác minh), `headlessRouting` `auto`, hai cấu hình `conductor` `off` và `opus` [Đo trực tiếp, 17/11/2026]:
+
+- Từ chối ghi tệp trạng thái: 0 và 0. Cảnh báo ngoài phạm vi cho tệp trạng thái và nơi sao lưu: 0 và 0.
+- Khối đo nền: chạy, không có câu "không xác định được file đích".
+- Bước lên `verified` nhờ lệnh ở `check`: 1 ở cấu hình `off` (bước 3, `bash tests/kiem.sh`), 0 ở cấu hình `opus`.
+- Cổng Stop chặn một lần mỗi cấu hình, lý do chưa có checklist (luật G1); không lần nào do H1 tới H5.
+- Lỗi lộ ra và đã sửa: evidence dạng `lệnh => kết quả` bị đọc là cũ.
+- Giới hạn: router chấm prompt mẫu là light, nên cổng duyệt và vai điều phối không vào cuộc. Ba việc tồn ghi trong CHANGELOG.
+- Chi phí: 1,7 USD.
+
+### D2 và đo router (thay C9)
+
+Router sonnet, 3 lượt mỗi ca, lời dặn mới và `14a3a85` đo cùng đợt [Đo trực tiếp, 17/11/2026, engine 2.1.326]. Ba lần chỉnh lời dặn để router tự thêm việc audit, review, design (C3 bản đầu) đều dưới ngưỡng:
+
+| Đợt | Lượt đạt (76 ca) | Ca C9 cỡ vừa | `k4`, `six` | Token ra TB ca cũ |
+|---|---|---|---|---|
+| C3 bản đầu | 194/228 | 0/3 (router chấm light hay giữ `tasks: []`) | `k4` 2/3, `six` 1/3 | +13,9% |
+| Lần chỉnh 1 | 205/228 (chấm lại bằng bộ chấm đã sửa) | 0/3 | `six` 0/3, `long-vn` 1/3 | +13,9% |
+| Lần chỉnh 2 | 205/228 | 0/3 | `k4` 2/3, `six` 1/3 | +13,9% |
+| Lần chỉnh 3 (chủ mod cho phép) | 203/228 | `c9-mid-nocheck` 1/3, `c9-doc` 0/3 | 6 lượt: `k4` 2/6 so với 6/6, `six` 0/6 so với 2/6 | +18,3% |
+| Router chỉ đọc prompt (đo F) | 216/228 | 3/3 mỗi ca (chỉ chấm độ sâu) | 6 lượt: `k4` 5/6 so với 6/6, `six` 3/6 so với 4/6 | +12,6% (676 thành 761) |
+
+- `14a3a85` cùng đợt với đo F: 170/180 lượt trên 60 ca cũ. `c4-big-coded`, `c4-big-skill`, `arr-dup` 0/3 ở cả hai lời dặn với sonnet. Ba ca này cùng `c4-small`, `c4-status` ghi golden bằng router fable, 15/15 lượt, như mục 0.8.9.
+- Sáu ca D2 đạt ít nhất 2/3: `d2-many-rules` 2/3, năm ca còn lại 3/3.
+- Mười ca C9, chỉ chấm độ sâu: 3/3 mỗi ca; ca nhẹ không có việc thừa.
+- Chẩn đoán độ sâu trước lần chỉnh 3 (prompt cũ của ba ca C9 cỡ vừa): `14a3a85` cũng chấm light 3/3, nên prompt được viết lại cho đúng cỡ vừa. Bản viết lại được cả `14a3a85` lẫn lời dặn mới chấm substantial 3/3.
+- Bộ chấm golden (`tests/golden/check.ts`): lúc đo C3 bản đầu và ba lần chỉnh, số việc không tính các việc audit, review, design đội hình thêm (design đứng đầu, chuỗi audit, review, design đứng cuối), và có kỳ vọng vai cho mười ca C9. Khi đổi sang mod áp đội hình, bộ chấm trở về như 0.8.9 cho mọi ca cũ; mười ca C9 chỉ còn kỳ vọng độ sâu (`depths`).
+- Chi phí cả đợt đo router: khoảng 27,7 USD.
+
+**Ký tự chèn.**
+- Phiên dài và kịch bản 60 việc (bộ đo của mục 0.8.9): mỗi số tăng đúng 79 ký tự so với nền, là dòng dạng check ở kết quả `plan set` của B10, trong hạn mức 160. Ví dụ: mặc định 10.339 thành 10.418 và 19.587 thành 19.666; Fable 8.563 thành 8.642. Đội hình bật ở kịch bản này (độ sâu hard) nhưng đoạn dặn 300 ký tự đi ở context của prompt, phép đo không đếm phần đó.
+- Kịch bản "phiên theo kỷ luật giao việc" (dựng lại H1 tới H5): 3.381 ký tự trên `14a3a85` thành 1.398. Phần giảm gồm bốn cảnh báo ngoài phạm vi (797 ký tự) và hai câu hạ `verified` (1.184 ký tự). Kịch bản này không dựng ở bước đo nền; số nền đo bù trên bản chụp `14a3a85`.
+
+### Kiểm độc lập
+
+Một tác tử chưa thấy quá trình làm viết và chạy 63 probe đối kháng (49 ở mức hàm, 14 toàn luồng), ít nhất năm probe cho mỗi cụm B8, B9, B10, C2, C6, rồi quét chuỗi riêng tư trên diff [Đo trực tiếp, 17/11/2026].
+- Kết luận lần đầu: không đạt. Một lỗi nặng: vai chỉ đọc chạy được lệnh tự sửa file ở mức possible, và kết luận ĐẠT của nó vẫn mở cổng. Sáu lỗi vừa, năm lỗi nhẹ.
+- Đã sửa (test đỏ 19 ca, rồi bản sửa): lỗi nặng; cổng theo kết luận mới nhất; ghi nháp `/tmp` bật đội hình; đoạn lệnh bị che mã thoát và so kết quả mong đợi của B10; `git commit`, `push`, `tag` của vai chỉ đọc; cách tính bước kiểm khác nhau giữa pane và cổng.
+- Chưa sửa, ghi vào việc tồn: kết luận không theo vai (cần chủ mod chốt), bốn lỗi nhẹ còn lại.
+- Quét riêng tư: 0 chỗ cho tên skill có thật, tên phiên, đường dẫn máy, email, em dash, dấu chấm than. Hai ký hiệu chức năng (`✓`, `✗` của trạng thái bước đóng; `✅✓✔` trong regex nhận output) giữ lại.
+
+### D4: phiên thật có đội hình
+
+`conductor` `opus`, `planApproval` `off`, cùng dự án mẫu của D1, một lượt `claude -p` [Đo trực tiếp, 17/11/2026, engine 2.1.326]:
+
+- **Prompt cỡ vừa** (của D1): router không giao việc nào cho subagent; ba việc chạy ở luồng chính. Đội hình không bật: một file sửa, độ sâu thấp (luồng chính sonnet, không điều phối). Cổng đóng không chặn.
+  - Ba lần bước `verified` bị từ chối: Claude gộp sao lưu, ghi `src/thong-ke.sh` bằng heredoc và chạy kiểm vào một lời gọi Bash. Theo B10, lần chạy kèm ghi file không là bằng chứng của bước.
+  - Chi phí 0,50 USD.
+- **Prompt cỡ khó** (đổi cấu trúc thành hai tệp, thêm cờ, bộ kiểm mới): router chấm việc lớn, luồng chính opus điều phối. Đội hình bật theo độ sâu.
+  - Subagent theo thứ tự: build sonnet (Việc 3), audit haiku (`Kiểm: `, ĐẠT 6/6), review opus (`Duyệt: `, ĐẠT), review opus (`Kiểm độc lập: `, ĐẠT), review opus (Việc 7). Audit chạy trước review.
+  - Cổng đóng chặn một lần, lý do thiếu lần kiểm. Đây là chặn nhầm: subagent duyệt ghi nháp vào thư mục tạm, lần ghi đó làm cũ lần kiểm của audit.
+  - Cả ba kết luận ĐẠT bị coi là của subagent đã ghi file, vì chạy script kiểm (`bash -c`, vòng lặp chạy lệnh) bị tính là ghi.
+  - Hai lỗi trên đã sửa: test đỏ, rồi bản sửa. Chỉ tool file và Bash ghi mức definite ngoài thư mục tạm mới tính là đã ghi; ghi chắc vào thư mục tạm không vào sổ thay đổi. Ca tích hợp dựng lại đúng mẫu của phiên này. Chưa chạy lại phiên thật sau bản sửa vì trần chi phí.
+  - Lượt duyệt phải làm lại: một (sau lần chặn).
+  - Chi phí 2,44 USD, so với 0,45 tới 0,56 USD mỗi lượt của D1.
+
 ## Kiểm chứng của 0.8.9 vòng 3 (yêu cầu của việc đã bỏ, chuỗi gộp, bốn hành vi của D2)
 
 Cùng nhánh, tiếp từ `47690d5`. Thứ tự E1, E2, E3; E1 và E2 mỗi điểm một commit test đỏ rồi một commit sửa; E3 chỉ thêm test và mẫu nên một commit. Không amend, không force-push, không merge. Bộ test, kiểm tĩnh và đột biến chạy trên engine 2.1.296 cài riêng ngoài repo [Đo trực tiếp, 15/11/2026].

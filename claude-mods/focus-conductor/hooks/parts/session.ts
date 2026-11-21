@@ -4,12 +4,13 @@ import { DEFAULT_CONDUCTOR, familyLabel } from '../lib/families'
 import { atom, derive, read, update } from 'claude-code'
 import { caught, noteBehavior, noteHookError, noteMistyped } from '../lib/errlog'
 import type { ApprovalState, Brief, Core, Depth, Mode, ModelFamily, QuotaCheckpoint, Warning } from '../../types'
-import { blockerText, isBigGoal, isMainConducting } from '../lib/conductor'
+import { blockerText, conductorFallbackIssues, isBigGoal, isMainConducting } from '../lib/conductor'
 import { FALLBACK_TIMEOUT_MS, fullRetryTokens, readParamsOf } from '../lib/reading'
 import type { ReadPlan } from '../lib/reading'
 import { fableStep } from './fable'
 import { briefFromCheckpoint, changedFiles, storeKey } from '../lib/checkpoint'
 import { openSteps, restorableSteps } from '../lib/drift'
+import { applyHome } from '../lib/drift/classify'
 import { PLAN_TOOL_SPEC } from '../lib/plan'
 import { describePick, effortRank, familyOf, familyRank } from '../lib/route'
 import { clipText, keptLines } from '../lib/decisions'
@@ -17,11 +18,14 @@ import { CLIPPED_CONTEXT, NEW_GOAL_CONFIDENCE, answerMentionsGoal, askRouter, re
 import type { RouterOutcome, RouterPlan } from '../lib/router'
 import { EMPTY_QUOTA, blockingHits, evaluateQuota, isPauseActive, normalizeQuota, overrideOf, quotaSettings, reasonsOf, softNotices } from '../lib/quota'
 import * as S from '../lib/state'
+import { closingSnapshot, EMPTY_CLOSING, normalizeClosing } from '../lib/closing-state'
+import { goalFilePath, goalFileText, readGoalFile } from '../lib/goal-file'
 import { statusTextOf } from '../ui/direction'
 import type { View } from '../lib/state'
 import { ARRANGED_CHARS, ARRANGED_INTERJECT_CHARS, DISCIPLINE, arrangedContext, asideContext, conductorContext, conductorKeepText, phaseNotice, briefContext, droppedGoalNotice, droppedItemsText, droppedPlanNotice, followUpContext, intentResumeContext, intentStatusContext, interjectContext, interjectMovedNote, quotaPausedContext, resetLabel, resumeCommand, nothingLeftContext, restorableLabel, restoreGoalOnlyContext, restoreResumeContext, resumeContext, resumePendingContext, skippedContext, unroutedContext } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx } from '../context'
+import { closingNote, closingSteps, hasKnownCheck, isDocsOnly, teamCause } from '../lib/team'
 import { modeOf, viewOf } from '../atoms'
 import { PERSON_ORIGINS, SLASH_COMMAND, newDelegation } from '../context'
 import { PANE_ROWS, shouldAutoOpenPane } from '../lib/pane'
@@ -38,12 +42,13 @@ async function autoOpenPane($: EngineInterface, ctx: Ctx, goalId: number, at: nu
   // Chỉ ghi khi pane chưa được đặt (màn hình hẹp, chưa có surface, engine từ chối): đặt được là trường hợp bình thường, không cần dòng log.
   if (opened?.isPlaced === true) return
   ctx.record(at, 'pane', { goalId, isPlaced: false, reason: opened === null ? 'engine từ chối mở pane' : opened.reason })
-  await ctx.flushDecisions((path, text) => $.fs.write(path, text))
+  await ctx.flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
 }
 
 // Atom của mod, khai báo lại ở mỗi file dùng chúng (engine chỉ nhận tham chiếu state viết trong chính file đó);
 // cùng plugin và key nên là cùng một giá trị trong $.state.
 const coreState = atom({ plugin: 'focus-conductor', key: 'core' } as const, S.EMPTY_CORE)
+const closingStore = atom({ plugin: 'focus-conductor', key: 'closing' } as const, EMPTY_CLOSING)
 
 /** Áp kết quả một lượt router gửi Fable vào Core (0.8.4 C6): vừa tạm ngừng thì toast và một dòng nhật ký conductor. */
 async function noteFableRouter($: EngineInterface, ctx: Ctx, isOk: boolean, family?: ModelFamily): Promise<void> {
@@ -57,7 +62,7 @@ async function noteFableRouter($: EngineInterface, ctx: Ctx, isOk: boolean, fami
   if (step.text !== null) $.ui.toast(step.text)
   if (step.log !== null) {
     ctx.record(at, 'conductor', step.log)
-    await ctx.flushDecisions((path, body) => $.fs.write(path, body))
+    await ctx.flushDecisions((path, body) => $.fs.write(path, body), path => $.fs.read(path))
   }
 }
 const bandHiddenState = atom({ plugin: 'focus-conductor', key: 'isBandHidden' } as const, false)
@@ -156,6 +161,25 @@ const PERSON_MODES: ReadonlySet<string> = new Set(['plan', 'default', 'acceptEdi
 /** Tool có thể bị chặn khi kế hoạch chưa duyệt (0.8.2 N2): sửa file, Bash (chỉ lệnh ghi file), Agent (trừ Explore, Plan). */
 const GATED_TOOLS = /^(?:Edit|Write|MultiEdit|NotebookEdit|Bash|Agent)$/
 
+
+/**
+ * Sau khi đặt lại mục tiêu (kiểm độc lập vòng 1 lỗi 2 và 12): bản ghi cổng đóng trong $.state về rỗng để lần nạp lại mod không đưa kết luận
+ * của mục tiêu cũ (cùng số mục tiêu) trở lại, và tệp trạng thái của dự án bị xoá nội dung để phiên chạy tiếp không nạp lại mục tiêu đã xoá.
+ */
+async function clearSavedGoal($: EngineInterface, ctx: Ctx): Promise<void> {
+  const L = ctx.local
+  await update($, closingStore, () => EMPTY_CLOSING)
+  L.closingLoaded = true
+  L.closingSaved = JSON.stringify(closingSnapshot(L))
+  L.goalFileSaved = ''
+  try {
+    const path = goalFilePath(await $.session.root())
+    if ((await $.fs.read(path).catch(() => '')) !== '') await $.fs.write(path, '')
+  } catch {
+    // Engine không cho đọc hay ghi: bỏ qua, như lần ghi tệp.
+  }
+}
+
 export function registerSession(on: On, ctx: Ctx): void {
   const L = ctx.local
   const { decisionLog, flushDecisions, delegationItems, expectedMain, forgetDelegations, isRouterPaused, noteRouter, noteRouterTime, ranText, record, resetLocal, routerFallback, skipPhrases, trackDelegations, wantedPick } = ctx
@@ -165,14 +189,49 @@ export function registerSession(on: On, ctx: Ctx): void {
   // ---------------------------------------------------------------- phiên
 
   on('session.start', async ($, e, next) => {
+    // Phiên chạy tiếp (vòng 2 M15): engine không giữ $.state giữa hai tiến trình; state chưa có mục tiêu thì nạp tệp trạng thái của dự án khi
+    // cùng mã phiên, tệp không quá 24 giờ và đúng định dạng. Phiên mới có mã khác nên không nạp. Lỗi đọc hay engine không trả mã thì bỏ qua.
+    try {
+      const sessionId = await $.session.id()
+      const current = S.normalizeCore(await read($, coreState))
+      if (typeof sessionId === 'string' && sessionId !== '' && current.brief === null) {
+        const root = await $.session.root()
+        const file = readGoalFile(await $.fs.read(goalFilePath(root)).catch(() => ''), sessionId, await $.clock.now())
+        if (file !== null) {
+          const core = S.normalizeCore(file.core as Partial<Core>)
+          if (core.brief !== null) {
+            await update($, coreState, () => core)
+            await update($, closingStore, () => normalizeClosing(file.closing))
+            L.goalFileSaved = goalFileText(sessionId, 0, core, normalizeClosing(file.closing))
+          }
+        }
+      }
+    } catch {
+      // Không đọc được tệp hay mã phiên: giữ state như engine trả.
+    }
     // Nhật ký lỗi của mod (0.7.9 L1): tự xóa lỗi đã sửa theo sổ, báo trạng thái sai kiểu, gộp lỗi đang chờ ghi.
     noteMistyped('normalizeCore', await read($, coreState), S.EMPTY_CORE)
     noteMistyped('normalizeQuota', await read($, quotaState), EMPTY_QUOTA)
     await ctx.openErrors({ read: path => $.fs.read(path), write: (path, text) => $.fs.write(path, text), root: () => $.session.root() })
+    // Thư mục nhà (0.9.0 A2): đích `~/` và `$HOME/` của lệnh Bash giải theo biến HOME; engine không cho thì giữ dạng `~/...`.
+    try {
+      applyHome(await $.env.get('HOME'))
+    } catch {
+      applyHome(null)
+    }
+    // Cấu hình conductorFallback (0.9.0 A4): trùng họ điều phối chính hay giá trị không hợp lệ thì báo một lần mỗi lần nạp mod.
+    const fallbackIssues = conductorFallbackIssues(ctx.options)
+    if (fallbackIssues.length > 0 && !L.fallbackWarned) {
+      L.fallbackWarned = true
+      const at = await $.clock.now()
+      await update($, coreState, S.withWarnings(...fallbackIssues.map(text => ({ at, kind: 'model' as const, text }))))
+      $.ui.toast(`Focus Conductor: ${fallbackIssues.join('; ')}`)
+    }
     // Log quyết định nối tiếp file cũ (giữ DECISION_LIMIT dòng cuối); file chưa có hoặc đọc lỗi thì bắt đầu mới.
     if (decisionLog) {
       const old = await $.fs.read(decisionLog).catch(caught('fs.read', ''))
       L.decisions = typeof old === 'string' ? keptLines(old) : []
+      L.decisionsMerged = true
     }
     // Phiên không tương tác (0.8.0 A13): claude -p hay SDK, isInteractive false (SessionStartInput). headlessRouting off (mặc định) thì mod chạy
     // như routing off trong phiên đó, không ghi đè mode người dùng đã đặt; ghi một dòng headless-off. Mở lại tương tác thì trả mode về cấu hình.
@@ -181,7 +240,7 @@ export function registerSession(on: On, ctx: Ctx): void {
         await update($, modeState, () => 'off')
         await update($, headlessState, () => true)
         record(await $.clock.now(), 'headless-off', {})
-        await flushDecisions((path, text) => $.fs.write(path, text))
+        await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
       }
     } else if (e.isInteractive !== false && (await read($, headlessState))) {
       await update($, modeState, () => null)
@@ -229,6 +288,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       const q = normalizeQuota(await read($, quotaState))
       L.noAutoResume = q.checkpoint?.status === 'open'
       await update($, coreState, S.resetCore)
+      await clearSavedGoal($, ctx)
       await showStatus($, await read($, view), ctx.options)
     }
     return next(e)
@@ -317,7 +377,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       record(at, 'skip', { prompt: text, goalId: prev.goalId })
       // Câu tiếp nối ngắn: turn này làm tiếp mục tiêu đang mở.
       L.promptIntent = { relation: 'continue', kind: prev.isReference ? 'answer' : prev.kind }
-      await flushDecisions((path, text) => $.fs.write(path, text))
+      await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
       const lead = L.noAutoResume && !isArmed ? [] : await startResume()
       // Quay lại mục tiêu đã cất (0.8.5 K7): cùng luật với nhánh có router (S.resumeTarget), trên Core đọc ngay lúc này; không gọi router,
       // không cộng chi phí router. Tin chạy tiếp điểm dừng đang mở giữ ưu tiên.
@@ -331,19 +391,19 @@ export function registerSession(on: On, ctx: Ctx): void {
         L.promptIntent = { relation: 'continue', kind: restored.kind }
         L.lastPrompt = { text, prev: restored, goalId: restored.goalId }
         record(at, 'restore', { prompt: clipText(text), goalId: restored.goalId, from: skipFrom.brief.goalId, cause: 'resume' })
-        await flushDecisions((path, text) => $.fs.write(path, text))
+        await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
         await showStatus($, await read($, view), ctx.options)
         const core = S.normalizeCore(await read($, coreState))
         const wanted = wantedPick(restored, core.lift, core, current)
         const conductNote = e.turnId === undefined && wanted?.isConducting === true && !isBriefedFor(core, restored.goalId, wanted.family) ? [conductorContext(wanted.family)] : []
         if (conductNote.length > 0 && wanted !== null) await update($, coreState, markBriefed(restored.goalId, wanted.family))
         const backLine = core.plan.length === 0 ? restoreGoalOnlyContext(restored.goal) : restoreResumeContext(restored.goal, openSteps(core.plan)[0])
-        const backPlanning = S.approvalOf(core).status === 'planning' ? [planningContext()] : []
+        const backPlanning = S.approvalOf(core).status === 'planning' ? [planningContext(S.normalizeCore(await read($, coreState)).brief)] : []
         return next({ ...e, context: [...(e.context ?? []), backLine, ...conductNote, ...backPlanning, ...pending] })
       }
       // Kế hoạch đang lập (0.8.2 N2): câu tiếp nối ngắn vẫn kèm đoạn dặn lập kế hoạch. Câu tiếp nối ngắn không phải câu trả lời câu hỏi
       // làm rõ: cờ chờ câu trả lời giữ nguyên (0.8.5 K1).
-      const planning = S.approvalOf(before).status === 'planning' ? [planningContext()] : []
+      const planning = S.approvalOf(before).status === 'planning' ? [planningContext(S.normalizeCore(await read($, coreState)).brief)] : []
       return next({ ...e, context: [...lead, ...(e.context ?? []), skippedContext(prev, before.plan), ...planning, ...(lead.length === 0 ? pending : [])] })
     }
 
@@ -363,6 +423,9 @@ export function registerSession(on: On, ctx: Ctx): void {
     // Duyệt kế hoạch (0.8.2 N2): kế hoạch đã trình thì router biết tin này có thể là lời duyệt; vừa dặn hỏi làm rõ thì tin này là câu trả lời.
     const approvalStored = S.approvalOf(before)
     const isPresented = prev !== null && approvalStored.status === 'presented'
+    // Duyệt một lần (0.9.0 B12): kế hoạch đang lập mà checklist đã lưu cũng nhận lời duyệt.
+    const isDrafted = prev !== null && approvalStored.status === 'planning' && before.plan.length > 0
+    const isApprovable = isPresented || isDrafted
     const isAnswering = prev !== null && approvalStored.awaitingAnswer
     let outcome: RouterOutcome<RouterPlan> = { result: null, reason: 'router đang tạm ngừng sau các lần lỗi liên tiếp', usages: [], usageModels: [], retried: false, failure: 'paused', timeoutMs: null, maxTokens: null, outputTokens: null }
     let waitedMs = 0
@@ -377,7 +440,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       const taskStates = taskStatusOf(before, await $.clock.now())
       const observed = L.observed.join('; ')
       L.observed = []
-      const args = { text, prev, ran: ranText(before), policy: rules, model: target.model, reading, taskStates, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily, openSteps: openSteps(before.plan).map(s => s.title), ...(observed ? { observed } : {}), ...(isInterject ? { interject: { step: openSteps(before.plan)[0]?.title ?? '' } } : {}), ...(isPresented ? { awaiting: 'approval' as const } : isAnswering ? { awaiting: 'answer' as const } : {}) }
+      const args = { text, prev, ran: ranText(before), policy: rules, model: target.model, reading, taskStates, ...(target.isFable ? { isFable: true } : {}), sessionFamily: L.sessionFamily, openSteps: openSteps(before.plan).map(s => s.title), ...(observed ? { observed } : {}), ...(isInterject ? { interject: { step: openSteps(before.plan)[0]?.title ?? '' } } : {}), ...(isApprovable ? { awaiting: 'approval' as const } : isAnswering ? { awaiting: 'answer' as const } : {}) }
       promptRead = requestPlan(args)
       // Lượt đọc trọn prompt dài (0.8.7 L3) có thể mất vài phút, nên chữ chờ nói rõ.
       $.ui.status(promptRead.isFull ? 'router đang đọc trọn prompt dài, có thể mất vài phút...' : 'router đang đọc prompt...')
@@ -415,7 +478,7 @@ export function registerSession(on: On, ctx: Ctx): void {
     // cho intent và câu trả lời câu hỏi làm rõ (công thức như trước 0.8.4 A1); bản cuối `interjected` để tin ngoài lề đứng ngoài.
     const interjectedBase = isInterject && routed !== null && routed.relation === 'new' ? { ...routed, relation: 'continue' as const } : routed
     // Ý của tin nhắn (0.8.2 N1): chỉ có nghĩa khi đã có mục tiêu; approve khi không có kế hoạch chờ duyệt là resume.
-    let intent = interjectedBase !== null && prev !== null ? clampIntent(interjectedBase.intent, isPresented) : 'task'
+    let intent = interjectedBase !== null && prev !== null ? clampIntent(interjectedBase.intent, isApprovable) : 'task'
     // Câu trả lời câu hỏi làm rõ (0.8.2 N2), chạy sau bước kẹp intent và thắng nó: router xếp mục tiêu mới thì giữ mục tiêu, coi như amend,
     // trừ khi router chắc (confidence từ NEW_GOAL_CONFIDENCE, thiếu là chưa chắc) VÀ prompt không nhắc gì tới mục tiêu (answerMentionsGoal).
     const isHeldAnswer = isAnswering && prev !== null && interjectedBase !== null && interjectedBase.relation === 'new' && !((interjectedBase.confidence ?? 0) >= NEW_GOAL_CONFIDENCE && !answerMentionsGoal(text, prev))
@@ -432,8 +495,8 @@ export function registerSession(on: On, ctx: Ctx): void {
       record(await $.clock.now(), 'answer-held', { prompt: clipText(text), confidence: interjected?.confidence ?? null, goalId: prev.goalId })
     }
     L.lastIntent = steered !== null ? intent : null
-    // Tin bảo chạy tiếp hay duyệt kế hoạch: không thêm việc, không gộp yêu cầu.
-    const plan = steered !== null && (intent === 'resume' || intent === 'approve') ? { ...steered, tasks: [], requirements: [] } : steered
+    // Tin bảo chạy tiếp: không thêm việc, không gộp yêu cầu. Tin duyệt (0.9.0 B12): chỉnh nhỏ đi kèm được gộp trong cùng lượt.
+    const plan = steered !== null && intent === 'resume' ? { ...steered, tasks: [], requirements: [] } : steered
     const lead = isResuming ? await startResume() : []
     const tail = isResuming ? [] : pending
     const now = await $.clock.now()
@@ -453,7 +516,7 @@ export function registerSession(on: On, ctx: Ctx): void {
         // Brief trước prompt là brief vừa khôi phục (0.8.5 K6): /conductor reroute đọc lại prompt này trên mục tiêu đã khôi phục.
         L.lastPrompt = { text, prev: restored, goalId: restored.goalId }
         record(now, 'restore', { prompt: clipText(text), goalId: restored.goalId, from: lastArchived.brief.goalId, cause: 'resume' })
-        await flushDecisions((path, text) => $.fs.write(path, text))
+        await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
         await showStatus($, await read($, view), ctx.options)
         // Mục tiêu khôi phục là mục tiêu lớn: đoạn dặn điều phối theo khóa Core.fable.briefedGoal như mọi mục tiêu (0.8.4 V1). Tin chen ngang
         // (0.8.5 K4): turn đang chạy giữ model của nó, nên không dặn và không ghi khóa; prompt kế tiếp ngoài turn dặn theo cơ chế chung.
@@ -463,7 +526,7 @@ export function registerSession(on: On, ctx: Ctx): void {
         if (conductNote.length > 0 && wanted !== null) await update($, coreState, markBriefed(restored.goalId, wanted.family))
         // Mục tiêu đã cất chưa có checklist (0.8.5 K2): một dòng riêng; đang lập kế hoạch thì kèm đoạn dặn như mọi mục tiêu planning.
         const backLine = core.plan.length === 0 ? restoreGoalOnlyContext(restored.goal) : restoreResumeContext(restored.goal, openSteps(core.plan)[0])
-        const backPlanning = S.approvalOf(core).status === 'planning' ? [planningContext()] : []
+        const backPlanning = S.approvalOf(core).status === 'planning' ? [planningContext(S.normalizeCore(await read($, coreState)).brief)] : []
         return next({ ...e, context: [...lead, ...(e.context ?? []), backLine, ...conductNote, ...backPlanning, ...tail] })
       }
     }
@@ -474,7 +537,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       await update($, coreState, c => S.withRouterFail(null)(charge(c)))
       L.lastPrompt = { text, prev, goalId: prev.goalId }
       record(now, 'route', { prompt: clipText(text), relation: plan.relation, intent, confidence: plan.confidence, retried: outcome.retried, ...(outcome.firstFail !== undefined ? { firstFail: outcome.firstFail } : {}), goalId: prev.goalId })
-      await flushDecisions((path, text) => $.fs.write(path, text))
+      await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
       await showStatus($, await read($, view), ctx.options)
       return next({ ...e, context: [...lead, ...(e.context ?? []), intentStatusContext(isInterject), ...tail] })
     }
@@ -485,7 +548,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       await update($, coreState, c => S.withRouterFail(null)(charge(c)))
       L.lastPrompt = { text, prev, goalId: prev.goalId }
       record(now, 'route', { prompt: clipText(text), relation: plan.relation, intent: 'aside', confidence: plan.confidence, retried: outcome.retried, ...(outcome.firstFail !== undefined ? { firstFail: outcome.firstFail } : {}), goalId: prev.goalId })
-      await flushDecisions((path, text) => $.fs.write(path, text))
+      await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
       await showStatus($, await read($, view), ctx.options)
       return next({ ...e, context: [...lead, ...(e.context ?? []), asideContext(isInterject, openSteps(before.plan)[0]), ...tail] })
     }
@@ -529,7 +592,7 @@ export function registerSession(on: On, ctx: Ctx): void {
       }
       L.lastPrompt = { text, prev, goalId: bare?.goalId ?? kept?.goalId ?? null }
       record(now, 'router-fail', { prompt: clipText(text), reason: outcome.reason, retried: outcome.retried, reuse: isReuse, ...failFields(fail) })
-      await flushDecisions((path, text) => $.fs.write(path, text))
+      await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
       if (!isPaused) $.ui.toast(pauseText ?? failText)
       await showStatus($, await read($, view), ctx.options)
       // Router lỗi khi chen ngang (0.7.8 G9): mục tiêu, phân việc và checklist đã giữ; vẫn dặn thêm bước cho yêu cầu mới.
@@ -537,7 +600,7 @@ export function registerSession(on: On, ctx: Ctx): void {
         ? interjectContext(prev, before.plan, [], [], { main: 'model đang chạy', mayReplace: true, isRouted: false })
         : unroutedContext(outcome.reason, bare !== null, prev !== null && prev.tasks.length > 0)
       // Router lỗi khi kế hoạch đang lập (0.8.2 N2): trạng thái giữ nguyên, vẫn dặn lập kế hoạch.
-      const planning = prev !== null && approvalBefore.status === 'planning' ? [planningContext()] : []
+      const planning = prev !== null && approvalBefore.status === 'planning' ? [planningContext(S.normalizeCore(await read($, coreState)).brief)] : []
       return next({ ...e, context: [...lead, ...(e.context ?? []), unrouted, ...planning, ...tail] })
     }
 
@@ -630,6 +693,10 @@ export function registerSession(on: On, ctx: Ctx): void {
       ? { goalId: brief.goalId, status: needsApproval(brief, ctx.planApproval, plan.skipApproval === true) ? ('planning' as const) : plan.skipApproval === true ? ('skipped' as const) : ('none' as const), rounds: 0, asked: false, awaitingAnswer: false }
       : isPresented && intent === 'approve'
         ? { ...approvalBefore, status: 'approved' as const }
+        : isDrafted && intent === 'approve'
+          ? approvalBefore.rounds === 0
+            ? { ...approvalBefore, early: true as const }
+            : { ...approvalBefore, status: 'approved' as const }
         : isPresented && intent === 'amend'
           ? { ...approvalBefore, status: 'planning' as const, rounds: 0 }
           : isBigAmend
@@ -642,14 +709,16 @@ export function registerSession(on: On, ctx: Ctx): void {
       await update($, coreState, S.withApproval(approval))
       if (approval.status !== approvalBefore.status || isNewGoal) record(now, 'approval', { goalId: brief.goalId, status: approval.status, cause: isNewGoal ? 'goal' : intent })
     }
-    const approvalNotes = isAsking ? [askContext(plan.questions ?? [])] : approval.status === 'planning' ? [planningContext()] : []
+    const approvalNotes = isAsking ? [askContext(plan.questions ?? [])] : approval.status === 'planning' ? [planningContext(brief)] : []
     // Kế hoạch sau điều chỉnh (0.8.9 D3): chỉ khi prompt có điều phối lại (gỡ việc hay có thứ tự làm mới); thứ tự là của các việc còn mở.
     const isArranged = arranged !== undefined && (arranged.dropped.length > 0 || arranged.merged.length > 0 || arranged.order.length > 0)
     const workOrder = arranged !== undefined && arranged.order.length > 0 ? arranged.order : brief.tasks.filter(t => states[t.index] !== 'done').map(t => t.index)
     const arrangedFor = (max: number) => (isArranged && arranged !== undefined ? arrangedContext(brief, arranged, workOrder, max) : '')
-    const isApproved = !isNewGoal && isPresented && approval.status === 'approved'
+    const isApproved = !isNewGoal && isApprovable && approval.status === 'approved'
+    // Chỉnh nhỏ kèm lời duyệt (0.9.0 B12): nêu các yêu cầu vừa gộp ngay sau dòng đã duyệt.
+    const approvedAdds = intent === 'approve' ? plan?.requirements ?? [] : []
     const context = isApproved
-      ? approvedContext(core.plan)
+      ? `${approvedContext(core.plan)}${approvedAdds.length > 0 ? ` Chỉnh kèm lời duyệt: ${approvedAdds.join('; ')}.` : ''}`
       : intent === 'resume' && !isNewGoal
       ? isResumeMsg && S.isNothingLeft(before) ? nothingLeftContext() : intentResumeContext(core.plan)
       : isInterject && !isNewGoal
@@ -677,9 +746,12 @@ export function registerSession(on: On, ctx: Ctx): void {
       main: brief.main,
       expected,
       notes: plan.notes,
-      tasks: brief.tasks.map(t => ({ index: t.index, run: t.run, agentType: t.agentType, pick: t.pick, ...(t.split !== undefined ? { split: t.split.length } : {}) })),
+      // Độ sâu router chấm (0.9.0 C): căn cứ của điều kiện bật đội hình; team là lý do bật lúc lập mục tiêu.
+      depth: brief.depth,
+      ...(isNewGoal && teamCause(ctx.options['closingReview'], brief, []) !== null ? { team: teamCause(ctx.options['closingReview'], brief, []) } : {}),
+      tasks: brief.tasks.map(t => ({ index: t.index, run: t.run, agentType: t.agentType, ...(t.role !== undefined ? { role: t.role } : {}), pick: t.pick, ...(t.split !== undefined ? { split: t.split.length } : {}) })),
     })
-    await flushDecisions((path, text) => $.fs.write(path, text))
+    await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
     if (outcome.retried) $.ui.toast('Router đã đọc lại một lần (câu trả lời đầu hỏng hoặc tin cậy thấp)')
     if (isNewGoal) {
       const delegated = brief.isReference ? 0 : brief.tasks.filter(task => task.run === 'agent').length
@@ -694,8 +766,18 @@ export function registerSession(on: On, ctx: Ctx): void {
     // mới, hay mục tiêu mở lúc Fable chưa sẵn sàng); khóa Core.fable.briefedGoal.
     const isBriefed = wanted !== null && isBriefedFor(S.normalizeCore(await read($, coreState)), brief.goalId, wanted.family)
     const conductNote = wanted?.isConducting === true && !isBriefed ? [conductorContext(wanted.family)] : []
+    // Đội hình do mod áp (0.9.0 C2): mục tiêu mới router chấm substantial hay hard, loại edit hay mixed, closingReview auto: đoạn dặn bước đóng
+    // một lần, ghi Core.team; chưa bật thì không chèn gì (context như 0.8.9).
+    const teamAt = isNewGoal ? teamCause(ctx.options['closingReview'], brief, []) : null
+    const teamNote: string[] = []
+    if (teamAt !== null) {
+      const hasCheck = hasKnownCheck([], [], null)
+      const isHard = brief.depth === 'hard'
+      await update($, coreState, S.withTeam({ goalId: brief.goalId, cause: teamAt, steps: closingSteps({ hasCheck, isHard, checked: false, checkFailed: false, lastHard: -1, verdicts: [] }) }))
+      teamNote.push(closingNote({ hasCheck, isHard, isDocs: isDocsOnly(brief, []) }))
+    }
     if (conductNote.length > 0 && wanted !== null) await update($, coreState, markBriefed(brief.goalId, wanted.family))
-    return next({ ...e, context: [...lead, ...(e.context ?? []), context, ...conductNote, ...approvalNotes, ...(phaseNote !== null ? [phaseNote] : []), ...notice, ...(isClipped ? [CLIPPED_CONTEXT] : []), ...tail] })
+    return next({ ...e, context: [...lead, ...(e.context ?? []), context, ...conductNote, ...teamNote, ...approvalNotes, ...(phaseNote !== null ? [phaseNote] : []), ...notice, ...(isClipped ? [CLIPPED_CONTEXT] : []), ...tail] })
   }).catch(($, e, next) => (noteHookError('prompt.submit', next.error), next(e)))
 
   // Chặn sửa trước khi duyệt kế hoạch (0.8.2 N2): chỉ luồng chính, khi mục tiêu đang planning hay presented. Đăng ký ở đây (trước hook
@@ -704,7 +786,11 @@ export function registerSession(on: On, ctx: Ctx): void {
     if (e.agentId !== undefined) return next(e)
     if ((await read($, mode)) === 'off') return next(e)
     if (!S.isPlanGated(await read($, coreState))) return next(e)
-    const reason = approvalDenial(e.tool, e as unknown as Record<string, unknown>)
+    // Tệp trạng thái của mục tiêu (0.9.0 B3) ghi được khi chưa duyệt; đường dẫn tương đối neo theo thư mục làm việc rồi thư mục gốc.
+    const gatedBrief = S.normalizeCore(await read($, coreState)).brief
+    // Tệp trạng thái theo danh sách của router hay theo tên mặc định (0.9.0 B14 mục 8): khung luôn được dựng, isSidePath xét cả hai.
+    const frame = { lists: gatedBrief ?? {}, root: await $.session.root().catch(caught('session.root', null)), cwd: await $.session.cwd().catch(caught('session.cwd', null)) }
+    const reason = approvalDenial(e.tool, e as unknown as Record<string, unknown>, frame)
     return reason === null ? next(e) : { deny: reason }
   }).catch(($, e, next) => (noteHookError('tool.call approval', next.error), next(e)))
 
@@ -719,7 +805,7 @@ export function registerSession(on: On, ctx: Ctx): void {
     if (core.brief === null || !S.isPlanGated(core)) return result
     await update($, coreState, S.withApproval({ ...S.approvalOf(core), status: 'approved' }))
     record(await $.clock.now(), 'approval', { goalId: core.brief.goalId, status: 'approved', cause: 'exit-plan-mode' })
-    await flushDecisions((path, text) => $.fs.write(path, text))
+    await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
     await showStatus($, await read($, view), ctx.options)
     return result
   }).catch(($, e, next) => (noteHookError('classic.PostToolUse', next.error), next(e)))
@@ -748,7 +834,7 @@ export function registerSession(on: On, ctx: Ctx): void {
     await update($, coreState, c => S.withDelegations(brief.goalId, delegationItems(next_))(S.withBrief(next_)(c)))
     L.interjectNote = interjectMovedNote(moved)
     record(await $.clock.now(), 'interject-deliver', { goalId: brief.goalId, toAgent: moved.length, tasks: moved.map(t => t.index) })
-    await flushDecisions((path, text) => $.fs.write(path, text))
+    await flushDecisions((path, text) => $.fs.write(path, text), path => $.fs.read(path))
     return next(e)
   }).catch(($, e, next) => (noteHookError('session.append', next.error), next(e)))
 }

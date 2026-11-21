@@ -115,6 +115,14 @@ export function check(c: GoldenCase, reply: string): string[] {
   }
   // Điều phối lại (0.8.9 D4): chấm trường arrange của câu trả lời gốc, trước khi parseRoute lọc theo relation và intent.
   if (e.arrange !== undefined) fails.push(...arrangeFails(e.arrange, rawArrange(reply)))
+  // Tệp trạng thái, ràng buộc, câu hỏi và độ sâu (0.9.0 D2, C9).
+  for (const path of e.stateFiles ?? []) if (!plan.stateFiles.some(x => x.includes(path))) fails.push(`stateFiles ${JSON.stringify(plan.stateFiles)}, cần có ${path}`)
+  for (const path of e.sideWrites ?? []) if (!plan.sideWrites.some(x => x.includes(path))) fails.push(`sideWrites ${JSON.stringify(plan.sideWrites)}, cần có ${path}`)
+  if (e.noSides === true && plan.stateFiles.length + plan.sideWrites.length > 0) fails.push(`có stateFiles hay sideWrites khi prompt không nêu: ${JSON.stringify([...plan.stateFiles, ...plan.sideWrites])}`)
+  if (e.constraints !== undefined && (plan.constraints.length < e.constraints[0] || plan.constraints.length > e.constraints[1])) fails.push(`${plan.constraints.length} ràng buộc, cần ${e.constraints[0]} tới ${e.constraints[1]}`)
+  if (e.depths !== undefined && !e.depths.includes(plan.depth)) fails.push(`depth ${plan.depth}, cần ${e.depths.join('|')}`)
+  const asked = plan.questions?.length ?? 0
+  if (e.questions !== undefined && (asked < e.questions[0] || asked > e.questions[1])) fails.push(`${asked} câu hỏi, cần ${e.questions[0]} tới ${e.questions[1]}`)
   // Tiếp nối không được lập mục tiêu mới; mục tiêu mới phải có câu mục tiêu.
   const next = nextBrief(c.prev ?? null, plan, c.text, 1)
   if (c.prev !== undefined && plan.relation !== 'new' && next.isNewGoal && !plan.runReference) fails.push('tiếp nối mà lập mục tiêu mới')
