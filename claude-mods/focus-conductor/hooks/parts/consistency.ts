@@ -330,17 +330,15 @@ export function closingCheckState(plan: readonly PlanStep[], log: EvidenceLog, s
   const baseKeys = new Set(baseline.map(item => runKey(item.command)))
   const sigOf = (c: EvidenceEntry) => checkSignature({ check: c.check ?? 'test', command: checkCommand(c) })
   const keys = [...new Set(plan.flatMap(step => { const check = stepCheckOf(step.check); return check !== null ? [runKey(check.command)] : [] }))]
-  // Dòng lệnh chứa lần chạy ở `seq` không có lệnh kiểm nào khác ngoài lệnh đỏ từ nền (kiểm độc lập vòng 3 lỗi 1, lần hai): lệnh ở check của một
-  // bước, hay lần chạy kiểm mod nhận ra không là lệnh đỏ từ nền, cùng dòng lệnh thì lỗi có thể là của lệnh đó, nên lần chạy không được bỏ qua.
-  // Ống, cd, echo hay hai lệnh đỏ từ nền chạy chung thì vẫn bỏ qua. Không có lần chạy Bash ghi lại (công cụ kiểm MCP) thì coi như chạy riêng.
+  // Dòng lệnh chứa lần chạy ở `seq` không có lệnh ở check của một bước (khác lệnh đỏ từ nền): lệnh đó không là lệnh kiểm mod nhận ra nên không
+  // có kết quả riêng trong sổ, lỗi của dòng lệnh có thể là của nó, nên lần chạy không được bỏ qua (kiểm độc lập vòng 3 lỗi 1, lần hai). Lần chạy
+  // kiểm mod nhận ra trong cùng dòng lệnh mang kết quả riêng nên không cản. Ống, cd, echo hay hai lệnh đỏ từ nền chạy chung thì vẫn bỏ qua.
+  // Không có lần chạy Bash ghi lại (công cụ kiểm MCP) thì coi như chạy riêng.
   const isAlone = (seq: number) => {
-    const at = steps.runs.findIndex(r => r.seq >= seq)
-    const run = steps.runs[at]
+    const run = steps.runs.find(r => r.seq >= seq)
     if (run === undefined) return true
     const whole = run.keys[0] ?? ''
-    if (keys.some(key => !baseKeys.has(key) && whole.includes(key))) return false
-    const from = steps.runs[at - 1]?.seq ?? -1
-    return !log.commands.some(c => c.check !== null && c.seq > from && c.seq <= run.seq && !baseSigs.has(sigOf(c)))
+    return !keys.some(key => !baseKeys.has(key) && whole.includes(key))
   }
   const isBaseFail = (c: EvidenceEntry) => !c.ok && baseSigs.has(sigOf(c)) && isAlone(c.seq)
   const known = log.commands.some(c => c.check !== null && c.ok && c.chained !== true && c.seq > lastHard && coversScope(c, log))

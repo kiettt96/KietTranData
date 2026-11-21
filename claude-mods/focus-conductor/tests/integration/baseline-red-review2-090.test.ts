@@ -44,7 +44,8 @@ describe('0.9.0 vòng 3 kiểm độc lập lần hai lỗi 1: dòng lệnh ch�
 })
 
 describe('0.9.0 vòng 3: lệnh kiểm mod nhận ra chạy chung với lệnh đỏ từ nền', () => {
-  test('npm test đạt; tsc đỏ từ nền trong cùng dòng lệnh: bước Kiểm đạt, Stop không đòi lần kiểm đạt (npm test mang kết quả riêng)', BASE_OPTS(), async ($, on) => {
+  // `;` che mã thoát của npm test nên mod không biết npm đạt: cổng vẫn đòi lần kiểm đạt, qua chính lần chạy npm (không qua lệnh đỏ từ nền).
+  test('npm test; tsc đỏ từ nền trong cùng dòng lệnh, cả dòng lỗi: Stop đòi lần kiểm đạt vì kết quả của npm test bị che', BASE_OPTS(), async ($, on) => {
     const sample = baseSetup(on)
     const command = `npm test; ${TSC}`
     sample.outputs[command] = { text: `3 passed\n${TSC_OUT(27)}`, isError: true }
@@ -55,8 +56,7 @@ describe('0.9.0 vòng 3: lệnh kiểm mod nhận ra chạy chung với lệnh �
     await callTool($, { tool: 'Bash', command })
     await closeAll($)
     await reviewSample($)
-    expect(await paneText($, 40, 80)).toContain('Ki\u1ec3m: \u0111\u1ea1t')
-    expect(await stopSample($)).not.toContain(NO_PASS)
+    expect(await stopSample($)).toContain(NO_PASS)
   })
 })
 
