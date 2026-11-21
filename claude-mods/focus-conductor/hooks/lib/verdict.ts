@@ -99,8 +99,11 @@ const PARTIAL = /(?:^|[^\p{L}])(?:phần lớn|một phần|mostly|partially)(?:
  * chung:"). Nhãn chen từ năm từ trở lên không là nhãn.
  */
 const LABEL = /^(?:kết luận|verdict)(?:\s+[^\s:]+){0,4}\s*:\s*/iu
-/** Từ chen có phủ định hay chưa xong (kiểm độc lập vòng 3 lỗi 2): "Kết luận chưa có:", "Verdict not yet final:" không là nhãn. */
-const LABEL_NOT = /^(?:kết luận|verdict)\s+(?:[^\s:]+\s+){0,3}?(?:chưa|không|chẳng|not|no|cannot|can't|yet|pending)(?:[\s:]|$)/iu
+/**
+ * Từ chen nói kết luận chưa có hay không phải (kiểm độc lập vòng 3 lỗi 2): "Kết luận chưa có:", "Kết luận không phải:", "Verdict not yet final:",
+ * "Verdict cannot be given:" không là nhãn. Chữ "không", "no" đứng riêng ("Kết luận không gian tên:", "Verdict with no issues:") vẫn là nhãn (lần hai).
+ */
+const LABEL_NOT = /^(?:kết luận|verdict)\s+(?:[^\s:]+\s+){0,3}?(?:chưa|không (?:phải|thể)|not yet|not final|cannot|can't|pending)(?:[\s:]|$)/iu
 /** Bỏ nhãn kết luận ở đầu chuỗi, trừ nhãn có từ chen phủ định (khi đó trả chuỗi rỗng: dòng không có kết luận). */
 const dropLabel = (text: string) => (LABEL_NOT.test(text) ? '' : text.replace(LABEL, ''))
 /** Nhãn kết luận đứng ngay sau một dấu kết câu trong cùng dòng (vòng 3 N8): "Không có lỗi. Kết luận: đạt." */

@@ -19,7 +19,16 @@ export const seenOf = (retry: RetryState): string[] => (retry as BaseState).seen
 
 /** Thư mục trạng thái của mod: ghi vào đây không là thay đổi khi xét lệnh đỏ từ nền (kiểm độc lập vòng 3 lỗi 4). */
 const MOD_DIR = /(?:^|\/)\.focus-conductor\//
-const isModWrite = (write: EvidenceLog['writes'][number]) => write.paths !== undefined && write.paths.length > 0 && write.paths.every(path => MOD_DIR.test(path))
+/** Đường dẫn đã gộp `.` và `..` (kiểm độc lập vòng 3 lần hai lỗi 4): `/repo/.focus-conductor/../src/a.ts` là `/repo/src/a.ts`. */
+function tidyPath(path: string): string {
+  const out: string[] = []
+  for (const part of path.split('/')) {
+    if (part === '..') out.pop()
+    else if (part !== '.') out.push(part)
+  }
+  return out.join('/')
+}
+const isModWrite = (write: EvidenceLog['writes'][number]) => write.paths !== undefined && write.paths.length > 0 && write.paths.every(path => MOD_DIR.test(tidyPath(path)))
 
 /**
  * Lần chạy ở `seq` đứng trước mọi lần ghi của sổ thay đổi, trừ lần ghi chỉ vào `.focus-conductor/`. Sổ đã nạp lại mà thiếu danh sách ghi

@@ -328,17 +328,24 @@ export function closingCheckState(plan: readonly PlanStep[], log: EvidenceLog, s
   const lastHard = log.lastHard
   const baseSigs = new Set(baseline.map(item => item.sig))
   const baseKeys = new Set(baseline.map(item => runKey(item.command)))
-  // Dòng lệnh chứa lần chạy ở `seq` chỉ gồm lệnh đỏ từ nền (kiểm độc lập vòng 3 lỗi 1): chạy chung với lệnh khác thì lỗi có thể là của lệnh đó,
-  // nên lần chạy không được bỏ qua. Không có lần chạy Bash ghi lại (công cụ kiểm MCP) thì coi như chạy riêng.
+  const sigOf = (c: EvidenceEntry) => checkSignature({ check: c.check ?? 'test', command: checkCommand(c) })
+  const keys = [...new Set(plan.flatMap(step => { const check = stepCheckOf(step.check); return check !== null ? [runKey(check.command)] : [] }))]
+  // Dòng lệnh chứa lần chạy ở `seq` không có lệnh kiểm nào khác ngoài lệnh đỏ từ nền (kiểm độc lập vòng 3 lỗi 1, lần hai): lệnh ở check của một
+  // bước, hay lần chạy kiểm mod nhận ra không là lệnh đỏ từ nền, cùng dòng lệnh thì lỗi có thể là của lệnh đó, nên lần chạy không được bỏ qua.
+  // Ống, cd, echo hay hai lệnh đỏ từ nền chạy chung thì vẫn bỏ qua. Không có lần chạy Bash ghi lại (công cụ kiểm MCP) thì coi như chạy riêng.
   const isAlone = (seq: number) => {
-    const run = steps.runs.find(r => r.seq >= seq)
-    return run === undefined || baseKeys.has(run.keys[0] ?? '')
+    const at = steps.runs.findIndex(r => r.seq >= seq)
+    const run = steps.runs[at]
+    if (run === undefined) return true
+    const whole = run.keys[0] ?? ''
+    if (keys.some(key => !baseKeys.has(key) && whole.includes(key))) return false
+    const from = steps.runs[at - 1]?.seq ?? -1
+    return !log.commands.some(c => c.check !== null && c.seq > from && c.seq <= run.seq && !baseSigs.has(sigOf(c)))
   }
-  const isBaseFail = (c: EvidenceEntry) => !c.ok && baseSigs.has(checkSignature({ check: c.check ?? 'test', command: checkCommand(c) })) && isAlone(c.seq)
+  const isBaseFail = (c: EvidenceEntry) => !c.ok && baseSigs.has(sigOf(c)) && isAlone(c.seq)
   const known = log.commands.some(c => c.check !== null && c.ok && c.chained !== true && c.seq > lastHard && coversScope(c, log))
   const byStep = plan.some(step => stepEvidence(step, steps.runs, lastHard, steps.checkSeq.get(step.id) ?? -1) !== null)
   const lastKnown = [...log.commands].reverse().find(c => c.check !== null && c.chained !== true && c.seq > lastHard && !isBaseFail(c))
-  const keys = [...new Set(plan.flatMap(step => { const check = stepCheckOf(step.check); return check !== null ? [runKey(check.command)] : [] }))]
   const after = [...steps.runs].reverse().filter(run => run.seq > lastHard)
   // Lần chạy lỗi chỉ bị bỏ qua cho chính key của lệnh đỏ từ nền; lệnh khác chạy chung một dòng lệnh vẫn lấy lần chạy đó (kiểm độc lập vòng 3 lỗi 1).
   const latestOf = keys.flatMap(key => { const run = after.find(r => r.keys.includes(key) && !(baseKeys.has(key) && !r.passed)); return run !== undefined ? [run] : [] })
