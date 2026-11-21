@@ -2,6 +2,31 @@
 
 Số đo của HEAD hiện tại và của các bản trước. Mọi số do tác giả chạy trong phiên phát triển [Nguồn: phiên phát triển] trừ khi nêu khác; hợp đồng đối chiếu evidence ở [DESIGN.md](DESIGN.md), lịch sử thay đổi ở [CHANGELOG.md](../CHANGELOG.md), cách dùng ở [README](../README.md).
 
+## 0.9.0 vòng 3: lệnh kiểm đỏ từ nền [Đo trực tiếp, engine 2.1.296, mã của `9d0a74c`, 21/11/2026]
+
+Hiện tượng đo trên `9111be7` và cách đóng (mục Lệnh kiểm đỏ từ nền của DESIGN). Mục tiêu substantial loại edit, `planApproval` off, hai bước có lệnh riêng `bash tests/kiem.sh` (đạt) và `bunx tsc -p tsconfig.json` (lỗi ngay lần chạy đầu).
+
+| Kịch bản | Trên `9111be7` | Sau vòng 3 | Ca test |
+| --- | --- | --- | --- |
+| A0: chưa sửa gì, gọi Stop | chặn "Còn lệnh kiểm chưa đạt", kể cả khi `stop_hook_active` | không chặn | `baseline-red-n3-090` |
+| A1: tsc đỏ ở nền, sửa, lệnh khác đạt, tsc chạy lại vẫn đỏ, duyệt ĐẠT | chặn ở mọi lần Stop | chặn đúng một lần đòi mục "Lệnh kiểm đỏ từ nền", lần sau rỗng | `baseline-red-n3-090`, `baseline-red-n4-090`, `baseline-red-n5-090` |
+| A2: như A1, tsc không chạy lại | chặn | không chặn vì lệnh kiểm chưa đạt | `baseline-red-n3-090` |
+| A4: tsc chạy lại đỏ nhiều lần | lượt tới 3/3, dặn giao "Sửa lỗi kiểm: ", ghi bước `blocked` | lượt giữ 1, không dặn, không bước `blocked` | `baseline-red-n2-090` |
+| A5: mục tiêu light sửa một file | chặn | không chặn vì lệnh kiểm chưa đạt | `baseline-red-n3-090` |
+| D: subagent "Kiểm độc lập: " chạy lại tsc đỏ | lần chạy đó chặn luồng chính | không chặn; bước Kiểm không thành chưa đạt | `baseline-red-n5-090` |
+
+- Số ca: cả bộ `claude plugin test .` 4563 test qua, 0 lỗi, 443 tệp, 593 giây (nền 4465 ca, thêm 98 ca, không ca cũ nào bị xoá). Tệp test mới của vòng 3: 18 tệp: `baseline-red-*` 12 tệp (gồm `baseline-red-mut-090`), `verdict-labels-*` 5 tệp, `verdict-sentence-mut-090`; cùng `tests/support/baseline-red.ts` và `tests/fixtures/tsc-head-090.ts`. Test cũ đổi: 2 tệp (`retry-detail-a6-080` 2 ca, `retry-restore-a12-080` 1 ca), thêm một lần sửa trước lần chạy lỗi của subagent, không xoá ca, không nới phép khẳng định.
+- Toàn luồng (N10): `baseline-red-flow-n10-090` dùng nguyên văn đầu ra thật của `bunx tsc -p tsconfig.json` trên mã của PR này (27 lỗi có sẵn, `tests/fixtures/tsc-head-090.ts`); ca đỏ trên `9111be7`, đạt trên mã mới. Lượt này không có phiên model thật (ràng buộc của prompt).
+- Kiểm độc lập hai lần (tác tử mới, chưa thấy quá trình làm): lần một trên `5d0a9f8` không đạt, 4 lỗi (1 nặng, 1 vừa, 2 nhẹ); lần hai trên `b29ad90` không đạt, 4 lỗi (1 vừa, 3 nhẹ). Đã sửa 7, mỗi lỗi một ca đỏ trước bản sửa; 2 điểm lệch về hướng an toàn ghi ở Giới hạn có chủ đích. Sau đó B1 tới B3 của lượt bổ sung.
+- Đột biến (luật nhận và cách chạy của mục M22, thứ tự nhóm test theo bản): lượt chính trên `b29ad90`, 237 mẫu (34 mẫu `090-N` mới, 203 mẫu cũ trong hàm có dòng đổi): 227 KILLED, 2 EQUIVALENT (`061-U11`, `090-U2a`, lý do có sẵn trong `scripts/mutants.ts`), 8 SURVIVED. Đợt bổ sung trên `a287ef1` sau khi thêm ca bắt: 60 mẫu (8 mẫu sống của lượt chính, mẫu trong hàm đổi sau `b29ad90`, mẫu mới hay sửa chuỗi): 58 KILLED, 1 EQUIVALENT (`090-U2a`), 1 SURVIVED (`090-N5e`); cả 8 mẫu sống của lượt chính bị diệt. `090-N5e` chỉ ra nhánh xét lần chạy kiểm mod nhận ra của `isAlone` không đổi kết quả ở dạng lệnh nào (lần chạy đứng trước bị `;` che mã thoát, lần chạy nối `&&` bị loại), nên nhánh được bỏ và mẫu bỏ theo; 9 mẫu của `closingCheckState` chạy lại trên `9d0a74c`: 9 KILLED. Kết quả cuối của lượt: 0 mẫu sống, 2 tương đương có lý do (`061-U11`, `090-U2a`).
+- `scripts/mutate.ts --check` 2724/2724. `tsc` (TypeScript 6.0.2, khai báo kiểu 2.1.296, worktree tạm): 27 lỗi, tập lỗi chỉ có ở head so với `main` `14a3a85` rỗng.
+- Ký tự chèn (bộ đo của mục 0.8.9): trên `9111be7` và `9d0a74c` giữ đủ mười số, mặc định 10.738 và 19.986; Fable 8.642 và 7.127; sau `/conductor solo` 17.007 và 24.748; sau mười việc 22.137 và 45.520; kịch bản phiên theo kỷ luật giao việc 1.398. Vòng 3 không chèn thêm ký tự nào vào context ở các kịch bản này.
+- Xem trước giao diện trước và sau (band 56, 72, 120 cột; pane 16, 24, 40 dòng, vi và en) lưu ở nơi ghi phụ; dòng mới của pane: `△ đỏ từ nền: \`bunx tsc -p tsconfig.json\``.
+
+sha256 (mỗi tệp theo `git ls-files`, xếp theo tên, `sha256sum` của danh sách `sha256sum`) tại `9d0a74c`: `hooks/` `b38bb0b487ba979bf258862b22a3723d7e6d4627196969d4f85a91845ed63ac0`; `tests/` `b20f5a14dc7f64c0494e4bcb6d62da394fbaeba19a91cdf076ba620681d0f5aa`.
+
+CI trên runner sạch: workflow `focus-conductor` qua trên `9d0a74c` [Nguồn: GitHub Actions run 44890447779, 2026-11-21].
+
 ## 0.9.0 vòng 2 M24: đối chiếu việc tồn tại 12056bf [Đo trực tiếp, engine 2.1.296, 19/11/2026]
 
 Mỗi dòng việc tồn của CHANGELOG 0.9.0 tại `12056bf` và cách đóng. Sau vòng này mục Việc tồn của 0.9.0 chỉ còn 5 mẫu sống sót của M22 (mục M22 bên dưới) và các điểm chủ mod quyết định không sửa; các điểm giữ nguyên nằm ở [DESIGN.md](DESIGN.md), mục Giới hạn có chủ đích (0.9.0 vòng 2).
