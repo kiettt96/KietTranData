@@ -13,12 +13,18 @@ export const TSC_OUT = (count: number) => `src/a.ts(3,7): error TS2322: Type 'st
 export const BASE_STEPS = [{ title: 'Việc 1: tách hàm', check: `\`${CHECK}\`` }, { title: 'Việc 2: kiểu', check: `\`${TSC}\`` }, { title: 'Việc 3: báo cáo' }]
 export const BASE_OPTS = (over: Json = {}) => ({ options: { planApproval: 'off', ...over } })
 
-export type BaseSample = Sample & { count: number }
-/** Engine giả của mục tiêu mẫu; `tsc` trả lỗi với số đếm `count` (đổi được giữa các lần chạy). */
+export type BaseSample = Sample & { count: number | null }
+/** Dòng lỗi của tsc không kèm dòng tổng kết số đếm. */
+export const TSC_NO_COUNT = "src/a.ts(3,7): error TS2322: Type 'string' is not assignable to type 'number'.\n"
+/**
+ * Engine giả của mục tiêu mẫu; `tsc` trả lỗi với số đếm `count` (đổi được giữa các lần chạy): 0 là chạy đạt, null là lỗi không có dòng
+ * tổng kết số đếm.
+ */
 export function baseSetup(on: On, reply: Json = sampleGoal()): BaseSample {
   const sample = sampleSetup(on, reply) as BaseSample
   sample.count = 27
-  Object.defineProperty(sample.outputs, TSC, { get: () => ({ text: TSC_OUT(sample.count), isError: true }), enumerable: true, configurable: true })
+  const out = () => (sample.count === 0 ? { text: '' } : { text: sample.count === null ? TSC_NO_COUNT : TSC_OUT(sample.count), isError: true })
+  Object.defineProperty(sample.outputs, TSC, { get: out, enumerable: true, configurable: true })
   return sample
 }
 /** Mở mục tiêu mẫu với ba bước của vòng 3; `offer` false thì không mời agent nào (cổng đóng không áp). */
