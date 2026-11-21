@@ -310,7 +310,9 @@ async function stalePrints($: EngineInterface, goalId: number, verdicts: readonl
 /** Đích đọc được của một lần ghi (0.9.0 C5): đường dẫn của tool sửa file, hay đích của tác động ghi mức definite của Bash. */
 /** Trạng thái các bước đóng (0.9.0 C3), dùng chung cho pane (Core.team) và cổng đóng mục tiêu. */
 function teamSteps(core: Core, brief: Brief, log: EvidenceLog, verdicts: readonly ClosingVerdict[], runs: Ctx['local']['stepRuns']) {
-  const { checked, checkFailed } = closingCheckState(core.plan, log, runs.goalId === brief.goalId ? runs : { runs: [], checkSeq: new Map() })
+  // Lệnh đỏ từ nền của mục tiêu (vòng 3 N5): lần chạy lỗi của chúng không làm bước Kiểm chưa đạt.
+  const base = core.retry.goalId === brief.goalId ? core.retry.items.filter(isBaseline) : []
+  const { checked, checkFailed } = closingCheckState(core.plan, log, runs.goalId === brief.goalId ? runs : { runs: [], checkSeq: new Map() }, base)
   // Bước Kiểm chỉ khi đã có thay đổi không nhẹ cần kiểm (vòng 2 U5); đoạn dặn bước đóng vẫn tính theo hasKnownCheck như trước.
   return closingSteps({ hasCheck: log.hard > 0 && hasKnownCheck(core.plan, S.changedOf(core).paths, log), isHard: brief.depth === 'hard', checked, checkFailed, lastHard: log.lastHard, lastChange: log.lastChange, verdicts })
 }
@@ -320,15 +322,18 @@ function teamSteps(core: Core, brief: Brief, log: EvidenceLog, verdicts: readonl
  * hoặc một lần chạy khớp lệnh ở check của một bước đủ điều kiện bằng chứng của B10 (stepEvidence), và không có lỗi theo hai luật sau.
  * Lệnh ở check của bước (L1): mỗi lệnh khác nhau lấy lần chạy gần nhất của chính nó sau thay đổi đó; một lệnh có lần gần nhất lỗi thì
  * chưa đạt, dù lệnh của bước khác chạy đạt sau đó. Lệnh kiểm mod nhận ra: lỗi khi lần chạy gần nhất của loại này lỗi và đến sau mọi lần
- * chạy của lệnh ở check.
+ * chạy của lệnh ở check. Lần chạy lỗi của lệnh đỏ từ nền (`baseline`, vòng 3 N5) bị bỏ qua ở cả hai luật; nó vẫn không là lần đạt.
  */
-export function closingCheckState(plan: readonly PlanStep[], log: EvidenceLog, steps: { runs: readonly StepRun[]; checkSeq: ReadonlyMap<number, number> }): { checked: boolean; checkFailed: boolean } {
+export function closingCheckState(plan: readonly PlanStep[], log: EvidenceLog, steps: { runs: readonly StepRun[]; checkSeq: ReadonlyMap<number, number> }, baseline: readonly { sig: string; command: string }[] = []): { checked: boolean; checkFailed: boolean } {
   const lastHard = log.lastHard
+  const baseSigs = new Set(baseline.map(item => item.sig))
+  const baseKeys = new Set(baseline.map(item => runKey(item.command)))
+  const isBaseFail = (c: EvidenceEntry) => !c.ok && baseSigs.has(checkSignature({ check: c.check ?? 'test', command: checkCommand(c) }))
   const known = log.commands.some(c => c.check !== null && c.ok && c.chained !== true && c.seq > lastHard && coversScope(c, log))
   const byStep = plan.some(step => stepEvidence(step, steps.runs, lastHard, steps.checkSeq.get(step.id) ?? -1) !== null)
-  const lastKnown = [...log.commands].reverse().find(c => c.check !== null && c.chained !== true && c.seq > lastHard)
+  const lastKnown = [...log.commands].reverse().find(c => c.check !== null && c.chained !== true && c.seq > lastHard && !isBaseFail(c))
   const keys = [...new Set(plan.flatMap(step => { const check = stepCheckOf(step.check); return check !== null ? [runKey(check.command)] : [] }))]
-  const after = [...steps.runs].reverse().filter(run => run.seq > lastHard)
+  const after = [...steps.runs].reverse().filter(run => run.seq > lastHard && !(!run.passed && run.keys.some(key => baseKeys.has(key))))
   const latestOf = keys.flatMap(key => { const run = after.find(r => r.keys.includes(key)); return run !== undefined ? [run] : [] })
   const lastRun = after.find(run => latestOf.includes(run))
   const stepFailed = latestOf.some(run => !run.passed)
