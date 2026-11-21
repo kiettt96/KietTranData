@@ -1340,6 +1340,14 @@ export function retryBaselineNotice(item: { command: string; more: readonly stri
   return `[focus-conductor] Lệnh kiểm đỏ từ trước khi có thay đổi: ${retryName(item)}. Lỗi ngoài việc được giao thì không sửa; nêu lệnh và lỗi trong câu trả lời cuối.`.slice(0, RETRY_NOTICE_CHARS)
 }
 
+/** Lệnh đỏ từ nền có số đếm lỗi tăng so với lần nền (vòng 3 N6): thành mục thường lượt 1, câu báo nêu hai số đếm. */
+export function retryGrewNotice(item: { command: string; more: readonly string[]; round: number }, base: number, now: number): string {
+  const text =
+    `[focus-conductor] Lệnh kiểm chưa đạt: ${retryName(item)} (lượt ${item.round}/${RETRY_ROUNDS}), số lỗi tăng từ ${base} lên ${now} so với lúc chưa có thay đổi. ` +
+    'Đọc lỗi, sửa nguyên nhân gốc, rồi chạy lại đúng lệnh đó.'
+  return text.slice(0, RETRY_NOTICE_CHARS)
+}
+
 /** Câu kèm kết quả plan update done khi còn lệnh kiểm chưa đạt. */
 export function retryDoneNote(count: number): string {
   return `[focus-conductor] Còn ${count} lệnh kiểm chưa đạt của mục tiêu này: đóng bước vẫn được, nhưng cổng kết thúc sẽ chặn cho tới khi lệnh đó đạt.`.slice(0, RETRY_DONE_CHARS)

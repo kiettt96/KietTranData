@@ -40,3 +40,15 @@ export function keepBase(raw: Partial<RetryItem>, item: RetryItem): BaseItem {
     ...(mark.baseAsked === true ? { baseAsked: true as const } : {}),
   }
 }
+
+/** Bỏ phần vòng 3 khỏi một mục (mất cờ: số đếm tăng so với nền, hay option baselineChecks off). */
+export function stripBase(item: RetryItem): RetryItem {
+  const { baseline: _b, baseCount: _c, baseAsked: _a, ...rest } = item as BaseItem
+  return rest
+}
+
+/** Lần lỗi sau của lệnh đỏ từ nền có số đếm lớn hơn số đếm ở lần nền (cả hai phải đọc được). */
+export function hasGrown(item: RetryItem, count: number | null): boolean {
+  const base = baseOf(item).baseCount
+  return typeof base === 'number' && count !== null && count > base
+}

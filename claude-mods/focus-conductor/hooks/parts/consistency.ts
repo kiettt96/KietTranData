@@ -26,7 +26,7 @@ import type { Finding, Focus, ToolObservation, TurnTracker } from '../lib/drift'
 import { checkCommand, checkSignature, coversFailure, isFailedRun } from '../lib/drift/evidence'
 import { isCustomCheck } from '../lib/drift/verify'
 import type { CheckRun, EvidenceEntry, EvidenceLog } from '../lib/drift/evidence'
-import { BASE_SEEN, baseOf, errorCountOf, isBaseline, isBaselineRun, seenOf } from '../lib/baseline'
+import { BASE_SEEN, baseOf, errorCountOf, hasGrown, isBaseline, isBaselineRun, seenOf, stripBase } from '../lib/baseline'
 import type { BaseItem, BaseState } from '../lib/baseline'
 import { clipText } from '../lib/decisions'
 import { addUsage, calibrate, recordShape, safeUsage, shapeKey } from '../lib/ledger'
@@ -46,7 +46,7 @@ import { isMainConducting } from '../lib/conductor'
 import type { View } from '../lib/state'
 import { shownPlan } from '../lib/mirror'
 import { forkFailures, forkFiles, forkResults, liveForks, mergeDue } from '../lib/forks'
-import { PLAN_TOOL_FULL, RETRY_REPORT, chainedCheckNote, retryAgentNotice, RETRY_ROUNDS, noCheckReason, waiveAskText, blockText, firstErrorLine, clipMiddle, RETRY_COMMAND_CHARS, joinStopReasons, retryDoneNote, retryEditNote, baselineAskText, retryBaselineNotice, retryFailNotice, retryName, retryStepNote, retryStopReason, skillTrialReason, changedFilesNotice, checkHintText, compactReminderText, conductCheckDenyText, conductReadText, conductWriteDenyText, conductorKeepText, criteriaNotice, driftContext, missingTasks, missingTasksNotice, needsChecklist, noChecklistReason, pendingNotice, qualityNotice, renderBulk, renderPlan, requirementsNotice, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice, forkMergedNote } from '../lib/text'
+import { PLAN_TOOL_FULL, RETRY_REPORT, chainedCheckNote, retryAgentNotice, RETRY_ROUNDS, noCheckReason, waiveAskText, blockText, firstErrorLine, clipMiddle, RETRY_COMMAND_CHARS, joinStopReasons, retryDoneNote, retryEditNote, baselineAskText, retryBaselineNotice, retryFailNotice, retryGrewNotice, retryName, retryStepNote, retryStopReason, skillTrialReason, changedFilesNotice, checkHintText, compactReminderText, conductCheckDenyText, conductReadText, conductWriteDenyText, conductorKeepText, criteriaNotice, driftContext, missingTasks, missingTasksNotice, needsChecklist, noChecklistReason, pendingNotice, qualityNotice, renderBulk, renderPlan, requirementsNotice, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice, forkMergedNote } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx, VerdictRun } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -553,6 +553,8 @@ type RetryDeps = {
   lang: Lang
   /** Sổ thay đổi của mục tiêu (vòng 3): biết lần chạy lỗi có đứng trước mọi thay đổi không. */
   evidenceFor: (goalId: number) => EvidenceLog
+  /** Option baselineChecks (vòng 3 N6): off thì không có lệnh đỏ từ nền. */
+  baselineOn: () => boolean
 }
 
 /**
@@ -563,7 +565,9 @@ type RetryDeps = {
 async function noteChecks($: EngineInterface, deps: RetryDeps, core: Core, goalId: number, entries: readonly EvidenceEntry[], observation: { output?: string; isError: boolean }, start: Choice, isMain: boolean, agent?: string): Promise<string[]> {
   if (entries.length === 0) return []
   const retry = core.retry.goalId === goalId ? core.retry : { goalId, items: [] }
-  let items: RetryItem[] = retry.items.map(item => ({ ...item, levels: [...item.levels], closedSteps: [...item.closedSteps], more: [...item.more] }))
+  const isOn = deps.baselineOn()
+  // baselineChecks off (vòng 3 N6): mọi mục mất cờ đỏ từ nền.
+  let items: RetryItem[] = retry.items.map(item => (isOn ? item : stripBase(item))).map(item => ({ ...item, levels: [...item.levels], closedSteps: [...item.closedSteps], more: [...item.more] }))
   const error = firstErrorLine(observation.output, observation.isError)
   // Người chạy và giờ chạy lần lỗi (0.8.0 A6).
   const runner = isMain ? '' : clipText(agent ?? 'không tên', 60)
@@ -578,6 +582,7 @@ async function noteChecks($: EngineInterface, deps: RetryDeps, core: Core, goalI
   const agentNotes: string[] = []
   // Chữ ký đã có lần chạy lỗi trong mục tiêu (vòng 3): lần lỗi sau của chúng không còn là lần lỗi đầu tiên.
   const seen = new Set(seenOf(retry))
+  const grew: Array<{ item: RetryItem; base: number; now: number }> = []
   for (const entry of entries) {
     const run: CheckRun = { check: entry.check ?? 'test', command: checkCommand(entry) }
     const sig = checkSignature(run)
@@ -603,13 +608,19 @@ async function noteChecks($: EngineInterface, deps: RetryDeps, core: Core, goalI
     }
     if (!isFailedRun(entry, observation as never)) continue
     // Lần lỗi đầu tiên của lệnh trong mục tiêu, trước mọi thay đổi: đỏ từ nền (vòng 3 N1).
-    const isBase = !seen.has(sig) && isBaselineRun(deps.evidenceFor(goalId), entry.seq)
+    const isBase = isOn && !seen.has(sig) && isBaselineRun(deps.evidenceFor(goalId), entry.seq)
     seen.add(sig)
     const known = items.find(item => item.sig === sig) ?? items.find(item => item.more.includes(sig))
     if (known !== undefined) {
       if (error !== '') known.lastError = error
       known.runner = runner
       known.ranAt = ranAt
+      // Số đếm lỗi tăng so với lần nền (vòng 3 N6): mất cờ, thành mục thường lượt 1 kèm câu báo nêu hai số đếm.
+      const count = errorCountOf(observation.output)
+      if (isBaseline(known) && hasGrown(known, count)) {
+        grew.push({ item: known, base: baseOf(known).baseCount as number, now: count as number })
+        continue
+      }
       // Lệnh đỏ từ nền chạy lại vẫn lỗi (vòng 3 N2): không tính lượt, không báo kẹt.
       if (isBaseline(known)) continue
       // Chạy lại vẫn lỗi (0.8.0 A2): Stop kế tiếp được tăng lượt.
@@ -661,6 +672,12 @@ async function noteChecks($: EngineInterface, deps: RetryDeps, core: Core, goalI
       touched.add(merged)
     }
   }
+  const grown: string[] = []
+  for (const { item, base, now } of grew) {
+    const plain = { ...stripBase(item), round: 1, noticed: 1, retried: false, idle: 0 }
+    items = items.map(x => (x === item ? plain : x))
+    if (isMain) grown.push(retryGrewNotice(plain, base, now))
+  }
   if (stuck !== null) deps.noteStuck(core, stuck)
   if (cleared.length > 0) {
     const at = await $.clock.now()
@@ -669,7 +686,7 @@ async function noteChecks($: EngineInterface, deps: RetryDeps, core: Core, goalI
       $.ui.toast(labels(deps.lang).retryCleared(item.command, step))
     }
   }
-  const notes: string[] = [...agentNotes]
+  const notes: string[] = [...agentNotes, ...grown]
   if (isMain) {
     for (const item of touched) {
       if (item.exhausted || item.noticed >= item.round || waived.some(w => w.sig === item.sig)) continue
@@ -694,6 +711,8 @@ async function noteChecks($: EngineInterface, deps: RetryDeps, core: Core, goalI
 async function retryGate($: EngineInterface, deps: RetryDeps, lastMessage: string | undefined): Promise<{ reason: string | null; isPlanChanged: boolean }> {
   let core = S.normalizeCore(await read($, coreState))
   if (core.brief === null) return { reason: null, isPlanChanged: false }
+  // baselineChecks off (vòng 3 N6): mọi mục mất cờ đỏ từ nền trước khi cổng xét.
+  if (!deps.baselineOn() && core.retry.items.some(isBaseline)) await update($, coreState, c => S.withRetry({ ...c.retry, items: c.retry.items.map(stripBase) } as BaseState)(c))
   if (typeof lastMessage === 'string') await logExhausted($, deps, core, lastMessage, null)
   core = S.normalizeCore(await read($, coreState))
   const live = liveRetry(core)
@@ -1328,6 +1347,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     toolCalls: () => L.tracker.toolCalls,
     lang: langOf(ctx.options['uiLanguage']),
     evidenceFor,
+    baselineOn: () => ctx.options['baselineChecks'] !== 'off',
   }
 
 

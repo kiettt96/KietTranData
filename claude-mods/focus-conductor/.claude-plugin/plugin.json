@@ -37,6 +37,12 @@
       "description": "Từ 0.9.0: đội hình do mod áp. Bật khi mục tiêu sửa file và router chấm substantial hay hard, hoặc đã có từ 3 file không nhẹ khác nhau được sửa. Khi bật, mod dặn một lần các bước đóng (lệnh kiểm đạt sau thay đổi cuối khi có lệnh kiểm, Duyệt:, Sẵn sàng: với việc hard); cổng Stop chặn khi thiếu, tối đa 3 lần mỗi mục tiêu; /conductor waive review bỏ qua. auto (mặc định) hay off. (en) From 0.9.0: the mod applies the team. On when an editing goal is rated substantial or hard, or 3 or more different non-light files have been edited. Once on, the mod gives the closing steps once (a passing check after the last change when a check command is known, Review:, Readiness: for hard goals); Stop blocks while one is missing, at most 3 times per goal; /conductor waive review skips. auto (default) or off.",
       "default": "auto"
     },
+    "baselineChecks": {
+      "type": "string",
+      "title": "Lệnh kiểm đỏ từ nền",
+      "description": "Từ 0.9.0 vòng 3. Lệnh kiểm có lần chạy lỗi đầu tiên trước mọi thay đổi của mục tiêu là đỏ từ nền: không tính lượt của cổng lệnh kiểm chưa đạt, không chặn kết thúc, không làm bước Kiểm của cổng đóng chưa đạt; mục tiêu đã có thay đổi thì Stop chặn một lần đòi mục \"Lệnh kiểm đỏ từ nền\" trong câu trả lời cuối. Lệnh mất cờ khi chạy đạt một lần hay khi số đếm lỗi tăng so với lần nền. auto (mặc định) hay off: off thì mọi lệnh lỗi theo luật của cổng lệnh kiểm chưa đạt. (en) From 0.9.0 round 3. A check whose first failing run comes before any change of the goal is red at baseline: it adds no round to the failing-check gate, does not block the end, and does not fail the closing Check step; once the goal has changes, Stop blocks once asking for a \"Checks red at baseline\" section in the final answer. A check loses the mark once it passes or when its error count grows over the baseline run. auto (default) or off: off sends every failing check through the failing-check gate.",
+      "default": "auto"
+    },
     "conductorFallback": {
       "type": "string",
       "title": "Model điều phối dự phòng",
