@@ -43,6 +43,23 @@ describe('0.9.0 vòng 3 kiểm độc lập lần hai lỗi 1: dòng lệnh ch�
   })
 })
 
+describe('0.9.0 vòng 3: lệnh kiểm mod nhận ra chạy chung với lệnh đỏ từ nền', () => {
+  test('npm test đạt; tsc đỏ từ nền trong cùng dòng lệnh: bước Kiểm đạt, Stop không đòi lần kiểm đạt (npm test mang kết quả riêng)', BASE_OPTS(), async ($, on) => {
+    const sample = baseSetup(on)
+    const command = `npm test; ${TSC}`
+    sample.outputs[command] = { text: `3 passed\n${TSC_OUT(27)}`, isError: true }
+    await baseOpen($, sample)
+    await runTsc($)
+    await editSample($)
+    await runKiem($)
+    await callTool($, { tool: 'Bash', command })
+    await closeAll($)
+    await reviewSample($)
+    expect(await paneText($, 40, 80)).toContain('Ki\u1ec3m: \u0111\u1ea1t')
+    expect(await stopSample($)).not.toContain(NO_PASS)
+  })
+})
+
 describe('0.9.0 vòng 3 kiểm độc lập lần hai lỗi 4: đường dẫn đi qua .focus-conductor/ rồi ra ngoài', () => {
   test('Write /repo/.focus-conductor/../src/a.ts rồi tsc đỏ: lệnh không là đỏ từ nền, cổng lệnh kiểm chưa đạt chặn', BASE_OPTS(), async ($, on) => {
     const sample = baseSetup(on)
