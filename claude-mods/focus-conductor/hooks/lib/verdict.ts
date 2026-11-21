@@ -99,6 +99,10 @@ const PARTIAL = /(?:^|[^\p{L}])(?:phần lớn|một phần|mostly|partially)(?:
  * chung:"). Nhãn chen từ năm từ trở lên không là nhãn.
  */
 const LABEL = /^(?:kết luận|verdict)(?:\s+[^\s:]+){0,4}\s*:\s*/iu
+/** Từ chen có phủ định hay chưa xong (kiểm độc lập vòng 3 lỗi 2): "Kết luận chưa có:", "Verdict not yet final:" không là nhãn. */
+const LABEL_NOT = /^(?:kết luận|verdict)\s+(?:[^\s:]+\s+){0,3}?(?:chưa|không|chẳng|not|no|cannot|can't|yet|pending)(?:[\s:]|$)/iu
+/** Bỏ nhãn kết luận ở đầu chuỗi, trừ nhãn có từ chen phủ định (khi đó trả chuỗi rỗng: dòng không có kết luận). */
+const dropLabel = (text: string) => (LABEL_NOT.test(text) ? '' : text.replace(LABEL, ''))
 /** Nhãn kết luận đứng ngay sau một dấu kết câu trong cùng dòng (vòng 3 N8): "Không có lỗi. Kết luận: đạt." */
 const MID_LABEL = /[.!?]\s+((?:kết luận|verdict)(?:\s+[^\s:]+){0,4}\s*:.*)$/iu
 
@@ -106,11 +110,18 @@ function lineVerdict(raw: string): VerdictLine | null {
   // Chuẩn hóa ký tự (vòng 2 M2): nháy cong thành nháy thẳng, các loại gạch nối thành `-`, khoảng trắng đặc biệt thành khoảng trắng thường.
   let text = raw.normalize('NFC').replace(/[\u200b-\u200d\ufeff]/gu, '').replace(/[\u2018\u2019\u201b\u2032]/gu, "'").replace(/[\u2010-\u2015\u2212]/gu, '-').replace(/[\u00a0\u2000-\u200a\u202f\u205f\u3000]/gu, ' ').replace(/[*_`]+/gu, '').replace(/\s+/gu, ' ').trim()
   text = text.replace(/^(?:[#>]+\s*|[-+•]\s+|\d+[.)]\s+)+/u, '').trim()
-  const found = wordVerdict(text.replace(LABEL, '').trim().toLowerCase())
+  const found = wordVerdict(dropLabel(text).trim().toLowerCase())
   if (found !== null) return found
   // Dòng không mở đầu bằng kết luận mà có nhãn kết luận sau một dấu kết câu (vòng 3 N8): đọc phần từ nhãn đó.
-  const mid = MID_LABEL.exec(text)?.[1]
-  return mid !== undefined ? wordVerdict(mid.replace(LABEL, '').trim().toLowerCase()) : null
+  const hit = MID_LABEL.exec(text)
+  const mid = hit?.[1]
+  if (hit === null || mid === undefined) return null
+  const verdict = wordVerdict(dropLabel(mid).trim().toLowerCase())
+  // Mức lỗi cao không bị phủ định ở phần trước nhãn (kiểm độc lập vòng 3 lỗi 3): kết luận đạt thành chưa đạt, như trong câu đầu.
+  const before = dropZeroHigh(dropNegated(text.slice(0, hit.index).toLowerCase(), HIGH_WORDS))
+  const isHigh = HIGH.test(before) || HIGH_VUA.test(before)
+  if (verdict !== null && !('unclear' in verdict) && isHigh && (verdict.verdict === 'pass' || verdict.verdict === 'ready')) return { ...verdict, verdict: verdict.verdict === 'pass' ? 'fail' : 'not-ready', isCheckOnly: false }
+  return verdict
 }
 
 /** Đọc phần đã bỏ nhãn của một dòng: mở đầu bằng một từ kết luận thì là dòng kết luận, không thì null. */
