@@ -28,15 +28,21 @@ function tidyPath(path: string): string {
   }
   return out.join('/')
 }
-const isModWrite = (write: EvidenceLog['writes'][number]) => write.paths !== undefined && write.paths.length > 0 && write.paths.every(path => MOD_DIR.test(tidyPath(path)))
+export type Write = EvidenceLog['writes'][number]
+const isModWrite = (write: Write) => write.paths !== undefined && write.paths.length > 0 && write.paths.every(path => MOD_DIR.test(tidyPath(path)))
 
 /**
  * Lần chạy ở `seq` đứng trước mọi lần ghi của sổ thay đổi, trừ lần ghi chỉ vào `.focus-conductor/`. Sổ đã nạp lại mà thiếu danh sách ghi
  * thì không tính là nền.
  */
-export function isBaselineRun(log: EvidenceLog, seq: number): boolean {
+export function isBaselineRun(log: EvidenceLog, seq: number, isCheckWrite: (write: Write) => boolean = () => false): boolean {
   if (log.mutations === 0) return true
-  return log.writes.length === log.mutations && !log.writes.some(write => write.seq < seq && !isModWrite(write))
+  return log.writes.length === log.mutations && !log.writes.some(write => write.seq < seq && !isModWrite(write) && !isCheckWrite(write))
+}
+
+/** Mục tiêu đã có thay đổi khi xét lần đòi nêu lệnh đỏ từ nền (vòng 3 B1): như isBaselineRun, xét mọi lần ghi tới lúc này. */
+export function hasChanges(log: EvidenceLog, isCheckWrite: (write: Write) => boolean = () => false): boolean {
+  return !isBaselineRun(log, Number.POSITIVE_INFINITY, isCheckWrite)
 }
 
 /** Số đếm lỗi đọc được trong output của lệnh kiểm (dòng tổng kết cuối có số kèm error, errors, failed, fail, failures); null khi không có. */

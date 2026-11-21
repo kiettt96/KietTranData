@@ -26,8 +26,8 @@ import type { Finding, Focus, ToolObservation, TurnTracker } from '../lib/drift'
 import { checkCommand, checkSignature, coversFailure, isFailedRun } from '../lib/drift/evidence'
 import { isCustomCheck } from '../lib/drift/verify'
 import type { CheckRun, EvidenceEntry, EvidenceLog } from '../lib/drift/evidence'
-import { BASE_SEEN, baseOf, errorCountOf, hasGrown, isBaseline, isBaselineRun, seenOf, stripBase } from '../lib/baseline'
-import type { BaseItem, BaseState } from '../lib/baseline'
+import { BASE_SEEN, baseOf, errorCountOf, hasChanges, hasGrown, isBaseline, isBaselineRun, seenOf, stripBase } from '../lib/baseline'
+import type { BaseItem, BaseState, Write } from '../lib/baseline'
 import { clipText } from '../lib/decisions'
 import { addUsage, calibrate, recordShape, safeUsage, shapeKey } from '../lib/ledger'
 import { applyPlan } from '../lib/plan'
@@ -540,6 +540,23 @@ function isCheckCall(tool: string): boolean {
   return tool === 'Bash' || isCheckTool(tool)
 }
 
+/**
+ * Lần ghi của chính một lần chạy kiểm (vòng 3 B1): lần ghi không definite, không có đích, trong một lần chạy Bash mà mod ghi là lần chạy kiểm
+ * (có lần chạy kiểm mod nhận ra, hay cả dòng lệnh là lệnh ở check của một bước). Lần ghi nối với lần chạy Bash qua danh sách lần chạy của bước
+ * (mốc seq lúc xong mỗi lần chạy); lần ghi không nằm trong lần chạy nào còn giữ thì không miễn.
+ */
+function checkWriteOf(log: EvidenceLog, runs: readonly StepRun[], plan: readonly PlanStep[]): (write: Write) => boolean {
+  const stepKeys = new Set(plan.flatMap(step => { const check = stepCheckOf(step.check); return check !== null ? [runKey(check.command)] : [] }))
+  return write => {
+    if (write.definite === true || (write.paths?.length ?? 0) > 0) return false
+    const at = runs.findIndex(run => run.seq >= write.seq)
+    const run = runs[at]
+    if (run === undefined) return false
+    const from = runs[at - 1]?.seq ?? -1
+    return stepKeys.has(run.keys[0] ?? '') || log.commands.some(c => c.check !== null && c.seq > from && c.seq <= run.seq)
+  }
+}
+
 /** Mục chưa hết lượt của mục tiêu hiện tại, trừ mục chủ mod đã miễn (0.7.9 Y5) và mục đỏ từ nền (vòng 3 N3). */
 function liveRetry(core: Core): RetryItem[] {
   return core.brief !== null && core.retry.goalId === core.brief.goalId ? core.retry.items.filter(item => !item.exhausted && !S.isWaived(core, item.sig) && !isBaseline(item)) : []
@@ -569,6 +586,8 @@ type RetryDeps = {
   evidenceFor: (goalId: number) => EvidenceLog
   /** Option baselineChecks (vòng 3 N6): off thì không có lệnh đỏ từ nền. */
   baselineOn: () => boolean
+  /** Lần ghi của chính một lần chạy kiểm (vòng 3 B1), theo mục tiêu và checklist. */
+  checkWrite: (goalId: number, plan: readonly PlanStep[]) => (write: Write) => boolean
 }
 
 /**
@@ -622,7 +641,7 @@ async function noteChecks($: EngineInterface, deps: RetryDeps, core: Core, goalI
     }
     if (!isFailedRun(entry, observation as never)) continue
     // Lần lỗi đầu tiên của lệnh trong mục tiêu, trước mọi thay đổi: đỏ từ nền (vòng 3 N1).
-    const isBase = isOn && !seen.has(sig) && isBaselineRun(deps.evidenceFor(goalId), entry.seq)
+    const isBase = isOn && !seen.has(sig) && isBaselineRun(deps.evidenceFor(goalId), entry.seq, deps.checkWrite(goalId, core.plan))
     seen.add(sig)
     const known = items.find(item => item.sig === sig) ?? items.find(item => item.more.includes(sig))
     if (known !== undefined) {
@@ -819,9 +838,9 @@ async function askWaived($: EngineInterface): Promise<string | null> {
  * Lần chặn đòi mục "Lệnh kiểm đỏ từ nền" (vòng 3 N4): mục tiêu đã có thay đổi và còn mục đỏ từ nền chưa đòi thì trả lý do và đánh dấu đã
  * đòi, nên chỉ chặn một lần cho mỗi lệnh. Mục tiêu chưa có thay đổi thì không đòi.
  */
-async function askBaseline($: EngineInterface, log: (goalId: number) => EvidenceLog): Promise<string | null> {
+async function askBaseline($: EngineInterface, deps: RetryDeps): Promise<string | null> {
   const core = S.normalizeCore(await read($, coreState))
-  if (core.brief === null || core.retry.goalId !== core.brief.goalId || log(core.brief.goalId).mutations === 0) return null
+  if (core.brief === null || core.retry.goalId !== core.brief.goalId || !hasChanges(deps.evidenceFor(core.brief.goalId), deps.checkWrite(core.brief.goalId, core.plan))) return null
   const due = core.retry.items.filter(item => isBaseline(item) && baseOf(item).baseAsked !== true)
   if (due.length === 0) return null
   await update($, coreState, c => S.withRetry({ ...c.retry, items: c.retry.items.map(item => (isBaseline(item) ? { ...item, baseAsked: true as const } : item)) } as BaseState)(c))
@@ -1367,6 +1386,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     lang: langOf(ctx.options['uiLanguage']),
     evidenceFor,
     baselineOn: () => ctx.options['baselineChecks'] !== 'off',
+    checkWrite: (goalId, plan) => checkWriteOf(ctx.evidenceFor(goalId), stepRunsFor(ctx, goalId).runs, plan),
   }
 
 
@@ -1770,7 +1790,7 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     // Lệnh miễn chưa đòi báo cáo (0.7.9 Y5): chặn đúng một lần, đi chung lần chặn của W4 nếu có.
     const waiveReason = await askWaived($)
     // Lệnh đỏ từ nền chưa đòi báo cáo (vòng 3 N4): chặn đúng một lần, đi chung lần chặn của W4 và lệnh miễn nếu có.
-    const baseReason = isNoticed ? null : await askBaseline($, evidenceFor)
+    const baseReason = isNoticed ? null : await askBaseline($, retryDeps)
     const retryReason = [gate.reason, waiveReason, baseReason].reduce<string | null>((acc, reason) => (reason === null ? acc : acc === null ? reason : joinStopReasons(acc, reason)), null)
     // stop_hook_active chỉ bỏ qua phần checklist và G1: hai cổng đó nhắc một lần mỗi chuỗi dừng.
     if (e.stop_hook_active) return finish(retryReason !== null ? { ...result, block: retryReason } : result)
