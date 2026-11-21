@@ -2,7 +2,7 @@
 // Lệnh nào có lần chạy gần nhất lỗi thì bước kiểm chưa đạt, dù lệnh của bước khác chạy đạt sau đó. Cùng mục tiêu mẫu với closing-stepcheck-f1-090.
 
 import { describe, expect, test } from 'claude-code/testing'
-import type { Engine } from 'claude-code/testing'
+import type { Engine, Mounted } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import { PANE, base, plan, step, submit } from '../support/engine'
 import type { Json, Seen } from '../support/engine'
@@ -58,7 +58,7 @@ async function closeAndReview($: Engine) {
   await $.agent.spawn({ prompt: 'Rà.', description, tool_use_id: 'l1' } as never)
   await $.turn.complete({ turnId: 'x-l1', agentId: 'a-l1', answer: 'ĐẠT', durationMs: 5, isAborted: false, reason: 'answer', usage: { model: 'claude-opus-5-5', input_tokens: 10, output_tokens: 10 } } as never)
 }
-const mounted = new WeakMap<Engine, Awaited<ReturnType<Engine['ui']['mount']>>>()
+const mounted = new WeakMap<Engine, Mounted<'terminal', 'Pane'>>()
 async function paneText($: Engine): Promise<string> {
   const pane = mounted.get($) ?? (await $.ui.mount(PANE))
   mounted.set($, pane)

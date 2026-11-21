@@ -28,7 +28,7 @@ function stateHooks(on: On, into: Record<string, unknown>, values: Record<string
   })
 }
 
-async function reloaded($: Parameters<Parameters<typeof test>[2]>[0], on: On) {
+async function reloaded($: Parameters<NonNullable<Parameters<typeof test>[2]>>[0], on: On) {
   stateHooks(on, {}, JSON.parse(JSON.stringify(M6_STATE)) as Record<string, unknown>)
   const sample = sampleSetup(on, sampleGoal({ relation: 'continue' }))
   await offerAgent($)

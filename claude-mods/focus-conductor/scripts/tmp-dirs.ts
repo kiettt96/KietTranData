@@ -1,6 +1,9 @@
 // 0.9.0 vòng 2 M21a: theo dõi thư mục tạm một script tạo ra và xoá chúng khi thoát thường, khi lỗi không bắt được và khi bị
 // ngắt bằng tín hiệu. Tách khỏi eval-router.ts để test được với fs và process giả.
 
+// tsconfig không nạp kiểu của console (types rỗng, lib chỉ es2023), nên khai báo đúng phần dùng ở đây.
+declare const console: { error: (...data: unknown[]) => void }
+
 export type TmpOps = { make: (prefix: string) => string; remove: (path: string) => void }
 export type TmpDirs = { make: (prefix: string) => string; drop: (path: string) => void; clean: () => void }
 export type ProcLike = { on: (event: string, fn: (...args: unknown[]) => void) => unknown; exit: (code?: number) => unknown }

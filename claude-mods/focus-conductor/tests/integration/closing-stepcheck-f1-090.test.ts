@@ -2,7 +2,7 @@
 // không chỉ lệnh kiểm mod nhận ra. Mục tiêu substantial, loại edit, planApproval off, không khai checkCommands.
 
 import { describe, expect, test } from 'claude-code/testing'
-import type { Engine } from 'claude-code/testing'
+import type { Engine, Mounted } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import { PANE, base, plan, step, submit } from '../support/engine'
 import type { Json, Seen } from '../support/engine'
@@ -58,7 +58,7 @@ async function review($: Engine, text = 'ĐẠT') {
   await $.turn.complete({ turnId: `x-${id}`, agentId: `a-${id}`, answer: text, durationMs: 5, isAborted: false, reason: 'answer', usage: { model: 'claude-opus-5-5', input_tokens: 10, output_tokens: 10 } } as never)
 }
 /** Pane mount một lần mỗi engine, các lần sau đọc lại chữ của cùng bản đã mount. */
-const mounted = new WeakMap<Engine, Awaited<ReturnType<Engine['ui']['mount']>>>()
+const mounted = new WeakMap<Engine, Mounted<'terminal', 'Pane'>>()
 async function paneText($: Engine): Promise<string> {
   const pane = mounted.get($) ?? (await $.ui.mount(PANE))
   mounted.set($, pane)
