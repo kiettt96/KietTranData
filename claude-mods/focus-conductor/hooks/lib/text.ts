@@ -1332,6 +1332,14 @@ export function retryFailNotice(item: { command: string; more: readonly string[]
   return text.slice(0, RETRY_NOTICE_CHARS)
 }
 
+/**
+ * Lệnh kiểm đỏ từ nền (vòng 3 N2): lần chạy lỗi đầu tiên của lệnh xảy ra trước mọi thay đổi của mục tiêu. Một câu ở lần chạy đầu, không dài
+ * hơn retryFailNotice của cùng lệnh.
+ */
+export function retryBaselineNotice(item: { command: string; more: readonly string[] }): string {
+  return `[focus-conductor] Lệnh kiểm đỏ từ trước khi có thay đổi: ${retryName(item)}. Lỗi ngoài việc được giao thì không sửa; nêu lệnh và lỗi trong câu trả lời cuối.`.slice(0, RETRY_NOTICE_CHARS)
+}
+
 /** Câu kèm kết quả plan update done khi còn lệnh kiểm chưa đạt. */
 export function retryDoneNote(count: number): string {
   return `[focus-conductor] Còn ${count} lệnh kiểm chưa đạt của mục tiêu này: đóng bước vẫn được, nhưng cổng kết thúc sẽ chặn cho tới khi lệnh đó đạt.`.slice(0, RETRY_DONE_CHARS)

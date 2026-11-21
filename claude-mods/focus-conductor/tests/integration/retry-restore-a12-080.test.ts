@@ -115,6 +115,8 @@ describe('0.8.0 A12: lỗi do subagent chạy', () => {
     await submit($, 'Sửa hàm tính phí')
     await $.turn.start({ text: 'Sửa hàm tính phí', turnId: 't1' })
     await step($, seen, { turnId: 't1' })
+    // Vòng 3: một lần sửa trước lần chạy lỗi, nên lỗi do phiên gây ra (không là đỏ từ nền).
+    await $.tool.call({ tool: 'Edit', file_path: 'src/phi.ts', old_string: 'a', new_string: 'b' } as never)
     hold()
     const call = $.tool.call({ tool: 'Agent', tool_use_id: 'u1', description: 'Chạy bộ kiểm phí', prompt: 'Chạy npm test' } as never) as Promise<{ context?: string[] }>
     await entered()

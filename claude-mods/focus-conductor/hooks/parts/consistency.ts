@@ -26,7 +26,7 @@ import type { Finding, Focus, ToolObservation, TurnTracker } from '../lib/drift'
 import { checkCommand, checkSignature, coversFailure, isFailedRun } from '../lib/drift/evidence'
 import { isCustomCheck } from '../lib/drift/verify'
 import type { CheckRun, EvidenceEntry, EvidenceLog } from '../lib/drift/evidence'
-import { BASE_SEEN, errorCountOf, isBaselineRun, seenOf } from '../lib/baseline'
+import { BASE_SEEN, errorCountOf, isBaseline, isBaselineRun, seenOf } from '../lib/baseline'
 import type { BaseItem, BaseState } from '../lib/baseline'
 import { clipText } from '../lib/decisions'
 import { addUsage, calibrate, recordShape, safeUsage, shapeKey } from '../lib/ledger'
@@ -46,7 +46,7 @@ import { isMainConducting } from '../lib/conductor'
 import type { View } from '../lib/state'
 import { shownPlan } from '../lib/mirror'
 import { forkFailures, forkFiles, forkResults, liveForks, mergeDue } from '../lib/forks'
-import { PLAN_TOOL_FULL, RETRY_REPORT, chainedCheckNote, retryAgentNotice, RETRY_ROUNDS, noCheckReason, waiveAskText, blockText, firstErrorLine, clipMiddle, RETRY_COMMAND_CHARS, joinStopReasons, retryDoneNote, retryEditNote, retryFailNotice, retryName, retryStepNote, retryStopReason, skillTrialReason, changedFilesNotice, checkHintText, compactReminderText, conductCheckDenyText, conductReadText, conductWriteDenyText, conductorKeepText, criteriaNotice, driftContext, missingTasks, missingTasksNotice, needsChecklist, noChecklistReason, pendingNotice, qualityNotice, renderBulk, renderPlan, requirementsNotice, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice, forkMergedNote } from '../lib/text'
+import { PLAN_TOOL_FULL, RETRY_REPORT, chainedCheckNote, retryAgentNotice, RETRY_ROUNDS, noCheckReason, waiveAskText, blockText, firstErrorLine, clipMiddle, RETRY_COMMAND_CHARS, joinStopReasons, retryDoneNote, retryEditNote, retryBaselineNotice, retryFailNotice, retryName, retryStepNote, retryStopReason, skillTrialReason, changedFilesNotice, checkHintText, compactReminderText, conductCheckDenyText, conductReadText, conductWriteDenyText, conductorKeepText, criteriaNotice, driftContext, missingTasks, missingTasksNotice, needsChecklist, noChecklistReason, pendingNotice, qualityNotice, renderBulk, renderPlan, requirementsNotice, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice, forkMergedNote } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx, VerdictRun } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -605,6 +605,8 @@ async function noteChecks($: EngineInterface, deps: RetryDeps, core: Core, goalI
       if (error !== '') known.lastError = error
       known.runner = runner
       known.ranAt = ranAt
+      // Lệnh đỏ từ nền chạy lại vẫn lỗi (vòng 3 N2): không tính lượt, không báo kẹt.
+      if (isBaseline(known)) continue
       // Chạy lại vẫn lỗi (0.8.0 A2): Stop kế tiếp được tăng lượt.
       known.retried = true
       known.idle = 0
@@ -638,7 +640,7 @@ async function noteChecks($: EngineInterface, deps: RetryDeps, core: Core, goalI
       ...(isBase ? { baseline: true as const, baseCount: errorCountOf(observation.output) } : {}),
     }
     // Mục tạo từ lần chạy của subagent (0.8.0 A12): luồng chính được báo một lần, ở kết quả tool kế tiếp.
-    if (!isMain && agent !== undefined) agentNotes.push(retryAgentNotice(run.command, agent))
+    if (!isMain && agent !== undefined) agentNotes.push(isBase ? retryBaselineNotice(fresh) : retryAgentNotice(run.command, agent))
     if (items.filter(item => item.sig !== RETRY_MORE).length < RETRY_ITEMS) {
       items.push(fresh)
       touched.add(fresh)
@@ -667,7 +669,7 @@ async function noteChecks($: EngineInterface, deps: RetryDeps, core: Core, goalI
     for (const item of touched) {
       if (item.exhausted || item.noticed >= item.round || waived.some(w => w.sig === item.sig)) continue
       item.noticed = item.round
-      notes.push(retryFailNotice(item))
+      notes.push(isBaseline(item) ? retryBaselineNotice(item) : retryFailNotice(item))
     }
   }
   await update($, coreState, c => {
@@ -701,7 +703,8 @@ async function retryGate($: EngineInterface, deps: RetryDeps, lastMessage: strin
   const warnings: Warning[] = []
   let marked = 0
   const items = core.retry.items.map(item => {
-    if (item.exhausted || S.isWaived(core, item.sig)) return item
+    // Lệnh đỏ từ nền (vòng 3 N2): không tăng lượt, không hết lượt, không ghi bước blocked.
+    if (item.exhausted || S.isWaived(core, item.sig) || isBaseline(item)) return item
     // Lần thử mới (0.8.0 A2): lượt 1 lên lượt 2 ngay; từ lượt 2 chỉ tăng khi đã chạy lại vẫn lỗi, hay ở lần Stop thứ hai liên tiếp chưa chạy lại.
     const isTried = item.round === 1 || item.retried || item.idle >= 1
     if (!isTried) {
