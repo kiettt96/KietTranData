@@ -84,12 +84,14 @@ Cả bộ: `claude plugin test .` 4465 test qua, 0 lỗi, 425 tệp, 553 giây, 
 | M15 | `state-continue-m15-090` | 4/4 | 2.1.296 | 20/11/2026 | qua |
 | M16 | `light-note-m16-090` | 2/2 | 2.1.296 | 20/11/2026 | qua |
 
-sha256 (mỗi tệp theo `git ls-files`, xếp theo tên, `sha256sum` của danh sách `sha256sum`), tại `18958ed`, cùng nội dung với `0d91496`:
+sha256 (mỗi tệp theo `git ls-files`, xếp theo tên, `sha256sum` của danh sách `sha256sum`); `hooks/` giữ nguyên từ `0d91496` tới `0ff3624`:
 
 - `hooks/` (73 tệp): `28512f1041970cac9b62b4626d6271a06bf73687adedb7a5c8bd2b624e49bd2a`
-- `tests/` (444 tệp): `59202842e9fdfc89ef9532e8d613827728dbf9194a740f381a3c7157b7f8212c`
+- `tests/` (444 tệp): `d7762a8f8848593947cf9a15a586952988e1460f725b71a0db33781441386f73` tại `0ff3624`; trước đó `59202842e9fdfc89ef9532e8d613827728dbf9194a740f381a3c7157b7f8212c` (`18958ed`), đổi ở commit sửa kiểu dưới đây
 
 CI trên runner sạch: workflow `focus-conductor` qua trên `18958ed` [Nguồn: GitHub Actions run 44811563717, 2026-11-20].
+
+Sửa kiểu (`0ff3624`, 21/11/2026) [Đo trực tiếp]: `bunx tsc -p tsconfig.json` (TypeScript 6.0.2, khai báo kiểu engine 2.1.296) trên `50500c2` báo 31 lỗi, trên `main` `14a3a85` 27; bốn lỗi chỉ có ở head: `scripts/tmp-dirs.ts` TS2584 (`console`), `closing-percheck-l1-090` và `closing-stepcheck-f1-090` TS2345 (kiểu `Mounted`), `closing-reload-i1-090` TS2344 (`TestBody | undefined`). Sau sửa: 27 lỗi, tập lỗi chỉ có ở head (so theo tệp, mã lỗi, thông điệp) rỗng. `tmp-dirs.ts` thêm khai báo kiểu tối thiểu của `console`, đầu ra in giữ nguyên; ba tệp test sửa kiểu, không đổi phép khẳng định. Bốn tệp chạy lại: `closing-percheck-l1-090` 3/3, `closing-stepcheck-f1-090` 8/8, `closing-reload-i1-090` 2/2, `eval-tmp-m21a-090` 8/8. `scripts/mutate.ts --check` 2683/2683. CI qua trên `0ff3624` [Nguồn: GitHub Actions run 44846150458, 2026-11-21].
 
 ## 0.9.0 vòng 2 M22: đột biến 790 mẫu theo luật và 20 mẫu đối chứng [Đo trực tiếp, engine 2.1.296, mã của `0d91496`, 20/11/2026]
 
