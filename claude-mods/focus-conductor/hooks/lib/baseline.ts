@@ -17,10 +17,17 @@ export const baseOf = (item: RetryItem): BaseMark => item as BaseItem
 export const isBaseline = (item: RetryItem): boolean => baseOf(item).baseline === true
 export const seenOf = (retry: RetryState): string[] => (retry as BaseState).seen ?? []
 
-/** Lần chạy ở `seq` đứng trước mọi lần ghi của sổ thay đổi (sổ đã nạp lại mà thiếu danh sách ghi thì không tính là nền). */
+/** Thư mục trạng thái của mod: ghi vào đây không là thay đổi khi xét lệnh đỏ từ nền (kiểm độc lập vòng 3 lỗi 4). */
+const MOD_DIR = /(?:^|\/)\.focus-conductor\//
+const isModWrite = (write: EvidenceLog['writes'][number]) => write.paths !== undefined && write.paths.length > 0 && write.paths.every(path => MOD_DIR.test(path))
+
+/**
+ * Lần chạy ở `seq` đứng trước mọi lần ghi của sổ thay đổi, trừ lần ghi chỉ vào `.focus-conductor/`. Sổ đã nạp lại mà thiếu danh sách ghi
+ * thì không tính là nền.
+ */
 export function isBaselineRun(log: EvidenceLog, seq: number): boolean {
   if (log.mutations === 0) return true
-  return log.writes.length === log.mutations && (log.writes[0]?.seq ?? seq) > seq
+  return log.writes.length === log.mutations && !log.writes.some(write => write.seq < seq && !isModWrite(write))
 }
 
 /** Số đếm lỗi đọc được trong output của lệnh kiểm (dòng tổng kết cuối có số kèm error, errors, failed, fail, failures); null khi không có. */

@@ -328,13 +328,20 @@ export function closingCheckState(plan: readonly PlanStep[], log: EvidenceLog, s
   const lastHard = log.lastHard
   const baseSigs = new Set(baseline.map(item => item.sig))
   const baseKeys = new Set(baseline.map(item => runKey(item.command)))
-  const isBaseFail = (c: EvidenceEntry) => !c.ok && baseSigs.has(checkSignature({ check: c.check ?? 'test', command: checkCommand(c) }))
+  // Dòng lệnh chứa lần chạy ở `seq` chỉ gồm lệnh đỏ từ nền (kiểm độc lập vòng 3 lỗi 1): chạy chung với lệnh khác thì lỗi có thể là của lệnh đó,
+  // nên lần chạy không được bỏ qua. Không có lần chạy Bash ghi lại (công cụ kiểm MCP) thì coi như chạy riêng.
+  const isAlone = (seq: number) => {
+    const run = steps.runs.find(r => r.seq >= seq)
+    return run === undefined || baseKeys.has(run.keys[0] ?? '')
+  }
+  const isBaseFail = (c: EvidenceEntry) => !c.ok && baseSigs.has(checkSignature({ check: c.check ?? 'test', command: checkCommand(c) })) && isAlone(c.seq)
   const known = log.commands.some(c => c.check !== null && c.ok && c.chained !== true && c.seq > lastHard && coversScope(c, log))
   const byStep = plan.some(step => stepEvidence(step, steps.runs, lastHard, steps.checkSeq.get(step.id) ?? -1) !== null)
   const lastKnown = [...log.commands].reverse().find(c => c.check !== null && c.chained !== true && c.seq > lastHard && !isBaseFail(c))
   const keys = [...new Set(plan.flatMap(step => { const check = stepCheckOf(step.check); return check !== null ? [runKey(check.command)] : [] }))]
-  const after = [...steps.runs].reverse().filter(run => run.seq > lastHard && !(!run.passed && run.keys.some(key => baseKeys.has(key))))
-  const latestOf = keys.flatMap(key => { const run = after.find(r => r.keys.includes(key)); return run !== undefined ? [run] : [] })
+  const after = [...steps.runs].reverse().filter(run => run.seq > lastHard)
+  // Lần chạy lỗi chỉ bị bỏ qua cho chính key của lệnh đỏ từ nền; lệnh khác chạy chung một dòng lệnh vẫn lấy lần chạy đó (kiểm độc lập vòng 3 lỗi 1).
+  const latestOf = keys.flatMap(key => { const run = after.find(r => r.keys.includes(key) && !(baseKeys.has(key) && !r.passed)); return run !== undefined ? [run] : [] })
   const lastRun = after.find(run => latestOf.includes(run))
   const stepFailed = latestOf.some(run => !run.passed)
   const knownFailed = lastKnown !== undefined && !lastKnown.ok && (lastRun === undefined || lastKnown.seq > lastRun.seq)
@@ -612,6 +619,7 @@ async function noteChecks($: EngineInterface, deps: RetryDeps, core: Core, goalI
     seen.add(sig)
     const known = items.find(item => item.sig === sig) ?? items.find(item => item.more.includes(sig))
     if (known !== undefined) {
+      const lastBefore = known.lastError
       if (error !== '') known.lastError = error
       known.runner = runner
       known.ranAt = ranAt
@@ -621,8 +629,12 @@ async function noteChecks($: EngineInterface, deps: RetryDeps, core: Core, goalI
         grew.push({ item: known, base: baseOf(known).baseCount as number, now: count as number })
         continue
       }
-      // Lệnh đỏ từ nền chạy lại vẫn lỗi (vòng 3 N2): không tính lượt, không báo kẹt.
-      if (isBaseline(known)) continue
+      // Lệnh đỏ từ nền chạy lại vẫn lỗi (vòng 3 N2): không tính lượt, không báo kẹt; giữ lỗi của lần nền, vì output có thể là của lệnh khác
+      // chạy chung một dòng lệnh (kiểm độc lập vòng 3 lỗi 1).
+      if (isBaseline(known)) {
+        known.lastError = lastBefore
+        continue
+      }
       // Chạy lại vẫn lỗi (0.8.0 A2): Stop kế tiếp được tăng lượt.
       known.retried = true
       known.idle = 0
