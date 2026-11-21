@@ -26,7 +26,7 @@ import type { Finding, Focus, ToolObservation, TurnTracker } from '../lib/drift'
 import { checkCommand, checkSignature, coversFailure, isFailedRun } from '../lib/drift/evidence'
 import { isCustomCheck } from '../lib/drift/verify'
 import type { CheckRun, EvidenceEntry, EvidenceLog } from '../lib/drift/evidence'
-import { BASE_SEEN, errorCountOf, isBaseline, isBaselineRun, seenOf } from '../lib/baseline'
+import { BASE_SEEN, baseOf, errorCountOf, isBaseline, isBaselineRun, seenOf } from '../lib/baseline'
 import type { BaseItem, BaseState } from '../lib/baseline'
 import { clipText } from '../lib/decisions'
 import { addUsage, calibrate, recordShape, safeUsage, shapeKey } from '../lib/ledger'
@@ -46,7 +46,7 @@ import { isMainConducting } from '../lib/conductor'
 import type { View } from '../lib/state'
 import { shownPlan } from '../lib/mirror'
 import { forkFailures, forkFiles, forkResults, liveForks, mergeDue } from '../lib/forks'
-import { PLAN_TOOL_FULL, RETRY_REPORT, chainedCheckNote, retryAgentNotice, RETRY_ROUNDS, noCheckReason, waiveAskText, blockText, firstErrorLine, clipMiddle, RETRY_COMMAND_CHARS, joinStopReasons, retryDoneNote, retryEditNote, retryBaselineNotice, retryFailNotice, retryName, retryStepNote, retryStopReason, skillTrialReason, changedFilesNotice, checkHintText, compactReminderText, conductCheckDenyText, conductReadText, conductWriteDenyText, conductorKeepText, criteriaNotice, driftContext, missingTasks, missingTasksNotice, needsChecklist, noChecklistReason, pendingNotice, qualityNotice, renderBulk, renderPlan, requirementsNotice, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice, forkMergedNote } from '../lib/text'
+import { PLAN_TOOL_FULL, RETRY_REPORT, chainedCheckNote, retryAgentNotice, RETRY_ROUNDS, noCheckReason, waiveAskText, blockText, firstErrorLine, clipMiddle, RETRY_COMMAND_CHARS, joinStopReasons, retryDoneNote, retryEditNote, baselineAskText, retryBaselineNotice, retryFailNotice, retryName, retryStepNote, retryStopReason, skillTrialReason, changedFilesNotice, checkHintText, compactReminderText, conductCheckDenyText, conductReadText, conductWriteDenyText, conductorKeepText, criteriaNotice, driftContext, missingTasks, missingTasksNotice, needsChecklist, noChecklistReason, pendingNotice, qualityNotice, renderBulk, renderPlan, requirementsNotice, setResultText, staticOnlyNotice, stopBlockReason, subagentReminder, unbackedNotice, forkMergedNote } from '../lib/text'
 import type { EngineInterface, On } from 'claude-code'
 import type { Ctx, VerdictRun } from '../context'
 import { modeOf, viewOf } from '../atoms'
@@ -770,6 +770,19 @@ async function askWaived($: EngineInterface): Promise<string | null> {
   if (due.length === 0) return null
   await update($, coreState, S.withWaivers({ goalId: core.waivers.goalId, items: core.waivers.items.map(w => ({ ...w, asked: true })) }))
   return waiveAskText(due)
+}
+
+/**
+ * Lần chặn đòi mục "Lệnh kiểm đỏ từ nền" (vòng 3 N4): mục tiêu đã có thay đổi và còn mục đỏ từ nền chưa đòi thì trả lý do và đánh dấu đã
+ * đòi, nên chỉ chặn một lần cho mỗi lệnh. Mục tiêu chưa có thay đổi thì không đòi.
+ */
+async function askBaseline($: EngineInterface, log: (goalId: number) => EvidenceLog): Promise<string | null> {
+  const core = S.normalizeCore(await read($, coreState))
+  if (core.brief === null || core.retry.goalId !== core.brief.goalId || log(core.brief.goalId).mutations === 0) return null
+  const due = core.retry.items.filter(item => isBaseline(item) && baseOf(item).baseAsked !== true)
+  if (due.length === 0) return null
+  await update($, coreState, c => S.withRetry({ ...c.retry, items: c.retry.items.map(item => (isBaseline(item) ? { ...item, baseAsked: true as const } : item)) } as BaseState)(c))
+  return baselineAskText(due)
 }
 
 /**
@@ -1712,7 +1725,9 @@ export function registerConsistency(on: On, ctx: Ctx): void {
     if (gate.isPlanChanged) await showStatus($, await read($, view), ctx.options)
     // Lệnh miễn chưa đòi báo cáo (0.7.9 Y5): chặn đúng một lần, đi chung lần chặn của W4 nếu có.
     const waiveReason = await askWaived($)
-    const retryReason = gate.reason !== null && waiveReason !== null ? joinStopReasons(gate.reason, waiveReason) : gate.reason ?? waiveReason
+    // Lệnh đỏ từ nền chưa đòi báo cáo (vòng 3 N4): chặn đúng một lần, đi chung lần chặn của W4 và lệnh miễn nếu có.
+    const baseReason = isNoticed ? null : await askBaseline($, evidenceFor)
+    const retryReason = [gate.reason, waiveReason, baseReason].reduce<string | null>((acc, reason) => (reason === null ? acc : acc === null ? reason : joinStopReasons(acc, reason)), null)
     // stop_hook_active chỉ bỏ qua phần checklist và G1: hai cổng đó nhắc một lần mỗi chuỗi dừng.
     if (e.stop_hook_active) return finish(retryReason !== null ? { ...result, block: retryReason } : result)
     let core = S.normalizeCore(await read($, coreState))

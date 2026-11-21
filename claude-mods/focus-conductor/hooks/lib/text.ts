@@ -1439,6 +1439,20 @@ export function waiveAskText(items: readonly { command: string; reason: string }
   return [head, ...rows, tail].join('\n').slice(0, WAIVE_ASK_CHARS)
 }
 
+/** Mục câu trả lời cuối cho lệnh kiểm đỏ từ nền (vòng 3 N4). */
+export const BASELINE_REPORT = 'Lệnh kiểm đỏ từ nền'
+
+/**
+ * Lần chặn đòi mục "Lệnh kiểm đỏ từ nền" (vòng 3 N4): mục tiêu đã có thay đổi mà còn lệnh đỏ từ trước khi có thay đổi. Một lần mỗi lệnh,
+ * trong trần WAIVE_ASK_CHARS như lần đòi mục lệnh miễn.
+ */
+export function baselineAskText(items: readonly { command: string; lastError: string }[]): string {
+  const head = '[focus-conductor] Lệnh kiểm đỏ từ trước khi có thay đổi, chưa đạt:'
+  const tail = `Câu trả lời cuối phải có mục "${BASELINE_REPORT}", mỗi lệnh một dòng: lệnh, lỗi còn lại; lỗi ngoài việc được giao thì không sửa.`
+  const rows = items.map(item => `- \`${clipItem(item.command, 80)}\`${item.lastError !== '' ? `: ${clipItem(item.lastError, 120)}` : ''}`)
+  return [head, ...rows, tail].join('\n').slice(0, WAIVE_ASK_CHARS)
+}
+
 /** Ghép lý do của phần lệnh kiểm chưa đạt với lý do của cổng checklist, trong trần RETRY_REASON_CHARS. */
 export function joinStopReasons(retry: string, other: string): string {
   const room = RETRY_REASON_CHARS - retry.length - 1
